@@ -1156,3 +1156,66 @@ func chdirInto(t *testing.T, dir string) {
 		}
 	})
 }
+
+// TestTheChildNeverReceivesARelativeWorkingDirectory: the child re-executes this
+// binary and chdirs to the directory carried in the spec. A relative value would be
+// resolved a second time, inside a process that starts somewhere else, so the
+// command would run outside the directory the caller meant and the anchor could not
+// see the work it has to validate.
+//
+// Found on a real 32-bit machine: `workspace_dir: ./workspace` made the anchor fail
+// every check, while the identical configuration with an absolute path passed. The
+// property is asserted by observing the spec, so the test does not have to change
+// the process working directory (which would break the rest of the package).
+func TestTheChildNeverReceivesARelativeWorkingDirectory(t *testing.T) {
+	cases := []struct {
+		name string
+		dir  string
+	}{
+		{"a relative directory", "workspace"},
+		{"a nested relative directory", filepath.Join("a", "b")},
+		{"a dot", "."},
+		{"a relative parent", ".."},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			base := t.TempDir()
+			var spec Spec
+			saved := launchCommand
+			defer func() { launchCommand = saved }()
+			launchCommand = func(ctx context.Context, _ string, args ...string) *exec.Cmd {
+				if len(args) >= 2 {
+					_ = json.Unmarshal([]byte(args[1]), &spec)
+				}
+				return exec.CommandContext(ctx, "true")
+			}
+
+			// The sandbox is built with an absolute base (as it is in production),
+			// and the request carries the directory the caller spelled.
+			box, err := New(Options{Dir: base})
+			if err != nil {
+				t.Fatalf("New: %v", err)
+			}
+			defer box.Close()
+
+			r := execx.Request{Command: "true"}
+			if tc.dir == "." || tc.dir == ".." {
+				// These must be resolved against the sandbox's base, not the
+				// process, so give a base and let the request be relative to it.
+				r.Dir = tc.dir
+			} else {
+				r.Dir = tc.dir
+			}
+			// Run may fail for a directory that cannot be created; what matters is
+			// that whatever reached the child was absolute.
+			_, _, _, _ = box.Run(context.Background(), r)
+
+			if spec.Dir == "" {
+				t.Skip("the sandbox did not reach the launch step")
+			}
+			if !filepath.IsAbs(spec.Dir) {
+				t.Errorf("the child received the relative path %q: it would be resolved twice", spec.Dir)
+			}
+		})
+	}
+}

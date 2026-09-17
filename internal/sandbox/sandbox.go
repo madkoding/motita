@@ -249,6 +249,19 @@ func (s *Sandbox) Run(ctx context.Context, p execx.Request) (string, bool, int, 
 	if err := os.MkdirAll(workDir, 0o755); err != nil {
 		return "", false, -1, fmt.Errorf("could not prepare the working directory %q: %w", workDir, err)
 	}
+	// Resolve to an absolute path HERE, while the process is still in the
+	// directory the configuration was relative to. The child re-executes this
+	// binary and chdirs to this value: a relative one would be resolved inside
+	// the child's own starting directory, which is not the same place, and the
+	// commands would then run somewhere the validator cannot see their effect.
+	// (Measured on a real i386 machine: with workspace_dir ./workspace the anchor
+	// failed every check while the identical configuration with an absolute path
+	// passed.)
+	absWorkDir, absErr := filepath.Abs(workDir)
+	if absErr != nil {
+		return "", false, -1, fmt.Errorf("could not resolve the working directory %q: %w", p.Dir, absErr)
+	}
+	workDir = absWorkDir
 
 	// TMPDIR ephemeral and private to this run.
 	tempDir, err := os.MkdirTemp(s.base, "tmp-*")
@@ -305,12 +318,19 @@ func (s *Sandbox) Run(ctx context.Context, p execx.Request) (string, bool, int, 
 	return s.launch(ctx, command, args, workDir, timeout, maxOutput)
 }
 
+// launchCommand builds the command that the isolation child will run. It is a
+// variable so a test can observe the working directory it is given without
+// launching a process.
+var launchCommand = func(ctx context.Context, command string, args ...string) *exec.Cmd {
+	return exec.CommandContext(ctx, command, args...)
+}
+
 // launch starts the isolation child and collects its output.
 func (s *Sandbox) launch(ctx context.Context, command string, args []string, dir string, timeout time.Duration, maxOutput int64) (string, bool, int, error) {
 	childCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
-	cmd := exec.CommandContext(childCtx, command, args...)
+	cmd := launchCommand(childCtx, command, args...)
 	cmd.Dir = dir
 	cmd.Env = s.environment()
 
