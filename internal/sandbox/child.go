@@ -6,7 +6,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"syscall"
 )
 
 // ---------------------------------------------------------------------------
@@ -70,7 +69,10 @@ var childHooks = struct {
 	exec func(argv0 string, argv []string, envv []string) error
 	exit func(code int)
 }{
-	exec: syscall.Exec,
+	// execCommand is per platform: on Unix it replaces the image with
+	// syscall.Exec; elsewhere that call only ever returns "not supported", so the
+	// command runs as a child and its exit code is forwarded (see exec_other.go).
+	exec: execCommand,
 	exit: os.Exit,
 }
 
@@ -145,10 +147,12 @@ func RunAsChild(args []string) error {
 	// RLIMIT_AS and stay alive).
 	finalCommand, finalArgs := wrapWithUlimit(spec.Limits, path, spec.Args)
 
-	// syscall.Exec replaces the process image: no two Go processes are left.
+	// The hook never returns when the command runs: on Unix it replaces the image,
+	// and where that is impossible the implementation runs the command and exits
+	// with its code. Only the failure comes back.
 	if err := childHooks.exec(finalCommand, finalArgs, env); err != nil {
-		// The exec error is reported with the reserved code 127 so that the
-		// parent can tell it apart from a real failure of the command.
+		// The failure is reported with the reserved code 127 so that the parent
+		// can tell it apart from a real failure of the command.
 		fmt.Fprintf(os.Stderr, "starlight: could not execute %q: %v\n", finalCommand, err)
 		childHooks.exit(127)
 		return err

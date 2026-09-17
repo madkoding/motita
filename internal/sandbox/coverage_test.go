@@ -650,8 +650,14 @@ func TestRunAsChildWithInjectedExec(t *testing.T) {
 		t.Fatalf("the child mode failed: %v", err)
 	}
 
-	if len(exits) != 0 {
-		t.Errorf("the exit hook must not be used on the happy path: %v", exits)
+	// The stub exec returns instead of replacing the image, which is what the
+	// non-Unix implementation does: the child then forwards the code. On Unix the
+	// real exec never returns, so this line is unreachable there — what must never
+	// happen on the happy path is the reserved 127.
+	for _, code := range exits {
+		if code == 127 {
+			t.Errorf("the reserved code 127 means the command could not be executed: %v", exits)
+		}
 	}
 	if gotArgv0 == "" || len(gotArgv) == 0 {
 		t.Fatalf("the exec was not reached: argv0=%q argv=%v", gotArgv0, gotArgv)

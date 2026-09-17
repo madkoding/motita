@@ -86,13 +86,11 @@ func TestProductionHooksAreTheRealSyscalls(t *testing.T) {
 	}
 }
 
-// TestProductionChildAttributeHooksAreTheRealOnes: as in the rest of the package,
-// the values production uses are asserted so a test cannot accidentally weaken
-// them.
-func TestProductionChildAttributeHooksAreTheRealOnes(t *testing.T) {
-	if reflect.ValueOf(childHooks.exec).Pointer() != reflect.ValueOf(syscall.Exec).Pointer() {
-		t.Error("the production child exec hook must be syscall.Exec")
-	}
+// TestProductionChildExitHookIsTheRealOne: as in the rest of the package, the
+// value production uses is asserted so a test cannot accidentally weaken it. The
+// exec hook is asserted per platform (see prodhooks_unix_test.go), because what it
+// has to be depends on the system.
+func TestProductionChildExitHookIsTheRealOne(t *testing.T) {
 	if reflect.ValueOf(childHooks.exit).Pointer() != reflect.ValueOf(os.Exit).Pointer() {
 		t.Error("the production child exit hook must be os.Exit")
 	}
