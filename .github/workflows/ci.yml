@@ -10,17 +10,22 @@ on:
 permissions:
   contents: read
 
+env:
+  # Sin dependencias externas no hay nada que cachear: setup-go avisaría de que
+  # no existe go.sum. El proyecto compila sólo con la biblioteca estándar.
+  GOFLAGS: -mod=mod
+
 jobs:
   verificar:
     name: fmt · vet · test
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@v7
         with:
           go-version-file: go.mod
-          cache: true
+          cache: false
 
       - name: gofmt
         run: |
@@ -54,12 +59,12 @@ jobs:
       CGO_ENABLED: "0"
       SALIDA: dist/starlight-${{ matrix.goos }}-${{ matrix.goarch }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@v7
         with:
           go-version-file: go.mod
-          cache: true
+          cache: false
 
       - name: Compilar binario estático
         run: |
@@ -82,10 +87,10 @@ jobs:
         if: matrix.goos == 'linux' && matrix.goarch == '386'
         run: |
           chmod +x "$SALIDA"
-          # En el runner amd64 el contenedor i386 corre nativo.
-          docker run --rm -v "$PWD/dist:/t:ro" --platform linux/386 i386/debian:bookworm-slim /t/$(basename "$SALIDA") -version
+          docker run --rm -v "$PWD/dist:/t:ro" --platform linux/386 \
+            i386/debian:bookworm-slim sh -c "/t/$(basename "$SALIDA") -version"
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: starlight-${{ matrix.goos }}-${{ matrix.goarch }}
           path: ${{ env.SALIDA }}
@@ -99,12 +104,12 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           path: dist
           merge-multiple: true
 
-      - uses: softprops/action-gh-release@v2
+      - uses: softprops/action-gh-release@v3
         with:
           files: dist/*
           generate_release_notes: true
