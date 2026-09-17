@@ -131,6 +131,21 @@ func Nuevo(op Opciones) (*Sandbox, error) {
 		s.log.Debug("sin límites POSIX configurados: sólo se aísla el directorio efímero")
 	}
 
+	// Un RLIMIT_AS por debajo del espacio de direcciones que el proceso de
+	// aislamiento ya usa haría abortar al propio runtime de Go (fatal error:
+	// runtime: cannot allocate memory). Se ajusta aquí, en el padre, y se
+	// registra: el hijo no puede avisar sin contaminar la salida del comando.
+	if s.op.Limites.MemoriaMB > 0 {
+		if minima := minimaMemoriaNecesaria(); minima > 0 && s.op.Limites.MemoriaMB < minima {
+			s.sinAplicar = append(s.sinAplicar, fmt.Sprintf(
+				"memoria_mb: se aplica %d MB en lugar de %d porque el proceso que lanza el sandbox ya usa ese espacio de direcciones",
+				minima, s.op.Limites.MemoriaMB))
+			s.log.Warn("se eleva el límite de memoria del sandbox",
+				"solicitado_mb", s.op.Limites.MemoriaMB, "aplicado_mb", minima)
+			s.op.Limites.MemoriaMB = minima
+		}
+	}
+
 	s.log.Info("sandbox preparado",
 		"directorio", s.base,
 		"chroot", s.op.UsarChroot,

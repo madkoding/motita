@@ -118,17 +118,16 @@ func EjecutarComoHijo(args []string) error {
 		ruta = resuelta
 	}
 
-	// Último paso antes del exec: los límites. A partir de aquí Go no reserva
-	// memoria de nuevo.
-	for _, aviso := range aplicarRlimits(espec.Limites) {
-		fmt.Fprintf(os.Stderr, "starlight[sandbox]: %s\n", aviso)
-	}
+	// Los límites NO los aplica este proceso: lo hace el shell, que es un binario
+	// de C muy pequeño. Ver limites_linux.go para las mediciones que llevaron a
+	// esta decisión (un binario de Go no puede aplicar RLIMIT_AS y seguir vivo).
+	comandoFinal, argsFinales := envolverConUlimit(espec.Limites, ruta, espec.Args)
 
 	// syscall.Exec reemplaza la imagen del proceso: no quedan dos procesos Go.
-	if err := syscall.Exec(ruta, append([]string{ruta}, espec.Args...), entorno); err != nil {
+	if err := syscall.Exec(comandoFinal, argsFinales, entorno); err != nil {
 		// El error de exec se informa con el código reservado 127 para que el
 		// padre pueda distinguirlo de un fallo real del comando.
-		fmt.Fprintf(os.Stderr, "starlight: no se pudo ejecutar %q: %v\n", ruta, err)
+		fmt.Fprintf(os.Stderr, "starlight: no se pudo ejecutar %q: %v\n", comandoFinal, err)
 		os.Exit(127)
 	}
 	return nil // inalcanzable

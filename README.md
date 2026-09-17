@@ -86,11 +86,31 @@ sobre lo que no se pudo aplicar**:
 
 Detalles que costaron trabajo y están resueltos en el código:
 
-- **Los límites los aplica un proceso hijo que es el propio binario
-  re-ejecutado** (marca `__sandbox_exec`): aplica `setrlimit`, entra al `chroot`,
-  baja privilegios y hace `syscall.Exec`. Así no se depende de `prlimit` ni de
-  util-linux (que en una máquina mínima puede no estar) y no queda ningún proceso
-  Go intermedio consumiendo el presupuesto limitado.
+- **Los límites los aplica el shell, no el agente.** Un proceso hijo que es el
+  propio binario re-ejecutado (marca `__sandbox_exec`) prepara el terreno
+  (`chroot`, `chdir`, bajar privilegios, resolver la ruta del comando) y hace
+  `syscall.Exec` de `sh -c 'ulimit ...; exec "$@"'`. Es una decisión medida, no
+  estética:
+  - un binario de Go **no puede** aplicar `RLIMIT_AS` y seguir vivo: el límite
+    cuenta también la memoria virtual que el runtime mapea, así que la siguiente
+    reserva (sysmon, GC, incluso resolver el `PATH`) lo mata con `fatal error:
+    runtime: cannot allocate memory`. Se detectó en un runner con más núcleos;
+    en una máquina pequeña no aparecía.
+  - `RLIMIT_CPU` no corta en el instante exacto, sino en la siguiente
+    planificación del proceso. Medido en una máquina de un núcleo: con sólo
+    `RLIMIT_CPU` y sin límite de memoria, un bucle infinito con
+    `cpu_segundos: 2` seguía vivo a los **12 s** (el límite nunca llegó a
+    aplicarse porque el runtime reservaba memoria antes).
+  - con `sh -c 'ulimit …; exec "$@"'` el proceso limitado es exactamente el del
+    usuario, el shell desaparece con el `exec` (no queda proceso intermedio) y no
+    hace falta `prlimit`, `prlimit` de util-linux ni privilegios.
+  - verificado: bucle infinito con `cpu_segundos: 2` → corte a los **1.994 s**;
+    `ulimit -n` dentro del comando devuelve el valor configurado.
+- **Un `memoria_mb` por debajo de lo que el lanzador ya usa se eleva, avisando.**
+  En las máquinas objetivo (i386 con poca RAM) el valor es pequeño, pero no puede
+  quedar por debajo del espacio de direcciones ya mapeado: el comando no podría ni
+  arrancar. El ajuste es dinámico (pico real ×2), no una constante, y queda
+  registrado.
 - **`syscall.Exec` no busca en `PATH`**: un `comando: make` escrito en el YAML
   fallaría con `ENOENT`. El hijo resuelve la ruta usando el `PATH` **restringido
   del sandbox**, no el del agente.
@@ -315,7 +335,8 @@ agente dice de sí mismo.
 | `anchor.tipo=none: este agente sólo declara una tarea como completada...` | Es intencionado: sin validador determinista no hay `PASS`. Configura un ancla real. |
 | El binario no arranca (`not found`) | Es un ELF de 32 bits: `head -c 5 binario \| od -An -tx1` debe empezar por `7f 45 4c 46 01`. |
 | `salida truncada por el límite del sandbox` | Sube `sandbox.salida_max_kb` si el comando produce más salida de la esperada. |
-| `fatal error: runtime: cannot allocate memory` tras el paso por el sandbox | Un `memoria_mb` demasiado bajo mata al proceso de aislamiento (que es este mismo binario, en Go) mientras prepara el exec. El código lo evita aplicando los límites **al final**, cuando ya no hace falta reservar memoria; si aun así aparece, sube `memoria_mb`. |
+| `fatal error: runtime: cannot allocate memory` | Un `memoria_mb` demasiado bajo. El agente lo detecta (compara con el espacio de direcciones que necesita el lanzador), lo eleva y lo registra como aviso. Si aparece igualmente, sube `memoria_mb`. |
+| `memoria_mb: se aplica N MB en lugar de M` (aviso) | El valor configurado era menor que el espacio de direcciones que el proceso lanzador ya usa, así que el comando no habría podido arrancar. Se aplica el mínimo viable; el aviso está en el registro y en `-aislamiento`. |
 | Una tarea aparece como no completada aunque el ancla dio PASS | La **acción final** falló (commit, publicación, notificación). Cuenta como fallo a propósito: un contrato que no se cumple no es un éxito. El motivo está en el registro y en el mensaje de error. |
 
 ---

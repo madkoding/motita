@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"testing"
 	"time"
@@ -204,17 +205,57 @@ func TestSandboxComandoPorNombreConLimiteBajo(t *testing.T) {
 	}
 }
 
-// TestAplicarRlimitsInformaDeLosFallos: un límite que no se puede aplicar debe
-// quedar registrado, no pasar en silencio.
-func TestAplicarRlimitsInformaDeLosFallos(t *testing.T) {
-	avisos := aplicarRlimits(Limites{})
-	if len(avisos) != 0 {
-		t.Errorf("sin límites no debería haber avisos: %v", avisos)
+// TestOrdenesUlimit verifica que se generan las órdenes correctas (y de forma
+// determinista) para cada límite configurado.
+func TestOrdenesUlimit(t *testing.T) {
+	if got := ordenesUlimit(Limites{}); len(got) != 0 {
+		t.Errorf("sin límites no debe haber órdenes: %v", got)
 	}
-	// Un límite absurdo (más alto que el máximo duro del sistema) no se puede
-	// aplicar y debe avisarse.
-	avisos = aplicarRlimits(Limites{Procesos: 1 << 30})
-	t.Logf("avisos al aplicar un límite imposible: %v", avisos)
+
+	got := ordenesUlimit(Limites{CPUSegundos: 30, MemoriaMB: 256, Procesos: 64, ArchivosAbiertos: 128, TamanoArchivoMB: 8})
+	if len(got) != 5 {
+		t.Fatalf("órdenes = %v", got)
+	}
+	// Los valores deben usar las unidades de cada ulimit: -v en KB, -f en bloques
+	// de 512 bytes.
+	unidas := strings.Join(got, " ")
+	for _, esperado := range []string{"ulimit -t 30", "ulimit -v 262144", "ulimit -u 64", "ulimit -n 128", "ulimit -f 16384"} {
+		if !strings.Contains(unidas, esperado) {
+			t.Errorf("falta %q en %v", esperado, got)
+		}
+	}
+	// Las órdenes van ordenadas para que la salida sea estable.
+	if !sort.StringsAreSorted(got) {
+		t.Errorf("las órdenes deben ir ordenadas: %v", got)
+	}
+}
+
+// TestEnvolverConUlimitSinLimites: sin límites no se interpone ningún shell.
+func TestEnvolverConUlimitSinLimites(t *testing.T) {
+	comando, args := envolverConUlimit(Limites{}, "/bin/echo", []string{"hola"})
+	if comando != "/bin/echo" || len(args) != 2 || args[0] != "/bin/echo" {
+		t.Errorf("comando=%q args=%v", comando, args)
+	}
+}
+
+// TestEnvolverConUlimitConLimites: el comando y sus argumentos se pasan sin
+// re-interpretar, y el shell hace exec para no quedar como proceso intermedio.
+func TestEnvolverConUlimitConLimites(t *testing.T) {
+	comando, args := envolverConUlimit(Limites{MemoriaMB: 128}, "/bin/echo", []string{"a b", "$HOME"})
+	if comando != "/bin/sh" {
+		t.Fatalf("comando = %q", comando)
+	}
+	script := args[2]
+	if !strings.Contains(script, `exec "$@"`) {
+		t.Errorf("el script debe hacer exec para no dejar procesos intermedios: %q", script)
+	}
+	// El comando real debe llegar como argumento posicional final.
+	if args[len(args)-2] != "a b" || args[len(args)-1] != "$HOME" {
+		t.Errorf("los argumentos deben pasar tal cual: %v", args)
+	}
+	if args[len(args)-3] != "/bin/echo" {
+		t.Errorf("el comando debe ir después de $0: %v", args)
+	}
 }
 
 // TestSandboxComandoInexistenteEnPATH: si no existe, el error debe ser claro.
