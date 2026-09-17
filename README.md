@@ -34,8 +34,8 @@ make 386          # compila y verifica que el ELF sea de 32 bits
 make all          # 386 + amd64 + arm64
 ```
 
-El resultado es un binario estático de unos **6.6 MB** (ELFCLASS32) que se copia
-a la máquina destino por `scp`, `ftp` o USB:
+El resultado es un binario estático de unos **6.6 MB (6.3 MiB) con Go 1.27**
+(ELFCLASS32) que se copia a la máquina destino por `scp`, `ftp` o USB:
 
 ```bash
 chmod +x starlight-linux-386
