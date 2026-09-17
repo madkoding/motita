@@ -143,6 +143,13 @@ jobs:
             echo "$binary: $bytes bytes (< 10 MB)"
           done
 
+      - name: Register qemu (only needed outside the native architectures)
+        if: matrix.goos == 'linux' && (matrix.goarch == 'arm' || matrix.goarch == 'arm64')
+        run: |
+          # Without this the arm containers cannot execute anything on an amd64
+          # runner and the failure reads as a broken binary ("exec format error").
+          docker run --rm --privileged multiarch/qemu-user-static --reset -p yes
+
       - name: Run the binaries in their own container (smoke test)
         if: matrix.goos == 'linux'
         run: |
@@ -162,9 +169,6 @@ jobs:
       - name: Agent end-to-end test
         if: matrix.e2e == 'true'
         run: |
-          # qemu is registered once and every architecture then runs natively
-          # enough for a test; it is what makes arm and arm64 verifiable here.
-          docker run --rm --privileged multiarch/qemu-user-static --reset -p yes
           chmod +x scripts/e2e-agent.sh
           ./scripts/e2e-agent.sh "${{ matrix.goarch }}"
 
