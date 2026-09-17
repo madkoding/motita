@@ -179,6 +179,65 @@ curl -fsSLO https://github.com/madkoding/starlight/releases/latest/download/SHA2
 sha256sum -c SHA256SUMS --ignore-missing
 ```
 
+## First run: the wizard
+
+The binary needs a configuration that names a provider, a model and — most
+importantly — the check that decides whether a task is really done. `-init` asks
+for the three and writes a file that works:
+
+```bash
+./starlight-agent -init
+```
+
+```
+Welcome to starlight.
+This wizard writes a working configuration in ./starlight.yaml.
+Nothing is written until every answer is in: press q to cancel at any point.
+Which provider will run the reasoning?
+  1. OpenAI (openai)
+  2. Anthropic (anthropic)
+  3. Google Gemini (gemini)
+
+Provider [1]: 1
+
+Which model from OpenAI?
+  1. GPT-4o mini (gpt-4o-mini) — cheap and fast, the right default for an agent that loops
+  ...
+Model [1, or type any model id]: 1
+
+What decides that a task is really done?
+  1. A command that must succeed (for example: make test)
+  2. Always pass, while I try the agent out
+
+Check [1]: 1
+Command to run as the check [make]: make test
+
+Paste the key, or press Enter to set it later: sk-...
+✅ Written ./starlight.yaml
+✅ Written ./starlight.env (permissions 0600, keep it out of the repository)
+```
+
+Then:
+
+```bash
+source ./starlight.env                                       # the key, if you pasted one
+./starlight-agent -config ./starlight.yaml -validate-config  # does it load?
+./starlight-agent -config ./starlight.yaml -task "what to do"
+```
+
+What the wizard does and does not do:
+
+- The three providers are the ones the client implements (OpenAI, Anthropic,
+  Gemini). The model list is a shortcut: **any** model id can be typed by hand.
+- The check (layer A, the anchor) is asked because the agent refuses to run
+  without one: it never takes the model's word that a task is done. Option 2
+  writes `command: "true"`, an explicit "everything passes" while you try it out.
+- The key goes to a **separate file** with `0600` permissions, never into the
+  configuration, so the configuration can be committed or shared.
+- Nothing is written if you cancel: the file appears only once every answer is in.
+- With no `-config` the destination is `./starlight.yaml`.
+- The wizard ends by loading what it wrote, so a broken file is caught immediately.
+
 ## Cross-compilation from source
 
 Requires Go 1.23 or newer. **You do not need to compile on the i386 machine.**

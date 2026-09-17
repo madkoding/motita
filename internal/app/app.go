@@ -11,6 +11,7 @@ package app
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -22,6 +23,7 @@ import (
 	"github.com/madkoding/starlight/internal/config"
 	"github.com/madkoding/starlight/internal/llm"
 	"github.com/madkoding/starlight/internal/logx"
+	"github.com/madkoding/starlight/internal/onboard"
 	"github.com/madkoding/starlight/internal/sandbox"
 	"github.com/madkoding/starlight/internal/task"
 )
@@ -65,6 +67,13 @@ type Options struct {
 	NewEngine  func(config.LLM, *logx.Logger) (*llm.Client, error)
 	RunAgent   func(context.Context, *agent.Agent) error
 
+	// RunOnboard is the first-run wizard. Injected so the flag can be tested
+	// without a terminal, and so the conversation itself can be driven from a
+	// test (it lives in internal/onboard, which takes its input as a reader).
+	RunOnboard func(io.Reader, io.Writer, string, onboard.Answers) (onboard.Result, error)
+	// Stdin is the input of the wizard.
+	Stdin io.Reader
+
 	// RunChild is the sandbox's child mode. It is injected so the success path
 	// can be tested without syscall.Exec replacing the test process (which is
 	// exactly what used to make the coverage profile disappear).
@@ -85,6 +94,8 @@ Options:
   -config string     path to the YAML configuration file
   -task string       process a single task (ignores the configured source)
   -task-file string  process the task contained in a file
+  -init              first-run wizard: choose the provider, the model and the
+                     check, and write a working configuration
   -validate-config   validate the configuration and exit (does not call the LLM)
   -isolation         print the available sandbox isolation and exit
   -version           print the version and exit
@@ -100,6 +111,7 @@ type flags struct {
 	validateConfig bool
 	version        bool
 	isolation      bool
+	initConfig     bool
 }
 
 // Run is the program's entry point: it parses the arguments, builds the three
@@ -129,6 +141,10 @@ func Run(op Options) int {
 		return Success
 	}
 
+	if fl.initConfig {
+		return op.initConfig(fl)
+	}
+
 	return op.run(fl)
 }
 
@@ -136,6 +152,14 @@ func Run(op Options) int {
 func (op *Options) complete() {
 	if op.Out == nil {
 		op.Out = io.Discard
+	}
+	if op.Stdin == nil {
+		op.Stdin = os.Stdin
+	}
+	if op.RunOnboard == nil {
+		op.RunOnboard = func(in io.Reader, out io.Writer, path string, preset onboard.Answers) (onboard.Result, error) {
+			return onboard.Run(in, out, path, preset, time.Now())
+		}
 	}
 	if op.Err == nil {
 		op.Err = io.Discard
@@ -195,6 +219,8 @@ func parse(args []string) (flags, error) {
 				return b, err
 			}
 			b.taskFile = v
+		case "-init", "--init":
+			b.initConfig = true
 		case "-validate-config", "--validate-config":
 			b.validateConfig = true
 		case "-version", "--version":
@@ -210,6 +236,40 @@ func parse(args []string) (flags, error) {
 		}
 	}
 	return b, nil
+}
+
+// initConfig runs the first-run wizard. The default destination is
+// ./starlight.yaml next to wherever the agent is being set up, which is what the
+// summary then tells the user to pass with -config.
+func (op Options) initConfig(fl flags) int {
+	path := fl.configPath
+	if path == "" {
+		path = "./starlight.yaml"
+	}
+
+	fmt.Fprintf(op.Out, "Welcome to starlight.\n")
+	fmt.Fprintf(op.Out, "This wizard writes a working configuration in %s.\n", path)
+	fmt.Fprintf(op.Out, "Nothing is written until every answer is in: press q to cancel at any point.\n")
+
+	res, err := op.RunOnboard(op.Stdin, op.Out, path, onboard.Answers{})
+	if err != nil {
+		if errors.Is(err, onboard.ErrCancelled) {
+			fmt.Fprintf(op.Out, "\nCancelled: nothing was written.\n")
+			return Success
+		}
+		fmt.Fprintf(op.Err, "❌ %v\n", err)
+		return ConfigError
+	}
+
+	// Prove right away that the file works: if the wizard wrote something the
+	// program cannot load, the user must know now and not on the first task.
+	cfg, err := config.LoadWithoutKey(res.ConfigPath)
+	if err != nil {
+		fmt.Fprintf(op.Err, "❌ the generated configuration does not load: %v\n", err)
+		return ConfigError
+	}
+	fmt.Fprintf(op.Out, "✅ the configuration loads: %s\n", DescribeConfig(cfg))
+	return Success
 }
 
 // run is the main body: it loads the configuration, prepares the layers and

@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -20,6 +21,7 @@ import (
 	"github.com/madkoding/starlight/internal/config"
 	"github.com/madkoding/starlight/internal/llm"
 	"github.com/madkoding/starlight/internal/logx"
+	"github.com/madkoding/starlight/internal/onboard"
 	"github.com/madkoding/starlight/internal/sandbox"
 )
 
@@ -1418,4 +1420,185 @@ agent:
 	case <-time.After(300 * time.Millisecond):
 		// No forced exit: correct.
 	}
+}
+
+// --- the first-run wizard ----------------------------------------------------
+
+// TestInitFlagRunsTheWizard: -init must write a configuration at the given path
+// and say how to use it, without needing a key or a config to exist beforehand.
+func TestInitFlagRunsTheWizard(t *testing.T) {
+	inTempDir(t, func() {
+		silence(t)
+		dir := t.TempDir()
+		path := filepath.Join(dir, "starlight.yaml")
+
+		var out, errs bytes.Buffer
+		code := Run(Options{
+			Args:  []string{"-init", "-config", path},
+			Out:   &out,
+			Err:   &errs,
+			Stdin: strings.NewReader("openai\n1\n2\n\n"),
+		})
+		if code != Success {
+			t.Fatalf("code = %d, errs = %q", code, errs.String())
+		}
+		if _, err := os.Stat(path); err != nil {
+			t.Fatalf("the configuration must exist: %v", err)
+		}
+		text := out.String()
+		if !strings.Contains(text, "Welcome to starlight") {
+			t.Errorf("the wizard must introduce itself: %q", text)
+		}
+		// It must prove the generated file loads, which is the point of the wizard.
+		if !strings.Contains(text, "the configuration loads") {
+			t.Errorf("the wizard must check what it wrote: %q", text)
+		}
+	})
+}
+
+// TestInitWithoutConfigUsesADefaultPath: with no -config the destination is
+// ./starlight.yaml, so the command is usable on its own.
+func TestInitWithoutConfigUsesADefaultPath(t *testing.T) {
+	inTempDir(t, func() {
+		silence(t)
+		var out, errs bytes.Buffer
+		code := Run(Options{
+			Args:  []string{"-init"},
+			Out:   &out,
+			Err:   &errs,
+			Stdin: strings.NewReader("openai\n1\n2\n\n"),
+		})
+		if code != Success {
+			t.Fatalf("code = %d, errs = %q", code, errs.String())
+		}
+		if _, err := os.Stat("starlight.yaml"); err != nil {
+			t.Errorf("the default path must be used: %v", err)
+		}
+	})
+}
+
+// TestInitCancelledIsNotAFailure: backing out with q is a normal outcome and must
+// exit 0 with a clear message.
+func TestInitCancelledIsNotAFailure(t *testing.T) {
+	inTempDir(t, func() {
+		silence(t)
+		dir := t.TempDir()
+		path := filepath.Join(dir, "starlight.yaml")
+
+		var out, errs bytes.Buffer
+		code := Run(Options{
+			Args:  []string{"-init", "-config", path},
+			Out:   &out,
+			Err:   &errs,
+			Stdin: strings.NewReader("q\n"),
+		})
+		if code != Success {
+			t.Errorf("cancelling must not be an error: code = %d", code)
+		}
+		if !strings.Contains(out.String(), "nothing was written") {
+			t.Errorf("out = %q", out.String())
+		}
+		if _, err := os.Stat(path); !os.IsNotExist(err) {
+			t.Error("nothing may be written when cancelled")
+		}
+	})
+}
+
+// TestInitReportsAWizardFailure: a wizard that cannot write must exit with the
+// configuration error code, not silently succeed.
+func TestInitReportsAWizardFailure(t *testing.T) {
+	inTempDir(t, func() {
+		silence(t)
+		var out, errs bytes.Buffer
+		code := Run(Options{
+			Args:  []string{"-init"},
+			Out:   &out,
+			Err:   &errs,
+			Stdin: strings.NewReader("not-a-provider\nbad\nworse\n"),
+		})
+		if code != ConfigError {
+			t.Errorf("code = %d, want %d", code, ConfigError)
+		}
+		if !strings.Contains(errs.String(), "❌") {
+			t.Errorf("the failure must be reported: %q", errs.String())
+		}
+	})
+}
+
+// TestInitRefusesWhenTheGeneratedFileDoesNotLoad: if the wizard ever wrote
+// something the loader rejects, the user has to hear it immediately instead of on
+// the first task.
+func TestInitRefusesWhenTheGeneratedFileDoesNotLoad(t *testing.T) {
+	inTempDir(t, func() {
+		silence(t)
+		dir := t.TempDir()
+		path := filepath.Join(dir, "config.yaml")
+
+		var out, errs bytes.Buffer
+		code := Run(Options{
+			Args: []string{"-init", "-config", path},
+			Out:  &out,
+			Err:  &errs,
+			// A wizard that writes an invalid file on purpose.
+			RunOnboard: func(io.Reader, io.Writer, string, onboard.Answers) (onboard.Result, error) {
+				if err := os.WriteFile(path, []byte("llm:\n  provider: telepathy\n"), 0o600); err != nil {
+					t.Fatal(err)
+				}
+				return onboard.Result{ConfigPath: path}, nil
+			},
+		})
+		if code != ConfigError {
+			t.Errorf("code = %d, want %d", code, ConfigError)
+		}
+		if !strings.Contains(errs.String(), "does not load") {
+			t.Errorf("errs = %q", errs.String())
+		}
+	})
+}
+
+// TestInitUsesTheInjectedWizard: the flag must hand the real streams to the wizard,
+// so the conversation is the documented one.
+func TestInitUsesTheInjectedWizard(t *testing.T) {
+	inTempDir(t, func() {
+		silence(t)
+		dir := t.TempDir()
+		path := filepath.Join(dir, "config.yaml")
+
+		called := false
+		var out bytes.Buffer
+		code := Run(Options{
+			Args: []string{"-init", "-config", path},
+			Out:  &out,
+			Err:  &out,
+			RunOnboard: func(in io.Reader, w io.Writer, gotPath string, preset onboard.Answers) (onboard.Result, error) {
+				called = true
+				if gotPath != path {
+					t.Errorf("the wizard got %q, want %q", gotPath, path)
+				}
+				if preset.Provider != "" || preset.Model != "" || preset.APIKey != "" ||
+					preset.AnchorCommand != "" || len(preset.AnchorArgs) != 0 {
+					t.Errorf("the wizard must be asked everything: %+v", preset)
+				}
+				fmt.Fprint(w, "dialogue")
+				// A real wizard leaves a loadable file behind: app checks it.
+				if err := os.WriteFile(gotPath, []byte("anchor:\n  kind: command\n  command: true\n"), 0o600); err != nil {
+					t.Fatal(err)
+				}
+				return onboard.Result{
+					ConfigPath: gotPath,
+					Provider:   onboard.Providers()[0],
+					Model:      onboard.Providers()[0].Models[0].ID,
+				}, nil
+			},
+		})
+		if code != Success {
+			t.Fatalf("code = %d", code)
+		}
+		if !called {
+			t.Fatal("the wizard must be called")
+		}
+		if !strings.Contains(out.String(), "dialogue") {
+			t.Errorf("the wizard writes to the same output: %q", out.String())
+		}
+	})
 }
