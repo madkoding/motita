@@ -22,8 +22,7 @@ help: ## Show this help
 	@grep -E '^[a-zA-Z0-9_-]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN{FS=":.*?## "}{printf "  \033[36m%-14s\033[0m %s\n", $$1, $$2}'
 
 build: ## Build both programs for the host architecture
-	$(GO) build -trimpath -ldflags "$(LDFLAGS)" -o $(DIST)/starlight ./cmd/chat
-	$(GO) build -trimpath -ldflags "$(LDFLAGS)" -o $(DIST)/starlight-agent ./cmd/agent
+	$(GO) build -trimpath -ldflags "$(LDFLAGS)" -o $(DIST)/starlight ./cmd/agent
 
 dist: ## Build both programs for every supported platform
 	@mkdir -p $(DIST)
@@ -31,30 +30,10 @@ dist: ## Build both programs for every supported platform
 		os=$${p%/*}; arch=$${p#*/}; ext=""; \
 		[ "$$os" = "windows" ] && ext=".exe"; \
 		GOOS=$$os GOARCH=$$arch CGO_ENABLED=0 $(GO) build -trimpath -ldflags "$(LDFLAGS)" \
-			-o $(DIST)/starlight-agent-$$os-$$arch$$ext ./cmd/agent || exit 1; \
-		GOOS=$$os GOARCH=$$arch CGO_ENABLED=0 $(GO) build -trimpath -ldflags "$(LDFLAGS)" \
-			-o $(DIST)/starlight-$$os-$$arch$$ext ./cmd/chat || exit 1; \
+			-o $(DIST)/starlight-$$os-$$arch$$ext ./cmd/agent || exit 1; \
 		printf '  %-24s %s\n' "$$os/$$arch" "ok"; \
 	done
 	@$(MAKE) --no-print-directory verify-dist
-
-dist-agent: ## Build the agent for every supported platform
-	@mkdir -p $(DIST)
-	@for p in $(PLATFORMS); do \
-		os=$${p%/*}; arch=$${p#*/}; ext=""; \
-		[ "$$os" = "windows" ] && ext=".exe"; \
-		GOOS=$$os GOARCH=$$arch CGO_ENABLED=0 $(GO) build -trimpath -ldflags "$(LDFLAGS)" \
-			-o $(DIST)/starlight-agent-$$os-$$arch$$ext ./cmd/agent || exit 1; \
-	done
-
-dist-chat: ## Build the chat for every supported platform
-	@mkdir -p $(DIST)
-	@for p in $(PLATFORMS); do \
-		os=$${p%/*}; arch=$${p#*/}; ext=""; \
-		[ "$$os" = "windows" ] && ext=".exe"; \
-		GOOS=$$os GOARCH=$$arch CGO_ENABLED=0 $(GO) build -trimpath -ldflags "$(LDFLAGS)" \
-			-o $(DIST)/starlight-$$os-$$arch$$ext ./cmd/chat || exit 1; \
-	done
 
 verify-dist: ## Check every built binary really is what its name says
 # The three systems use three different container formats, and a wrong
@@ -63,7 +42,7 @@ verify-dist: ## Check every built binary really is what its name says
 #   PE     (windows)  4d 5a ("MZ")
 #   Mach-O (darwin)   cf fa ed fe (64-bit little endian) or ce fa ed fe (32-bit)
 	@fail=0; \
-	for f in $(DIST)/starlight-agent-* $(DIST)/starlight-linux-* $(DIST)/starlight-darwin-* $(DIST)/starlight-windows-*.exe; do \
+	for f in $(DIST)/starlight-linux-* $(DIST)/starlight-darwin-* $(DIST)/starlight-windows-*.exe; do \
 		[ -f "$$f" ] || continue; \
 		case "$$f" in \
 			*windows*) \
@@ -116,8 +95,8 @@ cover: ## Coverage per package (the gate is 100%) and aggregate
 		$(GO) test -coverpkg=$(COVERPKG) -coverprofile=coverage.out -covermode=atomic ./... >/dev/null; \
 		$(GO) tool cover -func=coverage.out | tail -1 | awk '{print $$3}'
 
-run: ## Run the chat in interactive mode
-	$(GO) run ./cmd/chat $(ARGS)
+run: ## Run the interactive TUI
+	$(GO) run ./cmd/agent $(ARGS)
 
 smoke: dist ## Run the linux binaries inside their own container
 	@for p in linux/386 linux/amd64 linux/arm linux/arm64; do \
@@ -128,10 +107,10 @@ smoke: dist ## Run the linux binaries inside their own container
 		case "$$arch" in arm64) image="arm64v8/debian:bookworm-slim";; esac; \
 		printf '  %-12s ' "$$arch"; \
 		docker run --rm --platform "$$pl" -v "$(CURDIR)/$(DIST):/t:ro" "$$image" \
-			sh -c "/t/starlight-agent-linux-$$arch -version" || exit 1; \
+			sh -c "/t/starlight-linux-$$arch -version" || exit 1; \
 	done
 
-e2e: ## End-to-end test of the chat (default: i386)
+e2e: ## End-to-end test (default: i386)
 	./scripts/e2e.sh $${ARCH:-386}
 
 e2e-agent: ## End-to-end test of the agent (default: i386)

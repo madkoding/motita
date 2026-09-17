@@ -88,6 +88,18 @@ func (a *Agent) exec(ctx context.Context, p execx.Request) (string, bool, int, e
 	return a.ExecCommand(ctx, p)
 }
 
+// RunCommand executes a single command line under the agent's policy and sandbox.
+// It is the entry point used by interactive modes (plan/chat) where the model
+// requests a tool call instead of emitting JSON.
+func (a *Agent) RunCommand(ctx context.Context, command string) (string, int, error) {
+	request, refused := a.buildRequest(command)
+	if refused != "" {
+		return fmt.Sprintf("[refused: %s]\n", refused), 1, fmt.Errorf("command was refused: %s", refused)
+	}
+	output, _, exit, err := a.exec(ctx, request)
+	return output, exit, err
+}
+
 // --- Result of each phase ---------------------------------------------------
 
 // Analysis is the structured output of phase [3].

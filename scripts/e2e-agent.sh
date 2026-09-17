@@ -26,7 +26,7 @@ cd "$(dirname "$0")/.."
 
 # This repository is also developed inside a container where Go is not on the
 # default PATH; the CI has it. Prefer whatever is already available.
-if ! command -v go >/dev/null 2>&1 && [ -x /opt/data/cache/go/bin/go ]; then
+if ! command -v go >/dev/null 2>&1 && [ -x /opt/data/cache/go/bin ]; then
   export PATH="/opt/data/cache/go/bin:$PATH"
   export GOCACHE="${GOCACHE:-/opt/data/cache/go-build}"
   export GOPATH="${GOPATH:-/opt/data/cache/gopath}"

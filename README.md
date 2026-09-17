@@ -20,7 +20,7 @@ TASK ──► [Layer B] analyse ─► plan ─► propose an action
             exhausted ──► escalate
 ```
 
-The repository also ships an **interactive terminal chat** (`cmd/chat`,
+The repository also ships an **interactive terminal chat** (the TUI,
 documented in [`cmd/chat/README.md`](cmd/chat/README.md)) which shares the process
 execution style and the lessons learned about process groups.
 
@@ -156,32 +156,33 @@ the exit code.
 
 ## Installation
 
-You do not need Go on the target machine: every release publishes the static
-binaries for the three architectures.
+One line per platform. The binary is static: no Go, no Docker, no runtime on the target.
 
 ```bash
-# The 3-layer agent for a 32-bit x86 machine
-curl -fsSLO https://github.com/madkoding/starlight/releases/latest/download/starlight-agent-linux-386
-chmod +x starlight-agent-linux-386
-./starlight-agent-linux-386 -version
+# Linux / 386 (32-bit x86, the primary target)
+curl -fsSLO https://github.com/madkoding/starlight/releases/latest/download/starlight-linux-386 && chmod +x starlight-linux-386 && ./starlight-linux-386 -version
 
-# The interactive chat
-curl -fsSLO https://github.com/madkoding/starlight/releases/latest/download/starlight-linux-386
-chmod +x starlight-linux-386
-./starlight-linux-386
+# Linux / amd64
+curl -fsSLO https://github.com/madkoding/starlight/releases/latest/download/starlight-linux-amd64 && chmod +x starlight-linux-amd64 && ./starlight-linux-amd64 -version
+
+# Linux / arm64
+curl -fsSLO https://github.com/madkoding/starlight/releases/latest/download/starlight-linux-arm64 && chmod +x starlight-linux-arm64 && ./starlight-linux-arm64 -version
+
+# macOS / Apple Silicon
+curl -fsSLO https://github.com/madkoding/starlight/releases/latest/download/starlight-darwin-arm64 && chmod +x starlight-darwin-arm64 && ./starlight-darwin-arm64 -version
+
+# macOS / Intel
+curl -fsSLO https://github.com/madkoding/starlight/releases/latest/download/starlight-darwin-amd64 && chmod +x starlight-darwin-amd64 && ./starlight-darwin-amd64 -version
+
+# Windows / amd64 (PowerShell)
+curl -fsSLO https://github.com/madkoding/starlight/releases/latest/download/starlight-windows-amd64.exe; if ($?) { ./starlight-windows-amd64.exe -version }
 ```
-
-Every release carries both programs for every platform Go can build them for:
 
 | System | Architectures | Asset suffix |
 |---|---|---|
 | Linux | `386`, `amd64`, `arm`, `arm64` | `-linux-<arch>` |
 | Windows | `386`, `amd64`, `arm64` | `-windows-<arch>.exe` |
 | macOS | `amd64`, `arm64` (Apple silicon) | `-darwin-<arch>` |
-
-So the names are `starlight-agent-linux-amd64`, `starlight-windows-amd64.exe`,
-`starlight-darwin-arm64`, and so on for both programs. The binaries are static and
-need no runtime, no Go and no Docker.
 
 `windows/arm`, `darwin/386` and `darwin/arm` are **not** published because Go does
 not support those pairs: the toolchain refuses to build them.
@@ -200,7 +201,7 @@ importantly — the check that decides whether a task is really done. `-init` as
 for the three and writes a file that works:
 
 ```bash
-./starlight-agent -init
+./starlight -init
 ```
 
 ```
@@ -236,8 +237,8 @@ Then:
 
 ```bash
 source ./starlight.env                                       # the key, if you pasted one
-./starlight-agent -config ./starlight.yaml -validate-config  # does it load?
-./starlight-agent -config ./starlight.yaml -task "what to do"
+./starlight -config ./starlight.yaml -validate-config  # does it load?
+./starlight -config ./starlight.yaml -task "what to do"
 ```
 
 What the wizard does and does not do:
@@ -258,7 +259,7 @@ What the wizard does and does not do:
 Requires Go 1.23 or newer. **You do not need to compile on the i386 machine.**
 
 ```bash
-make dist             # both programs for all 9 supported platforms
+make dist             # one binary for all 9 supported platforms
 make test-matrix      # the tests build for every one of them
 make check            # gofmt + go vet + go test
 ARCH=arm64 make e2e-agent   # end to end in a real container of that architecture
@@ -268,16 +269,16 @@ Resulting binaries (static, no cgo, no external libraries):
 
 | Binary | Size | Requirement |
 |---|---|---|
-| `dist/starlight-agent-386` | 6.90 MB | < 10 MB ✓ |
-| `dist/starlight-agent-linux-amd64` | 7.07 MB | |
-| `dist/starlight-agent-linux-arm64` | 6.50 MB | |
+| `dist/starlight-386` | 6.90 MB | < 10 MB ✓ |
+| `dist/starlight-linux-amd64` | 7.07 MB | |
+| `dist/starlight-linux-arm64` | 6.50 MB | |
 | `dist/starlight-linux-386` (chat) | 6.32 MB | |
 
 Copy them to the i386 machine over `scp`, `ftp` or USB:
 
 ```bash
-chmod +x starlight-agent-386
-./starlight-agent-386 -config agent.yaml
+chmod +x starlight-386
+./starlight-386 -config agent.yaml
 ```
 
 ---
@@ -288,8 +289,8 @@ Everything is configurable **without recompiling**. It can be validated without
 running anything or calling the LLM:
 
 ```bash
-starlight-agent -config configs/agent.yaml.example -validate-config
-starlight-agent -config configs/agent.yaml.example -isolation   # what this kernel isolates
+starlight -config configs/agent.yaml.example -validate-config
+starlight -config configs/agent.yaml.example -isolation   # what this kernel isolates
 ```
 
 Every scalar setting can be overridden with a `STARLIGHT_<BLOCK>_<FIELD>`
@@ -350,19 +351,19 @@ loses one of its three templates, the tests fail.
 export STARLIGHT_LLM_API_KEY=sk-...        # never the key in the YAML
 
 # normal run, with the configured source
-starlight-agent -config configs/cases/1-development.yaml
+starlight -config configs/cases/1-development.yaml
 
 # a single task, without touching the configuration
-starlight-agent -config configs/cases/1-development.yaml -task "fix TestFoo"
+starlight -config configs/cases/1-development.yaml -task "fix TestFoo"
 
 # the contents of a file as the task
-starlight-agent -config configs/cases/2-data.yaml -task-file task.md
+starlight -config configs/cases/2-data.yaml -task-file task.md
 
 # validate the configuration without calling the LLM
-starlight-agent -config my.yaml -validate-config
+starlight -config my.yaml -validate-config
 
 # see the isolation actually available on this machine
-starlight-agent -config my.yaml -isolation
+starlight -config my.yaml -isolation
 ```
 
 **Graceful shutdown:** the first `SIGINT`/`SIGTERM` cancels the work in progress
@@ -400,7 +401,7 @@ jq -r 'select(.msg=="task completed") | .task' workspace/starlight.log
 make check           # gofmt + go vet + go test  (what CI runs)
 make cover           # coverage per package and aggregate
 make e2e-agent       # agent end to end in a real i386 container
-make e2e             # chat end to end in a real i386 container
+make e2e             # one-shot task end to end in a real i386 container
 ./scripts/verify.sh  # everything above, in order, with a coverage gate
 ```
 
@@ -413,7 +414,7 @@ make e2e             # chat end to end in a real i386 container
 - The end-to-end tests run the binaries inside a real 32-bit container, so what is
   verified is the artifact that is published, not a host build.
 - The CI (`.github/workflows/ci.yml`) runs `gofmt`, `vet`, `test -race`, enforces
-  a coverage gate, builds the agent for `linux/386`/`amd64`/`arm64`, **verifies
+  a coverage gate, builds the binary for `linux/386`/`amd64`/`arm`/`arm64`, **verifies
   the i386 binary is ELFCLASS32** (reading the ELF header and also with `file`),
   runs it inside `i386/debian:bookworm-slim`, runs both end-to-end tests in that
   container and publishes the binaries when a `v*` tag is created.
@@ -465,18 +466,20 @@ about itself.
 ## Project layout
 
 ```
-cmd/agent/            the 3-layer agent (main program)
-cmd/chat/             interactive terminal chat
+cmd/agent/            the 3-layer agent and TUI (main program)
 internal/anchor/      Layer A: deterministic validator
-internal/llm/         Layer B: OpenAI / Anthropic / Gemini and JSON parsing
+internal/llm/         Layer B: OpenAI / Anthropic / Gemini, text and tool calling
 internal/sandbox/     Layer C: ephemeral dir, ulimit limits, cgroups, chroot
 internal/config/      YAML (own parser), environment and validation
 internal/execx/       process execution (process group, limits, output)
 internal/task/        task sources: stdin, file, queue, API
 internal/template/    the {{...}} variables of the prompts
-internal/app/         program logic (options, layers, shutdown) — testable
+internal/app/         program logic (options, layers, shutdown, TUI wiring)
+internal/tui/         interactive text user interface (stdlib only)
+internal/plan/        read-only plan/chat mode with native tool calling
 internal/logx/        JSON logging with rotation
-tools/mockapi/        OpenAI-compatible API to test the chat
+internal/readonly/    structural read-only guarantee (no shell + allowlist)
+tools/mockapi/        OpenAI-compatible API for end-to-end tests
 tools/mockllm/        simulated LLM for the agent's E2E
 configs/              example configuration + 3 use cases
 scripts/              end-to-end tests

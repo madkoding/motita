@@ -49,7 +49,7 @@ jobs:
           # hide behind the aggregate.
           MIN_PER_PACKAGE=100.0
           failed=0
-          for pkg in $(go list ./internal/... ./cmd/...); do
+          for pkg in $(go list ./internal/... ./cmd/... ./tools/...); do
             if go test -count=1 -cover "$pkg" 2>/dev/null | grep -q 'no test files'; then
               echo "::warning::$pkg has no test files"
               continue
@@ -75,7 +75,7 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          # Every platform Go can build these programs for. windows/arm,
+          # Every platform Go can build the binary for. windows/arm,
           # darwin/386 and darwin/arm do not exist in Go.
           - { goos: linux,   goarch: "386",   container: i386/debian:bookworm-slim,     platform: linux/386,   e2e: "true" }
           - { goos: linux,   goarch: amd64,   container: debian:bookworm-slim,         platform: linux/amd64, e2e: "true" }
@@ -91,8 +91,7 @@ jobs:
       GOARCH: ${{ matrix.goarch }}
       CGO_ENABLED: "0"
       EXT: ${{ matrix.goos == 'windows' && '.exe' || '' }}
-      AGENT: dist/starlight-agent-${{ matrix.goos }}-${{ matrix.goarch }}${{ matrix.goos == 'windows' && '.exe' || '' }}
-      CHAT: dist/starlight-${{ matrix.goos }}-${{ matrix.goarch }}${{ matrix.goos == 'windows' && '.exe' || '' }}
+      BINARY: dist/starlight-${{ matrix.goos }}-${{ matrix.goarch }}${{ matrix.goos == 'windows' && '.exe' || '' }}
     steps:
       - uses: actions/checkout@v7
 
@@ -101,12 +100,11 @@ jobs:
           go-version-file: go.mod
           cache: false
 
-      - name: Build static binaries (agent + chat)
+      - name: Build static binary
         run: |
           mkdir -p dist
           version="${GITHUB_REF_NAME:-dev}"
-          go build -trimpath -ldflags "-s -w -X main.version=$version" -o "$AGENT" ./cmd/agent
-          go build -trimpath -ldflags "-s -w -X main.version=$version" -o "$CHAT" ./cmd/chat
+          go build -trimpath -ldflags "-s -w -X main.version=$version" -o "$BINARY" ./cmd/agent
           ls -l dist
 
       - name: Verify the binary really is for the platform its name claims
@@ -116,7 +114,7 @@ jobs:
           #   ELF    (linux)   7f 45 4c 46 + class in byte 5 (01 = 32-bit, 02 = 64-bit)
           #   PE     (windows) 4d 5a
           #   Mach-O (darwin)  cf fa ed fe (64-bit)
-          for binary in "$AGENT" "$CHAT"; do
+          for binary in "$BINARY"; do
             case "${{ matrix.goos }}" in
               windows)
                 header="$(head -c 2 "$binary" | od -An -tx1 | tr -d ' \n')"
@@ -157,33 +155,27 @@ jobs:
           # The real artifact name is used (AGENT and CHAT include goos-goarch),
           # never a hand-written one.
           docker run --rm -v "$PWD/dist:/t:ro" --platform "${{ matrix.platform }}" \
-            "${{ matrix.container }}" sh -c "/t/$(basename "$AGENT") -version; /t/$(basename "$CHAT") -version"
+            "${{ matrix.container }}" sh -c "/t/$(basename "$BINARY") -version"
 
       - name: Configuration validation (without calling the LLM)
         if: matrix.goos == 'linux'
         run: |
           docker run --rm -v "$PWD/dist:/t:ro" -v "$PWD/configs:/c:ro" --platform "${{ matrix.platform }}" \
             "${{ matrix.container }}" sh -c \
-            "STARLIGHT_LLM_API_KEY=test STARLIGHT_SANDBOX_CGROUPS=off /t/$(basename "$AGENT") -config /c/agent.yaml.example -validate-config"
+            "STARLIGHT_LLM_API_KEY=test STARLIGHT_SANDBOX_CGROUPS=off /t/$(basename "$BINARY") -config /c/agent.yaml.example -validate-config"
 
-      - name: Agent end-to-end test
+      - name: End-to-end test
         if: matrix.e2e == 'true'
         run: |
-          chmod +x scripts/e2e-agent.sh
+          chmod +x scripts/e2e-agent.sh scripts/e2e.sh
           ./scripts/e2e-agent.sh "${{ matrix.goarch }}"
-
-      - name: Chat end-to-end test
-        if: matrix.e2e == 'true'
-        run: |
-          chmod +x scripts/e2e.sh
           ./scripts/e2e.sh "${{ matrix.goarch }}"
 
       - uses: actions/upload-artifact@v7
         with:
           name: starlight-${{ matrix.goos }}-${{ matrix.goarch }}
           path: |
-            ${{ env.AGENT }}
-            ${{ env.CHAT }}
+            ${{ env.BINARY }}
           if-no-files-found: error
 
   release:

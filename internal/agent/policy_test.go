@@ -100,14 +100,14 @@ func TestReadOnlySplitsArgumentsLikeAShell(t *testing.T) {
 	a := agentWith(true)
 
 	// Quoted: one argument.
-	req, refused := a.buildRequest(`grep -n "two words" "/tmp/archivo con espacios.txt"`)
+	req, refused := a.buildRequest(`grep -n "two words" "/tmp/file with spaces.txt"`)
 	if refused != "" {
 		t.Fatalf("refused: %s", refused)
 	}
 	if req.Command != "grep" {
 		t.Errorf("command = %q", req.Command)
 	}
-	want := []string{"-n", "two words", "/tmp/archivo con espacios.txt"}
+	want := []string{"-n", "two words", "/tmp/file with spaces.txt"}
 	if len(req.Args) != len(want) {
 		t.Fatalf("args = %#v, want %#v", req.Args, want)
 	}
@@ -120,7 +120,7 @@ func TestReadOnlySplitsArgumentsLikeAShell(t *testing.T) {
 	// Unquoted: the same line splits into more arguments, as a shell does. The
 	// failure it would cause is the program's, and the error it prints is what tells
 	// the model to quote.
-	req, refused = a.buildRequest(`grep -n two words /tmp/archivo con espacios.txt`)
+	req, refused = a.buildRequest(`grep -n two words /tmp/file with spaces.txt`)
 	if refused != "" {
 		t.Fatalf("refused: %s", refused)
 	}

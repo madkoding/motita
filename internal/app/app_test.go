@@ -1602,3 +1602,260 @@ func TestInitUsesTheInjectedWizard(t *testing.T) {
 		}
 	})
 }
+
+// --- Plan mode tests --------------------------------------------------------
+
+func planServer(t *testing.T, answers []string) *httptest.Server {
+	t.Helper()
+	idx := 0
+	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var req struct {
+			Messages []struct {
+				Content string `json:"content"`
+			} `json:"messages"`
+		}
+		json.NewDecoder(r.Body).Decode(&req)
+		text := ""
+		for _, m := range req.Messages {
+			text += m.Content
+		}
+		var content string
+		if idx < len(answers) {
+			content = answers[idx]
+			idx++
+		} else {
+			content = "done"
+		}
+		json.NewEncoder(w).Encode(map[string]any{
+			"choices": []any{map[string]any{"message": map[string]any{"content": content}}},
+		})
+	}))
+}
+
+func planConfig(t *testing.T, srv *httptest.Server) string {
+	t.Helper()
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.yaml")
+	mustWrite(t, path, fmt.Sprintf(`sandbox:
+  kind: none
+  cgroups: off
+llm:
+  api_key: x
+  base_url: %s
+  model: mock
+  max_attempts: 1
+  timeout: 10s
+agent:
+  workspace_dir: %s
+  log_level: error
+  log_console: false
+`, srv.URL, dir))
+	return path
+}
+
+func TestParsePlanAndPromptFlags(t *testing.T) {
+	cases := []struct {
+		name     string
+		args     []string
+		expected flags
+		fails    bool
+	}{
+		{"plan flag", []string{"-plan"}, flags{plan: true}, false},
+		{"plan=true", []string{"-plan=true"}, flags{plan: true}, false},
+		{"plan=false", []string{"-plan=false"}, flags{plan: false}, false},
+		{"prompt", []string{"-p", "ask"}, flags{plan: false, prompt: "ask"}, false},
+		{"prompt with equals", []string{"-p=ask"}, flags{plan: false, prompt: "ask"}, false},
+		{"prompt missing value", []string{"-p"}, flags{}, true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := parse(tc.args)
+			if tc.fails {
+				if err == nil {
+					t.Fatal("expected error")
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if got.plan != tc.expected.plan || got.prompt != tc.expected.prompt {
+				t.Errorf("got %+v, expected %+v", got, tc.expected)
+			}
+		})
+	}
+}
+
+func TestPlanOneShotPrompt(t *testing.T) {
+	silence(t)
+	srv := planServer(t, []string{"the plan"})
+	defer srv.Close()
+	path := planConfig(t, srv)
+	var out, errs bytes.Buffer
+	code := Run(Options{
+		Args: []string{"-config", path, "-plan", "-p", "list files"},
+		Out:  &out,
+		Err:  &errs,
+	})
+	if code != Success {
+		t.Fatalf("code = %d, errs = %q", code, errs.String())
+	}
+	if !strings.Contains(out.String(), "the plan") {
+		t.Errorf("out = %q", out.String())
+	}
+}
+
+func TestPlanOneShotError(t *testing.T) {
+	silence(t)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+		fmt.Fprint(w, `{"error":{"message":"down"}}`)
+	}))
+	defer srv.Close()
+	path := planConfig(t, srv)
+	var out, errs bytes.Buffer
+	code := Run(Options{
+		Args: []string{"-config", path, "-plan", "-p", "list files"},
+		Out:  &out,
+		Err:  &errs,
+	})
+	if code != RunError {
+		t.Fatalf("code = %d, errs = %q", code, errs.String())
+	}
+	if !strings.Contains(errs.String(), "❌") {
+		t.Errorf("errs = %q", errs.String())
+	}
+}
+
+func TestPlanFlagWithoutPromptEntersTUI(t *testing.T) {
+	silence(t)
+	srv := planServer(t, []string{"hello"})
+	defer srv.Close()
+	path := planConfig(t, srv)
+	var out, errs bytes.Buffer
+	tuiCalled := false
+	code := Run(Options{
+		Args: []string{"-config", path, "-plan"},
+		Out:  &out,
+		Err:  &errs,
+		RunTUI: func(context.Context, config.Config, *llm.Client, *sandbox.Sandbox, *logx.Logger) int {
+			tuiCalled = true
+			return Success
+		},
+	})
+	if code != Success {
+		t.Fatalf("code = %d", code)
+	}
+	if !tuiCalled {
+		t.Fatal("-plan without -prompt should enter the TUI")
+	}
+}
+
+func TestTUIFlag(t *testing.T) {
+	silence(t)
+	srv := planServer(t, []string{"hello"})
+	defer srv.Close()
+	path := planConfig(t, srv)
+	var out, errs bytes.Buffer
+	tuiCalled := false
+	code := Run(Options{
+		Args: []string{"-config", path, "-tui"},
+		Out:  &out,
+		Err:  &errs,
+		RunTUI: func(context.Context, config.Config, *llm.Client, *sandbox.Sandbox, *logx.Logger) int {
+			tuiCalled = true
+			return Success
+		},
+	})
+	if code != Success {
+		t.Fatalf("code = %d", code)
+	}
+	if !tuiCalled {
+		t.Fatal("-tui should launch the TUI")
+	}
+}
+
+func TestDefaultNoConfigGoesToTUI(t *testing.T) {
+	silence(t)
+	t.Setenv("STARLIGHT_LLM_API_KEY", "test")
+	srv := planServer(t, []string{"default plan"})
+	defer srv.Close()
+	var out, errs bytes.Buffer
+	tuiCalled := false
+	code := Run(Options{
+		Args: nil,
+		Out:  &out,
+		Err:  &errs,
+		NewEngine: func(c config.LLM, l *logx.Logger) (*llm.Client, error) {
+			c.BaseURL = srv.URL
+			c.Model = "mock"
+			return llm.New(c, l)
+		},
+		NewSandbox: func(o sandbox.Options) (*sandbox.Sandbox, error) {
+			o.Dir = t.TempDir()
+			return sandbox.New(o)
+		},
+		RunTUI: func(context.Context, config.Config, *llm.Client, *sandbox.Sandbox, *logx.Logger) int {
+			tuiCalled = true
+			return Success
+		},
+	})
+	if code != Success {
+		t.Fatalf("code = %d, errs = %q", code, errs.String())
+	}
+	if !tuiCalled {
+		t.Fatal("no task should launch the TUI by default")
+	}
+}
+
+func TestPlanDefaultTimeoutAndLoops(t *testing.T) {
+	cfg := config.Default()
+	cfg.Sandbox.Timeout = 0
+	if planDefaultTimeout(cfg) != 120*time.Second {
+		t.Error("default timeout wrong")
+	}
+	cfg.Agent.MaxRetries = 0
+	if planDefaultLoops(cfg) != 5 {
+		t.Errorf("default loops = %d", planDefaultLoops(cfg))
+	}
+	cfg.Agent.MaxRetries = 3
+	if planDefaultLoops(cfg) != 3 {
+		t.Errorf("loops = %d", planDefaultLoops(cfg))
+	}
+	cfg.Agent.MaxRetries = 20
+	if planDefaultLoops(cfg) != 5 {
+		t.Errorf("loops = %d", planDefaultLoops(cfg))
+	}
+}
+
+func TestRunTUINilHook(t *testing.T) {
+	silence(t)
+	t.Setenv("STARLIGHT_LLM_API_KEY", "test")
+	srv := planServer(t, []string{"hello"})
+	defer srv.Close()
+	var out bytes.Buffer
+	code := Run(Options{
+		Args:  []string{"-config", planConfig(t, srv), "-tui"},
+		Out:   &out,
+		Err:   &out,
+		Stdin: strings.NewReader("q\n"),
+	})
+	if code != 0 {
+		t.Fatalf("code = %d", code)
+	}
+}
+
+func TestDefaultNoConfigButTaskUsesTaskMode(t *testing.T) {
+	silence(t)
+	t.Setenv("STARLIGHT_LLM_API_KEY", "test")
+	var out, errs bytes.Buffer
+	code := Run(Options{
+		Args:     []string{"-task", "TASK-FROM-CMD"},
+		Out:      &out,
+		Err:      &errs,
+		RunAgent: func(context.Context, *agent.Agent) error { return nil },
+	})
+	if code != Success {
+		t.Fatalf("code = %d, errs = %q", code, errs.String())
+	}
+}

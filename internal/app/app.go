@@ -24,8 +24,10 @@ import (
 	"github.com/madkoding/starlight/internal/llm"
 	"github.com/madkoding/starlight/internal/logx"
 	"github.com/madkoding/starlight/internal/onboard"
+	"github.com/madkoding/starlight/internal/plan"
 	"github.com/madkoding/starlight/internal/sandbox"
 	"github.com/madkoding/starlight/internal/task"
+	"github.com/madkoding/starlight/internal/tui"
 )
 
 // Program exit codes. They are part of the public contract (cron and systemd use
@@ -74,6 +76,8 @@ type Options struct {
 	// Stdin is the input of the wizard.
 	Stdin io.Reader
 
+	// RunTUI replaces the interactive menu in tests.
+	RunTUI func(context.Context, config.Config, *llm.Client, *sandbox.Sandbox, *logx.Logger) int
 	// RunChild is the sandbox's child mode. It is injected so the success path
 	// can be tested without syscall.Exec replacing the test process (which is
 	// exactly what used to make the coverage profile disappear).
@@ -94,6 +98,9 @@ Options:
   -config string     path to the YAML configuration file
   -task string       process a single task (ignores the configured source)
   -task-file string  process the task contained in a file
+  -plan              enter read-only plan/chat mode (implies -tui when no prompt is given)
+  -p string          one-shot plan/chat prompt (implies -plan)
+  -tui               start the interactive text user interface (default when no task is given)
   -init              first-run wizard: choose the provider, the model and the
                      check, and write a working configuration
   -validate-config   validate the configuration and exit (does not call the LLM)
@@ -108,6 +115,9 @@ type flags struct {
 	configPath     string
 	task           string
 	taskFile       string
+	plan           bool
+	tui            bool
+	prompt         string
 	validateConfig bool
 	version        bool
 	isolation      bool
@@ -219,6 +229,20 @@ func parse(args []string) (flags, error) {
 				return b, err
 			}
 			b.taskFile = v
+		case "-plan", "--plan":
+			if hasValue {
+				b.plan = value == "true" || value == "1"
+			} else {
+				b.plan = true
+			}
+		case "-tui", "--tui":
+			b.tui = true
+		case "-p", "--prompt":
+			v, err := next()
+			if err != nil {
+				return b, err
+			}
+			b.prompt = v
 		case "-init", "--init":
 			b.initConfig = true
 		case "-validate-config", "--validate-config":
@@ -322,12 +346,22 @@ func (op Options) run(fl flags) int {
 		return Success
 	}
 
+	ctx, wait := op.contextWithShutdown(cfg, log)
+	defer wait()
+
 	// Layer B: the reasoning engine.
 	engine, err := op.newEngine(cfg.LLM, log)
 	if err != nil {
 		log.Error("could not prepare the reasoning engine", "error", err)
 		fmt.Fprintf(op.Err, "❌ %v\n", err)
 		return ConfigError
+	}
+
+	if fl.tui || (!fl.plan && !fl.validateConfig && !fl.isolation && op.defaultToTUI(fl, cfg)) {
+		return op.runTUI(ctx, fl, cfg, engine, box, log)
+	}
+	if fl.plan || fl.prompt != "" {
+		return op.runPlan(ctx, fl, cfg, engine, box, log)
 	}
 
 	// Task source (a single task takes priority over the configured one).
@@ -339,9 +373,6 @@ func (op Options) run(fl flags) int {
 	}
 
 	ag := agent.New(cfg, log, engine, box, source)
-
-	ctx, wait := op.contextWithShutdown(cfg, log)
-	defer wait()
 
 	started := time.Now()
 	runErr := op.runAgent(ctx, ag)
@@ -540,4 +571,67 @@ func LogPath(cfg config.Config) string {
 		return "stderr"
 	}
 	return cfg.Agent.LogFile
+}
+
+// defaultToTUI decides whether to start the interactive menu when the user did
+// not ask for a task explicitly.
+func (op Options) defaultToTUI(fl flags, cfg config.Config) bool {
+	return fl.configPath == "" && fl.task == "" && fl.taskFile == "" && len(op.Args) == 0
+}
+
+// runTUI starts the interactive text user interface.
+func (op Options) runTUI(ctx context.Context, fl flags, cfg config.Config, engine *llm.Client, box *sandbox.Sandbox, log *logx.Logger) int {
+	if op.RunTUI != nil {
+		return op.RunTUI(ctx, cfg, engine, box, log)
+	}
+	runner := &tui.AppRunner{
+		Out:    op.Out,
+		Err:    op.Err,
+		Cfg:    cfg,
+		Engine: engine,
+		Box:    box,
+		Log:    log,
+	}
+	ui := tui.New(runner)
+	ui.In = op.Stdin
+	return ui.Run(ctx)
+}
+
+// runPlan runs the read-only plan/chat mode. It uses the reasoning engine and the
+// sandbox, but it never delegates to the task/anchor flow.
+func (op Options) runPlan(ctx context.Context, fl flags, cfg config.Config, engine *llm.Client, box *sandbox.Sandbox, log *logx.Logger) int {
+	cfg.Agent.ReadOnly = true
+	ag := agent.New(cfg, log, engine, box, nil)
+
+	planner := plan.New(engine, ag).
+		WithTimeout(planDefaultTimeout(cfg)).
+		WithLoops(planDefaultLoops(cfg)).
+		WithTrace(func(format string, args ...any) { fmt.Fprintf(op.Err, format, args...) })
+
+	if fl.prompt != "" {
+		answer, err := planner.Run(ctx, fl.prompt)
+		if err != nil {
+			fmt.Fprintf(op.Err, "❌ %v\n", err)
+			return RunError
+		}
+		fmt.Fprintln(op.Out, answer)
+		return Success
+	}
+
+	// No one-shot prompt: send the user to the TUI, which has a dedicated plan mode.
+	return op.runTUI(ctx, fl, cfg, engine, box, log)
+}
+
+func planDefaultTimeout(cfg config.Config) time.Duration {
+	if cfg.Sandbox.Timeout > 0 {
+		return cfg.Sandbox.Timeout
+	}
+	return 120 * time.Second
+}
+
+func planDefaultLoops(cfg config.Config) int {
+	if cfg.Agent.MaxRetries > 0 && cfg.Agent.MaxRetries <= 10 {
+		return cfg.Agent.MaxRetries
+	}
+	return 5
 }

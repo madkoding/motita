@@ -621,3 +621,60 @@ func TestMaxTasks(t *testing.T) {
 		t.Errorf("tasks processed = %d, expected 1 (max_tasks)", processed)
 	}
 }
+
+// TestRunCommand executes a single command through the public hook used by
+// interactive modes and checks that the sandbox output is returned.
+func TestRunCommand(t *testing.T) {
+	dir := t.TempDir()
+	box, err := sandbox.New(sandbox.Options{
+		Dir:         dir,
+		Limits:      sandbox.Limits{MemoryMB: 256, CPUSeconds: 10},
+		Timeout:     20 * time.Second,
+		MaxOutputKB: 64,
+		Log:         logx.Global(),
+	})
+	if err != nil {
+		t.Fatalf("could not create the sandbox: %v", err)
+	}
+	defer box.Close()
+
+	a := New(config.Default(), logx.Global(), nil, box, nil)
+	output, exit, err := a.RunCommand(context.Background(), "printf ok")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if exit != 0 {
+		t.Fatalf("expected exit 0, got %d", exit)
+	}
+	if !strings.Contains(output, "ok") {
+		t.Fatalf("expected output to contain 'ok', got: %s", output)
+	}
+}
+
+// TestRunCommandRefusesWrites verifies that read-only mode rejects destructive
+// commands before they reach the sandbox.
+func TestRunCommandRefusesWrites(t *testing.T) {
+	dir := t.TempDir()
+	box, err := sandbox.New(sandbox.Options{
+		Dir:         dir,
+		Limits:      sandbox.Limits{MemoryMB: 256, CPUSeconds: 10},
+		Timeout:     20 * time.Second,
+		MaxOutputKB: 64,
+		Log:         logx.Global(),
+	})
+	if err != nil {
+		t.Fatalf("could not create the sandbox: %v", err)
+	}
+	defer box.Close()
+
+	cfg := config.Default()
+	cfg.Agent.ReadOnly = true
+	a := New(cfg, logx.Global(), nil, box, nil)
+	output, _, err := a.RunCommand(context.Background(), "rm -f /tmp/x")
+	if err == nil {
+		t.Fatal("expected the write to be refused")
+	}
+	if !strings.Contains(output, "[refused:") {
+		t.Fatalf("expected refusal message, got: %s", output)
+	}
+}

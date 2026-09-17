@@ -29,8 +29,10 @@ import (
 
 // Message is one turn of the conversation.
 type Message struct {
-	Role    string // system | user | assistant
-	Content string
+	Role       string     // system | user | assistant | tool
+	Content    string     // text of the turn (empty when the turn is only calls)
+	ToolCalls  []ToolCall // for assistant turns that ask for tool results
+	ToolCallID string     // for tool turns, matching the assistant call
 }
 
 // Client talks to the configured provider.
@@ -119,6 +121,52 @@ func (c *Client) Complete(ctx context.Context, messages []Message) (string, erro
 	return "", fmt.Errorf("all %d attempts were exhausted: %w", c.cfg.MaxAttempts, last)
 }
 
+// CompleteTools sends the conversation with the available tools and returns whatever
+// the model answered: text, tool calls, or both. It uses the same retry policy as
+// Complete so callers do not have to think about transient failures.
+func (c *Client) CompleteTools(ctx context.Context, messages []Message, tools []Tool) (Reply, error) {
+	return c.completeWithTool(ctx, messages, tools)
+}
+
+func (c *Client) completeWithTool(ctx context.Context, messages []Message, tools []Tool) (Reply, error) {
+	var last error
+	wait := c.cfg.BackoffInitial
+	var empty Reply
+
+	for attempt := 1; attempt <= c.cfg.MaxAttempts; attempt++ {
+		reply, err := c.callTools(ctx, messages, tools)
+		if err == nil {
+			return reply, nil
+		}
+		last = err
+
+		if !retryable(err) {
+			c.log.Error("LLM tool call failed with no possibility of retry",
+				"attempt", attempt, "error", err)
+			return empty, err
+		}
+		if attempt == c.cfg.MaxAttempts {
+			break
+		}
+
+		c.log.Warn("retrying LLM tool call",
+			"attempt", attempt, "max_attempts", c.cfg.MaxAttempts,
+			"wait", wait.String(), "error", err)
+
+		select {
+		case <-ctx.Done():
+			return empty, fmt.Errorf("cancelled while waiting to retry: %w", ctx.Err())
+		case <-time.After(wait):
+		}
+		wait *= 2
+		if wait > c.cfg.BackoffMax {
+			wait = c.cfg.BackoffMax
+		}
+	}
+
+	return empty, fmt.Errorf("all %d attempts were exhausted: %w", c.cfg.MaxAttempts, last)
+}
+
 // HTTPError describes a failure with a status code so that retryability can be
 // decided.
 type HTTPError struct {
@@ -157,6 +205,18 @@ func (c *Client) call(ctx context.Context, messages []Message) (string, error) {
 	}
 }
 
+// callTools makes a single tool-enabled request to the provider.
+func (c *Client) callTools(ctx context.Context, messages []Message, tools []Tool) (Reply, error) {
+	switch strings.ToLower(c.cfg.Provider) {
+	case "anthropic":
+		return c.callAnthropicTools(ctx, messages, tools)
+	case "gemini":
+		return c.callGeminiTools(ctx, messages, tools)
+	default:
+		return c.callOpenAITools(ctx, messages, tools)
+	}
+}
+
 func (c *Client) baseURL(defecto string) string {
 	if c.cfg.BaseURL == "" {
 		return defecto
@@ -167,14 +227,17 @@ func (c *Client) baseURL(defecto string) string {
 // --- OpenAI ----------------------------------------------------------------
 
 type openAIMessage struct {
-	Role    string `json:"role"`
-	Content string `json:"content"`
+	Role       string     `json:"role"`
+	Content    string     `json:"content"`
+	ToolCalls  []ToolCall `json:"tool_calls,omitempty"`
+	ToolCallID string     `json:"tool_call_id,omitempty"`
 }
 
 type openAIResponse struct {
 	Choices []struct {
 		Message struct {
-			Content string `json:"content"`
+			Content   string     `json:"content"`
+			ToolCalls []ToolCall `json:"tool_calls"`
 		} `json:"message"`
 		FinishReason string `json:"finish_reason"`
 	} `json:"choices"`
@@ -210,6 +273,39 @@ func (c *Client) callOpenAI(ctx context.Context, messages []Message) (string, er
 	return resp.Choices[0].Message.Content, nil
 }
 
+func (c *Client) callOpenAITools(ctx context.Context, messages []Message, tools []Tool) (Reply, error) {
+	body := map[string]any{
+		"model":       c.cfg.Model,
+		"messages":    toOpenAIMessages(messages),
+		"tools":       tools,
+		"max_tokens":  c.cfg.MaxTokens,
+		"temperature": c.cfg.Temperature,
+	}
+	url := c.baseURL("https://api.openai.com/v1") + "/chat/completions"
+	headers := map[string]string{"Authorization": "Bearer " + c.cfg.APIKey}
+
+	data, err := c.post(ctx, url, headers, body)
+	if err != nil {
+		return Reply{}, err
+	}
+	var resp openAIResponse
+	if err := json.Unmarshal(data, &resp); err != nil {
+		return Reply{}, fmt.Errorf("unreadable OpenAI response: %w", err)
+	}
+	if resp.Error != nil && resp.Error.Message != "" {
+		return Reply{}, &HTTPError{Code: 400, Body: resp.Error.Message}
+	}
+	if len(resp.Choices) == 0 {
+		return Reply{}, errors.New("OpenAI returned empty choices")
+	}
+	choice := resp.Choices[0]
+	return Reply{
+		Content:      choice.Message.Content,
+		Calls:        choice.Message.ToolCalls,
+		FinishReason: choice.FinishReason,
+	}, nil
+}
+
 func toOpenAIMessages(messages []Message) []openAIMessage {
 	out := make([]openAIMessage, 0, len(messages))
 	for _, m := range messages {
@@ -217,7 +313,12 @@ func toOpenAIMessages(messages []Message) []openAIMessage {
 		if role == "" {
 			role = "user"
 		}
-		out = append(out, openAIMessage{Role: role, Content: m.Content})
+		out = append(out, openAIMessage{
+			Role:       role,
+			Content:    m.Content,
+			ToolCalls:  m.ToolCalls,
+			ToolCallID: m.ToolCallID,
+		})
 	}
 	return out
 }
@@ -228,6 +329,10 @@ type anthropicResponse struct {
 	Content []struct {
 		Type string `json:"type"`
 		Text string `json:"text"`
+		ID   string `json:"id"`
+		Name string `json:"name"`
+		// Input is the Anthropic function arguments object.
+		Input map[string]any `json:"input"`
 	} `json:"content"`
 	Error *struct {
 		Message string `json:"message"`
@@ -298,13 +403,124 @@ func (c *Client) callAnthropic(ctx context.Context, messages []Message) (string,
 	return sb.String(), nil
 }
 
+func (c *Client) callAnthropicTools(ctx context.Context, messages []Message, tools []Tool) (Reply, error) {
+	var system string
+	conversation := make([]map[string]any, 0, len(messages))
+	for _, m := range messages {
+		if m.Role == "system" {
+			if system != "" {
+				system += "\n\n"
+			}
+			system += m.Content
+			continue
+		}
+		role := "user"
+		if m.Role == "assistant" {
+			role = "assistant"
+		} else if m.Role == "tool" {
+			role = "user"
+		}
+		var blocks []map[string]any
+		if m.Content != "" {
+			blocks = append(blocks, map[string]any{"type": "text", "text": m.Content})
+		}
+		for _, tc := range m.ToolCalls {
+			blocks = append(blocks, map[string]any{
+				"type":  "tool_use",
+				"id":    tc.ID,
+				"name":  tc.Function.Name,
+				"input": tc.Function.Arguments,
+			})
+		}
+		if m.ToolCallID != "" {
+			blocks = append(blocks, map[string]any{
+				"type":        "tool_result",
+				"tool_use_id": m.ToolCallID,
+				"content":     m.Content,
+			})
+		}
+		if len(blocks) == 0 {
+			blocks = append(blocks, map[string]any{"type": "text", "text": ""})
+		}
+		conversation = append(conversation, map[string]any{
+			"role":    role,
+			"content": blocks,
+		})
+	}
+
+	body := map[string]any{
+		"model":       c.cfg.Model,
+		"messages":    conversation,
+		"max_tokens":  maxInt(c.cfg.MaxTokens, 1),
+		"temperature": c.cfg.Temperature,
+		"tools":       toAnthropicTools(tools),
+	}
+	if system != "" {
+		body["system"] = system
+	}
+
+	url := c.baseURL("https://api.anthropic.com") + "/v1/messages"
+	headers := map[string]string{
+		"x-api-key":         c.cfg.APIKey,
+		"anthropic-version": "2023-06-01",
+	}
+
+	data, err := c.post(ctx, url, headers, body)
+	if err != nil {
+		return Reply{}, err
+	}
+	var resp anthropicResponse
+	if err := json.Unmarshal(data, &resp); err != nil {
+		return Reply{}, fmt.Errorf("unreadable Anthropic response: %w", err)
+	}
+	if resp.Error != nil && resp.Error.Message != "" {
+		return Reply{}, &HTTPError{Code: 400, Body: resp.Error.Message}
+	}
+
+	reply := Reply{FinishReason: "stop"}
+	for _, part := range resp.Content {
+		switch part.Type {
+		case "text":
+			reply.Content += part.Text
+		case "tool_use":
+			args, _ := json.Marshal(part.Input)
+			reply.Calls = append(reply.Calls, ToolCall{
+				ID:   part.ID,
+				Type: "function",
+				Function: FunctionCall{
+					Name:      part.Name,
+					Arguments: args,
+				},
+			})
+		}
+	}
+	return reply, nil
+}
+
+func toAnthropicTools(tools []Tool) []map[string]any {
+	out := make([]map[string]any, 0, len(tools))
+	for _, t := range tools {
+		out = append(out, map[string]any{
+			"name":        t.Function.Name,
+			"description": t.Function.Description,
+			"input_schema": map[string]any{
+				"type":       "object",
+				"properties": t.Function.Parameters,
+			},
+		})
+	}
+	return out
+}
+
 // --- Gemini -----------------------------------------------------------------
 
 type geminiResponse struct {
 	Candidates []struct {
 		Content struct {
+			Role  string `json:"role"`
 			Parts []struct {
-				Text string `json:"text"`
+				Text         string          `json:"text"`
+				FunctionCall json.RawMessage `json:"functionCall"`
 			} `json:"parts"`
 		} `json:"content"`
 		FinishReason string `json:"finishReason"`
@@ -312,6 +528,11 @@ type geminiResponse struct {
 	Error *struct {
 		Message string `json:"message"`
 	} `json:"error,omitempty"`
+}
+
+type geminiFunctionCall struct {
+	Name string          `json:"name"`
+	Args json.RawMessage `json:"args"`
 }
 
 func (c *Client) callGemini(ctx context.Context, messages []Message) (string, error) {
@@ -370,6 +591,123 @@ func (c *Client) callGemini(ctx context.Context, messages []Message) (string, er
 		return "", fmt.Errorf("Gemini returned an empty response (finishReason=%q)", resp.Candidates[0].FinishReason)
 	}
 	return sb.String(), nil
+}
+
+func (c *Client) callGeminiTools(ctx context.Context, messages []Message, tools []Tool) (Reply, error) {
+	var system string
+	var contents []map[string]any
+	for _, m := range messages {
+		if m.Role == "system" {
+			system += m.Content + "\n"
+			continue
+		}
+		role := "user"
+		if m.Role == "assistant" {
+			role = "model"
+		}
+		var parts []map[string]any
+		if m.Content != "" {
+			parts = append(parts, map[string]any{"text": m.Content})
+		}
+		for _, tc := range m.ToolCalls {
+			var args json.RawMessage
+			if len(tc.Function.Arguments) > 0 {
+				var obj map[string]any
+				_ = json.Unmarshal(tc.Function.Arguments, &obj)
+				args, _ = json.Marshal(obj)
+			}
+			parts = append(parts, map[string]any{
+				"functionCall": map[string]any{
+					"name": tc.Function.Name,
+					"args": args,
+				},
+			})
+		}
+		if m.ToolCallID != "" {
+			parts = append(parts, map[string]any{
+				"functionResponse": map[string]any{
+					"name":     m.ToolCallID,
+					"response": m.Content,
+				},
+			})
+		}
+		if len(parts) == 0 {
+			parts = append(parts, map[string]any{"text": ""})
+		}
+		contents = append(contents, map[string]any{
+			"role":  role,
+			"parts": parts,
+		})
+	}
+
+	body := map[string]any{
+		"contents": contents,
+		"generationConfig": map[string]any{
+			"maxOutputTokens": c.cfg.MaxTokens,
+			"temperature":     c.cfg.Temperature,
+		},
+		"tools": []map[string]any{
+			{"functionDeclarations": toGeminiToolDeclarations(tools)},
+		},
+	}
+	if system != "" {
+		body["systemInstruction"] = map[string]any{
+			"parts": []map[string]any{{"text": system}},
+		}
+	}
+
+	base := c.baseURL("https://generativelanguage.googleapis.com")
+	url := fmt.Sprintf("%s/v1beta/models/%s:generateContent?key=%s", base, c.cfg.Model, c.cfg.APIKey)
+
+	data, err := c.post(ctx, url, nil, body)
+	if err != nil {
+		return Reply{}, err
+	}
+	var resp geminiResponse
+	if err := json.Unmarshal(data, &resp); err != nil {
+		return Reply{}, fmt.Errorf("unreadable Gemini response: %w", err)
+	}
+	if resp.Error != nil && resp.Error.Message != "" {
+		return Reply{}, &HTTPError{Code: 400, Body: resp.Error.Message}
+	}
+	if len(resp.Candidates) == 0 {
+		return Reply{}, errors.New("Gemini returned a response with no candidates (safety block?)")
+	}
+
+	reply := Reply{FinishReason: resp.Candidates[0].FinishReason}
+	for _, part := range resp.Candidates[0].Content.Parts {
+		if part.Text != "" {
+			reply.Content += part.Text
+		}
+		if len(part.FunctionCall) > 0 {
+			var fc geminiFunctionCall
+			if err := json.Unmarshal(part.FunctionCall, &fc); err == nil {
+				reply.Calls = append(reply.Calls, ToolCall{
+					Type: "function",
+					Function: FunctionCall{
+						Name:      fc.Name,
+						Arguments: fc.Args,
+					},
+				})
+			}
+		}
+	}
+	return reply, nil
+}
+
+func toGeminiToolDeclarations(tools []Tool) []map[string]any {
+	out := make([]map[string]any, 0, len(tools))
+	for _, t := range tools {
+		out = append(out, map[string]any{
+			"name":        t.Function.Name,
+			"description": t.Function.Description,
+			"parameters": map[string]any{
+				"type":       "object",
+				"properties": t.Function.Parameters,
+			},
+		})
+	}
+	return out
 }
 
 // --- transport --------------------------------------------------------------

@@ -46,7 +46,7 @@ fi
 step "5. coverage (gate: ${MIN_COVERAGE}% per package)"
 # Checked package by package: a gap must not hide behind the aggregate.
 below=0
-for pkg in $(go list ./internal/... ./cmd/... 2>/dev/null); do
+for pkg in $(go list ./internal/... ./cmd/... ./tools/... 2>/dev/null); do
   result="$(go test -count=1 -cover "$pkg" 2>/dev/null)"
   if echo "$result" | grep -q 'no test files'; then
     printf '    %-52s (no test files)\n' "$pkg"
@@ -83,9 +83,8 @@ else
   echo "    (total: $(echo "$found" | wc -l) line(s))"
 fi
 
-step "7. end-to-end tests on i386"
-# Every linux architecture the project publishes is exercised, not only i386: on
-# arm and arm64 this relies on qemu being registered on the host.
+step "7. end-to-end tests on linux"
+# Every linux architecture the project publishes is exercised.
 for arch in 386 amd64 arm arm64; do
   if ./scripts/e2e-agent.sh "$arch" >"/tmp/verify_e2e_agent_$arch.log" 2>&1; then
     ok "agent E2E on linux/$arch"
@@ -93,11 +92,11 @@ for arch in 386 amd64 arm arm64; do
     bad "agent E2E failed on linux/$arch (see /tmp/verify_e2e_agent_$arch.log)"
     tail -15 "/tmp/verify_e2e_agent_$arch.log" | sed 's/^/    /'
   fi
-  if ./scripts/e2e.sh "$arch" >"/tmp/verify_e2e_chat_$arch.log" 2>&1; then
-    ok "chat E2E on linux/$arch"
+  if ./scripts/e2e.sh "$arch" >"/tmp/verify_e2e_$arch.log" 2>&1; then
+    ok "E2E on linux/$arch"
   else
-    bad "chat E2E failed on linux/$arch (see /tmp/verify_e2e_chat_$arch.log)"
-    tail -15 "/tmp/verify_e2e_chat_$arch.log" | sed 's/^/    /'
+    bad "E2E failed on linux/$arch (see /tmp/verify_e2e_$arch.log)"
+    tail -15 "/tmp/verify_e2e_$arch.log" | sed 's/^/    /'
   fi
 done
 

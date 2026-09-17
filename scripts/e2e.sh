@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# End-to-end test of the chat binary on ONE target platform.
+# End-to-end test of the starlight binary on ONE target platform.
 #
 # It runs the binary compiled for that architecture inside a matching container,
 # against an OpenAI-compatible server (tools/mockapi) that also runs in there. It
@@ -15,7 +15,7 @@ cd "$(dirname "$0")/.."
 
 # This repository is also developed inside a container where Go is not on the
 # default PATH; the CI has it. Prefer whatever is already available.
-if ! command -v go >/dev/null 2>&1 && [ -x /opt/data/cache/go/bin/go ]; then
+if ! command -v go >/dev/null 2>&1 && [ -x /opt/data/cache/go/bin ]; then
   export PATH="/opt/data/cache/go/bin:$PATH"
   export GOCACHE="${GOCACHE:-/opt/data/cache/go-build}"
   export GOPATH="${GOPATH:-/opt/data/cache/gopath}"
@@ -47,7 +47,7 @@ MOCK="dist/mockapi-linux-$ARCH"
 
 echo "==> Building the binaries for linux/$ARCH"
 GOOS=linux GOARCH="$ARCH" CGO_ENABLED=0 go build -trimpath \
-  -ldflags "-s -w -X main.version=e2e" -o "$BINARY" ./cmd/chat
+  -ldflags "-s -w -X main.version=e2e" -o "$BINARY" ./cmd/agent
 GOOS=linux GOARCH="$ARCH" CGO_ENABLED=0 go build -trimpath -o "$MOCK" ./tools/mockapi
 
 elf_class="$(head -c 5 "$BINARY" | od -An -tx1 | tr -d ' \n')"
