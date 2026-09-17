@@ -154,7 +154,32 @@ the exit code.
 
 ---
 
-## Installation and cross-compilation
+## Installation
+
+You do not need Go on the target machine: every release publishes the static
+binaries for the three architectures.
+
+```bash
+# The 3-layer agent for a 32-bit x86 machine
+curl -fsSLO https://github.com/madkoding/starlight/releases/latest/download/starlight-agent-linux-386
+chmod +x starlight-agent-linux-386
+./starlight-agent-linux-386 -version
+
+# The interactive chat
+curl -fsSLO https://github.com/madkoding/starlight/releases/latest/download/starlight-linux-386
+chmod +x starlight-linux-386
+./starlight-linux-386
+```
+
+Use `starlight-agent-linux-amd64` or `starlight-agent-linux-arm64` on those
+architectures. Each release also carries a `SHA256SUMS` file:
+
+```bash
+curl -fsSLO https://github.com/madkoding/starlight/releases/latest/download/SHA256SUMS
+sha256sum -c SHA256SUMS --ignore-missing
+```
+
+## Cross-compilation from source
 
 Requires Go 1.23 or newer. **You do not need to compile on the i386 machine.**
 

@@ -168,7 +168,15 @@ jobs:
           path: dist
           merge-multiple: true
 
+      - name: Checksums of the published binaries
+        working-directory: dist
+        run: |
+          # Deterministic order and only the binaries, so the file is stable.
+          sha256sum * | sort -k2 > SHA256SUMS
+          cat SHA256SUMS
+
       - uses: softprops/action-gh-release@v3
         with:
-          files: dist/*
+          files: |
+            dist/*
           generate_release_notes: true
