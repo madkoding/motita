@@ -133,7 +133,7 @@ jobs:
         run: |
           docker run --rm -v "$PWD/dist:/t:ro" -v "$PWD/configs:/c:ro" --platform linux/386 \
             i386/debian:bookworm-slim sh -c \
-            "STARLIGHT_LLM_API_KEY=test STARLIGHT_SANDBOX_CGROUPS=off /t/$(basename "$AGENT") -config /c/agent.yaml.example -validar-config"
+            "STARLIGHT_LLM_API_KEY=test STARLIGHT_SANDBOX_CGROUPS=off /t/$(basename "$AGENT") -config /c/agent.yaml.example -validate-config"
 
       - name: Agent end-to-end test (i386 container)
         if: matrix.goos == 'linux' && matrix.goarch == '386'

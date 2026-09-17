@@ -3,6 +3,8 @@
 /starlight
 /starlight-linux-*
 agent_i386
+/chat
+/chat.exe
 
 # Environment and secrets
 .env
