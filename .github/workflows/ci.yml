@@ -95,16 +95,26 @@ jobs:
       - name: Ejecutar los binarios en un contenedor i386 (prueba de humo)
         if: matrix.goos == 'linux' && matrix.goarch == '386'
         run: |
-          chmod +x "$AGENTE" "$CHAT"
+          chmod +x dist/*
+          echo "contenido de dist/:"
+          ls -l dist/
+          # Se usa el nombre real de cada artefacto (AGENTE y CHAT incluyen
+          # goos-goarch), no uno escrito a mano.
           docker run --rm -v "$PWD/dist:/t:ro" --platform linux/386 \
-            i386/debian:bookworm-slim sh -c '/t/starlight-agent-386 -version; /t/starlight-linux-386 -version'
+            i386/debian:bookworm-slim sh -c "/t/$(basename "$AGENTE") -version; /t/$(basename "$CHAT") -version"
 
       - name: Validación de configuración en i386 (sin llamar al LLM)
         if: matrix.goos == 'linux' && matrix.goarch == '386'
         run: |
           docker run --rm -v "$PWD/dist:/t:ro" -v "$PWD/configs:/c:ro" --platform linux/386 \
             i386/debian:bookworm-slim sh -c \
-            'STARLIGHT_LLM_API_KEY=prueba /t/starlight-agent-386 -config /c/agent.yaml.example -validar-config'
+            "STARLIGHT_LLM_API_KEY=prueba STARLIGHT_SANDBOX_CGROUPS=off /t/$(basename "$AGENTE") -config /c/agent.yaml.example -validar-config"
+
+      - name: Prueba de extremo a extremo del agente (contenedor i386)
+        if: matrix.goos == 'linux' && matrix.goarch == '386'
+        run: |
+          chmod +x scripts/e2e-agente-i386.sh
+          IMAGEN=i386/debian:bookworm-slim ./scripts/e2e-agente-i386.sh
 
       - uses: actions/upload-artifact@v7
         with:
