@@ -69,9 +69,14 @@ func EjecutarComoHijo(args []string) error {
 		return fmt.Errorf("la especificación del sandbox no trae comando")
 	}
 
-	if err := aplicarRlimits(espec.Limites); err != nil {
-		return err
-	}
+	// ORDEN IMPORTANTE: todo el trabajo del runtime de Go (chdir, chroot, bajar
+	// privilegios, resolver la ruta del comando) va ANTES de aplicar los
+	// setrlimit, y el exec va inmediatamente después. Aplicar RLIMIT_AS antes
+	// hace que el propio runtime muera con "fatal error: runtime: cannot
+	// allocate memory" en cuanto necesita reservar algo, porque el límite cuenta
+	// también la memoria virtual que el runtime de Go mapea (una reserva que
+	// depende del número de núcleos). Esto pasó de verdad: funcionaba en una
+	// máquina y fallaba en un runner con más núcleos.
 
 	// chroot antes que chdir final: después del chroot la ruta se interpreta
 	// dentro de la nueva raíz.
@@ -111,6 +116,12 @@ func EjecutarComoHijo(args []string) error {
 			os.Exit(127)
 		}
 		ruta = resuelta
+	}
+
+	// Último paso antes del exec: los límites. A partir de aquí Go no reserva
+	// memoria de nuevo.
+	for _, aviso := range aplicarRlimits(espec.Limites) {
+		fmt.Fprintf(os.Stderr, "starlight[sandbox]: %s\n", aviso)
 	}
 
 	// syscall.Exec reemplaza la imagen del proceso: no quedan dos procesos Go.

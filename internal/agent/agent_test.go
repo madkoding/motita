@@ -478,6 +478,86 @@ func TestLimiteDeSubtareas(t *testing.T) {
 	}
 }
 
+// TestAccionFinalFallidaNoEsTareaCompletada: bug encontrado por la CI con el
+// E2E en i386. La validación pasaba, la acción final moría (por el límite de
+// memoria del sandbox) y el agente informaba "tarea completada" y salía con 0.
+// Un contrato que no se cumple no es un éxito.
+func TestAccionFinalFallidaNoEsTareaCompletada(t *testing.T) {
+	falso := &servidorLLMFalso{accionesPorIntento: [][]string{{"true"}, {"true"}, {"true"}}}
+	srv := httptest.NewServer(falso.handler(t))
+	defer srv.Close()
+
+	e := montar(t, srv, config.Anchor{
+		Tipo: "command", Comando: "true", Timeout: 5 * time.Second,
+	}, func(c *config.Config) {
+		c.Agent.MaxReintentos = 2
+		// Acción final que siempre falla.
+		c.FinalAction = config.FinalAction{
+			Tipo: "command", Comando: "sh", Argumentos: []string{"-c", "exit 7"},
+		}
+	})
+
+	var resultado *ResultadoTarea
+	e.agente.Observador = func(r ResultadoTarea) { resultado = &r }
+
+	err := e.agente.Ejecutar(context.Background())
+	if err == nil {
+		t.Fatal("una acción final fallida debe hacer fallar la tarea y el proceso")
+	}
+	if resultado == nil {
+		t.Fatal("sin resultado")
+	}
+	if resultado.PASS {
+		t.Fatal("no puede declararse PASS si la acción final falló")
+	}
+	if !strings.Contains(resultado.Motivo, "acción final falló") {
+		t.Errorf("el motivo debe explicar que falló la acción final: %q", resultado.Motivo)
+	}
+	if !strings.Contains(err.Error(), "acción final falló") {
+		t.Errorf("el error del proceso debe incluir el motivo: %v", err)
+	}
+	// El código de salida distinto de cero es un fallo aunque no haya error de
+	// ejecución.
+	if !strings.Contains(resultado.Motivo, "código 7") {
+		t.Errorf("el motivo debe mencionar el código de salida: %q", resultado.Motivo)
+	}
+}
+
+// TestAccionFinalSeReintentaSiFalla: si la acción final falla, el bucle de
+// reintento vuelve a intentarlo en lugar de darse por vencido.
+func TestAccionFinalSeReintentaSiFalla(t *testing.T) {
+	dir := t.TempDir()
+	marca := filepath.Join(dir, "veces.txt")
+
+	falso := &servidorLLMFalso{accionesPorIntento: [][]string{{"true"}, {"true"}}}
+	srv := httptest.NewServer(falso.handler(t))
+	defer srv.Close()
+
+	e := montar(t, srv, config.Anchor{
+		Tipo: "command", Comando: "true", Timeout: 5 * time.Second,
+	}, func(c *config.Config) {
+		c.Agent.MaxReintentos = 2
+		// La acción final falla la primera vez y funciona la segunda.
+		script := fmt.Sprintf(`if [ -f %s ]; then exit 0; fi; touch %s; exit 9`, marca, marca)
+		c.FinalAction = config.FinalAction{
+			Tipo: "command", Comando: "sh", Argumentos: []string{"-c", script},
+		}
+	})
+
+	var resultado *ResultadoTarea
+	e.agente.Observador = func(r ResultadoTarea) { resultado = &r }
+
+	if err := e.agente.Ejecutar(context.Background()); err != nil {
+		t.Fatalf("debería acabar bien tras reintentar la acción final: %v", err)
+	}
+	if !resultado.PASS {
+		t.Fatalf("debería pasar al segundo intento: %s", resultado.Motivo)
+	}
+	if resultado.Intentos != 2 {
+		t.Errorf("intentos = %d, se esperaban 2", resultado.Intentos)
+	}
+}
+
 // TestAccionFinalSoloTrasPASS: la acción final no debe ejecutarse jamás si el
 // ancla no dio PASS.
 func TestAccionFinalSoloTrasPASS(t *testing.T) {

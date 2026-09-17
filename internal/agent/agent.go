@@ -310,10 +310,26 @@ func (a *Agente) bucle(ctx context.Context, t task.Tarea, profundidad int) Resul
 		res.Validacion = &validacion
 
 		if validacion.PASS && errEjecucion == nil {
-			// [9] PASS: acción final y fin.
-			accionFinal := a.ejecutarAccionFinal(ctx, accion.AccionFinal, prefijo)
-			res.PASS = true
+			// [9] PASS de la validación: ahora la acción final, que también forma
+			// parte del contrato (commit, publicar, notificar). Si la acción
+			// final falla, la tarea NO está completa: informar "completada"
+			// mientras el commit o la publicación falló sería exactamente el
+			// tipo de éxito falso que esta arquitectura existe para evitar.
+			accionFinal, errFinal := a.ejecutarAccionFinal(ctx, accion.AccionFinal, prefijo)
 			res.AccionFinal = accionFinal
+			if errFinal != nil {
+				detalle := fmt.Sprintf("la validación pasó pero la acción final falló: %v\nSalida: %s", errFinal, accionFinal)
+				intentosFallidos = append(intentosFallidos, detalle)
+				a.log.Error(prefijo+"la acción final falló", "intento", intento, "accion_final", accionFinal, "error", errFinal)
+				if intento > a.cfg.Agent.MaxReintentos {
+					res.Motivo = detalle
+					res.DuracionMS = time.Since(inicio).Milliseconds()
+					a.escalar(ctx, res, prefijo)
+					return res
+				}
+				continue
+			}
+			res.PASS = true
 			res.Motivo = validacion.Motivo
 			res.DuracionMS = time.Since(inicio).Milliseconds()
 			a.log.Info(prefijo+"validación superada", "intento", intento, "accion_final", accionFinal)
@@ -562,13 +578,16 @@ func (a *Agente) resumirFallo(accion Accion, ejecucion string, validacion anchor
 
 // --- Acción final y escalado ------------------------------------------------
 
-// ejecutarAccionFinal ejecuta la acción prevista sólo tras un PASS.
-func (a *Agente) ejecutarAccionFinal(ctx context.Context, c Comando, prefijo string) string {
+// ejecutarAccionFinal ejecuta la acción prevista sólo tras un PASS. Devuelve una
+// descripción legible y un error si la acción no se pudo completar (incluido un
+// código de salida distinto de cero, que es un fallo aunque no haya error de
+// ejecución).
+func (a *Agente) ejecutarAccionFinal(ctx context.Context, c Comando, prefijo string) (string, error) {
 	final := a.cfg.FinalAction
 
 	switch strings.ToLower(final.Tipo) {
 	case "", "none":
-		return "none"
+		return "none", nil
 
 	case "command":
 		comando := final.Comando
@@ -579,15 +598,19 @@ func (a *Agente) ejecutarAccionFinal(ctx context.Context, c Comando, prefijo str
 		}
 		if strings.TrimSpace(comando) == "" {
 			a.log.Warn(prefijo + "final_action.tipo=command sin comando: no se hace nada")
-			return "none"
+			return "none", nil
 		}
 		a.log.Info(prefijo+"ejecutando la acción final", "comando", comando)
 		salida, _, exit, err := a.sandbox.Ejecutar(ctx, execx.Peticion{Comando: comando, Args: args, Timeout: a.cfg.Sandbox.Timeout})
+		descripcion := fmt.Sprintf("command exit=%d salida=%s", exit, recortar(salida, 300))
 		if err != nil {
 			a.log.Error(prefijo+"la acción final falló", "error", err, "salida", recortar(salida, 500))
-			return "error: " + err.Error()
+			return descripcion, fmt.Errorf("la acción final no pudo ejecutarse: %w", err)
 		}
-		return fmt.Sprintf("command exit=%d salida=%s", exit, recortar(salida, 300))
+		if exit != 0 {
+			return descripcion, fmt.Errorf("la acción final terminó con código %d", exit)
+		}
+		return descripcion, nil
 
 	case "api":
 		cuerpo := map[string]any{
@@ -603,17 +626,21 @@ func (a *Agente) ejecutarAccionFinal(ctx context.Context, c Comando, prefijo str
 		req, err := http.NewRequestWithContext(ctx, metodo, final.URL, bytes.NewReader(datos))
 		if err != nil {
 			a.log.Error(prefijo+"petición final inválida", "error", err)
-			return "error: " + err.Error()
+			return "error: " + err.Error(), fmt.Errorf("la acción final (API) tiene una URL inválida: %w", err)
 		}
 		req.Header.Set("Content-Type", "application/json")
 		resp, err := a.http.Do(req)
 		if err != nil {
 			a.log.Error(prefijo+"la notificación final falló", "error", err)
-			return "error: " + err.Error()
+			return "error: " + err.Error(), fmt.Errorf("la acción final (API) falló: %w", err)
 		}
 		defer resp.Body.Close()
 		io.Copy(io.Discard, io.LimitReader(resp.Body, 64<<10))
-		return fmt.Sprintf("api %s %s -> HTTP %d", metodo, final.URL, resp.StatusCode)
+		descripcion := fmt.Sprintf("api %s %s -> HTTP %d", metodo, final.URL, resp.StatusCode)
+		if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+			return descripcion, fmt.Errorf("la acción final (API) devolvió HTTP %d", resp.StatusCode)
+		}
+		return descripcion, nil
 
 	case "git_commit":
 		mensaje, _ := plantilla.Render(final.MensajeCommit, map[string]string{"tarea": c.Descripcion})
@@ -632,13 +659,16 @@ func (a *Agente) ejecutarAccionFinal(ctx context.Context, c Comando, prefijo str
 			salidas = append(salidas, fmt.Sprintf("%s -> exit=%d %s", cmd, exit, recortar(salida, 200)))
 			if err != nil {
 				a.log.Error(prefijo+"git_commit falló", "comando", cmd, "error", err)
-				return "error: " + err.Error()
+				return "git_commit: " + strings.Join(salidas, " | "), fmt.Errorf("git_commit: %s falló: %w", cmd, err)
+			}
+			if exit != 0 {
+				return "git_commit: " + strings.Join(salidas, " | "), fmt.Errorf("git_commit: %s terminó con código %d", cmd, exit)
 			}
 		}
-		return "git_commit: " + strings.Join(salidas, " | ")
+		return "git_commit: " + strings.Join(salidas, " | "), nil
 
 	default:
-		return "none"
+		return "none", fmt.Errorf("final_action.tipo desconocido: %q", final.Tipo)
 	}
 }
 

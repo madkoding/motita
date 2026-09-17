@@ -54,18 +54,21 @@ func hayLimites(l Limites) bool {
 // Se aplica aquí, y no con el utilitario `prlimit`, para no depender de que
 // util-linux esté instalado en la máquina i386 (a menudo no lo está) ni de
 // privilegios. setrlimit no requiere ninguno.
-func aplicarRlimits(l Limites) error {
+// Devuelve la lista de avisos (límites que no se pudieron aplicar) para que
+// queden registrados: no aplicar un límite en silencio es peor que fallar.
+func aplicarRlimits(l Limites) []string {
+	var avisos []string
 	if l.CPUSegundos > 0 {
 		if err := syscall.Setrlimit(syscall.RLIMIT_CPU, &syscall.Rlimit{
 			Cur: uint64(l.CPUSegundos), Max: uint64(l.CPUSegundos + 5),
 		}); err != nil {
-			return fmt.Errorf("RLIMIT_CPU: %w", err)
+			avisos = append(avisos, fmt.Sprintf("no se pudo aplicar RLIMIT_CPU=%ds: %v", l.CPUSegundos, err))
 		}
 	}
 	if l.MemoriaMB > 0 {
 		bytes := uint64(l.MemoriaMB) << 20
 		if err := syscall.Setrlimit(syscall.RLIMIT_AS, &syscall.Rlimit{Cur: bytes, Max: bytes}); err != nil {
-			return fmt.Errorf("RLIMIT_AS: %w", err)
+			avisos = append(avisos, fmt.Sprintf("no se pudo aplicar RLIMIT_AS=%dMB: %v", l.MemoriaMB, err))
 		}
 		// El volcado de núcleo de un proceso que agota la memoria puede llenar
 		// el disco de una máquina pequeña: se desactiva.
@@ -76,23 +79,23 @@ func aplicarRlimits(l Limites) error {
 		// estándar, pero el tipo subyacente es el mismo {Cur,Max} uint64.
 		lim := syscall.Rlimit{Cur: uint64(l.Procesos), Max: uint64(l.Procesos)}
 		if err := syscall.Setrlimit(rlimitNPROC, &lim); err != nil {
-			return fmt.Errorf("RLIMIT_NPROC: %w", err)
+			avisos = append(avisos, fmt.Sprintf("no se pudo aplicar RLIMIT_NPROC=%d: %v", l.Procesos, err))
 		}
 	}
 	if l.ArchivosAbiertos > 0 {
 		if err := syscall.Setrlimit(syscall.RLIMIT_NOFILE, &syscall.Rlimit{
 			Cur: uint64(l.ArchivosAbiertos), Max: uint64(l.ArchivosAbiertos),
 		}); err != nil {
-			return fmt.Errorf("RLIMIT_NOFILE: %w", err)
+			avisos = append(avisos, fmt.Sprintf("no se pudo aplicar RLIMIT_NOFILE=%d: %v", l.ArchivosAbiertos, err))
 		}
 	}
 	if l.TamanoArchivoMB > 0 {
 		bytes := uint64(l.TamanoArchivoMB) << 20
 		if err := syscall.Setrlimit(syscall.RLIMIT_FSIZE, &syscall.Rlimit{Cur: bytes, Max: bytes}); err != nil {
-			return fmt.Errorf("RLIMIT_FSIZE: %w", err)
+			avisos = append(avisos, fmt.Sprintf("no se pudo aplicar RLIMIT_FSIZE=%dMB: %v", l.TamanoArchivoMB, err))
 		}
 	}
-	return nil
+	return avisos
 }
 
 // entrarChroot y bajarPrivilegios requieren root; se aíslan aquí para que el

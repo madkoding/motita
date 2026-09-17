@@ -24,8 +24,8 @@ func atributosHijo(l Limites, dropPrivs bool, uid, gid int) (*syscall.SysProcAtt
 
 func hayLimites(l Limites) bool { return false }
 
-func aplicarRlimits(l Limites) error {
-	return fmt.Errorf("setrlimit sólo está implementado en Linux")
+func aplicarRlimits(l Limites) []string {
+	return []string{"setrlimit sólo está implementado en Linux"}
 }
 
 func entrarChroot(raiz, dir string) error {

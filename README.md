@@ -269,7 +269,7 @@ make e2e-agente      # extremo a extremo del agente en un contenedor i386 real
 make e2e             # extremo a extremo del chat en un contenedor i386 real
 ```
 
-- **138 casos de prueba**, todos verdes, sobre las tres capas y sus piezas: ancla,
+- **152 casos de prueba**, todos verdes, sobre las tres capas y sus piezas: ancla,
   sandbox, motor LLM, bucle del agente, parser YAML, registro, plantillas y
   fuentes de tareas.
 - La CI (`.github/workflows/ci.yml`) corre `gofmt`, `vet`, `test -race`, compila
@@ -315,6 +315,8 @@ agente dice de sí mismo.
 | `anchor.tipo=none: este agente sólo declara una tarea como completada...` | Es intencionado: sin validador determinista no hay `PASS`. Configura un ancla real. |
 | El binario no arranca (`not found`) | Es un ELF de 32 bits: `head -c 5 binario \| od -An -tx1` debe empezar por `7f 45 4c 46 01`. |
 | `salida truncada por el límite del sandbox` | Sube `sandbox.salida_max_kb` si el comando produce más salida de la esperada. |
+| `fatal error: runtime: cannot allocate memory` tras el paso por el sandbox | Un `memoria_mb` demasiado bajo mata al proceso de aislamiento (que es este mismo binario, en Go) mientras prepara el exec. El código lo evita aplicando los límites **al final**, cuando ya no hace falta reservar memoria; si aun así aparece, sube `memoria_mb`. |
+| Una tarea aparece como no completada aunque el ancla dio PASS | La **acción final** falló (commit, publicación, notificación). Cuenta como fallo a propósito: un contrato que no se cumple no es un éxito. El motivo está en el registro y en el mensaje de error. |
 
 ---
 

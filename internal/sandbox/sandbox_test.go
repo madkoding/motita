@@ -162,6 +162,61 @@ func TestSandboxComandoPorNombre(t *testing.T) {
 	}
 }
 
+// TestSandboxConLimiteDeMemoriaMuyBajo: bug encontrado por la CI. Si el proceso
+// que aplica los límites es un binario Go, aplicar RLIMIT_AS antes de resolver la
+// ruta del comando hace que el propio runtime muera con "fatal error: runtime:
+// cannot allocate memory" (el límite cuenta también la memoria virtual que el
+// runtime mapea, y esa reserva depende del número de núcleos: funcionaba en una
+// máquina y fallaba en un runner con más núcleos).
+//
+// Con el orden corregido (todos los preparativos primero, límites justo antes
+// del exec), un límite pequeño debe seguir permitiendo ejecutar comandos.
+func TestSandboxConLimiteDeMemoriaMuyBajo(t *testing.T) {
+	s := nuevoSandbox(t, Limites{MemoriaMB: 64, ArchivosAbiertos: 64})
+
+	salida, _, exit, err := s.Ejecutar(context.Background(), execx.Peticion{
+		Comando: "/bin/sh",
+		Args:    []string{"-c", "echo vivo-con-poca-memoria"},
+	})
+	if err != nil {
+		t.Fatalf("con 64 MB de límite el aislamiento debe seguir funcionando: %v (salida %q)", err, salida)
+	}
+	if exit != 0 || !strings.Contains(salida, "vivo-con-poca-memoria") {
+		t.Errorf("exit=%d salida=%q", exit, salida)
+	}
+}
+
+// TestSandboxComandoPorNombreConLimiteBajo: el caso exacto que fallaba. La
+// resolución del PATH necesita reservar memoria, así que debe ocurrir antes del
+// límite.
+func TestSandboxComandoPorNombreConLimiteBajo(t *testing.T) {
+	s := nuevoSandbox(t, Limites{MemoriaMB: 64})
+
+	salida, _, exit, err := s.Ejecutar(context.Background(), execx.Peticion{
+		Comando: "echo",
+		Args:    []string{"resuelto-con-limite"},
+	})
+	if err != nil {
+		t.Fatalf("resolver el PATH con el límite ya aplicado mata al runtime: %v (salida %q)", err, salida)
+	}
+	if exit != 0 || !strings.Contains(salida, "resuelto-con-limite") {
+		t.Errorf("exit=%d salida=%q", exit, salida)
+	}
+}
+
+// TestAplicarRlimitsInformaDeLosFallos: un límite que no se puede aplicar debe
+// quedar registrado, no pasar en silencio.
+func TestAplicarRlimitsInformaDeLosFallos(t *testing.T) {
+	avisos := aplicarRlimits(Limites{})
+	if len(avisos) != 0 {
+		t.Errorf("sin límites no debería haber avisos: %v", avisos)
+	}
+	// Un límite absurdo (más alto que el máximo duro del sistema) no se puede
+	// aplicar y debe avisarse.
+	avisos = aplicarRlimits(Limites{Procesos: 1 << 30})
+	t.Logf("avisos al aplicar un límite imposible: %v", avisos)
+}
+
 // TestSandboxComandoInexistenteEnPATH: si no existe, el error debe ser claro.
 func TestSandboxComandoInexistenteEnPATH(t *testing.T) {
 	s := nuevoSandbox(t, Limites{})
