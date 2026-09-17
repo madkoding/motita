@@ -262,7 +262,8 @@ func (s *session) summary(res Result) {
 	s.say("   provider: %s", res.Provider)
 	s.say("   model:    %s", res.Model)
 	if res.CredentialsPath != "" {
-		s.say("✅ Written %s (permissions 0600, keep it out of the repository)", res.CredentialsPath)
+		s.say("✅ Written %s", res.CredentialsPath)
+		s.say("   %s", credentialsProtection())
 		s.say("")
 		s.say("Next:")
 		s.say("  source %s", res.CredentialsPath)

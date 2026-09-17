@@ -84,18 +84,22 @@ else
 fi
 
 step "7. end-to-end tests on i386"
-if ./scripts/e2e-agent-i386.sh >/tmp/verify_e2e_agent.log 2>&1; then
-  ok "agent E2E on i386"
-else
-  bad "agent E2E failed (see /tmp/verify_e2e_agent.log)"
-  tail -20 /tmp/verify_e2e_agent.log | sed 's/^/    /'
-fi
-if ./scripts/e2e-i386.sh >/tmp/verify_e2e_chat.log 2>&1; then
-  ok "chat E2E on i386"
-else
-  bad "chat E2E failed (see /tmp/verify_e2e_chat.log)"
-  tail -20 /tmp/verify_e2e_chat.log | sed 's/^/    /'
-fi
+# Every linux architecture the project publishes is exercised, not only i386: on
+# arm and arm64 this relies on qemu being registered on the host.
+for arch in 386 amd64 arm arm64; do
+  if ./scripts/e2e-agent.sh "$arch" >"/tmp/verify_e2e_agent_$arch.log" 2>&1; then
+    ok "agent E2E on linux/$arch"
+  else
+    bad "agent E2E failed on linux/$arch (see /tmp/verify_e2e_agent_$arch.log)"
+    tail -15 "/tmp/verify_e2e_agent_$arch.log" | sed 's/^/    /'
+  fi
+  if ./scripts/e2e.sh "$arch" >"/tmp/verify_e2e_chat_$arch.log" 2>&1; then
+    ok "chat E2E on linux/$arch"
+  else
+    bad "chat E2E failed on linux/$arch (see /tmp/verify_e2e_chat_$arch.log)"
+    tail -15 "/tmp/verify_e2e_chat_$arch.log" | sed 's/^/    /'
+  fi
+done
 
 printf '\n========================================\n'
 if [ "$failures" -eq 0 ]; then

@@ -208,6 +208,10 @@ func (s *Sandbox) Isolation() []Mode {
 // NotApplied lists the isolation that was requested and could not be applied.
 func (s *Sandbox) NotApplied() []string { return s.notApplied }
 
+// Base is the absolute working directory the sandbox was built around. It is what
+// every relative path handed to the child is resolved against.
+func (s *Sandbox) Base() string { return s.base }
+
 // Run runs an isolated command. It returns the combined output, whether it was
 // truncated, the exit code and an error only when the command could not be run.
 func (s *Sandbox) Run(ctx context.Context, p execx.Request) (string, bool, int, error) {

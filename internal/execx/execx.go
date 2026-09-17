@@ -124,13 +124,16 @@ func Run(ctx context.Context, p Request) (string, bool, int, error) {
 	return text, output.truncated, exit, nil
 }
 
-// RunShell runs the command through `sh -c`, to support pipes, redirections and
-// quotes the way a person would type them in the terminal.
+// RunShell runs the command through the platform's shell (`sh -c` on Unix,
+// `cmd /c` on Windows), to support pipes, redirections and quotes the way a person
+// would type them in the terminal.
 func RunShell(ctx context.Context, command, dir string, timeout time.Duration, max int64) (Result, error) {
 	childCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
-	cmd := exec.CommandContext(childCtx, "sh", "-c", command)
+	// The interpreter is chosen per platform (see shell_unix.go / shell_windows.go)
+	// so the same call works on both families.
+	cmd := shellCommand(childCtx, command)
 	cmd.Dir = dir
 	configureGroup(cmd)
 	cmd.Cancel = func() error { return killGroup(cmd) }

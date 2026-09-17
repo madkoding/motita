@@ -75,15 +75,24 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - { goos: linux, goarch: "386", check32: "true" }
-          - { goos: linux, goarch: amd64 }
-          - { goos: linux, goarch: arm64 }
+          # Every platform Go can build these programs for. windows/arm,
+          # darwin/386 and darwin/arm do not exist in Go.
+          - { goos: linux,   goarch: "386",   container: i386/debian:bookworm-slim,     platform: linux/386,   e2e: "true" }
+          - { goos: linux,   goarch: amd64,   container: debian:bookworm-slim,         platform: linux/amd64, e2e: "true" }
+          - { goos: linux,   goarch: arm,     container: arm32v7/debian:bookworm-slim, platform: linux/arm/v7, e2e: "true" }
+          - { goos: linux,   goarch: arm64,   container: arm64v8/debian:bookworm-slim, platform: linux/arm64, e2e: "true" }
+          - { goos: windows, goarch: "386" }
+          - { goos: windows, goarch: amd64 }
+          - { goos: windows, goarch: arm64 }
+          - { goos: darwin,  goarch: amd64 }
+          - { goos: darwin,  goarch: arm64 }
     env:
       GOOS: ${{ matrix.goos }}
       GOARCH: ${{ matrix.goarch }}
       CGO_ENABLED: "0"
-      AGENT: dist/starlight-agent-${{ matrix.goos }}-${{ matrix.goarch }}
-      CHAT: dist/starlight-${{ matrix.goos }}-${{ matrix.goarch }}
+      EXT: ${{ matrix.goos == 'windows' && '.exe' || '' }}
+      AGENT: dist/starlight-agent-${{ matrix.goos }}-${{ matrix.goarch }}${{ matrix.goos == 'windows' && '.exe' || '' }}
+      CHAT: dist/starlight-${{ matrix.goos }}-${{ matrix.goarch }}${{ matrix.goos == 'windows' && '.exe' || '' }}
     steps:
       - uses: actions/checkout@v7
 
@@ -100,52 +109,70 @@ jobs:
           go build -trimpath -ldflags "-s -w -X main.version=$version" -o "$CHAT" ./cmd/chat
           ls -l dist
 
-      - name: Verify the binaries are 32-bit and within the size limit
-        if: matrix.check32 == 'true'
+      - name: Verify the binary really is for the platform its name claims
         run: |
+          # A wrong cross-compile is invisible until the binary is run somewhere
+          # else, so each container format is checked by its magic number:
+          #   ELF    (linux)   7f 45 4c 46 + class in byte 5 (01 = 32-bit, 02 = 64-bit)
+          #   PE     (windows) 4d 5a
+          #   Mach-O (darwin)  cf fa ed fe (64-bit)
           for binary in "$AGENT" "$CHAT"; do
-            file "$binary"
-            file "$binary" | grep -q "ELF 32-bit" || { echo "::error::$binary is not 32-bit"; exit 1; }
-            # Check independent of `file`: byte 5 of the ELF header
-            # (0x01 = ELFCLASS32).
-            header="$(head -c 5 "$binary" | od -An -tx1 | tr -d ' \n')"
-            [ "$header" = "7f454c4601" ] || { echo "::error::unexpected ELF header in $binary: $header"; exit 1; }
-            echo "ELFCLASS32 confirmed in $binary ($header)"
+            case "${{ matrix.goos }}" in
+              windows)
+                header="$(head -c 2 "$binary" | od -An -tx1 | tr -d ' \n')"
+                [ "$header" = "4d5a" ] || { echo "::error::$binary is not a PE executable ($header)"; exit 1; }
+                echo "PE confirmed in $binary ($header)"
+                ;;
+              darwin)
+                header="$(head -c 4 "$binary" | od -An -tx1 | tr -d ' \n')"
+                [ "$header" = "cffaedfe" ] || { echo "::error::$binary is not a 64-bit Mach-O ($header)"; exit 1; }
+                echo "Mach-O confirmed in $binary ($header)"
+                ;;
+              linux)
+                want="7f454c4602"
+                case "${{ matrix.goarch }}" in 386|arm) want="7f454c4601" ;; esac
+                header="$(head -c 5 "$binary" | od -An -tx1 | tr -d ' \n')"
+                [ "$header" = "$want" ] || { echo "::error::$binary has class $header, expected $want"; exit 1; }
+                echo "ELF confirmed in $binary ($header)"
+                ;;
+            esac
+            file "$binary" || true
             # Quality requirement: the final binary must weigh under 10 MB.
             bytes="$(stat -c%s "$binary")"
             [ "$bytes" -lt 10485760 ] || { echo "::error::$binary weighs $bytes bytes (limit: 10 MB)"; exit 1; }
             echo "$binary: $bytes bytes (< 10 MB)"
           done
 
-      - name: Run the binaries in an i386 container (smoke test)
-        if: matrix.goos == 'linux' && matrix.goarch == '386'
+      - name: Run the binaries in their own container (smoke test)
+        if: matrix.goos == 'linux'
         run: |
           chmod +x dist/*
-          echo "contents of dist/:"
-          ls -l dist/
           # The real artifact name is used (AGENT and CHAT include goos-goarch),
           # never a hand-written one.
-          docker run --rm -v "$PWD/dist:/t:ro" --platform linux/386 \
-            i386/debian:bookworm-slim sh -c "/t/$(basename "$AGENT") -version; /t/$(basename "$CHAT") -version"
+          docker run --rm -v "$PWD/dist:/t:ro" --platform "${{ matrix.platform }}" \
+            "${{ matrix.container }}" sh -c "/t/$(basename "$AGENT") -version; /t/$(basename "$CHAT") -version"
 
-      - name: Configuration validation on i386 (without calling the LLM)
-        if: matrix.goos == 'linux' && matrix.goarch == '386'
+      - name: Configuration validation (without calling the LLM)
+        if: matrix.goos == 'linux'
         run: |
-          docker run --rm -v "$PWD/dist:/t:ro" -v "$PWD/configs:/c:ro" --platform linux/386 \
-            i386/debian:bookworm-slim sh -c \
+          docker run --rm -v "$PWD/dist:/t:ro" -v "$PWD/configs:/c:ro" --platform "${{ matrix.platform }}" \
+            "${{ matrix.container }}" sh -c \
             "STARLIGHT_LLM_API_KEY=test STARLIGHT_SANDBOX_CGROUPS=off /t/$(basename "$AGENT") -config /c/agent.yaml.example -validate-config"
 
-      - name: Agent end-to-end test (i386 container)
-        if: matrix.goos == 'linux' && matrix.goarch == '386'
+      - name: Agent end-to-end test
+        if: matrix.e2e == 'true'
         run: |
-          chmod +x scripts/e2e-agent-i386.sh
-          IMAGEN=i386/debian:bookworm-slim ./scripts/e2e-agent-i386.sh
+          # qemu is registered once and every architecture then runs natively
+          # enough for a test; it is what makes arm and arm64 verifiable here.
+          docker run --rm --privileged multiarch/qemu-user-static --reset -p yes
+          chmod +x scripts/e2e-agent.sh
+          ./scripts/e2e-agent.sh "${{ matrix.goarch }}"
 
-      - name: Chat end-to-end test (i386 container)
-        if: matrix.goos == 'linux' && matrix.goarch == '386'
+      - name: Chat end-to-end test
+        if: matrix.e2e == 'true'
         run: |
-          chmod +x scripts/e2e-i386.sh
-          IMAGEN=i386/debian:bookworm-slim ./scripts/e2e-i386.sh
+          chmod +x scripts/e2e.sh
+          ./scripts/e2e.sh "${{ matrix.goarch }}"
 
       - uses: actions/upload-artifact@v7
         with:

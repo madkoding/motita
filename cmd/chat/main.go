@@ -33,7 +33,6 @@ import (
 	"io"
 	"net/http"
 	"os"
-	"os/exec"
 	"runtime"
 	"strings"
 	"time"
@@ -308,7 +307,7 @@ func toolRunCommand(raw json.RawMessage) string {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(seconds)*time.Second)
 	defer cancel()
 
-	cmd := exec.CommandContext(ctx, "sh", "-c", command)
+	cmd := shellCommand(ctx, command)
 	// Commands go into their own process group and are killed as a group when
 	// the deadline expires: if only `sh` died, its children would keep the pipe
 	// open and Wait would hang (see process_unix.go).

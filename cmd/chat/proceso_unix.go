@@ -3,10 +3,17 @@
 package main
 
 import (
+	"context"
 	"os"
 	"os/exec"
 	"syscall"
 )
+
+// shellCommand builds the process that runs a line the way a person would type it
+// in the terminal. On Unix that interpreter is `sh`.
+func shellCommand(ctx context.Context, command string) *exec.Cmd {
+	return exec.CommandContext(ctx, "sh", "-c", command)
+}
 
 // configureGroup isolates the command in its own process group. Without this,
 // killing only `sh` leaves its children alive (`sleep`, scripts, pipes), which

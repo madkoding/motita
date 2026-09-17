@@ -120,7 +120,7 @@ The agent loop allows up to **5 tool-calling iterations** per turn
 
 ```bash
 make check        # gofmt + go vet + go test  (what CI runs)
-./scripts/e2e-i386.sh    # end-to-end test in a real i386 container
+./scripts/e2e.sh 386     # end-to-end test in a real 32-bit container
 ```
 
 - **17 test cases** (`go test -race ./...`) over the tools, the HTTP client, the
@@ -133,7 +133,7 @@ make check        # gofmt + go vet + go test  (what CI runs)
 
 ### End-to-end test
 
-`scripts/e2e-i386.sh` builds `tools/mockapi` and the chat for 386, and inside a
+`scripts/e2e.sh <arch>` builds `tools/mockapi` and the chat for that architecture, and inside a
 `--platform linux/386` container it starts the mock, lets the agent run real
 tools and checks the marker in the final answer:
 
@@ -161,7 +161,7 @@ cmd/chat/process_unix.go     process group: killing the child and its descendant
 cmd/chat/process_other.go    alternative for systems without POSIX process groups
 cmd/chat/main_test.go        17 test cases
 tools/mockapi/main.go        OpenAI-compatible server for tests
-scripts/e2e-i386.sh          end-to-end test on 32-bit
+scripts/e2e.sh <arch>        end-to-end test (386, amd64, arm, arm64)
 Makefile                     build, test, cross-compiling
 ```
 

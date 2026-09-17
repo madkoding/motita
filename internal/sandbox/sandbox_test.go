@@ -1,3 +1,9 @@
+//go:build linux
+
+// The sandbox's isolation is Linux-specific (ulimit, cgroups v1, chroot, dropping
+// privileges). These tests exercise that code, so they only build where it exists;
+// the portable behaviour is covered by portable_test.go.
+
 package sandbox
 
 import (

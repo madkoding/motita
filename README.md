@@ -171,8 +171,22 @@ chmod +x starlight-linux-386
 ./starlight-linux-386
 ```
 
-Use `starlight-agent-linux-amd64` or `starlight-agent-linux-arm64` on those
-architectures. Each release also carries a `SHA256SUMS` file:
+Every release carries both programs for every platform Go can build them for:
+
+| System | Architectures | Asset suffix |
+|---|---|---|
+| Linux | `386`, `amd64`, `arm`, `arm64` | `-linux-<arch>` |
+| Windows | `386`, `amd64`, `arm64` | `-windows-<arch>.exe` |
+| macOS | `amd64`, `arm64` (Apple silicon) | `-darwin-<arch>` |
+
+So the names are `starlight-agent-linux-amd64`, `starlight-windows-amd64.exe`,
+`starlight-darwin-arm64`, and so on for both programs. The binaries are static and
+need no runtime, no Go and no Docker.
+
+`windows/arm`, `darwin/386` and `darwin/arm` are **not** published because Go does
+not support those pairs: the toolchain refuses to build them.
+
+Each release also carries a `SHA256SUMS` file:
 
 ```bash
 curl -fsSLO https://github.com/madkoding/starlight/releases/latest/download/SHA256SUMS
@@ -214,7 +228,8 @@ Command to run as the check [make]: make test
 
 Paste the key, or press Enter to set it later: sk-...
 ✅ Written ./starlight.yaml
-✅ Written ./starlight.env (permissions 0600, keep it out of the repository)
+✅ Written ./starlight.env
+   permissions 0600, keep it out of the repository
 ```
 
 Then:
@@ -243,10 +258,10 @@ What the wizard does and does not do:
 Requires Go 1.23 or newer. **You do not need to compile on the i386 machine.**
 
 ```bash
-make agent-386        # 3-layer agent for linux/386 (checks ELFCLASS32)
-make all              # chat + agent, for 386, amd64 and arm64
+make dist             # both programs for all 9 supported platforms
+make test-matrix      # the tests build for every one of them
 make check            # gofmt + go vet + go test
-make e2e-agent        # end to end in a real i386 container
+ARCH=arm64 make e2e-agent   # end to end in a real container of that architecture
 ```
 
 Resulting binaries (static, no cgo, no external libraries):
