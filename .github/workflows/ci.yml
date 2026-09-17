@@ -1,0 +1,110 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verificar:
+    name: fmt · vet · test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: gofmt
+        run: |
+          sin_formato="$(gofmt -l .)"
+          if [ -n "$sin_formato" ]; then
+            echo "Archivos sin formatear:"
+            echo "$sin_formato"
+            exit 1
+          fi
+
+      - name: go vet
+        run: go vet ./...
+
+      - name: go test
+        run: go test -count=1 -race ./...
+
+  compilar:
+    name: compilar ${{ matrix.goos }}/${{ matrix.goarch }}
+    needs: verificar
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { goos: linux, goarch: "386", verificar32: "true" }
+          - { goos: linux, goarch: amd64 }
+          - { goos: linux, goarch: arm64 }
+    env:
+      GOOS: ${{ matrix.goos }}
+      GOARCH: ${{ matrix.goarch }}
+      CGO_ENABLED: "0"
+      SALIDA: dist/starlight-${{ matrix.goos }}-${{ matrix.goarch }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Compilar binario estático
+        run: |
+          mkdir -p dist
+          version="${GITHUB_REF_NAME:-dev}"
+          go build -trimpath -ldflags "-s -w -X main.version=$version" -o "$SALIDA" .
+
+      - name: Verificar que el binario es de 32 bits
+        if: matrix.verificar32 == 'true'
+        run: |
+          file "$SALIDA"
+          file "$SALIDA" | grep -q "ELF 32-bit" || { echo "::error::el binario i386 no es de 32 bits"; exit 1; }
+          # Doble comprobación independiente de `file`: byte 5 de la cabecera ELF
+          # (0x01 = ELFCLASS32).
+          clase="$(head -c 5 "$SALIDA" | od -An -tx1 | tr -d ' \n')"
+          [ "$clase" = "7f454c4601" ] || { echo "::error::cabecera ELF inesperada: $clase"; exit 1; }
+          echo "ELFCLASS32 confirmado ($clase)"
+
+      - name: Ejecutar el binario (prueba de humo)
+        if: matrix.goos == 'linux' && matrix.goarch == '386'
+        run: |
+          chmod +x "$SALIDA"
+          # En el runner amd64 el contenedor i386 corre nativo.
+          docker run --rm -v "$PWD/dist:/t:ro" --platform linux/386 i386/debian:bookworm-slim /t/$(basename "$SALIDA") -version
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: starlight-${{ matrix.goos }}-${{ matrix.goarch }}
+          path: ${{ env.SALIDA }}
+          if-no-files-found: error
+
+  publicar:
+    name: publicar release
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: compilar
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*
+          generate_release_notes: true

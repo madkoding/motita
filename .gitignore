@@ -1,0 +1,15 @@
+# Artefactos de compilación
+/dist/
+/starlight
+/starlight-linux-*
+agente_i386
+
+# Entorno y secretos
+.env
+*.local
+
+# Editores
+.idea/
+.vscode/
+*.swp
+.DS_Store
