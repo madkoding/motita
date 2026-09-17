@@ -203,6 +203,11 @@ The three settings that are lists or maps (`task_source.headers`, `anchor.args`
 and `anchor.checks`) have no variable: they are collections, so they are set in
 the YAML file.
 
+One setting also answers to its older name: `agent.graceful_shutdown_timeout` is
+`STARLIGHT_AGENT_GRACEFUL_SHUTDOWN_TIMEOUT`, and
+`STARLIGHT_AGENT_SHUTDOWN_TIMEOUT` (the name of the earlier release) is still
+honoured. The documented one wins when both are set.
+
 | Block | Contents |
 |---|---|
 | `task_source` | `kind` (`stdin`/`file`/`api`/`queue`), `path`, `dir`, `url`, `method`, `field`, `interval`, `headers`, `body` |

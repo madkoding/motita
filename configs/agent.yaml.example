@@ -10,6 +10,8 @@
 # environment variable (see README.md). The lists and maps (task_source.headers,
 # anchor.args, anchor.checks) are set here. Credentials must NEVER live in this
 # file: use STARLIGHT_LLM_API_KEY or OPENAI_API_KEY.
+# graceful_shutdown_timeout also accepts the older name of the previous release:
+# STARLIGHT_AGENT_SHUTDOWN_TIMEOUT.
 
 # ---------------------------------------------------------------------------
 # Task source

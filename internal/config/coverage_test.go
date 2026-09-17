@@ -3,6 +3,8 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"reflect"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -197,53 +199,53 @@ func TestPathOrName(t *testing.T) {
 // TestEnvironmentAllKeys walks every variable to make sure they are applied.
 func TestEnvironmentAllKeys(t *testing.T) {
 	values := map[string]string{
-		"STARLIGHT_TASK_SOURCE_KIND":            "api",
-		"STARLIGHT_TASK_SOURCE_PATH":            "path.yaml",
-		"STARLIGHT_TASK_SOURCE_DIR":             "queue",
-		"STARLIGHT_TASK_SOURCE_URL":             "http://example/api",
-		"STARLIGHT_TASK_SOURCE_METHOD":          "POST",
-		"STARLIGHT_TASK_SOURCE_FIELD":           "text",
-		"STARLIGHT_TASK_SOURCE_BODY":            `{"a":1}`,
-		"STARLIGHT_TASK_SOURCE_INTERVAL":        "15s",
-		"STARLIGHT_ANCHOR_KIND":                 "command",
-		"STARLIGHT_ANCHOR_COMMAND":              "make",
-		"STARLIGHT_ANCHOR_TIMEOUT":              "2m",
-		"STARLIGHT_ANCHOR_EXPECT_EXIT":          "3",
-		"STARLIGHT_ANCHOR_EXPECT_OUTPUT":        "OK$",
-		"STARLIGHT_SANDBOX_KIND":                "chroot",
-		"STARLIGHT_SANDBOX_ROOT":                "/root",
-		"STARLIGHT_SANDBOX_USER":                "1000:1000",
-		"STARLIGHT_SANDBOX_CGROUPS":             "off",
-		"STARLIGHT_SANDBOX_CGROUP_ROOT":         "/other",
-		"STARLIGHT_SANDBOX_MEMORY_MB":           "111",
-		"STARLIGHT_SANDBOX_CPU_SECONDS":         "22",
-		"STARLIGHT_SANDBOX_PROCESSES":           "33",
-		"STARLIGHT_SANDBOX_TIMEOUT":             "44s",
-		"STARLIGHT_SANDBOX_ISOLATE_NETWORK":     "yes",
-		"STARLIGHT_LLM_PROVIDER":                "anthropic",
-		"STARLIGHT_LLM_MODEL":                   "claude",
-		"STARLIGHT_LLM_API_KEY":                 "key",
-		"STARLIGHT_LLM_BASE_URL":                "http://local",
-		"STARLIGHT_LLM_MAX_TOKENS":              "999",
-		"STARLIGHT_LLM_TEMPERATURE":             "0.7",
-		"STARLIGHT_LLM_TIMEOUT":                 "10s",
-		"STARLIGHT_LLM_MAX_ATTEMPTS":            "5",
-		"STARLIGHT_LLM_BACKOFF_INITIAL":         "2s",
-		"STARLIGHT_LLM_BACKOFF_MAX":             "8s",
-		"STARLIGHT_FINAL_ACTION_KIND":           "command",
-		"STARLIGHT_FINAL_ACTION_COMMAND":        "git",
-		"STARLIGHT_FINAL_ACTION_URL":            "http://hook",
-		"STARLIGHT_FINAL_ACTION_COMMIT_MESSAGE": "msg",
-		"STARLIGHT_AGENT_MAX_RETRIES":           "4",
-		"STARLIGHT_AGENT_SUBTASK_DEPTH":         "2",
-		"STARLIGHT_AGENT_MAX_TASKS":             "9",
-		"STARLIGHT_AGENT_WORKSPACE_DIR":         "/tmp/w",
-		"STARLIGHT_AGENT_LOG_FILE":              "/tmp/l.log",
-		"STARLIGHT_AGENT_LOG_LEVEL":             "debug",
-		"STARLIGHT_AGENT_LOG_CONSOLE":           "false",
-		"STARLIGHT_AGENT_LOG_MAX_MB":            "7",
-		"STARLIGHT_AGENT_LOG_BACKUPS":           "2",
-		"STARLIGHT_AGENT_SHUTDOWN_TIMEOUT":      "20s",
+		"STARLIGHT_TASK_SOURCE_KIND":                "api",
+		"STARLIGHT_TASK_SOURCE_PATH":                "path.yaml",
+		"STARLIGHT_TASK_SOURCE_DIR":                 "queue",
+		"STARLIGHT_TASK_SOURCE_URL":                 "http://example/api",
+		"STARLIGHT_TASK_SOURCE_METHOD":              "POST",
+		"STARLIGHT_TASK_SOURCE_FIELD":               "text",
+		"STARLIGHT_TASK_SOURCE_BODY":                `{"a":1}`,
+		"STARLIGHT_TASK_SOURCE_INTERVAL":            "15s",
+		"STARLIGHT_ANCHOR_KIND":                     "command",
+		"STARLIGHT_ANCHOR_COMMAND":                  "make",
+		"STARLIGHT_ANCHOR_TIMEOUT":                  "2m",
+		"STARLIGHT_ANCHOR_EXPECT_EXIT":              "3",
+		"STARLIGHT_ANCHOR_EXPECT_OUTPUT":            "OK$",
+		"STARLIGHT_SANDBOX_KIND":                    "chroot",
+		"STARLIGHT_SANDBOX_ROOT":                    "/root",
+		"STARLIGHT_SANDBOX_USER":                    "1000:1000",
+		"STARLIGHT_SANDBOX_CGROUPS":                 "off",
+		"STARLIGHT_SANDBOX_CGROUP_ROOT":             "/other",
+		"STARLIGHT_SANDBOX_MEMORY_MB":               "111",
+		"STARLIGHT_SANDBOX_CPU_SECONDS":             "22",
+		"STARLIGHT_SANDBOX_PROCESSES":               "33",
+		"STARLIGHT_SANDBOX_TIMEOUT":                 "44s",
+		"STARLIGHT_SANDBOX_ISOLATE_NETWORK":         "yes",
+		"STARLIGHT_LLM_PROVIDER":                    "anthropic",
+		"STARLIGHT_LLM_MODEL":                       "claude",
+		"STARLIGHT_LLM_API_KEY":                     "key",
+		"STARLIGHT_LLM_BASE_URL":                    "http://local",
+		"STARLIGHT_LLM_MAX_TOKENS":                  "999",
+		"STARLIGHT_LLM_TEMPERATURE":                 "0.7",
+		"STARLIGHT_LLM_TIMEOUT":                     "10s",
+		"STARLIGHT_LLM_MAX_ATTEMPTS":                "5",
+		"STARLIGHT_LLM_BACKOFF_INITIAL":             "2s",
+		"STARLIGHT_LLM_BACKOFF_MAX":                 "8s",
+		"STARLIGHT_FINAL_ACTION_KIND":               "command",
+		"STARLIGHT_FINAL_ACTION_COMMAND":            "git",
+		"STARLIGHT_FINAL_ACTION_URL":                "http://hook",
+		"STARLIGHT_FINAL_ACTION_COMMIT_MESSAGE":     "msg",
+		"STARLIGHT_AGENT_MAX_RETRIES":               "4",
+		"STARLIGHT_AGENT_SUBTASK_DEPTH":             "2",
+		"STARLIGHT_AGENT_MAX_TASKS":                 "9",
+		"STARLIGHT_AGENT_WORKSPACE_DIR":             "/tmp/w",
+		"STARLIGHT_AGENT_LOG_FILE":                  "/tmp/l.log",
+		"STARLIGHT_AGENT_LOG_LEVEL":                 "debug",
+		"STARLIGHT_AGENT_LOG_CONSOLE":               "false",
+		"STARLIGHT_AGENT_LOG_MAX_MB":                "7",
+		"STARLIGHT_AGENT_LOG_BACKUPS":               "2",
+		"STARLIGHT_AGENT_GRACEFUL_SHUTDOWN_TIMEOUT": "20s",
 	}
 	for k, v := range values {
 		t.Setenv(k, v)
@@ -958,60 +960,60 @@ func TestStripComment(t *testing.T) {
 // deployment without touching the file.
 func TestEveryEnvironmentVariable(t *testing.T) {
 	env := map[string]string{
-		"STARLIGHT_TASK_SOURCE_KIND":            "queue",
-		"STARLIGHT_TASK_SOURCE_PATH":            "/tmp/task.md",
-		"STARLIGHT_TASK_SOURCE_DIR":             "/tmp/queue",
-		"STARLIGHT_TASK_SOURCE_URL":             "http://example/tasks",
-		"STARLIGHT_TASK_SOURCE_METHOD":          "POST",
-		"STARLIGHT_TASK_SOURCE_FIELD":           "work",
-		"STARLIGHT_TASK_SOURCE_BODY":            `{"q":"all"}`,
-		"STARLIGHT_TASK_SOURCE_INTERVAL":        "45s",
-		"STARLIGHT_ANCHOR_KIND":                 "command",
-		"STARLIGHT_ANCHOR_COMMAND":              "make",
-		"STARLIGHT_ANCHOR_TIMEOUT":              "30s",
-		"STARLIGHT_ANCHOR_EXPECT_EXIT":          "3",
-		"STARLIGHT_ANCHOR_EXPECT_OUTPUT":        "READY",
-		"STARLIGHT_SANDBOX_KIND":                "cgroups",
-		"STARLIGHT_SANDBOX_ROOT":                "/srv/root",
-		"STARLIGHT_SANDBOX_USER":                "1000:1000",
-		"STARLIGHT_SANDBOX_MEMORY_MB":           "512",
-		"STARLIGHT_SANDBOX_CPU_SECONDS":         "15",
-		"STARLIGHT_SANDBOX_OPEN_FILES":          "128",
-		"STARLIGHT_SANDBOX_MAX_FILE_SIZE_MB":    "7",
-		"STARLIGHT_SANDBOX_CGROUPS":             "off",
-		"STARLIGHT_SANDBOX_CGROUP_ROOT":         "/sys/fs/cgroup",
-		"STARLIGHT_SANDBOX_MAX_OUTPUT_KB":       "64",
-		"STARLIGHT_SANDBOX_KEEP_EPHEMERAL":      "true",
-		"STARLIGHT_SANDBOX_PROCESSES":           "64",
-		"STARLIGHT_SANDBOX_TIMEOUT":             "25s",
-		"STARLIGHT_SANDBOX_ISOLATE_NETWORK":     "true",
-		"STARLIGHT_LLM_PROVIDER":                "anthropic",
-		"STARLIGHT_LLM_MODEL":                   "claude-test",
-		"STARLIGHT_LLM_API_KEY":                 "k",
-		"STARLIGHT_LLM_BASE_URL":                "https://example/v1",
-		"STARLIGHT_LLM_MAX_TOKENS":              "2048",
-		"STARLIGHT_LLM_TEMPERATURE":             "0.25",
-		"STARLIGHT_LLM_TIMEOUT":                 "45s",
-		"STARLIGHT_LLM_MAX_ATTEMPTS":            "4",
-		"STARLIGHT_LLM_BACKOFF_INITIAL":         "2s",
-		"STARLIGHT_LLM_BACKOFF_MAX":             "20s",
-		"STARLIGHT_FINAL_ACTION_KIND":           "api",
-		"STARLIGHT_FINAL_ACTION_COMMAND":        "true",
-		"STARLIGHT_FINAL_ACTION_URL":            "https://example/done",
-		"STARLIGHT_FINAL_ACTION_METHOD":         "PUT",
-		"STARLIGHT_FINAL_ACTION_COMMIT_MESSAGE": "agent: done",
-		"STARLIGHT_AGENT_MAX_RETRIES":           "5",
-		"STARLIGHT_AGENT_SUBTASK_DEPTH":         "3",
-		"STARLIGHT_AGENT_MAX_TASKS":             "9",
-		"STARLIGHT_AGENT_WORKSPACE_DIR":         "/tmp/ws",
-		"STARLIGHT_AGENT_LOG_FILE":              "/tmp/agent.log",
-		"STARLIGHT_AGENT_LOG_LEVEL":             "debug",
-		"STARLIGHT_AGENT_LOG_CONSOLE":           "false",
-		"STARLIGHT_AGENT_LOG_MAX_MB":            "5",
-		"STARLIGHT_AGENT_LOG_BACKUPS":           "2",
-		"STARLIGHT_AGENT_SHUTDOWN_TIMEOUT":      "20s",
-		"STARLIGHT_AGENT_ON_FAILURE_KIND":       "command",
-		"STARLIGHT_AGENT_ON_FAILURE_COMMAND":    "notify",
+		"STARLIGHT_TASK_SOURCE_KIND":                "queue",
+		"STARLIGHT_TASK_SOURCE_PATH":                "/tmp/task.md",
+		"STARLIGHT_TASK_SOURCE_DIR":                 "/tmp/queue",
+		"STARLIGHT_TASK_SOURCE_URL":                 "http://example/tasks",
+		"STARLIGHT_TASK_SOURCE_METHOD":              "POST",
+		"STARLIGHT_TASK_SOURCE_FIELD":               "work",
+		"STARLIGHT_TASK_SOURCE_BODY":                `{"q":"all"}`,
+		"STARLIGHT_TASK_SOURCE_INTERVAL":            "45s",
+		"STARLIGHT_ANCHOR_KIND":                     "command",
+		"STARLIGHT_ANCHOR_COMMAND":                  "make",
+		"STARLIGHT_ANCHOR_TIMEOUT":                  "30s",
+		"STARLIGHT_ANCHOR_EXPECT_EXIT":              "3",
+		"STARLIGHT_ANCHOR_EXPECT_OUTPUT":            "READY",
+		"STARLIGHT_SANDBOX_KIND":                    "cgroups",
+		"STARLIGHT_SANDBOX_ROOT":                    "/srv/root",
+		"STARLIGHT_SANDBOX_USER":                    "1000:1000",
+		"STARLIGHT_SANDBOX_MEMORY_MB":               "512",
+		"STARLIGHT_SANDBOX_CPU_SECONDS":             "15",
+		"STARLIGHT_SANDBOX_OPEN_FILES":              "128",
+		"STARLIGHT_SANDBOX_MAX_FILE_SIZE_MB":        "7",
+		"STARLIGHT_SANDBOX_CGROUPS":                 "off",
+		"STARLIGHT_SANDBOX_CGROUP_ROOT":             "/sys/fs/cgroup",
+		"STARLIGHT_SANDBOX_MAX_OUTPUT_KB":           "64",
+		"STARLIGHT_SANDBOX_KEEP_EPHEMERAL":          "true",
+		"STARLIGHT_SANDBOX_PROCESSES":               "64",
+		"STARLIGHT_SANDBOX_TIMEOUT":                 "25s",
+		"STARLIGHT_SANDBOX_ISOLATE_NETWORK":         "true",
+		"STARLIGHT_LLM_PROVIDER":                    "anthropic",
+		"STARLIGHT_LLM_MODEL":                       "claude-test",
+		"STARLIGHT_LLM_API_KEY":                     "k",
+		"STARLIGHT_LLM_BASE_URL":                    "https://example/v1",
+		"STARLIGHT_LLM_MAX_TOKENS":                  "2048",
+		"STARLIGHT_LLM_TEMPERATURE":                 "0.25",
+		"STARLIGHT_LLM_TIMEOUT":                     "45s",
+		"STARLIGHT_LLM_MAX_ATTEMPTS":                "4",
+		"STARLIGHT_LLM_BACKOFF_INITIAL":             "2s",
+		"STARLIGHT_LLM_BACKOFF_MAX":                 "20s",
+		"STARLIGHT_FINAL_ACTION_KIND":               "api",
+		"STARLIGHT_FINAL_ACTION_COMMAND":            "true",
+		"STARLIGHT_FINAL_ACTION_URL":                "https://example/done",
+		"STARLIGHT_FINAL_ACTION_METHOD":             "PUT",
+		"STARLIGHT_FINAL_ACTION_COMMIT_MESSAGE":     "agent: done",
+		"STARLIGHT_AGENT_MAX_RETRIES":               "5",
+		"STARLIGHT_AGENT_SUBTASK_DEPTH":             "3",
+		"STARLIGHT_AGENT_MAX_TASKS":                 "9",
+		"STARLIGHT_AGENT_WORKSPACE_DIR":             "/tmp/ws",
+		"STARLIGHT_AGENT_LOG_FILE":                  "/tmp/agent.log",
+		"STARLIGHT_AGENT_LOG_LEVEL":                 "debug",
+		"STARLIGHT_AGENT_LOG_CONSOLE":               "false",
+		"STARLIGHT_AGENT_LOG_MAX_MB":                "5",
+		"STARLIGHT_AGENT_LOG_BACKUPS":               "2",
+		"STARLIGHT_AGENT_GRACEFUL_SHUTDOWN_TIMEOUT": "20s",
+		"STARLIGHT_AGENT_ON_FAILURE_KIND":           "command",
+		"STARLIGHT_AGENT_ON_FAILURE_COMMAND":        "notify",
 	}
 	for k, v := range env {
 		t.Setenv(k, v)
@@ -1093,14 +1095,14 @@ func TestEveryEnvironmentVariable(t *testing.T) {
 // naming the variable, never a silent default.
 func TestEnvironmentRejectsInvalidValues(t *testing.T) {
 	cases := map[string]string{
-		"STARLIGHT_LLM_MAX_ATTEMPTS":       "many",
-		"STARLIGHT_LLM_TIMEOUT":            "soon",
-		"STARLIGHT_SANDBOX_MEMORY_MB":      "lots",
-		"STARLIGHT_AGENT_LOG_CONSOLE":      "maybe",
-		"STARLIGHT_AGENT_MAX_RETRIES":      "several",
-		"STARLIGHT_TASK_SOURCE_INTERVAL":   "often",
-		"STARLIGHT_AGENT_SHUTDOWN_TIMEOUT": "later",
-		"STARLIGHT_LLM_TEMPERATURE":        "hot",
+		"STARLIGHT_LLM_MAX_ATTEMPTS":                "many",
+		"STARLIGHT_LLM_TIMEOUT":                     "soon",
+		"STARLIGHT_SANDBOX_MEMORY_MB":               "lots",
+		"STARLIGHT_AGENT_LOG_CONSOLE":               "maybe",
+		"STARLIGHT_AGENT_MAX_RETRIES":               "several",
+		"STARLIGHT_TASK_SOURCE_INTERVAL":            "often",
+		"STARLIGHT_AGENT_GRACEFUL_SHUTDOWN_TIMEOUT": "later",
+		"STARLIGHT_LLM_TEMPERATURE":                 "hot",
 	}
 	for key, value := range cases {
 		t.Run(key, func(t *testing.T) {
@@ -2198,5 +2200,120 @@ func TestReadPromptWithoutTheVariable(t *testing.T) {
 	os.Unsetenv("STARLIGHT_TEST_PROMPT")
 	if got := readPrompt("STARLIGHT_TEST_PROMPT", "original"); got != "original" {
 		t.Errorf("got %q, want the original", got)
+	}
+}
+
+// TestShutdownTimeoutAcceptsBothNames: the field is graceful_shutdown_timeout, so
+// the documented variable is STARLIGHT_AGENT_GRACEFUL_SHUTDOWN_TIMEOUT. The name
+// published in the previous release (STARLIGHT_AGENT_GRACEFUL_SHUTDOWN_TIMEOUT) must still
+// work, and the documented one must win when both are set.
+func TestShutdownTimeoutAcceptsBothNames(t *testing.T) {
+	const documented = "STARLIGHT_AGENT_GRACEFUL_SHUTDOWN_TIMEOUT"
+	const historical = "STARLIGHT_AGENT_SHUTDOWN_TIMEOUT"
+
+	cases := []struct {
+		name     string
+		env      map[string]string
+		expected time.Duration
+	}{
+		{"neither is set", nil, Default().Agent.ShutdownTimeout},
+		{"the documented one", map[string]string{documented: "20s"}, 20 * time.Second},
+		{"the historical one", map[string]string{historical: "25s"}, 25 * time.Second},
+		{"the documented one wins", map[string]string{documented: "20s", historical: "25s"}, 20 * time.Second},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			for _, key := range []string{documented, historical} {
+				t.Setenv(key, "")
+			}
+			for k, v := range tc.env {
+				t.Setenv(k, v)
+			}
+			cfg := Default()
+			if err := ApplyEnvironment(&cfg); err != nil {
+				t.Fatalf("ApplyEnvironment: %v", err)
+			}
+			if cfg.Agent.ShutdownTimeout != tc.expected {
+				t.Errorf("ShutdownTimeout = %v, want %v", cfg.Agent.ShutdownTimeout, tc.expected)
+			}
+		})
+	}
+}
+
+// TestShutdownTimeoutReportsTheBadName: a malformed value must name the variable
+// that was actually read, so the operator can find it.
+func TestShutdownTimeoutReportsTheBadName(t *testing.T) {
+	t.Setenv("STARLIGHT_AGENT_GRACEFUL_SHUTDOWN_TIMEOUT", "later")
+	cfg := Default()
+	err := ApplyEnvironment(&cfg)
+	if err == nil {
+		t.Fatal("a malformed duration must be reported")
+	}
+	if !strings.Contains(err.Error(), "GRACEFUL_SHUTDOWN_TIMEOUT") {
+		t.Errorf("the error must name the documented variable: %v", err)
+	}
+}
+
+// TestEveryScalarSettingHasAnEnvironmentVariable walks the configuration struct
+// itself and builds the variable the README documents for each setting
+// (STARLIGHT_<BLOCK>_<FIELD>, from the yaml tags). If a setting is added without
+// its variable, this fails instead of the promise quietly becoming false.
+//
+// The documented exceptions are the collections (they cannot come from a single
+// variable), the settings nested under a sub-block, and the compatibility name.
+func TestEveryScalarSettingHasAnEnvironmentVariable(t *testing.T) {
+	// Collections: they are lists or maps and are set in the YAML.
+	collections := map[string]bool{
+		"STARLIGHT_TASK_SOURCE_HEADERS": true,
+		"STARLIGHT_ANCHOR_ARGS":         true,
+		"STARLIGHT_ANCHOR_CHECKS":       true,
+		"STARLIGHT_FINAL_ACTION_ARGS":   true,
+	}
+	// Set under a sub-block, so the variable is not BLOCK_FIELD.
+	nested := map[string]bool{
+		"STARLIGHT_AGENT_ON_FAILURE": true, // STARLIGHT_AGENT_ON_FAILURE_KIND/COMMAND
+	}
+	// Read from the environment elsewhere (see Load), not by ApplyEnvironment.
+	otherReaders := map[string]bool{
+		"STARLIGHT_AGENT_SHUTDOWN_TIMEOUT": true, // compatibility name, documented
+		"STARLIGHT_SANDBOX_CGROUPS":        true, // read by the sandbox layer
+	}
+
+	implemented := map[string]bool{}
+	body, err := os.ReadFile("environment.go")
+	if err != nil {
+		t.Fatalf("could not read environment.go: %v", err)
+	}
+	for _, m := range regexp.MustCompile(`"(STARLIGHT_[A-Z0-9_]+)"`).FindAllStringSubmatch(string(body), -1) {
+		implemented[m[1]] = true
+	}
+
+	c := reflect.TypeOf(Config{})
+	for i := 0; i < c.NumField(); i++ {
+		block := c.Field(i).Tag.Get("yaml")
+		bt := c.Field(i).Type
+		for j := 0; j < bt.NumField(); j++ {
+			field := bt.Field(j)
+			name := field.Tag.Get("yaml")
+			variable := "STARLIGHT_" + strings.ToUpper(block+"_"+name)
+
+			// Skip the collections and whatever has its own reader.
+			if collections[variable] || nested[variable] || otherReaders[variable] {
+				continue
+			}
+			// Sub-structs (like on_failure) hold their own fields.
+			if field.Type.Kind() == reflect.Struct && field.Type.Name() != "Duration" {
+				continue
+			}
+			// A slice or a map cannot be expressed as one value.
+			if k := field.Type.Kind(); k == reflect.Slice || k == reflect.Map {
+				continue
+			}
+			if !implemented[variable] {
+				// The field may have a differently named variable on purpose:
+				// the documented compatibility case is listed above.
+				t.Errorf("the setting %s.%s has no environment variable (%s)", block, name, variable)
+			}
+		}
 	}
 }

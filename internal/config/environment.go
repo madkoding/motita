@@ -143,7 +143,10 @@ func ApplyEnvironment(c *Config) error {
 	if c.Agent.LogBackups, err = readInteger("STARLIGHT_AGENT_LOG_BACKUPS", c.Agent.LogBackups); err != nil {
 		return err
 	}
-	if c.Agent.ShutdownTimeout, err = readDuration("STARLIGHT_AGENT_SHUTDOWN_TIMEOUT", c.Agent.ShutdownTimeout); err != nil {
+	if c.Agent.ShutdownTimeout, err = readDurationAliased(
+		"STARLIGHT_AGENT_GRACEFUL_SHUTDOWN_TIMEOUT", // the documented name
+		"STARLIGHT_AGENT_SHUTDOWN_TIMEOUT",          // kept for compatibility
+		c.Agent.ShutdownTimeout); err != nil {
 		return err
 	}
 
@@ -190,11 +193,30 @@ func readDuration(key string, current time.Duration) (time.Duration, error) {
 	if !ok || strings.TrimSpace(v) == "" {
 		return current, nil
 	}
+	// toDuration already names the key in its error, so it is not repeated here.
 	d, err := toDuration(strings.TrimSpace(v), key)
 	if err != nil {
-		return current, fmt.Errorf("%s: %v", key, err)
+		return current, err
 	}
 	return d, nil
+}
+
+// readDurationAliased reads a duration that has a second, historical name. The
+// documented name (STARLIGHT_<BLOCK>_<FIELD>, the field's yaml tag) always wins;
+// the older name is still honoured so a deployment written against the previous
+// release keeps working. This exists because STARLIGHT_AGENT_SHUTDOWN_TIMEOUT was
+// published while the field is called graceful_shutdown_timeout, so a reader
+// following the documented formula would have set a variable that did nothing.
+func readDurationAliased(primary, alias string, current time.Duration) (time.Duration, error) {
+	v, err := readDuration(primary, current)
+	if err != nil {
+		return current, err
+	}
+	// Only consult the alias when the primary did not change the value.
+	if v != current {
+		return v, nil
+	}
+	return readDuration(alias, current)
 }
 
 func readInteger(key string, current int) (int, error) {
