@@ -193,9 +193,15 @@ starlight-agent -config configs/agent.yaml.example -validate-config
 starlight-agent -config configs/agent.yaml.example -isolation   # what this kernel isolates
 ```
 
-Any value can be overridden with `STARLIGHT_<BLOCK>_<FIELD>` environment
-variables, which **win over the YAML** (ideal for secrets and containers).
-`OPENAI_API_KEY`, `OPENAI_BASE_URL` and `OPENAI_MODEL` are accepted too.
+Every scalar setting can be overridden with a `STARLIGHT_<BLOCK>_<FIELD>`
+environment variable, which **wins over the YAML** (ideal for secrets and
+containers). `OPENAI_API_KEY`, `OPENAI_BASE_URL` and `OPENAI_MODEL` are accepted
+too. An empty or blank value is ignored, so a stray variable cannot wipe a
+setting.
+
+The three settings that are lists or maps (`task_source.headers`, `anchor.args`
+and `anchor.checks`) have no variable: they are collections, so they are set in
+the YAML file.
 
 | Block | Contents |
 |---|---|

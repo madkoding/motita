@@ -111,6 +111,16 @@ func ApplyEnvironment(c *Config) error {
 	c.FinalAction.Method = readText("STARLIGHT_FINAL_ACTION_METHOD", c.FinalAction.Method)
 	c.FinalAction.CommitMessage = readText("STARLIGHT_FINAL_ACTION_COMMIT_MESSAGE", c.FinalAction.CommitMessage)
 
+	// --- prompts ---
+	// The prompt texts can be replaced from the environment too: it is how a
+	// deployment adjusts the instructions of a frozen image without rebuilding it.
+	c.Prompts.Analyze.System = readPrompt("STARLIGHT_PROMPTS_ANALYZE_SYSTEM", c.Prompts.Analyze.System)
+	c.Prompts.Analyze.User = readPrompt("STARLIGHT_PROMPTS_ANALYZE_USER", c.Prompts.Analyze.User)
+	c.Prompts.Plan.System = readPrompt("STARLIGHT_PROMPTS_PLAN_SYSTEM", c.Prompts.Plan.System)
+	c.Prompts.Plan.User = readPrompt("STARLIGHT_PROMPTS_PLAN_USER", c.Prompts.Plan.User)
+	c.Prompts.Execute.System = readPrompt("STARLIGHT_PROMPTS_EXECUTE_SYSTEM", c.Prompts.Execute.System)
+	c.Prompts.Execute.User = readPrompt("STARLIGHT_PROMPTS_EXECUTE_USER", c.Prompts.Execute.User)
+
 	// --- agent ---
 	if c.Agent.MaxRetries, err = readInteger("STARLIGHT_AGENT_MAX_RETRIES", c.Agent.MaxRetries); err != nil {
 		return err
@@ -161,6 +171,18 @@ func readText(key, current string) string {
 		return current
 	}
 	return trimmed
+}
+
+// readPrompt returns the value of the variable as written. Unlike readText it does
+// not trim the text: a prompt is multi-line, its layout is part of the
+// instructions, and collapsing it would change what the model receives. Only an
+// empty or blank value is ignored, which means "leave it as it was".
+func readPrompt(key, current string) string {
+	v, ok := os.LookupEnv(key)
+	if !ok || strings.TrimSpace(v) == "" {
+		return current
+	}
+	return v
 }
 
 func readDuration(key string, current time.Duration) (time.Duration, error) {

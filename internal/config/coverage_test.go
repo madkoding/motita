@@ -2129,3 +2129,74 @@ func TestEnvironmentRejectsInvalidDurationsInTheLeftoverBlocks(t *testing.T) {
 		})
 	}
 }
+
+// --- prompts and other overrides from the environment -----------------------
+
+// TestApplyEnvironmentOverridesEveryPrompt: the six prompt texts are plain
+// settings, so the convention STARLIGHT_<BLOCK>_<FIELD> must reach them too.
+func TestApplyEnvironmentOverridesEveryPrompt(t *testing.T) {
+	c := Default()
+	c.Prompts.Analyze.System = "analyze system"
+	c.Prompts.Analyze.User = "analyze user"
+	c.Prompts.Plan.System = "plan system"
+	c.Prompts.Plan.User = "plan user"
+	c.Prompts.Execute.System = "execute system"
+	c.Prompts.Execute.User = "execute user"
+
+	t.Setenv("STARLIGHT_PROMPTS_ANALYZE_SYSTEM", "new analyze system")
+	t.Setenv("STARLIGHT_PROMPTS_ANALYZE_USER", "new analyze user")
+	t.Setenv("STARLIGHT_PROMPTS_PLAN_SYSTEM", "new plan system")
+	t.Setenv("STARLIGHT_PROMPTS_PLAN_USER", "new plan user")
+	t.Setenv("STARLIGHT_PROMPTS_EXECUTE_SYSTEM", "new execute system")
+	t.Setenv("STARLIGHT_PROMPTS_EXECUTE_USER", "new execute user")
+
+	if err := ApplyEnvironment(&c); err != nil {
+		t.Fatalf("ApplyEnvironment: %v", err)
+	}
+
+	got := map[string]string{
+		"analyze.system": c.Prompts.Analyze.System,
+		"analyze.user":   c.Prompts.Analyze.User,
+		"plan.system":    c.Prompts.Plan.System,
+		"plan.user":      c.Prompts.Plan.User,
+		"execute.system": c.Prompts.Execute.System,
+		"execute.user":   c.Prompts.Execute.User,
+	}
+	for name, value := range got {
+		if !strings.HasPrefix(value, "new ") {
+			t.Errorf("%s = %q, the variable did not win", name, value)
+		}
+	}
+}
+
+// TestReadPromptKeepsTheTextAsWritten: a prompt is multi-line and its layout is
+// part of the instructions, so it is NOT trimmed like the other text settings.
+func TestReadPromptKeepsTheTextAsWritten(t *testing.T) {
+	text := "  first line\n\tsecond line with indentation  \n"
+	t.Setenv("STARLIGHT_TEST_PROMPT", text)
+
+	if got := readPrompt("STARLIGHT_TEST_PROMPT", "original"); got != text {
+		t.Errorf("readPrompt = %q, want the text untouched %q", got, text)
+	}
+}
+
+// TestReadPromptIgnoresAnEmptyValue: an empty or blank value means "leave it as
+// it was", the same as the other settings (and what stopped a stray variable from
+// wiping a value).
+func TestReadPromptIgnoresAnEmptyValue(t *testing.T) {
+	for _, value := range []string{"", "   ", "\n\t"} {
+		t.Setenv("STARLIGHT_TEST_PROMPT", value)
+		if got := readPrompt("STARLIGHT_TEST_PROMPT", "original"); got != "original" {
+			t.Errorf("value %q: got %q, want the original", value, got)
+		}
+	}
+}
+
+// TestReadPromptWithoutTheVariable: absent means untouched, which is the common
+// case.
+func TestReadPromptWithoutTheVariable(t *testing.T) {
+	os.Unsetenv("STARLIGHT_TEST_PROMPT")
+	if got := readPrompt("STARLIGHT_TEST_PROMPT", "original"); got != "original" {
+		t.Errorf("got %q, want the original", got)
+	}
+}

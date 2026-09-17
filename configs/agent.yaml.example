@@ -6,9 +6,10 @@
 # Validate without running anything (does not call the LLM):
 #     starlight-agent -config configs/agent.yaml.example -validate-config
 #
-# Any value can be overridden with the STARLIGHT_* environment variables (see
-# README.md). Credentials must NEVER live in this file: use
-# STARLIGHT_LLM_API_KEY or OPENAI_API_KEY.
+# Every scalar setting can be overridden with a STARLIGHT_<BLOCK>_<FIELD>
+# environment variable (see README.md). The lists and maps (task_source.headers,
+# anchor.args, anchor.checks) are set here. Credentials must NEVER live in this
+# file: use STARLIGHT_LLM_API_KEY or OPENAI_API_KEY.
 
 # ---------------------------------------------------------------------------
 # Task source
