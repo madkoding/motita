@@ -136,7 +136,13 @@ type Agent struct {
 	LogMaxMB        int           `yaml:"log_max_mb"`
 	LogBackups      int           `yaml:"log_backups"`
 	ShutdownTimeout time.Duration `yaml:"graceful_shutdown_timeout"`
-	OnFailure       OnFailure     `yaml:"on_failure"`
+	// ReadOnly is plan mode: the agent explores and plans, and every action that
+	// could change the system is refused before it runs.
+	ReadOnly bool `yaml:"read_only"`
+	// Shell is the interpreter used for actions outside read-only mode. Empty means
+	// the platform default (sh on Unix, the command processor on Windows).
+	Shell     string    `yaml:"shell"`
+	OnFailure OnFailure `yaml:"on_failure"`
 }
 
 // ---------------------------------------------------------------------------

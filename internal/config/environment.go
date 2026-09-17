@@ -150,6 +150,12 @@ func ApplyEnvironment(c *Config) error {
 		return err
 	}
 
+	// --- agent (read-only plan mode and the shell used for actions) ---
+	if c.Agent.ReadOnly, err = readBool("STARLIGHT_AGENT_READ_ONLY", c.Agent.ReadOnly); err != nil {
+		return err
+	}
+	c.Agent.Shell = readText("STARLIGHT_AGENT_SHELL", c.Agent.Shell)
+
 	// --- agent.on_failure ---
 	c.Agent.OnFailure.Kind = readText("STARLIGHT_AGENT_ON_FAILURE_KIND", c.Agent.OnFailure.Kind)
 	c.Agent.OnFailure.Command = readText("STARLIGHT_AGENT_ON_FAILURE_COMMAND", c.Agent.OnFailure.Command)

@@ -1,3 +1,9 @@
+//go:build unix
+
+// These tests describe the behaviour of Run with commands that exist on Unix
+// (/bin/sh, kill, $$). The same surface on Windows is covered by execx_windows_test.go,
+// which uses the command processor instead.
+
 package execx
 
 import (

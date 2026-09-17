@@ -568,11 +568,25 @@ func (a *Agent) runActions(ctx context.Context, actions []Command, prefix string
 		}
 		a.log.Info(prefix+"running in sandbox", "n", i+1, "command", action.Command, "description", truncate(action.Description, 120))
 
-		output, truncated, exit, err := a.exec(ctx, execx.Request{
-			Command: "/bin/sh",
-			Args:    []string{"-c", action.Command},
-			Timeout: a.cfg.Sandbox.Timeout,
-		})
+		// How the action is executed depends on the mode, and it is the difference
+		// between a request and a guarantee:
+		//
+		//  - read-only (plan mode): the line is split into program and arguments, the
+		//    policy checks the program, and NO shell runs. Without a shell there is no
+		//    `>`, `>>`, `;`, `&&` or `$(...)`: redirection cannot happen because
+		//    nothing interprets it.
+		//  - otherwise: the line goes to the shell, because that is what lets the
+		//    model use pipes and redirections to do real work.
+		request, refused := a.buildRequest(action.Command)
+		if refused != "" {
+			fmt.Fprintf(&sb, "$ %s\n[refused: %s]\n", action.Command, refused)
+			a.log.Warn(prefix+"action refused in read-only mode",
+				"command", action.Command, "reason", refused)
+			lastErr = fmt.Errorf("action %d (%s) was refused: %s", i+1, action.Command, refused)
+			continue
+		}
+
+		output, truncated, exit, err := a.exec(ctx, request)
 
 		fmt.Fprintf(&sb, "$ %s\n", action.Command)
 		if output != "" {

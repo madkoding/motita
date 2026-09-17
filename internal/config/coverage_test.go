@@ -2317,3 +2317,51 @@ func TestEveryScalarSettingHasAnEnvironmentVariable(t *testing.T) {
 		}
 	}
 }
+
+// TestReadOnlyAndShellComeFromTheEnvironment: the two settings that make plan mode
+// configurable, including the case that must be reported rather than ignored.
+func TestReadOnlyAndShellComeFromTheEnvironment(t *testing.T) {
+	cases := []struct {
+		name    string
+		env     map[string]string
+		wantRO  bool
+		wantSh  string
+		wantErr bool
+	}{
+		{"neither set", nil, false, "", false},
+		{"read_only true", map[string]string{"STARLIGHT_AGENT_READ_ONLY": "true"}, true, "", false},
+		{"read_only on", map[string]string{"STARLIGHT_AGENT_READ_ONLY": "on"}, true, "", false},
+		{"read_only false", map[string]string{"STARLIGHT_AGENT_READ_ONLY": "off"}, false, "", false},
+		{"read_only blank is ignored", map[string]string{"STARLIGHT_AGENT_READ_ONLY": "  "}, false, "", false},
+		{"the shell", map[string]string{"STARLIGHT_AGENT_SHELL": "/bin/dash"}, false, "/bin/dash", false},
+		{"a bad boolean is reported",
+			map[string]string{"STARLIGHT_AGENT_READ_ONLY": "maybe"}, false, "", true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			for _, k := range []string{"STARLIGHT_AGENT_READ_ONLY", "STARLIGHT_AGENT_SHELL"} {
+				t.Setenv(k, "")
+			}
+			for k, v := range tc.env {
+				t.Setenv(k, v)
+			}
+			cfg := Default()
+			err := ApplyEnvironment(&cfg)
+			if tc.wantErr {
+				if err == nil {
+					t.Fatal("a malformed boolean must be reported, not ignored")
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("ApplyEnvironment: %v", err)
+			}
+			if cfg.Agent.ReadOnly != tc.wantRO {
+				t.Errorf("ReadOnly = %v, want %v", cfg.Agent.ReadOnly, tc.wantRO)
+			}
+			if cfg.Agent.Shell != tc.wantSh {
+				t.Errorf("Shell = %q, want %q", cfg.Agent.Shell, tc.wantSh)
+			}
+		})
+	}
+}

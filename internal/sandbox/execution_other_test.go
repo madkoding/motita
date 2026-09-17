@@ -97,8 +97,13 @@ func TestSandboxedCommandRunsInTheWorkspace(t *testing.T) {
 	defer box.Close()
 
 	cmd, args := printWorkingDirectory()
+	// The request carries the directory the caller means. It is given absolutely
+	// because that is what a configuration that works on every platform looks like
+	// (a relative one is resolved against the process working directory, which is
+	// not necessarily writable — that is a separate concern, covered by the
+	// sandbox's own resolution tests).
 	out, _, exit, err := box.Run(context.Background(), execx.Request{
-		Command: cmd, Args: args, Dir: "workspace",
+		Command: cmd, Args: args, Dir: dir,
 	})
 	if err != nil {
 		t.Fatalf("Run: %v", err)
@@ -128,10 +133,11 @@ func TestSandboxedTimeout(t *testing.T) {
 	cmd, args := sleepCommand(30)
 	start := time.Now()
 	_, _, _, err = box.Run(context.Background(), execx.Request{
-		Command: cmd, Args: args, Timeout: time.Second,
+		Command: cmd, Args: args, Timeout: 2 * time.Second,
 	})
 	if err == nil {
-		t.Error("exceeding the deadline must be reported")
+		t.Errorf("exceeding the deadline must be reported (command %q %v ran in %s)",
+			cmd, args, time.Since(start))
 	}
 	if elapsed := time.Since(start); elapsed > 15*time.Second {
 		t.Errorf("the deadline was not honoured: %s", elapsed)
