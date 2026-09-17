@@ -1,0 +1,171 @@
+# starlight — configuración de ejemplo completa
+#
+# Todos los valores mostrados son los que aplica el agente si se omite la clave,
+# así que este archivo sirve a la vez de documentación y de plantilla.
+#
+# Validar sin ejecutar nada (no llama al LLM):
+#     starlight -config configs/agent.yaml.example -validar-config
+#
+# Cualquier valor se puede sobreescribir con variables STARLIGHT_* (ver README).
+# Las credenciales NUNCA deben quedar en este archivo: usa STARLIGHT_LLM_API_KEY
+# o OPENAI_API_KEY.
+
+# ---------------------------------------------------------------------------
+# Fuente de tareas
+# ---------------------------------------------------------------------------
+task_source:
+  tipo: stdin          # stdin | file | api | queue
+  # tipo=file: un archivo con la tarea (texto plano)
+  ruta: ""
+  # tipo=queue: directorio del que se toman archivos en orden alfabético; al
+  # procesarse se renombran a .hecho
+  dir: ""
+  # tipo=api: se sondea la URL; el campo 'campo' indica dónde está la tarea
+  url: ""
+  metodo: GET          # GET | POST
+  campo: tarea
+  intervalo: 30s       # sondeo para api/queue
+  headers:
+    Accept: application/json
+  cuerpo: ""           # cuerpo para el POST
+
+# ---------------------------------------------------------------------------
+# Capa A — EL ANCLA (validador determinista)
+# ---------------------------------------------------------------------------
+anchor:
+  tipo: command        # command | none
+  comando: make        # se ejecuta tal cual, sin razonamiento
+  argumentos: [test]
+  timeout: 120s
+  esperar_exit: 0      # código de salida que significa PASS
+  esperar_salida: ""   # expresión regular opcional sobre la salida
+  # Comprobaciones adicionales: TODAS deben pasar para que el ancla dé PASS.
+  checks:
+    - nombre: formato
+      comando: gofmt
+      argumentos: ["-l", "."]
+      timeout: 30s
+      esperar_exit: 0
+      esperar_salida: "^$"   # gofmt no imprime nada si todo está formateado
+
+# ---------------------------------------------------------------------------
+# Capa C — EL SANDBOX (ejecución aislada, sin Docker)
+# ---------------------------------------------------------------------------
+sandbox:
+  tipo: cgroups        # none | chroot | cgroups
+  # tipo=chroot: raíz del chroot (requiere ser root y el comando debe existir
+  # dentro de la raíz)
+  raiz: ""
+  # Bajar privilegios dentro del sandbox (uid:gid); requiere root
+  usuario: ""
+  memoria_mb: 512
+  cpu_segundos: 60
+  procesos: 128
+  archivos_abiertos: 256
+  tamano_max_archivo_mb: 64
+  aislar_red: false    # true = espacio de nombres de red propio (sin red)
+  cgroups: auto        # auto | on | off   (v1: memory + pids)
+  cgroup_raiz: /sys/fs/cgroup
+  timeout: 300s
+  conservar_efimero: false   # true = no borrar el directorio del intento
+  salida_max_kb: 256
+
+# ---------------------------------------------------------------------------
+# Capa B — EL MOTOR DE RAZONAMIENTO
+# ---------------------------------------------------------------------------
+llm:
+  proveedor: openai     # openai | anthropic | gemini
+  modelo: gpt-4o-mini
+  api_key: ""           # MEJOR: exporta STARLIGHT_LLM_API_KEY
+  base_url: https://api.openai.com/v1   # sirve cualquier gateway compatible
+  max_tokens: 2048
+  temperature: 0.2
+  timeout: 90s
+  max_intentos: 3       # reintentos con backoff exponencial ante 429/5xx/red
+  backoff_inicial: 1s
+  backoff_max: 30s
+
+# ---------------------------------------------------------------------------
+# Plantillas de prompt. Variables disponibles:
+#   {{tarea}} {{workspace}} {{origen}} {{intento}} {{max_intentos}} {{reglas}}
+#   {{analisis}} {{plan}} {{historial}} {{modelo}} {{proveedor}} {{contexto_*}}
+# ---------------------------------------------------------------------------
+prompts:
+  analyze:
+    sistema: |
+      Eres la Capa B (motor de razonamiento) de un agente con validación
+      determinista. Responde sólo con el JSON pedido.
+    usuario: |
+      ## TAREA
+      {{tarea}}
+
+      ## REGLAS DE VALIDACIÓN QUE SE APLICARÁN
+      {{reglas}}
+
+      Devuelve JSON: {"comprensible": bool, "resumen": "...",
+                      "criterios_exito": ["..."], "riesgos": ["..."],
+                      "necesita_subtareas": bool}
+  plan:
+    sistema: |
+      Eres la Capa B. Responde sólo con el JSON pedido.
+    usuario: |
+      ## TAREA
+      {{tarea}}
+
+      ## ANÁLISIS PREVIO
+      {{analisis}}
+
+      Devuelve JSON: {"plan": [{"paso": 1, "accion": "...", "comando": "..."}],
+                      "subtareas": ["..."], "resultado_esperado": "..."}
+  execute:
+    sistema: |
+      Eres la Capa B. Responde sólo con el JSON pedido.
+    usuario: |
+      ## TAREA
+      {{tarea}}
+
+      ## PLAN
+      {{plan}}
+
+      {{historial}}
+
+      Devuelve JSON: {"razonamiento": "...",
+                      "acciones": [{"tipo": "comando", "descripcion": "...",
+                                    "comando": "..."}],
+                      "accion_final": {"descripcion": "...", "comando": "..."}}
+      Si un intento falló antes, corrige a partir de los registros.
+
+# ---------------------------------------------------------------------------
+# Qué hacer cuando el ancla da PASS
+# ---------------------------------------------------------------------------
+final_action:
+  tipo: git_commit     # none | command | api | git_commit
+  comando: ""          # tipo=command
+  argumentos: []
+  url: ""              # tipo=api: se hace POST {tarea, comando, estado:"pass"}
+  metodo: POST
+  mensaje_commit: "agente: {{tarea}}"
+
+# ---------------------------------------------------------------------------
+# Bucle principal, registro y apagado
+# ---------------------------------------------------------------------------
+agent:
+  max_reintentos: 3            # intentos totales = max_reintentos + 1
+  profundidad_subtareas: 1     # niveles de división permitidos
+  max_tareas: 0                # 0 = sin límite
+  workspace_dir: ./workspace
+  log_file: ./workspace/starlight.log   # vacío = sólo consola
+  log_level: info              # debug | info | warn | error
+  log_consola: true
+  log_max_mb: 5                # rotación por tamaño
+  log_backups: 3
+  graceful_shutdown_timeout: 15s
+  # Acción de escalado cuando una tarea agota los reintentos sin pasar el ancla.
+  # Se ejecuta dentro del sandbox; deja rastro para que alguien lo revise.
+  escalar:
+    tipo: command        # none | command
+    comando: 'echo "tarea no resuelta: revisar el registro" >> escalados.log' 
+  # Acción de escalado cuando se agotan los reintentos
+  escalar:
+    tipo: none                 # none | command
+    comando: ""

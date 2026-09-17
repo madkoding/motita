@@ -1,177 +1,355 @@
 # starlight 🌟
 
-Agente de IA de línea de comandos escrito en **Go puro** (sólo biblioteca
-estándar, **cero dependencias externas**) que se conecta a cualquier API
-compatible con OpenAI y puede leer archivos y ejecutar comandos en la máquina
-donde corre.
+Agente autónomo de **3 capas** para máquinas i386 (y cualquier Linux amd64/arm64),
+escrito en **Go puro**: sólo biblioteca estándar, **cero dependencias externas**,
+sin cgo y **sin Docker**.
 
-Pensado para funcionar en equipos **i386 (linux/386)**: el binario es estático,
-no usa `cgo`, no arrastra librerías C y aplica límites explícitos de memoria y
-tiempo para no desbordar una máquina de 32 bits.
+El principio que lo gobierna: **el modelo propone, un validador determinista
+dispone**. Ninguna tarea se da por completada porque el LLM lo diga; sólo el
+ancla puede declarar `PASS`, y lo hace ejecutando comprobaciones reales.
 
 ```
-$ starlight
-🤖 Starlight listo. Escribe tu instrucción ('/ayuda' para ayuda, 'salir' para terminar).
-   modelo=gpt-4o-mini  endpoint=https://api.openai.com/v1  max-loops=5
-
-> revisa el espacio libre en disco y dime si hay algo raro
-  [🧠 Pensando...]
-  [⚙️  Ejecutando herramienta: ejecutar_comando]
-  [🧠 Pensando...]
-/ está al 62% (18G libres) y /var/log pesa 1.2G; nada anómalo.
+TAREA ──► [Capa B] analizar ─► planificar ─► proponer acción
+                                                    │
+                                    [Capa C] ejecutar aislado
+                                                    │
+                                    [Capa A] validar (PASS/FAIL)
+                                                    │
+                       PASS ──► acción final (commit / publicar / notificar)
+                       FAIL ──► registros del fallo al LLM y reintentar
+                     agotado ──► escalar
 ```
 
-## Instalación
+El repositorio incluye además un **chat interactivo de terminal** (`cmd/chat`,
+documentado en [`cmd/chat/README.md`](cmd/chat/README.md)) que comparte el estilo
+de ejecución y las lecciones sobre grupos de procesos.
 
-### Compilar para i386 desde una máquina moderna (cross-compiling)
+---
 
-Con Go instalado, no hace falta compilar en la máquina de 32 bits:
+## Arquitectura
+
+### Capa A — EL ANCLA (validador determinista)
+
+Componente nativo que valida **siempre** el resultado, sin razonamiento:
+
+| | |
+|---|---|
+| Entrada | el estado del sistema tras la acción del agente |
+| Proceso | validaciones estrictas: comandos, código de salida, expresiones regulares sobre la salida, invariantes de negocio |
+| Salida | `PASS`/`FAIL` + registros estructurados JSON |
+| Características | sin LLM, rápido y predecible, reglas configurables desde el YAML |
+
+Reglas de diseño que se cumplen en el código:
+
+- **Sin validador no hay éxito.** Con `anchor.tipo=none` el ancla devuelve `FAIL`
+  y el agente **se niega a arrancar**, porque no existe autoridad que declare
+  `PASS`. Un `PASS` sin comprobación real es exactamente el fallo que esta
+  arquitectura existe para evitar.
+- **Todas las comprobaciones deben pasar.** Un solo `check` fallido invalida el
+  resultado completo.
+- **Un ancla incomprobable es un fallo, no un éxito silencioso**: si el comando no
+  existe, expira o la expresión regular no compila, devuelve `FAIL` con el motivo.
+- **La salida del ancla es JSON** y viaja íntegra al LLM en el siguiente intento,
+  junto con la salida real del comando fallido.
+
+### Capa B — EL MOTOR DE RAZONAMIENTO (cliente LLM ligero)
+
+Cliente escrito a mano (sin SDK) para tres familias de API: **OpenAI**
+(`/chat/completions`), **Anthropic** (`/v1/messages`) y **Gemini**
+(`:generateContent`). Todos se normalizan a la misma estructura de mensajes, así
+que el resto del agente no sabe cuál está detrás.
+
+- Lee el contexto: tarea, plan, número de intento y **los registros de los fallos
+  previos**.
+- Prompts dinámicos desde plantillas con variables `{{...}}`, 100% configurables:
+  el motor nunca escribe texto de prompt por su cuenta.
+- **Reintentos con backoff exponencial**, con una distinción que importa: `429`,
+  `5xx` y errores de red se reintentan; `401`/`400` **no**, porque reintentar una
+  credencial inválida sólo gasta tiempo y cuota.
+- Parseo de respuestas estructuradas tolerante a lo que de verdad devuelven los
+  modelos: bloques ```` ```json ````, texto alrededor, llaves anidadas, comillas
+  escapadas, respuestas truncadas.
+- **Máximo N intentos** antes de escalar.
+
+### Capa C — EL SANDBOX (ejecución aislada ligera, sin Docker)
+
+Aislamiento en capas, aplicando lo que el sistema permita y **diciendo la verdad
+sobre lo que no se pudo aplicar**:
+
+| Capa | Qué hace | Requisitos |
+|---|---|---|
+| Directorio temporal efímero | `TMPDIR` propio por intento, borrado al terminar | ninguno |
+| `setrlimit` | CPU, memoria (espacio de direcciones), procesos, descriptores, tamaño de archivo | ninguno |
+| cgroups v1 | cota real de memoria y PIDs (`RLIMIT_AS` es una aproximación) | kernel con cgroups v1 y permiso de escritura |
+| chroot + bajar privilegios | raíz de sistema de archivos restringida y usuario sin privilegios | ser root |
+| `CLONE_NEWNET` | sin red dentro del comando | `CAP_SYS_ADMIN` |
+
+Detalles que costaron trabajo y están resueltos en el código:
+
+- **Los límites los aplica un proceso hijo que es el propio binario
+  re-ejecutado** (marca `__sandbox_exec`): aplica `setrlimit`, entra al `chroot`,
+  baja privilegios y hace `syscall.Exec`. Así no se depende de `prlimit` ni de
+  util-linux (que en una máquina mínima puede no estar) y no queda ningún proceso
+  Go intermedio consumiendo el presupuesto limitado.
+- **`syscall.Exec` no busca en `PATH`**: un `comando: make` escrito en el YAML
+  fallaría con `ENOENT`. El hijo resuelve la ruta usando el `PATH` **restringido
+  del sandbox**, no el del agente.
+- **El directorio de trabajo es persistente; el temporal es efímero.** El efecto
+  del trabajo debe sobrevivir para que el ancla pueda verlo. Si las acciones
+  corrieran en un directorio que se borra al terminar, el validador no encontraría
+  nunca el resultado y el agente fallaría siempre (esto ocurrió de verdad durante
+  el desarrollo y está cubierto por una prueba).
+- **Matar el grupo de procesos, no sólo el hijo.** `exec.CommandContext` mata a
+  `sh`, pero sus descendientes siguen vivos con el tubo de salida abierto y `Wait`
+  se queda esperando: medido, un `sleep 30` con plazo de 1 s tardaba **5 s** en
+  volver. Con grupo propio + `SIGKILL` al grupo corta en el plazo exacto (medido:
+  bucle infinito con `cpu_segundos: 2` → corte a los **2.002 s**).
+- **El comando no hereda los secretos del agente**: el entorno se construye desde
+  cero, sin `OPENAI_API_KEY` ni `STARLIGHT_LLM_API_KEY` dentro del comando.
+
+---
+
+## Flujo del agente
+
+```
+INICIO
+[1] LEER TAREA     de la fuente configurable (stdin, archivo, cola, API)
+[2] EXTRAER        contexto y criterios de éxito (las reglas del ancla)
+[3] LLM            analiza la tarea   -> {"comprensible", "criterios_exito", ...}
+[4] LLM            genera un plan     -> {"plan", "subtareas", ...}
+[5] DIVIDIR         en subtareas si el análisis lo pide (con límite de profundidad)
+[6] LLM            genera la acción   -> {"acciones", "accion_final"}
+[7] EJECUTAR        en el SANDBOX (Capa C)
+[8] VALIDAR         con el ANCLA (Capa A) — siempre, incluso si [7] falló
+[9] PASS  -> ejecutar la acción final (command | api | git_commit) y FIN
+    FAIL  -> registros del fallo al LLM, volver a [6] mientras intentos < MAX
+    agotado -> escalar (agent.escalar) y FIN
+```
+
+Si el análisis declara la tarea **no comprensible** (falta información), no se
+ejecuta nada: la tarea se descarta con el motivo y cuenta como fallo para el
+código de salida.
+
+---
+
+## Instalación y compilación cruzada
+
+Requiere Go 1.23 o superior. **No hace falta compilar en la máquina i386.**
 
 ```bash
-GOOS=linux GOARCH=386 CGO_ENABLED=0 go build -trimpath -ldflags "-s -w" -o starlight-linux-386 .
-# o, con el Makefile:
-make 386          # compila y verifica que el ELF sea de 32 bits
-make all          # 386 + amd64 + arm64
+make agent-386        # agente de 3 capas para linux/386 (comprueba ELFCLASS32)
+make all              # chat + agente, en 386, amd64 y arm64
+make check            # gofmt + go vet + go test
+make e2e-agente       # extremo a extremo en un contenedor i386 real
 ```
 
-El resultado es un binario estático de unos **6.6 MB (6.3 MiB) con Go 1.27**
-(ELFCLASS32) que se copia a la máquina destino por `scp`, `ftp` o USB:
+Binarios resultantes (estáticos, sin cgo, sin librerías externas):
+
+| Binario | Tamaño | Requisito |
+|---|---|---|
+| `dist/starlight-agent-386` | 6.90 MB | < 10 MB ✓ |
+| `dist/starlight-agent-amd64` | 7.07 MB | |
+| `dist/starlight-agent-arm64` | 6.50 MB | |
+| `dist/starlight-linux-386` (chat) | 6.32 MB | |
+
+Se copian a la máquina i386 por `scp`, `ftp` o USB:
 
 ```bash
-chmod +x starlight-linux-386
-./starlight-linux-386
+chmod +x starlight-agent-386
+./starlight-agent-386 -config agent.yaml
 ```
 
-### Compilar en la propia máquina i386
-
-```bash
-cd starlight && make 386     # requiere Go 1.23 o superior
-```
+---
 
 ## Configuración
 
-| Variable | Obligatoria | Por defecto | Descripción |
-|---|---|---|---|
-| `OPENAI_API_KEY` | sí | — | Clave de la API. |
-| `OPENAI_BASE_URL` | no | `https://api.openai.com/v1` | Sirve para OpenRouter, LocalAI, vLLM, Ollama, LiteLLM… |
-| `OPENAI_MODEL` | no | `gpt-4o-mini` | Modelo a usar. |
-| `NO_COLOR` | no | — | Si está definida, desactiva los colores ANSI. |
+Todo es configurable **sin recompilar**. Se puede validar sin ejecutar nada ni
+llamar al LLM:
 
 ```bash
-export OPENAI_API_KEY="tu_clave"
-export OPENAI_BASE_URL="https://api.openai.com/v1"
-export OPENAI_MODEL="gpt-4o-mini"
-./starlight-linux-386
+starlight-agent -config configs/agent.yaml.example -validar-config
+starlight-agent -config configs/agent.yaml.example -aislamiento   # qué aísla este kernel
 ```
 
-También se puede pasar todo por banderas: `-modelo`, `-url`, `-max-loops`,
-`-timeout`, `-sin-color`, `-version`.
+Cualquier valor se puede sobreescribir con variables `STARLIGHT_<BLOQUE>_<CAMPO>`,
+que **ganan sobre el YAML** (ideal para secretos y contenedores). También se
+aceptan `OPENAI_API_KEY`, `OPENAI_BASE_URL` y `OPENAI_MODEL`.
+
+| Bloque | Contenido |
+|---|---|
+| `task_source` | `tipo` (`stdin`/`file`/`api`/`queue`), `ruta`, `dir`, `url`, `metodo`, `campo`, `intervalo`, `headers`, `cuerpo` |
+| `anchor` | `tipo` (`command`/`none`), `comando`, `argumentos`, `timeout`, `esperar_exit`, `esperar_salida` (regex), `checks[]` |
+| `sandbox` | `tipo` (`none`/`chroot`/`cgroups`), `raiz`, `usuario`, `memoria_mb`, `cpu_segundos`, `procesos`, `archivos_abiertos`, `tamano_max_archivo_mb`, `aislar_red`, `cgroups`, `cgroup_raiz`, `timeout`, `conservar_efimero`, `salida_max_kb` |
+| `llm` | `proveedor` (`openai`/`anthropic`/`gemini`), `modelo`, `api_key`, `base_url`, `max_tokens`, `temperature`, `timeout`, `max_intentos`, `backoff_inicial`, `backoff_max` |
+| `prompts` | `analyze`, `plan`, `execute`, cada uno con `sistema` y `usuario` |
+| `final_action` | `tipo` (`none`/`command`/`api`/`git_commit`), `comando`, `argumentos`, `url`, `metodo`, `mensaje_commit` |
+| `agent` | `max_reintentos`, `profundidad_subtareas`, `max_tareas`, `workspace_dir`, `log_file`, `log_level`, `log_consola`, `log_max_mb`, `log_backups`, `graceful_shutdown_timeout`, `escalar` |
+
+### Variables disponibles en los prompts
+
+`{{tarea}}` `{{workspace}}` `{{origen}}` `{{intento}}` `{{max_intentos}}`
+`{{reglas}}` `{{analisis}}` `{{plan}}` `{{historial}}` `{{modelo}}`
+`{{proveedor}}` `{{contexto_*}}`
+
+Si una plantilla usa una variable sin valor, **se registra un aviso** y la
+variable se deja visible: no se envía al modelo un prompt con huecos silenciosos.
+
+El parser YAML es propio (sin dependencias) y **rechaza con un mensaje explícito**
+lo que no entiende: claves desconocidas (con el bloque donde están), tabuladores
+en la indentación, anclas/alias/tags y listas mal formadas. Nunca adivina.
+
+### Los tres casos de uso
+
+| Caso | Archivo | Flujo |
+|---|---|---|
+| 1. Desarrollo | `configs/casos/1-desarrollo.yaml` | tarea en archivo → LLM → sandbox sin red → **`go test` + `go vet` + `gofmt` como ancla** → commit |
+| 2. Análisis de datos | `configs/casos/2-datos.yaml` | tarea desde API → análisis aislado sin red → **invariantes del informe como ancla** → publicar resultado por API |
+| 3. Automatización | `configs/casos/3-automatizacion.yaml` | cola de archivos → script acotado (256 MB, 30 s CPU, sin red) → **comprobación del efecto como ancla** → notificación |
+
+Los tres están verificados por la suite de pruebas: si un YAML de ejemplo deja de
+cargar o pierde una de sus tres plantillas, las pruebas fallan.
+
+---
 
 ## Uso
 
 ```bash
-starlight                                   # REPL interactivo
-starlight -p "lista los archivos .go del directorio actual"    # una instrucción y sale
-starlight "resume el README y dime si falta algo"              # equivalente
+export STARLIGHT_LLM_API_KEY=sk-...        # nunca la clave en el YAML
+
+# ejecución normal, con la fuente configurada
+starlight-agent -config configs/casos/1-desarrollo.yaml
+
+# una sola tarea, sin tocar la configuración
+starlight-agent -config configs/casos/1-desarrollo.yaml -tarea "arregla TestFoo"
+
+# el contenido de un archivo como tarea
+starlight-agent -config configs/casos/2-datos.yaml -archivo-tarea tarea.md
+
+# validar la configuración sin llamar al LLM
+starlight-agent -config mi.yaml -validar-config
+
+# ver el aislamiento realmente disponible en esta máquina
+starlight-agent -config mi.yaml -aislamiento
 ```
 
-Comandos del REPL: `/ayuda`, `/limpiar` (olvida la conversación) y `salir`
-(también `Ctrl+D`).
+**Apagado ordenado:** el primer `SIGINT`/`SIGTERM` cancela el trabajo en curso y
+concede `agent.graceful_shutdown_timeout` segundos para terminar; el segundo sale
+de inmediato con código 130.
 
-Las trazas (`[🧠 Pensando...]`, `[⚙️  Ejecutando herramienta: ...]`) se escriben
-en **stderr** y la respuesta final en **stdout**, así que se puede canalizar:
+**Código de salida:** `0` si todas las tareas pasaron el ancla, `1` si alguna falló
+(incluyendo el motivo de cada una *en el propio mensaje de error*) y `2` si la
+configuración es inválida. Así se puede usar directamente desde cron o systemd.
+
+---
+
+## Registro
+
+JSON Lines, una línea por evento, con rotación por tamaño:
+
+```json
+{"ts":"2026-09-17T05:17:37.726157258Z","nivel":"warn","msg":"validación del ancla","pass":false,"motivo":"comprobaciones fallidas: principal"}
+{"ts":"2026-09-17T05:17:37.733481067Z","nivel":"info","msg":"validación del ancla","pass":true,"motivo":"1 comprobación(es) superadas"}
+{"ts":"2026-09-17T05:17:37.736394109Z","nivel":"info","msg":"validación superada","intento":2,"accion_final":"command exit=0"}
+```
 
 ```bash
-starlight -p "dime la versión del kernel" > resumen.txt
+jq 'select(.nivel=="error")' workspace/starlight.log
+jq -r 'select(.msg=="tarea completada") | .tarea' workspace/starlight.log
 ```
 
-## Herramientas del agente
+`log_max_mb` y `log_backups` controlan la rotación (`starlight.log.1`, `.2`, …).
 
-| Herramienta | Argumentos | Qué hace |
-|---|---|---|
-| `leer_archivo` | `ruta` | Devuelve el contenido de un archivo de texto. Rechaza directorios y archivos de más de **1 MiB**. |
-| `ejecutar_comando` | `cmd`, `timeout_segundos` (opcional) | Ejecuta el comando vía `sh -c` (admite pipes y redirecciones) y devuelve stdout y stderr combinados, recortados a **64 KiB**. Por defecto 120 s de límite. |
-
-El bucle de agente permite hasta **5 iteraciones** de llamadas a herramientas por
-turno (`-max-loops`); al agotarlas pide la respuesta final con
-`tool_choice: "none"`, de modo que nunca se cuelga en un bucle infinito.
-
-## Decisiones de diseño (y por qué)
-
-- **Cero dependencias.** Garantiza que la compilación cruzada a 32 bits funcione
-  sin peleas con `cgo` ni librerías C ausentes.
-- **`sh -c` para comandos.** Permite pipes, redirecciones y comillas tal como lo
-  haría una persona en la terminal.
-- **Límite de 1 MiB en lectura.** Evita que el agente intente cargar un vídeo o
-  un log gigante y agote la RAM, que en un i386 es escasa.
-- **Muerte del grupo de procesos al expirar el plazo.** `exec.CommandContext`
-  por sí solo mata a `sh`, pero sus hijos (`sleep`, scripts, pipes) siguen vivos
-  con el pipe abierto y `Wait` se queda esperando: mediado, un `sleep 30` con
-  límite de 1 s tardaba **5 s** en volver. Con `Setpgid` + `SIGKILL` al grupo,
-  corta en el plazo exacto. Está cubierto por `TestEjecutarComandoTimeout`.
-- **Normalización de `arguments`.** La especificación de OpenAI envía los
-  argumentos de una herramienta como **cadena** con JSON dentro; varios gateways
-  "compatibles" envían un objeto. `decodeArgs` acepta ambos (y vacío/`null`), en
-  lugar de fallar con `cannot unmarshal string`.
-- **Historial acotado a 41 mensajes** conservando el prompt de sistema y sin
-  dejar resultados de herramienta huérfanos (algunos proveedores rechazan un
-  mensaje `tool` sin su `assistant` previo).
+---
 
 ## Verificación
 
 ```bash
-make check        # gofmt + go vet + go test  (lo mismo que corre la CI)
-./scripts/e2e-i386.sh    # prueba de extremo a extremo en un contenedor i386 real
+make check           # gofmt + go vet + go test  (lo mismo que corre la CI)
+make e2e-agente      # extremo a extremo del agente en un contenedor i386 real
+make e2e             # extremo a extremo del chat en un contenedor i386 real
 ```
 
-- **17 casos de prueba** (`go test -race ./...`) sobre las herramientas, el
-  cliente HTTP, el bucle de agente, el recorte de historial y la configuración.
-- La CI (`.github/workflows/ci.yml`) corre `gofmt`, `vet` y `test -race`, compila
-  `linux/386`, `linux/amd64` y `linux/arm64`, **verifica que el i386 sea
-  ELFCLASS32** (leyendo la cabecera ELF y con `file`), ejecuta el binario dentro
-  de un contenedor `i386/debian` y, al publicar un tag `v*`, sube los binarios a
-  una release.
+- **138 casos de prueba**, todos verdes, sobre las tres capas y sus piezas: ancla,
+  sandbox, motor LLM, bucle del agente, parser YAML, registro, plantillas y
+  fuentes de tareas.
+- La CI (`.github/workflows/ci.yml`) corre `gofmt`, `vet`, `test -race`, compila
+  el agente para `linux/386`/`amd64`/`arm64`, **verifica que el i386 sea
+  ELFCLASS32** (leyendo la cabecera ELF y también con `file`), lo ejecuta dentro
+  de `i386/debian:bookworm-slim` y publica los binarios al crear un tag `v*`.
 
 ### Prueba de extremo a extremo
 
-`scripts/e2e-i386.sh` compila `tools/mockapi` y `starlight` para 386, y dentro de
-un contenedor `--platform linux/386` levanta el mock, deja que el agente ejecute
-herramientas reales y comprueba la marca de la respuesta final:
+`make e2e-agente` compila el agente y un LLM simulado (`tools/mockllm`) para 386 y
+los ejecuta **dentro del mismo contenedor de 32 bits**. El modelo simulado se
+equivoca a propósito en el primer intento y corrige en el segundo, de modo que se
+ejercita el ciclo real completo:
 
 ```
-==> Ejecutando dentro de i386/debian:bookworm-slim (--platform linux/386)
-  [🧠 Pensando...]
-  [⚙️  Ejecutando herramienta: ejecutar_comando]
-  [⚙️  Ejecutando herramienta: leer_archivo]
-  [🧠 Pensando...]
-arquitectura: i386
-RESULTADO-E2E ejecutar_comando=x86_64 32 | leer_archivo=PRETTY_NAME="Debian GNU/Linux 12 (bookworm)" ...
+fase=analyze  -> fase=plan -> fase=execute (intento 1, escribe contenido inválido)
+{"msg":"validación del ancla","pass":false,"motivo":"comprobaciones fallidas: principal"}
+{"msg":"intento fallido","intento":1,"max_intentos":3}
+fase=execute (intento 2, escribe contenido-válido)
+{"msg":"validación del ancla","pass":true,"motivo":"1 comprobación(es) superadas"}
+{"msg":"validación superada","intento":2,"accion_final":"command exit=0"}
 
-✅ E2E i386 OK: el binario de 32 bits ejecutó herramientas reales y cerró el bucle de agente.
+✅ E2E del agente de 3 capas en i386: OK
+   ✓ el informe tiene el contenido pedido: contenido-valido
+   ✓ la acción final se ejecutó tras el PASS
+   ✓ hubo un intento fallido antes del PASS (el reintento funcionó)
 ```
 
-`tools/mockapi` implementa el guion de un modelo que pide dos herramientas y
-luego resume los resultados; sirve para probar el agente sin gastar tokens ni
-necesitar una clave.
+La prueba comprueba el resultado **en el sistema de archivos**, no lo que el
+agente dice de sí mismo.
 
-## Estructura
+---
+
+## Solución de problemas (i386)
+
+| Síntoma | Causa y solución |
+|---|---|
+| `no parece haber cgroups v1` (aviso, no error) | El kernel o el contenedor no exponen `/sys/fs/cgroup/memory`. Se aplican igualmente los límites POSIX y el aviso queda registrado para no fingir aislamiento. |
+| `chroot solicitado pero el proceso no es root` | El chroot se omite con un aviso. Ejecuta como root o usa `tipo: cgroups`. |
+| `el comando no pudo ejecutarse dentro del sandbox (código 127)` | El comando no existe o no está en el `PATH` del sandbox; el error del hijo dice la ruta buscada. |
+| `el proceso fue terminado por una señal` | Un límite del sandbox hizo su trabajo (CPU o memoria). Sube `cpu_segundos` / `memoria_mb`. |
+| El agente falla siempre con `se agotaron los intentos` | Mira el `motivo` del ancla: está en el mensaje de error y en el registro. Suele ser el ancla mal configurada, no el modelo. |
+| `anchor.tipo=none: este agente sólo declara una tarea como completada...` | Es intencionado: sin validador determinista no hay `PASS`. Configura un ancla real. |
+| El binario no arranca (`not found`) | Es un ELF de 32 bits: `head -c 5 binario \| od -An -tx1` debe empezar por `7f 45 4c 46 01`. |
+| `salida truncada por el límite del sandbox` | Sube `sandbox.salida_max_kb` si el comando produce más salida de la esperada. |
+
+---
+
+## Estructura del proyecto
 
 ```
-main.go                      agente completo (configuración, API, herramientas, REPL)
-proceso_unix.go              grupo de procesos: matar al hijo y a sus descendientes
-proceso_otro.go              alternativa para sistemas sin grupos POSIX
-main_test.go                 17 casos de prueba
-tools/mockapi/main.go        servidor compatible con OpenAI para pruebas
-scripts/e2e-i386.sh          prueba de extremo a extremo en 32 bits
-Makefile                     build, test, cross-compiling
+cmd/agent/            agente de 3 capas (programa principal)
+cmd/chat/             chat interactivo de terminal
+internal/anchor/      Capa A: validador determinista
+internal/llm/         Capa B: OpenAI / Anthropic / Gemini y parseo JSON
+internal/sandbox/     Capa C: directorio efímero, setrlimit, cgroups, chroot
+internal/config/      YAML (parser propio), entorno y validación
+internal/execx/       ejecución de procesos (grupo de procesos, límites, salida)
+internal/task/        fuentes de tareas: stdin, archivo, cola, API
+internal/plantilla/   variables {{...}} de los prompts
+internal/logx/        registro JSON con rotación
+tools/mockapi/        API compatible con OpenAI para probar el chat
+tools/mockllm/        LLM simulado para el E2E del agente
+configs/              configuración de ejemplo + 3 casos de uso
+scripts/              pruebas de extremo a extremo
 ```
 
-## Añadir una herramienta
+Cada paquete lleva sus pruebas junto al código (`*_test.go`).
 
-1. Define sus argumentos (`type miArgs struct { ... }`).
-2. Escribe su función `herramientaMi...` que devuelva `string`.
-3. Añade el `case` correspondiente en `(*agente).ejecutarHerramienta`.
-4. Descríbela en `definicionHerramientas()` para que el modelo sepa que existe.
+---
+
+## Extender el agente
+
+- **Otra fuente de tareas**: implementa la interfaz `task.Fuente` (`Siguiente`,
+  `Cerrar`, `Descripcion`) y añádela a `task.Nueva`.
+- **Otro proveedor de LLM**: añade su dialecto en `internal/llm` (una función
+  `llamada<Proveedor>`); el resto del agente no cambia.
+- **Otra acción final**: añade un caso en `(*Agente).ejecutarAccionFinal`.
+- **Observar resultados**: asigna `Agente.Observador` para recibir el
+  `ResultadoTarea` de cada tarea (métricas, integración, pruebas).
 
 ## Licencia
 

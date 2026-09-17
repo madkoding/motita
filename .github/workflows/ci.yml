@@ -57,7 +57,8 @@ jobs:
       GOOS: ${{ matrix.goos }}
       GOARCH: ${{ matrix.goarch }}
       CGO_ENABLED: "0"
-      SALIDA: dist/starlight-${{ matrix.goos }}-${{ matrix.goarch }}
+      AGENTE: dist/starlight-agent-${{ matrix.goos }}-${{ matrix.goarch }}
+      CHAT: dist/starlight-${{ matrix.goos }}-${{ matrix.goarch }}
     steps:
       - uses: actions/checkout@v7
 
@@ -66,34 +67,51 @@ jobs:
           go-version-file: go.mod
           cache: false
 
-      - name: Compilar binario estático
+      - name: Compilar binarios estáticos (agente + chat)
         run: |
           mkdir -p dist
           version="${GITHUB_REF_NAME:-dev}"
-          go build -trimpath -ldflags "-s -w -X main.version=$version" -o "$SALIDA" .
+          go build -trimpath -ldflags "-s -w -X main.version=$version" -o "$AGENTE" ./cmd/agent
+          go build -trimpath -ldflags "-s -w -X main.version=$version" -o "$CHAT" ./cmd/chat
+          ls -l dist
 
-      - name: Verificar que el binario es de 32 bits
+      - name: Verificar que los binarios son de 32 bits y cumplen el límite de tamaño
         if: matrix.verificar32 == 'true'
         run: |
-          file "$SALIDA"
-          file "$SALIDA" | grep -q "ELF 32-bit" || { echo "::error::el binario i386 no es de 32 bits"; exit 1; }
-          # Doble comprobación independiente de `file`: byte 5 de la cabecera ELF
-          # (0x01 = ELFCLASS32).
-          clase="$(head -c 5 "$SALIDA" | od -An -tx1 | tr -d ' \n')"
-          [ "$clase" = "7f454c4601" ] || { echo "::error::cabecera ELF inesperada: $clase"; exit 1; }
-          echo "ELFCLASS32 confirmado ($clase)"
+          for binario in "$AGENTE" "$CHAT"; do
+            file "$binario"
+            file "$binario" | grep -q "ELF 32-bit" || { echo "::error::$binario no es de 32 bits"; exit 1; }
+            # Comprobación independiente de `file`: byte 5 de la cabecera ELF
+            # (0x01 = ELFCLASS32).
+            clase="$(head -c 5 "$binario" | od -An -tx1 | tr -d ' \n')"
+            [ "$clase" = "7f454c4601" ] || { echo "::error::cabecera ELF inesperada en $binario: $clase"; exit 1; }
+            echo "ELFCLASS32 confirmado en $binario ($clase)"
+            # Requisito de calidad: el binario final debe pesar menos de 10 MB.
+            bytes="$(stat -c%s "$binario")"
+            [ "$bytes" -lt 10485760 ] || { echo "::error::$binario pesa $bytes bytes (límite: 10 MB)"; exit 1; }
+            echo "$binario: $bytes bytes (< 10 MB)"
+          done
 
-      - name: Ejecutar el binario (prueba de humo)
+      - name: Ejecutar los binarios en un contenedor i386 (prueba de humo)
         if: matrix.goos == 'linux' && matrix.goarch == '386'
         run: |
-          chmod +x "$SALIDA"
+          chmod +x "$AGENTE" "$CHAT"
           docker run --rm -v "$PWD/dist:/t:ro" --platform linux/386 \
-            i386/debian:bookworm-slim sh -c "/t/$(basename "$SALIDA") -version"
+            i386/debian:bookworm-slim sh -c '/t/starlight-agent-386 -version; /t/starlight-linux-386 -version'
+
+      - name: Validación de configuración en i386 (sin llamar al LLM)
+        if: matrix.goos == 'linux' && matrix.goarch == '386'
+        run: |
+          docker run --rm -v "$PWD/dist:/t:ro" -v "$PWD/configs:/c:ro" --platform linux/386 \
+            i386/debian:bookworm-slim sh -c \
+            'STARLIGHT_LLM_API_KEY=prueba /t/starlight-agent-386 -config /c/agent.yaml.example -validar-config'
 
       - uses: actions/upload-artifact@v7
         with:
           name: starlight-${{ matrix.goos }}-${{ matrix.goarch }}
-          path: ${{ env.SALIDA }}
+          path: |
+            ${{ env.AGENTE }}
+            ${{ env.CHAT }}
           if-no-files-found: error
 
   publicar:

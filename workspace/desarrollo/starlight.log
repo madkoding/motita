@@ -1,0 +1,3 @@
+{"error":"no parece haber cgroups v1 en /sys/fs/cgroup (falta el controlador memory)","msg":"cgroups v1 no disponibles: se aplican sólo límites POSIX","nivel":"warn","ts":"2026-09-17T05:20:27.876765123Z"}
+{"cgroups":false,"chroot":false,"directorio":"/home/madkoding/proyectos/starlight/workspace/desarrollo","limites":true,"msg":"sandbox preparado","nivel":"info","sin_aplicar":"cgroups v1: no parece haber cgroups v1 en /sys/fs/cgroup (falta el controlador memory)","ts":"2026-09-17T05:20:27.876847126Z"}
+{"cgroups":false,"chroot":false,"directorio":"/home/madkoding/proyectos/starlight/workspace/desarrollo","limites":true,"msg":"sandbox preparado","nivel":"info","sin_aplicar":"","ts":"2026-09-17T05:20:53.923148461Z"}
