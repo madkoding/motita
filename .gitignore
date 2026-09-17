@@ -19,3 +19,7 @@ agent_i386
 # Test artefacts
 coverage.out
 .e2e/
+
+# Runtime directories (the default workspace_dir and log_file are relative)
+workspace/
+

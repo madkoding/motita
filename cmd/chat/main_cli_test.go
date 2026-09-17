@@ -30,6 +30,9 @@ func runMain(t *testing.T, env []string, args ...string) (string, string, int) {
 	}
 
 	cmd := exec.Command(binary, args...)
+	// Own temporary directory: the program writes its workspace and its log
+	// relative to the working directory, and the repository must stay clean.
+	cmd.Dir = t.TempDir()
 	cmd.Env = append(os.Environ(), "STARLIGHT_TEST_MAIN=1", "NO_COLOR=1")
 	cmd.Env = append(cmd.Env, env...)
 

@@ -34,6 +34,42 @@ func silence(t *testing.T) {
 	logx.Install(l)
 }
 
+// inTempDir runs the body with the working directory set to a fresh temporary
+// directory, and changes back afterwards. The program resolves relative paths
+// (workspace_dir, log_file) against the working directory, so without this a test
+// that runs the real flow would leave ./workspace inside the package and dirty the
+// repository. Repository paths must be resolved BEFORE calling it (`repoPath`).
+func inTempDir(t *testing.T, body func()) {
+	t.Helper()
+	previous, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("could not read the working directory: %v", err)
+	}
+	dir := t.TempDir()
+	if err := os.Chdir(dir); err != nil {
+		t.Fatalf("could not enter %s: %v", dir, err)
+	}
+	defer func() {
+		if err := os.Chdir(previous); err != nil {
+			t.Fatalf("could not go back to %s: %v", previous, err)
+		}
+	}()
+	body()
+}
+
+// repoPath resolves a path relative to the repository root (the package lives two
+// levels down) to an absolute one, so a test can still find the examples after
+// changing the working directory.
+func repoPath(t *testing.T, parts ...string) string {
+	t.Helper()
+	all := append([]string{"..", ".."}, parts...)
+	abs, err := filepath.Abs(filepath.Join(all...))
+	if err != nil {
+		t.Fatalf("could not resolve %v: %v", parts, err)
+	}
+	return abs
+}
+
 // --- Argument parsing -------------------------------------------------------
 
 func TestParseFlags(t *testing.T) {
@@ -129,64 +165,67 @@ func TestOptionsWithoutOutputDoesNotPanic(t *testing.T) {
 // TestValidateConfigWithRealExample runs the validation mode against the three
 // YAML files of the repository: if an example stops being valid, this fails.
 func TestValidateConfigWithRealExample(t *testing.T) {
-	silence(t)
-	t.Setenv("STARLIGHT_LLM_API_KEY", "test-key")
+	inTempDir(t, func() {
+		silence(t)
+		t.Setenv("STARLIGHT_LLM_API_KEY", "test-key")
 
-	paths := []string{
-		filepath.Join("..", "..", "configs", "agent.yaml.example"),
-		filepath.Join("..", "..", "configs", "cases", "1-development.yaml"),
-		filepath.Join("..", "..", "configs", "cases", "2-data.yaml"),
-		filepath.Join("..", "..", "configs", "cases", "3-automation.yaml"),
-	}
-	for _, path := range paths {
-		if _, err := os.Stat(path); err != nil {
-			t.Skipf("%s is missing: %v", path, err)
+		paths := []string{
+			repoPath(t, "configs", "agent.yaml.example"),
+			repoPath(t, "configs", "cases", "1-development.yaml"),
+			repoPath(t, "configs", "cases", "2-data.yaml"),
+			repoPath(t, "configs", "cases", "3-automation.yaml"),
 		}
-		t.Run(filepath.Base(path), func(t *testing.T) {
-			var out, errs bytes.Buffer
-			code := Run(Options{
-				Args: []string{"-config", path, "-validate-config"},
-				Out:  &out,
-				Err:  &errs,
+		for _, path := range paths {
+			if _, err := os.Stat(path); err != nil {
+				t.Skipf("%s is missing: %v", path, err)
+			}
+			t.Run(filepath.Base(path), func(t *testing.T) {
+				var out, errs bytes.Buffer
+				code := Run(Options{
+					Args: []string{"-config", path, "-validate-config"},
+					Out:  &out,
+					Err:  &errs,
+				})
+				if code != Success {
+					t.Fatalf("code = %d, errs = %q", code, errs.String())
+				}
+				if !strings.Contains(out.String(), "valid configuration") {
+					t.Errorf("out = %q", out.String())
+				}
 			})
-			if code != Success {
-				t.Fatalf("code = %d, errs = %q", code, errs.String())
-			}
-			if !strings.Contains(out.String(), "valid configuration") {
-				t.Errorf("out = %q", out.String())
-			}
-		})
-	}
+		}
+	})
 }
 
 // TestValidateConfigDoesNotRequireKey checks that a deployment can be validated
 // before the key exists, but that an invalid file still fails.
 func TestValidateConfigDoesNotRequireKey(t *testing.T) {
-	silence(t)
-	dir := t.TempDir()
+	inTempDir(t, func() {
+		silence(t)
+		dir := t.TempDir()
 
-	good := filepath.Join(dir, "good.yaml")
-	mustWrite(t, good, "anchor:\n  kind: command\n  command: make\n")
+		good := filepath.Join(dir, "good.yaml")
+		mustWrite(t, good, "anchor:\n  kind: command\n  command: make\n")
 
-	var out, errs bytes.Buffer
-	code := Run(Options{Args: []string{"-config", good, "-validate-config"}, Out: &out, Err: &errs})
-	if code != Success {
-		t.Fatalf("without a key the validation must work: %d %q", code, errs.String())
-	}
+		var out, errs bytes.Buffer
+		code := Run(Options{Args: []string{"-config", good, "-validate-config"}, Out: &out, Err: &errs})
+		if code != Success {
+			t.Fatalf("without a key the validation must work: %d %q", code, errs.String())
+		}
 
-	bad := filepath.Join(dir, "bad.yaml")
-	mustWrite(t, bad, "task_source:\n  kind: telepathy\n")
-	out.Reset()
-	errs.Reset()
-	code = Run(Options{Args: []string{"-config", bad, "-validate-config"}, Out: &out, Err: &errs})
-	if code != ConfigError {
-		t.Fatalf("an invalid file must give %d, gave %d (%q)", ConfigError, code, out.String())
-	}
-	if strings.Contains(out.String(), "valid") {
-		t.Error("it must not report a valid configuration with an invalid file")
-	}
+		bad := filepath.Join(dir, "bad.yaml")
+		mustWrite(t, bad, "task_source:\n  kind: telepathy\n")
+		out.Reset()
+		errs.Reset()
+		code = Run(Options{Args: []string{"-config", bad, "-validate-config"}, Out: &out, Err: &errs})
+		if code != ConfigError {
+			t.Fatalf("an invalid file must give %d, gave %d (%q)", ConfigError, code, out.String())
+		}
+		if strings.Contains(out.String(), "valid") {
+			t.Error("it must not report a valid configuration with an invalid file")
+		}
+	})
 }
-
 func TestMissingConfig(t *testing.T) {
 	silence(t)
 	var errs bytes.Buffer
@@ -216,10 +255,11 @@ func TestInvalidLogLevel(t *testing.T) {
 // TestIsolationShowsReality: the informative mode must show what was applied and
 // what was requested but could not be applied.
 func TestIsolationShowsReality(t *testing.T) {
-	silence(t)
-	dir := t.TempDir()
-	path := filepath.Join(dir, "isolation.yaml")
-	mustWrite(t, path, `anchor:
+	inTempDir(t, func() {
+		silence(t)
+		dir := t.TempDir()
+		path := filepath.Join(dir, "isolation.yaml")
+		mustWrite(t, path, `anchor:
   kind: command
   command: "true"
 sandbox:
@@ -228,21 +268,21 @@ sandbox:
   cgroup_root: /a/path/that/does/not/exist
 `)
 
-	var out, errs bytes.Buffer
-	code := Run(Options{Args: []string{"-config", path, "-isolation"}, Out: &out, Err: &errs})
-	if code != Success {
-		t.Fatalf("code = %d (%q)", code, errs.String())
-	}
-	text := out.String()
-	if !strings.Contains(text, "applied isolation") {
-		t.Errorf("out = %q", text)
-	}
-	// With a non-existent cgroups root it must declare what it could not apply.
-	if !strings.Contains(text, "not applied") {
-		t.Errorf("it should report what was not applied: %q", text)
-	}
+		var out, errs bytes.Buffer
+		code := Run(Options{Args: []string{"-config", path, "-isolation"}, Out: &out, Err: &errs})
+		if code != Success {
+			t.Fatalf("code = %d (%q)", code, errs.String())
+		}
+		text := out.String()
+		if !strings.Contains(text, "applied isolation") {
+			t.Errorf("out = %q", text)
+		}
+		// With a non-existent cgroups root it must declare what it could not apply.
+		if !strings.Contains(text, "not applied") {
+			t.Errorf("it should report what was not applied: %q", text)
+		}
+	})
 }
-
 func TestFailedSandboxReturns1(t *testing.T) {
 	silence(t)
 	t.Setenv("STARLIGHT_LLM_API_KEY", "x")
@@ -267,28 +307,29 @@ func TestFailedSandboxReturns1(t *testing.T) {
 }
 
 func TestFailedEngineReturns2(t *testing.T) {
-	silence(t)
-	t.Setenv("STARLIGHT_LLM_API_KEY", "x")
-	dir := t.TempDir()
-	path := filepath.Join(dir, "engine.yaml")
-	mustWrite(t, path, "llm:\n  api_key: x\n")
+	inTempDir(t, func() {
+		silence(t)
+		t.Setenv("STARLIGHT_LLM_API_KEY", "x")
+		dir := t.TempDir()
+		path := filepath.Join(dir, "engine.yaml")
+		mustWrite(t, path, "llm:\n  api_key: x\n")
 
-	var errs bytes.Buffer
-	code := Run(Options{
-		Args: []string{"-config", path, "-task", "something"},
-		Err:  &errs,
-		NewEngine: func(config.LLM, *logx.Logger) (*llm.Client, error) {
-			return nil, fmt.Errorf("engine not available")
-		},
+		var errs bytes.Buffer
+		code := Run(Options{
+			Args: []string{"-config", path, "-task", "something"},
+			Err:  &errs,
+			NewEngine: func(config.LLM, *logx.Logger) (*llm.Client, error) {
+				return nil, fmt.Errorf("engine not available")
+			},
+		})
+		if code != ConfigError {
+			t.Fatalf("code = %d", code)
+		}
+		if !strings.Contains(errs.String(), "engine not available") {
+			t.Errorf("errs = %q", errs.String())
+		}
 	})
-	if code != ConfigError {
-		t.Fatalf("code = %d", code)
-	}
-	if !strings.Contains(errs.String(), "engine not available") {
-		t.Errorf("errs = %q", errs.String())
-	}
 }
-
 func TestInvalidSourceReturns2(t *testing.T) {
 	silence(t)
 	t.Setenv("STARLIGHT_LLM_API_KEY", "x")
@@ -1156,19 +1197,21 @@ func TestRunFailsWhenTheSourceCannotBeBuilt(t *testing.T) {
 // TestIsolationModeWithoutAClaimableKey: the diagnostic modes must work before
 // the deployment has its key.
 func TestIsolationModeWithoutAClaimableKey(t *testing.T) {
-	silence(t)
-	dir := t.TempDir()
-	path := filepath.Join(dir, "config.yaml")
-	mustWrite(t, path, "anchor:\n  kind: command\n  command: \"true\"\n")
+	inTempDir(t, func() {
+		silence(t)
+		dir := t.TempDir()
+		path := filepath.Join(dir, "config.yaml")
+		mustWrite(t, path, "anchor:\n  kind: command\n  command: \"true\"\n")
 
-	var out, errs bytes.Buffer
-	code := Run(Options{Args: []string{"-config", path, "-isolation"}, Out: &out, Err: &errs})
-	if code != Success {
-		t.Fatalf("code = %d (%q)", code, errs.String())
-	}
-	if !strings.Contains(out.String(), "applied isolation") {
-		t.Errorf("out = %q", out.String())
-	}
+		var out, errs bytes.Buffer
+		code := Run(Options{Args: []string{"-config", path, "-isolation"}, Out: &out, Err: &errs})
+		if code != Success {
+			t.Fatalf("code = %d (%q)", code, errs.String())
+		}
+		if !strings.Contains(out.String(), "applied isolation") {
+			t.Errorf("out = %q", out.String())
+		}
+	})
 }
 
 // TestShutdownHandlerUninstallsItself: after the work finishes, the shutdown

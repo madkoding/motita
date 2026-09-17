@@ -73,8 +73,8 @@ step "6. no Spanish left in code, configs or scripts"
 # trip over English words. The script itself is excluded, because it necessarily
 # contains those words in the pattern below.
 pattern='\b(función|también|todavía|además|así|está|están|desde|hacia|según|mientras|porque|cuando|entonces|siempre|nunca|nada|pero|sólo|debe|puede|hace|hacer|tiene|tienen|usar|usando|valores|opciones|campo|nombre|ruta|salida|entrada|comando|resultado|ejemplo|archivo|fichero|cola|tarea|tareas|ancla|peligro|aviso|no se|sin embargo)\b'
-found=$(grep -rniE "$pattern" --include='*.go' --include='*.yaml' --include='*.yml' --include='*.sh' --include='Makefile' . 2>/dev/null \
-  | grep -v '/.git/' | grep -v '^./GLOSSARY.md' | grep -v '^./scripts/verify.sh' || true)
+found=$(grep -rniE "$pattern" --include='*.go' --include='*.yaml' --include='*.yml' --include='*.sh' --include='*.md' --include='Makefile' . 2>/dev/null \
+  | grep -v '/.git/' | grep -v '^./scripts/verify.sh' || true)
 if [ -z "$found" ]; then
   ok "no Spanish found"
 else

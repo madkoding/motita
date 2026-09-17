@@ -21,7 +21,9 @@ func TestMain(m *testing.M) {
 }
 
 // runAgent runs the program in a subprocess and returns its stdout, stderr and
-// exit code.
+// exit code. The subprocess runs in its own temporary directory: with the default
+// relative workspace_dir it would otherwise create ./workspace inside the
+// package, leaving the repository dirty after every test run.
 func runAgent(t *testing.T, env []string, args ...string) (string, string, int) {
 	t.Helper()
 	binary, err := os.Executable()
@@ -30,6 +32,7 @@ func runAgent(t *testing.T, env []string, args ...string) (string, string, int) 
 	}
 
 	cmd := exec.Command(binary, args...)
+	cmd.Dir = t.TempDir()
 	cmd.Env = append(os.Environ(), "STARLIGHT_TEST_MAIN=1")
 	cmd.Env = append(cmd.Env, env...)
 
