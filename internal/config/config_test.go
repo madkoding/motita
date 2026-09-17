@@ -8,31 +8,31 @@ import (
 	"time"
 )
 
-func TestParseYAMLBasico(t *testing.T) {
-	datos := []byte(`
-# comentario
-nombre: agente
+func TestParseYAMLBasic(t *testing.T) {
+	data := []byte(`
+# comment
+name: agent
 version: 2
 ratio: 0.5
-activo: true
-desactivado: false
-nada: ~
-lista:
-  - uno
-  - dos
-en_linea: [a, b, c]
-mapa:
-  clave: valor
-  anidado:
-    profundo: si
-mapa_en_linea: {x: 1, y: 2}
+active: true
+disabled: false
+nothing: ~
+list:
+  - one
+  - two
+inline: [a, b, c]
+map:
+  key: value
+  nested:
+    deep: yes
+inline_map: {x: 1, y: 2}
 `)
-	m, err := ParseYAML(datos)
+	m, err := ParseYAML(data)
 	if err != nil {
-		t.Fatalf("ParseYAML falló: %v", err)
+		t.Fatalf("ParseYAML failed: %v", err)
 	}
-	if m["nombre"] != "agente" {
-		t.Errorf("nombre = %v", m["nombre"])
+	if m["name"] != "agent" {
+		t.Errorf("name = %v", m["name"])
 	}
 	if m["version"] != int64(2) {
 		t.Errorf("version = %v (%T)", m["version"], m["version"])
@@ -40,240 +40,240 @@ mapa_en_linea: {x: 1, y: 2}
 	if m["ratio"] != 0.5 {
 		t.Errorf("ratio = %v (%T)", m["ratio"], m["ratio"])
 	}
-	if m["activo"] != true || m["desactivado"] != false {
-		t.Errorf("booleanos mal: activo=%v desactivado=%v", m["activo"], m["desactivado"])
+	if m["active"] != true || m["disabled"] != false {
+		t.Errorf("booleans wrong: active=%v disabled=%v", m["active"], m["disabled"])
 	}
-	if m["nada"] != nil {
-		t.Errorf("~ debería ser nil, es %v", m["nada"])
+	if m["nothing"] != nil {
+		t.Errorf("~ should be nil, it is %v", m["nothing"])
 	}
-	lista, ok := m["lista"].([]any)
-	if !ok || len(lista) != 2 || lista[0] != "uno" {
-		t.Errorf("lista = %#v", m["lista"])
+	list, ok := m["list"].([]any)
+	if !ok || len(list) != 2 || list[0] != "one" {
+		t.Errorf("list = %#v", m["list"])
 	}
-	enLinea, ok := m["en_linea"].([]any)
-	if !ok || len(enLinea) != 3 {
-		t.Errorf("en_linea = %#v", m["en_linea"])
+	inline, ok := m["inline"].([]any)
+	if !ok || len(inline) != 3 {
+		t.Errorf("inline = %#v", m["inline"])
 	}
-	mapa, ok := m["mapa"].(map[string]any)
+	nestedMap, ok := m["map"].(map[string]any)
 	if !ok {
-		t.Fatalf("mapa = %#v", m["mapa"])
+		t.Fatalf("map = %#v", m["map"])
 	}
-	anidado, ok := mapa["anidado"].(map[string]any)
-	if !ok || anidado["profundo"] != "si" {
-		t.Errorf("mapa.anidado = %#v", mapa["anidado"])
+	nested, ok := nestedMap["nested"].(map[string]any)
+	if !ok || nested["deep"] != "yes" {
+		t.Errorf("map.nested = %#v", nestedMap["nested"])
 	}
-	if m["mapa_en_linea"].(map[string]any)["x"] != int64(1) {
-		t.Errorf("mapa_en_linea = %#v", m["mapa_en_linea"])
+	if m["inline_map"].(map[string]any)["x"] != int64(1) {
+		t.Errorf("inline_map = %#v", m["inline_map"])
 	}
 }
 
-func TestParseYAMLComillasYComentarios(t *testing.T) {
-	datos := []byte(`
-simple: 'con # almohadilla dentro'
-doble: "con \"escape\" y salto\n"
-con_comentario: valor   # esto se ignora
-vacio: ""
+func TestParseYAMLQuotesAndComments(t *testing.T) {
+	data := []byte(`
+single: 'with # hash inside'
+double: "with \"escape\" and newline\n"
+with_comment: value   # this is ignored
+empty: ""
 `)
-	m, err := ParseYAML(datos)
+	m, err := ParseYAML(data)
 	if err != nil {
-		t.Fatalf("ParseYAML falló: %v", err)
+		t.Fatalf("ParseYAML failed: %v", err)
 	}
-	if m["simple"] != "con # almohadilla dentro" {
-		t.Errorf("simple = %q", m["simple"])
+	if m["single"] != "with # hash inside" {
+		t.Errorf("single = %q", m["single"])
 	}
-	if m["doble"] != "con \"escape\" y salto\n" {
-		t.Errorf("doble = %q", m["doble"])
+	if m["double"] != "with \"escape\" and newline\n" {
+		t.Errorf("double = %q", m["double"])
 	}
-	if m["con_comentario"] != "valor" {
-		t.Errorf("con_comentario = %q", m["con_comentario"])
+	if m["with_comment"] != "value" {
+		t.Errorf("with_comment = %q", m["with_comment"])
 	}
-	if m["vacio"] != "" {
-		t.Errorf("vacio = %q", m["vacio"])
+	if m["empty"] != "" {
+		t.Errorf("empty = %q", m["empty"])
 	}
 }
 
-func TestParseYAMLEscalaresDeBloque(t *testing.T) {
-	datos := []byte(`
+func TestParseYAMLBlockScalars(t *testing.T) {
+	data := []byte(`
 literal: |
-  linea uno
-  linea dos
+  line one
+  line two
 
-  tras vacio
-plegado: >
-  esto se
-  une en una linea
-sin_salto: |-
-  sin salto final
+  after blank
+folded: >
+  this gets
+  joined into one line
+no_newline: |-
+  no trailing newline
 `)
-	m, err := ParseYAML(datos)
+	m, err := ParseYAML(data)
 	if err != nil {
-		t.Fatalf("ParseYAML falló: %v", err)
+		t.Fatalf("ParseYAML failed: %v", err)
 	}
 	literal, _ := m["literal"].(string)
-	if !strings.Contains(literal, "linea uno\nlinea dos") {
+	if !strings.Contains(literal, "line one\nline two") {
 		t.Errorf("literal = %q", literal)
 	}
-	if !strings.Contains(literal, "tras vacio") {
-		t.Errorf("la línea tras el vacío se perdió: %q", literal)
+	if !strings.Contains(literal, "after blank") {
+		t.Errorf("the line after the blank one was lost: %q", literal)
 	}
-	plegado, _ := m["plegado"].(string)
-	if !strings.Contains(plegado, "esto se une en una linea") {
-		t.Errorf("plegado = %q", plegado)
+	folded, _ := m["folded"].(string)
+	if !strings.Contains(folded, "this gets joined into one line") {
+		t.Errorf("folded = %q", folded)
 	}
-	sinSalto, _ := m["sin_salto"].(string)
-	if strings.HasSuffix(sinSalto, "\n") {
-		t.Errorf("|- no debe acabar en salto: %q", sinSalto)
+	noNewline, _ := m["no_newline"].(string)
+	if strings.HasSuffix(noNewline, "\n") {
+		t.Errorf("|- must not end in a newline: %q", noNewline)
 	}
 }
 
-func TestParseYAMLListaDeMapas(t *testing.T) {
-	datos := []byte(`
+func TestParseYAMLListOfMaps(t *testing.T) {
+	data := []byte(`
 checks:
-  - nombre: primero
-    comando: make test
-    esperar_exit: 0
-  - nombre: segundo
-    comando: ./lint.sh
+  - name: first
+    command: make test
+    expect_exit: 0
+  - name: second
+    command: ./lint.sh
 `)
-	m, err := ParseYAML(datos)
+	m, err := ParseYAML(data)
 	if err != nil {
-		t.Fatalf("ParseYAML falló: %v", err)
+		t.Fatalf("ParseYAML failed: %v", err)
 	}
-	lista, ok := m["checks"].([]any)
-	if !ok || len(lista) != 2 {
+	list, ok := m["checks"].([]any)
+	if !ok || len(list) != 2 {
 		t.Fatalf("checks = %#v", m["checks"])
 	}
-	primero := lista[0].(map[string]any)
-	if primero["nombre"] != "primero" || primero["comando"] != "make test" || primero["esperar_exit"] != int64(0) {
-		t.Errorf("primer check = %#v", primero)
+	first := list[0].(map[string]any)
+	if first["name"] != "first" || first["command"] != "make test" || first["expect_exit"] != int64(0) {
+		t.Errorf("first check = %#v", first)
 	}
-	segundo := lista[1].(map[string]any)
-	if segundo["nombre"] != "segundo" {
-		t.Errorf("segundo check = %#v", segundo)
+	second := list[1].(map[string]any)
+	if second["name"] != "second" {
+		t.Errorf("second check = %#v", second)
 	}
 }
 
-func TestParseYAMLErroresExplicitos(t *testing.T) {
-	casos := []struct {
-		nombre   string
+func TestParseYAMLExplicitErrors(t *testing.T) {
+	cases := []struct {
+		name     string
 		yaml     string
-		contiene string
+		contains string
 	}{
-		{"tabuladores", "a:\n\tb: 1\n", "tabuladores"},
-		{"clave sin valor", "a\n", "se esperaba 'clave: valor'"},
-		{"raíz secuencia", "- uno\n- dos\n", "debe ser un mapa"},
+		{"tabs", "a:\n\tb: 1\n", "tabs"},
+		{"key without value", "a\n", "expected 'key: value'"},
+		{"sequence root", "- one\n- two\n", "must be a map"},
 	}
-	for _, caso := range casos {
-		t.Run(caso.nombre, func(t *testing.T) {
-			_, err := ParseYAML([]byte(caso.yaml))
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := ParseYAML([]byte(tc.yaml))
 			if err == nil {
-				t.Fatalf("se esperaba error para %q", caso.yaml)
+				t.Fatalf("an error was expected for %q", tc.yaml)
 			}
-			if !strings.Contains(err.Error(), caso.contiene) {
-				t.Errorf("error = %q, se esperaba que contuviera %q", err, caso.contiene)
+			if !strings.Contains(err.Error(), tc.contains) {
+				t.Errorf("error = %q, it was expected to contain %q", err, tc.contains)
 			}
 		})
 	}
 }
 
-// TestCargarEjemploDelRepo valida que el YAML de ejemplo es correcto: si se
-// rompe la documentación, falla la prueba.
-func TestCargarEjemploDelRepo(t *testing.T) {
-	t.Setenv("STARLIGHT_LLM_API_KEY", "clave-de-prueba")
+// TestLoadRepoExample validates that the example YAML is correct: if the
+// documentation breaks, the test fails.
+func TestLoadRepoExample(t *testing.T) {
+	t.Setenv("STARLIGHT_LLM_API_KEY", "test-key")
 
-	ruta := filepath.Join("..", "..", "configs", "agent.yaml.example")
-	if _, err := os.Stat(ruta); err != nil {
-		t.Skipf("no está el ejemplo en %s: %v", ruta, err)
+	path := filepath.Join("..", "..", "configs", "agent.yaml.example")
+	if _, err := os.Stat(path); err != nil {
+		t.Skipf("the example is not at %s: %v", path, err)
 	}
 
-	cfg, err := Cargar(ruta)
+	cfg, err := Load(path)
 	if err != nil {
-		t.Fatalf("el ejemplo del repositorio no carga: %v", err)
+		t.Fatalf("the repository example does not load: %v", err)
 	}
-	if cfg.LLM.Modelo == "" || cfg.Agent.MaxReintentos == 0 {
-		t.Errorf("configuración incompleta: %+v", cfg)
+	if cfg.LLM.Model == "" || cfg.Agent.MaxRetries == 0 {
+		t.Errorf("incomplete configuration: %+v", cfg)
 	}
-	if cfg.Anchor.Tipo == "command" && cfg.Anchor.Comando == "" {
-		t.Error("ancla de tipo command sin comando")
+	if cfg.Anchor.Kind == "command" && cfg.Anchor.Command == "" {
+		t.Error("anchor of kind command with no command")
 	}
 }
 
-func TestCargarCasosDeUso(t *testing.T) {
-	t.Setenv("STARLIGHT_LLM_API_KEY", "clave-de-prueba")
+func TestLoadUseCases(t *testing.T) {
+	t.Setenv("STARLIGHT_LLM_API_KEY", "test-key")
 
-	for _, caso := range []string{"1-desarrollo.yaml", "2-datos.yaml", "3-automatizacion.yaml"} {
-		t.Run(caso, func(t *testing.T) {
-			ruta := filepath.Join("..", "..", "configs", "casos", caso)
-			if _, err := os.Stat(ruta); err != nil {
-				t.Skipf("no está %s: %v", ruta, err)
+	for _, useCase := range []string{"1-development.yaml", "2-data.yaml", "3-automation.yaml"} {
+		t.Run(useCase, func(t *testing.T) {
+			path := filepath.Join("..", "..", "configs", "cases", useCase)
+			if _, err := os.Stat(path); err != nil {
+				t.Skipf("%s is not there: %v", path, err)
 			}
-			cfg, err := Cargar(ruta)
+			cfg, err := Load(path)
 			if err != nil {
-				t.Fatalf("el caso %s no carga: %v", caso, err)
+				t.Fatalf("the case %s does not load: %v", useCase, err)
 			}
-			// Cada caso debe tener el flujo completo definido.
-			if cfg.Prompts.Analyze.Usuario == "" || cfg.Prompts.Plan.Usuario == "" || cfg.Prompts.Execute.Usuario == "" {
-				t.Errorf("el caso %s no define las tres plantillas de prompt", caso)
+			// Every case must define the complete flow.
+			if cfg.Prompts.Analyze.User == "" || cfg.Prompts.Plan.User == "" || cfg.Prompts.Execute.User == "" {
+				t.Errorf("the case %s does not define the three prompt templates", useCase)
 			}
-			if cfg.Anchor.Tipo == "none" {
-				t.Errorf("el caso %s no valida nada (anchor.tipo=none)", caso)
+			if cfg.Anchor.Kind == "none" {
+				t.Errorf("the case %s validates nothing (anchor.kind=none)", useCase)
 			}
-			if cfg.FinalAction.Tipo == "none" {
-				t.Errorf("el caso %s no define acción final", caso)
+			if cfg.FinalAction.Kind == "none" {
+				t.Errorf("the case %s does not define a final action", useCase)
 			}
 		})
 	}
 }
 
-func TestValidarDetectaErrores(t *testing.T) {
-	casos := []struct {
-		nombre    string
-		modificar func(*Config)
-		contiene  string
+func TestValidateDetectsErrors(t *testing.T) {
+	cases := []struct {
+		name     string
+		modify   func(*Config)
+		contains string
 	}{
-		{"fuente desconocida", func(c *Config) { c.TaskSource.Tipo = "telepatia" }, "task_source.tipo desconocido"},
-		{"file sin ruta", func(c *Config) { c.TaskSource.Tipo = "file" }, "requiere 'ruta'"},
-		{"api sin url", func(c *Config) { c.TaskSource.Tipo = "api" }, "requiere 'url'"},
-		{"ancla command sin comando", func(c *Config) { c.Anchor.Tipo = "command" }, "requiere 'comando'"},
-		{"sandbox chroot sin raíz", func(c *Config) { c.Sandbox.Tipo = "chroot" }, "requiere 'raiz'"},
-		{"proveedor desconocido", func(c *Config) { c.LLM.Proveedor = "mago" }, "llm.proveedor desconocido"},
-		{"sin clave", func(c *Config) { c.LLM.APIKey = "" }, "falta la clave del LLM"},
-		{"final api sin url", func(c *Config) { c.FinalAction.Tipo = "api" }, "requiere 'url'"},
-		{"nivel de log", func(c *Config) { c.Agent.LogNivel = "verboso" }, "agent.log_level desconocido"},
-		{"usuario inválido", func(c *Config) { c.Sandbox.Usuario = "a:b:c" }, "uid:gid"},
+		{"unknown source", func(c *Config) { c.TaskSource.Kind = "telepathy" }, "unknown task_source.kind"},
+		{"file without path", func(c *Config) { c.TaskSource.Kind = "file" }, "requires 'path'"},
+		{"api without url", func(c *Config) { c.TaskSource.Kind = "api" }, "requires 'url'"},
+		{"anchor command without command", func(c *Config) { c.Anchor.Kind = "command" }, "requires 'command'"},
+		{"sandbox chroot without root", func(c *Config) { c.Sandbox.Kind = "chroot" }, "requires 'root'"},
+		{"unknown provider", func(c *Config) { c.LLM.Provider = "wizard" }, "unknown llm.provider"},
+		{"no key", func(c *Config) { c.LLM.APIKey = "" }, "the LLM key is missing"},
+		{"final api without url", func(c *Config) { c.FinalAction.Kind = "api" }, "requires 'url'"},
+		{"log level", func(c *Config) { c.Agent.LogLevel = "verbose" }, "unknown agent.log_level"},
+		{"invalid user", func(c *Config) { c.Sandbox.User = "a:b:c" }, "uid:gid"},
 	}
-	for _, caso := range casos {
-		t.Run(caso.nombre, func(t *testing.T) {
-			cfg := Defecto()
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg := Default()
 			cfg.LLM.APIKey = "x"
-			caso.modificar(&cfg)
-			err := cfg.Validar()
+			tc.modify(&cfg)
+			err := cfg.Validate()
 			if err == nil {
-				t.Fatal("se esperaba un error de validación")
+				t.Fatal("a validation error was expected")
 			}
-			if !strings.Contains(err.Error(), caso.contiene) {
-				t.Errorf("error = %q, se esperaba que contuviera %q", err, caso.contiene)
+			if !strings.Contains(err.Error(), tc.contains) {
+				t.Errorf("error = %q, it was expected to contain %q", err, tc.contains)
 			}
 		})
 	}
 }
 
-func TestDecodificarClaveDesconocida(t *testing.T) {
-	m, err := ParseYAML([]byte("llm:\n  modelo: x\n  color_favorito: azul\n"))
+func TestDecodeUnknownKey(t *testing.T) {
+	m, err := ParseYAML([]byte("llm:\n  model: x\n  favorite_color: blue\n"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	var cfg Config
-	err = Decodificar(m, &cfg)
+	err = Decode(m, &cfg)
 	if err == nil {
-		t.Fatal("una clave desconocida debe ser un error, no un silencio")
+		t.Fatal("an unknown key must be an error, not silence")
 	}
-	if !strings.Contains(err.Error(), "color_favorito") || !strings.Contains(err.Error(), "llm") {
-		t.Errorf("el error debe indicar la clave y su bloque: %q", err)
+	if !strings.Contains(err.Error(), "favorite_color") || !strings.Contains(err.Error(), "llm") {
+		t.Errorf("the error must name the key and its block: %q", err)
 	}
 }
 
-func TestDecodificarDuraciones(t *testing.T) {
+func TestDecodeDurations(t *testing.T) {
 	m, err := ParseYAML([]byte(`
 anchor:
   timeout: 45s
@@ -286,60 +286,60 @@ sandbox:
 		t.Fatal(err)
 	}
 	var cfg Config
-	if err := Decodificar(m, &cfg); err != nil {
+	if err := Decode(m, &cfg); err != nil {
 		t.Fatal(err)
 	}
 	if cfg.Anchor.Timeout != 45*time.Second {
 		t.Errorf("anchor.timeout = %v", cfg.Anchor.Timeout)
 	}
 	if cfg.LLM.Timeout != 90*time.Second {
-		t.Errorf("un número sin sufijo debe ser segundos: %v", cfg.LLM.Timeout)
+		t.Errorf("a number without a suffix must be seconds: %v", cfg.LLM.Timeout)
 	}
 	if cfg.Sandbox.Timeout != 5*time.Minute {
 		t.Errorf("sandbox.timeout = %v", cfg.Sandbox.Timeout)
 	}
 }
 
-func TestEntornoGanaSobreYAML(t *testing.T) {
-	t.Setenv("STARLIGHT_LLM_MODELO", "modelo-de-entorno")
-	t.Setenv("STARLIGHT_AGENT_MAX_REINTENTOS", "7")
-	t.Setenv("STARLIGHT_SANDBOX_AISLAR_RED", "true")
-	t.Setenv("STARLIGHT_LLM_API_KEY", "clave")
+func TestEnvironmentWinsOverYAML(t *testing.T) {
+	t.Setenv("STARLIGHT_LLM_MODEL", "model-from-environment")
+	t.Setenv("STARLIGHT_AGENT_MAX_RETRIES", "7")
+	t.Setenv("STARLIGHT_SANDBOX_ISOLATE_NETWORK", "true")
+	t.Setenv("STARLIGHT_LLM_API_KEY", "key")
 
-	cfg := Defecto()
-	if err := AplicarEntorno(&cfg); err != nil {
+	cfg := Default()
+	if err := ApplyEnvironment(&cfg); err != nil {
 		t.Fatal(err)
 	}
-	if cfg.LLM.Modelo != "modelo-de-entorno" {
-		t.Errorf("modelo = %q", cfg.LLM.Modelo)
+	if cfg.LLM.Model != "model-from-environment" {
+		t.Errorf("model = %q", cfg.LLM.Model)
 	}
-	if cfg.Agent.MaxReintentos != 7 {
-		t.Errorf("max_reintentos = %d", cfg.Agent.MaxReintentos)
+	if cfg.Agent.MaxRetries != 7 {
+		t.Errorf("max_retries = %d", cfg.Agent.MaxRetries)
 	}
-	if !cfg.Sandbox.AislarRed {
-		t.Error("aislar_red debería ser true")
+	if !cfg.Sandbox.IsolateNetwork {
+		t.Error("isolate_network should be true")
 	}
 }
 
-func TestEntornoInvalido(t *testing.T) {
+func TestInvalidEnvironment(t *testing.T) {
 	t.Setenv("STARLIGHT_LLM_API_KEY", "x")
-	t.Setenv("STARLIGHT_AGENT_MAX_REINTENTOS", "muchos")
-	cfg := Defecto()
-	if err := AplicarEntorno(&cfg); err == nil {
-		t.Fatal("un entero inválido en el entorno debe dar error")
+	t.Setenv("STARLIGHT_AGENT_MAX_RETRIES", "many")
+	cfg := Default()
+	if err := ApplyEnvironment(&cfg); err == nil {
+		t.Fatal("an invalid integer in the environment must give an error")
 	}
 }
 
-func TestParsearUsuario(t *testing.T) {
-	uid, gid, err := ParsearUsuario("1000:1001")
+func TestParseUser(t *testing.T) {
+	uid, gid, err := ParseUser("1000:1001")
 	if err != nil || uid != 1000 || gid != 1001 {
 		t.Errorf("1000:1001 -> %d %d %v", uid, gid, err)
 	}
-	uid, gid, err = ParsearUsuario("1000")
+	uid, gid, err = ParseUser("1000")
 	if err != nil || uid != 1000 || gid != 1000 {
 		t.Errorf("1000 -> %d %d %v", uid, gid, err)
 	}
-	if _, _, err := ParsearUsuario("mil"); err == nil {
-		t.Error("un usuario no numérico debe fallar")
+	if _, _, err := ParseUser("thousand"); err == nil {
+		t.Error("a non-numeric user must fail")
 	}
 }

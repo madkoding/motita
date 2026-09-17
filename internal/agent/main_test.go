@@ -9,18 +9,18 @@ import (
 	"github.com/madkoding/starlight/internal/sandbox"
 )
 
-// TestMain permite que el binario de pruebas actúe como proceso hijo del
-// sandbox cuando lo invocan con la marca correspondiente. Sin esto, el sandbox
-// re-ejecutaría el binario de pruebas, que volvería a lanzar toda la suite.
+// TestMain lets the test binary act as the sandbox's child process when it is
+// invoked with the matching marker. Without this, the sandbox would re-execute
+// the test binary, which would launch the whole suite again.
 func TestMain(m *testing.M) {
-	if sandbox.EsEjecucionHijo(os.Args[1:]) {
-		if err := sandbox.EjecutarComoHijo(os.Args[1:]); err != nil {
-			fmt.Fprintf(os.Stderr, "agent[pruebas]: %v\n", err)
+	if sandbox.IsChildExecution(os.Args[1:]) {
+		if err := sandbox.RunAsChild(os.Args[1:]); err != nil {
+			fmt.Fprintf(os.Stderr, "agent[tests]: %v\n", err)
 			os.Exit(126)
 		}
 		return
 	}
-	l, _ := logx.Nuevo(logx.Opciones{Nivel: logx.Error, Consola: false})
-	logx.Instalar(l)
+	l, _ := logx.New(logx.Options{Level: logx.Error, Console: false})
+	logx.Install(l)
 	os.Exit(m.Run())
 }

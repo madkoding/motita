@@ -1,0 +1,52 @@
+# Configuration for the end-to-end test on i386.
+#
+# The simulated LLM (tools/mockllm) plays the model: on the first attempt it
+# proposes a command that does NOT satisfy the validation, and on the second one
+# the command that does. That exercises the whole cycle for real: analysis ->
+# plan -> action -> anchor -> retry with the failure records -> PASS -> final
+# action.
+
+task_source:
+  kind: file
+  path: /e2e/task.txt
+
+anchor:
+  kind: command
+  # The anchor checks the REAL effect on the filesystem.
+  command: sh
+  args: ["-c", "grep -q content-valid report.txt && echo ANCHOR_OK"]
+  expect_exit: 0
+  expect_output: "ANCHOR_OK"
+  timeout: 30s
+
+sandbox:
+  kind: cgroups
+  memory_mb: 256
+  cpu_seconds: 30
+  processes: 32
+  cgroups: auto
+  timeout: 30s
+  max_output_kb: 64
+
+llm:
+  provider: openai
+  model: simulated
+  base_url: http://127.0.0.1:8210/v1
+  max_tokens: 512
+  temperature: 0.0
+  timeout: 20s
+  max_attempts: 1
+
+final_action:
+  # Runs ONLY if the anchor gives PASS.
+  kind: command
+  command: sh
+  args: ["-c", "echo 'validated by the anchor' > final-action.txt"]
+
+agent:
+  max_retries: 2
+  workspace_dir: /e2e/work
+  log_file: /e2e/agent.log
+  log_level: debug
+  log_console: true
+  graceful_shutdown_timeout: 10s

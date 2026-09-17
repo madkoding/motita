@@ -1,15 +1,14 @@
-// Package llm implementa la Capa B: el motor de razonamiento.
+// Package llm implements Layer B: the reasoning engine.
 //
-// Es un cliente ligero, sin SDK, que habla con tres familias de API:
+// It is a lightweight, SDK-free client that talks to three families of API:
 //
 //   - openai:    POST /chat/completions  (Bearer)
 //   - anthropic: POST /v1/messages       (x-api-key + anthropic-version)
-//   - gemini:    POST /v1beta/models/<modelo>:generateContent (?key=)
+//   - gemini:    POST /v1beta/models/<model>:generateContent (?key=)
 //
-// Todos los proveedores se normalizan a la misma estructura de mensajes y a
-// texto plano de vuelta, para que el bucle del agente no sepa cuál está detrás.
-// El parseo de respuestas estructuradas y el reintento con backoff exponencial
-// viven aquí.
+// Every provider is normalised to the same message structure and back to plain
+// text, so the agent loop never needs to know which one is behind it. Parsing of
+// structured responses and retrying with exponential backoff live here.
 package llm
 
 import (
@@ -28,136 +27,137 @@ import (
 	"github.com/madkoding/starlight/internal/logx"
 )
 
-// Mensaje es un turno de la conversación.
-type Mensaje struct {
-	Rol       string // system | user | assistant
-	Contenido string
+// Message is one turn of the conversation.
+type Message struct {
+	Role    string // system | user | assistant
+	Content string
 }
 
-// Cliente habla con el proveedor configurado.
-type Cliente struct {
-	cfg    config.LLM
-	http   *http.Client
-	log    *logx.Logger
-	dormir func(time.Duration) // inyectable para que las pruebas no esperen
+// Client talks to the configured provider.
+type Client struct {
+	cfg   config.LLM
+	http  *http.Client
+	log   *logx.Logger
+	sleep func(time.Duration) // injectable so tests do not have to wait
 }
 
-// Nuevo crea el cliente del motor de razonamiento.
-func Nuevo(cfg config.LLM, log *logx.Logger) (*Cliente, error) {
+// New creates the reasoning engine client.
+func New(cfg config.LLM, log *logx.Logger) (*Client, error) {
 	if log == nil {
 		log = logx.Global()
 	}
-	switch strings.ToLower(cfg.Proveedor) {
+	switch strings.ToLower(cfg.Provider) {
 	case "openai", "anthropic", "gemini":
 	default:
-		return nil, fmt.Errorf("proveedor de LLM no soportado: %q", cfg.Proveedor)
+		return nil, fmt.Errorf("unsupported LLM provider: %q", cfg.Provider)
 	}
 	if cfg.APIKey == "" {
-		return nil, errors.New("falta la clave del LLM")
+		return nil, errors.New("the LLM key is missing")
 	}
 	if cfg.Timeout <= 0 {
 		cfg.Timeout = 90 * time.Second
 	}
-	if cfg.MaxIntentos < 1 {
-		cfg.MaxIntentos = 1
+	if cfg.MaxAttempts < 1 {
+		cfg.MaxAttempts = 1
 	}
-	if cfg.BackoffInicial <= 0 {
-		cfg.BackoffInicial = time.Second
+	if cfg.BackoffInitial <= 0 {
+		cfg.BackoffInitial = time.Second
 	}
-	if cfg.BackoffMax < cfg.BackoffInicial {
-		cfg.BackoffMax = cfg.BackoffInicial
+	if cfg.BackoffMax < cfg.BackoffInitial {
+		cfg.BackoffMax = cfg.BackoffInitial
 	}
 
-	return &Cliente{
+	return &Client{
 		cfg:  cfg,
 		http: &http.Client{Timeout: cfg.Timeout},
 		log:  log,
-		dormir: func(d time.Duration) {
+		sleep: func(d time.Duration) {
 			time.Sleep(d)
 		},
 	}, nil
 }
 
-// Completar envía la conversación y devuelve el texto del modelo, reintentando
-// con backoff exponencial ante fallos transitorios.
-func (c *Cliente) Completar(ctx context.Context, mensajes []Mensaje) (string, error) {
-	var ultimo error
-	espera := c.cfg.BackoffInicial
+// Complete sends the conversation and returns the model's text, retrying with
+// exponential backoff on transient failures.
+func (c *Client) Complete(ctx context.Context, messages []Message) (string, error) {
+	var last error
+	wait := c.cfg.BackoffInitial
 
-	for intento := 1; intento <= c.cfg.MaxIntentos; intento++ {
-		texto, err := c.llamada(ctx, mensajes)
+	for attempt := 1; attempt <= c.cfg.MaxAttempts; attempt++ {
+		text, err := c.call(ctx, messages)
 		if err == nil {
-			return texto, nil
+			return text, nil
 		}
-		ultimo = err
+		last = err
 
-		if !reintentable(err) {
-			// Un error de credenciales o de petición no mejora reintentando:
-			// se falla rápido en lugar de gastar tiempo y cuota.
-			c.log.Error("llamada al LLM fallida sin posibilidad de reintento",
-				"intento", intento, "error", err)
+		if !retryable(err) {
+			// A credentials or request error does not improve by retrying:
+			// fail fast instead of burning time and quota.
+			c.log.Error("LLM call failed with no possibility of retry",
+				"attempt", attempt, "error", err)
 			return "", err
 		}
-		if intento == c.cfg.MaxIntentos {
+		if attempt == c.cfg.MaxAttempts {
 			break
 		}
 
-		c.log.Warn("reintentando llamada al LLM",
-			"intento", intento, "max_intentos", c.cfg.MaxIntentos,
-			"espera", espera.String(), "error", err)
+		c.log.Warn("retrying LLM call",
+			"attempt", attempt, "max_attempts", c.cfg.MaxAttempts,
+			"wait", wait.String(), "error", err)
 
 		select {
 		case <-ctx.Done():
-			return "", fmt.Errorf("cancelado mientras se esperaba para reintentar: %w", ctx.Err())
-		case <-time.After(espera):
+			return "", fmt.Errorf("cancelled while waiting to retry: %w", ctx.Err())
+		case <-time.After(wait):
 		}
-		espera *= 2
-		if espera > c.cfg.BackoffMax {
-			espera = c.cfg.BackoffMax
+		wait *= 2
+		if wait > c.cfg.BackoffMax {
+			wait = c.cfg.BackoffMax
 		}
 	}
 
-	return "", fmt.Errorf("se agotaron los %d intentos: %w", c.cfg.MaxIntentos, ultimo)
+	return "", fmt.Errorf("all %d attempts were exhausted: %w", c.cfg.MaxAttempts, last)
 }
 
-// ErrorHTTP describe un fallo con código para decidir si es reintentable.
-type ErrorHTTP struct {
-	Codigo int
-	Cuerpo string
+// HTTPError describes a failure with a status code so that retryability can be
+// decided.
+type HTTPError struct {
+	Code int
+	Body string
 }
 
-func (e *ErrorHTTP) Error() string {
-	return fmt.Sprintf("HTTP %d: %s", e.Codigo, recortar(e.Cuerpo, 400))
+func (e *HTTPError) Error() string {
+	return fmt.Sprintf("HTTP %d: %s", e.Code, truncate(e.Body, 400))
 }
 
-// reintentable indica si merece la pena volver a intentarlo.
-func reintentable(err error) bool {
-	var eh *ErrorHTTP
-	if errors.As(err, &eh) {
+// retryable says whether it is worth trying again.
+func retryable(err error) bool {
+	var he *HTTPError
+	if errors.As(err, &he) {
 		switch {
-		case eh.Codigo == 429, eh.Codigo >= 500:
+		case he.Code == 429, he.Code >= 500:
 			return true
 		default:
 			return false
 		}
 	}
-	// Errores de red (timeouts, DNS, conexión cortada) sí se reintentan.
+	// Network errors (timeouts, DNS, dropped connection) are retried.
 	return true
 }
 
-// llamada hace una única petición al proveedor.
-func (c *Cliente) llamada(ctx context.Context, mensajes []Mensaje) (string, error) {
-	switch strings.ToLower(c.cfg.Proveedor) {
+// call makes a single request to the provider.
+func (c *Client) call(ctx context.Context, messages []Message) (string, error) {
+	switch strings.ToLower(c.cfg.Provider) {
 	case "anthropic":
-		return c.llamadaAnthropic(ctx, mensajes)
+		return c.callAnthropic(ctx, messages)
 	case "gemini":
-		return c.llamadaGemini(ctx, mensajes)
+		return c.callGemini(ctx, messages)
 	default:
-		return c.llamadaOpenAI(ctx, mensajes)
+		return c.callOpenAI(ctx, messages)
 	}
 }
 
-func (c *Cliente) baseURL(defecto string) string {
+func (c *Client) baseURL(defecto string) string {
 	if c.cfg.BaseURL == "" {
 		return defecto
 	}
@@ -166,12 +166,12 @@ func (c *Cliente) baseURL(defecto string) string {
 
 // --- OpenAI ----------------------------------------------------------------
 
-type openAIMensaje struct {
-	Rol       string `json:"role"`
-	Contenido string `json:"content"`
+type openAIMessage struct {
+	Role    string `json:"role"`
+	Content string `json:"content"`
 }
 
-type openAIRespuesta struct {
+type openAIResponse struct {
 	Choices []struct {
 		Message struct {
 			Content string `json:"content"`
@@ -183,48 +183,48 @@ type openAIRespuesta struct {
 	} `json:"error,omitempty"`
 }
 
-func (c *Cliente) llamadaOpenAI(ctx context.Context, mensajes []Mensaje) (string, error) {
-	cuerpo := map[string]any{
-		"model":       c.cfg.Modelo,
-		"messages":    aOpenAI(mensajes),
+func (c *Client) callOpenAI(ctx context.Context, messages []Message) (string, error) {
+	body := map[string]any{
+		"model":       c.cfg.Model,
+		"messages":    toOpenAIMessages(messages),
 		"max_tokens":  c.cfg.MaxTokens,
 		"temperature": c.cfg.Temperature,
 	}
 	url := c.baseURL("https://api.openai.com/v1") + "/chat/completions"
-	cabeceras := map[string]string{"Authorization": "Bearer " + c.cfg.APIKey}
+	headers := map[string]string{"Authorization": "Bearer " + c.cfg.APIKey}
 
-	datos, err := c.post(ctx, url, cabeceras, cuerpo)
+	data, err := c.post(ctx, url, headers, body)
 	if err != nil {
 		return "", err
 	}
-	var resp openAIRespuesta
-	if err := json.Unmarshal(datos, &resp); err != nil {
-		return "", fmt.Errorf("respuesta de OpenAI ilegible: %w", err)
+	var resp openAIResponse
+	if err := json.Unmarshal(data, &resp); err != nil {
+		return "", fmt.Errorf("unreadable OpenAI response: %w", err)
 	}
 	if resp.Error != nil && resp.Error.Message != "" {
-		return "", &ErrorHTTP{Codigo: 400, Cuerpo: resp.Error.Message}
+		return "", &HTTPError{Code: 400, Body: resp.Error.Message}
 	}
 	if len(resp.Choices) == 0 {
-		return "", errors.New("OpenAI devolvió choices vacío")
+		return "", errors.New("OpenAI returned empty choices")
 	}
 	return resp.Choices[0].Message.Content, nil
 }
 
-func aOpenAI(mensajes []Mensaje) []openAIMensaje {
-	salida := make([]openAIMensaje, 0, len(mensajes))
-	for _, m := range mensajes {
-		rol := m.Rol
-		if rol == "" {
-			rol = "user"
+func toOpenAIMessages(messages []Message) []openAIMessage {
+	out := make([]openAIMessage, 0, len(messages))
+	for _, m := range messages {
+		role := m.Role
+		if role == "" {
+			role = "user"
 		}
-		salida = append(salida, openAIMensaje{Rol: rol, Contenido: m.Contenido})
+		out = append(out, openAIMessage{Role: role, Content: m.Content})
 	}
-	return salida
+	return out
 }
 
 // --- Anthropic --------------------------------------------------------------
 
-type anthropicRespuesta struct {
+type anthropicResponse struct {
 	Content []struct {
 		Type string `json:"type"`
 		Text string `json:"text"`
@@ -234,72 +234,73 @@ type anthropicRespuesta struct {
 	} `json:"error,omitempty"`
 }
 
-func (c *Cliente) llamadaAnthropic(ctx context.Context, mensajes []Mensaje) (string, error) {
-	// Anthropic recibe el sistema aparte y no admite el rol "system" en la lista.
-	var sistema string
-	conversacion := make([]map[string]any, 0, len(mensajes))
-	for _, m := range mensajes {
-		if m.Rol == "system" {
-			if sistema != "" {
-				sistema += "\n\n"
+func (c *Client) callAnthropic(ctx context.Context, messages []Message) (string, error) {
+	// Anthropic receives the system prompt separately and does not accept the
+	// "system" role inside the list.
+	var system string
+	conversation := make([]map[string]any, 0, len(messages))
+	for _, m := range messages {
+		if m.Role == "system" {
+			if system != "" {
+				system += "\n\n"
 			}
-			sistema += m.Contenido
+			system += m.Content
 			continue
 		}
-		rol := m.Rol
-		if rol != "assistant" {
-			rol = "user"
+		role := m.Role
+		if role != "assistant" {
+			role = "user"
 		}
-		conversacion = append(conversacion, map[string]any{
-			"role": rol,
+		conversation = append(conversation, map[string]any{
+			"role": role,
 			"content": []map[string]any{
-				{"type": "text", "text": m.Contenido},
+				{"type": "text", "text": m.Content},
 			},
 		})
 	}
 
-	cuerpo := map[string]any{
-		"model":       c.cfg.Modelo,
-		"messages":    conversacion,
-		"max_tokens":  max(c.cfg.MaxTokens, 1),
+	body := map[string]any{
+		"model":       c.cfg.Model,
+		"messages":    conversation,
+		"max_tokens":  maxInt(c.cfg.MaxTokens, 1),
 		"temperature": c.cfg.Temperature,
 	}
-	if sistema != "" {
-		cuerpo["system"] = sistema
+	if system != "" {
+		body["system"] = system
 	}
 
 	url := c.baseURL("https://api.anthropic.com") + "/v1/messages"
-	cabeceras := map[string]string{
+	headers := map[string]string{
 		"x-api-key":         c.cfg.APIKey,
 		"anthropic-version": "2023-06-01",
 	}
 
-	datos, err := c.post(ctx, url, cabeceras, cuerpo)
+	data, err := c.post(ctx, url, headers, body)
 	if err != nil {
 		return "", err
 	}
-	var resp anthropicRespuesta
-	if err := json.Unmarshal(datos, &resp); err != nil {
-		return "", fmt.Errorf("respuesta de Anthropic ilegible: %w", err)
+	var resp anthropicResponse
+	if err := json.Unmarshal(data, &resp); err != nil {
+		return "", fmt.Errorf("unreadable Anthropic response: %w", err)
 	}
 	if resp.Error != nil && resp.Error.Message != "" {
-		return "", &ErrorHTTP{Codigo: 400, Cuerpo: resp.Error.Message}
+		return "", &HTTPError{Code: 400, Body: resp.Error.Message}
 	}
 	var sb strings.Builder
-	for _, parte := range resp.Content {
-		if parte.Type == "text" || parte.Type == "" {
-			sb.WriteString(parte.Text)
+	for _, part := range resp.Content {
+		if part.Type == "text" || part.Type == "" {
+			sb.WriteString(part.Text)
 		}
 	}
 	if sb.Len() == 0 {
-		return "", errors.New("Anthropic devolvió una respuesta sin texto")
+		return "", errors.New("Anthropic returned a response with no text")
 	}
 	return sb.String(), nil
 }
 
 // --- Gemini -----------------------------------------------------------------
 
-type geminiRespuesta struct {
+type geminiResponse struct {
 	Candidates []struct {
 		Content struct {
 			Parts []struct {
@@ -313,173 +314,172 @@ type geminiRespuesta struct {
 	} `json:"error,omitempty"`
 }
 
-func (c *Cliente) llamadaGemini(ctx context.Context, mensajes []Mensaje) (string, error) {
-	var sistema string
-	var contenidos []map[string]any
-	for _, m := range mensajes {
-		if m.Rol == "system" {
-			sistema += m.Contenido + "\n"
+func (c *Client) callGemini(ctx context.Context, messages []Message) (string, error) {
+	var system string
+	var contents []map[string]any
+	for _, m := range messages {
+		if m.Role == "system" {
+			system += m.Content + "\n"
 			continue
 		}
-		rol := "user"
-		if m.Rol == "assistant" {
-			rol = "model"
+		role := "user"
+		if m.Role == "assistant" {
+			role = "model"
 		}
-		contenidos = append(contenidos, map[string]any{
-			"role":  rol,
-			"parts": []map[string]any{{"text": m.Contenido}},
+		contents = append(contents, map[string]any{
+			"role":  role,
+			"parts": []map[string]any{{"text": m.Content}},
 		})
 	}
 
-	cuerpo := map[string]any{
-		"contents": contenidos,
+	body := map[string]any{
+		"contents": contents,
 		"generationConfig": map[string]any{
 			"maxOutputTokens": c.cfg.MaxTokens,
 			"temperature":     c.cfg.Temperature,
 		},
 	}
-	if sistema != "" {
-		cuerpo["systemInstruction"] = map[string]any{
-			"parts": []map[string]any{{"text": sistema}},
+	if system != "" {
+		body["systemInstruction"] = map[string]any{
+			"parts": []map[string]any{{"text": system}},
 		}
 	}
 
 	base := c.baseURL("https://generativelanguage.googleapis.com")
-	url := fmt.Sprintf("%s/v1beta/models/%s:generateContent?key=%s", base, c.cfg.Modelo, c.cfg.APIKey)
+	url := fmt.Sprintf("%s/v1beta/models/%s:generateContent?key=%s", base, c.cfg.Model, c.cfg.APIKey)
 
-	datos, err := c.post(ctx, url, nil, cuerpo)
+	data, err := c.post(ctx, url, nil, body)
 	if err != nil {
 		return "", err
 	}
-	var resp geminiRespuesta
-	if err := json.Unmarshal(datos, &resp); err != nil {
-		return "", fmt.Errorf("respuesta de Gemini ilegible: %w", err)
+	var resp geminiResponse
+	if err := json.Unmarshal(data, &resp); err != nil {
+		return "", fmt.Errorf("unreadable Gemini response: %w", err)
 	}
 	if resp.Error != nil && resp.Error.Message != "" {
-		return "", &ErrorHTTP{Codigo: 400, Cuerpo: resp.Error.Message}
+		return "", &HTTPError{Code: 400, Body: resp.Error.Message}
 	}
 	if len(resp.Candidates) == 0 {
-		return "", errors.New("Gemini devolvió una respuesta sin candidatos (¿bloqueo de seguridad?)")
+		return "", errors.New("Gemini returned a response with no candidates (safety block?)")
 	}
 	var sb strings.Builder
-	for _, parte := range resp.Candidates[0].Content.Parts {
-		sb.WriteString(parte.Text)
+	for _, part := range resp.Candidates[0].Content.Parts {
+		sb.WriteString(part.Text)
 	}
 	if sb.Len() == 0 {
-		return "", fmt.Errorf("Gemini devolvió una respuesta vacía (finishReason=%q)", resp.Candidates[0].FinishReason)
+		return "", fmt.Errorf("Gemini returned an empty response (finishReason=%q)", resp.Candidates[0].FinishReason)
 	}
 	return sb.String(), nil
 }
 
-// --- transporte -------------------------------------------------------------
+// --- transport --------------------------------------------------------------
 
-func (c *Cliente) post(ctx context.Context, url string, cabeceras map[string]string, cuerpo any) ([]byte, error) {
-	datos, err := json.Marshal(cuerpo)
+func (c *Client) post(ctx context.Context, url string, headers map[string]string, body any) ([]byte, error) {
+	data, err := json.Marshal(body)
 	if err != nil {
-		return nil, fmt.Errorf("no se pudo serializar la petición: %w", err)
+		return nil, fmt.Errorf("could not serialise the request: %w", err)
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(datos))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(data))
 	if err != nil {
-		return nil, fmt.Errorf("petición inválida: %w", err)
+		return nil, fmt.Errorf("invalid request: %w", err)
 	}
 	req.Header.Set("Content-Type", "application/json")
-	for k, v := range cabeceras {
+	for k, v := range headers {
 		req.Header.Set(k, v)
 	}
 
 	resp, err := c.http.Do(req)
 	if err != nil {
-		return nil, err // error de red: reintentable
+		return nil, err // network error: retryable
 	}
 	defer resp.Body.Close()
 
-	respuesta, err := io.ReadAll(io.LimitReader(resp.Body, 8<<20))
+	response, err := io.ReadAll(io.LimitReader(resp.Body, 8<<20))
 	if err != nil {
 		return nil, err
 	}
 	if resp.StatusCode != http.StatusOK {
-		return nil, &ErrorHTTP{Codigo: resp.StatusCode, Cuerpo: strings.TrimSpace(string(respuesta))}
+		return nil, &HTTPError{Code: resp.StatusCode, Body: strings.TrimSpace(string(response))}
 	}
-	return respuesta, nil
+	return response, nil
 }
 
-// recortar limita un texto para los mensajes de error.
-func recortar(s string, max int) string {
+// truncate limits a text for error messages.
+func truncate(s string, max int) string {
 	if len(s) <= max {
 		return s
 	}
 	return s[:max] + "..."
 }
 
-func max(a, b int) int {
+func maxInt(a, b int) int {
 	if a > b {
 		return a
 	}
 	return b
 }
 
-// --- Respuestas estructuradas ----------------------------------------------
+// --- Structured responses ---------------------------------------------------
 
-var bloqueJSON = regexp.MustCompile("(?s)```(?:json)?\\s*(\\{.*?\\}|\\[.*?\\])\\s*```")
+var jsonBlock = regexp.MustCompile("(?s)```(?:json)?\\s*(\\{.*?\\}|\\[.*?\\])\\s*```")
 
-// ExtraerJSON obtiene el primer objeto JSON de una respuesta de LLM, tolerando
-// los adornos habituales: bloques markdown, texto antes y después, y llaves
-// anidadas.
-func ExtraerJSON(texto string) ([]byte, error) {
-	limpio := strings.TrimSpace(texto)
-	if limpio == "" {
-		return nil, errors.New("la respuesta del LLM está vacía")
+// ExtractJSON gets the first JSON object out of an LLM response, tolerating the
+// usual decorations: markdown blocks, text before and after, and nested braces.
+func ExtractJSON(text string) ([]byte, error) {
+	clean := strings.TrimSpace(text)
+	if clean == "" {
+		return nil, errors.New("the LLM response is empty")
 	}
 
-	if m := bloqueJSON.FindStringSubmatch(limpio); len(m) == 2 {
+	if m := jsonBlock.FindStringSubmatch(clean); len(m) == 2 {
 		return []byte(m[1]), nil
 	}
 
-	// Primer '{' y su pareja balanceada, respetando cadenas y escapes.
-	inicio := strings.IndexAny(limpio, "{[")
-	if inicio < 0 {
-		return nil, fmt.Errorf("la respuesta no contiene JSON: %q", recortar(limpio, 200))
+	// First '{' and its balanced partner, respecting strings and escapes.
+	start := strings.IndexAny(clean, "{[")
+	if start < 0 {
+		return nil, fmt.Errorf("the response contains no JSON: %q", truncate(clean, 200))
 	}
-	abre := limpio[inicio]
-	cierra := byte('}')
-	if abre == '[' {
-		cierra = ']'
+	open := clean[start]
+	closing := byte('}')
+	if open == '[' {
+		closing = ']'
 	}
 
-	profundidad := 0
-	enCadena := false
-	escapado := false
-	for i := inicio; i < len(limpio); i++ {
-		ch := limpio[i]
+	depth := 0
+	inString := false
+	escaped := false
+	for i := start; i < len(clean); i++ {
+		ch := clean[i]
 		switch {
-		case escapado:
-			escapado = false
-		case ch == '\\' && enCadena:
-			escapado = true
+		case escaped:
+			escaped = false
+		case ch == '\\' && inString:
+			escaped = true
 		case ch == '"':
-			enCadena = !enCadena
-		case enCadena:
-			// nada
-		case ch == abre:
-			profundidad++
-		case ch == cierra:
-			profundidad--
-			if profundidad == 0 {
-				return []byte(limpio[inicio : i+1]), nil
+			inString = !inString
+		case inString:
+			// nothing
+		case ch == open:
+			depth++
+		case ch == closing:
+			depth--
+			if depth == 0 {
+				return []byte(clean[start : i+1]), nil
 			}
 		}
 	}
-	return nil, fmt.Errorf("el JSON de la respuesta está truncado: %q", recortar(limpio, 200))
+	return nil, fmt.Errorf("the JSON in the response is truncated: %q", truncate(clean, 200))
 }
 
-// DecodificarJSON extrae y deserializa en destino, con errores explicables.
-func DecodificarJSON(texto string, destino any) error {
-	crudo, err := ExtraerJSON(texto)
+// DecodeJSON extracts and deserialises into dest, with explainable errors.
+func DecodeJSON(text string, dest any) error {
+	raw, err := ExtractJSON(text)
 	if err != nil {
 		return err
 	}
-	if err := json.Unmarshal(crudo, destino); err != nil {
-		return fmt.Errorf("el JSON de la respuesta no encaja con lo esperado (%v): %s", err, recortar(string(crudo), 300))
+	if err := json.Unmarshal(raw, dest); err != nil {
+		return fmt.Errorf("the JSON in the response does not fit what was expected (%v): %s", err, truncate(string(raw), 300))
 	}
 	return nil
 }

@@ -13,468 +13,466 @@ import (
 	"github.com/madkoding/starlight/internal/logx"
 )
 
-func nuevoSandbox(t *testing.T, lim Limites) *Sandbox {
+func newSandbox(t *testing.T, lim Limits) *Sandbox {
 	t.Helper()
-	s, err := Nuevo(Opciones{
+	s, err := New(Options{
 		Dir:         t.TempDir(),
-		Limites:     lim,
-		UsarCgroups: false, // no tocar cgroups reales en las pruebas
+		Limits:      lim,
+		UseCgroups:  false, // do not touch real cgroups in the tests
 		Timeout:     30 * time.Second,
-		MaxSalidaKB: 64,
+		MaxOutputKB: 64,
 	})
 	if err != nil {
-		t.Fatalf("no se pudo crear el sandbox: %v", err)
+		t.Fatalf("could not create the sandbox: %v", err)
 	}
-	t.Cleanup(func() { s.Cerrar() })
+	t.Cleanup(func() { s.Close() })
 	return s
 }
 
-// TestSandboxEjecutaConLimites comprueba el camino completo real: el agente se
-// re-ejecuta como hijo, aplica setrlimit y hace exec del comando pedido.
-func TestSandboxEjecutaConLimites(t *testing.T) {
-	s := nuevoSandbox(t, Limites{MemoriaMB: 256, CPUSegundos: 10, Procesos: 64, ArchivosAbiertos: 128, TamanoArchivoMB: 8})
+// TestSandboxRunsWithLimits checks the full real path: the agent re-executes
+// itself as a child, applies setrlimit and execs the requested command.
+func TestSandboxRunsWithLimits(t *testing.T) {
+	s := newSandbox(t, Limits{MemoryMB: 256, CPUSeconds: 10, Processes: 64, OpenFiles: 128, MaxFileSizeMB: 8})
 
-	salida, truncado, exit, err := s.Ejecutar(context.Background(), execx.Peticion{
-		Comando: "/bin/sh",
-		Args:    []string{"-c", "echo sandbox-vivo"},
+	output, truncated, exit, err := s.Run(context.Background(), execx.Request{
+		Command: "/bin/sh",
+		Args:    []string{"-c", "echo sandbox-alive"},
 	})
 	if err != nil {
-		t.Fatalf("la ejecución falló: %v (salida: %q)", err, salida)
+		t.Fatalf("the run failed: %v (output: %q)", err, output)
 	}
 	if exit != 0 {
 		t.Errorf("exit = %d", exit)
 	}
-	if strings.TrimSpace(salida) != "sandbox-vivo" {
-		t.Errorf("salida = %q", salida)
+	if strings.TrimSpace(output) != "sandbox-alive" {
+		t.Errorf("output = %q", output)
 	}
-	if truncado {
-		t.Error("no debería truncarse")
+	if truncated {
+		t.Error("it should not be truncated")
 	}
 }
 
-// TestSandboxAplicaLimiteDeMemoria: aquí está la prueba de que los setrlimit se
-// aplican DE VERDAD. Sin límite, reservar 2 GB funcionaría; con memoria_mb=64
-// debe fallar.
-func TestSandboxAplicaLimiteDeMemoria(t *testing.T) {
-	s := nuevoSandbox(t, Limites{MemoriaMB: 64})
+// TestSandboxAppliesMemoryLimit: here is the proof that the setrlimits are
+// REALLY applied. Without a limit, reserving 2 GB would work; with memory_mb=64
+// it must fail.
+func TestSandboxAppliesMemoryLimit(t *testing.T) {
+	s := newSandbox(t, Limits{MemoryMB: 64})
 
-	// Se pide al hijo que intente reservar 512 MB y los toque.
-	programa := `head -c 536870912 /dev/zero > /dev/null 2>&1; echo "reservado"`
-	salida, _, exit, err := s.Ejecutar(context.Background(), execx.Peticion{
-		Comando: "/bin/sh",
-		Args:    []string{"-c", programa},
+	// The child is asked to try to reserve 512 MB and touch them.
+	program := `head -c 536870912 /dev/zero > /dev/null 2>&1; echo "reserved"`
+	output, _, exit, err := s.Run(context.Background(), execx.Request{
+		Command: "/bin/sh",
+		Args:    []string{"-c", program},
 	})
 	if err != nil {
-		// Un fallo al lanzar también es aceptable (el límite hizo su trabajo).
-		t.Logf("el comando no pudo ejecutarse con el límite (esperado): %v", err)
+		// A failure to launch is also acceptable (the limit did its job).
+		t.Logf("the command could not run with the limit (expected): %v", err)
 		return
 	}
-	// Con RLIMIT_AS de 64 MB, `head` no puede asignar 512 MB: debe fallar.
-	if exit == 0 && strings.Contains(salida, "reservado") {
-		t.Skip("el entorno no aplica RLIMIT_AS (¿contenedor sin soporte?): se omite")
+	// With an RLIMIT_AS of 64 MB, `head` cannot allocate 512 MB: it must fail.
+	if exit == 0 && strings.Contains(output, "reserved") {
+		t.Skip("this environment does not apply RLIMIT_AS (container without support?): skipping")
 	}
-	t.Logf("limite aplicado correctamente: exit=%d salida=%q", exit, salida)
+	t.Logf("limit applied correctly: exit=%d output=%q", exit, output)
 }
 
-// TestSandboxDirectorioDeTrabajoEsCompartido: el efecto del trabajo tiene que
-// sobrevivir entre ejecuciones, porque es lo que el ancla necesita ver para
-// poder validar. Si el sandbox ejecutara en un directorio que se borra al
-// terminar, el ancla nunca podría encontrar el resultado y el agente fallaría
-// siempre.
-func TestSandboxDirectorioDeTrabajoEsCompartido(t *testing.T) {
-	s := nuevoSandbox(t, Limites{})
+// TestSandboxWorkingDirectoryIsShared: the effect of the work has to survive
+// between runs, because that is what the anchor needs to see in order to
+// validate. If the sandbox ran in a directory that is deleted when it finishes,
+// the anchor could never find the result and the agent would fail every time.
+func TestSandboxWorkingDirectoryIsShared(t *testing.T) {
+	s := newSandbox(t, Limits{})
 
-	// Primera ejecución: crea un archivo en el directorio de trabajo indicado.
-	salida1, _, _, err := s.Ejecutar(context.Background(), execx.Peticion{
-		Comando: "/bin/sh",
-		Args:    []string{"-c", "pwd; echo contenido > resultado.txt"},
+	// First run: it creates a file in the given working directory.
+	output1, _, _, err := s.Run(context.Background(), execx.Request{
+		Command: "/bin/sh",
+		Args:    []string{"-c", "pwd; echo content > result.txt"},
 		Dir:     s.base,
 	})
 	if err != nil {
-		t.Fatalf("primera ejecución falló: %v", err)
+		t.Fatalf("first run failed: %v", err)
 	}
-	dir1 := strings.Split(strings.TrimSpace(salida1), "\n")[0]
+	dir1 := strings.Split(strings.TrimSpace(output1), "\n")[0]
 	if dir1 != s.base {
-		t.Errorf("el comando debe correr en el directorio pedido (%s) y corrió en %s", s.base, dir1)
+		t.Errorf("the command must run in the requested directory (%s) and it ran in %s", s.base, dir1)
 	}
 
-	// Segunda ejecución: debe ver el archivo de la primera.
-	salida2, _, _, err := s.Ejecutar(context.Background(), execx.Peticion{
-		Comando: "/bin/sh",
-		Args:    []string{"-c", "cat resultado.txt"},
+	// Second run: it must see the file from the first one.
+	output2, _, _, err := s.Run(context.Background(), execx.Request{
+		Command: "/bin/sh",
+		Args:    []string{"-c", "cat result.txt"},
 		Dir:     s.base,
 	})
 	if err != nil {
-		t.Fatalf("segunda ejecución falló: %v", err)
+		t.Fatalf("second run failed: %v", err)
 	}
-	if !strings.Contains(salida2, "contenido") {
-		t.Errorf("el efecto de la ejecución anterior se perdió: %q", salida2)
+	if !strings.Contains(output2, "content") {
+		t.Errorf("the effect of the previous run was lost: %q", output2)
 	}
-	if _, err := os.Stat(filepath.Join(s.base, "resultado.txt")); err != nil {
-		t.Errorf("el archivo no está en el directorio de trabajo: %v", err)
+	if _, err := os.Stat(filepath.Join(s.base, "result.txt")); err != nil {
+		t.Errorf("the file is not in the working directory: %v", err)
 	}
 }
 
-// TestSandboxTemporalEfimero: lo que SÍ es efímero y por intento es el
-// directorio temporal (TMPDIR), que se borra al terminar.
-func TestSandboxTemporalEfimero(t *testing.T) {
-	s := nuevoSandbox(t, Limites{})
+// TestSandboxTemporaryIsEphemeral: what IS ephemeral and per attempt is the
+// temporary directory (TMPDIR), which is deleted when the run finishes.
+func TestSandboxTemporaryIsEphemeral(t *testing.T) {
+	s := newSandbox(t, Limits{})
 
-	salida1, _, _, err := s.Ejecutar(context.Background(), execx.Peticion{
-		Comando: "/bin/sh", Args: []string{"-c", "echo $TMPDIR && touch $TMPDIR/temporal.txt"},
+	output1, _, _, err := s.Run(context.Background(), execx.Request{
+		Command: "/bin/sh", Args: []string{"-c", "echo $TMPDIR && touch $TMPDIR/temporary.txt"},
 	})
 	if err != nil {
 		t.Fatalf("error: %v", err)
 	}
-	tmp1 := strings.TrimSpace(salida1)
+	tmp1 := strings.TrimSpace(output1)
 	if !strings.Contains(tmp1, "tmp-") {
-		t.Errorf("TMPDIR debería ser un directorio tmp-* propio: %q", tmp1)
+		t.Errorf("TMPDIR should be a tmp-* directory of its own: %q", tmp1)
 	}
 	if _, err := os.Stat(tmp1); !os.IsNotExist(err) {
-		t.Errorf("el directorio temporal %s debería haberse borrado", tmp1)
+		t.Errorf("the temporary directory %s should have been deleted", tmp1)
 	}
 
-	salida2, _, _, err := s.Ejecutar(context.Background(), execx.Peticion{
-		Comando: "/bin/sh", Args: []string{"-c", "echo $TMPDIR"},
+	output2, _, _, err := s.Run(context.Background(), execx.Request{
+		Command: "/bin/sh", Args: []string{"-c", "echo $TMPDIR"},
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	tmp2 := strings.TrimSpace(salida2)
+	tmp2 := strings.TrimSpace(output2)
 	if tmp1 == tmp2 {
-		t.Errorf("cada ejecución debe tener su propio TMPDIR: %s", tmp1)
+		t.Errorf("every run must have its own TMPDIR: %s", tmp1)
 	}
 }
 
-// TestSandboxComandoPorNombre: el YAML permite escribir "comando: make", y
-// syscall.Exec no busca en PATH por sí solo, así que el hijo debe resolverlo.
-func TestSandboxComandoPorNombre(t *testing.T) {
-	s := nuevoSandbox(t, Limites{})
+// TestSandboxCommandByName: the YAML allows writing "command: make", and
+// syscall.Exec does not search PATH by itself, so the child must resolve it.
+func TestSandboxCommandByName(t *testing.T) {
+	s := newSandbox(t, Limits{})
 
-	salida, _, exit, err := s.Ejecutar(context.Background(), execx.Peticion{
-		Comando: "echo",
-		Args:    []string{"resuelto-por-path"},
+	output, _, exit, err := s.Run(context.Background(), execx.Request{
+		Command: "echo",
+		Args:    []string{"resolved-by-path"},
 	})
 	if err != nil {
-		t.Fatalf("un comando por nombre debe resolverse contra el PATH: %v (salida %q)", err, salida)
+		t.Fatalf("a command by name must be resolved against PATH: %v (output %q)", err, output)
 	}
-	if exit != 0 || !strings.Contains(salida, "resuelto-por-path") {
-		t.Errorf("exit=%d salida=%q", exit, salida)
+	if exit != 0 || !strings.Contains(output, "resolved-by-path") {
+		t.Errorf("exit=%d output=%q", exit, output)
 	}
 }
 
-// TestSandboxConLimiteDeMemoriaMuyBajo: bug encontrado por la CI. Si el proceso
-// que aplica los límites es un binario Go, aplicar RLIMIT_AS antes de resolver la
-// ruta del comando hace que el propio runtime muera con "fatal error: runtime:
-// cannot allocate memory" (el límite cuenta también la memoria virtual que el
-// runtime mapea, y esa reserva depende del número de núcleos: funcionaba en una
-// máquina y fallaba en un runner con más núcleos).
+// TestSandboxWithVeryLowMemoryLimit: a bug found by CI. If the process applying
+// the limits is a Go binary, applying RLIMIT_AS before resolving the command's
+// path makes the runtime itself die with "fatal error: runtime: cannot allocate
+// memory" (the limit also counts the virtual memory the runtime maps, and that
+// reservation depends on the number of cores: it worked on one machine and
+// failed on a runner with more cores).
 //
-// Con el orden corregido (todos los preparativos primero, límites justo antes
-// del exec), un límite pequeño debe seguir permitiendo ejecutar comandos.
-func TestSandboxConLimiteDeMemoriaMuyBajo(t *testing.T) {
-	s := nuevoSandbox(t, Limites{MemoriaMB: 64, ArchivosAbiertos: 64})
+// With the order fixed (all the preparations first, the limits just before the
+// exec), a small limit must still allow running commands.
+func TestSandboxWithVeryLowMemoryLimit(t *testing.T) {
+	s := newSandbox(t, Limits{MemoryMB: 64, OpenFiles: 64})
 
-	salida, _, exit, err := s.Ejecutar(context.Background(), execx.Peticion{
-		Comando: "/bin/sh",
-		Args:    []string{"-c", "echo vivo-con-poca-memoria"},
+	output, _, exit, err := s.Run(context.Background(), execx.Request{
+		Command: "/bin/sh",
+		Args:    []string{"-c", "echo alive-with-little-memory"},
 	})
 	if err != nil {
-		t.Fatalf("con 64 MB de límite el aislamiento debe seguir funcionando: %v (salida %q)", err, salida)
+		t.Fatalf("with a 64 MB limit the isolation must still work: %v (output %q)", err, output)
 	}
-	if exit != 0 || !strings.Contains(salida, "vivo-con-poca-memoria") {
-		t.Errorf("exit=%d salida=%q", exit, salida)
+	if exit != 0 || !strings.Contains(output, "alive-with-little-memory") {
+		t.Errorf("exit=%d output=%q", exit, output)
 	}
 }
 
-// TestSandboxComandoPorNombreConLimiteBajo: el caso exacto que fallaba. La
-// resolución del PATH necesita reservar memoria, así que debe ocurrir antes del
-// límite.
-func TestSandboxComandoPorNombreConLimiteBajo(t *testing.T) {
-	s := nuevoSandbox(t, Limites{MemoriaMB: 64})
+// TestSandboxCommandByNameWithLowLimit: the exact case that used to fail. PATH
+// resolution needs to reserve memory, so it must happen before the limit.
+func TestSandboxCommandByNameWithLowLimit(t *testing.T) {
+	s := newSandbox(t, Limits{MemoryMB: 64})
 
-	salida, _, exit, err := s.Ejecutar(context.Background(), execx.Peticion{
-		Comando: "echo",
-		Args:    []string{"resuelto-con-limite"},
+	output, _, exit, err := s.Run(context.Background(), execx.Request{
+		Command: "echo",
+		Args:    []string{"resolved-with-limit"},
 	})
 	if err != nil {
-		t.Fatalf("resolver el PATH con el límite ya aplicado mata al runtime: %v (salida %q)", err, salida)
+		t.Fatalf("resolving PATH with the limit already applied kills the runtime: %v (output %q)", err, output)
 	}
-	if exit != 0 || !strings.Contains(salida, "resuelto-con-limite") {
-		t.Errorf("exit=%d salida=%q", exit, salida)
+	if exit != 0 || !strings.Contains(output, "resolved-with-limit") {
+		t.Errorf("exit=%d output=%q", exit, output)
 	}
 }
 
-// TestOrdenesUlimit verifica que se generan las órdenes correctas (y de forma
-// determinista) para cada límite configurado.
-func TestOrdenesUlimit(t *testing.T) {
-	if got := ordenesUlimit(Limites{}); len(got) != 0 {
-		t.Errorf("sin límites no debe haber órdenes: %v", got)
+// TestUlimitCommands checks that the right orders are generated (and
+// deterministically so) for every configured limit.
+func TestUlimitCommands(t *testing.T) {
+	if got := ulimitCommands(Limits{}); len(got) != 0 {
+		t.Errorf("without limits there must be no orders: %v", got)
 	}
 
-	got := ordenesUlimit(Limites{CPUSegundos: 30, MemoriaMB: 256, Procesos: 64, ArchivosAbiertos: 128, TamanoArchivoMB: 8})
+	got := ulimitCommands(Limits{CPUSeconds: 30, MemoryMB: 256, Processes: 64, OpenFiles: 128, MaxFileSizeMB: 8})
 	if len(got) != 5 {
-		t.Fatalf("órdenes = %v", got)
+		t.Fatalf("orders = %v", got)
 	}
-	// Los valores deben usar las unidades de cada ulimit: -v en KB, -f en bloques
-	// de 512 bytes.
-	unidas := strings.Join(got, " ")
-	for _, esperado := range []string{"ulimit -t 30", "ulimit -v 262144", "ulimit -u 64", "ulimit -n 128", "ulimit -f 16384"} {
-		if !strings.Contains(unidas, esperado) {
-			t.Errorf("falta %q en %v", esperado, got)
+	// The values must use each ulimit's units: -v in KB, -f in 512-byte blocks.
+	joined := strings.Join(got, " ")
+	for _, expected := range []string{"ulimit -t 30", "ulimit -v 262144", "ulimit -u 64", "ulimit -n 128", "ulimit -f 16384"} {
+		if !strings.Contains(joined, expected) {
+			t.Errorf("%q is missing from %v", expected, got)
 		}
 	}
-	// Las órdenes van ordenadas para que la salida sea estable.
+	// The orders are sorted so that the output is stable.
 	if !sort.StringsAreSorted(got) {
-		t.Errorf("las órdenes deben ir ordenadas: %v", got)
+		t.Errorf("the orders must be sorted: %v", got)
 	}
 }
 
-// TestEnvolverConUlimitSinLimites: sin límites no se interpone ningún shell.
-func TestEnvolverConUlimitSinLimites(t *testing.T) {
-	comando, args := envolverConUlimit(Limites{}, "/bin/echo", []string{"hola"})
-	if comando != "/bin/echo" || len(args) != 2 || args[0] != "/bin/echo" {
-		t.Errorf("comando=%q args=%v", comando, args)
+// TestWrapWithUlimitNoLimits: without limits no shell gets in the way.
+func TestWrapWithUlimitNoLimits(t *testing.T) {
+	command, args := wrapWithUlimit(Limits{}, "/bin/echo", []string{"hello"})
+	if command != "/bin/echo" || len(args) != 2 || args[0] != "/bin/echo" {
+		t.Errorf("command=%q args=%v", command, args)
 	}
 }
 
-// TestEnvolverConUlimitConLimites: el comando y sus argumentos se pasan sin
-// re-interpretar, y el shell hace exec para no quedar como proceso intermedio.
-func TestEnvolverConUlimitConLimites(t *testing.T) {
-	comando, args := envolverConUlimit(Limites{MemoriaMB: 128}, "/bin/echo", []string{"a b", "$HOME"})
-	if comando != "/bin/sh" {
-		t.Fatalf("comando = %q", comando)
+// TestWrapWithUlimitWithLimits: the command and its arguments are passed without
+// re-interpretation, and the shell execs so as not to remain as an intermediate
+// process.
+func TestWrapWithUlimitWithLimits(t *testing.T) {
+	command, args := wrapWithUlimit(Limits{MemoryMB: 128}, "/bin/echo", []string{"a b", "$HOME"})
+	if command != "/bin/sh" {
+		t.Fatalf("command = %q", command)
 	}
 	script := args[2]
 	if !strings.Contains(script, `exec "$@"`) {
-		t.Errorf("el script debe hacer exec para no dejar procesos intermedios: %q", script)
+		t.Errorf("the script must exec so as not to leave intermediate processes: %q", script)
 	}
-	// El comando real debe llegar como argumento posicional final.
+	// The real command must arrive as the final positional argument.
 	if args[len(args)-2] != "a b" || args[len(args)-1] != "$HOME" {
-		t.Errorf("los argumentos deben pasar tal cual: %v", args)
+		t.Errorf("the arguments must pass through as they are: %v", args)
 	}
 	if args[len(args)-3] != "/bin/echo" {
-		t.Errorf("el comando debe ir después de $0: %v", args)
+		t.Errorf("the command must come after $0: %v", args)
 	}
 }
 
-// TestSandboxComandoInexistenteEnPATH: si no existe, el error debe ser claro.
-func TestSandboxComandoInexistenteEnPATH(t *testing.T) {
-	s := nuevoSandbox(t, Limites{})
-	_, truncado, exit, err := s.Ejecutar(context.Background(), execx.Peticion{
-		Comando: "no-existe-este-comando-en-ningun-sitio",
+// TestSandboxCommandMissingFromPATH: if it does not exist, the error must be
+// clear.
+func TestSandboxCommandMissingFromPATH(t *testing.T) {
+	s := newSandbox(t, Limits{})
+	_, truncated, exit, err := s.Run(context.Background(), execx.Request{
+		Command: "does-not-exist-this-command-anywhere",
 	})
 	if err == nil {
-		t.Fatalf("se esperaba un error (exit=%d truncado=%v)", exit, truncado)
+		t.Fatalf("an error was expected (exit=%d truncated=%v)", exit, truncated)
 	}
 	if exit != 127 {
-		t.Logf("exit = %d para un comando inexistente (el 127 es el esperado)", exit)
+		t.Logf("exit = %d for a non-existent command (127 is the expected one)", exit)
 	}
 }
 
-// TestSandboxTimeout: el sandbox no puede colgarse con un comando eterno.
+// TestSandboxTimeout: the sandbox cannot hang on an eternal command.
 func TestSandboxTimeout(t *testing.T) {
-	s := nuevoSandbox(t, Limites{})
-	inicio := time.Now()
-	salida, _, _, err := s.Ejecutar(context.Background(), execx.Peticion{
-		Comando: "/bin/sh",
+	s := newSandbox(t, Limits{})
+	start := time.Now()
+	output, _, _, err := s.Run(context.Background(), execx.Request{
+		Command: "/bin/sh",
 		Args:    []string{"-c", "sleep 30"},
 		Timeout: 1 * time.Second,
 	})
-	transcurrido := time.Since(inicio)
+	elapsed := time.Since(start)
 	if err == nil {
-		t.Fatal("se esperaba un error de timeout")
+		t.Fatal("a timeout error was expected")
 	}
-	if !strings.Contains(err.Error(), "excedió el límite") {
-		t.Errorf("error inesperado: %v", err)
+	if !strings.Contains(err.Error(), "exceeded the") {
+		t.Errorf("unexpected error: %v", err)
 	}
-	if transcurrido > 5*time.Second {
-		t.Errorf("el timeout tardó demasiado: %s (¿no se mató al grupo de procesos?)", transcurrido)
+	if elapsed > 5*time.Second {
+		t.Errorf("the timeout took too long: %s (was the process group not killed?)", elapsed)
 	}
-	_ = salida
+	_ = output
 }
 
-// TestSandboxCodigoDeSalidaSePropaga: el exit code real llega al llamante, que es
-// lo que el ancla necesita para decidir PASS/FAIL.
-func TestSandboxCodigoDeSalidaSePropaga(t *testing.T) {
-	s := nuevoSandbox(t, Limites{})
-	_, _, exit, err := s.Ejecutar(context.Background(), execx.Peticion{
-		Comando: "/bin/sh", Args: []string{"-c", "exit 42"},
+// TestSandboxExitCodeIsPropagated: the real exit code reaches the caller, which
+// is what the anchor needs to decide PASS/FAIL.
+func TestSandboxExitCodeIsPropagated(t *testing.T) {
+	s := newSandbox(t, Limits{})
+	_, _, exit, err := s.Run(context.Background(), execx.Request{
+		Command: "/bin/sh", Args: []string{"-c", "exit 42"},
 	})
 	if err != nil {
-		t.Fatalf("el exit code no debería ser un error de ejecución: %v", err)
+		t.Fatalf("the exit code should not be a run error: %v", err)
 	}
 	if exit != 42 {
-		t.Errorf("exit = %d, se esperaba 42", exit)
+		t.Errorf("exit = %d, expected 42", exit)
 	}
 }
 
-// TestSandboxNoHeredaSecretos: las claves del agente no deben llegar al comando.
-func TestSandboxNoHeredaSecretos(t *testing.T) {
-	t.Setenv("STARLIGHT_LLM_API_KEY", "clave-secreta-que-no-debe-filtrarse")
-	s := nuevoSandbox(t, Limites{})
+// TestSandboxDoesNotInheritSecrets: the agent's keys must not reach the command.
+func TestSandboxDoesNotInheritSecrets(t *testing.T) {
+	t.Setenv("STARLIGHT_LLM_API_KEY", "secret-key-that-must-not-leak")
+	s := newSandbox(t, Limits{})
 
-	salida, _, _, err := s.Ejecutar(context.Background(), execx.Peticion{
-		Comando: "/bin/sh", Args: []string{"-c", "env"},
+	output, _, _, err := s.Run(context.Background(), execx.Request{
+		Command: "/bin/sh", Args: []string{"-c", "env"},
 	})
 	if err != nil {
 		t.Fatalf("error: %v", err)
 	}
-	if strings.Contains(salida, "clave-secreta") {
-		t.Error("la clave del LLM se filtró al entorno del comando")
+	if strings.Contains(output, "secret-key") {
+		t.Error("the LLM key leaked into the command's environment")
 	}
-	if strings.Contains(salida, "OPENAI_API_KEY") {
-		t.Error("no se debe exponer OPENAI_API_KEY al comando")
+	if strings.Contains(output, "OPENAI_API_KEY") {
+		t.Error("OPENAI_API_KEY must not be exposed to the command")
 	}
 }
 
-// TestSandboxSalidaLimitada: una salida enorme se recorta sin romper el comando.
-func TestSandboxSalidaLimitada(t *testing.T) {
-	s := nuevoSandbox(t, Limites{})
-	s.op.MaxSalidaKB = 1 // 1 KiB
-	salida, truncado, exit, err := s.Ejecutar(context.Background(), execx.Peticion{
-		Comando: "/bin/sh",
-		Args:    []string{"-c", "i=0; while [ $i -lt 2000 ]; do echo 'linea de relleno numero largo'; i=$((i+1)); done"},
+// TestSandboxLimitedOutput: a huge output is cut without breaking the command.
+func TestSandboxLimitedOutput(t *testing.T) {
+	s := newSandbox(t, Limits{})
+	s.op.MaxOutputKB = 1 // 1 KiB
+	output, truncated, exit, err := s.Run(context.Background(), execx.Request{
+		Command: "/bin/sh",
+		Args:    []string{"-c", "i=0; while [ $i -lt 2000 ]; do echo 'long enough filler line'; i=$((i+1)); done"},
 	})
 	if err != nil {
 		t.Fatalf("error: %v", err)
 	}
-	if !truncado {
-		t.Error("una salida de ~60 KB con límite de 1 KB debe marcarse como truncada")
+	if !truncated {
+		t.Error("a ~60 KB output with a 1 KB limit must be marked as truncated")
 	}
-	if len(salida) > 2*1024 {
-		t.Errorf("la salida recortada mide %d bytes", len(salida))
+	if len(output) > 2*1024 {
+		t.Errorf("the truncated output measures %d bytes", len(output))
 	}
 	if exit != 0 {
-		t.Errorf("exit = %d (el recorte no debe hacer fallar al comando)", exit)
+		t.Errorf("exit = %d (the truncation must not make the command fail)", exit)
 	}
 }
 
-// TestSandboxComandoInexistente: da un error claro, no un pánico.
-func TestSandboxComandoInexistente(t *testing.T) {
-	s := nuevoSandbox(t, Limites{})
-	_, _, exit, err := s.Ejecutar(context.Background(), execx.Peticion{
-		Comando: "/no/existe",
+// TestSandboxCommandMissing: it gives a clear error, not a panic.
+func TestSandboxCommandMissing(t *testing.T) {
+	s := newSandbox(t, Limits{})
+	_, _, exit, err := s.Run(context.Background(), execx.Request{
+		Command: "/does/not/exist",
 	})
 	if err == nil {
-		t.Fatal("se esperaba un error")
+		t.Fatal("an error was expected")
 	}
 	t.Logf("exit=%d err=%v", exit, err)
 }
 
-// TestEjecucionHijoSeDetecta: la marca del modo hijo no debe confundirse con una
-// bandera del usuario.
-func TestEjecucionHijoSeDetecta(t *testing.T) {
-	if !EsEjecucionHijo([]string{MarcaHijo, "{}"}) {
-		t.Error("debería detectar el modo hijo")
+// TestChildExecutionIsDetected: the child mode marker must not be confused with
+// a user flag.
+func TestChildExecutionIsDetected(t *testing.T) {
+	if !IsChildExecution([]string{ChildMarker, "{}"}) {
+		t.Error("it should detect the child mode")
 	}
-	if EsEjecucionHijo([]string{"-config", "x.yaml"}) {
-		t.Error("no debería detectar modo hijo en una línea normal")
+	if IsChildExecution([]string{"-config", "x.yaml"}) {
+		t.Error("it should not detect child mode on a normal command line")
 	}
-	if EsEjecucionHijo(nil) {
-		t.Error("sin argumentos no hay modo hijo")
-	}
-}
-
-// TestHijoSinComando: una especificación incompleta falla con mensaje claro.
-func TestHijoSinComando(t *testing.T) {
-	if err := EjecutarComoHijo([]string{MarcaHijo, `{"dir":"/tmp"}`}); err == nil {
-		t.Fatal("una especificación sin comando debe fallar")
-	}
-	if err := EjecutarComoHijo([]string{MarcaHijo, "no es json"}); err == nil {
-		t.Fatal("una especificación ilegible debe fallar")
+	if IsChildExecution(nil) {
+		t.Error("with no arguments there is no child mode")
 	}
 }
 
-// TestHijoAplicaElLimiteDeArchivos comprueba el EFECTO del límite: dentro del
-// sandbox, el número máximo de descriptores abiertos debe ser el configurado y
-// no el del sistema (que suele ser 1024 o más).
+// TestChildWithoutCommand: an incomplete spec fails with a clear message.
+func TestChildWithoutCommand(t *testing.T) {
+	if err := RunAsChild([]string{ChildMarker, `{"dir":"/tmp"}`}); err == nil {
+		t.Fatal("a spec without a command must fail")
+	}
+	if err := RunAsChild([]string{ChildMarker, "not json"}); err == nil {
+		t.Fatal("an unreadable spec must fail")
+	}
+}
+
+// TestChildAppliesTheFileLimit checks the EFFECT of the limit: inside the
+// sandbox, the maximum number of open descriptors must be the configured one and
+// not the system's (which is usually 1024 or more).
 //
-// El subproceso que se re-ejecuta es el propio binario de pruebas, y TestMain se
-// encarga de que atienda la marca del sandbox en lugar de volver a lanzar la
-// suite.
-func TestHijoAplicaElLimiteDeArchivos(t *testing.T) {
-	s := nuevoSandbox(t, Limites{ArchivosAbiertos: 96})
+// The re-executed subprocess is the test binary itself, and TestMain takes care
+// that it attends the sandbox marker instead of launching the suite again.
+func TestChildAppliesTheFileLimit(t *testing.T) {
+	s := newSandbox(t, Limits{OpenFiles: 96})
 
-	salida, _, exit, err := s.Ejecutar(context.Background(), execx.Peticion{
-		Comando: "/bin/sh",
+	output, _, exit, err := s.Run(context.Background(), execx.Request{
+		Command: "/bin/sh",
 		Args:    []string{"-c", "ulimit -n"},
 	})
 	if err != nil {
-		t.Fatalf("error: %v (salida %q)", err, salida)
+		t.Fatalf("error: %v (output %q)", err, output)
 	}
 	if exit != 0 {
-		t.Fatalf("exit = %d, salida = %q", exit, salida)
+		t.Fatalf("exit = %d, output = %q", exit, output)
 	}
-	visto := strings.TrimSpace(salida)
-	if visto != "96" {
-		t.Errorf("el límite de descriptores aplicado es %q y se configuró 96", visto)
+	seen := strings.TrimSpace(output)
+	if seen != "96" {
+		t.Errorf("the descriptor limit applied is %q and 96 was configured", seen)
 	}
 }
 
-// TestHijoAplicaElLimiteDeCPU: el tiempo de CPU debe estar acotado. Se usa un
-// bucle que quema CPU sin salir por E/S, que es el caso que RLIMIT_CPU existe
-// para cubrir.
-func TestHijoAplicaElLimiteDeCPU(t *testing.T) {
-	s := nuevoSandbox(t, Limites{CPUSegundos: 2})
+// TestChildAppliesTheCPULimit: CPU time must be bounded. A loop that burns CPU
+// without exiting through I/O is used, which is the case RLIMIT_CPU exists to
+// cover.
+func TestChildAppliesTheCPULimit(t *testing.T) {
+	s := newSandbox(t, Limits{CPUSeconds: 2})
 
-	inicio := time.Now()
-	salida, _, exit, err := s.Ejecutar(context.Background(), execx.Peticion{
-		Comando: "/bin/sh",
+	start := time.Now()
+	output, _, exit, err := s.Run(context.Background(), execx.Request{
+		Command: "/bin/sh",
 		Args:    []string{"-c", "while :; do :; done"},
 		Timeout: 20 * time.Second,
 	})
-	transcurrido := time.Since(inicio)
-	// Con RLIMIT_CPU=2 el proceso muere por señal alrededor de los 2 s.
-	if transcurrido > 15*time.Second {
-		t.Errorf("el límite de CPU no se aplicó: tardó %s", transcurrido)
+	elapsed := time.Since(start)
+	// With RLIMIT_CPU=2 the process dies by signal at around 2 s.
+	if elapsed > 15*time.Second {
+		t.Errorf("the CPU limit was not applied: it took %s", elapsed)
 	}
 	if exit == 0 {
-		t.Errorf("un bucle infinito no puede salir con 0 (salida %q)", salida)
+		t.Errorf("an infinite loop cannot exit with 0 (output %q)", output)
 	}
 	if err == nil {
-		t.Log("el proceso murió y no se reportó como error: se acepta si el exit es distinto de 0")
+		t.Log("the process died and it was not reported as an error: accepted if the exit is not 0")
 	}
-	t.Logf("corte por CPU: transcurrido=%s exit=%d err=%v", transcurrido.Round(time.Millisecond), exit, err)
+	t.Logf("CPU cut: elapsed=%s exit=%d err=%v", elapsed.Round(time.Millisecond), exit, err)
 }
 
-// TestAislamientoDeclarado: lo que el sandbox dice aislar debe corresponder con
-// lo que realmente construyó.
-func TestAislamientoDeclarado(t *testing.T) {
-	s := nuevoSandbox(t, Limites{MemoriaMB: 128})
-	modos := s.Aislamiento()
-	tieneEfimero, tieneLimites := false, false
-	for _, m := range modos {
-		if m == ModoEfimero {
-			tieneEfimero = true
+// TestIsolationDeclared: what the sandbox says it isolates must match what it
+// really built.
+func TestIsolationDeclared(t *testing.T) {
+	s := newSandbox(t, Limits{MemoryMB: 128})
+	modes := s.Isolation()
+	hasEphemeral, hasLimits := false, false
+	for _, m := range modes {
+		if m == ModeEphemeral {
+			hasEphemeral = true
 		}
-		if m == ModoLimites {
-			tieneLimites = true
+		if m == ModeLimits {
+			hasLimits = true
 		}
 	}
-	if !tieneEfimero {
-		t.Error("el directorio efímero siempre debe declararse")
+	if !hasEphemeral {
+		t.Error("the ephemeral directory must always be declared")
 	}
-	if !tieneLimites {
-		t.Error("con límites configurados debe declararse 'limites_posix'")
+	if !hasLimits {
+		t.Error("with limits configured 'posix_limits' must be declared")
 	}
-	// Sin cgroups configurados no debe mentir diciendo que los usa.
-	for _, m := range modos {
-		if m == ModoCgroups {
-			t.Error("no se pidieron cgroups y sin embargo se declaran como aplicados")
+	// Without cgroups configured it must not lie by saying it uses them.
+	for _, m := range modes {
+		if m == ModeCgroups {
+			t.Error("cgroups were not requested and yet they are declared as applied")
 		}
 	}
 }
 
-// TestSandboxDirectorioBaseInexistente: se crea, no se falla.
-func TestSandboxDirectorioBaseInexistente(t *testing.T) {
-	base := filepath.Join(t.TempDir(), "no", "existe", "todavia")
-	s, err := Nuevo(Opciones{Dir: base, Log: logx.Global()})
+// TestSandboxBaseDirectoryMissing: it is created, it does not fail.
+func TestSandboxBaseDirectoryMissing(t *testing.T) {
+	base := filepath.Join(t.TempDir(), "does", "not", "exist", "yet")
+	s, err := New(Options{Dir: base, Log: logx.Global()})
 	if err != nil {
-		t.Fatalf("debería crear el directorio: %v", err)
+		t.Fatalf("it should create the directory: %v", err)
 	}
-	defer s.Cerrar()
+	defer s.Close()
 	if _, err := os.Stat(base); err != nil {
-		t.Errorf("no se creó el directorio base: %v", err)
+		t.Errorf("the base directory was not created: %v", err)
 	}
 }

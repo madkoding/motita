@@ -1,1 +1,0 @@
-deja en informe.txt el contenido 'contenido-valido'

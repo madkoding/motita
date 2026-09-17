@@ -1,9 +1,8 @@
-// Package logx implementa el registro estructurado en JSON con rotación por
-// tamaño, sin dependencias externas.
+// Package logx implements structured JSON logging with size-based rotation,
+// with no external dependencies.
 //
-// Cada línea es un objeto JSON independiente (JSON Lines), pensado para que lo
-// consuma `jq`, un colector de registros o el propio ancla al comprobar
-// invariantes.
+// Every line is a standalone JSON object (JSON Lines), meant to be consumed by
+// `jq`, a log collector or the anchor itself when checking invariants.
 package logx
 
 import (
@@ -18,17 +17,17 @@ import (
 	"time"
 )
 
-// Nivel de severidad.
-type Nivel int
+// Level of severity.
+type Level int
 
 const (
-	Debug Nivel = iota
+	Debug Level = iota
 	Info
 	Warn
 	Error
 )
 
-func (n Nivel) String() string {
+func (n Level) String() string {
 	switch n {
 	case Debug:
 		return "debug"
@@ -39,12 +38,12 @@ func (n Nivel) String() string {
 	case Error:
 		return "error"
 	default:
-		return "desconocido"
+		return "unknown"
 	}
 }
 
-// ParsearNivel convierte texto ("info") en nivel; error si no se reconoce.
-func ParsearNivel(s string) (Nivel, error) {
+// ParseLevel turns text ("info") into a level; an error if it is not recognized.
+func ParseLevel(s string) (Level, error) {
 	switch strings.ToLower(strings.TrimSpace(s)) {
 	case "debug":
 		return Debug, nil
@@ -55,198 +54,197 @@ func ParsearNivel(s string) (Nivel, error) {
 	case "error":
 		return Error, nil
 	default:
-		return Info, fmt.Errorf("nivel de registro desconocido %q (usa debug, info, warn o error)", s)
+		return Info, fmt.Errorf("unknown log level %q (use debug, info, warn or error)", s)
 	}
 }
 
-// Opciones de construcción de un Logger.
-type Opciones struct {
-	Ruta    string // archivo destino; vacío = sólo consola
-	Nivel   Nivel
-	Consola bool
-	MaxMB   int // tamaño máximo antes de rotar (0 = sin rotación)
-	Backups int // cuántos archivos rotados conservar
+// Options for building a Logger.
+type Options struct {
+	Path    string // destination file; empty = console only
+	Level   Level
+	Console bool
+	MaxMB   int // maximum size before rotating (0 = no rotation)
+	Backups int // how many rotated files to keep
 }
 
-// Logger escribe registros JSON de forma segura para uso concurrente.
+// Logger writes JSON records safely for concurrent use.
 type Logger struct {
 	mu      sync.Mutex
-	nivel   Nivel
-	archivo *os.File
-	ruta    string
-	escrito int64
+	level   Level
+	file    *os.File
+	path    string
+	written int64
 	maxByte int64
 	backups int
-	consola bool
-	salida  io.Writer
+	console bool
+	out     io.Writer
 }
 
 var (
-	// global es el registro por defecto, útil cuando no hay uno inyectado.
-	global   = &Logger{nivel: Info, consola: true, salida: os.Stderr}
+	// global is the default log, handy when none is injected.
+	global   = &Logger{level: Info, console: true, out: os.Stderr}
 	globalMu sync.RWMutex
 )
 
-// Nuevo crea un logger. Si falla la apertura del archivo devuelve el error en
-// lugar de caer a un registro silencioso.
-func Nuevo(op Opciones) (*Logger, error) {
+// New creates a logger. If opening the file fails it returns the error instead
+// of falling back to a silent log.
+func New(op Options) (*Logger, error) {
 	l := &Logger{
-		nivel:   op.Nivel,
-		consola: op.Consola,
-		salida:  os.Stderr,
+		level:   op.Level,
+		console: op.Console,
+		out:     os.Stderr,
 		backups: op.Backups,
 	}
 	if op.MaxMB > 0 {
 		l.maxByte = int64(op.MaxMB) * 1024 * 1024
 	}
 
-	if op.Ruta != "" {
-		if err := os.MkdirAll(filepath.Dir(op.Ruta), 0o755); err != nil {
-			return nil, fmt.Errorf("no se pudo crear el directorio del registro %q: %w", filepath.Dir(op.Ruta), err)
+	if op.Path != "" {
+		if err := os.MkdirAll(filepath.Dir(op.Path), 0o755); err != nil {
+			return nil, fmt.Errorf("could not create the log directory %q: %w", filepath.Dir(op.Path), err)
 		}
-		f, err := os.OpenFile(op.Ruta, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
+		f, err := os.OpenFile(op.Path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
 		if err != nil {
-			return nil, fmt.Errorf("no se pudo abrir el registro %q: %w", op.Ruta, err)
+			return nil, fmt.Errorf("could not open the log %q: %w", op.Path, err)
 		}
-		l.archivo = f
-		l.ruta = op.Ruta
+		l.file = f
+		l.path = op.Path
 		if info, err := f.Stat(); err == nil {
-			l.escrito = info.Size()
+			l.written = info.Size()
 		}
 	}
 	return l, nil
 }
 
-// Instalar reemplaza el registro global.
-func Instalar(l *Logger) {
+// Install replaces the global log.
+func Install(l *Logger) {
 	globalMu.Lock()
 	global = l
 	globalMu.Unlock()
 }
 
-// Global devuelve el registro global.
+// Global returns the global log.
 func Global() *Logger {
 	globalMu.RLock()
 	defer globalMu.RUnlock()
 	return global
 }
 
-// Cerrar cierra el archivo de registro si lo hay.
-func (l *Logger) Cerrar() error {
+// Close closes the log file if there is one.
+func (l *Logger) Close() error {
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	if l.archivo == nil {
+	if l.file == nil {
 		return nil
 	}
-	err := l.archivo.Close()
-	l.archivo = nil
+	err := l.file.Close()
+	l.file = nil
 	return err
 }
 
-// Debug, Info, Warn y Error registran con el nivel correspondiente.
-func (l *Logger) Debug(msg string, campos ...any) { l.registrar(Debug, msg, campos...) }
-func (l *Logger) Info(msg string, campos ...any)  { l.registrar(Info, msg, campos...) }
-func (l *Logger) Warn(msg string, campos ...any)  { l.registrar(Warn, msg, campos...) }
-func (l *Logger) Error(msg string, campos ...any) { l.registrar(Error, msg, campos...) }
+// Debug, Info, Warn and Error log at the corresponding level.
+func (l *Logger) Debug(msg string, fields ...any) { l.log(Debug, msg, fields...) }
+func (l *Logger) Info(msg string, fields ...any)  { l.log(Info, msg, fields...) }
+func (l *Logger) Warn(msg string, fields ...any)  { l.log(Warn, msg, fields...) }
+func (l *Logger) Error(msg string, fields ...any) { l.log(Error, msg, fields...) }
 
-// registrar arma el objeto JSON y lo escribe en el archivo y/o la consola.
-func (l *Logger) registrar(nivel Nivel, msg string, campos ...any) {
-	if nivel < l.nivel {
+// log builds the JSON object and writes it to the file and/or the console.
+func (l *Logger) log(level Level, msg string, fields ...any) {
+	if level < l.level {
 		return
 	}
 
-	evento := make(map[string]any, 3+len(campos)/2)
-	evento["ts"] = time.Now().Format(time.RFC3339Nano)
-	evento["nivel"] = nivel.String()
-	evento["msg"] = msg
-	for i := 0; i+1 < len(campos); i += 2 {
-		clave, ok := campos[i].(string)
+	event := make(map[string]any, 3+len(fields)/2)
+	event["ts"] = time.Now().Format(time.RFC3339Nano)
+	event["level"] = level.String()
+	event["msg"] = msg
+	for i := 0; i+1 < len(fields); i += 2 {
+		key, ok := fields[i].(string)
 		if !ok {
 			continue
 		}
-		evento[clave] = valorJSON(campos[i+1])
+		event[key] = jsonValue(fields[i+1])
 	}
 
-	linea, err := json.Marshal(evento)
+	line, err := json.Marshal(event)
 	if err != nil {
-		// Nunca se pierde el mensaje por un campo raro: se degrada a texto plano.
-		linea, _ = json.Marshal(map[string]any{
-			"ts":    evento["ts"],
-			"nivel": nivel.String(),
+		// The message is never lost because of an odd field: it degrades to
+		// plain text.
+		line, _ = json.Marshal(map[string]any{
+			"ts":    event["ts"],
+			"level": level.String(),
 			"msg":   msg,
-			"error": "no se pudo serializar un campo: " + err.Error(),
+			"error": "could not serialize a field: " + err.Error(),
 		})
 	}
-	linea = append(linea, '\n')
+	line = append(line, '\n')
 
 	l.mu.Lock()
 	defer l.mu.Unlock()
 
-	if l.archivo != nil {
-		n, err := l.archivo.Write(linea)
+	if l.file != nil {
+		n, err := l.file.Write(line)
 		if err == nil {
-			l.escrito += int64(n)
-			l.rotarSiHaceFalta()
+			l.written += int64(n)
+			l.rotateIfNeeded()
 		}
 	}
-	if l.consola && l.salida != nil {
-		l.salida.Write(linea)
+	if l.console && l.out != nil {
+		l.out.Write(line)
 	}
 }
 
-// rotarSiHaceFalta mueve el archivo actual a .1 y desplaza los backups.
-func (l *Logger) rotarSiHaceFalta() {
-	if l.maxByte <= 0 || l.escrito < l.maxByte || l.archivo == nil {
+// rotateIfNeeded moves the current file to .1 and shifts the backups.
+func (l *Logger) rotateIfNeeded() {
+	if l.maxByte <= 0 || l.written < l.maxByte || l.file == nil {
 		return
 	}
-	l.archivo.Close()
-	l.archivo = nil
+	l.file.Close()
+	l.file = nil
 
 	if l.backups > 0 {
-		// Desplaza .N-1 -> .N de mayor a menor para no pisar nada.
+		// Shift .N-1 -> .N from highest to lowest so nothing is overwritten.
 		for i := l.backups - 1; i >= 1; i-- {
-			viejo := fmt.Sprintf("%s.%d", l.ruta, i)
-			nuevo := fmt.Sprintf("%s.%d", l.ruta, i+1)
-			os.Rename(viejo, nuevo)
+			old := fmt.Sprintf("%s.%d", l.path, i)
+			fresh := fmt.Sprintf("%s.%d", l.path, i+1)
+			os.Rename(old, fresh)
 		}
-		os.Rename(l.ruta, l.ruta+".1")
+		os.Rename(l.path, l.path+".1")
 	} else {
-		os.Remove(l.ruta)
+		os.Remove(l.path)
 	}
 
-	f, err := os.OpenFile(l.ruta, os.O_CREATE|os.O_WRONLY|os.O_APPEND|os.O_TRUNC, 0o644)
+	f, err := os.OpenFile(l.path, os.O_CREATE|os.O_WRONLY|os.O_APPEND|os.O_TRUNC, 0o644)
 	if err != nil {
-		// Sin archivo seguimos con la consola: el agente no debe morir por el log.
-		l.archivo = nil
+		// Without a file we carry on with the console: the agent must not die
+		// because of the log.
+		l.file = nil
 		return
 	}
-	l.archivo = f
-	l.escrito = 0
+	l.file = f
+	l.written = 0
 }
 
-// ArchivosRotados lista los backups existentes (para diagnósticos y pruebas).
-func (l *Logger) ArchivosRotados() []string {
-	if l.ruta == "" {
+// RotatedFiles lists the existing backups (for diagnostics and tests).
+func (l *Logger) RotatedFiles() []string {
+	if l.path == "" {
 		return nil
 	}
-	var salida []string
+	var out []string
 	for i := 1; i <= l.backups; i++ {
-		ruta := fmt.Sprintf("%s.%d", l.ruta, i)
-		if _, err := os.Stat(ruta); err == nil {
-			salida = append(salida, ruta)
+		path := fmt.Sprintf("%s.%d", l.path, i)
+		if _, err := os.Stat(path); err == nil {
+			out = append(out, path)
 		}
 	}
-	sort.Strings(salida)
-	return salida
+	sort.Strings(out)
+	return out
 }
 
-// valorJSON convierte tipos que no son serializables directamente (errores).
-func valorJSON(v any) any {
+// jsonValue converts types that are not directly serializable (errors).
+func jsonValue(v any) any {
 	switch t := v.(type) {
 	case error:
-		if t == nil {
-			return nil
-		}
 		return t.Error()
 	case time.Duration:
 		return t.String()
@@ -255,9 +253,9 @@ func valorJSON(v any) any {
 	}
 }
 
-// --- Atajos sobre el registro global ---------------------------------------
+// --- Shortcuts over the global log ------------------------------------------
 
-func Debugf(msg string, campos ...any) { Global().Debug(msg, campos...) }
-func Infof(msg string, campos ...any)  { Global().Info(msg, campos...) }
-func Warnf(msg string, campos ...any)  { Global().Warn(msg, campos...) }
-func Errorf(msg string, campos ...any) { Global().Error(msg, campos...) }
+func Debugf(msg string, fields ...any) { Global().Debug(msg, fields...) }
+func Infof(msg string, fields ...any)  { Global().Info(msg, fields...) }
+func Warnf(msg string, fields ...any)  { Global().Warn(msg, fields...) }
+func Errorf(msg string, fields ...any) { Global().Error(msg, fields...) }

@@ -1,0 +1,126 @@
+# CASE 3 — Automation agent: file queue + script + notification
+#
+# Flow: watches a directory for work files -> for each one, the LLM proposes the
+# script/command -> it runs isolated -> the ANCHOR checks the effect happened ->
+# if it passes, a notification is sent through a webhook.
+#
+# Meant for an old i386 machine watching shared folders or printers and reporting
+# back to a central server.
+#
+# Usage:
+#   export STARLIGHT_LLM_API_KEY=sk-...
+#   mkdir -p queue && echo "rotate the logs in /var/log/app" > queue/001.txt
+#   starlight-agent -config configs/cases/3-automation.yaml
+
+task_source:
+  kind: queue
+  dir: ./queue
+  interval: 15s      # how often it looks for new files
+
+# Layer A: it checks the EFFECT, not that the command exited with 0. If the task
+# was to leave a file behind, the anchor verifies the file is there and not empty.
+anchor:
+  kind: command
+  command: sh
+  args: ["-c", "test -s ./result.ok && echo AUTOMATION_OK"]
+  timeout: 30s
+  expect_exit: 0
+  expect_output: "AUTOMATION_OK"
+  checks:
+    - name: no temp leftovers
+      command: sh
+      args: ["-c", "test -z \"$(ls *.tmp 2>/dev/null)\""]
+      timeout: 15s
+      expect_exit: 0
+
+# Layer C: far more restrictive. Little memory, short CPU, no network (the
+# notification is done by the agent, not by the command) and small files.
+sandbox:
+  kind: cgroups
+  memory_mb: 256
+  cpu_seconds: 30
+  processes: 16
+  open_files: 64
+  max_file_size_mb: 16
+  isolate_network: true
+  timeout: 60s
+  max_output_kb: 64
+
+llm:
+  provider: openai
+  model: gpt-4o-mini
+  base_url: https://api.openai.com/v1
+  max_tokens: 1024
+  temperature: 0.0
+  timeout: 60s
+  max_attempts: 2      # a slow machine must not retry forever
+  backoff_initial: 1s
+  backoff_max: 10s
+
+prompts:
+  analyze:
+    system: |
+      You are an automation agent on a small machine. You reply only with JSON.
+      Your commands must be simple and reversible.
+    user: |
+      ## AUTOMATION REQUESTED
+      {{task}}
+
+      ## CHECKS THAT WILL BE MADE
+      {{rules}}
+
+      Return JSON: {"understandable": bool, "summary": "...",
+                    "success_criteria": ["..."], "risks": ["..."],
+                    "needs_subtasks": bool}
+  plan:
+    system: |
+      You are an automation agent. You reply only with JSON.
+    user: |
+      ## TASK
+      {{task}}
+
+      ## ANALYSIS
+      {{analysis}}
+
+      Return JSON: {"plan": [{"step": 1, "action": "...", "command": "..."}],
+                    "subtasks": [], "expected_result": "..."}
+      Use at most 3 steps and tools available on a minimal system.
+  execute:
+    system: |
+      You are an automation agent. You reply only with JSON.
+    user: |
+      ## TASK
+      {{task}}
+
+      ## PLAN
+      {{plan}}
+
+      ## WORKING DIRECTORY
+      {{workspace}}
+
+      {{history}}
+
+      Return JSON: {"reasoning": "...",
+                    "actions": [{"kind": "command", "description": "...",
+                                 "command": "..."}],
+                    "final_action": {"description": "notify", "command": ""}}
+      The final command must leave ./result.ok behind as the success signal.
+
+# Notification to the central server, only if validation passed.
+final_action:
+  kind: command
+  command: sh
+  args: ["-c", "curl -sf -X POST -H 'Content-Type: application/json' -d '{\"event\":\"task_ok\"}' https://example.internal/hooks/starlight || logger -t starlight 'could not notify'"]
+
+agent:
+  max_retries: 1
+  subtask_depth: 0
+  workspace_dir: ./workspace/automation
+  log_file: ./workspace/automation/starlight.log
+  log_level: info
+  log_max_mb: 2
+  log_backups: 2
+  graceful_shutdown_timeout: 10s
+  on_failure:
+    kind: command
+    command: logger -t starlight "automation task not resolved"

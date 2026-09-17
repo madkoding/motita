@@ -1,171 +1,167 @@
-# starlight — configuración de ejemplo completa
+# starlight — complete example configuration
 #
-# Todos los valores mostrados son los que aplica el agente si se omite la clave,
-# así que este archivo sirve a la vez de documentación y de plantilla.
+# Every value shown is what the agent applies when the key is omitted, so this
+# file doubles as documentation and as a template.
 #
-# Validar sin ejecutar nada (no llama al LLM):
-#     starlight -config configs/agent.yaml.example -validar-config
+# Validate without running anything (does not call the LLM):
+#     starlight-agent -config configs/agent.yaml.example -validate-config
 #
-# Cualquier valor se puede sobreescribir con variables STARLIGHT_* (ver README).
-# Las credenciales NUNCA deben quedar en este archivo: usa STARLIGHT_LLM_API_KEY
-# o OPENAI_API_KEY.
+# Any value can be overridden with the STARLIGHT_* environment variables (see
+# README.md). Credentials must NEVER live in this file: use
+# STARLIGHT_LLM_API_KEY or OPENAI_API_KEY.
 
 # ---------------------------------------------------------------------------
-# Fuente de tareas
+# Task source
 # ---------------------------------------------------------------------------
 task_source:
-  tipo: stdin          # stdin | file | api | queue
-  # tipo=file: un archivo con la tarea (texto plano)
-  ruta: ""
-  # tipo=queue: directorio del que se toman archivos en orden alfabético; al
-  # procesarse se renombran a .hecho
+  kind: stdin          # stdin | file | api | queue
+  # kind=file: a file holding the task (plain text)
+  path: ""
+  # kind=queue: directory files are taken from in alphabetical order; once
+  # processed they are renamed to .done
   dir: ""
-  # tipo=api: se sondea la URL; el campo 'campo' indica dónde está la tarea
+  # kind=api: the URL is polled; 'field' says where the task is in the response
   url: ""
-  metodo: GET          # GET | POST
-  campo: tarea
-  intervalo: 30s       # sondeo para api/queue
+  method: GET          # GET | POST
+  field: task
+  interval: 30s        # polling for api/queue
   headers:
     Accept: application/json
-  cuerpo: ""           # cuerpo para el POST
+  body: ""             # request body for POST
 
 # ---------------------------------------------------------------------------
-# Capa A — EL ANCLA (validador determinista)
+# Layer A — THE ANCHOR (deterministic validator)
 # ---------------------------------------------------------------------------
 anchor:
-  tipo: command        # command | none
-  comando: make        # se ejecuta tal cual, sin razonamiento
-  argumentos: [test]
+  kind: command        # command | none
+  command: make        # run as is, with no reasoning
+  args: [test]
   timeout: 120s
-  esperar_exit: 0      # código de salida que significa PASS
-  esperar_salida: ""   # expresión regular opcional sobre la salida
-  # Comprobaciones adicionales: TODAS deben pasar para que el ancla dé PASS.
+  expect_exit: 0       # exit code that means PASS
+  expect_output: ""    # optional regular expression over the output
+  # Extra checks: EVERY one of them must pass for the anchor to give PASS.
   checks:
-    - nombre: formato
-      comando: gofmt
-      argumentos: ["-l", "."]
+    - name: formatting
+      command: gofmt
+      args: ["-l", "."]
       timeout: 30s
-      esperar_exit: 0
-      esperar_salida: "^$"   # gofmt no imprime nada si todo está formateado
+      expect_exit: 0
+      expect_output: "^$"   # gofmt prints nothing when everything is formatted
 
 # ---------------------------------------------------------------------------
-# Capa C — EL SANDBOX (ejecución aislada, sin Docker)
+# Layer C — THE SANDBOX (isolated execution, no Docker)
 # ---------------------------------------------------------------------------
 sandbox:
-  tipo: cgroups        # none | chroot | cgroups
-  # tipo=chroot: raíz del chroot (requiere ser root y el comando debe existir
-  # dentro de la raíz)
-  raiz: ""
-  # Bajar privilegios dentro del sandbox (uid:gid); requiere root
-  usuario: ""
-  memoria_mb: 512
-  cpu_segundos: 60
-  procesos: 128
-  archivos_abiertos: 256
-  tamano_max_archivo_mb: 64
-  aislar_red: false    # true = espacio de nombres de red propio (sin red)
+  kind: cgroups        # none | chroot | cgroups
+  # kind=chroot: chroot root (requires root, and the command must exist inside
+  # the root)
+  root: ""
+  # Drop privileges inside the sandbox (uid:gid); requires root
+  user: ""
+  memory_mb: 512
+  cpu_seconds: 60
+  processes: 128
+  open_files: 256
+  max_file_size_mb: 64
+  isolate_network: false   # true = own network namespace (no network)
   cgroups: auto        # auto | on | off   (v1: memory + pids)
-  cgroup_raiz: /sys/fs/cgroup
+  cgroup_root: /sys/fs/cgroup
   timeout: 300s
-  conservar_efimero: false   # true = no borrar el directorio del intento
-  salida_max_kb: 256
+  keep_ephemeral: false   # true = do not delete the attempt's temp directory
+  max_output_kb: 256
 
 # ---------------------------------------------------------------------------
-# Capa B — EL MOTOR DE RAZONAMIENTO
+# Layer B — THE REASONING ENGINE
 # ---------------------------------------------------------------------------
 llm:
-  proveedor: openai     # openai | anthropic | gemini
-  modelo: gpt-4o-mini
-  api_key: ""           # MEJOR: exporta STARLIGHT_LLM_API_KEY
-  base_url: https://api.openai.com/v1   # sirve cualquier gateway compatible
+  provider: openai     # openai | anthropic | gemini
+  model: gpt-4o-mini
+  api_key: ""          # BETTER: export STARLIGHT_LLM_API_KEY
+  base_url: https://api.openai.com/v1   # any compatible gateway works
   max_tokens: 2048
   temperature: 0.2
   timeout: 90s
-  max_intentos: 3       # reintentos con backoff exponencial ante 429/5xx/red
-  backoff_inicial: 1s
+  max_attempts: 3      # retries with exponential backoff on 429/5xx/network
+  backoff_initial: 1s
   backoff_max: 30s
 
 # ---------------------------------------------------------------------------
-# Plantillas de prompt. Variables disponibles:
-#   {{tarea}} {{workspace}} {{origen}} {{intento}} {{max_intentos}} {{reglas}}
-#   {{analisis}} {{plan}} {{historial}} {{modelo}} {{proveedor}} {{contexto_*}}
+# Prompt templates. Available variables:
+#   {{task}} {{workspace}} {{origin}} {{attempt}} {{max_attempts}} {{rules}}
+#   {{analysis}} {{plan}} {{history}} {{model}} {{provider}} {{context_*}}
 # ---------------------------------------------------------------------------
 prompts:
   analyze:
-    sistema: |
-      Eres la Capa B (motor de razonamiento) de un agente con validación
-      determinista. Responde sólo con el JSON pedido.
-    usuario: |
-      ## TAREA
-      {{tarea}}
+    system: |
+      You are Layer B (the reasoning engine) of an agent with deterministic
+      validation. Reply only with the requested JSON.
+    user: |
+      ## TASK
+      {{task}}
 
-      ## REGLAS DE VALIDACIÓN QUE SE APLICARÁN
-      {{reglas}}
+      ## VALIDATION RULES THAT WILL BE APPLIED
+      {{rules}}
 
-      Devuelve JSON: {"comprensible": bool, "resumen": "...",
-                      "criterios_exito": ["..."], "riesgos": ["..."],
-                      "necesita_subtareas": bool}
+      Return JSON: {"understandable": bool, "summary": "...",
+                    "success_criteria": ["..."], "risks": ["..."],
+                    "needs_subtasks": bool}
   plan:
-    sistema: |
-      Eres la Capa B. Responde sólo con el JSON pedido.
-    usuario: |
-      ## TAREA
-      {{tarea}}
+    system: |
+      You are Layer B. Reply only with the requested JSON.
+    user: |
+      ## TASK
+      {{task}}
 
-      ## ANÁLISIS PREVIO
-      {{analisis}}
+      ## PREVIOUS ANALYSIS
+      {{analysis}}
 
-      Devuelve JSON: {"plan": [{"paso": 1, "accion": "...", "comando": "..."}],
-                      "subtareas": ["..."], "resultado_esperado": "..."}
+      Return JSON: {"plan": [{"step": 1, "action": "...", "command": "..."}],
+                    "subtasks": ["..."], "expected_result": "..."}
   execute:
-    sistema: |
-      Eres la Capa B. Responde sólo con el JSON pedido.
-    usuario: |
-      ## TAREA
-      {{tarea}}
+    system: |
+      You are Layer B. Reply only with the requested JSON.
+    user: |
+      ## TASK
+      {{task}}
 
       ## PLAN
       {{plan}}
 
-      {{historial}}
+      {{history}}
 
-      Devuelve JSON: {"razonamiento": "...",
-                      "acciones": [{"tipo": "comando", "descripcion": "...",
-                                    "comando": "..."}],
-                      "accion_final": {"descripcion": "...", "comando": "..."}}
-      Si un intento falló antes, corrige a partir de los registros.
+      Return JSON: {"reasoning": "...",
+                    "actions": [{"kind": "command", "description": "...",
+                                 "command": "..."}],
+                    "final_action": {"description": "...", "command": "..."}}
+      If an attempt failed before, correct it from the records.
 
 # ---------------------------------------------------------------------------
-# Qué hacer cuando el ancla da PASS
+# What to do when the anchor gives PASS
 # ---------------------------------------------------------------------------
 final_action:
-  tipo: git_commit     # none | command | api | git_commit
-  comando: ""          # tipo=command
-  argumentos: []
-  url: ""              # tipo=api: se hace POST {tarea, comando, estado:"pass"}
-  metodo: POST
-  mensaje_commit: "agente: {{tarea}}"
+  kind: git_commit     # none | command | api | git_commit
+  command: ""          # kind=command
+  args: []
+  url: ""              # kind=api: POSTs {task, command, status:"pass"}
+  method: POST
+  commit_message: "agent: {{task}}"
 
 # ---------------------------------------------------------------------------
-# Bucle principal, registro y apagado
+# Main loop, logging and shutdown
 # ---------------------------------------------------------------------------
 agent:
-  max_reintentos: 3            # intentos totales = max_reintentos + 1
-  profundidad_subtareas: 1     # niveles de división permitidos
-  max_tareas: 0                # 0 = sin límite
+  max_retries: 3               # total attempts = max_retries + 1
+  subtask_depth: 1             # allowed splitting levels
+  max_tasks: 0                 # 0 = no limit
   workspace_dir: ./workspace
-  log_file: ./workspace/starlight.log   # vacío = sólo consola
+  log_file: ./workspace/starlight.log   # empty = console only
   log_level: info              # debug | info | warn | error
-  log_consola: true
-  log_max_mb: 5                # rotación por tamaño
+  log_console: true
+  log_max_mb: 5                # size-based rotation
   log_backups: 3
   graceful_shutdown_timeout: 15s
-  # Acción de escalado cuando una tarea agota los reintentos sin pasar el ancla.
-  # Se ejecuta dentro del sandbox; deja rastro para que alguien lo revise.
-  escalar:
-    tipo: command        # none | command
-    comando: 'echo "tarea no resuelta: revisar el registro" >> escalados.log' 
-  # Acción de escalado cuando se agotan los reintentos
-  escalar:
-    tipo: none                 # none | command
-    comando: ""
+  # Failure action, run when a task runs out of retries without passing.
+  # It runs inside the sandbox and leaves a trace for someone to review.
+  on_failure:
+    kind: command              # none | command
+    command: 'echo "task not resolved: check the log" >> escalations.log'

@@ -1,178 +1,180 @@
 # starlight 🌟
 
-Agente autónomo de **3 capas** para máquinas i386 (y cualquier Linux amd64/arm64),
-escrito en **Go puro**: sólo biblioteca estándar, **cero dependencias externas**,
-sin cgo y **sin Docker**.
+A **3-layer** autonomous agent for i386 machines (and any Linux amd64/arm64),
+written in **pure Go**: standard library only, **zero external dependencies**,
+no cgo and **no Docker**.
 
-El principio que lo gobierna: **el modelo propone, un validador determinista
-dispone**. Ninguna tarea se da por completada porque el LLM lo diga; sólo el
-ancla puede declarar `PASS`, y lo hace ejecutando comprobaciones reales.
+The principle that governs it: **the model proposes, a deterministic validator
+disposes**. No task is ever considered complete because the LLM says so; only the
+anchor can declare `PASS`, and it does that by running real checks.
 
 ```
-TAREA ──► [Capa B] analizar ─► planificar ─► proponer acción
-                                                    │
-                                    [Capa C] ejecutar aislado
-                                                    │
-                                    [Capa A] validar (PASS/FAIL)
-                                                    │
-                       PASS ──► acción final (commit / publicar / notificar)
-                       FAIL ──► registros del fallo al LLM y reintentar
-                     agotado ──► escalar
+TASK ──► [Layer B] analyse ─► plan ─► propose an action
+                                            │
+                            [Layer C] run it isolated
+                                            │
+                            [Layer A] validate (PASS/FAIL)
+                                            │
+               PASS ──► final action (commit / publish / notify)
+               FAIL ──► failure records back to the LLM, retry
+            exhausted ──► escalate
 ```
 
-El repositorio incluye además un **chat interactivo de terminal** (`cmd/chat`,
-documentado en [`cmd/chat/README.md`](cmd/chat/README.md)) que comparte el estilo
-de ejecución y las lecciones sobre grupos de procesos.
+The repository also ships an **interactive terminal chat** (`cmd/chat`,
+documented in [`cmd/chat/README.md`](cmd/chat/README.md)) which shares the process
+execution style and the lessons learned about process groups.
 
 ---
 
-## Arquitectura
+## Architecture
 
-### Capa A — EL ANCLA (validador determinista)
+### Layer A — THE ANCHOR (deterministic validator)
 
-Componente nativo que valida **siempre** el resultado, sin razonamiento:
+A native component that **always** validates the result, with no reasoning:
 
 | | |
 |---|---|
-| Entrada | el estado del sistema tras la acción del agente |
-| Proceso | validaciones estrictas: comandos, código de salida, expresiones regulares sobre la salida, invariantes de negocio |
-| Salida | `PASS`/`FAIL` + registros estructurados JSON |
-| Características | sin LLM, rápido y predecible, reglas configurables desde el YAML |
+| Input | the state of the system after the agent's action |
+| Process | strict validations: commands, exit codes, regular expressions over the output, business invariants |
+| Output | `PASS`/`FAIL` plus structured JSON records |
+| Traits | no LLM, fast and predictable, rules configurable from the YAML |
 
-Reglas de diseño que se cumplen en el código:
+Design rules the code actually enforces:
 
-- **Sin validador no hay éxito.** Con `anchor.tipo=none` el ancla devuelve `FAIL`
-  y el agente **se niega a arrancar**, porque no existe autoridad que declare
-  `PASS`. Un `PASS` sin comprobación real es exactamente el fallo que esta
-  arquitectura existe para evitar.
-- **Todas las comprobaciones deben pasar.** Un solo `check` fallido invalida el
-  resultado completo.
-- **Un ancla incomprobable es un fallo, no un éxito silencioso**: si el comando no
-  existe, expira o la expresión regular no compila, devuelve `FAIL` con el motivo.
-- **La salida del ancla es JSON** y viaja íntegra al LLM en el siguiente intento,
-  junto con la salida real del comando fallido.
+- **No validator, no success.** With `anchor.kind=none` the anchor returns `FAIL`
+  and the agent **refuses to start**, because there is no authority that can
+  declare `PASS`. A `PASS` with no real check is exactly the failure this
+  architecture exists to prevent.
+- **Every check must pass.** A single failing `check` invalidates the whole
+  result.
+- **An anchor that cannot be evaluated is a failure, not a silent success**: if
+  the command does not exist, times out, or the regular expression does not
+  compile, it returns `FAIL` with the reason.
+- **The anchor's output is JSON** and it travels whole to the LLM on the next
+  attempt, together with the real output of the failed command.
 
-### Capa B — EL MOTOR DE RAZONAMIENTO (cliente LLM ligero)
+### Layer B — THE REASONING ENGINE (lightweight LLM client)
 
-Cliente escrito a mano (sin SDK) para tres familias de API: **OpenAI**
-(`/chat/completions`), **Anthropic** (`/v1/messages`) y **Gemini**
-(`:generateContent`). Todos se normalizan a la misma estructura de mensajes, así
-que el resto del agente no sabe cuál está detrás.
+A hand-written client (no SDK) for three API families: **OpenAI**
+(`/chat/completions`), **Anthropic** (`/v1/messages`) and **Gemini**
+(`:generateContent`). All of them are normalised to the same message structure,
+so the rest of the agent does not know which one is behind it.
 
-- Lee el contexto: tarea, plan, número de intento y **los registros de los fallos
-  previos**.
-- Prompts dinámicos desde plantillas con variables `{{...}}`, 100% configurables:
-  el motor nunca escribe texto de prompt por su cuenta.
-- **Reintentos con backoff exponencial**, con una distinción que importa: `429`,
-  `5xx` y errores de red se reintentan; `401`/`400` **no**, porque reintentar una
-  credencial inválida sólo gasta tiempo y cuota.
-- Parseo de respuestas estructuradas tolerante a lo que de verdad devuelven los
-  modelos: bloques ```` ```json ````, texto alrededor, llaves anidadas, comillas
-  escapadas, respuestas truncadas.
-- **Máximo N intentos** antes de escalar.
+- Reads the context: task, plan, attempt number and **the records of previous
+  failures**.
+- Dynamic prompts built from templates with `{{...}}` variables, 100%
+  configurable: the engine never writes prompt text on its own.
+- **Retries with exponential backoff**, with a distinction that matters: `429`,
+  `5xx` and network errors are retried; `401`/`400` are **not**, because retrying
+  an invalid credential only burns time and quota.
+- Structured-response parsing tolerant of what models really return: ```` ```json ````
+  blocks, surrounding prose, nested braces, escaped quotes, truncated answers.
+- **At most N attempts** before escalating.
 
-### Capa C — EL SANDBOX (ejecución aislada ligera, sin Docker)
+### Layer C — THE SANDBOX (light isolation, no Docker)
 
-Aislamiento en capas, aplicando lo que el sistema permita y **diciendo la verdad
-sobre lo que no se pudo aplicar**:
+Layered isolation, applying whatever the system allows and **telling the truth
+about what could not be applied**:
 
-| Capa | Qué hace | Requisitos |
+| Layer | What it does | Requirements |
 |---|---|---|
-| Directorio temporal efímero | `TMPDIR` propio por intento, borrado al terminar | ninguno |
-| `setrlimit` | CPU, memoria (espacio de direcciones), procesos, descriptores, tamaño de archivo | ninguno |
-| cgroups v1 | cota real de memoria y PIDs (`RLIMIT_AS` es una aproximación) | kernel con cgroups v1 y permiso de escritura |
-| chroot + bajar privilegios | raíz de sistema de archivos restringida y usuario sin privilegios | ser root |
-| `CLONE_NEWNET` | sin red dentro del comando | `CAP_SYS_ADMIN` |
+| Ephemeral temp directory | its own `TMPDIR` per attempt, deleted at the end | none |
+| `ulimit` limits | CPU, memory (address space), processes, file descriptors, max file size | none |
+| cgroups v1 | a real cap on memory and PIDs (`RLIMIT_AS` is only an approximation) | kernel with cgroups v1 and write permission |
+| chroot + privilege drop | restricted filesystem root and an unprivileged user | being root |
+| `CLONE_NEWNET` | no network inside the command | `CAP_SYS_ADMIN` |
 
-Detalles que costaron trabajo y están resueltos en el código:
+Details that took real work and are solved in the code:
 
-- **Los límites los aplica el shell, no el agente.** Un proceso hijo que es el
-  propio binario re-ejecutado (marca `__sandbox_exec`) prepara el terreno
-  (`chroot`, `chdir`, bajar privilegios, resolver la ruta del comando) y hace
-  `syscall.Exec` de `sh -c 'ulimit ...; exec "$@"'`. Es una decisión medida, no
-  estética:
-  - un binario de Go **no puede** aplicar `RLIMIT_AS` y seguir vivo: el límite
-    cuenta también la memoria virtual que el runtime mapea, así que la siguiente
-    reserva (sysmon, GC, incluso resolver el `PATH`) lo mata con `fatal error:
-    runtime: cannot allocate memory`. Se detectó en un runner con más núcleos;
-    en una máquina pequeña no aparecía.
-  - `RLIMIT_CPU` no corta en el instante exacto, sino en la siguiente
-    planificación del proceso. Medido en una máquina de un núcleo: con sólo
-    `RLIMIT_CPU` y sin límite de memoria, un bucle infinito con
-    `cpu_segundos: 2` seguía vivo a los **12 s** (el límite nunca llegó a
-    aplicarse porque el runtime reservaba memoria antes).
-  - con `sh -c 'ulimit …; exec "$@"'` el proceso limitado es exactamente el del
-    usuario, el shell desaparece con el `exec` (no queda proceso intermedio) y no
-    hace falta `prlimit`, `prlimit` de util-linux ni privilegios.
-  - verificado: bucle infinito con `cpu_segundos: 2` → corte a los **1.994 s**;
-    `ulimit -n` dentro del comando devuelve el valor configurado.
-- **Un `memoria_mb` por debajo de lo que el lanzador ya usa se eleva, avisando.**
-  En las máquinas objetivo (i386 con poca RAM) el valor es pequeño, pero no puede
-  quedar por debajo del espacio de direcciones ya mapeado: el comando no podría ni
-  arrancar. El ajuste es dinámico (pico real ×2), no una constante, y queda
-  registrado.
-- **`syscall.Exec` no busca en `PATH`**: un `comando: make` escrito en el YAML
-  fallaría con `ENOENT`. El hijo resuelve la ruta usando el `PATH` **restringido
-  del sandbox**, no el del agente.
-- **El directorio de trabajo es persistente; el temporal es efímero.** El efecto
-  del trabajo debe sobrevivir para que el ancla pueda verlo. Si las acciones
-  corrieran en un directorio que se borra al terminar, el validador no encontraría
-  nunca el resultado y el agente fallaría siempre (esto ocurrió de verdad durante
-  el desarrollo y está cubierto por una prueba).
-- **Matar el grupo de procesos, no sólo el hijo.** `exec.CommandContext` mata a
-  `sh`, pero sus descendientes siguen vivos con el tubo de salida abierto y `Wait`
-  se queda esperando: medido, un `sleep 30` con plazo de 1 s tardaba **5 s** en
-  volver. Con grupo propio + `SIGKILL` al grupo corta en el plazo exacto (medido:
-  bucle infinito con `cpu_segundos: 2` → corte a los **2.002 s**).
-- **El comando no hereda los secretos del agente**: el entorno se construye desde
-  cero, sin `OPENAI_API_KEY` ni `STARLIGHT_LLM_API_KEY` dentro del comando.
-
----
-
-## Flujo del agente
-
-```
-INICIO
-[1] LEER TAREA     de la fuente configurable (stdin, archivo, cola, API)
-[2] EXTRAER        contexto y criterios de éxito (las reglas del ancla)
-[3] LLM            analiza la tarea   -> {"comprensible", "criterios_exito", ...}
-[4] LLM            genera un plan     -> {"plan", "subtareas", ...}
-[5] DIVIDIR         en subtareas si el análisis lo pide (con límite de profundidad)
-[6] LLM            genera la acción   -> {"acciones", "accion_final"}
-[7] EJECUTAR        en el SANDBOX (Capa C)
-[8] VALIDAR         con el ANCLA (Capa A) — siempre, incluso si [7] falló
-[9] PASS  -> ejecutar la acción final (command | api | git_commit) y FIN
-    FAIL  -> registros del fallo al LLM, volver a [6] mientras intentos < MAX
-    agotado -> escalar (agent.escalar) y FIN
-```
-
-Si el análisis declara la tarea **no comprensible** (falta información), no se
-ejecuta nada: la tarea se descarta con el motivo y cuenta como fallo para el
-código de salida.
+- **The limits are applied by the shell, not by the agent.** A child process
+  which is the binary re-executed (marker `__sandbox_exec`) prepares the ground
+  (`chroot`, `chdir`, dropping privileges, resolving the command path) and then
+  `syscall.Exec`s `sh -c 'ulimit ...; exec "$@"'`. This is a measured decision,
+  not an aesthetic one:
+  - a Go binary **cannot** apply `RLIMIT_AS` and stay alive: the limit also
+    counts the virtual memory the runtime maps, so the next allocation (sysmon,
+    GC, even resolving `PATH`) kills it with `fatal error: runtime: cannot
+    allocate memory`. It only showed up on a CI runner with more cores; on a
+    small machine it did not appear.
+  - `RLIMIT_CPU` does not cut at the exact instant, only at the next scheduling
+    of the process. Measured on a single-core machine: with `RLIMIT_CPU` alone
+    and no memory limit, an infinite loop with `cpu_seconds: 2` was still alive
+    after **12 s** (the limit was never applied because the runtime allocated
+    memory in between).
+  - with `sh -c 'ulimit …; exec "$@"'` the limited process is exactly the user's,
+    the shell disappears with the `exec` (no intermediate process is left behind)
+    and neither `prlimit`, nor util-linux, nor privileges are needed.
+  - verified: an infinite loop with `cpu_seconds: 2` is cut at **1.994 s**;
+    `ulimit -n` inside the command returns the configured value.
+- **A `memory_mb` below what the launcher already uses is raised, with a
+  warning.** On the target machines (i386 with little RAM) the value is small,
+  but it cannot sit below the already-mapped address space: the command would not
+  even start. The adjustment is dynamic (real peak ×2), not a constant, and it is
+  logged.
+- **`syscall.Exec` does not search `PATH`**: a `command: make` written in the
+  YAML would fail with `ENOENT`. The child resolves the path using the sandbox's
+  **restricted `PATH`**, not the agent's.
+- **The working directory is persistent; the temporary one is ephemeral.** The
+  effect of the work must survive so the anchor can see it. If the actions ran in
+  a directory deleted at the end, the validator would never find the result and
+  the agent would fail every time (this really happened during development and is
+  covered by a test).
+- **Kill the process group, not just the child.** `exec.CommandContext` kills
+  `sh`, but its descendants stay alive holding the output pipe open and `Wait`
+  keeps waiting: measured, a `sleep 30` with a 1 s deadline took **5 s** to
+  return. With its own process group plus `SIGKILL` to the group it cuts at the
+  exact deadline (measured: infinite loop with `cpu_seconds: 2` → cut at
+  **2.002 s**).
+- **The command does not inherit the agent's secrets**: the environment is built
+  from scratch, with no `OPENAI_API_KEY` or `STARLIGHT_LLM_API_KEY` inside the
+  command.
 
 ---
 
-## Instalación y compilación cruzada
+## Agent flow
 
-Requiere Go 1.23 o superior. **No hace falta compilar en la máquina i386.**
+```
+START
+[1] READ TASK     from the configurable source (stdin, file, queue, API)
+[2] EXTRACT       context and success criteria (the anchor's rules)
+[3] LLM           analyses the task   -> {"understandable", "success_criteria", ...}
+[4] LLM           produces a plan     -> {"plan", "subtasks", ...}
+[5] SPLIT          into subtasks if the analysis asks for it (bounded depth)
+[6] LLM           produces the action -> {"actions", "final_action"}
+[7] RUN            in the SANDBOX (Layer C)
+[8] VALIDATE       with the ANCHOR (Layer A) — always, even if [7] failed
+[9] PASS  -> run the final action (command | api | git_commit) and END
+    FAIL  -> failure records to the LLM, back to [6] while attempts < MAX
+    exhausted -> escalate (agent.on_failure) and END
+```
+
+If the analysis declares the task **not understandable** (information missing),
+nothing runs: the task is discarded with the reason and counts as a failure for
+the exit code.
+
+---
+
+## Installation and cross-compilation
+
+Requires Go 1.23 or newer. **You do not need to compile on the i386 machine.**
 
 ```bash
-make agent-386        # agente de 3 capas para linux/386 (comprueba ELFCLASS32)
-make all              # chat + agente, en 386, amd64 y arm64
+make agent-386        # 3-layer agent for linux/386 (checks ELFCLASS32)
+make all              # chat + agent, for 386, amd64 and arm64
 make check            # gofmt + go vet + go test
-make e2e-agente       # extremo a extremo en un contenedor i386 real
+make e2e-agent        # end to end in a real i386 container
 ```
 
-Binarios resultantes (estáticos, sin cgo, sin librerías externas):
+Resulting binaries (static, no cgo, no external libraries):
 
-| Binario | Tamaño | Requisito |
+| Binary | Size | Requirement |
 |---|---|---|
 | `dist/starlight-agent-386` | 6.90 MB | < 10 MB ✓ |
-| `dist/starlight-agent-amd64` | 7.07 MB | |
-| `dist/starlight-agent-arm64` | 6.50 MB | |
+| `dist/starlight-agent-linux-amd64` | 7.07 MB | |
+| `dist/starlight-agent-linux-arm64` | 6.50 MB | |
 | `dist/starlight-linux-386` (chat) | 6.32 MB | |
 
-Se copian a la máquina i386 por `scp`, `ftp` o USB:
+Copy them to the i386 machine over `scp`, `ftp` or USB:
 
 ```bash
 chmod +x starlight-agent-386
@@ -181,199 +183,211 @@ chmod +x starlight-agent-386
 
 ---
 
-## Configuración
+## Configuration
 
-Todo es configurable **sin recompilar**. Se puede validar sin ejecutar nada ni
-llamar al LLM:
+Everything is configurable **without recompiling**. It can be validated without
+running anything or calling the LLM:
 
 ```bash
-starlight-agent -config configs/agent.yaml.example -validar-config
-starlight-agent -config configs/agent.yaml.example -aislamiento   # qué aísla este kernel
+starlight-agent -config configs/agent.yaml.example -validate-config
+starlight-agent -config configs/agent.yaml.example -isolation   # what this kernel isolates
 ```
 
-Cualquier valor se puede sobreescribir con variables `STARLIGHT_<BLOQUE>_<CAMPO>`,
-que **ganan sobre el YAML** (ideal para secretos y contenedores). También se
-aceptan `OPENAI_API_KEY`, `OPENAI_BASE_URL` y `OPENAI_MODEL`.
+Any value can be overridden with `STARLIGHT_<BLOCK>_<FIELD>` environment
+variables, which **win over the YAML** (ideal for secrets and containers).
+`OPENAI_API_KEY`, `OPENAI_BASE_URL` and `OPENAI_MODEL` are accepted too.
 
-| Bloque | Contenido |
+| Block | Contents |
 |---|---|
-| `task_source` | `tipo` (`stdin`/`file`/`api`/`queue`), `ruta`, `dir`, `url`, `metodo`, `campo`, `intervalo`, `headers`, `cuerpo` |
-| `anchor` | `tipo` (`command`/`none`), `comando`, `argumentos`, `timeout`, `esperar_exit`, `esperar_salida` (regex), `checks[]` |
-| `sandbox` | `tipo` (`none`/`chroot`/`cgroups`), `raiz`, `usuario`, `memoria_mb`, `cpu_segundos`, `procesos`, `archivos_abiertos`, `tamano_max_archivo_mb`, `aislar_red`, `cgroups`, `cgroup_raiz`, `timeout`, `conservar_efimero`, `salida_max_kb` |
-| `llm` | `proveedor` (`openai`/`anthropic`/`gemini`), `modelo`, `api_key`, `base_url`, `max_tokens`, `temperature`, `timeout`, `max_intentos`, `backoff_inicial`, `backoff_max` |
-| `prompts` | `analyze`, `plan`, `execute`, cada uno con `sistema` y `usuario` |
-| `final_action` | `tipo` (`none`/`command`/`api`/`git_commit`), `comando`, `argumentos`, `url`, `metodo`, `mensaje_commit` |
-| `agent` | `max_reintentos`, `profundidad_subtareas`, `max_tareas`, `workspace_dir`, `log_file`, `log_level`, `log_consola`, `log_max_mb`, `log_backups`, `graceful_shutdown_timeout`, `escalar` |
+| `task_source` | `kind` (`stdin`/`file`/`api`/`queue`), `path`, `dir`, `url`, `method`, `field`, `interval`, `headers`, `body` |
+| `anchor` | `kind` (`command`/`none`), `command`, `args`, `timeout`, `expect_exit`, `expect_output` (regex), `checks[]` |
+| `sandbox` | `kind` (`none`/`chroot`/`cgroups`), `root`, `user`, `memory_mb`, `cpu_seconds`, `processes`, `open_files`, `max_file_size_mb`, `isolate_network`, `cgroups`, `cgroup_root`, `timeout`, `keep_ephemeral`, `max_output_kb` |
+| `llm` | `provider` (`openai`/`anthropic`/`gemini`), `model`, `api_key`, `base_url`, `max_tokens`, `temperature`, `timeout`, `max_attempts`, `backoff_initial`, `backoff_max` |
+| `prompts` | `analyze`, `plan`, `execute`, each with `system` and `user` |
+| `final_action` | `kind` (`none`/`command`/`api`/`git_commit`), `command`, `args`, `url`, `method`, `commit_message` |
+| `agent` | `max_retries`, `subtask_depth`, `max_tasks`, `workspace_dir`, `log_file`, `log_level`, `log_console`, `log_max_mb`, `log_backups`, `graceful_shutdown_timeout`, `on_failure` |
 
-### Variables disponibles en los prompts
+### Variables available in prompts
 
-`{{tarea}}` `{{workspace}}` `{{origen}}` `{{intento}}` `{{max_intentos}}`
-`{{reglas}}` `{{analisis}}` `{{plan}}` `{{historial}}` `{{modelo}}`
-`{{proveedor}}` `{{contexto_*}}`
+`{{task}}` `{{workspace}}` `{{origin}}` `{{attempt}}` `{{max_attempts}}`
+`{{rules}}` `{{analysis}}` `{{plan}}` `{{history}}` `{{model}}`
+`{{provider}}` `{{context_*}}`
 
-Si una plantilla usa una variable sin valor, **se registra un aviso** y la
-variable se deja visible: no se envía al modelo un prompt con huecos silenciosos.
+If a template uses a variable with no value, **a warning is logged** and the
+variable is left visible: the model is never handed a prompt with silent holes.
 
-El parser YAML es propio (sin dependencias) y **rechaza con un mensaje explícito**
-lo que no entiende: claves desconocidas (con el bloque donde están), tabuladores
-en la indentación, anclas/alias/tags y listas mal formadas. Nunca adivina.
+The YAML parser is hand-written (no dependencies) and **refuses with an explicit
+message** whatever it does not understand: unknown keys (naming the block they
+are in), tabs in the indentation, anchors/aliases/tags and malformed lists. It
+never guesses.
 
-### Los tres casos de uso
+### The three use cases
 
-| Caso | Archivo | Flujo |
+| Case | File | Flow |
 |---|---|---|
-| 1. Desarrollo | `configs/casos/1-desarrollo.yaml` | tarea en archivo → LLM → sandbox sin red → **`go test` + `go vet` + `gofmt` como ancla** → commit |
-| 2. Análisis de datos | `configs/casos/2-datos.yaml` | tarea desde API → análisis aislado sin red → **invariantes del informe como ancla** → publicar resultado por API |
-| 3. Automatización | `configs/casos/3-automatizacion.yaml` | cola de archivos → script acotado (256 MB, 30 s CPU, sin red) → **comprobación del efecto como ancla** → notificación |
+| 1. Development | `configs/cases/1-development.yaml` | task in a file → LLM → networkless sandbox → **`go test` + `go vet` + `gofmt` as the anchor** → commit |
+| 2. Data analysis | `configs/cases/2-data.yaml` | task from an API → isolated networkless analysis → **report invariants as the anchor** → publish the result over the API |
+| 3. Automation | `configs/cases/3-automation.yaml` | file queue → bounded script (256 MB, 30 s CPU, no network) → **effect check as the anchor** → notification |
 
-Los tres están verificados por la suite de pruebas: si un YAML de ejemplo deja de
-cargar o pierde una de sus tres plantillas, las pruebas fallan.
+All three are verified by the test suite: if an example YAML stops loading, or
+loses one of its three templates, the tests fail.
 
 ---
 
-## Uso
+## Usage
 
 ```bash
-export STARLIGHT_LLM_API_KEY=sk-...        # nunca la clave en el YAML
+export STARLIGHT_LLM_API_KEY=sk-...        # never the key in the YAML
 
-# ejecución normal, con la fuente configurada
-starlight-agent -config configs/casos/1-desarrollo.yaml
+# normal run, with the configured source
+starlight-agent -config configs/cases/1-development.yaml
 
-# una sola tarea, sin tocar la configuración
-starlight-agent -config configs/casos/1-desarrollo.yaml -tarea "arregla TestFoo"
+# a single task, without touching the configuration
+starlight-agent -config configs/cases/1-development.yaml -task "fix TestFoo"
 
-# el contenido de un archivo como tarea
-starlight-agent -config configs/casos/2-datos.yaml -archivo-tarea tarea.md
+# the contents of a file as the task
+starlight-agent -config configs/cases/2-data.yaml -task-file task.md
 
-# validar la configuración sin llamar al LLM
-starlight-agent -config mi.yaml -validar-config
+# validate the configuration without calling the LLM
+starlight-agent -config my.yaml -validate-config
 
-# ver el aislamiento realmente disponible en esta máquina
-starlight-agent -config mi.yaml -aislamiento
+# see the isolation actually available on this machine
+starlight-agent -config my.yaml -isolation
 ```
 
-**Apagado ordenado:** el primer `SIGINT`/`SIGTERM` cancela el trabajo en curso y
-concede `agent.graceful_shutdown_timeout` segundos para terminar; el segundo sale
-de inmediato con código 130.
+**Graceful shutdown:** the first `SIGINT`/`SIGTERM` cancels the work in progress
+and grants `agent.graceful_shutdown_timeout` seconds to finish; the second exits
+immediately with code 130.
 
-**Código de salida:** `0` si todas las tareas pasaron el ancla, `1` si alguna falló
-(incluyendo el motivo de cada una *en el propio mensaje de error*) y `2` si la
-configuración es inválida. Así se puede usar directamente desde cron o systemd.
+**Exit code:** `0` if every task passed the anchor, `1` if any failed (including
+each one's reason *in the error message itself*) and `2` if the configuration is
+invalid. That makes it directly usable from cron or systemd.
 
 ---
 
-## Registro
+## Logging
 
-JSON Lines, una línea por evento, con rotación por tamaño:
+JSON Lines, one line per event, with size-based rotation:
 
 ```json
-{"ts":"2026-09-17T05:17:37.726157258Z","nivel":"warn","msg":"validación del ancla","pass":false,"motivo":"comprobaciones fallidas: principal"}
-{"ts":"2026-09-17T05:17:37.733481067Z","nivel":"info","msg":"validación del ancla","pass":true,"motivo":"1 comprobación(es) superadas"}
-{"ts":"2026-09-17T05:17:37.736394109Z","nivel":"info","msg":"validación superada","intento":2,"accion_final":"command exit=0"}
+{"ts":"2026-09-17T05:17:37.726157258Z","level":"warn","msg":"anchor validation","pass":false,"reason":"failed checks: main"}
+{"ts":"2026-09-17T05:17:37.733481067Z","level":"info","msg":"anchor validation","pass":true,"reason":"1 check(s) passed"}
+{"ts":"2026-09-17T05:17:37.736394109Z","level":"info","msg":"validation passed","attempt":2,"final_action":"command exit=0"}
 ```
 
 ```bash
-jq 'select(.nivel=="error")' workspace/starlight.log
-jq -r 'select(.msg=="tarea completada") | .tarea' workspace/starlight.log
+jq 'select(.level=="error")' workspace/starlight.log
+jq -r 'select(.msg=="task completed") | .task' workspace/starlight.log
 ```
 
-`log_max_mb` y `log_backups` controlan la rotación (`starlight.log.1`, `.2`, …).
+`log_max_mb` and `log_backups` control the rotation (`starlight.log.1`, `.2`, …).
 
 ---
 
-## Verificación
+## Verification
 
 ```bash
-make check           # gofmt + go vet + go test  (lo mismo que corre la CI)
-make e2e-agente      # extremo a extremo del agente en un contenedor i386 real
-make e2e             # extremo a extremo del chat en un contenedor i386 real
+make check           # gofmt + go vet + go test  (what CI runs)
+make cover           # coverage per package and aggregate
+make e2e-agent       # agent end to end in a real i386 container
+make e2e             # chat end to end in a real i386 container
+./scripts/verify.sh  # everything above, in order, with a coverage gate
 ```
 
-- **152 casos de prueba**, todos verdes, sobre las tres capas y sus piezas: ancla,
-  sandbox, motor LLM, bucle del agente, parser YAML, registro, plantillas y
-  fuentes de tareas.
-- La CI (`.github/workflows/ci.yml`) corre `gofmt`, `vet`, `test -race`, compila
-  el agente para `linux/386`/`amd64`/`arm64`, **verifica que el i386 sea
-  ELFCLASS32** (leyendo la cabecera ELF y también con `file`), lo ejecuta dentro
-  de `i386/debian:bookworm-slim` y publica los binarios al crear un tag `v*`.
+- **Hundreds of test cases**, all green, over the three layers and their parts:
+  anchor, sandbox, LLM engine, agent loop, YAML parser, logging, templates and
+  task sources.
+- **100% of statements covered in every package** (`make cover` prints one line
+  per package, and CI fails if any of them drops below 100%). It is not
+  decoration: the tests are what found the real bugs listed below.
+- The end-to-end tests run the binaries inside a real 32-bit container, so what is
+  verified is the artifact that is published, not a host build.
+- The CI (`.github/workflows/ci.yml`) runs `gofmt`, `vet`, `test -race`, enforces
+  a coverage gate, builds the agent for `linux/386`/`amd64`/`arm64`, **verifies
+  the i386 binary is ELFCLASS32** (reading the ELF header and also with `file`),
+  runs it inside `i386/debian:bookworm-slim`, runs both end-to-end tests in that
+  container and publishes the binaries when a `v*` tag is created.
 
-### Prueba de extremo a extremo
+### End-to-end test
 
-`make e2e-agente` compila el agente y un LLM simulado (`tools/mockllm`) para 386 y
-los ejecuta **dentro del mismo contenedor de 32 bits**. El modelo simulado se
-equivoca a propósito en el primer intento y corrige en el segundo, de modo que se
-ejercita el ciclo real completo:
+`make e2e-agent` builds the agent and a simulated LLM (`tools/mockllm`) for 386
+and runs them **inside the same 32-bit container**. The simulated model gets it
+wrong on purpose on the first attempt and corrects itself on the second, so the
+whole real cycle is exercised:
 
 ```
-fase=analyze  -> fase=plan -> fase=execute (intento 1, escribe contenido inválido)
-{"msg":"validación del ancla","pass":false,"motivo":"comprobaciones fallidas: principal"}
-{"msg":"intento fallido","intento":1,"max_intentos":3}
-fase=execute (intento 2, escribe contenido-válido)
-{"msg":"validación del ancla","pass":true,"motivo":"1 comprobación(es) superadas"}
-{"msg":"validación superada","intento":2,"accion_final":"command exit=0"}
+phase=analyze -> phase=plan -> phase=execute (attempt 1, writes invalid contents)
+{"msg":"anchor validation","pass":false,"reason":"failed checks: main"}
+{"msg":"attempt failed","attempt":1,"max_attempts":3}
+phase=execute (attempt 2, writes content-valid)
+{"msg":"anchor validation","pass":true,"reason":"1 check(s) passed"}
+{"msg":"validation passed","attempt":2,"final_action":"command exit=0"}
 
-✅ E2E del agente de 3 capas en i386: OK
-   ✓ el informe tiene el contenido pedido: contenido-valido
-   ✓ la acción final se ejecutó tras el PASS
-   ✓ hubo un intento fallido antes del PASS (el reintento funcionó)
+E2E of the 3-layer agent on i386: OK
+  ok  the report holds the requested contents: content-valid
+  ok  the final action ran after PASS
+  ok  there was a failed attempt before PASS (the retry worked)
 ```
 
-La prueba comprueba el resultado **en el sistema de archivos**, no lo que el
-agente dice de sí mismo.
+The test checks the result **on the filesystem**, not in what the agent says
+about itself.
 
 ---
 
-## Solución de problemas (i386)
+## Troubleshooting (i386)
 
-| Síntoma | Causa y solución |
+| Symptom | Cause and fix |
 |---|---|
-| `no parece haber cgroups v1` (aviso, no error) | El kernel o el contenedor no exponen `/sys/fs/cgroup/memory`. Se aplican igualmente los límites POSIX y el aviso queda registrado para no fingir aislamiento. |
-| `chroot solicitado pero el proceso no es root` | El chroot se omite con un aviso. Ejecuta como root o usa `tipo: cgroups`. |
-| `el comando no pudo ejecutarse dentro del sandbox (código 127)` | El comando no existe o no está en el `PATH` del sandbox; el error del hijo dice la ruta buscada. |
-| `el proceso fue terminado por una señal` | Un límite del sandbox hizo su trabajo (CPU o memoria). Sube `cpu_segundos` / `memoria_mb`. |
-| El agente falla siempre con `se agotaron los intentos` | Mira el `motivo` del ancla: está en el mensaje de error y en el registro. Suele ser el ancla mal configurada, no el modelo. |
-| `anchor.tipo=none: este agente sólo declara una tarea como completada...` | Es intencionado: sin validador determinista no hay `PASS`. Configura un ancla real. |
-| El binario no arranca (`not found`) | Es un ELF de 32 bits: `head -c 5 binario \| od -An -tx1` debe empezar por `7f 45 4c 46 01`. |
-| `salida truncada por el límite del sandbox` | Sube `sandbox.salida_max_kb` si el comando produce más salida de la esperada. |
-| `fatal error: runtime: cannot allocate memory` | Un `memoria_mb` demasiado bajo. El agente lo detecta (compara con el espacio de direcciones que necesita el lanzador), lo eleva y lo registra como aviso. Si aparece igualmente, sube `memoria_mb`. |
-| `memoria_mb: se aplica N MB en lugar de M` (aviso) | El valor configurado era menor que el espacio de direcciones que el proceso lanzador ya usa, así que el comando no habría podido arrancar. Se aplica el mínimo viable; el aviso está en el registro y en `-aislamiento`. |
-| Una tarea aparece como no completada aunque el ancla dio PASS | La **acción final** falló (commit, publicación, notificación). Cuenta como fallo a propósito: un contrato que no se cumple no es un éxito. El motivo está en el registro y en el mensaje de error. |
+| `cgroups v1 do not appear to be available` (warning, not an error) | The kernel or the container does not expose `/sys/fs/cgroup/memory`. The ulimit limits still apply and the warning is logged so isolation is never faked. |
+| `chroot requested but the process is not root` | The chroot is skipped with a warning. Run as root or use `kind: cgroups`. |
+| `the command could not be run inside the sandbox (code 127)` | The command does not exist or is not on the sandbox `PATH`; the child's error names the path it looked for. |
+| `the process was terminated by a signal` | A sandbox limit did its job (CPU or memory). Raise `cpu_seconds` / `memory_mb`. |
+| The agent always fails with `ran out of attempts` | Look at the anchor's `reason`: it is in the error message and in the log. It is usually a badly configured anchor, not the model. |
+| `anchor.kind=none: this agent only declares a task complete...` | Intentional: without a deterministic validator there is no `PASS`. Configure a real anchor. |
+| The binary will not start (`not found`) | It is a 32-bit ELF: `head -c 5 binary \| od -An -tx1` must start with `7f 45 4c 46 01`. |
+| `output truncated by the sandbox limit` | Raise `sandbox.max_output_kb` if the command produces more output than expected. |
+| `fatal error: runtime: cannot allocate memory` | A `memory_mb` that is too low. The agent detects it (it compares against the address space the launcher needs), raises it and logs a warning. If it still appears, raise `memory_mb`. |
+| `memory_mb: applying N MB instead of M` (warning) | The configured value was below the address space the launching process already uses, so the command would not have started. The minimum viable value is applied; the warning is in the log and in `-isolation`. |
+| A task shows as not completed even though the anchor gave PASS | The **final action** failed (commit, publication, notification). It counts as a failure on purpose: a contract that is not honoured is not a success. The reason is in the log and in the error message. |
 
 ---
 
-## Estructura del proyecto
+## Project layout
 
 ```
-cmd/agent/            agente de 3 capas (programa principal)
-cmd/chat/             chat interactivo de terminal
-internal/anchor/      Capa A: validador determinista
-internal/llm/         Capa B: OpenAI / Anthropic / Gemini y parseo JSON
-internal/sandbox/     Capa C: directorio efímero, setrlimit, cgroups, chroot
-internal/config/      YAML (parser propio), entorno y validación
-internal/execx/       ejecución de procesos (grupo de procesos, límites, salida)
-internal/task/        fuentes de tareas: stdin, archivo, cola, API
-internal/plantilla/   variables {{...}} de los prompts
-internal/logx/        registro JSON con rotación
-tools/mockapi/        API compatible con OpenAI para probar el chat
-tools/mockllm/        LLM simulado para el E2E del agente
-configs/              configuración de ejemplo + 3 casos de uso
-scripts/              pruebas de extremo a extremo
+cmd/agent/            the 3-layer agent (main program)
+cmd/chat/             interactive terminal chat
+internal/anchor/      Layer A: deterministic validator
+internal/llm/         Layer B: OpenAI / Anthropic / Gemini and JSON parsing
+internal/sandbox/     Layer C: ephemeral dir, ulimit limits, cgroups, chroot
+internal/config/      YAML (own parser), environment and validation
+internal/execx/       process execution (process group, limits, output)
+internal/task/        task sources: stdin, file, queue, API
+internal/template/    the {{...}} variables of the prompts
+internal/app/         program logic (options, layers, shutdown) — testable
+internal/logx/        JSON logging with rotation
+tools/mockapi/        OpenAI-compatible API to test the chat
+tools/mockllm/        simulated LLM for the agent's E2E
+configs/              example configuration + 3 use cases
+scripts/              end-to-end tests
 ```
 
-Cada paquete lleva sus pruebas junto al código (`*_test.go`).
+Every package keeps its tests next to the code (`*_test.go`).
 
 ---
 
-## Extender el agente
+## Extending the agent
 
-- **Otra fuente de tareas**: implementa la interfaz `task.Fuente` (`Siguiente`,
-  `Cerrar`, `Descripcion`) y añádela a `task.Nueva`.
-- **Otro proveedor de LLM**: añade su dialecto en `internal/llm` (una función
-  `llamada<Proveedor>`); el resto del agente no cambia.
-- **Otra acción final**: añade un caso en `(*Agente).ejecutarAccionFinal`.
-- **Observar resultados**: asigna `Agente.Observador` para recibir el
-  `ResultadoTarea` de cada tarea (métricas, integración, pruebas).
+- **Another task source**: implement the `task.Source` interface (`Next`, `Close`,
+  `Describe`) and add it to `task.New`.
+- **Another LLM provider**: add its dialect in `internal/llm` (a
+  `call<Provider>` function); the rest of the agent does not change.
+- **Another final action**: add a case in `(*Agent).runFinalAction`.
+- **Observe results**: assign `Agent.Observer` to receive the `TaskResult` of
+  every task (metrics, integration, tests).
+- **Test without external programs**: assign `Agent.ExecuteCommand` to inject the
+  command runner (that is how the `git_commit` path is tested without git).
 
-## Licencia
+## License
 
-MIT — ver [LICENSE](LICENSE).
+MIT — see [LICENSE](LICENSE).

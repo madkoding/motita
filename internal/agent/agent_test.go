@@ -21,94 +21,94 @@ import (
 )
 
 func init() {
-	l, _ := logx.Nuevo(logx.Opciones{Nivel: logx.Error, Consola: false})
-	logx.Instalar(l)
+	l, _ := logx.New(logx.Options{Level: logx.Error, Console: false})
+	logx.Install(l)
 }
 
-// servidorLLMFalso simula las tres fases del flujo devolviendo los JSON que el
-// agente espera, y ejecuta un guion de acciones por intento.
-type servidorLLMFalso struct {
-	// accionesPorIntento indica, para cada intento, qué comandos propone el
-	// "modelo" en la fase de ejecución.
-	accionesPorIntento [][]string
-	llamadas           int32
-	fases              []string
-	fallarEn           string // si no está vacío, esa fase devuelve un error HTTP
+// fakeLLMServer simulates the three phases of the flow by returning the JSON the
+// agent expects, and runs a script of actions per attempt.
+type fakeLLMServer struct {
+	// actionsPerAttempt states, for each attempt, which commands the "model"
+	// proposes in the execution phase.
+	actionsPerAttempt [][]string
+	calls             int32
+	phases            []string
+	failOn            string // when not empty, that phase returns an HTTP error
 }
 
-func (s *servidorLLMFalso) handler(t *testing.T) http.HandlerFunc {
+func (s *fakeLLMServer) handler(t *testing.T) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		atomic.AddInt32(&s.llamadas, 1)
+		atomic.AddInt32(&s.calls, 1)
 
-		var peticion struct {
+		var request struct {
 			Messages []struct {
 				Content string `json:"content"`
 			} `json:"messages"`
 		}
-		json.NewDecoder(r.Body).Decode(&peticion)
+		json.NewDecoder(r.Body).Decode(&request)
 
-		var texto string
-		for _, m := range peticion.Messages {
-			texto += m.Content
+		var text string
+		for _, m := range request.Messages {
+			text += m.Content
 		}
 
-		// Se decide la fase por las marcas del prompt (así se prueba de verdad
-		// qué plantilla se usó, no sólo el orden de llamada).
+		// The phase is decided by the prompt's markers (so what is really tested
+		// is which template was used, not just the call order).
 		switch {
-		case strings.Contains(texto, "ANÁLISIS DE LA TAREA") || strings.Contains(texto, "## ANÁLISIS DE LA TAREA"):
-			s.fases = append(s.fases, "analyze")
-			if s.fallarEn == "analyze" {
+		case strings.Contains(text, "## ANALYSIS OF THE TASK"):
+			s.phases = append(s.phases, "analyze")
+			if s.failOn == "analyze" {
 				w.WriteHeader(http.StatusInternalServerError)
-				fmt.Fprint(w, `{"error":{"message":"fallo simulado en el análisis"}}`)
+				fmt.Fprint(w, `{"error":{"message":"simulated failure in the analysis"}}`)
 				return
 			}
-			fmt.Fprint(w, `{"choices":[{"message":{"content":"{\"comprensible\":true,\"resumen\":\"tarea de prueba\",\"criterios_exito\":[\"el archivo existe\"],\"riesgos\":[],\"necesita_subtareas\":false}"}}]}`)
+			fmt.Fprint(w, `{"choices":[{"message":{"content":"{\"understandable\":true,\"summary\":\"test task\",\"success_criteria\":[\"the file exists\"],\"risks\":[],\"needs_subtasks\":false}"}}]}`)
 
-		case strings.Contains(texto, "PLAN DE ACCIÓN") || strings.Contains(texto, "## PLAN DE ACCIÓN"):
-			s.fases = append(s.fases, "plan")
-			fmt.Fprint(w, `{"choices":[{"message":{"content":"{\"plan\":[{\"paso\":1,\"accion\":\"crear archivo\",\"comando\":\"crear.txt\"}],\"subtareas\":[],\"resultado_esperado\":\"archivo creado\"}"}}]}`)
+		case strings.Contains(text, "## ACTION PLAN"):
+			s.phases = append(s.phases, "plan")
+			fmt.Fprint(w, `{"choices":[{"message":{"content":"{\"plan\":[{\"step\":1,\"action\":\"create file\",\"command\":\"create.txt\"}],\"subtasks\":[],\"expected_result\":\"file created\"}"}}]}`)
 
-		case strings.Contains(texto, "## ACCIÓN"):
-			s.fases = append(s.fases, "execute")
+		case strings.Contains(text, "## ACTION"):
+			s.phases = append(s.phases, "execute")
 			n := 0
-			for _, f := range s.fases {
+			for _, f := range s.phases {
 				if f == "execute" {
 					n++
 				}
 			}
 			idx := n - 1
-			var comandos []string
-			if idx < len(s.accionesPorIntento) {
-				comandos = s.accionesPorIntento[idx]
+			var commands []string
+			if idx < len(s.actionsPerAttempt) {
+				commands = s.actionsPerAttempt[idx]
 			}
-			if len(comandos) == 0 {
-				comandos = []string{"true"}
+			if len(commands) == 0 {
+				commands = []string{"true"}
 			}
-			acciones := make([]map[string]string, 0, len(comandos))
-			for _, c := range comandos {
-				acciones = append(acciones, map[string]string{"tipo": "comando", "descripcion": "prueba", "comando": c})
+			actions := make([]map[string]string, 0, len(commands))
+			for _, c := range commands {
+				actions = append(actions, map[string]string{"kind": "command", "description": "test", "command": c})
 			}
-			respuesta := map[string]any{
-				"razonamiento": "prueba automatizada",
-				"acciones":     acciones,
-				"accion_final": map[string]string{"descripcion": "ninguna", "comando": ""},
+			response := map[string]any{
+				"reasoning":    "automated test",
+				"actions":      actions,
+				"final_action": map[string]string{"description": "none", "command": ""},
 			}
-			// Se construye el sobre de respuesta con el content ya serializado.
-			datos, _ := json.Marshal(map[string]any{
+			// The response envelope is built with the content already serialised.
+			data, _ := json.Marshal(map[string]any{
 				"choices": []any{map[string]any{
-					"message": map[string]string{"content": mustJSON(respuesta)},
+					"message": map[string]string{"content": mustJSON(response)},
 				}},
 			})
-			w.Write(datos)
+			w.Write(data)
 
 		default:
-			t.Errorf("petición con prompt irreconocible: %q", recortar(texto, 200))
+			t.Errorf("request with an unrecognisable prompt: %q", truncate(text, 200))
 			fmt.Fprint(w, `{"choices":[{"message":{"content":"{}"}}]}`)
 		}
 	}
 }
 
-// mustJSON devuelve la cadena JSON que el "modelo" pondría en content.
+// mustJSON returns the JSON string the "model" would put in content.
 func mustJSON(v any) string {
 	d, err := json.Marshal(v)
 	if err != nil {
@@ -117,507 +117,507 @@ func mustJSON(v any) string {
 	return string(d)
 }
 
-// entorno monta un agente completo con el LLM falso y el ancla indicada.
-type entorno struct {
-	agente *Agente
-	dir    string
-	log    *logx.Logger
-	caja   *sandbox.Sandbox
+// fixture mounts a complete agent with the fake LLM and the given anchor.
+type fixture struct {
+	agent *Agent
+	dir   string
+	log   *logx.Logger
+	box   *sandbox.Sandbox
 }
 
-func montar(t *testing.T, srv *httptest.Server, ancla config.Anchor, cfg func(*config.Config)) *entorno {
+func mount(t *testing.T, srv *httptest.Server, anchor config.Anchor, cfg func(*config.Config)) *fixture {
 	t.Helper()
 	dir := t.TempDir()
 
-	c := config.Defecto()
-	c.LLM.APIKey = "clave"
+	c := config.Default()
+	c.LLM.APIKey = "key"
 	c.LLM.BaseURL = srv.URL
-	c.LLM.MaxIntentos = 1
-	c.LLM.BackoffInicial = time.Millisecond
+	c.LLM.MaxAttempts = 1
+	c.LLM.BackoffInitial = time.Millisecond
 	c.LLM.BackoffMax = 2 * time.Millisecond
 	c.LLM.Timeout = 5 * time.Second
-	c.Anchor = ancla
+	c.Anchor = anchor
 	c.Agent.WorkspaceDir = dir
-	c.Agent.MaxReintentos = 1
-	c.TaskSource.Tipo = "file"
+	c.Agent.MaxRetries = 1
+	c.TaskSource.Kind = "file"
 	if cfg != nil {
 		cfg(&c)
 	}
 
-	caja, err := sandbox.Nuevo(sandbox.Opciones{
+	box, err := sandbox.New(sandbox.Options{
 		Dir:         dir,
-		Limites:     sandbox.Limites{MemoriaMB: 256, CPUSegundos: 10},
+		Limits:      sandbox.Limits{MemoryMB: 256, CPUSeconds: 10},
 		Timeout:     20 * time.Second,
-		MaxSalidaKB: 64,
+		MaxOutputKB: 64,
 		Log:         logx.Global(),
 	})
 	if err != nil {
-		t.Fatalf("no se pudo crear el sandbox: %v", err)
+		t.Fatalf("could not create the sandbox: %v", err)
 	}
-	t.Cleanup(func() { caja.Cerrar() })
+	t.Cleanup(func() { box.Close() })
 
-	motor, err := llm.Nuevo(c.LLM, logx.Global())
+	engine, err := llm.New(c.LLM, logx.Global())
 	if err != nil {
-		t.Fatalf("no se pudo crear el motor: %v", err)
+		t.Fatalf("could not create the engine: %v", err)
 	}
 
-	fuente, err := task.NuevaTexto("haz la tarea de prueba", "prueba")
+	source, err := task.NewText("do the test task", "test")
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	return &entorno{
-		agente: NuevoAgente(c, logx.Global(), motor, caja, fuente),
-		dir:    dir,
-		log:    logx.Global(),
-		caja:   caja,
+	return &fixture{
+		agent: New(c, logx.Global(), engine, box, source),
+		dir:   dir,
+		log:   logx.Global(),
+		box:   box,
 	}
 }
 
-// TestBucleCompletoPASSPrimerIntento: el caso feliz de extremo a extremo.
-func TestBucleCompletoPASSPrimerIntento(t *testing.T) {
-	falso := &servidorLLMFalso{
-		accionesPorIntento: [][]string{{"echo hola > resultado.txt"}},
+// TestFullLoopPASSFirstAttempt: the happy path, end to end.
+func TestFullLoopPASSFirstAttempt(t *testing.T) {
+	fake := &fakeLLMServer{
+		actionsPerAttempt: [][]string{{"echo hello > result.txt"}},
 	}
-	srv := httptest.NewServer(falso.handler(t))
+	srv := httptest.NewServer(fake.handler(t))
 	defer srv.Close()
 
-	e := montar(t, srv, config.Anchor{
-		Tipo:          "command",
-		Comando:       "sh",
-		Argumentos:    []string{"-c", "test -s resultado.txt && echo LISTO"},
-		Timeout:       10 * time.Second,
-		EsperarSalida: "LISTO",
+	e := mount(t, srv, config.Anchor{
+		Kind:         "command",
+		Command:      "sh",
+		Args:         []string{"-c", "test -s result.txt && echo READY"},
+		Timeout:      10 * time.Second,
+		ExpectOutput: "READY",
 	}, nil)
 
-	var resultado *ResultadoTarea
-	e.agente.Observador = func(r ResultadoTarea) { resultado = &r }
-	err := e.agente.Ejecutar(context.Background())
+	var result *TaskResult
+	e.agent.Observer = func(r TaskResult) { result = &r }
+	err := e.agent.Run(context.Background())
 	if err != nil {
-		t.Fatalf("el agente devolvió error: %v", err)
+		t.Fatalf("the agent returned an error: %v", err)
 	}
-	if resultado == nil {
-		t.Fatal("no se capturó el resultado de la tarea")
+	if result == nil {
+		t.Fatal("the task result was not captured")
 	}
-	if !resultado.PASS {
-		t.Fatalf("se esperaba PASS, motivo: %s", resultado.Motivo)
+	if !result.Pass {
+		t.Fatalf("PASS was expected, reason: %s", result.Reason)
 	}
-	if resultado.Intentos != 1 {
-		t.Errorf("intentos = %d", resultado.Intentos)
+	if result.Attempts != 1 {
+		t.Errorf("attempts = %d", result.Attempts)
 	}
-	// Las tres fases deben haberse usado, en orden.
-	esperado := []string{"analyze", "plan", "execute"}
-	if strings.Join(falso.fases, ",") != strings.Join(esperado, ",") {
-		t.Errorf("fases = %v, se esperaba %v", falso.fases, esperado)
+	// All three phases must have been used, in order.
+	expected := []string{"analyze", "plan", "execute"}
+	if strings.Join(fake.phases, ",") != strings.Join(expected, ",") {
+		t.Errorf("phases = %v, expected %v", fake.phases, expected)
 	}
-	// El ancla debe haber visto el efecto: el bucle del agente y el del sandbox
-	// escriben en el mismo directorio de trabajo.
-	if _, err := os.Stat(filepath.Join(e.dir, "resultado.txt")); err != nil {
-		t.Errorf("el archivo creado por la acción no está en el directorio de trabajo: %v", err)
+	// The anchor must have seen the effect: the agent's loop and the sandbox's
+	// write to the same working directory.
+	if _, err := os.Stat(filepath.Join(e.dir, "result.txt")); err != nil {
+		t.Errorf("the file created by the action is not in the working directory: %v", err)
 	}
 }
 
-// TestBucleReintentaYCorrige: el primer intento no cumple la validación y el
-// segundo sí. Se comprueba que el segundo prompt lleva los registros del fallo.
-func TestBucleReintentaYCorrige(t *testing.T) {
-	falso := &servidorLLMFalso{
-		accionesPorIntento: [][]string{
-			{"echo mal"},
-			{"echo hola > correcto.txt"},
+// TestLoopRetriesAndCorrects: the first attempt does not pass validation and the
+// second one does. It checks that the second prompt carries the failure logs.
+func TestLoopRetriesAndCorrects(t *testing.T) {
+	fake := &fakeLLMServer{
+		actionsPerAttempt: [][]string{
+			{"echo wrong"},
+			{"echo hello > correct.txt"},
 		},
 	}
-	srv := httptest.NewServer(falso.handler(t))
+	srv := httptest.NewServer(fake.handler(t))
 	defer srv.Close()
 
-	e := montar(t, srv, config.Anchor{
-		Tipo:        "command",
-		Comando:     "sh",
-		Argumentos:  []string{"-c", "test -s correcto.txt"},
-		Timeout:     10 * time.Second,
-		EsperarExit: 0,
+	e := mount(t, srv, config.Anchor{
+		Kind:       "command",
+		Command:    "sh",
+		Args:       []string{"-c", "test -s correct.txt"},
+		Timeout:    10 * time.Second,
+		ExpectExit: 0,
 	}, nil)
 
-	var resultado *ResultadoTarea
-	e.agente.Observador = func(r ResultadoTarea) { resultado = &r }
-	if err := e.agente.Ejecutar(context.Background()); err != nil {
+	var result *TaskResult
+	e.agent.Observer = func(r TaskResult) { result = &r }
+	if err := e.agent.Run(context.Background()); err != nil {
 		t.Fatalf("error: %v", err)
 	}
-	if resultado == nil || !resultado.PASS {
-		t.Fatalf("debería pasar al segundo intento: %+v", resultado)
+	if result == nil || !result.Pass {
+		t.Fatalf("it should pass on the second attempt: %+v", result)
 	}
-	if resultado.Intentos != 2 {
-		t.Errorf("intentos = %d, se esperaban 2", resultado.Intentos)
+	if result.Attempts != 2 {
+		t.Errorf("attempts = %d, expected 2", result.Attempts)
 	}
 }
 
-// TestBucleFallaYEscalaTrasAgotarIntentos: cuando nunca valida, escala y no
-// declara PASS.
-func TestBucleFallaYEscalaTrasAgotarIntentos(t *testing.T) {
-	falso := &servidorLLMFalso{
-		accionesPorIntento: [][]string{{"echo mal"}, {"echo mal otra vez"}},
+// TestLoopFailsAndEscalatesAfterAttempts: when it never validates, it escalates
+// and does not declare PASS.
+func TestLoopFailsAndEscalatesAfterAttempts(t *testing.T) {
+	fake := &fakeLLMServer{
+		actionsPerAttempt: [][]string{{"echo wrong"}, {"echo wrong again"}},
 	}
-	srv := httptest.NewServer(falso.handler(t))
+	srv := httptest.NewServer(fake.handler(t))
 	defer srv.Close()
 
 	dir := t.TempDir()
-	e := montar(t, srv, config.Anchor{
-		Tipo:        "command",
-		Comando:     "sh",
-		Argumentos:  []string{"-c", "exit 1"},
-		Timeout:     10 * time.Second,
-		EsperarExit: 0,
+	e := mount(t, srv, config.Anchor{
+		Kind:       "command",
+		Command:    "sh",
+		Args:       []string{"-c", "exit 1"},
+		Timeout:    10 * time.Second,
+		ExpectExit: 0,
 	}, func(c *config.Config) {
-		c.Agent.MaxReintentos = 1
-		c.Agent.Escalar = config.Escalar{
-			Tipo:    "command",
-			Comando: "echo escalado > " + filepath.Join(dir, "escalado.txt"),
+		c.Agent.MaxRetries = 1
+		c.Agent.OnFailure = config.OnFailure{
+			Kind:    "command",
+			Command: "echo escalated > " + filepath.Join(dir, "escalated.txt"),
 		}
 	})
 
-	var resultado *ResultadoTarea
-	e.agente.Observador = func(r ResultadoTarea) { resultado = &r }
-	err := e.agente.Ejecutar(context.Background())
+	var result *TaskResult
+	e.agent.Observer = func(r TaskResult) { result = &r }
+	err := e.agent.Run(context.Background())
 	if err == nil {
-		t.Error("una tarea que no pasa debe hacer que el agente termine con error")
+		t.Error("a task that does not pass must make the agent finish with an error")
 	}
-	if resultado == nil {
-		t.Fatal("sin resultado")
+	if result == nil {
+		t.Fatal("no result")
 	}
-	if resultado.PASS {
-		t.Fatal("nunca debe declarar PASS si el ancla falla")
+	if result.Pass {
+		t.Fatal("it must never declare PASS when the anchor fails")
 	}
-	if resultado.Intentos != 2 {
-		t.Errorf("intentos = %d (max_reintentos=1 => 2 intentos)", resultado.Intentos)
+	if result.Attempts != 2 {
+		t.Errorf("attempts = %d (max_retries=1 => 2 attempts)", result.Attempts)
 	}
-	if !strings.Contains(resultado.Motivo, "agotaron") {
-		t.Errorf("motivo = %q", resultado.Motivo)
+	if !strings.Contains(result.Reason, "exhausted") {
+		t.Errorf("reason = %q", result.Reason)
 	}
 }
 
-// TestAgenteSinAnclaNoArranca: sin validador no hay quien declare PASS, así que
-// el agente debe negarse a arrancar en vez de quemar intentos contra el LLM.
-func TestAgenteSinAnclaNoArranca(t *testing.T) {
-	falso := &servidorLLMFalso{}
-	srv := httptest.NewServer(falso.handler(t))
+// TestAgentWithoutAnchorDoesNotStart: with no validator there is nobody to
+// declare PASS, so the agent must refuse to start instead of burning attempts
+// against the LLM.
+func TestAgentWithoutAnchorDoesNotStart(t *testing.T) {
+	fake := &fakeLLMServer{}
+	srv := httptest.NewServer(fake.handler(t))
 	defer srv.Close()
 
-	e := montar(t, srv, config.Anchor{Tipo: "none"}, nil)
-	err := e.agente.Ejecutar(context.Background())
+	e := mount(t, srv, config.Anchor{Kind: "none"}, nil)
+	err := e.agent.Run(context.Background())
 	if err == nil {
-		t.Fatal("se esperaba un error de configuración")
+		t.Fatal("a configuration error was expected")
 	}
-	if !strings.Contains(err.Error(), "anchor.tipo=none") {
-		t.Errorf("el error debe explicar el problema y cómo resolverlo: %v", err)
+	if !strings.Contains(err.Error(), "anchor.kind=none") {
+		t.Errorf("the error must explain the problem and how to fix it: %v", err)
 	}
-	if atomic.LoadInt32(&falso.llamadas) != 0 {
-		t.Errorf("no se debe llamar al LLM sin ancla: hubo %d llamadas", falso.llamadas)
+	if atomic.LoadInt32(&fake.calls) != 0 {
+		t.Errorf("the LLM must not be called without an anchor: %d calls were made", fake.calls)
 	}
 }
 
-// TestAnalisisNoComprensible: si el modelo dice que la tarea no es viable, no se
-// ejecuta nada y la tarea se descarta con motivo.
-func TestAnalisisNoComprensible(t *testing.T) {
+// TestAnalysisNotUnderstandable: when the model says the task is not viable,
+// nothing is run and the task is discarded with a reason.
+func TestAnalysisNotUnderstandable(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		var pet struct {
+		var req struct {
 			Messages []struct {
 				Content string `json:"content"`
 			} `json:"messages"`
 		}
-		json.NewDecoder(r.Body).Decode(&pet)
-		var texto string
-		for _, m := range pet.Messages {
-			texto += m.Content
+		json.NewDecoder(r.Body).Decode(&req)
+		var text string
+		for _, m := range req.Messages {
+			text += m.Content
 		}
-		if strings.Contains(texto, "ANÁLISIS DE LA TAREA") {
-			fmt.Fprint(w, `{"choices":[{"message":{"content":"{\"comprensible\":false,\"riesgos\":[\"faltan datos de entrada\"]}"}}]}`)
+		if strings.Contains(text, "## ANALYSIS OF THE TASK") {
+			fmt.Fprint(w, `{"choices":[{"message":{"content":"{\"understandable\":false,\"risks\":[\"input data is missing\"]}"}}]}`)
 			return
 		}
-		t.Errorf("no debería llegarse a otra fase")
+		t.Errorf("no other phase should be reached")
 		fmt.Fprint(w, `{"choices":[{"message":{"content":"{}"}}]}`)
 	}))
 	defer srv.Close()
 
-	e := montar(t, srv, config.Anchor{Tipo: "command", Comando: "true", Timeout: 5 * time.Second}, nil)
+	e := mount(t, srv, config.Anchor{Kind: "command", Command: "true", Timeout: 5 * time.Second}, nil)
 
-	var resultado *ResultadoTarea
-	e.agente.Observador = func(r ResultadoTarea) { resultado = &r }
+	var result *TaskResult
+	e.agent.Observer = func(r TaskResult) { result = &r }
 
-	// Una tarea que no se puede hacer cuenta como fallo: el trabajo no se hizo,
-	// así que el proceso debe salir con error (importante para cron).
-	err := e.agente.Ejecutar(context.Background())
+	// A task that cannot be done counts as a failure: the work was not done, so
+	// the process must exit with an error (important for cron).
+	err := e.agent.Run(context.Background())
 	if err == nil {
-		t.Fatal("una tarea descartada debe hacer que el agente termine con error")
+		t.Fatal("a discarded task must make the agent finish with an error")
 	}
-	if resultado == nil {
-		t.Fatal("sin resultado")
+	if result == nil {
+		t.Fatal("no result")
 	}
-	if resultado.PASS {
-		t.Fatal("una tarea no comprensible no puede pasar")
+	if result.Pass {
+		t.Fatal("a task that is not understandable cannot pass")
 	}
-	if !strings.Contains(resultado.Motivo, "faltan datos") {
-		t.Errorf("motivo = %q", resultado.Motivo)
+	if !strings.Contains(result.Reason, "input data is missing") {
+		t.Errorf("reason = %q", result.Reason)
 	}
-	if !strings.Contains(err.Error(), "faltan datos") {
-		t.Errorf("el error agregado debe incluir el motivo: %v", err)
+	if !strings.Contains(err.Error(), "input data is missing") {
+		t.Errorf("the aggregated error must include the reason: %v", err)
 	}
 }
 
-// TestAccionConSalidaSePropagaAlAncla: la salida del comando llega al
-// razonamiento del siguiente intento, que es lo que permite al LLM corregir.
-func TestAccionConSalidaSePropagaAlAncla(t *testing.T) {
-	falso := &servidorLLMFalso{
-		accionesPorIntento: [][]string{
-			{"echo 'pista-para-el-modelo'; exit 1"},
-			{"echo hola > resultado.txt"},
+// TestActionOutputReachesTheAnchor: the command's output reaches the next
+// attempt's reasoning, which is what lets the LLM correct itself.
+func TestActionOutputReachesTheAnchor(t *testing.T) {
+	fake := &fakeLLMServer{
+		actionsPerAttempt: [][]string{
+			{"echo 'hint-for-the-model'; exit 1"},
+			{"echo hello > result.txt"},
 		},
 	}
-	srv := httptest.NewServer(falso.handler(t))
+	srv := httptest.NewServer(fake.handler(t))
 	defer srv.Close()
 
-	e := montar(t, srv, config.Anchor{
-		Tipo: "command", Comando: "sh", Argumentos: []string{"-c", "test -s resultado.txt"},
+	e := mount(t, srv, config.Anchor{
+		Kind: "command", Command: "sh", Args: []string{"-c", "test -s result.txt"},
 		Timeout: 10 * time.Second,
 	}, nil)
 
-	var resultado *ResultadoTarea
-	e.agente.Observador = func(r ResultadoTarea) { resultado = &r }
-	if err := e.agente.Ejecutar(context.Background()); err != nil {
+	var result *TaskResult
+	e.agent.Observer = func(r TaskResult) { result = &r }
+	if err := e.agent.Run(context.Background()); err != nil {
 		t.Fatalf("error: %v", err)
 	}
-	if resultado == nil || !resultado.PASS {
-		t.Fatalf("debería acabar pasando: %+v", resultado)
+	if result == nil || !result.Pass {
+		t.Fatalf("it should end up passing: %+v", result)
 	}
 }
 
-// TestSubtareas: cuando el análisis pide dividir, cada subtarea recorre el flujo
-// completo.
-func TestSubtareas(t *testing.T) {
-	llamadas := 0
+// TestSubtasks: when the analysis asks for a split, every subtask goes through
+// the full flow.
+func TestSubtasks(t *testing.T) {
+	calls := 0
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		var pet struct {
+		var req struct {
 			Messages []struct {
 				Content string `json:"content"`
 			} `json:"messages"`
 		}
-		json.NewDecoder(r.Body).Decode(&pet)
-		var texto string
-		for _, m := range pet.Messages {
-			texto += m.Content
+		json.NewDecoder(r.Body).Decode(&req)
+		var text string
+		for _, m := range req.Messages {
+			text += m.Content
 		}
 		switch {
-		case strings.Contains(texto, "ANÁLISIS DE LA TAREA"):
-			llamadas++
-			if llamadas == 1 {
-				fmt.Fprint(w, `{"choices":[{"message":{"content":"{\"comprensible\":true,\"resumen\":\"dividir\",\"criterios_exito\":[],\"riesgos\":[],\"necesita_subtareas\":true}"}}]}`)
+		case strings.Contains(text, "## ANALYSIS OF THE TASK"):
+			calls++
+			if calls == 1 {
+				fmt.Fprint(w, `{"choices":[{"message":{"content":"{\"understandable\":true,\"summary\":\"split\",\"success_criteria\":[],\"risks\":[],\"needs_subtasks\":true}"}}]}`)
 			} else {
-				fmt.Fprint(w, `{"choices":[{"message":{"content":"{\"comprensible\":true,\"resumen\":\"sub\",\"criterios_exito\":[],\"riesgos\":[],\"necesita_subtareas\":false}"}}]}`)
+				fmt.Fprint(w, `{"choices":[{"message":{"content":"{\"understandable\":true,\"summary\":\"sub\",\"success_criteria\":[],\"risks\":[],\"needs_subtasks\":false}"}}]}`)
 			}
-		case strings.Contains(texto, "PLAN DE ACCIÓN"):
-			fmt.Fprint(w, `{"choices":[{"message":{"content":"{\"plan\":[],\"subtareas\":[\"subtarea A\",\"subtarea B\"],\"resultado_esperado\":\"x\"}"}}]}`)
+		case strings.Contains(text, "## ACTION PLAN"):
+			fmt.Fprint(w, `{"choices":[{"message":{"content":"{\"plan\":[],\"subtasks\":[\"subtask A\",\"subtask B\"],\"expected_result\":\"x\"}"}}]}`)
 		default:
-			fmt.Fprint(w, `{"choices":[{"message":{"content":"{\"razonamiento\":\"r\",\"acciones\":[{\"tipo\":\"comando\",\"comando\":\"echo sub > sub.txt\"}],\"accion_final\":{\"comando\":\"\"}}"}}]}`)
+			fmt.Fprint(w, `{"choices":[{"message":{"content":"{\"reasoning\":\"r\",\"actions\":[{\"kind\":\"command\",\"command\":\"echo sub > sub.txt\"}],\"final_action\":{\"command\":\"\"}}"}}]}`)
 		}
 	}))
 	defer srv.Close()
 
-	e := montar(t, srv, config.Anchor{
-		Tipo: "command", Comando: "sh", Argumentos: []string{"-c", "test -s sub.txt"},
+	e := mount(t, srv, config.Anchor{
+		Kind: "command", Command: "sh", Args: []string{"-c", "test -s sub.txt"},
 		Timeout: 10 * time.Second,
-	}, func(c *config.Config) { c.Agent.ProfundidadSubtareas = 1 })
+	}, func(c *config.Config) { c.Agent.SubtaskDepth = 1 })
 
-	var resultado *ResultadoTarea
-	e.agente.Observador = func(r ResultadoTarea) { resultado = &r }
-	if err := e.agente.Ejecutar(context.Background()); err != nil {
+	var result *TaskResult
+	e.agent.Observer = func(r TaskResult) { result = &r }
+	if err := e.agent.Run(context.Background()); err != nil {
 		t.Fatalf("error: %v", err)
 	}
-	if resultado.Subtareas != 2 {
-		t.Errorf("subtareas = %d, se esperaban 2", resultado.Subtareas)
+	if result.Subtasks != 2 {
+		t.Errorf("subtasks = %d, expected 2", result.Subtasks)
 	}
-	if !resultado.PASS {
-		t.Errorf("las dos subtareas deberían pasar: %s", resultado.Motivo)
+	if !result.Pass {
+		t.Errorf("both subtasks should pass: %s", result.Reason)
 	}
 }
 
-// TestLimiteDeSubtareas: sin el límite, el reparto podría no terminar nunca.
-func TestLimiteDeSubtareas(t *testing.T) {
+// TestSubtaskLimit: without the limit, the split could never finish.
+func TestSubtaskLimit(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		var pet struct {
+		var req struct {
 			Messages []struct {
 				Content string `json:"content"`
 			} `json:"messages"`
 		}
-		json.NewDecoder(r.Body).Decode(&pet)
-		var texto string
-		for _, m := range pet.Messages {
-			texto += m.Content
+		json.NewDecoder(r.Body).Decode(&req)
+		var text string
+		for _, m := range req.Messages {
+			text += m.Content
 		}
 		switch {
-		case strings.Contains(texto, "ANÁLISIS DE LA TAREA"):
-			// Siempre pide dividir: si no hay límite, esto no termina.
-			fmt.Fprint(w, `{"choices":[{"message":{"content":"{\"comprensible\":true,\"resumen\":\"x\",\"necesita_subtareas\":true}"}}]}`)
-		case strings.Contains(texto, "PLAN DE ACCIÓN"):
-			fmt.Fprint(w, `{"choices":[{"message":{"content":"{\"plan\":[],\"subtareas\":[\"otra\"],\"resultado_esperado\":\"x\"}"}}]}`)
+		case strings.Contains(text, "## ANALYSIS OF THE TASK"):
+			// It always asks to split: with no limit this would never finish.
+			fmt.Fprint(w, `{"choices":[{"message":{"content":"{\"understandable\":true,\"summary\":\"x\",\"needs_subtasks\":true}"}}]}`)
+		case strings.Contains(text, "## ACTION PLAN"):
+			fmt.Fprint(w, `{"choices":[{"message":{"content":"{\"plan\":[],\"subtasks\":[\"another\"],\"expected_result\":\"x\"}"}}]}`)
 		default:
-			fmt.Fprint(w, `{"choices":[{"message":{"content":"{\"razonamiento\":\"r\",\"acciones\":[{\"comando\":\"true\"}]}"}}]}`)
+			fmt.Fprint(w, `{"choices":[{"message":{"content":"{\"reasoning\":\"r\",\"actions\":[{\"command\":\"true\"}]}"}}]}`)
 		}
 	}))
 	defer srv.Close()
 
-	e := montar(t, srv, config.Anchor{
-		Tipo: "command", Comando: "true", Timeout: 5 * time.Second,
-	}, func(c *config.Config) { c.Agent.ProfundidadSubtareas = 2 })
+	e := mount(t, srv, config.Anchor{
+		Kind: "command", Command: "true", Timeout: 5 * time.Second,
+	}, func(c *config.Config) { c.Agent.SubtaskDepth = 2 })
 
-	hecho := make(chan error, 1)
-	go func() { hecho <- e.agente.Ejecutar(context.Background()) }()
+	done := make(chan error, 1)
+	go func() { done <- e.agent.Run(context.Background()) }()
 
 	select {
-	case <-hecho:
-		// Terminó: el límite funciona.
+	case <-done:
+		// It finished: the limit works.
 	case <-time.After(30 * time.Second):
-		t.Fatal("no terminó: el límite de subtareas no se respeta")
+		t.Fatal("it did not finish: the subtask limit is not respected")
 	}
 }
 
-// TestAccionFinalFallidaNoEsTareaCompletada: bug encontrado por la CI con el
-// E2E en i386. La validación pasaba, la acción final moría (por el límite de
-// memoria del sandbox) y el agente informaba "tarea completada" y salía con 0.
-// Un contrato que no se cumple no es un éxito.
-func TestAccionFinalFallidaNoEsTareaCompletada(t *testing.T) {
-	falso := &servidorLLMFalso{accionesPorIntento: [][]string{{"true"}, {"true"}, {"true"}}}
-	srv := httptest.NewServer(falso.handler(t))
+// TestFailedFinalActionIsNotACompletedTask: bug found by CI with the i386 E2E.
+// The validation passed, the final action died (because of the sandbox's memory
+// limit) and the agent reported "task completed" and exited 0. A contract that is
+// not met is not a success.
+func TestFailedFinalActionIsNotACompletedTask(t *testing.T) {
+	fake := &fakeLLMServer{actionsPerAttempt: [][]string{{"true"}, {"true"}, {"true"}}}
+	srv := httptest.NewServer(fake.handler(t))
 	defer srv.Close()
 
-	e := montar(t, srv, config.Anchor{
-		Tipo: "command", Comando: "true", Timeout: 5 * time.Second,
+	e := mount(t, srv, config.Anchor{
+		Kind: "command", Command: "true", Timeout: 5 * time.Second,
 	}, func(c *config.Config) {
-		c.Agent.MaxReintentos = 2
-		// Acción final que siempre falla.
+		c.Agent.MaxRetries = 2
+		// A final action that always fails.
 		c.FinalAction = config.FinalAction{
-			Tipo: "command", Comando: "sh", Argumentos: []string{"-c", "exit 7"},
+			Kind: "command", Command: "sh", Args: []string{"-c", "exit 7"},
 		}
 	})
 
-	var resultado *ResultadoTarea
-	e.agente.Observador = func(r ResultadoTarea) { resultado = &r }
+	var result *TaskResult
+	e.agent.Observer = func(r TaskResult) { result = &r }
 
-	err := e.agente.Ejecutar(context.Background())
+	err := e.agent.Run(context.Background())
 	if err == nil {
-		t.Fatal("una acción final fallida debe hacer fallar la tarea y el proceso")
+		t.Fatal("a failed final action must fail the task and the process")
 	}
-	if resultado == nil {
-		t.Fatal("sin resultado")
+	if result == nil {
+		t.Fatal("no result")
 	}
-	if resultado.PASS {
-		t.Fatal("no puede declararse PASS si la acción final falló")
+	if result.Pass {
+		t.Fatal("PASS cannot be declared when the final action failed")
 	}
-	if !strings.Contains(resultado.Motivo, "acción final falló") {
-		t.Errorf("el motivo debe explicar que falló la acción final: %q", resultado.Motivo)
+	if !strings.Contains(result.Reason, "final action failed") {
+		t.Errorf("the reason must explain that the final action failed: %q", result.Reason)
 	}
-	if !strings.Contains(err.Error(), "acción final falló") {
-		t.Errorf("el error del proceso debe incluir el motivo: %v", err)
+	if !strings.Contains(err.Error(), "final action failed") {
+		t.Errorf("the process error must include the reason: %v", err)
 	}
-	// El código de salida distinto de cero es un fallo aunque no haya error de
-	// ejecución.
-	if !strings.Contains(resultado.Motivo, "código 7") {
-		t.Errorf("el motivo debe mencionar el código de salida: %q", resultado.Motivo)
+	// A non-zero exit code is a failure even with no execution error.
+	if !strings.Contains(result.Reason, "exit code 7") {
+		t.Errorf("the reason must mention the exit code: %q", result.Reason)
 	}
 }
 
-// TestAccionFinalSeReintentaSiFalla: si la acción final falla, el bucle de
-// reintento vuelve a intentarlo en lugar de darse por vencido.
-func TestAccionFinalSeReintentaSiFalla(t *testing.T) {
+// TestFinalActionIsRetriedOnFailure: when the final action fails, the retry loop
+// tries it again instead of giving up.
+func TestFinalActionIsRetriedOnFailure(t *testing.T) {
 	dir := t.TempDir()
-	marca := filepath.Join(dir, "veces.txt")
+	marker := filepath.Join(dir, "count.txt")
 
-	falso := &servidorLLMFalso{accionesPorIntento: [][]string{{"true"}, {"true"}}}
-	srv := httptest.NewServer(falso.handler(t))
+	fake := &fakeLLMServer{actionsPerAttempt: [][]string{{"true"}, {"true"}}}
+	srv := httptest.NewServer(fake.handler(t))
 	defer srv.Close()
 
-	e := montar(t, srv, config.Anchor{
-		Tipo: "command", Comando: "true", Timeout: 5 * time.Second,
+	e := mount(t, srv, config.Anchor{
+		Kind: "command", Command: "true", Timeout: 5 * time.Second,
 	}, func(c *config.Config) {
-		c.Agent.MaxReintentos = 2
-		// La acción final falla la primera vez y funciona la segunda.
-		script := fmt.Sprintf(`if [ -f %s ]; then exit 0; fi; touch %s; exit 9`, marca, marca)
+		c.Agent.MaxRetries = 2
+		// The final action fails the first time and works the second.
+		script := fmt.Sprintf(`if [ -f %s ]; then exit 0; fi; touch %s; exit 9`, marker, marker)
 		c.FinalAction = config.FinalAction{
-			Tipo: "command", Comando: "sh", Argumentos: []string{"-c", script},
+			Kind: "command", Command: "sh", Args: []string{"-c", script},
 		}
 	})
 
-	var resultado *ResultadoTarea
-	e.agente.Observador = func(r ResultadoTarea) { resultado = &r }
+	var result *TaskResult
+	e.agent.Observer = func(r TaskResult) { result = &r }
 
-	if err := e.agente.Ejecutar(context.Background()); err != nil {
-		t.Fatalf("debería acabar bien tras reintentar la acción final: %v", err)
+	if err := e.agent.Run(context.Background()); err != nil {
+		t.Fatalf("it should end well after retrying the final action: %v", err)
 	}
-	if !resultado.PASS {
-		t.Fatalf("debería pasar al segundo intento: %s", resultado.Motivo)
+	if !result.Pass {
+		t.Fatalf("it should pass on the second attempt: %s", result.Reason)
 	}
-	if resultado.Intentos != 2 {
-		t.Errorf("intentos = %d, se esperaban 2", resultado.Intentos)
+	if result.Attempts != 2 {
+		t.Errorf("attempts = %d, expected 2", result.Attempts)
 	}
 }
 
-// TestAccionFinalSoloTrasPASS: la acción final no debe ejecutarse jamás si el
-// ancla no dio PASS.
-func TestAccionFinalSoloTrasPASS(t *testing.T) {
-	falso := &servidorLLMFalso{accionesPorIntento: [][]string{{"echo mal"}, {"echo mal"}}}
-	srv := httptest.NewServer(falso.handler(t))
+// TestFinalActionOnlyAfterPASS: the final action must never run if the anchor did
+// not give PASS.
+func TestFinalActionOnlyAfterPASS(t *testing.T) {
+	fake := &fakeLLMServer{actionsPerAttempt: [][]string{{"echo wrong"}, {"echo wrong"}}}
+	srv := httptest.NewServer(fake.handler(t))
 	defer srv.Close()
 
-	marca := filepath.Join(t.TempDir(), "accion-final-ejecutada.txt")
-	e := montar(t, srv, config.Anchor{
-		Tipo: "command", Comando: "exit 1", Timeout: 5 * time.Second, EsperarExit: 0,
+	marker := filepath.Join(t.TempDir(), "final-action-ran.txt")
+	e := mount(t, srv, config.Anchor{
+		Kind: "command", Command: "exit 1", Timeout: 5 * time.Second, ExpectExit: 0,
 	}, func(c *config.Config) {
-		c.Agent.MaxReintentos = 1
+		c.Agent.MaxRetries = 1
 		c.FinalAction = config.FinalAction{
-			Tipo:       "command",
-			Comando:    "sh",
-			Argumentos: []string{"-c", "touch " + marca},
+			Kind:    "command",
+			Command: "sh",
+			Args:    []string{"-c", "touch " + marker},
 		}
 	})
 
-	e.agente.Ejecutar(context.Background())
-	if _, err := os.Stat(marca); err == nil {
-		t.Fatal("la acción final se ejecutó sin PASS del ancla")
+	e.agent.Run(context.Background())
+	if _, err := os.Stat(marker); err == nil {
+		t.Fatal("the final action ran without a PASS from the anchor")
 	}
 }
 
-// TestTareaVaciaEsUnError: construir una fuente con una tarea en blanco debe
-// fallar en lugar de mandar una petición inútil al LLM.
-func TestTareaVaciaEsUnError(t *testing.T) {
-	if _, err := task.NuevaTexto("   ", "prueba"); err == nil {
-		t.Fatal("una tarea vacía debe ser un error")
+// TestEmptyTaskIsAnError: building a source with a blank task must fail instead
+// of sending a useless request to the LLM.
+func TestEmptyTaskIsAnError(t *testing.T) {
+	if _, err := task.NewText("   ", "test"); err == nil {
+		t.Fatal("an empty task must be an error")
 	}
 }
 
-// TestMaxTareas: el límite de tareas detiene el agente aunque la fuente tenga
-// más trabajo (útil para ejecuciones acotadas desde cron).
-func TestMaxTareas(t *testing.T) {
-	falso := &servidorLLMFalso{
-		accionesPorIntento: [][]string{{"true"}, {"true"}, {"true"}},
+// TestMaxTasks: the task limit stops the agent even when the source has more
+// work (useful for bounded runs from cron).
+func TestMaxTasks(t *testing.T) {
+	fake := &fakeLLMServer{
+		actionsPerAttempt: [][]string{{"true"}, {"true"}, {"true"}},
 	}
-	srv := httptest.NewServer(falso.handler(t))
+	srv := httptest.NewServer(fake.handler(t))
 	defer srv.Close()
 
-	e := montar(t, srv, config.Anchor{
-		Tipo: "command", Comando: "true", Timeout: 5 * time.Second,
-	}, func(c *config.Config) { c.Agent.MaxTareas = 1 })
+	e := mount(t, srv, config.Anchor{
+		Kind: "command", Command: "true", Timeout: 5 * time.Second,
+	}, func(c *config.Config) { c.Agent.MaxTasks = 1 })
 
-	// Fuente con dos tareas: sólo debe procesarse una.
-	fuente, err := task.NuevaTexto("primera", "prueba")
+	// A source with two tasks: only one must be processed.
+	source, err := task.NewText("first", "test")
 	if err != nil {
 		t.Fatal(err)
 	}
-	e.agente.fuente = fuente
+	e.agent.source = source
 
-	procesadas := 0
-	e.agente.Observador = func(r ResultadoTarea) { procesadas++ }
+	processed := 0
+	e.agent.Observer = func(r TaskResult) { processed++ }
 
-	if err := e.agente.Ejecutar(context.Background()); err != nil {
+	if err := e.agent.Run(context.Background()); err != nil {
 		t.Fatalf("error: %v", err)
 	}
-	if procesadas != 1 {
-		t.Errorf("tareas procesadas = %d, se esperaba 1 (max_tareas)", procesadas)
+	if processed != 1 {
+		t.Errorf("tasks processed = %d, expected 1 (max_tasks)", processed)
 	}
 }

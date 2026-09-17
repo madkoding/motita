@@ -1,0 +1,137 @@
+# CASE 2 — Data analysis agent: task from an API + validation + result
+#
+# Flow: polls an API the task hangs off -> the LLM proposes the analysis commands
+# -> they run isolated over the data -> the ANCHOR checks the report's invariants
+# -> if it passes, the result is published with a POST.
+#
+# Usage:
+#   export STARLIGHT_LLM_API_KEY=sk-...
+#   starlight-agent -config configs/cases/2-data.yaml
+#
+# To try it without a real API, point the source at a file:
+#   starlight-agent -config configs/cases/2-data.yaml -task-file tasks/analysis.md
+
+task_source:
+  kind: api
+  url: https://example.internal/api/tasks/next
+  method: POST
+  field: task
+  interval: 60s
+  body: '{"queue": "analysis"}'
+  headers:
+    Authorization: Bearer CHANGE_ME_TO_A_TOKEN_FROM_THE_ENVIRONMENT
+    Accept: application/json
+
+# Layer A: invariants of the result. There are no tests here: what is validated
+# is that the report honours the contract (it exists, it has rows, the totals
+# add up).
+anchor:
+  kind: command
+  command: python3
+  args: [scripts/validate_report.py, report.json]
+  timeout: 120s
+  expect_exit: 0
+  expect_output: "REPORT_OK"
+  checks:
+    - name: report generated
+      command: test
+      args: ["-s", "report.json"]
+      timeout: 10s
+      expect_exit: 0
+    - name: totals add up
+      command: python3
+      args: [scripts/reconcile_totals.py, report.json]
+      timeout: 60s
+      expect_exit: 0
+
+# Layer C: the analysis needs to read the data, but must not reach the network
+# (the data is already local) and must not eat the machine.
+sandbox:
+  kind: cgroups
+  memory_mb: 1536
+  cpu_seconds: 300
+  processes: 32
+  max_file_size_mb: 256
+  isolate_network: true
+  timeout: 600s
+  max_output_kb: 1024
+
+llm:
+  provider: anthropic
+  model: claude-sonnet-4-5
+  base_url: https://api.anthropic.com
+  max_tokens: 4096
+  temperature: 0.0        # deterministic: this is analysis, not creativity
+  timeout: 180s
+  max_attempts: 4
+  backoff_initial: 2s
+  backoff_max: 60s
+
+prompts:
+  analyze:
+    system: |
+      You are a data analyst working with deterministic validation.
+      You reply only with JSON and you never invent figures.
+    user: |
+      ## ANALYSIS TASK
+      {{task}}
+
+      ## VALIDATIONS THAT WILL BE APPLIED
+      {{rules}}
+
+      Return JSON: {"understandable": bool, "summary": "...",
+                    "success_criteria": ["..."], "risks": ["..."],
+                    "needs_subtasks": bool}
+      If the task requires data that is not in the working directory, set
+      "understandable": false.
+  plan:
+    system: |
+      You are a data analyst. You reply only with JSON.
+    user: |
+      ## TASK
+      {{task}}
+
+      ## ANALYSIS
+      {{analysis}}
+
+      Return JSON: {"plan": [{"step": 1, "action": "...", "command": "..."}],
+                    "subtasks": ["..."], "expected_result": "..."}
+      The last step must leave the result in report.json.
+  execute:
+    system: |
+      You are a data analyst. You reply only with JSON.
+    user: |
+      ## TASK
+      {{task}}
+
+      ## PLAN
+      {{plan}}
+
+      ## WORKING DIRECTORY
+      {{workspace}}
+
+      {{history}}
+
+      Return JSON: {"reasoning": "...",
+                    "actions": [{"kind": "command", "description": "...",
+                                 "command": "..."}],
+                    "final_action": {"description": "publish", "command": ""}}
+
+# The result is published only after the anchor gives PASS.
+final_action:
+  kind: api
+  url: https://example.internal/api/results
+  method: POST
+
+agent:
+  max_retries: 4
+  subtask_depth: 2
+  workspace_dir: ./workspace/data
+  log_file: ./workspace/data/starlight.log
+  log_level: info
+  log_max_mb: 20
+  log_backups: 5
+  graceful_shutdown_timeout: 30s
+  on_failure:
+    kind: command
+    command: python3 scripts/notify_failure.py

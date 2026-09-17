@@ -9,197 +9,204 @@ import (
 )
 
 // ---------------------------------------------------------------------------
-// Decodificación: mapa genérico (salido del parser YAML) -> structs tipados.
+// Decoding: generic map (coming out of the YAML parser) -> typed structs.
 //
-// Se hace con reflexión para mantener un único lugar donde están las reglas de
-// conversión y para que los errores digan exactamente qué campo está mal, en
-// lugar de fallar en silencio como haría un "buscar la clave y ya".
+// It is done with reflection to keep a single place holding the conversion
+// rules and so that the errors say exactly which field is wrong, instead of
+// failing silently the way a "look up the key and move on" would.
 // ---------------------------------------------------------------------------
 
-var tipoDuracion = reflect.TypeOf(time.Duration(0))
+var durationType = reflect.TypeOf(time.Duration(0))
 
-// Decodificar vuelca un mapa YAML en un struct cuyos campos llevan la etiqueta
-// `yaml:"..."`. Los campos ausentes conservan su valor actual (por eso primero
-// se cargan los valores por defecto).
-func Decodificar(mapa map[string]any, destino any) error {
-	v := reflect.ValueOf(destino)
+// Decode dumps a YAML map into a struct whose fields carry the `yaml:"..."`
+// tag. Missing fields keep their current value (that is why the default values
+// are loaded first).
+func Decode(m map[string]any, dst any) error {
+	v := reflect.ValueOf(dst)
 	if v.Kind() != reflect.Ptr || v.IsNil() {
-		return fmt.Errorf("el destino de la decodificación debe ser un puntero no nulo")
+		return fmt.Errorf("the decode destination must be a non-nil pointer")
 	}
-	return decodificarMapa(mapa, v.Elem(), "")
+	return decodeMap(m, v.Elem(), "")
 }
 
-func decodificarMapa(mapa map[string]any, destino reflect.Value, prefijo string) error {
-	if destino.Kind() != reflect.Struct {
-		return fmt.Errorf("%s: se esperaba una estructura y se encontró %s", rutaONombre(prefijo), destino.Kind())
+func decodeMap(m map[string]any, dst reflect.Value, prefix string) error {
+	if dst.Kind() != reflect.Struct {
+		return fmt.Errorf("%s: expected a struct and found %s", pathOrName(prefix), dst.Kind())
 	}
 
-	campos := camposYAML(destino)
-	for clave, valor := range mapa {
-		campo, ok := campos[clave]
+	fields := yamlFields(dst)
+	for key, value := range m {
+		field, ok := fields[key]
 		if !ok {
-			return fmt.Errorf("clave desconocida %q%s (revisa el ejemplo configs/agent.yaml.example)", clave, enRuta(prefijo))
+			return fmt.Errorf("unknown key %q%s (check the example configs/agent.yaml.example)", key, inPath(prefix))
 		}
-		ruta := clave
-		if prefijo != "" {
-			ruta = prefijo + "." + clave
+		path := key
+		if prefix != "" {
+			path = prefix + "." + key
 		}
-		if err := asignar(valor, campo, ruta); err != nil {
+		if err := assign(value, field, path); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-// camposYAML indexa los campos por su etiqueta yaml.
-func camposYAML(v reflect.Value) map[string]reflect.Value {
-	tipo := v.Type()
-	salida := make(map[string]reflect.Value, tipo.NumField())
-	for i := 0; i < tipo.NumField(); i++ {
-		etiqueta := tipo.Field(i).Tag.Get("yaml")
-		if etiqueta == "" || etiqueta == "-" {
+// yamlFields indexes the fields by their yaml tag.
+func yamlFields(v reflect.Value) map[string]reflect.Value {
+	t := v.Type()
+	out := make(map[string]reflect.Value, t.NumField())
+	for i := 0; i < t.NumField(); i++ {
+		tag := t.Field(i).Tag.Get("yaml")
+		if tag == "" || tag == "-" {
 			continue
 		}
-		nombre := strings.Split(etiqueta, ",")[0]
-		salida[nombre] = v.Field(i)
+		name := strings.Split(tag, ",")[0]
+		out[name] = v.Field(i)
 	}
-	return salida
+	return out
 }
 
-func asignar(valor any, campo reflect.Value, ruta string) error {
-	// Un bloque anidado entra como mapa.
-	if mapa, ok := valor.(map[string]any); ok {
-		switch campo.Kind() {
+func assign(value any, field reflect.Value, path string) error {
+	// A nested block arrives as a map.
+	if m, ok := value.(map[string]any); ok {
+		switch field.Kind() {
 		case reflect.Struct:
-			return decodificarMapa(mapa, campo, ruta)
+			return decodeMap(m, field, path)
 		case reflect.Map:
-			// map[string]string tal como llega del YAML: {clave: valor}.
-			if campo.Type().Key().Kind() != reflect.String || campo.Type().Elem().Kind() != reflect.String {
-				return fmt.Errorf("%s: sólo se admiten mapas de texto a texto", ruta)
+			// map[string]string exactly as it arrives from the YAML: {key: value}.
+			if field.Type().Key().Kind() != reflect.String || field.Type().Elem().Kind() != reflect.String {
+				return fmt.Errorf("%s: only text-to-text maps are supported", path)
 			}
-			nuevo := reflect.MakeMap(campo.Type())
-			for k, v := range mapa {
-				nuevo.SetMapIndex(reflect.ValueOf(k), reflect.ValueOf(aTexto(v)))
+			fresh := reflect.MakeMap(field.Type())
+			for k, v := range m {
+				fresh.SetMapIndex(reflect.ValueOf(k), reflect.ValueOf(toText(v)))
 			}
-			campo.Set(nuevo)
+			field.Set(fresh)
 			return nil
 		default:
-			return fmt.Errorf("%s: se esperaba un valor simple y se encontró un bloque anidado", ruta)
+			return fmt.Errorf("%s: expected a simple value and found a nested block", path)
 		}
 	}
 
-	if valor == nil {
-		// null explícito: se respeta el valor por defecto del campo.
+	if value == nil {
+		// Explicit null: the field's default value is respected.
 		return nil
 	}
 
-	switch campo.Type() {
-	case tipoDuracion:
-		d, err := aDuracion(valor, ruta)
+	switch field.Type() {
+	case durationType:
+		d, err := toDuration(value, path)
 		if err != nil {
 			return err
 		}
-		campo.SetInt(int64(d))
+		field.SetInt(int64(d))
 		return nil
 	}
 
-	switch campo.Kind() {
+	switch field.Kind() {
 	case reflect.String:
-		campo.SetString(aTexto(valor))
+		// A list where text is expected is REJECTED. It used to be formatted as
+		// "[a b]" and accepted silently, so the real error showed up much later
+		// and with a bewildering message ("unknown kind: \"[a b]\"" instead of
+		// "a value was expected here, not a list").
+		if _, isList := value.([]any); isList {
+			return fmt.Errorf("%s: expected a text value and found a list", path)
+		}
+		// A boolean where text is expected does get normalized ("true"/"false"):
+		// that is what the parser returns for a boolean value and there is no
+		// ambiguity.
+		field.SetString(toText(value))
 
 	case reflect.Bool:
-		b, ok := valor.(bool)
+		b, ok := value.(bool)
 		if !ok {
-			return fmt.Errorf("%s: se esperaba true/false y se encontró %v", ruta, valor)
+			return fmt.Errorf("%s: expected true/false and found %v", path, value)
 		}
-		campo.SetBool(b)
+		field.SetBool(b)
 
 	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
-		n, err := aEntero(valor)
+		n, err := toInteger(value)
 		if err != nil {
-			return fmt.Errorf("%s: %v", ruta, err)
+			return fmt.Errorf("%s: %v", path, err)
 		}
-		if campo.OverflowInt(n) {
-			return fmt.Errorf("%s: el valor %d no cabe en %s", ruta, n, campo.Kind())
+		if field.OverflowInt(n) {
+			return fmt.Errorf("%s: the value %d does not fit in %s", path, n, field.Kind())
 		}
-		campo.SetInt(n)
+		field.SetInt(n)
 
 	case reflect.Float32, reflect.Float64:
-		f, err := aFlotante(valor)
+		f, err := toFloat(value)
 		if err != nil {
-			return fmt.Errorf("%s: %v", ruta, err)
+			return fmt.Errorf("%s: %v", path, err)
 		}
-		campo.SetFloat(f)
+		field.SetFloat(f)
 
 	case reflect.Slice:
-		items, ok := valor.([]any)
+		items, ok := value.([]any)
 		if !ok {
-			return fmt.Errorf("%s: se esperaba una lista y se encontró %v", ruta, valor)
+			return fmt.Errorf("%s: expected a list and found %v", path, value)
 		}
-		nueva := reflect.MakeSlice(campo.Type(), 0, len(items))
+		fresh := reflect.MakeSlice(field.Type(), 0, len(items))
 		for i, item := range items {
-			elemento := reflect.New(campo.Type().Elem()).Elem()
-			if err := asignar(item, elemento, fmt.Sprintf("%s[%d]", ruta, i)); err != nil {
+			element := reflect.New(field.Type().Elem()).Elem()
+			if err := assign(item, element, fmt.Sprintf("%s[%d]", path, i)); err != nil {
 				return err
 			}
-			nueva = reflect.Append(nueva, elemento)
+			fresh = reflect.Append(fresh, element)
 		}
-		campo.Set(nueva)
+		field.Set(fresh)
 
 	case reflect.Map:
-		crudo, ok := valor.(map[string]any)
-		if !ok {
-			return fmt.Errorf("%s: se esperaba un mapa y se encontró %v", ruta, valor)
-		}
-		if campo.Type().Key().Kind() != reflect.String || campo.Type().Elem().Kind() != reflect.String {
-			return fmt.Errorf("%s: sólo se admiten mapas de texto a texto", ruta)
-		}
-		nuevo := reflect.MakeMap(campo.Type())
-		for k, v := range crudo {
-			nuevo.SetMapIndex(reflect.ValueOf(k), reflect.ValueOf(aTexto(v)))
-		}
-		campo.Set(nuevo)
+		// A block value (map[string]any) is turned into the map at the top of
+		// assign, so what reaches this point cannot fill the field: it is a
+		// plain value where a {key: value} block was expected.
+		return fmt.Errorf("%s: expected a map and found %v", path, value)
+
+	case reflect.Struct:
+		// A simple value where a nested block is expected (for example
+		// `llm: text` instead of `llm:` with its indented keys).
+		return fmt.Errorf("%s: expected a configuration block and found a simple value (%v)", path, value)
 
 	default:
-		return fmt.Errorf("%s: tipo de campo no soportado (%s)", ruta, campo.Kind())
+		return fmt.Errorf("%s: unsupported field type (%s)", path, field.Kind())
 	}
 	return nil
 }
 
-// aDuracion acepta números (segundos) y textos tipo "30s", "5m", "1h30m".
-func aDuracion(valor any, ruta string) (time.Duration, error) {
-	switch v := valor.(type) {
+// toDuration accepts numbers (seconds) and texts like "30s", "5m", "1h30m".
+func toDuration(value any, path string) (time.Duration, error) {
+	switch v := value.(type) {
 	case int64:
 		return time.Duration(v) * time.Second, nil
 	case float64:
 		return time.Duration(v * float64(time.Second)), nil
 	case string:
-		texto := strings.TrimSpace(v)
-		if texto == "" {
-			return 0, fmt.Errorf("%s: duración vacía", ruta)
+		text := strings.TrimSpace(v)
+		if text == "" {
+			return 0, fmt.Errorf("%s: empty duration", path)
 		}
-		d, err := time.ParseDuration(texto)
+		d, err := time.ParseDuration(text)
 		if err != nil {
-			// Sin sufijo se interpreta como segundos, que es lo que espera
-			// cualquiera que escriba "timeout: 30".
-			if segundos, errSeg := strconv.Atoi(texto); errSeg == nil {
-				return time.Duration(segundos) * time.Second, nil
+			// Without a suffix it is interpreted as seconds, which is what
+			// anyone writing "timeout: 30" expects.
+			if seconds, errSec := strconv.Atoi(text); errSec == nil {
+				return time.Duration(seconds) * time.Second, nil
 			}
-			return 0, fmt.Errorf("%s: duración inválida %q (usa 30, \"30s\", \"5m\", \"1h\")", ruta, texto)
+			return 0, fmt.Errorf("%s: invalid duration %q (use 30, \"30s\", \"5m\", \"1h\")", path, text)
 		}
 		return d, nil
 	default:
-		return 0, fmt.Errorf("%s: se esperaba una duración y se encontró %v", ruta, valor)
+		return 0, fmt.Errorf("%s: expected a duration and found %v", path, value)
 	}
 }
 
-func aEntero(valor any) (int64, error) {
-	switch v := valor.(type) {
+func toInteger(value any) (int64, error) {
+	switch v := value.(type) {
 	case int64:
 		return v, nil
 	case float64:
 		if v != float64(int64(v)) {
-			return 0, fmt.Errorf("se esperaba un entero y se encontró %v", v)
+			return 0, fmt.Errorf("expected an integer and found %v", v)
 		}
 		return int64(v), nil
 	case bool:
@@ -208,19 +215,19 @@ func aEntero(valor any) (int64, error) {
 		}
 		return 0, nil
 	case string:
-		texto := strings.TrimSpace(v)
-		n, err := strconv.ParseInt(texto, 10, 64)
+		text := strings.TrimSpace(v)
+		n, err := strconv.ParseInt(text, 10, 64)
 		if err != nil {
-			return 0, fmt.Errorf("se esperaba un entero y se encontró %q", v)
+			return 0, fmt.Errorf("expected an integer and found %q", v)
 		}
 		return n, nil
 	default:
-		return 0, fmt.Errorf("se esperaba un entero y se encontró %v", valor)
+		return 0, fmt.Errorf("expected an integer and found %v", value)
 	}
 }
 
-func aFlotante(valor any) (float64, error) {
-	switch v := valor.(type) {
+func toFloat(value any) (float64, error) {
+	switch v := value.(type) {
 	case int64:
 		return float64(v), nil
 	case float64:
@@ -228,16 +235,16 @@ func aFlotante(valor any) (float64, error) {
 	case string:
 		f, err := strconv.ParseFloat(strings.TrimSpace(v), 64)
 		if err != nil {
-			return 0, fmt.Errorf("se esperaba un número y se encontró %q", v)
+			return 0, fmt.Errorf("expected a number and found %q", v)
 		}
 		return f, nil
 	default:
-		return 0, fmt.Errorf("se esperaba un número y se encontró %v", valor)
+		return 0, fmt.Errorf("expected a number and found %v", value)
 	}
 }
 
-func aTexto(valor any) string {
-	switch v := valor.(type) {
+func toText(value any) string {
+	switch v := value.(type) {
 	case string:
 		return v
 	case int64:
@@ -253,16 +260,16 @@ func aTexto(valor any) string {
 	}
 }
 
-func enRuta(prefijo string) string {
-	if prefijo == "" {
+func inPath(prefix string) string {
+	if prefix == "" {
 		return ""
 	}
-	return " dentro de " + prefijo
+	return " inside " + prefix
 }
 
-func rutaONombre(prefijo string) string {
-	if prefijo == "" {
-		return "la configuración"
+func pathOrName(prefix string) string {
+	if prefix == "" {
+		return "the configuration"
 	}
-	return prefijo
+	return prefix
 }

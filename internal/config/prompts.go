@@ -1,90 +1,90 @@
 package config
 
 // ---------------------------------------------------------------------------
-// Plantillas de prompt por defecto.
+// Default prompt templates.
 //
-// Están en español, pero son 100% reemplazables desde el YAML: el motor nunca
-// escribe texto de prompt por su cuenta, sólo sustituye las variables {{...}}
-// de estas plantillas.
+// They are in English, but they are 100% replaceable from the YAML: the engine
+// never writes prompt text on its own, it only substitutes the {{...}} variables
+// of these templates.
 // ---------------------------------------------------------------------------
 
-// PlantillaBaseAnalyze pide el análisis de la tarea y la definición de los
-// criterios de éxito que el ancla comprobará después.
-var PlantillaBaseAnalyze = Plantilla{
-	Sistema: `Eres la Capa B (motor de razonamiento) de un agente con validación determinista.
-Trabajas en ciclos: propones un resultado, una Capa A independiente lo valida
-ejecutando comprobaciones reales, y si falla recibes los registros del fallo.
-Responde SIEMPRE en español y en el formato JSON que se te pida, sin texto extra.`,
-	Usuario: `## TAREA
-{{tarea}}
+// BaseAnalyzeTemplate asks for the analysis of the task and the definition of
+// the success criteria that the anchor will check afterwards.
+var BaseAnalyzeTemplate = Template{
+	System: `You are Layer B (the reasoning engine) of an agent with deterministic validation.
+You work in cycles: you propose a result, an independent Layer A validates it by
+running real checks, and if it fails you receive the logs of the failure.
+ALWAYS answer in English and in the requested JSON format, with no extra text.`,
+	User: `## TASK
+{{task}}
 
-## CONTEXTO
-- Directorio de trabajo: {{workspace}}
-- Intento: {{intento}} de {{max_intentos}}
+## CONTEXT
+- Working directory: {{workspace}}
+- Attempt: {{attempt}} of {{max_attempts}}
 
-## REGLAS DE VALIDACIÓN QUE SE APLICARÁN
-{{reglas}}
+## VALIDATION RULES THAT WILL BE APPLIED
+{{rules}}
 
-## ANÁLISIS DE LA TAREA
-Devuelve un JSON con esta forma exacta:
+## ANALYSIS OF THE TASK
+Return a JSON object with this exact shape:
 {
-  "comprensible": true,
-  "resumen": "qué hay que conseguir, en una frase",
-  "criterios_exito": ["criterio verificable 1", "criterio verificable 2"],
-  "riesgos": ["riesgo o ambigüedad detectada"],
-  "necesita_subtareas": false
+  "understandable": true,
+  "summary": "what has to be achieved, in one sentence",
+  "success_criteria": ["verifiable criterion 1", "verifiable criterion 2"],
+  "risks": ["risk or ambiguity detected"],
+  "needs_subtasks": false
 }
-Si la tarea es ambigua o imposible con las herramientas disponibles, marca
-"comprensible": false y explica el motivo en "riesgos". No inventes datos.`,
+If the task is ambiguous or impossible with the available tools, set
+"understandable": false and explain the reason in "risks". Do not invent data.`,
 }
 
-// PlantillaBasePlan pide el plan de acción.
-var PlantillaBasePlan = Plantilla{
-	Sistema: PlantillaBaseAnalyze.Sistema,
-	Usuario: `## TAREA
-{{tarea}}
+// BasePlanTemplate asks for the action plan.
+var BasePlanTemplate = Template{
+	System: BaseAnalyzeTemplate.System,
+	User: `## TASK
+{{task}}
 
-## ANÁLISIS PREVIO
-{{analisis}}
+## PREVIOUS ANALYSIS
+{{analysis}}
 
-## PLAN DE ACCIÓN
-Devuelve un JSON con esta forma exacta:
+## ACTION PLAN
+Return a JSON object with this exact shape:
 {
   "plan": [
-    {"paso": 1, "accion": "qué se hace", "comando": "comando de shell exacto o vacío"}
+    {"step": 1, "action": "what is done", "command": "exact shell command or empty"}
   ],
-  "subtareas": ["subtarea independiente, si hace falta dividir"],
-  "resultado_esperado": "qué debería verse cuando esté bien hecho"
+  "subtasks": ["independent subtask, if the task has to be split"],
+  "expected_result": "what should be seen when it is done right"
 }
-Los comandos deben ser comprobables y no destructivos salvo que la tarea lo
-exija de forma explícita. Cada paso, un solo comando.`,
+The commands must be verifiable and non-destructive unless the task explicitly
+requires otherwise. One single command per step.`,
 }
 
-// PlantillaBaseExecute pide la acción concreta a ejecutar y, si corresponde, la
-// acción final (commit, envío, guardado) que sólo corre tras un PASS.
-var PlantillaBaseExecute = Plantilla{
-	Sistema: PlantillaBaseAnalyze.Sistema,
-	Usuario: `## TAREA
-{{tarea}}
+// BaseExecuteTemplate asks for the concrete action to run and, when applicable,
+// the final action (commit, submission, save) that only runs after a PASS.
+var BaseExecuteTemplate = Template{
+	System: BaseAnalyzeTemplate.System,
+	User: `## TASK
+{{task}}
 
 ## PLAN
 {{plan}}
 
-{{historial}}
+{{history}}
 
-## ACCIÓN
-Devuelve un JSON con esta forma exacta:
+## ACTION
+Return a JSON object with this exact shape:
 {
-  "razonamiento": "por qué esta acción cumple la tarea",
-  "acciones": [
-    {"tipo": "comando", "descripcion": "qué hace", "comando": "comando exacto de shell"}
+  "reasoning": "why this action fulfils the task",
+  "actions": [
+    {"kind": "command", "description": "what it does", "command": "exact shell command"}
   ],
-  "accion_final": {"descripcion": "commit, envío o guardado previsto", "comando": "comando exacto o vacío"}
+  "final_action": {"description": "commit, submission or save planned", "command": "exact command or empty"}
 }
-Reglas:
-- "acciones" son los pasos que producen el resultado; se ejecutarán aislados.
-- "accion_final" se ejecuta SÓLO si la validación pasa; si no aplica, deja el
-  comando en "" y describes por qué.
-- Si el intento falló antes, corrige a partir de los registros; no repitas la
-  misma acción esperando otro resultado.`,
+Rules:
+- "actions" are the steps that produce the result; they will be run isolated.
+- "final_action" runs ONLY if the validation passes; if it does not apply, leave
+  the command as "" and describe why.
+- If an attempt failed before, correct it from the logs; do not repeat the same
+  action expecting a different result.`,
 }

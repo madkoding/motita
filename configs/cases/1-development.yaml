@@ -1,0 +1,124 @@
+# CASE 1 — Development agent: task from a file + tests + commit
+#
+# Flow: reads the task from a file -> the LLM analyses and plans -> runs the
+# commands in the sandbox -> the ANCHOR runs the tests -> if they pass, a commit
+# is made.
+#
+# Usage:
+#   export STARLIGHT_LLM_API_KEY=sk-...
+#   starlight-agent -config configs/cases/1-development.yaml
+#
+# The task lives in tasks/pending.md and can be changed without touching this
+# YAML.
+
+task_source:
+  kind: file
+  path: ./tasks/pending.md
+
+# Layer A: the truth is told by the test suite, not by the model.
+anchor:
+  kind: command
+  command: go
+  args: [test, ./...]
+  timeout: 300s
+  expect_exit: 0
+  checks:
+    - name: vet
+      command: go
+      args: [vet, ./...]
+      timeout: 120s
+      expect_exit: 0
+    - name: formatting
+      command: gofmt
+      args: ["-l", "."]
+      timeout: 60s
+      expect_exit: 0
+      expect_output: "^$"   # silent gofmt = everything formatted
+
+# Layer C: no network, bounded memory and CPU. Compiling on an i386 machine can
+# use a fair amount, hence the 1024 MB.
+sandbox:
+  kind: cgroups
+  memory_mb: 1024
+  cpu_seconds: 240
+  processes: 64
+  max_file_size_mb: 128
+  isolate_network: true
+  timeout: 300s
+  max_output_kb: 512
+
+llm:
+  provider: openai
+  model: gpt-4o-mini
+  base_url: https://api.openai.com/v1
+  max_tokens: 4096
+  temperature: 0.1
+  timeout: 120s
+  max_attempts: 3
+
+prompts:
+  analyze:
+    system: |
+      You are a development agent with deterministic validation by tests.
+      You reply only with JSON.
+    user: |
+      ## DEVELOPMENT TASK
+      {{task}}
+
+      ## WHAT WILL BE RUN TO VALIDATE
+      {{rules}}
+
+      Analyse the task. Keep in mind the modified code must pass
+      `go test ./...`, `go vet ./...` and `gofmt -l .` with no output.
+
+      Return JSON: {"understandable": bool, "summary": "...",
+                    "success_criteria": ["..."], "risks": ["..."],
+                    "needs_subtasks": bool}
+  plan:
+    system: |
+      You are a development agent. You reply only with JSON.
+    user: |
+      ## TASK
+      {{task}}
+
+      ## ANALYSIS
+      {{analysis}}
+
+      Return JSON: {"plan": [{"step": 1, "action": "...", "command": "..."}],
+                    "subtasks": ["..."], "expected_result": "..."}
+      Each step must be a concrete, non-destructive shell command.
+  execute:
+    system: |
+      You are a development agent. You reply only with JSON.
+    user: |
+      ## TASK
+      {{task}}
+
+      ## PLAN
+      {{plan}}
+
+      ## WORKING DIRECTORY
+      {{workspace}}
+
+      {{history}}
+
+      Return JSON: {"reasoning": "...",
+                    "actions": [{"kind": "command", "description": "...",
+                                 "command": "..."}],
+                    "final_action": {"description": "commit", "command": ""}}
+
+# A commit is only made if the tests passed.
+final_action:
+  kind: git_commit
+  commit_message: "agent: {{task}}"
+
+agent:
+  max_retries: 3
+  subtask_depth: 1
+  workspace_dir: ./workspace/development
+  log_file: ./workspace/development/starlight.log
+  log_level: info
+  graceful_shutdown_timeout: 20s
+  on_failure:
+    kind: command
+    command: 'echo "TASK NOT RESOLVED: check the log" >> ./workspace/development/escalations.log'

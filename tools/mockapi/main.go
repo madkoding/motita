@@ -1,28 +1,28 @@
-// Command mockapi es un servidor mínimo compatible con la API de OpenAI para
-// verificar starlight sin gastar tokens ni necesitar una clave.
+// Command mockapi is a minimal OpenAI-compatible server to verify starlight
+// without spending tokens or needing a key.
 //
-// Está escrito en Go puro y se compila también para linux/386, de modo que
-// puede ejecutarse DENTRO de la misma máquina de 32 bits que starlight: así la
-// prueba de extremo a extremo es autocontenida (sin depender de la red del
-// anfitrión).
+// It is pure Go and also cross-compiled for linux/386, so it can run INSIDE the
+// same 32-bit machine as starlight: that makes the end-to-end test self-contained
+// (no dependency on the host's network).
 //
-// Guion que implementa:
+// The script it implements:
 //
-//  1. Ante un mensaje de usuario responde con dos llamadas a herramienta:
-//     ejecutar_comando ("arch") y leer_archivo ("/etc/os-release").
-//  2. Ante los resultados de herramienta devuelve un texto final que los cita,
-//     precedido de la marca RESULTADO-E2E.
+//  1. Facing a user message it replies with two tool calls: run_command ("arch")
+//     and read_file ("/etc/os-release").
+//  2. Facing the tool results it returns a final text that cites them, preceded by
+//     the E2E-RESULT marker.
 //
-// Uso:
+// Usage:
 //
-//	mockapi -puerto 8099 &
-//	export OPENAI_API_KEY=prueba
+//	mockapi -port 8099 &
+//	export OPENAI_API_KEY=test
 //	export OPENAI_BASE_URL=http://127.0.0.1:8099/v1
-//	starlight -p "dime la arquitectura"
+//	starlight -p "tell me the architecture"
 package main
 
 import (
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -33,16 +33,16 @@ import (
 	"time"
 )
 
-type mensaje struct {
+type message struct {
 	Role       string `json:"role"`
 	Content    string `json:"content"`
 	ToolCallID string `json:"tool_call_id"`
 	Name       string `json:"name"`
 }
 
-type peticion struct {
+type request struct {
 	Model    string    `json:"model"`
-	Messages []mensaje `json:"messages"`
+	Messages []message `json:"messages"`
 	Tools    []struct {
 		Function struct {
 			Name string `json:"name"`
@@ -51,22 +51,22 @@ type peticion struct {
 	ToolChoice string `json:"tool_choice"`
 }
 
-// llamadaHerramienta construye una tool_call con `arguments` como cadena JSON,
-// que es exactamente el formato que manda la especificación de OpenAI (y el que
-// históricamente rompía a los clientes que esperaban un objeto).
-func llamadaHerramienta(id, nombre string, argumentos map[string]string) map[string]any {
-	crudo, _ := json.Marshal(argumentos)
+// toolCall builds a tool_call with `arguments` as a JSON string, which is exactly
+// the format the OpenAI spec mandates (and the one that historically broke
+// clients expecting an object).
+func toolCall(id, name string, arguments map[string]string) map[string]any {
+	raw, _ := json.Marshal(arguments)
 	return map[string]any{
 		"id":   id,
 		"type": "function",
 		"function": map[string]any{
-			"name":      nombre,
-			"arguments": string(crudo),
+			"name":      name,
+			"arguments": string(raw),
 		},
 	}
 }
 
-func respuestaToolCalls() map[string]any {
+func toolCallsResponse() map[string]any {
 	return map[string]any{
 		"id":     "chatcmpl-mock-1",
 		"object": "chat.completion",
@@ -78,18 +78,18 @@ func respuestaToolCalls() map[string]any {
 				"role":    "assistant",
 				"content": nil,
 				"tool_calls": []map[string]any{
-					llamadaHerramienta("call_1", "ejecutar_comando", map[string]string{"cmd": "arch; getconf LONG_BIT"}),
-					llamadaHerramienta("call_2", "leer_archivo", map[string]string{"ruta": "/etc/os-release"}),
+					toolCall("call_1", "run_command", map[string]string{"cmd": "arch; getconf LONG_BIT"}),
+					toolCall("call_2", "read_file", map[string]string{"path": "/etc/os-release"}),
 				},
 			},
 		}},
 	}
 }
 
-func respuestaFinal(resultados []mensaje) map[string]any {
-	partes := make([]string, 0, len(resultados))
-	for _, r := range resultados {
-		partes = append(partes, fmt.Sprintf("%s=%s", r.Name, strings.Join(strings.Fields(r.Content), " ")))
+func finalResponse(results []message) map[string]any {
+	parts := make([]string, 0, len(results))
+	for _, r := range results {
+		parts = append(parts, fmt.Sprintf("%s=%s", r.Name, strings.Join(strings.Fields(r.Content), " ")))
 	}
 	return map[string]any{
 		"id":     "chatcmpl-mock-2",
@@ -100,75 +100,91 @@ func respuestaFinal(resultados []mensaje) map[string]any {
 			"finish_reason": "stop",
 			"message": map[string]any{
 				"role":    "assistant",
-				"content": "RESULTADO-E2E " + strings.Join(partes, " | "),
+				"content": "E2E-RESULT " + strings.Join(parts, " | "),
 			},
 		}},
 	}
 }
 
-func manejar(w http.ResponseWriter, r *http.Request) {
+func handle(w http.ResponseWriter, r *http.Request) {
 	if r.URL.Path == "/healthz" {
 		w.WriteHeader(http.StatusOK)
 		fmt.Fprint(w, "ok")
 		return
 	}
 	if !strings.HasSuffix(r.URL.Path, "/chat/completions") {
-		http.Error(w, "ruta desconocida: "+r.URL.Path, http.StatusNotFound)
+		http.Error(w, "unknown path: "+r.URL.Path, http.StatusNotFound)
 		return
 	}
 
-	cuerpo, err := io.ReadAll(io.LimitReader(r.Body, 4<<20))
+	body, err := io.ReadAll(io.LimitReader(r.Body, 4<<20))
 	if err != nil {
-		http.Error(w, "petición ilegible", http.StatusBadRequest)
+		http.Error(w, "unreadable request", http.StatusBadRequest)
 		return
 	}
-	var pet peticion
-	if err := json.Unmarshal(cuerpo, &pet); err != nil {
-		http.Error(w, "json inválido", http.StatusBadRequest)
+	var req request
+	if err := json.Unmarshal(body, &req); err != nil {
+		http.Error(w, "invalid json", http.StatusBadRequest)
 		return
 	}
 
-	nombres := make([]string, 0, len(pet.Tools))
-	for _, t := range pet.Tools {
-		nombres = append(nombres, t.Function.Name)
+	names := make([]string, 0, len(req.Tools))
+	for _, t := range req.Tools {
+		names = append(names, t.Function.Name)
 	}
-	ultimo := "ninguno"
-	if len(pet.Messages) > 0 {
-		ultimo = pet.Messages[len(pet.Messages)-1].Role
+	last := "none"
+	if len(req.Messages) > 0 {
+		last = req.Messages[len(req.Messages)-1].Role
 	}
-	log.Printf("petición: mensajes=%d ultimo_rol=%s tool_choice=%q herramientas=%v",
-		len(pet.Messages), ultimo, pet.ToolChoice, nombres)
+	log.Printf("request: messages=%d last_role=%s tool_choice=%q tools=%v",
+		len(req.Messages), last, req.ToolChoice, names)
 
-	var salida map[string]any
-	if ultimo == "tool" {
-		var resultados []mensaje
-		for _, m := range pet.Messages {
+	var out map[string]any
+	if last == "tool" {
+		var results []message
+		for _, m := range req.Messages {
 			if m.Role == "tool" {
-				resultados = append(resultados, m)
+				results = append(results, m)
 			}
 		}
-		salida = respuestaFinal(resultados)
+		out = finalResponse(results)
 	} else {
-		salida = respuestaToolCalls()
+		out = toolCallsResponse()
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(salida)
+	json.NewEncoder(w).Encode(out)
+}
+
+// listenAndServe is replaceable so the bootstrap can be tested: the real one
+// blocks until the server is stopped, which cannot be observed from a test. The
+// environment marker lets a test make the bind fail on purpose.
+var listenAndServe = func(srv *http.Server) error {
+	if os.Getenv("MOCKAPI_FORCE_LISTEN_FAILURE") == "1" {
+		return errors.New("forced listen failure for the test")
+	}
+	return srv.ListenAndServe()
+}
+
+// mainBody is the real bootstrap, separated so a test can call it with the server
+// replaced (the real one blocks until stopped).
+func mainBody(port *int, host *string, exit func(int)) {
+	srv := &http.Server{
+		Addr:              fmt.Sprintf("%s:%d", *host, *port),
+		Handler:           http.HandlerFunc(handle),
+		ReadHeaderTimeout: 10 * time.Second,
+	}
+	fmt.Fprintf(os.Stderr, "mockapi listening on http://%s:%d/v1\n", *host, *port)
+	if err := listenAndServe(srv); err != nil {
+		fmt.Fprintln(os.Stderr, "error:", err)
+		exit(1)
+	}
 }
 
 func main() {
-	puerto := flag.Int("puerto", 8099, "puerto de escucha")
-	host := flag.String("host", "0.0.0.0", "interfaz de escucha")
+	port := flag.Int("port", 8099, "listening port")
+	host := flag.String("host", "0.0.0.0", "listening interface")
 	flag.Parse()
 
-	srv := &http.Server{
-		Addr:              fmt.Sprintf("%s:%d", *host, *puerto),
-		Handler:           http.HandlerFunc(manejar),
-		ReadHeaderTimeout: 10 * time.Second,
-	}
-	fmt.Fprintf(os.Stderr, "mockapi escuchando en http://%s:%d/v1\n", *host, *puerto)
-	if err := srv.ListenAndServe(); err != nil {
-		fmt.Fprintln(os.Stderr, "error:", err)
-		os.Exit(1)
-	}
+	mainBody(port, host, os.Exit)
 }

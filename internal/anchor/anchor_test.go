@@ -4,232 +4,294 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/madkoding/starlight/internal/config"
 	"github.com/madkoding/starlight/internal/logx"
+	"github.com/madkoding/starlight/internal/sandbox"
 )
 
 func init() {
-	// Silenciar el registro global durante las pruebas.
-	l, _ := logx.Nuevo(logx.Opciones{Nivel: logx.Error, Consola: false})
-	logx.Instalar(l)
+	// Silence the global logger during the tests.
+	l, _ := logx.New(logx.Options{Level: logx.Error, Console: false})
+	logx.Install(l)
 }
 
-// TestAnclaPASSConComandoReal comprueba que el ancla ejecuta de verdad.
-func TestAnclaPASSConComandoReal(t *testing.T) {
+// TestAnchorPassWithRealCommand checks the anchor actually runs something.
+func TestAnchorPassWithRealCommand(t *testing.T) {
 	dir := t.TempDir()
 	cfg := config.Anchor{
-		Tipo:        "command",
-		Comando:     "sh",
-		Argumentos:  []string{"-c", "echo todo-bien"},
-		Timeout:     10 * time.Second,
-		EsperarExit: 0,
+		Kind:       "command",
+		Command:    "sh",
+		Args:       []string{"-c", "echo all-good"},
+		Timeout:    10 * time.Second,
+		ExpectExit: 0,
 	}
 
-	res := Nuevo(cfg, dir, nil).Validar(context.Background())
-	if !res.PASS {
-		t.Fatalf("se esperaba PASS, motivo: %s", res.Motivo)
+	res := New(cfg, dir, nil).Validate(context.Background())
+	if !res.Pass {
+		t.Fatalf("expected PASS, reason: %s", res.Reason)
 	}
-	if len(res.Checks) != 1 || res.Checks[0].Salida != "todo-bien\n" {
-		t.Errorf("check inesperado: %+v", res.Checks)
+	if len(res.Checks) != 1 || res.Checks[0].Output != "all-good\n" {
+		t.Errorf("unexpected check: %+v", res.Checks)
 	}
 }
 
-// TestAnclaFAILPorExit verifica que un código distinto de cero es FAIL y que el
-// motivo lo dice con claridad.
-func TestAnclaFAILPorExit(t *testing.T) {
+// TestAnchorFailsOnExit verifies a non-zero code is a FAIL and that the reason
+// says so clearly.
+func TestAnchorFailsOnExit(t *testing.T) {
 	cfg := config.Anchor{
-		Tipo:        "command",
-		Comando:     "sh",
-		Argumentos:  []string{"-c", "echo fallo && exit 3"},
-		Timeout:     10 * time.Second,
-		EsperarExit: 0,
+		Kind:       "command",
+		Command:    "sh",
+		Args:       []string{"-c", "echo failure && exit 3"},
+		Timeout:    10 * time.Second,
+		ExpectExit: 0,
 	}
 
-	res := Nuevo(cfg, t.TempDir(), nil).Validar(context.Background())
-	if res.PASS {
-		t.Fatal("un exit 3 no puede dar PASS")
+	res := New(cfg, t.TempDir(), nil).Validate(context.Background())
+	if res.Pass {
+		t.Fatal("an exit 3 cannot give PASS")
 	}
 	if res.Checks[0].Exit != 3 {
-		t.Errorf("exit registrado = %d", res.Checks[0].Exit)
+		t.Errorf("recorded exit = %d", res.Checks[0].Exit)
 	}
 	if res.Checks[0].Error == "" {
-		t.Error("el registro del check debe explicar el fallo")
+		t.Error("the check record must explain the failure")
 	}
 }
 
-// TestAnclaEsperarSalida comprueba la validación por expresión regular, que es
-// lo que permite exigir un contrato de salida y no sólo un exit code.
-func TestAnclaEsperarSalida(t *testing.T) {
-	casos := []struct {
-		nombre string
-		salida string
-		patrón string
-		espera bool
+// TestAnchorExpectOutput covers regex validation, which is what allows demanding
+// an output contract and not just an exit code.
+func TestAnchorExpectOutput(t *testing.T) {
+	cases := []struct {
+		name     string
+		output   string
+		pattern  string
+		expected bool
 	}{
-		{"coincide", "INFORME_OK filas=120\n", `INFORME_OK`, true},
-		{"no coincide", "todo mal\n", `INFORME_OK`, false},
-		{"expresión con números", "filas=120\n", `filas=\d+`, true},
+		{"matches", "REPORT_OK rows=120\n", `REPORT_OK`, true},
+		{"does not match", "all wrong\n", `REPORT_OK`, false},
+		{"expression with numbers", "rows=120\n", `rows=\d+`, true},
 	}
-	for _, caso := range casos {
-		t.Run(caso.nombre, func(t *testing.T) {
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
 			cfg := config.Anchor{
-				Tipo:          "command",
-				Comando:       "sh",
-				Argumentos:    []string{"-c", "printf " + "'" + caso.salida + "'"},
-				Timeout:       10 * time.Second,
-				EsperarExit:   0,
-				EsperarSalida: caso.patrón,
+				Kind:         "command",
+				Command:      "sh",
+				Args:         []string{"-c", "printf " + "'" + tc.output + "'"},
+				Timeout:      10 * time.Second,
+				ExpectExit:   0,
+				ExpectOutput: tc.pattern,
 			}
-			res := Nuevo(cfg, t.TempDir(), nil).Validar(context.Background())
-			if res.PASS != caso.espera {
-				t.Errorf("PASS = %v, se esperaba %v (motivo: %s)", res.PASS, caso.espera, res.Motivo)
+			res := New(cfg, t.TempDir(), nil).Validate(context.Background())
+			if res.Pass != tc.expected {
+				t.Errorf("Pass = %v, expected %v (reason: %s)", res.Pass, tc.expected, res.Reason)
 			}
 		})
 	}
 }
 
-// TestAnclaMultiplesChecksTodasDebenPasar: una sola comprobación fallida
-// invalida el resultado completo.
-func TestAnclaMultiplesChecksTodasDebenPasar(t *testing.T) {
+// TestAnchorMultipleChecksAllMustPass: a single failing check invalidates the
+// whole result.
+func TestAnchorMultipleChecksAllMustPass(t *testing.T) {
 	cfg := config.Anchor{
-		Tipo:        "command",
-		Comando:     "sh",
-		Argumentos:  []string{"-c", "exit 0"},
-		Timeout:     10 * time.Second,
-		EsperarExit: 0,
+		Kind:       "command",
+		Command:    "sh",
+		Args:       []string{"-c", "exit 0"},
+		Timeout:    10 * time.Second,
+		ExpectExit: 0,
 		Checks: []config.Check{
-			{Nombre: "dos", Comando: "sh", Argumentos: []string{"-c", "exit 0"}, Timeout: 5 * time.Second, EsperarExit: 0},
-			{Nombre: "tres", Comando: "sh", Argumentos: []string{"-c", "exit 1"}, Timeout: 5 * time.Second, EsperarExit: 0},
+			{Name: "two", Command: "sh", Args: []string{"-c", "exit 0"}, Timeout: 5 * time.Second, ExpectExit: 0},
+			{Name: "three", Command: "sh", Args: []string{"-c", "exit 1"}, Timeout: 5 * time.Second, ExpectExit: 0},
 		},
 	}
-	res := Nuevo(cfg, t.TempDir(), nil).Validar(context.Background())
-	if res.PASS {
-		t.Fatal("con un check fallido no puede haber PASS")
+	res := New(cfg, t.TempDir(), nil).Validate(context.Background())
+	if res.Pass {
+		t.Fatal("with a failing check there can be no PASS")
 	}
 	if len(res.Checks) != 3 {
-		t.Errorf("se esperaban 3 checks, hubo %d", len(res.Checks))
+		t.Errorf("expected 3 checks, got %d", len(res.Checks))
 	}
-	if res.Checks[1].PASS != true || res.Checks[2].PASS != false {
-		t.Errorf("estados inesperados: %+v", res.Checks)
-	}
-}
-
-// TestAnclaTipoNoneNoDaPASSOptimista: sin configuración no se valida, así que no
-// se puede declarar PASS.
-func TestAnclaTipoNone(t *testing.T) {
-	res := Nuevo(config.Anchor{Tipo: "none"}, t.TempDir(), nil).Validar(context.Background())
-	if res.PASS {
-		t.Fatal("anchor.tipo=none nunca debe dar PASS")
-	}
-	if res.Motivo == "" {
-		t.Error("debe explicar que no se aplicó validación")
+	if res.Checks[1].Pass != true || res.Checks[2].Pass != false {
+		t.Errorf("unexpected states: %+v", res.Checks)
 	}
 }
 
-// TestAnclaTimeout: un comando que no termina no puede colgar al agente.
-func TestAnclaTimeout(t *testing.T) {
+// TestAnchorKindNone: with no configuration nothing is validated, so PASS cannot
+// be declared.
+func TestAnchorKindNone(t *testing.T) {
+	res := New(config.Anchor{Kind: "none"}, t.TempDir(), nil).Validate(context.Background())
+	if res.Pass {
+		t.Fatal("anchor.kind=none must never give PASS")
+	}
+	if res.Reason == "" {
+		t.Error("it must explain that no validation was applied")
+	}
+}
+
+// TestAnchorTimeout: a command that never finishes cannot hang the agent.
+func TestAnchorTimeout(t *testing.T) {
 	cfg := config.Anchor{
-		Tipo:        "command",
-		Comando:     "sh",
-		Argumentos:  []string{"-c", "sleep 30"},
-		Timeout:     1 * time.Second,
-		EsperarExit: 0,
+		Kind:       "command",
+		Command:    "sh",
+		Args:       []string{"-c", "sleep 30"},
+		Timeout:    1 * time.Second,
+		ExpectExit: 0,
 	}
-	inicio := time.Now()
-	res := Nuevo(cfg, t.TempDir(), nil).Validar(context.Background())
-	if res.PASS {
-		t.Fatal("un timeout debe ser FAIL")
+	start := time.Now()
+	res := New(cfg, t.TempDir(), nil).Validate(context.Background())
+	if res.Pass {
+		t.Fatal("a timeout must be a FAIL")
 	}
-	if transcurrido := time.Since(inicio); transcurrido > 5*time.Second {
-		t.Errorf("el timeout no se aplicó a tiempo: %s", transcurrido)
+	if elapsed := time.Since(start); elapsed > 5*time.Second {
+		t.Errorf("the timeout was not applied in time: %s", elapsed)
 	}
 	if res.Checks[0].Error == "" {
-		t.Error("debe registrar el error del timeout")
+		t.Error("it must record the timeout error")
 	}
 }
 
-// TestAnclaComandoInexistente: un comando que no existe es un FAIL explicable,
-// no un pánico.
-func TestAnclaComandoInexistente(t *testing.T) {
+// TestAnchorMissingCommand: a command that does not exist is an explainable
+// FAIL, not a panic.
+func TestAnchorMissingCommand(t *testing.T) {
 	cfg := config.Anchor{
-		Tipo:        "command",
-		Comando:     "/no/existe/este/comando",
-		Timeout:     5 * time.Second,
-		EsperarExit: 0,
+		Kind:       "command",
+		Command:    "/does/not/exist/this/command",
+		Timeout:    5 * time.Second,
+		ExpectExit: 0,
 	}
-	res := Nuevo(cfg, t.TempDir(), nil).Validar(context.Background())
-	if res.PASS {
-		t.Fatal("un comando inexistente debe ser FAIL")
+	res := New(cfg, t.TempDir(), nil).Validate(context.Background())
+	if res.Pass {
+		t.Fatal("a missing command must be a FAIL")
 	}
 	if res.Checks[0].Error == "" {
-		t.Error("el error debe quedar registrado")
+		t.Error("the error must be recorded")
 	}
 }
 
-// TestAnclaRegexInvalida: una expresión regular mal escrita se detecta y se
-// reporta, en lugar de aceptar cualquier salida en silencio.
-func TestAnclaRegexInvalida(t *testing.T) {
+// TestAnchorInvalidRegex: a badly written regular expression is detected and
+// reported, instead of silently accepting any output.
+func TestAnchorInvalidRegex(t *testing.T) {
 	cfg := config.Anchor{
-		Tipo:          "command",
-		Comando:       "true",
-		Timeout:       5 * time.Second,
-		EsperarSalida: "(sin cerrar",
+		Kind:         "command",
+		Command:      "true",
+		Timeout:      5 * time.Second,
+		ExpectOutput: "(unclosed",
 	}
-	res := Nuevo(cfg, t.TempDir(), nil).Validar(context.Background())
-	if res.PASS {
-		t.Fatal("una regex inválida debe impedir el PASS")
+	res := New(cfg, t.TempDir(), nil).Validate(context.Background())
+	if res.Pass {
+		t.Fatal("an invalid regex must prevent PASS")
 	}
 	if res.Checks[0].Error == "" {
-		t.Error("debe explicar que la regex no compila")
+		t.Error("it must explain the regex does not compile")
 	}
 }
 
-// TestAnclaTrabajaEnElDirectorioIndicado: el ancla debe ver los archivos del
-// intento, no los del directorio desde el que se lanzó el agente.
-func TestAnclaTrabajaEnElDirectorioIndicado(t *testing.T) {
+// TestAnchorRunsInTheGivenDirectory: the anchor must see the attempt's files, not
+// those of the directory the agent was launched from.
+func TestAnchorRunsInTheGivenDirectory(t *testing.T) {
 	dir := t.TempDir()
-	if err := os.WriteFile(filepath.Join(dir, "marca.txt"), []byte("aqui"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, "marker.txt"), []byte("here"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	cfg := config.Anchor{
-		Tipo:        "command",
-		Comando:     "sh",
-		Argumentos:  []string{"-c", "cat marca.txt"},
-		Timeout:     10 * time.Second,
-		EsperarExit: 0,
+		Kind:       "command",
+		Command:    "sh",
+		Args:       []string{"-c", "cat marker.txt"},
+		Timeout:    10 * time.Second,
+		ExpectExit: 0,
 	}
-	res := Nuevo(cfg, dir, nil).Validar(context.Background())
-	if !res.PASS {
-		t.Fatalf("no encontró el archivo del directorio de trabajo: %s", res.Motivo)
-	}
-}
-
-// TestResultadoJSON: el registro estructurado debe ser JSON válido, porque es lo
-// que se le pasa al LLM en el siguiente intento.
-func TestResultadoJSON(t *testing.T) {
-	cfg := config.Anchor{Tipo: "command", Comando: "true", Timeout: 5 * time.Second}
-	res := Nuevo(cfg, t.TempDir(), nil).Validar(context.Background())
-	texto := res.JSON()
-	if len(texto) == 0 || texto[0] != '{' {
-		t.Fatalf("JSON inválido: %s", texto)
-	}
-	if !contains(texto, `"pass"`) {
-		t.Errorf("el JSON debe incluir el veredicto: %s", texto)
+	res := New(cfg, dir, nil).Validate(context.Background())
+	if !res.Pass {
+		t.Fatalf("it did not find the file in the working directory: %s", res.Reason)
 	}
 }
 
-func contains(s, sub string) bool {
-	return len(s) >= len(sub) && (len(sub) == 0 || indexOf(s, sub) >= 0)
+// TestResultJSON: the structured record must be valid JSON, because that is what
+// is handed to the LLM on the next attempt.
+func TestResultJSON(t *testing.T) {
+	cfg := config.Anchor{Kind: "command", Command: "true", Timeout: 5 * time.Second}
+	res := New(cfg, t.TempDir(), nil).Validate(context.Background())
+	text := res.JSON()
+	if len(text) == 0 || text[0] != '{' {
+		t.Fatalf("invalid JSON: %s", text)
+	}
+	if !strings.Contains(text, `"pass"`) {
+		t.Errorf("the JSON must include the verdict: %s", text)
+	}
+	if !strings.Contains(text, `"reason"`) {
+		t.Errorf("the JSON must include the reason: %s", text)
+	}
 }
 
-func indexOf(s, sub string) int {
-	for i := 0; i+len(sub) <= len(s); i++ {
-		if s[i:i+len(sub)] == sub {
-			return i
-		}
+// TestTruncate keeps the record bounded.
+func TestTruncate(t *testing.T) {
+	if got := truncate("short", 10); got != "short" {
+		t.Errorf("truncate = %q", got)
 	}
-	return -1
+	got := truncate(strings.Repeat("x", 100), 10)
+	if len(got) > 15 || !strings.HasSuffix(got, "...") {
+		t.Errorf("truncate = %q", got)
+	}
+}
+
+// TestValidatorInterfaceIsSatisfied: the abstraction must be usable in place of
+// the concrete anchor.
+func TestValidatorInterfaceIsSatisfied(t *testing.T) {
+	var v Validator = New(config.Anchor{Kind: "command", Command: "true", Timeout: 5 * time.Second}, t.TempDir(), nil)
+	if v.Validate(context.Background()).Pass != true {
+		t.Error("a trivial passing check should validate")
+	}
+}
+
+// TestCheckNameDefaultsToCheck: a check with no name still gets a readable label
+// in the record.
+func TestCheckNameDefaultsToCheck(t *testing.T) {
+	cfg := config.Anchor{
+		Kind:    "command",
+		Command: "true",
+		Checks: []config.Check{
+			{Command: "true"}, // no name, no timeout
+		},
+	}
+	res := New(cfg, t.TempDir(), nil).Validate(context.Background())
+	if len(res.Checks) != 2 {
+		t.Fatalf("checks = %d", len(res.Checks))
+	}
+	if res.Checks[1].Name != "check" {
+		t.Errorf("name = %q, expected \"check\"", res.Checks[1].Name)
+	}
+}
+
+// TestAnchorUsesTheSandboxWhenGiven: when a sandbox is passed in, the checks run
+// through it (that is how validation can be isolated too).
+func TestAnchorUsesTheSandboxWhenGiven(t *testing.T) {
+	dir := t.TempDir()
+	box, err := sandbox.New(sandbox.Options{
+		Dir:     dir,
+		Limits:  sandbox.Limits{MemoryMB: 256},
+		Timeout: 20 * time.Second,
+		Log:     logx.Global(),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer box.Close()
+
+	cfg := config.Anchor{
+		Kind:       "command",
+		Command:    "sh",
+		Args:       []string{"-c", "echo from-the-sandbox"},
+		Timeout:    10 * time.Second,
+		ExpectExit: 0,
+	}
+	res := New(cfg, dir, box).Validate(context.Background())
+	if !res.Pass {
+		t.Fatalf("it should pass: %s", res.Reason)
+	}
+	if !strings.Contains(res.Checks[0].Output, "from-the-sandbox") {
+		t.Errorf("output = %q", res.Checks[0].Output)
+	}
 }

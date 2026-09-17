@@ -1,9 +1,9 @@
-// Package config define la configuración del agente y su carga desde YAML y
-// variables de entorno, sin dependencias externas.
+// Package config defines the agent configuration and its loading from YAML and
+// environment variables, with no external dependencies.
 //
-// El agente es 100% configurable sin recompilar: ninguna decisión de negocio
-// (fuente de tareas, validador, límites del sandbox, proveedor de LLM,
-// plantillas de prompts ni acción final) vive en el código.
+// The agent is 100% configurable without recompiling: no business decision
+// (task source, validator, sandbox limits, LLM provider, prompt templates or
+// final action) lives in the code.
 package config
 
 import (
@@ -14,10 +14,10 @@ import (
 )
 
 // ---------------------------------------------------------------------------
-// Estructuras (una por bloque del YAML)
+// Structs (one per YAML block)
 // ---------------------------------------------------------------------------
 
-// Config es la raíz del archivo de configuración.
+// Config is the root of the configuration file.
 type Config struct {
 	TaskSource  TaskSource  `yaml:"task_source"`
 	Anchor      Anchor      `yaml:"anchor"`
@@ -28,384 +28,384 @@ type Config struct {
 	Agent       Agent       `yaml:"agent"`
 }
 
-// TaskSource describe de dónde salen las tareas.
+// TaskSource describes where the tasks come from.
 type TaskSource struct {
-	Tipo      string            `yaml:"tipo"`      // stdin | file | api | queue
-	Ruta      string            `yaml:"ruta"`      // file
-	Dir       string            `yaml:"dir"`       // queue
-	URL       string            `yaml:"url"`       // api
-	Metodo    string            `yaml:"metodo"`    // api: GET | POST
-	Campo     string            `yaml:"campo"`     // campo del JSON/payload con la tarea
-	Intervalo time.Duration     `yaml:"intervalo"` // api/queue: sondeo
-	Headers   map[string]string `yaml:"headers"`   // api
-	Cuerpo    string            `yaml:"cuerpo"`    // api: cuerpo para POST
+	Kind     string            `yaml:"kind"`     // stdin | file | api | queue
+	Path     string            `yaml:"path"`     // file
+	Dir      string            `yaml:"dir"`      // queue
+	URL      string            `yaml:"url"`      // api
+	Method   string            `yaml:"method"`   // api: GET | POST
+	Field    string            `yaml:"field"`    // field of the JSON/payload holding the task
+	Interval time.Duration     `yaml:"interval"` // api/queue: polling
+	Headers  map[string]string `yaml:"headers"`  // api
+	Body     string            `yaml:"body"`     // api: body for POST
 }
 
-// Anchor es el validador determinista (Capa A). Puede ser un comando único o
-// una lista de comprobaciones; todas deben pasar.
+// Anchor is the deterministic validator (Layer A). It may be a single command
+// or a list of checks; every one of them must pass.
 type Anchor struct {
-	Tipo          string        `yaml:"tipo"` // command | none
-	Comando       string        `yaml:"comando"`
-	Argumentos    []string      `yaml:"argumentos"`
-	Timeout       time.Duration `yaml:"timeout"`
-	EsperarExit   int           `yaml:"esperar_exit"`
-	EsperarSalida string        `yaml:"esperar_salida"` // expresión regular opcional
-	Checks        []Check       `yaml:"checks"`
+	Kind         string        `yaml:"kind"` // command | none
+	Command      string        `yaml:"command"`
+	Args         []string      `yaml:"args"`
+	Timeout      time.Duration `yaml:"timeout"`
+	ExpectExit   int           `yaml:"expect_exit"`
+	ExpectOutput string        `yaml:"expect_output"` // optional regular expression
+	Checks       []Check       `yaml:"checks"`
 }
 
-// Check es una comprobación adicional del ancla.
+// Check is an extra check of the anchor.
 type Check struct {
-	Nombre        string        `yaml:"nombre"`
-	Comando       string        `yaml:"comando"`
-	Argumentos    []string      `yaml:"argumentos"`
-	Timeout       time.Duration `yaml:"timeout"`
-	EsperarExit   int           `yaml:"esperar_exit"`
-	EsperarSalida string        `yaml:"esperar_salida"`
+	Name         string        `yaml:"name"`
+	Command      string        `yaml:"command"`
+	Args         []string      `yaml:"args"`
+	Timeout      time.Duration `yaml:"timeout"`
+	ExpectExit   int           `yaml:"expect_exit"`
+	ExpectOutput string        `yaml:"expect_output"`
 }
 
-// Sandbox describe el entorno de ejecución aislada (Capa C).
+// Sandbox describes the isolated execution environment (Layer C).
 type Sandbox struct {
-	Tipo               string        `yaml:"tipo"`    // none | chroot | cgroups
-	Raiz               string        `yaml:"raiz"`    // chroot: directorio raíz
-	Usuario            string        `yaml:"usuario"` // "uid:gid" opcional
-	MemoriaMB          int           `yaml:"memoria_mb"`
-	CPUSegundos        int           `yaml:"cpu_segundos"`
-	Procesos           int           `yaml:"procesos"`
-	ArchivosAbiertos   int           `yaml:"archivos_abiertos"`
-	TamanoMaxArchivoMB int           `yaml:"tamano_max_archivo_mb"`
-	AislarRed          bool          `yaml:"aislar_red"`
-	Cgroups            string        `yaml:"cgroups"` // auto | on | off
-	CgroupRaiz         string        `yaml:"cgroup_raiz"`
-	Timeout            time.Duration `yaml:"timeout"`
-	ConservarEfimero   bool          `yaml:"conservar_efimero"`
-	SalidaMaxKB        int           `yaml:"salida_max_kb"`
+	Kind           string        `yaml:"kind"` // none | chroot | cgroups
+	Root           string        `yaml:"root"` // chroot: root directory
+	User           string        `yaml:"user"` // optional "uid:gid"
+	MemoryMB       int           `yaml:"memory_mb"`
+	CPUSeconds     int           `yaml:"cpu_seconds"`
+	Processes      int           `yaml:"processes"`
+	OpenFiles      int           `yaml:"open_files"`
+	MaxFileSizeMB  int           `yaml:"max_file_size_mb"`
+	IsolateNetwork bool          `yaml:"isolate_network"`
+	Cgroups        string        `yaml:"cgroups"` // auto | on | off
+	CgroupRoot     string        `yaml:"cgroup_root"`
+	Timeout        time.Duration `yaml:"timeout"`
+	KeepEphemeral  bool          `yaml:"keep_ephemeral"`
+	MaxOutputKB    int           `yaml:"max_output_kb"`
 }
 
-// LLM describe el motor de razonamiento (Capa B).
+// LLM describes the reasoning engine (Layer B).
 type LLM struct {
-	Proveedor      string        `yaml:"proveedor"` // openai | anthropic | gemini
-	Modelo         string        `yaml:"modelo"`
+	Provider       string        `yaml:"provider"` // openai | anthropic | gemini
+	Model          string        `yaml:"model"`
 	APIKey         string        `yaml:"api_key"`
 	BaseURL        string        `yaml:"base_url"`
 	MaxTokens      int           `yaml:"max_tokens"`
 	Temperature    float64       `yaml:"temperature"`
 	Timeout        time.Duration `yaml:"timeout"`
-	MaxIntentos    int           `yaml:"max_intentos"`
-	BackoffInicial time.Duration `yaml:"backoff_inicial"`
+	MaxAttempts    int           `yaml:"max_attempts"`
+	BackoffInitial time.Duration `yaml:"backoff_initial"`
 	BackoffMax     time.Duration `yaml:"backoff_max"`
 }
 
-// Plantilla es un prompt con variables {{nombre}}.
-type Plantilla struct {
-	Sistema string `yaml:"sistema"`
-	Usuario string `yaml:"usuario"`
+// Template is a prompt with {{name}} variables.
+type Template struct {
+	System string `yaml:"system"`
+	User   string `yaml:"user"`
 }
 
-// Prompts agrupa las tres plantillas del flujo.
+// Prompts groups the three templates of the flow.
 type Prompts struct {
-	Analyze Plantilla `yaml:"analyze"`
-	Plan    Plantilla `yaml:"plan"`
-	Execute Plantilla `yaml:"execute"`
+	Analyze Template `yaml:"analyze"`
+	Plan    Template `yaml:"plan"`
+	Execute Template `yaml:"execute"`
 }
 
-// FinalAction es lo que se ejecuta cuando el ancla da PASS.
+// FinalAction is what runs when the anchor gives PASS.
 type FinalAction struct {
-	Tipo          string   `yaml:"tipo"` // none | command | api | git_commit
-	Comando       string   `yaml:"comando"`
-	Argumentos    []string `yaml:"argumentos"`
+	Kind          string   `yaml:"kind"` // none | command | api | git_commit
+	Command       string   `yaml:"command"`
+	Args          []string `yaml:"args"`
 	URL           string   `yaml:"url"`
-	Metodo        string   `yaml:"metodo"`
-	MensajeCommit string   `yaml:"mensaje_commit"`
+	Method        string   `yaml:"method"`
+	CommitMessage string   `yaml:"commit_message"`
 }
 
-// Escalar es la acción de escalado cuando se agotan los reintentos.
-type Escalar struct {
-	Tipo    string `yaml:"tipo"` // none | command
-	Comando string `yaml:"comando"`
+// OnFailure is the escalation action run when the retries are exhausted.
+type OnFailure struct {
+	Kind    string `yaml:"kind"` // none | command
+	Command string `yaml:"command"`
 }
 
-// Agent agrupa los parámetros del bucle principal.
+// Agent groups the parameters of the main loop.
 type Agent struct {
-	MaxReintentos        int           `yaml:"max_reintentos"`
-	ProfundidadSubtareas int           `yaml:"profundidad_subtareas"`
-	MaxTareas            int           `yaml:"max_tareas"`
-	WorkspaceDir         string        `yaml:"workspace_dir"`
-	LogFile              string        `yaml:"log_file"`
-	LogNivel             string        `yaml:"log_level"`
-	LogConsola           bool          `yaml:"log_consola"`
-	LogMaxMB             int           `yaml:"log_max_mb"`
-	LogBackups           int           `yaml:"log_backups"`
-	ApagadoTimeout       time.Duration `yaml:"graceful_shutdown_timeout"`
-	Escalar              Escalar       `yaml:"escalar"`
+	MaxRetries      int           `yaml:"max_retries"`
+	SubtaskDepth    int           `yaml:"subtask_depth"`
+	MaxTasks        int           `yaml:"max_tasks"`
+	WorkspaceDir    string        `yaml:"workspace_dir"`
+	LogFile         string        `yaml:"log_file"`
+	LogLevel        string        `yaml:"log_level"`
+	LogConsole      bool          `yaml:"log_console"`
+	LogMaxMB        int           `yaml:"log_max_mb"`
+	LogBackups      int           `yaml:"log_backups"`
+	ShutdownTimeout time.Duration `yaml:"graceful_shutdown_timeout"`
+	OnFailure       OnFailure     `yaml:"on_failure"`
 }
 
 // ---------------------------------------------------------------------------
-// Valores por defecto
+// Default values
 // ---------------------------------------------------------------------------
 
-// Defecto devuelve una configuración completa y usable sin archivo YAML.
-func Defecto() Config {
+// Default returns a complete, usable configuration with no YAML file.
+func Default() Config {
 	return Config{
 		TaskSource: TaskSource{
-			Tipo:      "stdin",
-			Metodo:    "GET",
-			Campo:     "tarea",
-			Intervalo: 30 * time.Second,
+			Kind:     "stdin",
+			Method:   "GET",
+			Field:    "task",
+			Interval: 30 * time.Second,
 		},
 		Anchor: Anchor{
-			Tipo:    "none",
+			Kind:    "none",
 			Timeout: 120 * time.Second,
 		},
 		Sandbox: Sandbox{
-			Tipo:               "none",
-			Cgroups:            "auto",
-			CgroupRaiz:         "/sys/fs/cgroup",
-			MemoriaMB:          512,
-			CPUSegundos:        60,
-			Procesos:           128,
-			ArchivosAbiertos:   256,
-			TamanoMaxArchivoMB: 64,
-			Timeout:            300 * time.Second,
-			SalidaMaxKB:        256,
+			Kind:          "none",
+			Cgroups:       "auto",
+			CgroupRoot:    "/sys/fs/cgroup",
+			MemoryMB:      512,
+			CPUSeconds:    60,
+			Processes:     128,
+			OpenFiles:     256,
+			MaxFileSizeMB: 64,
+			Timeout:       300 * time.Second,
+			MaxOutputKB:   256,
 		},
 		LLM: LLM{
-			Proveedor:      "openai",
-			Modelo:         "gpt-4o-mini",
+			Provider:       "openai",
+			Model:          "gpt-4o-mini",
 			BaseURL:        "https://api.openai.com/v1",
 			MaxTokens:      2048,
 			Temperature:    0.2,
 			Timeout:        90 * time.Second,
-			MaxIntentos:    3,
-			BackoffInicial: time.Second,
+			MaxAttempts:    3,
+			BackoffInitial: time.Second,
 			BackoffMax:     30 * time.Second,
 		},
 		Prompts: Prompts{
-			Analyze: PlantillaBaseAnalyze,
-			Plan:    PlantillaBasePlan,
-			Execute: PlantillaBaseExecute,
+			Analyze: BaseAnalyzeTemplate,
+			Plan:    BasePlanTemplate,
+			Execute: BaseExecuteTemplate,
 		},
 		FinalAction: FinalAction{
-			Tipo:          "none",
-			Metodo:        "POST",
-			MensajeCommit: "agente: {{tarea}}",
+			Kind:          "none",
+			Method:        "POST",
+			CommitMessage: "agent: {{task}}",
 		},
 		Agent: Agent{
-			MaxReintentos:        3,
-			ProfundidadSubtareas: 1,
-			WorkspaceDir:         "./workspace",
-			LogNivel:             "info",
-			LogConsola:           true,
-			LogMaxMB:             5,
-			LogBackups:           3,
-			ApagadoTimeout:       15 * time.Second,
-			Escalar:              Escalar{Tipo: "none"},
+			MaxRetries:      3,
+			SubtaskDepth:    1,
+			WorkspaceDir:    "./workspace",
+			LogLevel:        "info",
+			LogConsole:      true,
+			LogMaxMB:        5,
+			LogBackups:      3,
+			ShutdownTimeout: 15 * time.Second,
+			OnFailure:       OnFailure{Kind: "none"},
 		},
 	}
 }
 
 // ---------------------------------------------------------------------------
-// Carga
+// Loading
 // ---------------------------------------------------------------------------
 
-// Cargar lee el YAML, aplica los valores por defecto que falten, superpone las
-// variables de entorno y valida el resultado, exigiendo la clave del LLM.
-func Cargar(ruta string) (Config, error) {
-	return cargar(ruta, true)
+// Load reads the YAML, applies the missing default values, overlays the
+// environment variables and validates the result, requiring the LLM key.
+func Load(path string) (Config, error) {
+	return load(path, true)
 }
 
-// CargarSinClave hace lo mismo pero sin exigir llm.api_key.
+// LoadWithoutKey does the same but without requiring llm.api_key.
 //
-// Existe para los modos que no llaman al LLM (-validar-config, -aislamiento):
-// ahí no tener clave es legítimo. Lo que NO es aceptable es que un archivo
-// inválido se sustituya en silencio por la configuración por defecto y se
-// informe "configuración válida": eso ocultaría precisamente el error que se
-// está intentando comprobar.
-func CargarSinClave(ruta string) (Config, error) {
-	return cargar(ruta, false)
+// It exists for the modes that do not call the LLM (-validar-config,
+// -aislamiento): there, not having a key is legitimate. What is NOT acceptable
+// is for an invalid file to be silently replaced by the default configuration
+// and then report "valid configuration": that would hide precisely the error
+// that is being checked.
+func LoadWithoutKey(path string) (Config, error) {
+	return load(path, false)
 }
 
-func cargar(ruta string, exigirClave bool) (Config, error) {
-	cfg := Defecto()
+func load(path string, requireKey bool) (Config, error) {
+	cfg := Default()
 
-	if ruta != "" {
-		datos, err := os.ReadFile(ruta)
+	if path != "" {
+		data, err := os.ReadFile(path)
 		if err != nil {
-			return cfg, fmt.Errorf("no se pudo leer la configuración %q: %w", ruta, err)
+			return cfg, fmt.Errorf("could not read the configuration %q: %w", path, err)
 		}
-		mapa, err := ParseYAML(datos)
+		m, err := ParseYAML(data)
 		if err != nil {
-			return cfg, fmt.Errorf("YAML inválido en %q: %w", ruta, err)
+			return cfg, fmt.Errorf("invalid YAML in %q: %w", path, err)
 		}
-		if err := Decodificar(mapa, &cfg); err != nil {
-			return cfg, fmt.Errorf("configuración inválida en %q: %w", ruta, err)
+		if err := Decode(m, &cfg); err != nil {
+			return cfg, fmt.Errorf("invalid configuration in %q: %w", path, err)
 		}
 	}
 
-	// Variables de entorno (ganan sobre el YAML) y compatibilidad con las
-	// variables estándar OPENAI_*.
-	if err := AplicarEntorno(&cfg); err != nil {
+	// Environment variables (they win over the YAML) and compatibility with the
+	// standard OPENAI_* variables.
+	if err := ApplyEnvironment(&cfg); err != nil {
 		return cfg, err
 	}
 	if v := os.Getenv("OPENAI_API_KEY"); cfg.LLM.APIKey == "" && v != "" {
 		cfg.LLM.APIKey = v
 	}
-	if v := os.Getenv("OPENAI_BASE_URL"); v != "" && os.Getenv("STARLIGHT_LLM_BASE_URL") == "" && cfg.LLM.BaseURL == Defecto().LLM.BaseURL {
+	if v := os.Getenv("OPENAI_BASE_URL"); v != "" && os.Getenv("STARLIGHT_LLM_BASE_URL") == "" && cfg.LLM.BaseURL == Default().LLM.BaseURL {
 		cfg.LLM.BaseURL = v
 	}
-	if v := os.Getenv("OPENAI_MODEL"); v != "" && os.Getenv("STARLIGHT_LLM_MODELO") == "" && cfg.LLM.Modelo == Defecto().LLM.Modelo {
-		cfg.LLM.Modelo = v
+	if v := os.Getenv("OPENAI_MODEL"); v != "" && os.Getenv("STARLIGHT_LLM_MODEL") == "" && cfg.LLM.Model == Default().LLM.Model {
+		cfg.LLM.Model = v
 	}
 
-	if err := cfg.validar(exigirClave); err != nil {
+	if err := cfg.validate(requireKey); err != nil {
 		return cfg, err
 	}
 	return cfg, nil
 }
 
-// Validar comprueba coherencia y rellena lo que se pueda deducir, exigiendo la
-// clave del LLM.
-func (c *Config) Validar() error { return c.validar(true) }
+// Validate checks coherence and fills in what can be deduced, requiring the
+// LLM key.
+func (c *Config) Validate() error { return c.validate(true) }
 
-// ValidarSinClave es igual pero tolera la ausencia de llm.api_key.
-func (c *Config) ValidarSinClave() error { return c.validar(false) }
+// ValidateWithoutKey is the same but tolerates the absence of llm.api_key.
+func (c *Config) ValidateWithoutKey() error { return c.validate(false) }
 
-// validar es el cuerpo común de Validar y ValidarSinClave.
-func (c *Config) validar(exigirClave bool) error {
-	c.TaskSource.Tipo = normalizar(c.TaskSource.Tipo)
-	c.Anchor.Tipo = normalizar(c.Anchor.Tipo)
-	c.Sandbox.Tipo = normalizar(c.Sandbox.Tipo)
-	c.LLM.Proveedor = normalizar(c.LLM.Proveedor)
-	c.FinalAction.Tipo = normalizar(c.FinalAction.Tipo)
-	c.Agent.LogNivel = normalizar(c.Agent.LogNivel)
+// validate is the body shared by Validate and ValidateWithoutKey.
+func (c *Config) validate(requireKey bool) error {
+	c.TaskSource.Kind = normalize(c.TaskSource.Kind)
+	c.Anchor.Kind = normalize(c.Anchor.Kind)
+	c.Sandbox.Kind = normalize(c.Sandbox.Kind)
+	c.LLM.Provider = normalize(c.LLM.Provider)
+	c.FinalAction.Kind = normalize(c.FinalAction.Kind)
+	c.Agent.LogLevel = normalize(c.Agent.LogLevel)
 
-	switch c.TaskSource.Tipo {
+	switch c.TaskSource.Kind {
 	case "stdin", "file", "api", "queue":
 	default:
-		return fmt.Errorf("task_source.tipo desconocido: %q (usa stdin, file, api o queue)", c.TaskSource.Tipo)
+		return fmt.Errorf("unknown task_source.kind: %q (use stdin, file, api or queue)", c.TaskSource.Kind)
 	}
-	if c.TaskSource.Tipo == "file" && c.TaskSource.Ruta == "" {
-		return fmt.Errorf("task_source.tipo=file requiere 'ruta'")
+	if c.TaskSource.Kind == "file" && c.TaskSource.Path == "" {
+		return fmt.Errorf("task_source.kind=file requires 'path'")
 	}
-	if c.TaskSource.Tipo == "queue" && c.TaskSource.Dir == "" {
-		return fmt.Errorf("task_source.tipo=queue requiere 'dir'")
+	if c.TaskSource.Kind == "queue" && c.TaskSource.Dir == "" {
+		return fmt.Errorf("task_source.kind=queue requires 'dir'")
 	}
-	if c.TaskSource.Tipo == "api" && c.TaskSource.URL == "" {
-		return fmt.Errorf("task_source.tipo=api requiere 'url'")
+	if c.TaskSource.Kind == "api" && c.TaskSource.URL == "" {
+		return fmt.Errorf("task_source.kind=api requires 'url'")
 	}
 
-	switch c.Anchor.Tipo {
+	switch c.Anchor.Kind {
 	case "none":
 	case "command":
-		if c.Anchor.Comando == "" {
-			return fmt.Errorf("anchor.tipo=command requiere 'comando'")
+		if c.Anchor.Command == "" {
+			return fmt.Errorf("anchor.kind=command requires 'command'")
 		}
 	default:
-		return fmt.Errorf("anchor.tipo desconocido: %q (usa command o none)", c.Anchor.Tipo)
+		return fmt.Errorf("unknown anchor.kind: %q (use command or none)", c.Anchor.Kind)
 	}
 
-	switch c.Sandbox.Tipo {
+	switch c.Sandbox.Kind {
 	case "none", "chroot", "cgroups":
 	default:
-		return fmt.Errorf("sandbox.tipo desconocido: %q (usa none, chroot o cgroups)", c.Sandbox.Tipo)
+		return fmt.Errorf("unknown sandbox.kind: %q (use none, chroot or cgroups)", c.Sandbox.Kind)
 	}
-	if c.Sandbox.Tipo == "chroot" && c.Sandbox.Raiz == "" {
-		return fmt.Errorf("sandbox.tipo=chroot requiere 'raiz' (directorio raíz del chroot)")
+	if c.Sandbox.Kind == "chroot" && c.Sandbox.Root == "" {
+		return fmt.Errorf("sandbox.kind=chroot requires 'root' (the chroot root directory)")
 	}
 	switch c.Sandbox.Cgroups {
 	case "", "auto", "on", "off":
 	default:
-		return fmt.Errorf("sandbox.cgroups desconocido: %q (usa auto, on u off)", c.Sandbox.Cgroups)
+		return fmt.Errorf("unknown sandbox.cgroups: %q (use auto, on or off)", c.Sandbox.Cgroups)
 	}
-	if c.Sandbox.Usuario != "" {
-		if _, _, err := ParsearUsuario(c.Sandbox.Usuario); err != nil {
+	if c.Sandbox.User != "" {
+		if _, _, err := ParseUser(c.Sandbox.User); err != nil {
 			return err
 		}
 	}
 
-	switch c.LLM.Proveedor {
+	switch c.LLM.Provider {
 	case "openai", "anthropic", "gemini":
 	default:
-		return fmt.Errorf("llm.proveedor desconocido: %q (usa openai, anthropic o gemini)", c.LLM.Proveedor)
+		return fmt.Errorf("unknown llm.provider: %q (use openai, anthropic or gemini)", c.LLM.Provider)
 	}
-	if c.LLM.Modelo == "" {
-		return fmt.Errorf("llm.modelo no puede estar vacío")
+	if c.LLM.Model == "" {
+		return fmt.Errorf("llm.model cannot be empty")
 	}
-	if exigirClave && c.LLM.APIKey == "" {
-		return fmt.Errorf("falta la clave del LLM: define llm.api_key en el YAML o STARLIGHT_LLM_API_KEY (o OPENAI_API_KEY)")
+	if requireKey && c.LLM.APIKey == "" {
+		return fmt.Errorf("the LLM key is missing: set llm.api_key in the YAML or STARLIGHT_LLM_API_KEY (or OPENAI_API_KEY)")
 	}
-	if c.LLM.MaxIntentos < 1 {
-		return fmt.Errorf("llm.max_intentos debe ser >= 1")
+	if c.LLM.MaxAttempts < 1 {
+		return fmt.Errorf("llm.max_attempts must be >= 1")
 	}
-	if c.LLM.BackoffInicial <= 0 {
-		return fmt.Errorf("llm.backoff_inicial debe ser mayor que cero")
+	if c.LLM.BackoffInitial <= 0 {
+		return fmt.Errorf("llm.backoff_initial must be greater than zero")
 	}
-	if c.LLM.BackoffMax < c.LLM.BackoffInicial {
-		return fmt.Errorf("llm.backoff_max no puede ser menor que llm.backoff_inicial")
+	if c.LLM.BackoffMax < c.LLM.BackoffInitial {
+		return fmt.Errorf("llm.backoff_max cannot be smaller than llm.backoff_initial")
 	}
 
-	switch c.FinalAction.Tipo {
+	switch c.FinalAction.Kind {
 	case "none", "command":
 	case "api":
 		if c.FinalAction.URL == "" {
-			return fmt.Errorf("final_action.tipo=api requiere 'url'")
+			return fmt.Errorf("final_action.kind=api requires 'url'")
 		}
 	case "git_commit":
 	default:
-		return fmt.Errorf("final_action.tipo desconocido: %q (usa none, command, api o git_commit)", c.FinalAction.Tipo)
+		return fmt.Errorf("unknown final_action.kind: %q (use none, command, api or git_commit)", c.FinalAction.Kind)
 	}
 
-	if c.Agent.MaxReintentos < 0 {
-		return fmt.Errorf("agent.max_reintentos no puede ser negativo")
+	if c.Agent.MaxRetries < 0 {
+		return fmt.Errorf("agent.max_retries cannot be negative")
 	}
 	if c.Agent.WorkspaceDir == "" {
-		c.Agent.WorkspaceDir = Defecto().Agent.WorkspaceDir
+		c.Agent.WorkspaceDir = Default().Agent.WorkspaceDir
 	}
-	switch c.Agent.LogNivel {
+	switch c.Agent.LogLevel {
 	case "debug", "info", "warn", "error":
 	default:
-		return fmt.Errorf("agent.log_level desconocido: %q (usa debug, info, warn o error)", c.Agent.LogNivel)
+		return fmt.Errorf("unknown agent.log_level: %q (use debug, info, warn or error)", c.Agent.LogLevel)
 	}
 	if c.Agent.LogBackups < 0 {
-		return fmt.Errorf("agent.log_backups no puede ser negativo")
+		return fmt.Errorf("agent.log_backups cannot be negative")
 	}
-	if c.Agent.Escalar.Tipo == "" {
-		c.Agent.Escalar.Tipo = "none"
+	if c.Agent.OnFailure.Kind == "" {
+		c.Agent.OnFailure.Kind = "none"
 	}
-	if c.Agent.Escalar.Tipo != "none" && c.Agent.Escalar.Tipo != "command" {
-		return fmt.Errorf("agent.escalar.tipo desconocido: %q (usa none o command)", c.Agent.Escalar.Tipo)
+	if c.Agent.OnFailure.Kind != "none" && c.Agent.OnFailure.Kind != "command" {
+		return fmt.Errorf("unknown agent.on_failure.kind: %q (use none or command)", c.Agent.OnFailure.Kind)
 	}
 	return nil
 }
 
-func normalizar(s string) string {
+func normalize(s string) string {
 	return strings.ToLower(strings.TrimSpace(s))
 }
 
-// ParsearUsuario interpreta "uid:gid" (también acepta sólo "uid").
-func ParsearUsuario(s string) (uid, gid int, err error) {
-	partes := strings.Split(strings.TrimSpace(s), ":")
-	if len(partes) > 2 || partes[0] == "" {
-		return 0, 0, fmt.Errorf("sandbox.usuario debe tener el formato uid:gid, se recibió %q", s)
+// ParseUser interprets "uid:gid" (it also accepts just "uid").
+func ParseUser(s string) (uid, gid int, err error) {
+	parts := strings.Split(strings.TrimSpace(s), ":")
+	if len(parts) > 2 || parts[0] == "" {
+		return 0, 0, fmt.Errorf("sandbox.user must have the uid:gid format, got %q", s)
 	}
-	uid, err = parseEntero(partes[0])
+	uid, err = parseInteger(parts[0])
 	if err != nil {
-		return 0, 0, fmt.Errorf("sandbox.usuario: uid inválido en %q: %w", s, err)
+		return 0, 0, fmt.Errorf("sandbox.user: invalid uid in %q: %w", s, err)
 	}
 	gid = uid
-	if len(partes) == 2 {
-		gid, err = parseEntero(partes[1])
+	if len(parts) == 2 {
+		gid, err = parseInteger(parts[1])
 		if err != nil {
-			return 0, 0, fmt.Errorf("sandbox.usuario: gid inválido en %q: %w", s, err)
+			return 0, 0, fmt.Errorf("sandbox.user: invalid gid in %q: %w", s, err)
 		}
 	}
 	return uid, gid, nil
 }
 
-func parseEntero(s string) (int, error) {
+func parseInteger(s string) (int, error) {
 	var n int
 	_, err := fmt.Sscanf(strings.TrimSpace(s), "%d", &n)
 	if err != nil {
-		return 0, fmt.Errorf("%q no es un número", s)
+		return 0, fmt.Errorf("%q is not a number", s)
 	}
 	return n, nil
 }

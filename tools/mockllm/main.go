@@ -1,20 +1,21 @@
-// Command mockllm es un LLM simulado para las pruebas de extremo a extremo.
+// Command mockllm is a simulated LLM for the end-to-end tests.
 //
-// Se comporta como un modelo que primero se equivoca y luego corrige:
+// It behaves like a model that gets it wrong first and then corrects itself:
 //
-//	Análisis  -> siempre comprensible, sin subtareas
-//	Plan      -> un paso
-//	Ejecución -> intento 1: escribe contenido INVÁLIDO (el ancla debe fallar)
-//	             intento 2: escribe contenido-válido (el ancla debe pasar)
+//	Analysis  -> always understandable, no subtasks
+//	Plan      -> one step
+//	Execution -> attempt 1: writes INVALID content (the anchor must fail)
+//	             attempt 2: writes valid-content (the anchor must pass)
 //
-// Está en Go puro y se compila para linux/386, así que corre dentro del mismo
-// contenedor de 32 bits que el agente: la prueba no necesita red externa ni
-// claves. Implementa los tres dialectos (openai, anthropic, gemini) para poder
-// probar cualquiera de ellos.
+// It is pure Go and cross-compiled for linux/386, so it runs inside the same
+// 32-bit container as the agent: the test needs no external network and no keys.
+// It implements the three dialects (openai, anthropic, gemini) so any of them can
+// be exercised.
 package main
 
 import (
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -27,127 +28,144 @@ import (
 )
 
 var (
-	intentosEjecucion int32
+	executionAttempts int32
 )
 
-// fase deduce en qué parte del flujo está el agente a partir del prompt recibido.
-func fase(texto string) string {
+// phase works out which part of the flow the agent is in from the prompt it
+// received.
+func phase(text string) string {
 	switch {
-	case strings.Contains(texto, "ANÁLISIS DE LA TAREA") || strings.Contains(texto, "criterios_exito"):
+	case strings.Contains(text, "## ANALYSIS OF THE TASK") || strings.Contains(text, "success_criteria"):
 		return "analyze"
-	case strings.Contains(texto, "PLAN DE ACCIÓN") || strings.Contains(texto, "resultado_esperado"):
+	case strings.Contains(text, "## ACTION PLAN") || strings.Contains(text, "expected_result"):
 		return "plan"
-	case strings.Contains(texto, "## ACCIÓN") || strings.Contains(texto, "razonamiento"):
+	case strings.Contains(text, "## ACTION") || strings.Contains(text, "reasoning"):
 		return "execute"
 	default:
-		return "desconocida"
+		return "unknown"
 	}
 }
 
-// contenidoJSON devuelve el JSON que el "modelo" pondría en la respuesta.
-func contenidoJSON(f string, n int) string {
-	switch f {
+// contentJSON returns the JSON the "model" would put in the response.
+func contentJSON(phaseName string, n int) string {
+	switch phaseName {
 	case "analyze":
-		return `{"comprensible":true,"resumen":"dejar el informe con el contenido pedido","criterios_exito":["informe.txt contiene contenido-valido"],"riesgos":[],"necesita_subtareas":false}`
+		return `{"understandable":true,"summary":"leave the report with the requested content","success_criteria":["report.txt holds content-valid"],"risks":[],"needs_subtasks":false}`
 	case "plan":
-		return `{"plan":[{"paso":1,"accion":"escribir el informe","comando":"escribir informe.txt"}],"subtareas":[],"resultado_esperado":"informe.txt con contenido-valido"}`
+		return `{"plan":[{"step":1,"action":"write the report","command":"write report.txt"}],"subtasks":[],"expected_result":"report.txt with content-valid"}`
 	default:
-		// El primer intento de ejecución se equivoca a propósito.
-		comando := `printf 'contenido-incorrecto' > informe.txt`
+		// The first execution attempt gets it wrong on purpose.
+		command := `printf 'content-invalid' > report.txt`
 		if n >= 2 {
-			comando = `printf 'contenido-valido' > informe.txt`
+			command = `printf 'content-valid' > report.txt`
 		}
-		salida := map[string]any{
-			"razonamiento": fmt.Sprintf("intento %d", n),
-			"acciones": []map[string]string{
-				{"tipo": "comando", "descripcion": "escribir el informe", "comando": comando},
+		response := map[string]any{
+			"reasoning": fmt.Sprintf("attempt %d", n),
+			"actions": []map[string]string{
+				{"kind": "command", "description": "write the report", "command": command},
 			},
-			"accion_final": map[string]string{"descripcion": "notificar", "comando": ""},
+			"final_action": map[string]string{"description": "notify", "command": ""},
 		}
-		datos, _ := json.Marshal(salida)
-		return string(datos)
+		data, _ := json.Marshal(response)
+		return string(data)
 	}
 }
 
-func responder(w http.ResponseWriter, dialecto, contenido string) {
+func respond(w http.ResponseWriter, dialect, content string) {
 	w.Header().Set("Content-Type", "application/json")
-	switch dialecto {
+	switch dialect {
 	case "anthropic":
 		json.NewEncoder(w).Encode(map[string]any{
-			"content": []map[string]string{{"type": "text", "text": contenido}},
+			"content": []map[string]string{{"type": "text", "text": content}},
 		})
 	case "gemini":
 		json.NewEncoder(w).Encode(map[string]any{
 			"candidates": []any{map[string]any{
-				"content":      map[string]any{"parts": []map[string]string{{"text": contenido}}},
+				"content":      map[string]any{"parts": []map[string]string{{"text": content}}},
 				"finishReason": "STOP",
 			}},
 		})
 	default:
 		json.NewEncoder(w).Encode(map[string]any{
 			"choices": []any{map[string]any{
-				"message":       map[string]string{"role": "assistant", "content": contenido},
+				"message":       map[string]string{"role": "assistant", "content": content},
 				"finish_reason": "stop",
 			}},
 		})
 	}
 }
 
-func manejar(w http.ResponseWriter, r *http.Request) {
+func handle(w http.ResponseWriter, r *http.Request) {
 	if r.URL.Path == "/healthz" {
 		fmt.Fprint(w, "ok")
 		return
 	}
 
-	cuerpo, _ := io.ReadAll(io.LimitReader(r.Body, 4<<20))
-	texto := string(cuerpo)
-	f := fase(texto)
+	body, _ := io.ReadAll(io.LimitReader(r.Body, 4<<20))
+	text := string(body)
+	f := phase(text)
 
-	dialecto := "openai"
+	dialect := "openai"
 	switch {
 	case strings.Contains(r.URL.Path, "messages"):
-		dialecto = "anthropic"
+		dialect = "anthropic"
 	case strings.Contains(r.URL.Path, "generateContent"):
-		dialecto = "gemini"
+		dialect = "gemini"
 	}
 
-	n := int(atomic.LoadInt32(&intentosEjecucion))
+	n := int(atomic.LoadInt32(&executionAttempts))
 	if f == "execute" {
-		n = int(atomic.AddInt32(&intentosEjecucion, 1))
+		n = int(atomic.AddInt32(&executionAttempts, 1))
 	}
-	log.Printf("fase=%s dialecto=%s intento_ejecucion=%d bytes_prompt=%d", f, dialecto, n, len(texto))
+	log.Printf("phase=%s dialect=%s execution_attempt=%d prompt_bytes=%d", f, dialect, n, len(text))
 
-	if m := dialogoDePrueba(texto); m != "" {
-		// La configuración puede pedir respuestas fijas (no se usa aquí).
-		responder(w, dialecto, m)
+	if msg := scriptedReply(text); msg != "" {
+		// The configuration may ask for fixed replies (not used here).
+		respond(w, dialect, msg)
 		return
 	}
-	responder(w, dialecto, contenidoJSON(f, n))
+	respond(w, dialect, contentJSON(f, n))
 }
 
-// dialogoDePrueba permite respuestas fijas vía el prompt, usado por otras
-// pruebas del repositorio.
-func dialogoDePrueba(texto string) string {
-	const marca = "RESPONDER_CON:"
-	if i := strings.Index(texto, marca); i >= 0 {
-		return strings.TrimSpace(texto[i+len(marca):])
+// scriptedReply allows fixed replies through the prompt, used by other tests in
+// the repository.
+func scriptedReply(text string) string {
+	const marker = "RESPOND_WITH:"
+	if i := strings.Index(text, marker); i >= 0 {
+		return strings.TrimSpace(text[i+len(marker):])
 	}
 	return ""
 }
 
-func main() {
-	puerto := flag.Int("puerto", 8210, "puerto de escucha")
-	host := flag.String("host", "0.0.0.0", "interfaz")
-	flag.Parse()
+// listenAndServe is replaceable so the bootstrap can be tested: the real one
+// blocks until the server is stopped, which cannot be observed from a test. The
+// environment marker lets a test make the bind fail on purpose.
+var listenAndServe = func(srv *http.Server) error {
+	if os.Getenv("MOCKLLM_FORCE_LISTEN_FAILURE") == "1" {
+		return errors.New("forced listen failure for the test")
+	}
+	return srv.ListenAndServe()
+}
 
+// mainBody is the real bootstrap, separated so a test can call it with the server
+// replaced (the real one blocks until stopped).
+func mainBody(port *int, host *string, exit func(int)) {
 	srv := &http.Server{
-		Addr:              fmt.Sprintf("%s:%d", *host, *puerto),
-		Handler:           http.HandlerFunc(manejar),
+		Addr:              fmt.Sprintf("%s:%d", *host, *port),
+		Handler:           http.HandlerFunc(handle),
 		ReadHeaderTimeout: 10 * time.Second,
 	}
-	fmt.Fprintf(os.Stderr, "mockllm escuchando en http://%s:%d/v1\n", *host, *puerto)
-	if err := srv.ListenAndServe(); err != nil {
+	fmt.Fprintf(os.Stderr, "mockllm listening on http://%s:%d/v1\n", *host, *port)
+	if err := listenAndServe(srv); err != nil {
 		fmt.Fprintln(os.Stderr, "error:", err)
-		os.Exit(1)
+		exit(1)
 	}
+}
+
+func main() {
+	port := flag.Int("port", 8210, "listening port")
+	host := flag.String("host", "0.0.0.0", "interface")
+	flag.Parse()
+
+	mainBody(port, host, os.Exit)
 }

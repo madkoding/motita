@@ -9,207 +9,207 @@ import (
 	"testing"
 )
 
-// TestRegistroEsJSONLineas: cada línea debe ser un objeto JSON parseable, que es
-// lo que permite consumirlo con jq o un colector.
-func TestRegistroEsJSONLineas(t *testing.T) {
-	ruta := filepath.Join(t.TempDir(), "agente.log")
-	l, err := Nuevo(Opciones{Ruta: ruta, Nivel: Debug, Consola: false, MaxMB: 10, Backups: 2})
+// TestLogIsJSONLines: every line must be a parseable JSON object, which is what
+// makes it consumable with jq or a collector.
+func TestLogIsJSONLines(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "agent.log")
+	l, err := New(Options{Path: path, Level: Debug, Console: false, MaxMB: 10, Backups: 2})
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	l.Debug("arrancando", "modelo", "gpt")
-	l.Info("tarea recibida", "descripcion", "algo", "intento", 1)
-	l.Warn("cuidado", "detalle", "x")
-	l.Error("falló", "error", os.ErrNotExist)
-	if err := l.Cerrar(); err != nil {
+	l.Debug("starting", "model", "gpt")
+	l.Info("task received", "description", "something", "attempt", 1)
+	l.Warn("careful", "detail", "x")
+	l.Error("it failed", "error", os.ErrNotExist)
+	if err := l.Close(); err != nil {
 		t.Fatal(err)
 	}
 
-	lineas := leerLineas(t, ruta)
-	if len(lineas) != 4 {
-		t.Fatalf("se esperaban 4 líneas, hay %d", len(lineas))
+	lines := readLines(t, path)
+	if len(lines) != 4 {
+		t.Fatalf("expected 4 lines, got %d", len(lines))
 	}
-	for i, linea := range lineas {
-		var evento map[string]any
-		if err := json.Unmarshal([]byte(linea), &evento); err != nil {
-			t.Fatalf("línea %d no es JSON: %v (%q)", i, err, linea)
+	for i, line := range lines {
+		var event map[string]any
+		if err := json.Unmarshal([]byte(line), &event); err != nil {
+			t.Fatalf("line %d is not JSON: %v (%q)", i, err, line)
 		}
-		for _, campo := range []string{"ts", "nivel", "msg"} {
-			if _, ok := evento[campo]; !ok {
-				t.Errorf("línea %d sin el campo %q: %s", i, campo, linea)
+		for _, field := range []string{"ts", "level", "msg"} {
+			if _, ok := event[field]; !ok {
+				t.Errorf("line %d has no %q field: %s", i, field, line)
 			}
 		}
 	}
 
-	var primero map[string]any
-	json.Unmarshal([]byte(lineas[0]), &primero)
-	if primero["nivel"] != "debug" {
-		t.Errorf("nivel = %v", primero["nivel"])
+	var first map[string]any
+	json.Unmarshal([]byte(lines[0]), &first)
+	if first["level"] != "debug" {
+		t.Errorf("level = %v", first["level"])
 	}
 
-	// Un error debe serializarse como texto, no romper el JSON.
-	var cuarto map[string]any
-	json.Unmarshal([]byte(lineas[3]), &cuarto)
-	if _, ok := cuarto["error"].(string); !ok {
-		t.Errorf("el error debe guardarse como texto: %#v", cuarto["error"])
-	}
-}
-
-// TestNivelFiltra: registrar en debug no debe aparecer cuando el nivel es info.
-func TestNivelFiltra(t *testing.T) {
-	ruta := filepath.Join(t.TempDir(), "filtrado.log")
-	l, _ := Nuevo(Opciones{Ruta: ruta, Nivel: Info, Consola: false})
-	l.Debug("no debe aparecer")
-	l.Info("sí debe aparecer")
-	l.Cerrar()
-
-	lineas := leerLineas(t, ruta)
-	if len(lineas) != 1 {
-		t.Fatalf("líneas = %d", len(lineas))
-	}
-	if !strings.Contains(lineas[0], "sí debe aparecer") {
-		t.Errorf("línea = %s", lineas[0])
+	// An error must be serialised as text, not break the JSON.
+	var fourth map[string]any
+	json.Unmarshal([]byte(lines[3]), &fourth)
+	if _, ok := fourth["error"].(string); !ok {
+		t.Errorf("the error must be stored as text: %#v", fourth["error"])
 	}
 }
 
-// TestRotacionPorTamano: al superar el límite, el archivo se rota y se conservan
-// los backups indicados, sin perder registros por el camino.
-func TestRotacionPorTamano(t *testing.T) {
+// TestLevelFilters: logging at debug must not appear when the level is info.
+func TestLevelFilters(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "filtered.log")
+	l, _ := New(Options{Path: path, Level: Info, Console: false})
+	l.Debug("must not appear")
+	l.Info("must appear")
+	l.Close()
+
+	lines := readLines(t, path)
+	if len(lines) != 1 {
+		t.Fatalf("lines = %d", len(lines))
+	}
+	if !strings.Contains(lines[0], "must appear") {
+		t.Errorf("line = %s", lines[0])
+	}
+}
+
+// TestRotationBySize: once the limit is exceeded the file rotates and the
+// configured backups are kept, without losing records along the way.
+func TestRotationBySize(t *testing.T) {
 	dir := t.TempDir()
-	ruta := filepath.Join(dir, "rotativo.log")
+	path := filepath.Join(dir, "rotating.log")
 
-	// MaxMB en 0 desactivaría la rotación; se usa un tamaño diminuto simulando
-	// el límite directamente.
-	l, err := Nuevo(Opciones{Ruta: ruta, Nivel: Info, Consola: false, MaxMB: 1, Backups: 2})
+	// MaxMB of 0 would disable rotation; a tiny size is used by setting the
+	// limit directly.
+	l, err := New(Options{Path: path, Level: Info, Console: false, MaxMB: 1, Backups: 2})
 	if err != nil {
 		t.Fatal(err)
 	}
-	l.maxByte = 2048 // límite pequeño para la prueba
+	l.maxByte = 2048 // small limit for the test
 
 	for i := 0; i < 200; i++ {
-		l.Info("mensaje de relleno para forzar la rotación", "i", i, "relleno", strings.Repeat("x", 100))
+		l.Info("padding message to force rotation", "i", i, "padding", strings.Repeat("x", 100))
 	}
-	l.Cerrar()
+	l.Close()
 
-	rotados := l.ArchivosRotados()
-	if len(rotados) == 0 {
-		t.Fatal("no se rotó el archivo")
+	rotated := l.RotatedFiles()
+	if len(rotated) == 0 {
+		t.Fatal("the file did not rotate")
 	}
-	if len(rotados) > 2 {
-		t.Errorf("se conservan más backups de los configurados: %v", rotados)
+	if len(rotated) > 2 {
+		t.Errorf("more backups are kept than configured: %v", rotated)
 	}
-	// El archivo actual y los backups deben ser JSON válido.
-	for _, r := range append([]string{ruta}, rotados...) {
-		for i, linea := range leerLineas(t, r) {
-			var evento map[string]any
-			if err := json.Unmarshal([]byte(linea), &evento); err != nil {
-				t.Errorf("%s línea %d ilegible: %v", r, i, err)
+	// The current file and the backups must be valid JSON.
+	for _, r := range append([]string{path}, rotated...) {
+		for i, line := range readLines(t, r) {
+			var event map[string]any
+			if err := json.Unmarshal([]byte(line), &event); err != nil {
+				t.Errorf("%s line %d is unreadable: %v", r, i, err)
 			}
 		}
 	}
 }
 
-// TestSinRotacionCuandoNoHaceFalta: no debe crear backups si no se llena.
-func TestSinRotacionCuandoNoHaceFalta(t *testing.T) {
-	ruta := filepath.Join(t.TempDir(), "pequeno.log")
-	l, _ := Nuevo(Opciones{Ruta: ruta, Nivel: Info, Consola: false, MaxMB: 10, Backups: 3})
-	l.Info("una sola línea")
-	l.Cerrar()
+// TestNoRotationWhenNotNeeded: it must not create backups if it never fills up.
+func TestNoRotationWhenNotNeeded(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "small.log")
+	l, _ := New(Options{Path: path, Level: Info, Console: false, MaxMB: 10, Backups: 3})
+	l.Info("a single line")
+	l.Close()
 
-	if rotados := l.ArchivosRotados(); len(rotados) != 0 {
-		t.Errorf("no debería haber rotado: %v", rotados)
+	if rotated := l.RotatedFiles(); len(rotated) != 0 {
+		t.Errorf("it should not have rotated: %v", rotated)
 	}
 }
 
-// TestNivelInvalido: un nivel mal escrito se detecta.
-func TestNivelInvalido(t *testing.T) {
-	if _, err := ParsearNivel("verboso"); err == nil {
-		t.Fatal("se esperaba un error")
+// TestInvalidLevel: a misspelled level is detected.
+func TestInvalidLevel(t *testing.T) {
+	if _, err := ParseLevel("verbose"); err == nil {
+		t.Fatal("an error was expected")
 	}
-	if n, err := ParsearNivel("WARN"); err != nil || n != Warn {
+	if n, err := ParseLevel("WARN"); err != nil || n != Warn {
 		t.Errorf("WARN -> %v %v", n, err)
 	}
-	if n, err := ParsearNivel(""); err != nil || n != Info {
-		t.Errorf("vacío debe ser info: %v %v", n, err)
+	if n, err := ParseLevel(""); err != nil || n != Info {
+		t.Errorf("empty must be info: %v %v", n, err)
 	}
 }
 
-// TestSoloConsola: sin archivo, el registro no falla y escribe en la salida.
-func TestSoloConsola(t *testing.T) {
+// TestConsoleOnly: without a file the log does not fail and writes to the output.
+func TestConsoleOnly(t *testing.T) {
 	var sb strings.Builder
-	l, err := Nuevo(Opciones{Nivel: Info, Consola: true})
+	l, err := New(Options{Level: Info, Console: true})
 	if err != nil {
 		t.Fatal(err)
 	}
-	l.salida = &sb
-	l.Info("sólo consola")
-	if !strings.Contains(sb.String(), "sólo consola") {
-		t.Errorf("salida = %q", sb.String())
+	l.out = &sb
+	l.Info("console only")
+	if !strings.Contains(sb.String(), "console only") {
+		t.Errorf("output = %q", sb.String())
 	}
-	if err := l.Cerrar(); err != nil {
-		t.Errorf("cerrar sin archivo no debe fallar: %v", err)
+	if err := l.Close(); err != nil {
+		t.Errorf("closing without a file must not fail: %v", err)
 	}
 }
 
-// TestConcurrencia: el registro se usa desde varias goroutines (el bucle del
-// agente y el apagado), así que debe ser seguro.
-func TestConcurrencia(t *testing.T) {
-	ruta := filepath.Join(t.TempDir(), "concurrente.log")
-	l, _ := Nuevo(Opciones{Ruta: ruta, Nivel: Info, Consola: false})
+// TestConcurrency: the log is used from several goroutines (the agent's loop and
+// shutdown), so it must be safe.
+func TestConcurrency(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "concurrent.log")
+	l, _ := New(Options{Path: path, Level: Info, Console: false})
 
-	hecho := make(chan struct{})
+	done := make(chan struct{})
 	for i := 0; i < 8; i++ {
 		go func(n int) {
 			for j := 0; j < 50; j++ {
-				l.Info("desde goroutine", "g", n, "j", j)
+				l.Info("from goroutine", "g", n, "j", j)
 			}
-			hecho <- struct{}{}
+			done <- struct{}{}
 		}(i)
 	}
 	for i := 0; i < 8; i++ {
-		<-hecho
+		<-done
 	}
-	l.Cerrar()
+	l.Close()
 
-	lineas := leerLineas(t, ruta)
-	if len(lineas) != 400 {
-		t.Errorf("líneas = %d, se esperaban 400 (¿se perdieron registros?)", len(lineas))
+	lines := readLines(t, path)
+	if len(lines) != 400 {
+		t.Errorf("lines = %d, expected 400 (were records lost?)", len(lines))
 	}
-	for i, linea := range lineas {
-		var evento map[string]any
-		if err := json.Unmarshal([]byte(linea), &evento); err != nil {
-			t.Fatalf("línea %d corrupta (escritura concurrente): %v", i, err)
+	for i, line := range lines {
+		var event map[string]any
+		if err := json.Unmarshal([]byte(line), &event); err != nil {
+			t.Fatalf("line %d is corrupt (concurrent write): %v", i, err)
 		}
 	}
 }
 
-// TestRutaNoEscritible: un directorio imposible debe dar un error claro al
-// construir el logger, no un registro silencioso.
-func TestRutaNoEscritible(t *testing.T) {
+// TestUnwritablePath: an impossible directory must give a clear error when the
+// logger is built, not a silent log.
+func TestUnwritablePath(t *testing.T) {
 	if os.Geteuid() == 0 {
-		t.Skip("como root casi todo es escribible")
+		t.Skip("as root almost everything is writable")
 	}
-	if _, err := Nuevo(Opciones{Ruta: "/proc/1/no-se-puede/registro.log", Nivel: Info}); err == nil {
-		t.Fatal("se esperaba un error al abrir una ruta imposible")
+	if _, err := New(Options{Path: "/proc/1/you-cannot/log.log", Level: Info}); err == nil {
+		t.Fatal("an error was expected when opening an impossible path")
 	}
 }
 
-func leerLineas(t *testing.T, ruta string) []string {
+func readLines(t *testing.T, path string) []string {
 	t.Helper()
-	f, err := os.Open(ruta)
+	f, err := os.Open(path)
 	if err != nil {
-		t.Fatalf("no se pudo abrir %s: %v", ruta, err)
+		t.Fatalf("could not open %s: %v", path, err)
 	}
 	defer f.Close()
 
-	var lineas []string
+	var lines []string
 	sc := bufio.NewScanner(f)
 	sc.Buffer(make([]byte, 1024*1024), 1024*1024)
 	for sc.Scan() {
 		if strings.TrimSpace(sc.Text()) != "" {
-			lineas = append(lineas, sc.Text())
+			lines = append(lines, sc.Text())
 		}
 	}
-	return lineas
+	return lines
 }

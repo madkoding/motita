@@ -13,7 +13,7 @@ import (
 )
 
 func init() {
-	// Sin colores ANSI en las pruebas: la salida es más legible.
+	// No ANSI colours in the tests: the output is more readable.
 	colorEnabled = false
 }
 
@@ -21,297 +21,296 @@ func args(t *testing.T, v any) json.RawMessage {
 	t.Helper()
 	raw, err := json.Marshal(v)
 	if err != nil {
-		t.Fatalf("no se pudo serializar los argumentos: %v", err)
+		t.Fatalf("could not serialise the arguments: %v", err)
 	}
 	return raw
 }
 
-// --- Herramientas -----------------------------------------------------------
+// --- Tools ------------------------------------------------------------------
 
-func TestLeerArchivo(t *testing.T) {
-	ruta := filepath.Join(t.TempDir(), "nota.txt")
-	contenido := "hola starlight\n"
-	if err := os.WriteFile(ruta, []byte(contenido), 0o644); err != nil {
+func TestReadFile(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "note.txt")
+	content := "hello starlight\n"
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
-	if got := herramientaLeerArchivo(args(t, leerArchivoArgs{Ruta: ruta})); got != contenido {
-		t.Fatalf("contenido = %q, se esperaba %q", got, contenido)
+	if got := toolReadFile(args(t, readFileArgs{Path: path})); got != content {
+		t.Fatalf("content = %q, expected %q", got, content)
 	}
 
-	if got := herramientaLeerArchivo(args(t, leerArchivoArgs{})); !strings.Contains(got, "falta el parámetro 'ruta'") {
-		t.Fatalf("sin ruta se esperaba un error, se obtuvo %q", got)
+	if got := toolReadFile(args(t, readFileArgs{})); !strings.Contains(got, "the 'path' parameter is missing") {
+		t.Fatalf("without a path an error was expected, got %q", got)
 	}
 
-	if got := herramientaLeerArchivo(args(t, leerArchivoArgs{Ruta: ruta + ".inexistente"})); !strings.Contains(got, "Error al acceder al archivo") {
-		t.Fatalf("archivo inexistente: se obtuvo %q", got)
+	if got := toolReadFile(args(t, readFileArgs{Path: path + ".missing"})); !strings.Contains(got, "Error accessing the file") {
+		t.Fatalf("missing file: got %q", got)
 	}
 
-	if got := herramientaLeerArchivo(args(t, leerArchivoArgs{Ruta: t.TempDir()})); !strings.Contains(got, "es un directorio") {
-		t.Fatalf("directorio: se obtuvo %q", got)
+	if got := toolReadFile(args(t, readFileArgs{Path: t.TempDir()})); !strings.Contains(got, "is a directory") {
+		t.Fatalf("directory: got %q", got)
 	}
 }
 
-func TestLeerArchivoRechazaGrande(t *testing.T) {
-	ruta := filepath.Join(t.TempDir(), "grande.bin")
-	// Un byte por encima del límite permitido.
-	if err := os.WriteFile(ruta, make([]byte, maxFileBytes+1), 0o644); err != nil {
+func TestReadFileRejectsLargeFile(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "big.bin")
+	// One byte above the allowed limit.
+	if err := os.WriteFile(path, make([]byte, maxFileBytes+1), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
-	got := herramientaLeerArchivo(args(t, leerArchivoArgs{Ruta: ruta}))
-	if !strings.Contains(got, "supera el límite") {
-		t.Fatalf("se esperaba rechazo por tamaño, se obtuvo %q", got)
+	got := toolReadFile(args(t, readFileArgs{Path: path}))
+	if !strings.Contains(got, "exceeds the") {
+		t.Fatalf("a size rejection was expected, got %q", got)
 	}
 }
 
-func TestEjecutarComando(t *testing.T) {
-	got := herramientaEjecutarComando(args(t, ejecutarComandoArgs{Cmd: "echo starlight-ok"}))
+func TestRunCommand(t *testing.T) {
+	got := toolRunCommand(args(t, runCommandArgs{Cmd: "echo starlight-ok"}))
 	if strings.TrimSpace(got) != "starlight-ok" {
-		t.Fatalf("salida = %q", got)
+		t.Fatalf("output = %q", got)
 	}
 
-	// Pipes y redirecciones deben funcionar (sh -c).
-	got = herramientaEjecutarComando(args(t, ejecutarComandoArgs{Cmd: "printf 'a\\nb\\n' | wc -l"}))
+	// Pipes and redirections must work (sh -c).
+	got = toolRunCommand(args(t, runCommandArgs{Cmd: "printf 'a\\nb\\n' | wc -l"}))
 	if strings.TrimSpace(got) != "2" {
-		t.Fatalf("pipe no soportado, salida = %q", got)
+		t.Fatalf("pipe not supported, output = %q", got)
 	}
 
-	got = herramientaEjecutarComando(args(t, ejecutarComandoArgs{Cmd: "exit 3"}))
-	if !strings.Contains(got, "Error de ejecución") {
-		t.Fatalf("se esperaba error de ejecución, se obtuvo %q", got)
+	got = toolRunCommand(args(t, runCommandArgs{Cmd: "exit 3"}))
+	if !strings.Contains(got, "Execution error") {
+		t.Fatalf("an execution error was expected, got %q", got)
 	}
 
-	if got := herramientaEjecutarComando(args(t, ejecutarComandoArgs{Cmd: "   "})); !strings.Contains(got, "falta el parámetro 'cmd'") {
-		t.Fatalf("comando vacío: %q", got)
-	}
-}
-
-func TestEjecutarComandoTimeout(t *testing.T) {
-	inicio := time.Now()
-	got := herramientaEjecutarComando(args(t, ejecutarComandoArgs{Cmd: "sleep 30", TimeoutSegundos: 1}))
-	if !strings.Contains(got, "excedió el límite de 1 s") {
-		t.Fatalf("se esperaba timeout, se obtuvo %q", got)
-	}
-	// El corte debe ser real: si sólo muriera `sh` y no su hijo `sleep`, Wait
-	// seguiría esperando con el pipe abierto (regresión que ya ocurrió).
-	if transcurrido := time.Since(inicio); transcurrido > 3*time.Second {
-		t.Fatalf("el timeout no mató al grupo de procesos a tiempo: %s", transcurrido)
+	if got := toolRunCommand(args(t, runCommandArgs{Cmd: "   "})); !strings.Contains(got, "the 'cmd' parameter is missing") {
+		t.Fatalf("empty command: %q", got)
 	}
 }
 
-// TestDecodeArgsFormatos cubre el bug real encontrado al probar contra un
-// gateway que envía `arguments` como cadena JSON en vez de objeto.
-func TestDecodeArgsFormatos(t *testing.T) {
-	var destino leerArchivoArgs
-
-	if err := decodeArgs(json.RawMessage(`{"ruta":"/tmp/x"}`), &destino); err != nil || destino.Ruta != "/tmp/x" {
-		t.Fatalf("objeto JSON: ruta=%q err=%v", destino.Ruta, err)
+func TestRunCommandTimeout(t *testing.T) {
+	start := time.Now()
+	got := toolRunCommand(args(t, runCommandArgs{Cmd: "sleep 30", TimeoutSeconds: 1}))
+	if !strings.Contains(got, "exceeded the 1 s limit") {
+		t.Fatalf("a timeout was expected, got %q", got)
 	}
-
-	destino = leerArchivoArgs{}
-	if err := decodeArgs(json.RawMessage(`"{\"ruta\":\"/tmp/y\"}"`), &destino); err != nil || destino.Ruta != "/tmp/y" {
-		t.Fatalf("cadena con JSON: ruta=%q err=%v", destino.Ruta, err)
-	}
-
-	destino = leerArchivoArgs{Ruta: "intacto"}
-	if err := decodeArgs(json.RawMessage(``), &destino); err != nil || destino.Ruta != "intacto" {
-		t.Fatalf("argumentos vacíos: ruta=%q err=%v", destino.Ruta, err)
-	}
-	if err := decodeArgs(json.RawMessage(`null`), &destino); err != nil || destino.Ruta != "intacto" {
-		t.Fatalf("argumentos null: ruta=%q err=%v", destino.Ruta, err)
+	// The cut must be real: if only `sh` died and not its `sleep` child, Wait
+	// would keep waiting with the pipe open (a regression that already happened).
+	if elapsed := time.Since(start); elapsed > 3*time.Second {
+		t.Fatalf("the timeout did not kill the process group in time: %s", elapsed)
 	}
 }
 
-func TestHerramientaDesconocida(t *testing.T) {
-	a := nuevoAgente(config{baseURL: "http://127.0.0.1:1", model: "test", maxLoops: 1})
-	got := a.ejecutarHerramienta(toolCall{Function: functionCall{Name: "borrar_todo"}})
-	if !strings.Contains(got, "herramienta desconocida") {
-		t.Fatalf("se esperaba error de herramienta desconocida, se obtuvo %q", got)
+// TestDecodeArgsFormats covers the real bug found when testing against a gateway
+// that sends `arguments` as a JSON string instead of an object.
+func TestDecodeArgsFormats(t *testing.T) {
+	var dst readFileArgs
+
+	if err := decodeArgs(json.RawMessage(`{"path":"/tmp/x"}`), &dst); err != nil || dst.Path != "/tmp/x" {
+		t.Fatalf("JSON object: path=%q err=%v", dst.Path, err)
+	}
+
+	dst = readFileArgs{}
+	if err := decodeArgs(json.RawMessage(`"{\"path\":\"/tmp/y\"}"`), &dst); err != nil || dst.Path != "/tmp/y" {
+		t.Fatalf("string containing JSON: path=%q err=%v", dst.Path, err)
+	}
+
+	dst = readFileArgs{Path: "intact"}
+	if err := decodeArgs(json.RawMessage(``), &dst); err != nil || dst.Path != "intact" {
+		t.Fatalf("empty arguments: path=%q err=%v", dst.Path, err)
+	}
+	if err := decodeArgs(json.RawMessage(`null`), &dst); err != nil || dst.Path != "intact" {
+		t.Fatalf("null arguments: path=%q err=%v", dst.Path, err)
 	}
 }
 
-// --- Cliente HTTP -----------------------------------------------------------
+func TestUnknownTool(t *testing.T) {
+	a := newAgent(config{baseURL: "http://127.0.0.1:1", model: "test", maxLoops: 1})
+	got := a.runTool(toolCall{Function: functionCall{Name: "delete_everything"}})
+	if !strings.Contains(got, "unknown tool") {
+		t.Fatalf("an unknown-tool error was expected, got %q", got)
+	}
+}
 
-func TestCompletarErrores(t *testing.T) {
-	casos := []struct {
-		nombre    string
-		respuesta string
-		status    int
-		contiene  string
+// --- HTTP client ------------------------------------------------------------
+
+func TestCompleteErrors(t *testing.T) {
+	cases := []struct {
+		name     string
+		response string
+		status   int
+		contains string
 	}{
-		{"choices vacío no entra en pánico", `{"choices":[]}`, http.StatusOK, "choices vacío"},
-		{"error de la API", `{"error":{"message":"clave inválida"}}`, http.StatusUnauthorized, "clave inválida"},
-		{"cuerpo no JSON", `<html>bad gateway</html>`, http.StatusBadGateway, "HTTP 502"},
-		{"json roto", `{"choices":`, http.StatusOK, "respuesta ilegible"},
+		{"empty choices does not panic", `{"choices":[]}`, http.StatusOK, "empty choices"},
+		{"API error", `{"error":{"message":"invalid key"}}`, http.StatusUnauthorized, "invalid key"},
+		{"non-JSON body", `<html>bad gateway</html>`, http.StatusBadGateway, "HTTP 502"},
+		{"broken json", `{"choices":`, http.StatusOK, "unreadable response"},
 	}
 
-	for _, caso := range casos {
-		t.Run(caso.nombre, func(t *testing.T) {
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
 			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				w.WriteHeader(caso.status)
-				fmt.Fprint(w, caso.respuesta)
+				w.WriteHeader(tc.status)
+				fmt.Fprint(w, tc.response)
 			}))
 			defer srv.Close()
 
-			a := nuevoAgente(config{apiKey: "k", baseURL: srv.URL, model: "test", maxLoops: 1, timeout: 5 * time.Second})
-			if _, err := a.completar(""); err == nil || !strings.Contains(err.Error(), caso.contiene) {
-				t.Fatalf("se esperaba error con %q, se obtuvo %v", caso.contiene, err)
+			a := newAgent(config{apiKey: "k", baseURL: srv.URL, model: "test", maxLoops: 1, timeout: 5 * time.Second})
+			if _, err := a.complete(""); err == nil || !strings.Contains(err.Error(), tc.contains) {
+				t.Fatalf("an error containing %q was expected, got %v", tc.contains, err)
 			}
 		})
 	}
 }
 
-// --- Bucle de agente --------------------------------------------------------
+// --- Agent loop -------------------------------------------------------------
 
-// TestTurnoEjecutaHerramientaYResponde verifica el ciclo completo: el modelo
-// pide una herramienta, el agente la ejecuta, envía el resultado y recibe el
-// texto final.
-func TestTurnoEjecutaHerramientaYResponde(t *testing.T) {
+// TestTurnRunsToolAndAnswers verifies the full cycle: the model asks for a tool,
+// the agent runs it, sends the result back and receives the final text.
+func TestTurnRunsToolAndAnswers(t *testing.T) {
 	var (
-		peticiones      int
-		segundaPeticion chatRequest
+		requests      int
+		secondRequest chatRequest
 	)
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		peticiones++
+		requests++
 		var req chatRequest
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-			t.Errorf("petición ilegible: %v", err)
+			t.Errorf("unreadable request: %v", err)
 		}
 		w.Header().Set("Content-Type", "application/json")
 
-		if peticiones == 1 {
-			// El modelo pide ejecutar un comando.
+		if requests == 1 {
+			// The model asks to run a command.
 			if len(req.Tools) != 2 {
-				t.Errorf("se esperaban 2 herramientas, se enviaron %d", len(req.Tools))
+				t.Errorf("2 tools were expected, %d were sent", len(req.Tools))
 			}
 			fmt.Fprint(w, `{"choices":[{"finish_reason":"tool_calls","message":{"role":"assistant",
-				"tool_calls":[{"id":"call_1","type":"function","function":{"name":"ejecutar_comando",
-				"arguments":"{\"cmd\":\"echo starlight-vivo\"}"}}]}}]}`)
+				"tool_calls":[{"id":"call_1","type":"function","function":{"name":"run_command",
+				"arguments":"{\"cmd\":\"echo starlight-alive\"}"}}]}}]}`)
 			return
 		}
 
-		segundaPeticion = req
-		fmt.Fprint(w, `{"choices":[{"finish_reason":"stop","message":{"role":"assistant","content":"El comando devolvió starlight-vivo."}}]}`)
+		secondRequest = req
+		fmt.Fprint(w, `{"choices":[{"finish_reason":"stop","message":{"role":"assistant","content":"The command returned starlight-alive."}}]}`)
 	}))
 	defer srv.Close()
 
-	a := nuevoAgente(config{apiKey: "k", baseURL: srv.URL, model: "test", maxLoops: 5, timeout: 5 * time.Second})
-	if err := a.turno("verifica que el sistema responde"); err != nil {
-		t.Fatalf("turno devolvió error: %v", err)
+	a := newAgent(config{apiKey: "k", baseURL: srv.URL, model: "test", maxLoops: 5, timeout: 5 * time.Second})
+	if err := a.turn("check that the system responds"); err != nil {
+		t.Fatalf("turn returned an error: %v", err)
 	}
 
-	if peticiones != 2 {
-		t.Fatalf("se esperaban 2 peticiones, hubo %d", peticiones)
+	if requests != 2 {
+		t.Fatalf("2 requests were expected, there were %d", requests)
 	}
 
-	// El resultado de la herramienta debe viajar de vuelta al modelo.
-	var resultado string
-	for _, m := range segundaPeticion.Messages {
+	// The tool result must travel back to the model.
+	var result string
+	for _, m := range secondRequest.Messages {
 		if m.Role == "tool" {
-			resultado = m.Content
+			result = m.Content
 			if m.ToolCallID != "call_1" {
-				t.Errorf("tool_call_id = %q, se esperaba call_1", m.ToolCallID)
+				t.Errorf("tool_call_id = %q, expected call_1", m.ToolCallID)
 			}
 		}
 	}
-	if !strings.Contains(resultado, "starlight-vivo") {
-		t.Fatalf("el modelo no recibió la salida real de la herramienta: %q", resultado)
+	if !strings.Contains(result, "starlight-alive") {
+		t.Fatalf("the model did not receive the tool's real output: %q", result)
 	}
 }
 
-// TestTurnoFuerzaRespuestaFinal comprueba que tras agotar las iteraciones se
-// pide la respuesta con tool_choice="none".
-func TestTurnoFuerzaRespuestaFinal(t *testing.T) {
-	var ultimoToolChoice string
-	peticiones := 0
+// TestTurnForcesFinalAnswer checks that once the iterations run out, the answer
+// is requested with tool_choice="none".
+func TestTurnForcesFinalAnswer(t *testing.T) {
+	var lastToolChoice string
+	requests := 0
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		peticiones++
+		requests++
 		var req chatRequest
 		json.NewDecoder(r.Body).Decode(&req)
-		ultimoToolChoice = req.ToolChoice
+		lastToolChoice = req.ToolChoice
 		w.Header().Set("Content-Type", "application/json")
 		fmt.Fprint(w, `{"choices":[{"finish_reason":"tool_calls","message":{"role":"assistant",
-			"tool_calls":[{"id":"c","type":"function","function":{"name":"ejecutar_comando","arguments":"{\"cmd\":\"true\"}"}}]}}]}`)
+			"tool_calls":[{"id":"c","type":"function","function":{"name":"run_command","arguments":"{\"cmd\":\"true\"}"}}]}}]}`)
 	}))
 	defer srv.Close()
 
-	a := nuevoAgente(config{apiKey: "k", baseURL: srv.URL, model: "test", maxLoops: 2, timeout: 5 * time.Second})
-	if err := a.turno("insiste"); err != nil {
-		t.Fatalf("turno devolvió error: %v", err)
+	a := newAgent(config{apiKey: "k", baseURL: srv.URL, model: "test", maxLoops: 2, timeout: 5 * time.Second})
+	if err := a.turn("keep going"); err != nil {
+		t.Fatalf("turn returned an error: %v", err)
 	}
 
-	if peticiones != 3 { // 2 iteraciones + 1 forzada
-		t.Fatalf("se esperaban 3 peticiones, hubo %d", peticiones)
+	if requests != 3 { // 2 iterations + 1 forced
+		t.Fatalf("3 requests were expected, there were %d", requests)
 	}
-	if ultimoToolChoice != "none" {
-		t.Fatalf("la última petición debía llevar tool_choice=none, llevó %q", ultimoToolChoice)
+	if lastToolChoice != "none" {
+		t.Fatalf("the last request had to carry tool_choice=none, it carried %q", lastToolChoice)
 	}
 }
 
-func TestTurnoRevierteHistorialSiFallaLaRed(t *testing.T) {
+func TestTurnRevertsHistoryOnNetworkFailure(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusInternalServerError)
 		fmt.Fprint(w, `{"error":{"message":"boom"}}`)
 	}))
 	defer srv.Close()
 
-	a := nuevoAgente(config{apiKey: "k", baseURL: srv.URL, model: "test", maxLoops: 2, timeout: 5 * time.Second})
-	antes := len(a.hist)
-	if err := a.turno("algo"); err == nil {
-		t.Fatal("se esperaba un error de red")
+	a := newAgent(config{apiKey: "k", baseURL: srv.URL, model: "test", maxLoops: 2, timeout: 5 * time.Second})
+	before := len(a.hist)
+	if err := a.turn("something"); err == nil {
+		t.Fatal("a network error was expected")
 	}
-	if len(a.hist) != antes {
-		t.Fatalf("el historial quedó inconsistente: %d mensajes (antes %d)", len(a.hist), antes)
+	if len(a.hist) != before {
+		t.Fatalf("the history was left inconsistent: %d messages (before %d)", len(a.hist), before)
 	}
 }
 
-func TestRecortarHistorial(t *testing.T) {
-	a := nuevoAgente(config{})
-	a.hist = append(a.hist, message{Role: "tool", Content: "huérfano", ToolCallID: "x"})
-	for i := 0; i < maxHistorial+10; i++ {
+func TestTrimHistory(t *testing.T) {
+	a := newAgent(config{})
+	a.hist = append(a.hist, message{Role: "tool", Content: "orphan", ToolCallID: "x"})
+	for i := 0; i < maxHistory+10; i++ {
 		a.hist = append(a.hist, message{Role: "user", Content: fmt.Sprintf("m%d", i)})
 	}
-	a.recortarHistorial()
+	a.trimHistory()
 
-	if len(a.hist) > maxHistorial {
-		t.Fatalf("historial sin recortar: %d mensajes", len(a.hist))
+	if len(a.hist) > maxHistory {
+		t.Fatalf("history not trimmed: %d messages", len(a.hist))
 	}
 	if a.hist[0].Role != "system" {
-		t.Fatalf("el prompt de sistema debe permanecer primero, hay %q", a.hist[0].Role)
+		t.Fatalf("the system prompt must stay first, there is %q", a.hist[0].Role)
 	}
 	if a.hist[1].Role == "tool" {
-		t.Fatal("quedó un resultado de herramienta huérfano al inicio del historial")
+		t.Fatal("an orphaned tool result was left at the start of the history")
 	}
 }
 
-// --- Configuración ----------------------------------------------------------
+// --- Configuration ----------------------------------------------------------
 
 func TestGetEnv(t *testing.T) {
-	t.Setenv("STARLIGHT_TEST_ENV", "  valor  ")
-	if got := getEnv("STARLIGHT_TEST_ENV", "defecto"); got != "valor" {
+	t.Setenv("STARLIGHT_TEST_ENV", "  value  ")
+	if got := getEnv("STARLIGHT_TEST_ENV", "fallback"); got != "value" {
 		t.Fatalf("getEnv = %q", got)
 	}
 	t.Setenv("STARLIGHT_TEST_ENV", "   ")
-	if got := getEnv("STARLIGHT_TEST_ENV", "defecto"); got != "defecto" {
-		t.Fatalf("un valor en blanco debe caer al default, se obtuvo %q", got)
+	if got := getEnv("STARLIGHT_TEST_ENV", "fallback"); got != "fallback" {
+		t.Fatalf("a blank value must fall back to the default, got %q", got)
 	}
 }
 
-func TestDefinicionHerramientas(t *testing.T) {
-	herramientas := definicionHerramientas()
-	if len(herramientas) != 2 {
-		t.Fatalf("se esperaban 2 herramientas, hay %d", len(herramientas))
+func TestToolDefinitions(t *testing.T) {
+	tools := toolDefinitions()
+	if len(tools) != 2 {
+		t.Fatalf("2 tools were expected, there are %d", len(tools))
 	}
-	nombres := []string{herramientas[0].Function.Name, herramientas[1].Function.Name}
-	if nombres[0] != "leer_archivo" || nombres[1] != "ejecutar_comando" {
-		t.Fatalf("nombres inesperados: %v", nombres)
+	names := []string{tools[0].Function.Name, tools[1].Function.Name}
+	if names[0] != "read_file" || names[1] != "run_command" {
+		t.Fatalf("unexpected names: %v", names)
 	}
-	for _, h := range herramientas {
+	for _, h := range tools {
 		if h.Type != "function" || h.Function.Description == "" || h.Function.Parameters["type"] != "object" {
-			t.Fatalf("definición incompleta para %s", h.Function.Name)
+			t.Fatalf("incomplete definition for %s", h.Function.Name)
 		}
 	}
 }

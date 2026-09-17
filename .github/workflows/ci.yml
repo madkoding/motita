@@ -11,12 +11,12 @@ permissions:
   contents: read
 
 env:
-  # Sin dependencias externas no hay nada que cachear: setup-go avisaría de que
-  # no existe go.sum. El proyecto compila sólo con la biblioteca estándar.
+  # With no external dependencies there is nothing to cache: setup-go would warn
+  # that go.sum does not exist. The project builds with the standard library only.
   GOFLAGS: -mod=mod
 
 jobs:
-  verificar:
+  verify:
     name: fmt · vet · test
     runs-on: ubuntu-latest
     steps:
@@ -29,35 +29,60 @@ jobs:
 
       - name: gofmt
         run: |
-          sin_formato="$(gofmt -l .)"
-          if [ -n "$sin_formato" ]; then
-            echo "Archivos sin formatear:"
-            echo "$sin_formato"
+          unformatted="$(gofmt -l .)"
+          if [ -n "$unformatted" ]; then
+            echo "Unformatted files:"
+            echo "$unformatted"
             exit 1
           fi
 
       - name: go vet
         run: go vet ./...
 
-      - name: go test
+      - name: go test (with race detector)
         run: go test -count=1 -race ./...
 
-  compilar:
-    name: compilar ${{ matrix.goos }}/${{ matrix.goarch }}
-    needs: verificar
+      - name: coverage gate (100% per package)
+        run: |
+          # Every package with tests must be fully covered: the gate is what keeps
+          # the suite honest, and it is checked package by package so a gap cannot
+          # hide behind the aggregate.
+          MIN_PER_PACKAGE=100.0
+          failed=0
+          for pkg in $(go list ./internal/... ./cmd/...); do
+            if go test -count=1 -cover "$pkg" 2>/dev/null | grep -q 'no test files'; then
+              echo "::warning::$pkg has no test files"
+              continue
+            fi
+            cov="$(go test -count=1 -cover "$pkg" 2>/dev/null | grep -oE 'coverage: [0-9.]+' | grep -oE '[0-9.]+' || echo 0)"
+            printf '%-52s %s%%\n' "$pkg" "$cov"
+            if awk -v c="$cov" -v m="$MIN_PER_PACKAGE" 'BEGIN { if (c < m) exit 1 }'; then
+              :
+            else
+              echo "::error::$pkg coverage ${cov}% is below the ${MIN_PER_PACKAGE}% gate"
+              failed=1
+            fi
+          done
+          [ "$failed" -eq 0 ] || exit 1
+          go test -coverpkg=./... -coverprofile=coverage.out -covermode=atomic ./... >/dev/null
+          printf 'aggregate: '; go tool cover -func=coverage.out | tail -1
+
+  build:
+    name: build ${{ matrix.goos }}/${{ matrix.goarch }}
+    needs: verify
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
         include:
-          - { goos: linux, goarch: "386", verificar32: "true" }
+          - { goos: linux, goarch: "386", check32: "true" }
           - { goos: linux, goarch: amd64 }
           - { goos: linux, goarch: arm64 }
     env:
       GOOS: ${{ matrix.goos }}
       GOARCH: ${{ matrix.goarch }}
       CGO_ENABLED: "0"
-      AGENTE: dist/starlight-agent-${{ matrix.goos }}-${{ matrix.goarch }}
+      AGENT: dist/starlight-agent-${{ matrix.goos }}-${{ matrix.goarch }}
       CHAT: dist/starlight-${{ matrix.goos }}-${{ matrix.goarch }}
     steps:
       - uses: actions/checkout@v7
@@ -67,67 +92,73 @@ jobs:
           go-version-file: go.mod
           cache: false
 
-      - name: Compilar binarios estáticos (agente + chat)
+      - name: Build static binaries (agent + chat)
         run: |
           mkdir -p dist
           version="${GITHUB_REF_NAME:-dev}"
-          go build -trimpath -ldflags "-s -w -X main.version=$version" -o "$AGENTE" ./cmd/agent
+          go build -trimpath -ldflags "-s -w -X main.version=$version" -o "$AGENT" ./cmd/agent
           go build -trimpath -ldflags "-s -w -X main.version=$version" -o "$CHAT" ./cmd/chat
           ls -l dist
 
-      - name: Verificar que los binarios son de 32 bits y cumplen el límite de tamaño
-        if: matrix.verificar32 == 'true'
+      - name: Verify the binaries are 32-bit and within the size limit
+        if: matrix.check32 == 'true'
         run: |
-          for binario in "$AGENTE" "$CHAT"; do
-            file "$binario"
-            file "$binario" | grep -q "ELF 32-bit" || { echo "::error::$binario no es de 32 bits"; exit 1; }
-            # Comprobación independiente de `file`: byte 5 de la cabecera ELF
+          for binary in "$AGENT" "$CHAT"; do
+            file "$binary"
+            file "$binary" | grep -q "ELF 32-bit" || { echo "::error::$binary is not 32-bit"; exit 1; }
+            # Check independent of `file`: byte 5 of the ELF header
             # (0x01 = ELFCLASS32).
-            clase="$(head -c 5 "$binario" | od -An -tx1 | tr -d ' \n')"
-            [ "$clase" = "7f454c4601" ] || { echo "::error::cabecera ELF inesperada en $binario: $clase"; exit 1; }
-            echo "ELFCLASS32 confirmado en $binario ($clase)"
-            # Requisito de calidad: el binario final debe pesar menos de 10 MB.
-            bytes="$(stat -c%s "$binario")"
-            [ "$bytes" -lt 10485760 ] || { echo "::error::$binario pesa $bytes bytes (límite: 10 MB)"; exit 1; }
-            echo "$binario: $bytes bytes (< 10 MB)"
+            header="$(head -c 5 "$binary" | od -An -tx1 | tr -d ' \n')"
+            [ "$header" = "7f454c4601" ] || { echo "::error::unexpected ELF header in $binary: $header"; exit 1; }
+            echo "ELFCLASS32 confirmed in $binary ($header)"
+            # Quality requirement: the final binary must weigh under 10 MB.
+            bytes="$(stat -c%s "$binary")"
+            [ "$bytes" -lt 10485760 ] || { echo "::error::$binary weighs $bytes bytes (limit: 10 MB)"; exit 1; }
+            echo "$binary: $bytes bytes (< 10 MB)"
           done
 
-      - name: Ejecutar los binarios en un contenedor i386 (prueba de humo)
+      - name: Run the binaries in an i386 container (smoke test)
         if: matrix.goos == 'linux' && matrix.goarch == '386'
         run: |
           chmod +x dist/*
-          echo "contenido de dist/:"
+          echo "contents of dist/:"
           ls -l dist/
-          # Se usa el nombre real de cada artefacto (AGENTE y CHAT incluyen
-          # goos-goarch), no uno escrito a mano.
+          # The real artifact name is used (AGENT and CHAT include goos-goarch),
+          # never a hand-written one.
           docker run --rm -v "$PWD/dist:/t:ro" --platform linux/386 \
-            i386/debian:bookworm-slim sh -c "/t/$(basename "$AGENTE") -version; /t/$(basename "$CHAT") -version"
+            i386/debian:bookworm-slim sh -c "/t/$(basename "$AGENT") -version; /t/$(basename "$CHAT") -version"
 
-      - name: Validación de configuración en i386 (sin llamar al LLM)
+      - name: Configuration validation on i386 (without calling the LLM)
         if: matrix.goos == 'linux' && matrix.goarch == '386'
         run: |
           docker run --rm -v "$PWD/dist:/t:ro" -v "$PWD/configs:/c:ro" --platform linux/386 \
             i386/debian:bookworm-slim sh -c \
-            "STARLIGHT_LLM_API_KEY=prueba STARLIGHT_SANDBOX_CGROUPS=off /t/$(basename "$AGENTE") -config /c/agent.yaml.example -validar-config"
+            "STARLIGHT_LLM_API_KEY=test STARLIGHT_SANDBOX_CGROUPS=off /t/$(basename "$AGENT") -config /c/agent.yaml.example -validar-config"
 
-      - name: Prueba de extremo a extremo del agente (contenedor i386)
+      - name: Agent end-to-end test (i386 container)
         if: matrix.goos == 'linux' && matrix.goarch == '386'
         run: |
-          chmod +x scripts/e2e-agente-i386.sh
-          IMAGEN=i386/debian:bookworm-slim ./scripts/e2e-agente-i386.sh
+          chmod +x scripts/e2e-agent-i386.sh
+          IMAGEN=i386/debian:bookworm-slim ./scripts/e2e-agent-i386.sh
+
+      - name: Chat end-to-end test (i386 container)
+        if: matrix.goos == 'linux' && matrix.goarch == '386'
+        run: |
+          chmod +x scripts/e2e-i386.sh
+          IMAGEN=i386/debian:bookworm-slim ./scripts/e2e-i386.sh
 
       - uses: actions/upload-artifact@v7
         with:
           name: starlight-${{ matrix.goos }}-${{ matrix.goarch }}
           path: |
-            ${{ env.AGENTE }}
+            ${{ env.AGENT }}
             ${{ env.CHAT }}
           if-no-files-found: error
 
-  publicar:
-    name: publicar release
+  release:
+    name: publish release
     if: startsWith(github.ref, 'refs/tags/v')
-    needs: compilar
+    needs: build
     runs-on: ubuntu-latest
     permissions:
       contents: write

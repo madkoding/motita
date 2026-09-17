@@ -2,18 +2,16 @@
 
 package main
 
-import (
-	"os"
-	"os/exec"
-)
+import "os/exec"
 
-// configurarGrupo no hace nada fuera de Unix: no hay grupos de procesos POSIX.
-func configurarGrupo(cmd *exec.Cmd) {}
+// configureGroup does nothing on systems without process groups: there is no
+// equivalent concept, so the command runs as is.
+func configureGroup(cmd *exec.Cmd) {}
 
-// matarGrupo sin SysProcAttr la única opción es matar el proceso directo.
-func matarGrupo(cmd *exec.Cmd) error {
+// killGroup falls back to killing just the process.
+func killGroup(cmd *exec.Cmd) error {
 	if cmd.Process == nil {
-		return os.ErrProcessDone
+		return nil
 	}
 	return cmd.Process.Kill()
 }

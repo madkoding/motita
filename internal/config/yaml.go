@@ -7,100 +7,101 @@ import (
 )
 
 // ---------------------------------------------------------------------------
-// Parser YAML mínimo, escrito a mano.
+// Minimal hand-written YAML parser.
 //
-// El requisito es "sin dependencias externas más allá de libc/libcurl", así que
-// en Go eso significa sólo biblioteca estándar: no se puede usar gopkg.in/yaml.
-// Este parser cubre el subconjunto que necesitan los archivos de configuración
-// del agente:
+// The requirement is "no external dependencies beyond libc/libcurl", so in Go
+// that means standard library only: gopkg.in/yaml cannot be used. This parser
+// covers the subset the agent configuration files need:
 //
-//   - mapas anidados por indentación (espacios, nunca tabuladores)
-//   - secuencias con "- " y listas en línea [a, b, c]
-//   - mapas en línea {a: 1, b: 2}
-//   - escalares simples, entre comillas simples o dobles
-//   - booleanos (true/false/yes/no/on/off), enteros, flotantes y null (~)
-//   - escalares de bloque | y > (con los modificadores - y +) para prompts
-//   - comentarios con #
+//   - maps nested by indentation (spaces, never tabs)
+//   - sequences with "- " and inline lists [a, b, c]
+//   - inline maps {a: 1, b: 2}
+//   - plain scalars, single- or double-quoted
+//   - booleans (true/false/yes/no/on/off), integers, floats and null (~)
+//   - block scalars | and > (with the - and + modifiers) for prompts
+//   - comments with #
 //
-// Lo que NO soporta se rechaza con un mensaje explícito (anclas, alias, tags,
-// documentos múltiples, claves complejas), en lugar de adivinar en silencio.
+// What it does NOT support is rejected with an explicit message (anchors,
+// aliases, tags, multiple documents, complex keys) instead of silently
+// guessing.
 // ---------------------------------------------------------------------------
 
-type yLinea struct {
+type yamlLine struct {
 	indent int
-	texto  string // sin el sangrado
-	num    int    // número de línea para los mensajes de error
+	text   string // without the indentation
+	num    int    // line number for the error messages
 }
 
-type yParser struct {
-	lineas []yLinea
-	pos    int
+type yamlParser struct {
+	lines []yamlLine
+	pos   int
 }
 
-// ParseYAML convierte un documento YAML en mapas, secuencias y escalares.
-func ParseYAML(datos []byte) (map[string]any, error) {
-	p := &yParser{lineas: make([]yLinea, 0, 64)}
+// ParseYAML turns a YAML document into maps, sequences and scalars.
+func ParseYAML(data []byte) (map[string]any, error) {
+	p := &yamlParser{lines: make([]yamlLine, 0, 64)}
 
-	for i, cruda := range strings.Split(strings.ReplaceAll(string(datos), "\r\n", "\n"), "\n") {
-		if strings.HasPrefix(cruda, "\t") {
-			return nil, fmt.Errorf("línea %d: la indentación no puede usar tabuladores, usa espacios", i+1)
+	for i, raw := range strings.Split(strings.ReplaceAll(string(data), "\r\n", "\n"), "\n") {
+		if strings.HasPrefix(raw, "\t") {
+			return nil, fmt.Errorf("line %d: the indentation cannot use tabs, use spaces", i+1)
 		}
 		indent := 0
-		for indent < len(cruda) && cruda[indent] == ' ' {
+		for indent < len(raw) && raw[indent] == ' ' {
 			indent++
 		}
-		p.lineas = append(p.lineas, yLinea{indent: indent, texto: cruda[indent:], num: i + 1})
+		p.lines = append(p.lines, yamlLine{indent: indent, text: raw[indent:], num: i + 1})
 	}
 
-	p.saltarVacias()
-	if p.fin() {
+	p.skipBlank()
+
+	if p.done() {
 		return map[string]any{}, nil
 	}
 
-	valor, err := p.parseBloque(p.actual().indent)
+	value, err := p.parseBlock(p.current().indent)
 	if err != nil {
 		return nil, err
 	}
-	p.saltarVacias()
-	if !p.fin() {
-		return nil, p.errorf("contenido inesperado: %q", p.actual().texto)
+	p.skipBlank()
+	if !p.done() {
+		return nil, p.errorf("unexpected content: %q", p.current().text)
 	}
 
-	mapa, ok := valor.(map[string]any)
+	m, ok := value.(map[string]any)
 	if !ok {
-		return nil, fmt.Errorf("la raíz de la configuración debe ser un mapa (clave: valor), no una secuencia")
+		return nil, fmt.Errorf("the root of the configuration must be a map (key: value), not a sequence")
 	}
-	return mapa, nil
+	return m, nil
 }
 
-// --- utilidades de posición -------------------------------------------------
+// --- position helpers -------------------------------------------------------
 
-func (p *yParser) fin() bool      { return p.pos >= len(p.lineas) }
-func (p *yParser) actual() yLinea { return p.lineas[p.pos] }
-func (p *yParser) avanzar()       { p.pos++ }
+func (p *yamlParser) done() bool        { return p.pos >= len(p.lines) }
+func (p *yamlParser) current() yamlLine { return p.lines[p.pos] }
+func (p *yamlParser) advance()          { p.pos++ }
 
-func (p *yParser) errorf(formato string, args ...any) error {
-	if p.fin() {
-		return fmt.Errorf("fin del documento: "+formato, args...)
+func (p *yamlParser) errorf(format string, args ...any) error {
+	if p.done() {
+		return fmt.Errorf("end of document: "+format, args...)
 	}
-	return fmt.Errorf("línea %d: "+formato, append([]any{p.actual().num}, args...)...)
+	return fmt.Errorf("line %d: "+format, append([]any{p.current().num}, args...)...)
 }
 
-// saltarVacias deja el cursor en la siguiente línea con contenido real: salta
-// tanto las líneas en blanco como los comentarios completos. Sin esto, un
-// archivo con cabecera de comentarios (lo normal en documentación) fallaba con
-// "se esperaba 'clave: valor'".
+// skipBlank leaves the cursor on the next line with real content: it skips both
+// blank lines and whole-line comments. Without this, a file with a comment
+// header (the normal thing in documentation) failed with
+// "expected 'key: value'".
 //
-// Ojo: no se usa dentro de los escalares de bloque, donde una línea que empieza
-// por # es contenido legítimo.
-func (p *yParser) saltarVacias() {
-	for !p.fin() {
-		texto := p.lineas[p.pos].texto
-		if strings.TrimSpace(texto) == "" {
+// Careful: it is not used inside block scalars, where a line starting with #
+// is legitimate content.
+func (p *yamlParser) skipBlank() {
+	for !p.done() {
+		text := p.lines[p.pos].text
+		if strings.TrimSpace(text) == "" {
 			p.pos++
 			continue
 		}
-		if strings.TrimSpace(recortarComentario(texto)) == "" {
+		if strings.TrimSpace(stripComment(text)) == "" {
 			p.pos++
 			continue
 		}
@@ -108,179 +109,178 @@ func (p *yParser) saltarVacias() {
 	}
 }
 
-// --- estructura -------------------------------------------------------------
+// --- structure --------------------------------------------------------------
 
-// parseBloque interpreta la siguiente estructura con la indentación indicada.
-func (p *yParser) parseBloque(indent int) (any, error) {
-	if p.fin() || p.actual().indent < indent {
+// parseBlock interprets the next structure at the given indentation.
+func (p *yamlParser) parseBlock(indent int) (any, error) {
+	if p.done() || p.current().indent < indent {
 		return nil, nil
 	}
-	if esItem(p.actual().texto) {
-		return p.parseSecuencia(indent)
+	if isItem(p.current().text) {
+		return p.parseSequence(indent)
 	}
-	return p.parseMapa(indent)
+	return p.parseMap(indent)
 }
 
-func (p *yParser) parseMapa(indent int) (map[string]any, error) {
-	return p.parseMapaConPrimera(indent, "", "")
+func (p *yamlParser) parseMap(indent int) (map[string]any, error) {
+	return p.parseMapWithFirst(indent, "", "")
 }
 
-// parseMapaConPrimera permite arrancar el mapa con un par clave/valor ya leído
-// (el texto que sigue a "- " en una secuencia).
-func (p *yParser) parseMapaConPrimera(indent int, clavePrimera, restoPrimera string) (map[string]any, error) {
-	mapa := map[string]any{}
+// parseMapWithFirst allows starting the map with an already read key/value pair
+// (the text that follows "- " in a sequence).
+func (p *yamlParser) parseMapWithFirst(indent int, firstKey, firstRest string) (map[string]any, error) {
+	m := map[string]any{}
 
-	procesar := func(clave, resto string, linea int) error {
+	process := func(key, rest string, line int) error {
 		switch {
-		case resto == "":
-			// Puede ser un bloque anidado, una secuencia al mismo nivel o null.
-			p.saltarVacias()
-			if p.fin() {
-				mapa[clave] = nil
+		case rest == "":
+			// It may be a nested block, a sequence at the same level or null.
+			p.skipBlank()
+			if p.done() {
+				m[key] = nil
 				return nil
 			}
-			siguiente := p.actual()
-			if siguiente.indent > indent {
-				valor, err := p.parseBloque(siguiente.indent)
+			next := p.current()
+			if next.indent > indent {
+				value, err := p.parseBlock(next.indent)
 				if err != nil {
 					return err
 				}
-				mapa[clave] = valor
+				m[key] = value
 				return nil
 			}
-			if siguiente.indent == indent && esItem(siguiente.texto) {
-				valor, err := p.parseSecuencia(indent)
+			if next.indent == indent && isItem(next.text) {
+				value, err := p.parseSequence(indent)
 				if err != nil {
 					return err
 				}
-				mapa[clave] = valor
+				m[key] = value
 				return nil
 			}
-			mapa[clave] = nil
+			m[key] = nil
 			return nil
 
-		case esIndicadorBloque(resto):
-			texto, err := p.leerBloqueEscalar(indent, resto)
-			if err != nil {
-				return err
-			}
-			mapa[clave] = texto
+		case isBlockIndicator(rest):
+			m[key] = p.readBlockScalar(indent, rest)
 			return nil
 
 		default:
-			valor, err := parseEscalar(resto, linea)
+			value, err := parseScalar(rest, line)
 			if err != nil {
 				return err
 			}
-			mapa[clave] = valor
+			m[key] = value
 			return nil
 		}
 	}
 
-	if clavePrimera != "" || restoPrimera != "" {
-		if err := procesar(clavePrimera, restoPrimera, 0); err != nil {
+	if firstKey != "" || firstRest != "" {
+		if err := process(firstKey, firstRest, 0); err != nil {
 			return nil, err
 		}
 	}
 
 	for {
-		p.saltarVacias()
-		if p.fin() || p.actual().indent != indent {
+		p.skipBlank()
+		if p.done() || p.current().indent != indent {
 			break
 		}
-		linea := p.actual()
-		if esItem(linea.texto) {
+		line := p.current()
+		if isItem(line.text) {
 			break
 		}
-		clave, resto, err := partirClave(linea.texto, linea.num)
+		key, rest, err := splitKey(line.text, line.num)
 		if err != nil {
 			return nil, err
 		}
-		p.avanzar()
-		if err := procesar(clave, resto, linea.num); err != nil {
+		p.advance()
+		if err := process(key, rest, line.num); err != nil {
 			return nil, err
 		}
 	}
-	return mapa, nil
+	return m, nil
 }
 
-func (p *yParser) parseSecuencia(indent int) ([]any, error) {
+func (p *yamlParser) parseSequence(indent int) ([]any, error) {
 	items := []any{}
 
 	for {
-		p.saltarVacias()
-		if p.fin() || p.actual().indent != indent || !esItem(p.actual().texto) {
+		p.skipBlank()
+		if p.done() || p.current().indent != indent || !isItem(p.current().text) {
 			break
 		}
-		linea := p.actual()
-		resto := strings.TrimSpace(linea.texto[1:])
-		resto = recortarComentario(resto)
-		p.avanzar()
+		line := p.current()
+		rest := strings.TrimSpace(line.text[1:])
+		rest = stripComment(rest)
+		p.advance()
 
-		if resto == "" {
-			// "-" solo: el item es un bloque anidado.
-			p.saltarVacias()
-			if !p.fin() && p.actual().indent > indent {
-				valor, err := p.parseBloque(p.actual().indent)
+		if rest == "" {
+			// A bare "-": the item is a nested block.
+			p.skipBlank()
+			if !p.done() && p.current().indent > indent {
+				value, err := p.parseBlock(p.current().indent)
 				if err != nil {
 					return nil, err
 				}
-				items = append(items, valor)
+				items = append(items, value)
 			} else {
 				items = append(items, nil)
 			}
 			continue
 		}
 
-		// "- clave: valor" abre un mapa que continúa en las líneas siguientes.
-		if clave, valor, err := intentarClave(resto); err == nil {
-			indentMapa := indent + 2
-			// Si las líneas siguientes están más sangradas, respetamos su nivel.
-			if !p.fin() && p.actual().indent > indent {
-				indentMapa = p.actual().indent
+		// "- key: value" opens a map that continues on the following lines.
+		if key, value, err := tryKey(rest); err == nil {
+			mapIndent := indent + 2
+			// If the following lines are more indented, we respect their level.
+			if !p.done() && p.current().indent > indent {
+				mapIndent = p.current().indent
 			}
-			mapa, err := p.parseMapaConPrimera(indentMapa, clave, valor)
+			m, err := p.parseMapWithFirst(mapIndent, key, value)
 			if err != nil {
 				return nil, err
 			}
-			items = append(items, mapa)
+			items = append(items, m)
 			continue
 		}
 
-		valor, err := parseEscalar(resto, linea.num)
+		value, err := parseScalar(rest, line.num)
 		if err != nil {
 			return nil, err
 		}
-		items = append(items, valor)
+		items = append(items, value)
 	}
 	return items, nil
 }
 
-// leerBloqueEscalar consume un escalar de bloque (| o >) y sus líneas.
-func (p *yParser) leerBloqueEscalar(indentPadre int, indicador string) (string, error) {
-	literal := indicador[0] == '|'
-	conservar := strings.Contains(indicador, "+")
-	soloUnaLinea := strings.Contains(indicador, "-")
+// readBlockScalar consumes a block scalar (| or >) and its lines.
+//
+// It cannot fail: an unterminated block scalar is simply the block running to
+// the end of the document, which is what the loop over the lines does.
+func (p *yamlParser) readBlockScalar(parentIndent int, indicator string) string {
+	literal := indicator[0] == '|'
+	keep := strings.Contains(indicator, "+")
+	singleLine := strings.Contains(indicator, "-")
 
-	var crudas []yLinea
-	for !p.fin() {
-		linea := p.actual()
-		if strings.TrimSpace(linea.texto) == "" {
-			crudas = append(crudas, linea)
-			p.avanzar()
+	var raw []yamlLine
+	for !p.done() {
+		line := p.current()
+		if strings.TrimSpace(line.text) == "" {
+			raw = append(raw, line)
+			p.advance()
 			continue
 		}
-		if linea.indent <= indentPadre {
+		if line.indent <= parentIndent {
 			break
 		}
-		crudas = append(crudas, linea)
-		p.avanzar()
+		raw = append(raw, line)
+		p.advance()
 	}
 
-	// Indentación efectiva = la menor de las líneas con contenido.
+	// Effective indentation = the smallest of the lines with content.
 	minIndent := -1
-	for _, l := range crudas {
-		if strings.TrimSpace(l.texto) == "" {
+	for _, l := range raw {
+		if strings.TrimSpace(l.text) == "" {
 			continue
 		}
 		if minIndent < 0 || l.indent < minIndent {
@@ -288,58 +288,58 @@ func (p *yParser) leerBloqueEscalar(indentPadre int, indicador string) (string, 
 		}
 	}
 
-	var partes []string
-	for _, l := range crudas {
-		if strings.TrimSpace(l.texto) == "" {
-			partes = append(partes, "")
+	var parts []string
+	for _, l := range raw {
+		if strings.TrimSpace(l.text) == "" {
+			parts = append(parts, "")
 			continue
 		}
-		crudo := strings.Repeat(" ", l.indent) + l.texto
-		if minIndent > 0 && minIndent <= len(crudo) {
-			crudo = crudo[minIndent:]
+		rawLine := strings.Repeat(" ", l.indent) + l.text
+		if minIndent > 0 && minIndent <= len(rawLine) {
+			rawLine = rawLine[minIndent:]
 		}
-		partes = append(partes, crudo)
+		parts = append(parts, rawLine)
 	}
 
-	var texto string
+	var text string
 	if literal {
-		texto = strings.Join(partes, "\n")
+		text = strings.Join(parts, "\n")
 	} else {
-		// Plegado: las líneas consecutivas con contenido se unen con espacios.
+		// Folded: consecutive lines with content are joined with spaces.
 		var sb strings.Builder
-		for i, parte := range partes {
+		for i, part := range parts {
 			if i > 0 {
-				if parte == "" || partes[i-1] == "" {
+				if part == "" || parts[i-1] == "" {
 					sb.WriteString("\n")
 				} else {
 					sb.WriteString(" ")
 				}
 			}
-			sb.WriteString(parte)
+			sb.WriteString(part)
 		}
-		texto = sb.String()
+		text = sb.String()
 	}
 
-	// Chomping: por defecto una sola línea final; "-" elimina; "+" conserva.
-	texto = strings.TrimRight(texto, "\n")
+	// Chomping: by default a single trailing line; "-" removes it; "+" keeps it.
+	text = strings.TrimRight(text, "\n")
 	switch {
-	case soloUnaLinea:
-		// sin salto final
-	case conservar:
-		texto += "\n\n"
+	case singleLine:
+		// no trailing newline
+	case keep:
+		text += "\n\n"
 	default:
-		texto += "\n"
+		text += "\n"
 	}
-	return texto, nil
+	return text
 }
 
-// --- escalares --------------------------------------------------------------
+// --- scalars ----------------------------------------------------------------
 
-func esItem(texto string) bool {
-	return texto == "-" || strings.HasPrefix(texto, "- ") || strings.HasPrefix(texto, "-\t")
+func isItem(text string) bool {
+	return text == "-" || strings.HasPrefix(text, "- ") || strings.HasPrefix(text, "-\t")
 }
 
-func esIndicadorBloque(s string) bool {
+func isBlockIndicator(s string) bool {
 	if s == "" {
 		return false
 	}
@@ -354,106 +354,114 @@ func esIndicadorBloque(s string) bool {
 	return true
 }
 
-// partirClave separa "clave: valor" respetando las comillas.
-func partirClave(texto string, num int) (string, string, error) {
-	clave, resto, err := intentarClave(texto)
+// splitKey separates "key: value" while respecting the quotes.
+func splitKey(text string, num int) (string, string, error) {
+	key, rest, err := tryKey(text)
 	if err != nil {
-		return "", "", fmt.Errorf("línea %d: %v", num, err)
+		return "", "", fmt.Errorf("line %d: %v", num, err)
 	}
-	return clave, resto, nil
+	return key, rest, nil
 }
 
-func intentarClave(texto string) (string, string, error) {
-	if strings.ContainsAny(texto, "&*!") && !strings.Contains(texto, ":") {
-		return "", "", fmt.Errorf("estructura YAML no soportada en %q (anclas, alias y tags no están implementados)", texto)
+func tryKey(text string) (string, string, error) {
+	if strings.ContainsAny(text, "&*!") && !strings.Contains(text, ":") {
+		return "", "", fmt.Errorf("unsupported YAML structure in %q (anchors, aliases and tags are not implemented)", text)
 	}
 
-	enComilla := byte(0)
-	for i := 0; i < len(texto); i++ {
-		c := texto[i]
+	quote := byte(0)
+	for i := 0; i < len(text); i++ {
+		c := text[i]
 		switch {
-		case enComilla != 0:
-			if c == enComilla {
-				enComilla = 0
+		case quote != 0:
+			if c == quote {
+				quote = 0
 			}
 		case c == '\'' || c == '"':
-			enComilla = c
+			quote = c
 		case c == ':':
-			// En YAML la clave termina en ": " o ":<fin>".
-			if i+1 == len(texto) || texto[i+1] == ' ' {
-				clave := strings.TrimSpace(texto[:i])
-				resto := strings.TrimSpace(recortarComentario(strings.TrimSpace(texto[i+1:])))
-				if clave == "" {
-					return "", "", fmt.Errorf("clave vacía en %q", texto)
+			// In YAML the key ends at ": " or ":<end>".
+			if i+1 == len(text) || text[i+1] == ' ' {
+				key := strings.TrimSpace(text[:i])
+				rest := strings.TrimSpace(stripComment(strings.TrimSpace(text[i+1:])))
+				if key == "" {
+					return "", "", fmt.Errorf("empty key in %q", text)
 				}
-				if clave[0] == '\'' || clave[0] == '"' {
-					sinComillas, err := descomillar(clave)
+				if key[0] == '\'' || key[0] == '"' {
+					unquoted, err := unquote(key)
 					if err != nil {
 						return "", "", err
 					}
-					clave = sinComillas
+					key = unquoted
 				}
-				return clave, resto, nil
+				return key, rest, nil
 			}
 		}
 	}
-	return "", "", fmt.Errorf("se esperaba 'clave: valor' y se encontró %q", texto)
+	return "", "", fmt.Errorf("expected 'key: value' and found %q", text)
 }
 
-func parseEscalar(texto string, num int) (any, error) {
-	texto = strings.TrimSpace(recortarComentario(texto))
-	if texto == "" {
+func parseScalar(text string, num int) (any, error) {
+	text = strings.TrimSpace(stripComment(text))
+	if text == "" {
 		return nil, nil
 	}
 
-	if texto[0] == '\'' || texto[0] == '"' {
-		return descomillar(texto)
+	if text[0] == '\'' || text[0] == '"' {
+		return unquote(text)
 	}
-	if texto[0] == '[' {
-		return parseSecuenciaEnLinea(texto, num)
+	if text[0] == '[' {
+		return parseInlineSequence(text, num)
 	}
-	if texto[0] == '{' {
-		return parseMapaEnLinea(texto, num)
+	if text[0] == '{' {
+		return parseInlineMap(text, num)
 	}
-	if strings.HasPrefix(texto, "&") || strings.HasPrefix(texto, "*") || strings.HasPrefix(texto, "!") {
-		return nil, fmt.Errorf("línea %d: anclas, alias y tags no están soportados (%q)", num, texto)
+	if strings.HasPrefix(text, "&") || strings.HasPrefix(text, "*") || strings.HasPrefix(text, "!") {
+		return nil, fmt.Errorf("line %d: anchors, aliases and tags are not supported (%q)", num, text)
 	}
 
-	switch strings.ToLower(texto) {
+	// Only true/false are interpreted as boolean.
+	//
+	// YAML 1.1 also accepts yes/no/on/off, but they do NOT apply here: they are
+	// legitimate text values of this configuration (sandbox.cgroups uses
+	// "on"/"off" as strings). Turning them into booleans made `cgroups: off`
+	// arrive as false and the validation rejected it with a bewildering error.
+	// Whoever writes a boolean in a text field will get an explicit type error,
+	// which is better than a silently wrong conversion.
+	switch strings.ToLower(text) {
 	case "null", "~":
 		return nil, nil
-	case "true", "yes", "on":
+	case "true":
 		return true, nil
-	case "false", "no", "off":
+	case "false":
 		return false, nil
 	}
-	if entero, err := strconv.ParseInt(texto, 10, 64); err == nil {
-		return entero, nil
+	if integer, err := strconv.ParseInt(text, 10, 64); err == nil {
+		return integer, nil
 	}
-	if flotante, err := strconv.ParseFloat(texto, 64); err == nil && strings.ContainsAny(texto, ".eE") {
-		return flotante, nil
+	if f, err := strconv.ParseFloat(text, 64); err == nil && strings.ContainsAny(text, ".eE") {
+		return f, nil
 	}
-	return texto, nil
+	return text, nil
 }
 
-func descomillar(texto string) (string, error) {
-	if len(texto) < 2 {
-		return "", fmt.Errorf("comilla sin cerrar en %q", texto)
+func unquote(text string) (string, error) {
+	if len(text) < 2 {
+		return "", fmt.Errorf("unterminated quote in %q", text)
 	}
-	comilla := texto[0]
-	if texto[len(texto)-1] != comilla {
-		return "", fmt.Errorf("comilla sin cerrar en %q", texto)
+	quote := text[0]
+	if text[len(text)-1] != quote {
+		return "", fmt.Errorf("unterminated quote in %q", text)
 	}
-	cuerpo := texto[1 : len(texto)-1]
-	if comilla == '\'' {
-		// En comillas simples la única secuencia especial es '' -> '.
-		return strings.ReplaceAll(cuerpo, "''", "'"), nil
+	body := text[1 : len(text)-1]
+	if quote == '\'' {
+		// In single quotes the only special sequence is '' -> '.
+		return strings.ReplaceAll(body, "''", "'"), nil
 	}
 	var sb strings.Builder
-	for i := 0; i < len(cuerpo); i++ {
-		if cuerpo[i] == '\\' && i+1 < len(cuerpo) {
+	for i := 0; i < len(body); i++ {
+		if body[i] == '\\' && i+1 < len(body) {
 			i++
-			switch cuerpo[i] {
+			switch body[i] {
 			case 'n':
 				sb.WriteByte('\n')
 			case 't':
@@ -466,111 +474,111 @@ func descomillar(texto string) (string, error) {
 				sb.WriteByte('\\')
 			default:
 				sb.WriteByte('\\')
-				sb.WriteByte(cuerpo[i])
+				sb.WriteByte(body[i])
 			}
 			continue
 		}
-		sb.WriteByte(cuerpo[i])
+		sb.WriteByte(body[i])
 	}
 	return sb.String(), nil
 }
 
-func parseSecuenciaEnLinea(texto string, num int) ([]any, error) {
-	if !strings.HasSuffix(texto, "]") {
-		return nil, fmt.Errorf("línea %d: falta ']' en la lista en línea %q", num, texto)
+func parseInlineSequence(text string, num int) ([]any, error) {
+	if !strings.HasSuffix(text, "]") {
+		return nil, fmt.Errorf("line %d: missing ']' in the inline list %q", num, text)
 	}
-	cuerpo := strings.TrimSpace(texto[1 : len(texto)-1])
-	if cuerpo == "" {
+	body := strings.TrimSpace(text[1 : len(text)-1])
+	if body == "" {
 		return []any{}, nil
 	}
-	partes, err := dividirTop(cuerpo, ',')
+	parts, err := splitTop(body, ',')
 	if err != nil {
-		return nil, fmt.Errorf("línea %d: %v", num, err)
+		return nil, fmt.Errorf("line %d: %v", num, err)
 	}
-	salida := make([]any, 0, len(partes))
-	for _, parte := range partes {
-		valor, err := parseEscalar(parte, num)
+	out := make([]any, 0, len(parts))
+	for _, part := range parts {
+		value, err := parseScalar(part, num)
 		if err != nil {
 			return nil, err
 		}
-		salida = append(salida, valor)
+		out = append(out, value)
 	}
-	return salida, nil
+	return out, nil
 }
 
-func parseMapaEnLinea(texto string, num int) (map[string]any, error) {
-	if !strings.HasSuffix(texto, "}") {
-		return nil, fmt.Errorf("línea %d: falta '}' en el mapa en línea %q", num, texto)
+func parseInlineMap(text string, num int) (map[string]any, error) {
+	if !strings.HasSuffix(text, "}") {
+		return nil, fmt.Errorf("line %d: missing '}' in the inline map %q", num, text)
 	}
-	cuerpo := strings.TrimSpace(texto[1 : len(texto)-1])
-	mapa := map[string]any{}
-	if cuerpo == "" {
-		return mapa, nil
+	body := strings.TrimSpace(text[1 : len(text)-1])
+	m := map[string]any{}
+	if body == "" {
+		return m, nil
 	}
-	partes, err := dividirTop(cuerpo, ',')
+	parts, err := splitTop(body, ',')
 	if err != nil {
-		return nil, fmt.Errorf("línea %d: %v", num, err)
+		return nil, fmt.Errorf("line %d: %v", num, err)
 	}
-	for _, parte := range partes {
-		clave, resto, err := intentarClave(strings.TrimSpace(parte))
+	for _, part := range parts {
+		key, rest, err := tryKey(strings.TrimSpace(part))
 		if err != nil {
-			return nil, fmt.Errorf("línea %d: %v", num, err)
+			return nil, fmt.Errorf("line %d: %v", num, err)
 		}
-		valor, err := parseEscalar(resto, num)
+		value, err := parseScalar(rest, num)
 		if err != nil {
 			return nil, err
 		}
-		mapa[clave] = valor
+		m[key] = value
 	}
-	return mapa, nil
+	return m, nil
 }
 
-// dividirTop separa por un separador que esté fuera de comillas y corchetes.
-func dividirTop(texto string, sep byte) ([]string, error) {
-	var partes []string
-	profundidad := 0
-	enComilla := byte(0)
-	inicio := 0
-	for i := 0; i < len(texto); i++ {
-		c := texto[i]
+// splitTop separates by a separator that is outside quotes and brackets.
+func splitTop(text string, sep byte) ([]string, error) {
+	var parts []string
+	depth := 0
+	quote := byte(0)
+	start := 0
+	for i := 0; i < len(text); i++ {
+		c := text[i]
 		switch {
-		case enComilla != 0:
-			if c == enComilla {
-				enComilla = 0
+		case quote != 0:
+			if c == quote {
+				quote = 0
 			}
 		case c == '\'' || c == '"':
-			enComilla = c
+			quote = c
 		case c == '[' || c == '{':
-			profundidad++
+			depth++
 		case c == ']' || c == '}':
-			profundidad--
-		case c == sep && profundidad == 0:
-			partes = append(partes, strings.TrimSpace(texto[inicio:i]))
-			inicio = i + 1
+			depth--
+		case c == sep && depth == 0:
+			parts = append(parts, strings.TrimSpace(text[start:i]))
+			start = i + 1
 		}
 	}
-	if enComilla != 0 {
-		return nil, fmt.Errorf("comilla sin cerrar en %q", texto)
+	if quote != 0 {
+		return nil, fmt.Errorf("unterminated quote in %q", text)
 	}
-	partes = append(partes, strings.TrimSpace(texto[inicio:]))
-	return partes, nil
+	parts = append(parts, strings.TrimSpace(text[start:]))
+	return parts, nil
 }
 
-// recortarComentario elimina un "# comentario" que esté fuera de comillas.
-func recortarComentario(texto string) string {
-	enComilla := byte(0)
-	for i := 0; i < len(texto); i++ {
-		c := texto[i]
+// stripComment removes a "# comment" that is outside quotes.
+func stripComment(text string) string {
+	quote := byte(0)
+	for i := 0; i < len(text); i++ {
+		c := text[i]
 		switch {
-		case enComilla != 0:
-			if c == enComilla {
-				enComilla = 0
+		case quote != 0:
+			if c == quote {
+				quote = 0
 			}
 		case c == '\'' || c == '"':
-			enComilla = c
-		case c == '#' && (i == 0 || texto[i-1] == ' '):
-			return strings.TrimRight(texto[:i], " ")
+			quote = c
+		case c == '#' && (i == 0 || text[i-1] == ' '):
+			return strings.TrimRight(text[:i], " ")
 		}
 	}
-	return texto
+	return text
 }

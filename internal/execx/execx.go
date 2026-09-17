@@ -1,12 +1,12 @@
-// Package execx contiene las primitivas de ejecución de procesos compartidas
-// por el ancla (Capa A) y el sandbox (Capa C).
+// Package execx holds the process execution primitives shared by the anchor
+// (Layer A) and the sandbox (Layer C).
 //
-// Aquí vive lo que costó sangre: matar de verdad a un comando que expira.
-// `exec.CommandContext` sólo mata al proceso directo; sus hijos (`sleep`, un
-// script con pipes) siguen vivos con el tubo de salida abierto y `Wait` se
-// queda esperando mucho más allá del plazo. Verificado: un `sleep 30` con
-// timeout de 1 s tardaba 5 s. La solución es grupo de procesos propio,
-// SIGKILL al grupo y un WaitDelay acotado.
+// This is where the blood was spilled: really killing a command that expires.
+// `exec.CommandContext` only kills the direct process; its children (`sleep`, a
+// script with pipes) stay alive holding the output pipe open and `Wait` keeps
+// waiting well past the deadline. Verified: a `sleep 30` with a 1 s timeout
+// used to take 5 s. The fix is a process group of its own, SIGKILL to the
+// group and a bounded WaitDelay.
 package execx
 
 import (
@@ -18,93 +18,93 @@ import (
 	"time"
 )
 
-// Peticion describe un comando a ejecutar.
-type Peticion struct {
-	Comando         string
-	Args            []string
-	Dir             string
-	Entorno         []string // nil = heredar el del proceso
-	Timeout         time.Duration
-	MaxSalida       int64 // bytes de salida combinada (0 = 256 KiB)
-	EntradaEstandar []byte
+// Request describes a command to run.
+type Request struct {
+	Command     string
+	Args        []string
+	Dir         string
+	Environment []string // nil = inherit the process' own
+	Timeout     time.Duration
+	MaxOutput   int64 // bytes of combined output (0 = 256 KiB)
+	Stdin       []byte
 }
 
-// Resultado de una ejecución.
-type Resultado struct {
-	Salida   string
-	Exit     int
-	Truncado bool
-	Duracion time.Duration
-	Expirado bool
+// Result of a run.
+type Result struct {
+	Output    string
+	Exit      int
+	Truncated bool
+	Duration  time.Duration
+	Expired   bool
 }
 
-// bufferLimitado acumula hasta max bytes y marca si hubo recorte, sin hacer
-// fallar al proceso que escribe.
-type bufferLimitado struct {
-	buf      bytes.Buffer
-	max      int64
-	truncado bool
+// limitedBuffer accumulates up to max bytes and marks whether anything was cut,
+// without making the writing process fail.
+type limitedBuffer struct {
+	buf       bytes.Buffer
+	max       int64
+	truncated bool
 }
 
-func (b *bufferLimitado) Write(p []byte) (int, error) {
-	espacio := b.max - int64(b.buf.Len())
-	if espacio <= 0 {
-		b.truncado = true
+func (b *limitedBuffer) Write(p []byte) (int, error) {
+	space := b.max - int64(b.buf.Len())
+	if space <= 0 {
+		b.truncated = true
 		return len(p), nil
 	}
-	if espacio < int64(len(p)) {
-		b.buf.Write(p[:espacio])
-		b.truncado = true
+	if space < int64(len(p)) {
+		b.buf.Write(p[:space])
+		b.truncated = true
 		return len(p), nil
 	}
 	b.buf.Write(p)
 	return len(p), nil
 }
 
-// Ejecutar corre el comando con grupo de procesos y timeout real. Devuelve la
-// salida combinada (stdout+stderr), el código de salida y un error explícito si
-// el comando no pudo lanzarse, expiró o terminó con código distinto de cero.
-func Ejecutar(ctx context.Context, p Peticion) (string, bool, int, error) {
-	if strings.TrimSpace(p.Comando) == "" {
-		return "", false, -1, fmt.Errorf("comando vacío")
+// Run executes the command with a process group and a real timeout. It returns
+// the combined output (stdout+stderr), the exit code and an explicit error if
+// the command could not be launched, expired or finished with a non-zero code.
+func Run(ctx context.Context, p Request) (string, bool, int, error) {
+	if strings.TrimSpace(p.Command) == "" {
+		return "", false, -1, fmt.Errorf("empty command")
 	}
 
 	timeout := p.Timeout
 	if timeout <= 0 {
 		timeout = 120 * time.Second
 	}
-	max := p.MaxSalida
+	max := p.MaxOutput
 	if max <= 0 {
 		max = 256 << 10
 	}
 
-	ctxHijo, cancelar := context.WithTimeout(ctx, timeout)
-	defer cancelar()
+	childCtx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
 
-	cmd := exec.CommandContext(ctxHijo, p.Comando, p.Args...)
+	cmd := exec.CommandContext(childCtx, p.Command, p.Args...)
 	cmd.Dir = p.Dir
-	if p.Entorno != nil {
-		cmd.Env = p.Entorno
+	if p.Environment != nil {
+		cmd.Env = p.Environment
 	}
-	if p.EntradaEstandar != nil {
-		cmd.Stdin = bytes.NewReader(p.EntradaEstandar)
+	if p.Stdin != nil {
+		cmd.Stdin = bytes.NewReader(p.Stdin)
 	}
 
-	configurarGrupo(cmd)
-	cmd.Cancel = func() error { return matarGrupo(cmd) }
+	configureGroup(cmd)
+	cmd.Cancel = func() error { return killGroup(cmd) }
 	cmd.WaitDelay = 2 * time.Second
 
-	salida := &bufferLimitado{max: max}
-	cmd.Stdout = salida
-	cmd.Stderr = salida
+	output := &limitedBuffer{max: max}
+	cmd.Stdout = output
+	cmd.Stderr = output
 
-	inicio := time.Now()
+	start := time.Now()
 	err := cmd.Run()
-	duracion := time.Since(inicio)
-	texto := salida.buf.String()
+	duration := time.Since(start)
+	text := output.buf.String()
 
-	if ctxHijo.Err() == context.DeadlineExceeded {
-		return texto, salida.truncado, -1, fmt.Errorf("el comando excedió el límite de %s y fue terminado (grupo de procesos enviado a SIGKILL)", timeout)
+	if childCtx.Err() == context.DeadlineExceeded {
+		return text, output.truncated, -1, fmt.Errorf("the command exceeded the limit of %s and was terminated (process group sent SIGKILL)", timeout)
 	}
 
 	exit := 0
@@ -113,48 +113,48 @@ func Ejecutar(ctx context.Context, p Peticion) (string, bool, int, error) {
 		if ok := asExitError(err, &ee); ok {
 			exit = ee.ExitCode()
 			if exit < 0 {
-				// Terminado por señal (p. ej. SIGKILL por parte del sandbox).
-				return texto, salida.truncado, exit, fmt.Errorf("el comando terminó por una señal (exit=%d) tras %s", exit, duracion.Round(time.Millisecond))
+				// Terminated by a signal (e.g. SIGKILL from the sandbox).
+				return text, output.truncated, exit, fmt.Errorf("the command was terminated by a signal (exit=%d) after %s", exit, duration.Round(time.Millisecond))
 			}
-			return texto, salida.truncado, exit, nil
+			return text, output.truncated, exit, nil
 		}
-		return texto, salida.truncado, -1, fmt.Errorf("no se pudo ejecutar %q: %w", p.Comando, err)
+		return text, output.truncated, -1, fmt.Errorf("could not run %q: %w", p.Command, err)
 	}
-	_ = duracion
-	return texto, salida.truncado, exit, nil
+	_ = duration
+	return text, output.truncated, exit, nil
 }
 
-// EjecutarShell corre el comando a través de `sh -c`, para admitir pipes,
-// redirecciones y comillas como lo haría una persona en la terminal.
-func EjecutarShell(ctx context.Context, comando, dir string, timeout time.Duration, max int64) (Resultado, error) {
-	ctxHijo, cancelar := context.WithTimeout(ctx, timeout)
-	defer cancelar()
+// RunShell runs the command through `sh -c`, to support pipes, redirections and
+// quotes the way a person would type them in the terminal.
+func RunShell(ctx context.Context, command, dir string, timeout time.Duration, max int64) (Result, error) {
+	childCtx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
 
-	cmd := exec.CommandContext(ctxHijo, "sh", "-c", comando)
+	cmd := exec.CommandContext(childCtx, "sh", "-c", command)
 	cmd.Dir = dir
-	configurarGrupo(cmd)
-	cmd.Cancel = func() error { return matarGrupo(cmd) }
+	configureGroup(cmd)
+	cmd.Cancel = func() error { return killGroup(cmd) }
 	cmd.WaitDelay = 2 * time.Second
 
 	if max <= 0 {
 		max = 256 << 10
 	}
-	salida := &bufferLimitado{max: max}
-	cmd.Stdout = salida
-	cmd.Stderr = salida
+	output := &limitedBuffer{max: max}
+	cmd.Stdout = output
+	cmd.Stderr = output
 
-	inicio := time.Now()
+	start := time.Now()
 	err := cmd.Run()
-	res := Resultado{
-		Salida:   salida.buf.String(),
-		Truncado: salida.truncado,
-		Duracion: time.Since(inicio),
+	res := Result{
+		Output:    output.buf.String(),
+		Truncated: output.truncated,
+		Duration:  time.Since(start),
 	}
 
-	if ctxHijo.Err() == context.DeadlineExceeded {
-		res.Expirado = true
+	if childCtx.Err() == context.DeadlineExceeded {
+		res.Expired = true
 		res.Exit = -1
-		return res, fmt.Errorf("el comando excedió el límite de %s", timeout)
+		return res, fmt.Errorf("the command exceeded the limit of %s", timeout)
 	}
 
 	if err != nil {
@@ -162,17 +162,17 @@ func EjecutarShell(ctx context.Context, comando, dir string, timeout time.Durati
 		if asExitError(err, &ee) {
 			res.Exit = ee.ExitCode()
 			if res.Exit < 0 {
-				return res, fmt.Errorf("el comando terminó por una señal (exit=%d)", res.Exit)
+				return res, fmt.Errorf("the command was terminated by a signal (exit=%d)", res.Exit)
 			}
 			return res, nil
 		}
 		res.Exit = -1
-		return res, fmt.Errorf("no se pudo ejecutar el comando: %w", err)
+		return res, fmt.Errorf("could not run the command: %w", err)
 	}
 	return res, nil
 }
 
-// LimpiarSalida normaliza la salida para registros y prompts.
-func LimpiarSalida(s string) string {
+// CleanOutput normalizes output for logs and prompts.
+func CleanOutput(s string) string {
 	return strings.TrimRight(s, "\n")
 }

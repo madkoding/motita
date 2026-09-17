@@ -1,16 +1,15 @@
-// Package anchor implementa la Capa A: el validador determinista.
+// Package anchor implements Layer A: the deterministic validator.
 //
-// No razona y no llama a ningún LLM: ejecuta comprobaciones reales (comandos,
-// invariantes, esperas de salida) sobre el resultado del agente y devuelve
-// PASS/FAIL con registros estructurados. Si esta capa no puede ejecutarse, el
-// resultado es FAIL, nunca un PASS optimista.
+// It does not reason and it does not call any LLM: it runs real checks (commands,
+// invariants, expected output) over the agent's result and returns PASS/FAIL with
+// structured records. If this layer cannot run, the result is FAIL, never an
+// optimistic PASS.
 package anchor
 
 import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"os/exec"
 	"regexp"
 	"strings"
 	"time"
@@ -21,209 +20,205 @@ import (
 	"github.com/madkoding/starlight/internal/sandbox"
 )
 
-// Resultado es el veredicto del ancla.
-type Resultado struct {
-	PASS       bool       `json:"pass"`
+// Result is the anchor's verdict.
+type Result struct {
+	Pass       bool       `json:"pass"`
 	Checks     []CheckLog `json:"checks"`
-	DuracionMS int64      `json:"duracion_ms"`
-	Motivo     string     `json:"motivo"`
+	DurationMS int64      `json:"duration_ms"`
+	Reason     string     `json:"reason"`
 }
 
-// CheckLog es el registro estructurado de una comprobación.
+// CheckLog is the structured record of one check.
 type CheckLog struct {
-	Nombre     string `json:"nombre"`
-	Comando    string `json:"comando"`
+	Name       string `json:"name"`
+	Command    string `json:"command"`
 	Exit       int    `json:"exit"`
-	PASS       bool   `json:"pass"`
-	DuracionMS int64  `json:"duracion_ms"`
-	Salida     string `json:"salida,omitempty"`
+	Pass       bool   `json:"pass"`
+	DurationMS int64  `json:"duration_ms"`
+	Output     string `json:"output,omitempty"`
 	Error      string `json:"error,omitempty"`
-	Truncado   bool   `json:"salida_truncada,omitempty"`
+	Truncated  bool   `json:"output_truncated,omitempty"`
 }
 
-// Ancla valida resultados según la configuración.
-type Ancla struct {
+// Anchor validates results according to the configuration.
+type Anchor struct {
 	cfg     config.Anchor
-	dir     string // directorio de trabajo donde corren las comprobaciones
+	dir     string // working directory the checks run in
 	sandbox *sandbox.Sandbox
 	log     *logx.Logger
 }
 
-// Nuevo construye un ancla. El sandbox es opcional: si es nil, las
-// comprobaciones corren directamente en el sistema.
+// New builds an anchor. The sandbox is optional: when it is nil, the checks run
+// directly on the system.
 //
-// Nota de diseño: el ancla es la autoridad, así que por defecto corre las
-// comprobaciones fuera del sandbox del agente. Si el sandbox tuviera un fallo,
-// también lo tendría el validador, y un validador que falla en silencio deja
-// pasar resultados malos. Cuando se le pasa un sandbox, es porque quien lo usa
-// decidió aislar también la validación (por ejemplo, con el sandbox en chroot).
-func Nuevo(cfg config.Anchor, dir string, caja *sandbox.Sandbox) *Ancla {
-	return &Ancla{cfg: cfg, dir: dir, sandbox: caja, log: logx.Global()}
+// Design note: the anchor is the authority, so by default it runs its checks
+// OUTSIDE the agent's sandbox. If the sandbox had a flaw, the validator would
+// share it, and a validator that fails silently lets bad results through. When a
+// sandbox is passed in, it is because the caller decided to isolate validation
+// too (for instance with the sandbox in chroot mode).
+func New(cfg config.Anchor, dir string, box *sandbox.Sandbox) *Anchor {
+	return &Anchor{cfg: cfg, dir: dir, sandbox: box, log: logx.Global()}
 }
 
-// Validador abstracto, para poder sustituirlo en las pruebas.
-type Validador interface {
-	Validar(ctx context.Context) Resultado
+// Validator is the abstraction, so it can be replaced in tests.
+type Validator interface {
+	Validate(ctx context.Context) Result
 }
 
-// Validar ejecuta todas las comprobaciones. Devuelve PASS sólo si todas pasan.
-func (a *Ancla) Validar(ctx context.Context) Resultado {
-	inicio := time.Now()
-	res := Resultado{PASS: true, Checks: []CheckLog{}}
+// Validate runs every check. It returns PASS only when all of them pass.
+func (a *Anchor) Validate(ctx context.Context) Result {
+	start := time.Now()
+	res := Result{Pass: true, Checks: []CheckLog{}}
 
-	if strings.EqualFold(a.cfg.Tipo, "none") || a.cfg.Tipo == "" {
-		// Sin validación no hay verificación posible, así que NO se puede
-		// declarar PASS. Un PASS sin comprobación real sería exactamente el
-		// fallo que esta arquitectura existe para evitar.
-		res.PASS = false
-		res.Motivo = "anchor.tipo=none: no hay validación determinista, el resultado NO puede darse por verificado"
-		res.DuracionMS = time.Since(inicio).Milliseconds()
-		a.log.Error("ancla desactivada: no se puede verificar el resultado", "motivo", res.Motivo)
+	if strings.EqualFold(a.cfg.Kind, "none") || a.cfg.Kind == "" {
+		// Without validation there is no possible verification, so PASS cannot
+		// be declared. A PASS with no real check would be exactly the failure
+		// this architecture exists to prevent.
+		res.Pass = false
+		res.Reason = "anchor.kind=none: there is no deterministic validation, the result can NOT be taken as verified"
+		res.DurationMS = time.Since(start).Milliseconds()
+		a.log.Error("anchor disabled: the result cannot be verified", "reason", res.Reason)
 		return res
 	}
 
-	checks := a.comprobaciones()
+	checks := a.checks()
 	for _, c := range checks {
-		registro := a.ejecutarCheck(ctx, c)
-		res.Checks = append(res.Checks, registro)
-		if !registro.PASS {
-			res.PASS = false
+		record := a.runCheck(ctx, c)
+		res.Checks = append(res.Checks, record)
+		if !record.Pass {
+			res.Pass = false
 		}
 	}
 
-	if res.PASS {
-		res.Motivo = fmt.Sprintf("%d comprobación(es) superadas", len(res.Checks))
+	if res.Pass {
+		res.Reason = fmt.Sprintf("%d check(s) passed", len(res.Checks))
 	} else {
-		var fallidas []string
+		var failed []string
 		for _, c := range res.Checks {
-			if !c.PASS {
-				fallidas = append(fallidas, c.Nombre)
+			if !c.Pass {
+				failed = append(failed, c.Name)
 			}
 		}
-		res.Motivo = "comprobaciones fallidas: " + strings.Join(fallidas, ", ")
+		res.Reason = "failed checks: " + strings.Join(failed, ", ")
 	}
-	res.DuracionMS = time.Since(inicio).Milliseconds()
+	res.DurationMS = time.Since(start).Milliseconds()
 
-	campos := []any{"pass", res.PASS, "motivo", res.Motivo, "duracion_ms", res.DuracionMS}
-	if res.PASS {
-		a.log.Info("validación del ancla", campos...)
+	fields := []any{"pass", res.Pass, "reason", res.Reason, "duration_ms", res.DurationMS}
+	if res.Pass {
+		a.log.Info("anchor validation", fields...)
 	} else {
-		a.log.Warn("validación del ancla", campos...)
+		a.log.Warn("anchor validation", fields...)
 	}
 	return res
 }
 
-// comprobaciones normaliza la configuración en una lista homogénea.
-func (a *Ancla) comprobaciones() []config.Check {
-	lista := make([]config.Check, 0, 1+len(a.cfg.Checks))
-	if a.cfg.Comando != "" {
-		lista = append(lista, config.Check{
-			Nombre:        "principal",
-			Comando:       a.cfg.Comando,
-			Argumentos:    a.cfg.Argumentos,
-			Timeout:       a.cfg.Timeout,
-			EsperarExit:   a.cfg.EsperarExit,
-			EsperarSalida: a.cfg.EsperarSalida,
+// checks normalises the configuration into a homogeneous list.
+func (a *Anchor) checks() []config.Check {
+	list := make([]config.Check, 0, 1+len(a.cfg.Checks))
+	if a.cfg.Command != "" {
+		list = append(list, config.Check{
+			Name:         "main",
+			Command:      a.cfg.Command,
+			Args:         a.cfg.Args,
+			Timeout:      a.cfg.Timeout,
+			ExpectExit:   a.cfg.ExpectExit,
+			ExpectOutput: a.cfg.ExpectOutput,
 		})
 	}
-	lista = append(lista, a.cfg.Checks...)
-	return lista
+	list = append(list, a.cfg.Checks...)
+	return list
 }
 
-// ejecutarCheck corre una comprobación y evalúa exit code y salida esperada.
-func (a *Ancla) ejecutarCheck(ctx context.Context, c config.Check) CheckLog {
-	nombre := c.Nombre
-	if nombre == "" {
-		nombre = "check"
+// runCheck runs one check and evaluates its exit code and expected output.
+func (a *Anchor) runCheck(ctx context.Context, c config.Check) CheckLog {
+	name := c.Name
+	if name == "" {
+		name = "check"
 	}
 	timeout := c.Timeout
 	if timeout <= 0 {
 		timeout = 120 * time.Second
 	}
 
-	linea := strings.TrimSpace(c.Comando + " " + strings.Join(c.Argumentos, " "))
-	registro := CheckLog{Nombre: nombre, Comando: linea}
+	line := strings.TrimSpace(c.Command + " " + strings.Join(c.Args, " "))
+	record := CheckLog{Name: name, Command: line}
 
-	inicio := time.Now()
+	start := time.Now()
 	var (
-		salida    string
+		output    string
 		exit      int
-		errSalida error
-		truncado  bool
+		runErr    error
+		truncated bool
 	)
 
-	peticion := execx.Peticion{
-		Comando: c.Comando,
-		Args:    c.Argumentos,
+	request := execx.Request{
+		Command: c.Command,
+		Args:    c.Args,
 		Dir:     a.dir,
 		Timeout: timeout,
 	}
 	if a.sandbox != nil {
-		salida, truncado, exit, errSalida = a.sandbox.Ejecutar(ctx, peticion)
+		output, truncated, exit, runErr = a.sandbox.Run(ctx, request)
 	} else {
-		salida, truncado, exit, errSalida = ejecutarDirecto(ctx, peticion)
+		output, truncated, exit, runErr = runDirect(ctx, request)
 	}
 
-	registro.DuracionMS = time.Since(inicio).Milliseconds()
-	registro.Exit = exit
-	registro.Salida = recortar(salida, 4000)
-	registro.Truncado = truncado
+	record.DurationMS = time.Since(start).Milliseconds()
+	record.Exit = exit
+	record.Output = truncate(output, 4000)
+	record.Truncated = truncated
 
-	if errSalida != nil {
-		registro.PASS = false
-		registro.Error = errSalida.Error()
-		return registro
+	if runErr != nil {
+		record.Pass = false
+		record.Error = runErr.Error()
+		return record
 	}
 
-	esperado := c.EsperarExit
-	if exit != esperado {
-		registro.PASS = false
-		if registro.Error == "" {
-			registro.Error = fmt.Sprintf("se esperaba un código de salida %d y se obtuvo %d", esperado, exit)
+	want := c.ExpectExit
+	if exit != want {
+		record.Pass = false
+		if record.Error == "" {
+			record.Error = fmt.Sprintf("expected exit code %d and got %d", want, exit)
 		}
-		return registro
+		return record
 	}
 
-	if c.EsperarSalida != "" {
-		re, err := regexp.Compile(c.EsperarSalida)
+	if c.ExpectOutput != "" {
+		re, err := regexp.Compile(c.ExpectOutput)
 		if err != nil {
-			registro.PASS = false
-			registro.Error = "esperar_salida no es una expresión regular válida: " + err.Error()
-			return registro
+			record.Pass = false
+			record.Error = "expect_output is not a valid regular expression: " + err.Error()
+			return record
 		}
-		if !re.MatchString(salida) {
-			registro.PASS = false
-			registro.Error = fmt.Sprintf("la salida no coincide con %q", c.EsperarSalida)
-			return registro
+		if !re.MatchString(output) {
+			record.Pass = false
+			record.Error = fmt.Sprintf("the output does not match %q", c.ExpectOutput)
+			return record
 		}
 	}
 
-	registro.PASS = true
-	return registro
+	record.Pass = true
+	return record
 }
 
-// ejecutarDirecto es el camino sin sandbox (comprobaciones del ancla cuando el
-// sandbox está desactivado o no aplica).
-func ejecutarDirecto(ctx context.Context, p execx.Peticion) (string, bool, int, error) {
-	return execx.Ejecutar(ctx, p)
+// runDirect is the path without a sandbox (the anchor's checks when the sandbox
+// is disabled or does not apply).
+func runDirect(ctx context.Context, r execx.Request) (string, bool, int, error) {
+	return execx.Run(ctx, r)
 }
 
-// recortar limita el tamaño de la salida guardada en el registro.
-func recortar(s string, max int) string {
+// truncate limits the size of the output kept in the record.
+func truncate(s string, max int) string {
 	if len(s) <= max {
 		return s
 	}
 	return s[:max] + "..."
 }
 
-// JSON serializa el resultado para el registro estructurado.
-func (r Resultado) JSON() string {
-	datos, err := json.Marshal(r)
-	if err != nil {
-		return `{"pass":false,"motivo":"no se pudo serializar el resultado"}`
-	}
-	return string(datos)
+// JSON serialises the result for the structured record. The result only holds
+// plain fields (booleans, numbers, strings and a slice of the same), so the
+// marshalling cannot fail.
+func (r Result) JSON() string {
+	data, _ := json.Marshal(r)
+	return string(data)
 }
-
-// Asegura que exec.Command existe para los sistemas que no soportan sh -c.
-var _ = exec.Command

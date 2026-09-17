@@ -1,25 +1,25 @@
-// Command starlight es un agente de IA de línea de comandos escrito en Go puro
-// (sólo biblioteca estándar, cero dependencias externas) que habla con
-// cualquier API compatible con OpenAI.
+// Command starlight is a command-line AI agent written in pure Go
+// (standard library only, zero external dependencies) that talks to any
+// OpenAI-compatible API.
 //
-// Está pensado para máquinas i386 (linux/386): el binario es estático, no usa
-// cgo y aplica límites explícitos de memoria (lectura de archivos, salida de
-// comandos, tamaño del historial) y timeouts de red.
+// It is aimed at i386 machines (linux/386): the binary is static, does not use
+// cgo and applies explicit memory limits (file reads, command output, history
+// size) plus network timeouts.
 //
-// Variables de entorno:
+// Environment variables:
 //
-//	OPENAI_API_KEY   (obligatoria) clave de la API.
-//	OPENAI_BASE_URL  (opcional) base URL; por defecto https://api.openai.com/v1
-//	OPENAI_MODEL     (opcional) modelo; por defecto gpt-4o-mini
+//	OPENAI_API_KEY   (required) API key.
+//	OPENAI_BASE_URL  (optional) base URL; defaults to https://api.openai.com/v1
+//	OPENAI_MODEL     (optional) model; defaults to gpt-4o-mini
 //
-// Uso:
+// Usage:
 //
 //	export OPENAI_API_KEY=sk-...
-//	starlight                          # REPL interactivo
-//	starlight -p "lista los .go del directorio actual"   # una instrucción y sale
+//	starlight                                            # interactive REPL
+//	starlight -p "list the .go files in the current directory"  # one instruction and exit
 //
-// Las trazas ([Pensando...], [Ejecutando herramienta: ...]) se escriben en
-// stderr; la respuesta final en stdout, para poder canalizarla.
+// Trace lines ([Thinking...], [Running tool: ...]) are written to stderr; the
+// final answer goes to stdout, so it can be piped.
 package main
 
 import (
@@ -40,11 +40,11 @@ import (
 )
 
 // ---------------------------------------------------------------------------
-// Presentación y límites de recursos
+// Presentation and resource limits
 // ---------------------------------------------------------------------------
 
 const (
-	// Colores ANSI a mano: no se permite ninguna librería externa.
+	// ANSI colours by hand: no external library is allowed.
 	colorReset  = "\033[0m"
 	colorBold   = "\033[1m"
 	colorDim    = "\033[2m"
@@ -53,38 +53,42 @@ const (
 	colorYellow = "\033[33m"
 	colorCyan   = "\033[36m"
 
-	// maxFileBytes limita leer_archivo a 1 MiB: en un i386 la RAM es escasa y
-	// no queremos que el agente intente cargar un vídeo o un log gigante.
+	// maxFileBytes limits read_file to 1 MiB: RAM is scarce on an i386 and we do
+	// not want the agent trying to load a video or a huge log.
 	maxFileBytes = 1 << 20
 
-	// maxToolOutputBytes recorta la salida acumulada de un comando (64 KiB).
+	// maxToolOutputBytes trims the accumulated output of a command (64 KiB).
 	maxToolOutputBytes = 64 << 10
 
-	// maxResponseBytes limita cuánto leemos de la respuesta HTTP.
+	// maxResponseBytes limits how much of the HTTP response is read.
 	maxResponseBytes = 8 << 20
 
-	// maxHistorial mensajes conservados en memoria (el system prompt siempre
-	// queda). Evita que un REPL largo crezca sin control en 32 bits.
-	maxHistorial = 41
+	// maxHistory is how many messages are kept in memory (the system prompt
+	// always stays). It stops a long REPL from growing without control in 32-bit.
+	maxHistory = 41
 
-	// timeoutComandoPorDefecto evita que un comando colgado bloquee al agente.
-	timeoutComandoPorDefecto = 120
+	// defaultCommandTimeout stops a hung command from blocking the agent.
+	defaultCommandTimeout = 120
 
 	defaultMaxLoops = 5
 	defaultBaseURL  = "https://api.openai.com/v1"
 	defaultModel    = "gpt-4o-mini"
 	defaultTimeout  = 60 * time.Second
 
-	nombrePrograma = "starlight"
+	programName = "starlight"
 )
 
-// version se inyecta en el build: -ldflags "-X main.version=v1.0.0".
+// version is injected at build time: -ldflags "-X main.version=v1.0.0".
 var version = "dev"
 
-// colorEnabled se apaga con --sin-color o con NO_COLOR=1.
+// exitProcess ends the program. It is a variable so the command-line decisions
+// can be tested in-process: os.Exit cannot be observed from inside a test.
+var exitProcess = os.Exit
+
+// colorEnabled is turned off with --no-color or with NO_COLOR=1.
 var colorEnabled = true
 
-// paint envuelve s en un color ANSI respetando la configuración global.
+// paint wraps s in an ANSI colour, honouring the global setting.
 func paint(color, s string) string {
 	if !colorEnabled || color == "" {
 		return s
@@ -92,26 +96,26 @@ func paint(color, s string) string {
 	return color + s + colorReset
 }
 
-// traza escribe mensajes de progreso en stderr (nunca contaminan stdout).
-func traza(format string, args ...any) {
+// trace writes progress messages to stderr (they never contaminate stdout).
+func trace(format string, args ...any) {
 	fmt.Fprintf(os.Stderr, format, args...)
 }
 
-const systemPrompt = `Eres Starlight, un agente de terminal que ayuda a trabajar en el sistema local.
-Respondes en español, de forma directa y concisa.
+const systemPrompt = `You are Starlight, a terminal agent that helps work on the local system.
+You answer in English, directly and concisely.
 
-Reglas:
-- Usa las herramientas cuando necesites información real del sistema (contenido de
-  archivos o salida de comandos). Nunca inventes el contenido de un archivo ni el
-  resultado de un comando.
-- Prefiere comandos de sólo lectura. Antes de ejecutar algo destructivo (borrar,
-  sobrescribir, instalar, publicar), explica qué vas a hacer y espera confirmación.
-- Si una herramienta devuelve un error, léelo y corrige el plan antes de reintentar.
-- Cuando ya tengas la respuesta, entrégala como texto final sin volver a llamar
-  herramientas.`
+Rules:
+- Use the tools when you need real information from the system (file contents or
+  command output). Never invent a file's contents or a command's result.
+- Prefer read-only commands. Before running anything destructive (deleting,
+  overwriting, installing, publishing), explain what you are going to do and wait
+  for confirmation.
+- If a tool returns an error, read it and correct the plan before retrying.
+- Once you have the answer, deliver it as final text without calling any more
+  tools.`
 
 // ---------------------------------------------------------------------------
-// Tipos de la API compatible con OpenAI
+// OpenAI-compatible API types
 // ---------------------------------------------------------------------------
 
 type chatRequest struct {
@@ -162,7 +166,7 @@ type chatResponse struct {
 }
 
 // ---------------------------------------------------------------------------
-// Configuración
+// Configuration
 // ---------------------------------------------------------------------------
 
 type config struct {
@@ -173,202 +177,202 @@ type config struct {
 	timeout  time.Duration
 }
 
-func getEnv(clave, porDefecto string) string {
-	if v, ok := os.LookupEnv(clave); ok && strings.TrimSpace(v) != "" {
+func getEnv(key, fallback string) string {
+	if v, ok := os.LookupEnv(key); ok && strings.TrimSpace(v) != "" {
 		return strings.TrimSpace(v)
 	}
-	return porDefecto
+	return fallback
 }
 
 // ---------------------------------------------------------------------------
-// Herramientas del agente
+// Agent tools
 // ---------------------------------------------------------------------------
 
-// leerArchivoArgs son los argumentos de leer_archivo.
-type leerArchivoArgs struct {
-	Ruta string `json:"ruta"`
+// readFileArgs are read_file's arguments.
+type readFileArgs struct {
+	Path string `json:"path"`
 }
 
-// ejecutarComandoArgs son los argumentos de ejecutar_comando.
-type ejecutarComandoArgs struct {
-	Cmd             string `json:"cmd"`
-	TimeoutSegundos int    `json:"timeout_segundos,omitempty"`
+// runCommandArgs are run_command's arguments.
+type runCommandArgs struct {
+	Cmd            string `json:"cmd"`
+	TimeoutSeconds int    `json:"timeout_seconds,omitempty"`
 }
 
-// decodeArgs deserializa los argumentos de una herramienta.
+// decodeArgs deserialises a tool's arguments.
 //
-// Cubre tres formatos que se ven en producción (no todos los proveedores
-// "compatibles con OpenAI" respetan la especificación):
+// It covers three formats seen in production (not every
+// "OpenAI-compatible" provider honours the specification):
 //
-//	{"ruta":"x"}          -> objeto JSON (lo que manda la spec)
-//	"{\"ruta\":\"x\"}"    -> cadena que contiene JSON (visto en varios gateways)
-//	(vacío)               -> sin argumentos
+//	{"path":"x"}          -> JSON object (what the spec mandates)
+//	"{\"path\":\"x\"}"    -> a string containing JSON (seen on several gateways)
+//	(empty)               -> no arguments
 //
-// Sin esta normalización el agente fallaría con "cannot unmarshal string" aunque
-// el usuario haya escrito la petición correcta.
+// Without this normalisation the agent would fail with "cannot unmarshal string"
+// even when the user wrote the request correctly.
 func decodeArgs(raw json.RawMessage, dst any) error {
-	recortado := bytes.TrimSpace(raw)
-	if len(recortado) == 0 || string(recortado) == "null" {
+	trimmed := bytes.TrimSpace(raw)
+	if len(trimmed) == 0 || string(trimmed) == "null" {
 		return nil
 	}
-	if recortado[0] == '"' {
-		var texto string
-		if err := json.Unmarshal(recortado, &texto); err != nil {
+	if trimmed[0] == '"' {
+		var text string
+		if err := json.Unmarshal(trimmed, &text); err != nil {
 			return err
 		}
-		if strings.TrimSpace(texto) == "" {
+		if strings.TrimSpace(text) == "" {
 			return nil
 		}
-		recortado = []byte(texto)
+		trimmed = []byte(text)
 	}
-	return json.Unmarshal(recortado, dst)
+	return json.Unmarshal(trimmed, dst)
 }
 
-// herramientaLeerArchivo implementa leer_archivo (texto, máx. 1 MiB).
-func herramientaLeerArchivo(raw json.RawMessage) string {
-	var args leerArchivoArgs
+// toolReadFile implements read_file (text, max 1 MiB).
+func toolReadFile(raw json.RawMessage) string {
+	var args readFileArgs
 	if err := decodeArgs(raw, &args); err != nil {
-		return "Error al parsear argumentos: " + err.Error()
+		return "Error parsing the arguments: " + err.Error()
 	}
-	if strings.TrimSpace(args.Ruta) == "" {
-		return "Error: falta el parámetro 'ruta'."
+	if strings.TrimSpace(args.Path) == "" {
+		return "Error: the 'path' parameter is missing."
 	}
 
-	fi, err := os.Stat(args.Ruta)
+	fi, err := os.Stat(args.Path)
 	if err != nil {
-		return "Error al acceder al archivo: " + err.Error()
+		return "Error accessing the file: " + err.Error()
 	}
 	if fi.IsDir() {
-		return "Error: '" + args.Ruta + "' es un directorio; lista su contenido con ejecutar_comando (por ejemplo: ls -la " + args.Ruta + ")."
+		return "Error: '" + args.Path + "' is a directory; list its contents with run_command (for example: ls -la " + args.Path + ")."
 	}
 	if fi.Size() > maxFileBytes {
-		return fmt.Sprintf("Error: el archivo pesa %d bytes y supera el límite de %d bytes (1 MiB).", fi.Size(), maxFileBytes)
+		return fmt.Sprintf("Error: the file is %d bytes and exceeds the %d-byte limit (1 MiB).", fi.Size(), maxFileBytes)
 	}
 
-	f, err := os.Open(args.Ruta)
+	f, err := os.Open(args.Path)
 	if err != nil {
-		return "Error al abrir el archivo: " + err.Error()
+		return "Error opening the file: " + err.Error()
 	}
 	defer f.Close()
 
 	data, err := io.ReadAll(io.LimitReader(f, maxFileBytes))
 	if err != nil {
-		return "Error al leer el archivo: " + err.Error()
+		return "Error reading the file: " + err.Error()
 	}
 	if len(data) == 0 {
-		return "(el archivo está vacío)"
+		return "(the file is empty)"
 	}
 	return string(data)
 }
 
-// bufferLimitado acumula como máximo max bytes y marca si hubo recorte, para no
-// cargar en RAM la salida completa de un comando.
-type bufferLimitado struct {
-	buf      bytes.Buffer
-	max      int
-	truncado bool
+// limitedBuffer accumulates at most max bytes and records whether anything was
+// cut, so the whole output of a command is not loaded into RAM.
+type limitedBuffer struct {
+	buf       bytes.Buffer
+	max       int
+	truncated bool
 }
 
-func (b *bufferLimitado) Write(p []byte) (int, error) {
-	espacio := b.max - b.buf.Len()
-	if espacio <= 0 {
-		b.truncado = true
-		return len(p), nil // se descarta el excedente, pero el comando no falla
+func (b *limitedBuffer) Write(p []byte) (int, error) {
+	room := b.max - b.buf.Len()
+	if room <= 0 {
+		b.truncated = true
+		return len(p), nil // the surplus is dropped, but the command does not fail
 	}
-	if espacio < len(p) {
-		b.buf.Write(p[:espacio])
-		b.truncado = true
+	if room < len(p) {
+		b.buf.Write(p[:room])
+		b.truncated = true
 		return len(p), nil
 	}
 	b.buf.Write(p)
 	return len(p), nil
 }
 
-// herramientaEjecutarComando implementa ejecutar_comando vía `sh -c`, para
-// soportar pipes, redirecciones y comillas como lo haría una persona.
-func herramientaEjecutarComando(raw json.RawMessage) string {
-	var args ejecutarComandoArgs
+// toolRunCommand implements run_command through `sh -c`, so pipes, redirections
+// and quoting work the way a person would expect.
+func toolRunCommand(raw json.RawMessage) string {
+	var args runCommandArgs
 	if err := decodeArgs(raw, &args); err != nil {
-		return "Error al parsear argumentos: " + err.Error()
+		return "Error parsing the arguments: " + err.Error()
 	}
-	comando := strings.TrimSpace(args.Cmd)
-	if comando == "" {
-		return "Error: falta el parámetro 'cmd'."
-	}
-
-	segundos := args.TimeoutSegundos
-	if segundos <= 0 {
-		segundos = timeoutComandoPorDefecto
+	command := strings.TrimSpace(args.Cmd)
+	if command == "" {
+		return "Error: the 'cmd' parameter is missing."
 	}
 
-	ctx, cancelar := context.WithTimeout(context.Background(), time.Duration(segundos)*time.Second)
-	defer cancelar()
+	seconds := args.TimeoutSeconds
+	if seconds <= 0 {
+		seconds = defaultCommandTimeout
+	}
 
-	cmd := exec.CommandContext(ctx, "sh", "-c", comando)
-	// Los comandos van a su propio grupo de procesos y se matan en grupo al
-	// expirar el plazo: si sólo muriera `sh`, sus hijos seguirían con el pipe
-	// abierto y Wait se quedaría esperando (ver proceso_unix.go).
-	configurarGrupo(cmd)
-	cmd.Cancel = func() error { return matarGrupo(cmd) }
+	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(seconds)*time.Second)
+	defer cancel()
+
+	cmd := exec.CommandContext(ctx, "sh", "-c", command)
+	// Commands go into their own process group and are killed as a group when
+	// the deadline expires: if only `sh` died, its children would keep the pipe
+	// open and Wait would hang (see process_unix.go).
+	configureGroup(cmd)
+	cmd.Cancel = func() error { return killGroup(cmd) }
 	cmd.WaitDelay = 2 * time.Second
 
-	salida := &bufferLimitado{max: maxToolOutputBytes}
-	cmd.Stdout = salida
-	cmd.Stderr = salida
+	output := &limitedBuffer{max: maxToolOutputBytes}
+	cmd.Stdout = output
+	cmd.Stderr = output
 
 	err := cmd.Run()
-	texto := salida.buf.String()
-	if salida.truncado {
-		texto += fmt.Sprintf("\n[... salida truncada a %d KiB ...]", maxToolOutputBytes/1024)
+	text := output.buf.String()
+	if output.truncated {
+		text += fmt.Sprintf("\n[... output truncated to %d KiB ...]", maxToolOutputBytes/1024)
 	}
 
 	if ctx.Err() == context.DeadlineExceeded {
-		return fmt.Sprintf("Error: el comando excedió el límite de %d s y fue terminado.\nSalida parcial:\n%s", segundos, texto)
+		return fmt.Sprintf("Error: the command exceeded the %d s limit and was terminated.\nPartial output:\n%s", seconds, text)
 	}
 	if err != nil {
-		return fmt.Sprintf("Error de ejecución: %v\nSalida:\n%s", err, texto)
+		return fmt.Sprintf("Execution error: %v\nOutput:\n%s", err, text)
 	}
-	if strings.TrimSpace(texto) == "" {
-		return "(el comando terminó sin producir salida)"
+	if strings.TrimSpace(text) == "" {
+		return "(the command finished without producing output)"
 	}
-	return texto
+	return text
 }
 
-// definicionHerramientas describe las funciones expuestas al modelo.
-func definicionHerramientas() []tool {
+// toolDefinitions describes the functions exposed to the model.
+func toolDefinitions() []tool {
 	return []tool{
 		{
 			Type: "function",
 			Function: functionDef{
-				Name:        "leer_archivo",
-				Description: "Lee el contenido de un archivo de texto del sistema local (máximo 1 MiB).",
+				Name:        "read_file",
+				Description: "Reads the contents of a text file from the local system (maximum 1 MiB).",
 				Parameters: map[string]any{
 					"type": "object",
 					"properties": map[string]any{
-						"ruta": map[string]any{
+						"path": map[string]any{
 							"type":        "string",
-							"description": "Ruta absoluta o relativa del archivo a leer.",
+							"description": "Absolute or relative path of the file to read.",
 						},
 					},
-					"required": []string{"ruta"},
+					"required": []string{"path"},
 				},
 			},
 		},
 		{
 			Type: "function",
 			Function: functionDef{
-				Name:        "ejecutar_comando",
-				Description: "Ejecuta un comando de shell (sh -c) en el sistema local y devuelve stdout y stderr combinados.",
+				Name:        "run_command",
+				Description: "Runs a shell command (sh -c) on the local system and returns stdout and stderr combined.",
 				Parameters: map[string]any{
 					"type": "object",
 					"properties": map[string]any{
 						"cmd": map[string]any{
 							"type":        "string",
-							"description": "Comando de shell a ejecutar (admite pipes y redirecciones).",
+							"description": "Shell command to run (pipes and redirections allowed).",
 						},
-						"timeout_segundos": map[string]any{
+						"timeout_seconds": map[string]any{
 							"type":        "integer",
-							"description": fmt.Sprintf("Tiempo máximo de ejecución en segundos (por defecto %d).", timeoutComandoPorDefecto),
+							"description": fmt.Sprintf("Maximum run time in seconds (defaults to %d).", defaultCommandTimeout),
 						},
 					},
 					"required": []string{"cmd"},
@@ -379,61 +383,60 @@ func definicionHerramientas() []tool {
 }
 
 // ---------------------------------------------------------------------------
-// Agente
+// Agent
 // ---------------------------------------------------------------------------
 
-type agente struct {
+type agent struct {
 	cfg    config
 	client *http.Client
 	hist   []message
 }
 
-func nuevoAgente(cfg config) *agente {
-	a := &agente{
+func newAgent(cfg config) *agent {
+	a := &agent{
 		cfg:    cfg,
 		client: &http.Client{Timeout: cfg.timeout},
 	}
-	a.reiniciar()
+	a.reset()
 	a.hist = append(a.hist, message{Role: "system", Content: systemPrompt})
 	return a
 }
 
-// reiniciar vacía el historial dejando sólo el prompt de sistema.
-func (a *agente) reiniciar() {
+// reset empties the history, leaving only the system prompt.
+func (a *agent) reset() {
 	a.hist = []message{{Role: "system", Content: systemPrompt}}
 }
 
-// completar envía el historial a la API y devuelve el mensaje del asistente.
-// toolChoice vacío = decidir libremente; "none" = prohibir herramientas.
-func (a *agente) completar(toolChoice string) (message, error) {
-	peticion := chatRequest{
+// complete sends the history to the API and returns the assistant's message.
+// An empty toolChoice means "decide freely"; "none" forbids tools.
+func (a *agent) complete(toolChoice string) (message, error) {
+	request := chatRequest{
 		Model:      a.cfg.model,
 		Messages:   a.hist,
-		Tools:      definicionHerramientas(),
+		Tools:      toolDefinitions(),
 		ToolChoice: toolChoice,
 	}
-	cuerpo, err := json.Marshal(peticion)
-	if err != nil {
-		return message{}, fmt.Errorf("no se pudo serializar la petición: %w", err)
-	}
+	// The request only carries strings and slices of structs of strings, so the
+	// marshalling cannot fail; a failure here would be a programming error.
+	body, _ := json.Marshal(request)
 
 	url := strings.TrimRight(a.cfg.baseURL, "/") + "/chat/completions"
-	req, err := http.NewRequest(http.MethodPost, url, bytes.NewReader(cuerpo))
+	req, err := http.NewRequest(http.MethodPost, url, bytes.NewReader(body))
 	if err != nil {
-		return message{}, fmt.Errorf("petición inválida: %w", err)
+		return message{}, fmt.Errorf("invalid request: %w", err)
 	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", "Bearer "+a.cfg.apiKey)
 
 	resp, err := a.client.Do(req)
 	if err != nil {
-		return message{}, fmt.Errorf("error de red: %w", err)
+		return message{}, fmt.Errorf("network error: %w", err)
 	}
 	defer resp.Body.Close()
 
-	datos, err := io.ReadAll(io.LimitReader(resp.Body, maxResponseBytes))
+	data, err := io.ReadAll(io.LimitReader(resp.Body, maxResponseBytes))
 	if err != nil {
-		return message{}, fmt.Errorf("error al leer la respuesta: %w", err)
+		return message{}, fmt.Errorf("error reading the response: %w", err)
 	}
 
 	if resp.StatusCode != http.StatusOK {
@@ -442,158 +445,159 @@ func (a *agente) completar(toolChoice string) (message, error) {
 				Message string `json:"message"`
 			} `json:"error"`
 		}
-		if json.Unmarshal(datos, &apiErr) == nil && apiErr.Error.Message != "" {
+		if json.Unmarshal(data, &apiErr) == nil && apiErr.Error.Message != "" {
 			return message{}, fmt.Errorf("HTTP %d: %s", resp.StatusCode, apiErr.Error.Message)
 		}
-		return message{}, fmt.Errorf("HTTP %d: %s", resp.StatusCode, strings.TrimSpace(string(datos)))
+		return message{}, fmt.Errorf("HTTP %d: %s", resp.StatusCode, strings.TrimSpace(string(data)))
 	}
 
-	var salida chatResponse
-	if err := json.Unmarshal(datos, &salida); err != nil {
-		return message{}, fmt.Errorf("respuesta ilegible: %w", err)
+	var out chatResponse
+	if err := json.Unmarshal(data, &out); err != nil {
+		return message{}, fmt.Errorf("unreadable response: %w", err)
 	}
-	if salida.Error != nil && salida.Error.Message != "" {
-		return message{}, errors.New("la API devolvió un error: " + salida.Error.Message)
+	if out.Error != nil && out.Error.Message != "" {
+		return message{}, errors.New("the API returned an error: " + out.Error.Message)
 	}
-	// Algunos proveedores devuelven 200 con choices vacío: no indexar a ciegas.
-	if len(salida.Choices) == 0 {
-		return message{}, errors.New("la API no devolvió ninguna opción (choices vacío)")
+	// Some providers return 200 with empty choices: do not index blindly.
+	if len(out.Choices) == 0 {
+		return message{}, errors.New("the API returned no option (empty choices)")
 	}
-	return salida.Choices[0].Message, nil
+	return out.Choices[0].Message, nil
 }
 
-// recortarHistorial mantiene el prompt de sistema y los últimos mensajes, sin
-// dejar resultados de herramienta huérfanos al principio.
-func (a *agente) recortarHistorial() {
-	if len(a.hist) <= maxHistorial {
+// trimHistory keeps the system prompt and the most recent messages, without
+// leaving orphaned tool results at the front.
+func (a *agent) trimHistory() {
+	if len(a.hist) <= maxHistory {
 		return
 	}
-	recorte := a.hist[len(a.hist)-(maxHistorial-1):]
-	for len(recorte) > 0 && recorte[0].Role == "tool" {
-		recorte = recorte[1:]
+	cut := a.hist[len(a.hist)-(maxHistory-1):]
+	for len(cut) > 0 && cut[0].Role == "tool" {
+		cut = cut[1:]
 	}
-	nuevo := make([]message, 0, len(recorte)+1)
-	nuevo = append(nuevo, a.hist[0])
-	nuevo = append(nuevo, recorte...)
-	a.hist = nuevo
+	fresh := make([]message, 0, len(cut)+1)
+	fresh = append(fresh, a.hist[0])
+	fresh = append(fresh, cut...)
+	a.hist = fresh
 }
 
-// ejecutarHerramienta ejecuta una llamada del modelo y devuelve su resultado.
-func (a *agente) ejecutarHerramienta(tc toolCall) string {
-	traza("  %s\n", paint(colorYellow, "[⚙️  Ejecutando herramienta: "+tc.Function.Name+"]"))
+// runTool runs one call from the model and returns its result.
+func (a *agent) runTool(tc toolCall) string {
+	trace("  %s\n", paint(colorYellow, "[⚙️  Running tool: "+tc.Function.Name+"]"))
 	switch tc.Function.Name {
-	case "leer_archivo":
-		return herramientaLeerArchivo(tc.Function.Arguments)
-	case "ejecutar_comando":
-		return herramientaEjecutarComando(tc.Function.Arguments)
+	case "read_file":
+		return toolReadFile(tc.Function.Arguments)
+	case "run_command":
+		return toolRunCommand(tc.Function.Arguments)
 	default:
-		return "Error: herramienta desconocida '" + tc.Function.Name + "'"
+		return "Error: unknown tool '" + tc.Function.Name + "'"
 	}
 }
 
-// turno procesa una instrucción del usuario: bucle de agentes con un máximo de
-// iteraciones de herramientas y respuesta final forzada si se agota.
-func (a *agente) turno(entrada string) error {
-	a.hist = append(a.hist, message{Role: "user", Content: entrada})
-	a.recortarHistorial()
+// turn processes one user instruction: an agent loop with a maximum number of
+// tool iterations and a forced final answer if it runs out.
+func (a *agent) turn(input string) error {
+	a.hist = append(a.hist, message{Role: "user", Content: input})
+	a.trimHistory()
 
-	mensajesPrevios := len(a.hist)
+	previousMessages := len(a.hist)
 
 	for i := 1; i <= a.cfg.maxLoops; i++ {
-		traza("  %s\n", paint(colorCyan, "[🧠 Pensando...]"))
+		trace("  %s\n", paint(colorCyan, "[🧠 Thinking...]"))
 
-		msg, err := a.completar("")
+		msg, err := a.complete("")
 		if err != nil {
-			// Se revierte el turno fallido para no dejar el historial inconsistente.
-			a.hist = a.hist[:mensajesPrevios-1]
+			// The failed turn is rolled back so the history is not left
+			// inconsistent.
+			a.hist = a.hist[:previousMessages-1]
 			return err
 		}
 		a.hist = append(a.hist, msg)
-		a.recortarHistorial()
+		a.trimHistory()
 
 		if len(msg.ToolCalls) == 0 {
-			contenido := strings.TrimSpace(msg.Content)
-			if contenido == "" {
-				contenido = "(el modelo devolvió una respuesta vacía)"
+			content := strings.TrimSpace(msg.Content)
+			if content == "" {
+				content = "(the model returned an empty response)"
 			}
-			fmt.Fprintln(os.Stdout, paint(colorBold, contenido))
+			fmt.Fprintln(os.Stdout, paint(colorBold, content))
 			return nil
 		}
 
 		for _, tc := range msg.ToolCalls {
-			resultado := a.ejecutarHerramienta(tc)
+			result := a.runTool(tc)
 			a.hist = append(a.hist, message{
 				Role:       "tool",
-				Content:    resultado,
+				Content:    result,
 				ToolCallID: tc.ID,
 				Name:       tc.Function.Name,
 			})
-			a.recortarHistorial()
+			a.trimHistory()
 		}
 	}
 
-	// Se agotaron las iteraciones: pedimos la respuesta final sin herramientas.
-	traza("  %s\n", paint(colorYellow, fmt.Sprintf("[⏳ Límite de %d iteraciones alcanzado: forzando respuesta final]", a.cfg.maxLoops)))
-	msg, err := a.completar("none")
+	// The iterations ran out: the final answer is requested with no tools.
+	trace("  %s\n", paint(colorYellow, fmt.Sprintf("[⏳ Limit of %d iterations reached: forcing the final answer]", a.cfg.maxLoops)))
+	msg, err := a.complete("none")
 	if err != nil {
-		a.hist = a.hist[:mensajesPrevios-1]
+		a.hist = a.hist[:previousMessages-1]
 		return err
 	}
 	a.hist = append(a.hist, msg)
-	a.recortarHistorial()
+	a.trimHistory()
 
-	contenido := strings.TrimSpace(msg.Content)
-	if contenido == "" {
-		contenido = "(el modelo no entregó respuesta final)"
+	content := strings.TrimSpace(msg.Content)
+	if content == "" {
+		content = "(the model did not deliver a final answer)"
 	}
-	fmt.Fprintln(os.Stdout, paint(colorBold, contenido))
+	fmt.Fprintln(os.Stdout, paint(colorBold, content))
 	return nil
 }
 
 // ---------------------------------------------------------------------------
-// Interfaz de usuario
+// User interface
 // ---------------------------------------------------------------------------
 
-func ayuda() {
+func help() {
 	fmt.Fprint(os.Stderr, strings.Join([]string{
 		"",
-		paint(colorBold, "starlight — agente de IA de terminal (Go puro, compatible con OpenAI)"),
+		paint(colorBold, "starlight — terminal AI agent (pure Go, OpenAI-compatible)"),
 		"",
-		"Comandos del REPL:",
-		"  /ayuda      esta ayuda",
-		"  /limpiar    olvida la conversación",
-		"  salir       termina (también Ctrl+D)",
+		"REPL commands:",
+		"  /help       this help",
+		"  /reset      forget the conversation",
+		"  exit        finish (also Ctrl+D)",
 		"",
-		"Variables de entorno:",
-		"  OPENAI_API_KEY   clave de la API (obligatoria)",
-		"  OPENAI_BASE_URL  por defecto https://api.openai.com/v1",
-		"  OPENAI_MODEL     por defecto gpt-4o-mini",
+		"Environment variables:",
+		"  OPENAI_API_KEY   API key (required)",
+		"  OPENAI_BASE_URL  defaults to https://api.openai.com/v1",
+		"  OPENAI_MODEL     defaults to gpt-4o-mini",
 		"",
 	}, "\n"))
 }
 
 func main() {
 	var (
-		flagPrompt   = flag.String("p", "", "ejecuta una instrucción y termina (modo no interactivo)")
-		flagModelo   = flag.String("modelo", "", "modelo a usar (por defecto $OPENAI_MODEL o "+defaultModel+")")
-		flagURL      = flag.String("url", "", "base URL de la API (por defecto $OPENAI_BASE_URL)")
-		flagLoops    = flag.Int("max-loops", defaultMaxLoops, "máximo de iteraciones de herramientas por turno")
-		flagTimeout  = flag.Duration("timeout", defaultTimeout, "timeout HTTP por petición")
-		flagSinColor = flag.Bool("sin-color", false, "desactiva los colores ANSI")
-		flagVersion  = flag.Bool("version", false, "muestra la versión y sale")
+		flagPrompt  = flag.String("p", "", "run one instruction and exit (non-interactive mode)")
+		flagModel   = flag.String("model", "", "model to use (defaults to $OPENAI_MODEL or "+defaultModel+")")
+		flagURL     = flag.String("url", "", "API base URL (defaults to $OPENAI_BASE_URL)")
+		flagLoops   = flag.Int("max-loops", defaultMaxLoops, "maximum tool iterations per turn")
+		flagTimeout = flag.Duration("timeout", defaultTimeout, "HTTP timeout per request")
+		flagNoColor = flag.Bool("no-color", false, "disable ANSI colours")
+		flagVersion = flag.Bool("version", false, "print the version and exit")
 	)
 	flag.Usage = func() {
-		fmt.Fprintf(os.Stderr, "Uso: %s [opciones] [instrucción]\n\nOpciones:\n", nombrePrograma)
+		fmt.Fprintf(os.Stderr, "Usage: %s [options] [instruction]\n\nOptions:\n", programName)
 		flag.PrintDefaults()
 	}
 	flag.Parse()
 
 	if *flagVersion {
-		fmt.Printf("%s %s (%s/%s)\n", nombrePrograma, version, runtime.GOOS, runtime.GOARCH)
+		fmt.Printf("%s %s (%s/%s)\n", programName, version, runtime.GOOS, runtime.GOARCH)
 		return
 	}
 
-	if *flagSinColor || os.Getenv("NO_COLOR") != "" {
+	if *flagNoColor || os.Getenv("NO_COLOR") != "" {
 		colorEnabled = false
 	}
 
@@ -604,8 +608,8 @@ func main() {
 		maxLoops: *flagLoops,
 		timeout:  *flagTimeout,
 	}
-	if *flagModelo != "" {
-		cfg.model = *flagModelo
+	if *flagModel != "" {
+		cfg.model = *flagModel
 	}
 	if *flagURL != "" {
 		cfg.baseURL = *flagURL
@@ -615,63 +619,68 @@ func main() {
 	}
 
 	if cfg.apiKey == "" {
-		fmt.Fprintf(os.Stderr, "%s\n", paint(colorRed, "❌ Error: debes definir la variable de entorno OPENAI_API_KEY."))
-		fmt.Fprintf(os.Stderr, "   Ejemplo: export OPENAI_API_KEY=\"tu_clave\"\n")
-		os.Exit(1)
-	}
-
-	ag := nuevoAgente(cfg)
-
-	// Modo no interactivo: instrucción por bandera o por argumentos sueltos.
-	entrada := *flagPrompt
-	if entrada == "" && flag.NArg() > 0 {
-		entrada = strings.Join(flag.Args(), " ")
-	}
-	if entrada != "" {
-		if err := ag.turno(entrada); err != nil {
-			fmt.Fprintf(os.Stderr, "%s\n", paint(colorRed, "❌ "+err.Error()))
-			os.Exit(1)
-		}
+		fmt.Fprintf(os.Stderr, "%s\n", paint(colorRed, "❌ Error: you must set the OPENAI_API_KEY environment variable."))
+		fmt.Fprintf(os.Stderr, "   Example: export OPENAI_API_KEY=\"your_key\"\n")
+		exitProcess(1)
 		return
 	}
 
-	traza("%s\n", paint(colorGreen, "🤖 Starlight listo. Escribe tu instrucción ('/ayuda' para ayuda, 'salir' para terminar)."))
-	traza("%s\n", paint(colorDim, fmt.Sprintf("   modelo=%s  endpoint=%s  max-loops=%d", cfg.model, cfg.baseURL, cfg.maxLoops)))
+	ag := newAgent(cfg)
 
-	lector := bufio.NewReader(os.Stdin)
+	// Non-interactive mode: instruction from a flag or from loose arguments.
+	input := *flagPrompt
+	if input == "" && flag.NArg() > 0 {
+		input = strings.Join(flag.Args(), " ")
+	}
+	if input != "" {
+		// One-shot mode: one instruction, then out. A failure exits non-zero so a
+		// script can tell it apart from a success (there is nothing to return to).
+		if err := ag.turn(input); err != nil {
+			fmt.Fprintf(os.Stderr, "%s\n", paint(colorRed, "❌ "+err.Error()))
+			exitProcess(1)
+			return
+		}
+		exitProcess(0)
+		return
+	}
+
+	trace("%s\n", paint(colorGreen, "🤖 Starlight ready. Type your instruction ('/help' for help, 'exit' to finish)."))
+	trace("%s\n", paint(colorDim, fmt.Sprintf("   model=%s  endpoint=%s  max-loops=%d", cfg.model, cfg.baseURL, cfg.maxLoops)))
+
+	reader := bufio.NewReader(os.Stdin)
 	for {
-		traza("\n%s", paint(colorBold, "> "))
+		trace("\n%s", paint(colorBold, "> "))
 
-		linea, err := lector.ReadString('\n')
-		linea = strings.TrimSpace(linea)
+		line, err := reader.ReadString('\n')
+		line = strings.TrimSpace(line)
 
-		if linea == "" {
-			if err != nil { // EOF (Ctrl+D) o error de lectura
-				traza("\n%s\n", paint(colorDim, "👋 Agente finalizado."))
+		if line == "" {
+			if err != nil { // EOF (Ctrl+D) or read error
+				trace("\n%s\n", paint(colorDim, "👋 Agent finished."))
 				return
 			}
 			continue
 		}
 
-		switch strings.ToLower(linea) {
-		case "salir", "exit", "/salir", "/exit", "quit":
-			traza("%s\n", paint(colorDim, "👋 Agente finalizado."))
+		switch strings.ToLower(line) {
+		case "exit", "quit", "/exit", "/quit":
+			trace("%s\n", paint(colorDim, "👋 Agent finished."))
 			return
-		case "/ayuda", "/help", "ayuda":
-			ayuda()
+		case "/help", "help":
+			help()
 			continue
-		case "/limpiar", "/reset":
-			ag.reiniciar()
-			traza("%s\n", paint(colorDim, "🧹 Conversación olvidada."))
+		case "/reset":
+			ag.reset()
+			trace("%s\n", paint(colorDim, "🧹 Conversation forgotten."))
 			continue
 		}
 
-		if err := ag.turno(linea); err != nil {
+		if err := ag.turn(line); err != nil {
 			fmt.Fprintf(os.Stderr, "%s\n", paint(colorRed, "❌ "+err.Error()))
 		}
 
-		if err != nil { // el flujo de entrada se cerró
-			traza("%s\n", paint(colorDim, "👋 Agente finalizado."))
+		if err != nil { // the input stream was closed
+			trace("%s\n", paint(colorDim, "👋 Agent finished."))
 			return
 		}
 	}

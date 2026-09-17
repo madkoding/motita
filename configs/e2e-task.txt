@@ -1,0 +1,1 @@
+leave the content 'content-valid' in report.txt

@@ -1,28 +1,31 @@
-// Package sandbox implementa la Capa C: ejecución aislada ligera, sin Docker.
+// Package sandbox implements Layer C: lightweight isolated execution, without
+// Docker.
 //
-// Aislamiento aplicado, en capas, según lo que el sistema permita:
+// Isolation is applied in layers, according to what the system allows:
 //
-//  1. Directorio efímero por intento (siempre). Se borra al terminar salvo que
-//     se pida conservarlo.
-//  2. setrlimit en el hijo: CPU, memoria (espacio de direcciones), procesos,
-//     descriptores y tamaño máximo de archivo. No requiere privilegios.
-//  3. cgroups v1 para memoria y PIDs, si existen y hay permiso de escritura. Un
-//     setrlimit de memoria es una aproximación (RLIMIT_AS acota el espacio de
-//     direcciones, no el residente); cgroups da la cota real.
-//  4. chroot + bajada de privilegios, sólo si el proceso es root y se pidió.
-//  5. Espacio de nombres de red propio (CLONE_NEWNET) si se pide aislar la red.
+//  1. An ephemeral directory per attempt (always). It is deleted when the run
+//     finishes unless keeping it is requested.
+//  2. setrlimit in the child: CPU, memory (address space), processes, file
+//     descriptors and maximum file size. Requires no privileges.
+//  3. cgroups v1 for memory and PIDs, if they exist and there is write
+//     permission. A memory setrlimit is an approximation (RLIMIT_AS bounds the
+//     address space, not the resident set); cgroups gives the real bound.
+//  4. chroot + privilege drop, only if the process is root and it was
+//     requested.
+//  5. A network namespace of its own (CLONE_NEWNET) if isolating the network is
+//     requested.
 //
-// Los setrlimit y el chroot los aplica un proceso hijo que es el propio binario
-// re-ejecutado (ver hijo.go): así no se depende de util-linux ni de cgo, y no
-// queda ningún proceso Go intermedio consumiendo el presupuesto limitado.
+// The setrlimits and the chroot are applied by a child process which is this
+// same binary re-executed (see child.go): that way there is no dependency on
+// util-linux or cgo, and no intermediate Go process is left consuming the
+// limited budget.
 //
-// Todo lo que NO se pudo aplicar queda registrado como aviso: un sandbox que no
-// aísla pero dice aislar es peor que no tener sandbox.
+// Everything that could NOT be applied is recorded as a warning: a sandbox that
+// does not isolate but says it isolates is worse than having no sandbox.
 package sandbox
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -35,46 +38,60 @@ import (
 	"github.com/madkoding/starlight/internal/logx"
 )
 
-// Modo de aislamiento efectivamente aplicado.
-type Modo string
+// osHooks are the operating-system operations of the parent process whose
+// failure cannot be provoked with a plain filesystem setup: there is no portable
+// way of making os.Executable fail on a healthy machine and a process cannot
+// stop being root on demand. They are variables holding the real functions (the
+// same injectable-seam pattern as childHooks) so that those error paths are
+// tested instead of assumed. Production always calls the real ones.
+var osHooks = struct {
+	executable func() (string, error)
+	euid       func() int
+}{
+	executable: os.Executable,
+	euid:       os.Geteuid,
+}
+
+// Mode of isolation effectively applied.
+type Mode string
 
 const (
-	ModoEfimero Modo = "efimero"
-	ModoLimites Modo = "limites_posix"
-	ModoCgroups Modo = "cgroups_v1"
-	ModoChroot  Modo = "chroot"
-	ModoSinRed  Modo = "netns_sin_red"
-	ModoSinPriv Modo = "sin_privilegios"
+	ModeEphemeral    Mode = "ephemeral"
+	ModeLimits       Mode = "posix_limits"
+	ModeCgroups      Mode = "cgroups_v1"
+	ModeChroot       Mode = "chroot"
+	ModeNoNetwork    Mode = "netns_no_network"
+	ModeUnprivileged Mode = "unprivileged"
 )
 
-// Opciones de construcción del sandbox.
-type Opciones struct {
-	Dir         string // directorio base de trabajo
-	Limites     Limites
-	UsarCgroups bool
-	CgroupRaiz  string
-	UsarChroot  bool
-	Raiz        string
+// Options for building the sandbox.
+type Options struct {
+	Dir         string // base working directory
+	Limits      Limits
+	UseCgroups  bool
+	CgroupRoot  string
+	UseChroot   bool
+	Root        string
 	Uid, Gid    int
 	DropPrivs   bool
-	Conservar   bool
+	Keep        bool
 	Timeout     time.Duration
-	MaxSalidaKB int
+	MaxOutputKB int
 	Log         *logx.Logger
 }
 
-// Sandbox ejecuta comandos en un entorno controlado.
+// Sandbox runs commands in a controlled environment.
 type Sandbox struct {
-	op         Opciones
+	op         Options
 	log        *logx.Logger
 	cg         *cgroup
 	base       string
-	ejecutable string
-	sinAplicar []string
+	executable string
+	notApplied []string
 }
 
-// Nuevo prepara el sandbox y detecta qué aislamiento está disponible de verdad.
-func Nuevo(op Opciones) (*Sandbox, error) {
+// New prepares the sandbox and detects which isolation is really available.
+func New(op Options) (*Sandbox, error) {
 	if op.Log == nil {
 		op.Log = logx.Global()
 	}
@@ -82,118 +99,125 @@ func Nuevo(op Opciones) (*Sandbox, error) {
 		op.Dir = "."
 	}
 	if err := os.MkdirAll(op.Dir, 0o755); err != nil {
-		return nil, fmt.Errorf("no se pudo crear el directorio de trabajo %q: %w", op.Dir, err)
+		return nil, fmt.Errorf("could not create the working directory %q: %w", op.Dir, err)
 	}
 	abs, err := filepath.Abs(op.Dir)
 	if err != nil {
-		return nil, fmt.Errorf("no se pudo resolver el directorio de trabajo %q: %w", op.Dir, err)
+		return nil, fmt.Errorf("could not resolve the working directory %q: %w", op.Dir, err)
 	}
-	autoEjecutable, err := os.Executable()
+	selfExecutable, err := osHooks.executable()
 	if err != nil {
-		return nil, fmt.Errorf("no se pudo localizar el propio ejecutable (necesario para el aislamiento): %w", err)
+		return nil, fmt.Errorf("could not locate this very executable (needed for the isolation): %w", err)
 	}
 
-	s := &Sandbox{op: op, log: op.Log, base: abs, ejecutable: autoEjecutable}
+	s := &Sandbox{op: op, log: op.Log, base: abs, executable: selfExecutable}
 
-	if op.UsarChroot {
+	if op.UseChroot {
 		switch {
-		case os.Geteuid() != 0:
-			s.sinAplicar = append(s.sinAplicar, "chroot: se pidió pero el proceso no es root")
-			s.op.UsarChroot = false
+		case osHooks.euid() != 0:
+			s.notApplied = append(s.notApplied, "chroot: it was requested but the process is not root")
+			s.op.UseChroot = false
 		default:
-			if _, err := os.Stat(op.Raiz); err != nil {
-				s.sinAplicar = append(s.sinAplicar, fmt.Sprintf("chroot: la raíz %q no es accesible: %v", op.Raiz, err))
-				s.op.UsarChroot = false
+			if _, err := os.Stat(op.Root); err != nil {
+				s.notApplied = append(s.notApplied, fmt.Sprintf("chroot: the root %q is not accessible: %v", op.Root, err))
+				s.op.UseChroot = false
 			}
 		}
 	}
 
-	if op.UsarCgroups {
-		cg, err := nuevoCgroup(op.CgroupRaiz, op.Limites)
+	if op.UseCgroups {
+		cg, err := newCgroup(op.CgroupRoot, op.Limits)
 		if err != nil {
-			s.sinAplicar = append(s.sinAplicar, "cgroups v1: "+err.Error())
-			s.log.Warn("cgroups v1 no disponibles: se aplican sólo límites POSIX", "error", err)
+			s.notApplied = append(s.notApplied, "cgroups v1: "+err.Error())
+			s.log.Warn("cgroups v1 not available: only POSIX limits are applied", "error", err)
 		} else {
 			s.cg = cg
 		}
 	}
 
-	// El proceso principal entra al cgroup para que sus hijos hereden la
-	// pertenencia aunque el re-exec no lo haga explícitamente.
+	// The main process joins the cgroup so that its children inherit the
+	// membership even if the re-exec does not do it explicitly.
 	if s.cg != nil {
-		if err := s.cg.agregarProceso(os.Getpid()); err != nil {
-			s.sinAplicar = append(s.sinAplicar, "cgroups v1: no se pudo agregar el proceso al grupo: "+err.Error())
-			s.log.Warn("no se pudo agregar el proceso al cgroup", "error", err)
+		if err := s.cg.addProcess(os.Getpid()); err != nil {
+			s.notApplied = append(s.notApplied, "cgroups v1: could not add the process to the group: "+err.Error())
+			s.log.Warn("could not add the process to the cgroup", "error", err)
 		}
 	}
 
-	if !hayLimites(op.Limites) {
-		s.log.Debug("sin límites POSIX configurados: sólo se aísla el directorio efímero")
+	if !hasLimits(op.Limits) {
+		s.log.Debug("no POSIX limits configured: only the ephemeral directory is isolated")
 	}
 
-	// Un RLIMIT_AS por debajo del espacio de direcciones que el proceso de
-	// aislamiento ya usa haría abortar al propio runtime de Go (fatal error:
-	// runtime: cannot allocate memory). Se ajusta aquí, en el padre, y se
-	// registra: el hijo no puede avisar sin contaminar la salida del comando.
-	if s.op.Limites.MemoriaMB > 0 {
-		if minima := minimaMemoriaNecesaria(); minima > 0 && s.op.Limites.MemoriaMB < minima {
-			s.sinAplicar = append(s.sinAplicar, fmt.Sprintf(
-				"memoria_mb: se aplica %d MB en lugar de %d porque el proceso que lanza el sandbox ya usa ese espacio de direcciones",
-				minima, s.op.Limites.MemoriaMB))
-			s.log.Warn("se eleva el límite de memoria del sandbox",
-				"solicitado_mb", s.op.Limites.MemoriaMB, "aplicado_mb", minima)
-			s.op.Limites.MemoriaMB = minima
+	// An RLIMIT_AS below the address space the isolation process already uses
+	// would abort the Go runtime itself (fatal error: runtime: cannot allocate
+	// memory). It is adjusted here, in the parent, and it is logged: the child
+	// cannot warn without contaminating the command's output.
+	if s.op.Limits.MemoryMB > 0 {
+		if minimum := minimumMemoryMB(); minimum > 0 && s.op.Limits.MemoryMB < minimum {
+			s.notApplied = append(s.notApplied, fmt.Sprintf(
+				"memory_mb: applying %d MB instead of %d because the process launching the sandbox already uses that address space",
+				minimum, s.op.Limits.MemoryMB))
+			s.log.Warn("raising the sandbox memory limit",
+				"requested_mb", s.op.Limits.MemoryMB, "applied_mb", minimum)
+			s.op.Limits.MemoryMB = minimum
 		}
 	}
 
-	s.log.Info("sandbox preparado",
-		"directorio", s.base,
-		"chroot", s.op.UsarChroot,
+	s.log.Info("sandbox ready",
+		"directory", s.base,
+		"chroot", s.op.UseChroot,
 		"cgroups", s.cg != nil,
-		"limites", hayLimites(op.Limites),
-		"sin_aplicar", strings.Join(s.sinAplicar, " | "))
+		"limits", hasLimits(op.Limits),
+		"not_applied", strings.Join(s.notApplied, " | "))
 	return s, nil
 }
 
-// Cerrar libera el grupo de cgroups si se creó.
-func (s *Sandbox) Cerrar() error {
+// Close releases the cgroup group if it was created.
+func (s *Sandbox) Close() error {
 	if s.cg == nil {
 		return nil
 	}
-	if err := s.cg.eliminar(); err != nil {
-		s.log.Warn("no se pudo eliminar el cgroup", "error", err)
+	if err := s.cg.remove(); err != nil {
+		s.log.Warn("could not remove the cgroup", "error", err)
 		return err
 	}
 	return nil
 }
 
-// Aislamiento devuelve una descripción de lo que realmente se aplica.
-func (s *Sandbox) Aislamiento() []Modo {
-	modos := []Modo{ModoEfimero}
-	if hayLimites(s.op.Limites) {
-		modos = append(modos, ModoLimites)
+// Isolation returns a description of what is really applied.
+func (s *Sandbox) Isolation() []Mode {
+	modes := []Mode{ModeEphemeral}
+	if hasLimits(s.op.Limits) {
+		modes = append(modes, ModeLimits)
 	}
 	if s.cg != nil {
-		modos = append(modos, ModoCgroups)
+		modes = append(modes, ModeCgroups)
 	}
-	if s.op.UsarChroot {
-		modos = append(modos, ModoChroot)
+	if s.op.UseChroot {
+		modes = append(modes, ModeChroot)
 	}
 	if s.op.DropPrivs {
-		modos = append(modos, ModoSinPriv)
+		modes = append(modes, ModeUnprivileged)
 	}
-	if s.op.Limites.SinRed {
-		modos = append(modos, ModoSinRed)
+	if s.op.Limits.NoNetwork {
+		modes = append(modes, ModeNoNetwork)
 	}
-	return modos
+	return modes
 }
 
-// SinAplicar lista el aislamiento que se pidió y no se pudo aplicar.
-func (s *Sandbox) SinAplicar() []string { return s.sinAplicar }
+// NotApplied lists the isolation that was requested and could not be applied.
+func (s *Sandbox) NotApplied() []string { return s.notApplied }
 
-// Ejecutar corre un comando aislado. Devuelve salida combinada, si se truncó, el
-// código de salida y un error sólo cuando el comando no pudo ejecutarse.
-func (s *Sandbox) Ejecutar(ctx context.Context, p execx.Peticion) (string, bool, int, error) {
+// Run runs an isolated command. It returns the combined output, whether it was
+// truncated, the exit code and an error only when the command could not be run.
+func (s *Sandbox) Run(ctx context.Context, p execx.Request) (string, bool, int, error) {
+	// An empty command is rejected here: without this check it reached the
+	// child process, which returned code 126 without explaining that the
+	// problem was that there was nothing to run.
+	if strings.TrimSpace(p.Command) == "" {
+		return "", false, -1, fmt.Errorf("cannot run an empty command in the sandbox")
+	}
+
 	timeout := p.Timeout
 	if timeout <= 0 {
 		timeout = s.op.Timeout
@@ -202,115 +226,116 @@ func (s *Sandbox) Ejecutar(ctx context.Context, p execx.Peticion) (string, bool,
 		timeout = 300 * time.Second
 	}
 
-	max := p.MaxSalida
-	if max <= 0 {
-		max = int64(s.op.MaxSalidaKB) << 10
+	maxOutput := p.MaxOutput
+	if maxOutput <= 0 {
+		maxOutput = int64(s.op.MaxOutputKB) << 10
 	}
-	if max <= 0 {
-		max = 256 << 10
+	if maxOutput <= 0 {
+		maxOutput = 256 << 10
 	}
 
-	// Directorio de trabajo: el que pida quien llama, o el base.
+	// Working directory: the one the caller asks for, or the base one.
 	//
-	// Importante: NO se usa un directorio efímero como directorio de trabajo. El
-	// efecto del trabajo (el archivo generado, el commit, el informe) tiene que
-	// ser visible después para el ancla y para la acción final; si las acciones
-	// corrieran en un directorio que se borra al terminar, el validador no
-	// podría ver nunca el resultado y el agente fallaría siempre. El aislamiento
-	// efímero se aplica a TMPDIR, que es donde van los archivos temporales.
-	dirTrabajo := p.Dir
-	if dirTrabajo == "" {
-		dirTrabajo = s.base
+	// Important: an ephemeral directory is NOT used as the working directory.
+	// The effect of the work (the generated file, the commit, the report) has to
+	// be visible afterwards for the anchor and for the final action; if actions
+	// ran in a directory that is deleted when the run finishes, the validator
+	// could never see the result and the agent would fail every time. The
+	// ephemeral isolation applies to TMPDIR, which is where temporary files go.
+	workDir := p.Dir
+	if workDir == "" {
+		workDir = s.base
 	}
-	if err := os.MkdirAll(dirTrabajo, 0o755); err != nil {
-		return "", false, -1, fmt.Errorf("no se pudo preparar el directorio de trabajo %q: %w", dirTrabajo, err)
+	if err := os.MkdirAll(workDir, 0o755); err != nil {
+		return "", false, -1, fmt.Errorf("could not prepare the working directory %q: %w", workDir, err)
 	}
 
-	// TMPDIR efímero y propio de esta ejecución.
-	dirTemporal, err := os.MkdirTemp(s.base, "tmp-*")
+	// TMPDIR ephemeral and private to this run.
+	tempDir, err := os.MkdirTemp(s.base, "tmp-*")
 	if err != nil {
-		return "", false, -1, fmt.Errorf("no se pudo crear el directorio temporal: %w", err)
+		return "", false, -1, fmt.Errorf("could not create the temporary directory: %w", err)
 	}
-	if !s.op.Conservar {
+	if !s.op.Keep {
 		defer func() {
-			if err := os.RemoveAll(dirTemporal); err != nil {
-				s.log.Warn("no se pudo borrar el directorio temporal", "dir", dirTemporal, "error", err)
+			if err := os.RemoveAll(tempDir); err != nil {
+				s.log.Warn("could not delete the temporary directory", "dir", tempDir, "error", err)
 			}
 		}()
 	}
 
-	espec := Espec{
-		Comando: p.Comando,
-		Args:    append([]string(nil), p.Args...),
-		Dir:     dirTrabajo,
-		Limites: s.op.Limites,
-		Entorno: s.entornoConTmp(dirTemporal),
+	spec := Spec{
+		Command:     p.Command,
+		Args:        append([]string(nil), p.Args...),
+		Dir:         workDir,
+		Limits:      s.op.Limits,
+		Environment: s.environmentWithTmp(tempDir),
 	}
 
-	comando := s.ejecutable
+	command := s.executable
 	var args []string
 
-	if s.op.UsarChroot {
-		// Dentro del chroot el comando real es la ruta relativa a la raíz.
-		espec.Chroot = s.op.Raiz
-		espec.DirChroot = "/" + strings.TrimPrefix(strings.TrimPrefix(dirTrabajo, s.base), "/")
-		espec.DropPrivs = s.op.DropPrivs
-		espec.Uid, espec.Gid = s.op.Uid, s.op.Gid
+	if s.op.UseChroot {
+		// Inside the chroot the real command is the path relative to the root.
+		spec.Chroot = s.op.Root
+		spec.ChrootDir = "/" + strings.TrimPrefix(strings.TrimPrefix(workDir, s.base), "/")
+		spec.DropPrivileges = s.op.DropPrivs
+		spec.Uid, spec.Gid = s.op.Uid, s.op.Gid
 
-		dentro := filepath.Join(espec.Chroot, p.Comando)
-		if _, err := os.Stat(dentro); err != nil {
-			return "", false, -1, fmt.Errorf("el comando %q no existe dentro del chroot %q: %w", p.Comando, espec.Chroot, err)
+		inside := filepath.Join(spec.Chroot, p.Command)
+		if _, err := os.Stat(inside); err != nil {
+			return "", false, -1, fmt.Errorf("the command %q does not exist inside the chroot %q: %w", p.Command, inside, err)
 		}
 	} else {
-		espec.DropPrivs = s.op.DropPrivs
-		espec.Uid, espec.Gid = s.op.Uid, s.op.Gid
+		spec.DropPrivileges = s.op.DropPrivs
+		spec.Uid, spec.Gid = s.op.Uid, s.op.Gid
 	}
 
-	codificada, err := espec.Codificar()
+	encoded, err := spec.Encode()
 	if err != nil {
 		return "", false, -1, err
 	}
-	args = []string{MarcaHijo, codificada}
+	args = []string{ChildMarker, encoded}
 
-	s.log.Debug("ejecutando en sandbox",
-		"comando", p.Comando,
-		"dir_trabajo", dirTrabajo,
-		"dir_temporal", dirTemporal,
-		"aislamiento", strings.Join(modosATexto(s.Aislamiento()), ","))
+	s.log.Debug("running in sandbox",
+		"command", p.Command,
+		"work_dir", workDir,
+		"temp_dir", tempDir,
+		"isolation", strings.Join(modesToStrings(s.Isolation()), ","))
 
-	return s.lanzar(ctx, comando, args, dirTrabajo, timeout, max)
+	return s.launch(ctx, command, args, workDir, timeout, maxOutput)
 }
 
-// lanzar arranca el hijo de aislamiento y recoge su salida.
-func (s *Sandbox) lanzar(ctx context.Context, comando string, args []string, dir string, timeout time.Duration, maxSalida int64) (string, bool, int, error) {
-	ctxHijo, cancelar := context.WithTimeout(ctx, timeout)
-	defer cancelar()
+// launch starts the isolation child and collects its output.
+func (s *Sandbox) launch(ctx context.Context, command string, args []string, dir string, timeout time.Duration, maxOutput int64) (string, bool, int, error) {
+	childCtx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
 
-	cmd := exec.CommandContext(ctxHijo, comando, args...)
+	cmd := exec.CommandContext(childCtx, command, args...)
 	cmd.Dir = dir
-	cmd.Env = s.entorno()
+	cmd.Env = s.environment()
 
-	attr, avisos := atributosHijo(s.op.Limites, false, 0, 0)
+	attr, warnings := childAttributes(s.op.Limits, false, 0, 0)
 	if attr != nil {
 		cmd.SysProcAttr = attr
 	}
-	for _, aviso := range avisos {
-		s.sinAplicar = append(s.sinAplicar, aviso)
-	}
-	cmd.Cancel = func() error { return matarGrupo(cmd) }
+	// The platform's warnings (the isolation it could not apply) are recorded
+	// like the rest. On Linux childAttributes has none; on the platforms where
+	// it has, this keeps them.
+	s.notApplied = append(s.notApplied, warnings...)
+	cmd.Cancel = func() error { return killGroup(cmd) }
 	cmd.WaitDelay = 2 * time.Second
 
-	salida := &bufferLimitado{max: maxSalida}
-	cmd.Stdout = salida
-	cmd.Stderr = salida
+	out := &limitedBuffer{max: maxOutput}
+	cmd.Stdout = out
+	cmd.Stderr = out
 
-	inicio := time.Now()
+	start := time.Now()
 	err := cmd.Run()
-	duracion := time.Since(inicio)
-	texto := salida.buf.String()
+	duration := time.Since(start)
+	text := out.buf.String()
 
-	if ctxHijo.Err() == context.DeadlineExceeded {
-		return texto, salida.truncado, -1, fmt.Errorf("el comando excedió el límite de %s en el sandbox", timeout)
+	if childCtx.Err() == context.DeadlineExceeded {
+		return text, out.truncated, -1, fmt.Errorf("the command exceeded the %s limit in the sandbox", timeout)
 	}
 
 	exit := 0
@@ -319,81 +344,82 @@ func (s *Sandbox) lanzar(ctx context.Context, comando string, args []string, dir
 		if errors.As(err, &ee) {
 			exit = ee.ExitCode()
 			if exit == 127 {
-				return texto, salida.truncado, exit, fmt.Errorf("el comando no pudo ejecutarse dentro del sandbox (código 127)")
+				return text, out.truncated, exit, fmt.Errorf("the command could not be run inside the sandbox (code 127)")
 			}
 			if exit < 0 {
-				return texto, salida.truncado, exit, fmt.Errorf("el proceso fue terminado por una señal (exit=%d): revisa los límites de memoria y CPU del sandbox", exit)
+				return text, out.truncated, exit, fmt.Errorf("the process was killed by a signal (exit=%d): check the sandbox memory and CPU limits", exit)
 			}
-			return texto, salida.truncado, exit, nil
+			return text, out.truncated, exit, nil
 		}
-		return texto, salida.truncado, -1, fmt.Errorf("no se pudo arrancar el aislamiento: %w", err)
+		return text, out.truncated, -1, fmt.Errorf("could not start the isolation: %w", err)
 	}
-	s.log.Debug("ejecución del sandbox terminada", "exit", exit, "duracion_ms", duracion.Milliseconds(), "truncado", salida.truncado)
-	return texto, salida.truncado, exit, nil
+	s.log.Debug("sandbox run finished", "exit", exit, "duration_ms", duration.Milliseconds(), "truncated", out.truncated)
+	return text, out.truncated, exit, nil
 }
 
-// entornoConTmp devuelve el entorno del hijo: acotado, sin secretos del agente
-// y con TMPDIR apuntando al directorio temporal efímero de esta ejecución.
-func (s *Sandbox) entornoConTmp(dirTemporal string) []string {
+// environmentWithTmp returns the child's environment: bounded, without the
+// agent's secrets and with TMPDIR pointing at the ephemeral temporary directory
+// of this run.
+func (s *Sandbox) environmentWithTmp(tempDir string) []string {
 	base := []string{
 		"PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
 		"HOME=" + s.base,
 		"LANG=C.UTF-8",
-		"TMPDIR=" + dirTemporal,
+		"TMPDIR=" + tempDir,
 	}
-	for _, clave := range []string{"TERM", "USER", "SHELL"} {
-		if v, ok := os.LookupEnv(clave); ok {
-			base = append(base, clave+"="+v)
+	for _, key := range []string{"TERM", "USER", "SHELL"} {
+		if v, ok := os.LookupEnv(key); ok {
+			base = append(base, key+"="+v)
 		}
 	}
 	return base
 }
 
-// entorno es el entorno sin directorio temporal propio (para el proceso de
-// aislamiento, que no necesita TMPDIR).
-func (s *Sandbox) entorno() []string {
-	return s.entornoConTmp(s.base)
+// environment is the environment without a temporary directory of its own (for
+// the isolation process, which does not need TMPDIR).
+func (s *Sandbox) environment() []string {
+	return s.environmentWithTmp(s.base)
 }
 
-// bufferLimitado acumula hasta max bytes y marca si hubo recorte.
-type bufferLimitado struct {
-	buf      strings.Builder
-	max      int64
-	truncado bool
+// limitedBuffer accumulates up to max bytes and flags whether there was a cut.
+type limitedBuffer struct {
+	buf       strings.Builder
+	max       int64
+	truncated bool
 }
 
-func (b *bufferLimitado) Write(p []byte) (int, error) {
-	espacio := b.max - int64(b.buf.Len())
-	if espacio <= 0 {
-		b.truncado = true
+func (b *limitedBuffer) Write(p []byte) (int, error) {
+	space := b.max - int64(b.buf.Len())
+	if space <= 0 {
+		b.truncated = true
 		return len(p), nil
 	}
-	if espacio < int64(len(p)) {
-		b.buf.Write(p[:espacio])
-		b.truncado = true
+	if space < int64(len(p)) {
+		b.buf.Write(p[:space])
+		b.truncated = true
 		return len(p), nil
 	}
 	b.buf.Write(p)
 	return len(p), nil
 }
 
-func modosATexto(modos []Modo) []string {
-	salida := make([]string, 0, len(modos))
-	for _, m := range modos {
-		salida = append(salida, string(m))
+func modesToStrings(modes []Mode) []string {
+	out := make([]string, 0, len(modes))
+	for _, m := range modes {
+		out = append(out, string(m))
 	}
-	return salida
+	return out
 }
 
-// JSONAislamiento expone el aislamiento aplicado para los registros.
-func (s *Sandbox) JSONAislamiento() string {
-	datos, err := json.Marshal(map[string]any{
-		"modos":       modosATexto(s.Aislamiento()),
-		"sin_aplicar": s.sinAplicar,
-		"directorio":  s.base,
+// IsolationJSON exposes the applied isolation for the logs.
+func (s *Sandbox) IsolationJSON() string {
+	data, err := jsonMarshal(map[string]any{
+		"modes":       modesToStrings(s.Isolation()),
+		"not_applied": s.notApplied,
+		"directory":   s.base,
 	})
 	if err != nil {
-		return `{"modos":[],"sin_aplicar":["no serializable"]}`
+		return `{"modes":[],"not_applied":["not serialisable"]}`
 	}
-	return string(datos)
+	return string(data)
 }

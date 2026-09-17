@@ -1,15 +1,19 @@
-# Artefactos de compilación
+# Build artefacts
 /dist/
 /starlight
 /starlight-linux-*
-agente_i386
+agent_i386
 
-# Entorno y secretos
+# Environment and secrets
 .env
 *.local
 
-# Editores
+# Editors
 .idea/
 .vscode/
 *.swp
 .DS_Store
+
+# Test artefacts
+coverage.out
+.e2e/

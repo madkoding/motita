@@ -1,20 +1,20 @@
-// Package agent implementa el bucle principal del agente, que orquesta las tres
-// capas:
+// Package agent implements the agent's main loop, which orchestrates the three
+// layers:
 //
-//	Capa A (anchor)  valida de forma determinista, sin razonamiento
-//	Capa B (llm)     analiza, planifica y propone acciones
-//	Capa C (sandbox) ejecuta las acciones aisladas
+//	Layer A (anchor)  validates deterministically, without reasoning
+//	Layer B (llm)     analyses, plans and proposes actions
+//	Layer C (sandbox) runs actions in isolation
 //
-// El bucle es el del documento de arquitectura:
+// The loop is the one from the architecture document:
 //
-//	[1] leer tarea             [6] LLM: generar la acción
-//	[2] extraer contexto       [7] ejecutar en el sandbox
-//	[3] LLM: analizar          [8] validar con el ancla
-//	[4] LLM: planificar        [9] PASS -> acción final / FAIL -> reintentar
-//	[5] dividir en subtareas       y al agotar los intentos -> escalar
+//	[1] read task             [6] LLM: generate the action
+//	[2] extract context       [7] run in the sandbox
+//	[3] LLM: analyse          [8] validate with the anchor
+//	[4] LLM: plan             [9] PASS -> final action / FAIL -> retry
+//	[5] split into subtasks       and once retries are exhausted -> escalate
 //
-// El agente no decide por su cuenta cuándo ha terminado: sólo el ancla puede
-// declarar PASS.
+// The agent never decides on its own that it has finished: only the anchor can
+// declare PASS.
 package agent
 
 import (
@@ -33,677 +33,714 @@ import (
 	"github.com/madkoding/starlight/internal/execx"
 	"github.com/madkoding/starlight/internal/llm"
 	"github.com/madkoding/starlight/internal/logx"
-	"github.com/madkoding/starlight/internal/plantilla"
 	"github.com/madkoding/starlight/internal/sandbox"
 	"github.com/madkoding/starlight/internal/task"
+	"github.com/madkoding/starlight/internal/template"
 )
 
-// Agente orquesta las tres capas.
-type Agente struct {
+// Agent orchestrates the three layers.
+type Agent struct {
 	cfg     config.Config
 	log     *logx.Logger
-	motor   *llm.Cliente
+	engine  *llm.Client
 	sandbox *sandbox.Sandbox
-	fuente  task.Fuente
+	source  task.Source
 	http    *http.Client
 
-	// Observador, si no es nil, recibe el resultado de cada tarea al terminar.
-	// Es el punto de integración para métricas o para quien embebe el agente, y
-	// también lo que usan las pruebas para inspeccionar el veredicto sin leer
-	// el registro.
-	Observador func(ResultadoTarea)
+	// ExecCommand is the agent's command execution point. By default it uses the
+	// sandbox (Layer C); it is injected so actions that depend on external
+	// programs (git_commit, for instance) can be tested without depending on the
+	// program existing, on its configuration or on its interactive behaviour.
+	ExecCommand func(context.Context, execx.Request) (string, bool, int, error)
+
+	// Observer, when not nil, receives the result of every task on completion.
+	// It is the integration point for metrics or for whoever embeds the agent,
+	// and it is also what the tests use to inspect the verdict without reading
+	// the log.
+	Observer func(TaskResult)
 }
 
-// NuevoAgente construye el agente con todas sus dependencias ya construidas.
-func NuevoAgente(cfg config.Config, log *logx.Logger, motor *llm.Cliente, caja *sandbox.Sandbox, fuente task.Fuente) *Agente {
+// New builds the agent with all of its dependencies already constructed.
+func New(cfg config.Config, log *logx.Logger, engine *llm.Client, box *sandbox.Sandbox, source task.Source) *Agent {
 	if log == nil {
 		log = logx.Global()
 	}
-	return &Agente{
+	a := &Agent{
 		cfg:     cfg,
 		log:     log,
-		motor:   motor,
-		sandbox: caja,
-		fuente:  fuente,
+		engine:  engine,
+		sandbox: box,
+		source:  source,
 		http:    &http.Client{Timeout: 60 * time.Second},
 	}
+	if box != nil {
+		a.ExecCommand = box.Run
+	}
+	return a
 }
 
-// --- Resultados de cada fase -------------------------------------------------
-
-// Analisis es la salida estructurada de la fase [3].
-type Analisis struct {
-	Comprensible      bool     `json:"comprensible"`
-	Resumen           string   `json:"resumen"`
-	CriteriosExito    []string `json:"criterios_exito"`
-	Riesgos           []string `json:"riesgos"`
-	NecesitaSubtareas bool     `json:"necesita_subtareas"`
+// exec runs a command with the agent's executor (the sandbox by default). It
+// returns a clear error when none is configured.
+func (a *Agent) exec(ctx context.Context, p execx.Request) (string, bool, int, error) {
+	if a.ExecCommand == nil {
+		return "", false, -1, errors.New("the agent has no command executor configured")
+	}
+	return a.ExecCommand(ctx, p)
 }
 
-// Plan es la salida estructurada de la fase [4].
+// --- Result of each phase ---------------------------------------------------
+
+// Analysis is the structured output of phase [3].
+type Analysis struct {
+	Understandable bool     `json:"understandable"`
+	Summary        string   `json:"summary"`
+	SuccessCrit    []string `json:"success_criteria"`
+	Risks          []string `json:"risks"`
+	NeedsSubtasks  bool     `json:"needs_subtasks"`
+}
+
+// Plan is the structured output of phase [4].
 type Plan struct {
-	Pasos             []Paso   `json:"plan"`
-	Subtareas         []string `json:"subtareas"`
-	ResultadoEsperado string   `json:"resultado_esperado"`
+	Steps          []Step   `json:"plan"`
+	Subtasks       []string `json:"subtasks"`
+	ExpectedResult string   `json:"expected_result"`
 }
 
-// Paso es un paso del plan.
-type Paso struct {
-	Numero  int    `json:"paso"`
-	Accion  string `json:"accion"`
-	Comando string `json:"comando"`
+// Step is one step of the plan.
+type Step struct {
+	Number  int    `json:"step"`
+	Action  string `json:"action"`
+	Command string `json:"command"`
 }
 
-// Accion es lo que devuelve la fase [6].
-type Accion struct {
-	Razonamiento string    `json:"razonamiento"`
-	Acciones     []Comando `json:"acciones"`
-	AccionFinal  Comando   `json:"accion_final"`
+// Action is what phase [6] returns.
+type Action struct {
+	Reasoning string    `json:"reasoning"`
+	Actions   []Command `json:"actions"`
+	Final     Command   `json:"final_action"`
 }
 
-// Comando es una acción ejecutable.
-type Comando struct {
-	Tipo        string `json:"tipo"`
-	Descripcion string `json:"descripcion"`
-	Comando     string `json:"comando"`
+// Command is an executable action.
+type Command struct {
+	Kind        string `json:"kind"`
+	Description string `json:"description"`
+	Command     string `json:"command"`
 }
 
-// ResultadoTarea es el veredicto final de una tarea.
-type ResultadoTarea struct {
-	Tarea       string            `json:"tarea"`
-	PASS        bool              `json:"pass"`
-	Intentos    int               `json:"intentos"`
-	Subtareas   int               `json:"subtareas"`
-	DuracionMS  int64             `json:"duracion_ms"`
-	Validacion  *anchor.Resultado `json:"validacion,omitempty"`
-	AccionFinal string            `json:"accion_final,omitempty"`
-	Motivo      string            `json:"motivo"`
+// TaskResult is the final verdict of one task.
+type TaskResult struct {
+	Task        string         `json:"task"`
+	Pass        bool           `json:"pass"`
+	Attempts    int            `json:"attempts"`
+	Subtasks    int            `json:"subtasks"`
+	DurationMS  int64          `json:"duration_ms"`
+	Validation  *anchor.Result `json:"validation,omitempty"`
+	FinalAction string         `json:"final_action,omitempty"`
+	Reason      string         `json:"reason"`
 }
 
-// --- Bucle principal --------------------------------------------------------
+// --- Main loop --------------------------------------------------------------
 
-// Ejecutar procesa tareas de la fuente hasta que se agota (io.EOF) o el
-// contexto se cancela (apagado ordenado).
-func (a *Agente) Ejecutar(ctx context.Context) error {
-	if strings.EqualFold(a.cfg.Anchor.Tipo, "none") || a.cfg.Anchor.Tipo == "" {
-		// Sin ancla no existe la autoridad que declara PASS, así que todas las
-		// tareas acabarían escaladas tras gastar intentos contra el LLM. Fallar
-		// ahora, con la solución concreta, es más barato y más honesto.
-		return errors.New("anchor.tipo=none: este agente sólo declara una tarea como completada " +
-			"cuando un validador determinista da PASS, y no hay ninguno configurado.\n" +
-			"   Configura un ancla real, por ejemplo:\n" +
-			"     anchor:\n       tipo: command\n       comando: make\n       argumentos: [test]\n" +
-			"   Si sólo quieres probar el bucle sin validar nada, hazlo explícito:\n" +
-			"     anchor:\n       tipo: command\n       comando: true\n" +
-			"   Comprueba la configuración con: starlight -config <archivo> -validar-config")
+// Run processes tasks from the source until it is exhausted (io.EOF) or the
+// context is cancelled (graceful shutdown).
+func (a *Agent) Run(ctx context.Context) error {
+	if strings.EqualFold(a.cfg.Anchor.Kind, "none") || a.cfg.Anchor.Kind == "" {
+		// Without an anchor there is no authority to declare PASS, so every task
+		// would end up escalated after burning attempts against the LLM. Failing
+		// now, with the concrete fix, is cheaper and more honest.
+		return errors.New("anchor.kind=none: this agent only declares a task complete " +
+			"when a deterministic validator gives PASS, and none is configured.\n" +
+			"   Configure a real anchor, for example:\n" +
+			"     anchor:\n       kind: command\n       command: make\n       args: [test]\n" +
+			"   If you only want to exercise the loop without validating anything, make it explicit:\n" +
+			"     anchor:\n       kind: command\n       command: true\n" +
+			"   Check the configuration with: starlight -config <file> -validate-config")
 	}
 
-	a.log.Info("agente iniciado",
-		"fuente", a.fuente.Descripcion(),
-		"proveedor", a.cfg.LLM.Proveedor,
-		"modelo", a.cfg.LLM.Modelo,
-		"ancla", a.cfg.Anchor.Tipo,
-		"sandbox", strings.Join(modosATexto(a.sandbox.Aislamiento()), ","),
+	a.log.Info("agent started",
+		"source", a.source.Describe(),
+		"provider", a.cfg.LLM.Provider,
+		"model", a.cfg.LLM.Model,
+		"anchor", a.cfg.Anchor.Kind,
+		"sandbox", strings.Join(modesToStrings(a.sandbox.Isolation()), ", "),
 		"workspace", a.cfg.Agent.WorkspaceDir,
-		"max_reintentos", a.cfg.Agent.MaxReintentos)
+		"max_retries", a.cfg.Agent.MaxRetries)
 
-	defer a.fuente.Cerrar()
+	defer a.source.Close()
 
 	total := 0
-	fallidas := 0
-	motivos := []string{}
+	failed := 0
+	reasons := []string{}
+	// Consecutive source failures are counted separately: a source that fails
+	// forever (a directory that disappeared, an unreachable API) must not spin
+	// the loop at full speed burning CPU and log. After a few in a row the agent
+	// gives up with a clear error instead of hanging silently.
+	consecutive := 0
+	sourceFailures := 0
+	const maxConsecutive = 5
 
 	for {
 		select {
 		case <-ctx.Done():
-			a.log.Info("apagado solicitado, terminando", "tareas_procesadas", total)
+			a.log.Info("shutdown requested, finishing", "tasks_processed", total)
 			return nil
 		default:
 		}
 
-		if a.cfg.Agent.MaxTareas > 0 && total >= a.cfg.Agent.MaxTareas {
-			a.log.Info("se alcanzó agent.max_tareas", "tareas", total)
+		if a.cfg.Agent.MaxTasks > 0 && total >= a.cfg.Agent.MaxTasks {
+			a.log.Info("agent.max_tasks reached", "tasks", total)
 			break
 		}
 
-		tarea, err := a.fuente.Siguiente(ctx)
+		t, err := a.source.Next(ctx)
 		if errors.Is(err, io.EOF) {
-			a.log.Info("no hay más tareas", "tareas_procesadas", total)
+			a.log.Info("no more tasks", "tasks_processed", total)
 			break
 		}
 		if err != nil {
 			if ctx.Err() != nil {
 				return nil
 			}
-			a.log.Error("no se pudo obtener la tarea", "error", err)
-			fallidas++
+			// A source failure is NOT a failed task: no task was taken. Counting
+			// it as one produced nonsense totals such as "2 of 1 tasks failed".
+			// It is tracked on its own and surfaced through the error below.
+			sourceFailures++
+			consecutive++
+			a.log.Error("could not obtain the task", "error", err,
+				"consecutive", consecutive, "source_failures", sourceFailures)
+
+			if consecutive >= maxConsecutive {
+				// The source is broken, not just momentarily empty. Returning
+				// makes the failure visible and actionable (cron/systemd see a
+				// non-zero exit) instead of looping forever.
+				return fmt.Errorf("the task source failed %d times in a row, giving up: %w", consecutive, err)
+			}
 			continue
 		}
-		if strings.TrimSpace(tarea.Descripcion) == "" {
+		consecutive = 0
+		if strings.TrimSpace(t.Description) == "" {
 			continue
 		}
 
 		total++
-		resultado := a.procesarTarea(ctx, tarea, 0)
-		if resultado.PASS {
-			a.log.Info("tarea completada",
-				"tarea", recortar(tarea.Descripcion, 120),
-				"intentos", resultado.Intentos,
-				"duracion_ms", resultado.DuracionMS,
-				"accion_final", resultado.AccionFinal)
+		result := a.processTask(ctx, t, 0)
+		if result.Pass {
+			a.log.Info("task completed",
+				"task", truncate(t.Description, 120),
+				"attempts", result.Attempts,
+				"duration_ms", result.DurationMS,
+				"final_action", result.FinalAction)
 		} else {
-			fallidas++
-			motivos = append(motivos, fmt.Sprintf("%q: %s", recortar(tarea.Descripcion, 80), resultado.Motivo))
-			a.log.Error("tarea fallida",
-				"tarea", recortar(tarea.Descripcion, 120),
-				"intentos", resultado.Intentos,
-				"motivo", resultado.Motivo)
+			failed++
+			reasons = append(reasons, fmt.Sprintf("%q: %s", truncate(t.Description, 80), result.Reason))
+			a.log.Error("task failed",
+				"task", truncate(t.Description, 120),
+				"attempts", result.Attempts,
+				"reason", result.Reason)
 		}
 	}
 
-	a.log.Info("agente terminado", "tareas", total, "fallidas", fallidas)
-	if fallidas > 0 {
-		// Se incluye el motivo de cada fallo: quien lea el error (o la salida de
-		// cron) debe poder actuar sin ir a buscar el registro.
-		return fmt.Errorf("%d de %d tareas fallaron: %s", fallidas, total, strings.Join(motivos, " | "))
+	a.log.Info("agent finished", "tasks", total, "failed", failed)
+	if failed > 0 {
+		// The reason of every failure is included: whoever reads the error (or
+		// cron's output) must be able to act without digging through the log.
+		return fmt.Errorf("%d of %d tasks failed: %s", failed, total, strings.Join(reasons, " | "))
 	}
 	return nil
 }
 
-// procesarTarea ejecuta el bucle de 9 pasos para una tarea y notifica el
-// resultado al observador (una única vez, sea cual sea la ruta de salida).
-func (a *Agente) procesarTarea(ctx context.Context, t task.Tarea, profundidad int) ResultadoTarea {
-	r := a.bucle(ctx, t, profundidad)
-	if a.Observador != nil {
-		a.Observador(r)
+// processTask runs the 9-step loop for one task and notifies the observer of the
+// result (exactly once, whatever the exit path).
+func (a *Agent) processTask(ctx context.Context, t task.Task, depth int) TaskResult {
+	r := a.loop(ctx, t, depth)
+	if a.Observer != nil {
+		a.Observer(r)
 	}
 	return r
 }
 
-// bucle es el bucle de 9 pasos propiamente dicho.
-func (a *Agente) bucle(ctx context.Context, t task.Tarea, profundidad int) ResultadoTarea {
-	inicio := time.Now()
-	res := ResultadoTarea{Tarea: t.Descripcion, Intentos: 0}
+// loop is the 9-step loop itself.
+func (a *Agent) loop(ctx context.Context, t task.Task, depth int) TaskResult {
+	start := time.Now()
+	res := TaskResult{Task: t.Description, Attempts: 0}
 
-	prefijo := strings.Repeat("  ", profundidad)
-	a.log.Info(prefijo+"tarea recibida", "origen", t.Origen, "profundidad", profundidad, "descripcion", recortar(t.Descripcion, 200))
+	prefix := strings.Repeat("  ", depth)
+	a.log.Info(prefix+"task received", "origin", t.Origin, "depth", depth, "description", truncate(t.Description, 200))
 
-	// [2] Extraer contexto y criterios de éxito: se construye el enunciado de
-	// las reglas de validación que se le mostrarán al LLM, para que sepa contra
-	// qué se le va a medir.
-	reglas := a.describirReglas()
+	// [2] Extract context and success criteria: the statement of the validation
+	// rules shown to the LLM is built here, so it knows what it will be measured
+	// against.
+	rules := a.describeRules()
 
-	// [3] Análisis.
-	analisis := a.faseAnalisis(ctx, t, reglas, profundidad)
-	if !analisis.Comprensible {
-		res.Motivo = "la tarea se declaró no comprensible: " + strings.Join(analisis.Riesgos, "; ")
-		res.DuracionMS = time.Since(inicio).Milliseconds()
-		a.log.Warn(prefijo+"tarea no comprensible, se descarta", "motivo", res.Motivo)
+	// [3] Analysis.
+	analysis := a.analysisPhase(ctx, t, rules, depth)
+	if !analysis.Understandable {
+		res.Reason = "the task was declared not understandable: " + strings.Join(analysis.Risks, "; ")
+		res.DurationMS = time.Since(start).Milliseconds()
+		a.log.Warn(prefix+"task not understandable, discarded", "reason", res.Reason)
 		return res
 	}
 
 	// [4] Plan.
-	plan := a.fasePlan(ctx, t, analisis, profundidad)
+	plan := a.planPhase(ctx, t, analysis, depth)
 
-	// [5] División en subtareas: cada una vuelve a entrar por el mismo flujo, un
-	// nivel más abajo. Se respeta el límite para no entrar en recursión infinita.
-	if analisis.NecesitaSubtareas && len(plan.Subtareas) > 0 {
-		if profundidad >= a.cfg.Agent.ProfundidadSubtareas {
-			a.log.Warn(prefijo+"la división en subtareas alcanzó el límite configurado; se continúa como tarea única",
-				"profundidad", profundidad, "limite", a.cfg.Agent.ProfundidadSubtareas,
-				"subtareas", len(plan.Subtareas))
+	// [5] Splitting into subtasks: each one re-enters the same flow, one level
+	// further down. The limit is respected to avoid infinite recursion.
+	if analysis.NeedsSubtasks && len(plan.Subtasks) > 0 {
+		if depth >= a.cfg.Agent.SubtaskDepth {
+			a.log.Warn(prefix+"subtask splitting reached the configured limit; continuing as a single task",
+				"depth", depth, "limit", a.cfg.Agent.SubtaskDepth,
+				"subtasks", len(plan.Subtasks))
 		} else {
-			a.log.Info(prefijo+"dividiendo en subtareas", "cantidad", len(plan.Subtareas))
-			exitosas := 0
-			for _, sub := range plan.Subtareas {
+			a.log.Info(prefix+"splitting into subtasks", "count", len(plan.Subtasks))
+			passed := 0
+			for _, sub := range plan.Subtasks {
 				if ctx.Err() != nil {
-					res.Motivo = "cancelado durante las subtareas"
-					res.DuracionMS = time.Since(inicio).Milliseconds()
+					res.Reason = "cancelled during the subtasks"
+					res.DurationMS = time.Since(start).Milliseconds()
 					return res
 				}
 				if strings.TrimSpace(sub) == "" {
 					continue
 				}
-				res.Subtareas++
-				subResultado := a.procesarTarea(ctx, task.Tarea{
-					Descripcion: sub,
-					Origen:      t.Origen + " (subtarea)",
-				}, profundidad+1)
-				if subResultado.PASS {
-					exitosas++
+				res.Subtasks++
+				subResult := a.processTask(ctx, task.Task{
+					Description: sub,
+					Origin:      t.Origin + " (subtask)",
+				}, depth+1)
+				if subResult.Pass {
+					passed++
 				}
 			}
-			res.PASS = exitosas == res.Subtareas && res.Subtareas > 0
-			res.Intentos = 1
-			res.DuracionMS = time.Since(inicio).Milliseconds()
-			if res.PASS {
-				res.Motivo = fmt.Sprintf("%d subtareas completadas", exitosas)
+			res.Pass = passed == res.Subtasks && res.Subtasks > 0
+			res.Attempts = 1
+			res.DurationMS = time.Since(start).Milliseconds()
+			if res.Pass {
+				res.Reason = fmt.Sprintf("%d subtasks completed", passed)
 			} else {
-				res.Motivo = fmt.Sprintf("sólo %d de %d subtareas pasaron la validación", exitosas, res.Subtareas)
+				res.Reason = fmt.Sprintf("only %d of %d subtasks passed validation", passed, res.Subtasks)
 			}
 			return res
 		}
 	}
 
-	// [6]-[9] Ciclo de ejecución y validación.
-	intentosFallidos := []string{}
+	// [6]-[9] Execution and validation cycle.
+	failedAttempts := []string{}
 
-	for intento := 1; intento <= a.cfg.Agent.MaxReintentos+1; intento++ {
-		res.Intentos = intento
+	for attempt := 1; attempt <= a.cfg.Agent.MaxRetries+1; attempt++ {
+		res.Attempts = attempt
 
-		// [6] El LLM propone la acción concreta.
-		accion, err := a.faseAccion(ctx, t, plan, intentosFallidos, intento, prefijo)
+		// [6] The LLM proposes the concrete action.
+		action, err := a.actionPhase(ctx, t, plan, failedAttempts, attempt, prefix)
 		if err != nil {
-			res.Motivo = "no se pudo obtener la acción del LLM: " + err.Error()
-			res.DuracionMS = time.Since(inicio).Milliseconds()
-			a.escalar(ctx, res, prefijo)
+			res.Reason = "could not obtain the action from the LLM: " + err.Error()
+			res.DurationMS = time.Since(start).Milliseconds()
+			a.escalate(ctx, prefix)
 			return res
 		}
 
-		// [7] Ejecutar en el sandbox.
-		salidaEjecucion, errEjecucion := a.ejecutarAcciones(ctx, accion.Acciones, prefijo)
+		// [7] Run in the sandbox.
+		runOutput, runErr := a.runActions(ctx, action.Actions, prefix)
 
-		// [8] Validar con el ancla, siempre. El ancla se ejecuta aunque la
-		// ejecución haya fallado, porque su trabajo es describir el estado real
-		// del sistema, no opinar sobre lo que hizo el agente.
-		validacion := anchor.Nuevo(a.cfg.Anchor, a.cfg.Agent.WorkspaceDir, a.sandbox).Validar(ctx)
-		res.Validacion = &validacion
+		// [8] Validate with the anchor, always. The anchor runs even when the
+		// execution failed, because its job is to describe the real state of the
+		// system, not to opine about what the agent did.
+		validation := anchor.New(a.cfg.Anchor, a.cfg.Agent.WorkspaceDir, a.sandbox).Validate(ctx)
+		res.Validation = &validation
 
-		if validacion.PASS && errEjecucion == nil {
-			// [9] PASS de la validación: ahora la acción final, que también forma
-			// parte del contrato (commit, publicar, notificar). Si la acción
-			// final falla, la tarea NO está completa: informar "completada"
-			// mientras el commit o la publicación falló sería exactamente el
-			// tipo de éxito falso que esta arquitectura existe para evitar.
-			accionFinal, errFinal := a.ejecutarAccionFinal(ctx, accion.AccionFinal, prefijo)
-			res.AccionFinal = accionFinal
-			if errFinal != nil {
-				detalle := fmt.Sprintf("la validación pasó pero la acción final falló: %v\nSalida: %s", errFinal, accionFinal)
-				intentosFallidos = append(intentosFallidos, detalle)
-				a.log.Error(prefijo+"la acción final falló", "intento", intento, "accion_final", accionFinal, "error", errFinal)
-				if intento > a.cfg.Agent.MaxReintentos {
-					res.Motivo = detalle
-					res.DuracionMS = time.Since(inicio).Milliseconds()
-					a.escalar(ctx, res, prefijo)
+		if validation.Pass && runErr == nil {
+			// [9] Validation PASS: now the final action, which is also part of
+			// the contract (commit, publish, notify). If the final action fails,
+			// the task is NOT complete: reporting "completed" while the commit or
+			// the publication failed would be exactly the kind of false success
+			// this architecture exists to prevent.
+			finalAction, finalErr := a.runFinalAction(ctx, action.Final, prefix)
+			res.FinalAction = finalAction
+			if finalErr != nil {
+				detail := fmt.Sprintf("validation passed but the final action failed: %v\nOutput: %s", finalErr, finalAction)
+				failedAttempts = append(failedAttempts, detail)
+				a.log.Error(prefix+"final action failed", "attempt", attempt, "final_action", finalAction, "error", finalErr)
+				if attempt > a.cfg.Agent.MaxRetries {
+					res.Reason = detail
+					res.DurationMS = time.Since(start).Milliseconds()
+					a.escalate(ctx, prefix)
 					return res
 				}
 				continue
 			}
-			res.PASS = true
-			res.Motivo = validacion.Motivo
-			res.DuracionMS = time.Since(inicio).Milliseconds()
-			a.log.Info(prefijo+"validación superada", "intento", intento, "accion_final", accionFinal)
+			res.Pass = true
+			res.Reason = validation.Reason
+			res.DurationMS = time.Since(start).Milliseconds()
+			a.log.Info(prefix+"validation passed", "attempt", attempt, "final_action", finalAction)
 			return res
 		}
 
-		// FAIL: se acumulan los registros para que el LLM corrija con datos.
-		detalle := a.resumirFallo(accion, salidaEjecucion, validacion, errEjecucion)
-		intentosFallidos = append(intentosFallidos, detalle)
-		a.log.Warn(prefijo+"intento fallido",
-			"intento", intento, "max_intentos", a.cfg.Agent.MaxReintentos+1,
-			"validacion", validacion.Motivo)
+		// FAIL: the records are accumulated so the LLM can correct with data.
+		detail := a.summariseFailure(action, runOutput, validation, runErr)
+		failedAttempts = append(failedAttempts, detail)
+		a.log.Warn(prefix+"attempt failed",
+			"attempt", attempt, "max_attempts", a.cfg.Agent.MaxRetries+1,
+			"validation", validation.Reason)
 
-		if intento > a.cfg.Agent.MaxReintentos {
+		if attempt > a.cfg.Agent.MaxRetries {
 			break
 		}
 	}
 
-	// Se agotaron los intentos: escalar.
-	res.Motivo = fmt.Sprintf("se agotaron los %d intentos sin superar la validación", a.cfg.Agent.MaxReintentos+1)
-	res.DuracionMS = time.Since(inicio).Milliseconds()
-	a.escalar(ctx, res, prefijo)
+	// Attempts exhausted: escalate.
+	res.Reason = fmt.Sprintf("all %d attempts were exhausted without passing validation", a.cfg.Agent.MaxRetries+1)
+	res.DurationMS = time.Since(start).Milliseconds()
+	a.escalate(ctx, prefix)
 	return res
 }
 
-// --- Fases ------------------------------------------------------------------
+// --- Phases -----------------------------------------------------------------
 
-func (a *Agente) faseAnalisis(ctx context.Context, t task.Tarea, reglas string, profundidad int) Analisis {
-	vars := a.variablesBase(t)
-	vars["reglas"] = reglas
-	vars["intento"] = "1"
-	vars["max_intentos"] = fmt.Sprint(a.cfg.Agent.MaxReintentos + 1)
+func (a *Agent) analysisPhase(ctx context.Context, t task.Task, rules string, depth int) Analysis {
+	vars := a.baseVariables(t)
+	vars["rules"] = rules
+	vars["attempt"] = "1"
+	vars["max_attempts"] = fmt.Sprint(a.cfg.Agent.MaxRetries + 1)
 
-	texto, err := a.pedir(ctx, a.cfg.Prompts.Analyze, vars, "analyze")
+	text, err := a.ask(ctx, a.cfg.Prompts.Analyze, vars, "analyze")
 	if err != nil {
-		a.log.Error("fase de análisis fallida", "error", err)
-		return Analisis{Comprensible: false, Riesgos: []string{err.Error()}}
+		a.log.Error("analysis phase failed", "error", err)
+		return Analysis{Understandable: false, Risks: []string{err.Error()}}
 	}
 
-	var analisis Analisis
-	if err := llm.DecodificarJSON(texto, &analisis); err != nil {
-		a.log.Error("el análisis no tiene el formato esperado", "error", err, "respuesta", recortar(texto, 300))
-		return Analisis{Comprensible: false, Riesgos: []string{"el análisis del LLM no era JSON válido: " + err.Error()}}
+	var analysis Analysis
+	if err := llm.DecodeJSON(text, &analysis); err != nil {
+		a.log.Error("the analysis has an unexpected format", "error", err, "response", truncate(text, 300))
+		return Analysis{Understandable: false, Risks: []string{"the LLM's analysis was not valid JSON: " + err.Error()}}
 	}
-	if analisis.Resumen == "" {
-		analisis.Resumen = recortar(t.Descripcion, 200)
+	if analysis.Summary == "" {
+		analysis.Summary = truncate(t.Description, 200)
 	}
-	a.log.Info("análisis completado", "resumen", recortar(analisis.Resumen, 160), "criterios", len(analisis.CriteriosExito))
-	return analisis
+	a.log.Info("analysis completed", "summary", truncate(analysis.Summary, 160), "criteria", len(analysis.SuccessCrit))
+	return analysis
 }
 
-func (a *Agente) fasePlan(ctx context.Context, t task.Tarea, analisis Analisis, profundidad int) Plan {
-	vars := a.variablesBase(t)
+func (a *Agent) planPhase(ctx context.Context, t task.Task, analysis Analysis, depth int) Plan {
+	vars := a.baseVariables(t)
 	var sb strings.Builder
-	if analisis.Resumen != "" {
-		fmt.Fprintf(&sb, "- Resumen: %s\n", analisis.Resumen)
+	if analysis.Summary != "" {
+		fmt.Fprintf(&sb, "- Summary: %s\n", analysis.Summary)
 	}
-	for _, c := range analisis.CriteriosExito {
-		fmt.Fprintf(&sb, "- Criterio de éxito: %s\n", c)
+	for _, c := range analysis.SuccessCrit {
+		fmt.Fprintf(&sb, "- Success criterion: %s\n", c)
 	}
-	for _, r := range analisis.Riesgos {
-		fmt.Fprintf(&sb, "- Riesgo: %s\n", r)
+	for _, r := range analysis.Risks {
+		fmt.Fprintf(&sb, "- Risk: %s\n", r)
 	}
-	vars["analisis"] = sb.String()
+	vars["analysis"] = sb.String()
 
-	texto, err := a.pedir(ctx, a.cfg.Prompts.Plan, vars, "plan")
+	text, err := a.ask(ctx, a.cfg.Prompts.Plan, vars, "plan")
 	if err != nil {
-		a.log.Error("fase de planificación fallida", "error", err)
+		a.log.Error("planning phase failed", "error", err)
 		return Plan{}
 	}
 	var plan Plan
-	if err := llm.DecodificarJSON(texto, &plan); err != nil {
-		a.log.Error("el plan no tiene el formato esperado", "error", err, "respuesta", recortar(texto, 300))
+	if err := llm.DecodeJSON(text, &plan); err != nil {
+		a.log.Error("the plan has an unexpected format", "error", err, "response", truncate(text, 300))
 		return Plan{}
 	}
-	a.log.Info("plan generado", "pasos", len(plan.Pasos), "subtareas", len(plan.Subtareas))
+	a.log.Info("plan generated", "steps", len(plan.Steps), "subtasks", len(plan.Subtasks))
 	return plan
 }
 
-func (a *Agente) faseAccion(ctx context.Context, t task.Tarea, plan Plan, fallos []string, intento int, prefijo string) (Accion, error) {
-	vars := a.variablesBase(t)
-	vars["plan"] = describirPlan(plan)
-	vars["historial"] = plantilla.Historial(fallos)
-	vars["intento"] = fmt.Sprint(intento)
-	vars["max_intentos"] = fmt.Sprint(a.cfg.Agent.MaxReintentos + 1)
+func (a *Agent) actionPhase(ctx context.Context, t task.Task, plan Plan, failures []string, attempt int, prefix string) (Action, error) {
+	vars := a.baseVariables(t)
+	vars["plan"] = describePlan(plan)
+	vars["history"] = template.History(failures)
+	vars["attempt"] = fmt.Sprint(attempt)
+	vars["max_attempts"] = fmt.Sprint(a.cfg.Agent.MaxRetries + 1)
 
-	texto, err := a.pedir(ctx, a.cfg.Prompts.Execute, vars, "execute")
+	text, err := a.ask(ctx, a.cfg.Prompts.Execute, vars, "execute")
 	if err != nil {
-		return Accion{}, err
+		return Action{}, err
 	}
-	var accion Accion
-	if err := llm.DecodificarJSON(texto, &accion); err != nil {
-		return Accion{}, err
+	var action Action
+	if err := llm.DecodeJSON(text, &action); err != nil {
+		return Action{}, err
 	}
-	if len(accion.Acciones) == 0 {
-		return Accion{}, errors.New("el LLM no propuso ninguna acción")
+	if len(action.Actions) == 0 {
+		return Action{}, errors.New("the LLM proposed no action")
 	}
-	a.log.Info(prefijo+"acción propuesta", "razonamiento", recortar(accion.Razonamiento, 200), "acciones", len(accion.Acciones))
-	return accion, nil
+	a.log.Info(prefix+"action proposed", "reasoning", truncate(action.Reasoning, 200), "actions", len(action.Actions))
+	return action, nil
 }
 
-// pedir renderiza el prompt y llama al LLM, registrando las variables que
-// faltaron (huecos sin rellenar en una plantilla del usuario).
-func (a *Agente) pedir(ctx context.Context, p config.Plantilla, vars map[string]string, fase string) (string, error) {
-	sistema, faltanS := plantilla.Render(p.Sistema, vars)
-	usuario, faltanU := plantilla.Render(p.Usuario, vars)
-	if len(faltanS)+len(faltanU) > 0 {
-		faltantes := append(append([]string{}, faltanS...), faltanU...)
-		a.log.Warn("la plantilla tiene variables sin valor", "fase", fase, "variables", strings.Join(faltantes, ","))
+// ask renders the prompt and calls the LLM, logging any variables that were
+// missing (unfilled gaps in a user template).
+func (a *Agent) ask(ctx context.Context, p config.Template, vars map[string]string, phase string) (string, error) {
+	system, missingS := template.Render(p.System, vars)
+	user, missingU := template.Render(p.User, vars)
+	if len(missingS)+len(missingU) > 0 {
+		missing := append(append([]string{}, missingS...), missingU...)
+		a.log.Warn("the template has variables with no value", "phase", phase, "variables", strings.Join(missing, ","))
 	}
 
-	mensajes := []llm.Mensaje{}
-	if strings.TrimSpace(sistema) != "" {
-		mensajes = append(mensajes, llm.Mensaje{Rol: "system", Contenido: sistema})
+	messages := []llm.Message{}
+	if strings.TrimSpace(system) != "" {
+		messages = append(messages, llm.Message{Role: "system", Content: system})
 	}
-	mensajes = append(mensajes, llm.Mensaje{Rol: "user", Contenido: usuario})
+	messages = append(messages, llm.Message{Role: "user", Content: user})
 
-	inicio := time.Now()
-	texto, err := a.motor.Completar(ctx, mensajes)
+	start := time.Now()
+	text, err := a.engine.Complete(ctx, messages)
 	if err != nil {
 		return "", err
 	}
-	a.log.Debug("respuesta del LLM", "fase", fase, "ms", time.Since(inicio).Milliseconds(), "bytes", len(texto))
-	return texto, nil
+	a.log.Debug("LLM response", "phase", phase, "ms", time.Since(start).Milliseconds(), "bytes", len(text))
+	return text, nil
 }
 
-// variablesBase son las variables disponibles en todas las plantillas.
-func (a *Agente) variablesBase(t task.Tarea) map[string]string {
+// baseVariables are the variables available in every template.
+func (a *Agent) baseVariables(t task.Task) map[string]string {
 	vars := map[string]string{
-		"tarea":        t.Descripcion,
+		"task":         t.Description,
 		"workspace":    a.cfg.Agent.WorkspaceDir,
-		"origen":       t.Origen,
-		"intento":      "1",
-		"max_intentos": fmt.Sprint(a.cfg.Agent.MaxReintentos + 1),
-		"reglas":       a.describirReglas(),
-		"analisis":     "",
+		"origin":       t.Origin,
+		"attempt":      "1",
+		"max_attempts": fmt.Sprint(a.cfg.Agent.MaxRetries + 1),
+		"rules":        a.describeRules(),
+		"analysis":     "",
 		"plan":         "",
-		"historial":    "",
-		"modelo":       a.cfg.LLM.Modelo,
-		"proveedor":    a.cfg.LLM.Proveedor,
+		"history":      "",
+		"model":        a.cfg.LLM.Model,
+		"provider":     a.cfg.LLM.Provider,
 	}
-	for k, v := range t.Contexto {
-		vars["contexto_"+k] = v
+	for k, v := range t.Context {
+		vars["context_"+k] = v
 	}
 	return vars
 }
 
-// describirReglas convierte el ancla en texto para el prompt: el LLM debe saber
-// exactamente contra qué se le va a medir.
-func (a *Agente) describirReglas() string {
-	switch strings.ToLower(a.cfg.Anchor.Tipo) {
+// describeRules turns the anchor into text for the prompt: the LLM must know
+// exactly what it will be measured against.
+func (a *Agent) describeRules() string {
+	switch strings.ToLower(a.cfg.Anchor.Kind) {
 	case "command":
 		var sb strings.Builder
-		fmt.Fprintf(&sb, "- Se ejecutará: %s %s\n", a.cfg.Anchor.Comando, strings.Join(a.cfg.Anchor.Argumentos, " "))
-		fmt.Fprintf(&sb, "- Debe terminar con código de salida %d.\n", a.cfg.Anchor.EsperarExit)
-		if a.cfg.Anchor.EsperarSalida != "" {
-			fmt.Fprintf(&sb, "- Su salida debe coincidir con la expresión regular: %s\n", a.cfg.Anchor.EsperarSalida)
+		fmt.Fprintf(&sb, "- It will run: %s %s\n", a.cfg.Anchor.Command, strings.Join(a.cfg.Anchor.Args, " "))
+		fmt.Fprintf(&sb, "- It must finish with exit code %d.\n", a.cfg.Anchor.ExpectExit)
+		if a.cfg.Anchor.ExpectOutput != "" {
+			fmt.Fprintf(&sb, "- Its output must match the regular expression: %s\n", a.cfg.Anchor.ExpectOutput)
 		}
 		for _, c := range a.cfg.Anchor.Checks {
-			fmt.Fprintf(&sb, "- Además: %s %s (código esperado %d)\n", c.Comando, strings.Join(c.Argumentos, " "), c.EsperarExit)
+			fmt.Fprintf(&sb, "- In addition: %s %s (expected exit code %d)\n", c.Command, strings.Join(c.Args, " "), c.ExpectExit)
 		}
 		return sb.String()
 	default:
-		return "- No hay validación determinista configurada (anchor.tipo=none). El agente no declarará PASS por sí mismo: revisa la configuración."
+		return "- No deterministic validation is configured (anchor.kind=none). The agent will not declare PASS on its own: review the configuration."
 	}
 }
 
-func describirPlan(p Plan) string {
-	if len(p.Pasos) == 0 {
-		return "(sin plan)"
+func describePlan(p Plan) string {
+	if len(p.Steps) == 0 {
+		return "(no plan)"
 	}
 	var sb strings.Builder
-	for _, paso := range p.Pasos {
-		fmt.Fprintf(&sb, "%d. %s", paso.Numero, paso.Accion)
-		if paso.Comando != "" {
-			fmt.Fprintf(&sb, "  ->  %s", paso.Comando)
+	for _, step := range p.Steps {
+		fmt.Fprintf(&sb, "%d. %s", step.Number, step.Action)
+		if step.Command != "" {
+			fmt.Fprintf(&sb, "  ->  %s", step.Command)
 		}
 		sb.WriteString("\n")
 	}
-	if p.ResultadoEsperado != "" {
-		fmt.Fprintf(&sb, "Resultado esperado: %s\n", p.ResultadoEsperado)
+	if p.ExpectedResult != "" {
+		fmt.Fprintf(&sb, "Expected result: %s\n", p.ExpectedResult)
 	}
 	return sb.String()
 }
 
-// --- Ejecución --------------------------------------------------------------
+// --- Execution --------------------------------------------------------------
 
-// ejecutarAcciones corre cada acción en el sandbox y devuelve la salida
-// combinada de todas.
-func (a *Agente) ejecutarAcciones(ctx context.Context, acciones []Comando, prefijo string) (string, error) {
+// runActions runs every action in the sandbox and returns their combined output.
+func (a *Agent) runActions(ctx context.Context, actions []Command, prefix string) (string, error) {
 	var sb strings.Builder
-	var ultimo error
+	var lastErr error
 
-	for i, accion := range acciones {
-		if strings.TrimSpace(accion.Comando) == "" {
-			a.log.Debug(prefijo+"acción sin comando (descriptiva)", "descripcion", accion.Descripcion)
+	for i, action := range actions {
+		if strings.TrimSpace(action.Command) == "" {
+			a.log.Debug(prefix+"action with no command (descriptive)", "description", action.Description)
 			continue
 		}
-		a.log.Info(prefijo+"ejecutando en sandbox", "n", i+1, "comando", accion.Comando, "descripcion", recortar(accion.Descripcion, 120))
+		a.log.Info(prefix+"running in sandbox", "n", i+1, "command", action.Command, "description", truncate(action.Description, 120))
 
-		salida, truncado, exit, err := a.sandbox.Ejecutar(ctx, execx.Peticion{
-			Comando: "/bin/sh",
-			Args:    []string{"-c", accion.Comando},
+		output, truncated, exit, err := a.exec(ctx, execx.Request{
+			Command: "/bin/sh",
+			Args:    []string{"-c", action.Command},
 			Timeout: a.cfg.Sandbox.Timeout,
 		})
 
-		fmt.Fprintf(&sb, "$ %s\n", accion.Comando)
-		if salida != "" {
-			sb.WriteString(salida)
-			if !strings.HasSuffix(salida, "\n") {
+		fmt.Fprintf(&sb, "$ %s\n", action.Command)
+		if output != "" {
+			sb.WriteString(output)
+			if !strings.HasSuffix(output, "\n") {
 				sb.WriteString("\n")
 			}
 		}
-		if truncado {
-			sb.WriteString("[salida truncada por el límite del sandbox]\n")
+		if truncated {
+			sb.WriteString("[output truncated by the sandbox limit]\n")
 		}
 		fmt.Fprintf(&sb, "[exit=%d]\n", exit)
 
 		if err != nil {
-			ultimo = fmt.Errorf("la acción %d (%s) no pudo ejecutarse: %w", i+1, accion.Comando, err)
+			lastErr = fmt.Errorf("action %d (%s) could not run: %w", i+1, action.Command, err)
 		}
 	}
-	return sb.String(), ultimo
+	return sb.String(), lastErr
 }
 
-// resumirFallo arma el bloque que se le pasa al LLM en el siguiente intento.
-func (a *Agente) resumirFallo(accion Accion, ejecucion string, validacion anchor.Resultado, errEjecucion error) string {
+// summariseFailure builds the block handed to the LLM on the next attempt.
+func (a *Agent) summariseFailure(action Action, execution string, validation anchor.Result, runErr error) string {
 	var sb strings.Builder
-	sb.WriteString("Acciones propuestas:\n")
-	for _, c := range accion.Acciones {
-		fmt.Fprintf(&sb, "- %s\n", c.Comando)
+	sb.WriteString("Proposed actions:\n")
+	for _, c := range action.Actions {
+		fmt.Fprintf(&sb, "- %s\n", c.Command)
 	}
-	if ejecucion != "" {
-		sb.WriteString("\nSalida de la ejecución en el sandbox:\n")
-		sb.WriteString(recortar(ejecucion, 3000))
+	if execution != "" {
+		sb.WriteString("\nOutput of the execution in the sandbox:\n")
+		sb.WriteString(truncate(execution, 3000))
 		sb.WriteString("\n")
 	}
-	if errEjecucion != nil {
-		fmt.Fprintf(&sb, "\nError de ejecución: %s\n", errEjecucion)
+	if runErr != nil {
+		fmt.Fprintf(&sb, "\nExecution error: %s\n", runErr)
 	}
-	sb.WriteString("\nResultado de la validación determinista (JSON):\n")
-	sb.WriteString(validacion.JSON())
+	sb.WriteString("\nResult of the deterministic validation (JSON):\n")
+	sb.WriteString(validation.JSON())
 	sb.WriteString("\n")
 	return sb.String()
 }
 
-// --- Acción final y escalado ------------------------------------------------
+// --- Final action and escalation --------------------------------------------
 
-// ejecutarAccionFinal ejecuta la acción prevista sólo tras un PASS. Devuelve una
-// descripción legible y un error si la acción no se pudo completar (incluido un
-// código de salida distinto de cero, que es un fallo aunque no haya error de
-// ejecución).
-func (a *Agente) ejecutarAccionFinal(ctx context.Context, c Comando, prefijo string) (string, error) {
+// runFinalAction runs the action planned for after a PASS. It returns a readable
+// description and an error when the action could not be completed (including a
+// non-zero exit code, which is a failure even with no execution error).
+func (a *Agent) runFinalAction(ctx context.Context, c Command, prefix string) (string, error) {
 	final := a.cfg.FinalAction
 
-	switch strings.ToLower(final.Tipo) {
+	switch strings.ToLower(final.Kind) {
 	case "", "none":
 		return "none", nil
 
 	case "command":
-		comando := final.Comando
-		args := final.Argumentos
-		if strings.TrimSpace(c.Comando) != "" {
-			// El LLM puede proponer el comando final concreto.
-			comando, args = "/bin/sh", []string{"-c", c.Comando}
+		command := final.Command
+		args := final.Args
+		if strings.TrimSpace(c.Command) != "" {
+			// The LLM may propose the concrete final command.
+			command, args = "/bin/sh", []string{"-c", c.Command}
 		}
-		if strings.TrimSpace(comando) == "" {
-			a.log.Warn(prefijo + "final_action.tipo=command sin comando: no se hace nada")
+		if strings.TrimSpace(command) == "" {
+			a.log.Warn(prefix + "final_action.kind=command with no command: nothing is done")
 			return "none", nil
 		}
-		a.log.Info(prefijo+"ejecutando la acción final", "comando", comando)
-		salida, _, exit, err := a.sandbox.Ejecutar(ctx, execx.Peticion{Comando: comando, Args: args, Timeout: a.cfg.Sandbox.Timeout})
-		descripcion := fmt.Sprintf("command exit=%d salida=%s", exit, recortar(salida, 300))
+		a.log.Info(prefix+"running the final action", "command", command)
+		output, _, exit, err := a.exec(ctx, execx.Request{Command: command, Args: args, Timeout: a.cfg.Sandbox.Timeout})
+		description := fmt.Sprintf("command exit=%d output=%s", exit, truncate(output, 300))
 		if err != nil {
-			a.log.Error(prefijo+"la acción final falló", "error", err, "salida", recortar(salida, 500))
-			return descripcion, fmt.Errorf("la acción final no pudo ejecutarse: %w", err)
+			a.log.Error(prefix+"the final action failed", "error", err, "output", truncate(output, 500))
+			return description, fmt.Errorf("the final action could not run: %w", err)
 		}
 		if exit != 0 {
-			return descripcion, fmt.Errorf("la acción final terminó con código %d", exit)
+			return description, fmt.Errorf("the final action finished with exit code %d", exit)
 		}
-		return descripcion, nil
+		return description, nil
 
 	case "api":
-		cuerpo := map[string]any{
-			"tarea":   c.Descripcion,
-			"comando": c.Comando,
-			"estado":  "pass",
+		body := map[string]any{
+			"task":    c.Description,
+			"command": c.Command,
+			"status":  "pass",
 		}
-		datos, _ := json.Marshal(cuerpo)
-		metodo := final.Metodo
-		if metodo == "" {
-			metodo = http.MethodPost
+		data, _ := json.Marshal(body)
+		method := final.Method
+		if method == "" {
+			method = http.MethodPost
 		}
-		req, err := http.NewRequestWithContext(ctx, metodo, final.URL, bytes.NewReader(datos))
+		req, err := http.NewRequestWithContext(ctx, method, final.URL, bytes.NewReader(data))
 		if err != nil {
-			a.log.Error(prefijo+"petición final inválida", "error", err)
-			return "error: " + err.Error(), fmt.Errorf("la acción final (API) tiene una URL inválida: %w", err)
+			a.log.Error(prefix+"invalid final request", "error", err)
+			return "error: " + err.Error(), fmt.Errorf("the final action (API) has an invalid URL: %w", err)
 		}
 		req.Header.Set("Content-Type", "application/json")
 		resp, err := a.http.Do(req)
 		if err != nil {
-			a.log.Error(prefijo+"la notificación final falló", "error", err)
-			return "error: " + err.Error(), fmt.Errorf("la acción final (API) falló: %w", err)
+			a.log.Error(prefix+"the final notification failed", "error", err)
+			return "error: " + err.Error(), fmt.Errorf("the final action (API) failed: %w", err)
 		}
 		defer resp.Body.Close()
 		io.Copy(io.Discard, io.LimitReader(resp.Body, 64<<10))
-		descripcion := fmt.Sprintf("api %s %s -> HTTP %d", metodo, final.URL, resp.StatusCode)
+		description := fmt.Sprintf("api %s %s -> HTTP %d", method, final.URL, resp.StatusCode)
 		if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-			return descripcion, fmt.Errorf("la acción final (API) devolvió HTTP %d", resp.StatusCode)
+			return description, fmt.Errorf("the final action (API) returned HTTP %d", resp.StatusCode)
 		}
-		return descripcion, nil
+		return description, nil
 
 	case "git_commit":
-		mensaje, _ := plantilla.Render(final.MensajeCommit, map[string]string{"tarea": c.Descripcion})
-		if strings.TrimSpace(mensaje) == "" {
-			mensaje = "agente: cambios validados"
+		message, _ := template.Render(final.CommitMessage, map[string]string{"task": c.Description})
+		if strings.TrimSpace(message) == "" {
+			message = "agent: validated changes"
 		}
-		secuencia := []string{
+		sequence := []string{
 			"git add -A",
-			fmt.Sprintf("git commit -m %s", comillaShell(mensaje)),
+			fmt.Sprintf("git commit -m %s", shellQuote(message)),
 		}
-		var salidas []string
-		for _, cmd := range secuencia {
-			salida, _, exit, err := a.sandbox.Ejecutar(ctx, execx.Peticion{
-				Comando: "/bin/sh", Args: []string{"-c", cmd}, Timeout: a.cfg.Sandbox.Timeout,
+		var outputs []string
+		for _, cmd := range sequence {
+			output, _, exit, err := a.exec(ctx, execx.Request{
+				Command: "/bin/sh", Args: []string{"-c", cmd}, Timeout: a.cfg.Sandbox.Timeout,
 			})
-			salidas = append(salidas, fmt.Sprintf("%s -> exit=%d %s", cmd, exit, recortar(salida, 200)))
+			outputs = append(outputs, fmt.Sprintf("%s -> exit=%d %s", cmd, exit, truncate(output, 200)))
 			if err != nil {
-				a.log.Error(prefijo+"git_commit falló", "comando", cmd, "error", err)
-				return "git_commit: " + strings.Join(salidas, " | "), fmt.Errorf("git_commit: %s falló: %w", cmd, err)
+				a.log.Error(prefix+"git_commit failed", "command", cmd, "error", err)
+				return "git_commit: " + strings.Join(outputs, " | "), fmt.Errorf("git_commit: %s failed: %w", cmd, err)
 			}
 			if exit != 0 {
-				return "git_commit: " + strings.Join(salidas, " | "), fmt.Errorf("git_commit: %s terminó con código %d", cmd, exit)
+				return "git_commit: " + strings.Join(outputs, " | "), fmt.Errorf("git_commit: %s finished with exit code %d", cmd, exit)
 			}
 		}
-		return "git_commit: " + strings.Join(salidas, " | "), nil
+		return "git_commit: " + strings.Join(outputs, " | "), nil
 
 	default:
-		return "none", fmt.Errorf("final_action.tipo desconocido: %q", final.Tipo)
+		return "none", fmt.Errorf("unknown final_action.kind: %q", final.Kind)
 	}
 }
 
-// escalar activa la acción de escalado configurada cuando la tarea no pasa.
-func (a *Agente) escalar(ctx context.Context, res ResultadoTarea, prefijo string) {
-	if a.cfg.Agent.Escalar.Tipo != "command" || strings.TrimSpace(a.cfg.Agent.Escalar.Comando) == "" {
+// escalate fires the configured escalation action when the task does not pass.
+func (a *Agent) escalate(ctx context.Context, prefix string) {
+	if a.cfg.Agent.OnFailure.Kind != "command" || strings.TrimSpace(a.cfg.Agent.OnFailure.Command) == "" {
 		return
 	}
-	a.log.Warn(prefijo+"escalando tras agotar los intentos", "comando", a.cfg.Agent.Escalar.Comando)
-	salida, _, exit, err := a.sandbox.Ejecutar(ctx, execx.Peticion{
-		Comando: "/bin/sh",
-		Args:    []string{"-c", a.cfg.Agent.Escalar.Comando},
+	a.log.Warn(prefix+"escalating after exhausting the attempts", "command", a.cfg.Agent.OnFailure.Command)
+	output, _, exit, err := a.exec(ctx, execx.Request{
+		Command: "/bin/sh",
+		Args:    []string{"-c", a.cfg.Agent.OnFailure.Command},
 		Timeout: a.cfg.Sandbox.Timeout,
 	})
 	if err != nil {
-		a.log.Error(prefijo+"la acción de escalado falló", "error", err)
+		a.log.Error(prefix+"the escalation action failed", "error", err)
 		return
 	}
-	a.log.Info(prefijo+"escalado ejecutado", "exit", exit, "salida", recortar(salida, 300))
+	a.log.Info(prefix+"escalation executed", "exit", exit, "output", truncate(output, 300))
 }
 
-// comillaShell cita un texto para pasarlo a sh -c.
-func comillaShell(s string) string {
+// shellQuote quotes text for passing to sh -c.
+func shellQuote(s string) string {
 	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
 }
 
-func modosATexto(modos []sandbox.Modo) []string {
-	salida := make([]string, 0, len(modos))
-	for _, m := range modos {
-		salida = append(salida, string(m))
+func modesToStrings(modes []sandbox.Mode) []string {
+	out := make([]string, 0, len(modes))
+	for _, m := range modes {
+		out = append(out, string(m))
 	}
-	return salida
+	return out
 }
 
-func recortar(s string, max int) string {
+func truncate(s string, max int) string {
 	if len(s) <= max {
 		return s
 	}
