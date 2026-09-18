@@ -329,9 +329,9 @@ func (c *Config) validate(requireKey bool) error {
 	}
 
 	switch c.LLM.Provider {
-	case "openai", "anthropic", "gemini":
+	case "openai", "ollama", "anthropic", "gemini":
 	default:
-		return fmt.Errorf("unknown llm.provider: %q (use openai, anthropic or gemini)", c.LLM.Provider)
+		return fmt.Errorf("unknown llm.provider: %q (use openai, ollama, anthropic or gemini)", c.LLM.Provider)
 	}
 	if c.LLM.Model == "" {
 		return fmt.Errorf("llm.model cannot be empty")

@@ -28,6 +28,9 @@ type Provider struct {
 	ConsoleURL string
 	// Models are the ones known to work with this provider, best first.
 	Models []Model
+	// FetchModels, when true, tells the wizard to query the provider's own API
+	// for the list of available models instead of using the static catalogue.
+	FetchModels bool
 }
 
 // Model is a model the wizard can offer.
@@ -52,9 +55,16 @@ func Providers() []Provider {
 				{ID: "gpt-4o", Label: "GPT-4o", Note: "better reasoning, more expensive"},
 				{ID: "gpt-4.1-mini", Label: "GPT-4.1 mini", Note: "newer small model"},
 				{ID: "o4-mini", Label: "o4-mini", Note: "reasoning model, slow and costly"},
-				{ID: "llama3.3", Label: "Ollama: llama3.3", Note: "type any model id, this is only a hint"},
-				{ID: "qwen2.5", Label: "Ollama: qwen2.5", Note: "type any model id, this is only a hint"},
 			},
+		},
+		{
+			ID:             "ollama",
+			Name:           "Ollama Cloud",
+			DefaultBaseURL: "https://ollama.com/v1",
+			EnvKey:         "OLLAMA_API_KEY",
+			ConsoleURL:     "https://ollama.com/settings/keys",
+			Models:         []Model{}, // populated at runtime from /api/tags
+			FetchModels:    true,
 		},
 		{
 			ID:             "anthropic",

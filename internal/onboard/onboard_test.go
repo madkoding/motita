@@ -1,10 +1,14 @@
 package onboard
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"io"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -22,6 +26,18 @@ func run(ctx context.Context, t *testing.T, dir string, answers []string, preset
 	var out bytes.Buffer
 	res, err := Run(ctx, in, &out, filepath.Join(dir, "config.yaml"), preset, fixedTime())
 	return out.String(), res, err
+}
+
+// stubOllamaModels replaces the live model lister with a deterministic catalogue
+// for the duration of the test. Use it in any test that selects the Ollama
+// provider.
+func stubOllamaModels(t *testing.T, models []string) {
+	t.Helper()
+	old := modelLister
+	modelLister = func(_ context.Context, _, _ string) ([]string, error) {
+		return models, nil
+	}
+	t.Cleanup(func() { modelLister = old })
 }
 
 // --- the generated file must be loadable by the real parser ------------------
@@ -141,9 +157,9 @@ func TestReadLineCancelsWhenBlocked(t *testing.T) {
 
 func TestChooseProviderByNumber(t *testing.T) {
 	dir := t.TempDir()
-	provider := Providers()[1] // anthropic
+	provider := Providers()[2] // anthropic
 	model := provider.Models[0].ID
-	out, res, err := run(context.Background(), t, dir, []string{"2", "1", "2", "", ""}, Answers{})
+	out, res, err := run(context.Background(), t, dir, []string{"3", "1", "2", "", ""}, Answers{})
 	if err != nil {
 		t.Fatalf("Run: %v", err)
 	}
@@ -215,6 +231,44 @@ func TestChooseProviderGivesUpAfterThreeAttempts(t *testing.T) {
 	}
 }
 
+// TestChooseModelFallsBackToDefaultBaseURL verifies that chooseModel uses the
+// provider's fixed endpoint when no listing URL is supplied.
+func TestChooseModelFallsBackToDefaultBaseURL(t *testing.T) {
+	old := modelLister
+	modelLister = func(_ context.Context, url, _ string) ([]string, error) {
+		if url != "https://ollama.com/v1" {
+			return nil, fmt.Errorf("expected default URL, got %s", url)
+		}
+		return []string{"fallback-model"}, nil
+	}
+	defer func() { modelLister = old }()
+
+	p, _ := Lookup("ollama")
+	s := &session{in: bufio.NewReader(strings.NewReader("1\n")), out: io.Discard}
+	model, err := s.chooseModel(context.Background(), p, "", "", "key")
+	if err != nil {
+		t.Fatalf("chooseModel: %v", err)
+	}
+	if model != "fallback-model" {
+		t.Errorf("model = %q", model)
+	}
+}
+
+// TestOllamaKeyPromptError: an error while reading the API key for Ollama must
+// be reported immediately.
+func TestOllamaKeyPromptError(t *testing.T) {
+	dir := t.TempDir()
+	ctx, cancel := context.WithCancel(context.Background())
+	go func() {
+		time.Sleep(20 * time.Millisecond)
+		cancel()
+	}()
+	_, err := Run(ctx, strings.NewReader("ollama\n"), io.Discard, filepath.Join(dir, "config.yaml"), Answers{}, fixedTime())
+	if !errors.Is(err, ErrCancelled) {
+		t.Fatalf("err = %v, want ErrCancelled", err)
+	}
+}
+
 // --- choosing the model ------------------------------------------------------
 
 // TestChooseModelIsLimitedToTheProvider: the list must offer only the models of
@@ -222,12 +276,26 @@ func TestChooseProviderGivesUpAfterThreeAttempts(t *testing.T) {
 func TestChooseModelIsLimitedToTheProvider(t *testing.T) {
 	for _, p := range Providers() {
 		dir := t.TempDir()
-		out, res, err := run(context.Background(), t, dir, []string{p.ID, "", "2", "", ""}, Answers{})
+		// Ollama asks for the key before the model and fetches the live catalogue.
+		var answers []string
+		if p.FetchModels {
+			stubOllamaModels(t, []string{"llama3.3", "qwen2.5"})
+			answers = []string{p.ID, "dummy-key", "", "2", ""}
+		} else {
+			answers = []string{p.ID, "", "2", "", ""}
+		}
+		out, res, err := run(context.Background(), t, dir, answers, Answers{})
 		if err != nil {
 			t.Fatalf("%s: Run: %v", p.ID, err)
 		}
-		if res.Model != p.Models[0].ID {
-			t.Errorf("%s: model = %q, want %q", p.ID, res.Model, p.Models[0].ID)
+		wantModel := ""
+		if p.FetchModels {
+			wantModel = "llama3.3" // first stubbed model
+		} else {
+			wantModel = p.Models[0].ID
+		}
+		if res.Model != wantModel {
+			t.Errorf("%s: model = %q, want %q", p.ID, res.Model, wantModel)
 		}
 		// No model of any other provider may appear in the menu.
 		for _, other := range Providers() {
@@ -253,6 +321,164 @@ func TestChooseModelAcceptsAFreeTextID(t *testing.T) {
 	}
 	if res.Model != "gpt-5.2-turbo-experimental" {
 		t.Errorf("model = %q", res.Model)
+	}
+}
+
+// --- Ollama Cloud provider ---------------------------------------------------
+
+// TestOllamaWizardUsesFixedBaseURL: the user should not be asked for a URL; the
+// provider already knows it is https://ollama.com/v1.
+func TestOllamaWizardUsesFixedBaseURL(t *testing.T) {
+	stubOllamaModels(t, []string{"llama3.3", "qwen2.5"})
+	dir := t.TempDir()
+	_, res, err := run(context.Background(), t, dir, []string{"ollama", "my-key", "", "2", ""}, Answers{})
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if res.Provider.ID != "ollama" {
+		t.Errorf("provider = %q", res.Provider.ID)
+	}
+	cfg, err := os.ReadFile(res.ConfigPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(cfg), "https://ollama.com/v1") {
+		t.Errorf("the Ollama base URL must be fixed:\n%s", cfg)
+	}
+}
+
+// TestOllamaWizardSelectsAFetchedModelByNumber: the live catalogue is presented
+// and a model can be chosen by its option number.
+func TestOllamaWizardSelectsAFetchedModelByNumber(t *testing.T) {
+	stubOllamaModels(t, []string{"llama3.3", "qwen2.5"})
+	dir := t.TempDir()
+	out, res, err := run(context.Background(), t, dir, []string{"ollama", "my-key", "2", "2", ""}, Answers{})
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if res.Model != "qwen2.5" {
+		t.Errorf("model = %q, want qwen2.5", res.Model)
+	}
+	if !strings.Contains(out, "llama3.3") || !strings.Contains(out, "qwen2.5") {
+		t.Errorf("the fetched models must be shown: %q", out)
+	}
+}
+
+// TestOllamaWizardAcceptsTypedModelWhenFetchFails: if /api/tags cannot be reached,
+// the user can still type a model id.
+func TestOllamaWizardAcceptsTypedModelWhenFetchFails(t *testing.T) {
+	dir := t.TempDir()
+	old := modelLister
+	modelLister = func(_ context.Context, _, _ string) ([]string, error) {
+		return nil, errors.New("mock network error")
+	}
+	defer func() { modelLister = old }()
+	_, res, err := run(context.Background(), t, dir, []string{"ollama", "my-key", "custom-model", "2", ""}, Answers{})
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if res.Model != "custom-model" {
+		t.Errorf("model = %q, want custom-model", res.Model)
+	}
+}
+
+// TestOllamaWizardRequiresTypedModelWhenListIsEmpty: if /api/tags succeeds but
+// returns no models, the wizard refuses a blank answer and requires a model id.
+func TestOllamaWizardRequiresTypedModelWhenListIsEmpty(t *testing.T) {
+	dir := t.TempDir()
+	old := modelLister
+	modelLister = func(_ context.Context, _, _ string) ([]string, error) {
+		return []string{}, nil
+	}
+	defer func() { modelLister = old }()
+	_, res, err := run(context.Background(), t, dir, []string{"ollama", "my-key", "", "my-model", "2", ""}, Answers{})
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if res.Model != "my-model" {
+		t.Errorf("model = %q, want my-model", res.Model)
+	}
+}
+
+// TestOllamaWizardAcceptsPresetBaseURL: a fixed provider still lets a preset
+// override the base URL, which is useful for a self-hosted Ollama endpoint.
+func TestOllamaWizardAcceptsPresetBaseURL(t *testing.T) {
+	dir := t.TempDir()
+	stubOllamaModels(t, []string{"llama3.3"})
+	_, res, err := run(context.Background(), t, dir, []string{"", "2", ""}, Answers{Provider: "ollama", APIKey: "preset-key", BaseURL: "http://localhost:11434/v1"})
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	cfg, err := os.ReadFile(res.ConfigPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(cfg), "http://localhost:11434/v1") {
+		t.Errorf("preset base URL was not used:\n%s", cfg)
+	}
+}
+
+// TestListOllamaModelsWrapperUsesTheAPI: the package-level wrapper reaches a real
+// Ollama /api/tags endpoint and returns the model names.
+func TestListOllamaModelsWrapperUsesTheAPI(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !strings.HasSuffix(r.URL.Path, "/api/tags") {
+			http.NotFound(w, r)
+			return
+		}
+		if r.Header.Get("Authorization") != "Bearer test-key" {
+			w.WriteHeader(http.StatusUnauthorized)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"models":[{"name":"llama3.3"},{"name":"qwen2.5"}]}`))
+	}))
+	defer srv.Close()
+
+	old := modelLister
+	modelLister = listOllamaModels
+	defer func() { modelLister = old }()
+
+	dir := t.TempDir()
+	_, res, err := run(context.Background(), t, dir, []string{"ollama", "test-key", "", "2", ""}, Answers{BaseURL: srv.URL + "/v1"})
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if res.Model != "llama3.3" {
+		t.Errorf("model = %q, want llama3.3", res.Model)
+	}
+}
+
+// TestOllamaWizardUsesPresetKey: a key supplied in Answers should skip the key
+// prompt even for the Ollama provider.
+func TestOllamaWizardUsesPresetKey(t *testing.T) {
+	stubOllamaModels(t, []string{"llama3.3", "qwen2.5"})
+	dir := t.TempDir()
+	out, res, err := run(context.Background(), t, dir, []string{"", "2", ""}, Answers{Provider: "ollama", APIKey: "preset-key"})
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if res.Provider.ID != "ollama" {
+		t.Errorf("provider = %q", res.Provider.ID)
+	}
+	if strings.Contains(out, "Paste the key") {
+		t.Error("the key prompt must not appear when the key is preset")
+	}
+}
+
+// TestOllamaWizardRequiresKeyBeforeModel: without a preset key the API key prompt
+// appears before the model list.
+func TestOllamaWizardRequiresKeyBeforeModel(t *testing.T) {
+	stubOllamaModels(t, []string{"llama3.3", "qwen2.5"})
+	dir := t.TempDir()
+	out, _, err := run(context.Background(), t, dir, []string{"ollama", "my-key", "", "2", ""}, Answers{})
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	keyIdx := strings.Index(out, "Paste the key")
+	modelIdx := strings.Index(out, "Which model")
+	if keyIdx == -1 || modelIdx == -1 || keyIdx > modelIdx {
+		t.Errorf("the key prompt must come before the model prompt:\n%s", out)
 	}
 }
 
@@ -442,7 +668,7 @@ func TestPresetWithAnUnknownProviderFails(t *testing.T) {
 // LLM client can actually talk to. Adding one here without implementing it in
 // internal/llm would be a promise the program cannot keep.
 func TestCatalogueMatchesTheClientProtocols(t *testing.T) {
-	implemented := map[string]bool{"openai": true, "anthropic": true, "gemini": true}
+	implemented := map[string]bool{"openai": true, "ollama": true, "anthropic": true, "gemini": true}
 	for _, p := range Providers() {
 		if !implemented[p.ID] {
 			t.Errorf("the wizard offers %q, which the client does not implement", p.ID)
@@ -450,8 +676,8 @@ func TestCatalogueMatchesTheClientProtocols(t *testing.T) {
 		if p.Name == "" || p.DefaultBaseURL == "" || p.EnvKey == "" || p.ConsoleURL == "" {
 			t.Errorf("%q is incomplete: %+v", p.ID, p)
 		}
-		if len(p.Models) == 0 {
-			t.Errorf("%q offers no model", p.ID)
+		if len(p.Models) == 0 && !p.FetchModels {
+			t.Errorf("%q offers no model and does not fetch them", p.ID)
 		}
 	}
 	if len(Providers()) != len(implemented) {
@@ -461,7 +687,7 @@ func TestCatalogueMatchesTheClientProtocols(t *testing.T) {
 }
 
 func TestNamesAndHelpers(t *testing.T) {
-	if got := Names(); got != "anthropic, gemini, openai" {
+	if got := Names(); got != "anthropic, gemini, ollama, openai" {
 		t.Errorf("Names() = %q", got)
 	}
 	if _, ok := Lookup("ANTHROPIC"); !ok {

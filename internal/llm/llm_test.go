@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -346,5 +347,146 @@ func TestDecodeJSONIntoStruct(t *testing.T) {
 	}
 	if len(dest.Plan) != 1 || dest.Plan[0].Command != "ls -la" {
 		t.Fatalf("decoded = %+v", dest)
+	}
+}
+
+// --- Ollama /api/tags --------------------------------------------------------
+
+func TestListOllamaModelsReturnsNames(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !strings.HasSuffix(r.URL.Path, "/api/tags") {
+			t.Errorf("expected /api/tags path, got %s", r.URL.Path)
+			http.NotFound(w, r)
+			return
+		}
+		if r.Header.Get("Authorization") != "Bearer secret" {
+			w.WriteHeader(http.StatusUnauthorized)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"models":[{"name":"llama3.3"},{"name":"qwen2.5"}]}`))
+	}))
+	defer srv.Close()
+
+	models, err := ListOllamaModels(context.Background(), srv.URL+"/v1", "secret")
+	if err != nil {
+		t.Fatalf("ListOllamaModels: %v", err)
+	}
+	want := []string{"llama3.3", "qwen2.5"}
+	if !slices.Equal(models, want) {
+		t.Errorf("models = %v, want %v", models, want)
+	}
+}
+
+func TestListOllamaModelsReturnsErrorOnBadStatus(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusForbidden)
+	}))
+	defer srv.Close()
+
+	_, err := ListOllamaModels(context.Background(), srv.URL+"/v1", "x")
+	if err == nil {
+		t.Fatal("expected an error for a non-OK response")
+	}
+}
+
+func TestListOllamaModelsReturnsErrorOnInvalidJSON(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte("not json"))
+	}))
+	defer srv.Close()
+
+	_, err := ListOllamaModels(context.Background(), srv.URL+"/v1", "x")
+	if err == nil {
+		t.Fatal("expected an error for invalid JSON")
+	}
+}
+
+func TestListOllamaModelsDeduplicatesAndSkipsEmpty(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"models":[{"name":"a"},{"name":""},{"name":"a"}]}`))
+	}))
+	defer srv.Close()
+
+	models, err := ListOllamaModels(context.Background(), srv.URL+"/v1", "")
+	if err != nil {
+		t.Fatalf("ListOllamaModels: %v", err)
+	}
+	if !slices.Equal(models, []string{"a"}) {
+		t.Errorf("models = %v", models)
+	}
+}
+
+func TestNewOllamaFillsDefaultBaseURL(t *testing.T) {
+	cfg := config.LLM{Provider: "ollama", APIKey: "k", BaseURL: "", MaxAttempts: 1}
+	c, err := New(cfg, nil)
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	if c.cfg.BaseURL != "https://ollama.com/v1" {
+		t.Errorf("BaseURL = %q", c.cfg.BaseURL)
+	}
+}
+
+func TestNewOllamaKeepsProvidedBaseURL(t *testing.T) {
+	cfg := config.LLM{Provider: "ollama", APIKey: "k", BaseURL: "http://localhost:11434/v1", MaxAttempts: 1}
+	c, err := New(cfg, nil)
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	if c.cfg.BaseURL != "http://localhost:11434/v1" {
+		t.Errorf("BaseURL = %q", c.cfg.BaseURL)
+	}
+}
+
+func TestListOllamaModelsWorksWithoutKey(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("Authorization") != "" {
+			t.Error("no Authorization header expected without key")
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"models":[{"name":"phi3"}]}`))
+	}))
+	defer srv.Close()
+
+	models, err := ListOllamaModels(context.Background(), srv.URL+"/v1", "")
+	if err != nil {
+		t.Fatalf("ListOllamaModels: %v", err)
+	}
+	if !slices.Equal(models, []string{"phi3"}) {
+		t.Errorf("models = %v", models)
+	}
+}
+
+func TestListOllamaModelsCancelsWithContext(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		select {
+		case <-r.Context().Done():
+		case <-time.After(5 * time.Second):
+		}
+	}))
+	defer srv.Close()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	_, err := ListOllamaModels(ctx, srv.URL+"/v1", "k")
+	if err == nil {
+		t.Fatal("expected context cancellation error")
+	}
+}
+
+func TestListOllamaModelsReturnsNetworkError(t *testing.T) {
+	_, err := ListOllamaModels(context.Background(), "http://127.0.0.1:1/v1", "k")
+	if err == nil {
+		t.Fatal("expected network error")
+	}
+}
+
+func TestListOllamaModelsReturnsRequestError(t *testing.T) {
+	_, err := ListOllamaModels(context.Background(), "://not-a-url", "k")
+	if err == nil {
+		t.Fatal("expected request construction error")
 	}
 }

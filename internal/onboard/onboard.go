@@ -11,6 +11,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/madkoding/starlight/internal/llm"
 )
 
 // ErrCancelled means the user stopped the wizard: nothing was written.
@@ -42,6 +44,16 @@ type Result struct {
 // did. It reads answers from in and writes the conversation to out, so the whole
 // flow can be tested without a terminal. Nothing is written if the user cancels:
 // the file appears only once every answer is known (see writeFileAtomic).
+// modelLister is the function the wizard uses to fetch models from hosts that
+// publish them. It is a package-level variable so tests can replace it with a
+// stub that does not hit the network.
+var modelLister = listOllamaModels
+
+// listOllamaModels is the real implementation.
+func listOllamaModels(ctx context.Context, baseURL, apiKey string) ([]string, error) {
+	return llm.ListOllamaModels(ctx, baseURL, apiKey)
+}
+
 func Run(ctx context.Context, in io.Reader, out io.Writer, configPath string, preset Answers, now time.Time) (Result, error) {
 	r := bufio.NewReader(in)
 	w := &session{in: r, out: out}
@@ -51,7 +63,29 @@ func Run(ctx context.Context, in io.Reader, out io.Writer, configPath string, pr
 		return Result{}, err
 	}
 
-	model, err := w.chooseModel(ctx, provider, preset.Model)
+	// Providers that expose their own catalogue (Ollama Cloud) need the key
+	// before we can ask for the model, and their base URL is fixed.
+	key := preset.APIKey
+	if provider.FetchModels {
+		if key == "" {
+			key, err = w.askAPIKey(ctx, provider)
+			if err != nil {
+				return Result{}, err
+			}
+		}
+	}
+
+	var baseURL string
+	var listURL string
+	if provider.FetchModels {
+		baseURL = provider.DefaultBaseURL
+		if preset.BaseURL != "" {
+			baseURL = preset.BaseURL
+		}
+		listURL = baseURL
+	}
+
+	model, err := w.chooseModel(ctx, provider, preset.Model, listURL, key)
 	if err != nil {
 		return Result{}, err
 	}
@@ -61,12 +95,13 @@ func Run(ctx context.Context, in io.Reader, out io.Writer, configPath string, pr
 		return Result{}, err
 	}
 
-	baseURL, err := w.chooseBaseURL(ctx, provider, preset.BaseURL)
-	if err != nil {
-		return Result{}, err
+	if !provider.FetchModels {
+		baseURL, err = w.chooseBaseURL(ctx, provider, preset.BaseURL)
+		if err != nil {
+			return Result{}, err
+		}
 	}
 
-	key := preset.APIKey
 	if key == "" {
 		key, err = w.askAPIKey(ctx, provider)
 		if err != nil {
@@ -198,29 +233,63 @@ func (s *session) chooseProvider(ctx context.Context, preset string) (Provider, 
 
 // chooseModel offers the models of the chosen provider and accepts any other name
 // typed by hand: the catalogue is a convenience, not a limitation, and models are
-// released faster than any list can follow.
-func (s *session) chooseModel(ctx context.Context, p Provider, preset string) (string, error) {
+// released faster than any list can follow. For providers that publish their own
+// catalogue (Ollama Cloud), the list is fetched live from /api/tags.
+func (s *session) chooseModel(ctx context.Context, p Provider, preset, listURL, apiKey string) (string, error) {
 	if preset != "" {
 		return preset, nil
 	}
 
+	models := p.Models
+	if p.FetchModels {
+		url := listURL
+		if url == "" {
+			url = p.DefaultBaseURL
+		}
+		fetched, err := modelLister(ctx, url, apiKey)
+		if err != nil {
+			s.say("  Could not fetch the model list from %s: %v", p.DefaultBaseURL, err)
+			s.say("  You can still type a model id by hand.")
+		} else if len(fetched) > 0 {
+			models = make([]Model, 0, len(fetched))
+			for _, id := range fetched {
+				models = append(models, Model{ID: id, Label: id})
+			}
+		}
+	}
+
 	s.say("")
 	s.say("Which model from %s?", p.Name)
-	for i, m := range p.Models {
-		s.say("  %d. %s (%s) — %s", i+1, m.Label, m.ID, m.Note)
+	if len(models) == 0 {
+		s.say("  (no models were offered; type the model id you want)")
+	}
+	for i, m := range models {
+		note := ""
+		if m.Note != "" {
+			note = " — " + m.Note
+		}
+		s.say("  %d. %s%s", i+1, m.Label, note)
 	}
 
 	for attempt := 0; attempt < 3; attempt++ {
-		answer, err := s.ask(ctx, "Model [1, or type any model id]:")
+		prompt := "Model [1, or type any model id]:"
+		if len(models) == 0 {
+			prompt = "Model id:"
+		}
+		answer, err := s.ask(ctx, prompt)
 		if err != nil {
 			return "", err
 		}
 		if answer == "" {
-			return p.Models[0].ID, nil
+			if len(models) == 0 {
+				s.say("  You must type a model id.")
+				continue
+			}
+			return models[0].ID, nil
 		}
 		if n, err := strconv.Atoi(answer); err == nil {
-			if n >= 1 && n <= len(p.Models) {
-				return p.Models[n-1].ID, nil
+			if n >= 1 && n <= len(models) {
+				return models[n-1].ID, nil
 			}
 			s.say("  There is no option %d.", n)
 			continue

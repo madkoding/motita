@@ -49,9 +49,14 @@ func New(cfg config.LLM, log *logx.Logger) (*Client, error) {
 		log = logx.Global()
 	}
 	switch strings.ToLower(cfg.Provider) {
-	case "openai", "anthropic", "gemini":
+	case "openai", "ollama", "anthropic", "gemini":
 	default:
 		return nil, fmt.Errorf("unsupported LLM provider: %q", cfg.Provider)
+	}
+	// Ollama Cloud uses the OpenAI protocol; if no base URL is set we point at the
+	// official endpoint so the user only has to provide the key.
+	if strings.ToLower(cfg.Provider) == "ollama" && cfg.BaseURL == "" {
+		cfg.BaseURL = "https://ollama.com/v1"
 	}
 	if cfg.APIKey == "" {
 		return nil, errors.New("the LLM key is missing")
@@ -201,6 +206,7 @@ func (c *Client) call(ctx context.Context, messages []Message) (string, error) {
 	case "gemini":
 		return c.callGemini(ctx, messages)
 	default:
+		// Both OpenAI-compatible hosts and Ollama Cloud speak /chat/completions.
 		return c.callOpenAI(ctx, messages)
 	}
 }
@@ -213,6 +219,7 @@ func (c *Client) callTools(ctx context.Context, messages []Message, tools []Tool
 	case "gemini":
 		return c.callGeminiTools(ctx, messages, tools)
 	default:
+		// Both OpenAI-compatible hosts and Ollama Cloud speak /chat/completions.
 		return c.callOpenAITools(ctx, messages, tools)
 	}
 }
@@ -222,6 +229,55 @@ func (c *Client) baseURL(defecto string) string {
 		return defecto
 	}
 	return strings.TrimRight(c.cfg.BaseURL, "/")
+}
+
+// ListOllamaModels queries the Ollama /api/tags endpoint and returns the model
+// names in the order the host reports them. It is exported so the first-run
+// wizard can present the live catalogue without hard-coding it.
+func ListOllamaModels(ctx context.Context, baseURL, apiKey string) ([]string, error) {
+	url := strings.TrimRight(baseURL, "/") + "/api/tags"
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return nil, err
+	}
+	if apiKey != "" {
+		req.Header.Set("Authorization", "Bearer "+apiKey)
+	}
+
+	client := http.Client{Timeout: 15 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("ollama returned %s", resp.Status)
+	}
+
+	var payload struct {
+		Models []struct {
+			Name string `json:"name"`
+		} `json:"models"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&payload); err != nil {
+		return nil, fmt.Errorf("could not decode ollama tags: %w", err)
+	}
+
+	names := make([]string, 0, len(payload.Models))
+	seen := make(map[string]struct{})
+	for _, m := range payload.Models {
+		name := strings.TrimSpace(m.Name)
+		if name == "" {
+			continue
+		}
+		if _, ok := seen[name]; ok {
+			continue
+		}
+		seen[name] = struct{}{}
+		names = append(names, name)
+	}
+	return names, nil
 }
 
 // --- OpenAI ----------------------------------------------------------------

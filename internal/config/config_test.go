@@ -343,3 +343,13 @@ func TestParseUser(t *testing.T) {
 		t.Error("a non-numeric user must fail")
 	}
 }
+
+func TestValidateAcceptsOllamaProvider(t *testing.T) {
+	cfg := Default()
+	cfg.LLM.Provider = "ollama"
+	cfg.LLM.APIKey = "x"
+	cfg.LLM.BaseURL = "https://ollama.com/v1"
+	if err := cfg.Validate(); err != nil {
+		t.Fatalf("ollama provider should be valid: %v", err)
+	}
+}
