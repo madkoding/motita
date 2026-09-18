@@ -310,14 +310,46 @@ func (op Options) run(fl flags) int {
 	// file is ALWAYS an error: reporting "valid configuration" after replacing
 	// the file with the default values would hide exactly the failure being
 	// looked for.
-	cfg, err := config.Load(fl.configPath)
-	if err != nil && (fl.validateConfig || fl.isolation) {
-		cfg, err = config.LoadWithoutKey(fl.configPath)
+	//
+	// When no explicit -config is given, look for starlight.yaml in the current
+	// directory. If that also does not exist, start from defaults so that the
+	// TUI or wizard can run without a file.
+	var cfg config.Config
+	var err error
+	switch {
+	case fl.configPath != "":
+		cfg, err = config.Load(fl.configPath)
+		if err != nil {
+			if (fl.validateConfig || fl.isolation) && strings.Contains(err.Error(), "LLM key is missing") {
+				cfg, err = config.LoadWithoutKey(fl.configPath)
+			}
+			if err != nil {
+				fmt.Fprintf(op.Err, "❌ %v\n", err)
+				return ConfigError
+			}
+		}
+	case func() bool { _, e := os.Stat("starlight.yaml"); return e == nil }():
+		cfg, err = config.Load("starlight.yaml")
+		if err != nil {
+			if (fl.validateConfig || fl.isolation) && strings.Contains(err.Error(), "LLM key is missing") {
+				cfg, err = config.LoadWithoutKey("starlight.yaml")
+			}
+			if err != nil {
+				fmt.Fprintf(op.Err, "❌ %v\n", err)
+				return ConfigError
+			}
+		}
+	default:
+		cfg, err = config.LoadWithoutKey("")
+		if err != nil {
+			fmt.Fprintf(op.Err, "❌ %v\n", err)
+			return ConfigError
+		}
 	}
-	if err != nil {
-		fmt.Fprintf(op.Err, "❌ %v\n", err)
-		return ConfigError
-	}
+
+	// No further key handling needed: all three branches either succeeded with
+	// the required key, succeeded with a deliberately missing key (validate/
+	// isolation), or returned an error.
 
 	log, err := op.newLogger(cfg.Agent)
 	if err != nil {
@@ -356,17 +388,22 @@ func (op Options) run(fl flags) int {
 	ctx, wait := op.contextWithShutdown(op.BaseCtx, cfg, log)
 	defer wait()
 
-	// Layer B: the reasoning engine.
-	engine, err := op.newEngine(cfg.LLM, log)
+	// Layer B: the reasoning engine. In TUI mode the engine may be nil (for
+	// example when there is no configuration file yet); the TUI creates it lazily
+	// when the user actually starts plan, task or model listing. For all non-TUI
+	// modes the engine is required up front.
+	var engine *llm.Client
+	if fl.tui || op.defaultToTUI(fl, cfg) {
+		return op.runTUI(ctx, fl, cfg, nil, box, log)
+	}
+
+	engine, err = op.newEngine(cfg.LLM, log)
 	if err != nil {
 		log.Error("could not prepare the reasoning engine", "error", err)
 		fmt.Fprintf(op.Err, "❌ %v\n", err)
 		return ConfigError
 	}
 
-	if fl.tui || (!fl.plan && !fl.validateConfig && !fl.isolation && op.defaultToTUI(fl, cfg)) {
-		return op.runTUI(ctx, fl, cfg, engine, box, log)
-	}
 	if fl.plan || fl.prompt != "" {
 		return op.runPlan(ctx, fl, cfg, engine, box, log)
 	}

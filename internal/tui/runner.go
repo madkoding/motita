@@ -70,12 +70,27 @@ func NewAppRunner(out, errs io.Writer, cfg config.Config, engine *llm.Client, bo
 	}
 }
 
+// engine returns the injected engine if it exists, otherwise it builds one from
+// the current configuration. This lets the TUI start with no engine (for
+// example when there is no configuration file yet) and still run plan/task when
+// the user chooses them.
+func (r *AppRunner) engine() (*llm.Client, error) {
+	if r.Engine != nil {
+		return r.Engine, nil
+	}
+	return llm.New(r.Cfg.LLM, r.Log)
+}
+
 // RunPlan executes the read-only planner and writes the final answer to Out.
 func (r *AppRunner) RunPlan(ctx context.Context, prompt string, trace func(string, ...any)) (string, error) {
+	engine, err := r.engine()
+	if err != nil {
+		return "", err
+	}
 	cfg := r.Cfg
 	cfg.Agent.ReadOnly = true
-	ag := r.newAgent(cfg, r.Log, r.Engine, r.Box, nil)
-	planner := plan.New(r.Engine, ag).
+	ag := r.newAgent(cfg, r.Log, engine, r.Box, nil)
+	planner := plan.New(engine, ag).
 		WithTimeout(planDefaultTimeout(r.Cfg)).
 		WithLoops(planDefaultLoops(r.Cfg)).
 		WithTrace(trace)
@@ -103,11 +118,15 @@ func planDefaultLoops(cfg config.Config) int {
 
 // RunTask runs the agent with a single text task.
 func (r *AppRunner) RunTask(ctx context.Context, task string) error {
+	engine, err := r.engine()
+	if err != nil {
+		return err
+	}
 	source, err := taskpkg.NewText(task, "tui")
 	if err != nil {
 		return err
 	}
-	ag := r.newAgent(r.Cfg, r.Log, r.Engine, r.Box, source)
+	ag := r.newAgent(r.Cfg, r.Log, engine, r.Box, source)
 	return ag.Run(ctx)
 }
 
