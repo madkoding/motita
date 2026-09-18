@@ -63,8 +63,20 @@ func Providers() []Provider {
 			DefaultBaseURL: "https://ollama.com/v1",
 			EnvKey:         "OLLAMA_API_KEY",
 			ConsoleURL:     "https://ollama.com/settings/keys",
-			Models:         []Model{}, // populated at runtime from /api/tags
-			FetchModels:    true,
+			// Populated at runtime from the live catalogue. The list below is what
+			// is offered when the API cannot be reached, so the wizard never leaves
+			// the user with an empty menu and no idea what to type.
+			Models: []Model{
+				{ID: "gpt-oss:120b", Label: "gpt-oss:120b", Note: "open weights, strong general model"},
+				{ID: "qwen3.5:397b", Label: "qwen3.5:397b", Note: "large open model"},
+				{ID: "deepseek-v4.1-flash", Label: "deepseek-v4.1-flash", Note: "fast and inexpensive"},
+				{ID: "glm-5.3", Label: "glm-5.3", Note: "strong reasoning"},
+				{ID: "kimi-k2.6", Label: "kimi-k2.6", Note: "long context"},
+				{ID: "gemma4:31b", Label: "gemma4:31b", Note: "small and quick"},
+				{ID: "nemotron-3-nano:30b", Label: "nemotron-3-nano:30b", Note: "lightweight"},
+				{ID: "gpt-oss:20b", Label: "gpt-oss:20b", Note: "lightest, good on an i386 box"},
+			},
+			FetchModels: true,
 		},
 		{
 			ID:             "anthropic",

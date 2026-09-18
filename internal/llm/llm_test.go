@@ -350,12 +350,16 @@ func TestDecodeJSONIntoStruct(t *testing.T) {
 	}
 }
 
-// --- Ollama /api/tags --------------------------------------------------------
+// --- model catalogue (/models and /api/tags) ---------------------------------
 
-func TestListOllamaModelsReturnsNames(t *testing.T) {
+// TestListModelsPrefersTheOpenAICompatibleEndpoint: with a base URL that already
+// ends in /v1, the catalogue lives at /v1/models. Asking /v1/api/tags is a 404
+// (measured against Ollama Cloud), so it must not be the first attempt.
+func TestListModelsPrefersTheOpenAICompatibleEndpoint(t *testing.T) {
+	var asked []string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if !strings.HasSuffix(r.URL.Path, "/api/tags") {
-			t.Errorf("expected /api/tags path, got %s", r.URL.Path)
+		asked = append(asked, r.URL.Path)
+		if r.URL.Path != "/v1/models" {
 			http.NotFound(w, r)
 			return
 		}
@@ -364,57 +368,172 @@ func TestListOllamaModelsReturnsNames(t *testing.T) {
 			return
 		}
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"models":[{"name":"llama3.3"},{"name":"qwen2.5"}]}`))
+		_, _ = w.Write([]byte(`{"object":"list","data":[{"id":"kimi-k2.6"},{"id":"glm-5.3"}]}`))
 	}))
 	defer srv.Close()
 
-	models, err := ListOllamaModels(context.Background(), srv.URL+"/v1", "secret")
+	models, err := ListModels(context.Background(), srv.URL+"/v1", "secret")
 	if err != nil {
-		t.Fatalf("ListOllamaModels: %v", err)
+		t.Fatalf("ListModels: %v", err)
 	}
-	want := []string{"llama3.3", "qwen2.5"}
-	if !slices.Equal(models, want) {
-		t.Errorf("models = %v, want %v", models, want)
+	if !slices.Equal(models, []string{"kimi-k2.6", "glm-5.3"}) {
+		t.Errorf("models = %v", models)
+	}
+	if len(asked) != 1 || asked[0] != "/v1/models" {
+		t.Errorf("the first request must be /v1/models, got %v", asked)
 	}
 }
 
-func TestListOllamaModelsReturnsErrorOnBadStatus(t *testing.T) {
+// TestListModelsFallsBackToOllamaNativeTags: a host that only implements the
+// native endpoint still works, and the /v1 prefix is stripped so the URL is
+// /api/tags and not /v1/api/tags.
+func TestListModelsFallsBackToOllamaNativeTags(t *testing.T) {
+	var asked []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		asked = append(asked, r.URL.Path)
+		if r.URL.Path != "/api/tags" {
+			http.NotFound(w, r)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"models":[{"name":"llama3.3"},{"name":"qwen3.5:397b"}]}`))
+	}))
+	defer srv.Close()
+
+	models, err := ListModels(context.Background(), srv.URL+"/v1", "k")
+	if err != nil {
+		t.Fatalf("ListModels: %v", err)
+	}
+	if !slices.Equal(models, []string{"llama3.3", "qwen3.5:397b"}) {
+		t.Errorf("models = %v", models)
+	}
+	if len(asked) != 2 || asked[1] != "/api/tags" {
+		t.Errorf("expected the native endpoint as the second attempt, got %v", asked)
+	}
+	for _, p := range asked {
+		if p == "/v1/api/tags" {
+			t.Error("/v1/api/tags is a 404 and must never be requested")
+		}
+	}
+}
+
+// TestListModelsWithoutV1SuffixUsesNativeTags: a base URL with no /v1 uses
+// /api/tags directly.
+func TestListModelsWithoutV1SuffixUsesNativeTags(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/tags" {
+			http.NotFound(w, r)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"models":[{"name":"gemma4:31b"}]}`))
+	}))
+	defer srv.Close()
+
+	models, err := ListModels(context.Background(), srv.URL, "k")
+	if err != nil {
+		t.Fatalf("ListModels: %v", err)
+	}
+	if !slices.Equal(models, []string{"gemma4:31b"}) {
+		t.Errorf("models = %v", models)
+	}
+}
+
+// TestListModelsSkipsEmptyNamesAndDuplicates: the two shapes can overlap, and a
+// blank entry must not reach the menu.
+func TestListModelsSkipsEmptyNamesAndDuplicates(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"data":[{"id":"a"},{"id":""},{"id":"a"}],"models":[{"name":"a"},{"name":"b"}]}`))
+	}))
+	defer srv.Close()
+
+	models, err := ListModels(context.Background(), srv.URL+"/v1", "")
+	if err != nil {
+		t.Fatalf("ListModels: %v", err)
+	}
+	if !slices.Equal(models, []string{"a", "b"}) {
+		t.Errorf("models = %v, want [a b]", models)
+	}
+}
+
+func TestListModelsReturnsErrorWhenNothingAnswers(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusForbidden)
 	}))
 	defer srv.Close()
 
-	_, err := ListOllamaModels(context.Background(), srv.URL+"/v1", "x")
+	_, err := ListModels(context.Background(), srv.URL+"/v1", "x")
 	if err == nil {
-		t.Fatal("expected an error for a non-OK response")
+		t.Fatal("expected an error when no endpoint lists models")
 	}
 }
 
-func TestListOllamaModelsReturnsErrorOnInvalidJSON(t *testing.T) {
+func TestListModelsReturnsErrorOnInvalidJSON(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte("not json"))
 	}))
 	defer srv.Close()
 
-	_, err := ListOllamaModels(context.Background(), srv.URL+"/v1", "x")
+	_, err := ListModels(context.Background(), srv.URL+"/v1", "x")
 	if err == nil {
 		t.Fatal("expected an error for invalid JSON")
 	}
 }
 
-func TestListOllamaModelsDeduplicatesAndSkipsEmpty(t *testing.T) {
+func TestListModelsRejectsAnEmptyBaseURL(t *testing.T) {
+	_, err := ListModels(context.Background(), "   ", "k")
+	if err == nil {
+		t.Fatal("an empty base URL must be reported")
+	}
+}
+
+func TestListModelsReturnsNetworkError(t *testing.T) {
+	_, err := ListModels(context.Background(), "http://127.0.0.1:1/v1", "k")
+	if err == nil {
+		t.Fatal("expected network error")
+	}
+}
+
+func TestListModelsReturnsRequestError(t *testing.T) {
+	_, err := ListModels(context.Background(), "://not-a-url", "k")
+	if err == nil {
+		t.Fatal("expected request construction error")
+	}
+}
+
+func TestListModelsCancelsWithContext(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"models":[{"name":"a"},{"name":""},{"name":"a"}]}`))
+		select {
+		case <-r.Context().Done():
+		case <-time.After(5 * time.Second):
+		}
 	}))
 	defer srv.Close()
 
-	models, err := ListOllamaModels(context.Background(), srv.URL+"/v1", "")
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	_, err := ListModels(ctx, srv.URL+"/v1", "k")
+	if err == nil {
+		t.Fatal("expected context cancellation error")
+	}
+}
+
+// TestListOllamaModelsIsTheSameCatalogue: the named entry point the wizard uses
+// is the catalogue query itself.
+func TestListOllamaModelsIsTheSameCatalogue(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"data":[{"id":"phi3"}]}`))
+	}))
+	defer srv.Close()
+
+	models, err := ListOllamaModels(context.Background(), srv.URL+"/v1", "k")
 	if err != nil {
 		t.Fatalf("ListOllamaModels: %v", err)
 	}
-	if !slices.Equal(models, []string{"a"}) {
+	if !slices.Equal(models, []string{"phi3"}) {
 		t.Errorf("models = %v", models)
 	}
 }
@@ -441,52 +560,20 @@ func TestNewOllamaKeepsProvidedBaseURL(t *testing.T) {
 	}
 }
 
-func TestListOllamaModelsWorksWithoutKey(t *testing.T) {
+// TestListModelsReportsAnEmptyCatalogue: both endpoints answering 200 with no
+// models is a different failure from a network error and must be named.
+func TestListModelsReportsAnEmptyCatalogue(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Header.Get("Authorization") != "" {
-			t.Error("no Authorization header expected without key")
-		}
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"models":[{"name":"phi3"}]}`))
+		_, _ = w.Write([]byte(`{"data":[],"models":[]}`))
 	}))
 	defer srv.Close()
 
-	models, err := ListOllamaModels(context.Background(), srv.URL+"/v1", "")
-	if err != nil {
-		t.Fatalf("ListOllamaModels: %v", err)
-	}
-	if !slices.Equal(models, []string{"phi3"}) {
-		t.Errorf("models = %v", models)
-	}
-}
-
-func TestListOllamaModelsCancelsWithContext(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		select {
-		case <-r.Context().Done():
-		case <-time.After(5 * time.Second):
-		}
-	}))
-	defer srv.Close()
-
-	ctx, cancel := context.WithCancel(context.Background())
-	cancel()
-	_, err := ListOllamaModels(ctx, srv.URL+"/v1", "k")
+	_, err := ListModels(context.Background(), srv.URL+"/v1", "k")
 	if err == nil {
-		t.Fatal("expected context cancellation error")
+		t.Fatal("an empty catalogue must be reported")
 	}
-}
-
-func TestListOllamaModelsReturnsNetworkError(t *testing.T) {
-	_, err := ListOllamaModels(context.Background(), "http://127.0.0.1:1/v1", "k")
-	if err == nil {
-		t.Fatal("expected network error")
-	}
-}
-
-func TestListOllamaModelsReturnsRequestError(t *testing.T) {
-	_, err := ListOllamaModels(context.Background(), "://not-a-url", "k")
-	if err == nil {
-		t.Fatal("expected request construction error")
+	if !strings.Contains(err.Error(), "no models were listed") {
+		t.Errorf("err = %v, want it to name the empty catalogue", err)
 	}
 }

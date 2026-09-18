@@ -1845,6 +1845,68 @@ func TestRunTUINilHook(t *testing.T) {
 	}
 }
 
+// TestTUIRealRunnerPlanModeDoesNotPanic: the TUI is handed the production runner
+// built inside runTUI. A struct literal there left the agent factory nil, so
+// choosing Plan mode from the real menu crashed with a nil pointer dereference
+// that no test caught, because every test injected the RunTUI hook instead of
+// exercising the real one. This walks the real path: menu -> plan -> answer.
+func TestTUIRealRunnerPlanModeDoesNotPanic(t *testing.T) {
+	silence(t)
+	t.Setenv("STARLIGHT_LLM_API_KEY", "test")
+	srv := planServer(t, []string{"the answer"})
+	defer srv.Close()
+
+	var out bytes.Buffer
+	code := Run(Options{
+		// p selects plan mode, then the prompt, then Enter to leave the answer
+		// screen, then q to quit the menu.
+		Args:  []string{"-config", planConfig(t, srv), "-tui"},
+		Out:   &out,
+		Err:   &out,
+		Stdin: strings.NewReader("p\nwhat is running?\n\nq\n"),
+	})
+	if code != 0 {
+		t.Fatalf("code = %d, out = %q", code, out.String())
+	}
+	if !strings.Contains(out.String(), "the answer") {
+		t.Errorf("the plan answer must be shown, out = %q", out.String())
+	}
+	if got := strings.Count(out.String(), "the answer"); got != 1 {
+		t.Errorf("the answer must appear exactly once, found %d times in %q", got, out.String())
+	}
+	if strings.Contains(out.String(), "panic") {
+		t.Errorf("the real runner must not panic, out = %q", out.String())
+	}
+}
+
+// TestTUIRealRunnerModelsModeLists: choosing Models from the real menu must walk
+// the production runner too, without panicking on a nil dependency.
+func TestTUIRealRunnerModelsModeLists(t *testing.T) {
+	silence(t)
+	t.Setenv("STARLIGHT_LLM_API_KEY", "test")
+	// A catalogue that answers for any path, so the real lister succeeds.
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"data":[{"id":"model-from-catalogue"}]}`))
+	}))
+	defer srv.Close()
+
+	path := planConfig(t, srv)
+	var out bytes.Buffer
+	code := Run(Options{
+		Args:  []string{"-config", path, "-tui"},
+		Out:   &out,
+		Err:   &out,
+		Stdin: strings.NewReader("m\n\nq\n"),
+	})
+	if code != 0 {
+		t.Fatalf("code = %d, out = %q", code, out.String())
+	}
+	if !strings.Contains(out.String(), "base URL") {
+		t.Errorf("the models screen must show the active setup, out = %q", out.String())
+	}
+}
+
 func TestDefaultNoConfigButTaskUsesTaskMode(t *testing.T) {
 	silence(t)
 	t.Setenv("STARLIGHT_LLM_API_KEY", "test")

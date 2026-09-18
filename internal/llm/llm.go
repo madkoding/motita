@@ -231,11 +231,51 @@ func (c *Client) baseURL(defecto string) string {
 	return strings.TrimRight(c.cfg.BaseURL, "/")
 }
 
-// ListOllamaModels queries the Ollama /api/tags endpoint and returns the model
-// names in the order the host reports them. It is exported so the first-run
-// wizard can present the live catalogue without hard-coding it.
-func ListOllamaModels(ctx context.Context, baseURL, apiKey string) ([]string, error) {
-	url := strings.TrimRight(baseURL, "/") + "/api/tags"
+// ListModels asks the provider for the catalogue it publishes and returns the
+// model names in the order the host reports them.
+//
+// Two endpoint families are tried because the base URL may be either spelling:
+//
+//   - OpenAI-compatible: <base>/models  (works for OpenAI, Ollama Cloud with
+//     base https://ollama.com/v1, Groq, OpenRouter, and similar hosts)
+//   - Ollama native: <base without /v1>/api/tags
+//
+// The first one that answers with a usable list wins. Exported so the first-run
+// wizard can present the live catalogue instead of a hard-coded one.
+func ListModels(ctx context.Context, baseURL, apiKey string) ([]string, error) {
+	base := strings.TrimRight(strings.TrimSpace(baseURL), "/")
+	if base == "" {
+		return nil, errors.New("no API base URL to list models from")
+	}
+
+	// Build the candidate URLs in order. A base URL that ends in /v1 must not
+	// produce /v1/api/tags: that is a 404 (measured against Ollama Cloud).
+	candidates := []string{base + "/models"}
+	if root, ok := strings.CutSuffix(base, "/v1"); ok {
+		candidates = append(candidates, root+"/api/tags")
+	} else {
+		candidates = append(candidates, base+"/api/tags")
+	}
+
+	var firstErr error
+	for _, url := range candidates {
+		names, err := fetchModelList(ctx, url, apiKey)
+		if err == nil && len(names) > 0 {
+			return names, nil
+		}
+		if err != nil && firstErr == nil {
+			firstErr = err
+		}
+	}
+	if firstErr != nil {
+		return nil, firstErr
+	}
+	return nil, fmt.Errorf("no models were listed by %s", base)
+}
+
+// fetchModelList performs one request and decodes both response shapes the two
+// endpoint families use: {"data":[{"id":...}]} and {"models":[{"name":...}]}.
+func fetchModelList(ctx context.Context, url, apiKey string) ([]string, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return nil, err
@@ -252,32 +292,49 @@ func ListOllamaModels(ctx context.Context, baseURL, apiKey string) ([]string, er
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("ollama returned %s", resp.Status)
+		return nil, fmt.Errorf("%s returned %s", url, resp.Status)
 	}
 
 	var payload struct {
+		// OpenAI-compatible spelling.
+		Data []struct {
+			ID string `json:"id"`
+		} `json:"data"`
+		// Ollama native spelling.
 		Models []struct {
 			Name string `json:"name"`
 		} `json:"models"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&payload); err != nil {
-		return nil, fmt.Errorf("could not decode ollama tags: %w", err)
+		return nil, fmt.Errorf("could not decode the model list from %s: %w", url, err)
 	}
 
-	names := make([]string, 0, len(payload.Models))
+	names := make([]string, 0, len(payload.Data)+len(payload.Models))
 	seen := make(map[string]struct{})
-	for _, m := range payload.Models {
-		name := strings.TrimSpace(m.Name)
+	add := func(name string) {
+		name = strings.TrimSpace(name)
 		if name == "" {
-			continue
+			return
 		}
 		if _, ok := seen[name]; ok {
-			continue
+			return
 		}
 		seen[name] = struct{}{}
 		names = append(names, name)
 	}
+	for _, m := range payload.Data {
+		add(m.ID)
+	}
+	for _, m := range payload.Models {
+		add(m.Name)
+	}
 	return names, nil
+}
+
+// ListOllamaModels is kept as a named entry point for the Ollama provider; it is
+// the same catalogue query.
+func ListOllamaModels(ctx context.Context, baseURL, apiKey string) ([]string, error) {
+	return ListModels(ctx, baseURL, apiKey)
 }
 
 // --- OpenAI ----------------------------------------------------------------

@@ -337,7 +337,10 @@ func (c *Config) validate(requireKey bool) error {
 		return fmt.Errorf("llm.model cannot be empty")
 	}
 	if requireKey && c.LLM.APIKey == "" {
-		return fmt.Errorf("the LLM key is missing: set llm.api_key in the YAML or STARLIGHT_LLM_API_KEY (or OPENAI_API_KEY)")
+		// Name the variable that really works for the configured provider: for
+		// Ollama Cloud that is OLLAMA_API_KEY, and telling the user to export
+		// OPENAI_API_KEY would send them to a name the loader ignores.
+		return fmt.Errorf("the LLM key is missing: set llm.api_key in the YAML or %s", ProviderKeyVariable(c.LLM.Provider))
 	}
 	if c.LLM.MaxAttempts < 1 {
 		return fmt.Errorf("llm.max_attempts must be >= 1")

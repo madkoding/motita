@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"strings"
 	"testing"
@@ -14,13 +15,16 @@ type fakeRunner struct {
 	planCalled   bool
 	taskCalled   bool
 	configCalled bool
+	modelsCalled bool
 	planAnswer   string
 	planErr      error
 	taskErr      error
 	configErr    error
+	modelsErr    error
 	lastPrompt   string
 	lastTask     string
 	lastTrace    []string
+	out          io.Writer
 }
 
 func (f *fakeRunner) RunPlan(ctx context.Context, prompt string, trace func(string, ...any)) (string, error) {
@@ -31,6 +35,10 @@ func (f *fakeRunner) RunPlan(ctx context.Context, prompt string, trace func(stri
 	}
 	if f.planErr != nil {
 		return "", f.planErr
+	}
+	// The real runner writes the answer to Out; the TUI does not print it again.
+	if f.planAnswer != "" && f.out != nil {
+		fmt.Fprintln(f.out, f.planAnswer)
 	}
 	return f.planAnswer, nil
 }
@@ -46,10 +54,21 @@ func (f *fakeRunner) RunConfig(ctx context.Context) error {
 	return f.configErr
 }
 
+func (f *fakeRunner) RunModels(ctx context.Context) error {
+	f.modelsCalled = true
+	return f.modelsErr
+}
+
 func newFakeTUI(inputs string, runner Runner) *TUI {
+	out := &bytes.Buffer{}
+	// A fakeRunner needs somewhere to write the plan answer, the way the real one
+	// writes to the TUI's output.
+	if fr, ok := runner.(*fakeRunner); ok {
+		fr.out = out
+	}
 	return &TUI{
 		In:      strings.NewReader(inputs),
-		Out:     &bytes.Buffer{},
+		Out:     out,
 		Err:     &bytes.Buffer{},
 		Runner:  runner,
 		NoColor: true,
@@ -85,7 +104,11 @@ func TestRunSelectPlanMode(t *testing.T) {
 		t.Errorf("prompt = %q", runner.lastPrompt)
 	}
 	if !strings.Contains(outputOf(tui), "the plan") {
-		t.Errorf("answer not printed: %q", outputOf(tui))
+		t.Errorf("the runner's answer must reach the screen: %q", outputOf(tui))
+	}
+	// The TUI must not print it a second time.
+	if strings.Count(outputOf(tui), "the plan") != 1 {
+		t.Errorf("the answer appears more than once: %q", outputOf(tui))
 	}
 }
 
@@ -192,10 +215,37 @@ func TestRunConfigError(t *testing.T) {
 }
 
 func TestRunSelectHelp(t *testing.T) {
-	tui := newFakeTUI("4\n\nq\n", &fakeRunner{})
+	tui := newFakeTUI("5\n\nq\n", &fakeRunner{})
 	tui.Run(context.Background())
 	if !strings.Contains(outputOf(tui), "Starlight interactive menu") {
 		t.Errorf("help not printed: %q", outputOf(tui))
+	}
+}
+
+func TestRunSelectModels(t *testing.T) {
+	runner := &fakeRunner{}
+	tui := newFakeTUI("4\n\nq\n", runner)
+	tui.Run(context.Background())
+	if !runner.modelsCalled {
+		t.Fatal("RunModels was not called")
+	}
+}
+
+func TestRunModelsByLetter(t *testing.T) {
+	runner := &fakeRunner{}
+	tui := newFakeTUI("m\n\nq\n", runner)
+	tui.Run(context.Background())
+	if !runner.modelsCalled {
+		t.Fatal("RunModels was not called")
+	}
+}
+
+func TestRunModelsError(t *testing.T) {
+	runner := &fakeRunner{modelsErr: errors.New("catalogue unavailable")}
+	tui := newFakeTUI("m\n\n", runner)
+	tui.Run(context.Background())
+	if !strings.Contains(errOf(tui), "catalogue unavailable") {
+		t.Errorf("error not reported: %q", errOf(tui))
 	}
 }
 
@@ -208,7 +258,7 @@ func TestRunHelpByLetter(t *testing.T) {
 }
 
 func TestRunSelectExit(t *testing.T) {
-	tui := newFakeTUI("5\n", &fakeRunner{})
+	tui := newFakeTUI("6\n", &fakeRunner{})
 	if code := tui.Run(context.Background()); code != 0 {
 		t.Fatalf("code = %d", code)
 	}
@@ -265,7 +315,7 @@ func TestColorBackground(t *testing.T) {
 }
 
 func TestMenuOptionStrings(t *testing.T) {
-	want := []string{"Plan mode", "Task mode", "Configuration", "Help", "Exit"}
+	want := []string{"Plan mode", "Task mode", "Configuration", "Models & providers", "Help", "Exit"}
 	for i, opt := range menuOptions {
 		if opt.String() != want[i] {
 			t.Errorf("option %d = %q, expected %q", i, opt.String(), want[i])
@@ -274,7 +324,7 @@ func TestMenuOptionStrings(t *testing.T) {
 }
 
 func TestMenuOptionKeys(t *testing.T) {
-	want := []string{"p", "t", "c", "h", "e"}
+	want := []string{"p", "t", "c", "m", "h", "e"}
 	for i, opt := range menuOptions {
 		if opt.Key() != want[i] {
 			t.Errorf("key %d = %q, expected %q", i, opt.Key(), want[i])

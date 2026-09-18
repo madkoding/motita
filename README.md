@@ -22,10 +22,11 @@ TASK ──► [Layer B] analyse ─► plan ─► propose an action
 
 Running the binary with no arguments starts an **interactive text user
 interface (TUI)** that lets you choose between read-only plan mode, task mode,
-the configuration wizard and help. Task mode and plan mode are both driven by
-the same 3-layer agent.
+the configuration wizard, a screen that shows the provider and the models it
+publishes, and help. Task mode and plan mode are both driven by the same 3-layer
+agent.
 
-![Main menu](docs/screenshots/tui-menu.png)
+![Main menu](docs/screenshots/menu.png)
 
 ---
 
@@ -215,15 +216,23 @@ This wizard writes a working configuration in ./starlight.yaml.
 Nothing is written until every answer is in: press q to cancel at any point.
 Which provider will run the reasoning?
   1. OpenAI-compatible (openai)
-  2. Anthropic (anthropic)
-  3. Google Gemini (gemini)
+  2. Ollama Cloud (ollama)
+  3. Anthropic (anthropic)
+  4. Google Gemini (gemini)
 
-Provider [1]: 1
+Provider [1]: 2
 
-Which model from OpenAI-compatible?
-  1. GPT-4o mini (gpt-4o-mini) — cheap and fast, the right default for OpenAI
+The key is read from OLLAMA_API_KEY, or from STARLIGHT_LLM_API_KEY.
+You can get one at https://ollama.com/settings/keys
+
+Paste the key, or press Enter to set it later: 
+
+Which model from Ollama Cloud?
+  1. nemotron-3-ultra
+  2. gpt-oss:20b
   ...
-Model [1, or type any model id]: 1
+
+Model [1, or type any model id]: 7
 
 What decides that a task is really done?
   1. A command that must succeed (for example: make test)
@@ -232,31 +241,48 @@ What decides that a task is really done?
 Check [1]: 1
 Command to run as the check [make]: make test
 
-Which API endpoint should the client talk to?
-Examples of OpenAI-compatible URLs:
-  https://api.openai.com/v1
-  https://ollama.com/v1
-  https://api.groq.com/openai/v1
-  https://openrouter.ai/api/v1
-API base URL [https://api.openai.com/v1]: https://ollama.com/v1
-
-Paste the key, or press Enter to set it later: sk-...
 ✅ Written ./starlight.yaml
+   provider: Ollama Cloud (ollama)
+   model:    deepseek-v4.1-flash
 ✅ Written ./starlight.env
    permissions 0600, keep it out of the repository
 ```
 
-The provider called `openai` is actually **OpenAI-compatible**: it speaks the
-OpenAI `/chat/completions` protocol, so you can point it at OpenAI itself,
-Ollama Cloud, Groq, OpenRouter, DeepSeek, or any other host that implements the
-same endpoints. Set the API base URL and model in the wizard, or directly in the
-configuration:
+### Ollama Cloud
+
+Ollama Cloud is a provider of its own in the wizard. It always talks to
+`https://ollama.com/v1`, asks **only for the key**, and then reads the live
+catalogue from the API so you pick a model from what your account can actually
+run — no URL to remember and no model list to keep up to date by hand:
+
+```yaml
+llm:
+  provider: ollama
+  base_url: https://ollama.com/v1
+  model:    deepseek-v4.1-flash
+```
+
+The key is read from `OLLAMA_API_KEY` (the name Ollama itself documents) or from
+`STARLIGHT_LLM_API_KEY`, in that order of preference. If the catalogue cannot be
+reached, the wizard falls back to a built-in list and says so, so you are never
+left with an empty menu.
+
+The interactive menu has a **Models & providers** entry that shows the active
+provider, the model, whether a key is present (never the key itself) and the
+models the endpoint publishes, with the one in use marked:
+
+![Models and providers](docs/screenshots/models.png)
+
+The provider called `openai` is really **OpenAI-compatible**: it speaks the
+OpenAI `/chat/completions` protocol, so you can point it at OpenAI itself, Groq,
+OpenRouter, DeepSeek, a self-hosted Ollama, or any other host that implements the
+same endpoints. The wizard asks you for the base URL when you choose it:
 
 ```yaml
 llm:
   provider: openai
-  base_url: https://ollama.com/v1
-  model:    llama3.3
+  base_url: https://api.openai.com/v1     # or https://api.groq.com/openai/v1, ...
+  model:    gpt-4o-mini
 ```
 
 Then:
@@ -397,7 +423,7 @@ starlight -config my.yaml -isolation
 starlight -p "list the .go files and suggest a refactor"
 ```
 
-![Plan mode](docs/screenshots/plan-mode.png)
+![Plan mode](docs/screenshots/plan.png)
 
 Plan mode is **structurally read-only**: the agent calls tools (`read_file`,
 `execute_command`) through a path that never invokes a shell, so redirections,

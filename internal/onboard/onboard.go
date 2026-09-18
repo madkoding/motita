@@ -247,10 +247,15 @@ func (s *session) chooseModel(ctx context.Context, p Provider, preset, listURL, 
 			url = p.DefaultBaseURL
 		}
 		fetched, err := modelLister(ctx, url, apiKey)
-		if err != nil {
-			s.say("  Could not fetch the model list from %s: %v", p.DefaultBaseURL, err)
-			s.say("  You can still type a model id by hand.")
-		} else if len(fetched) > 0 {
+		switch {
+		case err != nil:
+			// Never leave the user staring at an empty menu: fall back to the
+			// known catalogue and say plainly that it is a fallback.
+			s.say("  Could not read the live catalogue from %s: %v", url, err)
+			s.say("  Showing the built-in list instead; any model id can be typed by hand.")
+		case len(fetched) == 0:
+			s.say("  The catalogue at %s is empty; showing the built-in list.", url)
+		default:
 			models = make([]Model, 0, len(fetched))
 			for _, id := range fetched {
 				models = append(models, Model{ID: id, Label: id})
@@ -342,7 +347,10 @@ func (s *session) chooseAnchor(ctx context.Context, preset string, presetArgs []
 
 func (s *session) askAPIKey(ctx context.Context, p Provider) (string, error) {
 	s.say("")
-	s.say("The key is read from %s, or from OPENAI_API_KEY.", p.EnvKey)
+	// Name only the variables that really work for this provider: telling an
+	// Ollama user to export OPENAI_API_KEY would send them to a variable the
+	// loader does not consult for it.
+	s.say("The key is read from %s, or from STARLIGHT_LLM_API_KEY.", p.EnvKey)
 	s.say("You can get one at %s", p.ConsoleURL)
 	key, err := s.ask(ctx, "Paste the key, or press Enter to set it later:")
 	if err != nil {

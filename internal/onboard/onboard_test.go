@@ -382,21 +382,25 @@ func TestOllamaWizardAcceptsTypedModelWhenFetchFails(t *testing.T) {
 	}
 }
 
-// TestOllamaWizardRequiresTypedModelWhenListIsEmpty: if /api/tags succeeds but
-// returns no models, the wizard refuses a blank answer and requires a model id.
-func TestOllamaWizardRequiresTypedModelWhenListIsEmpty(t *testing.T) {
+// TestOllamaWizardFallsBackToBuiltInListWhenEmpty: an empty live catalogue must
+// not leave the user with nothing to choose: the built-in list is offered.
+func TestOllamaWizardFallsBackToBuiltInListWhenEmpty(t *testing.T) {
 	dir := t.TempDir()
 	old := modelLister
 	modelLister = func(_ context.Context, _, _ string) ([]string, error) {
 		return []string{}, nil
 	}
 	defer func() { modelLister = old }()
-	_, res, err := run(context.Background(), t, dir, []string{"ollama", "my-key", "", "my-model", "2", ""}, Answers{})
+	out, res, err := run(context.Background(), t, dir, []string{"ollama", "my-key", "", "2", ""}, Answers{})
 	if err != nil {
 		t.Fatalf("Run: %v", err)
 	}
-	if res.Model != "my-model" {
-		t.Errorf("model = %q, want my-model", res.Model)
+	if !strings.Contains(out, "built-in list") {
+		t.Errorf("the fallback must be announced:\n%s", out)
+	}
+	p, _ := Lookup("ollama")
+	if res.Model != p.Models[0].ID {
+		t.Errorf("model = %q, want the first built-in model %q", res.Model, p.Models[0].ID)
 	}
 }
 
@@ -479,6 +483,78 @@ func TestOllamaWizardRequiresKeyBeforeModel(t *testing.T) {
 	modelIdx := strings.Index(out, "Which model")
 	if keyIdx == -1 || modelIdx == -1 || keyIdx > modelIdx {
 		t.Errorf("the key prompt must come before the model prompt:\n%s", out)
+	}
+}
+
+// TestChooseModelWithAProviderThatHasNoCatalogue: a provider whose catalogue is
+// empty (and which publishes none) must still let the user type a model id, and
+// must refuse a blank answer instead of accepting nothing.
+func TestChooseModelWithAProviderThatHasNoCatalogue(t *testing.T) {
+	empty := Provider{ID: "custom", Name: "Custom"}
+
+	// A blank first answer is refused, then the typed id is accepted.
+	s := &session{in: bufio.NewReader(strings.NewReader("\nmy-model\n")), out: io.Discard}
+	model, err := s.chooseModel(context.Background(), empty, "", "", "k")
+	if err != nil {
+		t.Fatalf("chooseModel: %v", err)
+	}
+	if model != "my-model" {
+		t.Errorf("model = %q, want my-model", model)
+	}
+
+	// The prompt names a plain model id when there is no menu to pick from.
+	var out bytes.Buffer
+	s2 := &session{in: bufio.NewReader(strings.NewReader("typed\n")), out: &out}
+	if _, err := s2.chooseModel(context.Background(), empty, "", "", "k"); err != nil {
+		t.Fatalf("chooseModel: %v", err)
+	}
+	if !strings.Contains(out.String(), "no models were offered") {
+		t.Errorf("the empty catalogue must be explained:\n%s", out.String())
+	}
+	if !strings.Contains(out.String(), "Model id:") {
+		t.Errorf("with no menu the prompt must ask for an id:\n%s", out.String())
+	}
+}
+
+// TestKeyVariableForFallsBackForAnUnknownProvider: an id that is not in the
+// catalogue still produces a usable variable name.
+func TestKeyVariableForFallsBackForAnUnknownProvider(t *testing.T) {
+	if got := keyVariableFor("nope"); got != "STARLIGHT_LLM_API_KEY" {
+		t.Errorf("keyVariableFor(unknown) = %q", got)
+	}
+	if got := keyVariableFor("ollama"); got != "OLLAMA_API_KEY" {
+		t.Errorf("keyVariableFor(ollama) = %q", got)
+	}
+}
+
+// TestGeneratedHeaderNamesTheProviderVariable: the file tells the user which
+// variable to export, and for Ollama that is OLLAMA_API_KEY, not OPENAI_API_KEY.
+func TestGeneratedHeaderNamesTheProviderVariable(t *testing.T) {
+	for _, tc := range []struct {
+		provider string
+		want     string
+		answers  []string
+	}{
+		// ollama: provider, key, model, anchor
+		{"ollama", "OLLAMA_API_KEY", []string{"ollama", "k", "", "2"}},
+		// openai: provider, model, anchor, base URL, key
+		{"openai", "STARLIGHT_LLM_API_KEY", []string{"openai", "", "2", "", "k"}},
+	} {
+		dir := t.TempDir()
+		if tc.provider == "ollama" {
+			stubOllamaModels(t, []string{"a"})
+		}
+		_, res, err := run(context.Background(), t, dir, tc.answers, Answers{})
+		if err != nil {
+			t.Fatalf("%s: Run: %v", tc.provider, err)
+		}
+		cfg, err := os.ReadFile(res.ConfigPath)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !strings.Contains(string(cfg), tc.want) {
+			t.Errorf("%s: the header must mention %s:\n%s", tc.provider, tc.want, cfg)
+		}
 	}
 }
 

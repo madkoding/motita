@@ -80,6 +80,13 @@ func ApplyEnvironment(c *Config) error {
 	c.LLM.Provider = readText("STARLIGHT_LLM_PROVIDER", c.LLM.Provider)
 	c.LLM.Model = readText("STARLIGHT_LLM_MODEL", c.LLM.Model)
 	c.LLM.APIKey = readText("STARLIGHT_LLM_API_KEY", c.LLM.APIKey)
+	// The provider's own variable is honoured too, so "just paste the key" works
+	// the way each service documents it (OLLAMA_API_KEY for Ollama Cloud). It is
+	// consulted only when the documented generic variable is absent, so the
+	// documented name wins when both are present.
+	if _, generic := os.LookupEnv("STARLIGHT_LLM_API_KEY"); !generic {
+		c.LLM.APIKey = readText(ProviderKeyVariable(c.LLM.Provider), c.LLM.APIKey)
+	}
 	c.LLM.BaseURL = readText("STARLIGHT_LLM_BASE_URL", c.LLM.BaseURL)
 	if c.LLM.MaxTokens, err = readInteger("STARLIGHT_LLM_MAX_TOKENS", c.LLM.MaxTokens); err != nil {
 		return err
@@ -250,4 +257,20 @@ func readBool(key string, current bool) (bool, error) {
 	default:
 		return current, fmt.Errorf("%s: %q is not a boolean (use true/false)", key, v)
 	}
+}
+
+// providerKeyAliases maps a provider id to the environment variable its own
+// documentation uses. Keeping the table here means the wizard, the loader and the
+// tests all agree on one name per provider.
+var providerKeyAliases = map[string]string{
+	"ollama": "OLLAMA_API_KEY",
+}
+
+// ProviderKeyVariable returns the provider-specific variable for a key, or the
+// generic one when the provider has no alias of its own.
+func ProviderKeyVariable(provider string) string {
+	if v, ok := providerKeyAliases[strings.ToLower(strings.TrimSpace(provider))]; ok {
+		return v
+	}
+	return "STARLIGHT_LLM_API_KEY"
 }

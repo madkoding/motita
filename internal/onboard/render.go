@@ -26,9 +26,9 @@ type configValues struct {
 func renderConfig(v configValues) []byte {
 	var b strings.Builder
 
-	b.WriteString("# starlight-agent configuration\n")
+	b.WriteString("# starlight configuration\n")
 	b.WriteString("#\n")
-	b.WriteString("# Written by `starlight-agent -init`")
+	b.WriteString("# Written by `starlight -init`")
 	if !v.generated.IsZero() {
 		b.WriteString(" on " + v.generated.UTC().Format("2006-01-02"))
 	}
@@ -36,7 +36,7 @@ func renderConfig(v configValues) []byte {
 	b.WriteString("#\n")
 	b.WriteString("# Every value here can be overridden with an environment variable named\n")
 	b.WriteString("# STARLIGHT_<BLOCK>_<FIELD> (see README.md), and the secret is NOT stored\n")
-	b.WriteString("# in this file: export STARLIGHT_LLM_API_KEY (or OPENAI_API_KEY) instead.\n")
+	fmt.Fprintf(&b, "# in this file: export %s instead.\n", keyVariableFor(v.provider))
 	b.WriteString("\n")
 
 	b.WriteString("task_source:\n")
@@ -84,6 +84,16 @@ func renderConfig(v configValues) []byte {
 	b.WriteString("  log_console: true\n")
 
 	return []byte(b.String())
+}
+
+// keyVariableFor returns the variable the generated header should tell the user
+// about: the provider's own one when the catalogue defines it (OLLAMA_API_KEY for
+// Ollama Cloud), and the generic name otherwise.
+func keyVariableFor(providerID string) string {
+	if p, ok := Lookup(providerID); ok && p.EnvKey != "" {
+		return p.EnvKey
+	}
+	return "STARLIGHT_LLM_API_KEY"
 }
 
 // yamlScalar quotes a value only when it needs it, so the generated file stays

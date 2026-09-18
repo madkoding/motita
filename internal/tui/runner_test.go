@@ -3,6 +3,7 @@ package tui
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -107,6 +108,153 @@ func TestAppRunnerRunConfig(t *testing.T) {
 			t.Errorf("configuration not written: %v", err)
 		}
 	})
+}
+
+// TestAppRunnerRunModelsListsAndMarksTheConfiguredOne: the menu must show the
+// catalogue and point at the model in use.
+func TestAppRunnerRunModelsListsAndMarksTheConfiguredOne(t *testing.T) {
+	var out bytes.Buffer
+	cfg := config.Default()
+	cfg.LLM.Provider = "ollama"
+	cfg.LLM.BaseURL = "https://ollama.com/v1"
+	cfg.LLM.Model = "glm-5.3"
+	cfg.LLM.APIKey = "secret-key-value"
+
+	r := NewAppRunner(&out, &bytes.Buffer{}, cfg, &llm.Client{}, &sandbox.Sandbox{}, logx.Global())
+	r.listModels = func(_ context.Context, baseURL, apiKey string) ([]string, error) {
+		if baseURL != "https://ollama.com/v1" {
+			t.Errorf("baseURL = %q", baseURL)
+		}
+		if apiKey != "secret-key-value" {
+			t.Errorf("the key must be passed to the lister")
+		}
+		return []string{"glm-5.3", "gpt-oss:120b"}, nil
+	}
+	if err := r.RunModels(context.Background()); err != nil {
+		t.Fatalf("RunModels: %v", err)
+	}
+	got := out.String()
+	if !strings.Contains(got, "glm-5.3") || !strings.Contains(got, "gpt-oss:120b") {
+		t.Errorf("the catalogue must be printed:\n%s", got)
+	}
+	if !strings.Contains(got, "* glm-5.3") {
+		t.Errorf("the configured model must be marked:\n%s", got)
+	}
+}
+
+// TestAppRunnerRunModelsNeverPrintsTheKey: the screen has to be safe to share.
+func TestAppRunnerRunModelsNeverPrintsTheKey(t *testing.T) {
+	var out bytes.Buffer
+	cfg := config.Default()
+	cfg.LLM.APIKey = "super-secret-value"
+
+	r := NewAppRunner(&out, &bytes.Buffer{}, cfg, &llm.Client{}, &sandbox.Sandbox{}, logx.Global())
+	r.listModels = func(context.Context, string, string) ([]string, error) { return []string{"m"}, nil }
+	if err := r.RunModels(context.Background()); err != nil {
+		t.Fatalf("RunModels: %v", err)
+	}
+	if strings.Contains(out.String(), "super-secret-value") {
+		t.Error("the API key must never be printed")
+	}
+	if !strings.Contains(out.String(), "api key  : present") {
+		t.Errorf("the presence of the key must be reported:\n%s", out.String())
+	}
+}
+
+// TestAppRunnerRunModelsReportsAMissingKeyWithTheRightVariable: the message has
+// to name the variable that actually works for the provider.
+func TestAppRunnerRunModelsReportsAMissingKeyWithTheRightVariable(t *testing.T) {
+	var out bytes.Buffer
+	cfg := config.Default()
+	cfg.LLM.Provider = "ollama"
+	cfg.LLM.APIKey = ""
+
+	r := NewAppRunner(&out, &bytes.Buffer{}, cfg, &llm.Client{}, &sandbox.Sandbox{}, logx.Global())
+	r.listModels = func(context.Context, string, string) ([]string, error) { return nil, nil }
+	if err := r.RunModels(context.Background()); err != nil {
+		t.Fatalf("RunModels: %v", err)
+	}
+	if !strings.Contains(out.String(), "OLLAMA_API_KEY") {
+		t.Errorf("the missing-key message must name OLLAMA_API_KEY:\n%s", out.String())
+	}
+}
+
+// TestAppRunnerRunModelsSurvivesACatalogueFailure: a failed listing must not look
+// like a broken agent; the configured model is still reported.
+func TestAppRunnerRunModelsSurvivesACatalogueFailure(t *testing.T) {
+	var out bytes.Buffer
+	cfg := config.Default()
+	cfg.LLM.Provider = "ollama"
+	cfg.LLM.Model = "glm-5.3"
+	cfg.LLM.BaseURL = ""
+
+	r := NewAppRunner(&out, &bytes.Buffer{}, cfg, &llm.Client{}, &sandbox.Sandbox{}, logx.Global())
+	r.listModels = func(_ context.Context, baseURL, _ string) ([]string, error) {
+		if baseURL != "https://ollama.com/v1" {
+			t.Errorf("an empty base URL must fall back to the provider default, got %q", baseURL)
+		}
+		return nil, errors.New("connection refused")
+	}
+	if err := r.RunModels(context.Background()); err != nil {
+		t.Fatalf("a catalogue failure must not be an error: %v", err)
+	}
+	got := out.String()
+	if !strings.Contains(got, "connection refused") {
+		t.Errorf("the failure must be reported:\n%s", got)
+	}
+	if !strings.Contains(got, "glm-5.3") {
+		t.Errorf("the configured model must still be named:\n%s", got)
+	}
+}
+
+// TestAppRunnerRunModelsWithNoBaseURLAndNoDefault: a provider nobody knows has no
+// default endpoint, and the screen must say so instead of printing an empty URL.
+func TestAppRunnerRunModelsWithNoBaseURLAndNoDefault(t *testing.T) {
+	var out bytes.Buffer
+	cfg := config.Default()
+	cfg.LLM.Provider = "custom"
+	cfg.LLM.BaseURL = ""
+	cfg.LLM.Model = "x"
+
+	r := NewAppRunner(&out, &bytes.Buffer{}, cfg, &llm.Client{}, &sandbox.Sandbox{}, logx.Global())
+	r.listModels = func(_ context.Context, baseURL, _ string) ([]string, error) {
+		if baseURL != "" {
+			t.Errorf("baseURL = %q, want empty for an unknown provider", baseURL)
+		}
+		return []string{"x"}, nil
+	}
+	if err := r.RunModels(context.Background()); err != nil {
+		t.Fatalf("RunModels: %v", err)
+	}
+	if !strings.Contains(out.String(), "x") {
+		t.Errorf("the catalogue must be printed:\n%s", out.String())
+	}
+}
+
+// TestAppRunnerRunModelsUsesTheRealListerByDefault: an AppRunner built by hand has
+// no injected lister, and the method must fall back to the real one instead of
+// panicking on a nil function.
+func TestAppRunnerRunModelsUsesTheRealListerByDefault(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"data":[{"id":"real-model"}]}`))
+	}))
+	defer srv.Close()
+
+	var out bytes.Buffer
+	cfg := config.Default()
+	cfg.LLM.Provider = "openai"
+	cfg.LLM.BaseURL = srv.URL + "/v1"
+	cfg.LLM.APIKey = "k"
+
+	// Built by hand, so listModels is nil.
+	r := &AppRunner{Out: &out, Err: &bytes.Buffer{}, Cfg: cfg, Log: logx.Global()}
+	if err := r.RunModels(context.Background()); err != nil {
+		t.Fatalf("RunModels: %v", err)
+	}
+	if !strings.Contains(out.String(), "real-model") {
+		t.Errorf("the real lister must be used when none is injected:\n%s", out.String())
+	}
 }
 
 func TestPlanDefaultTimeout(t *testing.T) {

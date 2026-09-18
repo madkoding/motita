@@ -35,6 +35,7 @@ const (
 	OptionPlan MenuOption = iota
 	OptionTask
 	OptionConfig
+	OptionModels
 	OptionHelp
 	OptionExit
 )
@@ -47,6 +48,8 @@ func (m MenuOption) String() string {
 		return "Task mode"
 	case OptionConfig:
 		return "Configuration"
+	case OptionModels:
+		return "Models & providers"
 	case OptionHelp:
 		return "Help"
 	case OptionExit:
@@ -64,6 +67,8 @@ func (m MenuOption) Key() string {
 		return "t"
 	case OptionConfig:
 		return "c"
+	case OptionModels:
+		return "m"
 	case OptionHelp:
 		return "h"
 	case OptionExit:
@@ -73,7 +78,7 @@ func (m MenuOption) Key() string {
 }
 
 // menuOptions is the ordered list of main menu entries.
-var menuOptions = []MenuOption{OptionPlan, OptionTask, OptionConfig, OptionHelp, OptionExit}
+var menuOptions = []MenuOption{OptionPlan, OptionTask, OptionConfig, OptionModels, OptionHelp, OptionExit}
 
 // TUI is the terminal user interface.
 type TUI struct {
@@ -171,6 +176,8 @@ func (m MenuOption) action() actionFunc {
 		return runTask
 	case OptionConfig:
 		return runConfig
+	case OptionModels:
+		return runModels
 	case OptionHelp:
 		return runHelp
 	case OptionExit:
@@ -224,10 +231,10 @@ func runPlan(ctx context.Context, t *TUI) {
 	trace := func(format string, args ...any) {
 		fmt.Fprintf(t.Err, format+"\n", args...)
 	}
-	if answer, err := t.Runner.RunPlan(ctx, prompt, trace); err != nil {
+	// The runner writes the answer to Out itself. Printing it here as well is what
+	// produced the answer twice on screen.
+	if _, err := t.Runner.RunPlan(ctx, prompt, trace); err != nil {
 		fmt.Fprintf(t.Err, "\nerror: %v\n", err)
-	} else if answer != "" {
-		fmt.Fprintln(t.Out, answer)
 	}
 	t.waitEnter(ctx)
 }
@@ -251,6 +258,16 @@ func runTask(ctx context.Context, t *TUI) {
 
 func runConfig(ctx context.Context, t *TUI) {
 	if err := t.Runner.RunConfig(ctx); err != nil {
+		fmt.Fprintf(t.Err, "\nerror: %v\n", err)
+	}
+	t.waitEnter(ctx)
+}
+
+// runModels shows the active provider and the catalogue it publishes, so the
+// user can check what is reachable before starting a task. The key is never
+// printed: only whether it is present.
+func runModels(ctx context.Context, t *TUI) {
+	if err := t.Runner.RunModels(ctx); err != nil {
 		fmt.Fprintf(t.Err, "\nerror: %v\n", err)
 	}
 	t.waitEnter(ctx)
@@ -324,8 +341,9 @@ How to use:
   p / 1    Plan mode      read-only exploration, then deliver a plan
   t / 2    Task mode      run a task through the 3-layer agent
   c / 3    Configuration  run the onboarding wizard
-  h / 4    Help           show this help
-  e / 5    Exit           leave the TUI
+  m / 4    Models         show the provider and the models it offers
+  h / 5    Help           show this help
+  e / 6    Exit           leave the TUI
   q        Quit           leave the TUI
 
 The TUI is shown by default when the binary is started with no arguments

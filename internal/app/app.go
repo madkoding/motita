@@ -591,14 +591,10 @@ func (op Options) runTUI(ctx context.Context, fl flags, cfg config.Config, engin
 	if op.RunTUI != nil {
 		return op.RunTUI(ctx, cfg, engine, box, log)
 	}
-	runner := &tui.AppRunner{
-		Out:    op.Out,
-		Err:    op.Err,
-		Cfg:    cfg,
-		Engine: engine,
-		Box:    box,
-		Log:    log,
-	}
+	// Built through the constructor, not a struct literal: the literal leaves the
+	// injected factory nil and RunPlan then calls it, which panics. The constructor
+	// is the only place that sets every dependency.
+	runner := tui.NewAppRunner(op.Out, op.Err, cfg, engine, box, log)
 	ui := tui.New(runner)
 	ui.In = op.Stdin
 	return ui.Run(ctx)

@@ -2365,3 +2365,83 @@ func TestReadOnlyAndShellComeFromTheEnvironment(t *testing.T) {
 		})
 	}
 }
+
+// TestProviderKeyVariable: each provider resolves to the variable its own
+// documentation uses, and an unknown one falls back to the generic name.
+func TestProviderKeyVariable(t *testing.T) {
+	if got := ProviderKeyVariable("ollama"); got != "OLLAMA_API_KEY" {
+		t.Errorf("ProviderKeyVariable(ollama) = %q", got)
+	}
+	if got := ProviderKeyVariable("OLLAMA"); got != "OLLAMA_API_KEY" {
+		t.Errorf("the lookup must be case-insensitive, got %q", got)
+	}
+	if got := ProviderKeyVariable("  ollama  "); got != "OLLAMA_API_KEY" {
+		t.Errorf("the lookup must ignore surrounding spaces, got %q", got)
+	}
+	if got := ProviderKeyVariable("openai"); got != "STARLIGHT_LLM_API_KEY" {
+		t.Errorf("ProviderKeyVariable(openai) = %q", got)
+	}
+	if got := ProviderKeyVariable(""); got != "STARLIGHT_LLM_API_KEY" {
+		t.Errorf("ProviderKeyVariable(empty) = %q", got)
+	}
+}
+
+// TestOllamaApiKeyVariableIsHonoured: the Ollama provider must work with the key
+// in OLLAMA_API_KEY, which is the variable Ollama itself documents. Without this
+// an Ollama user follows the instructions and the agent still says the key is
+// missing.
+func TestOllamaApiKeyVariableIsHonoured(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	mustWrite(t, path, "llm:\n  provider: ollama\n  base_url: https://ollama.com/v1\n")
+	t.Setenv("STARLIGHT_LLM_API_KEY", "")
+	os.Unsetenv("STARLIGHT_LLM_API_KEY")
+	t.Setenv("OLLAMA_API_KEY", "key-from-ollama-var")
+
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if cfg.LLM.APIKey != "key-from-ollama-var" {
+		t.Errorf("api_key = %q, want the value from OLLAMA_API_KEY", cfg.LLM.APIKey)
+	}
+}
+
+// TestGenericKeyVariableWinsOverTheProviderAlias: the documented generic name has
+// priority, so an operator who sets both gets what the documentation promised.
+func TestGenericKeyVariableWinsOverTheProviderAlias(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	mustWrite(t, path, "llm:\n  provider: ollama\n  base_url: https://ollama.com/v1\n")
+	t.Setenv("STARLIGHT_LLM_API_KEY", "generic-wins")
+	t.Setenv("OLLAMA_API_KEY", "alias-loses")
+
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if cfg.LLM.APIKey != "generic-wins" {
+		t.Errorf("api_key = %q, want the documented generic variable to win", cfg.LLM.APIKey)
+	}
+}
+
+// TestMissingKeyMessageNamesTheProviderVariable: the error has to send the user to
+// a variable that works for the provider they configured.
+func TestMissingKeyMessageNamesTheProviderVariable(t *testing.T) {
+	cases := []struct{ provider, want string }{
+		{"ollama", "OLLAMA_API_KEY"},
+		{"openai", "STARLIGHT_LLM_API_KEY"},
+	}
+	for _, tc := range cases {
+		path := filepath.Join(t.TempDir(), "config.yaml")
+		mustWrite(t, path, "llm:\n  provider: "+tc.provider+"\n")
+		for _, v := range []string{"STARLIGHT_LLM_API_KEY", "OPENAI_API_KEY", "OLLAMA_API_KEY"} {
+			os.Unsetenv(v)
+		}
+		_, err := Load(path)
+		if err == nil {
+			t.Fatalf("%s: a missing key must be reported", tc.provider)
+		}
+		if !strings.Contains(err.Error(), tc.want) {
+			t.Errorf("%s: error = %v, must name %s", tc.provider, err, tc.want)
+		}
+	}
+}
