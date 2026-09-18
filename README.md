@@ -20,9 +20,12 @@ TASK ──► [Layer B] analyse ─► plan ─► propose an action
             exhausted ──► escalate
 ```
 
-The repository also ships an **interactive terminal chat** (the TUI,
-documented in [`cmd/chat/README.md`](cmd/chat/README.md)) which shares the process
-execution style and the lessons learned about process groups.
+Running the binary with no arguments starts an **interactive text user
+interface (TUI)** that lets you choose between read-only plan mode, task mode,
+the configuration wizard and help. Task mode and plan mode are both driven by
+the same 3-layer agent.
+
+![Main menu](docs/screenshots/tui-menu.png)
 
 ---
 
@@ -364,7 +367,17 @@ starlight -config my.yaml -validate-config
 
 # see the isolation actually available on this machine
 starlight -config my.yaml -isolation
+
+# read-only plan mode: ask a single question and get a plain-text plan
+starlight -p "list the .go files and suggest a refactor"
 ```
+
+![Plan mode](docs/screenshots/plan-mode.png)
+
+Plan mode is **structurally read-only**: the agent calls tools (`read_file`,
+`execute_command`) through a path that never invokes a shell, so redirections,
+pipes and shell metacharacters are syntactically impossible. Destructive
+commands are refused before they run.
 
 **Graceful shutdown:** the first `SIGINT`/`SIGTERM` cancels the work in progress
 and grants `agent.graceful_shutdown_timeout` seconds to finish; the second exits
