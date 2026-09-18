@@ -43,15 +43,17 @@ func Providers() []Provider {
 	return []Provider{
 		{
 			ID:             "openai",
-			Name:           "OpenAI",
+			Name:           "OpenAI-compatible",
 			DefaultBaseURL: "https://api.openai.com/v1",
 			EnvKey:         "STARLIGHT_LLM_API_KEY",
 			ConsoleURL:     "https://platform.openai.com/api-keys",
 			Models: []Model{
-				{ID: "gpt-4o-mini", Label: "GPT-4o mini", Note: "cheap and fast, the right default for an agent that loops"},
+				{ID: "gpt-4o-mini", Label: "GPT-4o mini", Note: "cheap and fast, the right default for OpenAI"},
 				{ID: "gpt-4o", Label: "GPT-4o", Note: "better reasoning, more expensive"},
 				{ID: "gpt-4.1-mini", Label: "GPT-4.1 mini", Note: "newer small model"},
 				{ID: "o4-mini", Label: "o4-mini", Note: "reasoning model, slow and costly"},
+				{ID: "llama3.3", Label: "Ollama: llama3.3", Note: "type any model id, this is only a hint"},
+				{ID: "qwen2.5", Label: "Ollama: qwen2.5", Note: "type any model id, this is only a hint"},
 			},
 		},
 		{

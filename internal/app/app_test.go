@@ -1437,7 +1437,7 @@ func TestInitFlagRunsTheWizard(t *testing.T) {
 			Args:  []string{"-init", "-config", path},
 			Out:   &out,
 			Err:   &errs,
-			Stdin: strings.NewReader("openai\n1\n2\n\n"),
+			Stdin: strings.NewReader("openai\n1\n2\n\n\n"),
 		})
 		if code != Success {
 			t.Fatalf("code = %d, errs = %q", code, errs.String())
@@ -1466,7 +1466,7 @@ func TestInitWithoutConfigUsesADefaultPath(t *testing.T) {
 			Args:  []string{"-init"},
 			Out:   &out,
 			Err:   &errs,
-			Stdin: strings.NewReader("openai\n1\n2\n\n"),
+			Stdin: strings.NewReader("openai\n1\n2\n\n\n"),
 		})
 		if code != Success {
 			t.Fatalf("code = %d, errs = %q", code, errs.String())

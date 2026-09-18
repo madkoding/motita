@@ -97,7 +97,7 @@ func TestAppRunnerRunConfig(t *testing.T) {
 		defer func() { os.Stdin = oldStdin; r2.Close() }()
 		go func() {
 			defer w2.Close()
-			w2.WriteString("openai\n1\n2\n\n")
+			w2.WriteString("openai\n1\n2\n\n\n")
 		}()
 		err := r.RunConfig(context.Background())
 		if err != nil {

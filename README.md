@@ -58,10 +58,12 @@ Design rules the code actually enforces:
 
 ### Layer B — THE REASONING ENGINE (lightweight LLM client)
 
-A hand-written client (no SDK) for three API families: **OpenAI**
+A hand-written client (no SDK) for three API families: **OpenAI-compatible**
 (`/chat/completions`), **Anthropic** (`/v1/messages`) and **Gemini**
-(`:generateContent`). All of them are normalised to the same message structure,
-so the rest of the agent does not know which one is behind it.
+(`:generateContent`). The OpenAI-compatible implementation accepts any `base_url`,
+so it works with OpenAI, Ollama Cloud, Groq, OpenRouter, DeepSeek, and similar
+hosts. All providers are normalised to the same message structure, so the rest of
+the agent does not know which one is behind it.
 
 - Reads the context: task, plan, attempt number and **the records of previous
   failures**.
@@ -212,14 +214,14 @@ Welcome to starlight.
 This wizard writes a working configuration in ./starlight.yaml.
 Nothing is written until every answer is in: press q to cancel at any point.
 Which provider will run the reasoning?
-  1. OpenAI (openai)
+  1. OpenAI-compatible (openai)
   2. Anthropic (anthropic)
   3. Google Gemini (gemini)
 
 Provider [1]: 1
 
-Which model from OpenAI?
-  1. GPT-4o mini (gpt-4o-mini) — cheap and fast, the right default for an agent that loops
+Which model from OpenAI-compatible?
+  1. GPT-4o mini (gpt-4o-mini) — cheap and fast, the right default for OpenAI
   ...
 Model [1, or type any model id]: 1
 
@@ -230,10 +232,31 @@ What decides that a task is really done?
 Check [1]: 1
 Command to run as the check [make]: make test
 
+Which API endpoint should the client talk to?
+Examples of OpenAI-compatible URLs:
+  https://api.openai.com/v1
+  https://ollama.com/v1
+  https://api.groq.com/openai/v1
+  https://openrouter.ai/api/v1
+API base URL [https://api.openai.com/v1]: https://ollama.com/v1
+
 Paste the key, or press Enter to set it later: sk-...
 ✅ Written ./starlight.yaml
 ✅ Written ./starlight.env
    permissions 0600, keep it out of the repository
+```
+
+The provider called `openai` is actually **OpenAI-compatible**: it speaks the
+OpenAI `/chat/completions` protocol, so you can point it at OpenAI itself,
+Ollama Cloud, Groq, OpenRouter, DeepSeek, or any other host that implements the
+same endpoints. Set the API base URL and model in the wizard, or directly in the
+configuration:
+
+```yaml
+llm:
+  provider: openai
+  base_url: https://ollama.com/v1
+  model:    llama3.3
 ```
 
 Then:
@@ -246,8 +269,10 @@ source ./starlight.env                                       # the key, if you p
 
 What the wizard does and does not do:
 
-- The three providers are the ones the client implements (OpenAI, Anthropic,
-  Gemini). The model list is a shortcut: **any** model id can be typed by hand.
+- The three providers are the ones the client implements (OpenAI-compatible,
+  Anthropic, Gemini). The model list is a shortcut: **any** model id can be typed
+  by hand. The `openai` provider accepts any `base_url` that speaks the OpenAI
+  `/chat/completions` protocol.
 - The check (layer A, the anchor) is asked because the agent refuses to run
   without one: it never takes the model's word that a task is done. Option 2
   writes `command: "true"`, an explicit "everything passes" while you try it out.

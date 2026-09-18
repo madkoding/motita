@@ -30,7 +30,7 @@ func TestGeneratedConfigIsAcceptedByTheProgram(t *testing.T) {
 	dir := t.TempDir()
 	preset := Answers{Provider: "anthropic", Model: "claude-3-5-haiku-latest"}
 	// The anchor and the key are still asked (presets left empty on purpose).
-	_, res, err := run(t, dir, []string{"1", "true", ""}, preset)
+	_, res, err := run(t, dir, []string{"1", "true", "", ""}, preset)
 	if err != nil {
 		t.Fatalf("Run: %v", err)
 	}
@@ -47,7 +47,7 @@ func TestGeneratedConfigIsAcceptedByTheProgram(t *testing.T) {
 		t.Error("the configuration must not carry a key")
 	}
 	for _, want := range []string{"task_source:", "anchor:", "sandbox:", "llm:", "agent:",
-		"provider: anthropic", "model: claude-3-5-haiku-latest", "kind: stdin"} {
+		"provider: anthropic", "model: claude-3-5-haiku-latest", "base_url:", "kind: stdin"} {
 		if !strings.Contains(text, want) {
 			t.Errorf("the generated configuration lacks %q", want)
 		}
@@ -85,7 +85,7 @@ func TestChooseProviderByNumber(t *testing.T) {
 	dir := t.TempDir()
 	provider := Providers()[1] // anthropic
 	model := provider.Models[0].ID
-	out, res, err := run(t, dir, []string{"2", "1", "2", ""}, Answers{})
+	out, res, err := run(t, dir, []string{"2", "1", "2", "", ""}, Answers{})
 	if err != nil {
 		t.Fatalf("Run: %v", err)
 	}
@@ -102,7 +102,7 @@ func TestChooseProviderByNumber(t *testing.T) {
 
 func TestChooseProviderByName(t *testing.T) {
 	dir := t.TempDir()
-	_, res, err := run(t, dir, []string{"gemini", "2", "2", ""}, Answers{})
+	_, res, err := run(t, dir, []string{"gemini", "2", "2", "", ""}, Answers{})
 	if err != nil {
 		t.Fatalf("Run: %v", err)
 	}
@@ -114,7 +114,7 @@ func TestChooseProviderByName(t *testing.T) {
 // TestChooseProviderTakesTheDefault: pressing Enter must pick the first option.
 func TestChooseProviderTakesTheDefault(t *testing.T) {
 	dir := t.TempDir()
-	_, res, err := run(t, dir, []string{"", "", "2", ""}, Answers{})
+	_, res, err := run(t, dir, []string{"", "", "2", "", ""}, Answers{})
 	if err != nil {
 		t.Fatalf("Run: %v", err)
 	}
@@ -130,7 +130,7 @@ func TestChooseProviderTakesTheDefault(t *testing.T) {
 // and a number outside the list is refused.
 func TestChooseProviderRejectsGarbage(t *testing.T) {
 	dir := t.TempDir()
-	out, res, err := run(t, dir, []string{"nonsense", "9", "openai", "1", "2", ""}, Answers{})
+	out, res, err := run(t, dir, []string{"nonsense", "9", "openai", "1", "2", "", ""}, Answers{})
 	if err != nil {
 		t.Fatalf("Run: %v", err)
 	}
@@ -164,7 +164,7 @@ func TestChooseProviderGivesUpAfterThreeAttempts(t *testing.T) {
 func TestChooseModelIsLimitedToTheProvider(t *testing.T) {
 	for _, p := range Providers() {
 		dir := t.TempDir()
-		out, res, err := run(t, dir, []string{p.ID, "", "2", ""}, Answers{})
+		out, res, err := run(t, dir, []string{p.ID, "", "2", "", ""}, Answers{})
 		if err != nil {
 			t.Fatalf("%s: Run: %v", p.ID, err)
 		}
@@ -189,7 +189,7 @@ func TestChooseModelIsLimitedToTheProvider(t *testing.T) {
 // models appear faster than any list can follow.
 func TestChooseModelAcceptsAFreeTextID(t *testing.T) {
 	dir := t.TempDir()
-	_, res, err := run(t, dir, []string{"openai", "gpt-5.2-turbo-experimental", "2", ""}, Answers{})
+	_, res, err := run(t, dir, []string{"openai", "gpt-5.2-turbo-experimental", "2", "", ""}, Answers{})
 	if err != nil {
 		t.Fatalf("Run: %v", err)
 	}
@@ -202,7 +202,7 @@ func TestChooseModelAcceptsAFreeTextID(t *testing.T) {
 
 func TestChooseAnchorWithACommand(t *testing.T) {
 	dir := t.TempDir()
-	_, _, err := run(t, dir, []string{"openai", "1", "1", "go", "2", ""}, Answers{})
+	_, _, err := run(t, dir, []string{"openai", "1", "1", "go", "2", "", ""}, Answers{})
 	if err != nil {
 		t.Fatalf("Run: %v", err)
 	}
@@ -218,7 +218,7 @@ func TestChooseAnchorWithACommand(t *testing.T) {
 // TestChooseAnchorDefaultIsMakeTest: pressing Enter takes the sensible default.
 func TestChooseAnchorDefaultIsMakeTest(t *testing.T) {
 	dir := t.TempDir()
-	_, _, err := run(t, dir, []string{"openai", "1", "1", "", "2", ""}, Answers{})
+	_, _, err := run(t, dir, []string{"openai", "1", "1", "", "2", "", ""}, Answers{})
 	if err != nil {
 		t.Fatalf("Run: %v", err)
 	}
@@ -232,7 +232,7 @@ func TestChooseAnchorDefaultIsMakeTest(t *testing.T) {
 // written as a real command so the agent's rule (never trust the model) holds.
 func TestChooseAnchorAlwaysPassIsExplicit(t *testing.T) {
 	dir := t.TempDir()
-	_, _, err := run(t, dir, []string{"openai", "1", "2", ""}, Answers{})
+	_, _, err := run(t, dir, []string{"openai", "1", "2", "", ""}, Answers{})
 	if err != nil {
 		t.Fatalf("Run: %v", err)
 	}
@@ -246,7 +246,7 @@ func TestChooseAnchorAlwaysPassIsExplicit(t *testing.T) {
 
 func TestChooseAnchorRejectsGarbage(t *testing.T) {
 	dir := t.TempDir()
-	out, _, err := run(t, dir, []string{"openai", "1", "4", "2", ""}, Answers{})
+	out, _, err := run(t, dir, []string{"openai", "1", "4", "2", "", ""}, Answers{})
 	if err != nil {
 		t.Fatalf("Run: %v", err)
 	}
@@ -261,7 +261,7 @@ func TestChooseAnchorRejectsGarbage(t *testing.T) {
 // configuration with 0600 permissions and never inside the configuration.
 func TestTheKeyGoesToItsOwnFile(t *testing.T) {
 	dir := t.TempDir()
-	_, res, err := run(t, dir, []string{"openai", "1", "2", "sk-secret-value"}, Answers{})
+	_, res, err := run(t, dir, []string{"openai", "1", "2", "", "sk-secret-value"}, Answers{})
 	if err != nil {
 		t.Fatalf("Run: %v", err)
 	}
@@ -298,7 +298,7 @@ func TestTheKeyGoesToItsOwnFile(t *testing.T) {
 // environment, and the summary says which variable to export.
 func TestNoKeyMeansNoCredentialsFile(t *testing.T) {
 	dir := t.TempDir()
-	out, res, err := run(t, dir, []string{"openai", "1", "2", ""}, Answers{})
+	out, res, err := run(t, dir, []string{"openai", "1", "2", "", ""}, Answers{})
 	if err != nil {
 		t.Fatalf("Run: %v", err)
 	}
@@ -314,7 +314,7 @@ func TestNoKeyMeansNoCredentialsFile(t *testing.T) {
 // the value has to be quoted safely.
 func TestAKeyWithQuotesCannotBreakTheFile(t *testing.T) {
 	dir := t.TempDir()
-	_, res, err := run(t, dir, []string{"openai", "1", "2", "it's a 'weird' key"}, Answers{})
+	_, res, err := run(t, dir, []string{"openai", "1", "2", "", "it's a 'weird' key"}, Answers{})
 	if err != nil {
 		t.Fatalf("Run: %v", err)
 	}
@@ -538,7 +538,8 @@ func TestReadErrorAtEachQuestion(t *testing.T) {
 		{"provider", 0, Answers{}},
 		{"model", 1, Answers{}},
 		{"anchor", 2, Answers{}},
-		{"key", 3, Answers{}},
+		{"base_url", 3, Answers{}},
+		{"key", 4, Answers{}},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -562,7 +563,8 @@ func TestCancellingAtEachQuestion(t *testing.T) {
 		{"provider", []string{"q"}},
 		{"model", []string{"openai", "quit"}},
 		{"anchor", []string{"openai", "1", "q"}},
-		{"key", []string{"openai", "1", "2", "q"}},
+		{"base_url", []string{"openai", "1", "2", "q"}},
+		{"key", []string{"openai", "1", "2", "", "q"}},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -610,7 +612,7 @@ func TestConfigurationCannotBeWrittenIsReported(t *testing.T) {
 	if err := os.Mkdir(blocked, 0o500); err != nil {
 		t.Fatal(err)
 	}
-	in := strings.NewReader("openai\n1\n2\n\n")
+	in := strings.NewReader("openai\n1\n2\n\n\n")
 	var out bytes.Buffer
 	_, err := Run(in, &out, filepath.Join(blocked, "x", "config.yaml"), Answers{}, fixedTime())
 	if err == nil {
@@ -630,7 +632,7 @@ func TestCredentialsWriteFailureIsReported(t *testing.T) {
 	if err := os.Mkdir(filepath.Join(dir, "config.env"), 0o500); err != nil {
 		t.Fatal(err)
 	}
-	in := strings.NewReader("openai\n1\n2\nsk-abc\n")
+	in := strings.NewReader("openai\n1\n2\n\nsk-abc\n")
 	var out bytes.Buffer
 	_, err := Run(in, &out, filepath.Join(dir, "config.yaml"), Answers{}, fixedTime())
 	if err == nil {
@@ -665,6 +667,59 @@ func TestEnvKeyOfAnUnknownProviderFallsBack(t *testing.T) {
 	// ...and an unknown one gets the variable that always exists.
 	if got := EnvKey("whatever"); got != "STARLIGHT_LLM_API_KEY" {
 		t.Errorf("EnvKey = %q", got)
+	}
+}
+
+// --- choosing the API base URL ----------------------------------------------
+
+// TestChooseBaseURLUsesTheDefault: pressing Enter accepts the provider default.
+func TestChooseBaseURLUsesTheDefault(t *testing.T) {
+	dir := t.TempDir()
+	_, res, err := run(t, dir, []string{"openai", "1", "2", "", ""}, Answers{})
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	cfg, _ := os.ReadFile(res.ConfigPath)
+	if !strings.Contains(string(cfg), "base_url: \"https://api.openai.com/v1\"") {
+		t.Errorf("the default OpenAI-compatible endpoint must be written:\n%s", cfg)
+	}
+}
+
+// TestChooseBaseURLAcceptsACustomEndpoint: any OpenAI-compatible URL works.
+func TestChooseBaseURLAcceptsACustomEndpoint(t *testing.T) {
+	dir := t.TempDir()
+	_, res, err := run(t, dir, []string{"openai", "1", "2", "https://ollama.com/v1", ""}, Answers{})
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	cfg, _ := os.ReadFile(res.ConfigPath)
+	if !strings.Contains(string(cfg), "base_url: \"https://ollama.com/v1\"") {
+		t.Errorf("the custom endpoint must be written:\n%s", cfg)
+	}
+}
+
+// TestChooseBaseURLRejectsGarbage: a URL without scheme is explained and asked again.
+func TestChooseBaseURLRejectsGarbage(t *testing.T) {
+	dir := t.TempDir()
+	out, res, err := run(t, dir, []string{"openai", "1", "2", "not-a-url", "https://ollama.com/v1", ""}, Answers{})
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	cfg, _ := os.ReadFile(res.ConfigPath)
+	if !strings.Contains(string(cfg), "base_url: \"https://ollama.com/v1\"") {
+		t.Errorf("the corrected endpoint must be written:\n%s", cfg)
+	}
+	if !strings.Contains(out, "A URL must start with http:// or https://") {
+		t.Error("the user must be told why the URL was rejected")
+	}
+}
+
+// TestChooseBaseURLGivesUpAfterThreeAttempts.
+func TestChooseBaseURLGivesUpAfterThreeAttempts(t *testing.T) {
+	dir := t.TempDir()
+	_, _, err := run(t, dir, []string{"openai", "1", "2", "bad", "bad", "bad"}, Answers{})
+	if err == nil || !strings.Contains(err.Error(), "three attempts") {
+		t.Errorf("err = %v", err)
 	}
 }
 
