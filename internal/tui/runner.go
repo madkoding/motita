@@ -106,6 +106,6 @@ func (r *AppRunner) RunTask(ctx context.Context, task string) error {
 // RunConfig runs the first-run configuration wizard.
 func (r *AppRunner) RunConfig(ctx context.Context) error {
 	path := "./starlight.yaml"
-	_, err := onboard.Run(os.Stdin, r.Out, path, onboard.Answers{}, time.Now())
+	_, err := onboard.Run(ctx, os.Stdin, r.Out, path, onboard.Answers{}, time.Now())
 	return err
 }

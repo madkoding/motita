@@ -4,8 +4,10 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"io"
 	"strings"
 	"testing"
+	"time"
 )
 
 type fakeRunner struct {
@@ -56,6 +58,21 @@ func newFakeTUI(inputs string, runner Runner) *TUI {
 
 func outputOf(t *TUI) string { return t.Out.(*bytes.Buffer).String() }
 func errOf(t *TUI) string    { return t.Err.(*bytes.Buffer).String() }
+
+// TestRunInterruptedByContext: Ctrl+C is simulated by cancelling the context
+// while the TUI is waiting for the menu choice.
+func TestRunInterruptedByContext(t *testing.T) {
+	r, _ := io.Pipe() // blocks forever, so only the context can end the wait
+	tui := &TUI{In: r, Out: &bytes.Buffer{}, Err: &bytes.Buffer{}, Runner: &fakeRunner{}, NoColor: true}
+	ctx, cancel := context.WithCancel(context.Background())
+	go func() {
+		time.Sleep(20 * time.Millisecond)
+		cancel()
+	}()
+	if code := tui.Run(ctx); code != ExitInterrupted {
+		t.Fatalf("code = %d, want ExitInterrupted", code)
+	}
+}
 
 func TestRunSelectPlanMode(t *testing.T) {
 	runner := &fakeRunner{planAnswer: "the plan"}
@@ -271,19 +288,40 @@ func TestAppRunnerImplementsRunner(t *testing.T) {
 
 func TestReadLineEOF(t *testing.T) {
 	tui := newFakeTUI("", &fakeRunner{})
-	if _, ok := tui.readLine("test"); ok {
+	if _, ok := tui.readLine(context.Background()); ok {
 		t.Error("expected false on EOF")
+	}
+}
+
+// TestWaitEnterCancelsOnContext: Ctrl+C while waiting for "Enter" must return.
+func TestWaitEnterCancelsOnContext(t *testing.T) {
+	r, _ := io.Pipe()
+	tui := &TUI{In: r, Out: &bytes.Buffer{}, Err: &bytes.Buffer{}, Runner: &fakeRunner{}, NoColor: true}
+	ctx, cancel := context.WithCancel(context.Background())
+	go func() {
+		time.Sleep(20 * time.Millisecond)
+		cancel()
+	}()
+	done := make(chan struct{})
+	go func() {
+		tui.waitEnter(ctx)
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("waitEnter did not return on context cancellation")
 	}
 }
 
 func TestWaitEnterEOF(t *testing.T) {
 	tui := newFakeTUI("", &fakeRunner{})
-	tui.waitEnter() // must return without panic
+	tui.waitEnter(context.Background()) // must return without panic
 }
 
 func TestWaitEnterReadsEnter(t *testing.T) {
 	tui := newFakeTUI("\n", &fakeRunner{})
-	tui.waitEnter()
+	tui.waitEnter(context.Background())
 }
 
 func TestRunPlanEOFOnPrompt(t *testing.T) {

@@ -2,6 +2,7 @@ package onboard
 
 import (
 	"bufio"
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -41,33 +42,33 @@ type Result struct {
 // did. It reads answers from in and writes the conversation to out, so the whole
 // flow can be tested without a terminal. Nothing is written if the user cancels:
 // the file appears only once every answer is known (see writeFileAtomic).
-func Run(in io.Reader, out io.Writer, configPath string, preset Answers, now time.Time) (Result, error) {
+func Run(ctx context.Context, in io.Reader, out io.Writer, configPath string, preset Answers, now time.Time) (Result, error) {
 	r := bufio.NewReader(in)
 	w := &session{in: r, out: out}
 
-	provider, err := w.chooseProvider(preset.Provider)
+	provider, err := w.chooseProvider(ctx, preset.Provider)
 	if err != nil {
 		return Result{}, err
 	}
 
-	model, err := w.chooseModel(provider, preset.Model)
+	model, err := w.chooseModel(ctx, provider, preset.Model)
 	if err != nil {
 		return Result{}, err
 	}
 
-	anchorCommand, anchorArgs, err := w.chooseAnchor(preset.AnchorCommand, preset.AnchorArgs)
+	anchorCommand, anchorArgs, err := w.chooseAnchor(ctx, preset.AnchorCommand, preset.AnchorArgs)
 	if err != nil {
 		return Result{}, err
 	}
 
-	baseURL, err := w.chooseBaseURL(provider, preset.BaseURL)
+	baseURL, err := w.chooseBaseURL(ctx, provider, preset.BaseURL)
 	if err != nil {
 		return Result{}, err
 	}
 
 	key := preset.APIKey
 	if key == "" {
-		key, err = w.askAPIKey(provider)
+		key, err = w.askAPIKey(ctx, provider)
 		if err != nil {
 			return Result{}, err
 		}
@@ -112,12 +113,16 @@ func (s *session) say(format string, args ...any) {
 	fmt.Fprintf(s.out, format+"\n", args...)
 }
 
-// ask reads one line. EOF and a lone "q" cancel the wizard.
-func (s *session) ask(prompt string) (string, error) {
+// ask reads one line. EOF and a lone "q" cancel the wizard; so does a cancelled
+// context, which is how Ctrl+C during -init is handled.
+func (s *session) ask(ctx context.Context, prompt string) (string, error) {
 	s.say("")
 	fmt.Fprintf(s.out, "%s ", prompt)
-	line, err := s.in.ReadString('\n')
-	if err != nil && line == "" {
+	line, err := s.readLine(ctx)
+	if err != nil {
+		if errors.Is(err, context.Canceled) {
+			return "", ErrCancelled
+		}
 		if errors.Is(err, io.EOF) {
 			return "", ErrCancelled
 		}
@@ -130,7 +135,28 @@ func (s *session) ask(prompt string) (string, error) {
 	return text, nil
 }
 
-func (s *session) chooseProvider(preset string) (Provider, error) {
+// readLine reads a single line from the input. It returns when a line is
+// available, the context is cancelled, or the input reaches EOF.
+func (s *session) readLine(ctx context.Context) (string, error) {
+	ch := make(chan lineResult, 1)
+	go func() {
+		l, err := s.in.ReadString('\n')
+		ch <- lineResult{line: l, err: err}
+	}()
+	select {
+	case r := <-ch:
+		return r.line, r.err
+	case <-ctx.Done():
+		return "", ctx.Err()
+	}
+}
+
+type lineResult struct {
+	line string
+	err  error
+}
+
+func (s *session) chooseProvider(ctx context.Context, preset string) (Provider, error) {
 	providers := Providers()
 
 	if preset != "" {
@@ -147,7 +173,7 @@ func (s *session) chooseProvider(preset string) (Provider, error) {
 	}
 
 	for attempt := 0; attempt < 3; attempt++ {
-		answer, err := s.ask("Provider [1]:")
+		answer, err := s.ask(ctx, "Provider [1]:")
 		if err != nil {
 			return Provider{}, err
 		}
@@ -173,7 +199,7 @@ func (s *session) chooseProvider(preset string) (Provider, error) {
 // chooseModel offers the models of the chosen provider and accepts any other name
 // typed by hand: the catalogue is a convenience, not a limitation, and models are
 // released faster than any list can follow.
-func (s *session) chooseModel(p Provider, preset string) (string, error) {
+func (s *session) chooseModel(ctx context.Context, p Provider, preset string) (string, error) {
 	if preset != "" {
 		return preset, nil
 	}
@@ -185,7 +211,7 @@ func (s *session) chooseModel(p Provider, preset string) (string, error) {
 	}
 
 	for attempt := 0; attempt < 3; attempt++ {
-		answer, err := s.ask("Model [1, or type any model id]:")
+		answer, err := s.ask(ctx, "Model [1, or type any model id]:")
 		if err != nil {
 			return "", err
 		}
@@ -207,7 +233,7 @@ func (s *session) chooseModel(p Provider, preset string) (string, error) {
 // chooseAnchor asks what decides PASS. This is the question that makes the agent
 // what it is: without a validator it refuses to run, so the wizard either takes a
 // real command or records the explicit "always pass" escape.
-func (s *session) chooseAnchor(preset string, presetArgs []string) (string, []string, error) {
+func (s *session) chooseAnchor(ctx context.Context, preset string, presetArgs []string) (string, []string, error) {
 	if preset != "" {
 		return preset, presetArgs, nil
 	}
@@ -220,13 +246,13 @@ func (s *session) chooseAnchor(preset string, presetArgs []string) (string, []st
 	s.say("The agent never trusts the model: only this check can declare PASS.")
 
 	for attempt := 0; attempt < 3; attempt++ {
-		answer, err := s.ask("Check [1]:")
+		answer, err := s.ask(ctx, "Check [1]:")
 		if err != nil {
 			return "", nil, err
 		}
 		switch answer {
 		case "", "1":
-			cmd, err := s.ask("Command to run as the check [make]:")
+			cmd, err := s.ask(ctx, "Command to run as the check [make]:")
 			if err != nil {
 				return "", nil, err
 			}
@@ -245,11 +271,11 @@ func (s *session) chooseAnchor(preset string, presetArgs []string) (string, []st
 	return "", nil, fmt.Errorf("no valid check after three attempts")
 }
 
-func (s *session) askAPIKey(p Provider) (string, error) {
+func (s *session) askAPIKey(ctx context.Context, p Provider) (string, error) {
 	s.say("")
 	s.say("The key is read from %s, or from OPENAI_API_KEY.", p.EnvKey)
 	s.say("You can get one at %s", p.ConsoleURL)
-	key, err := s.ask("Paste the key, or press Enter to set it later:")
+	key, err := s.ask(ctx, "Paste the key, or press Enter to set it later:")
 	if err != nil {
 		return "", err
 	}
@@ -259,7 +285,7 @@ func (s *session) askAPIKey(p Provider) (string, error) {
 // chooseBaseURL asks for the API endpoint. OpenAI-compatible providers need this
 // because the same protocol is spoken by many hosts (OpenAI, Ollama Cloud, Groq,
 // OpenRouter, DeepSeek, etc.).
-func (s *session) chooseBaseURL(p Provider, preset string) (string, error) {
+func (s *session) chooseBaseURL(ctx context.Context, p Provider, preset string) (string, error) {
 	if preset != "" {
 		return preset, nil
 	}
@@ -274,7 +300,7 @@ func (s *session) chooseBaseURL(p Provider, preset string) (string, error) {
 
 	defaultURL := p.DefaultBaseURL
 	for attempt := 0; attempt < 3; attempt++ {
-		answer, err := s.ask(fmt.Sprintf("API base URL [%s]:", defaultURL))
+		answer, err := s.ask(ctx, fmt.Sprintf("API base URL [%s]:", defaultURL))
 		if err != nil {
 			return "", err
 		}

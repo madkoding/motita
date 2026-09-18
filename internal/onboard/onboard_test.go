@@ -2,7 +2,9 @@ package onboard
 
 import (
 	"bytes"
+	"context"
 	"errors"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -14,11 +16,11 @@ import (
 func fixedTime() time.Time { return time.Date(2026, 9, 17, 12, 0, 0, 0, time.UTC) }
 
 // run feeds the answers as if typed, and returns the conversation and the result.
-func run(t *testing.T, dir string, answers []string, preset Answers) (string, Result, error) {
+func run(ctx context.Context, t *testing.T, dir string, answers []string, preset Answers) (string, Result, error) {
 	t.Helper()
 	in := strings.NewReader(strings.Join(answers, "\n") + "\n")
 	var out bytes.Buffer
-	res, err := Run(in, &out, filepath.Join(dir, "config.yaml"), preset, fixedTime())
+	res, err := Run(ctx, in, &out, filepath.Join(dir, "config.yaml"), preset, fixedTime())
 	return out.String(), res, err
 }
 
@@ -30,7 +32,7 @@ func TestGeneratedConfigIsAcceptedByTheProgram(t *testing.T) {
 	dir := t.TempDir()
 	preset := Answers{Provider: "anthropic", Model: "claude-3-5-haiku-latest"}
 	// The anchor and the key are still asked (presets left empty on purpose).
-	_, res, err := run(t, dir, []string{"1", "true", "", ""}, preset)
+	_, res, err := run(context.Background(), t, dir, []string{"1", "true", "", ""}, preset)
 	if err != nil {
 		t.Fatalf("Run: %v", err)
 	}
@@ -61,7 +63,7 @@ func TestNothingIsWrittenWhenTheUserCancels(t *testing.T) {
 	path := filepath.Join(dir, "config.yaml")
 
 	// "q" at the provider question.
-	_, _, err := run(t, dir, []string{"q"}, Answers{})
+	_, _, err := run(context.Background(), t, dir, []string{"q"}, Answers{})
 	if err != ErrCancelled {
 		t.Fatalf("err = %v, want ErrCancelled", err)
 	}
@@ -71,11 +73,67 @@ func TestNothingIsWrittenWhenTheUserCancels(t *testing.T) {
 
 	// EOF (a pipe with no input) is a cancellation too.
 	var out bytes.Buffer
-	if _, err := Run(strings.NewReader(""), &out, path, Answers{}, fixedTime()); err != ErrCancelled {
+	if _, err := Run(context.Background(), strings.NewReader(""), &out, path, Answers{}, fixedTime()); err != ErrCancelled {
 		t.Errorf("EOF = %v, want ErrCancelled", err)
 	}
 	if _, statErr := os.Stat(path); !os.IsNotExist(statErr) {
 		t.Error("nothing must be written after EOF")
+	}
+}
+
+// TestRunCancelsOnContextShutdown: Ctrl+C during the wizard must return ErrCancelled
+// immediately, without writing anything.
+func TestRunCancelsOnContextShutdown(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.yaml")
+	ctx, cancel := context.WithCancel(context.Background())
+	var out bytes.Buffer
+	go func() {
+		// Cancel after the prompt is printed but before an answer is given.
+		time.Sleep(20 * time.Millisecond)
+		cancel()
+	}()
+	_, err := Run(ctx, strings.NewReader(""), &out, path, Answers{}, fixedTime())
+	if !errors.Is(err, ErrCancelled) {
+		t.Fatalf("err = %v, want ErrCancelled", err)
+	}
+	if _, statErr := os.Stat(path); !os.IsNotExist(statErr) {
+		t.Error("nothing may be written when the context is cancelled")
+	}
+}
+
+// TestAskReturnsReadErrors: a broken terminal must be reported when the error is
+// neither EOF nor a cancellation.
+func TestAskReturnsReadErrors(t *testing.T) {
+	dir := t.TempDir()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	var out bytes.Buffer
+	in := &failingReader{remaining: 0}
+	_, err := Run(ctx, in, &out, filepath.Join(dir, "config.yaml"), Answers{}, fixedTime())
+	if err == nil {
+		t.Fatal("a broken terminal must be reported")
+	}
+	if errors.Is(err, ErrCancelled) {
+		t.Errorf("err = %v, want a read error, not cancellation", err)
+	}
+}
+
+// TestReadLineCancelsWhenBlocked: a slow reader must not prevent Ctrl+C from
+// stopping the wizard.
+func TestReadLineCancelsWhenBlocked(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.yaml")
+	ctx, cancel := context.WithCancel(context.Background())
+	var out bytes.Buffer
+	r, _ := io.Pipe() // blocks forever
+	go func() {
+		time.Sleep(20 * time.Millisecond)
+		cancel()
+	}()
+	_, err := Run(ctx, r, &out, path, Answers{}, fixedTime())
+	if !errors.Is(err, ErrCancelled) {
+		t.Fatalf("err = %v, want ErrCancelled", err)
 	}
 }
 
@@ -85,7 +143,7 @@ func TestChooseProviderByNumber(t *testing.T) {
 	dir := t.TempDir()
 	provider := Providers()[1] // anthropic
 	model := provider.Models[0].ID
-	out, res, err := run(t, dir, []string{"2", "1", "2", "", ""}, Answers{})
+	out, res, err := run(context.Background(), t, dir, []string{"2", "1", "2", "", ""}, Answers{})
 	if err != nil {
 		t.Fatalf("Run: %v", err)
 	}
@@ -102,7 +160,7 @@ func TestChooseProviderByNumber(t *testing.T) {
 
 func TestChooseProviderByName(t *testing.T) {
 	dir := t.TempDir()
-	_, res, err := run(t, dir, []string{"gemini", "2", "2", "", ""}, Answers{})
+	_, res, err := run(context.Background(), t, dir, []string{"gemini", "2", "2", "", ""}, Answers{})
 	if err != nil {
 		t.Fatalf("Run: %v", err)
 	}
@@ -114,7 +172,7 @@ func TestChooseProviderByName(t *testing.T) {
 // TestChooseProviderTakesTheDefault: pressing Enter must pick the first option.
 func TestChooseProviderTakesTheDefault(t *testing.T) {
 	dir := t.TempDir()
-	_, res, err := run(t, dir, []string{"", "", "2", "", ""}, Answers{})
+	_, res, err := run(context.Background(), t, dir, []string{"", "", "2", "", ""}, Answers{})
 	if err != nil {
 		t.Fatalf("Run: %v", err)
 	}
@@ -130,7 +188,7 @@ func TestChooseProviderTakesTheDefault(t *testing.T) {
 // and a number outside the list is refused.
 func TestChooseProviderRejectsGarbage(t *testing.T) {
 	dir := t.TempDir()
-	out, res, err := run(t, dir, []string{"nonsense", "9", "openai", "1", "2", "", ""}, Answers{})
+	out, res, err := run(context.Background(), t, dir, []string{"nonsense", "9", "openai", "1", "2", "", ""}, Answers{})
 	if err != nil {
 		t.Fatalf("Run: %v", err)
 	}
@@ -148,7 +206,7 @@ func TestChooseProviderRejectsGarbage(t *testing.T) {
 // TestChooseProviderGivesUpAfterThreeAttempts: it cannot loop forever.
 func TestChooseProviderGivesUpAfterThreeAttempts(t *testing.T) {
 	dir := t.TempDir()
-	_, _, err := run(t, dir, []string{"x", "y", "z"}, Answers{})
+	_, _, err := run(context.Background(), t, dir, []string{"x", "y", "z"}, Answers{})
 	if err == nil {
 		t.Fatal("three wrong answers must end the wizard")
 	}
@@ -164,7 +222,7 @@ func TestChooseProviderGivesUpAfterThreeAttempts(t *testing.T) {
 func TestChooseModelIsLimitedToTheProvider(t *testing.T) {
 	for _, p := range Providers() {
 		dir := t.TempDir()
-		out, res, err := run(t, dir, []string{p.ID, "", "2", "", ""}, Answers{})
+		out, res, err := run(context.Background(), t, dir, []string{p.ID, "", "2", "", ""}, Answers{})
 		if err != nil {
 			t.Fatalf("%s: Run: %v", p.ID, err)
 		}
@@ -189,7 +247,7 @@ func TestChooseModelIsLimitedToTheProvider(t *testing.T) {
 // models appear faster than any list can follow.
 func TestChooseModelAcceptsAFreeTextID(t *testing.T) {
 	dir := t.TempDir()
-	_, res, err := run(t, dir, []string{"openai", "gpt-5.2-turbo-experimental", "2", "", ""}, Answers{})
+	_, res, err := run(context.Background(), t, dir, []string{"openai", "gpt-5.2-turbo-experimental", "2", "", ""}, Answers{})
 	if err != nil {
 		t.Fatalf("Run: %v", err)
 	}
@@ -202,7 +260,7 @@ func TestChooseModelAcceptsAFreeTextID(t *testing.T) {
 
 func TestChooseAnchorWithACommand(t *testing.T) {
 	dir := t.TempDir()
-	_, _, err := run(t, dir, []string{"openai", "1", "1", "go", "2", "", ""}, Answers{})
+	_, _, err := run(context.Background(), t, dir, []string{"openai", "1", "1", "go", "2", "", ""}, Answers{})
 	if err != nil {
 		t.Fatalf("Run: %v", err)
 	}
@@ -218,7 +276,7 @@ func TestChooseAnchorWithACommand(t *testing.T) {
 // TestChooseAnchorDefaultIsMakeTest: pressing Enter takes the sensible default.
 func TestChooseAnchorDefaultIsMakeTest(t *testing.T) {
 	dir := t.TempDir()
-	_, _, err := run(t, dir, []string{"openai", "1", "1", "", "2", "", ""}, Answers{})
+	_, _, err := run(context.Background(), t, dir, []string{"openai", "1", "1", "", "2", "", ""}, Answers{})
 	if err != nil {
 		t.Fatalf("Run: %v", err)
 	}
@@ -232,7 +290,7 @@ func TestChooseAnchorDefaultIsMakeTest(t *testing.T) {
 // written as a real command so the agent's rule (never trust the model) holds.
 func TestChooseAnchorAlwaysPassIsExplicit(t *testing.T) {
 	dir := t.TempDir()
-	_, _, err := run(t, dir, []string{"openai", "1", "2", "", ""}, Answers{})
+	_, _, err := run(context.Background(), t, dir, []string{"openai", "1", "2", "", ""}, Answers{})
 	if err != nil {
 		t.Fatalf("Run: %v", err)
 	}
@@ -246,7 +304,7 @@ func TestChooseAnchorAlwaysPassIsExplicit(t *testing.T) {
 
 func TestChooseAnchorRejectsGarbage(t *testing.T) {
 	dir := t.TempDir()
-	out, _, err := run(t, dir, []string{"openai", "1", "4", "2", "", ""}, Answers{})
+	out, _, err := run(context.Background(), t, dir, []string{"openai", "1", "4", "2", "", ""}, Answers{})
 	if err != nil {
 		t.Fatalf("Run: %v", err)
 	}
@@ -261,7 +319,7 @@ func TestChooseAnchorRejectsGarbage(t *testing.T) {
 // configuration with 0600 permissions and never inside the configuration.
 func TestTheKeyGoesToItsOwnFile(t *testing.T) {
 	dir := t.TempDir()
-	_, res, err := run(t, dir, []string{"openai", "1", "2", "", "sk-secret-value"}, Answers{})
+	_, res, err := run(context.Background(), t, dir, []string{"openai", "1", "2", "", "sk-secret-value"}, Answers{})
 	if err != nil {
 		t.Fatalf("Run: %v", err)
 	}
@@ -298,7 +356,7 @@ func TestTheKeyGoesToItsOwnFile(t *testing.T) {
 // environment, and the summary says which variable to export.
 func TestNoKeyMeansNoCredentialsFile(t *testing.T) {
 	dir := t.TempDir()
-	out, res, err := run(t, dir, []string{"openai", "1", "2", "", ""}, Answers{})
+	out, res, err := run(context.Background(), t, dir, []string{"openai", "1", "2", "", ""}, Answers{})
 	if err != nil {
 		t.Fatalf("Run: %v", err)
 	}
@@ -314,7 +372,7 @@ func TestNoKeyMeansNoCredentialsFile(t *testing.T) {
 // the value has to be quoted safely.
 func TestAKeyWithQuotesCannotBreakTheFile(t *testing.T) {
 	dir := t.TempDir()
-	_, res, err := run(t, dir, []string{"openai", "1", "2", "", "it's a 'weird' key"}, Answers{})
+	_, res, err := run(context.Background(), t, dir, []string{"openai", "1", "2", "", "it's a 'weird' key"}, Answers{})
 	if err != nil {
 		t.Fatalf("Run: %v", err)
 	}
@@ -354,7 +412,7 @@ func TestPresetAnswersSkipTheQuestions(t *testing.T) {
 		AnchorCommand: "true",
 	}
 	// The only question left is the key.
-	out, res, err := run(t, dir, []string{""}, preset)
+	out, res, err := run(context.Background(), t, dir, []string{""}, preset)
 	if err != nil {
 		t.Fatalf("Run: %v", err)
 	}
@@ -369,7 +427,7 @@ func TestPresetAnswersSkipTheQuestions(t *testing.T) {
 
 func TestPresetWithAnUnknownProviderFails(t *testing.T) {
 	dir := t.TempDir()
-	_, _, err := run(t, dir, nil, Answers{Provider: "not-a-provider"})
+	_, _, err := run(context.Background(), t, dir, nil, Answers{Provider: "not-a-provider"})
 	if err == nil {
 		t.Fatal("an unknown provider must be refused")
 	}
@@ -516,7 +574,7 @@ func (f *failingReader) Read(b []byte) (int, error) {
 func TestReadErrorIsReported(t *testing.T) {
 	dir := t.TempDir()
 	var out bytes.Buffer
-	_, err := Run(&failingReader{}, &out, filepath.Join(dir, "c.yaml"), Answers{}, fixedTime())
+	_, err := Run(context.Background(), &failingReader{}, &out, filepath.Join(dir, "c.yaml"), Answers{}, fixedTime())
 	if err == nil {
 		t.Fatal("a read error must surface")
 	}
@@ -546,7 +604,7 @@ func TestReadErrorAtEachQuestion(t *testing.T) {
 			dir := t.TempDir()
 			var out bytes.Buffer
 			in := &failingReader{remaining: tc.remaining}
-			_, err := Run(in, &out, filepath.Join(dir, "c.yaml"), tc.preset, fixedTime())
+			_, err := Run(context.Background(), in, &out, filepath.Join(dir, "c.yaml"), tc.preset, fixedTime())
 			if err == nil {
 				t.Fatalf("the failure at %s must surface", tc.name)
 			}
@@ -572,7 +630,7 @@ func TestCancellingAtEachQuestion(t *testing.T) {
 			path := filepath.Join(dir, "c.yaml")
 			in := strings.NewReader(strings.Join(tc.answers, "\n") + "\n")
 			var out bytes.Buffer
-			_, err := Run(in, &out, path, Answers{}, fixedTime())
+			_, err := Run(context.Background(), in, &out, path, Answers{}, fixedTime())
 			if err != ErrCancelled {
 				t.Fatalf("err = %v, want ErrCancelled", err)
 			}
@@ -586,7 +644,7 @@ func TestCancellingAtEachQuestion(t *testing.T) {
 // TestModelQuestionGivesUpAfterThreeAttempts.
 func TestModelQuestionGivesUpAfterThreeAttempts(t *testing.T) {
 	dir := t.TempDir()
-	_, _, err := run(t, dir, []string{"openai", "0", "0", "0"}, Answers{})
+	_, _, err := run(context.Background(), t, dir, []string{"openai", "0", "0", "0"}, Answers{})
 	if err == nil || !strings.Contains(err.Error(), "three attempts") {
 		t.Errorf("err = %v", err)
 	}
@@ -595,7 +653,7 @@ func TestModelQuestionGivesUpAfterThreeAttempts(t *testing.T) {
 // TestAnchorQuestionGivesUpAfterThreeAttempts.
 func TestAnchorQuestionGivesUpAfterThreeAttempts(t *testing.T) {
 	dir := t.TempDir()
-	_, _, err := run(t, dir, []string{"openai", "1", "x", "y", "z"}, Answers{})
+	_, _, err := run(context.Background(), t, dir, []string{"openai", "1", "x", "y", "z"}, Answers{})
 	if err == nil || !strings.Contains(err.Error(), "three attempts") {
 		t.Errorf("err = %v", err)
 	}
@@ -614,7 +672,7 @@ func TestConfigurationCannotBeWrittenIsReported(t *testing.T) {
 	}
 	in := strings.NewReader("openai\n1\n2\n\n\n")
 	var out bytes.Buffer
-	_, err := Run(in, &out, filepath.Join(blocked, "x", "config.yaml"), Answers{}, fixedTime())
+	_, err := Run(context.Background(), in, &out, filepath.Join(blocked, "x", "config.yaml"), Answers{}, fixedTime())
 	if err == nil {
 		t.Error("an unwritable configuration path must be reported")
 	}
@@ -634,7 +692,7 @@ func TestCredentialsWriteFailureIsReported(t *testing.T) {
 	}
 	in := strings.NewReader("openai\n1\n2\n\nsk-abc\n")
 	var out bytes.Buffer
-	_, err := Run(in, &out, filepath.Join(dir, "config.yaml"), Answers{}, fixedTime())
+	_, err := Run(context.Background(), in, &out, filepath.Join(dir, "config.yaml"), Answers{}, fixedTime())
 	if err == nil {
 		t.Error("a credentials write failure must be reported")
 	}
@@ -675,7 +733,7 @@ func TestEnvKeyOfAnUnknownProviderFallsBack(t *testing.T) {
 // TestChooseBaseURLUsesTheDefault: pressing Enter accepts the provider default.
 func TestChooseBaseURLUsesTheDefault(t *testing.T) {
 	dir := t.TempDir()
-	_, res, err := run(t, dir, []string{"openai", "1", "2", "", ""}, Answers{})
+	_, res, err := run(context.Background(), t, dir, []string{"openai", "1", "2", "", ""}, Answers{})
 	if err != nil {
 		t.Fatalf("Run: %v", err)
 	}
@@ -688,7 +746,7 @@ func TestChooseBaseURLUsesTheDefault(t *testing.T) {
 // TestChooseBaseURLAcceptsACustomEndpoint: any OpenAI-compatible URL works.
 func TestChooseBaseURLAcceptsACustomEndpoint(t *testing.T) {
 	dir := t.TempDir()
-	_, res, err := run(t, dir, []string{"openai", "1", "2", "https://ollama.com/v1", ""}, Answers{})
+	_, res, err := run(context.Background(), t, dir, []string{"openai", "1", "2", "https://ollama.com/v1", ""}, Answers{})
 	if err != nil {
 		t.Fatalf("Run: %v", err)
 	}
@@ -701,7 +759,7 @@ func TestChooseBaseURLAcceptsACustomEndpoint(t *testing.T) {
 // TestChooseBaseURLRejectsGarbage: a URL without scheme is explained and asked again.
 func TestChooseBaseURLRejectsGarbage(t *testing.T) {
 	dir := t.TempDir()
-	out, res, err := run(t, dir, []string{"openai", "1", "2", "not-a-url", "https://ollama.com/v1", ""}, Answers{})
+	out, res, err := run(context.Background(), t, dir, []string{"openai", "1", "2", "not-a-url", "https://ollama.com/v1", ""}, Answers{})
 	if err != nil {
 		t.Fatalf("Run: %v", err)
 	}
@@ -717,7 +775,7 @@ func TestChooseBaseURLRejectsGarbage(t *testing.T) {
 // TestChooseBaseURLGivesUpAfterThreeAttempts.
 func TestChooseBaseURLGivesUpAfterThreeAttempts(t *testing.T) {
 	dir := t.TempDir()
-	_, _, err := run(t, dir, []string{"openai", "1", "2", "bad", "bad", "bad"}, Answers{})
+	_, _, err := run(context.Background(), t, dir, []string{"openai", "1", "2", "bad", "bad", "bad"}, Answers{})
 	if err == nil || !strings.Contains(err.Error(), "three attempts") {
 		t.Errorf("err = %v", err)
 	}

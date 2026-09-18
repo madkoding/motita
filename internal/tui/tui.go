@@ -4,6 +4,9 @@
 // types a number/letter and presses Enter, and the chosen action runs. This makes
 // the whole package testable with bytes.Buffer and portable across every target
 // platform without termios or console API code.
+//
+// Ctrl+C (SIGINT) is handled through the context: the caller cancels the context and
+// the TUI returns immediately instead of blocking on stdin.
 package tui
 
 import (
@@ -13,6 +16,16 @@ import (
 	"io"
 	"os"
 	"strings"
+)
+
+// Exit codes returned by the TUI.
+const (
+	// ExitSuccess: the user exited normally (q, e, EOF).
+	ExitSuccess = 0
+	// ExitError: an action failed.
+	ExitError = 1
+	// ExitInterrupted: the context was cancelled (Ctrl+C, SIGTERM).
+	ExitInterrupted = 2
 )
 
 // MenuOption identifies one of the main menu entries.
@@ -90,18 +103,23 @@ func (t *TUI) input() *bufio.Reader {
 }
 
 // Run displays the main menu and dispatches the selected action.
+// It returns ExitInterrupted if ctx is cancelled while waiting for input.
 func (t *TUI) Run(ctx context.Context) int {
 	t.clearScreen()
 	for {
 		t.drawMenu()
-		choice, ok := t.readChoice()
+		choice, ok := t.readChoice(ctx)
 		if !ok {
-			return 0
+			// Distinguish EOF (clean exit) from a cancelled context (Ctrl+C).
+			if ctx.Err() != nil {
+				return ExitInterrupted
+			}
+			return ExitSuccess
 		}
 		act, _ := t.actionFor(choice)
 		if act == nil {
 			t.printLine(t.color(1, 0, "Unknown option. Press Enter to continue..."))
-			t.waitEnter()
+			t.waitEnter(ctx)
 			t.clearScreen()
 			continue
 		}
@@ -124,13 +142,9 @@ func (t *TUI) drawMenu() {
 	t.printFooter("Type a letter/number and press Enter, or q to quit")
 }
 
-func (t *TUI) readChoice() (string, bool) {
+func (t *TUI) readChoice(ctx context.Context) (string, bool) {
 	t.printPrompt("choice")
-	line, err := t.input().ReadString('\n')
-	if err != nil {
-		return "", false
-	}
-	return strings.TrimSpace(line), true
+	return t.readLine(ctx)
 }
 
 func (t *TUI) actionFor(choice string) (actionFunc, int) {
@@ -197,13 +211,14 @@ func (t *TUI) color(fg, bg int, s string) string {
 }
 
 func runPlan(ctx context.Context, t *TUI) {
-	prompt, ok := t.readLine("Prompt")
+	t.printPrompt("Prompt")
+	prompt, ok := t.readLine(ctx)
 	if !ok {
 		return
 	}
 	if strings.TrimSpace(prompt) == "" {
 		t.printLine("(empty prompt)")
-		t.waitEnter()
+		t.waitEnter(ctx)
 		return
 	}
 	trace := func(format string, args ...any) {
@@ -214,57 +229,93 @@ func runPlan(ctx context.Context, t *TUI) {
 	} else if answer != "" {
 		fmt.Fprintln(t.Out, answer)
 	}
-	t.waitEnter()
+	t.waitEnter(ctx)
 }
 
 func runTask(ctx context.Context, t *TUI) {
-	task, ok := t.readLine("Task")
+	t.printPrompt("Task")
+	task, ok := t.readLine(ctx)
 	if !ok {
 		return
 	}
 	if strings.TrimSpace(task) == "" {
 		t.printLine("(empty task)")
-		t.waitEnter()
+		t.waitEnter(ctx)
 		return
 	}
 	if err := t.Runner.RunTask(ctx, task); err != nil {
 		fmt.Fprintf(t.Err, "\nerror: %v\n", err)
 	}
-	t.waitEnter()
+	t.waitEnter(ctx)
 }
 
 func runConfig(ctx context.Context, t *TUI) {
 	if err := t.Runner.RunConfig(ctx); err != nil {
 		fmt.Fprintf(t.Err, "\nerror: %v\n", err)
 	}
-	t.waitEnter()
+	t.waitEnter(ctx)
 }
 
 func runHelp(ctx context.Context, t *TUI) {
 	fmt.Fprint(t.Out, "\n"+helpText)
-	t.waitEnter()
+	t.waitEnter(ctx)
 }
 
-func (t *TUI) readLine(label string) (string, bool) {
-	t.printPrompt(label)
-	line, err := t.input().ReadString('\n')
-	if err != nil {
+// readLine reads one line from the input. It returns ok=false on EOF or when
+// the context is cancelled, so Ctrl+C does not leave the TUI stuck.
+func (t *TUI) readLine(ctx context.Context) (string, bool) {
+	ch := make(chan lineResult, 1)
+	go func() {
+		l, err := t.input().ReadString('\n')
+		ch <- lineResult{line: l, err: err}
+	}()
+	select {
+	case r := <-ch:
+		if r.err != nil {
+			return "", false
+		}
+		return strings.TrimSpace(r.line), true
+	case <-ctx.Done():
+		// The goroutine will finish when ReadString returns. On a real terminal
+		// that may be after the user presses Enter, but the process is exiting
+		// anyway because of the signal.
+		go func() { <-ch }()
 		return "", false
 	}
-	return strings.TrimSpace(line), true
 }
 
-func (t *TUI) waitEnter() {
+type lineResult struct {
+	line string
+	err  error
+}
+
+func (t *TUI) waitEnter(ctx context.Context) {
 	fmt.Fprintf(t.Out, "\n%s", t.color(2, 0, "Press Enter to return to the menu..."))
 	buf := make([]byte, 1)
 	for {
-		if _, err := t.In.Read(buf); err != nil {
-			return
-		}
-		if buf[0] == '\r' || buf[0] == '\n' {
+		ch := make(chan readResult, 1)
+		go func() {
+			n, err := t.In.Read(buf)
+			ch <- readResult{n: n, err: err}
+		}()
+		select {
+		case r := <-ch:
+			if r.err != nil {
+				return
+			}
+			if buf[0] == '\r' || buf[0] == '\n' {
+				return
+			}
+		case <-ctx.Done():
+			go func() { <-ch }()
 			return
 		}
 	}
+}
+
+type readResult struct {
+	n   int
+	err error
 }
 
 const helpText = `Starlight interactive menu
@@ -279,4 +330,5 @@ How to use:
 
 The TUI is shown by default when the binary is started with no arguments
 and no configured task. Use -tui to force it, or -plan/-task to bypass it.
+Ctrl+C (or any context cancellation) exits the TUI with code 2.
 `

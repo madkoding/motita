@@ -1540,7 +1540,7 @@ func TestInitRefusesWhenTheGeneratedFileDoesNotLoad(t *testing.T) {
 			Out:  &out,
 			Err:  &errs,
 			// A wizard that writes an invalid file on purpose.
-			RunOnboard: func(io.Reader, io.Writer, string, onboard.Answers) (onboard.Result, error) {
+			RunOnboard: func(context.Context, io.Reader, io.Writer, string, onboard.Answers) (onboard.Result, error) {
 				if err := os.WriteFile(path, []byte("llm:\n  provider: telepathy\n"), 0o600); err != nil {
 					t.Fatal(err)
 				}
@@ -1570,7 +1570,7 @@ func TestInitUsesTheInjectedWizard(t *testing.T) {
 			Args: []string{"-init", "-config", path},
 			Out:  &out,
 			Err:  &out,
-			RunOnboard: func(in io.Reader, w io.Writer, gotPath string, preset onboard.Answers) (onboard.Result, error) {
+			RunOnboard: func(_ context.Context, in io.Reader, w io.Writer, gotPath string, preset onboard.Answers) (onboard.Result, error) {
 				called = true
 				if gotPath != path {
 					t.Errorf("the wizard got %q, want %q", gotPath, path)

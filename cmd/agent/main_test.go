@@ -2,11 +2,16 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"testing"
+	"time"
+
+	"github.com/madkoding/starlight/internal/app"
 )
 
 // TestMain lets the test binary act as the program itself when the marker is set:
@@ -179,5 +184,90 @@ func TestAgentWithoutAnchorRefusesToRun(t *testing.T) {
 	}
 	if !strings.Contains(errs, "anchor.kind=none") {
 		t.Errorf("the error must explain the missing anchor: %q", errs)
+	}
+}
+
+// TestRunWithBaseCtx exercises the wiring that main() sets up.
+// TestSetupSignalsClosesCleanly verifies that the background goroutine exits
+// when the signal channel is closed before any signal arrives.
+func TestSetupSignalsClosesCleanly(t *testing.T) {
+	ch := make(chan os.Signal, 1)
+	ctx, _, stop := setupSignals(ch)
+	defer stop()
+
+	close(ch)
+
+	select {
+	case <-ctx.Done():
+		t.Fatal("context must not be cancelled when the channel is closed")
+	case <-time.After(50 * time.Millisecond):
+	}
+}
+
+func TestRunWithBaseCtx(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	code := app.Run(app.Options{
+		Args:    []string{"-version"},
+		Out:     os.Stdout,
+		Err:     os.Stderr,
+		Version: "test",
+		Goos:    "linux",
+		Goarch:  "386",
+		Signals: make(chan os.Signal, 1),
+		BaseCtx: ctx,
+	})
+	if code != app.Success {
+		t.Fatalf("exit code = %d, want %d", code, app.Success)
+	}
+}
+
+// TestSetupSignalsCancelsContext verifies that setupSignals cancels the returned
+// context when SIGINT is delivered, while still making the signal available on
+// the returned channel.
+func TestSetupSignalsCancelsContext(t *testing.T) {
+	ctx, sigs, stop := setupSignals(nil)
+	defer stop()
+
+	sigs <- syscall.SIGINT
+
+	select {
+	case <-ctx.Done():
+	case <-time.After(time.Second):
+		t.Fatal("context was not cancelled after SIGINT")
+	}
+
+	select {
+	case s := <-sigs:
+		if s != syscall.SIGINT {
+			t.Fatalf("got signal %v, want SIGINT", s)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("SIGINT was not re-injected into the signal channel")
+	}
+}
+
+// TestSetupSignalsStopsCleanly checks that the cleanup function can be called
+// repeatedly without panic and that it releases the signal handler and the
+// background goroutine.
+func TestSetupSignalsStopsCleanly(t *testing.T) {
+	ctx, _, stop := setupSignals(nil)
+
+	stop()
+	stop()
+
+	select {
+	case <-ctx.Done():
+	case <-time.After(time.Second):
+		t.Fatal("context was not cancelled by stop()")
+	}
+}
+
+// TestMainEntryVersion is a lightweight smoke test that main() can at least be
+// imported and that the version variable is non-empty.
+func TestMainEntryVersion(t *testing.T) {
+	if version == "" {
+		t.Fatal("version variable is empty")
 	}
 }

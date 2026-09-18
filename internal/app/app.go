@@ -62,6 +62,10 @@ type Options struct {
 	// Signals receives SIGINT/SIGTERM. When nil no handler is installed (test
 	// mode or non-interactive runs).
 	Signals <-chan os.Signal
+	// BaseCtx is the parent context for the run. When it is cancelled (for
+	// example by a Ctrl+C handler in main), interactive modes return
+	// immediately. If nil, context.Background() is used.
+	BaseCtx context.Context
 
 	// Construction hooks, to replace the layers in tests.
 	NewLogger  func(config.Agent) (*logx.Logger, error)
@@ -72,7 +76,7 @@ type Options struct {
 	// RunOnboard is the first-run wizard. Injected so the flag can be tested
 	// without a terminal, and so the conversation itself can be driven from a
 	// test (it lives in internal/onboard, which takes its input as a reader).
-	RunOnboard func(io.Reader, io.Writer, string, onboard.Answers) (onboard.Result, error)
+	RunOnboard func(context.Context, io.Reader, io.Writer, string, onboard.Answers) (onboard.Result, error)
 	// Stdin is the input of the wizard.
 	Stdin io.Reader
 
@@ -167,9 +171,12 @@ func (op *Options) complete() {
 		op.Stdin = os.Stdin
 	}
 	if op.RunOnboard == nil {
-		op.RunOnboard = func(in io.Reader, out io.Writer, path string, preset onboard.Answers) (onboard.Result, error) {
-			return onboard.Run(in, out, path, preset, time.Now())
+		op.RunOnboard = func(ctx context.Context, in io.Reader, out io.Writer, path string, preset onboard.Answers) (onboard.Result, error) {
+			return onboard.Run(ctx, in, out, path, preset, time.Now())
 		}
+	}
+	if op.BaseCtx == nil {
+		op.BaseCtx = context.Background()
 	}
 	if op.Err == nil {
 		op.Err = io.Discard
@@ -275,7 +282,7 @@ func (op Options) initConfig(fl flags) int {
 	fmt.Fprintf(op.Out, "This wizard writes a working configuration in %s.\n", path)
 	fmt.Fprintf(op.Out, "Nothing is written until every answer is in: press q to cancel at any point.\n")
 
-	res, err := op.RunOnboard(op.Stdin, op.Out, path, onboard.Answers{})
+	res, err := op.RunOnboard(op.BaseCtx, op.Stdin, op.Out, path, onboard.Answers{})
 	if err != nil {
 		if errors.Is(err, onboard.ErrCancelled) {
 			fmt.Fprintf(op.Out, "\nCancelled: nothing was written.\n")
@@ -346,7 +353,7 @@ func (op Options) run(fl flags) int {
 		return Success
 	}
 
-	ctx, wait := op.contextWithShutdown(cfg, log)
+	ctx, wait := op.contextWithShutdown(op.BaseCtx, cfg, log)
 	defer wait()
 
 	// Layer B: the reasoning engine.
@@ -434,8 +441,8 @@ func (op Options) runAgent(ctx context.Context, ag *agent.Agent) error {
 //
 // It returns the context and a function to uninstall the handler (needed so no
 // goroutines are left alive between tests).
-func (op Options) contextWithShutdown(cfg config.Config, log *logx.Logger) (context.Context, func()) {
-	ctx, cancel := context.WithCancel(context.Background())
+func (op Options) contextWithShutdown(parent context.Context, cfg config.Config, log *logx.Logger) (context.Context, func()) {
+	ctx, cancel := context.WithCancel(parent)
 	if op.Signals == nil {
 		return ctx, cancel
 	}

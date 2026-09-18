@@ -404,9 +404,10 @@ Plan mode is **structurally read-only**: the agent calls tools (`read_file`,
 pipes and shell metacharacters are syntactically impossible. Destructive
 commands are refused before they run.
 
-**Graceful shutdown:** the first `SIGINT`/`SIGTERM` cancels the work in progress
-and grants `agent.graceful_shutdown_timeout` seconds to finish; the second exits
-immediately with code 130.
+**Graceful shutdown:** `Ctrl+C` (or `SIGINT`/`SIGTERM`) works everywhere. The first
+signal cancels the current work in progress, returns from the TUI or `-init`
+wizard, and grants `agent.graceful_shutdown_timeout` seconds to finish; the
+second signal exits immediately with code 130.
 
 **Exit code:** `0` if every task passed the anchor, `1` if any failed (including
 each one's reason *in the error message itself*) and `2` if the configuration is
