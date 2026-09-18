@@ -95,11 +95,17 @@ func New(op Options) (*Sandbox, error) {
 	if op.Log == nil {
 		op.Log = logx.Global()
 	}
-	if op.Dir == "" {
-		op.Dir = "."
-	}
-	if err := os.MkdirAll(op.Dir, 0o755); err != nil {
-		return nil, fmt.Errorf("could not create the working directory %q: %w", op.Dir, err)
+	// The workspace directory is only required when a chroot root is set, because
+	// that is the only isolation mechanism that enters a different directory.
+	// When there is no chroot the process keeps its own working directory and the
+	// configured path is not entered — it is only recorded as metadata.
+	if op.UseChroot {
+		if op.Dir == "" {
+			op.Dir = "."
+		}
+		if err := os.MkdirAll(op.Dir, 0o755); err != nil {
+			return nil, fmt.Errorf("could not create the working directory %q: %w", op.Dir, err)
+		}
 	}
 	abs, err := filepath.Abs(op.Dir)
 	if err != nil {

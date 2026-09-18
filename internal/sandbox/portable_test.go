@@ -25,7 +25,7 @@ import (
 // if it is missing, everywhere.
 func TestNewCreatesTheWorkingDirectory(t *testing.T) {
 	dir := filepath.Join(t.TempDir(), "a", "b", "workspace")
-	box, err := New(Options{Dir: dir})
+	box, err := New(Options{Dir: dir, UseChroot: true, Root: "."})
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}

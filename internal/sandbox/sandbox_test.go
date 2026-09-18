@@ -470,15 +470,16 @@ func TestIsolationDeclared(t *testing.T) {
 	}
 }
 
-// TestSandboxBaseDirectoryMissing: it is created, it does not fail.
+// TestSandboxBaseDirectoryMissing: without chroot the directory is NOT created
+// but sandbox does not fail either. The path is recorded as metadata.
 func TestSandboxBaseDirectoryMissing(t *testing.T) {
 	base := filepath.Join(t.TempDir(), "does", "not", "exist", "yet")
 	s, err := New(Options{Dir: base, Log: logx.Global()})
 	if err != nil {
-		t.Fatalf("it should create the directory: %v", err)
+		t.Fatalf("sandbox should not fail when the directory is missing: %v", err)
 	}
 	defer s.Close()
-	if _, err := os.Stat(base); err != nil {
-		t.Errorf("the base directory was not created: %v", err)
+	if _, err := os.Stat(base); !os.IsNotExist(err) {
+		t.Errorf("the base directory should NOT be created when UseChroot is false: got error %v", err)
 	}
 }

@@ -637,8 +637,8 @@ func TestNewDefaultsTheWorkingDirectoryToTheCurrentOne(t *testing.T) {
 	}
 }
 
-// TestNewReportsAnUncreatableWorkingDirectory: a directory that cannot be created
-// stops New, because every later path depends on it.
+// TestNewReportsAnUncreatableWorkingDirectory: with chroot, a directory that cannot
+// be created stops New because every later path depends on it.
 func TestNewReportsAnUncreatableWorkingDirectory(t *testing.T) {
 	base := t.TempDir()
 	file := filepath.Join(base, "a-file")
@@ -646,7 +646,7 @@ func TestNewReportsAnUncreatableWorkingDirectory(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	s, err := New(Options{Dir: filepath.Join(file, "below-a-file")})
+	s, err := New(Options{Dir: filepath.Join(file, "below-a-file"), UseChroot: true, Root: "."})
 	if err == nil {
 		s.Close()
 		t.Fatal("a working directory that cannot be created must be an error")

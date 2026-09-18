@@ -75,9 +75,14 @@ func New(cfg config.LLM, log *logx.Logger) (*Client, error) {
 	}
 
 	return &Client{
-		cfg:  cfg,
-		http: &http.Client{Timeout: cfg.Timeout},
-		log:  log,
+		cfg: cfg,
+		http: &http.Client{
+			Timeout: cfg.Timeout,
+			Transport: &http.Transport{
+				TLSClientConfig: TLSConfig(),
+			},
+		},
+		log: log,
 		sleep: func(d time.Duration) {
 			time.Sleep(d)
 		},
@@ -284,7 +289,12 @@ func fetchModelList(ctx context.Context, url, apiKey string) ([]string, error) {
 		req.Header.Set("Authorization", "Bearer "+apiKey)
 	}
 
-	client := http.Client{Timeout: 15 * time.Second}
+	client := http.Client{
+		Timeout: 15 * time.Second,
+		Transport: &http.Transport{
+			TLSClientConfig: TLSConfig(),
+		},
+	}
 	resp, err := client.Do(req)
 	if err != nil {
 		return nil, err
