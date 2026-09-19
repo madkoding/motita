@@ -279,19 +279,10 @@ func load(path string, requireKey bool) (Config, error) {
 		}
 	}
 
-	// Environment variables (they win over the YAML) and compatibility with the
-	// standard OPENAI_* variables.
+	// Environment variables (they win over the YAML), including the standard
+	// OPENAI_* names the README documents.
 	if err := ApplyEnvironment(&cfg); err != nil {
 		return cfg, err
-	}
-	if v := os.Getenv("OPENAI_API_KEY"); cfg.LLM.APIKey == "" && v != "" {
-		cfg.LLM.APIKey = v
-	}
-	if v := os.Getenv("OPENAI_BASE_URL"); v != "" && os.Getenv("STARLIGHT_LLM_BASE_URL") == "" && cfg.LLM.BaseURL == Default().LLM.BaseURL {
-		cfg.LLM.BaseURL = v
-	}
-	if v := os.Getenv("OPENAI_MODEL"); v != "" && os.Getenv("STARLIGHT_LLM_MODEL") == "" && cfg.LLM.Model == Default().LLM.Model {
-		cfg.LLM.Model = v
 	}
 
 	if err := cfg.validate(requireKey); err != nil {

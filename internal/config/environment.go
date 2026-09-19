@@ -79,6 +79,9 @@ func ApplyEnvironment(c *Config) error {
 	// --- llm ---
 	c.LLM.Provider = readText("STARLIGHT_LLM_PROVIDER", c.LLM.Provider)
 	c.LLM.Model = readText("STARLIGHT_LLM_MODEL", c.LLM.Model)
+	if os.Getenv("STARLIGHT_LLM_MODEL") == "" && c.LLM.Model == Default().LLM.Model {
+		c.LLM.Model = readText("OPENAI_MODEL", c.LLM.Model)
+	}
 	c.LLM.APIKey = readText("STARLIGHT_LLM_API_KEY", c.LLM.APIKey)
 	// The provider's own variable is honoured too, so "just paste the key" works
 	// the way each service documents it (OLLAMA_API_KEY for Ollama Cloud). It is
@@ -87,7 +90,29 @@ func ApplyEnvironment(c *Config) error {
 	if _, generic := os.LookupEnv("STARLIGHT_LLM_API_KEY"); !generic {
 		c.LLM.APIKey = readText(ProviderKeyVariable(c.LLM.Provider), c.LLM.APIKey)
 	}
+
+	// Compatibility with the names the OpenAI ecosystem already exports, which the
+	// README promises to accept. They are applied HERE, in the one overlay that
+	// every loading path runs, so a value reaches the engine whether the
+	// configuration came from a file, from the defaults, or from nothing at all.
+	// Reading them only inside Load left the -p and TUI paths — which load the
+	// defaults plus the environment — with no key, and the end-to-end test failed
+	// with "the LLM key is missing" while the README said the variable worked.
+	//
+	// The precedence is: the documented STARLIGHT_ name wins, then the provider's
+	// own alias, then the standard OpenAI name.
+	if _, explicit := os.LookupEnv("STARLIGHT_LLM_API_KEY"); !explicit {
+		if _, own := os.LookupEnv(ProviderKeyVariable(c.LLM.Provider)); !own {
+			c.LLM.APIKey = readText("OPENAI_API_KEY", c.LLM.APIKey)
+		}
+	}
 	c.LLM.BaseURL = readText("STARLIGHT_LLM_BASE_URL", c.LLM.BaseURL)
+	// The standard OpenAI names are only consulted when nothing else set the value,
+	// so a configuration that names its own endpoint or model is never overridden
+	// by a stray variable.
+	if os.Getenv("STARLIGHT_LLM_BASE_URL") == "" && c.LLM.BaseURL == Default().LLM.BaseURL {
+		c.LLM.BaseURL = readText("OPENAI_BASE_URL", c.LLM.BaseURL)
+	}
 	if c.LLM.MaxTokens, err = readInteger("STARLIGHT_LLM_MAX_TOKENS", c.LLM.MaxTokens); err != nil {
 		return err
 	}

@@ -49,6 +49,12 @@ type request struct {
 		} `json:"function"`
 	} `json:"tools"`
 	ToolChoice string `json:"tool_choice"`
+	// Stream is what the client actually asks for: the plan loop streams, so the
+	// mock has to answer in Server-Sent Events. A mock that replies with a plain
+	// JSON body to a streaming request is a mock that does not speak the protocol,
+	// and the end-to-end test then fails for a reason that has nothing to do with
+	// the code under test.
+	Stream bool `json:"stream"`
 }
 
 // toolCall builds a tool_call with `arguments` as a JSON string, which is exactly
@@ -152,8 +158,69 @@ func handle(w http.ResponseWriter, r *http.Request) {
 		out = toolCallsResponse()
 	}
 
+	if req.Stream {
+		writeSSE(w, out)
+		return
+	}
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(out)
+}
+
+// writeSSE renders a completion as the event stream a real provider sends: one
+// chunk per piece, a final chunk carrying the finish reason, and the [DONE]
+// sentinel. Content is delivered as text deltas; tool calls are delivered as a
+// single delta, which is what a provider does for a call that is not split across
+// frames.
+func writeSSE(w http.ResponseWriter, out map[string]any) {
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
+	flusher, _ := w.(http.Flusher)
+
+	choices, _ := out["choices"].([]map[string]any)
+	if len(choices) == 0 {
+		fmt.Fprint(w, "data: [DONE]\n\n")
+		return
+	}
+	choice := choices[0]
+	message, _ := choice["message"].(map[string]any)
+
+	send := func(delta map[string]any, finish string) {
+		chunk := map[string]any{
+			"id":      out["id"],
+			"object":  "chat.completion.chunk",
+			"model":   out["model"],
+			"choices": []map[string]any{{"index": 0, "delta": delta, "finish_reason": finish}},
+		}
+		data, _ := json.Marshal(chunk)
+		fmt.Fprintf(w, "data: %s\n\n", data)
+		if flusher != nil {
+			flusher.Flush()
+		}
+	}
+
+	if calls, ok := message["tool_calls"].([]map[string]any); ok && len(calls) > 0 {
+		send(map[string]any{"role": "assistant", "tool_calls": calls}, "tool_calls")
+	} else {
+		text, _ := message["content"].(string)
+		// Two frames: a provider never sends the whole answer as one chunk.
+		//
+		// The split is by rune, not by byte: cutting a multi-byte character in half
+		// produces two chunks that are not valid UTF-8, and a client that assembles
+		// them back does not necessarily end up with the original text. The E2E
+		// answer contains accented characters, so this is not hypothetical.
+		if text != "" {
+			runes := []rune(text)
+			half := len(runes) / 2
+			send(map[string]any{"content": string(runes[:half])}, "")
+			send(map[string]any{"content": string(runes[half:])}, "stop")
+		} else {
+			send(map[string]any{"content": ""}, "stop")
+		}
+	}
+	fmt.Fprint(w, "data: [DONE]\n\n")
+	if flusher != nil {
+		flusher.Flush()
+	}
 }
 
 // listenAndServe is replaceable so the bootstrap can be tested: the real one
