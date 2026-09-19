@@ -18,6 +18,9 @@ type fakeRunner struct {
 	taskCalled   bool
 	configCalled bool
 	modelsCalled bool
+	modelsCalls  int
+	modelsReport string
+	planProgress []string
 	planAnswer   string
 	planErr      error
 	taskErr      error
@@ -37,7 +40,13 @@ func (f *fakeRunner) RunPlan(ctx context.Context, prompt string, progress func(s
 	f.planCalled = true
 	f.lastPrompt = prompt
 	if progress != nil {
-		progress("analysing...")
+		if len(f.planProgress) > 0 {
+			for _, p := range f.planProgress {
+				progress("%s", p)
+			}
+		} else {
+			progress("analysing...")
+		}
 	}
 	if f.planErr != nil {
 		return "", f.planErr
@@ -66,11 +75,12 @@ func (f *fakeRunner) RunConfig(ctx context.Context) error {
 	return f.configErr
 }
 
-func (f *fakeRunner) RunModels(ctx context.Context) error {
+func (f *fakeRunner) RunModels(ctx context.Context) (string, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.modelsCalled = true
-	return f.modelsErr
+	f.modelsCalls++
+	return f.modelsReport, f.modelsErr
 }
 
 func (f *fakeRunner) Config() config.Config {
@@ -100,6 +110,11 @@ func newFakeTUI(inputs string, runner Runner) *TUI {
 		Err:     &bytes.Buffer{},
 		Runner:  runner,
 		NoColor: true,
+		// A pinned size keeps the layout deterministic: without it the frame
+		// would depend on COLUMNS/LINES in the environment that runs the test,
+		// which is how a test starts passing or failing for no reason.
+		Width:  80,
+		Height: 40,
 	}
 }
 
@@ -232,7 +247,7 @@ func TestRunConfigError(t *testing.T) {
 	runner := &fakeRunner{configErr: errors.New("wizard failed")}
 	tui := newFakeTUI("/c\n\nq\n", runner)
 	tui.Run(context.Background())
-	if !strings.Contains(outputOf(tui), "config error: wizard failed") {
+	if !strings.Contains(outputOf(tui), "the wizard failed: wizard failed") {
 		t.Errorf("error not reported: %q", outputOf(tui))
 	}
 }
@@ -250,7 +265,7 @@ func TestRunModelsError(t *testing.T) {
 	runner := &fakeRunner{modelsErr: errors.New("catalogue unavailable")}
 	tui := newFakeTUI("/m\n\nq\n", runner)
 	tui.Run(context.Background())
-	if !strings.Contains(outputOf(tui), "models error: catalogue unavailable") {
+	if !strings.Contains(outputOf(tui), "the catalogue could not be read: catalogue unavailable") {
 		t.Errorf("error not reported: %q", outputOf(tui))
 	}
 }

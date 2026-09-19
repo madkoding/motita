@@ -81,6 +81,10 @@ type Message struct {
 	Author  Author
 	Text    string
 	Pending bool // true while the agent is still producing this line
+	// Frozen marks a line that must never be written into again: a tool
+	// announcement is an event that has already happened, and the output that
+	// follows it belongs to the next block.
+	Frozen bool
 }
 
 // TUI is the conversational terminal user interface.
@@ -91,11 +95,20 @@ type TUI struct {
 	Runner  Runner
 	NoColor bool
 
+	// Width and Height override the drawing area. Zero means "ask the
+	// environment": tests set them to make the layout deterministic, and an
+	// embedder can pin them to a fixed size.
+	Width, Height int
+
 	screen     Screen
 	messages   []Message
 	reader     *bufio.Reader
 	cancelRun  context.CancelFunc
 	runningCtx context.Context
+	// busy is true while a turn is in flight, which turns the status dot into a
+	// spinner; spin is the animation frame advanced on every repaint.
+	busy bool
+	spin int
 }
 
 // New creates a TUI with sensible defaults for production use.
@@ -164,9 +177,21 @@ func (t *TUI) Run(ctx context.Context) int {
 		case ScreenPlan:
 			t.runPlan(ctx, line)
 		case ScreenModels:
-			t.runModels(ctx)
+			// The catalogue and the wizard are actions, not conversations: they
+			// are triggered by Enter on an empty line. Anything else would run
+			// them again by accident and write over the report the user is
+			// reading, so other input is answered with a reminder instead.
+			if strings.TrimSpace(line) == "" {
+				t.runModels(ctx)
+			} else {
+				t.addMessage(AuthorSystem, "press Enter to refresh this view, or Tab to switch mode.")
+			}
 		case ScreenConfig:
-			t.runConfig(ctx)
+			if strings.TrimSpace(line) == "" {
+				t.runConfig(ctx)
+			} else {
+				t.addMessage(AuthorSystem, "press Enter to start the wizard, or Tab to switch mode.")
+			}
 		}
 	}
 }
@@ -273,16 +298,24 @@ func (t *TUI) runTask(ctx context.Context, task string) {
 		done <- runOutcome{result: res, err: err}
 	}()
 
-	t.addMessage(AuthorAgent, "thinking...")
+	t.beginTurn()
+	t.addMessage(AuthorAgent, "")
 	pendingIdx := len(t.messages) - 1
+	t.messages[pendingIdx].Pending = true
+	t.advance()
 
+	// Task mode reports its phases through the same callback. A phase is a
+	// transient label for the block that is running, so it is overwritten as the
+	// run advances, and the last visible one is replaced by the result. It is
+	// never frozen: unlike a plan tool call, a phase is not an event worth
+	// keeping.
 	var outcome runOutcome
 loop:
 	for {
 		select {
 		case p := <-progress:
 			t.messages[pendingIdx].Text = p
-			t.drawFrame()
+			t.advance()
 		case outcome = <-done:
 			break loop
 		case <-runCtx.Done():
@@ -303,10 +336,79 @@ loop:
 	} else if outcome.result != "" {
 		t.messages[pendingIdx].Text = outcome.result
 	} else {
-		t.messages[pendingIdx].Text = "done."
+		t.messages[pendingIdx].Text = "the task finished without reporting a result."
 	}
 	t.messages[pendingIdx].Pending = false
-	t.drawFrame()
+	t.endTurn()
+}
+
+// planStream accumulates the live output of one plan run into the chat.
+//
+// It owns one invariant: exactly one message is "pending" (the block the model is
+// still writing into) and every tool announcement is frozen the moment it
+// arrives. Without that, the text that follows a tool call is appended to the
+// tool line and overwrites it, which is how the announcement used to disappear.
+type planStream struct {
+	tui        *TUI
+	pendingIdx int
+	text       string
+}
+
+func (s *planStream) handle(line string) {
+	if _, isPhase := phaseLabel(line); isPhase {
+		// A phase is shown as movement (the spinner and the marker on the open
+		// block), never as answer text: the block stays empty until real output
+		// arrives, and an empty block is dropped when it closes.
+		return
+	}
+	if label, isTool := toolLabel(line); isTool {
+		s.closePending()
+		// The frozen tool line: it must never be written into again.
+		s.tui.messages = append(s.tui.messages, Message{Author: AuthorAgent, Text: label, Frozen: true})
+		s.openPending()
+		return
+	}
+	s.text += line
+	s.tui.messages[s.pendingIdx].Text = s.text
+}
+
+// closePending finishes the block being written, dropping it when it stayed empty
+// so a tool call does not leave a blank turn behind it.
+func (s *planStream) closePending() {
+	if strings.TrimSpace(s.text) == "" && s.pendingIdx == len(s.tui.messages)-1 {
+		s.tui.messages = s.tui.messages[:s.pendingIdx]
+		return
+	}
+	s.tui.messages[s.pendingIdx].Text = s.text
+	s.tui.messages[s.pendingIdx].Pending = false
+}
+
+// openPending starts the next block the model will write into.
+func (s *planStream) openPending() {
+	s.tui.messages = append(s.tui.messages, Message{Author: AuthorAgent, Pending: true})
+	s.pendingIdx = len(s.tui.messages) - 1
+	s.text = ""
+}
+
+// settle applies the outcome of the run to the block still open.
+func (s *planStream) settle(err error, answer string) {
+	switch {
+	case err == context.Canceled:
+		s.setText("cancelled.")
+	case err != nil:
+		s.setText(fmt.Sprintf("error: %v", err))
+	case answer != "":
+		s.setText(answer)
+	case s.text != "":
+		s.setText(s.text)
+	default:
+		s.setText("the model returned nothing to show.")
+	}
+}
+
+func (s *planStream) setText(text string) {
+	s.tui.messages[s.pendingIdx].Text = text
+	s.tui.messages[s.pendingIdx].Pending = false
 }
 
 func (t *TUI) runPlan(ctx context.Context, prompt string) {
@@ -345,14 +447,16 @@ func (t *TUI) runPlan(ctx context.Context, prompt string) {
 		}{answer, err}
 	}()
 
-	t.addMessage(AuthorAgent, "thinking...")
-	pendingIdx := len(t.messages) - 1
+	t.beginTurn()
+	t.addMessage(AuthorAgent, "")
+	stream := &planStream{tui: t, pendingIdx: len(t.messages) - 1}
+	t.messages[stream.pendingIdx].Pending = true
+	t.advance()
 
 	var result struct {
 		answer string
 		err    error
 	}
-	currentText := ""
 loop:
 	for {
 		select {
@@ -360,18 +464,8 @@ loop:
 			if !ok {
 				break loop
 			}
-			if strings.HasPrefix(p, "[using tool:") {
-				// A tool call is a discrete event: show it as its own line.
-				t.messages[pendingIdx].Text = currentText
-				t.messages[pendingIdx].Pending = false
-				t.addMessage(AuthorAgent, p)
-				pendingIdx = len(t.messages) - 1
-				currentText = ""
-			} else {
-				currentText += p
-				t.messages[pendingIdx].Text = currentText
-			}
-			t.drawFrame()
+			stream.handle(p)
+			t.advance()
 		case r, ok := <-done:
 			if !ok {
 				break loop
@@ -386,93 +480,130 @@ loop:
 	wg.Wait()
 	close(done)
 
-	// Drain any trailing progress after completion/cancellation without blocking.
-	select {
-	case p := <-progress:
-		if strings.HasPrefix(p, "[using tool:") {
-			t.messages[pendingIdx].Text = currentText
-			t.messages[pendingIdx].Pending = false
-			t.addMessage(AuthorAgent, p)
-			pendingIdx = len(t.messages) - 1
-			currentText = ""
-		} else {
-			currentText += p
-			t.messages[pendingIdx].Text = currentText
+	// Drain every progress line still queued. The select above breaks as soon as
+	// the outcome is ready, so several lines can still be in flight, and a single
+	// non-blocking read would drop them.
+	for {
+		select {
+		case p := <-progress:
+			stream.handle(p)
+			continue
+		default:
 		}
-	default:
+		break
 	}
 
 	t.cancelRun = nil
 	t.runningCtx = nil
 
-	if result.err != nil {
-		if result.err == context.Canceled {
-			t.messages[pendingIdx].Text = "cancelled."
-		} else {
-			t.messages[pendingIdx].Text = fmt.Sprintf("error: %v", result.err)
-		}
-	} else if result.answer != "" {
-		t.messages[pendingIdx].Text = result.answer
-	} else if currentText != "" && result.answer == "" {
-		t.messages[pendingIdx].Text = currentText
-	} else {
-		t.messages[pendingIdx].Text = "done."
+	stream.closePending()
+	if stream.pendingIdx >= len(t.messages) {
+		// The last block was empty and got dropped: settle on a fresh one.
+		stream.openPending()
 	}
-	t.messages[pendingIdx].Pending = false
-	t.drawFrame()
+	stream.settle(result.err, result.answer)
+	t.endTurn()
 }
 
+// runModels lists the catalogue inside the panel: the report comes back as text
+// and becomes part of the conversation, so it scrolls with everything else and is
+// never written over the frame.
 func (t *TUI) runModels(ctx context.Context) {
-	t.addMessage(AuthorSystem, "fetching models...")
+	t.beginTurn()
+	t.addMessage(AuthorSystem, "asking the provider for its catalogue...")
 	pendingIdx := len(t.messages) - 1
-	t.drawFrame()
+	t.advance()
 
-	if err := t.Runner.RunModels(ctx); err != nil {
-		t.messages[pendingIdx].Text = fmt.Sprintf("models error: %v", err)
-	} else {
-		t.messages[pendingIdx].Text = "models listed above."
+	report, err := t.Runner.RunModels(ctx)
+	switch {
+	case err != nil:
+		t.messages[pendingIdx].Author = AuthorSystem
+		t.messages[pendingIdx].Text = fmt.Sprintf("the catalogue could not be read: %v", err)
+	case strings.TrimSpace(report) == "":
+		t.messages[pendingIdx].Text = "the provider published no models."
+	default:
+		// A report is a block of labelled lines: it is shown as the model's
+		// answer so the panel draws it on the rail.
+		t.messages[pendingIdx].Author = AuthorAgent
+		t.messages[pendingIdx].Text = strings.TrimRight(report, "\n")
 	}
 	t.messages[pendingIdx].Pending = false
-	t.drawFrame()
+	t.endTurn()
 }
 
+// runConfig runs the first-run wizard.
 func (t *TUI) runConfig(ctx context.Context) {
-	t.addMessage(AuthorSystem, "running configuration wizard...")
+	t.beginTurn()
+	t.addMessage(AuthorSystem, "starting the configuration wizard...")
 	pendingIdx := len(t.messages) - 1
-	t.drawFrame()
+	t.advance()
 
 	if err := t.Runner.RunConfig(ctx); err != nil {
-		t.messages[pendingIdx].Text = fmt.Sprintf("config error: %v", err)
+		t.messages[pendingIdx].Text = fmt.Sprintf("the wizard failed: %v", err)
 	} else {
-		t.messages[pendingIdx].Text = "configuration saved."
+		t.messages[pendingIdx].Text = "configuration written."
 	}
 	t.messages[pendingIdx].Pending = false
-	t.drawFrame()
+	t.endTurn()
 }
 
+// addMessage appends a chat line and repaints.
 func (t *TUI) addMessage(author Author, text string) {
-	t.messages = append(t.messages, Message{Author: author, Text: text, Pending: author == AuthorAgent && text == "thinking..."})
+	t.messages = append(t.messages, Message{Author: author, Text: text})
 	t.drawFrame()
 }
 
-// readLine reads one line from the input. It returns ok=false on EOF or when
-// the context is cancelled. If the first typed key is Tab, it is consumed as
-// the view-switching shortcut and the special string "	" is returned so the
-// caller can handle it without injecting a tab into the input buffer.
+// beginTurn marks the interface as busy and repaints, so the status line shows a
+// spinner for the whole duration of a turn instead of a static dot.
+func (t *TUI) beginTurn() {
+	t.busy = true
+	t.spin++
+}
+
+// endTurn clears the busy flag and repaints the finished conversation.
+func (t *TUI) endTurn() {
+	t.busy = false
+	t.drawFrame()
+}
+
+// advance repaints while a turn is running, which animates the spinner. It is
+// called from the progress loop, so a slow model still shows movement.
+func (t *TUI) advance() {
+	if t.busy {
+		t.spin++
+	}
+	t.drawFrame()
+}
+
+// readLine reads one line from the input. It returns ok=false on EOF or when the
+// context is cancelled.
+//
+// The first byte is read on its own, before a full line is asked for, because two
+// keys have to be recognised without becoming part of the line:
+//
+//   - Tab switches view, so it must not be appended to a prompt (which is what
+//     bufio would do, since it only stops at a newline).
+//   - A newline on its own is an empty line, and it means "run the action of this
+//     view". It has to be returned as such: reading a full line after the
+//     newline was already consumed would silently return the *next* line and lose
+//     the empty one.
 func (t *TUI) readLine(ctx context.Context) (string, bool) {
-	// Peek the first byte to intercept Tab before it becomes part of a line.
-	b, ok := t.readKey(ctx)
+	head, ok := t.readKey(ctx)
 	if !ok {
 		return "", false
 	}
-	if b == '	' {
+	if head == '	' {
 		return "	", true
 	}
-	// Not a tab: read the rest of the line, prepending the first byte.
+	if head == '\n' || head == '\r' {
+		return "", true
+	}
+
+	// Not a special key: read the rest of the line and put the first byte back.
 	ch := make(chan lineResult, 1)
 	go func() {
-		l, err := t.input().ReadString('\n')
-		ch <- lineResult{line: string(b) + l, err: err}
+		rest, err := t.input().ReadString('\n')
+		ch <- lineResult{line: string(head) + rest, err: err}
 	}()
 	select {
 	case r := <-ch:

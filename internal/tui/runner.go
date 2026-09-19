@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/madkoding/starlight/internal/agent"
@@ -32,8 +33,10 @@ type Runner interface {
 	RunTask(ctx context.Context, task string, progress func(string, ...any)) (string, error)
 	// RunConfig runs the onboarding wizard.
 	RunConfig(ctx context.Context) error
-	// RunModels reports the active provider and the models it publishes.
-	RunModels(ctx context.Context) error
+	// RunModels reports the active provider and the models it publishes. It also
+	// writes the report to the runner's output, and returns it so a chat view can
+	// keep it in its own scrollback.
+	RunModels(ctx context.Context) (string, error)
 	// Config returns the current configuration (used for the status bar).
 	Config() config.Config
 	// SetReasoning changes the in-memory reasoning level.
@@ -178,27 +181,31 @@ func (r *AppRunner) RunConfig(ctx context.Context) error {
 	return err
 }
 
-// RunModels prints the active setup and the catalogue the provider publishes.
+// RunModels builds the report of the active setup and the catalogue the provider
+// publishes, and returns it as text. It is the caller that decides where the
+// report goes: the chat view keeps it in its own scrollback, which is what lets
+// it be rendered inside the panel instead of being written over the frame.
 //
 // It is the answer to "is what I configured actually reachable?", which a user
 // cannot check from the menu otherwise. The key is reported as present/absent and
 // never printed, so the screen can be shared safely.
-func (r *AppRunner) RunModels(ctx context.Context) error {
+func (r *AppRunner) RunModels(ctx context.Context) (string, error) {
 	cfg := r.Cfg
-	fmt.Fprintf(r.Out, "\nprovider : %s\n", cfg.LLM.Provider)
-	fmt.Fprintf(r.Out, "model    : %s\n", cfg.LLM.Model)
-	fmt.Fprintf(r.Out, "base URL : %s\n", cfg.LLM.BaseURL)
+	var b strings.Builder
+	fmt.Fprintf(&b, "provider : %s\n", cfg.LLM.Provider)
+	fmt.Fprintf(&b, "model    : %s\n", cfg.LLM.Model)
+	fmt.Fprintf(&b, "base URL : %s\n", cfg.LLM.BaseURL)
 	if cfg.LLM.APIKey == "" {
-		fmt.Fprintf(r.Out, "api key  : MISSING (set %s)\n", config.ProviderKeyVariable(cfg.LLM.Provider))
+		fmt.Fprintf(&b, "api key  : MISSING (set %s)\n", config.ProviderKeyVariable(cfg.LLM.Provider))
 	} else {
-		fmt.Fprintf(r.Out, "api key  : present\n")
+		fmt.Fprintf(&b, "api key  : present\n")
 	}
 
 	base := cfg.LLM.BaseURL
 	if base == "" {
 		base = onboard.DefaultBaseURL(cfg.LLM.Provider)
 	}
-	fmt.Fprintf(r.Out, "\nmodels published by %s:\n", base)
+	fmt.Fprintf(&b, "\nmodels published by %s:\n", base)
 
 	lister := r.listModels
 	if lister == nil {
@@ -208,17 +215,19 @@ func (r *AppRunner) RunModels(ctx context.Context) error {
 	if err != nil {
 		// A listing failure must not look like a broken agent: say what failed
 		// and still show the model the configuration will use.
-		fmt.Fprintf(r.Out, "  could not read the catalogue: %v\n", err)
-		fmt.Fprintf(r.Out, "  the configured model %q will still be used.\n", cfg.LLM.Model)
-		return nil
+		fmt.Fprintf(&b, "  could not read the catalogue: %v\n", err)
+		fmt.Fprintf(&b, "  the configured model %q will still be used.\n", cfg.LLM.Model)
+		// The error is reported in the text, not as a Go error: the report was
+		// produced, and the caller has something useful to show.
+		return b.String(), nil
 	}
 	for _, m := range models {
 		mark := "  "
 		if m == cfg.LLM.Model {
 			mark = "* "
 		}
-		fmt.Fprintf(r.Out, "  %s%s\n", mark, m)
+		fmt.Fprintf(&b, "  %s%s\n", mark, m)
 	}
-	fmt.Fprintf(r.Out, "\n  (* is the model this configuration uses)\n")
-	return nil
+	fmt.Fprintf(&b, "\n  (* is the model this configuration uses)\n")
+	return b.String(), nil
 }

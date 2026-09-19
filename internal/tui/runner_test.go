@@ -140,10 +140,11 @@ func TestAppRunnerRunModelsListsAndMarksTheConfiguredOne(t *testing.T) {
 		}
 		return []string{"glm-5.3", "gpt-oss:120b"}, nil
 	}
-	if err := r.RunModels(context.Background()); err != nil {
+	report, err := r.RunModels(context.Background())
+	if err != nil {
 		t.Fatalf("RunModels: %v", err)
 	}
-	got := out.String()
+	got := report
 	if !strings.Contains(got, "glm-5.3") || !strings.Contains(got, "gpt-oss:120b") {
 		t.Errorf("the catalogue must be printed:\n%s", got)
 	}
@@ -160,14 +161,15 @@ func TestAppRunnerRunModelsNeverPrintsTheKey(t *testing.T) {
 
 	r := NewAppRunner(&out, &bytes.Buffer{}, cfg, &llm.Client{}, &sandbox.Sandbox{}, logx.Global())
 	r.listModels = func(context.Context, string, string) ([]string, error) { return []string{"m"}, nil }
-	if err := r.RunModels(context.Background()); err != nil {
+	report, err := r.RunModels(context.Background())
+	if err != nil {
 		t.Fatalf("RunModels: %v", err)
 	}
-	if strings.Contains(out.String(), "super-secret-value") {
+	if strings.Contains(report, "super-secret-value") {
 		t.Error("the API key must never be printed")
 	}
-	if !strings.Contains(out.String(), "api key  : present") {
-		t.Errorf("the presence of the key must be reported:\n%s", out.String())
+	if !strings.Contains(report, "api key  : present") {
+		t.Errorf("the presence of the key must be reported:\n%s", report)
 	}
 }
 
@@ -181,11 +183,12 @@ func TestAppRunnerRunModelsReportsAMissingKeyWithTheRightVariable(t *testing.T) 
 
 	r := NewAppRunner(&out, &bytes.Buffer{}, cfg, &llm.Client{}, &sandbox.Sandbox{}, logx.Global())
 	r.listModels = func(context.Context, string, string) ([]string, error) { return nil, nil }
-	if err := r.RunModels(context.Background()); err != nil {
+	report, err := r.RunModels(context.Background())
+	if err != nil {
 		t.Fatalf("RunModels: %v", err)
 	}
-	if !strings.Contains(out.String(), "OLLAMA_API_KEY") {
-		t.Errorf("the missing-key message must name OLLAMA_API_KEY:\n%s", out.String())
+	if !strings.Contains(report, "OLLAMA_API_KEY") {
+		t.Errorf("the missing-key message must name OLLAMA_API_KEY:\n%s", report)
 	}
 }
 
@@ -205,10 +208,11 @@ func TestAppRunnerRunModelsSurvivesACatalogueFailure(t *testing.T) {
 		}
 		return nil, errors.New("connection refused")
 	}
-	if err := r.RunModels(context.Background()); err != nil {
+	report, err := r.RunModels(context.Background())
+	if err != nil {
 		t.Fatalf("a catalogue failure must not be an error: %v", err)
 	}
-	got := out.String()
+	got := report
 	if !strings.Contains(got, "connection refused") {
 		t.Errorf("the failure must be reported:\n%s", got)
 	}
@@ -233,11 +237,12 @@ func TestAppRunnerRunModelsWithNoBaseURLAndNoDefault(t *testing.T) {
 		}
 		return []string{"x"}, nil
 	}
-	if err := r.RunModels(context.Background()); err != nil {
+	report, err := r.RunModels(context.Background())
+	if err != nil {
 		t.Fatalf("RunModels: %v", err)
 	}
-	if !strings.Contains(out.String(), "x") {
-		t.Errorf("the catalogue must be printed:\n%s", out.String())
+	if !strings.Contains(report, "x") {
+		t.Errorf("the catalogue must be printed:\n%s", report)
 	}
 }
 
@@ -259,11 +264,12 @@ func TestAppRunnerRunModelsUsesTheRealListerByDefault(t *testing.T) {
 
 	// Built by hand, so listModels is nil.
 	r := &AppRunner{Out: &out, Err: &bytes.Buffer{}, Cfg: cfg, Log: logx.Global()}
-	if err := r.RunModels(context.Background()); err != nil {
+	report, err := r.RunModels(context.Background())
+	if err != nil {
 		t.Fatalf("RunModels: %v", err)
 	}
-	if !strings.Contains(out.String(), "real-model") {
-		t.Errorf("the real lister must be used when none is injected:\n%s", out.String())
+	if !strings.Contains(report, "real-model") {
+		t.Errorf("the real lister must be used when none is injected:\n%s", report)
 	}
 }
 

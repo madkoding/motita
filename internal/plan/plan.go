@@ -266,10 +266,12 @@ func (p *Planner) streamTools(ctx context.Context, messages []llm.Message) (llm.
 			p.writeStream(chunk.Text)
 			acc.Handle(chunk)
 		case llm.StreamToolCall:
+			// Announce each distinct tool once: the stream repeats the call while
+			// its arguments are still arriving, and forwarding every repetition
+			// would fill the screen with the same line.
 			if chunk.Call != nil && chunk.Call.Function.Name != "" && chunk.Call.Function.Name != pendingTool {
 				pendingTool = chunk.Call.Function.Name
-				emitToolCall(p.trace, chunk.Call.Function.Name, chunk.Call.Function.Arguments)
-				p.writeStream(fmt.Sprintf("using tool: %s", chunk.Call.Function.Name))
+				p.writeStream(fmt.Sprintf("[using tool: %s]", chunk.Call.Function.Name))
 			}
 			acc.Handle(chunk)
 		}
