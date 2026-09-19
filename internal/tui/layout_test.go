@@ -65,8 +65,8 @@ func TestStateGlyphReportsAKeylessSession(t *testing.T) {
 	runner := &fakeRunner{cfg: configWithKey(""), cfgSet: true}
 	tui := newFakeTUI("q\n", runner)
 	tui.NoColor = false
-	if got := tui.stateGlyph(); !strings.Contains(got, glyphDot) {
-		t.Errorf("a keyless session must show the dot, got %q", got)
+	if got := tui.stateGlyph(); !strings.Contains(got, glyphMissing) {
+		t.Errorf("a keyless session must show its own glyph, got %q", got)
 	}
 	if got := tui.stateGlyph(); !strings.Contains(got, "\x1b[31m") {
 		t.Errorf("a keyless session must be red, got %q", got)

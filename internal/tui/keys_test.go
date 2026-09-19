@@ -3,9 +3,16 @@ package tui
 import (
 	"bytes"
 	"context"
+	"regexp"
 	"strings"
 	"testing"
 )
+
+// sgr matches a colour (SGR) escape: ESC [ ... m. NO_COLOR governs colour, and
+// only colour: the cursor and erase sequences are how the frame gets drawn at all,
+// so a blanket "no escape" assertion would fail on the very redraw that makes the
+// interface work.
+var sgr = regexp.MustCompile("\x1b\\[[0-9;]*m")
 
 // The interaction layer, tested against the checklist the design guide ships:
 // keyboard navigation, a visible focus/position indicator, no dead key, and a
@@ -617,5 +624,154 @@ func TestTheBorderStaysStraightWhileScrolled(t *testing.T) {
 		if strings.Count(rows[0], glyphTopLeft) != 1 {
 			t.Errorf("width %d: the top border has more than one left corner: %q", width, rows[0])
 		}
+	}
+}
+
+// TestTheStatusIsReadableWithoutColour: the design guide counts colour-only
+// indicators as an accessibility failure. Each state must differ in SHAPE as well
+// as colour, so the line still means something with the escapes stripped — which
+// is exactly what NO_COLOR produces.
+func TestTheStatusIsReadableWithoutColour(t *testing.T) {
+	// cfgSet matters: the fake substitutes config.Default() whenever no
+	// configuration was supplied, so a test that assigns cfg without setting it
+	// silently gets the defaults and asserts nothing about its own fixture.
+	ready, _ := newKeyTUI("")
+	ready.Runner = &fakeRunner{cfg: configWithKey("sk-live"), cfgSet: true}
+	missing, _ := newKeyTUI("")
+	missing.Runner = &fakeRunner{cfg: configWithKey(""), cfgSet: true}
+	busy, _ := newKeyTUI("")
+	busy.Runner = &fakeRunner{cfg: configWithKey("sk-live"), cfgSet: true}
+	busy.busy = true
+
+	readyGlyph := stripANSI(ready.stateGlyph())
+	missingGlyph := stripANSI(missing.stateGlyph())
+	busyGlyph := stripANSI(busy.stateGlyph())
+
+	if readyGlyph == missingGlyph {
+		t.Errorf("ready and missing look identical without colour: %q", readyGlyph)
+	}
+	if readyGlyph != glyphReady {
+		t.Errorf("ready glyph = %q, want %q", readyGlyph, glyphReady)
+	}
+	if missingGlyph != glyphMissing {
+		t.Errorf("missing glyph = %q, want %q", missingGlyph, glyphMissing)
+	}
+	if busyGlyph == readyGlyph || busyGlyph == missingGlyph {
+		t.Errorf("the running indicator must differ from both steady states, got %q", busyGlyph)
+	}
+}
+
+// TestTheWholeStatusLineSurvivesNoColour: stripping the escapes must leave the
+// information intact, not an empty line. This is the frame a user with NO_COLOR
+// actually reads.
+func TestTheWholeStatusLineSurvivesNoColour(t *testing.T) {
+	tu, out := newKeyTUI("")
+	tu.Runner = &fakeRunner{cfg: configWithKey("sk-live"), cfgSet: true}
+	tu.NoColor = true
+	tu.Width, tu.Height = 100, 30
+
+	out.Reset()
+	tu.drawFrame()
+	body := out.String()
+
+	// NO_COLOR governs COLOUR, not the cursor and erase sequences a frame needs in
+	// order to be redrawn at all. The check is for SGR sequences specifically: an
+	// assertion of "no escape at all" would fail on the very redraw that makes the
+	// interface work.
+	if sgr.MatchString(body) {
+		t.Errorf("NO_COLOR must not emit colour: %q", body)
+	}
+	for _, want := range []string{glyphReady, "reasoning", "key", "present", "ready"} {
+		if !strings.Contains(body, want) {
+			t.Errorf("the status line lost %q without colour: %q", want, body)
+		}
+	}
+}
+
+// TestTheWordmarkLosesItsOwnColourToo: the wordmark carries escapes baked into the
+// artwork. NO_COLOR has to strip those as well, or the "no colour" mode still emits
+// sequences the terminal will interpret.
+func TestTheWordmarkLosesItsOwnColourToo(t *testing.T) {
+	tu, out := newKeyTUI("")
+	tu.Width, tu.Height = 100, 30
+
+	tu.NoColor = false
+	out.Reset()
+	tu.drawFrame()
+	if !strings.Contains(out.String(), "\x1b[0;97m") {
+		t.Error("the wordmark's own colours must be present in colour mode")
+	}
+
+	tu.NoColor = true
+	out.Reset()
+	tu.drawFrame()
+	if sgr.MatchString(out.String()) {
+		t.Errorf("NO_COLOR must strip the wordmark's own colours: %q", out.String())
+	}
+	// The artwork itself must still be there, just in the terminal's own colour.
+	if !strings.Contains(out.String(), "\u2588\u2588\u2588") {
+		t.Error("the wordmark's shape must survive the strip")
+	}
+}
+
+// TestHalfPageScrollIsAVimBinding: Ctrl+U and Ctrl+D are what a reader uses to skim
+// a long answer. They arrive as control bytes, so they must be intercepted before a
+// line is read and matched before any normalisation — the same trap as Tab.
+func TestHalfPageScrollIsAVimBinding(t *testing.T) {
+	tu, _ := newKeyTUI("", "one", "two")
+	padBody(tu, 80)
+
+	full := tu.chatRows()
+	half := full / 2
+	if half < 1 {
+		t.Fatalf("the fixture needs a page taller than one row, got %d", full)
+	}
+
+	handled, quit := tu.handleShortcut(context.Background(), keyHalfUp)
+	if !handled || quit {
+		t.Fatalf("Ctrl+U must be handled without quitting (handled=%v quit=%v)", handled, quit)
+	}
+	if tu.scroll != half {
+		t.Errorf("Ctrl+U scrolled to %d, want half a page (%d)", tu.scroll, half)
+	}
+
+	if handled, _ := tu.handleShortcut(context.Background(), keyHalfDown); !handled {
+		t.Fatal("Ctrl+D must be handled")
+	}
+	if tu.scroll != 0 {
+		t.Errorf("Ctrl+D must bring the view back, got scroll=%d", tu.scroll)
+	}
+}
+
+// TestTheControlBytesReachTheHandler: readLine has to return the half-page bytes as
+// keys. Falling through to the line reader would type them into the prompt, and the
+// trim in handleShortcut would then delete them, so the binding would exist in the
+// switch and never fire.
+func TestTheControlBytesReachTheHandler(t *testing.T) {
+	for key, want := range map[string]string{keyHalfUp: keyHalfUp, keyHalfDown: keyHalfDown} {
+		tu, _ := newKeyTUI(key)
+		got, ok := tu.readLine(context.Background())
+		if !ok {
+			t.Fatalf("%q was not reported as a key", key)
+		}
+		if got != want {
+			t.Errorf("readLine(%q) = %q, want %q", key, got, want)
+		}
+	}
+}
+
+// TestHalfPageWithoutARoomToMove: a view already at the top or the bottom must not
+// move past its clamp when a half page is requested.
+func TestHalfPageWithoutARoomToMove(t *testing.T) {
+	tu, _ := newKeyTUI("", "small")
+
+	// Nothing to scroll: the clamps hold.
+	tu.handleShortcut(context.Background(), keyHalfUp)
+	if tu.scroll != 0 {
+		t.Errorf("scroll = %d, want 0 with nothing to scroll", tu.scroll)
+	}
+	tu.handleShortcut(context.Background(), keyHalfDown)
+	if tu.scroll != 0 {
+		t.Errorf("scroll = %d, want 0", tu.scroll)
 	}
 }

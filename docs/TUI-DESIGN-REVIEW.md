@@ -120,21 +120,68 @@ prompt that was never drawn.
 
 ## Still open — the honest list
 
-- **Resize is not live.** The frame is measured from `COLUMNS`/`LINES` on every
-  repaint, so a terminal that re-exports them is picked up, but nothing watches for
-  a resize signal (SIGWINCH) and there is no redraw on demand. Interrogating the
-  terminal needs an ioctl through `unsafe`, which the standard library cannot
-  express portably across linux/windows/darwin. **P2.**
+- **Live resize is not implemented, and here is why it cannot be, in this design.**
+  It was built, tested end to end on the target machine, and then **removed**, because
+  the experiment proved it does not work:
+
+  ```
+  $ export COLUMNS=100; (sleep 3) & P=$!; export COLUMNS=60
+  $ cat /proc/$P/environ | tr '\0' '\n' | grep COLUMNS
+  COLUMNS=100
+  ```
+
+  A child's environment is **copied at exec**. A running process's `COLUMNS` never
+  changes when the terminal is resized, so catching SIGWINCH and repainting re-measures
+  the same numbers and redraws the same frame. On the real machine the signal was
+  raised at 60×20 and **not one pixel changed**. Live resize needs the kernel's own
+  size (`TIOCGWINSZ` on the tty), which the standard library cannot express portably
+  across linux/windows/darwin without `unsafe` — out of scope for a pure-Go,
+  zero-dependency module. The geometry is correct on every repaint, so the frame is
+  right for the next prompt after a resize. **P2, blocked by a constraint, not
+  forgotten.**
 - **No mouse support.** The guide calls it additive, and nothing requires it, so this
   is a fair omission rather than a gap. **P2.**
 - **No search through the conversation** (`/` is taken by the mode shortcuts). A long
   session would benefit from a filter, but no user has needed it yet. **P2.**
-- **Colour-only status dot.** The dot is paired with a word (`ready` / `running`),
-  so it is not colour alone, but the glyph itself is the same shape in every state.
-  A distinct symbol per state would be stronger. **P1.**
-- **Seven palette constants** where the guide budgets 3-4 visible at once. Not all
-  appear on every screen, but the palette could be tightened. **P2.**
-- **No `Ctrl+D`/`Ctrl+U` half-page scroll**, though the guide lists them. **P2.**
+- **Seven palette constants** where the guide budgets 3-4 visible at once. Measured on
+  a real frame, the renderer emits **8 SGR codes** excluding the wordmark's own
+  artwork (which the user supplied and which carries its colours by design). Worth
+  tightening, but every one of them carries meaning today. **P2.**
+
+## Score after the second pass
+
+| Category | Score | Change |
+|---|---|---|
+| Visual design | 4 | — |
+| Layout and composition | 4 | — |
+| Information architecture | 4 | — |
+| Interaction design | 5 | Half-page scroll, the last binding the guide names |
+| State handling | 4 | — |
+| Navigation | 4 | — |
+| Component quality | 4 | — |
+| Accessibility | 5 | Status differs by shape, not only colour |
+| Architecture and code quality | 4 | — |
+| Terminal resilience | 4 | Live resize proven impossible without an ioctl |
+| **Total** | **42/50** | *Good with polish needed.* |
+
+## What the second pass fixed
+
+- **The status glyph differs by SHAPE, not only colour.** `•` when ready, `°` when
+  there is no key, a spinner frame while running. With colour off, on a monochrome
+  console, or to a colour-blind reader, the line still means something — which is the
+  accessibility failure the guide names explicitly, and the last P1.
+- **`Ctrl+U` / `Ctrl+D` scroll half a page**, the vim pair the guide lists. They arrive
+  as control bytes, so they are intercepted in the reader and matched before any
+  normalisation — the same trap as Tab, which is now the third time that trap has bitten
+  in this file.
+- **The status no longer contradicts itself.** It said `ready` next to `key missing`.
+  The dot and the word are computed from the same condition, so they cannot disagree.
+- **A test fixture taught its own lesson**: `fakeRunner.Config()` substitutes
+  `config.Default()` whenever no configuration was supplied, so a test that assigned
+  `cfg` without setting `cfgSet` silently asserted against the defaults. The failure
+  looked like a production bug in the status line and was a fixture swallowing the
+  case under test.
+
 
 None of these is a correctness problem; they are the difference between "good" and
 "delightful" on the guide's scale, and they are listed so nobody has to audit this

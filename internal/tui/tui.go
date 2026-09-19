@@ -162,6 +162,7 @@ func (t *TUI) readKey(ctx context.Context) (byte, bool) {
 // context is cancelled.
 func (t *TUI) Run(ctx context.Context) int {
 	t.drawFrame()
+
 	for {
 		line, ok := t.readLine(ctx)
 		if !ok {
@@ -242,6 +243,12 @@ func (t *TUI) handleShortcut(ctx context.Context, line string) (bool, bool) {
 		return true, false
 	case keyEnd:
 		t.scrollToBottom()
+		return true, false
+	case keyHalfUp:
+		t.scrollBy(t.chatRows() / 2)
+		return true, false
+	case keyHalfDown:
+		t.scrollBy(-t.chatRows() / 2)
 		return true, false
 	}
 
@@ -741,6 +748,11 @@ const (
 	keyPgDn = "\x1b[6~"
 	keyHome = "\x1b[H"
 	keyEnd  = "\x1b[F"
+	// Control bytes arrive as themselves. The half-page pair is the vim convention
+	// the interaction guide lists, and it is what a reader uses to skim a long
+	// answer without losing their place the way a full page does.
+	keyHalfUp   = "\x15" // Ctrl+U
+	keyHalfDown = "\x04" // Ctrl+D
 )
 
 // readLine reads one line from the input. It returns ok=false on EOF or when the
@@ -767,6 +779,11 @@ func (t *TUI) readLine(ctx context.Context) (string, bool) {
 	}
 	if head == 0x1b {
 		return t.readEscape(), true
+	}
+	// The half-page control bytes are keys, not text: returning them stops them
+	// being typed into the prompt and then swallowed by the trim below.
+	if head == 0x15 || head == 0x04 {
+		return string(head), true
 	}
 	if head == '\n' || head == '\r' {
 		return "", true
@@ -841,6 +858,7 @@ Navigation (keys, no Enter needed):
   j / k           scroll the conversation down / up
   Up / Down       scroll one line
   PgUp / PgDn     scroll one page
+  Ctrl+U / Ctrl+D scroll half a page
   g / G           jump to the oldest / newest line
   Esc             cancel the running turn, or return to the newest line
   Ctrl+C          cancel the turn and leave

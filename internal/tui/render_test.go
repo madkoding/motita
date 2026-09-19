@@ -238,8 +238,10 @@ func TestSpinnerAppearsWhileRunning(t *testing.T) {
 		t.Errorf("a busy session must show a spinner frame, got %q", got)
 	}
 	tui.busy = false
-	if got := tui.stateGlyph(); !strings.Contains(got, glyphDot) {
-		t.Errorf("an idle session must show the status dot, got %q", got)
+	// This TUI carries no key, so its steady state is the "nothing to talk to"
+	// glyph rather than the ready one.
+	if got := tui.stateGlyph(); !strings.Contains(got, glyphMissing) {
+		t.Errorf("an idle keyless session must show its own glyph, got %q", got)
 	}
 }
 

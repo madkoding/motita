@@ -33,10 +33,19 @@ const (
 	glyphTopRight = "\u2510" // ┐
 	glyphBotLeft  = "\u2514" // └
 	glyphBotRight = "\u2518" // ┘
-	glyphDot      = "\u2022" // • status dot
-	glyphUser     = "\u00bb" // » the user's turn
-	glyphAgent    = "*"      // the agent's turn, and the star of the wordmark
-	glyphMid      = "\u00b7" // · separator inside a line
+	glyphDot      = "\u2022" // • separator and scrolled marker
+	// glyphReady and glyphMissing are the readiness indicator. They differ in
+	// SHAPE, not only in colour: a status that is only a colour is invisible with
+	// colour off and ambiguous to a colour-blind reader.
+	//
+	// They are CP437 characters — • (0x07) and ° (0xF8) — so a physical console
+	// with a VGA font renders them; anything outside that repertoire would come
+	// out as a blank box on the target machine.
+	glyphReady   = "\u2022" // • ready
+	glyphMissing = "\u00b0" // ° nothing to talk to
+	glyphUser    = "\u00bb" // » the user's turn
+	glyphAgent   = "*"      // the agent's turn, and the star of the wordmark
+	glyphMid     = "\u00b7" // · separator inside a line
 )
 
 // Layout metrics. They are named because the frame arithmetic depends on them: a
@@ -349,14 +358,18 @@ func (t *TUI) statusLines(w int) []string {
 		t.muted("reasoning ") + t.color(colBase, 0, reasoning),
 		t.muted("key ") + t.color(keyCol, 0, keyText),
 	}
-	// What the user can do right now, and where they are in the history. The
-	// count is contextual information exactly as the guide's status bar example
-	// describes, and it only appears when there is something to scroll: an
-	// indicator that always reads "0" is noise.
+	// What the user can do right now, and where they are in the history.
+	//
+	// The word must not claim readiness the configuration does not have: saying
+	// "ready" next to "key missing" is the kind of contradiction that teaches a
+	// user to stop reading the status line. The dot and the word are computed from
+	// the same condition, so they can never disagree.
 	if t.scroll > 0 {
 		parts = append(parts, t.color(colWarning, 0, glyphDot+" scrolled "+strconv.Itoa(t.scroll)+" above latest"))
 	} else if t.busy {
 		parts = append(parts, t.color(colWarning, 0, spinner[t.spin%len(spinner)]+" running"))
+	} else if cfg.LLM.APIKey == "" {
+		parts = append(parts, t.color(colError, 0, "no key"))
 	} else {
 		parts = append(parts, t.muted("ready"))
 	}
@@ -369,16 +382,23 @@ func (t *TUI) statusLines(w int) []string {
 	return []string{line, t.muted(strings.Repeat(glyphRule, w-leftMargin*2))}
 }
 
-// stateGlyph is the running indicator: a spinner while a turn is in flight, a
-// green dot when the session is idle and ready, a red dot when a key is missing.
+// stateGlyph is the readiness indicator.
+//
+// Each state gets its own SHAPE as well as its own colour, so the status is
+// readable with colour switched off, on a monochrome terminal, and by somebody who
+// cannot distinguish red from green. Colour alone is the accessibility failure the
+// design guide names explicitly.
+//
+// The glyphs stay inside the CP437 repertoire for the same reason as the rest of
+// the interface: a physical console with a VGA font has to render them.
 func (t *TUI) stateGlyph() string {
 	if t.busy {
 		return t.color(colWarning, 0, spinner[t.spin%len(spinner)])
 	}
 	if t.Runner.Config().LLM.APIKey == "" {
-		return t.color(colError, 0, glyphDot)
+		return t.color(colError, 0, glyphMissing)
 	}
-	return t.color(colSuccess, 0, glyphDot)
+	return t.color(colSuccess, 0, glyphReady)
 }
 
 // chatTopRow is the top border of the conversation panel, with the current mode
