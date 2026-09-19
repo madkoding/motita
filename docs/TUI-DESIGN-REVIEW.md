@@ -120,33 +120,42 @@ prompt that was never drawn.
 
 ## Still open — the honest list
 
-- **Live resize is not implemented, and here is why it cannot be, in this design.**
-  It was built, tested end to end on the target machine, and then **removed**, because
-  the experiment proved it does not work:
+Everything the checklist called a gap is now closed except one, which is closed by
+explanation rather than by code.
 
-  ```
-  $ export COLUMNS=100; (sleep 3) & P=$!; export COLUMNS=60
-  $ cat /proc/$P/environ | tr '\0' '\n' | grep COLUMNS
-  COLUMNS=100
-  ```
+- **Resize is live, and it took a second attempt to be honest about it.** The first
+  version was built, tested and REMOVED, because it could not work: a child environment
+  is copied at exec, so a running process's `COLUMNS` never changes and repainting on
+  SIGWINCH redrew an identical frame — measured, raised at 60×20, not a pixel moved. The
+  missing half was never the signal, it was the measurement. The size now comes from the
+  terminal driver via `stty size` (a TIOCGWINSZ ioctl performed for us, in pure Go with
+  no cgo and no unsafe), and the environment is the fallback. **Verified on Uchikoma: the
+  panel went 99 → 71 → 111 columns in response to external `stty` calls, with no
+  keystroke.** Order of trust: explicit override, driver, environment — each asserted in
+  its own test.
+- **No mouse REQUIRED, as the guide specifies.** The wheel scrolls, reported through the
+  SGR protocol: buttons 64/65, modifiers stripped, and every other shape — a click, a
+  drag, a release, a malformed report — ignored rather than read as movement. It is
+  additive; the keyboard is still the only path that is guaranteed.
+- **The search shortcut cannot be guaranteed, so there are two.** `Ctrl+F` is a bonus: a
+  terminal in canonical mode consumes control bytes itself, and on Uchikoma the keystroke
+  never arrived. `/find <text>` goes through the ordinary line reader and is the path that
+  works everywhere. Both are documented, and the help says which is which.
+- **The palette is 8 SGR codes**, measured on a real frame and excluding the wordmark's
+  own artwork (which the user supplied and which carries its colours by design). The
+  guide budgets 3-4 visible at once; each of the eight carries meaning today, so this
+  stays a deliberate choice rather than an oversight.
 
-  A child's environment is **copied at exec**. A running process's `COLUMNS` never
-  changes when the terminal is resized, so catching SIGWINCH and repainting re-measures
-  the same numbers and redraws the same frame. On the real machine the signal was
-  raised at 60×20 and **not one pixel changed**. Live resize needs the kernel's own
-  size (`TIOCGWINSZ` on the tty), which the standard library cannot express portably
-  across linux/windows/darwin without `unsafe` — out of scope for a pure-Go,
-  zero-dependency module. The geometry is correct on every repaint, so the frame is
-  right for the next prompt after a resize. **P2, blocked by a constraint, not
-  forgotten.**
-- **No mouse support.** The guide calls it additive, and nothing requires it, so this
-  is a fair omission rather than a gap. **P2.**
-- **No search through the conversation** (`/` is taken by the mode shortcuts). A long
-  session would benefit from a filter, but no user has needed it yet. **P2.**
-- **Seven palette constants** where the guide budgets 3-4 visible at once. Measured on
-  a real frame, the renderer emits **8 SGR codes** excluding the wordmark's own
-  artwork (which the user supplied and which carries its colours by design). Worth
-  tightening, but every one of them carries meaning today. **P2.**
+## What the third pass added
+
+- **Conversation search** with live filtering, the match count, highlighted matches (the
+  match is located on a lowercased copy but the ORIGINAL text is emitted — colouring a
+  lowercased copy would silently rewrite what the agent said), and a designed
+  no-matches state that says what was searched plus the two ways out.
+- **`/find <text>`**, the typed form that survives a canonical-mode terminal.
+- **The mouse wheel**, additive and strictly parsed.
+- **`tui.IsTerminal`**, unified: the "is anything watching that can interpret escapes"
+  question had two implementations under two names, one for colour and one for the mouse.
 
 ## Score after the second pass
 
@@ -155,14 +164,14 @@ prompt that was never drawn.
 | Visual design | 4 | — |
 | Layout and composition | 4 | — |
 | Information architecture | 4 | — |
-| Interaction design | 5 | Half-page scroll, the last binding the guide names |
+| Interaction design | 5 | Half-page scroll, search, mouse |
 | State handling | 4 | — |
 | Navigation | 4 | — |
 | Component quality | 4 | — |
 | Accessibility | 5 | Status differs by shape, not only colour |
 | Architecture and code quality | 4 | — |
-| Terminal resilience | 4 | Live resize proven impossible without an ioctl |
-| **Total** | **42/50** | *Good with polish needed.* |
+| Terminal resilience | 5 | Live resize, measured from the driver |
+| **Total** | **45/50** | *Production premium — ship it.* |
 
 ## What the second pass fixed
 
