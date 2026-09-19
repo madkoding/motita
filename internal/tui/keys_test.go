@@ -775,3 +775,79 @@ func TestHalfPageWithoutARoomToMove(t *testing.T) {
 		t.Errorf("scroll = %d, want 0", tu.scroll)
 	}
 }
+
+// TestTheHelpKeepsItsColumns: the help screen is a two-column reference, and the
+// alignment between a key and its description is what makes it scannable. Word
+// wrapping collapses the runs of spaces that produce that alignment — the screen
+// came out as "Tab switch mode" with the columns gone — so preformatted text is
+// placed line by line instead.
+func TestTheHelpKeepsItsColumns(t *testing.T) {
+	tu, out := newKeyTUI("", "")
+	tu.Width, tu.Height = 100, 44
+
+	tu.addPreformatted(AuthorSystem, helpText)
+	frame := stripANSI(out.String())
+
+	// Every documented line must survive with its indentation, not re-flowed into a
+	// paragraph.
+	for _, want := range []string{"  Tab          switch mode", "  PgUp/PgDn    scroll one page", "  Ctrl+U/D     scroll half a page"} {
+		if !strings.Contains(frame, want) {
+			t.Errorf("the help lost its alignment; %q is missing from:\n%s", want, frame)
+		}
+	}
+
+	// And nothing may be clipped: the reference is short enough to fit.
+	if strings.Contains(frame, "\u2026") {
+		t.Errorf("the help must fit the panel without clipping:\n%s", frame)
+	}
+}
+
+// TestPreformattedTextIsClippedNotRewrapped: a line too long for the panel loses its
+// tail rather than being folded into the next line, which would destroy the layout
+// the flag exists to protect.
+func TestPreformattedTextIsClippedNotRewrapped(t *testing.T) {
+	long := "  key      " + strings.Repeat("x", 200)
+
+	tu, out := newKeyTUI("", "")
+	tu.Width, tu.Height = 60, 30
+	tu.addPreformatted(AuthorSystem, long)
+
+	body := stripANSI(out.String())
+	if !strings.Contains(body, "\u2026") {
+		t.Errorf("an oversized preformatted line must be marked as clipped:\n%s", body)
+	}
+	// The indentation is still there: the line starts with the key column.
+	if !strings.Contains(body, "  key      ") {
+		t.Errorf("clipping must keep the head of the line:\n%s", body)
+	}
+}
+
+// TestClipLineLeavesShortTextAlone: the common case must be untouched, and the
+// measurement is in visible columns, not bytes.
+func TestClipLineLeavesShortTextAlone(t *testing.T) {
+	if got := clipLine("short", 20); got != "short" {
+		t.Errorf("clipLine changed a line that fits: %q", got)
+	}
+	for _, width := range []int{1, 2, 5} {
+		got := clipLine("abcdefghij", width)
+		if visibleLen(got) > width {
+			t.Errorf("clipLine(%d) produced %d columns: %q", width, visibleLen(got), got)
+		}
+	}
+	if got := clipLine("anything", 0); got != "anything" {
+		t.Errorf("a non-positive width must not clip: %q", got)
+	}
+}
+
+// TestTheHelpIsReachableAndDocumented: the binding and the text have to agree. A help
+// screen that lists a key the handler ignores is the same lie as a footer hint.
+func TestTheHelpIsReachableAndDocumented(t *testing.T) {
+	tu, _ := newKeyTUI("")
+	if handled, _ := tu.handleShortcut(context.Background(), "?"); !handled {
+		t.Fatal("? must open the help")
+	}
+	last := tu.messages[len(tu.messages)-1]
+	if !last.Preformatted {
+		t.Error("the help must be added as preformatted text, or its columns are destroyed")
+	}
+}

@@ -538,11 +538,38 @@ func (t *TUI) messageLines(m Message, inner int) []string {
 
 	default:
 		var lines []string
+		// Preformatted text is placed line by line and clipped, never rewrapped:
+		// the alignment between a key and its description is the whole point of the
+		// help screen, and word wrapping collapses the runs of spaces that produce
+		// it. Clipping loses a long description rather than mangling it.
+		if m.Preformatted {
+			for _, l := range strings.Split(strings.TrimRight(m.Text, "\n"), "\n") {
+				lines = append(lines, t.cell(t.muted(clipLine(l, inner-2)), inner))
+			}
+			return lines
+		}
 		for _, l := range wordWrap(m.Text, inner-2) {
 			lines = append(lines, t.cell(t.muted(l), inner))
 		}
 		return lines
 	}
+}
+
+// clipLine truncates a PLAIN line (no escape sequences) to the given number of
+// columns, marking the cut with an ellipsis. It is for text whose own layout must
+// survive, which is why it clips instead of folding the line.
+//
+// No "does the rune count fit" guard is written below: it would be unreachable. For
+// a string without escapes visibleLen is exactly the rune count, so once the first
+// check has established that the measurement exceeds the width, the rune count does
+// too. A guard there would only look like a safety net.
+func clipLine(s string, width int) string {
+	if width <= 0 || visibleLen(s) <= width {
+		return s
+	}
+	// One column is spent on the ellipsis, so the result still fits.
+	runes := []rune(s)
+	return strings.TrimRight(string(runes[:width-1]), " ") + "\u2026"
 }
 
 // toolLabel recognises the progress line that announces a tool call and turns it

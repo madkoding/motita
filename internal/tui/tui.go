@@ -86,6 +86,11 @@ type Message struct {
 	// announcement is an event that has already happened, and the output that
 	// follows it belongs to the next block.
 	Frozen bool
+	// Preformatted marks text whose layout is part of its meaning: the help screen
+	// is a two-column reference, and re-flowing it destroys the alignment that makes
+	// it readable at a glance. Preformatted text is drawn line by line, exactly as
+	// written (still clipped to the panel, never rewrapped).
+	Preformatted bool
 }
 
 // TUI is the conversational terminal user interface.
@@ -296,7 +301,7 @@ func (t *TUI) handleShortcut(ctx context.Context, line string) (bool, bool) {
 		t.cycleReasoning()
 		return true, false
 	case "/help", "/h", "h", "help", "?":
-		t.addMessage(AuthorSystem, helpText)
+		t.addPreformatted(AuthorSystem, helpText)
 		return true, false
 	}
 	return false, false
@@ -699,6 +704,15 @@ func (t *TUI) addMessage(author Author, text string) {
 	t.drawFrame()
 }
 
+// addPreformatted appends a message whose own layout carries meaning, so it is drawn
+// as written instead of being word wrapped. The help screen is a key reference: the
+// alignment between a key and its description is what makes it scannable, and
+// wrapping collapses the runs of spaces that produce it.
+func (t *TUI) addPreformatted(author Author, text string) {
+	t.messages = append(t.messages, Message{Author: author, Text: text, Preformatted: true})
+	t.drawFrame()
+}
+
 // beginTurn marks the interface as busy and repaints, so the status line shows a
 // spinner for the whole duration of a turn instead of a static dot.
 //
@@ -853,28 +867,23 @@ type lineResult struct {
 
 const helpText = `Starlight chat
 
-Navigation (keys, no Enter needed):
-  Tab             switch mode
-  j / k           scroll the conversation down / up
-  Up / Down       scroll one line
-  PgUp / PgDn     scroll one page
-  Ctrl+U / Ctrl+D scroll half a page
-  g / G           jump to the oldest / newest line
-  Esc             cancel the running turn, or return to the newest line
-  Ctrl+C          cancel the turn and leave
+Navigation — no Enter needed
+  Tab          switch mode
+  j/k  Up/Down scroll one line
+  PgUp/PgDn    scroll one page
+  Ctrl+U/D     scroll half a page
+  g/G          oldest / newest
+  Esc          cancel the run
+  Ctrl+C       cancel and leave
 
-Commands (type them and press Enter):
-  /t  task        switch to Task mode
-  /p  plan        switch to Plan mode
-  /m  models      list the models the provider publishes
-  /c  config      run the configuration wizard
-  /r  reasoning   cycle reasoning level (off/low/medium/high)
-  /h  help        show this help
-  /q  quit        leave
-
-Task mode runs the 3-layer agent in the sandbox and reports the result.
-Plan mode reads only: it lists and reads files and runs read-only commands,
-and explains what it would do before anything is executed.
+Commands — type and Enter
+  /t  task     run the agent
+  /p  plan     read-only mode
+  /m  models   list the catalogue
+  /c  config   first-run wizard
+  /r  reasoning  cycle the level
+  /h  help     this screen
+  /q  quit     leave
 `
 
 // minHeight is the number of rows below which the interface stops trying to draw
