@@ -124,12 +124,14 @@ func TestAwaitRunTakesTheOutcomeFromTheRunnerOnCancellation(t *testing.T) {
 	cancel()
 
 	progress := make(chan string, 1)
-	done := make(chan runOutcome, 1)
-
-	// A turn that observes the cancellation and reports it, like the real runner.
+	// An UNBUFFERED channel, and the sender is a goroutine that is already blocked
+	// on it. That is what makes the cancellation branch the only one the select can
+	// take when it starts: with a buffered channel that already held a value, both
+	// cases would be ready at once and Go would pick one at random — which is
+	// exactly how this line used to be covered here and not on the CI runner.
+	done := make(chan runOutcome)
 	go func() {
-		<-ctx.Done()
-		done <- runOutcome{err: ctx.Err()}
+		done <- runOutcome{err: context.Canceled}
 	}()
 
 	var seen []string
@@ -159,5 +161,49 @@ func TestAwaitRunKeepsDrainingProgressWhileTheTurnRuns(t *testing.T) {
 	// rest of the buffer itself. What must hold is that the answer is the runner's.
 	if out.result != "the answer" {
 		t.Errorf("result = %q", out.result)
+	}
+}
+
+// TestDrainProgressEmptiesTheQueue: whatever the runner queued before it reported is
+// still shown. The loop runs until the channel is empty and then returns at once,
+// which is what keeps a turn from stalling on a channel nobody will write to again.
+func TestDrainProgressEmptiesTheQueue(t *testing.T) {
+	ch := make(chan string, 4)
+	ch <- "first"
+	ch <- "second"
+	ch <- "third"
+
+	var seen []string
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		drainProgress(ch, func(p string) { seen = append(seen, p) })
+	}()
+
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("drainProgress blocked on a channel that will never be written to again")
+	}
+	if len(seen) != 3 {
+		t.Fatalf("drained %d lines, want 3: %v", len(seen), seen)
+	}
+	if seen[0] != "first" || seen[2] != "third" {
+		t.Errorf("the lines must be drained in order, got %v", seen)
+	}
+}
+
+// TestDrainProgressOnAnEmptyChannel: nothing queued means nothing to do, and the
+// call must return rather than wait for a line that is not coming.
+func TestDrainProgressOnAnEmptyChannel(t *testing.T) {
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		drainProgress(make(chan string), func(string) {})
+	}()
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("drainProgress must return immediately when there is nothing queued")
 	}
 }

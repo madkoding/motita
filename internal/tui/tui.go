@@ -296,6 +296,25 @@ type runOutcome struct {
 	err    error
 }
 
+// drainProgress applies every line still queued in ch and returns immediately when
+// there is none.
+//
+// It is a named function rather than a loop inlined in the caller so the behaviour
+// can be tested on its own: whether a real run leaves lines behind depends on how
+// fast the runner reports, which is exactly the kind of condition that makes a test
+// pass here and fail on a slower machine.
+func drainProgress(ch <-chan string, handle func(string)) {
+	for {
+		select {
+		case p := <-ch:
+			handle(p)
+			continue
+		default:
+		}
+		return
+	}
+}
+
 // awaitRun drives one turn to its end.
 //
 // The outcome always comes from the runner, and from nowhere else. The runner
@@ -483,18 +502,9 @@ func (t *TUI) runPlan(ctx context.Context, prompt string) {
 	wg.Wait()
 	close(done)
 
-	// Drain every progress line still queued. awaitRun returns as soon as the
-	// outcome is ready, so several lines can still be in flight, and a single
-	// non-blocking read would drop them.
-	for {
-		select {
-		case p := <-progress:
-			stream.handle(p)
-			continue
-		default:
-		}
-		break
-	}
+	// Whatever the runner queued before reporting is still worth showing: the
+	// outcome can arrive while lines are in flight.
+	drainProgress(progress, stream.handle)
 
 	t.cancelRun = nil
 	t.runningCtx = nil
