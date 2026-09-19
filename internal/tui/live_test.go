@@ -769,3 +769,156 @@ func TestSanitiseLineKeepsWhatIsText(t *testing.T) {
 		}
 	}
 }
+
+// TestNoKeySequenceIsEverSentAsAMessage: pressing an ARROW used to send a message.
+//
+// The dispatcher named the keys it acts on and fell through to the chat for everything else, so
+// a sequence it did not name — the right and left arrows, Delete, F1, Shift+Tab, and any other a
+// terminal can send — was dispatched as a chat message. The user saw their own input submitted as
+// if they had pressed Enter.
+//
+// The rule is asserted by SHAPE, not by a list: an escape sequence is how a terminal reports a
+// key, and text never contains one. A list can only ever be incomplete, and whatever is missing
+// from it becomes a message sent by accident — which is how this bug existed at all.
+func TestNoKeySequenceIsEverSentAsAMessage(t *testing.T) {
+	sequences := []string{
+		// The arrows, in their plain and modified forms.
+		"\x1b[A", "\x1b[B", "\x1b[C", "\x1b[D",
+		"\x1b[1;5C", "\x1b[1;5D", "\x1b[1;2A", "\x1b[1;3B",
+		// Navigation and editing.
+		"\x1b[5~", "\x1b[6~", "\x1b[H", "\x1b[F", "\x1b[1~", "\x1b[4~",
+		"\x1b[2~", "\x1b[3~",
+		// Function keys, in both common encodings.
+		"\x1bOP", "\x1b[11~", "\x1b[Z",
+		// And the ones the interface DOES act on: handled is the same answer, because acting on a
+		// key and refusing to send it are not in conflict.
+		keyEsc, keyUp, keyDown, keyPgUp, keyPgDn, keyHome, keyEnd, keyRight,
+	}
+	for _, seq := range sequences {
+		tu, out := newKeyTUI("")
+		tu.Width, tu.Height = 100, 24
+		out.Reset()
+
+		handled, quit := tu.handleShortcut(context.Background(), seq)
+		if !handled {
+			t.Errorf("%q is not consumed, so it would be sent as a message", seq)
+		}
+		if quit {
+			t.Errorf("%q must not be treated as a quit command", seq)
+		}
+	}
+}
+
+// TestAKeySequenceIsNotEchoedIntoTheChat: consuming the key is not enough — it must leave no
+// trace. A key that is handled AND written to the conversation would still show up as a message
+// in the thread, empty or not.
+func TestAKeySequenceIsNotEchoedIntoTheChat(t *testing.T) {
+	tu, _ := newKeyTUI("")
+	tu.Width, tu.Height = 100, 24
+	before := len(tu.messages)
+
+	for _, seq := range []string{"\x1b[C", "\x1b[D", "\x1b[3~", "\x1bOP"} {
+		tu.handleShortcut(context.Background(), seq)
+	}
+	if len(tu.messages) != before {
+		t.Errorf("a key added %d message(s) to the conversation", len(tu.messages)-before)
+	}
+}
+
+// TestTypedTextIsStillAMessage: the catch-all must be exact. Ordinary text — including text that
+// looks like a command — still reaches the chat, or the interface would silently swallow what
+// the user typed.
+func TestTypedTextIsStillAMessage(t *testing.T) {
+	// "/find algo" is deliberately NOT in this list: it is a command the interface acts on, and
+	// consuming it is correct. What must reach the chat is ordinary text.
+	for _, text := range []string{"hola", "una pregunta larga", "x", "1234", "cuenta los ficheros"} {
+		tu, _ := newKeyTUI("")
+		tu.Width, tu.Height = 100, 24
+
+		if handled, _ := tu.handleShortcut(context.Background(), text); handled {
+			t.Errorf("%q must reach the chat, not be swallowed", text)
+		}
+	}
+}
+
+// TestArrowsTypedAfterTextNeverReachTheMessage: pressing an arrow with text already on the line
+// must not put the sequence in the message.
+//
+// The whole-line reader handled an ESC only as the FIRST byte of a line. An arrow pressed after
+// some text does not put it there — it arrives in the middle of the run, and the bytes were kept
+// as literal text. Measured on the target machine, the message that reached the model was
+// `hola\x1b[C\x1b[D\x1b[A\x1b[B\x1b[3~\x1bOP\x15/quit`.
+func TestArrowsTypedAfterTextNeverReachTheMessage(t *testing.T) {
+	tu, _ := newKeyTUI("hola\x1b[C\x1b[D\x1b[A\x1b[B\x1b[3~\x1bOP\n")
+	tu.charMode = false // the whole-line path, which is where this leaked
+	tu.Width, tu.Height = 100, 24
+
+	line, ok := tu.readLine(context.Background())
+	if !ok {
+		t.Fatal("the read must return the line")
+	}
+	if line != "hola" {
+		t.Errorf("line = %q, want just the typed text", line)
+	}
+	if strings.ContainsRune(line, 0x1b) {
+		t.Errorf("an escape byte survived into the message: %q", line)
+	}
+}
+
+// TestStripKeySequencesRemovesTheWholeSequence: taking out only the ESC would leave the parameter
+// bytes behind as text, so "[C" and "[3~" would appear in the message.
+func TestStripKeySequencesRemovesTheWholeSequence(t *testing.T) {
+	for _, tc := range []struct{ in, want string }{
+		{"hola", "hola"},
+		{"hola\x1b[C", "hola"},
+		{"\x1b[C\x1b[D\x1b[A\x1b[B", ""},
+		{"a\x1b[3~b", "ab"},
+		{"a\x1bOPb", "ab"},
+		{"a\x1bb", "ab"},             // a bare ESC
+		{"a\x1b[1;5Cb", "ab"},        // a modified arrow
+		{"café \x1b[A 🚀", "café  🚀"}, // text around it survives
+		{"sin secuencias", "sin secuencias"},
+		{"\x1b[", ""},      // truncated at the end
+		{"\x1b", ""},       // nothing but the introducer
+		{"a\x1b[Zb", "ab"}, // Shift+Tab
+	} {
+		if got := stripKeySequences(tc.in); got != tc.want {
+			t.Errorf("stripKeySequences(%q) = %q, want %q", tc.in, got, tc.want)
+		}
+	}
+}
+
+// TestASlashCommandStillWorksAfterAKey: the stripping must not damage the text around it, or a
+// command typed after an arrow would stop being recognised.
+func TestASlashCommandStillWorksAfterAKey(t *testing.T) {
+	tu, _ := newKeyTUI("\x1b[C/quit\n")
+	tu.charMode = false
+	tu.Width, tu.Height = 100, 24
+
+	// The key comes back FIRST — the dispatcher has to see it to act on it — and the text that
+	// shared its read follows on the next one instead of being thrown away. Asserting "both in
+	// one call" would have been asserting something the design never promised; what matters is
+	// that neither is lost.
+	first, ok := tu.readLine(context.Background())
+	if !ok {
+		t.Fatal("the read must return the key")
+	}
+	if first != keyRight {
+		t.Fatalf("the first read = %q, want the key sequence", first)
+	}
+	if handled, _ := tu.handleShortcut(context.Background(), first); !handled {
+		t.Error("the key must be handled, not sent")
+	}
+
+	second, ok := tu.readLine(context.Background())
+	if !ok {
+		t.Fatal("the text that followed the key must still be readable")
+	}
+	if second != "/quit" {
+		t.Errorf("the text after the key = %q, want the command intact", second)
+	}
+	handled, quit := tu.handleShortcut(context.Background(), second)
+	if !handled || !quit {
+		t.Errorf("the command after a key must still be recognised (handled=%v quit=%v)", handled, quit)
+	}
+}

@@ -431,6 +431,23 @@ func (t *TUI) handleShortcut(ctx context.Context, line string) (bool, bool) {
 		t.addPreformatted(AuthorSystem, helpText)
 		return true, false
 	}
+
+	// Any OTHER escape sequence is a KEY, not a message.
+	//
+	// This is the catch-all that was missing. The switch above names the keys the interface
+	// acts on, and everything else — the right and left arrows, Delete, F1, Shift+Tab, and every
+	// other sequence a terminal can send — fell through to the line below and was dispatched as
+	// a chat message. Pressing an arrow SENT A MESSAGE: the user saw their own input submitted as
+	// if they had pressed Enter.
+	//
+	// A sequence introduced by ESC is never something a user typed: text does not contain
+	// escape sequences, they are how the terminal reports a key. So the rule is stated once, by
+	// shape, rather than by listing every sequence that exists — the list can only ever be
+	// incomplete, and what is missing from it becomes a message sent by accident.
+	if strings.HasPrefix(line, "\x1b") {
+		return true, false
+	}
+
 	return false, false
 }
 
@@ -1016,6 +1033,9 @@ func (t *TUI) readLine(ctx context.Context) (string, bool) {
 		return "	", true
 	}
 	if head == 0x1b {
+		// The sequence is returned and the dispatcher acts on it. Whatever followed it on the
+		// same read is NOT consumed here: the next call reads it, which is the whole reason a
+		// command typed after an arrow survives.
 		return t.readEscape(), true
 	}
 	// The control bytes are keys, not text: returning them stops them being typed into
@@ -1038,7 +1058,16 @@ func (t *TUI) readLine(ctx context.Context) (string, bool) {
 		if r.err != nil {
 			return "", false
 		}
-		return sanitiseLine(strings.TrimSpace(r.line)), true
+		// ORDER MATTERS: the sequences are stripped FIRST.
+		//
+		// sanitiseLine removes every byte below 0x20, and the escape introducer is one of them.
+		// Running it first deleted the ESC and left the parameter bytes behind as ordinary text,
+		// so the message read "hola[C[D[A" — the sequence with its marker cut off, which no
+		// longer looks like a sequence to anything.
+		//
+		// The introducer is the only thing that says where a sequence starts, so it has to be
+		// read before it is erased.
+		return sanitiseLine(stripKeySequences(strings.TrimSpace(r.line))), true
 	case <-ctx.Done():
 		go func() { <-ch }()
 		return "", false
@@ -1067,6 +1096,55 @@ func sanitiseLine(s string) string {
 			continue
 		}
 		b.WriteRune(r)
+	}
+	return b.String()
+}
+
+// stripKeySequences removes every escape sequence that sits INSIDE a line.
+//
+// The whole-line reader handles an ESC only when it is the FIRST byte of the line. An arrow
+// pressed after some text has already been typed does not put the ESC at the start: it arrives
+// in the middle of the run that ReadString hands back, and the bytes were being kept as text.
+// Measured on the target machine, the message that reached the model was
+// `hola\x1b[C\x1b[D\x1b[A\x1b[B\x1b[3~\x1bOP\x15/quit` — every arrow the user pressed, spelled
+// out as literal backslash-escapes.
+//
+// A sequence is removed whole: from the introducer to its final byte. Removing only the ESC
+// would leave the parameter bytes behind as text — "[C" and "[3~" would appear in the message.
+func stripKeySequences(s string) string {
+	if !strings.ContainsRune(s, 0x1b) {
+		return s // the common case: nothing to strip
+	}
+	var b strings.Builder
+	b.Grow(len(s))
+	runes := []rune(s)
+	for i := 0; i < len(runes); {
+		if runes[i] != 0x1b {
+			b.WriteRune(runes[i])
+			i++
+			continue
+		}
+		// Skip the whole sequence. CSI (ESC [) runs to its final byte in 0x40..0x7e; SS3
+		// (ESC O) is the three-byte form the function keys use; a bare ESC is just itself.
+		j := i + 1
+		switch {
+		case j < len(runes) && runes[j] == '[':
+			j++
+			for j < len(runes) && !(runes[j] >= 0x40 && runes[j] <= 0x7e) {
+				j++
+			}
+			if j < len(runes) {
+				j++ // consume the final byte too
+			}
+		case j < len(runes) && runes[j] == 'O':
+			j++
+			if j < len(runes) {
+				j++
+			}
+		default:
+			j = i + 1 // a bare ESC: nothing follows it
+		}
+		i = j
 	}
 	return b.String()
 }
@@ -1262,7 +1340,7 @@ func (t *TUI) readLineLive(ctx context.Context) (string, bool) {
 			// above stops this reader from ADDING a control character, but the line is the
 			// interface's contract with the model, and one place that enforces it is better than
 			// two that must agree.
-			line := sanitiseLine(t.draft)
+			line := sanitiseLine(stripKeySequences(t.draft))
 			t.draft = ""
 			return line, true
 
