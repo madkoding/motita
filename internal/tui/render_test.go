@@ -367,6 +367,13 @@ func TestSheddingOrder(t *testing.T) {
 // TestSizeFallsBackToTheColourVariables: with no explicit size, an interactive
 // shell's COLUMNS/LINES are what describes the window.
 func TestSizeFallsBackToTheColourVariables(t *testing.T) {
+	// The probe is stubbed to "unknown" so the environment is what answers. Without
+	// this the test would pass or fail depending on whether the machine it runs on has
+	// a terminal — and since the probe is now consulted BEFORE the environment, a real
+	// terminal would override these values and the assertion would be about nothing.
+	restore := stubTTYSize(0, 0, false)
+	defer restore()
+
 	t.Setenv("COLUMNS", "100")
 	t.Setenv("LINES", "30")
 	tui := &TUI{}
@@ -377,5 +384,14 @@ func TestSizeFallsBackToTheColourVariables(t *testing.T) {
 	t.Setenv("COLUMNS", "not-a-number")
 	if w, _ := tui.size(); w != defaultWidth {
 		t.Errorf("an unparsable COLUMNS must fall back to %d, got %d", defaultWidth, w)
+	}
+	t.Setenv("COLUMNS", "0")
+	if w, _ := tui.size(); w != defaultWidth {
+		t.Errorf("a zero COLUMNS must fall back to %d, got %d", defaultWidth, w)
+	}
+	t.Setenv("COLUMNS", "100")
+	t.Setenv("LINES", "not-a-number")
+	if _, h := tui.size(); h != 0 {
+		t.Errorf("an unparsable LINES means the height is unknown, got %d", h)
 	}
 }

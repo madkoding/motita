@@ -216,7 +216,14 @@ func (t *TUI) layout(w, h int) ([]string, string) {
 // terminal leaves its cursor exactly where the user is about to type. The frame
 // is measured against the terminal height before it is written, so it never
 // scrolls and the prompt can never be pushed off the bottom.
+// The painter is serialised: a frame is drawn from the input loop and from the resize
+// watcher, and both read the state the other mutates. Holding the lock for the whole
+// paint is what makes the two safe — measuring outside it would still race on Width,
+// scroll and messages.
 func (t *TUI) drawFrame() {
+	t.draw.Lock()
+	defer t.draw.Unlock()
+
 	w, h := t.size()
 	lines, prompt := t.layout(w, h)
 
@@ -256,6 +263,26 @@ func (t *TUI) drawFrame() {
 // because nothing can be said about what fits on screen.
 func (t *TUI) size() (int, int) {
 	w, h := t.Width, t.Height
+
+	// The question is asked in order of trustworthiness: an explicit override (tests
+	// and embedders), then the terminal driver, then the environment.
+	//
+	// The driver comes before the environment because COLUMNS/LINES are copied at
+	// exec and never updated, so they describe the size the program STARTED at. The
+	// terminal knows its current size. Measured on the target machine: the parent
+	// moved to 60 columns and its child still read 100 from the environment, while
+	// `stty size` under the same conditions reported the truth.
+	if w <= 0 || h <= 0 {
+		if tw, th, ok := ttySize(); ok {
+			if w <= 0 {
+				w = tw
+			}
+			if h <= 0 {
+				h = th
+			}
+		}
+	}
+
 	if w <= 0 {
 		if w = envInt("COLUMNS"); w == 0 {
 			w = defaultWidth

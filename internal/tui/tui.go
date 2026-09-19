@@ -115,6 +115,11 @@ type TUI struct {
 	// spinner; spin is the animation frame advanced on every repaint.
 	busy bool
 	spin int
+	// draw serialises painting. A frame is drawn from the input loop and from the
+	// resize watcher, and both read the state the other mutates, so the whole paint
+	// is held — rendering outside the lock and writing inside it would still race on
+	// Width, scroll and messages. -race caught exactly that.
+	draw sync.Mutex
 	// scroll is how many rows the conversation is lifted above its newest line.
 	// Zero means "pinned to the bottom", which is where a chat belongs: new
 	// output arrives at the end. Raising it walks back through history, which is
@@ -167,6 +172,28 @@ func (t *TUI) readKey(ctx context.Context) (byte, bool) {
 // context is cancelled.
 func (t *TUI) Run(ctx context.Context) int {
 	t.drawFrame()
+
+	// A resize repaints at the new geometry. The read below cannot be interrupted by
+	// a signal — the terminal is not in raw mode, so ReadByte blocks until a line
+	// arrives — which is why this needs its own goroutine rather than a check in the
+	// loop.
+	//
+	// The painter is waited for on the way out: stop closes the notification channel,
+	// the loop ends, and only then does Run return. A paint still in flight would
+	// otherwise write a frame over the shell prompt after the interface had exited.
+	resized, stopWatch := watchResize()
+	var painting sync.WaitGroup
+	painting.Add(1)
+	go func() {
+		defer painting.Done()
+		for range resized {
+			t.drawFrame()
+		}
+	}()
+	defer func() {
+		stopWatch()
+		painting.Wait()
+	}()
 
 	for {
 		line, ok := t.readLine(ctx)

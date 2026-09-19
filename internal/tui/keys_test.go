@@ -388,6 +388,8 @@ func TestATerminalOfUnknownHeightIsNotTreatedAsTiny(t *testing.T) {
 	tu, _ := newKeyTUI("", "hello")
 	tu.Height = 0
 	t.Setenv("LINES", "")
+	restore := stubTTYSize(0, 0, false)
+	defer restore()
 
 	lines, prompt := tu.layout(80, 0)
 	if prompt == "" {
@@ -404,6 +406,8 @@ func TestPagingWithoutAKnownHeightStillMoves(t *testing.T) {
 	tu, _ := newKeyTUI("", "one")
 	tu.Height = 0
 	t.Setenv("LINES", "")
+	restore := stubTTYSize(0, 0, false)
+	defer restore()
 
 	if n := tu.chatRows(); n < 1 {
 		t.Errorf("chatRows = %d, want at least 1", n)
