@@ -72,6 +72,14 @@ func (a *Agent) SetObserver(fn func(TaskResult)) {
 	a.Observer = fn
 }
 
+// SetProgress registers the callback that receives the human-readable phase
+// lines ("running: ls", "validating…"). It is the same hook as the Progress
+// field, behind a method so an embedder can install it through an interface
+// without reaching into the struct.
+func (a *Agent) SetProgress(fn func(format string, args ...any)) {
+	a.Progress = fn
+}
+
 // New builds the agent with all of its dependencies already constructed.
 func New(cfg config.Config, log *logx.Logger, engine *llm.Client, box *sandbox.Sandbox, source task.Source) *Agent {
 	if log == nil {

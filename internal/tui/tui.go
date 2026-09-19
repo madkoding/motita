@@ -199,12 +199,20 @@ func (t *TUI) Run(ctx context.Context) int {
 // handleShortcut interprets command-like input and view-switching keys.
 // It returns (handled, shouldQuit).
 func (t *TUI) handleShortcut(ctx context.Context, line string) (bool, bool) {
+	// The Tab is looked for in the raw input: readLine returns it as the single
+	// byte "	", and trimming first would remove it, so the switch would never see
+	// the key. That is what made Tab neither navigate nor reach the prompt.
+	if strings.TrimSpace(line) == "	" || line == "	" {
+		t.nextScreen()
+		return true, false
+	}
+
 	trimmed := strings.TrimSpace(strings.ToLower(line))
 
 	switch trimmed {
 	case "q", "quit", "/quit", "/q":
 		return true, true
-	case "tab", "	":
+	case "tab":
 		t.nextScreen()
 		return true, false
 	case "/task", "/t":
@@ -224,7 +232,7 @@ func (t *TUI) handleShortcut(ctx context.Context, line string) (bool, bool) {
 	case "/reasoning", "/r":
 		t.cycleReasoning()
 		return true, false
-	case "/help", "/h", "h", "help":
+	case "/help", "/h", "h", "help", "?":
 		t.addMessage(AuthorSystem, helpText)
 		return true, false
 	}
@@ -266,6 +274,22 @@ func (t *TUI) cycleReasoning() {
 	t.drawFrame()
 }
 
+// progressSender is the callback handed to the runner. It never blocks: when the
+// buffer is full and the run has already been cancelled it drops the line, because
+// the conversation it would have updated is gone. Blocking here would keep the
+// runner's goroutine alive after the user asked it to stop.
+//
+// It is one named function rather than the same select inlined twice, so the
+// behaviour is stated once and can be tested on its own.
+func progressSender(ctx context.Context, ch chan string) func(format string, args ...any) {
+	return func(format string, args ...any) {
+		select {
+		case ch <- fmt.Sprintf(format, args...):
+		case <-ctx.Done():
+		}
+	}
+}
+
 func (t *TUI) runTask(ctx context.Context, task string) {
 	if strings.TrimSpace(task) == "" {
 		t.drawFrame()
@@ -289,15 +313,9 @@ func (t *TUI) runTask(ctx context.Context, task string) {
 	}
 	done := make(chan runOutcome, 1)
 	go func() {
-		res, err := t.Runner.RunTask(runCtx, task, func(format string, args ...any) {
-			select {
-			case progress <- fmt.Sprintf(format, args...):
-			case <-runCtx.Done():
-			}
-		})
+		res, err := t.Runner.RunTask(runCtx, task, progressSender(runCtx, progress))
 		done <- runOutcome{result: res, err: err}
 	}()
-
 	t.beginTurn()
 	t.addMessage(AuthorAgent, "")
 	pendingIdx := len(t.messages) - 1
@@ -435,12 +453,7 @@ func (t *TUI) runPlan(ctx context.Context, prompt string) {
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		answer, err := t.Runner.RunPlan(runCtx, prompt, func(format string, args ...any) {
-			select {
-			case progress <- fmt.Sprintf(format, args...):
-			case <-runCtx.Done():
-			}
-		})
+		answer, err := t.Runner.RunPlan(runCtx, prompt, progressSender(runCtx, progress))
 		done <- struct {
 			answer string
 			err    error
@@ -457,19 +470,17 @@ func (t *TUI) runPlan(ctx context.Context, prompt string) {
 		answer string
 		err    error
 	}
+	// Neither channel is closed by this function: progress is buffered and
+	// abandoned, and done is closed only after the loop ends. Reading without the
+	// comma-ok form is therefore safe, and it keeps this loop identical to the one
+	// in runTask.
 loop:
 	for {
 		select {
-		case p, ok := <-progress:
-			if !ok {
-				break loop
-			}
+		case p := <-progress:
 			stream.handle(p)
 			t.advance()
-		case r, ok := <-done:
-			if !ok {
-				break loop
-			}
+		case r := <-done:
 			result = r
 			break loop
 		case <-runCtx.Done():

@@ -17,10 +17,19 @@ type fakeRunner struct {
 	planCalled   bool
 	taskCalled   bool
 	configCalled bool
+	configCalls  int
+	// silentTask makes RunTask report nothing, which exercises the explanation the
+	// interface shows instead of an empty bubble.
+	silentTask   bool
 	modelsCalled bool
 	modelsCalls  int
 	modelsReport string
 	planProgress []string
+	// The *Block channels make a run hang until the test closes them, which is how
+	// cancellation in the middle of a turn is exercised.
+	taskBlock    chan struct{}
+	planBlock    chan struct{}
+	modelsBlock  chan struct{}
 	planAnswer   string
 	planErr      error
 	taskErr      error
@@ -32,6 +41,9 @@ type fakeRunner struct {
 	mu           sync.Mutex
 	out          io.Writer
 	cfg          config.Config
+	// cfgSet records that the test supplied a configuration of its own, which is
+	// what makes an empty provider a meaningful value rather than "unset".
+	cfgSet bool
 }
 
 func (f *fakeRunner) RunPlan(ctx context.Context, prompt string, progress func(string, ...any)) (string, error) {
@@ -39,6 +51,13 @@ func (f *fakeRunner) RunPlan(ctx context.Context, prompt string, progress func(s
 	defer f.mu.Unlock()
 	f.planCalled = true
 	f.lastPrompt = prompt
+	if f.planBlock != nil {
+		select {
+		case <-f.planBlock:
+		case <-ctx.Done():
+		}
+		return "", ctx.Err()
+	}
 	if progress != nil {
 		if len(f.planProgress) > 0 {
 			for _, p := range f.planProgress {
@@ -59,11 +78,21 @@ func (f *fakeRunner) RunTask(ctx context.Context, task string, progress func(str
 	defer f.mu.Unlock()
 	f.taskCalled = true
 	f.lastTask = task
+	if f.taskBlock != nil {
+		select {
+		case <-f.taskBlock:
+		case <-ctx.Done():
+		}
+		return "", ctx.Err()
+	}
 	if progress != nil {
 		progress("working...")
 	}
 	if f.taskErr != nil {
 		return "", f.taskErr
+	}
+	if f.silentTask {
+		return "", nil
 	}
 	return "completed: mock result", nil
 }
@@ -72,6 +101,7 @@ func (f *fakeRunner) RunConfig(ctx context.Context) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.configCalled = true
+	f.configCalls++
 	return f.configErr
 }
 
@@ -80,13 +110,24 @@ func (f *fakeRunner) RunModels(ctx context.Context) (string, error) {
 	defer f.mu.Unlock()
 	f.modelsCalled = true
 	f.modelsCalls++
+	if f.modelsBlock != nil {
+		select {
+		case <-f.modelsBlock:
+		case <-ctx.Done():
+		}
+		return "", ctx.Err()
+	}
 	return f.modelsReport, f.modelsErr
 }
 
+// Config returns the configuration under test. The default is only filled in when
+// the test asked for nothing at all: an explicit configuration whose provider is
+// empty is a case worth testing, and substituting a default for it would silently
+// hide the behaviour under test.
 func (f *fakeRunner) Config() config.Config {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	if f.cfg.LLM.Provider == "" {
+	if !f.cfgSet {
 		f.cfg = config.Default()
 	}
 	return f.cfg
@@ -95,8 +136,20 @@ func (f *fakeRunner) Config() config.Config {
 func (f *fakeRunner) SetReasoning(level string) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	if !f.cfgSet {
+		f.cfg = config.Default()
+		f.cfgSet = true
+	}
 	f.cfg.LLM.Reasoning.Level = level
 	f.cfg.LLM.Reasoning.Enabled = level != "off"
+}
+
+// configWithKey builds a configuration with the given API key, for the tests that
+// depend on the key being present or absent rather than on its value.
+func configWithKey(key string) config.Config {
+	cfg := config.Default()
+	cfg.LLM.APIKey = key
+	return cfg
 }
 
 func newFakeTUI(inputs string, runner Runner) *TUI {
@@ -118,8 +171,16 @@ func newFakeTUI(inputs string, runner Runner) *TUI {
 	}
 }
 
-// tabReader wraps a byte slice and treats the literal two-character sequence
-// "	" as a single Tab byte, so tests can write readable inputs like "	\nq\n".
+// tabReader stands in for a terminal delivering keystrokes. It turns the literal
+// two-character sequence "	" into a single Tab byte, so tests can be written with
+// readable input like "	\nq\n".
+//
+// It hands out ONE byte per Read on purpose. bufio fills its whole buffer with a
+// single Read call, so a reader that returns the entire string at once would have
+// its later "	" sequences delivered verbatim: only the first one would be
+// converted, and the rest would arrive as a backslash and a letter. Feeding one
+// byte at a time is what a terminal actually does, and it is what makes the
+// conversion apply to every Tab in the input.
 type tabReader struct {
 	src []byte
 	idx int
@@ -129,15 +190,17 @@ func (r *tabReader) Read(p []byte) (int, error) {
 	if r.idx >= len(r.src) {
 		return 0, io.EOF
 	}
-	// If the next two bytes look like an escaped tab, emit a real tab.
+	if len(p) == 0 {
+		return 0, nil
+	}
 	if r.idx+1 < len(r.src) && r.src[r.idx] == '\\' && r.src[r.idx+1] == 't' {
 		p[0] = '	'
 		r.idx += 2
 		return 1, nil
 	}
-	n := copy(p, r.src[r.idx:])
-	r.idx += n
-	return n, nil
+	p[0] = r.src[r.idx]
+	r.idx++
+	return 1, nil
 }
 
 func outputOf(t *TUI) string { return t.Out.(*bytes.Buffer).String() }

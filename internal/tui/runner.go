@@ -138,6 +138,36 @@ func planDefaultLoops(cfg config.Config) int {
 	return 5
 }
 
+// taskObserver is the interface the runner installs on the agent it builds: the
+// agent reports its result back through these two hooks.
+//
+// It is an interface rather than a concrete *agent.Agent so the mapping below can
+// be tested with a fake. The previous type assertion meant the whole result path
+// was unreachable from a test, and the mapping had no coverage at all.
+type taskObserver interface {
+	AgentRunner
+	// SetProgress receives the human-readable phase lines.
+	SetProgress(func(format string, args ...any))
+	// SetObserver receives the final task result.
+	SetObserver(func(agent.TaskResult))
+}
+
+// summarise turns a task result into the sentence the chat shows.
+func summarise(tr agent.TaskResult) string {
+	switch {
+	case tr.Pass && tr.Summary != "":
+		return tr.Summary
+	case tr.Pass:
+		out := fmt.Sprintf("completed: %s", tr.Reason)
+		if tr.FinalAction != "" && tr.FinalAction != "none" {
+			out += fmt.Sprintf(" (final action: %s)", tr.FinalAction)
+		}
+		return out
+	default:
+		return fmt.Sprintf("failed: %s", tr.Reason)
+	}
+}
+
 // RunTask runs the agent with a single text task and returns a human-readable summary.
 func (r *AppRunner) RunTask(ctx context.Context, task string, progress func(string, ...any)) (string, error) {
 	engine, err := r.engine()
@@ -150,26 +180,15 @@ func (r *AppRunner) RunTask(ctx context.Context, task string, progress func(stri
 	}
 	var result string
 	ag := r.newAgent(r.Cfg, r.Log, engine, r.Box, source)
-	if a, ok := ag.(*agent.Agent); ok {
-		a.Progress = progress
-		a.SetObserver(func(tr agent.TaskResult) {
-			if tr.Pass && tr.Summary != "" {
-				result = tr.Summary
-			} else if tr.Pass {
-				result = fmt.Sprintf("completed: %s", tr.Reason)
-				if tr.FinalAction != "" && tr.FinalAction != "none" {
-					result += fmt.Sprintf(" (final action: %s)", tr.FinalAction)
-				}
-			} else {
-				result = fmt.Sprintf("failed: %s", tr.Reason)
-			}
-		})
+	if o, ok := ag.(taskObserver); ok {
+		o.SetProgress(progress)
+		o.SetObserver(func(tr agent.TaskResult) { result = summarise(tr) })
 	}
 	if err := ag.Run(ctx); err != nil {
 		return result, err
 	}
 	if result == "" {
-		return "task finished with no result reported", nil
+		return "the task finished without reporting a result", nil
 	}
 	return result, nil
 }

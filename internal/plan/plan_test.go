@@ -31,6 +31,9 @@ type fakeExecutor struct {
 		err    error
 	}
 	defaultOutput string
+	// defaultErr makes every command report this error, which is how the
+	// execution-failure branches are exercised.
+	defaultErr error
 }
 
 func (f *fakeExecutor) run(ctx context.Context, r execx.Request) (string, bool, int, error) {
@@ -39,7 +42,7 @@ func (f *fakeExecutor) run(ctx context.Context, r execx.Request) (string, bool, 
 	if s, ok := f.script[line]; ok {
 		return s.output, false, s.exit, s.err
 	}
-	return f.defaultOutput, false, 0, nil
+	return f.defaultOutput, false, 0, f.defaultErr
 }
 
 func makeAgent(t *testing.T, readOnly bool) (*agent.Agent, *fakeExecutor) {
@@ -173,6 +176,16 @@ func toolCallRaw(name, id, raw string) map[string]any {
 			"arguments": raw,
 		},
 	}
+}
+
+// llmServerStatus answers every request with the given HTTP status, which is what
+// the failure paths of the planner need.
+func llmServerStatus(t *testing.T, status int) *httptest.Server {
+	t.Helper()
+	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(status)
+		_, _ = w.Write([]byte(`{"error":{"message":"simulated failure"}}`))
+	}))
 }
 
 func newClient(t *testing.T, srv *httptest.Server) *llm.Client {

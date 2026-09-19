@@ -42,6 +42,10 @@ type Client struct {
 	http  *http.Client
 	log   *logx.Logger
 	sleep func(time.Duration) // injectable so tests do not have to wait
+	// openStream opens one streaming attempt. It is injectable so the retry
+	// wrapper can be tested against a producer that fails, or closes without a
+	// done chunk, without having to make a real server misbehave.
+	openStream func(context.Context, []Message, []Tool) (<-chan StreamChunk, error)
 }
 
 // New creates the reasoning engine client.
@@ -88,6 +92,14 @@ func New(cfg config.LLM, log *logx.Logger) (*Client, error) {
 			time.Sleep(d)
 		},
 	}, nil
+}
+
+// openStreamOr returns the injected opener, or the real HTTP one.
+func (c *Client) openStreamOr() func(context.Context, []Message, []Tool) (<-chan StreamChunk, error) {
+	if c.openStream != nil {
+		return c.openStream
+	}
+	return c.callOpenAIToolsStream
 }
 
 // Complete sends the conversation and returns the model's text, retrying with
@@ -149,7 +161,7 @@ func (c *Client) CompleteToolsStream(ctx context.Context, messages []Message, to
 		var last error
 		wait := c.cfg.BackoffInitial
 		for attempt := 1; attempt <= c.cfg.MaxAttempts; attempt++ {
-			chunkCh, err := c.callOpenAIToolsStream(ctx, messages, tools)
+			chunkCh, err := c.openStreamOr()(ctx, messages, tools)
 			if err == nil {
 				for chunk := range chunkCh {
 					out <- chunk
@@ -588,11 +600,15 @@ func (c *Client) callOpenAIToolsStream(ctx context.Context, messages []Message, 
 			if delta.Content != "" {
 				acc.Handle(StreamChunk{Event: StreamText, Text: delta.Content})
 			}
-			if chunk.Choices[0].FinishReason == "tool_calls" || chunk.Choices[0].FinishReason == "stop" {
-				if len(delta.ToolCalls) > 0 {
-					out <- StreamChunk{Event: StreamDone, Reply: acc.FinalReply()}
-					return
-				}
+			// finish_reason is by definition the end of the completion: the
+			// provider sets it on the last chunk that carries the answer, and
+			// [DONE] merely confirms it. Returning here — for any reason, not
+			// only tool_calls — is what keeps a provider that omits [DONE] and
+			// holds the connection open from hanging the caller until the
+			// client timeout expires.
+			if chunk.Choices[0].FinishReason != "" {
+				out <- StreamChunk{Event: StreamDone, Reply: acc.FinalReply()}
+				return
 			}
 		}
 	}()

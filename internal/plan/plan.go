@@ -36,9 +36,16 @@ type CommandRunner interface {
 	RunCommand(ctx context.Context, command string) (string, int, error)
 }
 
+// Engine is the reasoning client the planner talks to. The real *llm.Client
+// implements it; the interface exists so the loop can be driven by a fake in tests.
+type Engine interface {
+	CompleteToolsStream(ctx context.Context, messages []llm.Message, tools []llm.Tool) <-chan llm.StreamChunk
+	Complete(ctx context.Context, messages []llm.Message) (string, error)
+}
+
 // Planner runs the read-only plan/chat loop.
 type Planner struct {
-	engine *llm.Client
+	engine Engine
 	runner CommandRunner
 
 	// maxLoops caps the number of tool turns per user message.
@@ -56,7 +63,7 @@ type Planner struct {
 // New builds a Planner with the given engine and command runner.
 // The runner must enforce read-only semantics; the planner assumes every command
 // it submits is safe to run.
-func New(engine *llm.Client, runner CommandRunner) *Planner {
+func New(engine Engine, runner CommandRunner) *Planner {
 	if engine == nil {
 		panic("plan.New: engine is nil")
 	}
@@ -160,10 +167,11 @@ func (p *Planner) Run(ctx context.Context, input string) (string, error) {
 	messages := []llm.Message{{Role: "system", Content: systemPrompt}}
 	messages = append(messages, llm.Message{Role: "user", Content: input})
 
+	// WithLoops floors the limit at one, so a planner built through New always has
+	// a usable value. A zero-value Planner skips the loop entirely and falls
+	// through to the forced answer below, which is the same graceful outcome
+	// without a second, unreachable clamp here.
 	loops := p.maxLoops
-	if loops < 1 {
-		loops = 1
-	}
 	for i := 1; i <= loops; i++ {
 		p.tracef("[thinking...]")
 		reply, err := p.streamTools(ctx, messages)

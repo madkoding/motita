@@ -249,16 +249,12 @@ func envInt(name string) int {
 // straight.
 //
 // The arithmetic works out as: left margin (2) + border (1) + padding (1) +
-// inner + padding (1) + border (1) = inner + 6 columns. One more column is left
-// free at the right edge of the terminal, so a full row is never produced: some
-// terminals wrap a line that fills the row exactly, and that extra wrap is what
-// makes a TUI scroll and lose its top.
+// inner + padding (1) + border (1), so inner is the frame width minus six. No
+// clamp is needed: size() already floors the width at minWidth, which leaves
+// minWidth-1-6 = 37 columns here. A clamp would be unreachable code pretending to
+// be a safety net.
 func (t *TUI) inner() int {
-	inner := t.frameCols() - 6
-	if inner < 8 {
-		inner = 8
-	}
-	return inner
+	return t.frameCols() - 6
 }
 
 // frameCols is the total number of columns the interface may occupy.
@@ -344,16 +340,16 @@ func (t *TUI) stateGlyph() string {
 // chatTopRow is the top border of the conversation panel, with the current mode
 // as its title.
 func (t *TUI) chatTopRow() []string {
-	inner := t.inner()
 	title := t.screen.String()
 	// The top rule is the bottom rule minus the width of the title block, which
 	// occupies the corner, a rule and a space before the title, and a space after
 	// it. Getting this wrong is only visible as a top border that stops short of
 	// the right corner.
-	rule := inner - 1 - len(title)
-	if rule < 1 {
-		rule = 1
-	}
+	//
+	// No lower clamp is needed: size() floors the width at minWidth, which leaves
+	// 30 columns of rule for the longest title ("Models"). A clamp would be
+	// unreachable code that only looks like a safety net.
+	rule := t.inner() - 1 - len(title)
 	return []string{"  " + t.muted(glyphTopLeft+glyphRule+" ") + t.color(colAccent, 0, title) +
 		" " + t.muted(strings.Repeat(glyphRule, rule)+glyphTopRight)}
 }
@@ -361,26 +357,6 @@ func (t *TUI) chatTopRow() []string {
 // chatBottomRow is the bottom border of the conversation panel.
 func (t *TUI) chatBottomRow() string {
 	return "  " + t.muted(glyphBotLeft+strings.Repeat(glyphRule, t.inner()+2)+glyphBotRight)
-}
-
-// chatPanel draws the conversation as a bordered panel. It is the only framed
-// element in the interface: one border style, used once, for the primary content.
-func (t *TUI) chatPanel(w, h int) []string {
-	body := t.chatLines(t.inner())
-	if h > 0 {
-		// Reserve the rows used by everything else, then keep the newest lines: a
-		// chat shows the end of the conversation, not its beginning.
-		fixed := len(t.headerLines(w)) + len(t.statusLines(w)) + 2 + 3
-		if room := h - fixed; room >= minChatLines && len(body) > room {
-			hidden := len(body) - room + 1
-			body = append([]string{t.cell(t.muted(fmt.Sprintf("... %d earlier lines", hidden)), t.inner())},
-				body[len(body)-room+1:]...)
-		}
-	}
-
-	lines := append([]string{}, t.chatTopRow()...)
-	lines = append(lines, body...)
-	return append(lines, t.chatBottomRow())
 }
 
 // chatLines renders every visible message, oldest first.
@@ -526,7 +502,8 @@ func (t *TUI) tabsLine(w int) string {
 }
 
 // hintLines lists the keys that work right now, the key in the accent colour and
-// its meaning muted. Hints that do not fit are dropped, never wrapped.
+// its meaning muted. Hints that do not fit are dropped, never wrapped: a hint that
+// is cut in half reads as a different key.
 func (t *TUI) hintLines(w int) []string {
 	hints := [][2]string{
 		{"Tab", "switch mode"},
@@ -541,7 +518,12 @@ func (t *TUI) hintLines(w int) []string {
 	var out []string
 	for _, h := range hints {
 		candidate := append(append([]string{}, out...), t.color(colAccent, 0, h[0])+" "+t.muted(h[1]))
-		if len(out) > 0 && !t.fits("  "+strings.Join(candidate, t.muted("  "+glyphMid+"  ")), w-leftMargin) {
+		joined := strings.Join(candidate, t.muted("  "+glyphMid+"  "))
+		// The first hint is decided on its own: if it does not fit, the terminal
+		// is too narrow for hints at all and none are shown. Adding it and then
+		// letting fitLine trim it would print a truncated key, which promises a
+		// binding that does not exist.
+		if !t.fits("  "+joined, w-leftMargin) {
 			break
 		}
 		out = candidate
@@ -549,7 +531,7 @@ func (t *TUI) hintLines(w int) []string {
 	if len(out) == 0 {
 		return nil
 	}
-	return []string{t.fitLine(strings.Join(out, t.muted("  "+glyphMid+"  ")), w, "  ")}
+	return []string{"  " + strings.Join(out, t.muted("  "+glyphMid+"  "))}
 }
 
 // promptLine is the input prompt: the last line of the frame, with the cursor
@@ -662,14 +644,29 @@ func wordWrap(s string, width int) []string {
 	return lines
 }
 
-// Escapes are parsed with a three-state machine instead of "skip until a byte in
+// Escapes are parsed with a state machine instead of "skip until a byte in
 // 0x40..0x7E": in a CSI sequence the introducer itself, '[' (0x5b), already falls
 // inside that range, so the naive rule stops one byte early and counts the whole
 // colour sequence as text.
+//
+// Four shapes are recognised, which is what a terminal can be sent:
+//
+//	CSI  ESC [ params final            colours, cursor movement, erase
+//	OSC  ESC ] … BEL or ESC \          window title, hyperlinks
+//	ESC  ESC intermediate* final       charset selection: ESC ( B, ESC # 8
+//	ESC  ESC <other single byte>       two-byte escapes such as ESC =
+//
+// The general ANSI rule is what the last two encode: after the ESC, bytes in
+// 0x20..0x2F are intermediates and the first byte at or above 0x30 ends the
+// sequence. Treating ESC ( B as "ESC then two visible characters" is what made
+// the measured width of a decorated line wrong.
 const (
 	escNone = iota
 	escSeen // the ESC itself was just read
 	escCSI  // ESC [ … : parameters, then a final byte
+	escOSC  // ESC ] … : a string, ended by BEL or by ESC \
+	escOSCEsc
+	escInter // ESC followed by intermediates, waiting for the final byte
 )
 
 // scanEscapes walks a string and reports, for every rune, whether it is part of
@@ -680,18 +677,45 @@ func scanEscapes(s string, visit func(r rune, isEscape bool)) {
 	for _, r := range s {
 		switch state {
 		case escSeen:
-			if r == '[' {
-				state = escCSI
-				visit(r, true)
-				continue
-			}
-			state = escNone
 			visit(r, true)
+			switch {
+			case r == '[':
+				state = escCSI
+			case r == ']':
+				state = escOSC
+			case r >= 0x20 && r <= 0x2f:
+				// An intermediate byte: the sequence continues.
+				state = escInter
+			default:
+				state = escNone
+			}
+		case escInter:
+			visit(r, true)
+			switch {
+			case r == 0x1b:
+				// A new escape interrupts the one being read. Treating it as an
+				// intermediate kept the parser in this state, and the following
+				// "[31m" was then counted as four columns of text.
+				state = escSeen
+			case r >= 0x30:
+				state = escNone
+			}
 		case escCSI:
 			visit(r, true)
 			if r >= 0x40 && r <= 0x7e {
 				state = escNone
 			}
+		case escOSC:
+			visit(r, true)
+			switch r {
+			case 0x07: // BEL ends it
+				state = escNone
+			case 0x1b: // ESC \ also ends it
+				state = escOSCEsc
+			}
+		case escOSCEsc:
+			visit(r, true)
+			state = escNone
 		default:
 			if r == 0x1b {
 				state = escSeen

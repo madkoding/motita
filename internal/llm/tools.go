@@ -145,8 +145,12 @@ func (sr *StreamResult) Handle(chunk StreamChunk) bool {
 	case StreamToolCall:
 		if chunk.Call != nil {
 			if sr.LastCall == nil || sr.LastCall.ID != chunk.Call.ID {
-				sr.LastCall = chunk.Call
 				sr.Calls = append(sr.Calls, *chunk.Call)
+				// LastCall must point at the copy that is now in the slice.
+				// Pointing it at the incoming chunk (which the caller may reuse)
+				// made the later fragments of the same call land outside the
+				// slice, so the arguments kept only their first piece.
+				sr.LastCall = &sr.Calls[len(sr.Calls)-1]
 			} else {
 				*sr.LastCall = *chunk.Call
 			}
