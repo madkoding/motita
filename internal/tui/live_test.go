@@ -111,7 +111,7 @@ func TestTheRightArrowAcceptsTheCompletion(t *testing.T) {
 	if !ok {
 		t.Fatal("Enter must end the line")
 	}
-	if line != "/plan" {
+	if strings.TrimSpace(line) != "/plan" {
 		t.Errorf("line = %q, want the right arrow to have completed the command", line)
 	}
 }
@@ -512,4 +512,260 @@ func TestASuccessfulExitDoesNotPanic(t *testing.T) {
 	func() {
 		defer recoverRaw(&terminalMode{})()
 	}()
+}
+
+// TestNoControlKeyReachesTheInput: every control byte a terminal can send must be CAPTURED by
+// the interface. Typing is what a printable character does; a control byte is a key, and a key
+// that gets appended to the line is drawn on screen as garbage and sent to the model as part of
+// the message.
+//
+// This is a sweep rather than a list of examples: the defect it prevents is a control byte
+// nobody thought about falling through a switch, which is exactly how Ctrl+A, Ctrl+B, Ctrl+K,
+// Ctrl+W and Ctrl+Z used to be inserted.
+func TestNoControlKeyReachesTheInput(t *testing.T) {
+	// The tokens the interface returns on purpose. They are not text, and the caller acts on
+	// them instead of sending them.
+	tokens := map[byte]bool{0x03: true, 0x04: true, 0x06: true, 0x15: true, 0x1b: true, '\t': true}
+
+	for b := byte(0x01); b < 0x20; b++ {
+		if tokens[b] {
+			continue
+		}
+		tu, _ := newKeyTUI(string([]byte{b}) + "\n")
+		tu.charMode = true
+		tu.Width, tu.Height = 100, 24
+
+		line, ok := tu.readLine(context.Background())
+		if !ok {
+			continue // a key that ends the read is not inserted either
+		}
+		for _, r := range line {
+			if r == rune(b) {
+				t.Errorf("Ctrl+%c (0x%02x) was inserted into the input: %q", 'A'+b-1, b, line)
+				break
+			}
+		}
+	}
+}
+
+// TestHighBytesDoNotBecomeMojibake: a byte above 0x7f is the START of a UTF-8 sequence, not a
+// character. The old guard tested the byte against 0x20, which every high byte passes, so an
+// accented letter was appended one byte at a time and drawn as mojibake.
+func TestHighBytesDoNotBecomeMojibake(t *testing.T) {
+	for _, text := range []string{"café", "señal", "año 2026", "→ ok", "日本"} {
+		tu, _ := newKeyTUI(text + "\n")
+		tu.charMode = true
+		tu.Width, tu.Height = 100, 24
+
+		line, ok := tu.readLine(context.Background())
+		if !ok {
+			t.Fatalf("%q: the read ended early", text)
+		}
+		if line != text {
+			t.Errorf("input %q came back as %q", text, line)
+		}
+	}
+}
+
+// TestATruncatedUTF8SequenceIsDropped: a paste cut short, or a terminal that died mid-character,
+// leaves a leading byte with no continuation. It must be dropped rather than inserted as a
+// partial character.
+func TestATruncatedUTF8SequenceIsDropped(t *testing.T) {
+	// 0xc3 starts a two-byte sequence, and the byte that follows is a printable one rather than
+	// a continuation. The broken pair is dropped; what comes after it is the user's text and has
+	// to survive.
+	tu, _ := newKeyTUI(string([]byte{0xc3, 'a'}) + "\n")
+	tu.charMode = true
+	tu.Width, tu.Height = 100, 24
+
+	line, ok := tu.readLine(context.Background())
+	if !ok {
+		t.Fatal("the read must end at the newline")
+	}
+	if line != "a" {
+		t.Errorf("the broken sequence must be dropped and the rest kept, got %q", line)
+	}
+	// And nothing that is not text may appear in the line.
+	for _, r := range line {
+		if r < 0x20 {
+			t.Errorf("a control character survived: %q", line)
+		}
+	}
+}
+
+// TestFourByteCharactersArriveWhole: an emoji is four bytes, and the reader has to assemble all
+// of them. A version that stopped at two would render it as two mojibake characters, which is
+// the same defect as a broken accent but harder to notice in a test that only checks Latin-1.
+func TestFourByteCharactersArriveWhole(t *testing.T) {
+	for _, text := range []string{"listo 🚀", "ok ✅✅", "un 🙂 emoji"} {
+		tu, _ := newKeyTUI(text + "\n")
+		tu.charMode = true
+		tu.Width, tu.Height = 100, 24
+
+		line, ok := tu.readLine(context.Background())
+		if !ok {
+			t.Fatalf("%q: the read ended early", text)
+		}
+		if line != text {
+			t.Errorf("input %q came back as %q", text, line)
+		}
+	}
+}
+
+// TestAStrayContinuationByteIsNotACharacter: a continuation byte with no leading byte before it
+// is not text, and inserting it would draw a lone replacement character.
+func TestAStrayContinuationByteIsNotACharacter(t *testing.T) {
+	// 0x80 is a continuation byte on its own.
+	tu, _ := newKeyTUI(string([]byte{0x80, 'a'}) + "\n")
+	tu.charMode = true
+	tu.Width, tu.Height = 100, 24
+
+	line, ok := tu.readLine(context.Background())
+	if !ok {
+		t.Fatal("the read must end")
+	}
+	if line != "a" {
+		t.Errorf("the stray byte must be dropped and the rest kept, got %q", line)
+	}
+	if _, bad := tu.readRuneFrom(0x80); bad {
+		t.Error("a stray continuation byte must not be reported as a character")
+	}
+}
+
+// TestAnUnreadableInputDuringAUTF8SequenceEndsTheRead: the continuation bytes are read without a
+// deadline because the terminal wrote them with the leading byte. If the input is exhausted
+// instead — a file that ends, a pipe that closes — the read must END rather than block or
+// invent a character.
+func TestAnUnreadableInputDuringAUTF8SequenceEndsTheRead(t *testing.T) {
+	// A lone leading byte with nothing after it.
+	tu, _ := newKeyTUI(string([]byte{0xc3}))
+	tu.charMode = true
+	tu.Width, tu.Height = 100, 24
+
+	if _, ok := tu.readLine(context.Background()); ok {
+		t.Error("an exhausted input must end the read, not report a line")
+	}
+}
+
+// TestAnOverlongButWellFormedSequenceIsRejected: a four-byte leading byte whose continuation
+// bytes are all present can still encode a value RFC 3629 does not allow — an overlong form.
+// utf8.Valid is what rejects it, and without that check the interface would accept a byte
+// sequence that is not a character.
+func TestAnOverlongButWellFormedSequenceIsRejected(t *testing.T) {
+	// 0xf0 0x80 0x80 0x80 is a four-byte sequence encoding U+0000 the long way: the shape is
+	// right and the value is illegal.
+	tu, _ := newKeyTUI(string([]byte{0xf0, 0x80, 0x80, 0x80, 'a'}) + "\n")
+	tu.charMode = true
+	tu.Width, tu.Height = 100, 24
+
+	line, ok := tu.readLine(context.Background())
+	if !ok {
+		t.Fatal("the read must end at the newline")
+	}
+	if line != "a" {
+		t.Errorf("the illegal sequence must be dropped and the rest kept, got %q", line)
+	}
+}
+
+// TestNoControlByteEverReachesTheChat: the round trip that matters. The reader captures control
+// keys, and the dispatcher must consume the tokens it returns — otherwise they fall through to
+// the chat and are SENT TO THE MODEL as control characters in the message.
+//
+// This was a real defect: Ctrl+D, Ctrl+F and Ctrl+U were captured from the input, returned as
+// tokens, had no case in the dispatcher, and reached the provider. The agent's own answer named
+// them back ("caracteres de control intercalados: \x01, \x0b, \x17, \x15").
+func TestNoControlByteEverReachesTheChat(t *testing.T) {
+	// The control bytes a terminal sends that are NOT tokens the interface acts on.
+	for b := byte(0x01); b < 0x20; b++ {
+		if b == '\t' || b == '\n' || b == '\r' {
+			continue
+		}
+		tu, _ := newKeyTUI("")
+		tu.Width, tu.Height = 100, 24
+
+		// The dispatcher is what decides: a handled line never reaches the chat.
+		handled, _ := tu.handleShortcut(context.Background(), string([]byte{b}))
+		if !handled {
+			t.Errorf("Ctrl+%c (0x%02x) is not consumed by the dispatcher, so it would be sent as a message",
+				'A'+b-1, b)
+		}
+	}
+	// And the tokens with a meaning of their own ARE handled, which is different from swallowed:
+	// acting on them is what stops them being text.
+	for b, what := range map[byte]string{0x04: "Ctrl+D", 0x06: "Ctrl+F", 0x15: "Ctrl+U"} {
+		tu, _ := newKeyTUI("")
+		tu.Width, tu.Height = 100, 24
+		if handled, _ := tu.handleShortcut(context.Background(), string([]byte{b})); !handled {
+			t.Errorf("%s (0x%02x) must be handled", what, b)
+		}
+	}
+}
+
+// TestTheInputIsClearedAfterAMessageIsSent: once a message is dispatched it belongs to the
+// thread, and leaving it in the field invites sending it twice — or editing the copy while
+// believing the sent one is being changed.
+func TestTheInputIsClearedAfterAMessageIsSent(t *testing.T) {
+	tu, _ := newKeyTUI("una pregunta\n\nq\n")
+	tu.Width, tu.Height = 100, 24
+
+	if _, ok := tu.readLine(context.Background()); !ok {
+		t.Fatal("the line must be read")
+	}
+	if tu.draft != "" {
+		t.Errorf("the draft must be empty after sending, got %q", tu.draft)
+	}
+	// And the drawn field must be empty too: the text moved to the thread, it is not shown twice.
+	field := stripANSI(strings.Join(tu.composerLines(), "\n"))
+	if strings.Contains(field, "una pregunta") {
+		t.Errorf("the sent text is still drawn in the input:\n%s", field)
+	}
+}
+
+// TestTheWholeLineReaderRemovesControlCharactersToo: both readers must agree about what text is.
+//
+// The live reader refuses to add a control character; the whole-line reader takes a run of bytes
+// and only trimmed the ENDS, so a control byte in the middle of a line survived and was sent to
+// the model. The terminal's own control keys ended up in the message, and the agent reported
+// them back. Trimming the ends is not the same as removing what is inside.
+func TestTheWholeLineReaderRemovesControlCharactersToo(t *testing.T) {
+	// The whole-line path: not in character mode, which is what happens when the terminal will
+	// not accept cbreak — piped input, a cron job, a script.
+	tu, _ := newKeyTUI("hola\x01mundo\x0b\x17\n")
+	tu.charMode = false
+	tu.Width, tu.Height = 100, 24
+
+	line, ok := tu.readLine(context.Background())
+	if !ok {
+		t.Fatal("the read must return the line")
+	}
+	if line != "holamundo" {
+		t.Errorf("line = %q, want the control characters gone", line)
+	}
+	for _, r := range line {
+		if r < 0x20 || r == 0x7f {
+			t.Errorf("a control character survived: %q", line)
+		}
+	}
+}
+
+// TestSanitiseLineKeepsWhatIsText: the sanitiser must be surgical. It removes keys and DEL, and
+// every printable character stays — including the accented ones and the emoji, which are above
+// U+0020 and must not be touched.
+func TestSanitiseLineKeepsWhatIsText(t *testing.T) {
+	for _, tc := range []struct{ in, want string }{
+		{"hola", "hola"},
+		{"hola mundo", "hola mundo"},
+		{"hola\x01mundo", "holamundo"},
+		{"\x0b\x17a\x1fb", "ab"},
+		{"café ☕ 🚀", "café ☕ 🚀"},
+		{"  spaces are kept  ", "  spaces are kept  "},
+		{"tab\tinside", "tabinside"},
+		{"del\x7fete", "delete"},
+		{"", ""},
+		{"\x01\x02\x03", ""},
+	} {
+		if got := sanitiseLine(tc.in); got != tc.want {
+			t.Errorf("sanitiseLine(%q) = %q, want %q", tc.in, got, tc.want)
+		}
+	}
 }

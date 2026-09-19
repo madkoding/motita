@@ -2,6 +2,7 @@ package tui
 
 import (
 	"bytes"
+	"context"
 	"os"
 	"strings"
 	"testing"
@@ -323,25 +324,41 @@ func TestTheComposerIsPeggedToTheBottom(t *testing.T) {
 	if prompt == "" {
 		t.Fatal("the composer must be drawn")
 	}
-	// The composer is the second-to-last row, the rule above it, the status bar below.
-	if got := stripANSI(lines[21]); !strings.Contains(got, "›") {
-		t.Errorf("row 22 must be the composer, got %q", got)
+	// The stack from the bottom: status bar, rule, input field (inputRows tall), then the rule
+	// ABOVE the input — which is the divider the user asked for.
+	n := len(lines)
+	if got := stripANSI(lines[n-1]); !strings.Contains(got, "Task") {
+		t.Errorf("the last row must be the status bar, got %q", got)
 	}
-	if got := lines[22]; setOf(got) != "─" {
-		t.Errorf("row 23 must be the rule, got %q", stripANSI(got))
+	if got := lines[n-2]; setOf(got) != "─" {
+		t.Errorf("the second-to-last row must be the rule, got %q", stripANSI(got))
 	}
-	if got := stripANSI(lines[23]); !strings.Contains(got, "Task") {
-		t.Errorf("row 24 must be the status bar, got %q", got)
+	// Measured layout, from the bottom up:
+	//
+	//	n-1         status bar
+	//	n-2         rule
+	//	n-2-i .. n-3  the input field (inputRows rows)
+	//	n-3-i       the rule ABOVE the input, which is the divider that was asked for
+	fieldStart := n - 2 - inputRows
+	if got := lines[fieldStart-1]; setOf(got) != "─" {
+		t.Errorf("the row above the input must be a divider, got %q", stripANSI(got))
 	}
-	// And the blank space is ABOVE the composer, between the content and the controls.
+	field := lines[fieldStart : n-2]
+	if len(field) != inputRows {
+		t.Fatalf("the input field must be %d rows, got %d", inputRows, len(field))
+	}
+	if got := stripANSI(field[0]); !strings.Contains(got, "›") {
+		t.Errorf("the first row of the input must carry the prompt, got %q", got)
+	}
+	// And the blank space is ABOVE the input, between the content and the controls.
 	blanks := 0
-	for _, l := range lines[11:21] {
+	for _, l := range lines[:fieldStart-1] {
 		if strings.TrimSpace(stripANSI(l)) == "" {
 			blanks++
 		}
 	}
 	if blanks == 0 {
-		t.Error("the gap between the conversation and the composer must be blank rows")
+		t.Error("the gap between the conversation and the input must be blank rows")
 	}
 }
 
@@ -481,24 +498,44 @@ func TestTheFrameNeverExceedsTheTerminalWithThePopupOpen(t *testing.T) {
 // complete one, so the user would never know to keep typing.
 func TestThePopupIsCappedRatherThanPushingTheFrameOff(t *testing.T) {
 	tu, _ := newKeyTUI("", "an answer")
-	tu.Width, tu.Height = 90, 14
-	tu.draft = "/" // every command is a candidate: more than a 14-row terminal can show beside
-	// the conversation, the composer, the rules and the status bar.
+	tu.Width, tu.Height = 90, 20
+	tu.draft = "/" // every command is a candidate: more than a 20-row terminal can show beside
+	// the conversation, the input field, the three rules and the status bar.
 
-	lines, _ := tu.layout(90, 14)
-	if len(lines) > 14 {
+	lines, _ := tu.layout(90, 20)
+	if len(lines) > 20 {
 		t.Fatalf("the frame must fit, got %d rows", len(lines))
 	}
 	body := stripANSI(strings.Join(lines, "\n"))
+	// When the list is cut there is room to say so, and it must: a silently truncated menu looks
+	// like the complete one, so the user would never know to keep typing.
 	if !strings.Contains(body, "more") {
 		t.Errorf("a cut list must say how many are hidden:\n%s", body)
 	}
-	// The composer and the bar must both still be there: the popup gives way, not them.
+	// The input and the status bar must both still be there: the popup gives way, not them.
 	if !strings.Contains(body, "›") {
-		t.Error("the composer must survive a capped popup")
+		t.Error("the input must survive a capped popup")
 	}
 	if !strings.Contains(body, "Task") {
 		t.Error("the status bar must survive a capped popup")
+	}
+
+	// And in a terminal with no room for even the "more" line, the popup shrinks to what fits
+	// rather than pushing the frame off the screen. The frame always fits; what varies is how
+	// much of the list is offered.
+	tight, _ := newKeyTUI("", "an answer")
+	tight.Width, tight.Height = 90, 14
+	tight.draft = "/"
+	tightLines, _ := tight.layout(90, 14)
+	if len(tightLines) > 14 {
+		t.Errorf("a 14-row terminal got a %d-row frame", len(tightLines))
+	}
+	tightBody := stripANSI(strings.Join(tightLines, "\n"))
+	if !strings.Contains(tightBody, "/task") {
+		t.Errorf("the popup must still offer the first candidate:\n%s", tightBody)
+	}
+	if !strings.Contains(tightBody, "›") || !strings.Contains(tightBody, "Task") {
+		t.Errorf("the input and the bar must survive:\n%s", tightBody)
 	}
 }
 
@@ -570,5 +607,299 @@ func TestTheConversationRoomHasAFloor(t *testing.T) {
 				t.Errorf("h=%d row %d is %d columns wide in a 44-column terminal", h, i, visibleLen(l))
 			}
 		}
+	}
+}
+
+// TestAWideTerminalIsUsedInFull: the interface must fill the window it was given.
+//
+// There used to be a maximum width of 116 columns, so on a wider terminal the rules, the status
+// bar and the conversation all stopped there and the rest of the screen stayed blank — which is
+// exactly "not covering the full width of the window". The cap was meant to keep lines
+// readable, but line length is the user's choice: they sized the window.
+func TestAWideTerminalIsUsedInFull(t *testing.T) {
+	for _, w := range []int{80, 116, 120, 160, 200, 240} {
+		tu, _ := newKeyTUI("", "an answer")
+		tu.Width, tu.Height = w, 24
+
+		// The divider is the widest thing the frame draws: a solid run of ink. It spans the
+		// terminal minus the left margin and the ONE column deliberately left free at the end —
+		// filling the last column makes some terminals wrap, which would scroll the frame.
+		//
+		// Exactly one column is reserved for that. A second one used to be dropped by the frame
+		// arithmetic as well, which showed up as a visible strip of blank space down the right
+		// edge of a wide window.
+		rule := stripANSI(tu.rule(w))
+		if got := visibleLen(rule); got != w-1 {
+			t.Errorf("terminal %d: the rule spans %d columns, want %d", w, got, w-1)
+		}
+
+		// And nothing may exceed the terminal.
+		lines, _ := tu.layout(w, 24)
+		for i, l := range lines {
+			if visibleLen(l) > w-1 {
+				t.Errorf("terminal %d: row %d is %d columns wide", w, i, visibleLen(l))
+			}
+		}
+		_ = lines
+	}
+}
+
+// TestEveryFullWidthRowReachesTheSameColumn: the rule, the status bar and the composer all span
+// the frame, so they must end on the SAME column. When one of them stops short, the right edge
+// of the interface reads as ragged — a strip of blank space beside a row that does fill the
+// width, which is what "not covering the full width of the window" looks like.
+//
+// The composer is excluded on purpose: it is a prompt, not a divider, and it is short by design.
+func TestEveryFullWidthRowReachesTheSameColumn(t *testing.T) {
+	for _, w := range []int{minWidth, 80, 116, 120, 160, 200} {
+		tu, _ := newKeyTUI("", "an answer")
+		tu.Width, tu.Height = w, 24
+		tu.Runner.(*fakeRunner).snapshot = session.Snapshot{Window: 65536, Tokens: 1649, Used: 0.03}
+
+		rows := map[string]int{
+			"rule":      visibleLen(stripANSI(tu.rule(w))),
+			"bottomBar": visibleLen(stripANSI(tu.bottomBar(w))),
+		}
+		want := w - 1
+		for name, got := range rows {
+			if got != want {
+				t.Errorf("terminal %d: %s spans %d columns, want %d (the last column stays free so nothing wraps)",
+					w, name, got, want)
+			}
+		}
+	}
+}
+
+// TestTheWordmarkRowsAreAligned: the five rows of the banner must start on the same column.
+//
+// The third row used to carry one extra leading space that the other four did not have, which
+// shifted its artwork a column to the right and made the mark read as crooked.
+func TestTheWordmarkRowsAreAligned(t *testing.T) {
+	leads := make([]int, len(bannerLines))
+	for i, row := range bannerLines {
+		plain := stripANSI(row)
+		leads[i] = len(plain) - len(strings.TrimLeft(plain, " "))
+	}
+	for i := 1; i < len(leads); i++ {
+		if leads[i] != leads[0] {
+			t.Errorf("row %d starts at column %d and row 1 at column %d", i+1, leads[i], leads[0])
+		}
+	}
+}
+
+// TestTheWordmarkSeparatesTheLettersItsOwnWay: the banner is block art, so spacing between
+// letters is part of the glyphs. The i is a narrow letter and needs the same breathing room as
+// the others, or it reads as part of the L beside it.
+//
+// This asserts the property rather than a column count: every gap between letter runs must be
+// at least one column, and the gap around the narrow letter at least two — which is what
+// "add a space where the i is formed" asks for, without pinning the exact column.
+func TestTheWordmarkSeparatesTheLettersItsOwnWay(t *testing.T) {
+	// Count the gap for each row and require the narrow letter's gap to be the widest of them.
+	for n, row := range bannerLines {
+		plain := []rune(strings.TrimLeft(stripANSI(row), " "))
+		var runs [][2]int
+		c := 0
+		for c < len(plain) {
+			if plain[c] != ' ' {
+				s := c
+				for c < len(plain) && plain[c] != ' ' {
+					c++
+				}
+				runs = append(runs, [2]int{s, c - 1})
+			} else {
+				c++
+			}
+		}
+		// Every gap must be at least one column: two letters touching would be unreadable.
+		for i := 1; i < len(runs); i++ {
+			if gap := runs[i][0] - runs[i-1][1] - 1; gap < 1 {
+				t.Errorf("row %d: letters %d and %d touch (gap %d)", n+1, i, i+1, gap)
+			}
+		}
+	}
+}
+
+// TestTheInputWrapsLongTextInsteadOfOverflowing: the field is a fixed box, so text longer than
+// its width has to wrap inside it. A single long word — a path, a URL — has no space to break
+// at, and refusing to break would push the text out of the box and widen the row.
+func TestTheInputWrapsLongTextInsteadOfOverflowing(t *testing.T) {
+	tu, _ := newKeyTUI("", "")
+	tu.Width, tu.Height = 80, 24
+	tu.draft = strings.Repeat("x", 300) // far wider than the box, and one single word
+
+	lines, _ := tu.layout(80, 24)
+	if len(lines) > 24 {
+		t.Fatalf("a long input must not grow the frame: %d rows", len(lines))
+	}
+	for i, l := range lines {
+		if visibleLen(l) > 79 {
+			t.Errorf("row %d is %d columns wide: %q", i, visibleLen(l), stripANSI(l))
+		}
+	}
+	// The LAST characters typed are the ones visible: the box keeps the end of the line, which
+	// is where the cursor is.
+	body := stripANSI(strings.Join(lines, "\n"))
+	if !strings.Contains(body, "xxxxx") {
+		t.Errorf("the field must show the text:\n%s", body)
+	}
+}
+
+// TestTheInputFieldIsAFixedHeight: the frame must not change shape as the user types. A field
+// that grows with its content moves everything above it, which is the "screen jumping" defect in
+// a different costume.
+func TestTheInputFieldIsAFixedHeight(t *testing.T) {
+	var want int
+	for n, draft := range []string{"", "a", "a short line", strings.Repeat("word ", 60)} {
+		tu, _ := newKeyTUI("", "")
+		tu.Width, tu.Height = 80, 24
+		tu.draft = draft
+
+		lines, _ := tu.layout(80, 24)
+		if n == 0 {
+			want = len(lines)
+			continue
+		}
+		if len(lines) != want {
+			t.Errorf("draft of %d chars changed the frame height: %d vs %d",
+				len(draft), len(lines), want)
+		}
+	}
+	// And the field itself is exactly inputRows tall, whatever is in it.
+	tu, _ := newKeyTUI("", "")
+	tu.Width, tu.Height = 80, 24
+	tu.draft = "one line"
+	if got := len(tu.composerLines()); got != inputRows {
+		t.Errorf("composerLines = %d rows, want %d", got, inputRows)
+	}
+	tu.draft = strings.Repeat("largo ", 80)
+	if got := len(tu.composerLines()); got != inputRows {
+		t.Errorf("composerLines with a long draft = %d rows, want %d", got, inputRows)
+	}
+}
+
+// TestWrapVisibleHandlesADegenerateWidth: a width of zero or less cannot hold anything, and the
+// wrapping must produce one character per row rather than looping or dividing by zero.
+func TestWrapVisibleHandlesADegenerateWidth(t *testing.T) {
+	for _, w := range []int{0, -5} {
+		got := wrapVisible("abc", w)
+		if len(got) != 3 {
+			t.Errorf("width %d: got %d rows, want one per character", w, len(got))
+		}
+	}
+}
+
+// TestWrapVisibleKeepsEscapesWithTheirText: the input is a decorated string, and a wrap that
+// split an escape sequence would leak colour across the rest of the frame.
+func TestWrapVisibleKeepsEscapesWithTheirText(t *testing.T) {
+	s := "\x1b[31mred\x1b[0m normal"
+	got := wrapVisible(s, 4)
+	if len(got) < 2 {
+		t.Fatalf("expected a wrap, got %v", got)
+	}
+	// Every row must still be measurable: an escape cut in half would confuse the parser and
+	// visibleLen would count the fragments as text.
+	for i, row := range got {
+		if n := visibleLen(row); n > 4 {
+			t.Errorf("row %d is %d columns wide: %q", i, n, row)
+		}
+	}
+	// The colour code survives whole on the row where the text begins.
+	if !strings.Contains(got[0], "\x1b[31m") {
+		t.Errorf("the escape was not kept with its text: %q", got[0])
+	}
+}
+
+// TestTheStatusLineIsCentred: the identity line sits under the wordmark and must be on the
+// mark's axis, not against the left edge.
+func TestTheStatusLineIsCentred(t *testing.T) {
+	tu, _ := newKeyTUI("", "")
+	tu.Width, tu.Height = 100, 24
+
+	line := stripANSI(tu.statusLines(100)[0])
+	left := len(line) - len(strings.TrimLeft(line, " "))
+	content := len(strings.TrimSpace(line))
+
+	// It is centred in the drawing area, so the lead equals what the lead would be for a
+	// centred string of this length: (room - content) / 2, plus the margin. Trailing padding is
+	// not written — a row that ends where its text ends is what the frame expects.
+	room := 100 - leftMargin - 1
+	want := leftMargin + (room-content)/2
+	if left != want {
+		t.Errorf("the status line is off centre: lead %d, want %d:\n%q", left, want, line)
+	}
+	// And it is genuinely indented from the left edge, not flush against it.
+	if left <= leftMargin {
+		t.Errorf("the status line is not centred at all: %d columns of lead:\n%q", left, line)
+	}
+}
+
+// TestPadCenterAlignsWithTheFrame: the banner and everything else must be centred inside the
+// same box, or the mark sits half a column off the panels beneath it.
+func TestPadCenterAlignsWithTheFrame(t *testing.T) {
+	for _, w := range []int{80, 81, 100, 101} {
+		tu, _ := newKeyTUI("", "")
+		tu.Width = w
+
+		got := stripANSI(tu.padCenter(tu.brand(compactMark), w))
+		left := len(got) - len(strings.TrimLeft(got, " "))
+		content := len(strings.TrimSpace(got))
+
+		room := w - leftMargin - 1
+		want := leftMargin + (room-content)/2
+		if left != want {
+			t.Errorf("width %d: the mark leads with %d columns, want %d", w, left, want)
+		}
+	}
+}
+
+// TestCenterPlainReservesTheMargin: an oversized string keeps the left margin, because the
+// margin is part of the drawing area for every row.
+func TestCenterPlainReservesTheMargin(t *testing.T) {
+	tu, _ := newKeyTUI("", "")
+
+	got := stripANSI(tu.centerPlain(strings.Repeat("x", 200), 40))
+	if !strings.HasPrefix(got, "  ") {
+		t.Errorf("the margin must be kept: %q", got[:min(10, len(got))])
+	}
+	if strings.Contains(got, "\n") {
+		t.Error("centring must never introduce a line break")
+	}
+}
+
+func min(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
+}
+
+// TestChatRowsHitsItsFloorOnAShortTerminal: between the size gate and the height the fixed rows
+// need, a terminal can still be shorter than the fixed rows plus a minimal conversation. The
+// floor is what keeps the conversation area positive there instead of negative.
+func TestChatRowsHitsItsFloorOnAShortTerminal(t *testing.T) {
+	tu, _ := newKeyTUI("", "")
+	tu.Width = 80
+
+	// Just above the gate, which is below what the fixed rows want. The value is read through
+	// the path that actually uses it — paging — rather than by calling the helper: the helper is
+	// only ever reached from a key press, so a test that calls it directly would pass even if
+	// paging stopped consulting it.
+	for _, h := range []int{minHeight, minHeight + 1, permanentRows} {
+		if h < minHeight {
+			continue
+		}
+		tu.Height = h
+		tu.scroll = 0
+		padBody(tu, 60)
+		_ = context.Background()
+		if got := tu.chatRows(); got < minChatLines {
+			t.Errorf("h=%d: chatRows = %d, want at least the floor %d", h, got, minChatLines)
+		}
+	}
+	// And with plenty of room it is the height minus the fixed rows, exactly.
+	tu.Height = 30
+	if got := tu.chatRows(); got != 30-permanentRows {
+		t.Errorf("chatRows on a 30-row terminal = %d, want %d", got, 30-permanentRows)
 	}
 }

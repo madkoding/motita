@@ -57,7 +57,9 @@ func TestStatusLinesDefaultsAnIncompleteConfiguration(t *testing.T) {
 // to close its right corner after the title and the position indicator; with the framing
 // gone, the width is the whole invariant there is.
 func TestTheRulesSpanTheSameWidth(t *testing.T) {
-	for _, w := range []int{minWidth, 80, maxWidth} {
+	// Wide terminals included on purpose: the interface used to stop at a maximum width and
+	// leave the rest of the window blank, which is what the user saw as not filling the screen.
+	for _, w := range []int{minWidth, 80, 116, 160, 240} {
 		tui := newFakeTUI("q\n", &fakeRunner{})
 		tui.Width = w
 

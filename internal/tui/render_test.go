@@ -54,7 +54,7 @@ func TestEveryRowFitsTheDrawingArea(t *testing.T) {
 		{"task at 80", "una tarea\nq\n", 80},
 		{"plan at 80", "/p\nun prompt\n\nq\n", 80},
 		{"task at the minimum width", "t\nq\n", minWidth},
-		{"task at the maximum width", "t\nq\n", maxWidth},
+		{"task at a wide terminal", "t\nq\n", 240},
 		{"plan at the minimum width", "/p\npregunta\n\nq\n", minWidth},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -105,12 +105,13 @@ func TestCursorLandsAtThePrompt(t *testing.T) {
 	if !strings.HasSuffix(frame, "\x1b[?25h") {
 		t.Fatalf("the frame must end by showing the cursor: %q", frame)
 	}
-	// The cursor is moved UP to the composer rather than left at the end of the frame: the rule
-	// and the status bar are drawn below the composer, so a cursor at the end of the frame would
-	// sit outside the input it is meant to be on.
+	// The cursor is moved UP to the input field rather than left at the end of the frame. Below
+	// the input's first row sit the rest of the field, the rule and the status bar, so a cursor
+	// at the end of the frame would be outside the box it is meant to be in.
 	withoutCursor := strings.TrimSuffix(frame, "\x1b[?25h")
-	if !strings.Contains(withoutCursor, "\x1b[2A") {
-		t.Errorf("the cursor must be walked back up to the composer: %q", withoutCursor)
+	want := fmt.Sprintf("\x1b[%dA", 2+inputRows-1)
+	if !strings.Contains(withoutCursor, want) {
+		t.Errorf("the cursor must be walked back up to the input field (want %q): %q", want, withoutCursor)
 	}
 	// And the composer row itself is drawn, with the prompt on it. It carries no mode name: the
 	// status bar already reports that.
@@ -312,9 +313,13 @@ func TestSizeIsClamped(t *testing.T) {
 	if w != minWidth || h != 5 {
 		t.Errorf("size = (%d, %d), want (%d, 5)", w, h, minWidth)
 	}
+	// A wide terminal is NOT clamped. There used to be a maximum width that stopped the
+	// interface in the middle of a wide window and left the rest blank, which the user saw as
+	// the frame failing to fill the screen. This test used to assert that cap as correct, which
+	// is how it survived: the expectation was written against the behaviour instead of the goal.
 	tui = &TUI{Width: 500, Height: 0}
-	if w, _ := tui.size(); w != maxWidth {
-		t.Errorf("a huge terminal must be clamped to %d, got %d", maxWidth, w)
+	if w, _ := tui.size(); w != 500 {
+		t.Errorf("a wide terminal must be used in full, got %d", w)
 	}
 }
 

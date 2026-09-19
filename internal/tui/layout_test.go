@@ -87,7 +87,7 @@ func TestStateGlyphReportsAKeylessSession(t *testing.T) {
 // A degenerate width is the case that matters: strings.Repeat panics on a negative count, and
 // the arithmetic here involves the terminal width, which an embedder can set to anything.
 func TestTheRulesAreWellFormedAtEveryWidth(t *testing.T) {
-	for _, w := range []int{1, minWidth, 80, maxWidth} {
+	for _, w := range []int{1, minWidth, 80, 240} {
 		tui := newFakeTUI("q\n", &fakeRunner{})
 		tui.Width = w
 
@@ -223,7 +223,7 @@ func TestHintLinesDropFromTheTail(t *testing.T) {
 		// supported size the first ones must be present and none may be a fragment. The
 		// last one is the one that goes first, which is why this asserts the property
 		// rather than a specific hint: adding a new hint above it is not a regression.
-		if w == maxWidth {
+		if w >= 240 {
 			joined := stripANSI(strings.Join(lines, "\n"))
 			if !strings.Contains(joined, "mode") || !strings.Contains(joined, "find") {
 				t.Errorf("a terminal at the maximum width must show the leading hints:\n%s", joined)
@@ -251,7 +251,10 @@ func TestHintLinesDropFromTheTail(t *testing.T) {
 // long as the whole set still fits.
 func TestEveryHintFitsAtTheMaximumWidth(t *testing.T) {
 	tui := newFakeTUI("q\n", &fakeRunner{})
-	lines := tui.hintLines(maxWidth)
+	// The widest terminal a user is likely to have: the hints must fit there, and they must
+	// fit at every narrower width too, which is what the shedding rules guarantee.
+	const widest = 240
+	lines := tui.hintLines(widest)
 	joined := stripANSI(strings.Join(lines, "\n"))
 
 	// The advertised keys are read back from the source of truth (the rendered line)
@@ -262,8 +265,8 @@ func TestEveryHintFitsAtTheMaximumWidth(t *testing.T) {
 	}
 	// Every one of them has to be a real binding, checked elsewhere; here the question
 	// is whether the whole line fits.
-	if got := visibleLen(joined); got > maxWidth {
-		t.Errorf("the hint line is %d columns, past the cap of %d:\n%s", got, maxWidth, joined)
+	if got := visibleLen(joined); got > widest {
+		t.Errorf("the hint line is %d columns, past the width of %d:\n%s", got, widest, joined)
 	}
 	// And the essential ones are present at the maximum width: navigation, search and
 	// the two ways out. Losing any of these would make the interface undiscoverable.
@@ -301,8 +304,10 @@ func TestPadCenterCentresAndDoesNotShrink(t *testing.T) {
 	if got != "   abc" {
 		t.Errorf("padCenter = %q, want %q", got, "   abc")
 	}
-	if got := tui.padCenter("abcdefghij", 4); got != "abcdefghij" {
-		t.Errorf("an oversized string must be returned unchanged, got %q", got)
+	// An oversized string is returned as-is, only with the left margin: the margin is part of
+	// the drawing area, and a centred row is still a row of this interface.
+	if got := tui.padCenter("abcdefghij", 4); got != "  abcdefghij" {
+		t.Errorf("an oversized string must be returned unchanged apart from the margin, got %q", got)
 	}
 }
 

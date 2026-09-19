@@ -43,8 +43,10 @@ func TestTheEnvironmentIsTheFallbackWhenThereIsNoTerminal(t *testing.T) {
 
 	tu := New(&fakeRunner{cfg: configWithKey("k")})
 	w, h := tu.size()
-	if w != 116 || h != 40 {
-		t.Errorf("size() = %dx%d, want 116x40 from the environment (116 after the width cap)", w, h)
+	// The environment is used AS WRITTEN. It used to be clamped to a maximum width of 116,
+	// which stopped the interface in the middle of a wider window and left the rest blank.
+	if w != 120 || h != 40 {
+		t.Errorf("size() = %dx%d, want the 120x40 the environment reports", w, h)
 	}
 }
 

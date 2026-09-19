@@ -519,14 +519,18 @@ func TestScrollBeyondTheBodyCannotPanic(t *testing.T) {
 	}
 }
 
-// TestPagingInATerminalTooSmallToPage: below the minimum there is no page to
-// compute, and the distance must still be a sane positive number.
+// TestPagingInATerminalTooSmallToPage: below the size gate there is no page to compute, and the
+// distance must still be a sane positive number rather than zero or negative — a page of zero
+// rows would make every paging key a no-op, and a negative one would scroll the wrong way.
+//
+// The gate refuses to draw at this height, so this is the contract of the helper standing on its
+// own: whatever the terminal, the caller gets something usable.
 func TestPagingInATerminalTooSmallToPage(t *testing.T) {
 	tu, _ := newKeyTUI("")
 	tu.Width, tu.Height = 80, 4
 
-	if n := tu.chatRows(); n != 1 {
-		t.Errorf("chatRows in a 4-row terminal = %d, want 1", n)
+	if n := tu.chatRows(); n < 1 {
+		t.Errorf("chatRows in a 4-row terminal = %d, want a positive page", n)
 	}
 }
 
@@ -534,7 +538,7 @@ func TestPagingInATerminalTooSmallToPage(t *testing.T) {
 // draw gets whatever the fixed rows leave, and never less than the floor.
 func TestPagingWhenTheFrameLeavesLessThanTheMinimum(t *testing.T) {
 	tu, _ := newKeyTUI("")
-	tu.Width, tu.Height = 80, 10 // 8 fixed rows leave 2, below the floor of 4
+	tu.Width, tu.Height = 80, minHeight // the fixed rows leave less than the floor
 
 	if n := tu.chatRows(); n != minChatLines {
 		t.Errorf("chatRows = %d, want the floor %d", n, minChatLines)
@@ -587,7 +591,7 @@ func TestAnInterruptedSequenceReadsAsCancel(t *testing.T) {
 // border to the status bar, and the earlier version of this test could not see the layout
 // change at all.
 func TestTheFrameHoldsItsShapeWhileScrolled(t *testing.T) {
-	for _, width := range []int{minWidth, 80, maxWidth} {
+	for _, width := range []int{minWidth, 80, 116, 240} {
 		tu, out := newKeyTUI("", "one", "two")
 		padBody(tu, 60)
 		tu.Width, tu.Height = width, 30

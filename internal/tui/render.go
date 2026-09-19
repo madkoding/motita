@@ -52,9 +52,16 @@ const (
 // Layout metrics. They are named because the frame arithmetic depends on them: a
 // single off-by-one puts the right border of the panel out of alignment.
 const (
-	defaultWidth  = 80
-	minWidth      = 44
-	maxWidth      = 116
+	defaultWidth = 80
+	minWidth     = 44
+	// There is deliberately NO maximum width.
+	//
+	// There used to be one (116), and it capped the interface in the middle of a wide window:
+	// the rules, the status bar and the conversation all stopped at 116 columns and left the
+	// rest of the screen blank, which reads as the frame failing to fill the terminal. The cap
+	// was meant to keep lines readable, but line length is the user's choice — they sized the
+	// window — and an interface that refuses to use the space it was given is worse than long
+	// lines. The only column ever left unused is the last one, and that is to avoid a wrap.
 	maxScrollback = 400
 	// leftMargin is the breathing room between the interface and the terminal
 	// edge. Nothing is ever drawn in the first column.
@@ -62,10 +69,22 @@ const (
 	// minChatLines is the smallest conversation area the layout keeps before it
 	// starts dropping the oldest lines.
 	minChatLines = 4
-	// permanentRows is how many rows the frame always draws, whatever is on screen: the two
-	// rules, the composer, the status line and the status bar. Counting them in one place is what
-	// lets minHeight be derived instead of guessed.
-	permanentRows = 5
+	// inputRows is the height of the input field. It is fixed so the frame never changes shape
+	// while the user types.
+	inputRows = 3
+	// permanentRows is how many rows the frame always draws, whatever is on screen. Enumerated
+	// because the frame arithmetic depends on the count being exact:
+	//
+	//	1  the status line (provider/model, reasoning)
+	//	1  the rule above the conversation
+	//	1  the rule above the input
+	//	3  the input field
+	//	1  the rule under the input
+	//	1  the status bar (mode, context, keys)
+	//
+	// Eight, not seven: the divider above the input was added when the input became a box, and
+	// a count that is one short is a frame one row taller than the terminal — which scrolls.
+	permanentRows = 8
 )
 
 // bannerLines is the Starlight wordmark: five shaded rows that carry their own
@@ -74,7 +93,7 @@ const (
 var bannerLines = []string{
 	"\x1b[0;97m\u2580\u2580\u2580\u2580\x1b[0;37m\u2580\u2588\u2588\u2588 \u2580\u2580\u2588\u2588\u2588\u2580\u2580 \x1b[0;97m\u2584\x1b[0;97;47m\u2593\u2592\x1b[0;37m\u2580\u2580\u2588\u2588\u2584 \x1b[0;97m\u2580\u2580\u2580\x1b[0;37m\u2580\u2580\u2588\u2588\u2584 \x1b[0;97m\u2580\u2580\u2580\x1b[0;37m      \x1b[0;97m\u2588\x1b[0;97;47m\u2593\u2592\x1b[0;37m \x1b[0;97m\u2580\u2580\u2580\x1b[0;37m\u2580\u2580\u2588\x1b[0;90;47m\u2591\u2592\x1b[0;37m \x1b[0;97m\u2588\x1b[0;97;47m\u2593\u2592\x1b[0;37m  \u2588\u2588\u2588 \u2580\u2580\u2588\u2588\u2588\u2580\u2580\x1b[0m",
 	"\x1b[0;97;47m\u2593\u2592\u2591\x1b[0;37m  \u2580\u2580\u2580 \x1b[0;90m\u2593\x1b[0;37m \u2588\u2588\u2588 \x1b[0;90m\u2593\x1b[0;37m \x1b[0;97m\u2580\u2580\u2580\x1b[0;37m  \u2588\u2588\u2588 \x1b[0;97;47m\u2593\u2592\u2591\x1b[0;37m  \u2588\u2588\u2588 \x1b[0;97;47m\u2593\u2592\u2591\x1b[0;90m\u2590\u2588\u2588\u2588\u2588\x1b[0;37m \x1b[0;97m\u2580\u2580\u2580\x1b[0;37m \x1b[0;97;47m\u2593\u2592\u2591\x1b[0;90m\u2590\u258c\x1b[0;37m\u2580\u2580\u2580 \x1b[0;97m\u2580\u2580\u2580\x1b[0;37m  \u2588\u2588\u2588 \x1b[0;90m\u2593\x1b[0;37m \u2588\u2588\u2588 \x1b[0;90m\u2593\x1b[0m",
-	"\x1b[0;37m \u2580\u2580\u2580\u2580\u2588\u2588\u2584 \x1b[0;90m\u2588\x1b[0;37m \u2588\u2588\x1b[0;93;47m\u2591\x1b[0;37m \x1b[0;90m\u2588\x1b[0;37m \x1b[0;97;47m\u2592\u2591 \x1b[0;37m\u2580\u2580\u2588\u2588\u2588 \x1b[0;97;47m\u2592\u2591\x1b[0;37m\u2588\u2584\u2580\u2580\u2580  \x1b[0;97;47m\u2592\u2591\x1b[0;37m\u2588\x1b[0;90m\u2580\u2580\u2580\u2580\x1b[0;37m \x1b[0;97;47m\u2592\u2591 \x1b[0;37m \x1b[0;97;47m\u2592\u2591\x1b[0;37m\u2588 \u2584\u2584\u2584\u2584 \x1b[0;97;47m\u2592\u2591 \x1b[0;37m\u2580\u2580\u2588\u2588\u2588 \x1b[0;90m\u2588\x1b[0;37m \u2588\u2588\x1b[0;93;47m\u2591\x1b[0;37m \x1b[0;90m\u2588\x1b[0m",
+	"\x1b[0;37m\u2580\u2580\u2580\u2580\u2588\u2588\u2584 \x1b[0;90m\u2588\x1b[0;37m \u2588\u2588\x1b[0;93;47m\u2591\x1b[0;37m \x1b[0;90m\u2588\x1b[0;37m \x1b[0;97;47m\u2592\u2591 \x1b[0;37m\u2580\u2580\u2588\u2588\u2588 \x1b[0;97;47m\u2592\u2591\x1b[0;37m\u2588\u2584\u2580\u2580\u2580  \x1b[0;97;47m\u2592\u2591\x1b[0;37m\u2588\x1b[0;90m\u2580\u2580\u2580\u2580\x1b[0;37m  \x1b[0;97;47m\u2592\u2591 \x1b[0;37m \x1b[0;97;47m\u2592\u2591\x1b[0;37m\u2588 \u2584\u2584\u2584\u2584 \x1b[0;97;47m\u2592\u2591 \x1b[0;37m\u2580\u2580\u2588\u2588\u2588 \x1b[0;90m\u2588\x1b[0;37m \u2588\u2588\x1b[0;93;47m\u2591\x1b[0;37m \x1b[0;90m\u2588\x1b[0m",
 	"\x1b[0;97;47m\u2592\u2591\x1b[0;37m\u2588\x1b[0;90m\u2590\u258c\x1b[0;37m\u2588\u2588\x1b[0;93;47m\u2591\x1b[0;37m \x1b[0;90m\u2588\x1b[0;37m \u2588\x1b[0;93;47m\u2591\u2592\x1b[0;37m \x1b[0;90m\u2593\x1b[0;37m \x1b[0;97;47m\u2591 \x1b[0;37m\u2588\x1b[0;90m\u2590\u258c\x1b[0;37m\u2588\u2588\x1b[0;93;47m\u2591\x1b[0;37m \x1b[0;97;47m\u2591\x1b[0;37m\u2588\x1b[0;93;47m\u2591\x1b[0;37m  \u2588\u2588\u2584 \x1b[0;97;47m\u2591\x1b[0;37m\u2588\u2588\x1b[0;90m\u2590\u258c\x1b[0;97;47m\u2592\u2591 \x1b[0;37m \x1b[0;97;47m\u2591 \x1b[0;37m\u2588 \x1b[0;97;47m\u2591\x1b[0;37m\u2588\u2588  \x1b[0;97;47m\u2592\u2591 \x1b[0;37m \x1b[0;97;47m\u2591 \x1b[0;37m\u2588\x1b[0;90m\u2590\u258c\x1b[0;37m\u2588\u2588\x1b[0;93;47m\u2591\x1b[0;37m \x1b[0;90m\u2588\x1b[0;37m \u2588\x1b[0;93;47m\u2591\u2592\x1b[0;37m \x1b[0;90m\u2593\x1b[0m",
 	"\x1b[0;97;47m\u2591\x1b[0;37m\u2588\u2588\u2584\u2584\u2588\x1b[0;93;47m\u2591\x1b[0;92m\u2580\x1b[0;37m \x1b[0;90m\u2593\x1b[0;37m \x1b[0;93;47m\u2591\u2592\u2593\x1b[0;37m \x1b[0;90m\u2592\x1b[0;37m \u2588\u2588\u2588  \u2588\x1b[0;93;47m\u2591\u2592\x1b[0;37m \u2588\x1b[0;93;47m\u2591\u2592\x1b[0;37m  \u2588\x1b[0;93;47m\u2591\u2592\x1b[0;37m \u2580\u2588\u2588\u2584\u2584\u2588\u2588\u2588 \u2588\u2588\u2588 \u2580\u2588\u2588\u2584\u2584\u2588\u2588\u2588 \u2588\u2588\u2588  \u2588\x1b[0;93;47m\u2591\u2592\x1b[0;37m \x1b[0;90m\u2593\x1b[0;37m \x1b[0;93;47m\u2591\u2592\u2593\x1b[0;37m \x1b[0;90m\u2592\x1b[0m",
 }
@@ -158,10 +177,11 @@ func (t *TUI) layout(w, h int) ([]string, string) {
 		lines = append(lines, status...)
 		lines = append(lines, t.rule(w))
 		lines = append(lines, body...)
+		lines = append(lines, t.rule(w))
 		lines = append(lines, t.composerLinesCapped(0)...)
 		lines = append(lines, t.rule(w))
 		lines = append(lines, bar)
-		return lines, t.composerPrompt(belowComposer)
+		return lines, t.composerPrompt(belowComposer + inputRows - 1)
 	}
 
 	// 1. The wordmark is branding: it goes before anything the user came for.
@@ -235,12 +255,14 @@ func (t *TUI) layout(w, h int) ([]string, string) {
 	lines = append(lines, status...)
 	lines = append(lines, t.rule(w))
 	lines = append(lines, body...)
+	lines = append(lines, t.rule(w)) // the divider ABOVE the input
 	lines = append(lines, t.composerLinesCapped(popup)...)
 	lines = append(lines, t.rule(w))
 	lines = append(lines, bar)
 
-	// The cursor is placed by walking back up from the end of the frame to the composer.
-	rowsBelow := belowComposer + popup
+	// The cursor is walked back up from the end of the frame to the first row of the input
+	// field: the two rows below it (the rule and the status bar) plus every popup row above.
+	rowsBelow := belowComposer + popup + inputRows - 1
 	return lines, t.composerPrompt(rowsBelow)
 }
 
@@ -360,9 +382,6 @@ func (t *TUI) size() (int, int) {
 	if w < minWidth {
 		w = minWidth
 	}
-	if w > maxWidth {
-		w = maxWidth
-	}
 	return w, h
 }
 
@@ -403,10 +422,14 @@ func (t *TUI) conversationWidth() int {
 }
 
 // frameCols is the total number of columns the interface may occupy.
+//
+// Exactly ONE column is given up, and only so that no row fills the terminal's last column: a
+// row that does makes some terminals wrap, and a wrapped row scrolls the frame. Nothing else is
+// subtracted here — the left margin is spent by whoever draws, not reserved twice.
 func (t *TUI) frameCols() int {
 	w, _ := t.size()
 	if w > 1 {
-		w--
+		w-- // keep the last column free of ink
 	}
 	return w
 }
@@ -808,12 +831,39 @@ func (t *TUI) fitLine(s string, w int, prefix string) string {
 }
 
 // padCenter centres a decorated string in the given number of columns.
+// padCenter centres a decorated string in the drawing area.
+//
+// It centres inside the SAME box everything else is drawn in — the frame minus the left margin
+// and minus the column kept free at the end — not against the raw terminal width. Centring on
+// the raw width put the banner half a column off from the panels beneath it, which is visible
+// on an odd-width terminal and is what makes a centred mark look "not quite centred".
 func (t *TUI) padCenter(s string, w int) string {
-	pad := w - visibleLen(s)
+	// No floor on room: the size gate refuses anything narrower than minWidth, and minWidth is
+	// wider than the margin plus the reserved column, so this is always positive.
+	room := w - leftMargin - 1
+	pad := room - visibleLen(s)
 	if pad <= 0 {
-		return s
+		return strings.Repeat(" ", leftMargin) + s
 	}
-	return strings.Repeat(" ", pad/2) + s
+	// Both halves are rounded down, so the extra column stays on the right where it does not
+	// shift the mark off the centre of the content.
+	return strings.Repeat(" ", leftMargin+pad/2) + s
+}
+
+// centerPlain centres an undecorated string in the drawing area, for the status line under the
+// banner. It pads BOTH sides so the result spans the full width, which keeps a row that is only
+// sometimes wider from jumping around. See padCenter for why the box is the frame's, not the
+// terminal's.
+func (t *TUI) centerPlain(s string, w int) string {
+	// Same reasoning as padCenter: the gate makes this positive.
+	room := w - leftMargin - 1
+	n := visibleLen(s)
+	if n >= room {
+		return strings.Repeat(" ", leftMargin) + s
+	}
+	pad := room - n
+	left := pad / 2
+	return strings.Repeat(" ", leftMargin+left) + s
 }
 
 // visibleMessages keeps the conversation bounded in memory.
@@ -992,11 +1042,18 @@ func stripANSI(s string) string {
 // chat and one below it, so the middle of the screen is visibly the content and the bottom
 // is visibly the controls.
 func (t *TUI) rule(w int) string {
-	n := w - 2*leftMargin
+	// The rule is a solid run of ink from the left margin to the last usable column:
+	//
+	//	w - leftMargin (spent on the margin) - 1 (the column kept free so nothing wraps)
+	//
+	// The earlier version subtracted the margin from a width that had ALREADY given up a
+	// column, so it came out one short — a strip of blank space down the right edge that was
+	// most obvious on a wide terminal, where it stood out against an otherwise full-width frame.
+	n := w - leftMargin - 1
 	if n < 1 {
 		n = 1
 	}
-	return "  " + t.muted(strings.Repeat(glyphRule, n))
+	return strings.Repeat(" ", leftMargin) + t.muted(strings.Repeat(glyphRule, n))
 }
 
 // plainLine is a line with the left margin and nothing else: the conversation is not in a
@@ -1044,12 +1101,18 @@ func (t *TUI) statusLines(w int) []string {
 	if t.query != "" || t.searching {
 		parts = append(parts, t.color(colAccent, 0, "filter "+strconv.Quote(t.query)))
 	}
-	line := "  " + strings.Join(parts, t.muted("   "))
-	for !t.fits(line, w-leftMargin) && len(parts) > 1 {
+	// Centred under the wordmark, in the same box: the identity line is part of the header, so it
+	// belongs on the mark's axis rather than against the left edge.
+	//
+	// The shedding stays: on a narrow terminal the parts are dropped from the tail until what is
+	// left fits. The provider and the model are never the thing dropped — they are what the line
+	// is for.
+	line := strings.Join(parts, t.muted("   "))
+	for !t.fits(line, w-2*leftMargin-1) && len(parts) > 1 {
 		parts = parts[:len(parts)-1]
-		line = "  " + strings.Join(parts, t.muted("   "))
+		line = strings.Join(parts, t.muted("   "))
 	}
-	return []string{line}
+	return []string{t.centerPlain(line, w)}
 }
 
 // bottomBar is the last line: where you are on the left, what you can do and how much
@@ -1069,12 +1132,17 @@ func (t *TUI) bottomBar(w int) string {
 		right = t.color(colWarning, 0, glyphDot+" "+strconv.Itoa(t.scroll)+" back") + t.muted("   ") + right
 	}
 
-	gap := w - 2*leftMargin - visibleLen(left) - visibleLen(right)
+	// The available columns are the frame minus the ONE margin plainLine will add: the right
+	// edge is the last usable column, and nothing is reserved twice. Subtracting the margin here
+	// as well as in plainLine is what left the bar one column short of the rules above it.
+	room := w - leftMargin - 1
+
+	gap := room - visibleLen(left) - visibleLen(right)
 	if gap < 1 {
 		// Too narrow for both ends: the mode and the context are what must survive, so the
 		// key hints are what goes.
 		only := t.muted(t.contextLabel())
-		gap = w - 2*leftMargin - visibleLen(left) - visibleLen(only)
+		gap = room - visibleLen(left) - visibleLen(only)
 		if gap < 1 {
 			return t.plainLine(left)
 		}
@@ -1133,8 +1201,80 @@ func (t *TUI) composerLines() []string {
 func (t *TUI) composerLinesCapped(popupCap int) []string {
 	var lines []string
 	lines = append(lines, t.completionLinesCapped(t.bodyWidth(), popupCap)...)
-	lines = append(lines, t.plainLine(t.composerLabel())+t.draft)
+	// The input area is a FIXED few rows: a box the user types into, with its own divider above
+	// it. Three rows is the size the user asked for — enough to see a sentence or two of what
+	// has been typed without the box dominating the window — and it is fixed, so the frame
+	// never changes height while typing.
+	//
+	// The text is wrapped into the box rather than scrolled: at this size there is nothing to
+	// scroll, and a box that never moves is easier to read than one that shifts.
+	lines = append(lines, t.inputBoxLines()...)
 	return lines
+}
+
+// inputBoxLines draws the input: a divider, then the field with what has been typed, then the
+// blank row that keeps the field from touching the status bar.
+//
+// The label is drawn INSIDE the field, on the first row, so the cursor starts after it.
+func (t *TUI) inputBoxLines() []string {
+	width := t.bodyWidth()
+	rows := inputRows
+
+	out := make([]string, 0, rows)
+	// The field, wrapping the label plus the draft across the available rows.
+	text := t.composerLabel() + t.draft
+	wrapped := wrapVisible(text, width)
+	if len(wrapped) > rows {
+		// Keep the END: the user is typing there, and the tail is what matters.
+		wrapped = wrapped[len(wrapped)-rows:]
+	}
+	out = append(out, wrapped...)
+	// Pad to the fixed height so nothing below moves as the text grows.
+	for len(out) < rows {
+		out = append(out, t.plainLine(""))
+	}
+	return out
+}
+
+// wrapVisible wraps a decorated string to a column width, carrying escape sequences along with
+// the text they style.
+//
+// It breaks mid-word: the input can receive a long path or a URL with no space in it, and
+// refusing to break would push the text out of its box. Escape sequences cost no columns, so
+// only visible runes are counted.
+func wrapVisible(s string, width int) []string {
+	if width < 1 {
+		width = 1
+	}
+	if visibleLen(s) <= width {
+		return []string{s}
+	}
+
+	var out []string
+	var cur strings.Builder
+	curVis := 0
+	for _, r := range s {
+		// An escape sequence is copied whole and costs no columns. It is never split: a
+		// truncated escape would leak colour into the rest of the frame.
+		if r == 0x1b {
+			cur.WriteRune(r)
+			continue
+		}
+		if curVis >= width {
+			out = append(out, cur.String())
+			cur.Reset()
+			curVis = 0
+		}
+		cur.WriteRune(r)
+		curVis++
+	}
+	// The final line always exists, even when it is empty: the loop above writes every rune it
+	// is given, so the only way to reach here with nothing is an empty input — which is a row of
+	// no width, not an absent row. A guard for "no output" would be unreachable.
+	if cur.Len() > 0 {
+		out = append(out, cur.String())
+	}
+	return out
 }
 
 // composerLabel is the visible part of the input row: an indicator that says what the line

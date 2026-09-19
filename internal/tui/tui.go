@@ -21,6 +21,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"unicode/utf8"
 )
 
 // Exit codes returned by the TUI.
@@ -290,6 +291,24 @@ func (t *TUI) handleShortcut(ctx context.Context, line string) (bool, bool) {
 	case "	":
 		t.nextScreen()
 		return true, false
+	// The control keys the reader returns as TOKENS. They are matched here, before the trimmed
+	// switch below, because trimming would remove them — and they must be consumed here, or they
+	// fall through to the chat and are SENT TO THE MODEL.
+	//
+	// That is exactly what happened to Ctrl+D, Ctrl+F and Ctrl+U: the reader captured them from
+	// the input and returned them as tokens, the interface had no case for them, and they were
+	// dispatched as a chat message — so the model received control characters and reported them.
+	// Any OTHER control byte is not text and must not be sent. This is the belt to the reader's
+	// braces: the reader refuses to build a line containing one, and this refuses to dispatch one
+	// that arrived by some other path.
+	//
+	// The tokens with a meaning of their own — Ctrl+D, Ctrl+F, Ctrl+U — are handled further down
+	// by keyHalfDown, keyFind and keyHalfUp. They are NOT listed here: an interface that both
+	// acts on a key and swallows it would be saying two things about the same byte.
+	case "\x01", "\x02", "\x03", "\x05", "\x07", "\x08", "\x0b", "\x0c",
+		"\x0e", "\x0f", "\x10", "\x11", "\x12", "\x13", "\x14", "\x16", "\x17",
+		"\x18", "\x19", "\x1a", "\x1c", "\x1d", "\x1e", "\x1f", "\x7f":
+		return true, false
 	case keyEsc:
 		// Escape is the universal way out, and it leaves in the reverse order of how
 		// the interface was entered: the search first, then a run, then the scroll.
@@ -504,11 +523,14 @@ func (t *TUI) chatRows() int {
 		// The terminal did not report a height, so there is no page to speak of.
 		return minChatLines
 	}
-	if h < minHeight {
-		return 1
-	}
-	// status (2) + blanks (2) + borders (2) + tabs (1) + prompt (1).
-	room := h - 8
+	// No branch for a terminal below the size gate: the gate refuses to draw at all there, so
+	// this helper is never reached with such a height. A branch for it would be unreachable, and
+	// an unreachable branch reads as a safeguard while testing nothing.
+	//
+	// The fixed rows are counted in ONE place (permanentRows), so this cannot drift from what
+	// the layout actually draws. It used to carry its own "8", written when the frame had a
+	// different shape; a stale count here is a scrollbar that lies about how much is visible.
+	room := h - permanentRows
 	if room < minChatLines {
 		return minChatLines
 	}
@@ -1016,11 +1038,37 @@ func (t *TUI) readLine(ctx context.Context) (string, bool) {
 		if r.err != nil {
 			return "", false
 		}
-		return strings.TrimSpace(r.line), true
+		return sanitiseLine(strings.TrimSpace(r.line)), true
 	case <-ctx.Done():
 		go func() { <-ch }()
 		return "", false
 	}
+}
+
+// sanitiseLine removes every control character from a line.
+//
+// Both readers go through this. The live reader builds its line one character at a time and
+// refuses to add anything below U+0020, but the whole-line reader takes a run of bytes from the
+// terminal and only trims the ENDS — so a control byte in the MIDDLE of a line survived and was
+// dispatched as part of the message. That is how the agent came to answer "caracteres de control
+// intercalados: \x01, \x0b, \x17": the terminal's own control keys were reaching the model as
+// text.
+//
+// Trimming the ends is not the same as removing what is inside, and a key is a key wherever it
+// sits in the line.
+func sanitiseLine(s string) string {
+	if !strings.ContainsFunc(s, func(r rune) bool { return r < 0x20 || r == 0x7f }) {
+		return s // the common case, and no allocation
+	}
+	var b strings.Builder
+	b.Grow(len(s))
+	for _, r := range s {
+		if r < 0x20 || r == 0x7f {
+			continue
+		}
+		b.WriteRune(r)
+	}
+	return b.String()
 }
 
 // readEscape completes a key that starts with ESC.
@@ -1210,7 +1258,11 @@ func (t *TUI) readLineLive(ctx context.Context) (string, bool) {
 
 		switch b {
 		case '\r', '\n':
-			line := strings.TrimSpace(t.draft)
+			// Sanitised as well, and for the same reason as the whole-line reader: the guard
+			// above stops this reader from ADDING a control character, but the line is the
+			// interface's contract with the model, and one place that enforces it is better than
+			// two that must agree.
+			line := sanitiseLine(t.draft)
 			t.draft = ""
 			return line, true
 
@@ -1218,6 +1270,9 @@ func (t *TUI) readLineLive(ctx context.Context) (string, bool) {
 			return "", false
 
 		case 0x04, 0x06, 0x15: // Ctrl+D, Ctrl+F, Ctrl+U
+			// These three are TOKENS the interface acts on: half a page down, search, clear.
+			// They are returned, never typed — the draft is dropped so the line does not
+			// survive a key that is not part of it.
 			t.draft = ""
 			t.drawFrame()
 			return string(b), true
@@ -1267,12 +1322,79 @@ func (t *TUI) readLineLive(ctx context.Context) (string, bool) {
 			return seq, true
 
 		default:
+			// A CONTROL byte is captured, never typed.
+			//
+			// The earlier guard only checked `b >= 0x20`, which is a test on a BYTE, not on a
+			// character: 0x80 and above passed it and were appended one byte at a time, so a
+			// UTF-8 letter arrived as mojibake and any control byte the switch above did not
+			// name (Ctrl+A, Ctrl+B, Ctrl+K, Ctrl+W, Ctrl+Z...) was injected into the line and
+			// drawn on screen. Both are the same defect: the input accepted things that are not
+			// text.
+			//
+			// The rule is now stated once: text starts at U+0020 and DEL is not text. Anything
+			// below is a key, and the interface owns the keys.
+			// Text starts at 0x20; everything below is a key. Above 0x7f the byte is the
+			// START of a UTF-8 sequence, and reading it whole is what keeps an accented letter
+			// or an emoji from arriving as one byte of mojibake.
 			if b >= 0x20 && b != 0x7f {
-				t.draft += string(b)
+				ch, ok := t.readRuneFrom(b)
+				if !ok {
+					continue
+				}
+				t.draft += ch
 				t.drawFrame()
 			}
 		}
 	}
+}
+
+// readRuneFrom assembles one character from the first byte plus, when it is a multi-byte
+// sequence, the continuation bytes that follow.
+//
+// A byte-at-a-time reader is the right shape for a terminal — that is what makes every keystroke
+// visible as it is typed — but it means UTF-8 has to be reassembled here. Without this an
+// accented letter or an emoji arrives as several separate bytes and is drawn as mojibake.
+//
+// The continuation bytes are read without a deadline: the terminal wrote them together with the
+// leading byte, so they are already in the buffer. A truncated sequence (a paste cut short, a
+// terminal that died mid-character) reports failure and the caller drops it.
+func (t *TUI) readRuneFrom(first byte) (string, bool) {
+	if first < 0x80 {
+		return string(rune(first)), true
+	}
+	// RFC 3629: the number of continuation bytes is implied by the leading byte.
+	var need int
+	switch {
+	case first&0xe0 == 0xc0:
+		need = 1
+	case first&0xf0 == 0xe0:
+		need = 2
+	case first&0xf8 == 0xf0:
+		need = 3
+	default:
+		return "", false // a stray continuation byte: not a character
+	}
+	buf := make([]byte, 1, need+1)
+	buf[0] = first
+	for i := 0; i < need; i++ {
+		c, err := t.input().ReadByte()
+		if err != nil {
+			return "", false
+		}
+		if c&0xc0 != 0x80 {
+			// Not a continuation byte: the sequence is broken. The byte is NOT part of the
+			// broken character — it is the start of whatever the user typed next, so it is
+			// pushed back and will be read as its own character. Consuming it silently is how
+			// a broken sequence used to swallow the letter that followed it.
+			t.input().UnreadByte()
+			return "", false
+		}
+		buf = append(buf, c)
+	}
+	if !utf8.Valid(buf) {
+		return "", false
+	}
+	return string(buf), true
 }
 
 // readEscapeLive completes a sequence that followed an ESC, without blocking on a bare Esc.
