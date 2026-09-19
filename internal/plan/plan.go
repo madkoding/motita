@@ -95,28 +95,48 @@ func (p *Planner) WithAnswer(fn func(string)) *Planner {
 	return p
 }
 
-const systemPrompt = `You are Starlight in read-only plan mode.
-Your job is to explore the local system, read files, run read-only commands, and then deliver a plain-text plan of action.
+const systemPrompt = `You are Starlight, an autonomous systems agent running in read-only plan mode.
+
+Your identity and purpose:
+- You are not a chatbot. You are an agent that investigates the local machine, reads files, runs safe commands, and produces a concrete, actionable plan.
+- You have access to the local filesystem and shell, but you MUST NOT change anything in this mode.
+- Every claim you make must be based on a tool result. Do not invent paths, file contents or command output.
+
+Workflow:
+1. Understand the user's objective.
+2. Explore the system with list_directory, read_file, execute_command and search_in_files until you have the facts.
+3. If the request is unclear or impossible, say so explicitly.
+4. When you have enough information, deliver the final answer as plain text with a concise plan and the evidence you gathered.
 
 Rules:
-- Use read_file when you need the contents of a text file (max 1 MiB).
-- Use execute_command when you need command output. Keep commands read-only; any command that would change the system will be refused.
-- Do not invent file contents or command output.
-- Once you have enough information, deliver the final answer as plain text without calling any more tools.
+- Prefer reading files and directories before running broad commands.
+- All commands are read-only. Any destructive command (rm, cp, mv, write, >, |, ;, &&, $(...), etc.) will be refused by the guardrails.
+- If a command is refused, do not insist; try a different, read-only approach.
+- Keep commands simple and single-purpose.
 - Answer in English, directly and concisely.`
 
 // tools returns the tool definitions exposed to the model.
 func (p *Planner) tools() []llm.Tool {
 	return []llm.Tool{
+		llm.NewTool("list_directory", "Lists the contents of a directory (files and subdirectories).",
+			llm.ObjectSchema(map[string]any{
+				"path": llm.StringProperty("Absolute or relative path of the directory to list. Defaults to the current directory."),
+			})),
 		llm.NewTool("read_file", "Reads the contents of a text file from the local system (maximum 1 MiB).",
 			llm.ObjectSchema(map[string]any{
 				"path": llm.StringProperty("Absolute or relative path of the file to read."),
 			}, "path")),
-		llm.NewTool("execute_command", "Runs a read-only command on the local system and returns stdout and stderr combined. Destructive commands are refused.",
+		llm.NewTool("execute_command", "Runs a read-only command on the local system and returns stdout and stderr combined. Destructive commands are refused by guardrails.",
 			llm.ObjectSchema(map[string]any{
-				"command":         llm.StringProperty("The command to run. Pipes, redirections and shell metacharacters are not allowed in read-only mode."),
+				"command":         llm.StringProperty("The command to run. Pipes, redirections, shell metacharacters and multi-command chains are not allowed in read-only mode."),
 				"timeout_seconds": llm.IntegerProperty("Maximum run time in seconds (defaults to 120)."),
 			}, "command")),
+		llm.NewTool("search_in_files", "Searches for a pattern inside text files under a directory using grep/ripgrep.",
+			llm.ObjectSchema(map[string]any{
+				"pattern": llm.StringProperty("The regular expression or literal string to search for."),
+				"path":    llm.StringProperty("Directory or file to search in. Defaults to the current directory."),
+				"literal": llm.StringProperty("Set to true to search for a literal string instead of a regex (default: false)."),
+			}, "pattern")),
 	}
 }
 
@@ -175,6 +195,10 @@ func (p *Planner) tracef(format string, args ...any) {
 	}
 }
 
+func shellQuote(s string) string {
+	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
+}
+
 func (p *Planner) finalize(content string) string {
 	content = strings.TrimSpace(content)
 	if content == "" {
@@ -190,10 +214,14 @@ func (p *Planner) finalize(content string) string {
 func (p *Planner) runTool(ctx context.Context, tc llm.ToolCall) string {
 	p.tracef("[running tool: %s]", tc.Function.Name)
 	switch tc.Function.Name {
+	case "list_directory":
+		return p.toolListDirectory(tc.Function.Arguments)
 	case "read_file":
 		return p.toolReadFile(tc.Function.Arguments)
 	case "execute_command":
 		return p.toolExecuteCommand(ctx, tc.Function.Arguments)
+	case "search_in_files":
+		return p.toolSearchInFiles(ctx, tc.Function.Arguments)
 	default:
 		return fmt.Sprintf("Error: unknown tool %q", tc.Function.Name)
 	}
@@ -202,6 +230,40 @@ func (p *Planner) runTool(ctx context.Context, tc llm.ToolCall) string {
 // readFileArgs are the arguments for read_file.
 type readFileArgs struct {
 	Path string `json:"path"`
+}
+
+// listDirectoryArgs are the arguments for list_directory.
+type listDirectoryArgs struct {
+	Path string `json:"path"`
+}
+
+// toolListDirectory lists a directory's entries.
+func (p *Planner) toolListDirectory(raw []byte) string {
+	var args listDirectoryArgs
+	if err := decodeArgs(raw, &args); err != nil {
+		return "Error parsing the arguments: " + err.Error()
+	}
+	path := strings.TrimSpace(args.Path)
+	if path == "" {
+		path = "."
+	}
+
+	entries, err := os.ReadDir(path)
+	if err != nil {
+		return "Error listing the directory: " + err.Error()
+	}
+	if len(entries) == 0 {
+		return "(empty directory)"
+	}
+	var sb strings.Builder
+	for _, e := range entries {
+		name := e.Name()
+		if e.IsDir() {
+			name += "/"
+		}
+		fmt.Fprintln(&sb, name)
+	}
+	return strings.TrimSpace(sb.String())
 }
 
 // toolReadFile reads a text file with the 1 MiB limit.
@@ -266,6 +328,56 @@ func (p *Planner) toolExecuteCommand(ctx context.Context, raw []byte) string {
 
 	toolCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
+
+	output, exit, err := p.runner.RunCommand(toolCtx, command)
+	output = limitString(output, maxToolOutputBytes)
+
+	var sb strings.Builder
+	fmt.Fprintf(&sb, "$ %s\n", command)
+	if err != nil {
+		fmt.Fprintf(&sb, "Execution error: %v\n", err)
+	}
+	if output != "" {
+		sb.WriteString(output)
+		if !strings.HasSuffix(output, "\n") {
+			sb.WriteString("\n")
+		}
+	}
+	fmt.Fprintf(&sb, "[exit=%d]", exit)
+	return sb.String()
+}
+
+// searchInFilesArgs are the arguments for search_in_files.
+type searchInFilesArgs struct {
+	Pattern string `json:"pattern"`
+	Path    string `json:"path"`
+	Literal string `json:"literal"`
+}
+
+// toolSearchInFiles searches text files for a pattern.
+func (p *Planner) toolSearchInFiles(ctx context.Context, raw []byte) string {
+	var args searchInFilesArgs
+	if err := decodeArgs(raw, &args); err != nil {
+		return "Error parsing the arguments: " + err.Error()
+	}
+	pattern := strings.TrimSpace(args.Pattern)
+	if pattern == "" {
+		return "Error: the 'pattern' parameter is missing."
+	}
+	path := strings.TrimSpace(args.Path)
+	if path == "" {
+		path = "."
+	}
+
+	toolCtx, cancel := context.WithTimeout(ctx, p.commandTimeout)
+	defer cancel()
+
+	var command string
+	if strings.EqualFold(args.Literal, "true") {
+		command = fmt.Sprintf("grep -R -n -F %s %s", shellQuote(pattern), shellQuote(path))
+	} else {
+		command = fmt.Sprintf("grep -R -n -E %s %s", shellQuote(pattern), shellQuote(path))
+	}
 
 	output, exit, err := p.runner.RunCommand(toolCtx, command)
 	output = limitString(output, maxToolOutputBytes)

@@ -186,6 +186,107 @@ func TestRunEmptyInput(t *testing.T) {
 	}
 }
 
+func TestListDirectory(t *testing.T) {
+	a, _ := makeAgent(t, true)
+	dir := t.TempDir()
+	os.WriteFile(filepath.Join(dir, "a.txt"), []byte("a"), 0o644)
+	os.WriteFile(filepath.Join(dir, "b.txt"), []byte("b"), 0o644)
+	os.Mkdir(filepath.Join(dir, "sub"), 0o755)
+
+	srv := llmServer(t, []replyStep{
+		{finishReason: "tool_calls", calls: []map[string]any{toolCall("list_directory", "c1", map[string]string{"path": dir})}},
+		{content: "listed"},
+	})
+	defer srv.Close()
+	p := New(newClient(t, srv), a)
+	out, err := p.Run(context.Background(), "list it")
+	if err != nil {
+		t.Fatalf("error: %v", err)
+	}
+	if out != "listed" {
+		t.Errorf("output = %q", out)
+	}
+}
+
+func TestSearchInFiles(t *testing.T) {
+	a, fake := makeAgent(t, true)
+	dir := t.TempDir()
+	os.WriteFile(filepath.Join(dir, "one.txt"), []byte("hello world\n"), 0o644)
+
+	srv := llmServer(t, []replyStep{
+		{finishReason: "tool_calls", calls: []map[string]any{toolCall("search_in_files", "c1", map[string]string{"pattern": "hello", "path": dir, "literal": "true"})}},
+		{content: "found"},
+	})
+	defer srv.Close()
+	p := New(newClient(t, srv), a)
+	out, err := p.Run(context.Background(), "search")
+	if err != nil {
+		t.Fatalf("error: %v", err)
+	}
+	if out != "found" {
+		t.Errorf("output = %q", out)
+	}
+	if len(fake.calls) != 1 {
+		t.Fatalf("expected 1 call, got %d", len(fake.calls))
+	}
+	if !strings.Contains(fake.calls[0].Command, "grep") {
+		t.Errorf("expected grep command, got %q", fake.calls[0].Command)
+	}
+}
+
+func TestListDirectoryDefault(t *testing.T) {
+	a, _ := makeAgent(t, true)
+	dir := t.TempDir()
+	os.Chdir(dir)
+	defer os.Chdir(t.TempDir()) // prevent leaving a deleted cwd
+	os.WriteFile(filepath.Join(dir, "x.txt"), []byte("x"), 0o644)
+
+	srv := llmServer(t, []replyStep{
+		{finishReason: "tool_calls", calls: []map[string]any{toolCall("list_directory", "c1", map[string]string{})}},
+		{content: "listed"},
+	})
+	defer srv.Close()
+	p := New(newClient(t, srv), a)
+	p.Run(context.Background(), "list default")
+}
+
+func TestSearchInFilesMissingPattern(t *testing.T) {
+	a, _ := makeAgent(t, true)
+	srv := llmServer(t, []replyStep{
+		{finishReason: "tool_calls", calls: []map[string]any{toolCall("search_in_files", "c1", map[string]string{})}},
+		{content: "handled"},
+	})
+	defer srv.Close()
+	p := New(newClient(t, srv), a)
+	p.Run(context.Background(), "search nothing")
+}
+
+func TestListDirectoryEmpty(t *testing.T) {
+	a, _ := makeAgent(t, true)
+	dir := t.TempDir()
+	srv := llmServer(t, []replyStep{
+		{finishReason: "tool_calls", calls: []map[string]any{toolCall("list_directory", "c1", map[string]string{"path": dir})}},
+		{content: "empty handled"},
+	})
+	defer srv.Close()
+	p := New(newClient(t, srv), a)
+	out, _ := p.Run(context.Background(), "list empty")
+	if out != "empty handled" {
+		t.Errorf("output = %q", out)
+	}
+}
+
+func TestListDirectoryError(t *testing.T) {
+	a, _ := makeAgent(t, true)
+	srv := llmServer(t, []replyStep{
+		{finishReason: "tool_calls", calls: []map[string]any{toolCall("list_directory", "c1", map[string]string{"path": "/nonexistent/zzzz"})}},
+		{content: "error handled"},
+	})
+	defer srv.Close()
+	p := New(newClient(t, srv), a)
+	p.Run(context.Background(), "list bad")
+}
+
 func TestRunTextOnly(t *testing.T) {
 	a, fake := makeAgent(t, true)
 	srv := llmServer(t, []replyStep{{content: "the plan is to read the manual"}})
