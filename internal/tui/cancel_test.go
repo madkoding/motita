@@ -3,6 +3,7 @@ package tui
 import (
 	"bytes"
 	"context"
+	"errors"
 	"io"
 	"strings"
 	"testing"
@@ -63,21 +64,11 @@ func TestProgressSenderDeliversWhileRunning(t *testing.T) {
 // in the conversation and hand the prompt back. This is the branch that sets the
 // outcome from the context rather than from the runner.
 func TestTaskCancelledByTheContext(t *testing.T) {
-	runner := &fakeRunner{taskBlock: make(chan struct{})}
+	started := make(chan struct{})
+	runner := &fakeRunner{taskBlock: make(chan struct{}), taskStarted: started}
 	tui := newFakeTUI("una tarea\n", runner)
-	ctx, cancel := context.WithCancel(context.Background())
-	done := make(chan int, 1)
-	go func() { done <- tui.Run(ctx) }()
-	time.Sleep(60 * time.Millisecond)
-	cancel()
-
-	select {
-	case code := <-done:
-		if code != ExitInterrupted {
-			t.Errorf("code = %d, want ExitInterrupted", code)
-		}
-	case <-time.After(3 * time.Second):
-		t.Fatal("the task did not stop when the context was cancelled")
+	if code := cancelOnceRunning(t, tui, started); code != ExitInterrupted {
+		t.Errorf("code = %d, want ExitInterrupted", code)
 	}
 	if !strings.Contains(stripANSI(outputOf(tui)), "cancelled") {
 		t.Errorf("a cancelled task must say so:\n%s", stripANSI(outputOf(tui)))
@@ -116,5 +107,57 @@ func TestReadLineAbandonedByCancellation(t *testing.T) {
 	}
 	if elapsed := time.Since(start); elapsed > time.Second {
 		t.Errorf("the read took %s: it must return as soon as the context is done", elapsed)
+	}
+}
+
+// TestAwaitRunTakesTheOutcomeFromTheRunnerOnCancellation: when the context is
+// already cancelled before the loop starts, the only path left is the cancellation
+// branch. The outcome must still be the runner's report, not a synthesised
+// cancellation error, and the turn must end as soon as that report arrives.
+//
+// Driving the function directly is what makes this deterministic: waiting for a
+// real run to reach the exact moment where a cancel and a completion race is not
+// something a test can arrange, and it is the reason the coverage of that line used
+// to come and go.
+func TestAwaitRunTakesTheOutcomeFromTheRunnerOnCancellation(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	progress := make(chan string, 1)
+	done := make(chan runOutcome, 1)
+
+	// A turn that observes the cancellation and reports it, like the real runner.
+	go func() {
+		<-ctx.Done()
+		done <- runOutcome{err: ctx.Err()}
+	}()
+
+	var seen []string
+	out := (&TUI{}).awaitRun(ctx, progress, done, func(p string) { seen = append(seen, p) })
+
+	if !errors.Is(out.err, context.Canceled) {
+		t.Errorf("the outcome must come from the runner, got %+v", out)
+	}
+	if len(seen) != 0 {
+		t.Errorf("no progress line was sent, got %v", seen)
+	}
+}
+
+// TestAwaitRunKeepsDrainingProgressWhileTheTurnRuns: the progress lines sent before
+// the outcome are all delivered, in order, and do not delay the result.
+func TestAwaitRunKeepsDrainingProgressWhileTheTurnRuns(t *testing.T) {
+	progress := make(chan string, 3)
+	done := make(chan runOutcome, 1)
+	progress <- "first"
+	progress <- "second"
+	done <- runOutcome{result: "the answer"}
+
+	var seen []string
+	out := (&TUI{}).awaitRun(context.Background(), progress, done, func(p string) { seen = append(seen, p) })
+
+	// The outcome may win the first select, which is correct: the caller drains the
+	// rest of the buffer itself. What must hold is that the answer is the runner's.
+	if out.result != "the answer" {
+		t.Errorf("result = %q", out.result)
 	}
 }

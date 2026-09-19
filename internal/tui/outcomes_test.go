@@ -5,7 +5,6 @@ import (
 	"errors"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/madkoding/starlight/internal/config"
 )
@@ -47,50 +46,33 @@ func TestCycleReasoningFromAnUnsetLevel(t *testing.T) {
 // TestCancellationInEveryMode: Ctrl+C during a run has to end that run and return
 // the prompt, not leave the interface waiting.
 func TestCancellationInEveryMode(t *testing.T) {
-	for _, tc := range []struct {
-		name   string
-		runner *fakeRunner
-		input  string
-	}{
-		{"task", &fakeRunner{taskBlock: make(chan struct{})}, "una tarea\n"},
-		{"plan", &fakeRunner{planBlock: make(chan struct{})}, "/p\nun prompt\n\n"},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			tui := newFakeTUI(tc.input, tc.runner)
-			ctx, cancel := context.WithCancel(context.Background())
-			done := make(chan int, 1)
-			go func() { done <- tui.Run(ctx) }()
+	t.Run("task", func(t *testing.T) {
+		started := make(chan struct{})
+		runner := &fakeRunner{taskBlock: make(chan struct{}), taskStarted: started}
+		tui := newFakeTUI("una tarea\n", runner)
+		if code := cancelOnceRunning(t, tui, started); code != ExitInterrupted {
+			t.Errorf("code = %d, want ExitInterrupted", code)
+		}
+	})
 
-			// Give the run a moment to start, then cancel it.
-			time.Sleep(60 * time.Millisecond)
-			cancel()
-
-			select {
-			case code := <-done:
-				if code != ExitInterrupted {
-					t.Errorf("code = %d, want ExitInterrupted", code)
-				}
-			case <-time.After(3 * time.Second):
-				t.Fatal("the interface did not return after the context was cancelled")
-			}
-		})
-	}
+	t.Run("plan", func(t *testing.T) {
+		started := make(chan struct{})
+		runner := &fakeRunner{planBlock: make(chan struct{}), planStarted: started}
+		tui := newFakeTUI("/p\nun prompt\n\n", runner)
+		if code := cancelOnceRunning(t, tui, started); code != ExitInterrupted {
+			t.Errorf("code = %d, want ExitInterrupted", code)
+		}
+	})
 }
 
 // TestRunModelsAndConfigCancelled: the two action views must also honour a
 // cancellation, since the catalogue call can block on the network.
 func TestRunModelsAndConfigCancelled(t *testing.T) {
-	runner := &fakeRunner{modelsBlock: make(chan struct{})}
+	started := make(chan struct{})
+	runner := &fakeRunner{modelsBlock: make(chan struct{}), modelsStarted: started}
 	tui := newFakeTUI("/m\n\n", runner)
-	ctx, cancel := context.WithCancel(context.Background())
-	done := make(chan int, 1)
-	go func() { done <- tui.Run(ctx) }()
-	time.Sleep(60 * time.Millisecond)
-	cancel()
-	select {
-	case <-done:
-	case <-time.After(3 * time.Second):
-		t.Fatal("the models view did not return after the context was cancelled")
+	if code := cancelOnceRunning(t, tui, started); code != ExitInterrupted {
+		t.Errorf("code = %d, want ExitInterrupted", code)
 	}
 }
 

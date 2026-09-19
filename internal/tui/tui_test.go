@@ -27,20 +27,26 @@ type fakeRunner struct {
 	planProgress []string
 	// The *Block channels make a run hang until the test closes them, which is how
 	// cancellation in the middle of a turn is exercised.
-	taskBlock    chan struct{}
-	planBlock    chan struct{}
-	modelsBlock  chan struct{}
-	planAnswer   string
-	planErr      error
-	taskErr      error
-	configErr    error
-	modelsErr    error
-	lastPrompt   string
-	lastTask     string
-	lastProgress []string
-	mu           sync.Mutex
-	out          io.Writer
-	cfg          config.Config
+	taskBlock   chan struct{}
+	planBlock   chan struct{}
+	modelsBlock chan struct{}
+	// The *Started channels are closed as soon as the fake is inside the run, so a
+	// cancellation test can wait for that fact instead of sleeping and hoping. A
+	// timing race here is what made the coverage gate flake on a slower machine.
+	taskStarted   chan struct{}
+	planStarted   chan struct{}
+	modelsStarted chan struct{}
+	planAnswer    string
+	planErr       error
+	taskErr       error
+	configErr     error
+	modelsErr     error
+	lastPrompt    string
+	lastTask      string
+	lastProgress  []string
+	mu            sync.Mutex
+	out           io.Writer
+	cfg           config.Config
 	// cfgSet records that the test supplied a configuration of its own, which is
 	// what makes an empty provider a meaningful value rather than "unset".
 	cfgSet bool
@@ -52,6 +58,9 @@ func (f *fakeRunner) RunPlan(ctx context.Context, prompt string, progress func(s
 	f.planCalled = true
 	f.lastPrompt = prompt
 	if f.planBlock != nil {
+		if f.planStarted != nil {
+			close(f.planStarted)
+		}
 		select {
 		case <-f.planBlock:
 		case <-ctx.Done():
@@ -79,6 +88,9 @@ func (f *fakeRunner) RunTask(ctx context.Context, task string, progress func(str
 	f.taskCalled = true
 	f.lastTask = task
 	if f.taskBlock != nil {
+		if f.taskStarted != nil {
+			close(f.taskStarted)
+		}
 		select {
 		case <-f.taskBlock:
 		case <-ctx.Done():
@@ -111,6 +123,9 @@ func (f *fakeRunner) RunModels(ctx context.Context) (string, error) {
 	f.modelsCalled = true
 	f.modelsCalls++
 	if f.modelsBlock != nil {
+		if f.modelsStarted != nil {
+			close(f.modelsStarted)
+		}
 		select {
 		case <-f.modelsBlock:
 		case <-ctx.Done():
@@ -142,6 +157,34 @@ func (f *fakeRunner) SetReasoning(level string) {
 	}
 	f.cfg.LLM.Reasoning.Level = level
 	f.cfg.LLM.Reasoning.Enabled = level != "off"
+}
+
+// cancelOnceRunning starts the interface, waits until the runner reports that it is
+// inside the turn, and only then cancels the context. Waiting for the signal rather
+// than sleeping is what makes the cancellation coverage deterministic: with a sleep
+// the run may not have started yet on a slow machine, the cancel lands before the
+// select, and the branch this test exists for is never taken.
+func cancelOnceRunning(t *testing.T, tui *TUI, started <-chan struct{}) int {
+	t.Helper()
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan int, 1)
+	go func() { done <- tui.Run(ctx) }()
+
+	select {
+	case <-started:
+	case <-time.After(5 * time.Second):
+		cancel()
+		t.Fatal("the run never started, so cancellation could not be exercised")
+	}
+	cancel()
+
+	select {
+	case code := <-done:
+		return code
+	case <-time.After(5 * time.Second):
+		t.Fatal("the interface did not return after the context was cancelled")
+		return 0
+	}
 }
 
 // configWithKey builds a configuration with the given API key, for the tests that

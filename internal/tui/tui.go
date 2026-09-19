@@ -290,6 +290,37 @@ func progressSender(ctx context.Context, ch chan string) func(format string, arg
 	}
 }
 
+// runOutcome is what a turn reports back: the text to show and, if it failed, why.
+type runOutcome struct {
+	result string
+	err    error
+}
+
+// awaitRun drives one turn to its end.
+//
+// The outcome always comes from the runner, and from nowhere else. The runner
+// observes the same context this loop watches, so when the context is cancelled it
+// still reports what happened, which means the answer the user sees does not depend
+// on which channel a select happened to pick. An earlier version decided the
+// outcome in two places — reading the runner's report in one case and building a
+// cancellation error in the other — and when both channels were ready the choice
+// was a coin toss. That is not a test-timing problem: it is the same event
+// producing two different messages.
+func (t *TUI) awaitRun(ctx context.Context, progress <-chan string, done <-chan runOutcome, onProgress func(string)) runOutcome {
+	for {
+		select {
+		case p := <-progress:
+			onProgress(p)
+		case out := <-done:
+			return out
+		case <-ctx.Done():
+			// Waiting here is bounded: the runner watches this very context, and
+			// it sends exactly once into a buffered channel.
+			return <-done
+		}
+	}
+}
+
 func (t *TUI) runTask(ctx context.Context, task string) {
 	if strings.TrimSpace(task) == "" {
 		t.drawFrame()
@@ -307,10 +338,6 @@ func (t *TUI) runTask(ctx context.Context, task string) {
 	t.cancelRun = cancel
 	t.runningCtx = runCtx
 
-	type runOutcome struct {
-		result string
-		err    error
-	}
 	done := make(chan runOutcome, 1)
 	go func() {
 		res, err := t.Runner.RunTask(runCtx, task, progressSender(runCtx, progress))
@@ -324,23 +351,12 @@ func (t *TUI) runTask(ctx context.Context, task string) {
 
 	// Task mode reports its phases through the same callback. A phase is a
 	// transient label for the block that is running, so it is overwritten as the
-	// run advances, and the last visible one is replaced by the result. It is
-	// never frozen: unlike a plan tool call, a phase is not an event worth
-	// keeping.
-	var outcome runOutcome
-loop:
-	for {
-		select {
-		case p := <-progress:
-			t.messages[pendingIdx].Text = p
-			t.advance()
-		case outcome = <-done:
-			break loop
-		case <-runCtx.Done():
-			outcome = runOutcome{err: runCtx.Err()}
-			break loop
-		}
-	}
+	// run advances and the last visible one is replaced by the result. It is never
+	// frozen: unlike a plan tool call, a phase is not an event worth keeping.
+	outcome := t.awaitRun(runCtx, progress, done, func(p string) {
+		t.messages[pendingIdx].Text = p
+		t.advance()
+	})
 
 	t.cancelRun = nil
 	t.runningCtx = nil
@@ -445,19 +461,13 @@ func (t *TUI) runPlan(ctx context.Context, prompt string) {
 	t.cancelRun = cancel
 	t.runningCtx = runCtx
 
-	done := make(chan struct {
-		answer string
-		err    error
-	}, 1)
+	done := make(chan runOutcome, 1)
 	var wg sync.WaitGroup
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
 		answer, err := t.Runner.RunPlan(runCtx, prompt, progressSender(runCtx, progress))
-		done <- struct {
-			answer string
-			err    error
-		}{answer, err}
+		done <- runOutcome{result: answer, err: err}
 	}()
 
 	t.beginTurn()
@@ -466,33 +476,15 @@ func (t *TUI) runPlan(ctx context.Context, prompt string) {
 	t.messages[stream.pendingIdx].Pending = true
 	t.advance()
 
-	var result struct {
-		answer string
-		err    error
-	}
-	// Neither channel is closed by this function: progress is buffered and
-	// abandoned, and done is closed only after the loop ends. Reading without the
-	// comma-ok form is therefore safe, and it keeps this loop identical to the one
-	// in runTask.
-loop:
-	for {
-		select {
-		case p := <-progress:
-			stream.handle(p)
-			t.advance()
-		case r := <-done:
-			result = r
-			break loop
-		case <-runCtx.Done():
-			result.err = runCtx.Err()
-			break loop
-		}
-	}
+	result := t.awaitRun(runCtx, progress, done, func(p string) {
+		stream.handle(p)
+		t.advance()
+	})
 	wg.Wait()
 	close(done)
 
-	// Drain every progress line still queued. The select above breaks as soon as
-	// the outcome is ready, so several lines can still be in flight, and a single
+	// Drain every progress line still queued. awaitRun returns as soon as the
+	// outcome is ready, so several lines can still be in flight, and a single
 	// non-blocking read would drop them.
 	for {
 		select {
@@ -512,7 +504,7 @@ loop:
 		// The last block was empty and got dropped: settle on a fresh one.
 		stream.openPending()
 	}
-	stream.settle(result.err, result.answer)
+	stream.settle(result.err, result.result)
 	t.endTurn()
 }
 
