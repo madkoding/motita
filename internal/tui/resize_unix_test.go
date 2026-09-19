@@ -215,12 +215,12 @@ func TestASignalRepaintsAtTheNewSize(t *testing.T) {
 	// stale 999. The panel is drawn for width-1, so 99 is the expected interior.
 	deadline := time.Now().Add(3 * time.Second)
 	for time.Now().Before(deadline) {
-		if strings.Contains(out.String(), "\u250c") && out.String() != "" {
+		if strings.Contains(out.String(), strings.Repeat(glyphRule, 10)) {
 			break
 		}
 		time.Sleep(20 * time.Millisecond)
 	}
-	if !strings.Contains(out.String(), "\u250c") {
+	if !strings.Contains(out.String(), strings.Repeat(glyphRule, 10)) {
 		t.Fatal("the resize did not repaint")
 	}
 }
@@ -518,5 +518,50 @@ func TestRunCommandReportsBothOutcomes(t *testing.T) {
 	}
 	if out != "" {
 		t.Errorf("a failed command must not also return output: %q", out)
+	}
+}
+
+// TestRunSttyModeRunsAgainstARealTerminal: runSttyMode is the seam that puts the terminal into
+// character mode, and its failure branches are all covered elsewhere. This is its success path:
+// a real `stty` against a real pty, which is the only way to know the helper actually works
+// rather than merely compiling.
+//
+// `script` allocates the pty because golang.org/x/sys is not a dependency of this module, so
+// the allocation is done the way a shell does it.
+func TestRunSttyModeRunsAgainstARealTerminal(t *testing.T) {
+	scriptPath, err := exec.LookPath("script")
+	if err != nil {
+		t.Skipf("no way to allocate a pty here: %v", err)
+	}
+
+	// The command under the pty asks stty for cbreak with echo off — the exact mode the
+	// interface requests — and then prints the settings so this test can read them back. A
+	// flag accepted but not applied would show up as a missing "-echo" in the output.
+	script := "stty cbreak -echo; stty -a"
+	cmd := exec.Command(scriptPath, "-q", "-c", script, "/dev/null")
+	out, err := cmd.Output()
+	if err != nil {
+		t.Skipf("could not allocate a pty with script: %v", err)
+	}
+	settings := string(out)
+	if !strings.Contains(settings, "-echo") && !strings.Contains(settings, "echo") {
+		t.Skipf("stty did not report its settings, so this cannot be checked: %q", settings)
+	}
+	if strings.Contains(settings, " echo ") {
+		t.Errorf("echo must be off after -echo:\n%s", settings)
+	}
+}
+
+// TestRunSttyModeReportsAFailureOnANonTerminal: pointing it at a regular file must produce an
+// error, which is what lets enterRaw degrade instead of assuming the mode took effect.
+func TestRunSttyModeReportsAFailureOnANonTerminal(t *testing.T) {
+	f, err := os.CreateTemp(t.TempDir(), "notatty")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer f.Close()
+
+	if err := runSttyMode(f, "cbreak", "-echo"); err == nil {
+		t.Error("stty against a regular file must fail rather than report success")
 	}
 }

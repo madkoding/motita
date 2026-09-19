@@ -45,8 +45,8 @@ func TestStatusLinesShedsItsTailWhenNarrow(t *testing.T) {
 	tui.Width = 60
 
 	wide := strings.Join(tui.statusLines(100), "\n")
-	if !strings.Contains(stripANSI(wide), "reasoning") || !strings.Contains(stripANSI(wide), "key ") {
-		t.Errorf("a wide status line must show everything:\n%s", stripANSI(wide))
+	if !strings.Contains(stripANSI(wide), "reasoning") {
+		t.Errorf("a wide status line must show everything it carries:\n%s", stripANSI(wide))
 	}
 
 	narrow := strings.Join(tui.statusLines(20), "\n")
@@ -80,27 +80,35 @@ func TestStateGlyphReportsAKeylessSession(t *testing.T) {
 	}
 }
 
-// TestChatTopRowKeepsTheBorderStraight: the mode name is drawn inside the top
-// border, so the rule has to shrink by exactly that much. A wrong count is only
-// visible as a border that stops short of its corner.
-func TestChatTopRowKeepsTheBorderStraight(t *testing.T) {
-	tui := newFakeTUI("q\n", &fakeRunner{})
-	tui.Width = 80
-	for _, s := range screenOrder {
-		tui.screen = s
-		top := stripANSI(strings.Join(tui.chatTopRow(), "\n"))
-		bot := stripANSI(tui.chatBottomRow())
-		if visibleLen(top) != visibleLen(bot) {
-			t.Errorf("screen %s: the top border is %d columns and the bottom is %d\n%q\n%q",
-				s, visibleLen(top), visibleLen(bot), top, bot)
+// TestTheRulesAreWellFormedAtEveryWidth: the dividers carry the structure, so each one has
+// to be a single run of the rule glyph, wide enough to read as a divider and never filling
+// the last column.
+//
+// A degenerate width is the case that matters: strings.Repeat panics on a negative count, and
+// the arithmetic here involves the terminal width, which an embedder can set to anything.
+func TestTheRulesAreWellFormedAtEveryWidth(t *testing.T) {
+	for _, w := range []int{1, minWidth, 80, maxWidth} {
+		tui := newFakeTUI("q\n", &fakeRunner{})
+		tui.Width = w
+
+		got := stripANSI(tui.rule(w))
+		if strings.Contains(got, glyphTopLeft) || strings.Contains(got, glyphTopRight) {
+			t.Errorf("width %d: the rule must be a plain divider, got %q", w, got)
 		}
-	}
-	// On a terminal where the arithmetic would go negative, the rule is clamped
-	// instead of panicking in strings.Repeat.
-	tui.Width = 1
-	top := stripANSI(strings.Join(tui.chatTopRow(), "\n"))
-	if !strings.Contains(top, glyphTopLeft) || !strings.Contains(top, glyphTopRight) {
-		t.Errorf("even a degenerate width must produce a well-formed border: %q", top)
+		if strings.TrimSpace(got) == "" {
+			t.Errorf("width %d: the rule must not be empty, got %q", w, got)
+		}
+		// The comparison is against the width the layout will actually use, which is the
+		// one size() floors at minWidth. A width of 1 is not a terminal the interface
+		// draws for; it is the value an embedder might set, and the floor is what makes it
+		// safe.
+		effective := w
+		if effective < minWidth {
+			effective = minWidth
+		}
+		if visibleLen(got) > effective {
+			t.Errorf("width %d: the rule is %d columns, past the %d the layout uses", w, visibleLen(got), effective)
+		}
 	}
 }
 

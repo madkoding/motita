@@ -126,6 +126,17 @@ type TUI struct {
 	// contains, so neither is persisted and neither survives a new turn's scroll reset.
 	query     string
 	searching bool
+	// painted records that the first frame has been drawn, so the screen is wiped once at
+	// launch and never again.
+	painted bool
+	// charMode is true while the terminal delivers one byte at a time, which is what makes
+	// live editing possible. It is set from the mode the run obtained, so a terminal that
+	// refused it keeps the whole-line path.
+	charMode bool
+	// draft is the line being typed. With the terminal in character mode the interface owns
+	// the editing, which is what makes a live completion popup possible: the candidate list
+	// has to know what has been typed so far.
+	draft string
 	// scroll is how many rows the conversation is lifted above its newest line.
 	// Zero means "pinned to the bottom", which is where a chat belongs: new
 	// output arrives at the end. Raising it walks back through history, which is
@@ -192,6 +203,18 @@ func (t *TUI) Run(ctx context.Context) int {
 	// program exits, which is the same class of rudeness as leaving the cursor hidden.
 	t.enableMouse()
 	defer t.disableMouse()
+
+	// Character-at-a-time input for the duration of the run, so a keystroke is seen as it is
+	// typed instead of at the end of the line. The restore runs from a defer and is
+	// idempotent; the panic path below reuses it.
+	//
+	// It degrades rather than failing: a terminal that refuses the mode leaves the interface
+	// reading whole lines, which is the behaviour it had before, and the completion popup
+	// simply does not appear.
+	mode := enterRaw()
+	t.charMode = mode.active
+	defer mode.restore()
+	defer recoverRaw(mode)()
 
 	resized, stopWatch := watchResize()
 	var painting sync.WaitGroup
@@ -366,7 +389,7 @@ func (t *TUI) handleShortcut(ctx context.Context, line string) (bool, bool) {
 		t.setScreen(ScreenConfig)
 		t.runConfig(ctx)
 		return true, false
-	case "/reasoning", "/r":
+	case "/reasoning", "/r", "/think":
 		t.cycleReasoning()
 		return true, false
 	case "/find", "/f":
@@ -949,6 +972,13 @@ const (
 //   - ESC opens a key that is not text: either a bare cancel, or one of the
 //     arrow and page sequences the terminal sends.
 func (t *TUI) readLine(ctx context.Context) (string, bool) {
+	// In character mode the line is edited here, which is what lets the completion popup see
+	// what has been typed as it is typed. It returns the same tokens the whole-line reader
+	// does — the Tab, the escape sequences, the control bytes — so everything downstream is
+	// unchanged and the two paths stay interchangeable.
+	if t.charMode {
+		return t.readLineLive(ctx)
+	}
 	head, ok := t.readKey(ctx)
 	if !ok {
 		return "", false
@@ -1030,32 +1060,57 @@ type lineResult struct {
 	err  error
 }
 
-const helpText = `Starlight chat
+// helpText is the help screen, generated from the command catalogue.
+//
+// It is built rather than written so the screen cannot drift from what the handler accepts:
+// the previous version was a second copy of the same list, and it had already gone out of
+// step — it advertised "/t task" while the handler and the popup knew "/task". A help screen
+// that documents a spelling nothing accepts is worse than no help at all.
+var helpText = buildHelp()
 
-Navigation — no Enter needed
-  Tab          switch mode
-  j/k  Up/Down scroll one line
-  PgUp/PgDn    scroll one page
-  Ctrl+U/D     scroll half a page
-  g/G          oldest / newest
-  Ctrl+F       search the chat (a terminal
-               in canonical mode eats it)
-  /find text   the same search, typed
-  wheel        scroll, if reported
-  Esc          search / cancel / bottom
-  Ctrl+C       cancel and leave
+// buildHelp renders the reference: the navigation keys first, because they are what a
+// newcomer needs, then every command with the description the catalogue carries.
+func buildHelp() string {
+	var b strings.Builder
+	b.WriteString("Starlight chat\n\n")
+	b.WriteString("Navigation — no Enter needed\n")
+	for _, h := range [][2]string{
+		{"Tab", "switch mode (or complete a command)"},
+		{"j/k", "scroll one line"},
+		{"PgUp/PgDn", "scroll one page"},
+		{"Ctrl+U/Ctrl+D", "scroll half a page"},
+		{"g/G", "oldest / newest"},
+		{"Ctrl+F", "search the chat"},
+		{"/find", "the same search, typed"},
+		{"Esc", "search / cancel / bottom"},
+		{"Ctrl+C", "cancel and leave"},
+	} {
+		b.WriteString("  " + pad(h[0], 16) + h[1] + "\n")
+	}
 
-Commands — type and Enter
-  /t  task     run the agent
-  /p  plan     read-only mode
-  /m  models   list the catalogue
-  /c  config   first-run wizard
-  /r  reasoning  cycle the level
-  /s  session  context and summary
-  /new         start a new session
-  /h  help     this screen
-  /q  quit     leave
-`
+	b.WriteString("\nCommands — type them and press Enter\n")
+	for _, c := range commands {
+		label := c.Name
+		if len(c.Aliases) > 0 {
+			label += " (" + strings.Join(c.Aliases, ", ") + ")"
+		}
+		if c.Arg != "" {
+			label += " " + c.Arg
+		}
+		b.WriteString("  " + pad(label, 24) + c.Help + "\n")
+	}
+	return b.String()
+}
+
+// pad pads a plain string to a column, for the help's two-column layout. The width is in
+// BYTES here because the labels are ASCII by construction: a command name is sanitised and the
+// key names are literals. A rune-aware version would be the right call for anything else.
+func pad(s string, width int) string {
+	if len(s) >= width {
+		return s + " "
+	}
+	return s + strings.Repeat(" ", width-len(s))
+}
 
 // minHeight is the number of rows below which the interface stops trying to draw
 // a frame. The guide is explicit: below a workable size, show a message instead
@@ -1079,4 +1134,167 @@ func (t *TUI) tooSmallLines(w, h int) []string {
 		"  now: " + strconv.Itoa(w) + " x " + strconv.Itoa(h),
 	}
 	return msg
+}
+
+// recoverRaw restores the terminal before letting a panic continue.
+//
+// A session that dies while the terminal is in cbreak with echo off hands the user back a
+// shell that shows nothing they type and runs nothing they see. The restore therefore happens
+// on the way out of a panic as well as on the normal path, and it is the FIRST thing done —
+// before the panic is allowed to keep unwinding.
+//
+// It is a named function returning the deferred call rather than an inline closure so the
+// behaviour can be tested: triggering a real panic inside a live terminal is not something a
+// test should do.
+func recoverRaw(mode *terminalMode) func() {
+	return func() {
+		if r := recover(); r != nil {
+			mode.restore()
+			panic(r)
+		}
+	}
+}
+
+// readLineLive edits one line as it is typed, redrawing the composer and the completion
+// popup on every keystroke.
+//
+// This is the difference between a command interface and a chat one: with the terminal in
+// character mode the program owns the editing, so it knows what has been typed while it is
+// being typed — which is the only way a completion popup can offer anything.
+//
+// The returned tokens are exactly the ones the whole-line reader produces, so the rest of the
+// interface does not know which path delivered them.
+func (t *TUI) readLineLive(ctx context.Context) (string, bool) {
+	t.draft = ""
+	defer func() {
+		if t.draft != "" {
+			t.draft = ""
+			t.drawFrame()
+		}
+	}()
+
+	for {
+		ch := make(chan byte, 1)
+		go func() {
+			b, err := t.input().ReadByte()
+			if err != nil {
+				close(ch)
+				return
+			}
+			ch <- b
+		}()
+
+		var b byte
+		select {
+		case v, ok := <-ch:
+			if !ok {
+				return "", false
+			}
+			b = v
+		case <-ctx.Done():
+			return "", false
+		}
+
+		switch b {
+		case '\r', '\n':
+			line := strings.TrimSpace(t.draft)
+			t.draft = ""
+			return line, true
+
+		case 0x03: // Ctrl+C, which cbreak still delivers as a signal; this is the read path
+			return "", false
+
+		case 0x04, 0x06, 0x15: // Ctrl+D, Ctrl+F, Ctrl+U
+			t.draft = ""
+			t.drawFrame()
+			return string(b), true
+
+		case 0x7f, 0x08: // backspace
+			if t.draft != "" {
+				r := []rune(t.draft)
+				t.draft = string(r[:len(r)-1])
+				t.drawFrame()
+			}
+
+		case '\t':
+			// Tab completes the command being typed, and falls through to the mode switch
+			// when there is nothing to complete: Tab has always meant "next mode" here, and
+			// a completion popup must not take that away.
+			if t.completeDraft() {
+				continue
+			}
+			t.draft = ""
+			return "\t", true
+
+		case 0x1b:
+			// An escape sequence: read the rest without blocking on a lone Esc.
+			seq := t.readEscapeLive()
+			if seq == keyEsc {
+				// Escape closes the popup first, and only leaves the line when there is
+				// nothing to close.
+				if t.completing() {
+					t.draft = ""
+					t.drawFrame()
+					continue
+				}
+				t.draft = ""
+				return keyEsc, true
+			}
+			// The arrows and the page keys are handled by the same switch as always; the
+			// draft is cleared so the line does not survive the mode change.
+			t.draft = ""
+			return seq, true
+
+		default:
+			if b >= 0x20 && b != 0x7f {
+				t.draft += string(b)
+				t.drawFrame()
+			}
+		}
+	}
+}
+
+// readEscapeLive completes a sequence that followed an ESC, without blocking on a bare Esc.
+//
+// Same rule as the whole-line reader: a human pressing Escape sends one byte, a terminal
+// sends the whole CSI sequence in one write, and the bytes already buffered are what tells
+// them apart.
+func (t *TUI) readEscapeLive() string {
+	if t.input().Buffered() == 0 {
+		return keyEsc
+	}
+	peek, err := t.input().Peek(1)
+	if err != nil || len(peek) == 0 || peek[0] != '[' {
+		return keyEsc
+	}
+	seq := []byte{0x1b, '['}
+	t.input().Discard(1)
+	for {
+		c, err := t.input().ReadByte()
+		if err != nil {
+			return keyEsc
+		}
+		seq = append(seq, c)
+		if c >= 0x40 && c <= 0x7e {
+			break
+		}
+		if len(seq) > 16 {
+			return keyEsc
+		}
+	}
+	return string(seq)
+}
+
+// completeDraft replaces what has been typed with the first candidate, so Tab accepts the
+// suggestion the popup is showing.
+//
+// It reports whether it did anything: with no candidates Tab keeps its old meaning.
+func (t *TUI) completeDraft() bool {
+	cands := completions(t.draft)
+	if len(cands) == 0 {
+		return false
+	}
+	t.draft = cands[0].Name + " "
+	t.drawFrame()
+	return true
 }

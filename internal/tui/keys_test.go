@@ -301,26 +301,23 @@ func TestThePositionIndicatorAppearsOnlyWhenScrolled(t *testing.T) {
 	padBody(tu, 30)
 
 	tu.scroll = 0
+	out.Reset()
 	tu.drawFrame()
-	if body := stripANSI(out.String()); strings.Contains(body, "%") {
+	if body := stripANSI(lastFrameOf(out)); strings.Contains(body, "back") {
 		t.Errorf("no indicator must be shown at the bottom: %q", body)
 	}
 
 	out.Reset()
 	tu.scroll = 5
 	tu.drawFrame()
-	body := stripANSI(out.String())
-	if !strings.Contains(body, "%") {
+	body := stripANSI(lastFrameOf(out))
+	if !strings.Contains(body, "5 back") {
 		t.Errorf("a scrolled view must show where it is: %q", body)
 	}
-	// The status bar carries the exact offset, but it is the LAST part of the
-	// line and a narrow terminal drops the tail by design — so the check runs at
-	// a width that fits everything, which is the only fair place to assert it.
-	tu.Width = 120
-	out.Reset()
-	tu.drawFrame()
-	body = stripANSI(out.String())
-	if !strings.Contains(body, "scrolled 5 above latest") {
+	// The offset is reported on the status bar at the foot of the screen. The check is on
+	// the LAST frame: the buffer keeps every repaint.
+	body = stripANSI(lastFrameOf(out))
+	if !strings.Contains(body, "5 back") {
 		t.Errorf("the status bar must say how far back the view is: %q", body)
 	}
 }
@@ -582,17 +579,14 @@ func TestAnInterruptedSequenceReadsAsCancel(t *testing.T) {
 	}
 }
 
-// TestTheBorderStaysStraightWhileScrolled: the position indicator goes inside the
-// top border, and it carries colour escapes. Counting it by its byte length
-// instead of its visible width shortened the rule by the length of those escapes
-// and left an extra corner glyph in the middle of the border:
+// TestTheFrameHoldsItsShapeWhileScrolled: the conversation is no longer boxed, so the
+// invariants are the ones the new layout has — both rules the same width, every row inside
+// the drawing area, and the composer and the status bar present and in that order.
 //
-//	┌─ Plan ─100%─┐───────────────────────────────┐
-//
-// The frame looked correct at the bottom of the conversation and broke the moment
-// the user scrolled. This asserts the invariant on the scrolled frame, which is
-// the case the original test never exercised.
-func TestTheBorderStaysStraightWhileScrolled(t *testing.T) {
+// The scrolled case is the one that used to break: the position indicator moved from the
+// border to the status bar, and the earlier version of this test could not see the layout
+// change at all.
+func TestTheFrameHoldsItsShapeWhileScrolled(t *testing.T) {
 	for _, width := range []int{minWidth, 80, maxWidth} {
 		tu, out := newKeyTUI("", "one", "two")
 		padBody(tu, 60)
@@ -601,34 +595,32 @@ func TestTheBorderStaysStraightWhileScrolled(t *testing.T) {
 
 		out.Reset()
 		tu.drawFrame()
-		frame := stripANSI(out.String())
+		lines, _ := tu.layout(width, 30)
 
-		var rows []string
-		for _, line := range strings.Split(frame, "\n") {
-			if strings.HasPrefix(line, "  ┌") || strings.HasPrefix(line, "  │") || strings.HasPrefix(line, "  └") {
-				rows = append(rows, line)
+		// Every row fits the drawing area, which is the width minus the one column left
+		// free so a terminal never wraps the last one.
+		for i, l := range lines {
+			if got := visibleLen(l); got > width {
+				t.Errorf("width %d: row %d is %d columns: %q", width, i, got, stripANSI(l))
 			}
 		}
-		if len(rows) < 2 {
-			t.Fatalf("width %d: the panel was not drawn: %q", width, frame)
+		// The structure: status, rule, conversation, rule, status bar.
+		body := stripANSI(strings.Join(lines, "\n"))
+		if n := strings.Count(body, strings.Repeat(glyphRule, 10)); n < 2 {
+			t.Errorf("width %d: the two rules must bracket the conversation, found %d:\n%s", width, n, body)
 		}
-
-		want := visibleLen(rows[0])
-		for i, row := range rows {
-			if got := visibleLen(row); got != want {
-				t.Errorf("width %d: row %d is %d columns, want %d\n%q\n%q", width, i, got, want, rows[0], row)
-			}
+		// At the minimum width the bar cannot hold the mode, the keys and the offset at once,
+		// and the mode wins. The offset is asserted where there is room for it.
+		if width >= 80 && !strings.Contains(body, "5 back") {
+			t.Errorf("width %d: the scrolled offset must be on the status bar:\n%s", width, body)
 		}
-		// The indicator is present, and the border it sits in is still one piece:
-		// a second corner glyph in the middle is the visible symptom.
-		if !strings.Contains(rows[0], "%") {
-			t.Errorf("width %d: the scrolled border must show the position: %q", width, rows[0])
+		if !strings.Contains(body, tu.screen.String()) {
+			t.Errorf("width %d: the active mode must survive on the status bar:\n%s", width, body)
 		}
-		if strings.Count(rows[0], glyphTopRight) != 1 {
-			t.Errorf("width %d: the top border has more than one right corner: %q", width, rows[0])
-		}
-		if strings.Count(rows[0], glyphTopLeft) != 1 {
-			t.Errorf("width %d: the top border has more than one left corner: %q", width, rows[0])
+		// The composer is the row before the rule and the status bar, and the status bar is
+		// last: the input sits at the foot of the window, which is the whole point.
+		if !strings.Contains(lines[len(lines)-1], tu.screen.String()) {
+			t.Errorf("width %d: the last row must be the status bar:\n%s", width, stripANSI(lines[len(lines)-1]))
 		}
 	}
 }
@@ -687,7 +679,9 @@ func TestTheWholeStatusLineSurvivesNoColour(t *testing.T) {
 	if sgr.MatchString(body) {
 		t.Errorf("NO_COLOR must not emit colour: %q", body)
 	}
-	for _, want := range []string{glyphReady, "reasoning", "key", "present", "ready"} {
+	// The status line carries the model and the reasoning level; the key is deliberately not
+	// reported any more, so it is not asserted here.
+	for _, want := range []string{glyphReady, "reasoning", "gpt-4o-mini"} {
 		if !strings.Contains(body, want) {
 			t.Errorf("the status line lost %q without colour: %q", want, body)
 		}
@@ -796,7 +790,7 @@ func TestTheHelpKeepsItsColumns(t *testing.T) {
 
 	// Every documented line must survive with its indentation, not re-flowed into a
 	// paragraph.
-	for _, want := range []string{"  Tab          switch mode", "  PgUp/PgDn    scroll one page", "  Ctrl+U/D     scroll half a page"} {
+	for _, want := range []string{"  Tab             switch mode", "  PgUp/PgDn       scroll one page", "  Ctrl+U/Ctrl+D   scroll half a page"} {
 		if !strings.Contains(frame, want) {
 			t.Errorf("the help lost its alignment; %q is missing from:\n%s", want, frame)
 		}
@@ -840,7 +834,10 @@ func TestClipLineLeavesShortTextAlone(t *testing.T) {
 			t.Errorf("clipLine(%d) produced %d columns: %q", width, visibleLen(got), got)
 		}
 	}
-	if got := clipLine("anything", 0); got != "anything" {
+	// Zero room means no text, not all of it. The old expectation here was that a
+	// non-positive width left the line alone — which is the opposite of clipping, and on a
+	// terminal too narrow for its own margins it drew every row at full length.
+	if got := clipLine("anything", 0); got != "" {
 		t.Errorf("a non-positive width must not clip: %q", got)
 	}
 }
@@ -861,9 +858,9 @@ func TestTheHelpIsReachableAndDocumented(t *testing.T) {
 // Searching the conversation. The guide asks for live filtering with the match count
 // and the matches highlighted, and for an escape route out of every state.
 
-// TestSearchFiltersTheConversation: a query narrows what is drawn, and clearing it
-// brings the whole history back. Hiding the user's own conversation with no way back
-// would be worse than not having the feature.
+// TestSearchFiltersTheConversation: a query narrows what is drawn, and clearing it brings
+// the whole history back. Hiding the user's own conversation with no way back would be worse
+// than not having the feature.
 func TestSearchFiltersTheConversation(t *testing.T) {
 	tu, out := newKeyTUI("", "alpha line", "beta line", "gamma line")
 	tu.Width, tu.Height = 100, 30
@@ -874,8 +871,8 @@ func TestSearchFiltersTheConversation(t *testing.T) {
 	}
 	tu.applyQuery("beta")
 
-	// The assertions are on the LAST frame: the buffer keeps every repaint, so the
-	// whole string still contains the history from before the search.
+	// The assertions are on the LAST frame: the buffer keeps every repaint, so the whole
+	// string still contains the history from before the search.
 	body := stripANSI(lastFrameOf(out))
 	if !strings.Contains(body, "beta line") {
 		t.Errorf("the match must be shown:\n%s", body)
@@ -883,9 +880,10 @@ func TestSearchFiltersTheConversation(t *testing.T) {
 	if strings.Contains(body, "alpha line") || strings.Contains(body, "gamma line") {
 		t.Errorf("non-matching lines must be filtered out:\n%s", body)
 	}
-	// The filter is visible, with the number of lines it kept.
-	if !strings.Contains(body, "filter") || !strings.Contains(body, "1 lines") {
-		t.Errorf("an applied filter must announce itself and its count:\n%s", body)
+	// The filter is visible while it is being typed: the status line and the composer both
+	// name it, so the user knows why the history looks short.
+	if !strings.Contains(body, `"beta"`) {
+		t.Errorf("an applied filter must announce itself:\n%s", body)
 	}
 
 	tu.closeSearch()

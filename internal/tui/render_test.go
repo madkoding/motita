@@ -40,7 +40,11 @@ func panelRows(frame string) []string {
 	return rows
 }
 
-func TestPanelRowsHaveEqualWidth(t *testing.T) {
+// TestEveryRowFitsTheDrawingArea: the frame's width invariant. The conversation is no longer
+// boxed, so what must hold is that no row is wider than the area it is drawn into — the
+// layout leaves one column free so a terminal never wraps the last one and scrolls the whole
+// interface up by a line on every repaint.
+func TestEveryRowFitsTheDrawingArea(t *testing.T) {
 	for _, tc := range []struct {
 		name  string
 		input string
@@ -58,15 +62,16 @@ func TestPanelRowsHaveEqualWidth(t *testing.T) {
 			tui.Width, tui.Height = tc.width, 40
 			tui.Run(context.Background())
 
-			rows := panelRows(lastFrame(t, tui))
-			if len(rows) < 2 {
-				t.Fatalf("the panel was not drawn: %q", lastFrame(t, tui))
-			}
-			want := visibleLen(rows[0])
-			for i, row := range rows {
-				if got := visibleLen(row); got != want {
-					t.Errorf("row %d is %d columns wide, want %d\\n%q\\n%q", i, got, want, rows[0], row)
+			frame := lastFrame(t, tui)
+			for i, line := range strings.Split(stripANSI(frame), "\n") {
+				if got := visibleLen(line); got > tc.width {
+					t.Errorf("row %d is %d columns, past the %d-column terminal:\n%q", i, got, tc.width, line)
 				}
+			}
+			// And the structure is there: two rules bracketing the conversation.
+			plain := stripANSI(frame)
+			if n := strings.Count(plain, strings.Repeat(glyphRule, 10)); n < 2 {
+				t.Errorf("the two rules must bracket the conversation, found %d:\n%s", n, plain)
 			}
 		})
 	}

@@ -347,9 +347,15 @@ func (op Options) run(fl flags) int {
 		}
 	}
 
-	// When entering the conversational TUI, keep the chat clean by writing
-	// structured logs only to the file, not to the terminal.
-	if fl.tui {
+	// When entering the conversational TUI, keep the chat clean by writing structured
+	// logs only to the file, not to the terminal.
+	//
+	// The decision must be the SAME one that launches the interface, not the flag alone.
+	// It used to test only `fl.tui`, while the launch below also enters the TUI when no
+	// configuration file exists — so on that path the logger kept writing JSON lines to the
+	// terminal, in the middle of the chat. That is the raw JSON that appeared "anywhere":
+	// not a rendering bug, a decision taken twice and answered differently.
+	if op.willRunTUI(fl) {
 		cfg.Agent.LogConsole = false
 	}
 
@@ -395,7 +401,7 @@ func (op Options) run(fl flags) int {
 	// when the user actually starts plan, task or model listing. For all non-TUI
 	// modes the engine is required up front.
 	var engine *llm.Client
-	if fl.tui || op.defaultToTUI(fl, cfg) {
+	if op.willRunTUI(fl) {
 		return op.runTUI(ctx, fl, cfg, nil, box, log)
 	}
 
@@ -619,10 +625,31 @@ func LogPath(cfg config.Config) string {
 	return cfg.Agent.LogFile
 }
 
-// defaultToTUI decides whether to start the interactive menu when the user did
-// not ask for a task explicitly.
-func (op Options) defaultToTUI(fl flags, cfg config.Config) bool {
-	return fl.configPath == "" && fl.task == "" && fl.taskFile == "" && len(op.Args) == 0
+// willRunTUI reports whether the invocation ends in the conversational interface.
+//
+// This is the ONLY predicate that answers that question, and that is the point. The logger
+// has to be silenced before the configuration is loaded — structured lines printed into the
+// chat are not a rendering bug, they are the wrong decision taken about where the log goes —
+// and the interface is launched further down. When those two places each carried their own
+// copy of the test they drifted, and every invocation that reached the interface through the
+// defaults kept writing logs to the terminal: the raw JSON that appeared in the middle of the
+// chat. One question, one function.
+//
+// It is a method on Options rather than a flag field because the answer depends on the
+// positional arguments too, which are not part of the flag set.
+func (op Options) willRunTUI(fl flags) bool {
+	if fl.tui {
+		return true
+	}
+	// Any explicit request that produces its own output rules the interface out: it would
+	// otherwise swallow the result the user asked for.
+	if fl.configPath != "" || fl.task != "" || fl.taskFile != "" {
+		return false
+	}
+	if fl.validateConfig || fl.isolation || fl.version || fl.initConfig {
+		return false
+	}
+	return len(op.Args) == 0
 }
 
 // runTUI starts the interactive text user interface.

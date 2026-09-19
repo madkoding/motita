@@ -20,6 +20,7 @@ import (
 
 	"github.com/madkoding/starlight/internal/llm"
 	"github.com/madkoding/starlight/internal/session"
+	"github.com/madkoding/starlight/internal/skills"
 )
 
 // Resource limits tuned for low-memory systems (i386) and for safety.
@@ -59,6 +60,10 @@ type Planner struct {
 	// stream receives live model output (thinking fragments, tool call names).
 	stream func(string)
 
+	// library is the procedure library the skill tools read and write. Nil means the tools
+	// answer that no library is configured, which is what a planner used as a plain one-shot
+	// runner should say rather than failing.
+	library *skills.Library
 	// session is the conversation this planner continues. Nil means "create one on
 	// first use": a planner built directly still works, and one that is handed a session
 	// keeps the same conversation across runs.
@@ -127,25 +132,102 @@ func (p *Planner) WithStream(fn func(string)) *Planner {
 // SystemPrompt is the instruction that opens every plan conversation. It is exported
 // because the session that carries the conversation between turns must be opened with
 // exactly this text: a second copy would drift from the one the requests actually use.
-const SystemPrompt = `You are Starlight, an autonomous systems agent running in read-only plan mode.
+const SystemPrompt = `You are Starlight, an autonomous systems agent. You are not a chatbot and you are
+not an assistant waiting for instructions to be spelled out.
 
-Your identity and purpose:
-- You are not a chatbot. You are an agent that investigates the local machine, reads files, runs safe commands, and produces a concrete, actionable plan.
-- You have access to the local filesystem and shell, but you MUST NOT change anything in this mode.
-- Every claim you make must be based on a tool result. Do not invent paths, file contents or command output.
+## What that means in practice
 
-Workflow:
-1. Understand the user's objective.
-2. Explore the system with list_directory, read_file, execute_command and search_in_files until you have the facts.
-3. If the request is unclear or impossible, say so explicitly.
-4. When you have enough information, deliver the final answer as plain text with a concise plan and the evidence you gathered.
+A user describes a goal and leaves most of it unsaid. They are not being lazy: they assume
+you will fill in what any competent engineer would. Your job is to supply that missing
+intelligence, not to ask them to supply it.
 
-Rules:
-- Prefer reading files and directories before running broad commands.
-- All commands are read-only. Any destructive command (rm, cp, mv, write, >, |, ;, &&, $(...), etc.) will be refused by the guardrails.
-- If a command is refused, do not insist; try a different, read-only approach.
-- Keep commands simple and single-purpose.
-- Answer in English, directly and concisely.`
+When a request is thin, work out the unstated parts yourself before acting:
+
+- WHAT the goal implies, not just what was literally asked. "Is the disk full?" means
+  "tell me whether the disk is the reason something is failing, and what to do about it".
+- WHERE it applies, when the answer is discoverable. If no path is given, find the likely
+  ones from the working directory, the files mentioned, and the user's own files. Do not
+  ask for a path you can find in two tool calls.
+- WHICH constraints are obvious and unstated: do not modify what you were not asked to
+  modify; do not delete; do not touch anything outside the scope of the goal.
+- WHAT "done" looks like for this kind of task, and then produce that: a diagnosis that
+  ends in a recommendation, an inventory that ends in a total, an error that ends in a
+  cause and a fix.
+- The DIFFERENCE between a symptom and the thing behind it. If the user reports one broken
+  file, check whether its neighbours are broken too.
+
+Then verify against the machine. Every claim you make must rest on a tool result: an
+assumption you did not check is the one that will be wrong.
+
+## When to ask, and when not to
+
+Ask only when the missing information is genuinely unknowable from here, and then ask ONE
+precise question with the options you can see. A question that a tool call could have
+answered is a failure, not diligence. If you can state a reasonable assumption and act on
+it, do that and say what you assumed.
+
+Never stall. Never hand the user a menu of approaches when one is clearly better. Choose,
+say why in one line, and proceed.
+
+## Your library of procedures
+
+You have a library of skills: documents that describe how to do a particular kind of work,
+including the pitfalls already paid for by whoever wrote them. Three tools use it:
+
+- list_skills — the index: names, titles and what each one is for. Read this when you are
+  starting something that may have been done before.
+- search_skills — finds skills by what they are about. It searches the whole text, not only
+  the titles, and matches on the words you use, so describe the work in plain language
+  ("flash a board over usb") rather than in one long phrase.
+- read_skill — the procedure itself, in full, by name.
+- save_skill — writes a skill, creating or replacing one.
+
+The library is NOT part of your instructions: it is a shelf you reach for. Nothing is in
+your context until you look it up, and you should look it up.
+
+When to search: before starting anything that sounds like a procedure — configuring
+something, debugging a class of failure, building or deploying, handling a file format,
+following a workflow in a repository. One search costs one tool call; re-deriving a
+procedure that is already written costs many, and gets it wrong again.
+
+When to save, and this matters as much: after you have worked something out that you did
+not know at the start, and that would help the next time. Write it when the knowledge is
+fresh and specific: the commands that worked, the ones that failed and why, the file that
+had to be edited, the order the steps have to happen in. Name it after the work, not after
+this session. Write it as instructions to someone who knows less than you do now, because
+that is who will read it.
+
+Never save a summary of what you did in this conversation. A diary is not a skill. Save the
+general procedure, with the details that were hard to find.
+
+## How to work
+
+1. Read the request for what it implies, as above.
+2. Look for a skill covering the work. If one exists, follow it and say that you did.
+3. Investigate: list_directory, read_file, search_in_files, execute_command. Facts before
+   conclusions, and prefer reading a file over guessing what is in it.
+4. If something contradicts your assumption, say so and correct course rather than
+   justifying the assumption.
+5. Deliver the answer: what you found, what it means, and what you would do next. Cite the
+   evidence — the path, the line, the command output. A number without a source is a guess.
+6. If the work taught you a procedure, save it.
+
+## Constraints
+
+- This mode is READ-ONLY. You may not modify anything. Destructive commands (rm, mv, cp,
+  redirection, chaining with ; && |, command substitution) are refused by the guardrails
+  before they run, and insisting on them wastes the user's time.
+- If a command is refused, do not repeat it or work around it. Choose a read-only route.
+- Keep each command single-purpose. A compound command that fails tells you nothing about
+  which part failed.
+- Report what you actually observed. If you could not determine something, say that plainly
+  instead of producing a plausible answer. An honest gap is useful; an invented fact is not.
+
+## Style
+
+Answer in the language the user wrote in. Be direct and concrete: findings first, then what
+they mean, then the recommendation. No preamble, no restating the question, no filler. Use
+a short list when it is genuinely a list and prose when it is not.`
 
 // tools returns the tool definitions exposed to the model.
 func (p *Planner) tools() []llm.Tool {
@@ -169,6 +251,18 @@ func (p *Planner) tools() []llm.Tool {
 				"path":    llm.StringProperty("Directory or file to search in. Defaults to the current directory."),
 				"literal": llm.StringProperty("Set to true to search for a literal string instead of a regex (default: false)."),
 			}, "pattern")),
+		llm.NewTool("list_skills", "Lists the skills in your procedure library: the name, the title and what each one is for. Read this when you are starting work that may have been done before.", llm.ObjectSchema(map[string]any{})),
+		llm.NewTool("search_skills", "Searches your procedure library by what the work is about, looking through the whole text and not only the titles. Use a plain description of what you are doing.", llm.ObjectSchema(map[string]any{
+			"query": llm.StringProperty("What the work is about, in plain words (for example \"flash a firmware image over USB\")."),
+			"limit": llm.StringProperty("Maximum number of entries to return (default 10)."),
+		}, "query")),
+		llm.NewTool("read_skill", "Reads one skill in full by name. The list and the search return the summaries; this returns the procedure.", llm.ObjectSchema(map[string]any{
+			"name": llm.StringProperty("The skill name, as returned by list_skills or search_skills."),
+		}, "name")),
+		llm.NewTool("save_skill", "Writes a skill to your procedure library, creating it or replacing it. Use it after working something out that would help next time: the commands that worked, the ones that failed and why, the order the steps go in. Write the PROCEDURE, not a report of this session.", llm.ObjectSchema(map[string]any{
+			"name": llm.StringProperty("A short name describing the work, not this session (for example \"zephyr-nrf-build\")."),
+			"body": llm.StringProperty("The whole document in markdown. Start with a heading naming the skill, then one line saying when to use it, then the procedure with its pitfalls."),
+		}, "name", "body")),
 	}
 }
 
@@ -392,6 +486,14 @@ func (p *Planner) runTool(ctx context.Context, tc llm.ToolCall) string {
 		return p.toolExecuteCommand(ctx, tc.Function.Arguments)
 	case "search_in_files":
 		return p.toolSearchInFiles(ctx, tc.Function.Arguments)
+	case "list_skills":
+		return p.toolListSkills()
+	case "search_skills":
+		return p.toolSearchSkills(tc.Function.Arguments)
+	case "read_skill":
+		return p.toolReadSkill(tc.Function.Arguments)
+	case "save_skill":
+		return p.toolSaveSkill(tc.Function.Arguments)
 	default:
 		return fmt.Sprintf("Error: unknown tool %q", tc.Function.Name)
 	}
@@ -607,4 +709,122 @@ func (p *Planner) WithSessionPolicy(model string, window, reserve int, compactAt
 	p.compactAt = compactAt
 	p.keepRecent = keepRecent
 	return p
+}
+
+// The skill tools. Their results are plain text the model reads, never JSON: a tool result
+// is the next thing in a conversation, and a JSON envelope is noise the model has to strip
+// before it can think about the content.
+//
+// The wording of an empty answer matters as much as the non-empty one. "No skill matches"
+// tells the model to proceed on its own knowledge, while an error would make it retry a
+// search that is not going to succeed.
+
+// WithLibrary gives the planner a procedure library, enabling the skill tools.
+func (p *Planner) WithLibrary(lib *skills.Library) *Planner {
+	p.library = lib
+	return p
+}
+
+// toolListSkills reports the index: what the library holds, without any bodies.
+func (p *Planner) toolListSkills() string {
+	if p.library == nil {
+		return "Error: no procedure library is configured."
+	}
+	all, err := p.library.List()
+	if err != nil {
+		return fmt.Sprintf("Error: could not read the library: %v", err)
+	}
+	if len(all) == 0 {
+		return "The library is empty. Nothing has been written down yet, so work from your own knowledge and save what you learn."
+	}
+
+	var b strings.Builder
+	fmt.Fprintf(&b, "%d skill(s) in the library. Use read_skill for the full procedure.\n", len(all))
+	for _, s := range all {
+		fmt.Fprintf(&b, "\n- %s: %s\n  %s", s.Name, s.Title, s.Summary)
+	}
+	return b.String()
+}
+
+// toolSearchSkills finds skills by what they are about.
+func (p *Planner) toolSearchSkills(args json.RawMessage) string {
+	if p.library == nil {
+		return "Error: no procedure library is configured."
+	}
+	var in struct {
+		Query string `json:"query"`
+		Limit int    `json:"limit"`
+	}
+	if err := decodeArgs(args, &in); err != nil {
+		return fmt.Sprintf("Error: %v", err)
+	}
+	if strings.TrimSpace(in.Query) == "" {
+		return "Error: the query is empty. Describe the work in plain words."
+	}
+
+	hits, err := p.library.Search(in.Query, in.Limit)
+	if err != nil {
+		return fmt.Sprintf("Error: could not search the library: %v", err)
+	}
+	if len(hits) == 0 {
+		return fmt.Sprintf("No skill matches %q. Work from your own knowledge, and save a skill afterwards if what you work out is worth keeping.", in.Query)
+	}
+
+	var b strings.Builder
+	fmt.Fprintf(&b, "%d skill(s) match %q. Use read_skill with the name to read one in full.\n", len(hits), in.Query)
+	for _, s := range hits {
+		fmt.Fprintf(&b, "\n- %s: %s\n  %s", s.Name, s.Title, s.Summary)
+	}
+	return b.String()
+}
+
+// toolReadSkill returns one procedure in full, which is the whole point of the library: the
+// index is cheap, the procedure is what changes what the agent does.
+func (p *Planner) toolReadSkill(args json.RawMessage) string {
+	if p.library == nil {
+		return "Error: no procedure library is configured."
+	}
+	var in struct {
+		Name string `json:"name"`
+	}
+	if err := decodeArgs(args, &in); err != nil {
+		return fmt.Sprintf("Error: %v", err)
+	}
+
+	s, err := p.library.Get(in.Name)
+	if err != nil {
+		if errors.Is(err, skills.ErrNotFound) {
+			return fmt.Sprintf("No skill named %q. Use list_skills to see what the library holds.", in.Name)
+		}
+		return fmt.Sprintf("Error: %v", err)
+	}
+
+	var b strings.Builder
+	fmt.Fprintf(&b, "# skill: %s\n(source: %s)\n\n", s.Name, s.Path)
+	b.WriteString(s.Body)
+	return b.String()
+}
+
+// toolSaveSkill writes a procedure to the library.
+//
+// The result names the file it wrote, so the model can tell the user where it went and so a
+// later read can be traced to it.
+func (p *Planner) toolSaveSkill(args json.RawMessage) string {
+	if p.library == nil {
+		return "Error: no procedure library is configured."
+	}
+	var in struct {
+		Name string `json:"name"`
+		Body string `json:"body"`
+	}
+	if err := decodeArgs(args, &in); err != nil {
+		return fmt.Sprintf("Error: %v", err)
+	}
+
+	s, err := p.library.Save(in.Name, in.Body)
+	if err != nil {
+		return fmt.Sprintf("Error: %v", err)
+	}
+	return fmt.Sprintf("Saved the skill %q to %s (%d bytes). It is available from now on, including to later sessions.",
+		s.Name, s.Path, len(s.Body))
 }

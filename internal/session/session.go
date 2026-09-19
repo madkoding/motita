@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"sync"
 
 	"github.com/madkoding/starlight/internal/llm"
 )
@@ -48,6 +49,14 @@ type Session struct {
 	Summariser Summariser
 	Model      string
 
+	// mu guards everything below it.
+	//
+	// The session is read by the interface on every repaint — the status bar asks for the
+	// token count — while the planner appends the tool results from the goroutine running the
+	// turn. That is two goroutines on one slice, and the race detector flagged exactly that:
+	// Snapshot() walking the messages while Append() extended them. A mutex is the whole fix;
+	// the alternative, a copy for the reader, is the same lock with more allocation.
+	mu sync.Mutex
 	// messages is everything after the system prompt, oldest first.
 	messages []llm.Message
 	// summary is the accumulated account of what compaction removed. It is carried as
@@ -92,6 +101,13 @@ func New(model, system string, window int) *Session {
 // Messages is the history as the model should see it: the system prompt, then the
 // summary of what was compacted, then the conversation itself.
 func (s *Session) Messages() []llm.Message {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.messagesLocked()
+}
+
+// messagesLocked builds the history. The caller holds the lock.
+func (s *Session) messagesLocked() []llm.Message {
 	out := make([]llm.Message, 0, len(s.messages)+2)
 	if s.System != "" {
 		out = append(out, llm.Message{Role: "system", Content: s.System})
@@ -103,27 +119,58 @@ func (s *Session) Messages() []llm.Message {
 }
 
 // Append adds a message to the conversation.
-func (s *Session) Append(m llm.Message) { s.messages = append(s.messages, m) }
+func (s *Session) Append(m llm.Message) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.messages = append(s.messages, m)
+}
 
 // AppendAll adds several messages, which is what a turn produces.
-func (s *Session) AppendAll(msgs ...llm.Message) { s.messages = append(s.messages, msgs...) }
+func (s *Session) AppendAll(msgs ...llm.Message) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.messages = append(s.messages, msgs...)
+}
 
 // Len is how many messages the conversation holds, excluding the system prompt.
-func (s *Session) Len() int { return len(s.messages) }
+func (s *Session) Len() int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return len(s.messages)
+}
 
 // Compactions is how many times this session has compacted its context.
-func (s *Session) Compactions() int { return s.compactions }
+func (s *Session) Compactions() int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.compactions
+}
 
 // Summary is the account carried forward from earlier compactions, empty when none.
-func (s *Session) Summary() string { return s.summary }
+func (s *Session) Summary() string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.summary
+}
 
 // LastError is why the most recent compaction failed, if it did. The caller reports it
 // rather than the session pretending the context is intact.
-func (s *Session) LastError() error { return s.lastErr }
+func (s *Session) LastError() error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.lastErr
+}
 
 // Usable is the number of tokens available to the conversation: the window minus the
 // reserve kept for the answer.
 func (s *Session) Usable() int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.usableLocked()
+}
+
+// usableLocked is Usable without the lock, for callers that already hold it.
+func (s *Session) usableLocked() int {
 	usable := s.Window - s.Reserve
 	if usable < 1 {
 		// A window smaller than the reserve is a misconfiguration, and the honest answer
@@ -134,11 +181,61 @@ func (s *Session) Usable() int {
 	return usable
 }
 
+// Window is the model's context length, and Used is the fraction of the usable budget in
+// use. They are the two numbers a status bar needs; the formatted report lives in the
+// interface, because how to write a figure is a presentation decision and the session has
+// no business making it.
+//
+// Both are exposed as fields on the snapshot below rather than as extra methods, so a caller
+// reads them in one lock-free step.
+//
 // Tokens is the estimated size of what the model would receive right now.
-func (s *Session) Tokens() int { return EstimateTokens(s.Messages()) }
+func (s *Session) Tokens() int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	// messagesLocked, not Messages: Messages takes the same lock, and this is called from
+	// Snapshot which already holds it. Go's mutex is not reentrant, so the obvious version
+	// deadlocks the first time the interface asks for the token count.
+	return EstimateTokens(s.messagesLocked())
+}
 
 // Used is the fraction of the usable window in use.
 func (s *Session) Used() float64 { return float64(s.Tokens()) / float64(s.Usable()) }
+
+// Snapshot is what a status bar needs: the window, the usage, and where compaction sits.
+// It is a copy, so a caller can read it while a turn is appending to the conversation.
+type Snapshot struct {
+	Model      string
+	Window     int
+	Tokens     int
+	Used       float64
+	CompactAt  float64
+	KeepRecent int
+	Messages   int
+	Folds      int
+	Summary    string
+}
+
+// Snapshot returns the current figures. It is the only way a concurrent reader should look
+// at a session: the fields above are rewritten by compaction, and reading them directly
+// from another goroutine is a race.
+func (s *Session) Snapshot() Snapshot {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	tokens := EstimateTokens(s.messagesLocked())
+	used := float64(tokens) / float64(s.usableLocked())
+	return Snapshot{
+		Model:      s.Model,
+		Window:     s.Window,
+		Tokens:     tokens,
+		Used:       used,
+		CompactAt:  s.CompactAt,
+		KeepRecent: s.KeepRecent,
+		Messages:   len(s.messages),
+		Folds:      s.compactions,
+		Summary:    s.summary,
+	}
+}
 
 // NeedsCompaction reports whether the context has grown past the trigger.
 func (s *Session) NeedsCompaction() bool {

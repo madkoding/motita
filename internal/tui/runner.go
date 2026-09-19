@@ -20,6 +20,7 @@ import (
 	"github.com/madkoding/starlight/internal/plan"
 	"github.com/madkoding/starlight/internal/sandbox"
 	"github.com/madkoding/starlight/internal/session"
+	"github.com/madkoding/starlight/internal/skills"
 	taskpkg "github.com/madkoding/starlight/internal/task"
 )
 
@@ -38,6 +39,9 @@ type Runner interface {
 	// ConversationReport describes the session the conversation is kept in: the window,
 	// how much of it is in use, and what any compaction carried forward.
 	ConversationReport() string
+	// ConversationSummary is the same figures in the raw form a status bar draws:
+	// the window, the tokens in use and the fraction gone.
+	ConversationSummary() session.Snapshot
 	// ResetConversation starts a new session, which is how a user leaves a subject behind
 	// without leaving the program.
 	ResetConversation()
@@ -86,6 +90,8 @@ type AppRunner struct {
 	// is not safe to rewrite while a turn is reading it.
 	sessionMu sync.Mutex
 	session   *session.Session
+	// lib is the procedure library, resolved on first use.
+	lib *skills.Library
 }
 
 // NewAppRunner creates the production runner.
@@ -145,7 +151,8 @@ func (r *AppRunner) RunPlan(ctx context.Context, prompt string, progress func(st
 			r.Cfg.LLM.Session.CompactAt,
 			r.Cfg.LLM.Session.KeepRecent,
 		).
-		WithSession(r.conversation(engine))
+		WithSession(r.conversation(engine)).
+		WithLibrary(r.library())
 	answer, err := planner.Run(ctx, prompt)
 	if err != nil {
 		return "", err
@@ -178,6 +185,40 @@ func (r *AppRunner) conversation(engine session.Summariser) *session.Session {
 		r.session = s
 	}
 	return r.session
+}
+
+// library is the procedure library the skill tools read and write.
+//
+// It is resolved once and kept: the directory does not change during a session, and creating
+// it per turn would be a filesystem call for nothing.
+func (r *AppRunner) library() *skills.Library {
+	r.sessionMu.Lock()
+	defer r.sessionMu.Unlock()
+	if r.lib == nil {
+		dir := r.Cfg.Skills.Dir
+		if dir == "" {
+			dir = "skills"
+		}
+		lib := skills.New(dir)
+		if r.Cfg.Skills.MaxFileBytes > 0 {
+			lib.MaxFileBytes = r.Cfg.Skills.MaxFileBytes
+		}
+		r.lib = lib
+	}
+	return r.lib
+}
+
+// ConversationSummary returns the session figures for the status bar.
+//
+// A zero Snapshot means no conversation has started, which the caller renders as no figure
+// at all rather than as a percentage of nothing.
+func (r *AppRunner) ConversationSummary() session.Snapshot {
+	r.sessionMu.Lock()
+	defer r.sessionMu.Unlock()
+	if r.session == nil {
+		return session.Snapshot{}
+	}
+	return r.session.Snapshot()
 }
 
 // ResetConversation drops the current session so the next turn starts a new one.

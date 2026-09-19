@@ -1,0 +1,483 @@
+package tui
+
+import (
+	"bytes"
+	"context"
+	"os"
+	"strings"
+	"testing"
+)
+
+// The live composer: the terminal delivers one byte at a time, the interface owns the editing,
+// and the completion popup is drawn from what has been typed. These tests drive the reader
+// directly, with the keys written as the terminal would send them.
+
+// liveTUI builds a TUI reading the given raw bytes in character mode.
+func liveTUI(keys string, messages ...string) (*TUI, *bytes.Buffer) {
+	t, out := newKeyTUI(keys, messages...)
+	t.charMode = true
+	t.Width, t.Height = 100, 30
+	return t, out
+}
+
+// TestLiveInputReturnsTheTypedLine: the ordinary path — characters, then Enter.
+func TestLiveInputReturnsTheTypedLine(t *testing.T) {
+	tu, _ := liveTUI("count the files\n")
+
+	line, ok := tu.readLine(context.Background())
+	if !ok {
+		t.Fatal("Enter must end the line")
+	}
+	if line != "count the files" {
+		t.Errorf("line = %q", line)
+	}
+	if tu.draft != "" {
+		t.Errorf("the draft must be cleared, got %q", tu.draft)
+	}
+}
+
+// TestLiveInputRedrawsAsItIsTyped: the whole reason for character mode is that the frame can
+// show what has been typed before Enter. Without the redraw the popup could never appear.
+func TestLiveInputRedrawsAsItIsTyped(t *testing.T) {
+	tu, out := liveTUI("/pl\n")
+
+	if _, ok := tu.readLine(context.Background()); !ok {
+		t.Fatal("Enter must end the line")
+	}
+	frame := stripANSI(lastFrameOf(out))
+	if !strings.Contains(frame, "/pl") {
+		t.Errorf("the typed text must be drawn:\n%s", frame)
+	}
+	if !strings.Contains(frame, "/plan") {
+		t.Errorf("the popup must be drawn while typing:\n%s", frame)
+	}
+}
+
+// TestLiveBackspaceRemovesTheLastRune: backspace edits the draft, and it removes a RUNE, not a
+// byte: a byte-wise delete would leave half a character, which the terminal renders as garbage.
+func TestLiveBackspaceRemovesTheLastRune(t *testing.T) {
+	tu, _ := liveTUI("hola\x7fx\n")
+
+	line, ok := tu.readLine(context.Background())
+	if !ok {
+		t.Fatal("Enter must end the line")
+	}
+	if line != "holx" {
+		t.Errorf("line = %q, want the last rune removed", line)
+	}
+}
+
+// TestLiveBackspaceOnAnEmptyDraft: pressing backspace at the start of a line must do nothing
+// rather than panic on an empty slice.
+func TestLiveBackspaceOnAnEmptyDraft(t *testing.T) {
+	tu, _ := liveTUI("\x7f\x7f\x08ok\n")
+
+	line, ok := tu.readLine(context.Background())
+	if !ok {
+		t.Fatal("Enter must end the line")
+	}
+	if line != "ok" {
+		t.Errorf("line = %q", line)
+	}
+}
+
+// TestLiveTabCompletesWhenThereIsSomethingToComplete: Tab accepts the suggestion — and it does
+// NOT switch mode, because the user is in the middle of typing a command.
+func TestLiveTabCompletesWhenThereIsSomethingToComplete(t *testing.T) {
+	tu, _ := liveTUI("/pl\t\n")
+
+	line, ok := tu.readLine(context.Background())
+	if !ok {
+		t.Fatal("Enter must end the line")
+	}
+	if line != "/plan" {
+		t.Errorf("line = %q, want Tab to have completed the command", line)
+	}
+	if tu.draft != "" {
+		t.Errorf("the draft must be cleared after Enter, got %q", tu.draft)
+	}
+}
+
+// TestLiveTabSwitchesModeWhenThereIsNothingToComplete: Tab has always meant "next mode" here,
+// and the completion popup must not take that away. This is the regression that would break
+// every existing user of the interface.
+func TestLiveTabSwitchesModeWhenThereIsNothingToComplete(t *testing.T) {
+	tu, _ := liveTUI("\thello\n")
+
+	line, ok := tu.readLine(context.Background())
+	if !ok {
+		t.Fatal("the token must be returned")
+	}
+	if line != "\t" {
+		t.Errorf("line = %q, want the Tab token", line)
+	}
+}
+
+// TestLiveEscapeClosesThePopupFirst: Escape dismisses the suggestion list, and only clears the
+// line when there is nothing left to dismiss. One key, one job at a time.
+func TestLiveEscapeClosesThePopupFirst(t *testing.T) {
+	tu, out := liveTUI("/pl\x1bok\n")
+
+	line, ok := tu.readLine(context.Background())
+	if !ok {
+		t.Fatal("Enter must end the line")
+	}
+	if line != "ok" {
+		t.Errorf("line = %q, want the popup dismissed and the line cleared", line)
+	}
+	if strings.Contains(stripANSI(lastFrameOf(out)), "/plan") {
+		t.Errorf("the popup must be closed after Escape:\n%s", stripANSI(lastFrameOf(out)))
+	}
+}
+
+// TestLiveEscapeWithoutAPopupIsTheCancelToken: with nothing to dismiss, Escape is the cancel
+// token the rest of the interface already understands.
+func TestLiveEscapeWithoutAPopupIsTheCancelToken(t *testing.T) {
+	tu, _ := liveTUI("hello\x1b")
+
+	line, ok := tu.readLine(context.Background())
+	if !ok {
+		t.Fatal("the token must be returned")
+	}
+	if line != keyEsc {
+		t.Errorf("line = %q, want the Escape token", line)
+	}
+}
+
+// TestLiveControlBytesAreTokens: the control keys the interface handles stay keys and are never
+// typed into the prompt.
+func TestLiveControlBytesAreTokens(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		in   string
+		want string
+	}{
+		{"Ctrl+F", "ab\x06", "\x06"},
+		{"Ctrl+D", "ab\x04", "\x04"},
+		{"Ctrl+U", "ab\x15", "\x15"},
+	} {
+		tu, _ := liveTUI(tc.in)
+		line, ok := tu.readLine(context.Background())
+		if !ok {
+			t.Fatalf("%s: the token must be returned", tc.name)
+		}
+		if line != tc.want {
+			t.Errorf("%s: line = %q, want %q", tc.name, line, tc.want)
+		}
+	}
+}
+
+// TestLiveArrowKeysAreReturnedAsTheirSequence: the navigation keys arrive as escape sequences
+// and reach the same switch as always, so scrolling works while the terminal is in character
+// mode — which is a new situation, since the whole-line reader never delivered them live.
+func TestLiveArrowKeysAreReturnedAsTheirSequence(t *testing.T) {
+	tu, _ := liveTUI("\x1b[B")
+
+	line, ok := tu.readLine(context.Background())
+	if !ok {
+		t.Fatal("the sequence must be returned")
+	}
+	if line != keyDown {
+		t.Errorf("line = %q, want %q", line, keyDown)
+	}
+}
+
+// TestLiveOtherEscapeSequencesPassThrough: any CSI sequence is read whole and handed on, so a
+// key the completion code has no opinion about is never mistaken for a bare Escape.
+func TestLiveOtherEscapeSequencesPassThrough(t *testing.T) {
+	tu, _ := liveTUI("\x1b[5~")
+
+	line, ok := tu.readLine(context.Background())
+	if !ok {
+		t.Fatal("the sequence must be returned")
+	}
+	if line != keyPgUp {
+		t.Errorf("line = %q, want %q", line, keyPgUp)
+	}
+}
+
+// TestLiveInputStopsAtEndOfInput: a closed input ends the read rather than spinning.
+func TestLiveInputStopsAtEndOfInput(t *testing.T) {
+	tu, _ := liveTUI("")
+
+	if _, ok := tu.readLine(context.Background()); ok {
+		t.Error("a closed input must report that the read is over")
+	}
+}
+
+// TestLiveInputStopsWhenTheContextIsCancelled: the reader must not hold the interface open when
+// the run is being abandoned, which is what Ctrl+C does.
+func TestLiveInputStopsWhenTheContextIsCancelled(t *testing.T) {
+	tu, _ := liveTUI("")
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	if _, ok := tu.readLine(ctx); ok {
+		t.Error("a cancelled context must end the read")
+	}
+}
+
+// TestLiveUnprintableBytesAreIgnored: a control byte with no meaning here must not be inserted
+// into the line. Typing garbage into a prompt is worse than ignoring the key.
+func TestLiveUnprintableBytesAreIgnored(t *testing.T) {
+	tu, _ := liveTUI("a\x01b\n")
+
+	line, ok := tu.readLine(context.Background())
+	if !ok {
+		t.Fatal("Enter must end the line")
+	}
+	if line != "ab" {
+		t.Errorf("line = %q, want the control byte dropped", line)
+	}
+}
+
+// TestLiveEscapeWithoutASequenceIsBareEscape: a lone ESC sends one byte and nothing follows, so
+// a read that insisted on completing a sequence would hang the interface on every Escape.
+func TestLiveEscapeWithoutASequenceIsBareEscape(t *testing.T) {
+	tu, _ := liveTUI("\x1b")
+	tu.charMode = true
+
+	line, ok := tu.readLine(context.Background())
+	if !ok {
+		t.Fatal("Escape must be returned")
+	}
+	if line != keyEsc {
+		t.Errorf("line = %q, want %q", line, keyEsc)
+	}
+}
+
+// TestLiveEscapeFollowedByANonCSISequence: ESC plus something that is not "[" is a bare Escape,
+// because that is the shape a human's keypress has.
+func TestLiveEscapeFollowedByANonCSISequence(t *testing.T) {
+	tu, _ := liveTUI("\x1bx")
+
+	if tu.readEscapeLive() != keyEsc {
+		t.Error("ESC followed by a plain byte must read as a bare Escape")
+	}
+}
+
+// TestLiveEscapeSequenceTooLongIsAnEscape: a sequence that never terminates must not make the
+// reader consume the rest of the input.
+func TestLiveEscapeSequenceTooLongIsAnEscape(t *testing.T) {
+	tu, _ := liveTUI("\x1b[1234567890123456789012")
+
+	// ESC first, then the completion: without this the reader sees ESC as the byte after it
+	// and answers from the peek branch instead of ever entering the loop it is meant to bound.
+	if _, err := tu.input().ReadByte(); err != nil {
+		t.Fatal(err)
+	}
+	if tu.readEscapeLive() != keyEsc {
+		t.Error("an over-long sequence must fall back to a bare Escape")
+	}
+}
+
+// TestLiveReaderIsNotStuckWhenTheSequenceIsTruncated: an input that ends mid-sequence must
+// report an Escape rather than block.
+func TestLiveReaderIsNotStuckWhenTheSequenceIsTruncated(t *testing.T) {
+	tu, _ := liveTUI("\x1b[")
+
+	if _, err := tu.input().ReadByte(); err != nil {
+		t.Fatal(err)
+	}
+	if tu.readEscapeLive() != keyEsc {
+		t.Error("a truncated sequence must fall back to a bare Escape")
+	}
+}
+
+// TestTheDraftIsClearedWhenTheReadEnds: a draft that survived an abandoned read would reappear
+// in the next prompt, which looks like the interface typing by itself.
+func TestTheDraftIsClearedWhenTheReadEnds(t *testing.T) {
+	tu, _ := liveTUI("gone")
+
+	if _, ok := tu.readLine(context.Background()); ok {
+		t.Fatal("the read must end")
+	}
+	if tu.draft != "" {
+		t.Errorf("the draft must be cleared, got %q", tu.draft)
+	}
+}
+
+// TestTheDraftIsRedrawnWhenTheReadEndsMidLine: the frame must be repainted so the abandoned
+// text does not stay on screen.
+func TestTheDraftIsRedrawnWhenTheReadEndsMidLine(t *testing.T) {
+	tu, out := liveTUI("typing")
+	out.Reset()
+
+	if _, ok := tu.readLine(context.Background()); ok {
+		t.Fatal("the read must end")
+	}
+	if out.Len() == 0 {
+		t.Error("the frame must be redrawn when an abandoned draft is cleared")
+	}
+}
+
+// The terminal mode itself.
+
+// TestRestoringIsIdempotent: restore runs from the deferred call AND from the panic path, and
+// the second one must not try to close an already-closed handle.
+func TestRestoringIsIdempotent(t *testing.T) {
+	var calls int
+	old := runSttyMode
+	runSttyMode = func(f *os.File, args ...string) error { calls++; return nil }
+	defer func() { runSttyMode = old }()
+
+	f, err := os.CreateTemp(t.TempDir(), "tty")
+	if err != nil {
+		t.Fatal(err)
+	}
+	m := &terminalMode{tty: f, active: true}
+
+	m.restore()
+	m.restore()
+	m.restore()
+
+	if calls != 1 {
+		t.Errorf("restore ran %d times, want exactly 1", calls)
+	}
+	if m.active {
+		t.Error("the mode must be marked inactive after restoring")
+	}
+}
+
+// TestRestoringANilOrInactiveModeIsSafe: the caller should not have to branch on whether the
+// terminal was ever changed.
+func TestRestoringANilOrInactiveModeIsSafe(t *testing.T) {
+	var nilMode *terminalMode
+	nilMode.restore()
+	(&terminalMode{}).restore()
+}
+
+// TestEnteringTheModeAsksTheDriverForCBreakWithoutEcho: cbreak is what makes a keystroke arrive
+// as it is typed, and -echo is what stops the driver drawing the line a second time underneath
+// the one the interface draws.
+func TestEnteringTheModeAsksTheDriverForCBreakWithoutEcho(t *testing.T) {
+	var got []string
+	oldRun, oldOpen, oldStat := runSttyMode, openTTYMode, statTTY
+	defer func() { runSttyMode, openTTYMode, statTTY = oldRun, oldOpen, oldStat }()
+
+	runSttyMode = func(f *os.File, args ...string) error { got = args; return nil }
+	openTTYMode = func(name string, flag int, perm os.FileMode) (*os.File, error) {
+		return os.CreateTemp(t.TempDir(), "tty")
+	}
+	statTTY = func(*os.File) (os.FileMode, error) { return os.ModeCharDevice, nil }
+
+	m := enterRaw()
+	defer m.restore()
+
+	if !m.active {
+		t.Fatal("the mode must be active when the driver accepts it")
+	}
+	if len(got) != 2 || got[0] != "cbreak" || got[1] != "-echo" {
+		t.Errorf("stty args = %v, want cbreak -echo", got)
+	}
+}
+
+// TestNoTerminalDegradesToWholeLines: piped input has no controlling terminal, and the
+// interface must keep working there — it just cannot offer live completion.
+func TestNoTerminalDegradesToWholeLines(t *testing.T) {
+	oldOpen := openTTYMode
+	defer func() { openTTYMode = oldOpen }()
+	openTTYMode = func(name string, flag int, perm os.FileMode) (*os.File, error) {
+		return nil, os.ErrNotExist
+	}
+
+	m := enterRaw()
+	defer m.restore()
+	if m.active {
+		t.Error("without a terminal the mode must stay inactive")
+	}
+}
+
+// TestANonTerminalFileDegrades: a redirection to a file looks like a terminal to an open call
+// but is not one, and asking it for cbreak would fail noisily.
+func TestANonTerminalFileDegrades(t *testing.T) {
+	oldOpen, oldStat := openTTYMode, statTTY
+	defer func() { openTTYMode, statTTY = oldOpen, oldStat }()
+	openTTYMode = func(name string, flag int, perm os.FileMode) (*os.File, error) {
+		return os.CreateTemp(t.TempDir(), "file")
+	}
+	statTTY = func(*os.File) (os.FileMode, error) { return 0, nil }
+
+	m := enterRaw()
+	defer m.restore()
+	if m.active {
+		t.Error("a regular file must not be put into character mode")
+	}
+}
+
+// TestADriverThatRefusesTheModeDegrades: a terminal that will not take the mode leaves the
+// behaviour we had — whole lines, no popup, working interface. Degrading is right; failing
+// would make the program unusable on such a terminal.
+func TestADriverThatRefusesTheModeDegrades(t *testing.T) {
+	oldRun, oldOpen, oldStat := runSttyMode, openTTYMode, statTTY
+	defer func() { runSttyMode, openTTYMode, statTTY = oldRun, oldOpen, oldStat }()
+
+	openTTYMode = func(name string, flag int, perm os.FileMode) (*os.File, error) {
+		return os.CreateTemp(t.TempDir(), "tty")
+	}
+	statTTY = func(*os.File) (os.FileMode, error) { return os.ModeCharDevice, nil }
+	runSttyMode = func(f *os.File, args ...string) error { return os.ErrInvalid }
+
+	m := enterRaw()
+	defer m.restore()
+	if m.active {
+		t.Error("a refused mode must leave the terminal alone")
+	}
+}
+
+// TestTheTerminalIsRestoredBeforeAPanicContinues: a session that dies while the terminal is in
+// cbreak with echo off gives the user back a shell that shows nothing they type. The restore
+// must happen on the way out of a panic, before it keeps unwinding.
+func TestTheTerminalIsRestoredBeforeAPanicContinues(t *testing.T) {
+	oldRun, oldOpen, oldStat := runSttyMode, openTTYMode, statTTY
+	defer func() { runSttyMode, openTTYMode, statTTY = oldRun, oldOpen, oldStat }()
+
+	var restored bool
+	openTTYMode = func(name string, flag int, perm os.FileMode) (*os.File, error) {
+		return os.CreateTemp(t.TempDir(), "tty")
+	}
+	statTTY = func(*os.File) (os.FileMode, error) { return os.ModeCharDevice, nil }
+	runSttyMode = func(f *os.File, args ...string) error {
+		if len(args) == 1 && args[0] == "sane" {
+			restored = true
+		}
+		return nil
+	}
+
+	m := enterRaw()
+	func() {
+		// The panic is CAUGHT here, after recoverRaw has had its turn: recoverRaw re-panics by
+		// design, so the outer recover is what lets the test observe both facts — that the
+		// terminal was put back, and that the panic was not swallowed.
+		defer func() { _ = recover() }()
+		defer recoverRaw(m)()
+		panic("something went wrong deep in the paint")
+	}()
+
+	if !restored {
+		t.Error("the terminal must be put back before the panic continues")
+	}
+}
+
+// TestThePanicIsNotSwallowed: recoverRaw restores the terminal and then lets the panic keep
+// going. A version that swallowed it would turn a crash into a silent, wrong result.
+func TestThePanicIsNotSwallowed(t *testing.T) {
+	var seen any
+	func() {
+		defer func() { seen = recover() }()
+		defer recoverRaw(&terminalMode{})()
+		panic("boom")
+	}()
+
+	if seen != "boom" {
+		t.Errorf("the panic must continue, got %v", seen)
+	}
+}
+
+// TestASuccessfulExitDoesNotPanic: recoverRaw must re-panic ONLY when there was a panic. A
+// version that panicked unconditionally would tear down every normal exit.
+func TestASuccessfulExitDoesNotPanic(t *testing.T) {
+	func() {
+		defer recoverRaw(&terminalMode{})()
+	}()
+}

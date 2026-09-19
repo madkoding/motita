@@ -76,22 +76,26 @@ func TestRunModelsAndConfigCancelled(t *testing.T) {
 	}
 }
 
-// TestChatTopRowAlwaysHasARule: the rule needs no clamp because the width is
-// already floored. This pins the invariant: if either the floor or the longest
-// title changes, the border must still be well formed, and the test says so
-// instead of the layout panicking in strings.Repeat.
-func TestChatTopRowAlwaysHasARule(t *testing.T) {
-	for _, w := range []int{1, minWidth, 80} {
+// TestTheEmptyStateIsDrawnWithoutABorder: the conversation is not boxed any more, so the
+// first screen must be plain text that starts at the left margin. What used to be checked
+// here was that the panel's title never ran out of rule to close its corner.
+func TestTheEmptyStateIsDrawnWithoutABorder(t *testing.T) {
+	for _, w := range []int{minWidth, 80} {
 		for _, s := range screenOrder {
 			tui := newFakeTUI("q\n", &fakeRunner{})
 			tui.Width = w
 			tui.screen = s
-			top := stripANSI(strings.Join(tui.chatTopRow(), "\n"))
-			if !strings.HasPrefix(top, "  "+glyphTopLeft) || !strings.HasSuffix(top, glyphTopRight) {
-				t.Errorf("width %d, screen %s: the border is malformed: %q", w, s, top)
+
+			body := stripANSI(strings.Join(tui.chatLines(tui.conversationWidth()), "\n"))
+			if strings.Contains(body, glyphTopLeft) || strings.Contains(body, glyphRail) {
+				t.Errorf("width %d, screen %s: the conversation must not be boxed: %q", w, s, body)
 			}
-			if !strings.Contains(top, strings.TrimSpace(s.String())) {
-				t.Errorf("width %d: the title is missing from %q", w, top)
+			// Every row stays inside the drawing area: the margin is spent before the text.
+			for _, l := range strings.Split(body, "\n") {
+				if visibleLen(l) > tui.conversationWidth() {
+					t.Errorf("width %d: a row is %d columns, past the %d available: %q",
+						w, visibleLen(l), tui.conversationWidth(), l)
+				}
 			}
 		}
 	}

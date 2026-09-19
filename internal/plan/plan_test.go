@@ -1069,10 +1069,23 @@ func TestTheContextIsCompactedBetweenToolRounds(t *testing.T) {
 	})
 	defer srv.Close()
 
-	// A window small enough that the tool rounds alone cross the trigger.
+	// The window is MEASURED, not chosen. Two conditions have to hold at once for this branch
+	// to run at all, and they pull in opposite directions:
+	//
+	//   - large enough to hold the system prompt plus the two messages the policy keeps
+	//     verbatim. Below that floor compaction cannot run — there is nothing to fold — and
+	//     the run is correctly reported as unable to compact. That is a real answer, and it
+	//     is what a window that is simply too small produces, but it is not this branch.
+	//   - small enough that the tool rounds alone cross the trigger, or the check is never
+	//     reached.
+	//
+	// Measured on this test's own fixture: 2400 and 2800 fail the first condition, 3200 with
+	// a 0.45 trigger satisfies both and compacts twice. The prompt is part of what is in use,
+	// so a change to its length moves the floor — which is why this is stated as a measured
+	// band rather than as a number that looks arbitrary.
 	p := New(newClient(t, srv), a).
 		WithLoops(8).
-		WithSessionPolicy("gpt-4o", 800, 100, 0.5, 2)
+		WithSessionPolicy("gpt-4o", 3200, 100, 0.45, 2)
 
 	out, err := p.Run(context.Background(), "a task that uses several tools")
 	if err != nil {

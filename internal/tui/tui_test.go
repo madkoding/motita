@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/madkoding/starlight/internal/config"
+	"github.com/madkoding/starlight/internal/session"
 )
 
 type fakeRunner struct {
@@ -41,8 +42,11 @@ type fakeRunner struct {
 	// report is what ConversationReport returns, and reset records that the session
 	// was dropped. Both are fields rather than live behaviour because a fake that
 	// reached a real session would depend on the network.
-	report       string
-	reset        bool
+	report string
+	reset  bool
+	// snapshot is what the status bar reads. A zero value means "no conversation yet",
+	// which the bar renders as no figure rather than as a percentage of nothing.
+	snapshot     session.Snapshot
 	taskErr      error
 	configErr    error
 	modelsErr    error
@@ -151,6 +155,12 @@ func (f *fakeRunner) Config() config.Config {
 		f.cfg = config.Default()
 	}
 	return f.cfg
+}
+
+func (f *fakeRunner) ConversationSummary() session.Snapshot {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.snapshot
 }
 
 func (f *fakeRunner) ConversationReport() string {

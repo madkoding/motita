@@ -26,6 +26,7 @@ type Config struct {
 	Prompts     Prompts     `yaml:"prompts"`
 	FinalAction FinalAction `yaml:"final_action"`
 	Agent       Agent       `yaml:"agent"`
+	Skills      Skills      `yaml:"skills"`
 }
 
 // TaskSource describes where the tasks come from.
@@ -95,6 +96,18 @@ type LLM struct {
 	BackoffMax     time.Duration `yaml:"backoff_max"`
 	Reasoning      Reasoning     `yaml:"reasoning"`
 	Session        Session       `yaml:"session"`
+	Skills         Skills        `yaml:"skills"`
+}
+
+// Skills points the agent at its procedure library: the directory of documents it may search
+// and extend.
+type Skills struct {
+	// Dir is where the documents live. Empty means ./skills, relative to the working
+	// directory, which is where a user will look for what the agent wrote.
+	Dir string `yaml:"dir"`
+	// MaxFileBytes caps one document, so a stray large file cannot be pulled into the
+	// context as if it were a procedure.
+	MaxFileBytes int `yaml:"max_file_bytes"`
 }
 
 // Session describes how a conversation is kept inside the model's context window.
@@ -221,6 +234,10 @@ func Default() Config {
 				Level:   "medium",
 			},
 		},
+		Skills: Skills{
+			Dir:          "skills",
+			MaxFileBytes: 64 * 1024,
+		},
 		Prompts: Prompts{
 			Analyze:    BaseAnalyzeTemplate,
 			Plan:       BasePlanTemplate,
@@ -233,10 +250,16 @@ func Default() Config {
 			CommitMessage: "agent: {{task}}",
 		},
 		Agent: Agent{
-			MaxRetries:      3,
-			SubtaskDepth:    1,
-			WorkspaceDir:    "./workspace",
-			LogLevel:        "info",
+			MaxRetries:   3,
+			SubtaskDepth: 1,
+			WorkspaceDir: "./workspace",
+			LogLevel:     "info",
+			// A file is always named. The conversational interface silences the console so
+			// structured lines do not land in the middle of the chat, and with no file that
+			// silence would be the whole log: a user reporting a problem from the chat would
+			// have nothing to send. The path is relative to the working directory, beside the
+			// workspace the agent already writes to.
+			LogFile:         "./workspace/starlight.log",
 			LogConsole:      true,
 			LogMaxMB:        5,
 			LogBackups:      3,

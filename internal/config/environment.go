@@ -106,6 +106,10 @@ func ApplyEnvironment(c *Config) error {
 			c.LLM.APIKey = readText("OPENAI_API_KEY", c.LLM.APIKey)
 		}
 	}
+	c.Skills.Dir = readText("STARLIGHT_SKILLS_DIR", c.Skills.Dir)
+	if c.Skills.MaxFileBytes, err = readInteger("STARLIGHT_SKILLS_MAX_FILE_BYTES", c.Skills.MaxFileBytes); err != nil {
+		return err
+	}
 	c.LLM.BaseURL = readText("STARLIGHT_LLM_BASE_URL", c.LLM.BaseURL)
 	// The standard OpenAI names are only consulted when nothing else set the value,
 	// so a configuration that names its own endpoint or model is never overridden

@@ -646,3 +646,77 @@ func TestTheOrphanLoopEmptiesTheTailWhenItIsAllToolResults(t *testing.T) {
 		t.Errorf("the orphaned results must be summarised, not dropped:\n%s", sent)
 	}
 }
+
+// TestSnapshotReportsEveryFigureTheInterfaceNeeds: Snapshot is the only way a concurrent
+// reader may look at a session — the fields are rewritten by compaction — so it has to carry
+// every number a status bar shows. A missing field is a zero on screen.
+func TestSnapshotReportsEveryFigureTheInterfaceNeeds(t *testing.T) {
+	s := New("gpt-4o", "you are a careful agent", 1000)
+	s.Append(llm.Message{Role: "user", Content: "count the files in this directory"})
+
+	got := s.Snapshot()
+
+	if got.Model != "gpt-4o" {
+		t.Errorf("Model = %q", got.Model)
+	}
+	if got.Window != 1000 {
+		t.Errorf("Window = %d, want the window it was built with", got.Window)
+	}
+	if got.Tokens <= 0 {
+		t.Error("Tokens must count what the model would receive right now")
+	}
+	if got.Used <= 0 {
+		t.Error("Used must be a fraction of the usable window")
+	}
+	if got.CompactAt != DefaultCompactAt {
+		t.Errorf("CompactAt = %v, want the default", got.CompactAt)
+	}
+	if got.KeepRecent != DefaultKeepRecent {
+		t.Errorf("KeepRecent = %d, want the default", got.KeepRecent)
+	}
+	if got.Messages != 1 {
+		t.Errorf("Messages = %d, want 1: the system prompt is not a message", got.Messages)
+	}
+	if got.Folds != 0 {
+		t.Errorf("Folds = %d, want 0 before any compaction", got.Folds)
+	}
+	if got.Summary != "" {
+		t.Errorf("Summary = %q, want empty before any compaction", got.Summary)
+	}
+}
+
+// TestSnapshotCarriesTheSummaryAfterAFold: the carried summary is what tells a user their
+// earlier conversation is still known to the agent, in condensed form.
+func TestSnapshotCarriesTheSummaryAfterAFold(t *testing.T) {
+	// The window and the reserve are MEASURED against this fixture rather than chosen: with
+	// 24 messages of these lengths and a 200-token reserve the trigger sits at 0.38, below the
+	// 0.5 threshold, and the compaction correctly does nothing. A narrow window with a small
+	// reserve is what actually crosses it.
+	s := New("gpt-4o", "system", 400)
+	s.Reserve = 50
+	s.CompactAt = 0.5
+	s.KeepRecent = 3
+	s.Summariser = &stubSummariser{out: "the earlier conversation, summarised"}
+
+	for i := 0; i < 12; i++ {
+		s.Append(llm.Message{Role: "user", Content: "a message long enough to take up room"})
+		s.Append(llm.Message{Role: "assistant", Content: "an answer of comparable length here"})
+	}
+	if !s.NeedsCompaction() {
+		t.Fatalf("the fixture must cross the trigger: used=%.3f", s.Used())
+	}
+	if err := s.Compact(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+
+	got := s.Snapshot()
+	if got.Folds != 1 {
+		t.Errorf("Folds = %d, want 1", got.Folds)
+	}
+	if !strings.Contains(got.Summary, "summarised") {
+		t.Errorf("Summary = %q, want the carried account", got.Summary)
+	}
+	if got.Messages >= 24 {
+		t.Errorf("Messages = %d, want the folded messages gone", got.Messages)
+	}
+}

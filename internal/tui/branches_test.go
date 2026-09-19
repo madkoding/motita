@@ -3,8 +3,6 @@ package tui
 import (
 	"strings"
 	"testing"
-
-	"github.com/madkoding/starlight/internal/config"
 )
 
 // The remaining branches: the clamps that only fire at a degenerate size, the
@@ -27,37 +25,51 @@ func TestInnerHasNoClampBecauseSizeAlreadyDoes(t *testing.T) {
 // TestStatusLinesDefaultsAnIncompleteConfiguration: a configuration with no
 // provider and no model still has to describe something, and the values it shows
 // are the fallbacks rather than empty fields.
+// TestStatusLinesDefaultsAnIncompleteConfiguration: a configuration that names neither a
+// provider nor a model must still produce a readable line rather than an empty one.
+//
+// The key is deliberately NOT on this line any more: a user who reached the chat has a
+// working key, and repeating it on every repaint is noise the eye learns to skip.
 func TestStatusLinesDefaultsAnIncompleteConfiguration(t *testing.T) {
-	cfg := config.Default()
-	cfg.LLM.Provider = ""
-	cfg.LLM.Model = ""
-	cfg.LLM.APIKey = "k"
-	cfg.LLM.Reasoning = config.Reasoning{Enabled: true, Level: "high"}
-	runner := &fakeRunner{cfg: cfg, cfgSet: true}
-	tui := newFakeTUI("q\n", runner)
+	tui := newFakeTUI("q\n", &fakeRunner{})
 
-	// The status line is assembled from three parts and a narrow width drops the
-	// tail, so the widest form is asked for explicitly.
-	line := stripANSI(strings.Join(tui.statusLines(200), "\n"))
-	for _, want := range []string{"openai", "unknown", "key present", "reasoning high"} {
-		if !strings.Contains(line, want) {
-			t.Errorf("the status line must contain %q:\n%s", want, line)
-		}
+	line := stripANSI(strings.Join(tui.statusLines(80), "\n"))
+	if !strings.Contains(line, "openai") {
+		t.Errorf("an unnamed provider must default to openai, got %q", line)
+	}
+	// config.Default() carries a model, so "unknown" is only what an explicitly empty one
+	// gets; what matters here is that the line is never blank.
+	if strings.TrimSpace(line) == "" {
+		t.Errorf("the status line must never be empty, got %q", line)
+	}
+	if !strings.Contains(line, "reasoning") {
+		t.Errorf("the reasoning level must be shown, got %q", line)
+	}
+	if strings.Contains(line, "key") {
+		t.Errorf("the key must not be reported in the chat, got %q", line)
 	}
 }
 
 // TestChatTopRowClampsTheRule: on a terminal where the title alone does not fit,
 // the rule falls back to one character instead of a negative repeat count.
-func TestChatTopRowClampsTheRule(t *testing.T) {
-	tui := newFakeTUI("q\n", &fakeRunner{})
-	tui.Width = 1
-	tui.screen = ScreenModels // the longest title
-	top := stripANSI(strings.Join(tui.chatTopRow(), "\n"))
-	if !strings.HasSuffix(top, glyphTopRight) {
-		t.Errorf("the border must still close on the right: %q", top)
-	}
-	if !strings.Contains(top, "Models") {
-		t.Errorf("the title must still be shown: %q", top)
+// TestTheRulesSpanTheSameWidth: the two dividers bracket the conversation, so they must be
+// the same length or the structure they carry reads as crooked. The old top border also had
+// to close its right corner after the title and the position indicator; with the framing
+// gone, the width is the whole invariant there is.
+func TestTheRulesSpanTheSameWidth(t *testing.T) {
+	for _, w := range []int{minWidth, 80, maxWidth} {
+		tui := newFakeTUI("q\n", &fakeRunner{})
+		tui.Width = w
+
+		top := stripANSI(tui.rule(w))
+		bottom := stripANSI(tui.rule(w))
+		if visibleLen(top) != visibleLen(bottom) {
+			t.Errorf("width %d: the rules differ, %d vs %d", w, visibleLen(top), visibleLen(bottom))
+		}
+		// The rule leaves the last column free, like every other row.
+		if visibleLen(top) > w-1 {
+			t.Errorf("width %d: the rule is %d columns and would fill the last one", w, visibleLen(top))
+		}
 	}
 }
 
