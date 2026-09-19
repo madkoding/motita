@@ -269,6 +269,7 @@ func (p *Planner) streamTools(ctx context.Context, messages []llm.Message) (llm.
 			if chunk.Call != nil && chunk.Call.Function.Name != "" && chunk.Call.Function.Name != pendingTool {
 				pendingTool = chunk.Call.Function.Name
 				emitToolCall(p.trace, chunk.Call.Function.Name, chunk.Call.Function.Arguments)
+				p.writeStream(fmt.Sprintf("using tool: %s", chunk.Call.Function.Name))
 			}
 			acc.Handle(chunk)
 		}
@@ -286,7 +287,6 @@ func (p *Planner) writeStream(s string) {
 // runTool executes one tool call and returns a model-readable result.
 func (p *Planner) runTool(ctx context.Context, tc llm.ToolCall) string {
 	emitToolCall(p.trace, tc.Function.Name, tc.Function.Arguments)
-	p.writeStream("running tool...")
 	switch tc.Function.Name {
 	case "list_directory":
 		return p.toolListDirectory(tc.Function.Arguments)
