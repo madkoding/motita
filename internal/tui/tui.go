@@ -561,15 +561,21 @@ func (t *TUI) bodyLines() []string {
 	return t.chatLines(t.inner())
 }
 
+// nextScreen switches between Task and Plan.
+//
+// Exactly those two, and only those two. Tab used to walk the whole screen order, which also
+// contains the model list and the configuration wizard: pressing it twice to get back where you
+// started landed on a different screen instead, and the two screens a user actually toggles
+// while working were buried in a four-stop cycle. The other two are still reachable by their
+// commands (/models, /config), which is where they belong — they are things you go to on
+// purpose, not things you rotate through by accident.
 func (t *TUI) nextScreen() {
-	idx := 0
-	for i, s := range screenOrder {
-		if s == t.screen {
-			idx = i
-			break
-		}
+	// Anything that is not Plan goes to Task, so a stray screen never traps the toggle.
+	if t.screen == ScreenPlan {
+		t.setScreen(ScreenTask)
+		return
 	}
-	t.setScreen(screenOrder[(idx+1)%len(screenOrder)])
+	t.setScreen(ScreenPlan)
 }
 
 func (t *TUI) setScreen(s Screen) {
@@ -939,13 +945,14 @@ func (t *TUI) advance() {
 // for the arrows and the page keys. Reading them costs nothing and is what makes
 // the interface navigable without a mouse.
 const (
-	keyEsc  = "\x1b" // 0x1b on its own
-	keyUp   = "\x1b[A"
-	keyDown = "\x1b[B"
-	keyPgUp = "\x1b[5~"
-	keyPgDn = "\x1b[6~"
-	keyHome = "\x1b[H"
-	keyEnd  = "\x1b[F"
+	keyEsc   = "\x1b" // 0x1b on its own
+	keyUp    = "\x1b[A"
+	keyDown  = "\x1b[B"
+	keyPgUp  = "\x1b[5~"
+	keyPgDn  = "\x1b[6~"
+	keyRight = "\x1b[C"
+	keyHome  = "\x1b[H"
+	keyEnd   = "\x1b[F"
 	// Control bytes arrive as themselves. The half-page pair is the vim convention
 	// the interaction guide lists, and it is what a reader uses to skim a long
 	// answer without losing their place the way a full page does.
@@ -1075,7 +1082,8 @@ func buildHelp() string {
 	b.WriteString("Starlight chat\n\n")
 	b.WriteString("Navigation — no Enter needed\n")
 	for _, h := range [][2]string{
-		{"Tab", "switch mode (or complete a command)"},
+		{"Tab", "switch between Task and Plan"},
+		{"→", "complete the command being typed"},
 		{"j/k", "scroll one line"},
 		{"PgUp/PgDn", "scroll one page"},
 		{"Ctrl+U/Ctrl+D", "scroll half a page"},
@@ -1217,12 +1225,13 @@ func (t *TUI) readLineLive(ctx context.Context) (string, bool) {
 			}
 
 		case '\t':
-			// Tab completes the command being typed, and falls through to the mode switch
-			// when there is nothing to complete: Tab has always meant "next mode" here, and
-			// a completion popup must not take that away.
-			if t.completeDraft() {
-				continue
-			}
+			// Tab means ONE thing: switch between Task and Plan. It used to also accept the
+			// completion when the popup was open, which meant the same key did two different
+			// things depending on what had been typed — and a user reaching for the mode
+			// switch in the middle of a line got a command inserted instead.
+			//
+			// Completion is still a keystroke away, on the right arrow: the gesture that means
+			// "accept forward" everywhere else, and a key nothing here had claimed.
 			t.draft = ""
 			return "\t", true
 
@@ -1240,8 +1249,15 @@ func (t *TUI) readLineLive(ctx context.Context) (string, bool) {
 				t.draft = ""
 				return keyEsc, true
 			}
-			// The arrows and the page keys are handled by the same switch as always; the
-			// draft is cleared so the line does not survive the mode change.
+			// The right arrow accepts the completion the popup is showing: the popup exists
+			// to save typing, and with Tab spoken for this is the key that does it. It only
+			// consumes the key when there was something to accept, so an arrow press with no
+			// popup open is still just an arrow press.
+			if seq == keyRight && t.completeDraft() {
+				continue
+			}
+			// The other arrows and the page keys are handled by the same switch as always;
+			// the draft is cleared so the line does not survive the mode change.
 			t.draft = ""
 			return seq, true
 

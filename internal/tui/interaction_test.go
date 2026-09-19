@@ -13,17 +13,37 @@ import (
 // These tests cover the interactive loop itself: the view switch, the input
 // reading edge cases and the outcome handling of a plan run.
 
-// TestNextScreenWalksTheOrderAndWraps: Tab moves through the modes in a loop. The
-// order is what the tab strip shows, so it is asserted explicitly rather than
-// derived from the slice the test is meant to check.
-func TestNextScreenWalksTheOrderAndWraps(t *testing.T) {
+// TestNextScreenTogglesBetweenTaskAndPlan: Tab switches between the two modes a user works in
+// and nothing else.
+//
+// It used to walk the whole screen order — Task, Plan, Models, Config — which meant pressing it
+// twice to get back where you started landed somewhere else, and the two modes that ARE toggled
+// while working were buried in a four-stop cycle. Models and Config are things you go to on
+// purpose, by command.
+func TestNextScreenTogglesBetweenTaskAndPlan(t *testing.T) {
 	tui := newFakeTUI("q\n", &fakeRunner{})
-	want := []Screen{ScreenPlan, ScreenModels, ScreenConfig, ScreenTask}
 	tui.screen = ScreenTask
+
+	want := []Screen{ScreenPlan, ScreenTask, ScreenPlan, ScreenTask}
 	for i, w := range want {
 		tui.nextScreen()
 		if tui.screen != w {
 			t.Fatalf("step %d: screen = %v, want %v", i, tui.screen, w)
+		}
+	}
+}
+
+// TestNextScreenFromAnotherScreenGoesToPlan: the toggle must never trap the user. Arriving from
+// the model list or the wizard — reachable by command — the next Tab has to lead somewhere in
+// the pair rather than nowhere.
+func TestNextScreenFromAnotherScreenGoesToPlan(t *testing.T) {
+	tui := newFakeTUI("q\n", &fakeRunner{})
+
+	for _, from := range []Screen{ScreenModels, ScreenConfig} {
+		tui.screen = from
+		tui.nextScreen()
+		if tui.screen != ScreenPlan {
+			t.Errorf("from screen %v: got %v, want Plan", from, tui.screen)
 		}
 	}
 }
@@ -74,11 +94,12 @@ func TestTabIsConsumedAndNeverBecomesInput(t *testing.T) {
 	if strings.Contains(frame, "\\t") {
 		t.Errorf("the escape must not be shown literally either:\n%q", frame)
 	}
-	// Two Tabs from Task land on Models, and the second one must have actually
-	// arrived: Task -> Plan -> Models. Asserting only that the screen changed would
-	// pass even if both Tabs were swallowed as one.
-	if tui.screen != ScreenModels {
-		t.Errorf("screen = %v, want Models after two Tabs from Task", tui.screen)
+	// Two Tabs are a round trip: Task -> Plan -> Task. Starting and ending on the same screen is
+	// also the strongest assertion available here — a test that ended on a DIFFERENT screen would
+	// pass even if both Tabs were swallowed as one, while returning to the start proves the second
+	// one arrived and moved it back.
+	if tui.screen != ScreenTask {
+		t.Errorf("screen = %v, want Task after two Tabs from Task: the toggle is a round trip", tui.screen)
 	}
 }
 
@@ -251,7 +272,7 @@ func TestHelpListsTheCommands(t *testing.T) {
 	frame := stripANSI(lastFrame(t, tui))
 	// The keys the help must teach. Its opening line is allowed to scroll out of the
 	// panel: a window that shows the last N rows cannot promise the first one.
-	for _, want := range []string{"switch mode", "task", "plan", "models", "config", "reasoning", "quit"} {
+	for _, want := range []string{"switch between Task and Plan", "complete the command", "task", "plan", "models", "config", "reasoning", "quit"} {
 		if !strings.Contains(frame, want) {
 			t.Errorf("the help must mention %q:\n%s", want, frame)
 		}

@@ -106,7 +106,9 @@ func TestCursorLandsAtThePrompt(t *testing.T) {
 	}
 	withoutCursor := strings.TrimSuffix(frame, "\x1b[?25h")
 	tail := withoutCursor[strings.LastIndex(withoutCursor, "\n")+1:]
-	if !strings.HasPrefix(stripANSI(tail), "  Plan > ") {
+	// The prompt carries no mode name: the status bar already reports it, and printing it here
+	// too put the same word on two rows of every frame.
+	if !strings.HasPrefix(stripANSI(tail), "  › ") {
 		t.Errorf("the cursor is not parked at the prompt: %q", stripANSI(tail))
 	}
 }
@@ -329,7 +331,7 @@ func TestFrameFitsTheTerminalHeight(t *testing.T) {
 	tui.Width, tui.Height = 80, 8
 	tui.Run(context.Background())
 	_, prompt := tui.layout(80, 8)
-	if !strings.Contains(stripANSI(prompt), "Task >") {
+	if !strings.Contains(stripANSI(prompt), "›") {
 		t.Errorf("the prompt must survive any height, got %q", stripANSI(prompt))
 	}
 }

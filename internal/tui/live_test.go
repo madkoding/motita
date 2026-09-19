@@ -81,20 +81,52 @@ func TestLiveBackspaceOnAnEmptyDraft(t *testing.T) {
 	}
 }
 
-// TestLiveTabCompletesWhenThereIsSomethingToComplete: Tab accepts the suggestion — and it does
-// NOT switch mode, because the user is in the middle of typing a command.
-func TestLiveTabCompletesWhenThereIsSomethingToComplete(t *testing.T) {
+// TestLiveTabAlwaysSwitchesMode: Tab means ONE thing — switch between Task and Plan.
+//
+// It used to also accept the completion when the popup was open, so the same key did two
+// different things depending on what had been typed: a user reaching for the mode switch in the
+// middle of a line got a command inserted instead. That is worse than losing the shortcut, which
+// is why completion moved to the right arrow.
+func TestLiveTabAlwaysSwitchesMode(t *testing.T) {
 	tu, _ := liveTUI("/pl\t\n")
+
+	line, ok := tu.readLine(context.Background())
+	if !ok {
+		t.Fatal("the token must be returned")
+	}
+	if line != "\t" {
+		t.Errorf("line = %q, want the Tab token so the mode switch happens", line)
+	}
+	if tu.draft != "" {
+		t.Errorf("the draft must be cleared on a mode switch, got %q", tu.draft)
+	}
+}
+
+// TestTheRightArrowAcceptsTheCompletion: completion still exists, on the key that means "accept
+// forward" everywhere else and that nothing here had claimed.
+func TestTheRightArrowAcceptsTheCompletion(t *testing.T) {
+	tu, _ := liveTUI("/pl" + keyRight + "\n")
 
 	line, ok := tu.readLine(context.Background())
 	if !ok {
 		t.Fatal("Enter must end the line")
 	}
 	if line != "/plan" {
-		t.Errorf("line = %q, want Tab to have completed the command", line)
+		t.Errorf("line = %q, want the right arrow to have completed the command", line)
 	}
-	if tu.draft != "" {
-		t.Errorf("the draft must be cleared after Enter, got %q", tu.draft)
+}
+
+// TestTheRightArrowIsStillAnArrowWithNoPopup: accepting only consumes the key when there was
+// something to accept. An arrow press on an ordinary line must reach the navigation switch.
+func TestTheRightArrowIsStillAnArrowWithNoPopup(t *testing.T) {
+	tu, _ := liveTUI("hello" + keyRight)
+
+	line, ok := tu.readLine(context.Background())
+	if !ok {
+		t.Fatal("the sequence must be returned")
+	}
+	if line != keyRight {
+		t.Errorf("line = %q, want the arrow to pass through", line)
 	}
 }
 

@@ -111,7 +111,7 @@ func (t *TUI) completionLines(w int) []string {
 		}
 		lines = append(lines, t.plainLine(row))
 	}
-	lines = append(lines, t.plainLine(t.muted("Tab completes · Enter runs · Esc cancels")))
+	lines = append(lines, t.plainLine(t.muted("→ completes · Enter runs · Esc cancels")))
 	return lines
 }
 

@@ -42,8 +42,9 @@ func TestRunPlanAndRunTaskWithoutAnEngine(t *testing.T) {
 func TestTypingTheWordTabNavigates(t *testing.T) {
 	tui := newFakeTUI("tab\ntab\nq\n", &fakeRunner{})
 	tui.Run(context.Background())
-	if tui.screen != ScreenModels {
-		t.Errorf("screen = %v, want Models after two 'tab' words", tui.screen)
+	// Two Tabs are a round trip: the toggle is Task <-> Plan.
+	if tui.screen != ScreenTask {
+		t.Errorf("screen = %v, want Task after two 'tab' words", tui.screen)
 	}
 }
 

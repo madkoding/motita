@@ -352,7 +352,12 @@ func TestThePopupIsMeasuredEvenWhenItDrawsNothing(t *testing.T) {
 	without, _ := tu.layout(100, 30)
 	tu.draft = "/"
 	with, _ := tu.layout(100, 30)
-	if len(with) <= len(without) {
-		t.Errorf("the popup must add rows once a command is being typed: %d vs %d", len(without), len(with))
+	// The frame keeps its height: the popup takes rows from the conversation, and the composer
+	// stays pegged to the bottom of the window either way.
+	if len(with) != len(without) {
+		t.Errorf("the frame height must not change with the popup: %d vs %d", len(without), len(with))
+	}
+	if !strings.Contains(stripANSI(strings.Join(with, "\n")), "→ completes") {
+		t.Error("the popup must be drawn once a command is being typed")
 	}
 }

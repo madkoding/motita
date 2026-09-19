@@ -46,6 +46,7 @@ const (
 	glyphUser    = "\u00bb" // » the user's turn
 	glyphAgent   = "*"      // the agent's turn, and the star of the wordmark
 	glyphMid     = "\u00b7" // · separator inside a line
+	glyphPrompt  = "\u203a" // › the input prompt
 )
 
 // Layout metrics. They are named because the frame arithmetic depends on them: a
@@ -196,6 +197,26 @@ func (t *TUI) layout(w, h int) ([]string, string) {
 		hidden := len(body) - room + 1
 		body = append([]string{t.plainLine(t.muted(fmt.Sprintf("... %d earlier lines", hidden)))},
 			body[len(body)-room+1:]...)
+	}
+
+	// The conversation is PADDED to the room it was given, so the composer lands on the last
+	// rows of the window instead of floating in the middle of it.
+	//
+	// This is the whole point of the layout the user asked for: the input sits at the foot of
+	// the screen where the eye and the cursor expect it. Without the padding a short
+	// conversation ended a few rows down, and the input was drawn directly under it — near the
+	// top, with empty space below, which is exactly the complaint: the input has to be pegged to
+	// the bottom of the window, not stacked under the last message.
+	//
+	// The blank rows go ABOVE the composer, and they carry no colour: they are the gap between
+	// the content and the controls, which is what the design guide means by separating with
+	// space rather than with a box.
+	if len(body) < room {
+		pad := make([]string, room-len(body))
+		for i := range pad {
+			pad[i] = ""
+		}
+		body = append(body, pad...)
 	}
 
 	lines := make([]string, 0, rows(header, len(body)))
@@ -1082,6 +1103,12 @@ func (t *TUI) composerLines() []string {
 // name, and while the search is open it says so, because a search that looks like a chat
 // prompt invites a task to be typed into it.
 func (t *TUI) composerLabel() string {
+	// The prompt carries NO mode name. The status bar already reports it, and printing it here
+	// as well put the same word on two rows of every single frame — the input said "Task >"
+	// directly above a bar that said "Task". One fact, one place.
+	//
+	// The search is the exception: while the box is open the line being typed is a query, not a
+	// task, and that is something the user has to be able to see at the point of typing.
 	if t.searching {
 		return t.color(colAccent, 0, "find") + t.muted(" > ")
 	}
@@ -1089,7 +1116,7 @@ func (t *TUI) composerLabel() string {
 		return t.muted("filter "+strconv.Quote(t.query)) + t.muted("  ") +
 			t.color(colAccent, 0, "find") + t.muted(" > ")
 	}
-	return t.color(colBrand, 0, t.screen.String()) + t.muted(" > ")
+	return t.color(colAccent, 0, glyphPrompt) + t.muted(" ")
 }
 
 // composerPrompt is what the cursor is left after: the visible label, so the terminal's own

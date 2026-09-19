@@ -306,3 +306,90 @@ func TestTheLibraryDirectoryIsCreatedLazily(t *testing.T) {
 		t.Error("resolving the library must not create the directory")
 	}
 }
+
+// TestTheComposerIsPeggedToTheBottom: the input belongs at the foot of the window, where the
+// eye and the cursor expect it. A short conversation used to end a few rows down and the input
+// was drawn directly under it — near the top, with empty space below — which is the layout the
+// user rejected. The frame must therefore fill the height it was given.
+func TestTheComposerIsPeggedToTheBottom(t *testing.T) {
+	tu, _ := newKeyTUI("", "one short answer")
+	tu.Width, tu.Height = 100, 24
+
+	lines, prompt := tu.layout(100, 24)
+	if len(lines) != 24 {
+		t.Fatalf("the frame must fill the 24-row terminal, got %d rows", len(lines))
+	}
+	if prompt == "" {
+		t.Fatal("the composer must be drawn")
+	}
+	// The composer is the second-to-last row, the rule above it, the status bar below.
+	if got := stripANSI(lines[21]); !strings.Contains(got, "›") {
+		t.Errorf("row 22 must be the composer, got %q", got)
+	}
+	if got := lines[22]; setOf(got) != "─" {
+		t.Errorf("row 23 must be the rule, got %q", stripANSI(got))
+	}
+	if got := stripANSI(lines[23]); !strings.Contains(got, "Task") {
+		t.Errorf("row 24 must be the status bar, got %q", got)
+	}
+	// And the blank space is ABOVE the composer, between the content and the controls.
+	blanks := 0
+	for _, l := range lines[11:21] {
+		if strings.TrimSpace(stripANSI(l)) == "" {
+			blanks++
+		}
+	}
+	if blanks == 0 {
+		t.Error("the gap between the conversation and the composer must be blank rows")
+	}
+}
+
+// TestTheModeIsNamedExactlyOnce: the status bar reports the mode, so the composer must not
+// repeat it. Printing it in both places put the same word on two rows of every single frame —
+// "Task >" directly above a bar that said "Task".
+func TestTheModeIsNamedExactlyOnce(t *testing.T) {
+	tu, _ := newKeyTUI("", "an answer")
+	tu.Width, tu.Height = 100, 24
+
+	lines, _ := tu.layout(100, 24)
+	count := 0
+	for _, l := range lines {
+		if strings.Contains(stripANSI(l), "Task") {
+			count++
+		}
+	}
+	if count != 1 {
+		t.Errorf("the mode must appear on exactly one row, found %d:\n%s",
+			count, stripANSI(strings.Join(lines, "\n")))
+	}
+
+	// The same holds in Plan mode, which is where a copy would be easiest to miss.
+	tu.screen = ScreenPlan
+	lines, _ = tu.layout(100, 24)
+	count = 0
+	for _, l := range lines {
+		if strings.Contains(stripANSI(l), "Plan") {
+			count++
+		}
+	}
+	if count != 1 {
+		t.Errorf("Plan must appear on exactly one row, found %d:\n%s",
+			count, stripANSI(strings.Join(lines, "\n")))
+	}
+}
+
+// setOf is the set of distinct non-space runes in a decorated line: how a divider is recognised
+// without hard-coding its width.
+func setOf(decorated string) string {
+	seen := map[rune]bool{}
+	for _, r := range stripANSI(decorated) {
+		if r != ' ' {
+			seen[r] = true
+		}
+	}
+	out := ""
+	for r := range seen {
+		out += string(r)
+	}
+	return out
+}

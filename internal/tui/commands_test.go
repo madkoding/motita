@@ -161,9 +161,10 @@ func TestThePopupExplainsHowToAccept(t *testing.T) {
 	tu.draft = "/pl"
 
 	joined := strings.Join(tuiPopupBody(tu), "\n")
-	for _, want := range []string{"Tab", "Enter", "Esc"} {
+	// The key that accepts a completion is the right arrow, because Tab is the mode switch.
+	for _, want := range []string{"→", "Enter", "Esc"} {
 		if !strings.Contains(joined, want) {
-			t.Errorf("the popup must say how to use %s:\n%s", want, joined)
+			t.Errorf("the popup must say how to use %q:\n%s", want, joined)
 		}
 	}
 }
@@ -223,11 +224,17 @@ func TestTheLayoutCountsThePopup(t *testing.T) {
 	tu.draft = "/"
 	withPopup, _ := tu.layout(100, 30)
 
-	if len(withPopup) <= len(without) {
-		t.Errorf("the popup must add rows: %d without, %d with", len(without), len(withPopup))
+	// The frame fills the terminal height either way — the composer is pegged to the bottom —
+	// so the popup does not make the frame taller: it takes its rows from the conversation.
+	if len(withPopup) != len(without) {
+		t.Errorf("the frame must keep its height: %d without, %d with", len(without), len(withPopup))
 	}
 	if len(withPopup) > 30 {
 		t.Errorf("the frame must still fit a 30-row terminal, got %d rows", len(withPopup))
+	}
+	// What the popup costs the conversation is what must be visible.
+	if !strings.Contains(stripANSI(strings.Join(withPopup, "\n")), "→ completes") {
+		t.Error("the popup must be drawn")
 	}
 }
 
@@ -247,7 +254,7 @@ func TestThePopupShrinksTheConversationNotTheComposer(t *testing.T) {
 		t.Errorf("the frame must fit, got %d rows", len(lines))
 	}
 	body := stripANSI(strings.Join(lines, "\n"))
-	if !strings.Contains(body, "Tab completes") {
+	if !strings.Contains(body, "→ completes") {
 		t.Errorf("the popup must be visible:\n%s", body)
 	}
 	// The status bar is the last row.

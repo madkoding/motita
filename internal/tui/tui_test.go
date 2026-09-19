@@ -408,7 +408,7 @@ func TestRunHelp(t *testing.T) {
 	tui.Run(context.Background())
 	// The panel is a window: the help is longer than the frame, so the assertion is on
 	// what the help actually brought to the screen, not on its opening line.
-	if !strings.Contains(outputOf(tui), "switch mode") {
+	if !strings.Contains(outputOf(tui), "switch between Task and Plan") {
 		t.Errorf("help not printed: %q", outputOf(tui))
 	}
 }
