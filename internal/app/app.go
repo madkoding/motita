@@ -636,6 +636,8 @@ func (op Options) runTUI(ctx context.Context, fl flags, cfg config.Config, engin
 	runner := tui.NewAppRunner(op.Out, op.Err, cfg, engine, box, log)
 	ui := tui.New(runner)
 	ui.In = op.Stdin
+	ui.Out = op.Out
+	ui.Err = op.Err
 	return ui.Run(ctx)
 }
 

@@ -120,15 +120,15 @@ const (
 // fragment, a tool call, an error, or a done signal.
 type StreamChunk struct {
 	Event StreamEvent
-	Text  string      // for StreamText
-	Call  *ToolCall   // for StreamToolCall (may be partial/accumulated)
-	Error error       // for StreamError
-	Reply Reply       // final accumulated reply on StreamDone
+	Text  string    // for StreamText
+	Call  *ToolCall // for StreamToolCall (may be partial/accumulated)
+	Error error     // for StreamError
+	Reply Reply     // final accumulated reply on StreamDone
 }
 
 // StreamResult collects the pieces of a streaming reply.
 type StreamResult struct {
-	Content strings.Builder
+	Content  strings.Builder
 	Calls    []ToolCall
 	LastCall *ToolCall
 }

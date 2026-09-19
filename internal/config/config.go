@@ -117,10 +117,10 @@ type Template struct {
 
 // Prompts groups the templates used by the agent's main loop.
 type Prompts struct {
-	Analyze     Template `yaml:"analyze"`
-	Plan        Template `yaml:"plan"`
-	Execute     Template `yaml:"execute"`
-	Synthesize  Template `yaml:"synthesize"`
+	Analyze    Template `yaml:"analyze"`
+	Plan       Template `yaml:"plan"`
+	Execute    Template `yaml:"execute"`
+	Synthesize Template `yaml:"synthesize"`
 }
 
 // FinalAction is what runs when the anchor gives PASS.
@@ -205,10 +205,10 @@ func Default() Config {
 			},
 		},
 		Prompts: Prompts{
-			Analyze:     BaseAnalyzeTemplate,
-			Plan:        BasePlanTemplate,
-			Execute:     BaseExecuteTemplate,
-			Synthesize:  BaseSynthesizeTemplate,
+			Analyze:    BaseAnalyzeTemplate,
+			Plan:       BasePlanTemplate,
+			Execute:    BaseExecuteTemplate,
+			Synthesize: BaseSynthesizeTemplate,
 		},
 		FinalAction: FinalAction{
 			Kind:          "none",

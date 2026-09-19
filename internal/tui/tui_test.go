@@ -188,6 +188,15 @@ func TestPlanError(t *testing.T) {
 	}
 }
 
+func TestPlanAnswerIsShown(t *testing.T) {
+	runner := &fakeRunner{planAnswer: "the plan result"}
+	tui := newFakeTUI("/p\nprompt\n\nq\n", runner)
+	tui.Run(context.Background())
+	if !strings.Contains(outputOf(tui), "the plan result") {
+		t.Errorf("plan answer not shown: %q", outputOf(tui))
+	}
+}
+
 func TestRunConfig(t *testing.T) {
 	runner := &fakeRunner{}
 	tui := newFakeTUI("/c\n\nq\n", runner)

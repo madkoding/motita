@@ -498,12 +498,12 @@ type openAIStreamChunk struct {
 
 func (c *Client) callOpenAIToolsStream(ctx context.Context, messages []Message, tools []Tool) (<-chan StreamChunk, error) {
 	body := map[string]any{
-		"model":       c.cfg.Model,
-		"messages":    toOpenAIMessages(messages),
-		"tools":       tools,
-		"max_tokens":  c.cfg.MaxTokens,
-		"temperature": c.cfg.Temperature,
-		"stream":      true,
+		"model":          c.cfg.Model,
+		"messages":       toOpenAIMessages(messages),
+		"tools":          tools,
+		"max_tokens":     c.cfg.MaxTokens,
+		"temperature":    c.cfg.Temperature,
+		"stream":         true,
 		"stream_options": map[string]bool{"include_usage": false},
 	}
 	if c.cfg.Reasoning.Enabled && c.cfg.Reasoning.Level != "off" {

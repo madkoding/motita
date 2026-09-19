@@ -14,6 +14,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"sort"
 	"strings"
 	"time"
 
@@ -216,6 +217,18 @@ func (p *Planner) tracef(format string, args ...any) {
 	if p.trace != nil {
 		p.trace(format, args...)
 	}
+}
+
+func emitToolCall(trace func(string, ...any), name string, args map[string]string) {
+	if trace == nil {
+		return
+	}
+	var kv []string
+	for k, v := range args {
+		kv = append(kv, fmt.Sprintf("%s=%s", k, v))
+	}
+	sort.Strings(kv)
+	trace("[using tool: %s %s]", name, strings.Join(kv, " "))
 }
 
 func shellQuote(s string) string {

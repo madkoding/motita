@@ -297,7 +297,7 @@ func (t *TUI) runPlan(ctx context.Context, prompt string) {
 		t.cancelRun()
 	}
 
-	progress := make(chan string, 16)
+	progress := make(chan string, 64)
 	runCtx, cancel := context.WithCancel(ctx)
 	t.cancelRun = cancel
 	t.runningCtx = runCtx
@@ -329,6 +329,7 @@ func (t *TUI) runPlan(ctx context.Context, prompt string) {
 		answer string
 		err    error
 	}
+	currentText := ""
 loop:
 	for {
 		select {
@@ -336,7 +337,17 @@ loop:
 			if !ok {
 				break loop
 			}
-			t.messages[pendingIdx].Text = p
+			if strings.HasPrefix(p, "[using tool:") {
+				// A tool call is a discrete event: show it as its own line.
+				t.messages[pendingIdx].Text = currentText
+				t.messages[pendingIdx].Pending = false
+				t.addMessage(AuthorAgent, p)
+				pendingIdx = len(t.messages) - 1
+				currentText = ""
+			} else {
+				currentText += p
+				t.messages[pendingIdx].Text = currentText
+			}
 			t.drawFrame()
 		case r, ok := <-done:
 			if !ok {
@@ -355,7 +366,16 @@ loop:
 	// Drain any trailing progress after completion/cancellation without blocking.
 	select {
 	case p := <-progress:
-		t.messages[pendingIdx].Text = p
+		if strings.HasPrefix(p, "[using tool:") {
+			t.messages[pendingIdx].Text = currentText
+			t.messages[pendingIdx].Pending = false
+			t.addMessage(AuthorAgent, p)
+			pendingIdx = len(t.messages) - 1
+			currentText = ""
+		} else {
+			currentText += p
+			t.messages[pendingIdx].Text = currentText
+		}
 	default:
 	}
 
@@ -370,6 +390,8 @@ loop:
 		}
 	} else if result.answer != "" {
 		t.messages[pendingIdx].Text = result.answer
+	} else if currentText != "" && result.answer == "" {
+		t.messages[pendingIdx].Text = currentText
 	} else {
 		t.messages[pendingIdx].Text = "done."
 	}

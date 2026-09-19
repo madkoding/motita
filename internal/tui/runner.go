@@ -113,12 +113,11 @@ func (r *AppRunner) RunPlan(ctx context.Context, prompt string, progress func(st
 		WithStream(func(s string) {
 			progress("%s", s)
 		}).
-		WithAnswer(func(s string) { fmt.Fprintln(r.Out, s) })
+		WithAnswer(func(s string) {})
 	answer, err := planner.Run(ctx, prompt)
 	if err != nil {
 		return "", err
 	}
-	fmt.Fprintln(r.Out, answer)
 	return answer, nil
 }
 

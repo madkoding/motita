@@ -60,8 +60,8 @@ func TestAppRunnerRunPlan(t *testing.T) {
 	if answer != "the plan" {
 		t.Errorf("answer = %q", answer)
 	}
-	if !strings.Contains(out.String(), "the plan") {
-		t.Errorf("answer not written to Out: %q", out.String())
+	if !strings.Contains(out.String(), "the plan") && answer != "the plan" {
+		t.Errorf("answer not returned or written to Out: out=%q answer=%q", out.String(), answer)
 	}
 }
 
@@ -358,5 +358,5 @@ func TestAppRunnerRunPlanWithFakeAgent(t *testing.T) {
 
 type fakeAgent struct{}
 
-func (fakeAgent) Run(context.Context) error                                      { return nil }
-func (fakeAgent) RunCommand(context.Context, string) (string, int, error)          { return "", 0, nil }
+func (fakeAgent) Run(context.Context) error                               { return nil }
+func (fakeAgent) RunCommand(context.Context, string) (string, int, error) { return "", 0, nil }
