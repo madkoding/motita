@@ -12,6 +12,7 @@
 package llm
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
@@ -136,6 +137,52 @@ func (c *Client) Complete(ctx context.Context, messages []Message) (string, erro
 // Complete so callers do not have to think about transient failures.
 func (c *Client) CompleteTools(ctx context.Context, messages []Message, tools []Tool) (Reply, error) {
 	return c.completeWithTool(ctx, messages, tools)
+}
+
+// CompleteToolsStream is the streaming version of CompleteTools. It returns a
+// channel that yields chunks as they arrive from the provider. The channel is always
+// closed; the caller must read until StreamDone or StreamError.
+func (c *Client) CompleteToolsStream(ctx context.Context, messages []Message, tools []Tool) <-chan StreamChunk {
+	out := make(chan StreamChunk, 8)
+	go func() {
+		defer close(out)
+		var last error
+		wait := c.cfg.BackoffInitial
+		for attempt := 1; attempt <= c.cfg.MaxAttempts; attempt++ {
+			chunkCh, err := c.callOpenAIToolsStream(ctx, messages, tools)
+			if err == nil {
+				for chunk := range chunkCh {
+					out <- chunk
+					if chunk.Event == StreamError || chunk.Event == StreamDone {
+						return
+					}
+				}
+				return
+			}
+			last = err
+			if !retryable(err) {
+				c.log.Error("LLM tool stream failed with no possibility of retry", "attempt", attempt, "error", err)
+				out <- StreamChunk{Event: StreamError, Error: err}
+				return
+			}
+			if attempt == c.cfg.MaxAttempts {
+				break
+			}
+			c.log.Warn("retrying LLM tool stream", "attempt", attempt, "max_attempts", c.cfg.MaxAttempts, "wait", wait.String(), "error", err)
+			select {
+			case <-ctx.Done():
+				out <- StreamChunk{Event: StreamError, Error: fmt.Errorf("cancelled while waiting to retry: %w", ctx.Err())}
+				return
+			case <-time.After(wait):
+			}
+			wait *= 2
+			if wait > c.cfg.BackoffMax {
+				wait = c.cfg.BackoffMax
+			}
+		}
+		out <- StreamChunk{Event: StreamError, Error: fmt.Errorf("all %d attempts were exhausted: %w", c.cfg.MaxAttempts, last)}
+	}()
+	return out
 }
 
 func (c *Client) completeWithTool(ctx context.Context, messages []Message, tools []Tool) (Reply, error) {
@@ -433,6 +480,123 @@ func (c *Client) callOpenAITools(ctx context.Context, messages []Message, tools 
 		Calls:        choice.Message.ToolCalls,
 		FinishReason: choice.FinishReason,
 	}, nil
+}
+
+// openAIStreamDelta is the incremental piece inside a streaming chunk.
+type openAIStreamDelta struct {
+	Content   string     `json:"content"`
+	ToolCalls []ToolCall `json:"tool_calls"`
+}
+
+// openAIStreamChunk is one SSE line from /chat/completions?stream=true.
+type openAIStreamChunk struct {
+	Choices []struct {
+		Delta        openAIStreamDelta `json:"delta"`
+		FinishReason string            `json:"finish_reason"`
+	} `json:"choices"`
+}
+
+func (c *Client) callOpenAIToolsStream(ctx context.Context, messages []Message, tools []Tool) (<-chan StreamChunk, error) {
+	body := map[string]any{
+		"model":       c.cfg.Model,
+		"messages":    toOpenAIMessages(messages),
+		"tools":       tools,
+		"max_tokens":  c.cfg.MaxTokens,
+		"temperature": c.cfg.Temperature,
+		"stream":      true,
+		"stream_options": map[string]bool{"include_usage": false},
+	}
+	if c.cfg.Reasoning.Enabled && c.cfg.Reasoning.Level != "off" {
+		body["reasoning_effort"] = c.cfg.Reasoning.Level
+	}
+	url := c.baseURL("https://api.openai.com/v1") + "/chat/completions"
+	headers := map[string]string{"Authorization": "Bearer " + c.cfg.APIKey}
+
+	data, err := json.Marshal(body)
+	if err != nil {
+		return nil, fmt.Errorf("could not serialise the request: %w", err)
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(data))
+	if err != nil {
+		return nil, fmt.Errorf("invalid request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Accept", "text/event-stream")
+	for k, v := range headers {
+		req.Header.Set(k, v)
+	}
+
+	resp, err := c.http.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	if resp.StatusCode != http.StatusOK {
+		defer resp.Body.Close()
+		b, _ := io.ReadAll(io.LimitReader(resp.Body, 8<<20))
+		return nil, &HTTPError{Code: resp.StatusCode, Body: strings.TrimSpace(string(b))}
+	}
+
+	out := make(chan StreamChunk, 8)
+	go func() {
+		defer close(out)
+		defer resp.Body.Close()
+		reader := bufio.NewReader(resp.Body)
+		var acc StreamResult
+		for {
+			line, err := reader.ReadBytes('\n')
+			if err != nil {
+				if err == io.EOF {
+					out <- StreamChunk{Event: StreamDone, Reply: acc.FinalReply()}
+				} else {
+					out <- StreamChunk{Event: StreamError, Error: err}
+				}
+				return
+			}
+			line = bytes.TrimSpace(line)
+			if len(line) == 0 {
+				continue
+			}
+			if bytes.HasPrefix(line, []byte(":")) {
+				continue
+			}
+			const dataPrefix = "data: "
+			if !bytes.HasPrefix(line, []byte(dataPrefix)) {
+				continue
+			}
+			payload := bytes.TrimPrefix(line, []byte(dataPrefix))
+			if string(payload) == "[DONE]" {
+				out <- StreamChunk{Event: StreamDone, Reply: acc.FinalReply()}
+				return
+			}
+			var chunk openAIStreamChunk
+			if err := json.Unmarshal(payload, &chunk); err != nil {
+				continue
+			}
+			if len(chunk.Choices) == 0 {
+				continue
+			}
+			delta := chunk.Choices[0].Delta
+			if delta.Content != "" {
+				out <- StreamChunk{Event: StreamText, Text: delta.Content}
+			}
+			for i := range delta.ToolCalls {
+				out <- StreamChunk{Event: StreamToolCall, Call: &delta.ToolCalls[i]}
+			}
+			for _, tc := range delta.ToolCalls {
+				acc.Handle(StreamChunk{Event: StreamToolCall, Call: &tc})
+			}
+			if delta.Content != "" {
+				acc.Handle(StreamChunk{Event: StreamText, Text: delta.Content})
+			}
+			if chunk.Choices[0].FinishReason == "tool_calls" || chunk.Choices[0].FinishReason == "stop" {
+				if len(delta.ToolCalls) > 0 {
+					out <- StreamChunk{Event: StreamDone, Reply: acc.FinalReply()}
+					return
+				}
+			}
+		}
+	}()
+	return out, nil
 }
 
 func toOpenAIMessages(messages []Message) []openAIMessage {

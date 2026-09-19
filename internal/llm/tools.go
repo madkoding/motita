@@ -3,6 +3,7 @@ package llm
 import (
 	"encoding/json"
 	"fmt"
+	"strings"
 )
 
 // Tool calling: the model asks for a function to be run instead of writing JSON in
@@ -104,6 +105,77 @@ type Reply struct {
 
 // WantsTools reports whether the model is waiting for function results.
 func (r Reply) WantsTools() bool { return len(r.Calls) > 0 }
+
+// StreamEvent describes one chunk from a streaming completion.
+type StreamEvent int
+
+const (
+	StreamText StreamEvent = iota
+	StreamToolCall
+	StreamError
+	StreamDone
+)
+
+// StreamChunk is one piece of a streaming response. It carries either a text
+// fragment, a tool call, an error, or a done signal.
+type StreamChunk struct {
+	Event StreamEvent
+	Text  string      // for StreamText
+	Call  *ToolCall   // for StreamToolCall (may be partial/accumulated)
+	Error error       // for StreamError
+	Reply Reply       // final accumulated reply on StreamDone
+}
+
+// StreamResult collects the pieces of a streaming reply.
+type StreamResult struct {
+	Content strings.Builder
+	Calls    []ToolCall
+	LastCall *ToolCall
+}
+
+// Handle adds a chunk to the accumulator and returns true when the stream ended.
+func (sr *StreamResult) Handle(chunk StreamChunk) bool {
+	switch chunk.Event {
+	case StreamDone:
+		return true
+	case StreamError:
+		return true
+	case StreamText:
+		sr.Content.WriteString(chunk.Text)
+	case StreamToolCall:
+		if chunk.Call != nil {
+			if sr.LastCall == nil || sr.LastCall.ID != chunk.Call.ID {
+				sr.LastCall = chunk.Call
+				sr.Calls = append(sr.Calls, *chunk.Call)
+			} else {
+				*sr.LastCall = *chunk.Call
+			}
+		}
+	}
+	return false
+}
+
+// FinalReply builds the accumulated Reply from the stream.
+func (sr StreamResult) FinalReply() Reply {
+	return Reply{Content: sr.Content.String(), Calls: sr.Calls, FinishReason: "stop"}
+}
+
+func (sc StreamChunk) String() string {
+	switch sc.Event {
+	case StreamText:
+		return sc.Text
+	case StreamToolCall:
+		if sc.Call != nil {
+			return fmt.Sprintf("[tool call: %s]", sc.Call.Function.Name)
+		}
+		return "[tool call]"
+	case StreamError:
+		return fmt.Sprintf("[error: %v]", sc.Error)
+	case StreamDone:
+		return ""
+	}
+	return ""
+}
 
 // NewTool is a small helper for building the tool list.
 func NewTool(name, description string, parameters map[string]any) Tool {

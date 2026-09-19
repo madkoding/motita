@@ -48,6 +48,8 @@ type Planner struct {
 	trace func(string, ...any)
 	// answer writes the final answer; nil means it is returned.
 	answer func(string)
+	// stream receives live model output (thinking fragments, tool call names).
+	stream func(string)
 }
 
 // New builds a Planner with the given engine and command runner.
@@ -92,6 +94,13 @@ func (p *Planner) WithTrace(fn func(string, ...any)) *Planner {
 // WithAnswer sets the answer writer.
 func (p *Planner) WithAnswer(fn func(string)) *Planner {
 	p.answer = fn
+	return p
+}
+
+// WithStream sets the stream writer used for live model output (thinking, tool
+// call announcements and streamed text fragments).
+func (p *Planner) WithStream(fn func(string)) *Planner {
+	p.stream = fn
 	return p
 }
 
@@ -156,7 +165,7 @@ func (p *Planner) Run(ctx context.Context, input string) (string, error) {
 	}
 	for i := 1; i <= loops; i++ {
 		p.tracef("[thinking...]")
-		reply, err := p.engine.CompleteTools(ctx, messages, p.tools())
+		reply, err := p.streamTools(ctx, messages)
 		if err != nil {
 			return "", fmt.Errorf("could not reach the reasoning engine: %w", err)
 		}
@@ -222,6 +231,42 @@ func (p *Planner) finalize(content string) string {
 		p.answer(content)
 	}
 	return content
+}
+
+// streamTools calls the engine in streaming mode, forwarding live text and tool-call
+// announcements through the stream callback. It returns the accumulated reply.
+func (p *Planner) streamTools(ctx context.Context, messages []llm.Message) (llm.Reply, error) {
+	streamCh := p.engine.CompleteToolsStream(ctx, messages, p.tools())
+	var acc llm.StreamResult
+	var pendingTool string
+	var textBuf strings.Builder
+	for chunk := range streamCh {
+		switch chunk.Event {
+		case llm.StreamError:
+			return llm.Reply{}, chunk.Error
+		case llm.StreamDone:
+			return acc.FinalReply(), nil
+		case llm.StreamText:
+			textBuf.WriteString(chunk.Text)
+			p.writeStream(chunk.Text)
+			acc.Handle(chunk)
+		case llm.StreamToolCall:
+			if chunk.Call != nil && chunk.Call.Function.Name != "" && chunk.Call.Function.Name != pendingTool {
+				pendingTool = chunk.Call.Function.Name
+				p.tracef("[tool call: %s]", chunk.Call.Function.Name)
+				p.writeStream(fmt.Sprintf("[using tool: %s]", chunk.Call.Function.Name))
+			}
+			acc.Handle(chunk)
+		}
+	}
+	// Channel closed without a done event: use what we accumulated.
+	return acc.FinalReply(), nil
+}
+
+func (p *Planner) writeStream(s string) {
+	if p.stream != nil {
+		p.stream(s)
+	}
 }
 
 // runTool executes one tool call and returns a model-readable result.

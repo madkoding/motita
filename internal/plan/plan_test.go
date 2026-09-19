@@ -104,6 +104,11 @@ func llmServer(t *testing.T, replies []replyStep) *httptest.Server {
 			step.finishReason = "stop"
 		}
 
+		// If the request asked for a stream, emit the same reply as SSE chunks.
+		var stream bool
+		if bytes.Contains(body, []byte(`"stream":true`)) {
+			stream = true
+		}
 		choice := map[string]any{
 			"index":         0,
 			"finish_reason": step.finishReason,
@@ -115,6 +120,21 @@ func llmServer(t *testing.T, replies []replyStep) *httptest.Server {
 		if len(step.calls) > 0 {
 			choice["message"].(map[string]any)["tool_calls"] = step.calls
 		}
+		if stream {
+			w.Header().Set("Content-Type", "text/event-stream")
+			w.WriteHeader(http.StatusOK)
+			if step.content != "" {
+				chunk, _ := json.Marshal(map[string]any{"choices": []any{map[string]any{"delta": map[string]any{"content": step.content}}}})
+				fmt.Fprintf(w, "data: %s\n\n", chunk)
+			}
+			if len(step.calls) > 0 {
+				delta := map[string]any{"tool_calls": step.calls}
+				chunk, _ := json.Marshal(map[string]any{"choices": []any{map[string]any{"delta": delta, "finish_reason": step.finishReason}}})
+				fmt.Fprintf(w, "data: %s\n\n", chunk)
+			}
+			fmt.Fprint(w, "data: [DONE]\n\n")
+			return
+		}
 		json.NewEncoder(w).Encode(map[string]any{
 			"choices": []any{choice},
 		})
@@ -125,6 +145,11 @@ type replyStep struct {
 	finishReason string
 	content      string
 	calls        []map[string]any
+}
+
+func ioMustRead(r io.Reader) []byte {
+	b, _ := io.ReadAll(r)
+	return b
 }
 
 func toolCall(name, id string, args map[string]string) map[string]any {
@@ -736,7 +761,17 @@ func TestForcedFinalEngineError(t *testing.T) {
 	calls := 0
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		calls++
+		stream := bytes.Contains(ioMustRead(r.Body), []byte(`"stream":true`))
 		if calls == 1 {
+			if stream {
+				w.Header().Set("Content-Type", "text/event-stream")
+				calls := []map[string]any{toolCall("execute_command", "c1", map[string]string{"command": "true"})}
+				delta := map[string]any{"tool_calls": calls}
+				chunk, _ := json.Marshal(map[string]any{"choices": []any{map[string]any{"delta": delta, "finish_reason": "tool_calls"}}})
+				fmt.Fprintf(w, "data: %s\n\n", chunk)
+				fmt.Fprint(w, "data: [DONE]\n\n")
+				return
+			}
 			fmt.Fprint(w, `{"choices":[{"finish_reason":"tool_calls","message":{"role":"assistant","tool_calls":[{"id":"c1","type":"function","function":{"name":"execute_command","arguments":"{\"command\":\"true\"}"}}]}}]}`)
 			return
 		}

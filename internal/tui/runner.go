@@ -110,6 +110,9 @@ func (r *AppRunner) RunPlan(ctx context.Context, prompt string, progress func(st
 		WithTimeout(planDefaultTimeout(r.Cfg)).
 		WithLoops(planDefaultLoops(r.Cfg)).
 		WithTrace(progress).
+		WithStream(func(s string) {
+			progress("%s", s)
+		}).
 		WithAnswer(func(s string) { fmt.Fprintln(r.Out, s) })
 	answer, err := planner.Run(ctx, prompt)
 	if err != nil {

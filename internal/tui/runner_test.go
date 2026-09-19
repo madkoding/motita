@@ -3,8 +3,10 @@ package tui
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -23,6 +25,14 @@ import (
 
 func TestAppRunnerRunPlan(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		if bytes.Contains(body, []byte(`"stream":true`)) {
+			w.Header().Set("Content-Type", "text/event-stream")
+			chunk, _ := json.Marshal(map[string]any{"choices": []any{map[string]any{"delta": map[string]any{"content": "the plan"}}}})
+			fmt.Fprintf(w, "data: %s\n\n", chunk)
+			fmt.Fprint(w, "data: [DONE]\n\n")
+			return
+		}
 		fmt.Fprint(w, `{"choices":[{"message":{"content":"the plan"}}]}`)
 	}))
 	defer srv.Close()

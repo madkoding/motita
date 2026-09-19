@@ -1613,6 +1613,7 @@ func planServer(t *testing.T, answers []string) *httptest.Server {
 			Messages []struct {
 				Content string `json:"content"`
 			} `json:"messages"`
+			Stream   bool   `json:"stream"`
 		}
 		json.NewDecoder(r.Body).Decode(&req)
 		text := ""
@@ -1625,6 +1626,13 @@ func planServer(t *testing.T, answers []string) *httptest.Server {
 			idx++
 		} else {
 			content = "done"
+		}
+		if req.Stream {
+			w.Header().Set("Content-Type", "text/event-stream")
+			chunk, _ := json.Marshal(map[string]any{"choices": []any{map[string]any{"delta": map[string]any{"content": content}}}})
+			fmt.Fprintf(w, "data: %s\n\n", chunk)
+			fmt.Fprint(w, "data: [DONE]\n\n")
+			return
 		}
 		json.NewEncoder(w).Encode(map[string]any{
 			"choices": []any{map[string]any{"message": map[string]any{"content": content}}},
