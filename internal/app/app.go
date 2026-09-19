@@ -340,16 +340,18 @@ func (op Options) run(fl flags) int {
 			}
 		}
 	default:
-		cfg, err = config.LoadWithoutKey("")
+		cfg, err = config.LoadOrDefault("")
 		if err != nil {
 			fmt.Fprintf(op.Err, "❌ %v\n", err)
 			return ConfigError
 		}
 	}
 
-	// No further key handling needed: all three branches either succeeded with
-	// the required key, succeeded with a deliberately missing key (validate/
-	// isolation), or returned an error.
+	// When entering the conversational TUI, keep the chat clean by writing
+	// structured logs only to the file, not to the terminal.
+	if fl.tui {
+		cfg.Agent.LogConsole = false
+	}
 
 	log, err := op.newLogger(cfg.Agent)
 	if err != nil {

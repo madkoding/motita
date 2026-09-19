@@ -198,6 +198,10 @@ func Default() Config {
 			MaxAttempts:    3,
 			BackoffInitial: time.Second,
 			BackoffMax:     30 * time.Second,
+			Reasoning: Reasoning{
+				Enabled: false,
+				Level:   "medium",
+			},
 		},
 		Prompts: Prompts{
 			Analyze: BaseAnalyzeTemplate,
@@ -223,12 +227,24 @@ func Default() Config {
 	}
 }
 
+// LoadOrDefault applies environment variables to the default configuration when
+// no file is present. It is used by the TUI so that env vars such as
+// OLLAMA_API_KEY are picked up even without a starlight.yaml in the current
+// directory.
+func LoadOrDefault(path string) (Config, error) {
+	cfg := Default()
+	if path == "" {
+		if err := ApplyEnvironment(&cfg); err != nil {
+			return cfg, err
+		}
+		return cfg, nil
+	}
+	return LoadWithoutKey(path)
+}
+
 // ---------------------------------------------------------------------------
 // Loading
 // ---------------------------------------------------------------------------
-
-// Load reads the YAML, applies the missing default values, overlays the
-// environment variables and validates the result, requiring the LLM key.
 func Load(path string) (Config, error) {
 	return load(path, true)
 }
