@@ -12,7 +12,6 @@ package tui
 func (t *TUI) enableMouse()  {}
 func (t *TUI) disableMouse() {}
 
-// mouseScroll is never reached here, because no report can arrive, but it is defined so
-// the parser and its tests are the same code on every platform rather than a branch that
-// only exists in one build.
-func mouseScroll(string) (int, bool) { return 0, false }
+// mouseScroll lives in terminal.go, with no build tag: it is pure string parsing, and
+// giving it a second implementation here would mean the parser under test on Unix is not
+// the parser that ships on Windows.
