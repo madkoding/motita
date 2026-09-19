@@ -95,12 +95,34 @@ func newFakeTUI(inputs string, runner Runner) *TUI {
 		fr.out = out
 	}
 	return &TUI{
-		In:      strings.NewReader(inputs),
+		In:      &tabReader{src: []byte(inputs)},
 		Out:     out,
 		Err:     &bytes.Buffer{},
 		Runner:  runner,
 		NoColor: true,
 	}
+}
+
+// tabReader wraps a byte slice and treats the literal two-character sequence
+// "	" as a single Tab byte, so tests can write readable inputs like "	\nq\n".
+type tabReader struct {
+	src []byte
+	idx int
+}
+
+func (r *tabReader) Read(p []byte) (int, error) {
+	if r.idx >= len(r.src) {
+		return 0, io.EOF
+	}
+	// If the next two bytes look like an escaped tab, emit a real tab.
+	if r.idx+1 < len(r.src) && r.src[r.idx] == '\\' && r.src[r.idx+1] == 't' {
+		p[0] = '	'
+		r.idx += 2
+		return 1, nil
+	}
+	n := copy(p, r.src[r.idx:])
+	r.idx += n
+	return n, nil
 }
 
 func outputOf(t *TUI) string { return t.Out.(*bytes.Buffer).String() }

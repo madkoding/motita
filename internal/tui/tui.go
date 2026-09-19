@@ -116,6 +116,26 @@ func (t *TUI) input() *bufio.Reader {
 	return t.reader
 }
 
+// readKey returns the next byte from input without consuming a full line.
+// It is used to intercept Tab before it reaches the input buffer.
+func (t *TUI) readKey(ctx context.Context) (byte, bool) {
+	ch := make(chan byte, 1)
+	go func() {
+		b, err := t.input().ReadByte()
+		if err != nil {
+			close(ch)
+			return
+		}
+		ch <- b
+	}()
+	select {
+	case b, ok := <-ch:
+		return b, ok
+	case <-ctx.Done():
+		return 0, false
+	}
+}
+
 // Run displays the chat and dispatches user input until the user quits or the
 // context is cancelled.
 func (t *TUI) Run(ctx context.Context) int {
@@ -137,6 +157,7 @@ func (t *TUI) Run(ctx context.Context) int {
 			continue
 		}
 
+		// In Model/Config screens an empty line triggers the runner action.
 		switch t.screen {
 		case ScreenTask:
 			t.runTask(ctx, line)
@@ -169,9 +190,11 @@ func (t *TUI) handleShortcut(ctx context.Context, line string) (bool, bool) {
 		return true, false
 	case "/models", "/m":
 		t.setScreen(ScreenModels)
+		t.runModels(ctx)
 		return true, false
 	case "/config", "/c":
 		t.setScreen(ScreenConfig)
+		t.runConfig(ctx)
 		return true, false
 	case "/reasoning", "/r":
 		t.cycleReasoning()
@@ -433,12 +456,23 @@ func (t *TUI) addMessage(author Author, text string) {
 }
 
 // readLine reads one line from the input. It returns ok=false on EOF or when
-// the context is cancelled.
+// the context is cancelled. If the first typed key is Tab, it is consumed as
+// the view-switching shortcut and the special string "	" is returned so the
+// caller can handle it without injecting a tab into the input buffer.
 func (t *TUI) readLine(ctx context.Context) (string, bool) {
+	// Peek the first byte to intercept Tab before it becomes part of a line.
+	b, ok := t.readKey(ctx)
+	if !ok {
+		return "", false
+	}
+	if b == '	' {
+		return "	", true
+	}
+	// Not a tab: read the rest of the line, prepending the first byte.
 	ch := make(chan lineResult, 1)
 	go func() {
 		l, err := t.input().ReadString('\n')
-		ch <- lineResult{line: l, err: err}
+		ch <- lineResult{line: string(b) + l, err: err}
 	}()
 	select {
 	case r := <-ch:
