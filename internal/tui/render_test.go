@@ -50,6 +50,7 @@ func TestPanelRowsHaveEqualWidth(t *testing.T) {
 		{"plan at 80", "/p\nun prompt\n\nq\n", 80},
 		{"task at the minimum width", "t\nq\n", minWidth},
 		{"task at the maximum width", "t\nq\n", maxWidth},
+		{"plan at the minimum width", "/p\npregunta\n\nq\n", minWidth},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			runner := &fakeRunner{planAnswer: "listo"}

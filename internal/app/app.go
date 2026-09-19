@@ -638,7 +638,40 @@ func (op Options) runTUI(ctx context.Context, fl flags, cfg config.Config, engin
 	ui.In = op.Stdin
 	ui.Out = op.Out
 	ui.Err = op.Err
+	ui.NoColor = noColour(os.Getenv, op.Out)
 	return ui.Run(ctx)
+}
+
+// noColour reports whether the interface must render without colour.
+//
+// Two rules, both from the design guide, and both were missing: the NO_COLOR
+// variable is the cross-tool convention a user sets once and expects every
+// program to honour, and TERM=dumb means the terminal cannot do escapes at all —
+// sending them there prints the sequences as text.
+//
+// The writer is checked for being a terminal only as a last resort, and the check
+// is deliberately conservative: when the output is not a file or a terminal at all
+// (a buffer in a test, a pipe into a log) colour is left off, because nothing is
+// watching that can interpret it.
+func noColour(getenv func(string) string, out io.Writer) bool {
+	if _, set := os.LookupEnv("NO_COLOR"); set {
+		return true
+	}
+	switch strings.ToLower(strings.TrimSpace(getenv("TERM"))) {
+	case "dumb", "":
+		return true
+	}
+	if f, ok := out.(*os.File); ok {
+		info, err := f.Stat()
+		if err != nil {
+			return true
+		}
+		return info.Mode()&os.ModeCharDevice == 0
+	}
+	// Not a file at all: a buffer, a pipe, a writer an embedder supplied. Nothing
+	// on the other side is known to interpret escapes, and sending them to a log
+	// would leave the sequences as literal noise, so colour stays off.
+	return true
 }
 
 // runPlan runs the read-only plan/chat mode. It uses the reasoning engine and the

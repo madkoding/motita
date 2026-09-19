@@ -18,6 +18,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strconv"
 	"strings"
 	"sync"
 )
@@ -109,6 +110,14 @@ type TUI struct {
 	// spinner; spin is the animation frame advanced on every repaint.
 	busy bool
 	spin int
+	// scroll is how many rows the conversation is lifted above its newest line.
+	// Zero means "pinned to the bottom", which is where a chat belongs: new
+	// output arrives at the end. Raising it walks back through history, which is
+	// the only way to read a long answer on a fixed-height screen.
+	//
+	// It is transient view state, deliberately not persisted: it describes where
+	// the window is, not what the session contains.
+	scroll int
 }
 
 // New creates a TUI with sensible defaults for production use.
@@ -199,11 +208,49 @@ func (t *TUI) Run(ctx context.Context) int {
 // handleShortcut interprets command-like input and view-switching keys.
 // It returns (handled, shouldQuit).
 func (t *TUI) handleShortcut(ctx context.Context, line string) (bool, bool) {
-	// The Tab is looked for in the raw input: readLine returns it as the single
-	// byte "	", and trimming first would remove it, so the switch would never see
-	// the key. That is what made Tab neither navigate nor reach the prompt.
-	if strings.TrimSpace(line) == "	" || line == "	" {
+	// Special keys are matched against the RAW input, before any trimming: a
+	// control byte such as Tab is deleted by TrimSpace, so a switch that
+	// normalises first can never see it. This is why Tab used to do nothing.
+	switch line {
+	case "	":
 		t.nextScreen()
+		return true, false
+	case keyEsc:
+		// Escape is the universal way out. There are no overlays yet, so it
+		// cancels a run in flight and otherwise returns the view to the bottom,
+		// which is the state the user can always expect to get back to.
+		if t.cancelRun != nil {
+			t.cancelRun()
+			return true, false
+		}
+		t.scrollToBottom()
+		return true, false
+	case keyUp:
+		t.scrollBy(+1)
+		return true, false
+	case keyDown:
+		t.scrollBy(-1)
+		return true, false
+	case keyPgUp:
+		t.scrollBy(t.chatRows())
+		return true, false
+	case keyPgDn:
+		t.scrollBy(-t.chatRows())
+		return true, false
+	case keyHome:
+		t.scrollToTop()
+		return true, false
+	case keyEnd:
+		t.scrollToBottom()
+		return true, false
+	}
+
+	// Shift+G is checked against the raw line, before the lowercasing below: the
+	// switch runs on a lowercased copy, so "G" could never reach its own case and
+	// the binding would be dead. The convention is worth the extra line — "g for
+	// the top, G for the bottom" is what a vim user's fingers expect.
+	if line == "G" {
+		t.scrollToBottom()
 		return true, false
 	}
 
@@ -214,6 +261,15 @@ func (t *TUI) handleShortcut(ctx context.Context, line string) (bool, bool) {
 		return true, true
 	case "tab":
 		t.nextScreen()
+		return true, false
+	case "j":
+		t.scrollBy(+1)
+		return true, false
+	case "k":
+		t.scrollBy(-1)
+		return true, false
+	case "g":
+		t.scrollToTop()
 		return true, false
 	case "/task", "/t":
 		t.setScreen(ScreenTask)
@@ -237,6 +293,76 @@ func (t *TUI) handleShortcut(ctx context.Context, line string) (bool, bool) {
 		return true, false
 	}
 	return false, false
+}
+
+// chatRows is the distance a page key moves: the number of conversation rows the
+// frame can currently show.
+//
+// It is computed from the same shedding rules the layout applies, but WITHOUT
+// calling the layout: that would recurse, since the layout reads the scroll
+// offset this paging changes. The arithmetic below mirrors the fixed parts of the
+// frame and the droppable ones, so a page matches what is on screen.
+func (t *TUI) chatRows() int {
+	_, h := t.size()
+	if h <= 0 {
+		// The terminal did not report a height, so there is no page to speak of.
+		return minChatLines
+	}
+	if h < minHeight {
+		return 1
+	}
+	// status (2) + blanks (2) + borders (2) + tabs (1) + prompt (1).
+	room := h - 8
+	if room < minChatLines {
+		return minChatLines
+	}
+	return room
+}
+
+// scrollBy moves the view. Scrolling up is clamped where the layout clamps it —
+// at the oldest line that can still be shown — and scrolling down stops at the
+// newest one, so the view can never be left floating in empty space.
+func (t *TUI) scrollBy(delta int) {
+	t.scroll += delta
+	if t.scroll < 0 {
+		t.scroll = 0
+	}
+	if max := t.maxScroll(); t.scroll > max {
+		t.scroll = max
+	}
+	t.drawFrame()
+}
+
+func (t *TUI) scrollToTop() {
+	t.scroll = t.maxScroll()
+	t.drawFrame()
+}
+
+func (t *TUI) scrollToBottom() {
+	t.scroll = 0
+	t.drawFrame()
+}
+
+// maxScroll is the furthest back the view can go: as far as the oldest line that
+// the window can actually show.
+//
+// It is the conversation length minus the rows on screen, NOT one less than the
+// whole body. Offsetting by the whole body would lift the newest line off the
+// bottom and, on a conversation short enough to fit, would hide the only message
+// there is — the user would press "go to top" and watch their text disappear.
+// When everything already fits there is nowhere to go, which is why this is zero.
+func (t *TUI) maxScroll() int {
+	total := len(t.bodyLines())
+	if room := t.chatRows(); total > room {
+		return total - room
+	}
+	return 0
+}
+
+// bodyLines is the conversation as it would be drawn with no trimming and no
+// scroll. It is the coordinate space the scroll offset moves through.
+func (t *TUI) bodyLines() []string {
+	return t.chatLines(t.inner())
 }
 
 func (t *TUI) nextScreen() {
@@ -568,9 +694,14 @@ func (t *TUI) addMessage(author Author, text string) {
 
 // beginTurn marks the interface as busy and repaints, so the status line shows a
 // spinner for the whole duration of a turn instead of a static dot.
+//
+// A new turn also returns the view to the bottom: starting a task is a request to
+// see its output, so the window follows the newest line again even if the user was
+// reading history a moment ago.
 func (t *TUI) beginTurn() {
 	t.busy = true
 	t.spin++
+	t.scroll = 0
 }
 
 // endTurn clears the busy flag and repaints the finished conversation.
@@ -581,6 +712,11 @@ func (t *TUI) endTurn() {
 
 // advance repaints while a turn is running, which animates the spinner. It is
 // called from the progress loop, so a slow model still shows movement.
+//
+// New output never moves a view the user lifted: the offset counts rows above the
+// newest line, so growing the conversation underneath leaves the window where it
+// is — the reader keeps the line they were on while the answer grows below. Only
+// an explicit jump (a new turn, g/G, End) returns to the bottom.
 func (t *TUI) advance() {
 	if t.busy {
 		t.spin++
@@ -588,11 +724,30 @@ func (t *TUI) advance() {
 	t.drawFrame()
 }
 
+// Special keys are returned by readLine as raw tokens. The user cannot type
+// them, so a caller that receives one knows the keyboard produced it: this is
+// the same contract the Tab already used, extended to the keys the interaction
+// guide calls universal.
+//
+// The bytes come from the terminal, not from the guide: a bare ESC is the
+// cancel key, and the CSI sequences are what an xterm-compatible terminal sends
+// for the arrows and the page keys. Reading them costs nothing and is what makes
+// the interface navigable without a mouse.
+const (
+	keyEsc  = "\x1b" // 0x1b on its own
+	keyUp   = "\x1b[A"
+	keyDown = "\x1b[B"
+	keyPgUp = "\x1b[5~"
+	keyPgDn = "\x1b[6~"
+	keyHome = "\x1b[H"
+	keyEnd  = "\x1b[F"
+)
+
 // readLine reads one line from the input. It returns ok=false on EOF or when the
 // context is cancelled.
 //
-// The first byte is read on its own, before a full line is asked for, because two
-// keys have to be recognised without becoming part of the line:
+// The first byte is read on its own, before a full line is asked for, because
+// several keys have to be recognised without becoming part of the line:
 //
 //   - Tab switches view, so it must not be appended to a prompt (which is what
 //     bufio would do, since it only stops at a newline).
@@ -600,6 +755,8 @@ func (t *TUI) advance() {
 //     view". It has to be returned as such: reading a full line after the
 //     newline was already consumed would silently return the *next* line and lose
 //     the empty one.
+//   - ESC opens a key that is not text: either a bare cancel, or one of the
+//     arrow and page sequences the terminal sends.
 func (t *TUI) readLine(ctx context.Context) (string, bool) {
 	head, ok := t.readKey(ctx)
 	if !ok {
@@ -607,6 +764,9 @@ func (t *TUI) readLine(ctx context.Context) (string, bool) {
 	}
 	if head == '	' {
 		return "	", true
+	}
+	if head == 0x1b {
+		return t.readEscape(), true
 	}
 	if head == '\n' || head == '\r' {
 		return "", true
@@ -630,6 +790,45 @@ func (t *TUI) readLine(ctx context.Context) (string, bool) {
 	}
 }
 
+// readEscape completes a key that starts with ESC.
+//
+// A bare ESC is the cancel key. When more bytes are already buffered the
+// terminal sent a sequence, and what follows the introducer says which key it
+// was. The test for "more bytes are buffered" is what tells the two apart
+// without waiting: a human pressing Esc sends one byte, while a terminal sends
+// the whole sequence in a single write.
+//
+// An unrecognised sequence is reported as the cancel key rather than as text:
+// the alternative is typing the raw bytes into the prompt, which would be worse
+// than doing the safe thing.
+func (t *TUI) readEscape() string {
+	if t.input().Buffered() == 0 {
+		return keyEsc
+	}
+	peek, err := t.input().Peek(1)
+	if err != nil || len(peek) == 0 || peek[0] != '[' {
+		return keyEsc
+	}
+	seq := []byte{0x1b, '['}
+	t.input().Discard(1) // the introducer, now that it is known to be one
+	for {
+		c, err := t.input().ReadByte()
+		if err != nil {
+			return keyEsc
+		}
+		seq = append(seq, c)
+		// A CSI sequence ends at its final byte, and the parameter bytes that
+		// precede it are never in 0x40..0x7E.
+		if c >= 0x40 && c <= 0x7e {
+			break
+		}
+		if len(seq) > 16 {
+			return keyEsc
+		}
+	}
+	return string(seq)
+}
+
 type lineResult struct {
 	line string
 	err  error
@@ -637,15 +836,49 @@ type lineResult struct {
 
 const helpText = `Starlight chat
 
-Global shortcuts (type the letter/word and press Enter):
-  t / task        switch to Task mode
-  p / plan        switch to Plan mode
-  m / models      list available models
-  c / config      run the configuration wizard
-  r / reasoning   cycle reasoning level (off/low/medium/high)
-  h / help        show this help
-  q / quit        leave
+Navigation (keys, no Enter needed):
+  Tab             switch mode
+  j / k           scroll the conversation down / up
+  Up / Down       scroll one line
+  PgUp / PgDn     scroll one page
+  g / G           jump to the oldest / newest line
+  Esc             cancel the running turn, or return to the newest line
+  Ctrl+C          cancel the turn and leave
 
-Task mode runs the 3-layer agent. Plan mode only explains what it would do.
-Ctrl+C cancels the current run and returns to the prompt.
+Commands (type them and press Enter):
+  /t  task        switch to Task mode
+  /p  plan        switch to Plan mode
+  /m  models      list the models the provider publishes
+  /c  config      run the configuration wizard
+  /r  reasoning   cycle reasoning level (off/low/medium/high)
+  /h  help        show this help
+  /q  quit        leave
+
+Task mode runs the 3-layer agent in the sandbox and reports the result.
+Plan mode reads only: it lists and reads files and runs read-only commands,
+and explains what it would do before anything is executed.
 `
+
+// minHeight is the number of rows below which the interface stops trying to draw
+// a frame. The guide is explicit: below a workable size, show a message instead
+// of a broken layout. Trying to fit anyway produces a frame whose every part has
+// been dropped — the worst of both worlds, since the user cannot read it and
+// cannot tell why.
+const minHeight = 8
+
+// tooSmallLines is the whole screen when the terminal cannot hold the interface.
+// It says the size it needs and the size it has, so the user can fix it instead
+// of guessing.
+func (t *TUI) tooSmallLines(w, h int) []string {
+	msg := []string{
+		"",
+		"  " + t.color(colWarning, 0, "The window is too small to draw Starlight."),
+		"",
+		"  resize it to at least " + strconv.Itoa(minWidth) + " columns and " +
+			strconv.Itoa(minHeight) + " rows,",
+		"  or press q to quit.",
+		"",
+		"  now: " + strconv.Itoa(w) + " x " + strconv.Itoa(h),
+	}
+	return msg
+}

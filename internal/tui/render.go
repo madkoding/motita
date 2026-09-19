@@ -103,6 +103,17 @@ func (t *TUI) layout(w, h int) ([]string, string) {
 	hints := t.hintLines(w)
 	body := t.chatLines(t.inner())
 
+	// A terminal too small to hold the interface gets an explanation instead of a
+	// broken frame. The check is here, before anything is measured, because the
+	// shedding below would otherwise remove every part in turn and still draw a
+	// frame nobody can use.
+	if h > 0 && h < minHeight {
+		msg := t.tooSmallLines(w, h)
+		lines := make([]string, 0, len(msg)+1)
+		lines = append(lines, msg...)
+		return lines, ""
+	}
+
 	// A height of zero means the terminal did not say how tall it is. Nothing can
 	// be trimmed then, so everything is drawn and the shell scrolls as usual.
 	if h <= 0 {
@@ -151,6 +162,19 @@ func (t *TUI) layout(w, h int) ([]string, string) {
 		// of the last page.
 		room = minChatLines
 	}
+
+	// The window is anchored to the newest line unless the user lifted it. The
+	// scroll offset is applied to the whole conversation BEFORE trimming, so
+	// paging back through history walks one row at a time instead of jumping by
+	// whatever the current window happens to hold.
+	if t.scroll > 0 {
+		end := len(body) - t.scroll
+		if end < 0 {
+			end = 0
+		}
+		body = body[:end]
+	}
+
 	if len(body) > room {
 		hidden := len(body) - room + 1
 		body = append([]string{t.cell(t.muted(fmt.Sprintf("... %d earlier lines", hidden)), t.inner())},
@@ -200,7 +224,12 @@ func (t *TUI) drawFrame() {
 	b.WriteString(strings.Join(lines, "\n"))
 	b.WriteString("\n")
 	b.WriteString("\x1b[J")
-	b.WriteString(prompt)
+	// When there is no prompt the frame is a message, not an input surface: the
+	// cursor is left where the text ends instead of being parked after a prompt
+	// that was never drawn.
+	if prompt != "" {
+		b.WriteString(prompt)
+	}
 	b.WriteString("\x1b[?25h") // and hand it back, sitting at the prompt
 	fmt.Fprint(t.Out, b.String())
 }
@@ -291,6 +320,10 @@ func (t *TUI) fits(s string, cols int) bool { return visibleLen(s) <= cols }
 // statusLines is the one line that answers "what am I talking to, and is it
 // ready?". Labels are muted and values are base, so the values are what stands
 // out. The API key is only ever reported as present or missing, never printed.
+//
+// Order is by importance, and a narrow terminal drops the tail: the model the
+// user is talking to is the last thing that should disappear, because every
+// answer they read depends on it.
 func (t *TUI) statusLines(w int) []string {
 	cfg := t.Runner.Config()
 	provider := cfg.LLM.Provider
@@ -311,12 +344,23 @@ func (t *TUI) statusLines(w int) []string {
 	}
 	state := t.stateGlyph()
 
-	// Most important first: a narrow terminal drops the tail, never the model.
 	parts := []string{
 		state + " " + t.color(colBase, 0, provider) + t.muted("/") + t.color(colBase, 0, model),
 		t.muted("reasoning ") + t.color(colBase, 0, reasoning),
 		t.muted("key ") + t.color(keyCol, 0, keyText),
 	}
+	// What the user can do right now, and where they are in the history. The
+	// count is contextual information exactly as the guide's status bar example
+	// describes, and it only appears when there is something to scroll: an
+	// indicator that always reads "0" is noise.
+	if t.scroll > 0 {
+		parts = append(parts, t.color(colWarning, 0, glyphDot+" scrolled "+strconv.Itoa(t.scroll)+" above latest"))
+	} else if t.busy {
+		parts = append(parts, t.color(colWarning, 0, spinner[t.spin%len(spinner)]+" running"))
+	} else {
+		parts = append(parts, t.muted("ready"))
+	}
+
 	line := "  " + strings.Join(parts, t.muted("   "))
 	for !t.fits(line, w-leftMargin) && len(parts) > 1 {
 		parts = parts[:len(parts)-1]
@@ -338,20 +382,61 @@ func (t *TUI) stateGlyph() string {
 }
 
 // chatTopRow is the top border of the conversation panel, with the current mode
-// as its title.
+// as its title and, when the user has scrolled back, the position in the history.
+//
+// The position belongs in the border rather than in the status bar: it describes
+// this panel specifically, and the border is where the guide puts a panel's own
+// context. It is expressed as a percentage because that is what stays readable at
+// any size — a raw row count means nothing without knowing the total.
 func (t *TUI) chatTopRow() []string {
 	title := t.screen.String()
-	// The top rule is the bottom rule minus the width of the title block, which
-	// occupies the corner, a rule and a space before the title, and a space after
-	// it. Getting this wrong is only visible as a top border that stops short of
-	// the right corner.
+	right := ""
+	if t.scroll > 0 {
+		right = strconv.Itoa(t.scrollPercent()) + "%"
+	}
+
+	// The interior width is fixed: the right corner must land in the same column
+	// on the top border and on the bottom one. Rather than subtract each piece by
+	// hand — which is how the indicator was once counted with len() while it
+	// carried colour escapes, leaving an extra corner glyph in the middle of the
+	// border — the rule is simply whatever the two ends do not use.
 	//
-	// No lower clamp is needed: size() floors the width at minWidth, which leaves
-	// 30 columns of rule for the longest title ("Models"). A clamp would be
-	// unreachable code that only looks like a safety net.
-	rule := t.inner() - 1 - len(title)
-	return []string{"  " + t.muted(glyphTopLeft+glyphRule+" ") + t.color(colAccent, 0, title) +
-		" " + t.muted(strings.Repeat(glyphRule, rule)+glyphTopRight)}
+	// The panel occupies inner+6 columns: the left margin and the left corner,
+	// the padding and the rail on one side, and the same on the other. Both ends
+	// are measured with visibleLen, the same function that pads every other row,
+	// so this arithmetic cannot drift from what is actually drawn.
+	//
+	// No clamp is needed and none is written: size() floors the width at minWidth,
+	// where the leftovers are still 24 columns even for the longest title
+	// ("Models") together with the widest indicator ("100%"). A guard here would
+	// be unreachable code that only looks like a safety net, and the test asserts
+	// the invariant at the minimum, the maximum and the default width.
+	left := "  " + t.muted(glyphTopLeft+glyphRule+" ") + t.color(colAccent, 0, title) + " "
+	tail := t.muted(glyphTopRight)
+	if right != "" {
+		tail = t.muted(glyphRule) + t.color(colWarning, 0, right) + t.muted(glyphRule+glyphTopRight)
+	}
+	rule := t.inner() + 6 - visibleLen(left) - visibleLen(tail)
+	return []string{left + t.muted(strings.Repeat(glyphRule, rule)) + tail}
+}
+
+// scrollPercent is how far back the view sits, as a percentage of how far it CAN
+// go: 0% is the newest line, 100% the oldest reachable one.
+//
+// The denominator is maxScroll and not the length of the conversation, because
+// the last screenful of lines is not a position the view can occupy — the window
+// always shows that many rows. Dividing by the total would make the "top" read as
+// some arbitrary mid-percentage.
+func (t *TUI) scrollPercent() int {
+	max := t.maxScroll()
+	if max <= 0 {
+		return 100
+	}
+	pct := t.scroll * 100 / max
+	if pct > 100 {
+		pct = 100
+	}
+	return pct
 }
 
 // chatBottomRow is the bottom border of the conversation panel.
@@ -504,14 +589,20 @@ func (t *TUI) tabsLine(w int) string {
 // hintLines lists the keys that work right now, the key in the accent colour and
 // its meaning muted. Hints that do not fit are dropped, never wrapped: a hint that
 // is cut in half reads as a different key.
+//
+// Every hint here is a binding the handler accepts, and the test asserts exactly
+// that: a footer advertising a key that does nothing is a lie the user finds
+// within seconds. Order is by how often the key is needed, so the ones that get
+// dropped first are the least used.
 func (t *TUI) hintLines(w int) []string {
 	hints := [][2]string{
-		{"Tab", "switch mode"},
+		{"Tab", "mode"},
 		{"/t", "task"},
 		{"/p", "plan"},
 		{"/m", "models"},
 		{"/c", "config"},
 		{"/r", "reasoning"},
+		{"j/k", "scroll"},
 		{"?", "help"},
 		{"q", "quit"},
 	}
