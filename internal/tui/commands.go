@@ -1,6 +1,9 @@
 package tui
 
-import "strings"
+import (
+	"fmt"
+	"strings"
+)
 
 // Command is one slash command: what it is typed as, what it does, and whether it takes an
 // argument.
@@ -77,6 +80,16 @@ func completions(line string) []Command {
 // It is drawn ABOVE the composer rather than replacing the conversation, so the user keeps
 // the context they are deciding in.
 func (t *TUI) completionLines(w int) []string {
+	return t.completionLinesCapped(w, 0)
+}
+
+// completionLinesCapped renders the popup with at most `cap` rows, so a long candidate list
+// cannot take the frame past the bottom of the terminal. A cap of zero means "no limit", which
+// is what a caller that has already measured the space wants.
+//
+// When the list is cut, the last row says how many are not shown: a silently truncated menu
+// looks like the complete one, and the user would not know to keep typing.
+func (t *TUI) completionLinesCapped(w, max int) []string {
 	if !t.completing() {
 		return nil
 	}
@@ -98,8 +111,41 @@ func (t *TUI) completionLines(w int) []string {
 		}
 	}
 
-	lines := make([]string, 0, len(cands)+1)
-	for _, c := range cands {
+	// The cap counts EVERY row this function will return, including the optional "and N more" row
+	// and the hint. Rendering a candidate and then adding two trailer rows is how a cap of one
+	// came out as four, which quietly put the frame back past the bottom of the terminal — the
+	// cap has to bound the result, not the candidate loop.
+	showMore := false
+	// How many rows the trailer costs. The hint is worth a row whenever there is one to spare;
+	// below that it is dropped, because seeing WHICH command is offered matters more than being
+	// told which key accepts it — and without dropping something a one-row popup is impossible,
+	// which is what a very short terminal needs.
+	trailer := 0
+	showHint := max <= 0 || max >= 2
+	if showHint {
+		trailer++
+	}
+
+	shown := cands
+	hidden := 0
+	if max > 0 && len(cands) > max-trailer {
+		// The cap counts every row returned, trailer included. The budget here is at least one
+		// because the cap is never below one: the layout owns that floor, and duplicating it
+		// would be a guard that cannot be reached.
+		keep := max - trailer
+		// The "and N more" line costs a row too, and only makes sense when a candidate survives
+		// beside it — with a budget of one the candidate wins, because seeing WHICH command is
+		// offered matters more than being told how many others there are.
+		if keep > 1 {
+			keep--
+			showMore = true
+		}
+		hidden = len(cands) - keep
+		shown = cands[:keep]
+	}
+
+	lines := make([]string, 0, len(shown)+2)
+	for _, c := range shown {
 		label := c.Name
 		if c.Arg != "" {
 			label += " " + c.Arg
@@ -111,7 +157,15 @@ func (t *TUI) completionLines(w int) []string {
 		}
 		lines = append(lines, t.plainLine(row))
 	}
-	lines = append(lines, t.plainLine(t.muted("→ completes · Enter runs · Esc cancels")))
+	if showMore {
+		lines = append(lines, t.plainLine(t.muted(fmt.Sprintf("… and %d more", hidden))))
+	}
+	// The hint is dropped before a candidate is: knowing that a key completes the list is worth
+	// less than seeing what it would complete to. It is also the row that makes a one-row popup
+	// possible at all, which is what keeps the frame inside a very short terminal.
+	if showHint {
+		lines = append(lines, t.plainLine(t.muted("→ completes · Enter runs · Esc cancels")))
+	}
 	return lines
 }
 

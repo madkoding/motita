@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"bytes"
 	"os"
 	"strings"
 	"testing"
@@ -392,4 +393,182 @@ func setOf(decorated string) string {
 		out += string(r)
 	}
 	return out
+}
+
+// TestTheFrameNeverWritesPastTheLastRow: the number of line breaks a frame writes must be one
+// fewer than the rows it draws.
+//
+// A trailing newline moves the cursor DOWN a row. When the frame already fills the window that
+// row does not exist, the terminal scrolls, and every repaint pushes the whole interface one
+// line up — which is what a user sees as "lines being shoved upward" when switching mode with
+// Tab. The break belongs BETWEEN rows, never after the last one.
+//
+// This only bites once the frame fills the height: while the frame was short the extra newline
+// landed in the empty space below it. That is why it appeared only after the body was padded to
+// the bottom of the window.
+func TestTheFrameNeverWritesPastTheLastRow(t *testing.T) {
+	for _, h := range []int{12, 16, 20, 24, 30} {
+		for _, s := range []Screen{ScreenTask, ScreenPlan} {
+			var out bytes.Buffer
+			tu := New(&fakeRunner{cfg: configWithKey("k")})
+			tu.In = strings.NewReader("")
+			tu.Out = &out
+			tu.Width, tu.Height = 100, h
+			tu.screen = s
+			tu.painted = true // skip the launch clear, which is not part of a repaint
+
+			tu.drawFrame()
+
+			lines, _ := tu.layout(100, h)
+			if len(lines) != h {
+				t.Fatalf("h=%d screen=%v: the frame must fill the height, got %d rows", h, s, len(lines))
+			}
+			breaks := strings.Count(out.String(), "\n")
+			if breaks >= len(lines) {
+				t.Errorf("h=%d screen=%v: %d breaks for %d rows, so the cursor lands on row %d of %d and the terminal scrolls",
+					h, s, breaks, len(lines), breaks+1, h)
+			}
+		}
+	}
+}
+
+// TestSwitchingModeDoesNotChangeTheFrameHeight: Tab must not resize the frame. Two screens of
+// different heights would make the interface jump every time it is pressed, even if neither
+// scrolled.
+func TestSwitchingModeDoesNotChangeTheFrameHeight(t *testing.T) {
+	tu, _ := newKeyTUI("", "one short answer")
+	tu.Width, tu.Height = 100, 20
+
+	tu.screen = ScreenTask
+	task, _ := tu.layout(100, 20)
+	tu.nextScreen()
+	plan, _ := tu.layout(100, 20)
+	tu.nextScreen()
+	back, _ := tu.layout(100, 20)
+
+	if len(task) != len(plan) || len(plan) != len(back) {
+		t.Errorf("the frame changes height when the mode does: %d -> %d -> %d",
+			len(task), len(plan), len(back))
+	}
+}
+
+// TestTheFrameNeverExceedsTheTerminalWithThePopupOpen: the completion popup is the one part that
+// GROWS WHILE BEING USED — every keystroke can add candidates — so it is where a frame can pass
+// the bottom of the window. A frame taller than the terminal scrolls, and the interface slides
+// upward as the user types: the whole screen jumps on a keypress, which is what makes the input
+// look like it is being shoved off the screen.
+//
+// This is a strict invariant, not a preference: drawing more rows than the terminal has is
+// always wrong, whatever is on them.
+func TestTheFrameNeverExceedsTheTerminalWithThePopupOpen(t *testing.T) {
+	for _, h := range []int{minHeight, 12, 16, 18, 20, 24, 30, 40} {
+		for _, draft := range []string{"", "/", "/p", "/pl", "/plan", "hello"} {
+			tu, _ := newKeyTUI("", "an answer")
+			tu.Width, tu.Height = 90, h
+			tu.draft = draft
+
+			lines, _ := tu.layout(90, h)
+			if len(lines) > h {
+				t.Errorf("h=%d draft=%q: the frame is %d rows in a %d-row terminal",
+					h, draft, len(lines), h)
+			}
+		}
+	}
+}
+
+// TestThePopupIsCappedRatherThanPushingTheFrameOff: with a terminal too short for the full
+// candidate list, the popup shrinks and SAYS SO. A silently truncated menu looks like the
+// complete one, so the user would never know to keep typing.
+func TestThePopupIsCappedRatherThanPushingTheFrameOff(t *testing.T) {
+	tu, _ := newKeyTUI("", "an answer")
+	tu.Width, tu.Height = 90, 14
+	tu.draft = "/" // every command is a candidate: more than a 14-row terminal can show beside
+	// the conversation, the composer, the rules and the status bar.
+
+	lines, _ := tu.layout(90, 14)
+	if len(lines) > 14 {
+		t.Fatalf("the frame must fit, got %d rows", len(lines))
+	}
+	body := stripANSI(strings.Join(lines, "\n"))
+	if !strings.Contains(body, "more") {
+		t.Errorf("a cut list must say how many are hidden:\n%s", body)
+	}
+	// The composer and the bar must both still be there: the popup gives way, not them.
+	if !strings.Contains(body, "›") {
+		t.Error("the composer must survive a capped popup")
+	}
+	if !strings.Contains(body, "Task") {
+		t.Error("the status bar must survive a capped popup")
+	}
+}
+
+// TestTheCappedPopupStillOffersSomething: a cap of one row must not leave the popup empty. An
+// empty popup with a "and N more" line would be worse than useless.
+func TestTheCappedPopupStillOffersSomething(t *testing.T) {
+	tu, _ := newKeyTUI("", "")
+	tu.Width, tu.Height = 90, 30
+	tu.draft = "/"
+
+	for _, cap := range []int{0, 1, 2, 3, 5} {
+		lines := tu.completionLinesCapped(90, cap)
+		if cap > 0 && len(lines) > cap {
+			t.Errorf("cap %d drew %d rows", cap, len(lines))
+		}
+		// Whatever the cap, at least one real command has to be offered.
+		body := stripANSI(strings.Join(lines, "\n"))
+		offered := false
+		for _, c := range commands {
+			if strings.Contains(body, c.Name) {
+				offered = true
+				break
+			}
+		}
+		if !offered {
+			t.Errorf("cap %d offered no command:\n%s", cap, body)
+		}
+	}
+}
+
+// TestThePopupCapHasAFloor: the cap arithmetic can compute a budget of zero — a popup capped to
+// nothing — and a popup that draws no rows is not a popup. The floor of one is what keeps the
+// suggestion visible in a terminal that has room for exactly one row of it.
+func TestThePopupCapHasAFloor(t *testing.T) {
+	tu, _ := newKeyTUI("", "")
+	tu.Width, tu.Height = 90, 30
+	tu.draft = "/"
+
+	// A cap of one must still draw the first candidate, which is the one the user is most
+	// likely to want.
+	lines := tu.completionLinesCapped(90, 1)
+	if len(lines) != 1 {
+		t.Fatalf("a cap of 1 must draw exactly one row, got %d: %v", len(lines), lines)
+	}
+	if body := stripANSI(lines[0]); !strings.Contains(body, "/task") {
+		t.Errorf("the first candidate must be the one shown, got %q", body)
+	}
+}
+
+// TestTheConversationRoomHasAFloor: `room` is a residue, and on a terminal that cannot hold even
+// the permanent rows it comes out at zero or negative. A negative width or a negative row count
+// would reach strings.Repeat and panic, so the floor is what turns an impossible window into a
+// merely ugly one.
+func TestTheConversationRoomHasAFloor(t *testing.T) {
+	// A terminal tall enough for the gate but with the popup asking for more than exists, which
+	// is how the residue goes to zero.
+	for _, h := range []int{minHeight, minHeight + 1, minHeight + 2} {
+		tu, _ := newKeyTUI("", "an answer")
+		tu.Width, tu.Height = 44, h
+		tu.draft = "/"
+
+		lines, _ := tu.layout(44, h)
+		if len(lines) == 0 {
+			t.Errorf("h=%d: the layout drew nothing", h)
+		}
+		// Every row must be drawable: a negative or zero width would have panicked already.
+		for i, l := range lines {
+			if visibleLen(l) > 44 {
+				t.Errorf("h=%d row %d is %d columns wide in a 44-column terminal", h, i, visibleLen(l))
+			}
+		}
+	}
 }

@@ -62,6 +62,10 @@ const (
 	// minChatLines is the smallest conversation area the layout keeps before it
 	// starts dropping the oldest lines.
 	minChatLines = 4
+	// permanentRows is how many rows the frame always draws, whatever is on screen: the two
+	// rules, the composer, the status line and the status bar. Counting them in one place is what
+	// lets minHeight be derived instead of guessed.
+	permanentRows = 5
 )
 
 // bannerLines is the Starlight wordmark: five shaded rows that carry their own
@@ -104,87 +108,105 @@ const blank = ""
 // The prompt, the mode line and at least a few rows of conversation are never
 // dropped: they are what the user came for. A layout that scrolls would push the
 // prompt off the bottom, and that is the one row that must always be visible.
+// layout is the whole interface, top to bottom, fitted to the terminal.
+//
+// The order is the one the user asked for:
+//
+//	wordmark                        (dropped first: it is branding)
+//	provider/model  reasoning       (no key, no readiness)
+//	────────────────────────────────
+//	conversation (thinking, tools, answers)
+//	────────────────────────────────
+//	composer  (with the completion popup above it)
+//	────────────────────────────────
+//	mode · context used        keys
+//
+// The conversation is NOT boxed. A border around the only content there is adds a row of noise
+// at each end and pushes the composer away from the bottom of the screen; the rules carry the
+// structure instead, which is what separating with space rather than with a box means.
+//
+// FITTING. Every part is counted and the total is exactly h whenever h can hold the permanent
+// rows, because a frame taller than the terminal scrolls — and a frame that scrolls moves the
+// whole interface up on every repaint, which the user sees as the screen jumping when they
+// press a key.
+//
+// The order of sacrifice is the wordmark, then the popup, then the conversation down to its
+// floor. The composer, the rules and the status bar are never dropped: they are what the
+// interface is. A height of zero means the terminal did not report one, and nothing can be
+// trimmed — everything is drawn and the shell scrolls, as it must.
 func (t *TUI) layout(w, h int) ([]string, string) {
 	header := t.headerLines(w)
 	status := t.statusLines(w)
 	body := t.chatLines(t.conversationWidth())
 	bar := t.bottomBar(w)
+	popup := t.popupRows()
 
-	// A terminal too small to hold the interface gets an explanation instead of a broken
-	// frame. The check runs before anything is measured, because the shedding below would
-	// otherwise remove every part in turn and still draw a frame nobody can use.
+	// The composer is always two rows above the end of the frame — the rule and the status bar —
+	// so the cursor is walked back up to it from wherever the frame leaves it.
+	const belowComposer = 2
+
+	// A terminal too small to hold the interface gets an explanation instead of a broken frame.
 	if h > 0 && h < minHeight {
 		return t.tooSmallLines(w, h), ""
 	}
 
-	// The frame, top to bottom:
-	//
-	//	wordmark
-	//	provider/model  reasoning        <- muted, no key, no readiness
-	//	────────────────────────────────
-	//	conversation (thinking, tools, answers, and the composer)
-	//	────────────────────────────────
-	//	mode · context used             keys
-	//
-	// The conversation is NOT boxed: a border around the only content there is added a row
-	// of noise at each end and pushed the composer away from the bottom of the screen. The
-	// two rules carry the structure instead, which is what the design guide means by
-	// preferring spacing and alignment over borders.
-	//
-	// The composer is the second-to-last row and the status bar is the last: the input sits
-	// at the bottom of the window with the rules and the status under it, which is where a
-	// chat user's eyes and cursor expect it.
-	//
-	// A height of zero means the terminal did not say how tall it is. Nothing can be
-	// trimmed then, so everything is drawn and the shell scrolls as usual.
 	if h <= 0 {
 		lines := append([]string{}, header...)
+		if len(header) > 0 {
+			lines = append(lines, blank)
+		}
 		lines = append(lines, status...)
 		lines = append(lines, t.rule(w))
 		lines = append(lines, body...)
-		lines = append(lines, t.composerLines()...)
+		lines = append(lines, t.composerLinesCapped(0)...)
 		lines = append(lines, t.rule(w))
 		lines = append(lines, bar)
-		return lines, t.composerPrompt()
+		return lines, t.composerPrompt(belowComposer)
 	}
 
-	// rows is the total height for a given set of decisions. The fixed part is: the status
-	// line, the two rules, the composer with any completion popup above it, and the status
-	// bar.
-	fixed := 5 + len(t.completionLines(w))
-	if t.completing() {
-		// The popup grows and shrinks as the user types, so it is measured rather than
-		// assumed; the layout has to re-count or the frame would overflow as candidates
-		// appear.
-		fixed = 5 + len(completions(t.draft)) + 1
+	// 1. The wordmark is branding: it goes before anything the user came for.
+	headerHeight := 0
+	if len(header) > 0 {
+		headerHeight = len(header) + 1 // plus the blank row beneath it
 	}
-	rows := func(header []string, bodyRows int) int {
-		n := fixed + len(header) + bodyRows
-		if len(header) > 0 {
-			n++ // the blank row between the wordmark and the status line
-		}
-		return n
-	}
-
-	// 1. The wordmark is the only droppable part. Deciding this before the conversation is
-	// trimmed leaves the maximum number of rows for the content: trimming first would
-	// reserve space for branding that is about to be dropped anyway.
-	if len(header) > 0 && rows(header, minChatLines) > h {
+	if permanentRows+headerHeight+popup+minChatLines > h {
 		header = nil
+		headerHeight = 0
 	}
 
-	// 2. Give the conversation everything that is left.
-	room := h - rows(header, 0)
-	if room < minChatLines {
-		// Nothing left to drop and the terminal is still too small: the frame overflows and
-		// the shell scrolls, which is better than a blank screen. The composer is written
-		// last, so it stays at the bottom of the last page.
-		room = minChatLines
+	// 2. The popup takes what is left after the permanent rows, the wordmark and a conversation
+	// floor. It GROWS as the user types, so it is the part that can push the frame past the
+	// bottom of the window if it is not capped here. It always keeps at least one row: a popup
+	// that shows the command it is offering is worth a row, and the rest is a keystroke away.
+	//
+	// The cap is applied to the popup's OWN row count, which is what it will actually draw —
+	// completionLinesCapped is given this number and returns exactly that many rows, trailing
+	// hint included. Capping against a reservation instead of against the drawn rows is how the
+	// frame came out one row too tall.
+	if popup > 0 {
+		if spare := h - permanentRows - headerHeight - minChatLines; popup > spare {
+			popup = spare
+			if popup < 1 {
+				popup = 1
+			}
+		}
 	}
 
-	// The window is anchored to the newest line unless the user lifted it. The offset is
-	// applied to the whole conversation BEFORE trimming, so paging walks one row at a time
-	// instead of jumping by whatever the current window happens to hold.
+	// 3. The conversation takes the remainder, and the total is exactly h — as long as the
+	// terminal can hold the permanent rows and the popup it asked for.
+	//
+	// `room` is a RESIDUE, computed once and never re-decided: every earlier attempt that
+	// clamped it separately (to a conversation floor) is what made the parts sum to more than
+	// the window. When the terminal is genuinely too small the sum is allowed to exceed it, and
+	// the size gate reports that case before this point is ever reached.
+	// The residue is always positive here: the gate above refused anything shorter than
+	// minHeight, and minHeight already includes the permanent rows and a conversation floor, so
+	// subtracting the popup can only bring it down to that floor. A guard would be unreachable.
+	room := h - permanentRows - headerHeight - popup
+
+	// 4. Anchor the window to the newest line unless the user lifted it. The offset is applied
+	// before trimming, so paging walks one row at a time instead of jumping by whatever the
+	// current window happens to hold.
 	if t.scroll > 0 {
 		end := len(body) - t.scroll
 		if end < 0 {
@@ -193,33 +215,19 @@ func (t *TUI) layout(w, h int) ([]string, string) {
 		body = body[:end]
 	}
 
+	// 5. Trim to the room, then PAD back up to it. The padding is what puts the composer on the
+	// last rows of the window instead of letting it float in the middle of a short conversation:
+	// the input belongs at the foot of the screen.
 	if len(body) > room {
 		hidden := len(body) - room + 1
 		body = append([]string{t.plainLine(t.muted(fmt.Sprintf("... %d earlier lines", hidden)))},
 			body[len(body)-room+1:]...)
 	}
-
-	// The conversation is PADDED to the room it was given, so the composer lands on the last
-	// rows of the window instead of floating in the middle of it.
-	//
-	// This is the whole point of the layout the user asked for: the input sits at the foot of
-	// the screen where the eye and the cursor expect it. Without the padding a short
-	// conversation ended a few rows down, and the input was drawn directly under it — near the
-	// top, with empty space below, which is exactly the complaint: the input has to be pegged to
-	// the bottom of the window, not stacked under the last message.
-	//
-	// The blank rows go ABOVE the composer, and they carry no colour: they are the gap between
-	// the content and the controls, which is what the design guide means by separating with
-	// space rather than with a box.
-	if len(body) < room {
-		pad := make([]string, room-len(body))
-		for i := range pad {
-			pad[i] = ""
-		}
-		body = append(body, pad...)
+	for len(body) < room {
+		body = append(body, "")
 	}
 
-	lines := make([]string, 0, rows(header, len(body)))
+	lines := make([]string, 0, permanentRows+headerHeight+popup+len(body))
 	lines = append(lines, header...)
 	if len(header) > 0 {
 		lines = append(lines, blank)
@@ -227,10 +235,13 @@ func (t *TUI) layout(w, h int) ([]string, string) {
 	lines = append(lines, status...)
 	lines = append(lines, t.rule(w))
 	lines = append(lines, body...)
-	lines = append(lines, t.composerLines()...)
+	lines = append(lines, t.composerLinesCapped(popup)...)
 	lines = append(lines, t.rule(w))
 	lines = append(lines, bar)
-	return lines, t.composerPrompt()
+
+	// The cursor is placed by walking back up from the end of the frame to the composer.
+	rowsBelow := belowComposer + popup
+	return lines, t.composerPrompt(rowsBelow)
 }
 
 // drawFrame paints the whole interface.
@@ -275,12 +286,29 @@ func (t *TUI) drawFrame() {
 	// terminal.
 	b.WriteString("\x1b[H")
 	b.WriteString("\x1b[?25l") // keep the cursor out of the way while painting
-	b.WriteString(strings.Join(lines, "\n"))
-	b.WriteString("\n")
-	b.WriteString("\x1b[J")
-	// When there is no prompt the frame is a message, not an input surface: the
-	// cursor is left where the text ends instead of being parked after a prompt
-	// that was never drawn.
+	// The frame is written with a newline BETWEEN its rows and never after the last one.
+	//
+	// A trailing newline moves the cursor down a row, and when the frame already fills the
+	// window that row does not exist: the terminal scrolls, and every repaint pushes the whole
+	// interface one line up. Writing the last row without its break keeps the cursor on the
+	// bottom row, where the frame was measured to end.
+	//
+	// This only bites once the frame FILLS the height. When the frame was short the extra
+	// newline landed in the empty space below it and went unnoticed — which is why it survived
+	// until the body was padded to the bottom of the window.
+	//
+	// Only "\n" is written: the interface never switches the terminal to full raw mode, so the
+	// driver's ONLCR translation is still on and "\n" already becomes CR+LF. Writing "\r\n"
+	// would double the carriage return on a real terminal.
+	for i, l := range lines {
+		if i > 0 {
+			b.WriteString("\n")
+		}
+		b.WriteString(l)
+	}
+	b.WriteString("\x1b[J") // clear whatever is left below, which is nothing when padded
+	// When there is no prompt the frame is a message, not an input surface: the cursor is left
+	// where the text ends instead of being parked after a prompt that was never drawn.
 	if prompt != "" {
 		b.WriteString(prompt)
 	}
@@ -1092,8 +1120,19 @@ func (t *TUI) keyHints() string {
 // makes the whole screen jump as the user types. The prompt is written by the caller as the
 // LAST thing on the frame, which is what parks the cursor at the end of it.
 func (t *TUI) composerLines() []string {
+	return t.composerLinesCapped(0)
+}
+
+// composerLinesCapped draws the popup and the input row, with the popup limited to `popupCap`
+// rows (zero meaning no limit).
+//
+// The cap comes from the layout, which is the only place that knows how tall the terminal is.
+// Passing it in rather than recomputing it here is what keeps the measured height and the drawn
+// height the same: a popup that drew more rows than the layout reserved would overflow the
+// window and scroll the interface on a keypress.
+func (t *TUI) composerLinesCapped(popupCap int) []string {
 	var lines []string
-	lines = append(lines, t.completionLines(t.bodyWidth())...)
+	lines = append(lines, t.completionLinesCapped(t.bodyWidth(), popupCap)...)
 	lines = append(lines, t.plainLine(t.composerLabel())+t.draft)
 	return lines
 }
@@ -1119,8 +1158,47 @@ func (t *TUI) composerLabel() string {
 	return t.color(colAccent, 0, glyphPrompt) + t.muted(" ")
 }
 
-// composerPrompt is what the cursor is left after: the visible label, so the terminal's own
-// cursor sits at the point of typing.
-func (t *TUI) composerPrompt() string {
-	return strings.Repeat(" ", leftMargin) + t.composerLabel() + t.draft
+// composerPrompt is what moves the cursor back to the point of typing.
+//
+// It is not written after the frame: the composer sits a couple of rows ABOVE the bottom (the
+// rule and the status bar are under it), so appending the prompt to the end of the frame would
+// park the cursor on the last row — outside the frame it belongs to. What is returned here is
+// the escape that walks the cursor up to the composer's row and along to the end of the draft,
+// which is what the caller needs to leave the terminal's own cursor where the user types.
+//
+// The number of rows to walk up is how many rows follow the composer in the frame: in the
+// padded layout that is the rule and the status bar, so two. It is passed in rather than
+// assumed, because the un-trimmed path (a terminal that did not report its height) draws the
+// frame without the two rules and must not walk off the top.
+func (t *TUI) composerPrompt(rowsBelow int) string {
+	// Column: the margin, the label, and whatever has been typed.
+	col := leftMargin + visibleLen(t.composerLabel()) + visibleLen(t.draft)
+
+	// The cursor is moved with CSI sequences ONLY — never with a bare carriage return.
+	//
+	// A "\r" looks harmless and is not: the interface runs the terminal in cbreak with echo
+	// off, and in that mode the driver's output translation is not what one assumes. Measured
+	// on the target machine, the "\r" came out of the pty as "\n", which moves the cursor DOWN
+	// a row — off the bottom of a frame that fills the window — and the terminal scrolls. That
+	// is the extra line the user saw being pushed upward on every Tab.
+	//
+	// CSI G (cursor to column) and CSI A (cursor up) move without depending on any translation.
+	var b strings.Builder
+	if rowsBelow > 0 {
+		fmt.Fprintf(&b, "\x1b[%dA", rowsBelow)
+	}
+	fmt.Fprintf(&b, "\x1b[%dG", col+1) // columns are 1-based
+	return b.String()
+}
+
+// completionRowsNeeded is how many extra rows the completion popup asks for right now: zero when
+// there is nothing to suggest, and one row per candidate plus the hint otherwise.
+//
+// It is a method rather than a field so the two places that need it — the size gate and the
+// budgeting — cannot disagree about how big the popup is.
+func (t *TUI) popupRows() int {
+	if !t.completing() {
+		return 0
+	}
+	return len(completions(t.draft)) + 1
 }

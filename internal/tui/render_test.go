@@ -3,6 +3,7 @@ package tui
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"strings"
 	"testing"
 )
@@ -104,12 +105,21 @@ func TestCursorLandsAtThePrompt(t *testing.T) {
 	if !strings.HasSuffix(frame, "\x1b[?25h") {
 		t.Fatalf("the frame must end by showing the cursor: %q", frame)
 	}
+	// The cursor is moved UP to the composer rather than left at the end of the frame: the rule
+	// and the status bar are drawn below the composer, so a cursor at the end of the frame would
+	// sit outside the input it is meant to be on.
 	withoutCursor := strings.TrimSuffix(frame, "\x1b[?25h")
-	tail := withoutCursor[strings.LastIndex(withoutCursor, "\n")+1:]
-	// The prompt carries no mode name: the status bar already reports it, and printing it here
-	// too put the same word on two rows of every frame.
-	if !strings.HasPrefix(stripANSI(tail), "  › ") {
-		t.Errorf("the cursor is not parked at the prompt: %q", stripANSI(tail))
+	if !strings.Contains(withoutCursor, "\x1b[2A") {
+		t.Errorf("the cursor must be walked back up to the composer: %q", withoutCursor)
+	}
+	// And the composer row itself is drawn, with the prompt on it. It carries no mode name: the
+	// status bar already reports that.
+	body := stripANSI(withoutCursor)
+	if !strings.Contains(body, "›") {
+		t.Errorf("the composer must be drawn: %q", body)
+	}
+	if strings.Count(body, "Task") > 1 || strings.Count(body, "Plan") > 1 {
+		t.Errorf("the mode must be named once: %q", body)
 	}
 }
 
@@ -326,13 +336,44 @@ func TestFrameFitsTheTerminalHeight(t *testing.T) {
 		}
 	}
 
-	// The prompt is the one row that may never be dropped, whatever the height.
+	// The composer is the one row that may never be dropped. It is found by looking in the frame
+	// rather than in the returned prompt: the prompt is now a cursor movement, and the row it
+	// points at is what has to be there.
 	tui := newFakeTUI("q\n", &fakeRunner{})
-	tui.Width, tui.Height = 80, 8
+	tui.Width, tui.Height = 80, minHeight
 	tui.Run(context.Background())
-	_, prompt := tui.layout(80, 8)
-	if !strings.Contains(stripANSI(prompt), "›") {
-		t.Errorf("the prompt must survive any height, got %q", stripANSI(prompt))
+
+	// At the smallest workable height the composer is drawn...
+	lines, prompt := tui.layout(80, minHeight)
+	if prompt == "" {
+		t.Error("the layout must place the cursor at the smallest workable height")
+	}
+	found := false
+	for _, l := range lines {
+		if strings.Contains(stripANSI(l), "›") {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("the composer must survive the smallest workable height:\n%s", stripANSI(strings.Join(lines, "\n")))
+	}
+	if len(lines) > minHeight {
+		t.Errorf("the frame must fit the smallest workable height: %d rows in %d", len(lines), minHeight)
+	}
+
+	// ...and below it the gate explains instead of drawing a frame nobody can use. Both sides of
+	// the threshold are asserted, because a frame that overflows and a frame that refuses are
+	// different failures and only one of them is acceptable.
+	lines, prompt = tui.layout(80, minHeight-1)
+	if prompt != "" {
+		t.Error("below the smallest height there is no composer to place a cursor on")
+	}
+	if len(lines) == 0 {
+		t.Error("below the smallest height the interface must explain itself, not draw nothing")
+	}
+	body := stripANSI(strings.Join(lines, "\n"))
+	if !strings.Contains(body, fmt.Sprint(minHeight)) {
+		t.Errorf("the explanation must name the height it needs (%d):\n%s", minHeight, body)
 	}
 }
 

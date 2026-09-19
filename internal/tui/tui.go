@@ -1125,7 +1125,12 @@ func pad(s string, width int) string {
 // of a broken layout. Trying to fit anyway produces a frame whose every part has
 // been dropped — the worst of both worlds, since the user cannot read it and
 // cannot tell why.
-const minHeight = 8
+// It is DERIVED from the parts the frame always draws, not chosen: two rules, the composer, the
+// status line and the bar are permanent, and a conversation of fewer than minChatLines rows is
+// not a conversation. A hand-picked 8 was two rows short of that, so the smallest terminal the
+// gate accepted could not hold the frame it then drew — the frame came out taller than the
+// window and scrolled.
+const minHeight = permanentRows + minChatLines
 
 // tooSmallLines is the whole screen when the terminal cannot hold the interface.
 // It says the size it needs and the size it has, so the user can fix it instead
