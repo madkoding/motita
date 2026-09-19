@@ -219,12 +219,14 @@ func (p *Planner) tracef(format string, args ...any) {
 	}
 }
 
-func emitToolCall(trace func(string, ...any), name string, args map[string]string) {
+func emitToolCall(trace func(string, ...any), name string, args json.RawMessage) {
 	if trace == nil {
 		return
 	}
+	var kvMap map[string]string
+	_ = json.Unmarshal(args, &kvMap)
 	var kv []string
-	for k, v := range args {
+	for k, v := range kvMap {
 		kv = append(kv, fmt.Sprintf("%s=%s", k, v))
 	}
 	sort.Strings(kv)
@@ -266,8 +268,7 @@ func (p *Planner) streamTools(ctx context.Context, messages []llm.Message) (llm.
 		case llm.StreamToolCall:
 			if chunk.Call != nil && chunk.Call.Function.Name != "" && chunk.Call.Function.Name != pendingTool {
 				pendingTool = chunk.Call.Function.Name
-				p.tracef("[tool call: %s]", chunk.Call.Function.Name)
-				p.writeStream(fmt.Sprintf("[using tool: %s]", chunk.Call.Function.Name))
+				emitToolCall(p.trace, chunk.Call.Function.Name, chunk.Call.Function.Arguments)
 			}
 			acc.Handle(chunk)
 		}
@@ -284,7 +285,8 @@ func (p *Planner) writeStream(s string) {
 
 // runTool executes one tool call and returns a model-readable result.
 func (p *Planner) runTool(ctx context.Context, tc llm.ToolCall) string {
-	p.tracef("[running tool: %s]", tc.Function.Name)
+	emitToolCall(p.trace, tc.Function.Name, tc.Function.Arguments)
+	p.writeStream("running tool...")
 	switch tc.Function.Name {
 	case "list_directory":
 		return p.toolListDirectory(tc.Function.Arguments)
