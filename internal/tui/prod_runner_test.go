@@ -3,14 +3,21 @@ package tui
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
+	"fmt"
+	"io"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/madkoding/starlight/internal/agent"
 	"github.com/madkoding/starlight/internal/config"
 	"github.com/madkoding/starlight/internal/llm"
 	"github.com/madkoding/starlight/internal/logx"
+	"github.com/madkoding/starlight/internal/plan"
 	"github.com/madkoding/starlight/internal/sandbox"
 	taskpkg "github.com/madkoding/starlight/internal/task"
 )
@@ -241,4 +248,316 @@ func (a *resultAgent) SetProgress(fn func(format string, args ...any)) { a.progr
 // showing a result.
 func TestRealAgentSatisfiesTheObserverInterface(t *testing.T) {
 	var _ taskObserver = (*agent.Agent)(nil)
+}
+
+// The conversation belongs to the RUNNER, not to the planner.
+//
+// A planner is built per turn — that is how the interface has always done it — so a session
+// created inside the planner would be a session per question: the amnesia this feature
+// exists to remove. These tests pin the session to the runner's lifetime.
+
+// TestTheConversationIsCreatedOnceAndReused: asking twice must return the same session, or
+// every turn would start from nothing.
+func TestTheConversationIsCreatedOnceAndReused(t *testing.T) {
+	r := &AppRunner{Cfg: config.Default()}
+	r.Cfg.LLM.Model = "gpt-4o"
+
+	first := r.conversation(nil)
+	if first == nil {
+		t.Fatal("a conversation must be created on first use")
+	}
+	second := r.conversation(nil)
+	if first != second {
+		t.Error("the same conversation must be returned on the second call")
+	}
+}
+
+// TestTheConversationHonoursTheConfiguration: the operator knows their server may be
+// configured lower than the model's published window, so a value in the configuration wins
+// over the built-in table.
+func TestTheConversationHonoursTheConfiguration(t *testing.T) {
+	r := &AppRunner{Cfg: config.Default()}
+	r.Cfg.LLM.Model = "gpt-4o"
+	r.Cfg.LLM.Session.ContextWindow = 2500
+	r.Cfg.LLM.Session.Reserve = 300
+	r.Cfg.LLM.Session.CompactAt = 0.55
+	r.Cfg.LLM.Session.KeepRecent = 5
+
+	s := r.conversation(nil)
+	if s.Window != 2500 {
+		t.Errorf("window = %d, want the configured 2500", s.Window)
+	}
+	if s.Reserve != 300 || s.CompactAt != 0.55 || s.KeepRecent != 5 {
+		t.Errorf("policy = (%d, %.2f, %d), want the configured (300, 0.55, 5)",
+			s.Reserve, s.CompactAt, s.KeepRecent)
+	}
+	// The system prompt is the planner's own: a conversation opened with a different
+	// instruction than the requests use would let the two drift.
+	if s.System != plan.SystemPrompt {
+		t.Error("the conversation must open with the planner's system prompt")
+	}
+}
+
+// TestAnUnconfiguredSessionKeepsTheDefaults: zeros in the configuration mean "unset", and
+// they must not disable the reserve or the trigger — that is the failure that lets a context
+// overflow in silence.
+func TestAnUnconfiguredSessionKeepsTheDefaults(t *testing.T) {
+	r := &AppRunner{Cfg: config.Default()}
+	r.Cfg.LLM.Model = "gpt-4o"
+	// Default() carries zeroes for the session block, which is the case being tested.
+
+	s := r.conversation(nil)
+	if s.Window <= 0 {
+		t.Error("the window must come from the model when it is not configured")
+	}
+	if s.Reserve <= 0 {
+		t.Error("a zero reserve must fall back to the default, not disable it")
+	}
+	if s.CompactAt <= 0 {
+		t.Error("a zero trigger must fall back to the default, not disable compaction")
+	}
+	if s.KeepRecent <= 0 {
+		t.Error("a zero tail must fall back to the default")
+	}
+}
+
+// TestResetConversationStartsAFresh: leaving a subject behind is something the user asks
+// for, not something the compaction is hoped to forget.
+func TestResetConversationStartsAFresh(t *testing.T) {
+	r := &AppRunner{Cfg: config.Default()}
+	r.Cfg.LLM.Model = "gpt-4o"
+
+	first := r.conversation(nil)
+	first.Append(llm.Message{Role: "user", Content: "the previous subject"})
+
+	r.ResetConversation()
+	second := r.conversation(nil)
+	if second == first {
+		t.Fatal("a new session must be a different one")
+	}
+	if second.Len() != 0 {
+		t.Errorf("the new session must be empty, got %d messages", second.Len())
+	}
+}
+
+// TestTheReportBeforeAnyConversation: the report is reachable from the menu before anything
+// has been asked, and it must answer rather than panic or return an empty line.
+func TestTheReportBeforeAnyConversation(t *testing.T) {
+	r := &AppRunner{Cfg: config.Default()}
+
+	got := r.ConversationReport()
+	if !strings.Contains(got, "not started") {
+		t.Errorf("an empty session must say so, got %q", got)
+	}
+}
+
+// TestTheReportDescribesTheSession: the window, the usage and the policy. A conversation the
+// user cannot inspect is one they cannot trust.
+func TestTheReportDescribesTheSession(t *testing.T) {
+	r := &AppRunner{Cfg: config.Default()}
+	r.Cfg.LLM.Model = "gpt-4o"
+	s := r.conversation(nil)
+	s.Append(llm.Message{Role: "user", Content: "a question"})
+
+	got := r.ConversationReport()
+	for _, want := range []string{"gpt-4o", "context", "in use", "compaction", "messages"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("the report must mention %q:\n%s", want, got)
+		}
+	}
+	// No summary yet, so no summary section.
+	if strings.Contains(got, "carried summary") {
+		t.Errorf("a session that has not compacted must not claim a summary:\n%s", got)
+	}
+}
+
+// TestTheReportShowsWhatTheCompactionCarried: after a fold, the account is the most useful
+// thing the report can show — it is what the agent believes about the earlier conversation.
+func TestTheReportShowsWhatTheCompactionCarried(t *testing.T) {
+	r := &AppRunner{Cfg: config.Default()}
+	r.Cfg.LLM.Model = "gpt-4o"
+	r.Cfg.LLM.Session.ContextWindow = 1000
+	r.Cfg.LLM.Session.Reserve = 100
+	r.Cfg.LLM.Session.CompactAt = 0.5
+	r.Cfg.LLM.Session.KeepRecent = 2
+	r.Cfg.LLM.Session.ContextWindow = 1000
+
+	s := r.conversation(&summariserStub{out: "the user asked to count .txt files"})
+	for i := 0; i < 60; i++ {
+		s.Append(llm.Message{Role: "user", Content: strings.Repeat("word ", 30)})
+	}
+	if err := s.Compact(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+
+	got := r.ConversationReport()
+	if !strings.Contains(got, "carried summary") {
+		t.Errorf("a compacted session must show its summary:\n%s", got)
+	}
+	if !strings.Contains(got, "count .txt files") {
+		t.Errorf("the report must carry the account itself:\n%s", got)
+	}
+	if !strings.Contains(got, "compaction(s)") {
+		t.Errorf("the report must say the conversation was folded:\n%s", got)
+	}
+}
+
+// summariserStub stands in for the engine in the compaction path.
+type summariserStub struct{ out string }
+
+func (s *summariserStub) Complete(context.Context, []llm.Message) (string, error) {
+	return s.out, nil
+}
+
+// TestRunPlanHandsTheConversationToThePlanner is the wiring test that was missing.
+//
+// Everything else passed while the two halves were disconnected: the session existed on the
+// runner, and the planner could hold one, but nothing joined them — so every turn started
+// from nothing. Neither half can see that on its own, which is exactly why the wiring needs
+// its own test rather than being assumed from the pieces.
+func TestRunPlanHandsTheConversationToThePlanner(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		if bytes.Contains(body, []byte(`"stream":true`)) {
+			w.Header().Set("Content-Type", "text/event-stream")
+			chunk, _ := json.Marshal(map[string]any{"choices": []any{map[string]any{"delta": map[string]any{"content": "the plan"}}}})
+			fmt.Fprintf(w, "data: %s\n\n", chunk)
+			fmt.Fprint(w, "data: [DONE]\n\n")
+			return
+		}
+		fmt.Fprint(w, `{"choices":[{"message":{"content":"the plan"}}]}`)
+	}))
+	defer srv.Close()
+
+	cfg := config.Default()
+	cfg.LLM.Provider = "openai"
+	cfg.LLM.APIKey = "key"
+	cfg.LLM.BaseURL = srv.URL
+	cfg.LLM.MaxAttempts = 1
+	cfg.LLM.BackoffInitial = time.Millisecond
+	cfg.LLM.BackoffMax = time.Millisecond
+	cfg.Sandbox.Kind = "none"
+	cfg.LLM.Model = "gpt-4o"
+
+	r := NewAppRunner(io.Discard, io.Discard, cfg, nil, nil, logx.Global())
+	engine, err := llm.New(cfg.LLM, r.Log)
+	if err != nil {
+		t.Fatal(err)
+	}
+	r.Engine = engine
+
+	if _, err := r.RunPlan(context.Background(), "the first question", func(string, ...any) {}); err != nil {
+		t.Fatalf("the run failed: %v", err)
+	}
+
+	// The runner's conversation must have grown. If RunPlan built a planner without handing
+	// it the session, this stays empty and the next turn is amnesiac.
+	if got := r.conversation(nil).Len(); got == 0 {
+		t.Error("RunPlan must give the planner the runner's conversation, or every turn starts from nothing")
+	}
+}
+
+// TestTwoTurnsOfPlanShareTheConversation: the property the user actually experiences — a
+// follow-up question can refer to what came before.
+func TestTwoTurnsOfPlanShareTheConversation(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		if bytes.Contains(body, []byte(`"stream":true`)) {
+			w.Header().Set("Content-Type", "text/event-stream")
+			chunk, _ := json.Marshal(map[string]any{"choices": []any{map[string]any{"delta": map[string]any{"content": "ok"}}}})
+			fmt.Fprintf(w, "data: %s\n\n", chunk)
+			fmt.Fprint(w, "data: [DONE]\n\n")
+			return
+		}
+		fmt.Fprint(w, `{"choices":[{"message":{"content":"ok"}}]}`)
+	}))
+	defer srv.Close()
+
+	cfg := config.Default()
+	cfg.LLM.Provider = "openai"
+	cfg.LLM.APIKey = "key"
+	cfg.LLM.BaseURL = srv.URL
+	cfg.LLM.MaxAttempts = 1
+	cfg.LLM.BackoffInitial = time.Millisecond
+	cfg.LLM.BackoffMax = time.Millisecond
+	cfg.Sandbox.Kind = "none"
+	cfg.LLM.Model = "gpt-4o"
+
+	r := NewAppRunner(io.Discard, io.Discard, cfg, nil, nil, logx.Global())
+	engine, err := llm.New(cfg.LLM, r.Log)
+	if err != nil {
+		t.Fatal(err)
+	}
+	r.Engine = engine
+
+	if _, err := r.RunPlan(context.Background(), "my name is Madkoding", func(string, ...any) {}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := r.RunPlan(context.Background(), "what is my name?", func(string, ...any) {}); err != nil {
+		t.Fatal(err)
+	}
+
+	// The first question must still be in the conversation the second turn is given.
+	sess := r.conversation(nil)
+	found := false
+	for _, m := range sess.Messages() {
+		if strings.Contains(m.Content, "my name is Madkoding") {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("the second turn must see the first, got %+v", sess.Messages())
+	}
+	if sess.Len() < 3 {
+		t.Errorf("two turns must have left at least three messages, got %d", sess.Len())
+	}
+}
+
+// TestANewSessionClearsTheConversationFromTheNextTurn: /new is a promise, and the promise is
+// about the NEXT turn rather than about a field.
+func TestANewSessionClearsTheConversationFromTheNextTurn(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		if bytes.Contains(body, []byte(`"stream":true`)) {
+			w.Header().Set("Content-Type", "text/event-stream")
+			chunk, _ := json.Marshal(map[string]any{"choices": []any{map[string]any{"delta": map[string]any{"content": "ok"}}}})
+			fmt.Fprintf(w, "data: %s\n\n", chunk)
+			fmt.Fprint(w, "data: [DONE]\n\n")
+			return
+		}
+		fmt.Fprint(w, `{"choices":[{"message":{"content":"ok"}}]}`)
+	}))
+	defer srv.Close()
+
+	cfg := config.Default()
+	cfg.LLM.Provider = "openai"
+	cfg.LLM.APIKey = "key"
+	cfg.LLM.BaseURL = srv.URL
+	cfg.LLM.MaxAttempts = 1
+	cfg.LLM.BackoffInitial = time.Millisecond
+	cfg.LLM.BackoffMax = time.Millisecond
+	cfg.Sandbox.Kind = "none"
+	cfg.LLM.Model = "gpt-4o"
+
+	r := NewAppRunner(io.Discard, io.Discard, cfg, nil, nil, logx.Global())
+	engine, err := llm.New(cfg.LLM, r.Log)
+	if err != nil {
+		t.Fatal(err)
+	}
+	r.Engine = engine
+
+	if _, err := r.RunPlan(context.Background(), "the old subject", func(string, ...any) {}); err != nil {
+		t.Fatal(err)
+	}
+	r.ResetConversation()
+	if _, err := r.RunPlan(context.Background(), "a fresh start", func(string, ...any) {}); err != nil {
+		t.Fatal(err)
+	}
+
+	sess := r.conversation(nil)
+	for _, m := range sess.Messages() {
+		if strings.Contains(m.Content, "the old subject") {
+			t.Errorf("the new session must not carry the old subject, got %+v", sess.Messages())
+		}
+	}
 }

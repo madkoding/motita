@@ -94,6 +94,23 @@ type LLM struct {
 	BackoffInitial time.Duration `yaml:"backoff_initial"`
 	BackoffMax     time.Duration `yaml:"backoff_max"`
 	Reasoning      Reasoning     `yaml:"reasoning"`
+	Session        Session       `yaml:"session"`
+}
+
+// Session describes how a conversation is kept inside the model's context window.
+type Session struct {
+	// ContextWindow overrides the window derived from the model id. Zero means
+	// "ask the model", which is what the built-in table is for; a value here wins,
+	// because only the operator knows a local server configured lower.
+	ContextWindow int `yaml:"context_window"`
+	// Reserve is the room kept for the answer and the next tool round, so the
+	// session compacts while the model still has space to reply.
+	Reserve int `yaml:"reserve"`
+	// CompactAt is the fraction of the usable window at which compaction triggers.
+	CompactAt float64 `yaml:"compact_at"`
+	// KeepRecent is how many recent messages are never summarised: the user is
+	// still talking about them.
+	KeepRecent int `yaml:"keep_recent"`
 }
 
 // Reasoning controls whether and how hard the model thinks before answering.

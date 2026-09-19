@@ -116,6 +116,22 @@ func ApplyEnvironment(c *Config) error {
 	if c.LLM.MaxTokens, err = readInteger("STARLIGHT_LLM_MAX_TOKENS", c.LLM.MaxTokens); err != nil {
 		return err
 	}
+	if c.LLM.Session.ContextWindow, err = readInteger("STARLIGHT_LLM_SESSION_CONTEXT_WINDOW", c.LLM.Session.ContextWindow); err != nil {
+		return err
+	}
+	if c.LLM.Session.Reserve, err = readInteger("STARLIGHT_LLM_SESSION_RESERVE", c.LLM.Session.Reserve); err != nil {
+		return err
+	}
+	if c.LLM.Session.KeepRecent, err = readInteger("STARLIGHT_LLM_SESSION_KEEP_RECENT", c.LLM.Session.KeepRecent); err != nil {
+		return err
+	}
+	if v := os.Getenv("STARLIGHT_LLM_SESSION_COMPACT_AT"); v != "" {
+		f, err := strconv.ParseFloat(strings.TrimSpace(v), 64)
+		if err != nil {
+			return fmt.Errorf("STARLIGHT_LLM_SESSION_COMPACT_AT: %q is not a number", v)
+		}
+		c.LLM.Session.CompactAt = f
+	}
 	if v := os.Getenv("STARLIGHT_LLM_TEMPERATURE"); v != "" {
 		f, err := strconv.ParseFloat(strings.TrimSpace(v), 64)
 		if err != nil {

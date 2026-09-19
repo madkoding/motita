@@ -9,6 +9,7 @@ import (
 	"io"
 	"os"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/madkoding/starlight/internal/agent"
@@ -18,6 +19,7 @@ import (
 	"github.com/madkoding/starlight/internal/onboard"
 	"github.com/madkoding/starlight/internal/plan"
 	"github.com/madkoding/starlight/internal/sandbox"
+	"github.com/madkoding/starlight/internal/session"
 	taskpkg "github.com/madkoding/starlight/internal/task"
 )
 
@@ -33,6 +35,12 @@ type Runner interface {
 	RunTask(ctx context.Context, task string, progress func(string, ...any)) (string, error)
 	// RunConfig runs the onboarding wizard.
 	RunConfig(ctx context.Context) error
+	// ConversationReport describes the session the conversation is kept in: the window,
+	// how much of it is in use, and what any compaction carried forward.
+	ConversationReport() string
+	// ResetConversation starts a new session, which is how a user leaves a subject behind
+	// without leaving the program.
+	ResetConversation()
 	// RunModels reports the active provider and the models it publishes. It also
 	// writes the report to the runner's output, and returns it so a chat view can
 	// keep it in its own scrollback.
@@ -69,6 +77,15 @@ type AppRunner struct {
 	newAgent agentFactory
 	// listModels is injectable so the menu can be tested without a network.
 	listModels func(ctx context.Context, baseURL, apiKey string) ([]string, error)
+
+	// session is the conversation Plan mode continues across turns. It lives on the runner,
+	// not on the planner, precisely because each turn builds a new planner: a session created
+	// per planner would be a session per question, which is the amnesia this exists to remove.
+	//
+	// Guarded by sessionMu: the interface can cancel a run and start another, and a session
+	// is not safe to rewrite while a turn is reading it.
+	sessionMu sync.Mutex
+	session   *session.Session
 }
 
 // NewAppRunner creates the production runner.
@@ -116,12 +133,92 @@ func (r *AppRunner) RunPlan(ctx context.Context, prompt string, progress func(st
 		WithStream(func(s string) {
 			progress("%s", s)
 		}).
-		WithAnswer(func(s string) {})
+		WithAnswer(func(s string) {}).
+		// The conversation is owned by the RUNNER, and handed to the planner built for
+		// this turn. A planner is created per turn — that is how this interface has always
+		// worked — so a session created inside one would be a session per question, which
+		// is the amnesia this feature exists to remove.
+		WithSessionPolicy(
+			r.Cfg.LLM.Model,
+			r.Cfg.LLM.Session.ContextWindow,
+			r.Cfg.LLM.Session.Reserve,
+			r.Cfg.LLM.Session.CompactAt,
+			r.Cfg.LLM.Session.KeepRecent,
+		).
+		WithSession(r.conversation(engine))
 	answer, err := planner.Run(ctx, prompt)
 	if err != nil {
 		return "", err
 	}
 	return answer, nil
+}
+
+// conversation returns the session Plan mode continues in, creating it on first use.
+//
+// The system prompt is the planner's own, so the conversation opens with exactly the
+// instruction the model would have received anyway; the summariser is the engine itself,
+// because compacting is a model call like any other and needs no separate configuration.
+func (r *AppRunner) conversation(engine session.Summariser) *session.Session {
+	r.sessionMu.Lock()
+	defer r.sessionMu.Unlock()
+	if r.session == nil {
+		s := session.New(r.Cfg.LLM.Model, plan.SystemPrompt, r.Cfg.LLM.Session.ContextWindow)
+		// The configuration wins where it says anything, so an operator who knows their
+		// server is configured lower is obeyed. A zero means "unset" and keeps the default.
+		if r.Cfg.LLM.Session.Reserve > 0 {
+			s.Reserve = r.Cfg.LLM.Session.Reserve
+		}
+		if r.Cfg.LLM.Session.CompactAt > 0 {
+			s.CompactAt = r.Cfg.LLM.Session.CompactAt
+		}
+		if r.Cfg.LLM.Session.KeepRecent > 0 {
+			s.KeepRecent = r.Cfg.LLM.Session.KeepRecent
+		}
+		s.Summariser = engine
+		r.session = s
+	}
+	return r.session
+}
+
+// ResetConversation drops the current session so the next turn starts a new one.
+//
+// It exists because a conversation that carries everything forward eventually carries things
+// the user has finished with, and the honest way to leave a subject behind is to say so
+// rather than to hope the compaction forgets it.
+func (r *AppRunner) ResetConversation() {
+	r.sessionMu.Lock()
+	defer r.sessionMu.Unlock()
+	r.session = nil
+}
+
+// ConversationReport describes the conversation for the interface: how much of the window is
+// in use, how it compacts, and what the carried summary holds.
+//
+// It is exposed because a session the user cannot see is a session they cannot trust: an
+// agent whose history was folded without a word looks like one that simply forgot.
+func (r *AppRunner) ConversationReport() string {
+	r.sessionMu.Lock()
+	defer r.sessionMu.Unlock()
+	if r.session == nil {
+		return "This conversation has not started yet. Ask something in Plan mode."
+	}
+	s := r.session
+	var b strings.Builder
+	fmt.Fprintf(&b, "model       %s\n", s.Model)
+	fmt.Fprintf(&b, "context     %d tokens\n", s.Window)
+	fmt.Fprintf(&b, "in use      %d tokens (%.0f%% of the usable window)\n", s.Tokens(), s.Used()*100)
+	fmt.Fprintf(&b, "compaction  at %.0f%%, keeping the last %d messages\n", s.CompactAt*100, s.KeepRecent)
+	fmt.Fprintf(&b, "messages    %d held", s.Len())
+	if n := s.Compactions(); n > 0 {
+		fmt.Fprintf(&b, ", %d compaction(s)", n)
+	}
+	b.WriteString("\n")
+	if s.Summary() != "" {
+		b.WriteString("\n--- carried summary ---\n")
+		b.WriteString(s.Summary())
+		b.WriteString("\n")
+	}
+	return b.String()
 }
 
 func planDefaultTimeout(cfg config.Config) time.Duration {

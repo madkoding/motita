@@ -19,13 +19,13 @@ import (
 	"time"
 
 	"github.com/madkoding/starlight/internal/llm"
+	"github.com/madkoding/starlight/internal/session"
 )
 
 // Resource limits tuned for low-memory systems (i386) and for safety.
 const (
 	maxFileBytes          = 1 << 20
 	maxToolOutputBytes    = 64 << 10
-	maxHistory            = 41
 	defaultCommandTimeout = 120 * time.Second
 	defaultMaxLoops       = 5
 )
@@ -58,6 +58,18 @@ type Planner struct {
 	answer func(string)
 	// stream receives live model output (thinking fragments, tool call names).
 	stream func(string)
+
+	// session is the conversation this planner continues. Nil means "create one on
+	// first use": a planner built directly still works, and one that is handed a session
+	// keeps the same conversation across runs.
+	session *session.Session
+	// The window and the compaction policy, so a session created here honours the
+	// configuration rather than the package defaults.
+	model      string
+	window     int
+	reserve    int
+	compactAt  float64
+	keepRecent int
 }
 
 // New builds a Planner with the given engine and command runner.
@@ -112,7 +124,10 @@ func (p *Planner) WithStream(fn func(string)) *Planner {
 	return p
 }
 
-const systemPrompt = `You are Starlight, an autonomous systems agent running in read-only plan mode.
+// SystemPrompt is the instruction that opens every plan conversation. It is exported
+// because the session that carries the conversation between turns must be opened with
+// exactly this text: a second copy would drift from the one the requests actually use.
+const SystemPrompt = `You are Starlight, an autonomous systems agent running in read-only plan mode.
 
 Your identity and purpose:
 - You are not a chatbot. You are an agent that investigates the local machine, reads files, runs safe commands, and produces a concrete, actionable plan.
@@ -157,15 +172,29 @@ func (p *Planner) tools() []llm.Tool {
 	}
 }
 
-// Run starts with the system prompt, adds the user input, and loops until the
-// model delivers a final answer or the loop limit is reached.
+// Run continues the session with one instruction, looping until the model delivers a
+// final answer or the loop limit is reached.
+//
+// The conversation lives in p.session, not in a list built here. That is the difference
+// between an agent that can be asked a follow-up question and one that starts from
+// nothing every time: the earlier turns are still there, and the summary of whatever had
+// to be compacted travels with them.
+//
+// Before each request the session is given the chance to compact. Doing it HERE, at the
+// boundary, rather than after a provider error, is what keeps the agent on task: it
+// compacts while it still has room to think, instead of discovering the overflow halfway
+// through an answer and losing the thread.
 func (p *Planner) Run(ctx context.Context, input string) (string, error) {
 	if strings.TrimSpace(input) == "" {
 		return "", errors.New("the instruction is empty")
 	}
 
-	messages := []llm.Message{{Role: "system", Content: systemPrompt}}
-	messages = append(messages, llm.Message{Role: "user", Content: input})
+	sess := p.sessionFor()
+	sess.Append(llm.Message{Role: "user", Content: input})
+
+	if err := p.compactIfNeeded(ctx, sess); err != nil {
+		return "", err
+	}
 
 	// WithLoops floors the limit at one, so a planner built through New always has
 	// a usable value. A zero-value Planner skips the loop entirely and falls
@@ -174,18 +203,17 @@ func (p *Planner) Run(ctx context.Context, input string) (string, error) {
 	loops := p.maxLoops
 	for i := 1; i <= loops; i++ {
 		p.tracef("[thinking...]")
-		reply, err := p.streamTools(ctx, messages)
+		reply, err := p.streamTools(ctx, sess.Messages())
 		if err != nil {
 			return "", fmt.Errorf("could not reach the reasoning engine: %w", err)
 		}
 
 		// Assistant message carries text and/or tool calls.
-		messages = append(messages, llm.Message{
+		sess.Append(llm.Message{
 			Role:      "assistant",
 			Content:   reply.Content,
 			ToolCalls: reply.Calls,
 		})
-		messages = trimHistory(messages)
 
 		if !reply.WantsTools() {
 			return p.finalize(reply.Content), nil
@@ -193,32 +221,90 @@ func (p *Planner) Run(ctx context.Context, input string) (string, error) {
 
 		for _, tc := range reply.Calls {
 			result := p.runTool(ctx, tc)
-			messages = append(messages, llm.Message{
+			sess.Append(llm.Message{
 				Role:       "tool",
 				Content:    result,
 				ToolCallID: tc.ID,
 			})
-			messages = trimHistory(messages)
 		}
 
 		// If this was the last allowed loop, add a strong instruction to produce text.
 		if i == loops {
-			messages = append(messages, llm.Message{
+			sess.Append(llm.Message{
 				Role:    "user",
 				Content: "You have reached the tool-call limit. Now deliver the final answer as plain text. Do not call any more tools.",
 			})
-			messages = trimHistory(messages)
+		}
+
+		// The tool results are what makes a plan run grow fastest, so the check is
+		// made after each round rather than only at the start.
+		if err := p.compactIfNeeded(ctx, sess); err != nil {
+			return "", err
 		}
 	}
 
 	// Should not be reached because the last loop adds the force message, but keep as
 	// a safety net in case the model still calls tools.
 	p.tracef("[limit of %d iterations reached; forcing final answer]", p.maxLoops)
-	reply, err := p.engine.Complete(ctx, messages)
+	reply, err := p.engine.Complete(ctx, sess.Messages())
 	if err != nil {
 		return "", fmt.Errorf("could not reach the reasoning engine: %w", err)
 	}
 	return p.finalize(reply), nil
+}
+
+// sessionFor returns the conversation this planner is working in, creating one on first
+// use. A planner built without a session still works — it simply gets one per instance,
+// which for a single run is the same as owning it.
+func (p *Planner) sessionFor() *session.Session {
+	if p.session == nil {
+		// New already applied the package defaults; the policy overrides only where the
+		// configuration actually said something. Assigning zeroes here would disable the
+		// reserve and the trigger, which is the failure that lets a context overflow in
+		// silence.
+		s := session.New(p.model, SystemPrompt, p.window)
+		if p.reserve > 0 {
+			s.Reserve = p.reserve
+		}
+		if p.compactAt > 0 {
+			s.CompactAt = p.compactAt
+		}
+		if p.keepRecent > 0 {
+			s.KeepRecent = p.keepRecent
+		}
+		s.Summariser = p.engine
+		p.session = s
+	}
+	return p.session
+}
+
+// compactIfNeeded compacts before the context overflows, and reports what it did.
+//
+// Failure is returned rather than swallowed. The alternative — carrying on with a
+// context that is about to be rejected — turns a recoverable condition into a failed task
+// in the middle of an answer, which is exactly the behaviour this is meant to prevent.
+func (p *Planner) compactIfNeeded(ctx context.Context, sess *session.Session) error {
+	if !sess.NeedsCompaction() {
+		return nil
+	}
+	before := sess.Len()
+	if err := sess.Compact(ctx); err != nil {
+		return fmt.Errorf("the context is full and could not be compacted: %w", err)
+	}
+	// The interface says so: a user who sees the conversation get shorter without an
+	// explanation assumes the agent has lost its place.
+	p.tracef("[context compacted: %d messages folded into a summary, %d kept]", before-sess.Len(), sess.Len())
+	return nil
+}
+
+// Session exposes the conversation, so the caller can report on it and so a later run
+// continues in the same one.
+func (p *Planner) Session() *session.Session { return p.sessionFor() }
+
+// WithSession continues in an existing conversation instead of starting a new one.
+func (p *Planner) WithSession(s *session.Session) *Planner {
+	p.session = s
+	return p
 }
 
 func (p *Planner) tracef(format string, args ...any) {
@@ -508,20 +594,17 @@ func limitString(s string, max int) string {
 	return s[:max] + fmt.Sprintf("\n[... output truncated to %d KiB ...]", max/1024)
 }
 
-// trimHistory keeps the system prompt plus the most recent messages, dropping
-// the oldest non-system messages when the history grows too large.
-func trimHistory(messages []llm.Message) []llm.Message {
-	if len(messages) <= maxHistory {
-		return messages
-	}
-	// Keep the system prompt and the most recent maxHistory-1 messages.
-	cut := messages[len(messages)-(maxHistory-1):]
-	// Drop leading tool results that would be orphaned (no matching assistant call).
-	for len(cut) > 0 && cut[0].Role == "tool" {
-		cut = cut[1:]
-	}
-	fresh := make([]llm.Message, 0, len(cut)+1)
-	fresh = append(fresh, messages[0])
-	fresh = append(fresh, cut...)
-	return fresh
+// WithSessionPolicy configures the conversation a planner keeps: the model whose window
+// it must respect, and the compaction policy from the configuration.
+//
+// The values are applied to the session when it is created, so a session shared between
+// planners keeps the policy it was built with — which is what a conversation spanning many
+// turns needs.
+func (p *Planner) WithSessionPolicy(model string, window, reserve int, compactAt float64, keepRecent int) *Planner {
+	p.model = model
+	p.window = window
+	p.reserve = reserve
+	p.compactAt = compactAt
+	p.keepRecent = keepRecent
+	return p
 }

@@ -376,6 +376,15 @@ func (t *TUI) handleShortcut(ctx context.Context, line string) (bool, bool) {
 		// goes through the ordinary line reader, which is the same path a task takes.
 		t.openSearch()
 		return true, false
+	case "/session", "/s":
+		// The session report: the window, what is in use, and what a compaction carried.
+		// A conversation the user cannot inspect is one they cannot trust.
+		t.addPreformatted(AuthorSystem, t.Runner.ConversationReport())
+		return true, false
+	case "/new":
+		t.Runner.ResetConversation()
+		t.addMessage(AuthorSystem, "started a new session: the next question begins a fresh conversation.")
+		return true, false
 	case "/help", "/h", "h", "help", "?":
 		t.addPreformatted(AuthorSystem, helpText)
 		return true, false
@@ -1042,6 +1051,8 @@ Commands — type and Enter
   /m  models   list the catalogue
   /c  config   first-run wizard
   /r  reasoning  cycle the level
+  /s  session  context and summary
+  /new         start a new session
   /h  help     this screen
   /q  quit     leave
 `

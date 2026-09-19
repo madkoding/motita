@@ -38,15 +38,20 @@ type fakeRunner struct {
 	modelsStarted chan struct{}
 	planAnswer    string
 	planErr       error
-	taskErr       error
-	configErr     error
-	modelsErr     error
-	lastPrompt    string
-	lastTask      string
-	lastProgress  []string
-	mu            sync.Mutex
-	out           io.Writer
-	cfg           config.Config
+	// report is what ConversationReport returns, and reset records that the session
+	// was dropped. Both are fields rather than live behaviour because a fake that
+	// reached a real session would depend on the network.
+	report       string
+	reset        bool
+	taskErr      error
+	configErr    error
+	modelsErr    error
+	lastPrompt   string
+	lastTask     string
+	lastProgress []string
+	mu           sync.Mutex
+	out          io.Writer
+	cfg          config.Config
 	// cfgSet records that the test supplied a configuration of its own, which is
 	// what makes an empty provider a meaningful value rather than "unset".
 	cfgSet bool
@@ -146,6 +151,18 @@ func (f *fakeRunner) Config() config.Config {
 		f.cfg = config.Default()
 	}
 	return f.cfg
+}
+
+func (f *fakeRunner) ConversationReport() string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.report
+}
+
+func (f *fakeRunner) ResetConversation() {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.reset = true
 }
 
 func (f *fakeRunner) SetReasoning(level string) {
@@ -379,7 +396,9 @@ func TestRunModelsError(t *testing.T) {
 func TestRunHelp(t *testing.T) {
 	tui := newFakeTUI("h\nq\n", &fakeRunner{})
 	tui.Run(context.Background())
-	if !strings.Contains(outputOf(tui), "Starlight chat") {
+	// The panel is a window: the help is longer than the frame, so the assertion is on
+	// what the help actually brought to the screen, not on its opening line.
+	if !strings.Contains(outputOf(tui), "switch mode") {
 		t.Errorf("help not printed: %q", outputOf(tui))
 	}
 }

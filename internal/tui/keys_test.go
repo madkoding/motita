@@ -1476,3 +1476,63 @@ func TestCutPrefix(t *testing.T) {
 		t.Errorf("cutPrefix = (%q, %v), want (\"\", true)", rest, ok)
 	}
 }
+
+// The session commands. A conversation the user cannot inspect is one they cannot trust, and
+// a conversation they cannot leave is one they are stuck with.
+
+// TestTheSessionReportIsReachable: /s and /session both show it, and what it shows is the
+// runner's report as preformatted text — the report is a table of labelled values, and
+// re-flowing it would destroy the alignment that makes it readable.
+func TestTheSessionReportIsReachable(t *testing.T) {
+	for _, cmd := range []string{"/s", "/session"} {
+		t.Run(cmd, func(t *testing.T) {
+			runner := &fakeRunner{cfg: configWithKey("k"), cfgSet: true}
+			runner.report = "model       gpt-4o\nin use      120 tokens (2% of the usable window)\n"
+			tu, out := newKeyTUI("", "")
+			tu.Runner = runner
+			tu.Width, tu.Height = 110, 30
+
+			handled, quit := tu.handleShortcut(context.Background(), cmd)
+			if !handled || quit {
+				t.Fatalf("%s must be handled without quitting (handled=%v quit=%v)", cmd, handled, quit)
+			}
+
+			body := stripANSI(out.String())
+			if !strings.Contains(body, "gpt-4o") || !strings.Contains(body, "in use") {
+				t.Errorf("the report must be shown:\n%s", body)
+			}
+			// Preformatted: the columns survive.
+			if !strings.Contains(body, "model       gpt-4o") {
+				t.Errorf("the report must keep its alignment:\n%s", body)
+			}
+			last := tu.messages[len(tu.messages)-1]
+			if !last.Preformatted {
+				t.Error("the report must be added as preformatted text")
+			}
+		})
+	}
+}
+
+// TestANewSessionCanBeStarted: /new drops the conversation and says so, because a session
+// that resets silently looks like a crash.
+func TestANewSessionCanBeStarted(t *testing.T) {
+	runner := &fakeRunner{cfg: configWithKey("k"), cfgSet: true}
+	tu, out := newKeyTUI("", "")
+	tu.Runner = runner
+	tu.Width, tu.Height = 110, 30
+
+	handled, quit := tu.handleShortcut(context.Background(), "/new")
+	if !handled || quit {
+		t.Fatalf("/new must be handled without quitting (handled=%v quit=%v)", handled, quit)
+	}
+
+	runner.mu.Lock()
+	reset := runner.reset
+	runner.mu.Unlock()
+	if !reset {
+		t.Error("/new must reset the conversation")
+	}
+	if body := stripANSI(out.String()); !strings.Contains(body, "new session") {
+		t.Errorf("the interface must say what happened:\n%s", body)
+	}
+}

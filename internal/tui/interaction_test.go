@@ -249,7 +249,9 @@ func TestHelpListsTheCommands(t *testing.T) {
 	tui := newFakeTUI("?\nq\n", &fakeRunner{})
 	tui.Run(context.Background())
 	frame := stripANSI(lastFrame(t, tui))
-	for _, want := range []string{"Starlight chat", "task", "plan", "models", "config", "reasoning", "quit"} {
+	// The keys the help must teach. Its opening line is allowed to scroll out of the
+	// panel: a window that shows the last N rows cannot promise the first one.
+	for _, want := range []string{"switch mode", "task", "plan", "models", "config", "reasoning", "quit"} {
 		if !strings.Contains(frame, want) {
 			t.Errorf("the help must mention %q:\n%s", want, frame)
 		}
