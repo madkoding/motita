@@ -83,7 +83,7 @@ func TestAppRunnerRunPlanError(t *testing.T) {
 
 func TestAppRunnerRunTask(t *testing.T) {
 	r := NewAppRunner(&bytes.Buffer{}, &bytes.Buffer{}, config.Default(), &llm.Client{}, &sandbox.Sandbox{}, logx.Global())
-	err := r.RunTask(context.Background(), "   ", func(string, ...any) {})
+	_, err := r.RunTask(context.Background(), "   ", func(string, ...any) {})
 	if err == nil {
 		t.Error("empty task must error")
 	}
@@ -314,8 +314,12 @@ func TestAppRunnerRunTaskSuccess(t *testing.T) {
 	r.newAgent = func(config.Config, *logx.Logger, *llm.Client, *sandbox.Sandbox, taskpkg.Source) AgentRunner {
 		return &fakeAgent{}
 	}
-	if err := r.RunTask(context.Background(), "valid task", func(string, ...any) {}); err != nil {
+	result, err := r.RunTask(context.Background(), "valid task", func(string, ...any) {})
+	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
+	}
+	if result == "" {
+		t.Fatal("expected a result string from a successful task")
 	}
 }
 
@@ -344,5 +348,5 @@ func TestAppRunnerRunPlanWithFakeAgent(t *testing.T) {
 
 type fakeAgent struct{}
 
-func (fakeAgent) Run(context.Context) error                               { return nil }
-func (fakeAgent) RunCommand(context.Context, string) (string, int, error) { return "", 0, nil }
+func (fakeAgent) Run(context.Context) error                                      { return nil }
+func (fakeAgent) RunCommand(context.Context, string) (string, int, error)          { return "", 0, nil }

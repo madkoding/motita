@@ -235,30 +235,35 @@ func (t *TUI) runTask(ctx context.Context, task string) {
 	t.cancelRun = cancel
 	t.runningCtx = runCtx
 
-	done := make(chan error, 1)
+	type runOutcome struct {
+		result string
+		err    error
+	}
+	done := make(chan runOutcome, 1)
 	go func() {
-		done <- t.Runner.RunTask(runCtx, task, func(format string, args ...any) {
+		res, err := t.Runner.RunTask(runCtx, task, func(format string, args ...any) {
 			select {
 			case progress <- fmt.Sprintf(format, args...):
 			case <-runCtx.Done():
 			}
 		})
+		done <- runOutcome{result: res, err: err}
 	}()
 
 	t.addMessage(AuthorAgent, "thinking...")
 	pendingIdx := len(t.messages) - 1
 
-	var err error
+	var outcome runOutcome
 loop:
 	for {
 		select {
 		case p := <-progress:
 			t.messages[pendingIdx].Text = p
 			t.drawFrame()
-		case err = <-done:
+		case outcome = <-done:
 			break loop
 		case <-runCtx.Done():
-			err = runCtx.Err()
+			outcome = runOutcome{err: runCtx.Err()}
 			break loop
 		}
 	}
@@ -266,12 +271,14 @@ loop:
 	t.cancelRun = nil
 	t.runningCtx = nil
 
-	if err != nil {
-		if err == context.Canceled {
+	if outcome.err != nil {
+		if outcome.err == context.Canceled {
 			t.messages[pendingIdx].Text = "cancelled."
 		} else {
-			t.messages[pendingIdx].Text = fmt.Sprintf("error: %v", err)
+			t.messages[pendingIdx].Text = fmt.Sprintf("error: %v", outcome.err)
 		}
+	} else if outcome.result != "" {
+		t.messages[pendingIdx].Text = outcome.result
 	} else {
 		t.messages[pendingIdx].Text = "done."
 	}

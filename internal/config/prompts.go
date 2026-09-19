@@ -76,12 +76,14 @@ var BaseExecuteTemplate = Template{
 Return a JSON object with this exact shape:
 {
   "reasoning": "why this action fulfils the task",
+  "summary": "the concrete answer for the user: what was found, produced, changed or verified. Be specific and cite real values.",
   "actions": [
     {"kind": "command", "description": "what it does", "command": "exact shell command"}
   ],
   "final_action": {"description": "commit, submission or save planned", "command": "exact command or empty"}
 }
 Rules:
+- "summary" is the answer the user will read. It must be factual and complete.
 - "actions" are the steps that produce the result; they will be run isolated.
 - "final_action" runs ONLY if the validation passes; if it does not apply, leave
   the command as "" and describe why.

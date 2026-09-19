@@ -45,7 +45,7 @@ func (f *fakeRunner) RunPlan(ctx context.Context, prompt string, progress func(s
 	return f.planAnswer, nil
 }
 
-func (f *fakeRunner) RunTask(ctx context.Context, task string, progress func(string, ...any)) error {
+func (f *fakeRunner) RunTask(ctx context.Context, task string, progress func(string, ...any)) (string, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.taskCalled = true
@@ -53,7 +53,10 @@ func (f *fakeRunner) RunTask(ctx context.Context, task string, progress func(str
 	if progress != nil {
 		progress("working...")
 	}
-	return f.taskErr
+	if f.taskErr != nil {
+		return "", f.taskErr
+	}
+	return "completed: mock result", nil
 }
 
 func (f *fakeRunner) RunConfig(ctx context.Context) error {
@@ -126,6 +129,9 @@ func TestRunTaskByDefault(t *testing.T) {
 	if runner.lastTask != "my task" {
 		t.Errorf("task = %q", runner.lastTask)
 	}
+	if !strings.Contains(outputOf(tui), "completed: mock result") {
+		t.Errorf("task result not shown: %q", outputOf(tui))
+	}
 }
 
 func TestRunTaskEmptyThenQuit(t *testing.T) {
@@ -158,6 +164,9 @@ func TestSwitchToPlanAndBack(t *testing.T) {
 	}
 	if !runner.taskCalled {
 		t.Fatal("RunTask was not called after switching back")
+	}
+	if !strings.Contains(outputOf(tui), "completed: mock result") {
+		t.Errorf("task result not shown after switching back: %q", outputOf(tui))
 	}
 }
 

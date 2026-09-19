@@ -27,8 +27,9 @@ type Runner interface {
 	// Progress lines are sent through the callback.
 	RunPlan(ctx context.Context, prompt string, progress func(string, ...any)) (string, error)
 	// RunTask runs the agent in task mode with the given task description.
-	// Progress lines are sent through the callback.
-	RunTask(ctx context.Context, task string, progress func(string, ...any)) error
+	// It returns a human-readable summary of the result. Progress lines are sent
+	// through the callback.
+	RunTask(ctx context.Context, task string, progress func(string, ...any)) (string, error)
 	// RunConfig runs the onboarding wizard.
 	RunConfig(ctx context.Context) error
 	// RunModels reports the active provider and the models it publishes.
@@ -132,21 +133,40 @@ func planDefaultLoops(cfg config.Config) int {
 	return 5
 }
 
-// RunTask runs the agent with a single text task.
-func (r *AppRunner) RunTask(ctx context.Context, task string, progress func(string, ...any)) error {
+// RunTask runs the agent with a single text task and returns a human-readable summary.
+func (r *AppRunner) RunTask(ctx context.Context, task string, progress func(string, ...any)) (string, error) {
 	engine, err := r.engine()
 	if err != nil {
-		return err
+		return "", err
 	}
 	source, err := taskpkg.NewText(task, "tui")
 	if err != nil {
-		return err
+		return "", err
 	}
+	var result string
 	ag := r.newAgent(r.Cfg, r.Log, engine, r.Box, source)
 	if a, ok := ag.(*agent.Agent); ok {
 		a.Progress = progress
+		a.SetObserver(func(tr agent.TaskResult) {
+			if tr.Pass && tr.Summary != "" {
+				result = tr.Summary
+			} else if tr.Pass {
+				result = fmt.Sprintf("completed: %s", tr.Reason)
+				if tr.FinalAction != "" && tr.FinalAction != "none" {
+					result += fmt.Sprintf(" (final action: %s)", tr.FinalAction)
+				}
+			} else {
+				result = fmt.Sprintf("failed: %s", tr.Reason)
+			}
+		})
 	}
-	return ag.Run(ctx)
+	if err := ag.Run(ctx); err != nil {
+		return result, err
+	}
+	if result == "" {
+		return "task finished with no result reported", nil
+	}
+	return result, nil
 }
 
 // RunConfig runs the first-run configuration wizard.

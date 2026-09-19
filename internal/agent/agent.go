@@ -64,6 +64,14 @@ type Agent struct {
 	Observer func(TaskResult)
 }
 
+// SetObserver allows external callers (such as the TUI) to register a callback
+// that receives the task result when it is produced. It is the same hook as the
+// Observer field; the method exists so interfaces that wrap *agent.Agent can
+// expose the hook without exporting the field itself.
+func (a *Agent) SetObserver(fn func(TaskResult)) {
+	a.Observer = fn
+}
+
 // New builds the agent with all of its dependencies already constructed.
 func New(cfg config.Config, log *logx.Logger, engine *llm.Client, box *sandbox.Sandbox, source task.Source) *Agent {
 	if log == nil {
@@ -129,11 +137,14 @@ type Step struct {
 	Command string `json:"command"`
 }
 
-// Action is what phase [6] returns.
+// Action is the structured output of phase [6].
 type Action struct {
 	Reasoning string    `json:"reasoning"`
 	Actions   []Command `json:"actions"`
 	Final     Command   `json:"final_action"`
+	// Summary is the human-readable answer to the task, produced after the model
+	// has reasoned and chosen the actions. It is what the TUI shows to the user.
+	Summary string `json:"summary"`
 }
 
 // Command is an executable action.
@@ -153,6 +164,8 @@ type TaskResult struct {
 	Validation  *anchor.Result `json:"validation,omitempty"`
 	FinalAction string         `json:"final_action,omitempty"`
 	Reason      string         `json:"reason"`
+	// Summary is a human-readable answer produced by the model and shown in the UI.
+	Summary string `json:"summary,omitempty"`
 }
 
 // --- Main loop --------------------------------------------------------------
@@ -397,8 +410,12 @@ func (a *Agent) loop(ctx context.Context, t task.Task, depth int) TaskResult {
 			}
 			res.Pass = true
 			res.Reason = validation.Reason
+			res.Summary = action.Summary
 			res.DurationMS = time.Since(start).Milliseconds()
 			a.report("task complete: %s", validation.Reason)
+			if action.Summary != "" {
+				a.report("%s", action.Summary)
+			}
 			a.log.Info(prefix+"validation passed", "attempt", attempt, "final_action", finalAction)
 			return res
 		}
