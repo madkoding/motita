@@ -150,7 +150,11 @@ func (p *Planner) Run(ctx context.Context, input string) (string, error) {
 	messages := []llm.Message{{Role: "system", Content: systemPrompt}}
 	messages = append(messages, llm.Message{Role: "user", Content: input})
 
-	for i := 1; i <= p.maxLoops; i++ {
+	loops := p.maxLoops
+	if loops < 1 {
+		loops = 1
+	}
+	for i := 1; i <= loops; i++ {
 		p.tracef("[thinking...]")
 		reply, err := p.engine.CompleteTools(ctx, messages, p.tools())
 		if err != nil {
@@ -178,9 +182,19 @@ func (p *Planner) Run(ctx context.Context, input string) (string, error) {
 			})
 			messages = trimHistory(messages)
 		}
+
+		// If this was the last allowed loop, add a strong instruction to produce text.
+		if i == loops {
+			messages = append(messages, llm.Message{
+				Role:    "user",
+				Content: "You have reached the tool-call limit. Now deliver the final answer as plain text. Do not call any more tools.",
+			})
+			messages = trimHistory(messages)
+		}
 	}
 
-	// Loop limit reached: force a final text answer with no tools.
+	// Should not be reached because the last loop adds the force message, but keep as
+	// a safety net in case the model still calls tools.
 	p.tracef("[limit of %d iterations reached; forcing final answer]", p.maxLoops)
 	reply, err := p.engine.Complete(ctx, messages)
 	if err != nil {
