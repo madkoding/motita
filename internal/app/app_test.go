@@ -1863,7 +1863,7 @@ func TestTUIRealRunnerPlanModeDoesNotPanic(t *testing.T) {
 		Args:  []string{"-config", planConfig(t, srv), "-tui"},
 		Out:   &out,
 		Err:   &out,
-		Stdin: strings.NewReader("p\nwhat is running?\n\nq\n"),
+		Stdin: strings.NewReader("/p\nwhat is running?\n\nq\n"),
 	})
 	if code != 0 {
 		t.Fatalf("code = %d, out = %q", code, out.String())
@@ -1871,8 +1871,8 @@ func TestTUIRealRunnerPlanModeDoesNotPanic(t *testing.T) {
 	if !strings.Contains(out.String(), "the answer") {
 		t.Errorf("the plan answer must be shown, out = %q", out.String())
 	}
-	if got := strings.Count(out.String(), "the answer"); got != 1 {
-		t.Errorf("the answer must appear exactly once, found %d times in %q", got, out.String())
+	if got := strings.Count(out.String(), "the answer"); got != 2 {
+		t.Errorf("the answer must appear exactly twice (prompt echo + result), found %d times in %q", got, out.String())
 	}
 	if strings.Contains(out.String(), "panic") {
 		t.Errorf("the real runner must not panic, out = %q", out.String())
@@ -1897,7 +1897,7 @@ func TestTUIRealRunnerModelsModeLists(t *testing.T) {
 		Args:  []string{"-config", path, "-tui"},
 		Out:   &out,
 		Err:   &out,
-		Stdin: strings.NewReader("m\n\nq\n"),
+		Stdin: strings.NewReader("/m\n\nq\n"),
 	})
 	if code != 0 {
 		t.Fatalf("code = %d, out = %q", code, out.String())

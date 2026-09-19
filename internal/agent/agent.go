@@ -47,6 +47,10 @@ type Agent struct {
 	source  task.Source
 	http    *http.Client
 
+	// Progress, if set, receives human-readable updates such as "analysing..." or
+	// "running: git status". It is used by the TUI to keep the user informed.
+	Progress func(format string, args ...any)
+
 	// ExecCommand is the agent's command execution point. By default it uses the
 	// sandbox (Layer C); it is injected so actions that depend on external
 	// programs (git_commit, for instance) can be tested without depending on the
@@ -152,6 +156,13 @@ type TaskResult struct {
 }
 
 // --- Main loop --------------------------------------------------------------
+
+// report sends a progress line to the conversational UI when one is attached.
+func (a *Agent) report(format string, args ...any) {
+	if a.Progress != nil {
+		a.Progress(format, args...)
+	}
+}
 
 // Run processes tasks from the source until it is exhausted (io.EOF) or the
 // context is cancelled (graceful shutdown).
@@ -285,16 +296,20 @@ func (a *Agent) loop(ctx context.Context, t task.Task, depth int) TaskResult {
 	rules := a.describeRules()
 
 	// [3] Analysis.
+	a.report("analysing the task...")
 	analysis := a.analysisPhase(ctx, t, rules, depth)
 	if !analysis.Understandable {
 		res.Reason = "the task was declared not understandable: " + strings.Join(analysis.Risks, "; ")
 		res.DurationMS = time.Since(start).Milliseconds()
-		a.log.Warn(prefix+"task not understandable, discarded", "reason", res.Reason)
+		a.report("task not understandable: %s", res.Reason)
 		return res
 	}
+	a.report("understood: %s", analysis.Summary)
 
 	// [4] Plan.
+	a.report("planning...")
 	plan := a.planPhase(ctx, t, analysis, depth)
+	a.report("plan ready: %d steps", len(plan.Steps))
 
 	// [5] Splitting into subtasks: each one re-enters the same flow, one level
 	// further down. The limit is respected to avoid infinite recursion.
@@ -343,34 +358,34 @@ func (a *Agent) loop(ctx context.Context, t task.Task, depth int) TaskResult {
 		res.Attempts = attempt
 
 		// [6] The LLM proposes the concrete action.
+		a.report("deciding action (attempt %d/%d)...", attempt, a.cfg.Agent.MaxRetries+1)
 		action, err := a.actionPhase(ctx, t, plan, failedAttempts, attempt, prefix)
 		if err != nil {
 			res.Reason = "could not obtain the action from the LLM: " + err.Error()
 			res.DurationMS = time.Since(start).Milliseconds()
+			a.report("failed to get an action: %v", err)
 			a.escalate(ctx, prefix)
 			return res
 		}
+		a.report("action: %s", truncate(action.Reasoning, 120))
 
 		// [7] Run in the sandbox.
 		runOutput, runErr := a.runActions(ctx, action.Actions, prefix)
 
-		// [8] Validate with the anchor, always. The anchor runs even when the
-		// execution failed, because its job is to describe the real state of the
-		// system, not to opine about what the agent did.
+		// [8] Validate with the anchor, always.
+		a.report("validating with anchor...")
 		validation := anchor.New(a.cfg.Anchor, a.cfg.Agent.WorkspaceDir, a.sandbox).Validate(ctx)
 		res.Validation = &validation
 
 		if validation.Pass && runErr == nil {
-			// [9] Validation PASS: now the final action, which is also part of
-			// the contract (commit, publish, notify). If the final action fails,
-			// the task is NOT complete: reporting "completed" while the commit or
-			// the publication failed would be exactly the kind of false success
-			// this architecture exists to prevent.
+			// [9] Validation PASS: now the final action.
+			a.report("validation passed; running final action...")
 			finalAction, finalErr := a.runFinalAction(ctx, action.Final, prefix)
 			res.FinalAction = finalAction
 			if finalErr != nil {
 				detail := fmt.Sprintf("validation passed but the final action failed: %v\nOutput: %s", finalErr, finalAction)
 				failedAttempts = append(failedAttempts, detail)
+				a.report("final action failed: %v", finalErr)
 				a.log.Error(prefix+"final action failed", "attempt", attempt, "final_action", finalAction, "error", finalErr)
 				if attempt > a.cfg.Agent.MaxRetries {
 					res.Reason = detail
@@ -383,6 +398,7 @@ func (a *Agent) loop(ctx context.Context, t task.Task, depth int) TaskResult {
 			res.Pass = true
 			res.Reason = validation.Reason
 			res.DurationMS = time.Since(start).Milliseconds()
+			a.report("task complete: %s", validation.Reason)
 			a.log.Info(prefix+"validation passed", "attempt", attempt, "final_action", finalAction)
 			return res
 		}
@@ -390,6 +406,7 @@ func (a *Agent) loop(ctx context.Context, t task.Task, depth int) TaskResult {
 		// FAIL: the records are accumulated so the LLM can correct with data.
 		detail := a.summariseFailure(action, runOutput, validation, runErr)
 		failedAttempts = append(failedAttempts, detail)
+		a.report("attempt failed: %s", validation.Reason)
 		a.log.Warn(prefix+"attempt failed",
 			"attempt", attempt, "max_attempts", a.cfg.Agent.MaxRetries+1,
 			"validation", validation.Reason)
@@ -402,6 +419,7 @@ func (a *Agent) loop(ctx context.Context, t task.Task, depth int) TaskResult {
 	// Attempts exhausted: escalate.
 	res.Reason = fmt.Sprintf("all %d attempts were exhausted without passing validation", a.cfg.Agent.MaxRetries+1)
 	res.DurationMS = time.Since(start).Milliseconds()
+	a.report("%s", res.Reason)
 	a.escalate(ctx, prefix)
 	return res
 }
@@ -578,6 +596,7 @@ func (a *Agent) runActions(ctx context.Context, actions []Command, prefix string
 			a.log.Debug(prefix+"action with no command (descriptive)", "description", action.Description)
 			continue
 		}
+		a.report("running: %s", action.Command)
 		a.log.Info(prefix+"running in sandbox", "n", i+1, "command", action.Command, "description", truncate(action.Description, 120))
 
 		// How the action is executed depends on the mode, and it is the difference

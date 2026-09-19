@@ -83,7 +83,7 @@ func TestAppRunnerRunPlanError(t *testing.T) {
 
 func TestAppRunnerRunTask(t *testing.T) {
 	r := NewAppRunner(&bytes.Buffer{}, &bytes.Buffer{}, config.Default(), &llm.Client{}, &sandbox.Sandbox{}, logx.Global())
-	err := r.RunTask(context.Background(), "   ")
+	err := r.RunTask(context.Background(), "   ", func(string, ...any) {})
 	if err == nil {
 		t.Error("empty task must error")
 	}
@@ -314,7 +314,7 @@ func TestAppRunnerRunTaskSuccess(t *testing.T) {
 	r.newAgent = func(config.Config, *logx.Logger, *llm.Client, *sandbox.Sandbox, taskpkg.Source) AgentRunner {
 		return &fakeAgent{}
 	}
-	if err := r.RunTask(context.Background(), "valid task"); err != nil {
+	if err := r.RunTask(context.Background(), "valid task", func(string, ...any) {}); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }

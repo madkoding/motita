@@ -1,12 +1,15 @@
 // Package tui implements the interactive text-based user interface.
 //
-// It deliberately avoids raw terminal mode: the program prints a menu, the user
-// types a number/letter and presses Enter, and the chosen action runs. This makes
-// the whole package testable with bytes.Buffer and portable across every target
-// platform without termios or console API code.
+// It is deliberately built with the Go standard library only: no termios, no
+// curses, no raw mode. The screen is redrawn in full frames so the whole flow
+// is testable with bytes.Buffer and portable to every target platform.
 //
-// Ctrl+C (SIGINT) is handled through the context: the caller cancels the context and
-// the TUI returns immediately instead of blocking on stdin.
+// The interface is a conversational chat: the user types tasks or prompts at
+// the bottom and the agent answers above, showing what it is doing in plain
+// English (or Spanish) instead of JSON log lines.
+//
+// Ctrl+C (SIGINT, SIGTERM) is handled through the context: the caller cancels
+// the context and the TUI returns immediately.
 package tui
 
 import (
@@ -16,78 +19,83 @@ import (
 	"io"
 	"os"
 	"strings"
+	"sync"
 )
 
 // Exit codes returned by the TUI.
 const (
-	// ExitSuccess: the user exited normally (q, e, EOF).
-	ExitSuccess = 0
-	// ExitError: an action failed.
-	ExitError = 1
-	// ExitInterrupted: the context was cancelled (Ctrl+C, SIGTERM).
+	ExitSuccess     = 0
+	ExitError       = 1
 	ExitInterrupted = 2
 )
 
-// MenuOption identifies one of the main menu entries.
-type MenuOption int
+// Author identifies who wrote a chat line.
+type Author int
 
 const (
-	OptionPlan MenuOption = iota
-	OptionTask
-	OptionConfig
-	OptionModels
-	OptionHelp
-	OptionExit
+	AuthorUser Author = iota
+	AuthorAgent
+	AuthorSystem
 )
 
-func (m MenuOption) String() string {
-	switch m {
-	case OptionPlan:
-		return "Plan mode"
-	case OptionTask:
-		return "Task mode"
-	case OptionConfig:
-		return "Configuration"
-	case OptionModels:
-		return "Models & providers"
-	case OptionHelp:
-		return "Help"
-	case OptionExit:
-		return "Exit"
+func (a Author) String() string {
+	switch a {
+	case AuthorUser:
+		return "you"
+	case AuthorAgent:
+		return "starlight"
+	case AuthorSystem:
+		return "system"
 	}
-	panic("unknown menu option")
+	return "?"
 }
 
-// Key returns the one-letter shortcut for the option.
-func (m MenuOption) Key() string {
-	switch m {
-	case OptionPlan:
-		return "p"
-	case OptionTask:
-		return "t"
-	case OptionConfig:
-		return "c"
-	case OptionModels:
-		return "m"
-	case OptionHelp:
-		return "h"
-	case OptionExit:
-		return "e"
+// Screen is one of the main views.
+type Screen int
+
+const (
+	ScreenTask Screen = iota
+	ScreenPlan
+	ScreenModels
+	ScreenConfig
+)
+
+func (s Screen) String() string {
+	switch s {
+	case ScreenTask:
+		return "Task"
+	case ScreenPlan:
+		return "Plan"
+	case ScreenModels:
+		return "Models"
+	case ScreenConfig:
+		return "Config"
 	}
-	panic("unknown menu option")
+	return "?"
 }
 
-// menuOptions is the ordered list of main menu entries.
-var menuOptions = []MenuOption{OptionPlan, OptionTask, OptionConfig, OptionModels, OptionHelp, OptionExit}
+var screenOrder = []Screen{ScreenTask, ScreenPlan, ScreenModels, ScreenConfig}
 
-// TUI is the terminal user interface.
+// Message is one line in the conversation.
+type Message struct {
+	Author  Author
+	Text    string
+	Pending bool // true while the agent is still producing this line
+}
+
+// TUI is the conversational terminal user interface.
 type TUI struct {
 	In      io.Reader
 	Out     io.Writer
 	Err     io.Writer
 	Runner  Runner
 	NoColor bool
-	reader  *bufio.Reader
+
+	screen     Screen
+	messages   []Message
+	reader     *bufio.Reader
+	cancelRun  context.CancelFunc
+	runningCtx context.Context
 }
 
 // New creates a TUI with sensible defaults for production use.
@@ -97,6 +105,7 @@ func New(runner Runner) *TUI {
 		Out:    os.Stdout,
 		Err:    os.Stderr,
 		Runner: runner,
+		screen: ScreenTask,
 	}
 }
 
@@ -107,179 +116,295 @@ func (t *TUI) input() *bufio.Reader {
 	return t.reader
 }
 
-// Run displays the main menu and dispatches the selected action.
-// It returns ExitInterrupted if ctx is cancelled while waiting for input.
+// Run displays the chat and dispatches user input until the user quits or the
+// context is cancelled.
 func (t *TUI) Run(ctx context.Context) int {
-	t.clearScreen()
+	t.drawFrame()
 	for {
-		t.drawMenu()
-		choice, ok := t.readChoice(ctx)
+		line, ok := t.readLine(ctx)
 		if !ok {
-			// Distinguish EOF (clean exit) from a cancelled context (Ctrl+C).
 			if ctx.Err() != nil {
 				return ExitInterrupted
 			}
 			return ExitSuccess
 		}
-		act, _ := t.actionFor(choice)
-		if act == nil {
-			t.printLine(t.color(1, 0, "Unknown option. Press Enter to continue..."))
-			t.waitEnter(ctx)
-			t.clearScreen()
+
+		// Global shortcuts are checked before interpreting the line as chat.
+		if handled, quit := t.handleShortcut(ctx, line); handled {
+			if quit {
+				return ExitSuccess
+			}
 			continue
 		}
-		t.clearScreen()
-		act(ctx, t)
-		t.clearScreen()
-	}
-}
 
-func (t *TUI) drawMenu() {
-	t.printTitle("Starlight")
-	for i, opt := range menuOptions {
-		mark := "  "
-		if i == 0 {
-			mark = "> "
-		}
-		label := fmt.Sprintf("[%s] %s", opt.Key(), opt.String())
-		fmt.Fprintf(t.Out, "%s%s\n", mark, label)
-	}
-	t.printFooter("Type a letter/number and press Enter, or q to quit")
-}
-
-func (t *TUI) readChoice(ctx context.Context) (string, bool) {
-	t.printPrompt("choice")
-	return t.readLine(ctx)
-}
-
-func (t *TUI) actionFor(choice string) (actionFunc, int) {
-	choice = strings.ToLower(choice)
-	if choice == "q" || choice == "quit" || choice == "exit" {
-		return func(context.Context, *TUI) {}, -1
-	}
-	for i, opt := range menuOptions {
-		if choice == opt.Key() || choice == fmt.Sprint(i+1) {
-			return opt.action(), i
+		switch t.screen {
+		case ScreenTask:
+			t.runTask(ctx, line)
+		case ScreenPlan:
+			t.runPlan(ctx, line)
+		case ScreenModels:
+			t.runModels(ctx)
+		case ScreenConfig:
+			t.runConfig(ctx)
 		}
 	}
-	return nil, -1
 }
 
-// actionFunc is the signature of a menu action.
-type actionFunc func(context.Context, *TUI)
+// handleShortcut interprets command-like input and view-switching keys.
+// It returns (handled, shouldQuit).
+func (t *TUI) handleShortcut(ctx context.Context, line string) (bool, bool) {
+	trimmed := strings.TrimSpace(strings.ToLower(line))
 
-func (m MenuOption) action() actionFunc {
-	switch m {
-	case OptionPlan:
-		return runPlan
-	case OptionTask:
-		return runTask
-	case OptionConfig:
-		return runConfig
-	case OptionModels:
-		return runModels
-	case OptionHelp:
-		return runHelp
-	case OptionExit:
-		return func(context.Context, *TUI) {}
+	switch trimmed {
+	case "q", "quit", "/quit", "/q":
+		return true, true
+	case "tab", "	":
+		t.nextScreen()
+		return true, false
+	case "/task", "/t":
+		t.setScreen(ScreenTask)
+		return true, false
+	case "/plan", "/p":
+		t.setScreen(ScreenPlan)
+		return true, false
+	case "/models", "/m":
+		t.setScreen(ScreenModels)
+		return true, false
+	case "/config", "/c":
+		t.setScreen(ScreenConfig)
+		return true, false
+	case "/reasoning", "/r":
+		t.cycleReasoning()
+		return true, false
+	case "/help", "/h", "h", "help":
+		t.addMessage(AuthorSystem, helpText)
+		return true, false
 	}
-	panic("unknown menu option")
+	return false, false
 }
 
-func (t *TUI) printTitle(s string) {
-	fmt.Fprintf(t.Out, "%s\n\n", t.color(1, 0, s))
-}
-
-func (t *TUI) printFooter(s string) {
-	fmt.Fprintf(t.Out, "%s\n", t.color(2, 0, s))
-}
-
-func (t *TUI) printPrompt(label string) {
-	fmt.Fprintf(t.Out, "%s: ", t.color(7, 0, label))
-}
-
-func (t *TUI) printLine(s string) {
-	fmt.Fprintln(t.Out, s)
-}
-
-func (t *TUI) clearScreen() {
-	fmt.Fprint(t.Out, "\x1b[2J\x1b[H")
-}
-
-// color returns a colored string using the 16-color ANSI palette.
-func (t *TUI) color(fg, bg int, s string) string {
-	if t.NoColor {
-		return s
+func (t *TUI) nextScreen() {
+	idx := 0
+	for i, s := range screenOrder {
+		if s == t.screen {
+			idx = i
+			break
+		}
 	}
-	if bg == 0 {
-		return fmt.Sprintf("\x1b[%dm%s\x1b[0m", 30+fg, s)
-	}
-	return fmt.Sprintf("\x1b[%d;%dm%s\x1b[0m", 30+fg, 40+bg, s)
+	t.setScreen(screenOrder[(idx+1)%len(screenOrder)])
 }
 
-func runPlan(ctx context.Context, t *TUI) {
-	t.printPrompt("Prompt")
-	prompt, ok := t.readLine(ctx)
-	if !ok {
-		return
-	}
-	if strings.TrimSpace(prompt) == "" {
-		t.printLine("(empty prompt)")
-		t.waitEnter(ctx)
-		return
-	}
-	trace := func(format string, args ...any) {
-		fmt.Fprintf(t.Err, format+"\n", args...)
-	}
-	// The runner writes the answer to Out itself. Printing it here as well is what
-	// produced the answer twice on screen.
-	if _, err := t.Runner.RunPlan(ctx, prompt, trace); err != nil {
-		fmt.Fprintf(t.Err, "\nerror: %v\n", err)
-	}
-	t.waitEnter(ctx)
+func (t *TUI) setScreen(s Screen) {
+	t.screen = s
+	t.drawFrame()
 }
 
-func runTask(ctx context.Context, t *TUI) {
-	t.printPrompt("Task")
-	task, ok := t.readLine(ctx)
-	if !ok {
-		return
+func (t *TUI) cycleReasoning() {
+	levels := []string{"off", "low", "medium", "high"}
+	current := strings.ToLower(t.Runner.Config().LLM.Reasoning.Level)
+	if current == "" {
+		current = "medium"
 	}
+	nextIdx := 0
+	for i, l := range levels {
+		if l == current {
+			nextIdx = (i + 1) % len(levels)
+			break
+		}
+	}
+	next := levels[nextIdx]
+	t.Runner.SetReasoning(next)
+	t.addMessage(AuthorSystem, fmt.Sprintf("reasoning set to %s", next))
+	t.drawFrame()
+}
+
+func (t *TUI) runTask(ctx context.Context, task string) {
 	if strings.TrimSpace(task) == "" {
-		t.printLine("(empty task)")
-		t.waitEnter(ctx)
+		t.drawFrame()
 		return
 	}
-	if err := t.Runner.RunTask(ctx, task); err != nil {
-		fmt.Fprintf(t.Err, "\nerror: %v\n", err)
+	t.addMessage(AuthorUser, task)
+
+	// Cancel any previous run before starting a new one.
+	if t.cancelRun != nil {
+		t.cancelRun()
 	}
-	t.waitEnter(ctx)
+
+	progress := make(chan string, 16)
+	runCtx, cancel := context.WithCancel(ctx)
+	t.cancelRun = cancel
+	t.runningCtx = runCtx
+
+	done := make(chan error, 1)
+	go func() {
+		done <- t.Runner.RunTask(runCtx, task, func(format string, args ...any) {
+			select {
+			case progress <- fmt.Sprintf(format, args...):
+			case <-runCtx.Done():
+			}
+		})
+	}()
+
+	t.addMessage(AuthorAgent, "thinking...")
+	pendingIdx := len(t.messages) - 1
+
+	var err error
+loop:
+	for {
+		select {
+		case p := <-progress:
+			t.messages[pendingIdx].Text = p
+			t.drawFrame()
+		case err = <-done:
+			break loop
+		case <-runCtx.Done():
+			err = runCtx.Err()
+			break loop
+		}
+	}
+
+	t.cancelRun = nil
+	t.runningCtx = nil
+
+	if err != nil {
+		if err == context.Canceled {
+			t.messages[pendingIdx].Text = "cancelled."
+		} else {
+			t.messages[pendingIdx].Text = fmt.Sprintf("error: %v", err)
+		}
+	} else {
+		t.messages[pendingIdx].Text = "done."
+	}
+	t.messages[pendingIdx].Pending = false
+	t.drawFrame()
 }
 
-func runConfig(ctx context.Context, t *TUI) {
-	if err := t.Runner.RunConfig(ctx); err != nil {
-		fmt.Fprintf(t.Err, "\nerror: %v\n", err)
+func (t *TUI) runPlan(ctx context.Context, prompt string) {
+	if strings.TrimSpace(prompt) == "" {
+		t.drawFrame()
+		return
 	}
-	t.waitEnter(ctx)
+	t.addMessage(AuthorUser, prompt)
+
+	if t.cancelRun != nil {
+		t.cancelRun()
+	}
+
+	progress := make(chan string, 16)
+	runCtx, cancel := context.WithCancel(ctx)
+	t.cancelRun = cancel
+	t.runningCtx = runCtx
+
+	done := make(chan struct {
+		answer string
+		err    error
+	}, 1)
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		answer, err := t.Runner.RunPlan(runCtx, prompt, func(format string, args ...any) {
+			select {
+			case progress <- fmt.Sprintf(format, args...):
+			case <-runCtx.Done():
+			}
+		})
+		done <- struct {
+			answer string
+			err    error
+		}{answer, err}
+	}()
+
+	t.addMessage(AuthorAgent, "thinking...")
+	pendingIdx := len(t.messages) - 1
+
+	var result struct {
+		answer string
+		err    error
+	}
+loop:
+	for {
+		select {
+		case p, ok := <-progress:
+			if !ok {
+				break loop
+			}
+			t.messages[pendingIdx].Text = p
+			t.drawFrame()
+		case r, ok := <-done:
+			if !ok {
+				break loop
+			}
+			result = r
+			break loop
+		case <-runCtx.Done():
+			result.err = runCtx.Err()
+			break loop
+		}
+	}
+	wg.Wait()
+	close(done)
+
+	// Drain any trailing progress after completion/cancellation without blocking.
+	select {
+	case p := <-progress:
+		t.messages[pendingIdx].Text = p
+	default:
+	}
+
+	t.cancelRun = nil
+	t.runningCtx = nil
+
+	if result.err != nil {
+		if result.err == context.Canceled {
+			t.messages[pendingIdx].Text = "cancelled."
+		} else {
+			t.messages[pendingIdx].Text = fmt.Sprintf("error: %v", result.err)
+		}
+	} else if result.answer != "" {
+		t.messages[pendingIdx].Text = result.answer
+	} else {
+		t.messages[pendingIdx].Text = "done."
+	}
+	t.messages[pendingIdx].Pending = false
+	t.drawFrame()
 }
 
-// runModels shows the active provider and the catalogue it publishes, so the
-// user can check what is reachable before starting a task. The key is never
-// printed: only whether it is present.
-func runModels(ctx context.Context, t *TUI) {
+func (t *TUI) runModels(ctx context.Context) {
+	t.addMessage(AuthorSystem, "fetching models...")
+	pendingIdx := len(t.messages) - 1
+	t.drawFrame()
+
 	if err := t.Runner.RunModels(ctx); err != nil {
-		fmt.Fprintf(t.Err, "\nerror: %v\n", err)
+		t.messages[pendingIdx].Text = fmt.Sprintf("models error: %v", err)
+	} else {
+		t.messages[pendingIdx].Text = "models listed above."
 	}
-	t.waitEnter(ctx)
+	t.messages[pendingIdx].Pending = false
+	t.drawFrame()
 }
 
-func runHelp(ctx context.Context, t *TUI) {
-	fmt.Fprint(t.Out, "\n"+helpText)
-	t.waitEnter(ctx)
+func (t *TUI) runConfig(ctx context.Context) {
+	t.addMessage(AuthorSystem, "running configuration wizard...")
+	pendingIdx := len(t.messages) - 1
+	t.drawFrame()
+
+	if err := t.Runner.RunConfig(ctx); err != nil {
+		t.messages[pendingIdx].Text = fmt.Sprintf("config error: %v", err)
+	} else {
+		t.messages[pendingIdx].Text = "configuration saved."
+	}
+	t.messages[pendingIdx].Pending = false
+	t.drawFrame()
+}
+
+func (t *TUI) addMessage(author Author, text string) {
+	t.messages = append(t.messages, Message{Author: author, Text: text, Pending: author == AuthorAgent && text == "thinking..."})
+	t.drawFrame()
 }
 
 // readLine reads one line from the input. It returns ok=false on EOF or when
-// the context is cancelled, so Ctrl+C does not leave the TUI stuck.
+// the context is cancelled.
 func (t *TUI) readLine(ctx context.Context) (string, bool) {
 	ch := make(chan lineResult, 1)
 	go func() {
@@ -293,9 +418,6 @@ func (t *TUI) readLine(ctx context.Context) (string, bool) {
 		}
 		return strings.TrimSpace(r.line), true
 	case <-ctx.Done():
-		// The goroutine will finish when ReadString returns. On a real terminal
-		// that may be after the user presses Enter, but the process is exiting
-		// anyway because of the signal.
 		go func() { <-ch }()
 		return "", false
 	}
@@ -306,47 +428,17 @@ type lineResult struct {
 	err  error
 }
 
-func (t *TUI) waitEnter(ctx context.Context) {
-	fmt.Fprintf(t.Out, "\n%s", t.color(2, 0, "Press Enter to return to the menu..."))
-	buf := make([]byte, 1)
-	for {
-		ch := make(chan readResult, 1)
-		go func() {
-			n, err := t.In.Read(buf)
-			ch <- readResult{n: n, err: err}
-		}()
-		select {
-		case r := <-ch:
-			if r.err != nil {
-				return
-			}
-			if buf[0] == '\r' || buf[0] == '\n' {
-				return
-			}
-		case <-ctx.Done():
-			go func() { <-ch }()
-			return
-		}
-	}
-}
+const helpText = `Starlight chat
 
-type readResult struct {
-	n   int
-	err error
-}
+Global shortcuts (type the letter/word and press Enter):
+  t / task        switch to Task mode
+  p / plan        switch to Plan mode
+  m / models      list available models
+  c / config      run the configuration wizard
+  r / reasoning   cycle reasoning level (off/low/medium/high)
+  h / help        show this help
+  q / quit        leave
 
-const helpText = `Starlight interactive menu
-
-How to use:
-  p / 1    Plan mode      read-only exploration, then deliver a plan
-  t / 2    Task mode      run a task through the 3-layer agent
-  c / 3    Configuration  run the onboarding wizard
-  m / 4    Models         show the provider and the models it offers
-  h / 5    Help           show this help
-  e / 6    Exit           leave the TUI
-  q        Quit           leave the TUI
-
-The TUI is shown by default when the binary is started with no arguments
-and no configured task. Use -tui to force it, or -plan/-task to bypass it.
-Ctrl+C (or any context cancellation) exits the TUI with code 2.
+Task mode runs the 3-layer agent. Plan mode only explains what it would do.
+Ctrl+C cancels the current run and returns to the prompt.
 `

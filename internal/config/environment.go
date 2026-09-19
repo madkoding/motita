@@ -110,6 +110,17 @@ func ApplyEnvironment(c *Config) error {
 	if c.LLM.BackoffMax, err = readDuration("STARLIGHT_LLM_BACKOFF_MAX", c.LLM.BackoffMax); err != nil {
 		return err
 	}
+	if v := strings.ToLower(readText("STARLIGHT_LLM_REASONING_ENABLED", "")); v != "" {
+		c.LLM.Reasoning.Enabled = v == "true" || v == "yes" || v == "1" || v == "on"
+	}
+	if v := strings.ToLower(readText("STARLIGHT_LLM_REASONING_LEVEL", c.LLM.Reasoning.Level)); v != "" {
+		switch v {
+		case "off", "low", "medium", "high":
+			c.LLM.Reasoning.Level = v
+		default:
+			return fmt.Errorf("STARLIGHT_LLM_REASONING_LEVEL must be one of: off, low, medium, high")
+		}
+	}
 
 	// --- final_action ---
 	c.FinalAction.Kind = readText("STARLIGHT_FINAL_ACTION_KIND", c.FinalAction.Kind)

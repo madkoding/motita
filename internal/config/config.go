@@ -93,6 +93,20 @@ type LLM struct {
 	MaxAttempts    int           `yaml:"max_attempts"`
 	BackoffInitial time.Duration `yaml:"backoff_initial"`
 	BackoffMax     time.Duration `yaml:"backoff_max"`
+	Reasoning      Reasoning     `yaml:"reasoning"`
+}
+
+// Reasoning controls whether and how hard the model thinks before answering.
+// Providers map the level to their own parameters:
+//   - openai/o1/o3 and deepseek: reasoning_effort (low/medium/high)
+//   - anthropic: thinking budget_tokens
+//   - gemini: thinkingBudget
+//   - ollama: passes reasoning_effort through the OpenAI-compatible endpoint
+//
+// If a provider does not support reasoning, the value is ignored.
+type Reasoning struct {
+	Enabled bool   `yaml:"enabled"`
+	Level   string `yaml:"level"` // off, low, medium, high
 }
 
 // Template is a prompt with {{name}} variables.
@@ -281,6 +295,16 @@ func (c *Config) validate(requireKey bool) error {
 	c.Anchor.Kind = normalize(c.Anchor.Kind)
 	c.Sandbox.Kind = normalize(c.Sandbox.Kind)
 	c.LLM.Provider = normalize(c.LLM.Provider)
+	c.LLM.Reasoning.Level = strings.ToLower(strings.TrimSpace(c.LLM.Reasoning.Level))
+	if c.LLM.Reasoning.Level == "" {
+		c.LLM.Reasoning.Level = "medium"
+	}
+	if c.LLM.Reasoning.Enabled && c.LLM.Reasoning.Level == "off" {
+		c.LLM.Reasoning.Level = "medium"
+	}
+	if !c.LLM.Reasoning.Enabled && c.LLM.Reasoning.Level != "" && c.LLM.Reasoning.Level != "off" {
+		c.LLM.Reasoning.Enabled = true
+	}
 	c.FinalAction.Kind = normalize(c.FinalAction.Kind)
 	c.Agent.LogLevel = normalize(c.Agent.LogLevel)
 

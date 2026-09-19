@@ -24,13 +24,19 @@ import (
 // this interface so tests can inject fake implementations.
 type Runner interface {
 	// RunPlan runs the read-only plan mode with the given user prompt.
-	RunPlan(ctx context.Context, prompt string, trace func(string, ...any)) (string, error)
+	// Progress lines are sent through the callback.
+	RunPlan(ctx context.Context, prompt string, progress func(string, ...any)) (string, error)
 	// RunTask runs the agent in task mode with the given task description.
-	RunTask(ctx context.Context, task string) error
+	// Progress lines are sent through the callback.
+	RunTask(ctx context.Context, task string, progress func(string, ...any)) error
 	// RunConfig runs the onboarding wizard.
 	RunConfig(ctx context.Context) error
 	// RunModels reports the active provider and the models it publishes.
 	RunModels(ctx context.Context) error
+	// Config returns the current configuration (used for the status bar).
+	Config() config.Config
+	// SetReasoning changes the in-memory reasoning level.
+	SetReasoning(level string)
 }
 
 // AgentRunner is the subset of *agent.Agent that the TUI needs.
@@ -70,6 +76,15 @@ func NewAppRunner(out, errs io.Writer, cfg config.Config, engine *llm.Client, bo
 	}
 }
 
+// Config returns the current configuration.
+func (r *AppRunner) Config() config.Config { return r.Cfg }
+
+// SetReasoning changes the in-memory reasoning level.
+func (r *AppRunner) SetReasoning(level string) {
+	r.Cfg.LLM.Reasoning.Level = level
+	r.Cfg.LLM.Reasoning.Enabled = level != "off"
+}
+
 // engine returns the injected engine if it exists, otherwise it builds one from
 // the current configuration. This lets the TUI start with no engine (for
 // example when there is no configuration file yet) and still run plan/task when
@@ -82,7 +97,7 @@ func (r *AppRunner) engine() (*llm.Client, error) {
 }
 
 // RunPlan executes the read-only planner and writes the final answer to Out.
-func (r *AppRunner) RunPlan(ctx context.Context, prompt string, trace func(string, ...any)) (string, error) {
+func (r *AppRunner) RunPlan(ctx context.Context, prompt string, progress func(string, ...any)) (string, error) {
 	engine, err := r.engine()
 	if err != nil {
 		return "", err
@@ -93,7 +108,8 @@ func (r *AppRunner) RunPlan(ctx context.Context, prompt string, trace func(strin
 	planner := plan.New(engine, ag).
 		WithTimeout(planDefaultTimeout(r.Cfg)).
 		WithLoops(planDefaultLoops(r.Cfg)).
-		WithTrace(trace)
+		WithTrace(progress).
+		WithAnswer(func(s string) { fmt.Fprintln(r.Out, s) })
 	answer, err := planner.Run(ctx, prompt)
 	if err != nil {
 		return "", err
@@ -117,7 +133,7 @@ func planDefaultLoops(cfg config.Config) int {
 }
 
 // RunTask runs the agent with a single text task.
-func (r *AppRunner) RunTask(ctx context.Context, task string) error {
+func (r *AppRunner) RunTask(ctx context.Context, task string, progress func(string, ...any)) error {
 	engine, err := r.engine()
 	if err != nil {
 		return err
@@ -127,6 +143,9 @@ func (r *AppRunner) RunTask(ctx context.Context, task string) error {
 		return err
 	}
 	ag := r.newAgent(r.Cfg, r.Log, engine, r.Box, source)
+	if a, ok := ag.(*agent.Agent); ok {
+		a.Progress = progress
+	}
 	return ag.Run(ctx)
 }
 

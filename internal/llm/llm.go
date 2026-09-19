@@ -376,6 +376,9 @@ func (c *Client) callOpenAI(ctx context.Context, messages []Message) (string, er
 		"max_tokens":  c.cfg.MaxTokens,
 		"temperature": c.cfg.Temperature,
 	}
+	if c.cfg.Reasoning.Enabled && c.cfg.Reasoning.Level != "off" {
+		body["reasoning_effort"] = c.cfg.Reasoning.Level
+	}
 	url := c.baseURL("https://api.openai.com/v1") + "/chat/completions"
 	headers := map[string]string{"Authorization": "Bearer " + c.cfg.APIKey}
 
@@ -403,6 +406,9 @@ func (c *Client) callOpenAITools(ctx context.Context, messages []Message, tools 
 		"tools":       tools,
 		"max_tokens":  c.cfg.MaxTokens,
 		"temperature": c.cfg.Temperature,
+	}
+	if c.cfg.Reasoning.Enabled && c.cfg.Reasoning.Level != "off" {
+		body["reasoning_effort"] = c.cfg.Reasoning.Level
 	}
 	url := c.baseURL("https://api.openai.com/v1") + "/chat/completions"
 	headers := map[string]string{"Authorization": "Bearer " + c.cfg.APIKey}
