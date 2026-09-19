@@ -142,9 +142,6 @@ type Action struct {
 	Reasoning string    `json:"reasoning"`
 	Actions   []Command `json:"actions"`
 	Final     Command   `json:"final_action"`
-	// Summary is the human-readable answer to the task, produced after the model
-	// has reasoned and chosen the actions. It is what the TUI shows to the user.
-	Summary string `json:"summary"`
 }
 
 // Command is an executable action.
@@ -410,11 +407,15 @@ func (a *Agent) loop(ctx context.Context, t task.Task, depth int) TaskResult {
 			}
 			res.Pass = true
 			res.Reason = validation.Reason
-			res.Summary = action.Summary
 			res.DurationMS = time.Since(start).Milliseconds()
 			a.report("task complete: %s", validation.Reason)
-			if action.Summary != "" {
-				a.report("%s", action.Summary)
+			if a.cfg.Prompts.Synthesize.User != "" && a.cfg.Prompts.Synthesize.System != "" {
+				a.report("synthesizing answer...")
+				summary := a.synthesizePhase(ctx, t, runOutput, validation)
+				if summary != "" {
+					res.Summary = summary
+					a.report("%s", summary)
+				}
 			}
 			a.log.Info(prefix+"validation passed", "attempt", attempt, "final_action", finalAction)
 			return res
@@ -515,6 +516,28 @@ func (a *Agent) actionPhase(ctx context.Context, t task.Task, plan Plan, failure
 	}
 	a.log.Info(prefix+"action proposed", "reasoning", truncate(action.Reasoning, 200), "actions", len(action.Actions))
 	return action, nil
+}
+
+// synthesizePhase asks the LLM for a concise, evidence-based answer after the
+// actions have run and the anchor has validated them.
+func (a *Agent) synthesizePhase(ctx context.Context, t task.Task, output string, validation anchor.Result) string {
+	vars := a.baseVariables(t)
+	vars["output"] = truncate(output, 4000)
+	vars["validation"] = validation.Reason
+
+	text, err := a.ask(ctx, a.cfg.Prompts.Synthesize, vars, "synthesize")
+	if err != nil {
+		a.log.Warn("synthesis phase failed", "error", err)
+		return ""
+	}
+	var reply struct {
+		Summary string `json:"summary"`
+	}
+	if err := llm.DecodeJSON(text, &reply); err != nil {
+		a.log.Warn("synthesis response has an unexpected format", "error", err, "response", truncate(text, 300))
+		return ""
+	}
+	return strings.TrimSpace(reply.Summary)
 }
 
 // ask renders the prompt and calls the LLM, logging any variables that were

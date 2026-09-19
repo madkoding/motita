@@ -76,17 +76,36 @@ var BaseExecuteTemplate = Template{
 Return a JSON object with this exact shape:
 {
   "reasoning": "why this action fulfils the task",
-  "summary": "the concrete answer for the user: what was found, produced, changed or verified. Be specific and cite real values.",
   "actions": [
     {"kind": "command", "description": "what it does", "command": "exact shell command"}
   ],
   "final_action": {"description": "commit, submission or save planned", "command": "exact command or empty"}
 }
 Rules:
-- "summary" is the answer the user will read. It must be factual and complete.
 - "actions" are the steps that produce the result; they will be run isolated.
 - "final_action" runs ONLY if the validation passes; if it does not apply, leave
   the command as "" and describe why.
 - If an attempt failed before, correct it from the logs; do not repeat the same
   action expecting a different result.`,
+}
+
+// BaseSynthesizeTemplate asks for the final, evidence-based answer to the user
+// after the actions have run and the validation has passed.
+var BaseSynthesizeTemplate = Template{
+	System: `You are the final summarizer of an autonomous agent. You receive the exact output of the commands the agent already ran. Your only job is to answer the user's task using that evidence. Do not explain what you would do; the work is already done.`,
+	User: `## TASK
+{{task}}
+
+## EXECUTED ACTIONS AND THEIR OUTPUT
+{{output}}
+
+## VALIDATION RESULT
+{{validation}}
+
+## FINAL ANSWER
+Return a JSON object with this exact shape:
+{
+  "summary": "the concrete answer for the user, written as if you are answering directly. Include real numbers, names, paths, or facts from the output above. Keep it short."
+}
+Use only the evidence above. If the output is empty, say so explicitly.`,
 }

@@ -1340,6 +1340,8 @@ func TestExecutePromptCarriesTheAttemptNumber(t *testing.T) {
 			content = `{"understandable":true,"summary":"x","needs_subtasks":false}`
 		case strings.Contains(text, "## ACTION PLAN"):
 			content = `{"plan":[]}`
+		case strings.Contains(text, "## FINAL ANSWER"):
+			content = `{"summary":"test"}`
 		default:
 			calls++
 			executePrompt = text

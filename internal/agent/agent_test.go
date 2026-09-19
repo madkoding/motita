@@ -68,6 +68,16 @@ func (s *fakeLLMServer) handler(t *testing.T) http.HandlerFunc {
 			s.phases = append(s.phases, "plan")
 			fmt.Fprint(w, `{"choices":[{"message":{"content":"{\"plan\":[{\"step\":1,\"action\":\"create file\",\"command\":\"create.txt\"}],\"subtasks\":[],\"expected_result\":\"file created\"}"}}]}`)
 
+		case strings.Contains(text, "## FINAL ANSWER"):
+			s.phases = append(s.phases, "synthesize")
+			response := map[string]any{"summary": "synthesized test answer"}
+			data, _ := json.Marshal(map[string]any{
+				"choices": []any{map[string]any{
+					"message": map[string]string{"content": mustJSON(response)},
+				}},
+			})
+			w.Write(data)
+
 		case strings.Contains(text, "## ACTION"):
 			s.phases = append(s.phases, "execute")
 			n := 0
@@ -205,10 +215,14 @@ func TestFullLoopPASSFirstAttempt(t *testing.T) {
 	if result.Attempts != 1 {
 		t.Errorf("attempts = %d", result.Attempts)
 	}
-	// All three phases must have been used, in order.
+	// The main phases must have been used, in order, and synthesis may follow.
 	expected := []string{"analyze", "plan", "execute"}
-	if strings.Join(fake.phases, ",") != strings.Join(expected, ",") {
-		t.Errorf("phases = %v, expected %v", fake.phases, expected)
+	gotPrefix := fake.phases
+	if len(gotPrefix) > len(expected) {
+		gotPrefix = gotPrefix[:len(expected)]
+	}
+	if strings.Join(gotPrefix, ",") != strings.Join(expected, ",") {
+		t.Errorf("phases = %v, expected prefix %v", fake.phases, expected)
 	}
 	// The anchor must have seen the effect: the agent's loop and the sandbox's
 	// write to the same working directory.
