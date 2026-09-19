@@ -661,17 +661,11 @@ func noColour(getenv func(string) string, out io.Writer) bool {
 	case "dumb", "":
 		return true
 	}
-	if f, ok := out.(*os.File); ok {
-		info, err := f.Stat()
-		if err != nil {
-			return true
-		}
-		return info.Mode()&os.ModeCharDevice == 0
-	}
-	// Not a file at all: a buffer, a pipe, a writer an embedder supplied. Nothing
-	// on the other side is known to interpret escapes, and sending them to a log
-	// would leave the sequences as literal noise, so colour stays off.
-	return true
+	// The question "is anything watching that can interpret escapes" is answered in one
+	// place, tui.IsTerminal, and asked from both the colour decision and the mouse
+	// feature. Two implementations of it drifted apart once already: the mouse code had
+	// its own copy under a different name.
+	return !tui.IsTerminal(out)
 }
 
 // runPlan runs the read-only plan/chat mode. It uses the reasoning engine and the

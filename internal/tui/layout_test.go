@@ -211,10 +211,14 @@ func TestHintLinesDropFromTheTail(t *testing.T) {
 				t.Errorf("width %d: hint line %q is %d columns", w, stripANSI(l), got)
 			}
 		}
-		if w >= 120 {
+		// The hints are dropped from the TAIL as the terminal narrows, so at the widest
+		// supported size the first ones must be present and none may be a fragment. The
+		// last one is the one that goes first, which is why this asserts the property
+		// rather than a specific hint: adding a new hint above it is not a regression.
+		if w == maxWidth {
 			joined := stripANSI(strings.Join(lines, "\n"))
-			if !strings.Contains(joined, "quit") {
-				t.Errorf("a wide terminal must show every hint:\n%s", joined)
+			if !strings.Contains(joined, "mode") || !strings.Contains(joined, "find") {
+				t.Errorf("a terminal at the maximum width must show the leading hints:\n%s", joined)
 			}
 		}
 	}
@@ -226,6 +230,39 @@ func TestHintLinesDropFromTheTail(t *testing.T) {
 		return
 	} else if visibleLen(stripANSI(lines[0])) > 10 {
 		t.Errorf("hint line %q overflows 10 columns", stripANSI(lines[0]))
+	}
+}
+
+// TestEveryHintFitsAtTheMaximumWidth: the footer list has to be reachable in full at
+// some supported width, or the hints at the end are truncated everywhere and might as
+// well not be advertised. This is the invariant that caught a list which had grown past
+// every possible terminal — the last two hints were unreachable no matter how wide the
+// window was.
+//
+// It asserts the property rather than a hard-coded list, so adding a hint is allowed as
+// long as the whole set still fits.
+func TestEveryHintFitsAtTheMaximumWidth(t *testing.T) {
+	tui := newFakeTUI("q\n", &fakeRunner{})
+	lines := tui.hintLines(maxWidth)
+	joined := stripANSI(strings.Join(lines, "\n"))
+
+	// The advertised keys are read back from the source of truth (the rendered line)
+	// rather than listed here, so the test cannot drift from what is shipped.
+	advertised := strings.Count(joined, glyphMid) + 1
+	if advertised < 4 {
+		t.Errorf("the footer advertises only %d hints, which is too few to be useful:\n%s", advertised, joined)
+	}
+	// Every one of them has to be a real binding, checked elsewhere; here the question
+	// is whether the whole line fits.
+	if got := visibleLen(joined); got > maxWidth {
+		t.Errorf("the hint line is %d columns, past the cap of %d:\n%s", got, maxWidth, joined)
+	}
+	// And the essential ones are present at the maximum width: navigation, search and
+	// the two ways out. Losing any of these would make the interface undiscoverable.
+	for _, want := range []string{"scroll", "find", "help", "quit"} {
+		if !strings.Contains(joined, want) {
+			t.Errorf("the footer must advertise %q at the maximum width:\n%s", want, joined)
+		}
 	}
 }
 

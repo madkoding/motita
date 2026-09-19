@@ -120,6 +120,12 @@ type TUI struct {
 	// is held — rendering outside the lock and writing inside it would still race on
 	// Width, scroll and messages. -race caught exactly that.
 	draw sync.Mutex
+	// query filters the conversation; searching is true while the user is typing it.
+	//
+	// Both are view state: they describe what is being looked at, not what the session
+	// contains, so neither is persisted and neither survives a new turn's scroll reset.
+	query     string
+	searching bool
 	// scroll is how many rows the conversation is lifted above its newest line.
 	// Zero means "pinned to the bottom", which is where a chat belongs: new
 	// output arrives at the end. Raising it walks back through history, which is
@@ -181,6 +187,12 @@ func (t *TUI) Run(ctx context.Context) int {
 	// The painter is waited for on the way out: stop closes the notification channel,
 	// the loop ends, and only then does Run return. A paint still in flight would
 	// otherwise write a frame over the shell prompt after the interface had exited.
+	// The mouse is requested for the duration of the run and released on the way out. A
+	// terminal left in reporting mode would send movement events to the shell after the
+	// program exits, which is the same class of rudeness as leaving the cursor hidden.
+	t.enableMouse()
+	defer t.disableMouse()
+
 	resized, stopWatch := watchResize()
 	var painting sync.WaitGroup
 	painting.Add(1)
@@ -202,6 +214,13 @@ func (t *TUI) Run(ctx context.Context) int {
 				return ExitInterrupted
 			}
 			return ExitSuccess
+		}
+
+		// While the search is open the input belongs to it: a line typed there is a
+		// query, not a task, and running it would be a surprise nobody asked for.
+		if t.searching {
+			t.applyQuery(line)
+			continue
 		}
 
 		// Global shortcuts are checked before interpreting the line as chat.
@@ -249,9 +268,12 @@ func (t *TUI) handleShortcut(ctx context.Context, line string) (bool, bool) {
 		t.nextScreen()
 		return true, false
 	case keyEsc:
-		// Escape is the universal way out. There are no overlays yet, so it
-		// cancels a run in flight and otherwise returns the view to the bottom,
-		// which is the state the user can always expect to get back to.
+		// Escape is the universal way out, and it leaves in the reverse order of how
+		// the interface was entered: the search first, then a run, then the scroll.
+		if t.searching || t.query != "" {
+			t.closeSearch()
+			return true, false
+		}
 		if t.cancelRun != nil {
 			t.cancelRun()
 			return true, false
@@ -282,6 +304,18 @@ func (t *TUI) handleShortcut(ctx context.Context, line string) (bool, bool) {
 	case keyHalfDown:
 		t.scrollBy(-t.chatRows() / 2)
 		return true, false
+	case keyFind:
+		t.openSearch()
+		return true, false
+	}
+
+	// A mouse report is a CSI sequence like any other, so it arrives here intact. The
+	// wheel scrolls; anything else the terminal reports (a click, a drag, a release) is
+	// accepted and ignored, because the keyboard is the interface and the mouse is an
+	// addition to it.
+	if lines, ok := mouseScroll(line); ok {
+		t.scrollBy(lines)
+		return true, false
 	}
 
 	// Shift+G is checked against the raw line, before the lowercasing below: the
@@ -294,6 +328,14 @@ func (t *TUI) handleShortcut(ctx context.Context, line string) (bool, bool) {
 	}
 
 	trimmed := strings.TrimSpace(strings.ToLower(line))
+
+	// "/find <text>" applies a filter in one line, which is what a user reaches for when
+	// the Ctrl+F shortcut is swallowed by their terminal. Checked before the switch
+	// because it carries an argument.
+	if rest, ok := cutPrefix(trimmed, "/find "); ok {
+		t.applyFind(strings.TrimSpace(rest))
+		return true, false
+	}
 
 	switch trimmed {
 	case "q", "quit", "/quit", "/q":
@@ -327,11 +369,94 @@ func (t *TUI) handleShortcut(ctx context.Context, line string) (bool, bool) {
 	case "/reasoning", "/r":
 		t.cycleReasoning()
 		return true, false
+	case "/find", "/f":
+		// A typed alternative to Ctrl+F, and the one that works everywhere: a terminal
+		// in canonical mode consumes control bytes itself (Ctrl+U is the driver's
+		// kill-line, Ctrl+D its EOF), so the shortcut cannot be relied on. The command
+		// goes through the ordinary line reader, which is the same path a task takes.
+		t.openSearch()
+		return true, false
 	case "/help", "/h", "h", "help", "?":
 		t.addPreformatted(AuthorSystem, helpText)
 		return true, false
 	}
 	return false, false
+}
+
+// cutPrefix is strings.CutPrefix spelled locally, so the behaviour does not depend on
+// the toolchain's standard library version.
+func cutPrefix(s, prefix string) (string, bool) {
+	if len(s) >= len(prefix) && s[:len(prefix)] == prefix {
+		return s[len(prefix):], true
+	}
+	return "", false
+}
+
+// applyFind filters the conversation in one step, without leaving the search box open.
+// It is the typed form of the search: the filter is applied and the box is closed, so
+// the next line typed is a task again.
+func (t *TUI) applyFind(query string) {
+	if query == "" {
+		t.openSearch()
+		return
+	}
+	t.query = query
+	t.searching = false
+	t.scroll = 0
+	t.drawFrame()
+}
+
+// openSearch puts the interface into search mode. It is a mode rather than a prefix
+// argument because the query is built a character at a time and the result is visible
+// while it is typed.
+func (t *TUI) openSearch() {
+	t.searching = true
+	t.scroll = 0 // a new filter is read from its start
+	t.drawFrame()
+}
+
+// applyQuery updates the filter with a line of input.
+//
+// An empty line closes the search and keeps the filter: pressing Enter on an empty
+// query means "leave it as it is", which is how a reader confirms a filter they are
+// happy with. Esc is the way to clear it.
+func (t *TUI) applyQuery(line string) {
+	if strings.TrimSpace(line) == "" {
+		t.searching = false
+		t.drawFrame()
+		return
+	}
+	t.query = strings.TrimSpace(line)
+	t.scroll = 0
+	t.drawFrame()
+}
+
+// closeSearch leaves search mode and clears the filter, restoring the whole
+// conversation. Leaving a filter applied with no visible sign of it would hide the
+// user's own history from them.
+func (t *TUI) closeSearch() {
+	t.searching = false
+	t.query = ""
+	t.scroll = 0
+	t.drawFrame()
+}
+
+// matchingMessages is the conversation narrowed by the active query, or all of it when
+// there is none. Matching is case-insensitive and covers the speaker as well as the
+// text, so "you" finds the user's turns.
+func (t *TUI) matchingMessages() []Message {
+	if t.query == "" {
+		return t.visibleMessages()
+	}
+	needle := strings.ToLower(t.query)
+	var out []Message
+	for _, m := range t.visibleMessages() {
+		if strings.Contains(strings.ToLower(m.Text), needle) ||
+			strings.Contains(strings.ToLower(m.Author.String()), needle) {
+			out = append(out, m)
+		}
+	}
+	return out
 }
 
 // chatRows is the distance a page key moves: the number of conversation rows the
@@ -794,6 +919,10 @@ const (
 	// answer without losing their place the way a full page does.
 	keyHalfUp   = "\x15" // Ctrl+U
 	keyHalfDown = "\x04" // Ctrl+D
+	// Search follows the vim convention the interaction guide lists: `/` opens it, Esc
+	// leaves it. `/` is taken by the mode shortcuts, so Ctrl+F opens it instead — the
+	// guide's own alternative binding for the same action.
+	keyFind = "\x06" // Ctrl+F
 )
 
 // readLine reads one line from the input. It returns ok=false on EOF or when the
@@ -821,9 +950,9 @@ func (t *TUI) readLine(ctx context.Context) (string, bool) {
 	if head == 0x1b {
 		return t.readEscape(), true
 	}
-	// The half-page control bytes are keys, not text: returning them stops them
-	// being typed into the prompt and then swallowed by the trim below.
-	if head == 0x15 || head == 0x04 {
+	// The control bytes are keys, not text: returning them stops them being typed into
+	// the prompt and then swallowed by the trim below.
+	if head == 0x15 || head == 0x04 || head == 0x06 {
 		return string(head), true
 	}
 	if head == '\n' || head == '\r' {
@@ -900,7 +1029,11 @@ Navigation — no Enter needed
   PgUp/PgDn    scroll one page
   Ctrl+U/D     scroll half a page
   g/G          oldest / newest
-  Esc          cancel the run
+  Ctrl+F       search the chat (a terminal
+               in canonical mode eats it)
+  /find text   the same search, typed
+  wheel        scroll, if reported
+  Esc          search / cancel / bottom
   Ctrl+C       cancel and leave
 
 Commands — type and Enter

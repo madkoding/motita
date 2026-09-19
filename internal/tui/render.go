@@ -496,9 +496,17 @@ func (t *TUI) chatLines(inner int) []string {
 	if len(t.messages) == 0 {
 		return t.emptyState(inner)
 	}
-	msgs := t.visibleMessages()
+	msgs := t.matchingMessages()
+
+	// A filter that matches nothing is a dead end unless the interface says so and
+	// says how to leave: the guide's rule for an empty state is an explanation plus an
+	// action, and "no matches" with no way out would look like a hang.
+	if len(msgs) == 0 {
+		return t.noMatches(inner)
+	}
+
 	var lines []string
-	if len(t.messages) > len(msgs) {
+	if len(t.messages) > len(msgs) && t.query == "" {
 		lines = append(lines, t.cell(t.muted(fmt.Sprintf("... %d earlier messages", len(t.messages)-len(msgs))), inner))
 	}
 	for i, m := range msgs {
@@ -508,6 +516,42 @@ func (t *TUI) chatLines(inner int) []string {
 		lines = append(lines, t.messageLines(m, inner)...)
 	}
 	return lines
+}
+
+// noMatches is the filtered-to-empty state: what was searched, and the two keys that
+// get the user back. It is deliberately not the same screen as "nothing asked yet" —
+// one means "start", the other means "widen your search".
+func (t *TUI) noMatches(inner int) []string {
+	lines := []string{t.cell("", inner)}
+	for _, l := range []string{
+		fmt.Sprintf("No line matches %q", t.query),
+		"",
+		"Ctrl+F  search again",
+		"Esc     show the whole conversation",
+	} {
+		lines = append(lines, t.cell(t.muted(l), inner))
+	}
+	return append(lines, t.cell("", inner))
+}
+
+// searchBar is the prompt row while the search is open. It replaces the mode prompt so
+// the user can see what they are typing into: a search that looks like a chat prompt
+// invites a task to be typed into it.
+func (t *TUI) searchBar() string {
+	// The two facts are independent: a filter can be applied while the box is open for
+	// editing it. Showing only one of them is what made the applied filter invisible.
+	prompt := "  " + t.color(colAccent, 0, "find") + t.muted(" > ")
+	if t.query == "" {
+		return prompt
+	}
+	// A filter that is applied but not being edited still has to be visible, or the user
+	// cannot tell why their history looks short.
+	n := len(t.matchingMessages())
+	label := strconv.Quote(t.query) + "  " + strconv.Itoa(n) + " lines  "
+	if !t.searching {
+		label += "[Ctrl+F edit  Esc clear]  "
+	}
+	return "  " + t.muted("filter ") + t.color(colAccent, 0, label) + prompt
 }
 
 // emptyState is a designed first screen, not a blank one: it says what the view
@@ -634,15 +678,48 @@ func phaseLabel(text string) (string, bool) {
 }
 
 // railLines wraps body text and puts it on the rail, padded to the panel.
+//
+// While a filter is active the match is highlighted in place. The guide asks for it by
+// name — "highlight matches in the filtered content" — and it is what makes a filtered
+// view readable: without it the user sees lines that match but not why.
 func (t *TUI) railLines(text string, inner int, fg, railCol int) []string {
 	if strings.TrimSpace(text) == "" {
 		return nil
 	}
 	var lines []string
 	for _, l := range wordWrap(text, inner-4) {
-		lines = append(lines, t.cell(t.color(railCol, 0, glyphRail+" ")+t.color(fg, 0, l), inner))
+		body := t.color(fg, 0, l)
+		if t.query != "" {
+			body = t.highlight(l, fg)
+		}
+		lines = append(lines, t.cell(t.color(railCol, 0, glyphRail+" ")+body, inner))
 	}
 	return lines
+}
+
+// highlight marks every occurrence of the query inside a line, keeping the rest in the
+// surrounding colour. The search is case-insensitive, so the match is located on the
+// lowercased copy and the ORIGINAL text is emitted — colouring a lowercased copy would
+// silently rewrite what the user asked the agent.
+func (t *TUI) highlight(line string, fg int) string {
+	needle := strings.ToLower(t.query)
+	lower := strings.ToLower(line)
+	if needle == "" || !strings.Contains(lower, needle) {
+		return t.color(fg, 0, line)
+	}
+	var b strings.Builder
+	for {
+		i := strings.Index(lower, needle)
+		if i < 0 {
+			b.WriteString(t.color(fg, 0, line))
+			break
+		}
+		b.WriteString(t.color(fg, 0, line[:i]))
+		b.WriteString(t.color(0, colAccent, line[i:i+len(needle)]))
+		line = line[i+len(needle):]
+		lower = lower[i+len(needle):]
+	}
+	return b.String()
 }
 
 // tabsLine shows the four modes. The active one is a filled block: the strongest
@@ -664,19 +741,21 @@ func (t *TUI) tabsLine(w int) string {
 // its meaning muted. Hints that do not fit are dropped, never wrapped: a hint that
 // is cut in half reads as a different key.
 //
-// Every hint here is a binding the handler accepts, and the test asserts exactly
-// that: a footer advertising a key that does nothing is a lie the user finds
-// within seconds. Order is by how often the key is needed, so the ones that get
-// dropped first are the least used.
+// Every hint here is a binding the handler accepts, and the test asserts exactly that:
+// a footer advertising a key that does nothing is a lie the user finds in seconds.
+//
+// The list is deliberately SHORT and covers only the keys a user needs before they know
+// the interface: the navigation keys and the two ways out. The mode shortcuts are in the
+// help screen instead. That is not tidiness — a longer list was silently truncated at
+// every supported width, so the hints at the end were unreachable no matter how wide the
+// terminal was, which is worse than not advertising them at all. A test asserts the
+// whole list fits within the width cap, so adding a hint that breaks that fails the
+// build instead of quietly dropping the last one.
 func (t *TUI) hintLines(w int) []string {
 	hints := [][2]string{
 		{"Tab", "mode"},
-		{"/t", "task"},
-		{"/p", "plan"},
-		{"/m", "models"},
-		{"/c", "config"},
-		{"/r", "reasoning"},
 		{"j/k", "scroll"},
+		{"^F", "find"},
 		{"?", "help"},
 		{"q", "quit"},
 	}
@@ -702,6 +781,9 @@ func (t *TUI) hintLines(w int) []string {
 // promptLine is the input prompt: the last line of the frame, with the cursor
 // left right after it.
 func (t *TUI) promptLine() string {
+	if t.searching || t.query != "" {
+		return t.searchBar()
+	}
 	return "  " + t.color(colBrand, 0, t.screen.String()) + t.muted(" > ")
 }
 
