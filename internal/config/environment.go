@@ -25,7 +25,6 @@ func ApplyEnvironment(c *Config) error {
 	if c.CRT.Enabled, err = readBool("STARLIGHT_CRT_ENABLED", c.CRT.Enabled); err != nil {
 		return err
 	}
-	c.CRT.Color = readText("STARLIGHT_CRT_COLOR", c.CRT.Color)
 	if c.CRT.Typewriter, err = readBool("STARLIGHT_CRT_TYPEWRITER", c.CRT.Typewriter); err != nil {
 		return err
 	}

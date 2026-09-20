@@ -46,34 +46,81 @@ func TestNilEffectLeavesTheTextAlone(t *testing.T) {
 	}
 }
 
-// --- the phosphor -----------------------------------------------------------
+// --- the sweep --------------------------------------------------------------
 
-// The text is drawn in the phosphor, and the interface's own colours are dropped: keeping them
-// inside a green screen would look like a bug.
-func TestTheTextIsDrawnInThePhosphor(t *testing.T) {
+// The text is drawn in the typewriter sweep, and the interface's own colours are dropped:
+// keeping them inside a grey block would look like a bug.
+func TestTheTextIsDrawnInTheSweep(t *testing.T) {
 	c := crtFor(t, nil)
 	got := c.paint("\x1b[36;47mhola\x1b[0m mundo")
 	if !strings.Contains(got, "\x1b[38;2;") {
-		t.Fatalf("the text should carry true-colour phosphor, got %q", got)
+		t.Fatalf("the text should carry true-colour, got %q", got)
 	}
 	if strings.Contains(got, "36;47") {
 		t.Fatalf("the interface's own colour must be dropped, got %q", got)
 	}
-	if !strings.Contains(got, "hola") || !strings.Contains(got, "mundo") {
-		t.Fatalf("the text must survive, got %q", got)
+	if !strings.Contains(got, "hola") {
+		t.Fatalf("the head must survive intact, got %q", got)
+	}
+	// The sweep paints the last three characters individually, each with its own escape,
+	// which means a literal substring match would not find "mundo" in one piece. The three
+	// letters have to be present, in order, but each may carry its own SGR.
+	for _, want := range []string{"m", "u", "n", "d", "o"} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("letter %q must be in the painted text, got %q", want, got)
+		}
+	}
+	// The sweep itself paints the last three characters with the bright tail: 255, 238, 221.
+	// The first letter of "mundo" is the third-newest of the revealed text and so lands at
+	// #DDD. Anything older sits at the base #CCC.
+	if !strings.Contains(got, "\x1b[38;2;221;221;221m") {
+		t.Fatalf("the sweep must paint the third-newest character at #DDD, got %q", got)
 	}
 }
 
-// The colour is the configured one, channel by channel, and it is emitted as ONE escape per run
-// rather than per character: this is the hot path of every frame.
-func TestThePhosphorIsTheConfiguredColour(t *testing.T) {
-	c := crtFor(t, func(c *config.CRT) { c.Color = "#00ff00" })
-	got := c.paint("abc")
-	if !strings.HasPrefix(got, "\x1b[38;2;0;255;0m") {
-		t.Fatalf("got %q, want the configured green", got)
+// The last three revealed characters carry the brightest colour, the one before that is two
+// shades darker, and the one before THAT is the dimmest of the bright tail. Anything older
+// sits at the base (#CCC). The progression is what makes the sweep readable.
+func TestTheSweepColoursBrightenTowardTheLeadingEdge(t *testing.T) {
+	c := crtFor(t, nil)
+	got := c.paint("abcdefghij")
+	// Position 9 (the 'j', newest) is at #FFFFFF, position 8 ('i') at #EEE, position 7 ('h')
+	// at #DDD, and position 6 ('g') at the base #CCC. The rest of the string is also at #CCC.
+	if !strings.Contains(got, "\x1b[38;2;255;255;255mj") {
+		t.Fatalf("newest char must be #FFF, got %q", got)
 	}
-	if n := strings.Count(got, "\x1b[38;2;"); n != 1 {
-		t.Fatalf("one run of text is one escape, got %d", n)
+	if !strings.Contains(got, "\x1b[38;2;238;238;238mi") {
+		t.Fatalf("second-newest char must be #EEE, got %q", got)
+	}
+	if !strings.Contains(got, "\x1b[38;2;221;221;221mh") {
+		t.Fatalf("third-newest char must be #DDD, got %q", got)
+	}
+	if !strings.Contains(got, "\x1b[38;2;204;204;204m") {
+		t.Fatalf("the body must use #CCC, got %q", got)
+	}
+}
+
+// A short string (shorter than the sweep width) brightens every character, with no body to
+// paint at the base colour. The newest two characters of a two-character reveal sit at #DDD
+// and #EEE — the third slot of the bright tail never gets used because there is nothing to
+// fill it with.
+func TestAShortRevealBrightensEveryCharacter(t *testing.T) {
+	c := crtFor(t, nil)
+	got := c.paint("xy")
+	// 'y' is the newest of a two-character reveal, so it sits at #EEE (i=1). 'x' is the
+	// second-newest at #DDD (i=0). There is no #FFF segment, because the third slot only
+	// fires when there are three or more revealed characters.
+	if !strings.Contains(got, "\x1b[38;2;238;238;238my") {
+		t.Fatalf("newest of a short reveal must be #EEE, got %q", got)
+	}
+	if !strings.Contains(got, "\x1b[38;2;221;221;221mx") {
+		t.Fatalf("second-newest must be #DDD, got %q", got)
+	}
+	if strings.Contains(got, "\x1b[38;2;255;255;255m") {
+		t.Fatalf("a two-character reveal must not paint #FFF, got %q", got)
+	}
+	if strings.Contains(got, "\x1b[38;2;204;204;204m") {
+		t.Fatalf("a short reveal must not paint the base, got %q", got)
 	}
 }
 
@@ -83,9 +130,6 @@ func TestEmptyTextStaysEmpty(t *testing.T) {
 	c := crtFor(t, nil)
 	if got := c.paint(""); got != "" {
 		t.Fatalf("got %q, want empty", got)
-	}
-	if got := c.phosphor(""); got != "" {
-		t.Fatalf("phosphor(\"\") = %q, want empty", got)
 	}
 }
 
@@ -128,14 +172,18 @@ func TestTypewriterRevealsProgressively(t *testing.T) {
 	c := crtFor(t, nil)
 	long := strings.Repeat("x", 4000)
 	c.startTyping(long)
+	// A tenth of a second at 50 cps reveals about five characters, which is enough for the
+	// first frame to show some of the long text without showing all of it.
 	first := c.reveal(time.Second / 10)
-	if n := len([]rune(first)); n >= 4000 || n < 2 {
+	if n := len([]rune(first)); n >= 4000 || n < 1 {
 		t.Fatalf("the first frame should show some but not all, got %d chars", n)
 	}
 	if !c.typingInProgress() {
 		t.Fatal("a reveal catching up is in progress")
 	}
-	if last := c.reveal(time.Second * 60); last != long {
+	// 80 seconds at 50 cps reveals 4000 characters — enough for the long text, slow enough
+	// that the test does not race ahead of the renderer.
+	if last := c.reveal(time.Second * 80); last != long {
 		t.Fatalf("the reveal must finish on the full text, got %d chars", len([]rune(last)))
 	}
 	if c.typingInProgress() {
@@ -248,12 +296,15 @@ func TestTickWithoutASpeed(t *testing.T) {
 // --- inside the interface ---------------------------------------------------
 
 // A settled message is drawn whole, and a pending one is revealed: revealing finished text again
-// would make a completed answer flicker back and forth.
+// would make a completed answer flicker back and forth. The paint step wraps both kinds in the
+// sweep colours, so the test checks the visible letters rather than the raw bytes.
 func TestCrtTextRevealsOnlyThePendingMessage(t *testing.T) {
 	c := crtFor(t, nil)
 	tui := &TUI{crt: c}
 	settled := Message{Author: AuthorAgent, Text: "ya terminado", Pending: false}
-	if got := tui.crtText(settled); !strings.Contains(got, "ya terminado") {
+	got := tui.crtText(settled)
+	stripped := stripSweep(got)
+	if !strings.Contains(stripped, "ya terminado") {
 		t.Fatalf("a settled message must be shown whole, got %q", got)
 	}
 	pending := Message{Author: AuthorAgent, Text: strings.Repeat("z", 2000), Pending: true}
@@ -278,13 +329,13 @@ func TestASettledMessageStopsARunningReveal(t *testing.T) {
 	}
 }
 
-// The colour is applied to a settled message too: it is the screen colour, not a decoration of
-// the reveal.
+// The colour is applied to a settled message too: it is the sweep base, not a decoration of
+// the reveal in progress.
 func TestASettledMessageIsStillColoured(t *testing.T) {
 	c := crtFor(t, nil)
 	tui := &TUI{crt: c}
-	if got := tui.crtText(Message{Text: "listo", Pending: false}); !strings.Contains(got, "\x1b[38;2;") {
-		t.Fatalf("a settled message must carry the phosphor, got %q", got)
+	if got := tui.crtText(Message{Text: "listo", Pending: false}); !strings.Contains(got, "\x1b[38;2;204;204;204m") {
+		t.Fatalf("a settled message must carry the sweep base #CCC, got %q", got)
 	}
 }
 
@@ -297,13 +348,17 @@ func TestCrtTextWithoutAnEffect(t *testing.T) {
 }
 
 // The typewriter switched off still colours the text: they are two settings, and turning one off
-// must not silently turn off the other.
+// must not silently turn off the other. The paint step still wraps the body in the sweep
+// colours, so the test checks the visible letters rather than the raw bytes.
 func TestCrtTextWithTheTypewriterOffStillColours(t *testing.T) {
 	c := crtFor(t, func(c *config.CRT) { c.Typewriter = false })
 	tui := &TUI{crt: c}
 	got := tui.crtText(Message{Text: "texto", Pending: true})
-	if !strings.Contains(got, "texto") || !strings.Contains(got, "\x1b[38;2;") {
-		t.Fatalf("got %q, want the text in the phosphor", got)
+	if stripped := stripSweep(got); !strings.Contains(stripped, "texto") {
+		t.Fatalf("got %q, want the text in the sweep", got)
+	}
+	if !strings.Contains(got, "\x1b[38;2;") {
+		t.Fatalf("the sweep colours must still paint, got %q", got)
 	}
 }
 
@@ -614,4 +669,15 @@ func TestTheRevealUsesTheDefaultInterval(t *testing.T) {
 	if tui.crt.typingInProgress() {
 		t.Fatal("the reveal must finish")
 	}
+}
+
+// stripSweep drops the sweep's SGR escapes so a test can compare visible text. The sweep paints
+// each of the last three characters with its own colour code, which fragments literal substrings
+// — a "hola mundo" check finds "hola " in one piece but "mundo" split across three codes.
+func stripSweep(s string) string {
+	var b strings.Builder
+	for _, seg := range splitSGR(s) {
+		b.WriteString(seg.text)
+	}
+	return b.String()
 }

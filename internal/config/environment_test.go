@@ -53,7 +53,6 @@ func TestAMalformedSkillsCapIsReported(t *testing.T) {
 // one run — with nothing written down.
 func TestTheEffectIsConfigurableFromTheEnvironment(t *testing.T) {
 	t.Setenv("STARLIGHT_CRT_ENABLED", "false")
-	t.Setenv("STARLIGHT_CRT_COLOR", "#00ff00")
 	t.Setenv("STARLIGHT_CRT_TYPEWRITER", "off")
 	t.Setenv("STARLIGHT_CRT_TYPEWRITER_CPS", "120")
 
@@ -63,9 +62,6 @@ func TestTheEffectIsConfigurableFromTheEnvironment(t *testing.T) {
 	}
 	if c.CRT.Enabled {
 		t.Error("enabled must be off")
-	}
-	if c.CRT.Color != "#00ff00" {
-		t.Errorf("color = %q", c.CRT.Color)
 	}
 	if c.CRT.Typewriter {
 		t.Error("typewriter must be off")
@@ -100,13 +96,12 @@ func TestEffectEnvironmentErrorsAreReported(t *testing.T) {
 // A blank variable is treated as unset rather than as an empty value: an exported-but-empty
 // variable is a common accident, and it must not blank out a setting.
 func TestBlankEffectVariablesLeaveTheDefaults(t *testing.T) {
-	t.Setenv("STARLIGHT_CRT_COLOR", "")
 	t.Setenv("STARLIGHT_CRT_TYPEWRITER_CPS", "  ")
 	c := Default()
 	if err := ApplyEnvironment(&c); err != nil {
 		t.Fatalf("ApplyEnvironment: %v", err)
 	}
-	if c.CRT.Color != Default().CRT.Color || c.CRT.TypewriterCPS != Default().CRT.TypewriterCPS {
-		t.Fatalf("blank variables must leave the defaults, got %q and %v", c.CRT.Color, c.CRT.TypewriterCPS)
+	if c.CRT.TypewriterCPS != Default().CRT.TypewriterCPS {
+		t.Fatalf("a blank variable must leave the default, got %v", c.CRT.TypewriterCPS)
 	}
 }

@@ -293,81 +293,8 @@ func TestResolvePathsWithNothingToAnchorOn(t *testing.T) {
 
 // --- validating the effect --------------------------------------------------
 
-// A colour that is not #rrggbb is reported with the field name. Swallowing it would leave the
-// user staring at a screen that looks exactly as it did before they changed anything.
-func TestCRTColourIsValidated(t *testing.T) {
-	for _, bad := range []string{"00ff00", "#00ff0", "#gggggg", "verde", "#00ff00ff"} {
-		cfg := Default()
-		cfg.CRT.Color = bad
-		err := cfg.validate(false)
-		if err == nil {
-			t.Fatalf("colour %q must be rejected", bad)
-		}
-		if !strings.Contains(err.Error(), "crt.color") {
-			t.Errorf("the failure must name the field: %v", err)
-		}
-	}
-	// A valid colour is accepted, and an EMPTY one is allowed: it means "use the default", which
-	// is what a configuration that omits the field produces.
-	for _, good := range []string{"#00ff00", "#33FF33", "#000000"} {
-		cfg := Default()
-		cfg.CRT.Color = good
-		if err := cfg.validate(false); err != nil {
-			t.Errorf("colour %q must be accepted: %v", good, err)
-		}
-	}
-	cfg := Default()
-	cfg.CRT.Color = ""
-	if err := cfg.validate(false); err != nil {
-		t.Errorf("an empty colour means the default: %v", err)
-	}
-}
-
-// A colour that is not #rrggbb is reported with the field name. Swallowing it would leave the user
-// staring at a screen that looks exactly as it did before they changed anything.
-
-// The phosphor is resolved to its channels.
-func TestPhosphorResolvesToChannels(t *testing.T) {
-	c := CRT{Color: "#00ff00"}
-	r, g, b := c.RGB()
-	if r != 0 || g != 255 || b != 0 {
-		t.Fatalf("RGB = %d,%d,%d, want 0,255,0", r, g, b)
-	}
-	// The default is the P1 green rather than pure video green: all three channels are non-zero.
-	dr, dg, db := Default().CRT.RGB()
-	if dr == 0 || dg == 0 || db == 0 {
-		t.Fatalf("the default phosphor should be a green, got %d,%d,%d", dr, dg, db)
-	}
-	// A colour that somehow escaped validation falls back instead of panicking: a cosmetic value
-	// is not worth taking the interface down for.
-	if r, g, b := (CRT{Color: "nope"}).RGB(); r != dr || g != dg || b != db {
-		t.Fatalf("a broken colour must fall back to the default, got %d,%d,%d", r, g, b)
-	}
-}
-
-// RGB falls back to the default when the colour is unusable. It is unreachable through a loaded
-// configuration — validation rejects a bad colour first — but a cosmetic value is not worth a
-// panic if a caller ever builds a CRT struct by hand.
-func TestRGBFallsBackForAnUnusableColour(t *testing.T) {
-	dr, dg, db := Default().CRT.RGB()
-	r, g, b := (CRT{Color: "#zzzzzz"}).RGB()
-	if r != dr || g != dg || b != db {
-		t.Fatalf("RGB = %d,%d,%d, want the default %d,%d,%d", r, g, b, dr, dg, db)
-	}
-}
-
-// A valid colour enters the nested check and passes it, which is the branch that lets a correct
-// configuration through. Without this the check was only ever exercised on its failing side.
-func TestAValidColourPassesTheNestedCheck(t *testing.T) {
-	cfg := Default()
-	cfg.CRT.Color = "#abcdef"
-	if err := cfg.validate(false); err != nil {
-		t.Fatalf("a valid colour must pass: %v", err)
-	}
-	if r, g, b := cfg.CRT.RGB(); r != 0xab || g != 0xcd || b != 0xef {
-		t.Fatalf("RGB = %x,%x,%x", r, g, b)
-	}
-}
+// (Color and RGB were removed when the typewriter effect stopped carrying a phosphor: the
+// sweep colours are constants in the renderer and have nothing to validate here.)
 
 // A negative speed is rejected rather than clamped: it would make the reveal run backwards, and
 // a number the user typed wrong must be reported, not silently corrected.

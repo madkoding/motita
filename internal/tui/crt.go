@@ -1,27 +1,24 @@
 package tui
 
 import (
-	"strconv"
 	"strings"
 	"time"
 
 	"github.com/madkoding/starlight/internal/config"
 )
 
-// crt draws the effect over streamed text: the phosphor colour and the typewriter reveal.
+// crt draws the typewriter sweep over streamed text.
 //
-// It is deliberately small. An earlier version of this file also drew scanlines, a flicker, a
-// vignette, static and a glow — five more effects that a character grid cannot really do and
-// that, on a real screen, fought the text for attention. The verdict on seeing it was immediate:
-// it looked like noise and made everything worse.
-//
-// What is left is what was asked for and what a terminal does WELL: colour, and text arriving one
-// character at a time. The rest was REMOVED rather than switched off, because a feature nobody
-// uses is not worth carrying, testing or reading.
+// It is deliberately small. An earlier version of this file also drew a phosphor green, then a
+// phosphor green with a glow, then scanlines, a flicker, a vignette and static on top — five
+// more effects that a character grid cannot really do and that fought the text for attention.
+// The verdict on seeing it was always the same: it looked like noise and made everything
+// worse. Each round of feedback was followed by the same instruction: "remove it, I do not
+// want dead code". What is left is the typewriter, because that is what was asked for and
+// what a terminal does WELL: text arriving one character at a time, with a sweep of light
+// running over the leading edge so the eye can follow the reveal.
 type crt struct {
 	cfg config.CRT
-	// r, g, b are the phosphor, resolved once instead of parsed per glyph.
-	r, g, b int
 	// typedTarget is the full text being revealed, and typedAt how much of it has been shown, in
 	// runes. typedAtFrac carries the fraction of a character left over between frames: without
 	// the carry a reveal slower than one character per frame would stall at zero for ever,
@@ -47,41 +44,82 @@ func newCRT(c config.CRT) *crt {
 	if !c.Enabled {
 		return nil
 	}
-	r, g, b := c.RGB()
 	speed := c.TypewriterCPS
 	if speed <= 0 {
 		speed = config.Default().CRT.TypewriterCPS
 	}
-	return &crt{cfg: c, r: r, g: g, b: b, speed: speed}
+	return &crt{cfg: c, speed: speed}
 }
 
 // --- colour -----------------------------------------------------------------
 
-// paint colours a message body in the phosphor.
+// paint colours a message body in the typewriter sweep: every character sits at #CCC, except
+// the last three revealed ones, which brighten toward the leading edge (#DDD, #EEE, #FFF) so
+// the reveal shows a sweep of light running over the text.
 //
-// It returns the text with the interface's own colour codes replaced, so a message reads in one
-// colour instead of the interface's palette showing through. Empty in, empty out: a blank block
-// stays blank rather than becoming an escape with nothing in it.
+// The sweep is the only effect on the message. Phosphor used to colour the whole body in
+// green, which made the bright tail look like a separate highlight; making the whole body
+// greyscale lets the sweep be the only colour, which is what the effect actually looks like.
+// The settled text stays at #CCC, so once the reveal ends the answer reads as flat grey and
+// the sweep has nothing to do.
+//
+// Empty in, empty out: a blank block stays blank rather than becoming an escape with nothing
+// in it.
 func (c *crt) paint(text string) string {
 	if c == nil || text == "" {
 		return text
 	}
+	// The text reaches paint AFTER the typewriter has trimmed it to the revealed portion. The
+	// sweep runs over those runes, not over the original message, because nothing past the
+	// reveal is on the screen yet.
+	runes := []rune(text)
+	cut := len(runes) - sweepWidth
+	if cut < 0 {
+		cut = 0
+	}
+	tail := runes[cut:]
+	head := runes[:cut]
+
 	var b strings.Builder
-	// The existing escapes are dropped rather than nested: the phosphor is the point, and keeping
-	// the interface's colours inside a green screen looks like a bug.
-	for _, seg := range splitSGR(text) {
-		b.WriteString(c.phosphor(seg.text))
+	if len(head) > 0 {
+		// The body sits at #CCC: visible but quiet, so the sweep reads as the only motion.
+		b.WriteString(sweepBase)
+		for _, seg := range splitSGR(string(head)) {
+			b.WriteString(seg.text)
+		}
+	}
+	for i, r := range tail {
+		// i=0 is the OLDEST of the highlighted characters; the newest (the one just revealed)
+		// gets the brightest colour. The progression fades back to the base.
+		b.WriteString(sweepColour(i))
+		b.WriteRune(r)
+	}
+	if len(tail) > 0 || len(head) > 0 {
+		// Close the colour the sweep opened so the next plain row does not inherit it.
+		b.WriteString("\x1b[0m")
 	}
 	return b.String()
 }
 
-// phosphor wraps one run of text in the screen colour.
-func (c *crt) phosphor(s string) string {
-	if s == "" {
-		return ""
+// sweepWidth is how many characters the bright tail covers. Three is enough for the eye to see
+// the leading edge without painting a long stripe of pale text that looks like a cursor glitch.
+const sweepWidth = 3
+
+// sweepBase is the colour of every revealed character that is NOT in the bright tail. #CCC is
+// what makes the sweep the only colour on the screen.
+const sweepBase = "\x1b[38;2;204;204;204m"
+
+// sweepColour is the 24-bit colour of the i-th character of the sweep, counted from the oldest
+// highlighted character toward the newest. The newest is the brightest.
+func sweepColour(i int) string {
+	switch i {
+	case 0:
+		return "\x1b[38;2;221;221;221m"
+	case 1:
+		return "\x1b[38;2;238;238;238m"
+	default:
+		return "\x1b[38;2;255;255;255m"
 	}
-	return "\x1b[38;2;" + strconv.Itoa(c.r) + ";" + strconv.Itoa(c.g) + ";" + strconv.Itoa(c.b) +
-		"m" + s + "\x1b[0m"
 }
 
 // revealFrameInterval is how often a revealed frame is redrawn. It is the tick of the typewriter:

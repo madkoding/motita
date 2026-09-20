@@ -10,7 +10,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"time"
 )
@@ -125,15 +124,12 @@ type Skills struct {
 type CRT struct {
 	// Enabled turns the effect off, leaving the plain interface.
 	Enabled bool `yaml:"enabled"`
-	// Color is the phosphor, as #rrggbb. The default is the P1 green the monochrome terminals of
-	// the era actually used — not pure #00ff00, which is a modern video green and reads as an
-	// error message rather than as a screen.
-	Color string `yaml:"color"`
 	// Typewriter reveals streamed text one character at a time instead of all at once, which is
 	// what makes it feel like a machine printing it.
 	Typewriter bool `yaml:"typewriter"`
-	// TypewriterCPS is how many characters are revealed per second. Slower looks better and
-	// delays the reader; this is the speed of a fast teletype rather than of a modem.
+	// TypewriterCPS is how many characters are revealed per second. 20 ms per character is
+	// 50 cps: slow enough to read each glyph as it lands, fast enough that a long reply is
+	// not a wait.
 	TypewriterCPS float64 `yaml:"typewriter_cps"`
 }
 
@@ -263,9 +259,8 @@ func Default() Config {
 		},
 		CRT: CRT{
 			Enabled:       true,
-			Color:         "#33ff33",
 			Typewriter:    true,
-			TypewriterCPS: 220,
+			TypewriterCPS: 50,
 		},
 		Skills: Skills{
 			Dir:          defaultSkillsDir(),
@@ -300,39 +295,6 @@ func Default() Config {
 			OnFailure:       OnFailure{Kind: "none"},
 		},
 	}
-}
-
-// parseHexColor reads "#rrggbb" and returns its three channels.
-//
-// It is here rather than in the interface because the value comes from a file the user writes: a
-// typo must be reported where it was made, with the field name, not swallowed into a colour that
-// silently falls back to the default and leaves the user wondering why their setting did nothing.
-func parseHexColor(s string) ([3]int, error) {
-	var out [3]int
-	if len(s) != 7 || s[0] != '#' {
-		return out, fmt.Errorf("must look like #rrggbb, got %q", s)
-	}
-	for i := 0; i < 3; i++ {
-		v, err := strconv.ParseUint(s[1+i*2:3+i*2], 16, 8)
-		if err != nil {
-			return out, fmt.Errorf("must look like #rrggbb, got %q", s)
-		}
-		out[i] = int(v)
-	}
-	return out, nil
-}
-
-// RGB returns the phosphor as its three channels.
-//
-// The fallback is for a caller that builds a CRT by hand — a test, or an embedder — with a colour
-// validation has never seen. It is not a branch of the loaded path: a configuration whose colour
-// is invalid never reaches here, because validate rejects it first with the field name.
-func (c CRT) RGB() (int, int, int) {
-	v, err := parseHexColor(c.Color)
-	if err != nil {
-		v, _ = parseHexColor(Default().CRT.Color)
-	}
-	return v[0], v[1], v[2]
 }
 
 // Dir is the default home for starlight's own state: the configuration file, the workspace the
@@ -611,11 +573,6 @@ func (c *Config) validate(requireKey bool) error {
 
 	if c.CRT.TypewriterCPS < 0 {
 		return fmt.Errorf("crt.typewriter_cps cannot be negative, got %v", c.CRT.TypewriterCPS)
-	}
-	if c.CRT.Color != "" {
-		if _, err := parseHexColor(c.CRT.Color); err != nil {
-			return fmt.Errorf("crt.color: %w", err)
-		}
 	}
 
 	if c.Agent.MaxRetries < 0 {

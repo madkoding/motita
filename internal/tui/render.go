@@ -268,8 +268,13 @@ func (t *TUI) layout(w, h int) ([]string, string) {
 	lines = append(lines, t.rule(w))
 	lines = append(lines, bar)
 
-	// The cursor is walked back up from the end of the frame to the first row of the input
-	// field: the two rows below it (the rule and the status bar) plus every popup row above.
+	// The cursor is walked back up from the end of the frame to the row of the input field
+	// that holds the draft. composerPrompt refines the row inside the box from the wrap, so the
+	// caller only has to count the rows below the composer: the rule beneath it and the status
+	// bar. The first row of the input box is the divider line drawn by plainLine; the cursor
+	// targets the FIELD row (the second of the three), which is what the user sees as the
+	// "prompt" line. The +inputRows-1 counts down through the divider and the field rows so
+	// the walk-up lands on the field.
 	rowsBelow := belowComposer + popup + inputRows - 1
 	return lines, t.composerPrompt(rowsBelow)
 }
