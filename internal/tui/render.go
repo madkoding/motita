@@ -49,6 +49,14 @@ const (
 	glyphPrompt  = "\u203a" // › the input prompt
 )
 
+// exitClear is what leaving the interface writes: show the cursor, wipe the screen and the
+// scrollback, and put the cursor at the origin.
+//
+// It is a named constant so the tests can strip it by name: the wipe is written AFTER the last
+// frame, so a helper that reads "the last thing drawn" has to remove it first or it finds a blank
+// screen instead of the interface.
+const exitClear = "\x1b[?25h\x1b[2J\x1b[3J\x1b[H"
+
 // Layout metrics. They are named because the frame arithmetic depends on them: a
 // single off-by-one puts the right border of the panel out of alignment.
 const (
@@ -1220,16 +1228,26 @@ func (t *TUI) inputBoxLines() []string {
 	width := t.bodyWidth()
 	rows := inputRows
 
-	out := make([]string, 0, rows)
-	// The field, wrapping the label plus the draft across the available rows.
+	// The field, wrapping the label plus the draft across the available rows. The width passed to
+	// the wrap is the TEXT area, not the body: the left margin is spent by plainLine below, and
+	// wrapping to the un-margined width would push every row two columns past the frame.
 	text := t.composerLabel() + t.draft
 	wrapped := wrapVisible(text, width)
 	if len(wrapped) > rows {
 		// Keep the END: the user is typing there, and the tail is what matters.
 		wrapped = wrapped[len(wrapped)-rows:]
 	}
-	out = append(out, wrapped...)
-	// Pad to the fixed height so nothing below moves as the text grows.
+
+	// EVERY row of the box goes through plainLine, filled and wrapped alike.
+	//
+	// The wrapped rows used to be emitted raw while the padding rows went through plainLine, so
+	// the first rows of the field began at column 0 and the empty ones at column 2. The cursor
+	// then had no column that was correct for both: it was computed with the margin, so it sat two
+	// columns past the text on every row that carried any.
+	out := make([]string, 0, rows)
+	for _, l := range wrapped {
+		out = append(out, t.plainLine(l))
+	}
 	for len(out) < rows {
 		out = append(out, t.plainLine(""))
 	}
@@ -1311,8 +1329,29 @@ func (t *TUI) composerLabel() string {
 // assumed, because the un-trimmed path (a terminal that did not report its height) draws the
 // frame without the two rules and must not walk off the top.
 func (t *TUI) composerPrompt(rowsBelow int) string {
-	// Column: the margin, the label, and whatever has been typed.
-	col := leftMargin + visibleLen(t.composerLabel()) + visibleLen(t.draft)
+	// Where the cursor goes: the row and column of the LAST character of the input.
+	//
+	// The input is a box of inputRows rows and the text wraps inside it, so the position of the
+	// cursor is not "the first row, at the total length". Once the text passes the width its tail
+	// is on a later row, and computing the column from the whole string put the cursor past the
+	// right edge — where the terminal moves it to the next row on its own, or refuses to move it
+	// at all. The user sees a cursor that is not where they are typing.
+	//
+	// It is derived from the same wrap the box draws with, so the two cannot disagree.
+	width := t.bodyWidth()
+	wrapped := wrapVisible(t.composerLabel()+t.draft, width)
+	row := len(wrapped) - 1
+	col := leftMargin + visibleLen(wrapped[row])
+	if row >= inputRows {
+		// The box shows only the last inputRows rows, so the cursor is on the last visible one.
+		row = inputRows - 1
+	}
+	// rowsBelow counts the rows AFTER the cursor's row: everything the caller listed below the
+	// input, plus the box's own rows that come after it.
+	// rowsBelow is never negative: the caller counts at least the rule and the status bar below
+	// the input, and `row` only ever subtracts rows that are inside the box. A floor here would be
+	// unreachable.
+	rowsBelow -= row
 
 	// The cursor is moved with CSI sequences ONLY — never with a bare carriage return.
 	//
@@ -1341,4 +1380,27 @@ func (t *TUI) popupRows() int {
 		return 0
 	}
 	return len(completions(t.draft)) + 1
+}
+
+// clearOnExit wipes the screen and parks the cursor at the origin.
+//
+// The sequence is the same one the launch uses, and it wipes the SCROLLBACK as well: the frames
+// the user scrolled through are part of what the interface put on the screen, and leaving them
+// above the prompt means the terminal still looks like the interface after the interface has
+// gone.
+//
+// It is deliberately unconditional — no check for a terminal, no check for a tty. Writing these
+// escapes to something that is not a terminal is harmless (a pipe, a file, a test's buffer),
+// while missing them on a real terminal is the bug being fixed. Deciding "am I a terminal?" here
+// would need the very ioctl the rest of the interface avoids, and would add a case where the
+// screen is left dirty.
+//
+// The cursor is put back at the top-left, which is where a shell draws its prompt from, and the
+// cursor is made visible: the frame hides it while painting, and an exit that leaves it hidden
+// gives the user a terminal with no cursor.
+func (t *TUI) clearOnExit() {
+	if t.Out == nil {
+		return
+	}
+	fmt.Fprint(t.Out, exitClear)
 }

@@ -4,9 +4,12 @@ import (
 	"bytes"
 	"context"
 	"os"
+	"regexp"
+	"strconv"
 	"strings"
 	"testing"
 
+	"github.com/madkoding/starlight/internal/agent"
 	"github.com/madkoding/starlight/internal/config"
 	"github.com/madkoding/starlight/internal/session"
 )
@@ -902,4 +905,141 @@ func TestChatRowsHitsItsFloorOnAShortTerminal(t *testing.T) {
 	if got := tu.chatRows(); got != 30-permanentRows {
 		t.Errorf("chatRows on a 30-row terminal = %d, want %d", got, 30-permanentRows)
 	}
+}
+
+// TestTheCursorFollowsTheInputAsItWraps: the input is a box of several rows and the text wraps
+// inside it, so the cursor's position is not "the first row at the total length".
+//
+// Computing the column from the whole string put the cursor past the right edge once the text
+// passed the width — the terminal then moved it on its own, or refused to move it at all, and the
+// user saw a cursor that was not where they were typing.
+func TestTheCursorFollowsTheInputAsItWraps(t *testing.T) {
+	const (
+		width  = 40
+		height = 20
+	)
+
+	for _, n := range []int{0, 5, 17, 25, 33, 41, 60, 200} {
+		tu, _ := newKeyTUI("", "")
+		tu.Width, tu.Height = width, height
+		tu.draft = strings.Repeat("x", n)
+
+		lines, prompt := tu.layout(width, height)
+
+		m := regexp.MustCompile(`\x1b\[(\d+)A\x1b\[(\d+)G`).FindStringSubmatch(prompt)
+		if m == nil {
+			t.Fatalf("n=%d: the layout placed no cursor: %q", n, prompt)
+		}
+		up, _ := strconv.Atoi(m[1])
+		col, _ := strconv.Atoi(m[2])
+
+		// The cursor must land INSIDE the frame.
+		row := len(lines) - 1 - up
+		if row < 0 || row >= len(lines) {
+			t.Errorf("n=%d: the cursor is on row %d, outside the %d-row frame", n, row, len(lines))
+			continue
+		}
+		// And inside the terminal's width, which is what "past the right edge" meant.
+		if col-1 >= width {
+			t.Errorf("n=%d: the cursor is at column %d of a %d-column terminal", n, col-1, width)
+		}
+		// The row it lands on must be a row of the input box: it carries the prompt on its first
+		// row, and the box is the last group of rows before the rule and the bar.
+		fieldStart := len(lines) - 2 - inputRows
+		if row < fieldStart || row > fieldStart+inputRows-1 {
+			t.Errorf("n=%d: the cursor is on row %d, outside the input box (rows %d..%d)",
+				n, row, fieldStart, fieldStart+inputRows-1)
+			continue
+		}
+		// The column must be where the drawn text ENDS on that row: one past its last character.
+		drawn := stripANSI(lines[row])
+		if col-1 != visibleLen(drawn) && n > 0 {
+			t.Errorf("n=%d: the cursor is at column %d but the row is %d columns wide: %q",
+				n, col-1, visibleLen(drawn), drawn)
+		}
+	}
+}
+
+// TestTheQuestionIsShownAsAQuestionNotAFailure: when the agent cannot read the request it asks.
+// Reporting that as "failed" tells the user they did something wrong when they only need to add
+// three words, and it hides the question they are supposed to answer.
+func TestTheQuestionIsShownAsAQuestionNotAFailure(t *testing.T) {
+	got := summarise(agent.TaskResult{
+		NeedsInput: true,
+		Question:   "¿Quieres que revise el disco o los logs?",
+		Assumption: "asumo el estado del disco",
+	})
+	if strings.HasPrefix(got, "failed") {
+		t.Errorf("a question must not be reported as a failure: %q", got)
+	}
+	if !strings.Contains(got, "disco o los logs") {
+		t.Errorf("the question must be shown: %q", got)
+	}
+	// The assumption travels with it, so the user can confirm in one word.
+	if !strings.Contains(got, "asumiré") || !strings.Contains(got, "estado del disco") {
+		t.Errorf("the assumption must be shown so the user can confirm it: %q", got)
+	}
+}
+
+// TestAQuestionWithNoTextStillSaysSomething: the model may return NeedsInput without a question —
+// it reported that it could not understand but named nothing to ask. The user must still get a
+// sentence, not an empty bubble.
+func TestAQuestionWithNoTextStillSaysSomething(t *testing.T) {
+	got := summarise(agent.TaskResult{NeedsInput: true})
+	if strings.TrimSpace(got) == "" {
+		t.Error("a question with no text must still produce a sentence")
+	}
+	if strings.HasPrefix(got, "failed") {
+		t.Errorf("it is not a failure: %q", got)
+	}
+}
+
+// TestAQuestionWithNoAssumptionOmitsTheLine: with nothing assumed there is nothing to offer as a
+// default, and printing an empty "asumiré:" would be worse than saying nothing.
+func TestAQuestionWithNoAssumptionOmitsTheLine(t *testing.T) {
+	got := summarise(agent.TaskResult{NeedsInput: true, Question: "¿qué quieres?"})
+	if strings.Contains(got, "asumiré") {
+		t.Errorf("no assumption means no assumption line: %q", got)
+	}
+}
+
+// TestLeavingClearsTheScreen: the interface took the screen over when it started, so it gives it
+// back when it ends. Leaving a full-screen frame behind hands the shell a window covered in text
+// that is not the user's, with their prompt somewhere above it.
+func TestLeavingClearsTheScreen(t *testing.T) {
+	for _, in := range []string{"/quit\n", "q\n", ""} {
+		var out bytes.Buffer
+		tu := New(&fakeRunner{cfg: configWithKey("k")})
+		tu.In = strings.NewReader(in)
+		tu.Out = &out
+		tu.Width, tu.Height = 100, 24
+
+		tu.Run(context.Background())
+
+		if !strings.HasSuffix(out.String(), exitClear) {
+			t.Errorf("input %q: the screen must be cleared on the way out", in)
+		}
+	}
+}
+
+// TestTheExitClearRestoresTheCursor: the frame hides the cursor while painting, so an exit that
+// does not show it again leaves the user with a terminal and no cursor.
+func TestTheExitClearRestoresTheCursor(t *testing.T) {
+	if !strings.HasPrefix(exitClear, "\x1b[?25h") {
+		t.Error("the exit sequence must show the cursor first")
+	}
+	// And it wipes the scrollback too: the frames the user scrolled through are part of what the
+	// interface put on the screen.
+	if !strings.Contains(exitClear, "\x1b[3J") {
+		t.Error("the exit sequence must clear the scrollback, not only the visible screen")
+	}
+}
+
+// TestClearingOnExitWithoutAnOutput: clearOnExit is called from a defer, which runs even when the
+// interface was built without an output — a partially constructed TUI in a test, or an embedder
+// that only wants the model. Writing to a nil writer would panic ON THE WAY OUT, turning a normal
+// quit into a crash.
+func TestClearingOnExitWithoutAnOutput(t *testing.T) {
+	tu := &TUI{}
+	tu.clearOnExit() // must not panic
 }

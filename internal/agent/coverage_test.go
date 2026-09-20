@@ -38,10 +38,22 @@ type phaseServer struct {
 	plan          string
 	action        string
 	analysisError bool
-	planError     bool
-	actionError   bool
-	httpError     bool
-	calls         *int
+	// analysisUnclear makes the analysis report that it could not read the request, with a
+	// question and an assumption — the shape the agent must turn into a question rather than a
+	// refusal.
+	analysisUnclear bool
+	// analysisUnclearNoAssumption is the same but with nothing to fall back on, so there is no
+	// reading to proceed with.
+	analysisUnclearNoAssumption bool
+	// analysisUnclearNoSummary is the same as analysisUnclear but with the summary left empty:
+	// there is an assumption to act on, and nothing else to describe the work.
+	analysisUnclearNoSummary bool
+	// analysisAssumptionOnly proposes a reading but names no question.
+	analysisAssumptionOnly bool
+	planError              bool
+	actionError            bool
+	httpError              bool
+	calls                  *int
 }
 
 func (s phaseServer) handler(t *testing.T) http.HandlerFunc {
@@ -69,9 +81,27 @@ func (s phaseServer) handler(t *testing.T) http.HandlerFunc {
 		var content string
 		switch {
 		case strings.Contains(text, "## ANALYSIS OF THE TASK"):
-			if s.analysisError {
+			switch {
+			case s.analysisError:
 				content = "this is not JSON"
-			} else {
+			case s.analysisUnclear:
+				content = `{"understandable": false, "summary": "", "success_criteria": [],
+					"risks": ["two readings are possible"], "needs_subtasks": false,
+					"question": "¿Quieres que revise el disco o los logs?",
+					"assumption": "asumo que quieres el estado del disco"}`
+			case s.analysisAssumptionOnly:
+				content = `{"understandable": false, "summary": "", "success_criteria": [],
+					"risks": ["ambiguo"], "needs_subtasks": false,
+					"question": "", "assumption": "asumo que quieres revisar el disco"}`
+			case s.analysisUnclearNoSummary:
+				content = `{"understandable": false, "summary": "", "success_criteria": [],
+					"risks": ["ambiguo"], "needs_subtasks": false,
+					"question": "¿qué quieres?", "assumption": "asumo el estado del disco"}`
+			case s.analysisUnclearNoAssumption:
+				content = `{"understandable": false, "summary": "", "success_criteria": [],
+					"risks": ["nothing to go on"], "needs_subtasks": false,
+					"question": "¿Qué quieres que haga?", "assumption": ""}`
+			default:
 				content = s.analysis
 			}
 		case strings.Contains(text, "## ACTION PLAN"):
@@ -93,25 +123,37 @@ func (s phaseServer) handler(t *testing.T) http.HandlerFunc {
 	}
 }
 
-// TestAnalysisPhaseWithInvalidResponse: an analysis that is not JSON is treated as
-// a task that is not understandable, and the reason is explained.
+// TestAnalysisPhaseWithInvalidResponse: an analysis that is not valid JSON is OUR problem, not
+// the user's, so the agent asks a question instead of reporting a parse error at them.
+//
+// The parse error goes to the LOG — it is what a developer needs — while the user gets a question
+// they can answer. Telling a user "the LLM's analysis was not valid JSON" asks them to fix
+// something they did not do.
 func TestAnalysisPhaseWithInvalidResponse(t *testing.T) {
 	srv := httptest.NewServer(phaseServer{analysisError: true}.handler(t))
 	defer srv.Close()
 
 	e := mount(t, srv, config.Anchor{Kind: "command", Command: "true", Timeout: 5 * time.Second}, nil)
+	e.agent.Interactive = true
 
 	var result *TaskResult
 	e.agent.Observer = func(r TaskResult) { result = &r }
 
-	if err := e.agent.Run(context.Background()); err == nil {
-		t.Error("it should fail")
+	// A malformed analysis produces a QUESTION, so the run does not fail: it is waiting for the
+	// user, which is a different outcome and must not exit non-zero.
+	_ = e.agent.Run(context.Background())
+	if result == nil {
+		t.Fatal("no result was reported")
 	}
-	if result == nil || result.Pass {
-		t.Fatalf("result = %+v", result)
+	// It asks rather than reporting a parse failure, and it is not a failure at all.
+	if !result.NeedsInput {
+		t.Errorf("an unparseable analysis must become a question, got %+v", result)
 	}
-	if !strings.Contains(result.Reason, "JSON") {
-		t.Errorf("the reason must explain that the analysis was not JSON: %q", result.Reason)
+	if result.Question == "" {
+		t.Error("the user must be given something to answer")
+	}
+	if strings.Contains(result.Question, "JSON") {
+		t.Errorf("the question must not talk about JSON: %q", result.Question)
 	}
 }
 
@@ -1385,5 +1427,131 @@ func TestGitCommitReportsAnExecutionError(t *testing.T) {
 	}
 	if calls != 1 {
 		t.Errorf("it must stop after the first failure: %d calls", calls)
+	}
+}
+
+// TestAnUnclearRequestBecomesAQuestion: the agent must ASK when it cannot interpret the request,
+// not refuse and throw the turn away.
+//
+// A user mistypes, abbreviates, and leaves out what they consider obvious. A request the model can
+// only half interpret is incomplete information, not a failure — and there is a user on the other
+// end who can complete it in three words. Refusing makes them write the whole thing again.
+func TestAnUnclearRequestBecomesAQuestion(t *testing.T) {
+	srv := httptest.NewServer(phaseServer{analysisUnclear: true}.handler(t))
+	defer srv.Close()
+
+	e := mount(t, srv, config.Anchor{Kind: "command", Command: "true", Timeout: 5 * time.Second}, nil)
+	e.agent.Interactive = true
+
+	var result *TaskResult
+	e.agent.Observer = func(r TaskResult) { result = &r }
+
+	_ = e.agent.Run(context.Background())
+
+	if result == nil {
+		t.Fatal("no result was reported")
+	}
+	if !result.NeedsInput {
+		t.Fatalf("an unclear request must ask, got %+v", result)
+	}
+	if result.Question == "" {
+		t.Error("the user must be given something to answer")
+	}
+	if result.Assumption == "" {
+		t.Error("the assumption must travel with the question, so the user can confirm in one word")
+	}
+	// The reason is NOT a failure message: the interface prints it as a question.
+	if strings.HasPrefix(result.Reason, "the task was declared not understandable") {
+		t.Errorf("the old refusal wording is back: %q", result.Reason)
+	}
+}
+
+// TestWithNoUserTheAgentProceedsOnItsAssumption: a batch run has nobody to ask, so asking would
+// stall forever. The agent acts on the reading it proposed, which is what an engineer does when
+// the ticket is thin — and both are better than refusing.
+func TestWithNoUserTheAgentProceedsOnItsAssumption(t *testing.T) {
+	srv := httptest.NewServer(phaseServer{
+		analysisUnclear: true,
+		plan:            `{"plan":[],"expected_result":"st"}`,
+		action:          `{"reasoning":"r","actions":[{"command":"true"}],"final_action":{"command":"true"}}`,
+	}.handler(t))
+	defer srv.Close()
+
+	e := mount(t, srv, config.Anchor{Kind: "command", Command: "true", Timeout: 5 * time.Second}, nil)
+	e.agent.Interactive = false // a piped task, a cron job: no user at the other end
+
+	var result *TaskResult
+	e.agent.Observer = func(r TaskResult) { result = &r }
+
+	_ = e.agent.Run(context.Background())
+
+	if result == nil {
+		t.Fatal("no result was reported")
+	}
+	// It did NOT stop to ask: it carried on through the loop with the assumption as its reading.
+	if result.NeedsInput {
+		t.Errorf("with nobody to ask the agent must proceed, not wait: %+v", result)
+	}
+	// And it says which reading it took. A result produced under an assumption must carry that
+	// assumption: otherwise a reasonable reading looks like a wrong answer to whoever reads it
+	// later, with nothing to explain the difference.
+	if result.Assumption == "" {
+		t.Errorf("a run that proceeded on an assumption must say so: %+v", result)
+	}
+}
+
+// TestAnUnclearRequestWithNoAssumptionStillAsks: if the model cannot even propose a reading,
+// there is nothing to proceed on, so the question is returned rather than a guess.
+func TestAnUnclearRequestWithNoAssumptionStillAsks(t *testing.T) {
+	srv := httptest.NewServer(phaseServer{analysisUnclearNoAssumption: true}.handler(t))
+	defer srv.Close()
+
+	e := mount(t, srv, config.Anchor{Kind: "command", Command: "true", Timeout: 5 * time.Second}, nil)
+	e.agent.Interactive = false
+
+	var result *TaskResult
+	e.agent.Observer = func(r TaskResult) { result = &r }
+
+	_ = e.agent.Run(context.Background())
+
+	if result == nil {
+		t.Fatal("no result was reported")
+	}
+	if !result.NeedsInput {
+		t.Errorf("with no assumption to proceed on, the agent must ask: %+v", result)
+	}
+}
+
+// TestAnAssumptionWithNoQuestionStillAsks: the model may propose a reading without naming a
+// question — it knows what it would do, and forgets to ask. Asking is still right: the user can
+// confirm or correct that reading in one word, which is far cheaper than acting on a guess in
+// silence.
+func TestAnAssumptionWithNoQuestionStillAsks(t *testing.T) {
+	srv := httptest.NewServer(phaseServer{
+		analysisAssumptionOnly: true,
+		plan:                   `{"plan":[],"expected_result":"st"}`,
+		action:                 `{"reasoning":"r","actions":[{"command":"true"}],"final_action":{"command":"true"}}`,
+	}.handler(t))
+	defer srv.Close()
+
+	e := mount(t, srv, config.Anchor{Kind: "command", Command: "true", Timeout: 5 * time.Second}, nil)
+	e.agent.Interactive = true
+
+	var result *TaskResult
+	e.agent.Observer = func(r TaskResult) { result = &r }
+
+	_ = e.agent.Run(context.Background())
+
+	if result == nil {
+		t.Fatal("no result was reported")
+	}
+	if !result.NeedsInput {
+		t.Fatalf("an assumption with no question must still ask: %+v", result)
+	}
+	if result.Question == "" {
+		t.Error("a question must be derived so the user has something to answer")
+	}
+	if result.Assumption == "" {
+		t.Error("the assumption must travel with the question")
 	}
 }

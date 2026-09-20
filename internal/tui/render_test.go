@@ -14,14 +14,18 @@ import (
 // would, after the escape sequences are removed.
 
 // lastFrame returns the final repaint written to the TUI, which is the frame a
-// user actually sees once the run is over.
+// user actually sees while the interface is running.
+//
+// The exit wipe is removed first. Leaving the interface clears the screen — that is deliberate,
+// so the shell gets its window back — but it is written after the last frame and would otherwise
+// be what this helper finds, leaving every test that reads a frame looking at a blank screen.
 func lastFrame(t *testing.T, tui *TUI) string {
 	t.Helper()
 	buf, ok := tui.Out.(*bytes.Buffer)
 	if !ok {
 		t.Fatal("the test TUI does not write to a buffer")
 	}
-	out := buf.String()
+	out := strings.TrimSuffix(buf.String(), exitClear)
 	idx := strings.LastIndex(out, "\x1b[H")
 	if idx < 0 {
 		t.Fatalf("no frame was painted: %q", out)

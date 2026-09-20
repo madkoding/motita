@@ -63,11 +63,18 @@ type AgentRunner interface {
 
 // agentFactory builds an agent from the current configuration. It is injectable
 // so tests can avoid running a real agent.
-type agentFactory func(cfg config.Config, log *logx.Logger, engine *llm.Client, box *sandbox.Sandbox, source taskpkg.Source) AgentRunner
+//
+// The agent is told whether there is a user who can answer a question. The interface is the only
+// place that knows: a run started from the TUI has one, a task piped in from a script does not,
+// and the agent behaves differently — it asks when it can, and proceeds on its stated assumption
+// when there is nobody to ask.
+type agentFactory func(cfg config.Config, log *logx.Logger, engine *llm.Client, box *sandbox.Sandbox, source taskpkg.Source, interactive bool) AgentRunner
 
 // defaultAgentFactory uses the real agent package.
-func defaultAgentFactory(cfg config.Config, log *logx.Logger, engine *llm.Client, box *sandbox.Sandbox, source taskpkg.Source) AgentRunner {
-	return agent.New(cfg, log, engine, box, source)
+func defaultAgentFactory(cfg config.Config, log *logx.Logger, engine *llm.Client, box *sandbox.Sandbox, source taskpkg.Source, interactive bool) AgentRunner {
+	ag := agent.New(cfg, log, engine, box, source)
+	ag.Interactive = interactive
+	return ag
 }
 
 // AppRunner is the production implementation that calls the real layers.
@@ -131,7 +138,7 @@ func (r *AppRunner) RunPlan(ctx context.Context, prompt string, progress func(st
 	}
 	cfg := r.Cfg
 	cfg.Agent.ReadOnly = true
-	ag := r.newAgent(cfg, r.Log, engine, r.Box, nil)
+	ag := r.newAgent(cfg, r.Log, engine, r.Box, nil, true)
 	planner := plan.New(engine, ag).
 		WithTimeout(planDefaultTimeout(r.Cfg)).
 		WithLoops(planDefaultLoops(r.Cfg)).
@@ -293,6 +300,25 @@ type taskObserver interface {
 // summarise turns a task result into the sentence the chat shows.
 func summarise(tr agent.TaskResult) string {
 	switch {
+	// The agent is asking a question. This comes FIRST and is not a failure: nothing went wrong,
+	// information is missing, and the user is the one holding it. Reporting it as "failed" — which
+	// is where it landed before — tells the user they did something wrong when they only need to
+	// say three more words.
+	//
+	// The question is shown with the assumption, so the user can confirm in one word instead of
+	// writing the request again.
+	case tr.NeedsInput:
+		var b strings.Builder
+		if tr.Question != "" {
+			b.WriteString(tr.Question)
+		} else {
+			b.WriteString("No entendí del todo la petición.")
+		}
+		if tr.Assumption != "" {
+			b.WriteString("\n\nSi no me dices otra cosa, asumiré: ")
+			b.WriteString(tr.Assumption)
+		}
+		return b.String()
 	case tr.Pass && tr.Summary != "":
 		return tr.Summary
 	case tr.Pass:
@@ -317,7 +343,7 @@ func (r *AppRunner) RunTask(ctx context.Context, task string, progress func(stri
 		return "", err
 	}
 	var result string
-	ag := r.newAgent(r.Cfg, r.Log, engine, r.Box, source)
+	ag := r.newAgent(r.Cfg, r.Log, engine, r.Box, source, true)
 	if o, ok := ag.(taskObserver); ok {
 		o.SetProgress(progress)
 		o.SetObserver(func(tr agent.TaskResult) { result = summarise(tr) })

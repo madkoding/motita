@@ -138,7 +138,7 @@ func TestRunPlanWithAnAgentThatNeverAnswers(t *testing.T) {
 		t.Fatalf("llm.New: %v", err)
 	}
 	r.Engine = engine
-	r.newAgent = func(config.Config, *logx.Logger, *llm.Client, *sandbox.Sandbox, taskpkg.Source) AgentRunner {
+	r.newAgent = func(config.Config, *logx.Logger, *llm.Client, *sandbox.Sandbox, taskpkg.Source, bool) AgentRunner {
 		return &resultAgent{}
 	}
 	if _, err := r.RunPlan(context.Background(), "un prompt", func(string, ...any) {}); err != nil {

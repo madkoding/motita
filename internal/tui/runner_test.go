@@ -327,7 +327,7 @@ var _ taskpkg.Source
 
 func TestAppRunnerRunTaskSuccess(t *testing.T) {
 	r := NewAppRunner(&bytes.Buffer{}, &bytes.Buffer{}, config.Default(), &llm.Client{}, &sandbox.Sandbox{}, logx.Global())
-	r.newAgent = func(config.Config, *logx.Logger, *llm.Client, *sandbox.Sandbox, taskpkg.Source) AgentRunner {
+	r.newAgent = func(config.Config, *logx.Logger, *llm.Client, *sandbox.Sandbox, taskpkg.Source, bool) AgentRunner {
 		return &fakeAgent{}
 	}
 	result, err := r.RunTask(context.Background(), "valid task", func(string, ...any) {})
@@ -353,7 +353,7 @@ func TestAppRunnerRunPlanWithFakeAgent(t *testing.T) {
 	r := NewAppRunner(&bytes.Buffer{}, &bytes.Buffer{}, cfg, nil, nil, logx.Global())
 	engine, _ := llm.New(cfg.LLM, r.Log)
 	r.Engine = engine
-	r.newAgent = func(config.Config, *logx.Logger, *llm.Client, *sandbox.Sandbox, taskpkg.Source) AgentRunner {
+	r.newAgent = func(config.Config, *logx.Logger, *llm.Client, *sandbox.Sandbox, taskpkg.Source, bool) AgentRunner {
 		return &fakeAgent{}
 	}
 	_, err := r.RunPlan(context.Background(), "prompt", func(string, ...any) {})

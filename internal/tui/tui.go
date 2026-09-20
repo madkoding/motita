@@ -191,6 +191,22 @@ func (t *TUI) readKey(ctx context.Context) (byte, bool) {
 func (t *TUI) Run(ctx context.Context) int {
 	t.drawFrame()
 
+	// Leaving wipes the screen.
+	//
+	// A full-screen interface that exits and leaves its frame behind hands the shell back a
+	// window covered in text that is not the user's: their prompt is somewhere above it, and the
+	// first thing they have to do is clear it. The interface took the screen over when it
+	// started — it cleared on the way in — so it has to give it back on the way out.
+	//
+	// It is a defer, and it is the FIRST one registered, so it runs LAST: the mouse, the
+	// terminal mode and the background painter are all restored before the screen is wiped, and
+	// the wipe is therefore the final thing written.
+	//
+	// It runs on every exit path — quit, Ctrl+C, a cancelled context, a closed input, a panic
+	// that unwinds through here — because a cleanup attached to one of them is a cleanup that
+	// leaks on the others.
+	defer t.clearOnExit()
+
 	// A resize repaints at the new geometry. The read below cannot be interrupted by
 	// a signal — the terminal is not in raw mode, so ReadByte blocks until a line
 	// arrives — which is why this needs its own goroutine rather than a check in the

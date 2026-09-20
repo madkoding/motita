@@ -120,7 +120,7 @@ func TestAppRunnerRunTaskMapsEveryOutcome(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			r := NewAppRunner(&bytes.Buffer{}, &bytes.Buffer{}, config.Default(), &llm.Client{}, &sandbox.Sandbox{}, logx.Global())
-			r.newAgent = func(config.Config, *logx.Logger, *llm.Client, *sandbox.Sandbox, taskpkg.Source) AgentRunner {
+			r.newAgent = func(config.Config, *logx.Logger, *llm.Client, *sandbox.Sandbox, taskpkg.Source, bool) AgentRunner {
 				return &resultAgent{tr: tc.tr}
 			}
 			got, err := r.RunTask(context.Background(), "a task", func(string, ...any) {})
@@ -141,7 +141,7 @@ func TestAppRunnerRunTaskMapsEveryOutcome(t *testing.T) {
 // has to produce a sentence, because an empty chat message looks like a bug.
 func TestAppRunnerRunTaskWithoutAResult(t *testing.T) {
 	r := NewAppRunner(&bytes.Buffer{}, &bytes.Buffer{}, config.Default(), &llm.Client{}, &sandbox.Sandbox{}, logx.Global())
-	r.newAgent = func(config.Config, *logx.Logger, *llm.Client, *sandbox.Sandbox, taskpkg.Source) AgentRunner {
+	r.newAgent = func(config.Config, *logx.Logger, *llm.Client, *sandbox.Sandbox, taskpkg.Source, bool) AgentRunner {
 		return &resultAgent{silent: true}
 	}
 	got, err := r.RunTask(context.Background(), "a task", func(string, ...any) {})
@@ -157,7 +157,7 @@ func TestAppRunnerRunTaskWithoutAResult(t *testing.T) {
 // reach the chat, not be swallowed.
 func TestAppRunnerRunTaskPropagatesAnAgentFailure(t *testing.T) {
 	r := NewAppRunner(&bytes.Buffer{}, &bytes.Buffer{}, config.Default(), &llm.Client{}, &sandbox.Sandbox{}, logx.Global())
-	r.newAgent = func(config.Config, *logx.Logger, *llm.Client, *sandbox.Sandbox, taskpkg.Source) AgentRunner {
+	r.newAgent = func(config.Config, *logx.Logger, *llm.Client, *sandbox.Sandbox, taskpkg.Source, bool) AgentRunner {
 		return &resultAgent{err: errors.New("the agent could not start")}
 	}
 	_, err := r.RunTask(context.Background(), "a task", func(string, ...any) {})
@@ -170,7 +170,7 @@ func TestAppRunnerRunTaskPropagatesAnAgentFailure(t *testing.T) {
 // and the runner has to surface that instead of running the agent on nothing.
 func TestAppRunnerRunTaskRejectsAnEmptyTask(t *testing.T) {
 	r := NewAppRunner(&bytes.Buffer{}, &bytes.Buffer{}, config.Default(), &llm.Client{}, &sandbox.Sandbox{}, logx.Global())
-	r.newAgent = func(config.Config, *logx.Logger, *llm.Client, *sandbox.Sandbox, taskpkg.Source) AgentRunner {
+	r.newAgent = func(config.Config, *logx.Logger, *llm.Client, *sandbox.Sandbox, taskpkg.Source, bool) AgentRunner {
 		t.Error("the agent must not be built for an empty task")
 		return &resultAgent{}
 	}
@@ -183,7 +183,7 @@ func TestAppRunnerRunTaskRejectsAnEmptyTask(t *testing.T) {
 // the chat shows while a task runs, so they must reach the caller's callback.
 func TestAppRunnerRunTaskForwardsProgress(t *testing.T) {
 	r := NewAppRunner(&bytes.Buffer{}, &bytes.Buffer{}, config.Default(), &llm.Client{}, &sandbox.Sandbox{}, logx.Global())
-	r.newAgent = func(config.Config, *logx.Logger, *llm.Client, *sandbox.Sandbox, taskpkg.Source) AgentRunner {
+	r.newAgent = func(config.Config, *logx.Logger, *llm.Client, *sandbox.Sandbox, taskpkg.Source, bool) AgentRunner {
 		return &resultAgent{tr: agent.TaskResult{Pass: true, Reason: "ok"}, phases: []string{"analysing…", "running: ls"}}
 	}
 	var seen []string

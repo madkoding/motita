@@ -57,6 +57,16 @@ type Agent struct {
 	// program existing, on its configuration or on its interactive behaviour.
 	ExecCommand func(context.Context, execx.Request) (string, bool, int, error)
 
+	// Interactive reports whether there is a user who can answer a question.
+	//
+	// It decides what to do when the request cannot be read well enough to act on. With a user on
+	// the other end, the agent ASKS: the request is incomplete rather than impossible, and a
+	// three-word answer unblocks it. Without one — a batch run, a cron job, a piped task — there is
+	// nobody to ask, so asking would only stall: the agent proceeds on the assumption it stated.
+	//
+	// Both are better than refusing, which is what the agent used to do in either case.
+	Interactive bool
+
 	// Observer, when not nil, receives the result of every task on completion.
 	// It is the integration point for metrics or for whoever embeds the agent,
 	// and it is also what the tests use to inspect the verdict without reading
@@ -129,6 +139,19 @@ type Analysis struct {
 	SuccessCrit    []string `json:"success_criteria"`
 	Risks          []string `json:"risks"`
 	NeedsSubtasks  bool     `json:"needs_subtasks"`
+
+	// Question is what to ask the user when the request cannot be understood well enough to act
+	// on. It is the difference between an agent that stops and one that asks.
+	//
+	// Users mistype, abbreviate, and leave out what they consider obvious. A request the model
+	// can only half interpret is not a failure: it is incomplete information, and the interface
+	// has a user on the other end who can complete it. Refusing outright — which is what this
+	// used to do — throws away the turn and makes the user rephrase from scratch.
+	Question string `json:"question"`
+	// Assumption is what the agent WOULD do if it had to proceed without an answer. Asking with
+	// a stated assumption lets the user confirm in one word instead of writing a new request, and
+	// it gives the agent a defensible reading if nobody answers.
+	Assumption string `json:"assumption"`
 }
 
 // Plan is the structured output of phase [4].
@@ -171,6 +194,15 @@ type TaskResult struct {
 	Reason      string         `json:"reason"`
 	// Summary is a human-readable answer produced by the model and shown in the UI.
 	Summary string `json:"summary,omitempty"`
+	// NeedsInput is set when the agent could not interpret the request well enough to act and is
+	// asking the user instead of guessing. Question carries what to ask and Assumption what it
+	// would do without an answer.
+	//
+	// This is not a failure and must not be reported as one: nothing went wrong, information is
+	// missing, and the user is the one holding it.
+	NeedsInput bool   `json:"needs_input,omitempty"`
+	Question   string `json:"question,omitempty"`
+	Assumption string `json:"assumption,omitempty"`
 }
 
 // --- Main loop --------------------------------------------------------------
@@ -211,6 +243,8 @@ func (a *Agent) Run(ctx context.Context) error {
 
 	total := 0
 	failed := 0
+	// awaiting counts the tasks that stopped to ask a question.
+	awaiting := 0
 	reasons := []string{}
 	// Consecutive source failures are counted separately: a source that fails
 	// forever (a directory that disappeared, an unreachable API) must not spin
@@ -265,6 +299,23 @@ func (a *Agent) Run(ctx context.Context) error {
 
 		total++
 		result := a.processTask(ctx, t, 0)
+
+		// A task that ended in a QUESTION is not a task that failed.
+		//
+		// It did not run, and nothing went wrong: the agent could not read the request well
+		// enough and is asking. Counting it as a failure is what turned a perfectly good question
+		// into "1 of 1 tasks failed" in the interface, which tells the user they did something
+		// wrong at the exact moment the agent is asking for their help.
+		//
+		// It is reported as a non-failure so the interface can show the question, and it does not
+		// make the run exit non-zero: the run is WAITING, not broken.
+		if result.NeedsInput {
+			awaiting++
+			a.log.Info("task is waiting for the user", "task", truncate(t.Description, 120),
+				"question", truncate(result.Question, 200))
+			continue
+		}
+
 		if result.Pass {
 			a.log.Info("task completed",
 				"task", truncate(t.Description, 120),
@@ -281,7 +332,7 @@ func (a *Agent) Run(ctx context.Context) error {
 		}
 	}
 
-	a.log.Info("agent finished", "tasks", total, "failed", failed)
+	a.log.Info("agent finished", "tasks", total, "failed", failed, "awaiting_input", awaiting)
 	if failed > 0 {
 		// The reason of every failure is included: whoever reads the error (or
 		// cron's output) must be able to act without digging through the log.
@@ -305,6 +356,10 @@ func (a *Agent) loop(ctx context.Context, t task.Task, depth int) TaskResult {
 	start := time.Now()
 	res := TaskResult{Task: t.Description, Attempts: 0}
 
+	// proceededOnAssumption records the reading the agent adopted when it had nobody to ask, so
+	// the final report can say what it assumed instead of presenting the result as unqualified.
+	proceededOnAssumption := ""
+
 	prefix := strings.Repeat("  ", depth)
 	a.log.Info(prefix+"task received", "origin", t.Origin, "depth", depth, "description", truncate(t.Description, 200))
 
@@ -316,11 +371,72 @@ func (a *Agent) loop(ctx context.Context, t task.Task, depth int) TaskResult {
 	// [3] Analysis.
 	a.report("analysing the task...")
 	analysis := a.analysisPhase(ctx, t, rules, depth)
-	if !analysis.Understandable {
-		res.Reason = "the task was declared not understandable: " + strings.Join(analysis.Risks, "; ")
+	if !analysis.Understandable || analysis.Question != "" {
+		// The request could not be read well enough to act on. ASK, do not refuse.
+		//
+		// This used to end the turn with "the task was declared not understandable", which throws
+		// away everything the user typed and makes them write it again — for a request they can
+		// usually clarify in three words. A user mistypes, abbreviates, and omits what they think
+		// is obvious; the agent's job is to close that gap, not to report it.
+		//
+		// The question goes back through the interface as a normal result, so the user sees it in
+		// the conversation and answers with their next message. The assumption travels with it:
+		// it is what the agent would do without an answer, which lets the user confirm with a
+		// single word, and it is also the honest fallback if the interface has nobody to ask.
+		res.NeedsInput = true
+		res.Question = strings.TrimSpace(analysis.Question)
+		res.Assumption = strings.TrimSpace(analysis.Assumption)
+		res.Reason = strings.Join(analysis.Risks, "; ")
 		res.DurationMS = time.Since(start).Milliseconds()
-		a.report("task not understandable: %s", res.Reason)
-		return res
+
+		// Nothing to ask AND nothing to assume is a genuine dead end, and it stays a failure.
+		//
+		// The difference is worth being precise about. A QUESTION is a request the agent can
+		// name and the user can answer; an ASSUMPTION is a reading the agent can act on. With
+		// neither, there is nothing to ask and nothing to do, and inventing a generic "what did
+		// you mean?" would be asking the user to repeat what they just said — the report is
+		// clearer, and a batch run still exits non-zero for cron to notice.
+		if res.Question == "" && res.Assumption == "" {
+			res.NeedsInput = false
+			res.Question = ""
+			res.Reason = strings.Join(analysis.Risks, "; ")
+			a.report("task not understandable: %s", res.Reason)
+			return res
+		}
+		if res.Question == "" {
+			// The model named an assumption but no question. Asking is still right — the user can
+			// confirm or correct the reading in one word — so the question is derived from it.
+			res.Question = "¿Voy bien encaminado? Si no, dime qué quieres exactamente."
+		}
+
+		// Nobody to ask: proceed on the assumption instead of stalling.
+		//
+		// A batch run has no user at the other end, so a question would wait forever. The
+		// assumption the model itself proposed is the reading to act on — and acting on a stated
+		// assumption is what an engineer does when the ticket is thin, not refusing to work.
+		if !a.Interactive && res.Assumption != "" {
+			a.log.Info("no user to ask: proceeding on the stated assumption",
+				"question", truncate(res.Question, 160), "assumption", truncate(res.Assumption, 200))
+			a.report("no user to ask; assuming: %s", res.Assumption)
+			analysis.Understandable = true
+			analysis.Question = ""
+			// No fallback for an empty summary is needed: analysisPhase already replaced it with
+			// the task description when the model left it blank, so by this point it always has
+			// something. A branch here would be unreachable.
+			//
+			// The result describes the run that is now PROCEEDING, not the question that was
+			// skipped: leaving these set would report a finished run as one that is still waiting
+			// for an answer. They are re-applied below if the run later fails.
+			res.NeedsInput = false
+			res.Question = ""
+			res.Assumption = ""
+			proceededOnAssumption = analysis.Summary
+		} else {
+			a.report("need clarification: %s", res.Question)
+			a.log.Info("asking the user instead of guessing", "question", truncate(res.Question, 200),
+				"assumption", truncate(res.Assumption, 200))
+			return res
+		}
 	}
 	a.report("understood: %s", analysis.Summary)
 
@@ -425,7 +541,16 @@ func (a *Agent) loop(ctx context.Context, t task.Task, depth int) TaskResult {
 					a.report("%s", summary)
 				}
 			}
-			a.log.Info(prefix+"validation passed", "attempt", attempt, "final_action", finalAction)
+			// When there was nobody to ask, the run proceeded on a reading the agent chose. Saying
+			// so is what makes the result honest: the answer is correct GIVEN that reading, and a
+			// user reading it later needs to know which one was taken — otherwise a reasonable
+			// assumption looks like a wrong answer.
+			if proceededOnAssumption != "" {
+				res.Assumption = proceededOnAssumption
+				a.report("(proceeded assuming: %s)", proceededOnAssumption)
+			}
+			a.log.Info(prefix+"validation passed", "attempt", attempt, "final_action", finalAction,
+				"assumed", truncate(proceededOnAssumption, 160))
 			return res
 		}
 
@@ -466,8 +591,16 @@ func (a *Agent) analysisPhase(ctx context.Context, t task.Task, rules string, de
 
 	var analysis Analysis
 	if err := llm.DecodeJSON(text, &analysis); err != nil {
+		// A malformed analysis is OUR problem, not the user's: the model failed to follow the
+		// format, and reporting the parse error to the user asks them to fix something they did
+		// not do. The honest answer is that the request could not be read, with a question that
+		// lets them proceed.
 		a.log.Error("the analysis has an unexpected format", "error", err, "response", truncate(text, 300))
-		return Analysis{Understandable: false, Risks: []string{"the LLM's analysis was not valid JSON: " + err.Error()}}
+		return Analysis{
+			Understandable: false,
+			Risks:          []string{"the analysis could not be parsed: " + err.Error()},
+			Question:       "No pude interpretar la petición. ¿Puedes decirme, en una frase, qué quieres que haga y sobre qué?",
+		}
 	}
 	if analysis.Summary == "" {
 		analysis.Summary = truncate(t.Description, 200)

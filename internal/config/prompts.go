@@ -32,10 +32,37 @@ Return a JSON object with this exact shape:
   "summary": "what has to be achieved, in one sentence",
   "success_criteria": ["verifiable criterion 1", "verifiable criterion 2"],
   "risks": ["risk or ambiguity detected"],
-  "needs_subtasks": false
+  "needs_subtasks": false,
+  "question": "",
+  "assumption": ""
 }
-If the task is ambiguous or impossible with the available tools, set
-"understandable": false and explain the reason in "risks". Do not invent data.`,
+
+## WHEN THE REQUEST IS UNCLEAR
+
+Users mistype, abbreviate, and leave out what they think is obvious. Your job is to close that
+gap, not to report it. Read CHARITABLY first: work out the most plausible thing they meant and
+fill in what a competent engineer would assume. A request that is thin is not a request that is
+broken.
+
+Ask ONLY when guessing would risk doing the WRONG thing — when two readings lead to materially
+different actions, when a destructive step depends on which one is intended, or when the object
+of the work is genuinely unknowable from here. Everything else: assume, act, and say what you
+assumed.
+
+When you must ask:
+- set "understandable": false
+- put ONE question in "question", in the user's own language, as short as it can be while still
+  being answerable. Ask for the ONE thing that unblocks you, not a list.
+- put in "assumption" what you WOULD do if they never answered. This is what lets them reply
+  "yes, go ahead" in two words instead of writing their request again.
+- leave "summary" and "success_criteria" empty
+
+A question is the last resort, never the first response. If you can state a reasonable assumption
+and act on it, do that instead: a question costs the user a turn, and an unnecessary one is worse
+than a stated assumption they can correct.
+
+Do not set "understandable": false to report that you lack tools or permissions — that is a
+finding to act on, not a question for the user.`,
 }
 
 // BasePlanTemplate asks for the action plan.

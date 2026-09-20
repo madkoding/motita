@@ -357,11 +357,17 @@ func TestAnalysisNotUnderstandable(t *testing.T) {
 	var result *TaskResult
 	e.agent.Observer = func(r TaskResult) { result = &r }
 
-	// A task that cannot be done counts as a failure: the work was not done, so
-	// the process must exit with an error (important for cron).
+	// The model reported that it cannot understand the task and named NO question and NO
+	// assumption, so there is nothing to ask and nothing to act on. That is the one case that
+	// remains a failure, and it must exit non-zero (important for cron).
+	//
+	// When the model DOES name a question the agent asks instead, and when there is no user to
+	// ask it proceeds on the stated assumption — both are covered separately. The difference
+	// matters: a question is not a failure, and a run that is waiting for an answer must not be
+	// reported as one.
 	err := e.agent.Run(context.Background())
 	if err == nil {
-		t.Fatal("a discarded task must make the agent finish with an error")
+		t.Fatal("a task with nothing to ask and nothing to assume must finish with an error")
 	}
 	if result == nil {
 		t.Fatal("no result")
