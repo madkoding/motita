@@ -1458,8 +1458,40 @@ func TestInitFlagRunsTheWizard(t *testing.T) {
 
 // TestInitWithoutConfigUsesADefaultPath: with no -config the destination is
 // ./starlight.yaml, so the command is usable on its own.
-func TestInitWithoutConfigUsesADefaultPath(t *testing.T) {
+// The wizard's default destination is the starlight home, not the working directory: the file it
+// writes is the one the program looks for on the next run, and a user with no ~/.starlight gets
+// one created as part of writing it.
+func TestInitWithoutConfigWritesInTheStarlightHome(t *testing.T) {
 	inTempDir(t, func() {
+		home := t.TempDir()
+		t.Setenv("HOME", home)
+		silence(t)
+		var out, errs bytes.Buffer
+		code := Run(Options{
+			Args:  []string{"-init"},
+			Out:   &out,
+			Err:   &errs,
+			Stdin: strings.NewReader("openai\n1\n2\n\n\n"),
+		})
+		if code != Success {
+			t.Fatalf("code = %d, errs = %q", code, errs.String())
+		}
+		want := filepath.Join(home, ".starlight", "starlight.yaml")
+		if _, err := os.Stat(want); err != nil {
+			t.Errorf("the wizard should write %s: %v", want, err)
+		}
+		if _, err := os.Stat("starlight.yaml"); err == nil {
+			t.Error("nothing should be left in the working directory")
+		}
+	})
+}
+
+// With no HOME there is nowhere to put a home, so the old behaviour stands: the working
+// directory. A stripped environment (cron, a minimal container) must still be able to configure
+// itself rather than refusing for want of a variable.
+func TestInitWithoutHomeFallsBackToTheWorkingDirectory(t *testing.T) {
+	inTempDir(t, func() {
+		t.Setenv("HOME", "")
 		silence(t)
 		var out, errs bytes.Buffer
 		code := Run(Options{
@@ -1472,7 +1504,7 @@ func TestInitWithoutConfigUsesADefaultPath(t *testing.T) {
 			t.Fatalf("code = %d, errs = %q", code, errs.String())
 		}
 		if _, err := os.Stat("starlight.yaml"); err != nil {
-			t.Errorf("the default path must be used: %v", err)
+			t.Errorf("with no HOME the working directory is used: %v", err)
 		}
 	})
 }

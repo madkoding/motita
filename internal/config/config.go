@@ -9,6 +9,7 @@ package config
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 )
@@ -269,6 +270,62 @@ func Default() Config {
 	}
 }
 
+// Dir is the default home for starlight's own state: the configuration file, the workspace the
+// agent writes to, the log, and the library of skills.
+//
+// It is ~/.starlight. Everything the program owns lives under one folder the user can find,
+// back up or delete as a unit, instead of the configuration landing in the current directory
+// beside whatever project happened to be open.
+//
+// The HOME variable is read rather than the OS user database, because the program runs on
+// minimal containers where the two disagree and HOME is the one that matches the shell the user
+// is in. When it is unset — a stripped environment, a cron job — there is no sensible home, and
+// the empty result tells the caller to keep the old relative paths rather than guess.
+func Dir() string {
+	if home := strings.TrimSpace(os.Getenv("HOME")); home != "" {
+		return filepath.Join(home, ".starlight")
+	}
+	return ""
+}
+
+// File is the configuration file inside Dir, and the empty string when there is no home.
+func File() string {
+	if d := Dir(); d != "" {
+		return filepath.Join(d, "starlight.yaml")
+	}
+	return ""
+}
+
+// resolvePaths makes every RELATIVE path in the configuration resolve beside the file itself.
+//
+// This is the convention a configuration file is expected to follow: a path written in a file is
+// relative to that file, not to wherever the program happened to be started. git, ssh and systemd
+// all read their own files this way, and it is what makes a configuration movable.
+//
+// It is also the single rule that makes the starlight home work. With the file in ~/.starlight,
+// "./workspace" means ~/.starlight/workspace and the program's state stays together in one folder
+// the user can find — which the earlier, "only rewrite the defaults" version did not achieve,
+// because the wizard writes the paths into the file explicitly and they were therefore never
+// touched. With the file in the working directory the base is ".", so every path is exactly what
+// it always was and an existing setup keeps working unchanged.
+//
+// Absolute paths are left alone: a user who wrote /srv/workspace meant that directory, and
+// resolving it against anything would be inventing a location.
+func resolvePaths(c *Config, base string) {
+	if base == "" || base == "." {
+		return
+	}
+	join := func(p string) string {
+		if p == "" || filepath.IsAbs(p) {
+			return p
+		}
+		return filepath.Join(base, p)
+	}
+	c.Agent.WorkspaceDir = join(c.Agent.WorkspaceDir)
+	c.Agent.LogFile = join(c.Agent.LogFile)
+	c.Skills.Dir = join(c.Skills.Dir)
+}
+
 // LoadOrDefault applies environment variables to the default configuration when
 // no file is present. It is used by the TUI so that env vars such as
 // OLLAMA_API_KEY are picked up even without a starlight.yaml in the current
@@ -317,6 +374,11 @@ func load(path string, requireKey bool) (Config, error) {
 		if err := Decode(m, &cfg); err != nil {
 			return cfg, fmt.Errorf("invalid configuration in %q: %w", path, err)
 		}
+		// Every relative path resolves beside the file, so a configuration is movable and the
+		// program's state stays with it. Applied BEFORE validate, because validate is what fills
+		// an empty path with the default, and a value arriving afterwards would keep the
+		// default's relative form.
+		resolvePaths(&cfg, filepath.Dir(path))
 	}
 
 	// Environment variables (they win over the YAML), including the standard

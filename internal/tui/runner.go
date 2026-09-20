@@ -658,7 +658,12 @@ func (r *AppRunner) ResetTranscript() {
 
 // RunConfig runs the first-run configuration wizard.
 func (r *AppRunner) RunConfig(ctx context.Context) error {
-	path := "./starlight.yaml"
+	// The same default the first run uses, so the file the wizard writes is the one the program
+	// looks for next time. With no HOME it falls back to the working directory.
+	path := config.File()
+	if path == "" {
+		path = "./starlight.yaml"
+	}
 	_, err := onboard.Run(ctx, os.Stdin, r.Out, path, onboard.Answers{}, time.Now())
 	return err
 }

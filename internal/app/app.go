@@ -275,7 +275,15 @@ func parse(args []string) (flags, error) {
 func (op Options) initConfig(fl flags) int {
 	path := fl.configPath
 	if path == "" {
-		path = "./starlight.yaml"
+		// The wizard's default is the starlight home, so a first run lands where the program
+		// will look for it afterwards. Its directory is created as part of writing the file, so
+		// a user with no ~/.starlight gets one. With no HOME there is no home to use, and the
+		// working directory is the fallback — the old behaviour, for the environments that have
+		// nowhere else to put it.
+		path = config.File()
+		if path == "" {
+			path = "./starlight.yaml"
+		}
 	}
 
 	fmt.Fprintf(op.Out, "Welcome to starlight.\n")
@@ -303,6 +311,29 @@ func (op Options) initConfig(fl flags) int {
 	return Success
 }
 
+// exists reports whether a path is there. It is a readability wrapper: the
+// switch that chooses the configuration file reads as a list of destinations,
+// and os.Stat inlined three times turned it into a list of error checks.
+func exists(path string) bool {
+	_, err := os.Stat(path)
+	return err == nil
+}
+
+// loadPreferringKey loads the configuration, tolerating a missing key in the two
+// modes that do not call the LLM.
+//
+// Those modes (-validar-config, -aislamiento) exist to check the file, and there
+// not having a key is legitimate. An invalid file is still an error everywhere: a
+// mode that replaced a broken file with the defaults and then reported "valid
+// configuration" would hide the only thing it was asked to check.
+func loadPreferringKey(path string, fl flags) (config.Config, error) {
+	cfg, err := config.Load(path)
+	if err != nil && (fl.validateConfig || fl.isolation) && strings.Contains(err.Error(), "LLM key is missing") {
+		return config.LoadWithoutKey(path)
+	}
+	return cfg, err
+}
+
 // run is the main body: it loads the configuration, prepares the layers and
 // launches the agent with graceful shutdown.
 func (op Options) run(fl flags) int {
@@ -311,33 +342,35 @@ func (op Options) run(fl flags) int {
 	// the file with the default values would hide exactly the failure being
 	// looked for.
 	//
-	// When no explicit -config is given, look for starlight.yaml in the current
-	// directory. If that also does not exist, start from defaults so that the
-	// TUI or wizard can run without a file.
+	// When no explicit -config is given, the file is looked for in the starlight home
+	// (~/.starlight/starlight.yaml) and then in the current directory. If neither exists, the
+	// program starts from defaults so the TUI or wizard can run without a file.
+	//
+	// The home comes FIRST and the working directory SECOND, which is the opposite of how a
+	// project-local configuration usually works, and deliberately so: starlight's file carries
+	// the LLM credentials and the paths to its own state, so it belongs to the user rather than
+	// to whichever repository they happened to be standing in. The working directory is still
+	// accepted, so an existing setup keeps working and a per-project override stays possible.
 	var cfg config.Config
 	var err error
 	switch {
 	case fl.configPath != "":
-		cfg, err = config.Load(fl.configPath)
+		cfg, err = loadPreferringKey(fl.configPath, fl)
 		if err != nil {
-			if (fl.validateConfig || fl.isolation) && strings.Contains(err.Error(), "LLM key is missing") {
-				cfg, err = config.LoadWithoutKey(fl.configPath)
-			}
-			if err != nil {
-				fmt.Fprintf(op.Err, "❌ %v\n", err)
-				return ConfigError
-			}
+			fmt.Fprintf(op.Err, "❌ %v\n", err)
+			return ConfigError
 		}
-	case func() bool { _, e := os.Stat("starlight.yaml"); return e == nil }():
-		cfg, err = config.Load("starlight.yaml")
+	case config.File() != "" && exists(config.File()):
+		cfg, err = loadPreferringKey(config.File(), fl)
 		if err != nil {
-			if (fl.validateConfig || fl.isolation) && strings.Contains(err.Error(), "LLM key is missing") {
-				cfg, err = config.LoadWithoutKey("starlight.yaml")
-			}
-			if err != nil {
-				fmt.Fprintf(op.Err, "❌ %v\n", err)
-				return ConfigError
-			}
+			fmt.Fprintf(op.Err, "❌ %v\n", err)
+			return ConfigError
+		}
+	case exists("starlight.yaml"):
+		cfg, err = loadPreferringKey("starlight.yaml", fl)
+		if err != nil {
+			fmt.Fprintf(op.Err, "❌ %v\n", err)
+			return ConfigError
 		}
 	default:
 		cfg, err = config.LoadOrDefault("")

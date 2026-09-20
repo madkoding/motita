@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -101,6 +102,10 @@ func TestAppRunnerRunTask(t *testing.T) {
 
 func TestAppRunnerRunConfig(t *testing.T) {
 	inTempDir(t, func() {
+		// The wizard writes into the starlight home, so the test owns one. Without this it would
+		// write into the HOME of whoever runs the suite.
+		home := t.TempDir()
+		t.Setenv("HOME", home)
 		r := NewAppRunner(&bytes.Buffer{}, &bytes.Buffer{}, config.Default(), &llm.Client{}, &sandbox.Sandbox{}, logx.Global())
 		oldStdin := os.Stdin
 		r2, w2, _ := os.Pipe()
@@ -114,8 +119,9 @@ func TestAppRunnerRunConfig(t *testing.T) {
 		if err != nil {
 			t.Fatalf("RunConfig error: %v", err)
 		}
-		if _, err := os.Stat("starlight.yaml"); err != nil {
-			t.Errorf("configuration not written: %v", err)
+		want := filepath.Join(home, ".starlight", "starlight.yaml")
+		if _, err := os.Stat(want); err != nil {
+			t.Errorf("configuration not written to %s: %v", want, err)
 		}
 	})
 }
@@ -368,3 +374,26 @@ func (fakeAgent) Run(context.Context) error                               { retu
 func (fakeAgent) RunCommand(context.Context, string) (string, int, error) { return "", 0, nil }
 func (fakeAgent) SetTranscript([]agent.DialogueTurn)                      {}
 func (fakeAgent) Transcript() []agent.DialogueTurn                        { return nil }
+
+// With no HOME the wizard falls back to the working directory, so a stripped environment can
+// still configure itself instead of refusing for want of a variable.
+func TestRunConfigWithoutHomeUsesTheWorkingDirectory(t *testing.T) {
+	inTempDir(t, func() {
+		t.Setenv("HOME", "")
+		r := NewAppRunner(&bytes.Buffer{}, &bytes.Buffer{}, config.Default(), &llm.Client{}, &sandbox.Sandbox{}, logx.Global())
+		oldStdin := os.Stdin
+		r2, w2, _ := os.Pipe()
+		os.Stdin = r2
+		defer func() { os.Stdin = oldStdin; r2.Close() }()
+		go func() {
+			defer w2.Close()
+			w2.WriteString("openai\n1\n2\n\n\n")
+		}()
+		if err := r.RunConfig(context.Background()); err != nil {
+			t.Fatalf("RunConfig error: %v", err)
+		}
+		if _, err := os.Stat("starlight.yaml"); err != nil {
+			t.Errorf("with no HOME the working directory is used: %v", err)
+		}
+	})
+}

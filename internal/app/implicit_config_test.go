@@ -18,6 +18,9 @@ import (
 // picked up without being named on the command line.
 func TestImplicitConfigIsUsedWhenPresent(t *testing.T) {
 	inTempDir(t, func() {
+		// An empty home, so the file under test is the one in the working directory rather than
+		// whatever the developer running the suite happens to have in ~/.starlight.
+		t.Setenv("HOME", t.TempDir())
 		silence(t)
 		dir, err := os.Getwd()
 		if err != nil {
@@ -92,6 +95,9 @@ agent:
 // exit code that distinguishes it from a task failure.
 func TestImplicitConfigThatCannotBeLoadedIsReported(t *testing.T) {
 	inTempDir(t, func() {
+		// An empty home, so the file under test is the one in the working directory rather than
+		// whatever the developer running the suite happens to have in ~/.starlight.
+		t.Setenv("HOME", t.TempDir())
 		silence(t)
 		dir, err := os.Getwd()
 		if err != nil {
@@ -145,6 +151,122 @@ func TestNoConfigFileFallsBackToTheEnvironment(t *testing.T) {
 		code := Run(Options{Args: []string{"-validate-config"}, Out: &out, Err: &errs})
 		if code != ConfigError {
 			t.Fatalf("code = %d, want ConfigError; errs = %q", code, errs.String())
+		}
+	})
+}
+
+// The starlight home takes precedence over the working directory, which is the opposite of the
+// usual project-local convention and deliberate: the file carries the credentials and the paths
+// to the program's own state, so it belongs to the user rather than to whichever repository they
+// happened to be standing in.
+func TestTheHomeFileWinsOverTheWorkingDirectory(t *testing.T) {
+	inTempDir(t, func() {
+		home := t.TempDir()
+		t.Setenv("HOME", home)
+		silence(t)
+
+		// A file in the working directory that would FAIL if it were used: a tab is not valid
+		// YAML indentation. If the home wins, this one is never read and the run succeeds.
+		dir, err := os.Getwd()
+		if err != nil {
+			t.Fatalf("getwd: %v", err)
+		}
+		mustWrite(t, filepath.Join(dir, "starlight.yaml"), "llm:\n\tprovider: openai\n")
+
+		// A valid file in the home.
+		homeFile := filepath.Join(home, ".starlight", "starlight.yaml")
+		if err := os.MkdirAll(filepath.Dir(homeFile), 0o755); err != nil {
+			t.Fatalf("mkdir: %v", err)
+		}
+		mustWrite(t, homeFile, `sandbox:
+  kind: none
+llm:
+  provider: openai
+  api_key: x
+  model: mock
+agent:
+  log_level: error
+  log_console: false
+`)
+
+		var out, errs bytes.Buffer
+		code := Run(Options{
+			Args: []string{"-validate-config"},
+			Out:  &out,
+			Err:  &errs,
+		})
+		if code != Success {
+			t.Fatalf("the home file should have been used; code = %d, errs = %q", code, errs.String())
+		}
+		if strings.Contains(errs.String(), "invalid YAML") {
+			t.Fatalf("the working-directory file must not have been read: %q", errs.String())
+		}
+	})
+}
+
+// An explicit -config still wins over both: naming a file is the most specific instruction a
+// user can give, and quietly preferring a different one would be ignoring what they typed.
+func TestExplicitConfigWinsOverTheHome(t *testing.T) {
+	inTempDir(t, func() {
+		home := t.TempDir()
+		t.Setenv("HOME", home)
+		silence(t)
+
+		// A broken file in the home that must NOT be used.
+		homeFile := filepath.Join(home, ".starlight", "starlight.yaml")
+		if err := os.MkdirAll(filepath.Dir(homeFile), 0o755); err != nil {
+			t.Fatalf("mkdir: %v", err)
+		}
+		mustWrite(t, homeFile, "llm:\n\tprovider: openai\n")
+
+		dir, err := os.Getwd()
+		if err != nil {
+			t.Fatalf("getwd: %v", err)
+		}
+		named := filepath.Join(dir, "elegido.yaml")
+		mustWrite(t, named, `sandbox:
+  kind: none
+llm:
+  provider: openai
+  api_key: x
+  model: mock
+agent:
+  log_level: error
+  log_console: false
+`)
+
+		var out, errs bytes.Buffer
+		code := Run(Options{
+			Args: []string{"-validate-config", "-config", named},
+			Out:  &out,
+			Err:  &errs,
+		})
+		if code != Success {
+			t.Fatalf("code = %d, errs = %q", code, errs.String())
+		}
+	})
+}
+
+// With no configuration file at all the program starts from defaults, and an environment
+// variable that cannot be parsed is still reported: a default run must not silently ignore a bad
+// variable and then behave in a way the user never asked for.
+func TestNoConfigWithABadEnvironmentIsReported(t *testing.T) {
+	inTempDir(t, func() {
+		t.Setenv("HOME", "")
+		silence(t)
+		t.Setenv("STARLIGHT_AGENT_MAX_RETRIES", "no-es-un-numero")
+
+		var out, errs bytes.Buffer
+		code := Run(Options{
+			Args: []string{"-validate-config"},
+			Out:  &out,
+			Err:  &errs,
+		})
+		if code != ConfigError {
+			t.Fatalf("code = %d, want ConfigError; errs = %q", code, errs.String())
+		}
+		if !strings.Contains(errs.String(), "STARLIGHT_AGENT_MAX_RETRIES") {
+			t.Errorf("the failure must name the variable at fault: %q", errs.String())
 		}
 	})
 }
