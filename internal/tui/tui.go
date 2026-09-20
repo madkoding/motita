@@ -22,6 +22,8 @@ import (
 	"strings"
 	"sync"
 	"unicode/utf8"
+
+	"github.com/madkoding/starlight/internal/agent"
 )
 
 // Exit codes returned by the TUI.
@@ -130,6 +132,11 @@ type TUI struct {
 	// is held — rendering outside the lock and writing inside it would still race on
 	// Width, scroll and messages. -race caught exactly that.
 	draw sync.Mutex
+	// ask is the window the agent's questions are answered in, and nil when there is nothing
+	// being asked. It is view state for a turn in progress: it opens when the agent cannot read
+	// a request and closes when the answers are sent.
+	ask *askState
+
 	// query filters the conversation; searching is true while the user is typing it.
 	//
 	// Both are view state: they describe what is being looked at, not what the session
@@ -269,6 +276,13 @@ func (t *TUI) Run(ctx context.Context) int {
 		// query, not a task, and running it would be a surprise nobody asked for.
 		if t.searching {
 			t.applyQuery(line)
+			continue
+		}
+
+		// While the agent's questions are open the input belongs to THEM, and it is checked
+		// before the shortcuts for the same reason the search is: a digit or an arrow typed
+		// here is an answer, not a task to run.
+		if t.asking() && t.handleAskKey(ctx, line) {
 			continue
 		}
 
@@ -806,6 +820,39 @@ func (t *TUI) runTask(ctx context.Context, task string) {
 	}
 	t.messages[pendingIdx].Pending = false
 	t.endTurn()
+
+	// The agent asked something. The window opens now, after the turn has ended, because the
+	// question only exists once the run has returned — and opening it mid-run would put the
+	// window over a turn that is still writing to the conversation.
+	t.openAskIfPending()
+}
+
+// askSource is implemented by a runner that can hand over the questions of the last turn.
+//
+// It is an OPTIONAL interface, checked by type assertion, so a runner that does not ask —
+// including every test double — keeps working unchanged. Requiring it on Runner would break
+// them all for a feature they do not exercise.
+type askSource interface {
+	TakePendingQuestions() ([]agent.AskItem, string)
+}
+
+// openAskIfPending opens the questions window when the last turn asked something.
+func (t *TUI) openAskIfPending() {
+	src, ok := t.Runner.(askSource)
+	if !ok {
+		return
+	}
+	items, origin := src.TakePendingQuestions()
+	if len(items) == 0 {
+		return
+	}
+	t.ask = newAsk(items, origin)
+	// The cursor lands on the first question that needs an answer, which on a fresh window is
+	// the first one.
+	if i := t.ask.firstUnanswered(); i >= 0 {
+		t.ask.cur = i
+	}
+	t.drawFrame()
 }
 
 // planStream accumulates the live output of one plan run into the chat.
@@ -1035,7 +1082,12 @@ const (
 	keyDown  = "\x1b[B"
 	keyPgUp  = "\x1b[5~"
 	keyPgDn  = "\x1b[6~"
+	keyLeft  = "\x1b[D"
 	keyRight = "\x1b[C"
+	// Enter is not a byte the reader returns: pressing it ends the line, so it arrives as an
+	// EMPTY line rather than as a token. This constant exists so the window can name the key it
+	// means instead of comparing against "" at each call site — a bare "" reads like a bug.
+	keyEnter = ""
 	keyHome  = "\x1b[H"
 	keyEnd   = "\x1b[F"
 	// Control bytes arrive as themselves. The half-page pair is the vim convention

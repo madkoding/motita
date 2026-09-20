@@ -1,0 +1,153 @@
+package agent
+
+import (
+	"strings"
+	"testing"
+)
+
+// The analysis can report one question or a list of them, and both have to reach the interface
+// in the same shape. These are the rules that fold the two into one.
+
+func TestBuildQuestionsPrefersTheList(t *testing.T) {
+	got := buildQuestions(Analysis{
+		Question: "la única",
+		Questions: []AskItem{
+			{Text: "primera"},
+			{Text: "segunda"},
+		},
+	})
+	if len(got) != 2 {
+		t.Fatalf("the list should win, got %d items", len(got))
+	}
+	if got[0].Text != "primera" || got[1].Text != "segunda" {
+		t.Fatalf("the order should be the model's, got %+v", got)
+	}
+}
+
+// A prompt that predates the list fills Question, and it must keep working: that is the whole
+// reason the single field is still read.
+func TestBuildQuestionsFallsBackToTheSingleQuestion(t *testing.T) {
+	got := buildQuestions(Analysis{Question: "¿qué carpeta?", Assumption: "la actual"})
+	if len(got) != 1 {
+		t.Fatalf("the single question should become a list of one, got %d", len(got))
+	}
+	if got[0].Text != "¿qué carpeta?" || got[0].Assumption != "la actual" {
+		t.Fatalf("got %+v", got[0])
+	}
+}
+
+// Both filled with the same gap means the model said the same thing twice. The list is the one
+// taken, so the user is not asked twice.
+func TestBuildQuestionsDoesNotAskTheSameGapTwice(t *testing.T) {
+	got := buildQuestions(Analysis{
+		Question:  "¿qué carpeta?",
+		Questions: []AskItem{{Text: "¿qué carpeta?"}},
+	})
+	if len(got) != 1 {
+		t.Fatalf("the same gap should be asked once, got %d", len(got))
+	}
+}
+
+// Nothing to ask is an empty result, NOT a list with an empty question: the caller treats an
+// empty list as "this turn is not an ask at all".
+func TestBuildQuestionsWithNothingIsEmpty(t *testing.T) {
+	for _, a := range []Analysis{
+		{},
+		{Question: "   "},
+		{Questions: []AskItem{{Text: ""}, {Text: "  "}}},
+	} {
+		if got := buildQuestions(a); len(got) != 0 {
+			t.Fatalf("nothing to ask should be empty, got %+v", got)
+		}
+	}
+}
+
+// Blank entries inside the list are dropped rather than drawn as empty rows, and the surviving
+// questions keep the model's order.
+func TestBuildQuestionsSkipsBlanks(t *testing.T) {
+	got := buildQuestions(Analysis{Questions: []AskItem{
+		{Text: "primera"},
+		{Text: "  "},
+		{Text: "segunda"},
+	}})
+	if len(got) != 2 {
+		t.Fatalf("blanks should be dropped, got %d", len(got))
+	}
+	if got[0].Text != "primera" || got[1].Text != "segunda" {
+		t.Fatalf("order and content should hold, got %+v", got)
+	}
+}
+
+// A list longer than the cap is cut. Past a few, the user is filling in a form rather than
+// clarifying a request, and the request should have been read more generously first.
+func TestBuildQuestionsIsCapped(t *testing.T) {
+	long := make([]AskItem, 0, maxQuestions+3)
+	for i := 0; i < maxQuestions+3; i++ {
+		long = append(long, AskItem{Text: string(rune('a' + i))})
+	}
+	got := buildQuestions(Analysis{Questions: long})
+	if len(got) != maxQuestions {
+		t.Fatalf("the list should be capped at %d, got %d", maxQuestions, len(got))
+	}
+}
+
+// An option is a one-line answer the user picks, so an option that cannot be picked is dropped:
+// empty, multi-line, absurdly long, or a duplicate of one already offered.
+func TestCleanOptions(t *testing.T) {
+	cases := []struct {
+		name string
+		in   []string
+		want int
+	}{
+		{"empty input", nil, 0},
+		{"all blank", []string{"", "   ", "\t"}, 0},
+		{"duplicates", []string{"sí", "sí", "no"}, 2},
+		{"multi-line collapses to one row", []string{"sí\nno"}, 1},
+		{"too long", []string{strings.Repeat("x", optionMaxRunes+1)}, 0},
+		{"exactly the limit", []string{strings.Repeat("x", optionMaxRunes)}, 1},
+		{"keeps the order", []string{"uno", "dos", "tres"}, 3},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if got := cleanOptions(c.in); len(got) != c.want {
+				t.Fatalf("cleanOptions(%q) = %v, want %d", c.in, got, c.want)
+			}
+		})
+	}
+}
+
+// The cap applies to what is kept, so a long list of duplicates or junk still yields at most a
+// handful of choices.
+func TestCleanOptionsIsCapped(t *testing.T) {
+	in := make([]string, 0, maxOptions+4)
+	for i := 0; i < maxOptions+4; i++ {
+		in = append(in, strings.Repeat("o", i+1))
+	}
+	if got := cleanOptions(in); len(got) != maxOptions {
+		t.Fatalf("cleanOptions should cap at %d, got %d", maxOptions, len(got))
+	}
+}
+
+// Whitespace is collapsed so an option is one line, and trimming means " yes " and "yes" are the
+// same choice rather than two identical-looking rows.
+func TestCleanOptionsCollapsesAndTrims(t *testing.T) {
+	got := cleanOptions([]string{"  la   carpeta   actual  "})
+	if len(got) != 1 || got[0] != "la carpeta actual" {
+		t.Fatalf("got %q", got)
+	}
+	dup := cleanOptions([]string{"sí", "  sí  "})
+	if len(dup) != 1 {
+		t.Fatalf("the trimmed forms are the same option, got %q", dup)
+	}
+}
+
+// The options reach the result on the asking path, so the interface can draw them.
+func TestOptionsReachTheResult(t *testing.T) {
+	got := buildQuestions(Analysis{
+		Question: "¿qué carpeta?",
+		Options:  []string{"la actual", "/tmp"},
+	})
+	if len(got) != 1 || len(got[0].Options) != 2 {
+		t.Fatalf("the options should survive into the question, got %+v", got)
+	}
+}

@@ -1266,7 +1266,14 @@ func (t *TUI) composerLines() []string {
 // window and scroll the interface on a keypress.
 func (t *TUI) composerLinesCapped(popupCap int) []string {
 	var lines []string
-	lines = append(lines, t.completionLinesCapped(t.bodyWidth(), popupCap)...)
+	// The questions window draws in the popup's place. The input box below it is NOT hidden:
+	// the answer field and the free-answer row are the same thing, so the user can see exactly
+	// what will be sent while picking an option or typing one.
+	if t.asking() {
+		lines = append(lines, t.askLines(popupCap)...)
+	} else {
+		lines = append(lines, t.completionLinesCapped(t.bodyWidth(), popupCap)...)
+	}
 	// The input area is a FIXED few rows: a box the user types into, with its own divider above
 	// it. Three rows is the size the user asked for — enough to see a sentence or two of what
 	// has been typed without the box dominating the window — and it is fixed, so the frame
@@ -1434,6 +1441,13 @@ func (t *TUI) composerPrompt(rowsBelow int) string {
 // It is a method rather than a field so the two places that need it — the size gate and the
 // budgeting — cannot disagree about how big the popup is.
 func (t *TUI) popupRows() int {
+	// The questions window takes the reservation the completion popup would use. The two cannot
+	// be open together: the window CAPTURES the keys, so nothing is being typed into the input
+	// for a completion to react to — and if both drew, the frame would be taller than the layout
+	// measured and the interface would scroll on a keypress.
+	if t.asking() {
+		return t.askRows()
+	}
 	if !t.completing() {
 		return 0
 	}

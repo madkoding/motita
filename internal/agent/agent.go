@@ -290,6 +290,86 @@ func collapse(s string) string {
 	return strings.Join(strings.Fields(s), " ")
 }
 
+// maxQuestions bounds how many questions are put at once. Past a few, the user is not being
+// asked to clarify a request any more; they are filling in a form, and the request should have
+// been read more generously first.
+const maxQuestions = 5
+
+// buildQuestions normalises the questions of a turn.
+//
+// The model may answer with a list (several gaps) or with the single question field (one gap).
+// Both are valid and both must work, so this folds them into one shape for the interface: the
+// list when there is one, otherwise the single question. It also drops empty questions and
+// trims the list, so the interface never has to draw a blank row.
+//
+// An EMPTY result means the agent has nothing to ask — the turn is not an ask at all — and the
+// caller must treat that as no question rather than as one empty question.
+func buildQuestions(a Analysis) []AskItem {
+	out := make([]AskItem, 0, len(a.Questions)+1)
+	for _, q := range a.Questions {
+		text := collapse(q.Text)
+		if text == "" {
+			continue
+		}
+		out = append(out, AskItem{
+			Text:       text,
+			Assumption: collapse(q.Assumption),
+			Options:    cleanOptions(q.Options),
+		})
+		if len(out) == maxQuestions {
+			break
+		}
+	}
+	// The single-question fields are still asked, so a prompt that predates the list keeps
+	// working. Only added when the list did not already carry something: a model that filled
+	// both meant the same gap twice.
+	if len(out) == 0 {
+		if text := collapse(a.Question); text != "" {
+			out = append(out, AskItem{
+				Text:       text,
+				Assumption: collapse(a.Assumption),
+				Options:    cleanOptions(a.Options),
+			})
+		}
+	}
+	return out
+}
+
+// maxOptions bounds how many answers are offered: past a handful the list stops being a
+// shortcut and becomes a menu to read.
+const maxOptions = 4
+
+// cleanOptions keeps the options that can actually be picked.
+//
+// The model is asked for short candidate answers; anything empty, multi-line, or absurdly long
+// is dropped rather than shown, because an option is a one-line reply the user selects, not a
+// document. Duplicates go too: two identical choices look like a bug in the interface.
+func cleanOptions(in []string) []string {
+	out := make([]string, 0, len(in))
+	seen := map[string]bool{}
+	for _, o := range in {
+		one := collapse(o)
+		if one == "" || seen[one] {
+			continue
+		}
+		if len([]rune(one)) > optionMaxRunes {
+			continue
+		}
+		seen[one] = true
+		out = append(out, one)
+		if len(out) == maxOptions {
+			break
+		}
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
+// optionMaxRunes is the longest option worth showing on one row next to its key.
+const optionMaxRunes = 60
+
 // --- Result of each phase ---------------------------------------------------
 
 // Analysis is the structured output of phase [3].
@@ -331,12 +411,50 @@ type Analysis struct {
 	// it gives the agent a defensible reading if nobody answers.
 	Assumption string `json:"assumption"`
 
+	// Questions are the questions to ask, in order, when more than one thing is unclear.
+	//
+	// The single Question/Comment pair above covers the common case; this covers the case where
+	// the request has several independent gaps. Asking them one turn at a time costs a round
+	// trip each and makes the user re-explain the request three times; asking them together lets
+	// the user move between them and confirm once.
+	//
+	// When Questions is empty the interface falls back to the single Question, so a prompt that
+	// does not produce a list keeps working exactly as before.
+	Questions []AskItem `json:"questions"`
+
+	// Options are concrete answers the user can pick from instead of typing.
+	//
+	// A question is easier to answer when the plausible answers are already on screen: "which
+	// folder?" with [the current one, /tmp, tell me] is one keypress, and the user can still
+	// write something else. Without them the interface can only echo the question and leave the
+	// user to compose a reply from nothing.
+	//
+	// They are only meaningful with Question, and an EMPTY list is the normal case: a question
+	// whose answer is genuinely open ("what are you trying to achieve?") has nothing to offer, and
+	// inventing options there would push the user toward answers they did not mean.
+	Options []string `json:"options"`
+
 	// Reply is the conversational answer, used when Kind is "chat".
 	//
 	// It is prose for a person, in their language, and it is NOT a task summary: it answers
 	// what they said. Keeping it a separate field is what lets the interface show a reply
 	// without pretending a task ran.
 	Reply string `json:"reply"`
+}
+
+// AskItem is one question put to the user, with the answers they could pick.
+//
+// It is what the interface needs to draw a navigable list: the question, what the agent will
+// assume if the user says nothing, and the concrete answers it is choosing between.
+type AskItem struct {
+	// Text is the question, in the user's language.
+	Text string `json:"text"`
+	// Assumption is what the agent will do if this one is left unanswered. It is shown next to
+	// the question so the user can accept it without typing anything.
+	Assumption string `json:"assumption,omitempty"`
+	// Options are the concrete answers to offer, in the user's words. Empty is normal: it means
+	// the question has no short list of plausible answers.
+	Options []string `json:"options,omitempty"`
 }
 
 // Kinds of message the analysis can report.
@@ -421,6 +539,26 @@ type TaskResult struct {
 	// Reply is the conversational answer when Kind is "chat". It is the whole output of that
 	// turn: no task ran, and nothing was validated, because there was nothing to do.
 	Reply string `json:"reply,omitempty"`
+
+	// Options are the concrete answers offered with a Question, so the interface can show them
+	// as a pickable list. Empty means the question has no short list of plausible answers, which
+	// is normal and is not a failure.
+	Options []string `json:"options,omitempty"`
+
+	// Questions are the questions of a turn that needed several answered together. It is empty
+	// when there is a single Question, so a caller can read Question alone and still work.
+	Questions []AskItem `json:"questions,omitempty"`
+}
+
+// Answers pairs a question with what the user replied, and is how the interface hands a
+// multi-question turn back to the agent.
+//
+// Kept as question-and-answer rather than a bare list of strings so the answers cannot drift out
+// of step with the questions they belong to: the agent re-reads the request with the answers
+// attached to the exact gaps they fill.
+type Answers struct {
+	Question string `json:"question"`
+	Answer   string `json:"answer"`
 }
 
 // --- Main loop --------------------------------------------------------------
@@ -635,6 +773,8 @@ func (a *Agent) loop(ctx context.Context, t task.Task, depth int) TaskResult {
 		res.NeedsInput = true
 		res.Question = strings.TrimSpace(analysis.Question)
 		res.Assumption = strings.TrimSpace(analysis.Assumption)
+		res.Options = cleanOptions(analysis.Options)
+		res.Questions = buildQuestions(analysis)
 		res.Reason = strings.Join(analysis.Risks, "; ")
 		res.DurationMS = time.Since(start).Milliseconds()
 

@@ -117,6 +117,13 @@ type AppRunner struct {
 	sessionMu sync.Mutex
 	session   *session.Session
 
+	// pending is the questions the last turn asked and the request they clarify, waiting for
+	// the interface to open the window on them. Guarded by pendingMu for the same reason the
+	// transcript is: a run can finish while the interface is reading.
+	pendingMu     sync.Mutex
+	pending       []agent.AskItem
+	pendingOrigin string
+
 	// transcript is the Task-mode conversation, and it lives here for the same reason the
 	// plan session does: a turn builds a NEW agent, so anything kept on the agent is thrown
 	// away when the turn ends. Keeping it on the runner is what turns a series of one-shot
@@ -575,7 +582,15 @@ func (r *AppRunner) RunTask(ctx context.Context, task string, progress func(stri
 	ag.SetTranscript(r.history())
 	if o, ok := ag.(taskObserver); ok {
 		o.SetProgress(progress)
-		o.SetObserver(func(tr agent.TaskResult) { result = summarise(tr) })
+		o.SetObserver(func(tr agent.TaskResult) {
+			result = summarise(tr)
+			// The questions are handed to the caller as STRUCTURE, not only as the sentence
+			// above: the window needs the question, its assumption and its options to draw a
+			// pickable list, and none of that survives being flattened into a string.
+			if tr.NeedsInput && len(tr.Questions) > 0 {
+				r.setPendingQuestions(tr.Questions, task)
+			}
+		})
 	}
 	runErr := ag.Run(ctx)
 	// Kept even when the run failed: the attempt is part of the conversation, and dropping it
@@ -593,6 +608,29 @@ func (r *AppRunner) RunTask(ctx context.Context, task string, progress func(stri
 		return "the task finished without reporting a result", nil
 	}
 	return result, nil
+}
+
+// setPendingQuestions records the questions a turn asked, for the interface to open a window on.
+//
+// It is stored on the runner because the turn that asked has already ended: the agent that asked
+// is discarded when the run returns, so anything the window needs afterwards has to be kept here.
+func (r *AppRunner) setPendingQuestions(items []agent.AskItem, origin string) {
+	r.pendingMu.Lock()
+	defer r.pendingMu.Unlock()
+	r.pending = items
+	r.pendingOrigin = origin
+}
+
+// TakePendingQuestions returns the questions waiting to be answered and clears them.
+//
+// Taking CLEARS: the window is opened once per question set. Without that, a repaint would
+// reopen a window the user had already closed, and the interface would be arguing with them.
+func (r *AppRunner) TakePendingQuestions() ([]agent.AskItem, string) {
+	r.pendingMu.Lock()
+	defer r.pendingMu.Unlock()
+	items, origin := r.pending, r.pendingOrigin
+	r.pending, r.pendingOrigin = nil, ""
+	return items, origin
 }
 
 // history returns the Task-mode conversation to seed a new agent with.

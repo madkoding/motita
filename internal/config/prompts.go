@@ -39,6 +39,8 @@ Return a JSON object with this exact shape:
   "needs_subtasks": false,
   "question": "",
   "assumption": "",
+  "options": [],
+  "questions": [],
   "reply": ""
 }
 
@@ -92,6 +94,23 @@ When you must ask:
 - set "understandable": false
 - put ONE question in "question", in the user's own language, as short as it can be while still
   being answerable. Ask for the ONE thing that unblocks you, not a list.
+- put in "options" up to FOUR short candidate answers the user could pick instead of typing —
+  the plausible readings you are choosing between, each as the user would say it (for example
+  ["la carpeta actual", "/tmp", "todo el proyecto"]). The interface shows them as a pickable
+  list, so they are a shortcut, not a menu to read.
+  Leave "options" EMPTY when the answer is genuinely open ("what are you trying to do?"): a list of
+  invented choices pushes the user toward an answer they did not mean, which is worse than no
+  list at all. Options are almost never longer than a few words.
+- use "questions" INSTEAD of "question" when the request has SEVERAL independent gaps — two or
+  three things you would otherwise have to ask one turn at a time. Each entry is
+  {"text", "assumption", "options"}, in the order they should be answered. The interface shows
+  them one at a time with next/previous, and the user answers them together, so batching them
+  saves the user a round trip per question.
+  Prefer ONE question when one gap is the real blocker: a list of three where only the first
+  matters is three times the reading for the same answer. If you are unsure whether they are
+  independent, ask the single most important one.
+  Do NOT split one question into a list, and do NOT ask the same thing twice in two shapes
+  (do not fill both "question" and "questions" with the same gap).
 - put in "assumption" what you WOULD do if they never answered. This is what lets them reply
   "yes, go ahead" in two words instead of writing their request again.
 - leave "summary" and "success_criteria" empty
