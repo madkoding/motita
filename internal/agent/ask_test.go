@@ -215,3 +215,46 @@ func TestResultAssumptionIsCleanedToo(t *testing.T) {
 		t.Fatal("both paths must produce the same assumption")
 	}
 }
+
+// Recognised by SHAPE, not by a list of phrasings. The first attempt listed the sentences and
+// the very next run on the hardware produced one that was not on it ("Si no me aclaras nada,
+// ordenaré los archivos..."), which is what settled the approach: a list would always be one
+// phrasing behind.
+func TestAssumptionConditionalIsRecognisedByShape(t *testing.T) {
+	cases := []struct{ in, want string }{
+		{"Si no me dices otra cosa, reviso ./workspace", "reviso ./workspace"},
+		{"Si no me aclaras nada, ordenaré los archivos de ./workspace", "ordenaré los archivos de ./workspace"},
+		{"si no me dices lo contrario, lo borro", "lo borro"},
+		{"Si quieres, lo dejo como está", "lo dejo como está"},
+		{"asumiré: usar la actual", "usar la actual"},
+		{"Reviso el directorio actual", "Reviso el directorio actual"},
+	}
+	for _, c := range cases {
+		if got := cleanAssumption(c.in); got != c.want {
+			t.Errorf("cleanAssumption(%q) = %q, want %q", c.in, got, c.want)
+		}
+	}
+}
+
+// An assumption that is ENTIRELY a conditional is kept whole: dropping the clause would leave
+// nothing to show, and an empty assumption is worse than a wordy one.
+func TestAssumptionThatIsOnlyAConditionalIsKept(t *testing.T) {
+	const in = "Si no me dices otra cosa,"
+	if got := cleanAssumption(in); got != in {
+		t.Fatalf("a bare conditional must be kept, got %q", got)
+	}
+	const noComma = "Si no me dices otra cosa"
+	if got := cleanAssumption(noComma); got != noComma {
+		t.Fatalf("a conditional with nothing after it must be kept, got %q", got)
+	}
+}
+
+// Empty stays empty, and an empty assumption is normal: it means the agent has nothing to fall
+// back on, and the interface then offers no "if you do not answer" line at all.
+func TestCleanAssumptionHandlesEmpty(t *testing.T) {
+	for _, in := range []string{"", "   ", "\n\t"} {
+		if got := cleanAssumption(in); got != "" {
+			t.Fatalf("cleanAssumption(%q) = %q, want empty", in, got)
+		}
+	}
+}

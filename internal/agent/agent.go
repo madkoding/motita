@@ -341,45 +341,38 @@ func buildQuestions(a Analysis) []AskItem {
 // The two together read as a stutter: "If you do not tell me otherwise, I will assume: If you do
 // not tell me otherwise, I will review the workspace". The interface owns that sentence, so the
 // copy in the field is dropped here rather than left to reach the user.
-var assumptionLead = []string{
-	"si no me dices otra cosa,",
-	"si no dices otra cosa,",
-	"si no me dices lo contrario,",
-	"si no dices lo contrario,",
-}
-
-// assumptionVerb is the lead-in the model puts before the action it would take, which the
-// interface's own sentence already provides ("If you do not tell me otherwise, I will assume:").
+// cleanAssumption reduces an assumption to the ACTION it describes.
 //
-// It is stripped only AFTER a lead, so an assumption that merely uses the verb in its own words
-// keeps it: the point is to remove the stutter, not to rewrite what the model said.
-var assumptionVerb = []string{"asumiré:", "asumiré", "asumiendo:", "asumo:"}
-
-// cleanAssumption normalises the assumption for display.
+// The model reliably opens its assumption with a conditional clause of its own ("Si no me dices
+// otra cosa, ...", "Si no me aclaras nada, ..."), and the interface prints its own conditional in
+// front of it. Chasing each phrasing in a list does not work — the first attempt listed the
+// sentences and the very next run produced one that was not on it — so the clause is recognised
+// by SHAPE instead: a leading conditional, up to its first comma.
 //
-// It removes the leading copy of the sentence the interface adds, because the two together read
-// as a stutter. Only the LEAD is removed: an assumption that mentions it later is saying
-// something the user needs, and rewriting the middle of a sentence would be guessing at meaning.
+// Only the leading clause goes, and only when there is something after it. An assumption that is
+// entirely a conditional is kept whole, because dropping it would leave nothing to show. The
+// tradeoff is deliberate: a genuine conditional action ("Si borro algo, pierdes datos") loses its
+// condition, but that is not what this field is for — it says what the agent WOULD DO, and the
+// condition is the interface's to state.
 func cleanAssumption(in string) string {
 	s := collapse(in)
+	if s == "" {
+		return s
+	}
 	low := strings.ToLower(s)
-	trimmed := false
-	for _, lead := range assumptionLead {
-		if strings.HasPrefix(low, lead) {
-			s = collapse(s[len(lead):])
+	if strings.HasPrefix(low, "si ") {
+		if i := strings.Index(s, ","); i > 0 && strings.TrimSpace(s[i+1:]) != "" {
+			s = collapse(s[i+1:])
 			low = strings.ToLower(s)
-			trimmed = true
-			break
 		}
 	}
-	// The verb only follows a lead: "asumiré: X" is the model restating the interface's own
-	// sentence, while "asumo que X" is the model choosing its words, and is left as written.
-	if trimmed {
-		for _, verb := range assumptionVerb {
-			if strings.HasPrefix(low, verb) {
-				s = collapse(s[len(verb):])
-				break
+	// The verbs that only restate the interface's own sentence ("asumiré: X").
+	for _, verb := range []string{"asumiré:", "asumiré", "asumiendo:", "asumo que"} {
+		if strings.HasPrefix(low, verb) {
+			if rest := collapse(s[len(verb):]); rest != "" {
+				s = rest
 			}
+			break
 		}
 	}
 	return s
