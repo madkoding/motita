@@ -281,7 +281,15 @@ func (c *crt) paintRow(line string, row, rows int) string {
 	return b.String()
 }
 
+const haloFraction = 0.14
+
 // colorRun writes one run of text in the phosphor, dimmed by the vignette.
+//
+// When the glow is on, the run also carries a faint phosphor BACKGROUND. That is the only way a
+// cell grid can show a glow at all: there are no pixels to blur, but every cell can be lit, so
+// the glyphs sit on a dim field of their own colour instead of on black. The effect is the same
+// one a real phosphor produces — light spilling around the characters — and it costs one extra
+// escape per run rather than per cell.
 func (c *crt) colorRun(s string, row, rows, cols, startCol int, base float64) string {
 	// A single level for the run is a compromise: the true vignette varies per column, but
 	// emitting an escape per column would multiply the bytes written per frame by ten for a
@@ -290,16 +298,30 @@ func (c *crt) colorRun(s string, row, rows, cols, startCol int, base float64) st
 	mid := startCol + visibleLen(s)/2
 	level := base * c.vignetteAt(row, rows, mid, cols)
 	r, g, b := scale(c.r, c.g, c.b, level)
+	if c.cfg.Glow {
+		// The halo is deliberately much dimmer than the glyph: it is light that has spread, not
+		// a highlight, and a background as bright as the text would swallow it.
+		hr, hg, hb := c.haloAt(level)
+		return fmt.Sprintf("\x1b[38;2;%d;%d;%d;48;2;%d;%d;%dm%s\x1b[0m", r, g, b, hr, hg, hb, s)
+	}
 	return fmt.Sprintf("\x1b[38;2;%d;%d;%dm%s\x1b[0m", r, g, b, s)
 }
 
-// halo is the dim version of the phosphor drawn around a glyph for the glow.
-//
-// It is not a blur and does not pretend to be: it is a faint field of the phosphor colour spread
-// one cell out, which at terminal text sizes reads as the glow of a phosphor that is bleeding
-// past its cell.
+// haloAt is the halo colour for a given brightness, so the glow dims with the vignette and the
+// scanlines exactly as the glyph does. A halo that stayed at full strength on a dim row would
+// glow brighter than the text it surrounds.
+func (c *crt) haloAt(level float64) (int, int, int) {
+	return scale(c.r, c.g, c.b, level*haloFraction)
+}
+
+// haloFraction is how bright the glow is relative to the phosphor. It is small on purpose: this
+// is light that has bled out of the characters, and at a terminal's cell size anything brighter
+// fights the text for attention instead of framing it.
+
+// halo is the dim version of the phosphor at full brightness, for callers that are not painting
+// a specific row.
 func (c *crt) halo() (int, int, int) {
-	return scale(c.r, c.g, c.b, 0.18)
+	return c.haloAt(1.0)
 }
 
 // scale dims a colour, clamping so a level above one cannot overflow a channel.

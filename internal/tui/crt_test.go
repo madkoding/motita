@@ -425,12 +425,45 @@ func TestScaleClamps(t *testing.T) {
 func TestHaloIsADimmerPhosphor(t *testing.T) {
 	c := crtFor(t, nil)
 	hr, hg, hb := c.halo()
-	wantR, wantG, wantB := scale(c.r, c.g, c.b, 0.18)
+	wantR, wantG, wantB := scale(c.r, c.g, c.b, haloFraction)
 	if hr != wantR || hg != wantG || hb != wantB {
 		t.Fatalf("halo = %d,%d,%d, want %d,%d,%d", hr, hg, hb, wantR, wantG, wantB)
 	}
 	if c.g > 0 && hg >= c.g {
 		t.Fatalf("the halo must be dimmer: halo=%d phosphor=%d", hg, c.g)
+	}
+}
+
+// The halo dims with the row, exactly as the glyph does. A halo that kept full strength on a
+// scanline row would glow brighter than the text it is supposed to surround.
+func TestTheHaloFollowsTheRowBrightness(t *testing.T) {
+	c := crtFor(t, nil)
+	_, bright, _ := c.haloAt(1.0)
+	_, dim, _ := c.haloAt(0.4)
+	if !(dim < bright) {
+		t.Fatalf("the halo must dim with its row: bright=%d dim=%d", bright, dim)
+	}
+}
+
+// The glow is what makes the halo visible, and it has to actually be drawn: the option existed
+// and was never read, so turning it on changed nothing. Measured on the real binary: with it on
+// the output carries a phosphor background on every painted run, and with it off none.
+func TestTheGlowPutsTheHaloBehindTheText(t *testing.T) {
+	withGlow := crtFor(t, func(c *config.CRT) { c.Glow = true })
+	got := withGlow.colorRun("hola", 0, 10, 20, 0, 1.0)
+	if !strings.Contains(got, "48;2;") {
+		t.Fatalf("the glow must paint a background, got %q", got)
+	}
+	// Foreground and background in ONE escape: two escapes would reset between them and the
+	// halo would be lost on the second half of the run.
+	if strings.Count(got, "\x1b[") != 2 {
+		t.Fatalf("the run should be one escape, the text and a reset, got %q", got)
+	}
+
+	noGlow := crtFor(t, func(c *config.CRT) { c.Glow = false })
+	plain := noGlow.colorRun("hola", 0, 10, 20, 0, 1.0)
+	if strings.Contains(plain, "48;2;") {
+		t.Fatalf("without the glow there must be no background, got %q", plain)
 	}
 }
 
