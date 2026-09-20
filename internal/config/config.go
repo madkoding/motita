@@ -113,42 +113,24 @@ type Skills struct {
 	MaxFileBytes int `yaml:"max_file_bytes"`
 }
 
-// CRT is the retro terminal effect drawn over the interface.
+// CRT is the effect drawn over streamed text: the phosphor colour and a typewriter reveal.
 //
 // It is ON by default, which is a deliberate choice for a cosmetic feature: it is the look the
-// author intends, and a user who does not want it turns it off with one line. The reverse default
-// would mean the feature might as well not exist for anyone who never reads the README.
+// author intends, and a user who does not want it turns it off with one line.
 //
-// Everything here is intensity rather than a flag where a range makes sense. "scanlines: true"
-// gives the author's idea of scanlines or nothing; a number lets a bright terminal be dialled
-// down without switching the whole effect off, which is the state most users actually want.
+// Only the two effects that carry it are here. The scanlines, the flicker, the vignette, the
+// noise and the glow were built, measured and REMOVED: on a real screen they compete with the
+// text, and an interface is read. An effect that makes reading harder is an effect that gets
+// turned off, and one the user has to tolerate rather than enjoy.
 type CRT struct {
-	// Enabled turns the whole effect off, leaving the plain interface.
+	// Enabled turns the effect off, leaving the plain interface.
 	Enabled bool `yaml:"enabled"`
-	// Color is the phosphor, as #rrggbb. The default is the P1 green that the monochrome
-	// terminals of the era actually used — not pure #00ff00, which is a modern video green and
-	// reads as an error message rather than as a screen.
+	// Color is the phosphor, as #rrggbb. The default is the P1 green the monochrome terminals of
+	// the era actually used — not pure #00ff00, which is a modern video green and reads as an
+	// error message rather than as a screen.
 	Color string `yaml:"color"`
-	// Glow draws a dim halo behind the glyphs. A terminal has no bloom pass, so this is the
-	// cheap approximation: the text is drawn in an almost-black version of the phosphor first,
-	// one cell in each direction, and the bright glyph on top. It costs four extra writes per
-	// character, so it is the first thing to turn down if the interface feels slow.
-	Glow bool `yaml:"glow"`
-	// Scanlines is how strongly alternate rows are dimmed, 0 to 1. Zero means none.
-	Scanlines float64 `yaml:"scanlines"`
-	// Flicker is how much the brightness varies between frames, 0 to 1. The variation is small
-	// at any sane value because a screen that visibly pulses is unreadable, and this is meant to
-	// be felt rather than seen.
-	Flicker float64 `yaml:"flicker"`
-	// Vignette dims the edges of the frame, 0 to 1, standing in for the curved tube that cannot
-	// be drawn on a fixed grid of cells. Zero means none.
-	Vignette float64 `yaml:"vignette"`
-	// Noise is the fraction of cells showing static instead of their character, 0 to 1. It is
-	// kept far below what a film would use: this is an interface being read, and the text has to
-	// stay legible. It never touches the input or the status bar.
-	Noise float64 `yaml:"noise"`
-	// Typewriter reveals each reply one character at a time instead of all at once, which is
-	// what makes streamed text feel like a machine printing it.
+	// Typewriter reveals streamed text one character at a time instead of all at once, which is
+	// what makes it feel like a machine printing it.
 	Typewriter bool `yaml:"typewriter"`
 	// TypewriterCPS is how many characters are revealed per second. Slower looks better and
 	// delays the reader; this is the speed of a fast teletype rather than of a modem.
@@ -282,11 +264,6 @@ func Default() Config {
 		CRT: CRT{
 			Enabled:       true,
 			Color:         "#33ff33",
-			Glow:          true,
-			Scanlines:     0.35,
-			Flicker:       0.04,
-			Vignette:      0.25,
-			Noise:         0.01,
 			Typewriter:    true,
 			TypewriterCPS: 220,
 		},
@@ -345,13 +322,14 @@ func parseHexColor(s string) ([3]int, error) {
 	return out, nil
 }
 
-// RGB returns the phosphor as its three channels, for a caller that has already validated it.
+// RGB returns the phosphor as its three channels.
+//
+// The fallback is for a caller that builds a CRT by hand — a test, or an embedder — with a colour
+// validation has never seen. It is not a branch of the loaded path: a configuration whose colour
+// is invalid never reaches here, because validate rejects it first with the field name.
 func (c CRT) RGB() (int, int, int) {
 	v, err := parseHexColor(c.Color)
 	if err != nil {
-		// Unreachable after validation, which every loaded configuration goes through. A
-		// fallback rather than a panic: a cosmetic value is not worth taking the interface down
-		// for, and the default is what the user sees if it ever happens.
 		v, _ = parseHexColor(Default().CRT.Color)
 	}
 	return v[0], v[1], v[2]
@@ -631,23 +609,6 @@ func (c *Config) validate(requireKey bool) error {
 		return fmt.Errorf("unknown final_action.kind: %q (use none, command, api or git_commit)", c.FinalAction.Kind)
 	}
 
-	// The CRT effect is cosmetic, so its values are checked rather than clamped: silently
-	// correcting a number the user typed would hide a typo, and a scanline intensity of 70
-	// means something different from 0.7. The message names the field and the range, which is
-	// what makes it fixable without reading the source.
-	for _, c := range []struct {
-		name  string
-		value float64
-	}{
-		{"crt.scanlines", c.CRT.Scanlines},
-		{"crt.flicker", c.CRT.Flicker},
-		{"crt.vignette", c.CRT.Vignette},
-		{"crt.noise", c.CRT.Noise},
-	} {
-		if c.value < 0 || c.value > 1 {
-			return fmt.Errorf("%s must be between 0 and 1, got %v", c.name, c.value)
-		}
-	}
 	if c.CRT.TypewriterCPS < 0 {
 		return fmt.Errorf("crt.typewriter_cps cannot be negative, got %v", c.CRT.TypewriterCPS)
 	}

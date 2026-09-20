@@ -280,7 +280,8 @@ func (t *TUI) layout(w, h int) ([]string, string) {
 // of "how tall is the composer" would drift apart.
 const rowsBelowComposer = 2
 
-// crtText is the text to draw for a message, with the typewriter reveal applied.
+// crtText is the text to draw for a message: the phosphor colour, and the typewriter reveal while
+// a reply is still being written.
 //
 // Only the block still being written is revealed a character at a time. Text that has already
 // settled is drawn whole, always: revealing it again on every repaint would make a finished
@@ -290,41 +291,26 @@ const rowsBelowComposer = 2
 // A message that is NOT pending has nothing left to reveal, so the reveal is ended here. That is
 // what keeps it from being left running against a target that will never grow again.
 func (t *TUI) crtText(m Message) string {
-	if t.crt == nil || !t.crt.cfg.Typewriter {
+	if t.crt == nil {
 		return m.Text
 	}
-	if !m.Pending {
-		if t.crt.typingInProgress() {
-			t.crt.stopTyping()
+	text := m.Text
+	if t.crt.cfg.Typewriter {
+		switch {
+		case !m.Pending:
+			if t.crt.typingInProgress() {
+				t.crt.stopTyping()
+			}
+		default:
+			// The reveal is retargeted to the growing text and advanced by the time since the
+			// last frame. Reading the clock here rather than holding a ticker keeps the reveal
+			// tied to the repaints the interface already does: text arriving IS a repaint, so
+			// nothing extra is scheduled.
+			t.crt.startTyping(text)
+			text = t.crt.reveal(t.crt.tick())
 		}
-		return m.Text
 	}
-	// The reveal is retargeted to the growing text and advanced by the time since the last
-	// frame. Reading the clock here rather than holding a ticker keeps the reveal tied to the
-	// repaints the interface already does: text arriving IS a repaint, so nothing extra is
-	// scheduled.
-	t.crt.startTyping(m.Text)
-	return t.crt.reveal(t.crt.tick())
-}
-
-// crtProtectedFrom is the first row the CRT effect leaves alone.
-//
-// The rows from here down are the rule above the input, the input box itself, the rule below it
-// and the status bar. They are identified by their position from the END of the frame, which is
-// how the layout composes them and the only definition that survives a popup growing or the
-// window resizing.
-func (t *TUI) crtProtectedFrom(total int) int {
-	if total <= 0 {
-		return 0
-	}
-	// inputRows plus the two rules and the status bar, plus the popup the layout may have drawn
-	// above the input: the popup is content the user is choosing from, so it is treated as part
-	// of the interface rather than of the conversation.
-	from := total - (inputRows + rowsBelowComposer + 1 + t.popupRows())
-	if from < 0 {
-		return 0
-	}
-	return from
+	return t.crt.paint(text)
 }
 
 // drawFrame paints the whole interface.
@@ -418,20 +404,6 @@ func (t *TUI) drawFrame() {
 	// what the terminal holds, and a stale row left behind is exactly the class of bug the row
 	// erases were added for.
 	full := !t.paintedScreen || len(t.lastFrame) != len(lines)
-
-	// The CRT effect is applied AFTER the frame is composed and BEFORE the diff, so that what
-	// gets compared — and written — is what the user sees. Applying it at write time would make
-	// every row differ from the remembered one on every frame, and the incremental painter would
-	// repaint the whole screen each keystroke: on the target netbook that is the difference
-	// between a responsive interface and a sluggish one.
-	//
-	// The rows below the conversation are protected: the input box, the rule above it and the
-	// status bar. Those are what the user reads and types into, and a screen that makes them
-	// harder to read is a screen that gets switched off.
-	if t.crt != nil {
-		t.crt.advance()
-		lines = t.crt.paint(lines, t.crtProtectedFrom(len(lines)), len(lines))
-	}
 
 	for i, l := range lines {
 		if !full && t.lastFrame[i] == l {

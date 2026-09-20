@@ -293,44 +293,6 @@ func TestResolvePathsWithNothingToAnchorOn(t *testing.T) {
 
 // --- validating the effect --------------------------------------------------
 
-// Each intensity is checked rather than clamped: silently correcting a number the user typed
-// would hide a typo, and a scanline intensity of 70 means something different from 0.7.
-func TestCRTIntensitiesAreValidated(t *testing.T) {
-	for _, c := range []struct {
-		name  string
-		tweak func(*CRT)
-		want  string
-	}{
-		{"scanlines too high", func(c *CRT) { c.Scanlines = 1.5 }, "crt.scanlines"},
-		{"scanlines negative", func(c *CRT) { c.Scanlines = -0.1 }, "crt.scanlines"},
-		{"flicker too high", func(c *CRT) { c.Flicker = 70 }, "crt.flicker"},
-		{"flicker negative", func(c *CRT) { c.Flicker = -1 }, "crt.flicker"},
-		{"vignette too high", func(c *CRT) { c.Vignette = 2 }, "crt.vignette"},
-		{"noise negative", func(c *CRT) { c.Noise = -0.5 }, "crt.noise"},
-		{"negative speed", func(c *CRT) { c.TypewriterCPS = -1 }, "crt.typewriter_cps"},
-	} {
-		t.Run(c.name, func(t *testing.T) {
-			cfg := Default()
-			c.tweak(&cfg.CRT)
-			err := cfg.validate(false)
-			if err == nil {
-				t.Fatalf("%s must be an error", c.name)
-			}
-			if !strings.Contains(err.Error(), c.want) {
-				t.Errorf("the failure must name the field %q: %v", c.want, err)
-			}
-		})
-	}
-	// The boundaries themselves are accepted: 0 and 1 are meaningful settings.
-	for _, v := range []float64{0, 1} {
-		cfg := Default()
-		cfg.CRT.Scanlines, cfg.CRT.Flicker, cfg.CRT.Vignette, cfg.CRT.Noise = v, v, v, v
-		if err := cfg.validate(false); err != nil {
-			t.Errorf("intensity %v must be accepted: %v", v, err)
-		}
-	}
-}
-
 // A colour that is not #rrggbb is reported with the field name. Swallowing it would leave the
 // user staring at a screen that looks exactly as it did before they changed anything.
 func TestCRTColourIsValidated(t *testing.T) {
@@ -361,23 +323,62 @@ func TestCRTColourIsValidated(t *testing.T) {
 	}
 }
 
-// The phosphor is resolved to its channels, and a colour that somehow escaped validation falls
-// back to the default rather than taking the interface down: a cosmetic value is not worth
-// crashing for.
+// A colour that is not #rrggbb is reported with the field name. Swallowing it would leave the user
+// staring at a screen that looks exactly as it did before they changed anything.
+
+// The phosphor is resolved to its channels.
 func TestPhosphorResolvesToChannels(t *testing.T) {
 	c := CRT{Color: "#00ff00"}
 	r, g, b := c.RGB()
 	if r != 0 || g != 255 || b != 0 {
 		t.Fatalf("RGB = %d,%d,%d, want 0,255,0", r, g, b)
 	}
-	// The default is the P1 green rather than pure video green.
+	// The default is the P1 green rather than pure video green: all three channels are non-zero.
 	dr, dg, db := Default().CRT.RGB()
-	if dg == 0 || dr == 0 || db == 0 {
+	if dr == 0 || dg == 0 || db == 0 {
 		t.Fatalf("the default phosphor should be a green, got %d,%d,%d", dr, dg, db)
 	}
-	// A broken colour falls back instead of panicking.
-	broken := CRT{Color: "nope"}
-	if r, g, b := broken.RGB(); r != dr || g != dg || b != db {
+	// A colour that somehow escaped validation falls back instead of panicking: a cosmetic value
+	// is not worth taking the interface down for.
+	if r, g, b := (CRT{Color: "nope"}).RGB(); r != dr || g != dg || b != db {
 		t.Fatalf("a broken colour must fall back to the default, got %d,%d,%d", r, g, b)
+	}
+}
+
+// RGB falls back to the default when the colour is unusable. It is unreachable through a loaded
+// configuration — validation rejects a bad colour first — but a cosmetic value is not worth a
+// panic if a caller ever builds a CRT struct by hand.
+func TestRGBFallsBackForAnUnusableColour(t *testing.T) {
+	dr, dg, db := Default().CRT.RGB()
+	r, g, b := (CRT{Color: "#zzzzzz"}).RGB()
+	if r != dr || g != dg || b != db {
+		t.Fatalf("RGB = %d,%d,%d, want the default %d,%d,%d", r, g, b, dr, dg, db)
+	}
+}
+
+// A valid colour enters the nested check and passes it, which is the branch that lets a correct
+// configuration through. Without this the check was only ever exercised on its failing side.
+func TestAValidColourPassesTheNestedCheck(t *testing.T) {
+	cfg := Default()
+	cfg.CRT.Color = "#abcdef"
+	if err := cfg.validate(false); err != nil {
+		t.Fatalf("a valid colour must pass: %v", err)
+	}
+	if r, g, b := cfg.CRT.RGB(); r != 0xab || g != 0xcd || b != 0xef {
+		t.Fatalf("RGB = %x,%x,%x", r, g, b)
+	}
+}
+
+// A negative speed is rejected rather than clamped: it would make the reveal run backwards, and
+// a number the user typed wrong must be reported, not silently corrected.
+func TestANegativeTypewriterSpeedIsRejected(t *testing.T) {
+	cfg := Default()
+	cfg.CRT.TypewriterCPS = -1
+	err := cfg.validate(false)
+	if err == nil {
+		t.Fatal("a negative speed must be rejected")
+	}
+	if !strings.Contains(err.Error(), "typewriter_cps") {
+		t.Errorf("the failure must name the field: %v", err)
 	}
 }
