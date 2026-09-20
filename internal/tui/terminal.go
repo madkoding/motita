@@ -43,6 +43,16 @@ func parseSmallInt(s string) (int, bool) {
 	return n, true
 }
 
+// isMouseReport reports whether a line is an SGR mouse report of ANY kind.
+//
+// A report that is not a wheel event — a click, a drag, a release, a move — used to fall through
+// every handler and land in the chat as typed text, so moving the trackpad injected escape
+// sequences into the input. The wheel is the only gesture the interface acts on, but every report
+// has to be CONSUMED: the terminal was asked to send them, and an unhandled one is not text.
+func isMouseReport(seq string) bool {
+	return len(seq) >= 6 && seq[0] == 0x1b && seq[1] == '[' && seq[2] == '<'
+}
+
 // mouseScroll decodes an SGR mouse report and returns how many lines to scroll:
 // positive for the wheel up, negative for the wheel down. ok=false means the sequence is
 // not a wheel event (a click, a drag, a plain key) and the caller ignores it.

@@ -21,6 +21,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 	"unicode/utf8"
 
 	"github.com/madkoding/starlight/internal/agent"
@@ -140,6 +141,10 @@ type TUI struct {
 	// crt is the retro terminal effect, and nil when it is switched off or the terminal cannot
 	// show colour. Every caller asks with a nil check, so a disabled effect costs nothing.
 	crt *crt
+
+	// revealFrameInterval is how long each revealed frame is held. It is a variable so a test can
+	// make the reveal finish immediately instead of waiting in real time.
+	revealInterval time.Duration
 
 	// query filters the conversation; searching is true while the user is typing it.
 	//
@@ -404,11 +409,19 @@ func (t *TUI) handleShortcut(ctx context.Context, line string) (bool, bool) {
 	}
 
 	// A mouse report is a CSI sequence like any other, so it arrives here intact. The
-	// wheel scrolls; anything else the terminal reports (a click, a drag, a release) is
-	// accepted and ignored, because the keyboard is the interface and the mouse is an
-	// addition to it.
+	// wheel scrolls; anything else the terminal reports (a click, a drag, a release, a move) is
+	// CONSUMED and ignored, because the keyboard is the interface and the mouse is an addition to
+	// it.
+	//
+	// Consuming every report, not just the wheel, is what stopped the mouse from typing: a click
+	// or a drag fell through this and every other handler, so it reached the chat as a line of
+	// escape-sequence text. The terminal was asked to send these events; an unhandled one is not
+	// something the user typed.
 	if lines, ok := mouseScroll(line); ok {
 		t.scrollBy(lines)
+		return true, false
+	}
+	if isMouseReport(line) {
 		return true, false
 	}
 
@@ -820,17 +833,28 @@ func (t *TUI) runTask(ctx context.Context, task string) {
 	t.cancelRun = nil
 	t.runningCtx = nil
 
-	if outcome.err != nil {
-		if outcome.err == context.Canceled {
-			t.messages[pendingIdx].Text = "cancelled."
-		} else {
-			t.messages[pendingIdx].Text = fmt.Sprintf("error: %v", outcome.err)
-		}
-	} else if outcome.result != "" {
-		t.messages[pendingIdx].Text = outcome.result
-	} else {
-		t.messages[pendingIdx].Text = "the task finished without reporting a result."
+	var messageText string
+	switch {
+	case outcome.err == context.Canceled:
+		messageText = "cancelled."
+	case outcome.err != nil:
+		messageText = fmt.Sprintf("error: %v", outcome.err)
+	case outcome.result != "":
+		messageText = outcome.result
+	default:
+		messageText = "the task finished without reporting a result."
 	}
+	// The typewriter needs the text to stay PENDING while it is revealed, and it needs FRAMES to
+	// reveal it in. Assigning the result and clearing the flag in the same pass — which is what
+	// this did — gives the reveal nothing to do: the only frame ever drawn shows the whole answer,
+	// so the user sees it appear all at once and the effect looks broken.
+	//
+	// So the block is settled in two steps: the text goes in while still pending, the reveal is
+	// given frames to run, and only then is the block closed. The waiting is bounded by the
+	// reveal itself, which is why the loop checks what it has left to show rather than sleeping a
+	// fixed time.
+	t.messages[pendingIdx].Text = messageText
+	t.revealPending(pendingIdx)
 	t.messages[pendingIdx].Pending = false
 	t.endTurn()
 
@@ -838,6 +862,28 @@ func (t *TUI) runTask(ctx context.Context, task string) {
 	// question only exists once the run has returned — and opening it mid-run would put the
 	// window over a turn that is still writing to the conversation.
 	t.openAskIfPending()
+}
+
+// revealPending draws the frames the typewriter needs to show a block one character at a time.
+//
+// It is a loop of repaints rather than a timer: each pass advances the reveal by the time since
+// the previous one and stops as soon as there is nothing left to show. When the typewriter is off
+// the loop does not run at all, so the cost of this is exactly the effect the user asked for.
+func (t *TUI) revealPending(idx int) {
+	if t.crt == nil || !t.crt.cfg.Typewriter {
+		return
+	}
+	for t.crt.typingInProgress() {
+		t.drawFrame()
+		// The repaint is what advances the reveal, and the delay is what gives the user something
+		// to see: without it the loop would spin at full speed and show the whole answer in one
+		// frame, which is the bug this exists to fix.
+		interval := t.revealInterval
+		if interval <= 0 {
+			interval = revealFrameInterval
+		}
+		time.Sleep(interval)
+	}
 }
 
 // askSource is implemented by a runner that can hand over the questions of the last turn.
@@ -1292,7 +1338,16 @@ func (t *TUI) readEscape() string {
 		if c >= 0x40 && c <= 0x7e {
 			break
 		}
-		if len(seq) > 16 {
+		// The length is bounded so a terminal that never sends a final byte cannot make this loop
+		// read for ever. The bound has to clear the LONGEST sequence the interface asks for, and
+		// that is a mouse report: "ESC [ < b ; x ; y M" is around fifteen bytes, and a drag or a
+		// move is no shorter. At 16 the limit was reached mid-report, the loop gave up, and the
+		// REST OF THE REPORT stayed in the buffer to be read as typed text — which is why moving
+		// the trackpad typed escape-sequence gibberish into the input box.
+		//
+		// 64 leaves room for the widest plausible report (a large terminal, several digits per
+		// coordinate, a modifier) without letting the loop run away.
+		if len(seq) > 64 {
 			return keyEsc
 		}
 	}
@@ -1513,6 +1568,25 @@ func (t *TUI) readLineLive(ctx context.Context) (string, bool) {
 			if seq == keyRight && t.completeDraft() {
 				continue
 			}
+			// A MOUSE REPORT is consumed here and never reaches the draft.
+			//
+			// The terminal is asked to report the mouse, so these sequences arrive while the user
+			// is typing. They used to be returned to the caller like any other CSI key, and a
+			// report that no handler acted on — a click, a drag, a move — fell through to the
+			// chat and was drawn in the input box as escape-sequence text. Moving the trackpad
+			// typed into the input.
+			//
+			// The wheel is the one gesture the interface acts on, and it is handled by the
+			// shortcut dispatcher through the returned token; every OTHER report is swallowed
+			// here, because it is not something the user typed and there is nothing to do with
+			// it.
+			if isMouseReport(seq) {
+				if lines, ok := mouseScroll(seq); ok {
+					t.scrollBy(lines)
+				}
+				t.drawFrame()
+				continue
+			}
 			// The other arrows and the page keys are handled by the same switch as always;
 			// the draft is cleared so the line does not survive the mode change.
 			t.draft = ""
@@ -1618,7 +1692,10 @@ func (t *TUI) readEscapeLive() string {
 		if c >= 0x40 && c <= 0x7e {
 			break
 		}
-		if len(seq) > 16 {
+		// The same bound as readEscape, and for the same reason: a mouse report is the longest
+		// sequence the interface asks for, and cutting it short leaves its tail in the buffer to
+		// be read as typed text.
+		if len(seq) > 64 {
 			return keyEsc
 		}
 	}

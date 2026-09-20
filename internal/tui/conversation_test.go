@@ -6,6 +6,7 @@ import (
 	"errors"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/madkoding/starlight/internal/agent"
 	"github.com/madkoding/starlight/internal/config"
@@ -189,5 +190,58 @@ func TestAChatTurnWithNoReplyStillSaysSomething(t *testing.T) {
 	got := summarise(agent.TaskResult{Kind: agent.KindChat})
 	if strings.TrimSpace(got) == "" {
 		t.Error("an empty reply must still produce a sentence")
+	}
+}
+
+// The typewriter needs FRAMES to reveal the answer in, and it used to get none.
+//
+// The result was assigned and Pending cleared in the same pass, so the only frame ever drawn for a
+// finished turn showed the whole text: the answer appeared all at once and the effect looked
+// broken. Measured on the real terminal: the row went from a phase label straight to the complete
+// sentence, with no partial rendering of the answer in between.
+//
+// This drives the interface through a turn and counts how many DISTINCT prefixes of the answer the
+// reveal produced. A dump produces one; the typewriter produces several, each longer than the last.
+func TestTheAnswerIsRevealedInFrames(t *testing.T) {
+	const answer = "completed: 1 check(s) passed"
+	tui := &TUI{Out: &strings.Builder{}, Width: 80, Height: 24, Runner: &stubRunner{}}
+	cfg := config.Default().CRT
+	tui.crt = newCRT(cfg)
+	if tui.crt == nil {
+		t.Fatal("the effect should be on by default")
+	}
+	// A frame interval of zero keeps the test fast without changing the reveal: what is asserted
+	// is that the loop runs at all, not how long it takes.
+	tui.revealInterval = time.Nanosecond
+
+	// A block being written, as runTask leaves it before settling.
+	tui.messages = append(tui.messages, Message{Author: AuthorAgent, Text: answer, Pending: true})
+
+	// Record every distinct rendering the reveal goes through.
+	var seen []string
+	original := tui.crt
+	for original.typingInProgress() || len(seen) == 0 {
+		shown := tui.crtText(tui.messages[0])
+		plain := stripANSI(shown)
+		if len(seen) == 0 || seen[len(seen)-1] != plain {
+			seen = append(seen, plain)
+		}
+		if !original.typingInProgress() {
+			break
+		}
+		time.Sleep(time.Nanosecond)
+	}
+	if len(seen) < 2 {
+		t.Fatalf("the reveal must go through several renderings, got %d: %q", len(seen), seen)
+	}
+	// Each rendering is a PREFIX of the next, which is what a reveal looks like.
+	for i := 1; i < len(seen); i++ {
+		if !strings.HasPrefix(seen[i], seen[i-1]) {
+			t.Fatalf("rendering %d is not a longer prefix: %q -> %q", i, seen[i-1], seen[i])
+		}
+	}
+	// And it finishes on the whole answer.
+	if last := seen[len(seen)-1]; !strings.Contains(last, answer) {
+		t.Fatalf("the reveal must end on the complete text, got %q", last)
 	}
 }

@@ -81,6 +81,11 @@ func (c *crt) phosphor(s string) string {
 		"m" + s + "\x1b[0m"
 }
 
+// revealFrameInterval is how often a revealed frame is redrawn. It is the tick of the typewriter:
+// short enough to look continuous, long enough that the reveal is not one frame after another with
+// no time between them — which would show the answer at once and defeat the effect.
+const revealFrameInterval = 30 * time.Millisecond
+
 // --- the typewriter ---------------------------------------------------------
 
 // startTyping begins revealing text, or retargets a reveal already running.

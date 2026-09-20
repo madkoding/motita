@@ -405,6 +405,17 @@ func (t *TUI) drawFrame() {
 	// erases were added for.
 	full := !t.paintedScreen || len(t.lastFrame) != len(lines)
 
+	// The last row actually written, which is NOT the last row of the frame.
+	//
+	// This is what the cursor move has to start from. The prompt returned by layout() walks UP
+	// from the end of the frame, which is only correct when the whole frame was written; an
+	// incremental repaint stops at the last row that changed, and every walk-up computed from the
+	// bottom of the frame then lands too high. The cursor was left floating outside the input
+	// box for exactly that reason — the user sees it somewhere in the conversation while typing.
+	//
+	// A frame with nothing to write at all keeps the cursor where it is, and the walk-up is from
+	// that same place, so `lastWritten` starts at -1 meaning "no row was written".
+	lastWritten := -1
 	for i, l := range lines {
 		if !full && t.lastFrame[i] == l {
 			continue
@@ -412,13 +423,16 @@ func (t *TUI) drawFrame() {
 		fmt.Fprintf(&b, "\x1b[%d;1H", i+1)
 		b.WriteString(l)
 		b.WriteString("\x1b[K")
+		lastWritten = i
 	}
 
 	// The cursor is placed on its own AFTER the rows, and always: it may have to move even when
 	// no row changed — the user typed nothing visible (a control key, a mode switch) or the
 	// previous frame ended with the cursor elsewhere.
+	//
+	// The move is re-derived from `lastWritten`, so it is correct whichever rows were skipped.
 	if prompt != "" {
-		b.WriteString(prompt)
+		b.WriteString(t.cursorMove(prompt, lastWritten, len(lines)))
 	}
 	// The cursor is handed back explicitly, on every frame: nothing hides it any more, but the
 	// terminal may have been left hidden by an earlier frame of this or another program, and
@@ -1472,6 +1486,81 @@ func (t *TUI) composerPrompt(rowsBelow int) string {
 	}
 	fmt.Fprintf(&b, "\x1b[%dG", col+1) // columns are 1-based
 	return b.String()
+}
+
+// cursorMove turns the layout's cursor move into one that is correct for the rows actually
+// written.
+//
+// layout() returns a move that walks up from the END of the frame, which is right only when the
+// whole frame was painted. An incremental repaint stops at the last row that changed, so that
+// walk-up overshoots by (total rows - last written - 1) and the cursor lands somewhere in the
+// conversation instead of in the input box.
+//
+// Rather than teach the layout about incremental painting — it composes the frame and should not
+// have to know how it is written — the move is adjusted here, where the written rows are known.
+// The adjustment is the distance between the end of the frame and the last written row, which is
+// exactly the overshoot.
+func (t *TUI) cursorMove(prompt string, lastWritten, total int) string {
+	if lastWritten < 0 {
+		// Nothing was written: the terminal's cursor has not moved, and the layout's move is
+		// still correct because no row write displaced it.
+		return prompt
+	}
+	overshoot := total - 1 - lastWritten
+	if overshoot <= 0 {
+		return prompt
+	}
+	// The prompt is "\x1b[<up>A\x1b[<col>G" or just the column move when there is nothing to
+	// walk up. Rewriting the count is safer than composing a new sequence: the column is the part
+	// the layout computed from the wrap, and re-deriving it here would be a second implementation
+	// of the same calculation.
+	up, col, ok := parseCursorMove(prompt)
+	if !ok {
+		return prompt
+	}
+	up -= overshoot
+	if up < 0 {
+		// The input is ABOVE the last written row, which happens when a repaint below the input
+		// (the status bar, a rule) is all that changed. Moving up would leave the cursor in the
+		// wrong place entirely, so the row is addressed absolutely instead: from the last written
+		// row, the input's row is a known distance away.
+		return fmt.Sprintf("\x1b[%dA\x1b[%dG", total-1-lastWritten+rowsBelowComposer+inputRows-1, col)
+	}
+	return fmt.Sprintf("\x1b[%dA\x1b[%dG", up, col)
+}
+
+// parseCursorMove reads the row/column out of a cursor move built by composerPrompt.
+//
+// It accepts both shapes the layout produces: the walk-up plus a column, and a bare column when
+// nothing had to be walked up.
+func parseCursorMove(prompt string) (up, col int, ok bool) {
+	body := prompt
+	if strings.HasPrefix(body, "\x1b[") {
+		body = body[2:]
+	} else {
+		return 0, 0, false
+	}
+	if i := strings.IndexByte(body, 'A'); i >= 0 {
+		n, err := strconv.Atoi(body[:i])
+		if err != nil {
+			return 0, 0, false
+		}
+		up = n
+		body = body[i+1:]
+		if !strings.HasPrefix(body, "\x1b[") {
+			return 0, 0, false
+		}
+		body = body[2:]
+	}
+	i := strings.IndexByte(body, 'G')
+	if i < 0 {
+		return 0, 0, false
+	}
+	n, err := strconv.Atoi(body[:i])
+	if err != nil {
+		return 0, 0, false
+	}
+	return up, n, true
 }
 
 // completionRowsNeeded is how many extra rows the completion popup asks for right now: zero when
