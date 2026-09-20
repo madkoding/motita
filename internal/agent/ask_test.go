@@ -193,3 +193,25 @@ func TestAssumptionIsCleanedInTheQuestion(t *testing.T) {
 		t.Fatalf("Assumption = %q, want it without the repeated lead", got[0].Assumption)
 	}
 }
+
+// The RESULT's assumption is the one summarise prints its own sentence in front of, so it has to
+// be cleaned too. Cleaning only the questions left the stutter in the chat while the window was
+// clean — which is how the fix was verified as incomplete on the i386 laptop: the window read
+// "si no respondes: reviso el proyecto" and the conversation above it still read "Si no me dices
+// otra cosa, asumiré: Si no me dices otra cosa, reviso el proyecto".
+func TestResultAssumptionIsCleanedToo(t *testing.T) {
+	const raw = "Si no me dices otra cosa, asumiré: reviso el proyecto"
+	if got := cleanAssumption(raw); got != "reviso el proyecto" {
+		t.Fatalf("cleanAssumption(%q) = %q", raw, got)
+	}
+	// The list and the single question must agree, or the window and the chat disagree about
+	// the same assumption.
+	a := Analysis{Question: "¿reviso qué?", Assumption: raw}
+	items := buildQuestions(a)
+	if len(items) != 1 || items[0].Assumption != "reviso el proyecto" {
+		t.Fatalf("the question list should carry the cleaned assumption, got %+v", items)
+	}
+	if cleanAssumption(a.Assumption) != items[0].Assumption {
+		t.Fatal("both paths must produce the same assumption")
+	}
+}

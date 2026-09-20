@@ -822,7 +822,12 @@ func (a *Agent) loop(ctx context.Context, t task.Task, depth int) TaskResult {
 		// single word, and it is also the honest fallback if the interface has nobody to ask.
 		res.NeedsInput = true
 		res.Question = strings.TrimSpace(analysis.Question)
-		res.Assumption = strings.TrimSpace(analysis.Assumption)
+		// Cleaned here as well as in the question, because this field is the one summarise
+		// prints its own "If you do not tell me otherwise, I will assume:" in front of. Left
+		// raw it produced the stutter the window showed: "Si no me dices otra cosa, asumiré:
+		// Si no me dices otra cosa, reviso el proyecto". The two paths (the single question and
+		// the list) both need the cleaned form, and this is the one that reaches the chat.
+		res.Assumption = cleanAssumption(analysis.Assumption)
 		res.Options = cleanOptions(analysis.Options)
 		res.Questions = buildQuestions(analysis)
 		res.Reason = strings.Join(analysis.Risks, "; ")
