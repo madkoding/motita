@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"regexp"
 	"strings"
 	"testing"
 )
@@ -13,12 +14,20 @@ import (
 // the right border wobbles. These tests measure the frame the way a terminal
 // would, after the escape sequences are removed.
 
-// lastFrame returns the final repaint written to the TUI, which is the frame a
-// user actually sees while the interface is running.
+// lastFrame returns what the terminal would be SHOWING, as text with one row per line.
 //
-// The exit wipe is removed first. Leaving the interface clears the screen — that is deliberate,
-// so the shell gets its window back — but it is written after the last frame and would otherwise
-// be what this helper finds, leaving every test that reads a frame looking at a blank screen.
+// It used to return the raw bytes between the last cursor-home and the end, which only worked
+// while a frame was written as a run of rows separated by newlines. Now that a repaint writes
+// only the rows that changed — each one preceded by its own absolute position — the bytes are
+// not a picture of the screen any more: joining them concatenates rows that were never adjacent.
+//
+// So the frame is replayed into the same minimal emulator the screen tests use, and the rows
+// come out of its cells. That is strictly stronger than before: these tests now check what is
+// displayed rather than what was written, which is the distinction that let a stale input row
+// survive four rounds of green tests.
+//
+// The exit wipe is applied first, because leaving the interface clears the screen: it is
+// written after the last frame and would otherwise blank what this returns.
 func lastFrame(t *testing.T, tui *TUI) string {
 	t.Helper()
 	buf, ok := tui.Out.(*bytes.Buffer)
@@ -26,11 +35,16 @@ func lastFrame(t *testing.T, tui *TUI) string {
 		t.Fatal("the test TUI does not write to a buffer")
 	}
 	out := strings.TrimSuffix(buf.String(), exitClear)
-	idx := strings.LastIndex(out, "\x1b[H")
-	if idx < 0 {
+	if !strings.Contains(out, "\x1b[") {
 		t.Fatalf("no frame was painted: %q", out)
 	}
-	return out[idx:]
+	w, h := tui.size()
+	if w <= 0 || h <= 0 {
+		w, h = 80, 24
+	}
+	sc := newScreen(w, h)
+	sc.feed(out)
+	return sc.text()
 }
 
 // panelRows returns every row of the last frame that carries a panel border.
@@ -98,34 +112,55 @@ func TestFrameNeverFillsTheLastColumn(t *testing.T) {
 	}
 }
 
-// TestCursorLandsAtThePrompt: the cursor is hidden during the repaint and the
-// very last thing written is the prompt, so the terminal leaves it there.
+// TestCursorLandsAtThePrompt: the cursor is placed at the prompt, and the terminal is left
+// SHOWING it.
+//
+// This one reads the written stream rather than the screen, and it has to: showing the cursor
+// is not a cell, it is a mode, so an emulator of cells cannot see it. The screen is still
+// checked separately (lastFrame) for where the rows ended up.
 func TestCursorLandsAtThePrompt(t *testing.T) {
 	runner := &fakeRunner{planAnswer: "listo"}
 	tui := newFakeTUI("/p\nprompt\n\nq\n", runner)
 	tui.Run(context.Background())
 
-	frame := lastFrame(t, tui)
-	if !strings.HasSuffix(frame, "\x1b[?25h") {
-		t.Fatalf("the frame must end by showing the cursor: %q", frame)
+	buf, ok := tui.Out.(*bytes.Buffer)
+	if !ok {
+		t.Fatal("the test TUI does not write to a buffer")
+	}
+	stream := strings.TrimSuffix(buf.String(), exitClear)
+	if !strings.HasSuffix(stream, "\x1b[?25h") {
+		t.Fatalf("the stream must end by showing the cursor: %q", tail(stream, 60))
 	}
 	// The cursor is moved UP to the input field rather than left at the end of the frame. Below
 	// the input's first row sit the rest of the field, the rule and the status bar, so a cursor
 	// at the end of the frame would be outside the box it is meant to be in.
-	withoutCursor := strings.TrimSuffix(frame, "\x1b[?25h")
 	want := fmt.Sprintf("\x1b[%dA", 2+inputRows-1)
-	if !strings.Contains(withoutCursor, want) {
-		t.Errorf("the cursor must be walked back up to the input field (want %q): %q", want, withoutCursor)
+	if !strings.Contains(stream, want) {
+		t.Errorf("the cursor must be walked up to the input field, expected %q in:\n%q",
+			want, tail(stream, 200))
 	}
-	// And the composer row itself is drawn, with the prompt on it. It carries no mode name: the
+	// And it lands at a COLUMN, which is what "after the prompt glyph" means. The sequence is
+	// "CSI <n> G" with the column number, so matching the bare "CSI G" finds nothing.
+	if !regexp.MustCompile(`\x1b\[\d+G`).MatchString(stream) {
+		t.Errorf("the cursor must be moved to a column, not just a row:\n%q", tail(stream, 200))
+	}
+	// The composer row itself is drawn, with the prompt on it. It carries no mode name: the
 	// status bar already reports that.
-	body := stripANSI(withoutCursor)
+	body := lastFrame(t, tui)
 	if !strings.Contains(body, "›") {
-		t.Errorf("the composer must be drawn: %q", body)
+		t.Errorf("the composer must be drawn:\n%s", body)
 	}
 	if strings.Count(body, "Task") > 1 || strings.Count(body, "Plan") > 1 {
-		t.Errorf("the mode must be named once: %q", body)
+		t.Errorf("the mode must be named once:\n%s", body)
 	}
+}
+
+// tail returns the last n bytes of s, for readable failure messages.
+func tail(s string, n int) string {
+	if len(s) <= n {
+		return s
+	}
+	return "..." + s[len(s)-n:]
 }
 
 // TestWordmarkIsNotFramed: the banner was inside a box and the user asked for the

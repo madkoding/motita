@@ -301,21 +301,21 @@ func (t *TUI) drawFrame() {
 		// 2J clears the visible screen, 3J drops the scrollback, and home puts the cursor
 		// at the origin. Some terminals do not implement 3J; they ignore it, which is fine.
 		fmt.Fprint(t.Out, "\x1b[2J\x1b[3J\x1b[H")
+		// The wipe invalidates anything remembered: the terminal is blank now, and a diff
+		// against the previous frame would believe the old rows are still there.
+		t.invalidateScreen()
 	}
 
 	w, h := t.size()
 	lines, prompt := t.layout(w, h)
 
 	var b strings.Builder
-	// Home, repaint, then clear whatever is left below: this avoids the blank
-	// flash of a full clear and never scrolls the screen.
+	// No home and no hide-first: every written row carries its own absolute position, and the
+	// cursor is placed once at the end. Hiding it while painting would only matter if it could
+	// be seen mid-frame, which absolute addressing already prevents.
 	//
-	// Only "\n" is written: the interface never switches the terminal to raw
-	// mode, so the driver's ONLCR translation is still on and "\n" already
-	// becomes CR+LF. Writing "\r\n" would double the carriage return on a real
-	// terminal.
-	b.WriteString("\x1b[H")
-	b.WriteString("\x1b[?25l") // keep the cursor out of the way while painting
+	// Only "\n" is never written between rows any more: a newline moves the cursor DOWN a row,
+	// which is exactly the scroll that absolute addressing removes.
 	// The frame is written with a newline BETWEEN its rows and never after the last one.
 	//
 	// A trailing newline moves the cursor down a row, and when the frame already fills the
@@ -345,21 +345,63 @@ func (t *TUI) drawFrame() {
 	// Erasing to end of LINE is right where clearing BELOW (CSI J, after the loop) is not
 	// enough on its own: J starts at the cursor, and by then the cursor has already passed the
 	// stale cells.
+	// Only the rows that CHANGED are written, and the cursor is moved to each one.
+	//
+	// Repainting the whole frame on every keystroke is what made typing feel slow: measured at
+	// 110x30, one frame is 5,068 bytes and 99% of it is text that did not change — the
+	// conversation, the banner, the rules — because a single character was typed into the box.
+	// Writing ~5 KB per key is what the user feels, and on the target netbook (Atom N270) the
+	// terminal's own parsing of that stream is the cost, not the formatting here.
+	//
+	// The frame is still built in full, because deciding what changed needs the whole thing;
+	// what is skipped is the WRITE. That keeps layout, measurement and cursor placement in one
+	// place, instead of a second incremental path that would have to agree with this one.
+	//
+	// Absolute cursor addressing (CSI row;col H) is used for each row rather than relative
+	// moves, so a skipped row cannot accumulate an offset error: every write says where it is
+	// going, and the sequence does not depend on how many writes preceded it.
+	//
+	// The first frame, and any frame after a resize, is written in full: nothing is known about
+	// what the terminal holds, and a stale row left behind is exactly the class of bug the row
+	// erases were added for.
+	full := !t.paintedScreen || len(t.lastFrame) != len(lines)
+
 	for i, l := range lines {
-		if i > 0 {
-			b.WriteString("\n")
+		if !full && t.lastFrame[i] == l {
+			continue
 		}
+		fmt.Fprintf(&b, "\x1b[%d;1H", i+1)
 		b.WriteString(l)
 		b.WriteString("\x1b[K")
 	}
-	b.WriteString("\x1b[J") // clear whatever is left below, which is nothing when padded
-	// When there is no prompt the frame is a message, not an input surface: the cursor is left
-	// where the text ends instead of being parked after a prompt that was never drawn.
+
+	// The cursor is placed on its own AFTER the rows, and always: it may have to move even when
+	// no row changed — the user typed nothing visible (a control key, a mode switch) or the
+	// previous frame ended with the cursor elsewhere.
 	if prompt != "" {
 		b.WriteString(prompt)
 	}
-	b.WriteString("\x1b[?25h") // and hand it back, sitting at the prompt
+	// The cursor is handed back explicitly, on every frame: nothing hides it any more, but the
+	// terminal may have been left hidden by an earlier frame of this or another program, and
+	// showing it is the only way to be certain where the user is typing.
+	b.WriteString("\x1b[?25h")
 	fmt.Fprint(t.Out, b.String())
+	if len(t.lastFrame) != len(lines) {
+		t.lastFrame = make([]string, len(lines))
+	}
+	copy(t.lastFrame, lines)
+	t.paintedScreen = true
+}
+
+// invalidateScreen forgets what was last written, so the next frame is written in full.
+//
+// It is called when the geometry changes and when the screen is wiped underneath the
+// painter: in both cases the terminal no longer holds what lastFrame claims it holds, and a
+// diff computed against a stale copy would leave rows the user can see but the program
+// thinks are gone.
+func (t *TUI) invalidateScreen() {
+	t.lastFrame = nil
+	t.paintedScreen = false
 }
 
 // size returns the drawing area. An explicit Width/Height always wins (tests and

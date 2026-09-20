@@ -87,7 +87,33 @@ func (s *screen) applyCSI(params string, final byte) {
 	}
 	switch final {
 	case 'H', 'f':
-		s.y, s.x = 0, 0
+		// Absolute position, and the parameters matter: "CSI 5;1H" is row 5, not the origin.
+		// Ignoring them made this emulator land every row at the top, which is exactly the
+		// mistake that hid the reason the incremental frame failed here.
+		if params == "" {
+			s.y, s.x = 0, 0
+			break
+		}
+		parts := strings.Split(params, ";")
+		row, col := 0, 0
+		if len(parts) > 0 && parts[0] != "" {
+			row, _ = strconv.Atoi(parts[0])
+		}
+		if len(parts) > 1 && parts[1] != "" {
+			col, _ = strconv.Atoi(parts[1])
+		}
+		if row > 0 {
+			s.y = row - 1
+		}
+		if col > 0 {
+			s.x = col - 1
+		}
+		if s.y >= s.h {
+			s.y = s.h - 1
+		}
+		if s.x >= s.w {
+			s.x = s.w - 1
+		}
 	case 'A':
 		if n == 0 {
 			n = 1

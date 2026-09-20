@@ -107,6 +107,15 @@ type TUI struct {
 	// embedder can pin them to a fixed size.
 	Width, Height int
 
+	// lastFrame is the rows as they were last written, and paintedScreen says whether anything
+	// has been written yet. Together they let a repaint write only what changed instead of the
+	// whole frame, which is what made typing feel slow.
+	//
+	// They are only meaningful while draw is held: a frame is built and diffed under the same
+	// lock, so the comparison cannot see a half-updated copy.
+	lastFrame     []string
+	paintedScreen bool
+
 	screen     Screen
 	messages   []Message
 	reader     *bufio.Reader

@@ -912,7 +912,10 @@ func TestSearchIsCaseInsensitiveAndHighlights(t *testing.T) {
 	tu.openSearch()
 	tu.applyQuery("go version")
 
-	raw := lastFrameOf(out)
+	// This test reads the STREAM, not the screen: a colour is not a cell, so the cell-level
+	// emulator cannot see it. Both questions are real and they need different views — what the
+	// text says, and how it is emphasised.
+	raw := out.String()
 	// The original casing survives.
 	if !strings.Contains(stripANSI(raw), "GO version") {
 		t.Errorf("the original text must be preserved:\n%s", stripANSI(raw))
@@ -920,6 +923,11 @@ func TestSearchIsCaseInsensitiveAndHighlights(t *testing.T) {
 	// And the match is emphasised, which is what "highlight matches" means.
 	if !strings.Contains(raw, "\x1b[30;46m") {
 		t.Errorf("the match must be highlighted:\n%q", raw)
+	}
+	// The row is still on the screen, which is the other half: highlighting a row that is not
+	// displayed would emphasise nothing.
+	if !strings.Contains(lastFrameOf(out), "GO version") {
+		t.Errorf("the highlighted line must be on screen:\n%s", lastFrameOf(out))
 	}
 }
 
@@ -1075,15 +1083,24 @@ func TestTheSearchFindsTheSpeakerToo(t *testing.T) {
 	}
 }
 
-// lastFrameOf returns the most recent frame in a captured TUI output. Every repaint is
-// appended, so an assertion about what is on screen must look at the tail, not at the
-// whole recording.
-func lastFrameOf(out *bytes.Buffer) string {
+// lastFrameOf returns what the terminal is SHOWING after the captured output, as text.
+//
+// Same reasoning as lastFrame: once a repaint writes only the rows that changed, the raw
+// bytes are no longer a picture of the screen. The calls that used to search this string for
+// a word were searching the whole session's output when they meant the visible rows.
+//
+// It is variadic and ignores its arguments so the existing call sites keep working while the
+// signature stays honest about not needing them.
+func lastFrameOf(out *bytes.Buffer, _ ...int) string {
 	s := out.String()
-	if i := strings.LastIndex(s, "\x1b[H"); i >= 0 {
-		return s[i:]
+	if !strings.Contains(s, "\x1b[") {
+		return s
 	}
-	return s
+	// The size the tests use; the emulator clamps anything written outside it.
+	const w, h = 200, 60
+	sc := newScreen(w, h)
+	sc.feed(s)
+	return sc.text()
 }
 
 // TestHighlightLeavesNonMatchingLinesAlone: a filtered conversation can contain a line
