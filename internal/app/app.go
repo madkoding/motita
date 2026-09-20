@@ -392,6 +392,20 @@ func (op Options) run(fl flags) int {
 		cfg.Agent.LogConsole = false
 	}
 
+	// The diagnostic modes check the configuration; they do not run anything, and they must not
+	// leave anything behind either.
+	//
+	// This was a real failure, not a hypothetical one: -validate-config opened the log, which
+	// CREATED the workspace directory to hold it, and inside the CI container the configuration
+	// directory is mounted read-only — so validating a configuration that was perfectly valid
+	// failed on the file it wrote. The same run also created configs/workspace/ in the repository.
+	//
+	// With no log file, the logger reports to the console, which is where a diagnostic's output
+	// belongs anyway.
+	if fl.validateConfig || fl.isolation {
+		cfg.Agent.LogFile = ""
+	}
+
 	log, err := op.newLogger(cfg.Agent)
 	if err != nil {
 		fmt.Fprintf(op.Err, "❌ %v\n", err)

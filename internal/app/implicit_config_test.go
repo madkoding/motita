@@ -301,3 +301,57 @@ func TestBrokenHomeConfigIsReported(t *testing.T) {
 		}
 	})
 }
+
+// The diagnostic modes must not write anything.
+//
+// This was a real CI failure, not a hypothetical one. -validate-config opened the log, which
+// CREATED the workspace directory to hold it; inside the CI container the configuration
+// directory is mounted read-only, so validating a configuration that was perfectly valid failed
+// on the file it tried to write. The same run also left a configs/workspace/ behind in the
+// repository.
+func TestValidateConfigWritesNothing(t *testing.T) {
+	inTempDir(t, func() {
+		t.Setenv("HOME", "")
+		dir := t.TempDir()
+		cfgPath := filepath.Join(dir, "elegido.yaml")
+		mustWrite(t, cfgPath, `sandbox:
+  kind: none
+llm:
+  provider: openai
+  api_key: x
+  model: mock
+anchor:
+  kind: command
+  command: "true"
+agent:
+  log_level: error
+  log_console: false
+  workspace_dir: ./workspace
+  log_file: ./workspace/starlight.log
+`)
+		// The directory holding the configuration is made read-only, which is how the CI mounts
+		// it. A diagnostic that writes there fails.
+		if err := os.Chmod(dir, 0o555); err != nil {
+			t.Skipf("could not make the directory read-only: %v", err)
+		}
+		defer os.Chmod(dir, 0o755)
+
+		var out, errs bytes.Buffer
+		code := Run(Options{
+			Args: []string{"-validate-config", "-config", cfgPath},
+			Out:  &out,
+			Err:  &errs,
+		})
+		if code != Success {
+			t.Fatalf("code = %d, errs = %q", code, errs.String())
+		}
+		// The workspace the file names must not have been created: creating it means writing.
+		if _, err := os.Stat(filepath.Join(dir, "workspace")); err == nil {
+			t.Error("-validate-config must not create the workspace")
+		}
+		// And the summary says the log goes to the console, which is what a diagnostic does.
+		if !strings.Contains(out.String(), "log=(console only)") {
+			t.Errorf("a diagnostic must not open a log file: %q", out.String())
+		}
+	})
+}
