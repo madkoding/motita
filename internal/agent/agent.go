@@ -34,7 +34,9 @@ import (
 	"github.com/madkoding/starlight/internal/execx"
 	"github.com/madkoding/starlight/internal/llm"
 	"github.com/madkoding/starlight/internal/logx"
+	"github.com/madkoding/starlight/internal/reward"
 	"github.com/madkoding/starlight/internal/sandbox"
+	"github.com/madkoding/starlight/internal/skills"
 	"github.com/madkoding/starlight/internal/task"
 	"github.com/madkoding/starlight/internal/template"
 )
@@ -68,6 +70,21 @@ type Agent struct {
 	// Both are better than refusing, which is what the agent used to do in either case.
 	Interactive bool
 
+	// library is the procedure library, when one is configured. It is the SAME library Plan
+	// mode uses: one shelf of procedures, reachable from both modes, because a procedure is
+	// not specific to how the work is executed.
+	//
+	// Task mode reaches it through the action protocol rather than tool calls — its actions are
+	// JSON — so the four operations are named by the action's "kind" instead of by a tool name.
+	library *skills.Library
+
+	// reward is the long-term value per skill, and consulted counts what this run read.
+	//
+	// Same pair as the planner's, and for the same reason: a verdict has to land on specific
+	// skills, and the moment that is knowable is the read.
+	reward    *reward.Ledger
+	consulted map[string]int
+
 	// transcript is what has been said in this conversation, oldest first, and it is what makes
 	// the agent conversational rather than stateless.
 	//
@@ -94,6 +111,39 @@ type Agent struct {
 // expose the hook without exporting the field itself.
 func (a *Agent) SetObserver(fn func(TaskResult)) {
 	a.Observer = fn
+}
+
+// SetLibrary installs the procedure library.
+//
+// It is the same library the planner receives, and sharing it is the point: a procedure
+// written down in one mode is available in the other, which is what makes the library a single
+// body of knowledge rather than two that drift apart.
+func (a *Agent) SetLibrary(lib *skills.Library) { a.library = lib }
+
+// SetReward installs the long-term value ledger.
+func (a *Agent) SetReward(l *reward.Ledger) { a.reward = l }
+
+// Consulted returns the skills this run read, and how many times each.
+//
+// It is what the caller needs to turn the user's verdict into value: the skills are known here
+// and nowhere else.
+func (a *Agent) Consulted() map[string]int {
+	if len(a.consulted) == 0 {
+		return nil
+	}
+	out := make(map[string]int, len(a.consulted))
+	for k, v := range a.consulted {
+		out[k] = v
+	}
+	return out
+}
+
+// consult records that a skill was read.
+func (a *Agent) consult(name string) {
+	if a.consulted == nil {
+		a.consulted = map[string]int{}
+	}
+	a.consulted[name]++
 }
 
 // SetProgress registers the callback that receives the human-readable phase
@@ -975,11 +1025,176 @@ func describePlan(p Plan) string {
 // --- Execution --------------------------------------------------------------
 
 // runActions runs every action in the sandbox and returns their combined output.
+// runLibraryAction answers one library operation, and reports whether it was one.
+//
+// An unknown kind returns handled=false so it falls through to the command path, where it is
+// reported as a command with no command — the honest outcome for a kind nothing recognises.
+func (a *Agent) runLibraryAction(kind string, action Command) (bool, string) {
+	switch kind {
+	case "read_skill", "search_skills", "list_skills", "save_skill":
+	default:
+		return false, ""
+	}
+	if a.library == nil {
+		return true, "Error: no procedure library is configured."
+	}
+	// The kind is validated above, so this switch is exhaustive over what can arrive: a final
+	// "not handled" return would be unreachable. Adding an operation means adding it to both
+	// switches, and the compiler will not let the second one fall through.
+	switch kind {
+	case "list_skills":
+		return true, a.listSkills()
+	case "search_skills":
+		return true, a.searchSkills(action.Command)
+	case "read_skill":
+		return true, a.readSkill(action.Command)
+	default: // save_skill
+		return true, a.saveSkill(action.Command)
+	}
+}
+
+// listSkills reports the index, with each skill's accumulated value when there is one.
+func (a *Agent) listSkills() string {
+	all, err := a.library.List()
+	if err != nil {
+		return fmt.Sprintf("Error: could not read the library: %v", err)
+	}
+	if len(all) == 0 {
+		return "The library is empty. Work from your own knowledge, and save what you learn."
+	}
+	var b strings.Builder
+	fmt.Fprintf(&b, "%d skill(s). Use read_skill with a name to read one in full.\n", len(all))
+	for _, s := range all {
+		fmt.Fprintf(&b, "\n- %s: %s\n  %s%s%s", s.Name, s.Title, s.Summary,
+			a.historySuffix(s.Name), a.feedbackSuffix(s.Name))
+	}
+	return b.String()
+}
+
+// searchSkills finds procedures by what the work is about.
+func (a *Agent) searchSkills(query string) string {
+	query = strings.TrimSpace(query)
+	if query == "" {
+		return "Error: search_skills needs what the work is about, in plain words."
+	}
+	hits, err := a.library.Search(query, 10)
+	if err != nil {
+		return fmt.Sprintf("Error: could not search the library: %v", err)
+	}
+	if len(hits) == 0 {
+		return fmt.Sprintf("No skill matches %q. Work from your own knowledge, and save a skill afterwards if what you work out is worth keeping.", query)
+	}
+	var b strings.Builder
+	fmt.Fprintf(&b, "%d skill(s) match %q. Read one in full with read_skill.\n", len(hits), query)
+	for _, s := range hits {
+		fmt.Fprintf(&b, "\n- %s: %s\n  %s%s", s.Name, s.Title, s.Summary, a.historySuffix(s.Name))
+	}
+	for _, s := range hits {
+		b.WriteString(a.feedbackSuffix(s.Name))
+	}
+	return b.String()
+}
+
+// readSkill returns one procedure in full, and records that it was relied on.
+func (a *Agent) readSkill(name string) string {
+	s, err := a.library.Get(strings.TrimSpace(name))
+	if err != nil {
+		if errors.Is(err, skills.ErrNotFound) {
+			return fmt.Sprintf("No skill named %q. Use list_skills to see what the library holds.", name)
+		}
+		return fmt.Sprintf("Error: %v", err)
+	}
+	// The read is the moment the credit becomes knowable, and the only one.
+	a.consult(s.Name)
+	var b strings.Builder
+	fmt.Fprintf(&b, "# skill: %s\n(source: %s)\n\n", s.Name, s.Path)
+	b.WriteString(s.Body)
+	b.WriteString(a.feedbackSuffix(s.Name))
+	return b.String()
+}
+
+// saveSkill writes a procedure. The argument is "name :: body", because this mode's actions
+// carry a single string rather than structured arguments.
+func (a *Agent) saveSkill(arg string) string {
+	name, body, ok := strings.Cut(arg, "::")
+	if !ok {
+		return "Error: save_skill expects \"name :: the document in markdown\"."
+	}
+	s, err := a.library.Save(strings.TrimSpace(name), strings.TrimSpace(body))
+	if err != nil {
+		return fmt.Sprintf("Error: %v", err)
+	}
+	// A save that replaces a skill with an outstanding complaint is the fix being attempted.
+	// Marking it here is what stops the same complaint being handed out on every later turn.
+	marked := ""
+	if a.reward != nil && a.reward.Addressed(s.Name) {
+		if err := a.reward.Save(); err == nil {
+			marked = " The complaint that was recorded against this skill is now marked as addressed."
+		}
+	}
+	return fmt.Sprintf("Saved %q (%d bytes).%s", s.Name, len(body), marked)
+}
+
+// historySuffix renders a skill's accumulated value, or nothing when it has no history.
+//
+// Numbers and counts, with no adjective: "RELIABLE" would be this program's interpretation
+// presented as evidence. An unconsulted skill shows nothing rather than "0.0", which would
+// read as "this failed".
+func (a *Agent) historySuffix(name string) string {
+	if a.reward == nil {
+		return ""
+	}
+	s, ok := a.reward.Get(name)
+	if !ok || s.Uses() == 0 {
+		return ""
+	}
+	return fmt.Sprintf("  [used %d, value %+.2f]", s.Uses(), s.Value)
+}
+
+// feedbackSuffix states the user's outstanding complaints for a skill, quoted verbatim.
+//
+// The number says a skill failed; the user's own words say what was wrong with it, which is
+// the only form of the complaint a repair can be written from. Only complaints with no fix
+// attempted are shown: once it has been rewritten the complaint is answered.
+func (a *Agent) feedbackSuffix(name string) string {
+	if a.reward == nil {
+		return ""
+	}
+	s, ok := a.reward.Get(name)
+	if !ok {
+		return ""
+	}
+	notes := s.Unaddressed()
+	if len(notes) == 0 {
+		return ""
+	}
+	var b strings.Builder
+	b.WriteString("\n  !! the user reported this skill failing, and the procedure has NOT been revised since:")
+	for i, n := range notes {
+		fmt.Fprintf(&b, "\n     %d. %s", i+1, n.Text)
+	}
+	b.WriteString("\n     Read the procedure again, work out which step the report is about, and save the")
+	b.WriteString("\n     corrected version with save_skill. Fixing it is worth more than avoiding it.")
+	return b.String()
+}
+
 func (a *Agent) runActions(ctx context.Context, actions []Command, prefix string) (string, error) {
 	var sb strings.Builder
 	var lastErr error
 
 	for i, action := range actions {
+		// A library action is not a shell command: it is answered from the procedure library and
+		// its result goes back to the model as the output of this step. It is dispatched by
+		// kind, because that is how this mode names things — the same four operations the
+		// planner exposes as tools, reachable from here too.
+		if kind := strings.ToLower(strings.TrimSpace(action.Kind)); kind != "" && kind != "command" {
+			if handled, out := a.runLibraryAction(kind, action); handled {
+				fmt.Fprintf(&sb, "[%s] %s\n%s\n", kind, action.Description, out)
+				a.log.Info(prefix+"library action", "kind", kind, "description",
+					truncate(action.Description, 80))
+				continue
+			}
+		}
 		if strings.TrimSpace(action.Command) == "" {
 			a.log.Debug(prefix+"action with no command (descriptive)", "description", action.Description)
 			continue

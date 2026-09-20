@@ -269,13 +269,28 @@ func TestUnknownCommandInAConversationViewIsATask(t *testing.T) {
 func TestHelpListsTheCommands(t *testing.T) {
 	tui := newFakeTUI("?\nq\n", &fakeRunner{})
 	tui.Run(context.Background())
-	frame := stripANSI(lastFrame(t, tui))
-	// The keys the help must teach. Its opening line is allowed to scroll out of the
-	// panel: a window that shows the last N rows cannot promise the first one.
+	// The question is what the help SAYS, so it is asked of the help itself.
+	//
+	// It used to be asked of the screen, which worked only while the help fit in the panel.
+	// The help is longer than the frame, so the panel is a window on it and its opening lines
+	// are simply not among the visible rows — the screen answer is a false negative about the
+	// content. (Adding the reward commands made the help long enough to expose that.)
+	//
+	// The screen is still checked below: that SOMETHING of the help is on it.
 	for _, want := range []string{"switch between Task and Plan", "complete the command", "task", "plan", "models", "config", "reasoning", "quit"} {
-		if !strings.Contains(frame, want) {
-			t.Errorf("the help must mention %q:\n%s", want, frame)
+		if !strings.Contains(helpText, want) {
+			t.Errorf("the help must mention %q:\n%s", want, helpText)
 		}
+	}
+	// And the reward commands, which a user cannot guess from the others.
+	for _, want := range []string{"/good", "/bad", "/value"} {
+		if !strings.Contains(helpText, want) {
+			t.Errorf("the help must document %q:\n%s", want, helpText)
+		}
+	}
+	// The help did reach the interface: its tail is what the window shows.
+	if !strings.Contains(stripANSI(lastFrame(t, tui)), "/value") {
+		t.Errorf("the help must be shown:\n%s", stripANSI(lastFrame(t, tui)))
 	}
 }
 

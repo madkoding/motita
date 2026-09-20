@@ -58,7 +58,7 @@ func TestCompletionsMatchPrefixes(t *testing.T) {
 		{"/s", []string{"/session"}},
 		{"/m", []string{"/models"}},
 		{"/n", []string{"/new"}},
-		{"/", []string{"/task", "/plan", "/models", "/config", "/reasoning", "/find", "/session", "/new", "/help", "/quit"}},
+		{"/", []string{"/task", "/plan", "/models", "/config", "/reasoning", "/find", "/session", "/good", "/bad", "/value", "/new", "/help", "/quit"}},
 	} {
 		got := completions(tc.typed)
 		var names []string

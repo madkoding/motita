@@ -15,6 +15,12 @@ import (
 	"github.com/madkoding/starlight/internal/session"
 )
 
+// verdictCall is one RecordVerdict invocation.
+type verdictCall struct {
+	good bool
+	note string
+}
+
 type fakeRunner struct {
 	planCalled   bool
 	taskCalled   bool
@@ -27,6 +33,10 @@ type fakeRunner struct {
 	modelsCalls  int
 	modelsReport string
 	planProgress []string
+	// verdicts is what RecordVerdict was called with, so a test can assert the command wiring
+	// without the reward package.
+	verdicts     []verdictCall
+	rewardReport string
 	// The *Block channels make a run hang until the test closes them, which is how
 	// cancellation in the middle of a turn is exercised.
 	taskBlock   chan struct{}
@@ -120,6 +130,18 @@ func (f *fakeRunner) RunTask(ctx context.Context, task string, progress func(str
 }
 
 func (f *fakeRunner) SetTranscript([]agent.DialogueTurn) {}
+
+// The fake records verdicts instead of applying them: the reward policy is tested in its own
+// package, and what the interface has to get right is that the right command calls the right
+// thing with the right argument.
+func (f *fakeRunner) RecordVerdict(good bool, note string) string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.verdicts = append(f.verdicts, verdictCall{good: good, note: note})
+	return "recorded"
+}
+
+func (f *fakeRunner) RewardReport() string { return f.rewardReport }
 
 func (f *fakeRunner) Transcript() []agent.DialogueTurn { return nil }
 
@@ -411,9 +433,11 @@ func TestRunModelsError(t *testing.T) {
 func TestRunHelp(t *testing.T) {
 	tui := newFakeTUI("h\nq\n", &fakeRunner{})
 	tui.Run(context.Background())
-	// The panel is a window: the help is longer than the frame, so the assertion is on
-	// what the help actually brought to the screen, not on its opening line.
-	if !strings.Contains(outputOf(tui), "switch between Task and Plan") {
+	// The panel is a window on the help, and the help is longer than the frame, so its opening
+	// line scrolls out of the visible rows — asking the screen about the content is a false
+	// negative. What has to hold here is that the help ARRIVED; what it says is asserted
+	// against helpText itself in the interaction tests.
+	if !strings.Contains(stripANSI(outputOf(tui)), "/value") {
 		t.Errorf("help not printed: %q", outputOf(tui))
 	}
 }

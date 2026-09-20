@@ -152,7 +152,32 @@ Rules:
 - "final_action" runs ONLY if the validation passes; if it does not apply, leave
   the command as "" and describe why.
 - If an attempt failed before, correct it from the logs; do not repeat the same
-  action expecting a different result.`,
+  action expecting a different result.
+
+## YOUR PROCEDURE LIBRARY
+
+You have a library of procedures written down from previous work. It is NOT part of these
+instructions: it is a shelf you reach for, and reaching for it is expected. Four actions exist
+for it, and they are used INSTEAD of a shell command — set "kind" to name them:
+
+- {"kind": "search_skills", "description": "why", "command": "what the work is about, in plain words"}
+- {"kind": "read_skill", "description": "why", "command": "the skill name"}
+- {"kind": "list_skills", "description": "why", "command": ""}
+- {"kind": "save_skill", "description": "why", "command": "name :: the whole document in markdown"}
+
+Start work that may have been done before with a search, in plain language ("flash a board over
+usb"), rather than in one long phrase. Read the procedure in full before following it. After
+working something out that would help next time — the commands that worked, the ones that failed
+and why, the order the steps go in — save it with save_skill: write the PROCEDURE, not a report
+of this session.
+
+A skill whose line ends with "[used N, value ±0.X]" has been judged before: the value is the
+running average of verdicts, where positive means the work it describes tended to go well. It is
+information to weigh, not an instruction.
+
+If a skill is followed by a complaint the user wrote, the procedure is known to be wrong and has
+not been revised since. READ IT AGAIN, work out which step the complaint is about, and save the
+CORRECTED version. Repairing a procedure that failed is worth more than avoiding it.`,
 }
 
 // BaseSynthesizeTemplate asks for the final, evidence-based answer to the user

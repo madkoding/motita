@@ -404,6 +404,22 @@ func (t *TUI) handleShortcut(ctx context.Context, line string) (bool, bool) {
 		return true, false
 	}
 
+	// "/good" and "/bad [what was wrong]" record a verdict on the turn that just ran.
+	//
+	// This is the only reward signal in the system, and it is the user's: the agent never
+	// rates its own work. The optional text on /bad is what makes the verdict actionable — a
+	// number says a skill failed, the note says which step was wrong, and that is the only
+	// form of the complaint a fix can be written from. The text is NOT lowercased: it is the
+	// user's own words and it is quoted back to the model verbatim.
+	if rest, ok := cutPrefix(trimmed, "/good"); ok && (rest == "" || rest[0] == ' ') {
+		t.addPreformatted(AuthorSystem, t.Runner.RecordVerdict(true, strings.TrimSpace(line[len("/good"):])))
+		return true, false
+	}
+	if rest, ok := cutPrefix(trimmed, "/bad"); ok && (rest == "" || rest[0] == ' ') {
+		t.addPreformatted(AuthorSystem, t.Runner.RecordVerdict(false, strings.TrimSpace(line[len("/bad"):])))
+		return true, false
+	}
+
 	switch trimmed {
 	case "q", "quit", "/quit", "/q":
 		return true, true
@@ -451,6 +467,11 @@ func (t *TUI) handleShortcut(ctx context.Context, line string) (bool, bool) {
 	case "/new":
 		t.Runner.ResetConversation()
 		t.addMessage(AuthorSystem, "started a new session: the next question begins a fresh conversation.")
+		return true, false
+	case "/value", "/v":
+		// What the library has learned, worst first: the entries that need attention are the
+		// ones at the top, and the complaints attached to them are what a fix is written from.
+		t.addPreformatted(AuthorSystem, t.Runner.RewardReport())
 		return true, false
 	case "/help", "/h", "h", "help", "?":
 		t.addPreformatted(AuthorSystem, helpText)

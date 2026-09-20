@@ -5,9 +5,12 @@ package tui
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -18,6 +21,7 @@ import (
 	"github.com/madkoding/starlight/internal/logx"
 	"github.com/madkoding/starlight/internal/onboard"
 	"github.com/madkoding/starlight/internal/plan"
+	"github.com/madkoding/starlight/internal/reward"
 	"github.com/madkoding/starlight/internal/sandbox"
 	"github.com/madkoding/starlight/internal/session"
 	"github.com/madkoding/starlight/internal/skills"
@@ -53,6 +57,14 @@ type Runner interface {
 	Config() config.Config
 	// SetReasoning changes the in-memory reasoning level.
 	SetReasoning(level string)
+	// RecordVerdict applies the user's verdict on the last turn to the skills it read.
+	//
+	// It is the ONLY reward signal: nothing is scored unless the user marks it. The note is
+	// the user's own words about what was wrong, kept verbatim because it is what a repair can
+	// be written from.
+	RecordVerdict(good bool, note string) string
+	// RewardReport renders what the library has learned, worst first.
+	RewardReport() string
 }
 
 // AgentRunner is the subset of *agent.Agent that the TUI needs.
@@ -116,6 +128,16 @@ type AppRunner struct {
 	transcript   []agent.DialogueTurn
 	// lib is the procedure library, resolved on first use.
 	lib *skills.Library
+
+	// rewardMu guards the ledger and the last attribution.
+	//
+	// The attribution is kept between turns because a verdict arrives AFTER the turn that
+	// earned it: the user types /good or /bad as the next thing they do, and by then the run
+	// that read the skills has finished. Holding it here is what connects the two.
+	rewardMu sync.Mutex
+	reward   *reward.Ledger
+	lastUsed map[string]int
+	lastTask string
 }
 
 // NewAppRunner creates the production runner.
@@ -176,8 +198,16 @@ func (r *AppRunner) RunPlan(ctx context.Context, prompt string, progress func(st
 			r.Cfg.LLM.Session.KeepRecent,
 		).
 		WithSession(r.conversation(engine)).
-		WithLibrary(r.library())
+		WithLibrary(r.library()).
+		// The ledger is installed so the search can break ties by what has worked, and so the
+		// planner can report which skills this turn read. Both are needed: a verdict has to
+		// land on specific skills, and only the planner knows which ones.
+		WithReward(r.rewardOrNil())
 	answer, err := planner.Run(ctx, prompt)
+	// The skills this turn consulted are recorded whatever the outcome: a turn that failed
+	// still tells the user which procedure was in play, and that is exactly the turn they are
+	// most likely to mark.
+	r.rememberUsage(planner.Consulted(), prompt)
 	if err != nil {
 		return "", err
 	}
@@ -227,9 +257,157 @@ func (r *AppRunner) library() *skills.Library {
 		if r.Cfg.Skills.MaxFileBytes > 0 {
 			lib.MaxFileBytes = r.Cfg.Skills.MaxFileBytes
 		}
+		// The library reads the ledger for its tie-breaks. A ledger that cannot be opened is
+		// not fatal: the search then ranks exactly as it did before, which is a working
+		// library rather than a broken feature.
+		if led := r.rewardOrNil(); led != nil {
+			lib.Scorer = led
+		}
 		r.lib = lib
 	}
 	return r.lib
+}
+
+// rewardOrNil returns the ledger, creating it on first use.
+//
+// It lives NEXT TO the library, in the same directory, so one thing to copy or back up carries
+// both the procedures and what has been learned about them.
+func (r *AppRunner) rewardOrNil() *reward.Ledger {
+	r.rewardMu.Lock()
+	defer r.rewardMu.Unlock()
+	if r.reward == nil {
+		dir := r.Cfg.Skills.Dir
+		if dir == "" {
+			dir = "skills"
+		}
+		l, err := reward.Open(filepath.Join(dir, ".scores.json"))
+		if err != nil {
+			// Reported, not swallowed: the scores are the only record of what the user
+			// thought of the library, and silently starting empty would hide that it was
+			// lost. The feature stays off for this session rather than pretending.
+			if r.Log != nil {
+				r.Log.Warn("the reward ledger could not be read; value-based ranking is off",
+					"error", err)
+			}
+			return nil
+		}
+		r.reward = l
+	}
+	return r.reward
+}
+
+// truncateLine bounds a string for a one-line report, on a rune boundary.
+func truncateLine(s string, n int) string {
+	s = strings.Join(strings.Fields(s), " ")
+	r := []rune(s)
+	if len(r) <= n {
+		return s
+	}
+	return string(r[:n]) + "…"
+}
+
+// rememberUsage stores which skills the turn consulted, ready for the verdict that follows.
+func (r *AppRunner) rememberUsage(used map[string]int, task string) {
+	r.rewardMu.Lock()
+	defer r.rewardMu.Unlock()
+	r.lastUsed = used
+	r.lastTask = task
+}
+
+// recordVerdict applies a verdict to the skills of the last turn and saves it.
+//
+// Everything the user needs to know is said in the chat, including the case where there is
+// nothing to apply it to: a verdict that quietly did nothing would make the feature look like
+// it works when it has nothing to learn from.
+func (r *AppRunner) RecordVerdict(good bool, note string) string {
+	led := r.rewardOrNil()
+	if led == nil {
+		return "the reward ledger is unavailable, so the verdict was not recorded."
+	}
+	r.rewardMu.Lock()
+	used := make(map[string]int, len(r.lastUsed))
+	for k, v := range r.lastUsed {
+		used[k] = v
+	}
+	task := r.lastTask
+	r.rewardMu.Unlock()
+
+	names := make([]string, 0, len(used))
+	for n := range used {
+		names = append(names, n)
+	}
+	sort.Strings(names) // deterministic order for the ledger file
+
+	err := led.Attribute(names, used, good, note)
+	switch {
+	case errors.Is(err, reward.ErrNoSkill):
+		// Honest and specific: the turn did not consult the library, so there is no skill for
+		// the verdict to land on. Saying which turn it was helps the user see why.
+		msg := "no skill took part in the last turn, so there was nothing to learn from it."
+		if strings.TrimSpace(task) != "" {
+			msg += "\n(last turn: " + truncateLine(task, 90) + ")"
+		}
+		msg += "\nThe value moves when a turn reads a skill — the library is what this learns about."
+		return msg
+	}
+	// No other error case: Attribute returns ErrNoSkill or nil and nothing else, so a branch
+	// for "some other failure" would be unreachable. A new error from it would be caught here
+	// by the compiler the moment it is added, because this switch is exhaustive over the cases
+	// that exist.
+	if err := led.Save(); err != nil {
+		return fmt.Sprintf("the verdict was applied but could not be saved: %v", err)
+	}
+
+	verdict := "good"
+	if !good {
+		verdict = "bad"
+	}
+	var b strings.Builder
+	fmt.Fprintf(&b, "recorded: %s", verdict)
+	if strings.TrimSpace(note) != "" {
+		fmt.Fprintf(&b, " — %q", truncateLine(note, 120))
+	}
+	fmt.Fprintf(&b, "\napplied to %d skill(s), by how much the turn leaned on each:", len(names))
+	for _, n := range names {
+		s, _ := led.Get(n)
+		fmt.Fprintf(&b, "\n  %s: value %+.2f (%d good, %d bad)", n, s.Value, s.Good, s.Bad)
+	}
+	if !good && strings.TrimSpace(note) == "" {
+		b.WriteString("\n\nA note would make this fixable: /bad <what was wrong> tells the agent which step to repair, instead of only that it did not work.")
+	}
+	return b.String()
+}
+
+// RewardReport renders what the library has learned, worst first.
+func (r *AppRunner) RewardReport() string {
+	led := r.rewardOrNil()
+	if led == nil {
+		return "the reward ledger is unavailable: no verdicts have been recorded."
+	}
+	entries := led.Sorted()
+	if len(entries) == 0 {
+		return "no verdicts recorded yet.\n\nMark a turn with /good or /bad [what was wrong] right after it runs: the value lands on the skills that turn read, and it is the only thing that changes how the library is searched. An unmarked turn changes nothing."
+	}
+	var b strings.Builder
+	fmt.Fprintf(&b, "%d skill(s) with a verdict. Value is a running average in [-1, 1]; recent verdicts weigh more.\n", len(entries))
+	for _, e := range entries {
+		fmt.Fprintf(&b, "\n  %-28s value %+.2f   %d good / %d bad", e.Name, e.Score.Value, e.Score.Good, e.Score.Bad)
+		if !e.Score.Updated.IsZero() {
+			fmt.Fprintf(&b, "   last %s", e.Score.Updated.Format("2006-01-02 15:04"))
+		}
+		for _, n := range e.Score.Recent(3) {
+			mark := "bad "
+			if n.Good {
+				mark = "good"
+			}
+			fixed := ""
+			if n.Addressed {
+				fixed = " [fixed]"
+			}
+			fmt.Fprintf(&b, "\n      %s  %q%s", mark, truncateLine(n.Text, 80), fixed)
+		}
+	}
+	return b.String()
 }
 
 // ConversationSummary returns the session figures for the status bar.
@@ -376,6 +554,21 @@ func (r *AppRunner) RunTask(ctx context.Context, task string, progress func(stri
 	}
 	var result string
 	ag := r.newAgent(r.Cfg, r.Log, engine, r.Box, source, true)
+	// The same library and the same ledger Plan mode uses.
+	//
+	// Both modes reach one shelf of procedures: a procedure written down while working is
+	// available whichever mode does the work next, and a verdict lands on the same skills
+	// either way. Two libraries would be two bodies of knowledge that drift apart.
+	if lib := r.library(); lib != nil {
+		if setter, ok := ag.(interface{ SetLibrary(*skills.Library) }); ok {
+			setter.SetLibrary(lib)
+		}
+	}
+	if led := r.rewardOrNil(); led != nil {
+		if setter, ok := ag.(interface{ SetReward(*reward.Ledger) }); ok {
+			setter.SetReward(led)
+		}
+	}
 	// The conversation goes in before the run and comes back out after it. That round trip is
 	// what makes the agent conversational: the turn that asked a question recorded it, and the
 	// next turn reads it together with the user's answer, so "yes" means something.
@@ -388,6 +581,11 @@ func (r *AppRunner) RunTask(ctx context.Context, task string, progress func(stri
 	// Kept even when the run failed: the attempt is part of the conversation, and dropping it
 	// would make the agent repeat a mistake it cannot see.
 	r.remember(ag.Transcript())
+	// What this turn read from the library, ready for the verdict that follows it. Recorded on
+	// the failure path too: a turn that failed is exactly the one a user marks.
+	if consult, ok := ag.(interface{ Consulted() map[string]int }); ok {
+		r.rememberUsage(consult.Consulted(), task)
+	}
 	if runErr != nil {
 		return result, runErr
 	}

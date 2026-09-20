@@ -35,11 +35,24 @@ type Skill struct {
 	Body string
 }
 
+// Scorer is the long-term value of a skill, as the library needs it.
+//
+// It is an interface and not the reward package itself so the library keeps no dependency on
+// how the value is produced. All the library asks is "how has this one worked out", and a
+// nil Scorer means the feature is off and the ordering is exactly what it was.
+type Scorer interface {
+	// Value returns the accumulated value of a skill, and whether it has any history.
+	Value(name string) (float64, bool)
+}
+
 // Library is a directory of skill documents.
 type Library struct {
 	// Dir is where the documents live. It is created on the first write, so a session can
 	// teach the agent something without anyone preparing the directory first.
 	Dir string
+	// Scorer, when set, breaks ties between equally relevant skills by how well each has
+	// worked out. It never overrides relevance: see Search for why that order matters.
+	Scorer Scorer
 	// MaxFileBytes caps a single document. A skill is a procedure, not an archive: past this
 	// size it is either a data file or it needs splitting, and reading it into the context
 	// would cost more than it returns.
@@ -148,6 +161,9 @@ func (l *Library) Search(query string, limit int) ([]Skill, error) {
 		tier    int // which field matched: 0 name, 1 title, 2 summary, 3 body
 		first   int // index of the earliest query word that matched, for an intra-tier tie
 		matched int // how many of the query's words appear in the document
+		// value is the long-term verdict on this skill, and it is the LAST tie-break.
+		value   float64
+		hasHist bool
 	}
 	var hits []scored
 	for _, s := range all {
@@ -177,7 +193,11 @@ func (l *Library) Search(query string, limit int) ([]Skill, error) {
 			// No word of the query appears anywhere: not a match.
 			continue
 		}
-		hits = append(hits, scored{skill: s, tier: tier, first: first, matched: countMatches(s, words)})
+		h := scored{skill: s, tier: tier, first: first, matched: countMatches(s, words)}
+		if l.Scorer != nil {
+			h.value, h.hasHist = l.Scorer.Value(s.Name)
+		}
+		hits = append(hits, h)
 	}
 
 	sort.SliceStable(hits, func(i, j int) bool {
@@ -191,6 +211,17 @@ func (l *Library) Search(query string, limit int) ([]Skill, error) {
 		}
 		if hits[i].first != hits[j].first {
 			return hits[i].first < hits[j].first
+		}
+		// Only now does the accumulated value matter, and only between skills that are
+		// otherwise equal.
+		//
+		// Relevance comes first on purpose: a skill that has always worked is still the wrong
+		// answer to a question it is not about, and letting the score outrank the text would
+		// make the search return whatever has been used most — the failure mode of every
+		// popularity ranking. The score is a tie-break, which is exactly the case where the
+		// words cannot tell two candidates apart and experience can.
+		if hits[i].value != hits[j].value {
+			return hits[i].value > hits[j].value
 		}
 		return hits[i].skill.Name < hits[j].skill.Name
 	})
