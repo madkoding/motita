@@ -59,6 +59,13 @@ type Runner interface {
 type AgentRunner interface {
 	Run(ctx context.Context) error
 	RunCommand(ctx context.Context, command string) (string, int, error)
+	// SetTranscript hands the agent the conversation so far, so a short answer ("yes", "the
+	// second one") has something to refer to. Without it every message arrives as the first
+	// message and the agent can only re-ask what it already asked.
+	SetTranscript(turns []agent.DialogueTurn)
+	// Transcript returns the conversation, including what this run appended, so the caller can
+	// carry it into the next turn.
+	Transcript() []agent.DialogueTurn
 }
 
 // agentFactory builds an agent from the current configuration. It is injectable
@@ -97,6 +104,16 @@ type AppRunner struct {
 	// is not safe to rewrite while a turn is reading it.
 	sessionMu sync.Mutex
 	session   *session.Session
+
+	// transcript is the Task-mode conversation, and it lives here for the same reason the
+	// plan session does: a turn builds a NEW agent, so anything kept on the agent is thrown
+	// away when the turn ends. Keeping it on the runner is what turns a series of one-shot
+	// tasks into a conversation the user can build on.
+	//
+	// Guarded because the background goroutine running the turn appends to it while the
+	// interface may read it.
+	transcriptMu sync.Mutex
+	transcript   []agent.DialogueTurn
 	// lib is the procedure library, resolved on first use.
 	lib *skills.Library
 }
@@ -235,8 +252,12 @@ func (r *AppRunner) ConversationSummary() session.Snapshot {
 // rather than to hope the compaction forgets it.
 func (r *AppRunner) ResetConversation() {
 	r.sessionMu.Lock()
-	defer r.sessionMu.Unlock()
 	r.session = nil
+	r.sessionMu.Unlock()
+	// The Task-mode transcript goes with it. To the user this is ONE conversation — they do
+	// not think of themselves as being in two modes — so /new has to clear both, or a fresh
+	// start would still know what was said before.
+	r.ResetTranscript()
 }
 
 // ConversationReport describes the conversation for the interface: how much of the window is
@@ -300,6 +321,17 @@ type taskObserver interface {
 // summarise turns a task result into the sentence the chat shows.
 func summarise(tr agent.TaskResult) string {
 	switch {
+	// A conversational turn. It is shown as what it is: a reply. There is no "done", no
+	// "completed", no verdict — nothing ran, because there was nothing to run.
+	//
+	// It is checked before NeedsInput because a chat turn carries neither a question nor a
+	// result, and before Pass because Pass is true for it (nothing failed) which would
+	// otherwise render it as "completed: conversational reply".
+	case tr.Kind == agent.KindChat:
+		if strings.TrimSpace(tr.Reply) != "" {
+			return tr.Reply
+		}
+		return "answered."
 	// The agent is asking a question. This comes FIRST and is not a failure: nothing went wrong,
 	// information is missing, and the user is the one holding it. Reporting it as "failed" — which
 	// is where it landed before — tells the user they did something wrong when they only need to
@@ -344,17 +376,48 @@ func (r *AppRunner) RunTask(ctx context.Context, task string, progress func(stri
 	}
 	var result string
 	ag := r.newAgent(r.Cfg, r.Log, engine, r.Box, source, true)
+	// The conversation goes in before the run and comes back out after it. That round trip is
+	// what makes the agent conversational: the turn that asked a question recorded it, and the
+	// next turn reads it together with the user's answer, so "yes" means something.
+	ag.SetTranscript(r.history())
 	if o, ok := ag.(taskObserver); ok {
 		o.SetProgress(progress)
 		o.SetObserver(func(tr agent.TaskResult) { result = summarise(tr) })
 	}
-	if err := ag.Run(ctx); err != nil {
-		return result, err
+	runErr := ag.Run(ctx)
+	// Kept even when the run failed: the attempt is part of the conversation, and dropping it
+	// would make the agent repeat a mistake it cannot see.
+	r.remember(ag.Transcript())
+	if runErr != nil {
+		return result, runErr
 	}
 	if result == "" {
 		return "the task finished without reporting a result", nil
 	}
 	return result, nil
+}
+
+// history returns the Task-mode conversation to seed a new agent with.
+func (r *AppRunner) history() []agent.DialogueTurn {
+	r.transcriptMu.Lock()
+	defer r.transcriptMu.Unlock()
+	return append([]agent.DialogueTurn(nil), r.transcript...)
+}
+
+// remember stores the conversation a finished turn ended with.
+func (r *AppRunner) remember(turns []agent.DialogueTurn) {
+	r.transcriptMu.Lock()
+	defer r.transcriptMu.Unlock()
+	r.transcript = append([]agent.DialogueTurn(nil), turns...)
+}
+
+// ResetTranscript drops the Task-mode conversation, which is how /new leaves a subject
+// behind. Plan mode's session is reset alongside it, because to the user they are the same
+// conversation.
+func (r *AppRunner) ResetTranscript() {
+	r.transcriptMu.Lock()
+	defer r.transcriptMu.Unlock()
+	r.transcript = nil
 }
 
 // RunConfig runs the first-run configuration wizard.

@@ -18,6 +18,9 @@ ALWAYS answer in English and in the requested JSON format, with no extra text.`,
 	User: `## TASK
 {{task}}
 
+## CONVERSATION SO FAR
+{{history}}
+
 ## CONTEXT
 - Working directory: {{workspace}}
 - Attempt: {{attempt}} of {{max_attempts}}
@@ -28,14 +31,49 @@ ALWAYS answer in English and in the requested JSON format, with no extra text.`,
 ## ANALYSIS OF THE TASK
 Return a JSON object with this exact shape:
 {
+  "kind": "task",
   "understandable": true,
   "summary": "what has to be achieved, in one sentence",
   "success_criteria": ["verifiable criterion 1", "verifiable criterion 2"],
   "risks": ["risk or ambiguity detected"],
   "needs_subtasks": false,
   "question": "",
-  "assumption": ""
+  "assumption": "",
+  "reply": ""
 }
+
+## FIRST: IS THIS A TASK AT ALL?
+
+Decide "kind" BEFORE anything else. It has three values:
+
+- "task"  — there is something to DO. Go on to analyse it.
+- "chat"  — there is nothing to do: a greeting, a thank-you, a question ABOUT you or about
+  the conversation, an observation, thinking out loud. Answer it in "reply" and stop.
+  Do NOT invent work to justify the turn, and do NOT ask a question just to fill the
+  silence. A person who says "hola" wants a reply, not a task plan.
+- "ask"   — you cannot tell what to do well enough to act, and guessing risks the wrong
+  thing. Put your question in "question".
+
+Getting this wrong is expensive in both directions: treating a greeting as a task runs the
+whole pipeline and answers a question nobody asked, and treating a real task as chat does
+nothing at all. When it is genuinely ambiguous, prefer "chat" and ask in your reply — that
+is the cheap mistake.
+
+## REPLYING AS CHAT
+
+"reply" is a normal conversational answer in the user's own language: the language the
+user is writing in, their register, plain text. No JSON, no markdown headings, no
+ceremony. Keep it as short as the answer allows.
+
+This is a CONVERSATION, not a single exchange. You can see what was said before in
+CONVERSATION SO FAR, so build on it: refer to what the user already told you, and do not
+ask again for something they have already answered. If the conversation is gradually
+turning into a task — they are describing what they want while they talk — say so and ask
+the one question that would let you start, or state what you would do and offer to do it.
+
+If the user's message answers a question you asked earlier, that is the important part:
+continue from it. Their short answer ("yes", "the second one", "in /tmp") refers to what
+you asked, and the meaning is in the exchange, not in the words alone.
 
 ## WHEN THE REQUEST IS UNCLEAR
 
@@ -50,6 +88,7 @@ of the work is genuinely unknowable from here. Everything else: assume, act, and
 assumed.
 
 When you must ask:
+- set "kind": "ask"
 - set "understandable": false
 - put ONE question in "question", in the user's own language, as short as it can be while still
   being answerable. Ask for the ONE thing that unblocks you, not a list.
@@ -61,8 +100,8 @@ A question is the last resort, never the first response. If you can state a reas
 and act on it, do that instead: a question costs the user a turn, and an unnecessary one is worse
 than a stated assumption they can correct.
 
-Do not set "understandable": false to report that you lack tools or permissions — that is a
-finding to act on, not a question for the user.`,
+Do not set "kind": "ask" to report that you lack tools or permissions — that is a finding to act
+on, not a question for the user.`,
 }
 
 // BasePlanTemplate asks for the action plan.

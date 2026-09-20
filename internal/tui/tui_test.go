@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/madkoding/starlight/internal/agent"
 	"github.com/madkoding/starlight/internal/config"
 	"github.com/madkoding/starlight/internal/session"
 )
@@ -117,6 +118,10 @@ func (f *fakeRunner) RunTask(ctx context.Context, task string, progress func(str
 	}
 	return "completed: mock result", nil
 }
+
+func (f *fakeRunner) SetTranscript([]agent.DialogueTurn) {}
+
+func (f *fakeRunner) Transcript() []agent.DialogueTurn { return nil }
 
 func (f *fakeRunner) RunConfig(ctx context.Context) error {
 	f.mu.Lock()

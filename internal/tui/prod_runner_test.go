@@ -218,7 +218,17 @@ type resultAgent struct {
 	observer  func(agent.TaskResult)
 	progress  func(string, ...any)
 	runCalled bool
+	// transcript is what the runner handed in, and what the run left behind. It is kept so a
+	// test can assert the round trip: what the previous turn said must arrive, and what this
+	// turn said must be carried out.
+	transcript []agent.DialogueTurn
 }
+
+func (a *resultAgent) SetTranscript(turns []agent.DialogueTurn) {
+	a.transcript = append([]agent.DialogueTurn(nil), turns...)
+}
+
+func (a *resultAgent) Transcript() []agent.DialogueTurn { return a.transcript }
 
 func (a *resultAgent) Run(context.Context) error {
 	a.runCalled = true

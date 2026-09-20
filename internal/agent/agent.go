@@ -26,6 +26,7 @@ import (
 	"io"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/madkoding/starlight/internal/anchor"
@@ -66,6 +67,19 @@ type Agent struct {
 	//
 	// Both are better than refusing, which is what the agent used to do in either case.
 	Interactive bool
+
+	// transcript is what has been said in this conversation, oldest first, and it is what makes
+	// the agent conversational rather than stateless.
+	//
+	// Without it every message is the first message: "yes" or "the second one" has nothing to
+	// refer to, so the agent can only re-ask what it already asked, and the user has to write
+	// their request out again in full. The dialogue IS the context — each answer narrows down
+	// what they want — and dropping it throws away the progress the user just made.
+	//
+	// It is guarded because a turn appends to it from the goroutine running the task while the
+	// interface reads it to render the count.
+	transcriptMu sync.Mutex
+	transcript   []DialogueTurn
 
 	// Observer, when not nil, receives the result of every task on completion.
 	// It is the integration point for metrics or for whoever embeds the agent,
@@ -130,10 +144,124 @@ func (a *Agent) RunCommand(ctx context.Context, command string) (string, int, er
 	return output, exit, err
 }
 
+// --- Conversation -----------------------------------------------------------
+
+// DialogueTurn is one exchange in the conversation: what the user said and what the agent
+// answered. Both are kept because the meaning lives in the pair — a user's "yes" is only
+// interpretable next to the question it answers.
+type DialogueTurn struct {
+	User string
+	// Agent is the reply, the question, or a one-line account of what was done. It is what the
+	// agent said, in the agent's own words.
+	Agent string
+	// Kind records what the turn was, so the transcript can be summarised honestly: a chat turn
+	// and a finished task are not the same thing to a reader.
+	Kind string
+}
+
+// SetTranscript seeds the conversation, which is how an interface hands over what the user has
+// already seen. It replaces anything held.
+func (a *Agent) SetTranscript(turns []DialogueTurn) {
+	a.transcriptMu.Lock()
+	defer a.transcriptMu.Unlock()
+	a.transcript = append([]DialogueTurn(nil), turns...)
+}
+
+// Transcript returns a copy of the conversation.
+func (a *Agent) Transcript() []DialogueTurn {
+	a.transcriptMu.Lock()
+	defer a.transcriptMu.Unlock()
+	return append([]DialogueTurn(nil), a.transcript...)
+}
+
+// converse appends the user's message and the agent's answer to the conversation.
+func (a *Agent) converse(t task.Task, reply string) {
+	a.transcriptMu.Lock()
+	defer a.transcriptMu.Unlock()
+	a.transcript = append(a.transcript, DialogueTurn{
+		User:  t.Description,
+		Agent: reply,
+		Kind:  KindChat,
+	})
+}
+
+// note appends what the agent did about a task, so the next turn can refer to it.
+//
+// A task that ran is part of the conversation too: "and now do the same for the other one" only
+// means something if the agent can see what it just did.
+func (a *Agent) note(t task.Task, outcome string, kind string) {
+	a.transcriptMu.Lock()
+	defer a.transcriptMu.Unlock()
+	a.transcript = append(a.transcript, DialogueTurn{
+		User:  t.Description,
+		Agent: outcome,
+		Kind:  kind,
+	})
+}
+
+// dialogue renders the conversation for the prompt.
+//
+// It is bounded on purpose. The transcript is fed to the analysis phase on every turn, so an
+// unbounded one would grow the prompt until it crowded out the task itself — and an old greeting
+// is not worth more than the request being made now. The most recent turns are what a short
+// answer refers to, so the tail is kept and the beginning is dropped with a note that says so.
+func (a *Agent) dialogue() string {
+	turns := a.Transcript()
+	if len(turns) == 0 {
+		return "(this is the first message: there is no earlier conversation)"
+	}
+	const keep = 12
+	dropped := 0
+	if len(turns) > keep {
+		dropped = len(turns) - keep
+		turns = turns[dropped:]
+	}
+	var b strings.Builder
+	if dropped > 0 {
+		fmt.Fprintf(&b, "(%d earlier exchanges omitted)\n", dropped)
+	}
+	for _, turn := range turns {
+		fmt.Fprintf(&b, "user: %s\n", truncate(collapse(turn.User), 500))
+		said := truncate(collapse(turn.Agent), 500)
+		switch turn.Kind {
+		case KindChat:
+			fmt.Fprintf(&b, "you: %s\n", said)
+		case KindTask:
+			fmt.Fprintf(&b, "you (did it): %s\n", said)
+		default:
+			fmt.Fprintf(&b, "you: %s\n", said)
+		}
+	}
+	return b.String()
+}
+
+// collapse folds a multi-line string into one line, so one turn stays one line in the prompt.
+func collapse(s string) string {
+	return strings.Join(strings.Fields(s), " ")
+}
+
 // --- Result of each phase ---------------------------------------------------
 
 // Analysis is the structured output of phase [3].
 type Analysis struct {
+	// Kind decides what the agent does with the message, and it is resolved BEFORE anything
+	// else. It is the difference between a conversational agent and a task runner:
+	//
+	//	"task" — there is something to do; analyse it and run the loop.
+	//	"chat" — there is nothing to do (a greeting, a question about the conversation, an
+	//	         observation). Answer in Reply and stop, without inventing work.
+	//	"ask"  — the request cannot be read well enough to act on and guessing risks the
+	//	         wrong thing. Ask in Question.
+	//
+	// Without this an agent has only one response to every message, which is to plan work:
+	// "hola" produces a task plan, and a question about what it just did produces another
+	// task plan. The user asked to be talked to.
+	//
+	// An empty Kind means the model did not answer, and is treated as "task": that is the
+	// behaviour of every prompt that predates this field, so an existing configuration keeps
+	// working unchanged.
+	Kind string `json:"kind"`
+
 	Understandable bool     `json:"understandable"`
 	Summary        string   `json:"summary"`
 	SuccessCrit    []string `json:"success_criteria"`
@@ -152,6 +280,39 @@ type Analysis struct {
 	// a stated assumption lets the user confirm in one word instead of writing a new request, and
 	// it gives the agent a defensible reading if nobody answers.
 	Assumption string `json:"assumption"`
+
+	// Reply is the conversational answer, used when Kind is "chat".
+	//
+	// It is prose for a person, in their language, and it is NOT a task summary: it answers
+	// what they said. Keeping it a separate field is what lets the interface show a reply
+	// without pretending a task ran.
+	Reply string `json:"reply"`
+}
+
+// Kinds of message the analysis can report.
+const (
+	// KindTask means there is work to do.
+	KindTask = "task"
+	// KindChat means there is nothing to do: answer and stop.
+	KindChat = "chat"
+	// KindAsk means the agent cannot tell what to do and must ask.
+	KindAsk = "ask"
+)
+
+// resolveKind returns the kind with the default applied.
+//
+// An unrecognised or empty kind is "task", which is what every prompt written before this
+// field existed meant. That default is deliberate: a misconfigured or older prompt must keep
+// the previous behaviour rather than silently turn every request into a chat.
+func (a Analysis) resolveKind() string {
+	switch strings.ToLower(strings.TrimSpace(a.Kind)) {
+	case KindChat:
+		return KindChat
+	case KindAsk:
+		return KindAsk
+	default:
+		return KindTask
+	}
 }
 
 // Plan is the structured output of phase [4].
@@ -203,6 +364,13 @@ type TaskResult struct {
 	NeedsInput bool   `json:"needs_input,omitempty"`
 	Question   string `json:"question,omitempty"`
 	Assumption string `json:"assumption,omitempty"`
+
+	// Kind is what the message turned out to be: "task", "chat" or "ask". The interface uses it
+	// to decide how to present the result — a reply is shown as a reply, not as a task that ran.
+	Kind string `json:"kind,omitempty"`
+	// Reply is the conversational answer when Kind is "chat". It is the whole output of that
+	// turn: no task ran, and nothing was validated, because there was nothing to do.
+	Reply string `json:"reply,omitempty"`
 }
 
 // --- Main loop --------------------------------------------------------------
@@ -371,6 +539,37 @@ func (a *Agent) loop(ctx context.Context, t task.Task, depth int) TaskResult {
 	// [3] Analysis.
 	a.report("analysing the task...")
 	analysis := a.analysisPhase(ctx, t, rules, depth)
+
+	// The message is not always a task. A greeting, a question about what just happened, or
+	// thinking out loud has nothing to do, and running the loop for it would plan work nobody
+	// asked for and report a result nobody read.
+	//
+	// This is checked FIRST, before the ask/assume logic below, because it is a different
+	// question: "is there work here?" comes before "can I read the work well enough?".
+	switch analysis.resolveKind() {
+	case KindChat:
+		reply := strings.TrimSpace(analysis.Reply)
+		if reply == "" {
+			// The model classified it as chat but wrote nothing. Saying so is better than
+			// falling through to the loop: the classification is still the model's judgement,
+			// and a task plan is the one answer the user did not ask for.
+			reply = "No hay nada que ejecutar en tu mensaje."
+		}
+		res.Kind = KindChat
+		res.Reply = reply
+		res.Pass = true
+		res.Reason = "conversational reply"
+		res.DurationMS = time.Since(start).Milliseconds()
+		a.report("%s", reply)
+		a.converse(t, reply)
+		a.log.Info(prefix+"answered as chat", "reply", truncate(reply, 200))
+		return res
+	case KindAsk:
+		// Forced into the asking path even when the model left "understandable" true: the kind
+		// is the newer signal and saying "ask" is unambiguous.
+		analysis.Understandable = false
+	}
+
 	if !analysis.Understandable || analysis.Question != "" {
 		// The request could not be read well enough to act on. ASK, do not refuse.
 		//
@@ -435,6 +634,14 @@ func (a *Agent) loop(ctx context.Context, t task.Task, depth int) TaskResult {
 			a.report("need clarification: %s", res.Question)
 			a.log.Info("asking the user instead of guessing", "question", truncate(res.Question, 200),
 				"assumption", truncate(res.Assumption, 200))
+			// The question is recorded in the conversation. Their next message answers it, and
+			// without this the answer arrives with nothing to refer to — which is exactly the
+			// amnesia that makes a clarifying question useless.
+			said := res.Question
+			if res.Assumption != "" {
+				said += "\n\nSi no me dices otra cosa, asumiré: " + res.Assumption
+			}
+			a.note(t, said, KindAsk)
 			return res
 		}
 	}
@@ -717,7 +924,7 @@ func (a *Agent) baseVariables(t task.Task) map[string]string {
 		"rules":        a.describeRules(),
 		"analysis":     "",
 		"plan":         "",
-		"history":      "",
+		"history":      a.dialogue(),
 		"model":        a.cfg.LLM.Model,
 		"provider":     a.cfg.LLM.Provider,
 	}

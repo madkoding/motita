@@ -366,3 +366,5 @@ type fakeAgent struct{}
 
 func (fakeAgent) Run(context.Context) error                               { return nil }
 func (fakeAgent) RunCommand(context.Context, string) (string, int, error) { return "", 0, nil }
+func (fakeAgent) SetTranscript([]agent.DialogueTurn)                      {}
+func (fakeAgent) Transcript() []agent.DialogueTurn                        { return nil }
