@@ -330,11 +330,27 @@ func (t *TUI) drawFrame() {
 	// Only "\n" is written: the interface never switches the terminal to full raw mode, so the
 	// driver's ONLCR translation is still on and "\n" already becomes CR+LF. Writing "\r\n"
 	// would double the carriage return on a real terminal.
+	// Every row is erased to the end of its line as it is written. Without this a SHORTER row
+	// does not replace a longer one: the terminal only overwrites the columns it is given, so
+	// the tail of the previous row survives.
+	//
+	// This is what made the input look like it never cleared. The draft WAS emptied in memory
+	// and the frame WAS redrawn — but "› hazlo" became "› ", which writes five cells and leaves
+	// the previous "hazlo" sitting there. Reading the frame's own text shows a clean row, which
+	// is exactly why it went unnoticed: the content was right and the screen was not.
+	//
+	// The same fault showed up across the whole frame: a long conversation line shortened by
+	// the next frame left its tail glued to the row that replaced it.
+	//
+	// Erasing to end of LINE is right where clearing BELOW (CSI J, after the loop) is not
+	// enough on its own: J starts at the cursor, and by then the cursor has already passed the
+	// stale cells.
 	for i, l := range lines {
 		if i > 0 {
 			b.WriteString("\n")
 		}
 		b.WriteString(l)
+		b.WriteString("\x1b[K")
 	}
 	b.WriteString("\x1b[J") // clear whatever is left below, which is nothing when padded
 	// When there is no prompt the frame is a message, not an input surface: the cursor is left

@@ -44,12 +44,38 @@ func TestLiveInputRedrawsAsItIsTyped(t *testing.T) {
 	if _, ok := tu.readLine(context.Background()); !ok {
 		t.Fatal("Enter must end the line")
 	}
-	frame := stripANSI(lastFrameOf(out))
-	if !strings.Contains(frame, "/pl") {
-		t.Errorf("the typed text must be drawn:\n%s", frame)
+	// The SCREEN is checked, not the last frame. While typing there is a frame showing the text
+	// and the popup — and then the line ends, which repaints the composer empty. Reading only
+	// the last frame would therefore see an empty input and conclude nothing was ever drawn.
+	//
+	// The emulator is the right instrument here: it holds what the terminal showed over the
+	// whole session, so "was this ever on the screen?" is answerable.
+	// Two questions, two instruments, because they are genuinely different:
+	//
+	//   "was the text drawn WHILE typing?" is about the stream — a frame that existed and was
+	//   then replaced. The screen holds only the final state, so it cannot answer it.
+	//
+	//   "is the input empty once the line is read?" is about the screen — the cells left behind
+	//   after everything was written. The frames cannot answer that, because a frame's own text
+	//   is correct even when the cells around it are stale.
+	for _, frame := range strings.Split(out.String(), "\x1b[H") {
+		if strings.Contains(stripANSI(frame), "/plan") {
+			goto drawn
+		}
 	}
-	if !strings.Contains(frame, "/plan") {
-		t.Errorf("the popup must be drawn while typing:\n%s", frame)
+	t.Error("a frame showing the text and the popup must be drawn while typing")
+drawn:
+
+	scr := newScreen(100, 30)
+	scr.feed(out.String())
+	composer := ""
+	for _, r := range scr.rows() {
+		if strings.Contains(r, "›") {
+			composer = r
+		}
+	}
+	if strings.Contains(composer, "/pl") {
+		t.Errorf("the input must be empty once the line is read, got %q", composer)
 	}
 }
 

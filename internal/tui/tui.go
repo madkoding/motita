@@ -1321,11 +1321,19 @@ func recoverRaw(mode *terminalMode) func() {
 // interface does not know which path delivered them.
 func (t *TUI) readLineLive(ctx context.Context) (string, bool) {
 	t.draft = ""
+	// The composer is repainted on the way out, UNCONDITIONALLY.
+	//
+	// It used to repaint only when text was left over, and that guard is why the input looked
+	// like it never cleared: pressing Enter empties the draft inside the loop (so it is already
+	// "" by the time this runs), the guard sees nothing to do, and the last frame on the screen
+	// is still the one drawn while the text was being typed. The line was consumed and the
+	// screen still showed it.
+	//
+	// Repainting always costs one frame per line read and removes the whole class: whatever
+	// emptied the draft, the screen matches it before the next thing happens.
 	defer func() {
-		if t.draft != "" {
-			t.draft = ""
-			t.drawFrame()
-		}
+		t.draft = ""
+		t.drawFrame()
 	}()
 
 	for {
