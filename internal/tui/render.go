@@ -1502,9 +1502,12 @@ func (t *TUI) composerPrompt(rowsBelow int) string {
 // exactly the overshoot.
 func (t *TUI) cursorMove(prompt string, lastWritten, total int) string {
 	if lastWritten < 0 {
-		// Nothing was written: the terminal's cursor has not moved, and the layout's move is
-		// still correct because no row write displaced it.
-		return prompt
+		// Nothing was written: the terminal's cursor has not moved. Returning the layout's
+		// walk-up here would still execute it, and a mouse event that arrives in an idle
+		// chat would then jump the cursor up to wherever the layout decided, which is
+		// exactly what shows up as the input moving while the user only moved the pointer.
+		// The only thing that has to change is the visibility flag, drawn separately.
+		return ""
 	}
 	overshoot := total - 1 - lastWritten
 	if overshoot <= 0 {

@@ -338,12 +338,18 @@ func TestTheCursorMoveIsAdjustedForSkippedRows(t *testing.T) {
 	}
 }
 
-// Nothing written means nothing moved, so the layout's own move is still right.
+// Nothing written means nothing moved, so the move must NOT be sent at all.
+//
+// The previous version returned the layout's walk-up unchanged, which executed the sequence on
+// every repaint that had nothing to draw — including the repaint a mouse event forces through
+// drawFrame. The terminal then ran the walk-up on its own and the cursor jumped, while the user
+// only moved the pointer. The fix is to emit nothing; drawFrame handles the visibility flag
+// separately.
 func TestTheCursorMoveIsKeptWhenNothingWasWritten(t *testing.T) {
 	tui := &TUI{Width: 80, Height: 24}
 	prompt := "\x1b[4A\x1b[6G"
-	if got := tui.cursorMove(prompt, -1, 24); got != prompt {
-		t.Fatalf("got %q, want the layout's move unchanged", got)
+	if got := tui.cursorMove(prompt, -1, 24); got != "" {
+		t.Fatalf("got %q, want empty: no rows were written so no move should be sent", got)
 	}
 }
 

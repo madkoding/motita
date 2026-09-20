@@ -36,6 +36,9 @@ type crt struct {
 	// lastAt is when the reveal was last advanced, which is how the elapsed time between frames
 	// is measured without a timer of its own.
 	lastAt time.Time
+	// calls is how many times reveal() was invoked: tests assert the typewriter was given frames
+	// to run by checking the counter is non-zero, which is what the previous shape broke.
+	calls int
 }
 
 // newCRT builds the effect from its configuration. It returns nil when the effect is off, which
@@ -112,6 +115,7 @@ func (c *crt) stopTyping() {
 
 // reveal advances the reveal by the time that has passed and returns the text to show so far.
 func (c *crt) reveal(elapsed time.Duration) string {
+	c.calls++
 	if !c.cfg.Typewriter || !c.typing {
 		return c.typedTarget
 	}

@@ -1034,6 +1034,15 @@ func (t *TUI) runPlan(ctx context.Context, prompt string) {
 		stream.openPending()
 	}
 	stream.settle(result.err, result.result)
+
+	// Whatever just arrived needs frames to be revealed in. closePending and settle both
+	// flip Pending to false in one assignment, which is the very thing that lets the answer
+	// appear whole on the only frame ever drawn — the reveal was given nothing to do, and
+	// the typewriter effect looked broken. The block is put back to pending, the reveal is
+	// driven by drawFrame, and only when it has finished is the flag cleared.
+	t.messages[stream.pendingIdx].Pending = true
+	t.revealPending(stream.pendingIdx)
+	t.messages[stream.pendingIdx].Pending = false
 	t.endTurn()
 }
 

@@ -174,3 +174,40 @@ func TestIntermediateEscapesContinueTheSequence(t *testing.T) {
 
 var _ AgentRunner = (*resultAgent)(nil)
 var _ = agent.TaskResult{}
+
+// TestRunPlanRevealsTheAnswerOnTheRealFrame: when a plan turn finishes, the answer must arrive
+// in the chat with the typewriter advancing over multiple frames. The previous shape assigned
+// the text and cleared Pending in one pass, which left the reveal with nothing to do: the only
+// frame ever drawn showed the whole answer.
+func TestRunPlanRevealsTheAnswerOnTheRealFrame(t *testing.T) {
+	runner := &fakeRunner{planAnswer: "la respuesta es larga y debe aparecer letra a letra, no toda de golpe"}
+	// tab navigates Task -> Plan; the question then runs as a plan.
+	tui := newFakeTUI("tab\nuna pregunta\nq\n", runner)
+	cfg := config.Default()
+	cfg.CRT.Enabled = true
+	cfg.CRT.Typewriter = true
+	cfg.CRT.TypewriterCPS = 1000 // fast enough that the test is bounded but slow enough that frames matter
+	tui.crt = newCRT(cfg.CRT)
+	// A short width so the answer wraps and lays out on more than one frame.
+	tui.Width = 60
+	tui.Height = 20
+	tui.Run(context.Background())
+
+	visible := stripANSI(outputOf(tui))
+	if !strings.Contains(visible, "respuesta es larga") {
+		t.Fatalf("the answer must be in the chat:\n%s", visible)
+	}
+
+	// The reveal must have advanced: that means drawFrame was called at least twice while
+	// the answer was still pending, which only happens if Pending was kept true across the
+	// revealPending loop in runPlan.
+	if tui.crt.calls == 0 {
+		t.Fatal("reveal was never asked to advance: runPlan did not give it frames")
+	}
+}
+
+// (the wheel is already covered by TestTheWheelScrolls: scroll up moves into the past,
+// scroll down returns to the newest line, clamping prevents going below zero. The previous
+// attempt here added a second test that exercised the same code path with different inputs
+// and was more confusing than helpful — the cursor jump it masked was the same one
+// cursorMove(-1) fixes.)
