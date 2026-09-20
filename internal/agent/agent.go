@@ -313,7 +313,7 @@ func buildQuestions(a Analysis) []AskItem {
 		}
 		out = append(out, AskItem{
 			Text:       text,
-			Assumption: collapse(q.Assumption),
+			Assumption: cleanAssumption(q.Assumption),
 			Options:    cleanOptions(q.Options),
 		})
 		if len(out) == maxQuestions {
@@ -327,12 +327,62 @@ func buildQuestions(a Analysis) []AskItem {
 		if text := collapse(a.Question); text != "" {
 			out = append(out, AskItem{
 				Text:       text,
-				Assumption: collapse(a.Assumption),
+				Assumption: cleanAssumption(a.Assumption),
 				Options:    cleanOptions(a.Options),
 			})
 		}
 	}
 	return out
+}
+
+// assumptionLead is the phrase the interface puts in front of an assumption, and which the model
+// also tends to put there itself.
+//
+// The two together read as a stutter: "If you do not tell me otherwise, I will assume: If you do
+// not tell me otherwise, I will review the workspace". The interface owns that sentence, so the
+// copy in the field is dropped here rather than left to reach the user.
+var assumptionLead = []string{
+	"si no me dices otra cosa,",
+	"si no dices otra cosa,",
+	"si no me dices lo contrario,",
+	"si no dices lo contrario,",
+}
+
+// assumptionVerb is the lead-in the model puts before the action it would take, which the
+// interface's own sentence already provides ("If you do not tell me otherwise, I will assume:").
+//
+// It is stripped only AFTER a lead, so an assumption that merely uses the verb in its own words
+// keeps it: the point is to remove the stutter, not to rewrite what the model said.
+var assumptionVerb = []string{"asumiré:", "asumiré", "asumiendo:", "asumo:"}
+
+// cleanAssumption normalises the assumption for display.
+//
+// It removes the leading copy of the sentence the interface adds, because the two together read
+// as a stutter. Only the LEAD is removed: an assumption that mentions it later is saying
+// something the user needs, and rewriting the middle of a sentence would be guessing at meaning.
+func cleanAssumption(in string) string {
+	s := collapse(in)
+	low := strings.ToLower(s)
+	trimmed := false
+	for _, lead := range assumptionLead {
+		if strings.HasPrefix(low, lead) {
+			s = collapse(s[len(lead):])
+			low = strings.ToLower(s)
+			trimmed = true
+			break
+		}
+	}
+	// The verb only follows a lead: "asumiré: X" is the model restating the interface's own
+	// sentence, while "asumo que X" is the model choosing its words, and is left as written.
+	if trimmed {
+		for _, verb := range assumptionVerb {
+			if strings.HasPrefix(low, verb) {
+				s = collapse(s[len(verb):])
+				break
+			}
+		}
+	}
+	return s
 }
 
 // maxOptions bounds how many answers are offered: past a handful the list stops being a
@@ -821,7 +871,11 @@ func (a *Agent) loop(ctx context.Context, t task.Task, depth int) TaskResult {
 			res.Assumption = ""
 			proceededOnAssumption = analysis.Summary
 		} else {
-			a.report("need clarification: %s", res.Question)
+			// The phase line carries the question itself, in the user's language (the model
+			// writes it), so no English label is put in front of it. "need clarification: ¿qué
+			// carpeta?" mixed two languages in one line and read like a system error rather
+			// than the agent asking something.
+			a.report("%s", res.Question)
 			a.log.Info("asking the user instead of guessing", "question", truncate(res.Question, 200),
 				"assumption", truncate(res.Assumption, 200))
 			// The question is recorded in the conversation. Their next message answers it, and

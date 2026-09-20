@@ -151,3 +151,45 @@ func TestOptionsReachTheResult(t *testing.T) {
 		t.Fatalf("the options should survive into the question, got %+v", got)
 	}
 }
+
+// The model tends to open its assumption with the same sentence the interface adds in front of
+// it, and the two together read as a stutter. Found by running the real binary, not by reading
+// the code: the window printed "Si no me dices otra cosa, asumiré: Si no me dices otra cosa,
+// reviso el contenido de ./workspace".
+func TestAssumptionLeadIsNotRepeated(t *testing.T) {
+	cases := []struct{ in, want string }{
+		{"Si no me dices otra cosa, reviso ./workspace", "reviso ./workspace"},
+		{"si no me dices otra cosa, asumiré: usar la actual", "usar la actual"},
+		{"Si no me dices lo contrario, lo borro", "lo borro"},
+		{"Usaré la carpeta actual", "Usaré la carpeta actual"},
+	}
+	for _, c := range cases {
+		if got := cleanAssumption(c.in); got != c.want {
+			t.Errorf("cleanAssumption(%q) = %q, want %q", c.in, got, c.want)
+		}
+	}
+}
+
+// Only the LEAD is dropped: an assumption that mentions the phrase later is saying something,
+// and rewriting the middle of a sentence would be guessing at its meaning.
+func TestAssumptionLeadOnlyAtTheStart(t *testing.T) {
+	const in = "reviso el directorio y, si no me dices otra cosa, lo dejo como está"
+	if got := cleanAssumption(in); got != in {
+		t.Fatalf("a mention in the middle must be left alone, got %q", got)
+	}
+}
+
+// The cleaned assumption is the one that reaches the question, so the interface never has to
+// think about the stutter again.
+func TestAssumptionIsCleanedInTheQuestion(t *testing.T) {
+	got := buildQuestions(Analysis{
+		Question:   "¿qué carpeta?",
+		Assumption: "Si no me dices otra cosa, asumiré: la actual",
+	})
+	if len(got) != 1 {
+		t.Fatalf("one question expected, got %d", len(got))
+	}
+	if got[0].Assumption != "la actual" {
+		t.Fatalf("Assumption = %q, want it without the repeated lead", got[0].Assumption)
+	}
+}
