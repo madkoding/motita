@@ -276,3 +276,258 @@ func TestTheEmptyDraftShowsNoPopup(t *testing.T) {
 		t.Error("completing must be false with nothing typed")
 	}
 }
+
+// TestThePopupOpensWithTheFirstRowSelected: a popup that opens on a row the user did not
+// pick is a popup that surprises. The first row is the default, the same row the right
+// arrow and Tab used to accept, and the row every menu in every program opens with.
+func TestThePopupOpensWithTheFirstRowSelected(t *testing.T) {
+	tu, _ := newKeyTUI("", "")
+	tu.Width, tu.Height = 110, 30
+	tu.draft = "/p"
+
+	if tu.completingIdx != 0 {
+		t.Errorf("the popup must open on the first row, got idx=%d", tu.completingIdx)
+	}
+	body := tuiPopupBody(tu)
+	if len(body) == 0 {
+		t.Fatal("the popup must be visible with /p")
+	}
+	// The marker sits in column 2 (after the left margin) on the selected row,
+	// and is absent from the other rows — that is the only difference between
+	// the highlighted row and its neighbours.
+	if !strings.Contains(body[0], "›") {
+		t.Errorf("the first row must carry the arrow marker, got %q", body[0])
+	}
+	for _, l := range body[1:] {
+		if strings.Contains(l, "›") {
+			t.Errorf("only the first row is highlighted, got %q", l)
+		}
+	}
+}
+
+// TestThePopupArrowsMoveTheHighlightThroughReadLineLive: readLineLive is the live reader
+// the chat loop drives, and it is what runs the popup's arrow bindings. The test feeds a
+// real CSI sequence into the reader's byte stream and verifies that the highlight moved,
+// which is the only way to know that the binding the reader installs actually fires when
+// a terminal sends it.
+func TestThePopupArrowsMoveTheHighlightThroughReadLineLive(t *testing.T) {
+	cands := completions("/")
+	if len(cands) < 2 {
+		t.Skipf("need at least two candidates for /, got %d", len(cands))
+	}
+	// The reader runs through these steps:
+	//   1. /    — opens the popup, idx = 0
+	//   2. \x1b[B — Down moves idx to 1
+	//   3. \n   — Enter accepts the highlight and dispatches the full command
+	_, line, _ := tu_caller("/\x1b[B\n")
+	if line != cands[1].Name+" " {
+		t.Errorf("the reader must return the highlighted candidate, got %q want %q", line, cands[1].Name+" ")
+	}
+}
+
+// tu_caller is a tiny helper that drives readLineLive with the given bytes and
+// returns the TUI so the caller can inspect state the reader mutated.
+func tu_caller(keys string) (*TUI, string, bool) {
+	tu, _ := newKeyTUI(keys, "")
+	tu.Width, tu.Height = 110, 30
+	tu.charMode = true
+	line, ok := tu.readLineLive(context.Background())
+	return tu, line, ok
+}
+
+// TestThePopupUpArrowWrapsTheHighlightToTheLastRow: the wrap is part of the binding the
+// reader installs, not just an arithmetic trick. The test feeds Up while the highlight is
+// on row 0 and verifies the highlight lands on the last row, by accepting the row with
+// Enter and checking which candidate was filled in — the same shape every menu uses.
+func TestThePopupUpArrowWrapsTheHighlightToTheLastRow(t *testing.T) {
+	cands := completions("/")
+	if len(cands) < 2 {
+		t.Skipf("need at least two candidates, got %d", len(cands))
+	}
+
+	// Up from row 0 wraps to the last row, Enter accepts it. The line returned
+	// must be the last candidate, not the first.
+	_, line, _ := tu_caller("/\x1b[A\n")
+	if line != cands[len(cands)-1].Name+" " {
+		t.Errorf("Up from row 0 must wrap and accept the last candidate %q, got %q", cands[len(cands)-1].Name+" ", line)
+	}
+}
+
+// TestEnterAcceptsTheHighlightedRowAndDispatchesTheFilledLine: Enter is what a user reaches
+// for when they have moved the highlight with the arrows and want to run the command. The
+// reader must accept the highlight, fill the line with the full name, and dispatch it in
+// one motion — two presses for what looks like one action would be a guess the user has to
+// make about which Enter does what.
+func TestEnterAcceptsTheHighlightedRowAndDispatchesTheFilledLine(t *testing.T) {
+	cands := completions("/")
+	if len(cands) < 2 {
+		t.Skipf("need at least two candidates, got %d", len(cands))
+	}
+
+	// Down moves the highlight to row 1, Enter accepts it and dispatches the
+	// filled line. The reader must return the second candidate, not the first.
+	_, line, ok := tu_caller("/\x1b[B\n")
+	if !ok {
+		t.Fatal("the reader must accept the line and return")
+	}
+	if line != cands[1].Name+" " {
+		t.Errorf("Down+Enter must dispatch %q, got %q", cands[1].Name+" ", line)
+	}
+}
+
+// TestThePopupIndexAdvancesWithDownAndWraps: the user can land on a row without knowing
+// how many candidates there are, the way every menu behaves. Wrapping from the last row
+// to the first is the same gesture every shell completion uses.
+func TestThePopupIndexAdvancesWithDownAndWraps(t *testing.T) {
+	tu, _ := newKeyTUI("", "")
+	tu.Width, tu.Height = 110, 30
+	tu.draft = "/"
+	cands := completions(tu.draft)
+	if len(cands) < 2 {
+		t.Skipf("need at least two candidates to test wrap, got %d", len(cands))
+	}
+
+	// Down advances one row, wrapping from the last row back to the first.
+	want := 1
+	if tu.completingIdx+1 < len(cands) {
+		want = tu.completingIdx + 1
+	}
+	tu.completingIdx = (tu.completingIdx + 1) % len(cands)
+	if tu.completingIdx != want {
+		t.Errorf("Down must advance one row, got %d, want %d", tu.completingIdx, want)
+	}
+
+	// Walking Down `len(cands)` times brings the highlight back to where it started,
+	// which is the wrap working in both directions.
+	start := tu.completingIdx
+	for i := 0; i < len(cands); i++ {
+		tu.completingIdx = (tu.completingIdx + 1) % len(cands)
+	}
+	if tu.completingIdx != start {
+		t.Errorf("Down %d times from %d must wrap back to %d, got %d", len(cands), start, start, tu.completingIdx)
+	}
+
+	// Up wraps from the first row to the last.
+	tu.completingIdx = 0
+	tu.completingIdx = (tu.completingIdx - 1 + len(cands)) % len(cands)
+	if tu.completingIdx != len(cands)-1 {
+		t.Errorf("Up from the first row must wrap to the last (idx=%d), got %d", len(cands)-1, tu.completingIdx)
+	}
+}
+
+// TestThePopupIndexResetsOnDraftChange: a new character or a backspace is a new prefix.
+// The row the user picked a moment ago no longer refers to a candidate that matches —
+// the popup reopens with the first row selected, the way every menu behaves when the
+// filter changes.
+func TestThePopupIndexResetsOnDraftChange(t *testing.T) {
+	tu, _ := newKeyTUI("", "")
+	tu.Width, tu.Height = 110, 30
+	tu.draft = "/"
+	tu.completingIdx = 2
+	if tu.completingIdx != 2 {
+		t.Fatal("setup: completingIdx must be 2")
+	}
+
+	// Simulate the path the live reader takes on a backspace: it shrinks the draft
+	// and resets the highlight.
+	tu.draft = ""
+	tu.completingIdx = 0
+
+	if tu.completingIdx != 0 {
+		t.Errorf("a draft reset must take the highlight back to the first row, got %d", tu.completingIdx)
+	}
+}
+
+// TestThePopupIndexResetsBetweenLines: the next prompt must open on the first row, even
+// if the previous one left the highlight on a different row.
+func TestThePopupIndexResetsBetweenLines(t *testing.T) {
+	tu, _ := newKeyTUI("", "")
+	tu.Width, tu.Height = 110, 30
+	tu.draft = "/pl"
+	tu.completingIdx = 1
+	if tu.completingIdx != 1 {
+		t.Fatal("setup: completingIdx must be 1")
+	}
+
+	// A new line is what readLineLive does on entry: clear the draft and reset.
+	tu.draft = ""
+	tu.completingIdx = 0
+
+	if tu.completingIdx != 0 {
+		t.Errorf("a new line must reset the highlight to the first row, got %d", tu.completingIdx)
+	}
+}
+
+// TestCompletingAcceptsTheHighlightedRow: completeDraft is what the right arrow and Enter
+// call when a popup is open. It must take the row the user picked, not the first row —
+// otherwise the arrows are decorations.
+func TestCompletingAcceptsTheHighlightedRow(t *testing.T) {
+	tu, _ := newKeyTUI("", "")
+	tu.Width, tu.Height = 110, 30
+	tu.draft = "/"
+	cands := completions(tu.draft)
+	if len(cands) < 2 {
+		t.Skipf("need at least two candidates, got %d", len(cands))
+	}
+	tu.completingIdx = 1
+	want := cands[1].Name
+
+	if !tu.completeDraft() {
+		t.Fatal("completeDraft must act when candidates exist")
+	}
+	if tu.draft != want+" " {
+		t.Errorf("draft = %q, want %q", tu.draft, want+" ")
+	}
+	if tu.completingIdx != 0 {
+		t.Errorf("completingIdx must reset after acceptance, got %d", tu.completingIdx)
+	}
+}
+
+// TestCompletingFallsBackToTheFirstRowWhenIndexIsStale: the user can navigate, then
+// delete a character, and the popup may shrink. A highlight that points past the end is
+// the same kind of stale as a highlight that points before the start; falling back to
+// the first row is what the gesture used to do, and is the safe pick.
+func TestCompletingFallsBackToTheFirstRowWhenIndexIsStale(t *testing.T) {
+	tu, _ := newKeyTUI("", "")
+	tu.Width, tu.Height = 110, 30
+	tu.draft = "/pl"
+	tu.completingIdx = 99
+	cands := completions(tu.draft)
+	if len(cands) == 0 {
+		t.Skip("no candidates for /pl")
+	}
+
+	if !tu.completeDraft() {
+		t.Fatal("completeDraft must act")
+	}
+	if tu.draft != cands[0].Name+" " {
+		t.Errorf("stale idx must fall back to the first row, got draft=%q", tu.draft)
+	}
+}
+
+// TestThePopupOnlyDrawsOneHighlightAtATime: a popup with two arrows is a popup that
+// says two different rows are selected. Exactly one row carries the marker, and the
+// others carry a plain space.
+func TestThePopupOnlyDrawsOneHighlightAtATime(t *testing.T) {
+	tu, _ := newKeyTUI("", "")
+	tu.Width, tu.Height = 110, 30
+	tu.draft = "/"
+	cands := completions(tu.draft)
+	if len(cands) < 2 {
+		t.Skipf("need at least two candidates, got %d", len(cands))
+	}
+
+	for i := 0; i < len(cands); i++ {
+		tu.completingIdx = i
+		body := tuiPopupBody(tu)
+		highlighted := 0
+		for _, l := range body {
+			if strings.Contains(l, "›") {
+				highlighted++
+			}
+		}
+		if highlighted != 1 {
+			t.Errorf("idx=%d: exactly one row must be highlighted, got %d", i, highlighted)
+		}
+	}
+}

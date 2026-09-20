@@ -148,7 +148,7 @@ func (t *TUI) completionLinesCapped(w, max int) []string {
 	}
 
 	lines := make([]string, 0, len(shown)+2)
-	for _, c := range shown {
+	for i, c := range shown {
 		label := c.Name
 		if c.Arg != "" {
 			label += " " + c.Arg
@@ -158,8 +158,25 @@ func (t *TUI) completionLinesCapped(w, max int) []string {
 		if !t.fits(row, w-2*leftMargin) {
 			row = t.color(colAccent, 0, label)
 		}
-		lines = append(lines, t.plainLine(row))
-	}
+		// The selected row carries an arrow marker so the user can see which row
+		// the up and down keys will accept without having to count from the top.
+		// The marker is drawn in the same accent colour as the candidate name, so
+		// the popup reads as one accent block plus a single moving arrow, not two
+		// competing highlights. The marker is added at the head of the row, so
+		// plainLine still applies its own leftMargin and the popup stays aligned
+		// with the conversation beside it.
+		//
+		// The marker is only painted when the highlighted row is one of the rows
+		// that survived the cap. When the user has moved the highlight past the
+		// end of the visible window, no row carries it — the popup is honest about
+		// what it can show, and the next keystroke either scrolls the highlight
+		// back into view or the popup shrinks enough to fit it.
+		if i == t.completingIdx {
+			lines = append(lines, t.plainLine(t.color(colAccent, 0, "›")+" "+row))
+		} else {
+			lines = append(lines, t.plainLine(row))
+		}
+		}
 	if showMore {
 		lines = append(lines, t.plainLine(t.muted(fmt.Sprintf("… and %d more", hidden))))
 	}

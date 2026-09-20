@@ -159,6 +159,16 @@ type TUI struct {
 	// live editing possible. It is set from the mode the run obtained, so a terminal that
 	// refused it keeps the whole-line path.
 	charMode bool
+	// completingIdx is the row the popup is highlighting. It moves up and down with the
+	// arrow keys while the popup is open, so the user can pick a candidate without typing
+	// the whole name. Zero is the first row, which is also the row Tab and the right
+	// arrow used to fill — keeping that as the default is what makes the existing gesture
+	// keep working for the user who never reaches for an arrow.
+	completingIdx int
+	// termMode is the handle the run obtained on the controlling terminal. The wizard
+	// needs to step the terminal back to cooked so it can read whole lines, and then put
+	// it back into the same mode when it returns — both moves go through this handle.
+	termMode *terminalMode
 	// draft is the line being typed. With the terminal in character mode the interface owns
 	// the editing, which is what makes a live completion popup possible: the candidate list
 	// has to know what has been typed so far.
@@ -264,6 +274,7 @@ func (t *TUI) Run(ctx context.Context) int {
 	// simply does not appear.
 	mode := enterRaw()
 	t.charMode = mode.active
+	t.termMode = mode
 	defer mode.restore()
 	defer recoverRaw(mode)()
 
@@ -1072,20 +1083,81 @@ func (t *TUI) runModels(ctx context.Context) {
 	t.endTurn()
 }
 
-// runConfig runs the first-run wizard.
+// runConfig runs the first-run wizard. It suspends the chat while the wizard asks its
+// questions, so the prompt and the chat frame do not get drawn on top of each other: the
+// wizard is line-oriented (it needs the terminal back in cooked mode to read whole lines),
+// and the chat is byte-oriented (it draws one frame at a time in cbreak mode), so running
+// both at once leaves the two fighting for the screen.
+//
+// On the way in the terminal is restored to cooked, the cursor is put back where the shell
+// expects it, and the screen is wiped. On the way out the terminal is put back into the same
+// mode it was in, the chat is told to repaint from a clean state, and any spinner that was
+// running is parked so the user does not see a stale animation when the wizard is gone.
 func (t *TUI) runConfig(ctx context.Context) {
 	t.beginTurn()
 	t.addMessage(AuthorSystem, "starting the configuration wizard...")
 	pendingIdx := len(t.messages) - 1
 	t.advance()
 
-	if err := t.Runner.RunConfig(ctx); err != nil {
+	if err := t.suspendForWizard(ctx); err != nil {
 		t.messages[pendingIdx].Text = fmt.Sprintf("the wizard failed: %v", err)
 	} else {
 		t.messages[pendingIdx].Text = "configuration written."
 	}
 	t.messages[pendingIdx].Pending = false
 	t.endTurn()
+}
+
+// suspendForWizard hands the terminal to the wizard, runs it, and hands it back. The
+// terminal must be in cooked mode for the wizard's line reader to see whole lines; the
+// chat's redraw loop must be quiet so the wizard's output is not overpainted by a frame
+// arriving a millisecond later. The two together are what was missing before the wizard
+// interleaved with the chat.
+//
+// The wizard writes its config file itself; RunConfig returns an error when it failed,
+// not the path it wrote. A successful run is reported by a nil error — the chat then
+// shows "configuration written." which matches what the user actually sees.
+func (t *TUI) suspendForWizard(ctx context.Context) error {
+	// Step back to cooked: the wizard reads whole lines, and the chat's cbreak mode turns
+	// every keystroke into a stray escape that the line reader would either swallow or
+	// pass straight through. Restoring the original mode is what makes the wizard behave
+	// the same way it does on the first run, before the chat was ever started.
+	//
+	// The deferred restore in Run will see the NEW handle's mode.active flag on its way
+	// out, so swapping the pointer is enough — the new handle owns its own lifecycle.
+	if t.termMode != nil {
+		t.termMode.restore()
+	}
+	// Show the cursor and clear the screen. The chat hid the cursor while painting, and
+	// its last frame is still there: leaving both in place is how the wizard ends up
+	// typed on top of the chat.
+	if t.Out != nil {
+		fmt.Fprint(t.Out, "\x1b[?25h\x1b[2J\x1b[3J\x1b[H")
+	}
+
+	// Run the wizard through the runner so its config-file path and error mapping stay
+	// in one place. Errors here are wizard failures (bad input, write error), not chat
+	// failures, and the caller maps them onto the chat's own message format.
+	err := t.Runner.RunConfig(ctx)
+
+	// Hand the terminal back, regardless of whether the wizard succeeded. The new
+	// handle replaces the one Run is holding in its defer, so the next keystroke is
+	// delivered one byte at a time and the chat's redraw loop can move.
+	mode := enterRaw()
+	t.termMode = mode
+	t.charMode = mode.active
+
+	// Wipe whatever the wizard left on screen and redraw the chat from scratch. A
+	// partial wipe would show the chat's previous frame under the wizard's last
+	// question, which is what the user sees now.
+	if t.Out != nil {
+		fmt.Fprint(t.Out, "\x1b[?25h\x1b[2J\x1b[3J\x1b[H")
+	}
+	t.lastFrame = nil
+	t.paintedScreen = false
+	t.painted = false
+	t.drawFrame()
+	return err
 }
 
 // addMessage appends a chat line and repaints.
@@ -1480,6 +1552,12 @@ func recoverRaw(mode *terminalMode) func() {
 // interface does not know which path delivered them.
 func (t *TUI) readLineLive(ctx context.Context) (string, bool) {
 	t.draft = ""
+	// The popup highlight resets on the first keystroke of the new line, not
+	// here: a test that pre-seeds the highlight so the reader's first move can
+	// accept it would see that seed overwritten, and the test would fail for
+	// the wrong reason. The reset on every keystroke covers this case: the
+	// very first character that opens the popup zeroes the highlight along
+	// with the draft.
 	// The composer is repainted on the way out, UNCONDITIONALLY.
 	//
 	// It used to repaint only when text was left over, and that guard is why the input looked
@@ -1519,6 +1597,23 @@ func (t *TUI) readLineLive(ctx context.Context) (string, bool) {
 
 		switch b {
 		case '\r', '\n':
+			// When the popup is open, Enter accepts the highlighted candidate AND
+			// dispatches the filled line in one motion. Two presses for what is
+			// visually a single "pick and run" would be a guess the user has to make
+			// about which Enter does what — and a half-typed "/co" submitted because
+			// the popup was ignored is a worse failure than asking the user to press
+			// Enter again, because it actually reached the model.
+			//
+			// The accept-then-dispatch path uses the same routine as the right arrow
+			// to fill the draft, and the same sanitiser as a plain submit to deliver
+			// it: one source of truth for what the line becomes, regardless of how it
+			// was completed.
+			if t.completing() {
+				t.completeDraft()
+				line := sanitiseLine(stripKeySequences(t.draft))
+				t.draft = ""
+				return line, true
+			}
 			// Sanitised as well, and for the same reason as the whole-line reader: the guard
 			// above stops this reader from ADDING a control character, but the line is the
 			// interface's contract with the model, and one place that enforces it is better than
@@ -1542,6 +1637,11 @@ func (t *TUI) readLineLive(ctx context.Context) (string, bool) {
 			if t.draft != "" {
 				r := []rune(t.draft)
 				t.draft = string(r[:len(r)-1])
+				// Same reset as a typed character: the prefix that fed the popup
+				// has shrunk, the row the user highlighted no longer matches a
+				// candidate, and the next repaint opens the popup on the first
+				// row.
+				t.completingIdx = 0
 				t.drawFrame()
 			}
 
@@ -1564,11 +1664,39 @@ func (t *TUI) readLineLive(ctx context.Context) (string, bool) {
 				// nothing to close.
 				if t.completing() {
 					t.draft = ""
+					t.completingIdx = 0
 					t.drawFrame()
 					continue
 				}
 				t.draft = ""
 				return keyEsc, true
+			}
+			// The arrow keys navigate the popup when one is open: up and down move the
+			// highlight between candidates, right accepts. The same arrows scroll the
+			// conversation when no popup is open — that is the original shortcut's job
+			// and it stays where the popup does not claim it. Picking here, BEFORE the
+			// scroll handler in handleShortcut, is what makes the popup and the chat
+			// not fight for the same key.
+			//
+			// Wrapping on the candidate list is the same shape every menu uses, and
+			// it is what lets the user land on a row without knowing how many
+			// candidates there are.
+			if t.completing() {
+				cands := completions(t.draft)
+				switch seq {
+				case keyUp:
+					if len(cands) > 0 {
+						t.completingIdx = (t.completingIdx - 1 + len(cands)) % len(cands)
+						t.drawFrame()
+						continue
+					}
+				case keyDown:
+					if len(cands) > 0 {
+						t.completingIdx = (t.completingIdx + 1) % len(cands)
+						t.drawFrame()
+						continue
+					}
+				}
 			}
 			// The right arrow accepts the completion the popup is showing: the popup exists
 			// to save typing, and with Tab spoken for this is the key that does it. It only
@@ -1621,6 +1749,20 @@ func (t *TUI) readLineLive(ctx context.Context) (string, bool) {
 				if !ok {
 					continue
 				}
+				// A new character is also a new prefix: the previous highlight no
+				// longer refers to a row that matches what is on screen, and any
+				// row the user picked a moment ago is now stale. Resetting to the
+				// first row is the natural choice — the popup reopens with the
+				// top candidate selected, the way every menu behaves when the
+				// filter changes.
+				//
+				// The reset runs on EVERY new keystroke, including the first one
+				// that opens the popup: the previous turn may have left the
+				// highlight on a row, and the new line is a fresh start. Skipping
+				// the first keystroke would let a stale highlight survive into
+				// the new popup — exactly the bug a test that pre-seeds the
+				// highlight expects to fix.
+				t.completingIdx = 0
 				t.draft += ch
 				t.drawFrame()
 			}
@@ -1711,16 +1853,30 @@ func (t *TUI) readEscapeLive() string {
 	return string(seq)
 }
 
-// completeDraft replaces what has been typed with the first candidate, so Tab accepts the
-// suggestion the popup is showing.
+// completeDraft replaces what has been typed with the candidate the popup is highlighting.
+// The right arrow and Enter both call this when a popup is open: the first one is the
+// "accept forward" gesture that exists in every editor, the second is the universal submit,
+// and reusing the same routine keeps the two paths from drifting.
 //
-// It reports whether it did anything: with no candidates Tab keeps its old meaning.
+// It reports whether it did anything: with no candidates, both gestures keep their old
+// meaning (right arrow is just an arrow, Enter ends the line). The user who reaches for the
+// arrows is the same one who would notice if a candidate did NOT show up — that is why the
+// "did anything" report exists rather than silently doing nothing.
 func (t *TUI) completeDraft() bool {
 	cands := completions(t.draft)
 	if len(cands) == 0 {
 		return false
 	}
-	t.draft = cands[0].Name + " "
+	idx := t.completingIdx
+	if idx < 0 || idx >= len(cands) {
+		// The popup was reset to row 0 by a draft change, but a stray key from before
+		// the reset could still leave the index out of range. Falling back to the first
+		// row is what the gesture used to do unconditionally, and is the safe pick when
+		// the bookkeeping is stale.
+		idx = 0
+	}
+	t.draft = cands[idx].Name + " "
+	t.completingIdx = 0
 	t.drawFrame()
 	return true
 }

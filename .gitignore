@@ -12,6 +12,9 @@ agent_i386
 # Local mock OpenAI used during fuchikoma bring-up; not part of the starlight binary
 /tools/textmock/
 
+# Local .starlight/ is the Fuchikoma workspace for bring-up and ad-hoc tests; not committed
+/.starlight/
+
 # Environment and secrets
 .env
 *.local
