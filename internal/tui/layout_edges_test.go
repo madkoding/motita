@@ -334,8 +334,10 @@ func TestTheComposerIsPeggedToTheBottom(t *testing.T) {
 	if prompt == "" {
 		t.Fatal("the composer must be drawn")
 	}
-	// The stack from the bottom: status bar, rule, input field (inputRows tall), then the rule
-	// ABOVE the input — which is the divider the user asked for.
+	// The stack from the bottom: status bar, rule, input field (inputRows tall), then a blank
+	// row that gives the conversation breathing room before the input box — the divider
+	// above the input was removed because it read as the bottom of the chat and made the
+	// whole input block look "shifted up" against the cursor at its top.
 	n := len(lines)
 	if got := stripANSI(lines[n-1]); !strings.Contains(got, "Task") {
 		t.Errorf("the last row must be the status bar, got %q", got)
@@ -348,10 +350,11 @@ func TestTheComposerIsPeggedToTheBottom(t *testing.T) {
 	//	n-1         status bar
 	//	n-2         rule
 	//	n-2-i .. n-3  the input field (inputRows rows)
-	//	n-3-i       the rule ABOVE the input, which is the divider that was asked for
+	//	n-3-i       the blank row above the input, separating the chat from the composer
 	fieldStart := n - 2 - inputRows
-	if got := lines[fieldStart-1]; setOf(got) != "─" {
-		t.Errorf("the row above the input must be a divider, got %q", stripANSI(got))
+	above := stripANSI(lines[fieldStart-1])
+	if strings.TrimSpace(above) != "" {
+		t.Errorf("the row above the input must be a blank, got %q", above)
 	}
 	field := lines[fieldStart : n-2]
 	if len(field) != inputRows {
@@ -360,7 +363,7 @@ func TestTheComposerIsPeggedToTheBottom(t *testing.T) {
 	if got := stripANSI(field[0]); !strings.Contains(got, "›") {
 		t.Errorf("the first row of the input must carry the prompt, got %q", got)
 	}
-	// And the blank space is ABOVE the input, between the content and the controls.
+	// And the blank space is above the input, between the content and the controls.
 	blanks := 0
 	for _, l := range lines[:fieldStart-1] {
 		if strings.TrimSpace(stripANSI(l)) == "" {

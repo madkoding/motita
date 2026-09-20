@@ -6,6 +6,12 @@ agent_i386
 /chat
 /chat.exe
 
+# Cross-compiled binaries for fuchikoma (the host where the agent lives)
+/bin/
+
+# Local mock OpenAI used during fuchikoma bring-up; not part of the starlight binary
+/tools/textmock/
+
 # Environment and secrets
 .env
 *.local

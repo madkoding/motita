@@ -85,15 +85,17 @@ const (
 	//
 	//	1  the status line (provider/model, reasoning)
 	//	1  the rule above the conversation
-	//	1  the rule above the input
+	//	1  the empty row that separates the conversation from the input box
 	//	3  the input field
 	//	1  the rule under the input
 	//	1  the status bar (mode, context, keys)
 	//
-	// Eight, not seven: the divider above the input was added when the input became a box, and
-	// a count that is one short is a frame one row taller than the terminal — which scrolls.
+	// Eight. The rule above the input box was removed so the conversation has a breathing row
+	// before the input; an extra row would push the cursor off the field at the bottom of a
+	// small terminal, so the empty row replaces the divider and the count stays where the rest
+	// of the layout expects.
 	permanentRows = 8
-)
+	)
 
 // bannerLines is the Starlight wordmark: five shaded rows that carry their own
 // ANSI colours, so they are stored raw and only placed by the layout. In
@@ -185,7 +187,7 @@ func (t *TUI) layout(w, h int) ([]string, string) {
 		lines = append(lines, status...)
 		lines = append(lines, t.rule(w))
 		lines = append(lines, body...)
-		lines = append(lines, t.rule(w))
+		lines = append(lines, blank)
 		lines = append(lines, t.composerLinesCapped(0)...)
 		lines = append(lines, t.rule(w))
 		lines = append(lines, bar)
@@ -263,7 +265,11 @@ func (t *TUI) layout(w, h int) ([]string, string) {
 	lines = append(lines, status...)
 	lines = append(lines, t.rule(w))
 	lines = append(lines, body...)
-	lines = append(lines, t.rule(w)) // the divider ABOVE the input
+	// The rule above the conversation is now an empty row: the divider reads as the bottom of
+	// the chat and lifts the whole input block visually against the cursor at its top, so the
+	// row before the input box is left blank and the rule under the input remains as the only
+	// horizontal line that frames the composer.
+	lines = append(lines, blank)
 	lines = append(lines, t.composerLinesCapped(popup)...)
 	lines = append(lines, t.rule(w))
 	lines = append(lines, bar)
@@ -271,10 +277,11 @@ func (t *TUI) layout(w, h int) ([]string, string) {
 	// The cursor is walked back up from the end of the frame to the row of the input field
 	// that holds the draft. composerPrompt refines the row inside the box from the wrap, so the
 	// caller only has to count the rows below the composer: the rule beneath it and the status
-	// bar. The first row of the input box is the divider line drawn by plainLine; the cursor
-	// targets the FIELD row (the second of the three), which is what the user sees as the
-	// "prompt" line. The +inputRows-1 counts down through the divider and the field rows so
-	// the walk-up lands on the field.
+	// bar. The cursor targets the FIELD row of the input box — the first row of the box that
+	// actually has the prompt character. With inputRows=3, the count from the bottom of the
+	// frame is belowComposer + popup + inputRows - 1: rows under the box (rule + bar) plus the
+	// two rows inside the box above the field (the divider and the blank). That keeps the
+	// cursor on the field row whatever the wrap does to the prompt inside the box.
 	rowsBelow := belowComposer + popup + inputRows - 1
 	return lines, t.composerPrompt(rowsBelow)
 }
