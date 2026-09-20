@@ -290,3 +290,94 @@ func TestResolvePathsWithNothingToAnchorOn(t *testing.T) {
 		t.Errorf("workspace = %q, want it unchanged (%q)", c.Agent.WorkspaceDir, before)
 	}
 }
+
+// --- validating the effect --------------------------------------------------
+
+// Each intensity is checked rather than clamped: silently correcting a number the user typed
+// would hide a typo, and a scanline intensity of 70 means something different from 0.7.
+func TestCRTIntensitiesAreValidated(t *testing.T) {
+	for _, c := range []struct {
+		name  string
+		tweak func(*CRT)
+		want  string
+	}{
+		{"scanlines too high", func(c *CRT) { c.Scanlines = 1.5 }, "crt.scanlines"},
+		{"scanlines negative", func(c *CRT) { c.Scanlines = -0.1 }, "crt.scanlines"},
+		{"flicker too high", func(c *CRT) { c.Flicker = 70 }, "crt.flicker"},
+		{"flicker negative", func(c *CRT) { c.Flicker = -1 }, "crt.flicker"},
+		{"vignette too high", func(c *CRT) { c.Vignette = 2 }, "crt.vignette"},
+		{"noise negative", func(c *CRT) { c.Noise = -0.5 }, "crt.noise"},
+		{"negative speed", func(c *CRT) { c.TypewriterCPS = -1 }, "crt.typewriter_cps"},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			cfg := Default()
+			c.tweak(&cfg.CRT)
+			err := cfg.validate(false)
+			if err == nil {
+				t.Fatalf("%s must be an error", c.name)
+			}
+			if !strings.Contains(err.Error(), c.want) {
+				t.Errorf("the failure must name the field %q: %v", c.want, err)
+			}
+		})
+	}
+	// The boundaries themselves are accepted: 0 and 1 are meaningful settings.
+	for _, v := range []float64{0, 1} {
+		cfg := Default()
+		cfg.CRT.Scanlines, cfg.CRT.Flicker, cfg.CRT.Vignette, cfg.CRT.Noise = v, v, v, v
+		if err := cfg.validate(false); err != nil {
+			t.Errorf("intensity %v must be accepted: %v", v, err)
+		}
+	}
+}
+
+// A colour that is not #rrggbb is reported with the field name. Swallowing it would leave the
+// user staring at a screen that looks exactly as it did before they changed anything.
+func TestCRTColourIsValidated(t *testing.T) {
+	for _, bad := range []string{"00ff00", "#00ff0", "#gggggg", "verde", "#00ff00ff"} {
+		cfg := Default()
+		cfg.CRT.Color = bad
+		err := cfg.validate(false)
+		if err == nil {
+			t.Fatalf("colour %q must be rejected", bad)
+		}
+		if !strings.Contains(err.Error(), "crt.color") {
+			t.Errorf("the failure must name the field: %v", err)
+		}
+	}
+	// A valid colour is accepted, and an EMPTY one is allowed: it means "use the default", which
+	// is what a configuration that omits the field produces.
+	for _, good := range []string{"#00ff00", "#33FF33", "#000000"} {
+		cfg := Default()
+		cfg.CRT.Color = good
+		if err := cfg.validate(false); err != nil {
+			t.Errorf("colour %q must be accepted: %v", good, err)
+		}
+	}
+	cfg := Default()
+	cfg.CRT.Color = ""
+	if err := cfg.validate(false); err != nil {
+		t.Errorf("an empty colour means the default: %v", err)
+	}
+}
+
+// The phosphor is resolved to its channels, and a colour that somehow escaped validation falls
+// back to the default rather than taking the interface down: a cosmetic value is not worth
+// crashing for.
+func TestPhosphorResolvesToChannels(t *testing.T) {
+	c := CRT{Color: "#00ff00"}
+	r, g, b := c.RGB()
+	if r != 0 || g != 255 || b != 0 {
+		t.Fatalf("RGB = %d,%d,%d, want 0,255,0", r, g, b)
+	}
+	// The default is the P1 green rather than pure video green.
+	dr, dg, db := Default().CRT.RGB()
+	if dg == 0 || dr == 0 || db == 0 {
+		t.Fatalf("the default phosphor should be a green, got %d,%d,%d", dr, dg, db)
+	}
+	// A broken colour falls back instead of panicking.
+	broken := CRT{Color: "nope"}
+	if r, g, b := broken.RGB(); r != dr || g != dg || b != db {
+		t.Fatalf("a broken colour must fall back to the default, got %d,%d,%d", r, g, b)
+	}
+}

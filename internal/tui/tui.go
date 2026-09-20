@@ -137,6 +137,10 @@ type TUI struct {
 	// a request and closes when the answers are sent.
 	ask *askState
 
+	// crt is the retro terminal effect, and nil when it is switched off or the terminal cannot
+	// show colour. Every caller asks with a nil check, so a disabled effect costs nothing.
+	crt *crt
+
 	// query filters the conversation; searching is true while the user is typing it.
 	//
 	// Both are view state: they describe what is being looked at, not what the session
@@ -205,6 +209,15 @@ func (t *TUI) readKey(ctx context.Context) (byte, bool) {
 // Run displays the chat and dispatches user input until the user quits or the
 // context is cancelled.
 func (t *TUI) Run(ctx context.Context) int {
+	// The retro terminal effect is built here, from the configuration the runner is already
+	// holding. New() cannot do it: it receives only a Runner, and the effect is a presentation
+	// choice that belongs to the configuration.
+	//
+	// NoColor wins: an interface told to render without colour cannot draw a green phosphor
+	// screen, and a user who set it wants plain text rather than a monochrome imitation of a CRT.
+	if !t.NoColor && t.Runner != nil {
+		t.crt = newCRT(t.Runner.Config().CRT)
+	}
 	t.drawFrame()
 
 	// Leaving wipes the screen.

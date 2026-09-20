@@ -19,7 +19,35 @@ import (
 func ApplyEnvironment(c *Config) error {
 	var err error
 
-	// --- task_source ---
+	// --- crt ---
+	// The effect is read like everything else, so a user can try it without editing their file:
+	// STARLIGHT_CRT_ENABLED=false turns it off for a single run.
+	if c.CRT.Enabled, err = readBool("STARLIGHT_CRT_ENABLED", c.CRT.Enabled); err != nil {
+		return err
+	}
+	c.CRT.Color = readText("STARLIGHT_CRT_COLOR", c.CRT.Color)
+	if c.CRT.Glow, err = readBool("STARLIGHT_CRT_GLOW", c.CRT.Glow); err != nil {
+		return err
+	}
+	if c.CRT.Typewriter, err = readBool("STARLIGHT_CRT_TYPEWRITER", c.CRT.Typewriter); err != nil {
+		return err
+	}
+	if c.CRT.Scanlines, err = readFloat("STARLIGHT_CRT_SCANLINES", c.CRT.Scanlines); err != nil {
+		return err
+	}
+	if c.CRT.Flicker, err = readFloat("STARLIGHT_CRT_FLICKER", c.CRT.Flicker); err != nil {
+		return err
+	}
+	if c.CRT.Vignette, err = readFloat("STARLIGHT_CRT_VIGNETTE", c.CRT.Vignette); err != nil {
+		return err
+	}
+	if c.CRT.Noise, err = readFloat("STARLIGHT_CRT_NOISE", c.CRT.Noise); err != nil {
+		return err
+	}
+	if c.CRT.TypewriterCPS, err = readFloat("STARLIGHT_CRT_TYPEWRITER_CPS", c.CRT.TypewriterCPS); err != nil {
+		return err
+	}
+
 	c.TaskSource.Kind = readText("STARLIGHT_TASK_SOURCE_KIND", c.TaskSource.Kind)
 	c.TaskSource.Path = readText("STARLIGHT_TASK_SOURCE_PATH", c.TaskSource.Path)
 	c.TaskSource.Dir = readText("STARLIGHT_TASK_SOURCE_DIR", c.TaskSource.Dir)
@@ -298,6 +326,21 @@ func readInteger(key string, current int) (int, error) {
 		return current, fmt.Errorf("%s: %q is not an integer", key, v)
 	}
 	return n, nil
+}
+
+// readFloat reads a fractional setting. It exists for the CRT intensities, whose whole point is
+// that they are dialled rather than switched: a scanline strength of 0.6 is a different screen
+// from 1.0, and the boolean form could not express either.
+func readFloat(key string, current float64) (float64, error) {
+	v, ok := os.LookupEnv(key)
+	if !ok || strings.TrimSpace(v) == "" {
+		return current, nil
+	}
+	f, err := strconv.ParseFloat(strings.TrimSpace(v), 64)
+	if err != nil {
+		return current, fmt.Errorf("%s: %q is not a number", key, v)
+	}
+	return f, nil
 }
 
 func readBool(key string, current bool) (bool, error) {
