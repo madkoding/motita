@@ -826,6 +826,26 @@ func (a *Agent) loop(ctx context.Context, t task.Task, depth int) TaskResult {
 		res.Reason = strings.Join(analysis.Risks, "; ")
 		res.DurationMS = time.Since(start).Milliseconds()
 
+		// A turn may report its gap in EITHER shape — the single fields or the list — and the
+		// rest of this function reads the single fields. Left alone, a turn that used the list
+		// looked like it had asked nothing: question empty, assumption empty, and the dead-end
+		// check below failed a turn that had two questions ready to show. That is what the
+		// hardware run reported as "task not understandable:" followed by "failed:", and it is
+		// the failure mode the list form makes common, because the prompt tells the model to use
+		// it whenever a request has several gaps.
+		//
+		// So the single fields are derived from the list when they are empty, rather than the
+		// list being a second, parallel path. One source of truth, and every reader below keeps
+		// working whether the model answered in one shape or the other.
+		if len(res.Questions) > 0 {
+			if res.Question == "" {
+				res.Question = res.Questions[0].Text
+			}
+			if res.Assumption == "" {
+				res.Assumption = res.Questions[0].Assumption
+			}
+		}
+
 		// Nothing to ask AND nothing to assume is a genuine dead end, and it stays a failure.
 		//
 		// The difference is worth being precise about. A QUESTION is a request the agent can

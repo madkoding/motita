@@ -1,8 +1,16 @@
 package agent
 
 import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
+
+	"github.com/madkoding/starlight/internal/config"
 )
 
 // The analysis can report one question or a list of them, and both have to reach the interface
@@ -256,5 +264,88 @@ func TestCleanAssumptionHandlesEmpty(t *testing.T) {
 		if got := cleanAssumption(in); got != "" {
 			t.Fatalf("cleanAssumption(%q) = %q, want empty", in, got)
 		}
+	}
+}
+
+// A turn that reports its gap ONLY as a list still has a question to ask, and must not be failed
+// as a dead end. Found on the hardware: the run printed "task not understandable:" and then
+// "error: 1 of 1 tasks failed" for a request the agent had two questions ready to ask about,
+// because the single fields were empty and the dead-end check read only those.
+func TestQuestionsListIsNotADeadEnd(t *testing.T) {
+	// The shape the model produces for a list: no "question", no "assumption", only "questions".
+	a := Analysis{
+		Kind:           KindAsk,
+		Understandable: false,
+		Questions: []AskItem{
+			{Text: "¿a dónde lo mando?", Assumption: "lo dejo listo sin enviar"},
+			{Text: "¿qué orden uso?", Options: []string{"por fecha", "por nombre"}},
+		},
+	}
+	items := buildQuestions(a)
+	if len(items) != 2 {
+		t.Fatalf("the list should reach the interface, got %d", len(items))
+	}
+	// The single fields are what the rest of the asking path reads, so they are derived here.
+	question, assumption := a.Question, cleanAssumption(a.Assumption)
+	if question == "" && len(items) > 0 {
+		question = items[0].Text
+	}
+	if assumption == "" && len(items) > 0 {
+		assumption = items[0].Assumption
+	}
+	if question == "" {
+		t.Fatal("a list-only turn must still yield a question; otherwise the turn fails as a dead end")
+	}
+	if assumption != "lo dejo listo sin enviar" {
+		t.Fatalf("the first question's assumption should stand in, got %q", assumption)
+	}
+}
+
+// The end-to-end version of the bug found on the hardware: the model reports its gap ONLY as a
+// list, the single fields stay empty, and the turn must NOT be failed as a dead end. Before the
+// fix this printed "task not understandable:" and returned a failure for a request the agent had
+// two questions about.
+func TestAListOnlyAskIsNotFailed(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var req struct {
+			Messages []struct {
+				Content string `json:"content"`
+			} `json:"messages"`
+		}
+		json.NewDecoder(r.Body).Decode(&req)
+		var text string
+		for _, m := range req.Messages {
+			text += m.Content
+		}
+		if strings.Contains(text, "## ANALYSIS OF THE TASK") {
+			// Exactly the shape a list-only answer takes: no "question", no "assumption".
+			fmt.Fprint(w, `{"choices":[{"message":{"content":"{\"kind\":\"ask\",\"understandable\":false,\"questions\":[{\"text\":\"¿a dónde lo mando?\",\"assumption\":\"lo dejo listo sin enviar\"},{\"text\":\"¿qué orden uso?\",\"options\":[\"por fecha\",\"por nombre\"]}]}"}}]}`)
+			return
+		}
+		fmt.Fprint(w, `{"choices":[{"message":{"content":"{}"}}]}`)
+	}))
+	defer srv.Close()
+
+	// Interactive, because that is the case where the turn ends by ASKING. Without a user the
+	// agent is designed to proceed on its assumption, so the run would go on to the planner and
+	// this test would be measuring the wrong path.
+	e := mount(t, srv, config.Anchor{Kind: "command", Command: "true", Timeout: 5 * time.Second}, nil)
+	e.agent.Interactive = true
+	var got TaskResult
+	e.agent.SetObserver(func(tr TaskResult) { got = tr })
+	if err := e.agent.Run(context.Background()); err != nil {
+		t.Fatalf("a list-only ask must not fail the run: %v", err)
+	}
+	if !got.NeedsInput {
+		t.Fatal("the turn should be asking")
+	}
+	if got.Question == "" {
+		t.Fatal("the question must be derived from the list, or the interface has nothing to show")
+	}
+	if len(got.Questions) != 2 {
+		t.Fatalf("both questions should reach the interface, got %d", len(got.Questions))
+	}
+	if got.Assumption == "" {
+		t.Fatal("the first question's assumption should stand in for the empty field")
 	}
 }
