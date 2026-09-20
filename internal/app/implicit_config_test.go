@@ -270,3 +270,34 @@ func TestNoConfigWithABadEnvironmentIsReported(t *testing.T) {
 		}
 	})
 }
+
+// A broken file IN THE HOME is reported, with the code that distinguishes a configuration error
+// from a task failure. The home is not a privileged location: a file the user wrote there is
+// checked exactly like one named on the command line.
+func TestBrokenHomeConfigIsReported(t *testing.T) {
+	inTempDir(t, func() {
+		home := t.TempDir()
+		t.Setenv("HOME", home)
+		silence(t)
+
+		homeFile := filepath.Join(home, ".starlight", "starlight.yaml")
+		if err := os.MkdirAll(filepath.Dir(homeFile), 0o755); err != nil {
+			t.Fatalf("mkdir: %v", err)
+		}
+		// A tab in the indentation is not valid YAML.
+		mustWrite(t, homeFile, "llm:\n\tprovider: openai\n")
+
+		var out, errs bytes.Buffer
+		code := Run(Options{
+			Args: []string{"-validate-config"},
+			Out:  &out,
+			Err:  &errs,
+		})
+		if code != ConfigError {
+			t.Fatalf("code = %d, want ConfigError; errs = %q", code, errs.String())
+		}
+		if !strings.Contains(errs.String(), "invalid YAML") {
+			t.Errorf("the failure must say what is wrong: %q", errs.String())
+		}
+	})
+}

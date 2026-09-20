@@ -39,6 +39,10 @@ func runAgent(t *testing.T, env []string, args ...string) (string, string, int) 
 	cmd := exec.Command(binary, args...)
 	cmd.Dir = t.TempDir()
 	cmd.Env = append(os.Environ(), "STARLIGHT_TEST_MAIN=1")
+	// A HOME of its own, so the subprocess cannot reach the real ~/.starlight. The program keeps
+	// its state there now, and without this a test that runs it would create or read the home of
+	// whoever runs the suite.
+	cmd.Env = append(cmd.Env, "HOME="+t.TempDir())
 	cmd.Env = append(cmd.Env, env...)
 
 	var out, errs bytes.Buffer

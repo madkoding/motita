@@ -258,7 +258,10 @@ func (r *AppRunner) library() *skills.Library {
 	if r.lib == nil {
 		dir := r.Cfg.Skills.Dir
 		if dir == "" {
-			dir = "skills"
+			// The home, not the working directory: the library is starlight's own state, and a
+			// configuration that names no directory must not scatter it through the project the
+			// user happens to be in.
+			dir = config.Default().Skills.Dir
 		}
 		lib := skills.New(dir)
 		if r.Cfg.Skills.MaxFileBytes > 0 {
@@ -285,7 +288,9 @@ func (r *AppRunner) rewardOrNil() *reward.Ledger {
 	if r.reward == nil {
 		dir := r.Cfg.Skills.Dir
 		if dir == "" {
-			dir = "skills"
+			// Same reasoning as the library above: the ledger lives with the skills, under the
+			// home.
+			dir = config.Default().Skills.Dir
 		}
 		l, err := reward.Open(filepath.Join(dir, ".scores.json"))
 		if err != nil {

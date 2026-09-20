@@ -3,8 +3,25 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
+
+// TestMain puts every test in this package under a HOME of its own.
+//
+// The defaults are computed from HOME, so without this a test's result would depend on where the
+// person running the suite happens to live — and, worse, a test of "nothing is written to the
+// working directory" could pass or fail according to what is already in their ~/.starlight.
+func TestMain(m *testing.M) {
+	home, err := os.MkdirTemp("", "starlight-home-")
+	if err != nil {
+		panic(err)
+	}
+	os.Setenv("HOME", home)
+	code := m.Run()
+	os.RemoveAll(home)
+	os.Exit(code)
+}
 
 // The starlight home: one folder the user can find, back up or delete as a unit, instead of the
 // configuration landing beside whatever project happened to be open.
@@ -44,10 +61,10 @@ func TestDirIgnoresBlankHome(t *testing.T) {
 
 // --- the relative defaults follow the file ---------------------------------
 
-// The rule that makes the home work: a relative path the DEFAULT supplied resolves beside the
-// configuration file. With the file in ~/.starlight, the workspace, the log and the skills live
-// there instead of being scattered through the project the user was working in.
-func TestRelativeDefaultsFollowTheFile(t *testing.T) {
+// A file that names no paths gets the home's, wherever the file itself is. The rule is that
+// starlight's state lives under ~/.starlight; a configuration kept somewhere else does not move
+// the state with it unless it says so.
+func TestAPathlessFileUsesTheHome(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "starlight.yaml")
 	mustWriteConfig(t, path, "llm:\n  provider: openai\n  api_key: x\n  model: m\n")
@@ -56,15 +73,61 @@ func TestRelativeDefaultsFollowTheFile(t *testing.T) {
 	if err != nil {
 		t.Fatalf("LoadWithoutKey: %v", err)
 	}
+	home := Dir()
 	checks := []struct{ name, got, want string }{
-		{"workspace", cfg.Agent.WorkspaceDir, filepath.Join(dir, "workspace")},
-		{"log", cfg.Agent.LogFile, filepath.Join(dir, "workspace", "starlight.log")},
-		{"skills", cfg.Skills.Dir, filepath.Join(dir, "skills")},
+		{"workspace", cfg.Agent.WorkspaceDir, filepath.Join(home, "workspace")},
+		{"log", cfg.Agent.LogFile, filepath.Join(home, "workspace", "starlight.log")},
+		{"skills", cfg.Skills.Dir, filepath.Join(home, "skills")},
 	}
 	for _, c := range checks {
 		if c.got != c.want {
 			t.Errorf("%s = %q, want %q", c.name, c.got, c.want)
 		}
+	}
+	if strings.HasPrefix(cfg.Agent.WorkspaceDir, dir) {
+		t.Error("nothing may land beside the file when the file did not ask for it")
+	}
+}
+
+// A run with NO file at all still belongs under the home: without that, a first run before the
+// wizard has written anything put its workspace in the working directory, which is exactly the
+// scattering the home exists to prevent.
+func TestNoFileUsesTheHome(t *testing.T) {
+	cfg, err := LoadOrDefault("")
+	if err != nil {
+		t.Fatalf("LoadOrDefault: %v", err)
+	}
+	home := Dir()
+	checks := []struct{ name, got, want string }{
+		{"workspace", cfg.Agent.WorkspaceDir, filepath.Join(home, "workspace")},
+		{"log", cfg.Agent.LogFile, filepath.Join(home, "workspace", "starlight.log")},
+		{"skills", cfg.Skills.Dir, filepath.Join(home, "skills")},
+	}
+	for _, c := range checks {
+		if c.got != c.want {
+			t.Errorf("%s = %q, want %q", c.name, c.got, c.want)
+		}
+	}
+}
+
+// The working directory is NOT moved when it is named with ".": that is an instruction — work
+// where I am standing — and it is how a user points starlight at the project in front of them.
+func TestWorkingDirectoryIsNotMoved(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "starlight.yaml")
+	mustWriteConfig(t, path, `llm:
+  provider: openai
+  api_key: x
+  model: m
+agent:
+  workspace_dir: "."
+`)
+	cfg, err := LoadWithoutKey(path)
+	if err != nil {
+		t.Fatalf("LoadWithoutKey: %v", err)
+	}
+	if cfg.Agent.WorkspaceDir != "." {
+		t.Errorf("workspace_dir = %q, want it left as the working directory", cfg.Agent.WorkspaceDir)
 	}
 }
 
@@ -146,6 +209,9 @@ func TestEmptyPathsAreLeftForValidate(t *testing.T) {
 
 // A file in the working directory keeps the old behaviour exactly: base is ".", and every path
 // is what it always was. This is what makes the change safe for the setups that already exist.
+//
+// The defaults are the HOME's paths in that case, because "there is a home" and "the file is in
+// the working directory" are independent facts.
 func TestFileInTheWorkingDirectoryKeepsRelativePaths(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "starlight.yaml")
@@ -164,11 +230,13 @@ func TestFileInTheWorkingDirectoryKeepsRelativePaths(t *testing.T) {
 	if err != nil {
 		t.Fatalf("LoadWithoutKey: %v", err)
 	}
-	if cfg.Agent.WorkspaceDir != "./workspace" {
-		t.Errorf("workspace_dir = %q, want the relative default", cfg.Agent.WorkspaceDir)
+	// The file in the working directory supplies base ".", so a path it names explicitly is
+	// untouched; the workspace it does not name comes from the home-aware default.
+	if cfg.Agent.WorkspaceDir != filepath.Join(Dir(), "workspace") {
+		t.Errorf("workspace_dir = %q, want the home default", cfg.Agent.WorkspaceDir)
 	}
-	if cfg.Skills.Dir != "skills" {
-		t.Errorf("skills.dir = %q, want the relative default", cfg.Skills.Dir)
+	if cfg.Skills.Dir != filepath.Join(Dir(), "skills") {
+		t.Errorf("skills.dir = %q, want the home default", cfg.Skills.Dir)
 	}
 }
 
@@ -189,5 +257,36 @@ func mustWriteConfig(t *testing.T, path, body string) {
 	t.Helper()
 	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
 		t.Fatalf("write %s: %v", path, err)
+	}
+}
+
+// With no HOME the defaults are the working-directory paths they have always been: a stripped
+// environment has nowhere else to put the state, and refusing to run would be worse than using
+// the directory it is already in.
+func TestNoHomeKeepsTheWorkingDirectoryDefaults(t *testing.T) {
+	t.Setenv("HOME", "")
+	if got := defaultWorkspaceDir(); got != "./workspace" {
+		t.Errorf("workspace = %q, want the working-directory form", got)
+	}
+	if got := defaultLogFile(); got != "./workspace/starlight.log" {
+		t.Errorf("log = %q, want the working-directory form", got)
+	}
+	if got := defaultSkillsDir(); got != "skills" {
+		t.Errorf("skills = %q, want the working-directory form", got)
+	}
+	if got := File(); got != "" {
+		t.Errorf("File() = %q, want empty", got)
+	}
+}
+
+// A relative path with neither a file nor a home keeps the relative form: there is no anchor to
+// resolve it against, and inventing one would send the state somewhere nobody chose.
+func TestResolvePathsWithNothingToAnchorOn(t *testing.T) {
+	t.Setenv("HOME", "")
+	c := Default()
+	before := c.Agent.WorkspaceDir
+	resolvePaths(&c, "")
+	if c.Agent.WorkspaceDir != before {
+		t.Errorf("workspace = %q, want it unchanged (%q)", c.Agent.WorkspaceDir, before)
 	}
 }

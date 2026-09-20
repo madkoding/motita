@@ -236,7 +236,7 @@ func Default() Config {
 			},
 		},
 		Skills: Skills{
-			Dir:          "skills",
+			Dir:          defaultSkillsDir(),
 			MaxFileBytes: 64 * 1024,
 		},
 		Prompts: Prompts{
@@ -253,14 +253,14 @@ func Default() Config {
 		Agent: Agent{
 			MaxRetries:   3,
 			SubtaskDepth: 1,
-			WorkspaceDir: "./workspace",
+			WorkspaceDir: defaultWorkspaceDir(),
 			LogLevel:     "info",
 			// A file is always named. The conversational interface silences the console so
 			// structured lines do not land in the middle of the chat, and with no file that
 			// silence would be the whole log: a user reporting a problem from the chat would
 			// have nothing to send. The path is relative to the working directory, beside the
 			// workspace the agent already writes to.
-			LogFile:         "./workspace/starlight.log",
+			LogFile:         defaultLogFile(),
 			LogConsole:      true,
 			LogMaxMB:        5,
 			LogBackups:      3,
@@ -288,6 +288,33 @@ func Dir() string {
 	return ""
 }
 
+// The defaults that keep starlight's own state under one roof. They are the home's paths when
+// there is a home, and the old working-directory paths when there is not.
+//
+// They are computed rather than written out because HOME can change within a process's life in
+// tests, and a package-level variable captured at init would freeze the first value and send
+// later runs to the wrong place.
+func defaultWorkspaceDir() string {
+	if d := Dir(); d != "" {
+		return filepath.Join(d, "workspace")
+	}
+	return "./workspace"
+}
+
+func defaultLogFile() string {
+	if d := Dir(); d != "" {
+		return filepath.Join(d, "workspace", "starlight.log")
+	}
+	return "./workspace/starlight.log"
+}
+
+func defaultSkillsDir() string {
+	if d := Dir(); d != "" {
+		return filepath.Join(d, "skills")
+	}
+	return "skills"
+}
+
 // File is the configuration file inside Dir, and the empty string when there is no home.
 func File() string {
 	if d := Dir(); d != "" {
@@ -296,23 +323,27 @@ func File() string {
 	return ""
 }
 
-// resolvePaths makes every RELATIVE path in the configuration resolve beside the file itself.
+// resolvePaths makes every RELATIVE path in the configuration resolve beside the file itself,
+// and falls back to the starlight home when the file provides no base at all.
 //
 // This is the convention a configuration file is expected to follow: a path written in a file is
 // relative to that file, not to wherever the program happened to be started. git, ssh and systemd
 // all read their own files this way, and it is what makes a configuration movable.
 //
-// It is also the single rule that makes the starlight home work. With the file in ~/.starlight,
-// "./workspace" means ~/.starlight/workspace and the program's state stays together in one folder
-// the user can find — which the earlier, "only rewrite the defaults" version did not achieve,
-// because the wizard writes the paths into the file explicitly and they were therefore never
-// touched. With the file in the working directory the base is ".", so every path is exactly what
-// it always was and an existing setup keeps working unchanged.
+// It is also the rule that keeps everything inside ~/.starlight. With the file there,
+// "./workspace" means ~/.starlight/workspace, and a file that names no workspace at all gets one
+// under the home rather than in whatever directory the program was launched from. There is one
+// exception, and it is the working directory itself: see below.
 //
 // Absolute paths are left alone: a user who wrote /srv/workspace meant that directory, and
 // resolving it against anything would be inventing a location.
 func resolvePaths(c *Config, base string) {
-	if base == "" || base == "." {
+	if base == "" {
+		base = Dir()
+	}
+	if base == "" {
+		// No file and no home: there is nowhere to anchor a relative path, so they keep the
+		// relative form they have always had. A stripped environment is a real case.
 		return
 	}
 	join := func(p string) string {
@@ -321,7 +352,13 @@ func resolvePaths(c *Config, base string) {
 		}
 		return filepath.Join(base, p)
 	}
-	c.Agent.WorkspaceDir = join(c.Agent.WorkspaceDir)
+	// The working directory is NOT moved. "." is an instruction — work where I am standing — and
+	// it is how a user points starlight at the project in front of them. A relative path that
+	// names a SUBSET of it ("./workspace") is moved to the home, because that is program state
+	// rather than the project; the project a user is working in is named with ".".
+	if c.Agent.WorkspaceDir != "." {
+		c.Agent.WorkspaceDir = join(c.Agent.WorkspaceDir)
+	}
 	c.Agent.LogFile = join(c.Agent.LogFile)
 	c.Skills.Dir = join(c.Skills.Dir)
 }
@@ -333,9 +370,18 @@ func resolvePaths(c *Config, base string) {
 func LoadOrDefault(path string) (Config, error) {
 	cfg := Default()
 	if path == "" {
+		// A run with no file still belongs under the home. Without this the workspace, the log
+		// and the skills fell back to the working directory — which is precisely the scattering
+		// the home exists to prevent, and it was the path taken by a first run before the wizard
+		// has written anything.
+		resolvePaths(&cfg, "")
 		if err := ApplyEnvironment(&cfg); err != nil {
 			return cfg, err
 		}
+		// An environment variable may name a workspace of its own, and it is applied after the
+		// resolution above so that what it sets is what is used. It is the user's instruction,
+		// and it is taken as written: a relative path still means, to the person who typed it,
+		// relative to where they are.
 		return cfg, nil
 	}
 	return LoadWithoutKey(path)

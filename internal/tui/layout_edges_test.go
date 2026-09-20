@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"os"
+	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
@@ -251,13 +252,19 @@ func TestTheRunnerResolvesTheLibraryOnce(t *testing.T) {
 }
 
 // TestTheLibraryDirHasADefault: an unset directory must not give a library rooted at the empty
-// string, which would be the whole working directory.
+// string, which would be the whole working directory — nor at the working directory itself,
+// which would scatter starlight's own state through whatever project the user is in. It falls
+// back to the home.
 func TestTheLibraryDirHasADefault(t *testing.T) {
 	r := &AppRunner{Cfg: config.Config{}}
 
 	got := r.library()
-	if got.Dir != "skills" {
-		t.Errorf("library dir = %q, want the default", got.Dir)
+	want := config.Default().Skills.Dir
+	if got.Dir != want {
+		t.Errorf("library dir = %q, want %q", got.Dir, want)
+	}
+	if !filepath.IsAbs(got.Dir) {
+		t.Errorf("library dir = %q, want it under the home rather than relative", got.Dir)
 	}
 }
 
