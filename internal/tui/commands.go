@@ -176,7 +176,7 @@ func (t *TUI) completionLinesCapped(w, max int) []string {
 		} else {
 			lines = append(lines, t.plainLine(row))
 		}
-		}
+	}
 	if showMore {
 		lines = append(lines, t.plainLine(t.muted(fmt.Sprintf("… and %d more", hidden))))
 	}

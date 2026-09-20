@@ -95,7 +95,7 @@ const (
 	// small terminal, so the empty row replaces the divider and the count stays where the rest
 	// of the layout expects.
 	permanentRows = 8
-	)
+)
 
 // bannerLines is the Starlight wordmark: five shaded rows that carry their own
 // ANSI colours, so they are stored raw and only placed by the layout. In
