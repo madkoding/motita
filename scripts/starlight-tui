@@ -1,0 +1,57 @@
+#!/bin/sh
+# starlight-tui — run starlight against a fixed configuration and credential file.
+#
+# Usage:
+#   scripts/starlight-tui                     # interactive chat
+#   scripts/starlight-tui -task "x"           # one-shot task
+#   scripts/starlight-tui -p "x"              # one-shot plan/chat prompt
+#   CONFIG=/path/to.yaml scripts/starlight-tui   # a different configuration
+#
+# Why a wrapper and not just the binary:
+#
+#   The API key is not stored in the configuration file — the loader reads it
+#   from STARLIGHT_LLM_API_KEY, or from the provider's own variable
+#   (OLLAMA_API_KEY for Ollama Cloud). Sourcing the credential file here keeps
+#   the key in exactly one place instead of in every shell that runs the agent.
+#
+#   The configuration path is passed explicitly so neither the current
+#   directory nor HOME decides which file is read, which is what makes the
+#   same command work from anywhere.
+#
+# Defaults, in order of precedence:
+#   CONFIG      env var, else <repo>/.starlight/starlight.yaml
+#   ENV_FILE    env var, else <repo>/.starlight/env
+#   BINARY      env var, else <repo>/bin/starlight-fk
+#
+# Everything after the wrapper's own name is forwarded verbatim to the binary.
+
+set -e
+
+HERE=$(cd "$(dirname "$0")" && pwd)
+ROOT=$(cd "$HERE/.." && pwd)
+
+CONFIG=${CONFIG:-"$ROOT/.starlight/starlight.yaml"}
+ENV_FILE=${ENV_FILE:-"$ROOT/.starlight/env"}
+BINARY=${BINARY:-"$ROOT/bin/starlight-fk"}
+
+if [ ! -x "$BINARY" ]; then
+    echo "starlight-tui: binary not found or not executable: $BINARY" >&2
+    echo "  build it with: go build -trimpath -ldflags '-s -w' -o bin/starlight-fk ./cmd/agent" >&2
+    exit 2
+fi
+
+if [ ! -f "$CONFIG" ]; then
+    echo "starlight-tui: configuration not found: $CONFIG" >&2
+    echo "  create it with: starlight -init" >&2
+    exit 2
+fi
+
+# The credential file is optional: an environment that already exports the key
+# does not need one, and requiring it would break that case. When it is there,
+# it wins, because the file is the more specific instruction.
+if [ -f "$ENV_FILE" ]; then
+    # shellcheck disable=SC1090
+    . "$ENV_FILE"
+fi
+
+exec "$BINARY" -config "$CONFIG" "$@"
