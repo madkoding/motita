@@ -1,11 +1,12 @@
 #!/bin/sh
-# starlight-tui — run starlight against a fixed configuration and credential file.
+# starlight-tui — open the starlight chat against a fixed configuration and credential file.
 #
 # Usage:
-#   scripts/starlight-tui                     # interactive chat
-#   scripts/starlight-tui -task "x"           # one-shot task
-#   scripts/starlight-tui -p "x"              # one-shot plan/chat prompt
-#   CONFIG=/path/to.yaml scripts/starlight-tui   # a different configuration
+#   starlight                       # interactive chat
+#   starlight -task "x"             # one-shot task
+#   starlight -p "x"                # one-shot plan/chat prompt
+#   starlight -validate-config      # check the configuration and exit
+#   CONFIG=/path/to.yaml starlight  # a different configuration
 #
 # Why a wrapper and not just the binary:
 #
@@ -17,6 +18,14 @@
 #   The configuration path is passed explicitly so neither the current
 #   directory nor HOME decides which file is read, which is what makes the
 #   same command work from anywhere.
+#
+#   And it asks for the chat. The binary treats "-config FILE" with no other
+#   flags as "run the configured task source", which is deliberate — cron jobs
+#   and CI depend on it — so passing a configuration is enough to turn the
+#   invocation into a batch run and print structured logs to the terminal.
+#   Here the intent is the opposite: the user typed the name of a chat client
+#   with nothing else, so the wrapper says -tui unless the arguments already
+#   spell out a different job.
 #
 # Defaults, in order of precedence:
 #   CONFIG      env var, else <repo>/.starlight/starlight.yaml
@@ -88,4 +97,58 @@ if [ -f "$ENV_FILE" ]; then
     . "$ENV_FILE"
 fi
 
+# Decide whether to ask for the chat.
+#
+# The rule is the one a user would state: if every argument is a flag, the user
+# asked for nothing in particular and wants the interface; the moment an
+# argument names a job — a task, a task file, a prompt, or one of the diagnostic
+# modes — that job is what runs, and the interface would swallow its output.
+#
+# The list of flags that consume the NEXT argument matters: without it,
+# "-task count the files" would leave "count" looking like a job of its own and
+# the decision would still come out right by accident, while "-config x" would
+# leave "x" looking like one and would not. Both are spelled out.
+wants_tui=true
+expect_value=false
+for arg in "$@"; do
+    if [ "$expect_value" = true ]; then
+        expect_value=false
+        continue
+    fi
+    case $arg in
+        # Flags that take the following word as their value.
+        -config|--config|-task|--task|-task-file|--task-file|-p|--prompt)
+            expect_value=true
+            case $arg in
+                -task|--task|-task-file|--task-file|-p|--prompt) wants_tui=false ;;
+            esac
+            ;;
+        # The single-word modes: each produces its own output.
+        -validate-config|--validate-config|-isolation|--isolation|\
+        -version|--version|-init|--init|-h|-help|--help)
+            wants_tui=false
+            ;;
+        # "-flag=value" carries its value inline, so it never consumes the next word.
+        -*=*)
+            case ${arg%%=*} in
+                -task|--task|-task-file|--task-file|-p|--prompt|\
+                -validate-config|--validate-config|-isolation|--isolation|\
+                -version|--version|-init|--init|-h|-help|--help)
+                    wants_tui=false
+                    ;;
+            esac
+            ;;
+        # A bare word: something to do.
+        -*)
+            : # an unknown flag; the binary will report it
+            ;;
+        *)
+            wants_tui=false
+            ;;
+    esac
+done
+
+if [ "$wants_tui" = true ]; then
+    exec "$BINARY" -config "$CONFIG" -tui "$@"
+fi
 exec "$BINARY" -config "$CONFIG" "$@"
