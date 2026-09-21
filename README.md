@@ -162,7 +162,32 @@ the exit code.
 
 ## Installation
 
-One line per platform. The binary is static: no Go, no Docker, no runtime on the target.
+**One line.** It detects the system, downloads the matching static binary from
+the latest release, verifies it against the release's `SHA256SUMS`, and puts it
+on your `PATH`. No Go, no Docker, no runtime on the target:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/madkoding/starlight/main/scripts/install.sh | sh
+```
+
+Override the version or the destination:
+
+```sh
+STARLIGHT_VERSION=v0.3.0 curl -fsSL .../install.sh | sh
+STARLIGHT_INSTALL_DIR="$HOME/bin" curl -fsSL .../install.sh | sh
+```
+
+The installer prefers `/usr/local/bin` when it is writable and falls back to
+`~/.local/bin`, so it never needs root. It downloads into a temporary directory
+and moves the binary into place **only after** the checksum matches: a failed or
+corrupted download leaves the system as it was. Finally it runs the binary once,
+because reporting success without executing it would miss the one failure that
+matters — a binary that does not run on this machine.
+
+`SHA256SUMS` comes from the same release as the binary, so verification catches
+a corrupted transfer, not a compromised release.
+
+**By hand**, if you prefer to see each step:
 
 ```bash
 # Linux / 386 (32-bit x86, the primary target)
@@ -170,6 +195,9 @@ curl -fsSLO https://github.com/madkoding/starlight/releases/latest/download/star
 
 # Linux / amd64
 curl -fsSLO https://github.com/madkoding/starlight/releases/latest/download/starlight-linux-amd64 && chmod +x starlight-linux-amd64 && ./starlight-linux-amd64 -version
+
+# Linux / arm (ARMv7: Raspberry Pi 2 and newer)
+curl -fsSLO https://github.com/madkoding/starlight/releases/latest/download/starlight-linux-arm && chmod +x starlight-linux-arm && ./starlight-linux-arm -version
 
 # Linux / arm64
 curl -fsSLO https://github.com/madkoding/starlight/releases/latest/download/starlight-linux-arm64 && chmod +x starlight-linux-arm64 && ./starlight-linux-arm64 -version
@@ -190,8 +218,11 @@ curl -fsSLO https://github.com/madkoding/starlight/releases/latest/download/star
 | Windows | `386`, `amd64`, `arm64` | `-windows-<arch>.exe` |
 | macOS | `amd64`, `arm64` (Apple silicon) | `-darwin-<arch>` |
 
-`windows/arm`, `darwin/386` and `darwin/arm` are **not** published because Go does
-not support those pairs: the toolchain refuses to build them.
+`linux/arm` is **ARMv7** (the Go default, `GOARM=7`): it runs on a Raspberry Pi 2
+or newer, and on the ARMv8 boards running a 32-bit userland. A Raspberry Pi 1 or
+Zero needs an ARMv6 build, which this project does not publish. `windows/arm`,
+`darwin/386` and `darwin/arm` are **not** published because Go does not support
+those pairs: the toolchain refuses to build them.
 
 Each release also carries a `SHA256SUMS` file:
 

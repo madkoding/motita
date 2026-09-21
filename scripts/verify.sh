@@ -83,7 +83,19 @@ else
   echo "    (total: $(echo "$found" | wc -l) line(s))"
 fi
 
-step "7. end-to-end tests on linux"
+step "7. the installer script is valid POSIX sh"
+# It is piped to `sh` on systems whose /bin/sh is dash or busybox ash, so a bash
+# construct would break it exactly where nobody can debug it. Parsed here, not
+# run: running it would download a release, which a verification run must not do.
+if dash -n scripts/install.sh 2>/dev/null; then
+  ok "parses as POSIX sh (dash)"
+elif command -v dash >/dev/null 2>&1; then
+  bad "scripts/install.sh is not valid dash syntax"
+else
+  sh -n scripts/install.sh && ok "parses as sh" || bad "scripts/install.sh does not parse"
+fi
+
+step "8. end-to-end tests on linux"
 # Every linux architecture the project publishes is exercised.
 for arch in 386 amd64 arm arm64; do
   if ./scripts/e2e-agent.sh "$arch" >"/tmp/verify_e2e_agent_$arch.log" 2>&1; then
