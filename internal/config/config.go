@@ -127,9 +127,10 @@ type CRT struct {
 	// Typewriter reveals streamed text one character at a time instead of all at once, which is
 	// what makes it feel like a machine printing it.
 	Typewriter bool `yaml:"typewriter"`
-	// TypewriterCPS is how many characters are revealed per second. 20 ms per character is
-	// 50 cps: slow enough to read each glyph as it lands, fast enough that a long reply is
-	// not a wait.
+	// TypewriterCPS is how many characters are revealed per second. 10 ms per character is
+	// 100 cps: fast enough that a long reply is not a wait, slow enough that the eye still
+	// sees the text arrive one glyph at a time. The earlier default was 50 cps (20 ms), which
+	// the author asked to double.
 	TypewriterCPS float64 `yaml:"typewriter_cps"`
 }
 
@@ -260,7 +261,7 @@ func Default() Config {
 		CRT: CRT{
 			Enabled:       true,
 			Typewriter:    true,
-			TypewriterCPS: 50,
+			TypewriterCPS: 100,
 		},
 		Skills: Skills{
 			Dir:          defaultSkillsDir(),

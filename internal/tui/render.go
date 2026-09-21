@@ -292,7 +292,7 @@ func (t *TUI) layout(w, h int) ([]string, string) {
 // of "how tall is the composer" would drift apart.
 const rowsBelowComposer = 2
 
-// crtText is the text to draw for a message: the phosphor colour, and the typewriter reveal while
+// crtText is the text to draw for a message: the body colour, and the typewriter reveal while
 // a reply is still being written.
 //
 // Only the block still being written is revealed a character at a time. Text that has already
@@ -307,6 +307,7 @@ func (t *TUI) crtText(m Message) string {
 		return m.Text
 	}
 	text := m.Text
+	sweeping := false
 	if t.crt.cfg.Typewriter {
 		switch {
 		case !m.Pending:
@@ -320,9 +321,14 @@ func (t *TUI) crtText(m Message) string {
 			// nothing extra is scheduled.
 			t.crt.startTyping(text)
 			text = t.crt.reveal(t.crt.tick())
+			// The sweep marks the leading edge of text still arriving. Once the reveal has
+			// caught up with the target there is no edge to mark, so the body drops to the base
+			// colour and stays there: a finished answer must not keep a pale patch on its last
+			// characters. "It changes colour at the end" was that patch.
+			sweeping = t.crt.typingInProgress()
 		}
 	}
-	return t.crt.paint(text)
+	return t.crt.paint(text, sweeping)
 }
 
 // drawFrame paints the whole interface.

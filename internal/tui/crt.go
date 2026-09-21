@@ -57,15 +57,19 @@ func newCRT(c config.CRT) *crt {
 // the last three revealed ones, which brighten toward the leading edge (#DDD, #EEE, #FFF) so
 // the reveal shows a sweep of light running over the text.
 //
+// The sweep is drawn only while the reveal is running. It marks the LEADING EDGE of text
+// arriving, so once there is no edge to mark the whole body sits at the base colour: leaving
+// the last three characters bright meant a finished answer ended in a pale patch that never
+// went away, which reads as a rendering fault rather than as an effect. "It changes colour at
+// the end" was exactly that patch.
+//
 // The sweep is the only effect on the message. Phosphor used to colour the whole body in
 // green, which made the bright tail look like a separate highlight; making the whole body
-// greyscale lets the sweep be the only colour, which is what the effect actually looks like.
-// The settled text stays at #CCC, so once the reveal ends the answer reads as flat grey and
-// the sweep has nothing to do.
+// greyscale lets the sweep be the only colour.
 //
 // Empty in, empty out: a blank block stays blank rather than becoming an escape with nothing
 // in it.
-func (c *crt) paint(text string) string {
+func (c *crt) paint(text string, sweeping bool) string {
 	if c == nil || text == "" {
 		return text
 	}
@@ -73,12 +77,17 @@ func (c *crt) paint(text string) string {
 	// sweep runs over those runes, not over the original message, because nothing past the
 	// reveal is on the screen yet.
 	runes := []rune(text)
-	cut := len(runes) - sweepWidth
-	if cut < 0 {
-		cut = 0
+	// cut splits the text into the quiet body and the bright tail. Without the sweep there is
+	// no tail at all, so cut lands at the end and the whole body is painted at the base.
+	cut := len(runes)
+	if sweeping {
+		cut = len(runes) - sweepWidth
+		if cut < 0 {
+			cut = 0
+		}
 	}
-	tail := runes[cut:]
 	head := runes[:cut]
+	tail := runes[cut:]
 
 	var b strings.Builder
 	if len(head) > 0 {
@@ -134,7 +143,19 @@ const revealFrameInterval = 30 * time.Millisecond
 // Retargeting rather than restarting is what keeps a streamed reply readable: the text grows as
 // chunks arrive, and a reveal that restarted on every chunk would stutter back to the beginning.
 // The characters already shown stay shown.
+//
+// A reveal that STARTS also starts its clock. Time that passed before there was any text is not
+// time spent revealing: the model spent it thinking, and the network spent it in flight.
+// Counting it here is what made the FIRST LINE of an answer appear whole — the wait for the
+// first token was converted into enough characters to fill a line, so the typewriter was
+// invisible exactly where the reader looks first, and only the later lines looked typed.
+//
+// The clock is only reset on the idle→typing transition: while a reveal is catching up, the
+// elapsed time is real revealing time and is what keeps the speed honest.
 func (c *crt) startTyping(text string) {
+	if !c.typing {
+		c.lastAt = time.Time{}
+	}
 	c.typedTarget = text
 	c.typing = true
 	// A target shorter than what has been revealed means the text was replaced rather than

@@ -41,7 +41,7 @@ func TestTheEffectIsOnByDefaultAndCanBeSwitchedOff(t *testing.T) {
 // interface as it was before the feature existed.
 func TestNilEffectLeavesTheTextAlone(t *testing.T) {
 	var c *crt
-	if got := c.paint("hola"); got != "hola" {
+	if got := c.paint("hola", true); got != "hola" {
 		t.Fatalf("a nil effect must not alter the text, got %q", got)
 	}
 }
@@ -52,7 +52,7 @@ func TestNilEffectLeavesTheTextAlone(t *testing.T) {
 // keeping them inside a grey block would look like a bug.
 func TestTheTextIsDrawnInTheSweep(t *testing.T) {
 	c := crtFor(t, nil)
-	got := c.paint("\x1b[36;47mhola\x1b[0m mundo")
+	got := c.paint("\x1b[36;47mhola\x1b[0m mundo", true)
 	if !strings.Contains(got, "\x1b[38;2;") {
 		t.Fatalf("the text should carry true-colour, got %q", got)
 	}
@@ -83,7 +83,7 @@ func TestTheTextIsDrawnInTheSweep(t *testing.T) {
 // sits at the base (#CCC). The progression is what makes the sweep readable.
 func TestTheSweepColoursBrightenTowardTheLeadingEdge(t *testing.T) {
 	c := crtFor(t, nil)
-	got := c.paint("abcdefghij")
+	got := c.paint("abcdefghij", true)
 	// Position 9 (the 'j', newest) is at #FFFFFF, position 8 ('i') at #EEE, position 7 ('h')
 	// at #DDD, and position 6 ('g') at the base #CCC. The rest of the string is also at #CCC.
 	if !strings.Contains(got, "\x1b[38;2;255;255;255mj") {
@@ -106,7 +106,7 @@ func TestTheSweepColoursBrightenTowardTheLeadingEdge(t *testing.T) {
 // fill it with.
 func TestAShortRevealBrightensEveryCharacter(t *testing.T) {
 	c := crtFor(t, nil)
-	got := c.paint("xy")
+	got := c.paint("xy", true)
 	// 'y' is the newest of a two-character reveal, so it sits at #EEE (i=1). 'x' is the
 	// second-newest at #DDD (i=0). There is no #FFF segment, because the third slot only
 	// fires when there are three or more revealed characters.
@@ -128,8 +128,43 @@ func TestAShortRevealBrightensEveryCharacter(t *testing.T) {
 // it, which would add bytes to every frame for no visible change.
 func TestEmptyTextStaysEmpty(t *testing.T) {
 	c := crtFor(t, nil)
-	if got := c.paint(""); got != "" {
+	if got := c.paint("", true); got != "" {
 		t.Fatalf("got %q, want empty", got)
+	}
+}
+
+// A finished answer must NOT keep a pale patch on its last characters. The sweep marks the
+// leading edge of text arriving; with nothing arriving there is no edge to mark, so the whole
+// body drops to the base colour. "It changes colour at the end" was that patch, and it reads as
+// a rendering fault rather than as an effect.
+func TestASettledTextIsPaintedAtTheBaseColourOnly(t *testing.T) {
+	c := crtFor(t, nil)
+	got := c.paint("respuesta terminada", false)
+
+	if !strings.Contains(got, sweepBase) {
+		t.Fatalf("a settled body must be painted at the base colour, got %q", got)
+	}
+	for _, bright := range []string{"\x1b[38;2;221;221;221m", "\x1b[38;2;238;238;238m", "\x1b[38;2;255;255;255m"} {
+		if strings.Contains(got, bright) {
+			t.Errorf("a settled body must not carry the bright tail (%q), got %q", bright, got)
+		}
+	}
+	// And the whole text is still there: dropping the sweep must not drop characters.
+	if stripped := stripSweep(got); stripped != "respuesta terminada" {
+		t.Errorf("stripped = %q, want the whole text", stripped)
+	}
+}
+
+// The two shapes are the same text with and without the tail, so the settled one must be
+// exactly the sweep one with every character moved to the base. This is the property that
+// makes "stop sweeping" a colour change and not a text change.
+func TestStoppingTheSweepOnlyChangesColour(t *testing.T) {
+	c := crtFor(t, nil)
+	text := "una respuesta cualquiera"
+	during := stripSweep(c.paint(text, true))
+	after := stripSweep(c.paint(text, false))
+	if during != after {
+		t.Fatalf("the visible text must not change when the sweep ends:\n during=%q\n  after=%q", during, after)
 	}
 }
 
@@ -162,18 +197,15 @@ func TestTheEscapeScannerSkipsTheBracket(t *testing.T) {
 
 // --- the typewriter ---------------------------------------------------------
 
-// The reveal shows the text a character at a time rather than all at once.
-//
-// The target is much longer than one frame's worth of characters, because at a teletype speed a
-// frame of a tenth of a second reveals about twenty of them: the point is that a long reply
-// appears progressively, which is what a reader notices, rather than that any single frame is
-// partial.
+// TestTypewriterRevealsProgressively: the target is much longer than one frame's worth of
+// characters, because the point is that a long reply appears progressively rather than that any
+// single frame is partial.
 func TestTypewriterRevealsProgressively(t *testing.T) {
 	c := crtFor(t, nil)
 	long := strings.Repeat("x", 4000)
 	c.startTyping(long)
-	// A tenth of a second at 50 cps reveals about five characters, which is enough for the
-	// first frame to show some of the long text without showing all of it.
+	// A tenth of a second at 100 cps reveals about ten characters: some of the text, but
+	// nowhere near all of it.
 	first := c.reveal(time.Second / 10)
 	if n := len([]rune(first)); n >= 4000 || n < 1 {
 		t.Fatalf("the first frame should show some but not all, got %d chars", n)
@@ -181,13 +213,83 @@ func TestTypewriterRevealsProgressively(t *testing.T) {
 	if !c.typingInProgress() {
 		t.Fatal("a reveal catching up is in progress")
 	}
-	// 80 seconds at 50 cps reveals 4000 characters — enough for the long text, slow enough
-	// that the test does not race ahead of the renderer.
+	// 80 seconds at 100 cps reveals far more than the 4000 characters of the target, so the
+	// reveal is certain to finish without the test racing the renderer.
 	if last := c.reveal(time.Second * 80); last != long {
 		t.Fatalf("the reveal must finish on the full text, got %d chars", len([]rune(last)))
 	}
 	if c.typingInProgress() {
 		t.Fatal("a finished reveal is not in progress")
+	}
+}
+
+// TestTheFirstLineIsTypedToo: the wait for the first token is not revealing time.
+//
+// The reveal is driven by the repaints the interface already performs, and the clock it reads is
+// the time since the previous frame. When the model takes seconds to answer, that gap is real —
+// but it is time spent THINKING and IN FLIGHT, not time spent revealing. Converting it into
+// characters revealed an entire first line in one frame, so the effect was invisible exactly
+// where the reader looks first and only the later lines looked typed.
+//
+// The clock is therefore reset when a reveal starts from idle, and the first frame after a pause
+// reveals the same handful of characters it would have revealed with no pause at all.
+func TestTheFirstLineIsTypedToo(t *testing.T) {
+	c := crtFor(t, nil) // 100 cps: one character per 10 ms
+	answer := "Primera linea de la respuesta completa."
+
+	// The user pressed Enter; the model and the network take 1.2 seconds.
+	c.startTyping("")
+	time.Sleep(1200 * time.Millisecond)
+
+	// The first chunk arrives. This is the first frame with any text in it.
+	c.startTyping(answer)
+	elapsed := c.tick()
+	shown := c.reveal(elapsed)
+
+	runes := len([]rune(shown))
+	// At 100 cps a frame's worth of time is a handful of characters. Ten is a generous ceiling
+	// for the very first frame and still far below the 39 of the whole line: the test fails if
+	// the pause is being converted into characters again.
+	if runes > 10 {
+		t.Fatalf("the first frame revealed %d of %d characters: the wait for the first token is being typed out",
+			runes, len([]rune(answer)))
+	}
+	if runes < 1 {
+		t.Fatalf("the first frame must reveal something, got %d characters", runes)
+	}
+	if !c.typingInProgress() {
+		t.Fatal("the reveal must still be catching up after its first frame")
+	}
+}
+
+// A reveal that is already running keeps its clock: only the idle→typing transition resets it,
+// so the speed stays honest while text is actually arriving.
+func TestTheClockIsKeptWhileTheRevealIsRunning(t *testing.T) {
+	c := crtFor(t, nil)
+	// The real sequence is startTyping → tick (which records the clock) → reveal. Calling tick
+	// is what puts a time in lastAt, exactly as crtText does on every frame.
+	c.startTyping(strings.Repeat("x", 5000))
+	c.reveal(c.tick())
+	if c.lastAt.IsZero() {
+		t.Fatal("a running reveal must have a clock")
+	}
+	before := c.lastAt
+	c.startTyping(strings.Repeat("x", 5001)) // retarget: the clock must survive
+	if !c.lastAt.Equal(before) {
+		t.Fatal("retargeting a running reveal must not reset its clock")
+	}
+}
+
+// The default speed is 100 cps, which is 10 ms per character: the rate the author asked for after
+// seeing the 50 cps one.
+func TestTheDefaultSpeedIsTheRequestedOne(t *testing.T) {
+	if got := config.Default().CRT.TypewriterCPS; got != 100 {
+		t.Fatalf("the default speed is %v cps, want 100 (10 ms per character)", got)
+	}
+	// And it is expressed as a duration the reader can check: one character every 10 ms.
+	c := crtFor(t, nil)
+	if first := c.tick(); first > 11*time.Millisecond || first < 9*time.Millisecond {
+		t.Fatalf("the first tick is %v, want about 10 ms", first)
 	}
 }
 
@@ -336,6 +438,20 @@ func TestASettledMessageIsStillColoured(t *testing.T) {
 	tui := &TUI{crt: c}
 	if got := tui.crtText(Message{Text: "listo", Pending: false}); !strings.Contains(got, "\x1b[38;2;204;204;204m") {
 		t.Fatalf("a settled message must carry the sweep base #CCC, got %q", got)
+	}
+}
+
+// A settled message carries the base colour and NOT the bright tail. The patch of pale text on
+// the last three characters of a finished answer is what the author saw as "it changes colour at
+// the end": the sweep was painted whether or not there was anything still arriving.
+func TestASettledMessageHasNoBrightTail(t *testing.T) {
+	c := crtFor(t, nil)
+	tui := &TUI{crt: c}
+	got := tui.crtText(Message{Text: "respuesta terminada", Pending: false})
+	for _, bright := range []string{"\x1b[38;2;221;221;221m", "\x1b[38;2;238;238;238m", "\x1b[38;2;255;255;255m"} {
+		if strings.Contains(got, bright) {
+			t.Errorf("a settled message must not keep the bright tail (%q), got %q", bright, got)
+		}
 	}
 }
 
