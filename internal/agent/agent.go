@@ -1029,6 +1029,7 @@ func (a *Agent) loop(ctx context.Context, t task.Task, depth int) TaskResult {
 		a.report("attempt failed: %s", validation.Reason)
 		a.log.Warn(prefix+"attempt failed",
 			"attempt", attempt, "max_attempts", a.cfg.Agent.MaxRetries+1,
+			"commands", proposedCommands(action),
 			"validation", validation.Reason)
 
 		if attempt > a.cfg.Agent.MaxRetries {
@@ -1472,6 +1473,33 @@ func (a *Agent) summariseFailure(action Action, execution string, validation anc
 	sb.WriteString(validation.JSON())
 	sb.WriteString("\n")
 	return sb.String()
+}
+
+// proposedCommands renders the commands of an attempt as a single line for the log.
+//
+// The retry loop stops when the counter runs out, and its whole design assumes that a retry can
+// converge. Whether it does is a question about the DATA, not about the code: a run that is
+// correcting itself proposes different commands on each attempt, while a thrashing one proposes
+// the same thing and collects the same failure. Only the commands tell those two apart — the
+// validation reason is identical for both. This is what makes that question answerable from the
+// log after a few weeks of real use, instead of by guessing.
+func proposedCommands(action Action) string {
+	parts := make([]string, 0, len(action.Actions))
+	for _, c := range action.Actions {
+		command := strings.TrimSpace(c.Command)
+		if command == "" {
+			// A command-less entry (an empty proposal, or one that only carries a description)
+			// still happened; dropping it would make the line look like fewer commands ran.
+			command = "(empty)"
+		}
+		parts = append(parts, command)
+	}
+	if len(parts) == 0 {
+		return "(no commands proposed)"
+	}
+	// Truncated because a proposal can be arbitrarily long and this record is for counting and
+	// comparing, not for reading in full: summariseFailure already carries the complete text.
+	return truncate(strings.Join(parts, " | "), 500)
 }
 
 // --- Final action and escalation --------------------------------------------
