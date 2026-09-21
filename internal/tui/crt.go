@@ -152,14 +152,27 @@ const revealFrameInterval = 30 * time.Millisecond
 //
 // The clock is only reset on the idle→typing transition: while a reveal is catching up, the
 // elapsed time is real revealing time and is what keeps the speed honest.
+//
+// A target that does not EXTEND the previous one is a replacement, and the reveal restarts from
+// zero. A pending block is reused for the run's progress labels while the model works, and the
+// answer then REPLACES that label — measured on the real interface, "a" followed by the whole
+// answer kept two characters "already revealed", so the answer's first line came out pre-written
+// and only the lines after it looked typed. Testing "is the new text shorter" catches only the
+// case where the replacement is shorter, which is why the answer (longer than the label) slipped
+// through. The question is not length but continuity: does the new text begin with what was
+// already there?
 func (c *crt) startTyping(text string) {
+	// The characters already shown stay shown only while the new target still starts with
+	// them; anything else means the block was rewritten, so the reveal starts over.
+	if !strings.HasPrefix(text, c.typedTarget) {
+		c.typedAt = 0
+		c.typedAtFrac = 0
+	}
 	if !c.typing {
 		c.lastAt = time.Time{}
 	}
 	c.typedTarget = text
 	c.typing = true
-	// A target shorter than what has been revealed means the text was replaced rather than
-	// extended, so the reveal starts over from what is actually there.
 	if c.typedAt > len([]rune(text)) {
 		c.typedAt = 0
 	}
@@ -173,10 +186,29 @@ func (c *crt) stopTyping() {
 }
 
 // reveal advances the reveal by the time that has passed and returns the text to show so far.
+//
+// The advance is capped at one frame's worth of time. A repaint can be late for reasons that have
+// nothing to do with revealing — the model thinking, the network, the terminal — and the clock
+// measures that gap faithfully. Converting the whole gap into characters is what showed an entire
+// answer on a single frame, and it is why the FIRST LINE of a reply looked pre-written while the
+// lines after it were typed: the frame that carried the first token had been preceded by seconds
+// of silence, and that silence was spent as if it had been revealing time.
+//
+// Measured on the real interface: a 3.5 s gap between frames revealed 76 of 76 characters at once,
+// and the answer's first line was complete before the second frame was ever drawn.
+//
+// So the reveal is a RATE, not a catch-up. Each frame advances by at most the characters one frame
+// is worth, and the frames come from the repaint loop that already exists (revealPending drives
+// them at revealFrameInterval). The steady-state speed is therefore exactly the configured rate,
+// and silence advances nothing.
 func (c *crt) reveal(elapsed time.Duration) string {
 	c.calls++
 	if !c.cfg.Typewriter || !c.typing {
 		return c.typedTarget
+	}
+	// A frame accounts for at most one frame's worth of time; a longer gap is silence.
+	if elapsed > revealFrameInterval {
+		elapsed = revealFrameInterval
 	}
 	runes := []rune(c.typedTarget)
 	step := int(c.speed * elapsed.Seconds())

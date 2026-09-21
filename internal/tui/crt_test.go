@@ -197,29 +197,141 @@ func TestTheEscapeScannerSkipsTheBracket(t *testing.T) {
 
 // --- the typewriter ---------------------------------------------------------
 
-// TestTypewriterRevealsProgressively: the target is much longer than one frame's worth of
-// characters, because the point is that a long reply appears progressively rather than that any
-// single frame is partial.
+// TestTypewriterRevealsProgressively: the reveal is a RATE, so a frame advances only by what one
+// frame is worth, however long the interface went between repaints.
 func TestTypewriterRevealsProgressively(t *testing.T) {
 	c := crtFor(t, nil)
 	long := strings.Repeat("x", 4000)
 	c.startTyping(long)
-	// A tenth of a second at 100 cps reveals about ten characters: some of the text, but
-	// nowhere near all of it.
-	first := c.reveal(time.Second / 10)
-	if n := len([]rune(first)); n >= 4000 || n < 1 {
+
+	// A frame's worth of time reveals a handful of characters, far short of the target.
+	first := c.reveal(revealFrameInterval)
+	n := len([]rune(first))
+	if n >= 4000 || n < 1 {
 		t.Fatalf("the first frame should show some but not all, got %d chars", n)
 	}
 	if !c.typingInProgress() {
 		t.Fatal("a reveal catching up is in progress")
 	}
-	// 80 seconds at 100 cps reveals far more than the 4000 characters of the target, so the
-	// reveal is certain to finish without the test racing the renderer.
-	if last := c.reveal(time.Second * 80); last != long {
-		t.Fatalf("the reveal must finish on the full text, got %d chars", len([]rune(last)))
+
+	// The frames the loop drives are what finish it: 4000 characters at 100 cps is 40 seconds
+	// of frames, and each frame is at most revealFrameInterval of progress.
+	frames := 0
+	for c.typingInProgress() && frames < 200000 {
+		c.reveal(revealFrameInterval)
+		frames++
+	}
+	if got := c.reveal(0); got != long {
+		t.Fatalf("the reveal must finish on the full text, got %d chars", len([]rune(got)))
 	}
 	if c.typingInProgress() {
 		t.Fatal("a finished reveal is not in progress")
+	}
+}
+
+// TestALateFrameDoesNotPourOutTheText: silence is not revealing time.
+//
+// The clock faithfully measures the gap between repaints, and that gap is often caused by
+// something that has nothing to do with typing: the model thinking, the network, the terminal.
+// Spending it as if it had been revealing time showed a whole answer on one frame, which is why
+// the FIRST LINE of a reply looked pre-written while the lines after it were typed — the frame
+// carrying the first token had seconds of silence behind it.
+//
+// Measured on the real interface before the cap: a 3.5 s gap between frames revealed 76 of 76
+// characters at once, and the first line was complete before the second frame was ever drawn.
+func TestALateFrameDoesNotPourOutTheText(t *testing.T) {
+	c := crtFor(t, nil) // 100 cps
+	answer := "1. El sol calienta fuerte\n2. La lluvia cae despacio\n3. El viento sopla suave"
+	c.startTyping(answer)
+
+	// One frame arrives after 3.5 seconds of the model thinking.
+	shown := c.reveal(3500 * time.Millisecond)
+	runes := len([]rune(shown))
+
+	firstLine := len([]rune(strings.Split(answer, "\n")[0]))
+	if runes >= firstLine {
+		t.Fatalf("a late frame revealed %d characters, which is the whole first line (%d): silence is being typed out",
+			runes, firstLine)
+	}
+	if runes < 1 {
+		t.Fatalf("a late frame must still reveal something, got %d", runes)
+	}
+	if !c.typingInProgress() {
+		t.Fatal("the reveal must still be catching up")
+	}
+	// The cap is one frame's worth: at 100 cps over one 30 ms frame that is three characters.
+	if runes > 4 {
+		t.Fatalf("a frame must advance by at most one frame's worth, got %d characters", runes)
+	}
+}
+
+// TestTheClockCapKeepsTheSteadyStateSpeed: capping a late frame must not slow the normal case.
+// A run of ordinary frames must still deliver the configured rate, or the effect would crawl.
+func TestTheClockCapKeepsTheSteadyStateSpeed(t *testing.T) {
+	c := crtFor(t, nil) // 100 cps, frames every 30 ms
+	c.startTyping(strings.Repeat("x", 200))
+
+	// Ten normal frames of 30 ms each: about 3 characters per frame, ~30 characters.
+	for i := 0; i < 10; i++ {
+		c.reveal(revealFrameInterval)
+	}
+	got := len([]rune(c.reveal(0)))
+	if got < 25 || got > 35 {
+		t.Fatalf("ten frames at 30 ms and 100 cps should reveal about 30 characters, got %d", got)
+	}
+}
+
+// TestAReplacedTargetRestartsTheReveal: a pending block is reused for the run's progress labels
+// while the model works, and the answer then REPLACES that label. The reveal must start over.
+//
+// Checking "is the new text shorter" catches only a replacement that is shorter, which is why the
+// real case slipped through: the answer is LONGER than the label it replaced, so the characters
+// already revealed were kept and the answer's opening came out pre-written.
+func TestAReplacedTargetRestartsTheReveal(t *testing.T) {
+	c := crtFor(t, nil)
+	c.startTyping("analysing the request")
+	c.reveal(revealFrameInterval) // a few characters revealed, reveal still running
+	if c.typedAt == 0 {
+		t.Fatal("setup: the phase label should have revealed something")
+	}
+
+	// The answer replaces the label and is LONGER than it.
+	c.startTyping("1. El sol calienta fuerte y la lluvia cae")
+	if c.typedAt != 0 {
+		t.Fatalf("a replacement must restart the reveal, typedAt = %d", c.typedAt)
+	}
+	shown := c.reveal(0)
+	if len([]rune(shown)) > 4 {
+		t.Fatalf("the first frame of a replacement must start near the beginning, got %q", shown)
+	}
+}
+
+// The other half of the same rule: text that EXTENDS what is shown must NOT restart, or a
+// streamed reply would stutter back to the beginning on every chunk.
+func TestAnExtendedTargetKeepsTheReveal(t *testing.T) {
+	c := crtFor(t, nil)
+	c.startTyping("La respuesta")
+	c.reveal(revealFrameInterval)
+	before := c.typedAt
+	if before == 0 {
+		t.Fatal("setup: something should have been revealed")
+	}
+
+	c.startTyping("La respuesta continúa creciendo")
+	if c.typedAt != before {
+		t.Fatalf("an extension must keep what was revealed: %d then %d", before, c.typedAt)
+	}
+}
+
+// Empty text clears whatever the block was showing: an empty target cannot be an extension of
+// anything, so the reveal starts from nothing.
+func TestAnEmptyTargetClearsTheReveal(t *testing.T) {
+	c := crtFor(t, nil)
+	c.startTyping("algo")
+	c.reveal(revealFrameInterval)
+	c.startTyping("")
+	if c.typedAt != 0 {
+		t.Fatalf("an empty target must clear the reveal, typedAt = %d", c.typedAt)
 	}
 }
 
