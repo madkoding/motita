@@ -29,6 +29,9 @@ agent_i386
 coverage.out
 .e2e/
 
+# Local plans and scratch written by the agent's own tooling, not part of the project
+/.hermes/
+
 # Runtime directories (the default workspace_dir and log_file are relative)
 workspace/
 
