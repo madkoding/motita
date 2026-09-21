@@ -42,33 +42,41 @@ case "$ARCH" in
   *)   PLATFORM="linux/$ARCH" ;;
 esac
 
-BINARY="dist/starlight-linux-$ARCH"
-MOCK="dist/mockapi-linux-$ARCH"
+# The test binary MUST NOT be the released one. Both used to be built straight
+# into dist/starlight-linux-<arch>, and the CI runs this script BEFORE uploading
+# that path as the release artifact — so every published binary was the e2e build,
+# stamped with version "e2e" instead of the tag. Everything this script builds now
+# goes under dist/.e2e/, and it touches nothing else in dist/: a test that writes
+# over the artifact it is meant to certify certifies something the user never gets.
+E2E_DIST="dist/.e2e"
+mkdir -p "$E2E_DIST"
+TEST_BINARY="$E2E_DIST/starlight-linux-$ARCH"
+TEST_MOCK="$E2E_DIST/mockapi-linux-$ARCH"
 
 echo "==> Building the binaries for linux/$ARCH"
 GOOS=linux GOARCH="$ARCH" CGO_ENABLED=0 go build -trimpath \
-  -ldflags "-s -w -X main.version=e2e" -o "$BINARY" ./cmd/agent
-GOOS=linux GOARCH="$ARCH" CGO_ENABLED=0 go build -trimpath -o "$MOCK" ./tools/mockapi
+  -ldflags "-s -w -X main.version=e2e" -o "$TEST_BINARY" ./cmd/agent
+GOOS=linux GOARCH="$ARCH" CGO_ENABLED=0 go build -trimpath -o "$TEST_MOCK" ./tools/mockapi
 
-elf_class="$(head -c 5 "$BINARY" | od -An -tx1 | tr -d ' \n')"
+elf_class="$(head -c 5 "$TEST_BINARY" | od -An -tx1 | tr -d ' \n')"
 case "$ARCH" in
   386|arm) want="7f454c4601" ;;
   *)       want="7f454c4602" ;;
 esac
-[ "$elf_class" = "$want" ] || { echo "ERROR: $BINARY is not the expected ELF class ($elf_class)"; exit 1; }
+[ "$elf_class" = "$want" ] || { echo "ERROR: $TEST_BINARY is not the expected ELF class ($elf_class)"; exit 1; }
 echo "    ELF class confirmed ($elf_class)"
 
 echo "==> Running inside $IMAGE ($PLATFORM)"
 output="$(
-  docker run --rm --platform "$PLATFORM" -v "$PWD/dist:/t:ro" "$IMAGE" sh -c "
+  docker run --rm --platform "$PLATFORM" -v "$PWD/$E2E_DIST:/t:ro" "$IMAGE" sh -c "
     set -e
     architecture=\$(dpkg --print-architecture)
     echo \"architecture: \$architecture\"
-    /t/$(basename "$MOCK") -port $PORT >/tmp/mock.log 2>&1 &
+    /t/$(basename "$TEST_MOCK") -port $PORT >/tmp/mock.log 2>&1 &
     # Active wait until the mock accepts requests.
     i=0
     while [ \$i -lt 50 ]; do
-      if /t/$(basename "$BINARY") --version >/dev/null 2>&1 && \
+      if /t/$(basename "$TEST_BINARY") --version >/dev/null 2>&1 && \
          (exec 3<>/dev/tcp/127.0.0.1/$PORT) 2>/dev/null; then break; fi
       i=\$((i+1)); sleep 0.2
     done
@@ -76,7 +84,7 @@ output="$(
     OPENAI_BASE_URL=http://127.0.0.1:$PORT/v1 \
     OPENAI_MODEL=mock \
     NO_COLOR=1 \
-    /t/$(basename "$BINARY") -p 'tell me the architecture and the system version'
+    /t/$(basename "$TEST_BINARY") -p 'tell me the architecture and the system version'
     echo '--- requests received by the mock ---'
     cat /tmp/mock.log
   "

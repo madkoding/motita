@@ -95,6 +95,27 @@ else
   sh -n scripts/install.sh && ok "parses as sh" || bad "scripts/install.sh does not parse"
 fi
 
+step "7b. the e2e scripts cannot overwrite a released artifact"
+# This is a regression guard, not a style check. Both e2e scripts used to build
+# their test binary straight into dist/starlight-linux-<arch>, which is the path
+# the CI uploads as the release asset — so every published binary was the test
+# build, stamped version "e2e" instead of the tag. Nothing in the published
+# names may be written by a test.
+leak=0
+for script in scripts/e2e.sh scripts/e2e-agent.sh; do
+  # An -o argument that is not under dist/.e2e/ writes a published path.
+  if grep -nE '\-o "?\$?\{?(BINARY|MOCK|TEST_BINARY|TEST_MOCK)' "$script" >/dev/null 2>&1; then
+    bad "$script builds directly into an unqualified path"
+    leak=$((leak+1))
+  fi
+  # The published names must not appear as a build destination anywhere.
+  if grep -nE '^\s*(BINARY|MOCK)="dist/(starlight|mock)' "$script" >/dev/null 2>&1; then
+    bad "$script points BINARY/MOCK at a published artifact name"
+    leak=$((leak+1))
+  fi
+done
+[ "$leak" -eq 0 ] && ok "both e2e scripts build only under dist/.e2e/"
+
 step "8. end-to-end tests on linux"
 # Every linux architecture the project publishes is exercised.
 for arch in 386 amd64 arm arm64; do

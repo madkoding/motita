@@ -55,8 +55,17 @@ case "$ARCH" in
   *)   PLATFORM="linux/$ARCH" ;;
 esac
 
-BINARY="dist/starlight-agent-linux-$ARCH"
-MOCK="dist/mockllm-linux-$ARCH"
+BINARY="dist/.e2e/starlight-agent-linux-$ARCH"
+MOCK="dist/.e2e/mockllm-linux-$ARCH"
+
+# The test binaries MUST NOT share a path with a released artifact. The CI runs
+# this script BEFORE uploading dist/starlight-agent-linux-<arch>, so building the
+# test binary into that name made every published agent binary a test build
+# stamped "e2e" instead of the release tag. Everything here goes under
+# dist/.e2e/, and nothing else in dist/ is touched. The path is asserted so a
+# future edit cannot quietly reintroduce the collision.
+case "$BINARY" in dist/.e2e/*) ;; *) echo "ERROR: the test binary must live under dist/.e2e/"; exit 1 ;; esac
+mkdir -p dist/.e2e
 
 echo "==> Building for linux/$ARCH (agent + simulated LLM)"
 GOOS=linux GOARCH="$ARCH" CGO_ENABLED=0 go build -trimpath \
@@ -88,14 +97,14 @@ output="$(
     "$IMAGE" sh -c "
     set -e
     echo \"architecture: \$(dpkg --print-architecture)\"
-    /dist/$(basename "$MOCK") -port $PORT >/e2e/mock.log 2>&1 &
+    /dist/.e2e/$(basename "$MOCK") -port $PORT >/e2e/mock.log 2>&1 &
     i=0
     while [ \$i -lt 50 ]; do
       (exec 3<>/dev/tcp/127.0.0.1/$PORT) 2>/dev/null && break
       i=\$((i+1)); sleep 0.2
     done
     NO_COLOR=1 STARLIGHT_LLM_API_KEY=test \
-      /dist/$(basename "$BINARY") -config /e2e/config.yaml 2>&1 || echo \"[the agent exited with \$?]\"
+      /dist/.e2e/$(basename "$BINARY") -config /e2e/config.yaml 2>&1 || echo \"[the agent exited with \$?]\"
     echo '--- requests received by the simulated LLM ---'
     cat /e2e/mock.log
   "
