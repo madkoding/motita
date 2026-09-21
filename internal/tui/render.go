@@ -276,18 +276,22 @@ func (t *TUI) layout(w, h int) ([]string, string) {
 
 	// The cursor is walked back up from the end of the frame to the row of the input field
 	// that holds the draft. composerPrompt refines the row inside the box from the wrap, so the
-	// caller only has to count the rows below the composer: the rule beneath it and the status
-	// bar. The cursor targets the FIELD row of the input box — the first row of the box that
-	// actually has the prompt character. With inputRows=3, the count from the bottom of the
-	// frame is belowComposer + popup + inputRows - 1: rows under the box (rule + bar) plus the
-	// two rows inside the box above the field (the divider and the blank). That keeps the
-	// cursor on the field row whatever the wrap does to the prompt inside the box.
-	rowsBelow := belowComposer + popup + inputRows - 1
+	// caller only has to count the rows BELOW the cursor's row: everything drawn under the input
+	// and the box's own rows that come after it.
+	//
+	// The popup is NOT one of them. It is appended to the composer ABOVE the input box
+	// (composerLinesCapped draws it first), so from the last row of the frame the window is
+	// reached by walking up belowComposer + inputRows - 1 rows and no further — the popup's rows
+	// are beyond it. Counting them in put the cursor popup rows too high: with "/" typed the
+	// popup is 14 rows tall here and the cursor was left at row 12 of a 30-row screen while the
+	// user was typing on row 26. That is the same report as the zero walk-up below — "the cursor
+	// is not where I am typing" — and it is the same arithmetic error: rows on the wrong side.
+	rowsBelow := belowComposer + inputRows - 1
 	return lines, t.composerPrompt(rowsBelow)
 }
 
 // rowsBelowComposer is how many rows sit under the input box: the rule beneath it and the status
-// bar. It is a package constant rather than a local of layout because more than one place needs
+// bar. It is a package constant rather than a local of layout because the cursor arithmetic needs
 // the same number, and two definitions of "how tall is the composer" would drift apart.
 const rowsBelowComposer = 2
 
@@ -1458,26 +1462,51 @@ func (t *TUI) composerPrompt(rowsBelow int) string {
 	// is the extra line the user saw being pushed upward on every Tab.
 	//
 	// CSI G (cursor to column) and CSI A (cursor up) move without depending on any translation.
-	var b strings.Builder
-	if rowsBelow > 0 {
-		fmt.Fprintf(&b, "\x1b[%dA", rowsBelow)
+	return cursorMoveSeq(rowsBelow, col+1) // columns are 1-based
+}
+
+// cursorMoveSeq is the sequence that takes the cursor from the last written row to a given row
+// above it and a given column.
+//
+// A count of ZERO is NOT "move zero rows": in a CSI sequence an omitted OR zero parameter takes
+// its DEFAULT, which for CSI A is one row. So "\x1b[0A" walks the cursor up exactly like
+// "\x1b[1A" — and that is what the user saw as "the cursor moves up while I type": the cursor
+// was already on the input's first row, the layout computed a walk-up of zero from the wrap, and
+// the zero was emitted as a sequence the terminal executed as a move of one. The cursor left the
+// text and sat on the blank row above the box.
+//
+// Zero rows up is therefore expressed by NOT writing the CSI A at all, which leaves the column
+// move as the whole sequence. The column is always >= 1 (it carries the left margin plus the
+// prompt glyph), so it is never the parameter that needs this treatment.
+func cursorMoveSeq(up, col int) string {
+	if up <= 0 {
+		return fmt.Sprintf("\x1b[%dG", col)
 	}
-	fmt.Fprintf(&b, "\x1b[%dG", col+1) // columns are 1-based
-	return b.String()
+	return fmt.Sprintf("\x1b[%dA\x1b[%dG", up, col)
 }
 
 // cursorMove turns the layout's cursor move into one that is correct for the rows actually
 // written.
 //
-// layout() returns a move that walks up from the END of the frame, which is right only when the
-// whole frame was painted. An incremental repaint stops at the last row that changed, so that
-// walk-up overshoots by (total rows - last written - 1) and the cursor lands somewhere in the
-// conversation instead of in the input box.
+// layout() returns a move that walks up from the END of the frame, and that count is the distance
+// from the frame's last row to the CARET's row — the row the wrap put the caret on, not simply the
+// input box's first row. An incremental repaint stops at the LAST row it wrote, so from there the
+// caret's row is a known distance in one of two directions, and only the direction that reaches it
+// may be used.
 //
-// Rather than teach the layout about incremental painting — it composes the frame and should not
-// have to know how it is written — the move is adjusted here, where the written rows are known.
-// The adjustment is the distance between the end of the frame and the last written row, which is
-// exactly the overshoot.
+// Passing the layout's walk-up through unchanged had two faults, and both left the cursor somewhere
+// other than the text:
+//
+//   - a correction that came out at ZERO was still written as a sequence, and "\x1b[0A" is not
+//     "move zero rows": a CSI parameter of zero takes its default, so it walks the cursor one row
+//     UP. Measured on a real terminal: once a character had been typed the cursor left the input
+//     and sat on the blank row above the box, on every keystroke.
+//   - when the last written row was ABOVE the caret's row, the count was applied as a walk-up
+//     again: from row 20, "up 25" is not "down 5", and the cursor landed on row 0 — the top of the
+//     screen — instead of in the input.
+//
+// Both shapes are now one expression with no sign to get wrong, and a walk-up of zero is expressed
+// by not writing the row move at all.
 func (t *TUI) cursorMove(prompt string, lastWritten, total int) string {
 	if lastWritten < 0 {
 		// Nothing was written: the terminal's cursor has not moved. Returning the layout's
@@ -1487,27 +1516,41 @@ func (t *TUI) cursorMove(prompt string, lastWritten, total int) string {
 		// The only thing that has to change is the visibility flag, drawn separately.
 		return ""
 	}
-	overshoot := total - 1 - lastWritten
-	if overshoot <= 0 {
-		return prompt
-	}
-	// The prompt is "\x1b[<up>A\x1b[<col>G" or just the column move when there is nothing to
-	// walk up. Rewriting the count is safer than composing a new sequence: the column is the part
-	// the layout computed from the wrap, and re-deriving it here would be a second implementation
-	// of the same calculation.
+	// The walk-up is the distance from the end of the frame to the caret's row; the column is the
+	// part the layout computed from the wrap, and re-deriving either here would be a second
+	// implementation of the same calculation. A prompt that does not parse is passed through
+	// unchanged rather than dropped.
 	up, col, ok := parseCursorMove(prompt)
 	if !ok {
 		return prompt
 	}
-	up -= overshoot
-	if up < 0 {
-		// The input is ABOVE the last written row, which happens when a repaint below the input
-		// (the status bar, a rule) is all that changed. Moving up would leave the cursor in the
-		// wrong place entirely, so the row is addressed absolutely instead: from the last written
-		// row, the input's row is a known distance away.
-		return fmt.Sprintf("\x1b[%dA\x1b[%dG", total-1-lastWritten+rowsBelowComposer+inputRows-1, col)
+
+	// Where the caret's row is, counted from the last row written: positive DOWN, negative UP.
+	target := total - 1 - up
+	delta := lastWritten - target
+
+	switch {
+	case delta > 0:
+		return cursorMoveSeq(delta, col)
+	case delta < 0:
+		// The caret's row is BELOW the last one written, which happens when a repaint above the
+		// input was all that changed: the user pressed a key whose only visible effect was
+		// earlier in the conversation. CSI B goes down without a count measured from the wrong
+		// end.
+		return cursorDownSeq(-delta, col)
+	default:
+		// The last written row IS the caret's row, which is the ordinary case while typing.
+		return cursorMoveSeq(0, col)
 	}
-	return fmt.Sprintf("\x1b[%dA\x1b[%dG", up, col)
+}
+
+// cursorDownSeq is the descending counterpart of cursorMoveSeq, with the same rule about zero:
+// "\x1b[0B" is one row DOWN, not none, so a count of zero is expressed by the column move alone.
+func cursorDownSeq(down, col int) string {
+	if down <= 0 {
+		return fmt.Sprintf("\x1b[%dG", col)
+	}
+	return fmt.Sprintf("\x1b[%dB\x1b[%dG", down, col)
 }
 
 // parseCursorMove reads the row/column out of a cursor move built by composerPrompt.
