@@ -164,6 +164,11 @@ const revealFrameInterval = 30 * time.Millisecond
 func (c *crt) startTyping(text string) {
 	// The characters already shown stay shown only while the new target still starts with
 	// them; anything else means the block was rewritten, so the reveal starts over.
+	//
+	// This single test replaces the old "is the new text shorter" guard AND the later
+	// "typedAt past the end" clamp: a target that does not have the old one as a prefix is
+	// reset here, so typedAt can never exceed the new length afterwards. Keeping the clamp was
+	// dead code — the coverage gate reported it as an uncovered line and it was right.
 	if !strings.HasPrefix(text, c.typedTarget) {
 		c.typedAt = 0
 		c.typedAtFrac = 0
@@ -173,9 +178,6 @@ func (c *crt) startTyping(text string) {
 	}
 	c.typedTarget = text
 	c.typing = true
-	if c.typedAt > len([]rune(text)) {
-		c.typedAt = 0
-	}
 }
 
 // stopTyping ends the reveal, so the text is shown whole from then on.

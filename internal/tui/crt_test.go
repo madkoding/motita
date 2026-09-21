@@ -267,17 +267,27 @@ func TestALateFrameDoesNotPourOutTheText(t *testing.T) {
 
 // TestTheClockCapKeepsTheSteadyStateSpeed: capping a late frame must not slow the normal case.
 // A run of ordinary frames must still deliver the configured rate, or the effect would crawl.
+//
+// The assertion is on the RATE rather than on an exact character count: the fraction carried
+// between frames depends on floating-point accumulation, and asserting a narrow window made this
+// test fail on CI (99.9% coverage there) while passing locally. What must hold on every platform
+// is that normal frames advance at the configured speed.
 func TestTheClockCapKeepsTheSteadyStateSpeed(t *testing.T) {
 	c := crtFor(t, nil) // 100 cps, frames every 30 ms
-	c.startTyping(strings.Repeat("x", 200))
+	c.startTyping(strings.Repeat("x", 500))
 
-	// Ten normal frames of 30 ms each: about 3 characters per frame, ~30 characters.
-	for i := 0; i < 10; i++ {
+	const frames = 10
+	for i := 0; i < frames; i++ {
 		c.reveal(revealFrameInterval)
 	}
 	got := len([]rune(c.reveal(0)))
-	if got < 25 || got > 35 {
-		t.Fatalf("ten frames at 30 ms and 100 cps should reveal about 30 characters, got %d", got)
+
+	// The ideal is 100 cps * 0.03 s * 10 frames = 30 characters. Allow the one-character
+	// rounding the carry can produce in either direction, and nothing more: a wide window
+	// would stop this test from noticing a real slowdown.
+	ideal := int(c.speed * revealFrameInterval.Seconds() * frames)
+	if got < ideal-1 || got > ideal+1 {
+		t.Fatalf("ten frames at 30 ms and 100 cps should reveal about %d characters, got %d", ideal, got)
 	}
 }
 
