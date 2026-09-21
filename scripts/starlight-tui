@@ -27,7 +27,41 @@
 
 set -e
 
-HERE=$(cd "$(dirname "$0")" && pwd)
+# Locate this script as the file it really is, not as the name it was invoked by.
+#
+# The wrapper is meant to be linked onto PATH, and a link is what gets run:
+#
+#   ~/bin/starlight -> <repo>/bin/starlight-tui -> <repo>/scripts/starlight-tui
+#
+# Taking dirname($0) at face value resolves to the directory the LINK lives in,
+# so the wrapper would look for the configuration and the binary next to the
+# link — in ~/bin, or in ~ itself — instead of in the repository. Following the
+# chain to the real file is what makes the same command work from a link, from
+# the repository, and from any working directory.
+#
+# A bare name ($0 = "starlight", with no slash) is resolved through PATH first,
+# because that is the other shape a shell can hand over.
+case $0 in
+    */*) SELF=$0 ;;
+    *)   SELF=$(command -v -- "$0" 2>/dev/null || echo "$0") ;;
+esac
+
+# The bound is not decoration: a link cycle would otherwise loop forever.
+hops=0
+while [ -L "$SELF" ]; do
+    hops=$((hops + 1))
+    if [ "$hops" -gt 40 ]; then
+        echo "starlight-tui: too many symbolic links resolving $0" >&2
+        exit 2
+    fi
+    target=$(readlink "$SELF") || exit 2
+    case $target in
+        /*) SELF=$target ;;
+        *)  SELF=$(dirname "$SELF")/$target ;;
+    esac
+done
+
+HERE=$(cd "$(dirname "$SELF")" && pwd)
 ROOT=$(cd "$HERE/.." && pwd)
 
 CONFIG=${CONFIG:-"$ROOT/.starlight/starlight.yaml"}
