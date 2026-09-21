@@ -21,7 +21,6 @@ import (
 	"strconv"
 	"strings"
 	"sync"
-	"time"
 	"unicode/utf8"
 
 	"github.com/madkoding/starlight/internal/agent"
@@ -138,14 +137,6 @@ type TUI struct {
 	// a request and closes when the answers are sent.
 	ask *askState
 
-	// crt is the retro terminal effect, and nil when it is switched off or the terminal cannot
-	// show colour. Every caller asks with a nil check, so a disabled effect costs nothing.
-	crt *crt
-
-	// revealFrameInterval is how long each revealed frame is held. It is a variable so a test can
-	// make the reveal finish immediately instead of waiting in real time.
-	revealInterval time.Duration
-
 	// query filters the conversation; searching is true while the user is typing it.
 	//
 	// Both are view state: they describe what is being looked at, not what the session
@@ -224,15 +215,6 @@ func (t *TUI) readKey(ctx context.Context) (byte, bool) {
 // Run displays the chat and dispatches user input until the user quits or the
 // context is cancelled.
 func (t *TUI) Run(ctx context.Context) int {
-	// The retro terminal effect is built here, from the configuration the runner is already
-	// holding. New() cannot do it: it receives only a Runner, and the effect is a presentation
-	// choice that belongs to the configuration.
-	//
-	// NoColor wins: an interface told to render without colour cannot draw a green phosphor
-	// screen, and a user who set it wants plain text rather than a monochrome imitation of a CRT.
-	if !t.NoColor && t.Runner != nil {
-		t.crt = newCRT(t.Runner.Config().CRT)
-	}
 	t.drawFrame()
 
 	// Leaving wipes the screen.
@@ -855,17 +837,9 @@ func (t *TUI) runTask(ctx context.Context, task string) {
 	default:
 		messageText = "the task finished without reporting a result."
 	}
-	// The typewriter needs the text to stay PENDING while it is revealed, and it needs FRAMES to
-	// reveal it in. Assigning the result and clearing the flag in the same pass — which is what
-	// this did — gives the reveal nothing to do: the only frame ever drawn shows the whole answer,
-	// so the user sees it appear all at once and the effect looks broken.
-	//
-	// So the block is settled in two steps: the text goes in while still pending, the reveal is
-	// given frames to run, and only then is the block closed. The waiting is bounded by the
-	// reveal itself, which is why the loop checks what it has left to show rather than sleeping a
-	// fixed time.
+	// The block is settled here: the text goes in and the pending flag is cleared together, so
+	// the frame the answer arrives on shows it whole.
 	t.messages[pendingIdx].Text = messageText
-	t.revealPending(pendingIdx)
 	t.messages[pendingIdx].Pending = false
 	t.endTurn()
 
@@ -873,28 +847,6 @@ func (t *TUI) runTask(ctx context.Context, task string) {
 	// question only exists once the run has returned — and opening it mid-run would put the
 	// window over a turn that is still writing to the conversation.
 	t.openAskIfPending()
-}
-
-// revealPending draws the frames the typewriter needs to show a block one character at a time.
-//
-// It is a loop of repaints rather than a timer: each pass advances the reveal by the time since
-// the previous one and stops as soon as there is nothing left to show. When the typewriter is off
-// the loop does not run at all, so the cost of this is exactly the effect the user asked for.
-func (t *TUI) revealPending(idx int) {
-	if t.crt == nil || !t.crt.cfg.Typewriter {
-		return
-	}
-	for t.crt.typingInProgress() {
-		t.drawFrame()
-		// The repaint is what advances the reveal, and the delay is what gives the user something
-		// to see: without it the loop would spin at full speed and show the whole answer in one
-		// frame, which is the bug this exists to fix.
-		interval := t.revealInterval
-		if interval <= 0 {
-			interval = revealFrameInterval
-		}
-		time.Sleep(interval)
-	}
 }
 
 // askSource is implemented by a runner that can hand over the questions of the last turn.
@@ -1045,15 +997,6 @@ func (t *TUI) runPlan(ctx context.Context, prompt string) {
 		stream.openPending()
 	}
 	stream.settle(result.err, result.result)
-
-	// Whatever just arrived needs frames to be revealed in. closePending and settle both
-	// flip Pending to false in one assignment, which is the very thing that lets the answer
-	// appear whole on the only frame ever drawn — the reveal was given nothing to do, and
-	// the typewriter effect looked broken. The block is put back to pending, the reveal is
-	// driven by drawFrame, and only when it has finished is the flag cleared.
-	t.messages[stream.pendingIdx].Pending = true
-	t.revealPending(stream.pendingIdx)
-	t.messages[stream.pendingIdx].Pending = false
 	t.endTurn()
 }
 

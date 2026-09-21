@@ -175,34 +175,21 @@ func TestIntermediateEscapesContinueTheSequence(t *testing.T) {
 var _ AgentRunner = (*resultAgent)(nil)
 var _ = agent.TaskResult{}
 
-// TestRunPlanRevealsTheAnswerOnTheRealFrame: when a plan turn finishes, the answer must arrive
-// in the chat with the typewriter advancing over multiple frames. The previous shape assigned
-// the text and cleared Pending in one pass, which left the reveal with nothing to do: the only
-// frame ever drawn showed the whole answer.
-func TestRunPlanRevealsTheAnswerOnTheRealFrame(t *testing.T) {
-	runner := &fakeRunner{planAnswer: "la respuesta es larga y debe aparecer letra a letra, no toda de golpe"}
+// TestRunPlanShowsTheAnswer: when a plan turn finishes, the answer must arrive in the chat whole.
+// The interface used to keep it pending and reveal it a character at a time; that effect is gone,
+// so the only thing that matters now is that the complete answer is on the screen.
+func TestRunPlanShowsTheAnswer(t *testing.T) {
+	runner := &fakeRunner{planAnswer: "the long answer must arrive whole, at once"}
 	// tab navigates Task -> Plan; the question then runs as a plan.
 	tui := newFakeTUI("tab\nuna pregunta\nq\n", runner)
-	cfg := config.Default()
-	cfg.CRT.Enabled = true
-	cfg.CRT.Typewriter = true
-	cfg.CRT.TypewriterCPS = 1000 // fast enough that the test is bounded but slow enough that frames matter
-	tui.crt = newCRT(cfg.CRT)
-	// A short width so the answer wraps and lays out on more than one frame.
+	// A short width so the answer wraps and lays out over more than one row.
 	tui.Width = 60
 	tui.Height = 20
 	tui.Run(context.Background())
 
 	visible := stripANSI(outputOf(tui))
-	if !strings.Contains(visible, "respuesta es larga") {
+	if !strings.Contains(visible, "the long answer must arrive whole, at once") {
 		t.Fatalf("the answer must be in the chat:\n%s", visible)
-	}
-
-	// The reveal must have advanced: that means drawFrame was called at least twice while
-	// the answer was still pending, which only happens if Pending was kept true across the
-	// revealPending loop in runPlan.
-	if tui.crt.calls == 0 {
-		t.Fatal("reveal was never asked to advance: runPlan did not give it frames")
 	}
 }
 

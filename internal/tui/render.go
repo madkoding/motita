@@ -287,49 +287,9 @@ func (t *TUI) layout(w, h int) ([]string, string) {
 }
 
 // rowsBelowComposer is how many rows sit under the input box: the rule beneath it and the status
-// bar. It is a package constant rather than a local of layout because the CRT effect needs the
-// same number to know where the interface stops and the conversation begins, and two definitions
-// of "how tall is the composer" would drift apart.
+// bar. It is a package constant rather than a local of layout because more than one place needs
+// the same number, and two definitions of "how tall is the composer" would drift apart.
 const rowsBelowComposer = 2
-
-// crtText is the text to draw for a message: the body colour, and the typewriter reveal while
-// a reply is still being written.
-//
-// Only the block still being written is revealed a character at a time. Text that has already
-// settled is drawn whole, always: revealing it again on every repaint would make a finished
-// answer flicker back and forth — and the reveal exists to make incoming text feel printed, not
-// to make old text unreadable.
-//
-// A message that is NOT pending has nothing left to reveal, so the reveal is ended here. That is
-// what keeps it from being left running against a target that will never grow again.
-func (t *TUI) crtText(m Message) string {
-	if t.crt == nil {
-		return m.Text
-	}
-	text := m.Text
-	sweeping := false
-	if t.crt.cfg.Typewriter {
-		switch {
-		case !m.Pending:
-			if t.crt.typingInProgress() {
-				t.crt.stopTyping()
-			}
-		default:
-			// The reveal is retargeted to the growing text and advanced by the time since the
-			// last frame. Reading the clock here rather than holding a ticker keeps the reveal
-			// tied to the repaints the interface already does: text arriving IS a repaint, so
-			// nothing extra is scheduled.
-			t.crt.startTyping(text)
-			text = t.crt.reveal(t.crt.tick())
-			// The sweep marks the leading edge of text still arriving. Once the reveal has
-			// caught up with the target there is no edge to mark, so the body drops to the base
-			// colour and stays there: a finished answer must not keep a pale patch on its last
-			// characters. "It changes colour at the end" was that patch.
-			sweeping = t.crt.typingInProgress()
-		}
-	}
-	return t.crt.paint(text, sweeping)
-}
 
 // drawFrame paints the whole interface.
 //
@@ -747,7 +707,7 @@ func (t *TUI) messageLines(m Message, inner int) []string {
 			head += "  " + t.color(colWarning, 0, spinner[t.spin%len(spinner)]+" working")
 			body = colWarning
 		}
-		return append([]string{t.cell(head, inner)}, t.railLines(t.crtText(m), inner, body, colMuted)...)
+		return append([]string{t.cell(head, inner)}, t.railLines(m.Text, inner, body, colMuted)...)
 
 	default:
 		var lines []string

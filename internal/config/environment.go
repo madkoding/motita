@@ -19,19 +19,6 @@ import (
 func ApplyEnvironment(c *Config) error {
 	var err error
 
-	// --- crt ---
-	// The effect is read like everything else, so a user can try it without editing their file:
-	// STARLIGHT_CRT_ENABLED=false turns it off for a single run.
-	if c.CRT.Enabled, err = readBool("STARLIGHT_CRT_ENABLED", c.CRT.Enabled); err != nil {
-		return err
-	}
-	if c.CRT.Typewriter, err = readBool("STARLIGHT_CRT_TYPEWRITER", c.CRT.Typewriter); err != nil {
-		return err
-	}
-	if c.CRT.TypewriterCPS, err = readFloat("STARLIGHT_CRT_TYPEWRITER_CPS", c.CRT.TypewriterCPS); err != nil {
-		return err
-	}
-
 	// --- task_source ---
 	c.TaskSource.Kind = readText("STARLIGHT_TASK_SOURCE_KIND", c.TaskSource.Kind)
 	c.TaskSource.Path = readText("STARLIGHT_TASK_SOURCE_PATH", c.TaskSource.Path)
@@ -313,21 +300,8 @@ func readInteger(key string, current int) (int, error) {
 	return n, nil
 }
 
-// readFloat reads a fractional setting. It exists for the CRT intensities, whose whole point is
-// that they are dialled rather than switched: a scanline strength of 0.6 is a different screen
-// from 1.0, and the boolean form could not express either.
-func readFloat(key string, current float64) (float64, error) {
-	v, ok := os.LookupEnv(key)
-	if !ok || strings.TrimSpace(v) == "" {
-		return current, nil
-	}
-	f, err := strconv.ParseFloat(strings.TrimSpace(v), 64)
-	if err != nil {
-		return current, fmt.Errorf("%s: %q is not a number", key, v)
-	}
-	return f, nil
-}
-
+// readBool reads a boolean setting. The accepted spellings mirror what systemd and the shell
+// already use, so a value that works in one place works here too.
 func readBool(key string, current bool) (bool, error) {
 	v, ok := os.LookupEnv(key)
 	if !ok || strings.TrimSpace(v) == "" {

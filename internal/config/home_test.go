@@ -290,22 +290,3 @@ func TestResolvePathsWithNothingToAnchorOn(t *testing.T) {
 		t.Errorf("workspace = %q, want it unchanged (%q)", c.Agent.WorkspaceDir, before)
 	}
 }
-
-// --- validating the effect --------------------------------------------------
-
-// (Color and RGB were removed when the typewriter effect stopped carrying a phosphor: the
-// sweep colours are constants in the renderer and have nothing to validate here.)
-
-// A negative speed is rejected rather than clamped: it would make the reveal run backwards, and
-// a number the user typed wrong must be reported, not silently corrected.
-func TestANegativeTypewriterSpeedIsRejected(t *testing.T) {
-	cfg := Default()
-	cfg.CRT.TypewriterCPS = -1
-	err := cfg.validate(false)
-	if err == nil {
-		t.Fatal("a negative speed must be rejected")
-	}
-	if !strings.Contains(err.Error(), "typewriter_cps") {
-		t.Errorf("the failure must name the field: %v", err)
-	}
-}

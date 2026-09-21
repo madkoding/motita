@@ -28,7 +28,6 @@ type Config struct {
 	FinalAction FinalAction `yaml:"final_action"`
 	Agent       Agent       `yaml:"agent"`
 	Skills      Skills      `yaml:"skills"`
-	CRT         CRT         `yaml:"crt"`
 }
 
 // TaskSource describes where the tasks come from.
@@ -110,28 +109,6 @@ type Skills struct {
 	// MaxFileBytes caps one document, so a stray large file cannot be pulled into the
 	// context as if it were a procedure.
 	MaxFileBytes int `yaml:"max_file_bytes"`
-}
-
-// CRT is the effect drawn over streamed text: the phosphor colour and a typewriter reveal.
-//
-// It is ON by default, which is a deliberate choice for a cosmetic feature: it is the look the
-// author intends, and a user who does not want it turns it off with one line.
-//
-// Only the two effects that carry it are here. The scanlines, the flicker, the vignette, the
-// noise and the glow were built, measured and REMOVED: on a real screen they compete with the
-// text, and an interface is read. An effect that makes reading harder is an effect that gets
-// turned off, and one the user has to tolerate rather than enjoy.
-type CRT struct {
-	// Enabled turns the effect off, leaving the plain interface.
-	Enabled bool `yaml:"enabled"`
-	// Typewriter reveals streamed text one character at a time instead of all at once, which is
-	// what makes it feel like a machine printing it.
-	Typewriter bool `yaml:"typewriter"`
-	// TypewriterCPS is how many characters are revealed per second. 10 ms per character is
-	// 100 cps: fast enough that a long reply is not a wait, slow enough that the eye still
-	// sees the text arrive one glyph at a time. The earlier default was 50 cps (20 ms), which
-	// the author asked to double.
-	TypewriterCPS float64 `yaml:"typewriter_cps"`
 }
 
 // Session describes how a conversation is kept inside the model's context window.
@@ -257,11 +234,6 @@ func Default() Config {
 				Enabled: false,
 				Level:   "medium",
 			},
-		},
-		CRT: CRT{
-			Enabled:       true,
-			Typewriter:    true,
-			TypewriterCPS: 100,
 		},
 		Skills: Skills{
 			Dir:          defaultSkillsDir(),
@@ -570,10 +542,6 @@ func (c *Config) validate(requireKey bool) error {
 	case "git_commit":
 	default:
 		return fmt.Errorf("unknown final_action.kind: %q (use none, command, api or git_commit)", c.FinalAction.Kind)
-	}
-
-	if c.CRT.TypewriterCPS < 0 {
-		return fmt.Errorf("crt.typewriter_cps cannot be negative, got %v", c.CRT.TypewriterCPS)
 	}
 
 	if c.Agent.MaxRetries < 0 {
