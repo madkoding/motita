@@ -77,6 +77,9 @@ test-matrix: ## Check the tests build for every supported platform
 vet: ## Static analysis
 	$(GO) vet ./...
 
+bench: ## Profile the per-keystroke render path (the cost the user feels while typing)
+	$(GO) test -run '^$$' -bench . -benchmem ./internal/tui/
+
 fmt: ## Format the code
 	$(GO) fmt ./...
 

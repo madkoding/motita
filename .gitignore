@@ -28,6 +28,7 @@ agent_i386
 # Test artefacts
 coverage.out
 .e2e/
+*.test
 
 # Local plans and scratch written by the agent's own tooling, not part of the project
 /.hermes/

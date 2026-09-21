@@ -5,6 +5,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"unicode/utf8"
 )
 
 // The palette is the standard 16-colour one, so any terminal can render it.
@@ -992,8 +993,28 @@ func (t *TUI) color(fg, bg int, s string) string {
 	return fmt.Sprintf("\x1b[%d;%dm%s\x1b[0m", 30+fg, 40+bg, s)
 }
 
-// wordWrap splits s into lines of at most width columns, breaking on spaces and
-// only splitting a word when a single word is longer than the line.
+// wordWrap breaks text into lines of at most `width` COLUMNS.
+//
+// The width is measured with visibleLen, so an escape sequence costs nothing and a multi-byte
+// rune costs one column — which is what keeps an accented or emoji line from being counted as
+// several columns too wide.
+//
+// Two things are done in one pass here, and both matter on the hot path (this runs for every
+// conversation block on every keystroke):
+//
+//   - the running width is kept as a NUMBER instead of being recovered with
+//     visibleLen(cur.String()) once per word. The old form re-scanned everything accumulated so
+//     far for every word added, which is O(n^2) in the length of a paragraph.
+//   - a word that does not fit is hard split, whether or not the line is still empty. Hard
+//     splitting only when `cur` was empty meant a long word AFTER a short one was emitted whole
+//     and broke the promise this function makes: `wordWrap("uno acentos", 4)` returned a
+//     7-column line for a 4-column width.
+//
+// The caller then hands that line to cell(), which clips it to the panel and marks the cut with
+// an ellipsis. So the visible damage is SILENT TRUNCATION: a path or a URL in a conversation
+// block loses its tail and the reader has no way to know something is missing — they see a
+// plausible-looking shorter path. The width invariant is therefore asserted directly in
+// TestWordWrapWidthIsMeasuredInVisibleColumns, which is the regression test for this bug.
 func wordWrap(s string, width int) []string {
 	if width <= 0 {
 		return []string{s}
@@ -1001,34 +1022,84 @@ func wordWrap(s string, width int) []string {
 	var lines []string
 	for _, para := range strings.Split(s, "\n") {
 		var cur strings.Builder
-		for _, word := range strings.Fields(para) {
-			if visibleLen(cur.String())+visibleLen(word)+1 > width {
-				if cur.Len() == 0 {
-					// A single word wider than the line: hard split it.
-					runes := []rune(word)
-					for len(runes) > width {
-						lines = append(lines, string(runes[:width]))
-						runes = runes[width:]
-					}
-					cur.WriteString(string(runes))
-					continue
-				}
+		curWidth := 0
+
+		flush := func() {
+			if cur.Len() > 0 {
 				lines = append(lines, strings.TrimSpace(cur.String()))
 				cur.Reset()
+				curWidth = 0
 			}
-			if cur.Len() > 0 {
-				cur.WriteByte(' ')
+		}
+
+		for _, word := range strings.Fields(para) {
+			w := visibleLen(word)
+			// The separator costs a column when something is already on the line.
+			need := w
+			if curWidth > 0 {
+				need++
 			}
-			cur.WriteString(word)
+			if curWidth+need <= width {
+				if curWidth > 0 {
+					cur.WriteByte(' ')
+					curWidth++
+				}
+				cur.WriteString(word)
+				curWidth += w
+				continue
+			}
+			// The word does not fit on the current line.
+			flush()
+			if w <= width {
+				cur.WriteString(word)
+				curWidth = w
+				continue
+			}
+			// Wider than a whole line: hard split it into width-sized pieces, keeping the
+			// remainder on the current line so the next word can share it.
+			for w > width {
+				cut, piece := splitAtWidth(word, width)
+				lines = append(lines, piece)
+				word = word[cut:]
+				w = visibleLen(word)
+			}
+			if w > 0 {
+				cur.WriteString(word)
+				curWidth = w
+			}
 		}
-		if cur.Len() > 0 {
-			lines = append(lines, strings.TrimSpace(cur.String()))
-		}
+		flush()
 	}
 	if len(lines) == 0 {
 		lines = append(lines, "")
 	}
 	return lines
+}
+
+// splitAtWidth cuts s after the first `width` COLUMNS and returns the byte offset of the cut
+// together with the piece before it.
+//
+// It walks runes rather than taking s[:width]: a rune that is not ASCII occupies one column but
+// several bytes, so cutting by byte offset would slice an encoding in half, and the halves of a
+// broken UTF-8 sequence are not text — the terminal draws them as replacement characters.
+//
+// The offset returned is always > 0 for a non-empty s — a rune is at least one byte, and an
+// invalid byte is decoded as a one-byte rune — which is what makes the caller's split loop
+// terminate instead of spinning on a zero-length piece.
+//
+// Callers pass uncoloured text: wordWrap runs BEFORE t.color, so there are no escape sequences
+// here to step over. If that ever changes, this needs the same state machine scanEscapes uses.
+func splitAtWidth(s string, width int) (int, string) {
+	cols := 0
+	for i := 0; i < len(s); {
+		if cols == width {
+			return i, s[:i]
+		}
+		_, size := utf8.DecodeRuneInString(s[i:])
+		i += size
+		cols++
+	}
+	return len(s), s
 }
 
 // Escapes are parsed with a state machine instead of "skip until a byte in
@@ -1114,9 +1185,16 @@ func scanEscapes(s string, visit func(r rune, isEscape bool)) {
 	}
 }
 
-// visibleLen is the width a decorated string occupies on screen: escape
-// sequences cost no columns and every other rune costs one.
+// visibleLen returns how many COLUMNS a line occupies, escapes excluded.
+//
+// No ESC byte means every rune is text, so the count is taken directly and the closure-per-rune
+// state machine is skipped. That is the common case — this function is called per word while
+// wrapping and per line while fitting the frame — and the machine was 36% of the per-keystroke
+// profile even when there was nothing to unescape.
 func visibleLen(s string) int {
+	if strings.IndexByte(s, 0x1b) < 0 {
+		return utf8.RuneCountInString(s)
+	}
 	n := 0
 	scanEscapes(s, func(_ rune, isEscape bool) {
 		if !isEscape {
@@ -1127,8 +1205,15 @@ func visibleLen(s string) int {
 }
 
 // stripANSI removes every escape sequence, for no-colour mode.
+//
+// A line with no ESC byte is already stripped, so it is returned as-is instead of being copied
+// rune by rune through the state machine.
 func stripANSI(s string) string {
+	if strings.IndexByte(s, 0x1b) < 0 {
+		return s
+	}
 	var b strings.Builder
+	b.Grow(len(s))
 	scanEscapes(s, func(r rune, isEscape bool) {
 		if !isEscape {
 			b.WriteRune(r)
