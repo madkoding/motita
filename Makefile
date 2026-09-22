@@ -9,22 +9,22 @@ COVERPKG  := ./...
 # Packages with tests (the coverage report walks them one by one).
 PKGS      := ./internal/... ./cmd/... ./tools/...
 
-# Every platform Go can build these two programs for. windows/arm, darwin/386 and
+# Every platform Go can build cmd/agent for. windows/arm, darwin/386 and
 # darwin/arm do not exist in Go: the toolchain refuses them, so they are not listed.
 PLATFORMS := linux/386 linux/amd64 linux/arm linux/arm64 \
              windows/386 windows/amd64 windows/arm64 \
              darwin/amd64 darwin/arm64
 
-.PHONY: help build dist dist-agent dist-chat test vet fmt fmt-check check cover \
-        clean run smoke e2e e2e-agent test-matrix
+.PHONY: help build dist verify-dist test test-matrix vet bench fmt fmt-check check cover \
+        run smoke e2e e2e-agent clean
 
 help: ## Show this help
 	@grep -E '^[a-zA-Z0-9_-]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN{FS=":.*?## "}{printf "  \033[36m%-14s\033[0m %s\n", $$1, $$2}'
 
-build: ## Build both programs for the host architecture
+build: ## Build the agent for the host architecture
 	$(GO) build -trimpath -ldflags "$(LDFLAGS)" -o $(DIST)/starlight ./cmd/agent
 
-dist: ## Build both programs for every supported platform
+dist: ## Build the agent for every supported platform
 	@mkdir -p $(DIST)
 	@for p in $(PLATFORMS); do \
 		os=$${p%/*}; arch=$${p#*/}; ext=""; \
