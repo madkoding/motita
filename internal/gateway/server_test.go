@@ -341,17 +341,13 @@ func TestIsLoopbackKnowsItsAddresses(t *testing.T) {
 	}
 }
 
+// The endpoints whose behaviour is not written yet, and only those. The list SHRINKS as the real
+// handlers land: this test is here to prove the routes exist, are behind the token and answer with
+// the shared refusal shape while the work is in progress, not to freeze a placeholder. When the
+// last one is real, this test is deleted.
 func TestTheEndpointsThatAreNotWrittenYetSaySo(t *testing.T) {
 	srv := newTestServer(t, &fakeService{})
 	cases := []struct{ method, path string }{
-		{http.MethodGet, "/v1/session"},
-		{http.MethodGet, "/v1/session/report"},
-		{http.MethodPost, "/v1/session/reset"},
-		{http.MethodGet, "/v1/models"},
-		{http.MethodPost, "/v1/reasoning"},
-		{http.MethodPost, "/v1/verdict"},
-		{http.MethodGet, "/v1/reward"},
-		{http.MethodGet, "/v1/questions"},
 		{http.MethodPost, "/v1/task"},
 		{http.MethodPost, "/v1/plan"},
 		{http.MethodPost, "/v1/runs/approval"},
@@ -362,11 +358,18 @@ func TestTheEndpointsThatAreNotWrittenYetSaySo(t *testing.T) {
 			req.Header.Set("Authorization", "Bearer "+testToken)
 			w := httptest.NewRecorder()
 			srv.Handler().ServeHTTP(w, req)
-			// Either answer is acceptable while the work is in progress, and the test says so
-			// rather than pinning 501: it is here to prove the ROUTE exists and is behind the
-			// token, not to freeze a placeholder.
-			if w.Code != http.StatusNotImplemented && w.Code != http.StatusOK {
-				t.Errorf("status = %d, want 501 (not written yet) or 200", w.Code)
+			if w.Code != http.StatusNotImplemented {
+				t.Errorf("status = %d, want 501 (not written yet)", w.Code)
+			}
+			// And the refusal has the one shape a client parses, so "not yet" is not a surprise.
+			var e struct {
+				Error string `json:"error"`
+			}
+			if err := json.Unmarshal(w.Body.Bytes(), &e); err != nil {
+				t.Fatalf("body = %q: %v", w.Body.String(), err)
+			}
+			if e.Error == "" {
+				t.Errorf("the refusal must carry a reason: %q", w.Body.String())
 			}
 		})
 	}
