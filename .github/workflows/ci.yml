@@ -54,7 +54,15 @@ jobs:
           go run honnef.co/go/tools/cmd/staticcheck@v0.6.1 ./...
 
       - name: the Go floor is still a supported release
-        run: sh scripts/check-go-floor.sh
+        run: |
+          # Exit 2 means "could not check" (go.dev unreachable): a warning, not a red
+          # build. Exit 1 (the floor is out of support) still fails.
+          rc=0; sh scripts/check-go-floor.sh || rc=$?
+          if [ "$rc" -eq 2 ]; then
+            echo "::warning::go floor check could not run (no network)"
+          elif [ "$rc" -ne 0 ]; then
+            exit "$rc"
+          fi
 
       # NOTE: staticcheck must run on the go.mod toolchain (setup-go provides exactly
       # that). No published version parses the export data of a much newer Go yet: under
@@ -113,9 +121,28 @@ jobs:
           go test -coverpkg=./... -coverprofile=coverage.out -covermode=atomic ./... >/dev/null
           printf 'aggregate: '; go tool cover -func=coverage.out | tail -1
 
+  # darwin is a shipped platform, but the build job only cross-compiles it: the tests
+  # have to run on a real macOS (/etc, /var and /tmp are symlinks into /private there).
+  verify-darwin:
+    name: vet · test (macOS)
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+          cache: false
+
+      - name: go vet
+        run: go vet ./...
+
+      - name: go test (with race detector)
+        run: go test -count=1 -race ./...
+
   build:
     name: build ${{ matrix.goos }}/${{ matrix.goarch }}
-    needs: verify
+    needs: [verify, verify-darwin]
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
