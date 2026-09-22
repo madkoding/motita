@@ -88,3 +88,59 @@ func TestTheREADMEsWorkingTreeClaimHolds(t *testing.T) {
 		t.Logf("holds: %-58s refused=%-5v", c.desc, hit)
 	}
 }
+
+// The guardrail section diagrams three verdicts, and the diagram is the part an operator reads
+// and believes. Each row of it is asserted here, in both directions: what the README says runs
+// without a question must run, and what it says is asked about must be asked about.
+//
+// The middle row is the one that took a fix to make true, so it is the one worth pinning: the
+// project's ordinary work is silent, and what nobody can predict is not.
+func TestTheREADMEsGuardrailDiagramHolds(t *testing.T) {
+	dir := t.TempDir()
+
+	// "allow — it changes nothing, or it changes the workspace you pointed the agent at"
+	silent := []string{
+		"ls -la", "cat README.md", "grep -rn TODO .", "make", "make check",
+		"go build ./...", "go test ./...", "npm test", "python3 build.py",
+		"rm -rf build", "mkdir -p out",
+	}
+	for _, line := range silent {
+		if d := Default().DecideLine(line, dir); d.Verdict != Allow {
+			t.Errorf("README says %q runs without a question; it is %s (rule %s)",
+				line, d.Verdict, d.Rule)
+		}
+	}
+
+	// "ask — it reaches the network or the system, writes outside the workspace, or is
+	//  something nobody can classify → YOU are asked"
+	asked := []string{
+		"pip install x",               // reaches the network
+		"git push origin main",        // reaches outside the machine
+		"echo x > /tmp/outside.txt",   // writes outside the workspace
+		"htop",                        // nobody can classify it
+		"python3 -c 'x'",              // an inline program, as opaque as a shell line
+		"python3 /opt/other/build.py", // a script from outside the workspace
+	}
+	for _, line := range asked {
+		if d := Default().DecideLine(line, dir); d.Verdict != Ask {
+			t.Errorf("README says %q is asked about; it is %s (rule %s)", line, d.Verdict, d.Rule)
+		}
+	}
+
+	// "deny — strict mode: what cannot be classified is refused instead of asked about"
+	strict := Mode{Enforce: true, Strict: true}
+	for _, line := range []string{"htop", "terraform apply", "chmod 644"} {
+		if d := strict.DecideLine(line, dir); d.Verdict != Deny {
+			t.Errorf("README says strict refuses %q; it is %s", line, d.Verdict)
+		}
+	}
+
+	// "no key, no variable, no flag can reach this" — the floor, under the most permissive
+	// mode there is. Enforce off and Strict off is the most the operator can loosen.
+	loosest := Mode{Enforce: false, Strict: false}
+	floor := "rm -rf" + " /"
+	if d := loosest.DecideLine(floor, dir); !d.Mandatory || d.Verdict != Deny {
+		t.Errorf("README says the floor is unreachable by configuration; %q gave %s (mandatory=%v)",
+			floor, d.Verdict, d.Mandatory)
+	}
+}
