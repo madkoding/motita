@@ -152,8 +152,8 @@ jobs:
         if: matrix.goos == 'linux'
         run: |
           chmod +x dist/*
-          # The real artifact name is used (AGENT and CHAT include goos-goarch),
-          # never a hand-written one.
+          # The real artifact name is used (BINARY includes goos-goarch), never a
+          # hand-written one.
           docker run --rm -v "$PWD/dist:/t:ro" --platform "${{ matrix.platform }}" \
             "${{ matrix.container }}" sh -c "/t/$(basename "$BINARY") -version"
 
