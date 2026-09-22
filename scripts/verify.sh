@@ -205,32 +205,16 @@ done
 [ "$leak" -eq 0 ] && ok "both e2e scripts build only under dist/.e2e/"
 
 step "7c. the Go floor is still a supported release"
-# go.mod names the minimum Go the project builds with, and the project PUBLISHES the
-# stdlib that ships inside those binaries. Go supports each major release "until there
-# are two newer major releases", so a floor left alone for a year becomes a floor nobody
-# patches: Go 1.23 was in go.mod while its stdlib carried 26 vulnerabilities reachable
-# from this code, and nothing in the repository said so.
-#
-# go.dev/dl?mode=json lists exactly the supported releases, so "is our floor still
-# supported" can be asked directly instead of maintained as a date someone has to
-# remember to bump.
-floor="$(grep -oE '^go 1\.[0-9]+' go.mod | head -1 | sed 's/^go 1\.//')"
-if [ -z "$floor" ]; then
-  bad "go.mod does not state a Go version (expected a line like: go 1.26)"
+# The logic lives in scripts/check-go-floor.sh, and the CI calls the same script: one
+# implementation, two callers. Duplicating it here is how the two drift apart, and the
+# version that matters (the one that fails the merge) is CI's.
+if floor_out="$(sh scripts/check-go-floor.sh 2>&1)"; then
+  ok "$floor_out"
 else
-  # No jq on the target machine: one line per entry, take the version, keep the series.
-  supported="$(curl -fsSL --connect-timeout 10 "https://go.dev/dl/?mode=json" 2>/dev/null \
-    | tr '{' '\n' | grep -oE '"version":[[:space:]]*"go1\.[0-9]+' \
-    | grep -oE 'go1\.[0-9]+' | sed 's/^go1\.//' | sort -un)"
-  if [ -z "$supported" ]; then
-    # Declared, not silent: a netbook with no network still verifies everything else, and
-    # the CI job runs the same script with a network.
-    printf '  ..   cannot reach go.dev/go1 (no network): the support check did not run\n'
-  elif echo "$supported" | grep -qx "$floor"; then
-    ok "go.mod asks for go 1.${floor}, still among the supported series (1.$(echo "$supported" | tr '\n' ' ' | sed 's/ $//;s/ /, 1./g'))"
-  else
-    bad "go.mod asks for go 1.${floor}, which go.dev no longer lists as supported (latest series: 1.$(echo "$supported" | tail -1)). Move the floor up, then re-run govulncheck: the stdlib in the published binaries is what stops being patched."
-  fi
+  case "$?" in
+    2) printf '  ..   %s: the support check did not run\n' "$floor_out" ;;
+    *) bad "$floor_out" ;;
+  esac
 fi
 
 step "8. end-to-end tests on linux"

@@ -53,6 +53,9 @@ jobs:
           # go vet is happy with.
           go run honnef.co/go/tools/cmd/staticcheck@v0.6.1 ./...
 
+      - name: the Go floor is still a supported release
+        run: sh scripts/check-go-floor.sh
+
       - name: govulncheck
         run: |
           # Against the standard library and the module. With no external dependencies
