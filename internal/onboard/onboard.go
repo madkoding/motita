@@ -102,7 +102,9 @@ func Run(ctx context.Context, in io.Reader, out io.Writer, configPath string, pr
 		}
 	}
 
-	if key == "" {
+	// FetchModels providers were already asked above; a blank answer there
+	// means "set it later", not "ask again".
+	if key == "" && !provider.FetchModels {
 		key, err = w.askAPIKey(ctx, provider)
 		if err != nil {
 			return Result{}, err

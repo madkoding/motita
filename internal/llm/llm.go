@@ -4,7 +4,7 @@
 //
 //   - openai:    POST /chat/completions  (Bearer)
 //   - anthropic: POST /v1/messages       (x-api-key + anthropic-version)
-//   - gemini:    POST /v1beta/models/<model>:generateContent (?key=)
+//   - gemini:    POST /v1beta/models/<model>:generateContent (x-goog-api-key)
 //
 // Every provider is normalised to the same message structure and back to plain
 // text, so the agent loop never needs to know which one is behind it. Parsing of
@@ -38,10 +38,14 @@ type Message struct {
 
 // Client talks to the configured provider.
 type Client struct {
-	cfg   config.LLM
-	http  *http.Client
-	log   *logx.Logger
-	sleep func(time.Duration) // injectable so tests do not have to wait
+	cfg  config.LLM
+	http *http.Client
+	// stream sends the streaming requests. It has no overall timeout, which
+	// would cut a long answer mid-stream; the stream reader enforces an idle
+	// deadline between chunks instead (see callOpenAIToolsStream).
+	stream *http.Client
+	log    *logx.Logger
+	sleep  func(time.Duration) // injectable so tests do not have to wait
 	// openStream opens one streaming attempt. It is injectable so the retry
 	// wrapper can be tested against a producer that fails, or closes without a
 	// done chunk, without having to make a real server misbehave.
@@ -79,15 +83,13 @@ func New(cfg config.LLM, log *logx.Logger) (*Client, error) {
 		cfg.BackoffMax = cfg.BackoffInitial
 	}
 
+	transport := newTransport()
+	transport.ResponseHeaderTimeout = cfg.Timeout
 	return &Client{
-		cfg: cfg,
-		http: &http.Client{
-			Timeout: cfg.Timeout,
-			Transport: &http.Transport{
-				TLSClientConfig: TLSConfig(),
-			},
-		},
-		log: log,
+		cfg:    cfg,
+		http:   &http.Client{Timeout: cfg.Timeout, Transport: transport},
+		stream: &http.Client{Transport: transport},
+		log:    log,
 		sleep: func(d time.Duration) {
 			time.Sleep(d)
 		},
@@ -99,7 +101,44 @@ func (c *Client) openStreamOr() func(context.Context, []Message, []Tool) (<-chan
 	if c.openStream != nil {
 		return c.openStream
 	}
-	return c.callOpenAIToolsStream
+	switch strings.ToLower(c.cfg.Provider) {
+	case "anthropic", "gemini":
+		return c.callToolsAsStream
+	default:
+		return c.callOpenAIToolsStream
+	}
+}
+
+// newTransport is the transport every request uses: the default one (which keeps
+// the proxy from the environment and the dial and handshake timeouts) with the
+// embedded certificate pool.
+func newTransport() *http.Transport {
+	t := http.DefaultTransport.(*http.Transport).Clone()
+	t.TLSClientConfig = TLSConfig()
+	return t
+}
+
+// callToolsAsStream serves the streaming API for the providers that only have a
+// non-streaming adapter here: it makes one ordinary tool request and replays the
+// reply as chunks. Each call carries its index so an accumulator keeps calls that
+// have no id (Gemini) apart instead of folding them into one.
+func (c *Client) callToolsAsStream(ctx context.Context, messages []Message, tools []Tool) (<-chan StreamChunk, error) {
+	reply, err := c.callTools(ctx, messages, tools)
+	if err != nil {
+		return nil, err
+	}
+	out := make(chan StreamChunk, len(reply.Calls)+2)
+	if reply.Content != "" {
+		out <- StreamChunk{Event: StreamText, Text: reply.Content}
+	}
+	for i := range reply.Calls {
+		call := reply.Calls[i]
+		call.Index = &i
+		out <- StreamChunk{Event: StreamToolCall, Call: &call}
+	}
+	out <- StreamChunk{Event: StreamDone, Reply: reply}
+	close(out)
+	return out, nil
 }
 
 // Complete sends the conversation and returns the model's text, retrying with
@@ -348,12 +387,7 @@ func fetchModelList(ctx context.Context, url, apiKey string) ([]string, error) {
 		req.Header.Set("Authorization", "Bearer "+apiKey)
 	}
 
-	client := http.Client{
-		Timeout: 15 * time.Second,
-		Transport: &http.Transport{
-			TLSClientConfig: TLSConfig(),
-		},
-	}
+	client := http.Client{Timeout: 15 * time.Second, Transport: newTransport()}
 	resp, err := client.Do(req)
 	if err != nil {
 		return nil, err
@@ -528,8 +562,14 @@ func (c *Client) callOpenAIToolsStream(ctx context.Context, messages []Message, 
 	if err != nil {
 		return nil, fmt.Errorf("could not serialise the request: %w", err)
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(data))
+	// The request is cancelled when no chunk arrives for cfg.Timeout: the idle
+	// deadline that replaces an overall timeout, reset on every line read.
+	reqCtx, cancel := context.WithCancel(ctx)
+	idle := time.AfterFunc(c.cfg.Timeout, cancel)
+	stop := func() { idle.Stop(); cancel() }
+	req, err := http.NewRequestWithContext(reqCtx, http.MethodPost, url, bytes.NewReader(data))
 	if err != nil {
+		stop()
 		return nil, fmt.Errorf("invalid request: %w", err)
 	}
 	req.Header.Set("Content-Type", "application/json")
@@ -538,11 +578,13 @@ func (c *Client) callOpenAIToolsStream(ctx context.Context, messages []Message, 
 		req.Header.Set(k, v)
 	}
 
-	resp, err := c.http.Do(req)
+	resp, err := c.stream.Do(req)
 	if err != nil {
+		stop()
 		return nil, err
 	}
 	if resp.StatusCode != http.StatusOK {
+		defer stop()
 		defer resp.Body.Close()
 		b, _ := io.ReadAll(io.LimitReader(resp.Body, 8<<20))
 		return nil, &HTTPError{Code: resp.StatusCode, Body: strings.TrimSpace(string(b))}
@@ -551,19 +593,24 @@ func (c *Client) callOpenAIToolsStream(ctx context.Context, messages []Message, 
 	out := make(chan StreamChunk, 8)
 	go func() {
 		defer close(out)
+		defer stop()
 		defer resp.Body.Close()
 		reader := bufio.NewReader(resp.Body)
 		var acc StreamResult
 		for {
 			line, err := reader.ReadBytes('\n')
 			if err != nil {
-				if err == io.EOF {
+				switch {
+				case err == io.EOF:
 					out <- StreamChunk{Event: StreamDone, Reply: acc.FinalReply()}
-				} else {
+				case ctx.Err() == nil && reqCtx.Err() != nil:
+					out <- StreamChunk{Event: StreamError, Error: fmt.Errorf("the stream sent nothing for %s: %w", c.cfg.Timeout, err)}
+				default:
 					out <- StreamChunk{Event: StreamError, Error: err}
 				}
 				return
 			}
+			idle.Reset(c.cfg.Timeout)
 			line = bytes.TrimSpace(line)
 			if len(line) == 0 {
 				continue
@@ -810,15 +857,23 @@ func toAnthropicTools(tools []Tool) []map[string]any {
 	out := make([]map[string]any, 0, len(tools))
 	for _, t := range tools {
 		out = append(out, map[string]any{
-			"name":        t.Function.Name,
-			"description": t.Function.Description,
-			"input_schema": map[string]any{
-				"type":       "object",
-				"properties": t.Function.Parameters,
-			},
+			"name":         t.Function.Name,
+			"description":  t.Function.Description,
+			"input_schema": toolSchema(t),
 		})
 	}
 	return out
+}
+
+// toolSchema is the JSON Schema of a tool's parameters. Parameters is already a
+// full object schema (see ObjectSchema), so it is passed as is rather than nested
+// inside another object; a tool without parameters gets an empty object schema,
+// since both providers require one.
+func toolSchema(t Tool) map[string]any {
+	if t.Function.Parameters == nil {
+		return ObjectSchema(map[string]any{})
+	}
+	return t.Function.Parameters
 }
 
 // --- Gemini -----------------------------------------------------------------
@@ -876,9 +931,11 @@ func (c *Client) callGemini(ctx context.Context, messages []Message) (string, er
 	}
 
 	base := c.baseURL("https://generativelanguage.googleapis.com")
-	url := fmt.Sprintf("%s/v1beta/models/%s:generateContent?key=%s", base, c.cfg.Model, c.cfg.APIKey)
+	// The key goes in a header, not in the ?key= query: a URL ends up in
+	// net/http errors, and from there in logs and on the terminal.
+	url := fmt.Sprintf("%s/v1beta/models/%s:generateContent", base, c.cfg.Model)
 
-	data, err := c.post(ctx, url, nil, body)
+	data, err := c.post(ctx, url, map[string]string{"x-goog-api-key": c.cfg.APIKey}, body)
 	if err != nil {
 		return "", err
 	}
@@ -966,9 +1023,11 @@ func (c *Client) callGeminiTools(ctx context.Context, messages []Message, tools 
 	}
 
 	base := c.baseURL("https://generativelanguage.googleapis.com")
-	url := fmt.Sprintf("%s/v1beta/models/%s:generateContent?key=%s", base, c.cfg.Model, c.cfg.APIKey)
+	// The key goes in a header, not in the ?key= query: a URL ends up in
+	// net/http errors, and from there in logs and on the terminal.
+	url := fmt.Sprintf("%s/v1beta/models/%s:generateContent", base, c.cfg.Model)
 
-	data, err := c.post(ctx, url, nil, body)
+	data, err := c.post(ctx, url, map[string]string{"x-goog-api-key": c.cfg.APIKey}, body)
 	if err != nil {
 		return Reply{}, err
 	}
@@ -1010,10 +1069,7 @@ func toGeminiToolDeclarations(tools []Tool) []map[string]any {
 		out = append(out, map[string]any{
 			"name":        t.Function.Name,
 			"description": t.Function.Description,
-			"parameters": map[string]any{
-				"type":       "object",
-				"properties": t.Function.Parameters,
-			},
+			"parameters":  toolSchema(t),
 		})
 	}
 	return out

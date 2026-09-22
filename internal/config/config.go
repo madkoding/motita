@@ -88,7 +88,7 @@ type LLM struct {
 	Provider       string        `yaml:"provider"` // openai | anthropic | gemini
 	Model          string        `yaml:"model"`
 	APIKey         string        `yaml:"api_key"`
-	BaseURL        string        `yaml:"base_url"`
+	BaseURL        string        `yaml:"base_url"` // empty: the provider's own endpoint
 	MaxTokens      int           `yaml:"max_tokens"`
 	Temperature    float64       `yaml:"temperature"`
 	Timeout        time.Duration `yaml:"timeout"`
@@ -264,7 +264,6 @@ func Default() Config {
 		LLM: LLM{
 			Provider:       "openai",
 			Model:          "gpt-4o-mini",
-			BaseURL:        "https://api.openai.com/v1",
 			MaxTokens:      2048,
 			Temperature:    0.2,
 			Timeout:        90 * time.Second,

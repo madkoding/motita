@@ -3,6 +3,7 @@ package llm
 import (
 	"encoding/json"
 	"fmt"
+	"slices"
 	"strings"
 )
 
@@ -30,6 +31,10 @@ type FunctionDef struct {
 
 // ToolCall is one function the model asked for.
 type ToolCall struct {
+	// Index is the position of the call in a streamed reply. OpenAI sends the id
+	// and the name only on the first delta of a call and the index on every one,
+	// so the index is what ties the later argument fragments to their call.
+	Index    *int         `json:"index,omitempty"`
 	ID       string       `json:"id"`
 	Type     string       `json:"type"`
 	Function FunctionCall `json:"function"`
@@ -143,25 +148,80 @@ func (sr *StreamResult) Handle(chunk StreamChunk) bool {
 	case StreamText:
 		sr.Content.WriteString(chunk.Text)
 	case StreamToolCall:
-		if chunk.Call != nil {
-			if sr.LastCall == nil || sr.LastCall.ID != chunk.Call.ID {
-				sr.Calls = append(sr.Calls, *chunk.Call)
-				// LastCall must point at the copy that is now in the slice.
-				// Pointing it at the incoming chunk (which the caller may reuse)
-				// made the later fragments of the same call land outside the
-				// slice, so the arguments kept only their first piece.
-				sr.LastCall = &sr.Calls[len(sr.Calls)-1]
-			} else {
-				*sr.LastCall = *chunk.Call
-			}
+		if chunk.Call == nil {
+			break
+		}
+		if chunk.Call.Index != nil {
+			sr.mergeIndexed(*chunk.Call)
+		} else if sr.LastCall == nil || sr.LastCall.ID != chunk.Call.ID {
+			sr.Calls = append(sr.Calls, *chunk.Call)
+			// LastCall must point at the copy that is now in the slice.
+			// Pointing it at the incoming chunk (which the caller may reuse)
+			// made the later fragments of the same call land outside the
+			// slice, so the arguments kept only their first piece.
+			sr.LastCall = &sr.Calls[len(sr.Calls)-1]
+		} else {
+			*sr.LastCall = *chunk.Call
 		}
 	}
 	return false
 }
 
+// mergeIndexed folds one delta of an indexed call into the call with the same
+// index: the first non-empty id, type and name are kept, and the argument
+// fragments are concatenated, because each delta carries only the next piece.
+func (sr *StreamResult) mergeIndexed(delta ToolCall) {
+	for i := range sr.Calls {
+		dst := &sr.Calls[i]
+		if dst.Index == nil || *dst.Index != *delta.Index {
+			continue
+		}
+		if dst.ID == "" {
+			dst.ID = delta.ID
+		}
+		if dst.Type == "" {
+			dst.Type = delta.Type
+		}
+		if dst.Function.Name == "" {
+			dst.Function.Name = delta.Function.Name
+		}
+		dst.Function.Arguments = appendArguments(dst.Function.Arguments, delta.Function.Arguments)
+		sr.LastCall = dst
+		return
+	}
+	sr.Calls = append(sr.Calls, delta)
+	sr.LastCall = &sr.Calls[len(sr.Calls)-1]
+}
+
+// appendArguments adds one streamed argument fragment to what has arrived so far.
+// A fragment in the specification's shape is a JSON string holding the next piece
+// of the arguments text, so the pieces are joined and kept as one JSON string. A
+// fragment in any other shape (an object from a gateway) is complete on its own
+// and replaces what was there.
+func appendArguments(have, fragment json.RawMessage) json.RawMessage {
+	frag := trimSpace(fragment)
+	if len(frag) == 0 {
+		return have
+	}
+	var piece string
+	if frag[0] != '"' || json.Unmarshal(frag, &piece) != nil {
+		return fragment
+	}
+	var prev string
+	_ = json.Unmarshal(have, &prev) // not a string yet (empty or object): start over
+	joined, _ := json.Marshal(prev + piece)
+	return joined
+}
+
 // FinalReply builds the accumulated Reply from the stream.
 func (sr StreamResult) FinalReply() Reply {
-	return Reply{Content: sr.Content.String(), Calls: sr.Calls, FinishReason: "stop"}
+	// The stream index only ties fragments together; it is not part of the call
+	// that goes back to the provider in the next assistant turn.
+	calls := slices.Clone(sr.Calls)
+	for i := range calls {
+		calls[i].Index = nil
+	}
+	return Reply{Content: sr.Content.String(), Calls: calls, FinishReason: "stop"}
 }
 
 func (sc StreamChunk) String() string {

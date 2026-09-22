@@ -486,3 +486,192 @@ func TestARealTLSHandshakeWithTheEmbeddedBundle(t *testing.T) {
 		t.Error("an unknown CA must be rejected: the check above proves nothing otherwise")
 	}
 }
+
+// TestAToolCallStreamedInFragmentsIsReassembled: OpenAI sends the id and the name
+// only on the first delta of a call and then only the index and the next piece of
+// the arguments. The pieces must end up as one call with the whole arguments.
+func TestAToolCallStreamedInFragmentsIsReassembled(t *testing.T) {
+	payload := `data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"call_1","type":"function","function":{"name":"read_file","arguments":""}}]}}]}
+
+data: {"choices":[{"delta":{"tool_calls":[{"index":0,"function":{"arguments":"{\"pa"}}]}}]}
+
+data: {"choices":[{"delta":{"tool_calls":[{"index":0,"function":{"arguments":"th\":\"a.txt\"}"}}]}}]}
+
+data: {"choices":[{"delta":{"tool_calls":[{"index":1,"id":"call_2","function":{"name":"list_directory","arguments":"{}"}}]}}]}
+
+data: {"choices":[{"delta":{},"finish_reason":"tool_calls"}]}
+
+`
+	c := streamClient(t, sseServer(t, payload, http.StatusOK).URL)
+	var acc StreamResult
+	var done Reply
+	for chunk := range c.CompleteToolsStream(context.Background(), []Message{{Role: "user", Content: "x"}}, nil) {
+		acc.Handle(chunk)
+		if chunk.Event == StreamDone {
+			done = chunk.Reply
+		}
+	}
+	for _, reply := range []Reply{acc.FinalReply(), done} {
+		if len(reply.Calls) != 2 {
+			t.Fatalf("calls = %+v, want 2", reply.Calls)
+		}
+		first := reply.Calls[0]
+		if first.ID != "call_1" || first.Type != "function" || first.Function.Name != "read_file" || first.Index != nil {
+			t.Errorf("first call = %+v", first)
+		}
+		var args struct{ Path string }
+		if err := first.Function.DecodeArguments(&args); err != nil || args.Path != "a.txt" {
+			t.Errorf("arguments = %s (%v), want path a.txt", first.Function.Arguments, err)
+		}
+		if reply.Calls[1].Function.Name != "list_directory" {
+			t.Errorf("second call = %+v", reply.Calls[1])
+		}
+	}
+}
+
+// TestIndexedFragmentsInOtherShapesAreKept: an empty fragment adds nothing, and a
+// fragment that is not a JSON string (an object from a gateway, or a malformed
+// string) is complete on its own and replaces what was there.
+func TestIndexedFragmentsInOtherShapesAreKept(t *testing.T) {
+	zero := 0
+	var acc StreamResult
+	acc.Handle(StreamChunk{Event: StreamToolCall})
+	acc.Handle(StreamChunk{Event: StreamToolCall, Call: &ToolCall{Index: &zero, Function: FunctionCall{Arguments: json.RawMessage(`"{\"a\""`)}}})
+	acc.Handle(StreamChunk{Event: StreamToolCall, Call: &ToolCall{Index: &zero, Type: "function", Function: FunctionCall{Name: "t"}}})
+	if acc.Calls[0].Type != "function" || acc.Calls[0].Function.Name != "t" {
+		t.Errorf("a type and a name that arrive late must be kept, got %+v", acc.Calls[0])
+	}
+	if got := string(acc.Calls[0].Function.Arguments); got != `"{\"a\""` {
+		t.Errorf("an empty fragment must add nothing, got %s", got)
+	}
+	acc.Handle(StreamChunk{Event: StreamToolCall, Call: &ToolCall{Index: &zero, Function: FunctionCall{Arguments: json.RawMessage(`{"a":1}`)}}})
+	if got := string(acc.Calls[0].Function.Arguments); got != `{"a":1}` {
+		t.Errorf("an object fragment must replace, got %s", got)
+	}
+	acc.Handle(StreamChunk{Event: StreamToolCall, Call: &ToolCall{Index: &zero, Function: FunctionCall{Arguments: json.RawMessage(`"bad`)}}})
+	if got := string(acc.Calls[0].Function.Arguments); got != `"bad` {
+		t.Errorf("a malformed string fragment must replace, got %s", got)
+	}
+	if len(acc.Calls) != 1 || acc.LastCall != &acc.Calls[0] {
+		t.Errorf("every fragment belongs to the one call: %+v", acc.Calls)
+	}
+}
+
+// TestAnthropicAndGeminiStreamThroughTheirOwnAPI: the streaming entry point must
+// speak each provider's protocol, not send OpenAI's /chat/completions to all of
+// them, and must pass the tool schema as is instead of nesting it.
+func TestAnthropicAndGeminiStreamThroughTheirOwnAPI(t *testing.T) {
+	cases := map[string]string{
+		"anthropic": `{"content":[{"type":"text","text":"ok"},{"type":"tool_use","id":"t1","name":"read_file","input":{"path":"a"}},{"type":"tool_use","id":"t2","name":"noop","input":{}}]}`,
+		"gemini":    `{"candidates":[{"content":{"parts":[{"text":"ok"},{"functionCall":{"name":"read_file","args":{"path":"a"}}},{"functionCall":{"name":"noop","args":{}}}]},"finishReason":"STOP"}]}`,
+	}
+	tools := []Tool{
+		NewTool("read_file", "reads", ObjectSchema(map[string]any{"path": StringProperty("p")}, "path")),
+		NewTool("noop", "nothing", nil),
+	}
+	for provider, answer := range cases {
+		t.Run(provider, func(t *testing.T) {
+			var path string
+			var body map[string]any
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				path = r.URL.Path
+				_ = json.NewDecoder(r.Body).Decode(&body)
+				fmt.Fprint(w, answer)
+			}))
+			defer srv.Close()
+
+			c := testClient(t, provider, srv.URL, nil)
+			var acc StreamResult
+			for chunk := range c.CompleteToolsStream(context.Background(), []Message{{Role: "user", Content: "x"}}, tools) {
+				acc.Handle(chunk)
+			}
+			if strings.Contains(path, "chat/completions") {
+				t.Fatalf("%s was sent to %s", provider, path)
+			}
+			reply := acc.FinalReply()
+			if reply.Content != "ok" || len(reply.Calls) != 2 || reply.Calls[0].Function.Name != "read_file" || reply.Calls[1].Function.Name != "noop" {
+				t.Errorf("reply = %+v", reply)
+			}
+
+			encoded, _ := json.Marshal(body["tools"])
+			if strings.Contains(string(encoded), `"properties":{"properties"`) {
+				t.Errorf("the schema is nested inside another object: %s", encoded)
+			}
+			if !strings.Contains(string(encoded), `"required":["path"]`) || !strings.Contains(string(encoded), `{"properties":{},"type":"object"}`) {
+				t.Errorf("the schemas were not passed as is: %s", encoded)
+			}
+		})
+	}
+}
+
+// TestAFailedNonStreamingProviderEndsTheStreamWithTheError: the replayed stream
+// reports the request failure like any other stream does.
+func TestAFailedNonStreamingProviderEndsTheStreamWithTheError(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusBadRequest)
+	}))
+	defer srv.Close()
+	c := testClient(t, "anthropic", srv.URL, nil)
+	var last StreamChunk
+	for chunk := range c.CompleteToolsStream(context.Background(), nil, nil) {
+		last = chunk
+	}
+	var he *HTTPError
+	if last.Event != StreamError || !errors.As(last.Error, &he) || he.Code != http.StatusBadRequest {
+		t.Errorf("last chunk = %+v", last)
+	}
+}
+
+// TestALongStreamOutlivesTheTimeoutWhileChunksKeepArriving: the timeout bounds the
+// silence between chunks, not the whole answer, so a long answer is not cut off;
+// a stream that goes silent for longer than the timeout still fails.
+func TestALongStreamOutlivesTheTimeoutWhileChunksKeepArriving(t *testing.T) {
+	const timeout = 300 * time.Millisecond
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		for i := range 6 {
+			fmt.Fprintf(w, "data: {\"choices\":[{\"delta\":{\"content\":\"t%d \"}}]}\n\n", i)
+			w.(http.Flusher).Flush()
+			time.Sleep(timeout / 3)
+		}
+		if r.URL.Query().Get("stall") != "" {
+			<-r.Context().Done()
+			return
+		}
+		fmt.Fprint(w, "data: [DONE]\n\n")
+	}))
+	defer srv.Close()
+
+	run := func(base string) (string, StreamChunk) {
+		c := streamClient(t, base)
+		c.cfg.Timeout = timeout
+		var text strings.Builder
+		var last StreamChunk
+		for chunk := range c.CompleteToolsStream(context.Background(), nil, nil) {
+			text.WriteString(chunk.Text)
+			last = chunk
+		}
+		return text.String(), last
+	}
+
+	text, last := run(srv.URL)
+	if last.Event != StreamDone || text != "t0 t1 t2 t3 t4 t5 " {
+		t.Errorf("a stream longer than the timeout was cut: text=%q last=%+v", text, last)
+	}
+	_, last = run(srv.URL + "/stall?stall=1")
+	if last.Event != StreamError || !strings.Contains(last.Error.Error(), "sent nothing for") {
+		t.Errorf("a silent stream must fail with the idle deadline, got %+v", last)
+	}
+}
+
+// TestTheTransportKeepsTheProxyFromTheEnvironment: behind a corporate proxy every
+// request has to go through HTTPS_PROXY, which a bare http.Transport ignores.
+func TestTheTransportKeepsTheProxyFromTheEnvironment(t *testing.T) {
+	tr := newTransport()
+	if tr.Proxy == nil {
+		t.Error("the transport must use the proxy from the environment")
+	}
+	if tr.TLSClientConfig == nil || tr.TLSClientConfig.RootCAs != TLSConfig().RootCAs {
+		t.Error("the transport must use the embedded certificate pool")
+	}
+}

@@ -1,6 +1,7 @@
 package config
 
 import (
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -46,5 +47,61 @@ func TestAMalformedSkillsCapIsReported(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "STARLIGHT_SKILLS_MAX_FILE_BYTES") {
 		t.Errorf("the error must name the variable: %v", err)
+	}
+}
+
+// TestAnotherProviderDoesNotInheritTheOpenAIEndpoint: a provider named without a
+// base_url keeps it empty, so the llm package picks that provider's own endpoint
+// instead of sending its key to api.openai.com.
+func TestAnotherProviderDoesNotInheritTheOpenAIEndpoint(t *testing.T) {
+	for _, provider := range []string{"ollama", "anthropic", "gemini"} {
+		path := filepath.Join(t.TempDir(), "config.yaml")
+		mustWrite(t, path, "llm:\n  provider: "+provider+"\n  model: m\n  api_key: k\n")
+		t.Setenv("OPENAI_BASE_URL", "https://openai.example/v1")
+		cfg, err := Load(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if cfg.LLM.BaseURL != "" {
+			t.Errorf("%s: base_url = %q, want empty", provider, cfg.LLM.BaseURL)
+		}
+	}
+	t.Setenv("STARLIGHT_LLM_PROVIDER", "ollama")
+	cfg, err := LoadOrDefault("")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.LLM.BaseURL != "" {
+		t.Errorf("env-only ollama: base_url = %q, want empty", cfg.LLM.BaseURL)
+	}
+}
+
+// TestOpenAIKeyNeverReplacesTheYAMLKeyOrReachesAnotherProvider: OPENAI_API_KEY is a
+// fallback for the openai provider only, never an override of a configured key.
+func TestOpenAIKeyNeverReplacesTheYAMLKeyOrReachesAnotherProvider(t *testing.T) {
+	t.Setenv("OPENAI_API_KEY", "sk-openai-ENV")
+	t.Setenv("OPENAI_MODEL", "gpt-env")
+	for _, provider := range []string{"openai", "anthropic"} {
+		path := filepath.Join(t.TempDir(), "config.yaml")
+		mustWrite(t, path, "llm:\n  provider: "+provider+"\n  api_key: sk-YAML\n")
+		cfg, err := Load(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if cfg.LLM.APIKey != "sk-YAML" {
+			t.Errorf("%s: api_key = %q, want the YAML key", provider, cfg.LLM.APIKey)
+		}
+	}
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	mustWrite(t, path, "llm:\n  provider: anthropic\n")
+	if _, err := Load(path); err == nil {
+		t.Error("anthropic must not borrow OPENAI_API_KEY")
+	}
+	cfg, err := LoadOrDefault("")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.LLM.Model != "gpt-env" {
+		t.Errorf("openai default: model = %q, want OPENAI_MODEL", cfg.LLM.Model)
 	}
 }

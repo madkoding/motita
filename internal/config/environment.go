@@ -176,23 +176,21 @@ func applyLLMEnvironment(c *Config) error {
 	// The names the OpenAI ecosystem already exports, which the README promises to
 	// accept. They are applied HERE, in the one overlay that every loading path
 	// runs — reading them only inside Load left the -p and TUI paths, which load the
-	// defaults plus the environment, with no key at all.
-	if _, explicit := os.LookupEnv("STARLIGHT_LLM_API_KEY"); !explicit {
-		if _, own := os.LookupEnv(ProviderKeyVariable(c.LLM.Provider)); !own {
+	// defaults plus the environment, with no key at all. They are a fallback for the
+	// openai provider only, and only for a value nothing else set: a stray
+	// OPENAI_API_KEY must never replace the YAML key or reach another vendor.
+	c.LLM.Model = readText("STARLIGHT_LLM_MODEL", c.LLM.Model)
+	c.LLM.BaseURL = readText("STARLIGHT_LLM_BASE_URL", c.LLM.BaseURL)
+	if strings.EqualFold(strings.TrimSpace(c.LLM.Provider), "openai") {
+		if c.LLM.APIKey == "" {
 			c.LLM.APIKey = readText("OPENAI_API_KEY", c.LLM.APIKey)
 		}
-	}
-
-	// The model and the endpoint are only taken from the standard OpenAI names when
-	// each is still the default, which is the case a bare `OPENAI_BASE_URL=...` is
-	// written for.
-	c.LLM.Model = readText("STARLIGHT_LLM_MODEL", c.LLM.Model)
-	if os.Getenv("STARLIGHT_LLM_MODEL") == "" && c.LLM.Model == Default().LLM.Model {
-		c.LLM.Model = readText("OPENAI_MODEL", c.LLM.Model)
-	}
-	c.LLM.BaseURL = readText("STARLIGHT_LLM_BASE_URL", c.LLM.BaseURL)
-	if os.Getenv("STARLIGHT_LLM_BASE_URL") == "" && c.LLM.BaseURL == Default().LLM.BaseURL {
-		c.LLM.BaseURL = readText("OPENAI_BASE_URL", c.LLM.BaseURL)
+		if os.Getenv("STARLIGHT_LLM_MODEL") == "" && c.LLM.Model == Default().LLM.Model {
+			c.LLM.Model = readText("OPENAI_MODEL", c.LLM.Model)
+		}
+		if c.LLM.BaseURL == "" {
+			c.LLM.BaseURL = readText("OPENAI_BASE_URL", c.LLM.BaseURL)
+		}
 	}
 
 	// The two floating-point settings have their own variables because they are the

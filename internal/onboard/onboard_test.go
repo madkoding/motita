@@ -486,6 +486,23 @@ func TestOllamaWizardRequiresKeyBeforeModel(t *testing.T) {
 	}
 }
 
+// TestOllamaWizardAsksForTheKeyOnlyOnce: pressing Enter at the key prompt means
+// "set it later", so the wizard must not ask a second time.
+func TestOllamaWizardAsksForTheKeyOnlyOnce(t *testing.T) {
+	stubOllamaModels(t, []string{"llama3.3", "qwen2.5"})
+	dir := t.TempDir()
+	out, res, err := run(context.Background(), t, dir, []string{"ollama", "", "1", "2", ""}, Answers{})
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if n := strings.Count(out, "Paste the key"); n != 1 {
+		t.Errorf("key prompt shown %d times, want 1:\n%s", n, out)
+	}
+	if res.CredentialsPath != "" {
+		t.Errorf("no key was given, so no credentials file: %q", res.CredentialsPath)
+	}
+}
+
 // TestChooseModelWithAProviderThatHasNoCatalogue: a provider whose catalogue is
 // empty (and which publishes none) must still let the user type a model id, and
 // must refuse a blank answer instead of accepting nothing.
