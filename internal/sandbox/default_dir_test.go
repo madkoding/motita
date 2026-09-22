@@ -96,10 +96,22 @@ func TestRunReportsAWorkingDirectoryThatCannotBeResolved(t *testing.T) {
 	}
 	defer box.Close()
 
-	// "." is the shortest relative path that MkdirAll accepts while the process
-	// stands in a directory that no longer exists: creating it is a no-op, and the
-	// failure then happens when the path is resolved.
+	// "." is the shortest relative path that stands for the vanished directory.
 	_, _, _, err = box.Run(context.Background(), execx.Request{Command: "echo", Args: []string{"x"}, Dir: "."})
+
+	// Linux cannot resolve a removed working directory; darwin still resolves it
+	// to its old path. Either the failure is reported with its cause, or the
+	// directory is recreated by that absolute path and the command runs there.
+	if _, absErr := filepath.Abs("."); absErr == nil {
+		defer os.RemoveAll(dir)
+		if err != nil {
+			t.Fatalf("a resolvable directory must be recreated and used: %v", err)
+		}
+		if info, statErr := os.Stat(dir); statErr != nil || !info.IsDir() {
+			t.Errorf("the directory must be recreated by its absolute path: %v", statErr)
+		}
+		return
+	}
 	if err == nil {
 		t.Fatal("an unresolvable working directory must be reported")
 	}

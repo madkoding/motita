@@ -26,6 +26,11 @@ type cgroup struct {
 	pids   string
 }
 
+// cgroupName is unique per agent process: with one fixed name, concurrent agents
+// shared one group (its limits and its accounting) and one agent's Close tore
+// down the group another was still using.
+var cgroupName = "starlight-" + strconv.Itoa(os.Getpid())
+
 // newCgroup creates the group with the requested limits.
 func newCgroup(root string, l Limits) (*cgroup, error) {
 	if root == "" {
@@ -36,7 +41,7 @@ func newCgroup(root string, l Limits) (*cgroup, error) {
 	if _, err := os.Stat(filepath.Join(root, "memory")); err != nil {
 		return nil, fmt.Errorf("there does not seem to be cgroups v1 in %s (the memory controller is missing)", root)
 	}
-	base := filepath.Join(root, "memory", "starlight")
+	base := filepath.Join(root, "memory", cgroupName)
 	if err := os.MkdirAll(base, 0o755); err != nil {
 		return nil, fmt.Errorf("no permission to create the cgroup in %s: %w", base, err)
 	}
@@ -47,7 +52,7 @@ func newCgroup(root string, l Limits) (*cgroup, error) {
 	// a false alarm: the memory limit could not be applied at all).
 	cg := &cgroup{
 		root:   root,
-		name:   "starlight",
+		name:   cgroupName,
 		memory: base,
 	}
 
@@ -59,7 +64,7 @@ func newCgroup(root string, l Limits) (*cgroup, error) {
 	if l.Processes > 0 {
 		// On a unified v2 system there is no pids tree.
 		if _, statErr := os.Stat(filepath.Join(root, "pids", "pids.max")); statErr == nil {
-			pids := filepath.Join(root, "pids", "starlight")
+			pids := filepath.Join(root, "pids", cgroupName)
 			// The PIDs limit is optional: if the group cannot be created or the
 			// limit cannot be written, it carries on with the memory one.
 			if err := os.MkdirAll(pids, 0o755); err == nil {
@@ -70,12 +75,6 @@ func newCgroup(root string, l Limits) (*cgroup, error) {
 		}
 	}
 	return cg, nil
-}
-
-// fileExists reports whether the path can be stat'ed.
-func fileExists(path string) bool {
-	_, err := os.Stat(path)
-	return err == nil
 }
 
 func writeLimit(path, value string) error {
@@ -103,11 +102,12 @@ func (c *cgroup) addProcess(pid int) error {
 
 // remove empties and deletes the group.
 //
-// os.Remove alone is not enough: if processes remain in the group (or the kernel
-// has created its own files inside), the rmdir fails with "directory not empty"
-// and the cgroup stays orphaned in /sys/fs/cgroup for ever. The process file is
-// emptied first, the removal is retried and, if it still cannot be done, the
-// error is reported instead of silenced.
+// A v1 group cannot be removed while it has members (rmdir returns EBUSY), and
+// the agent itself joined it in New. Writing an empty list to tasks moves
+// nothing: a task only leaves a group when its id is written into another
+// group's tasks file. So every task still listed is moved to the parent group
+// first, the removal is retried and, if it still cannot be done, the error is
+// reported instead of silenced.
 func (c *cgroup) remove() error {
 	var problems []string
 
@@ -115,19 +115,18 @@ func (c *cgroup) remove() error {
 		if dir == "" {
 			continue
 		}
-		// 1) Empty the process file: in v1 you write to tasks (or
-		// cgroup.procs) to move the processes out of the group.
-		for _, file := range []string{"tasks", "cgroup.procs"} {
-			if path := filepath.Join(dir, file); fileExists(path) {
-				// Writing an empty list moves whatever can be moved; some
-				// processes cannot be moved and that must not prevent the
-				// removal attempt.
-				_ = os.WriteFile(path, []byte{}, 0o644)
+		// 1) Move the members to the parent, one id per write (that is what
+		// the kernel accepts). A task that cannot be moved (it already exited)
+		// must not prevent the removal attempt.
+		if data, err := os.ReadFile(filepath.Join(dir, "tasks")); err == nil {
+			parent := filepath.Join(filepath.Dir(dir), "tasks")
+			for _, id := range strings.Fields(string(data)) {
+				_ = os.WriteFile(parent, []byte(id), 0o644)
 			}
 		}
 
-		// 2) Delete the directory, retrying once: the kernel may take a while
-		// to delete the internal files.
+		// 2) Delete the directory, retrying: the kernel may take a while to
+		// delete the internal files.
 		if err := removeWithRetries(dir, 3); err != nil && !os.IsNotExist(err) {
 			problems = append(problems, fmt.Sprintf("%s: %v", dir, err))
 		}

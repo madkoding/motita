@@ -220,3 +220,25 @@ func TestMinimumMemoryMBIsNeverNegative(t *testing.T) {
 		t.Errorf("minimumMemoryMB() = %d", got)
 	}
 }
+
+// TestRunDoesNotRepeatThePlatformWarnings: what the platform cannot apply is
+// recorded once when the sandbox is built. Recording it on every Run grew the list
+// by one duplicate per command and wrote to the sandbox from Run.
+func TestRunDoesNotRepeatThePlatformWarnings(t *testing.T) {
+	box, err := New(Options{Dir: t.TempDir()})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	defer box.Close()
+
+	before := len(box.NotApplied())
+	cmd, args := echoCommand("x")
+	for i := 0; i < 3; i++ {
+		if _, _, _, err := box.Run(context.Background(), execx.Request{Command: cmd, Args: args}); err != nil {
+			t.Fatalf("Run: %v", err)
+		}
+	}
+	if got := len(box.NotApplied()); got != before {
+		t.Errorf("NotApplied grew from %d to %d over three runs: %v", before, got, box.NotApplied())
+	}
+}

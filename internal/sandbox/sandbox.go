@@ -150,6 +150,12 @@ func New(op Options) (*Sandbox, error) {
 		}
 	}
 
+	// The platform's warnings (the isolation it cannot apply) are recorded once
+	// here: recording them on every Run repeated them without bound and wrote
+	// to the sandbox from Run.
+	_, platformWarnings := childAttributes(op.Limits, false, 0, 0)
+	s.notApplied = append(s.notApplied, platformWarnings...)
+
 	if !hasLimits(op.Limits) {
 		s.log.Debug("no POSIX limits configured: only the ephemeral directory is isolated")
 	}
@@ -256,9 +262,6 @@ func (s *Sandbox) Run(ctx context.Context, p execx.Request) (string, bool, int, 
 	if workDir == "" {
 		workDir = s.base
 	}
-	if err := os.MkdirAll(workDir, 0o755); err != nil {
-		return "", false, -1, fmt.Errorf("could not prepare the working directory %q: %w", workDir, err)
-	}
 	// Resolve to an absolute path HERE, while the process is still in the
 	// directory the configuration was relative to. The child re-executes this
 	// binary and chdirs to this value: a relative one would be resolved inside
@@ -272,6 +275,12 @@ func (s *Sandbox) Run(ctx context.Context, p execx.Request) (string, bool, int, 
 		return "", false, -1, fmt.Errorf("could not resolve the working directory %q: %w", p.Dir, absErr)
 	}
 	workDir = absWorkDir
+	// Created by its absolute path, after resolving: creating the relative one
+	// first checked nothing when the process stands in a directory that was
+	// removed (darwin still resolves such a directory to its old path).
+	if err := os.MkdirAll(workDir, 0o755); err != nil {
+		return "", false, -1, fmt.Errorf("could not prepare the working directory %q: %w", workDir, err)
+	}
 
 	// TMPDIR ephemeral and private to this run.
 	tempDir, err := os.MkdirTemp(s.base, "tmp-*")
@@ -304,9 +313,14 @@ func (s *Sandbox) Run(ctx context.Context, p execx.Request) (string, bool, int, 
 		spec.DropPrivileges = s.op.DropPrivs
 		spec.Uid, spec.Gid = s.op.Uid, s.op.Gid
 
-		inside := filepath.Join(spec.Chroot, p.Command)
-		if _, err := os.Stat(inside); err != nil {
-			return "", false, -1, fmt.Errorf("the command %q does not exist inside the chroot %q: %w", p.Command, inside, err)
+		// Only an absolute command can be checked from here: a bare name
+		// ("make") is resolved on the sandbox PATH by the child, after it has
+		// entered the chroot.
+		if filepath.IsAbs(p.Command) {
+			inside := filepath.Join(spec.Chroot, p.Command)
+			if _, err := os.Stat(inside); err != nil {
+				return "", false, -1, fmt.Errorf("the command %q does not exist inside the chroot %q: %w", p.Command, inside, err)
+			}
 		}
 	} else {
 		spec.DropPrivileges = s.op.DropPrivs
@@ -344,14 +358,11 @@ func (s *Sandbox) launch(ctx context.Context, command string, args []string, dir
 	cmd.Dir = dir
 	cmd.Env = s.environment()
 
-	attr, warnings := childAttributes(s.op.Limits, false, 0, 0)
-	if attr != nil {
-		cmd.SysProcAttr = attr
-	}
-	// The platform's warnings (the isolation it could not apply) are recorded
-	// like the rest. On Linux childAttributes has none; on the platforms where
-	// it has, this keeps them.
-	s.notApplied = append(s.notApplied, warnings...)
+	// A process group of its own on every Unix, so killGroup reaches the
+	// descendants when the deadline fires. The platform warnings were recorded
+	// once in New.
+	attr, _ := childAttributes(s.op.Limits, false, 0, 0)
+	cmd.SysProcAttr = ownProcessGroup(attr)
 	cmd.Cancel = func() error { return killGroup(cmd) }
 	cmd.WaitDelay = 2 * time.Second
 

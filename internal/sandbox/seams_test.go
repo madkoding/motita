@@ -285,7 +285,7 @@ func TestNewCgroupWithoutPermissionToCreateTheGroup(t *testing.T) {
 // group exists).
 func TestNewCgroupMemoryLimitCannotBeWritten(t *testing.T) {
 	root := t.TempDir()
-	base := filepath.Join(root, "memory", "starlight")
+	base := filepath.Join(root, "memory", cgroupName)
 	if err := os.MkdirAll(base, 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -312,7 +312,7 @@ func TestNewCgroupPidsLimitCannotBeWritten(t *testing.T) {
 		t.Fatal(err)
 	}
 	pidsDir := filepath.Join(root, "pids")
-	if err := os.MkdirAll(filepath.Join(pidsDir, "starlight"), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Join(pidsDir, cgroupName), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	// The controller is present (pids.max exists) ...
@@ -320,10 +320,10 @@ func TestNewCgroupPidsLimitCannotBeWritten(t *testing.T) {
 		t.Fatal(err)
 	}
 	// ... but the group cannot be written to.
-	if err := os.Chmod(filepath.Join(pidsDir, "starlight"), 0o500); err != nil {
+	if err := os.Chmod(filepath.Join(pidsDir, cgroupName), 0o500); err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { os.Chmod(filepath.Join(pidsDir, "starlight"), 0o700) })
+	t.Cleanup(func() { os.Chmod(filepath.Join(pidsDir, cgroupName), 0o700) })
 
 	cg, err := newCgroup(root, Limits{MemoryMB: 64, Processes: 10})
 	if err != nil {
@@ -373,7 +373,7 @@ func TestNewCgroupPidsGroupCannotBeCreated(t *testing.T) {
 	if cg.pids != "" {
 		t.Errorf("without a pids group there is nothing to join: %q", cg.pids)
 	}
-	if _, err := os.Stat(filepath.Join(pidsDir, "starlight")); !os.IsNotExist(err) {
+	if _, err := os.Stat(filepath.Join(pidsDir, cgroupName)); !os.IsNotExist(err) {
 		t.Error("no pids group must have been left behind")
 	}
 }
@@ -388,7 +388,7 @@ func TestNewCgroupWithoutPidsLimitDoesNotUseThePidsController(t *testing.T) {
 		t.Fatal(err)
 	}
 	// The pids controller exists and even has a stale group from a previous run.
-	if err := os.MkdirAll(filepath.Join(root, "pids", "starlight"), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Join(root, "pids", cgroupName), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(filepath.Join(root, "pids", "pids.max"), []byte("max"), 0o644); err != nil {
@@ -406,7 +406,7 @@ func TestNewCgroupWithoutPidsLimitDoesNotUseThePidsController(t *testing.T) {
 	if err := cg.addProcess(os.Getpid()); err != nil {
 		t.Errorf("addProcess must not fail for a memory-only group: %v", err)
 	}
-	tasks := filepath.Join(root, "memory", "starlight", "tasks")
+	tasks := filepath.Join(root, "memory", cgroupName, "tasks")
 	data, err := os.ReadFile(tasks)
 	if err != nil {
 		t.Fatalf("the process was not added: %v", err)
@@ -422,7 +422,7 @@ func TestNewCgroupWithoutPidsLimitDoesNotUseThePidsController(t *testing.T) {
 func TestCgroupAddProcessReportsWriteFailures(t *testing.T) {
 	root := t.TempDir()
 	for _, controller := range []string{"memory", "pids"} {
-		if err := os.MkdirAll(filepath.Join(root, controller, "starlight"), 0o755); err != nil {
+		if err := os.MkdirAll(filepath.Join(root, controller, cgroupName), 0o755); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -460,60 +460,41 @@ func TestCgroupAddProcessReportsWriteFailures(t *testing.T) {
 	}
 }
 
-// TestCgroupRemoveEmptiesTheProcessFiles: before deleting the group the process
-// files are emptied (that is how a process is moved out of a v1 group), so the
-// removal does not fail with "directory not empty".
-func TestCgroupRemoveEmptiesTheProcessFiles(t *testing.T) {
+// TestCgroupRemoveMovesItsMembersToTheParentGroup: a v1 group with members cannot
+// be deleted (EBUSY), and the agent itself is a member. Writing an empty list to
+// tasks moves nothing, so every listed task is written into the parent group's
+// tasks file, one id per write, before the removal.
+func TestCgroupRemoveMovesItsMembersToTheParentGroup(t *testing.T) {
 	root := t.TempDir()
-	base := filepath.Join(root, "memory", "starlight")
+	base := filepath.Join(root, "memory", cgroupName)
 	if err := os.MkdirAll(base, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	// The control files of a v1 group, with a process inside.
-	if err := os.WriteFile(filepath.Join(base, "tasks"), []byte("12345"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(base, "cgroup.procs"), []byte("12345"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(base, "tasks"), []byte("12345\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
-	cg := &cgroup{root: root, name: "starlight", memory: base}
+	cg := &cgroup{root: root, name: cgroupName, memory: base}
 	if err := cg.remove(); err != nil {
 		t.Fatalf("remove = %v", err)
 	}
 	if _, err := os.Stat(base); !os.IsNotExist(err) {
 		t.Errorf("the group was not deleted: %v", err)
 	}
-
-	// The emptying is done before the removal, and the test asserts it on a
-	// group whose directory cannot be deleted with a file inside it (a directory
-	// without write permission, where RemoveAll fails).
-	if os.Geteuid() == 0 {
-		t.Log("as root the directory is deleted even with the file inside: the emptying was not observable")
-		return
-	}
-	second := filepath.Join(root, "memory", "unremovable")
-	if err := os.MkdirAll(second, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(second, "tasks"), []byte("12345"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.Chmod(second, 0o500); err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { os.Chmod(second, 0o700) })
-
-	cg2 := &cgroup{root: root, name: "starlight", memory: second}
-	if err := cg2.remove(); err == nil {
-		t.Error("a group that cannot be deleted must be reported")
-	}
-	data, err := os.ReadFile(filepath.Join(second, "tasks"))
+	data, err := os.ReadFile(filepath.Join(root, "memory", "tasks"))
 	if err != nil {
-		t.Fatalf("the tasks file disappeared: %v", err)
+		t.Fatalf("the member was not moved to the parent group: %v", err)
 	}
-	if len(strings.TrimSpace(string(data))) != 0 {
-		t.Errorf("tasks = %q, it must be emptied before the removal", data)
+	if strings.TrimSpace(string(data)) != "12345" {
+		t.Errorf("parent tasks = %q, want the moved member", data)
+	}
+}
+
+// TestCgroupNameIsUniquePerAgentProcess: concurrent agents must not share one
+// group, its limits and its accounting.
+func TestCgroupNameIsUniquePerAgentProcess(t *testing.T) {
+	if cgroupName != "starlight-"+strconv.Itoa(os.Getpid()) {
+		t.Errorf("cgroupName = %q, it must carry this process id", cgroupName)
 	}
 }
 
@@ -525,8 +506,8 @@ func TestCgroupRemoveReportsWhatItCannotRemove(t *testing.T) {
 		t.Skip("as root the directories can always be deleted")
 	}
 	root := t.TempDir()
-	base := filepath.Join(root, "memory", "starlight")
-	pids := filepath.Join(root, "pids", "starlight")
+	base := filepath.Join(root, "memory", cgroupName)
+	pids := filepath.Join(root, "pids", cgroupName)
 	for _, dir := range []string{base, pids} {
 		if err := os.MkdirAll(dir, 0o755); err != nil {
 			t.Fatal(err)
@@ -542,7 +523,7 @@ func TestCgroupRemoveReportsWhatItCannotRemove(t *testing.T) {
 		t.Cleanup(func() { os.Chmod(dir, 0o700) })
 	}
 
-	cg := &cgroup{root: root, name: "starlight", memory: base, pids: pids}
+	cg := &cgroup{root: root, name: cgroupName, memory: base, pids: pids}
 	err := cg.remove()
 	if err == nil {
 		t.Fatal("a group that cannot be deleted must be an error")
@@ -566,7 +547,7 @@ func TestCgroupRemoveReportsWhatItCannotRemove(t *testing.T) {
 // when two removals overlap).
 func TestCgroupRemoveIgnoresAnAlreadyDeletedGroup(t *testing.T) {
 	root := t.TempDir()
-	cg := &cgroup{root: root, name: "starlight", memory: filepath.Join(root, "memory", "starlight")}
+	cg := &cgroup{root: root, name: cgroupName, memory: filepath.Join(root, "memory", cgroupName)}
 	if err := cg.remove(); err != nil {
 		t.Errorf("a group that does not exist must not be a problem: %v", err)
 	}
@@ -580,7 +561,7 @@ func TestRemoveWithRetriesGivesUpAndReturnsTheError(t *testing.T) {
 		t.Skip("as root the directory can always be deleted")
 	}
 	parent := t.TempDir()
-	target := filepath.Join(parent, "starlight")
+	target := filepath.Join(parent, cgroupName)
 	if err := os.MkdirAll(target, 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -780,7 +761,7 @@ func TestNewWithCgroupsAssignsTheGroupAndReportsTheAddFailure(t *testing.T) {
 	root := fakeCgroupTree(t)
 	// The memory group exists but is not writable, so newCgroup succeeds (no
 	// limit to write) and adding the process fails.
-	base := filepath.Join(root, "memory", "starlight")
+	base := filepath.Join(root, "memory", cgroupName)
 	if err := os.MkdirAll(base, 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -843,7 +824,7 @@ func TestCloseReportsACgroupThatCannotBeRemoved(t *testing.T) {
 		t.Skip("as root the directories can always be deleted")
 	}
 	root := t.TempDir()
-	base := filepath.Join(root, "memory", "starlight")
+	base := filepath.Join(root, "memory", cgroupName)
 	if err := os.MkdirAll(base, 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -864,7 +845,7 @@ func TestCloseReportsACgroupThatCannotBeRemoved(t *testing.T) {
 	}
 	defer logger.Close()
 
-	s := &Sandbox{cg: &cgroup{root: root, name: "starlight", memory: base}, log: logger, base: root}
+	s := &Sandbox{cg: &cgroup{root: root, name: cgroupName, memory: base}, log: logger, base: root}
 	err = s.Close()
 	if err == nil {
 		t.Fatal("Close must report the group it could not remove")
@@ -1052,6 +1033,28 @@ func TestRunWithChrootChecksTheCommandInsideTheRoot(t *testing.T) {
 	}
 	if err != nil {
 		t.Fatalf("as root the chroot must work: %v (%q)", err, output)
+	}
+}
+
+// TestRunWithChrootLeavesABareCommandToTheChild: a command without a path
+// ("sh", "make") cannot be checked by joining it to the root; the child resolves
+// it on the sandbox PATH after entering the chroot. Refusing it here made every
+// bare command fail with kind=chroot.
+func TestRunWithChrootLeavesABareCommandToTheChild(t *testing.T) {
+	original := osHooks.euid
+	defer func() { osHooks.euid = original }()
+	osHooks.euid = func() int { return 0 }
+
+	s, err := New(Options{Dir: t.TempDir(), UseChroot: true, Root: t.TempDir(), Log: logx.Global()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !s.op.UseChroot {
+		t.Fatalf("the chroot must be active for this test: %v", s.NotApplied())
+	}
+	_, _, _, err = s.Run(context.Background(), execx.Request{Command: "sh", Args: []string{"-c", "true"}})
+	if err != nil && strings.Contains(err.Error(), "does not exist inside the chroot") {
+		t.Errorf("a bare command must reach the child: %v", err)
 	}
 }
 

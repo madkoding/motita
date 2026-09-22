@@ -279,7 +279,7 @@ func TestNewCgroupOwnDirectories(t *testing.T) {
 	defer cg.remove()
 
 	// The memory limit must be written in bytes.
-	data, err := os.ReadFile(filepath.Join(root, "memory", "starlight", "memory.limit_in_bytes"))
+	data, err := os.ReadFile(filepath.Join(root, "memory", cgroupName, "memory.limit_in_bytes"))
 	if err != nil {
 		t.Fatalf("the memory limit was not written: %v", err)
 	}
@@ -288,7 +288,7 @@ func TestNewCgroupOwnDirectories(t *testing.T) {
 	}
 
 	// And the PIDs one.
-	data, err = os.ReadFile(filepath.Join(root, "pids", "starlight", "pids.max"))
+	data, err = os.ReadFile(filepath.Join(root, "pids", cgroupName, "pids.max"))
 	if err != nil {
 		t.Fatalf("the PIDs limit was not written: %v", err)
 	}
@@ -300,7 +300,7 @@ func TestNewCgroupOwnDirectories(t *testing.T) {
 	if err := cg.addProcess(1234); err != nil {
 		t.Fatalf("addProcess: %v", err)
 	}
-	data, _ = os.ReadFile(filepath.Join(root, "memory", "starlight", "tasks"))
+	data, _ = os.ReadFile(filepath.Join(root, "memory", cgroupName, "tasks"))
 	if strings.TrimSpace(string(data)) != "1234" {
 		t.Errorf("tasks = %q", data)
 	}
@@ -309,7 +309,7 @@ func TestNewCgroupOwnDirectories(t *testing.T) {
 	if err := cg.remove(); err != nil {
 		t.Fatalf("remove: %v", err)
 	}
-	if _, err := os.Stat(filepath.Join(root, "memory", "starlight")); !os.IsNotExist(err) {
+	if _, err := os.Stat(filepath.Join(root, "memory", cgroupName)); !os.IsNotExist(err) {
 		t.Error("the cgroup should have been deleted")
 	}
 }

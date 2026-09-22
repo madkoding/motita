@@ -12,6 +12,7 @@ package execx
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"os/exec"
 	"strings"
@@ -92,6 +93,13 @@ func Run(ctx context.Context, p Request) (string, bool, int, error) {
 	start := time.Now()
 	err := cmd.Run()
 	duration := time.Since(start)
+	// Anything left in the group (`cmd &`, a daemon) must not outlive the run.
+	_ = killGroup(cmd)
+	if errors.Is(err, exec.ErrWaitDelay) {
+		// The leader exited 0 (a non-zero exit would be an *exec.ExitError);
+		// only a background child kept the output pipe open. That is success.
+		err = nil
+	}
 	text := output.buf.String()
 
 	if childCtx.Err() == context.DeadlineExceeded {

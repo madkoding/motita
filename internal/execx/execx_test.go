@@ -8,7 +8,9 @@ package execx
 
 import (
 	"context"
+	"strconv"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 )
@@ -242,5 +244,29 @@ func TestLimitedBufferAlreadyFull(t *testing.T) {
 	}
 	if !b.truncated {
 		t.Error("it should mark the truncation")
+	}
+}
+
+// TestRunLeavingABackgroundProcessSucceedsAndKillsIt: a command whose leader
+// exits 0 while a background child still holds the output pipe must be
+// reported as a success, and the child must not outlive the run.
+func TestRunLeavingABackgroundProcessSucceedsAndKillsIt(t *testing.T) {
+	out, _, exit, err := Run(context.Background(), Request{
+		Command: "/bin/sh", Args: []string{"-c", "sleep 30 & echo $!"}, Timeout: 10 * time.Second,
+	})
+	if err != nil || exit != 0 {
+		t.Fatalf("exit=%d err=%v, expected a success", exit, err)
+	}
+	pid, convErr := strconv.Atoi(strings.TrimSpace(out))
+	if convErr != nil {
+		t.Fatalf("output = %q, expected the background pid", out)
+	}
+	deadline := time.Now().Add(2 * time.Second)
+	for syscall.Kill(pid, 0) == nil {
+		if time.Now().After(deadline) {
+			_ = syscall.Kill(pid, syscall.SIGKILL)
+			t.Fatalf("the background process %d outlived the run", pid)
+		}
+		time.Sleep(20 * time.Millisecond)
 	}
 }

@@ -22,3 +22,14 @@ func killGroup(cmd *exec.Cmd) error {
 	}
 	return nil
 }
+
+// ownProcessGroup makes the child the leader of a new process group. Without it
+// (darwin and the BSDs got no SysProcAttr) killGroup's kill(-pid) found no group,
+// nothing was killed on a timeout and the descendants outlived the run.
+func ownProcessGroup(attr *syscall.SysProcAttr) *syscall.SysProcAttr {
+	if attr == nil {
+		attr = &syscall.SysProcAttr{}
+	}
+	attr.Setpgid = true
+	return attr
+}

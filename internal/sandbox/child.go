@@ -76,6 +76,19 @@ var childHooks = struct {
 	exit: os.Exit,
 }
 
+// childLimits returns the limits the shell applies. RLIMIT_NPROC (ulimit -u)
+// counts every task of the real uid on the whole system, not the sandboxed
+// tree: for a normal user who already runs that many threads every fork in the
+// sandbox would fail with EAGAIN. It is therefore only applied when the child
+// switches to the dedicated uid; otherwise the pids cgroup is the bound.
+func childLimits(spec Spec) Limits {
+	l := spec.Limits
+	if !spec.DropPrivileges {
+		l.Processes = 0
+	}
+	return l
+}
+
 // RunAsChild is the entry point of the child mode. It never returns if all goes
 // well: it replaces the current process with the requested command.
 func RunAsChild(args []string) error {
@@ -145,7 +158,7 @@ func RunAsChild(args []string) error {
 	// the shell is a very small C binary. See limits_linux.go for the
 	// measurements that led to this decision (a Go binary cannot apply
 	// RLIMIT_AS and stay alive).
-	finalCommand, finalArgs := wrapWithUlimit(spec.Limits, path, spec.Args)
+	finalCommand, finalArgs := wrapWithUlimit(childLimits(spec), path, spec.Args)
 
 	// The hook never returns when the command runs: on Unix it replaces the image,
 	// and where that is impossible the implementation runs the command and exits
