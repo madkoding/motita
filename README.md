@@ -108,7 +108,7 @@ you'll regret in two years.
 | **Linux** | `386`, `amd64`, `arm` (ARMv7), `arm64` |
 | **Windows** | `386`, `amd64`, `arm64` |
 | **macOS** | `amd64`, `arm64` |
-| **Published size** | 6.4 – 6.9 MB per binary (measured on all 9 targets) |
+| **Published size** | 6.9 – 7.7 MB per binary (measured on all 9 targets with this toolchain) |
 
 `386` is a **first-class target**, not an afterthought nobody tests. The
 end-to-end suite builds the agent and runs it inside a real 32-bit container, so

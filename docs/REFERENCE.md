@@ -341,7 +341,7 @@ What the wizard does and does not do:
 
 ## Cross-compilation from source
 
-Requires Go 1.23 or newer. **You do not need to compile on the i386 machine.**
+Requires Go 1.26 or newer. **You do not need to compile on the i386 machine.**
 
 ```bash
 make dist             # one binary for all 9 supported platforms
@@ -357,17 +357,17 @@ build flags (`-trimpath -ldflags "-s -w"`, no cgo):
 
 | Binary | Size |
 |---|---|
-| `dist/starlight-linux-386` | 6.41 MB |
-| `dist/starlight-linux-amd64` | 6.69 MB |
-| `dist/starlight-linux-arm` | 6.50 MB |
-| `dist/starlight-linux-arm64` | 6.44 MB |
-| `dist/starlight-windows-386.exe` | 6.58 MB |
-| `dist/starlight-windows-amd64.exe` | 6.88 MB |
-| `dist/starlight-windows-arm64.exe` | 6.42 MB |
-| `dist/starlight-darwin-amd64` | 6.85 MB |
-| `dist/starlight-darwin-arm64` | 6.55 MB |
+| `dist/starlight-linux-386` | 7.21 MB |
+| `dist/starlight-linux-amd64` | 7.46 MB |
+| `dist/starlight-linux-arm` | 7.25 MB |
+| `dist/starlight-linux-arm64` | 6.88 MB |
+| `dist/starlight-windows-386.exe` | 7.40 MB |
+| `dist/starlight-windows-amd64.exe` | 7.66 MB |
+| `dist/starlight-windows-arm64.exe` | 6.96 MB |
+| `dist/starlight-darwin-amd64` | 7.58 MB |
+| `dist/starlight-darwin-arm64` | 7.02 MB |
 
-The whole range is 6.41 – 6.88 MB, and the requirement CI enforces is under 10 MB per
+The whole range is 6.88 – 7.66 MB, and the requirement CI enforces is under 10 MB per
 binary. The sizes move with the Go release, so treat them as measurements rather than
 specifications: the gate is the limit, not these numbers.
 

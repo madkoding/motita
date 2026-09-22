@@ -42,6 +42,25 @@ jobs:
       - name: go test (with race detector)
         run: go test -count=1 -race ./...
 
+      - name: staticcheck
+        run: |
+          # Pinned: an unpinned @latest turns a green build red the day upstream adds a
+          # check, with no change in this repository. Bump it deliberately.
+          #
+          # go run pkg@version resolves and builds the tool WITHOUT adding anything to
+          # go.mod, so the zero-dependency property is untouched (no require line, no
+          # go.sum). This is the step that would have caught the tautological assertions
+          # go vet is happy with.
+          go run honnef.co/go/tools/cmd/staticcheck@v0.6.1 ./...
+
+      - name: govulncheck
+        run: |
+          # Against the standard library and the module. With no external dependencies
+          # the reachable surface is stdlib CVEs, which is still a real surface: this is
+          # what says the pinned toolchain has no known vulnerability reachable from the
+          # code. No go.mod change either.
+          go run golang.org/x/vuln/cmd/govulncheck@v1.8.0 ./...
+
       - name: coverage gate (100% per package)
         run: |
           # Every package with tests must be fully covered: the gate is what keeps
