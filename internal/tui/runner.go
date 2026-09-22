@@ -145,6 +145,11 @@ type AppRunner struct {
 	reward   *reward.Ledger
 	lastUsed map[string]int
 	lastTask string
+
+	// approver is how a consequential command reaches the user, installed by the interface.
+	// Guarded like the transcript: a run reads it while the interface may set it.
+	approverMu sync.Mutex
+	approver   agent.Approver
 }
 
 // NewAppRunner creates the production runner.
@@ -153,6 +158,50 @@ func NewAppRunner(out, errs io.Writer, cfg config.Config, engine *llm.Client, bo
 		Out: out, Err: errs, Cfg: cfg, Engine: engine, Box: box, Log: log,
 		newAgent:   defaultAgentFactory,
 		listModels: llm.ListModels,
+	}
+}
+
+// SetApprover stores the callback a consequential command is confirmed through, and passes it to
+// the agent of every turn from then on.
+//
+// It lives on the RUNNER, not on the agent, for the same reason the transcript does: a turn
+// builds a NEW agent, so anything installed on one is thrown away when it ends. A confirmation
+// channel installed on a single agent would work for exactly one turn, which is the sort of bug
+// that looks like "the agent stopped asking" much later.
+func (r *AppRunner) SetApprover(fn agent.Approver) {
+	r.approverMu.Lock()
+	defer r.approverMu.Unlock()
+	r.approver = fn
+}
+
+// approverOrNil returns the installed approver, or nil when the interface installed none.
+func (r *AppRunner) approverOrNil() agent.Approver {
+	r.approverMu.Lock()
+	defer r.approverMu.Unlock()
+	return r.approver
+}
+
+// approverInstaller is the optional half of AgentRunner: the ability to receive a confirmation
+// channel.
+//
+// It is an OPTIONAL interface rather than a method on AgentRunner, following the same pattern the
+// library and the reward ledger already use here. The reason is concrete: the many small agents
+// the tests build never run a real turn and therefore never ask anything, and forcing every one
+// of them to grow a method that does nothing would be noise in exchange for a guarantee they do
+// not need. The real agent implements it, and the type assertion below fails closed — no
+// installer means no confirmation channel, which means a consequential action is refused rather
+// than run unreviewed.
+type approverInstaller interface {
+	SetApprover(agent.Approver)
+}
+
+// installApproverOn gives the agent the confirmation channel, when it can take one.
+func installApproverOn(ag AgentRunner, fn agent.Approver) {
+	if fn == nil {
+		return
+	}
+	if setter, ok := ag.(approverInstaller); ok {
+		setter.SetApprover(fn)
 	}
 }
 
@@ -185,6 +234,10 @@ func (r *AppRunner) RunPlan(ctx context.Context, prompt string, progress func(st
 	cfg := r.Cfg
 	cfg.Agent.ReadOnly = true
 	ag := r.newAgent(cfg, r.Log, engine, r.Box, nil, true)
+	// Plan mode is read-only, so the policy refuses rather than asks — but the approver is
+	// installed anyway: the mode is a CONFIGURATION, and a run whose configuration changes under
+	// it must not silently lose the channel that answers its questions.
+	installApproverOn(ag, r.approverOrNil())
 	planner := plan.New(engine, ag).
 		WithTimeout(planDefaultTimeout(r.Cfg)).
 		WithLoops(planDefaultLoops(r.Cfg)).
@@ -264,6 +317,10 @@ func (r *AppRunner) library() *skills.Library {
 			dir = config.Default().Skills.Dir
 		}
 		lib := skills.New(dir)
+		// The shipped procedures are part of the library the agent sees: they are the ones
+		// that describe the tools it was given, and a fresh install would otherwise start
+		// with an empty shelf and a model working out the guardrails from refusals.
+		lib.Builtins = true
 		if r.Cfg.Skills.MaxFileBytes > 0 {
 			lib.MaxFileBytes = r.Cfg.Skills.MaxFileBytes
 		}
@@ -566,6 +623,10 @@ func (r *AppRunner) RunTask(ctx context.Context, task string, progress func(stri
 	}
 	var result string
 	ag := r.newAgent(r.Cfg, r.Log, engine, r.Box, source, true)
+	// The confirmation channel goes in FIRST, before the run: an action the policy would ask
+	// about is proposed in the middle of the turn, and an approver installed afterwards would
+	// arrive after the question had already been answered with a refusal.
+	installApproverOn(ag, r.approverOrNil())
 	// The same library and the same ledger Plan mode uses.
 	//
 	// Both modes reach one shelf of procedures: a procedure written down while working is

@@ -1386,10 +1386,16 @@ func (t *TUI) composerLines() []string {
 // window and scroll the interface on a keypress.
 func (t *TUI) composerLinesCapped(popupCap int) []string {
 	var lines []string
-	// The questions window draws in the popup's place. The input box below it is NOT hidden:
-	// the answer field and the free-answer row are the same thing, so the user can see exactly
-	// what will be sent while picking an option or typing one.
-	if t.asking() {
+	// The confirmation window draws in the popup's place, and it takes precedence over the
+	// completion popup: it is answered during a run, when nothing is being typed, and it asks
+	// about the one thing that must not be missed.
+	//
+	// The questions window draws there too. The input box below is NOT hidden for either of
+	// them: the answer field and the free-answer row are the same thing, so the user can see
+	// exactly what will be sent while picking an option or typing one.
+	if t.answeringConfirm() {
+		lines = append(lines, t.confirmLines(popupCap)...)
+	} else if t.asking() {
 		lines = append(lines, t.askLines(popupCap)...)
 	} else {
 		lines = append(lines, t.completionLinesCapped(t.bodyWidth(), popupCap)...)
@@ -1678,6 +1684,11 @@ func parseCursorMove(prompt string) (up, col int, ok bool) {
 // It is a method rather than a field so the two places that need it — the size gate and the
 // budgeting — cannot disagree about how big the popup is.
 func (t *TUI) popupRows() int {
+	// The confirmation window takes the reservation first. It is open during a run, when the
+	// completion popup cannot be (nothing is being typed), so the two never compete.
+	if t.answeringConfirm() {
+		return t.confirmRows()
+	}
 	// The questions window takes the reservation the completion popup would use. The two cannot
 	// be open together: the window CAPTURES the keys, so nothing is being typed into the input
 	// for a completion to react to — and if both drew, the frame would be taller than the layout

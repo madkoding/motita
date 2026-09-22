@@ -34,6 +34,7 @@ import (
 	"github.com/madkoding/starlight/internal/execx"
 	"github.com/madkoding/starlight/internal/llm"
 	"github.com/madkoding/starlight/internal/logx"
+	"github.com/madkoding/starlight/internal/policy"
 	"github.com/madkoding/starlight/internal/reward"
 	"github.com/madkoding/starlight/internal/sandbox"
 	"github.com/madkoding/starlight/internal/skills"
@@ -103,6 +104,12 @@ type Agent struct {
 	// and it is also what the tests use to inspect the verdict without reading
 	// the log.
 	Observer func(TaskResult)
+
+	// approver asks the user before a consequential command runs, and nil means there is
+	// nobody to ask — which is a real state, not a missing dependency: a task piped in from
+	// a script has no user, and a command that needs approval in that situation is refused
+	// rather than run on the user's behalf. See Approver.
+	approver Approver
 }
 
 // SetObserver allows external callers (such as the TUI) to register a callback
@@ -186,11 +193,22 @@ func (a *Agent) exec(ctx context.Context, p execx.Request) (string, bool, int, e
 // It is the entry point used by interactive modes (plan/chat) where the model
 // requests a tool call instead of emitting JSON.
 func (a *Agent) RunCommand(ctx context.Context, command string) (string, int, error) {
-	request, refused := a.buildRequest(command)
-	if refused != "" {
-		return fmt.Sprintf("[refused: %s]\n", refused), 1, fmt.Errorf("command was refused: %s", refused)
+	p := a.planRequest(command)
+	if p.Verdict == policy.Deny {
+		return fmt.Sprintf("[refused: %s]\n", p.Reason), 1, fmt.Errorf("command was refused: %s", p.Reason)
 	}
-	output, _, exit, err := a.exec(ctx, request)
+	if p.Verdict == policy.Ask {
+		approved, err := a.approve(ctx, p, command)
+		if err != nil {
+			return fmt.Sprintf("[not approved: %s]\n", err), 1,
+				fmt.Errorf("command needs approval and it could not be obtained: %w", err)
+		}
+		if !approved {
+			return "[not approved: the user declined]\n", 1,
+				fmt.Errorf("the user declined to run: %s", command)
+		}
+	}
+	output, _, exit, err := a.exec(ctx, p.Request)
 	return output, exit, err
 }
 
@@ -1423,17 +1441,42 @@ func (a *Agent) runActions(ctx context.Context, actions []Command, prefix string
 		//    `>`, `>>`, `;`, `&&` or `$(...)`: redirection cannot happen because
 		//    nothing interprets it.
 		//  - otherwise: the line goes to the shell, because that is what lets the
-		//    model use pipes and redirections to do real work.
-		request, refused := a.buildRequest(action.Command)
-		if refused != "" {
-			fmt.Fprintf(&sb, "$ %s\n[refused: %s]\n", action.Command, refused)
-			a.log.Warn(prefix+"action refused in read-only mode",
-				"command", action.Command, "reason", refused)
-			lastErr = fmt.Errorf("action %d (%s) was refused: %s", i+1, action.Command, refused)
+		//    model use pipes, redirections and globs to do real work — but only once the
+		//    policy has had its say. A consequential action is put in front of the user
+		//    here, mid-run, because this is the moment it is about to happen.
+		plan := a.planRequest(action.Command)
+		if plan.Verdict == policy.Deny {
+			fmt.Fprintf(&sb, "$ %s\n[refused: %s]\n", action.Command, plan.Reason)
+			a.log.Warn(prefix+"action refused by the policy",
+				"command", action.Command, "rule", plan.Rule, "mandatory", plan.Mandatory, "reason", plan.Reason)
+			lastErr = fmt.Errorf("action %d (%s) was refused: %s", i+1, action.Command, plan.Reason)
 			continue
 		}
+		if plan.Verdict == policy.Ask {
+			a.report("asking you to approve: %s", action.Command)
+			approved, err := a.approve(ctx, plan, action.Command)
+			if err != nil {
+				// There is nobody to ask. This is not a failure of the command, it is the
+				// absence of the only thing that could authorise it, and the output says
+				// so in those words so the model does not retry the same line.
+				fmt.Fprintf(&sb, "$ %s\n[not approved: %s]\n", action.Command, err)
+				a.log.Warn(prefix+"action needs approval and there is nobody to ask",
+					"command", action.Command, "rule", plan.Rule)
+				lastErr = fmt.Errorf("action %d (%s) needs approval and there is nobody to ask: %w",
+					i+1, action.Command, err)
+				continue
+			}
+			if !approved {
+				fmt.Fprintf(&sb, "$ %s\n[not approved: the user declined this command]\n", action.Command)
+				a.log.Info(prefix+"action declined by the user",
+					"command", action.Command, "rule", plan.Rule)
+				lastErr = fmt.Errorf("action %d (%s) was declined by the user", i+1, action.Command)
+				continue
+			}
+			a.log.Info(prefix+"action approved by the user", "command", action.Command)
+		}
 
-		output, truncated, exit, err := a.exec(ctx, request)
+		output, truncated, exit, err := a.exec(ctx, plan.Request)
 
 		fmt.Fprintf(&sb, "$ %s\n", action.Command)
 		if output != "" {
@@ -1504,6 +1547,55 @@ func proposedCommands(action Action) string {
 
 // --- Final action and escalation --------------------------------------------
 
+// runConfigured runs a command the OPERATOR wrote: the `final_action`, the `on_failure`
+// escalation, the fixed `git add` / `git commit` sequence.
+//
+// These used to go straight to `/bin/sh -c`, which made them the hole in the policy: the
+// operator's own `final_action` ran whatever it said while the model's actions were being
+// checked, and the mandatory floor — `rm -rf /`, `mkfs`, `shutdown` — was reachable through
+// a configuration field. They are checked now.
+//
+// One difference from an action the MODEL proposed, and it is deliberate: a line that would
+// be asked about runs, because the operator is the one who wrote it. Nobody is surprised by
+// their own configuration, and a task that cannot notify, commit or escalate because a
+// prompt had no user at the keyboard would be broken by the very mechanism meant to protect
+// it. The floor still applies — an operator does not get to `mkfs` their own filesystem
+// either — and that is the line this function will not cross.
+//
+// It is one function rather than three checks because it is one decision, and three copies
+// of a check is how one of them ends up missing an approval.
+func (a *Agent) runConfigured(ctx context.Context, req execx.Request, line string) (string, int, error) {
+	plan := a.planRequest(line)
+	switch plan.Verdict {
+	case policy.Deny:
+		a.log.Error("a configured action was refused by the policy",
+			"command", line, "rule", plan.Rule, "mandatory", plan.Mandatory, "reason", plan.Reason)
+		return "", 1, fmt.Errorf("the configured command %q was refused by the policy: %s", line, plan.Reason)
+	case policy.Ask:
+		a.log.Info("a configured action runs without confirming: the operator wrote it",
+			"command", line, "rule", plan.Rule, "reason", plan.Reason)
+	}
+	// The request the operator configured is used as written — program and arguments — so
+	// an interpreter with its own flags (`sh -c …`) keeps working. The policy was applied to
+	// its LINE, which is what the checks can read.
+	req.Timeout = a.cfg.Sandbox.Timeout
+	output, _, exit, err := a.exec(ctx, req)
+	return output, exit, err
+}
+
+// runModelLine is the composition of a `final_action` whose payload the MODEL wrote.
+//
+// It is kept as its own function because the line it checks is the model's, not the
+// operator's, even though the interpreter around it is the operator's: `final_action` with
+// a command is a configuration that says "when the work is validated, do this", and when the
+// model supplies the text, the thing being checked is that text. The mandatory floor is what
+// makes the difference moot for anything unrecoverable, and it is applied to the composed
+// line so that a payload of `rm -rf /` is caught where it actually lives — inside the quotes.
+func (a *Agent) runModelLine(ctx context.Context, line string) (string, int, error) {
+	return a.runConfigured(ctx,
+		execx.Request{Command: shellFor(a.cfg), Args: []string{"-c", line}}, line)
+}
+
 // runFinalAction runs the action planned for after a PASS. It returns a readable
 // description and an error when the action could not be completed (including a
 // non-zero exit code, which is a failure even with no execution error).
@@ -1515,18 +1607,23 @@ func (a *Agent) runFinalAction(ctx context.Context, c Command, prefix string) (s
 		return "none", nil
 
 	case "command":
-		command := final.Command
-		args := final.Args
+		var output string
+		var exit int
+		var err error
 		if strings.TrimSpace(c.Command) != "" {
-			// The LLM may propose the concrete final command.
-			command, args = "/bin/sh", []string{"-c", c.Command}
+			// The model proposed the concrete final command: the operator's configuration
+			// supplied the slot, and the text in it is the model's.
+			a.log.Info(prefix+"running the final action the model proposed", "command", c.Command)
+			output, exit, err = a.runModelLine(ctx, c.Command)
+		} else {
+			if strings.TrimSpace(final.Command) == "" {
+				a.log.Warn(prefix + "final_action.kind=command with no command: nothing is done")
+				return "none", nil
+			}
+			a.log.Info(prefix+"running the final action", "command", final.Command)
+			output, exit, err = a.runConfigured(ctx,
+				execx.Request{Command: final.Command, Args: final.Args}, final.Command)
 		}
-		if strings.TrimSpace(command) == "" {
-			a.log.Warn(prefix + "final_action.kind=command with no command: nothing is done")
-			return "none", nil
-		}
-		a.log.Info(prefix+"running the final action", "command", command)
-		output, _, exit, err := a.exec(ctx, execx.Request{Command: command, Args: args, Timeout: a.cfg.Sandbox.Timeout})
 		description := fmt.Sprintf("command exit=%d output=%s", exit, truncate(output, 300))
 		if err != nil {
 			a.log.Error(prefix+"the final action failed", "error", err, "output", truncate(output, 500))
@@ -1572,15 +1669,18 @@ func (a *Agent) runFinalAction(ctx context.Context, c Command, prefix string) (s
 		if strings.TrimSpace(message) == "" {
 			message = "agent: validated changes"
 		}
+		// The staging line is a fixed command of this program, and it is checked like any
+		// other so that a workspace pointed at a strange place cannot turn it into
+		// something else. Nothing here is configurable as a command: the operator chooses
+		// that a commit happens, not how.
 		sequence := []string{
 			"git add -A",
 			fmt.Sprintf("git commit -m %s", shellQuote(message)),
 		}
 		var outputs []string
 		for _, cmd := range sequence {
-			output, _, exit, err := a.exec(ctx, execx.Request{
-				Command: "/bin/sh", Args: []string{"-c", cmd}, Timeout: a.cfg.Sandbox.Timeout,
-			})
+			output, exit, err := a.runConfigured(ctx,
+				execx.Request{Command: shellFor(a.cfg), Args: []string{"-c", cmd}}, cmd)
 			outputs = append(outputs, fmt.Sprintf("%s -> exit=%d %s", cmd, exit, truncate(output, 200)))
 			if err != nil {
 				a.log.Error(prefix+"git_commit failed", "command", cmd, "error", err)
@@ -1603,11 +1703,9 @@ func (a *Agent) escalate(ctx context.Context, prefix string) {
 		return
 	}
 	a.log.Warn(prefix+"escalating after exhausting the attempts", "command", a.cfg.Agent.OnFailure.Command)
-	output, _, exit, err := a.exec(ctx, execx.Request{
-		Command: "/bin/sh",
-		Args:    []string{"-c", a.cfg.Agent.OnFailure.Command},
-		Timeout: a.cfg.Sandbox.Timeout,
-	})
+	output, exit, err := a.runConfigured(ctx,
+		execx.Request{Command: shellFor(a.cfg), Args: []string{"-c", a.cfg.Agent.OnFailure.Command}},
+		a.cfg.Agent.OnFailure.Command)
 	if err != nil {
 		a.log.Error(prefix+"the escalation action failed", "error", err)
 		return

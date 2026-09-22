@@ -30,51 +30,36 @@ type Decision struct {
 //
 // command is the program (as written, so `grep` or `/usr/bin/grep`), args are its
 // arguments.
+//
+// It is written on top of Classify so that the read-only answer and the wider policy's
+// answer come from ONE decision order. The messages below are the read-only mode's own:
+// they name the mode and the file to change, because the reader of this one is an
+// operator deciding whether to extend the list.
 func Check(command string, args []string) Decision {
-	trimmed := strings.TrimSpace(command)
-	// The emptiness is checked BEFORE taking the base name, because filepath.Base("")
-	// is ".": without this, an empty command would be reported as "not on the list"
-	// instead of the clearer "there is no command". The check is the only one needed:
-	// once the text is not empty and not all separators, Base always returns a name.
-	if trimmed == "" || trimmed == "." || trimmed == "/" {
-		return Decision{false, "there is no command to run"}
-	}
-	name := strings.ToLower(filepath.Base(trimmed))
+	kind, reason := Classify(command, args)
+	name := strings.ToLower(filepath.Base(strings.TrimSpace(command)))
 
-	// A shell is the biggest loophole: `sh -c 'rm -rf /'` would defeat the whole
-	// policy, and deciding what a shell line does means parsing shell, which is not
-	// something to get wrong. Shells are refused; the caller can run the reader
-	// directly.
-	if isShell(name) {
-		return Decision{false, fmt.Sprintf(
-			"%q is a shell: a line can do anything, so it cannot be checked. "+
-				"Run the reader directly (for example `grep -n x file` instead of `sh -c \"grep x file\"`)", name)}
-	}
-
-	// Writing programs, refused by name even when an argument would make them read.
-	// `sed -n` only reads, but `sed -i` rewrites, and one policy is easier to keep
-	// honest than a table of exceptions.
-	if _, bad := writers[name]; bad {
-		return Decision{false, fmt.Sprintf(
-			"%q can change the system, and read-only mode refuses it", name)}
-	}
-
-	// Commands whose arguments decide: the dangerous form is refused explicitly.
-	if rule, ok := argumentRules[name]; ok {
-		if reason, bad := rule(args); bad {
+	switch kind {
+	case KindReader:
+		return Decision{true, reason}
+	case KindMissing:
+		return Decision{false, reason}
+	case KindShell:
+		return Decision{false, reason + ". Run the reader directly (for example " +
+			"`grep -n x file` instead of `sh -c \"grep x file\"`)"}
+	case KindWriter:
+		// A writer by nature has no rule of its own to quote; a writer because of its
+		// arguments does, and that reason is the specific one.
+		if reason != "" {
 			return Decision{false, reason}
 		}
+		return Decision{false, fmt.Sprintf(
+			"%q can change the system, and read-only mode refuses it", name)}
+	default:
+		return Decision{false, fmt.Sprintf(
+			"%q is not on the read-only list, so it is refused. If it only reads, add it to "+
+				"internal/readonly/readers.go with a test", name)}
 	}
-
-	if _, ok := readers[name]; ok {
-		return Decision{true, fmt.Sprintf("%q only reads", name)}
-	}
-
-	// Unknown: refused, not allowed. This is the important default — a command
-	// nobody has classified cannot be assumed harmless.
-	return Decision{false, fmt.Sprintf(
-		"%q is not on the read-only list, so it is refused. If it only reads, add it to "+
-			"internal/readonly/readers.go with a test", name)}
 }
 
 func isShell(name string) bool {

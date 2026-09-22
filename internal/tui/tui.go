@@ -137,6 +137,14 @@ type TUI struct {
 	// a request and closes when the answers are sent.
 	ask *askState
 
+	// confirm is the window a consequential command is approved in, and nil when nothing is
+	// being confirmed. Unlike the questions window it is answered DURING a run: the agent is
+	// blocked waiting for the answer while the run loop reads the keys.
+	confirm *confirmState
+	// approvals is how a blocked agent reaches this loop. It is created lazily, because a TUI
+	// that never runs a real turn never needs it.
+	approvals chan *confirmState
+
 	// query filters the conversation; searching is true while the user is typing it.
 	//
 	// Both are view state: they describe what is being looked at, not what the session
@@ -216,6 +224,11 @@ func (t *TUI) readKey(ctx context.Context) (byte, bool) {
 // context is cancelled.
 func (t *TUI) Run(ctx context.Context) int {
 	t.drawFrame()
+
+	// The confirmation channel is installed before anything can run: a turn that proposes a
+	// consequential command has to be able to reach the user, and an interface that installs
+	// this after the first turn would refuse the commands of that turn instead of asking.
+	t.installApprover()
 
 	// Leaving wipes the screen.
 	//
@@ -772,10 +785,24 @@ func drainProgress(ch <-chan string, handle func(string)) {
 // was a coin toss. That is not a test-timing problem: it is the same event
 // producing two different messages.
 func (t *TUI) awaitRun(ctx context.Context, progress <-chan string, done <-chan runOutcome, onProgress func(string)) runOutcome {
+	// The channel the agent reaches this loop through is created BEFORE the select, not inside a
+	// case: a channel created in a case arm is created every time the select re-evaluates, which
+	// works only because the second call happens to return the same one. Making it explicit is
+	// what keeps that from being a thing a future reader has to verify.
+	approvals := t.approvalChannel()
 	for {
 		select {
 		case p := <-progress:
 			onProgress(p)
+		case c := <-approvals:
+			// A consequential command proposed by the agent, waiting for the user. It is
+			// answered HERE, in the loop that reads the keys, because the agent is blocked in
+			// its own goroutine and cannot read anything itself.
+			//
+			// The answer is given inline rather than by spawning: while the window is open,
+			// approving a command IS what the user is doing, and a second reader on the same
+			// input would race with this one for the keystroke.
+			t.answerConfirm(ctx, c)
 		case out := <-done:
 			return out
 		case <-ctx.Done():

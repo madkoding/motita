@@ -12,6 +12,7 @@
 package skills
 
 import (
+	"embed"
 	"errors"
 	"fmt"
 	"os"
@@ -19,6 +20,26 @@ import (
 	"sort"
 	"strings"
 	"unicode/utf8"
+)
+
+// builtinFS holds the procedures that ship with the program.
+//
+// They are embedded rather than written from a string constant so the document keeps its own
+// file — syntax highlighting, a diff that shows prose, and no Go escaping of markdown — while
+// still travelling inside the binary. A skill is prose, and prose in a Go string literal is
+// prose nobody edits.
+//
+//go:embed builtin/*.md
+var builtinFS embed.FS
+
+// builtinReadDir and builtinReadFile are the two filesystem calls whose failure a test cannot
+// arrange from the outside: an embed.FS lives in the binary, and there is no way to make one of
+// its reads fail by arranging a directory. They are seams, the same pattern the rest of this
+// package uses for the calls that only fail on a broken disk — an embedded set that cannot be
+// read is a broken build, and the handling for it has to be exercised rather than hoped for.
+var (
+	builtinReadDir  = builtinFS.ReadDir
+	builtinReadFile = builtinFS.ReadFile
 )
 
 // Skill is one document in the library.
@@ -57,6 +78,17 @@ type Library struct {
 	// size it is either a data file or it needs splitting, and reading it into the context
 	// would cost more than it returns.
 	MaxFileBytes int
+	// Builtins includes the procedures embedded in the binary — the ones the program ships
+	// with, as opposed to the ones a session has written down.
+	//
+	// They are READ-ONLY and they are shadowed, not merged: a document in Dir with the same
+	// name wins, so a user who wants to correct one writes their own rather than being
+	// overruled by the binary. Deleting that document brings the shipped one back, which is
+	// the honest behaviour for a procedure nobody can lose.
+	//
+	// It is off in New so a library is exactly the directory it was given: a test that asks
+	// what is in a directory must not be answered with what is in the executable.
+	Builtins bool
 }
 
 // DefaultMaxFileBytes is the cap when none is configured: enough for a thorough procedure,
@@ -128,6 +160,49 @@ func (l *Library) path(name string) string {
 	return filepath.Join(l.Dir, name+".md")
 }
 
+// builtinDir is the folder inside the embedded filesystem. It is not a valid skill name, so a
+// document a session writes here can never collide with a path inside it.
+const builtinDir = "builtin"
+
+// builtinSkills returns the embedded procedures, parsed and keyed by name.
+//
+// It reads on every call rather than caching: an embed.FS serves from memory, the set is small,
+// and a cache would be one more thing to invalidate for no measured gain.
+func builtinSkills() (map[string]Skill, error) {
+	entries, err := builtinReadDir(builtinDir)
+	if err != nil {
+		return nil, fmt.Errorf("could not read the built-in skills: %w", err)
+	}
+	out := make(map[string]Skill, len(entries))
+	for _, e := range entries {
+		if e.IsDir() || !strings.HasSuffix(e.Name(), ".md") {
+			continue
+		}
+		data, err := builtinReadFile(builtinDir + "/" + e.Name())
+		if err != nil {
+			return nil, fmt.Errorf("could not read the built-in skill %s: %w", e.Name(), err)
+		}
+		name := strings.TrimSuffix(e.Name(), ".md")
+		s := parse(name, "builtin:"+e.Name(), string(data))
+		s.Body = string(data)
+		out[name] = s
+	}
+	return out, nil
+}
+
+// builtin returns one embedded skill, and whether the library is serving them at all.
+func (l *Library) builtin(name string) (Skill, bool, error) {
+	if !l.Builtins {
+		return Skill{}, false, nil
+	}
+	all, err := builtinSkills()
+	if err != nil {
+		return Skill{}, false, err
+	}
+	s, ok := all[name]
+	return s, ok, nil
+}
+
 // Search finds the skills whose name, title, summary or body match a query, best first.
 //
 // Matching the BODY as well as the headings is deliberate: a user asking "how do I handle a
@@ -167,7 +242,7 @@ func (l *Library) Search(query string, limit int) ([]Skill, error) {
 	}
 	var hits []scored
 	for _, s := range all {
-		body, err := readBody(l, s.Path)
+		body, err := l.body(s)
 		if err != nil {
 			// A document that cannot be read is skipped rather than failing the search: one
 			// unreadable file must not make the whole library unusable.
@@ -244,6 +319,13 @@ func (l *Library) Get(name string) (Skill, error) {
 	}
 	p := l.path(n)
 	if _, err := os.Stat(p); err != nil {
+		// Not on disk: the embedded procedure of that name is the next answer, and only when
+		// the library serves them. A name that is in neither is genuinely not found.
+		if s, ok, berr := l.builtin(n); berr != nil {
+			return Skill{}, berr
+		} else if ok {
+			return s, nil
+		}
 		return Skill{}, fmt.Errorf("%w: %q", ErrNotFound, n)
 	}
 	body, err := l.read(p)
@@ -302,6 +384,23 @@ func (l *Library) Save(name, body string) (Skill, error) {
 	return s, nil
 }
 
+// builtinPrefix marks the path of an embedded document. It is not a filesystem path, so a
+// document carrying it must never be handed to the disk.
+const builtinPrefix = "builtin:"
+
+// body returns a document's text, from the binary for an embedded one and from disk otherwise.
+//
+// The distinction is made on the path rather than on whether the body looks loaded, because an
+// embedded document that happened to be empty would then be read from the disk under a path
+// that does not exist — and the search would silently drop it.
+func (l *Library) body(s Skill) (string, error) {
+	if strings.HasPrefix(s.Path, builtinPrefix) {
+		return s.Body, nil
+	}
+	// The read goes through the seam, which is how the vanished-document branch is exercised.
+	return readBody(l, s.Path)
+}
+
 // List returns every skill's headings, without the bodies: it is what the model reads to
 // decide what to look up, and loading every document to answer it would cost the whole
 // library in context.
@@ -319,6 +418,7 @@ func (l *Library) index() ([]Skill, error) {
 	}
 
 	var out []Skill
+	seen := make(map[string]bool)
 	for _, e := range entries {
 		if e.IsDir() || !strings.HasSuffix(e.Name(), ".md") {
 			continue
@@ -334,7 +434,25 @@ func (l *Library) index() ([]Skill, error) {
 			continue
 		}
 		out = append(out, parse(name, p, body))
+		seen[name] = true
 	}
+
+	// The embedded procedures come last, minus the ones a document here already named. The
+	// document wins: a user who wrote their own is correcting the shipped one, and a library
+	// that listed both would offer the model two answers of unequal quality under one name.
+	if l.Builtins {
+		built, err := builtinSkills()
+		if err != nil {
+			return nil, err
+		}
+		for name, s := range built {
+			if seen[name] {
+				continue
+			}
+			out = append(out, s)
+		}
+	}
+
 	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
 	return out, nil
 }

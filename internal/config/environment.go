@@ -219,6 +219,15 @@ func ApplyEnvironment(c *Config) error {
 	}
 	c.Agent.Shell = readText("STARLIGHT_AGENT_SHELL", c.Agent.Shell)
 
+	// --- agent.policy (what the agent may do without asking) ---
+	// The mandatory layer is not read here, and cannot be: see config.Policy.
+	if c.Agent.Policy.Enforce, err = readBool("STARLIGHT_AGENT_POLICY_ENFORCE", c.Agent.Policy.Enforce); err != nil {
+		return err
+	}
+	if c.Agent.Policy.Strict, err = readBool("STARLIGHT_AGENT_POLICY_STRICT", c.Agent.Policy.Strict); err != nil {
+		return err
+	}
+
 	// --- agent.on_failure ---
 	c.Agent.OnFailure.Kind = readText("STARLIGHT_AGENT_ON_FAILURE_KIND", c.Agent.OnFailure.Kind)
 	c.Agent.OnFailure.Command = readText("STARLIGHT_AGENT_ON_FAILURE_COMMAND", c.Agent.OnFailure.Command)

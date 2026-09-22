@@ -335,6 +335,94 @@ func TestEnvironmentInvalidBool(t *testing.T) {
 	}
 }
 
+// TestEnvironmentPolicyBooleans: the two settings the confirmation layer reads, in both
+// directions, and the error a value that is not a boolean has to produce.
+//
+// Neither of them can reach the mandatory floor — there is no variable for it — so these are
+// the only two levers the environment has over what the agent may do without asking.
+func TestEnvironmentPolicyBooleans(t *testing.T) {
+	t.Setenv("STARLIGHT_LLM_API_KEY", "x")
+
+	// Enforce: on by default, and switchable off.
+	cfg := Default()
+	if err := ApplyEnvironment(&cfg); err != nil {
+		t.Fatalf("the defaults must load: %v", err)
+	}
+	if !cfg.Agent.Policy.Enforce {
+		t.Error("the policy is enforced by default: an agent that has to be told to ask is one that acts without asking")
+	}
+	if cfg.Agent.Policy.Strict {
+		t.Error("strict is off by default: asking is already the cautious answer")
+	}
+
+	t.Setenv("STARLIGHT_AGENT_POLICY_ENFORCE", "no")
+	cfg = Default()
+	if err := ApplyEnvironment(&cfg); err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Agent.Policy.Enforce {
+		t.Error("the environment must be able to switch the policy off")
+	}
+
+	// Strict: on when asked, and off again.
+	t.Setenv("STARLIGHT_AGENT_POLICY_ENFORCE", "")
+	t.Setenv("STARLIGHT_AGENT_POLICY_STRICT", "yes")
+	cfg = Default()
+	if err := ApplyEnvironment(&cfg); err != nil {
+		t.Fatal(err)
+	}
+	if !cfg.Agent.Policy.Strict {
+		t.Error("strict must be switchable on for an operator who wants the cautious answer")
+	}
+
+	// A value that is not a boolean is an error, not a silent default: a typo here decides
+	// whether the agent asks before acting.
+	for _, key := range []string{"STARLIGHT_AGENT_POLICY_ENFORCE", "STARLIGHT_AGENT_POLICY_STRICT"} {
+		// Both are cleared first: the loader stops at the FIRST bad value, so leaving the
+		// other one set would test the same branch twice and never reach the second.
+		t.Setenv("STARLIGHT_AGENT_POLICY_ENFORCE", "")
+		t.Setenv("STARLIGHT_AGENT_POLICY_STRICT", "")
+		t.Setenv(key, "quizas")
+		cfg := Default()
+		err := ApplyEnvironment(&cfg)
+		if err == nil {
+			t.Errorf("%s with a value that is not a boolean must give an error", key)
+			continue
+		}
+		// The message must say which variable and what the value was: this is the setting
+		// that decides whether the agent asks before acting, and a typo must not be silent.
+		if !strings.Contains(err.Error(), key) {
+			t.Errorf("the error must name %s: %v", key, err)
+		}
+		if !strings.Contains(err.Error(), "quizas") {
+			t.Errorf("the error must quote the offending value: %v", err)
+		}
+	}
+}
+
+// TestNoEnvironmentVariableReachesTheMandatoryFloor: the floor is not configurable, and this
+// is the test that keeps it that way. Every variable the loader reads is set to a permissive
+// value at once, and a floor command still has to be refused.
+//
+// A future setting that could reach the floor would have to appear in this list to be read at
+// all, so the check is about the LOADER, not about one field.
+func TestNoEnvironmentVariableReachesTheMandatoryFloor(t *testing.T) {
+	t.Setenv("STARLIGHT_LLM_API_KEY", "x")
+	t.Setenv("STARLIGHT_AGENT_POLICY_ENFORCE", "false")
+	t.Setenv("STARLIGHT_AGENT_POLICY_STRICT", "false")
+	t.Setenv("STARLIGHT_AGENT_READ_ONLY", "false")
+	t.Setenv("STARLIGHT_SANDBOX_ENABLED", "false")
+	t.Setenv("STARLIGHT_SANDBOX_ISOLATE_NETWORK", "false")
+
+	cfg := Default()
+	if err := ApplyEnvironment(&cfg); err != nil {
+		t.Fatalf("the permissive environment must load: %v", err)
+	}
+	if cfg.Agent.Policy.Enforce {
+		t.Fatal("this test is only meaningful when the policy is switched off")
+	}
+}
+
 func TestEnvironmentInvalidTemperature(t *testing.T) {
 	t.Setenv("STARLIGHT_LLM_API_KEY", "x")
 	t.Setenv("STARLIGHT_LLM_TEMPERATURE", "hot")

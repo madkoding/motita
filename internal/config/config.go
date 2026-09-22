@@ -187,8 +187,49 @@ type Agent struct {
 	ReadOnly bool `yaml:"read_only"`
 	// Shell is the interpreter used for actions outside read-only mode. Empty means
 	// the platform default (sh on Unix, the command processor on Windows).
-	Shell     string    `yaml:"shell"`
+	Shell string `yaml:"shell"`
+	// Policy is what the agent may do without asking. See Policy below: it has two
+	// layers, and only one of them is configurable.
+	Policy    Policy    `yaml:"policy"`
 	OnFailure OnFailure `yaml:"on_failure"`
+}
+
+// Policy is what the agent may do on its own, and it is deliberately two layers.
+//
+// The first layer is this struct: two settings the operator owns, because both are
+// legitimate choices that depend on how starlight is being run.
+//
+// The second layer is NOT here, and its absence is the point. A short list of commands
+// (see internal/policy) is refused whatever this block says: erasing a filesystem, the
+// machine's power state, the partition table, a recursive forced delete of the tree the
+// agent works under. There is no YAML key, no environment variable and no flag that
+// relaxes them, because a guardrail an operator can switch off is a guardrail that will
+// be switched off — during the incident it was meant for, by whoever wants the task to
+// finish.
+type Policy struct {
+	// Enforce confirms before a consequential action runs. Turning it off restores the
+	// older behaviour (the model's line is run as written), which is a defensible choice
+	// for a batch job with nobody at the keyboard and is why the setting exists. It does
+	// NOT reach the mandatory layer above.
+	//
+	// Default: true. An agent that has to be told to ask before acting is an agent that
+	// acts without asking by default, which is the failure this exists to fix.
+	Enforce bool `yaml:"enforce"`
+	// Strict refuses what the policy cannot classify — an unknown program, a line that needs
+	// a shell, a writer whose target is not in its arguments.
+	//
+	// Off (the default) means those are ASKED about instead. That is the honest default:
+	// the set of programs a user's work needs is unbounded, refusing everything unlisted
+	// makes the agent useless for the work it was pointed at, and a question costs one
+	// keystroke. On is for a run where the operator would rather see a refusal than a
+	// prompt.
+	//
+	// With Enforce off, the two interact in one direction only: a command that would be
+	// ASKED about is then ALLOWED, and one that Strict REFUSES stays refused. Turning the
+	// confirmation off cannot promote a refusal into a run.
+	//
+	// It does NOT reach the mandatory floor.
+	Strict bool `yaml:"strict"`
 }
 
 // ---------------------------------------------------------------------------
@@ -255,6 +296,10 @@ func Default() Config {
 			SubtaskDepth: 1,
 			WorkspaceDir: defaultWorkspaceDir(),
 			LogLevel:     "info",
+			// The policy asks before a consequential action runs, and refuses what it
+			// cannot classify. Both defaults are the cautious side of a choice the
+			// operator still owns: see Policy.
+			Policy: Policy{Enforce: true, Strict: false},
 			// A file is always named. The conversational interface silences the console so
 			// structured lines do not land in the middle of the chat, and with no file that
 			// silence would be the whole log: a user reporting a problem from the chat would
