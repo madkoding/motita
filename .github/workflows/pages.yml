@@ -1,0 +1,68 @@
+name: pages
+
+# Publishes site/ to GitHub Pages.
+#
+# The site/ directory is plain static HTML: no build step, no node_modules, no
+# bundler. So this workflow has exactly one job — hand the directory to Pages —
+# and it deliberately does NOT run the test suite. ci.yml already gates every
+# push to main, and a documentation site should not be able to fail a build for a
+# reason that has nothing to do with the code.
+on:
+  push:
+    branches: [main]
+    paths:
+      - site/**
+      - docs/**
+      - .github/workflows/pages.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# Let a running deploy finish rather than cancelling it: the artifact is cheap and
+# a half-published site is worse than a slightly stale one.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: publish site
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Verify the site is self-contained
+        # Every local href/src must resolve inside site/. This catches the one
+        # mistake that is invisible locally and fatal in production: a path that
+        # works because docs/ happens to sit next to the file and does not exist
+        # once only site/ is uploaded.
+        run: |
+          set -eu
+          cd site
+          missing=0
+          for f in $(grep -rhoE '(href|src)="[^"]+"' . \
+                     | sed -E 's/.*="([^"]+)"/\1/' \
+                     | grep -vE '^(https?:|mailto:|#|data:)' \
+                     | sort -u); do
+            if [ ! -e "$f" ]; then
+              echo "::error file=site/index.html::dead reference: $f"
+              missing=1
+            fi
+          done
+          [ "$missing" -eq 0 ] || exit 1
+          echo "every local reference resolves"
+
+      - uses: actions/configure-pages@v5
+
+      - uses: actions/upload-pages-artifact@v4
+        with:
+          path: site
+
+      - id: deployment
+        uses: actions/deploy-pages@v5

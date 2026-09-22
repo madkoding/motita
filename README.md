@@ -294,7 +294,11 @@ for containers and secrets.
 
 ## Going deeper
 
-This page is the pitch. The engineering lives in full somewhere else:
+**[madkoding.github.io/starlight](https://madkoding.github.io/starlight/)** — the same
+pitch as a landing page, with the architecture as an interactive diagram you can
+explore: switch themes, trace a relationship, export it as SVG or PNG.
+
+The prose version, and the engineering in full:
 
 **[docs/REFERENCE.md](docs/REFERENCE.md)** — the architecture in detail, the
 sandboxing layers and why the limits are applied by the shell rather than the

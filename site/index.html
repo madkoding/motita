@@ -1,0 +1,545 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>starlight — the AI agent that has to prove it finished</title>
+<meta name="description" content="A three-layer AI agent that runs a real check to prove a task is done. One static binary, zero dependencies, runs on a 2008 netbook.">
+<meta name="color-scheme" content="dark">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><text y='26' font-size='26'>✦</text></svg>">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  /* Design system: Dark Mode (OLED) + JetBrains Mono / IBM Plex Sans.
+     Tokens first, so every surface reads from one place. */
+  :root {
+    --bg: #0F172A;
+    --bg-deep: #080D18;
+    --card: #1B2336;
+    --muted: #272F42;
+    --fg: #F8FAFC;
+    --muted-fg: #94A3B8;
+    --border: #2E3A52;
+    --border-strong: #475569;
+    --accent: #22C55E;
+    --accent-dim: #16A34A;
+    --on-accent: #08130B;
+    --amber: #E3B341;
+    --rose: #F87171;
+    --cyan: #56D4DD;
+    --violet: #A78BFA;
+    --ring: #F8FAFC;
+    --mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+    --sans: 'IBM Plex Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    --radius: 10px;
+    --space-1: 4px;  --space-2: 8px;  --space-3: 12px; --space-4: 16px;
+    --space-5: 24px; --space-6: 32px; --space-7: 48px; --space-8: 64px; --space-9: 96px;
+  }
+
+  *, *::before, *::after { box-sizing: border-box; }
+
+  html { scroll-behavior: smooth; }
+  @media (prefers-reduced-motion: reduce) {
+    html { scroll-behavior: auto; }
+    *, *::before, *::after { animation-duration: .01ms !important; transition-duration: .01ms !important; }
+  }
+
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--fg);
+    font-family: var(--sans);
+    font-size: 16px;
+    line-height: 1.6;
+    -webkit-font-smoothing: antialiased;
+    overflow-x: hidden;
+  }
+
+  /* A single restrained glow behind the hero — no purple gradient soup. */
+  body::before {
+    content: "";
+    position: fixed;
+    inset: -20% 0 auto 0;
+    height: 620px;
+    background: radial-gradient(60% 100% at 50% 0%, rgba(34,197,94,.10), transparent 70%);
+    pointer-events: none;
+    z-index: 0;
+  }
+
+  .wrap { max-width: 1120px; margin: 0 auto; padding: 0 var(--space-5); position: relative; z-index: 1; }
+
+  a { color: var(--accent); text-decoration: none; }
+  a:hover { text-decoration: underline; text-underline-offset: 3px; }
+
+  /* Visible focus on EVERY interactive control, including in the header. */
+  a:focus-visible, button:focus-visible {
+    outline: 2px solid var(--ring);
+    outline-offset: 3px;
+    border-radius: 6px;
+  }
+
+  code, kbd, .mono { font-family: var(--mono); }
+  code {
+    background: var(--muted);
+    border: 1px solid var(--border);
+    border-radius: 5px;
+    padding: 1px 6px;
+    font-size: .875em;
+    color: var(--fg);
+  }
+
+  /* ---------- skip link ---------- */
+  .skip {
+    position: absolute; left: -9999px; top: 0;
+    background: var(--accent); color: var(--on-accent);
+    padding: var(--space-3) var(--space-4); border-radius: 0 0 var(--radius) 0;
+    font-weight: 600; z-index: 100;
+  }
+  .skip:focus { left: 0; }
+
+  /* ---------- header ---------- */
+  header {
+    position: sticky; top: 0; z-index: 50;
+    background: rgba(15,23,42,.86);
+    backdrop-filter: blur(12px);
+    border-bottom: 1px solid var(--border);
+  }
+  .bar { display: flex; align-items: center; gap: var(--space-5); height: 62px; }
+  .brand {
+    font-family: var(--mono); font-weight: 700; font-size: 1.05rem;
+    color: var(--fg); display: flex; align-items: center; gap: var(--space-2);
+    white-space: nowrap;
+  }
+  .brand span { color: var(--accent); }
+  nav { margin-left: auto; display: flex; align-items: center; gap: var(--space-5); }
+  nav a { color: var(--muted-fg); font-size: .9rem; font-weight: 500; white-space: nowrap; }
+  nav a:hover { color: var(--fg); text-decoration: none; }
+  .gh {
+    display: inline-flex; align-items: center; gap: var(--space-2);
+    border: 1px solid var(--border-strong); border-radius: 8px;
+    padding: 10px 14px; color: var(--fg); font-size: .875rem; font-weight: 600;
+    font-family: var(--mono); min-height: 44px;
+  }
+  .gh:hover { border-color: var(--accent); text-decoration: none; background: rgba(34,197,94,.08); }
+  @media (max-width: 860px) { nav a:not(.gh) { display: none; } }
+
+  /* ---------- hero ---------- */
+  .hero { padding: var(--space-9) 0 var(--space-7); text-align: center; }
+  .pill {
+    display: inline-flex; align-items: center; gap: var(--space-2);
+    font-family: var(--mono); font-size: .78rem; font-weight: 500;
+    color: var(--accent); background: rgba(34,197,94,.09);
+    border: 1px solid rgba(34,197,94,.28); border-radius: 100px;
+    padding: 6px 14px; margin-bottom: var(--space-5);
+  }
+  .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--accent); }
+
+  h1 {
+    font-family: var(--mono); font-weight: 700;
+    font-size: clamp(2rem, 5.2vw, 3.35rem);
+    line-height: 1.12; letter-spacing: -.02em;
+    margin: 0 0 var(--space-5); max-width: 20ch; margin-inline: auto;
+  }
+  h1 em { font-style: normal; color: var(--accent); }
+  .lede {
+    font-size: clamp(1rem, 2vw, 1.16rem); color: var(--muted-fg);
+    max-width: 62ch; margin: 0 auto var(--space-7);
+  }
+
+  /* ---------- install ---------- */
+  .install { max-width: 960px; margin: 0 auto var(--space-5); }
+  .cmd {
+    display: flex; align-items: center; gap: var(--space-4);
+    background: var(--bg-deep); border: 1px solid var(--border);
+    border-radius: var(--radius); padding: var(--space-4) var(--space-5);
+    font-family: var(--mono); font-size: .8rem; text-align: left;
+  }
+  .cmd .prompt { color: var(--accent); user-select: none; flex: none; }
+  .cmd code {
+    background: none; border: 0; padding: 0; flex: 1;
+    overflow-x: auto; white-space: nowrap; color: var(--fg); font-size: .8rem;
+  }
+  .copy {
+    flex: none; background: var(--muted); color: var(--fg);
+    border: 1px solid var(--border-strong); border-radius: 7px;
+    padding: 11px 14px; font-family: var(--mono); font-size: .78rem;
+    font-weight: 600; cursor: pointer; min-height: 44px;
+    transition: background .15s ease, border-color .15s ease;
+  }
+  .copy:hover { background: var(--border); border-color: var(--accent); }
+  .hero-note { font-size: .82rem; color: var(--muted-fg); margin: 0; }
+
+  /* ---------- screenshot ---------- */
+  figure.shot { margin: var(--space-8) 0 0; }
+  figure.shot img {
+    width: 100%; height: auto; display: block;
+    border: 1px solid var(--border-strong); border-radius: var(--radius);
+    box-shadow: 0 24px 60px -20px rgba(0,0,0,.75);
+  }
+  figcaption {
+    color: var(--muted-fg); font-size: .82rem; margin-top: var(--space-3);
+    max-width: 74ch; margin-inline: auto;
+  }
+
+  /* ---------- sections ---------- */
+  section { padding: var(--space-9) 0; border-top: 1px solid var(--border); }
+  .eyebrow {
+    font-family: var(--mono); font-size: .78rem; font-weight: 600;
+    color: var(--accent); letter-spacing: .09em; text-transform: uppercase;
+    margin: 0 0 var(--space-3);
+  }
+  h2 {
+    font-family: var(--mono); font-size: clamp(1.4rem, 3.2vw, 2rem);
+    font-weight: 700; letter-spacing: -.01em; line-height: 1.2;
+    margin: 0 0 var(--space-4); max-width: 26ch;
+  }
+  h3 { font-family: var(--mono); font-size: 1rem; font-weight: 600; margin: 0 0 var(--space-2); }
+  .sub { color: var(--muted-fg); max-width: 68ch; margin: 0 0 var(--space-6); }
+  .sub strong { color: var(--fg); font-weight: 600; }
+
+  .cards {
+    display: grid; gap: var(--space-4);
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, 280px), 1fr));
+  }
+  .card {
+    background: var(--card); border: 1px solid var(--border);
+    border-radius: var(--radius); padding: var(--space-5);
+  }
+  .card p { margin: 0; color: var(--muted-fg); font-size: .93rem; }
+  .card .k {
+    font-family: var(--mono); font-size: .74rem; font-weight: 700;
+    color: var(--accent); letter-spacing: .07em; text-transform: uppercase;
+    display: block; margin-bottom: var(--space-3);
+  }
+
+  ul.plain { list-style: none; padding: 0; margin: 0; }
+  ul.plain li {
+    position: relative; padding-left: var(--space-5);
+    color: var(--muted-fg); font-size: .93rem; margin-bottom: var(--space-3);
+  }
+  ul.plain li::before {
+    content: "▸"; position: absolute; left: 0; color: var(--accent);
+  }
+  ul.plain li strong { color: var(--fg); }
+
+  /* ---------- verdict table ---------- */
+  .verdicts { display: grid; gap: var(--space-3); }
+  .v {
+    display: grid; grid-template-columns: 96px 1fr; gap: var(--space-4);
+    align-items: baseline; background: var(--card);
+    border: 1px solid var(--border); border-left-width: 3px;
+    border-radius: var(--radius); padding: var(--space-4) var(--space-5);
+  }
+  .v.allow { border-left-color: var(--accent); }
+  .v.ask   { border-left-color: var(--amber); }
+  .v.deny  { border-left-color: var(--rose); }
+  .v b { font-family: var(--mono); font-size: .82rem; letter-spacing: .04em; }
+  .v.allow b { color: var(--accent); }
+  .v.ask b { color: var(--amber); }
+  .v.deny b { color: var(--rose); }
+  .v span { color: var(--muted-fg); font-size: .92rem; }
+  .v span code { font-size: .85em; }
+  @media (max-width: 560px) { .v { grid-template-columns: 1fr; gap: var(--space-2); } }
+
+  /* ---------- stats ---------- */
+  .stats {
+    display: grid; gap: 1px; background: var(--border);
+    border: 1px solid var(--border); border-radius: var(--radius);
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, 168px), 1fr));
+    overflow: hidden;
+  }
+  .stat { background: var(--card); padding: var(--space-5); }
+  .stat .n {
+    font-family: var(--mono); font-size: 1.6rem; font-weight: 700;
+    color: var(--accent); line-height: 1.1; display: block;
+  }
+  .stat .l { font-size: .82rem; color: var(--muted-fg); margin-top: var(--space-2); }
+
+  /* ---------- diagram ---------- */
+  .diagram {
+    background: var(--card); border: 1px solid var(--border);
+    border-radius: var(--radius); overflow: hidden; margin-top: var(--space-6);
+  }
+  .diagram iframe {
+    width: 100%; height: 680px; border: 0; display: block; background: #0b1020;
+  }
+  .diagram .foot {
+    display: flex; align-items: center; gap: var(--space-3); flex-wrap: wrap;
+    padding: var(--space-4) var(--space-5); border-top: 1px solid var(--border);
+    font-size: .85rem; color: var(--muted-fg);
+  }
+
+  /* ---------- code block ---------- */
+  pre {
+    background: var(--bg-deep); border: 1px solid var(--border);
+    border-radius: var(--radius); padding: var(--space-5);
+    overflow-x: auto; font-size: .85rem; line-height: 1.65; margin: 0;
+  }
+  pre .c { color: var(--muted-fg); }
+  pre .g { color: var(--accent); }
+  pre .y { color: var(--amber); }
+
+  /* ---------- footer ---------- */
+  footer {
+    border-top: 1px solid var(--border); padding: var(--space-7) 0;
+    color: var(--muted-fg); font-size: .875rem;
+  }
+  .frow { display: flex; gap: var(--space-5); flex-wrap: wrap; align-items: center; }
+  .frow .sep { flex: 1; }
+  footer a {
+    color: var(--muted-fg); display: inline-flex; align-items: center;
+    min-height: 44px; padding: 0 var(--space-1);
+  }
+  footer a:hover { color: var(--accent); }
+  /* The inline "open full screen" link gets the same touch area as the rest. */
+  .diagram .foot a { display: inline-flex; align-items: center; min-height: 44px; }
+
+  .sr { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
+</style>
+</head>
+<body>
+<a class="skip" href="#main">Skip to content</a>
+
+<header>
+  <div class="wrap bar">
+    <span class="brand">✦ star<span>light</span></span>
+    <nav>
+      <a href="#how">How it works</a>
+      <a href="#guardrails">Guardrails</a>
+      <a href="#numbers">Numbers</a>
+      <a href="REFERENCE.md">Reference</a>
+      <a class="gh" href="https://github.com/madkoding/starlight">
+        <svg width="15" height="15" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27s1.36.09 2 .27c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8Z"/></svg>
+        GitHub
+      </a>
+    </nav>
+  </div>
+</header>
+
+<main id="main">
+
+  <div class="wrap hero">
+    <span class="pill"><span class="dot" aria-hidden="true"></span> v0.5.0 · MIT · zero dependencies</span>
+    <h1>The AI agent that has to <em>prove</em> it finished.</h1>
+    <p class="lede">
+      Every other agent asks you to trust it. starlight runs a real check, and only
+      the check can declare the task done. If it fails, the agent gets the real
+      error back and tries again. If it can't pass, it says so and stops.
+    </p>
+
+    <div class="install">
+      <div class="cmd">
+        <span class="prompt" aria-hidden="true">$</span>
+        <code id="install-cmd">curl -fsSL https://raw.githubusercontent.com/madkoding/starlight/main/scripts/install.sh | sh</code>
+        <button class="copy" type="button" data-copy="install-cmd">Copy</button>
+        <span class="sr" role="status" id="copy-status"></span>
+      </div>
+      <p class="hero-note">One static binary. No Docker, no runtime, no dependency tree. It runs on a 2008 netbook with 484 MB of RAM.</p>
+    </div>
+
+    <figure class="shot">
+      <img src="assets/tui-uchikoma.png" width="1308" height="800"
+           alt="The starlight terminal interface running on an Acer Aspire One, showing a task answered by listing the machine's listening ports and the process that owns each one.">
+      <figcaption>
+        A real session, not a mockup — an Acer Aspire One (Atom N270, 484 MB RAM,
+        Ubuntu 11.04 / kernel 2.6.38) answering a question by running commands and
+        reporting what it actually found. It is the i386 binary from the release.
+      </figcaption>
+    </figure>
+  </div>
+
+  <section id="how">
+    <div class="wrap">
+      <p class="eyebrow">The architecture</p>
+      <h2>The model proposes. Your code disposes.</h2>
+      <p class="sub">
+        starlight splits every task in three, and the model only ever gets to
+        <strong>propose</strong>. The one rule that makes it work: the model can propose a
+        <code>PASS</code>, but only layer A can declare one. With no anchor configured,
+        the agent refuses to start — there is no "trust me" mode.
+      </p>
+
+      <div class="diagram">
+        <iframe src="architecture.html" title="Interactive starlight architecture diagram" loading="lazy"></iframe>
+        <div class="foot">
+          <span>Interactive: switch theme, trace a relationship, export SVG or PNG.</span>
+          <span class="sep"></span>
+          <a href="architecture.html" target="_blank" rel="noopener">Open full screen ↗</a>
+        </div>
+      </div>
+
+      <div class="cards" style="margin-top: var(--space-6)">
+        <div class="card">
+          <span class="k">Layer A · the anchor</span>
+          <h3>Deterministic code, not AI</h3>
+          <p>Runs your command and checks the exit code, the output against a pattern, and your own invariants. It cannot be talked into a different answer.</p>
+        </div>
+        <div class="card">
+          <span class="k">Layer B · reasoning</span>
+          <h3>Any provider, one client</h3>
+          <p>A hand-written client for OpenAI-compatible, Anthropic and Gemini APIs. OpenAI, Ollama Cloud, Groq, OpenRouter, DeepSeek, or your own box — nothing else knows which.</p>
+        </div>
+        <div class="card">
+          <span class="k">Layer C · the sandbox</span>
+          <h3>Honest about its limits</h3>
+          <p>Runs the action in an ephemeral directory under real limits — and tells you what it could <em>not</em> apply, instead of pretending the isolation is stronger than it is.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <div class="wrap">
+      <p class="eyebrow">Why it holds up</p>
+      <h2>Retries that learn something.</h2>
+      <p class="sub">
+        When a check fails, the agent gets the failing command, its real output and the
+        structured verdict back. It fixes the actual problem instead of re-rolling the dice.
+      </p>
+
+      <pre><code><span class="c"># The end-to-end test asserts the result on the FILESYSTEM, not in what the agent says.</span>
+<span class="c"># Its simulated model gets it wrong on purpose, then corrects itself — every commit.</span>
+attempt 1  <span class="y">FAIL</span>  anchor: exit 1 — "expected output.txt to exist"
+           <span class="c">the real error goes back to the model</span>
+attempt 2  <span class="g">PASS</span>  anchor: exit 0 — output.txt present and matching
+
+<span class="c"># Your exit code means something:</span>
+<span class="g">0</span>  every task passed its check
+<span class="y">1</span>  a task failed — with the reason in the message itself
+<span class="y">2</span>  bad configuration</code></pre>
+    </div>
+  </section>
+
+  <section id="guardrails">
+    <div class="wrap">
+      <p class="eyebrow">The guardrails</p>
+      <h2>Two layers, and only one of them is yours.</h2>
+      <p class="sub">
+        The <strong>floor</strong> is a small, deliberately un-configurable set of commands that are
+        refused no matter what. The <strong>confirmation layer</strong> is where you decide what
+        interrupts you — and the subtle middle row below is the whole design.
+      </p>
+
+      <div class="verdicts">
+        <div class="v allow">
+          <b>ALLOW</b>
+          <span>It changes nothing, or it changes the workspace you pointed the agent at. <code>make</code>, <code>go build</code>, <code>npm test</code>, <code>python3 build.py</code> and your own <code>./scripts/*</code> run <strong>silently</strong>.</span>
+        </div>
+        <div class="v ask">
+          <b>ASK</b>
+          <span>It reaches the network or the system, writes outside the workspace, or is something nobody can classify. <strong>You are asked</strong> before anything runs.</span>
+        </div>
+        <div class="v deny">
+          <b>DENY</b>
+          <span>Strict mode: what cannot be classified is refused instead of asked about. And the floor, always — <code>mkfs</code>, the partition editors, <code>dd</code> with an output, the power verbs, and <code>rm</code>/<code>mv</code>/<code>cp</code>/<code>ln</code> aimed at <code>/</code>, <code>~</code>, a system path, or the tree that <em>contains</em> your workspace.</span>
+        </div>
+      </div>
+
+      <p class="sub" style="margin-top: var(--space-6)">
+        Rule 2 is the one that keeps the layer alive: a policy that asked about
+        <code>make</code> would be switched off within a week, and then it would protect
+        nothing. There is no YAML key, no environment variable and no flag that relaxes
+        the floor — <strong>that's the point</strong>. A guardrail an operator can switch off is a
+        guardrail that will be switched off, during the incident it was meant for.
+      </p>
+    </div>
+  </section>
+
+  <section id="numbers">
+    <div class="wrap">
+      <p class="eyebrow">The numbers</p>
+      <h2>Tested the way you'd test something you were about to bet on.</h2>
+      <p class="sub">
+        These are measured, not asserted — and the documentation's claims are anchored to
+        the code by tests, so the page cannot drift away from the behaviour.
+      </p>
+
+      <div class="stats">
+        <div class="stat"><span class="n">100%</span><span class="l">statement coverage in every package that ships — 22 of 22, checked one by one so a gap can't hide behind an average</span></div>
+        <div class="stat"><span class="n">0</span><span class="l">external dependencies — <code>go.mod</code> has no <code>require</code> line, and there is no <code>go.sum</code></span></div>
+        <div class="stat"><span class="n">9</span><span class="l">platforms CI builds and verifies, with <code>386</code> as a first-class target</span></div>
+        <div class="stat"><span class="n">6.6&nbsp;MB</span><span class="l">per published static binary — copy it over <code>scp</code> and walk away</span></div>
+      </div>
+
+      <p class="sub" style="margin-top: var(--space-6)">
+        That coverage number isn't a badge. It's the mechanism that found the bugs now
+        documented in the reference: the <code>RLIMIT_CPU</code> that never fired, the process
+        group that kept a 1-second deadline waiting for five, the sandbox directory that got
+        deleted before the validator could look inside it. Every one of them is a test now.
+      </p>
+
+      <p class="sub" style="margin-bottom: 0">
+        CI reads the <strong>ELF header</strong> to prove the i386 binary really is 32-bit, and runs the
+        end-to-end tests inside a real 32-bit container before publishing anything.
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <div class="wrap">
+      <p class="eyebrow">Where it runs</p>
+      <h2>Pure Go, standard library only.</h2>
+      <p class="sub">Nine targets, one static binary each. No cgo, nothing to vendor, nothing to patch.</p>
+      <div class="cards">
+        <div class="card"><span class="k">Linux</span><p class="mono">386 · amd64 · arm (ARMv7) · arm64</p></div>
+        <div class="card"><span class="k">Windows</span><p class="mono">386 · amd64 · arm64</p></div>
+        <div class="card"><span class="k">macOS</span><p class="mono">amd64 · arm64</p></div>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <div class="wrap">
+      <p class="eyebrow">The interface</p>
+      <h2>A terminal interface you'll actually want to use.</h2>
+      <p class="sub">
+        Run it with no arguments and you get a full TUI — written against the standard
+        library alone, so it's the same binary, not a wrapper around something else.
+      </p>
+      <div class="cards">
+        <div class="card"><span class="k">/task &nbsp; /plan</span><p>Switch between doing work and read-only exploration.</p></div>
+        <div class="card"><span class="k">/models</span><p>Your provider, your key status, and the models it really publishes.</p></div>
+        <div class="card"><span class="k">/good &nbsp; /bad</span><p>Tell the agent how a turn went. It lands on the procedures that turn used.</p></div>
+        <div class="card"><span class="k">/value</span><p>See what it has learned from those verdicts — no fine-tuning, no extra bill.</p></div>
+      </div>
+      <p class="sub" style="margin-top: var(--space-6); margin-bottom: 0">
+        <strong>Plan mode is structurally read-only.</strong> It calls tools through a path that never
+        invokes a shell, so pipes, redirections and metacharacters aren't blocked —
+        they're <em>syntactically unreachable</em>.
+      </p>
+    </div>
+  </section>
+
+</main>
+
+<footer>
+  <div class="wrap frow">
+    <span class="mono">✦ starlight</span>
+    <span>MIT licensed — take it, ship it, run it on hardware everyone else wrote off.</span>
+    <span class="sep"></span>
+    <a href="https://github.com/madkoding/starlight">GitHub</a>
+    <a href="REFERENCE.md">Reference</a>
+    <a href="TUI-DESIGN-REVIEW.md">TUI design review</a>
+  </div>
+</footer>
+
+<script>
+  // Copy button: the only script on the page, and it degrades to a plain command.
+  document.querySelectorAll('.copy').forEach(function (btn) {
+    btn.addEventListener('click', async function () {
+      var target = document.getElementById(btn.dataset.copy);
+      var status = document.getElementById('copy-status');
+      try {
+        await navigator.clipboard.writeText(target.textContent.trim());
+        btn.textContent = 'Copied';
+        status.textContent = 'Install command copied to clipboard.';
+      } catch (e) {
+        status.textContent = 'Copy failed — select the command and copy it manually.';
+      }
+      setTimeout(function () { btn.textContent = 'Copy'; }, 1800);
+    });
+  });
+</script>
+</body>
+</html>
