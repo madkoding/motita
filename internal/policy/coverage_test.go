@@ -286,7 +286,7 @@ func TestIsRootWriteTargetCoversTheSystemTrees(t *testing.T) {
 		"":             false,
 	}
 	for in, want := range cases {
-		if got := isRootWriteTarget(in); got != want {
+		if got := isRootWriteTarget(in, ""); got != want {
 			t.Errorf("isRootWriteTarget(%q) = %v, want %v", in, got, want)
 		}
 	}
@@ -296,7 +296,11 @@ func TestIsRootWriteTargetCoversTheSystemTrees(t *testing.T) {
 // through its links. It is the rule that stops a symlink inside the workspace from being a
 // way out of it, and it has to work on a path that is part root and part not-yet-created.
 func TestResolveAsFarAsPossibleFollowsWhatExists(t *testing.T) {
-	real := t.TempDir()
+	// The temp dir itself may sit behind a link (/var -> /private/var on macOS).
+	real, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
 	link := filepath.Join(t.TempDir(), "enlace")
 	if err := os.Symlink(real, link); err != nil {
 		t.Skipf("symlinks are not available here: %v", err)

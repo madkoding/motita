@@ -52,6 +52,14 @@ func Classify(command string, args []string) (Kind, string) {
 		return KindShell, fmt.Sprintf("%q is a shell: a line can do anything, so it cannot be checked", name)
 	}
 
+	// env and command run their operand as a program, so they are whatever it is:
+	// `env rm -rf x` is rm, `env sh -c ...` is a shell.
+	if name == "env" || name == "command" {
+		if kind, reason, ok := classifyWrapped(name, args); ok {
+			return kind, reason
+		}
+	}
+
 	// Writing programs, refused by name even when an argument would make them read.
 	// `sed -n` only reads, but `sed -i` rewrites, and one policy is easier to keep honest
 	// than a table of exceptions.
@@ -71,4 +79,39 @@ func Classify(command string, args []string) (Kind, string) {
 	}
 
 	return KindUnknown, fmt.Sprintf("%q is not on the list of known programs", name)
+}
+
+// classifyWrapped classifies the program that env or command would run. ok is false
+// when there is no program operand, and the wrapper is then the reader it looks like
+// (env prints the environment, command -v looks a name up).
+func classifyWrapped(name string, args []string) (Kind, string, bool) {
+	for i := 0; i < len(args); i++ {
+		a := args[i]
+		switch {
+		case a == "--":
+			if i+1 < len(args) {
+				kind, reason := Classify(args[i+1], args[i+2:])
+				return kind, reason, true
+			}
+			return 0, "", false
+		case name == "command" && (a == "-v" || a == "-V"):
+			return 0, "", false // only looks the name up
+		case name == "command" && a == "-p":
+		case name == "env" && (a == "-i" || a == "-0" || a == "-v" || a == "-" ||
+			a == "--ignore-environment" || a == "--null" || a == "--debug"):
+		case name == "env" && (a == "-u" || a == "-C" || a == "-P" || a == "--unset" || a == "--chdir"):
+			i++ // the flag's value
+		case name == "env" && (strings.HasPrefix(a, "--unset=") || strings.HasPrefix(a, "--chdir=")):
+		case name == "env" && (strings.HasPrefix(a, "-S") || strings.HasPrefix(a, "--split-string")):
+			return KindShell, "env -S splits a line into a command, so it cannot be checked", true
+		case strings.HasPrefix(a, "-"):
+			return KindUnknown, fmt.Sprintf("%s %s is not a known option", name, a), true
+		case name == "env" && strings.Contains(a, "="):
+			// VAR=value sets the environment of the program that follows.
+		default:
+			kind, reason := Classify(a, args[i+1:])
+			return kind, reason, true
+		}
+	}
+	return 0, "", false
 }

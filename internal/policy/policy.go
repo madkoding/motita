@@ -24,7 +24,9 @@ package policy
 
 import (
 	"fmt"
+	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"github.com/madkoding/starlight/internal/readonly"
@@ -551,7 +553,16 @@ func (m Mode) DecideLine(line, dir string) Decision {
 		if seg.redirect {
 			d = m.redirectTarget(seg, dir)
 		} else {
-			name, args, err := readonly.SplitCommand(strings.Join(seg.words, " "))
+			raw := strings.Join(seg.words, " ")
+			// The line runs through a shell, and a shell substitutes inside double quotes:
+			// `echo "$(rm -rf ..)"` is a reader to the tokeniser, which only refuses `$`
+			// and the backtick outside quotes, and a deletion to sh. Only single quotes
+			// make them literal.
+			if expandsOutsideSingleQuotes(raw) {
+				return m.unclassified("the line substitutes a command or a variable inside quotes, "+
+					"so what it will run cannot be checked", "line-substitution")
+			}
+			name, args, err := readonly.SplitCommand(raw)
 			if err != nil {
 				// A segment that still cannot be read: an unclosed quote, a trailing
 				// backslash. It is offered whole, or refused in strict mode, with the
@@ -598,6 +609,12 @@ func (m Mode) redirectTarget(seg lineSegment, dir string) Decision {
 	if target == "" || strings.HasPrefix(target, "&") || target == "-" {
 		return Decision{Allow, "the redirection does not name a file", "line-redirect-fd", false}
 	}
+	// `> $HOME/.bashrc`, `> $(printf /etc/x)`, `> *.txt`: the shell decides where this
+	// lands, after the policy has looked, so the path as written says nothing about it.
+	// Even an input redirection runs a substitution.
+	if strings.ContainsAny(target, "$`*?[") {
+		return m.unclassified(fmt.Sprintf("the redirection target %q is expanded by the shell", target), "write-unresolvable")
+	}
 	// An INPUT redirection reads: `grep x < file` is a reader, and the only thing that
 	// could go wrong is reading something the user did not mean, which the sandbox already
 	// bounds. It is not a write and must not be judged as one — `< /etc/shadow` in the
@@ -620,7 +637,13 @@ func (m Mode) redirectTarget(seg lineSegment, dir string) Decision {
 			Mandatory: true,
 		}
 	}
-	if isRootWriteTarget(target) {
+	// A workspace can live under a system tree (/var/www, /opt, a macOS temp dir under
+	// /var): writing inside it is work. A root-like workspace does not count, or `/` as the
+	// workspace would open every system file.
+	if dir != "" && !isRootLike(dir, "") && firstOutside([]string{target}, dir) == "" {
+		return Decision{Allow, fmt.Sprintf("the line writes inside the workspace (%s)", dir), "write-inside-workspace", false}
+	}
+	if isRootWriteTarget(target, dir) {
 		return Decision{
 			Verdict:   Deny,
 			Reason:    fmt.Sprintf("refused: writing to %q would overwrite a system file, and no setting turns this into an allowed action", target),
@@ -752,6 +775,9 @@ func lineSegments(line string) []lineSegment {
 				continue
 			}
 			flushWord()
+		case r == '|' && strings.HasSuffix(op, ">") && current.Len() == 0:
+			// `>|` is the clobbering `>`, not a pipe: its target is still to come.
+			op += string(r)
 		case isBreakRune(r):
 			if op != "" {
 				takeTarget()
@@ -777,6 +803,21 @@ func unquote(s string) string {
 		}
 	}
 	return s
+}
+
+// expandsOutsideSingleQuotes reports a `$` or a backtick that a shell would expand: anything
+// not inside single quotes.
+func expandsOutsideSingleQuotes(s string) bool {
+	single := false
+	for _, r := range s {
+		switch {
+		case r == '\'':
+			single = !single
+		case !single && (r == '$' || r == '`'):
+			return true
+		}
+	}
+	return false
 }
 
 // isDigits reports whether s is a non-empty run of digits, which is what a file descriptor
@@ -1333,18 +1374,24 @@ func isRootLike(target, dir string) bool {
 	if !filepath.IsAbs(abs) && dir != "" {
 		abs = filepath.Join(dir, abs)
 	}
-	if resolved, err := filepath.EvalSymlinks(abs); err == nil {
-		abs = resolved
+	// Both the path as written and the path resolved are compared: on macOS /etc resolves
+	// to /private/etc, and on a merged-/usr Linux /bin resolves to /usr/bin, and neither
+	// spelling may walk past the list.
+	written := filepath.Clean(abs)
+	abs = written
+	if resolved, err := filepath.EvalSymlinks(written); err == nil {
+		abs = filepath.Clean(resolved)
 	}
-	abs = filepath.Clean(abs)
-
-	switch abs {
-	case "/", "/home", "/root", "/etc", "/usr", "/var", "/bin", "/boot", "/lib", "/opt", "/srv":
-		return true
-	}
-	// A home directory itself, which is the other thing that is never local work.
-	if rest, ok := strings.CutPrefix(abs, "/home/"); ok && !strings.ContainsRune(rest, '/') {
-		return true
+	for _, p := range []string{written, abs} {
+		if slices.Contains(rootTrees, p) {
+			return true
+		}
+		// A home directory itself, which is the other thing that is never local work.
+		for _, home := range homeTrees {
+			if rest, ok := strings.CutPrefix(p, home+"/"); ok && !strings.ContainsRune(rest, '/') {
+				return true
+			}
+		}
 	}
 	// The tree above the workspace: its parent, and everything further up. A path inside
 	// the workspace is local work; the directory that CONTAINS the work is not.
@@ -1426,7 +1473,10 @@ func writeTargets(name string, args []string) []string {
 // different questions: isRootLike asks "may this be deleted", which is about trees; this asks
 // "may this be overwritten", which is about a single file inside a system tree. `/etc/passwd`
 // is the second without being the first.
-func isRootWriteTarget(target string) bool {
+//
+// A relative target is joined to the workspace, where the shell will open it, so
+// `> ../../../usr/local/bin/ls` meets the same floor as its absolute spelling.
+func isRootWriteTarget(target, dir string) bool {
 	t := strings.TrimSpace(target)
 	if t == "" {
 		return false
@@ -1437,13 +1487,54 @@ func isRootWriteTarget(target string) bool {
 	if t == "/" || t == "~" || t == "~/" || strings.HasPrefix(t, "~/") {
 		return true
 	}
-	abs := t
-	if resolved, err := filepath.EvalSymlinks(abs); err == nil {
-		abs = resolved
+	if !filepath.IsAbs(t) && dir != "" {
+		t = filepath.Join(dir, t)
 	}
-	abs = filepath.Clean(abs)
-	for _, tree := range []string{"/etc", "/usr", "/bin", "/sbin", "/boot", "/lib", "/lib64", "/var", "/root", "/opt", "/srv"} {
-		if abs == tree || strings.HasPrefix(abs, tree+string(filepath.Separator)) {
+	written := filepath.Clean(t)
+	// As written and as resolved, for the same reason as isRootLike; resolving as far as
+	// possible gives a new file and an existing one the same answer.
+	return inSystemTree(written) || inSystemTree(resolveAsFarAsPossible(written))
+}
+
+// rootTrees are the trees whose removal is never local work, systemWriteTrees the ones no
+// file inside may be written. Each carries its resolved spelling too (/private/etc on macOS,
+// /usr/bin on a merged-/usr Linux).
+var (
+	rootTrees        = withResolved("/", "/home", "/root", "/etc", "/usr", "/var", "/bin", "/boot", "/lib", "/opt", "/srv")
+	homeTrees        = withResolved("/home")
+	systemWriteTrees = withResolved("/etc", "/usr", "/bin", "/sbin", "/boot", "/lib", "/lib64", "/var", "/root", "/opt", "/srv")
+	// tempTrees is the OS temp directory, which lives under /var on macOS and is scratch
+	// space, not a system file.
+	tempTrees = tempExemption(withResolved(filepath.Clean(os.TempDir())))
+)
+
+func withResolved(trees ...string) []string {
+	out := slices.Clone(trees)
+	for _, t := range trees {
+		if r, err := filepath.EvalSymlinks(t); err == nil && r != t {
+			out = append(out, filepath.Clean(r))
+		}
+	}
+	return out
+}
+
+// tempExemption drops a temp directory that is itself a system tree or the root: a TMPDIR of
+// /var must not exempt all of /var.
+func tempExemption(dirs []string) []string {
+	return slices.DeleteFunc(dirs, func(d string) bool {
+		return d == "/" || slices.Contains(systemWriteTrees, d)
+	})
+}
+
+func inSystemTree(p string) bool {
+	sep := string(filepath.Separator)
+	for _, tmp := range tempTrees {
+		if p == tmp || strings.HasPrefix(p, tmp+sep) {
+			return false
+		}
+	}
+	for _, tree := range systemWriteTrees {
+		if p == tree || strings.HasPrefix(p, tree+sep) {
 			return true
 		}
 	}

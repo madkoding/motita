@@ -15,6 +15,7 @@ package readonly
 import (
 	"fmt"
 	"path/filepath"
+	"slices"
 	"strings"
 )
 
@@ -56,6 +57,10 @@ func Check(command string, args []string) Decision {
 		return Decision{false, fmt.Sprintf(
 			"%q can change the system, and read-only mode refuses it", name)}
 	default:
+		if readers[name] {
+			// A listed wrapper (env, command) whose own option nobody classified.
+			return Decision{false, reason}
+		}
 		return Decision{false, fmt.Sprintf(
 			"%q is not on the read-only list, so it is refused. If it only reads, add it to "+
 				"internal/readonly/readers.go with a test", name)}
@@ -81,8 +86,8 @@ var argumentRules = map[string]func([]string) (string, bool){
 				return `find -delete removes files`, true
 			case a == "-exec" || a == "-execdir" || a == "-ok" || a == "-okdir":
 				return `find -exec runs an arbitrary command`, true
-			case strings.HasPrefix(a, "-fprint"):
-				return `find -fprint writes a file`, true
+			case strings.HasPrefix(a, "-fprint") || a == "-fls":
+				return fmt.Sprintf("find %s writes a file", a), true
 			}
 		}
 		return "", false
@@ -103,6 +108,14 @@ var argumentRules = map[string]func([]string) (string, bool){
 		}
 		if !reading[sub] {
 			return fmt.Sprintf("git %s can change the repository", sub), true
+		}
+		for _, a := range args {
+			if a == "--output" || strings.HasPrefix(a, "--output=") {
+				return fmt.Sprintf("git %s --output writes a file", sub), true
+			}
+		}
+		if reason, bad := gitRefRule(sub, args[slices.Index(args, sub)+1:]); bad {
+			return reason, true
 		}
 		// `git config` reads with no value and writes with one:
 		//   git config user.name           -> reads
@@ -154,17 +167,20 @@ var argumentRules = map[string]func([]string) (string, bool){
 	"go": func(args []string) (string, bool) {
 		sub := firstNonFlag(args)
 		switch sub {
-		case "version", "env", "list", "doc", "vet", "fmt":
-			// `go vet` and `go fmt` are special: vet compiles into a cache and fmt
-			// rewrites files. Both are refused below by the caller's rule on -w.
-			if sub == "fmt" {
+		case "version", "env", "list", "doc", "vet":
+			// `go vet` compiles into the build cache, which is not a change (see test).
+			// `go env -w`/`-u` write the user's go env file.
+			if sub == "env" {
 				for _, a := range args {
-					if a == "-w" {
-						return "go fmt -w rewrites the files", true
+					if a == "-w" || a == "-u" {
+						return fmt.Sprintf("go env %s writes the go environment file", a), true
 					}
 				}
 			}
 			return "", false
+		case "fmt":
+			// go fmt is gofmt -l -w: it rewrites files with or without flags.
+			return "go fmt rewrites the files", true
 		case "test":
 			// Compiling into the build cache is not "changing the system": it is
 			// what the check does, and refusing it would make plan mode useless for
@@ -183,6 +199,120 @@ var argumentRules = map[string]func([]string) (string, bool){
 		}
 		return fmt.Sprintf("go %s can write to the module cache or the tree", sub), true
 	},
+	"sort": func(args []string) (string, bool) {
+		for _, a := range args {
+			switch {
+			case strings.HasPrefix(a, "--output"), shortFlagHas(a, "o"):
+				return "sort -o writes a file", true
+			case strings.HasPrefix(a, "--compress-program"):
+				return "sort --compress-program runs a program", true
+			}
+		}
+		return "", false
+	},
+	// uniq IN OUT and xxd IN OUT write their second operand.
+	"uniq": outputOperand("uniq", "-f", "-s", "-w"),
+	"xxd":  outputOperand("xxd", "-c", "-g", "-l", "-s", "-o", "-n"),
+	"tree": func(args []string) (string, bool) {
+		for _, a := range args {
+			if shortFlagHas(a, "o") {
+				return "tree -o writes a file", true
+			}
+		}
+		return "", false
+	},
+	"yq": func(args []string) (string, bool) {
+		for _, a := range args {
+			if strings.HasPrefix(a, "--inplace") || shortFlagHas(a, "i") {
+				return "yq -i edits the file in place", true
+			}
+		}
+		return "", false
+	},
+}
+
+// shortFlagHas reports whether a is a single-dash option cluster containing one of
+// letters. Clusters are matched whole (`-ro` has o) because refusing a rare reading
+// form costs less than allowing a writing one.
+func shortFlagHas(a, letters string) bool {
+	return len(a) > 1 && a[0] == '-' && a[1] != '-' && strings.ContainsAny(a[1:], letters)
+}
+
+// outputOperand is the rule for a program whose second operand is a file it writes.
+// valued are its options that take the next argument as their value.
+func outputOperand(name string, valued ...string) func([]string) (string, bool) {
+	return func(args []string) (string, bool) {
+		operands := 0
+		for i := 0; i < len(args); i++ {
+			a := args[i]
+			switch {
+			case len(a) > 1 && a[0] == '-':
+				for _, v := range valued {
+					if a == v {
+						i++
+					}
+				}
+			default:
+				operands++
+			}
+		}
+		if operands >= 2 {
+			return fmt.Sprintf("%s with an output operand writes a file", name), true
+		}
+		return "", false
+	}
+}
+
+// gitRefRule decides git branch, tag and remote: they list with no operand and create,
+// delete or rename with one. Only known listing options are allowed.
+func gitRefRule(sub string, rest []string) (string, bool) {
+	refuse := fmt.Sprintf("git %s with these arguments can change the repository", sub)
+	if sub == "remote" {
+		switch firstNonFlag(rest) {
+		case "", "show", "get-url":
+			return "", false
+		}
+		return refuse, true
+	}
+	writeShort := map[string]string{"branch": "dDmMcCfu", "tag": "asufdmFe"}[sub]
+	if writeShort == "" {
+		return "", false
+	}
+	valued := map[string]bool{"--contains": true, "--no-contains": true, "--merged": true,
+		"--no-merged": true, "--points-at": true, "--sort": true, "--format": true}
+	listingLong := map[string]bool{"--list": true, "--all": true, "--remotes": true,
+		"--verbose": true, "--color": true, "--no-color": true, "--column": true,
+		"--no-column": true, "--show-current": true, "--ignore-case": true,
+		"--abbrev": true, "--no-abbrev": true, "--omit-empty": true, "--verify": true}
+	listing, operands := false, 0
+	for i := 0; i < len(rest); i++ {
+		a := rest[i]
+		switch {
+		case a == "--":
+			operands += len(rest) - i - 1
+			i = len(rest)
+		case strings.HasPrefix(a, "--"):
+			flag, _, hasValue := strings.Cut(a, "=")
+			if !valued[flag] && !listingLong[flag] {
+				return refuse, true
+			}
+			if valued[flag] && !hasValue {
+				i++
+			}
+			listing = listing || flag == "--list" || flag == "--verify"
+		case shortFlagHas(a, writeShort):
+			return refuse, true
+		case shortFlagHas(a, "lv"):
+			listing = true
+		case strings.HasPrefix(a, "-") && len(a) > 1:
+		default:
+			operands++
+		}
+	}
+	if operands > 0 && !listing {
+		return refuse, true
+	}
+	return "", false
 }
 
 // writers are programs that change the system by nature. Refused by name.

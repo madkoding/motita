@@ -261,3 +261,117 @@ func stringContains(s, sub string) bool {
 func (d Decision) ReasonAllowsMore() bool {
 	return d.Reason != "" && !stringContains(d.Reason, "not on the read-only list")
 }
+
+// TestEnvAndCommandAreWhatTheyRun: env and command run their operand as a program, so
+// `env rm -rf x` is rm and must be refused like rm, while env and command -v alone read.
+func TestEnvAndCommandAreWhatTheyRun(t *testing.T) {
+	for _, tc := range []struct {
+		command string
+		args    []string
+	}{
+		{"env", nil}, {"env", []string{"-i", "-u", "X", "--unset=Y", "A=b", "--", "cat", "f"}},
+		{"env", []string{"-C", "/tmp", "-0", "ls"}}, {"env", []string{"--"}},
+		{"command", []string{"-v", "rm"}}, {"command", []string{"-p", "cat", "f"}},
+		{"command", nil}, {"env", []string{"env", "grep", "x", "f"}},
+	} {
+		if d := Check(tc.command, tc.args); !d.Allowed {
+			t.Errorf("%s %v must be allowed: %s", tc.command, tc.args, d.Reason)
+		}
+	}
+	for _, tc := range []struct {
+		command string
+		args    []string
+		kind    Kind
+	}{
+		{"env", []string{"rm", "-rf", "/tmp/x"}, KindWriter},
+		{"env", []string{"A=b", "sh", "-c", "rm -rf ~"}, KindShell},
+		{"env", []string{"-S", "rm -rf x"}, KindShell},
+		{"env", []string{"--chdir=/", "curl", "x"}, KindWriter},
+		{"env", []string{"--bogus", "cat"}, KindUnknown},
+		{"command", []string{"rm", "x"}, KindWriter},
+		{"command", []string{"--", "rm", "x"}, KindWriter},
+		{"command", []string{"-p", "some-new-tool"}, KindUnknown},
+	} {
+		if kind, _ := Classify(tc.command, tc.args); kind != tc.kind {
+			t.Errorf("%s %v: kind %d, want %d", tc.command, tc.args, kind, tc.kind)
+		}
+		d := Check(tc.command, tc.args)
+		if d.Allowed || d.Reason == "" {
+			t.Errorf("%s %v must be refused with a reason, got %+v", tc.command, tc.args, d)
+		}
+	}
+	if d := Check("env", []string{"--bogus"}); !strings.Contains(d.Reason, "--bogus") {
+		t.Errorf("an unknown env option must be named, got %q", d.Reason)
+	}
+}
+
+// TestReadersThatCanWriteAFileAreRefusedInThatForm: sort -o, uniq IN OUT, xxd IN OUT,
+// tree -o, find -fls and yq -i write, so plan mode refuses those forms only.
+func TestReadersThatCanWriteAFileAreRefusedInThatForm(t *testing.T) {
+	for _, tc := range []struct {
+		command string
+		args    []string
+	}{
+		{"sort", []string{"-rn", "-k", "2", "f"}}, {"uniq", []string{"-c", "-f", "1", "in"}},
+		{"xxd", []string{"-l", "16", "in"}}, {"xxd", []string{"-"}}, {"tree", []string{"-L", "2"}},
+		{"yq", []string{"-I", "2", ".a", "f.yaml"}}, {"find", []string{".", "-ls"}},
+	} {
+		if d := Check(tc.command, tc.args); !d.Allowed {
+			t.Errorf("%s %v must be allowed: %s", tc.command, tc.args, d.Reason)
+		}
+	}
+	for _, tc := range []struct {
+		command string
+		args    []string
+	}{
+		{"sort", []string{"-o", "/tmp/out", "f"}}, {"sort", []string{"-ro/tmp/out", "f"}},
+		{"sort", []string{"--output=/tmp/out", "f"}}, {"sort", []string{"--compress-program=sh", "f"}},
+		{"uniq", []string{"in", "/tmp/out"}}, {"xxd", []string{"in", "/tmp/out"}},
+		{"tree", []string{"-o", "/tmp/out"}}, {"find", []string{".", "-fls", "/tmp/out"}},
+		{"yq", []string{"-i", ".a=1", "f.yaml"}}, {"yq", []string{"--inplace", ".a=1", "f.yaml"}},
+	} {
+		if d := Check(tc.command, tc.args); d.Allowed || d.Reason == "" {
+			t.Errorf("%s %v must be refused with a reason, got %+v", tc.command, tc.args, d)
+		}
+	}
+}
+
+// TestGitRefsAndOutputFilesAreWrites: listing branches, tags and remotes reads;
+// creating, deleting or renaming them, or diffing into a file, writes.
+func TestGitRefsAndOutputFilesAreWrites(t *testing.T) {
+	for _, args := range [][]string{
+		{"branch"}, {"branch", "-avv"}, {"branch", "--list", "feat*"},
+		{"branch", "--contains", "HEAD"}, {"branch", "--sort=-committerdate", "--no-color"},
+		{"branch", "-r"}, {"tag"}, {"tag", "-l", "v*"}, {"tag", "-n5"},
+		{"tag", "--verify", "v1"}, {"remote"}, {"remote", "-v"}, {"remote", "show", "origin"},
+		{"remote", "get-url", "origin"}, {"diff", "--output-indicator-new=+"},
+	} {
+		if d := Check("git", args); !d.Allowed {
+			t.Errorf("git %v must be allowed: %s", args, d.Reason)
+		}
+	}
+	for _, args := range [][]string{
+		{"branch", "-D", "main"}, {"branch", "-dr", "origin/x"}, {"branch", "new"},
+		{"branch", "--delete", "x"}, {"branch", "--set-upstream-to=origin/x"},
+		{"branch", "--", "new"}, {"tag", "-d", "v1"}, {"tag", "v2"}, {"tag", "-am", "x", "v2"},
+		{"remote", "remove", "origin"}, {"remote", "add", "x", "url"},
+		{"remote", "set-url", "origin", "url"}, {"diff", "--output=/tmp/out"},
+		{"log", "--output", "/tmp/out"},
+	} {
+		if d := Check("git", args); d.Allowed || d.Reason == "" {
+			t.Errorf("git %v must be refused with a reason, got %+v", args, d)
+		}
+	}
+}
+
+// TestGoEnvWriteAndGoFmtAreRefused: go env -w/-u write the go env file and go fmt
+// rewrites sources even without flags.
+func TestGoEnvWriteAndGoFmtAreRefused(t *testing.T) {
+	for _, args := range [][]string{
+		{"env", "-w", "GOFLAGS=-x"}, {"env", "-u", "GOFLAGS"}, {"fmt", "./..."},
+	} {
+		if d := Check("go", args); d.Allowed || d.Reason == "" {
+			t.Errorf("go %v must be refused with a reason, got %+v", args, d)
+		}
+	}
+}
