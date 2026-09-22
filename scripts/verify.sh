@@ -69,13 +69,39 @@ for pkg in $(go list ./internal/... ./cmd/... 2>/dev/null); do
     below=$((below+1))
   fi
 done
+# tools/ holds CI harnesses and test-support libraries, not shipped programs, so the
+# 100% bar is not applied to them — but they are MEASURED and printed, because a package
+# whose coverage collapses silently is how a suite stops testing what it says.
+#
+# The one that gets an exemption is the one that CANNOT reach 100%: a test-support
+# package's remaining statements are its own failure and skip branches, which run when a
+# test has already failed. Asking for those is asking for tests of the tests. The
+# property is the presence of "testing" in non-test source, not a list of names, so this
+# cannot be widened by adding an entry.
+supported_by_name() {
+  dir="$(go list -f '{{.Dir}}' "$1" 2>/dev/null)" || return 1
+  [ -n "$(grep -l '"testing"' "$dir"/*.go 2>/dev/null | grep -v '_test.go')" ]
+}
+# Whether a package has tests is a property of the package: go list answers it, while
+# go test's report does not survive a toolchain change. Go 1.26 stopped printing "no test
+# files", so a string match on it silently stopped skipping the test-less harnesses and
+# started gating them at 0.0%.
+has_tests() {
+  [ "$(go list -f '{{len .TestGoFiles}}{{len .XTestGoFiles}}' "$1" 2>/dev/null)" != "00" ]
+}
 for pkg in $(go list ./tools/... 2>/dev/null); do
   result="$(go test -count=1 -cover "$pkg" 2>/dev/null)"
   cov="$(echo "$result" | grep -oE 'coverage: [0-9.]+' | grep -oE '[0-9.]+')"
-  if echo "$result" | grep -q 'no test files'; then
+  if ! has_tests "$pkg"; then
     printf '    %-52s (harness, no tests of its own)\n' "$pkg"
+  elif supported_by_name "$pkg"; then
+    printf '    %-52s %s%% (test-support: its own failure branches)\n' "$pkg" "${cov:-0}"
   else
     printf '    %-52s %s%% (harness)\n' "$pkg" "${cov:-0}"
+    # A harness that is NOT a support library is held to the bar like any other package:
+    # that is what the CI does, and the two must not disagree.
+    awk -v c="${cov:-0}" -v m="$MIN_COVERAGE" 'BEGIN { exit !(c < m) }' && \
+      bad "$pkg coverage ${cov:-0}% is below ${MIN_COVERAGE}%"
   fi
 done
 [ "$below" -eq 0 ] && ok "every package at ${MIN_COVERAGE}% or above"

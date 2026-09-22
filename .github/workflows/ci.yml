@@ -79,8 +79,25 @@ jobs:
           MIN_PER_PACKAGE=100.0
           failed=0
           for pkg in $(go list ./internal/... ./cmd/... ./tools/...); do
-            if go test -count=1 -cover "$pkg" 2>/dev/null | grep -q 'no test files'; then
+            # "does this package have tests" is asked of the package, not of go test's
+            # report: the wording changed under Go 1.26 ("no test files" is gone), and a
+            # string match on it silently stopped skipping the test-less harnesses and
+            # started gating them at 0.0%.
+            if [ "$(go list -f '{{len .TestGoFiles}}{{len .XTestGoFiles}}' "$pkg" 2>/dev/null)" = "00" ]; then
               echo "::warning::$pkg has no test files"
+              continue
+            fi
+            # A TEST-SUPPORT package cannot meet this bar, and demanding it is asking for
+            # tests of the tests: the only statements left uncovered are its own failure
+            # and skip branches (t.Skip, t.Fatal, t.Errorf), which run when a test has
+            # already failed. The exemption is derived from a property — does the package
+            # import "testing" in non-test source? — rather than listed by name, so it
+            # cannot be widened by adding a name and cannot go stale when a directory
+            # moves. It matches exactly one package today: tools/clitest.
+            if grep -rqs '"testing"' --include='*.go' $(go list -f '{{.Dir}}' "$pkg") 2>/dev/null \
+               && [ -n "$(grep -l '"testing"' $(go list -f '{{.Dir}}' "$pkg")/*.go 2>/dev/null | grep -v '_test.go')" ]; then
+              cov="$(go test -count=1 -cover "$pkg" 2>/dev/null | grep -oE 'coverage: [0-9.]+' | grep -oE '[0-9.]+' || echo 0)"
+              printf '%-52s %s%% (test-support: its own failure branches)\n' "$pkg" "$cov"
               continue
             fi
             cov="$(go test -count=1 -cover "$pkg" 2>/dev/null | grep -oE 'coverage: [0-9.]+' | grep -oE '[0-9.]+' || echo 0)"
