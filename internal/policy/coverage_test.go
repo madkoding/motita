@@ -13,20 +13,23 @@ import (
 )
 
 // TestShellLineIsTheLastResort: it is what a line that cannot be read at all gets. Strict
-// refuses it; the default lets it through as unclassified, because a line the tokeniser
-// cannot read is rare and refusing everything rare makes the agent refuse real work.
+// refuses it; the default ASKS, because a line nobody can read is a line nobody can predict,
+// and the user — who can read it — is the one who decides.
 func TestShellLineIsTheLastResort(t *testing.T) {
 	msg := "the character \"|\" needs a shell to be interpreted"
 
 	loose := Default().ShellLine(msg)
-	if loose.Verdict != Allow {
-		t.Errorf("the default must let an unreadable line through as unclassified, got %s", loose.Verdict)
+	if loose.Verdict != Ask {
+		t.Errorf("the default must ask before an unreadable line runs, got %s", loose.Verdict)
 	}
 	if loose.Rule != "shell-line" {
 		t.Errorf("rule = %q", loose.Rule)
 	}
 	if !strings.Contains(loose.Reason, "cannot be checked") {
 		t.Errorf("the reason must say why it could not be checked: %q", loose.Reason)
+	}
+	if !strings.Contains(loose.Reason, "approval") {
+		t.Errorf("the reason must tell the model what comes next: %q", loose.Reason)
 	}
 
 	strict := Mode{Enforce: true, Strict: true}.ShellLine(msg)
@@ -45,8 +48,8 @@ func TestAnUnreadableSegmentIsAnsweredAsAWhole(t *testing.T) {
 	if d.Rule != "line-unreadable" {
 		t.Errorf("rule = %q, want the unreadable-segment rule: %s", d.Rule, d.Reason)
 	}
-	if d.Verdict != Allow {
-		t.Errorf("the default answers an unreadable segment as unclassified, got %s", d.Verdict)
+	if d.Verdict != Ask {
+		t.Errorf("the default must ask before an unreadable segment runs, got %s", d.Verdict)
 	}
 }
 
@@ -478,13 +481,13 @@ func TestWritingFormWithNoTargetsIsUnclassified(t *testing.T) {
 	}
 }
 
-// TestAWriterWithNoLocatableTargetIsAskedAboutInTheCautiousMode: strict refuses it, the
-// default lets it through as unclassified, and neither runs it silently by accident.
+// TestAWriterWithNoLocatableTargetInBothModes: strict refuses it and the default ASKS, so
+// neither mode runs a writer whose target nobody can place without a person seeing it.
 func TestAWriterWithNoLocatableTargetInBothModes(t *testing.T) {
 	dir := t.TempDir()
 	loose := Mode{Enforce: true}.DecideLine("chmod 644", dir)
-	if loose.Verdict != Allow || loose.Rule != "writer-unclassified" {
-		t.Errorf("the default answers an unplaceable writer as unclassified, got %s (rule %s)",
+	if loose.Verdict != Ask || loose.Rule != "writer-unclassified" {
+		t.Errorf("the default must ask about an unplaceable writer, got %s (rule %s)",
 			loose.Verdict, loose.Rule)
 	}
 	strict := Mode{Enforce: true, Strict: true}.DecideLine("chmod 644", dir)
@@ -683,18 +686,64 @@ func TestWorseKeepsTheFirstOnATie(t *testing.T) {
 }
 
 // TestAnUnknownProgramThatReachesNowhereIsUnclassified: the default branch of DecisionFor,
-// which is what an unrecognised program gets. Asking about every program the list does not
-// know would make the policy unusable, so the answer is the unclassified one — allowed by
-// default, refused in strict mode.
+// which is what an unrecognised program gets. It ASKS: a program nobody has classified is a
+// program whose effect nobody can predict, and the two ways to get silence are to be a known
+// local tool (localTools) or to live inside the workspace (projectLocalDecision).
 func TestAnUnknownProgramThatReachesNowhereIsUnclassified(t *testing.T) {
 	dir := t.TempDir()
 	d := Default().Decide(commandForTest, nil, dir)
-	if d.Verdict != Allow || d.Rule != "unclassified" {
-		t.Errorf("an unknown local program answers unclassified, got %s (rule %s)", d.Verdict, d.Rule)
+	if d.Verdict != Ask || d.Rule != "unclassified" {
+		t.Errorf("an unknown local program must be asked about, got %s (rule %s)", d.Verdict, d.Rule)
 	}
 	strict := Mode{Enforce: true, Strict: true}.Decide(commandForTest, nil, dir)
 	if strict.Verdict != Deny {
 		t.Errorf("strict must refuse it, got %s", strict.Verdict)
+	}
+}
+
+// TestTheOrdinaryWorkOfAProjectStaysSilent: the counterweight to the rule above, and the
+// reason the default is livable. Everything the agent does all day must run without a
+// question — a policy that asks about `make` gets switched off, and then it protects nothing.
+func TestTheOrdinaryWorkOfAProjectStaysSilent(t *testing.T) {
+	dir := t.TempDir()
+	for _, line := range []string{
+		"make", "make check", "make test",
+		"go test ./...", "go build ./...", "go vet ./...",
+		"npm test", "npm run build", "cargo build", "pytest -q",
+		"python3 build.py", "node index.js", "gcc -o a a.c",
+		"git status", "git add -A", "git commit -m x",
+		"docker ps", "kubectl get pods",
+		"ls -la", "grep -rn TODO .", "cat README.md", "rm -rf build", "mkdir -p out",
+		"./scripts/deploy.sh", "./bin/mytool --check",
+	} {
+		d := Default().DecideLine(line, dir)
+		if d.Verdict != Allow {
+			t.Errorf("%q is ordinary work and must stay silent, got %s (rule %s): %s",
+				line, d.Verdict, d.Rule, d.Reason)
+		}
+	}
+}
+
+// TestWhatIsAskedAboutIsExactlyWhatCannotBePlaced: the other half. These are the lines whose
+// effect nobody can state from reading them, and they are what the confirmation window is for.
+func TestWhatIsAskedAboutIsExactlyWhatCannotBePlaced(t *testing.T) {
+	dir := t.TempDir()
+	cases := map[string]string{
+		"htop":                   "a binary nobody has classified",
+		"nmap -sS host":          "a network scanner",
+		"terraform apply":        "infrastructure, effect not in the arguments",
+		"ansible-playbook x.yml": "same",
+		"python3 -c 'x'":         "an inline program is as opaque as a shell line",
+		"node -e 'x'":            "same",
+		"chmod 644":              "a writer whose target is not in its arguments",
+		"python3 /tmp/out.py":    "an interpreter handed a script OUTSIDE the workspace",
+	}
+	for line, why := range cases {
+		d := Default().DecideLine(line, dir)
+		if d.Verdict != Ask {
+			t.Errorf("%q (%s) must be asked about, got %s (rule %s): %s",
+				line, why, d.Verdict, d.Rule, d.Reason)
+		}
 	}
 }
 

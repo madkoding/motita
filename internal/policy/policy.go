@@ -112,6 +112,12 @@ func Default() Mode {
 // it" is the difference between work and damage, and it is the only judgement here that
 // needs to know where.
 func (m Mode) DecisionFor(command string, args []string, dir string) Decision {
+	// Leading `VAR=value` assignments are the environment, not the program: `FOO=1 ls` runs
+	// `ls`. The floor scan already skips them, and classifying them as a program name made the
+	// policy ask about a plain reader.
+	for strings.ContainsRune(command, '=') && len(args) > 0 && !strings.HasPrefix(command, "/") {
+		command, args = args[0], args[1:]
+	}
 	kind, reason := readonly.Classify(command, args)
 	name := baseName(command)
 	switch kind {
@@ -138,6 +144,12 @@ func (m Mode) DecisionFor(command string, args []string, dir string) Decision {
 		if d, hit := writingForm(command, args, dir); hit {
 			return d
 		}
+		// A known local build tool before the unclassified rule: `make`, `go build`, `python3
+		// script.py`. Without this the default would ask about the ordinary work of a project,
+		// which is the policy that gets switched off.
+		if d, hit := localToolDecision(name, args, dir); hit {
+			return d
+		}
 		return m.unclassified(fmt.Sprintf("%q changes the system and its target could not be "+
 			"determined from the arguments", baseName(command)), "writer-unclassified")
 	default:
@@ -145,9 +157,174 @@ func (m Mode) DecisionFor(command string, args []string, dir string) Decision {
 			return Decision{Ask, fmt.Sprintf("%q reaches outside this machine, and what it does there "+
 				"cannot be checked from the command line", baseName(command)), "external-effect", false}
 		}
+		// The same for the unknown branch: a binary whose name we do not know a verdict for
+		// may still be a build tool the project needs.
+		if d, hit := localToolDecision(name, args, dir); hit {
+			return d
+		}
+		// A program that lives INSIDE the workspace is the project's own — `./scripts/deploy.sh`,
+		// `./bin/mytool`. It is the same judgement the writers get: the work stays where the
+		// user pointed the agent. A path outside is not this branch's to allow.
+		if d, hit := projectLocalDecision(command, args, dir); hit {
+			return d
+		}
 		return m.unclassified(fmt.Sprintf("%q is not a command this program knows, so what it "+
 			"changes cannot be predicted", baseName(command)), "unclassified")
 	}
+}
+
+// projectLocalDecision allows a program that lives inside the workspace and is passed explicit
+// arguments, because that is the project's own tooling running on the project's own files.
+//
+// It is deliberately narrow in two ways. The program must be named by a PATH that resolves
+// inside the workspace (a bare name is what the PATH lookup is for, and allowing it would
+// allow any same-named binary anywhere). And its arguments are checked like a writer's: an
+// operand pointing outside makes it a question, so `./build.sh /etc/passwd` does not ride in
+// on the script's location.
+func projectLocalDecision(command string, args []string, dir string) (Decision, bool) {
+	if dir == "" || !strings.ContainsRune(command, filepath.Separator) {
+		return Decision{}, false
+	}
+	targets := rmTargets(args)
+	if outside := firstOutside(targets, dir); outside != "" {
+		return Decision{Ask, fmt.Sprintf("%q takes %q, which is outside the directory this task "+
+			"works in (%s)", baseName(command), outside, dir), "project-script-arg-outside", false}, true
+	}
+	if !isInsideWorkspace(command, dir) {
+		return Decision{}, false
+	}
+	return Decision{Allow, fmt.Sprintf("%q is a program inside the workspace (%s), so its work "+
+		"stays where the task is", baseName(command), dir), "project-local", false}, true
+}
+
+// isInsideWorkspace reports whether a path resolves to something inside dir. It reuses the
+// same resolution as the write checks, so a workspace reached through a symlink does not make
+// every path inside it look like it is outside.
+//
+// With no workspace it answers FALSE, and that matters: firstOutside compares against dir and
+// returns "" (meaning "nothing was outside") when dir is empty, so delegating the empty case
+// would make every path in the system look like it lives inside "nothing". The caller guards
+// this too, and a helper that lies about the empty case is exactly the kind of thing that gets
+// copied somewhere the guard is missing.
+func isInsideWorkspace(path, dir string) bool {
+	if dir == "" {
+		return false
+	}
+	if strings.HasPrefix(filepath.Clean(path), "~") {
+		return false
+	}
+	return firstOutside([]string{path}, dir) == ""
+}
+
+// localTools are the programs whose ordinary use IS the work the agent was pointed at:
+// building, testing and running the project in the workspace. They are named because the
+// difference between them and an unknown binary is what keeps the default policy honest.
+//
+// The alternative — asking about every program the tables do not know — is the policy that
+// gets switched off, because a coding agent runs `make` and `go build` all day. But the
+// alternative that was there before was worse in the other direction: running them SILENTLY.
+// Naming the ordinary ones lets the default ask about the genuinely unplaceable (an
+// infrastructure tool, a binary nobody knows) without taxing the work.
+//
+// A name here is not a blanket Allow: `localToolDecision` still checks where an interpreter's
+// script actually lives, and an inline program (`python3 -c '...'`) is treated as opaque.
+var localTools = map[string]bool{
+	// build systems and compilers
+	"make": true, "gmake": true, "cmake": true, "meson": true, "ninja": true, "gradle": true,
+	"gcc": true, "g++": true, "cc": true, "c++": true, "clang": true, "clang++": true,
+	"ld": true, "as": true, "ar": true, "mvn": true, "dotnet": true, "javac": true,
+	"cargo": true, "go": true, "rustc": true, "zig": true,
+	// test runners and linters
+	"pytest": true, "ruff": true, "black": true, "mypy": true, "flake8": true,
+	"eslint": true, "prettier": true, "tsc": true, "jest": true, "vitest": true,
+	"gofmt": true, "golangci-lint": true, "shfmt": true, "shellcheck": true,
+	// interpreters: the script's own location is checked below
+	"python": true, "python3": true, "node": true, "ruby": true, "perl": true, "php": true,
+	"deno": true, "bun": true, "java": true, "ts-node": true,
+	// project tooling
+	"west": true, "platformio": true, "idf.py": true, "poetry": true, "uv": true,
+	// The tools that are also in externalPrograms, whose LOCAL VERBS are ordinary work.
+	// `reachesOutside` has already returned false by the time this table is consulted, so
+	// `git add` and `npm test` are here while `git push` and `npm publish` never reach it —
+	// they were asked about as external effects first. Both tables are needed and the order
+	// is what keeps them from contradicting each other.
+	"git": true, "hg": true, "svn": true,
+	"npm": true, "yarn": true, "pnpm": true, "pip": true, "pip3": true,
+	"docker": true, "podman": true, "kubectl": true, "helm": true,
+}
+
+// interpreters are the local tools whose first non-flag argument is a FILE containing the
+// program. That file is what the policy can look at, which is why these get the extra check.
+var interpreters = map[string]bool{
+	"python": true, "python3": true, "node": true, "ruby": true, "perl": true, "php": true,
+	"deno": true, "bun": true, "ts-node": true,
+}
+
+// inlineProgramFlags names, PER INTERPRETER, the flags that carry the PROGRAM ITSELF in the
+// argument rather than a file to run: `python3 -c '...'`, `node -e '...'`, `perl -ne '...'`.
+//
+// It is keyed by program because the same flag means different things in different ones:
+// `-c` is "run this code" for python and "compile only, do not link" for gcc. A single flat
+// set would have made `gcc -c foo.c` — ordinary work — look like an opaque program.
+//
+// Such a line is as opaque as a shell line: the code is data until the interpreter runs it,
+// and `python3 -c 'import shutil; shutil.rmtree(...)'` has the same shape as any other inline
+// program. There is no file to resolve, so these fall to the unclassified rule, which asks.
+var inlineProgramFlags = map[string]map[string]bool{
+	"python":  {"-c": true, "-m": true},
+	"python3": {"-c": true, "-m": true},
+	"node":    {"-e": true, "--eval": true, "-p": true, "--print": true},
+	"bun":     {"-e": true, "--eval": true},
+	"deno":    {"eval": true},
+	"perl":    {"-e": true, "-E": true, "-pe": true, "-ne": true, "-ple": true},
+	"ruby":    {"-e": true},
+	"php":     {"-r": true},
+	"ts-node": {"-e": true},
+}
+
+// localToolDecision answers the programs whose ordinary use is local work.
+//
+// It is consulted before the unclassified rule, and it is what makes the default policy
+// usable: without it, asking about everything the tables do not list would put a question in
+// front of `make` and `go build`. With it, the questions land on the lines nobody can predict.
+func localToolDecision(name string, args []string, dir string) (Decision, bool) {
+	if !localTools[name] {
+		return Decision{}, false
+	}
+	// A program handed to the interpreter as TEXT has no file to check, so it is not this
+	// function's to allow.
+	for _, a := range args {
+		if inlineProgramFlags[name][a] {
+			return Decision{}, false
+		}
+	}
+	// The interpreter's script decides what runs. A script outside the workspace is not the
+	// workspace's work — and it is exactly the case the earlier policy ran in silence.
+	if scripts := scriptOperands(name, args); len(scripts) > 0 {
+		if outside := firstOutside(scripts, dir); outside != "" {
+			return Decision{Ask, fmt.Sprintf("%q runs %q, which is outside the directory this "+
+				"task works in (%s)", name, outside, dir), "script-outside-workspace", false}, true
+		}
+	}
+	return Decision{Allow, fmt.Sprintf("%q is a local build tool and its work stays in the "+
+		"workspace", name), "local-tool", false}, true
+}
+
+// scriptOperands returns the file an interpreter has been handed, when it was handed one.
+//
+// Only interpreters have this: `make` and `gcc` take their work from the tree and their
+// arguments, which the workspace rule already covers.
+func scriptOperands(name string, args []string) []string {
+	if !interpreters[name] {
+		return nil
+	}
+	for _, a := range args {
+		if strings.HasPrefix(a, "-") {
+			continue
+		}
+		return []string{a}
+	}
+	return nil
 }
 
 // externalPrograms are the programs whose effect is not a file: the network, a service, a
@@ -288,29 +465,34 @@ func firstNonFlag(args []string) string {
 	return ""
 }
 
-// unclassified is the shared answer for everything the policy could not place.
+// unclassified is the shared answer for everything the policy could not place: a program
+// nobody knows, a writer whose target is not in its arguments, a line the tokeniser cannot
+// read at all.
 //
 // It is one function because it is one decision, and having it in three places is how the
 // three drift apart — the shell rule would end up stricter than the unknown-program rule for
 // no reason anybody could state.
 //
-// Strict refuses these; the default ALLOWS them, and the reasoning is worth stating because
-// the cautious-looking alternative is the one that fails. An unlisted program is the normal
-// case for a coding agent: `make`, `npm`, `west`, a project's own script. A policy that
-// refuses or questions every one of them does not make the agent safer, it makes it useless
-// for the work it was pointed at — and a guardrail that has to be switched off to do
-// anything protects nothing. What actually protects the machine is the floor (which is
-// absolute) and the workspace boundary (which is what the Ask verdict is for): a program
-// this list does not know still cannot format a disk, cannot write to a device, and cannot
-// touch a path outside the workspace without being named.
+// The default ASKS and strict REFUSES, which is what both settings have always said they do.
+// Running it silently was the one answer wrong in both directions at once: nobody was told,
+// and the policy could not claim to have decided anything. A line the policy cannot place is
+// precisely the line whose effect nobody can predict, and the user — who can read it — is
+// the one who knows whether this is the moment.
 //
-// So Strict is the lever for an operator who wants the cautious answer, and it is off by
-// default.
+// This is NOT the "ask about everything" policy that gets switched off, and the difference
+// is localTools: the programs whose ordinary use IS the work (`make`, `go build`, `npm test`)
+// are classified as local work before they can reach here. What lands in this branch is the
+// genuinely unplaceable — an interpreter handed a file, an infrastructure tool, a binary
+// nobody knows — which is exactly the set a person should see before it runs.
+//
+// Strict is the lever for a run with nobody at the keyboard: it turns every question into a
+// refusal. It is off by default because a question costs one keystroke and a refusal costs
+// the task.
 func (m Mode) unclassified(reason, rule string) Decision {
 	if m.Strict {
 		return Decision{Deny, reason + ", and this mode refuses what it cannot classify", rule, false}
 	}
-	return Decision{Allow, reason + ", so it runs unclassified (set agent.policy.strict to refuse this)", rule, false}
+	return Decision{Ask, reason + ", so it needs the user's approval before it runs", rule, false}
 }
 
 // ShellLine is the answer for a line the policy could not tokenise AT ALL: an unclosed

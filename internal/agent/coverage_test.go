@@ -654,14 +654,62 @@ func TestRunActionsWithEmptyCommand(t *testing.T) {
 func TestRunActionsWithFailure(t *testing.T) {
 	e := mount(t, httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {})), config.Anchor{Kind: "command", Command: "true", Timeout: 5 * time.Second}, nil)
 
+	// The failure this test is about is the one runActions REPORTS as an error: an action that
+	// cannot run at all. A non-zero exit is not one — the agent records `[exit=N]` and hands
+	// the output back to the model, which is the whole retry loop. It used to be an unknown
+	// program name, which only reached this path because the policy ran unclassifiable
+	// programs in silence; a refused action is the same shape without depending on that hole.
 	output, err := e.agent.runActions(context.Background(), []Command{
-		{Command: "this-command-never-exists"},
+		{Command: "programa-que-nadie-clasifico"},
 	}, "")
 	if err == nil {
-		t.Error("a non-existent command must report an error")
+		t.Error("an action that could not run must report an error")
 	}
-	if !strings.Contains(output, "exit=") {
-		t.Errorf("the output must record the attempt: %q", output)
+	if !strings.Contains(output, "[not approved:") {
+		t.Errorf("the output must record why it did not run: %q", output)
+	}
+}
+
+// TestARealCommandRecordsItsExitCode: the other half of the contract above, so the two can
+// never be confused. A command that runs and fails is NOT an error of the run — its exit code
+// travels back to the model, which is what lets the model fix the actual problem.
+func TestARealCommandRecordsItsExitCode(t *testing.T) {
+	e := mount(t, httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {})), config.Anchor{Kind: "command", Command: "true", Timeout: 5 * time.Second}, nil)
+
+	output, err := e.agent.runActions(context.Background(), []Command{{Command: "false"}}, "")
+	if err != nil {
+		t.Errorf("a non-zero exit is reported to the model, not as an error of the run: %v", err)
+	}
+	if !strings.Contains(output, "[exit=1]") {
+		t.Errorf("the output must carry the real exit code: %q", output)
+	}
+}
+
+// TestAnUnknownProgramIsNotRunWithoutApproval: the safety property of the default policy.
+//
+// A program nobody has classified is a program whose effect nobody can predict, so it is not
+// run in silence — it needs the user's approval. In a run with nobody to ask (this one) that
+// means it does NOT run, and the output says why. The assertion that matters is the marker
+// file: if the program ran, it exists.
+func TestAnUnknownProgramIsNotRunWithoutApproval(t *testing.T) {
+	e := mount(t, httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {})), config.Anchor{Kind: "command", Command: "true", Timeout: 5 * time.Second}, nil)
+
+	dir := t.TempDir()
+	marker := filepath.Join(dir, "RAN")
+	program := filepath.Join(dir, "programa-que-nadie-clasifico")
+	if err := os.WriteFile(program, []byte("#!/bin/sh\ntouch "+marker+"\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	output, err := e.agent.runActions(context.Background(), []Command{{Command: program}}, "")
+	if err == nil {
+		t.Error("an unclassifiable program with nobody to ask must report an error")
+	}
+	if _, statErr := os.Stat(marker); statErr == nil {
+		t.Error("an unclassifiable program was EXECUTED without approval")
+	}
+	if !strings.Contains(output, "approval") {
+		t.Errorf("the output must say approval was what was missing: %q", output)
 	}
 }
 
@@ -962,7 +1010,10 @@ func TestRunActionsWithTruncatedOutput(t *testing.T) {
 		return "partial output", true, 0, nil
 	}
 
-	output, err := e.agent.runActions(context.Background(), []Command{{Command: "generate-a-lot"}}, "")
+	// A KNOWN program: this test is about truncated output, and it must not also depend on the
+	// policy letting an unknown binary through. `cat` is a reader, so it runs and reaches the
+	// stub above.
+	output, err := e.agent.runActions(context.Background(), []Command{{Command: "cat generate-a-lot"}}, "")
 	if err != nil {
 		t.Fatalf("error: %v", err)
 	}
