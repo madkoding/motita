@@ -155,6 +155,15 @@ typewriter reveal, tab completion, a live model catalogue from your provider,
 session context tracking, and mouse support. Written against the standard library
 alone — it's the same binary, not a wrapper around something else.
 
+**The same process is also a gateway.** It listens on loopback behind a token, and
+the terminal you are looking at is one of its **clients** — so a web page or a
+phone can join the same conversation, with the same procedure library and the same
+reward ledger. Two acts are needed to put it on a network (`gateway.allow_lan`
+plus a non-loopback address), and the supported way to reach a remote one is a
+tunnel: `ssh -N -L 8787:127.0.0.1:8787 the-host`. There is **no TLS** in this
+version, which is exactly why exposing it on a LAN is two deliberate acts and not
+one.
+
 | Command | What it does |
 |---|---|
 | `/task` `/plan` | switch between doing work and read-only exploration |
