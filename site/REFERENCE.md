@@ -343,6 +343,24 @@ What the wizard does and does not do:
 
 Requires Go 1.26 or newer. **You do not need to compile on the i386 machine.**
 
+The floor is not decoration: the standard library is compiled INTO the published binary, so a
+toolchain past its support window ships its known vulnerabilities to whoever downloads the
+binary. Go keeps a release for two newer majors and then stops patching it, which is what
+happened to the 1.23 this project used to ask for — its standard library carried 26
+vulnerabilities reachable from this code (`govulncheck`, go1.23.12), and zero on a supported
+series. Two ways to stay ahead of it:
+
+```bash
+curl -fsSL "https://go.dev/dl/?mode=json"   # the releases Go still supports
+govulncheck ./...                          # what this code can actually reach
+```
+
+`scripts/verify.sh` checks the first automatically: it reads the floor out of `go.mod`, asks
+go.dev which series are still listed, and fails if yours is not among them — so the next
+release that retires 1.26 fails the build instead of quietly ageing into an unpatched
+binary. With no network it says so and moves on, which is what lets the same script run on
+the i386 machine.
+
 ```bash
 make dist             # one binary for all 9 supported platforms
 make test-matrix      # the tests build for every one of them
