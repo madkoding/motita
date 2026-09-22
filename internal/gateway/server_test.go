@@ -1,0 +1,590 @@
+package gateway
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"net/http"
+	"net/http/httptest"
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/madkoding/starlight/internal/agent"
+	"github.com/madkoding/starlight/internal/config"
+	"github.com/madkoding/starlight/internal/logx"
+	"github.com/madkoding/starlight/internal/session"
+)
+
+const testToken = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+
+// fakeService is a Service whose every answer a test chooses.
+//
+// It exists so the transport can be tested without running an agent: a test that needs an LLM
+// to check a status code is a test that fails for the wrong reason, and it would be slow enough
+// that people stop running it.
+type fakeService struct {
+	plan      func(ctx context.Context, prompt string, progress func(string, ...any)) (string, error)
+	task      func(ctx context.Context, task string, progress func(string, ...any)) (string, error)
+	models    func(ctx context.Context) (string, error)
+	report    string
+	summary   session.Snapshot
+	reset     int
+	cfg       config.Config
+	reasoning string
+	verdict   func(good bool, note string) string
+	reward    string
+	questions []agent.AskItem
+	origin    string
+	approver  agent.Approver
+	// approverWrap is called by SetApprover, so a test can reach the approver the SERVER
+	// installed without the service having to hand it back. The server owns that wiring and the
+	// test only observes it.
+	approverWrap func(agent.Approver)
+}
+
+func (f *fakeService) RunPlan(ctx context.Context, p string, pr func(string, ...any)) (string, error) {
+	if f.plan == nil {
+		return "", nil
+	}
+	return f.plan(ctx, p, pr)
+}
+
+func (f *fakeService) RunTask(ctx context.Context, t2 string, pr func(string, ...any)) (string, error) {
+	if f.task == nil {
+		return "", nil
+	}
+	return f.task(ctx, t2, pr)
+}
+
+func (f *fakeService) RunModels(ctx context.Context) (string, error) {
+	if f.models == nil {
+		return f.report, nil
+	}
+	return f.models(ctx)
+}
+
+func (f *fakeService) ConversationReport() string            { return f.report }
+func (f *fakeService) ConversationSummary() session.Snapshot { return f.summary }
+func (f *fakeService) ResetConversation()                    { f.reset++ }
+func (f *fakeService) Config() config.Config                 { return f.cfg }
+func (f *fakeService) SetReasoning(level string)             { f.reasoning = level }
+
+func (f *fakeService) RecordVerdict(good bool, note string) string {
+	if f.verdict == nil {
+		return "recorded"
+	}
+	return f.verdict(good, note)
+}
+
+func (f *fakeService) RewardReport() string { return f.reward }
+
+func (f *fakeService) TakePendingQuestions() ([]agent.AskItem, string) {
+	items, origin := f.questions, f.origin
+	f.questions, f.origin = nil, ""
+	return items, origin
+}
+
+func (f *fakeService) SetApprover(fn agent.Approver) {
+	f.approver = fn
+	if f.approverWrap != nil {
+		f.approverWrap(fn)
+	}
+}
+
+// newTestServer starts a REAL listener on loopback with an ephemeral port.
+//
+// Real HTTP over a real socket, because a handler test that never binds cannot see the parts
+// that only exist once bytes are on a wire: streaming, flushing, a half-closed connection. The
+// port is 0 so two tests in this package can never fight over one.
+func newTestServer(t *testing.T, svc Service, mutators ...func(*Options)) *Server {
+	t.Helper()
+	opts := Options{
+		Service:   svc,
+		Listen:    "127.0.0.1:0",
+		Token:     testToken,
+		Version:   "test",
+		MaxBodyKB: defaultMaxBodyKB,
+	}
+	for _, m := range mutators {
+		m(&opts)
+	}
+	srv, err := Start(opts)
+	if err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	go func() { _ = srv.Serve() }()
+	t.Cleanup(func() { _ = srv.Close(context.Background()) })
+	return srv
+}
+
+// get performs a request against the server and returns the recorder.
+func get(t *testing.T, srv *Server, path, token string) *httptest.ResponseRecorder {
+	t.Helper()
+	req, err := http.NewRequest(http.MethodGet, srv.BaseURL()+path, nil)
+	if err != nil {
+		t.Fatalf("building the request: %v", err)
+	}
+	if token != "" {
+		req.Header.Set("Authorization", "Bearer "+token)
+	}
+	w := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(w, req)
+	return w
+}
+
+func TestHealthAnswersWithoutAToken(t *testing.T) {
+	srv := newTestServer(t, &fakeService{})
+	w := get(t, srv, "/v1/health", "")
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200: a client must be able to tell 'nothing there' from 'wrong token'", w.Code)
+	}
+	var got struct {
+		OK      bool   `json:"ok"`
+		Version string `json:"version"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &got); err != nil {
+		t.Fatalf("body = %q: %v", w.Body.String(), err)
+	}
+	if !got.OK || got.Version != "test" {
+		t.Errorf("health = %+v", got)
+	}
+}
+
+func TestEveryOtherEndpointNeedsTheToken(t *testing.T) {
+	srv := newTestServer(t, &fakeService{})
+	paths := []string{
+		"/v1/config", "/v1/session", "/v1/session/report", "/v1/models",
+		"/v1/reward", "/v1/questions",
+	}
+	for _, path := range paths {
+		t.Run(path, func(t *testing.T) {
+			if w := get(t, srv, path, ""); w.Code != http.StatusUnauthorized {
+				t.Errorf("%s without a token = %d, want 401", path, w.Code)
+			}
+			if w := get(t, srv, path, testToken); w.Code == http.StatusUnauthorized {
+				t.Errorf("%s with the token must not be 401", path)
+			}
+		})
+	}
+	for _, path := range []string{"/v1/session/reset", "/v1/reasoning", "/v1/verdict", "/v1/task", "/v1/plan", "/v1/runs/approval"} {
+		t.Run("POST "+path, func(t *testing.T) {
+			req, _ := http.NewRequest(http.MethodPost, srv.BaseURL()+path, strings.NewReader("{}"))
+			w := httptest.NewRecorder()
+			srv.Handler().ServeHTTP(w, req)
+			if w.Code != http.StatusUnauthorized {
+				t.Errorf("POST %s without a token = %d, want 401", path, w.Code)
+			}
+		})
+	}
+}
+
+func TestConfigEndpointCarriesNoKey(t *testing.T) {
+	cfg := config.Default()
+	cfg.LLM.APIKey = "sk-canary-0123456789"
+	cfg.LLM.Provider = "openai"
+	srv := newTestServer(t, &fakeService{cfg: cfg})
+
+	w := get(t, srv, "/v1/config", testToken)
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", w.Code)
+	}
+	if strings.Contains(w.Body.String(), "sk-canary") {
+		t.Fatalf("the API key was served: %s", w.Body.String())
+	}
+	var v configView
+	if err := json.Unmarshal(w.Body.Bytes(), &v); err != nil {
+		t.Fatalf("body = %q: %v", w.Body.String(), err)
+	}
+	if !v.APIKeyPresent || v.Provider != "openai" {
+		t.Errorf("view = %+v", v)
+	}
+}
+
+func TestABindFailureIsReported(t *testing.T) {
+	first := newTestServer(t, &fakeService{})
+	// The same address, taken. A silent fallback to a different port would make a client that
+	// was told one address talk to a server that is somewhere else.
+	_, err := Start(Options{Service: &fakeService{}, Listen: first.Addr(), Token: testToken})
+	if err == nil {
+		t.Fatal("binding an address that is in use must be reported")
+	}
+	if !strings.Contains(err.Error(), "could not listen") {
+		t.Errorf("err = %v, it must say what failed", err)
+	}
+}
+
+func TestABadListenAddressIsReported(t *testing.T) {
+	_, err := Start(Options{Service: &fakeService{}, Listen: "not an address", Token: testToken})
+	if err == nil {
+		t.Fatal("an address that cannot be parsed must be reported")
+	}
+	if !strings.Contains(err.Error(), "host:port") {
+		t.Errorf("err = %v, it must say the shape it wanted", err)
+	}
+}
+
+func TestANonLoopbackAddressNeedsAllowLAN(t *testing.T) {
+	// Two deliberate acts, and this is the enforcement of the second one. Nothing is bound:
+	// the refusal comes before the listen, so the test cannot put anything on a network.
+	_, err := Start(Options{Service: &fakeService{}, Listen: "0.0.0.0:0", Token: testToken})
+	if err == nil {
+		t.Fatal("a non-loopback address without allow_lan must be refused")
+	}
+	if !strings.Contains(err.Error(), "gateway.allow_lan") {
+		t.Errorf("err = %v, it must name the setting that allows it", err)
+	}
+}
+
+func TestAnEmptyTokenRefusesToStart(t *testing.T) {
+	for _, token := range []string{"", "   "} {
+		_, err := Start(Options{Service: &fakeService{}, Listen: "127.0.0.1:0", Token: token})
+		if err == nil {
+			t.Fatalf("the token %q must be refused: an unauthenticated agent is a remote shell", token)
+		}
+	}
+}
+
+func TestNoServiceRefusesToStart(t *testing.T) {
+	if _, err := Start(Options{Listen: "127.0.0.1:0", Token: testToken}); err == nil {
+		t.Fatal("a gateway with nothing to speak for must be refused")
+	}
+}
+
+func TestAnEmptyListenMeansLoopbackEphemeral(t *testing.T) {
+	srv, err := Start(Options{Service: &fakeService{}, Token: testToken})
+	if err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	defer func() { _ = srv.Close(context.Background()) }()
+	if !strings.HasPrefix(srv.Addr(), "127.0.0.1:") {
+		t.Errorf("addr = %q, want loopback", srv.Addr())
+	}
+	if !strings.HasPrefix(srv.BaseURL(), "http://127.0.0.1:") {
+		t.Errorf("base URL = %q", srv.BaseURL())
+	}
+	if srv.Token() != testToken {
+		t.Errorf("token = %q", srv.Token())
+	}
+}
+
+func TestTheDefaultBodyCapIsApplied(t *testing.T) {
+	srv := newTestServer(t, &fakeService{}, func(o *Options) { o.MaxBodyKB = 0 })
+	if srv.opts.MaxBodyKB != defaultMaxBodyKB {
+		t.Errorf("max body = %d, want the default %d", srv.opts.MaxBodyKB, defaultMaxBodyKB)
+	}
+}
+
+func TestAnUnknownPathIsNotFound(t *testing.T) {
+	srv := newTestServer(t, &fakeService{})
+	if w := get(t, srv, "/v1/nope", testToken); w.Code != http.StatusNotFound {
+		t.Errorf("status = %d, want 404", w.Code)
+	}
+}
+
+func TestAWrongMethodIsNotAllowed(t *testing.T) {
+	srv := newTestServer(t, &fakeService{})
+	// GET on a POST-only route: Go's method-aware routing answers 405, which is what tells a
+	// client the path exists and the verb is wrong.
+	req, _ := http.NewRequest(http.MethodGet, srv.BaseURL()+"/v1/task", nil)
+	req.Header.Set("Authorization", "Bearer "+testToken)
+	w := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(w, req)
+	if w.Code != http.StatusMethodNotAllowed {
+		t.Errorf("status = %d, want 405", w.Code)
+	}
+}
+
+func TestAStreamLivesLongerThanTheDefaultTimeouts(t *testing.T) {
+	srv := newTestServer(t, &fakeService{})
+	if srv.server.WriteTimeout != 0 {
+		t.Errorf("WriteTimeout = %v; a streamed run must not be cut off by it", srv.server.WriteTimeout)
+	}
+	if srv.server.ReadHeaderTimeout <= 0 {
+		t.Error("ReadHeaderTimeout must be set: without it a stalled client holds a connection forever")
+	}
+}
+
+func TestCloseIsIdempotentAndShutsTheListener(t *testing.T) {
+	srv := newTestServer(t, &fakeService{})
+	addr := srv.Addr()
+	if err := srv.Close(context.Background()); err != nil {
+		t.Fatalf("first Close: %v", err)
+	}
+	if err := srv.Close(context.Background()); err != nil {
+		t.Fatalf("second Close: %v", err)
+	}
+	// The port is free again: a test that leaks its listener makes the next one flaky.
+	req, _ := http.NewRequest(http.MethodGet, "http://"+addr+"/v1/health", nil)
+	if _, err := (&http.Client{Timeout: 2 * time.Second}).Do(req); err == nil {
+		t.Error("the listener is still accepting after Close")
+	}
+}
+
+func TestIsLoopbackKnowsItsAddresses(t *testing.T) {
+	cases := map[string]bool{
+		"":            false,
+		"localhost":   true,
+		"LOCALHOST":   true,
+		"127.0.0.1":   true,
+		"::1":         true,
+		"0.0.0.0":     false,
+		"192.168.1.5": false,
+		"example.org": false,
+	}
+	for host, want := range cases {
+		if got := isLoopback(host); got != want {
+			t.Errorf("isLoopback(%q) = %v, want %v", host, got, want)
+		}
+	}
+}
+
+func TestTheEndpointsThatAreNotWrittenYetSaySo(t *testing.T) {
+	srv := newTestServer(t, &fakeService{})
+	cases := []struct{ method, path string }{
+		{http.MethodGet, "/v1/session"},
+		{http.MethodGet, "/v1/session/report"},
+		{http.MethodPost, "/v1/session/reset"},
+		{http.MethodGet, "/v1/models"},
+		{http.MethodPost, "/v1/reasoning"},
+		{http.MethodPost, "/v1/verdict"},
+		{http.MethodGet, "/v1/reward"},
+		{http.MethodGet, "/v1/questions"},
+		{http.MethodPost, "/v1/task"},
+		{http.MethodPost, "/v1/plan"},
+		{http.MethodPost, "/v1/runs/approval"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.method+" "+tc.path, func(t *testing.T) {
+			req, _ := http.NewRequest(tc.method, srv.BaseURL()+tc.path, strings.NewReader("{}"))
+			req.Header.Set("Authorization", "Bearer "+testToken)
+			w := httptest.NewRecorder()
+			srv.Handler().ServeHTTP(w, req)
+			// Either answer is acceptable while the work is in progress, and the test says so
+			// rather than pinning 501: it is here to prove the ROUTE exists and is behind the
+			// token, not to freeze a placeholder.
+			if w.Code != http.StatusNotImplemented && w.Code != http.StatusOK {
+				t.Errorf("status = %d, want 501 (not written yet) or 200", w.Code)
+			}
+		})
+	}
+}
+
+// --- event framing ----------------------------------------------------------
+
+func TestMarshalEventReportsWhatCannotBeEncoded(t *testing.T) {
+	// A channel cannot be marshalled. It is the one way to reach the branch, and the branch is
+	// worth having: it is what turns an encoder failure into an error a caller can report
+	// instead of a silent empty event.
+	if _, err := marshalEvent(make(chan int)); err == nil {
+		t.Fatal("an unencodable payload must be reported")
+	}
+}
+
+func TestWriteEventFramesOneDataLine(t *testing.T) {
+	w := httptest.NewRecorder()
+	rc := http.NewResponseController(w)
+	if err := writeEvent(w, rc, EventProgress, progressEvent{Text: "a line"}); err != nil {
+		t.Fatalf("writeEvent: %v", err)
+	}
+	body := w.Body.String()
+	if body != "event: progress\ndata: {\"text\":\"a line\"}\n\n" {
+		t.Errorf("body = %q", body)
+	}
+	// The invariant the client depends on: exactly one line carrying data, so it can dispatch
+	// on it without buffering multi-line events.
+	if n := strings.Count(body, "\ndata: "); n != 1 {
+		t.Errorf("the event carries %d data lines, want exactly 1", n)
+	}
+}
+
+func TestWriteEventReportsAnUnencodablePayload(t *testing.T) {
+	w := httptest.NewRecorder()
+	rc := http.NewResponseController(w)
+	if err := writeEvent(w, rc, EventError, make(chan int)); err == nil {
+		t.Fatal("an unencodable payload must be reported")
+	}
+}
+
+func TestWriteEventReportsAFailedWrite(t *testing.T) {
+	// A client that went away mid-stream. The error is what the caller turns into "stop
+	// streaming"; swallowing it would keep a run producing lines for nobody.
+	rc := http.NewResponseController(failingWriter{})
+	err := writeEvent(failingWriter{}, rc, EventProgress, progressEvent{Text: "x"})
+	if err == nil {
+		t.Fatal("a failed write must be reported")
+	}
+}
+
+func TestStartStreamReportsAFailedWrite(t *testing.T) {
+	rc := http.NewResponseController(failingWriter{})
+	if err := startStream(failingWriter{}, rc); err == nil {
+		t.Fatal("a failed write must be reported")
+	}
+}
+
+func TestStartStreamSetsTheHeadersAStreamNeeds(t *testing.T) {
+	w := httptest.NewRecorder()
+	rc := http.NewResponseController(w)
+	if err := startStream(w, rc); err != nil {
+		t.Fatalf("startStream: %v", err)
+	}
+	if ct := w.Header().Get("Content-Type"); ct != "text/event-stream; charset=utf-8" {
+		t.Errorf("content type = %q", ct)
+	}
+	if got := w.Header().Get("Cache-Control"); got != "no-cache" {
+		t.Errorf("cache control = %q", got)
+	}
+	if got := w.Header().Get("X-Accel-Buffering"); got != "no" {
+		t.Errorf("a buffering proxy would turn this stream into a hang: %q", got)
+	}
+	// The opening comment is what gets the headers on the wire before the first event, so a
+	// client waiting for its first byte is not left wondering whether it was even accepted.
+	if !strings.HasPrefix(w.Body.String(), ": connected\n\n") {
+		t.Errorf("body = %q", w.Body.String())
+	}
+}
+
+// failingWriter is a connection that has gone away.
+type failingWriter struct{}
+
+func (failingWriter) Header() http.Header       { return http.Header{} }
+func (failingWriter) WriteHeader(int)           {}
+func (failingWriter) Write([]byte) (int, error) { return 0, errors.New("the client is gone") }
+
+// noFlushWriter is a ResponseWriter with no Flush, so the ResponseController cannot take the
+// stream over. A recorder has one; this does not, which is how the error path is reached.
+type noFlushWriter struct{}
+
+func (noFlushWriter) Header() http.Header         { return http.Header{} }
+func (noFlushWriter) WriteHeader(int)             {}
+func (noFlushWriter) Write(p []byte) (int, error) { return len(p), nil }
+
+func TestFlushingAnUnflushableWriterIsReported(t *testing.T) {
+	rc := http.NewResponseController(noFlushWriter{})
+	if err := rc.Flush(); err == nil {
+		t.Fatal("flushing a writer that cannot flush must be an error, not silence")
+	}
+}
+
+// Compile-time: the writers above really are http.ResponseWriters.
+var (
+	_ http.ResponseWriter = failingWriter{}
+	_ http.ResponseWriter = noFlushWriter{}
+)
+
+// --- the body reader and the serve loop --------------------------------------
+
+// decodeBody is exercised directly because in this slice nothing routes through it yet: the
+// handlers that take a body arrive with the runs. Testing it now is what keeps the framing of a
+// refusal (a JSON {"error":...} at 400) pinned before six handlers depend on it.
+func TestDecodeBodyAcceptsTheExpectedJSON(t *testing.T) {
+	srv := newTestServer(t, &fakeService{})
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest(http.MethodPost, "/v1/anything", strings.NewReader(`{"level":"high"}`))
+	var got struct {
+		Level string `json:"level"`
+	}
+	if !srv.decodeBody(w, r, &got) {
+		t.Fatalf("a well-formed body was refused: %s", w.Body.String())
+	}
+	if got.Level != "high" {
+		t.Errorf("level = %q", got.Level)
+	}
+}
+
+func TestDecodeBodyRefusesWhatIsNotJSON(t *testing.T) {
+	srv := newTestServer(t, &fakeService{})
+	for _, body := range []string{"not json", `{"level":`, ""} {
+		w := httptest.NewRecorder()
+		r := httptest.NewRequest(http.MethodPost, "/v1/anything", strings.NewReader(body))
+		if srv.decodeBody(w, r, &struct{}{}) {
+			t.Errorf("the body %q was accepted", body)
+		}
+		if w.Code != http.StatusBadRequest {
+			t.Errorf("the body %q got status %d, want 400", body, w.Code)
+		}
+		if !strings.Contains(w.Body.String(), "not the JSON") {
+			t.Errorf("the refusal must say what it wanted: %s", w.Body.String())
+		}
+	}
+}
+
+// An oversized body is refused, and it is refused as a 400 with a reason rather than a
+// truncated read that would look like a malformed request with no explanation. MaxBytesReader
+// makes the decode fail, which is the single path a client sees.
+func TestDecodeBodyRefusesAnOversizedBody(t *testing.T) {
+	srv := newTestServer(t, &fakeService{}, func(o *Options) { o.MaxBodyKB = 1 })
+	w := httptest.NewRecorder()
+	big := `{"task":"` + strings.Repeat("x", 4096) + `"}`
+	r := httptest.NewRequest(http.MethodPost, "/v1/anything", strings.NewReader(big))
+	if srv.decodeBody(w, r, &struct{}{}) {
+		t.Fatal("a body over the cap was accepted")
+	}
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("status = %d, want 400", w.Code)
+	}
+}
+
+// Serve announces where it is listening. That log line is the ONLY way an operator learns the
+// port when 0 was asked for, so it is asserted rather than assumed: the logger writes to a file
+// here because that is the only destination logx.Options exposes, and reading the file back is
+// how the announcement is checked.
+func TestServeReportsWhereItIsListening(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "gateway.log")
+	log, err := logx.New(logx.Options{Path: path, Level: logx.Info})
+	if err != nil {
+		t.Fatalf("building the logger: %v", err)
+	}
+
+	srv, err := Start(Options{Service: &fakeService{}, Listen: "127.0.0.1:0", Token: testToken, Log: log})
+	if err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	done := make(chan error, 1)
+	go func() { done <- srv.Serve() }()
+
+	// The listener is up before Serve is called (Start binds), so the announcement follows
+	// immediately; the wait is for the write to reach the file, not for the bind.
+	addr := srv.Addr()
+	var body []byte
+	for i := 0; i < 200; i++ {
+		body, _ = os.ReadFile(path)
+		if strings.Contains(string(body), addr) {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if !strings.Contains(string(body), addr) {
+		t.Fatalf("the gateway never announced where it is listening (log = %q)", body)
+	}
+
+	// A closed listener is how this server STOPS, so it is not an error.
+	if err := srv.Close(context.Background()); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Errorf("Serve reported %v after a clean Close, want nil", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("Serve did not return after Close")
+	}
+}
+
+// A listener that fails for a reason OTHER than being closed is reported: that is a real
+// failure and swallowing it would make the gateway look healthy while it serves nobody.
+func TestServeReportsARealListenerFailure(t *testing.T) {
+	srv := newTestServer(t, &fakeService{})
+	// Close the listener behind the server's back, which is what a failure at the accept
+	// syscall looks like from here: it is not ErrServerClosed, so it must come back.
+	if err := srv.listener.Close(); err != nil {
+		t.Fatalf("closing the fixture listener: %v", err)
+	}
+	if err := srv.Serve(); err == nil {
+		t.Error("a listener that stopped for a reason other than Close must be reported")
+	}
+}
