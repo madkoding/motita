@@ -224,10 +224,3 @@ func (s *Server) decodeBody(w http.ResponseWriter, r *http.Request, dst any) boo
 	}
 	return true
 }
-
-// notImplemented is the shape of an endpoint that is planned and not written yet. It exists so
-// the routing, the authentication and the JSON framing can be reviewed and green BEFORE any run
-// is streamed: each one is replaced by its real handler further down the work.
-func notImplemented(w http.ResponseWriter, _ *http.Request) {
-	writeError(w, http.StatusNotImplemented, "this endpoint is not implemented yet")
-}

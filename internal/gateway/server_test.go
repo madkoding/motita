@@ -341,39 +341,10 @@ func TestIsLoopbackKnowsItsAddresses(t *testing.T) {
 	}
 }
 
-// The endpoints whose behaviour is not written yet, and only those. The list SHRINKS as the real
-// handlers land: this test is here to prove the routes exist, are behind the token and answer with
-// the shared refusal shape while the work is in progress, not to freeze a placeholder. When the
-// last one is real, this test is deleted.
-func TestTheEndpointsThatAreNotWrittenYetSaySo(t *testing.T) {
-	srv := newTestServer(t, &fakeService{})
-	cases := []struct{ method, path string }{
-		{http.MethodPost, "/v1/task"},
-		{http.MethodPost, "/v1/plan"},
-		{http.MethodPost, "/v1/runs/approval"},
-	}
-	for _, tc := range cases {
-		t.Run(tc.method+" "+tc.path, func(t *testing.T) {
-			req, _ := http.NewRequest(tc.method, srv.BaseURL()+tc.path, strings.NewReader("{}"))
-			req.Header.Set("Authorization", "Bearer "+testToken)
-			w := httptest.NewRecorder()
-			srv.Handler().ServeHTTP(w, req)
-			if w.Code != http.StatusNotImplemented {
-				t.Errorf("status = %d, want 501 (not written yet)", w.Code)
-			}
-			// And the refusal has the one shape a client parses, so "not yet" is not a surprise.
-			var e struct {
-				Error string `json:"error"`
-			}
-			if err := json.Unmarshal(w.Body.Bytes(), &e); err != nil {
-				t.Fatalf("body = %q: %v", w.Body.String(), err)
-			}
-			if e.Error == "" {
-				t.Errorf("the refusal must carry a reason: %q", w.Body.String())
-			}
-		})
-	}
-}
+// The placeholder test is GONE rather than updated: every endpoint it covered is now real, and a
+// test that pins 501 for a written handler is a test that would have to be deleted to let the
+// handler work. It existed to prove the routes were behind the token while the work was in
+// progress; TestEveryOtherEndpointNeedsTheToken does that permanently.
 
 // --- event framing ----------------------------------------------------------
 
