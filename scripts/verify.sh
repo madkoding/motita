@@ -88,9 +88,31 @@ step "6. no Spanish left in code, configs or scripts"
 # deliberately narrow: only words that are unambiguously Spanish, so it does not
 # trip over English words. The script itself is excluded, because it necessarily
 # contains those words in the pattern below.
+#
+# Only GIT-TRACKED files are searched. An earlier version walked the whole tree and
+# therefore flagged the generated .starlight/README.md — a file written by a local install,
+# listed in .gitignore, and never committed. A check that fails on something the repo does
+# not carry is a check that fails on every machine for a different reason, and the real
+# finding it was written for hides among the noise. Searching what is tracked also makes
+# the result the same everywhere, which is what a gate has to be.
+#
+# Test files are excluded, and that exclusion is the point of the check rather than a way
+# around it. Several suites feed Spanish IN on purpose: ask_test.go covers the case where a
+# model answers with a Spanish conditional, policy_test.go uses "salida" as a filename. Those
+# fixtures are the feature being tested, not a translation that was missed, and a gate that
+# cannot tell the difference between them has to be narrowed until it can.
+#
+# A production comment may also QUOTE the Spanish it handles — the leading conditional a model
+# emits, which cleanAssumption exists to strip. That is a citation of real input, not shipped
+# copy, so a line carrying the marker below is exempt. The marker is required: it makes the
+# exemption a deliberate statement by the author rather than something the gate guessed at.
 pattern='\b(función|también|todavía|además|así|está|están|desde|hacia|según|mientras|porque|cuando|entonces|siempre|nunca|nada|pero|sólo|debe|puede|hace|hacer|tiene|tienen|usar|usando|valores|opciones|campo|nombre|ruta|salida|entrada|comando|resultado|ejemplo|archivo|fichero|cola|tarea|tareas|ancla|peligro|aviso|no se|sin embargo)\b'
-found=$(grep -rniE "$pattern" --include='*.go' --include='*.yaml' --include='*.yml' --include='*.sh' --include='*.md' --include='Makefile' . 2>/dev/null \
-  | grep -v '/.git/' | grep -v '^./scripts/verify.sh' || true)
+found=$(git ls-files -z 2>/dev/null \
+  | grep -zE '\.(go|ya?ml|sh|md)$|(^|/)Makefile$' \
+  | grep -zv '_test\.go$' \
+  | xargs -0 -r grep -niE "$pattern" 2>/dev/null \
+  | grep -v '^scripts/verify\.sh:' \
+  | grep -v 'spanish-fixture:' || true)
 if [ -z "$found" ]; then
   ok "no Spanish found"
 else
@@ -119,14 +141,33 @@ step "7b. the e2e scripts cannot overwrite a released artifact"
 # names may be written by a test.
 leak=0
 for script in scripts/e2e.sh scripts/e2e-agent.sh; do
-  # An -o argument that is not under dist/.e2e/ writes a published path.
-  if grep -nE '\-o "?\$?\{?(BINARY|MOCK|TEST_BINARY|TEST_MOCK)' "$script" >/dev/null 2>&1; then
-    bad "$script builds directly into an unqualified path"
-    leak=$((leak+1))
-  fi
-  # The published names must not appear as a build destination anywhere.
-  if grep -nE '^\s*(BINARY|MOCK)="dist/(starlight|mock)' "$script" >/dev/null 2>&1; then
-    bad "$script points BINARY/MOCK at a published artifact name"
+  # The guard checks the DESTINATION, not the spelling of the variable holding it.
+  #
+  # It used to flag any `-o "$SOMETHING"`, which failed both scripts on every run even
+  # though both build under dist/.e2e/ and e2e-agent.sh even asserts it. A gate that cries
+  # wolf is worse than no gate: it trains the reader to skip the line, and then it cannot
+  # warn about the regression it was written for. What matters is where the variable
+  # actually points, so that is what is resolved here.
+  #
+  # The variables that hold the safe directory, so a destination may be built from one of
+  # them: e2e.sh spells it E2E_DIST and composes TEST_BINARY from it.
+  safe="$(grep -oE '^[[:space:]]*[A-Z_][A-Z0-9_]*="?dist/\.e2e' "$script" | grep -oE '^[[:space:]]*[A-Z_][A-Z0-9_]*' | tr -d '[:space:]' | sort -u)"
+  dests="$(grep -oE '\-o "\$[A-Z_][A-Z0-9_]*"' "$script" | grep -oE '\$[A-Z_][A-Z0-9_]*' | tr -d '$' | sort -u)"
+  for v in $dests; do
+    asg="$(grep -E "^[[:space:]]*$v=" "$script" | head -1)"
+    under=0
+    case "$asg" in *dist/.e2e*) under=1 ;; esac
+    for s in $safe; do
+      case "$asg" in *"\$$s"*|*"\${$s}"*) under=1 ;; esac
+    done
+    if [ "$under" -eq 0 ]; then
+      bad "$script: -o \"\$$v\" is not assigned under dist/.e2e/ ($asg)"
+      leak=$((leak+1))
+    fi
+  done
+  # A literal destination may never name a published artifact.
+  if grep -qE '\-o "?dist/(starlight|mock)[^"]*"' "$script"; then
+    bad "$script builds directly into a published path"
     leak=$((leak+1))
   fi
 done

@@ -356,16 +356,19 @@ func buildQuestions(a Analysis) []AskItem {
 // assumptionLead is the phrase the interface puts in front of an assumption, and which the model
 // also tends to put there itself.
 //
-// The two together read as a stutter: "If you do not tell me otherwise, I will assume: If you do
-// not tell me otherwise, I will review the workspace". The interface owns that sentence, so the
-// copy in the field is dropped here rather than left to reach the user.
 // cleanAssumption reduces an assumption to the ACTION it describes.
 //
-// The model reliably opens its assumption with a conditional clause of its own ("Si no me dices
-// otra cosa, ...", "Si no me aclaras nada, ..."), and the interface prints its own conditional in
-// front of it. Chasing each phrasing in a list does not work — the first attempt listed the
-// sentences and the very next run produced one that was not on it — so the clause is recognised
-// by SHAPE instead: a leading conditional, up to its first comma.
+// The model reliably opens its assumption with a conditional clause of its own, in Spanish:
+//
+//	spanish-fixture: "Si no me dices otra cosa, ..." / "Si no me aclaras nada, ..."
+//
+// Those are quoted because they are what a model really emitted, and the shape rule below is
+// what replaced chasing them one by one. The interface then prints its own conditional in front
+// of the action, so the model's copy would read as a stutter ("If you do not tell me otherwise,
+// I will assume: If you do not tell me otherwise, I will review the workspace"). Chasing each
+// phrasing in a list does not work — the first attempt listed the sentences and the very next run
+// produced one that was not on it — so the clause is recognised by SHAPE instead: a leading
+// conditional, up to its first comma.
 //
 // Only the leading clause goes, and only when there is something after it. An assumption that is
 // entirely a conditional is kept whole, because dropping it would leave nothing to show. The
@@ -802,7 +805,12 @@ func (a *Agent) loop(ctx context.Context, t task.Task, depth int) TaskResult {
 			// The model classified it as chat but wrote nothing. Saying so is better than
 			// falling through to the loop: the classification is still the model's judgement,
 			// and a task plan is the one answer the user did not ask for.
-			reply = "No hay nada que ejecutar en tu mensaje."
+			//
+			// The line is in English because everything else the interface says is: the
+			// prompts, the help screen, the errors. One sentence in another language would
+			// be the only one of its kind, and there is no language setting to make it
+			// correct for the user reading it.
+			reply = "There is nothing to run in your message."
 		}
 		res.Kind = KindChat
 		res.Reply = reply
