@@ -202,11 +202,10 @@ func TestASignalRepaintsAtTheNewSize(t *testing.T) {
 		painting.Wait()
 	}()
 
-	// The user resizes the window: the terminal driver now answers differently.
 	// The user resizes: the terminal now answers with the new geometry. The swap is
 	// synchronized because a painter goroutine reads the probe.
-	prev := setProbe(func() (int, int, bool) { return 100, 30, true })
-	defer restoreProbe(prev)
+	restoreNew := stubTTYSize(100, 30, true)
+	defer restoreNew()
 
 	if err := syscall.Kill(os.Getpid(), syscall.SIGWINCH); err != nil {
 		t.Skipf("cannot raise SIGWINCH here: %v", err)
@@ -300,8 +299,8 @@ func TestRunWaitsForItsPainterOnTheWayOut(t *testing.T) {
 
 	// Resize while the run is blocked on input, which is where a real user sits. The
 	// swap is synchronized: a painter goroutine reads the probe.
-	prev := setProbe(func() (int, int, bool) { return 100, 30, true })
-	defer restoreProbe(prev)
+	restoreResize := stubTTYSize(100, 30, true)
+	defer restoreResize()
 	syscall.Kill(os.Getpid(), syscall.SIGWINCH)
 	time.Sleep(50 * time.Millisecond)
 

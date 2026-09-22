@@ -322,35 +322,6 @@ func TestThePositionIndicatorAppearsOnlyWhenScrolled(t *testing.T) {
 	}
 }
 
-// TestThePositionPercentageIsBounded: the indicator must never claim more than
-// the whole conversation, whatever the offset.
-func TestThePositionPercentageIsBounded(t *testing.T) {
-	tu, _ := newKeyTUI("")
-	padBody(tu, 60)
-
-	tu.scroll = 0
-	if pct := tu.scrollPercent(); pct != 0 {
-		t.Errorf("at the newest line the position is 0%%, got %d", pct)
-	}
-	tu.scrollToTop()
-	if pct := tu.scrollPercent(); pct != 100 {
-		t.Errorf("at the oldest reachable line the position is 100%%, got %d", pct)
-	}
-	tu.scroll = 10000
-	if pct := tu.scrollPercent(); pct > 100 {
-		t.Errorf("the position must never exceed 100%%, got %d", pct)
-	}
-}
-
-// TestAPositionWithNothingToScrollReads100: a conversation that fits is entirely
-// visible, so the view is at the top of what there is to see.
-func TestAPositionWithNothingToScrollReads100(t *testing.T) {
-	tu, _ := newKeyTUI("", "small")
-	if pct := tu.scrollPercent(); pct != 100 {
-		t.Errorf("a conversation that fits reads %d%%, want 100", pct)
-	}
-}
-
 // TestATinyTerminalExplainsItself: below a workable size the guide asks for a
 // message, not a broken layout. Every droppable part would otherwise be removed
 // and the user would be left with a frame they cannot read or diagnose.
@@ -718,6 +689,51 @@ func TestTheWordmarkLosesItsOwnColourToo(t *testing.T) {
 	}
 }
 
+// TestDeleteAndTheOtherStrayControlBytesAreSwallowed: a control byte the interface has
+// no meaning for must be CONSUMED, not passed on.
+//
+// This is the case that matters most: if the byte falls through, it is built into a line
+// and SENT TO THE MODEL, which is exactly what happened to Ctrl+D, Ctrl+F and Ctrl+U before
+// they had cases of their own. DEL (0x7f) is the one a terminal sends for the Delete key,
+// and it is checked here because it is the only byte the range test treats specially.
+func TestDeleteAndTheOtherStrayControlBytesAreSwallowed(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		key  string
+	}{
+		{"DEL, the Delete key", "\x7f"},
+		{"Ctrl+A, the readline home", "\x01"},
+		{"Ctrl+B", "\x02"},
+		{"Ctrl+Z, which the terminal may forward", "\x1a"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			tu, _ := newKeyTUI("", "one")
+			handled, quit := tu.handleShortcut(context.Background(), tc.key)
+			if !handled {
+				t.Fatalf("%q must be consumed, not passed to the chat as text", tc.key)
+			}
+			if quit {
+				t.Error("a stray control byte must not quit")
+			}
+		})
+	}
+
+	// The bytes that DO have a meaning keep it: swallowing them here would be saying two
+	// things about the same byte. Ctrl+U scrolls a half page, which was checked above, so
+	// this only asserts they are not treated as stray.
+	for _, key := range []string{"\t", "\r", "\n"} {
+		if isStrayControlByte(key) {
+			t.Errorf("%q is text-ish and must not be classified as a stray control byte", key)
+		}
+	}
+	// A multi-byte line is never a stray control byte, however it starts.
+	for _, line := range []string{"\x1b[A", "\x7f\x7f", "a\x7f"} {
+		if isStrayControlByte(line) {
+			t.Errorf("%q is not a single control byte and must not be swallowed as one", line)
+		}
+	}
+}
+
 // TestHalfPageScrollIsAVimBinding: Ctrl+U and Ctrl+D are what a reader uses to skim
 // a long answer. They arrive as control bytes, so they must be intercepted before a
 // line is read and matched before any normalisation — the same trap as Tab.
@@ -1053,16 +1069,23 @@ func TestTheSearchKeyIsReachableAndRepeats(t *testing.T) {
 // TestTheFilterCountMatchesWhatIsDrawn: the number in the prompt is an assertion the
 // user reads, so it has to agree with the lines on screen.
 func TestTheFilterCountMatchesWhatIsDrawn(t *testing.T) {
-	tu, _ := newKeyTUI("", "match one", "other", "match two")
+	tu, out := newKeyTUI("", "match one", "other", "match two")
 	tu.Width, tu.Height = 100, 30
 
 	tu.query = "match"
+	tu.drawFrame()
 	matching := tu.matchingMessages()
 	if len(matching) != 2 {
 		t.Fatalf("matchingMessages = %d, want 2", len(matching))
 	}
-	if bar := stripANSI(tu.searchBar()); !strings.Contains(bar, "2 lines") {
-		t.Errorf("the bar must report the count it has: %q", bar)
+	// The count is drawn by the composer, so the assertion goes through the frame the user
+	// reads rather than through a second renderer that could drift from it.
+	painted := stripANSI(lastFrameOf(out))
+	if !strings.Contains(painted, "2 lines") {
+		t.Errorf("the composer must report the count it has:\n%s", painted)
+	}
+	if !strings.Contains(painted, "match") {
+		t.Errorf("the composer must show the applied filter:\n%s", painted)
 	}
 }
 
@@ -1147,46 +1170,6 @@ func TestHighlightMarksEveryOccurrence(t *testing.T) {
 	}
 	if stripANSI(got) != "ab xx ab yy ab" {
 		t.Errorf("the text must not be altered, got %q", stripANSI(got))
-	}
-}
-
-// TestTheSearchBarShowsTheFilterWhileEditing: a filter can be applied with the box
-// still open for editing it. Showing only the box made the applied filter invisible,
-// which is how a user ends up staring at a short history with no explanation.
-func TestTheSearchBarShowsTheFilterWhileEditing(t *testing.T) {
-	tu, _ := newKeyTUI("", "one match", "other")
-	tu.query = "match"
-
-	// Editing: the count is shown, the escape hint is not (the box is already open).
-	tu.searching = true
-	bar := stripANSI(tu.searchBar())
-	if !strings.Contains(bar, "filter") || !strings.Contains(bar, "1 lines") {
-		t.Errorf("the bar must show the applied filter while editing: %q", bar)
-	}
-	if !strings.Contains(bar, "find >") {
-		t.Errorf("the bar must still show the input prompt: %q", bar)
-	}
-
-	// Applied: the way to edit and the way to clear are offered.
-	tu.searching = false
-	bar = stripANSI(tu.searchBar())
-	for _, want := range []string{"filter", "1 lines", "Ctrl+F", "Esc", "find >"} {
-		if !strings.Contains(bar, want) {
-			t.Errorf("the applied bar is missing %q: %q", want, bar)
-		}
-	}
-}
-
-// TestTheSearchBarWithNoFilterIsJustThePrompt: an unfiltered view must not carry an
-// empty filter widget.
-func TestTheSearchBarWithNoFilterIsJustThePrompt(t *testing.T) {
-	tu, _ := newKeyTUI("", "")
-	bar := stripANSI(tu.searchBar())
-	if strings.Contains(bar, "filter") {
-		t.Errorf("no filter means no filter widget: %q", bar)
-	}
-	if !strings.Contains(bar, "find >") {
-		t.Errorf("the prompt must be there: %q", bar)
 	}
 }
 
@@ -1476,23 +1459,6 @@ func TestFindCarriesTheRestOfTheLineAsTheQuery(t *testing.T) {
 	tu.handleShortcut(context.Background(), "/find   two words  ")
 	if tu.query != "two words" {
 		t.Errorf("query = %q, want %q", tu.query, "two words")
-	}
-}
-
-// TestCutPrefix: the helper exists so the behaviour does not depend on the toolchain.
-func TestCutPrefix(t *testing.T) {
-	if rest, ok := cutPrefix("/find abc", "/find "); !ok || rest != "abc" {
-		t.Errorf("cutPrefix = (%q, %v), want (abc, true)", rest, ok)
-	}
-	if _, ok := cutPrefix("/f", "/find "); ok {
-		t.Error("a shorter string must not match")
-	}
-	if _, ok := cutPrefix("", "/find "); ok {
-		t.Error("an empty string must not match")
-	}
-	// The exact prefix, with nothing after it.
-	if rest, ok := cutPrefix("/find ", "/find "); !ok || rest != "" {
-		t.Errorf("cutPrefix = (%q, %v), want (\"\", true)", rest, ok)
 	}
 }
 

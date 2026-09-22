@@ -345,7 +345,7 @@ func TestThePopupIsMeasuredEvenWhenItDrawsNothing(t *testing.T) {
 	tu.Width, tu.Height = 100, 30
 
 	// Nothing typed: the popup must contribute no rows to the layout.
-	if got := tu.completionLines(tu.bodyWidth()); got != nil {
+	if got := tu.completionLinesCapped(tu.bodyWidth(), 0); got != nil {
 		t.Errorf("with an empty draft the popup must draw nothing, got %v", got)
 	}
 	// And the layout must be the same height as it would be with no popup at all.

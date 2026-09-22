@@ -8,7 +8,7 @@ import (
 
 // tuiPopupBody is the popup's rows, stripped of colour: the tests assert on what is read.
 func tuiPopupBody(tu *TUI) []string {
-	lines := tu.completionLines(tu.bodyWidth())
+	lines := tu.completionLinesCapped(tu.bodyWidth(), 0)
 	out := make([]string, 0, len(lines))
 	for _, l := range lines {
 		out = append(out, stripANSI(l))
@@ -19,6 +19,71 @@ func tuiPopupBody(tu *TUI) []string {
 // The slash-command catalogue is the single source of truth for the handler, the help screen
 // and the completion popup. These tests hold the three together: a command that exists in one
 // and not the others is a promise the interface does not keep.
+
+// TestEveryCommandHasAnAction: the catalogue and the actions are two tables keyed by the same
+// name, so the compiler cannot check that they agree. A command WITH a menu entry and WITHOUT
+// an action is the worst of both worlds — it is advertised, and pressing it does nothing.
+// This is the check that keeps the split honest.
+func TestEveryCommandHasAnAction(t *testing.T) {
+	for _, c := range commands {
+		if _, ok := commandActions[c.Name]; !ok {
+			t.Errorf("the catalogue lists %q and no action implements it", c.Name)
+		}
+	}
+	// And the other direction: an action with no entry is dead code, unreachable from the
+	// interface, kept alive only by the compiler.
+	for name := range commandActions {
+		found := false
+		for _, c := range commands {
+			if c.Name == name {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Errorf("an action is registered for %q, which the catalogue does not list", name)
+		}
+	}
+}
+
+// TestACommandWithNoImplementationIsAnsweredNotSentToTheModel: the catalogue and the
+// actions are two tables, so a row can exist without an action. The compiler cannot see it,
+// TestEveryCommandHasAnAction catches it in the suite — but the RUNTIME has to answer too,
+// because falling through would dispatch the name to the model. The user typed a command the
+// popup advertised; it was never a question, and sending it on would spend a turn on a line
+// nobody asked.
+func TestACommandWithNoImplementationIsAnsweredNotSentToTheModel(t *testing.T) {
+	tu, out := newKeyTUI("", "")
+	tu.Width, tu.Height = 110, 30
+
+	// A catalogue row with no matching action, added and removed around the call so the
+	// invariant test above is not made false by this one.
+	commands = append(commands, Command{Name: "/ghost", Help: "listed but not implemented"})
+	defer func() { commands = commands[:len(commands)-1] }()
+
+	handled, quit := tu.handleShortcut(context.Background(), "/ghost")
+	if !handled {
+		t.Fatal("a listed command must be handled, not left to become a task")
+	}
+	if quit {
+		t.Error("a missing implementation must not quit the interface")
+	}
+	// The answer is a message in the conversation, which is where the user reads it.
+	var said string
+	for i := len(tu.messages) - 1; i >= 0; i-- {
+		if strings.Contains(tu.messages[i].Text, "/ghost") {
+			said = tu.messages[i].Text
+			break
+		}
+	}
+	if said == "" {
+		t.Fatalf("the interface must say the command is broken; messages = %v", tu.messages)
+	}
+	// And it must NOT have been queued as a task. The runner is the only thing that would
+	// send it, so nothing is asserted about it here beyond the message: if the line had
+	// fallen through, no message would exist at all.
+	_ = out
+}
 
 // TestEveryCatalogueCommandIsHandled: the switch must accept every name and alias the
 // catalogue advertises, or the popup would offer something that does nothing.

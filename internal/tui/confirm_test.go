@@ -461,13 +461,38 @@ func TestTheRunLoopRefusesWhenTheUserDeclines(t *testing.T) {
 
 // TestTheConversationRecordsTheDecision: the transcript keeps what was approved and what was not,
 // because the next turn has to be able to see it.
+//
+// It asserts through the FRAME, not by calling the helper: the note only means something if it
+// reaches the conversation the user reads.
 func TestTheConversationRecordsTheDecision(t *testing.T) {
-	req := agent.ApprovalRequest{Command: "rm -rf fuera"}
-	if got := confirmHintText(req, true); !strings.Contains(got, "aprobado") || !strings.Contains(got, "rm -rf fuera") {
-		t.Errorf("the approved note must say so and carry the line: %q", got)
-	}
-	if got := confirmHintText(req, false); !strings.Contains(got, "rechazado") {
-		t.Errorf("the refused note must say so: %q", got)
+	for _, c := range []struct {
+		answer  string
+		note    string
+		command string
+	}{
+		{"s\n", "aprobado", "rm -rf fuera"},
+		{"n\n", "rechazado", "rm -rf fuera"},
+	} {
+		tui, _, ag := confirmTUI(t, c.answer, c.command)
+		ag.approver = tui.approverFor()
+
+		progress := make(chan string, 4)
+		done := make(chan runOutcome, 1)
+		go func() {
+			done <- runOutcome{result: "listo", err: ag.Run(context.Background())}
+		}()
+		tui.awaitRun(context.Background(), progress, done, func(string) {})
+
+		var found bool
+		for _, m := range tui.messages {
+			if strings.Contains(m.Text, c.note) && strings.Contains(m.Text, c.command) {
+				found = true
+			}
+		}
+		if !found {
+			t.Errorf("the transcript must record the decision (%q) on %q, got %+v",
+				c.note, c.command, tui.messages)
+		}
 	}
 }
 

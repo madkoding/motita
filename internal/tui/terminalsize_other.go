@@ -2,7 +2,10 @@
 
 package tui
 
-import "os"
+import (
+	"os"
+	"sync"
+)
 
 // There is no controlling-terminal file and no `stty` here.
 //
@@ -14,6 +17,10 @@ import "os"
 // The seams are declared too, so the package's code and tests compile unchanged on
 // every platform. They are inert: nothing opens a terminal and nothing runs a command,
 // so the environment is always what answers.
+
+// probeMu guards probeTTYSize on every platform, so the shared test helper can swap it
+// under the same lock the Unix side takes.
+var probeMu sync.RWMutex
 
 var (
 	openTTY = os.Open
@@ -29,14 +36,3 @@ var (
 )
 
 func ttySize() (int, int, bool) { return probeTTYSize() }
-
-// setProbe and restoreProbe exist on every platform so the package's tests compile
-// unchanged. There is nothing to swap here: the probe always reports "unknown", which
-// is the correct answer where the environment is the only source.
-func setProbe(p func() (int, int, bool)) func() (int, int, bool) {
-	prev := probeTTYSize
-	probeTTYSize = p
-	return prev
-}
-
-func restoreProbe(p func() (int, int, bool)) { probeTTYSize = p }

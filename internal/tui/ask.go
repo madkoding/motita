@@ -30,9 +30,6 @@ type askState struct {
 	// origin is the request being clarified, kept so the follow-up can restate what is being
 	// answered. Without it the answers arrive with nothing to attach them to.
 	origin string
-	// free is what the user typed into the field instead of picking an option. It belongs to the
-	// question being shown, and switching questions keeps each one's own text.
-	free []string
 }
 
 // newAsk builds the window for a turn that asked questions.
@@ -46,7 +43,6 @@ func newAsk(items []agent.AskItem, origin string) *askState {
 	return &askState{
 		items:   items,
 		answers: make([]string, len(items)),
-		free:    make([]string, len(items)),
 		origin:  origin,
 	}
 }
@@ -128,15 +124,10 @@ func (t *TUI) askLines(max int) []string {
 
 // askAnswerLine is the row showing what the user is answering with.
 //
-// It is drawn from the field the user types into, so a typed answer and a picked option are the
+// It is drawn from the answer the window holds, so a typed answer and a picked option are the
 // same thing by the time it is confirmed, and the user can see exactly what will be sent.
 func (t *TUI) askAnswerLine(width int) string {
-	a := t.ask
-	text := a.free[a.cur]
-	if a.answers[a.cur] != "" {
-		text = a.answers[a.cur]
-	}
-	return t.askLine(t.muted("respuesta: ")+text, width)
+	return t.askLine(t.muted("respuesta: ")+t.ask.answers[t.ask.cur], width)
 }
 
 // askLine draws one window row with the interface margin and the window's colour.
@@ -175,22 +166,6 @@ func (a *askState) pick(i int) bool {
 		return false
 	}
 	a.answers[a.cur] = a.items[a.cur].Options[i]
-	a.free[a.cur] = ""
-	a.next()
-	return true
-}
-
-// answer records a typed answer for the current question.
-//
-// An empty answer is refused: it would count as answered while saying nothing, and the confirm
-// step would send a blank answer to a question the agent asked because it needed the value.
-func (a *askState) answer(text string) bool {
-	text = strings.TrimSpace(text)
-	if text == "" {
-		return false
-	}
-	a.answers[a.cur] = text
-	a.free[a.cur] = ""
 	a.next()
 	return true
 }
@@ -251,6 +226,11 @@ func (a *askState) result() []agent.Answers {
 // screen they are the only thing the user is doing, so a key that reaches the input by accident
 // is worse than one that does not reach it at all.
 //
+// A line that is not one of the keys below is a free answer for the question being shown. It is
+// taken here rather than left to the reader because the window is the only thing on screen, and
+// the alternative was worse: a question with no options could not be answered at all, and a
+// typed answer to one with options was submitted as a brand-new request.
+//
 // Esc closes the window and gives the input back, which is the way out for a user who would
 // rather answer in their own words than pick from a list.
 func (t *TUI) handleAskKey(ctx context.Context, line string) bool {
@@ -283,6 +263,15 @@ func (t *TUI) handleAskKey(ctx context.Context, line string) bool {
 		t.drawFrame()
 		return true
 	}
+	// Anything else is an answer typed for the question being shown. It is recorded WITHOUT
+	// advancing: the reader collects the whole line, so the next Enter would otherwise submit
+	// it twice — once here and once as a new turn.
+	if text := strings.TrimSpace(line); text != "" {
+		t.ask.answers[t.ask.cur] = text
+		t.draft = ""
+		t.drawFrame()
+		return true
+	}
 	return false
 }
 
@@ -302,7 +291,6 @@ func (t *TUI) confirmAsk() {
 	// lose work they can see on screen.
 	if free := strings.TrimSpace(t.draft); free != "" {
 		a.answers[a.cur] = free
-		a.free[a.cur] = ""
 	}
 	t.draft = ""
 	answers := a.result()

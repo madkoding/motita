@@ -53,24 +53,6 @@ func ttySize() (int, int, bool) {
 	return probe()
 }
 
-// setProbe and restoreProbe swap the probe under a lock. The probe is consulted inside
-// drawFrame, which the resize painter calls, so an unsynchronized swap is a data race —
-// in a test that resizes while painting, and in any embedder that changes the probe at
-// runtime.
-func setProbe(p func() (int, int, bool)) func() (int, int, bool) {
-	probeMu.Lock()
-	defer probeMu.Unlock()
-	prev := probeTTYSize
-	probeTTYSize = p
-	return prev
-}
-
-func restoreProbe(p func() (int, int, bool)) {
-	probeMu.Lock()
-	defer probeMu.Unlock()
-	probeTTYSize = p
-}
-
 func statMode(f *os.File) (os.FileMode, error) {
 	info, err := f.Stat()
 	if err != nil {

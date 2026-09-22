@@ -353,3 +353,26 @@ func TestValidateAcceptsOllamaProvider(t *testing.T) {
 		t.Fatalf("ollama provider should be valid: %v", err)
 	}
 }
+
+// TestOrListReadsLikeEnglish: the accepted values are listed the way they would be read
+// aloud, because the message is shown to a person who has just mistyped a setting.
+//
+// The singular case is not decoration: "unknown agent.on_failure.kind: ... (use " is what
+// an empty list produces, and a one-value list is what a setting with a single accepted
+// spelling produces. Both have to read as something other than a dangling parenthesis.
+func TestOrListReadsLikeEnglish(t *testing.T) {
+	for _, tc := range []struct {
+		items []string
+		want  string
+	}{
+		{nil, "nothing"},
+		{[]string{}, "nothing"},
+		{[]string{"stdin"}, "stdin"},
+		{[]string{"none", "command"}, "none or command"},
+		{[]string{"none", "command", "api"}, "none, command or api"},
+	} {
+		if got := orList(tc.items); got != tc.want {
+			t.Errorf("orList(%v) = %q, want %q", tc.items, got, tc.want)
+		}
+	}
+}

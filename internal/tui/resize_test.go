@@ -45,9 +45,23 @@ func withEnvStale(t *testing.T) {
 // TestTheTerminalSizeBeatsTheEnvironment: the environment describes the size the
 // program STARTED at, so when the terminal can answer, its answer wins. This is the
 // heart of the fix and it is asserted through size(), which is what the layout uses.
+// stubTTYSize replaces the probe the size() read goes through, and returns the function
+// that puts it back.
+//
+// The swap lives here rather than in the package: it is a test seam and nothing else, so
+// production carries no function whose only caller is a test. The lock is still taken,
+// because drawFrame consults the probe while painting and an unsynchronized swap is a data
+// race in any test that resizes mid-frame.
 func stubTTYSize(w, h int, ok bool) func() {
-	prev := setProbe(func() (int, int, bool) { return w, h, ok })
-	return func() { restoreProbe(prev) }
+	probeMu.Lock()
+	prev := probeTTYSize
+	probeTTYSize = func() (int, int, bool) { return w, h, ok }
+	probeMu.Unlock()
+	return func() {
+		probeMu.Lock()
+		probeTTYSize = prev
+		probeMu.Unlock()
+	}
 }
 
 // TestTheSizeOutputIsParsedAsRowsThenColumns: `stty size` prints "rows cols", the

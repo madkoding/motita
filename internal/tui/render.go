@@ -577,25 +577,6 @@ func (t *TUI) stateGlyph() string {
 	return t.color(colSuccess, 0, glyphReady)
 }
 
-// scrollPercent is how far back the view sits, as a percentage of how far it CAN
-// go: 0% is the newest line, 100% the oldest reachable one.
-//
-// The denominator is maxScroll and not the length of the conversation, because
-// the last screenful of lines is not a position the view can occupy — the window
-// always shows that many rows. Dividing by the total would make the "top" read as
-// some arbitrary mid-percentage.
-func (t *TUI) scrollPercent() int {
-	max := t.maxScroll()
-	if max <= 0 {
-		return 100
-	}
-	pct := t.scroll * 100 / max
-	if pct > 100 {
-		pct = 100
-	}
-	return pct
-}
-
 // chatLines renders every visible message, oldest first.
 func (t *TUI) chatLines(inner int) []string {
 	if len(t.messages) == 0 {
@@ -637,26 +618,6 @@ func (t *TUI) noMatches(inner int) []string {
 		lines = append(lines, t.cell(t.muted(l), inner))
 	}
 	return append(lines, t.cell("", inner))
-}
-
-// searchBar is the prompt row while the search is open. It replaces the mode prompt so
-// the user can see what they are typing into: a search that looks like a chat prompt
-// invites a task to be typed into it.
-func (t *TUI) searchBar() string {
-	// The two facts are independent: a filter can be applied while the box is open for
-	// editing it. Showing only one of them is what made the applied filter invisible.
-	prompt := "  " + t.color(colAccent, 0, "find") + t.muted(" > ")
-	if t.query == "" {
-		return prompt
-	}
-	// A filter that is applied but not being edited still has to be visible, or the user
-	// cannot tell why their history looks short.
-	n := len(t.matchingMessages())
-	label := strconv.Quote(t.query) + "  " + strconv.Itoa(n) + " lines  "
-	if !t.searching {
-		label += "[Ctrl+F edit  Esc clear]  "
-	}
-	return "  " + t.muted("filter ") + t.color(colAccent, 0, label) + prompt
 }
 
 // emptyState is a designed first screen, not a blank one: it says what the view
@@ -838,54 +799,11 @@ func (t *TUI) highlight(line string, fg int) string {
 	return b.String()
 }
 
-// hintLines lists the keys that work right now, the key in the accent colour and
-// its meaning muted. Hints that do not fit are dropped, never wrapped: a hint that
-// is cut in half reads as a different key.
-//
-// Every hint here is a binding the handler accepts, and the test asserts exactly that:
-// a footer advertising a key that does nothing is a lie the user finds in seconds.
-//
-// The list is deliberately SHORT and covers only the keys a user needs before they know
-// the interface: the navigation keys and the two ways out. The mode shortcuts are in the
-// help screen instead. That is not tidiness — a longer list was silently truncated at
-// every supported width, so the hints at the end were unreachable no matter how wide the
-// terminal was, which is worse than not advertising them at all. A test asserts the
-// whole list fits within the width cap, so adding a hint that breaks that fails the
-// build instead of quietly dropping the last one.
-func (t *TUI) hintLines(w int) []string {
-	hints := [][2]string{
-		{"Tab", "mode"},
-		{"j/k", "scroll"},
-		{"^F", "find"},
-		{"?", "help"},
-		{"q", "quit"},
-	}
-	var out []string
-	for _, h := range hints {
-		candidate := append(append([]string{}, out...), t.color(colAccent, 0, h[0])+" "+t.muted(h[1]))
-		joined := strings.Join(candidate, t.muted("  "+glyphMid+"  "))
-		// The first hint is decided on its own: if it does not fit, the terminal
-		// is too narrow for hints at all and none are shown. Adding it and then
-		// letting fitLine trim it would print a truncated key, which promises a
-		// binding that does not exist.
-		if !t.fits("  "+joined, w-leftMargin) {
-			break
-		}
-		out = candidate
-	}
-	if len(out) == 0 {
-		return nil
-	}
-	return []string{"  " + strings.Join(out, t.muted("  "+glyphMid+"  "))}
-}
-
-// cell pads a decorated string to the panel width.
 // cell is one conversation row: the left margin, the text, and blank space to the edge.
 //
 // There is no rail and no right border. The conversation is the primary content, and the
 // guide's rule is to separate with spacing and the two rules rather than with a box around
-// the only thing on screen — the box also pushed the composer away from the foot of the
-// window, which is where the input belongs.
+// the only thing on screen.
 //
 // The padding is what keeps the frame from filling the last column, so no row of this
 // interface can trigger a terminal's auto-wrap.
@@ -894,9 +812,6 @@ func (t *TUI) cell(s string, available int) string {
 	// text fills the rest, so every row is exactly as wide as the drawing area — which is
 	// what keeps the two rules aligned with the content between them.
 	//
-	// The earlier version took the width INSIDE the frame and added the margin on top, so
-	// every row came out two columns wider than the space it had. That was invisible while a
-	// border sat at the right edge: the border was clipped, not the text.
 	// The text is CLIPPED to the space it has. Without this a single long word — a path, a
 	// URL, a model id — would push the row past the terminal's width, and a terminal wraps at
 	// its width: the frame would gain a line, the layout would no longer fit the window, and
@@ -908,28 +823,6 @@ func (t *TUI) cell(s string, available int) string {
 		pad = 0
 	}
 	return strings.Repeat(" ", leftMargin) + s + strings.Repeat(" ", pad)
-}
-
-// fitLine truncates a decorated line to the given width, closing any open escape
-// with a reset so a cut never bleeds colour into the next line.
-func (t *TUI) fitLine(s string, w int, prefix string) string {
-	if t.fits(prefix+s, w) {
-		return prefix + s
-	}
-	var b strings.Builder
-	visible, limit := 0, w-len(prefix)
-	for _, r := range s {
-		if r == 0x1b {
-			b.WriteRune(r)
-			continue
-		}
-		if visible >= limit-1 {
-			break
-		}
-		b.WriteRune(r)
-		visible++
-	}
-	return prefix + b.String() + "\x1b[0m"
 }
 
 // padCenter centres a decorated string in the given number of columns.
@@ -1497,12 +1390,17 @@ func (t *TUI) composerLabel() string {
 	//
 	// The search is the exception: while the box is open the line being typed is a query, not a
 	// task, and that is something the user has to be able to see at the point of typing.
+	find := t.color(colAccent, 0, "find") + t.muted(" > ")
 	if t.searching {
-		return t.color(colAccent, 0, "find") + t.muted(" > ")
+		return find
 	}
 	if t.query != "" {
-		return t.muted("filter "+strconv.Quote(t.query)) + t.muted("  ") +
-			t.color(colAccent, 0, "find") + t.muted(" > ")
+		// An applied filter has to be visible at all times, count included: without it the
+		// user is looking at a short history and has no way to tell why, and the count is
+		// what makes the number of rows on screen agree with what they are being shown.
+		label := t.muted("filter "+strconv.Quote(t.query)+"  ") +
+			t.color(colAccent, 0, strconv.Itoa(len(t.matchingMessages()))+" lines")
+		return label + t.muted("  ") + find
 	}
 	return t.color(colAccent, 0, glyphPrompt) + t.muted(" ")
 }

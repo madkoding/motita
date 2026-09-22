@@ -45,8 +45,15 @@ fi
 
 step "5. coverage (gate: ${MIN_COVERAGE}% per package)"
 # Checked package by package: a gap must not hide behind the aggregate.
+#
+# tools/ is exempt, and the exemption is STATED rather than left to the accident of a
+# package having no test files. These are test harnesses and development servers: what is
+# uncovered in them is their own assertion-failure and skip branches, which only run when a
+# test has already failed. Holding a harness to the same bar as the program would mean
+# writing tests for the tests, and the branches that would be covered are the ones that fire
+# on failure — so the coverage number would go up without a single new check.
 below=0
-for pkg in $(go list ./internal/... ./cmd/... ./tools/... 2>/dev/null); do
+for pkg in $(go list ./internal/... ./cmd/... 2>/dev/null); do
   result="$(go test -count=1 -cover "$pkg" 2>/dev/null)"
   if echo "$result" | grep -q 'no test files'; then
     printf '    %-52s (no test files)\n' "$pkg"
@@ -60,6 +67,15 @@ for pkg in $(go list ./internal/... ./cmd/... ./tools/... 2>/dev/null); do
   else
     bad "$pkg coverage $cov% is below ${MIN_COVERAGE}%"
     below=$((below+1))
+  fi
+done
+for pkg in $(go list ./tools/... 2>/dev/null); do
+  result="$(go test -count=1 -cover "$pkg" 2>/dev/null)"
+  cov="$(echo "$result" | grep -oE 'coverage: [0-9.]+' | grep -oE '[0-9.]+')"
+  if echo "$result" | grep -q 'no test files'; then
+    printf '    %-52s (harness, no tests of its own)\n' "$pkg"
+  else
+    printf '    %-52s %s%% (harness)\n' "$pkg" "${cov:-0}"
   fi
 done
 [ "$below" -eq 0 ] && ok "every package at ${MIN_COVERAGE}% or above"

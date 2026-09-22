@@ -29,15 +29,6 @@ type Request struct {
 	Stdin       []byte
 }
 
-// Result of a run.
-type Result struct {
-	Output    string
-	Exit      int
-	Truncated bool
-	Duration  time.Duration
-	Expired   bool
-}
-
 // limitedBuffer accumulates up to max bytes and marks whether anything was cut,
 // without making the writing process fail.
 type limitedBuffer struct {
@@ -122,60 +113,4 @@ func Run(ctx context.Context, p Request) (string, bool, int, error) {
 	}
 	_ = duration
 	return text, output.truncated, exit, nil
-}
-
-// RunShell runs the command through the platform's shell (`sh -c` on Unix,
-// `cmd /c` on Windows), to support pipes, redirections and quotes the way a person
-// would type them in the terminal.
-func RunShell(ctx context.Context, command, dir string, timeout time.Duration, max int64) (Result, error) {
-	childCtx, cancel := context.WithTimeout(ctx, timeout)
-	defer cancel()
-
-	// The interpreter is chosen per platform (see shell_unix.go / shell_windows.go)
-	// so the same call works on both families.
-	cmd := shellCommand(childCtx, command)
-	cmd.Dir = dir
-	configureGroup(cmd)
-	cmd.Cancel = func() error { return killGroup(cmd) }
-	cmd.WaitDelay = 2 * time.Second
-
-	if max <= 0 {
-		max = 256 << 10
-	}
-	output := &limitedBuffer{max: max}
-	cmd.Stdout = output
-	cmd.Stderr = output
-
-	start := time.Now()
-	err := cmd.Run()
-	res := Result{
-		Output:    output.buf.String(),
-		Truncated: output.truncated,
-		Duration:  time.Since(start),
-	}
-
-	if childCtx.Err() == context.DeadlineExceeded {
-		res.Expired = true
-		res.Exit = -1
-		return res, fmt.Errorf("the command exceeded the limit of %s", timeout)
-	}
-
-	if err != nil {
-		var ee *exec.ExitError
-		if asExitError(err, &ee) {
-			res.Exit = ee.ExitCode()
-			if res.Exit < 0 {
-				return res, fmt.Errorf("the command was terminated by a signal (exit=%d)", res.Exit)
-			}
-			return res, nil
-		}
-		res.Exit = -1
-		return res, fmt.Errorf("could not run the command: %w", err)
-	}
-	return res, nil
-}
-
-// CleanOutput normalizes output for logs and prompts.
-func CleanOutput(s string) string {
-	return strings.TrimRight(s, "\n")
 }

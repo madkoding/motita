@@ -75,16 +75,6 @@ func TestTheRulesSpanTheSameWidth(t *testing.T) {
 	}
 }
 
-// TestHintLinesStopsWhenNothingFits: a terminal too narrow for even the first hint
-// gets none, rather than a line that overflows the frame.
-func TestHintLinesStopsWhenNothingFits(t *testing.T) {
-	tui := newFakeTUI("q\n", &fakeRunner{})
-	// "Tab switch mode" needs more than this.
-	if lines := tui.hintLines(8); lines != nil {
-		t.Errorf("nothing fits in 8 columns, got %q", lines)
-	}
-}
-
 // TestScanEscapesHandlesOSCAndTwoByteEscapes: a window title (OSC) and a charset
 // selection (a two-byte escape) both occupy zero columns, and the text around
 // them is still measured. Getting this wrong would misalign the whole frame.

@@ -146,28 +146,6 @@ func TestPickOutOfRangeIsRefused(t *testing.T) {
 
 // --- typed answers ---------------------------------------------------------
 
-func TestTypedAnswerIsRecorded(t *testing.T) {
-	tui := newAskTUI(t, askItems(), "x")
-	if !tui.ask.answer("  el escritorio  ") {
-		t.Fatal("a typed answer should be accepted")
-	}
-	if got := tui.ask.answers[0]; got != "el escritorio" {
-		t.Fatalf("answer = %q, want it trimmed", got)
-	}
-}
-
-// A blank answer is not an answer: it would count as answered while saying nothing, and the
-// confirmation would send an empty value to the question the agent asked for.
-func TestBlankAnswerIsRefused(t *testing.T) {
-	tui := newAskTUI(t, askItems(), "x")
-	if tui.ask.answer("   ") {
-		t.Fatal("a blank answer must be refused")
-	}
-	if tui.ask.answers[0] != "" {
-		t.Fatalf("nothing should have been recorded, got %q", tui.ask.answers[0])
-	}
-}
-
 // --- navigation ------------------------------------------------------------
 
 // Next skips questions that are already answered, so a user who answered the first and third
@@ -217,7 +195,7 @@ func TestNavigationWithNoQuestionsDoesNothing(t *testing.T) {
 }
 
 func TestFirstUnanswered(t *testing.T) {
-	a := &askState{items: askItems(), answers: make([]string, 3), free: make([]string, 3)}
+	a := &askState{items: askItems(), answers: make([]string, 3)}
 	if got := a.firstUnanswered(); got != 0 {
 		t.Fatalf("firstUnanswered = %d, want 0", got)
 	}
@@ -234,7 +212,7 @@ func TestFirstUnanswered(t *testing.T) {
 }
 
 func TestAnswerCounts(t *testing.T) {
-	a := &askState{items: askItems(), answers: make([]string, 3), free: make([]string, 3)}
+	a := &askState{items: askItems(), answers: make([]string, 3)}
 	if a.allAnswered() {
 		t.Fatal("nothing answered yet")
 	}
@@ -307,14 +285,38 @@ func TestEscapeClosesTheWindow(t *testing.T) {
 	}
 }
 
-// A key the window does not use is left for the input, so ordinary typing is not swallowed.
-func TestUnusedKeyIsNotHandled(t *testing.T) {
+// A line that is not one of the window's keys is the free answer for the focused question.
+//
+// It used to be left to the caller, which made the window answerable only by picking: a typed
+// value fell through to the main loop and was submitted as a brand-new request, discarding the
+// questions the agent had just asked. The window is the only thing on screen while it is open,
+// so it owns the line. It does NOT advance: the reader collects the whole line, so the next
+// Enter is what confirms the set.
+func TestATypedLineAnswersTheFocusedQuestion(t *testing.T) {
 	tui := newAskTUI(t, askItems(), "x")
-	if tui.handleAskKey(context.Background(), "h") {
-		t.Fatal("a letter is not a window key and must reach the input")
+	if tui.ask.cur != 0 {
+		t.Fatalf("the window opens on the first question, cur = %d", tui.ask.cur)
+	}
+	if !tui.handleAskKey(context.Background(), "  el escritorio  ") {
+		t.Fatal("a typed line is an answer and must be handled by the window")
+	}
+	if got := tui.ask.answers[0]; got != "el escritorio" {
+		t.Fatalf("the answer must be recorded trimmed, got %q", got)
+	}
+	if tui.ask.cur != 0 {
+		t.Fatalf("recording an answer must not move the focus, cur = %d", tui.ask.cur)
 	}
 	if tui.ask == nil {
-		t.Fatal("the window should still be open")
+		t.Fatal("the window must still be open")
+	}
+
+	// A blank line is not an answer, and the window does not claim it: it is the reader's
+	// confirmation, which arrives as the empty Enter.
+	if tui.handleAskKey(context.Background(), "   ") {
+		t.Fatal("a blank line is not an answer")
+	}
+	if tui.ask.answers[0] != "el escritorio" {
+		t.Fatal("a blank line must not overwrite what was typed")
 	}
 }
 
@@ -336,7 +338,7 @@ func TestConfirmClosesTheWindow(t *testing.T) {
 // Confirming with an unanswered question is allowed: the agent stated what it would assume, so
 // leaving one unanswered is accepting that assumption rather than dropping the question.
 func TestConfirmLeavesUnansweredOutOfTheAnswers(t *testing.T) {
-	a := &askState{items: askItems(), answers: make([]string, 3), free: make([]string, 3)}
+	a := &askState{items: askItems(), answers: make([]string, 3)}
 	a.answers[0] = "r1"
 	res := a.result()
 	if len(res) != 1 {
@@ -519,8 +521,16 @@ func TestFullCycle(t *testing.T) {
 	if tui.ask.cur != 1 {
 		t.Fatalf("picking should advance to the open question, cur = %d", tui.ask.cur)
 	}
-	if !tui.ask.answer("un informe") {
-		t.Fatal("the typed answer should be accepted")
+	// The free answer goes through the SAME entry point the main loop uses. It does not
+	// advance: the reader collects the whole line, and Enter is what confirms the set.
+	if !tui.handleAskKey(context.Background(), "un informe") {
+		t.Fatal("a typed answer should be handled by the window")
+	}
+	if got := tui.ask.answers[1]; got != "un informe" {
+		t.Fatalf("the typed answer is recorded as %q", got)
+	}
+	if tui.ask.cur != 1 {
+		t.Fatalf("a typed answer must not advance on its own, cur = %d", tui.ask.cur)
 	}
 
 	res := tui.ask.result()

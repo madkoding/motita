@@ -534,11 +534,14 @@ func (t *TUI) handleTypedCommand(ctx context.Context, line string) (bool, bool) 
 		}
 		run, ok := commandActions[c.Name]
 		if !ok {
-			// Unreachable while TestEveryCommandHasAnAction passes, and deliberately not a
-			// silent fall-through: a command in the catalogue with no action is a menu entry
-			// that does nothing, which is worse than an unimplemented one. Returning false
-			// here means an unknown key reaches the chat as a task instead of vanishing.
-			return false, false
+			// Unreachable while TestEveryCommandHasAnAction passes, but it is ANSWERED here
+			// rather than left to fall through: falling through would dispatch the name to
+			// the MODEL. The user typed a command the popup and the help screen advertised,
+			// so it was never a question, and sending it on would spend a turn on a line
+			// nobody asked. A menu entry that says it is broken is better than one that
+			// becomes a task by accident.
+			t.addMessage(AuthorSystem, "the command "+c.Name+" is listed but has no implementation.")
+			return true, false
 		}
 		return true, run(t, ctx, arg)
 	}

@@ -151,17 +151,20 @@ func (t *TUI) answerConfirm(ctx context.Context, c *confirmState) {
 		if !ok {
 			// The input ended or the run was cancelled. The command is NOT approved: the user
 			// did not say yes, and a consequential action must not run on a guess.
+			t.recordDecision(c.req, false)
 			c.reply <- false
 			return
 		}
 		switch line {
 		case "s", "S", "y", "Y", "si", "sí", "yes":
+			t.recordDecision(c.req, true)
 			c.reply <- true
 			return
 		case "n", "N", "no", keyEsc, keyEnter:
 			// Enter is the CAUTIOUS answer, not the eager one. A stray Enter is far more likely
 			// than a considered one, and the action behind this window is the one the user
 			// should have to say yes to on purpose.
+			t.recordDecision(c.req, false)
 			c.reply <- false
 			return
 		}
@@ -179,4 +182,13 @@ func confirmHintText(req agent.ApprovalRequest, approved bool) string {
 		verb = "aprobado"
 	}
 	return fmt.Sprintf("[%s por el usuario] %s", verb, strings.TrimSpace(req.Command))
+}
+
+// recordDecision writes that sentence into the conversation.
+//
+// It is called from the ONE place the answer is decided, so the two branches cannot record
+// different things, and it is a method on the TUI rather than a bare helper so the note lands in
+// the transcript the user reads instead of only being reachable from a test.
+func (t *TUI) recordDecision(req agent.ApprovalRequest, approved bool) {
+	t.addMessage(AuthorAgent, confirmHintText(req, approved))
 }
