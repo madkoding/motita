@@ -492,72 +492,107 @@ func (c *Config) Validate() error { return c.validate(true) }
 func (c *Config) ValidateWithoutKey() error { return c.validate(false) }
 
 // validate is the body shared by Validate and ValidateWithoutKey.
+//
+// It is split per block, one function each. The blocks do not share state beyond
+// the normalisation at the top, and a single 120-line switch made the failure of
+// one block impossible to read without reading all of them — which is how a rule
+// ends up duplicated, or applied in one path and not the other.
 func (c *Config) validate(requireKey bool) error {
+	c.normalize()
+	if err := c.validateTaskSource(); err != nil {
+		return err
+	}
+	if err := c.validateAnchor(); err != nil {
+		return err
+	}
+	if err := c.validateSandbox(); err != nil {
+		return err
+	}
+	if err := c.validateLLM(requireKey); err != nil {
+		return err
+	}
+	if err := c.validateFinalAction(); err != nil {
+		return err
+	}
+	return c.validateAgent()
+}
+
+// normalize lowercases the enumerated fields so every rule below can compare them
+// without repeating the transformation.
+func (c *Config) normalize() {
 	c.TaskSource.Kind = normalize(c.TaskSource.Kind)
 	c.Anchor.Kind = normalize(c.Anchor.Kind)
 	c.Sandbox.Kind = normalize(c.Sandbox.Kind)
 	c.LLM.Provider = normalize(c.LLM.Provider)
-	c.LLM.Reasoning.Level = strings.ToLower(strings.TrimSpace(c.LLM.Reasoning.Level))
+	c.FinalAction.Kind = normalize(c.FinalAction.Kind)
+	c.Agent.LogLevel = normalize(c.Agent.LogLevel)
+
+	// Reasoning is two fields that have to agree: "enabled with level off" means
+	// nothing, and a level other than off with reasoning disabled is a setting
+	// nobody applied. The pair is reconciled rather than rejected, because both
+	// spellings come from a person meaning the same thing.
+	c.LLM.Reasoning.Level = normalize(c.LLM.Reasoning.Level)
 	if c.LLM.Reasoning.Level == "" {
 		c.LLM.Reasoning.Level = "medium"
 	}
 	if c.LLM.Reasoning.Enabled && c.LLM.Reasoning.Level == "off" {
 		c.LLM.Reasoning.Level = "medium"
 	}
-	if !c.LLM.Reasoning.Enabled && c.LLM.Reasoning.Level != "" && c.LLM.Reasoning.Level != "off" {
+	if !c.LLM.Reasoning.Enabled && c.LLM.Reasoning.Level != "off" {
 		c.LLM.Reasoning.Enabled = true
 	}
-	c.FinalAction.Kind = normalize(c.FinalAction.Kind)
-	c.Agent.LogLevel = normalize(c.Agent.LogLevel)
+}
 
+func (c *Config) validateTaskSource() error {
+	if err := oneOf("task_source.kind", c.TaskSource.Kind, "stdin", "file", "api", "queue"); err != nil {
+		return err
+	}
+	// Each kind names the field it cannot work without, so the message says what
+	// to add instead of only what is wrong.
 	switch c.TaskSource.Kind {
-	case "stdin", "file", "api", "queue":
-	default:
-		return fmt.Errorf("unknown task_source.kind: %q (use stdin, file, api or queue)", c.TaskSource.Kind)
+	case "file":
+		return requireField("task_source.kind=file", "path", c.TaskSource.Path)
+	case "queue":
+		return requireField("task_source.kind=queue", "dir", c.TaskSource.Dir)
+	case "api":
+		return requireField("task_source.kind=api", "url", c.TaskSource.URL)
 	}
-	if c.TaskSource.Kind == "file" && c.TaskSource.Path == "" {
-		return fmt.Errorf("task_source.kind=file requires 'path'")
-	}
-	if c.TaskSource.Kind == "queue" && c.TaskSource.Dir == "" {
-		return fmt.Errorf("task_source.kind=queue requires 'dir'")
-	}
-	if c.TaskSource.Kind == "api" && c.TaskSource.URL == "" {
-		return fmt.Errorf("task_source.kind=api requires 'url'")
-	}
+	return nil
+}
 
-	switch c.Anchor.Kind {
-	case "none":
-	case "command":
-		if c.Anchor.Command == "" {
-			return fmt.Errorf("anchor.kind=command requires 'command'")
+func (c *Config) validateAnchor() error {
+	if err := oneOf("anchor.kind", c.Anchor.Kind, "none", "command"); err != nil {
+		return err
+	}
+	if c.Anchor.Kind == "command" {
+		return requireField("anchor.kind=command", "command", c.Anchor.Command)
+	}
+	return nil
+}
+
+func (c *Config) validateSandbox() error {
+	if err := oneOf("sandbox.kind", c.Sandbox.Kind, "none", "chroot", "cgroups"); err != nil {
+		return err
+	}
+	if c.Sandbox.Kind == "chroot" {
+		if err := requireField("sandbox.kind=chroot", "root", c.Sandbox.Root, "the chroot root directory"); err != nil {
+			return err
 		}
-	default:
-		return fmt.Errorf("unknown anchor.kind: %q (use command or none)", c.Anchor.Kind)
 	}
-
-	switch c.Sandbox.Kind {
-	case "none", "chroot", "cgroups":
-	default:
-		return fmt.Errorf("unknown sandbox.kind: %q (use none, chroot or cgroups)", c.Sandbox.Kind)
-	}
-	if c.Sandbox.Kind == "chroot" && c.Sandbox.Root == "" {
-		return fmt.Errorf("sandbox.kind=chroot requires 'root' (the chroot root directory)")
-	}
-	switch c.Sandbox.Cgroups {
-	case "", "auto", "on", "off":
-	default:
-		return fmt.Errorf("unknown sandbox.cgroups: %q (use auto, on or off)", c.Sandbox.Cgroups)
+	if err := oneOf("sandbox.cgroups", c.Sandbox.Cgroups, "", "auto", "on", "off"); err != nil {
+		return err
 	}
 	if c.Sandbox.User != "" {
 		if _, _, err := ParseUser(c.Sandbox.User); err != nil {
 			return err
 		}
 	}
+	return nil
+}
 
-	switch c.LLM.Provider {
-	case "openai", "ollama", "anthropic", "gemini":
-	default:
-		return fmt.Errorf("unknown llm.provider: %q (use openai, ollama, anthropic or gemini)", c.LLM.Provider)
+func (c *Config) validateLLM(requireKey bool) error {
+	if err := oneOf("llm.provider", c.LLM.Provider, "openai", "ollama", "anthropic", "gemini"); err != nil {
+		return err
 	}
 	if c.LLM.Model == "" {
 		return fmt.Errorf("llm.model cannot be empty")
@@ -577,28 +612,28 @@ func (c *Config) validate(requireKey bool) error {
 	if c.LLM.BackoffMax < c.LLM.BackoffInitial {
 		return fmt.Errorf("llm.backoff_max cannot be smaller than llm.backoff_initial")
 	}
+	return nil
+}
 
-	switch c.FinalAction.Kind {
-	case "none", "command":
-	case "api":
-		if c.FinalAction.URL == "" {
-			return fmt.Errorf("final_action.kind=api requires 'url'")
-		}
-	case "git_commit":
-	default:
-		return fmt.Errorf("unknown final_action.kind: %q (use none, command, api or git_commit)", c.FinalAction.Kind)
+func (c *Config) validateFinalAction() error {
+	if err := oneOf("final_action.kind", c.FinalAction.Kind, "none", "command", "api", "git_commit"); err != nil {
+		return err
 	}
+	if c.FinalAction.Kind == "api" {
+		return requireField("final_action.kind=api", "url", c.FinalAction.URL)
+	}
+	return nil
+}
 
+func (c *Config) validateAgent() error {
 	if c.Agent.MaxRetries < 0 {
 		return fmt.Errorf("agent.max_retries cannot be negative")
 	}
 	if c.Agent.WorkspaceDir == "" {
 		c.Agent.WorkspaceDir = Default().Agent.WorkspaceDir
 	}
-	switch c.Agent.LogLevel {
-	case "debug", "info", "warn", "error":
-	default:
-		return fmt.Errorf("unknown agent.log_level: %q (use debug, info, warn or error)", c.Agent.LogLevel)
+	if err := oneOf("agent.log_level", c.Agent.LogLevel, "debug", "info", "warn", "error"); err != nil {
+		return err
 	}
 	if c.Agent.LogBackups < 0 {
 		return fmt.Errorf("agent.log_backups cannot be negative")
@@ -606,10 +641,52 @@ func (c *Config) validate(requireKey bool) error {
 	if c.Agent.OnFailure.Kind == "" {
 		c.Agent.OnFailure.Kind = "none"
 	}
-	if c.Agent.OnFailure.Kind != "none" && c.Agent.OnFailure.Kind != "command" {
-		return fmt.Errorf("unknown agent.on_failure.kind: %q (use none or command)", c.Agent.OnFailure.Kind)
+	return oneOf("agent.on_failure.kind", c.Agent.OnFailure.Kind, "none", "command")
+}
+
+// oneOf reports whether a setting is one of its accepted values, naming the field,
+// the value it got and the list it should have been. Written once so the message
+// reads the same for every enumerated setting.
+func oneOf(field, value string, allowed ...string) error {
+	for _, a := range allowed {
+		if value == a {
+			return nil
+		}
 	}
-	return nil
+	// The empty string is a legitimate value (it means "unset") but listing it as
+	// something to type would only confuse; it is dropped from the suggestion.
+	quoted := make([]string, 0, len(allowed))
+	for _, a := range allowed {
+		if a != "" {
+			quoted = append(quoted, a)
+		}
+	}
+	return fmt.Errorf("unknown %s: %q (use %s)", field, value, orList(quoted))
+}
+
+// orList joins the accepted values the way they would be read aloud: commas, and
+// "or" before the last one.
+func orList(items []string) string {
+	switch len(items) {
+	case 0:
+		return "nothing"
+	case 1:
+		return items[0]
+	}
+	return strings.Join(items[:len(items)-1], ", ") + " or " + items[len(items)-1]
+}
+
+// requireField reports the field a setting cannot work without. An optional hint
+// is appended, for the cases where naming the field is not enough to find it.
+func requireField(owner, field, value string, hint ...string) error {
+	if value != "" {
+		return nil
+	}
+	msg := fmt.Sprintf("%s requires '%s'", owner, field)
+	if len(hint) > 0 && hint[0] != "" {
+		msg += " (" + hint[0] + ")"
+	}
+	return fmt.Errorf("%s", msg)
 }
 
 func normalize(s string) string {

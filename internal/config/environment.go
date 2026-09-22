@@ -13,226 +13,238 @@ import (
 //
 // Convention: STARLIGHT_<BLOCK>_<FIELD>. They win over the YAML, which is what
 // is expected when injecting secrets into a container or a systemd service.
+//
+// The bindings are TABLES, not a long list of assignments, because the shape of
+// this code is the shape of a bug: with one statement per variable, a variable
+// added to the README and forgotten here is silently ignored in the one path —
+// the container, the systemd unit — where nobody can check by hand. A table is
+// read as a whole, and a missing row is visible.
 // ---------------------------------------------------------------------------
+
+// binding maps a variable name to the field it overwrites.
+type binding[T any] struct {
+	key string
+	dst *T
+}
+
+// textBinding is the verbatim case: the value is trimmed, and a variable that is
+// set but blank leaves the field as it was.
+func textBindings(c *Config) []binding[string] {
+	return []binding[string]{
+		{"STARLIGHT_TASK_SOURCE_KIND", &c.TaskSource.Kind},
+		{"STARLIGHT_TASK_SOURCE_PATH", &c.TaskSource.Path},
+		{"STARLIGHT_TASK_SOURCE_DIR", &c.TaskSource.Dir},
+		{"STARLIGHT_TASK_SOURCE_URL", &c.TaskSource.URL},
+		{"STARLIGHT_TASK_SOURCE_METHOD", &c.TaskSource.Method},
+		{"STARLIGHT_TASK_SOURCE_FIELD", &c.TaskSource.Field},
+		{"STARLIGHT_TASK_SOURCE_BODY", &c.TaskSource.Body},
+
+		{"STARLIGHT_ANCHOR_KIND", &c.Anchor.Kind},
+		{"STARLIGHT_ANCHOR_COMMAND", &c.Anchor.Command},
+		{"STARLIGHT_ANCHOR_EXPECT_OUTPUT", &c.Anchor.ExpectOutput},
+
+		{"STARLIGHT_SANDBOX_KIND", &c.Sandbox.Kind},
+		{"STARLIGHT_SANDBOX_ROOT", &c.Sandbox.Root},
+		{"STARLIGHT_SANDBOX_USER", &c.Sandbox.User},
+		{"STARLIGHT_SANDBOX_CGROUPS", &c.Sandbox.Cgroups},
+		{"STARLIGHT_SANDBOX_CGROUP_ROOT", &c.Sandbox.CgroupRoot},
+
+		{"STARLIGHT_SKILLS_DIR", &c.Skills.Dir},
+
+		{"STARLIGHT_FINAL_ACTION_KIND", &c.FinalAction.Kind},
+		{"STARLIGHT_FINAL_ACTION_COMMAND", &c.FinalAction.Command},
+		{"STARLIGHT_FINAL_ACTION_URL", &c.FinalAction.URL},
+		{"STARLIGHT_FINAL_ACTION_METHOD", &c.FinalAction.Method},
+		{"STARLIGHT_FINAL_ACTION_COMMIT_MESSAGE", &c.FinalAction.CommitMessage},
+
+		{"STARLIGHT_AGENT_WORKSPACE_DIR", &c.Agent.WorkspaceDir},
+		{"STARLIGHT_AGENT_LOG_FILE", &c.Agent.LogFile},
+		{"STARLIGHT_AGENT_LOG_LEVEL", &c.Agent.LogLevel},
+		{"STARLIGHT_AGENT_SHELL", &c.Agent.Shell},
+
+		{"STARLIGHT_AGENT_ON_FAILURE_KIND", &c.Agent.OnFailure.Kind},
+		{"STARLIGHT_AGENT_ON_FAILURE_COMMAND", &c.Agent.OnFailure.Command},
+	}
+}
+
+// promptBindings are the prompt texts. They are read with readPrompt, which does
+// not trim: a prompt is multi-line and its layout is part of the instructions.
+func promptBindings(c *Config) []binding[string] {
+	return []binding[string]{
+		{"STARLIGHT_PROMPTS_ANALYZE_SYSTEM", &c.Prompts.Analyze.System},
+		{"STARLIGHT_PROMPTS_ANALYZE_USER", &c.Prompts.Analyze.User},
+		{"STARLIGHT_PROMPTS_PLAN_SYSTEM", &c.Prompts.Plan.System},
+		{"STARLIGHT_PROMPTS_PLAN_USER", &c.Prompts.Plan.User},
+		{"STARLIGHT_PROMPTS_EXECUTE_SYSTEM", &c.Prompts.Execute.System},
+		{"STARLIGHT_PROMPTS_EXECUTE_USER", &c.Prompts.Execute.User},
+	}
+}
+
+func durationBindings(c *Config) []binding[time.Duration] {
+	return []binding[time.Duration]{
+		{"STARLIGHT_TASK_SOURCE_INTERVAL", &c.TaskSource.Interval},
+		{"STARLIGHT_ANCHOR_TIMEOUT", &c.Anchor.Timeout},
+		{"STARLIGHT_SANDBOX_TIMEOUT", &c.Sandbox.Timeout},
+		{"STARLIGHT_LLM_TIMEOUT", &c.LLM.Timeout},
+		{"STARLIGHT_LLM_BACKOFF_INITIAL", &c.LLM.BackoffInitial},
+		{"STARLIGHT_LLM_BACKOFF_MAX", &c.LLM.BackoffMax},
+	}
+}
+
+func integerBindings(c *Config) []binding[int] {
+	return []binding[int]{
+		{"STARLIGHT_ANCHOR_EXPECT_EXIT", &c.Anchor.ExpectExit},
+		{"STARLIGHT_SANDBOX_MEMORY_MB", &c.Sandbox.MemoryMB},
+		{"STARLIGHT_SANDBOX_CPU_SECONDS", &c.Sandbox.CPUSeconds},
+		{"STARLIGHT_SANDBOX_PROCESSES", &c.Sandbox.Processes},
+		{"STARLIGHT_SANDBOX_OPEN_FILES", &c.Sandbox.OpenFiles},
+		{"STARLIGHT_SANDBOX_MAX_FILE_SIZE_MB", &c.Sandbox.MaxFileSizeMB},
+		{"STARLIGHT_SANDBOX_MAX_OUTPUT_KB", &c.Sandbox.MaxOutputKB},
+		{"STARLIGHT_SKILLS_MAX_FILE_BYTES", &c.Skills.MaxFileBytes},
+		{"STARLIGHT_LLM_MAX_TOKENS", &c.LLM.MaxTokens},
+		{"STARLIGHT_LLM_SESSION_CONTEXT_WINDOW", &c.LLM.Session.ContextWindow},
+		{"STARLIGHT_LLM_SESSION_RESERVE", &c.LLM.Session.Reserve},
+		{"STARLIGHT_LLM_SESSION_KEEP_RECENT", &c.LLM.Session.KeepRecent},
+		{"STARLIGHT_LLM_MAX_ATTEMPTS", &c.LLM.MaxAttempts},
+		{"STARLIGHT_AGENT_MAX_RETRIES", &c.Agent.MaxRetries},
+		{"STARLIGHT_AGENT_SUBTASK_DEPTH", &c.Agent.SubtaskDepth},
+		{"STARLIGHT_AGENT_MAX_TASKS", &c.Agent.MaxTasks},
+		{"STARLIGHT_AGENT_LOG_MAX_MB", &c.Agent.LogMaxMB},
+		{"STARLIGHT_AGENT_LOG_BACKUPS", &c.Agent.LogBackups},
+	}
+}
+
+func boolBindings(c *Config) []binding[bool] {
+	return []binding[bool]{
+		{"STARLIGHT_SANDBOX_KEEP_EPHEMERAL", &c.Sandbox.KeepEphemeral},
+		{"STARLIGHT_SANDBOX_ISOLATE_NETWORK", &c.Sandbox.IsolateNetwork},
+		{"STARLIGHT_AGENT_LOG_CONSOLE", &c.Agent.LogConsole},
+		{"STARLIGHT_AGENT_READ_ONLY", &c.Agent.ReadOnly},
+		{"STARLIGHT_AGENT_POLICY_ENFORCE", &c.Agent.Policy.Enforce},
+		{"STARLIGHT_AGENT_POLICY_STRICT", &c.Agent.Policy.Strict},
+	}
+}
 
 // ApplyEnvironment overlays the STARLIGHT_* variables on the configuration.
 func ApplyEnvironment(c *Config) error {
-	var err error
+	for _, b := range textBindings(c) {
+		*b.dst = readText(b.key, *b.dst)
+	}
+	for _, b := range promptBindings(c) {
+		*b.dst = readPrompt(b.key, *b.dst)
+	}
+	for _, b := range durationBindings(c) {
+		v, err := readDuration(b.key, *b.dst)
+		if err != nil {
+			return err
+		}
+		*b.dst = v
+	}
+	for _, b := range integerBindings(c) {
+		v, err := readInteger(b.key, *b.dst)
+		if err != nil {
+			return err
+		}
+		*b.dst = v
+	}
+	for _, b := range boolBindings(c) {
+		v, err := readBool(b.key, *b.dst)
+		if err != nil {
+			return err
+		}
+		*b.dst = v
+	}
+	return applyLLMEnvironment(c)
+}
 
-	// --- task_source ---
-	c.TaskSource.Kind = readText("STARLIGHT_TASK_SOURCE_KIND", c.TaskSource.Kind)
-	c.TaskSource.Path = readText("STARLIGHT_TASK_SOURCE_PATH", c.TaskSource.Path)
-	c.TaskSource.Dir = readText("STARLIGHT_TASK_SOURCE_DIR", c.TaskSource.Dir)
-	c.TaskSource.URL = readText("STARLIGHT_TASK_SOURCE_URL", c.TaskSource.URL)
-	c.TaskSource.Method = readText("STARLIGHT_TASK_SOURCE_METHOD", c.TaskSource.Method)
-	c.TaskSource.Field = readText("STARLIGHT_TASK_SOURCE_FIELD", c.TaskSource.Field)
-	c.TaskSource.Body = readText("STARLIGHT_TASK_SOURCE_BODY", c.TaskSource.Body)
-	if c.TaskSource.Interval, err = readDuration("STARLIGHT_TASK_SOURCE_INTERVAL", c.TaskSource.Interval); err != nil {
-		return err
-	}
-
-	// --- anchor ---
-	c.Anchor.Kind = readText("STARLIGHT_ANCHOR_KIND", c.Anchor.Kind)
-	c.Anchor.Command = readText("STARLIGHT_ANCHOR_COMMAND", c.Anchor.Command)
-	if c.Anchor.Timeout, err = readDuration("STARLIGHT_ANCHOR_TIMEOUT", c.Anchor.Timeout); err != nil {
-		return err
-	}
-	if c.Anchor.ExpectExit, err = readInteger("STARLIGHT_ANCHOR_EXPECT_EXIT", c.Anchor.ExpectExit); err != nil {
-		return err
-	}
-	c.Anchor.ExpectOutput = readText("STARLIGHT_ANCHOR_EXPECT_OUTPUT", c.Anchor.ExpectOutput)
-
-	// --- sandbox ---
-	c.Sandbox.Kind = readText("STARLIGHT_SANDBOX_KIND", c.Sandbox.Kind)
-	c.Sandbox.Root = readText("STARLIGHT_SANDBOX_ROOT", c.Sandbox.Root)
-	c.Sandbox.User = readText("STARLIGHT_SANDBOX_USER", c.Sandbox.User)
-	c.Sandbox.Cgroups = readText("STARLIGHT_SANDBOX_CGROUPS", c.Sandbox.Cgroups)
-	c.Sandbox.CgroupRoot = readText("STARLIGHT_SANDBOX_CGROUP_ROOT", c.Sandbox.CgroupRoot)
-	if c.Sandbox.MemoryMB, err = readInteger("STARLIGHT_SANDBOX_MEMORY_MB", c.Sandbox.MemoryMB); err != nil {
-		return err
-	}
-	if c.Sandbox.CPUSeconds, err = readInteger("STARLIGHT_SANDBOX_CPU_SECONDS", c.Sandbox.CPUSeconds); err != nil {
-		return err
-	}
-	if c.Sandbox.Processes, err = readInteger("STARLIGHT_SANDBOX_PROCESSES", c.Sandbox.Processes); err != nil {
-		return err
-	}
-	if c.Sandbox.OpenFiles, err = readInteger("STARLIGHT_SANDBOX_OPEN_FILES", c.Sandbox.OpenFiles); err != nil {
-		return err
-	}
-	if c.Sandbox.MaxFileSizeMB, err = readInteger("STARLIGHT_SANDBOX_MAX_FILE_SIZE_MB", c.Sandbox.MaxFileSizeMB); err != nil {
-		return err
-	}
-	if c.Sandbox.MaxOutputKB, err = readInteger("STARLIGHT_SANDBOX_MAX_OUTPUT_KB", c.Sandbox.MaxOutputKB); err != nil {
-		return err
-	}
-	if c.Sandbox.KeepEphemeral, err = readBool("STARLIGHT_SANDBOX_KEEP_EPHEMERAL", c.Sandbox.KeepEphemeral); err != nil {
-		return err
-	}
-	if c.Sandbox.Timeout, err = readDuration("STARLIGHT_SANDBOX_TIMEOUT", c.Sandbox.Timeout); err != nil {
-		return err
-	}
-	if c.Sandbox.IsolateNetwork, err = readBool("STARLIGHT_SANDBOX_ISOLATE_NETWORK", c.Sandbox.IsolateNetwork); err != nil {
-		return err
-	}
-
-	// --- llm ---
+// applyLLMEnvironment handles the LLM block, whose precedence rules do not fit a
+// table: the variable of the provider itself and the standard OpenAI names are
+// consulted only when nothing else set the value, so a configuration that names
+// its own endpoint is never overridden by a stray variable.
+//
+// The order is: the documented STARLIGHT_ name, then the provider's own alias,
+// then the standard OpenAI name.
+func applyLLMEnvironment(c *Config) error {
 	c.LLM.Provider = readText("STARLIGHT_LLM_PROVIDER", c.LLM.Provider)
-	c.LLM.Model = readText("STARLIGHT_LLM_MODEL", c.LLM.Model)
-	if os.Getenv("STARLIGHT_LLM_MODEL") == "" && c.LLM.Model == Default().LLM.Model {
-		c.LLM.Model = readText("OPENAI_MODEL", c.LLM.Model)
-	}
+
+	// The provider's key variable, so "just paste the key" works the way each
+	// service documents it (OLLAMA_API_KEY for Ollama Cloud).
 	c.LLM.APIKey = readText("STARLIGHT_LLM_API_KEY", c.LLM.APIKey)
-	// The provider's own variable is honoured too, so "just paste the key" works
-	// the way each service documents it (OLLAMA_API_KEY for Ollama Cloud). It is
-	// consulted only when the documented generic variable is absent, so the
-	// documented name wins when both are present.
 	if _, generic := os.LookupEnv("STARLIGHT_LLM_API_KEY"); !generic {
 		c.LLM.APIKey = readText(ProviderKeyVariable(c.LLM.Provider), c.LLM.APIKey)
 	}
-
-	// Compatibility with the names the OpenAI ecosystem already exports, which the
-	// README promises to accept. They are applied HERE, in the one overlay that
-	// every loading path runs, so a value reaches the engine whether the
-	// configuration came from a file, from the defaults, or from nothing at all.
-	// Reading them only inside Load left the -p and TUI paths — which load the
-	// defaults plus the environment — with no key, and the end-to-end test failed
-	// with "the LLM key is missing" while the README said the variable worked.
-	//
-	// The precedence is: the documented STARLIGHT_ name wins, then the provider's
-	// own alias, then the standard OpenAI name.
+	// The names the OpenAI ecosystem already exports, which the README promises to
+	// accept. They are applied HERE, in the one overlay that every loading path
+	// runs — reading them only inside Load left the -p and TUI paths, which load the
+	// defaults plus the environment, with no key at all.
 	if _, explicit := os.LookupEnv("STARLIGHT_LLM_API_KEY"); !explicit {
 		if _, own := os.LookupEnv(ProviderKeyVariable(c.LLM.Provider)); !own {
 			c.LLM.APIKey = readText("OPENAI_API_KEY", c.LLM.APIKey)
 		}
 	}
-	c.Skills.Dir = readText("STARLIGHT_SKILLS_DIR", c.Skills.Dir)
-	if c.Skills.MaxFileBytes, err = readInteger("STARLIGHT_SKILLS_MAX_FILE_BYTES", c.Skills.MaxFileBytes); err != nil {
-		return err
+
+	// The model and the endpoint are only taken from the standard OpenAI names when
+	// each is still the default, which is the case a bare `OPENAI_BASE_URL=...` is
+	// written for.
+	c.LLM.Model = readText("STARLIGHT_LLM_MODEL", c.LLM.Model)
+	if os.Getenv("STARLIGHT_LLM_MODEL") == "" && c.LLM.Model == Default().LLM.Model {
+		c.LLM.Model = readText("OPENAI_MODEL", c.LLM.Model)
 	}
 	c.LLM.BaseURL = readText("STARLIGHT_LLM_BASE_URL", c.LLM.BaseURL)
-	// The standard OpenAI names are only consulted when nothing else set the value,
-	// so a configuration that names its own endpoint or model is never overridden
-	// by a stray variable.
 	if os.Getenv("STARLIGHT_LLM_BASE_URL") == "" && c.LLM.BaseURL == Default().LLM.BaseURL {
 		c.LLM.BaseURL = readText("OPENAI_BASE_URL", c.LLM.BaseURL)
 	}
-	if c.LLM.MaxTokens, err = readInteger("STARLIGHT_LLM_MAX_TOKENS", c.LLM.MaxTokens); err != nil {
-		return err
-	}
-	if c.LLM.Session.ContextWindow, err = readInteger("STARLIGHT_LLM_SESSION_CONTEXT_WINDOW", c.LLM.Session.ContextWindow); err != nil {
-		return err
-	}
-	if c.LLM.Session.Reserve, err = readInteger("STARLIGHT_LLM_SESSION_RESERVE", c.LLM.Session.Reserve); err != nil {
-		return err
-	}
-	if c.LLM.Session.KeepRecent, err = readInteger("STARLIGHT_LLM_SESSION_KEEP_RECENT", c.LLM.Session.KeepRecent); err != nil {
-		return err
-	}
-	if v := os.Getenv("STARLIGHT_LLM_SESSION_COMPACT_AT"); v != "" {
-		f, err := strconv.ParseFloat(strings.TrimSpace(v), 64)
-		if err != nil {
-			return fmt.Errorf("STARLIGHT_LLM_SESSION_COMPACT_AT: %q is not a number", v)
+
+	// The two floating-point settings have their own variables because they are the
+	// only non-integer numbers in the configuration.
+	for _, b := range []binding[float64]{
+		{"STARLIGHT_LLM_SESSION_COMPACT_AT", &c.LLM.Session.CompactAt},
+		{"STARLIGHT_LLM_TEMPERATURE", &c.LLM.Temperature},
+	} {
+		if v := os.Getenv(b.key); v != "" {
+			f, err := strconv.ParseFloat(strings.TrimSpace(v), 64)
+			if err != nil {
+				return fmt.Errorf("%s: %q is not a number", b.key, v)
+			}
+			*b.dst = f
 		}
-		c.LLM.Session.CompactAt = f
 	}
-	if v := os.Getenv("STARLIGHT_LLM_TEMPERATURE"); v != "" {
-		f, err := strconv.ParseFloat(strings.TrimSpace(v), 64)
-		if err != nil {
-			return fmt.Errorf("STARLIGHT_LLM_TEMPERATURE: %q is not a number", v)
-		}
-		c.LLM.Temperature = f
-	}
-	if c.LLM.Timeout, err = readDuration("STARLIGHT_LLM_TIMEOUT", c.LLM.Timeout); err != nil {
+
+	if err := applyReasoningEnvironment(c); err != nil {
 		return err
 	}
-	if c.LLM.MaxAttempts, err = readInteger("STARLIGHT_LLM_MAX_ATTEMPTS", c.LLM.MaxAttempts); err != nil {
+
+	// The shutdown timeout has a second, historical name: it was published while the
+	// field is called graceful_shutdown_timeout, so a reader following the documented
+	// formula would have set a variable that did nothing.
+	v, err := readDurationAliased(
+		"STARLIGHT_AGENT_GRACEFUL_SHUTDOWN_TIMEOUT", // the documented name
+		"STARLIGHT_AGENT_SHUTDOWN_TIMEOUT",          // kept for compatibility
+		c.Agent.ShutdownTimeout)
+	if err != nil {
 		return err
 	}
-	if c.LLM.BackoffInitial, err = readDuration("STARLIGHT_LLM_BACKOFF_INITIAL", c.LLM.BackoffInitial); err != nil {
-		return err
-	}
-	if c.LLM.BackoffMax, err = readDuration("STARLIGHT_LLM_BACKOFF_MAX", c.LLM.BackoffMax); err != nil {
-		return err
-	}
+	c.Agent.ShutdownTimeout = v
+	return nil
+}
+
+// applyReasoningEnvironment reads the reasoning pair, which is two fields that must
+// agree: a level of "off" with reasoning enabled would mean nothing, and a level
+// other than "off" with reasoning disabled would be a setting nobody applied.
+func applyReasoningEnvironment(c *Config) error {
 	if v := strings.ToLower(readText("STARLIGHT_LLM_REASONING_ENABLED", "")); v != "" {
 		c.LLM.Reasoning.Enabled = v == "true" || v == "yes" || v == "1" || v == "on"
 	}
-	if v := strings.ToLower(readText("STARLIGHT_LLM_REASONING_LEVEL", c.LLM.Reasoning.Level)); v != "" {
-		switch v {
-		case "off", "low", "medium", "high":
+	v := strings.ToLower(readText("STARLIGHT_LLM_REASONING_LEVEL", c.LLM.Reasoning.Level))
+	switch v {
+	case "", "off", "low", "medium", "high":
+		if v != "" {
 			c.LLM.Reasoning.Level = v
-		default:
-			return fmt.Errorf("STARLIGHT_LLM_REASONING_LEVEL must be one of: off, low, medium, high")
 		}
+		return nil
+	default:
+		return fmt.Errorf("STARLIGHT_LLM_REASONING_LEVEL must be one of: off, low, medium, high")
 	}
-
-	// --- final_action ---
-	c.FinalAction.Kind = readText("STARLIGHT_FINAL_ACTION_KIND", c.FinalAction.Kind)
-	c.FinalAction.Command = readText("STARLIGHT_FINAL_ACTION_COMMAND", c.FinalAction.Command)
-	c.FinalAction.URL = readText("STARLIGHT_FINAL_ACTION_URL", c.FinalAction.URL)
-	c.FinalAction.Method = readText("STARLIGHT_FINAL_ACTION_METHOD", c.FinalAction.Method)
-	c.FinalAction.CommitMessage = readText("STARLIGHT_FINAL_ACTION_COMMIT_MESSAGE", c.FinalAction.CommitMessage)
-
-	// --- prompts ---
-	// The prompt texts can be replaced from the environment too: it is how a
-	// deployment adjusts the instructions of a frozen image without rebuilding it.
-	c.Prompts.Analyze.System = readPrompt("STARLIGHT_PROMPTS_ANALYZE_SYSTEM", c.Prompts.Analyze.System)
-	c.Prompts.Analyze.User = readPrompt("STARLIGHT_PROMPTS_ANALYZE_USER", c.Prompts.Analyze.User)
-	c.Prompts.Plan.System = readPrompt("STARLIGHT_PROMPTS_PLAN_SYSTEM", c.Prompts.Plan.System)
-	c.Prompts.Plan.User = readPrompt("STARLIGHT_PROMPTS_PLAN_USER", c.Prompts.Plan.User)
-	c.Prompts.Execute.System = readPrompt("STARLIGHT_PROMPTS_EXECUTE_SYSTEM", c.Prompts.Execute.System)
-	c.Prompts.Execute.User = readPrompt("STARLIGHT_PROMPTS_EXECUTE_USER", c.Prompts.Execute.User)
-
-	// --- agent ---
-	if c.Agent.MaxRetries, err = readInteger("STARLIGHT_AGENT_MAX_RETRIES", c.Agent.MaxRetries); err != nil {
-		return err
-	}
-	if c.Agent.SubtaskDepth, err = readInteger("STARLIGHT_AGENT_SUBTASK_DEPTH", c.Agent.SubtaskDepth); err != nil {
-		return err
-	}
-	if c.Agent.MaxTasks, err = readInteger("STARLIGHT_AGENT_MAX_TASKS", c.Agent.MaxTasks); err != nil {
-		return err
-	}
-	c.Agent.WorkspaceDir = readText("STARLIGHT_AGENT_WORKSPACE_DIR", c.Agent.WorkspaceDir)
-	c.Agent.LogFile = readText("STARLIGHT_AGENT_LOG_FILE", c.Agent.LogFile)
-	c.Agent.LogLevel = readText("STARLIGHT_AGENT_LOG_LEVEL", c.Agent.LogLevel)
-	if c.Agent.LogConsole, err = readBool("STARLIGHT_AGENT_LOG_CONSOLE", c.Agent.LogConsole); err != nil {
-		return err
-	}
-	if c.Agent.LogMaxMB, err = readInteger("STARLIGHT_AGENT_LOG_MAX_MB", c.Agent.LogMaxMB); err != nil {
-		return err
-	}
-	if c.Agent.LogBackups, err = readInteger("STARLIGHT_AGENT_LOG_BACKUPS", c.Agent.LogBackups); err != nil {
-		return err
-	}
-	if c.Agent.ShutdownTimeout, err = readDurationAliased(
-		"STARLIGHT_AGENT_GRACEFUL_SHUTDOWN_TIMEOUT", // the documented name
-		"STARLIGHT_AGENT_SHUTDOWN_TIMEOUT",          // kept for compatibility
-		c.Agent.ShutdownTimeout); err != nil {
-		return err
-	}
-
-	// --- agent (read-only plan mode and the shell used for actions) ---
-	if c.Agent.ReadOnly, err = readBool("STARLIGHT_AGENT_READ_ONLY", c.Agent.ReadOnly); err != nil {
-		return err
-	}
-	c.Agent.Shell = readText("STARLIGHT_AGENT_SHELL", c.Agent.Shell)
-
-	// --- agent.policy (what the agent may do without asking) ---
-	// The mandatory layer is not read here, and cannot be: see config.Policy.
-	if c.Agent.Policy.Enforce, err = readBool("STARLIGHT_AGENT_POLICY_ENFORCE", c.Agent.Policy.Enforce); err != nil {
-		return err
-	}
-	if c.Agent.Policy.Strict, err = readBool("STARLIGHT_AGENT_POLICY_STRICT", c.Agent.Policy.Strict); err != nil {
-		return err
-	}
-
-	// --- agent.on_failure ---
-	c.Agent.OnFailure.Kind = readText("STARLIGHT_AGENT_ON_FAILURE_KIND", c.Agent.OnFailure.Kind)
-	c.Agent.OnFailure.Command = readText("STARLIGHT_AGENT_ON_FAILURE_COMMAND", c.Agent.OnFailure.Command)
-
-	return nil
 }
 
 // readText returns the value of the variable, or the current one when it is not
@@ -282,9 +294,7 @@ func readDuration(key string, current time.Duration) (time.Duration, error) {
 // readDurationAliased reads a duration that has a second, historical name. The
 // documented name (STARLIGHT_<BLOCK>_<FIELD>, the field's yaml tag) always wins;
 // the older name is still honoured so a deployment written against the previous
-// release keeps working. This exists because STARLIGHT_AGENT_SHUTDOWN_TIMEOUT was
-// published while the field is called graceful_shutdown_timeout, so a reader
-// following the documented formula would have set a variable that did nothing.
+// release keeps working.
 func readDurationAliased(primary, alias string, current time.Duration) (time.Duration, error) {
 	v, err := readDuration(primary, current)
 	if err != nil {
