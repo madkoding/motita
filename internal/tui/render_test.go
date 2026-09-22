@@ -47,18 +47,6 @@ func lastFrame(t *testing.T, tui *TUI) string {
 	return sc.text()
 }
 
-// panelRows returns every row of the last frame that carries a panel border.
-func panelRows(frame string) []string {
-	var rows []string
-	for _, line := range strings.Split(stripANSI(frame), "\n") {
-		if strings.ContainsRune(line, '\u2502') || strings.ContainsRune(line, '\u250c') ||
-			strings.ContainsRune(line, '\u2514') {
-			rows = append(rows, line)
-		}
-	}
-	return rows
-}
-
 // TestEveryRowFitsTheDrawingArea: the frame's width invariant. The conversation is no longer
 // boxed, so what must hold is that no row is wider than the area it is drawn into — the
 // layout leaves one column free so a terminal never wraps the last one and scrolls the whole

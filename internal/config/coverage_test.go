@@ -1682,9 +1682,6 @@ func TestDecodeMapWithNestedBlockValue(t *testing.T) {
 // TestDecodeDurationFromText: durations are written by hand in the YAML, so the
 // textual forms must be understood.
 func TestDecodeDurationFromText(t *testing.T) {
-	type withDuration struct {
-		Timeout any `yaml:"timeout"`
-	}
 	c := Default()
 	err := Decode(map[string]any{"anchor": map[string]any{
 		"kind":    "command",

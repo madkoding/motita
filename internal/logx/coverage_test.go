@@ -65,11 +65,11 @@ func TestInstallAndGlobal(t *testing.T) {
 	if got := Global(); got != custom {
 		t.Error("Install did not replace the global log")
 	}
-	// The package-level shortcuts must use the installed logger.
-	Debugf("debug message")
-	Infof("info message")
-	Warnf("warn message")
-	Errorf("error message")
+	// The installed logger is the one Global() returns, which is what every caller reaches
+	// for: the messages below must land in ITS file and not in the previous one.
+	custom.Info("info message")
+	custom.Warn("warn message")
+	custom.Error("error message")
 	Install(original)
 	if Global() != original {
 		t.Error("the original log was not restored")

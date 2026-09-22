@@ -41,21 +41,6 @@ func Render(text string, variables map[string]string) (string, []string) {
 	return out, list
 }
 
-// Variables lists the variables a text uses (useful to document the available
-// prompts and to validate the configuration at start-up).
-func Variables(text string) []string {
-	seen := map[string]bool{}
-	for _, m := range placeholder.FindAllStringSubmatch(text, -1) {
-		seen[m[1]] = true
-	}
-	list := make([]string, 0, len(seen))
-	for name := range seen {
-		list = append(list, name)
-	}
-	sort.Strings(list)
-	return list
-}
-
 // History concatenates a history of failed attempts for the prompt.
 func History(attempts []string) string {
 	if len(attempts) == 0 {

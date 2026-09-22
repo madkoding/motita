@@ -252,10 +252,3 @@ func jsonValue(v any) any {
 		return v
 	}
 }
-
-// --- Shortcuts over the global log ------------------------------------------
-
-func Debugf(msg string, fields ...any) { Global().Debug(msg, fields...) }
-func Infof(msg string, fields ...any)  { Global().Info(msg, fields...) }
-func Warnf(msg string, fields ...any)  { Global().Warn(msg, fields...) }
-func Errorf(msg string, fields ...any) { Global().Error(msg, fields...) }

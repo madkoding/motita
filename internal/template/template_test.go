@@ -41,14 +41,6 @@ func TestRenderReportsMissing(t *testing.T) {
 	}
 }
 
-func TestVariablesDetected(t *testing.T) {
-	vars := Variables("{{a}} {{b}} {{a}} and {{ c }}")
-	expected := []string{"a", "b", "c"}
-	if strings.Join(vars, ",") != strings.Join(expected, ",") {
-		t.Errorf("variables = %v", vars)
-	}
-}
-
 func TestHistoryEmpty(t *testing.T) {
 	h := History(nil)
 	if !strings.Contains(h, "first attempt") {

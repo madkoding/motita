@@ -135,14 +135,6 @@ func DefaultBaseURL(id string) string {
 	return ""
 }
 
-// EnvKey returns the variable the instructions should mention for a provider.
-func EnvKey(id string) string {
-	if p, ok := Lookup(id); ok {
-		return p.EnvKey
-	}
-	return "STARLIGHT_LLM_API_KEY"
-}
-
 // String renders a provider for the menu.
 func (p Provider) String() string {
 	return fmt.Sprintf("%s (%s)", p.Name, p.ID)

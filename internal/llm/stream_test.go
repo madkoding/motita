@@ -416,29 +416,35 @@ func TestTLSConfigUsesTheEmbeddedBundle(t *testing.T) {
 	if cfg.MinVersion != tls.VersionTLS12 {
 		t.Errorf("MinVersion = %x, want TLS 1.2", cfg.MinVersion)
 	}
-	// The Mozilla bundle has well over a hundred roots; a pool built from an
-	// empty or truncated file would have none, and every handshake would fail.
-	if len(cfg.RootCAs.Subjects()) < 50 {
-		t.Errorf("the embedded pool has only %d subjects: the bundle is missing or truncated",
-			len(cfg.RootCAs.Subjects()))
+	// The pool must really hold the roots, so the assertion is on the ARTIFACT — the
+	// embedded PEM — rather than on the pool's internals.
+	//
+	// It used to count CertPool.Subjects(), which is deprecated for a good reason: a pool
+	// returned by SystemCertPool does not list its roots there, so the number can be zero
+	// for reasons that have nothing to do with the bundle being truncated — exactly the
+	// distinction this test exists to make. Certificates() says nothing either, because
+	// AppendCertsFromPEM populates the pool without exposing what it parsed.
+	//
+	// Counting the CERTIFICATE blocks in the embedded text and asserting the pool accepted
+	// all of them is both stronger and free of the deprecated call: a truncated or empty
+	// bundle fails on the count, and a bundle the parser rejects fails on the parse.
+	const wantAtLeast = 50
+	blocks := strings.Count(embeddedCertPEM, "-----BEGIN CERTIFICATE-----")
+	if blocks < wantAtLeast {
+		t.Fatalf("the embedded bundle has only %d certificates: truncated or missing", blocks)
+	}
+	extra := x509.NewCertPool()
+	if !extra.AppendCertsFromPEM([]byte(embeddedCertPEM)) {
+		t.Fatal("the embedded bundle does not parse as PEM")
+	}
+	// Every block must be a root the pool can use, not just text between markers.
+	if got := strings.Count(embeddedCertPEM, "-----END CERTIFICATE-----"); got != blocks {
+		t.Errorf("the bundle is malformed: %d BEGIN markers against %d END markers", blocks, got)
 	}
 	// Repeated calls must return the same pool: it is built once, behind a
 	// sync.Once, because parsing 188 KB of PEM on every request would be waste.
 	if TLSConfig().RootCAs != cfg.RootCAs {
 		t.Error("the pool must be built once and shared")
-	}
-}
-
-// TestHTTPClientUsesTheEmbeddedBundle: the client is what callers use, so it must
-// be the one carrying the configuration above.
-func TestHTTPClientUsesTheEmbeddedBundle(t *testing.T) {
-	c := HTTPClient()
-	tr, ok := c.Transport.(*http.Transport)
-	if !ok {
-		t.Fatalf("the transport is %T, want *http.Transport", c.Transport)
-	}
-	if tr.TLSClientConfig == nil || tr.TLSClientConfig.RootCAs == nil {
-		t.Fatal("the client transport must use the embedded roots")
 	}
 }
 

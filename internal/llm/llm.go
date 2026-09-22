@@ -707,7 +707,7 @@ func (c *Client) callAnthropic(ctx context.Context, messages []Message) (string,
 		}
 	}
 	if sb.Len() == 0 {
-		return "", errors.New("Anthropic returned a response with no text")
+		return "", errors.New("anthropic returned a response with no text")
 	}
 	return sb.String(), nil
 }
@@ -890,14 +890,14 @@ func (c *Client) callGemini(ctx context.Context, messages []Message) (string, er
 		return "", &HTTPError{Code: 400, Body: resp.Error.Message}
 	}
 	if len(resp.Candidates) == 0 {
-		return "", errors.New("Gemini returned a response with no candidates (safety block?)")
+		return "", errors.New("gemini returned a response with no candidates (safety block?)")
 	}
 	var sb strings.Builder
 	for _, part := range resp.Candidates[0].Content.Parts {
 		sb.WriteString(part.Text)
 	}
 	if sb.Len() == 0 {
-		return "", fmt.Errorf("Gemini returned an empty response (finishReason=%q)", resp.Candidates[0].FinishReason)
+		return "", fmt.Errorf("gemini returned an empty response (finishReason=%q)", resp.Candidates[0].FinishReason)
 	}
 	return sb.String(), nil
 }
@@ -980,7 +980,7 @@ func (c *Client) callGeminiTools(ctx context.Context, messages []Message, tools 
 		return Reply{}, &HTTPError{Code: 400, Body: resp.Error.Message}
 	}
 	if len(resp.Candidates) == 0 {
-		return Reply{}, errors.New("Gemini returned a response with no candidates (safety block?)")
+		return Reply{}, errors.New("gemini returned a response with no candidates (safety block?)")
 	}
 
 	reply := Reply{FinishReason: resp.Candidates[0].FinishReason}

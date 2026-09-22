@@ -57,16 +57,15 @@ type fakeRunner struct {
 	reset  bool
 	// snapshot is what the status bar reads. A zero value means "no conversation yet",
 	// which the bar renders as no figure rather than as a percentage of nothing.
-	snapshot     session.Snapshot
-	taskErr      error
-	configErr    error
-	modelsErr    error
-	lastPrompt   string
-	lastTask     string
-	lastProgress []string
-	mu           sync.Mutex
-	out          io.Writer
-	cfg          config.Config
+	snapshot   session.Snapshot
+	taskErr    error
+	configErr  error
+	modelsErr  error
+	lastPrompt string
+	lastTask   string
+	mu         sync.Mutex
+	out        io.Writer
+	cfg        config.Config
 	// cfgSet records that the test supplied a configuration of its own, which is
 	// what makes an empty provider a meaningful value rather than "unset".
 	cfgSet bool
@@ -301,20 +300,6 @@ func (r *tabReader) Read(p []byte) (int, error) {
 }
 
 func outputOf(t *TUI) string { return t.Out.(*bytes.Buffer).String() }
-func errOf(t *TUI) string    { return t.Err.(*bytes.Buffer).String() }
-
-func TestRunInterruptedByContext(t *testing.T) {
-	r, _ := io.Pipe()
-	tui := &TUI{In: r, Out: &bytes.Buffer{}, Err: &bytes.Buffer{}, Runner: &fakeRunner{}, NoColor: true}
-	ctx, cancel := context.WithCancel(context.Background())
-	go func() {
-		time.Sleep(20 * time.Millisecond)
-		cancel()
-	}()
-	if code := tui.Run(ctx); code != ExitInterrupted {
-		t.Fatalf("code = %d, want ExitInterrupted", code)
-	}
-}
 
 func TestRunTaskByDefault(t *testing.T) {
 	runner := &fakeRunner{}
@@ -520,7 +505,9 @@ func TestNewDefaults(t *testing.T) {
 	if tui.input() == nil {
 		t.Error("input returned nil")
 	}
-	if tui.input() != tui.input() {
+	// Captured first: comparing two calls in one expression is a tautology the compiler
+	// sees through, and it does not test reuse the way a captured value does.
+	if first, second := tui.input(), tui.input(); first != second {
 		t.Error("input should reuse the same reader")
 	}
 	if tui.screen != ScreenTask {

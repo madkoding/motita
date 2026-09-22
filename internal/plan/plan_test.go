@@ -93,10 +93,6 @@ func llmServer(t *testing.T, replies []replyStep) *httptest.Server {
 			} `json:"tools"`
 		}
 		json.Unmarshal(body, &req)
-		names := []string{}
-		for _, tool := range req.Tools {
-			names = append(names, tool.Function.Name)
-		}
 
 		step := replyStep{finishReason: "stop", content: "(no more steps)"}
 		if idx < len(replies) {

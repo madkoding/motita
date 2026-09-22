@@ -193,12 +193,3 @@ func (s *screen) rows() []string {
 func (s *screen) text() string {
 	return strings.Join(s.rows(), "\n")
 }
-
-// row returns one row, or "" when the index is outside the screen.
-func (s *screen) row(i int) string {
-	rows := s.rows()
-	if i < 0 || i >= len(rows) {
-		return ""
-	}
-	return rows[i]
-}

@@ -4,7 +4,6 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	_ "embed"
-	"net/http"
 	"sync"
 )
 
@@ -34,16 +33,5 @@ func TLSConfig() *tls.Config {
 	return &tls.Config{
 		RootCAs:    getCertPool(),
 		MinVersion: tls.VersionTLS12,
-	}
-}
-
-// HTTPClient returns an http.Client whose Transport uses the embedded CA bundle
-// instead of the (possibly absent) system pool. Use this when CGO_ENABLED=0 and
-// the target host may not have system certificates installed.
-func HTTPClient() *http.Client {
-	return &http.Client{
-		Transport: &http.Transport{
-			TLSClientConfig: TLSConfig(),
-		},
 	}
 }

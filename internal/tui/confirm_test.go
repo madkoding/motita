@@ -236,8 +236,17 @@ func TestTheApprovalChannelIsCreatedExactlyOnce(t *testing.T) {
 // regression that only breaks the sequential case is caught too.
 func TestTheApprovalChannelIsStableAcrossCalls(t *testing.T) {
 	tui := &TUI{}
-	if tui.approvalChannel() != tui.approvalChannel() {
+	// The channel is captured FIRST, then compared. Writing the call twice made the
+	// assertion a tautology: the compiler saw two calls to the same method on the same
+	// receiver in the same expression and staticcheck flagged it — and it was right, because
+	// the property claimed is "the same channel comes back later", which is what capturing
+	// it actually tests. Two calls in one expression prove nothing about the caching.
+	first := tui.approvalChannel()
+	if second := tui.approvalChannel(); first != second {
 		t.Error("the channel must be the same one on every call")
+	}
+	if first == nil {
+		t.Fatal("the channel must be created on first use")
 	}
 }
 

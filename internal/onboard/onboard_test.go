@@ -778,8 +778,10 @@ func TestNamesAndHelpers(t *testing.T) {
 	if got := DefaultBaseURL("nope"); got != "" {
 		t.Errorf("an unknown provider has no default endpoint, got %q", got)
 	}
-	if got := EnvKey("nope"); got != "STARLIGHT_LLM_API_KEY" {
-		t.Errorf("EnvKey fallback = %q", got)
+	for _, p := range Providers() {
+		if p.EnvKey == "" {
+			t.Errorf("provider %q carries no key variable for the instructions", p.ID)
+		}
 	}
 	if got := Providers()[0].String(); !strings.Contains(got, "openai") {
 		t.Errorf("String() = %q", got)
@@ -1012,21 +1014,6 @@ func TestRenderIncludesTheSeparatorBetweenArguments(t *testing.T) {
 	}))
 	if !strings.Contains(out, "args: [test, ./...]") {
 		t.Errorf("arguments must be separated:\n%s", out)
-	}
-}
-
-// TestEnvKeyOfAnUnknownProviderFallsBack: the caller may ask before validating the
-// id, so it must answer with the variable that always exists.
-func TestEnvKeyOfAnUnknownProviderFallsBack(t *testing.T) {
-	// The known providers answer with their own variable...
-	for _, p := range Providers() {
-		if got := EnvKey(p.ID); got != p.EnvKey {
-			t.Errorf("EnvKey(%q) = %q, want %q", p.ID, got, p.EnvKey)
-		}
-	}
-	// ...and an unknown one gets the variable that always exists.
-	if got := EnvKey("whatever"); got != "STARLIGHT_LLM_API_KEY" {
-		t.Errorf("EnvKey = %q", got)
 	}
 }
 

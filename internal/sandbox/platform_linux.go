@@ -38,12 +38,6 @@ func childAttributes(l Limits, dropPrivs bool, uid, gid int) (*syscall.SysProcAt
 	return attr, warnings
 }
 
-// rlimitNPROC is RLIMIT_NPROC (value 6 on Linux). Go's syscall package does not
-// declare it — it is only in golang.org/x/sys/unix, which is an external
-// dependency — so it is declared here with the value from
-// <asm-generic/resource.h>.
-const rlimitNPROC = 6
-
 // hasLimits reports whether there is anything to limit (in which case the shell
 // applies the limits with ulimit before the exec).
 func hasLimits(l Limits) bool {
