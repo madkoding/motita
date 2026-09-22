@@ -352,12 +352,24 @@ ARCH=arm64 make e2e-agent   # end to end in a real container of that architectur
 
 Resulting binaries (static, no cgo, no external libraries):
 
-| Binary | Size | Requirement |
-|---|---|---|
-| `dist/starlight-386` | 6.90 MB | < 10 MB ✓ |
-| `dist/starlight-linux-amd64` | 7.07 MB | |
-| `dist/starlight-linux-arm64` | 6.50 MB | |
-| `dist/starlight-linux-386` (chat) | 6.32 MB | |
+Nine binaries, one per supported platform, all measured under the CI's toolchain and
+build flags (`-trimpath -ldflags "-s -w"`, no cgo):
+
+| Binary | Size |
+|---|---|
+| `dist/starlight-linux-386` | 6.41 MB |
+| `dist/starlight-linux-amd64` | 6.69 MB |
+| `dist/starlight-linux-arm` | 6.50 MB |
+| `dist/starlight-linux-arm64` | 6.44 MB |
+| `dist/starlight-windows-386.exe` | 6.58 MB |
+| `dist/starlight-windows-amd64.exe` | 6.88 MB |
+| `dist/starlight-windows-arm64.exe` | 6.42 MB |
+| `dist/starlight-darwin-amd64` | 6.85 MB |
+| `dist/starlight-darwin-arm64` | 6.55 MB |
+
+The whole range is 6.41 – 6.88 MB, and the requirement CI enforces is under 10 MB per
+binary. The sizes move with the Go release, so treat them as measurements rather than
+specifications: the gate is the limit, not these numbers.
 
 Copy them to the i386 machine over `scp`, `ftp` or USB:
 

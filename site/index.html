@@ -456,10 +456,10 @@ attempt 2  <span class="g">PASS</span>  anchor: exit 0 — output.txt present an
       </p>
 
       <div class="stats">
-        <div class="stat"><span class="n">100%</span><span class="l">statement coverage in every package that ships — 22 of 22, checked one by one so a gap can't hide behind an average</span></div>
+        <div class="stat"><span class="n">100%</span><span class="l">statement coverage in every package that ships — 20 of 20 (<code>./internal/... ./cmd/...</code>), checked one by one so a gap can't hide behind an average; the CI harnesses in <code>tools/</code> are counted separately</span></div>
         <div class="stat"><span class="n">0</span><span class="l">external dependencies — <code>go.mod</code> has no <code>require</code> line, and there is no <code>go.sum</code></span></div>
         <div class="stat"><span class="n">9</span><span class="l">platforms CI builds and verifies, with <code>386</code> as a first-class target</span></div>
-        <div class="stat"><span class="n">6.6&nbsp;MB</span><span class="l">per published static binary — copy it over <code>scp</code> and walk away</span></div>
+        <div class="stat"><span class="n">6.4–6.9&nbsp;MB</span><span class="l">per published static binary, measured across all 9 targets — copy it over <code>scp</code> and walk away</span></div>
       </div>
 
       <p class="sub" style="margin-top: var(--space-6)">

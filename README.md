@@ -108,7 +108,7 @@ you'll regret in two years.
 | **Linux** | `386`, `amd64`, `arm` (ARMv7), `arm64` |
 | **Windows** | `386`, `amd64`, `arm64` |
 | **macOS** | `amd64`, `arm64` |
-| **Published size** | 6.6 – 7.1 MB per binary |
+| **Published size** | 6.4 – 6.9 MB per binary (measured on all 9 targets) |
 
 `386` is a **first-class target**, not an afterthought nobody tests. The
 end-to-end suite builds the agent and runs it inside a real 32-bit container, so
@@ -252,9 +252,9 @@ This is tested the way you'd test something you were about to bet on.
 
 | | |
 |---|---|
-| **Statement coverage** | **100% in every package that ships** — 22 of 22, checked package by package so a gap can't hide behind an average |
-| **Test functions** | 1,789 across 110 files |
-| **Code vs tests** | 20,306 lines of Go · 41,726 lines of test |
+| **Statement coverage** | **100% in every package that ships** — 20 of 20 (`./internal/... ./cmd/...`), checked package by package so a gap can't hide behind an average. `tools/` holds the CI harnesses and is counted separately |
+| **Test functions** | 1,763 across 110 files |
+| **Code vs tests** | 20,434 lines of Go · 41,402 lines of test |
 | **External dependencies** | 0 |
 | **Platforms CI builds and verifies** | 9 |
 
