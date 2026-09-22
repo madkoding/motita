@@ -986,7 +986,13 @@ func TestTheQuestionIsShownAsAQuestionNotAFailure(t *testing.T) {
 		t.Errorf("the question must be shown: %q", got)
 	}
 	// The assumption travels with it, so the user can confirm in one word.
-	if !strings.Contains(got, "asumiré") || !strings.Contains(got, "estado del disco") {
+	//
+	// The assertion is over the ASSUMPTION itself, which is what the comment above says the test
+	// is for. It used to assert the presence of the word "asumiré", which appears nowhere in the
+	// fixture — so what it actually pinned was the hardcoded Spanish lead the interface put in
+	// front of the field ("Si no me dices otra cosa, asumiré: "). That lead fixed the language of
+	// every conversation, and the assertion kept it there by failing when it was removed.
+	if !strings.Contains(got, "asumo el estado del disco") {
 		t.Errorf("the assumption must be shown so the user can confirm it: %q", got)
 	}
 }

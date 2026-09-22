@@ -90,7 +90,7 @@ func TestConfirmationWindowShowsTheExactCommand(t *testing.T) {
 		t.Errorf("the window must say WHY it is asking:\n%s", rendered)
 	}
 	// The keys have to be visible, or the user cannot answer.
-	if !strings.Contains(rendered, "s = sí") {
+	if !strings.Contains(rendered, "y = yes") {
 		t.Errorf("the window must say how to answer:\n%s", rendered)
 	}
 }
@@ -127,7 +127,7 @@ func TestConfirmationCapKeepsTheKeysHint(t *testing.T) {
 	if len(capped) != 4 {
 		t.Fatalf("the window must fit the cap, got %d rows", len(capped))
 	}
-	if !strings.Contains(strings.Join(capped, "\n"), "s = sí") {
+	if !strings.Contains(strings.Join(capped, "\n"), "y = yes") {
 		t.Errorf("the keys hint must survive the cut:\n%s", strings.Join(capped, "\n"))
 	}
 }
@@ -479,8 +479,8 @@ func TestTheConversationRecordsTheDecision(t *testing.T) {
 		note    string
 		command string
 	}{
-		{"s\n", "aprobado", "rm -rf fuera"},
-		{"n\n", "rechazado", "rm -rf fuera"},
+		{"s\n", "approved", "rm -rf fuera"},
+		{"n\n", "rejected", "rm -rf fuera"},
 	} {
 		tui, _, ag := confirmTUI(t, c.answer, c.command)
 		ag.approver = tui.approverFor()

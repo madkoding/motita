@@ -52,7 +52,7 @@ func (t *TUI) confirmLines(max int) []string {
 	width := t.bodyWidth()
 	var out []string
 
-	out = append(out, t.confirmLine(t.color(colAccent, colBase, "El agente quiere ejecutar:"), width))
+	out = append(out, t.confirmLine(t.color(colAccent, colBase, "The agent wants to run:"), width))
 	// The command is WRAPPED rather than clipped: a long line is exactly the one worth reading
 	// to the end, and the user is approving this text and not a summary of it.
 	for _, l := range wrapVisible(t.confirm.req.Command, width-4) {
@@ -63,7 +63,7 @@ func (t *TUI) confirmLines(max int) []string {
 			out = append(out, t.confirmLine("  "+t.muted(l), width))
 		}
 	}
-	out = append(out, t.confirmLine(t.muted("s = sí, ejecutar · Enter o n = no"), width))
+	out = append(out, t.confirmLine(t.muted("y = yes, run it · Enter or n = no"), width))
 
 	if max > 0 && len(out) > max {
 		// The cap keeps the LAST row, so the keys hint always survives the cut: the user has
@@ -156,7 +156,9 @@ func (t *TUI) answerConfirm(ctx context.Context, c *confirmState) {
 			return
 		}
 		switch line {
-		case "s", "S", "y", "Y", "si", "sí", "yes":
+		// The Spanish spellings are tolerated as well as the advertised keys: a Spanish typist
+		// reaches for them, and accepting an answer the hint did not name costs nothing.
+		case "s", "S", "y", "Y", "si", "sí", "yes": // spanish-fixture: accepted input, a Spanish typist reaches for these
 			t.recordDecision(c.req, true)
 			c.reply <- true
 			return
@@ -177,11 +179,11 @@ func (t *TUI) answerConfirm(ctx context.Context, c *confirmState) {
 // confirmHintText is the sentence the conversation keeps after a decision, so the transcript
 // records what was approved and what was not.
 func confirmHintText(req agent.ApprovalRequest, approved bool) string {
-	verb := "rechazado"
+	verb := "rejected"
 	if approved {
-		verb = "aprobado"
+		verb = "approved"
 	}
-	return fmt.Sprintf("[%s por el usuario] %s", verb, strings.TrimSpace(req.Command))
+	return fmt.Sprintf("[%s by the user] %s", verb, strings.TrimSpace(req.Command))
 }
 
 // recordDecision writes that sentence into the conversation.

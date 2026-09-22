@@ -81,12 +81,12 @@ func (t *TUI) askLines(max int) []string {
 	n := len(a.items)
 	// Header: where they are in the list, so "next" has a meaning before pressing it.
 	if n > 1 {
-		out = append(out, t.askLine(t.muted(fmt.Sprintf("pregunta %d de %d", a.cur+1, n)), width))
+		out = append(out, t.askLine(t.muted(fmt.Sprintf("question %d of %d", a.cur+1, n)), width))
 	}
 	it := a.items[a.cur]
 	out = append(out, t.askLine(t.color(colAccent, colBase, it.Text), width))
 	if it.Assumption != "" {
-		out = append(out, t.askLine(t.muted("(si no respondes: "+it.Assumption+")"), width))
+		out = append(out, t.askLine(t.muted("(if you do not answer: "+it.Assumption+")"), width))
 	}
 
 	// One row per option, numbered by the key that picks it. The numbers are the interface's,
@@ -104,20 +104,20 @@ func (t *TUI) askLines(max int) []string {
 	out = append(out, t.askAnswerLine(width))
 
 	if n > 1 {
-		hint := "← → cambia de pregunta"
+		hint := "← → switch question"
 		if a.allAnswered() {
-			hint += " · Enter confirma todo"
+			hint += " · Enter confirms all"
 		} else {
-			hint += fmt.Sprintf(" · faltan %d", a.unanswered())
+			hint += fmt.Sprintf(" · %d left", a.unanswered())
 		}
 		out = append(out, t.askLine(hint, width))
 	} else if a.answers[0] != "" {
-		out = append(out, t.askLine("Enter confirma", width))
+		out = append(out, t.askLine("Enter confirms", width))
 	}
 
 	if max > 0 && len(out) > max {
 		out = out[:max]
-		out[max-1] = t.askLine(fmt.Sprintf("… y %d más", len(t.askLines(0))-(max-1)), width)
+		out[max-1] = t.askLine(fmt.Sprintf("… and %d more", len(t.askLines(0))-(max-1)), width)
 	}
 	return out
 }
@@ -127,7 +127,7 @@ func (t *TUI) askLines(max int) []string {
 // It is drawn from the answer the window holds, so a typed answer and a picked option are the
 // same thing by the time it is confirmed, and the user can see exactly what will be sent.
 func (t *TUI) askAnswerLine(width int) string {
-	return t.askLine(t.muted("respuesta: ")+t.ask.answers[t.ask.cur], width)
+	return t.askLine(t.muted("answer: ")+t.ask.answers[t.ask.cur], width)
 }
 
 // askLine draws one window row with the interface margin and the window's colour.
@@ -335,7 +335,7 @@ func composeAnswers(origin string, answers []agent.Answers) string {
 		// agent can re-read it. An empty turn would be silence.
 		return strings.TrimSpace(b.String())
 	}
-	b.WriteString("Respuestas a lo que preguntaste:")
+	b.WriteString("Answers to what you asked:")
 	for _, qa := range answers {
 		b.WriteString("\n- ")
 		b.WriteString(qa.Question)

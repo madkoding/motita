@@ -72,7 +72,7 @@ func TestWindowOpensWithQuestions(t *testing.T) {
 	}
 	lines := tui.askLines(0)
 	joined := strings.Join(lines, "\n")
-	for _, want := range []string{"¿qué carpeta?", "1) la actual", "respuesta:"} {
+	for _, want := range []string{"¿qué carpeta?", "1) la actual", "answer:"} {
 		if !strings.Contains(joined, want) {
 			t.Fatalf("the window should show %q, got:\n%s", want, joined)
 		}
@@ -86,7 +86,7 @@ func TestSingleQuestionHasNoNavigation(t *testing.T) {
 	if strings.Contains(joined, "pregunta 1 de 1") {
 		t.Fatalf("a single question should not announce its position:\n%s", joined)
 	}
-	if strings.Contains(joined, "cambia de pregunta") {
+	if strings.Contains(joined, "switch question") {
 		t.Fatalf("a single question has nowhere to navigate:\n%s", joined)
 	}
 	if !strings.Contains(joined, "¿cuál?") {
@@ -98,10 +98,10 @@ func TestSingleQuestionHasNoNavigation(t *testing.T) {
 func TestSeveralQuestionsShowPosition(t *testing.T) {
 	tui := newAskTUI(t, askItems(), "x")
 	joined := seen(tui)
-	if !strings.Contains(joined, "pregunta 1 de 3") {
+	if !strings.Contains(joined, "question 1 of 3") {
 		t.Fatalf("the position should be shown:\n%s", joined)
 	}
-	if !strings.Contains(joined, "faltan 3") {
+	if !strings.Contains(joined, "3 left") {
 		t.Fatalf("the pending count should be shown:\n%s", joined)
 	}
 }
@@ -398,7 +398,7 @@ func TestComposeAnswersWithNoAnswersKeepsTheRequest(t *testing.T) {
 func TestAnswerRowIsAlwaysDrawn(t *testing.T) {
 	tui := newAskTUI(t, []agent.AskItem{{Text: "¿qué quieres conseguir?"}}, "x")
 	joined := seen(tui)
-	if !strings.Contains(joined, "respuesta:") {
+	if !strings.Contains(joined, "answer:") {
 		t.Fatalf("the answer row must exist with no options:\n%s", joined)
 	}
 }
@@ -408,7 +408,7 @@ func TestAnswerRowShowsThePickedOption(t *testing.T) {
 	tui := newAskTUI(t, askItems(), "x")
 	tui.ask.answers[0] = "/tmp"
 	joined := seen(tui)
-	if !strings.Contains(joined, "respuesta: /tmp") {
+	if !strings.Contains(joined, "answer: /tmp") {
 		t.Fatalf("the answer row should show the pick:\n%s", joined)
 	}
 	if !strings.Contains(joined, "* 2) /tmp") {
@@ -421,7 +421,7 @@ func TestAnswerRowShowsThePickedOption(t *testing.T) {
 func TestAssumptionIsShown(t *testing.T) {
 	tui := newAskTUI(t, askItems(), "x")
 	joined := seen(tui)
-	if !strings.Contains(joined, "si no respondes: la actual") {
+	if !strings.Contains(joined, "if you do not answer: la actual") {
 		t.Fatalf("the assumption should be shown:\n%s", joined)
 	}
 }
@@ -436,7 +436,7 @@ func TestWindowIsCappedAndSaysSo(t *testing.T) {
 	if len(capped) != 3 {
 		t.Fatalf("a cap of 3 must return 3 rows, got %d", len(capped))
 	}
-	if !strings.Contains(stripANSI(strings.Join(capped, "\n")), "más") {
+	if !strings.Contains(stripANSI(strings.Join(capped, "\n")), "more") {
 		t.Fatalf("a cut window must say there is more:\n%s", stripANSI(strings.Join(capped, "\n")))
 	}
 	if full <= 3 {
@@ -463,7 +463,7 @@ func TestWindowTakesThePopupReservation(t *testing.T) {
 		t.Fatalf("the window should draw:\n%s", lines)
 	}
 	// The input box stays, and it stays BELOW the window: it is where a free answer is written.
-	if !strings.Contains(lines, "respuesta:") {
+	if !strings.Contains(lines, "answer:") {
 		t.Fatalf("the answer row should be drawn with the input:\n%s", lines)
 	}
 }
@@ -686,10 +686,10 @@ func TestHintSaysConfirmWhenAllAnswered(t *testing.T) {
 		tui.ask.answers[i] = "algo"
 	}
 	joined := seen(tui)
-	if !strings.Contains(joined, "Enter confirma todo") {
+	if !strings.Contains(joined, "Enter confirms all") {
 		t.Fatalf("the hint should offer the confirmation:\n%s", joined)
 	}
-	if strings.Contains(joined, "faltan") {
+	if strings.Contains(joined, "left") {
 		t.Fatalf("nothing is missing, so nothing should be counted:\n%s", joined)
 	}
 }
@@ -698,11 +698,11 @@ func TestHintSaysConfirmWhenAllAnswered(t *testing.T) {
 // arrows to suggest, and the only thing left to do is send it.
 func TestSingleAnsweredQuestionOffersConfirm(t *testing.T) {
 	tui := newAskTUI(t, []agent.AskItem{{Text: "¿cuál?"}}, "x")
-	if strings.Contains(seen(tui), "Enter confirma") {
+	if strings.Contains(seen(tui), "Enter confirms") {
 		t.Fatalf("an unanswered question should not offer the confirmation yet:\n%s", seen(tui))
 	}
 	tui.ask.answers[0] = "esta"
-	if !strings.Contains(seen(tui), "Enter confirma") {
+	if !strings.Contains(seen(tui), "Enter confirms") {
 		t.Fatalf("an answered question should offer the confirmation:\n%s", seen(tui))
 	}
 }

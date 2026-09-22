@@ -170,6 +170,14 @@ func TestAssumptionLeadIsNotRepeated(t *testing.T) {
 		{"si no me dices otra cosa, asumiré: usar la actual", "usar la actual"},
 		{"Si no me dices lo contrario, lo borro", "lo borro"},
 		{"Usaré la carpeta actual", "Usaré la carpeta actual"},
+		// The model is asked to write this field in the language of the user's request, so the
+		// lead arrives in that language too. Recognising only the Spanish one let an English
+		// "If you don't tell me otherwise, I'll assume:" through to the user intact.
+		{"If you don't tell me otherwise, I'll assume: I will use the current folder", "I will use the current folder"},
+		{"I'll assume: I will use the current folder", "I will use the current folder"},
+		{"Unless you say otherwise, I will assume the current folder is the one", "the current folder is the one"},
+		// Portuguese, another language a user may write in.
+		{"Se você não me disser outra coisa, vou assumir: uso a pasta atual", "uso a pasta atual"},
 	}
 	for _, c := range cases {
 		if got := cleanAssumption(c.in); got != c.want {
@@ -207,6 +215,21 @@ func TestAssumptionIsCleanedInTheQuestion(t *testing.T) {
 // clean — which is how the fix was verified as incomplete on the i386 laptop: the window read
 // "si no respondes: reviso el proyecto" and the conversation above it still read "Si no me dices
 // otra cosa, asumiré: Si no me dices otra cosa, reviso el proyecto".
+// TestAConditionalThatIsTheWholeAssumptionSurvives: when the conditional is all there is, the
+// clause cannot be dropped, because there would be nothing left to show the user. The action is
+// whatever comes after the comma, and without a comma the field IS the action.
+func TestAConditionalThatIsTheWholeAssumptionSurvives(t *testing.T) {
+	cases := []struct{ in, want string }{
+		{"Si no me dices otra cosa", "Si no me dices otra cosa"},
+		{"If you do not answer", "If you do not answer"},
+	}
+	for _, c := range cases {
+		if got := cleanAssumption(c.in); got != c.want {
+			t.Errorf("cleanAssumption(%q) = %q, want %q kept whole", c.in, got, c.want)
+		}
+	}
+}
+
 func TestResultAssumptionIsCleanedToo(t *testing.T) {
 	const raw = "Si no me dices otra cosa, asumiré: reviso el proyecto"
 	if got := cleanAssumption(raw); got != "reviso el proyecto" {

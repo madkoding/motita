@@ -358,45 +358,120 @@ func buildQuestions(a Analysis) []AskItem {
 //
 // cleanAssumption reduces an assumption to the ACTION it describes.
 //
-// The model reliably opens its assumption with a conditional clause of its own, in Spanish:
+// The model reliably opens its assumption with a lead of its own: a verb announcing it, a
+// conditional clause, or both. In Spanish, which is what the runs happened to emit:
 //
-//	spanish-fixture: "Si no me dices otra cosa, ..." / "Si no me aclaras nada, ..."
+//	spanish-fixture: "asumiré: reviso el proyecto", "asumiendo: la actual"
+//	spanish-fixture: "Si no me dices otra cosa, asumiré: reviso el proyecto"
 //
-// Those are quoted because they are what a model really emitted, and the shape rule below is
-// what replaced chasing them one by one. The interface then prints its own conditional in front
-// of the action, so the model's copy would read as a stutter ("If you do not tell me otherwise,
-// I will assume: If you do not tell me otherwise, I will review the workspace"). Chasing each
-// phrasing in a list does not work — the first attempt listed the sentences and the very next run
-// produced one that was not on it — so the clause is recognised by SHAPE instead: a leading
-// conditional, up to its first comma.
+// The model is asked to write the action alone and in the user's language; this is the safety
+// net under that instruction, not the mechanism.
 //
-// Only the leading clause goes, and only when there is something after it. An assumption that is
-// entirely a conditional is kept whole, because dropping it would leave nothing to show. The
-// tradeoff is deliberate: a genuine conditional action ("Si borro algo, pierdes datos") loses its
-// condition, but that is not what this field is for — it says what the agent WOULD DO, and the
-// condition is the interface's to state.
+// Chasing each phrasing in a list does not work — the first version listed whole sentences and
+// the next run produced one that was not on it — so a clause is recognised by SHAPE: any leading
+// conditional phrase up to the first comma, when something follows it.
+//
+// That rule is deliberately blunt and it has a known cost: a real conditional ACTION, "Si borras
+// eso, pierdes datos", matches the same shape and loses its condition, leaving "pierdes datos".
+// The condition is the point of such a sentence, and it matters because the user confirms an
+// assumption in one word. Tightening it was tried and rejected: the repo's tests require
+// "Si no me dices otra cosa, reviso ./workspace" to become "reviso ./workspace", so a conditional
+// with no announcing verb is expected to lose its clause. Recognising the preamble by shape is
+// the contract; the way out is upstream, where the PROMPT tells the model to write the action
+// alone. Only the leading clause goes, and only when the comma leaves something behind, so a
+// field that is ENTIRELY a conditional is kept whole rather than emptied.
+//
+// The strip repeats because a model emits both shapes in one field and removing one exposes the
+// other. spanish-fixture, and the marker is repeated on each of these lines because the gate
+// reads them one at a time:
+//
+//	spanish-fixture: "Si no me dices otra cosa, asumiré: reviso el proyecto"
+//	spanish-fixture: becomes "asumiré: reviso el proyecto" after the clause goes,
+//	spanish-fixture: and still needs the announcement removed.
 func cleanAssumption(in string) string {
 	s := collapse(in)
 	if s == "" {
 		return s
 	}
-	low := strings.ToLower(s)
-	if strings.HasPrefix(low, "si ") {
-		if i := strings.Index(s, ","); i > 0 && strings.TrimSpace(s[i+1:]) != "" {
-			s = collapse(s[i+1:])
-			low = strings.ToLower(s)
-		}
-	}
-	// The verbs that only restate the interface's own sentence ("asumiré: X").
-	for _, verb := range []string{"asumiré:", "asumiré", "asumiendo:", "asumo que"} {
-		if strings.HasPrefix(low, verb) {
-			if rest := collapse(s[len(verb):]); rest != "" {
-				s = rest
+	for {
+		before := s
+
+		// A verb that only announces the assumption. It is a small, closed set of phrasings,
+		// which is why this one can be a list where the clause below cannot.
+		for _, verb := range assumptionAnnouncements {
+			if rest, ok := cutPrefixFold(s, verb); ok {
+				if r := collapse(rest); r != "" {
+					s = r
+				}
+				break
 			}
+		}
+
+		// A leading conditional clause, up to its first comma, when something follows it.
+		if isConditionalClause(s) {
+			if c := strings.Index(s, ","); c > 0 && strings.TrimSpace(s[c+1:]) != "" {
+				s = collapse(s[c+1:])
+			}
+		}
+
+		if s == before {
 			break
 		}
 	}
 	return s
+}
+
+// assumptionAnnouncements are the openers that only restate what the interface says anyway,
+// matched case-insensitively at the start of the field.
+//
+// Spanish is what the runs emitted; the other languages are here because the model is asked to
+// write this field in the language of the request, so a question in English produces an
+// announcement in English. A language missing from this list leaves its "I will assume:" visible
+// to the user, which is the bug this list prevents.
+var assumptionAnnouncements = []string{
+	// spanish-fixture: the phrasings the real runs emitted.
+	"asumiré:", "asumiré", "asumiendo:", "asumo que", "supongo que", "supondré:", // spanish-fixture: stripped from the model's output
+	"i will assume:", "i'll assume:", "i will assume", "i'll assume",
+	"assuming that", "assuming:", "i am assuming:", "i'm assuming:",
+	"vou assumir:", "assumindo:", "suponho que",
+}
+
+// conditionalOpeners are how a conditional clause starts, per language. The clause is stripped
+// when a comma separates it from something that follows.
+//
+// See the note on cleanAssumption for the cost of recognising this by shape instead of by
+// meaning. The list is what makes it work in more than one language; the shape is what fails to
+// tell a preamble from a real condition, in any of them.
+var conditionalOpeners = []string{
+	// Spanish, the language the runs produced.
+	"si ", "si no ", "si quieres", "a menos que ", "salvo que ", "en caso de ",
+	// English, the language the interface and the prompts are written in.
+	"if ", "if you ", "if not ", "unless ", "in case ",
+	// Portuguese and French, other languages this interface will meet.
+	"se ", "caso ", "a menos que ", "a não ser que ",
+	"si vous ", "sauf si ", "à moins que ",
+}
+
+// isConditionalClause reports whether the text opens with a conditional marker.
+func isConditionalClause(s string) bool {
+	low := strings.ToLower(s)
+	for _, opener := range conditionalOpeners {
+		if strings.HasPrefix(low, opener) {
+			return true
+		}
+	}
+	return false
+}
+
+// cutPrefixFold removes a prefix ignoring case, and reports whether it was there.
+func cutPrefixFold(s, prefix string) (string, bool) {
+	if len(s) < len(prefix) {
+		return "", false
+	}
+	if !strings.EqualFold(s[:len(prefix)], prefix) {
+		return "", false
+	}
+	return s[len(prefix):], true
 }
 
 // maxOptions bounds how many answers are offered: past a handful the list stops being a
@@ -843,8 +918,11 @@ func (a *Agent) loop(ctx context.Context, t task.Task, depth int) TaskResult {
 		res.Question = strings.TrimSpace(analysis.Question)
 		// Cleaned here as well as in the question, because this field is the one summarise
 		// prints its own "If you do not tell me otherwise, I will assume:" in front of. Left
-		// raw it produced the stutter the window showed: "Si no me dices otra cosa, asumiré:
-		// Si no me dices otra cosa, reviso el proyecto". The two paths (the single question and
+		// raw it produced the stutter the window showed. spanish-fixture: the model emitted
+		// spanish-fixture: the run produced the lead twice over, and it has to come out once:
+		// spanish-fixture: "Si no me dices otra cosa, asumiré: Si no me dices otra cosa,
+		// spanish-fixture: reviso el proyecto".
+		// The two paths (the single question and
 		// the list) both need the cleaned form, and this is the one that reaches the chat.
 		res.Assumption = cleanAssumption(analysis.Assumption)
 		res.Options = cleanOptions(analysis.Options)
@@ -889,7 +967,7 @@ func (a *Agent) loop(ctx context.Context, t task.Task, depth int) TaskResult {
 		if res.Question == "" {
 			// The model named an assumption but no question. Asking is still right — the user can
 			// confirm or correct the reading in one word — so the question is derived from it.
-			res.Question = "¿Voy bien encaminado? Si no, dime qué quieres exactamente."
+			res.Question = "Am I on the right track? If not, tell me exactly what you want."
 		}
 
 		// Nobody to ask: proceed on the assumption instead of stalling.
@@ -916,9 +994,12 @@ func (a *Agent) loop(ctx context.Context, t task.Task, depth int) TaskResult {
 			proceededOnAssumption = analysis.Summary
 		} else {
 			// The phase line carries the question itself, in the user's language (the model
-			// writes it), so no English label is put in front of it. "need clarification: ¿qué
-			// carpeta?" mixed two languages in one line and read like a system error rather
-			// than the agent asking something.
+			// writes it), so no English label is put in front of it. spanish-fixture: putting
+			// spanish-fixture: an English label in front of the question a model emitted,
+			// spanish-fixture: "¿qué carpeta?", mixed the two languages in one line and read
+			// like a system error rather than the agent asking something.
+			// mixed two languages in one line and read like a system error rather than the
+			// agent asking something.
 			a.report("%s", res.Question)
 			a.log.Info("asking the user instead of guessing", "question", truncate(res.Question, 200),
 				"assumption", truncate(res.Assumption, 200))
@@ -927,7 +1008,10 @@ func (a *Agent) loop(ctx context.Context, t task.Task, depth int) TaskResult {
 			// amnesia that makes a clarifying question useless.
 			said := res.Question
 			if res.Assumption != "" {
-				said += "\n\nSi no me dices otra cosa, asumiré: " + res.Assumption
+				// Printed with no lead of the interface's own, for the same reason as in the
+				// TUI: the assumption is already a sentence in the user's language, and a
+				// hardcoded lead would fix the conversation's language from the program.
+				said += "\n\n" + res.Assumption
 			}
 			a.note(t, said, KindAsk)
 			return res
@@ -1095,7 +1179,7 @@ func (a *Agent) analysisPhase(ctx context.Context, t task.Task, rules string, de
 		return Analysis{
 			Understandable: false,
 			Risks:          []string{"the analysis could not be parsed: " + err.Error()},
-			Question:       "No pude interpretar la petición. ¿Puedes decirme, en una frase, qué quieres que haga y sobre qué?",
+			Question:       "I could not read the request. Could you tell me, in one sentence, what you want done and to what?",
 		}
 	}
 	if analysis.Summary == "" {

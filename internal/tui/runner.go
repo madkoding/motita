@@ -558,10 +558,19 @@ func summarise(tr agent.TaskResult) string {
 		if tr.Question != "" {
 			b.WriteString(tr.Question)
 		} else {
-			b.WriteString("No entendí del todo la petición.")
+			b.WriteString("I did not fully understand the request.")
 		}
 		if tr.Assumption != "" {
-			b.WriteString("\n\nSi no me dices otra cosa, asumiré: ")
+			// The assumption is shown ON ITS OWN, with no sentence of the interface's invention
+			// in front of it — the same rule the QUESTION above already follows, for the same
+			// reason: both fields are written by the MODEL, in the language of the request.
+			//
+			// There used to be a lead here, written in Spanish. It was wrong in every
+			// conversation that was not Spanish: a user writing English read a Spanish sentence
+			// prefixed to an English assumption, so the line mixed two languages and read as a
+			// system error rather than as the agent proposing something. The field already says
+			// what the agent would do — that is its whole purpose — so it needs no introduction.
+			b.WriteString("\n\n")
 			b.WriteString(tr.Assumption)
 		}
 		return b.String()
