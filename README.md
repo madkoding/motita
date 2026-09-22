@@ -398,10 +398,80 @@ honoured. The documented one wins when both are set.
 | `task_source` | `kind` (`stdin`/`file`/`api`/`queue`), `path`, `dir`, `url`, `method`, `field`, `interval`, `headers`, `body` |
 | `anchor` | `kind` (`command`/`none`), `command`, `args`, `timeout`, `expect_exit`, `expect_output` (regex), `checks[]` |
 | `sandbox` | `kind` (`none`/`chroot`/`cgroups`), `root`, `user`, `memory_mb`, `cpu_seconds`, `processes`, `open_files`, `max_file_size_mb`, `isolate_network`, `cgroups`, `cgroup_root`, `timeout`, `keep_ephemeral`, `max_output_kb` |
-| `llm` | `provider` (`openai`/`anthropic`/`gemini`), `model`, `api_key`, `base_url`, `max_tokens`, `temperature`, `timeout`, `max_attempts`, `backoff_initial`, `backoff_max` |
-| `prompts` | `analyze`, `plan`, `execute`, each with `system` and `user` |
+| `llm` | `provider` (`openai`/`anthropic`/`gemini`), `model`, `api_key`, `base_url`, `max_tokens`, `temperature`, `timeout`, `max_attempts`, `backoff_initial`, `backoff_max`, `reasoning{enabled,level}`, `session{context_window,reserve,compact_at,keep_recent}` |
+| `prompts` | `analyze`, `plan`, `execute`, `synthesize`, each with `system` and `user` |
 | `final_action` | `kind` (`none`/`command`/`api`/`git_commit`), `command`, `args`, `url`, `method`, `commit_message` |
-| `agent` | `max_retries`, `subtask_depth`, `max_tasks`, `workspace_dir`, `log_file`, `log_level`, `log_console`, `log_max_mb`, `log_backups`, `graceful_shutdown_timeout`, `on_failure` |
+| `agent` | `max_retries`, `subtask_depth`, `max_tasks`, `workspace_dir`, `log_file`, `log_level`, `log_console`, `log_max_mb`, `log_backups`, `graceful_shutdown_timeout`, `read_only`, `shell`, `policy{enforce,strict}`, `on_failure` |
+| `skills` | `dir`, `max_file_bytes` |
+
+`skills.dir` is the procedure library: the directory of documents the agent may
+list, search, read and extend. It defaults to `skills` under the working
+directory. The documents **shipped inside the binary** are served even when that
+directory does not exist yet, so a fresh install has a library rather than an
+empty shelf; your own documents shadow a built-in of the same name.
+
+`agent.read_only` is plan mode: the agent explores and proposes, and every action
+that could change the system is refused before it runs.
+
+### Guardrails, and the two layers of them
+
+`agent.policy` decides how the agent behaves when the model proposes something
+consequential, and it has **two layers — only one of which is configurable**.
+
+**The layer you own** is `agent.policy`:
+
+| Setting | Default | Effect |
+|---|---|---|
+| `enforce` | `true` | Asks before a consequential action runs. Off restores the older behaviour — the model's line runs as written — which is a defensible choice for a batch job with nobody at the keyboard. |
+| `strict` | `false` | Off, a line the policy cannot classify is **asked** about. On, it is **refused** instead. |
+
+With `enforce` off the two interact in one direction only: a command that would
+have been *asked* about is then *allowed*, and one that `strict` *refuses* stays
+refused. Turning the confirmation off can never promote a refusal into a run.
+
+**The layer you do not own** is the floor. It has two groups, and they are not
+the same shape.
+
+*Refused by name, whatever the target is:* the `mkfs.*` family,
+`fdisk`/`sfdisk`/`cfdisk`/`parted`/`gdisk`/`sgdisk`, `wipefs`, `blkdiscard`,
+`shred`, `shutdown`/`reboot`/`halt`/`poweroff`/`init`, and `dd` whenever it names
+an output (`of=`). A filesystem is not formatted "safely", and the power state is
+not the agent's to decide, so there is nothing to weigh.
+
+*Refused by target:* `rm`, `mv`, `cp`, `ln` and `install` are refused only when
+an operand names something the floor protects — `/`, `~` or a home directory, a
+system path such as `/etc` or `/usr`, or the tree that **contains** the
+workspace. The same verbs against ordinary paths are not the floor's business.
+
+That distinction is worth reading twice, because it is where an operator's
+expectation usually differs from the code: the workspace itself is your work and
+is *not* guarded — `rm -rf ./build` inside it is the ordinary consequential
+action the confirmation layer exists for. What is refused is the directory that
+*contains* the work, at any depth above it.
+
+Both groups are measured, not asserted: `internal/policy/readme_claims_test.go`
+holds this section to the classifier's real verdicts.
+
+The cost is deliberate and visible. `fdisk -l`, which only *lists* a partition
+table, is refused along with the rest of its family, and `dd of=local.img` is
+refused although it overwrites nothing anyone needs. The floor is a scan and not
+a parser, it prefers refusing to weighing, and every false positive costs one
+refusal rather than one filesystem. If you need to inspect a partition table, use
+`lsblk` — it is not on the floor.
+
+There is no YAML key, no environment variable and no flag that relaxes any of it.
+That is deliberate: a guardrail an operator can switch off is a guardrail that
+**will** be switched off — during the incident it was meant for, by whoever wants
+the task to finish. If a command is refused by the floor, editing the
+configuration will not help you; the refusal names the rule.
+
+The floor is a scan, not a parser, and it looks for a floor program in command
+position — first token of a segment, after a wrapper like `sudo`/`env`, after
+`xargs`, after `find -exec`, or as the payload of `<shell> -c`. So `sh -c 'rm -rf /'`
+is caught, while `echo "rm -rf /"` — a line that merely *mentions* it — is not.
+Both directions of error are known: a floor command reached through a program the
+scan does not know still arrives at the classifier as that program (refused or
+asked about), and a false positive only ever refuses.
 
 ### Variables available in prompts
 
