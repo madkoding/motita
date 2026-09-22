@@ -16,7 +16,7 @@ PLATFORMS := linux/386 linux/amd64 linux/arm linux/arm64 \
              darwin/amd64 darwin/arm64
 
 .PHONY: help build dist verify-dist test test-matrix vet bench fmt fmt-check check cover \
-        run smoke e2e e2e-agent clean
+        run smoke e2e e2e-agent e2e-gateway clean
 
 help: ## Show this help
 	@grep -E '^[a-zA-Z0-9_-]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN{FS=":.*?## "}{printf "  \033[36m%-14s\033[0m %s\n", $$1, $$2}'
@@ -118,6 +118,9 @@ e2e: ## End-to-end test (default: i386)
 
 e2e-agent: ## End-to-end test of the agent (default: i386)
 	./scripts/e2e-agent.sh $${ARCH:-386}
+
+e2e-gateway: ## End-to-end test of the gateway over HTTP (default: amd64)
+	./scripts/e2e-gateway.sh $${ARCH:-amd64}
 
 clean: ## Remove the artifacts
 	rm -rf $(DIST) coverage.out .e2e
