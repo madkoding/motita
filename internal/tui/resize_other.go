@@ -6,10 +6,8 @@ package tui
 // through ReadConsoleInput, which the standard library does not expose portably, and
 // its console has no /dev/tty for ttySize to ask either.
 //
-// The channel is closed immediately and the stop function is inert, so the caller's
-// "stop, then wait for the painter" sequence terminates here exactly as on Unix.
+// The channel is nil, which never delivers, and the stop function is inert. A closed
+// channel would be ready forever and spin the selects the run loop watches it from.
 func watchResize() (<-chan struct{}, func()) {
-	ch := make(chan struct{})
-	close(ch)
-	return ch, func() {}
+	return nil, func() {}
 }

@@ -22,9 +22,9 @@ import (
 // the optimisation cannot pass by being subtly wrong: the expected values here are written by
 // hand, not taken from the code.
 
-// TestVisibleLenCountsRunesNotBytes: the width of a line is measured in COLUMNS, and a rune
-// that is not ASCII occupies one column but several bytes. Counting bytes would make every
-// accented line too wide and misalign the frame.
+// TestVisibleLenCountsRunesNotBytes: the width of a line is measured in COLUMNS, not bytes: an
+// accented letter is one cell, a wide CJK character or an emoji is two, and a combining mark
+// is none. Counting bytes or runes would make such a line too wide and break the frame.
 func TestVisibleLenCountsRunesNotBytes(t *testing.T) {
 	cases := []struct {
 		name string
@@ -35,9 +35,10 @@ func TestVisibleLenCountsRunesNotBytes(t *testing.T) {
 		{"empty", "", 0},
 		{"accented latin", "café", 4},
 		{"multi-byte, one column each", "áéíóú", 5},
-		{"emoji is one rune", "\U0001F31F", 1},
-		{"mixed", "a\U0001F31Fb", 3},
-		{"a combining accent is its own rune", "e\u0301", 2},
+		{"an emoji takes two cells", "\U0001F31F", 2},
+		{"mixed", "a\U0001F31Fb", 4},
+		{"a CJK character takes two cells", "漢字", 4},
+		{"a combining accent takes no cell", "e\u0301", 1},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

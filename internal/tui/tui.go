@@ -117,20 +117,21 @@ type TUI struct {
 	// lock, so the comparison cannot see a half-updated copy.
 	lastFrame     []string
 	paintedScreen bool
+	// lastW and lastH are the geometry lastFrame was built for; a change forces a full,
+	// cleared repaint.
+	lastW, lastH int
 
-	screen     Screen
-	messages   []Message
-	reader     *bufio.Reader
-	cancelRun  context.CancelFunc
-	runningCtx context.Context
+	screen    Screen
+	messages  []Message
+	reader    *bufio.Reader
+	cancelRun context.CancelFunc
 	// busy is true while a turn is in flight, which turns the status dot into a
 	// spinner; spin is the animation frame advanced on every repaint.
 	busy bool
 	spin int
-	// draw serialises painting. A frame is drawn from the input loop and from the
-	// resize watcher, and both read the state the other mutates, so the whole paint
-	// is held — rendering outside the lock and writing inside it would still race on
-	// Width, scroll and messages. -race caught exactly that.
+	// draw serialises painting. Run paints only from its own goroutine; the lock
+	// covers any other caller, and the whole paint is held: rendering outside the lock
+	// and writing inside it would still race on Width, scroll and messages.
 	draw sync.Mutex
 	// ask is the window the agent's questions are answered in, and nil when there is nothing
 	// being asked. It is view state for a turn in progress: it opens when the agent cannot read
@@ -192,6 +193,9 @@ type TUI struct {
 	// It is transient view state, deliberately not persisted: it describes where
 	// the window is, not what the session contains.
 	scroll int
+	// resized delivers terminal resizes while Run is active, and is nil otherwise (a nil
+	// channel never delivers, so the selects that watch it need no guard).
+	resized <-chan struct{}
 }
 
 // New creates a TUI with sensible defaults for production use.
@@ -224,11 +228,15 @@ func (t *TUI) readKey(ctx context.Context) (byte, bool) {
 		}
 		ch <- b
 	}()
-	select {
-	case b, ok := <-ch:
-		return b, ok
-	case <-ctx.Done():
-		return 0, false
+	for {
+		select {
+		case b, ok := <-ch:
+			return b, ok
+		case <-t.resized:
+			t.drawFrame()
+		case <-ctx.Done():
+			return 0, false
+		}
 	}
 }
 
@@ -285,18 +293,16 @@ func (t *TUI) Run(ctx context.Context) int {
 	defer mode.restore()
 	defer recoverRaw(mode)()
 
+	// A resize is painted by THIS goroutine, from the selects it already blocks in (the
+	// key readers and awaitRun). A separate painter goroutine read the conversation while
+	// the run loop was appending to it and rewriting it, which -race reported as a data
+	// race; with one owner there is nothing to lock. Stopping the watch before Run returns
+	// means no frame can be written over the shell prompt.
 	resized, stopWatch := watchResize()
-	var painting sync.WaitGroup
-	painting.Add(1)
-	go func() {
-		defer painting.Done()
-		for range resized {
-			t.drawFrame()
-		}
-	}()
+	t.resized = resized
 	defer func() {
+		t.resized = nil
 		stopWatch()
-		painting.Wait()
 	}()
 
 	for {
@@ -796,6 +802,8 @@ func (t *TUI) awaitRun(ctx context.Context, progress <-chan string, done <-chan 
 		select {
 		case p := <-progress:
 			onProgress(p)
+		case <-t.resized:
+			t.drawFrame()
 		case c := <-approvals:
 			// A consequential command proposed by the agent, waiting for the user. It is
 			// answered HERE, in the loop that reads the keys, because the agent is blocked in
@@ -830,7 +838,6 @@ func (t *TUI) runTask(ctx context.Context, task string) {
 	progress := make(chan string, 16)
 	runCtx, cancel := context.WithCancel(ctx)
 	t.cancelRun = cancel
-	t.runningCtx = runCtx
 
 	done := make(chan runOutcome, 1)
 	go func() {
@@ -853,7 +860,6 @@ func (t *TUI) runTask(ctx context.Context, task string) {
 	})
 
 	t.cancelRun = nil
-	t.runningCtx = nil
 
 	var messageText string
 	switch {
@@ -989,7 +995,6 @@ func (t *TUI) runPlan(ctx context.Context, prompt string) {
 	progress := make(chan string, 64)
 	runCtx, cancel := context.WithCancel(ctx)
 	t.cancelRun = cancel
-	t.runningCtx = runCtx
 
 	done := make(chan runOutcome, 1)
 	var wg sync.WaitGroup
@@ -1018,7 +1023,6 @@ func (t *TUI) runPlan(ctx context.Context, prompt string) {
 	drainProgress(progress, stream.handle)
 
 	t.cancelRun = nil
-	t.runningCtx = nil
 
 	stream.closePending()
 	if stream.pendingIdx >= len(t.messages) {
@@ -1590,11 +1594,15 @@ func (t *TUI) readByteOrCancel(ctx context.Context) (byte, bool) {
 		ch <- b
 	}()
 
-	select {
-	case v, ok := <-ch:
-		return v, ok
-	case <-ctx.Done():
-		return 0, false
+	for {
+		select {
+		case v, ok := <-ch:
+			return v, ok
+		case <-t.resized:
+			t.drawFrame()
+		case <-ctx.Done():
+			return 0, false
+		}
 	}
 }
 

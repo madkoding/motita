@@ -55,11 +55,11 @@ func (t *TUI) confirmLines(max int) []string {
 	out = append(out, t.confirmLine(t.color(colAccent, colBase, "The agent wants to run:"), width))
 	// The command is WRAPPED rather than clipped: a long line is exactly the one worth reading
 	// to the end, and the user is approving this text and not a summary of it.
-	for _, l := range wrapVisible(t.confirm.req.Command, width-4) {
+	for _, l := range wrapVisible(plainText(t.confirm.req.Command), width-4) {
 		out = append(out, t.confirmLine("  "+l, width))
 	}
 	if t.confirm.req.Reason != "" {
-		for _, l := range wrapVisible(t.confirm.req.Reason, width-4) {
+		for _, l := range wrapVisible(plainText(t.confirm.req.Reason), width-4) {
 			out = append(out, t.confirmLine("  "+t.muted(l), width))
 		}
 	}

@@ -355,7 +355,7 @@ func TestDraftIsTakenOnConfirm(t *testing.T) {
 	items := []agent.AskItem{{Text: "q1"}}
 	tui := newAskTUI(t, items, "origin")
 	tui.draft = "  escrito a mano  "
-	tui.confirmAsk()
+	tui.confirmAsk(context.Background())
 	if got := tui.ask; got != nil {
 		t.Fatal("confirming should close the window")
 	}
@@ -594,7 +594,7 @@ func TestConfirmSendsComposedAnswers(t *testing.T) {
 	tui.ask.answers[0] = "/tmp"
 	tui.ask.answers[1] = "just looking"
 
-	tui.confirmAsk()
+	tui.confirmAsk(context.Background())
 
 	if len(rr.tasks) != 1 {
 		t.Fatalf("one turn should have been sent, got %d", len(rr.tasks))
@@ -614,7 +614,7 @@ func TestConfirmInPlanModeRunsPlan(t *testing.T) {
 	tui := &TUI{Out: &strings.Builder{}, Width: 90, Height: 30, Runner: rr, screen: ScreenPlan}
 	tui.ask = newAsk([]agent.AskItem{{Text: "q"}}, "plan original")
 	tui.ask.answers[0] = "r"
-	tui.confirmAsk()
+	tui.confirmAsk(context.Background())
 	if len(rr.plans) != 1 || len(rr.tasks) != 0 {
 		t.Fatalf("plan mode should run a plan, got plans=%d tasks=%d", len(rr.plans), len(rr.tasks))
 	}
@@ -626,7 +626,7 @@ func TestConfirmWithNothingSendsNothing(t *testing.T) {
 	rr := &recordingRunner{}
 	tui := &TUI{Out: &strings.Builder{}, Width: 90, Height: 30, Runner: rr}
 	tui.ask = newAsk([]agent.AskItem{{Text: "q"}}, "")
-	tui.confirmAsk()
+	tui.confirmAsk(context.Background())
 	if len(rr.tasks) != 0 {
 		t.Fatalf("nothing to say should send nothing, got %q", rr.tasks)
 	}
@@ -636,25 +636,9 @@ func TestConfirmWithNothingSendsNothing(t *testing.T) {
 // window closed.
 func TestConfirmWithNoWindowDoesNothing(t *testing.T) {
 	tui := &TUI{Out: &strings.Builder{}, Width: 90, Height: 30, Runner: &stubRunner{}}
-	tui.confirmAsk()
+	tui.confirmAsk(context.Background())
 	if tui.asking() {
 		t.Fatal("nothing should have opened")
-	}
-}
-
-// The run context is used when there is one, so the answers join the run in flight instead of
-// starting a second, unrelated one.
-func TestRunningCtxPrefersTheLiveRun(t *testing.T) {
-	type key struct{}
-	live := context.WithValue(context.Background(), key{}, "live")
-	tui := &TUI{Out: &strings.Builder{}, Width: 90, Height: 30, Runner: &stubRunner{}, runningCtx: live}
-	if got := tui.runningCtxOr(context.Background()); got != live {
-		t.Fatal("the live run context should win")
-	}
-	tui.runningCtx = nil
-	fallback := context.Background()
-	if got := tui.runningCtxOr(fallback); got != fallback {
-		t.Fatal("with no run in flight the fallback is used")
 	}
 }
 

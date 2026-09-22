@@ -246,7 +246,6 @@ func TestEscapeCancelsARunningTurn(t *testing.T) {
 	ctx := context.Background()
 	runCtx, cancel := context.WithCancel(ctx)
 	tu.cancelRun = cancel
-	tu.runningCtx = runCtx
 
 	handled, quit := tu.handleShortcut(ctx, keyEsc)
 	if !handled || quit {
@@ -1017,7 +1016,6 @@ func TestEscapeLeavesTheSearchBeforeAnythingElse(t *testing.T) {
 	runCtx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	tu.cancelRun = cancel
-	tu.runningCtx = runCtx
 
 	tu.openSearch()
 	tu.applyQuery("one")

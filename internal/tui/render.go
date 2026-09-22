@@ -3,8 +3,10 @@ package tui
 import (
 	"fmt"
 	"os"
+	"regexp"
 	"strconv"
 	"strings"
+	"unicode"
 	"unicode/utf8"
 )
 
@@ -306,9 +308,9 @@ const rowsBelowComposer = 2
 // terminal leaves its cursor exactly where the user is about to type. The frame
 // is measured against the terminal height before it is written, so it never
 // scrolls and the prompt can never be pushed off the bottom.
-// The painter is serialised: a frame is drawn from the input loop and from the resize
-// watcher, and both read the state the other mutates. Holding the lock for the whole
-// paint is what makes the two safe — measuring outside it would still race on Width,
+// The painter is serialised. Run paints only from its own goroutine (resizes included, see
+// Run), so the lock is a guard for embedders and tests that paint from elsewhere; it is
+// held for the whole paint because measuring outside it would still race on Width,
 // scroll and messages.
 func (t *TUI) drawFrame() {
 	t.draw.Lock()
@@ -332,6 +334,14 @@ func (t *TUI) drawFrame() {
 	lines, prompt := t.layout(w, h)
 
 	var b strings.Builder
+	// A new geometry is a full repaint with the screen cleared first. Comparing rows is not
+	// enough: a width-only change keeps the row count, so equal rows (blank separators, body
+	// padding) would be skipped while the terminal has reflowed the old, wider rows into them.
+	if t.paintedScreen && (w != t.lastW || h != t.lastH) {
+		t.invalidateScreen()
+		b.WriteString("\x1b[H\x1b[2J")
+	}
+	t.lastW, t.lastH = w, h
 	// No home and no hide-first: every written row carries its own absolute position, and the
 	// cursor is placed once at the end. Hiding it while painting would only matter if it could
 	// be seen mid-frame, which absolute addressing already prevents.
@@ -653,6 +663,7 @@ func (t *TUI) emptyState(inner int) []string {
 // body on a rail. The rail is what makes a long conversation easy to follow and
 // it costs a single column.
 func (t *TUI) messageLines(m Message, inner int) []string {
+	m.Text = plainText(m.Text)
 	switch m.Author {
 	case AuthorUser:
 		head := t.color(colAccent, 0, glyphUser+" ") + t.muted("you")
@@ -694,14 +705,13 @@ func (t *TUI) messageLines(m Message, inner int) []string {
 	}
 }
 
-// clipLine truncates a PLAIN line (no escape sequences) to the given number of
-// columns, marking the cut with an ellipsis. It is for text whose own layout must
-// survive, which is why it clips instead of folding the line.
+// clipLine truncates a line to the given number of columns, marking the cut with an
+// ellipsis. It is for text whose own layout must survive, which is why it clips instead
+// of folding the line.
 //
-// No "does the rune count fit" guard is written below: it would be unreachable. For
-// a string without escapes visibleLen is exactly the rune count, so once the first
-// check has established that the measurement exceeds the width, the rune count does
-// too. A guard there would only look like a safety net.
+// Escape sequences are copied whole and cost no columns: cell() hands it decorated
+// headers, and cutting by rune index used to count escape bytes as text, split a
+// sequence in half and drop the closing reset so the colour bled into the padding.
 func clipLine(s string, width int) string {
 	// No room at all means no text, not all of it. The earlier version returned the whole
 	// string when the width was zero or negative, which is the opposite of clipping: on a
@@ -714,8 +724,54 @@ func clipLine(s string, width int) string {
 		return s
 	}
 	// One column is spent on the ellipsis, so the result still fits.
-	runes := []rune(s)
-	return strings.TrimRight(string(runes[:width-1]), " ") + "\u2026"
+	var b strings.Builder
+	cols, escaped, full := 0, false, false
+	scanEscapes(s, func(r rune, isEscape bool) {
+		switch {
+		case full:
+		case isEscape:
+			escaped = true
+			b.WriteRune(r)
+		case cols+runeWidth(r) > width-1:
+			full = true
+		default:
+			cols += runeWidth(r)
+			b.WriteRune(r)
+		}
+	})
+	out := strings.TrimRight(b.String(), " ") + "\u2026"
+	if escaped {
+		out += "\x1b[0m"
+	}
+	return out
+}
+
+// plainText makes untrusted text (model output, tool output, the agent's questions) safe
+// to draw: escape sequences are removed and so is every other control rune but the
+// newline, so nothing in it can retitle the window, write the clipboard, clear the screen
+// or move the cursor over the confirm prompt. A tab becomes spaces, since it would be
+// drawn wider than the one column it is measured as. Invalid UTF-8 is rewritten as
+// U+FFFD so a raw 8-bit C1 byte cannot pass through either.
+func plainText(s string) string {
+	unsafe := func(r rune) bool {
+		return r < 0x20 && r != '\n' || r >= 0x7f && r <= 0x9f || r == utf8.RuneError
+	}
+	if !strings.ContainsFunc(s, unsafe) {
+		return s
+	}
+	var b strings.Builder
+	for _, r := range stripANSI(s) {
+		switch {
+		case r == '\t':
+			b.WriteString("    ")
+		case r == utf8.RuneError:
+			b.WriteRune(r)
+		case unsafe(r):
+		default:
+			b.WriteRune(r)
+		}
+	}
+	return b.String()
 }
 
 // toolLabel recognises the progress line that announces a tool call and turns it
@@ -732,8 +788,9 @@ func toolLabel(text string) (string, bool) {
 		return "using a tool", true
 	}
 	// Keep it short: the arguments can be long and this is only an event marker.
-	if len(rest) > 44 {
-		rest = rest[:44] + "..."
+	// Cut by rune, not by byte, so a non-ASCII argument is never split mid-encoding.
+	if r := []rune(rest); len(r) > 44 {
+		rest = string(r[:44]) + "..."
 	}
 	return "using " + rest, true
 }
@@ -775,27 +832,24 @@ func (t *TUI) railLines(text string, inner int, fg, railCol int) []string {
 }
 
 // highlight marks every occurrence of the query inside a line, keeping the rest in the
-// surrounding colour. The search is case-insensitive, so the match is located on the
-// lowercased copy and the ORIGINAL text is emitted — colouring a lowercased copy would
-// silently rewrite what the user asked the agent.
+// surrounding colour. The search is case-insensitive and the offsets are found on the
+// ORIGINAL line: offsets taken from a lowercased copy do not fit the original when
+// lowering changes a rune's byte length ('Ⱥ' grows, 'İ' shrinks), which sliced out of
+// range and killed the frame, or coloured the wrong text.
 func (t *TUI) highlight(line string, fg int) string {
-	needle := strings.ToLower(t.query)
-	lower := strings.ToLower(line)
-	if needle == "" || !strings.Contains(lower, needle) {
+	if t.query == "" {
 		return t.color(fg, 0, line)
 	}
+	// ponytail: compiled per line; cache on t.query if it ever shows in a profile.
+	re := regexp.MustCompile("(?i)" + regexp.QuoteMeta(t.query))
 	var b strings.Builder
-	for {
-		i := strings.Index(lower, needle)
-		if i < 0 {
-			b.WriteString(t.color(fg, 0, line))
-			break
-		}
-		b.WriteString(t.color(fg, 0, line[:i]))
-		b.WriteString(t.color(0, colAccent, line[i:i+len(needle)]))
-		line = line[i+len(needle):]
-		lower = lower[i+len(needle):]
+	last := 0
+	for _, m := range re.FindAllStringIndex(line, -1) {
+		b.WriteString(t.color(fg, 0, line[last:m[0]]))
+		b.WriteString(t.color(0, colAccent, line[m[0]:m[1]]))
+		last = m[1]
 	}
+	b.WriteString(t.color(fg, 0, line[last:]))
 	return b.String()
 }
 
@@ -880,17 +934,27 @@ func (t *TUI) color(fg, bg int, s string) string {
 	if t.NoColor {
 		return s
 	}
-	if bg == 0 {
-		return fmt.Sprintf("\x1b[%dm%s\x1b[0m", 30+fg, s)
+	// 30-37/40-47 are the normal colours; 8-15 are the bright ones, which are SGR
+	// 90-97/100-107. 30+8 would be SGR 38, the extended-colour introducer, which a
+	// terminal ignores without its ;5;n arguments.
+	fgCode, bgCode := 30+fg, 40+bg
+	if fg >= 8 {
+		fgCode = 90 + fg - 8
 	}
-	return fmt.Sprintf("\x1b[%d;%dm%s\x1b[0m", 30+fg, 40+bg, s)
+	if bg >= 8 {
+		bgCode = 100 + bg - 8
+	}
+	if bg == 0 {
+		return fmt.Sprintf("\x1b[%dm%s\x1b[0m", fgCode, s)
+	}
+	return fmt.Sprintf("\x1b[%d;%dm%s\x1b[0m", fgCode, bgCode, s)
 }
 
 // wordWrap breaks text into lines of at most `width` COLUMNS.
 //
-// The width is measured with visibleLen, so an escape sequence costs nothing and a multi-byte
-// rune costs one column — which is what keeps an accented or emoji line from being counted as
-// several columns too wide.
+// The width is measured with visibleLen, so an escape sequence costs nothing and a rune costs
+// the cells the terminal draws it in (runeWidth): one for an accented letter, two for a CJK
+// character or an emoji, none for a combining mark.
 //
 // Two things are done in one pass here, and both matter on the hot path (this runs for every
 // conversation block on every keystroke):
@@ -982,17 +1046,38 @@ func wordWrap(s string, width int) []string {
 //
 // Callers pass uncoloured text: wordWrap runs BEFORE t.color, so there are no escape sequences
 // here to step over. If that ever changes, this needs the same state machine scanEscapes uses.
+//
+// A rune wider than the whole width is still taken on its own, so the piece is never empty.
 func splitAtWidth(s string, width int) (int, string) {
 	cols := 0
 	for i := 0; i < len(s); {
-		if cols == width {
+		r, size := utf8.DecodeRuneInString(s[i:])
+		w := runeWidth(r)
+		if i > 0 && cols+w > width {
 			return i, s[:i]
 		}
-		_, size := utf8.DecodeRuneInString(s[i:])
 		i += size
-		cols++
+		cols += w
 	}
 	return len(s), s
+}
+
+// runeWidth is how many terminal cells a rune takes: none for combining marks, zero-width
+// joiners and variation selectors, two for the East Asian wide and fullwidth ranges and
+// the emoji blocks, one for everything else. It is the one place width is decided, so
+// wrapping, clipping, padding and the cursor column always agree.
+func runeWidth(r rune) int {
+	switch {
+	case r < 0x300:
+		return 1 // ASCII and Latin-1: the hot path
+	case unicode.In(r, unicode.Mn, unicode.Me, unicode.Cf):
+		return 0
+	case r >= 0x1100 && r <= 0x115f, r >= 0x2e80 && r <= 0xa4cf, r >= 0xac00 && r <= 0xd7a3,
+		r >= 0xf900 && r <= 0xfaff, r >= 0xfe30 && r <= 0xfe4f, r >= 0xff00 && r <= 0xff60,
+		r >= 0xffe0 && r <= 0xffe6, r >= 0x1f300 && r <= 0x1faff, r >= 0x20000 && r <= 0x3fffd:
+		return 2
+	}
+	return 1
 }
 
 // Escapes are parsed with a state machine instead of "skip until a byte in
@@ -1085,13 +1170,16 @@ func scanEscapes(s string, visit func(r rune, isEscape bool)) {
 // wrapping and per line while fitting the frame — and the machine was 36% of the per-keystroke
 // profile even when there was nothing to unescape.
 func visibleLen(s string) int {
-	if strings.IndexByte(s, 0x1b) < 0 {
-		return utf8.RuneCountInString(s)
-	}
 	n := 0
-	scanEscapes(s, func(_ rune, isEscape bool) {
+	if strings.IndexByte(s, 0x1b) < 0 {
+		for _, r := range s {
+			n += runeWidth(r)
+		}
+		return n
+	}
+	scanEscapes(s, func(r rune, isEscape bool) {
 		if !isEscape {
-			n++
+			n += runeWidth(r)
 		}
 	})
 	return n
@@ -1355,21 +1443,22 @@ func wrapVisible(s string, width int) []string {
 	var out []string
 	var cur strings.Builder
 	curVis := 0
-	for _, r := range s {
+	scanEscapes(s, func(r rune, isEscape bool) {
 		// An escape sequence is copied whole and costs no columns. It is never split: a
 		// truncated escape would leak colour into the rest of the frame.
-		if r == 0x1b {
+		if isEscape {
 			cur.WriteRune(r)
-			continue
+			return
 		}
-		if curVis >= width {
+		w := runeWidth(r)
+		if curVis > 0 && curVis+w > width {
 			out = append(out, cur.String())
 			cur.Reset()
 			curVis = 0
 		}
 		cur.WriteRune(r)
-		curVis++
-	}
+		curVis += w
+	})
 	// The final line always exists, even when it is empty: the loop above writes every rune it
 	// is given, so the only way to reach here with nothing is an empty input — which is a row of
 	// no width, not an absent row. A guard for "no output" would be unreachable.

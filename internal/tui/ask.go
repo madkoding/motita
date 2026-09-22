@@ -84,9 +84,9 @@ func (t *TUI) askLines(max int) []string {
 		out = append(out, t.askLine(t.muted(fmt.Sprintf("question %d of %d", a.cur+1, n)), width))
 	}
 	it := a.items[a.cur]
-	out = append(out, t.askLine(t.color(colAccent, colBase, it.Text), width))
+	out = append(out, t.askLine(t.color(colAccent, colBase, plainText(it.Text)), width))
 	if it.Assumption != "" {
-		out = append(out, t.askLine(t.muted("(if you do not answer: "+it.Assumption+")"), width))
+		out = append(out, t.askLine(t.muted("(if you do not answer: "+plainText(it.Assumption)+")"), width))
 	}
 
 	// One row per option, numbered by the key that picks it. The numbers are the interface's,
@@ -96,7 +96,7 @@ func (t *TUI) askLines(max int) []string {
 		if a.answers[a.cur] == opt {
 			mark = "*"
 		}
-		out = append(out, t.askLine(fmt.Sprintf("%s %d) %s", mark, i+1, opt), width))
+		out = append(out, t.askLine(fmt.Sprintf("%s %d) %s", mark, i+1, plainText(opt)), width))
 	}
 
 	// The answer line is ALWAYS drawn, even with no options: it is where a free answer goes, and
@@ -127,7 +127,7 @@ func (t *TUI) askLines(max int) []string {
 // It is drawn from the answer the window holds, so a typed answer and a picked option are the
 // same thing by the time it is confirmed, and the user can see exactly what will be sent.
 func (t *TUI) askAnswerLine(width int) string {
-	return t.askLine(t.muted("answer: ")+t.ask.answers[t.ask.cur], width)
+	return t.askLine(t.muted("answer: ")+plainText(t.ask.answers[t.ask.cur]), width)
 }
 
 // askLine draws one window row with the interface margin and the window's colour.
@@ -254,7 +254,7 @@ func (t *TUI) handleAskKey(ctx context.Context, line string) bool {
 	case keyEnter:
 		// An empty line is the confirmation: with a draft present the reader would have
 		// returned that draft instead, and this case would not be reached.
-		t.confirmAsk()
+		t.confirmAsk(ctx)
 		return true
 	case keyEsc:
 		// The window closes and the keys go back to the input. The questions are not lost —
@@ -281,7 +281,7 @@ func (t *TUI) handleAskKey(ctx context.Context, line string) bool {
 // would assume for each one, so an unanswered question is an accepted assumption rather than a
 // dropped one. Refusing to continue until every question is answered would turn a list of
 // suggestions into a form to fill in, which is not what the agent is offering.
-func (t *TUI) confirmAsk() {
+func (t *TUI) confirmAsk(ctx context.Context) {
 	a := t.ask
 	if a == nil {
 		return
@@ -298,11 +298,11 @@ func (t *TUI) confirmAsk() {
 
 	// The answers go back as a reply to the request being clarified, so the agent re-reads the
 	// request WITH the gaps filled instead of treating the answer as a new, unrelated message.
-	t.submitAnswers(a.origin, answers)
+	t.submitAnswers(ctx, a.origin, answers)
 }
 
 // submitAnswers runs the turn that carries the answers back.
-func (t *TUI) submitAnswers(origin string, answers []agent.Answers) {
+func (t *TUI) submitAnswers(ctx context.Context, origin string, answers []agent.Answers) {
 	prompt := composeAnswers(origin, answers)
 	if strings.TrimSpace(prompt) == "" {
 		t.drawFrame()
@@ -310,9 +310,9 @@ func (t *TUI) submitAnswers(origin string, answers []agent.Answers) {
 	}
 	switch t.screen {
 	case ScreenPlan:
-		t.runPlan(t.runningCtxOr(context.Background()), prompt)
+		t.runPlan(ctx, prompt)
 	default:
-		t.runTask(t.runningCtxOr(context.Background()), prompt)
+		t.runTask(ctx, prompt)
 	}
 }
 
@@ -343,15 +343,4 @@ func composeAnswers(origin string, answers []agent.Answers) string {
 		b.WriteString(qa.Answer)
 	}
 	return b.String()
-}
-
-// runningCtxOr returns the context of the run in flight, or the fallback.
-//
-// The window can be answered while a run is still finishing (the agent asked, and the turn ended,
-// but a repaint is pending), so the caller cannot assume a run context exists.
-func (t *TUI) runningCtxOr(fallback context.Context) context.Context {
-	if t.runningCtx != nil {
-		return t.runningCtx
-	}
-	return fallback
 }
