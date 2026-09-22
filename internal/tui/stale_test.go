@@ -28,12 +28,12 @@ func TestTheSentTextLeavesTheScreen(t *testing.T) {
 	tu.Width, tu.Height = 100, 30
 
 	// What the user sees while typing.
-	tu.draft = "hola mundo"
+	tu.draft = "hello world"
 	var typed bytes.Buffer
 	tu.Out = &typed
 	tu.drawFrame()
 	scr.feed(typed.String())
-	if !strings.Contains(scr.text(), "hola mundo") {
+	if !strings.Contains(scr.text(), "hello world") {
 		t.Fatalf("the typed text must be on the screen:\n%s", scr.text())
 	}
 
@@ -44,7 +44,7 @@ func TestTheSentTextLeavesTheScreen(t *testing.T) {
 	tu.drawFrame()
 	scr.feed(sent.String())
 
-	if strings.Contains(scr.text(), "hola mundo") {
+	if strings.Contains(scr.text(), "hello world") {
 		t.Errorf("the sent text is still on the screen after sending:\n%s", scr.text())
 	}
 }
@@ -58,24 +58,24 @@ func TestAShorterRowReplacesALongerOne(t *testing.T) {
 	tu := New(&fakeRunner{cfg: configWithKey("k")})
 	tu.Out = long
 	tu.Width, tu.Height = 60, 24
-	tu.messages = []Message{{Author: AuthorUser, Text: "una linea de conversacion bastante larga que ocupa todo"}}
+	tu.messages = []Message{{Author: AuthorUser, Text: "a line of conversation long enough to take up everything"}}
 	tu.drawFrame()
 	scr.feed(long.String())
-	if !strings.Contains(scr.text(), "bastante larga") {
+	if !strings.Contains(scr.text(), "long enough") {
 		t.Fatalf("the long row must be on the screen:\n%s", scr.text())
 	}
 
 	// The same position now holds a much shorter row.
 	short := &bytes.Buffer{}
 	tu.Out = short
-	tu.messages = []Message{{Author: AuthorUser, Text: "corta"}}
+	tu.messages = []Message{{Author: AuthorUser, Text: "short"}}
 	tu.drawFrame()
 	scr.feed(short.String())
 
-	if strings.Contains(scr.text(), "bastante larga") {
+	if strings.Contains(scr.text(), "long enough") {
 		t.Errorf("the tail of the longer row survived the shorter one:\n%s", scr.text())
 	}
-	if !strings.Contains(scr.text(), "corta") {
+	if !strings.Contains(scr.text(), "short") {
 		t.Errorf("the short row must be on the screen:\n%s", scr.text())
 	}
 }
@@ -147,7 +147,7 @@ func TestEveryRowErasesItsTail(t *testing.T) {
 func TestTheEraseIsPerRowNotJustBelow(t *testing.T) {
 	tu := New(&fakeRunner{cfg: configWithKey("k")})
 	tu.Width, tu.Height = 50, 24
-	tu.draft = "algo"
+	tu.draft = "something"
 	var out bytes.Buffer
 	tu.Out = &out
 	tu.drawFrame()

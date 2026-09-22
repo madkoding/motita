@@ -44,7 +44,7 @@ func TestShellLineIsTheLastResort(t *testing.T) {
 func TestAnUnreadableSegmentIsAnsweredAsAWhole(t *testing.T) {
 	dir := t.TempDir()
 	// The quote closes after the pipe, so the first segment has an unclosed quote.
-	d := Default().DecideLine(`grep "sin cerrar | wc -l`, dir)
+	d := Default().DecideLine(`grep "unclosed | wc -l`, dir)
 	if d.Rule != "line-unreadable" {
 		t.Errorf("rule = %q, want the unreadable-segment rule: %s", d.Rule, d.Reason)
 	}
@@ -117,7 +117,7 @@ func TestHasFlagReadsClusters(t *testing.T) {
 	if hasFlag([]string{"--force"}, 'f') {
 		t.Error("a long option is not a short cluster")
 	}
-	if hasFlag([]string{"archivo"}, 'f') {
+	if hasFlag([]string{"file"}, 'f') {
 		t.Error("a bare word is not a flag")
 	}
 }
@@ -187,7 +187,7 @@ func TestUnquoteStripsOnePair(t *testing.T) {
 // TestAQuotedRedirectTargetIsJudgedByItsPath: the quotes are syntax, not part of the path.
 func TestAQuotedRedirectTargetIsJudgedByItsPath(t *testing.T) {
 	dir := t.TempDir()
-	outside := filepath.Join(filepath.Dir(dir), "con espacio.txt")
+	outside := filepath.Join(filepath.Dir(dir), "with space.txt")
 	d := Default().DecideLine(`echo x > "`+outside+`"`, dir)
 	if d.Verdict != Ask {
 		t.Errorf("a quoted path outside the workspace must still be asked about, got %s: %s",
@@ -323,8 +323,8 @@ func TestResolveAsFarAsPossibleFollowsWhatExists(t *testing.T) {
 func TestResolveAsFarAsPossibleOnARootThatDoesNotExist(t *testing.T) {
 	// Nothing under this path exists, all the way to the root: the walk has to terminate and
 	// return the path rather than loop.
-	got := resolveAsFarAsPossible("/nada-de-esto-existe-99/a/b/c")
-	if got != "/nada-de-esto-existe-99/a/b/c" {
+	got := resolveAsFarAsPossible("/none-of-this-exists-99/a/b/c")
+	if got != "/none-of-this-exists-99/a/b/c" {
 		t.Errorf("got %q", got)
 	}
 }
@@ -370,7 +370,7 @@ func TestDecideLineWithARedirectOnly(t *testing.T) {
 	if d.Verdict != Deny || !d.Mandatory {
 		t.Errorf("a bare write to a system file must be refused outright, got %s (rule %s)", d.Verdict, d.Rule)
 	}
-	inside := filepath.Join(dir, "salida.txt")
+	inside := filepath.Join(dir, "output.txt")
 	if d := Default().DecideLine("> "+inside, dir); d.Verdict != Allow {
 		t.Errorf("a bare write inside the workspace is work, got %s: %s", d.Verdict, d.Reason)
 	}
@@ -394,9 +394,9 @@ func TestSegmentationOfQuotesAndEscapes(t *testing.T) {
 		commands int
 		redirect int
 	}{
-		{`echo "a \" dentro"`, 1, 0},
+		{`echo "a \" inside"`, 1, 0},
 		{`echo 'a b'`, 1, 0},
-		{`echo "sin cerrar`, 1, 0},
+		{`echo "unclosed`, 1, 0},
 		{`echo a\ b`, 1, 0},
 		{"echo 'a\"b'", 1, 0},
 		{"> f", 0, 1},
@@ -672,7 +672,7 @@ func TestWorseKeepsTheFirstOnATie(t *testing.T) {
 	if got := worse(a, b); got.Reason != "primero" {
 		t.Errorf("a tie keeps the first verdict, got %q", got.Reason)
 	}
-	if got := worse(a, Decision{Ask, "pregunta", "c", false}); got.Verdict != Ask {
+	if got := worse(a, Decision{Ask, "question", "c", false}); got.Verdict != Ask {
 		t.Errorf("Ask beats Allow, got %s", got.Verdict)
 	}
 	if got := worse(Decision{Ask, "p", "c", false}, Decision{Deny, "no", "d", false}); got.Verdict != Deny {
@@ -931,7 +931,7 @@ func TestFirstOutsideWithARelativeWorkspace(t *testing.T) {
 	}
 	// The workspace IS the working directory, written relatively, and a target inside it is
 	// not outside.
-	if got := firstOutside([]string{filepath.Join(wd, "dentro.txt")}, rel); got != "" {
+	if got := firstOutside([]string{filepath.Join(wd, "inside.txt")}, rel); got != "" {
 		t.Errorf("a target inside the workspace must not be outside, got %q", got)
 	}
 	// And a target outside it still is.

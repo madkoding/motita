@@ -14,17 +14,17 @@ func benchTUI(body int) (*TUI, *bytes.Buffer) {
 	tu, _ := newKeyTUI("")
 	tu.Out = &out
 	tu.Width, tu.Height = 110, 30
-	tu.draft = "escribe algo aqui"
+	tu.draft = "type something here"
 	for i := 0; i < body; i++ {
 		tu.messages = append(tu.messages, Message{
 			Author: AuthorUser,
-			Text: "una linea de conversacion con suficiente texto para envolver en varias filas " +
-				"y forzar el camino completo de formateo del render",
+			Text: "a line of conversation with enough text to wrap over several rows " +
+				"and force the whole formatting path of the renderer",
 		})
 		tu.messages = append(tu.messages, Message{
 			Author: AuthorAgent,
-			Text: "respuesta del asistente con texto largo, acentos y emoji \U0001F31F para cubrir " +
-				"el camino de anchura en runas y no en bytes, que es donde se rompen estas cosas",
+			Text: "assistant reply with long text, accents and emoji \U0001F31F to cover " +
+				"the width path in runes and not in bytes, which is where these things break",
 		})
 	}
 	tu.drawFrame() // settle: the first frame is always full
@@ -73,7 +73,7 @@ func BenchmarkMessageLines(b *testing.B) {
 	m := Message{
 		Author: AuthorAgent,
 		Text: strings.Repeat(
-			"respuesta con acentos \U0001F31F y texto suficiente para envolver varias veces ", 20),
+			"reply with accents \U0001F31F and enough text to wrap several times ", 20),
 	}
 	b.ReportAllocs()
 	b.ResetTimer()

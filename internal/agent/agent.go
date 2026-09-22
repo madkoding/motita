@@ -433,7 +433,7 @@ var assumptionAnnouncements = []string{
 	"asumiré:", "asumiré", "asumiendo:", "asumo que", "supongo que", "supondré:", // spanish-fixture: stripped from the model's output
 	"i will assume:", "i'll assume:", "i will assume", "i'll assume",
 	"assuming that", "assuming:", "i am assuming:", "i'm assuming:",
-	"vou assumir:", "assumindo:", "suponho que",
+	"vou assumir:", "assumindo:", "suponho que", // spanish-fixture: stripped from the model's output
 }
 
 // conditionalOpeners are how a conditional clause starts, per language. The clause is stripped
@@ -523,7 +523,7 @@ type Analysis struct {
 	//	         wrong thing. Ask in Question.
 	//
 	// Without this an agent has only one response to every message, which is to plan work:
-	// "hola" produces a task plan, and a question about what it just did produces another
+	// "hello" produces a task plan, and a question about what it just did produces another
 	// task plan. The user asked to be talked to.
 	//
 	// An empty Kind means the model did not answer, and is treated as "task": that is the

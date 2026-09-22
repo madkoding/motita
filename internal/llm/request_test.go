@@ -510,7 +510,7 @@ func TestCompleteSendsTheConversation(t *testing.T) {
 // TestToOpenAIMessagesDefaultsTheRole: a message with no role would be rejected by
 // the provider, so it is sent as a user message.
 func TestToOpenAIMessagesDefaultsTheRole(t *testing.T) {
-	got := toOpenAIMessages([]Message{{Content: "sin rol"}})
+	got := toOpenAIMessages([]Message{{Content: "no role"}})
 	if len(got) != 1 || got[0].Role != "user" {
 		t.Errorf("toOpenAIMessages = %+v", got)
 	}

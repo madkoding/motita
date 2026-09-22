@@ -78,7 +78,7 @@ func synthesisAgent(t *testing.T, answer string) *Agent {
 // synthesisTask is the task the synthesis prompt is built from.
 func synthesisTask(t *testing.T) task.Task {
 	t.Helper()
-	src, err := task.NewText("cuenta los archivos", "test")
+	src, err := task.NewText("count the files", "test")
 	if err != nil {
 		t.Fatalf("task.NewText: %v", err)
 	}
@@ -92,9 +92,9 @@ func synthesisTask(t *testing.T) task.Task {
 // TestSynthesizePhaseReturnsTheSummary: the happy path — the model answers with
 // the documented JSON object and the summary is what the chat will show.
 func TestSynthesizePhaseReturnsTheSummary(t *testing.T) {
-	a := synthesisAgent(t, `{"summary":"hay 20 archivos .txt en /home"}`)
+	a := synthesisAgent(t, `{"summary":"there are 20 .txt files in /home"}`)
 	got := a.synthesizePhase(context.Background(), synthesisTask(t), "20", anchor.Result{Reason: "1 check passed"})
-	if got != "hay 20 archivos .txt en /home" {
+	if got != "there are 20 .txt files in /home" {
 		t.Errorf("summary = %q", got)
 	}
 }

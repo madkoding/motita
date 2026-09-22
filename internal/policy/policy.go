@@ -516,7 +516,7 @@ func (m Mode) ShellLine(reason string) Decision {
 // SEGMENTS joined by a pipe, a redirection or a chain, and each segment has its own answer:
 // `ls` is a reader, `> /etc/passwd` writes outside the workspace, `grep x f | wc -l` is two
 // readers. Judging the line by its first word would allow the second half of it, and
-// refusing on the first shell character would refuse `echo hola > f.txt`, which is ordinary
+// refusing on the first shell character would refuse `echo hi > f.txt`, which is ordinary
 // work in the directory the user pointed the agent at.
 //
 // The rule applied to the whole line is the WORST verdict any of its segments earned. One

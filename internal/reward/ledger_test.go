@@ -190,11 +190,11 @@ func TestANoteIsAttachedToEverySkillOfTheTurn(t *testing.T) {
 	// The user is describing the turn, and which of its skills is at fault is exactly what is
 	// NOT known yet. Each skill carries the evidence; the score decides which is suspect.
 	l := ledgerAt(t)
-	_ = l.Attribute([]string{"a", "b"}, map[string]int{"a": 1, "b": 1}, false, "el paso 3 falla")
+	_ = l.Attribute([]string{"a", "b"}, map[string]int{"a": 1, "b": 1}, false, "step 3 fails")
 
 	for _, n := range []string{"a", "b"} {
 		s, _ := l.Get(n)
-		if len(s.Notes) != 1 || s.Notes[0].Text != "el paso 3 falla" {
+		if len(s.Notes) != 1 || s.Notes[0].Text != "step 3 fails" {
 			t.Errorf("%s must carry the note, got %+v", n, s.Notes)
 		}
 	}
@@ -314,7 +314,7 @@ func TestUnaddressedAndRecentOrder(t *testing.T) {
 	}
 	// A GOOD verdict leaves a comment, not a complaint: telling the agent to repair a
 	// procedure that just worked would send it to break something that is fine.
-	_ = l.Attribute([]string{"a"}, map[string]int{"a": 1}, true, "esto funcionó bien")
+	_ = l.Attribute([]string{"a"}, map[string]int{"a": 1}, true, "this worked well")
 	if got := l.mustGet(t, "a").Unaddressed(); len(got) != 2 {
 		t.Errorf("a good note must not become a complaint, got %+v", got)
 	}

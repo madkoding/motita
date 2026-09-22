@@ -32,7 +32,7 @@ func TestRunPlanAndRunTaskWithoutAnEngine(t *testing.T) {
 	if _, err := r.RunPlan(context.Background(), "un prompt", func(string, ...any) {}); err == nil {
 		t.Error("RunPlan must fail without an engine")
 	}
-	if _, err := r.RunTask(context.Background(), "una tarea", func(string, ...any) {}); err == nil {
+	if _, err := r.RunTask(context.Background(), "a task", func(string, ...any) {}); err == nil {
 		t.Error("RunTask must fail without an engine")
 	}
 }
@@ -52,7 +52,7 @@ func TestTypingTheWordTabNavigates(t *testing.T) {
 // shows a sentence, because an empty bubble reads as a bug.
 func TestRunTaskWithoutAResultIsExplained(t *testing.T) {
 	runner := &fakeRunner{silentTask: true}
-	tui := newFakeTUI("una tarea\nq\n", runner)
+	tui := newFakeTUI("a task\nq\n", runner)
 	tui.Run(context.Background())
 	if !strings.Contains(stripANSI(outputOf(tui)), "without reporting a result") {
 		t.Errorf("a silent task must be explained:\n%s", stripANSI(outputOf(tui)))
@@ -67,7 +67,7 @@ func TestAStaleRunIsCancelledBeforeTheNextOne(t *testing.T) {
 
 	var cancelled bool
 	tui.cancelRun = func() { cancelled = true }
-	tui.runTask(context.Background(), "una tarea")
+	tui.runTask(context.Background(), "a task")
 	if !cancelled {
 		t.Error("starting a task must cancel whatever was still running")
 	}
@@ -122,7 +122,7 @@ func TestRunPlanReportsARejectedPrompt(t *testing.T) {
 // one for this path: the planner calls it directly.
 func TestRunPlanWithAnAgentThatNeverAnswers(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		fmt.Fprint(w, `{"choices":[{"message":{"content":"listo"}}]}`)
+		fmt.Fprint(w, `{"choices":[{"message":{"content":"ready"}}]}`)
 	}))
 	defer srv.Close()
 
@@ -181,7 +181,7 @@ var _ = agent.TaskResult{}
 func TestRunPlanShowsTheAnswer(t *testing.T) {
 	runner := &fakeRunner{planAnswer: "the long answer must arrive whole, at once"}
 	// tab navigates Task -> Plan; the question then runs as a plan.
-	tui := newFakeTUI("tab\nuna pregunta\nq\n", runner)
+	tui := newFakeTUI("tab\na question\nq\n", runner)
 	// A short width so the answer wraps and lays out over more than one row.
 	tui.Width = 60
 	tui.Height = 20

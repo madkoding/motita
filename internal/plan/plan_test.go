@@ -604,11 +604,11 @@ func TestCompactionCarriesTheTaskNotJustTheTail(t *testing.T) {
 	sess := p.Session()
 
 	// The task is at the START of the conversation, which is what gets folded.
-	sess.Append(llm.Message{Role: "user", Content: "cuenta los archivos .txt del home"})
+	sess.Append(llm.Message{Role: "user", Content: "count the .txt files in the home directory"})
 	for i := 0; i < 60; i++ {
 		sess.Append(llm.Message{Role: "user", Content: strings.Repeat("word ", 30)})
 	}
-	if _, err := p.Run(context.Background(), "y los .md?"); err != nil {
+	if _, err := p.Run(context.Background(), "and the .md?"); err != nil {
 		t.Fatal(err)
 	}
 

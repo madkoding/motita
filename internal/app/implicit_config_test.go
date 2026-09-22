@@ -254,7 +254,7 @@ func TestNoConfigWithABadEnvironmentIsReported(t *testing.T) {
 	inTempDir(t, func() {
 		t.Setenv("HOME", "")
 		silence(t)
-		t.Setenv("STARLIGHT_AGENT_MAX_RETRIES", "no-es-un-numero")
+		t.Setenv("STARLIGHT_AGENT_MAX_RETRIES", "not-a-number")
 
 		var out, errs bytes.Buffer
 		code := Run(Options{

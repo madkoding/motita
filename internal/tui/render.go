@@ -900,7 +900,7 @@ func (t *TUI) color(fg, bg int, s string) string {
 //     far for every word added, which is O(n^2) in the length of a paragraph.
 //   - a word that does not fit is hard split, whether or not the line is still empty. Hard
 //     splitting only when `cur` was empty meant a long word AFTER a short one was emitted whole
-//     and broke the promise this function makes: `wordWrap("uno acentos", 4)` returned a
+//     and broke the promise this function makes: `wordWrap("one accents", 4)` returned a
 //     7-column line for a 4-column width.
 //
 // The caller then hands that line to cell(), which clips it to the panel and marks the cut with

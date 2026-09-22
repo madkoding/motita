@@ -159,7 +159,7 @@ func TestTheOutstandingComplaintIsShownToTheAgent(t *testing.T) {
 	p, led := rewardPlanner(t, map[string]string{
 		"flash": "# Flash board\nHow to flash the board.\n",
 	})
-	note := "el paso 2 usa /dev/ttyUSB0 pero mi placa aparece como /dev/ttyACM0"
+	note := "step 2 uses /dev/ttyUSB0 but my board shows up as /dev/ttyACM0"
 	_ = led.Attribute([]string{"flash"}, map[string]int{"flash": 1}, false, note)
 
 	got := p.toolSearchSkills(rawArgs(t, map[string]any{"query": "flash board"}))

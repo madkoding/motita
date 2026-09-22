@@ -1272,7 +1272,7 @@ func (t *TUI) readLine(ctx context.Context) (string, bool) {
 		//
 		// sanitiseLine removes every byte below 0x20, and the escape introducer is one of them.
 		// Running it first deleted the ESC and left the parameter bytes behind as ordinary text,
-		// so the message read "hola[C[D[A" — the sequence with its marker cut off, which no
+		// so the message read "hello[C[D[A" — the sequence with its marker cut off, which no
 		// longer looks like a sequence to anything.
 		//
 		// The introducer is the only thing that says where a sequence starts, so it has to be
@@ -1316,7 +1316,7 @@ func sanitiseLine(s string) string {
 // pressed after some text has already been typed does not put the ESC at the start: it arrives
 // in the middle of the run that ReadString hands back, and the bytes were being kept as text.
 // Measured on the target machine, the message that reached the model was
-// `hola\x1b[C\x1b[D\x1b[A\x1b[B\x1b[3~\x1bOP\x15/quit` — every arrow the user pressed, spelled
+// `hello\x1b[C\x1b[D\x1b[A\x1b[B\x1b[3~\x1bOP\x15/quit` — every arrow the user pressed, spelled
 // out as literal backslash-escapes.
 //
 // A sequence is removed whole: from the introducer to its final byte. Removing only the ESC

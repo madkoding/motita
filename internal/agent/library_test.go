@@ -208,7 +208,7 @@ func TestTheComplaintReachesTheModelOnRead(t *testing.T) {
 	// This is what makes a verdict actionable: the model reads the procedure AND what the user
 	// said was wrong with it, in the user's words.
 	a := libraryAgent(t, map[string]string{"flash": "# Flash\n1. use /dev/ttyUSB0\n"})
-	note := "mi placa aparece como /dev/ttyACM0, el paso 1 esta mal"
+	note := "my board shows up as /dev/ttyACM0, step 1 is wrong"
 	_ = a.reward.Attribute([]string{"flash"}, map[string]int{"flash": 1}, false, note)
 
 	out := act(t, a, "read_skill", "flash")
@@ -227,7 +227,7 @@ func TestSavingASkillMarksTheComplaintAddressed(t *testing.T) {
 	// The fix is the observable event: once the procedure has been rewritten the complaint is
 	// answered, and repeating it would send the model to re-fix what is already fixed.
 	a := libraryAgent(t, map[string]string{"flash": "# Flash\n1. wrong step\n"})
-	_ = a.reward.Attribute([]string{"flash"}, map[string]int{"flash": 1}, false, "el paso 1 esta mal")
+	_ = a.reward.Attribute([]string{"flash"}, map[string]int{"flash": 1}, false, "step 1 is wrong")
 
 	out := act(t, a, "save_skill", "flash :: # Flash\n1. corrected step\n")
 	if !strings.Contains(strings.ToLower(out), "addressed") {
@@ -236,7 +236,7 @@ func TestSavingASkillMarksTheComplaintAddressed(t *testing.T) {
 
 	// And it is no longer handed out.
 	again := act(t, a, "read_skill", "flash")
-	if strings.Contains(again, "el paso 1 esta mal") {
+	if strings.Contains(again, "step 1 is wrong") {
 		t.Errorf("an addressed complaint must not be repeated:\n%s", again)
 	}
 }

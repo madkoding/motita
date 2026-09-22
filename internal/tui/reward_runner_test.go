@@ -45,12 +45,12 @@ func rewardRunner(t *testing.T, used map[string]int) (*AppRunner, string) {
 func TestAVerdictLandsOnTheSkillsTheTurnRead(t *testing.T) {
 	r, dir := rewardRunner(t, map[string]int{"flash": 2, "zephyr": 1})
 
-	out := r.RecordVerdict(false, "el paso 2 usa el puerto equivocado")
+	out := r.RecordVerdict(false, "step 2 uses the wrong port")
 
 	if !strings.Contains(out, "flash") || !strings.Contains(out, "zephyr") {
 		t.Errorf("the report must name the skills the value landed on:\n%s", out)
 	}
-	if !strings.Contains(out, "el paso 2 usa el puerto equivocado") {
+	if !strings.Contains(out, "step 2 uses the wrong port") {
 		t.Errorf("the report must quote the note back:\n%s", out)
 	}
 	// The ledger is a real file next to the library, so it can be reopened.

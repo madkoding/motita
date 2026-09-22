@@ -96,16 +96,24 @@ step "6. no Spanish left in code, configs or scripts"
 # finding it was written for hides among the noise. Searching what is tracked also makes
 # the result the same everywhere, which is what a gate has to be.
 #
-# Test files are excluded, and that exclusion is the point of the check rather than a way
-# around it. Several suites feed Spanish IN on purpose: ask_test.go covers the case where a
-# model answers with a Spanish conditional, policy_test.go uses "salida" as a filename. Those
-# fixtures are the feature being tested, not a translation that was missed, and a gate that
-# cannot tell the difference between them has to be narrowed until it can.
+# TEST FILES ARE INCLUDED. They were excluded at first, on the argument that several suites feed
+# Spanish in on purpose, and that argument then hid the largest single body of Spanish in the
+# repository: an audit found ~200 lines of it across 30 test files, in fixtures that had nothing
+# to do with the language behaviour ("una tarea", "rm -rf fuera", "cuenta los archivos") beside
+# assertions that pinned them. Excluding a directory because SOME of its content is legitimate
+# exempts the rest of it too, and the rest was most of it.
 #
-# A production comment may also QUOTE the Spanish it handles — the leading conditional a model
-# emits, which cleanAssumption exists to strip. That is a citation of real input, not shipped
-# copy, so a line carrying the marker below is exempt. The marker is required: it makes the
-# exemption a deliberate statement by the author rather than something the gate guessed at.
+# The two legitimate uses are exempt by LINE and by STATEMENT instead, which is narrower than
+# excluding the file:
+#
+#   - the cleanAssumption cases, where the Spanish lead IS the feature;
+#   - non-ASCII test data (café, áéíóú, ñ, 日本) whose whole purpose is the bytes;
+#   - a comment citing the Spanish a production path handles, or the Spanish answer keys the
+#     confirmation window accepts, marked with `spanish-fixture:` on the line itself.
+#
+# The marker is required and it is per line: it makes the exemption a deliberate statement by the
+# author rather than something the gate guessed at, and a multi-line quotation has to say so on
+# every line, which shows up in the diff instead of hiding in a block.
 # Two independent detectors, because one word list was not enough.
 #
 # A hand-kept list of Spanish words was the original approach, and a full audit found twelve
@@ -122,18 +130,19 @@ step "6. no Spanish left in code, configs or scripts"
 # (salida, tarea, comando) look like ordinary English text to a character test.
 pattern='\b(función|también|todavía|además|así|está|están|desde|hacia|según|mientras|porque|cuando|entonces|siempre|nunca|nada|pero|sólo|debe|puede|hace|hacer|tiene|tienen|usar|usando|valores|opciones|campo|nombre|ruta|salida|entrada|comando|resultado|ejemplo|archivo|fichero|cola|tarea|tareas|ancla|peligro|aviso|no se|sin embargo)\b'
 accents='[áéíóúüñÁÉÍÓÚÜÑ¿¡]'
+# The exempt lines are stated once, here, as the set of things this check agrees to ignore, so
+# that reading the gate tells you its scope without reading every test file.
+EXEMPT='spanish-fixture:|accented latin|multi-byte|"café|"áéíóú|"ñ"|"á"|"aá"|señal|año 2026|日本|→ ok|café ☕|café con leche|word with accents café|café \\\\x1b'
 found=$(
   {
     git ls-files -z 2>/dev/null \
       | grep -zE '\.(go|ya?ml|sh|md)$|(^|/)Makefile$' \
-      | grep -zv '_test\.go$' \
       | xargs -0 -r grep -lE "$accents" 2>/dev/null
     git ls-files -z 2>/dev/null \
       | grep -zE '\.(go|ya?ml|sh|md)$|(^|/)Makefile$' \
-      | grep -zv '_test\.go$' \
       | xargs -0 -r grep -liE "$pattern" 2>/dev/null
   } | sort -u | grep -v '^scripts/verify\.sh$' | xargs -r grep -niE "$accents|$pattern" 2>/dev/null \
-  | grep -v 'spanish-fixture:' || true
+  | grep -vE "$EXEMPT" || true
 )
 if [ -z "$found" ]; then
   ok "no Spanish found"

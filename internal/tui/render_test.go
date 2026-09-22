@@ -57,14 +57,14 @@ func TestEveryRowFitsTheDrawingArea(t *testing.T) {
 		input string
 		width int
 	}{
-		{"task at 80", "una tarea\nq\n", 80},
+		{"task at 80", "a task\nq\n", 80},
 		{"plan at 80", "/p\nun prompt\n\nq\n", 80},
 		{"task at the minimum width", "t\nq\n", minWidth},
 		{"task at a wide terminal", "t\nq\n", 240},
-		{"plan at the minimum width", "/p\npregunta\n\nq\n", minWidth},
+		{"plan at the minimum width", "/p\nquestion\n\nq\n", minWidth},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			runner := &fakeRunner{planAnswer: "listo"}
+			runner := &fakeRunner{planAnswer: "ready"}
 			tui := newFakeTUI(tc.input, runner)
 			tui.Width, tui.Height = tc.width, 40
 			tui.Run(context.Background())
@@ -88,8 +88,8 @@ func TestEveryRowFitsTheDrawingArea(t *testing.T) {
 // terminals wrap, which scrolls the whole interface up by one line on every
 // repaint. The frame is deliberately one column short.
 func TestFrameNeverFillsTheLastColumn(t *testing.T) {
-	runner := &fakeRunner{planAnswer: "listo"}
-	tui := newFakeTUI("/p\ncuenta las lineas de un archivo largo de verdad\n\nq\n", runner)
+	runner := &fakeRunner{planAnswer: "ready"}
+	tui := newFakeTUI("/p\ncount the lines of a genuinely long file\n\nq\n", runner)
 	tui.Width, tui.Height = 80, 40
 	tui.Run(context.Background())
 
@@ -107,7 +107,7 @@ func TestFrameNeverFillsTheLastColumn(t *testing.T) {
 // is not a cell, it is a mode, so an emulator of cells cannot see it. The screen is still
 // checked separately (lastFrame) for where the rows ended up.
 func TestCursorLandsAtThePrompt(t *testing.T) {
-	runner := &fakeRunner{planAnswer: "listo"}
+	runner := &fakeRunner{planAnswer: "ready"}
 	tui := newFakeTUI("/p\nprompt\n\nq\n", runner)
 	tui.Run(context.Background())
 
@@ -355,9 +355,9 @@ func TestSizeIsClamped(t *testing.T) {
 // repaint. The frame must be measured against the terminal before it is written,
 // and it must shed content in a defined order when there is not enough room.
 func TestFrameFitsTheTerminalHeight(t *testing.T) {
-	runner := &fakeRunner{planAnswer: "una respuesta larga que ocupa bastante espacio en pantalla y obliga a recortar el marco"}
+	runner := &fakeRunner{planAnswer: "a long reply that takes up a lot of screen space and forces the frame to be clipped"}
 	for _, h := range []int{12, 16, 20, 24, 30, 40, 60} {
-		tui := newFakeTUI("/p\nun prompt con bastante texto para llenar la conversacion\n\nq\n", runner)
+		tui := newFakeTUI("/p\na prompt with enough text to fill the conversation\n\nq\n", runner)
 		tui.Width, tui.Height = 80, h
 		tui.Run(context.Background())
 

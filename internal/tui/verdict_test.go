@@ -37,14 +37,14 @@ func TestGoodRecordsAGoodVerdict(t *testing.T) {
 func TestBadCarriesTheUsersWords(t *testing.T) {
 	// This is the point of the note: the number says it failed, the words say what to fix.
 	f := &fakeRunner{}
-	tu := newFakeTUI("/bad el paso 2 usa el puerto equivocado\n", f)
+	tu := newFakeTUI("/bad step 2 uses the wrong port\n", f)
 	tu.Run(context.Background())
 
 	v := lastVerdict(t, f)
 	if v.good {
 		t.Error("/bad must record a bad verdict")
 	}
-	if v.note != "el paso 2 usa el puerto equivocado" {
+	if v.note != "step 2 uses the wrong port" {
 		t.Errorf("the note must reach the runner intact, got %q", v.note)
 	}
 }
@@ -53,11 +53,11 @@ func TestTheNoteKeepsItsCapitalisation(t *testing.T) {
 	// The command word is lowercased for matching, and the note must NOT be: it is the user's
 	// own sentence and it is quoted back to the model verbatim.
 	f := &fakeRunner{}
-	tu := newFakeTUI("/BAD El Paso 2 rompe la Compilación\n", f)
+	tu := newFakeTUI("/BAD Step 2 breaks the Build\n", f)
 	tu.Run(context.Background())
 
 	v := lastVerdict(t, f)
-	if !strings.Contains(v.note, "Paso") || !strings.Contains(v.note, "Compilación") {
+	if !strings.Contains(v.note, "Step") || !strings.Contains(v.note, "Build") {
 		t.Errorf("the note must keep its original casing, got %q", v.note)
 	}
 }

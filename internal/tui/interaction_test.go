@@ -130,9 +130,9 @@ func TestReadLineHandlesCarriageReturn(t *testing.T) {
 // TestReadLineStripsSurroundingSpace: a task typed with trailing spaces must not
 // carry them into the prompt the model receives.
 func TestReadLineStripsSurroundingSpace(t *testing.T) {
-	tui := newFakeTUI("  hola mundo  \n", &fakeRunner{})
+	tui := newFakeTUI("  hello world  \n", &fakeRunner{})
 	line, ok := tui.readLine(context.Background())
-	if !ok || line != "hola mundo" {
+	if !ok || line != "hello world" {
 		t.Errorf("readLine = (%q, %v)", line, ok)
 	}
 }

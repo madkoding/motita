@@ -14,11 +14,11 @@ import (
 // open (no options), and one with an assumption to fall back on.
 func askItems() []agent.AskItem {
 	return []agent.AskItem{
-		{Text: "¿qué carpeta?", Assumption: "la actual",
-			Options: []string{"la actual", "/tmp", "todo el proyecto"}},
-		{Text: "¿y qué quieres conseguir?", Assumption: ""},
-		{Text: "¿lo borro o lo muevo?", Assumption: "moverlo",
-			Options: []string{"borrarlo", "moverlo"}},
+		{Text: "which folder?", Assumption: "the current one",
+			Options: []string{"the current one", "/tmp", "the whole project"}},
+		{Text: "and what do you want to achieve?", Assumption: ""},
+		{Text: "do I delete it or move it?", Assumption: "move it",
+			Options: []string{"borrarlo", "move it"}},
 	}
 }
 
@@ -63,7 +63,7 @@ func TestWindowOpensOnlyWithQuestions(t *testing.T) {
 }
 
 func TestWindowOpensWithQuestions(t *testing.T) {
-	tui := newAskTUI(t, askItems(), "revisa el proyecto")
+	tui := newAskTUI(t, askItems(), "review the project")
 	if !tui.asking() {
 		t.Fatal("the window should be open")
 	}
@@ -72,7 +72,7 @@ func TestWindowOpensWithQuestions(t *testing.T) {
 	}
 	lines := tui.askLines(0)
 	joined := strings.Join(lines, "\n")
-	for _, want := range []string{"¿qué carpeta?", "1) la actual", "answer:"} {
+	for _, want := range []string{"which folder?", "1) the current one", "answer:"} {
 		if !strings.Contains(joined, want) {
 			t.Fatalf("the window should show %q, got:\n%s", want, joined)
 		}
@@ -81,15 +81,15 @@ func TestWindowOpensWithQuestions(t *testing.T) {
 
 // A single question is a list of one: the same shape, no special case, and nothing to navigate.
 func TestSingleQuestionHasNoNavigation(t *testing.T) {
-	tui := newAskTUI(t, []agent.AskItem{{Text: "¿cuál?", Options: []string{"a", "b"}}}, "x")
+	tui := newAskTUI(t, []agent.AskItem{{Text: "which one?", Options: []string{"a", "b"}}}, "x")
 	joined := seen(tui)
-	if strings.Contains(joined, "pregunta 1 de 1") {
+	if strings.Contains(joined, "question 1 of 1") {
 		t.Fatalf("a single question should not announce its position:\n%s", joined)
 	}
 	if strings.Contains(joined, "switch question") {
 		t.Fatalf("a single question has nowhere to navigate:\n%s", joined)
 	}
-	if !strings.Contains(joined, "¿cuál?") {
+	if !strings.Contains(joined, "which one?") {
 		t.Fatalf("the question should still be shown:\n%s", joined)
 	}
 }
@@ -169,7 +169,7 @@ func TestNavigationPrefersUnanswered(t *testing.T) {
 func TestNavigationWrapsWhenAllAnswered(t *testing.T) {
 	tui := newAskTUI(t, askItems(), "x")
 	for i := range tui.ask.answers {
-		tui.ask.answers[i] = "algo"
+		tui.ask.answers[i] = "something"
 	}
 	tui.ask.cur = 0
 	tui.ask.next()
@@ -238,7 +238,7 @@ func TestDigitKeyPicksOption(t *testing.T) {
 	if !tui.handleAskKey(context.Background(), "3") {
 		t.Fatal("the digit should be handled")
 	}
-	if got := tui.ask.answers[0]; got != "todo el proyecto" {
+	if got := tui.ask.answers[0]; got != "the whole project" {
 		t.Fatalf("answer = %q, want the third option", got)
 	}
 }
@@ -246,7 +246,7 @@ func TestDigitKeyPicksOption(t *testing.T) {
 // A digit that matches no option is still consumed: it was meant for the window, and letting it
 // fall through would send it to the agent as a message.
 func TestDigitWithNoOptionIsStillCaptured(t *testing.T) {
-	tui := newAskTUI(t, []agent.AskItem{{Text: "¿cuál?", Options: []string{"a"}}}, "x")
+	tui := newAskTUI(t, []agent.AskItem{{Text: "which one?", Options: []string{"a"}}}, "x")
 	if !tui.handleAskKey(context.Background(), "7") {
 		t.Fatal("a digit must be captured even when it picks nothing")
 	}
@@ -326,7 +326,7 @@ func TestATypedLineAnswersTheFocusedQuestion(t *testing.T) {
 // window up would invite the user to answer questions already sent.
 func TestConfirmClosesTheWindow(t *testing.T) {
 	items := []agent.AskItem{{Text: "q1"}, {Text: "q2"}}
-	tui := newAskTUI(t, items, "la petición original")
+	tui := newAskTUI(t, items, "the original request")
 	tui.ask.answers[0] = "r1"
 	tui.ask.answers[1] = "r2"
 	tui.ask = nil // as confirmAsk leaves it; the send itself needs a real runner
@@ -344,7 +344,7 @@ func TestConfirmLeavesUnansweredOutOfTheAnswers(t *testing.T) {
 	if len(res) != 1 {
 		t.Fatalf("only answered questions are sent, got %d", len(res))
 	}
-	if res[0].Question != "¿qué carpeta?" || res[0].Answer != "r1" {
+	if res[0].Question != "which folder?" || res[0].Answer != "r1" {
 		t.Fatalf("the pair should keep its question, got %+v", res[0])
 	}
 }
@@ -353,7 +353,7 @@ func TestConfirmLeavesUnansweredOutOfTheAnswers(t *testing.T) {
 // it is on screen, and dropping it would lose what they wrote.
 func TestDraftIsTakenOnConfirm(t *testing.T) {
 	items := []agent.AskItem{{Text: "q1"}}
-	tui := newAskTUI(t, items, "origen")
+	tui := newAskTUI(t, items, "origin")
 	tui.draft = "  escrito a mano  "
 	tui.confirmAsk()
 	if got := tui.ask; got != nil {
@@ -369,10 +369,10 @@ func TestDraftIsTakenOnConfirm(t *testing.T) {
 // The answers go back attached to their questions, so the agent re-reads the request with the
 // gaps filled instead of receiving an unrelated message.
 func TestComposeAnswersAttachesToQuestions(t *testing.T) {
-	got := composeAnswers("revisa el proyecto", []agent.Answers{
-		{Question: "¿qué carpeta?", Answer: "/tmp"},
+	got := composeAnswers("review the project", []agent.Answers{
+		{Question: "which folder?", Answer: "/tmp"},
 	})
-	for _, want := range []string{"revisa el proyecto", "¿qué carpeta?", "/tmp"} {
+	for _, want := range []string{"review the project", "which folder?", "/tmp"} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("the reply should contain %q, got:\n%s", want, got)
 		}
@@ -382,8 +382,8 @@ func TestComposeAnswersAttachesToQuestions(t *testing.T) {
 // With nothing answered the request goes back unchanged: an empty turn would be silence, and
 // the agent could not tell it apart from the user saying nothing.
 func TestComposeAnswersWithNoAnswersKeepsTheRequest(t *testing.T) {
-	got := composeAnswers("solo la petición", nil)
-	if got != "solo la petición" {
+	got := composeAnswers("only the request", nil)
+	if got != "only the request" {
 		t.Fatalf("got %q, want the request unchanged", got)
 	}
 	if q := composeAnswers("", nil); q != "" {
@@ -396,7 +396,7 @@ func TestComposeAnswersWithNoAnswersKeepsTheRequest(t *testing.T) {
 // The answer row is always drawn, even with no options: it is where a free answer goes, and it
 // is what makes an open question answerable at all.
 func TestAnswerRowIsAlwaysDrawn(t *testing.T) {
-	tui := newAskTUI(t, []agent.AskItem{{Text: "¿qué quieres conseguir?"}}, "x")
+	tui := newAskTUI(t, []agent.AskItem{{Text: "what do you want to achieve?"}}, "x")
 	joined := seen(tui)
 	if !strings.Contains(joined, "answer:") {
 		t.Fatalf("the answer row must exist with no options:\n%s", joined)
@@ -421,7 +421,7 @@ func TestAnswerRowShowsThePickedOption(t *testing.T) {
 func TestAssumptionIsShown(t *testing.T) {
 	tui := newAskTUI(t, askItems(), "x")
 	joined := seen(tui)
-	if !strings.Contains(joined, "if you do not answer: la actual") {
+	if !strings.Contains(joined, "if you do not answer: the current one") {
 		t.Fatalf("the assumption should be shown:\n%s", joined)
 	}
 }
@@ -429,7 +429,7 @@ func TestAssumptionIsShown(t *testing.T) {
 // A window taller than the space it was given is cut, and the cut SAYS SO: a silently truncated
 // list of options looks complete, and the user would not know there was more.
 func TestWindowIsCappedAndSaysSo(t *testing.T) {
-	items := []agent.AskItem{{Text: "¿cuál?", Options: []string{"a", "b", "c", "d"}}}
+	items := []agent.AskItem{{Text: "which one?", Options: []string{"a", "b", "c", "d"}}}
 	tui := newAskTUI(t, items, "x")
 	full := tui.askRows()
 	capped := tui.askLines(3)
@@ -459,7 +459,7 @@ func TestWindowTakesThePopupReservation(t *testing.T) {
 	if strings.Contains(lines, "/quit") {
 		t.Fatalf("the completion popup must not draw under the window:\n%s", lines)
 	}
-	if !strings.Contains(lines, "¿qué") {
+	if !strings.Contains(lines, "which folder?") {
 		t.Fatalf("the window should draw:\n%s", lines)
 	}
 	// The input box stays, and it stays BELOW the window: it is where a free answer is written.
@@ -475,10 +475,10 @@ func TestWindowTakesThePopupReservation(t *testing.T) {
 func TestPendingQuestionsAreTakenOnce(t *testing.T) {
 	r := &AppRunner{}
 	items := askItems()
-	r.setPendingQuestions(items, "el origen")
+	r.setPendingQuestions(items, "the origin")
 
 	got, origin := r.TakePendingQuestions()
-	if len(got) != len(items) || origin != "el origen" {
+	if len(got) != len(items) || origin != "the origin" {
 		t.Fatalf("got %d questions and origin %q", len(got), origin)
 	}
 	again, _ := r.TakePendingQuestions()
@@ -503,7 +503,7 @@ func TestOpenAskWithNoQuestionsDoesNothing(t *testing.T) {
 // a digit answers it, and confirming hands the pairs back.
 func TestFullCycle(t *testing.T) {
 	r := &AppRunner{}
-	r.setPendingQuestions(askItems(), "revisa el proyecto")
+	r.setPendingQuestions(askItems(), "review the project")
 	tui := &TUI{Out: &strings.Builder{}, Width: 90, Height: 30, Runner: r}
 
 	tui.openAskIfPending()
@@ -523,10 +523,10 @@ func TestFullCycle(t *testing.T) {
 	}
 	// The free answer goes through the SAME entry point the main loop uses. It does not
 	// advance: the reader collects the whole line, and Enter is what confirms the set.
-	if !tui.handleAskKey(context.Background(), "un informe") {
+	if !tui.handleAskKey(context.Background(), "a report") {
 		t.Fatal("a typed answer should be handled by the window")
 	}
-	if got := tui.ask.answers[1]; got != "un informe" {
+	if got := tui.ask.answers[1]; got != "a report" {
 		t.Fatalf("the typed answer is recorded as %q", got)
 	}
 	if tui.ask.cur != 1 {
@@ -537,8 +537,8 @@ func TestFullCycle(t *testing.T) {
 	if len(res) != 2 {
 		t.Fatalf("two answered questions, got %d", len(res))
 	}
-	reply := composeAnswers("revisa el proyecto", res)
-	for _, want := range []string{"revisa el proyecto", "¿qué carpeta?", "/tmp", "¿y qué quieres conseguir?", "un informe"} {
+	reply := composeAnswers("review the project", res)
+	for _, want := range []string{"review the project", "which folder?", "/tmp", "and what do you want to achieve?", "a report"} {
 		if !strings.Contains(reply, want) {
 			t.Fatalf("the reply should carry %q, got:\n%s", want, reply)
 		}
@@ -576,7 +576,7 @@ type recordingRunner struct {
 
 func (r *recordingRunner) RunTask(_ context.Context, task string, _ func(string, ...any)) (string, error) {
 	r.tasks = append(r.tasks, task)
-	return "hecho", nil
+	return "done", nil
 }
 
 func (r *recordingRunner) RunPlan(_ context.Context, prompt string, _ func(string, ...any)) (string, error) {
@@ -589,10 +589,10 @@ func (r *recordingRunner) RunPlan(_ context.Context, prompt string, _ func(strin
 func TestConfirmSendsComposedAnswers(t *testing.T) {
 	rr := &recordingRunner{}
 	tui := &TUI{Out: &strings.Builder{}, Width: 90, Height: 30, Runner: rr}
-	items := []agent.AskItem{{Text: "¿qué carpeta?"}, {Text: "¿y qué hago?"}}
-	tui.ask = newAsk(items, "revisa el proyecto")
+	items := []agent.AskItem{{Text: "which folder?"}, {Text: "and what do I do?"}}
+	tui.ask = newAsk(items, "review the project")
 	tui.ask.answers[0] = "/tmp"
-	tui.ask.answers[1] = "solo mirar"
+	tui.ask.answers[1] = "just looking"
 
 	tui.confirmAsk()
 
@@ -600,7 +600,7 @@ func TestConfirmSendsComposedAnswers(t *testing.T) {
 		t.Fatalf("one turn should have been sent, got %d", len(rr.tasks))
 	}
 	got := rr.tasks[0]
-	for _, want := range []string{"revisa el proyecto", "¿qué carpeta?", "/tmp", "¿y qué hago?", "solo mirar"} {
+	for _, want := range []string{"review the project", "which folder?", "/tmp", "and what do I do?", "just looking"} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("the prompt should carry %q, got:\n%s", want, got)
 		}
@@ -662,7 +662,7 @@ func TestRunningCtxPrefersTheLiveRun(t *testing.T) {
 // is not replaced by a new one: the user's work in progress is not thrown away by a repaint.
 func TestOpenAskIsIdempotentWhileOpen(t *testing.T) {
 	r := &AppRunner{}
-	r.setPendingQuestions(askItems(), "origen")
+	r.setPendingQuestions(askItems(), "origin")
 	tui := &TUI{Out: &strings.Builder{}, Width: 90, Height: 30, Runner: r}
 	tui.openAskIfPending()
 	if !tui.asking() {
@@ -683,7 +683,7 @@ func TestOpenAskIsIdempotentWhileOpen(t *testing.T) {
 func TestHintSaysConfirmWhenAllAnswered(t *testing.T) {
 	tui := newAskTUI(t, askItems(), "x")
 	for i := range tui.ask.answers {
-		tui.ask.answers[i] = "algo"
+		tui.ask.answers[i] = "something"
 	}
 	joined := seen(tui)
 	if !strings.Contains(joined, "Enter confirms all") {
@@ -697,11 +697,11 @@ func TestHintSaysConfirmWhenAllAnswered(t *testing.T) {
 // A single question that has been answered says how to confirm it: with no list there are no
 // arrows to suggest, and the only thing left to do is send it.
 func TestSingleAnsweredQuestionOffersConfirm(t *testing.T) {
-	tui := newAskTUI(t, []agent.AskItem{{Text: "¿cuál?"}}, "x")
+	tui := newAskTUI(t, []agent.AskItem{{Text: "which one?"}}, "x")
 	if strings.Contains(seen(tui), "Enter confirms") {
 		t.Fatalf("an unanswered question should not offer the confirmation yet:\n%s", seen(tui))
 	}
-	tui.ask.answers[0] = "esta"
+	tui.ask.answers[0] = "this one"
 	if !strings.Contains(seen(tui), "Enter confirms") {
 		t.Fatalf("an answered question should offer the confirmation:\n%s", seen(tui))
 	}
@@ -710,10 +710,10 @@ func TestSingleAnsweredQuestionOffersConfirm(t *testing.T) {
 // Enter confirms, and it is the empty line the reader returns rather than a byte of its own.
 func TestEnterConfirms(t *testing.T) {
 	r := &AppRunner{}
-	r.setPendingQuestions([]agent.AskItem{{Text: "q"}}, "origen")
+	r.setPendingQuestions([]agent.AskItem{{Text: "q"}}, "origin")
 	rr := &recordingRunner{}
 	tui := &TUI{Out: &strings.Builder{}, Width: 90, Height: 30, Runner: rr}
-	tui.ask = newAsk([]agent.AskItem{{Text: "q"}}, "origen")
+	tui.ask = newAsk([]agent.AskItem{{Text: "q"}}, "origin")
 	tui.ask.answers[0] = "r"
 	if !tui.handleAskKey(context.Background(), keyEnter) {
 		t.Fatal("Enter should be handled")
@@ -730,13 +730,13 @@ func TestEnterConfirms(t *testing.T) {
 // clarifies — without the origin the answers arrive with nothing to attach them to.
 func TestObserverRecordsQuestionsWithTheirOrigin(t *testing.T) {
 	r := &AppRunner{}
-	items := []agent.AskItem{{Text: "¿qué carpeta?"}}
-	r.setPendingQuestions(items, "la petición")
+	items := []agent.AskItem{{Text: "which folder?"}}
+	r.setPendingQuestions(items, "the request")
 	got, origin := r.TakePendingQuestions()
-	if len(got) != 1 || got[0].Text != "¿qué carpeta?" {
+	if len(got) != 1 || got[0].Text != "which folder?" {
 		t.Fatalf("the questions should be kept, got %+v", got)
 	}
-	if origin != "la petición" {
+	if origin != "the request" {
 		t.Fatalf("origin = %q, want the request being clarified", origin)
 	}
 }

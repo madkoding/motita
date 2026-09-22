@@ -20,8 +20,8 @@ func TestSplitCommandSeparatesProgramFromArguments(t *testing.T) {
 		{"ls", "ls", nil},
 		{"grep -n x f.txt", "grep", []string{"-n", "x", "f.txt"}},
 		{"/usr/bin/grep -n x", "/usr/bin/grep", []string{"-n", "x"}},
-		{`grep -n "dos palabras" f`, "grep", []string{"-n", "dos palabras", "f"}},
-		{`grep -n 'dos palabras' f`, "grep", []string{"-n", "dos palabras", "f"}},
+		{`grep -n "two words" f`, "grep", []string{"-n", "two words", "f"}},
+		{`grep -n 'two words' f`, "grep", []string{"-n", "two words", "f"}},
 		{`echo a\ b`, "echo", []string{"a b"}},
 		{`echo "a\"b"`, "echo", []string{`a"b`}},
 		{`echo 'a"b'`, "echo", []string{`a"b`}},
@@ -121,10 +121,10 @@ func TestSplitCommandMetacharacterInsideQuotesIsData(t *testing.T) {
 // guessed at.
 func TestSplitCommandRefusesAnUnfinishedLine(t *testing.T) {
 	cases := map[string]string{
-		`echo x\`:       "backslash",
-		`echo "sin fin`: "quote",
-		`echo 'sin fin`: "quote",
-		`ls "a b`:       "quote",
+		`echo x\`:        "backslash",
+		`echo "unclosed`: "quote",
+		`echo 'unclosed`: "quote",
+		`ls "a b`:        "quote",
 	}
 	for line, want := range cases {
 		_, _, _, err := SplitCommandWithErr(line)

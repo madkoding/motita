@@ -107,7 +107,7 @@ func TestNothingIsWrittenInReadOnlyMode(t *testing.T) {
 func TestReadersRunForRealInReadOnlyMode(t *testing.T) {
 	dir := t.TempDir()
 	file := filepath.Join(dir, "datos.txt")
-	if err := os.WriteFile(file, []byte("linea-uno\nlinea-dos\n"), 0o644); err != nil {
+	if err := os.WriteFile(file, []byte("line-one\nline-two\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
@@ -119,7 +119,7 @@ func TestReadersRunForRealInReadOnlyMode(t *testing.T) {
 	if err != nil {
 		t.Fatalf("readers must run: %v", err)
 	}
-	if !strings.Contains(output, "linea-uno") {
+	if !strings.Contains(output, "line-one") {
 		t.Errorf("cat's output must come back: %q", output)
 	}
 	// wc -l on a file with two lines prints 2.

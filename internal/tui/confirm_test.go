@@ -74,19 +74,19 @@ func confirmTUI(t *testing.T, inputs string, command string) (*TUI, *AppRunner, 
 // are shown. A window that showed a summary would be asking them to approve something they cannot
 // read.
 func TestConfirmationWindowShowsTheExactCommand(t *testing.T) {
-	line := "rm -rf /home/alguien/proyectos/fuera"
+	line := "rm -rf /home/someone/projects/outside"
 	tui, _, _ := confirmTUI(t, "", line)
 
 	tui.confirm = &confirmState{req: agent.ApprovalRequest{
 		Command: line,
-		Reason:  "escribe fuera del workspace",
+		Reason:  "writes outside the workspace",
 	}, reply: make(chan bool, 1)}
 
 	rendered := strings.Join(tui.confirmLines(0), "\n")
 	if !strings.Contains(rendered, line) {
 		t.Errorf("the window must show the exact command:\n%s", rendered)
 	}
-	if !strings.Contains(rendered, "escribe fuera del workspace") {
+	if !strings.Contains(rendered, "writes outside the workspace") {
 		t.Errorf("the window must say WHY it is asking:\n%s", rendered)
 	}
 	// The keys have to be visible, or the user cannot answer.
@@ -98,7 +98,7 @@ func TestConfirmationWindowShowsTheExactCommand(t *testing.T) {
 // TestConfirmationWindowWrapsALongCommand: a long line is exactly the one worth reading to the
 // end, so it is wrapped rather than clipped.
 func TestConfirmationWindowWrapsALongCommand(t *testing.T) {
-	long := "git push origin " + strings.Repeat("una-rama-muy-larga/", 8)
+	long := "git push origin " + strings.Repeat("a-very-long-branch/", 8)
 	tui, _, _ := confirmTUI(t, "", long)
 	tui.confirm = &confirmState{req: agent.ApprovalRequest{Command: long}, reply: make(chan bool, 1)}
 
@@ -108,7 +108,7 @@ func TestConfirmationWindowWrapsALongCommand(t *testing.T) {
 	}
 	// Every piece of the command survives somewhere across the rows.
 	joined := strings.Join(lines, "")
-	for _, part := range []string{"git", "push", "origin", "una-rama-muy-larga"} {
+	for _, part := range []string{"git", "push", "origin", "a-very-long-branch"} {
 		if !strings.Contains(joined, part) {
 			t.Errorf("the wrapped command must keep %q:\n%s", part, joined)
 		}
@@ -136,7 +136,7 @@ func TestConfirmationCapKeepsTheKeysHint(t *testing.T) {
 // window that drew more rows than were reserved would push the frame past the bottom of the
 // terminal and scroll it on a keypress.
 func TestConfirmationRowsMatchWhatIsDrawn(t *testing.T) {
-	tui, _, _ := confirmTUI(t, "", "rm -rf fuera")
+	tui, _, _ := confirmTUI(t, "", "rm -rf outside")
 	if rows := tui.confirmRows(); rows != 0 {
 		t.Errorf("with nothing being confirmed the window takes no rows, got %d", rows)
 	}
@@ -145,7 +145,7 @@ func TestConfirmationRowsMatchWhatIsDrawn(t *testing.T) {
 	if lines := tui.confirmLines(0); lines != nil {
 		t.Errorf("a closed window must draw nothing, got %#v", lines)
 	}
-	tui.confirm = &confirmState{req: agent.ApprovalRequest{Command: "rm -rf fuera"}, reply: make(chan bool, 1)}
+	tui.confirm = &confirmState{req: agent.ApprovalRequest{Command: "rm -rf outside"}, reply: make(chan bool, 1)}
 	if got, want := tui.confirmRows(), len(tui.confirmLines(0)); got != want {
 		t.Errorf("confirmRows = %d but confirmLines draws %d", got, want)
 	}
@@ -183,7 +183,7 @@ func answerTurn(t *testing.T, tui *TUI, ag *confirmAgent) {
 // goroutine, the user's keystroke reaches the loop, and the turn continues because the answer
 // arrived.
 func TestSayYesApprovesTheCommand(t *testing.T) {
-	tui, _, ag := confirmTUI(t, "s\n", "rm -rf fuera")
+	tui, _, ag := confirmTUI(t, "s\n", "rm -rf outside")
 	answerTurn(t, tui, ag)
 
 	if !ag.asked {
@@ -254,7 +254,7 @@ func TestTheApprovalChannelIsStableAcrossCalls(t *testing.T) {
 // CAUTIOUS answer: a stray Enter is far more likely than a considered one.
 func TestSayNoRefusesTheCommand(t *testing.T) {
 	for _, answer := range []string{"n\n", "no\n", "\n", "\x1b"} {
-		tui, _, ag := confirmTUI(t, answer, "rm -rf fuera")
+		tui, _, ag := confirmTUI(t, answer, "rm -rf outside")
 		answerTurn(t, tui, ag)
 		if ag.approved {
 			t.Errorf("answer %q must NOT approve the command", answer)
@@ -265,7 +265,7 @@ func TestSayNoRefusesTheCommand(t *testing.T) {
 // TestTheWindowClosesAfterTheAnswer: an open window after the turn ended would capture the keys
 // of a user who is trying to type their next message.
 func TestTheWindowClosesAfterTheAnswer(t *testing.T) {
-	tui, _, ag := confirmTUI(t, "s\n", "rm -rf fuera")
+	tui, _, ag := confirmTUI(t, "s\n", "rm -rf outside")
 	answerTurn(t, tui, ag)
 	if tui.answeringConfirm() {
 		t.Error("the window must close once the answer is given")
@@ -276,7 +276,7 @@ func TestTheWindowClosesAfterTheAnswer(t *testing.T) {
 // a turn builds a NEW agent, so an install that happened once would leave the second turn with
 // nobody to ask.
 func TestTheRunnerInstallsTheChannelOnTheTurnsAgent(t *testing.T) {
-	ag := &confirmAgent{command: "rm -rf fuera"}
+	ag := &confirmAgent{command: "rm -rf outside"}
 	cfg := config.Default()
 	cfg.LLM.APIKey = "x" // the turn needs an engine to build one; it never calls it
 	r := NewAppRunner(&strings.Builder{}, &strings.Builder{}, cfg, nil, nil, logx.Global())
@@ -286,7 +286,7 @@ func TestTheRunnerInstallsTheChannelOnTheTurnsAgent(t *testing.T) {
 
 	// Without an interface installing one, there is no channel, and the turn must therefore not
 	// have one to call: this is the state a batch run is in.
-	if _, err := r.RunTask(context.Background(), "una tarea", func(string, ...any) {}); err != nil {
+	if _, err := r.RunTask(context.Background(), "a task", func(string, ...any) {}); err != nil {
 		t.Fatalf("RunTask: %v", err)
 	}
 	if ag.approver != nil {
@@ -304,7 +304,7 @@ func TestTheRunnerInstallsTheChannelOnTheTurnsAgent(t *testing.T) {
 
 	done := make(chan error, 1)
 	go func() {
-		_, err := r.RunTask(context.Background(), "otra tarea", func(string, ...any) {})
+		_, err := r.RunTask(context.Background(), "another task", func(string, ...any) {})
 		done <- err
 	}()
 	select {
@@ -326,12 +326,12 @@ func TestTheRunnerInstallsTheChannelOnTheTurnsAgent(t *testing.T) {
 // TestACancelledRunRefusesTheCommand: silence is not consent. When the run is cancelled under an
 // open window, the command is refused — and the agent must not be left parked forever.
 func TestACancelledRunRefusesTheCommand(t *testing.T) {
-	tui, _, _ := confirmTUI(t, "", "rm -rf fuera")
+	tui, _, _ := confirmTUI(t, "", "rm -rf outside")
 
 	ctx, cancel := context.WithCancel(context.Background())
 	approved := make(chan bool, 1)
 	go func() {
-		ok, _ := tui.askConfirm(ctx, agent.ApprovalRequest{Command: "rm -rf fuera"})
+		ok, _ := tui.askConfirm(ctx, agent.ApprovalRequest{Command: "rm -rf outside"})
 		approved <- ok
 	}()
 
@@ -356,7 +356,7 @@ func TestACancelledRunRefusesTheCommand(t *testing.T) {
 // a different branch, and it has to refuse as well: an agent left waiting here would hang the
 // turn instead of ending it.
 func TestACancelledRunBeforeTheWindowOpensIsAlsoRefused(t *testing.T) {
-	tui, _, _ := confirmTUI(t, "", "rm -rf fuera")
+	tui, _, _ := confirmTUI(t, "", "rm -rf outside")
 
 	// The channel nobody is reading: the run loop has already gone.
 	ctx, cancel := context.WithCancel(context.Background())
@@ -364,7 +364,7 @@ func TestACancelledRunBeforeTheWindowOpensIsAlsoRefused(t *testing.T) {
 
 	approved := make(chan bool, 1)
 	go func() {
-		ok, _ := tui.askConfirm(ctx, agent.ApprovalRequest{Command: "rm -rf fuera"})
+		ok, _ := tui.askConfirm(ctx, agent.ApprovalRequest{Command: "rm -rf outside"})
 		approved <- ok
 	}()
 
@@ -381,12 +381,12 @@ func TestACancelledRunBeforeTheWindowOpensIsAlsoRefused(t *testing.T) {
 // TestAClosedInputRefusesTheCommand: the input ending (EOF) while the window is open is not an
 // approval either.
 func TestAClosedInputRefusesTheCommand(t *testing.T) {
-	tui, _, _ := confirmTUI(t, "" /* no input at all: EOF */, "rm -rf fuera")
+	tui, _, _ := confirmTUI(t, "" /* no input at all: EOF */, "rm -rf outside")
 
 	ctx := context.Background()
 	approved := make(chan bool, 1)
 	go func() {
-		ok, _ := tui.askConfirm(ctx, agent.ApprovalRequest{Command: "rm -rf fuera"})
+		ok, _ := tui.askConfirm(ctx, agent.ApprovalRequest{Command: "rm -rf outside"})
 		approved <- ok
 	}()
 	c := <-tui.approvalChannel()
@@ -400,12 +400,12 @@ func TestAClosedInputRefusesTheCommand(t *testing.T) {
 // TestAnUnknownKeyDoesNotAnswer: only the keys the window names are answers. Any other keystroke
 // leaves the question open, so a typo cannot become a yes.
 func TestAnUnknownKeyDoesNotAnswer(t *testing.T) {
-	tui, _, _ := confirmTUI(t, "x\nz\ns\n", "rm -rf fuera")
+	tui, _, _ := confirmTUI(t, "x\nz\ns\n", "rm -rf outside")
 
 	ctx := context.Background()
 	approved := make(chan bool, 1)
 	go func() {
-		ok, _ := tui.askConfirm(ctx, agent.ApprovalRequest{Command: "rm -rf fuera"})
+		ok, _ := tui.askConfirm(ctx, agent.ApprovalRequest{Command: "rm -rf outside"})
 		approved <- ok
 	}()
 	c := <-tui.approvalChannel()
@@ -422,20 +422,20 @@ func TestAnUnknownKeyDoesNotAnswer(t *testing.T) {
 // drives it is also the loop that reads the keys. That is the arrangement that makes an approval
 // possible at all: the agent cannot read anything itself while it is blocked waiting.
 func TestTheRunLoopAnswersTheConfirmation(t *testing.T) {
-	tui, _, ag := confirmTUI(t, "s\n", "rm -rf fuera")
+	tui, _, ag := confirmTUI(t, "s\n", "rm -rf outside")
 	ag.approver = tui.approverFor()
 
 	progress := make(chan string, 4)
 	done := make(chan runOutcome, 1)
 	go func() {
-		done <- runOutcome{result: "listo", err: ag.Run(context.Background())}
+		done <- runOutcome{result: "ready", err: ag.Run(context.Background())}
 	}()
 
 	out := tui.awaitRun(context.Background(), progress, done, func(string) {})
 	if out.err != nil {
 		t.Fatalf("the turn must finish once the confirmation is answered: %v", out.err)
 	}
-	if out.result != "listo" {
+	if out.result != "ready" {
 		t.Errorf("the outcome must be the runner's: %q", out.result)
 	}
 	// The proof that the branch was taken: the agent asked, and the answer it got was a yes.
@@ -451,13 +451,13 @@ func TestTheRunLoopAnswersTheConfirmation(t *testing.T) {
 // TestTheRunLoopRefusesWhenTheUserDeclines: the same branch, with the other answer, so the test
 // above cannot pass by approving everything.
 func TestTheRunLoopRefusesWhenTheUserDeclines(t *testing.T) {
-	tui, _, ag := confirmTUI(t, "n\n", "rm -rf fuera")
+	tui, _, ag := confirmTUI(t, "n\n", "rm -rf outside")
 	ag.approver = tui.approverFor()
 
 	progress := make(chan string, 4)
 	done := make(chan runOutcome, 1)
 	go func() {
-		done <- runOutcome{result: "listo", err: ag.Run(context.Background())}
+		done <- runOutcome{result: "ready", err: ag.Run(context.Background())}
 	}()
 
 	if out := tui.awaitRun(context.Background(), progress, done, func(string) {}); out.err != nil {
@@ -479,8 +479,8 @@ func TestTheConversationRecordsTheDecision(t *testing.T) {
 		note    string
 		command string
 	}{
-		{"s\n", "approved", "rm -rf fuera"},
-		{"n\n", "rejected", "rm -rf fuera"},
+		{"s\n", "approved", "rm -rf outside"},
+		{"n\n", "rejected", "rm -rf outside"},
 	} {
 		tui, _, ag := confirmTUI(t, c.answer, c.command)
 		ag.approver = tui.approverFor()
@@ -488,7 +488,7 @@ func TestTheConversationRecordsTheDecision(t *testing.T) {
 		progress := make(chan string, 4)
 		done := make(chan runOutcome, 1)
 		go func() {
-			done <- runOutcome{result: "listo", err: ag.Run(context.Background())}
+			done <- runOutcome{result: "ready", err: ag.Run(context.Background())}
 		}()
 		tui.awaitRun(context.Background(), progress, done, func(string) {})
 
@@ -508,15 +508,15 @@ func TestTheConversationRecordsTheDecision(t *testing.T) {
 // TestTheOutcomeIsNeverDecidedByTheWindowAlone: the window answers a question and nothing else. An
 // agent that runs is the agent's decision, taken with the answer it was given.
 func TestTheWindowOnlyAnswersTheQuestion(t *testing.T) {
-	tui, _, _ := confirmTUI(t, "", "rm -rf fuera")
+	tui, _, _ := confirmTUI(t, "", "rm -rf outside")
 	buf := &bytes.Buffer{}
 
 	// The window draws into the frame like any other piece of view state.
 	tui.Out = buf
-	tui.confirm = &confirmState{req: agent.ApprovalRequest{Command: "rm -rf fuera"}, reply: make(chan bool, 1)}
+	tui.confirm = &confirmState{req: agent.ApprovalRequest{Command: "rm -rf outside"}, reply: make(chan bool, 1)}
 	tui.drawFrame()
 
-	if !strings.Contains(buf.String(), "rm -rf fuera") {
+	if !strings.Contains(buf.String(), "rm -rf outside") {
 		t.Errorf("the window must be drawn in the frame:\n%s", buf.String())
 	}
 }

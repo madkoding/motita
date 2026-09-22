@@ -74,7 +74,7 @@ func TestTheTurnIsGivenTheEarlierConversation(t *testing.T) {
 	r := transcriptRunner(t, &made)
 
 	// A previous turn that asked something.
-	r.remember([]agent.DialogueTurn{{User: "revisa el directorio", Agent: "¿cuál?", Kind: agent.KindAsk}})
+	r.remember([]agent.DialogueTurn{{User: "review the directory", Agent: "which one?", Kind: agent.KindAsk}})
 
 	if _, err := r.RunTask(context.Background(), "el actual", func(string, ...any) {}); err != nil {
 		t.Fatalf("RunTask: %v", err)
@@ -85,7 +85,7 @@ func TestTheTurnIsGivenTheEarlierConversation(t *testing.T) {
 	if len(made[0].got) != 1 {
 		t.Fatalf("the turn must be handed the conversation, got %+v", made[0].got)
 	}
-	if made[0].got[0].Agent != "¿cuál?" {
+	if made[0].got[0].Agent != "which one?" {
 		t.Errorf("the earlier answer must arrive: %+v", made[0].got[0])
 	}
 }
@@ -97,20 +97,20 @@ func TestWhatATurnSaysIsCarriedForward(t *testing.T) {
 	r := transcriptRunner(t, &made)
 	r.newAgent = func(config.Config, *logx.Logger, *llm.Client, *sandbox.Sandbox, taskpkg.Source, bool) AgentRunner {
 		a := &transcriptAgent{says: []agent.DialogueTurn{
-			{User: "revisa el directorio", Agent: "¿cuál?", Kind: agent.KindAsk},
+			{User: "review the directory", Agent: "which one?", Kind: agent.KindAsk},
 		}}
 		made = append(made, a)
 		return a
 	}
 
-	if _, err := r.RunTask(context.Background(), "revisa el directorio", func(string, ...any) {}); err != nil {
+	if _, err := r.RunTask(context.Background(), "review the directory", func(string, ...any) {}); err != nil {
 		t.Fatalf("RunTask: %v", err)
 	}
 	// The NEXT turn must receive it.
 	if len(r.history()) != 1 {
 		t.Fatalf("the turn's contribution must be kept, got %+v", r.history())
 	}
-	if r.history()[0].Agent != "¿cuál?" {
+	if r.history()[0].Agent != "which one?" {
 		t.Errorf("what the agent said must be carried: %+v", r.history()[0])
 	}
 }
@@ -122,14 +122,14 @@ func TestTheConversationSurvivesAFailedTurn(t *testing.T) {
 	r := transcriptRunner(t, &made)
 	r.newAgent = func(config.Config, *logx.Logger, *llm.Client, *sandbox.Sandbox, taskpkg.Source, bool) AgentRunner {
 		a := &transcriptAgent{
-			says: []agent.DialogueTurn{{User: "algo", Agent: "no pude", Kind: agent.KindTask}},
+			says: []agent.DialogueTurn{{User: "something", Agent: "could not", Kind: agent.KindTask}},
 			err:  errors.New("the run stopped"),
 		}
 		made = append(made, a)
 		return a
 	}
 
-	if _, err := r.RunTask(context.Background(), "algo", func(string, ...any) {}); err == nil {
+	if _, err := r.RunTask(context.Background(), "something", func(string, ...any) {}); err == nil {
 		t.Fatal("the error must still be reported")
 	}
 	if len(r.history()) != 1 {
@@ -142,7 +142,7 @@ func TestTheConversationSurvivesAFailedTurn(t *testing.T) {
 func TestResetClearsTheTaskConversationToo(t *testing.T) {
 	var made []*transcriptAgent
 	r := transcriptRunner(t, &made)
-	r.remember([]agent.DialogueTurn{{User: "algo", Agent: "hecho", Kind: agent.KindTask}})
+	r.remember([]agent.DialogueTurn{{User: "something", Agent: "done", Kind: agent.KindTask}})
 	if len(r.history()) == 0 {
 		t.Fatal("precondition: there is a conversation to clear")
 	}
@@ -159,12 +159,12 @@ func TestResetClearsTheTaskConversationToo(t *testing.T) {
 func TestHistoryIsCopiedOut(t *testing.T) {
 	var made []*transcriptAgent
 	r := transcriptRunner(t, &made)
-	r.remember([]agent.DialogueTurn{{User: "uno", Kind: agent.KindChat}})
+	r.remember([]agent.DialogueTurn{{User: "one", Kind: agent.KindChat}})
 
 	out := r.history()
 	out[0].User = "mutado"
 
-	if r.history()[0].User != "uno" {
+	if r.history()[0].User != "one" {
 		t.Error("history must be copied out, not aliased")
 	}
 }
@@ -173,8 +173,8 @@ func TestHistoryIsCopiedOut(t *testing.T) {
 // verdict. Rendering it as "completed: conversational reply" would bury the reply the user
 // actually wants to read.
 func TestAChatTurnIsShownAsAReply(t *testing.T) {
-	got := summarise(agent.TaskResult{Kind: agent.KindChat, Reply: "¡Hola! ¿Qué necesitas?"})
-	if got != "¡Hola! ¿Qué necesitas?" {
+	got := summarise(agent.TaskResult{Kind: agent.KindChat, Reply: "Hi! What do you need?"})
+	if got != "Hi! What do you need?" {
 		t.Errorf("a chat turn must show the reply itself, got %q", got)
 	}
 	for _, unwanted := range []string{"completed", "failed", "done"} {
@@ -199,7 +199,7 @@ func TestAChatTurnWithNoReplyStillSaysSomething(t *testing.T) {
 // complete text, and no block is left pending when the turn ends.
 func TestTheAnswerArrivesWhole(t *testing.T) {
 	runner := &fakeRunner{planAnswer: "the whole answer, settled before the frame is drawn"}
-	tui := newFakeTUI("tab\nuna pregunta\nq\n", runner)
+	tui := newFakeTUI("tab\na question\nq\n", runner)
 	tui.Width = 60
 	tui.Height = 20
 	tui.Run(context.Background())

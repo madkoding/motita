@@ -18,7 +18,7 @@ import (
 
 func TestBuildQuestionsPrefersTheList(t *testing.T) {
 	got := buildQuestions(Analysis{
-		Question: "la única",
+		Question: "the only one",
 		Questions: []AskItem{
 			{Text: "primera"},
 			{Text: "segunda"},
@@ -35,11 +35,11 @@ func TestBuildQuestionsPrefersTheList(t *testing.T) {
 // A prompt that predates the list fills Question, and it must keep working: that is the whole
 // reason the single field is still read.
 func TestBuildQuestionsFallsBackToTheSingleQuestion(t *testing.T) {
-	got := buildQuestions(Analysis{Question: "¿qué carpeta?", Assumption: "la actual"})
+	got := buildQuestions(Analysis{Question: "which folder?", Assumption: "the current one"})
 	if len(got) != 1 {
 		t.Fatalf("the single question should become a list of one, got %d", len(got))
 	}
-	if got[0].Text != "¿qué carpeta?" || got[0].Assumption != "la actual" {
+	if got[0].Text != "which folder?" || got[0].Assumption != "the current one" {
 		t.Fatalf("got %+v", got[0])
 	}
 }
@@ -48,8 +48,8 @@ func TestBuildQuestionsFallsBackToTheSingleQuestion(t *testing.T) {
 // taken, so the user is not asked twice.
 func TestBuildQuestionsDoesNotAskTheSameGapTwice(t *testing.T) {
 	got := buildQuestions(Analysis{
-		Question:  "¿qué carpeta?",
-		Questions: []AskItem{{Text: "¿qué carpeta?"}},
+		Question:  "which folder?",
+		Questions: []AskItem{{Text: "which folder?"}},
 	})
 	if len(got) != 1 {
 		t.Fatalf("the same gap should be asked once, got %d", len(got))
@@ -109,11 +109,11 @@ func TestCleanOptions(t *testing.T) {
 	}{
 		{"empty input", nil, 0},
 		{"all blank", []string{"", "   ", "\t"}, 0},
-		{"duplicates", []string{"sí", "sí", "no"}, 2},
-		{"multi-line collapses to one row", []string{"sí\nno"}, 1},
+		{"duplicates", []string{"yes", "yes", "no"}, 2},
+		{"multi-line collapses to one row", []string{"yes\nno"}, 1},
 		{"too long", []string{strings.Repeat("x", optionMaxRunes+1)}, 0},
 		{"exactly the limit", []string{strings.Repeat("x", optionMaxRunes)}, 1},
-		{"keeps the order", []string{"uno", "dos", "tres"}, 3},
+		{"keeps the order", []string{"one", "two", "three"}, 3},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -139,11 +139,11 @@ func TestCleanOptionsIsCapped(t *testing.T) {
 // Whitespace is collapsed so an option is one line, and trimming means " yes " and "yes" are the
 // same choice rather than two identical-looking rows.
 func TestCleanOptionsCollapsesAndTrims(t *testing.T) {
-	got := cleanOptions([]string{"  la   carpeta   actual  "})
-	if len(got) != 1 || got[0] != "la carpeta actual" {
+	got := cleanOptions([]string{"  the   current   folder  "})
+	if len(got) != 1 || got[0] != "the current folder" {
 		t.Fatalf("got %q", got)
 	}
-	dup := cleanOptions([]string{"sí", "  sí  "})
+	dup := cleanOptions([]string{"yes", "  yes  "})
 	if len(dup) != 1 {
 		t.Fatalf("the trimmed forms are the same option, got %q", dup)
 	}
@@ -152,8 +152,8 @@ func TestCleanOptionsCollapsesAndTrims(t *testing.T) {
 // The options reach the result on the asking path, so the interface can draw them.
 func TestOptionsReachTheResult(t *testing.T) {
 	got := buildQuestions(Analysis{
-		Question: "¿qué carpeta?",
-		Options:  []string{"la actual", "/tmp"},
+		Question: "which folder?",
+		Options:  []string{"the current one", "/tmp"},
 	})
 	if len(got) != 1 || len(got[0].Options) != 2 {
 		t.Fatalf("the options should survive into the question, got %+v", got)
@@ -162,14 +162,14 @@ func TestOptionsReachTheResult(t *testing.T) {
 
 // The model tends to open its assumption with the same sentence the interface adds in front of
 // it, and the two together read as a stutter. Found by running the real binary, not by reading
-// the code: the window printed "Si no me dices otra cosa, asumiré: Si no me dices otra cosa,
+// spanish-fixture: the code: the window printed "Si no me dices otra cosa, asumiré: Si no me dices otra cosa,
 // reviso el contenido de ./workspace".
 func TestAssumptionLeadIsNotRepeated(t *testing.T) {
 	cases := []struct{ in, want string }{
 		{"Si no me dices otra cosa, reviso ./workspace", "reviso ./workspace"},
-		{"si no me dices otra cosa, asumiré: usar la actual", "usar la actual"},
+		{"si no me dices otra cosa, asumiré: usar la actual", "usar la actual"}, // spanish-fixture: the feature under test is a model emitting this lead
 		{"Si no me dices lo contrario, lo borro", "lo borro"},
-		{"Usaré la carpeta actual", "Usaré la carpeta actual"},
+		{"Usaré la carpeta actual", "Usaré la carpeta actual"}, // spanish-fixture: the feature under test is a model emitting this lead
 		// The model is asked to write this field in the language of the user's request, so the
 		// lead arrives in that language too. Recognising only the Spanish one let an English
 		// "If you don't tell me otherwise, I'll assume:" through to the user intact.
@@ -189,7 +189,7 @@ func TestAssumptionLeadIsNotRepeated(t *testing.T) {
 // Only the LEAD is dropped: an assumption that mentions the phrase later is saying something,
 // and rewriting the middle of a sentence would be guessing at its meaning.
 func TestAssumptionLeadOnlyAtTheStart(t *testing.T) {
-	const in = "reviso el directorio y, si no me dices otra cosa, lo dejo como está"
+	const in = "reviso el directorio y, si no me dices otra cosa, lo dejo como está" // spanish-fixture: the feature under test is a model emitting this lead
 	if got := cleanAssumption(in); got != in {
 		t.Fatalf("a mention in the middle must be left alone, got %q", got)
 	}
@@ -199,13 +199,13 @@ func TestAssumptionLeadOnlyAtTheStart(t *testing.T) {
 // think about the stutter again.
 func TestAssumptionIsCleanedInTheQuestion(t *testing.T) {
 	got := buildQuestions(Analysis{
-		Question:   "¿qué carpeta?",
-		Assumption: "Si no me dices otra cosa, asumiré: la actual",
+		Question:   "which folder?",
+		Assumption: "Si no me dices otra cosa, asumiré: the current one", // spanish-fixture: the feature under test is a model emitting this lead
 	})
 	if len(got) != 1 {
 		t.Fatalf("one question expected, got %d", len(got))
 	}
-	if got[0].Assumption != "la actual" {
+	if got[0].Assumption != "the current one" {
 		t.Fatalf("Assumption = %q, want it without the repeated lead", got[0].Assumption)
 	}
 }
@@ -214,7 +214,7 @@ func TestAssumptionIsCleanedInTheQuestion(t *testing.T) {
 // be cleaned too. Cleaning only the questions left the stutter in the chat while the window was
 // clean — which is how the fix was verified as incomplete on the i386 laptop: the window read
 // "si no respondes: reviso el proyecto" and the conversation above it still read "Si no me dices
-// otra cosa, asumiré: Si no me dices otra cosa, reviso el proyecto".
+// spanish-fixture: otra cosa, asumiré: Si no me dices otra cosa, reviso el proyecto".
 // TestAConditionalThatIsTheWholeAssumptionSurvives: when the conditional is all there is, the
 // clause cannot be dropped, because there would be nothing left to show the user. The action is
 // whatever comes after the comma, and without a comma the field IS the action.
@@ -231,13 +231,13 @@ func TestAConditionalThatIsTheWholeAssumptionSurvives(t *testing.T) {
 }
 
 func TestResultAssumptionIsCleanedToo(t *testing.T) {
-	const raw = "Si no me dices otra cosa, asumiré: reviso el proyecto"
+	const raw = "Si no me dices otra cosa, asumiré: reviso el proyecto" // spanish-fixture: the feature under test is a model emitting this lead
 	if got := cleanAssumption(raw); got != "reviso el proyecto" {
 		t.Fatalf("cleanAssumption(%q) = %q", raw, got)
 	}
 	// The list and the single question must agree, or the window and the chat disagree about
 	// the same assumption.
-	a := Analysis{Question: "¿reviso qué?", Assumption: raw}
+	a := Analysis{Question: "what do I review?", Assumption: raw}
 	items := buildQuestions(a)
 	if len(items) != 1 || items[0].Assumption != "reviso el proyecto" {
 		t.Fatalf("the question list should carry the cleaned assumption, got %+v", items)
@@ -248,16 +248,16 @@ func TestResultAssumptionIsCleanedToo(t *testing.T) {
 }
 
 // Recognised by SHAPE, not by a list of phrasings. The first attempt listed the sentences and
-// the very next run on the hardware produced one that was not on it ("Si no me aclaras nada,
-// ordenaré los archivos..."), which is what settled the approach: a list would always be one
+// spanish-fixture: the very next run on the hardware produced one that was not on it ("Si no me aclaras nada,
+// spanish-fixture: ordenaré los archivos..."), which is what settled the approach: a list would always be one
 // phrasing behind.
 func TestAssumptionConditionalIsRecognisedByShape(t *testing.T) {
 	cases := []struct{ in, want string }{
 		{"Si no me dices otra cosa, reviso ./workspace", "reviso ./workspace"},
-		{"Si no me aclaras nada, ordenaré los archivos de ./workspace", "ordenaré los archivos de ./workspace"},
+		{"Si no me aclaras nada, ordenaré los archivos de ./workspace", "ordenaré los archivos de ./workspace"}, // spanish-fixture: the feature under test is a model emitting this lead
 		{"si no me dices lo contrario, lo borro", "lo borro"},
-		{"Si quieres, lo dejo como está", "lo dejo como está"},
-		{"asumiré: usar la actual", "usar la actual"},
+		{"Si quieres, lo dejo como está", "lo dejo como está"}, // spanish-fixture: the feature under test is a model emitting this lead
+		{"asumiré: usar la actual", "usar la actual"},          // spanish-fixture: the feature under test is a model emitting this lead
 		{"Reviso el directorio actual", "Reviso el directorio actual"},
 	}
 	for _, c := range cases {
@@ -300,8 +300,8 @@ func TestQuestionsListIsNotADeadEnd(t *testing.T) {
 		Kind:           KindAsk,
 		Understandable: false,
 		Questions: []AskItem{
-			{Text: "¿a dónde lo mando?", Assumption: "lo dejo listo sin enviar"},
-			{Text: "¿qué orden uso?", Options: []string{"por fecha", "por nombre"}},
+			{Text: "where do I send it?", Assumption: "I leave it ready without sending"},
+			{Text: "which order do I use?", Options: []string{"by date", "by name"}},
 		},
 	}
 	items := buildQuestions(a)
@@ -319,7 +319,7 @@ func TestQuestionsListIsNotADeadEnd(t *testing.T) {
 	if question == "" {
 		t.Fatal("a list-only turn must still yield a question; otherwise the turn fails as a dead end")
 	}
-	if assumption != "lo dejo listo sin enviar" {
+	if assumption != "I leave it ready without sending" {
 		t.Fatalf("the first question's assumption should stand in, got %q", assumption)
 	}
 }
@@ -342,7 +342,7 @@ func TestAListOnlyAskIsNotFailed(t *testing.T) {
 		}
 		if strings.Contains(text, "## ANALYSIS OF THE TASK") {
 			// Exactly the shape a list-only answer takes: no "question", no "assumption".
-			fmt.Fprint(w, `{"choices":[{"message":{"content":"{\"kind\":\"ask\",\"understandable\":false,\"questions\":[{\"text\":\"¿a dónde lo mando?\",\"assumption\":\"lo dejo listo sin enviar\"},{\"text\":\"¿qué orden uso?\",\"options\":[\"por fecha\",\"por nombre\"]}]}"}}]}`)
+			fmt.Fprint(w, `{"choices":[{"message":{"content":"{\"kind\":\"ask\",\"understandable\":false,\"questions\":[{\"text\":\"¿a dónde lo mando?\",\"assumption\":\"lo dejo listo sin enviar\"},{\"text\":\"¿qué orden uso?\",\"options\":[\"por fecha\",\"por nombre\"]}]}"}}]}`) // spanish-fixture: the feature under test is a model emitting this lead
 			return
 		}
 		fmt.Fprint(w, `{"choices":[{"message":{"content":"{}"}}]}`)

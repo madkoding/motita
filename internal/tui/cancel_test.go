@@ -66,7 +66,7 @@ func TestProgressSenderDeliversWhileRunning(t *testing.T) {
 func TestTaskCancelledByTheContext(t *testing.T) {
 	started := make(chan struct{})
 	runner := &fakeRunner{taskBlock: make(chan struct{}), taskStarted: started}
-	tui := newFakeTUI("una tarea\n", runner)
+	tui := newFakeTUI("a task\n", runner)
 	if code := cancelOnceRunning(t, tui, started); code != ExitInterrupted {
 		t.Errorf("code = %d, want ExitInterrupted", code)
 	}

@@ -92,8 +92,8 @@ func TestAppRunnerRunTaskMapsEveryOutcome(t *testing.T) {
 	}{
 		{
 			name: "a synthesised summary wins",
-			tr:   agent.TaskResult{Pass: true, Summary: "hay 20 archivos .txt"},
-			want: "hay 20 archivos .txt",
+			tr:   agent.TaskResult{Pass: true, Summary: "there are 20 .txt files"},
+			want: "there are 20 .txt files",
 		},
 		{
 			name: "a pass without a summary names its reason",

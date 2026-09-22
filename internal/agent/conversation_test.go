@@ -59,10 +59,10 @@ func chatFixture(t *testing.T, reply string) *fixture {
 	return mount(t, srv, config.Anchor{Kind: "command", Command: "true", Timeout: 5 * time.Second}, nil)
 }
 
-// TestAGreetingIsAnsweredNotExecuted: the whole point. "hola" must come back as a reply, with
+// TestAGreetingIsAnsweredNotExecuted: the whole point. "hello" must come back as a reply, with
 // no plan, no action and no validation.
 func TestAGreetingIsAnsweredNotExecuted(t *testing.T) {
-	e := chatFixture(t, "¡Hola! ¿Qué necesitas?")
+	e := chatFixture(t, "Hi! What do you need?")
 
 	var result *TaskResult
 	e.agent.Observer = func(r TaskResult) { result = &r }
@@ -76,7 +76,7 @@ func TestAGreetingIsAnsweredNotExecuted(t *testing.T) {
 	if result.Kind != KindChat {
 		t.Errorf("kind = %q, want %q", result.Kind, KindChat)
 	}
-	if result.Reply != "¡Hola! ¿Qué necesitas?" {
+	if result.Reply != "Hi! What do you need?" {
 		t.Errorf("reply = %q", result.Reply)
 	}
 	// Nothing ran, and nothing claims to have run.
@@ -94,7 +94,7 @@ func TestAGreetingIsAnsweredNotExecuted(t *testing.T) {
 // TestAChatTurnIsNotAFailure: it is an answer. Reporting it as failed would tell the user
 // something went wrong when the agent did exactly the right thing.
 func TestAChatTurnIsNotAFailure(t *testing.T) {
-	e := chatFixture(t, "Estoy listo.")
+	e := chatFixture(t, "I am ready.")
 
 	var result *TaskResult
 	e.agent.Observer = func(r TaskResult) { result = &r }
@@ -154,7 +154,7 @@ func TestAskingIsReportedAsAsking(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		body, _ := io.ReadAll(r.Body)
 		if strings.Contains(string(body), "## ANALYSIS OF THE TASK") {
-			fmt.Fprint(w, `{"choices":[{"message":{"content":"{\"kind\":\"ask\",\"understandable\":true,\"question\":\"¿Sobre qué carpeta?\",\"assumption\":\"reviso la actual\"}"}}]}`)
+			fmt.Fprint(w, `{"choices":[{"message":{"content":"{\"kind\":\"ask\",\"understandable\":true,\"question\":\"About which folder?\",\"assumption\":\"reviso la actual\"}"}}]}`)
 			return
 		}
 		fmt.Fprint(w, `{"choices":[{"message":{"content":"{\"plan\":[]}"}}]}`)
@@ -171,7 +171,7 @@ func TestAskingIsReportedAsAsking(t *testing.T) {
 	if result == nil || !result.NeedsInput {
 		t.Fatalf("an ask must reach the user as a question: %+v", result)
 	}
-	if !strings.Contains(result.Question, "carpeta") {
+	if !strings.Contains(result.Question, "folder") {
 		t.Errorf("question = %q", result.Question)
 	}
 }
@@ -182,7 +182,7 @@ func TestAskingIsReportedAsAsking(t *testing.T) {
 // analysis reads. Without this a clarifying question is worse than useless — the agent asks,
 // the user answers, and the agent has no idea what the answer refers to.
 func TestTheAssistantKnowsWhatItAlreadySaid(t *testing.T) {
-	e := chatFixture(t, "¿Qué carpeta quieres revisar?")
+	e := chatFixture(t, "Which folder do you want to review?")
 
 	var turn1 *TaskResult
 	e.agent.Observer = func(r TaskResult) { turn1 = &r }
@@ -195,7 +195,7 @@ func TestTheAssistantKnowsWhatItAlreadySaid(t *testing.T) {
 	if len(turns) != 1 {
 		t.Fatalf("the conversation must record the turn, got %d", len(turns))
 	}
-	if turns[0].Agent != "¿Qué carpeta quieres revisar?" {
+	if turns[0].Agent != "Which folder do you want to review?" {
 		t.Errorf("the answer must be recorded: %+v", turns[0])
 	}
 	if turns[0].User == "" {
@@ -208,15 +208,15 @@ func TestTheAssistantKnowsWhatItAlreadySaid(t *testing.T) {
 func TestThePromptCarriesTheConversation(t *testing.T) {
 	e := chatFixture(t, "ok")
 	e.agent.SetTranscript([]DialogueTurn{
-		{User: "revisa el directorio", Agent: "¿qué directorio?", Kind: KindAsk},
+		{User: "review the directory", Agent: "which directory?", Kind: KindAsk},
 		{User: "el actual", Agent: "voy", Kind: KindChat},
 	})
 
 	got := e.agent.dialogue()
-	if !strings.Contains(got, "revisa el directorio") {
+	if !strings.Contains(got, "review the directory") {
 		t.Errorf("the prompt must carry what the user said: %q", got)
 	}
-	if !strings.Contains(got, "¿qué directorio?") {
+	if !strings.Contains(got, "which directory?") {
 		t.Errorf("the prompt must carry what the agent asked: %q", got)
 	}
 	if !strings.Contains(got, "el actual") {
@@ -241,7 +241,7 @@ func TestTheConversationIsBounded(t *testing.T) {
 	e := chatFixture(t, "ok")
 	var turns []DialogueTurn
 	for i := 0; i < 40; i++ {
-		turns = append(turns, DialogueTurn{User: "mensaje numero " + string(rune('A'+i%26)), Agent: "respuesta", Kind: KindChat})
+		turns = append(turns, DialogueTurn{User: "message number " + string(rune('A'+i%26)), Agent: "reply", Kind: KindChat})
 	}
 	e.agent.SetTranscript(turns)
 
@@ -251,7 +251,7 @@ func TestTheConversationIsBounded(t *testing.T) {
 		t.Errorf("the transcript must be bounded, got %d lines", lines)
 	}
 	// The tail is what a short answer refers to, so the MOST RECENT turn must survive.
-	if !strings.Contains(got, "respuesta") {
+	if !strings.Contains(got, "reply") {
 		t.Errorf("the recent turns must be kept: %q", got)
 	}
 	// ...and it must say that it was truncated, so the model does not believe it has the whole
@@ -265,10 +265,10 @@ func TestTheConversationIsBounded(t *testing.T) {
 // something if the next turn can see what the previous one did.
 func TestARecordedTaskIsPartOfTheConversation(t *testing.T) {
 	e := chatFixture(t, "ok")
-	e.agent.note(taskOf("cuenta los archivos del directorio actual"), "72 files", KindTask)
+	e.agent.note(taskOf("count the files in the current directory"), "72 files", KindTask)
 
 	got := e.agent.dialogue()
-	if !strings.Contains(got, "cuenta los archivos") {
+	if !strings.Contains(got, "count the files") {
 		t.Errorf("the task must be in the conversation: %q", got)
 	}
 	if !strings.Contains(got, "72 files") {
@@ -293,11 +293,11 @@ func TestAMultiLineAnswerStaysOneLine(t *testing.T) {
 // hands over the full history twice would double it every turn.
 func TestSetTranscriptReplaces(t *testing.T) {
 	e := chatFixture(t, "ok")
-	e.agent.SetTranscript([]DialogueTurn{{User: "uno", Kind: KindChat}})
-	e.agent.SetTranscript([]DialogueTurn{{User: "dos", Kind: KindChat}})
+	e.agent.SetTranscript([]DialogueTurn{{User: "one", Kind: KindChat}})
+	e.agent.SetTranscript([]DialogueTurn{{User: "two", Kind: KindChat}})
 
 	turns := e.agent.Transcript()
-	if len(turns) != 1 || turns[0].User != "dos" {
+	if len(turns) != 1 || turns[0].User != "two" {
 		t.Errorf("SetTranscript must replace, got %+v", turns)
 	}
 }
@@ -306,12 +306,12 @@ func TestSetTranscriptReplaces(t *testing.T) {
 // holding it would see it change under them as the turn appends.
 func TestTranscriptIsCopiedOut(t *testing.T) {
 	e := chatFixture(t, "ok")
-	e.agent.SetTranscript([]DialogueTurn{{User: "uno", Kind: KindChat}})
+	e.agent.SetTranscript([]DialogueTurn{{User: "one", Kind: KindChat}})
 
 	out := e.agent.Transcript()
 	out[0].User = "mutado"
 
-	if e.agent.Transcript()[0].User != "uno" {
+	if e.agent.Transcript()[0].User != "one" {
 		t.Error("the transcript must be copied out, not aliased")
 	}
 }

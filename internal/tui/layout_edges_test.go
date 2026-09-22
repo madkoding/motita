@@ -976,23 +976,24 @@ func TestTheCursorFollowsTheInputAsItWraps(t *testing.T) {
 func TestTheQuestionIsShownAsAQuestionNotAFailure(t *testing.T) {
 	got := summarise(agent.TaskResult{
 		NeedsInput: true,
-		Question:   "¿Quieres que revise el disco o los logs?",
-		Assumption: "asumo el estado del disco",
+		Question:   "Do you want me to check the disk or the logs?",
+		Assumption: "I assume the state of the disk",
 	})
 	if strings.HasPrefix(got, "failed") {
 		t.Errorf("a question must not be reported as a failure: %q", got)
 	}
-	if !strings.Contains(got, "disco o los logs") {
+	if !strings.Contains(got, "the disk or the logs") {
 		t.Errorf("the question must be shown: %q", got)
 	}
 	// The assumption travels with it, so the user can confirm in one word.
 	//
 	// The assertion is over the ASSUMPTION itself, which is what the comment above says the test
-	// is for. It used to assert the presence of the word "asumiré", which appears nowhere in the
+	// is for. It used to assert the presence of the word "assume", which appears nowhere in the
 	// fixture — so what it actually pinned was the hardcoded Spanish lead the interface put in
-	// front of the field ("Si no me dices otra cosa, asumiré: "). That lead fixed the language of
+	// front of the field ("If you do not tell me otherwise, I will assume: "). That lead fixed the
+	// language of
 	// every conversation, and the assertion kept it there by failing when it was removed.
-	if !strings.Contains(got, "asumo el estado del disco") {
+	if !strings.Contains(got, "I assume the state of the disk") {
 		t.Errorf("the assumption must be shown so the user can confirm it: %q", got)
 	}
 }
@@ -1011,10 +1012,10 @@ func TestAQuestionWithNoTextStillSaysSomething(t *testing.T) {
 }
 
 // TestAQuestionWithNoAssumptionOmitsTheLine: with nothing assumed there is nothing to offer as a
-// default, and printing an empty "asumiré:" would be worse than saying nothing.
+// default, and printing an empty "I will assume:" would be worse than saying nothing.
 func TestAQuestionWithNoAssumptionOmitsTheLine(t *testing.T) {
-	got := summarise(agent.TaskResult{NeedsInput: true, Question: "¿qué quieres?"})
-	if strings.Contains(got, "asumiré") {
+	got := summarise(agent.TaskResult{NeedsInput: true, Question: "what do you want?"})
+	if strings.Contains(got, "I will assume") {
 		t.Errorf("no assumption means no assumption line: %q", got)
 	}
 }

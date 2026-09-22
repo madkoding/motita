@@ -35,7 +35,7 @@ command -v go >/dev/null 2>&1 || { echo "ERROR: go is not on the PATH"; exit 2; 
 
 ARCH="${1:-386}"
 IMAGE="${2:-}"
-PORT="${PUERTO:-8210}"
+PORT="${PORT:-8210}"
 
 # The image has to match the architecture: running an arm binary in an amd64
 # container fails with "exec format error", which looks like a broken binary.

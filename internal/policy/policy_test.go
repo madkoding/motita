@@ -269,7 +269,7 @@ func TestMvAndCpJudgeTheirDestination(t *testing.T) {
 func TestASymlinkDoesNotSmuggleAWriteOut(t *testing.T) {
 	dir := t.TempDir()
 	outside := t.TempDir()
-	link := filepath.Join(dir, "salida")
+	link := filepath.Join(dir, "output")
 	if err := os.Symlink(outside, link); err != nil {
 		t.Skipf("symlinks are not available here: %v", err)
 	}
@@ -313,7 +313,7 @@ func TestAChainIsJudgedByEveryPart(t *testing.T) {
 	if d := Default().DecideLine("git add -A && git commit -m x && git push", dir); d.Verdict != Ask {
 		t.Errorf("a chain that pushes must be asked about, got %s: %s", d.Verdict, d.Reason)
 	}
-	outside := filepath.Join(filepath.Dir(dir), "fuera.txt")
+	outside := filepath.Join(filepath.Dir(dir), "outside.txt")
 	if d := Default().DecideLine("true; echo x > "+outside, dir); d.Verdict != Ask {
 		t.Errorf("a chain writing outside must be asked about, got %s: %s", d.Verdict, d.Reason)
 	}
@@ -323,7 +323,7 @@ func TestAChainIsJudgedByEveryPart(t *testing.T) {
 // line, because the line runs as a unit.
 func TestTheWorstVerdictOfALineWins(t *testing.T) {
 	dir := t.TempDir()
-	outside := filepath.Join(filepath.Dir(dir), "fuera")
+	outside := filepath.Join(filepath.Dir(dir), "outside")
 	d := Default().DecideLine("ls && cat a && echo x > "+outside, dir)
 	if d.Verdict != Ask {
 		t.Errorf("the line must inherit the worst verdict, got %s: %s", d.Verdict, d.Reason)
@@ -335,8 +335,8 @@ func TestTheWorstVerdictOfALineWins(t *testing.T) {
 func TestWritingInsideWithARedirectionIsAllowed(t *testing.T) {
 	dir := t.TempDir()
 	for _, line := range []string{
-		"echo hola > f.txt",
-		"echo hola >> f.txt",
+		"echo hi > f.txt",
+		"echo hi >> f.txt",
 		"printf x > " + filepath.Join(dir, "sub", "f.txt"),
 		"go test ./... > resultados.txt 2>&1",
 		"command -v sh > /dev/null 2>&1",
@@ -384,7 +384,7 @@ func TestAFileDescriptorRedirectIsNotAFile(t *testing.T) {
 // classified, so it is always offered to the user, whatever the settings.
 func TestAShellIsNeverRunUnreviewed(t *testing.T) {
 	dir := t.TempDir()
-	for _, line := range []string{"sh -c 'echo hola'", "bash build.sh", "zsh -i"} {
+	for _, line := range []string{"sh -c 'echo hi'", "bash build.sh", "zsh -i"} {
 		d := Default().DecideLine(line, dir)
 		if d.Verdict != Ask && d.Verdict != Deny {
 			t.Errorf("%q is an interpreter and must not run unreviewed, got %s", line, d.Verdict)
@@ -398,12 +398,12 @@ func TestAShellIsNeverRunUnreviewed(t *testing.T) {
 // keyboard, and it has to actually work or the operator is forced to edit the policy.
 func TestEnforceOffRunsWhatWouldBeAsked(t *testing.T) {
 	dir := t.TempDir()
-	outside := filepath.Join(filepath.Dir(dir), "fuera")
+	outside := filepath.Join(filepath.Dir(dir), "outside")
 	m := Mode{Enforce: false}
 	if d := m.DecideLine("touch "+outside, dir); d.Verdict != Allow {
 		t.Errorf("with the policy off a consequential action must run, got %s: %s", d.Verdict, d.Reason)
 	}
-	if d := m.DecideLine("sh -c 'echo hola'", dir); d.Verdict != Allow {
+	if d := m.DecideLine("sh -c 'echo hi'", dir); d.Verdict != Allow {
 		t.Errorf("with the policy off a shell must run, got %s: %s", d.Verdict, d.Reason)
 	}
 }
@@ -446,7 +446,7 @@ func TestRelaxingLeavesTheFloorAlone(t *testing.T) {
 func TestStrictRefusesWhatCannotBeClassified(t *testing.T) {
 	dir := t.TempDir()
 	m := Mode{Enforce: true, Strict: true}
-	d := m.DecideLine("comando-que-nadie-conoce", dir)
+	d := m.DecideLine("command-nobody-knows", dir)
 	if d.Verdict != Deny {
 		t.Fatalf("strict must refuse the unclassified, got %s", d.Verdict)
 	}
@@ -677,8 +677,8 @@ func TestIsRootLikeSeesTheTreeAboveTheWorkspace(t *testing.T) {
 }
 
 func TestRmTargetsHonoursTheTerminator(t *testing.T) {
-	got := rmTargets([]string{"-rf", "--", "-archivo-raro", "otro"})
-	want := []string{"-archivo-raro", "otro"}
+	got := rmTargets([]string{"-rf", "--", "-weird-flag", "otro"})
+	want := []string{"-weird-flag", "otro"}
 	if len(got) != len(want) {
 		t.Fatalf("rmTargets = %#v, want %#v", got, want)
 	}

@@ -60,13 +60,13 @@ func TestWordWrapKeepsItsExactOutput(t *testing.T) {
 	}{
 		{
 			name: "fits on one line",
-			in:   "hola mundo", width: 40,
-			want: []string{"hola mundo"},
+			in:   "hello world", width: 40,
+			want: []string{"hello world"},
 		},
 		{
 			name: "wraps at a space",
-			in:   "uno dos tres cuatro", width: 8,
-			want: []string{"uno dos", "tres", "cuatro"},
+			in:   "one two three four", width: 8,
+			want: []string{"one two", "three", "four"},
 		},
 		{
 			name: "a single word wider than the line is hard split",
@@ -75,13 +75,13 @@ func TestWordWrapKeepsItsExactOutput(t *testing.T) {
 		},
 		{
 			name: "an explicit newline starts a new paragraph",
-			in:   "uno\ndos", width: 20,
-			want: []string{"uno", "dos"},
+			in:   "one\ntwo", width: 20,
+			want: []string{"one", "two"},
 		},
 		{
 			name: "runs of spaces collapse, as Fields does",
-			in:   "uno    dos", width: 20,
-			want: []string{"uno dos"},
+			in:   "one    two", width: 20,
+			want: []string{"one two"},
 		},
 		{
 			name: "empty input still yields one (empty) line",
@@ -143,7 +143,7 @@ func TestWordWrapMeasuresEscapesAsZeroWidth(t *testing.T) {
 // over a sweep of widths, because the defect was conditional: a long word only overflowed when it
 // followed a SHORT one, so a single example would have passed.
 func TestWordWrapWidthIsMeasuredInVisibleColumns(t *testing.T) {
-	text := strings.Repeat("palabra con acentos café \U0001F31F ", 40)
+	text := strings.Repeat("word with accents café \U0001F31F ", 40)
 	for width := 4; width <= 40; width++ {
 		for _, l := range wordWrap(text, width) {
 			if n := visibleLen(l); n > width {

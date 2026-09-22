@@ -43,25 +43,25 @@ func TestAskingTurnHandsQuestionsToTheInterface(t *testing.T) {
 	r.newAgent = func(config.Config, *logx.Logger, *llm.Client, *sandbox.Sandbox, task.Source, bool) AgentRunner {
 		return &askingAgent{res: agent.TaskResult{
 			NeedsInput: true,
-			Question:   "¿qué carpeta?",
+			Question:   "which folder?",
 			Questions: []agent.AskItem{
-				{Text: "¿qué carpeta?", Assumption: "la actual", Options: []string{"la actual", "/tmp"}},
-				{Text: "¿lo borro?"},
+				{Text: "which folder?", Assumption: "the current one", Options: []string{"the current one", "/tmp"}},
+				{Text: "do I delete it?"},
 			},
 		}}
 	}
 
-	if _, err := r.RunTask(context.Background(), "revisa el proyecto", func(string, ...any) {}); err != nil {
+	if _, err := r.RunTask(context.Background(), "review the project", func(string, ...any) {}); err != nil {
 		t.Fatalf("RunTask: %v", err)
 	}
 	items, origin := r.TakePendingQuestions()
 	if len(items) != 2 {
 		t.Fatalf("both questions should reach the interface, got %d", len(items))
 	}
-	if items[0].Text != "¿qué carpeta?" || len(items[0].Options) != 2 {
+	if items[0].Text != "which folder?" || len(items[0].Options) != 2 {
 		t.Fatalf("the question should arrive whole, got %+v", items[0])
 	}
-	if origin != "revisa el proyecto" {
+	if origin != "review the project" {
 		t.Fatalf("origin = %q, want the request that was being clarified", origin)
 	}
 }
@@ -72,9 +72,9 @@ func TestTurnWithoutQuestionsLeavesNothingPending(t *testing.T) {
 	r := NewAppRunner(&strings.Builder{}, &strings.Builder{}, config.Default(),
 		&llm.Client{}, &sandbox.Sandbox{}, logx.Global())
 	r.newAgent = func(config.Config, *logx.Logger, *llm.Client, *sandbox.Sandbox, task.Source, bool) AgentRunner {
-		return &askingAgent{res: agent.TaskResult{Pass: true, Summary: "hecho"}}
+		return &askingAgent{res: agent.TaskResult{Pass: true, Summary: "done"}}
 	}
-	if _, err := r.RunTask(context.Background(), "haz algo", func(string, ...any) {}); err != nil {
+	if _, err := r.RunTask(context.Background(), "do something", func(string, ...any) {}); err != nil {
 		t.Fatalf("RunTask: %v", err)
 	}
 	if items, _ := r.TakePendingQuestions(); items != nil {
@@ -90,10 +90,10 @@ func TestQuestionsWithoutTheFlagAreIgnored(t *testing.T) {
 	r.newAgent = func(config.Config, *logx.Logger, *llm.Client, *sandbox.Sandbox, task.Source, bool) AgentRunner {
 		return &askingAgent{res: agent.TaskResult{
 			Pass:      true,
-			Questions: []agent.AskItem{{Text: "no debería abrirse"}},
+			Questions: []agent.AskItem{{Text: "should not open"}},
 		}}
 	}
-	if _, err := r.RunTask(context.Background(), "haz algo", func(string, ...any) {}); err != nil {
+	if _, err := r.RunTask(context.Background(), "do something", func(string, ...any) {}); err != nil {
 		t.Fatalf("RunTask: %v", err)
 	}
 	if items, _ := r.TakePendingQuestions(); items != nil {
@@ -111,7 +111,7 @@ func TestLoopGivesKeysToTheWindow(t *testing.T) {
 	rr := &recordingRunner{}
 	tui := &TUI{In: &tabReader{src: []byte("2\n\n")}, Out: &strings.Builder{}, Err: &strings.Builder{},
 		Runner: rr, NoColor: true, Width: 80, Height: 40}
-	tui.ask = newAsk([]agent.AskItem{{Text: "¿cuál?", Options: []string{"uno", "dos"}}}, "origen")
+	tui.ask = newAsk([]agent.AskItem{{Text: "which one?", Options: []string{"one", "two"}}}, "origin")
 
 	_ = tui.Run(context.Background())
 
@@ -122,7 +122,7 @@ func TestLoopGivesKeysToTheWindow(t *testing.T) {
 		t.Fatalf("the pick and the confirm are ONE turn, got %d: %q", len(rr.tasks), rr.tasks)
 	}
 	got := rr.tasks[0]
-	for _, want := range []string{"origen", "¿cuál?", "dos"} {
+	for _, want := range []string{"origin", "which one?", "two"} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("the turn should carry %q, got:\n%s", want, got)
 		}

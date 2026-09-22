@@ -10,7 +10,7 @@ import (
 // verdict to what was read, then prove the value survived a restart. This is the wiring the
 // live probe could not exercise because the model chose to search instead of reading.
 func TestTheFullCycleThroughTheActionPath(t *testing.T) {
-	a := libraryAgent(t, map[string]string{"count-files": "# Contar archivos\n1. find . -type f | wc -l\n"})
+	a := libraryAgent(t, map[string]string{"count-files": "# Count files\n1. find . -type f | wc -l\n"})
 
 	// 1. The model asks for the procedure by kind, as it does in Task mode.
 	out, err := a.runActions(context.Background(), []Command{
@@ -28,7 +28,7 @@ func TestTheFullCycleThroughTheActionPath(t *testing.T) {
 	if used["count-files"] != 1 {
 		t.Fatalf("the read must be recorded, got %+v", used)
 	}
-	if err := a.reward.Attribute([]string{"count-files"}, used, false, "el paso 1 no incluye subcarpetas"); err != nil {
+	if err := a.reward.Attribute([]string{"count-files"}, used, false, "step 1 does not include subfolders"); err != nil {
 		t.Fatalf("Attribute: %v", err)
 	}
 
@@ -43,17 +43,17 @@ func TestTheFullCycleThroughTheActionPath(t *testing.T) {
 
 	// 4. The next read shows the complaint, so a fix can be written from it.
 	again := act(t, a, "read_skill", "count-files")
-	if !strings.Contains(again, "no incluye subcarpetas") {
+	if !strings.Contains(again, "does not include subfolders") {
 		t.Errorf("the complaint must reach the model on the next read:\n%s", again)
 	}
 
 	// 5. Fixing it marks the complaint answered.
-	fixed := act(t, a, "save_skill", "count-files :: # Contar archivos\n1. find . -type f | wc -l  (todas las subcarpetas)\n")
+	fixed := act(t, a, "save_skill", "count-files :: # Count files\n1. find . -type f | wc -l  (all subfolders)\n")
 	if !strings.Contains(strings.ToLower(fixed), "addressed") {
 		t.Errorf("the fix must mark the complaint:\n%s", fixed)
 	}
 	after := act(t, a, "read_skill", "count-files")
-	if strings.Contains(after, "no incluye subcarpetas") {
+	if strings.Contains(after, "does not include subfolders") {
 		t.Errorf("the answered complaint must not be repeated:\n%s", after)
 	}
 }

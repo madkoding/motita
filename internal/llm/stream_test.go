@@ -79,8 +79,8 @@ func collect(ch <-chan StreamChunk) []StreamChunk {
 }
 
 func TestCompleteToolsStreamYieldsTextThenDone(t *testing.T) {
-	srv := sseServer(t, "data: {\"choices\":[{\"delta\":{\"content\":\"hola\"}}]}\n\n"+
-		"data: {\"choices\":[{\"delta\":{\"content\":\" mundo\"}}]}\n\n"+
+	srv := sseServer(t, "data: {\"choices\":[{\"delta\":{\"content\":\"hello\"}}]}\n\n"+
+		"data: {\"choices\":[{\"delta\":{\"content\":\" world\"}}]}\n\n"+
 		"data: [DONE]\n\n", http.StatusOK)
 	c := streamClient(t, srv.URL)
 
@@ -93,13 +93,13 @@ func TestCompleteToolsStreamYieldsTextThenDone(t *testing.T) {
 			text.WriteString(ch.Text)
 		case StreamDone:
 			done = true
-			if ch.Reply.Content != "hola mundo" {
+			if ch.Reply.Content != "hello world" {
 				t.Errorf("the final reply must carry the accumulated text, got %q", ch.Reply.Content)
 			}
 		}
 	}
-	if text.String() != "hola mundo" {
-		t.Errorf("text = %q, want %q", text.String(), "hola mundo")
+	if text.String() != "hello world" {
+		t.Errorf("text = %q, want %q", text.String(), "hello world")
 	}
 	if !done {
 		t.Error("the stream must end with a done chunk")
@@ -203,12 +203,12 @@ func TestCompleteToolsStreamStopsOnAClosedBody(t *testing.T) {
 func TestStreamResultAccumulatesToolCallUpdates(t *testing.T) {
 	var acc StreamResult
 	acc.Handle(StreamChunk{Event: StreamToolCall, Call: &ToolCall{ID: "c1", Function: FunctionCall{Name: "execute_command", Arguments: json.RawMessage(`{"cmd":`)}}})
-	acc.Handle(StreamChunk{Event: StreamText, Text: "hola"})
+	acc.Handle(StreamChunk{Event: StreamText, Text: "hello"})
 	acc.Handle(StreamChunk{Event: StreamToolCall, Call: &ToolCall{ID: "c1", Function: FunctionCall{Name: "execute_command", Arguments: json.RawMessage(`{"cmd":"ls"}`)}}})
 	acc.Handle(StreamChunk{Event: StreamToolCall, Call: &ToolCall{ID: "c2", Function: FunctionCall{Name: "read_file"}}})
 
 	reply := acc.FinalReply()
-	if reply.Content != "hola" {
+	if reply.Content != "hello" {
 		t.Errorf("content = %q", reply.Content)
 	}
 	if len(reply.Calls) != 2 {

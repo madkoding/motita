@@ -81,13 +81,13 @@ drawn:
 // TestLiveBackspaceRemovesTheLastRune: backspace edits the draft, and it removes a RUNE, not a
 // byte: a byte-wise delete would leave half a character, which the terminal renders as garbage.
 func TestLiveBackspaceRemovesTheLastRune(t *testing.T) {
-	tu, _ := liveTUI("hola\x7fx\n")
+	tu, _ := liveTUI("hello\x7fx\n")
 
 	line, ok := tu.readLine(context.Background())
 	if !ok {
 		t.Fatal("Enter must end the line")
 	}
-	if line != "holx" {
+	if line != "hellx" {
 		t.Errorf("line = %q, want the last rune removed", line)
 	}
 }
@@ -451,7 +451,7 @@ func TestATruncatedUTF8SequenceIsDropped(t *testing.T) {
 // of them. A version that stopped at two would render it as two mojibake characters, which is
 // the same defect as a broken accent but harder to notice in a test that only checks Latin-1.
 func TestFourByteCharactersArriveWhole(t *testing.T) {
-	for _, text := range []string{"listo 🚀", "ok ✅✅", "un 🙂 emoji"} {
+	for _, text := range []string{"ready 🚀", "ok ✅✅", "an 🙂 emoji"} {
 		tu, _ := newKeyTUI(text + "\n")
 		tu.charMode = true
 		tu.Width, tu.Height = 100, 24
@@ -559,7 +559,7 @@ func TestNoControlByteEverReachesTheChat(t *testing.T) {
 // thread, and leaving it in the field invites sending it twice — or editing the copy while
 // believing the sent one is being changed.
 func TestTheInputIsClearedAfterAMessageIsSent(t *testing.T) {
-	tu, _ := newKeyTUI("una pregunta\n\nq\n")
+	tu, _ := newKeyTUI("a question\n\nq\n")
 	tu.Width, tu.Height = 100, 24
 
 	if _, ok := tu.readLine(context.Background()); !ok {
@@ -570,7 +570,7 @@ func TestTheInputIsClearedAfterAMessageIsSent(t *testing.T) {
 	}
 	// And the drawn field must be empty too: the text moved to the thread, it is not shown twice.
 	field := stripANSI(strings.Join(tu.composerLines(), "\n"))
-	if strings.Contains(field, "una pregunta") {
+	if strings.Contains(field, "a question") {
 		t.Errorf("the sent text is still drawn in the input:\n%s", field)
 	}
 }
@@ -584,7 +584,7 @@ func TestTheInputIsClearedAfterAMessageIsSent(t *testing.T) {
 func TestTheWholeLineReaderRemovesControlCharactersToo(t *testing.T) {
 	// The whole-line path: not in character mode, which is what happens when the terminal will
 	// not accept cbreak — piped input, a cron job, a script.
-	tu, _ := newKeyTUI("hola\x01mundo\x0b\x17\n")
+	tu, _ := newKeyTUI("hello\x01world\x0b\x17\n")
 	tu.charMode = false
 	tu.Width, tu.Height = 100, 24
 
@@ -592,7 +592,7 @@ func TestTheWholeLineReaderRemovesControlCharactersToo(t *testing.T) {
 	if !ok {
 		t.Fatal("the read must return the line")
 	}
-	if line != "holamundo" {
+	if line != "helloworld" {
 		t.Errorf("line = %q, want the control characters gone", line)
 	}
 	for _, r := range line {
@@ -607,9 +607,9 @@ func TestTheWholeLineReaderRemovesControlCharactersToo(t *testing.T) {
 // U+0020 and must not be touched.
 func TestSanitiseLineKeepsWhatIsText(t *testing.T) {
 	for _, tc := range []struct{ in, want string }{
-		{"hola", "hola"},
-		{"hola mundo", "hola mundo"},
-		{"hola\x01mundo", "holamundo"},
+		{"hello", "hello"},
+		{"hello world", "hello world"},
+		{"hello\x01world", "helloworld"},
 		{"\x0b\x17a\x1fb", "ab"},
 		{"café ☕ 🚀", "café ☕ 🚀"},
 		{"  spaces are kept  ", "  spaces are kept  "},
@@ -683,9 +683,9 @@ func TestAKeySequenceIsNotEchoedIntoTheChat(t *testing.T) {
 // looks like a command — still reaches the chat, or the interface would silently swallow what
 // the user typed.
 func TestTypedTextIsStillAMessage(t *testing.T) {
-	// "/find algo" is deliberately NOT in this list: it is a command the interface acts on, and
+	// "/find something" is deliberately NOT in this list: it is a command the interface acts on, and
 	// consuming it is correct. What must reach the chat is ordinary text.
-	for _, text := range []string{"hola", "una pregunta larga", "x", "1234", "cuenta los ficheros"} {
+	for _, text := range []string{"hello", "a long question", "x", "1234", "count the files"} {
 		tu, _ := newKeyTUI("")
 		tu.Width, tu.Height = 100, 24
 
@@ -701,9 +701,9 @@ func TestTypedTextIsStillAMessage(t *testing.T) {
 // The whole-line reader handled an ESC only as the FIRST byte of a line. An arrow pressed after
 // some text does not put it there — it arrives in the middle of the run, and the bytes were kept
 // as literal text. Measured on the target machine, the message that reached the model was
-// `hola\x1b[C\x1b[D\x1b[A\x1b[B\x1b[3~\x1bOP\x15/quit`.
+// `hello\x1b[C\x1b[D\x1b[A\x1b[B\x1b[3~\x1bOP\x15/quit`.
 func TestArrowsTypedAfterTextNeverReachTheMessage(t *testing.T) {
-	tu, _ := newKeyTUI("hola\x1b[C\x1b[D\x1b[A\x1b[B\x1b[3~\x1bOP\n")
+	tu, _ := newKeyTUI("hello\x1b[C\x1b[D\x1b[A\x1b[B\x1b[3~\x1bOP\n")
 	tu.charMode = false // the whole-line path, which is where this leaked
 	tu.Width, tu.Height = 100, 24
 
@@ -711,7 +711,7 @@ func TestArrowsTypedAfterTextNeverReachTheMessage(t *testing.T) {
 	if !ok {
 		t.Fatal("the read must return the line")
 	}
-	if line != "hola" {
+	if line != "hello" {
 		t.Errorf("line = %q, want just the typed text", line)
 	}
 	if strings.ContainsRune(line, 0x1b) {
@@ -723,15 +723,15 @@ func TestArrowsTypedAfterTextNeverReachTheMessage(t *testing.T) {
 // bytes behind as text, so "[C" and "[3~" would appear in the message.
 func TestStripKeySequencesRemovesTheWholeSequence(t *testing.T) {
 	for _, tc := range []struct{ in, want string }{
-		{"hola", "hola"},
-		{"hola\x1b[C", "hola"},
+		{"hello", "hello"},
+		{"hello\x1b[C", "hello"},
 		{"\x1b[C\x1b[D\x1b[A\x1b[B", ""},
 		{"a\x1b[3~b", "ab"},
 		{"a\x1bOPb", "ab"},
 		{"a\x1bb", "ab"},             // a bare ESC
 		{"a\x1b[1;5Cb", "ab"},        // a modified arrow
 		{"café \x1b[A 🚀", "café  🚀"}, // text around it survives
-		{"sin secuencias", "sin secuencias"},
+		{"no sequences", "no sequences"},
 		{"\x1b[", ""},      // truncated at the end
 		{"\x1b", ""},       // nothing but the introducer
 		{"a\x1b[Zb", "ab"}, // Shift+Tab

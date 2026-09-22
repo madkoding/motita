@@ -36,8 +36,8 @@ func TestReadOnlyRefusesWritingCommands(t *testing.T) {
 	for _, line := range []string{
 		"rm -rf /tmp/x",
 		"mv a b",
-		"echo hola > f.txt",
-		"echo hola >> f.txt",
+		"echo hi > f.txt",
+		"echo hi >> f.txt",
 		"cat f | tee /etc/passwd",
 		"dd if=/dev/zero of=/dev/sda",
 		"git commit -m x",
@@ -164,14 +164,14 @@ func TestReadOnlyRefusesAnEmptyLine(t *testing.T) {
 // goes to the shell.
 func TestTaskModeStillUsesAShell(t *testing.T) {
 	a := agentWith(t, false)
-	p := a.planRequest("echo hola > f.txt")
+	p := a.planRequest("echo hi > f.txt")
 	if p.Verdict.String() != "allow" {
 		t.Fatalf("a line writing inside the workspace must be allowed: %s (rule %s)", p.Reason, p.Rule)
 	}
 	if len(p.Request.Args) != 2 || p.Request.Args[0] != "-c" {
 		t.Errorf("the line must go to the shell: command %q args %v", p.Request.Command, p.Request.Args)
 	}
-	if p.Request.Args[1] != "echo hola > f.txt" {
+	if p.Request.Args[1] != "echo hi > f.txt" {
 		t.Errorf("the line must be passed unchanged, got %q", p.Request.Args[1])
 	}
 }
@@ -198,14 +198,14 @@ func TestTheShellCanBeConfigured(t *testing.T) {
 func TestReadOnlyRunsTheProgramWithoutAShell(t *testing.T) {
 	a := agentWith(t, true)
 
-	p := a.planRequest(`grep -n "dos palabras" f.txt`)
+	p := a.planRequest(`grep -n "two words" f.txt`)
 	if p.Verdict.String() != "allow" {
 		t.Fatalf("a reader must be allowed in read-only mode, got %s: %s", p.Verdict, p.Reason)
 	}
 	if p.Request.Command != "grep" {
 		t.Errorf("the program must be run directly, got %q", p.Request.Command)
 	}
-	if len(p.Request.Args) != 3 || p.Request.Args[1] != "dos palabras" {
+	if len(p.Request.Args) != 3 || p.Request.Args[1] != "two words" {
 		t.Errorf("the quoted argument must survive whole, got %#v", p.Request.Args)
 	}
 	// No interpreter: the shell is what would honour a redirection, and read-only mode does
@@ -219,7 +219,7 @@ func TestReadOnlyRunsTheProgramWithoutAShell(t *testing.T) {
 // tokeniser's own reason, so the model is told which character stopped it.
 func TestReadOnlyRefusesAnUnreadableLine(t *testing.T) {
 	a := agentWith(t, true)
-	for _, line := range []string{`grep "sin cerrar`, `ls \`, `cat f |`, "", "   "} {
+	for _, line := range []string{`grep "unclosed`, `ls \`, `cat f |`, "", "   "} {
 		p := a.planRequest(line)
 		if p.Verdict.String() != "deny" {
 			t.Errorf("%q cannot be run as written and must be denied, got %s", line, p.Verdict)
@@ -276,7 +276,7 @@ func TestTaskModeAsksBeforeWritingOutsideTheWorkspace(t *testing.T) {
 		return true, nil
 	})
 
-	outside := a.cfg.Agent.WorkspaceDir + "/../fuera"
+	outside := a.cfg.Agent.WorkspaceDir + "/../outside"
 	if _, err := a.runActions(context.Background(), []Command{
 		{Command: "rm -rf " + outside},
 	}, "test: "); err != nil {
@@ -303,7 +303,7 @@ func TestTaskModeDoesNotRunWhenTheUserDeclines(t *testing.T) {
 	a.SetApprover(func(context.Context, ApprovalRequest) (bool, error) { return false, nil })
 
 	output, err := a.runActions(context.Background(), []Command{
-		{Command: "rm -rf " + a.cfg.Agent.WorkspaceDir + "/../fuera"},
+		{Command: "rm -rf " + a.cfg.Agent.WorkspaceDir + "/../outside"},
 	}, "test: ")
 	if err == nil {
 		t.Error("a declined action must be reported as an error")
@@ -329,7 +329,7 @@ func TestTaskModeRefusesWhenThereIsNobodyToAsk(t *testing.T) {
 	}
 
 	output, err := a.runActions(context.Background(), []Command{
-		{Command: "rm -rf " + a.cfg.Agent.WorkspaceDir + "/../fuera"},
+		{Command: "rm -rf " + a.cfg.Agent.WorkspaceDir + "/../outside"},
 	}, "test: ")
 	if err == nil {
 		t.Error("an unapprovable action must be reported as an error")
@@ -401,7 +401,7 @@ func TestRunCommandAsksAndRunsWhenApproved(t *testing.T) {
 		return true, nil
 	})
 
-	line := "rm -rf " + a.cfg.Agent.WorkspaceDir + "/../fuera"
+	line := "rm -rf " + a.cfg.Agent.WorkspaceDir + "/../outside"
 	if _, _, err := a.RunCommand(context.Background(), line); err != nil {
 		t.Fatalf("an approved command must run: %v", err)
 	}
@@ -416,7 +416,7 @@ func TestRunCommandAsksAndRunsWhenApproved(t *testing.T) {
 	if asked[0].Reason == "" || asked[0].Rule == "" {
 		t.Errorf("the question must say why and by which rule: %#v", asked[0])
 	}
-	if len(ran) != 1 || !strings.Contains(ran[0], "fuera") {
+	if len(ran) != 1 || !strings.Contains(ran[0], "outside") {
 		t.Errorf("the approved line must run, ran = %#v", ran)
 	}
 }
@@ -428,7 +428,7 @@ func TestRunCommandDoesNotRunWhenDeclined(t *testing.T) {
 	a := commandAgent(t, &ran)
 	a.SetApprover(func(context.Context, ApprovalRequest) (bool, error) { return false, nil })
 
-	output, exit, err := a.RunCommand(context.Background(), "rm -rf "+a.cfg.Agent.WorkspaceDir+"/../fuera")
+	output, exit, err := a.RunCommand(context.Background(), "rm -rf "+a.cfg.Agent.WorkspaceDir+"/../outside")
 	if err == nil {
 		t.Error("a declined command must be reported as an error")
 	}
@@ -453,7 +453,7 @@ func TestRunCommandReportsAnApprovalThatCouldNotBeObtained(t *testing.T) {
 		return false, errors.New("the terminal went away")
 	})
 
-	output, _, err := a.RunCommand(context.Background(), "rm -rf "+a.cfg.Agent.WorkspaceDir+"/../fuera")
+	output, _, err := a.RunCommand(context.Background(), "rm -rf "+a.cfg.Agent.WorkspaceDir+"/../outside")
 	if err == nil {
 		t.Fatal("an approval that could not be obtained must be an error")
 	}
@@ -475,7 +475,7 @@ func TestRunCommandWithoutAnApproverRefuses(t *testing.T) {
 	var ran []string
 	a := commandAgent(t, &ran) // no approver installed
 
-	output, _, err := a.RunCommand(context.Background(), "rm -rf "+a.cfg.Agent.WorkspaceDir+"/../fuera")
+	output, _, err := a.RunCommand(context.Background(), "rm -rf "+a.cfg.Agent.WorkspaceDir+"/../outside")
 	if err == nil {
 		t.Fatal("with nobody to ask the command must be refused")
 	}
@@ -498,7 +498,7 @@ func TestRunCommandRunsOrdinaryWorkWithoutAsking(t *testing.T) {
 		return true, nil
 	})
 
-	for _, line := range []string{"ls -la", "echo hola > dentro.txt", "go test ./..."} {
+	for _, line := range []string{"ls -la", "echo hi > inside.txt", "go test ./..."} {
 		if _, _, err := a.RunCommand(context.Background(), line); err != nil {
 			t.Errorf("%q is ordinary work and must run: %v", line, err)
 		}
@@ -552,7 +552,7 @@ func TestRunConfiguredRunsAConsequentialLineWithoutAsking(t *testing.T) {
 		return false, nil // a "no" that must never be consulted
 	})
 
-	line := "rm -rf " + a.cfg.Agent.WorkspaceDir + "/../fuera"
+	line := "rm -rf " + a.cfg.Agent.WorkspaceDir + "/../outside"
 	output, exit, err := a.runConfigured(context.Background(),
 		execx.Request{Command: shellFor(a.cfg), Args: []string{"-c", line}}, line)
 	if err != nil {

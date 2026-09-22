@@ -49,7 +49,7 @@ func TestCancellationInEveryMode(t *testing.T) {
 	t.Run("task", func(t *testing.T) {
 		started := make(chan struct{})
 		runner := &fakeRunner{taskBlock: make(chan struct{}), taskStarted: started}
-		tui := newFakeTUI("una tarea\n", runner)
+		tui := newFakeTUI("a task\n", runner)
 		if code := cancelOnceRunning(t, tui, started); code != ExitInterrupted {
 			t.Errorf("code = %d, want ExitInterrupted", code)
 		}
@@ -135,7 +135,7 @@ func TestRunPlanEmptyPromptDoesNothing(t *testing.T) {
 // user is looking.
 func TestRunTaskErrorIsShownInTheChat(t *testing.T) {
 	runner := &fakeRunner{taskErr: errors.New("the sandbox refused")}
-	tui := newFakeTUI("una tarea\nq\n", runner)
+	tui := newFakeTUI("a task\nq\n", runner)
 	tui.Run(context.Background())
 	frame := stripANSI(lastFrame(t, tui))
 	if !strings.Contains(frame, "the sandbox refused") {

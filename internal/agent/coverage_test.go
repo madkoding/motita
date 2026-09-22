@@ -87,20 +87,20 @@ func (s phaseServer) handler(t *testing.T) http.HandlerFunc {
 			case s.analysisUnclear:
 				content = `{"understandable": false, "summary": "", "success_criteria": [],
 					"risks": ["two readings are possible"], "needs_subtasks": false,
-					"question": "¿Quieres que revise el disco o los logs?",
-					"assumption": "asumo que quieres el estado del disco"}`
+					"question": "Do you want me to check the disk or the logs?",
+					"assumption": "I assume you want the state of the disk"}`
 			case s.analysisAssumptionOnly:
 				content = `{"understandable": false, "summary": "", "success_criteria": [],
 					"risks": ["ambiguo"], "needs_subtasks": false,
-					"question": "", "assumption": "asumo que quieres revisar el disco"}`
+					"question": "", "assumption": "I assume you want to check the disk"}`
 			case s.analysisUnclearNoSummary:
 				content = `{"understandable": false, "summary": "", "success_criteria": [],
 					"risks": ["ambiguo"], "needs_subtasks": false,
-					"question": "¿qué quieres?", "assumption": "asumo el estado del disco"}`
+					"question": "what do you want?", "assumption": "I assume the state of the disk"}`
 			case s.analysisUnclearNoAssumption:
 				content = `{"understandable": false, "summary": "", "success_criteria": [],
 					"risks": ["nothing to go on"], "needs_subtasks": false,
-					"question": "¿Qué quieres que haga?", "assumption": ""}`
+					"question": "What do you want me to do?", "assumption": ""}`
 			default:
 				content = s.analysis
 			}
