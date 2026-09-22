@@ -440,6 +440,7 @@ honoured. The documented one wins when both are set.
 | `final_action` | `kind` (`none`/`command`/`api`/`git_commit`), `command`, `args`, `url`, `method`, `commit_message` |
 | `agent` | `max_retries`, `subtask_depth`, `max_tasks`, `workspace_dir`, `log_file`, `log_level`, `log_console`, `log_max_mb`, `log_backups`, `graceful_shutdown_timeout`, `read_only`, `shell`, `policy{enforce,strict}`, `on_failure` |
 | `skills` | `dir`, `max_file_bytes` |
+| `gateway` | `enabled`, `listen`, `token_file`, `allow_lan`, `max_body_kb` |
 
 `skills.dir` is the procedure library: the directory of documents the agent may
 list, search, read and extend. It defaults to `skills` under the working
@@ -509,6 +510,45 @@ is caught, while `echo "rm -rf /"` — a line that merely *mentions* it — is n
 Both directions of error are known: a floor command reached through a program the
 scan does not know still arrives at the classifier as that program (refused or
 asked about), and a false positive only ever refuses.
+
+### The gateway
+
+The agent has an HTTP face, and it is **on by default**. Running `starlight` still
+opens the terminal interface, but the same process also listens on loopback behind
+a bearer token, so other front ends — a web page, a phone, a desktop window — can
+reach **the same conversation** the terminal is having. The agent lives once; every
+interface is a client of it.
+
+| Setting | Default | Effect |
+|---|---|---|
+| `enabled` | `true` | The HTTP face. Off is one deliberate act, for a machine that must not listen at all. |
+| `listen` | `127.0.0.1:0` | `host:port`. Port `0` asks the kernel for a free port, and the address it granted is written to the log. |
+| `token_file` | `gateway.token` | Where the bearer token lives, under the starlight home. Generated on first use with 32 random bytes, mode `0600`. |
+| `allow_lan` | `false` | Must be `true` for any address that is not loopback. |
+| `max_body_kb` | `256` | Cap on a request body. |
+
+Reaching the gateway from another machine takes **two deliberate acts**: a
+non-loopback listen address *and* `allow_lan`. Neither on its own is enough, and
+that is the point — what is being exposed runs commands on this machine, so no
+default and no single flag may open it.
+
+**There is no TLS in this version.** Exposing the gateway on a LAN without a
+tunnel sends the token in clear text; that is why `allow_lan` exists as a second,
+separate act. The supported way to reach a gateway on another machine is a tunnel,
+which never exposes it at all:
+
+```bash
+ssh -N -L 8787:127.0.0.1:8787 the-host
+# then point the client at http://127.0.0.1:8787
+```
+
+The token is compared in constant time and is never printed by `-validate-config`
+or any other command: configuration is shown to clients through a reduced view in
+which `llm.api_key` is reported only as *present* or *absent*.
+
+The address is validated at startup, not when the first client arrives: a
+`listen` that is not `host:port` is refused, and a non-loopback address without
+`allow_lan` is refused with a message naming the setting.
 
 ### What runs silently, and why that is a design decision
 

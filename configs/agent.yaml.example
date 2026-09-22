@@ -168,3 +168,36 @@ agent:
   on_failure:
     kind: command              # none | command
     command: 'echo "task not resolved: check the log" >> escalations.log'
+
+# ---------------------------------------------------------------------------
+# Gateway: the HTTP face of the agent.
+#
+# On by default and bound to loopback, behind a token kept in a file under the
+# starlight home. That combination is what lets a second front end - a web page,
+# a phone - reach the SAME conversation the terminal is having: the agent lives
+# once, in the process that runs the gateway, and every interface is a client.
+#
+# Reaching it from another machine takes two deliberate acts: a non-loopback
+# listen address AND allow_lan. The thing being exposed runs commands on this
+# machine, so neither a default nor a single flag may do it alone.
+#
+# There is NO TLS in this version. The supported way to reach a gateway on
+# another machine is a tunnel, which never exposes it at all:
+#
+#     ssh -N -L 8787:127.0.0.1:8787 the-host
+#     # then point the client at http://127.0.0.1:8787
+#
+# Exposing it on a LAN without a tunnel sends the token in clear text. That is a
+# decision, not an accident: it is loud in the log, and allow_lan is what asks
+# for it.
+gateway:
+  enabled: true
+  # host:port. Port 0 asks the kernel for a free one, which is what an embedded
+  # gateway wants: no collision, and the real address is reported in the log.
+  listen: "127.0.0.1:0"
+  # Where the bearer token lives. Generated on first use, 0600, under the home.
+  token_file: "gateway.token"
+  # Must be true for any address that is not loopback.
+  allow_lan: false
+  # Cap on a request body, in KB.
+  max_body_kb: 256

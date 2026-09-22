@@ -7,7 +7,9 @@
 package config
 
 import (
+	"errors"
 	"fmt"
+	"net"
 	"os"
 	"path/filepath"
 	"strings"
@@ -28,6 +30,23 @@ type Config struct {
 	FinalAction FinalAction `yaml:"final_action"`
 	Agent       Agent       `yaml:"agent"`
 	Skills      Skills      `yaml:"skills"`
+	Gateway     Gateway     `yaml:"gateway"`
+}
+
+// Gateway is the HTTP face of the agent: what other front ends - a web page, a phone, a
+// desktop window - reach it through.
+//
+// It is on by DEFAULT and bound to loopback, which is the shape that costs nothing and can be
+// trusted: an ephemeral port nothing else wants, reachable only from this machine, behind a
+// token. Reaching it from the network takes TWO deliberate acts - a non-loopback listen
+// address and allow_lan - because the thing being exposed runs commands on this machine, and
+// neither a default nor a single flag should be able to do that on its own.
+type Gateway struct {
+	Enabled   bool   `yaml:"enabled"`
+	Listen    string `yaml:"listen"`
+	TokenFile string `yaml:"token_file"`
+	AllowLAN  bool   `yaml:"allow_lan"`
+	MaxBodyKB int    `yaml:"max_body_kb"`
 }
 
 // TaskSource describes where the tasks come from.
@@ -280,6 +299,17 @@ func Default() Config {
 			Dir:          defaultSkillsDir(),
 			MaxFileBytes: 64 * 1024,
 		},
+		Gateway: Gateway{
+			Enabled: true,
+			// Port 0: the kernel grants a free one and the granted address is read back with
+			// Server.Addr(). A fixed port would collide with whatever the user already runs
+			// and would make two starlight windows impossible.
+			Listen: "127.0.0.1:0",
+			// Resolved against the starlight home by resolvePaths, like the log and the
+			// skills directory: everything the program owns lives under one folder.
+			TokenFile: "gateway.token",
+			MaxBodyKB: 256,
+		},
 		Prompts: Prompts{
 			Analyze:    BaseAnalyzeTemplate,
 			Plan:       BasePlanTemplate,
@@ -406,6 +436,7 @@ func resolvePaths(c *Config, base string) {
 	}
 	c.Agent.LogFile = join(c.Agent.LogFile)
 	c.Skills.Dir = join(c.Skills.Dir)
+	c.Gateway.TokenFile = join(c.Gateway.TokenFile)
 }
 
 // LoadOrDefault applies environment variables to the default configuration when
@@ -514,7 +545,54 @@ func (c *Config) validate(requireKey bool) error {
 	if err := c.validateFinalAction(); err != nil {
 		return err
 	}
+	if err := c.validateGateway(); err != nil {
+		return err
+	}
 	return c.validateAgent()
+}
+
+// validateGateway checks the settings of the HTTP face.
+//
+// A DISABLED gateway is not checked: an operator who turned it off must not be refused for an
+// address that will never be bound.
+func (c *Config) validateGateway() error {
+	if !c.Gateway.Enabled {
+		return nil
+	}
+	if strings.TrimSpace(c.Gateway.TokenFile) == "" {
+		return errors.New("gateway.token_file is empty: the gateway needs a file to keep its token in, and an unauthenticated agent is a remote shell")
+	}
+	if c.Gateway.MaxBodyKB < 0 {
+		return fmt.Errorf("gateway.max_body_kb is %d: it cannot be negative", c.Gateway.MaxBodyKB)
+	}
+	addr := strings.TrimSpace(c.Gateway.Listen)
+	if addr == "" {
+		addr = "127.0.0.1:0"
+	}
+	host, _, err := net.SplitHostPort(addr)
+	if err != nil {
+		return fmt.Errorf("gateway.listen %q is not host:port: %w", c.Gateway.Listen, err)
+	}
+	if !gatewayAddressIsLoopback(host) && !c.Gateway.AllowLAN {
+		return fmt.Errorf("gateway.listen %q is not a loopback address; set gateway.allow_lan to accept that anything on the network can drive this agent", c.Gateway.Listen)
+	}
+	return nil
+}
+
+// gatewayAddressIsLoopback reports whether a listen address names this machine only.
+//
+// It is duplicated from internal/gateway on purpose: config cannot import gateway (gateway
+// imports config, and the cycle would not compile) and a validation that lives behind the
+// thing it validates is a validation the wizard never reaches.
+func gatewayAddressIsLoopback(host string) bool {
+	if host == "" {
+		return false
+	}
+	if strings.EqualFold(host, "localhost") {
+		return true
+	}
+	ip := net.ParseIP(host)
+	return ip != nil && ip.IsLoopback()
 }
 
 // normalize lowercases the enumerated fields so every rule below can compare them

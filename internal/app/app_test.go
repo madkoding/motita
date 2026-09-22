@@ -1706,6 +1706,12 @@ func TestParsePlanAndPromptFlags(t *testing.T) {
 		{"prompt", []string{"-p", "ask"}, flags{plan: false, prompt: "ask"}, false},
 		{"prompt with equals", []string{"-p=ask"}, flags{plan: false, prompt: "ask"}, false},
 		{"prompt missing value", []string{"-p"}, flags{}, true},
+		{"serve flag", []string{"-serve"}, flags{serve: true}, false},
+		{"serve long form", []string{"--serve"}, flags{serve: true}, false},
+		{"gateway address", []string{"-gateway", "127.0.0.1:8787"}, flags{gateway: "127.0.0.1:8787"}, false},
+		{"gateway address with equals", []string{"-gateway=127.0.0.1:8787"}, flags{gateway: "127.0.0.1:8787"}, false},
+		{"gateway off", []string{"-gateway", "off"}, flags{gateway: "off"}, false},
+		{"gateway missing value", []string{"-gateway"}, flags{}, true},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

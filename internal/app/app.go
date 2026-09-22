@@ -21,6 +21,7 @@ import (
 
 	"github.com/madkoding/starlight/internal/agent"
 	"github.com/madkoding/starlight/internal/config"
+	"github.com/madkoding/starlight/internal/gateway"
 	"github.com/madkoding/starlight/internal/llm"
 	"github.com/madkoding/starlight/internal/logx"
 	"github.com/madkoding/starlight/internal/onboard"
@@ -83,6 +84,14 @@ type Options struct {
 
 	// RunTUI replaces the interactive menu in tests.
 	RunTUI func(context.Context, config.Config, *llm.Client, *sandbox.Sandbox, *logx.Logger) int
+	// ServeGateway replaces the gateway's serve loop. It is a seam of the same shape as Exit
+	// and waitSignal: the loop only returns an error when the listener breaks under it, so a
+	// test that wants to see what happens when it does needs to be able to make it fail.
+	ServeGateway func(*gateway.Server) error
+	// CloseGateway replaces the gateway's shutdown. Injecting it is how the "did not shut down
+	// cleanly" report is reached, and that report matters: a shutdown that failed is the
+	// difference between a client that was cut off and one that was waited for.
+	CloseGateway func(*gateway.Server, context.Context) error
 	// RunChild is the sandbox's child mode. It is injected so the success path
 	// can be tested without syscall.Exec replacing the test process (which is
 	// exactly what used to make the coverage profile disappear).
@@ -106,6 +115,8 @@ Options:
   -plan              enter read-only plan/chat mode (implies -tui when no prompt is given)
   -p string          one-shot plan/chat prompt (implies -plan)
   -tui               start the interactive text user interface (default when no task is given)
+  -serve             run the gateway only: no interface, for clients on other machines
+  -gateway string    gateway listen address (default 127.0.0.1:0; "off" disables it)
   -init              first-run wizard: choose the provider, the model and the
                      check, and write a working configuration
   -validate-config   validate the configuration and exit (does not call the LLM)
@@ -127,6 +138,8 @@ type flags struct {
 	version        bool
 	isolation      bool
 	initConfig     bool
+	serve          bool
+	gateway        string
 }
 
 // Run is the program's entry point: it parses the arguments, builds the three
@@ -245,6 +258,14 @@ func parse(args []string) (flags, error) {
 			}
 		case "-tui", "--tui":
 			b.tui = true
+		case "-serve", "--serve":
+			b.serve = true
+		case "-gateway", "--gateway":
+			v, err := next()
+			if err != nil {
+				return b, err
+			}
+			b.gateway = v
 		case "-p", "--prompt":
 			v, err := next()
 			if err != nil {
@@ -470,6 +491,15 @@ func (op Options) run(fl flags) int {
 		log.Error("could not prepare the reasoning engine", "error", err)
 		fmt.Fprintf(op.Err, "❌ %v\n", err)
 		return ConfigError
+	}
+
+	// The gateway by itself: no interface, just the HTTP face. It is the mode that makes a
+	// client on a phone useful on a machine nobody is sitting at.
+	//
+	// AFTER the engine above, deliberately: a server that starts and then fails on its first
+	// client is worse than one that refuses to start, because nobody is watching the first one.
+	if fl.serve {
+		return op.runServe(ctx, fl, cfg, engine, box, log)
 	}
 
 	if fl.plan || fl.prompt != "" {
@@ -705,6 +735,11 @@ func LogPath(cfg config.Config) string {
 // It is a method on Options rather than a flag field because the answer depends on the
 // positional arguments too, which are not part of the flag set.
 func (op Options) willRunTUI(fl flags) bool {
+	// FIRST, before the -tui check below: -serve draws nothing, so a process asked to serve is
+	// not a process asked to draw. "-tui -serve" is contradictory and -serve wins.
+	if fl.serve {
+		return false
+	}
 	if fl.tui {
 		return true
 	}
@@ -720,6 +755,11 @@ func (op Options) willRunTUI(fl flags) bool {
 }
 
 // runTUI starts the interactive text user interface.
+//
+// The interface is handed a CLIENT of this process's own gateway, not a second door into the
+// agent. Two doors would be two places the conversation lives, and the phone and the terminal
+// would then be talking to different agents: the text interface is a front end like any other,
+// and this is where that stops being a slogan.
 func (op Options) runTUI(ctx context.Context, fl flags, cfg config.Config, engine *llm.Client, box *sandbox.Sandbox, log *logx.Logger) int {
 	if op.RunTUI != nil {
 		return op.RunTUI(ctx, cfg, engine, box, log)
@@ -733,6 +773,27 @@ func (op Options) runTUI(ctx context.Context, fl flags, cfg config.Config, engin
 	ui.Out = op.Out
 	ui.Err = op.Err
 	ui.NoColor = noColour(os.Getenv, op.Out)
+
+	// With the gateway off, the interface keeps the direct path it has always had. It is the
+	// documented escape hatch, and it is one condition rather than a second implementation
+	// scattered through the code.
+	if !cfg.Gateway.Enabled || strings.EqualFold(strings.TrimSpace(fl.gateway), "off") {
+		return ui.Run(ctx)
+	}
+
+	srv, err := op.startGateway(fl, cfg, engine, box, log)
+	if err != nil {
+		fmt.Fprintf(op.Err, "the gateway could not start: %v\n", err)
+		return ConfigError
+	}
+	defer op.runGatewayLoop(ctx, srv, log)()
+
+	client := gateway.NewClient(srv.BaseURL(), srv.Token())
+	// The wizard runs HERE, in the terminal this process was started from: it reads lines from
+	// stdin, so it cannot travel over a socket. Embedded, "here" is the same machine as the
+	// gateway, which is what makes this correct rather than a shortcut.
+	client.Wizard = runner.RunConfig
+	ui.Runner = client
 	return ui.Run(ctx)
 }
 

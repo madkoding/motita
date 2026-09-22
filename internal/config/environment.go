@@ -51,6 +51,9 @@ func textBindings(c *Config) []binding[string] {
 
 		{"STARLIGHT_SKILLS_DIR", &c.Skills.Dir},
 
+		{"STARLIGHT_GATEWAY_LISTEN", &c.Gateway.Listen},
+		{"STARLIGHT_GATEWAY_TOKEN_FILE", &c.Gateway.TokenFile},
+
 		{"STARLIGHT_FINAL_ACTION_KIND", &c.FinalAction.Kind},
 		{"STARLIGHT_FINAL_ACTION_COMMAND", &c.FinalAction.Command},
 		{"STARLIGHT_FINAL_ACTION_URL", &c.FinalAction.URL},
@@ -101,6 +104,7 @@ func integerBindings(c *Config) []binding[int] {
 		{"STARLIGHT_SANDBOX_MAX_FILE_SIZE_MB", &c.Sandbox.MaxFileSizeMB},
 		{"STARLIGHT_SANDBOX_MAX_OUTPUT_KB", &c.Sandbox.MaxOutputKB},
 		{"STARLIGHT_SKILLS_MAX_FILE_BYTES", &c.Skills.MaxFileBytes},
+		{"STARLIGHT_GATEWAY_MAX_BODY_KB", &c.Gateway.MaxBodyKB},
 		{"STARLIGHT_LLM_MAX_TOKENS", &c.LLM.MaxTokens},
 		{"STARLIGHT_LLM_SESSION_CONTEXT_WINDOW", &c.LLM.Session.ContextWindow},
 		{"STARLIGHT_LLM_SESSION_RESERVE", &c.LLM.Session.Reserve},
@@ -122,6 +126,8 @@ func boolBindings(c *Config) []binding[bool] {
 		{"STARLIGHT_AGENT_READ_ONLY", &c.Agent.ReadOnly},
 		{"STARLIGHT_AGENT_POLICY_ENFORCE", &c.Agent.Policy.Enforce},
 		{"STARLIGHT_AGENT_POLICY_STRICT", &c.Agent.Policy.Strict},
+		{"STARLIGHT_GATEWAY_ENABLED", &c.Gateway.Enabled},
+		{"STARLIGHT_GATEWAY_ALLOW_LAN", &c.Gateway.AllowLAN},
 	}
 }
 

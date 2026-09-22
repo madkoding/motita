@@ -67,6 +67,24 @@ func TestTheExplicitFlagBeatsEverythingElse(t *testing.T) {
 	}
 }
 
+// TestServeBeatsTUI: "-tui -serve" is contradictory. The process that serves draws nothing, so
+// -serve wins — and it must win over the -tui check specifically, which is why the serve test
+// sits FIRST in willRunTUI. Without that ordering a process asked to serve would open a
+// terminal interface nobody asked for, on a machine nobody is sitting at.
+func TestServeBeatsTUI(t *testing.T) {
+	if runTUIFor(flags{tui: true, serve: true}) {
+		t.Error("-serve must win over -tui: the serving process draws nothing")
+	}
+	if runTUIFor(flags{serve: true}) {
+		t.Error("-serve alone must not start the interface")
+	}
+	// And a bare -serve must beat the default too, which is what makes it usable from a cron
+	// entry or a container with no terminal at all.
+	if runTUIFor(flags{serve: true}, "a positional argument") {
+		t.Error("-serve must rule out the interface even with positional arguments")
+	}
+}
+
 // TestTheLoggerIsSilencedExactlyWhenTheInterfaceRuns: the two call sites have to agree, and
 // this is the property that failed before — not the value of either predicate on its own but
 // their agreement.

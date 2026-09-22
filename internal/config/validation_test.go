@@ -81,3 +81,83 @@ func TestMissingFileFails(t *testing.T) {
 		t.Fatal("a missing file must fail, not fall back to the default values")
 	}
 }
+
+func TestGatewayValidation(t *testing.T) {
+	cases := []struct {
+		name    string
+		gateway func(*Config)
+		wantErr string
+	}{
+		{"the defaults are valid", func(*Config) {}, ""},
+		{"loopback is valid", func(c *Config) { c.Gateway.Listen = "127.0.0.1:8787" }, ""},
+		{"localhost is loopback", func(c *Config) { c.Gateway.Listen = "localhost:8787" }, ""},
+		{"::1 is loopback", func(c *Config) { c.Gateway.Listen = "[::1]:8787" }, ""},
+		{"a fixed port is valid", func(c *Config) { c.Gateway.Listen = "0.0.0.0:8787"; c.Gateway.AllowLAN = true }, ""},
+		{
+			"a non-loopback address without allow_lan is refused",
+			func(c *Config) { c.Gateway.Listen = "0.0.0.0:8787" },
+			"gateway.allow_lan",
+		},
+		{
+			"a bad address is refused",
+			func(c *Config) { c.Gateway.Listen = "not an address" },
+			"gateway.listen",
+		},
+		{
+			"a negative body cap is refused",
+			func(c *Config) { c.Gateway.MaxBodyKB = -1 },
+			"gateway.max_body_kb",
+		},
+		{
+			"an enabled gateway needs a token file",
+			func(c *Config) { c.Gateway.TokenFile = "" },
+			"gateway.token_file",
+		},
+		{
+			"a blank token file is the same as none",
+			func(c *Config) { c.Gateway.TokenFile = "   " },
+			"gateway.token_file",
+		},
+		{
+			// Port 0 is the default and the embedded shape; an empty address must mean the
+			// same thing rather than being refused for a host it never had.
+			"an empty listen address falls back to loopback",
+			func(c *Config) { c.Gateway.Listen = "" },
+			"",
+		},
+		{
+			// An empty host is NOT loopback: it means every interface on this machine.
+			"an empty host is refused without allow_lan",
+			func(c *Config) { c.Gateway.Listen = ":8787" },
+			"gateway.allow_lan",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg := Default()
+			tc.gateway(&cfg)
+			err := cfg.validate(false)
+			switch {
+			case tc.wantErr == "" && err != nil:
+				t.Fatalf("unexpected error: %v", err)
+			case tc.wantErr != "" && err == nil:
+				t.Fatalf("an error naming %q was expected", tc.wantErr)
+			case tc.wantErr != "" && !strings.Contains(err.Error(), tc.wantErr):
+				t.Fatalf("error = %v, it must name %q", err, tc.wantErr)
+			}
+		})
+	}
+}
+
+// A DISABLED gateway is not validated as if it were running: a configuration that turns the
+// gateway off must not be refused for an address it will never bind.
+func TestADisabledGatewaySkipsItsChecks(t *testing.T) {
+	cfg := Default()
+	cfg.Gateway.Enabled = false
+	cfg.Gateway.Listen = "not an address"
+	cfg.Gateway.TokenFile = ""
+	cfg.Gateway.MaxBodyKB = -1
+	if err := cfg.validate(false); err != nil {
+		t.Errorf("a disabled gateway must not be validated as a running one: %v", err)
+	}
+}
