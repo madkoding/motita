@@ -56,6 +56,13 @@ jobs:
       - name: the Go floor is still a supported release
         run: sh scripts/check-go-floor.sh
 
+      # NOTE: staticcheck must run on the go.mod toolchain (setup-go provides exactly
+      # that). No published version parses the export data of a much newer Go yet: under
+      # 1.27 the same pin fails with "internal error in importing ... export data version
+      # 4 is greater than maximum supported version 2", which reads like a finding and is
+      # a tool that cannot read the compiler's output. Checked v0.6.0/v0.6.1/v0.7.0: all
+      # pass on the floor, all fail on 1.27.
+
       - name: govulncheck
         run: |
           # Against the standard library and the module. With no external dependencies

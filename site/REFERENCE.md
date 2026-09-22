@@ -355,6 +355,13 @@ curl -fsSL "https://go.dev/dl/?mode=json"   # the releases Go still supports
 govulncheck ./...                          # what this code can actually reach
 ```
 
+One wrinkle worth knowing before you trust a red result: `staticcheck` has to run on the
+toolchain named in `go.mod`. No released version can read the export data of a much newer Go, so
+under a 1.27 toolchain the same code fails with `internal error in importing ... export data
+version 4 is greater than maximum supported version 2`, which looks like a finding and is the
+tool being unable to parse the compiler's output. It passes on the floor (1.26) and on every
+pin tried (v0.6.0, v0.6.1, v0.7.0).
+
 `scripts/verify.sh` checks the first automatically: it reads the floor out of `go.mod`, asks
 go.dev which series are still listed, and fails if yours is not among them — so the next
 release that retires 1.26 fails the build instead of quietly ageing into an unpatched
