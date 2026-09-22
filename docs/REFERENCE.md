@@ -473,6 +473,56 @@ Both directions of error are known: a floor command reached through a program th
 scan does not know still arrives at the classifier as that program (refused or
 asked about), and a false positive only ever refuses.
 
+### What runs silently, and why that is a design decision
+
+The confirmation layer is the part operators actually feel, because it is the part
+that interrupts them. Three rules decide whether a line runs without a question,
+and only the third exists to keep the layer usable:
+
+1. **Reads run.** `ls`, `cat`, `grep`, `find` without a destructive action — they
+   change nothing, so there is nothing to weigh.
+2. **The project's own build runs.** The local toolchains — `make`, `go build`,
+   `go test`, `npm test`, `cargo build`, `python3 script.py` — and your own
+   `./scripts/*`, when the script lives **inside the workspace**, are recognised
+   as the project's own work and run silently.
+3. **Everything else is a question.** A program that reaches the network or the
+   system, a write outside the workspace, and anything the policy cannot place.
+
+Rule 2 is the one that keeps the layer alive. A policy that asked about `make`
+would be switched off within a week, and then it would protect nothing — so the
+line between "the project's work" and "something nobody can predict" has to be
+drawn somewhere, and it is drawn at whether the policy **can see** that the work
+is local.
+
+The boundary cases are deliberate, and each one is a test:
+
+| Line | Verdict | Why |
+|---|---|---|
+| `python3 build.py` (inside the workspace) | silent | a script that belongs to the project |
+| `./scripts/deploy.sh` | silent | the same, when you name it directly |
+| `sh scripts/deploy.sh` | **asked** | a shell interpreter is opaque by construction — see below |
+| `python3 /opt/other/build.py` | asked | a script from outside — the policy cannot read it as yours |
+| `python3 -c '...'` | asked | inline code is as opaque as a shell line |
+| `make`, `go build`, `npm test` | silent | the local toolchain |
+| `pip install x`, `git push` | asked | it reaches the network |
+| `htop`, an unknown binary | asked | nobody can classify it; with `strict` on, refused |
+
+There is one asymmetry in that table worth naming, because it is the row an
+operator is most likely to trip over: **`./scripts/deploy.sh` runs silently but
+`sh scripts/deploy.sh` is asked about.** An interpreter is opaque by
+construction — `sh -c 'ls'` and `sh -c 'rm -rf /'` have the same shape, and the
+policy cannot read the script it is handed as data. Naming the program directly
+is different: the policy can see that the path resolves inside the workspace, so
+the project's own tooling is recognised as the project's own tooling. Handing the
+same file to a shell hides that from the classifier, and the cautious answer is
+to ask. This is deliberate, and it is the same judgement that makes inline code a
+question.
+
+Inline flags are read per interpreter, because `-c` does not mean the same thing
+to `python3` and to `gcc`: treating them alike would either silence a real
+question or ask about a compile flag. An assignment in front of a command
+(`FOO=1 ls`) is classified by the **real** program, not by the assignment.
+
 ### Variables available in prompts
 
 `{{task}}` `{{workspace}}` `{{origin}}` `{{attempt}}` `{{max_attempts}}`

@@ -30,78 +30,68 @@ stopping". And a language model will always produce a sentence that sounds like
 success, because producing plausible sentences is the one thing it is
 guaranteed to do well.
 
-## The fix: the model proposes, a validator disposes
+## The model proposes, your code disposes
 
-starlight splits the job in three. The model only ever gets to *propose*.
+starlight splits every task in three, and the model only ever gets to *propose*.
 
-```
-                    ┌──────────────────────────────────────────────┐
-   TASK ──────────► │  B · THE REASONING ENGINE                    │
-                    │  reads the task, proposes an action          │
-                    │  ── it never gets to declare success ──      │
-                    └───────────────────┬──────────────────────────┘
-                                        │
-                                        ▼
-                    ┌──────────────────────────────────────────────┐
-                    │  C · THE SANDBOX                             │
-                    │  runs it in its own directory, under real    │
-                    │  limits: memory, CPU, time, no network       │
-                    └───────────────────┬──────────────────────────┘
-                                        │
-                                        ▼
-                    ┌──────────────────────────────────────────────┐
-                    │  A · THE ANCHOR        ← your code, not AI   │
-                    │  runs your check: exit code, output regex,   │
-                    │  your invariants. No opinions.                │
-                    └───────────────────┬──────────────────────────┘
-                                        │
-                        ┌───────────────┴───────────────┐
-                        ▼                               ▼
-                    ── FAIL ──                      ── PASS ──
-                        │                               │
-        the failing command, its real          the final action runs:
-        output and the verdict go back         commit · publish · notify
-        to the model, which retries                    │
-                        │                               ▼
-                        └──► (out of retries) ──►  ESCALATE, and say so
+```mermaid
+flowchart TD
+    T([Task]) --> B["<b>B · Reasoning engine</b><br/>Reads the task, proposes an action.<br/><i>It never gets to declare success.</i>"]
+    B --> C["<b>C · Sandbox</b><br/>Runs the action in its own directory, under real<br/>limits: memory, CPU, time, no network."]
+    C --> A["<b>A · The anchor</b> — <i>your code, not AI</i><br/>Runs your check: exit code, output pattern,<br/>your own invariants. It has no opinions."]
+    A --> V{"What does the<br/>check say?"}
+    V -- "FAIL" --> R["The failing command, its real output and<br/>the verdict go back to the model"]
+    R -- "retry" --> B
+    R -. "out of retries" .-> E["<b>Escalate</b> — and say so.<br/>Never a fake PASS."]
+    V -- "PASS" --> F["The final action runs:<br/>commit · publish · notify"]
+    V -. "no anchor configured" .-> E
+
+    style A fill:#1f6feb22,stroke:#1f6feb
+    style E fill:#f8514922,stroke:#f85149
+    style F fill:#3fb95022,stroke:#3fb950
 ```
 
-**The one rule that makes it work:** the model can *propose* a `PASS`, but only
-layer A can *declare* one. With no anchor configured, the agent refuses to start.
+**The one rule that makes it work: the model can *propose* a `PASS`, but only
+layer A can *declare* one.** With no anchor configured, the agent refuses to
+start. There is no "trust me" mode — a `PASS` with nothing behind it is the exact
+failure this architecture exists to prevent.
 
-**Layer A — the anchor** is deterministic code, not AI. It runs your command and
-checks the exit code, the output against a regex, and your business invariants.
-It has no opinions. It is fast, boring and predictable.
-
-And it holds a veto that cannot be bought: **with no anchor configured, the agent
-refuses to start at all.** There is no "trust me" mode. A `PASS` with nothing
-behind it is the exact failure this architecture exists to prevent.
-
-**Layer B — the reasoning engine** is a hand-written client for OpenAI-compatible,
-Anthropic and Gemini APIs. Point it at OpenAI, Ollama Cloud, Groq, OpenRouter,
-DeepSeek, or your own self-hosted box. The rest of the agent doesn't know or care
-which one is behind it.
-
-**Layer C — the sandbox** runs the proposed action in its own ephemeral directory
-under real limits, and **tells you the truth about what it could not apply**
-instead of quietly pretending the isolation is stronger than it is.
+| Layer | What it is | Why it matters |
+|---|---|---|
+| **A · The anchor** | Deterministic code. Runs your command, checks the exit code, matches the output against a pattern, asserts your invariants. | It cannot be talked into a different answer. Fast, boring, predictable. |
+| **B · The reasoning engine** | A hand-written client for OpenAI-compatible, Anthropic and Gemini APIs. | Point it at OpenAI, Ollama Cloud, Groq, OpenRouter, DeepSeek, or your own box. Nothing else in the agent knows which. |
+| **C · The sandbox** | Runs the proposed action in an ephemeral directory under real limits. | And it **tells you what it could not apply** instead of pretending the isolation is stronger than it is. |
 
 ## Why that changes what you get
 
+```mermaid
+sequenceDiagram
+    autonumber
+    participant You
+    participant Agent
+    participant Check as Your check (A)
+    You->>Agent: task, and the command that proves it
+    Agent->>Agent: propose an action
+    Agent->>Check: run it
+    Check-->>Agent: FAIL, with the real error
+    Note over Agent: fixes the actual problem,<br/>not a re-roll of the dice
+    Agent->>Check: run it again
+    Check-->>Agent: PASS
+    Agent->>You: done — and here is what proved it
+```
+
 **Retries that learn something.** When a check fails, the agent gets the failing
-command, its real output, and the structured verdict back. It fixes the actual
-problem instead of re-rolling the dice.
+command, its real output, and the structured verdict back.
 
 **Nothing is "working" because it sounded like it.** The end-to-end test asserts
 the result **on the filesystem**, not in what the agent says about itself. The
 simulated model in that test gets it wrong on purpose on the first attempt and
-corrects itself on the second, so the whole recovery loop is exercised for real on
-every commit.
+corrects itself on the second, so the whole recovery loop is exercised for real
+on every commit.
 
 **Your exit code means something.** `0` when every task passed its check, `1` when
-any failed (with the reason in the error message itself), `2` for a bad
-configuration. Drop it in cron or systemd and it behaves like a program, not like
-a chatbot.
+any failed, `2` for a bad configuration. Drop it in cron or systemd and it behaves
+like a program, not like a chatbot.
 
 ## It runs where nothing else runs
 
@@ -131,11 +121,21 @@ page is that binary, running on 2008 hardware.
 curl -fsSL https://raw.githubusercontent.com/madkoding/starlight/main/scripts/install.sh | sh
 ```
 
-It detects your system, downloads the matching binary, **verifies it against the
-release's `SHA256SUMS`**, installs without needing root, and then — the part most
-installers skip — **runs it once**, because a binary that installs but won't start
-is the one failure that matters. A corrupted download leaves your system exactly
-as it was.
+```mermaid
+flowchart LR
+    D["Detects your OS<br/>and architecture"] --> G["Downloads the<br/>matching binary"]
+    G --> S["Verifies it against the<br/>release's SHA256SUMS"]
+    S -- "mismatch" --> X["Stops.<br/>Your system is untouched."]
+    S -- "matches" --> I["Installs without root"]
+    I --> R["Runs it once"]
+    R --> OK(["It installed <i>and</i> it starts"])
+
+    style X fill:#f8514922,stroke:#f85149
+    style OK fill:#3fb95022,stroke:#3fb950
+```
+
+That last step is the part most installers skip, and it's the one failure that
+matters: a binary that installs but won't start.
 
 Then:
 
@@ -144,9 +144,9 @@ starlight -init
 ```
 
 The wizard asks for a provider, a model, and **the check that decides whether a
-task is really done**. The third question is the one that matters, and it's the
-one other tools never ask. Your API key goes into a separate `0600` file, never
-into the config, so the config can be committed and shared.
+task is really done**. The third question is the one other tools never ask. Your
+API key goes into a separate `0600` file, never into the config, so the config can
+be committed and shared.
 
 ## A terminal interface you'll actually want to use
 
@@ -164,10 +164,22 @@ alone — it's the same binary, not a wrapper around something else.
 | `/value` | see what it has learned from those verdicts |
 | `/session` `/find` `/new` `/help` | context, search, fresh start, help |
 
-**Plan mode is structurally read-only.** It explores and proposes, calling tools
-through a path that never invokes a shell — so pipes, redirections and shell
-metacharacters aren't blocked, they're *syntactically impossible*. Ask a question,
-get an answer grounded in your actual files.
+**Plan mode is structurally read-only**, and that word is doing real work:
+
+```mermaid
+flowchart LR
+    Q["Your question"] --> P["Plan mode"]
+    P --> TL["Tools reached through a path<br/>that never invokes a shell"]
+    TL --> ANS["An answer grounded<br/>in your actual files"]
+
+    M["Metacharacters, pipes,<br/>redirections"] -.->|"not <b>blocked</b> —<br/>syntactically impossible"| TL
+
+    style P fill:#1f6feb22,stroke:#1f6feb
+    style M fill:#8b949e22,stroke:#8b949e
+```
+
+Pipes and shell metacharacters aren't filtered out in plan mode: there is nothing
+to filter *and* nothing to bypass, because the shell is never in the path.
 
 ## It learns from you, not from a retraining pipeline
 
@@ -186,34 +198,30 @@ extra bill. Just a ledger next to a shelf.
 
 There are two layers, and only one of them is yours.
 
-```
-   the model proposes a line
-              │
-              ▼
-   ╔══════════════════════════════════════════════════════════════╗
-   ║  THE FLOOR  —  nobody owns this. Refused, always.            ║
-   ║  mkfs · the partition editors · dd with an output · shred    ║
-   ║  the power verbs · rm/mv/cp/ln aimed at /, ~, a system path, ║
-   ║  or the tree that CONTAINS your workspace                    ║
-   ╚══════════════════════════════════════════════════════════════╝
-              │  no key, no variable, no flag can reach this
-              ▼
-   ╔══════════════════════════════════════════════════════════════╗
-   ║  THE CONFIRMATION LAYER  —  yours, in `agent.policy`         ║
-   ║                                                              ║
-   ║   allow  │  it changes nothing, or it changes the            ║
-   ║          │  workspace you pointed the agent at               ║
-   ║   ───────┼────────────────────────────────────────────────   ║
-   ║   ask    │  it reaches the network or the system, writes      ║
-   ║          │  outside the workspace, or is something nobody     ║
-   ║          │  can classify → YOU are asked                     ║
-   ║   ───────┼────────────────────────────────────────────────   ║
-   ║   deny   │  strict mode: what cannot be classified is         ║
-   ║          │  refused instead of asked about                    ║
-   ╚══════════════════════════════════════════════════════════════╝
-              │
-              ▼
-        it runs, or it does not — and either way it is on the record
+```mermaid
+flowchart TD
+    L(["The model proposes a line"]) --> FL
+
+    subgraph FL ["THE FLOOR — nobody owns this. Refused, always."]
+        direction LR
+        F1["mkfs · the partition editors · shred<br/>dd whenever it names an output<br/>the commands that change the power state"]
+        F2["rm / mv / cp / ln aimed at /, at ~, at a system path, or at<br/><b>the tree that CONTAINS your workspace</b> — and their<br/>payloads after sudo, xargs or find -exec"]
+    end
+
+    FL -->|"no key, no variable,<br/>no flag can reach this"| K{"Can the policy<br/>place this line?"}
+
+    K -->|"it changes nothing, or it changes<br/>the workspace you pointed at"| AL["<b>allow</b><br/>it runs silently — this is<br/><code>make</code>, <code>go build</code>, <code>npm test</code>,<br/>your own <code>./scripts/*</code>"]
+    K -->|"it reaches the network or the system, writes<br/>outside the workspace, or nobody can classify it"| AS["<b>ask</b><br/><b>YOU are asked</b><br/>before anything runs"]
+    K -->|"strict mode, and the line<br/>cannot be placed"| DN["<b>deny</b><br/>refused instead of<br/>asked about"]
+
+    AL --> RUN(["It runs — or it does not.<br/>Either way it is on the record."])
+    AS --> RUN
+    DN --> RUN
+
+    style FL fill:#f8514911,stroke:#f85149
+    style AL fill:#3fb95022,stroke:#3fb950
+    style AS fill:#d2992222,stroke:#d29922
+    style DN fill:#f8514922,stroke:#f85149
 ```
 
 The subtle middle row is the whole design. `make`, `go build`, `npm test`,
@@ -221,14 +229,20 @@ The subtle middle row is the whole design. `make`, `go build`, `npm test`,
 work and run **without a question** — because a policy that asks about those gets
 switched off in a week, and then it protects nothing. What gets asked about is
 what nobody can predict: an infrastructure tool, a binary nobody knows, an
-interpreter handed code inline or a script from outside the workspace.
+interpreter handed code inline, or a script from outside the workspace.
 
-There is no YAML key, no environment variable and no flag that relaxes it.
+There is one asymmetry in that row worth knowing before you meet it:
+`./scripts/deploy.sh` runs silently, but `sh scripts/deploy.sh` is asked about.
+Handing the same file to a shell hides it from the classifier — `sh -c 'ls'` and
+`sh -c 'rm -rf /'` have the same shape — so the cautious answer is to ask. Name
+the program directly and the policy can see it is yours.
+
+There is no YAML key, no environment variable and no flag that relaxes the floor.
 **That's the point.** A guardrail an operator can switch off is a guardrail that
 *will* be switched off — during the incident it was meant for, by whoever wants
 the task to finish.
 
-And it isn't a claim on a slide: a test in the repository asserts every sentence
+And it isn't a claim on a slide: a test in the repository asserts the sentences
 above against the classifier's real verdicts, so this page cannot drift away from
 the behaviour.
 
@@ -239,8 +253,8 @@ This is tested the way you'd test something you were about to bet on.
 | | |
 |---|---|
 | **Statement coverage** | **100% in every package that ships** — 22 of 22, checked package by package so a gap can't hide behind an average |
-| **Test functions** | 1,787 across 109 files |
-| **Code vs tests** | 20,306 lines of Go · 41,565 lines of test |
+| **Test functions** | 1,789 across 110 files |
+| **Code vs tests** | 20,306 lines of Go · 41,726 lines of test |
 | **External dependencies** | 0 |
 | **Platforms CI builds and verifies** | 9 |
 
@@ -250,10 +264,19 @@ that kept a 1-second deadline waiting for five, the sandbox directory that got
 deleted before the validator could look inside it. Every one of them is a test
 now.
 
-CI runs `gofmt`, `vet` and `-race`, enforces the per-package coverage gate,
-cross-builds all nine targets, **reads the ELF header to prove the i386 binary
-really is 32-bit**, and runs the end-to-end tests inside a 32-bit container before
-publishing anything.
+```mermaid
+flowchart LR
+    F["gofmt"] --> V["go vet"] --> R["go test -race"]
+    R --> CV["Per-package coverage gate<br/><i>a gap cannot hide<br/>behind an average</i>"]
+    CV --> X["Cross-build all<br/>9 targets"]
+    X --> E["Read the ELF header<br/><i>proves the i386 binary<br/>really is 32-bit</i>"]
+    E --> E2["End-to-end tests inside<br/>a 32-bit container"]
+    E2 --> P["Publish"]
+
+    style CV fill:#1f6feb22,stroke:#1f6feb
+    style E fill:#1f6feb22,stroke:#1f6feb
+    style P fill:#3fb95022,stroke:#3fb950
+```
 
 ## Three workloads it's built for
 
@@ -273,11 +296,14 @@ for containers and secrets.
 
 This page is the pitch. The engineering lives in full somewhere else:
 
-**[docs/REFERENCE.md](docs/REFERENCE.md)** — the architecture, the sandboxing
-layers and why the limits are applied by the shell rather than the agent, the
-guardrail floor in detail, every configuration key, the prompt variables, the JSON
-logging format, the i386 troubleshooting table, and how to extend the agent with
-your own task source, provider or final action.
+**[docs/REFERENCE.md](docs/REFERENCE.md)** — the architecture in detail, the
+sandboxing layers and why the limits are applied by the shell rather than the
+agent, the guardrail floor command by command, every configuration key, the
+prompt variables, the JSON logging format, the i386 troubleshooting table, and
+how to extend the agent with your own task source, provider or final action.
+
+**[docs/TUI-DESIGN-REVIEW.md](docs/TUI-DESIGN-REVIEW.md)** — how the interface
+was designed against the standard library alone.
 
 **MIT licensed.** Take it, ship it, run it on hardware everyone else wrote off.
 
