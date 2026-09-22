@@ -471,7 +471,18 @@ attempt 2  <span class="g">PASS</span>  anchor: exit 0 — output.txt present an
 
       <p class="sub" style="margin-bottom: 0">
         CI reads the <strong>ELF header</strong> to prove the i386 binary really is 32-bit, and runs the
-        end-to-end tests inside a real 32-bit container before publishing anything.
+        end-to-end tests inside a real 32-bit container before publishing anything. It also runs
+        <code>staticcheck</code> and <code>govulncheck</code> — the standard library ships <em>inside</em> the
+        binary, so a toolchain that has aged out of support hands its known vulnerabilities to whoever
+        downloads it.
+      </p>
+
+      <p class="sub" style="margin-bottom: 0">
+        That is not left to discipline. The build fails the day <code>go.mod</code>'s Go version is no
+        longer one the Go project still patches — asked directly of
+        <code>go.dev/dl?mode=json</code> rather than kept as a note with a date somebody has to remember.
+        Every claim on this page is checked the same way: the "no dependencies" line, and these
+        documents matching their sources.
       </p>
     </div>
   </section>
