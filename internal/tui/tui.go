@@ -1524,12 +1524,12 @@ func recoverRaw(mode *terminalMode) func() {
 // interface does not know which path delivered them.
 func (t *TUI) readLineLive(ctx context.Context) (string, bool) {
 	t.draft = ""
-	// The popup highlight resets on the first keystroke of the new line, not
-	// here: a test that pre-seeds the highlight so the reader's first move can
-	// accept it would see that seed overwritten, and the test would fail for
-	// the wrong reason. The reset on every keystroke covers this case: the
-	// very first character that opens the popup zeroes the highlight along
-	// with the draft.
+	// The popup highlight resets on the first keystroke of the new line, not here: a test
+	// that pre-seeds the highlight so the reader's first move can accept it would see that
+	// seed overwritten, and the test would fail for the wrong reason. The reset on every
+	// keystroke covers it — the first character that opens the popup zeroes the highlight
+	// along with the draft.
+	//
 	// The composer is repainted on the way out, UNCONDITIONALLY.
 	//
 	// It used to repaint only when text was left over, and that guard is why the input looked
@@ -1546,200 +1546,251 @@ func (t *TUI) readLineLive(ctx context.Context) (string, bool) {
 	}()
 
 	for {
-		ch := make(chan byte, 1)
-		go func() {
-			b, err := t.input().ReadByte()
-			if err != nil {
-				close(ch)
-				return
-			}
-			ch <- b
-		}()
-
-		var b byte
-		select {
-		case v, ok := <-ch:
-			if !ok {
-				return "", false
-			}
-			b = v
-		case <-ctx.Done():
+		b, ok := t.readByteOrCancel(ctx)
+		if !ok {
 			return "", false
 		}
 
-		switch b {
-		case '\r', '\n':
-			// When the popup is open, Enter accepts the highlighted candidate AND
-			// dispatches the filled line in one motion. Two presses for what is
-			// visually a single "pick and run" would be a guess the user has to make
-			// about which Enter does what — and a half-typed "/co" submitted because
-			// the popup was ignored is a worse failure than asking the user to press
-			// Enter again, because it actually reached the model.
-			//
-			// The accept-then-dispatch path uses the same routine as the right arrow
-			// to fill the draft, and the same sanitiser as a plain submit to deliver
-			// it: one source of truth for what the line becomes, regardless of how it
-			// was completed.
-			if t.completing() {
-				t.completeDraft()
-				line := sanitiseLine(stripKeySequences(t.draft))
-				t.draft = ""
-				return line, true
+		// Each key is answered by its own function. The body of this loop used to be one
+		// switch of nearly two hundred lines, which is where a reader loses the shape of the
+		// interface: every rule below is a sentence in the interface's contract with the
+		// terminal, and they read as one only when each is written on its own.
+		// An escape sequence is never text: it is how the terminal reports a key, so it is
+		// answered here and never reaches the branch below that appends a character.
+		if b == 0x1b {
+			line, dispatch := t.handleEscapeLive()
+			if !dispatch {
+				continue
 			}
-			// Sanitised as well, and for the same reason as the whole-line reader: the guard
-			// above stops this reader from ADDING a control character, but the line is the
-			// interface's contract with the model, and one place that enforces it is better than
-			// two that must agree.
-			line := sanitiseLine(stripKeySequences(t.draft))
-			t.draft = ""
 			return line, true
+		}
 
-		case 0x03: // Ctrl+C, which cbreak still delivers as a signal; this is the read path
-			return "", false
-
-		case 0x04, 0x06, 0x15: // Ctrl+D, Ctrl+F, Ctrl+U
-			// These three are TOKENS the interface acts on: half a page down, search, clear.
-			// They are returned, never typed — the draft is dropped so the line does not
-			// survive a key that is not part of it.
-			t.draft = ""
-			t.drawFrame()
-			return string(b), true
-
-		case 0x7f, 0x08: // backspace
-			if t.draft != "" {
-				r := []rune(t.draft)
-				t.draft = string(r[:len(r)-1])
-				// Same reset as a typed character: the prefix that fed the popup
-				// has shrunk, the row the user highlighted no longer matches a
-				// candidate, and the next repaint opens the popup on the first
-				// row.
-				t.completingIdx = 0
-				t.drawFrame()
-			}
-
-		case '\t':
-			// Tab means ONE thing: switch between Task and Plan. It used to also accept the
-			// completion when the popup was open, which meant the same key did two different
-			// things depending on what had been typed — and a user reaching for the mode
-			// switch in the middle of a line got a command inserted instead.
-			//
-			// Completion is still a keystroke away, on the right arrow: the gesture that means
-			// "accept forward" everywhere else, and a key nothing here had claimed.
-			t.draft = ""
-			return "\t", true
-
-		case 0x1b:
-			// An escape sequence: read the rest without blocking on a lone Esc.
-			seq := t.readEscapeLive()
-			if seq == keyEsc {
-				// Escape closes the popup first, and only leaves the line when there is
-				// nothing to close.
-				if t.completing() {
-					t.draft = ""
-					t.completingIdx = 0
-					t.drawFrame()
-					continue
-				}
-				t.draft = ""
-				return keyEsc, true
-			}
-			// The arrow keys navigate the popup when one is open: up and down move the
-			// highlight between candidates, right accepts. The same arrows scroll the
-			// conversation when no popup is open — that is the original shortcut's job
-			// and it stays where the popup does not claim it. Picking here, BEFORE the
-			// scroll handler in handleShortcut, is what makes the popup and the chat
-			// not fight for the same key.
-			//
-			// Wrapping on the candidate list is the same shape every menu uses, and
-			// it is what lets the user land on a row without knowing how many
-			// candidates there are.
-			if t.completing() {
-				cands := completions(t.draft)
-				switch seq {
-				case keyUp:
-					if len(cands) > 0 {
-						t.completingIdx = (t.completingIdx - 1 + len(cands)) % len(cands)
-						t.drawFrame()
-						continue
-					}
-				case keyDown:
-					if len(cands) > 0 {
-						t.completingIdx = (t.completingIdx + 1) % len(cands)
-						t.drawFrame()
-						continue
-					}
-				}
-			}
-			// The right arrow accepts the completion the popup is showing: the popup exists
-			// to save typing, and with Tab spoken for this is the key that does it. It only
-			// consumes the key when there was something to accept, so an arrow press with no
-			// popup open is still just an arrow press.
-			if seq == keyRight && t.completeDraft() {
+		if line, dispatch, handled := t.handleLiveKey(b); handled {
+			if !dispatch {
 				continue
 			}
-			// A MOUSE REPORT is consumed here and never reaches the draft.
-			//
-			// The terminal is asked to report the mouse, so these sequences arrive while the user
-			// is typing. They used to be returned to the caller like any other CSI key, and a
-			// report that no handler acted on — a click, a drag, a move — fell through to the
-			// chat and was drawn in the input box as escape-sequence text. Moving the trackpad
-			// typed into the input.
-			//
-			// The wheel is the one gesture the interface acts on, and it is handled by the
-			// shortcut dispatcher through the returned token; every OTHER report is swallowed
-			// here, because it is not something the user typed and there is nothing to do with
-			// it.
-			if isMouseReport(seq) {
-				if lines, ok := mouseScroll(seq); ok {
-					t.scrollBy(lines)
-				}
-				t.drawFrame()
-				continue
-			}
-			// The other arrows and the page keys are handled by the same switch as always;
-			// the draft is cleared so the line does not survive the mode change.
-			t.draft = ""
-			return seq, true
-
-		default:
-			// A CONTROL byte is captured, never typed.
-			//
-			// The earlier guard only checked `b >= 0x20`, which is a test on a BYTE, not on a
-			// character: 0x80 and above passed it and were appended one byte at a time, so a
-			// UTF-8 letter arrived as mojibake and any control byte the switch above did not
-			// name (Ctrl+A, Ctrl+B, Ctrl+K, Ctrl+W, Ctrl+Z...) was injected into the line and
-			// drawn on screen. Both are the same defect: the input accepted things that are not
-			// text.
-			//
-			// The rule is now stated once: text starts at U+0020 and DEL is not text. Anything
-			// below is a key, and the interface owns the keys.
-			// Text starts at 0x20; everything below is a key. Above 0x7f the byte is the
-			// START of a UTF-8 sequence, and reading it whole is what keeps an accented letter
-			// or an emoji from arriving as one byte of mojibake.
-			if b >= 0x20 && b != 0x7f {
-				ch, ok := t.readRuneFrom(b)
-				if !ok {
-					continue
-				}
-				// A new character is also a new prefix: the previous highlight no
-				// longer refers to a row that matches what is on screen, and any
-				// row the user picked a moment ago is now stale. Resetting to the
-				// first row is the natural choice — the popup reopens with the
-				// top candidate selected, the way every menu behaves when the
-				// filter changes.
-				//
-				// The reset runs on EVERY new keystroke, including the first one
-				// that opens the popup: the previous turn may have left the
-				// highlight on a row, and the new line is a fresh start. Skipping
-				// the first keystroke would let a stale highlight survive into
-				// the new popup — exactly the bug a test that pre-seeds the
-				// highlight expects to fix.
-				t.completingIdx = 0
-				t.draft += ch
-				t.drawFrame()
-			}
+			return line, true
 		}
 	}
+}
+
+// readByteOrCancel returns the next byte, or reports that the run is over.
+//
+// Reading happens on its own goroutine so a cancelled context can abandon the read: a
+// blocking ReadByte on a terminal that is waiting for a keystroke never returns on its own,
+// and without this the interface would ignore Ctrl+C until the user pressed something else.
+func (t *TUI) readByteOrCancel(ctx context.Context) (byte, bool) {
+	ch := make(chan byte, 1)
+	go func() {
+		b, err := t.input().ReadByte()
+		if err != nil {
+			close(ch)
+			return
+		}
+		ch <- b
+	}()
+
+	select {
+	case v, ok := <-ch:
+		return v, ok
+	case <-ctx.Done():
+		return 0, false
+	}
+}
+
+// handleLiveKey answers the keys that are not an escape sequence. It reports whether the key
+// was used, and whether the line is finished (in which case the caller returns it).
+//
+// Three outcomes, and the difference matters: `handled=false` means the byte is TEXT; a
+// handled key with `dispatch=false` changed the screen and the loop continues; a handled key
+// with `dispatch=true` produced the line and the reader is done.
+func (t *TUI) handleLiveKey(b byte) (line string, dispatch, handled bool) {
+	switch b {
+	case '\r', '\n':
+		return t.acceptLine(), true, true
+
+	case 0x03: // Ctrl+C, which cbreak still delivers as a signal; this is the read path
+		return "", false, true
+
+	case 0x04, 0x06, 0x15: // Ctrl+D, Ctrl+F, Ctrl+U
+		// These three are TOKENS the interface acts on: half a page down, search, clear.
+		// They are returned, never typed — the draft is dropped so the line does not
+		// survive a key that is not part of it.
+		t.draft = ""
+		t.drawFrame()
+		return string(b), true, true
+
+	case 0x7f, 0x08: // backspace
+		t.backspace()
+		return "", false, true
+
+	case '\t':
+		// Tab means ONE thing: switch between Task and Plan. It used to also accept the
+		// completion when the popup was open, which meant the same key did two different
+		// things depending on what had been typed — and a user reaching for the mode
+		// switch in the middle of a line got a command inserted instead.
+		//
+		// Completion is still a keystroke away, on the right arrow: the gesture that means
+		// "accept forward" everywhere else, and a key nothing here had claimed.
+		t.draft = ""
+		return "\t", true, true
+	}
+
+	// A CONTROL byte is captured, never typed.
+	//
+	// The earlier guard only checked `b >= 0x20`, which is a test on a BYTE, not on a
+	// character: 0x80 and above passed it and were appended one byte at a time, so a UTF-8
+	// letter arrived as mojibake and any control byte the cases above did not name (Ctrl+A,
+	// Ctrl+B, Ctrl+K, Ctrl+W, Ctrl+Z...) was injected into the line and drawn on screen. Both
+	// are the same defect: the input accepted things that are not text.
+	//
+	// The rule is stated once: text starts at U+0020 and DEL is not text. Anything below is a
+	// key, and the interface owns the keys.
+	if b < 0x20 || b == 0x7f {
+		return "", false, false
+	}
+
+	ch, ok := t.readRuneFrom(b)
+	if !ok {
+		// A broken multi-byte sequence is dropped, and the loop continues: the character was
+		// never text, so there is nothing to add to the line.
+		return "", false, true
+	}
+	t.appendDraft(ch)
+	return "", false, true
+}
+
+// acceptLine sanitises the draft and finishes the line.
+//
+// When the popup is open, Enter accepts the highlighted candidate AND dispatches the filled
+// line in one motion. Two presses for what is visually a single "pick and run" would be a
+// guess the user has to make about which Enter does what — and a half-typed "/co" submitted
+// because the popup was ignored is a worse failure than asking for Enter again, because it
+// actually reached the model.
+//
+// The accept path fills the draft through the same routine as the right arrow, and delivers
+// it through the same sanitiser as a plain submit: one source of truth for what the line
+// becomes, regardless of how it was completed.
+func (t *TUI) acceptLine() string {
+	if t.completing() {
+		t.completeDraft()
+	}
+	// Sanitised for the same reason as the whole-line reader: the reader never ADDS a control
+	// character, but the line is the interface's contract with the model, and one place that
+	// enforces it is better than two that must agree.
+	line := sanitiseLine(stripKeySequences(t.draft))
+	t.draft = ""
+	return line
+}
+
+// backspace removes the last character, and resets the popup highlight.
+//
+// The reset is the same as for a typed character: the prefix that fed the popup has shrunk,
+// the row the user highlighted no longer matches a candidate, and the next repaint opens the
+// popup on the first row.
+//
+// The deletion is per RUNE, not per byte: a byte-wise version would cut a multi-byte character
+// in half and leave invalid UTF-8 in the line.
+func (t *TUI) backspace() {
+	if t.draft == "" {
+		return
+	}
+	r := []rune(t.draft)
+	t.draft = string(r[:len(r)-1])
+	t.completingIdx = 0
+	t.drawFrame()
+}
+
+// appendDraft adds one typed character and resets the highlight.
+//
+// A new character is also a new prefix: the previous highlight no longer refers to a row that
+// matches what is on screen, and any row the user picked a moment ago is now stale. Resetting
+// to the first row is the natural choice — the popup reopens with the top candidate selected,
+// the way every menu behaves when the filter changes.
+//
+// The reset runs on EVERY new keystroke, including the first one that opens the popup: the
+// previous turn may have left the highlight on a row, and the new line is a fresh start.
+// Skipping the first keystroke would let a stale highlight survive into the new popup —
+// exactly the bug a test that pre-seeds the highlight expects to fix.
+func (t *TUI) appendDraft(ch string) {
+	t.completingIdx = 0
+	t.draft += ch
+	t.drawFrame()
+}
+
+// handleEscapeLive answers everything that arrives as an escape sequence. It always uses the
+// sequence — an escape sequence is never text — and reports whether the line is finished.
+//
+// dispatch=false means the sequence changed the screen and the loop continues. dispatch=true
+// returns it as the line, which is how the keys the SHORTCUT dispatcher owns (the page keys,
+// Home, End) reach it: the draft is cleared first so the line does not survive a mode change.
+func (t *TUI) handleEscapeLive() (seq string, dispatch bool) {
+	s := t.readEscapeLive()
+	if s == keyEsc {
+		// Escape closes the popup first, and only leaves the line when there is nothing to
+		// close.
+		if t.completing() {
+			t.draft = ""
+			t.completingIdx = 0
+			t.drawFrame()
+			return "", false
+		}
+		t.draft = ""
+		return keyEsc, true
+	}
+
+	// The arrow keys navigate the popup when one is open: up and down move the highlight
+	// between candidates, right accepts. The same arrows scroll the conversation when no popup
+	// is open — that is the original shortcut's job and it stays where the popup does not claim
+	// it. Picking here, BEFORE the scroll handler in handleShortcut, is what makes the popup and
+	// the chat not fight for the same key.
+	//
+	// Wrapping on the candidate list is the same shape every menu uses, and it is what lets the
+	// user land on a row without knowing how many candidates there are.
+	if t.completing() {
+		cands := completions(t.draft)
+		switch {
+		case s == keyUp && len(cands) > 0:
+			t.completingIdx = (t.completingIdx - 1 + len(cands)) % len(cands)
+			t.drawFrame()
+			return "", false
+		case s == keyDown && len(cands) > 0:
+			t.completingIdx = (t.completingIdx + 1) % len(cands)
+			t.drawFrame()
+			return "", false
+		}
+	}
+
+	// The right arrow accepts the completion the popup is showing: the popup exists to save
+	// typing, and with Tab spoken for this is the key that does it. It only consumes the key
+	// when there was something to accept, so an arrow press with no popup open is still just an
+	// arrow press.
+	if s == keyRight && t.completeDraft() {
+		return "", false
+	}
+
+	// A MOUSE REPORT is consumed here and never reaches the draft.
+	//
+	// The terminal is asked to report the mouse, so these sequences arrive while the user is
+	// typing. They used to be returned to the caller like any other CSI key, and a report that
+	// no handler acted on — a click, a drag, a move — fell through to the chat and was drawn in
+	// the input box as escape-sequence text. Moving the trackpad typed into the input.
+	//
+	// The wheel is the one gesture the interface acts on, and it is handled by the shortcut
+	// dispatcher through the returned token; every OTHER report is swallowed here, because it
+	// is not something the user typed and there is nothing to do with it.
+	if isMouseReport(s) {
+		if lines, ok := mouseScroll(s); ok {
+			t.scrollBy(lines)
+		}
+		t.drawFrame()
+		return "", false
+	}
+
+	// The other arrows and the page keys are handled by the shortcut dispatcher; the draft is
+	// cleared so the line does not survive the mode change.
+	t.draft = ""
+	return s, true
 }
 
 // readRuneFrom assembles one character from the first byte plus, when it is a multi-byte
