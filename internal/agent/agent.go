@@ -875,6 +875,15 @@ func (a *Agent) loop(ctx context.Context, t task.Task, depth int) TaskResult {
 	// question: "is there work here?" comes before "can I read the work well enough?".
 	switch analysis.resolveKind() {
 	case KindChat:
+		if depth > 0 {
+			// A subtask is work the parent split out, so "nothing to do" cannot count as done:
+			// a chat PASS here would let the parent report success without the anchor ever
+			// running, on nothing but the model's own classification.
+			res.Reason = "subtask produced no validated work"
+			res.DurationMS = time.Since(start).Milliseconds()
+			a.log.Warn(prefix + "subtask classified as chat; counted as not passed")
+			return res
+		}
 		reply := strings.TrimSpace(analysis.Reply)
 		if reply == "" {
 			// The model classified it as chat but wrote nothing. Saying so is better than
@@ -1026,22 +1035,27 @@ func (a *Agent) loop(ctx context.Context, t task.Task, depth int) TaskResult {
 
 	// [5] Splitting into subtasks: each one re-enters the same flow, one level
 	// further down. The limit is respected to avoid infinite recursion.
-	if analysis.NeedsSubtasks && len(plan.Subtasks) > 0 {
+	// Blank entries are model noise: dropped here so a list of nothing but blanks falls
+	// through to the single-task cycle instead of failing as "0 of 0 subtasks".
+	subtasks := plan.Subtasks[:0:0]
+	for _, sub := range plan.Subtasks {
+		if strings.TrimSpace(sub) != "" {
+			subtasks = append(subtasks, sub)
+		}
+	}
+	if analysis.NeedsSubtasks && len(subtasks) > 0 {
 		if depth >= a.cfg.Agent.SubtaskDepth {
 			a.log.Warn(prefix+"subtask splitting reached the configured limit; continuing as a single task",
 				"depth", depth, "limit", a.cfg.Agent.SubtaskDepth,
-				"subtasks", len(plan.Subtasks))
+				"subtasks", len(subtasks))
 		} else {
-			a.log.Info(prefix+"splitting into subtasks", "count", len(plan.Subtasks))
+			a.log.Info(prefix+"splitting into subtasks", "count", len(subtasks))
 			passed := 0
-			for _, sub := range plan.Subtasks {
+			for _, sub := range subtasks {
 				if ctx.Err() != nil {
 					res.Reason = "cancelled during the subtasks"
 					res.DurationMS = time.Since(start).Milliseconds()
 					return res
-				}
-				if strings.TrimSpace(sub) == "" {
-					continue
 				}
 				res.Subtasks++
 				subResult := a.processTask(ctx, task.Task{
@@ -1052,7 +1066,7 @@ func (a *Agent) loop(ctx context.Context, t task.Task, depth int) TaskResult {
 					passed++
 				}
 			}
-			res.Pass = passed == res.Subtasks && res.Subtasks > 0
+			res.Pass = passed == res.Subtasks
 			res.Attempts = 1
 			res.DurationMS = time.Since(start).Milliseconds()
 			if res.Pass {
@@ -1075,8 +1089,15 @@ func (a *Agent) loop(ctx context.Context, t task.Task, depth int) TaskResult {
 		action, err := a.actionPhase(ctx, t, plan, failedAttempts, attempt, prefix)
 		if err != nil {
 			res.Reason = "could not obtain the action from the LLM: " + err.Error()
-			res.DurationMS = time.Since(start).Milliseconds()
 			a.report("failed to get an action: %v", err)
+			// A malformed reply is the model's to correct, like a failed validation: it is
+			// recorded so the next attempt sees its mistake, and only the last attempt or a
+			// cancellation ends the task.
+			if ctx.Err() == nil && attempt <= a.cfg.Agent.MaxRetries {
+				failedAttempts = append(failedAttempts, res.Reason)
+				continue
+			}
+			res.DurationMS = time.Since(start).Milliseconds()
 			a.escalate(ctx, prefix)
 			return res
 		}
@@ -1087,7 +1108,7 @@ func (a *Agent) loop(ctx context.Context, t task.Task, depth int) TaskResult {
 
 		// [8] Validate with the anchor, always.
 		a.report("validating with anchor...")
-		validation := anchor.New(a.cfg.Anchor, a.cfg.Agent.WorkspaceDir, a.sandbox).Validate(ctx)
+		validation := anchor.New(a.cfg.Anchor, a.cfg.Agent.WorkspaceDir, a.anchorSandbox()).Validate(ctx)
 		res.Validation = &validation
 
 		if validation.Pass && runErr == nil {
@@ -1153,6 +1174,16 @@ func (a *Agent) loop(ctx context.Context, t task.Task, depth int) TaskResult {
 	a.report("%s", res.Reason)
 	a.escalate(ctx, prefix)
 	return res
+}
+
+// anchorSandbox is the sandbox the anchor validates in: none, so the authority does not share
+// the sandbox's flaws or its output cap, except in chroot mode, where the workspace only
+// resolves inside the jail (see anchor.New).
+func (a *Agent) anchorSandbox() *sandbox.Sandbox {
+	if a.cfg.Sandbox.Kind == "chroot" {
+		return a.sandbox
+	}
+	return nil
 }
 
 // --- Phases -----------------------------------------------------------------

@@ -370,3 +370,23 @@ func TestReadingASkillThatCannotBeReadIsReported(t *testing.T) {
 		t.Error("unreadable is not the same as missing, and saying so would send the model looking for a name")
 	}
 }
+
+// TestSearchSkillsAcceptsTheLimitAsTheSchemaDeclaresIt: the schema is what the model follows,
+// so a limit sent the way the schema says must be accepted.
+func TestSearchSkillsAcceptsTheLimitAsTheSchemaDeclaresIt(t *testing.T) {
+	p := (&Planner{}).WithLibrary(libOf(t, map[string]string{"zephyr": "# Zephyr\n\nwest build\n"}))
+
+	got := p.toolSearchSkills(raw(`{"query":"zephyr","limit":5}`))
+	if !strings.Contains(got, "zephyr") || strings.Contains(got, "Error") {
+		t.Errorf("an integer limit must be accepted:\n%s", got)
+	}
+	var limit map[string]any
+	for _, tool := range p.tools() {
+		if tool.Function.Name == "search_skills" {
+			limit = tool.Function.Parameters["properties"].(map[string]any)["limit"].(map[string]any)
+		}
+	}
+	if limit["type"] != "integer" {
+		t.Errorf("limit must be declared as an integer, got %v", limit["type"])
+	}
+}

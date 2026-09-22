@@ -266,7 +266,7 @@ func (p *Planner) tools() []llm.Tool {
 		llm.NewTool("list_skills", "Lists the skills in your procedure library: the name, the title and what each one is for. Read this when you are starting work that may have been done before.", llm.ObjectSchema(map[string]any{})),
 		llm.NewTool("search_skills", "Searches your procedure library by what the work is about, looking through the whole text and not only the titles. Use a plain description of what you are doing.", llm.ObjectSchema(map[string]any{
 			"query": llm.StringProperty("What the work is about, in plain words (for example \"flash a firmware image over USB\")."),
-			"limit": llm.StringProperty("Maximum number of entries to return (default 10)."),
+			"limit": llm.IntegerProperty("Maximum number of entries to return (default 10)."),
 		}, "query")),
 		llm.NewTool("read_skill", "Reads one skill in full by name. The list and the search return the summaries; this returns the procedure.", llm.ObjectSchema(map[string]any{
 			"name": llm.StringProperty("The skill name, as returned by list_skills or search_skills."),
@@ -932,6 +932,14 @@ func (p *Planner) toolSaveSkill(args json.RawMessage) string {
 	if err != nil {
 		return fmt.Sprintf("Error: %v", err)
 	}
-	return fmt.Sprintf("Saved the skill %q to %s (%d bytes). It is available from now on, including to later sessions.",
-		s.Name, s.Path, len(s.Body))
+	// A save over a skill with an outstanding complaint is the fix feedbackSuffix asked for;
+	// marking it stops the same complaint being handed out on every later search.
+	marked := ""
+	if p.reward != nil && p.reward.Addressed(s.Name) {
+		if err := p.reward.Save(); err == nil {
+			marked = " The complaint that was recorded against this skill is now marked as addressed."
+		}
+	}
+	return fmt.Sprintf("Saved the skill %q to %s (%d bytes). It is available from now on, including to later sessions.%s",
+		s.Name, s.Path, len(s.Body), marked)
 }

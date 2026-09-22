@@ -319,3 +319,21 @@ func names(hits []skills.Skill) []string {
 	}
 	return out
 }
+
+// TestSavingASkillInPlanModeMarksTheComplaintAddressed: feedbackSuffix asks the model to save
+// the corrected version, so that save must retire the complaint or it is handed out forever.
+func TestSavingASkillInPlanModeMarksTheComplaintAddressed(t *testing.T) {
+	p, led := rewardPlanner(t, map[string]string{"zephyr-build": "# Zephyr\nwest build\n"})
+	if err := led.Attribute([]string{"zephyr-build"}, map[string]int{"zephyr-build": 1}, false, "step 2 is wrong"); err != nil {
+		t.Fatal(err)
+	}
+
+	got := p.toolSaveSkill(json.RawMessage(`{"name":"zephyr-build","body":"# Zephyr\nwest build -p\n"}`))
+	if !strings.Contains(got, "marked as addressed") {
+		t.Errorf("the save must say the complaint was addressed:\n%s", got)
+	}
+	s, _ := led.Get("zephyr-build")
+	if n := len(s.Unaddressed()); n != 0 {
+		t.Errorf("the complaint must be addressed after the save, %d remain", n)
+	}
+}
