@@ -106,13 +106,35 @@ step "6. no Spanish left in code, configs or scripts"
 # emits, which cleanAssumption exists to strip. That is a citation of real input, not shipped
 # copy, so a line carrying the marker below is exempt. The marker is required: it makes the
 # exemption a deliberate statement by the author rather than something the gate guessed at.
+# Two independent detectors, because one word list was not enough.
+#
+# A hand-kept list of Spanish words was the original approach, and a full audit found twelve
+# production lines carrying Spanish that it had never flagged: strings like "¿Puedes decirme,
+# en una frase, qué quieres que haga?" contain no word from any list of common words, because
+# an interrogative sentence is built from verbs and pronouns the list did not have. A list can
+# only ever contain what somebody remembered to add.
+#
+# The first detector is CHARACTER-based and needs no list: Spanish is the only reason these
+# characters appear at all (á é í ó ú ñ ¿ ¡ ü). It is what a stale translation actually leaves
+# behind, and it cannot be forgotten.
+#
+# The second is the word list, kept for what the characters miss: unaccented Spanish words
+# (salida, tarea, comando) look like ordinary English text to a character test.
 pattern='\b(función|también|todavía|además|así|está|están|desde|hacia|según|mientras|porque|cuando|entonces|siempre|nunca|nada|pero|sólo|debe|puede|hace|hacer|tiene|tienen|usar|usando|valores|opciones|campo|nombre|ruta|salida|entrada|comando|resultado|ejemplo|archivo|fichero|cola|tarea|tareas|ancla|peligro|aviso|no se|sin embargo)\b'
-found=$(git ls-files -z 2>/dev/null \
-  | grep -zE '\.(go|ya?ml|sh|md)$|(^|/)Makefile$' \
-  | grep -zv '_test\.go$' \
-  | xargs -0 -r grep -niE "$pattern" 2>/dev/null \
-  | grep -v '^scripts/verify\.sh:' \
-  | grep -v 'spanish-fixture:' || true)
+accents='[áéíóúüñÁÉÍÓÚÜÑ¿¡]'
+found=$(
+  {
+    git ls-files -z 2>/dev/null \
+      | grep -zE '\.(go|ya?ml|sh|md)$|(^|/)Makefile$' \
+      | grep -zv '_test\.go$' \
+      | xargs -0 -r grep -lE "$accents" 2>/dev/null
+    git ls-files -z 2>/dev/null \
+      | grep -zE '\.(go|ya?ml|sh|md)$|(^|/)Makefile$' \
+      | grep -zv '_test\.go$' \
+      | xargs -0 -r grep -liE "$pattern" 2>/dev/null
+  } | sort -u | grep -v '^scripts/verify\.sh$' | xargs -r grep -niE "$accents|$pattern" 2>/dev/null \
+  | grep -v 'spanish-fixture:' || true
+)
 if [ -z "$found" ]; then
   ok "no Spanish found"
 else
