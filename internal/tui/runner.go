@@ -9,7 +9,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"path/filepath"
 	"sort"
 	"strings"
 	"sync"
@@ -21,6 +20,7 @@ import (
 	"github.com/madkoding/starlight/internal/logx"
 	"github.com/madkoding/starlight/internal/onboard"
 	"github.com/madkoding/starlight/internal/plan"
+	"github.com/madkoding/starlight/internal/procedures"
 	"github.com/madkoding/starlight/internal/reward"
 	"github.com/madkoding/starlight/internal/sandbox"
 	"github.com/madkoding/starlight/internal/session"
@@ -133,16 +133,20 @@ type AppRunner struct {
 	// interface may read it.
 	transcriptMu sync.Mutex
 	transcript   []agent.DialogueTurn
-	// lib is the procedure library, resolved on first use.
-	lib *skills.Library
+	// store is the procedure library and its ledger, resolved on first use.
+	//
+	// It is built by internal/procedures, which is also what the command line's task and plan
+	// runs use. A front end having its own idea of what the library is, is how the interactive
+	// interface ended up with one while the other two promised the model a library and then
+	// answered that none was configured.
+	store *procedures.Store
 
-	// rewardMu guards the ledger and the last attribution.
+	// rewardMu guards the last attribution.
 	//
 	// The attribution is kept between turns because a verdict arrives AFTER the turn that
 	// earned it: the user types /good or /bad as the next thing they do, and by then the run
 	// that read the skills has finished. Holding it here is what connects the two.
 	rewardMu sync.Mutex
-	reward   *reward.Ledger
 	lastUsed map[string]int
 	lastTask string
 
@@ -305,65 +309,28 @@ func (r *AppRunner) conversation(engine session.Summariser) *session.Session {
 //
 // It is resolved once and kept: the directory does not change during a session, and creating
 // it per turn would be a filesystem call for nothing.
-func (r *AppRunner) library() *skills.Library {
+func (r *AppRunner) library() *skills.Library { return r.procedures().Library }
+
+// procedures returns the library and its ledger, building them on first use.
+func (r *AppRunner) procedures() *procedures.Store {
 	r.sessionMu.Lock()
 	defer r.sessionMu.Unlock()
-	if r.lib == nil {
-		dir := r.Cfg.Skills.Dir
-		if dir == "" {
-			// The home, not the working directory: the library is starlight's own state, and a
-			// configuration that names no directory must not scatter it through the project the
-			// user happens to be in.
-			dir = config.Default().Skills.Dir
-		}
-		lib := skills.New(dir)
-		// The shipped procedures are part of the library the agent sees: they are the ones
-		// that describe the tools it was given, and a fresh install would otherwise start
-		// with an empty shelf and a model working out the guardrails from refusals.
-		lib.Builtins = true
-		if r.Cfg.Skills.MaxFileBytes > 0 {
-			lib.MaxFileBytes = r.Cfg.Skills.MaxFileBytes
-		}
-		// The library reads the ledger for its tie-breaks. A ledger that cannot be opened is
-		// not fatal: the search then ranks exactly as it did before, which is a working
-		// library rather than a broken feature.
-		if led := r.rewardOrNil(); led != nil {
-			lib.Scorer = led
-		}
-		r.lib = lib
+	if r.store == nil {
+		// Build them through internal/procedures, the same constructor the command line's task
+		// and plan runs use. Both fields below used to be built here directly, which is how
+		// this interface ended up with a library while two other paths promised the model one
+		// and then answered that none was configured.
+		r.store = procedures.Open(r.Cfg, r.Log)
 	}
-	return r.lib
+	return r.store
 }
 
-// rewardOrNil returns the ledger, creating it on first use.
+// rewardOrNil returns the ledger, or nil when it could not be opened.
 //
-// It lives NEXT TO the library, in the same directory, so one thing to copy or back up carries
-// both the procedures and what has been learned about them.
-func (r *AppRunner) rewardOrNil() *reward.Ledger {
-	r.rewardMu.Lock()
-	defer r.rewardMu.Unlock()
-	if r.reward == nil {
-		dir := r.Cfg.Skills.Dir
-		if dir == "" {
-			// Same reasoning as the library above: the ledger lives with the skills, under the
-			// home.
-			dir = config.Default().Skills.Dir
-		}
-		l, err := reward.Open(filepath.Join(dir, ".scores.json"))
-		if err != nil {
-			// Reported, not swallowed: the scores are the only record of what the user
-			// thought of the library, and silently starting empty would hide that it was
-			// lost. The feature stays off for this session rather than pretending.
-			if r.Log != nil {
-				r.Log.Warn("the reward ledger could not be read; value-based ranking is off",
-					"error", err)
-			}
-			return nil
-		}
-		r.reward = l
-	}
-	return r.reward
-}
+// A nil ledger is a working arrangement, not a broken one: the library still answers, the
+// search still ranks, and only the value-based tie-break is off. The caller is expected to say
+// so rather than to treat it as a failure.
+func (r *AppRunner) rewardOrNil() *reward.Ledger { return r.procedures().Ledger }
 
 // truncateLine bounds a string for a one-line report, on a rune boundary.
 func truncateLine(s string, n int) string {

@@ -141,9 +141,21 @@ type TUI struct {
 	// being confirmed. Unlike the questions window it is answered DURING a run: the agent is
 	// blocked waiting for the answer while the run loop reads the keys.
 	confirm *confirmState
-	// approvals is how a blocked agent reaches this loop. It is created lazily, because a TUI
-	// that never runs a real turn never needs it.
-	approvals chan *confirmState
+	// approvals is how a blocked agent reaches this loop.
+	//
+	// It is created once, lazily, and the Once is not tidiness: this field is read from TWO
+	// goroutines at once — the run loop is already receiving on the channel when the agent, in
+	// its own goroutine, sends the first request. A bare `if nil` check is a data race between
+	// them, and the damage is worse than a torn read: each caller can come away holding a
+	// DIFFERENT channel, so the run loop waits on one nobody will ever send to while the agent
+	// waits for an answer. The turn hangs, the confirmation window never opens, and the user
+	// sees the agent stop responding. -race caught exactly that.
+	//
+	// Lazy rather than built in New because the tests construct a TUI as a struct literal — the
+	// many small ones that never run a real turn never need a channel, and requiring one would
+	// make every one of them wrong for no reason.
+	approvalsOnce sync.Once
+	approvals     chan *confirmState
 
 	// query filters the conversation; searching is true while the user is typing it.
 	//

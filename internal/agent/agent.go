@@ -1425,6 +1425,27 @@ func (a *Agent) runActions(ctx context.Context, actions []Command, prefix string
 					truncate(action.Description, 80))
 				continue
 			}
+			// A kind this mode does not know, carrying text the model meant as ARGUMENTS.
+			//
+			// Falling through to the command path treats that text as a program name and runs
+			// it: a model that asks for plan mode's `read_file` arrives here with a path, and
+			// the path is executed as a shell command — `/etc/hostname: Permission denied` is
+			// the shape of it. It is refused by name instead, because guessing which part is a
+			// program and which is an argument is exactly the mistake: the model named an
+			// operation that does not exist, and saying so is what lets it choose one that does.
+			//
+			// The refusal is not an error of the run: the turn continues, the model reads this
+			// and answers with a kind that exists.
+			if strings.TrimSpace(action.Command) != "" || strings.TrimSpace(action.Description) != "" {
+				fmt.Fprintf(&sb, "[%s] %s\n[refused: %q is not an action this mode has. "+
+					"Available: command, list_skills, search_skills, read_skill, save_skill. "+
+					"To run a shell command, use kind \"command\".]\n",
+					kind, action.Description, kind)
+				a.log.Warn(prefix+"action with an unknown kind",
+					"kind", kind, "command", truncate(action.Command, 80))
+				lastErr = fmt.Errorf("action %d names the unknown kind %q", i+1, kind)
+				continue
+			}
 		}
 		if strings.TrimSpace(action.Command) == "" {
 			a.log.Debug(prefix+"action with no command (descriptive)", "description", action.Description)

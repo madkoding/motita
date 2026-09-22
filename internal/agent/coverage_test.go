@@ -665,6 +665,62 @@ func TestRunActionsWithFailure(t *testing.T) {
 	}
 }
 
+// TestAnUnknownActionKindIsRefusedRatherThanExecuted is the safety property of the dispatch.
+//
+// A model that names an operation this mode does not have — plan mode's `read_file` is the one
+// the shipped skill names, and the skill is served to both modes — arrives with its ARGUMENT in
+// the command field. Falling through to the command path runs that text as a program, so a path
+// becomes an executable. The kind is refused by name instead.
+//
+// Both halves are asserted: the argument is not executed, and the model is told which kinds do
+// exist, because a refusal it cannot act on just spends the turn.
+func TestAnUnknownActionKindIsRefusedRatherThanExecuted(t *testing.T) {
+	e := mount(t, httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {})), config.Anchor{Kind: "command", Command: "true", Timeout: 5 * time.Second}, nil)
+
+	// A program that leaves a mark if it is executed, named like the tool the skill advertises.
+	dir := t.TempDir()
+	marker := filepath.Join(dir, "EXECUTED")
+	script := filepath.Join(dir, "read_file")
+	if err := os.WriteFile(script, []byte("#!/bin/sh\ntouch "+marker+"\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	output, err := e.agent.runActions(context.Background(), []Command{
+		{Kind: "read_file", Description: "read the file", Command: script},
+	}, "")
+	if err == nil {
+		t.Error("an unknown kind must be reported as an error")
+	}
+	if _, statErr := os.Stat(marker); statErr == nil {
+		t.Error("the unknown kind's argument was EXECUTED as a shell command")
+	}
+	if !strings.Contains(output, "not an action this mode has") {
+		t.Errorf("the refusal must name the problem: %q", output)
+	}
+	// The model has to be able to recover from it, so the message lists what it may use.
+	for _, kind := range []string{"command", "read_skill", "save_skill"} {
+		if !strings.Contains(output, kind) {
+			t.Errorf("the refusal must name %q among the kinds that exist: %q", kind, output)
+		}
+	}
+}
+
+// TestAnUnknownKindWithNothingToRunIsIgnored: the refusal is for a kind that carries text the
+// model meant as arguments. A kind with no payload at all has nothing to refuse — it is the
+// descriptive step the command path already ignores, and inventing an error for it would fail a
+// turn over nothing.
+func TestAnUnknownKindWithNothingToRunIsIgnored(t *testing.T) {
+	e := mount(t, httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {})), config.Anchor{Kind: "command", Command: "true", Timeout: 5 * time.Second}, nil)
+
+	output, err := e.agent.runActions(context.Background(), []Command{{Kind: "teleport"}}, "")
+	if err != nil {
+		t.Errorf("a kind with nothing to run must not fail the turn: %v", err)
+	}
+	if output != "" {
+		t.Errorf("output = %q, want nothing to have happened", output)
+	}
+}
+
 // TestSummariseFailureWithError: the summary includes the execution error.
 func TestSummariseFailureWithError(t *testing.T) {
 	e := mount(t, httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {})), config.Anchor{Kind: "command", Command: "true", Timeout: 5 * time.Second}, nil)

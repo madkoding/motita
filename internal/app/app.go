@@ -25,6 +25,7 @@ import (
 	"github.com/madkoding/starlight/internal/logx"
 	"github.com/madkoding/starlight/internal/onboard"
 	"github.com/madkoding/starlight/internal/plan"
+	"github.com/madkoding/starlight/internal/procedures"
 	"github.com/madkoding/starlight/internal/sandbox"
 	"github.com/madkoding/starlight/internal/task"
 	"github.com/madkoding/starlight/internal/tui"
@@ -443,6 +444,18 @@ func (op Options) run(fl flags) int {
 	ctx, wait := op.contextWithShutdown(op.BaseCtx, cfg, log)
 	defer wait()
 
+	// The procedure library, built BEFORE the mode is chosen.
+	//
+	// The prompts shipped in internal/config promise the model a library, and that promise is
+	// in every path — the interface, this task run, the plan run below. It has to be kept in
+	// every path too: a run that answers "no procedure library is configured" when the model
+	// reaches for a procedure spends the turn and teaches it that the tools it was given do
+	// not work, which is worse than not offering them at all.
+	//
+	// Built here rather than in each mode for the reason the package comment gives: one
+	// constructor, so a front end cannot have its own idea of what the library is.
+	procs := procedures.Open(cfg, log)
+
 	// Layer B: the reasoning engine. In TUI mode the engine may be nil (for
 	// example when there is no configuration file yet); the TUI creates it lazily
 	// when the user actually starts plan, task or model listing. For all non-TUI
@@ -460,7 +473,7 @@ func (op Options) run(fl flags) int {
 	}
 
 	if fl.plan || fl.prompt != "" {
-		return op.runPlan(ctx, fl, cfg, engine, box, log)
+		return op.runPlan(ctx, fl, cfg, engine, box, log, procs)
 	}
 
 	// Task source (a single task takes priority over the configured one).
@@ -472,6 +485,13 @@ func (op Options) run(fl flags) int {
 	}
 
 	ag := agent.New(cfg, log, engine, box, source)
+	// The library and its ledger, installed before the run.
+	//
+	// Task mode asks the model to reach for a procedure by name — the shipped prompt devotes a
+	// section to it — so the shelf has to be there when it does. Without this the model is told
+	// it has a library and gets "no procedure library is configured" for every lookup.
+	ag.SetLibrary(procs.Library)
+	ag.SetReward(procs.Ledger)
 
 	started := time.Now()
 	runErr := op.runAgent(ctx, ag)
@@ -744,13 +764,19 @@ func noColour(getenv func(string) string, out io.Writer) bool {
 
 // runPlan runs the read-only plan/chat mode. It uses the reasoning engine and the
 // sandbox, but it never delegates to the task/anchor flow.
-func (op Options) runPlan(ctx context.Context, fl flags, cfg config.Config, engine *llm.Client, box *sandbox.Sandbox, log *logx.Logger) int {
+func (op Options) runPlan(ctx context.Context, fl flags, cfg config.Config, engine *llm.Client, box *sandbox.Sandbox, log *logx.Logger, procs *procedures.Store) int {
 	cfg.Agent.ReadOnly = true
 	ag := agent.New(cfg, log, engine, box, nil)
+	ag.SetLibrary(procs.Library)
+	ag.SetReward(procs.Ledger)
 
 	planner := plan.New(engine, ag).
 		WithTimeout(planDefaultTimeout(cfg)).
 		WithLoops(planDefaultLoops(cfg)).
+		// The same library the task path uses, so a procedure written down in one mode is
+		// reachable from the other and a verdict lands on one shelf rather than two.
+		WithLibrary(procs.Library).
+		WithReward(procs.Ledger).
 		WithTrace(func(format string, args ...any) { fmt.Fprintf(op.Err, format, args...) })
 
 	if fl.prompt != "" {

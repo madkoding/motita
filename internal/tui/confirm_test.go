@@ -9,6 +9,7 @@ import (
 	"bytes"
 	"context"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -190,6 +191,53 @@ func TestSayYesApprovesTheCommand(t *testing.T) {
 	}
 	if !ag.approved {
 		t.Error("the command must be approved when the user says yes")
+	}
+}
+
+// TestTheApprovalChannelIsCreatedExactlyOnce is the guarantee that keeps a turn from hanging.
+//
+// The channel is reached from BOTH goroutines: the run loop receives on it while the agent, in
+// its own goroutine, sends the request. A lazily-created channel without a Once is a data race
+// between them, and the failure it produces is not a torn read — each side can come away with a
+// DIFFERENT channel, so the loop waits for a request that will never arrive and the agent waits
+// for an answer that will never come. The user sees the agent stop responding.
+//
+// Built with a struct literal on purpose: that is how the tests, and therefore any future caller,
+// construct one, and it is the case a constructor-only fix would have missed.
+func TestTheApprovalChannelIsCreatedExactlyOnce(t *testing.T) {
+	tui := &TUI{}
+
+	// Both goroutines call it at the same moment, which is what -race needs to see.
+	const callers = 8
+	got := make(chan chan *confirmState, callers)
+	var wg sync.WaitGroup
+	for i := 0; i < callers; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			got <- tui.approvalChannel()
+		}()
+	}
+	wg.Wait()
+	close(got)
+
+	first := <-got
+	if first == nil {
+		t.Fatal("the channel must exist after the first call")
+	}
+	for c := range got {
+		if c != first {
+			t.Fatal("every caller must get the SAME channel, or the turn hangs")
+		}
+	}
+}
+
+// TestTheApprovalChannelIsStableAcrossCalls: the same property, without concurrency, so a
+// regression that only breaks the sequential case is caught too.
+func TestTheApprovalChannelIsStableAcrossCalls(t *testing.T) {
+	tui := &TUI{}
+	if tui.approvalChannel() != tui.approvalChannel() {
+		t.Error("the channel must be the same one on every call")
 	}
 }
 

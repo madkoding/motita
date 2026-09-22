@@ -409,11 +409,16 @@ func (l *Library) List() ([]Skill, error) { return l.index() }
 // index reads the directory and parses the headings of each document.
 func (l *Library) index() ([]Skill, error) {
 	entries, err := os.ReadDir(l.Dir)
-	if err != nil {
-		if os.IsNotExist(err) {
-			// An empty library is not a failure: it is where everyone starts.
-			return nil, nil
-		}
+	// A directory that is not there yet is not an empty library when the binary SHIPS
+	// procedures: it is a fresh install, which is exactly the case the shipped ones exist for.
+	// Returning early here made the first run report "the library is empty" with the shipped
+	// documents sitting in the executable unused — the model asks, is told there is nothing,
+	// and stops asking.
+	//
+	// Anything else that fails (a directory that exists but cannot be read) is still reported:
+	// the distinction between absent and unreadable is real, and the caller acts differently on
+	// each.
+	if err != nil && !os.IsNotExist(err) {
 		return nil, fmt.Errorf("could not read the skills directory %s: %w", l.Dir, err)
 	}
 

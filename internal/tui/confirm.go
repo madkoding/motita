@@ -105,14 +105,13 @@ func (t *TUI) askConfirm(ctx context.Context, req agent.ApprovalRequest) (bool, 
 	}
 }
 
-// approvalChannel returns the channel the run loop listens on, creating it on first use.
+// approvalChannel returns the channel the run loop listens on, creating it exactly once.
 //
-// It is created lazily rather than in New because a TUI built by a test never runs a real turn,
-// and an unused channel is one more thing that has to be right for no reason.
+// The Once is what makes it safe: this is called from the run loop AND from the agent's own
+// goroutine, and a lazy `if nil` check between them is a data race whose worst outcome is each
+// caller holding a different channel — the turn hangs with the window never opening.
 func (t *TUI) approvalChannel() chan *confirmState {
-	if t.approvals == nil {
-		t.approvals = make(chan *confirmState)
-	}
+	t.approvalsOnce.Do(func() { t.approvals = make(chan *confirmState) })
 	return t.approvals
 }
 
