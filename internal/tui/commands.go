@@ -1,20 +1,28 @@
 package tui
 
 import (
+	"context"
 	"fmt"
 	"strings"
 )
 
-// Command is one slash command: what it is typed as, what it does, and whether it takes an
-// argument.
+// Command is one slash command: what it is typed as, and what it means.
 //
 // The catalogue is the single source of truth for three things that used to be written
-// separately and drifted: the handler's switch, the help screen, and the completion popup.
-// A command that appears in one and not the others is a promise the interface does not keep.
+// separately and drifted: the handler, the help screen, and the completion popup. A command
+// that appears in one and not the others is a promise the interface does not keep.
+//
+// The catalogue holds DATA only, and the actions live in commandActions below, keyed by the
+// same Name. The split is not decoration: the help screen is GENERATED from this table, so a
+// closure here that reached the help text would make `commands` depend on `helpText` and
+// `helpText` on `commands` — the package would not compile. Keeping the two apart is what
+// lets the help be generated rather than written twice.
 type Command struct {
-	// Name is what the user types, with the slash: "/plan".
+	// Name is what the user types, with the slash: "/plan". It is also the key into
+	// commandActions — the two are held together by TestEveryCommandHasAnAction.
 	Name string
-	// Aliases are the other spellings the handler accepts.
+	// Aliases are the other spellings the handler accepts, including the bare words
+	// ("q", "quit") and the punctuation ("?") that predate the slash form.
 	Aliases []string
 	// Help is the one-line description shown in the completion popup.
 	Help string
@@ -37,8 +45,96 @@ var commands = []Command{
 	{Name: "/bad", Help: "mark the last turn as bad; the note says what to fix", Arg: "what was wrong"},
 	{Name: "/value", Aliases: []string{"/v"}, Help: "what the library has learned, worst first"},
 	{Name: "/new", Help: "start a new conversation"},
-	{Name: "/help", Aliases: []string{"/h"}, Help: "this screen"},
-	{Name: "/quit", Aliases: []string{"/q"}, Help: "leave"},
+	{Name: "/help", Aliases: []string{"/h", "h", "help", "?"}, Help: "this screen"},
+	{Name: "/quit", Aliases: []string{"/q", "q", "quit"}, Help: "leave"},
+}
+
+// commandActions performs a command, keyed by the Name it belongs to. It reports whether the
+// interface should quit.
+//
+// The argument is passed to every action rather than only to the ones that take one: the
+// signature is the same for all of them, which is what lets a single table serve `/plan` and
+// `/bad <note>` without a second, parallel list of "commands that carry an argument". Two
+// lists meant two places to add a command, and the one that was forgotten did nothing.
+var commandActions = map[string]func(t *TUI, ctx context.Context, arg string) bool{
+	"/task": func(t *TUI, _ context.Context, _ string) bool { t.setScreen(ScreenTask); return false },
+	"/plan": func(t *TUI, _ context.Context, _ string) bool { t.setScreen(ScreenPlan); return false },
+	"/models": func(t *TUI, ctx context.Context, _ string) bool {
+		t.setScreen(ScreenModels)
+		t.runModels(ctx)
+		return false
+	},
+	"/config": func(t *TUI, ctx context.Context, _ string) bool {
+		t.setScreen(ScreenConfig)
+		t.runConfig(ctx)
+		return false
+	},
+	"/reasoning": func(t *TUI, _ context.Context, _ string) bool { t.cycleReasoning(); return false },
+	// The typed alternative to Ctrl+F, and the one that works everywhere: a terminal in
+	// canonical mode consumes control bytes itself (Ctrl+U is the driver's kill-line,
+	// Ctrl+D its EOF), so the shortcut cannot be relied on. This goes through the ordinary
+	// line reader, which is the same path a task takes.
+	//
+	// With an argument it applies the filter in one step; without one it opens the box.
+	// applyFind already draws that distinction, so it is not repeated here.
+	"/find": func(t *TUI, _ context.Context, arg string) bool { t.applyFind(arg); return false },
+	// The session report: the window, what is in use, and what a compaction carried. A
+	// conversation the user cannot inspect is one they cannot trust.
+	"/session": func(t *TUI, _ context.Context, _ string) bool {
+		t.addPreformatted(AuthorSystem, t.Runner.ConversationReport())
+		return false
+	},
+	"/good": func(t *TUI, _ context.Context, note string) bool { t.recordVerdict(true, note); return false },
+	"/bad":  func(t *TUI, _ context.Context, note string) bool { t.recordVerdict(false, note); return false },
+	// What the library has learned, worst first: the entries that need attention are the ones
+	// at the top, and the complaints attached to them are what a fix is written from.
+	"/value": func(t *TUI, _ context.Context, _ string) bool {
+		t.addPreformatted(AuthorSystem, t.Runner.RewardReport())
+		return false
+	},
+	"/new": func(t *TUI, _ context.Context, _ string) bool {
+		t.Runner.ResetConversation()
+		t.addMessage(AuthorSystem, "started a new session: the next question begins a fresh conversation.")
+		return false
+	},
+	"/help": func(t *TUI, _ context.Context, _ string) bool {
+		t.addPreformatted(AuthorSystem, helpText)
+		return false
+	},
+	"/quit": func(t *TUI, _ context.Context, _ string) bool { return true },
+}
+
+// recordVerdict writes the user's verdict on the turn that just ran.
+//
+// This is the only reward signal in the system, and it is the user's: the agent never rates
+// its own work. The optional note on /bad is what makes the verdict actionable — a number
+// says a skill failed, the note says which step was wrong, and that is the only form of the
+// complaint a fix can be written from.
+func (t *TUI) recordVerdict(ok bool, note string) {
+	t.addPreformatted(AuthorSystem, t.Runner.RecordVerdict(ok, note))
+}
+
+// hasAlias reports whether a spelling is one of the command's aliases.
+func (c Command) hasAlias(s string) bool {
+	for _, a := range c.Aliases {
+		if a == s {
+			return true
+		}
+	}
+	return false
+}
+
+// singleKeyBindings are the bare keys the interface acts on without Enter.
+//
+// They are NOT in the catalogue above: they carry no name the user could type as a
+// command, they must not appear in the completion popup, and the help screen documents
+// them in its navigation section instead. Keeping them out of the table is what stops
+// "j" being advertised as a command that does not exist.
+var singleKeyBindings = map[string]func(t *TUI){
+	"tab": func(t *TUI) { t.nextScreen() },
+	"j":   func(t *TUI) { t.scrollBy(+1) },
+	"k":   func(t *TUI) { t.scrollBy(-1) },
+	"g":   func(t *TUI) { t.scrollToTop() },
 }
 
 // completions returns the commands whose name or alias starts with the given prefix.
@@ -75,15 +171,6 @@ func completions(line string) []Command {
 		}
 	}
 	return out
-}
-
-// completionLines renders the popup: one row per candidate, the name and its argument in the
-// accent colour and the description muted, followed by how to accept.
-//
-// It is drawn ABOVE the composer rather than replacing the conversation, so the user keeps
-// the context they are deciding in.
-func (t *TUI) completionLines(w int) []string {
-	return t.completionLinesCapped(w, 0)
 }
 
 // completionLinesCapped renders the popup with at most `cap` rows, so a long candidate list

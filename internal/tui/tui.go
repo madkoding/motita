@@ -358,31 +358,29 @@ func (t *TUI) Run(ctx context.Context) int {
 
 // handleShortcut interprets command-like input and view-switching keys.
 // It returns (handled, shouldQuit).
+//
+// It is two layers, because the interface really has two: keys the TERMINAL sends
+// (escape sequences, control bytes, the mouse) which are matched against the raw
+// line, and NAMES the user types, which are matched against a trimmed, lowercased
+// copy. Mixing them in one switch is what made the raw cases fragile — trimming a
+// control byte deletes it, so a normalising switch can never see Tab.
 func (t *TUI) handleShortcut(ctx context.Context, line string) (bool, bool) {
-	// Special keys are matched against the RAW input, before any trimming: a
-	// control byte such as Tab is deleted by TrimSpace, so a switch that
-	// normalises first can never see it. This is why Tab used to do nothing.
+	if handled, quit := t.handleRawKey(line); handled {
+		return true, quit
+	}
+	return t.handleTypedCommand(ctx, line)
+}
+
+// handleRawKey answers the keys the terminal reports as bytes: control characters,
+// escape sequences and mouse reports. None of them is something a user typed as
+// text, so a key the interface does not use is CONSUMED rather than passed on —
+// otherwise it reaches the chat and is sent to the model.
+func (t *TUI) handleRawKey(line string) (bool, bool) {
 	switch line {
-	case "	":
+	case "	", "tab":
+		// Tab is special: TrimSpace deletes it, so it can only be seen here. The
+		// "tab" spelling is matched in the typed switch below.
 		t.nextScreen()
-		return true, false
-	// The control keys the reader returns as TOKENS. They are matched here, before the trimmed
-	// switch below, because trimming would remove them — and they must be consumed here, or they
-	// fall through to the chat and are SENT TO THE MODEL.
-	//
-	// That is exactly what happened to Ctrl+D, Ctrl+F and Ctrl+U: the reader captured them from
-	// the input and returned them as tokens, the interface had no case for them, and they were
-	// dispatched as a chat message — so the model received control characters and reported them.
-	// Any OTHER control byte is not text and must not be sent. This is the belt to the reader's
-	// braces: the reader refuses to build a line containing one, and this refuses to dispatch one
-	// that arrived by some other path.
-	//
-	// The tokens with a meaning of their own — Ctrl+D, Ctrl+F, Ctrl+U — are handled further down
-	// by keyHalfDown, keyFind and keyHalfUp. They are NOT listed here: an interface that both
-	// acts on a key and swallows it would be saying two things about the same byte.
-	case "\x01", "\x02", "\x03", "\x05", "\x07", "\x08", "\x0b", "\x0c",
-		"\x0e", "\x0f", "\x10", "\x11", "\x12", "\x13", "\x14", "\x16", "\x17",
-		"\x18", "\x19", "\x1a", "\x1c", "\x1d", "\x1e", "\x1f", "\x7f":
 		return true, false
 	case keyEsc:
 		// Escape is the universal way out, and it leaves in the reverse order of how
@@ -426,6 +424,17 @@ func (t *TUI) handleShortcut(ctx context.Context, line string) (bool, bool) {
 		return true, false
 	}
 
+	// The remaining control bytes are not text and must not be sent. This is the belt to the
+	// reader's braces: the reader refuses to build a line containing one, and this refuses to
+	// dispatch one that arrived by some other path.
+	//
+	// That is exactly what happened to Ctrl+D, Ctrl+F and Ctrl+U: the reader captured them from
+	// the input and returned them as tokens, the interface had no case for them, and they were
+	// dispatched as a chat message — so the model received control characters and reported them.
+	if isStrayControlByte(line) {
+		return true, false
+	}
+
 	// A mouse report is a CSI sequence like any other, so it arrives here intact. The
 	// wheel scrolls; anything else the terminal reports (a click, a drag, a release, a move) is
 	// CONSUMED and ignored, because the keyboard is the interface and the mouse is an addition to
@@ -443,106 +452,13 @@ func (t *TUI) handleShortcut(ctx context.Context, line string) (bool, bool) {
 		return true, false
 	}
 
-	// Shift+G is checked against the raw line, before the lowercasing below: the
-	// switch runs on a lowercased copy, so "G" could never reach its own case and
-	// the binding would be dead. The convention is worth the extra line — "g for
-	// the top, G for the bottom" is what a vim user's fingers expect.
-	if line == "G" {
-		t.scrollToBottom()
-		return true, false
-	}
-
-	trimmed := strings.TrimSpace(strings.ToLower(line))
-
-	// "/find <text>" applies a filter in one line, which is what a user reaches for when
-	// the Ctrl+F shortcut is swallowed by their terminal. Checked before the switch
-	// because it carries an argument.
-	if rest, ok := cutPrefix(trimmed, "/find "); ok {
-		t.applyFind(strings.TrimSpace(rest))
-		return true, false
-	}
-
-	// "/good" and "/bad [what was wrong]" record a verdict on the turn that just ran.
-	//
-	// This is the only reward signal in the system, and it is the user's: the agent never
-	// rates its own work. The optional text on /bad is what makes the verdict actionable — a
-	// number says a skill failed, the note says which step was wrong, and that is the only
-	// form of the complaint a fix can be written from. The text is NOT lowercased: it is the
-	// user's own words and it is quoted back to the model verbatim.
-	if rest, ok := cutPrefix(trimmed, "/good"); ok && (rest == "" || rest[0] == ' ') {
-		t.addPreformatted(AuthorSystem, t.Runner.RecordVerdict(true, strings.TrimSpace(line[len("/good"):])))
-		return true, false
-	}
-	if rest, ok := cutPrefix(trimmed, "/bad"); ok && (rest == "" || rest[0] == ' ') {
-		t.addPreformatted(AuthorSystem, t.Runner.RecordVerdict(false, strings.TrimSpace(line[len("/bad"):])))
-		return true, false
-	}
-
-	switch trimmed {
-	case "q", "quit", "/quit", "/q":
-		return true, true
-	case "tab":
-		t.nextScreen()
-		return true, false
-	case "j":
-		t.scrollBy(+1)
-		return true, false
-	case "k":
-		t.scrollBy(-1)
-		return true, false
-	case "g":
-		t.scrollToTop()
-		return true, false
-	case "/task", "/t":
-		t.setScreen(ScreenTask)
-		return true, false
-	case "/plan", "/p":
-		t.setScreen(ScreenPlan)
-		return true, false
-	case "/models", "/m":
-		t.setScreen(ScreenModels)
-		t.runModels(ctx)
-		return true, false
-	case "/config", "/c":
-		t.setScreen(ScreenConfig)
-		t.runConfig(ctx)
-		return true, false
-	case "/reasoning", "/r", "/think":
-		t.cycleReasoning()
-		return true, false
-	case "/find", "/f":
-		// A typed alternative to Ctrl+F, and the one that works everywhere: a terminal
-		// in canonical mode consumes control bytes itself (Ctrl+U is the driver's
-		// kill-line, Ctrl+D its EOF), so the shortcut cannot be relied on. The command
-		// goes through the ordinary line reader, which is the same path a task takes.
-		t.openSearch()
-		return true, false
-	case "/session", "/s":
-		// The session report: the window, what is in use, and what a compaction carried.
-		// A conversation the user cannot inspect is one they cannot trust.
-		t.addPreformatted(AuthorSystem, t.Runner.ConversationReport())
-		return true, false
-	case "/new":
-		t.Runner.ResetConversation()
-		t.addMessage(AuthorSystem, "started a new session: the next question begins a fresh conversation.")
-		return true, false
-	case "/value", "/v":
-		// What the library has learned, worst first: the entries that need attention are the
-		// ones at the top, and the complaints attached to them are what a fix is written from.
-		t.addPreformatted(AuthorSystem, t.Runner.RewardReport())
-		return true, false
-	case "/help", "/h", "h", "help", "?":
-		t.addPreformatted(AuthorSystem, helpText)
-		return true, false
-	}
-
 	// Any OTHER escape sequence is a KEY, not a message.
 	//
-	// This is the catch-all that was missing. The switch above names the keys the interface
+	// This is the catch-all that was missing. The cases above name the keys the interface
 	// acts on, and everything else — the right and left arrows, Delete, F1, Shift+Tab, and every
-	// other sequence a terminal can send — fell through to the line below and was dispatched as
-	// a chat message. Pressing an arrow SENT A MESSAGE: the user saw their own input submitted as
-	// if they had pressed Enter.
+	// other sequence a terminal can send — fell through to the dispatch and was sent as a chat
+	// message. Pressing an arrow SENT A MESSAGE: the user saw their own input submitted as if
+	// they had pressed Enter.
 	//
 	// A sequence introduced by ESC is never something a user typed: text does not contain
 	// escape sequences, they are how the terminal reports a key. So the rule is stated once, by
@@ -555,13 +471,84 @@ func (t *TUI) handleShortcut(ctx context.Context, line string) (bool, bool) {
 	return false, false
 }
 
-// cutPrefix is strings.CutPrefix spelled locally, so the behaviour does not depend on
-// the toolchain's standard library version.
-func cutPrefix(s, prefix string) (string, bool) {
-	if len(s) >= len(prefix) && s[:len(prefix)] == prefix {
-		return s[len(prefix):], true
+// isStrayControlByte reports whether the line is a single control byte with no
+// meaning of its own. The tokens that DO have a meaning — Ctrl+D, Ctrl+F, Ctrl+U —
+// are matched before this and are deliberately not listed: an interface that both
+// acts on a key and swallows it would be saying two things about the same byte.
+func isStrayControlByte(line string) bool {
+	if len(line) != 1 {
+		return false
 	}
-	return "", false
+	c := line[0]
+	if c == 0x7f {
+		return true
+	}
+	return c < 0x20 && c != '	' && c != '\r' && c != '\n'
+}
+
+// handleTypedCommand answers a NAME the user typed: a slash command, a single-letter binding,
+// or a command followed by an argument.
+//
+// The names live in ONE table (see commands.go). With a hand-written switch the same name had
+// to be kept in step with the completion popup and the help screen by hand, and a command that
+// existed in two of the three was a promise the interface did not keep.
+func (t *TUI) handleTypedCommand(ctx context.Context, line string) (bool, bool) {
+	// The line is normalised to lowercase as a whole, so a typed "Tab", "Q" or "/PLAN" reaches
+	// the same entry as its lowercase spelling. That is what the interface already did for
+	// command names, and it is the only reason a spelled-out key name works at all.
+	trimmed := strings.TrimSpace(strings.ToLower(line))
+
+	// Shift+G is checked against the raw line, before the lowercasing above: the table is
+	// keyed on a lowercased copy, so "G" could never reach its own entry and the binding would
+	// be dead. The convention is worth the extra check — "g for the top, G for the bottom" is
+	// what a vim user's fingers expect.
+	if line == "G" {
+		t.scrollToBottom()
+		return true, false
+	}
+
+	if run, ok := singleKeyBindings[trimmed]; ok {
+		run(t)
+		return true, false
+	}
+
+	// The NAME is everything up to the first space; the rest is the argument. Splitting once,
+	// here, is what lets a single table hold both "/plan" and "/bad <note>" — and it is why an
+	// unknown name is refused instead of being matched by prefix against every entry.
+	name, arg := trimmed, ""
+	if i := strings.IndexAny(trimmed, " 	"); i >= 0 {
+		name, arg = trimmed[:i], strings.TrimSpace(trimmed[i+1:])
+	}
+
+	// The argument is taken from the RAW line when the name matches, so it keeps the user's
+	// own capitalisation and quotes: it is their words, and /bad quotes them back verbatim.
+	if raw := strings.TrimSpace(line); arg != "" {
+		if i := strings.IndexAny(raw, " 	"); i >= 0 {
+			arg = strings.TrimSpace(raw[i+1:])
+		}
+	}
+
+	for _, c := range commands {
+		if c.Name != name && !c.hasAlias(name) {
+			continue
+		}
+		run, ok := commandActions[c.Name]
+		if !ok {
+			// Unreachable while TestEveryCommandHasAnAction passes, and deliberately not a
+			// silent fall-through: a command in the catalogue with no action is a menu entry
+			// that does nothing, which is worse than an unimplemented one. Returning false
+			// here means an unknown key reaches the chat as a task instead of vanishing.
+			return false, false
+		}
+		return true, run(t, ctx, arg)
+	}
+
+	// A line that matches no command and no binding is CONTENT, not an error: in Task and Plan
+	// it is what the user wants sent to the model, and that is a documented contract
+	// (TestUnknownCommandInAConversationViewIsATask). Being a slash-prefixed line does not
+	// change that — the interface has no reserved word, and refusing "/unknown" here would
+	// break the very case the contract exists for.
+	return false, false
 }
 
 // applyFind filters the conversation in one step, without leaving the search box open.
