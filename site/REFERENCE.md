@@ -577,6 +577,37 @@ The address is validated at startup, not when the first client arrives: a
 `listen` that is not `host:port` is refused, and a non-loopback address without
 `allow_lan` is refused with a message naming the setting.
 
+**Entering a session means entering it.** `-session <id>` and `/attach <id>` do the same
+thing, and both take you back to the conversation rather than to a blank screen:
+
+1. the session is switched, then
+2. its turns are read from the gateway and drawn, then
+3. **if a turn is in flight there, it is followed** — progress lines arrive as they are
+   emitted, the status line shows that work is happening, and Escape stops it by asking
+   the gateway.
+
+That third step is not a nicety. A run outlives the client that started it, so arriving at
+a session mid-run is the normal case rather than a rare one, and a client that ignored it
+would show a static screen next to a conversation that is working — with no way to tell a
+live turn from a hung one, and no way to stop the live one.
+
+Following a run and owning one are different things, and the difference is worth knowing
+because it decides what your shutdown does:
+
+| | A run this interface started | A run it arrived at |
+|---|---|---|
+| Escape | stops it | stops it, through the gateway |
+| Leaving the interface | the run keeps going | the run keeps going |
+| Closing the window | the run keeps going | the run keeps going |
+
+Escape is the one deliberate act, in both columns. Nothing else kills a turn — in
+particular, disconnecting from a client does **not**, which is the whole point of a run
+living in the gateway. A client that cancelled on the way out would turn a locked phone
+screen into a lost turn.
+
+`/sessions` lists the conversations with the most recent first and the one you are in
+marked, so the list answers "where was I?".
+
 #### Reconnecting to a turn that is already running
 
 A front end loses its connection for ordinary reasons — a locked phone, a laptop lid, a

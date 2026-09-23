@@ -63,6 +63,11 @@ mkdir -p dist/.e2e
 cleanup() { docker rm -f "$CONTAINER" >/dev/null 2>&1 || true; }
 trap cleanup EXIT
 
+# A container left behind by an interrupted run would otherwise fail this one with docker's
+# name-conflict error, which reads as a broken test rather than as stale state. The name is
+# ours by construction, so anything wearing it is ours to remove.
+cleanup
+
 echo "==> Building for linux/$ARCH (agent + simulated LLM)"
 GOOS=linux GOARCH="$ARCH" CGO_ENABLED=0 go build -trimpath \
   -ldflags "-s -w -X main.version=e2e" -o "$BINARY" ./cmd/agent
@@ -379,6 +384,42 @@ fi
 
 echo
 
+
+echo
+echo "==> the conversation a client comes back to"
+
+# This is the check that a unit test could not make. The gateway's own tests for this endpoint use a
+# fake service with a hand-written transcript, so they agreed with their own fake while the REAL
+# agent recorded nothing: a task ran, and the conversation read back EMPTY - the blank screen that
+# coming back to a conversation exists to avoid. Driving the running gateway is what closes that gap.
+transcript="$(curl -s -H "$AUTH" "$BASE/v1/sessions/default/messages")"
+case "$transcript" in
+  *'"messages":[]'*)
+    bad "the conversation is EMPTY after a task ran, so a client coming back reads a blank screen"
+    ;;
+  *'leave the report'*)
+    ok "the conversation carries the task that ran"
+    ;;
+  *)
+    bad "the conversation does not carry the task: $transcript"
+    ;;
+esac
+
+# And it is recorded as WORK THAT RAN, not as a chat reply: an interface draws those differently,
+# and a task shown as a reply would tell the user nothing was done.
+case "$transcript" in
+  *'"Kind":"task"'*) ok "the turn is recorded as a task, not as a reply" ;;
+  *) bad "the turn is not recorded as a task: $transcript" ;;
+esac
+
+# The outcome is in it too. A turn with the request and no answer would read as a question that was
+# never dealt with.
+case "$transcript" in
+  *'"Agent":""'*) bad "the turn carries the request but no outcome" ;;
+  *) ok "the turn carries what was done about it" ;;
+esac
+
+echo
 [ "$failures" -eq 0 ] || { echo "FAILURES: $failures"; exit 1; }
 echo "the gateway works end to end"
 
