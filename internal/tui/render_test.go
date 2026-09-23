@@ -171,6 +171,62 @@ func TestWordmarkIsNotFramed(t *testing.T) {
 	}
 }
 
+// TestTheVersionIsDrawnUnderTheWordmark: the answer to "which build am I running" has to be
+// readable from the interface itself. Nothing else on screen names the build, so after installing
+// a new binary over an old one there is no way to tell which one is actually answering.
+func TestTheVersionIsDrawnUnderTheWordmark(t *testing.T) {
+	runner := &fakeRunner{}
+	tui := newFakeTUI("q\n", runner)
+	tui.Version = "v1.2.3-abc"
+	tui.Run(context.Background())
+
+	frame := stripANSI(lastFrame(t, tui))
+	if !strings.Contains(frame, "v1.2.3-abc") {
+		t.Fatalf("the version is not on the frame: %q", frame)
+	}
+}
+
+// A build with no version says nothing rather than drawing an empty box: an embedder that never
+// sets Version must see the frame it saw before this feature existed.
+func TestAnInterfaceWithNoVersionDrawsNothingExtra(t *testing.T) {
+	named := newFakeTUI("q\n", &fakeRunner{})
+	named.Version = "v1.2.3-abc"
+	named.Run(context.Background())
+
+	anon := newFakeTUI("q\n", &fakeRunner{})
+	anon.Run(context.Background())
+
+	if strings.Contains(stripANSI(lastFrame(t, anon)), "v1.2.3-abc") {
+		t.Fatalf("a version appeared with none set: %q", stripANSI(lastFrame(t, anon)))
+	}
+	if n, a := strings.Count(stripANSI(lastFrame(t, named)), "\n"), strings.Count(stripANSI(lastFrame(t, anon)), "\n"); n != a {
+		t.Fatalf("setting a version changed the frame height: %d rows named, %d anonymous", n, a)
+	}
+}
+
+// TestAVersionTooNarrowToReadIsNotDrawn: the version row REPLACES the blank row under the
+// wordmark instead of adding one. If it added a row, the vertical budget would grow by one and
+// the bottom of the interface would be pushed off a small terminal - which is the bug this test
+// exists to catch, not a cosmetic preference.
+func TestAVersionTooNarrowToReadIsNotDrawn(t *testing.T) {
+	wide := newFakeTUI("q\n", &fakeRunner{})
+	wide.Version = "v1.2.3-abc"
+	wide.Run(context.Background())
+
+	narrow := newFakeTUI("q\n", &fakeRunner{})
+	narrow.Version = strings.Repeat("9", 200) // longer than any terminal
+	narrow.Run(context.Background())
+
+	wideLines := strings.Count(stripANSI(lastFrame(t, wide)), "\n")
+	narrowLines := strings.Count(stripANSI(lastFrame(t, narrow)), "\n")
+	if wideLines != narrowLines {
+		t.Fatalf("the version row changed the frame height: %d rows with it, %d without", wideLines, narrowLines)
+	}
+	if strings.Contains(stripANSI(lastFrame(t, narrow)), "9999") {
+		t.Fatal("a version that cannot be read in full was drawn anyway, cut to fit")
+	}
+}
+
 // TestCompactMarkOnANarrowTerminal: the five-row wordmark is 73 columns wide and
 // cannot be shown in a narrow window, so the single-line mark replaces it rather
 // than being wrapped or clipped.

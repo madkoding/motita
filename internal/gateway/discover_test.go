@@ -70,6 +70,33 @@ func TestAGatewayIsDiscoveredThroughItsHealthEndpoint(t *testing.T) {
 	}
 }
 
+// TestDiscoveryCarriesTheVersionTheGatewayReported: the health endpoint has always sent the
+// gateway's version, and discovery used to drop it on the floor - which is why no front end could
+// show it. The version here is deliberately not this process's own: when a client attaches to a
+// gateway somebody else runs, the client's build is the wrong answer to the question.
+func TestDiscoveryCarriesTheVersionTheGatewayReported(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`{"ok":true,"version":"v9.9.9-fromthegateway"}`))
+	}))
+	defer srv.Close()
+
+	path := filepath.Join(t.TempDir(), "gateway.json")
+	if err := WriteServiceFile(path, ServiceFile{Address: strings.TrimPrefix(srv.URL, "http://"), Token: "tok", PID: 7}); err != nil {
+		t.Fatalf("WriteServiceFile: %v", err)
+	}
+
+	found, ok, err := Discover(context.Background(), path, nil)
+	if err != nil {
+		t.Fatalf("Discover: %v", err)
+	}
+	if !ok {
+		t.Fatal("a healthy gateway was not discovered")
+	}
+	if found.Version != "v9.9.9-fromthegateway" {
+		t.Fatalf("Version = %q, want the version the gateway reported - it was dropped somewhere", found.Version)
+	}
+}
+
 // A developer build never receives the -ldflags version injection, so it reports "dev" or an empty
 // string. Checking identity against the version would refuse to recognise a perfectly healthy
 // gateway built from source - the exact build its author runs.

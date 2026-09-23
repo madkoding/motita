@@ -550,9 +550,25 @@ Because the two have to find each other, the gateway says where it is:
 
 ```bash
 starlight gateway start    # starts the service and waits until it answers
-starlight gateway status   # says whether one is running, and where
+starlight gateway status   # says whether one is running, where, and WHICH BUILD
 starlight gateway stop     # stops the one the service file names
 ```
+
+Both commands name the build they found — `the gateway is running at
+http://127.0.0.1:7477 (pid 1234, v0.5.0-70-g9e7baf4)` — because "is one running" is
+only half the question. After installing a new binary over an old one, the service
+still running can be the **previous build**, and nothing else in the program would
+say so. The version is the one the gateway reports about itself through
+`/v1/health`, so it names the process that is actually answering rather than the
+binary you happen to have on disk.
+
+The interface draws the same version under the wordmark. Which build it names
+depends on how it was started, and deliberately so: an interface speaking through a
+local gateway names **this program**, and one attached with `-connect` names **the
+gateway at the other end**. A client that printed its own version while talking to a
+different build would be a confident answer to a question nobody asked. A version
+too long for the window is not drawn at all rather than cut to fit — a truncated
+version is not one anybody can look up.
 
 `gateway start` **re-executes the program** rather than serving inside the command, so
 none of these pay for building a sandbox or a reasoning engine — the service does that,

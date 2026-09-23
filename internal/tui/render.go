@@ -541,7 +541,7 @@ func (t *TUI) frameCols() int {
 // surface rather than as part of the same box.
 func (t *TUI) headerLines(w int) []string {
 	if w-2*leftMargin < visibleLen(bannerLines[0]) {
-		return []string{"", t.padCenter(t.brand(compactMark), w), ""}
+		return []string{"", t.padCenter(t.brand(compactMark), w), t.versionLine(w)}
 	}
 	lines := make([]string, 0, len(bannerLines)+2)
 	lines = append(lines, "")
@@ -551,7 +551,27 @@ func (t *TUI) headerLines(w int) []string {
 		}
 		lines = append(lines, t.padCenter(row, w))
 	}
-	return append(lines, "")
+	// The version takes the row of the trailing blank rather than adding one. The vertical
+	// budget is fixed (see permanentRows) and a row spent here is a row taken from the
+	// conversation: on a small terminal it is what pushes the composer off the screen.
+	return append(lines, t.versionLine(w))
+}
+
+// versionLine names the running build under the wordmark, or draws an empty row when there is
+// nothing to name or no room to name it.
+//
+// It returns an EMPTY row rather than a shortened version, for the same reason the rest of the
+// interface refuses to cut a word: "v0.5.0-70-g9e7" is not a version anybody can look up, and a
+// version nobody can look up answers the question it is drawn for no better than a blank.
+func (t *TUI) versionLine(w int) string {
+	v := strings.TrimSpace(t.Version)
+	if v == "" {
+		return ""
+	}
+	if !t.fits("starlight "+v, w-2*leftMargin) {
+		return ""
+	}
+	return t.padCenter(t.muted(v), w)
 }
 
 // fits reports whether a decorated string is narrow enough for the given number

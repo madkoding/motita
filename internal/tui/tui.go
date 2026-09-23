@@ -104,6 +104,14 @@ type TUI struct {
 	Runner  Runner
 	NoColor bool
 
+	// Version is the build to name in the header box. WHICH build depends on how this interface
+	// was started, and the caller decides: an interface speaking through a local gateway names
+	// this program, and one attached to a gateway somebody else runs names THE GATEWAY - because a
+	// client that prints its own version while talking to a different build is a confident lie.
+	//
+	// Empty draws no box at all, which is what an embedder that does not care gets for free.
+	Version string
+
 	// Width and Height override the drawing area. Zero means "ask the
 	// environment": tests set them to make the layout deterministic, and an
 	// embedder can pin them to a fixed size.

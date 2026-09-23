@@ -167,6 +167,10 @@ func (op Options) runClient(ctx context.Context, fl flags, cfg config.Config) in
 	ui.Out = op.Out
 	ui.Err = op.Err
 	ui.NoColor = noColour(os.Getenv, op.Out)
+	// The version of the GATEWAY, not of this binary. This process is a client: it builds no
+	// sandbox and runs no commands, so the build that matters is the one on the other end - and
+	// showing our own here would be a confident answer to a question nobody asked.
+	ui.Version = op.gatewayVersion(ctx, fl.connect)
 
 	// Entering the session is the SAME act as /attach, and it goes through the same code.
 	//
@@ -200,6 +204,28 @@ func (op Options) runClient(ctx context.Context, fl flags, cfg config.Config) in
 	return ui.Run(context.Background())
 }
 
+// gatewayVersion asks the gateway at the other end which build it is.
+//
+// A function and NOT a field the caller must remember to fill, for the reason this feature exists:
+// the interface has to be able to say what is answering, and a version that is only correct when
+// somebody passed it along is a version that will one day be wrong. The seam exists so a test can
+// assert the decision without a live gateway, exactly like DiscoverGateway.
+//
+// A failure is not reported: the version is the one decoration in the interface, and an interface
+// that refuses to open because a label could not be fetched has its priorities backwards. The row
+// simply goes undrawn.
+func (op Options) gatewayVersion(ctx context.Context, addr string) string {
+	probe := op.ProbeGatewayHealth
+	if probe == nil {
+		probe = gateway.ProbeHealth
+	}
+	health, err := probe(ctx, strings.TrimPrefix(connectURL(addr), "http://"))
+	if err != nil {
+		return ""
+	}
+	return health.Version
+}
+
 // connectURL turns the address a user types into a URL a client can use.
 //
 // A user writes an ADDRESS - "127.0.0.1:7477", "the-host:7477" - because that is what an address
@@ -207,6 +233,8 @@ func (op Options) runClient(ctx context.Context, fl flags, cfg config.Config) in
 // transport they never chose. Without this, the first thing a new user sees is
 // `parse "127.0.0.1:7477/v1/sessions": first path segment in URL cannot contain colon`, which
 // names neither the flag nor the fix.
+//
+// connectURL turns a user-typed address into a base URL.
 //
 // An address that already carries a scheme is left alone, so https:// can be written explicitly by
 // anyone terminating TLS in front of the gateway.

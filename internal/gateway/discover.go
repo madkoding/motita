@@ -13,6 +13,11 @@ type Found struct {
 	BaseURL string
 	Token   string
 	PID     int
+	// Version is what the gateway reported about ITSELF, and it is deliberately not this process's
+	// version: when a client attaches to a gateway somebody else is running, showing the client's
+	// own build would be a confident answer to a question nobody asked. The health endpoint already
+	// sends it, and dropping it here is what left the version unreachable from every front end.
+	Version string
 	// Owned is carried through from the service file: whoever wrote it decided whether the process
 	// that finds it is responsible for shutting it down.
 	Owned bool
@@ -74,6 +79,7 @@ func Discover(ctx context.Context, path string, probe func(context.Context, stri
 		BaseURL: "http://" + svc.Address,
 		Token:   svc.Token,
 		PID:     svc.PID,
+		Version: health.Version,
 		Owned:   svc.Owned,
 	}, true, nil
 }

@@ -386,6 +386,68 @@ func TestConnectPassesAUsableURLToTheClient(t *testing.T) {
 	}
 }
 
+// TestTheClientInterfaceNamesTheGatewayBuild: this process is a client - it builds no sandbox and
+// runs no commands - so the version it shows must be THE GATEWAY'S. Showing its own build would be
+// a confident answer to a question nobody asked, and this is the test that pins which one it is.
+func TestTheClientInterfaceNamesTheGatewayBuild(t *testing.T) {
+	silence(t)
+	srv := planServer(t, []string{"hello"})
+	defer srv.Close()
+	cfgPath := planConfig(t, srv)
+	writeTokenFile(t, cfgPath)
+
+	var out strings.Builder
+	op, _ := connectOptions(t, &out, []string{"-config", cfgPath, "-connect", strings.TrimPrefix(srv.URL, "http://")})
+	// The health endpoint is what carries the gateway's version; the fake answers as one would.
+	op.ProbeGatewayHealth = func(context.Context, string) (gateway.Health, error) {
+		return gateway.Health{OK: true, Version: "v9.9.9-fromthegateway"}, nil
+	}
+	var shown string
+	op.NewClient = func(baseURL, tok, session string) tui.Runner { return listingRunner{sessions: []tui.SessionInfo{{ID: "default"}}} }
+	op.RunTUI = func(_ context.Context, _ config.Config, _ *llm.Client, _ *sandbox.Sandbox, _ *logx.Logger) int {
+		// The seam short-circuits before the interface is built, so assert the DECISION through
+		// the same function the real path calls.
+		shown = op.gatewayVersion(context.Background(), strings.TrimPrefix(srv.URL, "http://"))
+		return Success
+	}
+
+	if code := Run(op); code != Success {
+		t.Fatalf("Run = %d; output: %s", code, out.String())
+	}
+	if shown != "v9.9.9-fromthegateway" {
+		t.Fatalf("the client interface would show %q, want the gateway's own version", shown)
+	}
+}
+
+// TestTheVersionProbeUsesTheRealHealthEndpointByDefault: the seam is for tests, and the production
+// path must actually ask a gateway. A probe that silently did nothing would leave every client
+// with a blank version and no error anywhere.
+func TestTheVersionProbeUsesTheRealHealthEndpointByDefault(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/v1/health" {
+			t.Errorf("the version probe asked for %s, it must use /v1/health", r.URL.Path)
+		}
+		_, _ = w.Write([]byte(`{"ok":true,"version":"v0.0.0-real"}`))
+	}))
+	defer srv.Close()
+
+	op := Options{}
+	got := op.gatewayVersion(context.Background(), srv.URL)
+	if got != "v0.0.0-real" {
+		t.Fatalf("gatewayVersion = %q, want the version the real endpoint sent", got)
+	}
+}
+
+// A gateway that cannot be asked must leave the row blank rather than stop the interface: the
+// version is a label, and refusing to open over a label has the priorities backwards.
+func TestAVersionThatCannotBeFetchedLeavesTheRowBlank(t *testing.T) {
+	op := Options{}
+	// A port nothing listens on: the probe fails, and the answer is an empty version.
+	if got := op.gatewayVersion(context.Background(), "127.0.0.1:1"); got != "" {
+		t.Fatalf("gatewayVersion = %q, want empty when nothing answers", got)
+	}
+}
+
 // TestTheAdapterCarriesAFailedListing: a gateway that cannot be asked which conversations it holds
 // must produce an ERROR, not an empty list. An empty list would read as "there are none", which is
 // a different - and much more alarming - statement than "the question could not be asked".

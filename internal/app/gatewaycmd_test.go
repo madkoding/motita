@@ -40,7 +40,9 @@ func fakeGatewayProcess(t *testing.T, answered *atomic.Bool) (*httptest.Server, 
 			return
 		}
 		if r.URL.Path == "/v1/health" {
-			_, _ = w.Write([]byte(`{"ok":true,"version":"dev"}`))
+			// A version that is NOT the one this process defaults to: if the command prints it, it
+			// can only have come from the gateway it probed.
+			_, _ = w.Write([]byte(`{"ok":true,"version":"v9.9.9-fromthegateway"}`))
 			return
 		}
 		w.WriteHeader(http.StatusNotFound)
@@ -205,6 +207,29 @@ func TestStoppingAGatewayStopsTheGatewayItNames(t *testing.T) {
 	}
 	if svc, _ := gateway.ReadServiceFile(servicePath); !svc.IsZero() {
 		t.Fatalf("the service file was left behind: %+v", svc)
+	}
+}
+
+// TestStatusNamesTheVersionItFound: the question this command exists to answer is not only
+// "is one running" but "is the one running THE BUILD I THINK". After installing a new binary
+// over an old one, the running service can be the previous build - and nothing else in the
+// program says so.
+func TestStatusNamesTheVersionItFound(t *testing.T) {
+	out := &syncBuffer{}
+	_, address := fakeGatewayProcess(t, nil)
+	servicePath := filepath.Join(t.TempDir(), "gateway.json")
+	if err := gateway.WriteServiceFile(servicePath, gateway.ServiceFile{Address: address, Token: "t", PID: 4242, Owned: false}); err != nil {
+		t.Fatalf("WriteServiceFile: %v", err)
+	}
+
+	op := gatewayTestOptions(t, out, "", "gateway", "status")
+	op.ServiceFile = servicePath
+
+	if code := Run(op); code != Success {
+		t.Fatalf("exit %d, want %d (stderr: %s)", code, Success, out.String())
+	}
+	if !strings.Contains(out.String(), "v9.9.9-fromthegateway") {
+		t.Fatalf("status did not name the running build: %q", out.String())
 	}
 }
 

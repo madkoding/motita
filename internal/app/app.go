@@ -139,6 +139,10 @@ type Options struct {
 	// states that only a race produces in reality, such as the service file changing between the
 	// confirmation that a gateway came up and the report of where it is.
 	DiscoverGateway func(ctx context.Context, path string) (gateway.Found, bool, error)
+	// ProbeGatewayHealth asks a gateway at an address which build it is. A seam for the same
+	// reason as DiscoverGateway: the client's version row must be assertable without a live
+	// gateway on the machine running the tests.
+	ProbeGatewayHealth func(ctx context.Context, address string) (gateway.Health, error)
 
 	// waitSignal is the countdown function for forced shutdown.
 	waitSignal func(time.Duration) <-chan time.Time
@@ -260,6 +264,12 @@ func (op *Options) complete() {
 	}
 	if op.Goos == "" {
 		op.Goos = "linux"
+	}
+	if op.Version == "" {
+		// The default lives in cmd/agent (`var version = "dev"`), so a test that builds Options by
+		// hand leaves this empty - and an interface showing an empty version is worse than one
+		// showing "dev": it looks like the version is broken instead of like an unversioned build.
+		op.Version = "dev"
 	}
 	if op.waitSignal == nil {
 		op.waitSignal = func(d time.Duration) <-chan time.Time { return time.After(d) }
@@ -968,6 +978,7 @@ func (op Options) runTUI(ctx context.Context, fl flags, cfg config.Config, engin
 	ui.Out = op.Out
 	ui.Err = op.Err
 	ui.NoColor = noColour(os.Getenv, op.Out)
+	ui.Version = op.Version
 
 	// The interface CONNECTS to a gateway rather than assuming it is the only one.
 	//

@@ -113,7 +113,7 @@ func (op Options) gatewayStart(ctx context.Context, fl flags) int {
 		fmt.Fprintf(op.Err, "the gateway started but cannot be found afterwards\n")
 		return ConfigError
 	}
-	fmt.Fprintf(op.Out, "the gateway is running at %s (pid %d)\n", found.BaseURL, found.PID)
+	fmt.Fprintf(op.Out, "the gateway is running at %s (pid %d, %s)\n", found.BaseURL, found.PID, found.Version)
 	return Success
 }
 
@@ -169,7 +169,7 @@ func (op Options) gatewayStatus(ctx context.Context, fl flags) int {
 		fmt.Fprintln(op.Out, "no gateway is running.")
 		return Success
 	}
-	fmt.Fprintf(op.Out, "the gateway is running at %s (pid %d)\n", found.BaseURL, found.PID)
+	fmt.Fprintf(op.Out, "the gateway is running at %s (pid %d, %s)\n", found.BaseURL, found.PID, found.Version)
 	return Success
 }
 
