@@ -143,6 +143,10 @@ type Options struct {
 	// reason as DiscoverGateway: the client's version row must be assertable without a live
 	// gateway on the machine running the tests.
 	ProbeGatewayHealth func(ctx context.Context, address string) (gateway.Health, error)
+	// InterfaceEnabled reports whether the gateway serves the browser interface. A seam for the
+	// same reason as the two above: whether the link is announced is a behaviour worth pinning,
+	// and pinning it must not depend on what this machine's configuration file happens to say.
+	InterfaceEnabled func() bool
 
 	// waitSignal is the countdown function for forced shutdown.
 	waitSignal func(time.Duration) <-chan time.Time

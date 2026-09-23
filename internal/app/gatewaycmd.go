@@ -3,11 +3,13 @@ package app
 import (
 	"context"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"strings"
 	"time"
 
+	"github.com/madkoding/starlight/internal/config"
 	"github.com/madkoding/starlight/internal/gateway"
 )
 
@@ -114,7 +116,54 @@ func (op Options) gatewayStart(ctx context.Context, fl flags) int {
 		return ConfigError
 	}
 	fmt.Fprintf(op.Out, "the gateway is running at %s (pid %d, %s)\n", found.BaseURL, found.PID, found.Version)
+	// The link is announced HERE and only here, in the command that brings the gateway up: it IS
+	// the credential's handoff. `gateway status` deliberately does not print it - that is the
+	// command a user runs in front of someone else while asking "is it up?" - and the token
+	// remains readable in the token file for anyone who needs the link again.
+	if op.webUIEnabled(fl) {
+		announceWebUI(op.Out, found)
+	}
 	return Success
+}
+
+// announceWebUI prints the one link into the browser interface.
+//
+// The token goes in the URL FRAGMENT and nowhere else. A fragment is never sent to the server and
+// never appears in a Referer or a server log, which is the only way to hand a secret over in a
+// URL without it travelling - and this is the one moment the token is handed out in full. The
+// page trades it for a cookie immediately and drops it.
+//
+// It is written to Out, never through the logger: a log file is kept, copied and pasted into
+// issues, and this link IS the credential.
+func announceWebUI(out io.Writer, found gateway.Found) {
+	if strings.TrimSpace(found.Token) == "" {
+		return
+	}
+	fmt.Fprintf(out, "\nthe interface is at %s/#t=%s\n", found.BaseURL, found.Token)
+	fmt.Fprintln(out, "open that link once: the page trades the fragment for a cookie and drops it")
+}
+
+// webUIEnabled asks whether the gateway this command just started serves the interface.
+//
+// It reads the CONFIGURATION rather than guessing, because the subcommands pay for neither the
+// engine nor a sandbox and so never load one: an operator who turned the interface off in the
+// YAML, or with STARLIGHT_GATEWAY_WEBUI, must not be handed a link to a page their gateway
+// answers 404 on. The load is the keyless one, exactly like the version path, because a
+// subcommand has no business demanding a credential to answer this question.
+//
+// The seam is there for the same reason ServeGateway and DiscoverGateway are: what the tests need
+// to pin is the shape of the announcement, not the configuration loader underneath it.
+func (op Options) webUIEnabled(fl flags) bool {
+	if op.InterfaceEnabled != nil {
+		return op.InterfaceEnabled()
+	}
+	cfg, err := config.LoadWithoutKey(fl.configPath)
+	if err != nil {
+		// A configuration that cannot be read is reported by the command that needs it; here the
+		// honest reading is "we cannot claim there is an interface", so nothing is announced.
+		return false
+	}
+	return cfg.Gateway.WebUI
 }
 
 // gatewayStop stops the gateway named by the service file.

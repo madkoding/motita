@@ -137,6 +137,9 @@ func (op Options) startGateway(fl flags, cfg config.Config, engine *llm.Client, 
 		MaxBodyKB:   cfg.Gateway.MaxBodyKB,
 		Version:     op.Version,
 		Log:         log,
+		// The interface is served from THIS mux, so the page and the API share an origin
+		// and no proxy or CORS is involved anywhere.
+		WebUI: cfg.Gateway.WebUI,
 	})
 	if err != nil {
 		return nil, err
