@@ -554,6 +554,7 @@ a pipeline gets the answer and nothing else. It is the mode a script uses, and t
 a client is useful on a machine with no terminal. `-serve` and `-connect` together are
 refused: one makes this process the gateway, the other a client of one.
 
+Exposing the gateway beyond loopback takes two deliberate acts: a
 non-loopback listen address *and* `allow_lan`. Neither on its own is enough, and
 that is the point — what is being exposed runs commands on this machine, so no
 default and no single flag may open it.
@@ -575,6 +576,70 @@ which `llm.api_key` is reported only as *present* or *absent*.
 The address is validated at startup, not when the first client arrives: a
 `listen` that is not `host:port` is refused, and a non-loopback address without
 `allow_lan` is refused with a message naming the setting.
+
+#### Reconnecting to a turn that is already running
+
+A front end loses its connection for ordinary reasons — a locked phone, a laptop lid, a
+tunnel that blinks. The turn does **not** lose its client: a run belongs to its
+conversation in the gateway, not to the socket that asked for it. What a client needs is
+a way back in, and that is three facts about the wire.
+
+**Every event is numbered.** The stream carries `id: <n>`, and `n` is the sequence number
+of the event in the run's log. It is the number a client sends back to say *"I got this
+far, continue from here"*:
+
+```
+id: 7
+event: progress
+data: {"text":"a line"}
+```
+
+**The first event after attaching is always a preamble.** `event: attached` says what the
+client is looking at, and it is what makes *"resumed"* distinguishable from *"I lost
+lines"*:
+
+| Field | Meaning |
+|---|---|
+| `run_id` | Which turn this is. A client that reconnects to a different one knows it. |
+| `first_seq` / `last_seq` | The span the log can still serve. |
+| `dropped` | How many events were evicted, so a hole is a size and not a suspicion. |
+| `pending_approval` | The question being asked **right now**, with its `id`, if the run is blocked on one. |
+| `outcome` | Empty while the turn is going; `done`, `error` or `cancelled` once it has ended. A client attaching to a finished turn is **told**, instead of waiting on a stream that will never produce. |
+
+The preamble carries a pending question on purpose. A client that reconnects while the
+run is blocked on an approval would otherwise receive a silent stream — and the run would
+stay blocked until its client came back and guessed.
+
+**Attaching with nothing running answers 404**, not an empty stream. A stream that will
+never produce looks exactly like a hang, and a client that cannot tell the two apart
+shows its user a spinner forever.
+
+Resuming is `?from=N`, and the gateway sends what the log still holds after `N`:
+
+```bash
+TOKEN="$(cat ~/.starlight/gateway.token)"
+curl -N -H "Authorization: Bearer $TOKEN" \
+  "http://127.0.0.1:7477/v1/sessions/default/events?from=12"
+```
+
+The log is bounded, so a client that was away long enough gets a hole instead of the
+beginning of the turn. That is deliberate: replaying what the client already has would
+make it render the same line twice, and replaying the whole turn to a phone that lost
+four seconds is worse than telling it four seconds are gone.
+
+| What | Where |
+|---|---|
+| `GET /v1/sessions/{id}/run` | Whether a run is in flight, its span, and how many clients are watching it. One JSON reply, so a client can decide before opening a stream. |
+| `GET /v1/sessions/{id}/events?from=N` | Attach, from event `N` onwards. |
+| `POST /v1/sessions/{id}/cancel` | Stop the run in this conversation. |
+| `POST /v1/sessions/{id}/runs/approval` | Answer the pending question, by `id`. |
+
+Cancelling is addressed to the **session**, not to a run id, so a client that
+reconnected and remembers a stale run cannot stop the wrong turn — or reach a run that
+has already ended and report a success that stopped nothing.
+
+A verdict the gateway refuses with `409` (*nothing is waiting for an approval*) is an
+error and not something to swallow: it means the client's view is stale.
 
 ### What runs silently, and why that is a design decision
 
