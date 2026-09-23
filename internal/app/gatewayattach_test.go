@@ -67,6 +67,48 @@ func TestTheInterfaceConnectsToAGatewayThatIsAlreadyRunning(t *testing.T) {
 	}
 }
 
+// TestTheInterfaceNamesTheBuildItFoundAndNotItsOwn is the bug this feature nearly shipped with.
+//
+// A service left running across an upgrade is the OLD build while the binary on disk is the new
+// one. The interface used to draw the NEW version - its own - while the OLD process answered every
+// task, which is a confident lie about exactly the thing the row exists to reveal. Found by
+// running an old gateway and a new interface against each other on the netbook.
+func TestTheInterfaceNamesTheBuildItFoundAndNotItsOwn(t *testing.T) {
+	out := &syncBuffer{}
+	servicePath := filepath.Join(t.TempDir(), "gateway.json")
+
+	// The gateway standing in here reports a version that is NOT this process's.
+	_, address := fakeGatewayProcess(t, nil)
+	if err := gateway.WriteServiceFile(servicePath, gateway.ServiceFile{Address: address, Token: "tok", PID: 4242, Owned: false}); err != nil {
+		t.Fatalf("WriteServiceFile: %v", err)
+	}
+
+	var shown string
+	op := tuiTestOptions(t, out)
+	op.Version = "v-NEW-on-disk"
+	op.ServiceFile = servicePath
+	op.NewClient = func(baseURL, token, session string) tui.Runner { return &noopRunner{} }
+	op.SpawnGateway = func(context.Context, spawnSpec) error {
+		t.Fatal("a gateway was started even though the service file named one")
+		return nil
+	}
+
+	// The decision is asserted directly: calling it from inside the NewClient seam would re-enter
+	// attachGateway and recurse, which is a test that hangs rather than a test that checks.
+	gatewayCfg := config.Config{}
+	gatewayCfg.Gateway.Enabled = true
+	_, shown, _, code := op.attachGateway(context.Background(), flags{}, gatewayCfg, nil, nil, nil)
+	if code != Success {
+		t.Fatalf("attachGateway exited %d (output: %s)", code, out.String())
+	}
+	if shown == op.Version {
+		t.Fatalf("the interface would name its OWN build %q while the gateway answering is a different one", shown)
+	}
+	if shown != "v9.9.9-fromthegateway" {
+		t.Fatalf("the interface would name %q, want the version of the gateway that is answering", shown)
+	}
+}
+
 // TestTheInterfaceStartsAGatewayWhenThereIsNone: the fallback that keeps `starlight` working on a
 // machine where nobody ever ran `gateway start`. Without it the program's DEFAULT invocation would
 // be the one that does not work.

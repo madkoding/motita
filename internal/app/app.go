@@ -978,14 +978,13 @@ func (op Options) runTUI(ctx context.Context, fl flags, cfg config.Config, engin
 	ui.Out = op.Out
 	ui.Err = op.Err
 	ui.NoColor = noColour(os.Getenv, op.Out)
-	ui.Version = op.Version
 
 	// The interface CONNECTS to a gateway rather than assuming it is the only one.
 	//
 	// This is the split the user asked for: `starlight` brings up an interface, and the agent behind
 	// it is a service that can already be running. Attaching to one that is there is also what makes
 	// `gateway start` mean anything - a service nobody can connect to is a service for nobody.
-	client, release, code := op.attachGateway(ctx, fl, cfg, engine, box, log)
+	client, version, release, code := op.attachGateway(ctx, fl, cfg, engine, box, log)
 	if code != Success {
 		return code
 	}
@@ -997,6 +996,10 @@ func (op Options) runTUI(ctx context.Context, fl flags, cfg config.Config, engin
 		// has always had.
 		return ui.Run(ctx)
 	}
+	// The interface names the build ACTUALLY ANSWERING, which is not always this one: a service an
+	// earlier `gateway start` left running can be an older binary, and a version drawn from this
+	// process would then be a confident lie - the exact thing the version row exists to prevent.
+	ui.Version = version
 
 	// The wizard runs HERE, in the terminal this process was started from: it reads lines from
 	// stdin, so it cannot travel over a socket. That is why it is handed to the interface as a
@@ -1043,19 +1046,23 @@ func (l localWizard) RunConfig(ctx context.Context) error { return l.runConfig(c
 // started it. Here the opposite is wanted: this gateway exists for this interface, so it is bound
 // in-process and dies with the process no matter how the process dies. A child would survive a
 // SIGKILL of the interface and leak, and a leaked gateway is invisible until somebody counts ports.
-func (op Options) attachGateway(ctx context.Context, fl flags, cfg config.Config, engine *llm.Client, box *sandbox.Sandbox, log *logx.Logger) (tui.Runner, func(), int) {
+func (op Options) attachGateway(ctx context.Context, fl flags, cfg config.Config, engine *llm.Client, box *sandbox.Sandbox, log *logx.Logger) (tui.Runner, string, func(), int) {
 	if !cfg.Gateway.Enabled || strings.EqualFold(strings.TrimSpace(fl.gateway), "off") {
-		return nil, nil, Success
+		return nil, "", nil, Success
 	}
 
 	found, ok, err := op.discover(ctx)
 	if err != nil {
 		fmt.Fprintf(op.Err, "%v\n", err)
-		return nil, nil, ConfigError
+		return nil, "", nil, ConfigError
 	}
 	if ok {
 		// Somebody else's gateway, or one an earlier command started: either way it is not ours.
-		return op.newClient(found.BaseURL, found.Token, fl.session), nil, Success
+		//
+		// The version comes from THAT gateway through discovery, not from this process. The two
+		// differ whenever a service is left running across an upgrade, and reporting our own build
+		// there would name a binary that is not answering anything.
+		return op.newClient(found.BaseURL, found.Token, fl.session), found.Version, nil, Success
 	}
 
 	// Nothing is running, so one is brought up for this interface and it is OURS: whatever happens
@@ -1063,7 +1070,7 @@ func (op Options) attachGateway(ctx context.Context, fl flags, cfg config.Config
 	baseURL, token, srv, err := op.startOwnGateway(ctx, fl, cfg, engine, box, log)
 	if err != nil {
 		fmt.Fprintf(op.Err, "the gateway could not start: %v\n", err)
-		return nil, nil, ConfigError
+		return nil, "", nil, ConfigError
 	}
 	// runGatewayLoop is what STARTS the server - it serves in a goroutine and hands back the
 	// shutdown. Starting the gateway without it would leave a bound socket that nobody answers on:
@@ -1079,7 +1086,9 @@ func (op Options) attachGateway(ctx context.Context, fl flags, cfg config.Config
 		// and a stale entry is exactly what discovery trusts.
 		_ = gateway.RemoveServiceFile(op.serviceFilePath())
 	}
-	return op.newClient(baseURL, token, fl.session), release, Success
+	// The gateway we just brought up IS this process (the same Options build it), so its version is
+	// ours - unlike the branch above, where it belongs to somebody else.
+	return op.newClient(baseURL, token, fl.session), op.Version, release, Success
 }
 
 // startOwnGateway brings up the gateway this process will speak through, in-process.

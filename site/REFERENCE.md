@@ -562,13 +562,15 @@ say so. The version is the one the gateway reports about itself through
 `/v1/health`, so it names the process that is actually answering rather than the
 binary you happen to have on disk.
 
-The interface draws the same version under the wordmark. Which build it names
-depends on how it was started, and deliberately so: an interface speaking through a
-local gateway names **this program**, and one attached with `-connect` names **the
-gateway at the other end**. A client that printed its own version while talking to a
-different build would be a confident answer to a question nobody asked. A version
-too long for the window is not drawn at all rather than cut to fit — a truncated
-version is not one anybody can look up.
+The interface draws the same version under the wordmark, and it always names the build
+that is **actually answering**. An interface speaking through a gateway in its own
+process names this program; one attached to a gateway that was already running — through
+`-connect`, or to a service an earlier `gateway start` left behind — names **that**
+gateway, asked over `/v1/health`. The distinction is the whole point: across an upgrade
+the service still running is the old build while the binary on disk is the new one, and
+drawing the local version there would be a confident lie about the only thing the row
+exists to reveal. A version too long for the window is not drawn at all rather than cut
+to fit — a truncated version is not one anybody can look up.
 
 `gateway start` **re-executes the program** rather than serving inside the command, so
 none of these pay for building a sandbox or a reasoning engine — the service does that,
