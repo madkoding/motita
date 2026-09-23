@@ -389,8 +389,8 @@ func (t *TUI) handleRawKey(line string) (bool, bool) {
 			t.closeSearch()
 			return true, false
 		}
-		if t.cancelRun != nil {
-			t.cancelRun()
+		if cancel := t.currentCancel(); cancel != nil {
+			cancel()
 			return true, false
 		}
 		t.scrollToBottom()
@@ -1161,8 +1161,38 @@ func (t *TUI) beginTurn() {
 
 // endTurn clears the busy flag and repaints the finished conversation.
 func (t *TUI) endTurn() {
+	t.draw.Lock()
 	t.busy = false
+	t.draw.Unlock()
 	t.drawFrame()
+}
+
+// setCancel installs the cancel func a key stops the turn with.
+//
+// It exists because the fields are read from the INPUT LOOP - Escape and Ctrl+C - while a run that
+// was FOLLOWED is driven from its own goroutine. Writing them directly would be a data race on the
+// one path the user has to reach when a turn will not stop, and -race catches it.
+func (t *TUI) setCancel(cancel context.CancelFunc, runCtx context.Context) {
+	t.draw.Lock()
+	defer t.draw.Unlock()
+	t.cancelRun = cancel
+	t.runningCtx = runCtx
+}
+
+// clearCancel releases the cancel func once the turn is over, so Escape goes back to meaning
+// "scroll to the newest line".
+func (t *TUI) clearCancel() {
+	t.setCancel(nil, nil)
+}
+
+// currentCancel returns the cancel func of the turn in flight, or nil when there is none.
+//
+// The read is under the lock because the writer may be a followed run's own goroutine: the fields
+// are shared between that goroutine and the input loop, which is the loop that has to reach them.
+func (t *TUI) currentCancel() context.CancelFunc {
+	t.draw.Lock()
+	defer t.draw.Unlock()
+	return t.cancelRun
 }
 
 // advance repaints while a turn is running, which animates the spinner. It is

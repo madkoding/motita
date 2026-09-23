@@ -453,11 +453,41 @@ func (c *Client) streamOnce(ctx context.Context, path string, body []byte, start
 		return false, refusalError(resp)
 	}
 
+	// The reading half is SHARED with a client that joins a run it did not start: same wire
+	// format, same events, one reader. Two readers would be two places for the client to
+	// disagree with itself about what a stream means.
+	answered, err := c.readRunStream(ctx, resp.Body, from, result, progress)
+	if !answered {
+		// The stream ended without a done or an error, so the gateway never said how the turn
+		// finished - which means the connection dropped, whatever the transport reported. A body
+		// that simply ends is exactly what a dropped socket looks like, and treating it as a
+		// finished run is how a user gets an empty answer for a question the agent answered.
+		if err == nil {
+			err = errors.New("the connection to the gateway ended before the run reported how it finished")
+		}
+		return true, err
+	}
+	// A verdict arrived, so this attempt is the turn's end. Any transport failure after it is a
+	// fact about a run that is already over, and asking again would make the agent answer a
+	// question it has already answered.
+	return false, err
+}
+
+// readRunStream reads a run's events and reports whether the gateway said how the turn finished.
+//
+// It is the shared body of both ways a client reads a run: the one that started it (streamOnce,
+// which POSTs first) and the one that joined it (streamFollowing, which attaches to /events). The
+// events are the same and the meaning of each is the same, so there is one switch - the two clients
+// are unable to disagree about a stream they read here.
+//
+// `from` is the sequence number of the last event seen, updated as events arrive so a caller can
+// resume from it. `result` receives the turn's answer when a `done` arrives.
+func (c *Client) readRunStream(ctx context.Context, body io.Reader, from *uint64, result *string, progress func(string, ...any)) (bool, error) {
 	// answered records that the stream delivered a VERDICT - a done or an error - so the difference
 	// between "the gateway said how it ended" and "the socket died" survives the callback's error
 	// return. Only the second is worth resuming.
 	var answered bool
-	err = streamEvents(ctx, resp.Body, func(seq uint64, event string, data []byte) error {
+	err := streamEvents(ctx, body, func(seq uint64, event string, data []byte) error {
 		if seq > 0 {
 			*from = seq
 		}
@@ -480,7 +510,9 @@ func (c *Client) streamOnce(ctx context.Context, path string, body []byte, start
 			if err := json.Unmarshal(data, &p); err != nil {
 				return err
 			}
-			progress("%s", p.Text)
+			if progress != nil {
+				progress("%s", p.Text)
+			}
 		case EventApproval:
 			var ask approvalEvent
 			if err := json.Unmarshal(data, &ask); err != nil {
@@ -513,20 +545,7 @@ func (c *Client) streamOnce(ctx context.Context, path string, body []byte, start
 		// an event, and an older client must not break on it.
 		return nil
 	})
-	if !answered {
-		// The stream ended without a done or an error, so the gateway never said how the turn
-		// finished - which means the connection dropped, whatever the transport reported. A body
-		// that simply ends is exactly what a dropped socket looks like, and treating it as a
-		// finished run is how a user gets an empty answer for a question the agent answered.
-		if err == nil {
-			err = errors.New("the connection to the gateway ended before the run reported how it finished")
-		}
-		return true, err
-	}
-	// A verdict arrived, so this attempt is the turn's end. Any transport failure after it is a
-	// fact about a run that is already over, and asking again would make the agent answer a
-	// question it has already answered.
-	return false, err
+	return answered, err
 }
 
 // RunStatus answers what is running in this client's session, without opening a stream.
@@ -597,6 +616,86 @@ type RunInfo struct {
 // that reconnected and remembers a stale id would cancel the wrong run or nothing at all.
 func (c *Client) CancelRun(ctx context.Context) error {
 	return c.do(ctx, http.MethodPost, c.scoped("/cancel"), nil, nil)
+}
+
+// StopRun asks the gateway to stop the run in this session, and reports whether there was one.
+//
+// "There was nothing running" is an ANSWER, not a failure: pressing Escape a moment after a turn
+// ended on its own is the common case, and an error there would put a failure in the chat for
+// something that worked. Every other failure is still reported - a gateway that could not be
+// reached is not the same statement as a run that had already finished.
+func (c *Client) StopRun(ctx context.Context) (bool, error) {
+	if err := c.CancelRun(ctx); err != nil {
+		if statusIs(err, http.StatusNotFound, http.StatusConflict) {
+			return false, nil
+		}
+		return false, err
+	}
+	return true, nil
+}
+
+// LiveRun reports the run in flight in this client's session, if there is one.
+//
+// It is a question for the GATEWAY and not a local flag: a run that outlived its client belongs to
+// the gateway, and an interface that remembered "I started a run" would know nothing about the one
+// another client started.
+//
+// A 404 is the honest answer to "is anything running" - nothing is - so it comes back as false and
+// not as an error. Reporting it as a failure would put an error in the chat every time a user
+// returns to a quiet conversation, which is most of the time.
+func (c *Client) LiveRun(ctx context.Context) (RunInfo, bool, error) {
+	info, err := c.RunStatus(ctx)
+	if err != nil {
+		if statusIs(err, http.StatusNotFound) {
+			return RunInfo{}, false, nil
+		}
+		return RunInfo{}, false, err
+	}
+	return info, true, nil
+}
+
+// FollowRun attaches to the run in flight and reports its progress until it ends.
+//
+// The stream is read from `from=0` because THIS client has seen none of it: the gateway replays
+// what its log still holds and then delivers live. That is exactly why a run had to keep a log for
+// this to be possible at all, and why following a run is not merely watching one.
+//
+// Cancelling the follow asks the gateway to STOP the run. Cancelling only the local context would
+// leave the gateway working while the interface stopped showing it - the worst of both.
+func (c *Client) FollowRun(ctx context.Context, progress func(string, ...any)) (string, error) {
+	return c.streamFollowing(ctx, c.scoped("/events")+"?from=0", progress)
+}
+
+// streamFollowing reads a run's stream without starting one, and stops the run if the follow is
+// cancelled.
+// It is the reading half of streamOnce, factored out so the client that STARTED a run and the one
+// that joins it cannot drift apart: they read the same wire format and must be unable to disagree
+// about it. The difference between them is one POST and one cancellation rule, and both live in
+// their own method.
+//
+// The cancellation is armed through context.AfterFunc, and it fires on ANY way the context can end
+// - the user pressing Escape, Ctrl+C, the process shutting down. The background context it sends on
+// is detached from the cancelled one: a request made with an already-cancelled context would never
+// leave the client, and the run would keep going while the user believed they had stopped it.
+func (c *Client) streamFollowing(ctx context.Context, path string, progress func(string, ...any)) (string, error) {
+	var result string
+	var last uint64
+	stop := context.AfterFunc(ctx, func() {
+		_, _ = c.StopRun(context.WithoutCancel(ctx))
+	})
+	defer stop()
+
+	answered, err := c.streamEventsAt(ctx, path, &last, &result, progress)
+	if err != nil {
+		return result, err
+	}
+	// The stream ended without saying how the turn finished, which means the connection dropped
+	// rather than the run ending. It is the VERDICT that decides, not whether the text happens to
+	// be empty: a followed run that stops being read must not look like one that finished.
+	if !answered {
+		return result, errors.New("the connection to the gateway ended before the run reported how it finished")
+	}
+	return result, nil
 }
 
 // answerApproval asks the installed approver and sends the answer back.
@@ -691,15 +790,83 @@ func streamEvents(ctx context.Context, body io.Reader, fn func(seq uint64, event
 // The gateway's refusals carry {"error": "..."}, and that reason is what a user can act on. A
 // status code alone would leave them guessing, and a 409's explanation ("a run is already in
 // progress") is the difference between a puzzle and a message.
+//
+// The error CARRIES the status as well as the reason, because some callers have to act on it: "is
+// anything running" is answered by a 404 and means no, and "nothing was running to stop" is a 409
+// the user does not need to hear about. Collapsing both into a bare error made that impossible, so
+// the status travels with the message instead of being thrown away.
 func refusalError(resp *http.Response) error {
 	var e struct {
 		Error string `json:"error"`
 	}
 	body, _ := io.ReadAll(io.LimitReader(resp.Body, 8<<10))
 	if json.Unmarshal(body, &e) == nil && e.Error != "" {
-		return errors.New(e.Error)
+		return &refusal{status: resp.StatusCode, reason: e.Error}
 	}
-	return fmt.Errorf("the gateway answered %d", resp.StatusCode)
+	return &refusal{status: resp.StatusCode}
+}
+
+// refusal is the gateway declining a request: the status it answered with, and the reason when it
+// gave one.
+//
+// The message is the REASON when there is one, so every existing caller and every user-facing
+// message keeps reading exactly as before. The status is there for the code that has to branch on
+// it, and it is what makes "nothing is running" distinguishable from "the gateway is broken".
+type refusal struct {
+	status int
+	reason string
+}
+
+func (e *refusal) Error() string {
+	if e.reason != "" {
+		return e.reason
+	}
+	return fmt.Sprintf("the gateway answered %d", e.status)
+}
+
+// statusIs reports whether err is a refusal with one of the given statuses.
+//
+// It is a helper rather than an exported type test because the caller's question is always "was it
+// this status", never "what kind of error is this" - and a caller that reaches for the type would
+// be re-deriving the same comparison.
+func statusIs(err error, statuses ...int) bool {
+	var r *refusal
+	if !errors.As(err, &r) {
+		return false
+	}
+	for _, want := range statuses {
+		if r.status == want {
+			return true
+		}
+	}
+	return false
+}
+
+// streamEventsAt opens a run's event stream and reads it, keeping the caller's sequence number up
+// to date so the caller can resume from where it got to.
+//
+// It is for a client that did NOT start the run: there is no body to POST, only a stream to read -
+// which is what attaching to a run already in flight is.
+func (c *Client) streamEventsAt(ctx context.Context, path string, from *uint64, result *string, progress func(string, ...any)) (bool, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.baseURL+path, nil)
+	if err != nil {
+		return false, err
+	}
+	req.Header.Set("Accept", "text/event-stream")
+	req.Header.Set("Authorization", "Bearer "+c.token)
+
+	resp, err := c.http.Do(req)
+	if err != nil {
+		return false, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		// A 404 here is the answer to "there is nothing to attach to": the run ended between the
+		// question and the attach. It is reported as the failure it is - the caller asked to
+		// follow a turn that is not there - and the gateway's own reason is what reaches the user.
+		return false, refusalError(resp)
+	}
+	return c.readRunStream(ctx, resp.Body, from, result, progress)
 }
 
 // getJSON performs an authenticated GET and decodes the answer.

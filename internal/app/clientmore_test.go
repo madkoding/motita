@@ -67,6 +67,88 @@ func TestTheAdapterCarriesAFailedConversation(t *testing.T) {
 	}
 }
 
+// TestTheAdapterTranslatesTheRunInFlight: the interface draws a run from its own shape, and the
+// gateway reports one of its own, so this translation is the only place the two meet. A field lost
+// here would mean a client that cannot resume from where it left off.
+func TestTheAdapterTranslatesTheRunInFlight(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"run_id":"r7","first_seq":2,"last_seq":11,"dropped":1,"subscribers":2}`))
+	}))
+	defer srv.Close()
+
+	sw := sessionSwitcher{gateway.NewClientForSession(srv.URL, testToken, "default")}
+	live, running, err := sw.LiveRun(context.Background())
+	if err != nil {
+		t.Fatalf("LiveRun: %v", err)
+	}
+	if !running {
+		t.Fatal("a run is in flight and the adapter did not report it")
+	}
+	if live.RunID != "r7" || live.LastSeq != 11 {
+		t.Errorf("the adapter lost part of the run: %+v", live)
+	}
+}
+
+// TestTheAdapterCarriesAFailedRunQuestion: a gateway that cannot say whether a turn is in flight
+// must report it. Answering "nothing is running" would tell the user their turn had stopped when
+// nobody had asked the gateway anything.
+func TestTheAdapterCarriesAFailedRunQuestion(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+		_, _ = w.Write([]byte(`{"error":"the gateway fell over"}`))
+	}))
+	defer srv.Close()
+
+	sw := sessionSwitcher{gateway.NewClientForSession(srv.URL, testToken, "default")}
+	if _, _, err := sw.LiveRun(context.Background()); err == nil {
+		t.Fatal("a refused run question must be reported")
+	}
+}
+
+// TestTheAdapterStopsTheRunThroughTheInterfaceCapability: the interface asks for a stop and a yes or
+// no, while the gateway answers with a status. This is where the two are reconciled, and it is the
+// path Escape takes.
+func TestTheAdapterStopsTheRunThroughTheInterfaceCapability(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasSuffix(r.URL.Path, "/cancel") {
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+		w.WriteHeader(http.StatusNotFound)
+		_, _ = w.Write([]byte(`{"error":"no"}`))
+	}))
+	defer srv.Close()
+
+	sw := sessionSwitcher{gateway.NewClientForSession(srv.URL, testToken, "default")}
+	stopped, err := sw.CancelRun(context.Background())
+	if err != nil {
+		t.Fatalf("CancelRun: %v", err)
+	}
+	if !stopped {
+		t.Error("the run was stopped, and the interface acts on that answer")
+	}
+}
+
+// TestTheAdapterReportsNothingToStop: the run may have ended a moment before Escape was pressed.
+// That is not a failure, and the interface uses the false to say nothing.
+func TestTheAdapterReportsNothingToStop(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusConflict)
+		_, _ = w.Write([]byte(`{"error":"there is no run in progress in this session to stop"}`))
+	}))
+	defer srv.Close()
+
+	sw := sessionSwitcher{gateway.NewClientForSession(srv.URL, testToken, "default")}
+	stopped, err := sw.CancelRun(context.Background())
+	if err != nil {
+		t.Fatalf("nothing to stop must not be an error: %v", err)
+	}
+	if stopped {
+		t.Error("nothing was stopped, and reporting otherwise would tell the user a turn was cancelled")
+	}
+}
+
 // TestNewClientWithoutASeamBuildsARealClient: the seam is for tests, and a process without one must
 // still get a working client. Without this the seam would be the ONLY construction path, and the
 // real program would be the one case nobody exercises.

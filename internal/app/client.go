@@ -63,6 +63,28 @@ func (s sessionSwitcher) Conversation(ctx context.Context) ([]tui.Turn, error) {
 	return out, nil
 }
 
+// liveRun adapts the client's run report to what the interface draws.
+//
+// A translation rather than a forwarding: internal/gateway cannot import internal/tui, so the
+// client returns a type of its own and this is where the two meet - the same job Conversation does.
+func (s sessionSwitcher) LiveRun(ctx context.Context) (tui.LiveRun, bool, error) {
+	info, running, err := s.Client.LiveRun(ctx)
+	if err != nil {
+		return tui.LiveRun{}, false, err
+	}
+	return tui.LiveRun{RunID: info.RunID, LastSeq: info.LastSeq}, running, nil
+}
+
+// CancelRun asks the gateway to stop the run in the current session, and reports whether there was
+// one to stop.
+//
+// It is StopRun, PROMOTED under the name the interface's capability declares: the client already
+// answers the question the interface asks, and a second method that only delegated would be a
+// second thing to keep in step.
+func (s sessionSwitcher) CancelRun(ctx context.Context) (bool, error) {
+	return s.Client.StopRun(ctx)
+}
+
 // newClient builds the gateway client a front end speaks through, and is the one place the
 // construction happens: the embedded interface and the remote one differ in WHICH address and
 // WHICH session they are given, never in how they are built.

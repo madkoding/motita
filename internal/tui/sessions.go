@@ -54,6 +54,43 @@ type SessionSwitcher interface {
 	Conversation(ctx context.Context) ([]Turn, error)
 }
 
+// RunController is a Runner that can ask the GATEWAY about the run in flight, follow it, and stop
+// it.
+//
+// It is a separate OPTIONAL capability from SessionSwitcher, resolved with the same type assertion
+// this package already uses for askSource and taskObserver. The reason is concrete: the interface
+// drives a run through local state - t.cancelRun and t.runningCtx - and that state only exists for
+// a run this interface STARTED. A run that outlived its client belongs to the gateway, so following
+// it and stopping it are questions for the gateway, and a runner that is not backed by one has
+// nothing to answer with.
+type RunController interface {
+	// LiveRun reports the run in flight in the current session, if there is one.
+	//
+	// Running is false with no error when the conversation is simply idle: that is an answer, and
+	// the common one.
+	LiveRun(ctx context.Context) (LiveRun, bool, error)
+	// FollowRun attaches to that run and reports its progress through the callback until it ends.
+	//
+	// It returns an error when the run could not be followed: a session whose run ended between the
+	// question and the attach, or a connection that could not hold. The caller reports it rather
+	// than showing a turn that is not there.
+	//
+	// A cancelled context stops the follow AND asks the gateway to stop the run - cancelling only
+	// locally would leave the gateway working while the interface stopped showing it.
+	FollowRun(ctx context.Context, progress func(string, ...any)) (string, error)
+	// CancelRun asks the gateway to stop the run in the current session, and reports whether there
+	// was one to stop.
+	CancelRun(ctx context.Context) (bool, error)
+}
+
+// LiveRun describes a run in flight, as the interface draws it.
+type LiveRun struct {
+	RunID string
+	// LastSeq is the newest event the gateway holds. It is what a client resumes from, and the
+	// interface does not have to interpret it - it only has to be able to pass it back.
+	LastSeq uint64
+}
+
 // attachTo moves the interface to another conversation, when its runner can, and DRAWS it.
 //
 // The order matters and is the whole point: the switch happens first, then the conversation is read
@@ -100,8 +137,116 @@ func (t *TUI) attachTo(ctx context.Context, id string) error {
 		t.addMessage(AuthorSystem, "attached to session "+id+". "+turnCount(len(turns)))
 	}
 
+	t.followRunIfAny(ctx)
 	t.drawFrame()
 	return nil
+}
+
+// followRunIfAny watches the run in flight in the session just entered, when there is one.
+//
+// It REPORTS and does not fail: the conversation was read and the user is IN the session, so
+// aborting the whole attach over the remaining question would send them back to the session they
+// just left.
+//
+// It is written so that a run CANNOT BLOCK THE KEY LOOP, and that is the whole point of its shape.
+// This is reached from inside the key loop (someone typed /attach) and from before the interface is
+// even running (-session at startup), and a run takes as long as it takes: blocking here would
+// freeze the interface for the entire turn, with no keys read and no way out but killing the
+// process. So the run is followed on its own goroutine.
+//
+// The QUESTION is asked synchronously and the follow is not. The distinction is what makes the
+// behaviour observable at all: attachTo returns only once it is known whether a run is in flight,
+// so a caller can rely on "the interface is now following that turn" the moment the call returns -
+// while the turn itself reports from somewhere else. One round trip to a local gateway is bounded
+// and quick; the turn is unbounded, and it is the turn that must not be waited on.
+func (t *TUI) followRunIfAny(ctx context.Context) {
+	rc, ok := t.Runner.(RunController)
+	if !ok {
+		// Not a runner backed by a gateway. It has nothing to say about a run, and saying nothing
+		// is right: there is no run here that this interface did not start.
+		return
+	}
+
+	live, running, err := rc.LiveRun(ctx)
+	switch {
+	case err != nil:
+		// A gateway that cannot answer is worth saying out loud, and it is not a reason to undo the
+		// attach: the user is in the conversation and can read it.
+		t.addMessage(AuthorSystem, "the gateway could not be asked whether a turn is in flight: "+err.Error())
+	case running:
+		go t.followLiveRun(ctx, rc, live)
+	}
+}
+
+// followLiveRun follows a run that this interface did NOT start, until it ends or the user stops it.
+//
+// It runs on ITS OWN goroutine - see followRunIfAny - and that is what keeps the keys alive while
+// the turn runs. It is otherwise modelled on runTask, the path that already drives a turn this
+// interface started: the same beginTurn/awaitRun/endTurn shape, the same pending block that the
+// progress lines overwrite and the outcome settles, and the SAME cancelRun field that Escape reads.
+// Sharing that field is what makes one key mean the same thing whether the run was started here or
+// elsewhere.
+func (t *TUI) followLiveRun(ctx context.Context, rc RunController, live LiveRun) {
+	runCtx, cancel := context.WithCancel(ctx)
+
+	// Installed where Escape and Ctrl+C look for it, so the key does what it says in both cases.
+	// Without this, Escape during a followed run falls through to scrollToBottom and the turn keeps
+	// going while the user believes they stopped it.
+	//
+	// It cancels THE LOCAL CONTEXT, which ends the follow and, through the runner's own contract,
+	// asks the gateway to stop the run - see RunController.FollowRun. Cancelling only locally would
+	// leave the gateway working while the interface stopped showing it, which is the worst of both.
+	t.setCancel(cancel, runCtx)
+
+	progress := make(chan string, 16)
+	done := make(chan runOutcome, 1)
+	go func() {
+		res, err := rc.FollowRun(runCtx, progressSender(runCtx, progress))
+		done <- runOutcome{result: res, err: err}
+	}()
+
+	// The block that fills as the run reports, exactly like a local turn: the turn is marked in
+	// flight and each line the run emits is written into the conversation as it arrives.
+	//
+	// The lines are FROZEN into the view rather than overwritten by the next one, which is the
+	// difference from a turn this interface started. The user arrived in the middle of this run:
+	// the lines already emitted are the record of what happened while they were away, and
+	// overwriting them would throw away exactly what they came back to read.
+	t.beginTurn()
+	t.advance()
+
+	outcome := t.awaitRun(runCtx, progress, done, func(p string) {
+		t.addProgress(p)
+	})
+
+	t.clearCancel()
+
+	var text string
+	switch {
+	case errors.Is(outcome.err, context.Canceled):
+		text = "cancelled."
+	case outcome.err != nil:
+		text = fmt.Sprintf("the turn could not be followed: %v", outcome.err)
+	case outcome.result != "":
+		text = outcome.result
+	default:
+		text = "the turn finished."
+	}
+	t.addMessage(AuthorAgent, text)
+	t.endTurn()
+}
+
+// addProgress writes one line the followed run emitted into the conversation.
+//
+// The line goes in as a FROZEN block: it is what the turn said at that moment, and the next line
+// belongs beside it rather than on top of it. It is the same treatment a plan's phases get - the
+// conversation keeps the account of the run - and it is why coming back to a session mid-turn
+// shows the work rather than only its latest line.
+func (t *TUI) addProgress(text string) {
+	t.draw.Lock()
+	t.messages = append(t.messages, Message{Author: AuthorAgent, Text: text, Frozen: true})
+	t.draw.Unlock()
+	t.advance()
 }
 
 // turnCount describes how much was read back, so the user can tell a conversation with three turns

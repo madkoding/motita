@@ -167,6 +167,13 @@ func TestHistoryIsCopiedOut(t *testing.T) {
 	if r.history()[0].User != "one" {
 		t.Error("history must be copied out, not aliased")
 	}
+
+	// The EXPORTED half is what the gateway's Service contract reaches through - it is the method
+	// name that couples the two packages - so it is exercised here rather than left to the
+	// compile-time assertion alone. It must answer the same conversation.
+	if len(r.Transcript()) != 1 || r.Transcript()[0].User != "one" {
+		t.Errorf("Transcript() must answer the conversation history() holds, got %+v", r.Transcript())
+	}
 }
 
 // TestAChatTurnIsShownAsAReply: the result of a conversational turn is an answer, not a task
