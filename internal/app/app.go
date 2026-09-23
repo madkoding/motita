@@ -108,6 +108,26 @@ type Options struct {
 	// no possible coverage.
 	Exit func(int)
 
+	// ServiceFile is where the description of a running gateway is read and written. It is a seam
+	// so a test can point it at a temporary directory instead of the user's home.
+	ServiceFile string
+	// ExePath is the program re-executed for `gateway start`. Injectable because in a test the
+	// program under test is not a starlight that can serve.
+	ExePath string
+	// SpawnGateway brings the service up. It is a seam of the same shape as Exit and RunChild: the
+	// real one re-executes the program detached, and a test cannot do that without starting a
+	// second agent.
+	SpawnGateway func(ctx context.Context, exePath, listen string) error
+	// SignalProcess asks the gateway to stop. Injectable because killing a real process from a test
+	// would leave the assertion racing the operating system.
+	SignalProcess func(pid int) error
+	// GatewayWait bounds how long start and stop wait for the gateway to answer or to go away.
+	GatewayWait time.Duration
+	// DiscoverGateway asks whether a gateway is running. It is a seam so a test can produce the
+	// states that only a race produces in reality, such as the service file changing between the
+	// confirmation that a gateway came up and the report of where it is.
+	DiscoverGateway func(ctx context.Context, path string) (gateway.Found, bool, error)
+
 	// waitSignal is the countdown function for forced shutdown.
 	waitSignal func(time.Duration) <-chan time.Time
 }
@@ -133,6 +153,11 @@ Options:
   -isolation         print the available sandbox isolation and exit
   -version           print the version and exit
 
+Commands:
+  gateway start      bring the gateway up as a service and leave it running
+  gateway stop       stop the gateway named by the service file
+  gateway status     report whether a gateway is running
+
 Environment variables: STARLIGHT_* (see README.md; also accepts OPENAI_API_KEY).
 `
 
@@ -156,6 +181,9 @@ type flags struct {
 	connect string
 	// session is the conversation to attach to, by id.
 	session string
+	// gatewayAction is the action of `starlight gateway <action>`. A POSITIONAL argument, not a
+	// flag, which is why it is read before the flag loop rather than inside it.
+	gatewayAction string
 }
 
 // Run is the program's entry point: it parses the arguments, builds the three
@@ -187,6 +215,13 @@ func Run(op Options) int {
 
 	if fl.initConfig {
 		return op.initConfig(fl)
+	}
+
+	// A subcommand is dispatched here, before the main path, because it pays for neither the
+	// reasoning engine nor a sandbox: `gateway start` re-executes the program rather than serving in
+	// this process, and `stop` and `status` only read a file and ask a port a question.
+	if fl.gatewayAction != "" {
+		return op.runGatewayCommand(op.BaseCtx, fl.gatewayAction, fl)
 	}
 
 	return op.run(fl)
@@ -223,6 +258,60 @@ func (op *Options) complete() {
 	if op.Exit == nil {
 		op.Exit = os.Exit
 	}
+	if op.ServiceFile == "" {
+		op.ServiceFile = gateway.ServiceFilePath()
+	}
+	if op.ExePath == "" {
+		if exe, err := executablePath(); err == nil {
+			op.ExePath = exe
+		} else {
+			// A program that cannot name itself cannot re-execute itself either. os.Args[0] is the
+			// fallback rather than a refusal: it is what the shell ran, and the shell got it right.
+			op.ExePath = os.Args[0]
+		}
+	}
+	if op.SpawnGateway == nil {
+		op.SpawnGateway = spawnDetached
+	}
+	if op.SignalProcess == nil {
+		op.SignalProcess = signalByPID
+	}
+	if op.GatewayWait == 0 {
+		op.GatewayWait = 10 * time.Second
+	}
+}
+
+// valueFlags are the flags that consume the argument after them. The list exists for ONE reason: to
+// tell a flag's VALUE apart from a subcommand. `-session gateway` names a conversation called
+// "gateway", and reading that word as a command would make `starlight -session gateway -connect
+// host` start a service instead of attaching a client - a silent reversal of what was asked for.
+var valueFlags = map[string]bool{
+	"-config": true, "--config": true,
+	"-task": true, "--task": true,
+	"-task-file": true, "--task-file": true,
+	"-gateway": true, "--gateway": true,
+	"-connect": true, "--connect": true,
+	"-session": true, "--session": true,
+	"-p": true, "--prompt": true,
+}
+
+// flagValues marks the positions of arguments that are a flag's VALUE rather than a word of their
+// own. It is derived from valueFlags and not written out again, so a flag added above is skipped
+// below without anyone remembering to do it.
+func flagValues(args []string) []bool {
+	skip := make([]bool, len(args))
+	for i := 0; i < len(args); i++ {
+		name, _, hasValue := strings.Cut(args[i], "=")
+		// "-flag=value" carries its own value, so the next argument is a word of its own.
+		if hasValue || !valueFlags[name] {
+			continue
+		}
+		if i+1 < len(args) {
+			skip[i+1] = true
+			i++
+		}
+	}
+	return skip
 }
 
 // parse reads the accepted flags. It is done by hand, and not with the flag
@@ -230,6 +319,40 @@ func (op *Options) complete() {
 // process' global state (which is what used to make it impossible to test).
 func parse(args []string) (flags, error) {
 	var b flags
+
+	// The subcommand is read FIRST, because it is a POSITIONAL argument and the loop below is
+	// written for flags: `starlight gateway start` reaching that loop would be reported as an
+	// unknown flag named "gateway", which is a confusing way to say the user used the right word in
+	// the right place.
+	//
+	// It is found by scanning for the word while SKIPPING the values of flags, which is why there is
+	// a list of the flags that take one. Without that skipping, `-session gateway` would be read as
+	// the subcommand and `starlight -session gateway -connect host` would start a SERVICE instead of
+	// a client that attaches to a conversation called "gateway".
+	skip := flagValues(args)
+	action := ""
+	for i := 0; i < len(args); i++ {
+		if skip[i] || args[i] != "gateway" {
+			continue
+		}
+		if i+1 >= len(args) {
+			return b, fmt.Errorf("gateway needs an action: start, stop or status")
+		}
+		switch strings.ToLower(strings.TrimSpace(args[i+1])) {
+		case "start", "stop", "status":
+			// Recorded as the user wrote it: what they typed is what gets reported back.
+			action = args[i+1]
+			// Removed from the argument list so the flag loop below never sees them: a positional
+			// argument is not a flag, and leaving it there would end in "unknown flag: gateway".
+			args = append(append([]string{}, args[:i]...), args[i+2:]...)
+		default:
+			// Rejected with the list rather than ignored: falling through would turn a typo into
+			// something else entirely - `starlight gateway strat` starting the interface.
+			return b, fmt.Errorf("unknown gateway action %q: start, stop or status", args[i+1])
+		}
+		break
+	}
+	b.gatewayAction = action
 
 	for i := 0; i < len(args); i++ {
 		arg := args[i]
