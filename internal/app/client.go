@@ -11,6 +11,40 @@ import (
 	"github.com/madkoding/starlight/internal/tui"
 )
 
+// sessionSwitcher adapts the gateway client to what the interface draws.
+//
+// internal/app is the only package that may know both sides: internal/gateway cannot import
+// internal/tui (a cycle, and the whole reason the gateway declares its interfaces structurally),
+// and internal/tui must not know about the gateway's wire types. Translating here is the same job
+// this package already does everywhere else - it is what wires the layers together.
+//
+// SwitchSession and CurrentSession are PROMOTED from the embedded client rather than forwarded by
+// hand: the client already names them the way the interface expects, and a second copy that only
+// delegates would be a second thing to keep in step.
+type sessionSwitcher struct {
+	*gateway.Client
+}
+
+// ListSessions is the one method that needs translating, because the interface's shape carries
+// Current - a fact about the INTERFACE, not about the gateway - and the gateway has no business
+// computing it.
+func (s sessionSwitcher) ListSessions(ctx context.Context) ([]tui.SessionInfo, error) {
+	all, err := s.Client.ListSessions(ctx)
+	if err != nil {
+		return nil, err
+	}
+	current := s.Client.CurrentSession()
+	out := make([]tui.SessionInfo, 0, len(all))
+	for _, item := range all {
+		out = append(out, tui.SessionInfo{
+			ID:      item.ID,
+			Running: item.Running,
+			Current: item.ID == current,
+		})
+	}
+	return out, nil
+}
+
 // newClient builds the gateway client a front end speaks through, and is the one place the
 // construction happens: the embedded interface and the remote one differ in WHICH address and
 // WHICH session they are given, never in how they are built.
@@ -18,7 +52,7 @@ func (op Options) newClient(baseURL, token, session string) tui.Runner {
 	if op.NewClient != nil {
 		return op.NewClient(baseURL, token, session)
 	}
-	return gateway.NewClientForSession(baseURL, token, session)
+	return sessionSwitcher{gateway.NewClientForSession(baseURL, token, session)}
 }
 
 // runClient runs the interface as a REMOTE of a gateway somebody else is running.
@@ -90,11 +124,13 @@ func connectURL(addr string) string {
 
 // checkSession verifies that the conversation exists, and says what does exist when it does not.
 //
-// "There is no session X" on its own is a dead end: the user has no way to learn the ids that are
-// real without a second tool. Listing them is one request and turns a dead end into a next step.
+// It asserts on the INTERFACE's own listing shape, which is the one the runner actually offers. An
+// earlier version asserted on the gateway's wire type instead, and the adapter that now sits in
+// between returns the interface's - so the assertion stopped matching and the check became a silent
+// no-op. That is the exact failure this function exists to prevent, so the types have to agree.
 func checkSession(client tui.Runner, session string) error {
 	lister, ok := client.(interface {
-		ListSessions(context.Context) ([]gateway.SessionStatus, error)
+		ListSessions(context.Context) ([]tui.SessionInfo, error)
 	})
 	if !ok {
 		// A runner that cannot list sessions is not a remote client, and it is not this mode's

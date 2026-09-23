@@ -23,12 +23,67 @@ func TestNewClientWithoutASeamBuildsARealClient(t *testing.T) {
 	op := Options{}
 	got := op.newClient("http://127.0.0.1:7477", testToken, "sabc")
 
-	client, ok := got.(*gateway.Client)
+	// The runner is the ADAPTER, not the bare client: the interface's optional session capability
+	// needs the interface's own listing shape, and the adapter is what bridges it.
+	sw, ok := got.(tui.SessionSwitcher)
 	if !ok {
-		t.Fatalf("newClient built a %T, want the real client", got)
+		t.Fatalf("newClient built a %T, which does not offer the interface's session capability", got)
 	}
-	if client.Session() != "sabc" {
-		t.Errorf("the client speaks for %q, want sabc", client.Session())
+	if sw.CurrentSession() != "sabc" {
+		t.Errorf("the client speaks for %q, want sabc", sw.CurrentSession())
+	}
+}
+
+// TestTheAdapterTranslatesTheListing: the adapter is the only place the gateway's wire type and the
+// interface's drawing type meet, and Current is computed here because it is a fact about the
+// INTERFACE - the gateway has no business knowing which conversation a given front end is on.
+func TestTheAdapterTranslatesTheListing(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"sessions":[
+			{"id":"default","running":true},
+			{"id":"sother","running":false}
+		]}`))
+	}))
+	defer srv.Close()
+
+	sw := sessionSwitcher{gateway.NewClientForSession(srv.URL, testToken, "sother")}
+	all, err := sw.ListSessions(context.Background())
+	if err != nil {
+		t.Fatalf("ListSessions: %v", err)
+	}
+	if len(all) != 2 {
+		t.Fatalf("listed %d sessions, want 2", len(all))
+	}
+	if all[0].ID != "default" || !all[0].Running {
+		t.Errorf("the running flag was lost in the translation: %+v", all[0])
+	}
+	if !all[1].Current {
+		t.Errorf("the conversation the client is on must be marked as current: %+v", all[1])
+	}
+	if all[0].Current {
+		t.Errorf("a conversation the client is NOT on is marked current: %+v", all[0])
+	}
+}
+
+// TestSwitchingSessionsIsAOneWayMove: the client can be moved to another conversation, and doing
+// so must take the cached state with it - a token from the previous conversation showing as this
+// one's context is a status bar that lies.
+func TestSwitchingSessionsIsAOneWayMove(t *testing.T) {
+	c := gateway.NewClientForSession("http://127.0.0.1:7477", testToken, "default")
+	if err := c.SwitchSession(context.Background(), "sother"); err != nil {
+		t.Fatalf("SwitchSession: %v", err)
+	}
+	if got := c.CurrentSession(); got != "sother" {
+		t.Errorf("the client is on %q, want sother", got)
+	}
+	// An empty id is refused rather than accepted as "the default": it would silently move the
+	// client to a conversation nobody asked for.
+	if err := c.SwitchSession(context.Background(), "  "); err == nil {
+		t.Error("switching to an empty id must be refused")
+	}
+	if got := c.CurrentSession(); got != "sother" {
+		t.Errorf("a refused switch moved the client to %q", got)
 	}
 }
 
@@ -96,7 +151,7 @@ func TestCheckSessionPassesForARunnerThatCannotList(t *testing.T) {
 // TestCheckSessionAcceptsAConversationThatExists: the happy path, which has to be a test or the
 // three failures above could all pass with a function that always fails.
 func TestCheckSessionAcceptsAConversationThatExists(t *testing.T) {
-	c := listingRunner{sessions: []gateway.SessionStatus{{ID: "default"}, {ID: "sother"}}}
+	c := listingRunner{sessions: []tui.SessionInfo{{ID: "default"}, {ID: "sother"}}}
 	if err := checkSession(c, "sother"); err != nil {
 		t.Errorf("an existing session was refused: %v", err)
 	}
@@ -179,7 +234,7 @@ func TestConnectPassesAUsableURLToTheClient(t *testing.T) {
 	op, _ := connectOptions(t, &out, []string{"-config", cfgPath, "-connect", bare})
 	op.NewClient = func(baseURL, tok, session string) tui.Runner {
 		got = baseURL
-		return listingRunner{sessions: []gateway.SessionStatus{{ID: "default"}}}
+		return listingRunner{sessions: []tui.SessionInfo{{ID: "default"}}}
 	}
 
 	if code := Run(op); code != Success {
@@ -187,5 +242,25 @@ func TestConnectPassesAUsableURLToTheClient(t *testing.T) {
 	}
 	if !strings.HasPrefix(got, "http://") {
 		t.Errorf("the client was given %q, it must be a usable URL", got)
+	}
+}
+
+// TestTheAdapterCarriesAFailedListing: a gateway that cannot be asked which conversations it holds
+// must produce an ERROR, not an empty list. An empty list would read as "there are none", which is
+// a different - and much more alarming - statement than "the question could not be asked".
+func TestTheAdapterCarriesAFailedListing(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusUnauthorized)
+		_, _ = w.Write([]byte(`{"error":"no"}`))
+	}))
+	defer srv.Close()
+
+	sw := sessionSwitcher{gateway.NewClientForSession(srv.URL, testToken, "default")}
+	all, err := sw.ListSessions(context.Background())
+	if err == nil {
+		t.Fatal("a refused listing must be reported")
+	}
+	if all != nil {
+		t.Errorf("a failed listing returned %v, it must return nothing", all)
 	}
 }

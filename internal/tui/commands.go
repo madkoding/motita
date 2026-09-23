@@ -41,6 +41,8 @@ var commands = []Command{
 	{Name: "/reasoning", Aliases: []string{"/r", "/think"}, Help: "cycle the reasoning level"},
 	{Name: "/find", Aliases: []string{"/f"}, Help: "filter the conversation", Arg: "text"},
 	{Name: "/session", Aliases: []string{"/s"}, Help: "context used, and any carried summary"},
+	{Name: "/sessions", Help: "list the conversations the gateway holds"},
+	{Name: "/attach", Help: "move to another conversation", Arg: "session id"},
 	{Name: "/good", Help: "mark the last turn as good (moves skill value)", Arg: "note"},
 	{Name: "/bad", Help: "mark the last turn as bad; the note says what to fix", Arg: "what was wrong"},
 	{Name: "/value", Aliases: []string{"/v"}, Help: "what the library has learned, worst first"},
@@ -82,6 +84,26 @@ var commandActions = map[string]func(t *TUI, ctx context.Context, arg string) bo
 	// conversation the user cannot inspect is one they cannot trust.
 	"/session": func(t *TUI, _ context.Context, _ string) bool {
 		t.addPreformatted(AuthorSystem, t.Runner.ConversationReport())
+		return false
+	},
+	// The list of conversations, and which one this interface is on. It is how a user discovers
+	// that the gateway holds more than one, and the ids the other command takes.
+	"/sessions": func(t *TUI, ctx context.Context, _ string) bool { t.printSessions(ctx); return false },
+	// Moving to another conversation. The interface is on ONE at a time: that is what the user is
+	// looking at, and two of them side by side is a different interface.
+	"/attach": func(t *TUI, ctx context.Context, arg string) bool {
+		id := strings.TrimSpace(arg)
+		if id == "" {
+			t.addMessage(AuthorSystem, "usage: /attach <session id> — /sessions lists them.")
+			return false
+		}
+		if err := t.attachTo(ctx, id); err != nil {
+			// Reported in the chat rather than swallowed: silence here would leave the user
+			// typing into a conversation they did not choose.
+			t.addMessage(AuthorSystem, err.Error())
+			return false
+		}
+		t.addMessage(AuthorSystem, "attached to session "+id)
 		return false
 	},
 	"/good": func(t *TUI, _ context.Context, note string) bool { t.recordVerdict(true, note); return false },

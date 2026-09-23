@@ -205,7 +205,10 @@ func TestParserRefusesAColumnWithNoNumber(t *testing.T) {
 // interface: without the consumption, the report bytes were appended to the line being typed.
 func TestTheLiveReaderSwallowsMouseReports(t *testing.T) {
 	// A wheel report and then a letter and Enter: the letter must be the whole line.
-	input := "\x1b[<64;31;10M" + "a" + "\n"
+	//
+	// The letter is NOT a command prefix ("a" would complete to /attach), because what is being
+	// tested is that the report does not leak into the line - not command completion.
+	input := "\x1b[<64;31;10M" + "z" + "\n"
 	tui := &TUI{
 		In:       strings.NewReader(input),
 		Out:      &strings.Builder{},
@@ -218,7 +221,7 @@ func TestTheLiveReaderSwallowsMouseReports(t *testing.T) {
 	if !ok {
 		t.Fatal("the reader should have produced a line")
 	}
-	if line != "a" {
+	if line != "z" {
 		t.Fatalf("line = %q, want just the typed letter: the report leaked", line)
 	}
 }

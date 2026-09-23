@@ -7,6 +7,9 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+
+	"github.com/madkoding/starlight/internal/config"
+	"github.com/madkoding/starlight/internal/session"
 )
 
 // sessionRecorder is a gateway that records every path it is asked for and answers the given
@@ -139,5 +142,74 @@ func TestASessionStatusRoundTripsThroughTheWire(t *testing.T) {
 	}
 	if back.ID != payload.ID || !back.Running {
 		t.Errorf("round trip lost data: %+v", back)
+	}
+}
+
+// TestSwitchSessionCarriesThePathsWithIt: the session is what every conversation call is scoped to,
+// so moving it has to move the ADDRESSING too. A client that changed its mind about which
+// conversation it speaks for but kept building the old paths would send a question meant for one
+// conversation into another - the exact confusion the fixed-at-construction rule was written to
+// prevent, and this is the one method allowed to move it.
+func TestSwitchSessionCarriesThePathsWithIt(t *testing.T) {
+	c, seen := sessionRecorder(t, http.StatusOK, map[string]string{"text": "ok"})
+	c = NewClientForSession(strings.TrimSuffix(c.baseURL, ""), testToken, "sfirst")
+
+	if _, err := c.RunModels(context.Background()); err != nil {
+		t.Fatalf("RunModels: %v", err)
+	}
+	if err := c.SwitchSession(context.Background(), "ssecond"); err != nil {
+		t.Fatalf("SwitchSession: %v", err)
+	}
+	if got := c.CurrentSession(); got != "ssecond" {
+		t.Fatalf("CurrentSession = %q, want ssecond", got)
+	}
+	if _, err := c.RunModels(context.Background()); err != nil {
+		t.Fatalf("RunModels after switching: %v", err)
+	}
+
+	if len(*seen) != 2 {
+		t.Fatalf("the gateway was asked %d times, want 2: %v", len(*seen), *seen)
+	}
+	if !strings.HasPrefix((*seen)[0], "/v1/sessions/sfirst/") {
+		t.Errorf("the first call addressed %q, want the session the client was built with", (*seen)[0])
+	}
+	if !strings.HasPrefix((*seen)[1], "/v1/sessions/ssecond/") {
+		t.Errorf("the call after switching addressed %q, the paths must follow the session", (*seen)[1])
+	}
+}
+
+// TestSwitchingToAnEmptySessionIsRefused: "" would mean "the default" if it were accepted, which
+// silently moves the client to a conversation nobody asked for. It is refused instead, and the
+// client stays where it was.
+func TestSwitchingToAnEmptySessionIsRefused(t *testing.T) {
+	c := NewClientForSession("http://127.0.0.1:7477", testToken, "sfirst")
+	for _, empty := range []string{"", "   "} {
+		if err := c.SwitchSession(context.Background(), empty); err == nil {
+			t.Errorf("switching to %q must be refused", empty)
+		}
+	}
+	if got := c.CurrentSession(); got != "sfirst" {
+		t.Errorf("a refused switch moved the client to %q", got)
+	}
+}
+
+// TestSwitchingDropsTheCachedFigures: the gateway is the authority on what the new conversation
+// contains. Keeping the previous one's token count would show it in the status bar as THIS
+// conversation's context being used, which is a figure that is confidently wrong.
+func TestSwitchingDropsTheCachedFigures(t *testing.T) {
+	c := NewClientForSession("http://127.0.0.1:7477", testToken, "sfirst")
+	c.mu.Lock()
+	c.snap = session.Snapshot{}
+	c.cfg, c.hasCfg = config.Config{Agent: config.Agent{MaxRetries: 7}}, true
+	c.mu.Unlock()
+
+	if err := c.SwitchSession(context.Background(), "ssecond"); err != nil {
+		t.Fatalf("SwitchSession: %v", err)
+	}
+
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.hasCfg {
+		t.Error("the configuration from the previous conversation survived the switch")
 	}
 }

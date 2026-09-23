@@ -120,10 +120,15 @@ func TestCompletionsMatchPrefixes(t *testing.T) {
 		want  []string
 	}{
 		{"/p", []string{"/plan"}},
-		{"/s", []string{"/session"}},
+		// "/s" now reaches TWO: it is an alias of /session and a prefix of /sessions. That is
+		// normal completion behaviour (a shell does the same), and the ambiguity is only in the
+		// POPUP - pressing Enter on "/s" still runs /session, because an alias is matched whole.
+		{"/s", []string{"/session", "/sessions"}},
 		{"/m", []string{"/models"}},
 		{"/n", []string{"/new"}},
-		{"/", []string{"/task", "/plan", "/models", "/config", "/reasoning", "/find", "/session", "/good", "/bad", "/value", "/new", "/help", "/quit"}},
+		{"/a", []string{"/attach"}},
+		{"/se", []string{"/session", "/sessions"}},
+		{"/", []string{"/task", "/plan", "/models", "/config", "/reasoning", "/find", "/session", "/sessions", "/attach", "/good", "/bad", "/value", "/new", "/help", "/quit"}},
 	} {
 		got := completions(tc.typed)
 		var names []string

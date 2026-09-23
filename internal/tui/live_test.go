@@ -428,7 +428,10 @@ func TestATruncatedUTF8SequenceIsDropped(t *testing.T) {
 	// 0xc3 starts a two-byte sequence, and the byte that follows is a printable one rather than
 	// a continuation. The broken pair is dropped; what comes after it is the user's text and has
 	// to survive.
-	tu, _ := newKeyTUI(string([]byte{0xc3, 'a'}) + "\n")
+	// The letter after the broken pair is one that is NOT a command prefix: "a" used to stand for
+	// itself here, and once /attach existed it completed instead - which made this test fail for a
+	// reason that had nothing to do with broken UTF-8.
+	tu, _ := newKeyTUI(string([]byte{0xc3, 'z'}) + "\n")
 	tu.charMode = true
 	tu.Width, tu.Height = 100, 24
 
@@ -436,7 +439,7 @@ func TestATruncatedUTF8SequenceIsDropped(t *testing.T) {
 	if !ok {
 		t.Fatal("the read must end at the newline")
 	}
-	if line != "a" {
+	if line != "z" {
 		t.Errorf("the broken sequence must be dropped and the rest kept, got %q", line)
 	}
 	// And nothing that is not text may appear in the line.
@@ -470,7 +473,7 @@ func TestFourByteCharactersArriveWhole(t *testing.T) {
 // is not text, and inserting it would draw a lone replacement character.
 func TestAStrayContinuationByteIsNotACharacter(t *testing.T) {
 	// 0x80 is a continuation byte on its own.
-	tu, _ := newKeyTUI(string([]byte{0x80, 'a'}) + "\n")
+	tu, _ := newKeyTUI(string([]byte{0x80, 'z'}) + "\n")
 	tu.charMode = true
 	tu.Width, tu.Height = 100, 24
 
@@ -478,7 +481,7 @@ func TestAStrayContinuationByteIsNotACharacter(t *testing.T) {
 	if !ok {
 		t.Fatal("the read must end")
 	}
-	if line != "a" {
+	if line != "z" {
 		t.Errorf("the stray byte must be dropped and the rest kept, got %q", line)
 	}
 	if _, bad := tu.readRuneFrom(0x80); bad {
@@ -508,7 +511,7 @@ func TestAnUnreadableInputDuringAUTF8SequenceEndsTheRead(t *testing.T) {
 func TestAnOverlongButWellFormedSequenceIsRejected(t *testing.T) {
 	// 0xf0 0x80 0x80 0x80 is a four-byte sequence encoding U+0000 the long way: the shape is
 	// right and the value is illegal.
-	tu, _ := newKeyTUI(string([]byte{0xf0, 0x80, 0x80, 0x80, 'a'}) + "\n")
+	tu, _ := newKeyTUI(string([]byte{0xf0, 0x80, 0x80, 0x80, 'z'}) + "\n")
 	tu.charMode = true
 	tu.Width, tu.Height = 100, 24
 
@@ -516,7 +519,7 @@ func TestAnOverlongButWellFormedSequenceIsRejected(t *testing.T) {
 	if !ok {
 		t.Fatal("the read must end at the newline")
 	}
-	if line != "a" {
+	if line != "z" {
 		t.Errorf("the illegal sequence must be dropped and the rest kept, got %q", line)
 	}
 }

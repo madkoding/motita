@@ -43,14 +43,14 @@ func (noopRunner) RewardReport() string                      { return "" }
 // ListSessions is here because checkSession reaches for it: a double that omitted it would take
 // the "this is not a remote client" branch and the session check would never run, which is the
 // opposite of what these tests are for.
-func (r listingRunner) ListSessions(context.Context) ([]gateway.SessionStatus, error) {
+func (r listingRunner) ListSessions(context.Context) ([]tui.SessionInfo, error) {
 	return r.sessions, r.err
 }
 
 // listingRunner is a tui.Runner that ANSWERS the session listing, which noopRunner does not.
 type listingRunner struct {
 	noopRunner
-	sessions []gateway.SessionStatus
+	sessions []tui.SessionInfo
 	err      error
 }
 
@@ -220,7 +220,7 @@ func TestASessionThatDoesNotExistIsReportedAtStart(t *testing.T) {
 		"-config", cfgPath, "-connect", srv.URL, "-tui", "-session", "smissing",
 	})
 	op.NewClient = func(baseURL, tok, session string) tui.Runner {
-		return listingRunner{sessions: []gateway.SessionStatus{
+		return listingRunner{sessions: []tui.SessionInfo{
 			{ID: "default"}, {ID: "sother"},
 		}}
 	}

@@ -242,7 +242,10 @@ func TestTheModeIsNotEnteredForAPipe(t *testing.T) {
 // way it can be offered is through the alias loop. Without that branch every alias would be a
 // spelling the popup never suggests.
 func TestAnAliasIsMatchedByTheAliasBranch(t *testing.T) {
-	for _, typed := range []string{"/q", "/h", "/c", "/f", "/s"} {
+	// "/s" is deliberately NOT in this list: it is an alias of /session AND a prefix of the newer
+	// /sessions, so it legitimately offers two. What this test is about is the alias branch, and
+	// the point of the branch is that an alias NOT shared with a prefix still reaches its command.
+	for _, typed := range []string{"/q", "/h", "/c", "/f", "/v", "/r", "/think"} {
 		got := completions(typed)
 		if len(got) != 1 {
 			t.Errorf("completions(%q) = %v, want exactly one command reached by its alias", typed, got)

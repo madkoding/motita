@@ -89,14 +89,49 @@ func NewClientForSession(baseURL, token, session string) *Client {
 }
 
 // Session is the conversation this client speaks for.
-func (c *Client) Session() string { return c.session }
+//
+// It is read under the lock because SwitchSession can change it, and every read of it - here and in
+// scoped, which builds every path - must see one value rather than a half-updated one.
+func (c *Client) Session() string {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.session
+}
+
+// CurrentSession is the same value under the name the interface's optional capability uses, so the
+// adapter in internal/app needs no translation for it.
+func (c *Client) CurrentSession() string { return c.Session() }
+
+// SwitchSession changes which conversation this client speaks for.
+//
+// It replaces the cached figures and configuration rather than patching them: the gateway is the
+// authority on what the new conversation contains, and a value carried over from the previous one
+// would show in the status bar as THIS conversation's context being used. Dropping them in the same
+// step as the session is what makes the change atomic from the caller's point of view.
+//
+// The session was made FIXED at construction on purpose, because a client whose session can move
+// underneath it is a client whose status bar can show one conversation while its run lands in
+// another. Both things are true, and this is the resolution: it moves only here, and the stale
+// state goes with it.
+func (c *Client) SwitchSession(_ context.Context, id string) error {
+	id = strings.TrimSpace(id)
+	if id == "" {
+		return errors.New("a session id is required")
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.session = id
+	c.snap = session.Snapshot{}
+	c.cfg, c.hasCfg = config.Config{}, false
+	return nil
+}
 
 // scoped builds the path of one endpoint of this client's conversation.
 //
 // Every request goes through it, so there is ONE place that knows where sessions live in the URL
 // - and no call site can address the wrong conversation by writing a path by hand.
 func (c *Client) scoped(rest string) string {
-	return "/v1/sessions/" + url.PathEscape(c.session) + rest
+	return "/v1/sessions/" + url.PathEscape(c.Session()) + rest
 }
 
 // CreateSession opens one more conversation and returns it.
