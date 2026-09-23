@@ -571,3 +571,67 @@ func TestANewSessionClearsTheConversationFromTheNextTurn(t *testing.T) {
 		}
 	}
 }
+
+// TestRunPlanRecordsTheTurnInTheTranscript is the other half of the wiring above, and it was
+// missing: RunPlan handed the planner the conversation but never recorded the finished turn in
+// the TRANSCRIPT, which is what a front end draws. The session and the transcript are different
+// things — the session is what the model is given, the transcript is what the user sees — and
+// joining the first without the second means a client that reconnects after a Plan turn is shown
+// a conversation that never happened.
+//
+// It is the same blank screen this codebase already fixed once for TASK turns, left in place for
+// Plan turns because the two paths record separately.
+func TestRunPlanRecordsTheTurnInTheTranscript(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		if bytes.Contains(body, []byte(`"stream":true`)) {
+			w.Header().Set("Content-Type", "text/event-stream")
+			chunk, _ := json.Marshal(map[string]any{"choices": []any{map[string]any{"delta": map[string]any{"content": "the plan"}}}})
+			fmt.Fprintf(w, "data: %s\n\n", chunk)
+			fmt.Fprint(w, "data: [DONE]\n\n")
+			return
+		}
+		fmt.Fprint(w, `{"choices":[{"message":{"content":"the plan"}}]}`)
+	}))
+	defer srv.Close()
+
+	cfg := config.Default()
+	cfg.LLM.Provider = "openai"
+	cfg.LLM.APIKey = "key"
+	cfg.LLM.BaseURL = srv.URL
+	cfg.LLM.MaxAttempts = 1
+	cfg.LLM.BackoffInitial = time.Millisecond
+	cfg.LLM.BackoffMax = time.Millisecond
+	cfg.Sandbox.Kind = "none"
+	cfg.LLM.Model = "gpt-4o"
+
+	r := NewAppRunner(io.Discard, io.Discard, cfg, nil, nil, logx.Global())
+	engine, err := llm.New(cfg.LLM, r.Log)
+	if err != nil {
+		t.Fatal(err)
+	}
+	r.Engine = engine
+
+	const asked = "which files hold the gateway routes?"
+	if _, err := r.RunPlan(context.Background(), asked, func(string, ...any) {}); err != nil {
+		t.Fatalf("the run failed: %v", err)
+	}
+
+	turns := r.Transcript()
+	if len(turns) == 0 {
+		t.Fatal("a finished Plan turn must appear in the conversation a front end draws; " +
+			"without it a client that reconnects sees a blank screen")
+	}
+	last := turns[len(turns)-1]
+	if last.User != asked {
+		t.Errorf("the turn's question = %q, want %q", last.User, asked)
+	}
+	if last.Agent == "" {
+		t.Error("the turn must carry the plan that was produced, not an empty answer")
+	}
+	// The kind is what lets a transcript be summarised honestly: a plan is not a task and not a
+	// chat reply, and a reader who cannot tell them apart cannot tell what happened.
+	if last.Kind != "plan" {
+		t.Errorf("the turn's kind = %q, want \"plan\": a plan is not a task", last.Kind)
+	}
+}

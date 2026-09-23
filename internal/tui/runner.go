@@ -272,10 +272,46 @@ func (r *AppRunner) RunPlan(ctx context.Context, prompt string, progress func(st
 	// still tells the user which procedure was in play, and that is exactly the turn they are
 	// most likely to mark.
 	r.rememberUsage(planner.Consulted(), prompt)
+	// And the turn itself goes into the conversation a front end draws. This is the SAME blank
+	// screen the Task path already fixed, and it has to be done here because the two paths
+	// record separately: the session is what the model is given, the transcript is what the user
+	// sees, and joining the first without the second leaves a client that reconnects looking at
+	// a conversation in which the question was never asked.
+	//
+	// Recorded on the FAILURE path too, and for the same reason the Task path keeps a failed
+	// run: the attempt is part of the conversation, and dropping it makes the user repeat
+	// themselves to an agent that cannot see what they already asked.
+	//
+	// The answer is recorded as empty rather than as an error string when the run failed: the
+	// transcript says what was ASKED either way, and inventing a reply the model never gave
+	// would be worse than showing none.
+	r.rememberTurn(prompt, answer, err)
 	if err != nil {
 		return "", err
 	}
 	return answer, nil
+}
+
+// rememberTurn appends one finished turn to the conversation, keeping what is already there.
+//
+// It APPENDS rather than replacing, unlike remember() on the Task path: that one takes the
+// agent's whole transcript, which is authoritative for a task because the agent owns it. Here the
+// planner holds its own session in a different shape, so the runner adds the turn it can see
+// instead of overwriting a conversation it did not build.
+func (r *AppRunner) rememberTurn(question, answer string, runErr error) {
+	if strings.TrimSpace(question) == "" {
+		return
+	}
+	if runErr != nil {
+		answer = ""
+	}
+	r.transcriptMu.Lock()
+	defer r.transcriptMu.Unlock()
+	r.transcript = append(r.transcript, agent.DialogueTurn{
+		User:  question,
+		Agent: answer,
+		Kind:  "plan",
+	})
 }
 
 // conversation returns the session Plan mode continues in, creating it on first use.
