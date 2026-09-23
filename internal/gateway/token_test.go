@@ -202,3 +202,92 @@ func TestSurroundingWhitespaceIsTrimmed(t *testing.T) {
 		t.Errorf("token = %q, want %q", got, tok)
 	}
 }
+
+// TestReadTokenDoesNotCreateOne: a client must READ a token, never mint one.
+//
+// LoadOrCreateToken is right for a server: it has to have a token before it can listen. For a
+// client it is a silent failure - a missing token file would produce a freshly generated one, a
+// saved credential in a file the operator never asked for, and a 401 on every request with nothing
+// to explain why.
+func TestReadTokenDoesNotCreateOne(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "gateway.token")
+
+	_, err := ReadToken(path)
+	if err == nil {
+		t.Fatal("reading a token that does not exist must be reported, not invented")
+	}
+	if !strings.Contains(err.Error(), "no token file") {
+		t.Errorf("the failure must say what is missing, got: %v", err)
+	}
+	if _, statErr := os.Stat(path); !os.IsNotExist(statErr) {
+		t.Error("ReadToken created a file: a client must never write a credential")
+	}
+}
+
+// TestReadTokenAcceptsAUsableFile: the happy path, and the trailing newline the file carries is
+// not a reason to fail.
+func TestReadTokenAcceptsAUsableFile(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "gateway.token")
+	if err := os.WriteFile(path, []byte("abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789\n"), 0o600); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	got, err := ReadToken(path)
+	if err != nil {
+		t.Fatalf("ReadToken: %v", err)
+	}
+	if got != "abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789" {
+		t.Errorf("the token came back as %q, the newline must be trimmed", got)
+	}
+}
+
+// TestReadTokenRejectsAnUnusableFile: a file that is not a token must be reported rather than used.
+// A too-short token is the shape a truncated or half-written file has.
+func TestReadTokenRejectsAnUnusableFile(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "gateway.token")
+	if err := os.WriteFile(path, []byte("tooshort\n"), 0o600); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	if _, err := ReadToken(path); err == nil {
+		t.Fatal("a token shorter than MinTokenBytes must be refused")
+	}
+}
+
+// TestReadTokenRefusesNonHex: right LENGTH but wrong SHAPE, which is the case a length check alone
+// misses - and the one where a client would go on to present garbage and be refused everywhere.
+func TestReadTokenRefusesNonHex(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "gateway.token")
+	body := strings.Repeat("z", 2*MinTokenBytes) + "\n"
+	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	if _, err := ReadToken(path); err == nil {
+		t.Fatal("a token that is not hexadecimal must be refused")
+	}
+}
+
+// TestReadTokenWithNoPathConfigured: the operator configured nothing, and the message says that
+// rather than blaming a file.
+func TestReadTokenWithNoPathConfigured(t *testing.T) {
+	if _, err := ReadToken("  "); err == nil {
+		t.Fatal("an empty path must be reported")
+	}
+}
+
+// TestReadTokenReportsAFileItCannotOpen: a path that exists but cannot be read is neither
+// "missing" nor "usable", and reporting it as missing would send the operator looking for a file
+// that is right there.
+func TestReadTokenReportsAFileItCannotOpen(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "gateway.token")
+	// A DIRECTORY where the token file should be: the read fails with something that is neither
+	// "does not exist" nor nil, and the two must not be confused.
+	if err := os.Mkdir(path, 0o700); err != nil {
+		t.Fatalf("fixture: %v", err)
+	}
+	_, err := ReadToken(path)
+	if err == nil {
+		t.Fatal("a read failure must be reported")
+	}
+	if !strings.Contains(err.Error(), "could not read") {
+		t.Errorf("the failure must say it could not be read, got: %v", err)
+	}
+}

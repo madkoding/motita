@@ -77,6 +77,36 @@ func LoadOrCreateToken(path string) (string, error) {
 	return tok, nil
 }
 
+// ReadToken reads a token that already exists, and NEVER creates one.
+//
+// It is the client's half of LoadOrCreateToken, and the difference is deliberate. A server has to
+// have a token before it can listen, so creating one is the only sensible thing it can do. A client
+// minting one would be a silent failure of the worst kind: the token file it cannot read would be
+// replaced by a fresh token the client then presents, every request would be refused with a 401,
+// and nothing anywhere would say that the client had invented a credential and written it into a
+// file nobody asked for.
+//
+// A missing file is therefore an ERROR with a message that names it, because that is what the
+// operator has to fix.
+func ReadToken(path string) (string, error) {
+	if strings.TrimSpace(path) == "" {
+		return "", fmt.Errorf("no token file was configured: a client needs one to reach a gateway")
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return "", fmt.Errorf("no token file at %s: it is written by the gateway that created it, so copy it from there", path)
+		}
+		return "", fmt.Errorf("could not read the token file %s: %w", path, err)
+	}
+	tok := strings.TrimSpace(string(data))
+	if len(tok) < 2*MinTokenBytes || !isHex(tok) {
+		return "", fmt.Errorf("the token in %s is not usable: it must be at least %d hexadecimal characters",
+			path, 2*MinTokenBytes)
+	}
+	return tok, nil
+}
+
 // newToken returns MinTokenBytes random bytes as hexadecimal.
 func newToken() (string, error) {
 	b := make([]byte, MinTokenBytes)
