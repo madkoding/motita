@@ -218,3 +218,67 @@ func TestTheListingSaysWhenThereIsNothing(t *testing.T) {
 		t.Errorf("an empty listing is not reported in:\n%s", drawn)
 	}
 }
+
+// TestTheAttachCommandThroughTheTable: the other tests call attachTo directly, which leaves the
+// COMMAND - the part a user actually reaches - unexecuted. The table is the dispatch path, so this
+// exercises the closure that runs when someone types /attach.
+func TestTheAttachCommandThroughTheTable(t *testing.T) {
+	r := &switcherRunner{sessions: []SessionInfo{{ID: "default"}, {ID: "sabc"}}, current: "default"}
+	ui := switcher(r)
+	ui.addMessage(AuthorUser, "before")
+
+	if quit := commandActions["/attach"](ui, context.Background(), "sabc"); quit {
+		t.Error("/attach must not quit the interface")
+	}
+	if r.current != "sabc" {
+		t.Fatalf("the command did not move the session, it is on %q", r.current)
+	}
+	if drawn := stripANSI(outputOf(ui)); !strings.Contains(drawn, "attached to session sabc") {
+		t.Errorf("the move was not announced:\n%s", drawn)
+	}
+}
+
+// TestTheAttachCommandReportsAFailure: the message path is what tells the user the switch did not
+// happen. Without it they keep typing into a conversation they did not choose.
+func TestTheAttachCommandReportsAFailure(t *testing.T) {
+	r := &switcherRunner{err: errors.New("connection refused")}
+	ui := switcher(r)
+
+	if quit := commandActions["/attach"](ui, context.Background(), "sabc"); quit {
+		t.Error("/attach must not quit the interface")
+	}
+	if drawn := stripANSI(outputOf(ui)); !strings.Contains(drawn, "connection refused") {
+		t.Errorf("the failure was not reported:\n%s", drawn)
+	}
+}
+
+// TestTheAttachCommandWithoutAnArgumentExplainsItself: "/attach" alone is a typo, and the answer
+// has to be the usage line rather than a switch to a conversation named "".
+func TestTheAttachCommandWithoutAnArgumentExplainsItself(t *testing.T) {
+	r := &switcherRunner{sessions: []SessionInfo{{ID: "default"}}, current: "default"}
+	ui := switcher(r)
+
+	if quit := commandActions["/attach"](ui, context.Background(), "   "); quit {
+		t.Error("/attach must not quit the interface")
+	}
+	if r.current != "default" {
+		t.Errorf("a bare /attach moved the session to %q", r.current)
+	}
+	if drawn := stripANSI(outputOf(ui)); !strings.Contains(drawn, "usage: /attach") {
+		t.Errorf("the usage line was not shown:\n%s", drawn)
+	}
+}
+
+// TestTheSessionsCommandThroughTheTable: same reason as /attach - the table is what the user
+// reaches, and the closure has to run.
+func TestTheSessionsCommandThroughTheTable(t *testing.T) {
+	r := &switcherRunner{sessions: []SessionInfo{{ID: "default"}}, current: "default"}
+	ui := switcher(r)
+
+	if quit := commandActions["/sessions"](ui, context.Background(), ""); quit {
+		t.Error("/sessions must not quit the interface")
+	}
+	if drawn := stripANSI(outputOf(ui)); !strings.Contains(drawn, "sessions:") {
+		t.Errorf("the listing did not run:\n%s", drawn)
+	}
+}
