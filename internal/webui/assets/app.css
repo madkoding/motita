@@ -1,1 +1,170 @@
-/* app.css - the whole stylesheet is filled in by T6. */
+/* The starlight interface.
+ *
+ * No font is loaded. The system font is free and a webfont is the single largest thing this page
+ * could carry - every asset byte becomes a byte of the executable, and the size gate has 1.16 MB
+ * of margin on windows/amd64. That is a deliberate trade, not an omission.
+ *
+ * The colours are the same family the terminal interface uses, so the two clients look like the
+ * two faces of one program. Both schemes are handled: a phone in daylight and a terminal at night
+ * are the same product.
+ */
+
+:root {
+  --bg: #101014;
+  --surface: #1a1a20;
+  --border: #2a2a32;
+  --text: #e8e8ea;
+  --muted: #8a8a94;
+  --accent: #4cc2ff;
+  --warning: #ffb020;
+  --danger: #ff6b6b;
+}
+
+@media (prefers-color-scheme: light) {
+  :root {
+    --bg: #fbfbfd;
+    --surface: #f1f1f4;
+    --border: #d8d8de;
+    --text: #16161a;
+    --muted: #5f5f6a;
+    --accent: #0b6fb8;
+    --warning: #9a6200;
+    --danger: #b3261e;
+  }
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font: 16px/1.5 system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+}
+
+header {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  padding: 10px 16px;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+  flex: none;
+}
+
+header h1 { font-size: 15px; font-weight: 600; margin: 0; letter-spacing: 0.02em; }
+#state { font-size: 12px; color: var(--muted); margin-left: auto; }
+#state.bad { color: var(--danger); }
+
+#conversation {
+  flex: 1;
+  overflow-y: auto;
+  padding: 12px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.msg {
+  /* pre-wrap matters twice: the transcript keeps its own line breaks, and an approval shows a
+     command exactly as it will run. Reflowing either one shows the user something else. */
+  white-space: pre-wrap;
+  word-break: break-word;
+  padding: 8px 12px;
+  border-radius: 8px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  max-width: 70ch;
+}
+
+.msg.user { align-self: flex-end; border-color: var(--accent); }
+.msg.agent { align-self: flex-start; }
+.msg.kind { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.06em; }
+
+#composer {
+  display: flex;
+  gap: 8px;
+  padding: 10px 16px;
+  border-top: 1px solid var(--border);
+  background: var(--surface);
+  flex: none;
+}
+
+#task {
+  flex: 1;
+  resize: vertical;
+  min-height: 44px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--bg);
+  color: var(--text);
+  font: inherit;
+}
+
+#composer button {
+  /* 44px is the smallest target a thumb can hit reliably. It is a requirement, not a taste. */
+  min-height: 44px;
+  min-width: 44px;
+  padding: 0 18px;
+  border-radius: 8px;
+  border: 1px solid var(--accent);
+  background: var(--accent);
+  color: var(--bg);
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+#composer button:disabled { opacity: 0.5; cursor: default; }
+
+#approval {
+  flex: none;
+  padding: 12px 16px;
+  border-top: 2px solid var(--warning);
+  background: var(--surface);
+}
+
+#approval[hidden] { display: none; }
+#approval h2 { font-size: 13px; margin: 0 0 8px; color: var(--warning); }
+#approval pre {
+  /* The command, whole. Not truncated, not wrapped into a different command: approval is
+     approval of THIS text. */
+  white-space: pre-wrap;
+  word-break: break-all;
+  margin: 0 0 10px;
+  padding: 10px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font: 13px/1.45 ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+#approval button {
+  min-height: 44px;
+  min-width: 44px;
+  padding: 0 16px;
+  margin-right: 8px;
+  border-radius: 8px;
+  font: inherit;
+  cursor: pointer;
+}
+#approval button.allow { border: 1px solid var(--accent); background: var(--accent); color: var(--bg); font-weight: 600; }
+#approval button.deny { border: 1px solid var(--border); background: transparent; color: var(--text); }
+
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
+@media (max-width: 600px) {
+  .msg { max-width: 100%; }
+  #composer { flex-direction: column; }
+  #composer button { width: 100%; }
+}
