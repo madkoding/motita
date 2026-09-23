@@ -108,10 +108,10 @@ func (r *switcherRunner) FollowRun(ctx context.Context, progress func(string, ..
 	select {
 	case <-live.release:
 	case <-ctx.Done():
-		// The follow was cancelled, and a cancelled follow ASKS THE GATEWAY to stop the run. That
-		// is the contract the interface relies on - see RunController.FollowRun and the client's
-		// context.AfterFunc - and counting it here is what lets a test measure Escape.
-		r.cancelRunAtGateway()
+		// Cancelling the FOLLOW only stops reading: a turn outlives the client that was watching
+		// it, so a shutdown must leave the gateway working. STOPPING the run is a separate act, and
+		// it is the interface that asks for it - see CancelRun - which is why nothing is counted
+		// here. Counting it would hide the very thing the Escape test measures.
 		return "", ctx.Err()
 	}
 	if live.err != nil {
@@ -556,6 +556,30 @@ func TestEscapeCancelsTheLiveRunOfTheSessionItIsIn(t *testing.T) {
 		t.Fatalf("Escape produced %d cancel requests, want exactly one", n)
 	}
 	waitForIdle(t, r, ui)
+}
+
+// TestTheExportedAttachEntryPointDoesTheSameThing: the exported wrapper exists so that the package
+// which wires the layers together can enter a session named by -session through THE SAME code as
+// /attach. A wrapper that only looked like one - or that did half the job - would be the drift the
+// wrapper was added to prevent, and the command path is not enough to prove it: this is the entry
+// the STARTUP calls.
+func TestTheExportedAttachEntryPointDoesTheSameThing(t *testing.T) {
+	r := &switcherRunner{
+		sessions:   []SessionInfo{{ID: "default"}, {ID: "sabc"}},
+		current:    "default",
+		transcript: map[string][]Turn{"sabc": {{Agent: "the answer from sabc"}}},
+	}
+	ui := switcher(r)
+
+	if err := ui.AttachTo(context.Background(), "sabc"); err != nil {
+		t.Fatalf("AttachTo: %v", err)
+	}
+	if r.current != "sabc" {
+		t.Errorf("the entry point did not move the session, the runner is on %q", r.current)
+	}
+	if !ui.viewContains("the answer from sabc") {
+		t.Errorf("the entry point did not DRAW the conversation: %+v", ui.messagesSnapshot())
+	}
 }
 
 // TestAttachingToASessionWithNoRunDoesNotBecomeBusy: the common case - a conversation that is

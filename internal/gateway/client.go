@@ -666,25 +666,20 @@ func (c *Client) FollowRun(ctx context.Context, progress func(string, ...any)) (
 	return c.streamFollowing(ctx, c.scoped("/events")+"?from=0", progress)
 }
 
-// streamFollowing reads a run's stream without starting one, and stops the run if the follow is
-// cancelled.
+// streamFollowing reads a run's stream without starting one.
+//
 // It is the reading half of streamOnce, factored out so the client that STARTED a run and the one
 // that joins it cannot drift apart: they read the same wire format and must be unable to disagree
 // about it. The difference between them is one POST and one cancellation rule, and both live in
 // their own method.
 //
-// The cancellation is armed through context.AfterFunc, and it fires on ANY way the context can end
-// - the user pressing Escape, Ctrl+C, the process shutting down. The background context it sends on
-// is detached from the cancelled one: a request made with an already-cancelled context would never
-// leave the client, and the run would keep going while the user believed they had stopped it.
+// Cancelling the follow stops READING and does NOT stop the run. That is the design, not an
+// oversight: a turn outlives the client that was watching it, so closing the window - or the
+// process going away - must leave the gateway working. Stopping the turn is an explicit act by the
+// user, and it is what CancelRun is for.
 func (c *Client) streamFollowing(ctx context.Context, path string, progress func(string, ...any)) (string, error) {
 	var result string
 	var last uint64
-	stop := context.AfterFunc(ctx, func() {
-		_, _ = c.StopRun(context.WithoutCancel(ctx))
-	})
-	defer stop()
-
 	answered, err := c.streamEventsAt(ctx, path, &last, &result, progress)
 	if err != nil {
 		return result, err

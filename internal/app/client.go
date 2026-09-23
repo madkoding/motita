@@ -134,6 +134,11 @@ func (op Options) runClient(ctx context.Context, fl flags, cfg config.Config) in
 	// The session is CHECKED before the interface opens. A session id the gateway does not know
 	// must be reported now, with the list of what it does know, rather than producing an interface
 	// that fails on its first command with a 404 the user cannot act on.
+	//
+	// The check STAYS, and it is not made redundant by the entry below: it is what produces the
+	// message a mistyped id deserves - "the gateway holds no session called X; it holds: ..." -
+	// before an interface is handed to a user. Entering the session is what then MAKES THE FLAG
+	// MEAN SOMETHING, and the two are different jobs.
 	if err := checkSession(client, session); err != nil {
 		fmt.Fprintf(op.Err, "%v\n", err)
 		return ConfigError
@@ -162,6 +167,36 @@ func (op Options) runClient(ctx context.Context, fl flags, cfg config.Config) in
 	ui.Out = op.Out
 	ui.Err = op.Err
 	ui.NoColor = noColour(os.Getenv, op.Out)
+
+	// Entering the session is the SAME act as /attach, and it goes through the same code.
+	//
+	// It is not a convenience: -session is how a user says "take me back to that conversation", and
+	// starting on a blank screen contradicts the request. Two implementations - one for the flag and
+	// one for the command - would be two places for "what entering a session means" to drift, and
+	// the flag is the one nobody would think to check.
+	//
+	// It CANNOT BLOCK THE INTERFACE, which is why it is a single call and not a hand-rolled loop
+	// here: attachTo asks the gateway whether a turn is in flight (one bounded round trip) and
+	// FOLLOWS that turn on its own goroutine, so the interface is drawn immediately and the run
+	// reports into it. Doing the follow inline at this call site would hold the interface undrawn
+	// until the turn ended, which is the one failure the user would see as "the program hangs".
+	//
+	// The follow is anchored to BaseCtx and NOT to the shutdown context. The two are different
+	// questions and they must not share an answer: Ctrl+C ends the program, and a turn outlives the
+	// client that was watching it - the gateway keeps working and a later client picks it up. If
+	// the follow were on the shutdown context, leaving the interface would stop the turn, which is
+	// precisely what this design exists to prevent. Escape still stops it, because Escape is the
+	// user saying stop.
+	//
+	// A failure here is reported ONLY when the runner cannot enter conversations at all, which is
+	// the case of the embedded interface and of the many small runners a test builds. With the
+	// gateway, checkSession above has already answered the question a wrong id raises, with a better
+	// message than this one could give, so a failure now would be about the connection - and an
+	// interface with no way back to the session is still an interface.
+	if err := ui.AttachTo(op.BaseCtx, session); err != nil {
+		fmt.Fprintf(op.Err, "%v\n", err)
+	}
+
 	return ui.Run(context.Background())
 }
 

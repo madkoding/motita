@@ -121,10 +121,11 @@ func TestAFollowedErrorEndsTheFollowWithTheReason(t *testing.T) {
 	}
 }
 
-// TestCancellingAFollowAsksTheGatewayToStopTheRun: this is the difference between watching a run and
-// following it. Cancelling only locally would leave the gateway working while the interface stopped
-// showing it - the worst of both, and the exact failure Escape is supposed to prevent.
-func TestCancellingAFollowAsksTheGatewayToStopTheRun(t *testing.T) {
+// TestCancellingAFollowOnlyStopsReading: a turn OUTLIVES the client that was watching it, so
+// closing the window - or the process going away - must leave the gateway working. Stopping the run
+// is a separate, explicit act by the user (CancelRun), and conflating the two would make Ctrl+C
+// kill a turn the user only meant to stop watching.
+func TestCancellingAFollowOnlyStopsReading(t *testing.T) {
 	// The stream stays open until the test says so, which is what makes the cancellation happen
 	// while the follow is genuinely in flight.
 	release := make(chan struct{})
@@ -180,8 +181,8 @@ func TestCancellingAFollowAsksTheGatewayToStopTheRun(t *testing.T) {
 	mu.Lock()
 	got := cancelled
 	mu.Unlock()
-	if !got {
-		t.Fatal("cancelling the follow did not ask the gateway to stop the run: the turn would keep going")
+	if got {
+		t.Fatal("cancelling the follow asked the gateway to stop the run: a turn must outlive the client watching it")
 	}
 	select {
 	case <-done:

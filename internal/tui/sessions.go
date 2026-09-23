@@ -99,6 +99,15 @@ type LiveRun struct {
 	LastSeq uint64
 }
 
+// AttachTo moves the interface to another conversation and draws it, when its runner can.
+//
+// It is the EXPORTED entry point, and its only job is to be reachable from the package that wires
+// the layers together: internal/app builds the interface and enters the session named by -session,
+// while the command /attach enters one typed by the user. Both must go through THE SAME code - two
+// implementations would be two places for "what entering a session means" to drift, and the flag is
+// the one nobody would think to check.
+func (t *TUI) AttachTo(ctx context.Context, id string) error { return t.attachTo(ctx, id) }
+
 // attachTo moves the interface to another conversation, when its runner can, and DRAWS it.
 //
 // The order matters and is the whole point: the switch happens first, then the conversation is read
@@ -201,10 +210,14 @@ func (t *TUI) followLiveRun(ctx context.Context, rc RunController, live LiveRun)
 	// Without this, Escape during a followed run falls through to scrollToBottom and the turn keeps
 	// going while the user believes they stopped it.
 	//
-	// It cancels THE LOCAL CONTEXT, which ends the follow and, through the runner's own contract,
-	// asks the gateway to stop the run - see RunController.FollowRun. Cancelling only locally would
-	// leave the gateway working while the interface stopped showing it, which is the worst of both.
-	t.setCancel(cancel, runCtx)
+	// Cancelling does TWO things, and the distinction is the whole meaning of the key: it ends the
+	// local follow, and it ASKS THE GATEWAY to stop the run. Stopping only locally would leave the
+	// gateway working while the interface stopped showing it - the worst of both, and the user would
+	// believe a turn they can no longer see is over.
+	//
+	// The request is detached from the cancelled context, because a request made with a context
+	// that is already done would never leave the client.
+	t.setCancel(t.stopAndCancel(rc, cancel), runCtx)
 
 	progress := make(chan string, 16)
 	done := make(chan runOutcome, 1)
@@ -227,6 +240,11 @@ func (t *TUI) followLiveRun(ctx context.Context, rc RunController, live LiveRun)
 		t.addProgress(p)
 	})
 
+	// Whatever the run queued before it ended is still worth showing - the outcome can arrive while
+	// lines are in flight, and a select that saw the run finish first would leave them unread. It is
+	// the same drain runTask does, for the same reason.
+	drainProgress(progress, t.addProgress)
+
 	t.clearCancel()
 
 	var text string
@@ -242,6 +260,21 @@ func (t *TUI) followLiveRun(ctx context.Context, rc RunController, live LiveRun)
 	}
 	t.addMessage(AuthorAgent, text)
 	t.endTurn()
+}
+
+// stopAndCancel returns a cancel that ends the local follow AND asks the gateway to stop the run.
+//
+// The request is made on its own goroutine with a context detached from the one being cancelled: a
+// request built on a done context never leaves the client, and the gateway would keep working while
+// the interface stopped showing it. The local cancel happens FIRST so the key feels immediate -
+// the round trip is what the user should not have to wait for.
+func (t *TUI) stopAndCancel(rc RunController, cancel context.CancelFunc) context.CancelFunc {
+	return func() {
+		cancel()
+		go func() {
+			_, _ = rc.CancelRun(context.WithoutCancel(context.Background()))
+		}()
+	}
 }
 
 // addProgress writes one line the followed run emitted into the conversation.
