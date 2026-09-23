@@ -139,7 +139,7 @@ func (s *Server) attach(w http.ResponseWriter, r *http.Request, c *conversation,
 	if p := c.pendingApprovalNow(); p != nil {
 		pending = &approvalEvent{ID: p.id, Command: p.command, Reason: p.reason, Rule: p.rule}
 	}
-	outcome, _, _, finished := rn.outcomeOf()
+	outcome, _, _, _ := rn.outcomeOf()
 	if err := writeEvent(w, rc, 0, EventAttached, attachedEvent{
 		RunID: rn.id, FirstSeq: info.FirstSeq, LastSeq: info.LastSeq,
 		Dropped: info.Dropped, PendingApproval: pending, Outcome: outcome,
@@ -151,30 +151,29 @@ func (s *Server) attach(w http.ResponseWriter, r *http.Request, c *conversation,
 			return
 		}
 	}
-	// No draining here: a run that has already finished put everything it will ever emit in the log
-	// (the replay above), and one still in flight is handled by the loop below, whose `done` case
-	// drains. An extra drain at this point would be a second copy of the same code with an error
-	// path nothing else reaches.
 
-	// A run that has already finished has nothing more to send, and the stream ends here. Saying so
-	// in the preamble first is what lets the client tell "finished" from "the connection dropped".
-	if finished {
-		return
-	}
-
+	// Everything else comes from the queue, and there is deliberately NO early return for a run
+	// that has already finished. Two bugs came from having one, and both were the same mistake in
+	// different clothes: an event appended between two of these steps lives ONLY in the queue, and
+	// returning early threw away the event that ends the turn. The client then saw a preamble and
+	// nothing else, concluded the connection had dropped, reattached, and was told there was no run
+	// to attach to.
+	//
+	// A finished run needs no special case here: `done` is closed after the last append, so the
+	// select below fires on it immediately, drains what is left and returns. The early return
+	// bought one skipped loop iteration in exchange for a race.
 	for {
 		select {
 		case <-r.Context().Done():
 			// This client is gone. Only this reader is affected; the run keeps its log.
 			return
 		case <-rn.done:
-			// The run ended. Its last event was appended before done was closed, so it is either in
-			// the replay above or in the subscriber's channel, and this drains that channel before
-			// the stream closes. Returning here would risk dropping the final event.
+			// The run ended, so nothing more will be appended and the queue holds the rest. The
+			// drain is what makes a run that finished WHILE this client was joining still reach it.
 			_ = rn.drainFrom(w, rc, sub, info.LastSeq)
 			return
 		case e := <-sub.ch:
-			if err := writeRaw(w, rc, e); err != nil {
+			if err := rn.writeIfNew(w, rc, e, info.LastSeq); err != nil {
 				return
 			}
 		case <-sub.lost:
@@ -186,6 +185,22 @@ func (s *Server) attach(w http.ResponseWriter, r *http.Request, c *conversation,
 			return
 		}
 	}
+}
+
+// writeIfNew writes one queued event, unless the replay already carried it.
+//
+// The event can be in BOTH: it was appended after this subscriber attached (so it is in the queue)
+// and before the log was read (so it is in the replay). Writing it twice would make the client
+// render the same line twice, and the sequence number is what tells the two cases apart.
+//
+// It is a method of its own rather than an inline branch because the window it covers is a few
+// nanoseconds wide: driven from attach it is unreachable on demand, and an untested branch in the
+// middle of the write path is one that rots.
+func (r *run) writeIfNew(w http.ResponseWriter, rc *http.ResponseController, e loggedEvent, replayLast uint64) error {
+	if e.Seq <= replayLast {
+		return nil
+	}
+	return writeRaw(w, rc, e)
 }
 
 // drainFrom writes whatever is queued for a subscriber beyond the given sequence number.

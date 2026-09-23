@@ -569,7 +569,7 @@ func TestTheEventReaderUnderstandsTheEventWriter(t *testing.T) {
 
 	var events []string
 	var result string
-	err := streamEvents(context.Background(), strings.NewReader(rec.Body.String()), func(event string, data []byte) error {
+	err := streamEvents(context.Background(), strings.NewReader(rec.Body.String()), func(_ uint64, event string, data []byte) error {
 		events = append(events, event)
 		if event == EventDone {
 			var d doneEvent
@@ -596,7 +596,7 @@ func TestTheEventReaderUnderstandsTheEventWriter(t *testing.T) {
 func TestTheEventReaderIgnoresWhatItDoesNotKnow(t *testing.T) {
 	body := ": connected\n\nevent: something-new\ndata: {\"x\":1}\n\n"
 	var seen []string
-	if err := streamEvents(context.Background(), strings.NewReader(body), func(event string, _ []byte) error {
+	if err := streamEvents(context.Background(), strings.NewReader(body), func(_ uint64, event string, _ []byte) error {
 		seen = append(seen, event)
 		return nil
 	}); err != nil {
@@ -616,7 +616,7 @@ func TestACancelledContextStopsTheRead(t *testing.T) {
 	cancel()
 
 	body := "event: progress\ndata: {\"text\":\"x\"}\n\n"
-	err := streamEvents(ctx, strings.NewReader(body), func(string, []byte) error { return nil })
+	err := streamEvents(ctx, strings.NewReader(body), func(uint64, string, []byte) error { return nil })
 	if !errors.Is(err, context.Canceled) {
 		t.Errorf("err = %v, want context.Canceled", err)
 	}
@@ -626,7 +626,7 @@ func TestACancelledContextStopsTheRead(t *testing.T) {
 func TestACallbackErrorStopsTheRead(t *testing.T) {
 	body := "event: error\ndata: {\"error\":\"the model refused\"}\n\nevent: progress\ndata: {\"text\":\"more\"}\n\n"
 	calls := 0
-	err := streamEvents(context.Background(), strings.NewReader(body), func(string, []byte) error {
+	err := streamEvents(context.Background(), strings.NewReader(body), func(uint64, string, []byte) error {
 		calls++
 		return errors.New("stop")
 	})
@@ -652,7 +652,7 @@ func TestALongLineIsNotTruncated(t *testing.T) {
 	}
 
 	var got string
-	if err := streamEvents(context.Background(), strings.NewReader(rec.Body.String()), func(_ string, data []byte) error {
+	if err := streamEvents(context.Background(), strings.NewReader(rec.Body.String()), func(_ uint64, _ string, data []byte) error {
 		var p progressEvent
 		if err := json.Unmarshal(data, &p); err != nil {
 			return err
@@ -671,7 +671,7 @@ func TestALongLineIsNotTruncated(t *testing.T) {
 // parse, and going quiet would look like a run with no output.
 func TestAMalformedEventPayloadIsReported(t *testing.T) {
 	body := "event: progress\ndata: not json\n\n"
-	err := streamEvents(context.Background(), strings.NewReader(body), func(_ string, data []byte) error {
+	err := streamEvents(context.Background(), strings.NewReader(body), func(_ uint64, _ string, data []byte) error {
 		var p progressEvent
 		return json.Unmarshal(data, &p)
 	})

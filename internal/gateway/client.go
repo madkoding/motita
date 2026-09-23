@@ -24,6 +24,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"sync"
 
@@ -59,6 +60,20 @@ type Client struct {
 
 	approverMu sync.Mutex
 	approver   agent.Approver
+	// answered remembers the approval questions this client already sent a verdict for.
+	//
+	// It exists because ONE question can arrive TWICE, and the gateway refuses the second answer
+	// with a 409 that kills the stream. A client that has just attached gets the pending question
+	// in its PREAMBLE, while the same run's log - written a moment later - also carries the
+	// approval event; whichever of the two arrives second is a duplicate. Answering it again is
+	// not merely wasteful: the 409 is a VERDICT on the stream, so the `done` behind it is never
+	// read and the client concludes the connection dropped.
+	//
+	// It records only what has been DELIVERED, not what has been seen. A reattaching client may
+	// legitimately need to send the same id again, because its previous answer can have been lost
+	// before it arrived - and a client that refused to ever resend would leave the run blocked on
+	// a question it believes it has answered.
+	answered map[string]bool
 
 	// Wizard is the first-run configuration wizard, for a client running on the machine that
 	// hosts the gateway. Nil means there is none, and RunConfig says so.
@@ -84,7 +99,15 @@ func NewClientForSession(baseURL, token, session string) *Client {
 		baseURL: strings.TrimRight(baseURL, "/"),
 		token:   token,
 		session: id,
-		http:    &http.Client{},
+		// No redirect following, explicitly. A 3xx here would be the gateway pointing elsewhere,
+		// and a client that silently followed it would post a task - or answer an approval - to
+		// whatever answered at the other end. A refusal the caller can read is worth more than a
+		// request that quietly went somewhere else.
+		http: &http.Client{
+			CheckRedirect: func(*http.Request, []*http.Request) error {
+				return http.ErrUseLastResponse
+			},
+		},
 	}
 }
 
@@ -338,32 +361,118 @@ func (c *Client) RunTask(ctx context.Context, task string, progress func(string,
 }
 
 // run is the shared streaming path of both modes.
+//
+// A dropped connection does NOT end the turn: the run lives in the gateway, so it keeps going and
+// holds its events. This method resumes from the last id it saw, which is the whole reason the
+// server numbers its events - and it is what keeps a client thin, because it remembers a NUMBER
+// instead of reconstructing a conversation.
 func (c *Client) run(ctx context.Context, path string, body any, progress func(string, ...any)) (string, error) {
 	var payload bytes.Buffer
 	if err := json.NewEncoder(&payload).Encode(body); err != nil {
 		return "", fmt.Errorf("could not encode the request: %w", err)
 	}
+	request := payload.Bytes()
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL+path, &payload)
-	if err != nil {
-		return "", err
+	var result string
+	var last uint64
+	// started is an EXPLICIT flag and not `last > 0`: a run that fails before emitting anything
+	// leaves last at 0, and a retry keyed on that would POST the task again and start a SECOND
+	// turn - the exact opposite of resuming.
+	started := false
+	var lastErr error
+
+	for attempt := 0; attempt < runAttempts; attempt++ {
+		resumed, err := c.streamOnce(ctx, path, request, started, &last, &result, progress)
+		if err == nil {
+			return result, nil
+		}
+		lastErr = err
+		// A cancelled context is the user saying stop, and it must never be read as "try again":
+		// resuming here would turn "stop" into "keep going".
+		if ctx.Err() != nil {
+			return result, ctx.Err()
+		}
+		// Reaching the end of a stream means the attempt got as far as the gateway had to give,
+		// so the next one must not POST the task again.
+		started = true
+		// The run is over on the gateway's side, or the request itself was refused. Retrying
+		// either is pointless: the answer will be the same, and the user is owed the reason.
+		if !resumed {
+			return result, err
+		}
 	}
-	req.Header.Set("Content-Type", "application/json")
+	return result, fmt.Errorf("the connection to the gateway kept dropping and the run could not be followed: %w", lastErr)
+}
+
+// runAttempts is how many times a client will try to follow a run whose connection dropped.
+//
+// It is bounded on purpose. A gateway that is gone for good must produce an error rather than an
+// endless reconnect, and the user has to be told - a client that retries forever looks exactly like
+// a client that is working.
+const runAttempts = 3
+
+// streamOnce makes one attempt, and reports whether the failure is one worth resuming from.
+//
+// The first attempt POSTs the task to start the run; every later one reattaches with
+// /events?from=<last>. That difference is why `path` is only used when nothing has started yet: a
+// retry that POSTed again would start a second turn.
+func (c *Client) streamOnce(ctx context.Context, path string, body []byte, started bool, from *uint64, result *string, progress func(string, ...any)) (bool, error) {
+	var req *http.Request
+	var err error
+	if !started {
+		// The path arrives ALREADY scoped: run()'s callers build it with c.scoped, and scoping it
+		// again would address a conversation named after the whole path.
+		req, err = http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL+path, bytes.NewReader(body))
+		if err == nil {
+			req.Header.Set("Content-Type", "application/json")
+		}
+	} else {
+		// from is the LAST ID this client saw, and it is the caller's variable: the retry has to
+		// know where the previous attempt got to, and a copy taken here would always resume from
+		// the beginning - re-reading the whole stream and duplicating every line.
+		req, err = http.NewRequestWithContext(ctx, http.MethodGet,
+			fmt.Sprintf("%s%s?from=%d", c.baseURL, c.scoped("/events"), *from), nil)
+	}
+	if err != nil {
+		return false, err
+	}
 	req.Header.Set("Accept", "text/event-stream")
 	req.Header.Set("Authorization", "Bearer "+c.token)
 
 	resp, err := c.http.Do(req)
 	if err != nil {
-		return "", err
+		// A transport failure is what a dropped connection looks like, and it is worth resuming:
+		// the run did not stop.
+		return true, err
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
-		return "", refusalError(resp)
+		// A refusal is the gateway answering, and the answer will not change by asking again. A
+		// 404 on the reattach means the run ENDED while this client was away, which is a fact to
+		// report rather than to retry.
+		return false, refusalError(resp)
 	}
 
-	var result string
-	err = streamEvents(ctx, resp.Body, func(event string, data []byte) error {
+	// answered records that the stream delivered a VERDICT - a done or an error - so the difference
+	// between "the gateway said how it ended" and "the socket died" survives the callback's error
+	// return. Only the second is worth resuming.
+	var answered bool
+	err = streamEvents(ctx, resp.Body, func(seq uint64, event string, data []byte) error {
+		if seq > 0 {
+			*from = seq
+		}
 		switch event {
+		case EventAttached:
+			// The preamble. It is read for the pending approval below, and arriving after a
+			// reconnection is normal - which is why anything that does not care about it ignores
+			// it rather than treating it as an unknown event.
+			var a attachedEvent
+			if err := json.Unmarshal(data, &a); err != nil {
+				return err
+			}
+			if a.PendingApproval != nil {
+				return c.answerApproval(ctx, *a.PendingApproval)
+			}
 		case EventProgress:
 			var p struct {
 				Text string `json:"text"`
@@ -373,15 +482,20 @@ func (c *Client) run(ctx context.Context, path string, body any, progress func(s
 			}
 			progress("%s", p.Text)
 		case EventApproval:
-			return c.answerApproval(ctx, data)
+			var ask approvalEvent
+			if err := json.Unmarshal(data, &ask); err != nil {
+				return err
+			}
+			return c.answerApproval(ctx, ask)
 		case EventDone:
 			var d doneEvent
 			if err := json.Unmarshal(data, &d); err != nil {
 				return err
 			}
-			result = d.Result
-			// The figures that came WITH the answer replace the cache, so the status bar is
-			// right the instant the turn ends instead of one request later.
+			*result = d.Result
+			answered = true
+			// The figures that came WITH the answer replace the cache, so the status bar is right
+			// the instant the turn ends instead of one request later.
 			c.mu.Lock()
 			c.snap = d.Session
 			c.mu.Unlock()
@@ -392,29 +506,76 @@ func (c *Client) run(ctx context.Context, path string, body any, progress func(s
 			if err := json.Unmarshal(data, &e); err != nil {
 				return err
 			}
+			answered = true
 			return errors.New(e.Error)
 		}
-		// Any other event name is ignored and the stream keeps being read: a newer gateway may
-		// add an event, and an older client must not break on it.
+		// Any other event name is ignored and the stream keeps being read: a newer gateway may add
+		// an event, and an older client must not break on it.
 		return nil
 	})
-	if err != nil {
-		return result, err
+	if !answered {
+		// The stream ended without a done or an error, so the gateway never said how the turn
+		// finished - which means the connection dropped, whatever the transport reported. A body
+		// that simply ends is exactly what a dropped socket looks like, and treating it as a
+		// finished run is how a user gets an empty answer for a question the agent answered.
+		if err == nil {
+			err = errors.New("the connection to the gateway ended before the run reported how it finished")
+		}
+		return true, err
 	}
-	return result, nil
+	// A verdict arrived, so this attempt is the turn's end. Any transport failure after it is a
+	// fact about a run that is already over, and asking again would make the agent answer a
+	// question it has already answered.
+	return false, err
+}
+
+// RunStatus answers what is running in this client's session, without opening a stream.
+//
+// A client uses it after a reconnection to decide whether attaching is worth it, and to draw "a
+// turn is in flight" from the GATEWAY's answer instead of from something it remembered - which is
+// the same rule as everything else here.
+func (c *Client) RunStatus(ctx context.Context) (RunInfo, error) {
+	var out RunInfo
+	if err := c.do(ctx, http.MethodGet, c.scoped("/run"), nil, &out); err != nil {
+		return RunInfo{}, err
+	}
+	return out, nil
+}
+
+// RunInfo is a run in flight, as the gateway reports it.
+type RunInfo struct {
+	RunID string `json:"run_id"`
+	// FirstSeq is the oldest event the gateway can still serve. A client asking to resume from an
+	// older one has lost events, and Dropped says how many.
+	FirstSeq    uint64 `json:"first_seq"`
+	LastSeq     uint64 `json:"last_seq"`
+	Dropped     uint64 `json:"dropped"`
+	Subscribers int    `json:"subscribers"`
+	// Outcome is empty while the run is in flight, and "done", "error" or "cancelled" after it.
+	Outcome string `json:"outcome"`
+}
+
+// CancelRun stops the run in flight in this client's session.
+//
+// Addressed to the session and not to a run id: there is one run per conversation, and a client
+// that reconnected and remembers a stale id would cancel the wrong run or nothing at all.
+func (c *Client) CancelRun(ctx context.Context) error {
+	return c.do(ctx, http.MethodPost, c.scoped("/cancel"), nil, nil)
 }
 
 // answerApproval asks the installed approver and sends the answer back.
 //
 // With NO approver installed the answer is no. It is the same rule the agent already follows: a
 // consequential command with nobody to ask is refused, and silence is not consent.
-func (c *Client) answerApproval(ctx context.Context, data []byte) error {
-	var ask approvalEvent
-	if err := json.Unmarshal(data, &ask); err != nil {
-		return err
-	}
-
+func (c *Client) answerApproval(ctx context.Context, ask approvalEvent) error {
+	// A question that arrives twice is answered once. See the `answered` field for why this is not
+	// an optimisation: the gateway's 409 on a duplicate answer ends the STREAM, taking the run's
+	// last event - the `done` behind it - with it.
 	c.approverMu.Lock()
+	if c.answered != nil && c.answered[ask.ID] {
+		c.approverMu.Unlock()
+		return nil
+	}
 	fn := c.approver
 	c.approverMu.Unlock()
 
@@ -430,19 +591,35 @@ func (c *Client) answerApproval(ctx context.Context, data []byte) error {
 	if err := c.do(ctx, http.MethodPost, c.scoped("/runs/approval"), map[string]any{"id": ask.ID, "approve": approve}, nil); err != nil {
 		return fmt.Errorf("the approval could not be sent back: %w", err)
 	}
+	// Recorded only AFTER it was delivered, so a verdict that never reached the gateway can be
+	// sent again - which is the difference between "already answered" and "already tried".
+	c.approverMu.Lock()
+	if c.answered == nil {
+		c.answered = map[string]bool{}
+	}
+	c.answered[ask.ID] = true
+	c.approverMu.Unlock()
 	return nil
 }
 
 // streamEvents reads the wire format the server writes: one data line per event, the event name on
 // the line before it, a blank line between events.
 //
+// streamEvents reads the wire format the server writes: one data line per event, the event name on
+// the line before it, an id line before that, and a blank line between events.
+//
 // The payload is JSON, which never contains a raw newline (JSON escapes them), so one line per
 // event is a real invariant and not a simplification - and it is what lets this dispatch on the
 // data line instead of buffering multi-line events. The buffer is grown past the default 64 KB
 // scanner limit because a progress line can carry a long tool result.
-func streamEvents(ctx context.Context, body io.Reader, fn func(event string, data []byte) error) error {
+//
+// The id line is reported to the caller so it can remember where it got to: without it, a dropped
+// connection leaves nothing to resume FROM, and the only remaining option is to re-read the whole
+// stream and duplicate whatever arrived twice.
+func streamEvents(ctx context.Context, body io.Reader, fn func(seq uint64, event string, data []byte) error) error {
 	sc := bufio.NewScanner(body)
 	sc.Buffer(make([]byte, 0, 64*1024), 4*1024*1024)
+	var seq uint64
 	event := ""
 	for sc.Scan() {
 		// A cancelled context stops the read: the run is over and this goroutine must not sit on
@@ -454,10 +631,18 @@ func streamEvents(ctx context.Context, body io.Reader, fn func(event string, dat
 		}
 		line := sc.Text()
 		switch {
+		case strings.HasPrefix(line, "id: "):
+			// An id that cannot be read is IGNORED rather than fatal: a newer gateway may put
+			// something else here, and an older client must not break on it. The cost is that this
+			// client resumes from where it already was, which is safe - it re-reads, it does not
+			// skip.
+			if n, err := strconv.ParseUint(strings.TrimSpace(strings.TrimPrefix(line, "id: ")), 10, 64); err == nil {
+				seq = n
+			}
 		case strings.HasPrefix(line, "event: "):
 			event = strings.TrimPrefix(line, "event: ")
 		case strings.HasPrefix(line, "data: "):
-			if err := fn(event, []byte(strings.TrimPrefix(line, "data: "))); err != nil {
+			if err := fn(seq, event, []byte(strings.TrimPrefix(line, "data: "))); err != nil {
 				return err
 			}
 		}

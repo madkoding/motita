@@ -1017,3 +1017,31 @@ func (f *flushableBuffer) Header() http.Header         { return http.Header{} }
 func (f *flushableBuffer) WriteHeader(int)             {}
 func (f *flushableBuffer) Flush()                      {}
 func (f *flushableBuffer) Write(p []byte) (int, error) { return f.b.Write(p) }
+
+// TestWriteIfNewSkipsWhatTheReplayAlreadyCarried: the event can be in the replay AND in the queue,
+// and sending it twice would make the client render one line as two. The sequence number is what
+// tells the two cases apart - and this window is only a few nanoseconds wide on a real run, so it is
+// driven here rather than waited for.
+func TestWriteIfNewSkipsWhatTheReplayAlreadyCarried(t *testing.T) {
+	rn := newTestRun()
+
+	var out bytes.Buffer
+	fw := &flushableBuffer{&out}
+	rc := http.NewResponseController(fw)
+
+	// At or below the replay's last: already written, so it is skipped.
+	if err := rn.writeIfNew(fw, rc, loggedEvent{Seq: 3, Event: EventProgress, Data: []byte(`{"text":"old"}`)}, 3); err != nil {
+		t.Fatalf("writeIfNew: %v", err)
+	}
+	if out.Len() != 0 {
+		t.Errorf("an event the replay already carried was written again: %q", out.String())
+	}
+
+	// Beyond it: this is the only copy the client will get, so it must be written.
+	if err := rn.writeIfNew(fw, rc, loggedEvent{Seq: 4, Event: EventProgress, Data: []byte(`{"text":"new"}`)}, 3); err != nil {
+		t.Fatalf("writeIfNew: %v", err)
+	}
+	if !strings.Contains(out.String(), "new") || !strings.Contains(out.String(), "id: 4") {
+		t.Errorf("the queued event was not written: %q", out.String())
+	}
+}
