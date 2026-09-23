@@ -403,7 +403,9 @@ func TestTheClientInterfaceNamesTheGatewayBuild(t *testing.T) {
 		return gateway.Health{OK: true, Version: "v9.9.9-fromthegateway"}, nil
 	}
 	var shown string
-	op.NewClient = func(baseURL, tok, session string) tui.Runner { return listingRunner{sessions: []tui.SessionInfo{{ID: "default"}}} }
+	op.NewClient = func(baseURL, tok, session string) tui.Runner {
+		return listingRunner{sessions: []tui.SessionInfo{{ID: "default"}}}
+	}
 	op.RunTUI = func(_ context.Context, _ config.Config, _ *llm.Client, _ *sandbox.Sandbox, _ *logx.Logger) int {
 		// The seam short-circuits before the interface is built, so assert the DECISION through
 		// the same function the real path calls.
