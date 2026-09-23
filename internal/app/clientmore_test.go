@@ -174,8 +174,8 @@ func TestTheAdapterTranslatesTheListing(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte(`{"sessions":[
-			{"id":"default","running":true},
-			{"id":"sother","running":false}
+			{"id":"default","running":true,"last_used":"2026-09-22T10:00:00Z"},
+			{"id":"sother","running":false,"last_used":"2026-09-23T00:30:00Z"}
 		]}`))
 	}))
 	defer srv.Close()
@@ -190,6 +190,14 @@ func TestTheAdapterTranslatesTheListing(t *testing.T) {
 	}
 	if all[0].ID != "default" || !all[0].Running {
 		t.Errorf("the running flag was lost in the translation: %+v", all[0])
+	}
+	// The time travels too: the list is ORDERED by it, so dropping it here would silently turn
+	// "where was I?" into an arbitrary order.
+	if all[0].LastUsed.IsZero() || all[1].LastUsed.IsZero() {
+		t.Errorf("last_used was lost in the translation: %+v", all)
+	}
+	if !all[1].LastUsed.After(all[0].LastUsed) {
+		t.Errorf("the times do not match what the gateway sent: %+v", all)
 	}
 	if !all[1].Current {
 		t.Errorf("the conversation the client is on must be marked as current: %+v", all[1])

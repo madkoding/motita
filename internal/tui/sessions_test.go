@@ -840,6 +840,169 @@ func TestTheListingSaysWhenThereIsNothing(t *testing.T) {
 	}
 }
 
+// TestTheSessionListIsOrderedByRecency: the user opening /sessions is asking "where was I?", and the
+// answer is the most recent conversation. A list in arbitrary order - which is what a map gives -
+// makes them read every line to find it.
+//
+// The signature differs from the plan's sketch, and deliberately: the listing ASKS THE GATEWAY, so
+// it needs a context and can fail. The plan's version takes neither, and a function that cannot
+// report a failed ask would have to bury it in the text.
+func TestTheSessionListIsOrderedByRecency(t *testing.T) {
+	now := time.Now()
+	r := &switcherRunner{
+		sessions: []SessionInfo{
+			{ID: "old", LastUsed: now.Add(-2 * time.Hour)},
+			{ID: "recent", LastUsed: now.Add(-1 * time.Minute)},
+			{ID: "middle", LastUsed: now.Add(-30 * time.Minute)},
+		},
+		current: "old",
+	}
+	ui := switcher(r)
+	out, err := ui.sessionsText(context.Background())
+	if err != nil {
+		t.Fatalf("sessionsText: %v", err)
+	}
+
+	if i, j := strings.Index(out, "recent"), strings.Index(out, "middle"); i > j {
+		t.Errorf("the most recent session is not listed first:\n%s", out)
+	}
+	if i, j := strings.Index(out, "middle"), strings.Index(out, "old"); i > j {
+		t.Errorf("the list is not ordered by recency:\n%s", out)
+	}
+}
+
+// TestASessionWithARunInFlightOutranksARecentOne: a conversation that is working right now is the
+// one the user is most likely returning to, whatever its clock says. Ordering it by recency alone
+// would bury the session with something happening in it.
+func TestASessionWithARunInFlightOutranksARecentOne(t *testing.T) {
+	now := time.Now()
+	r := &switcherRunner{
+		sessions: []SessionInfo{
+			{ID: "quiet", LastUsed: now},
+			{ID: "busy", LastUsed: now.Add(-3 * time.Hour), Running: true},
+		},
+		current: "quiet",
+	}
+	ui := switcher(r)
+	out, err := ui.sessionsText(context.Background())
+	if err != nil {
+		t.Fatalf("sessionsText: %v", err)
+	}
+	if i, j := strings.Index(out, "busy"), strings.Index(out, "quiet"); i > j {
+		t.Errorf("a session with a run in flight must come first:\n%s", out)
+	}
+}
+
+// TestTheCurrentSessionIsMarked: the user has to see which conversation they are already in, or
+// /attach sends them to where they already are.
+func TestTheCurrentSessionIsMarked(t *testing.T) {
+	r := &switcherRunner{sessions: []SessionInfo{{ID: "default"}, {ID: "sabc"}}, current: "sabc"}
+	ui := switcher(r)
+	out, err := ui.sessionsText(context.Background())
+	if err != nil {
+		t.Fatalf("sessionsText: %v", err)
+	}
+	if !strings.Contains(out, "* sabc") {
+		t.Errorf("the current session is not marked in:\n%s", out)
+	}
+}
+
+// TestASessionWithARunInFlightIsCalledOut: attaching to a conversation that is working is a
+// different experience from one that is idle, and the user is choosing between them.
+func TestASessionWithARunInFlightIsCalledOut(t *testing.T) {
+	r := &switcherRunner{sessions: []SessionInfo{{ID: "busy", Running: true}}}
+	ui := switcher(r)
+	out, err := ui.sessionsText(context.Background())
+	if err != nil {
+		t.Fatalf("sessionsText: %v", err)
+	}
+	if !strings.Contains(out, "in flight") {
+		t.Error("a session with a run in flight must say so: it is what the user is choosing between")
+	}
+}
+
+// TestTheSessionListSaysHowLongAgoEachWasUsed: "2h ago" is what someone needs to pick a
+// conversation. A timestamp to the second is a number they have to subtract from the current time
+// themselves, which is exactly the work the list exists to save them.
+func TestTheSessionListSaysHowLongAgoEachWasUsed(t *testing.T) {
+	now := time.Now()
+	r := &switcherRunner{sessions: []SessionInfo{
+		{ID: "justnow", LastUsed: now.Add(-10 * time.Second)},
+		{ID: "minutes", LastUsed: now.Add(-5 * time.Minute)},
+		{ID: "hours", LastUsed: now.Add(-3 * time.Hour)},
+		{ID: "days", LastUsed: now.Add(-50 * time.Hour)},
+	}}
+	ui := switcher(r)
+	out, err := ui.sessionsText(context.Background())
+	if err != nil {
+		t.Fatalf("sessionsText: %v", err)
+	}
+	for _, want := range []string{"just now", "5m ago", "3h ago", "2d ago"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("the list does not say %q:\n%s", want, out)
+		}
+	}
+}
+
+// TestASessionNeverUsedHasNoAge: a conversation that has never been used has no age to report, and
+// an age worked out from a zero time would read as decades ago - a wrong number drawn from a
+// missing one.
+func TestASessionNeverUsedHasNoAge(t *testing.T) {
+	r := &switcherRunner{sessions: []SessionInfo{{ID: "idle"}}}
+	ui := switcher(r)
+	out, err := ui.sessionsText(context.Background())
+	if err != nil {
+		t.Fatalf("sessionsText: %v", err)
+	}
+	if strings.Contains(out, "ago") || strings.Contains(out, "just now") {
+		t.Errorf("a session with no LastUsed must not be given an age:\n%s", out)
+	}
+}
+
+// TestTheSessionListTellsTheUserHowToGoBack: the list answers "where was I?" and the next thing the
+// user wants is the way back. Naming the command is what makes the answer actionable.
+func TestTheSessionListTellsTheUserHowToGoBack(t *testing.T) {
+	r := &switcherRunner{sessions: []SessionInfo{{ID: "default"}}, current: "default"}
+	ui := switcher(r)
+	out, err := ui.sessionsText(context.Background())
+	if err != nil {
+		t.Fatalf("sessionsText: %v", err)
+	}
+	if !strings.Contains(out, "/attach") {
+		t.Errorf("the list must say how to go back to one:\n%s", out)
+	}
+}
+
+// TestTheSessionListIsUnavailableWithoutTheCapability: the capability is optional, and the text
+// path reports that rather than panicking.
+func TestTheSessionListIsUnavailableWithoutTheCapability(t *testing.T) {
+	ui := newFakeTUI("", &fakeRunner{})
+	if _, err := ui.sessionsText(context.Background()); err == nil {
+		t.Fatal("a runner that holds no sessions must be reported")
+	}
+}
+
+// TestTheSessionListReportsAFailedAsk: the gateway is the authority on which conversations exist,
+// so a listing that could not be fetched is an error and not an empty list - those are two very
+// different statements.
+func TestTheSessionListReportsAFailedAsk(t *testing.T) {
+	r := &switcherRunner{err: errors.New("connection refused")}
+	ui := switcher(r)
+	if _, err := ui.sessionsText(context.Background()); err == nil {
+		t.Fatal("a failed listing must be reported, not rendered as no sessions")
+	}
+}
+
+// TestTheSessionListReportsAGatewayHoldingNothing: a gateway with no conversations at all is a
+// state that should not be reachable, and saying so beats an empty list that looks like a
+// rendering bug.
+func TestTheSessionListReportsAGatewayHoldingNothing(t *testing.T) {
+	ui := switcher(&switcherRunner{})
+	if _, err := ui.sessionsText(context.Background()); err == nil {
+		t.Fatal("a gateway reporting no sessions must be reported")
+	}
+}
+
 // TestTheAttachCommandThroughTheTable: the other tests call attachTo directly, which leaves the
 // COMMAND - the part a user actually reaches - unexecuted. The table is the dispatch path, so this
 // exercises the closure that runs when someone types /attach.
@@ -899,7 +1062,7 @@ func TestTheSessionsCommandThroughTheTable(t *testing.T) {
 	if quit := commandActions["/sessions"](ui, context.Background(), ""); quit {
 		t.Error("/sessions must not quit the interface")
 	}
-	if drawn := stripANSI(outputOf(ui)); !strings.Contains(drawn, "sessions:") {
+	if drawn := stripANSI(outputOf(ui)); !strings.Contains(drawn, "sessions (most recent first):") {
 		t.Errorf("the listing did not run:\n%s", drawn)
 	}
 }

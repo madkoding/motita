@@ -4,7 +4,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sort"
 	"strings"
+	"time"
 )
 
 // SessionInfo is one conversation, as an interface needs to draw it.
@@ -15,6 +17,12 @@ type SessionInfo struct {
 	Running bool
 	// Current marks the one this interface is on, so the list can point at it.
 	Current bool
+	// LastUsed is when the conversation was last touched, and it is what the list is ORDERED by:
+	// someone opening it is asking "where was I?", and the answer is the most recent one.
+	//
+	// Zero means the gateway has no record of it being used, which the list reports as no age
+	// rather than as an age computed from a zero time.
+	LastUsed time.Time
 }
 
 // Turn is one turn of a conversation, as the interface draws it.
@@ -285,37 +293,89 @@ func (t *TUI) resetView() {
 //
 // Everything the interface knows comes from the gateway: it does not remember which conversations
 // exist, because a list it kept would be a list that drifts from the one that is real.
+//
+// The text is built by sessionsText and printed here. Splitting it is not tidiness: it is what lets
+// the layout be ASSERTED directly, where reading it back off a rendered frame would test the
+// terminal driver instead of the list.
 func (t *TUI) printSessions(ctx context.Context) {
+	out, err := t.sessionsText(ctx)
+	if err != nil {
+		t.addMessage(AuthorSystem, err.Error())
+		return
+	}
+	t.addPreformatted(AuthorSystem, out)
+}
+
+// sessionsText renders the conversations the gateway holds, most recently used first.
+//
+// The order is the user's question: someone opening this list is asking "where was I?", and the
+// answer is the conversation they were last in. Most recently used first means the answer is the
+// first line, and the one they are already in is marked so /attach cannot send them where they
+// already are.
+//
+// Everything comes from the gateway, including the order - a list kept locally would drift from the
+// one that is real.
+func (t *TUI) sessionsText(ctx context.Context) (string, error) {
 	sw, ok := t.Runner.(SessionSwitcher)
 	if !ok {
-		t.addMessage(AuthorSystem, "this interface is not attached to a gateway that holds several sessions.")
-		return
+		return "", errors.New("this interface is not attached to a gateway that holds several sessions.")
 	}
 	all, err := sw.ListSessions(ctx)
 	if err != nil {
-		t.addMessage(AuthorSystem, "the gateway could not be asked which sessions it holds: "+err.Error())
-		return
+		return "", fmt.Errorf("the gateway could not be asked which sessions it holds: %w", err)
 	}
 	if len(all) == 0 {
-		t.addMessage(AuthorSystem, "the gateway reports no sessions, which should not be possible.")
-		return
+		return "", errors.New("the gateway reports no sessions, which should not be possible.")
 	}
-	current := sw.CurrentSession()
+
+	// Sorted here rather than by the gateway: the ordering rule is a property of how THIS interface
+	// presents a list - most recent first, because that is the question the user is asking - and a
+	// gateway sorting for every front end's idea of a list is a gateway guessing.
+	sort.Slice(all, func(i, j int) bool {
+		// A session with a live run goes first whatever its clock says: it is the one with
+		// something happening in it.
+		if all[i].Running != all[j].Running {
+			return all[i].Running
+		}
+		return all[i].LastUsed.After(all[j].LastUsed)
+	})
+
 	var b strings.Builder
-	b.WriteString("sessions:\n")
+	b.WriteString("sessions (most recent first):\n")
+	now := time.Now()
 	for _, s := range all {
 		marker := "  "
-		// The current one is marked by IDENTITY rather than by the Current field, so a runner
-		// that does not fill it in still renders a list the user can read.
-		if s.ID == current {
+		// The current one is marked by IDENTITY, so a runner that does not fill in Current still
+		// renders a list the user can read.
+		if s.ID == sw.CurrentSession() {
 			marker = "* "
 		}
-		state := ""
-		if s.Running {
-			state = " (a run is in flight)"
+		var detail string
+		switch {
+		case s.Running:
+			detail = "  (a run is in flight)"
+		case !s.LastUsed.IsZero():
+			detail = "  (last used " + humanSince(now.Sub(s.LastUsed)) + ")"
 		}
-		fmt.Fprintf(&b, "%s%s%s\n", marker, s.ID, state)
+		fmt.Fprintf(&b, "%s%s%s\n", marker, s.ID, detail)
 	}
-	b.WriteString("\n/attach <id> to move to one.")
-	t.addPreformatted(AuthorSystem, b.String())
+	b.WriteString("\n/attach <id> to go back to one.")
+	return b.String(), nil
+}
+
+// humanSince describes an age in the words a person uses for one.
+//
+// It is coarse on purpose: "2 hours ago" is what the user needs to pick a conversation, and a
+// timestamp to the second is a number they have to subtract from the current time themselves.
+func humanSince(d time.Duration) string {
+	switch {
+	case d < time.Minute:
+		return "just now"
+	case d < time.Hour:
+		return fmt.Sprintf("%dm ago", int(d.Minutes()))
+	case d < 24*time.Hour:
+		return fmt.Sprintf("%dh ago", int(d.Hours()))
+	default:
+		return fmt.Sprintf("%dd ago", int(d.Hours()/24))
+	}
 }
