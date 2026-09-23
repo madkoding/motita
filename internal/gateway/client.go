@@ -36,6 +36,16 @@ type Client struct {
 	baseURL string
 	token   string
 
+	// session is the conversation this client speaks for. Every scoped endpoint is addressed by
+	// it, so the client never builds a path by hand and cannot address one conversation while
+	// believing it is on another.
+	//
+	// It is set at construction and NOT changed from outside, which is the plan's rule for this
+	// step: a client whose session moves under it is a client whose status bar can show one
+	// conversation while its run lands in another. Moving between conversations is a capability
+	// of its own and arrives later, with the interfaces that can use it.
+	session string
+
 	// http is the streaming client. Its Timeout is deliberately zero: a deadline on a response
 	// is a deadline on the agent's work, and half of these responses are a run that streams until
 	// it is done. Cancellation comes from the context, which is where a user's Ctrl+C arrives.
@@ -54,13 +64,38 @@ type Client struct {
 	Wizard func(ctx context.Context) error
 }
 
-// NewClient returns a client for the gateway at baseURL.
+// NewClient returns a client for the gateway at baseURL, speaking for the default conversation.
+//
+// The default is not a fallback: it is the conversation every gateway HAS, and the one an
+// embedded client has always used. A remote client that wants another one says so with
+// NewClientForSession, so the common case stays one argument shorter.
 func NewClient(baseURL, token string) *Client {
+	return NewClientForSession(baseURL, token, DefaultSession)
+}
+
+// NewClientForSession returns a client that speaks for one named conversation.
+func NewClientForSession(baseURL, token, session string) *Client {
+	id := strings.TrimSpace(session)
+	if id == "" {
+		id = DefaultSession
+	}
 	return &Client{
 		baseURL: strings.TrimRight(baseURL, "/"),
 		token:   token,
+		session: id,
 		http:    &http.Client{},
 	}
+}
+
+// Session is the conversation this client speaks for.
+func (c *Client) Session() string { return c.session }
+
+// scoped builds the path of one endpoint of this client's conversation.
+//
+// Every request goes through it, so there is ONE place that knows where sessions live in the URL
+// - and no call site can address the wrong conversation by writing a path by hand.
+func (c *Client) scoped(rest string) string {
+	return "/v1/sessions/" + c.session + rest
 }
 
 // SetApprover installs the callback a consequential command is confirmed through.
@@ -89,7 +124,7 @@ func (c *Client) Config() config.Config {
 	c.mu.Unlock()
 
 	var v configView
-	if err := c.getJSON(context.Background(), "/v1/config", &v); err != nil {
+	if err := c.getJSON(context.Background(), c.scoped("/config"), &v); err != nil {
 		return config.Default()
 	}
 	cfg := configFromView(v)
@@ -102,7 +137,7 @@ func (c *Client) Config() config.Config {
 // SetReasoning changes the level on the gateway and refreshes the cache, so /reasoning shows the
 // level it just set instead of the one from before.
 func (c *Client) SetReasoning(level string) {
-	_ = c.postJSON(context.Background(), "/v1/reasoning", map[string]string{"level": level}, nil)
+	_ = c.postJSON(context.Background(), c.scoped("/reasoning"), map[string]string{"level": level}, nil)
 	// The cache is dropped rather than patched: the gateway is the authority on what the level
 	// now is, and re-reading it is one request instead of a guess that can drift.
 	c.mu.Lock()
@@ -127,7 +162,7 @@ func (c *Client) ConversationSummary() session.Snapshot {
 // fetchSummary reads the figures once and caches them.
 func (c *Client) fetchSummary() session.Snapshot {
 	var snap session.Snapshot
-	if err := c.getJSON(context.Background(), "/v1/session", &snap); err != nil {
+	if err := c.getJSON(context.Background(), c.scoped(""), &snap); err != nil {
 		return session.Snapshot{}
 	}
 	c.mu.Lock()
@@ -145,7 +180,7 @@ func (c *Client) ConversationReport() string {
 	var out struct {
 		Text string `json:"text"`
 	}
-	if err := c.getJSON(context.Background(), "/v1/session/report", &out); err != nil {
+	if err := c.getJSON(context.Background(), c.scoped("/report"), &out); err != nil {
 		return "the gateway could not be reached: " + err.Error()
 	}
 	return out.Text
@@ -153,7 +188,7 @@ func (c *Client) ConversationReport() string {
 
 // ResetConversation clears the conversation on the gateway and drops the cached figures with it.
 func (c *Client) ResetConversation() {
-	_ = c.postJSON(context.Background(), "/v1/session/reset", struct{}{}, nil)
+	_ = c.postJSON(context.Background(), c.scoped("/reset"), struct{}{}, nil)
 	c.mu.Lock()
 	c.snap = session.Snapshot{}
 	c.mu.Unlock()
@@ -164,7 +199,7 @@ func (c *Client) RunModels(ctx context.Context) (string, error) {
 	var out struct {
 		Text string `json:"text"`
 	}
-	if err := c.do(ctx, http.MethodGet, "/v1/models", nil, &out); err != nil {
+	if err := c.do(ctx, http.MethodGet, c.scoped("/models"), nil, &out); err != nil {
 		return "", err
 	}
 	return out.Text, nil
@@ -175,7 +210,7 @@ func (c *Client) RecordVerdict(good bool, note string) string {
 	var out struct {
 		Text string `json:"text"`
 	}
-	if err := c.do(context.Background(), http.MethodPost, "/v1/verdict", map[string]any{"good": good, "note": note}, &out); err != nil {
+	if err := c.do(context.Background(), http.MethodPost, c.scoped("/verdict"), map[string]any{"good": good, "note": note}, &out); err != nil {
 		return "the gateway could not be reached: " + err.Error()
 	}
 	return out.Text
@@ -186,7 +221,7 @@ func (c *Client) RewardReport() string {
 	var out struct {
 		Text string `json:"text"`
 	}
-	if err := c.getJSON(context.Background(), "/v1/reward", &out); err != nil {
+	if err := c.getJSON(context.Background(), c.scoped("/reward"), &out); err != nil {
 		return "the gateway could not be reached: " + err.Error()
 	}
 	return out.Text
@@ -198,7 +233,7 @@ func (c *Client) TakePendingQuestions() ([]agent.AskItem, string) {
 		Items  []agent.AskItem `json:"items"`
 		Origin string          `json:"origin"`
 	}
-	if err := c.getJSON(context.Background(), "/v1/questions", &out); err != nil {
+	if err := c.getJSON(context.Background(), c.scoped("/questions"), &out); err != nil {
 		return nil, ""
 	}
 	return out.Items, out.Origin
@@ -219,12 +254,12 @@ func (c *Client) RunConfig(ctx context.Context) error {
 
 // RunPlan runs the planner and returns the answer, streaming the progress lines.
 func (c *Client) RunPlan(ctx context.Context, prompt string, progress func(string, ...any)) (string, error) {
-	return c.run(ctx, "/v1/plan", map[string]any{"prompt": prompt}, progress)
+	return c.run(ctx, c.scoped("/plan"), map[string]any{"prompt": prompt}, progress)
 }
 
 // RunTask runs a task and returns the summary, streaming the progress lines.
 func (c *Client) RunTask(ctx context.Context, task string, progress func(string, ...any)) (string, error) {
-	return c.run(ctx, "/v1/task", map[string]any{"task": task}, progress)
+	return c.run(ctx, c.scoped("/task"), map[string]any{"task": task}, progress)
 }
 
 // run is the shared streaming path of both modes.
@@ -317,7 +352,7 @@ func (c *Client) answerApproval(ctx context.Context, data []byte) error {
 		}
 	}
 
-	if err := c.do(ctx, http.MethodPost, "/v1/runs/approval", map[string]any{"id": ask.ID, "approve": approve}, nil); err != nil {
+	if err := c.do(ctx, http.MethodPost, c.scoped("/runs/approval"), map[string]any{"id": ask.ID, "approve": approve}, nil); err != nil {
 		return fmt.Errorf("the approval could not be sent back: %w", err)
 	}
 	return nil

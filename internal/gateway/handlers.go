@@ -9,6 +9,10 @@ import (
 // The endpoints that answer in one shot: they read or change a small thing and return. The
 // streamed runs (task and plan) and the approval round trip share the streaming path and live in
 // runs.go.
+//
+// Every one of them speaks about a CONVERSATION, so each starts by asking the request which one
+// it is about. That is what makes two front ends independent: the figures, the configuration and
+// the questions belong to a conversation, not to the process.
 
 // handleSession answers the figures a status bar draws.
 //
@@ -19,8 +23,8 @@ import (
 //
 // It is the opposite decision from configView, and for the opposite reason: there is a secret in
 // the configuration and there is none here.
-func (s *Server) handleSession(w http.ResponseWriter, _ *http.Request) {
-	writeJSON(w, http.StatusOK, s.svc.ConversationSummary())
+func (s *Server) handleSession(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, http.StatusOK, convOf(r).svc.ConversationSummary())
 }
 
 // handleSessionReport answers the human-readable report.
@@ -28,22 +32,22 @@ func (s *Server) handleSession(w http.ResponseWriter, _ *http.Request) {
 // The text is a rendered block, not a structure, because that is what the runner produces: it is
 // the same block the /session command prints, and re-deriving it from the snapshot here would be
 // a second implementation of the same report.
-func (s *Server) handleSessionReport(w http.ResponseWriter, _ *http.Request) {
-	writeJSON(w, http.StatusOK, map[string]string{"text": s.svc.ConversationReport()})
+func (s *Server) handleSessionReport(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, http.StatusOK, map[string]string{"text": convOf(r).svc.ConversationReport()})
 }
 
-// handleReset starts a new conversation.
+// handleReset starts a new conversation IN THIS session.
 //
 // 204 rather than a body: there is nothing to say about it, and a client that gets an empty 200
 // has to guess whether it worked.
-func (s *Server) handleReset(w http.ResponseWriter, _ *http.Request) {
-	s.svc.ResetConversation()
+func (s *Server) handleReset(w http.ResponseWriter, r *http.Request) {
+	convOf(r).svc.ResetConversation()
 	w.WriteHeader(http.StatusNoContent)
 }
 
 // handleModels answers the catalogue report.
 func (s *Server) handleModels(w http.ResponseWriter, r *http.Request) {
-	text, err := s.svc.RunModels(r.Context())
+	text, err := convOf(r).svc.RunModels(r.Context())
 	if err != nil {
 		// The runner's own report is NOT produced on this path - it returns the error instead -
 		// so the failure is reported here. 502 and not 500: the agent is fine, the provider it
@@ -63,7 +67,7 @@ func (s *Server) handleReasoning(w http.ResponseWriter, r *http.Request) {
 	if !s.decodeBody(w, r, &body) {
 		return
 	}
-	s.svc.SetReasoning(body.Level)
+	convOf(r).svc.SetReasoning(body.Level)
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -76,12 +80,12 @@ func (s *Server) handleVerdict(w http.ResponseWriter, r *http.Request) {
 	if !s.decodeBody(w, r, &body) {
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]string{"text": s.svc.RecordVerdict(body.Good, body.Note)})
+	writeJSON(w, http.StatusOK, map[string]string{"text": convOf(r).svc.RecordVerdict(body.Good, body.Note)})
 }
 
 // handleReward answers what the library has learned.
-func (s *Server) handleReward(w http.ResponseWriter, _ *http.Request) {
-	writeJSON(w, http.StatusOK, map[string]string{"text": s.svc.RewardReport()})
+func (s *Server) handleReward(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, http.StatusOK, map[string]string{"text": convOf(r).svc.RewardReport()})
 }
 
 // handleQuestions answers the questions of the last turn and clears them.
@@ -89,8 +93,8 @@ func (s *Server) handleReward(w http.ResponseWriter, _ *http.Request) {
 // An empty LIST rather than null, always. A client that has to tell "there are no questions"
 // from "the field is missing" is a client with a bug waiting to happen, and the fix costs one
 // line here.
-func (s *Server) handleQuestions(w http.ResponseWriter, _ *http.Request) {
-	items, origin := s.svc.TakePendingQuestions()
+func (s *Server) handleQuestions(w http.ResponseWriter, r *http.Request) {
+	items, origin := convOf(r).svc.TakePendingQuestions()
 	if items == nil {
 		items = []agent.AskItem{}
 	}

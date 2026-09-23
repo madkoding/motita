@@ -37,15 +37,25 @@ type Options struct {
 	MaxBodyKB int
 	// Version is reported by /v1/health, so a client can tell which build answered.
 	Version string
+	// NewService builds one more conversation when a client asks for one. Nil means this
+	// gateway serves exactly one conversation, which is a real deployment: the embedded case
+	// where the terminal that started this process is the only front end there will ever be.
+	//
+	// It is a factory rather than a list because a conversation holds a transcript and a
+	// session, and building all of them up front would build transcripts nobody asked for. It
+	// must NOT call back into the gateway: it is called with the registry lock held.
+	NewService func() (Service, error)
+	// MaxSessions caps how many conversations this process will hold. Zero means
+	// defaultMaxSessions.
+	MaxSessions int
 	// Log receives the one line a gateway has to say when it starts: where it is listening.
 	// That line is the only way an operator learns the port when 0 was asked for.
 	Log *logx.Logger
 }
 
-// Server is the HTTP face of one Service.
+// Server is the HTTP face of the conversations this process holds.
 type Server struct {
 	opts     Options
-	svc      Service
 	listener net.Listener
 	server   *http.Server
 	mux      *http.ServeMux
@@ -56,17 +66,10 @@ type Server struct {
 	closeOnce sync.Once
 	closeErr  error
 
-	// runMu holds the ONE run slot. An agent has one conversation, so two clients running at
-	// once would interleave two tasks into one transcript and neither user could follow it.
-	// Refusing the second with a 409 is the honest answer; holding a queue would be the same
-	// interleaving with extra steps.
-	runMu   sync.Mutex
-	running bool
-
-	// approvalMu guards the pending approval of the run in progress.
-	approvalMu sync.Mutex
-	approvalID string
-	approvalCh chan bool
+	// sessionsMu guards the registry. The conversations themselves are safe to use without it:
+	// each is guarded by its own locks, and this is only read to find one.
+	sessionsMu sync.Mutex
+	sessions   map[string]*conversation
 }
 
 // Start binds the listener and returns a Server that is ready to Serve.
@@ -105,7 +108,8 @@ func Start(opts Options) (*Server, error) {
 	if opts.MaxBodyKB <= 0 {
 		opts.MaxBodyKB = defaultMaxBodyKB
 	}
-	s := &Server{opts: opts, svc: opts.Service, listener: ln}
+	first := newConversation(DefaultSession, opts.Service)
+	s := &Server{opts: opts, listener: ln, sessions: map[string]*conversation{DefaultSession: first}}
 	s.mux = s.routes()
 	s.server = &http.Server{
 		Handler: s.mux,
@@ -154,26 +158,39 @@ func (s *Server) Close(ctx context.Context) error {
 
 // routes builds the endpoint table.
 //
-// Every endpoint below /v1 requires the token except /v1/health, which exists precisely so a
-// client can tell "nothing is listening" from "the token is wrong" without being trusted with
-// anything.
+// Every conversation endpoint is addressed by the session it is about, and only /v1/health is
+// process-wide. One rule with no exceptions is worth more than a shorter table: a reader who
+// knows it never has to check which endpoints are about a conversation.
 func (s *Server) routes() *http.ServeMux {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /v1/health", s.handleHealth)
 
-	auth := func(h http.HandlerFunc) http.Handler { return requireToken(s.opts.Token, h) }
-	mux.Handle("GET /v1/config", auth(s.handleConfig))
-	mux.Handle("GET /v1/session", auth(s.handleSession))
-	mux.Handle("GET /v1/session/report", auth(s.handleSessionReport))
-	mux.Handle("POST /v1/session/reset", auth(s.handleReset))
-	mux.Handle("GET /v1/models", auth(s.handleModels))
-	mux.Handle("POST /v1/reasoning", auth(s.handleReasoning))
-	mux.Handle("POST /v1/verdict", auth(s.handleVerdict))
-	mux.Handle("GET /v1/reward", auth(s.handleReward))
-	mux.Handle("GET /v1/questions", auth(s.handleQuestions))
-	mux.Handle("POST /v1/task", auth(s.handleTask))
-	mux.Handle("POST /v1/plan", auth(s.handlePlan))
-	mux.Handle("POST /v1/runs/approval", auth(s.handleApproval))
+	// auth wraps anything, not just a HandlerFunc: withConversation hands back a Handler, and
+	// forcing it through a HandlerFunc would be a cast that says nothing.
+	auth := func(h http.Handler) http.Handler { return requireToken(s.opts.Token, h) }
+	// plain is the same check for a bare handler function, so the session-list endpoints do not
+	// have to be cast to satisfy a signature.
+	plain := func(h http.HandlerFunc) http.Handler { return requireToken(s.opts.Token, h) }
+	// scoped is every handler that speaks ABOUT a conversation: the token is checked, then the
+	// session is resolved, then the handler runs with it in the request context.
+	scoped := func(h http.HandlerFunc) http.Handler { return auth(s.withConversation(h)) }
+
+	mux.Handle("GET /v1/sessions", plain(s.handleListSessions))
+	mux.Handle("POST /v1/sessions", plain(s.handleCreateSession))
+	mux.Handle("DELETE /v1/sessions/{id}", scoped(s.handleDeleteSession))
+
+	mux.Handle("GET /v1/sessions/{id}", scoped(s.handleSession))
+	mux.Handle("GET /v1/sessions/{id}/report", scoped(s.handleSessionReport))
+	mux.Handle("POST /v1/sessions/{id}/reset", scoped(s.handleReset))
+	mux.Handle("GET /v1/sessions/{id}/config", scoped(s.handleConfig))
+	mux.Handle("GET /v1/sessions/{id}/models", scoped(s.handleModels))
+	mux.Handle("POST /v1/sessions/{id}/reasoning", scoped(s.handleReasoning))
+	mux.Handle("POST /v1/sessions/{id}/verdict", scoped(s.handleVerdict))
+	mux.Handle("GET /v1/sessions/{id}/reward", scoped(s.handleReward))
+	mux.Handle("GET /v1/sessions/{id}/questions", scoped(s.handleQuestions))
+	mux.Handle("POST /v1/sessions/{id}/task", scoped(s.handleTask))
+	mux.Handle("POST /v1/sessions/{id}/plan", scoped(s.handlePlan))
+	mux.Handle("POST /v1/sessions/{id}/runs/approval", scoped(s.handleApproval))
 	return mux
 }
 
@@ -193,9 +210,9 @@ func (s *Server) handleHealth(w http.ResponseWriter, _ *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "version": s.opts.Version})
 }
 
-func (s *Server) handleConfig(w http.ResponseWriter, _ *http.Request) {
+func (s *Server) handleConfig(w http.ResponseWriter, r *http.Request) {
 	// viewOf, never the configuration itself: see view.go.
-	writeJSON(w, http.StatusOK, viewOf(s.svc.Config()))
+	writeJSON(w, http.StatusOK, viewOf(convOf(r).svc.Config()))
 }
 
 // writeJSON is the one place a response body is produced, so the Content-Type is set in the one

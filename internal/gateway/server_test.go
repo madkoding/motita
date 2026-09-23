@@ -156,8 +156,8 @@ func TestHealthAnswersWithoutAToken(t *testing.T) {
 func TestEveryOtherEndpointNeedsTheToken(t *testing.T) {
 	srv := newTestServer(t, &fakeService{})
 	paths := []string{
-		"/v1/config", "/v1/session", "/v1/session/report", "/v1/models",
-		"/v1/reward", "/v1/questions",
+		sessionPath(srv, DefaultSession, "/config"), sessionPath(srv, DefaultSession, ""), sessionPath(srv, DefaultSession, "/report"), sessionPath(srv, DefaultSession, "/models"),
+		sessionPath(srv, DefaultSession, "/reward"), sessionPath(srv, DefaultSession, "/questions"),
 	}
 	for _, path := range paths {
 		t.Run(path, func(t *testing.T) {
@@ -169,7 +169,7 @@ func TestEveryOtherEndpointNeedsTheToken(t *testing.T) {
 			}
 		})
 	}
-	for _, path := range []string{"/v1/session/reset", "/v1/reasoning", "/v1/verdict", "/v1/task", "/v1/plan", "/v1/runs/approval"} {
+	for _, path := range []string{sessionPath(srv, DefaultSession, "/reset"), sessionPath(srv, DefaultSession, "/reasoning"), sessionPath(srv, DefaultSession, "/verdict"), sessionPath(srv, DefaultSession, "/task"), sessionPath(srv, DefaultSession, "/plan"), sessionPath(srv, DefaultSession, "/runs/approval")} {
 		t.Run("POST "+path, func(t *testing.T) {
 			req, _ := http.NewRequest(http.MethodPost, srv.BaseURL()+path, strings.NewReader("{}"))
 			w := httptest.NewRecorder()
@@ -187,7 +187,7 @@ func TestConfigEndpointCarriesNoKey(t *testing.T) {
 	cfg.LLM.Provider = "openai"
 	srv := newTestServer(t, &fakeService{cfg: cfg})
 
-	w := get(t, srv, "/v1/config", testToken)
+	w := get(t, srv, sessionPath(srv, DefaultSession, "/config"), testToken)
 	if w.Code != http.StatusOK {
 		t.Fatalf("status = %d, want 200", w.Code)
 	}
@@ -288,7 +288,7 @@ func TestAWrongMethodIsNotAllowed(t *testing.T) {
 	srv := newTestServer(t, &fakeService{})
 	// GET on a POST-only route: Go's method-aware routing answers 405, which is what tells a
 	// client the path exists and the verb is wrong.
-	req, _ := http.NewRequest(http.MethodGet, srv.BaseURL()+"/v1/task", nil)
+	req, _ := http.NewRequest(http.MethodGet, srv.BaseURL()+sessionPath(srv, DefaultSession, "/task"), nil)
 	req.Header.Set("Authorization", "Bearer "+testToken)
 	w := httptest.NewRecorder()
 	srv.Handler().ServeHTTP(w, req)

@@ -34,7 +34,7 @@ func TestSessionAnswersTheFigures(t *testing.T) {
 	}
 	srv := newTestServer(t, svc)
 
-	w := get(t, srv, "/v1/session", testToken)
+	w := get(t, srv, sessionPath(srv, DefaultSession, ""), testToken)
 	if w.Code != http.StatusOK {
 		t.Fatalf("status = %d", w.Code)
 	}
@@ -51,7 +51,7 @@ func TestSessionAnswersTheFigures(t *testing.T) {
 // rather than as a percentage of nothing.
 func TestSessionAnswersZeroesBeforeAConversationStarts(t *testing.T) {
 	srv := newTestServer(t, &fakeService{})
-	w := get(t, srv, "/v1/session", testToken)
+	w := get(t, srv, sessionPath(srv, DefaultSession, ""), testToken)
 	var snap session.Snapshot
 	if err := json.Unmarshal(w.Body.Bytes(), &snap); err != nil {
 		t.Fatalf("body = %q: %v", w.Body.String(), err)
@@ -64,7 +64,7 @@ func TestSessionAnswersZeroesBeforeAConversationStarts(t *testing.T) {
 func TestSessionReportIsTextual(t *testing.T) {
 	svc := &fakeService{report: "model       gpt-4o-mini\ncontext     128000 tokens\n"}
 	srv := newTestServer(t, svc)
-	w := get(t, srv, "/v1/session/report", testToken)
+	w := get(t, srv, sessionPath(srv, DefaultSession, "/report"), testToken)
 	var out struct {
 		Text string `json:"text"`
 	}
@@ -80,7 +80,7 @@ func TestResetStartsANewConversation(t *testing.T) {
 	svc := &fakeService{}
 	srv := newTestServer(t, svc)
 
-	w := post(t, srv, "/v1/session/reset", "{}", testToken)
+	w := post(t, srv, sessionPath(srv, DefaultSession, "/reset"), "{}", testToken)
 	if w.Code != http.StatusNoContent {
 		t.Fatalf("status = %d, want 204 (body %q)", w.Code, w.Body.String())
 	}
@@ -93,7 +93,7 @@ func TestTheModelsReportIsTextual(t *testing.T) {
 	svc := &fakeService{models: func(context.Context) (string, error) { return "provider : openai\n", nil }}
 	srv := newTestServer(t, svc)
 
-	w := get(t, srv, "/v1/models", testToken)
+	w := get(t, srv, sessionPath(srv, DefaultSession, "/models"), testToken)
 	var out struct {
 		Text string `json:"text"`
 	}
@@ -111,7 +111,7 @@ func TestAModelsFailureAnswersWithTheReason(t *testing.T) {
 	svc := &fakeService{models: func(context.Context) (string, error) { return "", errors.New("no route to the provider") }}
 	srv := newTestServer(t, svc)
 
-	w := get(t, srv, "/v1/models", testToken)
+	w := get(t, srv, sessionPath(srv, DefaultSession, "/models"), testToken)
 	if w.Code != http.StatusBadGateway {
 		t.Fatalf("status = %d, want 502", w.Code)
 	}
@@ -130,7 +130,7 @@ func TestReasoningIsSet(t *testing.T) {
 	svc := &fakeService{}
 	srv := newTestServer(t, svc)
 
-	w := post(t, srv, "/v1/reasoning", `{"level":"high"}`, testToken)
+	w := post(t, srv, sessionPath(srv, DefaultSession, "/reasoning"), `{"level":"high"}`, testToken)
 	if w.Code != http.StatusNoContent {
 		t.Fatalf("status = %d, want 204 (body %q)", w.Code, w.Body.String())
 	}
@@ -145,7 +145,7 @@ func TestReasoningIsSet(t *testing.T) {
 func TestReasoningPassesTheLevelThrough(t *testing.T) {
 	svc := &fakeService{}
 	srv := newTestServer(t, svc)
-	if w := post(t, srv, "/v1/reasoning", `{"level":""}`, testToken); w.Code != http.StatusNoContent {
+	if w := post(t, srv, sessionPath(srv, DefaultSession, "/reasoning"), `{"level":""}`, testToken); w.Code != http.StatusNoContent {
 		t.Fatalf("status = %d", w.Code)
 	}
 	if svc.reasoning != "" {
@@ -162,7 +162,7 @@ func TestAVerdictCarriesTheNote(t *testing.T) {
 	}}
 	srv := newTestServer(t, svc)
 
-	w := post(t, srv, "/v1/verdict", `{"good":false,"note":"the second step was wrong"}`, testToken)
+	w := post(t, srv, sessionPath(srv, DefaultSession, "/verdict"), `{"good":false,"note":"the second step was wrong"}`, testToken)
 	if w.Code != http.StatusOK {
 		t.Fatalf("status = %d (body %q)", w.Code, w.Body.String())
 	}
@@ -189,7 +189,7 @@ func TestAVerdictWithoutTheFlagMeansGood(t *testing.T) {
 	var gotGood bool
 	svc := &fakeService{verdict: func(good bool, _ string) string { gotGood = good; return "ok" }}
 	srv := newTestServer(t, svc)
-	if w := post(t, srv, "/v1/verdict", `{}`, testToken); w.Code != http.StatusOK {
+	if w := post(t, srv, sessionPath(srv, DefaultSession, "/verdict"), `{}`, testToken); w.Code != http.StatusOK {
 		t.Fatalf("status = %d", w.Code)
 	}
 	if gotGood {
@@ -200,7 +200,7 @@ func TestAVerdictWithoutTheFlagMeansGood(t *testing.T) {
 func TestRewardIsTextual(t *testing.T) {
 	svc := &fakeService{reward: "no verdicts recorded yet.\n"}
 	srv := newTestServer(t, svc)
-	w := get(t, srv, "/v1/reward", testToken)
+	w := get(t, srv, sessionPath(srv, DefaultSession, "/reward"), testToken)
 	var out struct {
 		Text string `json:"text"`
 	}
@@ -219,7 +219,7 @@ func TestTheQuestionsAreReadAndCleared(t *testing.T) {
 	}
 	srv := newTestServer(t, svc)
 
-	w := get(t, srv, "/v1/questions", testToken)
+	w := get(t, srv, sessionPath(srv, DefaultSession, "/questions"), testToken)
 	var got struct {
 		Items  []agent.AskItem `json:"items"`
 		Origin string          `json:"origin"`
@@ -240,7 +240,7 @@ func TestTheQuestionsAreReadAndCleared(t *testing.T) {
 	}
 
 	// Second read: empty. Taking CLEARS, so a repaint cannot reopen a window the user closed.
-	w2 := get(t, srv, "/v1/questions", testToken)
+	w2 := get(t, srv, sessionPath(srv, DefaultSession, "/questions"), testToken)
 	var again struct {
 		Items []agent.AskItem `json:"items"`
 	}
@@ -255,7 +255,7 @@ func TestTheQuestionsAreReadAndCleared(t *testing.T) {
 // An empty list, never null: a client must not have to tell "no questions" from "field missing".
 func TestNoQuestionsIsAnEmptyList(t *testing.T) {
 	srv := newTestServer(t, &fakeService{})
-	w := get(t, srv, "/v1/questions", testToken)
+	w := get(t, srv, sessionPath(srv, DefaultSession, "/questions"), testToken)
 	if got := strings.TrimSpace(w.Body.String()); got != `{"items":[],"origin":""}` {
 		t.Errorf("body = %q", got)
 	}
@@ -263,7 +263,7 @@ func TestNoQuestionsIsAnEmptyList(t *testing.T) {
 
 func TestABadBodyIsRejectedOnEveryEndpoointThatTakesOne(t *testing.T) {
 	srv := newTestServer(t, &fakeService{})
-	for _, path := range []string{"/v1/reasoning", "/v1/verdict"} {
+	for _, path := range []string{sessionPath(srv, DefaultSession, "/reasoning"), sessionPath(srv, DefaultSession, "/verdict")} {
 		t.Run(path, func(t *testing.T) {
 			w := post(t, srv, path, "not json", testToken)
 			if w.Code != http.StatusBadRequest {
@@ -279,7 +279,7 @@ func TestABadBodyIsRejectedOnEveryEndpoointThatTakesOne(t *testing.T) {
 func TestAnOversizedBodyIsRejected(t *testing.T) {
 	srv := newTestServer(t, &fakeService{}, func(o *Options) { o.MaxBodyKB = 1 })
 	big := `{"note":"` + strings.Repeat("x", 4096) + `"}`
-	w := post(t, srv, "/v1/verdict", big, testToken)
+	w := post(t, srv, sessionPath(srv, DefaultSession, "/verdict"), big, testToken)
 	if w.Code != http.StatusBadRequest {
 		t.Errorf("status = %d, want 400 for a body over the cap", w.Code)
 	}

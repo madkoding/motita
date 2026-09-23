@@ -688,7 +688,7 @@ func TestAMalformedEventPayloadIsReported(t *testing.T) {
 func rawGateway(t *testing.T, body string) *Client {
 	t.Helper()
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path == "/v1/runs/approval" {
+		if r.URL.Path == "/v1/sessions/"+DefaultSession+"/runs/approval" {
 			w.WriteHeader(http.StatusInternalServerError)
 			return
 		}
@@ -755,10 +755,10 @@ func TestAnUnencodableBodyIsReported(t *testing.T) {
 	c := NewClient("http://127.0.0.1:1", testToken)
 	bad := map[string]any{"x": make(chan int)}
 
-	if _, err := c.run(context.Background(), "/v1/task", bad, nil); err == nil {
+	if _, err := c.run(context.Background(), c.scoped("/task"), bad, nil); err == nil {
 		t.Error("a run with an unencodable body must be reported")
 	}
-	if err := c.do(context.Background(), http.MethodPost, "/v1/verdict", bad, nil); err == nil {
+	if err := c.do(context.Background(), http.MethodPost, c.scoped("/verdict"), bad, nil); err == nil {
 		t.Error("a one-shot request with an unencodable body must be reported")
 	}
 }

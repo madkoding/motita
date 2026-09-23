@@ -79,7 +79,7 @@ func TestATaskStreamsProgressAndEndsWithDone(t *testing.T) {
 	}}
 	srv := newTestServer(t, svc)
 
-	events := collect(t, srv, http.MethodPost, "/v1/task", `{"task":"leave a report"}`)
+	events := collect(t, srv, http.MethodPost, sessionPath(srv, DefaultSession, "/task"), `{"task":"leave a report"}`)
 	if len(events) != 3 {
 		t.Fatalf("events = %+v, want 2 progress and 1 done", events)
 	}
@@ -112,7 +112,7 @@ func TestTheDoneEventCarriesTheSessionFigures(t *testing.T) {
 	}
 	srv := newTestServer(t, svc)
 
-	events := collect(t, srv, http.MethodPost, "/v1/task", `{"task":"x"}`)
+	events := collect(t, srv, http.MethodPost, sessionPath(srv, DefaultSession, "/task"), `{"task":"x"}`)
 	last := events[len(events)-1]
 	var done doneEvent
 	if err := json.Unmarshal([]byte(last.Data), &done); err != nil {
@@ -129,7 +129,7 @@ func TestARunThatFailsIsAnErrorEventNotA500(t *testing.T) {
 	}}
 	srv := newTestServer(t, svc)
 
-	events := collect(t, srv, http.MethodPost, "/v1/task", `{"task":"x"}`)
+	events := collect(t, srv, http.MethodPost, sessionPath(srv, DefaultSession, "/task"), `{"task":"x"}`)
 	if len(events) == 0 || events[len(events)-1].Event != EventError {
 		t.Fatalf("events = %+v, want an %s event", events, EventError)
 	}
@@ -148,7 +148,7 @@ func TestAnEmptyResultIsAnError(t *testing.T) {
 	}}
 	srv := newTestServer(t, svc)
 
-	events := collect(t, srv, http.MethodPost, "/v1/task", `{"task":"x"}`)
+	events := collect(t, srv, http.MethodPost, sessionPath(srv, DefaultSession, "/task"), `{"task":"x"}`)
 	if len(events) == 0 || events[len(events)-1].Event != EventError {
 		t.Fatalf("events = %+v, want an %s event", events, EventError)
 	}
@@ -164,7 +164,7 @@ func TestAPlanStreamCarriesTheSameFraming(t *testing.T) {
 	}}
 	srv := newTestServer(t, svc)
 
-	events := collect(t, srv, http.MethodPost, "/v1/plan", `{"prompt":"what is here?"}`)
+	events := collect(t, srv, http.MethodPost, sessionPath(srv, DefaultSession, "/plan"), `{"prompt":"what is here?"}`)
 	if len(events) != 2 || events[0].Event != EventProgress || events[1].Event != EventDone {
 		t.Fatalf("events = %+v", events)
 	}
@@ -177,9 +177,9 @@ func TestAPlanStreamCarriesTheSameFraming(t *testing.T) {
 func TestAnEmptyTaskOrPromptIsRefusedBeforeTheStream(t *testing.T) {
 	srv := newTestServer(t, &fakeService{})
 	for _, tc := range []struct{ path, body string }{
-		{"/v1/task", `{"task":""}`},
-		{"/v1/task", `{"task":"   "}`},
-		{"/v1/plan", `{"prompt":""}`},
+		{sessionPath(srv, DefaultSession, "/task"), `{"task":""}`},
+		{sessionPath(srv, DefaultSession, "/task"), `{"task":"   "}`},
+		{sessionPath(srv, DefaultSession, "/plan"), `{"prompt":""}`},
 	} {
 		t.Run(tc.path+" "+tc.body, func(t *testing.T) {
 			// A refusal the client can read, and NOT a stream: the headers must not have gone
@@ -199,7 +199,7 @@ func TestAnEmptyTaskOrPromptIsRefusedBeforeTheStream(t *testing.T) {
 // refusal comes from decodeBody, so the run never starts and no stream is opened.
 func TestAMalformedBodyIsRefusedOnTheRunEndpoints(t *testing.T) {
 	srv := newTestServer(t, &fakeService{})
-	for _, path := range []string{"/v1/task", "/v1/plan"} {
+	for _, path := range []string{sessionPath(srv, DefaultSession, "/task"), sessionPath(srv, DefaultSession, "/plan")} {
 		t.Run(path, func(t *testing.T) {
 			w := post(t, srv, path, "not json", testToken)
 			if w.Code != http.StatusBadRequest {
@@ -226,7 +226,7 @@ func TestOnlyOneRunAtATime(t *testing.T) {
 	}}
 	srv := newTestServer(t, svc)
 
-	req, _ := http.NewRequest(http.MethodPost, srv.BaseURL()+"/v1/task", strings.NewReader(`{"task":"one"}`))
+	req, _ := http.NewRequest(http.MethodPost, srv.BaseURL()+sessionPath(srv, DefaultSession, "/task"), strings.NewReader(`{"task":"one"}`))
 	req.Header.Set("Authorization", "Bearer "+testToken)
 	resp, err := (&http.Client{}).Do(req)
 	if err != nil {
@@ -237,7 +237,7 @@ func TestOnlyOneRunAtATime(t *testing.T) {
 
 	// The second client is refused AND told why. The agent has ONE conversation: two runs at
 	// once would interleave two tasks into one transcript and neither user could follow it.
-	second := post(t, srv, "/v1/task", `{"task":"two"}`, testToken)
+	second := post(t, srv, sessionPath(srv, DefaultSession, "/task"), `{"task":"two"}`, testToken)
 	if second.Code != http.StatusConflict {
 		t.Errorf("status = %d, want 409", second.Code)
 	}
@@ -264,7 +264,7 @@ func TestTheRunSlotIsReleasedAfterEveryOutcome(t *testing.T) {
 			svc := &fakeService{task: fn}
 			srv := newTestServer(t, svc)
 			for i := 0; i < 3; i++ {
-				if events := collect(t, srv, http.MethodPost, "/v1/task", `{"task":"x"}`); len(events) == 0 {
+				if events := collect(t, srv, http.MethodPost, sessionPath(srv, DefaultSession, "/task"), `{"task":"x"}`); len(events) == 0 {
 					t.Fatalf("run %d produced no events", i)
 				}
 			}
@@ -288,7 +288,7 @@ func TestTheRefusalHappensBeforeAnyHeaders(t *testing.T) {
 	}}
 	srv := newTestServer(t, svc)
 
-	req, _ := http.NewRequest(http.MethodPost, srv.BaseURL()+"/v1/task", strings.NewReader(`{"task":"one"}`))
+	req, _ := http.NewRequest(http.MethodPost, srv.BaseURL()+sessionPath(srv, DefaultSession, "/task"), strings.NewReader(`{"task":"one"}`))
 	req.Header.Set("Authorization", "Bearer "+testToken)
 	resp, err := (&http.Client{}).Do(req)
 	if err != nil {
@@ -297,7 +297,7 @@ func TestTheRefusalHappensBeforeAnyHeaders(t *testing.T) {
 	defer resp.Body.Close()
 	<-started
 
-	w := post(t, srv, "/v1/task", `{"task":"two"}`, testToken)
+	w := post(t, srv, sessionPath(srv, DefaultSession, "/task"), `{"task":"two"}`, testToken)
 	if ct := w.Header().Get("Content-Type"); strings.Contains(ct, "event-stream") {
 		t.Errorf("the refusal was a stream (%q): it must be a plain JSON error", ct)
 	}
@@ -335,7 +335,7 @@ func TestAnApprovalIsAskedAndAnswered(t *testing.T) {
 	}
 	srv := newTestServer(t, svc)
 
-	req, _ := http.NewRequest(http.MethodPost, srv.BaseURL()+"/v1/task", strings.NewReader(`{"task":"clean"}`))
+	req, _ := http.NewRequest(http.MethodPost, srv.BaseURL()+sessionPath(srv, DefaultSession, "/task"), strings.NewReader(`{"task":"clean"}`))
 	req.Header.Set("Authorization", "Bearer "+testToken)
 	resp, err := (&http.Client{}).Do(req)
 	if err != nil {
@@ -355,7 +355,7 @@ func TestAnApprovalIsAskedAndAnswered(t *testing.T) {
 		t.Fatal("the approval needs an id, or an answer can be replayed onto the next question")
 	}
 
-	w := post(t, srv, "/v1/runs/approval", fmt.Sprintf(`{"id":%q,"approve":true}`, ask.ID), testToken)
+	w := post(t, srv, sessionPath(srv, DefaultSession, "/runs/approval"), fmt.Sprintf(`{"id":%q,"approve":true}`, ask.ID), testToken)
 	if w.Code != http.StatusNoContent {
 		t.Fatalf("answer status = %d, want 204 (body %q)", w.Code, w.Body.String())
 	}
@@ -392,7 +392,7 @@ func TestAnApprovalCanBeRefused(t *testing.T) {
 	}
 	srv := newTestServer(t, svc)
 
-	req, _ := http.NewRequest(http.MethodPost, srv.BaseURL()+"/v1/task", strings.NewReader(`{"task":"clean"}`))
+	req, _ := http.NewRequest(http.MethodPost, srv.BaseURL()+sessionPath(srv, DefaultSession, "/task"), strings.NewReader(`{"task":"clean"}`))
 	req.Header.Set("Authorization", "Bearer "+testToken)
 	resp, err := (&http.Client{}).Do(req)
 	if err != nil {
@@ -401,7 +401,7 @@ func TestAnApprovalCanBeRefused(t *testing.T) {
 	defer resp.Body.Close()
 
 	ask := waitForApproval(t, bufio.NewReader(resp.Body))
-	if w := post(t, srv, "/v1/runs/approval", fmt.Sprintf(`{"id":%q,"approve":false}`, ask.ID), testToken); w.Code != http.StatusNoContent {
+	if w := post(t, srv, sessionPath(srv, DefaultSession, "/runs/approval"), fmt.Sprintf(`{"id":%q,"approve":false}`, ask.ID), testToken); w.Code != http.StatusNoContent {
 		t.Fatalf("answer status = %d", w.Code)
 	}
 	select {
@@ -455,7 +455,7 @@ func TestAnApprovalWithTheWrongIDIsRefused(t *testing.T) {
 	}}
 	srv := newTestServer(t, svc)
 
-	req, _ := http.NewRequest(http.MethodPost, srv.BaseURL()+"/v1/task", strings.NewReader(`{"task":"x"}`))
+	req, _ := http.NewRequest(http.MethodPost, srv.BaseURL()+sessionPath(srv, DefaultSession, "/task"), strings.NewReader(`{"task":"x"}`))
 	req.Header.Set("Authorization", "Bearer "+testToken)
 	resp, err := (&http.Client{}).Do(req)
 	if err != nil {
@@ -465,7 +465,7 @@ func TestAnApprovalWithTheWrongIDIsRefused(t *testing.T) {
 	<-started
 
 	// Nothing is being asked right now, so there is no id to answer.
-	w := post(t, srv, "/v1/runs/approval", `{"id":"not-the-one","approve":true}`, testToken)
+	w := post(t, srv, sessionPath(srv, DefaultSession, "/runs/approval"), `{"id":"not-the-one","approve":true}`, testToken)
 	if w.Code != http.StatusConflict {
 		t.Errorf("status = %d, want 409: an answer to a question nobody asked must not be accepted", w.Code)
 	}
@@ -499,7 +499,7 @@ func TestAnAnswerForAQuestionThatWasAskedIsAcceptedEvenWhenLate(t *testing.T) {
 	svc.approverWrap = func(fn agent.Approver) { _ = fn }
 	srv := newTestServer(t, svc)
 
-	req, _ := http.NewRequest(http.MethodPost, srv.BaseURL()+"/v1/task", strings.NewReader(`{"task":"x"}`))
+	req, _ := http.NewRequest(http.MethodPost, srv.BaseURL()+sessionPath(srv, DefaultSession, "/task"), strings.NewReader(`{"task":"x"}`))
 	req.Header.Set("Authorization", "Bearer "+testToken)
 	resp, err := (&http.Client{}).Do(req)
 	if err != nil {
@@ -515,7 +515,7 @@ func TestAnAnswerForAQuestionThatWasAskedIsAcceptedEvenWhenLate(t *testing.T) {
 
 	// The question is closed, so an answer is refused rather than silently accepted. This is the
 	// path that keeps a stale answer from landing on the NEXT question.
-	w := post(t, srv, "/v1/runs/approval", fmt.Sprintf(`{"id":%q,"approve":true}`, id), testToken)
+	w := post(t, srv, sessionPath(srv, DefaultSession, "/runs/approval"), fmt.Sprintf(`{"id":%q,"approve":true}`, id), testToken)
 	if w.Code != http.StatusConflict {
 		t.Errorf("a late answer got %d, want 409", w.Code)
 	}
@@ -530,13 +530,14 @@ func TestAnAnswerNeverBlocksOnAQuestionNobodyIsWaitingFor(t *testing.T) {
 
 	// A channel with a reader that already left, and an id that matches: the send must go
 	// through (buffered) or be dropped, but it must RETURN.
-	srv.approvalMu.Lock()
-	srv.approvalID, srv.approvalCh = "the-id", make(chan bool, 1)
-	srv.approvalMu.Unlock()
+	conv := srv.sessions[DefaultSession]
+	conv.approvalMu.Lock()
+	conv.approvalID, conv.approvalCh = "the-id", make(chan bool, 1)
+	conv.approvalMu.Unlock()
 
 	done := make(chan int, 1)
 	go func() {
-		w := post(t, srv, "/v1/runs/approval", `{"id":"the-id","approve":true}`, testToken)
+		w := post(t, srv, sessionPath(srv, DefaultSession, "/runs/approval"), `{"id":"the-id","approve":true}`, testToken)
 		done <- w.Code
 	}()
 	select {
@@ -550,7 +551,7 @@ func TestAnAnswerNeverBlocksOnAQuestionNobodyIsWaitingFor(t *testing.T) {
 
 	// And the answer really was delivered on the channel.
 	select {
-	case v := <-srv.approvalCh:
+	case v := <-conv.approvalCh:
 		if !v {
 			t.Error("the answer arrived as a no")
 		}
@@ -562,7 +563,7 @@ func TestAnAnswerNeverBlocksOnAQuestionNobodyIsWaitingFor(t *testing.T) {
 // A malformed answer is refused before the id is even looked at.
 func TestAMalformedApprovalBodyIsRefused(t *testing.T) {
 	srv := newTestServer(t, &fakeService{})
-	if w := post(t, srv, "/v1/runs/approval", "not json", testToken); w.Code != http.StatusBadRequest {
+	if w := post(t, srv, sessionPath(srv, DefaultSession, "/runs/approval"), "not json", testToken); w.Code != http.StatusBadRequest {
 		t.Errorf("status = %d, want 400", w.Code)
 	}
 }
@@ -572,11 +573,12 @@ func TestAMalformedApprovalBodyIsRefused(t *testing.T) {
 // pending": there IS a question, and this is not the answer to it.
 func TestAnAnswerWithTheWrongIDAgainstALiveQuestionIsRefused(t *testing.T) {
 	srv := newTestServer(t, &fakeService{})
-	srv.approvalMu.Lock()
-	srv.approvalID, srv.approvalCh = "the-real-id", make(chan bool, 1)
-	srv.approvalMu.Unlock()
+	conv := srv.sessions[DefaultSession]
+	conv.approvalMu.Lock()
+	conv.approvalID, conv.approvalCh = "the-real-id", make(chan bool, 1)
+	conv.approvalMu.Unlock()
 
-	w := post(t, srv, "/v1/runs/approval", `{"id":"a-different-id","approve":true}`, testToken)
+	w := post(t, srv, sessionPath(srv, DefaultSession, "/runs/approval"), `{"id":"a-different-id","approve":true}`, testToken)
 	if w.Code != http.StatusConflict {
 		t.Fatalf("status = %d, want 409", w.Code)
 	}
@@ -585,7 +587,7 @@ func TestAnAnswerWithTheWrongIDAgainstALiveQuestionIsRefused(t *testing.T) {
 	}
 	// And nothing was delivered on the channel: the command must not have been approved.
 	select {
-	case v := <-srv.approvalCh:
+	case v := <-conv.approvalCh:
 		t.Errorf("an answer with the wrong id reached the run: %v", v)
 	default:
 	}
@@ -598,13 +600,14 @@ func TestAnAnswerIsDroppedRatherThanBlockingOnAFullChannel(t *testing.T) {
 	srv := newTestServer(t, &fakeService{})
 	full := make(chan bool, 1)
 	full <- true // the buffer is taken, as it would be if the run already read one answer
-	srv.approvalMu.Lock()
-	srv.approvalID, srv.approvalCh = "the-id", full
-	srv.approvalMu.Unlock()
+	conv := srv.sessions[DefaultSession]
+	conv.approvalMu.Lock()
+	conv.approvalID, conv.approvalCh = "the-id", full
+	conv.approvalMu.Unlock()
 
 	done := make(chan int, 1)
 	go func() {
-		done <- post(t, srv, "/v1/runs/approval", `{"id":"the-id","approve":false}`, testToken).Code
+		done <- post(t, srv, sessionPath(srv, DefaultSession, "/runs/approval"), `{"id":"the-id","approve":false}`, testToken).Code
 	}()
 	select {
 	case code := <-done:
@@ -625,7 +628,7 @@ func TestAnAnswerIsDroppedRatherThanBlockingOnAFullChannel(t *testing.T) {
 // silence is not consent.
 func TestAnApprovalThatCannotBeWrittenIsRefused(t *testing.T) {
 	srv := newTestServer(t, &fakeService{})
-	approver := srv.approverFor(func(string, any) error {
+	approver := srv.sessions[DefaultSession].approverFor(func(string, any) error {
 		return errors.New("the stream is gone")
 	})
 	ok, err := approver(context.Background(), agent.ApprovalRequest{Command: "rm -rf ./build"})
@@ -655,7 +658,7 @@ func TestACancelledRunRefusesTheCommand(t *testing.T) {
 	}
 	srv := newTestServer(t, svc)
 
-	events := collect(t, srv, http.MethodPost, "/v1/task", `{"task":"x"}`)
+	events := collect(t, srv, http.MethodPost, sessionPath(srv, DefaultSession, "/task"), `{"task":"x"}`)
 	last := events[len(events)-1]
 	if last.Event != EventDone {
 		t.Fatalf("the refused command must not end the run, got %+v", last)
@@ -688,7 +691,7 @@ func TestAnApprovalCannotBeAskedWithoutAnID(t *testing.T) {
 	}
 	srv := newTestServer(t, svc)
 
-	events := collect(t, srv, http.MethodPost, "/v1/task", `{"task":"x"}`)
+	events := collect(t, srv, http.MethodPost, sessionPath(srv, DefaultSession, "/task"), `{"task":"x"}`)
 	if len(events) == 0 {
 		t.Fatal("no events")
 	}
@@ -733,9 +736,9 @@ func TestNewApprovalIDReportsAFailingSource(t *testing.T) {
 func TestAClientThatCannotBeStreamedToRunsNothing(t *testing.T) {
 	ran := false
 	srv := newTestServer(t, &fakeService{})
-	req := httptest.NewRequest(http.MethodPost, "/v1/task", strings.NewReader("{}"))
+	req := httptest.NewRequest(http.MethodPost, sessionPath(srv, DefaultSession, "/task"), strings.NewReader("{}"))
 
-	srv.run(noFlushWriter{}, req, func(context.Context, func(string, ...any)) (string, error) {
+	srv.sessions[DefaultSession].run(noFlushWriter{}, req, func(context.Context, func(string, ...any)) (string, error) {
 		ran = true
 		return "done", nil
 	})
@@ -743,8 +746,8 @@ func TestAClientThatCannotBeStreamedToRunsNothing(t *testing.T) {
 		t.Error("a run started with nowhere to write its output")
 	}
 	// And the slot was released: a refused run must not leave the gateway refusing everybody.
-	if !srv.takeRunSlot() {
+	if !srv.sessions[DefaultSession].takeRunSlot() {
 		t.Fatal("the run slot was leaked by a stream that never started")
 	}
-	srv.releaseRunSlot()
+	srv.sessions[DefaultSession].releaseRunSlot()
 }
