@@ -82,9 +82,9 @@ func Discover(ctx context.Context, path string, probe func(context.Context, stri
 		return Found{}, false, nil
 	}
 	return Found{
-		BaseURL: "http://" + svc.Address,
-		Token:   svc.Token,
-		PID:     svc.PID,
+		BaseURL:   "http://" + svc.Address,
+		Token:     svc.Token,
+		PID:       svc.PID,
 		Version:   health.Version,
 		Owned:     svc.Owned,
 		Reachable: svc.Reachable,
