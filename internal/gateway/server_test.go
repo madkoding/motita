@@ -574,3 +574,64 @@ func TestServeReportsARealListenerFailure(t *testing.T) {
 		t.Error("a listener that stopped for a reason other than Close must be reported")
 	}
 }
+
+// The gateway answers no cross-origin request, and this is a DECISION made executable rather than
+// an accident of configuration.
+//
+// A browser cannot keep the bearer token secret - the client is source code anyone can read, and
+// any XSS reads localStorage - so a page that could reach this gateway would be a page that could
+// drive an agent that runs commands on this machine with the user's credentials. The same absence
+// also protects against a page the user merely has open: without an Access-Control-Allow-Origin
+// header the browser blocks the response before the page can read it.
+//
+// The web front end therefore talks to its OWN proxy, which holds the token server-side. This test
+// exists so that nobody adds `Access-Control-Allow-Origin: *` "to make the web client work": that
+// change compiles, makes the immediate problem go away, and hands the gateway to every page the
+// user has open. It has to break a test that says why.
+func TestTheGatewayAnswersNoCrossOriginRequest(t *testing.T) {
+	srv := newTestServer(t, &fakeService{})
+
+	// A preflight, which is what a browser sends before a real cross-origin call.
+	req, err := http.NewRequest(http.MethodOptions, srv.BaseURL()+"/v1/health", nil)
+	if err != nil {
+		t.Fatalf("request: %v", err)
+	}
+	req.Header.Set("Origin", "https://an-evil-page.example")
+	req.Header.Set("Access-Control-Request-Method", "POST")
+	resp, err := (&http.Client{}).Do(req)
+	if err != nil {
+		t.Fatalf("do: %v", err)
+	}
+	defer resp.Body.Close()
+	if got := resp.Header.Get("Access-Control-Allow-Origin"); got != "" {
+		t.Fatalf("the gateway answered a preflight with Access-Control-Allow-Origin: %q. "+
+			"A browser holding this header can drive an agent that runs commands on this "+
+			"machine; the web front end must go through its own proxy instead", got)
+	}
+	if got := resp.Header.Get("Access-Control-Allow-Credentials"); got != "" {
+		t.Errorf("Access-Control-Allow-Credentials: %q", got)
+	}
+
+	// And on an ordinary authenticated request, with an Origin present, which is the shape a
+	// simple cross-origin POST has when no preflight is triggered.
+	req2, err := http.NewRequest(http.MethodGet, srv.BaseURL()+"/v1/health", nil)
+	if err != nil {
+		t.Fatalf("request: %v", err)
+	}
+	req2.Header.Set("Origin", "https://an-evil-page.example")
+	resp2, err := (&http.Client{}).Do(req2)
+	if err != nil {
+		t.Fatalf("do: %v", err)
+	}
+	defer resp2.Body.Close()
+	for _, h := range []string{"Access-Control-Allow-Origin", "Access-Control-Allow-Methods", "Access-Control-Allow-Headers"} {
+		if got := resp2.Header.Get(h); got != "" {
+			t.Errorf("the gateway answered %s on a request carrying an Origin: %q", h, got)
+		}
+	}
+	// The request itself is answered: refusing the CORS header is not refusing the API. A native
+	// client ignores all of this and keeps working.
+	if resp2.StatusCode != http.StatusOK {
+		t.Errorf("health answered %d; the absence of CORS must not break non-browser clients", resp2.StatusCode)
+	}
+}
