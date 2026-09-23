@@ -19,6 +19,18 @@ import (
 // chew on a novel.
 const defaultMaxBodyKB = 256
 
+// defaultHeartbeat is how often a long-lived stream writes a comment line to keep the connection
+// alive across a middlebox.
+//
+// A mobile carrier NAT commonly drops a connection that has been idle for 30 to 60 seconds, and a
+// turn can easily run longer than that with nothing to say. The failure it prevents is silent and
+// looks like the RUN died rather than the connection: the client sees the stream close, reattaches,
+// and the user loses the tail of work that was still going.
+//
+// 15 seconds leaves generous room under the shortest timeout in common use while costing one
+// 16-byte line - nothing against an event stream that carries a run's output.
+const defaultHeartbeat = 15 * time.Second
+
 // Options configure a Server.
 type Options struct {
 	// Service is the agent this gateway speaks for.
@@ -51,6 +63,11 @@ type Options struct {
 	// Log receives the one line a gateway has to say when it starts: where it is listening.
 	// That line is the only way an operator learns the port when 0 was asked for.
 	Log *logx.Logger
+	// Heartbeat is how often a stream writes a keepalive comment. Zero means defaultHeartbeat.
+	// Negative turns it off, which is what a test needs in order to assert that the stream is
+	// quiet: the tick only fires on a real timer, so a test that waits for one is a test that
+	// sleeps for the heartbeat interval.
+	Heartbeat time.Duration
 }
 
 // Server is the HTTP face of the conversations this process holds.
@@ -77,6 +94,9 @@ type Server struct {
 
 	// sessionsMu guards the registry. The conversations themselves are safe to use without it:
 	// each is guarded by its own locks, and this is only read to find one.
+	// heartbeat is the resolved keepalive interval, always positive: see Options.Heartbeat.
+	heartbeat time.Duration
+
 	sessionsMu sync.Mutex
 	sessions   map[string]*conversation
 }
@@ -119,9 +139,20 @@ func Start(opts Options) (*Server, error) {
 	}
 	first := newConversation(DefaultSession, opts.Service)
 	baseCtx, baseCancel := context.WithCancel(context.Background())
+	// Resolved here so the stream loop never has to reason about zero and negative: a zero means
+	// the default and a negative means off, and both are decided once, at construction.
+	heartbeat := opts.Heartbeat
+	if heartbeat == 0 {
+		heartbeat = defaultHeartbeat
+	}
+	if heartbeat < 0 {
+		heartbeat = 0
+	}
+
 	s := &Server{
 		opts: opts, listener: ln, sessions: map[string]*conversation{DefaultSession: first},
 		baseCtx: baseCtx, baseCancel: baseCancel,
+		heartbeat: heartbeat,
 	}
 	s.mux = s.routes()
 	s.server = &http.Server{

@@ -162,11 +162,38 @@ func (s *Server) attach(w http.ResponseWriter, r *http.Request, c *conversation,
 	// A finished run needs no special case here: `done` is closed after the last append, so the
 	// select below fires on it immediately, drains what is left and returns. The early return
 	// bought one skipped loop iteration in exchange for a race.
+	// A comment line is written on a timer so a middlebox between here and a phone does not
+	// conclude the connection is dead and cut it.
+	//
+	// The interval is well under the shortest idle timeout in common use (a mobile carrier NAT
+	// commonly drops a connection idle for 30 to 60 seconds), because the failure it prevents is
+	// silent and looks like the RUN died: the client sees a closed stream, reattaches, and the
+	// user loses the tail of a turn that was still running.
+	//
+	// It is a COMMENT and not an event: a comment carries no data, so a client that does not
+	// understand it cannot mis-render it, and no sequence number is consumed - the numbering
+	// belongs to the run's log, and a keepalive is not part of the log.
+	// s.heartbeat is always resolved at construction (see Options.Heartbeat): a zero here would be
+	// a ticker that fires immediately and forever, so there is deliberately no second fallback -
+	// one place decides it, and this is not it.
+	beat := time.NewTicker(s.heartbeat)
+	defer beat.Stop()
+
 	for {
 		select {
 		case <-r.Context().Done():
 			// This client is gone. Only this reader is affected; the run keeps its log.
 			return
+		case <-beat.C:
+			// Written from THIS goroutine, the only one that writes to this connection - see the
+			// note at the top of this function. A heartbeat goroutine of its own would be a second
+			// writer on the same ResponseWriter, which is the one hazard a keepalive introduces.
+			if _, err := io.WriteString(w, ": keepalive\n\n"); err != nil {
+				return
+			}
+			if err := rc.Flush(); err != nil {
+				return
+			}
 		case <-rn.done:
 			// The run ended, so nothing more will be appended and the queue holds the rest. The
 			// drain is what makes a run that finished WHILE this client was joining still reach it.
