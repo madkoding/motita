@@ -164,6 +164,30 @@ tunnel: `ssh -N -L 7477:127.0.0.1:7477 the-host`. There is **no TLS** in this
 version, which is exactly why exposing it on a LAN is two deliberate acts and not
 one.
 
+**The two halves come apart.** `-serve` runs the gateway and no interface; `-connect` runs the
+interface and no gateway:
+
+```bash
+# on the machine that runs the commands
+starlight -serve -gateway 127.0.0.1:7477
+
+# anywhere else — no sandbox, no reasoning engine, no agent in this process
+starlight -connect 127.0.0.1:7477 -tui
+starlight -connect 127.0.0.1:7477 -session s7f3a1c9e -tui
+starlight -connect 127.0.0.1:7477 -p "how many files are there?"
+```
+
+A process in `-connect` mode builds **no sandbox, no procedure library and no reasoning
+engine** — all three belong to the machine running the gateway. That is what lets it run
+where the agent could never run: a laptop, a phone, a tablet. Reach a gateway on another
+host through a tunnel (`ssh -N -L 7477:127.0.0.1:7477 the-host`); there is no TLS in this
+version, which is why exposing it on a LAN stays two deliberate acts.
+
+Inside the interface, `/sessions` lists the conversations the gateway holds — marking the
+one you are on and naming any with a run in flight — and `/attach <id>` moves to another
+one. The token is **read** from `gateway.token`, never minted, and a `-session` the
+gateway does not hold is refused at start with the list of the ones it does.
+
 ### More than one conversation at a time
 
 A gateway holds **several conversations at once**, each with its own run slot, its

@@ -66,7 +66,7 @@ func (op Options) newClient(baseURL, token, session string) tui.Runner {
 // It does NOT start a gateway, not even a private one. That is the difference from the embedded
 // interface: here there is no agent in this process at all, and pretending otherwise by starting a
 // local one would quietly create a SECOND conversation that the user is not looking at.
-func (op Options) runClient(_ context.Context, fl flags, cfg config.Config) int {
+func (op Options) runClient(ctx context.Context, fl flags, cfg config.Config) int {
 	if op.RunTUI != nil {
 		// The test seam still wins: a test that wants to observe the interface must not need a
 		// gateway listening on a port.
@@ -94,6 +94,24 @@ func (op Options) runClient(_ context.Context, fl flags, cfg config.Config) int 
 	if err := checkSession(client, session); err != nil {
 		fmt.Fprintf(op.Err, "%v\n", err)
 		return ConfigError
+	}
+
+	// A one-shot prompt is the script's path: one question, the answer on stdout, no interface. It
+	// is what makes a client useful on a machine with no terminal, which is the same reason -serve
+	// exists for the other side.
+	//
+	// It is checked BEFORE any drawing, so the answer is the only thing on stdout and a pipeline
+	// gets exactly what it asked for.
+	if fl.prompt != "" {
+		answer, err := client.RunPlan(ctx, fl.prompt, func(format string, args ...any) {
+			fmt.Fprintf(op.Err, format, args...)
+		})
+		if err != nil {
+			fmt.Fprintf(op.Err, "❌ %v\n", err)
+			return RunError
+		}
+		fmt.Fprintln(op.Out, answer)
+		return Success
 	}
 
 	ui := tui.New(client)

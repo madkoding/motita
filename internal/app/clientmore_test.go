@@ -13,6 +13,7 @@ import (
 	"github.com/madkoding/starlight/internal/llm"
 	"github.com/madkoding/starlight/internal/logx"
 	"github.com/madkoding/starlight/internal/sandbox"
+	"github.com/madkoding/starlight/internal/session"
 	"github.com/madkoding/starlight/internal/tui"
 )
 
@@ -262,5 +263,118 @@ func TestTheAdapterCarriesAFailedListing(t *testing.T) {
 	}
 	if all != nil {
 		t.Errorf("a failed listing returned %v, it must return nothing", all)
+	}
+}
+
+// TestConnectWithAPromptAsksOnceAndPrintsTheAnswer: the mode a script uses, and the one that makes
+// a client useful on a machine with no terminal - the same reason -serve exists for the other side.
+// One question, the answer on stdout, no interface drawn and no agent in this process.
+func TestConnectWithAPromptAsksOnceAndPrintsTheAnswer(t *testing.T) {
+	silence(t)
+	srv := planServer(t, []string{"the answer"})
+	defer srv.Close()
+	cfgPath := planConfig(t, srv)
+	writeTokenFile(t, cfgPath)
+
+	var out strings.Builder
+	op, _ := connectOptions(t, &out, []string{
+		"-config", cfgPath, "-connect", srv.URL, "-session", "default",
+		"-p", "how many files are there?",
+	})
+	// The client is the seam, and it is a runner that answers the one question.
+	op.NewClient = func(baseURL, tok, session string) tui.Runner {
+		return answerRunner{answer: "the answer"}
+	}
+
+	if code := Run(op); code != Success {
+		t.Fatalf("Run = %d; output: %s", code, out.String())
+	}
+	if !strings.Contains(out.String(), "the answer") {
+		t.Errorf("the answer was not printed: %s", out.String())
+	}
+}
+
+// answerRunner is a tui.Runner that returns one plan answer and records nothing else.
+type answerRunner struct{ answer string }
+
+func (answerRunner) RunTask(context.Context, string, func(string, ...any)) (string, error) {
+	return "", nil
+}
+
+func (r answerRunner) RunPlan(_ context.Context, _ string, progress func(string, ...any)) (string, error) {
+	// The progress callback is exercised here rather than left unrun: it is how a long answer
+	// reports what it is doing, and it goes to STDERR precisely so stdout carries the answer alone.
+	if progress != nil {
+		progress("working on it\n")
+	}
+	return r.answer, nil
+}
+
+func (answerRunner) RunConfig(context.Context) error           { return nil }
+func (answerRunner) ConversationReport() string                { return "" }
+func (answerRunner) ConversationSummary() session.Snapshot     { return session.Snapshot{} }
+func (answerRunner) ResetConversation()                        {}
+func (answerRunner) RunModels(context.Context) (string, error) { return "", nil }
+func (answerRunner) Config() config.Config                     { return config.Default() }
+func (answerRunner) SetReasoning(string)                       {}
+func (answerRunner) RecordVerdict(bool, string) string         { return "" }
+func (answerRunner) RewardReport() string                      { return "" }
+
+// TestConnectWithAPromptReportsAFailedAnswer: a script needs a NON-ZERO exit when the question
+// could not be answered, or a failure becomes an empty string in a pipeline and nobody notices.
+func TestConnectWithAPromptReportsAFailedAnswer(t *testing.T) {
+	silence(t)
+	srv := planServer(t, []string{"unused"})
+	defer srv.Close()
+	cfgPath := planConfig(t, srv)
+	writeTokenFile(t, cfgPath)
+
+	var out strings.Builder
+	op, _ := connectOptions(t, &out, []string{
+		"-config", cfgPath, "-connect", srv.URL, "-p", "anything",
+	})
+	op.NewClient = func(baseURL, tok, session string) tui.Runner { return failingPlanRunner{} }
+
+	if code := Run(op); code == Success {
+		t.Fatalf("a failed question must not exit Success; output: %s", out.String())
+	}
+	if !strings.Contains(out.String(), "boom") {
+		t.Errorf("the failure must be reported, got: %s", out.String())
+	}
+}
+
+// failingPlanRunner is a runner whose plan fails, for the exit code.
+type failingPlanRunner struct{ answerRunner }
+
+func (failingPlanRunner) RunPlan(context.Context, string, func(string, ...any)) (string, error) {
+	return "", errors.New("boom")
+}
+
+// TestAFailedQuestionStillPrintsItsProgressToStderr: progress on stderr and the answer on stdout is
+// what makes "-connect ... -p" usable in a pipeline: the answer is the only thing a downstream
+// command sees, while a human watching the terminal still gets told what is happening.
+func TestAFailedQuestionStillPrintsItsProgressToStderr(t *testing.T) {
+	silence(t)
+	srv := planServer(t, []string{"unused"})
+	defer srv.Close()
+	cfgPath := planConfig(t, srv)
+	writeTokenFile(t, cfgPath)
+
+	var stdout, stderr strings.Builder
+	op, _ := connectOptions(t, &stderr, []string{
+		"-config", cfgPath, "-connect", srv.URL, "-p", "anything",
+	})
+	op.Out = &stdout
+	op.Err = &stderr
+	op.NewClient = func(baseURL, tok, session string) tui.Runner { return answerRunner{answer: "42"} }
+
+	if code := Run(op); code != Success {
+		t.Fatalf("Run = %d; stderr: %s", code, stderr.String())
+	}
+	if got := strings.TrimSpace(stdout.String()); got != "42" {
+		t.Errorf("stdout = %q, it must carry the answer and nothing else", got)
+	}
+	if !strings.Contains(stderr.String(), "working on it") {
+		t.Errorf("progress did not reach stderr: %q", stderr.String())
 	}
 }

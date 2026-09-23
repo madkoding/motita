@@ -528,7 +528,32 @@ interface is a client of it.
 | `max_body_kb` | `256` | Cap on a request body. |
 | `max_sessions` | `0` | How many conversations one process holds. `0` means the built-in default. A negative ceiling is refused rather than read as the default, which would hide the typo that produced it. |
 
-Reaching the gateway from another machine takes **two deliberate acts**: a
+#### Running as a client
+
+`-connect <host:port>` and `-session <id>` make this process a remote control:
+
+| What it needs | What it does not |
+|---|---|
+| the gateway's address | a sandbox: commands run on the gateway's machine |
+| the token, **read** from `gateway.token` (never minted) | a procedure library: it belongs to the gateway |
+| network reach to the port | a reasoning engine: the model is called there |
+
+The address may be written with or without a scheme — `127.0.0.1:7477` and
+`http://127.0.0.1:7477` are the same thing — because nobody types a scheme for an
+address they are looking at.
+
+The token file is read and never created: a client that generated one would present a
+credential nobody recognises, get a 401 on every request, and leave a secret in a file
+the operator never asked for. If it is missing, the error names the path.
+
+An unknown `-session` is refused at start, and the refusal lists the sessions the gateway
+does hold — a dead end becomes a next step, at the cost of one request.
+
+`-p "question"` asks once and prints the answer on **stdout**, with progress on stderr, so
+a pipeline gets the answer and nothing else. It is the mode a script uses, and the reason
+a client is useful on a machine with no terminal. `-serve` and `-connect` together are
+refused: one makes this process the gateway, the other a client of one.
+
 non-loopback listen address *and* `allow_lan`. Neither on its own is enough, and
 that is the point — what is being exposed runs commands on this machine, so no
 default and no single flag may open it.
@@ -539,8 +564,8 @@ separate act. The supported way to reach a gateway on another machine is a tunne
 which never exposes it at all:
 
 ```bash
-ssh -N -L 8787:127.0.0.1:8787 the-host
-# then point the client at http://127.0.0.1:8787
+ssh -N -L 7477:127.0.0.1:7477 the-host
+# then point the client at http://127.0.0.1:7477
 ```
 
 The token is compared in constant time and is never printed by `-validate-config`
