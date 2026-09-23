@@ -65,6 +65,21 @@ type Service interface {
 	// Taking clears because the window is opened once per question set: without that, a
 	// repaint would reopen a window the user had already closed.
 	TakePendingQuestions() ([]agent.AskItem, string)
+	// Transcript returns the conversation so far, as the turns a front end draws.
+	//
+	// It is the answer to "I just connected, what has been said?": a client cannot be expected to
+	// have been there for every turn, and the figures alone (ConversationReport, ConversationSummary)
+	// are numbers, not a conversation. Without this a client that joins an existing conversation has
+	// nothing to put on the screen.
+	//
+	// It is also how a client recovers from a dropped connection. Re-reading the turns is much less
+	// code than reconciling a log of streamed events, and it cannot desynchronise: the turns are the
+	// conversation, so there is no second version of it to disagree with.
+	//
+	// It deliberately does NOT expose Plan mode's raw message history. That history is the model's
+	// own view - system prompt, tool calls, tool results - and a front end that rendered it would be
+	// showing the user a wire format. What belongs on a screen is the turns below.
+	Transcript() []agent.DialogueTurn
 	// SetApprover installs the channel a consequential command is confirmed through.
 	//
 	// The SERVER installs its own before every run. It has to: a command that needs approval

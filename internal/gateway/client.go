@@ -542,6 +542,42 @@ func (c *Client) RunStatus(ctx context.Context) (RunInfo, error) {
 	return out, nil
 }
 
+// Conversation returns the turns of the current conversation, oldest first.
+//
+// It is what makes attaching mean something: a client that switched conversations and showed an
+// empty screen would be telling the user they are in a conversation while showing them none of it.
+//
+// The read goes to the gateway every time and is never cached - the interface's claim is that
+// everything it shows comes from the gateway, and a cached conversation is one that can disagree
+// with the live one.
+//
+// It returns a type of THIS package and not one of internal/tui: the two must not import each
+// other, and internal/app is the only place that knows both sides. That is the same division the
+// package comment describes for every other method here.
+func (c *Client) Conversation(ctx context.Context) ([]Turn, error) {
+	var out struct {
+		Messages []Turn `json:"messages"`
+	}
+	if err := c.do(ctx, http.MethodGet, c.scoped("/messages"), nil, &out); err != nil {
+		return nil, err
+	}
+	return out.Messages, nil
+}
+
+// Turn is one turn of a conversation, as it arrives from the gateway.
+//
+// It is a type of this package and not of the interface, so that the wire shape can be described
+// here without either package depending on the other. The fields are exported with the names the
+// gateway's JSON already uses, so no translation table is needed on the way in.
+type Turn struct {
+	User  string `json:"User"`
+	Agent string `json:"Agent"`
+	// Kind records what the turn was, so a reader can tell a chat turn from a finished task. It is
+	// carried rather than dropped because the wire has it and a front end may want it later; the
+	// text interface ignores it today.
+	Kind string `json:"Kind"`
+}
+
 // RunInfo is a run in flight, as the gateway reports it.
 type RunInfo struct {
 	RunID string `json:"run_id"`

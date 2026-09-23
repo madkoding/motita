@@ -15,6 +15,19 @@ type switcherRunner struct {
 	sessions []SessionInfo
 	current  string
 	err      error
+	// transcript is the conversation of each session, keyed by id. It is what coming BACK to a
+	// conversation reads, so a double without it can only exercise the empty case.
+	transcript map[string][]Turn
+	// conversationErr fails the READ alone, so "the switch happened but the conversation could
+	// not be read" is a branch a test can reach without also failing the switch.
+	conversationErr error
+}
+
+func (r *switcherRunner) Conversation(context.Context) ([]Turn, error) {
+	if r.conversationErr != nil {
+		return nil, r.conversationErr
+	}
+	return r.transcript[r.current], nil
 }
 
 // switcher builds the double with the embedded fakeRunner ready, and a TUI whose output can be
@@ -43,6 +56,128 @@ func (r *switcherRunner) SwitchSession(_ context.Context, id string) error {
 }
 
 func (r *switcherRunner) CurrentSession() string { return r.current }
+
+// messagesSnapshot is the conversation as the view holds it.
+//
+// It is a test helper and not an exported method: production code has no reason to read the
+// view's messages, and adding the method for a test's convenience would be production code
+// written for the test.
+func (t *TUI) messagesSnapshot() []Message {
+	t.draw.Lock()
+	defer t.draw.Unlock()
+	return append([]Message(nil), t.messages...)
+}
+
+// TestAttachingReadsTheConversationItIsReturningTo: coming back to a session means seeing what
+// happened while you were away. A cleared view with the new status bar is the one outcome that
+// makes "attach" worse than useless - the user is told they are in a conversation and shown none
+// of it.
+//
+// The content is read from the GATEWAY and not from anything the interface kept, which is the same
+// rule as everywhere else: the interface's claim is that everything it shows comes from the
+// gateway.
+//
+// It goes through the package's own newFakeTUI rather than tui.New: New writes frames to
+// os.Stdout, and a test that draws on the real terminal is a test whose output nobody can read.
+func TestAttachingReadsTheConversationItIsReturningTo(t *testing.T) {
+	r := &switcherRunner{
+		sessions: []SessionInfo{{ID: "default"}, {ID: "sabc"}},
+		current:  "default",
+		transcript: map[string][]Turn{
+			"sabc": {
+				{User: "count the files"},
+				{Agent: "there are twelve"},
+			},
+		},
+	}
+	ui := switcher(r)
+
+	if err := ui.attachTo(context.Background(), "sabc"); err != nil {
+		t.Fatalf("attachTo: %v", err)
+	}
+
+	got := ui.messagesSnapshot()
+	if len(got) != 3 {
+		// Two turns read back, and the line that says which conversation was entered.
+		t.Fatalf("the attached view holds %d messages, the two turns and the announcement must be drawn: %+v", len(got), got)
+	}
+	if got[0].Author != AuthorUser || got[0].Text != "count the files" {
+		t.Errorf("the first line is %+v, it must be what the user said", got[0])
+	}
+	if got[1].Author != AuthorAgent || got[1].Text != "there are twelve" {
+		t.Errorf("the second line is %+v, it must be what the agent answered", got[1])
+	}
+	if !strings.Contains(got[2].Text, "sabc") {
+		t.Errorf("the attach must say which conversation was entered, got %+v", got[2])
+	}
+}
+
+// TestAttachingToAnEmptySessionSaysSo: a conversation with nothing in it must not look like a
+// failed attach. An empty screen is ambiguous - it could be a conversation with no turns or a view
+// that never loaded - and one line removes the ambiguity.
+func TestAttachingToAnEmptySessionSaysSo(t *testing.T) {
+	r := &switcherRunner{sessions: []SessionInfo{{ID: "fresh"}}, current: "default"}
+	ui := switcher(r)
+
+	if err := ui.attachTo(context.Background(), "fresh"); err != nil {
+		t.Fatalf("attachTo: %v", err)
+	}
+	got := ui.messagesSnapshot()
+	if len(got) == 0 || !strings.Contains(got[len(got)-1].Text, "fresh") {
+		t.Fatalf("attaching to an empty conversation must say which one it is; view holds %+v", got)
+	}
+}
+
+// TestAttachingReplacesTheConversationItLeft: the lines on screen belong to the conversation being
+// LEFT. Keeping them beside the new one's status bar is a view that lies about which conversation
+// it is showing, and it is the same failure as the blank screen seen from the other side.
+func TestAttachingReplacesTheConversationItLeft(t *testing.T) {
+	r := &switcherRunner{
+		sessions:   []SessionInfo{{ID: "default"}, {ID: "sabc"}},
+		current:    "default",
+		transcript: map[string][]Turn{"sabc": {{Agent: "the answer from sabc"}}},
+	}
+	ui := switcher(r)
+	ui.addMessage(AuthorUser, "something said in the old conversation")
+
+	if err := ui.attachTo(context.Background(), "sabc"); err != nil {
+		t.Fatalf("attachTo: %v", err)
+	}
+	for _, m := range ui.messagesSnapshot() {
+		if strings.Contains(m.Text, "old conversation") {
+			t.Fatalf("the previous conversation is still on screen: %+v", ui.messagesSnapshot())
+		}
+	}
+	// And the frame is rebuilt: the diffing painter compares against the rows it last wrote, so
+	// a replaced conversation with a stale frame would leave the previous conversation's lines
+	// on the terminal - which is exactly the lie this whole method avoids.
+	if strings.Contains(strings.Join(ui.lastFrame, "\n"), "old conversation") {
+		t.Fatalf("the last frame still holds the previous conversation:\n%s", strings.Join(ui.lastFrame, "\n"))
+	}
+}
+
+// TestAttachingReportsAConversationThatCouldNotBeRead: the switch happened and the read did not,
+// so the user is IN a conversation whose content could not be fetched. That is a failure worth
+// reporting: silently showing the empty view would look exactly like a conversation with no turns.
+func TestAttachingReportsAConversationThatCouldNotBeRead(t *testing.T) {
+	r := &switcherRunner{
+		sessions:        []SessionInfo{{ID: "default"}, {ID: "sabc"}},
+		current:         "default",
+		conversationErr: errors.New("connection refused"),
+	}
+	ui := switcher(r)
+
+	err := ui.attachTo(context.Background(), "sabc")
+	if err == nil {
+		t.Fatal("a conversation that could not be read must be reported")
+	}
+	if !strings.Contains(err.Error(), "sabc") {
+		t.Errorf("the failure must name the session it is about, got: %v", err)
+	}
+	if r.current != "sabc" {
+		t.Errorf("the switch did happen and must not be undone, the runner is on %q", r.current)
+	}
+}
 
 // TestSessionSwitcherIsOptional: it is an OPTIONAL capability, resolved by a type assertion, the
 // same pattern askSource and taskObserver already use. Requiring it on Runner would mean every
@@ -89,27 +224,6 @@ func TestAttachingChangesTheSessionAndSaysSo(t *testing.T) {
 	}
 	if got := r.current; got != "sabc" {
 		t.Errorf("the runner is on session %q, the attach must have happened", got)
-	}
-}
-
-// TestAttachingClearsTheView: the conversation changed underneath the view, so what is on screen
-// belongs to the OLD one. Showing the previous conversation's lines beside the new one's status bar
-// is a view that lies about which conversation it is.
-func TestAttachingClearsTheView(t *testing.T) {
-	r := &switcherRunner{sessions: []SessionInfo{{ID: "default"}, {ID: "sabc"}}, current: "default"}
-	ui := switcher(r)
-	ui.addMessage(AuthorUser, "something said in the old conversation")
-
-	if err := ui.attachTo(context.Background(), "sabc"); err != nil {
-		t.Fatalf("attachTo: %v", err)
-	}
-	if len(ui.messages) != 0 {
-		t.Errorf("the view still holds %d messages from the previous conversation", len(ui.messages))
-	}
-	// And the painter must repaint from scratch: the diffing writer compares against the last
-	// frame, so a cleared conversation with a stale frame would leave the old lines on screen.
-	if ui.paintedScreen {
-		t.Error("the frame must be marked unpainted, or the old conversation stays on the terminal")
 	}
 }
 

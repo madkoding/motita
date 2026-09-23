@@ -698,6 +698,14 @@ func (r *AppRunner) history() []agent.DialogueTurn {
 	return append([]agent.DialogueTurn(nil), r.transcript...)
 }
 
+// Transcript returns the Task-mode conversation, which is what a front end draws.
+//
+// It is the EXPORTED half of history(), and it exists so that the gateway's Service contract can
+// reach it without this package importing internal/gateway - the interface is declared
+// structurally, so the method name is the whole coupling. The copy is deliberate: the caller gets
+// the turns as they were, and a turn appended a moment later cannot change the slice it holds.
+func (r *AppRunner) Transcript() []agent.DialogueTurn { return r.history() }
+
 // remember stores the conversation a finished turn ended with.
 func (r *AppRunner) remember(turns []agent.DialogueTurn) {
 	r.transcriptMu.Lock()

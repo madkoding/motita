@@ -38,7 +38,10 @@ type fakeService struct {
 	reward    string
 	questions []agent.AskItem
 	origin    string
-	approver  agent.Approver
+	// transcript is the conversation the service holds. It is what the read endpoint publishes,
+	// so a test can put a conversation there and read it back over HTTP.
+	transcript []agent.DialogueTurn
+	approver   agent.Approver
 	// approverWrap is called by SetApprover, so a test can reach the approver the SERVER
 	// installed without the service having to hand it back. The server owns that wiring and the
 	// test only observes it.
@@ -92,6 +95,12 @@ func (f *fakeService) SetApprover(fn agent.Approver) {
 	if f.approverWrap != nil {
 		f.approverWrap(fn)
 	}
+}
+
+// Transcript answers the conversation so far. It hands out a COPY, exactly like the production
+// runner does: a caller that mutated the slice it was given would be editing the conversation.
+func (f *fakeService) Transcript() []agent.DialogueTurn {
+	return append([]agent.DialogueTurn(nil), f.transcript...)
 }
 
 // newTestServer starts a REAL listener on loopback with an ephemeral port.

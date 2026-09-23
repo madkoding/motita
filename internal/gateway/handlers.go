@@ -27,6 +27,31 @@ func (s *Server) handleSession(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, convOf(r).svc.ConversationSummary())
 }
 
+// handleMessages answers the conversation so far.
+//
+// The route did not exist until now, and that is worth saying: the plan that was supposed to add
+// it (the remote-client plan) was never implemented, so a client could switch conversations but
+// had nothing to draw. It is registered the same way every other conversation endpoint is, by
+// session, and never by a second addressing scheme - one rule with no exceptions is what makes the
+// table readable.
+//
+// agent.DialogueTurn goes on the wire as it is, with no parallel DTO, for the same reason
+// session.Snapshot does in handleSession: its fields are already exported and already have the
+// shape the wire wants, and a second struct with the same fields is drift waiting to happen.
+//
+// It is behind the token, like every other conversation endpoint: it is the most revealing thing
+// this gateway holds - every task the user described and everything the agent answered.
+//
+// An empty LIST rather than null, always: a client that has to tell "nothing has been said" from
+// "the field is missing" is a client with a bug waiting to happen, and the fix costs one line.
+func (s *Server) handleMessages(w http.ResponseWriter, r *http.Request) {
+	turns := convOf(r).svc.Transcript()
+	if turns == nil {
+		turns = []agent.DialogueTurn{}
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"messages": turns})
+}
+
 // handleSessionReport answers the human-readable report.
 //
 // The text is a rendered block, not a structure, because that is what the runner produces: it is

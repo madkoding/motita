@@ -89,8 +89,10 @@ var commandActions = map[string]func(t *TUI, ctx context.Context, arg string) bo
 	// The list of conversations, and which one this interface is on. It is how a user discovers
 	// that the gateway holds more than one, and the ids the other command takes.
 	"/sessions": func(t *TUI, ctx context.Context, _ string) bool { t.printSessions(ctx); return false },
-	// Moving to another conversation. The interface is on ONE at a time: that is what the user is
-	// looking at, and two of them side by side is a different interface.
+	// Moving to another conversation, and READING it: coming back to a conversation means seeing
+	// what happened while you were away, so the announcement is made by attachTo itself - one
+	// place says what entering a session means, and a second message here would be a second
+	// version of it.
 	"/attach": func(t *TUI, ctx context.Context, arg string) bool {
 		id := strings.TrimSpace(arg)
 		if id == "" {
@@ -101,9 +103,7 @@ var commandActions = map[string]func(t *TUI, ctx context.Context, arg string) bo
 			// Reported in the chat rather than swallowed: silence here would leave the user
 			// typing into a conversation they did not choose.
 			t.addMessage(AuthorSystem, err.Error())
-			return false
 		}
-		t.addMessage(AuthorSystem, "attached to session "+id)
 		return false
 	},
 	"/good": func(t *TUI, _ context.Context, note string) bool { t.recordVerdict(true, note); return false },

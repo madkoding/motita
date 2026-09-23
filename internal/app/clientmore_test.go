@@ -17,6 +17,56 @@ import (
 	"github.com/madkoding/starlight/internal/tui"
 )
 
+// TestTheAdapterTranslatesTheConversation: the interface's Turn and the gateway's Turn are two
+// types in two packages that cannot import each other, so this adapter is the only place the
+// conversation can cross. A translation that dropped a field would show the user a conversation
+// with the authors missing, which is a view that lies about who said what.
+func TestTheAdapterTranslatesTheConversation(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"messages":[
+			{"User":"count the files","Agent":"there are twelve","Kind":"task"},
+			{"User":"and the directories?","Agent":"three","Kind":"chat"}
+		]}`))
+	}))
+	defer srv.Close()
+
+	sw := sessionSwitcher{gateway.NewClientForSession(srv.URL, testToken, "default")}
+	turns, err := sw.Conversation(context.Background())
+	if err != nil {
+		t.Fatalf("Conversation: %v", err)
+	}
+	if len(turns) != 2 {
+		t.Fatalf("translated %d turns, want 2: %+v", len(turns), turns)
+	}
+	if turns[0].User != "count the files" || turns[0].Agent != "there are twelve" {
+		t.Errorf("the first turn lost something in the translation: %+v", turns[0])
+	}
+	if turns[1].Agent != "three" {
+		t.Errorf("the second turn lost something in the translation: %+v", turns[1])
+	}
+}
+
+// TestTheAdapterCarriesAFailedConversation: a gateway that cannot be asked what has been said must
+// produce an error, not an empty conversation. An empty list reads as "nothing has been said", which
+// is a different - and much more alarming - statement than "the question could not be asked".
+func TestTheAdapterCarriesAFailedConversation(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusUnauthorized)
+		_, _ = w.Write([]byte(`{"error":"no"}`))
+	}))
+	defer srv.Close()
+
+	sw := sessionSwitcher{gateway.NewClientForSession(srv.URL, testToken, "default")}
+	turns, err := sw.Conversation(context.Background())
+	if err == nil {
+		t.Fatal("a refused read must be reported")
+	}
+	if turns != nil {
+		t.Errorf("a failed read returned %v, it must return nothing", turns)
+	}
+}
+
 // TestNewClientWithoutASeamBuildsARealClient: the seam is for tests, and a process without one must
 // still get a working client. Without this the seam would be the ONLY construction path, and the
 // real program would be the one case nobody exercises.

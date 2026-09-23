@@ -45,6 +45,24 @@ func (s sessionSwitcher) ListSessions(ctx context.Context) ([]tui.SessionInfo, e
 	return out, nil
 }
 
+// Conversation translates the conversation the gateway holds into the shape the interface draws.
+//
+// The translation lives HERE and nowhere else: internal/gateway cannot import internal/tui (a cycle,
+// and the whole reason the gateway declares its interfaces structurally), so the client returns a
+// type of its own and this adapter is where the two meet. It is the same job ListSessions does, for
+// the same reason.
+func (s sessionSwitcher) Conversation(ctx context.Context) ([]tui.Turn, error) {
+	turns, err := s.Client.Conversation(ctx)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]tui.Turn, 0, len(turns))
+	for _, item := range turns {
+		out = append(out, tui.Turn{User: item.User, Agent: item.Agent})
+	}
+	return out, nil
+}
+
 // newClient builds the gateway client a front end speaks through, and is the one place the
 // construction happens: the embedded interface and the remote one differ in WHICH address and
 // WHICH session they are given, never in how they are built.
