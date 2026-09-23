@@ -193,6 +193,12 @@ func (r *run) subscriberCount() int {
 // A run finishes EXACTLY once: the agent's turn has one ending, and a second one would report an
 // outcome for a turn that already had one - which is how a cancelled run gets reported as a
 // success. Callers therefore never have to reason about which finish won.
+//
+// It does NOT cut off the subscribers. Cutting off means "you cannot keep up", and a run that
+// ended is not a reader that fell behind: its events are still in the channel, waiting to be read.
+// A reader is woken by done and drains what is left before closing its stream. Doing it the other
+// way around made every fast run look to its own client like a reader that had fallen behind -
+// which is a lie about a turn that simply finished quickly.
 func (r *run) finish(outcome, result, errText string, snap session.Snapshot) {
 	r.mu.Lock()
 	if r.outcome != "" {
@@ -200,18 +206,9 @@ func (r *run) finish(outcome, result, errText string, snap session.Snapshot) {
 		return
 	}
 	r.outcome, r.result, r.errText, r.snapshot = outcome, result, errText, snap
-	subs := make([]*subscriber, 0, len(r.subs))
-	for s := range r.subs {
-		subs = append(subs, s)
-	}
 	r.mu.Unlock()
 
 	close(r.done)
-	// Every subscriber is told the run ended, so a reader waiting on an empty log wakes up and can
-	// close its stream instead of hanging until the client gives up.
-	for _, s := range subs {
-		s.cutOff()
-	}
 }
 
 // outcomeOf reports how the run ended, and whether it has.

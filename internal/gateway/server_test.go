@@ -360,11 +360,14 @@ func TestMarshalEventReportsWhatCannotBeEncoded(t *testing.T) {
 func TestWriteEventFramesOneDataLine(t *testing.T) {
 	w := httptest.NewRecorder()
 	rc := http.NewResponseController(w)
-	if err := writeEvent(w, rc, EventProgress, progressEvent{Text: "a line"}); err != nil {
+	if err := writeEvent(w, rc, 7, EventProgress, progressEvent{Text: "a line"}); err != nil {
 		t.Fatalf("writeEvent: %v", err)
 	}
 	body := w.Body.String()
-	if body != "event: progress\ndata: {\"text\":\"a line\"}\n\n" {
+	// The `id:` line carries the SEQUENCE NUMBER, which is what a client sends back to resume.
+	// Asserting the whole frame and not just its presence is what keeps the wire format from
+	// drifting one field at a time.
+	if body != "id: 7\nevent: progress\ndata: {\"text\":\"a line\"}\n\n" {
 		t.Errorf("body = %q", body)
 	}
 	// The invariant the client depends on: exactly one line carrying data, so it can dispatch
@@ -377,7 +380,7 @@ func TestWriteEventFramesOneDataLine(t *testing.T) {
 func TestWriteEventReportsAnUnencodablePayload(t *testing.T) {
 	w := httptest.NewRecorder()
 	rc := http.NewResponseController(w)
-	if err := writeEvent(w, rc, EventError, make(chan int)); err == nil {
+	if err := writeEvent(w, rc, 0, EventError, make(chan int)); err == nil {
 		t.Fatal("an unencodable payload must be reported")
 	}
 }
@@ -386,7 +389,7 @@ func TestWriteEventReportsAFailedWrite(t *testing.T) {
 	// A client that went away mid-stream. The error is what the caller turns into "stop
 	// streaming"; swallowing it would keep a run producing lines for nobody.
 	rc := http.NewResponseController(failingWriter{})
-	err := writeEvent(failingWriter{}, rc, EventProgress, progressEvent{Text: "x"})
+	err := writeEvent(failingWriter{}, rc, 0, EventProgress, progressEvent{Text: "x"})
 	if err == nil {
 		t.Fatal("a failed write must be reported")
 	}

@@ -228,6 +228,11 @@ func TestUnsubscribingTwiceIsSafe(t *testing.T) {
 // TestFinishingTellsEverySubscriberToStop: a reader waiting on an empty log has to wake up when the
 // run ends, or it hangs on its socket until the client gives up - and a finished run with no events
 // is exactly the case where there is nothing to wake it.
+//
+// It is woken through `done` and NOT by being cut off. Cutting off means "you could not keep up",
+// and a reader that was cut off would go and reconnect for events that are sitting in its own
+// buffer - it would re-fetch what it was already given. The distinction matters most in this exact
+// case: a run with nothing to say still has an ending to report.
 func TestFinishingTellsEverySubscriberToStop(t *testing.T) {
 	r := newTestRun()
 	sub := r.subscribe()
@@ -236,10 +241,15 @@ func TestFinishingTellsEverySubscriberToStop(t *testing.T) {
 	r.finish("done", "the result", "", session.Snapshot{})
 
 	select {
-	case <-sub.lost:
-		// The reader was told, which is what lets it close its stream.
+	case <-r.done:
+		// The reader was told, which is what lets it drain and close its stream.
 	default:
-		t.Fatal("finishing the run left a subscriber attached with nothing to read")
+		t.Fatal("finishing the run left a reader with no way to learn the run ended")
+	}
+	select {
+	case <-sub.lost:
+		t.Error("a finished run cut its reader off, which reads to the client as 'you fell behind'")
+	default:
 	}
 	if _, _, _, finished := r.outcomeOf(); !finished {
 		t.Error("the run reports itself unfinished after finishing")

@@ -66,6 +66,15 @@ type Server struct {
 	closeOnce sync.Once
 	closeErr  error
 
+	// baseCtx is cancelled when this server closes, and every run derives its context from it.
+	//
+	// A run is NOT bounded by its connection - that is the whole point of it being an object - so
+	// it needs some other bound or a gateway that shut down would leave turns running with
+	// nowhere to report. The process's own lifetime is that bound, and it is deliberately not the
+	// request's.
+	baseCtx    context.Context
+	baseCancel context.CancelFunc
+
 	// sessionsMu guards the registry. The conversations themselves are safe to use without it:
 	// each is guarded by its own locks, and this is only read to find one.
 	sessionsMu sync.Mutex
@@ -109,7 +118,11 @@ func Start(opts Options) (*Server, error) {
 		opts.MaxBodyKB = defaultMaxBodyKB
 	}
 	first := newConversation(DefaultSession, opts.Service)
-	s := &Server{opts: opts, listener: ln, sessions: map[string]*conversation{DefaultSession: first}}
+	baseCtx, baseCancel := context.WithCancel(context.Background())
+	s := &Server{
+		opts: opts, listener: ln, sessions: map[string]*conversation{DefaultSession: first},
+		baseCtx: baseCtx, baseCancel: baseCancel,
+	}
 	s.mux = s.routes()
 	s.server = &http.Server{
 		Handler: s.mux,
@@ -149,8 +162,14 @@ func (s *Server) Serve() error {
 }
 
 // Close stops the listener and waits for the connections in flight, bounded by ctx.
+//
+// The runs in flight are cancelled FIRST. A run is not bounded by its connection any more, so
+// without this a gateway that shut down would leave a turn running with nowhere to report - and it
+// is cancelled before the listener closes, so the client that was watching it gets the cancellation
+// on its stream rather than a connection that just ends.
 func (s *Server) Close(ctx context.Context) error {
 	s.closeOnce.Do(func() {
+		s.baseCancel()
 		s.closeErr = s.server.Shutdown(ctx)
 	})
 	return s.closeErr
@@ -190,6 +209,9 @@ func (s *Server) routes() *http.ServeMux {
 	mux.Handle("GET /v1/sessions/{id}/questions", scoped(s.handleQuestions))
 	mux.Handle("POST /v1/sessions/{id}/task", scoped(s.handleTask))
 	mux.Handle("POST /v1/sessions/{id}/plan", scoped(s.handlePlan))
+	mux.Handle("GET /v1/sessions/{id}/run", scoped(s.handleRunStatus))
+	mux.Handle("GET /v1/sessions/{id}/events", scoped(s.handleAttach))
+	mux.Handle("POST /v1/sessions/{id}/cancel", scoped(s.handleCancelRun))
 	mux.Handle("POST /v1/sessions/{id}/runs/approval", scoped(s.handleApproval))
 	return mux
 }

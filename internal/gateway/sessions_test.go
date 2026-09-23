@@ -328,7 +328,9 @@ func (e errorString) Error() string { return string(e) }
 // session's answer did not resolve another's.
 func pendingApprovalID(t *testing.T, c *conversation) string {
 	t.Helper()
-	c.approvalMu.Lock()
-	defer c.approvalMu.Unlock()
-	return c.approvalID
+	p := c.pendingApprovalNow()
+	if p == nil {
+		return ""
+	}
+	return p.id
 }

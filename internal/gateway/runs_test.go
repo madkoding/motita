@@ -71,6 +71,19 @@ func collect(t *testing.T, srv *Server, method, path, body string) []event {
 	return readEvents(t, resp.Body)
 }
 
+// withoutPreamble drops the EventAttached frame every stream now opens with.
+//
+// It is NOT noise to be filtered out of the design - it is the frame that carries what a client
+// cannot learn from the events themselves. It is dropped here because these tests are about the
+// run's own events, and the preamble has tests of its own.
+func withoutPreamble(t *testing.T, events []event) []event {
+	t.Helper()
+	if len(events) == 0 || events[0].Event != EventAttached {
+		t.Fatalf("every stream must open with an %s preamble, got %+v", EventAttached, events)
+	}
+	return events[1:]
+}
+
 func TestATaskStreamsProgressAndEndsWithDone(t *testing.T) {
 	svc := &fakeService{task: func(_ context.Context, _ string, progress func(string, ...any)) (string, error) {
 		progress("reading the tree")
@@ -80,6 +93,8 @@ func TestATaskStreamsProgressAndEndsWithDone(t *testing.T) {
 	srv := newTestServer(t, svc)
 
 	events := collect(t, srv, http.MethodPost, sessionPath(srv, DefaultSession, "/task"), `{"task":"leave a report"}`)
+	// The preamble comes first, then the run's own events.
+	events = withoutPreamble(t, events)
 	if len(events) != 3 {
 		t.Fatalf("events = %+v, want 2 progress and 1 done", events)
 	}
@@ -164,7 +179,7 @@ func TestAPlanStreamCarriesTheSameFraming(t *testing.T) {
 	}}
 	srv := newTestServer(t, svc)
 
-	events := collect(t, srv, http.MethodPost, sessionPath(srv, DefaultSession, "/plan"), `{"prompt":"what is here?"}`)
+	events := withoutPreamble(t, collect(t, srv, http.MethodPost, sessionPath(srv, DefaultSession, "/plan"), `{"prompt":"what is here?"}`))
 	if len(events) != 2 || events[0].Event != EventProgress || events[1].Event != EventDone {
 		t.Fatalf("events = %+v", events)
 	}
@@ -531,9 +546,9 @@ func TestAnAnswerNeverBlocksOnAQuestionNobodyIsWaitingFor(t *testing.T) {
 	// A channel with a reader that already left, and an id that matches: the send must go
 	// through (buffered) or be dropped, but it must RETURN.
 	conv := srv.sessions[DefaultSession]
-	conv.approvalMu.Lock()
-	conv.approvalID, conv.approvalCh = "the-id", make(chan bool, 1)
-	conv.approvalMu.Unlock()
+	p := &pendingApproval{id: "the-id", ch: make(chan bool, 1)}
+	conv.setPendingApproval(p)
+	defer conv.clearPendingApproval()
 
 	done := make(chan int, 1)
 	go func() {
@@ -551,7 +566,7 @@ func TestAnAnswerNeverBlocksOnAQuestionNobodyIsWaitingFor(t *testing.T) {
 
 	// And the answer really was delivered on the channel.
 	select {
-	case v := <-conv.approvalCh:
+	case v := <-p.ch:
 		if !v {
 			t.Error("the answer arrived as a no")
 		}
@@ -574,9 +589,9 @@ func TestAMalformedApprovalBodyIsRefused(t *testing.T) {
 func TestAnAnswerWithTheWrongIDAgainstALiveQuestionIsRefused(t *testing.T) {
 	srv := newTestServer(t, &fakeService{})
 	conv := srv.sessions[DefaultSession]
-	conv.approvalMu.Lock()
-	conv.approvalID, conv.approvalCh = "the-real-id", make(chan bool, 1)
-	conv.approvalMu.Unlock()
+	p := &pendingApproval{id: "the-real-id", ch: make(chan bool, 1)}
+	conv.setPendingApproval(p)
+	defer conv.clearPendingApproval()
 
 	w := post(t, srv, sessionPath(srv, DefaultSession, "/runs/approval"), `{"id":"a-different-id","approve":true}`, testToken)
 	if w.Code != http.StatusConflict {
@@ -587,7 +602,7 @@ func TestAnAnswerWithTheWrongIDAgainstALiveQuestionIsRefused(t *testing.T) {
 	}
 	// And nothing was delivered on the channel: the command must not have been approved.
 	select {
-	case v := <-conv.approvalCh:
+	case v := <-p.ch:
 		t.Errorf("an answer with the wrong id reached the run: %v", v)
 	default:
 	}
@@ -601,9 +616,8 @@ func TestAnAnswerIsDroppedRatherThanBlockingOnAFullChannel(t *testing.T) {
 	full := make(chan bool, 1)
 	full <- true // the buffer is taken, as it would be if the run already read one answer
 	conv := srv.sessions[DefaultSession]
-	conv.approvalMu.Lock()
-	conv.approvalID, conv.approvalCh = "the-id", full
-	conv.approvalMu.Unlock()
+	conv.setPendingApproval(&pendingApproval{id: "the-id", ch: full})
+	defer conv.clearPendingApproval()
 
 	done := make(chan int, 1)
 	go func() {
@@ -623,20 +637,71 @@ func TestAnAnswerIsDroppedRatherThanBlockingOnAFullChannel(t *testing.T) {
 	}
 }
 
-// When the question cannot even be written to the stream, the approver refuses rather than
-// asking into the void. A question nobody can receive is a question nobody can answer, and
-// silence is not consent.
-func TestAnApprovalThatCannotBeWrittenIsRefused(t *testing.T) {
+// The approver records the question in TWO places before it blocks, and both are load-bearing.
+//
+// On the CONVERSATION, because that is what a client answers through - and what a reconnecting
+// client is told about in its preamble. In the run's LOG, because a client that was not connected
+// when the question was asked has to find it when it reattaches: the question is part of the
+// turn's history, not a packet sent once to whoever happened to be listening.
+func TestAnApprovalIsRecordedBeforeItBlocks(t *testing.T) {
 	srv := newTestServer(t, &fakeService{})
-	approver := srv.sessions[DefaultSession].approverFor(func(string, any) error {
-		return errors.New("the stream is gone")
-	})
-	ok, err := approver(context.Background(), agent.ApprovalRequest{Command: "rm -rf ./build"})
-	if err == nil {
-		t.Error("a failed write must be reported")
+	conv := srv.sessions[DefaultSession]
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	rn := newRun("r-test", ctx, cancel)
+
+	answered := make(chan struct{})
+	var got bool
+	var err error
+	go func() {
+		defer close(answered)
+		got, err = srv.approverFor(conv, rn)(ctx, agent.ApprovalRequest{
+			Command: "rm -rf ./build", Reason: "it deletes a directory", Rule: "destructive",
+		})
+	}()
+
+	// The question is on the conversation, with everything the user needs in order to decide.
+	var p *pendingApproval
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		if p = conv.pendingApprovalNow(); p != nil {
+			break
+		}
+		time.Sleep(5 * time.Millisecond)
 	}
-	if ok {
-		t.Error("a question that could not be asked must refuse")
+	if p == nil {
+		t.Fatal("the question was never recorded, so no client could answer it")
+	}
+	if p.command != "rm -rf ./build" || p.reason != "it deletes a directory" || p.rule != "destructive" {
+		t.Errorf("the recorded question lost its detail: %+v", p)
+	}
+	if p.id == "" {
+		t.Error("the question has no id, so an answer cannot be matched to it")
+	}
+
+	// And it is in the run's log, which is what a reattaching client reads.
+	replay, _ := rn.since(0)
+	if len(replay) != 1 || replay[0].Event != EventApproval {
+		t.Fatalf("the log holds %+v, the question must be there for a client that comes back", replay)
+	}
+	if !strings.Contains(string(replay[0].Data), "rm -rf ./build") {
+		t.Errorf("the logged question does not carry the command: %s", replay[0].Data)
+	}
+
+	// Answering it releases the approver, which is the blocking half.
+	p.ch <- true
+	select {
+	case <-answered:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the approver never returned after being answered")
+	}
+	if err != nil || !got {
+		t.Errorf("approver = (%v, %v), want (true, nil)", got, err)
+	}
+
+	// And the question is gone, so a late answer cannot land on the next one.
+	if conv.pendingApprovalNow() != nil {
+		t.Error("the question is still pending after being answered")
 	}
 }
 
@@ -730,24 +795,36 @@ func TestNewApprovalIDReportsAFailingSource(t *testing.T) {
 	}
 }
 
-// A client that could not be streamed to must not start a run: the turn's output would have
-// nowhere to go, and the agent would be working for nobody. startStream fails against a writer
-// that cannot flush, which is what an already-gone connection looks like from here.
-func TestAClientThatCannotBeStreamedToRunsNothing(t *testing.T) {
-	ran := false
+// A client whose stream cannot even be opened does NOT lose the run.
+//
+// The old behaviour was the opposite - the run was not started at all - and that is exactly the
+// property this design changes: the run is no longer bounded by its connection, so a client that
+// cannot read is a reader problem, not a reason to throw the turn away. The events go into the log
+// and wait for whoever attaches next.
+func TestAClientThatCannotBeStreamedToDoesNotLoseTheRun(t *testing.T) {
+	done := make(chan struct{})
 	srv := newTestServer(t, &fakeService{})
 	req := httptest.NewRequest(http.MethodPost, sessionPath(srv, DefaultSession, "/task"), strings.NewReader("{}"))
 
-	srv.sessions[DefaultSession].run(noFlushWriter{}, req, func(context.Context, func(string, ...any)) (string, error) {
-		ran = true
+	conv := srv.sessions[DefaultSession]
+	srv.startRun(noFlushWriter{}, req, conv, func(context.Context, func(string, ...any)) (string, error) {
+		close(done)
 		return "done", nil
 	})
-	if ran {
-		t.Error("a run started with nowhere to write its output")
+
+	select {
+	case <-done:
+		// The run happened, which is the point: nobody could watch it, and it is in the log.
+	case <-time.After(5 * time.Second):
+		t.Fatal("the run was abandoned because its client could not be written to")
 	}
-	// And the slot was released: a refused run must not leave the gateway refusing everybody.
-	if !srv.sessions[DefaultSession].takeRunSlot() {
-		t.Fatal("the run slot was leaked by a stream that never started")
+	// And the slot comes back, so a refused stream cannot leave the gateway refusing everybody.
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		if !conv.isRunning() {
+			return
+		}
+		time.Sleep(5 * time.Millisecond)
 	}
-	srv.sessions[DefaultSession].releaseRunSlot()
+	t.Fatal("the run slot was leaked by a stream that never started")
 }

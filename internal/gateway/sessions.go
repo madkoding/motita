@@ -48,10 +48,29 @@ type conversation struct {
 	lastUsed time.Time
 	running  bool
 
-	// approvalMu guards the question of the run in progress IN THIS CONVERSATION.
-	approvalMu sync.Mutex
-	approvalID string
-	approvalCh chan bool
+	// current is the run in flight, and nil when there is none.
+	//
+	// It replaces the loose context.CancelFunc the run used to be: a run is now an object that
+	// owns its events, its subscribers and its pending approval, and the conversation only has
+	// to know WHICH one is live so a client that reconnects can find it. Guarded by stateMu,
+	// the same lock as `running`, because the two are read together: the run slot being taken
+	// IS a run being current.
+	current *run
+	// pending is the approval waiting to be answered, and nil when nothing is being asked.
+	//
+	// It lives on the CONVERSATION rather than inside the run so that a client which reconnects
+	// can be told about it: the question was asked while it was away, and a client that is not
+	// told will sit forever watching a run that is waiting for the answer it will never give.
+	pending *pendingApproval
+}
+
+// pendingApproval is one question waiting for a human answer.
+type pendingApproval struct {
+	id      string
+	ch      chan bool
+	command string
+	reason  string
+	rule    string
 }
 
 func newConversation(id string, svc Service) *conversation {
@@ -90,6 +109,69 @@ func (c *conversation) isRunning() bool {
 	c.stateMu.Lock()
 	defer c.stateMu.Unlock()
 	return c.running
+}
+
+// currentRun returns the run in flight, if there is one.
+//
+// This is what a reconnecting client is answered with, and it is why the client keeps nothing: it
+// asks the gateway which run is live instead of remembering one.
+func (c *conversation) currentRun() (*run, bool) {
+	c.stateMu.Lock()
+	defer c.stateMu.Unlock()
+	if c.current == nil {
+		return nil, false
+	}
+	return c.current, true
+}
+
+// setCurrentRun installs a run as the live one.
+//
+// The slot is taken by the caller first (takeRunSlot), so by the time this runs there is no other
+// run to displace.
+func (c *conversation) setCurrentRun(r *run) {
+	c.stateMu.Lock()
+	defer c.stateMu.Unlock()
+	c.current = r
+}
+
+// clearCurrentRun drops the live run, and is called from a defer so a failing or panicking run
+// cannot leave a finished one looking live.
+func (c *conversation) clearCurrentRun() {
+	c.stateMu.Lock()
+	defer c.stateMu.Unlock()
+	c.current = nil
+}
+
+// setPendingApproval records the question being asked.
+func (c *conversation) setPendingApproval(p *pendingApproval) {
+	c.stateMu.Lock()
+	defer c.stateMu.Unlock()
+	c.pending = p
+}
+
+// pendingApprovalNow returns the question being asked, if any.
+func (c *conversation) pendingApprovalNow() *pendingApproval {
+	c.stateMu.Lock()
+	defer c.stateMu.Unlock()
+	return c.pending
+}
+
+// clearPendingApproval drops the question, and is called from a defer so a late answer cannot land
+// on the next one.
+func (c *conversation) clearPendingApproval() {
+	c.stateMu.Lock()
+	defer c.stateMu.Unlock()
+	c.pending = nil
+}
+
+// cancelRun stops the run in flight and reports whether there was one to stop.
+func (c *conversation) cancelRun() bool {
+	rn, ok := c.currentRun()
+	if !ok {
+		return false
+	}
+	rn.cancel()
+	return true
 }
 
 // SessionStatus is what the list and create endpoints report about one conversation.

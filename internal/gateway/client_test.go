@@ -560,10 +560,10 @@ func TestTheEventReaderUnderstandsTheEventWriter(t *testing.T) {
 	}
 	// A payload with a RAW newline in it: JSON escapes it, so the framing's one-line-per-event
 	// invariant survives content that would otherwise break it.
-	if err := writeEvent(rec, rc, EventProgress, progressEvent{Text: "a line\nwith a newline in it"}); err != nil {
+	if err := writeEvent(rec, rc, 0, EventProgress, progressEvent{Text: "a line\nwith a newline in it"}); err != nil {
 		t.Fatalf("writeEvent: %v", err)
 	}
-	if err := writeEvent(rec, rc, EventDone, doneEvent{Result: "the result"}); err != nil {
+	if err := writeEvent(rec, rc, 0, EventDone, doneEvent{Result: "the result"}); err != nil {
 		t.Fatalf("writeEvent: %v", err)
 	}
 
@@ -647,7 +647,7 @@ func TestALongLineIsNotTruncated(t *testing.T) {
 	if err := startStream(rec, rc); err != nil {
 		t.Fatalf("startStream: %v", err)
 	}
-	if err := writeEvent(rec, rc, EventProgress, progressEvent{Text: long}); err != nil {
+	if err := writeEvent(rec, rc, 0, EventProgress, progressEvent{Text: long}); err != nil {
 		t.Fatalf("writeEvent: %v", err)
 	}
 

@@ -24,6 +24,14 @@ const (
 	// A failure AFTER the first byte cannot be a status code - the 200 and the headers are
 	// already on the wire - so it belongs here, where the client is reading.
 	EventError = "error"
+	// EventAttached opens a stream that joined a run already in flight.
+	//
+	// It comes FIRST, before the replay, and it carries what a client cannot learn from the
+	// events themselves: the sequence range the log can still serve, whether anything was
+	// evicted, and the approval that is pending RIGHT NOW. A client that reconnects while the
+	// run is blocked on a question has to be told about it, or it waits forever for a run that
+	// is waiting for it.
+	EventAttached = "attached"
 )
 
 // progressEvent is one line of the agent's output.
@@ -48,6 +56,34 @@ type approvalEvent struct {
 type doneEvent struct {
 	Result  string           `json:"result"`
 	Session session.Snapshot `json:"session"`
+}
+
+// attachedEvent is the preamble of a stream that joined a run in flight.
+//
+// It is a SNAPSHOT and not a replay: the events after it are the run's own, and this says what
+// state they are arriving into. Every field here answers a question the events cannot: where the
+// log starts (so a client can tell it lost lines), what the newest sequence is (so it can tell it
+// is current), whether a question is open (so it can answer it), and how the run ended if it
+// already has (so it does not wait on a stream that will never produce anything).
+type attachedEvent struct {
+	RunID string `json:"run_id"`
+	// FirstSeq is the oldest event the log still holds. A client that asked to resume from an
+	// older one has lost events, and this is the number that says so.
+	FirstSeq uint64 `json:"first_seq"`
+	// LastSeq is the newest event in the log.
+	LastSeq uint64 `json:"last_seq"`
+	// Dropped is how many events were evicted before this client arrived. It is what turns
+	// "there is a hole" into "there is a hole of this size".
+	Dropped uint64 `json:"dropped"`
+	// PendingApproval is the question waiting for an answer, if the run is blocked on one.
+	//
+	// Omitted when nothing is being asked, rather than sent as null: a client switching on the
+	// field's presence should not have to also test for null.
+	PendingApproval *approvalEvent `json:"pending_approval,omitempty"`
+	// Outcome is empty while the run is in flight, and "done", "error" or "cancelled" after it
+	// ends. A client that attaches to a finished run is TOLD, instead of waiting on a stream
+	// that will never produce anything.
+	Outcome string `json:"outcome,omitempty"`
 }
 
 // startStream writes the headers a long-lived stream needs, and gets them on the wire before
@@ -75,12 +111,31 @@ func startStream(w http.ResponseWriter, rc *http.ResponseController) error {
 // it can never contain a raw newline (JSON escapes them). That invariant is what lets the
 // client dispatch on the data line instead of buffering multi-line events, and it is asserted
 // on both ends - see streamEvents in client.go.
-func writeEvent(w http.ResponseWriter, rc *http.ResponseController, event string, payload any) error {
+//
+// The `id:` line is what makes reconnection possible: SSE defines it so a client can remember
+// where it got to and ask for the rest, and without it an interrupted stream has to be
+// reconciled instead of resumed. It carries the SEQUENCE NUMBER from the run's log, so it means
+// the same thing across connections - a client that saw id 42 reconnects and asks for what
+// follows 42. A frame that is not part of the numbering (the preamble, a refusal) passes 0.
+func writeEvent(w http.ResponseWriter, rc *http.ResponseController, seq uint64, event string, payload any) error {
 	data, err := marshalEvent(payload)
 	if err != nil {
 		return err
 	}
-	if _, err := fmt.Fprintf(w, "event: %s\ndata: %s\n\n", event, data); err != nil {
+	if _, err := fmt.Fprintf(w, "id: %d\nevent: %s\ndata: %s\n\n", seq, event, data); err != nil {
+		return err
+	}
+	return rc.Flush()
+}
+
+// writeRaw writes an event that came out of the log.
+//
+// The payload is written AS IT WAS STORED rather than re-encoded. Re-encoding would be a second
+// encoding of the same value and the two could differ - a replay that is not byte-identical to
+// the original is a replay a client can tell apart from the live stream, which breaks the one
+// property reconnection is supposed to have: that the client cannot tell it was away.
+func writeRaw(w http.ResponseWriter, rc *http.ResponseController, e loggedEvent) error {
+	if _, err := fmt.Fprintf(w, "id: %d\nevent: %s\ndata: %s\n\n", e.Seq, e.Event, e.Data); err != nil {
 		return err
 	}
 	return rc.Flush()
