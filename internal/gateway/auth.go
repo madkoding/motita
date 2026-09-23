@@ -6,25 +6,46 @@ import (
 	"strings"
 )
 
-// requireToken refuses every request that does not carry the bearer token.
+// requireToken refuses every request that does not carry a valid credential.
 //
-// The comparison is CONSTANT-TIME. A byte-by-byte comparison leaks the length of the token by
-// timing and its prefix by repetition, and this token is the only thing between the network and
-// an agent that runs commands on this machine.
-//
-// An EMPTY configured token refuses everything. It is not "no authentication needed", it is a
-// gateway that was started without a token, and the safe reading of that is to serve nobody.
-// (Start refuses the empty token outright; this is the second line of the same defence.)
+// It is the second line of defence for the empty token as well: the check lives in authorized,
+// which refuses everything when no token was configured. (Start refuses the empty token
+// outright; this is the same defence, in the place every request passes through.)
 func requireToken(token string, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		got := bearer(r.Header.Get("Authorization"))
-		if token == "" || subtle.ConstantTimeCompare([]byte(got), []byte(token)) != 1 {
+		if !authorized(token, r) {
 			w.Header().Set("WWW-Authenticate", `Bearer realm="starlight"`)
 			http.Error(w, "a valid bearer token is required", http.StatusUnauthorized)
 			return
 		}
 		next.ServeHTTP(w, r)
 	})
+}
+
+// authorized accepts either of two credentials, and nothing else.
+//
+// Both are compared in CONSTANT TIME. A byte-by-byte comparison leaks the length of the token by
+// timing and its prefix by repetition, and this is the only thing between the network and an
+// agent that runs commands on this machine.
+//
+// The second credential is the browser's cookie, whose value is derived from the token rather
+// than being it (see webui.go). Accepting it does not open anything: a request with no
+// credential, or with a cookie that was not derived from the CURRENT token, is refused exactly
+// as it was before the cookie existed.
+func authorized(token string, r *http.Request) bool {
+	if token == "" {
+		// Not "no authentication needed": a gateway that was started without a token serves
+		// nobody, and the safe reading of an empty secret is to trust no one.
+		return false
+	}
+	if subtle.ConstantTimeCompare([]byte(bearer(r.Header.Get("Authorization"))), []byte(token)) == 1 {
+		return true
+	}
+	c, err := r.Cookie(webuiCookie)
+	if err != nil {
+		return false
+	}
+	return subtle.ConstantTimeCompare([]byte(c.Value), []byte(cookieValue(token))) == 1
 }
 
 // bearer extracts the token from an Authorization header, accepting only the Bearer scheme.
