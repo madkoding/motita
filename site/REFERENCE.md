@@ -522,11 +522,55 @@ interface is a client of it.
 | Setting | Default | Effect |
 |---|---|---|
 | `enabled` | `true` | The HTTP face. Off is one deliberate act, for a machine that must not listen at all. |
-| `listen` | `127.0.0.1:0` | `host:port`. Port `0` asks the kernel for a free port, and the address it granted is written to the log. |
+| `listen` | `127.0.0.1:7477` | `host:port`. A **fixed** port by default, because the gateway can outlive the process that started it and a later process has to find it. Port `0` still works and asks the kernel for a free one, but the address then exists only in that process' memory, so nothing else can reach it. |
 | `token_file` | `gateway.token` | Where the bearer token lives, under the starlight home. Generated on first use with 32 random bytes, mode `0600`. |
 | `allow_lan` | `false` | Must be `true` for any address that is not loopback. |
 | `max_body_kb` | `256` | Cap on a request body. |
 | `max_sessions` | `0` | How many conversations one process holds. `0` means the built-in default. A negative ceiling is refused rather than read as the default, which would hide the typo that produced it. |
+
+#### Running the gateway as a service
+
+`starlight` on its own brings up an interface, and **the agent behind it is a service
+that may already be running**. Three outcomes, and which one you get is deliberate:
+
+| Situation | What happens |
+|---|---|
+| a gateway is already running (found through the service file, or started by `gateway start`) | the interface **attaches to it** and shuts down nothing. A service you started on purpose is not killed because a terminal happened to connect. |
+| nothing is running | one is brought up **for this interface**, in-process, and shut down when the interface ends. |
+| `-gateway off` | no gateway at all: the interface keeps the direct path it has always had. |
+
+The gateway the interface brings up is **in-process**, which is the opposite of what
+`gateway start` does, and the difference matters. The service exists to outlive the shell
+that started it. The interface's gateway exists *for* the interface, so it must die with
+the process however the process dies — a re-executed child would survive a `SIGKILL` of
+the interface and leak, invisibly, until a machine has a dozen agent services and nobody
+knows why.
+
+Because the two have to find each other, the gateway says where it is:
+
+```bash
+starlight gateway start    # starts the service and waits until it answers
+starlight gateway status   # says whether one is running, and where
+starlight gateway stop     # stops the one the service file names
+```
+
+`gateway start` **re-executes the program** rather than serving inside the command, so
+none of these pay for building a sandbox or a reasoning engine — the service does that,
+and `stop`/`status` only read the service file and ask the port a question. The child
+receives the same `-config` this command was given: without it, a service started from a
+custom configuration would come up on the defaults, and the failure would surface much
+later as a client talking to the wrong agent.
+
+The service file lives under the starlight home (`gateway.json`, mode `0600`) and is
+written **after the bind**, so it carries the effective address rather than the port that
+was asked for. An entry naming a gateway that is gone is worse than no entry at all,
+because discovery trusts it, so it is removed on the way out.
+
+The default port is **7477**: unassigned in the IANA registry, absent from
+`/etc/services`, and below the default ephemeral range on Linux, so it does not compete
+with outgoing connections. Some hosts widen that range; if a start fails with `address
+already in use`, move it with `-gateway 127.0.0.1:<port>`.
+
 
 #### Running as a client
 

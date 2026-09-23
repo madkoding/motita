@@ -236,6 +236,33 @@ default. Some hosts widen that range (this one goes down to 1024), in which case
 fixed port can occasionally collide with an outgoing connection — if a start fails
 with `address already in use`, pick another with `-gateway 127.0.0.1:<port>`.
 
+It is a **fixed** port rather than an ephemeral one because the gateway can now be a
+service that outlives the process that started it, and a later process has to be able to
+find it. An ephemeral port is chosen at bind time: it exists in the memory of one process
+and nowhere else.
+
+That is also why `starlight gateway start` exists:
+
+```sh
+starlight gateway start    # the gateway as a service, in the background
+starlight gateway status   # is one running, and where?
+starlight gateway stop     # stop the one the service file names
+```
+
+And why plain `starlight` now **attaches** instead of always starting its own:
+
+| Situation | What you get |
+|---|---|
+| a gateway is already running | the interface connects to it and shuts nothing down — a service you started on purpose is not killed because a terminal connected |
+| nothing is running | one is brought up for this interface, in-process, and goes away with it |
+| `-gateway off` | no gateway: the direct path, as before |
+
+The interface's gateway is in-process on purpose, which is the opposite of what
+`gateway start` does: the service exists to outlive its shell, while this one exists *for*
+the interface and must die with it however the process dies. A re-executed child would
+survive a `SIGKILL` and leak. Two terminals against one service are not two agents on two
+ports — they are **two views of one conversation**.
+
 | Command | What it does |
 |---|---|
 | `/task` `/plan` | switch between doing work and read-only exploration |

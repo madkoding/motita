@@ -192,9 +192,11 @@ agent:
 # for it.
 gateway:
   enabled: true
-  # host:port. Port 0 asks the kernel for a free one, which is what an embedded
-  # gateway wants: no collision, and the real address is reported in the log.
-  listen: "127.0.0.1:0"
+  # host:port. A FIXED port by default, because `starlight gateway start` runs the
+  # gateway as a service that a later process has to find: an ephemeral port exists
+  # only in the memory of the process that asked for it, so nothing else can reach
+  # it. `starlight` with no arguments reuses a running gateway, or starts its own.
+  listen: "127.0.0.1:7477"
   # Where the bearer token lives. Generated on first use, 0600, under the home.
   token_file: "gateway.token"
   # Must be true for any address that is not loopback.
