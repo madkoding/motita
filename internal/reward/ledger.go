@@ -23,6 +23,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -182,6 +183,19 @@ type Ledger struct {
 	// dirty tracks whether anything moved since the last save, so a verdict that changed
 	// nothing does not rewrite the file.
 	dirty bool
+
+	// mu serialises every read and write of Scores.
+	//
+	// It is here because a library search READS a skill's value on every turn while a verdict
+	// REWRITES the map, and those are two different requests: with more than one conversation
+	// they overlap as a matter of course. An unguarded map is not a race that usually works -
+	// the runtime aborts the process the moment it catches a concurrent map read and map write,
+	// which would take every other conversation down with it.
+	//
+	// It also serialises Save, which creates a temp file and renames it. The in-memory map is
+	// SHARED between callers, so a save always writes every verdict recorded so far: two
+	// interleaved saves end with both in the file rather than one overwriting the other.
+	mu sync.Mutex
 }
 
 // ErrNoSkill is returned when a verdict names no skill, which is a normal answer rather than
@@ -222,6 +236,8 @@ func Open(path string) (*Ledger, error) {
 // A skill with no history is reported as absent rather than as a zero: the two mean different
 // things, and showing "0.0" for "never used" would read as "this failed".
 func (l *Ledger) Get(name string) (Score, bool) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
 	s, ok := l.Scores[name]
 	return s, ok
 }
@@ -232,6 +248,14 @@ func (l *Ledger) Get(name string) (Score, bool) {
 // scored zero", and those need different treatment — the first should not be ranked as if it
 // had failed.
 func (l *Ledger) Value(name string) (float64, bool) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.valueLocked(name)
+}
+
+// valueLocked is Value for a caller that already holds the lock. It exists so ValueOf does not
+// take the lock twice, which would deadlock on the first call.
+func (l *Ledger) valueLocked(name string) (float64, bool) {
 	s, ok := l.Scores[name]
 	if !ok {
 		return 0, false
@@ -241,7 +265,9 @@ func (l *Ledger) Value(name string) (float64, bool) {
 
 // ValueOf is Value for callers that only want the number, with 0 for "no history".
 func (l *Ledger) ValueOf(name string) float64 {
-	v, _ := l.Value(name)
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	v, _ := l.valueLocked(name)
 	return v
 }
 
@@ -257,6 +283,8 @@ func (l *Ledger) ValueOf(name string) float64 {
 // a turn consulted nothing, and pretending a verdict landed would make the feature look like
 // it works when it cannot.
 func (l *Ledger) Attribute(names []string, counts map[string]int, good bool, note string) error {
+	l.mu.Lock()
+	defer l.mu.Unlock()
 	if len(names) == 0 {
 		return ErrNoSkill
 	}
@@ -323,6 +351,8 @@ func (l *Ledger) Attribute(names []string, counts map[string]int, good bool, not
 // It reports whether anything changed, so a caller can tell "marked" from "there was nothing
 // to mark" without a second query.
 func (l *Ledger) Addressed(name string) bool {
+	l.mu.Lock()
+	defer l.mu.Unlock()
 	s, ok := l.Scores[name]
 	if !ok {
 		return false
@@ -351,11 +381,13 @@ func (l *Ledger) Outstanding() []struct {
 	Name  string
 	Score Score
 } {
+	l.mu.Lock()
+	defer l.mu.Unlock()
 	var out []struct {
 		Name  string
 		Score Score
 	}
-	for _, entry := range l.Sorted() {
+	for _, entry := range l.sortedLocked() {
 		if len(entry.Score.Unaddressed()) > 0 {
 			out = append(out, entry)
 		}
@@ -368,6 +400,8 @@ func (l *Ledger) Outstanding() []struct {
 // Atomic because a half-written ledger is a corrupt one, and this file is the only record of
 // what the user thought of the library — losing it silently would reset months of verdicts.
 func (l *Ledger) Save() error {
+	l.mu.Lock()
+	defer l.mu.Unlock()
 	if l.Path == "" || !l.dirty {
 		return nil
 	}
@@ -401,6 +435,18 @@ func (l *Ledger) Save() error {
 
 // Sorted returns the scores by value, best first, for a human reading the file.
 func (l *Ledger) Sorted() []struct {
+	Name  string
+	Score Score
+} {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.sortedLocked()
+}
+
+// sortedLocked is Sorted for a caller that already holds the lock. Outstanding goes through it
+// for the same reason ValueOf goes through valueLocked: taking the same lock twice on one call
+// path is a deadlock, not a slow path.
+func (l *Ledger) sortedLocked() []struct {
 	Name  string
 	Score Score
 } {
