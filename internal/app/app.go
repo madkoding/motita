@@ -84,6 +84,13 @@ type Options struct {
 
 	// RunTUI replaces the interactive menu in tests.
 	RunTUI func(context.Context, config.Config, *llm.Client, *sandbox.Sandbox, *logx.Logger) int
+	// NewClient builds the gateway client the interface speaks through. It is a seam so a test
+	// can observe WHICH gateway, and which session, the process decided to attach to - that
+	// decision is the whole feature and it is otherwise invisible.
+	//
+	// It returns the tui.Runner rather than a *gateway.Client because that is all the interface
+	// needs, and a test double for it does not have to be a client at all.
+	NewClient func(baseURL, token, session string) tui.Runner
 	// ServeGateway replaces the gateway's serve loop. It is a seam of the same shape as Exit
 	// and waitSignal: the loop only returns an error when the listener breaks under it, so a
 	// test that wants to see what happens when it does needs to be able to make it fail.
@@ -140,6 +147,12 @@ type flags struct {
 	initConfig     bool
 	serve          bool
 	gateway        string
+	// connect is the address of a gateway somebody else is running. Non-empty means this
+	// process is a CLIENT: it builds no sandbox, opens no procedure library and creates no
+	// reasoning engine, because all three are the server's job.
+	connect string
+	// session is the conversation to attach to, by id.
+	session string
 }
 
 // Run is the program's entry point: it parses the arguments, builds the three
@@ -266,6 +279,24 @@ func parse(args []string) (flags, error) {
 				return b, err
 			}
 			b.gateway = v
+		case "-connect", "--connect":
+			v, err := next()
+			if err != nil {
+				return b, err
+			}
+			// An EMPTY address is refused here rather than passed on: "-connect" with nothing
+			// after it, or "-connect=" with nothing after the equals, would otherwise produce a
+			// client pointed at nothing and fail somewhere far from the mistake.
+			if strings.TrimSpace(v) == "" {
+				return b, fmt.Errorf("-connect needs an address, like -connect 127.0.0.1:7477")
+			}
+			b.connect = strings.TrimSpace(v)
+		case "-session", "--session":
+			v, err := next()
+			if err != nil {
+				return b, err
+			}
+			b.session = strings.TrimSpace(v)
 		case "-p", "--prompt":
 			v, err := next()
 			if err != nil {
@@ -287,6 +318,15 @@ func parse(args []string) (flags, error) {
 		default:
 			return b, fmt.Errorf("unknown flag: %q", arg)
 		}
+	}
+	// A process cannot be a gateway and a client of one at the same time.
+	//
+	// Refused rather than resolved because there is no sensible resolution: -serve makes this
+	// process the thing that holds conversations, -connect makes it a viewer of somebody else's,
+	// and the two contradict. Picking one silently would leave the user with an interface for the
+	// thing they did not ask for.
+	if b.serve && b.connect != "" {
+		return b, fmt.Errorf("-serve and -connect cannot be used together: -serve makes this process a gateway, and -connect makes it a client of one")
 	}
 	return b, nil
 }
@@ -436,6 +476,23 @@ func (op Options) run(fl flags) int {
 	logx.Install(log)
 	defer log.Close()
 
+	// A CLIENT of somebody else's gateway builds none of the layers below.
+	//
+	// The placement is the point, and it is BEFORE the sandbox: the sandbox, the procedure library
+	// and the reasoning engine are all the SERVER's job, and the code below builds them anyway.
+	// Worse, the sandbox can refuse to be built (it needs permissions this process may not have),
+	// so a remote client would fail on a sandbox it can never use - for a machine that is not even
+	// the one running the commands.
+	//
+	// The context is created FIRST so that a client answers Ctrl+C like every other mode: the
+	// shutdown path is not the server's property, it is the process's.
+	ctx, wait := op.contextWithShutdown(op.BaseCtx, cfg, log)
+	defer wait()
+
+	if fl.connect != "" {
+		return op.runClient(ctx, fl, cfg)
+	}
+
 	// Layer C: the sandbox.
 	box, err := op.newSandbox(SandboxOptions(cfg, log))
 	if err != nil {
@@ -461,9 +518,6 @@ func (op Options) run(fl flags) int {
 		fmt.Fprintf(op.Out, "   sandbox isolation: %v\n", box.Isolation())
 		return Success
 	}
-
-	ctx, wait := op.contextWithShutdown(op.BaseCtx, cfg, log)
-	defer wait()
 
 	// The procedure library, built BEFORE the mode is chosen.
 	//
