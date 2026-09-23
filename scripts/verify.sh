@@ -260,6 +260,18 @@ for arch in 386 amd64 arm arm64; do
   fi
 done
 
+step "8b. end-to-end test of the browser interface"
+# Unlike the gateway's own e2e, this one runs in the gate: it needs no architecture matrix (the
+# page is the same bytes everywhere and the HTTP surface does not vary), it uses a port of its
+# own, and it is the only check that proves the DERIVED cookie authorises the API - which is the
+# property the whole interface design rests on.
+if ./scripts/e2e-webui.sh amd64 >/tmp/verify_e2e_webui.log 2>&1; then
+  ok "web interface E2E on linux/amd64"
+else
+  bad "web interface E2E failed (see /tmp/verify_e2e_webui.log)"
+  tail -20 /tmp/verify_e2e_webui.log | sed 's/^/    /'
+fi
+
 printf '\n========================================\n'
 if [ "$failures" -eq 0 ]; then
   echo "VERIFICATION PASSED: the repository is clean, tested and functional."

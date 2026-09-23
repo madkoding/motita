@@ -621,6 +621,67 @@ non-loopback listen address *and* `allow_lan`. Neither on its own is enough, and
 that is the point — what is being exposed runs commands on this machine, so no
 default and no single flag may open it.
 
+#### The browser interface
+
+The gateway serves a web interface **from its own port**. There is no second server and
+no second address: `http://127.0.0.1:7477/` is the page, and `/v1/...` on the same
+origin is its API. That is why no CORS header exists anywhere — the browser is not
+crossing an origin, so there is nothing to negotiate. A test pins the absence, because
+the tempting fix for "the web client does not work" is the one change that would hand
+the gateway to every page the user has open.
+
+It comes up **with** the gateway, and `gateway.webui: false` (or
+`STARLIGHT_GATEWAY_WEBUI=false`) turns it off for an API-only gateway.
+
+**Getting in.** `starlight gateway start` prints one link:
+
+```
+the interface is at http://127.0.0.1:7477/#t=<token>
+open that link once: the page trades the fragment for a cookie and drops it
+```
+
+The token travels in the URL **fragment**, not a query string, and that is the whole
+reason for the shape: a browser never sends a fragment to the server, so it does not
+appear in a request line, a proxy log or a `Referer`. Open the link once and the page
+exchanges it for a cookie, then erases it from the address bar and the history entry.
+
+The cookie is **not the token**. Its value is an HMAC of the token
+(`HMAC-SHA256(token, "starlight-webui-session-v1")`), so:
+
+| Because it is derived | Consequence |
+|---|---|
+| what the browser stores is not the token | a cookie lifted from a browser is not a reusable bearer token |
+| nothing is stored server-side | no session table, no id to guess, no expiry to sweep |
+| it is recomputed per request | **rotating the token invalidates every cookie**, with nothing to clean up |
+
+The cookie is `HttpOnly` (an injected script cannot read it) and `SameSite=Strict`
+(another origin never sends it). It is deliberately **not** `Secure`: this gateway
+speaks plain http, and a `Secure` cookie over http is one the browser silently refuses
+to send — the interface would simply never stay connected, with nothing in any log to
+say why.
+
+The page is served **without** a token, like a login form, because it is the only way a
+browser can obtain one — and for that same reason it holds no secret at all, which a
+test enforces over the bytes that get served. Anyone who can reach the port can see that
+a starlight gateway is there; on loopback that is the operator, and exposing it to a
+network still takes the two deliberate acts described above.
+
+`gateway status` deliberately does **not** print the link: it is the command someone
+runs in front of another person while asking "is it up?". The token stays readable in
+`gateway.token` for anyone who needs the link again.
+
+**What the page does.** It paints the conversation the gateway already holds, streams a
+turn as it happens, resumes from the last event id it saw when the connection drops (a
+phone changing network does not lose the turn), and shows an approval with the command
+**whole** — approving is approving that text, so a truncated command is a different one.
+
+**What it costs.** The page is compiled into the binary. Measured on the dist build:
+**+28,672 bytes** on linux/386 and the same order on windows/amd64, against 1.16 MB of
+margin under the size gate. Roughly one binary byte per asset byte, so the size of the
+page *is* the size of the executable. The one item that can spend the margin is a
+webfont — the page uses the system font deliberately, and a test fails if the assets
+grow past 64 KB.
+
 **There is no TLS in this version.** Exposing the gateway on a LAN without a
 tunnel sends the token in clear text; that is why `allow_lan` exists as a second,
 separate act. The supported way to reach a gateway on another machine is a tunnel,

@@ -188,6 +188,32 @@ one you are on and naming any with a run in flight — and `/attach <id>` moves 
 one. The token is **read** from `gateway.token`, never minted, and a `-session` the
 gateway does not hold is refused at start with the list of the ones it does.
 
+### The browser interface, from the same port
+
+The gateway serves a web interface **from its own port** — no second server, no second
+address, and no CORS, because the page and the API share an origin. It comes up with the
+gateway (`gateway.webui: false` turns it off):
+
+```
+$ starlight gateway start
+the gateway is running at http://127.0.0.1:7477 (pid 4211, v0.5.0-72-gcadb33f)
+
+the interface is at http://127.0.0.1:7477/#t=<token>
+open that link once: the page trades the fragment for a cookie and drops it
+```
+
+The token rides in the URL **fragment**, which a browser never sends to the server, and
+the page immediately trades it for an `HttpOnly`, `SameSite=Strict` cookie whose value is
+an **HMAC of the token** rather than the token itself. So a cookie lifted from a browser
+is not a reusable credential, nothing is stored server-side, and **rotating the token
+invalidates every cookie** with nothing to clean up. The page is served without a token —
+like a login form — and therefore holds no secret at all.
+
+The page paints the conversation the gateway already has, streams a turn live, resumes
+from the last event it saw when the connection drops, and shows an approval with the
+command **whole**. It is compiled into the binary: **+28 KB** measured, against 1.16 MB of
+margin under the size gate, and a test fails if the assets outgrow their budget.
+
 ### More than one conversation at a time
 
 A gateway holds **several conversations at once**, each with its own run slot, its
