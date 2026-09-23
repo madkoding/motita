@@ -23,6 +23,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"strings"
 	"sync"
 
@@ -95,7 +96,46 @@ func (c *Client) Session() string { return c.session }
 // Every request goes through it, so there is ONE place that knows where sessions live in the URL
 // - and no call site can address the wrong conversation by writing a path by hand.
 func (c *Client) scoped(rest string) string {
-	return "/v1/sessions/" + c.session + rest
+	return "/v1/sessions/" + url.PathEscape(c.session) + rest
+}
+
+// CreateSession opens one more conversation and returns it.
+//
+// The client that calls this does NOT adopt it. Its session was fixed at construction and nothing
+// about a running client changes underneath it, so a caller that wants to drive the new
+// conversation builds a second client with the id it gets back. That is the same rule seen from
+// the other end, and it is what keeps a client's status bar and its runs talking about the same
+// conversation.
+func (c *Client) CreateSession(ctx context.Context) (SessionStatus, error) {
+	var out SessionStatus
+	// Not scoped: opening a conversation is how a client FINDS one, so it cannot name one.
+	if err := c.do(ctx, http.MethodPost, "/v1/sessions", nil, &out); err != nil {
+		return SessionStatus{}, err
+	}
+	return out, nil
+}
+
+// ListSessions answers what the gateway is holding.
+func (c *Client) ListSessions(ctx context.Context) ([]SessionStatus, error) {
+	var out struct {
+		Sessions []SessionStatus `json:"sessions"`
+	}
+	// Not scoped, for the same reason as CreateSession.
+	if err := c.do(ctx, http.MethodGet, "/v1/sessions", nil, &out); err != nil {
+		return nil, err
+	}
+	if out.Sessions == nil {
+		// An empty LIST rather than null: a caller that has to tell "none" from "the field is
+		// missing" is a caller with a bug waiting to happen.
+		out.Sessions = []SessionStatus{}
+	}
+	return out.Sessions, nil
+}
+
+// CloseSession drops one conversation. It is the other session's id that is named, never this
+// client's: closing what you are speaking for would leave this client addressing nothing.
+func (c *Client) CloseSession(ctx context.Context, id string) error {
+	return c.do(ctx, http.MethodDelete, "/v1/sessions/"+url.PathEscape(id), nil, nil)
 }
 
 // SetApprover installs the callback a consequential command is confirmed through.

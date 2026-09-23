@@ -41,7 +41,7 @@ func TestASessionCanBeOpenedAndClosed(t *testing.T) {
 	if created.Code != http.StatusCreated {
 		t.Fatalf("opening a session answered %d: %s", created.Code, created.Body.String())
 	}
-	var conv sessionStatus
+	var conv SessionStatus
 	if err := json.Unmarshal(created.Body.Bytes(), &conv); err != nil {
 		t.Fatalf("the answer is not a session: %v", err)
 	}
@@ -202,7 +202,7 @@ func TestTheListReportsEverySession(t *testing.T) {
 	_ = post(t, srv, "/v1/sessions", "{}", testToken)
 
 	var listed struct {
-		Sessions []sessionStatus `json:"sessions"`
+		Sessions []SessionStatus `json:"sessions"`
 	}
 	if err := json.Unmarshal(get(t, srv, "/v1/sessions", testToken).Body.Bytes(), &listed); err != nil {
 		t.Fatalf("the list is not a list of sessions: %v", err)
@@ -228,7 +228,7 @@ func TestTheListSaysWhichSessionIsRunning(t *testing.T) {
 	<-started
 
 	var listed struct {
-		Sessions []sessionStatus `json:"sessions"`
+		Sessions []SessionStatus `json:"sessions"`
 	}
 	if err := json.Unmarshal(get(t, srv, "/v1/sessions", testToken).Body.Bytes(), &listed); err != nil {
 		t.Fatalf("the list is not a list of sessions: %v", err)

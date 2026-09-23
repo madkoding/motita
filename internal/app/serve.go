@@ -10,6 +10,7 @@ import (
 	"github.com/madkoding/starlight/internal/gateway"
 	"github.com/madkoding/starlight/internal/llm"
 	"github.com/madkoding/starlight/internal/logx"
+	"github.com/madkoding/starlight/internal/procedures"
 	"github.com/madkoding/starlight/internal/sandbox"
 	"github.com/madkoding/starlight/internal/tui"
 )
@@ -88,13 +89,34 @@ func (op Options) startGateway(fl flags, cfg config.Config, engine *llm.Client, 
 		listen = v
 	}
 	runner := tui.NewAppRunner(op.Out, op.Err, cfg, engine, box, log)
+
+	// ONE procedure store for every conversation this process will ever hold.
+	//
+	// Shared deliberately: the store is the library AND its reward ledger, and the ledger is a
+	// file read once into memory. Two conversations with two stores over one file would each save
+	// their own view over the other's, and a verdict would be lost with nothing to show for it.
+	// One store means one in-memory truth, and the ledger's lock makes it safe from two runs.
+	store := procedures.Open(cfg, log)
+	runner.UseStore(store)
+
+	// NewService is what lets a client open a conversation of its own. It is wired in BOTH modes,
+	// because the interface's gateway IS the gateway -serve starts: the difference between them is
+	// what they DRAW, not who may talk to them.
+	newService := func() (gateway.Service, error) {
+		r := tui.NewAppRunner(op.Out, op.Err, cfg, engine, box, log)
+		r.UseStore(store)
+		return r, nil
+	}
+
 	return gateway.Start(gateway.Options{
-		Service:   runner,
-		Listen:    listen,
-		Token:     token,
-		AllowLAN:  cfg.Gateway.AllowLAN,
-		MaxBodyKB: cfg.Gateway.MaxBodyKB,
-		Version:   op.Version,
-		Log:       log,
+		Service:     runner,
+		NewService:  newService,
+		MaxSessions: cfg.Gateway.MaxSessions,
+		Listen:      listen,
+		Token:       token,
+		AllowLAN:    cfg.Gateway.AllowLAN,
+		MaxBodyKB:   cfg.Gateway.MaxBodyKB,
+		Version:     op.Version,
+		Log:         log,
 	})
 }

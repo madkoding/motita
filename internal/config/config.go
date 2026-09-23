@@ -47,6 +47,11 @@ type Gateway struct {
 	TokenFile string `yaml:"token_file"`
 	AllowLAN  bool   `yaml:"allow_lan"`
 	MaxBodyKB int    `yaml:"max_body_kb"`
+	// MaxSessions caps how many conversations one process holds. Zero means the built-in
+	// default, which is what most setups want: the ceiling exists so a client that forgets to
+	// close what it opened cannot turn the agent into a memory leak, not so that an operator
+	// has to pick a number.
+	MaxSessions int `yaml:"max_sessions"`
 }
 
 // TaskSource describes where the tasks come from.
@@ -564,6 +569,12 @@ func (c *Config) validateGateway() error {
 	}
 	if c.Gateway.MaxBodyKB < 0 {
 		return fmt.Errorf("gateway.max_body_kb is %d: it cannot be negative", c.Gateway.MaxBodyKB)
+	}
+	if c.Gateway.MaxSessions < 0 {
+		// NEGATIVE is refused and ZERO is accepted, which is not the same as being lenient: zero
+		// means "the built-in default" and says so, while a negative ceiling is a number nobody
+		// meant - and silently treating it as the default would hide the typo that produced it.
+		return fmt.Errorf("gateway.max_sessions is %d: it cannot be negative (0 means the built-in default)", c.Gateway.MaxSessions)
 	}
 	addr := strings.TrimSpace(c.Gateway.Listen)
 	if addr == "" {

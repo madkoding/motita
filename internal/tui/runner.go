@@ -325,6 +325,22 @@ func (r *AppRunner) procedures() *procedures.Store {
 	return r.store
 }
 
+// UseStore installs the procedure library and its ledger.
+//
+// It exists so that several conversations in ONE process share them, which is what sessions need.
+// The ledger is a file read once into memory, so two runners with two ledgers over one file would
+// each save their own view over the other's - and a verdict would be lost with nothing to show for
+// it. One store means one in-memory truth, and the ledger's own lock makes it safe to touch from
+// two runs at once.
+//
+// A runner given none still builds its own on first use, which is what every other caller wants:
+// the command line's task and plan runs have one conversation and no reason to share.
+func (r *AppRunner) UseStore(st *procedures.Store) {
+	r.sessionMu.Lock()
+	defer r.sessionMu.Unlock()
+	r.store = st
+}
+
 // rewardOrNil returns the ledger, or nil when it could not be opened.
 //
 // A nil ledger is a working arrangement, not a broken one: the library still answers, the

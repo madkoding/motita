@@ -109,6 +109,23 @@ func TestGatewayValidation(t *testing.T) {
 			"gateway.max_body_kb",
 		},
 		{
+			// Zero is the built-in default and is accepted; a negative ceiling is a number
+			// nobody meant, and taking it as the default would hide the typo that produced it.
+			"a zero session ceiling means the default and is valid",
+			func(c *Config) { c.Gateway.MaxSessions = 0 },
+			"",
+		},
+		{
+			"a positive session ceiling is valid",
+			func(c *Config) { c.Gateway.MaxSessions = 32 },
+			"",
+		},
+		{
+			"a negative session ceiling is refused",
+			func(c *Config) { c.Gateway.MaxSessions = -2 },
+			"gateway.max_sessions",
+		},
+		{
 			"an enabled gateway needs a token file",
 			func(c *Config) { c.Gateway.TokenFile = "" },
 			"gateway.token_file",

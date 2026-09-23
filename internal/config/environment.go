@@ -105,6 +105,7 @@ func integerBindings(c *Config) []binding[int] {
 		{"STARLIGHT_SANDBOX_MAX_OUTPUT_KB", &c.Sandbox.MaxOutputKB},
 		{"STARLIGHT_SKILLS_MAX_FILE_BYTES", &c.Skills.MaxFileBytes},
 		{"STARLIGHT_GATEWAY_MAX_BODY_KB", &c.Gateway.MaxBodyKB},
+		{"STARLIGHT_GATEWAY_MAX_SESSIONS", &c.Gateway.MaxSessions},
 		{"STARLIGHT_LLM_MAX_TOKENS", &c.LLM.MaxTokens},
 		{"STARLIGHT_LLM_SESSION_CONTEXT_WINDOW", &c.LLM.Session.ContextWindow},
 		{"STARLIGHT_LLM_SESSION_RESERVE", &c.LLM.Session.Reserve},

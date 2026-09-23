@@ -92,18 +92,18 @@ func (c *conversation) isRunning() bool {
 	return c.running
 }
 
-// sessionStatus is what the list and create endpoints report about one conversation.
-type sessionStatus struct {
+// SessionStatus is what the list and create endpoints report about one conversation.
+type SessionStatus struct {
 	ID       string    `json:"id"`
 	Created  time.Time `json:"created"`
 	LastUsed time.Time `json:"last_used"`
 	Running  bool      `json:"running"`
 }
 
-func (c *conversation) status() sessionStatus {
+func (c *conversation) status() SessionStatus {
 	c.stateMu.Lock()
 	defer c.stateMu.Unlock()
-	return sessionStatus{ID: c.id, Created: c.created, LastUsed: c.lastUsed, Running: c.running}
+	return SessionStatus{ID: c.id, Created: c.created, LastUsed: c.lastUsed, Running: c.running}
 }
 
 // conversationKeyType is the context key the resolved conversation travels under. It is an
@@ -274,7 +274,7 @@ func (s *Server) handleCreateSession(w http.ResponseWriter, _ *http.Request) {
 // Sorted by id so that a client reading it twice sees the same order, and so does a test.
 func (s *Server) handleListSessions(w http.ResponseWriter, _ *http.Request) {
 	all := s.snapshot()
-	out := make([]sessionStatus, 0, len(all))
+	out := make([]SessionStatus, 0, len(all))
 	for _, c := range all {
 		out = append(out, c.status())
 	}
