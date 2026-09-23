@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/madkoding/starlight/internal/logx"
+	"github.com/madkoding/starlight/internal/webui"
 )
 
 // defaultMaxBodyKB caps a request body when nothing else is configured. A task or a prompt is a
@@ -68,6 +69,13 @@ type Options struct {
 	// quiet: the tick only fires on a real timer, so a test that waits for one is a test that
 	// sleeps for the heartbeat interval.
 	Heartbeat time.Duration
+	// WebUI serves the browser interface from this same mux. The page and the API therefore
+	// share an origin, which is why no proxy and no CORS header are involved anywhere: the
+	// browser asks this server for everything.
+	//
+	// The page is served WITHOUT a token - it holds no secret and it is the only way a browser
+	// can obtain one - and the API it calls is authorised exactly as before.
+	WebUI bool
 }
 
 // Server is the HTTP face of the conversations this process holds.
@@ -215,6 +223,18 @@ func (s *Server) routes() *http.ServeMux {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /v1/health", s.handleHealth)
 
+	// The interface, when it is on, BEFORE the API: it is the one part of this server that is
+	// deliberately reachable without a token, because it is the only way a browser can get one.
+	//
+	// The root is registered as "{$}" so that it matches ONLY "/". A bare "GET /" in Go's
+	// ServeMux matches everything not otherwise registered, which would answer a typo with a
+	// page that renders - a bug that looks like it worked.
+	if s.opts.WebUI {
+		s.page(mux, "GET /{$}", "/")
+		s.page(mux, "GET /app.css", "/app.css")
+		s.page(mux, "GET /app.js", "/app.js")
+	}
+
 	// auth wraps anything, not just a HandlerFunc: withConversation hands back a Handler, and
 	// forcing it through a HandlerFunc would be a cast that says nothing.
 	auth := func(h http.Handler) http.Handler { return requireToken(s.opts.Token, h) }
@@ -245,7 +265,61 @@ func (s *Server) routes() *http.ServeMux {
 	mux.Handle("GET /v1/sessions/{id}/events", scoped(s.handleAttach))
 	mux.Handle("POST /v1/sessions/{id}/cancel", scoped(s.handleCancelRun))
 	mux.Handle("POST /v1/sessions/{id}/runs/approval", scoped(s.handleApproval))
+	if s.opts.WebUI {
+		// Authorised by the BEARER token specifically, not by the cookie: this is where the
+		// token taken from the URL fragment is exchanged for the browser's cookie, and it must
+		// stay single-entry. A browser that already holds a cookie has no business minting
+		// itself another one, so requireBearer is used rather than the general check.
+		mux.Handle("POST /v1/webui/session", requireBearer(s.opts.Token, http.HandlerFunc(s.handleWebUISession)))
+	}
 	return mux
+}
+
+// page registers one page file at one exact pattern.
+func (s *Server) page(mux *http.ServeMux, pattern, name string) {
+	mux.HandleFunc(pattern, func(w http.ResponseWriter, r *http.Request) {
+		body, ctype, err := webui.Content(name)
+		if err != nil {
+			// The name comes from this file, never from the request, so an error here means the
+			// binary and the router disagree. A 404 is the honest answer to that.
+			http.NotFound(w, r)
+			return
+		}
+		w.Header().Set("Content-Type", ctype)
+		// No caching. The page is part of the binary, so a client holding yesterday's copy
+		// after an upgrade is running code that no longer exists - and a stale page calling an
+		// API that moved is a failure nobody can explain.
+		w.Header().Set("Cache-Control", "no-store")
+		_, _ = w.Write(body)
+	})
+}
+
+// handleWebUISession exchanges the token for the browser's cookie.
+//
+// The token arrives as a bearer header, which the page's script took from the URL FRAGMENT: a
+// fragment is never sent to the server and never appears in a log or a Referer, which is the
+// only way to put a secret in a URL without it travelling. From here on the browser holds a
+// DERIVED value, not the token (see cookieValue), so what a browser stores is not a credential
+// that could be replayed against the API.
+func (s *Server) handleWebUISession(w http.ResponseWriter, _ *http.Request) {
+	http.SetCookie(w, &http.Cookie{
+		Name:  webuiCookie,
+		Value: cookieValue(s.opts.Token),
+		Path:  "/",
+		// A script cannot read it, so an injected script cannot exfiltrate it.
+		HttpOnly: true,
+		// Another origin never sends it. Together with this server sending no CORS header at
+		// all, a hostile page can neither send this credential nor read a response.
+		SameSite: http.SameSiteStrictMode,
+		// Long-lived because it is derived, not stored: it stays valid until the token rotates,
+		// and rotating the token invalidates it with nothing to clean up.
+		MaxAge: 30 * 24 * 3600,
+		// NOT Secure, deliberately: this gateway speaks plain http (there is no TLS, and the
+		// supported remote path is an SSH tunnel). A Secure cookie is one a browser refuses to
+		// send over http, so setting it would look more careful and silently break the
+		// interface - the browser would never stay connected, with nothing in any log to say why.
+	})
+	w.WriteHeader(http.StatusNoContent)
 }
 
 // isLoopback reports whether host names this machine only.

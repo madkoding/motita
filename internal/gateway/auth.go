@@ -35,10 +35,12 @@ func requireToken(token string, next http.Handler) http.Handler {
 func authorized(token string, r *http.Request) bool {
 	if token == "" {
 		// Not "no authentication needed": a gateway that was started without a token serves
-		// nobody, and the safe reading of an empty secret is to trust no one.
+		// nobody. It matters here as much as on the bearer path, because a cookie derived from
+		// an EMPTY token would otherwise match the empty token and let everyone in - which is
+		// exactly the hole this check exists to close.
 		return false
 	}
-	if subtle.ConstantTimeCompare([]byte(bearer(r.Header.Get("Authorization"))), []byte(token)) == 1 {
+	if bearerMatches(token, r.Header.Get("Authorization")) {
 		return true
 	}
 	c, err := r.Cookie(webuiCookie)
@@ -46,6 +48,35 @@ func authorized(token string, r *http.Request) bool {
 		return false
 	}
 	return subtle.ConstantTimeCompare([]byte(c.Value), []byte(cookieValue(token))) == 1
+}
+
+// bearerMatches reports whether an Authorization header carries the configured token.
+//
+// Constant time, and an empty configured token matches NOTHING: a gateway that was started
+// without a token serves nobody, and the safe reading of an empty secret is to trust no one.
+func bearerMatches(token, header string) bool {
+	if token == "" {
+		return false
+	}
+	return subtle.ConstantTimeCompare([]byte(bearer(header)), []byte(token)) == 1
+}
+
+// requireBearer refuses everything that does not carry the bearer token, and deliberately does
+// NOT accept the browser cookie.
+//
+// It guards the one endpoint whose entire purpose is to turn a token into a cookie. Requiring
+// the token there keeps that contract single-entry: a browser that already holds a cookie has no
+// business minting itself another one, and the endpoint stays useless to anything that does not
+// know the token.
+func requireBearer(token string, next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !bearerMatches(token, r.Header.Get("Authorization")) {
+			w.Header().Set("WWW-Authenticate", `Bearer realm="starlight"`)
+			http.Error(w, "a valid bearer token is required", http.StatusUnauthorized)
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
 }
 
 // bearer extracts the token from an Authorization header, accepting only the Bearer scheme.
