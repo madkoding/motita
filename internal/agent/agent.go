@@ -843,7 +843,44 @@ func (a *Agent) processTask(ctx context.Context, t task.Task, depth int) TaskRes
 	if a.Observer != nil {
 		a.Observer(r)
 	}
+	// A task that RAN is part of the conversation, whatever it ended up doing: it passed, it failed,
+	// or it stopped to ask something. Recording it here rather than on the success path is what
+	// makes that true on every exit - `loop` returns from seven places, and a turn that failed is
+	// exactly the one the next turn needs to be able to see.
+	//
+	// Only the OUTERMOST call records. A task that split into subtasks goes through here once per
+	// subtask, and five subtasks would otherwise read back to the user as five separate things they
+	// asked for, when they asked for one.
+	//
+	// The turns that are already recorded keep their own record: a chat reply and a clarifying
+	// question are written where they are decided, because what they said is known only there. What
+	// this adds is the outcome of work that was actually done.
+	if depth == 0 && r.Kind != KindChat && !r.NeedsInput {
+		a.note(t, taskOutcome(r), KindTask)
+	}
 	return r
+}
+
+// taskOutcome is the one line a finished task leaves in the conversation.
+//
+// It prefers what the agent said in its own words - the synthesised summary - and falls back to the
+// verdict, so a turn is never recorded as having done something without saying what it was.
+func taskOutcome(r TaskResult) string {
+	if s := strings.TrimSpace(r.Summary); s != "" {
+		return s
+	}
+	if s := strings.TrimSpace(r.Reply); s != "" {
+		return s
+	}
+	if s := strings.TrimSpace(r.Reason); s != "" {
+		return s
+	}
+	// A result with nothing to say is not a reason to record an empty turn: an empty turn would read
+	// back as a message the user never sent.
+	if r.Pass {
+		return "the task completed"
+	}
+	return "the task did not complete"
 }
 
 // loop is the 9-step loop itself.

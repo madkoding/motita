@@ -315,3 +315,128 @@ func TestTranscriptIsCopiedOut(t *testing.T) {
 		t.Error("the transcript must be copied out, not aliased")
 	}
 }
+
+// TestAFinishedTaskEntersTheConversation is the regression test for a bug the manual test found
+// and no unit test could have: the conversation a client READS was empty after a task.
+//
+// `note` was only ever called with KindAsk, and `converse` only on the chat branch, so KindTask was
+// rendered and never written. Every unit test passed because they called `note` DIRECTLY - they
+// proved that the renderer works, not that anything calls it on the path a task takes. The gateway
+// endpoint that returns the transcript was pinned against a hand-written fake of the service, so it
+// agreed with its own fake.
+//
+// The consequence was the exact failure the whole feature exists to prevent: attach to a session
+// after a task ran, and the conversation reads back as `{"messages":[]}` - the blank screen /attach
+// was built to avoid. The task leaves no trace for the NEXT turn either, so "and now do the same for
+// the other one" had nothing to refer to, which is the amnesia the transcript exists to fix.
+//
+// It drives the REAL path - a task that runs and passes - because driving `note` is what left the
+// hole in the first place.
+func TestAFinishedTaskEntersTheConversation(t *testing.T) {
+	fake := &fakeLLMServer{
+		actionsPerAttempt: [][]string{{"echo hello > result.txt"}},
+	}
+	srv := httptest.NewServer(fake.handler(t))
+	defer srv.Close()
+
+	e := mount(t, srv, config.Anchor{
+		Kind:         "command",
+		Command:      "sh",
+		Args:         []string{"-c", "test -s result.txt && echo READY"},
+		Timeout:      10 * time.Second,
+		ExpectOutput: "READY",
+	}, nil)
+
+	var result *TaskResult
+	e.agent.Observer = func(r TaskResult) { result = &r }
+	if err := e.agent.Run(context.Background()); err != nil {
+		t.Fatalf("the agent returned an error: %v", err)
+	}
+	if result == nil || !result.Pass {
+		t.Fatalf("the task was expected to pass, result: %+v", result)
+	}
+
+	turns := e.agent.Transcript()
+	if len(turns) == 0 {
+		t.Fatal("a task that ran left no turn behind, so a client attaching to this session " +
+			"reads an empty conversation - which is the blank screen this feature exists to avoid")
+	}
+	var found bool
+	for _, turn := range turns {
+		if turn.Kind == KindTask && turn.User != "" && turn.Agent != "" {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("the task is not in the conversation as a task turn: %+v", turns)
+	}
+
+	// And the next turn can see it, which is what makes a follow-up question mean anything. The
+	// assertion is on the SHAPE of the line and not on the mock's wording: the mock's summary is
+	// its own invention, and pinning that would make this test fail for the wrong reason.
+	got := e.agent.dialogue()
+	if !strings.Contains(got, "user: do the test task") {
+		t.Errorf("the next prompt does not carry what was asked: %q", got)
+	}
+	if !strings.Contains(got, "you (did it):") {
+		t.Errorf("the next prompt does not carry the task as WORK THAT RAN: %q", got)
+	}
+}
+
+// TestATaskOutcomeAlwaysSaysSomething: a turn recorded with an empty line would read back to a
+// client as a message the user never sent, and an empty "you (did it):" is worse than a plain
+// statement that it finished.
+func TestATaskOutcomeAlwaysSaysSomething(t *testing.T) {
+	cases := []struct {
+		name string
+		in   TaskResult
+		want string
+	}{
+		// What the agent said in its own words wins: it is the answer the user read.
+		{"summary", TaskResult{Summary: "there are twelve files", Reason: "1 check passed"}, "there are twelve files"},
+		// A conversational reply, for a turn that was classified as work but answered in words.
+		{"reply", TaskResult{Reply: "nothing to do", Reason: "no actions"}, "nothing to do"},
+		// The verdict, when there is no prose.
+		{"reason", TaskResult{Reason: "1 check(s) passed", Pass: true}, "1 check(s) passed"},
+		// A blank summary must not win over a reason that says something.
+		{"blank summary falls through", TaskResult{Summary: "   ", Reason: "the real reason"}, "the real reason"},
+		// Nothing to say at all: the outcome is still stated, in the direction it went.
+		{"nothing at all, passed", TaskResult{Pass: true}, "the task completed"},
+		{"nothing at all, failed", TaskResult{}, "the task did not complete"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if got := taskOutcome(c.in); got != c.want {
+				t.Errorf("taskOutcome(%+v) = %q, want %q", c.in, got, c.want)
+			}
+		})
+	}
+}
+
+// TestASubtaskIsNotRecordedAsATurnOfItsOwn: a task that split into five subtasks reaches
+// processTask six times. Recording each would read back to the user as six things they asked for,
+// when they asked for one - and the conversation would grow by the agent's own bookkeeping.
+func TestASubtaskIsNotRecordedAsATurnOfItsOwn(t *testing.T) {
+	fake := &fakeLLMServer{
+		actionsPerAttempt: [][]string{{"echo hello > result.txt"}},
+	}
+	srv := httptest.NewServer(fake.handler(t))
+	defer srv.Close()
+
+	e := mount(t, srv, config.Anchor{
+		Kind:         "command",
+		Command:      "sh",
+		Args:         []string{"-c", "test -s result.txt && echo READY"},
+		Timeout:      10 * time.Second,
+		ExpectOutput: "READY",
+	}, nil)
+
+	// A depth above zero is how a subtask arrives.
+	e.agent.processTask(context.Background(), taskOf("a subtask the user never typed"), 1)
+
+	for _, turn := range e.agent.Transcript() {
+		if strings.Contains(turn.User, "a subtask the user never typed") {
+			t.Errorf("a subtask was recorded as a turn of its own: %+v", turn)
+		}
+	}
+}
