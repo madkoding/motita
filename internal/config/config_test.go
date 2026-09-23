@@ -1,6 +1,7 @@
 package config
 
 import (
+	"net"
 	"os"
 	"path/filepath"
 	"strings"
@@ -374,5 +375,39 @@ func TestOrListReadsLikeEnglish(t *testing.T) {
 		if got := orList(tc.items); got != tc.want {
 			t.Errorf("orList(%v) = %q, want %q", tc.items, got, tc.want)
 		}
+	}
+}
+
+// The default listen address is a FIXED port, because the gateway can now outlive the process that
+// started it: a later process has to be able to find it, and an ephemeral port is chosen at bind
+// time - an address that exists only in the memory of one process is an address no other process
+// can reach.
+//
+// The exact number is asserted on purpose. It is documented in the README and in REFERENCE.md, and a
+// user configures a client against it by hand; changing it silently would break every such client
+// and every bookmark, so a change has to break this test first and be a decision.
+func TestTheGatewayListensOnAFixedPortByDefault(t *testing.T) {
+	if got := Default().Gateway.Listen; got != "127.0.0.1:7477" {
+		t.Fatalf("the default gateway listen is %q, want a fixed 127.0.0.1:7477", got)
+	}
+	if strings.HasSuffix(defaultGatewayListen, ":0") {
+		t.Fatal("an ephemeral default cannot be found by a process started later")
+	}
+}
+
+// An empty listen means "the default", and the default is the fixed port. Validating an empty value
+// must not quietly accept it as an ephemeral one, which would produce a gateway nobody can find.
+func TestAnEmptyListenValidatesAsTheDefault(t *testing.T) {
+	c := Default()
+	c.Gateway.Listen = ""
+	// The key is required by validation and has nothing to do with this test; leaving it missing
+	// would make the test fail for a reason it is not about.
+	c.LLM.APIKey = "test"
+	if err := c.Validate(); err != nil {
+		t.Fatalf("an empty listen must be accepted as the default: %v", err)
+	}
+	// And it is a real address, not something the splitter rejects.
+	if _, _, err := net.SplitHostPort(defaultGatewayListen); err != nil {
+		t.Fatalf("the default is not host:port: %v", err)
 	}
 }

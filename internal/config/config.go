@@ -306,10 +306,19 @@ func Default() Config {
 		},
 		Gateway: Gateway{
 			Enabled: true,
-			// Port 0: the kernel grants a free one and the granted address is read back with
-			// Server.Addr(). A fixed port would collide with whatever the user already runs
-			// and would make two starlight windows impossible.
-			Listen: "127.0.0.1:0",
+			// A FIXED port, and the reason is that the gateway can now be a service that a LATER
+			// process has to find. An ephemeral port is chosen at bind time, so an address that
+			// exists only in the memory of one process is an address no other process can reach -
+			// which was fine only while the gateway lived inside the interface it served.
+			//
+			// 7477 is unassigned in the IANA registry (the 7475-7477 range is "Unassigned"), it is
+			// absent from /etc/services, and it sits BELOW the default ephemeral range on Linux
+			// (32768-60999), so it does not compete with outgoing connections on a standard machine.
+			//
+			// Two starlight windows no longer need two ports: they are two views of one gateway.
+			// A collision with something else is reported at startup, naming the setting, and can
+			// be changed with gateway.listen or -gateway.
+			Listen: defaultGatewayListen,
 			// Resolved against the starlight home by resolvePaths, like the log and the
 			// skills directory: everything the program owns lives under one folder.
 			TokenFile: "gateway.token",
@@ -367,6 +376,18 @@ func Dir() string {
 	}
 	return ""
 }
+
+// defaultGatewayListen is where the gateway listens when nothing says otherwise.
+//
+// It is a fixed port because the gateway can now outlive the process that started it, and a later
+// process has to be able to find it: an ephemeral port is chosen at bind time, so an address that
+// exists only in the memory of one process is an address no other process can reach. The service
+// file removes the need to guess, and a stable port is what makes a hand-written client possible
+// too.
+//
+// 7477 is unassigned in the IANA registry (7475-7477 is "Unassigned"), absent from /etc/services,
+// and below the default ephemeral range on Linux, so it does not compete with outgoing connections.
+const defaultGatewayListen = "127.0.0.1:7477"
 
 // The defaults that keep starlight's own state under one roof. They are the home's paths when
 // there is a home, and the old working-directory paths when there is not.
@@ -578,7 +599,10 @@ func (c *Config) validateGateway() error {
 	}
 	addr := strings.TrimSpace(c.Gateway.Listen)
 	if addr == "" {
-		addr = "127.0.0.1:0"
+		// An empty listen means "the default", and the default is now the fixed port. Falling back
+		// to an ephemeral one would silently produce a gateway that no other process can find, which
+		// is the opposite of what an unset value should mean.
+		addr = defaultGatewayListen
 	}
 	host, _, err := net.SplitHostPort(addr)
 	if err != nil {
