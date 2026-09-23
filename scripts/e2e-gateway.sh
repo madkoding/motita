@@ -270,6 +270,115 @@ code="$(curl -s -o /dev/null -w '%{http_code}' -X DELETE -H "$AUTH" "$BASE/v1/se
   || bad "closing the default session answered $code, want 409"
 
 echo
+echo "==> a client that disconnects and comes back"
+
+# The client starts a turn and is then KILLED, which is what a locked phone screen looks like from
+# the gateway's side: the socket goes away without a goodbye.
+#
+# The moment of the kill is not a guess about how fast the machine is. The script waits until the
+# gateway itself REPORTS the run in flight AND having said something, and only then cuts the client
+# off - so the turn really is in the middle when its client disappears. Killing it against a fixed
+# timeout was tried first and proved nothing: the turn had already finished by the time the next
+# request arrived, and the whole block passed while testing nothing.
+curl -s -N -H "$AUTH" -H 'Content-Type: application/json' \
+  -d '{"task":"leave the report with the requested content"}' \
+  "$BASE/v1/sessions/default/task" > .e2e/first.sse 2>&1 &
+first_pid=$!
+
+seen_running=0
+for _ in $(seq 1 400); do
+  if curl -s -H "$AUTH" "$BASE/v1/sessions/default/run" -o .e2e/run.json 2>/dev/null \
+     && grep -q '"last_seq":[1-9]' .e2e/run.json; then
+    seen_running=1
+    break
+  fi
+  sleep 0.05
+done
+kill "$first_pid" 2>/dev/null || true
+wait "$first_pid" 2>/dev/null || true
+
+SEEN="$(grep -o '^id: [0-9]*' .e2e/first.sse 2>/dev/null | tail -1 | grep -o '[0-9]*' || true)"
+echo "    the client left after event ${SEEN:-none}"
+[ "$seen_running" -eq 1 ] \
+  && ok "the run was in flight, and had spoken, when its client was killed" \
+  || bad "the run was never observed in flight with events, so the disconnect tested nothing"
+
+# Asking about the run WHILE it is still in flight, and then attaching from where the first client
+# stopped, is the pair that proves resumption rather than merely proving the turn finished.
+status_code="$(curl -s -o .e2e/run.json -w '%{http_code}' -H "$AUTH" \
+  "$BASE/v1/sessions/default/run")"
+case "$status_code" in
+  200) ok "the gateway reported the run in flight after its client left" ;;
+  # 404 is honest here: the turn ended before the question arrived. Saying so is the point, and the
+  # checks below still hold - they just prove less about resuming, which the output says.
+  404) ok "the run had already finished when asked, so the resume path was not observed in flight" ;;
+  *)   bad "asking about the run answered $status_code" ;;
+esac
+
+# The second client attaches FROM WHERE THE FIRST ONE STOPPED. Asking from 0 instead would replay
+# the beginning, which is the duplication the sequence numbers exist to avoid.
+curl -s -N -o .e2e/resumed.sse -H "$AUTH" \
+  "$BASE/v1/sessions/default/events?from=${SEEN:-0}" 2>&1 || true
+
+# The preamble is always the first thing a reattaching client receives, and it says what the log can
+# still give it - so a client can tell "resumed" from "I lost lines".
+grep -q 'event: attached' .e2e/resumed.sse \
+  && ok "a reattaching client is greeted with a preamble" \
+  || bad "a reattaching client got no preamble: $(head -3 .e2e/resumed.sse 2>/dev/null)"
+
+# The preamble carries the sequence range and the eviction count, which is what turns "there is a
+# hole" into "there is a hole of this size".
+grep -q '"last_seq"' .e2e/resumed.sse \
+  && ok "the preamble reports where the log is" \
+  || bad "the preamble does not report the log's range"
+
+# And it must NOT replay what the first client already saw: that is the duplication the numbering
+# exists to prevent, and a client would render the same line twice.
+if [ -n "$SEEN" ] && grep -q "^id: ${SEEN}$" .e2e/resumed.sse; then
+  bad "resuming from $SEEN replayed that event, so a client would render it twice"
+else
+  ok "resuming from ${SEEN:-0} did not replay the event the first client had"
+fi
+
+# Every event carries its number, which is what the client sends back to resume.
+grep -q '^id: 0$' .e2e/resumed.sse \
+  && ok "the reattached stream carries sequence numbers" \
+  || bad "the reattached stream carries no sequence numbers"
+
+# Attaching with nothing running says so, rather than hanging on a stream that will never produce.
+deadline=$((SECONDS + 20))
+while [ "$SECONDS" -lt "$deadline" ]; do
+  if curl -s -H "$AUTH" "$BASE/v1/sessions/default/run" -o /dev/null -w '%{http_code}' | grep -q 404; then
+    break
+  fi
+  sleep 0.2
+done
+code="$(curl -s -o /dev/null -w '%{http_code}' -H "$AUTH" "$BASE/v1/sessions/default/events?from=0")"
+[ "$code" = "404" ] && ok "attaching with no run in flight answered 404" \
+  || bad "attaching with no run in flight answered $code, want 404"
+
+# The turn finished and left its work on disk even though the client that started it went away. This
+# is the consequence that matters: the turn was not thrown away with the connection.
+[ -f .e2e/work/report.txt ] \
+  && ok "the turn outlived the client that started it and left its file behind" \
+  || bad "the turn was thrown away when its client disconnected"
+if [ -f .e2e/work/report.txt ]; then
+  resumed_content="$(cat .e2e/work/report.txt)"
+  [ "$resumed_content" = "content-valid" ] \
+    && ok "the resumed turn wrote the requested contents" \
+    || bad "the resumed turn wrote '$resumed_content'"
+fi
+
+# The API key must not cross this wire either. This scans the bodies collected in this block, which
+# makes it a check of the RESPONSES rather than of the code that writes them.
+if grep -q 'sk-' .e2e/resumed.sse .e2e/run.json 2>/dev/null; then
+  bad "an API key appeared in a response"
+else
+  ok "no API key in the resumed responses"
+fi
+
+echo
+
 [ "$failures" -eq 0 ] || { echo "FAILURES: $failures"; exit 1; }
 echo "the gateway works end to end"
 
