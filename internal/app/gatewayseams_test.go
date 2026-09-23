@@ -34,7 +34,7 @@ func TestSpawnDetachedStartsTheChildAndReleasesIt(t *testing.T) {
 		t.Fatalf("WriteFile: %v", err)
 	}
 
-	if err := spawnDetached(context.Background(), script, "127.0.0.1:7477"); err != nil {
+	if err := spawnDetached(context.Background(), spawnSpec{ExePath: script, Listen: "127.0.0.1:7477"}); err != nil {
 		t.Fatalf("spawnDetached: %v", err)
 	}
 	// The parent does not wait for the child, so the marker is polled rather than read straight
@@ -66,7 +66,7 @@ func TestSpawnDetachedWithoutAnAddressOmitsTheFlag(t *testing.T) {
 		t.Fatalf("WriteFile: %v", err)
 	}
 
-	if err := spawnDetached(context.Background(), script, "   "); err != nil {
+	if err := spawnDetached(context.Background(), spawnSpec{ExePath: script, Listen: "   "}); err != nil {
 		t.Fatalf("spawnDetached: %v", err)
 	}
 	deadline := time.Now().Add(2 * time.Second)
@@ -86,7 +86,7 @@ func TestSpawnDetachedWithoutAnAddressOmitsTheFlag(t *testing.T) {
 // A program that cannot be started is an error rather than a silent no-op: `gateway start` would
 // otherwise report success for a service that does not exist.
 func TestSpawnDetachedReportsAProgramThatCannotRun(t *testing.T) {
-	err := spawnDetached(context.Background(), filepath.Join(t.TempDir(), "not-a-program"), "")
+	err := spawnDetached(context.Background(), spawnSpec{ExePath: filepath.Join(t.TempDir(), "not-a-program")})
 	if err == nil {
 		t.Fatal("starting a program that does not exist must fail")
 	}
@@ -350,7 +350,7 @@ func TestStartingReportsACorruptFileAfterTheSpawn(t *testing.T) {
 	op.ServiceFile = servicePath
 	op.GatewayWait = time.Second
 	// The child "starts" by writing a corrupt file, which is what the confirmation then reads.
-	op.SpawnGateway = func(context.Context, string, string) error {
+	op.SpawnGateway = func(context.Context, spawnSpec) error {
 		return os.WriteFile(servicePath, []byte("{not json"), 0o600)
 	}
 
@@ -382,7 +382,7 @@ func TestStartingReportsAGatewayThatCannotBeFoundAfterwards(t *testing.T) {
 	op := gatewayTestOptions(t, out, "", "gateway", "start")
 	op.ServiceFile = servicePath
 	op.GatewayWait = time.Second
-	op.SpawnGateway = func(context.Context, string, string) error {
+	op.SpawnGateway = func(context.Context, spawnSpec) error {
 		return gateway.WriteServiceFile(servicePath, gateway.ServiceFile{Address: address, Token: "t", PID: 9})
 	}
 
@@ -424,7 +424,7 @@ func TestStartingRefusesOnACorruptServiceFile(t *testing.T) {
 	spawned := false
 	op := gatewayTestOptions(t, out, "", "gateway", "start")
 	op.ServiceFile = servicePath
-	op.SpawnGateway = func(context.Context, string, string) error { spawned = true; return nil }
+	op.SpawnGateway = func(context.Context, spawnSpec) error { spawned = true; return nil }
 
 	if code := Run(op); code != ConfigError {
 		t.Fatalf("exit %d, want %d for a corrupt service file", code, ConfigError)
@@ -449,7 +449,7 @@ func TestStartingReportsAFileThatChangesUnderIt(t *testing.T) {
 	op := gatewayTestOptions(t, out, "", "gateway", "start")
 	op.ServiceFile = servicePath
 	op.GatewayWait = time.Second
-	op.SpawnGateway = func(context.Context, string, string) error {
+	op.SpawnGateway = func(context.Context, spawnSpec) error {
 		return gateway.WriteServiceFile(servicePath, gateway.ServiceFile{Address: address, Token: "t", PID: 9})
 	}
 	op.DiscoverGateway = func(ctx context.Context, path string) (gateway.Found, bool, error) {
@@ -490,7 +490,7 @@ func TestStartingReportsAnUnreadableFileAfterTheSpawn(t *testing.T) {
 	op := gatewayTestOptions(t, out, "", "gateway", "start")
 	op.ServiceFile = servicePath
 	op.GatewayWait = time.Second
-	op.SpawnGateway = func(context.Context, string, string) error {
+	op.SpawnGateway = func(context.Context, spawnSpec) error {
 		return gateway.WriteServiceFile(servicePath, gateway.ServiceFile{Address: address, Token: "t", PID: 9})
 	}
 	op.DiscoverGateway = func(ctx context.Context, path string) (gateway.Found, bool, error) {
@@ -507,5 +507,68 @@ func TestStartingReportsAnUnreadableFileAfterTheSpawn(t *testing.T) {
 
 	if code := Run(op); code != ConfigError {
 		t.Fatalf("exit %d, want %d when the file cannot be read back", code, ConfigError)
+	}
+}
+
+// The configuration path reaches the child, and it is asserted because dropping it was a real bug:
+// `starlight -config custom.yaml gateway start` started a service that ignored custom.yaml and came
+// up on the defaults. The gateway the user asked for was never the gateway they got, and the
+// failure surfaced much later, as a client talking to the wrong agent.
+//
+// The path travels as a FLAG and not in the environment: the child is detached and long-lived, so
+// anything it inherits it keeps for its whole life, and an API key sitting in a service's
+// environment is readable by every process of that user.
+func TestSpawnDetachedCarriesTheConfigurationToTheChild(t *testing.T) {
+	marker := filepath.Join(t.TempDir(), "spawned")
+	script := filepath.Join(t.TempDir(), "fake-starlight")
+	if err := os.WriteFile(script, []byte("#!/bin/sh\nprintf '%s' \"$*\" > "+marker+"\n"), 0o700); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+
+	spec := spawnSpec{ExePath: script, Config: "/etc/starlight/custom.yaml", Listen: "127.0.0.1:7477"}
+	if err := spawnDetached(context.Background(), spec); err != nil {
+		t.Fatalf("spawnDetached: %v", err)
+	}
+	deadline := time.Now().Add(2 * time.Second)
+	var got string
+	for time.Now().Before(deadline) {
+		b, err := os.ReadFile(marker)
+		if err == nil {
+			got = string(b)
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	// Both the flag and its value: a bare "-config" would leave the child reading the NEXT argument
+	// as a path.
+	if !strings.Contains(got, "-config /etc/starlight/custom.yaml") {
+		t.Fatalf("the configuration did not reach the child: %q", got)
+	}
+}
+
+// And with no configuration named, the flag is left off entirely, so the child finds its
+// configuration the way any other starlight does rather than being handed an empty path.
+func TestSpawnDetachedWithoutAConfigOmitsTheFlag(t *testing.T) {
+	marker := filepath.Join(t.TempDir(), "spawned")
+	script := filepath.Join(t.TempDir(), "fake-starlight")
+	if err := os.WriteFile(script, []byte("#!/bin/sh\nprintf '%s' \"$*\" > "+marker+"\n"), 0o700); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+
+	if err := spawnDetached(context.Background(), spawnSpec{ExePath: script, Config: "  "}); err != nil {
+		t.Fatalf("spawnDetached: %v", err)
+	}
+	deadline := time.Now().Add(2 * time.Second)
+	var got string
+	for time.Now().Before(deadline) {
+		b, err := os.ReadFile(marker)
+		if err == nil {
+			got = string(b)
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if strings.Contains(got, "-config") {
+		t.Fatalf("an empty configuration must not be passed as a path: %q", got)
 	}
 }

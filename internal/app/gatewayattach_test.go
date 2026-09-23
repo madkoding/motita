@@ -51,7 +51,7 @@ func TestTheInterfaceConnectsToAGatewayThatIsAlreadyRunning(t *testing.T) {
 		gotBaseURL, gotToken = baseURL, token
 		return &noopRunner{}
 	}
-	op.SpawnGateway = func(context.Context, string, string) error {
+	op.SpawnGateway = func(context.Context, spawnSpec) error {
 		t.Fatal("a gateway was started even though one was already running")
 		return nil
 	}
@@ -128,19 +128,24 @@ func TestTheInterfaceShutsDownTheGatewayItStarted(t *testing.T) {
 	op := tuiTestOptions(t, out)
 	op.ServiceFile = servicePath
 	op.NewClient = func(baseURL, token, session string) tui.Runner { return &noopRunner{} }
-	op.GatewayWait = time.Second
-	op.SpawnGateway = func(ctx context.Context, exe, listen string) error {
-		return gateway.WriteServiceFile(servicePath, gateway.ServiceFile{Address: address, Token: "own", PID: 4242, Owned: true})
+	// The interface's own gateway, standing in for the in-process one. It publishes the file as the
+	// real path does, with owned=true: this process brought it up, so this process shuts it down.
+	op.StartGatewayForTest = func(owned bool) (string, string, error) {
+		if !owned {
+			t.Error("a gateway started for the interface must be marked as owned by it")
+		}
+		if err := gateway.WriteServiceFile(servicePath, gateway.ServiceFile{Address: address, Token: "own", PID: 4242, Owned: true}); err != nil {
+			return "", "", err
+		}
+		return "http://" + address, "own", nil
 	}
-	// The signal is injected, and NOT the real one: the stand-in child here is this very test
-	// process, so the real path would send SIGTERM to the suite. In production the child is a
-	// separate process, which is the whole point of re-executing.
-	op.SignalProcess = func(int) error { answered.Store(false); return nil }
 
 	if code := Run(op); code != Success {
 		t.Fatalf("exit %d, want %d (output: %s)", code, Success, out.String())
 	}
-	// The interface has ended. A gateway this process started must be gone with it.
+	// The interface has ended. A gateway this process started must not be left described as running:
+	// a stale entry is exactly what discovery trusts, so the next start would probe it instead of
+	// bringing up a gateway of its own.
 	svc, _ := gateway.ReadServiceFile(servicePath)
 	if !svc.IsZero() {
 		t.Fatalf("the gateway this process started is still described on disk after the interface ended: %+v", svc)
@@ -174,7 +179,7 @@ func TestTheInterfaceLeavesAGatewayItFoundRunning(t *testing.T) {
 	op := tuiTestOptions(t, out)
 	op.ServiceFile = servicePath
 	op.NewClient = func(baseURL, token, session string) tui.Runner { return &noopRunner{} }
-	op.SpawnGateway = func(context.Context, string, string) error {
+	op.SpawnGateway = func(context.Context, spawnSpec) error {
 		t.Fatal("a second gateway was started beside a running service")
 		return nil
 	}
@@ -240,9 +245,9 @@ func TestTheInterfaceWithTheGatewayOffTakesTheDirectPath(t *testing.T) {
 		t.Fatal("with the gateway off the interface must not attach to one")
 		return nil
 	}
-	op.SpawnGateway = func(context.Context, string, string) error {
+	op.StartGatewayForTest = func(bool) (string, string, error) {
 		t.Fatal("with the gateway off nothing may be started")
-		return nil
+		return "", "", nil
 	}
 
 	if code := Run(op); code != Success {

@@ -129,7 +129,7 @@ type Options struct {
 	// SpawnGateway brings the service up. It is a seam of the same shape as Exit and RunChild: the
 	// real one re-executes the program detached, and a test cannot do that without starting a
 	// second agent.
-	SpawnGateway func(ctx context.Context, exePath, listen string) error
+	SpawnGateway func(ctx context.Context, spec spawnSpec) error
 	// SignalProcess asks the gateway to stop. Injectable because killing a real process from a test
 	// would leave the assertion racing the operating system.
 	SignalProcess func(pid int) error

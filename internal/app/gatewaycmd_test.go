@@ -65,7 +65,7 @@ func TestStartingAGatewayAsAServiceSaysWhereItIs(t *testing.T) {
 	// The child is not really this program in a test, so the run is replaced by one that publishes
 	// the file exactly as the child's -serve would. That is the behaviour under test: what the
 	// parent reports and what it writes.
-	op.SpawnGateway = func(context.Context, string, string) error {
+	op.SpawnGateway = func(context.Context, spawnSpec) error {
 		return gateway.WriteServiceFile(servicePath, gateway.ServiceFile{Address: address, Token: "t", PID: 4242, Owned: false})
 	}
 
@@ -103,7 +103,7 @@ func TestStartingWhenOneIsAlreadyRunningSaysSo(t *testing.T) {
 	spawned := false
 	op := gatewayTestOptions(t, out, "", "gateway", "start")
 	op.ServiceFile = servicePath
-	op.SpawnGateway = func(context.Context, string, string) error {
+	op.SpawnGateway = func(context.Context, spawnSpec) error {
 		spawned = true
 		return nil
 	}
@@ -124,7 +124,7 @@ func TestStartingAGatewayThatCannotBeSpawnedFails(t *testing.T) {
 	out := &syncBuffer{}
 	op := gatewayTestOptions(t, out, "", "gateway", "start")
 	op.ServiceFile = filepath.Join(t.TempDir(), "gateway.json")
-	op.SpawnGateway = func(context.Context, string, string) error { return os.ErrPermission }
+	op.SpawnGateway = func(context.Context, spawnSpec) error { return os.ErrPermission }
 
 	if code := Run(op); code != ConfigError {
 		t.Fatalf("exit %d, want %d when the child cannot be spawned", code, ConfigError)
@@ -143,7 +143,7 @@ func TestStartingAGatewayThatNeverAnswersFails(t *testing.T) {
 	op := gatewayTestOptions(t, out, "", "gateway", "start")
 	op.ServiceFile = servicePath
 	// Spawns nothing and writes nothing: the address never comes up.
-	op.SpawnGateway = func(context.Context, string, string) error { return nil }
+	op.SpawnGateway = func(context.Context, spawnSpec) error { return nil }
 	op.GatewayWait = 50 * time.Millisecond
 
 	if code := Run(op); code != ConfigError {

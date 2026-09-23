@@ -87,7 +87,7 @@ func (op Options) gatewayStart(ctx context.Context, fl flags) int {
 	// The child is this same program with -serve, detached. Everything it needs it reads from the
 	// same configuration this process read, so there is one source of truth for the listen address
 	// and the token path.
-	if err := op.SpawnGateway(ctx, op.exePath(), fl.gateway); err != nil {
+	if err := op.SpawnGateway(ctx, op.spawnSpec(fl)); err != nil {
 		fmt.Fprintf(op.Err, "the gateway could not be started: %v\n", err)
 		return ConfigError
 	}
@@ -241,16 +241,41 @@ func (op Options) waitForGatewayFor(ctx context.Context, timeout time.Duration, 
 // exePath is the program to re-execute for the service.
 func (op Options) exePath() string { return op.ExePath }
 
+// spawnSpec is everything the service process needs to be the SAME agent this command was pointed
+// at: which program, which configuration, and which address.
+//
+// The configuration travels as a flag and NOT as an inherited environment. The child is detached
+// and long-lived, so anything it inherits it keeps for its whole life, and an LLM key sitting in a
+// service's environment is readable by every process of that user. The path is what it needs and
+// all it needs: the child reads the file under the same rules this process did.
+//
+// Dropping the flag was a real bug: `starlight -config custom.yaml gateway start` started a service
+// that ignored custom.yaml and came up on the defaults, so the gateway the user asked for was never
+// the gateway they got - and the failure showed up much later, as a client talking to the wrong
+// agent.
+type spawnSpec struct {
+	ExePath string
+	Config  string
+	Listen  string
+}
+
+func (op Options) spawnSpec(fl flags) spawnSpec {
+	return spawnSpec{ExePath: op.exePath(), Config: fl.configPath, Listen: fl.gateway}
+}
+
 // spawnDetached re-executes this program with -serve in its own session.
 //
 // It is the default of the SpawnGateway seam. It is a separate function from the seam itself so the
 // real behaviour stays readable next to the reason it exists, while tests replace only the seam.
-func spawnDetached(ctx context.Context, exePath, listen string) error {
+func spawnDetached(ctx context.Context, spec spawnSpec) error {
 	args := []string{"-serve"}
-	if strings.TrimSpace(listen) != "" {
-		args = append(args, "-gateway", listen)
+	if strings.TrimSpace(spec.Config) != "" {
+		args = append(args, "-config", spec.Config)
 	}
-	cmd := exec.CommandContext(ctx, exePath, args...)
+	if strings.TrimSpace(spec.Listen) != "" {
+		args = append(args, "-gateway", spec.Listen)
+	}
+	cmd := exec.CommandContext(ctx, spec.ExePath, args...)
 	detach(cmd)
 	// The output is discarded rather than inherited: the service outlives this terminal, and a
 	// gateway writing into a pipe whose reader has exited would block on a full buffer and stop
