@@ -565,6 +565,13 @@ agent:
   workspace_dir: %s
   log_level: error
   log_console: false
+# An EPHEMERAL gateway port, because a test that walks the real interface binds a real listener
+# and the shipped default is a FIXED port: two such tests would contend for one global resource,
+# and the loser fails with "address already in use" depending on how fast the winner released the
+# socket. That is an intermittent failure which reads as machine flakiness rather than as a bug.
+# The port is never what a test asserts, so it belongs here rather than in each test's flags.
+gateway:
+  listen: "127.0.0.1:0"
 `, srv.URL, dir))
 
 	code := Run(Options{
@@ -1881,6 +1888,8 @@ func TestRunTUINilHook(t *testing.T) {
 	defer srv.Close()
 	var out bytes.Buffer
 	code := Run(Options{
+		// planConfig asks for an ephemeral gateway port: this walks the real interface, so it
+		// binds a real listener, and the shipped default is a fixed port two tests cannot share.
 		Args:  []string{"-config", planConfig(t, srv), "-tui"},
 		Out:   &out,
 		Err:   &out,
@@ -1905,7 +1914,7 @@ func TestTUIRealRunnerPlanModeDoesNotPanic(t *testing.T) {
 	var out bytes.Buffer
 	code := Run(Options{
 		// p selects plan mode, then the prompt, then Enter to leave the answer
-		// screen, then q to quit the menu.
+		// screen, then q to quit the menu. planConfig supplies an ephemeral gateway port.
 		Args:  []string{"-config", planConfig(t, srv), "-tui"},
 		Out:   &out,
 		Err:   &out,
