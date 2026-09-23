@@ -95,6 +95,18 @@ type Options struct {
 	// and waitSignal: the loop only returns an error when the listener breaks under it, so a
 	// test that wants to see what happens when it does needs to be able to make it fail.
 	ServeGateway func(*gateway.Server) error
+	// StartGatewayForTest replaces the in-process bind for the interface's own gateway. It is a
+	// seam because binding a real port in a test is a dependency on the machine, and the decision
+	// under test is WHICH gateway the interface ends up speaking through, not that a socket can be
+	// opened. It reports the base URL, the token and the error, and nothing else about the server
+	// is reached from here.
+	StartGatewayForTest func(owned bool) (baseURL, token string, err error)
+	// WriteServiceFile publishes where the gateway is. It is a seam for the same reason the
+	// filesystem calls in gateway/token.go are: the branch it guards - the description of a running
+	// gateway that cannot be written - is a read-only home or a full disk, and provoking it with
+	// permissions does not work because root ignores a directory's mode, which is how this
+	// repository's tests are run.
+	WriteServiceFile func(path string, svc gateway.ServiceFile) error
 	// CloseGateway replaces the gateway's shutdown. Injecting it is how the "did not shut down
 	// cleanly" report is reached, and that report matters: a shutdown that failed is the
 	// difference between a client that was cut off and one that was waited for.
@@ -278,6 +290,9 @@ func (op *Options) complete() {
 	}
 	if op.GatewayWait == 0 {
 		op.GatewayWait = 10 * time.Second
+	}
+	if op.WriteServiceFile == nil {
+		op.WriteServiceFile = gateway.WriteServiceFile
 	}
 }
 
@@ -936,10 +951,10 @@ func (op Options) willRunTUI(fl flags) bool {
 
 // runTUI starts the interactive text user interface.
 //
-// The interface is handed a CLIENT of this process's own gateway, not a second door into the
-// agent. Two doors would be two places the conversation lives, and the phone and the terminal
-// would then be talking to different agents: the text interface is a front end like any other,
-// and this is where that stops being a slogan.
+// The interface is handed a CLIENT of a gateway, not a second door into the agent. Two doors would
+// be two places the conversation lives, and the phone and the terminal would then be talking to
+// different agents: the text interface is a front end like any other, and this is where that stops
+// being a slogan.
 func (op Options) runTUI(ctx context.Context, fl flags, cfg config.Config, engine *llm.Client, box *sandbox.Sandbox, log *logx.Logger) int {
 	if op.RunTUI != nil {
 		return op.RunTUI(ctx, cfg, engine, box, log)
@@ -954,27 +969,128 @@ func (op Options) runTUI(ctx context.Context, fl flags, cfg config.Config, engin
 	ui.Err = op.Err
 	ui.NoColor = noColour(os.Getenv, op.Out)
 
-	// With the gateway off, the interface keeps the direct path it has always had. It is the
-	// documented escape hatch, and it is one condition rather than a second implementation
-	// scattered through the code.
-	if !cfg.Gateway.Enabled || strings.EqualFold(strings.TrimSpace(fl.gateway), "off") {
+	// The interface CONNECTS to a gateway rather than assuming it is the only one.
+	//
+	// This is the split the user asked for: `starlight` brings up an interface, and the agent behind
+	// it is a service that can already be running. Attaching to one that is there is also what makes
+	// `gateway start` mean anything - a service nobody can connect to is a service for nobody.
+	client, release, code := op.attachGateway(ctx, fl, cfg, engine, box, log)
+	if code != Success {
+		return code
+	}
+	if release != nil {
+		defer release()
+	}
+	if client == nil {
+		// The documented escape hatch: with the gateway off the interface takes the direct path it
+		// has always had.
 		return ui.Run(ctx)
 	}
 
-	srv, err := op.startGateway(fl, cfg, engine, box, log)
+	// The wizard runs HERE, in the terminal this process was started from: it reads lines from
+	// stdin, so it cannot travel over a socket. That is why it is handed to the interface as a
+	// WRAPPER rather than left to the client: the client speaks to a gateway that may be on another
+	// machine, and a wizard answered over there would be configuring the wrong host.
+	ui.Runner = localWizard{Runner: client, runConfig: runner.RunConfig}
+	return ui.Run(ctx)
+}
+
+// localWizard hands the interface THIS process's first-run wizard, whatever client it is speaking
+// through.
+//
+// It exists because the wizard is the one thing that cannot be remote: it reads from the terminal in
+// front of the user and writes the configuration of the machine they are sitting at. A client of a
+// gateway on another host has no wizard of its own - and should not, because running one over there
+// would set up the wrong machine.
+type localWizard struct {
+	tui.Runner
+	runConfig func(context.Context) error
+}
+
+func (l localWizard) RunConfig(ctx context.Context) error { return l.runConfig(ctx) }
+
+// attachGateway resolves WHICH gateway this process will speak through, and returns the client for
+// it together with the function that releases it.
+//
+// It is a function of its own because the decision is the whole feature and it is otherwise
+// invisible: the interface is handed a client either way, and which gateway is behind that client
+// is not something the rest of this file can see. (The same reason the NewClient seam exists.)
+//
+// Three outcomes, and all of them are deliberate:
+//
+//   - The gateway is off, or was turned off with -gateway off: no client, no release, and the
+//     caller keeps the direct path it has always had. A nil client is the escape hatch, not a
+//     failure.
+//   - A gateway is ALREADY running: attach to it and release nothing. It is not ours to shut down.
+//     Killing a service the user deliberately started, because a terminal happened to attach to it,
+//     would be destroying their setup by looking at it.
+//   - Nothing is running: bring one up in THIS process and attach to it, and give back the release.
+//     This one IS ours, and it is shut down when the interface ends.
+//
+// The gateway is brought up here rather than re-executed with -serve, and that is deliberate. The
+// re-exec belongs to `gateway start`, whose whole purpose is a gateway that outlives the shell that
+// started it. Here the opposite is wanted: this gateway exists for this interface, so it is bound
+// in-process and dies with the process no matter how the process dies. A child would survive a
+// SIGKILL of the interface and leak, and a leaked gateway is invisible until somebody counts ports.
+func (op Options) attachGateway(ctx context.Context, fl flags, cfg config.Config, engine *llm.Client, box *sandbox.Sandbox, log *logx.Logger) (tui.Runner, func(), int) {
+	if !cfg.Gateway.Enabled || strings.EqualFold(strings.TrimSpace(fl.gateway), "off") {
+		return nil, nil, Success
+	}
+
+	found, ok, err := op.discover(ctx)
+	if err != nil {
+		fmt.Fprintf(op.Err, "%v\n", err)
+		return nil, nil, ConfigError
+	}
+	if ok {
+		// Somebody else's gateway, or one an earlier command started: either way it is not ours.
+		return op.newClient(found.BaseURL, found.Token, fl.session), nil, Success
+	}
+
+	// Nothing is running, so one is brought up for this interface and it is OURS: whatever happens
+	// to this process, its gateway goes with it.
+	baseURL, token, srv, err := op.startOwnGateway(ctx, fl, cfg, engine, box, log)
 	if err != nil {
 		fmt.Fprintf(op.Err, "the gateway could not start: %v\n", err)
-		return ConfigError
+		return nil, nil, ConfigError
 	}
-	defer op.runGatewayLoop(ctx, srv, log)()
+	// runGatewayLoop is what STARTS the server - it serves in a goroutine and hands back the
+	// shutdown. Starting the gateway without it would leave a bound socket that nobody answers on:
+	// every client would connect and then wait forever, which is exactly how this was found.
+	shutdown := func() {}
+	if srv != nil {
+		shutdown = op.runGatewayLoop(ctx, srv, log)
+	}
+	release := func() {
+		shutdown()
+		// The file is cleared as part of the release rather than left to the next start: between
+		// this process ending and the next one looking, the file would name a gateway that is gone,
+		// and a stale entry is exactly what discovery trusts.
+		_ = gateway.RemoveServiceFile(op.serviceFilePath())
+	}
+	return op.newClient(baseURL, token, fl.session), release, Success
+}
 
-	client := gateway.NewClient(srv.BaseURL(), srv.Token())
-	// The wizard runs HERE, in the terminal this process was started from: it reads lines from
-	// stdin, so it cannot travel over a socket. Embedded, "here" is the same machine as the
-	// gateway, which is what makes this correct rather than a shortcut.
-	client.Wizard = runner.RunConfig
-	ui.Runner = client
-	return ui.Run(ctx)
+// startOwnGateway brings up the gateway this process will speak through, in-process.
+//
+// It is in-process rather than a re-executed child, and that is the opposite of what
+// `gateway start` does - deliberately. The service exists to outlive the shell that started it.
+// This one exists FOR this interface, so it must die with it however the process dies: a child
+// would survive a SIGKILL of the interface and leak, and a leaked gateway is invisible until
+// somebody counts ports.
+//
+// The test seam returns only the three things the caller uses - where, what token, and whether it
+// worked - so a test asserts the DECISION without binding a port or depending on the machine.
+func (op Options) startOwnGateway(ctx context.Context, fl flags, cfg config.Config, engine *llm.Client, box *sandbox.Sandbox, log *logx.Logger) (string, string, *gateway.Server, error) {
+	if op.StartGatewayForTest != nil {
+		baseURL, token, err := op.StartGatewayForTest(true)
+		return baseURL, token, nil, err
+	}
+	srv, err := op.startGateway(fl, cfg, engine, box, log, true)
+	if err != nil {
+		return "", "", nil, err
+	}
+	return srv.BaseURL(), srv.Token(), srv, nil
 }
 
 // noColour reports whether the interface must render without colour.

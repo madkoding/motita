@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"strings"
 
 	"github.com/madkoding/starlight/internal/config"
@@ -21,7 +22,9 @@ import (
 // design: there is ONE agent, and a client on a phone and a terminal in front of the machine talk
 // to the same conversation, the same procedure library and the same reward ledger.
 func (op Options) runServe(ctx context.Context, fl flags, cfg config.Config, engine *llm.Client, box *sandbox.Sandbox, log *logx.Logger) int {
-	srv, err := op.startGateway(fl, cfg, engine, box, log)
+	// owned=false: this IS the service the user asked for. It stops when it is told to, and nothing
+	// about the interface's lifetime has any say over it.
+	srv, err := op.startGateway(fl, cfg, engine, box, log, false)
 	if err != nil {
 		fmt.Fprintf(op.Err, "the gateway could not start: %v\n", err)
 		return ConfigError
@@ -32,6 +35,12 @@ func (op Options) runServe(ctx context.Context, fl flags, cfg config.Config, eng
 	// this context; nothing else ends a server.
 	<-ctx.Done()
 	log.Info("the gateway is shutting down")
+
+	// The description of a gateway that is no longer listening is worse than none: discovery trusts
+	// it, and the next start would probe an address nothing answers on before deciding to bring its
+	// own up. Removed here rather than by the client, because this process is the one that knows it
+	// has stopped.
+	_ = gateway.RemoveServiceFile(op.serviceFilePath())
 	return Success
 }
 
@@ -72,7 +81,17 @@ func (op Options) runGatewayLoop(ctx context.Context, srv *gateway.Server, log *
 //
 // The token is read or created here rather than in the TUI, because BOTH modes need it and a
 // server that generated one in two places would eventually generate two.
-func (op Options) startGateway(fl flags, cfg config.Config, engine *llm.Client, box *sandbox.Sandbox, log *logx.Logger) (*gateway.Server, error) {
+//
+// owned says whether the process that asked for this gateway is responsible for shutting it down.
+// It is written into the service file and NOT inferred from who called what, because the inference
+// is wrong in the case that matters: a user starts a service and then opens a terminal, and "the
+// interface started it" would be false - the interface found it. Getting it wrong either kills a
+// service the user asked to keep, or leaks one nobody asked for.
+//
+// The file is written with the EFFECTIVE address (srv.Addr()), not the one that was asked for: with
+// a port of 0 the real port is chosen at bind time, and writing the zero down would leave a file
+// nobody can use.
+func (op Options) startGateway(fl flags, cfg config.Config, engine *llm.Client, box *sandbox.Sandbox, log *logx.Logger, owned bool) (*gateway.Server, error) {
 	switch {
 	case strings.EqualFold(strings.TrimSpace(fl.gateway), "off"):
 		return nil, errors.New("the gateway was turned off with -gateway off")
@@ -108,7 +127,7 @@ func (op Options) startGateway(fl flags, cfg config.Config, engine *llm.Client, 
 		return r, nil
 	}
 
-	return gateway.Start(gateway.Options{
+	srv, err := gateway.Start(gateway.Options{
 		Service:     runner,
 		NewService:  newService,
 		MaxSessions: cfg.Gateway.MaxSessions,
@@ -119,4 +138,22 @@ func (op Options) startGateway(fl flags, cfg config.Config, engine *llm.Client, 
 		Version:     op.Version,
 		Log:         log,
 	})
+	if err != nil {
+		return nil, err
+	}
+
+	// Published AFTER the bind, because the address is only known then, and BEFORE anything is
+	// served: a client that looked in that window would find nothing and start a second gateway.
+	// A failure here is fatal rather than ignored: a gateway nobody can find is a gateway nobody can
+	// use, and the user asked for one that can be reached.
+	if err := op.WriteServiceFile(op.serviceFilePath(), gateway.ServiceFile{
+		Address: srv.Addr(),
+		Token:   token,
+		PID:     os.Getpid(),
+		Owned:   owned,
+	}); err != nil {
+		_ = srv.Close(context.Background())
+		return nil, err
+	}
+	return srv, nil
 }
