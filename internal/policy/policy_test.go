@@ -11,6 +11,14 @@ import (
 	"testing"
 )
 
+// testMode is the mode the tests judge commands with.
+//
+// It is built HERE rather than taken from production on purpose: these tests are about what the
+// POLICY decides, so the mode they hand it must not be a thing a production change can move under
+// them. Enforce on and Strict off is the behaviour under test — the tests that need the other
+// combinations build them explicitly, which is why none of them ever asked for a "default".
+func testMode() Mode { return Mode{Enforce: true, Strict: false} }
+
 func TestVerdictString(t *testing.T) {
 	cases := map[Verdict]string{Allow: "allow", Ask: "ask", Deny: "deny"}
 	for v, want := range cases {
@@ -23,16 +31,6 @@ func TestVerdictString(t *testing.T) {
 	var zero Decision
 	if zero.Verdict != Allow {
 		t.Errorf("the zero verdict must be Allow, got %s", zero.Verdict)
-	}
-}
-
-func TestDefaultModeAsksBeforeActing(t *testing.T) {
-	m := Default()
-	if !m.Enforce {
-		t.Error("the default must confirm before a consequential action: an agent that has to be told to ask does not ask")
-	}
-	if m.Strict {
-		t.Error("the default must not refuse what it cannot classify: an unlisted program is the normal case for real work")
 	}
 }
 
@@ -103,7 +101,7 @@ func TestTheMandatoryFloorIsReachableThroughAShell(t *testing.T) {
 		`find . -exec rm -rf / {} ;`,
 		`sh -c 'sh -c "rm -rf /"'`,
 	} {
-		d := Default().DecideLine(line, dir)
+		d := testMode().DecideLine(line, dir)
 		if d.Verdict != Deny || !d.Mandatory {
 			t.Errorf("%q must hit the mandatory floor, got %s (rule %s, mandatory %v)",
 				line, d.Verdict, d.Rule, d.Mandatory)
@@ -121,7 +119,7 @@ func TestMentioningAFloorCommandIsNotRunningIt(t *testing.T) {
 		`grep -rn "mkfs" README.md`,
 		`cat notes.txt`,
 	} {
-		d := Default().DecideLine(line, dir)
+		d := testMode().DecideLine(line, dir)
 		if d.Verdict == Deny && d.Mandatory {
 			t.Errorf("%q only mentions a floor command and must not be refused: %s", line, d.Reason)
 		}
@@ -137,7 +135,7 @@ func TestWritingToADeviceIsRefused(t *testing.T) {
 		"cat image.iso > /dev/sdb",
 		"echo x >> /dev/nvme0n1",
 	} {
-		d := Default().DecideLine(line, dir)
+		d := testMode().DecideLine(line, dir)
 		if d.Verdict != Deny || !d.Mandatory {
 			t.Errorf("%q must be refused outright, got %s (rule %s)", line, d.Verdict, d.Rule)
 		}
@@ -153,7 +151,7 @@ func TestWritingToASystemTreeIsRefused(t *testing.T) {
 		"echo x > /usr/bin/sh",
 		"echo x > /boot/grub.cfg",
 	} {
-		d := Default().DecideLine(line, dir)
+		d := testMode().DecideLine(line, dir)
 		if d.Verdict != Deny || !d.Mandatory {
 			t.Errorf("%q must be refused outright, got %s (rule %s)", line, d.Verdict, d.Rule)
 		}
@@ -172,7 +170,7 @@ func TestTheFloorLeavesOrdinaryWorkAlone(t *testing.T) {
 		"rm file.txt",
 		"rmdir empty",
 	} {
-		d := Default().DecideLine(line, dir)
+		d := testMode().DecideLine(line, dir)
 		if d.Mandatory {
 			t.Errorf("%q is local work and must not hit the mandatory floor: %s", line, d.Reason)
 		}
@@ -184,7 +182,7 @@ func TestTheFloorLeavesOrdinaryWorkAlone(t *testing.T) {
 func TestRmWithoutBothFlagsIsNotTheFloor(t *testing.T) {
 	dir := t.TempDir()
 	for _, line := range []string{"rm -r /home", "rm -f /etc/passwd"} {
-		if d := Default().DecideLine(line, dir); d.Mandatory {
+		if d := testMode().DecideLine(line, dir); d.Mandatory {
 			t.Errorf("%q lacks recursive-and-forced and must not hit the floor: %s", line, d.Reason)
 		}
 	}
@@ -194,7 +192,7 @@ func TestRmWithoutBothFlagsIsNotTheFloor(t *testing.T) {
 // image is written, which is work. Only an output target on its own is the floor.
 func TestDdThatOnlyReadsIsUntouched(t *testing.T) {
 	dir := t.TempDir()
-	if d := Default().DecideLine("dd if=/dev/zero count=1", dir); d.Mandatory {
+	if d := testMode().DecideLine("dd if=/dev/zero count=1", dir); d.Mandatory {
 		t.Errorf("a dd with no target writes nothing and must not hit the floor: %s", d.Reason)
 	}
 }
@@ -212,7 +210,7 @@ func TestReadersRunWithoutBeingAsked(t *testing.T) {
 		"df -h",
 		"journalctl -n 20",
 	} {
-		d := Default().DecideLine(line, dir)
+		d := testMode().DecideLine(line, dir)
 		if d.Verdict != Allow {
 			t.Errorf("%q only reads and must be allowed, got %s: %s", line, d.Verdict, d.Reason)
 		}
@@ -226,11 +224,11 @@ func TestWritesInsideTheWorkspaceAreAllowedAndWritesOutsideAreAsked(t *testing.T
 	dir := t.TempDir()
 	outside := filepath.Join(filepath.Dir(dir), "outside-target")
 
-	inside := Default().DecideLine("touch "+filepath.Join(dir, "nuevo.txt"), dir)
+	inside := testMode().DecideLine("touch "+filepath.Join(dir, "nuevo.txt"), dir)
 	if inside.Verdict != Allow {
 		t.Errorf("a write inside the workspace must be allowed, got %s: %s", inside.Verdict, inside.Reason)
 	}
-	out := Default().DecideLine("touch "+outside, dir)
+	out := testMode().DecideLine("touch "+outside, dir)
 	if out.Verdict != Ask {
 		t.Errorf("a write outside the workspace must be asked about, got %s: %s", out.Verdict, out.Reason)
 	}
@@ -243,7 +241,7 @@ func TestWritesInsideTheWorkspaceAreAllowedAndWritesOutsideAreAsked(t *testing.T
 // knowing which user the agent runs as — which is exactly the thing that must not decide.
 func TestHomePathsAreOutside(t *testing.T) {
 	dir := t.TempDir()
-	d := Default().DecideLine("touch ~/notes.txt", dir)
+	d := testMode().DecideLine("touch ~/notes.txt", dir)
 	if d.Verdict != Ask {
 		t.Errorf("a home path must be asked about, got %s: %s", d.Verdict, d.Reason)
 	}
@@ -255,10 +253,10 @@ func TestMvAndCpJudgeTheirDestination(t *testing.T) {
 	dir := t.TempDir()
 	outside := filepath.Join(filepath.Dir(dir), "destino")
 
-	if d := Default().DecideLine("cp a.txt "+filepath.Join(dir, "b.txt"), dir); d.Verdict != Allow {
+	if d := testMode().DecideLine("cp a.txt "+filepath.Join(dir, "b.txt"), dir); d.Verdict != Allow {
 		t.Errorf("a copy landing inside must be allowed, got %s: %s", d.Verdict, d.Reason)
 	}
-	if d := Default().DecideLine("mv a.txt "+outside, dir); d.Verdict != Ask {
+	if d := testMode().DecideLine("mv a.txt "+outside, dir); d.Verdict != Ask {
 		t.Errorf("a move landing outside must be asked about, got %s: %s", d.Verdict, d.Reason)
 	}
 }
@@ -273,7 +271,7 @@ func TestASymlinkDoesNotSmuggleAWriteOut(t *testing.T) {
 	if err := os.Symlink(outside, link); err != nil {
 		t.Skipf("symlinks are not available here: %v", err)
 	}
-	d := Default().DecideLine("touch "+filepath.Join(link, "escrito.txt"), dir)
+	d := testMode().DecideLine("touch "+filepath.Join(link, "escrito.txt"), dir)
 	if d.Verdict != Ask {
 		t.Errorf("a write through a link that leaves the workspace must be asked about, got %s: %s",
 			d.Verdict, d.Reason)
@@ -287,11 +285,11 @@ func TestASymlinkDoesNotSmuggleAWriteOut(t *testing.T) {
 func TestAPipeIsJudgedByEveryPart(t *testing.T) {
 	dir := t.TempDir()
 
-	if d := Default().DecideLine("cat access.log | grep 500 | wc -l", dir); d.Verdict != Allow {
+	if d := testMode().DecideLine("cat access.log | grep 500 | wc -l", dir); d.Verdict != Allow {
 		t.Errorf("a pipeline of readers must be allowed, got %s: %s", d.Verdict, d.Reason)
 	}
 	// A reader followed by a shell: the shell is what has to be approved.
-	d := Default().DecideLine("cat x | sh", dir)
+	d := testMode().DecideLine("cat x | sh", dir)
 	if d.Verdict != Ask {
 		t.Errorf("a pipeline ending in a shell must be asked about, got %s: %s", d.Verdict, d.Reason)
 	}
@@ -306,15 +304,15 @@ func TestAChainIsJudgedByEveryPart(t *testing.T) {
 
 	// A local commit is work, and must not be questioned: the agent commits its own
 	// validated changes, and a prompt on every `git add` would be pure friction.
-	if d := Default().DecideLine("git add -A && git commit -m x", dir); d.Verdict != Allow {
+	if d := testMode().DecideLine("git add -A && git commit -m x", dir); d.Verdict != Allow {
 		t.Errorf("a local commit must be allowed, got %s: %s", d.Verdict, d.Reason)
 	}
 	// The same line with a push is a different matter: it leaves the machine.
-	if d := Default().DecideLine("git add -A && git commit -m x && git push", dir); d.Verdict != Ask {
+	if d := testMode().DecideLine("git add -A && git commit -m x && git push", dir); d.Verdict != Ask {
 		t.Errorf("a chain that pushes must be asked about, got %s: %s", d.Verdict, d.Reason)
 	}
 	outside := filepath.Join(filepath.Dir(dir), "outside.txt")
-	if d := Default().DecideLine("true; echo x > "+outside, dir); d.Verdict != Ask {
+	if d := testMode().DecideLine("true; echo x > "+outside, dir); d.Verdict != Ask {
 		t.Errorf("a chain writing outside must be asked about, got %s: %s", d.Verdict, d.Reason)
 	}
 }
@@ -324,7 +322,7 @@ func TestAChainIsJudgedByEveryPart(t *testing.T) {
 func TestTheWorstVerdictOfALineWins(t *testing.T) {
 	dir := t.TempDir()
 	outside := filepath.Join(filepath.Dir(dir), "outside")
-	d := Default().DecideLine("ls && cat a && echo x > "+outside, dir)
+	d := testMode().DecideLine("ls && cat a && echo x > "+outside, dir)
 	if d.Verdict != Ask {
 		t.Errorf("the line must inherit the worst verdict, got %s: %s", d.Verdict, d.Reason)
 	}
@@ -341,7 +339,7 @@ func TestWritingInsideWithARedirectionIsAllowed(t *testing.T) {
 		"go test ./... > resultados.txt 2>&1",
 		"command -v sh > /dev/null 2>&1",
 	} {
-		d := Default().DecideLine(line, dir)
+		d := testMode().DecideLine(line, dir)
 		if d.Verdict != Allow {
 			t.Errorf("%q writes inside the workspace and must be allowed, got %s: %s",
 				line, d.Verdict, d.Reason)
@@ -353,7 +351,7 @@ func TestWritingInsideWithARedirectionIsAllowed(t *testing.T) {
 // and it destroys nothing.
 func TestOutputToDevNullIsNotAQuestion(t *testing.T) {
 	dir := t.TempDir()
-	d := Default().DecideLine("ls > /dev/null", dir)
+	d := testMode().DecideLine("ls > /dev/null", dir)
 	if d.Verdict == Deny {
 		t.Errorf("discarding output to /dev/null must not be refused: %s", d.Reason)
 	}
@@ -363,7 +361,7 @@ func TestOutputToDevNullIsNotAQuestion(t *testing.T) {
 func TestInputRedirectionOnlyReads(t *testing.T) {
 	dir := t.TempDir()
 	for _, line := range []string{"grep x < file.txt", "sort < datos.csv"} {
-		d := Default().DecideLine(line, dir)
+		d := testMode().DecideLine(line, dir)
 		if d.Verdict != Allow {
 			t.Errorf("%q only reads and must be allowed, got %s: %s", line, d.Verdict, d.Reason)
 		}
@@ -374,7 +372,7 @@ func TestInputRedirectionOnlyReads(t *testing.T) {
 // would ask the user about their own error plumbing.
 func TestAFileDescriptorRedirectIsNotAFile(t *testing.T) {
 	dir := t.TempDir()
-	d := Default().DecideLine("make 2>&1", dir)
+	d := testMode().DecideLine("make 2>&1", dir)
 	if d.Verdict != Allow {
 		t.Errorf("2>&1 must not be read as a file, got %s: %s", d.Verdict, d.Reason)
 	}
@@ -385,7 +383,7 @@ func TestAFileDescriptorRedirectIsNotAFile(t *testing.T) {
 func TestAShellIsNeverRunUnreviewed(t *testing.T) {
 	dir := t.TempDir()
 	for _, line := range []string{"sh -c 'echo hi'", "bash build.sh", "zsh -i"} {
-		d := Default().DecideLine(line, dir)
+		d := testMode().DecideLine(line, dir)
 		if d.Verdict != Ask && d.Verdict != Deny {
 			t.Errorf("%q is an interpreter and must not run unreviewed, got %s", line, d.Verdict)
 		}
@@ -460,7 +458,7 @@ func TestStrictRefusesWhatCannotBeClassified(t *testing.T) {
 func TestAnEmptyLineIsRefused(t *testing.T) {
 	dir := t.TempDir()
 	for _, line := range []string{"", "   ", "\t"} {
-		if d := Default().DecideLine(line, dir); d.Verdict != Deny {
+		if d := testMode().DecideLine(line, dir); d.Verdict != Deny {
 			t.Errorf("%q has nothing to run and must be refused, got %s", line, d.Verdict)
 		}
 	}
@@ -482,7 +480,7 @@ func TestACommandReachingOutsideIsAsked(t *testing.T) {
 		"docker run alpine",
 		"sudo apt-get install vim",
 	} {
-		d := Default().DecideLine(line, dir)
+		d := testMode().DecideLine(line, dir)
 		if d.Verdict != Ask {
 			t.Errorf("%q reaches outside the machine and must be asked about, got %s (rule %s): %s",
 				line, d.Verdict, d.Rule, d.Reason)
@@ -508,7 +506,7 @@ func TestLocalVerbsOfExternalToolsAreNotQuestioned(t *testing.T) {
 		"docker ps",
 		"kubectl get pods",
 	} {
-		d := Default().DecideLine(line, dir)
+		d := testMode().DecideLine(line, dir)
 		if d.Verdict != Allow {
 			t.Errorf("%q is local work and must run, got %s (rule %s): %s", line, d.Verdict, d.Rule, d.Reason)
 		}
@@ -519,7 +517,7 @@ func TestLocalVerbsOfExternalToolsAreNotQuestioned(t *testing.T) {
 // naming where the change is undone, so it cannot be called local work.
 func TestAWriterWithNoLocatableTargetIsNotSilentlyAllowed(t *testing.T) {
 	dir := t.TempDir()
-	d := Default().DecideLine("chmod 777 /tmp/x", dir)
+	d := testMode().DecideLine("chmod 777 /tmp/x", dir)
 	if d.Verdict == Allow {
 		t.Errorf("a writer whose target cannot be placed must not run silently: %s", d.Reason)
 	}
@@ -530,7 +528,7 @@ func TestAWriterWithNoLocatableTargetIsNotSilentlyAllowed(t *testing.T) {
 func TestUnclassifiedProgramsRunByDefault(t *testing.T) {
 	dir := t.TempDir()
 	for _, line := range []string{"make build", "npm test", "west build", "./scripts/deploy.sh"} {
-		d := Default().DecideLine(line, dir)
+		d := testMode().DecideLine(line, dir)
 		if d.Verdict != Allow {
 			t.Errorf("%q is ordinary project work and must run, got %s: %s", line, d.Verdict, d.Reason)
 		}
@@ -577,7 +575,7 @@ func TestTheFloorScanFindsEveryProgramTheFloorDecides(t *testing.T) {
 	dir := t.TempDir()
 	for name := range floorPrograms {
 		line := name + " " + strings.Join(destructiveArgs(name), " ")
-		d := Default().DecideLine(line, dir)
+		d := testMode().DecideLine(line, dir)
 		if d.Verdict != Deny || !d.Mandatory {
 			t.Errorf("%q must be refused by the floor through DecideLine, got %s (rule %s): %s",
 				line, d.Verdict, d.Rule, d.Reason)
@@ -610,7 +608,7 @@ func TestTheFloorScanUnderstandsWrappersAndNesting(t *testing.T) {
 		"time -f %e rm -rf /",
 		"sudo -u root nice -n 10 rm -rf /",
 	} {
-		d := Default().DecideLine(line, dir)
+		d := testMode().DecideLine(line, dir)
 		if d.Verdict != Deny || !d.Mandatory {
 			t.Errorf("%q must reach the floor through its wrapper, got %s (rule %s)",
 				line, d.Verdict, d.Rule)

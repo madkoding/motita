@@ -18,7 +18,7 @@ import (
 func TestShellLineIsTheLastResort(t *testing.T) {
 	msg := "the character \"|\" needs a shell to be interpreted"
 
-	loose := Default().ShellLine(msg)
+	loose := testMode().ShellLine(msg)
 	if loose.Verdict != Ask {
 		t.Errorf("the default must ask before an unreadable line runs, got %s", loose.Verdict)
 	}
@@ -44,7 +44,7 @@ func TestShellLineIsTheLastResort(t *testing.T) {
 func TestAnUnreadableSegmentIsAnsweredAsAWhole(t *testing.T) {
 	dir := t.TempDir()
 	// The quote closes after the pipe, so the first segment has an unclosed quote.
-	d := Default().DecideLine(`grep "unclosed | wc -l`, dir)
+	d := testMode().DecideLine(`grep "unclosed | wc -l`, dir)
 	if d.Rule != "line-unreadable" {
 		t.Errorf("rule = %q, want the unreadable-segment rule: %s", d.Rule, d.Reason)
 	}
@@ -64,7 +64,7 @@ func TestNestedIntroducersAreScanned(t *testing.T) {
 		"find . -execdir rm -rf / ;",
 		"find . -okdir rm -rf / ;",
 	} {
-		if d := Default().DecideLine(line, dir); !d.Mandatory {
+		if d := testMode().DecideLine(line, dir); !d.Mandatory {
 			t.Errorf("%q must reach the floor through its introducer, got %s (rule %s)",
 				line, d.Verdict, d.Rule)
 		}
@@ -89,7 +89,7 @@ func TestDestructiveVerbWithoutATarget(t *testing.T) {
 		"xargs sgdisk",
 	}
 	for _, line := range cases {
-		d := Default().DecideLine(line, t.TempDir())
+		d := testMode().DecideLine(line, t.TempDir())
 		if !d.Mandatory {
 			t.Errorf("%q is a destructive verb with no target of its own and must hit the floor, got %s (rule %s)",
 				line, d.Verdict, d.Rule)
@@ -101,7 +101,7 @@ func TestDestructiveVerbWithoutATarget(t *testing.T) {
 // its target, so it is ordinary work and must not be refused.
 func TestDestructiveVerbWithATargetOfItsOwnIsNotTheIntroducerCase(t *testing.T) {
 	dir := t.TempDir()
-	d := Default().DecideLine("xargs rm -rf build", dir)
+	d := testMode().DecideLine("xargs rm -rf build", dir)
 	if d.Mandatory {
 		t.Errorf("a target of its own makes it local work: %s", d.Reason)
 	}
@@ -132,7 +132,7 @@ func TestRootLikeTargetForTheOtherVerbs(t *testing.T) {
 		"ln -s / enlace",
 		"install -m 777 x /etc",
 	} {
-		d := Default().DecideLine(line, dir)
+		d := testMode().DecideLine(line, dir)
 		if !d.Mandatory {
 			t.Errorf("%q targets a tree the agent must not touch, got %s (rule %s): %s",
 				line, d.Verdict, d.Rule, d.Reason)
@@ -188,7 +188,7 @@ func TestUnquoteStripsOnePair(t *testing.T) {
 func TestAQuotedRedirectTargetIsJudgedByItsPath(t *testing.T) {
 	dir := t.TempDir()
 	outside := filepath.Join(filepath.Dir(dir), "with space.txt")
-	d := Default().DecideLine(`echo x > "`+outside+`"`, dir)
+	d := testMode().DecideLine(`echo x > "`+outside+`"`, dir)
 	if d.Verdict != Ask {
 		t.Errorf("a quoted path outside the workspace must still be asked about, got %s: %s",
 			d.Verdict, d.Reason)
@@ -227,7 +227,7 @@ func TestTheFloorDecidesEveryVerbItNames(t *testing.T) {
 		"mkfs.vfat /dev/sda",
 		"dd of=/dev/sda",
 	} {
-		if d := Default().DecideLine(line, dir); !d.Mandatory {
+		if d := testMode().DecideLine(line, dir); !d.Mandatory {
 			t.Errorf("%q is on the floor and must be refused outright, got %s (rule %s)",
 				line, d.Verdict, d.Rule)
 		}
@@ -254,7 +254,7 @@ func TestWriteTargetsForTheVerbsWithoutAPath(t *testing.T) {
 		"tee " + inside,
 		"install -m 755 a " + inside,
 	} {
-		d := Default().DecideLine(line, dir)
+		d := testMode().DecideLine(line, dir)
 		if d.Rule != "write-inside-workspace" {
 			t.Errorf("%q writes inside the workspace and must be allowed by that rule, got %s (rule %s): %s",
 				line, d.Verdict, d.Rule, d.Reason)
@@ -350,12 +350,12 @@ func TestHarmlessDevices(t *testing.T) {
 // TestDecisionForOnAnEmptyCommand is the entry point's own empty case, which the line-level
 // check also covers but which a direct caller must get the same answer from.
 func TestDecisionForOnAnEmptyCommand(t *testing.T) {
-	d := Default().DecisionFor("", nil, t.TempDir())
+	d := testMode().DecisionFor("", nil, t.TempDir())
 	if d.Verdict != Deny || d.Rule != "missing" {
 		t.Errorf("an empty command must be refused as missing, got %s (rule %s)", d.Verdict, d.Rule)
 	}
 	// A bare directory name is not a program either.
-	d = Default().DecisionFor("/", nil, t.TempDir())
+	d = testMode().DecisionFor("/", nil, t.TempDir())
 	if d.Verdict != Deny {
 		t.Errorf("a lone slash is not a command, got %s", d.Verdict)
 	}
@@ -366,12 +366,12 @@ func TestDecisionForOnAnEmptyCommand(t *testing.T) {
 // because there was nothing before it.
 func TestDecideLineWithARedirectOnly(t *testing.T) {
 	dir := t.TempDir()
-	d := Default().DecideLine("> /etc/passwd", dir)
+	d := testMode().DecideLine("> /etc/passwd", dir)
 	if d.Verdict != Deny || !d.Mandatory {
 		t.Errorf("a bare write to a system file must be refused outright, got %s (rule %s)", d.Verdict, d.Rule)
 	}
 	inside := filepath.Join(dir, "output.txt")
-	if d := Default().DecideLine("> "+inside, dir); d.Verdict != Allow {
+	if d := testMode().DecideLine("> "+inside, dir); d.Verdict != Allow {
 		t.Errorf("a bare write inside the workspace is work, got %s: %s", d.Verdict, d.Reason)
 	}
 }
@@ -380,7 +380,7 @@ func TestDecideLineWithARedirectOnly(t *testing.T) {
 // rest of the line is not analysed, and the answer keeps that rule rather than a later one.
 func TestDecideLineKeepsTheDecidingRule(t *testing.T) {
 	dir := t.TempDir()
-	d := Default().DecideLine("rm -rf / && ls", dir)
+	d := testMode().DecideLine("rm -rf / && ls", dir)
 	if d.Rule != "mandatory" || !d.Mandatory {
 		t.Errorf("the floor must be the deciding rule, got %s (rule %s)", d.Verdict, d.Rule)
 	}
@@ -441,7 +441,7 @@ func TestARedirectWithNoTarget(t *testing.T) {
 	}
 
 	dir := t.TempDir()
-	if d := Default().DecideLine("ls >", dir); d.Verdict == Deny && d.Mandatory {
+	if d := testMode().DecideLine("ls >", dir); d.Verdict == Deny && d.Mandatory {
 		t.Errorf("a redirect with no destination must not be a floor refusal: %s", d.Reason)
 	}
 
@@ -609,7 +609,7 @@ func TestFloorProgramsAreAllReal(t *testing.T) {
 		// Every one of them must be reachable through the line scan, which is the entry
 		// point the agent uses, in its dangerous form.
 		line := name + " " + strings.Join(destructiveArgs(name), " ")
-		if d := Default().DecideLine(line, dir); !d.Mandatory {
+		if d := testMode().DecideLine(line, dir); !d.Mandatory {
 			t.Errorf("%q is in floorPrograms but the scan does not refuse %q (rule %s)",
 				name, line, d.Rule)
 		}
@@ -620,10 +620,10 @@ func TestFloorProgramsAreAllReal(t *testing.T) {
 // not read it as a program name. A floor program written as an assignment is still found.
 func TestACommandWithAnArgumentContainingEquals(t *testing.T) {
 	dir := t.TempDir()
-	if d := Default().DecideLine("FOO=1 ls", dir); d.Verdict != Allow {
+	if d := testMode().DecideLine("FOO=1 ls", dir); d.Verdict != Allow {
 		t.Errorf("an assignment followed by a reader is work, got %s: %s", d.Verdict, d.Reason)
 	}
-	d := Default().DecideLine("FOO=1 rm -rf /", dir)
+	d := testMode().DecideLine("FOO=1 rm -rf /", dir)
 	if !d.Mandatory {
 		t.Errorf("an assignment must not hide the floor, got %s (rule %s)", d.Verdict, d.Rule)
 	}
@@ -632,7 +632,7 @@ func TestACommandWithAnArgumentContainingEquals(t *testing.T) {
 // TestANumericWrapperOperandIsNotTheProgram: `nice -n 10 rm` must still find rm.
 func TestANumericWrapperOperandIsNotTheProgram(t *testing.T) {
 	dir := t.TempDir()
-	if d := Default().DecideLine("nice -n 10 rm -rf /", dir); !d.Mandatory {
+	if d := testMode().DecideLine("nice -n 10 rm -rf /", dir); !d.Mandatory {
 		t.Errorf("the wrapper's operand must not become the program, got %s (rule %s)", d.Verdict, d.Rule)
 	}
 }
@@ -641,7 +641,7 @@ func TestANumericWrapperOperandIsNotTheProgram(t *testing.T) {
 // scan follows it in.
 func TestANestedShellPayloadIsScannedFromItsOwnStart(t *testing.T) {
 	dir := t.TempDir()
-	d := Default().DecideLine(`sh -c 'sh -c "rm -rf /"'`, dir)
+	d := testMode().DecideLine(`sh -c 'sh -c "rm -rf /"'`, dir)
 	if !d.Mandatory {
 		t.Errorf("a nested shell payload must still reach the floor, got %s (rule %s)", d.Verdict, d.Rule)
 	}
@@ -660,7 +660,7 @@ func TestTheScanTerminatesOnPathologicalInput(t *testing.T) {
 		strings.Repeat("a", 10000),
 		"rm -rf " + strings.Repeat("../", 1000),
 	} {
-		_ = Default().DecideLine(line, dir)
+		_ = testMode().DecideLine(line, dir)
 	}
 }
 
@@ -691,7 +691,7 @@ func TestWorseKeepsTheFirstOnATie(t *testing.T) {
 // local tool (localTools) or to live inside the workspace (projectLocalDecision).
 func TestAnUnknownProgramThatReachesNowhereIsUnclassified(t *testing.T) {
 	dir := t.TempDir()
-	d := Default().Decide(commandForTest, nil, dir)
+	d := testMode().Decide(commandForTest, nil, dir)
 	if d.Verdict != Ask || d.Rule != "unclassified" {
 		t.Errorf("an unknown local program must be asked about, got %s (rule %s)", d.Verdict, d.Rule)
 	}
@@ -716,7 +716,7 @@ func TestTheOrdinaryWorkOfAProjectStaysSilent(t *testing.T) {
 		"ls -la", "grep -rn TODO .", "cat README.md", "rm -rf build", "mkdir -p out",
 		"./scripts/deploy.sh", "./bin/mytool --check",
 	} {
-		d := Default().DecideLine(line, dir)
+		d := testMode().DecideLine(line, dir)
 		if d.Verdict != Allow {
 			t.Errorf("%q is ordinary work and must stay silent, got %s (rule %s): %s",
 				line, d.Verdict, d.Rule, d.Reason)
@@ -739,7 +739,7 @@ func TestWhatIsAskedAboutIsExactlyWhatCannotBePlaced(t *testing.T) {
 		"python3 /tmp/out.py":    "an interpreter handed a script OUTSIDE the workspace",
 	}
 	for line, why := range cases {
-		d := Default().DecideLine(line, dir)
+		d := testMode().DecideLine(line, dir)
 		if d.Verdict != Ask {
 			t.Errorf("%q (%s) must be asked about, got %s (rule %s): %s",
 				line, why, d.Verdict, d.Rule, d.Reason)
@@ -762,7 +762,7 @@ func TestAWrapperOperandIsNotTheProgram(t *testing.T) {
 		"setsid rm -rf /",
 		"command rm -rf /",
 	} {
-		if d := Default().DecideLine(line, dir); !d.Mandatory {
+		if d := testMode().DecideLine(line, dir); !d.Mandatory {
 			t.Errorf("%q hides the floor behind a wrapper operand, got %s (rule %s)",
 				line, d.Verdict, d.Rule)
 		}
@@ -794,7 +794,7 @@ func TestADestructiveVerbInsideAnIntroducerWithoutItsOwnOperands(t *testing.T) {
 		"xargs mkfs.xfs", "xargs mkfs.btrfs", "xargs mkfs.vfat",
 		"xargs fdisk", "xargs sfdisk", "xargs parted", "xargs gdisk", "xargs sgdisk",
 	} {
-		if d := Default().DecideLine(line, dir); !d.Mandatory {
+		if d := testMode().DecideLine(line, dir); !d.Mandatory {
 			t.Errorf("%q names no target and is fed by an introducer, so the floor must refuse it "+
 				"(got %s, rule %s)", line, d.Verdict, d.Rule)
 		}
@@ -855,7 +855,7 @@ func TestResolveAsFarAsPossibleOnARootThatCannotBeResolved(t *testing.T) {
 func TestAnUnknownProgramThatDoesReachOutside(t *testing.T) {
 	dir := t.TempDir()
 	for _, name := range []string{"telnet", "socat", "vagrant"} {
-		d := Default().DecideLine(name+" x", dir)
+		d := testMode().DecideLine(name+" x", dir)
 		if d.Verdict != Ask || d.Rule != "external-effect" {
 			t.Errorf("%q has no local life and must be asked about, got %s (rule %s)",
 				name, d.Verdict, d.Rule)
@@ -869,14 +869,14 @@ func TestAnUnknownProgramThatDoesReachOutside(t *testing.T) {
 func TestARedirectionFollowedByTheNextCommand(t *testing.T) {
 	dir := t.TempDir()
 	// The target exists, so the line writes inside the workspace and reads after it.
-	d := Default().DecideLine("echo x > f | wc -l", dir)
+	d := testMode().DecideLine("echo x > f | wc -l", dir)
 	if d.Verdict != Allow {
 		t.Errorf("a write inside the workspace piped into a reader is work, got %s: %s", d.Verdict, d.Reason)
 	}
 	// And the redirect target is not mistaken for a command: a line whose target is a
 	// program name must not be judged as that program.
 	outside := filepath.Join(filepath.Dir(dir), "remoto")
-	d = Default().DecideLine("echo x > "+outside+" ; wc -l", dir)
+	d = testMode().DecideLine("echo x > "+outside+" ; wc -l", dir)
 	if d.Verdict != Ask || d.Rule != "write-outside-workspace" {
 		t.Errorf("the write outside is what decides, got %s (rule %s): %s", d.Verdict, d.Rule, d.Reason)
 	}

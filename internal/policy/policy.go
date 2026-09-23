@@ -95,15 +95,6 @@ type Mode struct {
 	Strict bool
 }
 
-// Default is the mode a configuration gets when it says nothing.
-//
-// Enforce is on, because an agent that has to be told to ask before acting is an agent
-// that acts without asking by default, which is the failure this exists to fix. Strict is
-// off, because asking is already the cautious answer to an unknown.
-func Default() Mode {
-	return Mode{Enforce: true, Strict: false}
-}
-
 // DecisionFor decides one command.
 //
 // command is the program as written, args are its arguments, and dir is the directory the

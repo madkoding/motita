@@ -23,7 +23,7 @@ func TestAKnownBuildToolRunsSilently(t *testing.T) {
 		"make", "make -j4 check", "gcc -o a a.c", "go build ./...", "cargo build",
 		"pytest -q", "gofmt -l .", "shellcheck build.sh", "gradle test",
 	} {
-		d := Default().DecideLine(line, dir)
+		d := testMode().DecideLine(line, dir)
 		if d.Verdict != Allow || d.Rule != "local-tool" {
 			t.Errorf("%q must be silent local work, got %s (rule %s): %s", line, d.Verdict, d.Rule, d.Reason)
 		}
@@ -41,14 +41,14 @@ func TestAnInterpretersScriptDecides(t *testing.T) {
 	}
 
 	for _, line := range []string{"python3 build.py", "python3 ./build.py", "node app.js", "ruby task.rb"} {
-		d := Default().DecideLine(line, dir)
+		d := testMode().DecideLine(line, dir)
 		if d.Verdict != Allow {
 			t.Errorf("%q runs a script inside the workspace and must be silent, got %s: %s",
 				line, d.Verdict, d.Reason)
 		}
 	}
 
-	outside := Default().DecideLine("python3 /opt/otro/script.py", dir)
+	outside := testMode().DecideLine("python3 /opt/otro/script.py", dir)
 	if outside.Verdict != Ask || outside.Rule != "script-outside-workspace" {
 		t.Errorf("a script outside the workspace must be asked about, got %s (rule %s)",
 			outside.Verdict, outside.Rule)
@@ -61,7 +61,7 @@ func TestAnInterpretersScriptDecides(t *testing.T) {
 func TestAnInterpreterWithNoScriptIsStillALocalTool(t *testing.T) {
 	dir := t.TempDir()
 	for _, line := range []string{"python3 --version", "node --version", "python3 -V", "python3"} {
-		d := Default().DecideLine(line, dir)
+		d := testMode().DecideLine(line, dir)
 		if d.Verdict != Allow || d.Rule != "local-tool" {
 			t.Errorf("%q names no script and must stay silent, got %s (rule %s): %s",
 				line, d.Verdict, d.Rule, d.Reason)
@@ -87,14 +87,14 @@ func TestAnInlineProgramIsNotALocalTool(t *testing.T) {
 		"perl -e 'print 1'",
 		"python3 -m http.server",
 	} {
-		if d := Default().DecideLine(line, dir); d.Verdict != Ask {
+		if d := testMode().DecideLine(line, dir); d.Verdict != Ask {
 			t.Errorf("%q is opaque and must be asked about, got %s (rule %s): %s",
 				line, d.Verdict, d.Rule, d.Reason)
 		}
 	}
 	// The same flag means something else elsewhere: `gcc -c` is compile-only, not an inline
 	// program, and it must stay silent.
-	if d := Default().DecideLine("gcc -c a.c", dir); d.Verdict != Allow {
+	if d := testMode().DecideLine("gcc -c a.c", dir); d.Verdict != Allow {
 		t.Errorf("gcc -c is ordinary compilation and must stay silent, got %s: %s", d.Verdict, d.Reason)
 	}
 }
@@ -103,7 +103,7 @@ func TestAnInlineProgramIsNotALocalTool(t *testing.T) {
 // not knowable from the line — only a PATH-named program (./x, /abs/x) can be placed.
 func TestABareNameIsNotAWorkspaceProgram(t *testing.T) {
 	dir := t.TempDir()
-	if d := Default().DecideLine("mytool --check", dir); d.Verdict != Ask {
+	if d := testMode().DecideLine("mytool --check", dir); d.Verdict != Ask {
 		t.Errorf("a bare unknown name must be asked about, got %s: %s", d.Verdict, d.Reason)
 	}
 }
@@ -118,7 +118,7 @@ func TestTheWorkspaceItselfCannotBeReachedThroughATilde(t *testing.T) {
 	if isInsideWorkspace("./script.sh", "") {
 		t.Error("with no workspace there is nothing to be inside of")
 	}
-	if d := Default().DecideLine("~/bin/mytool", dir); d.Verdict != Ask {
+	if d := testMode().DecideLine("~/bin/mytool", dir); d.Verdict != Ask {
 		t.Errorf("a tilde program must be asked about, got %s: %s", d.Verdict, d.Reason)
 	}
 }
@@ -138,7 +138,7 @@ func TestAProgramInsideTheWorkspaceIsTheProjectsOwn(t *testing.T) {
 	}
 
 	for _, line := range []string{"./scripts/deploy.sh", "./scripts/deploy.sh --env prod", script} {
-		d := Default().DecideLine(line, dir)
+		d := testMode().DecideLine(line, dir)
 		if d.Verdict != Allow || d.Rule != "project-local" {
 			t.Errorf("%q is the project's own program and must be silent, got %s (rule %s): %s",
 				line, d.Verdict, d.Rule, d.Reason)
@@ -155,7 +155,7 @@ func TestAProjectProgramHandedAnOutsidePathIsAskedAbout(t *testing.T) {
 	if err := os.WriteFile(script, []byte("#!/bin/sh\ntrue\n"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	d := Default().DecideLine("./build.sh /etc/passwd", dir)
+	d := testMode().DecideLine("./build.sh /etc/passwd", dir)
 	if d.Verdict != Ask || d.Rule != "project-script-arg-outside" {
 		t.Errorf("a project program writing outside must be asked about, got %s (rule %s): %s",
 			d.Verdict, d.Rule, d.Reason)

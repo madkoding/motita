@@ -105,7 +105,7 @@ func TestTheREADMEsGuardrailDiagramHolds(t *testing.T) {
 		"rm -rf build", "mkdir -p out",
 	}
 	for _, line := range silent {
-		if d := Default().DecideLine(line, dir); d.Verdict != Allow {
+		if d := testMode().DecideLine(line, dir); d.Verdict != Allow {
 			t.Errorf("README says %q runs without a question; it is %s (rule %s)",
 				line, d.Verdict, d.Rule)
 		}
@@ -122,7 +122,7 @@ func TestTheREADMEsGuardrailDiagramHolds(t *testing.T) {
 		"python3 /opt/other/build.py", // a script from outside the workspace
 	}
 	for _, line := range asked {
-		if d := Default().DecideLine(line, dir); d.Verdict != Ask {
+		if d := testMode().DecideLine(line, dir); d.Verdict != Ask {
 			t.Errorf("README says %q is asked about; it is %s (rule %s)", line, d.Verdict, d.Rule)
 		}
 	}

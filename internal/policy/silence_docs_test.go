@@ -84,7 +84,7 @@ func TestTheDocumentedSilenceTableHolds(t *testing.T) {
 
 	bad := 0
 	for _, c := range cases {
-		d := Default().DecideLine(c.line, dir)
+		d := testMode().DecideLine(c.line, dir)
 		if d.Verdict != c.want {
 			bad++
 			t.Errorf("docs WRONG about %s: got %s, documented %s (rule %s)",
