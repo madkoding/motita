@@ -192,14 +192,25 @@ agent:
 # for it.
 gateway:
   enabled: true
-  # host:port. A FIXED port by default, because `starlight gateway start` runs the
-  # gateway as a service that a later process has to find: an ephemeral port exists
-  # only in the memory of the process that asked for it, so nothing else can reach
-  # it. `starlight` with no arguments reuses a running gateway, or starts its own.
-  listen: "127.0.0.1:7477"
+  # host:port, and EMPTY means "resolve it": 127.0.0.1:7477 normally, or the
+  # wildcard once allow_lan is on. A FIXED port either way, because
+  # `starlight gateway start` runs the gateway as a service that a later process
+  # has to find: an ephemeral port exists only in the memory of the process that
+  # asked for it, so nothing else can reach it. `starlight` with no arguments
+  # reuses a running gateway, or starts its own. An address written here WINS
+  # over allow_lan.
+  listen: ""
   # Where the bearer token lives. Generated on first use, 0600, under the home.
   token_file: "gateway.token"
-  # Must be true for any address that is not loopback.
+  # Serving THE NETWORK, and the only setting needed for that: it makes the
+  # gateway listen on 0.0.0.0:7477 by itself, so a phone on the same network can
+  # reach it without you looking up this machine's address. It is also required
+  # for any non-loopback address written in `listen`.
+  #
+  # What this exposes runs commands on this machine, and there is no TLS: the
+  # token travels in clear text, readable by anyone on the network. Leave it
+  # false unless you mean it, and prefer an SSH tunnel between two machines that
+  # can already reach each other.
   allow_lan: false
   # Cap on a request body, in KB.
   max_body_kb: 256

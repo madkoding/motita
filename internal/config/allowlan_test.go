@@ -13,7 +13,7 @@ import (
 // It is asserted exactly because it is the thing users rely on without knowing: a starlight left
 // running on a laptop in a cafe must not be answering its neighbours.
 func TestTheDefaultGatewayListenIsLoopbackAndNotOpenToTheNetwork(t *testing.T) {
-	got := Default().Gateway.Listen
+	got := Default().GatewayListen()
 	if !strings.HasPrefix(got, "127.0.0.1:") {
 		t.Fatalf("the default gateway listen is %q: it must stay on loopback, because the default cannot be what exposes an agent that runs commands", got)
 	}

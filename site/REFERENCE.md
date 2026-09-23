@@ -522,9 +522,9 @@ interface is a client of it.
 | Setting | Default | Effect |
 |---|---|---|
 | `enabled` | `true` | The HTTP face. Off is one deliberate act, for a machine that must not listen at all. |
-| `listen` | `127.0.0.1:7477` | `host:port`. A **fixed** port by default, because the gateway can outlive the process that started it and a later process has to find it. Port `0` still works and asks the kernel for a free one, but the address then exists only in that process' memory, so nothing else can reach it. |
+| `listen` | *empty* | `host:port`, and **empty means "resolve it"**: `127.0.0.1:7477` normally, or the wildcard once `allow_lan` is on. A **fixed** port either way, because the gateway can outlive the process that started it and a later process has to find it. Port `0` still works and asks the kernel for a free one, but the address then exists only in that process' memory, so nothing else can reach it. An address written here **wins** over `allow_lan`. |
 | `token_file` | `gateway.token` | Where the bearer token lives, under the starlight home. Generated on first use with 32 random bytes, mode `0600`. |
-| `allow_lan` | `false` | Must be `true` for any address that is not loopback. |
+| `allow_lan` | `false` | Serving **the network**, and it is the only setting needed for that: it makes the gateway listen on `0.0.0.0:7477` by itself. It is also required for any non-loopback address written in `listen`. One act, because the operator who wants their phone to reach the agent should not also have to know this machine's LAN address. |
 | `max_body_kb` | `256` | Cap on a request body. |
 | `max_sessions` | `0` | How many conversations one process holds. `0` means the built-in default. A negative ceiling is refused rather than read as the default, which would hide the typo that produced it. |
 
@@ -616,10 +616,18 @@ a pipeline gets the answer and nothing else. It is the mode a script uses, and t
 a client is useful on a machine with no terminal. `-serve` and `-connect` together are
 refused: one makes this process the gateway, the other a client of one.
 
-Exposing the gateway beyond loopback takes two deliberate acts: a
-non-loopback listen address *and* `allow_lan`. Neither on its own is enough, and
-that is the point — what is being exposed runs commands on this machine, so no
-default and no single flag may open it.
+Exposing the gateway beyond loopback is **one deliberate act**: `allow_lan: true`
+(or `STARLIGHT_GATEWAY_ALLOW_LAN=true`). Nothing else is needed — the address
+resolves to the wildcard by itself — and nothing about the *default* opens it,
+which is the part that matters: a gateway left running on a laptop in a cafe is
+not answering its neighbours.
+
+It used to take two acts (a non-loopback address *and* the flag), which asked the
+operator to know their own LAN address, or to write `0.0.0.0` by hand, at the
+moment they only wanted their phone to reach the agent. One setting that says what
+it does, and says it once, is the version that cannot be half-applied: with the
+address resolved from the flag, an "`allow_lan` on but still bound to loopback"
+state does not exist.
 
 #### The browser interface
 
@@ -664,7 +672,7 @@ The page is served **without** a token, like a login form, because it is the onl
 browser can obtain one — and for that same reason it holds no secret at all, which a
 test enforces over the bytes that get served. Anyone who can reach the port can see that
 a starlight gateway is there; on loopback that is the operator, and exposing it to a
-network still takes the two deliberate acts described above.
+network still takes the one deliberate act described above.
 
 `gateway status` deliberately does **not** print the link: it is the command someone
 runs in front of another person while asking "is it up?". The token stays readable in
@@ -683,9 +691,11 @@ webfont — the page uses the system font deliberately, and a test fails if the 
 grow past 64 KB.
 
 **There is no TLS in this version.** Exposing the gateway on a LAN without a
-tunnel sends the token in clear text; that is why `allow_lan` exists as a second,
-separate act. The supported way to reach a gateway on another machine is a tunnel,
-which never exposes it at all:
+tunnel sends the token in clear text, so anyone on the network can read it in
+transit — and nothing about the token or the page changes that. `allow_lan` prints
+a warning saying so at the moment it opens the gateway, because that is when the
+decision is still being made. When the two machines can reach each other, the
+supported way is a tunnel, which never exposes the gateway at all:
 
 ```bash
 ssh -N -L 7477:127.0.0.1:7477 the-host
@@ -699,6 +709,13 @@ which `llm.api_key` is reported only as *present* or *absent*.
 The address is validated at startup, not when the first client arrives: a
 `listen` that is not `host:port` is refused, and a non-loopback address without
 `allow_lan` is refused with a message naming the setting.
+
+Whatever is bound, the address a client is **told** is one it can call. A wildcard
+bind is reported as `127.0.0.1:<port>` rather than as the `[::]` the kernel reports,
+because `[::]` is an address to listen on and not one to dial: in a URL it names no
+reachable host, and a browser returns an empty page for it. Whether the gateway is
+*reachable from the network* is a separate question with a separate answer, carried
+in `gateway.json` as `reachable` and stated in the startup message.
 
 **Entering a session means entering it.** `-session <id>` and `/attach <id>` do the same
 thing, and both take you back to the conversation rather than to a blank screen:

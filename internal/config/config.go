@@ -324,7 +324,12 @@ func Default() Config {
 			// Two starlight windows no longer need two ports: they are two views of one gateway.
 			// A collision with something else is reported at startup, naming the setting, and can
 			// be changed with gateway.listen or -gateway.
-			Listen: defaultGatewayListen,
+			// Empty on purpose: it means "resolve the default", which is loopback unless
+			// allow_lan has been turned on. Writing the loopback address here would make it an
+			// EXPLICIT listen, and an explicit address always wins - so allow_lan would be
+			// silently ignored, which is exactly the half-applied setting this design exists to
+			// make impossible.
+			Listen: "",
 			// Resolved against the starlight home by resolvePaths, like the log and the
 			// skills directory: everything the program owns lives under one folder.
 			TokenFile: "gateway.token",

@@ -387,8 +387,11 @@ func TestOrListReadsLikeEnglish(t *testing.T) {
 // user configures a client against it by hand; changing it silently would break every such client
 // and every bookmark, so a change has to break this test first and be a decision.
 func TestTheGatewayListensOnAFixedPortByDefault(t *testing.T) {
-	if got := Default().Gateway.Listen; got != "127.0.0.1:7477" {
-		t.Fatalf("the default gateway listen is %q, want a fixed 127.0.0.1:7477", got)
+	// The RESOLVED address is asserted, not the stored string: the default leaves listen empty so
+	// that allow_lan can still decide, and the question a user's client depends on is where the
+	// gateway actually binds.
+	if got := Default().GatewayListen(); got != "127.0.0.1:7477" {
+		t.Fatalf("the default gateway listen resolves to %q, want a fixed 127.0.0.1:7477", got)
 	}
 	if strings.HasSuffix(defaultGatewayListen, ":0") {
 		t.Fatal("an ephemeral default cannot be found by a process started later")
