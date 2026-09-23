@@ -21,6 +21,12 @@ type Found struct {
 	// Owned is carried through from the service file: whoever wrote it decided whether the process
 	// that finds it is responsible for shutting it down.
 	Owned bool
+	// Reachable is carried through from the service file and says whether the gateway that wrote it
+	// was bound beyond loopback. It travels with the file rather than being inferred from BaseURL,
+	// because BaseURL is deliberately the CALLABLE address (loopback when the socket is a wildcard)
+	// and so says nothing about exposure. A reader who derives exposure from it gets the answer
+	// backwards for exactly the gateways it matters for.
+	Reachable bool
 }
 
 // Health is what /v1/health reports, and the shape discovery checks for.
@@ -79,8 +85,9 @@ func Discover(ctx context.Context, path string, probe func(context.Context, stri
 		BaseURL: "http://" + svc.Address,
 		Token:   svc.Token,
 		PID:     svc.PID,
-		Version: health.Version,
-		Owned:   svc.Owned,
+		Version:   health.Version,
+		Owned:     svc.Owned,
+		Reachable: svc.Reachable,
 	}, true, nil
 }
 

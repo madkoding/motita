@@ -175,10 +175,49 @@ func Start(opts Options) (*Server, error) {
 	return s, nil
 }
 
-// Addr is the address that was actually bound, with the real port when 0 was asked for.
-func (s *Server) Addr() string { return s.listener.Addr().String() }
+// Addr is the address a CLIENT should call, with the real port when 0 was asked for.
+//
+// It is not simply what the listener reports, because for a wildcard bind the listener reports
+// "[::]" — the dual-stack wildcard Go picks for "0.0.0.0". That string is an address to LISTEN on
+// and not one to dial: put in a URL it names no host a client can reach. Measured with a real
+// browser: a page served on a wildcard bind loads over 127.0.0.1, over localhost and over the
+// machine's LAN address, and comes back as an empty document over [::].
+//
+// So the wildcard is translated into the only address that means "this machine" to every client
+// and works everywhere: loopback, keeping the real port. A remote client does NOT use this address
+// — it uses the host it reached us on — which is exactly why exposure is answered by
+// ReachableFromNetwork rather than read out of this string.
+//
+// Reporting the listener's address here would have put an uncallable URL into the startup
+// announcement, into the service file that `status`, `stop` and the client all discover the
+// gateway from, and therefore into every client that ever resolved it.
+func (s *Server) Addr() string {
+	addr := s.listener.Addr().String()
+	host, port, err := net.SplitHostPort(addr)
+	if err != nil {
+		return addr
+	}
+	if isLoopback(host) {
+		return addr
+	}
+	return net.JoinHostPort("127.0.0.1", port)
+}
 
-// BaseURL is the origin a client should speak to.
+// ReachableFromNetwork reports whether this gateway is bound beyond loopback.
+//
+// It exists because Addr() can no longer answer it: normalising the wildcard into loopback would
+// make a network-bound gateway LOOK like a local one. The two are different questions — which
+// address to call, and how far this is exposed — and collapsing them is how a service file claims a
+// gateway is private while it answers the whole network.
+func (s *Server) ReachableFromNetwork() bool {
+	host, _, err := net.SplitHostPort(s.listener.Addr().String())
+	if err != nil {
+		return false
+	}
+	return !isLoopback(host)
+}
+
+// BaseURL is the origin a local client should speak to.
 func (s *Server) BaseURL() string { return "http://" + s.Addr() }
 
 // Token is the bearer token this server requires.

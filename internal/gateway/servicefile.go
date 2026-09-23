@@ -34,6 +34,12 @@ type ServiceFile struct {
 	// Getting that wrong either kills a service the user asked to keep, or leaks one nobody asked
 	// for, and neither is recoverable from inside the process.
 	Owned bool `json:"owned"`
+	// Reachable says whether the gateway that wrote this file was bound beyond loopback.
+	//
+	// Stored for the same reason Owned is: the address in this file is the CALLABLE one (loopback
+	// when the socket is a wildcard), so exposure cannot be recovered from it, and a reader who
+	// tried would conclude that a gateway answering the whole network is a private one.
+	Reachable bool `json:"reachable"`
 }
 
 // The three filesystem calls that can fail while writing the service file, as variables so their

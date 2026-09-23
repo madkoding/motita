@@ -160,6 +160,10 @@ func (op Options) startGateway(fl flags, cfg config.Config, engine *llm.Client, 
 		Token:   token,
 		PID:     os.Getpid(),
 		Owned:   owned,
+		// Recorded from the SERVER, which knows what it bound. Writing the configured address here
+		// would record what was asked for, and with a wildcard bind that is "[::]" or "0.0.0.0" -
+		// neither of which a later `status`, `stop` or client could call.
+		Reachable: srv.ReachableFromNetwork(),
 	}); err != nil {
 		if log != nil {
 			log.Warn("the gateway is serving but could not record where it is, so "+

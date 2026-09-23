@@ -141,6 +141,15 @@ func announceWebUI(out io.Writer, found gateway.Found) {
 	}
 	fmt.Fprintf(out, "\nthe interface is at %s/#t=%s\n", found.BaseURL, found.Token)
 	fmt.Fprintln(out, "open that link once: the page trades the fragment for a cookie and drops it")
+	if found.Reachable {
+		// Said explicitly, because the address above is loopback and a reader would otherwise
+		// conclude the gateway is local when it has just been opened to the network. The link is
+		// not rewritten to a guessed LAN address: the address this machine is known by depends on
+		// which network the client is on, and this process cannot see the client.
+		fmt.Fprintln(out, "this gateway is reachable from the network: from another machine, use that")
+		fmt.Fprintln(out, "machine's address for this host with the same port, and this same fragment.")
+		fmt.Fprintln(out, "there is no TLS, so anyone on the network can read the token in transit.")
+	}
 }
 
 // webUIEnabled asks whether the gateway this command just started serves the interface.

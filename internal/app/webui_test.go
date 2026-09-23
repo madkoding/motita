@@ -73,6 +73,51 @@ func TestTheInterfaceIsAnnouncedOnlyWhenItIsOn(t *testing.T) {
 	}
 }
 
+// A gateway that has been opened to the network must SAY SO, because the address in the link is
+// loopback and a reader would otherwise conclude the opposite of what just happened.
+//
+// The message matters more than it looks: `allow_lan` is now a single act that opens an agent which
+// runs commands, over plain http, and the announcement is the only moment the operator is told.
+// The link is NOT rewritten to a guessed LAN address - which address this host is known by depends
+// on the network the client is on, and this process cannot see the client - so the text carries it.
+func TestTheAnnouncementSaysWhenTheGatewayIsReachableFromTheNetwork(t *testing.T) {
+	var out strings.Builder
+	announceWebUI(&out, gateway.Found{
+		BaseURL:   "http://127.0.0.1:7477",
+		Token:     testToken,
+		Reachable: true,
+	})
+
+	got := out.String()
+	if !strings.Contains(got, "network") {
+		t.Fatalf("a network-reachable gateway was announced as if it were local:\n%s", got)
+	}
+	// The absence of TLS is stated where it is actionable rather than buried in the docs: this is
+	// the moment the operator decides whether to keep it open.
+	if !strings.Contains(got, "TLS") {
+		t.Fatalf("the exposure is not qualified with the lack of TLS:\n%s", got)
+	}
+	// And it still hands over the working link, which is the point of the announcement.
+	if !strings.Contains(got, "http://127.0.0.1:7477/#t="+testToken) {
+		t.Fatalf("the link was lost while adding the warning:\n%s", got)
+	}
+}
+
+// A loopback gateway must NOT carry the network warning: over-reporting exposure is what gets a
+// firewall rule opened for no reason, and it would make the warning meaningless where it counts.
+func TestALoopbackAnnouncementCarriesNoNetworkWarning(t *testing.T) {
+	var out strings.Builder
+	announceWebUI(&out, gateway.Found{BaseURL: "http://127.0.0.1:7477", Token: testToken})
+
+	got := out.String()
+	if strings.Contains(got, "network") || strings.Contains(got, "TLS") {
+		t.Fatalf("a loopback gateway announced an exposure it does not have:\n%s", got)
+	}
+	if !strings.Contains(got, "http://127.0.0.1:7477/#t="+testToken) {
+		t.Fatalf("the link is missing:\n%s", got)
+	}
+}
+
 // A found gateway with no token cannot produce a working link, and a link without the token is a
 // page that opens on a 401 with nothing to explain it. Saying nothing is the honest outcome.
 func TestNothingIsAnnouncedWithoutAToken(t *testing.T) {
