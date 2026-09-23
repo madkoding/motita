@@ -144,16 +144,25 @@ func (op Options) startGateway(fl flags, cfg config.Config, engine *llm.Client, 
 
 	// Published AFTER the bind, because the address is only known then, and BEFORE anything is
 	// served: a client that looked in that window would find nothing and start a second gateway.
-	// A failure here is fatal rather than ignored: a gateway nobody can find is a gateway nobody can
-	// use, and the user asked for one that can be reached.
+	//
+	// A failure to write it is REPORTED and not fatal. The file is a convenience - it carries the
+	// token and the pid for the commands that act on a service - while the gateway itself is
+	// reachable at its address either way, and the port is fixed by default so it is findable
+	// without help. Refusing to serve because a home directory is not writable would turn a
+	// read-only `$HOME` (a container running as an immutable user is the ordinary case) into "the
+	// gateway does not work at all", which is a far worse failure than the one it would prevent.
+	// The end-to-end run is what found this: it serves with `HOME=/`.
 	if err := op.WriteServiceFile(op.serviceFilePath(), gateway.ServiceFile{
 		Address: srv.Addr(),
 		Token:   token,
 		PID:     os.Getpid(),
 		Owned:   owned,
 	}); err != nil {
-		_ = srv.Close(context.Background())
-		return nil, err
+		if log != nil {
+			log.Warn("the gateway is serving but could not record where it is, so "+
+				"`gateway status` and `gateway stop` will not find it; it is at "+srv.Addr(),
+				"error", err.Error(), "path", op.serviceFilePath())
+		}
 	}
 	return srv, nil
 }

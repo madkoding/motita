@@ -304,24 +304,36 @@ func TestTheLocalWizardIsHandedToTheInterface(t *testing.T) {
 	}
 }
 
-// A gateway whose service file cannot be written is refused rather than left serving unfindable: a
-// gateway nobody can find is a gateway nobody can use, and the user asked for one they can reach.
-func TestAGatewayThatCannotSayWhereItIsIsRefused(t *testing.T) {
+// A gateway that cannot record where it is still SERVES, and says so.
+//
+// This is the opposite of refusing, and deliberately: the file is what lets `gateway status` and
+// `gateway stop` act on a service, while the gateway itself is reachable at its address either
+// way - and the port is fixed by default, so it is findable without any file. Refusing would turn
+// a read-only `$HOME` into "the gateway does not work at all", which is a worse failure than the
+// one it prevents. The end-to-end run found this: it serves with `HOME=/`.
+func TestAGatewayThatCannotSayWhereItIsStillServes(t *testing.T) {
 	out := &syncBuffer{}
 	op := tuiTestOptions(t, out)
-	servicePath := filepath.Join(t.TempDir(), "gateway.json")
-	op.ServiceFile = servicePath
+	op.ServiceFile = filepath.Join(t.TempDir(), "gateway.json")
 	op.Args = []string{"-config", planConfig(t, planServer(t, []string{"x"})), "-tui"}
-	op.NewClient = func(baseURL, token, session string) tui.Runner { return &noopRunner{} }
+	attached := ""
+	op.NewClient = func(baseURL, token, session string) tui.Runner {
+		attached = baseURL
+		return &noopRunner{}
+	}
 	op.WriteServiceFile = func(string, gateway.ServiceFile) error {
 		return errors.New("read-only file system")
 	}
-
-	if code := Run(op); code != ConfigError {
-		t.Fatalf("exit %d, want %d when the gateway cannot say where it is", code, ConfigError)
+	op.StartGatewayForTest = func(bool) (string, string, error) {
+		return "http://127.0.0.1:7477", "tok", nil
 	}
-	if !strings.Contains(out.String(), "could not start") {
-		t.Fatalf("the failure was not explained: %q", out.String())
+
+	if code := Run(op); code != Success {
+		t.Fatalf("exit %d, want %d when only the service file cannot be written (output: %s)",
+			code, Success, out.String())
+	}
+	if attached == "" {
+		t.Fatal("the interface must still be handed a client of the gateway that is serving")
 	}
 }
 
@@ -383,4 +395,57 @@ func TestServePublishesWhereItIsAndClearsItOnTheWayOut(t *testing.T) {
 func withBaseCtx(op Options, ctx context.Context) Options {
 	op.BaseCtx = ctx
 	return op
+}
+
+// The warning branch, exercised directly: startGateway cannot be reached through Run with the file
+// seam injected, because the decision is taken by the seam's caller. It is a real branch on a real
+// path (a read-only `$HOME`), so it is tested where it lives rather than left uncovered.
+func TestStartGatewayReportsAnUnwritableServiceFileWithoutRefusing(t *testing.T) {
+	out := &syncBuffer{}
+	logPath := filepath.Join(t.TempDir(), "agent.log")
+	cfg := planConfig(t, planServer(t, []string{"x"}))
+	// A real logger writing to a file this test can read back.
+	base, err := config.Load(cfg)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	base.Agent.LogFile = logPath
+	base.Agent.LogConsole = false
+	// planConfig sets log_level: error, which is below the warning this test is about.
+	base.Agent.LogLevel = "warn"
+	base.Gateway.Listen = "127.0.0.1:0"
+	base.Gateway.TokenFile = filepath.Join(t.TempDir(), "gateway.token")
+	op := Options{
+		Out: out,
+		Err: out,
+		WriteServiceFile: func(string, gateway.ServiceFile) error {
+			return errors.New("read-only file system")
+		},
+	}
+	log, err := op.newLogger(base.Agent)
+	if err != nil {
+		t.Fatalf("newLogger: %v", err)
+	}
+	box, err := op.newSandbox(SandboxOptions(base, log))
+	if err != nil {
+		t.Fatalf("newSandbox: %v", err)
+	}
+
+	srv, err := op.startGateway(flags{}, base, nil, box, log, false)
+	if err != nil {
+		t.Fatalf("a gateway that cannot write the file must still serve: %v", err)
+	}
+	if srv == nil {
+		t.Fatal("no server was returned")
+	}
+	defer func() { _ = srv.Close(context.Background()) }()
+
+	// And it SAID so, naming the path, rather than failing silently.
+	content, err := os.ReadFile(logPath)
+	if err != nil {
+		t.Fatalf("ReadFile: %v", err)
+	}
+	if !strings.Contains(string(content), "could not record where it is") {
+		t.Fatalf("the inability to record the address was not reported: %s", content)
+	}
 }
