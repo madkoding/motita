@@ -9,6 +9,7 @@ import (
 	"strings"
 	"sync/atomic"
 	"testing"
+	"time"
 )
 
 // TestMain lets the test binary act as the tool itself when the marker is set:
@@ -199,3 +200,42 @@ func TestHandleWithAnUnreadableBody(t *testing.T) {
 type brokenReader struct{}
 
 func (brokenReader) Read([]byte) (int, error) { return 0, io.ErrUnexpectedEOF }
+
+// TestTheReplyDelayIsOptionalAndDefaultsToOff: the delay exists so a run can be observed in
+// flight, and it must change NOTHING for every other caller. A mock that silently slowed down
+// would make every e2e run slower for no reason, and the default is what keeps that from
+// happening.
+func TestTheReplyDelayIsOptionalAndDefaultsToOff(t *testing.T) {
+	if got := envDelayMS(); got != 0 {
+		t.Fatalf("with no environment set the delay is %d, want 0", got)
+	}
+	t.Setenv("MOCKLLM_DELAY_MS", "25")
+	if got := envDelayMS(); got != 25 {
+		t.Errorf("MOCKLLM_DELAY_MS=25 read back as %d", got)
+	}
+	// A malformed or negative value is treated as off rather than as a huge sleep, which would
+	// look like a hung gateway.
+	for _, bad := range []string{"", "soon", "-5"} {
+		t.Setenv("MOCKLLM_DELAY_MS", bad)
+		if got := envDelayMS(); got != 0 {
+			t.Errorf("MOCKLLM_DELAY_MS=%q read back as %d, want 0", bad, got)
+		}
+	}
+}
+
+// TestAConfiguredDelayActuallySlowsAReply: the flag is only useful if it reaches the handler, so
+// this measures the wall clock rather than trusting the wiring.
+func TestAConfiguredDelayActuallySlowsAReply(t *testing.T) {
+	atomic.StoreInt64(&replyDelayMS, 30)
+	t.Cleanup(func() { atomic.StoreInt64(&replyDelayMS, 0) })
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions",
+		strings.NewReader("## ANALYSIS OF THE TASK"))
+
+	started := time.Now()
+	handle(rec, req)
+	if elapsed := time.Since(started); elapsed < 25*time.Millisecond {
+		t.Fatalf("the reply took %v with a 30ms delay configured, so the delay is not applied", elapsed)
+	}
+}

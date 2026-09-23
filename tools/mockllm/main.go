@@ -22,6 +22,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"strconv"
 	"strings"
 	"sync/atomic"
 	"time"
@@ -29,6 +30,10 @@ import (
 
 var (
 	executionAttempts int32
+
+	// replyDelayMS slows every reply down, in milliseconds. Zero is the default and means no
+	// change at all; the e2e gateway script raises it so a run can be caught in flight.
+	replyDelayMS int64
 )
 
 // phase works out which part of the flow the agent is in from the prompt it
@@ -105,6 +110,14 @@ func handle(w http.ResponseWriter, r *http.Request) {
 	text := string(body)
 	f := phase(text)
 
+	// The delay makes a run OBSERVABLE while it is in flight. It defaults to zero, so every
+	// existing caller behaves exactly as before; the concurrency check is the one that needs it,
+	// because a run that finishes in microseconds cannot be seen running and a test that sleeps
+	// instead would be guessing at the machine's speed.
+	if d := atomic.LoadInt64(&replyDelayMS); d > 0 {
+		time.Sleep(time.Duration(d) * time.Millisecond)
+	}
+
 	dialect := "openai"
 	switch {
 	case strings.Contains(r.URL.Path, "messages"):
@@ -165,7 +178,21 @@ func mainBody(port *int, host *string, exit func(int)) {
 func main() {
 	port := flag.Int("port", 8210, "listening port")
 	host := flag.String("host", "0.0.0.0", "interface")
+	// The delay is settable from the command line as well as the environment, because the e2e
+	// scripts start this process inside a container and passing a flag is clearer than relying on
+	// the environment surviving that boundary.
+	delay := flag.Int64("delay-ms", envDelayMS(), "delay every reply by this many milliseconds")
 	flag.Parse()
+	atomic.StoreInt64(&replyDelayMS, *delay)
 
 	mainBody(port, host, os.Exit)
+}
+
+// envDelayMS reads MOCKLLM_DELAY_MS, or reports zero.
+func envDelayMS() int64 {
+	v, err := strconv.ParseInt(os.Getenv("MOCKLLM_DELAY_MS"), 10, 64)
+	if err != nil || v < 0 {
+		return 0
+	}
+	return v
 }

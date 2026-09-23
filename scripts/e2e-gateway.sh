@@ -88,7 +88,7 @@ docker run -d --name "$CONTAINER" --platform "$PLATFORM" \
   -v "$PWD/.e2e:/e2e" \
   -w /e2e \
   "$IMAGE" sh -c "
-    /dist/.e2e/$(basename "$MOCK") -port $PORT_LLM >/e2e/mock.log 2>&1 &
+    /dist/.e2e/$(basename "$MOCK") -port $PORT_LLM -delay-ms ${MOCK_DELAY_MS:-40} >/e2e/mock.log 2>&1 &
     NO_COLOR=1 STARLIGHT_LLM_API_KEY=test \
       /dist/.e2e/$(basename "$BINARY") -config /e2e/config.yaml -serve \
         -gateway 127.0.0.1:$PORT_GW >/e2e/gateway.log 2>&1 &
@@ -121,23 +121,23 @@ health_code="$(curl -s -o /dev/null -w '%{http_code}' "$BASE/v1/health")"
 echo "$health_code"
 
 echo "--- 2. config without a token ---"
-noauth_code="$(curl -s -o /dev/null -w '%{http_code}' "$BASE/v1/config")"
+noauth_code="$(curl -s -o /dev/null -w '%{http_code}' "$BASE/v1/sessions/default/config")"
 echo "$noauth_code"
 
 echo "--- 3. config with the token ---"
-config_body="$(curl -s -H "$AUTH" "$BASE/v1/config")"
+config_body="$(curl -s -H "$AUTH" "$BASE/v1/sessions/default/config")"
 echo "$config_body"
 
 echo "--- 4. a streamed run ---"
 run_body="$(
   curl -s -N -X POST -H "$AUTH" -H 'Content-Type: application/json' \
     -d '{"task":"leave the report with the requested content"}' \
-    "$BASE/v1/task"
+    "$BASE/v1/sessions/default/task"
 )"
 echo "$run_body" | head -40
 
 echo "--- 5. the slot is free again and the conversation is readable ---"
-session_code="$(curl -s -o /dev/null -w '%{http_code}' -H "$AUTH" "$BASE/v1/session")"
+session_code="$(curl -s -o /dev/null -w '%{http_code}' -H "$AUTH" "$BASE/v1/sessions/default")"
 echo "$session_code"
 
 echo "--- requests received by the simulated LLM ---"
@@ -184,6 +184,92 @@ if [ -f .e2e/work/report.txt ]; then
     || bad "the report holds '$content'"
 fi
 
+echo
+echo "==> sessions: two conversations, one run each, at the same time"
+
+# The default conversation is the one the process was started with, and it is in the path like
+# every other one - there is no second way to address a conversation.
+code="$(curl -s -o /dev/null -w '%{http_code}' -H "$AUTH" "$BASE/v1/sessions/default/config")"
+[ "$code" = "200" ] && ok "the default session is addressable by name" \
+  || bad "the default session answered $code, want 200"
+
+# Opening one more conversation is what lets a second front end exist at all.
+created="$(curl -s -X POST -H "$AUTH" "$BASE/v1/sessions")"
+second="$(printf '%s' "$created" | sed -n 's/.*"id":"\([^"]*\)".*/\1/p')"
+if [ -z "$second" ]; then
+  bad "a second session could not be opened: $created"
+else
+  ok "opened a second session"
+fi
+
+# Two conversations at once. The first run is launched in the BACKGROUND and the script waits
+# until the gateway REPORTS it as running - not for a fixed number of seconds, which would be a
+# guess about how fast the machine is. Only then is the second run started, so the overlap is a
+# fact rather than a hope.
+curl -s -N -H "$AUTH" -H 'Content-Type: application/json' \
+  -d '{"task":"leave the report with the requested content"}' \
+  "$BASE/v1/sessions/$second/task" > .e2e/second-a.sse 2>&1 &
+run_a=$!
+
+seen_running=0
+for _ in $(seq 1 100); do
+  if curl -s -H "$AUTH" "$BASE/v1/sessions" | grep -q "\"id\":\"$second\",\"created\".*\"running\":true"; then
+    seen_running=1
+    break
+  fi
+  sleep 0.1
+done
+if [ "$seen_running" -eq 1 ]; then
+  ok "the second session was reported running while it was in flight"
+else
+  # Saying so is the honest outcome. Passing quietly would be claiming a concurrency check that
+  # never actually overlapped anything.
+  bad "the run finished too fast to be observed in flight, so the concurrency check could not be made"
+fi
+
+# A second run in the SAME conversation, while the first one is STILL in flight. This is checked
+# immediately after seeing the run listed, and BEFORE any other run is started, because the plan
+# ordered it the other way round and that made it a race: by the time the other run had finished,
+# so had this one, the slot was free again, and a 200 was the correct answer to a question that
+# was no longer being asked.
+code="$(curl -s -o /dev/null -w '%{http_code}' -N -H "$AUTH" \
+  -H 'Content-Type: application/json' -d '{"task":"another"}' \
+  "$BASE/v1/sessions/$second/task")"
+[ "$code" = "409" ] && ok "a second run in the same session was refused with 409" \
+  || bad "a second run in the same session answered $code, want 409"
+
+# A run in the DEFAULT session while that one is still in flight: this is a DIFFERENT conversation,
+# so it must NOT be refused - a gateway that refused it would be serialising every client against
+# every other one, which is the whole thing sessions exist to avoid.
+code="$(curl -s -o .e2e/second-b.sse -w '%{http_code}' -N -H "$AUTH" \
+  -H 'Content-Type: application/json' \
+  -d '{"task":"leave the report with the requested content"}' \
+  "$BASE/v1/sessions/default/task")"
+[ "$code" = "200" ] && ok "a run in a different session was not refused" \
+  || bad "a run in a different session answered $code, it must not be refused"
+
+wait "$run_a" || true
+if grep -q 'event: done' .e2e/second-a.sse; then
+  ok "the run that was in flight ran to completion"
+else
+  bad "the run that was in flight never finished"
+fi
+
+# Closing gives the memory back, and it is gone afterwards.
+code="$(curl -s -o /dev/null -w '%{http_code}' -X DELETE -H "$AUTH" "$BASE/v1/sessions/$second")"
+[ "$code" = "204" ] && ok "closing a session answered 204" \
+  || bad "closing a session answered $code, want 204"
+code="$(curl -s -o /dev/null -w '%{http_code}' -H "$AUTH" "$BASE/v1/sessions/$second")"
+[ "$code" = "404" ] && ok "a closed session is gone" \
+  || bad "a closed session answered $code, want 404"
+
+# The default session belongs to the process that started this gateway: closing it would leave
+# that process talking to a conversation that no longer exists.
+code="$(curl -s -o /dev/null -w '%{http_code}' -X DELETE -H "$AUTH" "$BASE/v1/sessions/default")"
+[ "$code" = "409" ] && ok "closing the default session was refused" \
+  || bad "closing the default session answered $code, want 409"
+
+echo
 [ "$failures" -eq 0 ] || { echo "FAILURES: $failures"; exit 1; }
 echo "the gateway works end to end"
 
