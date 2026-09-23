@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>starlight</title>
+<link rel="stylesheet" href="/app.css">
+</head>
+<body>
+<header>
+  <h1>starlight</h1>
+  <span id="state" aria-live="polite">connecting</span>
+</header>
+<main id="conversation" role="log" aria-live="polite" aria-label="conversation"></main>
+<form id="composer">
+  <label for="task" class="visually-hidden">Task</label>
+  <textarea id="task" rows="2" placeholder="Ask for something"></textarea>
+  <button type="submit">Send</button>
+</form>
+<div id="approval" hidden></div>
+<script src="/app.js"></script>
+</body>
+</html>
