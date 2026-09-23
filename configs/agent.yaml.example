@@ -207,3 +207,12 @@ gateway:
   # default. The ceiling exists so a client that forgets to close what it opened
   # cannot turn the agent into a memory leak.
   max_sessions: 0
+  # Serve the browser interface from this same port. The page and the API share an
+  # origin, so there is no second server to run and no CORS to negotiate. The page
+  # itself is served without a token - it holds no secret, and it is the only way a
+  # browser can obtain one - and the token is exchanged for a cookie whose value is
+  # DERIVED from it, so what a browser stores is not a reusable credential.
+  #
+  # Off means an API-only gateway, which is a real deployment: a script that drives
+  # the agent has no use for a page.
+  webui: true

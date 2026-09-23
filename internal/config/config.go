@@ -52,6 +52,12 @@ type Gateway struct {
 	// close what it opened cannot turn the agent into a memory leak, not so that an operator
 	// has to pick a number.
 	MaxSessions int `yaml:"max_sessions"`
+	// WebUI serves the browser interface from the gateway itself, on the same port. The page
+	// and the API share an origin, so no proxy and no CORS are involved anywhere.
+	//
+	// It is on by default, because the interface arriving WITH the gateway is the point of it:
+	// a second deliberate act to get a page would defeat that.
+	WebUI bool `yaml:"webui"`
 }
 
 // TaskSource describes where the tasks come from.
@@ -323,6 +329,11 @@ func Default() Config {
 			// skills directory: everything the program owns lives under one folder.
 			TokenFile: "gateway.token",
 			MaxBodyKB: 256,
+			// On, because the interface arrives WITH the gateway: the page and the API share
+			// this one origin, so there is no second server to run and no CORS to negotiate.
+			// It is reachable on loopback, like the gateway itself; putting it on a network
+			// still takes the same two deliberate acts that the gateway does.
+			WebUI: true,
 		},
 		Prompts: Prompts{
 			Analyze:    BaseAnalyzeTemplate,

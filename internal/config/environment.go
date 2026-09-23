@@ -129,6 +129,7 @@ func boolBindings(c *Config) []binding[bool] {
 		{"STARLIGHT_AGENT_POLICY_STRICT", &c.Agent.Policy.Strict},
 		{"STARLIGHT_GATEWAY_ENABLED", &c.Gateway.Enabled},
 		{"STARLIGHT_GATEWAY_ALLOW_LAN", &c.Gateway.AllowLAN},
+		{"STARLIGHT_GATEWAY_WEBUI", &c.Gateway.WebUI},
 	}
 }
 
