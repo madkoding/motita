@@ -449,3 +449,28 @@ func TestStartGatewayReportsAnUnwritableServiceFileWithoutRefusing(t *testing.T)
 		t.Fatalf("the inability to record the address was not reported: %s", content)
 	}
 }
+
+// The usage text names the port a user will actually get, and it said 127.0.0.1:0 long after the
+// default became a fixed 7477. Help text is the first thing anyone reads and the last thing anyone
+// updates, so the number is read from the config default here rather than repeated - a change to
+// the default breaks this test instead of silently turning the help into a lie.
+func TestTheHelpNamesTheRealDefaultGatewayPort(t *testing.T) {
+	// The documented address, from the same place the program gets it.
+	want := config.Default().Gateway.Listen
+	if want == "" || strings.HasSuffix(want, ":0") {
+		t.Fatalf("the default gateway listen is %q, which is not a fixed port", want)
+	}
+	out := &syncBuffer{}
+	op := tuiTestOptions(t, out)
+	op.Args = []string{"-h"}
+	Run(op)
+
+	if !strings.Contains(out.String(), want) {
+		t.Fatalf("the help does not name the default gateway address %q, so it describes a "+
+			"program the user does not have:\n%s", want, out.String())
+	}
+	// And it must not still advertise the ephemeral default it no longer uses.
+	if strings.Contains(out.String(), "127.0.0.1:0") {
+		t.Errorf("the help still offers the ephemeral default:\n%s", out.String())
+	}
+}

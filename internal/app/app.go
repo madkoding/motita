@@ -155,7 +155,7 @@ Options:
   -p string          one-shot plan/chat prompt (implies -plan)
   -tui               start the interactive text user interface (default when no task is given)
   -serve             run the gateway only: no interface, for clients on other machines
-  -gateway string    gateway listen address (default 127.0.0.1:0; "off" disables it)
+  -gateway string    gateway listen address (default 127.0.0.1:7477; "off" disables it)
   -connect string    connect to a gateway somebody else is running, as a client
                      (this process then builds no sandbox and runs no commands)
   -session string    which conversation to attach to (default "default")
