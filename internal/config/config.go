@@ -400,6 +400,38 @@ func Dir() string {
 // and below the default ephemeral range on Linux, so it does not compete with outgoing connections.
 const defaultGatewayListen = "127.0.0.1:7477"
 
+// wildcardGatewayPort is the port half of the wildcard address allow_lan resolves to.
+//
+// Spelled as a whole address rather than assembled from defaultGatewayListen, because the two must
+// agree and a test asserts they do: a reader should not have to strip a prefix in their head to
+// learn which ports a gateway can come up on.
+const wildcardGatewayAddress = "0.0.0.0:7477"
+
+// defaultListenFor resolves the address the gateway will actually bind.
+//
+// It is ONE function because two callers need the same answer and drifting apart is the bug that
+// matters: validation decides whether the configuration is acceptable, and the bind decides where
+// the socket goes. A gateway that passed validation as loopback and then bound to the network - or
+// the reverse - would be a hole that no single test of either half could see.
+//
+// An explicit listen wins, always: an operator who wrote an address meant that address, and a
+// setting that silently replaces what someone typed is indistinguishable from ignoring it.
+//
+// Otherwise allow_lan opens the WILDCARD, and it does so on its own. Asking the operator to also
+// rewrite the address as 0.0.0.0 (or to look up the machine's LAN address) is a question about
+// networking asked at the moment they only wanted their phone to reach the agent. One setting that
+// says what it means, and says it once, is the version that cannot be half-applied: with this
+// resolution an "allow_lan on, still bound to loopback" state does not exist.
+func defaultListenFor(g Gateway) string {
+	if listen := strings.TrimSpace(g.Listen); listen != "" {
+		return listen
+	}
+	if g.AllowLAN {
+		return wildcardGatewayAddress
+	}
+	return defaultGatewayListen
+}
+
 // The defaults that keep starlight's own state under one roof. They are the home's paths when
 // there is a home, and the old working-directory paths when there is not.
 //
@@ -552,6 +584,13 @@ func load(path string, requireKey bool) (Config, error) {
 	return cfg, nil
 }
 
+// GatewayListen is the address the gateway will actually bind.
+//
+// Exported so the binding does not re-derive it: the resolution lives in ONE place
+// (defaultListenFor) because validation and the bind disagreeing is a hole neither half's tests
+// can see — the configuration accepted as loopback while the socket opened onto the network.
+func (c Config) GatewayListen() string { return defaultListenFor(c.Gateway) }
+
 // Validate checks coherence and fills in what can be deduced, requiring the
 // LLM key.
 func (c *Config) Validate() error { return c.validate(true) }
@@ -608,15 +647,11 @@ func (c *Config) validateGateway() error {
 		// meant - and silently treating it as the default would hide the typo that produced it.
 		return fmt.Errorf("gateway.max_sessions is %d: it cannot be negative (0 means the built-in default)", c.Gateway.MaxSessions)
 	}
-	addr := strings.TrimSpace(c.Gateway.Listen)
-	if addr == "" {
-		// An empty listen means "the default", and the default is now the fixed port. Falling back
-		// to an ephemeral one would silently produce a gateway that no other process can find, which
-		// is the opposite of what an unset value should mean.
-		addr = defaultGatewayListen
-	}
+	addr := defaultListenFor(c.Gateway)
 	host, _, err := net.SplitHostPort(addr)
 	if err != nil {
+		// The operator's own string is named back to them, not the resolved one: when they typed an
+		// address, that is what they need to see to fix it.
 		return fmt.Errorf("gateway.listen %q is not host:port: %w", c.Gateway.Listen, err)
 	}
 	if !gatewayAddressIsLoopback(host) && !c.Gateway.AllowLAN {

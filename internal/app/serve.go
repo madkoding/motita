@@ -103,7 +103,7 @@ func (op Options) startGateway(fl flags, cfg config.Config, engine *llm.Client, 
 	if err != nil {
 		return nil, err
 	}
-	listen := cfg.Gateway.Listen
+	listen := cfg.GatewayListen()
 	if v := strings.TrimSpace(fl.gateway); v != "" {
 		listen = v
 	}
