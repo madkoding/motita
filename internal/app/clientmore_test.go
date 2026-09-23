@@ -145,3 +145,47 @@ func TestServingAndConnectingAtOnceIsRefused(t *testing.T) {
 }
 
 var _ tui.Runner = noopRunner{}
+
+// TestAnAddressWithoutASchemeIsAccepted: the user types an ADDRESS, not a URL. "-connect
+// 127.0.0.1:7477" is what the help text shows and what an address looks like, and refusing it with
+// a parse error that names neither the flag nor the fix was a real failure found by running it.
+func TestAnAddressWithoutASchemeIsAccepted(t *testing.T) {
+	cases := map[string]string{
+		"127.0.0.1:7477": "http://127.0.0.1:7477",
+		"the-host:7477":  "http://the-host:7477",
+		" http://h:1 ":   "http://h:1",
+		"https://h:7477": "https://h:7477",
+	}
+	for in, want := range cases {
+		if got := connectURL(in); got != want {
+			t.Errorf("connectURL(%q) = %q, want %q", in, got, want)
+		}
+	}
+}
+
+// TestConnectPassesAUsableURLToTheClient: the normalisation has to REACH the client, or the fix is
+// in a function nobody calls - which is the shape of the bug it repairs.
+func TestConnectPassesAUsableURLToTheClient(t *testing.T) {
+	silence(t)
+	srv := planServer(t, []string{"hello"})
+	defer srv.Close()
+	cfgPath := planConfig(t, srv)
+	writeTokenFile(t, cfgPath)
+
+	var got string
+	var out strings.Builder
+	// The address is given WITHOUT a scheme, exactly as a user would type it.
+	bare := strings.TrimPrefix(srv.URL, "http://")
+	op, _ := connectOptions(t, &out, []string{"-config", cfgPath, "-connect", bare})
+	op.NewClient = func(baseURL, tok, session string) tui.Runner {
+		got = baseURL
+		return listingRunner{sessions: []gateway.SessionStatus{{ID: "default"}}}
+	}
+
+	if code := Run(op); code != Success {
+		t.Fatalf("Run = %d; output: %s", code, out.String())
+	}
+	if !strings.HasPrefix(got, "http://") {
+		t.Errorf("the client was given %q, it must be a usable URL", got)
+	}
+}

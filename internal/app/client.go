@@ -52,7 +52,7 @@ func (op Options) runClient(_ context.Context, fl flags, cfg config.Config) int 
 		session = gateway.DefaultSession
 	}
 
-	client := op.newClient(fl.connect, token, session)
+	client := op.newClient(connectURL(fl.connect), token, session)
 
 	// The session is CHECKED before the interface opens. A session id the gateway does not know
 	// must be reported now, with the list of what it does know, rather than producing an interface
@@ -68,6 +68,24 @@ func (op Options) runClient(_ context.Context, fl flags, cfg config.Config) int 
 	ui.Err = op.Err
 	ui.NoColor = noColour(os.Getenv, op.Out)
 	return ui.Run(context.Background())
+}
+
+// connectURL turns the address a user types into a URL a client can use.
+//
+// A user writes an ADDRESS - "127.0.0.1:7477", "the-host:7477" - because that is what an address
+// looks like, and demanding a scheme would be making them write the transport's name for a
+// transport they never chose. Without this, the first thing a new user sees is
+// `parse "127.0.0.1:7477/v1/sessions": first path segment in URL cannot contain colon`, which
+// names neither the flag nor the fix.
+//
+// An address that already carries a scheme is left alone, so https:// can be written explicitly by
+// anyone terminating TLS in front of the gateway.
+func connectURL(addr string) string {
+	addr = strings.TrimSpace(addr)
+	if strings.Contains(addr, "://") {
+		return addr
+	}
+	return "http://" + addr
 }
 
 // checkSession verifies that the conversation exists, and says what does exist when it does not.
