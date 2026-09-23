@@ -526,6 +526,7 @@ interface is a client of it.
 | `token_file` | `gateway.token` | Where the bearer token lives, under the starlight home. Generated on first use with 32 random bytes, mode `0600`. |
 | `allow_lan` | `false` | Must be `true` for any address that is not loopback. |
 | `max_body_kb` | `256` | Cap on a request body. |
+| `max_sessions` | `0` | How many conversations one process holds. `0` means the built-in default. A negative ceiling is refused rather than read as the default, which would hide the typo that produced it. |
 
 Reaching the gateway from another machine takes **two deliberate acts**: a
 non-loopback listen address *and* `allow_lan`. Neither on its own is enough, and

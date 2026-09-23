@@ -201,3 +201,7 @@ gateway:
   allow_lan: false
   # Cap on a request body, in KB.
   max_body_kb: 256
+  # How many conversations this process will hold at once. 0 means the built-in
+  # default. The ceiling exists so a client that forgets to close what it opened
+  # cannot turn the agent into a memory leak.
+  max_sessions: 0

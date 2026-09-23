@@ -160,9 +160,57 @@ the terminal you are looking at is one of its **clients** — so a web page or a
 phone can join the same conversation, with the same procedure library and the same
 reward ledger. Two acts are needed to put it on a network (`gateway.allow_lan`
 plus a non-loopback address), and the supported way to reach a remote one is a
-tunnel: `ssh -N -L 8787:127.0.0.1:8787 the-host`. There is **no TLS** in this
+tunnel: `ssh -N -L 7477:127.0.0.1:7477 the-host`. There is **no TLS** in this
 version, which is exactly why exposing it on a LAN is two deliberate acts and not
 one.
+
+### More than one conversation at a time
+
+A gateway holds **several conversations at once**, each with its own run slot, its
+own transcript, and its own approval prompt. Two clients working at the same time
+do not wait for each other, and a second run in the *same* conversation is refused
+with a `409` instead of being queued: one conversation has one slot, and saying so
+is more useful than pretending otherwise.
+
+Every conversation endpoint names the conversation it is about — the default one
+included, because there is no second way in:
+
+```sh
+curl -H "Authorization: Bearer $TOKEN" http://127.0.0.1:7477/v1/sessions
+# {"sessions":[{"id":"default","created":"...","last_used":"...","running":false}]}
+
+curl -X POST -H "Authorization: Bearer $TOKEN" http://127.0.0.1:7477/v1/sessions
+# {"id":"s7f3a1c9e"} — now drive /v1/sessions/s7f3a1c9e/task
+
+curl -H "Authorization: Bearer $TOKEN" http://127.0.0.1:7477/v1/sessions/default/config
+curl -X DELETE -H "Authorization: Bearer $TOKEN" \
+  http://127.0.0.1:7477/v1/sessions/s7f3a1c9e
+```
+
+| Endpoint | What it does |
+|---|---|
+| `GET /v1/health` | the only one that needs no token: liveness |
+| `GET` `POST /v1/sessions` | list what is held, or open one more |
+| `DELETE /v1/sessions/{id}` | close one and get its memory back |
+| `GET /v1/sessions/{id}` | that conversation's figures, `running` included |
+| `POST /v1/sessions/{id}/task` | run a task, streamed as server-sent events |
+| `POST /v1/sessions/{id}/plan` | the same, read-only |
+| `POST /v1/sessions/{id}/runs/approval` | answer a pending confirmation |
+| `GET /v1/sessions/{id}/report` | the conversation so far |
+| `GET /v1/sessions/{id}/config` `/models` `/reward` `/questions` | the read-only views |
+| `POST /v1/sessions/{id}/reasoning` `/verdict` `/reset` | change the budget, grade a turn, start over |
+
+The default conversation belongs to the process that started the gateway: closing it
+is refused, because that process would be left talking to a conversation that no
+longer exists. `gateway.max_sessions` caps how many a process will hold (`0` means
+the built-in default); the ceiling is there so a client that forgets to close what
+it opened cannot turn the agent into a memory leak.
+
+**The port is 7477 by default**, chosen because IANA leaves it unassigned, nothing
+well known uses it, and it sits below the ephemeral range a Linux box hands out by
+default. Some hosts widen that range (this one goes down to 1024), in which case a
+fixed port can occasionally collide with an outgoing connection — if a start fails
+with `address already in use`, pick another with `-gateway 127.0.0.1:<port>`.
 
 | Command | What it does |
 |---|---|
