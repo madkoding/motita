@@ -103,13 +103,7 @@ func GeminiRequestDeviceCode(ctx context.Context, client HTTPClient, cfg GeminiC
 	if err := postForm(ctx, client, "https://oauth2.googleapis.com/device/code", form, &resp); err != nil {
 		return DeviceCode{}, err
 	}
-	return DeviceCode{
-		DeviceCode:      resp.DeviceCode,
-		UserCode:        resp.UserCode,
-		VerificationURL: resp.VerificationURL,
-		ExpiresIn:       resp.ExpiresIn,
-		Interval:        resp.Interval,
-	}, nil
+	return DeviceCode(resp), nil
 }
 
 // GeminiPollToken polls the token endpoint until the user authorises the device

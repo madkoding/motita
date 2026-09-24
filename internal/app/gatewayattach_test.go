@@ -22,16 +22,6 @@ import (
 // `motita` brings up an interface, and the agent behind it is a service that can already be
 // running. Two terminals must no longer mean two agents on two ports with two conversations.
 
-// runTUIWithoutAGateway drives the interface path with the gateway machinery replaced, so the
-// decision being tested is the DECISION and not a real bind.
-type tuiProbe struct {
-	// usedBaseURL is where the interface ended up pointing. Empty means it never attached to a
-	// gateway at all - the escape hatch.
-	usedBaseURL string
-	// spawned says whether this process brought a gateway up itself.
-	spawned bool
-}
-
 // TestTheInterfaceConnectsToAGatewayThatIsAlreadyRunning: this is the whole request. A user who
 // started a service once must be able to open terminals against it.
 func TestTheInterfaceConnectsToAGatewayThatIsAlreadyRunning(t *testing.T) {

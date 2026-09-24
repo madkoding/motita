@@ -336,19 +336,6 @@ func TestARefusalCarriesTheStatusItAnsweredWith(t *testing.T) {
 	}
 }
 
-// waitForCondition is a tiny poll used to make the timing in a test explicit rather than a bare
-// sleep scattered through the body.
-func waitForCondition(t *testing.T, cond func() bool) {
-	t.Helper()
-	deadline := time.Now().Add(2 * time.Second)
-	for time.Now().Before(deadline) {
-		if cond() {
-			return
-		}
-		time.Sleep(time.Millisecond)
-	}
-}
-
 // sprintf joins a format and its arguments the way the client's progress callback does.
 func sprintf(format string, args ...any) string {
 	if len(args) == 0 {

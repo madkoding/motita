@@ -351,14 +351,14 @@ func (t *TUI) printSessions(ctx context.Context) {
 func (t *TUI) sessionsText(ctx context.Context) (string, error) {
 	sw, ok := t.Runner.(SessionSwitcher)
 	if !ok {
-		return "", errors.New("this interface is not attached to a gateway that holds several sessions.")
+		return "", errors.New("this interface is not attached to a gateway that holds several sessions")
 	}
 	all, err := sw.ListSessions(ctx)
 	if err != nil {
 		return "", fmt.Errorf("the gateway could not be asked which sessions it holds: %w", err)
 	}
 	if len(all) == 0 {
-		return "", errors.New("the gateway reports no sessions, which should not be possible.")
+		return "", errors.New("the gateway reports no sessions, which should not be possible")
 	}
 
 	// Sorted here rather than by the gateway: the ordering rule is a property of how THIS interface

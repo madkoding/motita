@@ -30,7 +30,9 @@ func TestRotatingTheTokenInvalidatesOldCookies(t *testing.T) {
 // The derivation must be stable: a value that changed between requests would log the browser out
 // on every call.
 func TestTheDerivationIsStable(t *testing.T) {
-	if cookieValue(testToken) != cookieValue(testToken) {
+	a := cookieValue(testToken)
+	b := cookieValue(testToken)
+	if a != b {
 		t.Fatal("the derivation is not deterministic")
 	}
 }
