@@ -23,6 +23,14 @@ var contextWindows = map[string]int{
 	// Anthropic, whose published windows are these.
 	"claude": 200000,
 
+	// The Claude Code aliases the claude-code provider passes to the claude CLI. 200k is
+	// the conservative figure: a [1m] route ("sonnet[1m]") matches here too, and its larger
+	// window is set explicitly with llm.session.context_window.
+	"sonnet": 200000,
+	"opus":   200000,
+	"haiku":  200000,
+	"fable":  200000,
+
 	// Ollama Cloud and the open models it hosts. These are the values their cards
 	// publish; a local Ollama may be configured lower, which is why the configuration
 	// can override the window explicitly.

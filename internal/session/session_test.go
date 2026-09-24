@@ -62,6 +62,12 @@ func TestProviderVariantsMatchTheirFamily(t *testing.T) {
 		{"qwen2.5-72b", 32768},
 		{"deepseek-v4.1-flash", 65536},
 		{"claude-3-5-sonnet", 200000},
+		// The Claude Code aliases the claude-code provider uses.
+		{"sonnet", 200000},
+		{"opus", 200000},
+		{"haiku", 200000},
+		{"fable", 200000},
+		{"sonnet[1m]", 200000},
 	} {
 		if got := ContextWindow(tc.model); got != tc.want {
 			t.Errorf("ContextWindow(%q) = %d, want %d", tc.model, got, tc.want)

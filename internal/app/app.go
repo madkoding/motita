@@ -224,6 +224,16 @@ type flags struct {
 func Run(op Options) int {
 	op.complete()
 
+	// The claude-code provider points claude at this program as its MCP server. That
+	// command line is claude's, not the user's, so it is handled before parsing too.
+	if len(op.Args) == 2 && op.Args[0] == llm.ClaudeCodeMCPCommand {
+		if err := llm.ServeClaudeCodeMCP(op.Stdin, op.Out, op.Args[1]); err != nil {
+			fmt.Fprintf(op.Err, "motita[claude-code-mcp]: %v\n", err)
+			return RunError
+		}
+		return Success
+	}
+
 	// The sandbox re-executes itself to apply the limits in the child. It is
 	// handled before parsing flags: the child's command line belongs to the
 	// sandbox, not to the user.
