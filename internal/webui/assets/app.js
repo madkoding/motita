@@ -742,11 +742,11 @@
       return;
     }
     // Remove the placeholder that appears when the conversation is empty, so
-    // the first real message does not sit beside "Nothing yet".
-    const placeholder = conversation.querySelector('.msg.kind');
-    if (placeholder && placeholder.textContent === 'Nothing yet. Ask for something below.') {
-      placeholder.remove();
-    }
+    // the first real message does not sit beside "Nothing yet". Any .kind
+    // message (the muted, small-uppercase style used for hints) before the
+    // first real turn is a placeholder and is removed.
+    const hints = conversation.querySelectorAll('.msg.kind');
+    hints.forEach(function(el) { el.remove(); });
     task.value = '';
     submit(text);
   });
