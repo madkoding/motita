@@ -95,12 +95,12 @@ func TestClaudeCodeAsksForNoKey(t *testing.T) {
 			t.Errorf("the wizard asked for %q", asked)
 		}
 	}
-	if !strings.Contains(plain, "claude auth login") || !strings.Contains(plain, "install Claude Code") {
+	if !strings.Contains(plain, "$ claude auth login") || !strings.Contains(plain, "https://code.claude.com/docs/en/setup") {
 		t.Errorf("the summary must say how to log in:\n%s", plain)
 	}
 	content, _ := os.ReadFile(res.ConfigPath)
 	text := string(content)
-	for _, want := range []string{"provider: claude-code", "model: sonnet", `base_url: ""`, "No key is needed"} {
+	for _, want := range []string{"provider: claude-code", "model: sonnet", `base_url: ""`, "No key is needed", "`claude auth login`"} {
 		if !strings.Contains(text, want) {
 			t.Errorf("the configuration lacks %q:\n%s", want, text)
 		}
@@ -838,7 +838,7 @@ func TestCatalogueMatchesTheClientProtocols(t *testing.T) {
 			t.Errorf("the wizard offers %q, which the client does not implement", p.ID)
 		}
 		// A provider with its own login has no endpoint and no key to name.
-		if p.Name == "" || p.ConsoleURL == "" || !p.NoKey && (p.DefaultBaseURL == "" || p.EnvKey == "") {
+		if p.Name == "" || p.ConsoleURL == "" || p.Login == "" && (p.DefaultBaseURL == "" || p.EnvKey == "") {
 			t.Errorf("%q is incomplete: %+v", p.ID, p)
 		}
 		if len(p.Models) == 0 && !p.FetchModels {
@@ -868,7 +868,7 @@ func TestNamesAndHelpers(t *testing.T) {
 		t.Errorf("an unknown provider has no default endpoint, got %q", got)
 	}
 	for _, p := range Providers() {
-		if p.EnvKey == "" && !p.NoKey {
+		if p.EnvKey == "" && p.Login == "" {
 			t.Errorf("provider %q carries no key variable for the instructions", p.ID)
 		}
 	}

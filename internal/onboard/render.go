@@ -35,9 +35,9 @@ func renderConfig(v configValues) []byte {
 	b.WriteString(".\n")
 	b.WriteString("#\n")
 	b.WriteString("# Every value here can be overridden with an environment variable named\n")
-	if p, ok := Lookup(v.provider); ok && p.NoKey {
-		b.WriteString("# MOTITA_<BLOCK>_<FIELD> (see README.md). No key is needed: the claude\n")
-		b.WriteString("# CLI uses the login from `claude auth login`.\n")
+	if p, ok := Lookup(v.provider); ok && p.Login != "" {
+		b.WriteString("# MOTITA_<BLOCK>_<FIELD> (see README.md). No key is needed: the login\n")
+		fmt.Fprintf(&b, "# comes from `%s`.\n", p.Login)
 	} else {
 		b.WriteString("# MOTITA_<BLOCK>_<FIELD> (see README.md), and the secret is NOT stored\n")
 		fmt.Fprintf(&b, "# in this file: export %s instead.\n", keyVariableFor(v.provider))

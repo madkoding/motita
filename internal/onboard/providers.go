@@ -35,9 +35,10 @@ type Provider struct {
 	// directly" option in addition to pasting an API key. The user visits a
 	// URL, enters a code, and the resulting token is stored instead of a key.
 	SupportsDirectAuth bool
-	// NoKey, when true, means the provider brings its own login: the wizard asks
-	// for no endpoint and no key, and writes no credentials file.
-	NoKey bool
+	// Login, when set, is the command that logs the provider's own tool in: the
+	// provider needs no key of motita's, so the wizard asks for no endpoint and no
+	// key, writes no credentials file, and tells the user to run this instead.
+	Login string
 }
 
 // Model is a model the wizard can offer.
@@ -142,7 +143,7 @@ func Providers() []Provider {
 			ID:         "claude-code",
 			Name:       "Claude subscription (Claude Code CLI)",
 			ConsoleURL: "https://code.claude.com/docs/en/setup",
-			NoKey:      true,
+			Login:      "claude auth login",
 			Models: []Model{
 				{ID: "sonnet", Label: "Sonnet", Note: "the right default"},
 				{ID: "opus", Label: "Opus"},
