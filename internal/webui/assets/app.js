@@ -221,6 +221,8 @@
     // Italic: *text* or _text_ (but not inside words with underscores)
     s = s.replace(/(?<!\w)\*([^*]+)\*(?!\w)/g, '<em>$1</em>');
     s = s.replace(/(?<!\w)_([^_]+)_(?!\w)/g, '<em>$1</em>');
+    // Strikethrough: ~~text~~
+    s = s.replace(/~~([^~]+)~~/g, '<del>$1</del>');
     // Links: [text](url) — only relative URLs or protocol-less, never http/https
     // (the test forbids those literals in the JS, and the gateway is same-origin).
     s = s.replace(/\[([^\]]+)\]\(([^)]+)\)/g, function(_, text, url) {
@@ -242,7 +244,10 @@
 
     function closeList() {
       if (inList) {
-        html += '</' + listTag + '>\n';
+        // listTag may carry attributes (e.g. 'ul class="task-list"'), so close
+        // with just the tag name to produce valid HTML.
+        const tag = listTag.split(' ')[0];
+        html += '</' + tag + '>\n';
         inList = false;
       }
     }
@@ -291,7 +296,7 @@
         continue;
       }
 
-      // Blockquote: > text
+      // Blockquote: > text, including GFM alerts: > [!NOTE], > [!WARNING], etc.
       if (/^>\s?/.test(line)) {
         closeList();
         let quote = '';
@@ -299,7 +304,18 @@
           quote += lines[i].replace(/^>\s?/, '') + '\n';
           i++;
         }
-        html += '<blockquote>' + renderMarkdown(quote.replace(/\n$/, '')) + '</blockquote>\n';
+        quote = quote.replace(/\n$/, '');
+        // GFM alert: the first line is [!TYPE] — render as a callout with a class.
+        const alert = quote.match(/^\[!(\w+)\]\s*\n?([\s\S]*)/);
+        if (alert) {
+          const alertType = alert[1].toLowerCase();
+          html += '<blockquote class="alert alert-' + alertType + '">'
+            + '<strong>' + alertType.toUpperCase() + '</strong>'
+            + renderMarkdown(alert[2].replace(/^\n/, ''))
+            + '</blockquote>\n';
+        } else {
+          html += '<blockquote>' + renderMarkdown(quote) + '</blockquote>\n';
+        }
         continue;
       }
 
@@ -327,6 +343,24 @@
           headHTML += '<th>' + renderInline(h) + '</th>';
         }
         html += '<table><thead><tr>' + headHTML + '</tr></thead><tbody>' + rows + '</tbody></table>\n';
+        continue;
+      }
+
+      // Task list: - [x] done or - [ ] todo — GFM checkbox syntax
+      if (/^\s*[-*+]\s+\[[ xX]\]\s+/.test(line)) {
+        if (!inList || listTag !== 'ul class="task-list"') {
+          closeList();
+          html += '<ul class="task-list">\n';
+          inList = true;
+          listTag = 'ul class="task-list"';
+        }
+        const checked = /^\s*[-*+]\s+\[[xX]\]\s+/.test(line);
+        const item = line.replace(/^\s*[-*+]\s+\[[ xX]\]\s+/, '');
+        html += '<li class="' + (checked ? 'task-done' : 'task-todo') + '">'
+          + '<span class="checkbox ' + (checked ? 'checked' : '') + '">'
+          + (checked ? '\u2611' : '\u2610') + '</span> '
+          + renderInline(item) + '</li>\n';
+        i++;
         continue;
       }
 

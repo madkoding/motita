@@ -346,6 +346,36 @@ header h1 {
 .msg.agent a:hover { text-decoration: underline; }
 .msg.agent strong { font-weight: 600; }
 .msg.agent em { font-style: italic; }
+.msg.agent del { text-decoration: line-through; opacity: 0.6; }
+
+/* Task lists: GFM checkbox syntax rendered with unicode checkboxes. */
+.msg.agent ul.task-list { list-style: none; padding-left: 4px; }
+.msg.agent ul.task-list li { padding-left: 4px; }
+.msg.agent ul.task-list li.task-done { color: var(--muted); text-decoration: line-through; }
+.msg.agent .checkbox { font-size: 1.1em; margin-right: 4px; user-select: none; }
+.msg.agent .checkbox.checked { color: var(--accent); }
+
+/* GFM alerts: > [!NOTE], > [!WARNING], > [!TIP], etc. Each type gets a
+ * coloured left border and a tinted background. */
+.msg.agent blockquote.alert {
+  margin: 8px 0;
+  padding: 8px 12px;
+  border-left: 4px solid var(--accent);
+  background: rgba(127, 127, 127, 0.08);
+  border-radius: 0 6px 6px 0;
+}
+.msg.agent blockquote.alert strong {
+  display: block;
+  margin-bottom: 4px;
+  font-size: 0.85em;
+  letter-spacing: 0.05em;
+}
+.msg.agent blockquote.alert-note { border-left-color: var(--accent); }
+.msg.agent blockquote.alert-tip { border-left-color: #50d878; }
+.msg.agent blockquote.alert-important { border-left-color: #b078ff; }
+.msg.agent blockquote.alert-warning { border-left-color: var(--warning); }
+.msg.agent blockquote.alert-caution { border-left-color: var(--danger); }
+.msg.agent blockquote.alert p:last-child { margin-bottom: 0; }
 
 /* Activity lines are transient: they show what the agent is doing right now, not what it said.
  * They are muted, monospace, and left-aligned — the same visual language the TUI uses for its
