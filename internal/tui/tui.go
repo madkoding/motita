@@ -1462,7 +1462,7 @@ var helpText = buildHelp()
 // newcomer needs, then every command with the description the catalogue carries.
 func buildHelp() string {
 	var b strings.Builder
-	b.WriteString("Starlight chat\n\n")
+	b.WriteString("Motita chat\n\n")
 	b.WriteString("Navigation — no Enter needed\n")
 	for _, h := range [][2]string{
 		{"Tab", "switch between Task and Plan"},
@@ -1521,7 +1521,7 @@ const minHeight = permanentRows + minChatLines
 func (t *TUI) tooSmallLines(w, h int) []string {
 	msg := []string{
 		"",
-		"  " + t.color(colWarning, 0, "The window is too small to draw Starlight."),
+		"  " + t.color(colWarning, 0, "The window is too small to draw Motita."),
 		"",
 		"  resize it to at least " + strconv.Itoa(minWidth) + " columns and " +
 			strconv.Itoa(minHeight) + " rows,",

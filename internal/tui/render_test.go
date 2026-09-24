@@ -227,16 +227,17 @@ func TestAVersionTooNarrowToReadIsNotDrawn(t *testing.T) {
 	}
 }
 
-// TestCompactMarkOnANarrowTerminal: the five-row wordmark is 73 columns wide and
-// cannot be shown in a narrow window, so the single-line mark replaces it rather
-// than being wrapped or clipped.
+// TestCompactMarkOnANarrowTerminal: the five-row wordmark cannot be shown in
+// a narrow window, so the single-line mark replaces it rather than being
+// wrapped or clipped. The Motita banner is ~35 columns wide, so size() clamps
+// to minWidth (44) which leaves room — we call headerLines directly with a
+// narrow width to exercise the fallback path.
 func TestCompactMarkOnANarrowTerminal(t *testing.T) {
-	runner := &fakeRunner{}
-	tui := newFakeTUI("q\n", runner)
-	tui.Width, tui.Height = minWidth, 40
-	tui.Run(context.Background())
-
-	frame := stripANSI(lastFrame(t, tui))
+	tui := newFakeTUI("q\n", &fakeRunner{})
+	// headerLines checks w - 2*leftMargin against the banner width.
+	// With leftMargin=2 and banner ~35 chars, w=30 leaves 26 < 35.
+	hdrs := tui.headerLines(30)
+	frame := stripANSI(strings.Join(hdrs, "\n"))
 	if !strings.Contains(frame, compactMark) {
 		t.Errorf("a narrow terminal must fall back to %q: %q", compactMark, frame)
 	}

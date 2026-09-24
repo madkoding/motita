@@ -98,20 +98,20 @@ const (
 	permanentRows = 8
 )
 
-// bannerLines is the Starlight wordmark: five shaded rows that carry their own
+// bannerLines is the Motita wordmark: five shaded rows that carry their own
 // ANSI colours, so they are stored raw and only placed by the layout. In
 // no-colour mode the escape sequences are stripped before printing.
 var bannerLines = []string{
-	"\x1b[0;97m\u2580\u2580\u2580\u2580\x1b[0;37m\u2580\u2588\u2588\u2588 \u2580\u2580\u2588\u2588\u2588\u2580\u2580 \x1b[0;97m\u2584\x1b[0;97;47m\u2593\u2592\x1b[0;37m\u2580\u2580\u2588\u2588\u2584 \x1b[0;97m\u2580\u2580\u2580\x1b[0;37m\u2580\u2580\u2588\u2588\u2584 \x1b[0;97m\u2580\u2580\u2580\x1b[0;37m      \x1b[0;97m\u2588\x1b[0;97;47m\u2593\u2592\x1b[0;37m \x1b[0;97m\u2580\u2580\u2580\x1b[0;37m\u2580\u2580\u2588\x1b[0;90;47m\u2591\u2592\x1b[0;37m \x1b[0;97m\u2588\x1b[0;97;47m\u2593\u2592\x1b[0;37m  \u2588\u2588\u2588 \u2580\u2580\u2588\u2588\u2588\u2580\u2580\x1b[0m",
-	"\x1b[0;97;47m\u2593\u2592\u2591\x1b[0;37m  \u2580\u2580\u2580 \x1b[0;90m\u2593\x1b[0;37m \u2588\u2588\u2588 \x1b[0;90m\u2593\x1b[0;37m \x1b[0;97m\u2580\u2580\u2580\x1b[0;37m  \u2588\u2588\u2588 \x1b[0;97;47m\u2593\u2592\u2591\x1b[0;37m  \u2588\u2588\u2588 \x1b[0;97;47m\u2593\u2592\u2591\x1b[0;90m\u2590\u2588\u2588\u2588\u2588\x1b[0;37m \x1b[0;97m\u2580\u2580\u2580\x1b[0;37m \x1b[0;97;47m\u2593\u2592\u2591\x1b[0;90m\u2590\u258c\x1b[0;37m\u2580\u2580\u2580 \x1b[0;97m\u2580\u2580\u2580\x1b[0;37m  \u2588\u2588\u2588 \x1b[0;90m\u2593\x1b[0;37m \u2588\u2588\u2588 \x1b[0;90m\u2593\x1b[0m",
-	"\x1b[0;37m\u2580\u2580\u2580\u2580\u2588\u2588\u2584 \x1b[0;90m\u2588\x1b[0;37m \u2588\u2588\x1b[0;93;47m\u2591\x1b[0;37m \x1b[0;90m\u2588\x1b[0;37m \x1b[0;97;47m\u2592\u2591 \x1b[0;37m\u2580\u2580\u2588\u2588\u2588 \x1b[0;97;47m\u2592\u2591\x1b[0;37m\u2588\u2584\u2580\u2580\u2580  \x1b[0;97;47m\u2592\u2591\x1b[0;37m\u2588\x1b[0;90m\u2580\u2580\u2580\u2580\x1b[0;37m  \x1b[0;97;47m\u2592\u2591 \x1b[0;37m \x1b[0;97;47m\u2592\u2591\x1b[0;37m\u2588 \u2584\u2584\u2584\u2584 \x1b[0;97;47m\u2592\u2591 \x1b[0;37m\u2580\u2580\u2588\u2588\u2588 \x1b[0;90m\u2588\x1b[0;37m \u2588\u2588\x1b[0;93;47m\u2591\x1b[0;37m \x1b[0;90m\u2588\x1b[0m",
-	"\x1b[0;97;47m\u2592\u2591\x1b[0;37m\u2588\x1b[0;90m\u2590\u258c\x1b[0;37m\u2588\u2588\x1b[0;93;47m\u2591\x1b[0;37m \x1b[0;90m\u2588\x1b[0;37m \u2588\x1b[0;93;47m\u2591\u2592\x1b[0;37m \x1b[0;90m\u2593\x1b[0;37m \x1b[0;97;47m\u2591 \x1b[0;37m\u2588\x1b[0;90m\u2590\u258c\x1b[0;37m\u2588\u2588\x1b[0;93;47m\u2591\x1b[0;37m \x1b[0;97;47m\u2591\x1b[0;37m\u2588\x1b[0;93;47m\u2591\x1b[0;37m  \u2588\u2588\u2584 \x1b[0;97;47m\u2591\x1b[0;37m\u2588\u2588\x1b[0;90m\u2590\u258c\x1b[0;97;47m\u2592\u2591 \x1b[0;37m \x1b[0;97;47m\u2591 \x1b[0;37m\u2588 \x1b[0;97;47m\u2591\x1b[0;37m\u2588\u2588  \x1b[0;97;47m\u2592\u2591 \x1b[0;37m \x1b[0;97;47m\u2591 \x1b[0;37m\u2588\x1b[0;90m\u2590\u258c\x1b[0;37m\u2588\u2588\x1b[0;93;47m\u2591\x1b[0;37m \x1b[0;90m\u2588\x1b[0;37m \u2588\x1b[0;93;47m\u2591\u2592\x1b[0;37m \x1b[0;90m\u2593\x1b[0m",
-	"\x1b[0;97;47m\u2591\x1b[0;37m\u2588\u2588\u2584\u2584\u2588\x1b[0;93;47m\u2591\x1b[0;92m\u2580\x1b[0;37m \x1b[0;90m\u2593\x1b[0;37m \x1b[0;93;47m\u2591\u2592\u2593\x1b[0;37m \x1b[0;90m\u2592\x1b[0;37m \u2588\u2588\u2588  \u2588\x1b[0;93;47m\u2591\u2592\x1b[0;37m \u2588\x1b[0;93;47m\u2591\u2592\x1b[0;37m  \u2588\x1b[0;93;47m\u2591\u2592\x1b[0;37m \u2580\u2588\u2588\u2584\u2584\u2588\u2588\u2588 \u2588\u2588\u2588 \u2580\u2588\u2588\u2584\u2584\u2588\u2588\u2588 \u2588\u2588\u2588  \u2588\x1b[0;93;47m\u2591\u2592\x1b[0;37m \x1b[0;90m\u2593\x1b[0;37m \x1b[0;93;47m\u2591\u2592\u2593\x1b[0;37m \x1b[0;90m\u2592\x1b[0m",
+	"\x1b[0;97m\u2588\x1b[0;37m   \x1b[0;97m\u2588\x1b[0;37m  \x1b[0;97m\u2580\u2580\u2580\x1b[0;37m  \x1b[0;97m\u2580\u2580\u2580\u2580\u2580\x1b[0;37m \x1b[0;97m\u2580\u2580\u2580\u2580\u2580\x1b[0;37m \x1b[0;97m\u2580\u2580\u2580\u2580\u2580\x1b[0;37m  \x1b[0;97m\u2580\u2580\u2580\x1b[0m",
+	"\x1b[0;97m\u2588\u2588\x1b[0;37m \x1b[0;97m\u2588\u2588\x1b[0;37m \x1b[0;97m\u2588\x1b[0;37m   \x1b[0;97m\u2588\x1b[0;37m   \x1b[0;97m\u2580\x1b[0;37m    \x1b[0;97m\u2580\x1b[0;37m    \x1b[0;97m\u2580\x1b[0;37m   \x1b[0;97m\u2580\x1b[0;37m  \x1b[0;97m\u2588\x1b[0;37m   \x1b[0;97m\u2588\x1b[0m",
+	"\x1b[0;97m\u2588\u2588\u2588\u2588\u2588\x1b[0;37m \x1b[0;97m\u2588\x1b[0;37m   \x1b[0;97m\u2588\x1b[0;37m   \x1b[0;97m\u2580\x1b[0;37m    \x1b[0;97m\u2580\x1b[0;37m    \x1b[0;97m\u2580\x1b[0;37m   \x1b[0;97m\u2580\x1b[0;37m  \x1b[0;97m\u2588\u2588\u2588\u2588\u2588\x1b[0m",
+	"\x1b[0;97m\u2588\x1b[0;37m \x1b[0;97m\u2580\x1b[0;37m \x1b[0;97m\u2588\x1b[0;37m \x1b[0;97m\u2588\x1b[0;37m   \x1b[0;97m\u2588\x1b[0;37m   \x1b[0;97m\u2584\x1b[0;37m    \x1b[0;97m\u2584\x1b[0;37m    \x1b[0;97m\u2584\x1b[0;37m   \x1b[0;97m\u2584\x1b[0;37m  \x1b[0;97m\u2588\x1b[0;37m   \x1b[0;97m\u2588\x1b[0m",
+	"\x1b[0;97m\u2588\x1b[0;37m   \x1b[0;97m\u2588\x1b[0;37m  \x1b[0;97m\u2584\u2584\u2584\x1b[0;37m    \x1b[0;97m\u2584\x1b[0;37m  \x1b[0;97m\u2584\u2584\u2584\u2584\u2584\x1b[0;37m   \x1b[0;97m\u2584\x1b[0;37m  \x1b[0;97m\u2588\x1b[0;37m   \x1b[0;97m\u2588\x1b[0m",
 }
 
 // compactMark is the wordmark used when the terminal is too narrow for the
 // five-row banner: the identity survives without wrapping the layout.
-const compactMark = "* S T A R L I G H T"
+const compactMark = "* M O T I T A"
 
 // spinner is advanced on every repaint of a running turn. It is plain ASCII so
 // it animates on every terminal, including a text console with a VGA font.
