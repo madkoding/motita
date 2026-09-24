@@ -1049,7 +1049,12 @@ func TestExecuteCommandInvalidArgs(t *testing.T) {
 // which is the moment the agent is least able to recover.
 func TestTheContextIsCompactedBetweenToolRounds(t *testing.T) {
 	a, fake := makeAgent(t, true)
-	fake.defaultOutput = "output that is large enough to fill a window by itself, repeated and repeated and repeated"
+	// The output is large enough that three tool rounds cross the 45% trigger
+	// even after the system prompt (which includes the embedded soul, ~1900 tokens)
+	// is counted. The window is sized so the prompt alone stays below the trigger
+	// and the tool output pushes it over — the same relationship the original
+	// fixture had with its smaller prompt.
+	fake.defaultOutput = strings.Repeat("the quick brown fox jumps over the lazy dog. ", 300)
 
 	// The steps alternate: a tool round, then an answer, then a tool round again. The
 	// summariser is the same engine, so its calls are interleaved with the loop's — and the
@@ -1075,13 +1080,14 @@ func TestTheContextIsCompactedBetweenToolRounds(t *testing.T) {
 	//   - small enough that the tool rounds alone cross the trigger, or the check is never
 	//     reached.
 	//
-	// Measured on this test's own fixture: 2400 and 2800 fail the first condition, 3200 with
-	// a 0.45 trigger satisfies both and compacts twice. The prompt is part of what is in use,
-	// so a change to its length moves the floor — which is why this is stated as a measured
-	// band rather than as a number that looks arbitrary.
+	// Measured on this test's own fixture: the original 3200 window with a ~500-token
+	// prompt satisfied both conditions. The soul (embedded personality) enlarged the
+	// prompt from ~500 to ~1900 tokens, so the window was raised to 8000 and the tool
+	// output scaled to ~3400 tokens per round, keeping the same proportional relationship
+	// that let the tool rounds cross the 45% trigger while the prompt alone stayed below it.
 	p := New(newClient(t, srv), a).
 		WithLoops(8).
-		WithSessionPolicy("gpt-4o", 3200, 100, 0.45, 2)
+		WithSessionPolicy("gpt-4o", 8000, 100, 0.45, 2)
 
 	out, err := p.Run(context.Background(), "a task that uses several tools")
 	if err != nil {
@@ -1174,10 +1180,12 @@ func TestAFailedCompactionBetweenRoundsStopsTheRun(t *testing.T) {
 	// The window is sized so the seeded history sits BELOW the trigger and the tool output
 	// pushes it over: the check at the start of the run then passes, and the one after the
 	// tool round is the first to fire. A window too small for the seed makes the opening
-	// check fail first, and the branch under test then never executes.
+	// check fail first, and the branch under test then never executes. The window must also
+	// accommodate the system prompt, which includes the soul (the embedded personality is
+	// larger than the old fixed prompt, so the window is sized to leave room for it).
 	p := New(newClient(t, srv), a).
 		WithLoops(6).
-		WithSessionPolicy("gpt-4o", 4000, 100, 0.5, 2)
+		WithSessionPolicy("gpt-4o", 8000, 100, 0.5, 2)
 
 	sess := p.Session()
 	for i := 0; i < 4; i++ {

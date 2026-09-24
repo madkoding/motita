@@ -185,6 +185,19 @@ func (r *AppRunner) approverOrNil() agent.Approver {
 	return r.approver
 }
 
+// soul returns the system prompt for this runner's conversations: the user's
+// ~/.motita/SOUL.md if it exists, otherwise the embedded default. Both are
+// followed by the operational prompt, so the personality changes but the
+// procedure does not. The home directory is resolved once per call, which is
+// fine because conversation() caches the session it creates.
+func (r *AppRunner) soul() string {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return plan.SystemPrompt
+	}
+	return plan.ResolveSoul(home)
+}
+
 // approverInstaller is the optional half of AgentRunner: the ability to receive a confirmation
 // channel.
 //
@@ -316,14 +329,15 @@ func (r *AppRunner) rememberTurn(question, answer string, runErr error) {
 
 // conversation returns the session Plan mode continues in, creating it on first use.
 //
-// The system prompt is the planner's own, so the conversation opens with exactly the
+// The system prompt is the planner's own — the soul (embedded or from ~/.motita/SOUL.md)
+// followed by the operational instructions — so the conversation opens with exactly the
 // instruction the model would have received anyway; the summariser is the engine itself,
 // because compacting is a model call like any other and needs no separate configuration.
 func (r *AppRunner) conversation(engine session.Summariser) *session.Session {
 	r.sessionMu.Lock()
 	defer r.sessionMu.Unlock()
 	if r.session == nil {
-		s := session.New(r.Cfg.LLM.Model, plan.SystemPrompt, r.Cfg.LLM.Session.ContextWindow)
+		s := session.New(r.Cfg.LLM.Model, r.soul(), r.Cfg.LLM.Session.ContextWindow)
 		// The configuration wins where it says anything, so an operator who knows their
 		// server is configured lower is obeyed. A zero means "unset" and keeps the default.
 		if r.Cfg.LLM.Session.Reserve > 0 {

@@ -9,11 +9,13 @@ package plan
 import (
 	"bytes"
 	"context"
+	_ "embed"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 	"time"
@@ -23,6 +25,9 @@ import (
 	"github.com/madkoding/motita/internal/session"
 	"github.com/madkoding/motita/internal/skills"
 )
+
+//go:embed soul.md
+var embeddedSoul string
 
 // Resource limits tuned for low-memory systems (i386) and for safety.
 const (
@@ -77,9 +82,14 @@ type Planner struct {
 	reward    *reward.Ledger
 	consulted map[string]int
 	// session is the conversation this planner continues. Nil means "create one on
-	// first use": a planner built directly still works, and one that is handed a session
-	// keeps the same conversation across runs.
+	// first use": a planner built directly still works, and one that is handed a
+	// session keeps the same conversation across runs.
 	session *session.Session
+	// soul is the system prompt this planner opens its conversations with. Empty
+	// means "use the package SystemPrompt", which is the embedded default. A
+	// planner whose caller resolved a user SOUL.md passes it here, so the session
+	// is opened with the user's personality instead of the baked-in one.
+	soul string
 	// The window and the compaction policy, so a session created here honours the
 	// configuration rather than the package defaults.
 	model      string
@@ -141,13 +151,31 @@ func (p *Planner) WithStream(fn func(string)) *Planner {
 	return p
 }
 
-// SystemPrompt is the instruction that opens every plan conversation. It is exported
-// because the session that carries the conversation between turns must be opened with
-// exactly this text: a second copy would drift from the one the requests actually use.
-const SystemPrompt = `You are Starlight, an autonomous systems agent. You are not a chatbot and you are
-not an assistant waiting for instructions to be spelled out.
+// WithSoul sets the system prompt this planner opens conversations with, so a
+// caller that resolved a user's SOUL.md can pass it in. Empty keeps the default.
+func (p *Planner) WithSoul(s string) *Planner {
+	p.soul = s
+	return p
+}
 
-## What that means in practice
+// defaultSoul is the personality and identity baked into the binary. It is the
+// agent's character — warm, supportive, brilliant — and it is what every motita
+// starts with. A user who wants a different personality writes ~/.motita/SOUL.md,
+// and resolveSoul reads that file instead, so the soul is owned by the person
+// running the agent, not the binary.
+//
+// The soul is the FIRST thing the model hears. It sets the tone, the language
+// adaptation rules, and the boundaries of the agent's character. The operational
+// instructions that follow it (how to use tools, when to ask, what read-only
+// means) are the same whatever the soul is, because they describe the machinery,
+// not the person operating it.
+var defaultSoul = embeddedSoul
+
+// operationalPrompt is the part of the system prompt that is NOT personality: it
+// is the procedure the agent follows regardless of who it is. Skills, read-only
+// constraints, investigation discipline, verification — these are the same whether
+// the soul is Motita or something a user wrote themselves.
+const operationalPrompt = `## What that means in practice
 
 A user describes a goal and leaves most of it unsaid. They are not being lazy: they assume
 you will fill in what any competent engineer would. Your job is to supply that missing
@@ -240,6 +268,35 @@ general procedure, with the details that were hard to find.
 Answer in the language the user wrote in. Be direct and concrete: findings first, then what
 they mean, then the recommendation. No preamble, no restating the question, no filler. Use
 a short list when it is genuinely a list and prose when it is not.`
+
+// SystemPrompt is the instruction that opens every plan conversation. It is exported
+// because the session that carries the conversation between turns must be opened with
+// exactly this text: a second copy would drift from the one the requests actually use.
+//
+// It is the soul (personality) followed by the operational prompt (procedure), so the
+// model knows WHO it is before it learns WHAT it does. The soul is the embedded default
+// unless resolveSoul has replaced it with a user's ~/.motita/SOUL.md.
+var SystemPrompt = defaultSoul + "\n\n" + operationalPrompt
+
+// ResolveSoul loads a user's SOUL.md from the motita home directory, falling back to
+// the embedded default when the file does not exist or cannot be read. The soul is
+// the personality — the operational instructions stay the same whatever it says.
+//
+// The path is ~/.motita/SOUL.md: it sits beside the config and the token, so a user
+// who wants a different agent writes one file and restarts. An empty file is treated
+// as "use the default", because a zero-length soul produces a model with no identity,
+// which is not what anyone who created the file intended.
+func ResolveSoul(home string) string {
+	if home == "" {
+		return SystemPrompt
+	}
+	path := filepath.Join(home, ".motita", "SOUL.md")
+	data, err := os.ReadFile(path)
+	if err != nil || len(strings.TrimSpace(string(data))) == 0 {
+		return SystemPrompt
+	}
+	return string(data) + "\n\n" + operationalPrompt
+}
 
 // tools returns the tool definitions exposed to the model.
 func (p *Planner) tools() []llm.Tool {
@@ -368,7 +425,11 @@ func (p *Planner) sessionFor() *session.Session {
 		// configuration actually said something. Assigning zeroes here would disable the
 		// reserve and the trigger, which is the failure that lets a context overflow in
 		// silence.
-		s := session.New(p.model, SystemPrompt, p.window)
+		prompt := p.soul
+		if prompt == "" {
+			prompt = SystemPrompt
+		}
+		s := session.New(p.model, prompt, p.window)
 		if p.reserve > 0 {
 			s.Reserve = p.reserve
 		}
