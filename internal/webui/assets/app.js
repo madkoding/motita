@@ -625,7 +625,7 @@
       api('/v1/sessions/' + session + '/runs/approval', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ id: pending.id, approved: yes })
+        body: JSON.stringify({ id: pending.id, approve: yes })
       }).catch(() => setState('could not answer the approval', true));
     }
     allow.addEventListener('click', () => answer(true));

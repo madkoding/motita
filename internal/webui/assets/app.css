@@ -436,9 +436,12 @@ header h1 {
 #approval h2 { font-size: 14px; margin: 0 0 8px; color: var(--warning); }
 #approval pre {
   /* The command, whole. Not truncated, not wrapped into a different command: approval is
-     approval of THIS text. */
+     approval of THIS text. A long command is contained with a max-height and scroll so the
+     panel never grows taller than the viewport. */
   white-space: pre-wrap;
   word-break: break-all;
+  max-height: 40vh;
+  overflow-y: auto;
   margin: 0 0 10px;
   padding: 12px;
   background: var(--surface-solid);
