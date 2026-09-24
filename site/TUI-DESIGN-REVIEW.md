@@ -1,4 +1,4 @@
-# Starlight TUI — design review
+# Motita TUI — design review
 
 An audit of the terminal interface against the **TUI design guide**
 (`tui-design` skill, Workflow 3: *redesign an existing TUI*) and its review
