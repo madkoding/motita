@@ -46,9 +46,10 @@ func stubOllamaModels(t *testing.T, models []string) {
 // the file it writes works. This loads it with the same validation the CLI uses.
 func TestGeneratedConfigIsAcceptedByTheProgram(t *testing.T) {
 	dir := t.TempDir()
+	stubDirectAuth(t, "test-oauth-token")
 	preset := Answers{Provider: "anthropic", Model: "claude-3-5-haiku-latest"}
-	// The anchor and the key are still asked (presets left empty on purpose).
-	_, res, err := run(context.Background(), t, dir, []string{"1", "true", "", ""}, preset)
+	// The anchor, base URL and auth choice are still asked (presets left empty on purpose).
+	_, res, err := run(context.Background(), t, dir, []string{"1", "true", "", "1"}, preset)
 	if err != nil {
 		t.Fatalf("Run: %v", err)
 	}
@@ -157,9 +158,10 @@ func TestReadLineCancelsWhenBlocked(t *testing.T) {
 
 func TestChooseProviderByNumber(t *testing.T) {
 	dir := t.TempDir()
-	provider := Providers()[2] // anthropic
+	stubDirectAuth(t, "test-token")
+	provider := Providers()[4] // anthropic
 	model := provider.Models[0].ID
-	out, res, err := run(context.Background(), t, dir, []string{"3", "1", "2", "", ""}, Answers{})
+	out, res, err := run(context.Background(), t, dir, []string{"5", "1", "2", "", "1"}, Answers{})
 	if err != nil {
 		t.Fatalf("Run: %v", err)
 	}
@@ -169,14 +171,15 @@ func TestChooseProviderByNumber(t *testing.T) {
 	if res.Model != model {
 		t.Errorf("model = %q, want %q", res.Model, model)
 	}
-	if !strings.Contains(out, "Which provider") {
+	if !strings.Contains(out, "Choose your LLM provider") {
 		t.Errorf("the provider question must be asked: %q", out)
 	}
 }
 
 func TestChooseProviderByName(t *testing.T) {
 	dir := t.TempDir()
-	_, res, err := run(context.Background(), t, dir, []string{"gemini", "2", "2", "", ""}, Answers{})
+	stubDirectAuth(t, "test-token")
+	_, res, err := run(context.Background(), t, dir, []string{"gemini", "2", "2", "", "1"}, Answers{})
 	if err != nil {
 		t.Fatalf("Run: %v", err)
 	}
@@ -269,18 +272,61 @@ func TestOllamaKeyPromptError(t *testing.T) {
 	}
 }
 
+// menuEntryPresent reports whether a label appears as a numbered menu entry in
+// the wizard output — the pattern "  N. Label" — as opposed to a bare substring
+// match that would fire inside another provider's longer label.
+func menuEntryPresent(out, label string) bool {
+	for _, line := range strings.Split(out, "\n") {
+		line = strings.TrimSpace(line)
+		// A menu entry looks like "1. Label — note" or "1. Label".
+		dot := strings.Index(line, ". ")
+		if dot < 0 {
+			continue
+		}
+		rest := strings.TrimSpace(line[dot+2:])
+		// Strip the " — note" suffix to compare only the label.
+		if dash := strings.Index(rest, " — "); dash >= 0 {
+			rest = rest[:dash]
+		}
+		if rest == label {
+			return true
+		}
+	}
+	return false
+}
+
+// stubDirectAuth replaces the direct-auth runner with a deterministic stub that
+// returns the given token without touching the network. Use it in any test that
+// selects a provider with SupportsDirectAuth and would otherwise enter the
+// OAuth flow.
+func stubDirectAuth(t *testing.T, token string) {
+	t.Helper()
+	old := directAuthRunner
+	directAuthRunner = func(ctx context.Context, out io.Writer, in *bufio.Reader, p Provider) (string, error) {
+		fmt.Fprintln(out, "stub: direct auth simulated")
+		return token, nil
+	}
+	t.Cleanup(func() { directAuthRunner = old })
+}
+
 // --- choosing the model ------------------------------------------------------
 
 // TestChooseModelIsLimitedToTheProvider: the list must offer only the models of
 // the provider just chosen. A model from another provider would fail at runtime.
 func TestChooseModelIsLimitedToTheProvider(t *testing.T) {
+	stubDirectAuth(t, "stub-token")
 	for _, p := range Providers() {
 		dir := t.TempDir()
 		// Ollama asks for the key before the model and fetches the live catalogue.
+		// Providers with SupportsDirectAuth ask an extra question (how to
+		// authenticate) before the key prompt.
 		var answers []string
 		if p.FetchModels {
 			stubOllamaModels(t, []string{"llama3.3", "qwen2.5"})
 			answers = []string{p.ID, "dummy-key", "", "2", ""}
+		} else if p.SupportsDirectAuth {
+			// provider, model, anchor(always pass), baseURL(default), auth(direct)
+			answers = []string{p.ID, "", "2", "", "1"}
 		} else {
 			answers = []string{p.ID, "", "2", "", ""}
 		}
@@ -297,14 +343,18 @@ func TestChooseModelIsLimitedToTheProvider(t *testing.T) {
 		if res.Model != wantModel {
 			t.Errorf("%s: model = %q, want %q", p.ID, res.Model, wantModel)
 		}
-		// No model of any other provider may appear in the menu.
+		// No model of any other provider may appear in the menu. Model IDs and
+		// even label substrings can legitimately overlap across providers (gpt-4o
+		// is offered by both openai and copilot), so the check looks for the
+		// label as a MENU ENTRY — the exact "  N. Label" pattern — rather than as
+		// a bare substring, which would match inside another provider's label.
 		for _, other := range Providers() {
 			if other.ID == p.ID {
 				continue
 			}
 			for _, m := range other.Models {
-				if strings.Contains(out, m.ID) {
-					t.Errorf("%s: the menu offers %s, from %s", p.ID, m.ID, other.ID)
+				if menuEntryPresent(out, m.Label) {
+					t.Errorf("%s: the menu offers %s, from %s", p.ID, m.Label, other.ID)
 				}
 			}
 		}
@@ -480,7 +530,7 @@ func TestOllamaWizardRequiresKeyBeforeModel(t *testing.T) {
 		t.Fatalf("Run: %v", err)
 	}
 	keyIdx := strings.Index(out, "Paste the key")
-	modelIdx := strings.Index(out, "Which model")
+	modelIdx := strings.Index(out, "Choose a model")
 	if keyIdx == -1 || modelIdx == -1 || keyIdx > modelIdx {
 		t.Errorf("the key prompt must come before the model prompt:\n%s", out)
 	}
@@ -707,18 +757,19 @@ func TestAKeyWithQuotesCannotBreakTheFile(t *testing.T) {
 // asked, which is what makes the wizard usable from a script.
 func TestPresetAnswersSkipTheQuestions(t *testing.T) {
 	dir := t.TempDir()
+	stubDirectAuth(t, "preset-token")
 	preset := Answers{
 		Provider:      "gemini",
 		Model:         "gemini-2.5-pro",
 		BaseURL:       "https://example.invalid/v1",
 		AnchorCommand: "true",
 	}
-	// The only question left is the key.
-	out, res, err := run(context.Background(), t, dir, []string{""}, preset)
+	// The only question left is the auth choice (gemini supports direct auth).
+	out, res, err := run(context.Background(), t, dir, []string{"1"}, preset)
 	if err != nil {
 		t.Fatalf("Run: %v", err)
 	}
-	if strings.Contains(out, "Which provider") || strings.Contains(out, "Which model") {
+	if strings.Contains(out, "Choose your LLM provider") || strings.Contains(out, "Choose a model") {
 		t.Errorf("preset answers must not be asked again: %q", out)
 	}
 	cfg, _ := os.ReadFile(res.ConfigPath)
@@ -744,7 +795,7 @@ func TestPresetWithAnUnknownProviderFails(t *testing.T) {
 // LLM client can actually talk to. Adding one here without implementing it in
 // internal/llm would be a promise the program cannot keep.
 func TestCatalogueMatchesTheClientProtocols(t *testing.T) {
-	implemented := map[string]bool{"openai": true, "ollama": true, "anthropic": true, "gemini": true}
+	implemented := map[string]bool{"openai": true, "ollama": true, "anthropic": true, "gemini": true, "codex": true, "copilot": true}
 	for _, p := range Providers() {
 		if !implemented[p.ID] {
 			t.Errorf("the wizard offers %q, which the client does not implement", p.ID)
@@ -763,7 +814,7 @@ func TestCatalogueMatchesTheClientProtocols(t *testing.T) {
 }
 
 func TestNamesAndHelpers(t *testing.T) {
-	if got := Names(); got != "anthropic, gemini, ollama, openai" {
+	if got := Names(); got != "anthropic, codex, copilot, gemini, ollama, openai" {
 		t.Errorf("Names() = %q", got)
 	}
 	if _, ok := Lookup("ANTHROPIC"); !ok {

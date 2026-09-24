@@ -31,6 +31,10 @@ type Provider struct {
 	// FetchModels, when true, tells the wizard to query the provider's own API
 	// for the list of available models instead of using the static catalogue.
 	FetchModels bool
+	// SupportsDirectAuth, when true, means the wizard offers a "connect
+	// directly" option in addition to pasting an API key. The user visits a
+	// URL, enters a code, and the resulting token is stored instead of a key.
+	SupportsDirectAuth bool
 }
 
 // Model is a model the wizard can offer.
@@ -46,15 +50,40 @@ func Providers() []Provider {
 	return []Provider{
 		{
 			ID:             "openai",
-			Name:           "OpenAI-compatible",
+			Name:           "OpenAI",
 			DefaultBaseURL: "https://api.openai.com/v1",
 			EnvKey:         "MOTITA_LLM_API_KEY",
 			ConsoleURL:     "https://platform.openai.com/api-keys",
 			Models: []Model{
-				{ID: "gpt-4o-mini", Label: "GPT-4o mini", Note: "cheap and fast, the right default for OpenAI"},
+				{ID: "gpt-4o-mini", Label: "GPT-4o mini", Note: "cheap and fast, the right default"},
 				{ID: "gpt-4o", Label: "GPT-4o", Note: "better reasoning, more expensive"},
 				{ID: "gpt-4.1-mini", Label: "GPT-4.1 mini", Note: "newer small model"},
 				{ID: "o4-mini", Label: "o4-mini", Note: "reasoning model, slow and costly"},
+			},
+		},
+		{
+			ID:             "codex",
+			Name:           "OpenAI Codex (coding models)",
+			DefaultBaseURL: "https://api.openai.com/v1",
+			EnvKey:         "MOTITA_LLM_API_KEY",
+			ConsoleURL:     "https://platform.openai.com/api-keys",
+			Models: []Model{
+				{ID: "gpt-5.2-codex", Label: "GPT-5.2 Codex", Note: "agentic coding, strongest"},
+				{ID: "gpt-5-codex", Label: "GPT-5 Codex", Note: "agentic coding, previous gen"},
+				{ID: "o4-mini", Label: "Codex: o4-mini", Note: "reasoning, lighter"},
+			},
+		},
+		{
+			ID:                 "copilot",
+			Name:               "GitHub Copilot (subscription)",
+			DefaultBaseURL:     "https://api.githubcopilot.com",
+			EnvKey:             "GITHUB_COPILOT_TOKEN",
+			ConsoleURL:         "https://github.com/settings/copilot",
+			SupportsDirectAuth: true,
+			Models: []Model{
+				{ID: "gpt-4o", Label: "Copilot: GPT-4o", Note: "requires active Copilot subscription"},
+				{ID: "claude-sonnet-4-20250514", Label: "Copilot: Claude Sonnet 4", Note: "requires active Copilot subscription"},
+				{ID: "gpt-4o-mini", Label: "Copilot: GPT-4o mini", Note: "lighter, via Copilot"},
 			},
 		},
 		{
@@ -79,11 +108,12 @@ func Providers() []Provider {
 			FetchModels: true,
 		},
 		{
-			ID:             "anthropic",
-			Name:           "Anthropic",
-			DefaultBaseURL: "https://api.anthropic.com",
-			EnvKey:         "MOTITA_LLM_API_KEY",
-			ConsoleURL:     "https://console.anthropic.com/settings/keys",
+			ID:                 "anthropic",
+			Name:               "Anthropic (Claude)",
+			DefaultBaseURL:     "https://api.anthropic.com",
+			EnvKey:             "MOTITA_LLM_API_KEY",
+			ConsoleURL:         "https://console.anthropic.com/settings/keys",
+			SupportsDirectAuth: true,
 			Models: []Model{
 				{ID: "claude-3-5-haiku-latest", Label: "Claude 3.5 Haiku", Note: "cheap and fast"},
 				{ID: "claude-sonnet-4-20250514", Label: "Claude Sonnet 4", Note: "strong reasoning"},
@@ -91,11 +121,12 @@ func Providers() []Provider {
 			},
 		},
 		{
-			ID:             "gemini",
-			Name:           "Google Gemini",
-			DefaultBaseURL: "https://generativelanguage.googleapis.com",
-			EnvKey:         "MOTITA_LLM_API_KEY",
-			ConsoleURL:     "https://aistudio.google.com/apikey",
+			ID:                 "gemini",
+			Name:               "Google Gemini",
+			DefaultBaseURL:     "https://generativelanguage.googleapis.com",
+			EnvKey:             "MOTITA_LLM_API_KEY",
+			ConsoleURL:         "https://aistudio.google.com/apikey",
+			SupportsDirectAuth: true,
 			Models: []Model{
 				{ID: "gemini-2.0-flash", Label: "Gemini 2.0 Flash", Note: "cheap and fast"},
 				{ID: "gemini-2.5-flash", Label: "Gemini 2.5 Flash", Note: "newer, still cheap"},

@@ -54,9 +54,24 @@ func listOllamaModels(ctx context.Context, baseURL, apiKey string) ([]string, er
 	return llm.ListOllamaModels(ctx, baseURL, apiKey)
 }
 
+// isPresetEmpty reports whether the preset has no answers set at all, which is
+// the interactive case where the banner should be shown.
+func isPresetEmpty(a Answers) bool {
+	return a.Provider == "" && a.Model == "" && a.BaseURL == "" &&
+		a.AnchorCommand == "" && len(a.AnchorArgs) == 0 && a.APIKey == ""
+}
+
 func Run(ctx context.Context, in io.Reader, out io.Writer, configPath string, preset Answers, now time.Time) (Result, error) {
 	r := bufio.NewReader(in)
 	w := &session{in: r, out: out}
+
+	// The banner is shown only when the wizard is interactive (no preset). A
+	// preset means the answers come from a script or a test, and the colour art
+	// would be noise. Answers carries a slice, so the comparison is field by
+	// field rather than with ==.
+	if isPresetEmpty(preset) {
+		printBanner(out)
+	}
 
 	provider, err := w.chooseProvider(ctx, preset.Provider)
 	if err != nil {
@@ -148,6 +163,12 @@ func (s *session) say(format string, args ...any) {
 	fmt.Fprintf(s.out, format+"\n", args...)
 }
 
+// sayRaw writes a string without a trailing newline, for prompts that read a
+// line from the user.
+func (s *session) sayRaw(format string, args ...any) {
+	fmt.Fprintf(s.out, format, args...)
+}
+
 // ask reads one line. EOF and a lone "q" cancel the wizard; so does a cancelled
 // context, which is how Ctrl+C during -init is handled.
 func (s *session) ask(ctx context.Context, prompt string) (string, error) {
@@ -202,9 +223,11 @@ func (s *session) chooseProvider(ctx context.Context, preset string) (Provider, 
 		return p, nil
 	}
 
-	s.say("Which provider will run the reasoning?")
+	printSection(s.out, "Choose your LLM provider")
+	printCancelHint(s.out)
+	fmt.Fprintln(s.out)
 	for i, p := range providers {
-		s.say("  %d. %s", i+1, p)
+		printProvider(s.out, i+1, p)
 	}
 
 	for attempt := 0; attempt < 3; attempt++ {
@@ -264,16 +287,12 @@ func (s *session) chooseModel(ctx context.Context, p Provider, preset, listURL, 
 	}
 
 	s.say("")
-	s.say("Which model from %s?", p.Name)
+	printSection(s.out, fmt.Sprintf("Choose a model from %s", p.Name))
 	if len(models) == 0 {
-		s.say("  (no models were offered; type the model id you want)")
+		printInfo(s.out, "no models were offered; type the model id you want")
 	}
 	for i, m := range models {
-		note := ""
-		if m.Note != "" {
-			note = " — " + m.Note
-		}
-		s.say("  %d. %s%s", i+1, m.Label, note)
+		printModel(s.out, i+1, m)
 	}
 
 	for attempt := 0; attempt < 3; attempt++ {
@@ -313,11 +332,11 @@ func (s *session) chooseAnchor(ctx context.Context, preset string, presetArgs []
 	}
 
 	s.say("")
-	s.say("What decides that a task is really done?")
-	s.say("  1. A command that must succeed (for example: make test)")
-	s.say("  2. Always pass, while I try the agent out")
+	printSection(s.out, "What decides that a task is done?")
+	s.say("  %s1.%s A command that must succeed (for example: make test)", colYellow, colReset)
+	s.say("  %s2.%s Always pass, while I try the agent out", colYellow, colReset)
 	s.say("")
-	s.say("The agent never trusts the model: only this check can declare PASS.")
+	printInfo(s.out, "The agent never trusts the model: only this check can declare PASS.")
 
 	for attempt := 0; attempt < 3; attempt++ {
 		answer, err := s.ask(ctx, "Check [1]:")
@@ -347,16 +366,68 @@ func (s *session) chooseAnchor(ctx context.Context, preset string, presetArgs []
 
 func (s *session) askAPIKey(ctx context.Context, p Provider) (string, error) {
 	s.say("")
+	printSection(s.out, "Authentication")
+
+	// When the provider supports direct auth (OAuth/device flow), offer it as
+	// the first option: the user opens a URL, enters a code, and no key is
+	// pasted. This is the path the user asked for — "connect with a link and a
+	// one-time code" — and it is the better UX for the providers that offer it.
+	if p.SupportsDirectAuth {
+		s.say("  %s1.%s Connect directly (open a link, enter a code)", colYellow, colReset)
+		s.say("  %s2.%s Paste an API key", colYellow, colReset)
+		s.say("")
+		for attempt := 0; attempt < 3; attempt++ {
+			answer, err := s.ask(ctx, "How do you want to authenticate? [1]:")
+			if err != nil {
+				return "", err
+			}
+			switch answer {
+			case "", "1":
+				return s.directAuth(ctx, p)
+			case "2":
+				return s.askForAPIKey(ctx, p)
+			default:
+				s.say("  Choose 1 or 2.")
+			}
+		}
+		return "", fmt.Errorf("no valid authentication choice after three attempts")
+	}
+
+	return s.askForAPIKey(ctx, p)
+}
+
+// askForAPIKey is the traditional paste-the-key path, used when the provider
+// does not support direct auth or the user chose option 2.
+func (s *session) askForAPIKey(ctx context.Context, p Provider) (string, error) {
+	s.say("")
+	printSection(s.out, "API key")
 	// Name only the variables that really work for this provider: telling an
 	// Ollama user to export OPENAI_API_KEY would send them to a variable the
 	// loader does not consult for it.
-	s.say("The key is read from %s, or from MOTITA_LLM_API_KEY.", p.EnvKey)
-	s.say("You can get one at %s", p.ConsoleURL)
+	if p.EnvKey == "MOTITA_LLM_API_KEY" {
+		printInfo(s.out, "The key is read from %s.", p.EnvKey)
+	} else {
+		printInfo(s.out, "The key is read from %s, or from MOTITA_LLM_API_KEY.", p.EnvKey)
+	}
+	printInfo(s.out, "You can get one at:")
+	printLink(s.out, p.ConsoleURL)
 	key, err := s.ask(ctx, "Paste the key, or press Enter to set it later:")
 	if err != nil {
 		return "", err
 	}
 	return key, nil
+}
+
+// directAuth runs the provider-specific OAuth/device-code flow. It shows the
+// user a URL and a code, waits for them to authorise, and returns the resulting
+// token as the "API key" — the rest of the wizard treats it the same way.
+//
+// The flow is injected via the directAuthRunner package variable so tests can
+// replace it without a network.
+var directAuthRunner = runDirectAuth
+
+func (s *session) directAuth(ctx context.Context, p Provider) (string, error) {
+	return directAuthRunner(ctx, s.out, s.in, p)
 }
 
 // chooseBaseURL asks for the API endpoint. OpenAI-compatible providers need this
@@ -368,12 +439,12 @@ func (s *session) chooseBaseURL(ctx context.Context, p Provider, preset string) 
 	}
 
 	s.say("")
-	s.say("Which API endpoint should the client talk to?")
-	s.say("Examples of OpenAI-compatible URLs:")
-	s.say("  https://api.openai.com/v1")
-	s.say("  https://ollama.com/v1")
-	s.say("  https://api.groq.com/openai/v1")
-	s.say("  https://openrouter.ai/api/v1")
+	printSection(s.out, "API endpoint")
+	printInfo(s.out, "Examples of OpenAI-compatible URLs:")
+	s.say("  %shttps://api.openai.com/v1%s", colDim, colReset)
+	s.say("  %shttps://ollama.com/v1%s", colDim, colReset)
+	s.say("  %shttps://api.groq.com/openai/v1%s", colDim, colReset)
+	s.say("  %shttps://openrouter.ai/api/v1%s", colDim, colReset)
 
 	defaultURL := p.DefaultBaseURL
 	for attempt := 0; attempt < 3; attempt++ {
@@ -394,23 +465,7 @@ func (s *session) chooseBaseURL(ctx context.Context, p Provider, preset string) 
 }
 
 func (s *session) summary(res Result) {
-	s.say("")
-	s.say("✅ Written %s", res.ConfigPath)
-	s.say("   provider: %s", res.Provider)
-	s.say("   model:    %s", res.Model)
-	if res.CredentialsPath != "" {
-		s.say("✅ Written %s", res.CredentialsPath)
-		s.say("   %s", credentialsProtection())
-		s.say("")
-		s.say("Next:")
-		s.say("  source %s", res.CredentialsPath)
-	} else {
-		s.say("")
-		s.say("Next, set the key in your environment:")
-		s.say("  export %s=...", res.Provider.EnvKey)
-	}
-	s.say("  ./motita -config %s -validate-config   # check it", res.ConfigPath)
-	s.say("  ./motita -config %s -task \"what to do\"", res.ConfigPath)
+	printSummary(s.out, res)
 }
 
 // credentialsPathFor returns the credentials file that goes next to a

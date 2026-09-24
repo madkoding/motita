@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -1453,7 +1454,7 @@ func TestInitFlagRunsTheWizard(t *testing.T) {
 			t.Fatalf("the configuration must exist: %v", err)
 		}
 		text := out.String()
-		if !strings.Contains(text, "Welcome to motita") {
+		if !strings.Contains(text, "motita — your autonomous coding agent") {
 			t.Errorf("the wizard must introduce itself: %q", text)
 		}
 		// It must prove the generated file loads, which is the point of the wizard.
@@ -1638,6 +1639,145 @@ func TestInitUsesTheInjectedWizard(t *testing.T) {
 		}
 		if !strings.Contains(out.String(), "dialogue") {
 			t.Errorf("the wizard writes to the same output: %q", out.String())
+		}
+	})
+}
+
+// --- Auto-trigger onboarding ------------------------------------------------
+
+// TestAutoOnboardingWhenTUILaunchesWithoutConfig: a bare `motita` with no
+// configuration file anywhere must trigger the wizard before the TUI starts,
+// rather than showing a blank chat with no provider. The wizard writes the file,
+// and the run then proceeds to load it.
+func TestAutoOnboardingWhenTUILaunchesWithoutConfig(t *testing.T) {
+	inTempDir(t, func() {
+		home := t.TempDir()
+		t.Setenv("HOME", home)
+		silence(t)
+
+		wizardRan := false
+		var out, errs bytes.Buffer
+		code := Run(Options{
+			Args:  []string{}, // bare invocation → TUI
+			Out:   &out,
+			Err:   &errs,
+			Stdin: strings.NewReader("openai\n1\n2\n\n\n"),
+			RunOnboard: func(_ context.Context, in io.Reader, w io.Writer, gotPath string, preset onboard.Answers) (onboard.Result, error) {
+				wizardRan = true
+				// Write a valid config so the rest of the run can proceed.
+				if err := os.MkdirAll(filepath.Dir(gotPath), 0o755); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.WriteFile(gotPath, []byte("anchor:\n  kind: command\n  command: true\nllm:\n  provider: openai\n  api_key: test\n  model: gpt-4o-mini\nagent:\n  log_level: error\n  log_console: false\n"), 0o600); err != nil {
+					t.Fatal(err)
+				}
+				return onboard.Result{ConfigPath: gotPath, Provider: onboard.Providers()[0], Model: "gpt-4o-mini"}, nil
+			},
+			RunTUI: func(context.Context, config.Config, *llm.Client, *sandbox.Sandbox, *logx.Logger) int {
+				return Success
+			},
+		})
+		if code != Success {
+			t.Fatalf("code = %d, errs = %q", code, errs.String())
+		}
+		if !wizardRan {
+			t.Error("the wizard must auto-trigger when no config exists")
+		}
+	})
+}
+
+// TestAutoOnboardingDoesNotTriggerWhenConfigExists: a bare `motita` with a
+// configuration file in the home must NOT trigger the wizard — the user already
+// has a setup, and running the wizard would overwrite it.
+func TestAutoOnboardingDoesNotTriggerWhenConfigExists(t *testing.T) {
+	inTempDir(t, func() {
+		home := t.TempDir()
+		t.Setenv("HOME", home)
+		silence(t)
+
+		// Write a valid config in the home.
+		homeFile := filepath.Join(home, ".motita", "motita.yaml")
+		if err := os.MkdirAll(filepath.Dir(homeFile), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		mustWrite(t, homeFile, "anchor:\n  kind: command\n  command: true\nllm:\n  provider: openai\n  api_key: test\n  model: gpt-4o-mini\nagent:\n  log_level: error\n  log_console: false\n")
+
+		wizardRan := false
+		var out, errs bytes.Buffer
+		code := Run(Options{
+			Args: []string{},
+			Out:  &out,
+			Err:  &errs,
+			RunOnboard: func(context.Context, io.Reader, io.Writer, string, onboard.Answers) (onboard.Result, error) {
+				wizardRan = true
+				return onboard.Result{}, nil
+			},
+			RunTUI: func(context.Context, config.Config, *llm.Client, *sandbox.Sandbox, *logx.Logger) int {
+				return Success
+			},
+		})
+		if code != Success {
+			t.Fatalf("code = %d, errs = %q", code, errs.String())
+		}
+		if wizardRan {
+			t.Error("the wizard must NOT trigger when a config file already exists")
+		}
+	})
+}
+
+// TestAutoOnboardingDoesNotTriggerForDiagnosticModes: -validate-config and the
+// other non-interactive modes must not trigger the wizard.
+func TestAutoOnboardingDoesNotTriggerForDiagnosticModes(t *testing.T) {
+	inTempDir(t, func() {
+		t.Setenv("HOME", t.TempDir())
+		silence(t)
+
+		for _, args := range [][]string{
+			{"-validate-config"},
+			{"-isolation"},
+			{"-version"},
+		} {
+			wizardRan := false
+			var out, errs bytes.Buffer
+			code := Run(Options{
+				Args: args,
+				Out:  &out,
+				Err:  &errs,
+				RunOnboard: func(context.Context, io.Reader, io.Writer, string, onboard.Answers) (onboard.Result, error) {
+					wizardRan = true
+					return onboard.Result{}, nil
+				},
+			})
+			// Some of these return Success, some ConfigError (no key), but the
+			// point is the wizard must never have run.
+			_ = code
+			if wizardRan {
+				t.Errorf("the wizard must not trigger for %v", args)
+			}
+		}
+	})
+}
+
+// TestAutoOnboardingWizardFailure: when the auto-triggered wizard returns an
+// error (not a cancellation), the run must abort with ConfigError — the
+// program must never continue to the TUI with no configuration written.
+func TestAutoOnboardingWizardFailure(t *testing.T) {
+	inTempDir(t, func() {
+		t.Setenv("HOME", t.TempDir())
+		silence(t)
+
+		var out, errs bytes.Buffer
+		code := Run(Options{
+			Args:  []string{},
+			Out:   &out,
+			Err:   &errs,
+			Stdin: strings.NewReader(""),
+			RunOnboard: func(context.Context, io.Reader, io.Writer, string, onboard.Answers) (onboard.Result, error) {
+				return onboard.Result{}, errors.New("simulated wizard failure")
+			},
+		})
+		if code != ConfigError {
+			t.Fatalf("code = %d, want ConfigError; errs = %q", code, errs.String())
 		}
 	})
 }

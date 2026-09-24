@@ -54,7 +54,7 @@ func New(cfg config.LLM, log *logx.Logger) (*Client, error) {
 		log = logx.Global()
 	}
 	switch strings.ToLower(cfg.Provider) {
-	case "openai", "ollama", "anthropic", "gemini":
+	case "openai", "ollama", "anthropic", "gemini", "codex", "copilot":
 	default:
 		return nil, fmt.Errorf("unsupported LLM provider: %q", cfg.Provider)
 	}
@@ -63,6 +63,11 @@ func New(cfg config.LLM, log *logx.Logger) (*Client, error) {
 	if strings.ToLower(cfg.Provider) == "ollama" && cfg.BaseURL == "" {
 		cfg.BaseURL = "https://ollama.com/v1"
 	}
+	// Codex uses the same OpenAI-compatible protocol as openai, with the same
+	// endpoint. The difference is only the model id (gpt-5-codex etc.).
+	// Copilot also speaks the OpenAI chat completions protocol, but its base URL
+	// is api.githubcopilot.com and its key is a short-lived Copilot token; the
+	// caller is responsible for the token-exchange (see internal/llm/copilot.go).
 	if cfg.APIKey == "" {
 		return nil, errors.New("the LLM key is missing")
 	}
@@ -270,7 +275,7 @@ func (c *Client) call(ctx context.Context, messages []Message) (string, error) {
 	case "gemini":
 		return c.callGemini(ctx, messages)
 	default:
-		// Both OpenAI-compatible hosts and Ollama Cloud speak /chat/completions.
+		// openai, ollama, codex and copilot all speak /chat/completions.
 		return c.callOpenAI(ctx, messages)
 	}
 }
@@ -283,7 +288,7 @@ func (c *Client) callTools(ctx context.Context, messages []Message, tools []Tool
 	case "gemini":
 		return c.callGeminiTools(ctx, messages, tools)
 	default:
-		// Both OpenAI-compatible hosts and Ollama Cloud speak /chat/completions.
+		// openai, ollama, codex and copilot all speak /chat/completions.
 		return c.callOpenAITools(ctx, messages, tools)
 	}
 }

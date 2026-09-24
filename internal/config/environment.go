@@ -383,7 +383,8 @@ func readBool(key string, current bool) (bool, error) {
 // documentation uses. Keeping the table here means the wizard, the loader and the
 // tests all agree on one name per provider.
 var providerKeyAliases = map[string]string{
-	"ollama": "OLLAMA_API_KEY",
+	"ollama":  "OLLAMA_API_KEY",
+	"copilot": "GITHUB_COPILOT_TOKEN",
 }
 
 // ProviderKeyVariable returns the provider-specific variable for a key, or the

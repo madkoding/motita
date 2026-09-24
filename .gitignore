@@ -43,3 +43,4 @@ workspace/
 # not be redistributed from this MIT repository. Its lessons were re-written in
 # our own words in the go-i386-openai-agent skill instead.
 /.skill-tui-design/
+.starlight/

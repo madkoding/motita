@@ -516,10 +516,8 @@ func (op Options) initConfig(fl flags) int {
 		}
 	}
 
-	fmt.Fprintf(op.Out, "Welcome to motita.\n")
-	fmt.Fprintf(op.Out, "This wizard writes a working configuration in %s.\n", path)
-	fmt.Fprintf(op.Out, "Nothing is written until every answer is in: press q to cancel at any point.\n")
-
+	// The welcome banner is printed by the wizard itself; the old messages are
+	// removed to avoid duplication. The wizard handles the full UX now.
 	res, err := op.RunOnboard(op.BaseCtx, op.Stdin, op.Out, path, onboard.Answers{})
 	if err != nil {
 		if errors.Is(err, onboard.ErrCancelled) {
@@ -593,6 +591,30 @@ func loadPreferringKey(path string, fl flags) (config.Config, error) {
 	return cfg, err
 }
 
+// needsOnboarding reports whether the invocation should trigger the first-run
+// wizard before proceeding. It returns true when ALL of the following hold:
+//
+//   - the mode is the TUI or -serve (the interactive modes that need a provider),
+//   - no explicit -config was given,
+//   - no configuration file exists in the motita home or the working directory.
+//
+// A run that names a file, or that finds one, is left alone: the wizard is for
+// the user who has nothing, and running it on top of an existing configuration
+// would overwrite it.
+//
+// The diagnostic and one-shot modes are excluded because they do not call the
+// LLM (-validate-config, -isolation, -version) or run non-interactively
+// (-task, -p): launching a wizard from a cron job or a script would hang it.
+func (op Options) needsOnboarding(fl flags) bool {
+	if !op.willRunTUI(fl) && !fl.serve {
+		return false
+	}
+	if fl.configPath != "" {
+		return false
+	}
+	return resolvedConfigPath(fl) == ""
+}
+
 // run is the main body: it loads the configuration, prepares the layers and
 // launches the agent with graceful shutdown.
 func (op Options) run(fl flags) int {
@@ -607,9 +629,28 @@ func (op Options) run(fl flags) int {
 	//
 	// The home comes FIRST and the working directory SECOND, which is the opposite of how a
 	// project-local configuration usually works, and deliberately so: motita's file carries
-	// the LLM credentials and the paths to its own state, so it belongs to the user rather than
-	// to whichever repository they happened to be standing in. The working directory is still
-	// accepted, so an existing setup keeps working and a per-project override stays possible.
+	// the LLM credentials and the paths to its own state, so it belongs to the user rather
+	// than to whichever repository they happened to be standing in. The working directory is
+	// still accepted, so an existing setup keeps working and a per-project override stays possible.
+
+	// When entering the TUI or serving the gateway with NO configuration file at
+	// all, the onboarding wizard runs first: a first-time user should never see
+	// a blank chat or a gateway that cannot answer because no provider was ever
+	// chosen. The wizard writes the file the program then loads, so the rest of
+	// the run works as if it had been configured all along.
+	//
+	// The diagnostic modes (-validate-config, -isolation) and one-shot modes
+	// (-task, -p, -version) are excluded: they do not need a provider, and
+	// launching a wizard from a script would hang it.
+	if op.needsOnboarding(fl) {
+		code := op.initConfig(fl)
+		if code != Success {
+			return code
+		}
+		// The wizard wrote the file, so now it is there to be loaded. Continue
+		// with the normal path.
+	}
+
 	var cfg config.Config
 	var err error
 	// Which file is read is decided in ONE place, because a second caller needs the same answer:

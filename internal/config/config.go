@@ -785,7 +785,7 @@ func (c *Config) validateSandbox() error {
 }
 
 func (c *Config) validateLLM(requireKey bool) error {
-	if err := oneOf("llm.provider", c.LLM.Provider, "openai", "ollama", "anthropic", "gemini"); err != nil {
+	if err := oneOf("llm.provider", c.LLM.Provider, "openai", "ollama", "anthropic", "gemini", "codex", "copilot"); err != nil {
 		return err
 	}
 	if c.LLM.Model == "" {
