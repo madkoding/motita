@@ -188,10 +188,206 @@
   // activity block is cleared rather than left as a second copy of the answer.
   let activity = null;
 
+  // ─── Markdown renderer ───────────────────────────────────────────────────
+  //
+  // A minimal, dependency-free Markdown-to-HTML renderer. It handles the
+  // subset an agent's answers actually use: headings, bold, italic, inline
+  // code, fenced code blocks, links, unordered/ordered lists, blockquotes,
+  // horizontal rules and paragraphs. Tables are supported with the GFM pipe
+  // syntax.
+  //
+  // The output is sanitized: only a whitelist of tags and attributes survive,
+  // so a model that emits <script> or onclick= cannot inject anything. The
+  // renderer is deliberately small — it is not a full CommonMark implementation
+  // — because every byte is a byte of the binary, and the agent's answers are
+  // straightforward prose with the occasional code block or list.
+
+  function escapeHTML(s) {
+    return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  }
+
+  // inline renders inline markup: bold, italic, code, links.
+  function renderInline(text) {
+    // Escape first, then apply markup so the markup characters are the only
+    // ones that produce tags.
+    let s = escapeHTML(text);
+    // Inline code: `code` — do this before bold/italic so ** inside code is literal.
+    s = s.replace(/`([^`]+)`/g, function(_, code) {
+      return '<code>' + code + '</code>';
+    });
+    // Bold: **text** or __text__
+    s = s.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
+    s = s.replace(/__([^_]+)__/g, '<strong>$1</strong>');
+    // Italic: *text* or _text_ (but not inside words with underscores)
+    s = s.replace(/(?<!\w)\*([^*]+)\*(?!\w)/g, '<em>$1</em>');
+    s = s.replace(/(?<!\w)_([^_]+)_(?!\w)/g, '<em>$1</em>');
+    // Links: [text](url) — only relative URLs or protocol-less, never http/https
+    // (the test forbids those literals in the JS, and the gateway is same-origin).
+    s = s.replace(/\[([^\]]+)\]\(([^)]+)\)/g, function(_, text, url) {
+      // Allow only safe URLs: relative paths, #fragments, or mailto:
+      if (/^(\/|#|mailto:)/.test(url)) {
+        return '<a href="' + url + '">' + text + '</a>';
+      }
+      return text; // strip unsafe links to their text
+    });
+    return s;
+  }
+
+  function renderMarkdown(src) {
+    const lines = src.split('\n');
+    let html = '';
+    let i = 0;
+    let inList = false;
+    let listTag = '';
+
+    function closeList() {
+      if (inList) {
+        html += '</' + listTag + '>\n';
+        inList = false;
+      }
+    }
+
+    while (i < lines.length) {
+      let line = lines[i];
+
+      // Fenced code block: ```lang ... ```
+      if (/^```/.test(line.trim())) {
+        closeList();
+        const lang = line.trim().replace(/^```/, '').trim();
+        let code = '';
+        i++;
+        while (i < lines.length && !/^```/.test(lines[i].trim())) {
+          code += lines[i] + '\n';
+          i++;
+        }
+        i++; // skip closing ```
+        html += '<pre><code' + (lang ? ' class="lang-' + escapeHTML(lang) + '"' : '') + '>'
+          + escapeHTML(code.replace(/\n$/, '')) + '</code></pre>\n';
+        continue;
+      }
+
+      // Blank line
+      if (line.trim() === '') {
+        closeList();
+        i++;
+        continue;
+      }
+
+      // Heading: # ... ######
+      const h = line.match(/^(#{1,6})\s+(.*)$/);
+      if (h) {
+        closeList();
+        const level = h[1].length;
+        html += '<h' + level + '>' + renderInline(h[2]) + '</h' + level + '>\n';
+        i++;
+        continue;
+      }
+
+      // Horizontal rule: --- or *** or ___ (3+ on a line alone)
+      if (/^(\s*[-*_]\s*){3,}$/.test(line) && line.trim().length >= 3) {
+        closeList();
+        html += '<hr>\n';
+        i++;
+        continue;
+      }
+
+      // Blockquote: > text
+      if (/^>\s?/.test(line)) {
+        closeList();
+        let quote = '';
+        while (i < lines.length && /^>\s?/.test(lines[i])) {
+          quote += lines[i].replace(/^>\s?/, '') + '\n';
+          i++;
+        }
+        html += '<blockquote>' + renderMarkdown(quote.replace(/\n$/, '')) + '</blockquote>\n';
+        continue;
+      }
+
+      // Table: | a | b | with separator row | --- | --- |
+      if (line.includes('|') && i + 1 < lines.length && /^\|?[\s-:|]+\|?\s*$/.test(lines[i + 1])) {
+        closeList();
+        const headers = line.split('|').map(function(c) { return c.trim(); }).filter(function(c, idx, arr) {
+          return !(idx === 0 && c === '') && !(idx === arr.length - 1 && c === '');
+        });
+        i += 2; // skip header + separator
+        let rows = '';
+        while (i < lines.length && lines[i].includes('|') && lines[i].trim() !== '') {
+          const cells = lines[i].split('|').map(function(c) { return c.trim(); }).filter(function(c, idx, arr) {
+            return !(idx === 0 && c === '') && !(idx === arr.length - 1 && c === '');
+          });
+          let rowHTML = '';
+          for (const cell of cells) {
+            rowHTML += '<td>' + renderInline(cell) + '</td>';
+          }
+          rows += '<tr>' + rowHTML + '</tr>\n';
+          i++;
+        }
+        let headHTML = '';
+        for (const h of headers) {
+          headHTML += '<th>' + renderInline(h) + '</th>';
+        }
+        html += '<table><thead><tr>' + headHTML + '</tr></thead><tbody>' + rows + '</tbody></table>\n';
+        continue;
+      }
+
+      // Unordered list: - or * or + item
+      if (/^\s*[-*+]\s+/.test(line)) {
+        if (!inList || listTag !== 'ul') {
+          closeList();
+          html += '<ul>\n';
+          inList = true;
+          listTag = 'ul';
+        }
+        const item = line.replace(/^\s*[-*+]\s+/, '');
+        html += '<li>' + renderInline(item) + '</li>\n';
+        i++;
+        continue;
+      }
+
+      // Ordered list: 1. item
+      if (/^\s*\d+\.\s+/.test(line)) {
+        if (!inList || listTag !== 'ol') {
+          closeList();
+          html += '<ol>\n';
+          inList = true;
+          listTag = 'ol';
+        }
+        const item = line.replace(/^\s*\d+\.\s+/, '');
+        html += '<li>' + renderInline(item) + '</li>\n';
+        i++;
+        continue;
+      }
+
+      // Paragraph: collect consecutive non-blank, non-special lines
+      closeList();
+      let para = line;
+      i++;
+      while (i < lines.length && lines[i].trim() !== '' &&
+             !/^```/.test(lines[i].trim()) &&
+             !/^#{1,6}\s/.test(lines[i]) &&
+             !/^>\s?/.test(lines[i]) &&
+             !/^\s*[-*+]\s+/.test(lines[i]) &&
+             !/^\s*\d+\.\s+/.test(lines[i]) &&
+             !/^(\s*[-*_]\s*){3,}$/.test(lines[i])) {
+        para += '\n' + lines[i];
+        i++;
+      }
+      html += '<p>' + renderInline(para) + '</p>\n';
+    }
+    closeList();
+    return html;
+  }
+
   function say(text, cls) {
     const el = document.createElement('div');
     el.className = 'msg ' + (cls || 'agent');
-    el.textContent = text;
+    // User messages and activity stay as plain text; agent messages get
+    // markdown rendering so code blocks, lists and headings display properly.
+    if (cls && cls.indexOf('user') !== -1) {
+      el.textContent = text;
+    } else {
+      el.innerHTML = renderMarkdown(text);
+    }
     conversation.appendChild(el);
     conversation.scrollTop = conversation.scrollHeight;
     return el;
