@@ -17,6 +17,7 @@
   --bg: #0a0a0f;
   --surface: rgba(22, 22, 32, 0.82);
   --surface-solid: #16161e;
+  --surface-opaque: #1a1a22;
   --border: rgba(76, 194, 255, 0.15);
   --border-hover: rgba(76, 194, 255, 0.35);
   --text: #e8e8ea;
@@ -29,6 +30,10 @@
   --blur: 12px;
   --cat-color: rgba(76, 194, 255, 0.18);
   --cat-line: rgba(76, 194, 255, 0.35);
+  --holo-1: rgba(76, 194, 255, 0.12);
+  --holo-2: rgba(180, 120, 255, 0.10);
+  --holo-3: rgba(255, 120, 200, 0.08);
+  --holo-4: rgba(120, 255, 180, 0.08);
 }
 
 @media (prefers-color-scheme: light) {
@@ -36,6 +41,7 @@
     --bg: #f5f5f8;
     --surface: rgba(255, 255, 255, 0.85);
     --surface-solid: #ffffff;
+    --surface-opaque: #f1f1f4;
     --border: rgba(11, 111, 184, 0.12);
     --border-hover: rgba(11, 111, 184, 0.3);
     --text: #16161a;
@@ -46,6 +52,10 @@
     --danger: #b3261e;
     --cat-color: rgba(11, 111, 184, 0.08);
     --cat-line: rgba(11, 111, 184, 0.2);
+    --holo-1: rgba(11, 111, 184, 0.08);
+    --holo-2: rgba(150, 80, 220, 0.06);
+    --holo-3: rgba(220, 80, 150, 0.05);
+    --holo-4: rgba(80, 180, 120, 0.05);
   }
 }
 
@@ -114,6 +124,26 @@ body {
   color: var(--cat-line);
 }
 
+/* ─── Holographic shine (between cats and UI) ──────────────────────────────
+ * The holo layer is an iridescent gradient that shifts with the mouse — the
+ * "Pokemon card" effect. Four colour stops (blue, purple, pink, green) are
+ * positioned along a diagonal that the JS moves based on the cursor, so the
+ * shine sweeps across the scene as the card tilts. */
+#layer-holo {
+  z-index: 1;
+  pointer-events: none;
+  overflow: hidden;
+  background: linear-gradient(120deg,
+    var(--holo-1) 0%,
+    var(--holo-2) 25%,
+    var(--holo-3) 50%,
+    var(--holo-4) 75%,
+    var(--holo-1) 100%);
+  background-size: 300% 300%;
+  mix-blend-mode: screen;
+  opacity: 0.7;
+}
+
 /* ─── UI layer ───────────────────────────────────────────────────────────── */
 #layer-ui {
   z-index: 2;
@@ -124,9 +154,7 @@ header {
   align-items: center;
   gap: 12px;
   padding: 12px 20px;
-  background: var(--surface);
-  backdrop-filter: blur(var(--blur));
-  -webkit-backdrop-filter: blur(var(--blur));
+  background: var(--surface-opaque);
   border-bottom: 1px solid var(--border);
   flex: none;
 }
@@ -214,9 +242,7 @@ header h1 {
   word-break: break-word;
   padding: 10px 14px;
   border-radius: var(--radius);
-  background: var(--surface);
-  backdrop-filter: blur(var(--blur));
-  -webkit-backdrop-filter: blur(var(--blur));
+  background: var(--surface-opaque);
   border: 1px solid var(--border);
   max-width: 72ch;
   animation: msgIn 0.25s ease-out;
@@ -230,7 +256,7 @@ header h1 {
 .msg.user {
   align-self: flex-end;
   border-color: rgba(76, 194, 255, 0.3);
-  background: linear-gradient(135deg, rgba(76, 194, 255, 0.08), var(--surface));
+  background: linear-gradient(135deg, rgba(76, 194, 255, 0.12), var(--surface-opaque));
 }
 .msg.agent {
   align-self: flex-start;
@@ -274,9 +300,7 @@ header h1 {
   gap: 10px;
   padding: 12px 20px;
   border-top: 1px solid var(--border);
-  background: var(--surface);
-  backdrop-filter: blur(var(--blur));
-  -webkit-backdrop-filter: blur(var(--blur));
+  background: var(--surface-opaque);
   flex: none;
 }
 
@@ -323,9 +347,7 @@ header h1 {
   flex: none;
   padding: 14px 20px;
   border-top: 2px solid var(--warning);
-  background: var(--surface);
-  backdrop-filter: blur(var(--blur));
-  -webkit-backdrop-filter: blur(var(--blur));
+  background: var(--surface-opaque);
 }
 
 #approval[hidden] { display: none; }

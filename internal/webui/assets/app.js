@@ -120,7 +120,10 @@
 
   // Tilt: each layer shifts by its depth factor times the mouse offset from
   // centre. The cat layer (depth 0.06) moves more than the UI layer (depth 0.0),
-  // so the cats appear to float between the viewer and the interface.
+  // so the cats appear to float between the viewer and the interface. The holo
+  // layer's background-position also shifts with the mouse, so the iridescent
+  // shine sweeps across the scene like a Pokemon card tilted in the light.
+  const holoLayer = document.getElementById('layer-holo');
   const layers = scene.querySelectorAll('.layer');
   let targetX = 0, targetY = 0, currentX = 0, currentY = 0;
 
@@ -147,6 +150,16 @@
       const ry = -currentX * depth * 8;
       layer.style.transform = 'translate3d(' + tx + 'px, ' + ty + 'px, 0) rotateX(' + rx + 'deg) rotateY(' + ry + 'deg)';
     }
+
+    // The holo layer's iridescent gradient follows the mouse: background-position
+    // sweeps from 0% to 100% as the cursor moves across the viewport. This is the
+    // "holographic" effect — the shine shifts colour as the card tilts.
+    if (holoLayer) {
+      const hpx = (currentX * 0.5 + 0.5) * 100;
+      const hpy = (currentY * 0.5 + 0.5) * 100;
+      holoLayer.style.backgroundPosition = hpx + '% ' + hpy + '%';
+    }
+
     requestAnimationFrame(animate);
   }
   animate();
