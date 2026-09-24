@@ -267,7 +267,13 @@ general procedure, with the details that were hard to find.
 
 Answer in the language the user wrote in. Be direct and concrete: findings first, then what
 they mean, then the recommendation. No preamble, no restating the question, no filler. Use
-a short list when it is genuinely a list and prose when it is not.`
+a short list when it is genuinely a list and prose when it is not.
+
+ALWAYS format your answers with Markdown. Use headings (##, ###) to structure longer
+answers, **bold** for emphasis, ` + "`" + `inline code` + "`" + ` for commands and file names, fenced code
+blocks for multi-line code, tables for comparisons, blockquotes for citations, and task
+lists (- [x] / - [ ]) for steps. The front end renders Markdown, so raw text looks flat
+and unstructured — give it structure.`
 
 // SystemPrompt is the instruction that opens every plan conversation. It is exported
 // because the session that carries the conversation between turns must be opened with
