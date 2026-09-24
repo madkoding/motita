@@ -15,8 +15,10 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/signal"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/madkoding/motita/internal/agent"
@@ -227,6 +229,9 @@ func Run(op Options) int {
 	// The claude-code provider points claude at this program as its MCP server. That
 	// command line is claude's, not the user's, so it is handled before parsing too.
 	if len(op.Args) == 2 && op.Args[0] == llm.ClaudeCodeMCPCommand {
+		// main catches SIGINT and SIGTERM for its graceful shutdown, which this server has
+		// none of: claude ends it with SIGTERM, and it has to die of it.
+		signal.Reset(syscall.SIGINT, syscall.SIGTERM)
 		if err := llm.ServeClaudeCodeMCP(op.Stdin, op.Out, op.Args[1]); err != nil {
 			fmt.Fprintf(op.Err, "motita[claude-code-mcp]: %v\n", err)
 			return RunError

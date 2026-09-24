@@ -71,8 +71,7 @@ func New(cfg config.LLM, log *logx.Logger) (*Client, error) {
 	// Copilot also speaks the OpenAI chat completions protocol, but its base URL
 	// is api.githubcopilot.com and its key is a short-lived Copilot token; the
 	// caller is responsible for the token-exchange (see internal/llm/copilot.go).
-	// claude-code has no key: the claude CLI brings the user's own login.
-	if cfg.APIKey == "" && !strings.EqualFold(cfg.Provider, "claude-code") {
+	if cfg.APIKey == "" && config.ProviderNeedsKey(cfg.Provider) {
 		return nil, errors.New("the LLM key is missing")
 	}
 	if cfg.Timeout <= 0 {
@@ -108,10 +107,13 @@ func (c *Client) openStreamOr() func(context.Context, []Message, []Tool) (<-chan
 	if c.openStream != nil {
 		return c.openStream
 	}
-	if strings.EqualFold(c.cfg.Provider, "claude-code") {
+	switch strings.ToLower(c.cfg.Provider) {
+	case "claude-code":
 		return c.callClaudeCodeStream
+	default:
+		// openai, ollama, codex and copilot all speak /chat/completions.
+		return c.callOpenAIToolsStream
 	}
-	return c.callOpenAIToolsStream
 }
 
 // Complete sends the conversation and returns the model's text, retrying with
@@ -175,13 +177,23 @@ func (c *Client) CompleteToolsStream(ctx context.Context, messages []Message, to
 		for attempt := 1; attempt <= c.cfg.MaxAttempts; attempt++ {
 			chunkCh, err := c.openStreamOr()(ctx, messages, tools)
 			if err == nil {
+				forwarded := false
 				for chunk := range chunkCh {
+					// A failure before anything reached the caller is a failed attempt like
+					// one that could not open: it goes through the same retry policy.
+					if !forwarded && chunk.Event == StreamError {
+						err = chunk.Error
+						break
+					}
+					forwarded = true
 					out <- chunk
 					if chunk.Event == StreamError || chunk.Event == StreamDone {
 						return
 					}
 				}
-				return
+				if err == nil {
+					return
+				}
 			}
 			last = err
 			if !retryable(err) {
