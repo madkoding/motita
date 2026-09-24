@@ -4,8 +4,8 @@ import (
 	"context"
 	"testing"
 
-	"github.com/madkoding/starlight/internal/agent"
-	"github.com/madkoding/starlight/internal/tui"
+	"github.com/madkoding/motita/internal/agent"
+	"github.com/madkoding/motita/internal/tui"
 )
 
 // The whole design of this package rests on the assertions below, so they are compile-time

@@ -18,7 +18,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/madkoding/starlight/internal/execx"
+	"github.com/madkoding/motita/internal/execx"
 )
 
 // TestNewCreatesTheWorkingDirectory: the directory the caller asks for is created

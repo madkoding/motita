@@ -17,8 +17,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/madkoding/starlight/internal/execx"
-	"github.com/madkoding/starlight/internal/logx"
+	"github.com/madkoding/motita/internal/execx"
+	"github.com/madkoding/motita/internal/logx"
 )
 
 // TestNotAppliedAndIsolationJSON: what the sandbox reports must be consistent
@@ -279,7 +279,7 @@ func TestNewCgroupOwnDirectories(t *testing.T) {
 	defer cg.remove()
 
 	// The memory limit must be written in bytes.
-	data, err := os.ReadFile(filepath.Join(root, "memory", "starlight", "memory.limit_in_bytes"))
+	data, err := os.ReadFile(filepath.Join(root, "memory", "motita", "memory.limit_in_bytes"))
 	if err != nil {
 		t.Fatalf("the memory limit was not written: %v", err)
 	}
@@ -288,7 +288,7 @@ func TestNewCgroupOwnDirectories(t *testing.T) {
 	}
 
 	// And the PIDs one.
-	data, err = os.ReadFile(filepath.Join(root, "pids", "starlight", "pids.max"))
+	data, err = os.ReadFile(filepath.Join(root, "pids", "motita", "pids.max"))
 	if err != nil {
 		t.Fatalf("the PIDs limit was not written: %v", err)
 	}
@@ -300,7 +300,7 @@ func TestNewCgroupOwnDirectories(t *testing.T) {
 	if err := cg.addProcess(1234); err != nil {
 		t.Fatalf("addProcess: %v", err)
 	}
-	data, _ = os.ReadFile(filepath.Join(root, "memory", "starlight", "tasks"))
+	data, _ = os.ReadFile(filepath.Join(root, "memory", "motita", "tasks"))
 	if strings.TrimSpace(string(data)) != "1234" {
 		t.Errorf("tasks = %q", data)
 	}
@@ -309,7 +309,7 @@ func TestNewCgroupOwnDirectories(t *testing.T) {
 	if err := cg.remove(); err != nil {
 		t.Fatalf("remove: %v", err)
 	}
-	if _, err := os.Stat(filepath.Join(root, "memory", "starlight")); !os.IsNotExist(err) {
+	if _, err := os.Stat(filepath.Join(root, "memory", "motita")); !os.IsNotExist(err) {
 		t.Error("the cgroup should have been deleted")
 	}
 }
@@ -462,7 +462,7 @@ func TestRunAsChildViaSubprocess(t *testing.T) {
 				t.Fatal(err)
 			}
 			cmd := exec.Command(binary, ChildMarker, encoded)
-			cmd.Env = append(os.Environ(), "STARLIGHT_TEST_CHILD=1")
+			cmd.Env = append(os.Environ(), "MOTITA_TEST_CHILD=1")
 			output, err := cmd.CombinedOutput()
 
 			if tc.fails {
@@ -841,7 +841,7 @@ func TestPeakVirtualMemoryHandlesGarbage(t *testing.T) {
 	dir := t.TempDir()
 
 	procStatusPath = filepath.Join(dir, "no-peak")
-	os.WriteFile(procStatusPath, []byte("Name:\tstarlight\nVmSize:\t  1024 kB\n"), 0o644)
+	os.WriteFile(procStatusPath, []byte("Name:\tmotita\nVmSize:\t  1024 kB\n"), 0o644)
 	if got := peakVirtualMemory(); got != 0 {
 		t.Errorf("without VmPeak it must be 0, got %d", got)
 	}

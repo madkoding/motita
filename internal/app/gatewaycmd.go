@@ -11,13 +11,13 @@ import (
 	"strings"
 	"time"
 
-	"github.com/madkoding/starlight/internal/config"
-	"github.com/madkoding/starlight/internal/gateway"
+	"github.com/madkoding/motita/internal/config"
+	"github.com/madkoding/motita/internal/gateway"
 )
 
-// The three actions `starlight gateway <action>` knows, and the help shown when the action is
+// The three actions `motita gateway <action>` knows, and the help shown when the action is
 // missing or misspelled.
-const gatewayCommandHelp = `Usage: starlight gateway <action>
+const gatewayCommandHelp = `Usage: motita gateway <action>
 
 Actions:
   start    bring the gateway up as a service and leave it running
@@ -25,7 +25,7 @@ Actions:
   status   report whether a gateway is running
 `
 
-// runGatewayCommand dispatches `starlight gateway <action>`.
+// runGatewayCommand dispatches `motita gateway <action>`.
 //
 // The action is validated by parse, which rejects anything but start, stop and status, so the
 // default below cannot be reached through the command line. It stays because this function should
@@ -342,13 +342,13 @@ func usableAddressesOf(addrs []net.Addr) []string {
 //
 // It reads the CONFIGURATION rather than guessing, because the subcommands pay for neither the
 // engine nor a sandbox and so never load one: an operator who turned the interface off in the
-// YAML, or with STARLIGHT_GATEWAY_WEBUI, must not be handed a link to a page their gateway
+// YAML, or with MOTITA_GATEWAY_WEBUI, must not be handed a link to a page their gateway
 // answers 404 on. The load is the keyless one, exactly like the version path, because a
 // subcommand has no business demanding a credential to answer this question.
 //
 // The path comes from resolvedConfigPath, which is the SAME resolution `run` uses to load the file
 // the child will inherit. This is not a detail: resolving against fl.configPath ALONE meant that a
-// plain `starlight gateway start`, with no -config and a configuration in the starlight home, asked
+// plain `motita gateway start`, with no -config and a configuration in the motita home, asked
 // this question of the DEFAULTS - where the interface is on - while the service it spawned read the
 // home file, where the operator had turned it off. The command handed out a link and the gateway
 // answered 404, which is the exact failure the setting exists to prevent. The default and the
@@ -373,7 +373,7 @@ func (op Options) webUIEnabled(fl flags) bool {
 		cfg = loaded
 	}
 	// The environment is applied on top, because the CHILD inherits this process's environment -
-	// spawnDetached leaves cmd.Env nil, which is the parent's. So STARLIGHT_GATEWAY_WEBUI set in
+	// spawnDetached leaves cmd.Env nil, which is the parent's. So MOTITA_GATEWAY_WEBUI set in
 	// the shell applies to the service that is being spawned, and a resolution that skipped it
 	// would announce a page the child was told to stop serving. LoadWithoutKey and Default do not
 	// apply the environment by themselves: Load does.
@@ -517,7 +517,7 @@ func (op Options) exePath() string { return op.ExePath }
 // service's environment is readable by every process of that user. The path is what it needs and
 // all it needs: the child reads the file under the same rules this process did.
 //
-// Dropping the flag was a real bug: `starlight -config custom.yaml gateway start` started a service
+// Dropping the flag was a real bug: `motita -config custom.yaml gateway start` started a service
 // that ignored custom.yaml and came up on the defaults, so the gateway the user asked for was never
 // the gateway they got - and the failure showed up much later, as a client talking to the wrong
 // agent.

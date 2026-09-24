@@ -1,4 +1,4 @@
-# starlight 🌟
+# motita 🌟
 
 A **3-layer** autonomous agent for i386 machines (and any Linux amd64/arm64),
 written in **pure Go**: standard library only, **zero external dependencies**,
@@ -132,7 +132,7 @@ Details that took real work and are solved in the code:
   exact deadline (measured: infinite loop with `cpu_seconds: 2` → cut at
   **2.002 s**).
 - **The command does not inherit the agent's secrets**: the environment is built
-  from scratch, with no `OPENAI_API_KEY` or `STARLIGHT_LLM_API_KEY` inside the
+  from scratch, with no `OPENAI_API_KEY` or `MOTITA_LLM_API_KEY` inside the
   command.
 
 ---
@@ -167,14 +167,14 @@ the latest release, verifies it against the release's `SHA256SUMS`, and puts it
 on your `PATH`. No Go, no Docker, no runtime on the target:
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/madkoding/starlight/main/scripts/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/madkoding/motita/main/scripts/install.sh | sh
 ```
 
 Override the version or the destination:
 
 ```sh
-STARLIGHT_VERSION=v0.3.0 curl -fsSL .../install.sh | sh
-STARLIGHT_INSTALL_DIR="$HOME/bin" curl -fsSL .../install.sh | sh
+MOTITA_VERSION=v0.3.0 curl -fsSL .../install.sh | sh
+MOTITA_INSTALL_DIR="$HOME/bin" curl -fsSL .../install.sh | sh
 ```
 
 The installer prefers `/usr/local/bin` when it is writable and falls back to
@@ -191,25 +191,25 @@ a corrupted transfer, not a compromised release.
 
 ```bash
 # Linux / 386 (32-bit x86, the primary target)
-curl -fsSLO https://github.com/madkoding/starlight/releases/latest/download/starlight-linux-386 && chmod +x starlight-linux-386 && ./starlight-linux-386 -version
+curl -fsSLO https://github.com/madkoding/motita/releases/latest/download/motita-linux-386 && chmod +x motita-linux-386 && ./motita-linux-386 -version
 
 # Linux / amd64
-curl -fsSLO https://github.com/madkoding/starlight/releases/latest/download/starlight-linux-amd64 && chmod +x starlight-linux-amd64 && ./starlight-linux-amd64 -version
+curl -fsSLO https://github.com/madkoding/motita/releases/latest/download/motita-linux-amd64 && chmod +x motita-linux-amd64 && ./motita-linux-amd64 -version
 
 # Linux / arm (ARMv7: Raspberry Pi 2 and newer)
-curl -fsSLO https://github.com/madkoding/starlight/releases/latest/download/starlight-linux-arm && chmod +x starlight-linux-arm && ./starlight-linux-arm -version
+curl -fsSLO https://github.com/madkoding/motita/releases/latest/download/motita-linux-arm && chmod +x motita-linux-arm && ./motita-linux-arm -version
 
 # Linux / arm64
-curl -fsSLO https://github.com/madkoding/starlight/releases/latest/download/starlight-linux-arm64 && chmod +x starlight-linux-arm64 && ./starlight-linux-arm64 -version
+curl -fsSLO https://github.com/madkoding/motita/releases/latest/download/motita-linux-arm64 && chmod +x motita-linux-arm64 && ./motita-linux-arm64 -version
 
 # macOS / Apple Silicon
-curl -fsSLO https://github.com/madkoding/starlight/releases/latest/download/starlight-darwin-arm64 && chmod +x starlight-darwin-arm64 && ./starlight-darwin-arm64 -version
+curl -fsSLO https://github.com/madkoding/motita/releases/latest/download/motita-darwin-arm64 && chmod +x motita-darwin-arm64 && ./motita-darwin-arm64 -version
 
 # macOS / Intel
-curl -fsSLO https://github.com/madkoding/starlight/releases/latest/download/starlight-darwin-amd64 && chmod +x starlight-darwin-amd64 && ./starlight-darwin-amd64 -version
+curl -fsSLO https://github.com/madkoding/motita/releases/latest/download/motita-darwin-amd64 && chmod +x motita-darwin-amd64 && ./motita-darwin-amd64 -version
 
 # Windows / amd64 (PowerShell)
-curl -fsSLO https://github.com/madkoding/starlight/releases/latest/download/starlight-windows-amd64.exe; if ($?) { ./starlight-windows-amd64.exe -version }
+curl -fsSLO https://github.com/madkoding/motita/releases/latest/download/motita-windows-amd64.exe; if ($?) { ./motita-windows-amd64.exe -version }
 ```
 
 | System | Architectures | Asset suffix |
@@ -227,7 +227,7 @@ those pairs: the toolchain refuses to build them.
 Each release also carries a `SHA256SUMS` file:
 
 ```bash
-curl -fsSLO https://github.com/madkoding/starlight/releases/latest/download/SHA256SUMS
+curl -fsSLO https://github.com/madkoding/motita/releases/latest/download/SHA256SUMS
 sha256sum -c SHA256SUMS --ignore-missing
 ```
 
@@ -238,12 +238,12 @@ importantly — the check that decides whether a task is really done. `-init` as
 for the three and writes a file that works:
 
 ```bash
-./starlight -init
+./motita -init
 ```
 
 ```
-Welcome to starlight.
-This wizard writes a working configuration in ./starlight.yaml.
+Welcome to motita.
+This wizard writes a working configuration in ./motita.yaml.
 Nothing is written until every answer is in: press q to cancel at any point.
 Which provider will run the reasoning?
   1. OpenAI-compatible (openai)
@@ -253,7 +253,7 @@ Which provider will run the reasoning?
 
 Provider [1]: 2
 
-The key is read from OLLAMA_API_KEY, or from STARLIGHT_LLM_API_KEY.
+The key is read from OLLAMA_API_KEY, or from MOTITA_LLM_API_KEY.
 You can get one at https://ollama.com/settings/keys
 
 Paste the key, or press Enter to set it later: 
@@ -272,10 +272,10 @@ What decides that a task is really done?
 Check [1]: 1
 Command to run as the check [make]: make test
 
-✅ Written ./starlight.yaml
+✅ Written ./motita.yaml
    provider: Ollama Cloud (ollama)
    model:    deepseek-v4.1-flash
-✅ Written ./starlight.env
+✅ Written ./motita.env
    permissions 0600, keep it out of the repository
 ```
 
@@ -294,7 +294,7 @@ llm:
 ```
 
 The key is read from `OLLAMA_API_KEY` (the name Ollama itself documents) or from
-`STARLIGHT_LLM_API_KEY`, in that order of preference. If the catalogue cannot be
+`MOTITA_LLM_API_KEY`, in that order of preference. If the catalogue cannot be
 reached, the wizard falls back to a built-in list and says so, so you are never
 left with an empty menu.
 
@@ -319,9 +319,9 @@ llm:
 Then:
 
 ```bash
-source ./starlight.env                                       # the key, if you pasted one
-./starlight -config ./starlight.yaml -validate-config  # does it load?
-./starlight -config ./starlight.yaml -task "what to do"
+source ./motita.env                                       # the key, if you pasted one
+./motita -config ./motita.yaml -validate-config  # does it load?
+./motita -config ./motita.yaml -task "what to do"
 ```
 
 What the wizard does and does not do:
@@ -336,7 +336,7 @@ What the wizard does and does not do:
 - The key goes to a **separate file** with `0600` permissions, never into the
   configuration, so the configuration can be committed or shared.
 - Nothing is written if you cancel: the file appears only once every answer is in.
-- With no `-config` the destination is `./starlight.yaml`.
+- With no `-config` the destination is `./motita.yaml`.
 - The wizard ends by loading what it wrote, so a broken file is caught immediately.
 
 ## Cross-compilation from source
@@ -382,15 +382,15 @@ build flags (`-trimpath -ldflags "-s -w"`, no cgo):
 
 | Binary | Size |
 |---|---|
-| `dist/starlight-linux-386` | 7.21 MB |
-| `dist/starlight-linux-amd64` | 7.46 MB |
-| `dist/starlight-linux-arm` | 7.25 MB |
-| `dist/starlight-linux-arm64` | 6.88 MB |
-| `dist/starlight-windows-386.exe` | 7.40 MB |
-| `dist/starlight-windows-amd64.exe` | 7.66 MB |
-| `dist/starlight-windows-arm64.exe` | 6.96 MB |
-| `dist/starlight-darwin-amd64` | 7.58 MB |
-| `dist/starlight-darwin-arm64` | 7.02 MB |
+| `dist/motita-linux-386` | 7.21 MB |
+| `dist/motita-linux-amd64` | 7.46 MB |
+| `dist/motita-linux-arm` | 7.25 MB |
+| `dist/motita-linux-arm64` | 6.88 MB |
+| `dist/motita-windows-386.exe` | 7.40 MB |
+| `dist/motita-windows-amd64.exe` | 7.66 MB |
+| `dist/motita-windows-arm64.exe` | 6.96 MB |
+| `dist/motita-darwin-amd64` | 7.58 MB |
+| `dist/motita-darwin-arm64` | 7.02 MB |
 
 The whole range is 6.88 – 7.66 MB, and the requirement CI enforces is under 10 MB per
 binary. The sizes move with the Go release, so treat them as measurements rather than
@@ -399,8 +399,8 @@ specifications: the gate is the limit, not these numbers.
 Copy them to the i386 machine over `scp`, `ftp` or USB:
 
 ```bash
-chmod +x starlight-386
-./starlight-386 -config agent.yaml
+chmod +x motita-386
+./motita-386 -config agent.yaml
 ```
 
 ---
@@ -411,11 +411,11 @@ Everything is configurable **without recompiling**. It can be validated without
 running anything or calling the LLM:
 
 ```bash
-starlight -config configs/agent.yaml.example -validate-config
-starlight -config configs/agent.yaml.example -isolation   # what this kernel isolates
+motita -config configs/agent.yaml.example -validate-config
+motita -config configs/agent.yaml.example -isolation   # what this kernel isolates
 ```
 
-Every scalar setting can be overridden with a `STARLIGHT_<BLOCK>_<FIELD>`
+Every scalar setting can be overridden with a `MOTITA_<BLOCK>_<FIELD>`
 environment variable, which **wins over the YAML** (ideal for secrets and
 containers). `OPENAI_API_KEY`, `OPENAI_BASE_URL` and `OPENAI_MODEL` are accepted
 too. An empty or blank value is ignored, so a stray variable cannot wipe a
@@ -426,8 +426,8 @@ and `anchor.checks`) have no variable: they are collections, so they are set in
 the YAML file.
 
 One setting also answers to its older name: `agent.graceful_shutdown_timeout` is
-`STARLIGHT_AGENT_GRACEFUL_SHUTDOWN_TIMEOUT`, and
-`STARLIGHT_AGENT_SHUTDOWN_TIMEOUT` (the name of the earlier release) is still
+`MOTITA_AGENT_GRACEFUL_SHUTDOWN_TIMEOUT`, and
+`MOTITA_AGENT_SHUTDOWN_TIMEOUT` (the name of the earlier release) is still
 honoured. The documented one wins when both are set.
 
 | Block | Contents |
@@ -513,7 +513,7 @@ asked about), and a false positive only ever refuses.
 
 ### The gateway
 
-The agent has an HTTP face, and it is **on by default**. Running `starlight` still
+The agent has an HTTP face, and it is **on by default**. Running `motita` still
 opens the terminal interface, but the same process also listens on loopback behind
 a bearer token, so other front ends — a web page, a phone, a desktop window — can
 reach **the same conversation** the terminal is having. The agent lives once; every
@@ -523,14 +523,14 @@ interface is a client of it.
 |---|---|---|
 | `enabled` | `true` | The HTTP face. Off is one deliberate act, for a machine that must not listen at all. |
 | `listen` | *empty* | `host:port`, and **empty means "resolve it"**: the wildcard `0.0.0.0:7477`, which is what the program binds unless you name something else. A **fixed** port, because the gateway can outlive the process that started it and a later process has to find it. Port `0` still works and asks the kernel for a free one, but the address then exists only in that process' memory, so nothing else can reach it. The address says where the **socket** is open and nothing about who may connect, which is `allow`. |
-| `token_file` | `gateway.token` | Where the bearer token lives, under the starlight home. Generated on first use with 32 random bytes, mode `0600`. |
-| `allow` | *empty* | **Who may connect**, as an ordered list of rules. Empty means every origin — the fresh-firewall-table default. Entries: `any`, `lan`, an address (`192.168.1.10`), a network (`192.168.0.0/16`), each optionally prefixed with `!` to deny. The first rule that matches decides; an origin no rule matches is allowed. Loopback is always allowed. See the rules table above. Also read from `STARLIGHT_GATEWAY_ALLOW`, comma- or space-separated. |
+| `token_file` | `gateway.token` | Where the bearer token lives, under the motita home. Generated on first use with 32 random bytes, mode `0600`. |
+| `allow` | *empty* | **Who may connect**, as an ordered list of rules. Empty means every origin — the fresh-firewall-table default. Entries: `any`, `lan`, an address (`192.168.1.10`), a network (`192.168.0.0/16`), each optionally prefixed with `!` to deny. The first rule that matches decides; an origin no rule matches is allowed. Loopback is always allowed. See the rules table above. Also read from `MOTITA_GATEWAY_ALLOW`, comma- or space-separated. |
 | `max_body_kb` | `256` | Cap on a request body. |
 | `max_sessions` | `0` | How many conversations one process holds. `0` means the built-in default. A negative ceiling is refused rather than read as the default, which would hide the typo that produced it. |
 
 #### Running the gateway as a service
 
-`starlight` on its own brings up an interface, and **the agent behind it is a service
+`motita` on its own brings up an interface, and **the agent behind it is a service
 that may already be running**. Three outcomes, and which one you get is deliberate:
 
 | Situation | What happens |
@@ -549,9 +549,9 @@ knows why.
 Because the two have to find each other, the gateway says where it is:
 
 ```bash
-starlight gateway start    # starts the service and waits until it answers
-starlight gateway status   # says whether one is running, where, and WHICH BUILD
-starlight gateway stop     # stops the one the service file names
+motita gateway start    # starts the service and waits until it answers
+motita gateway status   # says whether one is running, where, and WHICH BUILD
+motita gateway stop     # stops the one the service file names
 ```
 
 Both commands name the build they found — `the gateway is running at
@@ -579,7 +579,7 @@ receives the same `-config` this command was given: without it, a service starte
 custom configuration would come up on the defaults, and the failure would surface much
 later as a client talking to the wrong agent.
 
-The service file lives under the starlight home (`gateway.json`, mode `0600`) and is
+The service file lives under the motita home (`gateway.json`, mode `0600`) and is
 written **after the bind**, so it carries the effective address rather than the port that
 was asked for. An entry naming a gateway that is gone is worse than no entry at all,
 because discovery trusts it, so it is removed on the way out.
@@ -618,7 +618,7 @@ refused: one makes this process the gateway, the other a client of one.
 
 Exposing the gateway is **the posture of a fresh firewall table**: it comes up bound to
 the wildcard, and **nothing is restricted until you add a rule**. Rules live in
-`gateway.allow` (or `STARLIGHT_GATEWAY_ALLOW`, comma- or space-separated) and are
+`gateway.allow` (or `MOTITA_GATEWAY_ALLOW`, comma- or space-separated) and are
 **ordered** — the first one that matches decides:
 
 | Rule | Means |
@@ -666,9 +666,9 @@ the tempting fix for "the web client does not work" is the one change that would
 the gateway to every page the user has open.
 
 It comes up **with** the gateway, and `gateway.webui: false` (or
-`STARLIGHT_GATEWAY_WEBUI=false`) turns it off for an API-only gateway.
+`MOTITA_GATEWAY_WEBUI=false`) turns it off for an API-only gateway.
 
-**Getting in.** `starlight gateway start` prints one link:
+**Getting in.** `motita gateway start` prints one link:
 
 ```
 the interface is at http://127.0.0.1:7477/#t=<token>
@@ -681,7 +681,7 @@ appear in a request line, a proxy log or a `Referer`. Open the link once and the
 exchanges it for a cookie, then erases it from the address bar and the history entry.
 
 The cookie is **not the token**. Its value is an HMAC of the token
-(`HMAC-SHA256(token, "starlight-webui-session-v1")`), so:
+(`HMAC-SHA256(token, "motita-webui-session-v1")`), so:
 
 | Because it is derived | Consequence |
 |---|---|
@@ -698,7 +698,7 @@ say why.
 The page is served **without** a token, like a login form, because it is the only way a
 browser can obtain one — and for that same reason it holds no secret at all, which a
 test enforces over the bytes that get served. Anyone who can reach the port can see that
-a starlight gateway is there; on loopback that is the operator, and exposing it to a
+a motita gateway is there; on loopback that is the operator, and exposing it to a
 network still takes the one deliberate act described above.
 
 `gateway status` deliberately does **not** print the link: it is the command someone
@@ -818,7 +818,7 @@ shows its user a spinner forever.
 Resuming is `?from=N`, and the gateway sends what the log still holds after `N`:
 
 ```bash
-TOKEN="$(cat ~/.starlight/gateway.token)"
+TOKEN="$(cat ~/.motita/gateway.token)"
 curl -N -H "Authorization: Bearer $TOKEN" \
   "http://127.0.0.1:7477/v1/sessions/default/events?from=12"
 ```
@@ -922,25 +922,25 @@ loses one of its three templates, the tests fail.
 ## Usage
 
 ```bash
-export STARLIGHT_LLM_API_KEY=sk-...        # never the key in the YAML
+export MOTITA_LLM_API_KEY=sk-...        # never the key in the YAML
 
 # normal run, with the configured source
-starlight -config configs/cases/1-development.yaml
+motita -config configs/cases/1-development.yaml
 
 # a single task, without touching the configuration
-starlight -config configs/cases/1-development.yaml -task "fix TestFoo"
+motita -config configs/cases/1-development.yaml -task "fix TestFoo"
 
 # the contents of a file as the task
-starlight -config configs/cases/2-data.yaml -task-file task.md
+motita -config configs/cases/2-data.yaml -task-file task.md
 
 # validate the configuration without calling the LLM
-starlight -config my.yaml -validate-config
+motita -config my.yaml -validate-config
 
 # see the isolation actually available on this machine
-starlight -config my.yaml -isolation
+motita -config my.yaml -isolation
 
 # read-only plan mode: ask a single question and get a plain-text plan
-starlight -p "list the .go files and suggest a refactor"
+motita -p "list the .go files and suggest a refactor"
 ```
 
 ![Plan mode](docs/screenshots/plan.png)
@@ -972,11 +972,11 @@ JSON Lines, one line per event, with size-based rotation:
 ```
 
 ```bash
-jq 'select(.level=="error")' workspace/starlight.log
-jq -r 'select(.msg=="task completed") | .task' workspace/starlight.log
+jq 'select(.level=="error")' workspace/motita.log
+jq -r 'select(.msg=="task completed") | .task' workspace/motita.log
 ```
 
-`log_max_mb` and `log_backups` control the rotation (`starlight.log.1`, `.2`, …).
+`log_max_mb` and `log_backups` control the rotation (`motita.log.1`, `.2`, …).
 
 ---
 

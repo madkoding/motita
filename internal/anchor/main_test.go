@@ -5,7 +5,7 @@ import (
 	"os"
 	"testing"
 
-	"github.com/madkoding/starlight/internal/sandbox"
+	"github.com/madkoding/motita/internal/sandbox"
 )
 
 // TestMain lets the test binary act as the sandbox's child process when it is

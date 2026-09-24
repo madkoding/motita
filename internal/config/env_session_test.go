@@ -11,10 +11,10 @@ import (
 // overflows its context.
 
 func TestSessionSettingsComeFromTheEnvironment(t *testing.T) {
-	t.Setenv("STARLIGHT_LLM_SESSION_CONTEXT_WINDOW", "32000")
-	t.Setenv("STARLIGHT_LLM_SESSION_RESERVE", "2048")
-	t.Setenv("STARLIGHT_LLM_SESSION_KEEP_RECENT", "8")
-	t.Setenv("STARLIGHT_LLM_SESSION_COMPACT_AT", "0.6")
+	t.Setenv("MOTITA_LLM_SESSION_CONTEXT_WINDOW", "32000")
+	t.Setenv("MOTITA_LLM_SESSION_RESERVE", "2048")
+	t.Setenv("MOTITA_LLM_SESSION_KEEP_RECENT", "8")
+	t.Setenv("MOTITA_LLM_SESSION_COMPACT_AT", "0.6")
 
 	cfg := Default()
 	if err := ApplyEnvironment(&cfg); err != nil {
@@ -38,9 +38,9 @@ func TestSessionSettingsComeFromTheEnvironment(t *testing.T) {
 // TestAnEmptyVariableLeavesTheDefault: an exported-but-empty variable is how a shell
 // script leaves a setting alone, and it must not become a zero.
 func TestAnEmptyVariableLeavesTheDefault(t *testing.T) {
-	t.Setenv("STARLIGHT_LLM_SESSION_CONTEXT_WINDOW", "")
-	t.Setenv("STARLIGHT_LLM_SESSION_RESERVE", "   ")
-	t.Setenv("STARLIGHT_LLM_SESSION_COMPACT_AT", "")
+	t.Setenv("MOTITA_LLM_SESSION_CONTEXT_WINDOW", "")
+	t.Setenv("MOTITA_LLM_SESSION_RESERVE", "   ")
+	t.Setenv("MOTITA_LLM_SESSION_COMPACT_AT", "")
 
 	cfg := Default()
 	before := cfg.LLM.Session
@@ -56,10 +56,10 @@ func TestAnEmptyVariableLeavesTheDefault(t *testing.T) {
 // line of their script is wrong.
 func TestAnUnparsableSettingIsReported(t *testing.T) {
 	for _, key := range []string{
-		"STARLIGHT_LLM_SESSION_CONTEXT_WINDOW",
-		"STARLIGHT_LLM_SESSION_RESERVE",
-		"STARLIGHT_LLM_SESSION_KEEP_RECENT",
-		"STARLIGHT_LLM_SESSION_COMPACT_AT",
+		"MOTITA_LLM_SESSION_CONTEXT_WINDOW",
+		"MOTITA_LLM_SESSION_RESERVE",
+		"MOTITA_LLM_SESSION_KEEP_RECENT",
+		"MOTITA_LLM_SESSION_COMPACT_AT",
 	} {
 		t.Run(key, func(t *testing.T) {
 			t.Setenv(key, "not-a-number")

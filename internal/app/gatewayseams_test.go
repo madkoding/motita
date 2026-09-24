@@ -14,7 +14,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/madkoding/starlight/internal/gateway"
+	"github.com/madkoding/motita/internal/gateway"
 )
 
 // The seams above have DEFAULTS, and a default that is never exercised is a default nobody tested.
@@ -23,13 +23,13 @@ import (
 // beside it is what production runs.
 
 // spawnDetached re-executes the program with -serve in its own session. The re-exec itself is what
-// is checked here, with a program that can serve as a stand-in for starlight, because the property
+// is checked here, with a program that can serve as a stand-in for motita, because the property
 // under test is the SPAWNING and not what the child does.
 func TestSpawnDetachedStartsTheChildAndReleasesIt(t *testing.T) {
 	marker := filepath.Join(t.TempDir(), "spawned")
-	// A program that records that it ran, standing in for the re-executed starlight. --serve is
+	// A program that records that it ran, standing in for the re-executed motita. --serve is
 	// passed as an argument it ignores; what matters is that the arguments reach it.
-	script := filepath.Join(t.TempDir(), "fake-starlight")
+	script := filepath.Join(t.TempDir(), "fake-motita")
 	if err := os.WriteFile(script, []byte("#!/bin/sh\nprintf '%s' \"$*\" > "+marker+"\n"), 0o700); err != nil {
 		t.Fatalf("WriteFile: %v", err)
 	}
@@ -61,7 +61,7 @@ func TestSpawnDetachedStartsTheChildAndReleasesIt(t *testing.T) {
 // instead of being told to listen somewhere meaningless.
 func TestSpawnDetachedWithoutAnAddressOmitsTheFlag(t *testing.T) {
 	marker := filepath.Join(t.TempDir(), "args")
-	script := filepath.Join(t.TempDir(), "fake-starlight")
+	script := filepath.Join(t.TempDir(), "fake-motita")
 	if err := os.WriteFile(script, []byte("#!/bin/sh\nprintf '%s' \"$*\" > "+marker+"\n"), 0o700); err != nil {
 		t.Fatalf("WriteFile: %v", err)
 	}
@@ -138,7 +138,7 @@ func TestSignalByPIDStopsAProcess(t *testing.T) {
 // on an Options that names no program.
 func TestExePathFallsBackToArgvZero(t *testing.T) {
 	original := os.Args[0]
-	os.Args[0] = "/some/path/starlight"
+	os.Args[0] = "/some/path/motita"
 	t.Cleanup(func() { os.Args[0] = original })
 
 	op := Options{}
@@ -159,8 +159,8 @@ func TestCompleteFillsTheServiceFileAndSeams(t *testing.T) {
 	if op.ServiceFile == "" {
 		t.Fatal("ServiceFile was left empty")
 	}
-	if !strings.HasSuffix(op.ServiceFile, filepath.Join(".starlight", "gateway.json")) {
-		t.Fatalf("ServiceFile = %q, want it under the starlight home", op.ServiceFile)
+	if !strings.HasSuffix(op.ServiceFile, filepath.Join(".motita", "gateway.json")) {
+		t.Fatalf("ServiceFile = %q, want it under the motita home", op.ServiceFile)
 	}
 	if op.SpawnGateway == nil || op.SignalProcess == nil {
 		t.Fatalf("the seams were left nil: %+v", op)
@@ -511,7 +511,7 @@ func TestStartingReportsAnUnreadableFileAfterTheSpawn(t *testing.T) {
 }
 
 // The configuration path reaches the child, and it is asserted because dropping it was a real bug:
-// `starlight -config custom.yaml gateway start` started a service that ignored custom.yaml and came
+// `motita -config custom.yaml gateway start` started a service that ignored custom.yaml and came
 // up on the defaults. The gateway the user asked for was never the gateway they got, and the
 // failure surfaced much later, as a client talking to the wrong agent.
 //
@@ -520,12 +520,12 @@ func TestStartingReportsAnUnreadableFileAfterTheSpawn(t *testing.T) {
 // environment is readable by every process of that user.
 func TestSpawnDetachedCarriesTheConfigurationToTheChild(t *testing.T) {
 	marker := filepath.Join(t.TempDir(), "spawned")
-	script := filepath.Join(t.TempDir(), "fake-starlight")
+	script := filepath.Join(t.TempDir(), "fake-motita")
 	if err := os.WriteFile(script, []byte("#!/bin/sh\nprintf '%s' \"$*\" > "+marker+"\n"), 0o700); err != nil {
 		t.Fatalf("WriteFile: %v", err)
 	}
 
-	spec := spawnSpec{ExePath: script, Config: "/etc/starlight/custom.yaml", Listen: "127.0.0.1:7477"}
+	spec := spawnSpec{ExePath: script, Config: "/etc/motita/custom.yaml", Listen: "127.0.0.1:7477"}
 	if err := spawnDetached(context.Background(), spec); err != nil {
 		t.Fatalf("spawnDetached: %v", err)
 	}
@@ -541,16 +541,16 @@ func TestSpawnDetachedCarriesTheConfigurationToTheChild(t *testing.T) {
 	}
 	// Both the flag and its value: a bare "-config" would leave the child reading the NEXT argument
 	// as a path.
-	if !strings.Contains(got, "-config /etc/starlight/custom.yaml") {
+	if !strings.Contains(got, "-config /etc/motita/custom.yaml") {
 		t.Fatalf("the configuration did not reach the child: %q", got)
 	}
 }
 
 // And with no configuration named, the flag is left off entirely, so the child finds its
-// configuration the way any other starlight does rather than being handed an empty path.
+// configuration the way any other motita does rather than being handed an empty path.
 func TestSpawnDetachedWithoutAConfigOmitsTheFlag(t *testing.T) {
 	marker := filepath.Join(t.TempDir(), "spawned")
-	script := filepath.Join(t.TempDir(), "fake-starlight")
+	script := filepath.Join(t.TempDir(), "fake-motita")
 	if err := os.WriteFile(script, []byte("#!/bin/sh\nprintf '%s' \"$*\" > "+marker+"\n"), 0o700); err != nil {
 		t.Fatalf("WriteFile: %v", err)
 	}

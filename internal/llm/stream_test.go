@@ -14,7 +14,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/madkoding/starlight/internal/config"
+	"github.com/madkoding/motita/internal/config"
 )
 
 // The streaming path is the one the TUI depends on: it is what keeps a slow model

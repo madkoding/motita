@@ -15,11 +15,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/madkoding/starlight/internal/anchor"
-	"github.com/madkoding/starlight/internal/config"
-	"github.com/madkoding/starlight/internal/execx"
-	"github.com/madkoding/starlight/internal/logx"
-	"github.com/madkoding/starlight/internal/task"
+	"github.com/madkoding/motita/internal/anchor"
+	"github.com/madkoding/motita/internal/config"
+	"github.com/madkoding/motita/internal/execx"
+	"github.com/madkoding/motita/internal/logx"
+	"github.com/madkoding/motita/internal/task"
 )
 
 // execxRequest builds a shell request for the test sandbox.

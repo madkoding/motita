@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
-# End-to-end test of the starlight binary on ONE target platform.
+# End-to-end test of the motita binary on ONE target platform.
 #
 # It runs the binary compiled for that architecture inside a matching container,
 # against an OpenAI-compatible server (tools/mockapi) that also runs in there. It
-# verifies the agent loop works: the "model" asks for tools, starlight runs them on
+# verifies the agent loop works: the "model" asks for tools, motita runs them on
 # the local system, returns the results and receives the final answer.
 #
 # Usage:  ./scripts/e2e.sh <arch> [image]
@@ -43,14 +43,14 @@ case "$ARCH" in
 esac
 
 # The test binary MUST NOT be the released one. Both used to be built straight
-# into dist/starlight-linux-<arch>, and the CI runs this script BEFORE uploading
+# into dist/motita-linux-<arch>, and the CI runs this script BEFORE uploading
 # that path as the release artifact — so every published binary was the e2e build,
 # stamped with version "e2e" instead of the tag. Everything this script builds now
 # goes under dist/.e2e/, and it touches nothing else in dist/: a test that writes
 # over the artifact it is meant to certify certifies something the user never gets.
 E2E_DIST="dist/.e2e"
 mkdir -p "$E2E_DIST"
-TEST_BINARY="$E2E_DIST/starlight-linux-$ARCH"
+TEST_BINARY="$E2E_DIST/motita-linux-$ARCH"
 TEST_MOCK="$E2E_DIST/mockapi-linux-$ARCH"
 
 echo "==> Building the binaries for linux/$ARCH"

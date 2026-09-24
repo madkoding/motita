@@ -11,7 +11,7 @@ import (
 // ---------------------------------------------------------------------------
 // Environment variable overlay.
 //
-// Convention: STARLIGHT_<BLOCK>_<FIELD>. They win over the YAML, which is what
+// Convention: MOTITA_<BLOCK>_<FIELD>. They win over the YAML, which is what
 // is expected when injecting secrets into a container or a systemd service.
 //
 // The bindings are TABLES, not a long list of assignments, because the shape of
@@ -31,42 +31,42 @@ type binding[T any] struct {
 // set but blank leaves the field as it was.
 func textBindings(c *Config) []binding[string] {
 	return []binding[string]{
-		{"STARLIGHT_TASK_SOURCE_KIND", &c.TaskSource.Kind},
-		{"STARLIGHT_TASK_SOURCE_PATH", &c.TaskSource.Path},
-		{"STARLIGHT_TASK_SOURCE_DIR", &c.TaskSource.Dir},
-		{"STARLIGHT_TASK_SOURCE_URL", &c.TaskSource.URL},
-		{"STARLIGHT_TASK_SOURCE_METHOD", &c.TaskSource.Method},
-		{"STARLIGHT_TASK_SOURCE_FIELD", &c.TaskSource.Field},
-		{"STARLIGHT_TASK_SOURCE_BODY", &c.TaskSource.Body},
+		{"MOTITA_TASK_SOURCE_KIND", &c.TaskSource.Kind},
+		{"MOTITA_TASK_SOURCE_PATH", &c.TaskSource.Path},
+		{"MOTITA_TASK_SOURCE_DIR", &c.TaskSource.Dir},
+		{"MOTITA_TASK_SOURCE_URL", &c.TaskSource.URL},
+		{"MOTITA_TASK_SOURCE_METHOD", &c.TaskSource.Method},
+		{"MOTITA_TASK_SOURCE_FIELD", &c.TaskSource.Field},
+		{"MOTITA_TASK_SOURCE_BODY", &c.TaskSource.Body},
 
-		{"STARLIGHT_ANCHOR_KIND", &c.Anchor.Kind},
-		{"STARLIGHT_ANCHOR_COMMAND", &c.Anchor.Command},
-		{"STARLIGHT_ANCHOR_EXPECT_OUTPUT", &c.Anchor.ExpectOutput},
+		{"MOTITA_ANCHOR_KIND", &c.Anchor.Kind},
+		{"MOTITA_ANCHOR_COMMAND", &c.Anchor.Command},
+		{"MOTITA_ANCHOR_EXPECT_OUTPUT", &c.Anchor.ExpectOutput},
 
-		{"STARLIGHT_SANDBOX_KIND", &c.Sandbox.Kind},
-		{"STARLIGHT_SANDBOX_ROOT", &c.Sandbox.Root},
-		{"STARLIGHT_SANDBOX_USER", &c.Sandbox.User},
-		{"STARLIGHT_SANDBOX_CGROUPS", &c.Sandbox.Cgroups},
-		{"STARLIGHT_SANDBOX_CGROUP_ROOT", &c.Sandbox.CgroupRoot},
+		{"MOTITA_SANDBOX_KIND", &c.Sandbox.Kind},
+		{"MOTITA_SANDBOX_ROOT", &c.Sandbox.Root},
+		{"MOTITA_SANDBOX_USER", &c.Sandbox.User},
+		{"MOTITA_SANDBOX_CGROUPS", &c.Sandbox.Cgroups},
+		{"MOTITA_SANDBOX_CGROUP_ROOT", &c.Sandbox.CgroupRoot},
 
-		{"STARLIGHT_SKILLS_DIR", &c.Skills.Dir},
+		{"MOTITA_SKILLS_DIR", &c.Skills.Dir},
 
-		{"STARLIGHT_GATEWAY_LISTEN", &c.Gateway.Listen},
-		{"STARLIGHT_GATEWAY_TOKEN_FILE", &c.Gateway.TokenFile},
+		{"MOTITA_GATEWAY_LISTEN", &c.Gateway.Listen},
+		{"MOTITA_GATEWAY_TOKEN_FILE", &c.Gateway.TokenFile},
 
-		{"STARLIGHT_FINAL_ACTION_KIND", &c.FinalAction.Kind},
-		{"STARLIGHT_FINAL_ACTION_COMMAND", &c.FinalAction.Command},
-		{"STARLIGHT_FINAL_ACTION_URL", &c.FinalAction.URL},
-		{"STARLIGHT_FINAL_ACTION_METHOD", &c.FinalAction.Method},
-		{"STARLIGHT_FINAL_ACTION_COMMIT_MESSAGE", &c.FinalAction.CommitMessage},
+		{"MOTITA_FINAL_ACTION_KIND", &c.FinalAction.Kind},
+		{"MOTITA_FINAL_ACTION_COMMAND", &c.FinalAction.Command},
+		{"MOTITA_FINAL_ACTION_URL", &c.FinalAction.URL},
+		{"MOTITA_FINAL_ACTION_METHOD", &c.FinalAction.Method},
+		{"MOTITA_FINAL_ACTION_COMMIT_MESSAGE", &c.FinalAction.CommitMessage},
 
-		{"STARLIGHT_AGENT_WORKSPACE_DIR", &c.Agent.WorkspaceDir},
-		{"STARLIGHT_AGENT_LOG_FILE", &c.Agent.LogFile},
-		{"STARLIGHT_AGENT_LOG_LEVEL", &c.Agent.LogLevel},
-		{"STARLIGHT_AGENT_SHELL", &c.Agent.Shell},
+		{"MOTITA_AGENT_WORKSPACE_DIR", &c.Agent.WorkspaceDir},
+		{"MOTITA_AGENT_LOG_FILE", &c.Agent.LogFile},
+		{"MOTITA_AGENT_LOG_LEVEL", &c.Agent.LogLevel},
+		{"MOTITA_AGENT_SHELL", &c.Agent.Shell},
 
-		{"STARLIGHT_AGENT_ON_FAILURE_KIND", &c.Agent.OnFailure.Kind},
-		{"STARLIGHT_AGENT_ON_FAILURE_COMMAND", &c.Agent.OnFailure.Command},
+		{"MOTITA_AGENT_ON_FAILURE_KIND", &c.Agent.OnFailure.Kind},
+		{"MOTITA_AGENT_ON_FAILURE_COMMAND", &c.Agent.OnFailure.Command},
 	}
 }
 
@@ -74,65 +74,65 @@ func textBindings(c *Config) []binding[string] {
 // not trim: a prompt is multi-line and its layout is part of the instructions.
 func promptBindings(c *Config) []binding[string] {
 	return []binding[string]{
-		{"STARLIGHT_PROMPTS_ANALYZE_SYSTEM", &c.Prompts.Analyze.System},
-		{"STARLIGHT_PROMPTS_ANALYZE_USER", &c.Prompts.Analyze.User},
-		{"STARLIGHT_PROMPTS_PLAN_SYSTEM", &c.Prompts.Plan.System},
-		{"STARLIGHT_PROMPTS_PLAN_USER", &c.Prompts.Plan.User},
-		{"STARLIGHT_PROMPTS_EXECUTE_SYSTEM", &c.Prompts.Execute.System},
-		{"STARLIGHT_PROMPTS_EXECUTE_USER", &c.Prompts.Execute.User},
+		{"MOTITA_PROMPTS_ANALYZE_SYSTEM", &c.Prompts.Analyze.System},
+		{"MOTITA_PROMPTS_ANALYZE_USER", &c.Prompts.Analyze.User},
+		{"MOTITA_PROMPTS_PLAN_SYSTEM", &c.Prompts.Plan.System},
+		{"MOTITA_PROMPTS_PLAN_USER", &c.Prompts.Plan.User},
+		{"MOTITA_PROMPTS_EXECUTE_SYSTEM", &c.Prompts.Execute.System},
+		{"MOTITA_PROMPTS_EXECUTE_USER", &c.Prompts.Execute.User},
 	}
 }
 
 func durationBindings(c *Config) []binding[time.Duration] {
 	return []binding[time.Duration]{
-		{"STARLIGHT_TASK_SOURCE_INTERVAL", &c.TaskSource.Interval},
-		{"STARLIGHT_ANCHOR_TIMEOUT", &c.Anchor.Timeout},
-		{"STARLIGHT_SANDBOX_TIMEOUT", &c.Sandbox.Timeout},
-		{"STARLIGHT_LLM_TIMEOUT", &c.LLM.Timeout},
-		{"STARLIGHT_LLM_BACKOFF_INITIAL", &c.LLM.BackoffInitial},
-		{"STARLIGHT_LLM_BACKOFF_MAX", &c.LLM.BackoffMax},
+		{"MOTITA_TASK_SOURCE_INTERVAL", &c.TaskSource.Interval},
+		{"MOTITA_ANCHOR_TIMEOUT", &c.Anchor.Timeout},
+		{"MOTITA_SANDBOX_TIMEOUT", &c.Sandbox.Timeout},
+		{"MOTITA_LLM_TIMEOUT", &c.LLM.Timeout},
+		{"MOTITA_LLM_BACKOFF_INITIAL", &c.LLM.BackoffInitial},
+		{"MOTITA_LLM_BACKOFF_MAX", &c.LLM.BackoffMax},
 	}
 }
 
 func integerBindings(c *Config) []binding[int] {
 	return []binding[int]{
-		{"STARLIGHT_ANCHOR_EXPECT_EXIT", &c.Anchor.ExpectExit},
-		{"STARLIGHT_SANDBOX_MEMORY_MB", &c.Sandbox.MemoryMB},
-		{"STARLIGHT_SANDBOX_CPU_SECONDS", &c.Sandbox.CPUSeconds},
-		{"STARLIGHT_SANDBOX_PROCESSES", &c.Sandbox.Processes},
-		{"STARLIGHT_SANDBOX_OPEN_FILES", &c.Sandbox.OpenFiles},
-		{"STARLIGHT_SANDBOX_MAX_FILE_SIZE_MB", &c.Sandbox.MaxFileSizeMB},
-		{"STARLIGHT_SANDBOX_MAX_OUTPUT_KB", &c.Sandbox.MaxOutputKB},
-		{"STARLIGHT_SKILLS_MAX_FILE_BYTES", &c.Skills.MaxFileBytes},
-		{"STARLIGHT_GATEWAY_MAX_BODY_KB", &c.Gateway.MaxBodyKB},
-		{"STARLIGHT_GATEWAY_MAX_SESSIONS", &c.Gateway.MaxSessions},
-		{"STARLIGHT_LLM_MAX_TOKENS", &c.LLM.MaxTokens},
-		{"STARLIGHT_LLM_SESSION_CONTEXT_WINDOW", &c.LLM.Session.ContextWindow},
-		{"STARLIGHT_LLM_SESSION_RESERVE", &c.LLM.Session.Reserve},
-		{"STARLIGHT_LLM_SESSION_KEEP_RECENT", &c.LLM.Session.KeepRecent},
-		{"STARLIGHT_LLM_MAX_ATTEMPTS", &c.LLM.MaxAttempts},
-		{"STARLIGHT_AGENT_MAX_RETRIES", &c.Agent.MaxRetries},
-		{"STARLIGHT_AGENT_SUBTASK_DEPTH", &c.Agent.SubtaskDepth},
-		{"STARLIGHT_AGENT_MAX_TASKS", &c.Agent.MaxTasks},
-		{"STARLIGHT_AGENT_LOG_MAX_MB", &c.Agent.LogMaxMB},
-		{"STARLIGHT_AGENT_LOG_BACKUPS", &c.Agent.LogBackups},
+		{"MOTITA_ANCHOR_EXPECT_EXIT", &c.Anchor.ExpectExit},
+		{"MOTITA_SANDBOX_MEMORY_MB", &c.Sandbox.MemoryMB},
+		{"MOTITA_SANDBOX_CPU_SECONDS", &c.Sandbox.CPUSeconds},
+		{"MOTITA_SANDBOX_PROCESSES", &c.Sandbox.Processes},
+		{"MOTITA_SANDBOX_OPEN_FILES", &c.Sandbox.OpenFiles},
+		{"MOTITA_SANDBOX_MAX_FILE_SIZE_MB", &c.Sandbox.MaxFileSizeMB},
+		{"MOTITA_SANDBOX_MAX_OUTPUT_KB", &c.Sandbox.MaxOutputKB},
+		{"MOTITA_SKILLS_MAX_FILE_BYTES", &c.Skills.MaxFileBytes},
+		{"MOTITA_GATEWAY_MAX_BODY_KB", &c.Gateway.MaxBodyKB},
+		{"MOTITA_GATEWAY_MAX_SESSIONS", &c.Gateway.MaxSessions},
+		{"MOTITA_LLM_MAX_TOKENS", &c.LLM.MaxTokens},
+		{"MOTITA_LLM_SESSION_CONTEXT_WINDOW", &c.LLM.Session.ContextWindow},
+		{"MOTITA_LLM_SESSION_RESERVE", &c.LLM.Session.Reserve},
+		{"MOTITA_LLM_SESSION_KEEP_RECENT", &c.LLM.Session.KeepRecent},
+		{"MOTITA_LLM_MAX_ATTEMPTS", &c.LLM.MaxAttempts},
+		{"MOTITA_AGENT_MAX_RETRIES", &c.Agent.MaxRetries},
+		{"MOTITA_AGENT_SUBTASK_DEPTH", &c.Agent.SubtaskDepth},
+		{"MOTITA_AGENT_MAX_TASKS", &c.Agent.MaxTasks},
+		{"MOTITA_AGENT_LOG_MAX_MB", &c.Agent.LogMaxMB},
+		{"MOTITA_AGENT_LOG_BACKUPS", &c.Agent.LogBackups},
 	}
 }
 
 func boolBindings(c *Config) []binding[bool] {
 	return []binding[bool]{
-		{"STARLIGHT_SANDBOX_KEEP_EPHEMERAL", &c.Sandbox.KeepEphemeral},
-		{"STARLIGHT_SANDBOX_ISOLATE_NETWORK", &c.Sandbox.IsolateNetwork},
-		{"STARLIGHT_AGENT_LOG_CONSOLE", &c.Agent.LogConsole},
-		{"STARLIGHT_AGENT_READ_ONLY", &c.Agent.ReadOnly},
-		{"STARLIGHT_AGENT_POLICY_ENFORCE", &c.Agent.Policy.Enforce},
-		{"STARLIGHT_AGENT_POLICY_STRICT", &c.Agent.Policy.Strict},
-		{"STARLIGHT_GATEWAY_ENABLED", &c.Gateway.Enabled},
-		{"STARLIGHT_GATEWAY_WEBUI", &c.Gateway.WebUI},
+		{"MOTITA_SANDBOX_KEEP_EPHEMERAL", &c.Sandbox.KeepEphemeral},
+		{"MOTITA_SANDBOX_ISOLATE_NETWORK", &c.Sandbox.IsolateNetwork},
+		{"MOTITA_AGENT_LOG_CONSOLE", &c.Agent.LogConsole},
+		{"MOTITA_AGENT_READ_ONLY", &c.Agent.ReadOnly},
+		{"MOTITA_AGENT_POLICY_ENFORCE", &c.Agent.Policy.Enforce},
+		{"MOTITA_AGENT_POLICY_STRICT", &c.Agent.Policy.Strict},
+		{"MOTITA_GATEWAY_ENABLED", &c.Gateway.Enabled},
+		{"MOTITA_GATEWAY_WEBUI", &c.Gateway.WebUI},
 	}
 }
 
-// ApplyEnvironment overlays the STARLIGHT_* variables on the configuration.
+// ApplyEnvironment overlays the MOTITA_* variables on the configuration.
 func ApplyEnvironment(c *Config) error {
 	for _, b := range textBindings(c) {
 		*b.dst = readText(b.key, *b.dst)
@@ -170,22 +170,22 @@ func ApplyEnvironment(c *Config) error {
 // consulted only when nothing else set the value, so a configuration that names
 // its own endpoint is never overridden by a stray variable.
 //
-// The order is: the documented STARLIGHT_ name, then the provider's own alias,
+// The order is: the documented MOTITA_ name, then the provider's own alias,
 // then the standard OpenAI name.
 func applyLLMEnvironment(c *Config) error {
-	c.LLM.Provider = readText("STARLIGHT_LLM_PROVIDER", c.LLM.Provider)
+	c.LLM.Provider = readText("MOTITA_LLM_PROVIDER", c.LLM.Provider)
 
 	// The provider's key variable, so "just paste the key" works the way each
 	// service documents it (OLLAMA_API_KEY for Ollama Cloud).
-	c.LLM.APIKey = readText("STARLIGHT_LLM_API_KEY", c.LLM.APIKey)
-	if _, generic := os.LookupEnv("STARLIGHT_LLM_API_KEY"); !generic {
+	c.LLM.APIKey = readText("MOTITA_LLM_API_KEY", c.LLM.APIKey)
+	if _, generic := os.LookupEnv("MOTITA_LLM_API_KEY"); !generic {
 		c.LLM.APIKey = readText(ProviderKeyVariable(c.LLM.Provider), c.LLM.APIKey)
 	}
 	// The names the OpenAI ecosystem already exports, which the README promises to
 	// accept. They are applied HERE, in the one overlay that every loading path
 	// runs — reading them only inside Load left the -p and TUI paths, which load the
 	// defaults plus the environment, with no key at all.
-	if _, explicit := os.LookupEnv("STARLIGHT_LLM_API_KEY"); !explicit {
+	if _, explicit := os.LookupEnv("MOTITA_LLM_API_KEY"); !explicit {
 		if _, own := os.LookupEnv(ProviderKeyVariable(c.LLM.Provider)); !own {
 			c.LLM.APIKey = readText("OPENAI_API_KEY", c.LLM.APIKey)
 		}
@@ -194,20 +194,20 @@ func applyLLMEnvironment(c *Config) error {
 	// The model and the endpoint are only taken from the standard OpenAI names when
 	// each is still the default, which is the case a bare `OPENAI_BASE_URL=...` is
 	// written for.
-	c.LLM.Model = readText("STARLIGHT_LLM_MODEL", c.LLM.Model)
-	if os.Getenv("STARLIGHT_LLM_MODEL") == "" && c.LLM.Model == Default().LLM.Model {
+	c.LLM.Model = readText("MOTITA_LLM_MODEL", c.LLM.Model)
+	if os.Getenv("MOTITA_LLM_MODEL") == "" && c.LLM.Model == Default().LLM.Model {
 		c.LLM.Model = readText("OPENAI_MODEL", c.LLM.Model)
 	}
-	c.LLM.BaseURL = readText("STARLIGHT_LLM_BASE_URL", c.LLM.BaseURL)
-	if os.Getenv("STARLIGHT_LLM_BASE_URL") == "" && c.LLM.BaseURL == Default().LLM.BaseURL {
+	c.LLM.BaseURL = readText("MOTITA_LLM_BASE_URL", c.LLM.BaseURL)
+	if os.Getenv("MOTITA_LLM_BASE_URL") == "" && c.LLM.BaseURL == Default().LLM.BaseURL {
 		c.LLM.BaseURL = readText("OPENAI_BASE_URL", c.LLM.BaseURL)
 	}
 
 	// The two floating-point settings have their own variables because they are the
 	// only non-integer numbers in the configuration.
 	for _, b := range []binding[float64]{
-		{"STARLIGHT_LLM_SESSION_COMPACT_AT", &c.LLM.Session.CompactAt},
-		{"STARLIGHT_LLM_TEMPERATURE", &c.LLM.Temperature},
+		{"MOTITA_LLM_SESSION_COMPACT_AT", &c.LLM.Session.CompactAt},
+		{"MOTITA_LLM_TEMPERATURE", &c.LLM.Temperature},
 	} {
 		if v := os.Getenv(b.key); v != "" {
 			f, err := strconv.ParseFloat(strings.TrimSpace(v), 64)
@@ -226,8 +226,8 @@ func applyLLMEnvironment(c *Config) error {
 	// field is called graceful_shutdown_timeout, so a reader following the documented
 	// formula would have set a variable that did nothing.
 	v, err := readDurationAliased(
-		"STARLIGHT_AGENT_GRACEFUL_SHUTDOWN_TIMEOUT", // the documented name
-		"STARLIGHT_AGENT_SHUTDOWN_TIMEOUT",          // kept for compatibility
+		"MOTITA_AGENT_GRACEFUL_SHUTDOWN_TIMEOUT", // the documented name
+		"MOTITA_AGENT_SHUTDOWN_TIMEOUT",          // kept for compatibility
 		c.Agent.ShutdownTimeout)
 	if err != nil {
 		return err
@@ -240,10 +240,10 @@ func applyLLMEnvironment(c *Config) error {
 // agree: a level of "off" with reasoning enabled would mean nothing, and a level
 // other than "off" with reasoning disabled would be a setting nobody applied.
 func applyReasoningEnvironment(c *Config) error {
-	if v := strings.ToLower(readText("STARLIGHT_LLM_REASONING_ENABLED", "")); v != "" {
+	if v := strings.ToLower(readText("MOTITA_LLM_REASONING_ENABLED", "")); v != "" {
 		c.LLM.Reasoning.Enabled = v == "true" || v == "yes" || v == "1" || v == "on"
 	}
-	v := strings.ToLower(readText("STARLIGHT_LLM_REASONING_LEVEL", c.LLM.Reasoning.Level))
+	v := strings.ToLower(readText("MOTITA_LLM_REASONING_LEVEL", c.LLM.Reasoning.Level))
 	switch v {
 	case "", "off", "low", "medium", "high":
 		if v != "" {
@@ -251,7 +251,7 @@ func applyReasoningEnvironment(c *Config) error {
 		}
 		return nil
 	default:
-		return fmt.Errorf("STARLIGHT_LLM_REASONING_LEVEL must be one of: off, low, medium, high")
+		return fmt.Errorf("MOTITA_LLM_REASONING_LEVEL must be one of: off, low, medium, high")
 	}
 }
 
@@ -268,11 +268,11 @@ func applyReasoningEnvironment(c *Config) error {
 // being silently read as one malformed rule.
 //
 // An EMPTY or blank variable leaves the field alone, exactly like every other readText binding:
-// exporting STARLIGHT_GATEWAY_ALLOW= in a compose file because a secret did not arrive must not
+// exporting MOTITA_GATEWAY_ALLOW= in a compose file because a secret did not arrive must not
 // wipe a restriction the operator wrote in their YAML. Clearing a rule list is done by editing the
 // file, not by an empty variable.
 func applyListEnvironment(c *Config) {
-	v, ok := os.LookupEnv("STARLIGHT_GATEWAY_ALLOW")
+	v, ok := os.LookupEnv("MOTITA_GATEWAY_ALLOW")
 	if !ok || strings.TrimSpace(v) == "" {
 		return
 	}
@@ -296,7 +296,7 @@ func splitRules(v string) []string {
 // A variable that is defined but blank ("   ") is treated as not defined: in
 // CI, in systemd or in a docker-compose it is very common to export an empty
 // variable because the secret did not arrive. Without this check,
-// `STARLIGHT_LLM_MODEL="   "` wiped the model instead of leaving it as it was.
+// `MOTITA_LLM_MODEL="   "` wiped the model instead of leaving it as it was.
 func readText(key, current string) string {
 	v, ok := os.LookupEnv(key)
 	if !ok {
@@ -335,7 +335,7 @@ func readDuration(key string, current time.Duration) (time.Duration, error) {
 }
 
 // readDurationAliased reads a duration that has a second, historical name. The
-// documented name (STARLIGHT_<BLOCK>_<FIELD>, the field's yaml tag) always wins;
+// documented name (MOTITA_<BLOCK>_<FIELD>, the field's yaml tag) always wins;
 // the older name is still honoured so a deployment written against the previous
 // release keeps working.
 func readDurationAliased(primary, alias string, current time.Duration) (time.Duration, error) {
@@ -392,5 +392,5 @@ func ProviderKeyVariable(provider string) string {
 	if v, ok := providerKeyAliases[strings.ToLower(strings.TrimSpace(provider))]; ok {
 		return v
 	}
-	return "STARLIGHT_LLM_API_KEY"
+	return "MOTITA_LLM_API_KEY"
 }

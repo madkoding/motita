@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"sync"
 
-	"github.com/madkoding/starlight/internal/session"
+	"github.com/madkoding/motita/internal/session"
 )
 
 // maxLoggedEvents is how many events of one run the gateway keeps to replay.

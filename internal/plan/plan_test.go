@@ -14,13 +14,13 @@ import (
 	"testing"
 	"time"
 
-	"github.com/madkoding/starlight/internal/agent"
-	"github.com/madkoding/starlight/internal/config"
-	"github.com/madkoding/starlight/internal/execx"
-	"github.com/madkoding/starlight/internal/llm"
-	"github.com/madkoding/starlight/internal/logx"
-	"github.com/madkoding/starlight/internal/sandbox"
-	"github.com/madkoding/starlight/internal/session"
+	"github.com/madkoding/motita/internal/agent"
+	"github.com/madkoding/motita/internal/config"
+	"github.com/madkoding/motita/internal/execx"
+	"github.com/madkoding/motita/internal/llm"
+	"github.com/madkoding/motita/internal/logx"
+	"github.com/madkoding/motita/internal/sandbox"
+	"github.com/madkoding/motita/internal/session"
 )
 
 // fakeExecutor records every command and returns scripted answers.

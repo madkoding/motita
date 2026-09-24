@@ -5,8 +5,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/madkoding/starlight/internal/reward"
-	"github.com/madkoding/starlight/internal/skills"
+	"github.com/madkoding/motita/internal/reward"
+	"github.com/madkoding/motita/internal/skills"
 )
 
 // The reward changes two things and must not change a third: it breaks ties by experience, it

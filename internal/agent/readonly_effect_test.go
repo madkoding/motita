@@ -11,9 +11,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/madkoding/starlight/internal/config"
-	"github.com/madkoding/starlight/internal/execx"
-	"github.com/madkoding/starlight/internal/logx"
+	"github.com/madkoding/motita/internal/config"
+	"github.com/madkoding/motita/internal/execx"
+	"github.com/madkoding/motita/internal/logx"
 )
 
 // realExecutor runs the request the way the sandbox does, so the test exercises the

@@ -19,17 +19,17 @@ import (
 	"sync"
 	"time"
 
-	"github.com/madkoding/starlight/internal/agent"
-	"github.com/madkoding/starlight/internal/config"
-	"github.com/madkoding/starlight/internal/gateway"
-	"github.com/madkoding/starlight/internal/llm"
-	"github.com/madkoding/starlight/internal/logx"
-	"github.com/madkoding/starlight/internal/onboard"
-	"github.com/madkoding/starlight/internal/plan"
-	"github.com/madkoding/starlight/internal/procedures"
-	"github.com/madkoding/starlight/internal/sandbox"
-	"github.com/madkoding/starlight/internal/task"
-	"github.com/madkoding/starlight/internal/tui"
+	"github.com/madkoding/motita/internal/agent"
+	"github.com/madkoding/motita/internal/config"
+	"github.com/madkoding/motita/internal/gateway"
+	"github.com/madkoding/motita/internal/llm"
+	"github.com/madkoding/motita/internal/logx"
+	"github.com/madkoding/motita/internal/onboard"
+	"github.com/madkoding/motita/internal/plan"
+	"github.com/madkoding/motita/internal/procedures"
+	"github.com/madkoding/motita/internal/sandbox"
+	"github.com/madkoding/motita/internal/task"
+	"github.com/madkoding/motita/internal/tui"
 )
 
 // Program exit codes. They are part of the public contract (cron and systemd use
@@ -124,7 +124,7 @@ type Options struct {
 	// so a test can point it at a temporary directory instead of the user's home.
 	ServiceFile string
 	// ExePath is the program re-executed for `gateway start`. Injectable because in a test the
-	// program under test is not a starlight that can serve.
+	// program under test is not a motita that can serve.
 	ExePath string
 	// SpawnGateway brings the service up. It is a seam of the same shape as Exit and RunChild: the
 	// real one re-executes the program detached, and a test cannot do that without starting a
@@ -161,7 +161,7 @@ type Options struct {
 // change to the default breaks the test that checks this text instead of silently turning the help
 // into a lie.
 func Usage() string {
-	return fmt.Sprintf(`Usage: starlight [options]
+	return fmt.Sprintf(`Usage: motita [options]
 
 Options:
   -config string     path to the YAML configuration file
@@ -190,7 +190,7 @@ The gateway listens on every interface by default and enforces no origin rules: 
 reachable the way a machine with a fresh, empty firewall table is. Narrow it by adding
 rules to gateway.allow - "lan", an address, a network, or "!any" for this machine only.
 
-Environment variables: STARLIGHT_* (see README.md; also accepts OPENAI_API_KEY).
+Environment variables: MOTITA_* (see README.md; also accepts OPENAI_API_KEY).
 `, config.Default().GatewayListen())
 }
 
@@ -214,7 +214,7 @@ type flags struct {
 	connect string
 	// session is the conversation to attach to, by id.
 	session string
-	// gatewayAction is the action of `starlight gateway <action>`. A POSITIONAL argument, not a
+	// gatewayAction is the action of `motita gateway <action>`. A POSITIONAL argument, not a
 	// flag, which is why it is read before the flag loop rather than inside it.
 	gatewayAction string
 }
@@ -229,7 +229,7 @@ func Run(op Options) int {
 	// sandbox, not to the user.
 	if sandbox.IsChildExecution(op.Args) {
 		if err := op.RunChild(op.Args); err != nil {
-			fmt.Fprintf(op.Err, "starlight[sandbox]: %v\n", err)
+			fmt.Fprintf(op.Err, "motita[sandbox]: %v\n", err)
 			return ChildError
 		}
 		return Success
@@ -242,7 +242,7 @@ func Run(op Options) int {
 	}
 
 	if fl.version {
-		fmt.Fprintf(op.Out, "starlight %s (%s/%s)\n", op.Version, op.Goos, op.Goarch)
+		fmt.Fprintf(op.Out, "motita %s (%s/%s)\n", op.Version, op.Goos, op.Goarch)
 		return Success
 	}
 
@@ -325,7 +325,7 @@ func (op *Options) complete() {
 
 // valueFlags are the flags that consume the argument after them. The list exists for ONE reason: to
 // tell a flag's VALUE apart from a subcommand. `-session gateway` names a conversation called
-// "gateway", and reading that word as a command would make `starlight -session gateway -connect
+// "gateway", and reading that word as a command would make `motita -session gateway -connect
 // host` start a service instead of attaching a client - a silent reversal of what was asked for.
 var valueFlags = map[string]bool{
 	"-config": true, "--config": true,
@@ -363,13 +363,13 @@ func parse(args []string) (flags, error) {
 	var b flags
 
 	// The subcommand is read FIRST, because it is a POSITIONAL argument and the loop below is
-	// written for flags: `starlight gateway start` reaching that loop would be reported as an
+	// written for flags: `motita gateway start` reaching that loop would be reported as an
 	// unknown flag named "gateway", which is a confusing way to say the user used the right word in
 	// the right place.
 	//
 	// It is found by scanning for the word while SKIPPING the values of flags, which is why there is
 	// a list of the flags that take one. Without that skipping, `-session gateway` would be read as
-	// the subcommand and `starlight -session gateway -connect host` would start a SERVICE instead of
+	// the subcommand and `motita -session gateway -connect host` would start a SERVICE instead of
 	// a client that attaches to a conversation called "gateway".
 	skip := flagValues(args)
 	action := ""
@@ -389,7 +389,7 @@ func parse(args []string) (flags, error) {
 			args = append(append([]string{}, args[:i]...), args[i+2:]...)
 		default:
 			// Rejected with the list rather than ignored: falling through would turn a typo into
-			// something else entirely - `starlight gateway strat` starting the interface.
+			// something else entirely - `motita gateway strat` starting the interface.
 			return b, fmt.Errorf("unknown gateway action %q: start, stop or status", args[i+1])
 		}
 		break
@@ -500,23 +500,23 @@ func parse(args []string) (flags, error) {
 }
 
 // initConfig runs the first-run wizard. The default destination is
-// ./starlight.yaml next to wherever the agent is being set up, which is what the
+// ./motita.yaml next to wherever the agent is being set up, which is what the
 // summary then tells the user to pass with -config.
 func (op Options) initConfig(fl flags) int {
 	path := fl.configPath
 	if path == "" {
-		// The wizard's default is the starlight home, so a first run lands where the program
+		// The wizard's default is the motita home, so a first run lands where the program
 		// will look for it afterwards. Its directory is created as part of writing the file, so
-		// a user with no ~/.starlight gets one. With no HOME there is no home to use, and the
+		// a user with no ~/.motita gets one. With no HOME there is no home to use, and the
 		// working directory is the fallback — the old behaviour, for the environments that have
 		// nowhere else to put it.
 		path = config.File()
 		if path == "" {
-			path = "./starlight.yaml"
+			path = "./motita.yaml"
 		}
 	}
 
-	fmt.Fprintf(op.Out, "Welcome to starlight.\n")
+	fmt.Fprintf(op.Out, "Welcome to motita.\n")
 	fmt.Fprintf(op.Out, "This wizard writes a working configuration in %s.\n", path)
 	fmt.Fprintf(op.Out, "Nothing is written until every answer is in: press q to cancel at any point.\n")
 
@@ -546,14 +546,14 @@ func (op Options) initConfig(fl flags) int {
 //
 // It is ONE function because two callers need the same answer and disagreeing is the bug that
 // matters: `run` loads the file, and the gateway subcommands resolve whether to announce the
-// browser interface from it. When those two derived it separately, `starlight gateway start` with
+// browser interface from it. When those two derived it separately, `motita gateway start` with
 // no -config resolved against the DEFAULTS while the service it spawned read
-// ~/.starlight/starlight.yaml - so an operator who turned the interface off in their own file was
+// ~/.motita/motita.yaml - so an operator who turned the interface off in their own file was
 // handed a link to a page their gateway answers 404 on. Both now ask this.
 //
-// The order is: an explicit -config, then the starlight home, then the working directory. The home
+// The order is: an explicit -config, then the motita home, then the working directory. The home
 // comes FIRST and the working directory SECOND, which is the opposite of the usual project-local
-// convention and deliberate: starlight's file carries the LLM credentials and the paths to its own
+// convention and deliberate: motita's file carries the LLM credentials and the paths to its own
 // state, so it belongs to the user rather than to whichever repository they happened to be
 // standing in. The working directory is still accepted, so an existing setup keeps working and a
 // per-project override stays possible.
@@ -563,8 +563,8 @@ func resolvedConfigPath(fl flags) string {
 		return fl.configPath
 	case config.File() != "" && exists(config.File()):
 		return config.File()
-	case exists("starlight.yaml"):
-		return "starlight.yaml"
+	case exists("motita.yaml"):
+		return "motita.yaml"
 	default:
 		return ""
 	}
@@ -601,12 +601,12 @@ func (op Options) run(fl flags) int {
 	// the file with the default values would hide exactly the failure being
 	// looked for.
 	//
-	// When no explicit -config is given, the file is looked for in the starlight home
-	// (~/.starlight/starlight.yaml) and then in the current directory. If neither exists, the
+	// When no explicit -config is given, the file is looked for in the motita home
+	// (~/.motita/motita.yaml) and then in the current directory. If neither exists, the
 	// program starts from defaults so the TUI or wizard can run without a file.
 	//
 	// The home comes FIRST and the working directory SECOND, which is the opposite of how a
-	// project-local configuration usually works, and deliberately so: starlight's file carries
+	// project-local configuration usually works, and deliberately so: motita's file carries
 	// the LLM credentials and the paths to its own state, so it belongs to the user rather than
 	// to whichever repository they happened to be standing in. The working directory is still
 	// accepted, so an existing setup keeps working and a per-project override stays possible.
@@ -616,8 +616,8 @@ func (op Options) run(fl flags) int {
 	// the gateway subcommands resolve whether to announce the browser interface from it, and a
 	// caller that re-derived it would eventually derive it differently. See resolvedConfigPath.
 	//
-	// When no explicit -config is given, the file is looked for in the starlight home
-	// (~/.starlight/starlight.yaml) and then in the current directory. If neither exists, the
+	// When no explicit -config is given, the file is looked for in the motita home
+	// (~/.motita/motita.yaml) and then in the current directory. If neither exists, the
 	// program starts from defaults so the TUI or wizard can run without a file.
 	if cfgPath := resolvedConfigPath(fl); cfgPath != "" {
 		cfg, err = loadPreferringKey(cfgPath, fl)
@@ -1021,7 +1021,7 @@ func (op Options) runTUI(ctx context.Context, fl flags, cfg config.Config, engin
 
 	// The interface CONNECTS to a gateway rather than assuming it is the only one.
 	//
-	// This is the split the user asked for: `starlight` brings up an interface, and the agent behind
+	// This is the split the user asked for: `motita` brings up an interface, and the agent behind
 	// it is a service that can already be running. Attaching to one that is there is also what makes
 	// `gateway start` mean anything - a service nobody can connect to is a service for nobody.
 	client, version, release, code := op.attachGateway(ctx, fl, cfg, engine, box, log)

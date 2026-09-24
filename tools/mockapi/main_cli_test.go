@@ -5,7 +5,7 @@ import (
 	"os"
 	"testing"
 
-	"github.com/madkoding/starlight/tools/clitest"
+	"github.com/madkoding/motita/tools/clitest"
 )
 
 // TestMain lets the test binary act as the tool itself when the marker is set:

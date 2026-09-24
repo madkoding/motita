@@ -5,11 +5,11 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/madkoding/starlight/internal/config"
-	"github.com/madkoding/starlight/internal/logx"
-	"github.com/madkoding/starlight/internal/procedures"
-	"github.com/madkoding/starlight/internal/reward"
-	"github.com/madkoding/starlight/internal/skills"
+	"github.com/madkoding/motita/internal/config"
+	"github.com/madkoding/motita/internal/logx"
+	"github.com/madkoding/motita/internal/procedures"
+	"github.com/madkoding/motita/internal/reward"
+	"github.com/madkoding/motita/internal/skills"
 )
 
 // TestAnInstalledStoreIsTheOneTheRunnerUses: the gateway hands every conversation the same library

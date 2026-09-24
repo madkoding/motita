@@ -18,10 +18,10 @@ package procedures
 import (
 	"path/filepath"
 
-	"github.com/madkoding/starlight/internal/config"
-	"github.com/madkoding/starlight/internal/logx"
-	"github.com/madkoding/starlight/internal/reward"
-	"github.com/madkoding/starlight/internal/skills"
+	"github.com/madkoding/motita/internal/config"
+	"github.com/madkoding/motita/internal/logx"
+	"github.com/madkoding/motita/internal/reward"
+	"github.com/madkoding/motita/internal/skills"
 )
 
 // Store is the library and its ledger, as one thing.
@@ -38,7 +38,7 @@ type Store struct {
 // Open builds the store named by a configuration.
 //
 // An unset directory falls back to the home rather than to the working directory: the library
-// is starlight's own state, and a configuration that names nothing must not scatter it through
+// is motita's own state, and a configuration that names nothing must not scatter it through
 // whatever project the user happens to be standing in.
 //
 // A ledger that cannot be read is reported and then IGNORED, not returned as an error. The

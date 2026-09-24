@@ -199,53 +199,53 @@ func TestPathOrName(t *testing.T) {
 // TestEnvironmentAllKeys walks every variable to make sure they are applied.
 func TestEnvironmentAllKeys(t *testing.T) {
 	values := map[string]string{
-		"STARLIGHT_TASK_SOURCE_KIND":                "api",
-		"STARLIGHT_TASK_SOURCE_PATH":                "path.yaml",
-		"STARLIGHT_TASK_SOURCE_DIR":                 "queue",
-		"STARLIGHT_TASK_SOURCE_URL":                 "http://example/api",
-		"STARLIGHT_TASK_SOURCE_METHOD":              "POST",
-		"STARLIGHT_TASK_SOURCE_FIELD":               "text",
-		"STARLIGHT_TASK_SOURCE_BODY":                `{"a":1}`,
-		"STARLIGHT_TASK_SOURCE_INTERVAL":            "15s",
-		"STARLIGHT_ANCHOR_KIND":                     "command",
-		"STARLIGHT_ANCHOR_COMMAND":                  "make",
-		"STARLIGHT_ANCHOR_TIMEOUT":                  "2m",
-		"STARLIGHT_ANCHOR_EXPECT_EXIT":              "3",
-		"STARLIGHT_ANCHOR_EXPECT_OUTPUT":            "OK$",
-		"STARLIGHT_SANDBOX_KIND":                    "chroot",
-		"STARLIGHT_SANDBOX_ROOT":                    "/root",
-		"STARLIGHT_SANDBOX_USER":                    "1000:1000",
-		"STARLIGHT_SANDBOX_CGROUPS":                 "off",
-		"STARLIGHT_SANDBOX_CGROUP_ROOT":             "/other",
-		"STARLIGHT_SANDBOX_MEMORY_MB":               "111",
-		"STARLIGHT_SANDBOX_CPU_SECONDS":             "22",
-		"STARLIGHT_SANDBOX_PROCESSES":               "33",
-		"STARLIGHT_SANDBOX_TIMEOUT":                 "44s",
-		"STARLIGHT_SANDBOX_ISOLATE_NETWORK":         "yes",
-		"STARLIGHT_LLM_PROVIDER":                    "anthropic",
-		"STARLIGHT_LLM_MODEL":                       "claude",
-		"STARLIGHT_LLM_API_KEY":                     "key",
-		"STARLIGHT_LLM_BASE_URL":                    "http://local",
-		"STARLIGHT_LLM_MAX_TOKENS":                  "999",
-		"STARLIGHT_LLM_TEMPERATURE":                 "0.7",
-		"STARLIGHT_LLM_TIMEOUT":                     "10s",
-		"STARLIGHT_LLM_MAX_ATTEMPTS":                "5",
-		"STARLIGHT_LLM_BACKOFF_INITIAL":             "2s",
-		"STARLIGHT_LLM_BACKOFF_MAX":                 "8s",
-		"STARLIGHT_FINAL_ACTION_KIND":               "command",
-		"STARLIGHT_FINAL_ACTION_COMMAND":            "git",
-		"STARLIGHT_FINAL_ACTION_URL":                "http://hook",
-		"STARLIGHT_FINAL_ACTION_COMMIT_MESSAGE":     "msg",
-		"STARLIGHT_AGENT_MAX_RETRIES":               "4",
-		"STARLIGHT_AGENT_SUBTASK_DEPTH":             "2",
-		"STARLIGHT_AGENT_MAX_TASKS":                 "9",
-		"STARLIGHT_AGENT_WORKSPACE_DIR":             "/tmp/w",
-		"STARLIGHT_AGENT_LOG_FILE":                  "/tmp/l.log",
-		"STARLIGHT_AGENT_LOG_LEVEL":                 "debug",
-		"STARLIGHT_AGENT_LOG_CONSOLE":               "false",
-		"STARLIGHT_AGENT_LOG_MAX_MB":                "7",
-		"STARLIGHT_AGENT_LOG_BACKUPS":               "2",
-		"STARLIGHT_AGENT_GRACEFUL_SHUTDOWN_TIMEOUT": "20s",
+		"MOTITA_TASK_SOURCE_KIND":                "api",
+		"MOTITA_TASK_SOURCE_PATH":                "path.yaml",
+		"MOTITA_TASK_SOURCE_DIR":                 "queue",
+		"MOTITA_TASK_SOURCE_URL":                 "http://example/api",
+		"MOTITA_TASK_SOURCE_METHOD":              "POST",
+		"MOTITA_TASK_SOURCE_FIELD":               "text",
+		"MOTITA_TASK_SOURCE_BODY":                `{"a":1}`,
+		"MOTITA_TASK_SOURCE_INTERVAL":            "15s",
+		"MOTITA_ANCHOR_KIND":                     "command",
+		"MOTITA_ANCHOR_COMMAND":                  "make",
+		"MOTITA_ANCHOR_TIMEOUT":                  "2m",
+		"MOTITA_ANCHOR_EXPECT_EXIT":              "3",
+		"MOTITA_ANCHOR_EXPECT_OUTPUT":            "OK$",
+		"MOTITA_SANDBOX_KIND":                    "chroot",
+		"MOTITA_SANDBOX_ROOT":                    "/root",
+		"MOTITA_SANDBOX_USER":                    "1000:1000",
+		"MOTITA_SANDBOX_CGROUPS":                 "off",
+		"MOTITA_SANDBOX_CGROUP_ROOT":             "/other",
+		"MOTITA_SANDBOX_MEMORY_MB":               "111",
+		"MOTITA_SANDBOX_CPU_SECONDS":             "22",
+		"MOTITA_SANDBOX_PROCESSES":               "33",
+		"MOTITA_SANDBOX_TIMEOUT":                 "44s",
+		"MOTITA_SANDBOX_ISOLATE_NETWORK":         "yes",
+		"MOTITA_LLM_PROVIDER":                    "anthropic",
+		"MOTITA_LLM_MODEL":                       "claude",
+		"MOTITA_LLM_API_KEY":                     "key",
+		"MOTITA_LLM_BASE_URL":                    "http://local",
+		"MOTITA_LLM_MAX_TOKENS":                  "999",
+		"MOTITA_LLM_TEMPERATURE":                 "0.7",
+		"MOTITA_LLM_TIMEOUT":                     "10s",
+		"MOTITA_LLM_MAX_ATTEMPTS":                "5",
+		"MOTITA_LLM_BACKOFF_INITIAL":             "2s",
+		"MOTITA_LLM_BACKOFF_MAX":                 "8s",
+		"MOTITA_FINAL_ACTION_KIND":               "command",
+		"MOTITA_FINAL_ACTION_COMMAND":            "git",
+		"MOTITA_FINAL_ACTION_URL":                "http://hook",
+		"MOTITA_FINAL_ACTION_COMMIT_MESSAGE":     "msg",
+		"MOTITA_AGENT_MAX_RETRIES":               "4",
+		"MOTITA_AGENT_SUBTASK_DEPTH":             "2",
+		"MOTITA_AGENT_MAX_TASKS":                 "9",
+		"MOTITA_AGENT_WORKSPACE_DIR":             "/tmp/w",
+		"MOTITA_AGENT_LOG_FILE":                  "/tmp/l.log",
+		"MOTITA_AGENT_LOG_LEVEL":                 "debug",
+		"MOTITA_AGENT_LOG_CONSOLE":               "false",
+		"MOTITA_AGENT_LOG_MAX_MB":                "7",
+		"MOTITA_AGENT_LOG_BACKUPS":               "2",
+		"MOTITA_AGENT_GRACEFUL_SHUTDOWN_TIMEOUT": "20s",
 	}
 	for k, v := range values {
 		t.Setenv(k, v)
@@ -317,18 +317,18 @@ func TestEnvironmentAllKeys(t *testing.T) {
 }
 
 func TestEnvironmentInvalidDuration(t *testing.T) {
-	t.Setenv("STARLIGHT_LLM_API_KEY", "x")
-	t.Setenv("STARLIGHT_ANCHOR_TIMEOUT", "soon")
+	t.Setenv("MOTITA_LLM_API_KEY", "x")
+	t.Setenv("MOTITA_ANCHOR_TIMEOUT", "soon")
 	cfg := Default()
 	err := ApplyEnvironment(&cfg)
-	if err == nil || !strings.Contains(err.Error(), "STARLIGHT_ANCHOR_TIMEOUT") {
+	if err == nil || !strings.Contains(err.Error(), "MOTITA_ANCHOR_TIMEOUT") {
 		t.Errorf("error = %v", err)
 	}
 }
 
 func TestEnvironmentInvalidBool(t *testing.T) {
-	t.Setenv("STARLIGHT_LLM_API_KEY", "x")
-	t.Setenv("STARLIGHT_SANDBOX_ISOLATE_NETWORK", "maybe")
+	t.Setenv("MOTITA_LLM_API_KEY", "x")
+	t.Setenv("MOTITA_SANDBOX_ISOLATE_NETWORK", "maybe")
 	cfg := Default()
 	if err := ApplyEnvironment(&cfg); err == nil {
 		t.Error("an invalid boolean must give an error")
@@ -341,7 +341,7 @@ func TestEnvironmentInvalidBool(t *testing.T) {
 // Neither of them can reach the mandatory floor — there is no variable for it — so these are
 // the only two levers the environment has over what the agent may do without asking.
 func TestEnvironmentPolicyBooleans(t *testing.T) {
-	t.Setenv("STARLIGHT_LLM_API_KEY", "x")
+	t.Setenv("MOTITA_LLM_API_KEY", "x")
 
 	// Enforce: on by default, and switchable off.
 	cfg := Default()
@@ -355,7 +355,7 @@ func TestEnvironmentPolicyBooleans(t *testing.T) {
 		t.Error("strict is off by default: asking is already the cautious answer")
 	}
 
-	t.Setenv("STARLIGHT_AGENT_POLICY_ENFORCE", "no")
+	t.Setenv("MOTITA_AGENT_POLICY_ENFORCE", "no")
 	cfg = Default()
 	if err := ApplyEnvironment(&cfg); err != nil {
 		t.Fatal(err)
@@ -365,8 +365,8 @@ func TestEnvironmentPolicyBooleans(t *testing.T) {
 	}
 
 	// Strict: on when asked, and off again.
-	t.Setenv("STARLIGHT_AGENT_POLICY_ENFORCE", "")
-	t.Setenv("STARLIGHT_AGENT_POLICY_STRICT", "yes")
+	t.Setenv("MOTITA_AGENT_POLICY_ENFORCE", "")
+	t.Setenv("MOTITA_AGENT_POLICY_STRICT", "yes")
 	cfg = Default()
 	if err := ApplyEnvironment(&cfg); err != nil {
 		t.Fatal(err)
@@ -377,11 +377,11 @@ func TestEnvironmentPolicyBooleans(t *testing.T) {
 
 	// A value that is not a boolean is an error, not a silent default: a typo here decides
 	// whether the agent asks before acting.
-	for _, key := range []string{"STARLIGHT_AGENT_POLICY_ENFORCE", "STARLIGHT_AGENT_POLICY_STRICT"} {
+	for _, key := range []string{"MOTITA_AGENT_POLICY_ENFORCE", "MOTITA_AGENT_POLICY_STRICT"} {
 		// Both are cleared first: the loader stops at the FIRST bad value, so leaving the
 		// other one set would test the same branch twice and never reach the second.
-		t.Setenv("STARLIGHT_AGENT_POLICY_ENFORCE", "")
-		t.Setenv("STARLIGHT_AGENT_POLICY_STRICT", "")
+		t.Setenv("MOTITA_AGENT_POLICY_ENFORCE", "")
+		t.Setenv("MOTITA_AGENT_POLICY_STRICT", "")
 		t.Setenv(key, "quizas")
 		cfg := Default()
 		err := ApplyEnvironment(&cfg)
@@ -407,12 +407,12 @@ func TestEnvironmentPolicyBooleans(t *testing.T) {
 // A future setting that could reach the floor would have to appear in this list to be read at
 // all, so the check is about the LOADER, not about one field.
 func TestNoEnvironmentVariableReachesTheMandatoryFloor(t *testing.T) {
-	t.Setenv("STARLIGHT_LLM_API_KEY", "x")
-	t.Setenv("STARLIGHT_AGENT_POLICY_ENFORCE", "false")
-	t.Setenv("STARLIGHT_AGENT_POLICY_STRICT", "false")
-	t.Setenv("STARLIGHT_AGENT_READ_ONLY", "false")
-	t.Setenv("STARLIGHT_SANDBOX_ENABLED", "false")
-	t.Setenv("STARLIGHT_SANDBOX_ISOLATE_NETWORK", "false")
+	t.Setenv("MOTITA_LLM_API_KEY", "x")
+	t.Setenv("MOTITA_AGENT_POLICY_ENFORCE", "false")
+	t.Setenv("MOTITA_AGENT_POLICY_STRICT", "false")
+	t.Setenv("MOTITA_AGENT_READ_ONLY", "false")
+	t.Setenv("MOTITA_SANDBOX_ENABLED", "false")
+	t.Setenv("MOTITA_SANDBOX_ISOLATE_NETWORK", "false")
 
 	cfg := Default()
 	if err := ApplyEnvironment(&cfg); err != nil {
@@ -424,8 +424,8 @@ func TestNoEnvironmentVariableReachesTheMandatoryFloor(t *testing.T) {
 }
 
 func TestEnvironmentInvalidTemperature(t *testing.T) {
-	t.Setenv("STARLIGHT_LLM_API_KEY", "x")
-	t.Setenv("STARLIGHT_LLM_TEMPERATURE", "hot")
+	t.Setenv("MOTITA_LLM_API_KEY", "x")
+	t.Setenv("MOTITA_LLM_TEMPERATURE", "hot")
 	cfg := Default()
 	if err := ApplyEnvironment(&cfg); err == nil {
 		t.Error("an invalid temperature must give an error")
@@ -435,8 +435,8 @@ func TestEnvironmentInvalidTemperature(t *testing.T) {
 func TestEnvironmentAllTrueBooleans(t *testing.T) {
 	for _, value := range []string{"1", "true", "yes", "on", "TRUE", "On"} {
 		t.Run(value, func(t *testing.T) {
-			t.Setenv("STARLIGHT_LLM_API_KEY", "x")
-			t.Setenv("STARLIGHT_AGENT_LOG_CONSOLE", value)
+			t.Setenv("MOTITA_LLM_API_KEY", "x")
+			t.Setenv("MOTITA_AGENT_LOG_CONSOLE", value)
 			cfg := Default()
 			if err := ApplyEnvironment(&cfg); err != nil {
 				t.Fatal(err)
@@ -448,8 +448,8 @@ func TestEnvironmentAllTrueBooleans(t *testing.T) {
 	}
 	for _, value := range []string{"0", "false", "no", "off", "FALSE"} {
 		t.Run(value, func(t *testing.T) {
-			t.Setenv("STARLIGHT_LLM_API_KEY", "x")
-			t.Setenv("STARLIGHT_AGENT_LOG_CONSOLE", value)
+			t.Setenv("MOTITA_LLM_API_KEY", "x")
+			t.Setenv("MOTITA_AGENT_LOG_CONSOLE", value)
 			cfg := Default()
 			if err := ApplyEnvironment(&cfg); err != nil {
 				t.Fatal(err)
@@ -463,21 +463,21 @@ func TestEnvironmentAllTrueBooleans(t *testing.T) {
 
 func TestEnvironmentInvalidIntegerInEveryBlock(t *testing.T) {
 	keys := []string{
-		"STARLIGHT_SANDBOX_MEMORY_MB",
-		"STARLIGHT_SANDBOX_CPU_SECONDS",
-		"STARLIGHT_SANDBOX_PROCESSES",
-		"STARLIGHT_LLM_MAX_TOKENS",
-		"STARLIGHT_LLM_MAX_ATTEMPTS",
-		"STARLIGHT_AGENT_MAX_RETRIES",
-		"STARLIGHT_AGENT_SUBTASK_DEPTH",
-		"STARLIGHT_AGENT_MAX_TASKS",
-		"STARLIGHT_AGENT_LOG_MAX_MB",
-		"STARLIGHT_AGENT_LOG_BACKUPS",
-		"STARLIGHT_ANCHOR_EXPECT_EXIT",
+		"MOTITA_SANDBOX_MEMORY_MB",
+		"MOTITA_SANDBOX_CPU_SECONDS",
+		"MOTITA_SANDBOX_PROCESSES",
+		"MOTITA_LLM_MAX_TOKENS",
+		"MOTITA_LLM_MAX_ATTEMPTS",
+		"MOTITA_AGENT_MAX_RETRIES",
+		"MOTITA_AGENT_SUBTASK_DEPTH",
+		"MOTITA_AGENT_MAX_TASKS",
+		"MOTITA_AGENT_LOG_MAX_MB",
+		"MOTITA_AGENT_LOG_BACKUPS",
+		"MOTITA_ANCHOR_EXPECT_EXIT",
 	}
 	for _, key := range keys {
 		t.Run(key, func(t *testing.T) {
-			t.Setenv("STARLIGHT_LLM_API_KEY", "x")
+			t.Setenv("MOTITA_LLM_API_KEY", "x")
 			t.Setenv(key, "many")
 			cfg := Default()
 			if err := ApplyEnvironment(&cfg); err == nil {
@@ -488,8 +488,8 @@ func TestEnvironmentInvalidIntegerInEveryBlock(t *testing.T) {
 }
 
 func TestEnvironmentBlankChangesNothing(t *testing.T) {
-	t.Setenv("STARLIGHT_LLM_API_KEY", "x")
-	t.Setenv("STARLIGHT_LLM_MODEL", "   ")
+	t.Setenv("MOTITA_LLM_API_KEY", "x")
+	t.Setenv("MOTITA_LLM_MODEL", "   ")
 	cfg := Default()
 	before := cfg.LLM.Model
 	if err := ApplyEnvironment(&cfg); err != nil {
@@ -530,17 +530,17 @@ func TestOpenAICompatibilityVariables(t *testing.T) {
 func TestStarlightVariablesWinOverOpenAI(t *testing.T) {
 	t.Setenv("OPENAI_API_KEY", "openai-key")
 	t.Setenv("OPENAI_MODEL", "openai-model")
-	t.Setenv("STARLIGHT_LLM_API_KEY", "starlight-key")
-	t.Setenv("STARLIGHT_LLM_MODEL", "starlight-model")
+	t.Setenv("MOTITA_LLM_API_KEY", "motita-key")
+	t.Setenv("MOTITA_LLM_MODEL", "motita-model")
 
 	cfg, err := Load("")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if cfg.LLM.APIKey != "starlight-key" {
+	if cfg.LLM.APIKey != "motita-key" {
 		t.Errorf("api_key = %q", cfg.LLM.APIKey)
 	}
-	if cfg.LLM.Model != "starlight-model" {
+	if cfg.LLM.Model != "motita-model" {
 		t.Errorf("model = %q", cfg.LLM.Model)
 	}
 }
@@ -1043,65 +1043,65 @@ func TestStripComment(t *testing.T) {
 
 // --- Every environment variable ---------------------------------------------
 
-// TestEveryEnvironmentVariable: each STARLIGHT_* variable must be read and must
+// TestEveryEnvironmentVariable: each MOTITA_* variable must be read and must
 // win over the YAML, because that is the documented way to configure a
 // deployment without touching the file.
 func TestEveryEnvironmentVariable(t *testing.T) {
 	env := map[string]string{
-		"STARLIGHT_TASK_SOURCE_KIND":                "queue",
-		"STARLIGHT_TASK_SOURCE_PATH":                "/tmp/task.md",
-		"STARLIGHT_TASK_SOURCE_DIR":                 "/tmp/queue",
-		"STARLIGHT_TASK_SOURCE_URL":                 "http://example/tasks",
-		"STARLIGHT_TASK_SOURCE_METHOD":              "POST",
-		"STARLIGHT_TASK_SOURCE_FIELD":               "work",
-		"STARLIGHT_TASK_SOURCE_BODY":                `{"q":"all"}`,
-		"STARLIGHT_TASK_SOURCE_INTERVAL":            "45s",
-		"STARLIGHT_ANCHOR_KIND":                     "command",
-		"STARLIGHT_ANCHOR_COMMAND":                  "make",
-		"STARLIGHT_ANCHOR_TIMEOUT":                  "30s",
-		"STARLIGHT_ANCHOR_EXPECT_EXIT":              "3",
-		"STARLIGHT_ANCHOR_EXPECT_OUTPUT":            "READY",
-		"STARLIGHT_SANDBOX_KIND":                    "cgroups",
-		"STARLIGHT_SANDBOX_ROOT":                    "/srv/root",
-		"STARLIGHT_SANDBOX_USER":                    "1000:1000",
-		"STARLIGHT_SANDBOX_MEMORY_MB":               "512",
-		"STARLIGHT_SANDBOX_CPU_SECONDS":             "15",
-		"STARLIGHT_SANDBOX_OPEN_FILES":              "128",
-		"STARLIGHT_SANDBOX_MAX_FILE_SIZE_MB":        "7",
-		"STARLIGHT_SANDBOX_CGROUPS":                 "off",
-		"STARLIGHT_SANDBOX_CGROUP_ROOT":             "/sys/fs/cgroup",
-		"STARLIGHT_SANDBOX_MAX_OUTPUT_KB":           "64",
-		"STARLIGHT_SANDBOX_KEEP_EPHEMERAL":          "true",
-		"STARLIGHT_SANDBOX_PROCESSES":               "64",
-		"STARLIGHT_SANDBOX_TIMEOUT":                 "25s",
-		"STARLIGHT_SANDBOX_ISOLATE_NETWORK":         "true",
-		"STARLIGHT_LLM_PROVIDER":                    "anthropic",
-		"STARLIGHT_LLM_MODEL":                       "claude-test",
-		"STARLIGHT_LLM_API_KEY":                     "k",
-		"STARLIGHT_LLM_BASE_URL":                    "https://example/v1",
-		"STARLIGHT_LLM_MAX_TOKENS":                  "2048",
-		"STARLIGHT_LLM_TEMPERATURE":                 "0.25",
-		"STARLIGHT_LLM_TIMEOUT":                     "45s",
-		"STARLIGHT_LLM_MAX_ATTEMPTS":                "4",
-		"STARLIGHT_LLM_BACKOFF_INITIAL":             "2s",
-		"STARLIGHT_LLM_BACKOFF_MAX":                 "20s",
-		"STARLIGHT_FINAL_ACTION_KIND":               "api",
-		"STARLIGHT_FINAL_ACTION_COMMAND":            "true",
-		"STARLIGHT_FINAL_ACTION_URL":                "https://example/done",
-		"STARLIGHT_FINAL_ACTION_METHOD":             "PUT",
-		"STARLIGHT_FINAL_ACTION_COMMIT_MESSAGE":     "agent: done",
-		"STARLIGHT_AGENT_MAX_RETRIES":               "5",
-		"STARLIGHT_AGENT_SUBTASK_DEPTH":             "3",
-		"STARLIGHT_AGENT_MAX_TASKS":                 "9",
-		"STARLIGHT_AGENT_WORKSPACE_DIR":             "/tmp/ws",
-		"STARLIGHT_AGENT_LOG_FILE":                  "/tmp/agent.log",
-		"STARLIGHT_AGENT_LOG_LEVEL":                 "debug",
-		"STARLIGHT_AGENT_LOG_CONSOLE":               "false",
-		"STARLIGHT_AGENT_LOG_MAX_MB":                "5",
-		"STARLIGHT_AGENT_LOG_BACKUPS":               "2",
-		"STARLIGHT_AGENT_GRACEFUL_SHUTDOWN_TIMEOUT": "20s",
-		"STARLIGHT_AGENT_ON_FAILURE_KIND":           "command",
-		"STARLIGHT_AGENT_ON_FAILURE_COMMAND":        "notify",
+		"MOTITA_TASK_SOURCE_KIND":                "queue",
+		"MOTITA_TASK_SOURCE_PATH":                "/tmp/task.md",
+		"MOTITA_TASK_SOURCE_DIR":                 "/tmp/queue",
+		"MOTITA_TASK_SOURCE_URL":                 "http://example/tasks",
+		"MOTITA_TASK_SOURCE_METHOD":              "POST",
+		"MOTITA_TASK_SOURCE_FIELD":               "work",
+		"MOTITA_TASK_SOURCE_BODY":                `{"q":"all"}`,
+		"MOTITA_TASK_SOURCE_INTERVAL":            "45s",
+		"MOTITA_ANCHOR_KIND":                     "command",
+		"MOTITA_ANCHOR_COMMAND":                  "make",
+		"MOTITA_ANCHOR_TIMEOUT":                  "30s",
+		"MOTITA_ANCHOR_EXPECT_EXIT":              "3",
+		"MOTITA_ANCHOR_EXPECT_OUTPUT":            "READY",
+		"MOTITA_SANDBOX_KIND":                    "cgroups",
+		"MOTITA_SANDBOX_ROOT":                    "/srv/root",
+		"MOTITA_SANDBOX_USER":                    "1000:1000",
+		"MOTITA_SANDBOX_MEMORY_MB":               "512",
+		"MOTITA_SANDBOX_CPU_SECONDS":             "15",
+		"MOTITA_SANDBOX_OPEN_FILES":              "128",
+		"MOTITA_SANDBOX_MAX_FILE_SIZE_MB":        "7",
+		"MOTITA_SANDBOX_CGROUPS":                 "off",
+		"MOTITA_SANDBOX_CGROUP_ROOT":             "/sys/fs/cgroup",
+		"MOTITA_SANDBOX_MAX_OUTPUT_KB":           "64",
+		"MOTITA_SANDBOX_KEEP_EPHEMERAL":          "true",
+		"MOTITA_SANDBOX_PROCESSES":               "64",
+		"MOTITA_SANDBOX_TIMEOUT":                 "25s",
+		"MOTITA_SANDBOX_ISOLATE_NETWORK":         "true",
+		"MOTITA_LLM_PROVIDER":                    "anthropic",
+		"MOTITA_LLM_MODEL":                       "claude-test",
+		"MOTITA_LLM_API_KEY":                     "k",
+		"MOTITA_LLM_BASE_URL":                    "https://example/v1",
+		"MOTITA_LLM_MAX_TOKENS":                  "2048",
+		"MOTITA_LLM_TEMPERATURE":                 "0.25",
+		"MOTITA_LLM_TIMEOUT":                     "45s",
+		"MOTITA_LLM_MAX_ATTEMPTS":                "4",
+		"MOTITA_LLM_BACKOFF_INITIAL":             "2s",
+		"MOTITA_LLM_BACKOFF_MAX":                 "20s",
+		"MOTITA_FINAL_ACTION_KIND":               "api",
+		"MOTITA_FINAL_ACTION_COMMAND":            "true",
+		"MOTITA_FINAL_ACTION_URL":                "https://example/done",
+		"MOTITA_FINAL_ACTION_METHOD":             "PUT",
+		"MOTITA_FINAL_ACTION_COMMIT_MESSAGE":     "agent: done",
+		"MOTITA_AGENT_MAX_RETRIES":               "5",
+		"MOTITA_AGENT_SUBTASK_DEPTH":             "3",
+		"MOTITA_AGENT_MAX_TASKS":                 "9",
+		"MOTITA_AGENT_WORKSPACE_DIR":             "/tmp/ws",
+		"MOTITA_AGENT_LOG_FILE":                  "/tmp/agent.log",
+		"MOTITA_AGENT_LOG_LEVEL":                 "debug",
+		"MOTITA_AGENT_LOG_CONSOLE":               "false",
+		"MOTITA_AGENT_LOG_MAX_MB":                "5",
+		"MOTITA_AGENT_LOG_BACKUPS":               "2",
+		"MOTITA_AGENT_GRACEFUL_SHUTDOWN_TIMEOUT": "20s",
+		"MOTITA_AGENT_ON_FAILURE_KIND":           "command",
+		"MOTITA_AGENT_ON_FAILURE_COMMAND":        "notify",
 	}
 	for k, v := range env {
 		t.Setenv(k, v)
@@ -1183,14 +1183,14 @@ func TestEveryEnvironmentVariable(t *testing.T) {
 // naming the variable, never a silent default.
 func TestEnvironmentRejectsInvalidValues(t *testing.T) {
 	cases := map[string]string{
-		"STARLIGHT_LLM_MAX_ATTEMPTS":                "many",
-		"STARLIGHT_LLM_TIMEOUT":                     "soon",
-		"STARLIGHT_SANDBOX_MEMORY_MB":               "lots",
-		"STARLIGHT_AGENT_LOG_CONSOLE":               "maybe",
-		"STARLIGHT_AGENT_MAX_RETRIES":               "several",
-		"STARLIGHT_TASK_SOURCE_INTERVAL":            "often",
-		"STARLIGHT_AGENT_GRACEFUL_SHUTDOWN_TIMEOUT": "later",
-		"STARLIGHT_LLM_TEMPERATURE":                 "hot",
+		"MOTITA_LLM_MAX_ATTEMPTS":                "many",
+		"MOTITA_LLM_TIMEOUT":                     "soon",
+		"MOTITA_SANDBOX_MEMORY_MB":               "lots",
+		"MOTITA_AGENT_LOG_CONSOLE":               "maybe",
+		"MOTITA_AGENT_MAX_RETRIES":               "several",
+		"MOTITA_TASK_SOURCE_INTERVAL":            "often",
+		"MOTITA_AGENT_GRACEFUL_SHUTDOWN_TIMEOUT": "later",
+		"MOTITA_LLM_TEMPERATURE":                 "hot",
 	}
 	for key, value := range cases {
 		t.Run(key, func(t *testing.T) {
@@ -1209,7 +1209,7 @@ func TestEnvironmentRejectsInvalidValues(t *testing.T) {
 func TestEmptyEnvironmentValueIsIgnored(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "config.yaml")
 	mustWrite(t, path, "llm:\n  model: from-yaml\n  api_key: k\n")
-	t.Setenv("STARLIGHT_LLM_MODEL", "")
+	t.Setenv("MOTITA_LLM_MODEL", "")
 
 	cfg, err := Load(path)
 	if err != nil {
@@ -1864,20 +1864,20 @@ func TestParseYAMLParsesTheExampleConfiguration(t *testing.T) {
 }
 
 // TestTheNewEnvironmentVariablesRejectBadValues: each variable added for the
-// documented "STARLIGHT_* covers everything" rule must validate its input, naming
+// documented "MOTITA_* covers everything" rule must validate its input, naming
 // the variable that is wrong.
 func TestTheNewEnvironmentVariablesRejectBadValues(t *testing.T) {
 	cases := map[string]string{
-		"STARLIGHT_SANDBOX_OPEN_FILES":       "many",
-		"STARLIGHT_SANDBOX_MAX_FILE_SIZE_MB": "big",
-		"STARLIGHT_SANDBOX_MAX_OUTPUT_KB":    "plenty",
-		"STARLIGHT_SANDBOX_KEEP_EPHEMERAL":   "perhaps",
-		"STARLIGHT_AGENT_ON_FAILURE_KIND":    "nothing-to-validate-here",
+		"MOTITA_SANDBOX_OPEN_FILES":       "many",
+		"MOTITA_SANDBOX_MAX_FILE_SIZE_MB": "big",
+		"MOTITA_SANDBOX_MAX_OUTPUT_KB":    "plenty",
+		"MOTITA_SANDBOX_KEEP_EPHEMERAL":   "perhaps",
+		"MOTITA_AGENT_ON_FAILURE_KIND":    "nothing-to-validate-here",
 	}
 	// Only the numeric and boolean ones can fail; the text one is free-form and
 	// is validated later by validate(). Keep the map honest:
 	for key, value := range cases {
-		if key == "STARLIGHT_AGENT_ON_FAILURE_KIND" {
+		if key == "MOTITA_AGENT_ON_FAILURE_KIND" {
 			continue
 		}
 		t.Run(key, func(t *testing.T) {
@@ -2200,9 +2200,9 @@ func TestOnFailureKindEmptyBecomesNone(t *testing.T) {
 // variable that is wrong.
 func TestEnvironmentRejectsInvalidDurationsInTheLeftoverBlocks(t *testing.T) {
 	for _, key := range []string{
-		"STARLIGHT_SANDBOX_TIMEOUT",
-		"STARLIGHT_LLM_BACKOFF_INITIAL",
-		"STARLIGHT_LLM_BACKOFF_MAX",
+		"MOTITA_SANDBOX_TIMEOUT",
+		"MOTITA_LLM_BACKOFF_INITIAL",
+		"MOTITA_LLM_BACKOFF_MAX",
 	} {
 		t.Run(key, func(t *testing.T) {
 			t.Setenv(key, "soon")
@@ -2220,7 +2220,7 @@ func TestEnvironmentRejectsInvalidDurationsInTheLeftoverBlocks(t *testing.T) {
 // --- prompts and other overrides from the environment -----------------------
 
 // TestApplyEnvironmentOverridesEveryPrompt: the six prompt texts are plain
-// settings, so the convention STARLIGHT_<BLOCK>_<FIELD> must reach them too.
+// settings, so the convention MOTITA_<BLOCK>_<FIELD> must reach them too.
 func TestApplyEnvironmentOverridesEveryPrompt(t *testing.T) {
 	c := Default()
 	c.Prompts.Analyze.System = "analyze system"
@@ -2230,12 +2230,12 @@ func TestApplyEnvironmentOverridesEveryPrompt(t *testing.T) {
 	c.Prompts.Execute.System = "execute system"
 	c.Prompts.Execute.User = "execute user"
 
-	t.Setenv("STARLIGHT_PROMPTS_ANALYZE_SYSTEM", "new analyze system")
-	t.Setenv("STARLIGHT_PROMPTS_ANALYZE_USER", "new analyze user")
-	t.Setenv("STARLIGHT_PROMPTS_PLAN_SYSTEM", "new plan system")
-	t.Setenv("STARLIGHT_PROMPTS_PLAN_USER", "new plan user")
-	t.Setenv("STARLIGHT_PROMPTS_EXECUTE_SYSTEM", "new execute system")
-	t.Setenv("STARLIGHT_PROMPTS_EXECUTE_USER", "new execute user")
+	t.Setenv("MOTITA_PROMPTS_ANALYZE_SYSTEM", "new analyze system")
+	t.Setenv("MOTITA_PROMPTS_ANALYZE_USER", "new analyze user")
+	t.Setenv("MOTITA_PROMPTS_PLAN_SYSTEM", "new plan system")
+	t.Setenv("MOTITA_PROMPTS_PLAN_USER", "new plan user")
+	t.Setenv("MOTITA_PROMPTS_EXECUTE_SYSTEM", "new execute system")
+	t.Setenv("MOTITA_PROMPTS_EXECUTE_USER", "new execute user")
 
 	if err := ApplyEnvironment(&c); err != nil {
 		t.Fatalf("ApplyEnvironment: %v", err)
@@ -2260,9 +2260,9 @@ func TestApplyEnvironmentOverridesEveryPrompt(t *testing.T) {
 // part of the instructions, so it is NOT trimmed like the other text settings.
 func TestReadPromptKeepsTheTextAsWritten(t *testing.T) {
 	text := "  first line\n\tsecond line with indentation  \n"
-	t.Setenv("STARLIGHT_TEST_PROMPT", text)
+	t.Setenv("MOTITA_TEST_PROMPT", text)
 
-	if got := readPrompt("STARLIGHT_TEST_PROMPT", "original"); got != text {
+	if got := readPrompt("MOTITA_TEST_PROMPT", "original"); got != text {
 		t.Errorf("readPrompt = %q, want the text untouched %q", got, text)
 	}
 }
@@ -2272,8 +2272,8 @@ func TestReadPromptKeepsTheTextAsWritten(t *testing.T) {
 // wiping a value).
 func TestReadPromptIgnoresAnEmptyValue(t *testing.T) {
 	for _, value := range []string{"", "   ", "\n\t"} {
-		t.Setenv("STARLIGHT_TEST_PROMPT", value)
-		if got := readPrompt("STARLIGHT_TEST_PROMPT", "original"); got != "original" {
+		t.Setenv("MOTITA_TEST_PROMPT", value)
+		if got := readPrompt("MOTITA_TEST_PROMPT", "original"); got != "original" {
 			t.Errorf("value %q: got %q, want the original", value, got)
 		}
 	}
@@ -2282,19 +2282,19 @@ func TestReadPromptIgnoresAnEmptyValue(t *testing.T) {
 // TestReadPromptWithoutTheVariable: absent means untouched, which is the common
 // case.
 func TestReadPromptWithoutTheVariable(t *testing.T) {
-	os.Unsetenv("STARLIGHT_TEST_PROMPT")
-	if got := readPrompt("STARLIGHT_TEST_PROMPT", "original"); got != "original" {
+	os.Unsetenv("MOTITA_TEST_PROMPT")
+	if got := readPrompt("MOTITA_TEST_PROMPT", "original"); got != "original" {
 		t.Errorf("got %q, want the original", got)
 	}
 }
 
 // TestShutdownTimeoutAcceptsBothNames: the field is graceful_shutdown_timeout, so
-// the documented variable is STARLIGHT_AGENT_GRACEFUL_SHUTDOWN_TIMEOUT. The name
-// published in the previous release (STARLIGHT_AGENT_GRACEFUL_SHUTDOWN_TIMEOUT) must still
+// the documented variable is MOTITA_AGENT_GRACEFUL_SHUTDOWN_TIMEOUT. The name
+// published in the previous release (MOTITA_AGENT_GRACEFUL_SHUTDOWN_TIMEOUT) must still
 // work, and the documented one must win when both are set.
 func TestShutdownTimeoutAcceptsBothNames(t *testing.T) {
-	const documented = "STARLIGHT_AGENT_GRACEFUL_SHUTDOWN_TIMEOUT"
-	const historical = "STARLIGHT_AGENT_SHUTDOWN_TIMEOUT"
+	const documented = "MOTITA_AGENT_GRACEFUL_SHUTDOWN_TIMEOUT"
+	const historical = "MOTITA_AGENT_SHUTDOWN_TIMEOUT"
 
 	cases := []struct {
 		name     string
@@ -2328,7 +2328,7 @@ func TestShutdownTimeoutAcceptsBothNames(t *testing.T) {
 // TestShutdownTimeoutReportsTheBadName: a malformed value must name the variable
 // that was actually read, so the operator can find it.
 func TestShutdownTimeoutReportsTheBadName(t *testing.T) {
-	t.Setenv("STARLIGHT_AGENT_GRACEFUL_SHUTDOWN_TIMEOUT", "later")
+	t.Setenv("MOTITA_AGENT_GRACEFUL_SHUTDOWN_TIMEOUT", "later")
 	cfg := Default()
 	err := ApplyEnvironment(&cfg)
 	if err == nil {
@@ -2341,7 +2341,7 @@ func TestShutdownTimeoutReportsTheBadName(t *testing.T) {
 
 // TestEveryScalarSettingHasAnEnvironmentVariable walks the configuration struct
 // itself and builds the variable the README documents for each setting
-// (STARLIGHT_<BLOCK>_<FIELD>, from the yaml tags). If a setting is added without
+// (MOTITA_<BLOCK>_<FIELD>, from the yaml tags). If a setting is added without
 // its variable, this fails instead of the promise quietly becoming false.
 //
 // The documented exceptions are the collections (they cannot come from a single
@@ -2349,19 +2349,19 @@ func TestShutdownTimeoutReportsTheBadName(t *testing.T) {
 func TestEveryScalarSettingHasAnEnvironmentVariable(t *testing.T) {
 	// Collections: they are lists or maps and are set in the YAML.
 	collections := map[string]bool{
-		"STARLIGHT_TASK_SOURCE_HEADERS": true,
-		"STARLIGHT_ANCHOR_ARGS":         true,
-		"STARLIGHT_ANCHOR_CHECKS":       true,
-		"STARLIGHT_FINAL_ACTION_ARGS":   true,
+		"MOTITA_TASK_SOURCE_HEADERS": true,
+		"MOTITA_ANCHOR_ARGS":         true,
+		"MOTITA_ANCHOR_CHECKS":       true,
+		"MOTITA_FINAL_ACTION_ARGS":   true,
 	}
 	// Set under a sub-block, so the variable is not BLOCK_FIELD.
 	nested := map[string]bool{
-		"STARLIGHT_AGENT_ON_FAILURE": true, // STARLIGHT_AGENT_ON_FAILURE_KIND/COMMAND
+		"MOTITA_AGENT_ON_FAILURE": true, // MOTITA_AGENT_ON_FAILURE_KIND/COMMAND
 	}
 	// Read from the environment elsewhere (see Load), not by ApplyEnvironment.
 	otherReaders := map[string]bool{
-		"STARLIGHT_AGENT_SHUTDOWN_TIMEOUT": true, // compatibility name, documented
-		"STARLIGHT_SANDBOX_CGROUPS":        true, // read by the sandbox layer
+		"MOTITA_AGENT_SHUTDOWN_TIMEOUT": true, // compatibility name, documented
+		"MOTITA_SANDBOX_CGROUPS":        true, // read by the sandbox layer
 	}
 
 	implemented := map[string]bool{}
@@ -2369,7 +2369,7 @@ func TestEveryScalarSettingHasAnEnvironmentVariable(t *testing.T) {
 	if err != nil {
 		t.Fatalf("could not read environment.go: %v", err)
 	}
-	for _, m := range regexp.MustCompile(`"(STARLIGHT_[A-Z0-9_]+)"`).FindAllStringSubmatch(string(body), -1) {
+	for _, m := range regexp.MustCompile(`"(MOTITA_[A-Z0-9_]+)"`).FindAllStringSubmatch(string(body), -1) {
 		implemented[m[1]] = true
 	}
 
@@ -2380,7 +2380,7 @@ func TestEveryScalarSettingHasAnEnvironmentVariable(t *testing.T) {
 		for j := 0; j < bt.NumField(); j++ {
 			field := bt.Field(j)
 			name := field.Tag.Get("yaml")
-			variable := "STARLIGHT_" + strings.ToUpper(block+"_"+name)
+			variable := "MOTITA_" + strings.ToUpper(block+"_"+name)
 
 			// Skip the collections and whatever has its own reader.
 			if collections[variable] || nested[variable] || otherReaders[variable] {
@@ -2414,17 +2414,17 @@ func TestReadOnlyAndShellComeFromTheEnvironment(t *testing.T) {
 		wantErr bool
 	}{
 		{"neither set", nil, false, "", false},
-		{"read_only true", map[string]string{"STARLIGHT_AGENT_READ_ONLY": "true"}, true, "", false},
-		{"read_only on", map[string]string{"STARLIGHT_AGENT_READ_ONLY": "on"}, true, "", false},
-		{"read_only false", map[string]string{"STARLIGHT_AGENT_READ_ONLY": "off"}, false, "", false},
-		{"read_only blank is ignored", map[string]string{"STARLIGHT_AGENT_READ_ONLY": "  "}, false, "", false},
-		{"the shell", map[string]string{"STARLIGHT_AGENT_SHELL": "/bin/dash"}, false, "/bin/dash", false},
+		{"read_only true", map[string]string{"MOTITA_AGENT_READ_ONLY": "true"}, true, "", false},
+		{"read_only on", map[string]string{"MOTITA_AGENT_READ_ONLY": "on"}, true, "", false},
+		{"read_only false", map[string]string{"MOTITA_AGENT_READ_ONLY": "off"}, false, "", false},
+		{"read_only blank is ignored", map[string]string{"MOTITA_AGENT_READ_ONLY": "  "}, false, "", false},
+		{"the shell", map[string]string{"MOTITA_AGENT_SHELL": "/bin/dash"}, false, "/bin/dash", false},
 		{"a bad boolean is reported",
-			map[string]string{"STARLIGHT_AGENT_READ_ONLY": "maybe"}, false, "", true},
+			map[string]string{"MOTITA_AGENT_READ_ONLY": "maybe"}, false, "", true},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			for _, k := range []string{"STARLIGHT_AGENT_READ_ONLY", "STARLIGHT_AGENT_SHELL"} {
+			for _, k := range []string{"MOTITA_AGENT_READ_ONLY", "MOTITA_AGENT_SHELL"} {
 				t.Setenv(k, "")
 			}
 			for k, v := range tc.env {
@@ -2463,10 +2463,10 @@ func TestProviderKeyVariable(t *testing.T) {
 	if got := ProviderKeyVariable("  ollama  "); got != "OLLAMA_API_KEY" {
 		t.Errorf("the lookup must ignore surrounding spaces, got %q", got)
 	}
-	if got := ProviderKeyVariable("openai"); got != "STARLIGHT_LLM_API_KEY" {
+	if got := ProviderKeyVariable("openai"); got != "MOTITA_LLM_API_KEY" {
 		t.Errorf("ProviderKeyVariable(openai) = %q", got)
 	}
-	if got := ProviderKeyVariable(""); got != "STARLIGHT_LLM_API_KEY" {
+	if got := ProviderKeyVariable(""); got != "MOTITA_LLM_API_KEY" {
 		t.Errorf("ProviderKeyVariable(empty) = %q", got)
 	}
 }
@@ -2478,8 +2478,8 @@ func TestProviderKeyVariable(t *testing.T) {
 func TestOllamaApiKeyVariableIsHonoured(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "config.yaml")
 	mustWrite(t, path, "llm:\n  provider: ollama\n  base_url: https://ollama.com/v1\n")
-	t.Setenv("STARLIGHT_LLM_API_KEY", "")
-	os.Unsetenv("STARLIGHT_LLM_API_KEY")
+	t.Setenv("MOTITA_LLM_API_KEY", "")
+	os.Unsetenv("MOTITA_LLM_API_KEY")
 	t.Setenv("OLLAMA_API_KEY", "key-from-ollama-var")
 
 	cfg, err := Load(path)
@@ -2496,7 +2496,7 @@ func TestOllamaApiKeyVariableIsHonoured(t *testing.T) {
 func TestGenericKeyVariableWinsOverTheProviderAlias(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "config.yaml")
 	mustWrite(t, path, "llm:\n  provider: ollama\n  base_url: https://ollama.com/v1\n")
-	t.Setenv("STARLIGHT_LLM_API_KEY", "generic-wins")
+	t.Setenv("MOTITA_LLM_API_KEY", "generic-wins")
 	t.Setenv("OLLAMA_API_KEY", "alias-loses")
 
 	cfg, err := Load(path)
@@ -2513,12 +2513,12 @@ func TestGenericKeyVariableWinsOverTheProviderAlias(t *testing.T) {
 func TestMissingKeyMessageNamesTheProviderVariable(t *testing.T) {
 	cases := []struct{ provider, want string }{
 		{"ollama", "OLLAMA_API_KEY"},
-		{"openai", "STARLIGHT_LLM_API_KEY"},
+		{"openai", "MOTITA_LLM_API_KEY"},
 	}
 	for _, tc := range cases {
 		path := filepath.Join(t.TempDir(), "config.yaml")
 		mustWrite(t, path, "llm:\n  provider: "+tc.provider+"\n")
-		for _, v := range []string{"STARLIGHT_LLM_API_KEY", "OPENAI_API_KEY", "OLLAMA_API_KEY"} {
+		for _, v := range []string{"MOTITA_LLM_API_KEY", "OPENAI_API_KEY", "OLLAMA_API_KEY"} {
 			os.Unsetenv(v)
 		}
 		_, err := Load(path)

@@ -52,7 +52,7 @@ func wrapWithUlimit(l Limits, command string, args []string) (string, []string) 
 	// command and its arguments start at $1).
 	script := strings.Join(orders, "; ") + `; exec "$@"`
 
-	finalArgs := []string{"sh", "-c", script, "starlight-sandbox", command}
+	finalArgs := []string{"sh", "-c", script, "motita-sandbox", command}
 	finalArgs = append(finalArgs, args...)
 	return "/bin/sh", finalArgs
 }

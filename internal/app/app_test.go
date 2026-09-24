@@ -17,12 +17,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/madkoding/starlight/internal/agent"
-	"github.com/madkoding/starlight/internal/config"
-	"github.com/madkoding/starlight/internal/llm"
-	"github.com/madkoding/starlight/internal/logx"
-	"github.com/madkoding/starlight/internal/onboard"
-	"github.com/madkoding/starlight/internal/sandbox"
+	"github.com/madkoding/motita/internal/agent"
+	"github.com/madkoding/motita/internal/config"
+	"github.com/madkoding/motita/internal/llm"
+	"github.com/madkoding/motita/internal/logx"
+	"github.com/madkoding/motita/internal/onboard"
+	"github.com/madkoding/motita/internal/sandbox"
 )
 
 // silence reduces the log to errors so the test output stays readable (the
@@ -149,7 +149,7 @@ func TestUnknownFlagReturns2(t *testing.T) {
 		t.Errorf("errs = %q", errs.String())
 	}
 	// The message must include the usage, so the user knows what can be asked.
-	if !strings.Contains(errs.String(), "Usage: starlight") {
+	if !strings.Contains(errs.String(), "Usage: motita") {
 		t.Errorf("the error must include the usage: %q", errs.String())
 	}
 }
@@ -169,7 +169,7 @@ func TestOptionsWithoutOutputDoesNotPanic(t *testing.T) {
 func TestValidateConfigWithRealExample(t *testing.T) {
 	inTempDir(t, func() {
 		silence(t)
-		t.Setenv("STARLIGHT_LLM_API_KEY", "test-key")
+		t.Setenv("MOTITA_LLM_API_KEY", "test-key")
 
 		paths := []string{
 			repoPath(t, "configs", "agent.yaml.example"),
@@ -242,7 +242,7 @@ func TestMissingConfig(t *testing.T) {
 
 func TestInvalidLogLevel(t *testing.T) {
 	silence(t)
-	t.Setenv("STARLIGHT_LLM_API_KEY", "x")
+	t.Setenv("MOTITA_LLM_API_KEY", "x")
 	dir := t.TempDir()
 	path := filepath.Join(dir, "level.yaml")
 	mustWrite(t, path, "llm:\n  api_key: x\nagent:\n  log_level: verbose\n")
@@ -287,7 +287,7 @@ sandbox:
 }
 func TestFailedSandboxReturns1(t *testing.T) {
 	silence(t)
-	t.Setenv("STARLIGHT_LLM_API_KEY", "x")
+	t.Setenv("MOTITA_LLM_API_KEY", "x")
 	dir := t.TempDir()
 	path := filepath.Join(dir, "sandbox.yaml")
 	mustWrite(t, path, "llm:\n  api_key: x\n")
@@ -311,7 +311,7 @@ func TestFailedSandboxReturns1(t *testing.T) {
 func TestFailedEngineReturns2(t *testing.T) {
 	inTempDir(t, func() {
 		silence(t)
-		t.Setenv("STARLIGHT_LLM_API_KEY", "x")
+		t.Setenv("MOTITA_LLM_API_KEY", "x")
 		dir := t.TempDir()
 		path := filepath.Join(dir, "engine.yaml")
 		mustWrite(t, path, "llm:\n  api_key: x\n")
@@ -334,7 +334,7 @@ func TestFailedEngineReturns2(t *testing.T) {
 }
 func TestInvalidSourceReturns2(t *testing.T) {
 	silence(t)
-	t.Setenv("STARLIGHT_LLM_API_KEY", "x")
+	t.Setenv("MOTITA_LLM_API_KEY", "x")
 	dir := t.TempDir()
 	path := filepath.Join(dir, "source.yaml")
 	// A valid source kind but without the required path: config validation
@@ -1132,7 +1132,7 @@ func TestSandboxSubprocessRunsTheCommand(t *testing.T) {
 	}
 
 	cmd := exec.Command(binary, sandbox.ChildMarker, encoded)
-	cmd.Env = append(os.Environ(), "STARLIGHT_TEST_CHILD=1")
+	cmd.Env = append(os.Environ(), "MOTITA_TEST_CHILD=1")
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		t.Fatalf("the child mode failed: %v (%s)", err, output)
@@ -1191,7 +1191,7 @@ func TestRunFailsWhenTheLoggerConfigIsInvalid(t *testing.T) {
 // be a configuration error naming the source, not a crash.
 func TestRunFailsWhenTheSourceCannotBeBuilt(t *testing.T) {
 	silence(t)
-	t.Setenv("STARLIGHT_LLM_API_KEY", "k")
+	t.Setenv("MOTITA_LLM_API_KEY", "k")
 	dir := t.TempDir()
 	path := filepath.Join(dir, "config.yaml")
 	mustWrite(t, path, "llm:\n  api_key: k\ntask_source:\n  kind: telepathy\n")
@@ -1331,7 +1331,7 @@ agent:
 // reach that branch once the file itself is valid.
 func TestSourceBuildFailureIsReported(t *testing.T) {
 	silence(t)
-	t.Setenv("STARLIGHT_LLM_API_KEY", "k")
+	t.Setenv("MOTITA_LLM_API_KEY", "k")
 	dir := t.TempDir()
 	path := filepath.Join(dir, "config.yaml")
 	mustWrite(t, path, "llm:\n  api_key: k\nanchor:\n  kind: command\n  command: \"true\"\nagent:\n  workspace_dir: "+dir+"\n")
@@ -1351,7 +1351,7 @@ func TestSourceBuildFailureIsReported(t *testing.T) {
 // to keep the output quiet), it must be the one that is called.
 func TestInjectedLoggerIsUsed(t *testing.T) {
 	silence(t)
-	t.Setenv("STARLIGHT_LLM_API_KEY", "k")
+	t.Setenv("MOTITA_LLM_API_KEY", "k")
 	dir := t.TempDir()
 	path := filepath.Join(dir, "config.yaml")
 	mustWrite(t, path, "llm:\n  api_key: k\nanchor:\n  kind: command\n  command: \"true\"\nagent:\n  workspace_dir: "+dir+"\n")
@@ -1437,7 +1437,7 @@ func TestInitFlagRunsTheWizard(t *testing.T) {
 	inTempDir(t, func() {
 		silence(t)
 		dir := t.TempDir()
-		path := filepath.Join(dir, "starlight.yaml")
+		path := filepath.Join(dir, "motita.yaml")
 
 		var out, errs bytes.Buffer
 		code := Run(Options{
@@ -1453,7 +1453,7 @@ func TestInitFlagRunsTheWizard(t *testing.T) {
 			t.Fatalf("the configuration must exist: %v", err)
 		}
 		text := out.String()
-		if !strings.Contains(text, "Welcome to starlight") {
+		if !strings.Contains(text, "Welcome to motita") {
 			t.Errorf("the wizard must introduce itself: %q", text)
 		}
 		// It must prove the generated file loads, which is the point of the wizard.
@@ -1464,9 +1464,9 @@ func TestInitFlagRunsTheWizard(t *testing.T) {
 }
 
 // TestInitWithoutConfigUsesADefaultPath: with no -config the destination is
-// ./starlight.yaml, so the command is usable on its own.
-// The wizard's default destination is the starlight home, not the working directory: the file it
-// writes is the one the program looks for on the next run, and a user with no ~/.starlight gets
+// ./motita.yaml, so the command is usable on its own.
+// The wizard's default destination is the motita home, not the working directory: the file it
+// writes is the one the program looks for on the next run, and a user with no ~/.motita gets
 // one created as part of writing it.
 func TestInitWithoutConfigWritesInTheStarlightHome(t *testing.T) {
 	inTempDir(t, func() {
@@ -1483,11 +1483,11 @@ func TestInitWithoutConfigWritesInTheStarlightHome(t *testing.T) {
 		if code != Success {
 			t.Fatalf("code = %d, errs = %q", code, errs.String())
 		}
-		want := filepath.Join(home, ".starlight", "starlight.yaml")
+		want := filepath.Join(home, ".motita", "motita.yaml")
 		if _, err := os.Stat(want); err != nil {
 			t.Errorf("the wizard should write %s: %v", want, err)
 		}
-		if _, err := os.Stat("starlight.yaml"); err == nil {
+		if _, err := os.Stat("motita.yaml"); err == nil {
 			t.Error("nothing should be left in the working directory")
 		}
 	})
@@ -1510,7 +1510,7 @@ func TestInitWithoutHomeFallsBackToTheWorkingDirectory(t *testing.T) {
 		if code != Success {
 			t.Fatalf("code = %d, errs = %q", code, errs.String())
 		}
-		if _, err := os.Stat("starlight.yaml"); err != nil {
+		if _, err := os.Stat("motita.yaml"); err != nil {
 			t.Errorf("with no HOME the working directory is used: %v", err)
 		}
 	})
@@ -1522,7 +1522,7 @@ func TestInitCancelledIsNotAFailure(t *testing.T) {
 	inTempDir(t, func() {
 		silence(t)
 		dir := t.TempDir()
-		path := filepath.Join(dir, "starlight.yaml")
+		path := filepath.Join(dir, "motita.yaml")
 
 		var out, errs bytes.Buffer
 		code := Run(Options{
@@ -1830,7 +1830,7 @@ func TestTUIFlag(t *testing.T) {
 
 func TestDefaultNoConfigGoesToTUI(t *testing.T) {
 	silence(t)
-	t.Setenv("STARLIGHT_LLM_API_KEY", "test")
+	t.Setenv("MOTITA_LLM_API_KEY", "test")
 	srv := planServer(t, []string{"default plan"})
 	defer srv.Close()
 	var out, errs bytes.Buffer
@@ -1883,7 +1883,7 @@ func TestPlanDefaultTimeoutAndLoops(t *testing.T) {
 
 func TestRunTUINilHook(t *testing.T) {
 	silence(t)
-	t.Setenv("STARLIGHT_LLM_API_KEY", "test")
+	t.Setenv("MOTITA_LLM_API_KEY", "test")
 	srv := planServer(t, []string{"hello"})
 	defer srv.Close()
 	var out bytes.Buffer
@@ -1907,7 +1907,7 @@ func TestRunTUINilHook(t *testing.T) {
 // exercising the real one. This walks the real path: menu -> plan -> answer.
 func TestTUIRealRunnerPlanModeDoesNotPanic(t *testing.T) {
 	silence(t)
-	t.Setenv("STARLIGHT_LLM_API_KEY", "test")
+	t.Setenv("MOTITA_LLM_API_KEY", "test")
 	srv := planServer(t, []string{"the answer"})
 	defer srv.Close()
 
@@ -1938,7 +1938,7 @@ func TestTUIRealRunnerPlanModeDoesNotPanic(t *testing.T) {
 // the production runner too, without panicking on a nil dependency.
 func TestTUIRealRunnerModelsModeLists(t *testing.T) {
 	silence(t)
-	t.Setenv("STARLIGHT_LLM_API_KEY", "test")
+	t.Setenv("MOTITA_LLM_API_KEY", "test")
 	// A catalogue that answers for any path, so the real lister succeeds.
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
@@ -1964,7 +1964,7 @@ func TestTUIRealRunnerModelsModeLists(t *testing.T) {
 
 func TestDefaultNoConfigButTaskUsesTaskMode(t *testing.T) {
 	silence(t)
-	t.Setenv("STARLIGHT_LLM_API_KEY", "test")
+	t.Setenv("MOTITA_LLM_API_KEY", "test")
 	var out, errs bytes.Buffer
 	code := Run(Options{
 		Args:     []string{"-task", "TASK-FROM-CMD"},

@@ -64,7 +64,7 @@ func TestNextScreenFromAnUnknownScreenStartsAtTheFirst(t *testing.T) {
 func TestAuthorAndScreenStrings(t *testing.T) {
 	cases := map[Author]string{
 		AuthorUser:   "you",
-		AuthorAgent:  "starlight",
+		AuthorAgent:  "motita",
 		AuthorSystem: "system",
 		Author(42):   "?",
 	}

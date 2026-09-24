@@ -17,11 +17,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/madkoding/starlight/internal/config"
-	"github.com/madkoding/starlight/internal/gateway"
-	"github.com/madkoding/starlight/internal/llm"
-	"github.com/madkoding/starlight/internal/logx"
-	"github.com/madkoding/starlight/internal/sandbox"
+	"github.com/madkoding/motita/internal/config"
+	"github.com/madkoding/motita/internal/gateway"
+	"github.com/madkoding/motita/internal/llm"
+	"github.com/madkoding/motita/internal/logx"
+	"github.com/madkoding/motita/internal/sandbox"
 )
 
 // syncBuffer is a bytes.Buffer safe for one writer and one reader at a time.
@@ -62,7 +62,7 @@ func gatewayConfig(t *testing.T, srv *httptest.Server) (cfgPath, logPath string)
 	t.Helper()
 	dir := t.TempDir()
 	cfgPath = filepath.Join(dir, "config.yaml")
-	logPath = filepath.Join(dir, "starlight.log")
+	logPath = filepath.Join(dir, "motita.log")
 	mustWrite(t, cfgPath, fmt.Sprintf(`sandbox:
   kind: none
   cgroups: off
@@ -88,7 +88,7 @@ agent:
 }
 
 // gatewayTestOptions are the options every test here needs, with the side-effecting bits
-// redirected: HOME so nothing is created in the real ~/.starlight, and the sandbox so nothing is
+// redirected: HOME so nothing is created in the real ~/.motita, and the sandbox so nothing is
 // written into the package.
 //
 // stdin comes FIRST and args after it, deliberately: passing a flag in the stdin position is a
@@ -98,7 +98,7 @@ func gatewayTestOptions(t *testing.T, out *syncBuffer, stdin string, args ...str
 	t.Helper()
 	// HOME decides config.Dir(), and therefore the default location of the token file.
 	t.Setenv("HOME", t.TempDir())
-	t.Setenv("STARLIGHT_LLM_API_KEY", "test")
+	t.Setenv("MOTITA_LLM_API_KEY", "test")
 	dir := t.TempDir()
 	return Options{
 		Args:  args,
@@ -219,7 +219,7 @@ func TestTheGatewayCanBeTurnedOff(t *testing.T) {
 	srv := planServer(t, []string{"hello"})
 	defer srv.Close()
 
-	t.Setenv("STARLIGHT_GATEWAY_ENABLED", "false")
+	t.Setenv("MOTITA_GATEWAY_ENABLED", "false")
 	cfgPath, logPath := gatewayConfig(t, srv)
 	var out syncBuffer
 	opts := gatewayTestOptions(t, &out, "q\n", "-config", cfgPath, "-tui")
@@ -562,7 +562,7 @@ func TestAServeWithAnUnbindableAddressReportsAConfigError(t *testing.T) {
 	opts := gatewayTestOptions(t, &out, "", "-serve", "-config", planConfig(t, srv))
 	opts.BaseCtx = context.Background()
 	opts.NewEngine = mockEngine(srv)
-	t.Setenv("STARLIGHT_GATEWAY_LISTEN", "not an address")
+	t.Setenv("MOTITA_GATEWAY_LISTEN", "not an address")
 
 	if code := Run(opts); code != ConfigError {
 		t.Errorf("code = %d, want ConfigError (%d): %s", code, ConfigError, out.String())
@@ -587,7 +587,7 @@ func TestAServeOnATakenPortReportsAConfigError(t *testing.T) {
 	opts := gatewayTestOptions(t, &out, "", "-serve", "-config", planConfig(t, srv))
 	opts.BaseCtx = context.Background()
 	opts.NewEngine = mockEngine(srv)
-	t.Setenv("STARLIGHT_GATEWAY_LISTEN", held.Addr().String())
+	t.Setenv("MOTITA_GATEWAY_LISTEN", held.Addr().String())
 
 	if code := Run(opts); code != ConfigError {
 		t.Errorf("code = %d, want ConfigError (%d): %s", code, ConfigError, out.String())

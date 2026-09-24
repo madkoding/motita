@@ -21,7 +21,7 @@ func TestProductionExecHookReplacesTheImage(t *testing.T) {
 // a command that cannot exist, which is the only way to observe the failure without
 // the process image really being replaced.
 func TestExecCommandReportsAFailedExec(t *testing.T) {
-	err := execCommand("/this/does/not/exist-starlight", []string{"x"}, []string{})
+	err := execCommand("/this/does/not/exist-motita", []string{"x"}, []string{})
 	if err == nil {
 		t.Fatal("executing a non-existent file must fail")
 	}

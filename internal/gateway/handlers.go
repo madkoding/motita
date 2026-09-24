@@ -3,7 +3,7 @@ package gateway
 import (
 	"net/http"
 
-	"github.com/madkoding/starlight/internal/agent"
+	"github.com/madkoding/motita/internal/agent"
 )
 
 // The endpoints that answer in one shot: they read or change a small thing and return. The

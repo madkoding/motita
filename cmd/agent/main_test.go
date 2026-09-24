@@ -11,14 +11,14 @@ import (
 	"testing"
 	"time"
 
-	"github.com/madkoding/starlight/internal/app"
+	"github.com/madkoding/motita/internal/app"
 )
 
 // TestMain lets the test binary act as the program itself when the marker is set:
 // main() reads os.Args, installs the signal handlers and exits with the code from
 // the app layer, none of which can be observed from inside the test process.
 func TestMain(m *testing.M) {
-	if os.Getenv("STARLIGHT_TEST_MAIN") == "1" {
+	if os.Getenv("MOTITA_TEST_MAIN") == "1" {
 		main()
 		return
 	}
@@ -38,8 +38,8 @@ func runAgent(t *testing.T, env []string, args ...string) (string, string, int) 
 
 	cmd := exec.Command(binary, args...)
 	cmd.Dir = t.TempDir()
-	cmd.Env = append(os.Environ(), "STARLIGHT_TEST_MAIN=1")
-	// A HOME of its own, so the subprocess cannot reach the real ~/.starlight. The program keeps
+	cmd.Env = append(os.Environ(), "MOTITA_TEST_MAIN=1")
+	// A HOME of its own, so the subprocess cannot reach the real ~/.motita. The program keeps
 	// its state there now, and without this a test that runs it would create or read the home of
 	// whoever runs the suite.
 	cmd.Env = append(cmd.Env, "HOME="+t.TempDir())
@@ -67,7 +67,7 @@ func TestVersionExitsZero(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("code = %d (%q)", code, errs)
 	}
-	if !strings.Contains(out, "starlight") {
+	if !strings.Contains(out, "motita") {
 		t.Errorf("out = %q", out)
 	}
 	// The version is injected at build time with -ldflags; in a plain `go test`

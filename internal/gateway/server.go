@@ -12,9 +12,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/madkoding/starlight/internal/logx"
-	"github.com/madkoding/starlight/internal/netrules"
-	"github.com/madkoding/starlight/internal/webui"
+	"github.com/madkoding/motita/internal/logx"
+	"github.com/madkoding/motita/internal/netrules"
+	"github.com/madkoding/motita/internal/webui"
 )
 
 // defaultMaxBodyKB caps a request body when nothing else is configured. A task or a prompt is a

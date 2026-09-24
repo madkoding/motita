@@ -56,7 +56,7 @@ type Health struct {
 // The body is parsed rather than the status alone trusted. Another program listening on the same
 // port would answer 200 to anything, and the client would then send it the bearer token and fail on
 // every call with an error that says nothing about the real problem. A shape check is what turns
-// that into "this is not a starlight gateway".
+// that into "this is not a motita gateway".
 //
 // A missing service file returns found=false with no error: nothing running is the normal state,
 // not a failure. A corrupt one returns an error, because the alternative is starting a second
@@ -80,7 +80,7 @@ func Discover(ctx context.Context, path string, probe func(context.Context, stri
 		return Found{}, false, nil
 	}
 	if !health.OK {
-		// Something answered that is not a starlight gateway. The check is on `ok` and NOT on the
+		// Something answered that is not a motita gateway. The check is on `ok` and NOT on the
 		// version string, which is the trap: the build injects the version with -ldflags, and a
 		// developer build that never received the injection reports "dev" or an empty string. A
 		// version check would then refuse to recognise a perfectly healthy gateway built from source -

@@ -14,7 +14,7 @@ import (
 func requireToken(token string, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if !authorized(token, r) {
-			w.Header().Set("WWW-Authenticate", `Bearer realm="starlight"`)
+			w.Header().Set("WWW-Authenticate", `Bearer realm="motita"`)
 			http.Error(w, "a valid bearer token is required", http.StatusUnauthorized)
 			return
 		}
@@ -71,7 +71,7 @@ func bearerMatches(token, header string) bool {
 func requireBearer(token string, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if !bearerMatches(token, r.Header.Get("Authorization")) {
-			w.Header().Set("WWW-Authenticate", `Bearer realm="starlight"`)
+			w.Header().Set("WWW-Authenticate", `Bearer realm="motita"`)
 			http.Error(w, "a valid bearer token is required", http.StatusUnauthorized)
 			return
 		}

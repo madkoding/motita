@@ -13,9 +13,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/madkoding/starlight/internal/config"
-	"github.com/madkoding/starlight/internal/logx"
-	"github.com/madkoding/starlight/internal/reward"
+	"github.com/madkoding/motita/internal/config"
+	"github.com/madkoding/motita/internal/logx"
+	"github.com/madkoding/motita/internal/reward"
 )
 
 // quiet is a logger that writes nothing, so a warning about a broken ledger does not fill the
@@ -54,7 +54,7 @@ func TestTheStoreAlwaysHasALibrary(t *testing.T) {
 	}
 }
 
-// TestAnUnsetDirectoryFallsBackToTheHome: starlight's own state does not belong in whatever
+// TestAnUnsetDirectoryFallsBackToTheHome: motita's own state does not belong in whatever
 // project the user happens to be standing in, and an empty string would root the library at the
 // working directory.
 func TestAnUnsetDirectoryFallsBackToTheHome(t *testing.T) {
@@ -188,7 +188,7 @@ func TestABrokenLedgerIsReported(t *testing.T) {
 	}
 
 	// The real logger, writing to a file, so the warning is observed rather than assumed.
-	logPath := filepath.Join(t.TempDir(), "starlight.log")
+	logPath := filepath.Join(t.TempDir(), "motita.log")
 	l, err := logx.New(logx.Options{Level: logx.Warn, Path: logPath})
 	if err != nil {
 		t.Fatal(err)

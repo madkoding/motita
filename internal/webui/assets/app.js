@@ -1,4 +1,4 @@
-// The starlight interface.
+// The Motita interface.
 //
 // Three rules shape this file, and each one is a decision rather than a style:
 //
@@ -569,11 +569,11 @@
         // looking through the configuration for a key that is not there - the gateway mints the
         // token itself on first start. What they need is the link, so that is what is named, along
         // with the reason the plain address cannot work.
-        say('This page needs the link `starlight gateway start` printed, not the address on its own. ' +
+        say('This page needs the link `motita gateway start` printed, not the address on its own. ' +
             'The gateway generates its token the first time it starts - there is nothing to set up. ' +
             'The token travels in the `#t=...` fragment, and a browser never sends a fragment to the ' +
             'server, which is why opening this address without it arrives here with no credential. ' +
-            'Run `starlight gateway start` again to print the link.', 'agent kind');
+            'Run `motita gateway start` again to print the link.', 'agent kind');
         return;
       }
       setState('not connected', true);

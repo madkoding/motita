@@ -10,8 +10,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/madkoding/starlight/internal/config"
-	"github.com/madkoding/starlight/internal/gateway"
+	"github.com/madkoding/motita/internal/config"
+	"github.com/madkoding/motita/internal/gateway"
 )
 
 // portOf reads the port out of a base URL for the exposure sentence.
@@ -519,15 +519,15 @@ func TestTheInterfaceSettingSurvivesAnUnreadableConfiguration(t *testing.T) {
 //
 // `gateway start` with no -config used to ask this question of fl.configPath alone - an empty
 // string - so the answer came from the DEFAULTS, where the interface is on, while the service it
-// spawned read ~/.starlight/starlight.yaml, where the operator had turned it off. The command
+// spawned read ~/.motita/motita.yaml, where the operator had turned it off. The command
 // handed out a link and the gateway answered 404 on it. The symptom is a user hunting a fault that
 // is really a setting, so the setting has to be read from the file the child inherits.
 func TestTheInterfaceSettingIsReadFromTheFileTheGatewayWillRead(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	// The environment is cleared so what is under test is the FILE: a developer with
-	// STARLIGHT_GATEWAY_WEBUI exported would otherwise decide this test's outcome.
-	t.Setenv("STARLIGHT_GATEWAY_WEBUI", "")
+	// MOTITA_GATEWAY_WEBUI exported would otherwise decide this test's outcome.
+	t.Setenv("MOTITA_GATEWAY_WEBUI", "")
 
 	writeHomeConfig(t, home, "gateway:\n  webui: false\n")
 
@@ -543,7 +543,7 @@ func TestTheInterfaceSettingIsReadFromTheFileTheGatewayWillRead(t *testing.T) {
 func TestTheDefaultIsAnnouncedWhenTheHomeFileSaysNothing(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
-	t.Setenv("STARLIGHT_GATEWAY_WEBUI", "")
+	t.Setenv("MOTITA_GATEWAY_WEBUI", "")
 
 	writeHomeConfig(t, home, "agent:\n  log_level: info\n")
 
@@ -558,17 +558,17 @@ func TestTheDefaultIsAnnouncedWhenTheHomeFileSaysNothing(t *testing.T) {
 func TestTheEnvironmentReachesTheInterfaceAnnouncement(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
-	t.Setenv("STARLIGHT_GATEWAY_WEBUI", "false")
+	t.Setenv("MOTITA_GATEWAY_WEBUI", "false")
 
 	if op := (Options{}); op.webUIEnabled(flags{}) {
-		t.Fatal("STARLIGHT_GATEWAY_WEBUI=false was ignored when deciding whether to announce")
+		t.Fatal("MOTITA_GATEWAY_WEBUI=false was ignored when deciding whether to announce")
 	}
 
 	// And it reaches it with no configuration file at all, which is the container case: the
 	// variable is the only thing that says anything.
-	t.Setenv("STARLIGHT_GATEWAY_WEBUI", "true")
+	t.Setenv("MOTITA_GATEWAY_WEBUI", "true")
 	if op := (Options{}); !op.webUIEnabled(flags{}) {
-		t.Fatal("STARLIGHT_GATEWAY_WEBUI=true did not turn the announcement on")
+		t.Fatal("MOTITA_GATEWAY_WEBUI=true did not turn the announcement on")
 	}
 }
 
@@ -577,7 +577,7 @@ func TestTheEnvironmentReachesTheInterfaceAnnouncement(t *testing.T) {
 // print a link.
 func TestAMalformedInterfaceSettingAnnouncesNothing(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
-	t.Setenv("STARLIGHT_GATEWAY_WEBUI", "maybe")
+	t.Setenv("MOTITA_GATEWAY_WEBUI", "maybe")
 
 	if op := (Options{}); op.webUIEnabled(flags{}) {
 		t.Fatal("a malformed boolean was read as \"on\": nothing should be announced when the " +
@@ -591,7 +591,7 @@ func TestAMalformedInterfaceSettingAnnouncesNothing(t *testing.T) {
 func TestAnExplicitConfigDecidesTheAnnouncementOverTheHome(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
-	t.Setenv("STARLIGHT_GATEWAY_WEBUI", "")
+	t.Setenv("MOTITA_GATEWAY_WEBUI", "")
 
 	// The home says OFF and the named file says ON.
 	writeHomeConfig(t, home, "gateway:\n  webui: false\n")
@@ -628,7 +628,7 @@ func TestStartDoesNotAnnounceAnInterfaceItsGatewayWillNotServe(t *testing.T) {
 
 	// gatewayTestOptions pins HOME to a temporary directory, so the file written here is the one
 	// the command resolves - the same one the spawned service would read.
-	t.Setenv("STARLIGHT_GATEWAY_WEBUI", "")
+	t.Setenv("MOTITA_GATEWAY_WEBUI", "")
 	writeHomeConfig(t, os.Getenv("HOME"), "gateway:\n  webui: false\n")
 
 	if code := Run(op); code != Success {
@@ -659,7 +659,7 @@ func TestStartAnnouncesTheInterfaceItsGatewayWillServe(t *testing.T) {
 			Address: address, Token: testToken, PID: 4242, Owned: false,
 		})
 	}
-	t.Setenv("STARLIGHT_GATEWAY_WEBUI", "")
+	t.Setenv("MOTITA_GATEWAY_WEBUI", "")
 
 	if code := Run(op); code != Success {
 		t.Fatalf("exit %d, want %d (output: %s)", code, Success, out.String())
@@ -669,10 +669,10 @@ func TestStartAnnouncesTheInterfaceItsGatewayWillServe(t *testing.T) {
 	}
 }
 
-// writeHomeConfig writes the starlight home's own configuration file, creating the home directory.
+// writeHomeConfig writes the motita home's own configuration file, creating the home directory.
 func writeHomeConfig(t *testing.T, home, body string) {
 	t.Helper()
-	path := filepath.Join(home, ".starlight", "starlight.yaml")
+	path := filepath.Join(home, ".motita", "motita.yaml")
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		t.Fatalf("mkdir: %v", err)
 	}

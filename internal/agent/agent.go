@@ -29,17 +29,17 @@ import (
 	"sync"
 	"time"
 
-	"github.com/madkoding/starlight/internal/anchor"
-	"github.com/madkoding/starlight/internal/config"
-	"github.com/madkoding/starlight/internal/execx"
-	"github.com/madkoding/starlight/internal/llm"
-	"github.com/madkoding/starlight/internal/logx"
-	"github.com/madkoding/starlight/internal/policy"
-	"github.com/madkoding/starlight/internal/reward"
-	"github.com/madkoding/starlight/internal/sandbox"
-	"github.com/madkoding/starlight/internal/skills"
-	"github.com/madkoding/starlight/internal/task"
-	"github.com/madkoding/starlight/internal/template"
+	"github.com/madkoding/motita/internal/anchor"
+	"github.com/madkoding/motita/internal/config"
+	"github.com/madkoding/motita/internal/execx"
+	"github.com/madkoding/motita/internal/llm"
+	"github.com/madkoding/motita/internal/logx"
+	"github.com/madkoding/motita/internal/policy"
+	"github.com/madkoding/motita/internal/reward"
+	"github.com/madkoding/motita/internal/sandbox"
+	"github.com/madkoding/motita/internal/skills"
+	"github.com/madkoding/motita/internal/task"
+	"github.com/madkoding/motita/internal/template"
 )
 
 // Agent orchestrates the three layers.
@@ -722,7 +722,7 @@ func (a *Agent) Run(ctx context.Context) error {
 			"     anchor:\n       kind: command\n       command: make\n       args: [test]\n" +
 			"   If you only want to exercise the loop without validating anything, make it explicit:\n" +
 			"     anchor:\n       kind: command\n       command: true\n" +
-			"   Check the configuration with: starlight -config <file> -validate-config")
+			"   Check the configuration with: motita -config <file> -validate-config")
 	}
 
 	a.log.Info("agent started",

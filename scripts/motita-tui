@@ -1,17 +1,17 @@
 #!/bin/sh
-# starlight-tui — open the starlight chat against a fixed configuration and credential file.
+# motita-tui — open the motita chat against a fixed configuration and credential file.
 #
 # Usage:
-#   starlight                       # interactive chat
-#   starlight -task "x"             # one-shot task
-#   starlight -p "x"                # one-shot plan/chat prompt
-#   starlight -validate-config      # check the configuration and exit
-#   CONFIG=/path/to.yaml starlight  # a different configuration
+#   motita                       # interactive chat
+#   motita -task "x"             # one-shot task
+#   motita -p "x"                # one-shot plan/chat prompt
+#   motita -validate-config      # check the configuration and exit
+#   CONFIG=/path/to.yaml motita  # a different configuration
 #
 # Why a wrapper and not just the binary:
 #
 #   The API key is not stored in the configuration file — the loader reads it
-#   from STARLIGHT_LLM_API_KEY, or from the provider's own variable
+#   from MOTITA_LLM_API_KEY, or from the provider's own variable
 #   (OLLAMA_API_KEY for Ollama Cloud). Sourcing the credential file here keeps
 #   the key in exactly one place instead of in every shell that runs the agent.
 #
@@ -28,9 +28,9 @@
 #   spell out a different job.
 #
 # Defaults, in order of precedence:
-#   CONFIG      env var, else <repo>/.starlight/starlight.yaml
-#   ENV_FILE    env var, else <repo>/.starlight/env
-#   BINARY      env var, else <repo>/bin/starlight-fk
+#   CONFIG      env var, else <repo>/.motita/motita.yaml
+#   ENV_FILE    env var, else <repo>/.motita/env
+#   BINARY      env var, else <repo>/bin/motita-fk
 #
 # Everything after the wrapper's own name is forwarded verbatim to the binary.
 
@@ -40,7 +40,7 @@ set -e
 #
 # The wrapper is meant to be linked onto PATH, and a link is what gets run:
 #
-#   ~/bin/starlight -> <repo>/bin/starlight-tui -> <repo>/scripts/starlight-tui
+#   ~/bin/motita -> <repo>/bin/motita-tui -> <repo>/scripts/motita-tui
 #
 # Taking dirname($0) at face value resolves to the directory the LINK lives in,
 # so the wrapper would look for the configuration and the binary next to the
@@ -48,7 +48,7 @@ set -e
 # chain to the real file is what makes the same command work from a link, from
 # the repository, and from any working directory.
 #
-# A bare name ($0 = "starlight", with no slash) is resolved through PATH first,
+# A bare name ($0 = "motita", with no slash) is resolved through PATH first,
 # because that is the other shape a shell can hand over.
 case $0 in
     */*) SELF=$0 ;;
@@ -60,7 +60,7 @@ hops=0
 while [ -L "$SELF" ]; do
     hops=$((hops + 1))
     if [ "$hops" -gt 40 ]; then
-        echo "starlight-tui: too many symbolic links resolving $0" >&2
+        echo "motita-tui: too many symbolic links resolving $0" >&2
         exit 2
     fi
     target=$(readlink "$SELF") || exit 2
@@ -73,19 +73,19 @@ done
 HERE=$(cd "$(dirname "$SELF")" && pwd)
 ROOT=$(cd "$HERE/.." && pwd)
 
-CONFIG=${CONFIG:-"$ROOT/.starlight/starlight.yaml"}
-ENV_FILE=${ENV_FILE:-"$ROOT/.starlight/env"}
-BINARY=${BINARY:-"$ROOT/bin/starlight-fk"}
+CONFIG=${CONFIG:-"$ROOT/.motita/motita.yaml"}
+ENV_FILE=${ENV_FILE:-"$ROOT/.motita/env"}
+BINARY=${BINARY:-"$ROOT/bin/motita-fk"}
 
 if [ ! -x "$BINARY" ]; then
-    echo "starlight-tui: binary not found or not executable: $BINARY" >&2
-    echo "  build it with: go build -trimpath -ldflags '-s -w' -o bin/starlight-fk ./cmd/agent" >&2
+    echo "motita-tui: binary not found or not executable: $BINARY" >&2
+    echo "  build it with: go build -trimpath -ldflags '-s -w' -o bin/motita-fk ./cmd/agent" >&2
     exit 2
 fi
 
 if [ ! -f "$CONFIG" ]; then
-    echo "starlight-tui: configuration not found: $CONFIG" >&2
-    echo "  create it with: starlight -init" >&2
+    echo "motita-tui: configuration not found: $CONFIG" >&2
+    echo "  create it with: motita -init" >&2
     exit 2
 fi
 

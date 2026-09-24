@@ -5,7 +5,7 @@ import (
 	"os"
 	"testing"
 
-	"github.com/madkoding/starlight/internal/logx"
+	"github.com/madkoding/motita/internal/logx"
 )
 
 // TestMain makes the test binary behave like the real binary: if it is invoked

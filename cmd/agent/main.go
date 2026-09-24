@@ -1,4 +1,4 @@
-// Command starlight is a 3-layer autonomous agent for i386 machines.
+// Command motita is a 3-layer autonomous agent for i386 machines.
 //
 // Architecture (see README.md):
 //
@@ -16,9 +16,9 @@
 //
 // Usage:
 //
-//	starlight -config configs/agent.yaml.example
-//	starlight -config configs/cases/1-development.yaml -task "fix test X"
-//	starlight -config configs/agent.yaml.example -validate-config
+//	motita -config configs/agent.yaml.example
+//	motita -config configs/cases/1-development.yaml -task "fix test X"
+//	motita -config configs/agent.yaml.example -validate-config
 //
 // This file is deliberately minimal: all the logic lives in internal/app, where it
 // can actually be tested. Here only the real process (output, signals) and the
@@ -32,7 +32,7 @@ import (
 	"runtime"
 	"syscall"
 
-	"github.com/madkoding/starlight/internal/app"
+	"github.com/madkoding/motita/internal/app"
 )
 
 // version is injected with -ldflags "-X main.version=v1.0.0".

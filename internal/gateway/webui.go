@@ -7,11 +7,11 @@ import (
 )
 
 // webuiCookie is the name of the credential a browser holds.
-const webuiCookie = "starlight_webui"
+const webuiCookie = "motita_webui"
 
 // webuiLabel domain-separates this derivation from any other use of the token, so a value
 // derived for one purpose can never be replayed as one derived for another.
-const webuiLabel = "starlight-webui-session-v1"
+const webuiLabel = "motita-webui-session-v1"
 
 // cookieValue derives the browser's credential from the gateway token.
 //

@@ -10,9 +10,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/madkoding/starlight/internal/agent"
-	"github.com/madkoding/starlight/internal/config"
-	"github.com/madkoding/starlight/internal/session"
+	"github.com/madkoding/motita/internal/agent"
+	"github.com/madkoding/motita/internal/config"
+	"github.com/madkoding/motita/internal/session"
 )
 
 // The edges of the new layout and the new input path: the branches a first pass through the
@@ -253,7 +253,7 @@ func TestTheRunnerResolvesTheLibraryOnce(t *testing.T) {
 
 // TestTheLibraryDirHasADefault: an unset directory must not give a library rooted at the empty
 // string, which would be the whole working directory — nor at the working directory itself,
-// which would scatter starlight's own state through whatever project the user is in. It falls
+// which would scatter motita's own state through whatever project the user is in. It falls
 // back to the home.
 func TestTheLibraryDirHasADefault(t *testing.T) {
 	r := &AppRunner{Cfg: config.Config{}}

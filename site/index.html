@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>starlight — the AI agent that has to prove it finished</title>
+<title>motita — the AI agent that has to prove it finished</title>
 <meta name="description" content="A three-layer AI agent that runs a real check to prove a task is done. One static binary, zero dependencies, runs on a 2008 netbook.">
 <meta name="color-scheme" content="dark">
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><text y='26' font-size='26'>✦</text></svg>">
@@ -309,7 +309,7 @@
       <a href="#guardrails">Guardrails</a>
       <a href="#numbers">Numbers</a>
       <a href="REFERENCE.md">Reference</a>
-      <a class="gh" href="https://github.com/madkoding/starlight">
+      <a class="gh" href="https://github.com/madkoding/motita">
         <svg width="15" height="15" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27s1.36.09 2 .27c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8Z"/></svg>
         GitHub
       </a>
@@ -323,7 +323,7 @@
     <span class="pill"><span class="dot" aria-hidden="true"></span> v0.5.0 · MIT · zero dependencies</span>
     <h1>The AI agent that has to <em>prove</em> it finished.</h1>
     <p class="lede">
-      Every other agent asks you to trust it. starlight runs a real check, and only
+      Every other agent asks you to trust it. motita runs a real check, and only
       the check can declare the task done. If it fails, the agent gets the real
       error back and tries again. If it can't pass, it says so and stops.
     </p>
@@ -331,7 +331,7 @@
     <div class="install">
       <div class="cmd">
         <span class="prompt" aria-hidden="true">$</span>
-        <code id="install-cmd">curl -fsSL https://raw.githubusercontent.com/madkoding/starlight/main/scripts/install.sh | sh</code>
+        <code id="install-cmd">curl -fsSL https://raw.githubusercontent.com/madkoding/motita/main/scripts/install.sh | sh</code>
         <button class="copy" type="button" data-copy="install-cmd">Copy</button>
         <span class="sr" role="status" id="copy-status"></span>
       </div>
@@ -340,7 +340,7 @@
 
     <figure class="shot">
       <img src="assets/tui-uchikoma.png" width="1308" height="800"
-           alt="The starlight terminal interface running on an Acer Aspire One, showing a task answered by listing the machine's listening ports and the process that owns each one.">
+           alt="The motita terminal interface running on an Acer Aspire One, showing a task answered by listing the machine's listening ports and the process that owns each one.">
       <figcaption>
         A real session, not a mockup — an Acer Aspire One (Atom N270, 484 MB RAM,
         Ubuntu 11.04 / kernel 2.6.38) answering a question by running commands and
@@ -354,14 +354,14 @@
       <p class="eyebrow">The architecture</p>
       <h2>The model proposes. Your code disposes.</h2>
       <p class="sub">
-        starlight splits every task in three, and the model only ever gets to
+        motita splits every task in three, and the model only ever gets to
         <strong>propose</strong>. The one rule that makes it work: the model can propose a
         <code>PASS</code>, but only layer A can declare one. With no anchor configured,
         the agent refuses to start — there is no "trust me" mode.
       </p>
 
       <div class="diagram">
-        <iframe src="architecture.html" title="Interactive starlight architecture diagram" loading="lazy"></iframe>
+        <iframe src="architecture.html" title="Interactive motita architecture diagram" loading="lazy"></iframe>
         <div class="foot">
           <span>Interactive: switch theme, trace a relationship, export SVG or PNG.</span>
           <span class="sep"></span>
@@ -526,10 +526,10 @@ attempt 2  <span class="g">PASS</span>  anchor: exit 0 — output.txt present an
 
 <footer>
   <div class="wrap frow">
-    <span class="mono">✦ starlight</span>
+    <span class="mono">✦ motita</span>
     <span>MIT licensed — take it, ship it, run it on hardware everyone else wrote off.</span>
     <span class="sep"></span>
-    <a href="https://github.com/madkoding/starlight">GitHub</a>
+    <a href="https://github.com/madkoding/motita">GitHub</a>
     <a href="REFERENCE.md">Reference</a>
     <a href="TUI-DESIGN-REVIEW.md">TUI design review</a>
   </div>

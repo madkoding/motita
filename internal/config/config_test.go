@@ -180,7 +180,7 @@ func TestParseYAMLExplicitErrors(t *testing.T) {
 // TestLoadRepoExample validates that the example YAML is correct: if the
 // documentation breaks, the test fails.
 func TestLoadRepoExample(t *testing.T) {
-	t.Setenv("STARLIGHT_LLM_API_KEY", "test-key")
+	t.Setenv("MOTITA_LLM_API_KEY", "test-key")
 
 	path := filepath.Join("..", "..", "configs", "agent.yaml.example")
 	if _, err := os.Stat(path); err != nil {
@@ -200,7 +200,7 @@ func TestLoadRepoExample(t *testing.T) {
 }
 
 func TestLoadUseCases(t *testing.T) {
-	t.Setenv("STARLIGHT_LLM_API_KEY", "test-key")
+	t.Setenv("MOTITA_LLM_API_KEY", "test-key")
 
 	for _, useCase := range []string{"1-development.yaml", "2-data.yaml", "3-automation.yaml"} {
 		t.Run(useCase, func(t *testing.T) {
@@ -302,10 +302,10 @@ sandbox:
 }
 
 func TestEnvironmentWinsOverYAML(t *testing.T) {
-	t.Setenv("STARLIGHT_LLM_MODEL", "model-from-environment")
-	t.Setenv("STARLIGHT_AGENT_MAX_RETRIES", "7")
-	t.Setenv("STARLIGHT_SANDBOX_ISOLATE_NETWORK", "true")
-	t.Setenv("STARLIGHT_LLM_API_KEY", "key")
+	t.Setenv("MOTITA_LLM_MODEL", "model-from-environment")
+	t.Setenv("MOTITA_AGENT_MAX_RETRIES", "7")
+	t.Setenv("MOTITA_SANDBOX_ISOLATE_NETWORK", "true")
+	t.Setenv("MOTITA_LLM_API_KEY", "key")
 
 	cfg := Default()
 	if err := ApplyEnvironment(&cfg); err != nil {
@@ -323,8 +323,8 @@ func TestEnvironmentWinsOverYAML(t *testing.T) {
 }
 
 func TestInvalidEnvironment(t *testing.T) {
-	t.Setenv("STARLIGHT_LLM_API_KEY", "x")
-	t.Setenv("STARLIGHT_AGENT_MAX_RETRIES", "many")
+	t.Setenv("MOTITA_LLM_API_KEY", "x")
+	t.Setenv("MOTITA_AGENT_MAX_RETRIES", "many")
 	cfg := Default()
 	if err := ApplyEnvironment(&cfg); err == nil {
 		t.Fatal("an invalid integer in the environment must give an error")

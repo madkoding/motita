@@ -61,7 +61,7 @@ func TestARefusalNamesTheScheme(t *testing.T) {
 	r := httptest.NewRequest(http.MethodGet, "/v1/anything", nil)
 	w := httptest.NewRecorder()
 	h.ServeHTTP(w, r)
-	if got := w.Header().Get("WWW-Authenticate"); got != `Bearer realm="starlight"` {
+	if got := w.Header().Get("WWW-Authenticate"); got != `Bearer realm="motita"` {
 		t.Errorf("WWW-Authenticate = %q", got)
 	}
 }

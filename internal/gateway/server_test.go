@@ -12,11 +12,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/madkoding/starlight/internal/agent"
-	"github.com/madkoding/starlight/internal/config"
-	"github.com/madkoding/starlight/internal/logx"
-	"github.com/madkoding/starlight/internal/netrules"
-	"github.com/madkoding/starlight/internal/session"
+	"github.com/madkoding/motita/internal/agent"
+	"github.com/madkoding/motita/internal/config"
+	"github.com/madkoding/motita/internal/logx"
+	"github.com/madkoding/motita/internal/netrules"
+	"github.com/madkoding/motita/internal/session"
 )
 
 const testToken = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"

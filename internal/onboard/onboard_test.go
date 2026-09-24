@@ -519,7 +519,7 @@ func TestChooseModelWithAProviderThatHasNoCatalogue(t *testing.T) {
 // TestKeyVariableForFallsBackForAnUnknownProvider: an id that is not in the
 // catalogue still produces a usable variable name.
 func TestKeyVariableForFallsBackForAnUnknownProvider(t *testing.T) {
-	if got := keyVariableFor("nope"); got != "STARLIGHT_LLM_API_KEY" {
+	if got := keyVariableFor("nope"); got != "MOTITA_LLM_API_KEY" {
 		t.Errorf("keyVariableFor(unknown) = %q", got)
 	}
 	if got := keyVariableFor("ollama"); got != "OLLAMA_API_KEY" {
@@ -538,7 +538,7 @@ func TestGeneratedHeaderNamesTheProviderVariable(t *testing.T) {
 		// ollama: provider, key, model, anchor
 		{"ollama", "OLLAMA_API_KEY", []string{"ollama", "k", "", "2"}},
 		// openai: provider, model, anchor, base URL, key
-		{"openai", "STARLIGHT_LLM_API_KEY", []string{"openai", "", "2", "", "k"}},
+		{"openai", "MOTITA_LLM_API_KEY", []string{"openai", "", "2", "", "k"}},
 	} {
 		dir := t.TempDir()
 		if tc.provider == "ollama" {
@@ -641,7 +641,7 @@ func TestTheKeyGoesToItsOwnFile(t *testing.T) {
 	if !strings.Contains(string(cred), "sk-secret-value") {
 		t.Error("the key must be in the credentials file")
 	}
-	if !strings.Contains(string(cred), "export STARLIGHT_LLM_API_KEY=") {
+	if !strings.Contains(string(cred), "export MOTITA_LLM_API_KEY=") {
 		t.Errorf("the file must be sourceable:\n%s", cred)
 	}
 
@@ -665,7 +665,7 @@ func TestNoKeyMeansNoCredentialsFile(t *testing.T) {
 	if res.CredentialsPath != "" {
 		t.Error("no key was given, so no credentials file")
 	}
-	if !strings.Contains(out, "export STARLIGHT_LLM_API_KEY=") {
+	if !strings.Contains(out, "export MOTITA_LLM_API_KEY=") {
 		t.Errorf("the summary must say what to export: %q", out)
 	}
 }
@@ -691,7 +691,7 @@ func TestAKeyWithQuotesCannotBreakTheFile(t *testing.T) {
 	// The real property: the shell can read it back. shQuote escapes an
 	// apostrophe as '\'' (close, escaped quote, reopen), so counting quotes is
 	// the wrong check; running the shell is the right one.
-	script := line + "\nprintf '%s' \"$STARLIGHT_LLM_API_KEY\"\n"
+	script := line + "\nprintf '%s' \"$MOTITA_LLM_API_KEY\"\n"
 	out, err := exec.Command("/bin/sh", "-c", script).Output()
 	if err != nil {
 		t.Fatalf("the generated line is not valid shell: %v (%s)", err, line)
@@ -825,7 +825,7 @@ func TestWriteFileAtomicLeavesNoTemporaryBehind(t *testing.T) {
 	}
 	entries, _ := os.ReadDir(filepath.Dir(path))
 	for _, e := range entries {
-		if strings.HasPrefix(e.Name(), ".starlight-") {
+		if strings.HasPrefix(e.Name(), ".motita-") {
 			t.Errorf("a temporary file was left behind: %s", e.Name())
 		}
 	}

@@ -1,21 +1,21 @@
 #!/bin/sh
-# starlight installer — one line, no Go, no Docker, no runtime on the target.
+# motita installer — one line, no Go, no Docker, no runtime on the target.
 #
-#   curl -fsSL https://raw.githubusercontent.com/madkoding/starlight/main/scripts/install.sh | sh
+#   curl -fsSL https://raw.githubusercontent.com/madkoding/motita/main/scripts/install.sh | sh
 #
 # It detects the system, downloads the matching static binary from the GitHub
 # release, checks it against the release's SHA256SUMS, and puts it on the PATH.
 #
 # Overrides:
-#   STARLIGHT_VERSION=v0.4.0      install a specific release instead of the latest
-#   STARLIGHT_INSTALL_DIR=~/bin   install somewhere else
+#   MOTITA_VERSION=v0.4.0      install a specific release instead of the latest
+#   MOTITA_INSTALL_DIR=~/bin   install somewhere else
 #
 # Exit codes: 0 installed · 1 failed (nothing is left half-installed).
 set -eu
 
-REPO="madkoding/starlight"
-BIN="starlight"
-VERSION="${STARLIGHT_VERSION:-latest}"
+REPO="madkoding/motita"
+BIN="motita"
+VERSION="${MOTITA_VERSION:-latest}"
 
 say()  { printf '%s\n' "$*"; }
 die()  { printf 'error: %s\n' "$*" >&2; exit 1; }
@@ -94,7 +94,7 @@ else
 	BASE="https://github.com/${REPO}/releases/download/${VERSION}"
 fi
 
-say "starlight installer"
+say "motita installer"
 say "  system: ${OS}/${ARCH}"
 say "  asset:  ${ASSET}"
 say "  from:   ${VERSION}"
@@ -103,7 +103,7 @@ say "  from:   ${VERSION}"
 #
 # Everything lands here first. The binary is moved into place only after it is
 # downloaded AND verified, so a failure at any point leaves the system as it was.
-TMP="$(mktemp -d "${TMPDIR:-/tmp}/starlight.XXXXXX")"
+TMP="$(mktemp -d "${TMPDIR:-/tmp}/motita.XXXXXX")"
 trap 'rm -rf "$TMP"' EXIT INT TERM
 
 if ! download "${BASE}/${ASSET}" "${TMP}/${ASSET}"; then
@@ -144,8 +144,8 @@ fi
 # installer from needing root, which is what lets it run from a pipe. If the
 # chosen directory is not on the PATH, say so instead of failing: the install
 # worked, and the user only needs to add it.
-if [ -n "${STARLIGHT_INSTALL_DIR:-}" ]; then
-	DIR="$STARLIGHT_INSTALL_DIR"
+if [ -n "${MOTITA_INSTALL_DIR:-}" ]; then
+	DIR="$MOTITA_INSTALL_DIR"
 elif [ -w /usr/local/bin ] 2>/dev/null; then
 	DIR=/usr/local/bin
 else

@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/madkoding/starlight/internal/llm"
+	"github.com/madkoding/motita/internal/llm"
 )
 
 // Summariser stubs, so the compaction path — the one that must not lose the task — is
@@ -103,7 +103,7 @@ func TestTokenEstimateCountsToolCalls(t *testing.T) {
 			Type: "function",
 			Function: llm.FunctionCall{
 				Name:      "read_file",
-				Arguments: []byte(`{"path":"/home/madkoding/proyectos/starlight/internal/tui/render.go"}`),
+				Arguments: []byte(`{"path":"/home/madkoding/proyectos/motita/internal/tui/render.go"}`),
 			},
 		}},
 	}}

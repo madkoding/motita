@@ -1,8 +1,8 @@
-// Command mockapi is a minimal OpenAI-compatible server to verify starlight
+// Command mockapi is a minimal OpenAI-compatible server to verify motita
 // without spending tokens or needing a key.
 //
 // It is pure Go and also cross-compiled for linux/386, so it can run INSIDE the
-// same 32-bit machine as starlight: that makes the end-to-end test self-contained
+// same 32-bit machine as motita: that makes the end-to-end test self-contained
 // (no dependency on the host's network).
 //
 // The script it implements:
@@ -17,7 +17,7 @@
 //	mockapi -port 8099 &
 //	export OPENAI_API_KEY=test
 //	export OPENAI_BASE_URL=http://127.0.0.1:8099/v1
-//	starlight -p "tell me the architecture"
+//	motita -p "tell me the architecture"
 package main
 
 import (

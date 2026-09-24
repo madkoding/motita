@@ -7,11 +7,11 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/madkoding/starlight/internal/config"
-	"github.com/madkoding/starlight/internal/execx"
-	"github.com/madkoding/starlight/internal/logx"
-	"github.com/madkoding/starlight/internal/reward"
-	"github.com/madkoding/starlight/internal/skills"
+	"github.com/madkoding/motita/internal/config"
+	"github.com/madkoding/motita/internal/execx"
+	"github.com/madkoding/motita/internal/logx"
+	"github.com/madkoding/motita/internal/reward"
+	"github.com/madkoding/motita/internal/skills"
 )
 
 // Task mode and Plan mode share ONE library. Task mode reaches it through its action protocol

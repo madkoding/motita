@@ -5,11 +5,11 @@
 # -> if it passes, the result is published with a POST.
 #
 # Usage:
-#   export STARLIGHT_LLM_API_KEY=sk-...
-#   starlight-agent -config configs/cases/2-data.yaml
+#   export MOTITA_LLM_API_KEY=sk-...
+#   motita-agent -config configs/cases/2-data.yaml
 #
 # To try it without a real API, point the source at a file:
-#   starlight-agent -config configs/cases/2-data.yaml -task-file tasks/analysis.md
+#   motita-agent -config configs/cases/2-data.yaml -task-file tasks/analysis.md
 
 task_source:
   kind: api
@@ -127,7 +127,7 @@ agent:
   max_retries: 4
   subtask_depth: 2
   workspace_dir: ./workspace/data
-  log_file: ./workspace/data/starlight.log
+  log_file: ./workspace/data/motita.log
   log_level: info
   log_max_mb: 20
   log_backups: 5

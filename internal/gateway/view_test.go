@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/madkoding/starlight/internal/config"
+	"github.com/madkoding/motita/internal/config"
 )
 
 // THE test of this file, and the reason configView exists at all. config.Config holds

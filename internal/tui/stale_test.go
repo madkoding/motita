@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/madkoding/starlight/internal/session"
+	"github.com/madkoding/motita/internal/session"
 )
 
 // --- The screen, not the frame -------------------------------------------------

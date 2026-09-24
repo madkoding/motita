@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/madkoding/starlight/internal/agent"
+	"github.com/madkoding/motita/internal/agent"
 )
 
 // confirmState is the window a consequential command is approved in.

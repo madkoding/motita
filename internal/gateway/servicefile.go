@@ -68,7 +68,7 @@ func (s ServiceFile) IsZero() bool { return s.Address == "" && s.Token == "" && 
 
 // ServiceFilePath is where the description of a running gateway lives.
 //
-// It sits beside the token file under ~/.starlight, so that the whole of the program's state is
+// It sits beside the token file under ~/.motita, so that the whole of the program's state is
 // one folder the user can find, back up or delete as a unit. It resolves HOME the same way
 // config.Dir does, and for the same reasons - including the fallback: with no HOME there is no
 // home to use, and a relative path is better than guessing a directory the user did not choose.
@@ -77,7 +77,7 @@ func ServiceFilePath() string {
 	if home == "" {
 		return "gateway.json"
 	}
-	return filepath.Join(home, ".starlight", "gateway.json")
+	return filepath.Join(home, ".motita", "gateway.json")
 }
 
 // WriteServiceFile writes the description of a running gateway, replacing any previous one.

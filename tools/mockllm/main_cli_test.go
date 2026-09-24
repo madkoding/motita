@@ -4,7 +4,7 @@ import (
 	"net/http"
 	"testing"
 
-	"github.com/madkoding/starlight/tools/clitest"
+	"github.com/madkoding/motita/tools/clitest"
 )
 
 // TestTheStartupContract is the half of the mock's behaviour that has nothing to do

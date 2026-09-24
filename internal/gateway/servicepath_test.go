@@ -5,13 +5,13 @@ import (
 	"testing"
 )
 
-// The service file lives under the starlight home, beside the token and the workspace, so the
+// The service file lives under the motita home, beside the token and the workspace, so the
 // whole of the program's state is one folder the user can find, back up or delete as a unit.
 func TestServiceFilePathIsUnderTheHome(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 
-	want := filepath.Join(home, ".starlight", "gateway.json")
+	want := filepath.Join(home, ".motita", "gateway.json")
 	if got := ServiceFilePath(); got != want {
 		t.Fatalf("ServiceFilePath() = %q, want %q", got, want)
 	}
@@ -33,7 +33,7 @@ func TestServiceFilePathWithoutHomeIsRelative(t *testing.T) {
 	}
 }
 
-// Whitespace is not a home either: it would produce a path like "  /.starlight/gateway.json".
+// Whitespace is not a home either: it would produce a path like "  /.motita/gateway.json".
 func TestServiceFilePathIgnoresBlankHome(t *testing.T) {
 	t.Setenv("HOME", "   ")
 

@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/madkoding/starlight/internal/agent"
+	"github.com/madkoding/motita/internal/agent"
 )
 
 // body reads a recorder's body as a string.

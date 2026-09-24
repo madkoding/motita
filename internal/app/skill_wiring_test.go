@@ -23,8 +23,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/madkoding/starlight/internal/config"
-	"github.com/madkoding/starlight/internal/logx"
+	"github.com/madkoding/motita/internal/config"
+	"github.com/madkoding/motita/internal/logx"
 )
 
 // llmStub answers each phase of the flow with a canned reply, and records every prompt it

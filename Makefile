@@ -1,4 +1,4 @@
-# starlight — build, verification and cross-compilation.
+# motita — build, verification and cross-compilation.
 #
 # VERSION can be overridden: make VERSION=v1.0.0 dist
 VERSION   ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
@@ -22,7 +22,7 @@ help: ## Show this help
 	@grep -E '^[a-zA-Z0-9_-]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN{FS=":.*?## "}{printf "  \033[36m%-14s\033[0m %s\n", $$1, $$2}'
 
 build: ## Build the agent for the host architecture
-	$(GO) build -trimpath -ldflags "$(LDFLAGS)" -o $(DIST)/starlight ./cmd/agent
+	$(GO) build -trimpath -ldflags "$(LDFLAGS)" -o $(DIST)/motita ./cmd/agent
 
 dist: ## Build the agent for every supported platform
 	@mkdir -p $(DIST)
@@ -30,7 +30,7 @@ dist: ## Build the agent for every supported platform
 		os=$${p%/*}; arch=$${p#*/}; ext=""; \
 		[ "$$os" = "windows" ] && ext=".exe"; \
 		GOOS=$$os GOARCH=$$arch CGO_ENABLED=0 $(GO) build -trimpath -ldflags "$(LDFLAGS)" \
-			-o $(DIST)/starlight-$$os-$$arch$$ext ./cmd/agent || exit 1; \
+			-o $(DIST)/motita-$$os-$$arch$$ext ./cmd/agent || exit 1; \
 		printf '  %-24s %s\n' "$$os/$$arch" "ok"; \
 	done
 	@$(MAKE) --no-print-directory verify-dist
@@ -42,7 +42,7 @@ verify-dist: ## Check every built binary really is what its name says
 #   PE     (windows)  4d 5a ("MZ")
 #   Mach-O (darwin)   cf fa ed fe (64-bit little endian) or ce fa ed fe (32-bit)
 	@fail=0; \
-	for f in $(DIST)/starlight-linux-* $(DIST)/starlight-darwin-* $(DIST)/starlight-windows-*.exe; do \
+	for f in $(DIST)/motita-linux-* $(DIST)/motita-darwin-* $(DIST)/motita-windows-*.exe; do \
 		[ -f "$$f" ] || continue; \
 		case "$$f" in \
 			*windows*) \
@@ -110,7 +110,7 @@ smoke: dist ## Run the linux binaries inside their own container
 		case "$$arch" in arm64) image="arm64v8/debian:bookworm-slim";; esac; \
 		printf '  %-12s ' "$$arch"; \
 		docker run --rm --platform "$$pl" -v "$(CURDIR)/$(DIST):/t:ro" "$$image" \
-			sh -c "/t/starlight-linux-$$arch -version" || exit 1; \
+			sh -c "/t/motita-linux-$$arch -version" || exit 1; \
 	done
 
 e2e: ## End-to-end test (default: i386)

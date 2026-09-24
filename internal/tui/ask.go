@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/madkoding/starlight/internal/agent"
+	"github.com/madkoding/motita/internal/agent"
 )
 
 // askState is the navigable window the agent's questions are answered in.

@@ -13,7 +13,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/madkoding/starlight/internal/gateway"
+	"github.com/madkoding/motita/internal/gateway"
 )
 
 // `gateway start` exists so a user can bring a gateway up once and open terminals against it
@@ -382,7 +382,7 @@ func TestStatusReportsARunningGateway(t *testing.T) {
 // --- the dispatch and the help ------------------------------------------------------------------
 
 // A typo is rejected by the PARSER, with the list of what exists. This is the case that matters
-// most: falling through to the default invocation would turn `starlight gateway strat` into a TUI,
+// most: falling through to the default invocation would turn `motita gateway strat` into a TUI,
 // which is the kind of failure a user cannot even describe.
 func TestAnUnknownGatewayActionIsRejectedByParse(t *testing.T) {
 	out := &syncBuffer{}

@@ -11,8 +11,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/madkoding/starlight/internal/config"
-	"github.com/madkoding/starlight/internal/logx"
+	"github.com/madkoding/motita/internal/config"
+	"github.com/madkoding/motita/internal/logx"
 )
 
 func init() {

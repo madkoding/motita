@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/madkoding/starlight/internal/config"
+	"github.com/madkoding/motita/internal/config"
 )
 
 // The last branches of the new layout and the live input path. Each one is a real situation:

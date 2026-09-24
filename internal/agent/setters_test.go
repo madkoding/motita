@@ -8,12 +8,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/madkoding/starlight/internal/anchor"
-	"github.com/madkoding/starlight/internal/config"
-	"github.com/madkoding/starlight/internal/llm"
-	"github.com/madkoding/starlight/internal/logx"
-	"github.com/madkoding/starlight/internal/sandbox"
-	"github.com/madkoding/starlight/internal/task"
+	"github.com/madkoding/motita/internal/anchor"
+	"github.com/madkoding/motita/internal/config"
+	"github.com/madkoding/motita/internal/llm"
+	"github.com/madkoding/motita/internal/logx"
+	"github.com/madkoding/motita/internal/sandbox"
+	"github.com/madkoding/motita/internal/task"
 )
 
 // The two hook setters and the synthesis phase. The setters exist so an embedder

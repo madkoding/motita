@@ -8,8 +8,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/madkoding/starlight/internal/config"
-	"github.com/madkoding/starlight/internal/session"
+	"github.com/madkoding/motita/internal/config"
+	"github.com/madkoding/motita/internal/session"
 )
 
 // sessionRecorder is a gateway that records every path it is asked for and answers the given

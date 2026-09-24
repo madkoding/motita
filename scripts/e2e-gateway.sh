@@ -43,7 +43,7 @@ IMAGE="${2:-}"
 PORT_LLM="${PORT_LLM:-8210}"
 PORT_GW="${PORT_GW:-8321}"
 BASE="http://127.0.0.1:$PORT_GW"
-CONTAINER="starlight-gateway-e2e-$ARCH"
+CONTAINER="motita-gateway-e2e-$ARCH"
 
 case "$ARCH" in
   amd64) [ -n "$IMAGE" ] || IMAGE="debian:bookworm-slim";;
@@ -56,7 +56,7 @@ case "$ARCH" in
   *)   PLATFORM="linux/$ARCH";;
 esac
 
-BINARY="dist/.e2e/starlight-gateway-linux-$ARCH"
+BINARY="dist/.e2e/motita-gateway-linux-$ARCH"
 MOCK="dist/.e2e/mockllm-gateway-linux-$ARCH"
 case "$BINARY" in dist/.e2e/*) ;; *) echo "ERROR: the test binary must live under dist/.e2e/"; exit 1;; esac
 mkdir -p dist/.e2e
@@ -95,7 +95,7 @@ docker run -d --name "$CONTAINER" --platform "$PLATFORM" \
   -w /e2e \
   "$IMAGE" sh -c "
     /dist/.e2e/$(basename "$MOCK") -port $PORT_LLM -delay-ms ${MOCK_DELAY_MS:-40} >/e2e/mock.log 2>&1 &
-    NO_COLOR=1 STARLIGHT_LLM_API_KEY=test \
+    NO_COLOR=1 MOTITA_LLM_API_KEY=test \
       /dist/.e2e/$(basename "$BINARY") -config /e2e/config.yaml -serve \
         -gateway 127.0.0.1:$PORT_GW >/e2e/gateway.log 2>&1 &
     wait

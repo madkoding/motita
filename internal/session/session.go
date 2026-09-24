@@ -7,7 +7,7 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/madkoding/starlight/internal/llm"
+	"github.com/madkoding/motita/internal/llm"
 )
 
 // Summariser turns a block of conversation into a short account of it.

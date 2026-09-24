@@ -568,7 +568,7 @@ func (t *TUI) versionLine(w int) string {
 	if v == "" {
 		return ""
 	}
-	if !t.fits("starlight "+v, w-2*leftMargin) {
+	if !t.fits("motita "+v, w-2*leftMargin) {
 		return ""
 	}
 	return t.padCenter(t.muted(v), w)
@@ -687,7 +687,7 @@ func (t *TUI) messageLines(m Message, inner int) []string {
 		if label, ok := toolLabel(m.Text); ok {
 			return []string{t.cell(t.muted("  "+glyphAgent+" ")+t.color(colAccent, 0, label), inner)}
 		}
-		head := t.color(colSuccess, 0, glyphAgent+" starlight")
+		head := t.color(colSuccess, 0, glyphAgent+" motita")
 		body := colBase
 		if m.Pending {
 			head += "  " + t.color(colWarning, 0, spinner[t.spin%len(spinner)]+" working")

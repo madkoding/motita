@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/madkoding/starlight/internal/agent"
+	"github.com/madkoding/motita/internal/agent"
 )
 
 // sessionPath builds the path of one endpoint of one conversation.

@@ -8,8 +8,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/madkoding/starlight/internal/agent"
-	"github.com/madkoding/starlight/internal/llm"
+	"github.com/madkoding/motita/internal/agent"
+	"github.com/madkoding/motita/internal/llm"
 )
 
 // The parts of the planner a run does not reach on its own: the stream hook, the

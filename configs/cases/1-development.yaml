@@ -5,8 +5,8 @@
 # is made.
 #
 # Usage:
-#   export STARLIGHT_LLM_API_KEY=sk-...
-#   starlight-agent -config configs/cases/1-development.yaml
+#   export MOTITA_LLM_API_KEY=sk-...
+#   motita-agent -config configs/cases/1-development.yaml
 #
 # The task lives in tasks/pending.md and can be changed without touching this
 # YAML.
@@ -116,7 +116,7 @@ agent:
   max_retries: 3
   subtask_depth: 1
   workspace_dir: ./workspace/development
-  log_file: ./workspace/development/starlight.log
+  log_file: ./workspace/development/motita.log
   log_level: info
   graceful_shutdown_timeout: 20s
   on_failure:

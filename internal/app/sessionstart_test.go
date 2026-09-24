@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/madkoding/starlight/internal/tui"
+	"github.com/madkoding/motita/internal/tui"
 )
 
 // sessionStartRunner is a tui.Runner that offers conversations AND control of a run, which is what

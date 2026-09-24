@@ -116,7 +116,7 @@ step "6. no Spanish left in code, configs or scripts"
 # contains those words in the pattern below.
 #
 # Only GIT-TRACKED files are searched. An earlier version walked the whole tree and
-# therefore flagged the generated .starlight/README.md — a file written by a local install,
+# therefore flagged the generated .motita/README.md — a file written by a local install,
 # listed in .gitignore, and never committed. A check that fails on something the repo does
 # not carry is a check that fails on every machine for a different reason, and the real
 # finding it was written for hides among the noise. Searching what is tracked also makes
@@ -192,7 +192,7 @@ fi
 
 step "7b. the e2e scripts cannot overwrite a released artifact"
 # This is a regression guard, not a style check. Both e2e scripts used to build
-# their test binary straight into dist/starlight-linux-<arch>, which is the path
+# their test binary straight into dist/motita-linux-<arch>, which is the path
 # the CI uploads as the release asset — so every published binary was the test
 # build, stamped version "e2e" instead of the tag. Nothing in the published
 # names may be written by a test.
@@ -223,7 +223,7 @@ for script in scripts/e2e.sh scripts/e2e-agent.sh; do
     fi
   done
   # A literal destination may never name a published artifact.
-  if grep -qE '\-o "?dist/(starlight|mock)[^"]*"' "$script"; then
+  if grep -qE '\-o "?dist/(motita|mock)[^"]*"' "$script"; then
     bad "$script builds directly into a published path"
     leak=$((leak+1))
   fi

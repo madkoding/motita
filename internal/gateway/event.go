@@ -6,7 +6,7 @@ import (
 	"io"
 	"net/http"
 
-	"github.com/madkoding/starlight/internal/session"
+	"github.com/madkoding/motita/internal/session"
 )
 
 // Event names on the run stream. They are constants because the client switches on them: a

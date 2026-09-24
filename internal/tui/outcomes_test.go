@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/madkoding/starlight/internal/config"
+	"github.com/madkoding/motita/internal/config"
 )
 
 // The last uncovered branches: the reminders, the reasoning cycle from an unset
@@ -165,7 +165,7 @@ func TestModelsReportIsShownOnTheRail(t *testing.T) {
 	if !strings.Contains(frame, "glm-5.3") {
 		t.Errorf("the report must be shown:\n%s", frame)
 	}
-	if !strings.Contains(frame, "starlight") {
+	if !strings.Contains(frame, "motita") {
 		t.Errorf("the report belongs to the agent's block:\n%s", frame)
 	}
 }

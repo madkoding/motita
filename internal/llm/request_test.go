@@ -12,7 +12,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/madkoding/starlight/internal/config"
+	"github.com/madkoding/motita/internal/config"
 )
 
 // The request-building paths: the reasoning parameter is only added for the

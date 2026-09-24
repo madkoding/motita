@@ -3,7 +3,7 @@ package app
 import (
 	"testing"
 
-	"github.com/madkoding/starlight/internal/config"
+	"github.com/madkoding/motita/internal/config"
 )
 
 // willRunTUI answers one question — does this invocation end in the conversational interface?
@@ -41,7 +41,7 @@ func TestEveryExplicitRequestRulesOutTheInterface(t *testing.T) {
 		fl   flags
 		args []string
 	}{
-		{"a configuration file", flags{configPath: "starlight.yaml"}, nil},
+		{"a configuration file", flags{configPath: "motita.yaml"}, nil},
 		{"a task", flags{task: "count the files"}, nil},
 		{"a task file", flags{taskFile: "tasks.txt"}, nil},
 		{"a configuration check", flags{validateConfig: true}, nil},
@@ -60,7 +60,7 @@ func TestEveryExplicitRequestRulesOutTheInterface(t *testing.T) {
 // with something that would otherwise rule it out, the request stands — the other flags then
 // shape what the interface does rather than replacing it.
 func TestTheExplicitFlagBeatsEverythingElse(t *testing.T) {
-	fl := flags{tui: true, configPath: "starlight.yaml", task: "count"}
+	fl := flags{tui: true, configPath: "motita.yaml", task: "count"}
 
 	if !runTUIFor(fl) {
 		t.Error("-tui must win over the flags that would otherwise rule the interface out")

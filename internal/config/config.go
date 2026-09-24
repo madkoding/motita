@@ -15,7 +15,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/madkoding/starlight/internal/netrules"
+	"github.com/madkoding/motita/internal/netrules"
 )
 
 // ---------------------------------------------------------------------------
@@ -248,7 +248,7 @@ type Agent struct {
 // Policy is what the agent may do on its own, and it is deliberately two layers.
 //
 // The first layer is this struct: two settings the operator owns, because both are
-// legitimate choices that depend on how starlight is being run.
+// legitimate choices that depend on how motita is being run.
 //
 // The second layer is NOT here, and its absence is the point. A short list of commands
 // (see internal/policy) is refused whatever this block says: erasing a filesystem, the
@@ -342,7 +342,7 @@ func Default() Config {
 			// absent from /etc/services, and it sits BELOW the default ephemeral range on Linux
 			// (32768-60999), so it does not compete with outgoing connections on a standard machine.
 			//
-			// Two starlight windows no longer need two ports: they are two views of one gateway.
+			// Two motita windows no longer need two ports: they are two views of one gateway.
 			// A collision with something else is reported at startup, naming the setting, and can
 			// be changed with gateway.listen or -gateway.
 			//
@@ -356,7 +356,7 @@ func Default() Config {
 			// a time; nothing here has to be changed to reach the agent from a phone on the same
 			// network, which is the case the previous design made an operator configure.
 			Allow: nil,
-			// Resolved against the starlight home by resolvePaths, like the log and the
+			// Resolved against the motita home by resolvePaths, like the log and the
 			// skills directory: everything the program owns lives under one folder.
 			TokenFile: "gateway.token",
 			MaxBodyKB: 256,
@@ -401,10 +401,10 @@ func Default() Config {
 	}
 }
 
-// Dir is the default home for starlight's own state: the configuration file, the workspace the
+// Dir is the default home for motita's own state: the configuration file, the workspace the
 // agent writes to, the log, and the library of skills.
 //
-// It is ~/.starlight. Everything the program owns lives under one folder the user can find,
+// It is ~/.motita. Everything the program owns lives under one folder the user can find,
 // back up or delete as a unit, instead of the configuration landing in the current directory
 // beside whatever project happened to be open.
 //
@@ -414,7 +414,7 @@ func Default() Config {
 // the empty result tells the caller to keep the old relative paths rather than guess.
 func Dir() string {
 	if home := strings.TrimSpace(os.Getenv("HOME")); home != "" {
-		return filepath.Join(home, ".starlight")
+		return filepath.Join(home, ".motita")
 	}
 	return ""
 }
@@ -454,7 +454,7 @@ func defaultListenFor(g Gateway) string {
 	return defaultGatewayListen
 }
 
-// The defaults that keep starlight's own state under one roof. They are the home's paths when
+// The defaults that keep motita's own state under one roof. They are the home's paths when
 // there is a home, and the old working-directory paths when there is not.
 //
 // They are computed rather than written out because HOME can change within a process's life in
@@ -469,9 +469,9 @@ func defaultWorkspaceDir() string {
 
 func defaultLogFile() string {
 	if d := Dir(); d != "" {
-		return filepath.Join(d, "workspace", "starlight.log")
+		return filepath.Join(d, "workspace", "motita.log")
 	}
-	return "./workspace/starlight.log"
+	return "./workspace/motita.log"
 }
 
 func defaultSkillsDir() string {
@@ -484,20 +484,20 @@ func defaultSkillsDir() string {
 // File is the configuration file inside Dir, and the empty string when there is no home.
 func File() string {
 	if d := Dir(); d != "" {
-		return filepath.Join(d, "starlight.yaml")
+		return filepath.Join(d, "motita.yaml")
 	}
 	return ""
 }
 
 // resolvePaths makes every RELATIVE path in the configuration resolve beside the file itself,
-// and falls back to the starlight home when the file provides no base at all.
+// and falls back to the motita home when the file provides no base at all.
 //
 // This is the convention a configuration file is expected to follow: a path written in a file is
 // relative to that file, not to wherever the program happened to be started. git, ssh and systemd
 // all read their own files this way, and it is what makes a configuration movable.
 //
-// It is also the rule that keeps everything inside ~/.starlight. With the file there,
-// "./workspace" means ~/.starlight/workspace, and a file that names no workspace at all gets one
+// It is also the rule that keeps everything inside ~/.motita. With the file there,
+// "./workspace" means ~/.motita/workspace, and a file that names no workspace at all gets one
 // under the home rather than in whatever directory the program was launched from. There is one
 // exception, and it is the working directory itself: see below.
 //
@@ -519,7 +519,7 @@ func resolvePaths(c *Config, base string) {
 		return filepath.Join(base, p)
 	}
 	// The working directory is NOT moved. "." is an instruction — work where I am standing — and
-	// it is how a user points starlight at the project in front of them. A relative path that
+	// it is how a user points motita at the project in front of them. A relative path that
 	// names a SUBSET of it ("./workspace") is moved to the home, because that is program state
 	// rather than the project; the project a user is working in is named with ".".
 	if c.Agent.WorkspaceDir != "." {
@@ -532,7 +532,7 @@ func resolvePaths(c *Config, base string) {
 
 // LoadOrDefault applies environment variables to the default configuration when
 // no file is present. It is used by the TUI so that env vars such as
-// OLLAMA_API_KEY are picked up even without a starlight.yaml in the current
+// OLLAMA_API_KEY are picked up even without a motita.yaml in the current
 // directory.
 func LoadOrDefault(path string) (Config, error) {
 	cfg := Default()

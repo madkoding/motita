@@ -8,7 +8,7 @@ import (
 // TestTheSkillsDirectoryIsOverridable: the library is where a user keeps their procedures, so
 // where it lives has to be configurable the same way as everything else.
 func TestTheSkillsDirectoryIsOverridable(t *testing.T) {
-	t.Setenv("STARLIGHT_SKILLS_DIR", "/tmp/my-skills")
+	t.Setenv("MOTITA_SKILLS_DIR", "/tmp/my-skills")
 
 	cfg := Default()
 	if err := ApplyEnvironment(&cfg); err != nil {
@@ -22,7 +22,7 @@ func TestTheSkillsDirectoryIsOverridable(t *testing.T) {
 // TestTheSkillsCapIsOverridable: the cap decides how large a document may be before it would
 // cost more context than it returns, so it is a policy the user sets.
 func TestTheSkillsCapIsOverridable(t *testing.T) {
-	t.Setenv("STARLIGHT_SKILLS_MAX_FILE_BYTES", "2048")
+	t.Setenv("MOTITA_SKILLS_MAX_FILE_BYTES", "2048")
 
 	cfg := Default()
 	if err := ApplyEnvironment(&cfg); err != nil {
@@ -37,14 +37,14 @@ func TestTheSkillsCapIsOverridable(t *testing.T) {
 // a silent fallback to the default. A user who typed a size and got the old one would never
 // know their setting was ignored.
 func TestAMalformedSkillsCapIsReported(t *testing.T) {
-	t.Setenv("STARLIGHT_SKILLS_MAX_FILE_BYTES", "not-a-number")
+	t.Setenv("MOTITA_SKILLS_MAX_FILE_BYTES", "not-a-number")
 
 	cfg := Default()
 	err := ApplyEnvironment(&cfg)
 	if err == nil {
 		t.Fatal("a malformed number must be reported")
 	}
-	if !strings.Contains(err.Error(), "STARLIGHT_SKILLS_MAX_FILE_BYTES") {
+	if !strings.Contains(err.Error(), "MOTITA_SKILLS_MAX_FILE_BYTES") {
 		t.Errorf("the error must name the variable: %v", err)
 	}
 }

@@ -20,8 +20,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/madkoding/starlight/internal/execx"
-	"github.com/madkoding/starlight/internal/logx"
+	"github.com/madkoding/motita/internal/execx"
+	"github.com/madkoding/motita/internal/logx"
 )
 
 // ---------------------------------------------------------------------------
@@ -285,7 +285,7 @@ func TestNewCgroupWithoutPermissionToCreateTheGroup(t *testing.T) {
 // group exists).
 func TestNewCgroupMemoryLimitCannotBeWritten(t *testing.T) {
 	root := t.TempDir()
-	base := filepath.Join(root, "memory", "starlight")
+	base := filepath.Join(root, "memory", "motita")
 	if err := os.MkdirAll(base, 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -312,7 +312,7 @@ func TestNewCgroupPidsLimitCannotBeWritten(t *testing.T) {
 		t.Fatal(err)
 	}
 	pidsDir := filepath.Join(root, "pids")
-	if err := os.MkdirAll(filepath.Join(pidsDir, "starlight"), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Join(pidsDir, "motita"), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	// The controller is present (pids.max exists) ...
@@ -320,10 +320,10 @@ func TestNewCgroupPidsLimitCannotBeWritten(t *testing.T) {
 		t.Fatal(err)
 	}
 	// ... but the group cannot be written to.
-	if err := os.Chmod(filepath.Join(pidsDir, "starlight"), 0o500); err != nil {
+	if err := os.Chmod(filepath.Join(pidsDir, "motita"), 0o500); err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { os.Chmod(filepath.Join(pidsDir, "starlight"), 0o700) })
+	t.Cleanup(func() { os.Chmod(filepath.Join(pidsDir, "motita"), 0o700) })
 
 	cg, err := newCgroup(root, Limits{MemoryMB: 64, Processes: 10})
 	if err != nil {
@@ -373,7 +373,7 @@ func TestNewCgroupPidsGroupCannotBeCreated(t *testing.T) {
 	if cg.pids != "" {
 		t.Errorf("without a pids group there is nothing to join: %q", cg.pids)
 	}
-	if _, err := os.Stat(filepath.Join(pidsDir, "starlight")); !os.IsNotExist(err) {
+	if _, err := os.Stat(filepath.Join(pidsDir, "motita")); !os.IsNotExist(err) {
 		t.Error("no pids group must have been left behind")
 	}
 }
@@ -388,7 +388,7 @@ func TestNewCgroupWithoutPidsLimitDoesNotUseThePidsController(t *testing.T) {
 		t.Fatal(err)
 	}
 	// The pids controller exists and even has a stale group from a previous run.
-	if err := os.MkdirAll(filepath.Join(root, "pids", "starlight"), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Join(root, "pids", "motita"), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(filepath.Join(root, "pids", "pids.max"), []byte("max"), 0o644); err != nil {
@@ -406,7 +406,7 @@ func TestNewCgroupWithoutPidsLimitDoesNotUseThePidsController(t *testing.T) {
 	if err := cg.addProcess(os.Getpid()); err != nil {
 		t.Errorf("addProcess must not fail for a memory-only group: %v", err)
 	}
-	tasks := filepath.Join(root, "memory", "starlight", "tasks")
+	tasks := filepath.Join(root, "memory", "motita", "tasks")
 	data, err := os.ReadFile(tasks)
 	if err != nil {
 		t.Fatalf("the process was not added: %v", err)
@@ -422,7 +422,7 @@ func TestNewCgroupWithoutPidsLimitDoesNotUseThePidsController(t *testing.T) {
 func TestCgroupAddProcessReportsWriteFailures(t *testing.T) {
 	root := t.TempDir()
 	for _, controller := range []string{"memory", "pids"} {
-		if err := os.MkdirAll(filepath.Join(root, controller, "starlight"), 0o755); err != nil {
+		if err := os.MkdirAll(filepath.Join(root, controller, "motita"), 0o755); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -465,7 +465,7 @@ func TestCgroupAddProcessReportsWriteFailures(t *testing.T) {
 // removal does not fail with "directory not empty".
 func TestCgroupRemoveEmptiesTheProcessFiles(t *testing.T) {
 	root := t.TempDir()
-	base := filepath.Join(root, "memory", "starlight")
+	base := filepath.Join(root, "memory", "motita")
 	if err := os.MkdirAll(base, 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -477,7 +477,7 @@ func TestCgroupRemoveEmptiesTheProcessFiles(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	cg := &cgroup{root: root, name: "starlight", memory: base}
+	cg := &cgroup{root: root, name: "motita", memory: base}
 	if err := cg.remove(); err != nil {
 		t.Fatalf("remove = %v", err)
 	}
@@ -504,7 +504,7 @@ func TestCgroupRemoveEmptiesTheProcessFiles(t *testing.T) {
 	}
 	t.Cleanup(func() { os.Chmod(second, 0o700) })
 
-	cg2 := &cgroup{root: root, name: "starlight", memory: second}
+	cg2 := &cgroup{root: root, name: "motita", memory: second}
 	if err := cg2.remove(); err == nil {
 		t.Error("a group that cannot be deleted must be reported")
 	}
@@ -525,8 +525,8 @@ func TestCgroupRemoveReportsWhatItCannotRemove(t *testing.T) {
 		t.Skip("as root the directories can always be deleted")
 	}
 	root := t.TempDir()
-	base := filepath.Join(root, "memory", "starlight")
-	pids := filepath.Join(root, "pids", "starlight")
+	base := filepath.Join(root, "memory", "motita")
+	pids := filepath.Join(root, "pids", "motita")
 	for _, dir := range []string{base, pids} {
 		if err := os.MkdirAll(dir, 0o755); err != nil {
 			t.Fatal(err)
@@ -542,7 +542,7 @@ func TestCgroupRemoveReportsWhatItCannotRemove(t *testing.T) {
 		t.Cleanup(func() { os.Chmod(dir, 0o700) })
 	}
 
-	cg := &cgroup{root: root, name: "starlight", memory: base, pids: pids}
+	cg := &cgroup{root: root, name: "motita", memory: base, pids: pids}
 	err := cg.remove()
 	if err == nil {
 		t.Fatal("a group that cannot be deleted must be an error")
@@ -566,7 +566,7 @@ func TestCgroupRemoveReportsWhatItCannotRemove(t *testing.T) {
 // when two removals overlap).
 func TestCgroupRemoveIgnoresAnAlreadyDeletedGroup(t *testing.T) {
 	root := t.TempDir()
-	cg := &cgroup{root: root, name: "starlight", memory: filepath.Join(root, "memory", "starlight")}
+	cg := &cgroup{root: root, name: "motita", memory: filepath.Join(root, "memory", "motita")}
 	if err := cg.remove(); err != nil {
 		t.Errorf("a group that does not exist must not be a problem: %v", err)
 	}
@@ -580,7 +580,7 @@ func TestRemoveWithRetriesGivesUpAndReturnsTheError(t *testing.T) {
 		t.Skip("as root the directory can always be deleted")
 	}
 	parent := t.TempDir()
-	target := filepath.Join(parent, "starlight")
+	target := filepath.Join(parent, "motita")
 	if err := os.MkdirAll(target, 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -780,7 +780,7 @@ func TestNewWithCgroupsAssignsTheGroupAndReportsTheAddFailure(t *testing.T) {
 	root := fakeCgroupTree(t)
 	// The memory group exists but is not writable, so newCgroup succeeds (no
 	// limit to write) and adding the process fails.
-	base := filepath.Join(root, "memory", "starlight")
+	base := filepath.Join(root, "memory", "motita")
 	if err := os.MkdirAll(base, 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -843,7 +843,7 @@ func TestCloseReportsACgroupThatCannotBeRemoved(t *testing.T) {
 		t.Skip("as root the directories can always be deleted")
 	}
 	root := t.TempDir()
-	base := filepath.Join(root, "memory", "starlight")
+	base := filepath.Join(root, "memory", "motita")
 	if err := os.MkdirAll(base, 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -864,7 +864,7 @@ func TestCloseReportsACgroupThatCannotBeRemoved(t *testing.T) {
 	}
 	defer logger.Close()
 
-	s := &Sandbox{cg: &cgroup{root: root, name: "starlight", memory: base}, log: logger, base: root}
+	s := &Sandbox{cg: &cgroup{root: root, name: "motita", memory: base}, log: logger, base: root}
 	err = s.Close()
 	if err == nil {
 		t.Fatal("Close must report the group it could not remove")
@@ -1080,7 +1080,7 @@ func TestRunReportsASpecThatCannotBeSerialised(t *testing.T) {
 // isolation and not the command.
 func TestRunReportsAnIsolationThatCannotStart(t *testing.T) {
 	s := runnableSandbox(t, t.TempDir())
-	s.executable = "/does/not/exist/starlight"
+	s.executable = "/does/not/exist/motita"
 
 	_, _, exit, err := s.Run(context.Background(), execx.Request{Command: "/bin/true"})
 	if err == nil {

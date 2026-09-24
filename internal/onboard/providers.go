@@ -48,7 +48,7 @@ func Providers() []Provider {
 			ID:             "openai",
 			Name:           "OpenAI-compatible",
 			DefaultBaseURL: "https://api.openai.com/v1",
-			EnvKey:         "STARLIGHT_LLM_API_KEY",
+			EnvKey:         "MOTITA_LLM_API_KEY",
 			ConsoleURL:     "https://platform.openai.com/api-keys",
 			Models: []Model{
 				{ID: "gpt-4o-mini", Label: "GPT-4o mini", Note: "cheap and fast, the right default for OpenAI"},
@@ -82,7 +82,7 @@ func Providers() []Provider {
 			ID:             "anthropic",
 			Name:           "Anthropic",
 			DefaultBaseURL: "https://api.anthropic.com",
-			EnvKey:         "STARLIGHT_LLM_API_KEY",
+			EnvKey:         "MOTITA_LLM_API_KEY",
 			ConsoleURL:     "https://console.anthropic.com/settings/keys",
 			Models: []Model{
 				{ID: "claude-3-5-haiku-latest", Label: "Claude 3.5 Haiku", Note: "cheap and fast"},
@@ -94,7 +94,7 @@ func Providers() []Provider {
 			ID:             "gemini",
 			Name:           "Google Gemini",
 			DefaultBaseURL: "https://generativelanguage.googleapis.com",
-			EnvKey:         "STARLIGHT_LLM_API_KEY",
+			EnvKey:         "MOTITA_LLM_API_KEY",
 			ConsoleURL:     "https://aistudio.google.com/apikey",
 			Models: []Model{
 				{ID: "gemini-2.0-flash", Label: "Gemini 2.0 Flash", Note: "cheap and fast"},

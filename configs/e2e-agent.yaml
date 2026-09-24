@@ -58,7 +58,7 @@ gateway:
   # kernel-assigned port would only exist inside the container.
   listen: "127.0.0.1:8321"
   # Written into the mounted directory so the host can read it back and drive the API. In a real
-  # run this sits under the starlight home, mode 0600.
+  # run this sits under the motita home, mode 0600.
   token_file: "/e2e/gateway.token"
   # No rules: the e2e talks to the gateway over loopback, which is always allowed whatever the
   # rules say - so an empty list is both the shipped default AND what this fixture needs. It

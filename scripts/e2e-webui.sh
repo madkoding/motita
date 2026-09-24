@@ -34,7 +34,7 @@ IMAGE="${2:-}"
 PORT_LLM="${PORT_LLM:-8211}"
 PORT_GW="${PORT_GW:-8322}"
 BASE="http://127.0.0.1:$PORT_GW"
-CONTAINER="starlight-webui-e2e-$ARCH"
+CONTAINER="motita-webui-e2e-$ARCH"
 
 case "$ARCH" in
   amd64) [ -n "$IMAGE" ] || IMAGE="debian:bookworm-slim";;
@@ -47,7 +47,7 @@ case "$ARCH" in
   *)   PLATFORM="linux/$ARCH";;
 esac
 
-BINARY="dist/.e2e/starlight-webui-linux-$ARCH"
+BINARY="dist/.e2e/motita-webui-linux-$ARCH"
 MOCK="dist/.e2e/mockllm-webui-linux-$ARCH"
 case "$BINARY" in dist/.e2e/*) ;; *) echo "ERROR: the test binary must live under dist/.e2e/"; exit 1;; esac
 mkdir -p dist/.e2e
@@ -92,7 +92,7 @@ docker run -d --name "$CONTAINER" --platform "$PLATFORM" \
   -w /e2e \
   "$IMAGE" sh -c "
     /dist/.e2e/$(basename "$MOCK") -port $PORT_LLM -delay-ms ${MOCK_DELAY_MS:-40} >/e2e/mock.log 2>&1 &
-    NO_COLOR=1 STARLIGHT_LLM_API_KEY=test \
+    NO_COLOR=1 MOTITA_LLM_API_KEY=test \
       /dist/.e2e/$(basename "$BINARY") -config /e2e/config.yaml -serve \
         -gateway 127.0.0.1:$PORT_GW >/e2e/gateway.log 2>&1 &
     wait
@@ -180,7 +180,7 @@ echo
 echo "==> The exchange, which is what the browser does with the fragment"
 curl -s -D .e2e/headers -o /dev/null -X POST -H "$AUTH" "$BASE/v1/webui/session"
 
-grep -qi "set-cookie: *starlight_webui=" .e2e/headers && ok "the token bought a cookie" \
+grep -qi "set-cookie: *motita_webui=" .e2e/headers && ok "the token bought a cookie" \
   || bad "POST /v1/webui/session set no cookie"
 grep -qi "httponly" .e2e/headers && ok "the cookie is HttpOnly" \
   || bad "the cookie is not HttpOnly: an injected script could read it"
@@ -190,11 +190,11 @@ grep -qi "secure" .e2e/headers && bad "the cookie is Secure over plain http: no 
   || ok "the cookie is not Secure, which is right for a plain-http gateway"
 
 # THE CHECK THIS WHOLE DESIGN RESTS ON: the derived cookie drives the API.
-COOKIE="$(awk -F'starlight_webui=' '/[Ss]et-[Cc]ookie/{split($2,a,";"); print a[1]; exit}' .e2e/headers)"
+COOKIE="$(awk -F'motita_webui=' '/[Ss]et-[Cc]ookie/{split($2,a,";"); print a[1]; exit}' .e2e/headers)"
 if [ -z "$COOKIE" ]; then
   bad "the cookie could not be read back from the response"
 else
-  cookie_code="$(curl -s -o .e2e/sessions.json -w '%{http_code}' -H "Cookie: starlight_webui=$COOKIE" "$BASE/v1/sessions")"
+  cookie_code="$(curl -s -o .e2e/sessions.json -w '%{http_code}' -H "Cookie: motita_webui=$COOKIE" "$BASE/v1/sessions")"
   [ "$cookie_code" = "200" ] && ok "the derived cookie authorises the API" \
     || bad "the cookie answered $cookie_code, want 200"
   case "$(cat .e2e/sessions.json)" in
@@ -203,13 +203,13 @@ else
   esac
 fi
 
-wrong_code="$(curl -s -o /dev/null -w '%{http_code}' -H "Cookie: starlight_webui=not-the-derived-value" "$BASE/v1/sessions")"
+wrong_code="$(curl -s -o /dev/null -w '%{http_code}' -H "Cookie: motita_webui=not-the-derived-value" "$BASE/v1/sessions")"
 [ "$wrong_code" = "401" ] && ok "a wrong cookie is refused" \
   || bad "a wrong cookie answered $wrong_code, want 401"
 
 # A cookie must not be able to renew itself: the exchange takes the TOKEN, not the cookie, which
 # is what keeps the browser's credential from becoming a permanent one.
-renew_code="$(curl -s -o /dev/null -w '%{http_code}' -X POST -H "Cookie: starlight_webui=$COOKIE" "$BASE/v1/webui/session")"
+renew_code="$(curl -s -o /dev/null -w '%{http_code}' -X POST -H "Cookie: motita_webui=$COOKIE" "$BASE/v1/webui/session")"
 [ "$renew_code" = "401" ] && ok "the exchange refuses a cookie alone" \
   || bad "the exchange accepted a cookie alone ($renew_code), so it can renew itself"
 
@@ -231,7 +231,7 @@ echo
 echo "==> A real turn, driven the way the page drives it"
 # Start the run with the COOKIE, which is what the browser has.
 start_code="$(curl -s -o .e2e/turn.sse -w '%{http_code}' -N -X POST \
-  -H "Cookie: starlight_webui=$COOKIE" -H 'Content-Type: application/json' \
+  -H "Cookie: motita_webui=$COOKIE" -H 'Content-Type: application/json' \
   -d '{"task":"leave the report with the requested content"}' \
   "$BASE/v1/sessions/default/task")"
 [ "$start_code" = "200" ] && ok "a turn started with the cookie alone" \
@@ -243,7 +243,7 @@ case "$(cat .e2e/turn.sse)" in
 esac
 
 # And the transcript carries it, which is what a browser that reopens the page paints.
-transcript="$(curl -s -H "Cookie: starlight_webui=$COOKIE" "$BASE/v1/sessions/default/messages")"
+transcript="$(curl -s -H "Cookie: motita_webui=$COOKIE" "$BASE/v1/sessions/default/messages")"
 case "$transcript" in
   *'"Kind":"task"'*) ok "the conversation carries the turn that ran" ;;
   *) bad "the transcript does not carry the turn: $transcript" ;;

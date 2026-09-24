@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/madkoding/starlight/internal/config"
+	"github.com/madkoding/motita/internal/config"
 )
 
 // The analysis can report one question or a list of them, and both have to reach the interface

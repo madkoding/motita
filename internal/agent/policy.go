@@ -6,10 +6,10 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/madkoding/starlight/internal/config"
-	"github.com/madkoding/starlight/internal/execx"
-	"github.com/madkoding/starlight/internal/policy"
-	"github.com/madkoding/starlight/internal/readonly"
+	"github.com/madkoding/motita/internal/config"
+	"github.com/madkoding/motita/internal/execx"
+	"github.com/madkoding/motita/internal/policy"
+	"github.com/madkoding/motita/internal/readonly"
 )
 
 // RequestPlan is what may be done with a line the model proposed.

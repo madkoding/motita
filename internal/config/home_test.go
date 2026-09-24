@@ -11,9 +11,9 @@ import (
 //
 // The defaults are computed from HOME, so without this a test's result would depend on where the
 // person running the suite happens to live — and, worse, a test of "nothing is written to the
-// working directory" could pass or fail according to what is already in their ~/.starlight.
+// working directory" could pass or fail according to what is already in their ~/.motita.
 func TestMain(m *testing.M) {
-	home, err := os.MkdirTemp("", "starlight-home-")
+	home, err := os.MkdirTemp("", "motita-home-")
 	if err != nil {
 		panic(err)
 	}
@@ -23,23 +23,23 @@ func TestMain(m *testing.M) {
 	os.Exit(code)
 }
 
-// The starlight home: one folder the user can find, back up or delete as a unit, instead of the
+// The motita home: one folder the user can find, back up or delete as a unit, instead of the
 // configuration landing beside whatever project happened to be open.
 
 func TestDirIsUnderTheHome(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
-	want := filepath.Join(home, ".starlight")
+	want := filepath.Join(home, ".motita")
 	if got := Dir(); got != want {
 		t.Fatalf("Dir() = %q, want %q", got, want)
 	}
-	if got := File(); got != filepath.Join(want, "starlight.yaml") {
+	if got := File(); got != filepath.Join(want, "motita.yaml") {
 		t.Fatalf("File() = %q", got)
 	}
 }
 
 // With no HOME there is no home to use, and the empty result is what tells the callers to keep
-// their relative paths. Guessing ("./.starlight" or "/tmp") would put state somewhere the user
+// their relative paths. Guessing ("./.motita" or "/tmp") would put state somewhere the user
 // did not choose; a stripped environment is a real case — cron, a minimal container.
 func TestDirIsEmptyWithoutHome(t *testing.T) {
 	t.Setenv("HOME", "")
@@ -51,7 +51,7 @@ func TestDirIsEmptyWithoutHome(t *testing.T) {
 	}
 }
 
-// Whitespace in HOME is not a home either: it would produce a path like "  /.starlight".
+// Whitespace in HOME is not a home either: it would produce a path like "  /.motita".
 func TestDirIgnoresBlankHome(t *testing.T) {
 	t.Setenv("HOME", "   ")
 	if got := Dir(); got != "" {
@@ -62,11 +62,11 @@ func TestDirIgnoresBlankHome(t *testing.T) {
 // --- the relative defaults follow the file ---------------------------------
 
 // A file that names no paths gets the home's, wherever the file itself is. The rule is that
-// starlight's state lives under ~/.starlight; a configuration kept somewhere else does not move
+// motita's state lives under ~/.motita; a configuration kept somewhere else does not move
 // the state with it unless it says so.
 func TestAPathlessFileUsesTheHome(t *testing.T) {
 	dir := t.TempDir()
-	path := filepath.Join(dir, "starlight.yaml")
+	path := filepath.Join(dir, "motita.yaml")
 	mustWriteConfig(t, path, "llm:\n  provider: openai\n  api_key: x\n  model: m\n")
 
 	cfg, err := LoadWithoutKey(path)
@@ -76,7 +76,7 @@ func TestAPathlessFileUsesTheHome(t *testing.T) {
 	home := Dir()
 	checks := []struct{ name, got, want string }{
 		{"workspace", cfg.Agent.WorkspaceDir, filepath.Join(home, "workspace")},
-		{"log", cfg.Agent.LogFile, filepath.Join(home, "workspace", "starlight.log")},
+		{"log", cfg.Agent.LogFile, filepath.Join(home, "workspace", "motita.log")},
 		{"skills", cfg.Skills.Dir, filepath.Join(home, "skills")},
 	}
 	for _, c := range checks {
@@ -100,7 +100,7 @@ func TestNoFileUsesTheHome(t *testing.T) {
 	home := Dir()
 	checks := []struct{ name, got, want string }{
 		{"workspace", cfg.Agent.WorkspaceDir, filepath.Join(home, "workspace")},
-		{"log", cfg.Agent.LogFile, filepath.Join(home, "workspace", "starlight.log")},
+		{"log", cfg.Agent.LogFile, filepath.Join(home, "workspace", "motita.log")},
 		{"skills", cfg.Skills.Dir, filepath.Join(home, "skills")},
 	}
 	for _, c := range checks {
@@ -111,10 +111,10 @@ func TestNoFileUsesTheHome(t *testing.T) {
 }
 
 // The working directory is NOT moved when it is named with ".": that is an instruction — work
-// where I am standing — and it is how a user points starlight at the project in front of them.
+// where I am standing — and it is how a user points motita at the project in front of them.
 func TestWorkingDirectoryIsNotMoved(t *testing.T) {
 	dir := t.TempDir()
-	path := filepath.Join(dir, "starlight.yaml")
+	path := filepath.Join(dir, "motita.yaml")
 	mustWriteConfig(t, path, `llm:
   provider: openai
   api_key: x
@@ -136,7 +136,7 @@ agent:
 // program's state with its own file instead of with whatever directory it was started from.
 func TestPathsWrittenInTheFileResolveBesideIt(t *testing.T) {
 	dir := t.TempDir()
-	path := filepath.Join(dir, "starlight.yaml")
+	path := filepath.Join(dir, "motita.yaml")
 	mustWriteConfig(t, path, `llm:
   provider: openai
   api_key: x
@@ -168,16 +168,16 @@ skills:
 // resolving it against anything would be inventing a location they did not ask for.
 func TestAbsolutePathsAreLeftAlone(t *testing.T) {
 	dir := t.TempDir()
-	path := filepath.Join(dir, "starlight.yaml")
+	path := filepath.Join(dir, "motita.yaml")
 	mustWriteConfig(t, path, `llm:
   provider: openai
   api_key: x
   model: m
 agent:
   workspace_dir: /srv/workspace
-  log_file: /var/log/starlight.log
+  log_file: /var/log/motita.log
 skills:
-  dir: /usr/share/starlight/skills
+  dir: /usr/share/motita/skills
 `)
 
 	cfg, err := LoadWithoutKey(path)
@@ -186,8 +186,8 @@ skills:
 	}
 	for _, c := range []struct{ name, got, want string }{
 		{"workspace", cfg.Agent.WorkspaceDir, "/srv/workspace"},
-		{"log", cfg.Agent.LogFile, "/var/log/starlight.log"},
-		{"skills", cfg.Skills.Dir, "/usr/share/starlight/skills"},
+		{"log", cfg.Agent.LogFile, "/var/log/motita.log"},
+		{"skills", cfg.Skills.Dir, "/usr/share/motita/skills"},
 	} {
 		if c.got != c.want {
 			t.Errorf("%s = %q, want it untouched", c.name, c.got)
@@ -214,7 +214,7 @@ func TestEmptyPathsAreLeftForValidate(t *testing.T) {
 // the working directory" are independent facts.
 func TestFileInTheWorkingDirectoryKeepsRelativePaths(t *testing.T) {
 	dir := t.TempDir()
-	path := filepath.Join(dir, "starlight.yaml")
+	path := filepath.Join(dir, "motita.yaml")
 	mustWriteConfig(t, path, "llm:\n  provider: openai\n  api_key: x\n  model: m\n")
 
 	previous, err := os.Getwd()
@@ -226,7 +226,7 @@ func TestFileInTheWorkingDirectoryKeepsRelativePaths(t *testing.T) {
 	}
 	defer os.Chdir(previous)
 
-	cfg, err := LoadWithoutKey("starlight.yaml")
+	cfg, err := LoadWithoutKey("motita.yaml")
 	if err != nil {
 		t.Fatalf("LoadWithoutKey: %v", err)
 	}
@@ -268,7 +268,7 @@ func TestNoHomeKeepsTheWorkingDirectoryDefaults(t *testing.T) {
 	if got := defaultWorkspaceDir(); got != "./workspace" {
 		t.Errorf("workspace = %q, want the working-directory form", got)
 	}
-	if got := defaultLogFile(); got != "./workspace/starlight.log" {
+	if got := defaultLogFile(); got != "./workspace/motita.log" {
 		t.Errorf("log = %q, want the working-directory form", got)
 	}
 	if got := defaultSkillsDir(); got != "skills" {

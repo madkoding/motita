@@ -8,7 +8,7 @@
 // instead of wandering.
 package session
 
-import "github.com/madkoding/starlight/internal/llm"
+import "github.com/madkoding/motita/internal/llm"
 
 // EstimateTokens is how many tokens a message list is likely to cost.
 //

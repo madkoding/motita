@@ -1,5 +1,5 @@
 // Package tui implements the interactive text-based user interface that is
-// launched when starlight is run without arguments and without a configured
+// launched when motita is run without arguments and without a configured
 // task. It is deliberately built with the Go standard library only.
 package tui
 
@@ -14,18 +14,18 @@ import (
 	"sync"
 	"time"
 
-	"github.com/madkoding/starlight/internal/agent"
-	"github.com/madkoding/starlight/internal/config"
-	"github.com/madkoding/starlight/internal/llm"
-	"github.com/madkoding/starlight/internal/logx"
-	"github.com/madkoding/starlight/internal/onboard"
-	"github.com/madkoding/starlight/internal/plan"
-	"github.com/madkoding/starlight/internal/procedures"
-	"github.com/madkoding/starlight/internal/reward"
-	"github.com/madkoding/starlight/internal/sandbox"
-	"github.com/madkoding/starlight/internal/session"
-	"github.com/madkoding/starlight/internal/skills"
-	taskpkg "github.com/madkoding/starlight/internal/task"
+	"github.com/madkoding/motita/internal/agent"
+	"github.com/madkoding/motita/internal/config"
+	"github.com/madkoding/motita/internal/llm"
+	"github.com/madkoding/motita/internal/logx"
+	"github.com/madkoding/motita/internal/onboard"
+	"github.com/madkoding/motita/internal/plan"
+	"github.com/madkoding/motita/internal/procedures"
+	"github.com/madkoding/motita/internal/reward"
+	"github.com/madkoding/motita/internal/sandbox"
+	"github.com/madkoding/motita/internal/session"
+	"github.com/madkoding/motita/internal/skills"
+	taskpkg "github.com/madkoding/motita/internal/task"
 )
 
 // Runner is the callback that executes the selected mode. The TUI package uses
@@ -764,7 +764,7 @@ func (r *AppRunner) RunConfig(ctx context.Context) error {
 	// looks for next time. With no HOME it falls back to the working directory.
 	path := config.File()
 	if path == "" {
-		path = "./starlight.yaml"
+		path = "./motita.yaml"
 	}
 	_, err := onboard.Run(ctx, os.Stdin, r.Out, path, onboard.Answers{}, time.Now())
 	return err

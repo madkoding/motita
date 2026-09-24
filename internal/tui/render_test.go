@@ -323,7 +323,7 @@ func TestToolCallBecomesItsOwnLine(t *testing.T) {
 	if !strings.Contains(frame, "using execute_command") {
 		t.Errorf("the tool call must be shown as its own line: %q", frame)
 	}
-	if !strings.Contains(frame, "starlight") || !strings.Contains(frame, "20") {
+	if !strings.Contains(frame, "motita") || !strings.Contains(frame, "20") {
 		t.Errorf("the answer must still be shown after the tool event: %q", frame)
 	}
 }

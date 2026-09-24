@@ -168,7 +168,7 @@ func TestADisabledGatewayDoesNotCheckTheRules(t *testing.T) {
 // The environment carries the rules, because a container or a systemd unit sets this and that is
 // the one place nobody can check by hand.
 func TestTheRulesComeFromTheEnvironment(t *testing.T) {
-	t.Setenv("STARLIGHT_GATEWAY_ALLOW", "lan,!any")
+	t.Setenv("MOTITA_GATEWAY_ALLOW", "lan,!any")
 
 	c := Default()
 	if err := ApplyEnvironment(&c); err != nil {
@@ -176,11 +176,11 @@ func TestTheRulesComeFromTheEnvironment(t *testing.T) {
 	}
 	want := []string{"lan", "!any"}
 	if len(c.Gateway.Allow) != len(want) {
-		t.Fatalf("STARLIGHT_GATEWAY_ALLOW produced %v, want %v", c.Gateway.Allow, want)
+		t.Fatalf("MOTITA_GATEWAY_ALLOW produced %v, want %v", c.Gateway.Allow, want)
 	}
 	for i := range want {
 		if c.Gateway.Allow[i] != want[i] {
-			t.Fatalf("STARLIGHT_GATEWAY_ALLOW produced %v, want %v", c.Gateway.Allow, want)
+			t.Fatalf("MOTITA_GATEWAY_ALLOW produced %v, want %v", c.Gateway.Allow, want)
 		}
 	}
 
@@ -195,7 +195,7 @@ func TestTheRulesComeFromTheEnvironment(t *testing.T) {
 // between rules by habit - and silently reading that as one malformed rule would be a rejection
 // nobody could explain.
 func TestRulesFromTheEnvironmentAcceptSpacesAsWellAsCommas(t *testing.T) {
-	t.Setenv("STARLIGHT_GATEWAY_ALLOW", "lan 192.168.1.10")
+	t.Setenv("MOTITA_GATEWAY_ALLOW", "lan 192.168.1.10")
 
 	c := Default()
 	if err := ApplyEnvironment(&c); err != nil {
@@ -207,11 +207,11 @@ func TestRulesFromTheEnvironmentAcceptSpacesAsWellAsCommas(t *testing.T) {
 }
 
 // An EMPTY variable leaves the field alone, exactly like every other text binding: exporting
-// STARLIGHT_GATEWAY_ALLOW= in a compose file because a secret did not arrive must not wipe a rule
+// MOTITA_GATEWAY_ALLOW= in a compose file because a secret did not arrive must not wipe a rule
 // the operator wrote in their YAML.
 func TestAnEmptyRuleVariableLeavesTheFileAlone(t *testing.T) {
 	for _, value := range []string{"", "   "} {
-		t.Setenv("STARLIGHT_GATEWAY_ALLOW", value)
+		t.Setenv("MOTITA_GATEWAY_ALLOW", value)
 
 		c := Default()
 		c.Gateway.Allow = []string{"lan"}

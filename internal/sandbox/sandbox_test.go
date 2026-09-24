@@ -15,8 +15,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/madkoding/starlight/internal/execx"
-	"github.com/madkoding/starlight/internal/logx"
+	"github.com/madkoding/motita/internal/execx"
+	"github.com/madkoding/motita/internal/logx"
 )
 
 func newSandbox(t *testing.T, lim Limits) *Sandbox {
@@ -316,7 +316,7 @@ func TestSandboxExitCodeIsPropagated(t *testing.T) {
 
 // TestSandboxDoesNotInheritSecrets: the agent's keys must not reach the command.
 func TestSandboxDoesNotInheritSecrets(t *testing.T) {
-	t.Setenv("STARLIGHT_LLM_API_KEY", "secret-key-that-must-not-leak")
+	t.Setenv("MOTITA_LLM_API_KEY", "secret-key-that-must-not-leak")
 	s := newSandbox(t, Limits{})
 
 	output, _, _, err := s.Run(context.Background(), execx.Request{

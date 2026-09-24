@@ -8,7 +8,7 @@ import (
 	"testing"
 )
 
-// The implicit ./starlight.yaml branch: with no -config, a file in the working
+// The implicit ./motita.yaml branch: with no -config, a file in the working
 // directory is used. It is the path a user gets by running the command in a folder
 // where they had already run the wizard, and it has two outcomes that were never
 // exercised: a file that cannot be loaded without a key, and one that cannot be
@@ -19,14 +19,14 @@ import (
 func TestImplicitConfigIsUsedWhenPresent(t *testing.T) {
 	inTempDir(t, func() {
 		// An empty home, so the file under test is the one in the working directory rather than
-		// whatever the developer running the suite happens to have in ~/.starlight.
+		// whatever the developer running the suite happens to have in ~/.motita.
 		t.Setenv("HOME", t.TempDir())
 		silence(t)
 		dir, err := os.Getwd()
 		if err != nil {
 			t.Fatalf("could not read the working directory: %v", err)
 		}
-		mustWrite(t, filepath.Join(dir, "starlight.yaml"), `sandbox:
+		mustWrite(t, filepath.Join(dir, "motita.yaml"), `sandbox:
   kind: none
 llm:
   provider: openai
@@ -64,7 +64,7 @@ func TestImplicitConfigWithoutAKeyIsAcceptedForDiagnostics(t *testing.T) {
 					t.Fatalf("could not read the working directory: %v", err)
 				}
 				// No api_key anywhere: not in the file, not in the environment.
-				mustWrite(t, filepath.Join(dir, "starlight.yaml"), `sandbox:
+				mustWrite(t, filepath.Join(dir, "motita.yaml"), `sandbox:
   kind: none
 llm:
   provider: openai
@@ -96,7 +96,7 @@ agent:
 func TestImplicitConfigThatCannotBeLoadedIsReported(t *testing.T) {
 	inTempDir(t, func() {
 		// An empty home, so the file under test is the one in the working directory rather than
-		// whatever the developer running the suite happens to have in ~/.starlight.
+		// whatever the developer running the suite happens to have in ~/.motita.
 		t.Setenv("HOME", t.TempDir())
 		silence(t)
 		dir, err := os.Getwd()
@@ -104,7 +104,7 @@ func TestImplicitConfigThatCannotBeLoadedIsReported(t *testing.T) {
 			t.Fatalf("could not read the working directory: %v", err)
 		}
 		// A tab in the indentation is not valid YAML.
-		mustWrite(t, filepath.Join(dir, "starlight.yaml"), "llm:\n\tprovider: openai\n")
+		mustWrite(t, filepath.Join(dir, "motita.yaml"), "llm:\n\tprovider: openai\n")
 
 		var out, errs bytes.Buffer
 		code := Run(Options{
@@ -117,7 +117,7 @@ func TestImplicitConfigThatCannotBeLoadedIsReported(t *testing.T) {
 		}
 		// The message names the file and the reason, which is what makes a broken
 		// configuration fixable without guessing.
-		if !strings.Contains(errs.String(), "starlight.yaml") || !strings.Contains(errs.String(), "invalid YAML") {
+		if !strings.Contains(errs.String(), "motita.yaml") || !strings.Contains(errs.String(), "invalid YAML") {
 			t.Errorf("the failure must name the file and the reason: %q", errs.String())
 		}
 	})
@@ -129,8 +129,8 @@ func TestImplicitConfigThatCannotBeLoadedIsReported(t *testing.T) {
 func TestNoConfigFileFallsBackToTheEnvironment(t *testing.T) {
 	inTempDir(t, func() {
 		silence(t)
-		t.Setenv("STARLIGHT_LLM_API_KEY", "a-key-from-env")
-		t.Setenv("STARLIGHT_LLM_PROVIDER", "openai")
+		t.Setenv("MOTITA_LLM_API_KEY", "a-key-from-env")
+		t.Setenv("MOTITA_LLM_PROVIDER", "openai")
 
 		var out, errs bytes.Buffer
 		code := Run(Options{
@@ -146,7 +146,7 @@ func TestNoConfigFileFallsBackToTheEnvironment(t *testing.T) {
 	// And an environment that cannot be parsed is reported rather than ignored.
 	inTempDir(t, func() {
 		silence(t)
-		t.Setenv("STARLIGHT_LLM_TIMEOUT", "not-a-duration")
+		t.Setenv("MOTITA_LLM_TIMEOUT", "not-a-duration")
 		var out, errs bytes.Buffer
 		code := Run(Options{Args: []string{"-validate-config"}, Out: &out, Err: &errs})
 		if code != ConfigError {
@@ -155,7 +155,7 @@ func TestNoConfigFileFallsBackToTheEnvironment(t *testing.T) {
 	})
 }
 
-// The starlight home takes precedence over the working directory, which is the opposite of the
+// The motita home takes precedence over the working directory, which is the opposite of the
 // usual project-local convention and deliberate: the file carries the credentials and the paths
 // to the program's own state, so it belongs to the user rather than to whichever repository they
 // happened to be standing in.
@@ -171,10 +171,10 @@ func TestTheHomeFileWinsOverTheWorkingDirectory(t *testing.T) {
 		if err != nil {
 			t.Fatalf("getwd: %v", err)
 		}
-		mustWrite(t, filepath.Join(dir, "starlight.yaml"), "llm:\n\tprovider: openai\n")
+		mustWrite(t, filepath.Join(dir, "motita.yaml"), "llm:\n\tprovider: openai\n")
 
 		// A valid file in the home.
-		homeFile := filepath.Join(home, ".starlight", "starlight.yaml")
+		homeFile := filepath.Join(home, ".motita", "motita.yaml")
 		if err := os.MkdirAll(filepath.Dir(homeFile), 0o755); err != nil {
 			t.Fatalf("mkdir: %v", err)
 		}
@@ -213,7 +213,7 @@ func TestExplicitConfigWinsOverTheHome(t *testing.T) {
 		silence(t)
 
 		// A broken file in the home that must NOT be used.
-		homeFile := filepath.Join(home, ".starlight", "starlight.yaml")
+		homeFile := filepath.Join(home, ".motita", "motita.yaml")
 		if err := os.MkdirAll(filepath.Dir(homeFile), 0o755); err != nil {
 			t.Fatalf("mkdir: %v", err)
 		}
@@ -254,7 +254,7 @@ func TestNoConfigWithABadEnvironmentIsReported(t *testing.T) {
 	inTempDir(t, func() {
 		t.Setenv("HOME", "")
 		silence(t)
-		t.Setenv("STARLIGHT_AGENT_MAX_RETRIES", "not-a-number")
+		t.Setenv("MOTITA_AGENT_MAX_RETRIES", "not-a-number")
 
 		var out, errs bytes.Buffer
 		code := Run(Options{
@@ -265,7 +265,7 @@ func TestNoConfigWithABadEnvironmentIsReported(t *testing.T) {
 		if code != ConfigError {
 			t.Fatalf("code = %d, want ConfigError; errs = %q", code, errs.String())
 		}
-		if !strings.Contains(errs.String(), "STARLIGHT_AGENT_MAX_RETRIES") {
+		if !strings.Contains(errs.String(), "MOTITA_AGENT_MAX_RETRIES") {
 			t.Errorf("the failure must name the variable at fault: %q", errs.String())
 		}
 	})
@@ -280,7 +280,7 @@ func TestBrokenHomeConfigIsReported(t *testing.T) {
 		t.Setenv("HOME", home)
 		silence(t)
 
-		homeFile := filepath.Join(home, ".starlight", "starlight.yaml")
+		homeFile := filepath.Join(home, ".motita", "motita.yaml")
 		if err := os.MkdirAll(filepath.Dir(homeFile), 0o755); err != nil {
 			t.Fatalf("mkdir: %v", err)
 		}
@@ -327,7 +327,7 @@ agent:
   log_level: error
   log_console: false
   workspace_dir: ./workspace
-  log_file: ./workspace/starlight.log
+  log_file: ./workspace/motita.log
 `)
 		// The directory holding the configuration is made read-only, which is how the CI mounts
 		// it. A diagnostic that writes there fails.

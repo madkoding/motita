@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/madkoding/starlight/internal/execx"
+	"github.com/madkoding/motita/internal/execx"
 )
 
 // These tests cover the non-Unix behaviour of the sandbox in real execution. The

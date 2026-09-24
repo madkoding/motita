@@ -11,8 +11,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/madkoding/starlight/internal/config"
-	taskpkg "github.com/madkoding/starlight/internal/task"
+	"github.com/madkoding/motita/internal/config"
+	taskpkg "github.com/madkoding/motita/internal/task"
 )
 
 // taskOf builds a task with only its description, which is all the conversation keys on.

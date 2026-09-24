@@ -43,7 +43,7 @@ func TestTheRequireParserSeesEveryShape(t *testing.T) {
 	}{
 		{
 			name: "this repository, which has none",
-			mod:  "module github.com/madkoding/starlight\n\ngo 1.23\n",
+			mod:  "module github.com/madkoding/motita\n\ngo 1.23\n",
 			want: nil,
 		},
 		{

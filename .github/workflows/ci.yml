@@ -137,7 +137,7 @@ jobs:
       GOARCH: ${{ matrix.goarch }}
       CGO_ENABLED: "0"
       EXT: ${{ matrix.goos == 'windows' && '.exe' || '' }}
-      BINARY: dist/starlight-${{ matrix.goos }}-${{ matrix.goarch }}${{ matrix.goos == 'windows' && '.exe' || '' }}
+      BINARY: dist/motita-${{ matrix.goos }}-${{ matrix.goarch }}${{ matrix.goos == 'windows' && '.exe' || '' }}
     steps:
       - uses: actions/checkout@v7
 
@@ -208,7 +208,7 @@ jobs:
         run: |
           docker run --rm -v "$PWD/dist:/t:ro" -v "$PWD/configs:/c:ro" --platform "${{ matrix.platform }}" \
             "${{ matrix.container }}" sh -c \
-            "STARLIGHT_LLM_API_KEY=test STARLIGHT_SANDBOX_CGROUPS=off /t/$(basename "$BINARY") -config /c/agent.yaml.example -validate-config"
+            "MOTITA_LLM_API_KEY=test MOTITA_SANDBOX_CGROUPS=off /t/$(basename "$BINARY") -config /c/agent.yaml.example -validate-config"
 
       - name: End-to-end test
         if: matrix.e2e == 'true'
@@ -219,7 +219,7 @@ jobs:
 
       - uses: actions/upload-artifact@v7
         with:
-          name: starlight-${{ matrix.goos }}-${{ matrix.goarch }}
+          name: motita-${{ matrix.goos }}-${{ matrix.goarch }}
           path: |
             ${{ env.BINARY }}
           if-no-files-found: error
@@ -247,7 +247,7 @@ jobs:
       # added here would land in the same binary the size gate measures.
       - name: The binary still fits under the ceiling
         run: |
-          bytes="$(stat -c%s dist/.e2e/starlight-gateway-linux-amd64)"
+          bytes="$(stat -c%s dist/.e2e/motita-gateway-linux-amd64)"
           echo "the gateway build weighs $bytes bytes"
           [ "$bytes" -lt 10485760 ] || { echo "::error::the binary weighs $bytes bytes"; exit 1; }
 

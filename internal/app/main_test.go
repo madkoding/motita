@@ -5,7 +5,7 @@ import (
 	"os"
 	"testing"
 
-	"github.com/madkoding/starlight/internal/sandbox"
+	"github.com/madkoding/motita/internal/sandbox"
 )
 
 // TestMain lets the test binary act as the sandbox's child process when it is
@@ -26,7 +26,7 @@ func TestMain(m *testing.M) {
 	// A home of its own for the suite. Installed here rather than per test because the defaults
 	// are computed from HOME and every test that runs the real flow would otherwise write into
 	// the home of whoever runs the suite.
-	home, err := os.MkdirTemp("", "starlight-app-home-")
+	home, err := os.MkdirTemp("", "motita-app-home-")
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "app[tests]: could not create a home: %v\n", err)
 		os.Exit(1)

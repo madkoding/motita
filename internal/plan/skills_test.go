@@ -8,8 +8,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/madkoding/starlight/internal/llm"
-	"github.com/madkoding/starlight/internal/skills"
+	"github.com/madkoding/motita/internal/llm"
+	"github.com/madkoding/motita/internal/skills"
 )
 
 // raw spells a tool argument the way the model sends it: JSON, not a Go struct.

@@ -8,9 +8,9 @@
 # back to a central server.
 #
 # Usage:
-#   export STARLIGHT_LLM_API_KEY=sk-...
+#   export MOTITA_LLM_API_KEY=sk-...
 #   mkdir -p queue && echo "rotate the logs in /var/log/app" > queue/001.txt
-#   starlight-agent -config configs/cases/3-automation.yaml
+#   motita-agent -config configs/cases/3-automation.yaml
 
 task_source:
   kind: queue
@@ -110,17 +110,17 @@ prompts:
 final_action:
   kind: command
   command: sh
-  args: ["-c", "curl -sf -X POST -H 'Content-Type: application/json' -d '{\"event\":\"task_ok\"}' https://example.internal/hooks/starlight || logger -t starlight 'could not notify'"]
+  args: ["-c", "curl -sf -X POST -H 'Content-Type: application/json' -d '{\"event\":\"task_ok\"}' https://example.internal/hooks/motita || logger -t motita 'could not notify'"]
 
 agent:
   max_retries: 1
   subtask_depth: 0
   workspace_dir: ./workspace/automation
-  log_file: ./workspace/automation/starlight.log
+  log_file: ./workspace/automation/motita.log
   log_level: info
   log_max_mb: 2
   log_backups: 2
   graceful_shutdown_timeout: 10s
   on_failure:
     kind: command
-    command: logger -t starlight "automation task not resolved"
+    command: logger -t motita "automation task not resolved"

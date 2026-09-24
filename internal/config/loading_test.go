@@ -12,7 +12,7 @@ import (
 
 func TestLoadOrDefaultWithNoPathAppliesTheEnvironment(t *testing.T) {
 	t.Setenv("OLLAMA_API_KEY", "a-key-from-the-environment")
-	t.Setenv("STARLIGHT_LLM_PROVIDER", "ollama")
+	t.Setenv("MOTITA_LLM_PROVIDER", "ollama")
 
 	cfg, err := LoadOrDefault("")
 	if err != nil {
@@ -34,7 +34,7 @@ func TestLoadOrDefaultWithNoPathAppliesTheEnvironment(t *testing.T) {
 // must be reported, not silently ignored: a typo in a unit would otherwise change
 // behaviour invisibly.
 func TestLoadOrDefaultReportsAnInvalidEnvironment(t *testing.T) {
-	t.Setenv("STARLIGHT_LLM_TIMEOUT", "not-a-duration")
+	t.Setenv("MOTITA_LLM_TIMEOUT", "not-a-duration")
 	if _, err := LoadOrDefault(""); err == nil {
 		t.Error("an unparsable duration must be reported")
 	}
@@ -45,7 +45,7 @@ func TestLoadOrDefaultReportsAnInvalidEnvironment(t *testing.T) {
 // about that).
 func TestLoadOrDefaultWithAPathDefersToTheLoader(t *testing.T) {
 	dir := t.TempDir()
-	path := filepath.Join(dir, "starlight.yaml")
+	path := filepath.Join(dir, "motita.yaml")
 	body := "llm:\n  provider: anthropic\n  model: claude-x\n  api_key: from-the-file\n"
 	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
 		t.Fatalf("could not write the configuration: %v", err)
@@ -99,8 +99,8 @@ func TestValidateNormalisesTheReasoningLevel(t *testing.T) {
 // TestReasoningEnvironmentOverrides: the two variables are read together, and an
 // unsupported level is refused with a message naming the accepted words.
 func TestReasoningEnvironmentOverrides(t *testing.T) {
-	t.Setenv("STARLIGHT_LLM_REASONING_ENABLED", "yes")
-	t.Setenv("STARLIGHT_LLM_REASONING_LEVEL", "high")
+	t.Setenv("MOTITA_LLM_REASONING_ENABLED", "yes")
+	t.Setenv("MOTITA_LLM_REASONING_LEVEL", "high")
 	c := Default()
 	if err := ApplyEnvironment(&c); err != nil {
 		t.Fatalf("ApplyEnvironment: %v", err)
@@ -111,7 +111,7 @@ func TestReasoningEnvironmentOverrides(t *testing.T) {
 
 	// The boolean accepts the usual spellings and refuses anything else by being
 	// false, which is the conservative reading.
-	t.Setenv("STARLIGHT_LLM_REASONING_ENABLED", "on")
+	t.Setenv("MOTITA_LLM_REASONING_ENABLED", "on")
 	c = Default()
 	if err := ApplyEnvironment(&c); err != nil {
 		t.Fatalf("ApplyEnvironment: %v", err)
@@ -119,7 +119,7 @@ func TestReasoningEnvironmentOverrides(t *testing.T) {
 	if !c.LLM.Reasoning.Enabled {
 		t.Error("'on' must enable reasoning")
 	}
-	t.Setenv("STARLIGHT_LLM_REASONING_ENABLED", "maybe")
+	t.Setenv("MOTITA_LLM_REASONING_ENABLED", "maybe")
 	c = Default()
 	if err := ApplyEnvironment(&c); err != nil {
 		t.Fatalf("ApplyEnvironment: %v", err)
@@ -128,7 +128,7 @@ func TestReasoningEnvironmentOverrides(t *testing.T) {
 		t.Error("an unrecognised value must not enable reasoning")
 	}
 
-	t.Setenv("STARLIGHT_LLM_REASONING_LEVEL", "extreme")
+	t.Setenv("MOTITA_LLM_REASONING_LEVEL", "extreme")
 	if err := ApplyEnvironment(&c); err == nil {
 		t.Error("an unsupported level must be refused")
 	}

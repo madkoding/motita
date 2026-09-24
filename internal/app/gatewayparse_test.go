@@ -5,7 +5,7 @@ import (
 	"testing"
 )
 
-// `starlight gateway start` was rejected as an unknown flag before this: the parser is a hand-
+// `motita gateway start` was rejected as an unknown flag before this: the parser is a hand-
 // written loop over arguments that knows only about flags, and a subcommand is a POSITIONAL
 // argument. The subcommand is therefore read before that loop.
 
@@ -32,7 +32,7 @@ func TestTheGatewaySubcommandIsRecognised(t *testing.T) {
 	}
 }
 
-// `starlight -config x gateway start` has to keep reading the configuration, because the service
+// `motita -config x gateway start` has to keep reading the configuration, because the service
 // listens where that file says. A subcommand that swallowed the flags before it would start a
 // gateway on the wrong address - and the user would have no way to tell.
 func TestFlagsAroundASubcommandStillWork(t *testing.T) {
@@ -64,7 +64,7 @@ func TestFlagsAfterASubcommandStillWork(t *testing.T) {
 }
 
 // A typo is rejected with the list of what exists. A silent fallthrough would turn
-// `starlight gateway strat` into a TUI, which is the kind of failure a user cannot even describe.
+// `motita gateway strat` into a TUI, which is the kind of failure a user cannot even describe.
 func TestAnUnknownGatewayActionIsRejected(t *testing.T) {
 	_, err := parse([]string{"gateway", "strat"})
 	if err == nil {
@@ -84,7 +84,7 @@ func TestAnUnknownGatewayActionInAnotherCaseIsRejected(t *testing.T) {
 	}
 }
 
-// `starlight gateway` alone must say what the actions are rather than report "missing value".
+// `motita gateway` alone must say what the actions are rather than report "missing value".
 func TestABareGatewaySaysWhatTheActionsAre(t *testing.T) {
 	_, err := parse([]string{"gateway"})
 	if err == nil {

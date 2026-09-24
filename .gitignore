@@ -1,7 +1,7 @@
 # Build artefacts
 /dist/
-/starlight
-/starlight-linux-*
+/motita
+/motita-linux-*
 agent_i386
 /chat
 /chat.exe
@@ -9,11 +9,11 @@ agent_i386
 # Cross-compiled binaries for fuchikoma (the host where the agent lives)
 /bin/
 
-# Local mock OpenAI used during fuchikoma bring-up; not part of the starlight binary
+# Local mock OpenAI used during fuchikoma bring-up; not part of the motita binary
 /tools/textmock/
 
-# Local .starlight/ is the Fuchikoma workspace for bring-up and ad-hoc tests; not committed
-/.starlight/
+# Local .motita/ is the Fuchikoma workspace for bring-up and ad-hoc tests; not committed
+/.motita/
 
 # Environment and secrets
 .env

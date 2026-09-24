@@ -36,7 +36,7 @@ func newCgroup(root string, l Limits) (*cgroup, error) {
 	if _, err := os.Stat(filepath.Join(root, "memory")); err != nil {
 		return nil, fmt.Errorf("there does not seem to be cgroups v1 in %s (the memory controller is missing)", root)
 	}
-	base := filepath.Join(root, "memory", "starlight")
+	base := filepath.Join(root, "memory", "motita")
 	if err := os.MkdirAll(base, 0o755); err != nil {
 		return nil, fmt.Errorf("no permission to create the cgroup in %s: %w", base, err)
 	}
@@ -47,7 +47,7 @@ func newCgroup(root string, l Limits) (*cgroup, error) {
 	// a false alarm: the memory limit could not be applied at all).
 	cg := &cgroup{
 		root:   root,
-		name:   "starlight",
+		name:   "motita",
 		memory: base,
 	}
 
@@ -59,7 +59,7 @@ func newCgroup(root string, l Limits) (*cgroup, error) {
 	if l.Processes > 0 {
 		// On a unified v2 system there is no pids tree.
 		if _, statErr := os.Stat(filepath.Join(root, "pids", "pids.max")); statErr == nil {
-			pids := filepath.Join(root, "pids", "starlight")
+			pids := filepath.Join(root, "pids", "motita")
 			// The PIDs limit is optional: if the group cannot be created or the
 			// limit cannot be written, it carries on with the memory one.
 			if err := os.MkdirAll(pids, 0o755); err == nil {

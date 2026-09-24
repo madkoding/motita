@@ -6,9 +6,9 @@ import (
 	"os"
 	"strings"
 
-	"github.com/madkoding/starlight/internal/config"
-	"github.com/madkoding/starlight/internal/gateway"
-	"github.com/madkoding/starlight/internal/tui"
+	"github.com/madkoding/motita/internal/config"
+	"github.com/madkoding/motita/internal/gateway"
+	"github.com/madkoding/motita/internal/tui"
 )
 
 // sessionSwitcher adapts the gateway client to what the interface draws.

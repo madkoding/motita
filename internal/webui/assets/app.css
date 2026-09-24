@@ -1,4 +1,4 @@
-/* The starlight interface.
+/* The Motita interface.
  *
  * No font is loaded. The system font is free and a webfont is the single largest thing this page
  * could carry - every asset byte becomes a byte of the executable, and the size gate has 1.16 MB

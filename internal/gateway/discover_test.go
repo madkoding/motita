@@ -132,7 +132,7 @@ func TestSomethingElseOnThePortIsNotOurGateway(t *testing.T) {
 	}
 
 	if _, ok, err := Discover(context.Background(), path, nil); err != nil || ok {
-		t.Fatalf("a program that is not a starlight gateway must not be discovered (ok=%v, err=%v)", ok, err)
+		t.Fatalf("a program that is not a motita gateway must not be discovered (ok=%v, err=%v)", ok, err)
 	}
 }
 

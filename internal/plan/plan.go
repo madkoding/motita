@@ -18,10 +18,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/madkoding/starlight/internal/llm"
-	"github.com/madkoding/starlight/internal/reward"
-	"github.com/madkoding/starlight/internal/session"
-	"github.com/madkoding/starlight/internal/skills"
+	"github.com/madkoding/motita/internal/llm"
+	"github.com/madkoding/motita/internal/reward"
+	"github.com/madkoding/motita/internal/session"
+	"github.com/madkoding/motita/internal/skills"
 )
 
 // Resource limits tuned for low-memory systems (i386) and for safety.

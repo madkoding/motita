@@ -12,14 +12,14 @@ import (
 	"testing"
 	"time"
 
-	"github.com/madkoding/starlight/internal/config"
-	"github.com/madkoding/starlight/internal/gateway"
-	"github.com/madkoding/starlight/internal/logx"
-	"github.com/madkoding/starlight/internal/sandbox"
-	"github.com/madkoding/starlight/internal/tui"
+	"github.com/madkoding/motita/internal/config"
+	"github.com/madkoding/motita/internal/gateway"
+	"github.com/madkoding/motita/internal/logx"
+	"github.com/madkoding/motita/internal/sandbox"
+	"github.com/madkoding/motita/internal/tui"
 )
 
-// `starlight` brings up an interface, and the agent behind it is a service that can already be
+// `motita` brings up an interface, and the agent behind it is a service that can already be
 // running. Two terminals must no longer mean two agents on two ports with two conversations.
 
 // runTUIWithoutAGateway drives the interface path with the gateway machinery replaced, so the
@@ -109,7 +109,7 @@ func TestTheInterfaceNamesTheBuildItFoundAndNotItsOwn(t *testing.T) {
 	}
 }
 
-// TestTheInterfaceStartsAGatewayWhenThereIsNone: the fallback that keeps `starlight` working on a
+// TestTheInterfaceStartsAGatewayWhenThereIsNone: the fallback that keeps `motita` working on a
 // machine where nobody ever ran `gateway start`. Without it the program's DEFAULT invocation would
 // be the one that does not work.
 func TestTheInterfaceStartsAGatewayWhenThereIsNone(t *testing.T) {
@@ -303,7 +303,7 @@ func TestTheInterfaceWithTheGatewayOffTakesTheDirectPath(t *testing.T) {
 func tuiTestOptions(t *testing.T, out *syncBuffer) Options {
 	t.Helper()
 	t.Setenv("HOME", t.TempDir())
-	t.Setenv("STARLIGHT_LLM_API_KEY", "test")
+	t.Setenv("MOTITA_LLM_API_KEY", "test")
 	dir := t.TempDir()
 
 	op := Options{

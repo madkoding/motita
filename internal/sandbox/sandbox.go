@@ -34,8 +34,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/madkoding/starlight/internal/execx"
-	"github.com/madkoding/starlight/internal/logx"
+	"github.com/madkoding/motita/internal/execx"
+	"github.com/madkoding/motita/internal/logx"
 )
 
 // osHooks are the operating-system operations of the parent process whose

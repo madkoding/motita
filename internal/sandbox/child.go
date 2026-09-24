@@ -133,7 +133,7 @@ func RunAsChild(args []string) error {
 	if !filepath.IsAbs(path) {
 		resolved, err := exec.LookPath(path)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "starlight: the command %q was not found in the sandbox PATH (%s): %v\n",
+			fmt.Fprintf(os.Stderr, "motita: the command %q was not found in the sandbox PATH (%s): %v\n",
 				path, os.Getenv("PATH"), err)
 			childHooks.exit(127)
 			return err
@@ -153,7 +153,7 @@ func RunAsChild(args []string) error {
 	if err := childHooks.exec(finalCommand, finalArgs, env); err != nil {
 		// The failure is reported with the reserved code 127 so that the parent
 		// can tell it apart from a real failure of the command.
-		fmt.Fprintf(os.Stderr, "starlight: could not execute %q: %v\n", finalCommand, err)
+		fmt.Fprintf(os.Stderr, "motita: could not execute %q: %v\n", finalCommand, err)
 		childHooks.exit(127)
 		return err
 	}

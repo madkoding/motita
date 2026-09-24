@@ -66,7 +66,7 @@ func TestThePageCarriesNoTokenAndNoOtherOrigin(t *testing.T) {
 		t.Fatalf("Content(/): %v", err)
 	}
 	html := string(body)
-	for _, needle := range []string{"Bearer ", "sk-", "STARLIGHT_", "token="} {
+	for _, needle := range []string{"Bearer ", "sk-", "MOTITA_", "token="} {
 		if strings.Contains(html, needle) {
 			t.Fatalf("the page contains %q: it is served unauthenticated and must hold no secret", needle)
 		}

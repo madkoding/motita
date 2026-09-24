@@ -6,7 +6,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/madkoding/starlight/internal/webui"
+	"github.com/madkoding/motita/internal/webui"
 )
 
 // The page is reachable WITHOUT a token, and that is deliberate: it is the only way a browser

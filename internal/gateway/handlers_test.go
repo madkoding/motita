@@ -9,8 +9,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/madkoding/starlight/internal/agent"
-	"github.com/madkoding/starlight/internal/session"
+	"github.com/madkoding/motita/internal/agent"
+	"github.com/madkoding/motita/internal/session"
 )
 
 // post performs an authenticated POST with a body and returns the recorder.

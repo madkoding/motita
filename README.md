@@ -1,8 +1,8 @@
-# starlight 🌟
+# Motita 🌟
 
 **The AI agent that has to prove it finished.**
 
-Every other agent asks you to trust it. starlight doesn't ask — it runs a real
+Every other agent asks you to trust it. motita doesn't ask — it runs a real
 check, and only the check can declare the task done. If the check fails, the
 agent gets the real error back and tries again. If it can't pass, it says so and
 stops.
@@ -10,7 +10,7 @@ stops.
 One static binary. No Docker. No dependencies. It runs on a 2008 netbook with
 484 MB of RAM.
 
-![starlight running on Uchikoma, an Acer Aspire One](docs/screenshots/tui-uchikoma.png)
+![motita running on Uchikoma, an Acer Aspire One](docs/screenshots/tui-uchikoma.png)
 
 <sub>A real session, not a mockup: an Acer Aspire One (Atom N270, 484 MB RAM,
 Ubuntu 11.04 / kernel 2.6.38) answering a question by running commands and
@@ -32,7 +32,7 @@ guaranteed to do well.
 
 ## The model proposes, your code disposes
 
-starlight splits every task in three, and the model only ever gets to *propose*.
+motita splits every task in three, and the model only ever gets to *propose*.
 
 ```mermaid
 flowchart TD
@@ -95,7 +95,7 @@ like a program, not like a chatbot.
 
 ## It runs where nothing else runs
 
-starlight is written in **pure Go: standard library only, zero external
+motita is written in **pure Go: standard library only, zero external
 dependencies, no cgo**. `go.mod` has no `require` line. There is no `go.sum`,
 nothing to vendor, nothing to patch.
 
@@ -118,7 +118,7 @@ page is that binary, running on 2008 hardware.
 ## Install
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/madkoding/starlight/main/scripts/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/madkoding/motita/main/scripts/install.sh | sh
 ```
 
 ```mermaid
@@ -140,7 +140,7 @@ matters: a binary that installs but won't start.
 Then:
 
 ```sh
-starlight -init
+motita -init
 ```
 
 The wizard asks for a provider, a model, and **the check that decides whether a
@@ -183,12 +183,12 @@ interface and no gateway:
 
 ```bash
 # on the machine that runs the commands
-starlight -serve -gateway 127.0.0.1:7477
+motita -serve -gateway 127.0.0.1:7477
 
 # anywhere else — no sandbox, no reasoning engine, no agent in this process
-starlight -connect 127.0.0.1:7477 -tui
-starlight -connect 127.0.0.1:7477 -session s7f3a1c9e -tui
-starlight -connect 127.0.0.1:7477 -p "how many files are there?"
+motita -connect 127.0.0.1:7477 -tui
+motita -connect 127.0.0.1:7477 -session s7f3a1c9e -tui
+motita -connect 127.0.0.1:7477 -p "how many files are there?"
 ```
 
 A process in `-connect` mode builds **no sandbox, no procedure library and no reasoning
@@ -209,7 +209,7 @@ address, and no CORS, because the page and the API share an origin. It comes up 
 gateway (`gateway.webui: false` turns it off):
 
 ```
-$ starlight gateway start
+$ motita gateway start
 the gateway is running at http://127.0.0.1:7477 (pid 4211, v0.5.0-72-gcadb33f)
 
 this gateway is listening on every interface (port 7477): any machine that can
@@ -311,15 +311,15 @@ service that outlives the process that started it, and a later process has to be
 find it. An ephemeral port is chosen at bind time: it exists in the memory of one process
 and nowhere else.
 
-That is also why `starlight gateway start` exists:
+That is also why `motita gateway start` exists:
 
 ```sh
-starlight gateway start    # the gateway as a service, in the background
-starlight gateway status   # is one running, and where?
-starlight gateway stop     # stop the one the service file names
+motita gateway start    # the gateway as a service, in the background
+motita gateway status   # is one running, and where?
+motita gateway stop     # stop the one the service file names
 ```
 
-And why plain `starlight` now **attaches** instead of always starting its own:
+And why plain `motita` now **attaches** instead of always starting its own:
 
 | Situation | What you get |
 |---|---|
@@ -361,7 +361,7 @@ to filter *and* nothing to bypass, because the shell is never in the path.
 
 ## It learns from you, not from a retraining pipeline
 
-starlight keeps a **library of procedures**: documents describing how a kind of
+motita keeps a **library of procedures**: documents describing how a kind of
 work is done — the steps, the commands that work, the pitfalls someone already
 paid for. The model looks one up when it needs it, and **writes a new one when it
 learns something**. They're files, so you can read them, fix them, and version
@@ -465,14 +465,14 @@ flowchart LR
 | **Automation** | file queue → bounded script (256 MB, 30 s CPU, no network) → **effect check as the anchor** → notify |
 
 Everything is configured in YAML, validated without running anything
-(`-validate-config`), and every setting has a `STARLIGHT_*` environment override
+(`-validate-config`), and every setting has a `MOTITA_*` environment override
 for containers and secrets.
 
 ---
 
 ## Going deeper
 
-**[madkoding.github.io/starlight](https://madkoding.github.io/starlight/)** — the same
+**[madkoding.github.io/motita](https://madkoding.github.io/motita/)** — the same
 pitch as a landing page, with the architecture as an interactive diagram you can
 explore: switch themes, trace a relationship, export it as SVG or PNG.
 
@@ -490,5 +490,5 @@ was designed against the standard library alone.
 **MIT licensed.** Take it, ship it, run it on hardware everyone else wrote off.
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/madkoding/starlight/main/scripts/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/madkoding/motita/main/scripts/install.sh | sh
 ```

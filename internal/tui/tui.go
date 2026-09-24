@@ -23,7 +23,7 @@ import (
 	"sync"
 	"unicode/utf8"
 
-	"github.com/madkoding/starlight/internal/agent"
+	"github.com/madkoding/motita/internal/agent"
 )
 
 // Exit codes returned by the TUI.
@@ -47,7 +47,7 @@ func (a Author) String() string {
 	case AuthorUser:
 		return "you"
 	case AuthorAgent:
-		return "starlight"
+		return "motita"
 	case AuthorSystem:
 		return "system"
 	}

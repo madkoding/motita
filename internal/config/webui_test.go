@@ -29,31 +29,31 @@ func TestTheInterfaceCanBeTurnedOff(t *testing.T) {
 // The environment variable exists for the same reason the other gateway ones do: a container or
 // a systemd unit sets it, and that is the one place nobody can check by hand.
 func TestTheInterfaceComesFromTheEnvironment(t *testing.T) {
-	t.Setenv("STARLIGHT_GATEWAY_WEBUI", "false")
+	t.Setenv("MOTITA_GATEWAY_WEBUI", "false")
 
 	c := Default()
 	if err := ApplyEnvironment(&c); err != nil {
 		t.Fatalf("ApplyEnvironment: %v", err)
 	}
 	if c.Gateway.WebUI {
-		t.Fatal("STARLIGHT_GATEWAY_WEBUI=false did not turn the interface off")
+		t.Fatal("MOTITA_GATEWAY_WEBUI=false did not turn the interface off")
 	}
 
-	t.Setenv("STARLIGHT_GATEWAY_WEBUI", "true")
+	t.Setenv("MOTITA_GATEWAY_WEBUI", "true")
 	c = Default()
 	c.Gateway.WebUI = false
 	if err := ApplyEnvironment(&c); err != nil {
 		t.Fatalf("ApplyEnvironment: %v", err)
 	}
 	if !c.Gateway.WebUI {
-		t.Fatal("STARLIGHT_GATEWAY_WEBUI=true did not turn the interface on")
+		t.Fatal("MOTITA_GATEWAY_WEBUI=true did not turn the interface on")
 	}
 }
 
 // A value that is not a boolean is reported, not silently ignored: a typo in a container's
 // environment would otherwise leave the interface on with nobody noticing the setting did nothing.
 func TestAMalformedInterfaceSettingIsReported(t *testing.T) {
-	t.Setenv("STARLIGHT_GATEWAY_WEBUI", "maybe")
+	t.Setenv("MOTITA_GATEWAY_WEBUI", "maybe")
 
 	c := Default()
 	if err := ApplyEnvironment(&c); err == nil {

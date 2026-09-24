@@ -1,17 +1,17 @@
-# starlight — complete example configuration
+# motita — complete example configuration
 #
 # Every value shown is what the agent applies when the key is omitted, so this
 # file doubles as documentation and as a template.
 #
 # Validate without running anything (does not call the LLM):
-#     starlight-agent -config configs/agent.yaml.example -validate-config
+#     motita-agent -config configs/agent.yaml.example -validate-config
 #
-# Every scalar setting can be overridden with a STARLIGHT_<BLOCK>_<FIELD>
+# Every scalar setting can be overridden with a MOTITA_<BLOCK>_<FIELD>
 # environment variable (see README.md). The lists and maps (task_source.headers,
 # anchor.args, anchor.checks) are set here. Credentials must NEVER live in this
-# file: use STARLIGHT_LLM_API_KEY or OPENAI_API_KEY.
+# file: use MOTITA_LLM_API_KEY or OPENAI_API_KEY.
 # graceful_shutdown_timeout also accepts the older name of the previous release:
-# STARLIGHT_AGENT_SHUTDOWN_TIMEOUT.
+# MOTITA_AGENT_SHUTDOWN_TIMEOUT.
 
 # ---------------------------------------------------------------------------
 # Task source
@@ -79,7 +79,7 @@ sandbox:
 llm:
   provider: openai     # openai | anthropic | gemini
   model: gpt-4o-mini
-  api_key: ""          # BETTER: export STARLIGHT_LLM_API_KEY
+  api_key: ""          # BETTER: export MOTITA_LLM_API_KEY
   base_url: https://api.openai.com/v1   # any compatible gateway works
   max_tokens: 2048
   temperature: 0.2
@@ -157,7 +157,7 @@ agent:
   subtask_depth: 1             # allowed splitting levels
   max_tasks: 0                 # 0 = no limit
   workspace_dir: ./workspace
-  log_file: ./workspace/starlight.log   # empty = console only
+  log_file: ./workspace/motita.log   # empty = console only
   log_level: info              # debug | info | warn | error
   log_console: true
   log_max_mb: 5                # size-based rotation
@@ -194,9 +194,9 @@ gateway:
   enabled: true
   # host:port, and EMPTY means "resolve it": the wildcard 0.0.0.0:7477, which is
   # what the program binds unless you name something else here. A FIXED port,
-  # because `starlight gateway start` runs the gateway as a service that a later
+  # because `motita gateway start` runs the gateway as a service that a later
   # process has to find: an ephemeral port exists only in the memory of the
-  # process that asked for it, so nothing else can reach it. `starlight` with no
+  # process that asked for it, so nothing else can reach it. `motita` with no
   # arguments reuses a running gateway, or starts its own.
   #
   # An address written here WINS, and it is a statement about the SOCKET only -
@@ -229,8 +229,8 @@ gateway:
   # and the local browser reach the gateway that way - a rule set that locked it
   # out would leave you unable to use, or repair, what you just configured.
   #
-  # A rule list is read from the environment with STARLIGHT_GATEWAY_ALLOW, comma
-  # or space separated: STARLIGHT_GATEWAY_ALLOW='lan,!any'
+  # A rule list is read from the environment with MOTITA_GATEWAY_ALLOW, comma
+  # or space separated: MOTITA_GATEWAY_ALLOW='lan,!any'
   allow: []
   # Cap on a request body, in KB.
   max_body_kb: 256

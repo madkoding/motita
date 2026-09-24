@@ -172,8 +172,8 @@ func TestALongWordSurvivesWrappingAndClipping(t *testing.T) {
 		width int
 	}{
 		{"a long word after a short one", "ver acentoslargos", 10},
-		{"a path after prose", "mira /usr/local/share/starlight/SKILL.md", 20},
-		{"a URL after prose", "clona https://github.com/madkoding/starlight.git", 24},
+		{"a path after prose", "mira /usr/local/share/motita/SKILL.md", 20},
+		{"a URL after prose", "clona https://github.com/madkoding/motita.git", 24},
 		{"a long word at the start of a line", "acentoslargos y mas", 10},
 	}
 	for _, tc := range cases {

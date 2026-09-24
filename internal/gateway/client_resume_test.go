@@ -9,7 +9,7 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/madkoding/starlight/internal/agent"
+	"github.com/madkoding/motita/internal/agent"
 )
 
 // resumeGateway serves the request script the test hands it, so a connection can be made to drop

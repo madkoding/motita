@@ -27,7 +27,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/madkoding/starlight/internal/readonly"
+	"github.com/madkoding/motita/internal/readonly"
 )
 
 // Verdict is what may be done with one command.

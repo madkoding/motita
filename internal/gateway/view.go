@@ -1,6 +1,6 @@
 package gateway
 
-import "github.com/madkoding/starlight/internal/config"
+import "github.com/madkoding/motita/internal/config"
 
 // RedactedKey is what a front end is given in place of a configured API key.
 //
