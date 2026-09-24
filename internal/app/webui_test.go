@@ -385,6 +385,45 @@ func TestLANAddressesSkipWhatCannotBeUsed(t *testing.T) {
 	if got := lanAddressesOf(nil); len(got) != 0 {
 		t.Fatalf("lanAddressesOf(nil) = %v, want no addresses", got)
 	}
+
+	// An interface whose addresses cannot be read is skipped, not reported.
+	originalAddrs := interfaceAddrs
+	t.Cleanup(func() { interfaceAddrs = originalAddrs })
+	interfaceAddrs = func(net.Interface) ([]net.Addr, error) {
+		return nil, errors.New("address read failed")
+	}
+	got = lanAddressesOf([]net.Interface{{Name: "lan0", Flags: net.FlagUp}})
+	if len(got) != 0 {
+		t.Fatalf("lanAddressesOf returned %v for an interface whose addrs could not be read", got)
+	}
+}
+
+// TestLANAddressesSortMixesIPv4AndIPv6: the sort puts IPv4 first and sorts
+// within each family. A mix of IPv4 and IPv6 addresses must exercise both
+// branches of the comparator.
+func TestLANAddressesSortMixesIPv4AndIPv6(t *testing.T) {
+	original := interfaceAddrs
+	t.Cleanup(func() { interfaceAddrs = original })
+	interfaceAddrs = func(iface net.Interface) ([]net.Addr, error) {
+		return []net.Addr{
+			&net.IPNet{IP: net.ParseIP("fd00::1"), Mask: net.CIDRMask(64, 128)},
+			&net.IPNet{IP: net.ParseIP("192.168.1.1"), Mask: net.CIDRMask(24, 32)},
+			&net.IPNet{IP: net.ParseIP("fd00::2"), Mask: net.CIDRMask(64, 128)},
+			&net.IPNet{IP: net.ParseIP("10.0.0.1"), Mask: net.CIDRMask(8, 32)},
+		}, nil
+	}
+	got := lanAddressesOf([]net.Interface{{Name: "lan0", Flags: net.FlagUp}})
+	if len(got) != 4 {
+		t.Fatalf("got %d addresses, want 4", len(got))
+	}
+	// IPv4 must come first, sorted: 10.0.0.1 < 192.168.1.1
+	// IPv6 must come after, sorted: [fd00::1] < [fd00::2]
+	if got[0] != "10.0.0.1" {
+		t.Errorf("first = %q, want 10.0.0.1", got[0])
+	}
+	if got[1] != "192.168.1.1" {
+		t.Errorf("second = %q, want 192.168.1.1", got[1])
+	}
 }
 
 // A gateway that reaches the network but has NO address to offer says so, instead of leaving a
