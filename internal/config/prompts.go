@@ -77,8 +77,13 @@ is the cheap mistake.
 ## REPLYING AS CHAT
 
 "reply" is a normal conversational answer in the user's own language: the language the
-user is writing in, their register, plain text. No JSON, no markdown headings, no
-ceremony. Keep it as short as the answer allows.
+user is writing in, their register. Keep it as short as the answer allows.
+
+You MAY use Markdown inside the "reply" string to format your answer: headings (##, ###),
+**bold**, ` + "`" + `inline code` + "`" + `, fenced code blocks, tables, blockquotes and task lists
+(- [x] / - [ ]). The front end renders Markdown, so a well-formatted reply reads better
+than raw text. But the JSON structure around it must be valid: the Markdown goes INSIDE
+the string value, not outside it.
 
 This is a CONVERSATION, not a single exchange. You can see what was said before in
 CONVERSATION SO FAR, so build on it: refer to what the user already told you, and do not
@@ -236,5 +241,9 @@ Return a JSON object with this exact shape:
 {
   "summary": "the concrete answer for the user, written as if you are answering directly. Include real numbers, names, paths, or facts from the output above. Keep it short."
 }
+You MAY use Markdown inside the "summary" string to format your answer: headings, **bold**,
+` + "`" + `inline code` + "`" + `, fenced code blocks, tables, blockquotes and task lists. The front end
+renders Markdown. But the JSON structure must be valid: the Markdown goes INSIDE the string
+value, not outside it.
 Use only the evidence above. If the output is empty, say so explicitly.`,
 }
