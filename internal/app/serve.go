@@ -11,6 +11,7 @@ import (
 	"github.com/madkoding/starlight/internal/gateway"
 	"github.com/madkoding/starlight/internal/llm"
 	"github.com/madkoding/starlight/internal/logx"
+	"github.com/madkoding/starlight/internal/netrules"
 	"github.com/madkoding/starlight/internal/procedures"
 	"github.com/madkoding/starlight/internal/sandbox"
 	"github.com/madkoding/starlight/internal/tui"
@@ -127,13 +128,24 @@ func (op Options) startGateway(fl flags, cfg config.Config, engine *llm.Client, 
 		return r, nil
 	}
 
+	// The origin rules are PARSED here, once, and the parsed policy is what the server enforces.
+	//
+	// Parsing at startup rather than per request is deliberate: a malformed rule has to fail while
+	// the gateway is being built, where the failure is a message on the terminal that names the
+	// offending entry - not on the first request from an origin the operator believed they had
+	// allowed, where the only symptom is a 403 that looks like a bug.
+	allow, err := netrules.Parse(cfg.Gateway.Allow)
+	if err != nil {
+		return nil, fmt.Errorf("gateway.allow: %w", err)
+	}
+
 	srv, err := gateway.Start(gateway.Options{
 		Service:     runner,
 		NewService:  newService,
 		MaxSessions: cfg.Gateway.MaxSessions,
 		Listen:      listen,
 		Token:       token,
-		AllowLAN:    cfg.Gateway.AllowLAN,
+		Allow:       allow,
 		MaxBodyKB:   cfg.Gateway.MaxBodyKB,
 		Version:     op.Version,
 		Log:         log,
@@ -164,6 +176,10 @@ func (op Options) startGateway(fl flags, cfg config.Config, engine *llm.Client, 
 		// would record what was asked for, and with a wildcard bind that is "[::]" or "0.0.0.0" -
 		// neither of which a later `status`, `stop` or client could call.
 		Reachable: srv.ReachableFromNetwork(),
+		// Recorded from the SERVER too, for the same reason: the rules that are in force are the
+		// ones this process parsed and is applying, not a second reading of the configuration by a
+		// later command.
+		Allow: srv.AllowDescription(),
 	}); err != nil {
 		if log != nil {
 			log.Warn("the gateway is serving but could not record where it is, so "+

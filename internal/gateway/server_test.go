@@ -15,6 +15,7 @@ import (
 	"github.com/madkoding/starlight/internal/agent"
 	"github.com/madkoding/starlight/internal/config"
 	"github.com/madkoding/starlight/internal/logx"
+	"github.com/madkoding/starlight/internal/netrules"
 	"github.com/madkoding/starlight/internal/session"
 )
 
@@ -235,15 +236,198 @@ func TestABadListenAddressIsReported(t *testing.T) {
 	}
 }
 
-func TestANonLoopbackAddressNeedsAllowLAN(t *testing.T) {
-	// Two deliberate acts, and this is the enforcement of the second one. Nothing is bound:
-	// the refusal comes before the listen, so the test cannot put anything on a network.
-	_, err := Start(Options{Service: &fakeService{}, Listen: "0.0.0.0:0", Token: testToken})
-	if err == nil {
-		t.Fatal("a non-loopback address without allow_lan must be refused")
+// A non-loopback listen is ACCEPTED with nothing else set, because the second act is gone.
+//
+// This is the test that has to break first if anyone reintroduces the old posture. The previous
+// design required `allow_lan` here, and the property worth pinning is not the absence of a check but
+// what replaced it: WHO MAY CONNECT is now a rule applied per request, so an address on every
+// interface is a statement about the SOCKET and nothing else.
+func TestANonLoopbackAddressNeedsNoOtherSetting(t *testing.T) {
+	srv := newTestServer(t, &fakeService{}, func(o *Options) { o.Listen = "0.0.0.0:0" })
+	if !srv.ReachableFromNetwork() {
+		t.Fatal("a wildcard bind must report itself as reachable from the network")
 	}
-	if !strings.Contains(err.Error(), "gateway.allow_lan") {
-		t.Errorf("err = %v, it must name the setting that allows it", err)
+	// And it actually answers, which is the part a validation-only test would miss.
+	resp, err := http.Get(srv.BaseURL() + "/v1/health")
+	if err != nil {
+		t.Fatalf("the announced address %q cannot be reached: %v", srv.BaseURL(), err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("health answered %d, want 200", resp.StatusCode)
+	}
+}
+
+// The origin rules are applied to EVERY request, and the refusal names the rule set.
+//
+// The request is driven through a real socket so that RemoteAddr is a real client address rather
+// than the empty string a hand-built httptest.Request carries: a test that injects RemoteAddr is a
+// test of the matcher, and the matcher already has its own tests in internal/netrules. What is
+// checked HERE is that the middleware is wired around the routing table and reads the connection.
+//
+// The test uses a loopback client against a `!any` rule set, which is the one combination that can
+// refuse something from inside a test process: loopback is exempt from the rules, so a rule set of
+// `lan` would accept this client and prove nothing.
+func TestAnOriginOutsideTheRulesIsRefused(t *testing.T) {
+	policy, err := netrules.Parse([]string{"!any"})
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	srv := newTestServer(t, &fakeService{}, func(o *Options) { o.Allow = policy })
+
+	// A loopback client is EXEMPT, whatever the rules say: the local interface and the local
+	// browser reach the gateway that way, and a rule set that locked it out would leave the
+	// operator unable to repair what they just configured.
+	resp, err := http.Get(srv.BaseURL() + "/v1/health")
+	if err != nil {
+		t.Fatalf("loopback must always be served: %v", err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("loopback answered %d under `!any`, want 200: loopback is always allowed", resp.StatusCode)
+	}
+
+	// A non-loopback client is refused, and this is asserted on the middleware directly because
+	// the test process cannot originate from another address. The RemoteAddr is the ONLY thing
+	// faked; everything else goes through the real handler chain.
+	req := httptest.NewRequest(http.MethodGet, "/v1/health", nil)
+	req.RemoteAddr = "192.168.100.90:41234"
+	w := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(w, req)
+
+	if w.Code != http.StatusForbidden {
+		t.Fatalf("a refused origin answered %d, want 403", w.Code)
+	}
+	body := w.Body.String()
+	if !strings.Contains(body, "gateway.allow") {
+		t.Errorf("the refusal does not name the setting to edit: %s", body)
+	}
+	if !strings.Contains(body, "192.168.100.90") {
+		t.Errorf("the refusal does not name the origin it refused: %s", body)
+	}
+}
+
+// A refused origin does not learn whether its credential was good.
+//
+// The policy runs BEFORE the token check, and that order is the point: a gateway restricted to one
+// office must not answer "your token is wrong" to a machine in another country, which would confirm
+// the gateway is there and that guessing credentials is worth trying.
+func TestARefusedOriginIsRefusedBeforeTheTokenIsChecked(t *testing.T) {
+	policy, err := netrules.Parse([]string{"!any"})
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	srv := newTestServer(t, &fakeService{}, func(o *Options) { o.Allow = policy })
+
+	req := httptest.NewRequest(http.MethodGet, "/v1/sessions", nil)
+	req.RemoteAddr = "10.0.0.5:5555"
+	// A WRONG token, deliberately: a 403 rather than a 401 is the proof that the origin was
+	// judged first.
+	req.Header.Set("Authorization", "Bearer "+strings.Repeat("00", 32))
+	w := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(w, req)
+
+	if w.Code != http.StatusForbidden {
+		t.Fatalf("a refused origin with a bad token answered %d, want 403 (the origin is judged first)", w.Code)
+	}
+}
+
+// An origin claiming to be allowed through a header is NOT believed.
+//
+// This is the whole security property of the middleware and the reason it reads RemoteAddr: if a
+// header were honoured, anybody could reach a gateway restricted to one machine by claiming to be
+// it, and the allow list would be a decoration.
+func TestAForwardedHeaderCannotClaimAnAllowedOrigin(t *testing.T) {
+	policy, err := netrules.Parse([]string{"!any"})
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	srv := newTestServer(t, &fakeService{}, func(o *Options) { o.Allow = policy })
+
+	req := httptest.NewRequest(http.MethodGet, "/v1/health", nil)
+	req.RemoteAddr = "203.0.113.9:12345"
+	// Every header a proxy would set, all claiming to be a machine the rules WOULD allow.
+	req.Header.Set("X-Forwarded-For", "127.0.0.1")
+	req.Header.Set("X-Real-IP", "127.0.0.1")
+	req.Header.Set("Forwarded", "for=127.0.0.1")
+	w := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(w, req)
+
+	if w.Code != http.StatusForbidden {
+		t.Fatalf("a forwarded header was believed: answered %d, want 403", w.Code)
+	}
+}
+
+// An EMPTY rule set, and a nil one, both serve every origin: two spellings of the documented
+// default must not behave differently.
+func TestNoRulesMeansEveryOrigin(t *testing.T) {
+	empty, err := netrules.Parse(nil)
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	for name, policy := range map[string]*netrules.Policy{"nil": nil, "empty": empty} {
+		srv := newTestServer(t, &fakeService{}, func(o *Options) { o.Allow = policy })
+
+		req := httptest.NewRequest(http.MethodGet, "/v1/health", nil)
+		req.RemoteAddr = "203.0.113.9:12345"
+		w := httptest.NewRecorder()
+		srv.Handler().ServeHTTP(w, req)
+
+		if w.Code != http.StatusOK {
+			t.Errorf("with a %s rule set an arbitrary origin answered %d, want 200: the default policy is accept", name, w.Code)
+		}
+	}
+}
+
+// An origin that cannot be ESTABLISHED is refused, not assumed benign.
+//
+// This is the defensive branch of the middleware, and it refuses on purpose: a request whose origin
+// cannot be parsed is exactly the one not to guess about. Left as a branch nothing runs, its
+// behaviour would be whatever a later edit happened to write; here it is pinned.
+func TestAnUnreadableOriginIsRefused(t *testing.T) {
+	policy, err := netrules.Parse([]string{"!any"})
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	srv := newTestServer(t, &fakeService{}, func(o *Options) { o.Allow = policy })
+
+	req := httptest.NewRequest(http.MethodGet, "/v1/health", nil)
+	// RemoteAddr is "ip:port" on a real socket. Anything else cannot be judged, and "cannot be
+	// judged" must not mean "let it in".
+	req.RemoteAddr = "not-an-address"
+	w := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(w, req)
+
+	if w.Code != http.StatusForbidden {
+		t.Fatalf("an origin that cannot be parsed answered %d, want 403", w.Code)
+	}
+	if !strings.Contains(w.Body.String(), "origin") {
+		t.Errorf("the refusal does not say that the origin could not be determined: %s", w.Body.String())
+	}
+}
+
+// The gateway SAYS what rules it is enforcing, because that description is written to the service
+// file and read back by a later `status` or `stop`.
+func TestTheGatewayDescribesItsOwnRules(t *testing.T) {
+	// No policy at all describes itself as accepting everything - and through the policy's own
+	// words rather than a second phrase, so the two spellings cannot drift.
+	bare := newTestServer(t, &fakeService{})
+	if got := bare.AllowDescription(); got != (&netrules.Policy{}).Describe() {
+		t.Errorf("a gateway with no rules describes itself as %q, want the open policy's own words", got)
+	}
+
+	policy, err := netrules.Parse([]string{"lan", "!any"})
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	strict := newTestServer(t, &fakeService{}, func(o *Options) { o.Allow = policy })
+	if got := strict.AllowDescription(); got != policy.Describe() {
+		t.Errorf("the gateway describes its rules as %q, want %q: the description must be the policy's own", got, policy.Describe())
+	}
+	// And the description is not the open one, which is the assertion that would catch a gateway
+	// reporting the default while enforcing something else.
+	if strict.AllowDescription() == bare.AllowDescription() {
+		t.Fatal("a restricted gateway describes itself exactly like an open one")
 	}
 }
 

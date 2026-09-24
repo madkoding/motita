@@ -388,10 +388,14 @@ func TestOrListReadsLikeEnglish(t *testing.T) {
 // and every bookmark, so a change has to break this test first and be a decision.
 func TestTheGatewayListensOnAFixedPortByDefault(t *testing.T) {
 	// The RESOLVED address is asserted, not the stored string: the default leaves listen empty so
-	// that allow_lan can still decide, and the question a user's client depends on is where the
-	// gateway actually binds.
-	if got := Default().GatewayListen(); got != "127.0.0.1:7477" {
-		t.Fatalf("the default gateway listen resolves to %q, want a fixed 127.0.0.1:7477", got)
+	// that the resolution has one place to live, and the question a user's client depends on is
+	// where the gateway actually binds.
+	//
+	// The WILDCARD and not loopback, and that is asserted here too: it is the documented posture -
+	// the gateway comes up reachable and gateway.allow is what narrows it - so a change back to a
+	// loopback default has to break this test and be a decision.
+	if got := Default().GatewayListen(); got != "0.0.0.0:7477" {
+		t.Fatalf("the default gateway listen resolves to %q, want the wildcard on the fixed port 0.0.0.0:7477", got)
 	}
 	if strings.HasSuffix(defaultGatewayListen, ":0") {
 		t.Fatal("an ephemeral default cannot be found by a process started later")

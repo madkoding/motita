@@ -498,8 +498,8 @@ func TestStartGatewayReportsAnUnwritableServiceFileWithoutRefusing(t *testing.T)
 // the default breaks this test instead of silently turning the help into a lie.
 func TestTheHelpNamesTheRealDefaultGatewayPort(t *testing.T) {
 	// The documented address, from the same place the program gets it. The RESOLVED one: the
-	// default leaves `listen` empty so allow_lan can still decide, and what the help has to name is
-	// the address the gateway actually binds.
+	// default leaves `listen` empty so the wildcard resolution has one place to live, and what the
+	// help has to name is the address the gateway actually binds.
 	want := config.Default().GatewayListen()
 	if want == "" || strings.HasSuffix(want, ":0") {
 		t.Fatalf("the default gateway listen is %q, which is not a fixed port", want)

@@ -40,6 +40,14 @@ type ServiceFile struct {
 	// when the socket is a wildcard), so exposure cannot be recovered from it, and a reader who
 	// tried would conclude that a gateway answering the whole network is a private one.
 	Reachable bool `json:"reachable"`
+	// Allow is the origin rule set this gateway enforces, as its own description rather than the
+	// list of strings: it is written by the server that parses those strings, so a later reader
+	// gets the rules that are actually in force and not a second interpretation of them.
+	//
+	// In the file for the same reason Reachable is: a gateway left running across an upgrade or a
+	// configuration edit goes on enforcing what it was started with, and telling its operator what
+	// THIS process's configuration says would describe a gateway that is not the one answering.
+	Allow string `json:"allow"`
 }
 
 // The three filesystem calls that can fail while writing the service file, as variables so their

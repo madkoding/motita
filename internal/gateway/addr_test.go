@@ -16,7 +16,10 @@ import (
 // [::]. So the announced link, the service file, and everything a client discovered from them were
 // all advertising an address that could not be used.
 func TestAWildcardBindIsAnnouncedAsAnAddressToCall(t *testing.T) {
-	srv := newTestServer(t, &fakeService{}, func(o *Options) { o.Listen = "0.0.0.0:0"; o.AllowLAN = true })
+	// A wildcard bind needs NOTHING else to be allowed: there is no second act any more, and this
+	// call is the proof. The address the socket listens on is still normalised for the client (see
+	// Addr), which is what this test is about; how far it reaches is a separate answer.
+	srv := newTestServer(t, &fakeService{}, func(o *Options) { o.Listen = "0.0.0.0:0" })
 
 	addr := srv.Addr()
 	if strings.HasPrefix(addr, "[::]") || strings.HasPrefix(addr, "0.0.0.0") {
@@ -69,7 +72,7 @@ func TestALoopbackBindAnnouncesItselfAndDeniesNetworkReach(t *testing.T) {
 // the address usable in the first place: the host is normalised, the port is the one the kernel
 // chose and is never normalised away.
 func TestAWildcardEphemeralBindStillReportsTheRealPort(t *testing.T) {
-	srv := newTestServer(t, &fakeService{}, func(o *Options) { o.Listen = "0.0.0.0:0"; o.AllowLAN = true })
+	srv := newTestServer(t, &fakeService{}, func(o *Options) { o.Listen = "0.0.0.0:0" })
 
 	_, port, err := net.SplitHostPort(srv.Addr())
 	if err != nil {

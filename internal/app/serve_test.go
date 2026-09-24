@@ -446,6 +446,69 @@ func TestServeWithTheGatewayTurnedOffIsRefused(t *testing.T) {
 	}
 }
 
+// A malformed origin rule stops the gateway while it is being BUILT, with the setting named.
+//
+// This is the whole reason the rules are parsed at startup instead of per request. The middleware
+// applies them at request time, so a typo there would show up as an origin being refused for a
+// reason nobody can see - a 403 that reads as a network fault. Here it is a message on the terminal,
+// before anything is bound, naming gateway.allow and the entry that is wrong.
+func TestAGatewayWithAMalformedRuleDoesNotStart(t *testing.T) {
+	silence(t)
+	srv := planServer(t, []string{"hello"})
+	defer srv.Close()
+
+	cfgPath, logPath := gatewayConfig(t, srv)
+	mustWrite(t, cfgPath, strings.ReplaceAll(readFileOrEmpty(cfgPath),
+		"  listen: \"127.0.0.1:0\"", "  listen: \"127.0.0.1:0\"\n  allow: [\"lan\", \"banana\"]"))
+
+	var out syncBuffer
+	opts := gatewayTestOptions(t, &out, "", "-serve", "-config", cfgPath)
+	opts.BaseCtx = context.Background()
+	opts.NewEngine = mockEngine(srv)
+
+	if code := Run(opts); code != ConfigError {
+		t.Fatalf("code = %d, want ConfigError (%d): %s", code, ConfigError, out.String())
+	}
+	// The message has to name the setting and the offending entry, or the operator is left looking
+	// for a rule nobody said was wrong.
+	got := out.String() + readFileOrEmpty(logPath)
+	if !strings.Contains(got, "gateway.allow") {
+		t.Errorf("the failure does not name gateway.allow:\n%s", got)
+	}
+	if !strings.Contains(got, "banana") {
+		t.Errorf("the failure does not name the offending rule:\n%s", got)
+	}
+}
+
+// The parse inside startGateway is DEFENSIVE, and this test reaches it directly.
+//
+// Validation already refuses a malformed rule while the configuration is read, so through Run() this
+// branch cannot be the one that fires - the test above proves the user-visible outcome, and this one
+// pins the behaviour of the branch itself, the way the listener-address tests pin theirs. It matters
+// because the alternative to a clear message here is a gateway that binds with a rule set nobody
+// checked: Parse returning an error must never be mistaken for an empty rule set, which WOULD be
+// valid and would mean "every origin".
+func TestStartGatewayRefusesAMalformedRuleDirectly(t *testing.T) {
+	dir := t.TempDir()
+	cfg := config.Default()
+	cfg.LLM.APIKey = "test"
+	cfg.Gateway.TokenFile = filepath.Join(dir, "gateway.token")
+	// Bypasses Validate deliberately: the point is the second check.
+	cfg.Gateway.Allow = []string{"not a rule"}
+
+	op := Options{Out: &syncBuffer{}, Err: &syncBuffer{}}
+	_, err := op.startGateway(flags{}, cfg, nil, nil, nil, false)
+	if err == nil {
+		t.Fatal("a malformed rule was accepted when the gateway was built")
+	}
+	if !strings.Contains(err.Error(), "gateway.allow") {
+		t.Errorf("the failure does not name gateway.allow: %v", err)
+	}
+	if !strings.Contains(err.Error(), "not a rule") {
+		t.Errorf("the failure does not name the offending rule: %v", err)
+	}
+}
+
 // A token that cannot be read or created stops the gateway before it binds. The token file is
 // pointed at a DIRECTORY here, which is the reachable form of this failure: it exists, so it is
 // not created, and reading it fails with something that is not "not found".

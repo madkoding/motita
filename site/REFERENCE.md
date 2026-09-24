@@ -440,7 +440,7 @@ honoured. The documented one wins when both are set.
 | `final_action` | `kind` (`none`/`command`/`api`/`git_commit`), `command`, `args`, `url`, `method`, `commit_message` |
 | `agent` | `max_retries`, `subtask_depth`, `max_tasks`, `workspace_dir`, `log_file`, `log_level`, `log_console`, `log_max_mb`, `log_backups`, `graceful_shutdown_timeout`, `read_only`, `shell`, `policy{enforce,strict}`, `on_failure` |
 | `skills` | `dir`, `max_file_bytes` |
-| `gateway` | `enabled`, `listen`, `token_file`, `allow_lan`, `max_body_kb` |
+| `gateway` | `enabled`, `listen`, `token_file`, `allow`, `max_body_kb` |
 
 `skills.dir` is the procedure library: the directory of documents the agent may
 list, search, read and extend. It defaults to `skills` under the working
@@ -522,9 +522,9 @@ interface is a client of it.
 | Setting | Default | Effect |
 |---|---|---|
 | `enabled` | `true` | The HTTP face. Off is one deliberate act, for a machine that must not listen at all. |
-| `listen` | *empty* | `host:port`, and **empty means "resolve it"**: `127.0.0.1:7477` normally, or the wildcard once `allow_lan` is on. A **fixed** port either way, because the gateway can outlive the process that started it and a later process has to find it. Port `0` still works and asks the kernel for a free one, but the address then exists only in that process' memory, so nothing else can reach it. An address written here **wins** over `allow_lan`. |
+| `listen` | *empty* | `host:port`, and **empty means "resolve it"**: the wildcard `0.0.0.0:7477`, which is what the program binds unless you name something else. A **fixed** port, because the gateway can outlive the process that started it and a later process has to find it. Port `0` still works and asks the kernel for a free one, but the address then exists only in that process' memory, so nothing else can reach it. The address says where the **socket** is open and nothing about who may connect, which is `allow`. |
 | `token_file` | `gateway.token` | Where the bearer token lives, under the starlight home. Generated on first use with 32 random bytes, mode `0600`. |
-| `allow_lan` | `false` | Serving **the network**, and it is the only setting needed for that: it makes the gateway listen on `0.0.0.0:7477` by itself. It is also required for any non-loopback address written in `listen`. One act, because the operator who wants their phone to reach the agent should not also have to know this machine's LAN address. |
+| `allow` | *empty* | **Who may connect**, as an ordered list of rules. Empty means every origin — the fresh-firewall-table default. Entries: `any`, `lan`, an address (`192.168.1.10`), a network (`192.168.0.0/16`), each optionally prefixed with `!` to deny. The first rule that matches decides; an origin no rule matches is allowed. Loopback is always allowed. See the rules table above. Also read from `STARLIGHT_GATEWAY_ALLOW`, comma- or space-separated. |
 | `max_body_kb` | `256` | Cap on a request body. |
 | `max_sessions` | `0` | How many conversations one process holds. `0` means the built-in default. A negative ceiling is refused rather than read as the default, which would hide the typo that produced it. |
 
@@ -616,18 +616,45 @@ a pipeline gets the answer and nothing else. It is the mode a script uses, and t
 a client is useful on a machine with no terminal. `-serve` and `-connect` together are
 refused: one makes this process the gateway, the other a client of one.
 
-Exposing the gateway beyond loopback is **one deliberate act**: `allow_lan: true`
-(or `STARLIGHT_GATEWAY_ALLOW_LAN=true`). Nothing else is needed — the address
-resolves to the wildcard by itself — and nothing about the *default* opens it,
-which is the part that matters: a gateway left running on a laptop in a cafe is
-not answering its neighbours.
+Exposing the gateway is **the posture of a fresh firewall table**: it comes up bound to
+the wildcard, and **nothing is restricted until you add a rule**. Rules live in
+`gateway.allow` (or `STARLIGHT_GATEWAY_ALLOW`, comma- or space-separated) and are
+**ordered** — the first one that matches decides:
 
-It used to take two acts (a non-loopback address *and* the flag), which asked the
-operator to know their own LAN address, or to write `0.0.0.0` by hand, at the
-moment they only wanted their phone to reach the agent. One setting that says what
-it does, and says it once, is the version that cannot be half-applied: with the
-address resolved from the flag, an "`allow_lan` on but still bound to loopback"
-state does not exist.
+| Rule | Means |
+| --- | --- |
+| `any` | every origin (also accepted: `all`, `everyone`) |
+| `lan` | the private and link-local ranges: `192.168.x`, `10.x`, `172.16-31.x`, `169.254.x`, `fc00::/7`, `fe80::/10` |
+| `192.168.1.10` | one address (an `ip:` prefix is accepted too) |
+| `192.168.0.0/16` | one network |
+
+Prefix any of them with `!` to **deny** instead of allow:
+
+```yaml
+gateway:
+  allow: []                   # everything — the default
+  allow: ["lan"]              # let the local network in; everything else still gets in
+  allow: ["!any"]             # this machine only
+  allow: ["lan", "!any"]      # the local network ONLY — the useful one
+  allow: ["10.0.0.5"]         # one machine; everything else still gets in
+  allow: ["!192.168.1.0/24"]  # everything except one network
+```
+
+An origin **no rule matches is allowed**, because the default policy is accept. That is
+worth reading twice: `["lan"]` is not "LAN only" — anything outside the LAN still gets in
+because nothing denies it. `["lan", "!any"]` is the pair that means LAN only.
+
+**Loopback is always allowed**, whatever the rules say, and that is not a convenience: the
+local interface and the local browser reach the gateway over loopback, so a rule set that
+locked it out would leave the operator unable to use — or repair — the program they just
+configured. `["!any"]` means "this machine only", not "break my terminal".
+
+The rule is applied to **every** request, including `/v1/health` and the page, and it is
+applied **before** the token is checked — so a refused origin does not even learn whether
+its credential was good. The client's address is read from the **connection**, never from
+`X-Forwarded-For` or any other header: honouring one would let anybody reach a gateway
+restricted to one office by claiming to be it. (A deployment behind a real reverse proxy
+would need a setting naming trusted proxies; that setting does not exist, deliberately.)
 
 #### The browser interface
 
@@ -690,12 +717,12 @@ page *is* the size of the executable. The one item that can spend the margin is 
 webfont — the page uses the system font deliberately, and a test fails if the assets
 grow past 64 KB.
 
-**There is no TLS in this version.** Exposing the gateway on a LAN without a
-tunnel sends the token in clear text, so anyone on the network can read it in
-transit — and nothing about the token or the page changes that. `allow_lan` prints
-a warning saying so at the moment it opens the gateway, because that is when the
-decision is still being made. When the two machines can reach each other, the
-supported way is a tunnel, which never exposes the gateway at all:
+**There is no TLS in this version.** Reaching the gateway over the network without a
+tunnel sends the token in clear text, so anyone on it can read the credential in
+transit — and nothing about the token or the page changes that. The gateway prints a
+warning saying so at the moment it starts, because that is when the decision is still
+being made. When the two machines can reach each other, the supported way is a tunnel,
+which never exposes the gateway at all:
 
 ```bash
 ssh -N -L 7477:127.0.0.1:7477 the-host
@@ -707,15 +734,18 @@ or any other command: configuration is shown to clients through a reduced view i
 which `llm.api_key` is reported only as *present* or *absent*.
 
 The address is validated at startup, not when the first client arrives: a
-`listen` that is not `host:port` is refused, and a non-loopback address without
-`allow_lan` is refused with a message naming the setting.
+`listen` that is not `host:port` is refused. **Who may connect is a separate
+question** and is answered by `gateway.allow`, whose entries are parsed while the
+configuration is read — a malformed rule is refused with a message naming both the
+setting and the offending entry, rather than failing silently at request time.
 
 Whatever is bound, the address a client is **told** is one it can call. A wildcard
 bind is reported as `127.0.0.1:<port>` rather than as the `[::]` the kernel reports,
 because `[::]` is an address to listen on and not one to dial: in a URL it names no
 reachable host, and a browser returns an empty page for it. Whether the gateway is
 *reachable from the network* is a separate question with a separate answer, carried
-in `gateway.json` as `reachable` and stated in the startup message.
+in `gateway.json` as `reachable` and stated in the startup message — alongside
+`allow`, the rule set the running gateway is actually enforcing.
 
 **Entering a session means entering it.** `-session <id>` and `/attach <id>` do the same
 thing, and both take you back to the conversation rather than to a blank screen:

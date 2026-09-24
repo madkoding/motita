@@ -128,7 +128,6 @@ func boolBindings(c *Config) []binding[bool] {
 		{"STARLIGHT_AGENT_POLICY_ENFORCE", &c.Agent.Policy.Enforce},
 		{"STARLIGHT_AGENT_POLICY_STRICT", &c.Agent.Policy.Strict},
 		{"STARLIGHT_GATEWAY_ENABLED", &c.Gateway.Enabled},
-		{"STARLIGHT_GATEWAY_ALLOW_LAN", &c.Gateway.AllowLAN},
 		{"STARLIGHT_GATEWAY_WEBUI", &c.Gateway.WebUI},
 	}
 }
@@ -138,6 +137,7 @@ func ApplyEnvironment(c *Config) error {
 	for _, b := range textBindings(c) {
 		*b.dst = readText(b.key, *b.dst)
 	}
+	applyListEnvironment(c)
 	for _, b := range promptBindings(c) {
 		*b.dst = readPrompt(b.key, *b.dst)
 	}
@@ -253,6 +253,41 @@ func applyReasoningEnvironment(c *Config) error {
 	default:
 		return fmt.Errorf("STARLIGHT_LLM_REASONING_LEVEL must be one of: off, low, medium, high")
 	}
+}
+
+// applyListEnvironment reads the settings that are a LIST of strings rather than one value.
+//
+// They cannot go through the binding tables above, whose shape is "one variable, one field of a
+// scalar type". Only gateway.allow is one today, and it is named explicitly rather than given a
+// generic table so that a second list setting is a decision (how is it split? by comma? by space?)
+// and not an accident of someone reaching for a helper.
+//
+// The separator is a COMMA and the entries are trimmed. A comma rather than a space because a rule
+// may be `192.168.0.0/16` or `!any`, and neither contains one - while a space is what somebody
+// would type between rules by habit, so a space-separated list is accepted as well rather than
+// being silently read as one malformed rule.
+//
+// An EMPTY or blank variable leaves the field alone, exactly like every other readText binding:
+// exporting STARLIGHT_GATEWAY_ALLOW= in a compose file because a secret did not arrive must not
+// wipe a restriction the operator wrote in their YAML. Clearing a rule list is done by editing the
+// file, not by an empty variable.
+func applyListEnvironment(c *Config) {
+	v, ok := os.LookupEnv("STARLIGHT_GATEWAY_ALLOW")
+	if !ok || strings.TrimSpace(v) == "" {
+		return
+	}
+	c.Gateway.Allow = splitRules(v)
+}
+
+// splitRules turns a variable's value into rule specs.
+func splitRules(v string) []string {
+	out := []string{}
+	for _, part := range strings.FieldsFunc(v, func(r rune) bool { return r == ',' || r == ' ' || r == '\t' || r == '\n' }) {
+		if trimmed := strings.TrimSpace(part); trimmed != "" {
+			out = append(out, trimmed)
+		}
+	}
+	return out
 }
 
 // readText returns the value of the variable, or the current one when it is not

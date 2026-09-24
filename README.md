@@ -155,14 +155,28 @@ typewriter reveal, tab completion, a live model catalogue from your provider,
 session context tracking, and mouse support. Written against the standard library
 alone — it's the same binary, not a wrapper around something else.
 
-**The same process is also a gateway.** It listens on loopback behind a token, and
-the terminal you are looking at is one of its **clients** — so a web page or a
-phone can join the same conversation, with the same procedure library and the same
-reward ledger. Two acts are needed to put it on a network (`gateway.allow_lan`
-plus a non-loopback address), and the supported way to reach a remote one is a
-tunnel: `ssh -N -L 7477:127.0.0.1:7477 the-host`. There is **no TLS** in this
-version, which is exactly why exposing it on a LAN is two deliberate acts and not
-one.
+**The same process is also a gateway.** It listens on **every interface** and enforces
+**no origin rules** — the same posture as a machine with a fresh, empty firewall table:
+everything is accepted until you add a rule. The terminal you are looking at is one of
+its **clients**, so a web page or a phone can join the same conversation, with the same
+procedure library and the same reward ledger. Narrow it by adding rules to
+`gateway.allow`:
+
+```yaml
+gateway:
+  allow: ["lan"]            # only the local network; everything else still gets in
+  allow: ["lan", "!any"]    # the local network ONLY — usually what you want
+  allow: ["!any"]           # this machine only
+  allow: ["10.0.0.5"]       # one machine, everything else still gets in
+  allow: ["!192.168.1.0/24"] # everything except one network
+```
+
+Rules are an ordered list, the first one that matches decides, and loopback is always
+allowed — so a rule set can never lock you out of the machine you configured it on. The
+token is what stands between the network and an agent that runs commands here; the rules
+say where that token may come from. The supported way to reach a remote gateway without
+exposing it at all is still a tunnel: `ssh -N -L 7477:127.0.0.1:7477 the-host`. There is
+**no TLS** in this version, and the gateway says so at open time.
 
 **The two halves come apart.** `-serve` runs the gateway and no interface; `-connect` runs the
 interface and no gateway:
@@ -181,7 +195,7 @@ A process in `-connect` mode builds **no sandbox, no procedure library and no re
 engine** — all three belong to the machine running the gateway. That is what lets it run
 where the agent could never run: a laptop, a phone, a tablet. Reach a gateway on another
 host through a tunnel (`ssh -N -L 7477:127.0.0.1:7477 the-host`); there is no TLS in this
-version, which is why exposing it on a LAN stays two deliberate acts.
+version.
 
 Inside the interface, `/sessions` lists the conversations the gateway holds — marking the
 one you are on and naming any with a run in flight — and `/attach <id>` moves to another
@@ -198,9 +212,32 @@ gateway (`gateway.webui: false` turns it off):
 $ starlight gateway start
 the gateway is running at http://127.0.0.1:7477 (pid 4211, v0.5.0-72-gcadb33f)
 
+this gateway is listening on every interface (port 7477): any machine that can
+reach this host may connect, subject to the rules below.
+no origin rules are set, so EVERY origin is accepted (gateway.allow is empty).
+add a rule to gateway.allow to narrow it: "lan", an address, a network, or
+"!any" for this machine only.
+there is no TLS, so the token travels in clear text to every one of them.
+
 the interface is at http://127.0.0.1:7477/#t=<token>
 open that link once: the page trades the fragment for a cookie and drops it
+
+from another machine, use whichever of these reaches this host - same port,
+same fragment, and the link above only works on this machine:
+  http://192.168.1.20:7477/#t=<token>
 ```
+
+Notice the two answers: **where the socket is open** and **who may use it**. The link is a
+loopback address because a wildcard bind has to be normalised into something a client can
+actually dial — which is exactly why the exposure is reported separately rather than read
+out of the link.
+
+The second list exists for the same reason. The address a *remote* browser needs cannot be
+derived from the listener, and asking the operator to substitute their own address is a
+networking question asked at the moment they are least equipped to answer it — the symptom
+being a page that reports `not connected` with nothing to explain why. So the addresses this
+host actually answers on are printed instead, IPv4 first, with the container-only bridges
+left out because nothing outside the machine can reach them.
 
 The token rides in the URL **fragment**, which a browser never sends to the server, and
 the page immediately trades it for an `HttpOnly`, `SameSite=Strict` cookie whose value is
@@ -208,6 +245,13 @@ an **HMAC of the token** rather than the token itself. So a cookie lifted from a
 is not a reusable credential, nothing is stored server-side, and **rotating the token
 invalidates every cookie** with nothing to clean up. The page is served without a token —
 like a login form — and therefore holds no secret at all.
+
+The token is **not a setting to configure**. Nothing in the YAML mints it and nothing needs
+to: the gateway generates one the first time it starts, keeps it in `gateway.token_file`
+(mode 0600) and prints it inside the link. So opening the plain address — the IP with no
+`#t=…` — lands on a page that reports `not connected`, and the honest reading of that is
+"open the link, not the address", never "go and configure a token". The page says exactly
+that, because the first reading sends people hunting for a key that was never meant to exist.
 
 The page paints the conversation the gateway already has, streams a turn live, resumes
 from the last event it saw when the connection drops, and shows an approval with the

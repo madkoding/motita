@@ -60,5 +60,8 @@ gateway:
   # Written into the mounted directory so the host can read it back and drive the API. In a real
   # run this sits under the starlight home, mode 0600.
   token_file: "/e2e/gateway.token"
-  allow_lan: false
+  # No rules: the e2e talks to the gateway over loopback, which is always allowed whatever the
+  # rules say - so an empty list is both the shipped default AND what this fixture needs. It
+  # deliberately does not set a rule set the product does not ship.
+  allow: []
   max_body_kb: 256

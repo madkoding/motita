@@ -14,9 +14,10 @@
 #
 #   --network host  because a debian-slim image ships no HTTP client and the client has to be the
 #                   host. With the host network namespace, 127.0.0.1 inside IS 127.0.0.1 outside,
-#                   so gateway.allow_lan stays false and the gateway is still bound to loopback -
-#                   the configuration being tested. Publishing a port from 0.0.0.0 would have
-#                   meant testing a LAN-exposed gateway instead, which is a different thing.
+#                   so the gateway is reached over loopback - always served, whatever the origin
+#                   rules are, and the fixture ships none. Publishing a port from 0.0.0.0 would
+#                   have meant testing a gateway reached over the host's LAN address instead,
+#                   which is a different thing and a different rule.
 #   --user          so the token file is owned by the user running the test. It is created mode
 #                   0600, which is a property worth keeping rather than relaxing for a test, and
 #                   a root-owned 0600 file in the mounted directory is unreadable here.

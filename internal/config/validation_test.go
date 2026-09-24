@@ -92,11 +92,16 @@ func TestGatewayValidation(t *testing.T) {
 		{"loopback is valid", func(c *Config) { c.Gateway.Listen = "127.0.0.1:8787" }, ""},
 		{"localhost is loopback", func(c *Config) { c.Gateway.Listen = "localhost:8787" }, ""},
 		{"::1 is loopback", func(c *Config) { c.Gateway.Listen = "[::1]:8787" }, ""},
-		{"a fixed port is valid", func(c *Config) { c.Gateway.Listen = "0.0.0.0:8787"; c.Gateway.AllowLAN = true }, ""},
+		// Every address is acceptable, because the socket no longer decides who may connect: the
+		// rules do. Each of these is a legitimate choice an operator makes with gateway.listen, and
+		// refusing one would send them to a setting that is not what they were looking for.
+		{"the wildcard is valid", func(c *Config) { c.Gateway.Listen = "0.0.0.0:8787" }, ""},
+		{"a concrete LAN address is valid", func(c *Config) { c.Gateway.Listen = "192.168.100.90:8787" }, ""},
 		{
-			"a non-loopback address without allow_lan is refused",
-			func(c *Config) { c.Gateway.Listen = "0.0.0.0:8787" },
-			"gateway.allow_lan",
+			// An empty host means every interface on this machine, which is the DEFAULT anyway.
+			"an empty host is valid",
+			func(c *Config) { c.Gateway.Listen = ":8787" },
+			"",
 		},
 		{
 			"a bad address is refused",
@@ -136,17 +141,11 @@ func TestGatewayValidation(t *testing.T) {
 			"gateway.token_file",
 		},
 		{
-			// Port 0 is the default and the embedded shape; an empty address must mean the
-			// same thing rather than being refused for a host it never had.
-			"an empty listen address falls back to loopback",
+			// Port 0 is a legitimate ask (the kernel picks a free one), and an empty address means
+			// "resolve the default" rather than being refused for a host it never had.
+			"an empty listen address resolves to the default",
 			func(c *Config) { c.Gateway.Listen = "" },
 			"",
-		},
-		{
-			// An empty host is NOT loopback: it means every interface on this machine.
-			"an empty host is refused without allow_lan",
-			func(c *Config) { c.Gateway.Listen = ":8787" },
-			"gateway.allow_lan",
 		},
 	}
 	for _, tc := range cases {

@@ -172,46 +172,66 @@ agent:
 # ---------------------------------------------------------------------------
 # Gateway: the HTTP face of the agent.
 #
-# On by default and bound to loopback, behind a token kept in a file under the
-# starlight home. That combination is what lets a second front end - a web page,
-# a phone - reach the SAME conversation the terminal is having: the agent lives
-# once, in the process that runs the gateway, and every interface is a client.
+# It LISTENS EVERYWHERE by default and RULES NOTHING OUT, which is the posture of
+# a machine with a fresh, empty firewall table. The token is what stands between
+# the network and an agent that runs commands here; the ordered rule list in
+# `allow` is how you narrow WHERE that token may come from - one rule at a time.
 #
-# Reaching it from another machine takes two deliberate acts: a non-loopback
-# listen address AND allow_lan. The thing being exposed runs commands on this
-# machine, so neither a default nor a single flag may do it alone.
+# The point of that default is that the reachable case works out of the box: a
+# phone on the same network can reach the agent without you first learning about
+# listen addresses or looking up this machine's address.
 #
 # There is NO TLS in this version. The supported way to reach a gateway on
-# another machine is a tunnel, which never exposes it at all:
+# another machine without exposing it at all is a tunnel:
 #
 #     ssh -N -L 8787:127.0.0.1:8787 the-host
 #     # then point the client at http://127.0.0.1:8787
 #
-# Exposing it on a LAN without a tunnel sends the token in clear text. That is a
-# decision, not an accident: it is loud in the log, and allow_lan is what asks
-# for it.
+# Over the network the token travels in clear text, readable by anyone on it. That
+# is why the rules exist: `allow: ["lan"]` or `allow: ["!any"]` is what keeps it
+# to the machines you meant.
 gateway:
   enabled: true
-  # host:port, and EMPTY means "resolve it": 127.0.0.1:7477 normally, or the
-  # wildcard once allow_lan is on. A FIXED port either way, because
-  # `starlight gateway start` runs the gateway as a service that a later process
-  # has to find: an ephemeral port exists only in the memory of the process that
-  # asked for it, so nothing else can reach it. `starlight` with no arguments
-  # reuses a running gateway, or starts its own. An address written here WINS
-  # over allow_lan.
+  # host:port, and EMPTY means "resolve it": the wildcard 0.0.0.0:7477, which is
+  # what the program binds unless you name something else here. A FIXED port,
+  # because `starlight gateway start` runs the gateway as a service that a later
+  # process has to find: an ephemeral port exists only in the memory of the
+  # process that asked for it, so nothing else can reach it. `starlight` with no
+  # arguments reuses a running gateway, or starts its own.
+  #
+  # An address written here WINS, and it is a statement about the SOCKET only -
+  # never about who may connect, which is `allow`. Write 127.0.0.1:7477 here if
+  # you want nothing but this machine to be able to reach it AT ALL.
   listen: ""
   # Where the bearer token lives. Generated on first use, 0600, under the home.
   token_file: "gateway.token"
-  # Serving THE NETWORK, and the only setting needed for that: it makes the
-  # gateway listen on 0.0.0.0:7477 by itself, so a phone on the same network can
-  # reach it without you looking up this machine's address. It is also required
-  # for any non-loopback address written in `listen`.
+  # WHO MAY CONNECT, as an ORDERED list of rules. Empty means every origin, which
+  # is the default. Each entry is one of:
   #
-  # What this exposes runs commands on this machine, and there is no TLS: the
-  # token travels in clear text, readable by anyone on the network. Leave it
-  # false unless you mean it, and prefer an SSH tunnel between two machines that
-  # can already reach each other.
-  allow_lan: false
+  #   any                every origin
+  #   lan                the private and link-local ranges (192.168.x, 10.x,
+  #                      172.16-31.x, 169.254.x, fc00::/7, fe80::/10)
+  #   192.168.1.10       one address (an `ip:` prefix is accepted too)
+  #   192.168.0.0/16     one network
+  #
+  # and any of them prefixed with "!" DENIES instead of allows. The FIRST RULE
+  # THAT MATCHES decides; an origin no rule matches is ALLOWED, because the
+  # default policy is accept. So:
+  #
+  #   allow: []                  everything, the default
+  #   allow: ["lan"]             let the local network in, everything else still in
+  #   allow: ["!any"]            this machine only (loopback is always allowed)
+  #   allow: ["lan", "!any"]     the local network ONLY - the useful one
+  #   allow: ["10.0.0.5"]        one machine, everything else still in
+  #   allow: ["!192.168.1.0/24"] everything except one network
+  #
+  # Loopback is ALWAYS allowed whatever the rules say, because the local interface
+  # and the local browser reach the gateway that way - a rule set that locked it
+  # out would leave you unable to use, or repair, what you just configured.
+  #
+  # A rule list is read from the environment with STARLIGHT_GATEWAY_ALLOW, comma
+  # or space separated: STARLIGHT_GATEWAY_ALLOW='lan,!any'
+  allow: []
   # Cap on a request body, in KB.
   max_body_kb: 256
   # How many conversations this process will hold at once. 0 means the built-in

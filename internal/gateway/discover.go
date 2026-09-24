@@ -27,6 +27,12 @@ type Found struct {
 	// and so says nothing about exposure. A reader who derives exposure from it gets the answer
 	// backwards for exactly the gateways it matters for.
 	Reachable bool
+	// Allow is the origin rule set the RUNNING gateway enforces, as it describes itself.
+	//
+	// It travels in the service file for the same reason Reachable does: this process's own
+	// configuration is not evidence about a gateway somebody else is running, and a service left
+	// running across an upgrade or a configuration edit enforces the rules it was started with.
+	Allow string
 }
 
 // Health is what /v1/health reports, and the shape discovery checks for.
@@ -88,6 +94,7 @@ func Discover(ctx context.Context, path string, probe func(context.Context, stri
 		Version:   health.Version,
 		Owned:     svc.Owned,
 		Reachable: svc.Reachable,
+		Allow:     svc.Allow,
 	}, true, nil
 }
 

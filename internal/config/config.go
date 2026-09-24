@@ -14,6 +14,8 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	"github.com/madkoding/starlight/internal/netrules"
 )
 
 // ---------------------------------------------------------------------------
@@ -36,17 +38,36 @@ type Config struct {
 // Gateway is the HTTP face of the agent: what other front ends - a web page, a phone, a
 // desktop window - reach it through.
 //
-// It is on by DEFAULT and bound to loopback, which is the shape that costs nothing and can be
-// trusted: an ephemeral port nothing else wants, reachable only from this machine, behind a
-// token. Reaching it from the network takes TWO deliberate acts - a non-loopback listen
-// address and allow_lan - because the thing being exposed runs commands on this machine, and
-// neither a default nor a single flag should be able to do that on its own.
+// It listens on the WILDCARD by default, and that is a deliberate change of posture: the gateway
+// comes up on every interface the way a machine with a fresh, empty firewall table accepts
+// everything, and what restricts it is the ordered rule list in Allow. The reasoning is that the
+// default nobody can use is not a safe default, it is a broken one - and an operator who binds
+// loopback and then discovers their phone cannot reach the agent has to learn about listen
+// addresses to fix it. The token is what stands between the network and an agent that runs
+// commands on this machine; the rules are how the operator narrows WHO that token may come from,
+// one rule at a time, which is the model a firewall taught everyone.
+//
+// Loopback is always allowed regardless of the rules: the local interface and the local browser
+// reach the gateway that way, so a rule set that locked it out would leave the operator unable to
+// use - or repair - the program they just configured.
 type Gateway struct {
 	Enabled   bool   `yaml:"enabled"`
 	Listen    string `yaml:"listen"`
 	TokenFile string `yaml:"token_file"`
-	AllowLAN  bool   `yaml:"allow_lan"`
-	MaxBodyKB int    `yaml:"max_body_kb"`
+	// Allow is the ORDERED list of origin rules. Empty means every origin may connect.
+	//
+	// Each entry is one of:
+	//
+	//	any                 every origin
+	//	lan                 the private and link-local ranges of both families
+	//	192.168.1.10        one address (the `ip:` prefix is accepted too)
+	//	192.168.0.0/16      one network
+	//
+	// and any of them prefixed with "!" DENIES instead of allows. The FIRST RULE THAT MATCHES
+	// decides; an origin no rule matches is allowed, because the default policy is accept. So
+	// `["!any"]` means "this machine only" and `["lan", "!any"]` means "the local network".
+	Allow     []string `yaml:"allow"`
+	MaxBodyKB int      `yaml:"max_body_kb"`
 	// MaxSessions caps how many conversations one process holds. Zero means the built-in
 	// default, which is what most setups want: the ceiling exists so a client that forgets to
 	// close what it opened cannot turn the agent into a memory leak, not so that an operator
@@ -324,12 +345,17 @@ func Default() Config {
 			// Two starlight windows no longer need two ports: they are two views of one gateway.
 			// A collision with something else is reported at startup, naming the setting, and can
 			// be changed with gateway.listen or -gateway.
-			// Empty on purpose: it means "resolve the default", which is loopback unless
-			// allow_lan has been turned on. Writing the loopback address here would make it an
-			// EXPLICIT listen, and an explicit address always wins - so allow_lan would be
-			// silently ignored, which is exactly the half-applied setting this design exists to
-			// make impossible.
+			//
+			// Empty on purpose: it means "resolve the default", and the default is the wildcard
+			// on this fixed port. An address written here would be an EXPLICIT listen, which is
+			// for an operator who wants the socket somewhere specific - not for expressing who
+			// may connect, which is what Allow is for.
 			Listen: "",
+			// The ordered origin rules, and EMPTY means every origin may connect - the fresh
+			// firewall table, which is the documented default. Restrictions are added one rule at
+			// a time; nothing here has to be changed to reach the agent from a phone on the same
+			// network, which is the case the previous design made an operator configure.
+			Allow: nil,
 			// Resolved against the starlight home by resolvePaths, like the log and the
 			// skills directory: everything the program owns lives under one folder.
 			TokenFile: "gateway.token",
@@ -393,46 +419,37 @@ func Dir() string {
 	return ""
 }
 
-// defaultGatewayListen is where the gateway listens when nothing says otherwise.
+// defaultGatewayListen is where the gateway listens when nothing else is configured.
 //
-// It is a fixed port because the gateway can now outlive the process that started it, and a later
-// process has to be able to find it: an ephemeral port is chosen at bind time, so an address that
-// exists only in the memory of one process is an address no other process can reach. The service
-// file removes the need to guess, and a stable port is what makes a hand-written client possible
-// too.
+// It is the WILDCARD on the fixed port, and both halves have a reason. The wildcard because the
+// gateway comes up reachable and an operator restricts it by ADDING a rule to gateway.allow - the
+// shape of a fresh firewall table - rather than by first learning about listen addresses. The
+// fixed port because the gateway can outlive the process that started it, and a later process has
+// to be able to find it: an ephemeral port is chosen at bind time, so an address that exists only
+// in the memory of one process is an address no other process can reach.
 //
 // 7477 is unassigned in the IANA registry (7475-7477 is "Unassigned"), absent from /etc/services,
 // and below the default ephemeral range on Linux, so it does not compete with outgoing connections.
-const defaultGatewayListen = "127.0.0.1:7477"
-
-// wildcardGatewayPort is the port half of the wildcard address allow_lan resolves to.
-//
-// Spelled as a whole address rather than assembled from defaultGatewayListen, because the two must
-// agree and a test asserts they do: a reader should not have to strip a prefix in their head to
-// learn which ports a gateway can come up on.
-const wildcardGatewayAddress = "0.0.0.0:7477"
+const defaultGatewayListen = "0.0.0.0:7477"
 
 // defaultListenFor resolves the address the gateway will actually bind.
 //
 // It is ONE function because two callers need the same answer and drifting apart is the bug that
 // matters: validation decides whether the configuration is acceptable, and the bind decides where
-// the socket goes. A gateway that passed validation as loopback and then bound to the network - or
-// the reverse - would be a hole that no single test of either half could see.
+// the socket goes. A gateway that passed validation as one address and then bound another is a
+// hole that no single test of either half could see.
 //
 // An explicit listen wins, always: an operator who wrote an address meant that address, and a
 // setting that silently replaces what someone typed is indistinguishable from ignoring it.
 //
-// Otherwise allow_lan opens the WILDCARD, and it does so on its own. Asking the operator to also
-// rewrite the address as 0.0.0.0 (or to look up the machine's LAN address) is a question about
-// networking asked at the moment they only wanted their phone to reach the agent. One setting that
-// says what it means, and says it once, is the version that cannot be half-applied: with this
-// resolution an "allow_lan on, still bound to loopback" state does not exist.
+// Otherwise the wildcard above is the answer. There is no second act and no flag that opens the
+// gateway, because the gateway is no longer CLOSED by default: what says who may reach it is the
+// rule list, and that is applied to the requests rather than to the socket. A bind address is a
+// socket's business; who may connect is a policy's, and conflating the two is what produced a
+// setting whose absence silently left the agent unreachable from the phone it was configured for.
 func defaultListenFor(g Gateway) string {
 	if listen := strings.TrimSpace(g.Listen); listen != "" {
 		return listen
-	}
-	if g.AllowLAN {
-		return wildcardGatewayAddress
 	}
 	return defaultGatewayListen
 }
@@ -652,24 +669,37 @@ func (c *Config) validateGateway() error {
 		// meant - and silently treating it as the default would hide the typo that produced it.
 		return fmt.Errorf("gateway.max_sessions is %d: it cannot be negative (0 means the built-in default)", c.Gateway.MaxSessions)
 	}
+	// The rules are parsed HERE, at load time, and not only where they are enforced.
+	//
+	// A rule set is applied by a middleware, so a typo in it fails silently at request time - the
+	// gateway simply refuses an origin the operator believed they had allowed - and there is no
+	// other moment at which the mistake can be caught. The parse result is discarded because the
+	// middleware parses the same list through the same function: what this checks is that it CAN
+	// be parsed, which is the whole of what "a valid configuration" means for a rule list.
+	if _, err := netrules.Parse(c.Gateway.Allow); err != nil {
+		return fmt.Errorf("gateway.allow: %w", err)
+	}
 	addr := defaultListenFor(c.Gateway)
-	host, _, err := net.SplitHostPort(addr)
-	if err != nil {
+	if _, _, err := net.SplitHostPort(addr); err != nil {
 		// The operator's own string is named back to them, not the resolved one: when they typed an
 		// address, that is what they need to see to fix it.
 		return fmt.Errorf("gateway.listen %q is not host:port: %w", c.Gateway.Listen, err)
 	}
-	if !gatewayAddressIsLoopback(host) && !c.Gateway.AllowLAN {
-		return fmt.Errorf("gateway.listen %q is not a loopback address; set gateway.allow_lan to accept that anything on the network can drive this agent", c.Gateway.Listen)
-	}
+	// Any address is acceptable, including a non-loopback one: the socket is no longer what
+	// decides who may connect. Who may connect is gateway.allow, applied to every request, and an
+	// operator who writes `listen: 0.0.0.0:7477` with no rules has asked for exactly what a fresh
+	// firewall table gives them. The old refusal is gone with the setting that justified it.
 	return nil
 }
 
 // gatewayAddressIsLoopback reports whether a listen address names this machine only.
 //
-// It is duplicated from internal/gateway on purpose: config cannot import gateway (gateway
-// imports config, and the cycle would not compile) and a validation that lives behind the
-// thing it validates is a validation the wizard never reaches.
+// It exists for the TESTS, and it is named as such rather than left as production code that nothing
+// calls: it is the predicate the removed "a non-loopback listen needs a second act" rule was built
+// on, and keeping it is what lets the tests assert that the rule is GONE - that a wildcard, a
+// concrete LAN address and an empty host are all accepted now - against the same function that
+// enforced the old behaviour. A predicate nobody calls from the program is dead weight; a predicate
+// the tests call is how the replacement is pinned.
 func gatewayAddressIsLoopback(host string) bool {
 	if host == "" {
 		return false

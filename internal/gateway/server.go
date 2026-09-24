@@ -7,11 +7,13 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"net/netip"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/madkoding/starlight/internal/logx"
+	"github.com/madkoding/starlight/internal/netrules"
 	"github.com/madkoding/starlight/internal/webui"
 )
 
@@ -42,10 +44,15 @@ type Options struct {
 	Listen string
 	// Token is the bearer token. Empty refuses to start: see Start.
 	Token string
-	// AllowLAN must be true for a listen address that is not loopback. Two deliberate acts are
-	// required to put an agent that runs commands on this machine on a network, and this is
-	// the second one - the first is writing a non-loopback address at all.
-	AllowLAN bool
+	// Allow is the ordered origin rule list, already parsed. Nil means every origin may connect,
+	// which is the documented default: the gateway comes up the way a machine with a fresh, empty
+	// firewall table accepts everything, and the operator narrows it by adding rules.
+	//
+	// It is the PARSED policy rather than the strings, because the parsing has to have happened
+	// before this point: a malformed rule must be refused while the configuration is read, not
+	// discovered request by request, where its only symptom is an origin being refused for a
+	// reason nobody can see.
+	Allow *netrules.Policy
 	// MaxBodyKB caps a request body. Zero means defaultMaxBodyKB.
 	MaxBodyKB int
 	// Version is reported by /v1/health, so a client can tell which build answered.
@@ -83,7 +90,7 @@ type Server struct {
 	opts     Options
 	listener net.Listener
 	server   *http.Server
-	mux      *http.ServeMux
+	mux      http.Handler
 
 	// closeOnce makes Close idempotent. Close is called from a defer in the app AND from the
 	// shutdown path, and a second Shutdown on an already-closed listener returns an error the
@@ -127,13 +134,14 @@ func Start(opts Options) (*Server, error) {
 	if addr == "" {
 		addr = "127.0.0.1:0"
 	}
-	host, _, err := net.SplitHostPort(addr)
-	if err != nil {
+	if _, _, err := net.SplitHostPort(addr); err != nil {
 		return nil, fmt.Errorf("the listen address %q is not host:port: %w", addr, err)
 	}
-	if !opts.AllowLAN && !isLoopback(host) {
-		return nil, fmt.Errorf("the listen address %q is not loopback; set gateway.allow_lan to accept that anything on the network can drive this agent", addr)
-	}
+	// Any address may be bound, including a non-loopback one, and there is no longer a second act
+	// required for it. The socket is not what decides who may connect: gateway.allow is, and it is
+	// applied to every request below. Refusing a wildcard bind here would re-introduce exactly the
+	// confusion this design removes - an operator who wrote the address they wanted being told to
+	// turn on a setting that no longer exists.
 
 	ln, err := net.Listen("tcp", addr)
 	if err != nil {
@@ -162,7 +170,17 @@ func Start(opts Options) (*Server, error) {
 		baseCtx: baseCtx, baseCancel: baseCancel,
 		heartbeat: heartbeat,
 	}
-	s.mux = s.routes()
+	// The origin policy wraps the ENTIRE routing table, including the page and /v1/health.
+	//
+	// Everything rather than only the API, and that is a decision: a rule set that still served the
+	// page to a refused origin would be a rule set that only half applied, and the page is the one
+	// thing a browser asks for BEFORE it holds any credential. Refusing /v1/health too means a
+	// client that is not allowed in finds out immediately, with a 403 that names the reason,
+	// instead of having its health probe succeed and its every real call fail.
+	//
+	// The policy is enforced BEFORE the token check, so a refused origin does not even learn
+	// whether its credential was good.
+	s.mux = s.originPolicy(s.routes())
 	s.server = &http.Server{
 		Handler: s.mux,
 		// No WriteTimeout. It is a deadline on the WHOLE response, and half of these responses
@@ -215,6 +233,22 @@ func (s *Server) ReachableFromNetwork() bool {
 		return false
 	}
 	return !isLoopback(host)
+}
+
+// AllowDescription is the origin rule set this gateway enforces, as the SERVER understands it.
+//
+// It is read from the server rather than from the configuration it was built from so that the
+// description and the enforcement cannot disagree: what is written to the service file is the
+// policy this process is actually applying, and a caller that re-parsed the configuration would be
+// describing its own reading of the file rather than the gateway's behaviour.
+func (s *Server) AllowDescription() string {
+	if s.opts.Allow == nil {
+		// No policy at all is the same outcome as an empty one: no rule restricts anything. It is
+		// reported through the policy's own words rather than a second phrase invented here, so the
+		// two spellings cannot drift.
+		return (&netrules.Policy{}).Describe()
+	}
+	return s.opts.Allow.Describe()
 }
 
 // BaseURL is the origin a local client should speak to.
@@ -359,6 +393,45 @@ func (s *Server) handleWebUISession(w http.ResponseWriter, _ *http.Request) {
 		// interface - the browser would never stay connected, with nothing in any log to say why.
 	})
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// originPolicy refuses requests from an origin the configured rules do not allow.
+//
+// It reads the client's address from the CONNECTION, never from a header. That is the whole
+// security property of this middleware: X-Forwarded-For, X-Real-IP and friends are attacker-supplied
+// strings, so honouring one would let anybody reach a gateway that had been restricted to one office
+// address by simply claiming to be it. A header-based check is how an allow list turns into a
+// decoration. (A deployment behind a real reverse proxy would need a setting naming the proxies it
+// trusts; that setting does not exist, and this comment is why it must be a deliberate addition
+// rather than an accident.)
+//
+// A NIL policy is the open one: it is what a caller that never configured a rule set passes, and it
+// is the documented default rather than an error.
+func (s *Server) originPolicy(next http.Handler) http.Handler {
+	if s.opts.Allow == nil {
+		return next
+	}
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// RemoteAddr is "ip:port" as reported by the socket. An address that cannot be parsed is
+		// NOT treated as allowed: a request whose origin cannot be established is exactly the one
+		// to refuse, and net/rpc-style "the transport guarantees it" reasoning does not hold across
+		// every listener Go supports.
+		addrPort, err := netip.ParseAddrPort(r.RemoteAddr)
+		if err != nil {
+			writeError(w, http.StatusForbidden, "this gateway could not determine the origin of the request, so it will not serve it")
+			return
+		}
+		if !s.opts.Allow.Allows(addrPort.Addr()) {
+			// The message names the RULE SET, not the client's address alone: an operator reading
+			// this from the other machine has to be able to tell "your rules do not cover me" from
+			// "something is broken", and the rules are what they will go and edit.
+			writeError(w, http.StatusForbidden, fmt.Sprintf(
+				"this gateway does not serve requests from %s: gateway.allow is %s",
+				addrPort.Addr(), s.opts.Allow.Describe()))
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
 }
 
 // isLoopback reports whether host names this machine only.

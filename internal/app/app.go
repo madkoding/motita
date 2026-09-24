@@ -153,7 +153,15 @@ type Options struct {
 }
 
 // Usage is the command-line help text.
-const Usage = `Usage: starlight [options]
+//
+// The gateway's default address is INTERPOLATED from the configuration rather than written into
+// this string, and that is not cosmetic: help text is the first thing anyone reads and the last
+// thing anyone updates, so a hardcoded address is how it went on advertising `127.0.0.1:0` long
+// after the default became a fixed port. Reading it from the same place the program reads it means a
+// change to the default breaks the test that checks this text instead of silently turning the help
+// into a lie.
+func Usage() string {
+	return fmt.Sprintf(`Usage: starlight [options]
 
 Options:
   -config string     path to the YAML configuration file
@@ -163,7 +171,7 @@ Options:
   -p string          one-shot plan/chat prompt (implies -plan)
   -tui               start the interactive text user interface (default when no task is given)
   -serve             run the gateway only: no interface, for clients on other machines
-  -gateway string    gateway listen address (default 127.0.0.1:7477; "off" disables it)
+  -gateway string    gateway listen address (default %s; "off" disables it)
   -connect string    connect to a gateway somebody else is running, as a client
                      (this process then builds no sandbox and runs no commands)
   -session string    which conversation to attach to (default "default")
@@ -178,8 +186,13 @@ Commands:
   gateway stop       stop the gateway named by the service file
   gateway status     report whether a gateway is running
 
+The gateway listens on every interface by default and enforces no origin rules: it is
+reachable the way a machine with a fresh, empty firewall table is. Narrow it by adding
+rules to gateway.allow - "lan", an address, a network, or "!any" for this machine only.
+
 Environment variables: STARLIGHT_* (see README.md; also accepts OPENAI_API_KEY).
-`
+`, config.Default().GatewayListen())
+}
 
 // flags parsed out of Args.
 type flags struct {
@@ -224,7 +237,7 @@ func Run(op Options) int {
 
 	fl, err := parse(op.Args)
 	if err != nil {
-		fmt.Fprintf(op.Err, "❌ %v\n\n%s", err, Usage)
+		fmt.Fprintf(op.Err, "❌ %v\n\n%s", err, Usage())
 		return ConfigError
 	}
 
@@ -528,6 +541,35 @@ func (op Options) initConfig(fl flags) int {
 	return Success
 }
 
+// resolvedConfigPath answers WHICH configuration file an invocation reads, and the empty string
+// when there is none and the defaults apply.
+//
+// It is ONE function because two callers need the same answer and disagreeing is the bug that
+// matters: `run` loads the file, and the gateway subcommands resolve whether to announce the
+// browser interface from it. When those two derived it separately, `starlight gateway start` with
+// no -config resolved against the DEFAULTS while the service it spawned read
+// ~/.starlight/starlight.yaml - so an operator who turned the interface off in their own file was
+// handed a link to a page their gateway answers 404 on. Both now ask this.
+//
+// The order is: an explicit -config, then the starlight home, then the working directory. The home
+// comes FIRST and the working directory SECOND, which is the opposite of the usual project-local
+// convention and deliberate: starlight's file carries the LLM credentials and the paths to its own
+// state, so it belongs to the user rather than to whichever repository they happened to be
+// standing in. The working directory is still accepted, so an existing setup keeps working and a
+// per-project override stays possible.
+func resolvedConfigPath(fl flags) string {
+	switch {
+	case fl.configPath != "":
+		return fl.configPath
+	case config.File() != "" && exists(config.File()):
+		return config.File()
+	case exists("starlight.yaml"):
+		return "starlight.yaml"
+	default:
+		return ""
+	}
+}
+
 // exists reports whether a path is there. It is a readability wrapper: the
 // switch that chooses the configuration file reads as a list of destinations,
 // and os.Stat inlined three times turned it into a list of error checks.
@@ -570,26 +612,20 @@ func (op Options) run(fl flags) int {
 	// accepted, so an existing setup keeps working and a per-project override stays possible.
 	var cfg config.Config
 	var err error
-	switch {
-	case fl.configPath != "":
-		cfg, err = loadPreferringKey(fl.configPath, fl)
+	// Which file is read is decided in ONE place, because a second caller needs the same answer:
+	// the gateway subcommands resolve whether to announce the browser interface from it, and a
+	// caller that re-derived it would eventually derive it differently. See resolvedConfigPath.
+	//
+	// When no explicit -config is given, the file is looked for in the starlight home
+	// (~/.starlight/starlight.yaml) and then in the current directory. If neither exists, the
+	// program starts from defaults so the TUI or wizard can run without a file.
+	if cfgPath := resolvedConfigPath(fl); cfgPath != "" {
+		cfg, err = loadPreferringKey(cfgPath, fl)
 		if err != nil {
 			fmt.Fprintf(op.Err, "❌ %v\n", err)
 			return ConfigError
 		}
-	case config.File() != "" && exists(config.File()):
-		cfg, err = loadPreferringKey(config.File(), fl)
-		if err != nil {
-			fmt.Fprintf(op.Err, "❌ %v\n", err)
-			return ConfigError
-		}
-	case exists("starlight.yaml"):
-		cfg, err = loadPreferringKey("starlight.yaml", fl)
-		if err != nil {
-			fmt.Fprintf(op.Err, "❌ %v\n", err)
-			return ConfigError
-		}
-	default:
+	} else {
 		cfg, err = config.LoadOrDefault("")
 		if err != nil {
 			fmt.Fprintf(op.Err, "❌ %v\n", err)

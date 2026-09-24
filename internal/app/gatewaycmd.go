@@ -4,8 +4,10 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"net"
 	"os"
 	"os/exec"
+	"sort"
 	"strings"
 	"time"
 
@@ -116,14 +118,65 @@ func (op Options) gatewayStart(ctx context.Context, fl flags) int {
 		return ConfigError
 	}
 	fmt.Fprintf(op.Out, "the gateway is running at %s (pid %d, %s)\n", found.BaseURL, found.PID, found.Version)
-	// The link is announced HERE and only here, in the command that brings the gateway up: it IS
-	// the credential's handoff. `gateway status` deliberately does not print it - that is the
-	// command a user runs in front of someone else while asking "is it up?" - and the token
-	// remains readable in the token file for anyone who needs the link again.
+	// What this gateway will serve and to whom is stated HERE, in the command that brings it up,
+	// because it is the one moment the operator is looking. `gateway status` deliberately stays
+	// quiet about it: that is the command run in front of someone else while asking "is it up?".
+	//
+	// Both facts come from the RUNNING gateway through the service file, never from this process's
+	// configuration: a service an earlier command left running can be an older binary with an older
+	// rule set, and describing this process's file would then describe a gateway that is not the one
+	// answering.
+	announceExposure(op.Out, found)
+	// The link is announced HERE and only here: it IS the credential's handoff. The token remains
+	// readable in the token file for anyone who needs the link again.
 	if op.webUIEnabled(fl) {
 		announceWebUI(op.Out, found)
 	}
 	return Success
+}
+
+// announceExposure says how far the gateway reaches and who it will serve.
+//
+// It splits one question into the two that it really is, which is the whole point of the rule model:
+// a BIND is where the socket is open, and the RULES are who may use it. Reporting only the first
+// would describe a gateway as exposed when a single deny rule has narrowed it to one machine, and
+// reporting only the second would hide that the socket is answering every interface.
+//
+// Nothing here names a specific LAN address to use. The address this machine is known by depends on
+// the network the client is on, and this process cannot see the client, so guessing one would be
+// handing out an address that may not resolve. What the operator needs in order to work that out is
+// the port and the rule set, and both are printed.
+func announceExposure(out io.Writer, found gateway.Found) {
+	if !found.Reachable {
+		// Bound to loopback: nothing outside this machine can reach it, whatever the rules say, and
+		// there is nothing to warn about.
+		return
+	}
+	fmt.Fprintf(out, "\nthis gateway is listening on every interface (port %s): any machine that can\n", portOf(found.BaseURL))
+	fmt.Fprintln(out, "reach this host may connect, subject to the rules below.")
+	if found.Allow == "every origin" {
+		// The documented default, and the one case that deserves to be spelled out rather than
+		// left to a rule list that says nothing: it is the same posture as a machine with a fresh,
+		// empty firewall table, and an operator who did not expect it has to find out now.
+		fmt.Fprintln(out, "no origin rules are set, so EVERY origin is accepted (gateway.allow is empty).")
+		fmt.Fprintln(out, "add a rule to gateway.allow to narrow it: \"lan\", an address, a network, or")
+		fmt.Fprintln(out, "\"!any\" for this machine only.")
+	} else {
+		fmt.Fprintf(out, "gateway.allow: %s\n", found.Allow)
+	}
+	fmt.Fprintln(out, "there is no TLS, so the token travels in clear text to every one of them.")
+}
+
+// portOf extracts the port from a base URL, for the sentence above it.
+func portOf(baseURL string) string {
+	address := strings.TrimPrefix(baseURL, "http://")
+	if _, port, err := net.SplitHostPort(address); err == nil {
+		return port
+	}
+	// Unreachable through a real server: BaseURL is built from the listener's own host:port. An
+	// empty string is the honest fallback for a URL whose port cannot be read, and it leaves the
+	// sentence readable rather than printing a fragment of something else.
+	return ""
 }
 
 // announceWebUI prints the one link into the browser interface.
@@ -141,15 +194,148 @@ func announceWebUI(out io.Writer, found gateway.Found) {
 	}
 	fmt.Fprintf(out, "\nthe interface is at %s/#t=%s\n", found.BaseURL, found.Token)
 	fmt.Fprintln(out, "open that link once: the page trades the fragment for a cookie and drops it")
-	if found.Reachable {
-		// Said explicitly, because the address above is loopback and a reader would otherwise
-		// conclude the gateway is local when it has just been opened to the network. The link is
-		// not rewritten to a guessed LAN address: the address this machine is known by depends on
-		// which network the client is on, and this process cannot see the client.
-		fmt.Fprintln(out, "this gateway is reachable from the network: from another machine, use that")
-		fmt.Fprintln(out, "machine's address for this host with the same port, and this same fragment.")
-		fmt.Fprintln(out, "there is no TLS, so anyone on the network can read the token in transit.")
+	if !found.Reachable {
+		// Bound to loopback: the link above IS the only way in, and offering network addresses
+		// would send the reader to an address that refuses them.
+		return
 	}
+	// Reachable from the network, so the link above is NOT the one a browser on another machine
+	// needs: it names loopback, which every machine resolves to itself. The addresses below are
+	// this host's own, so one of them is ready to paste - which is the whole point, because the
+	// address a client must use is not something the operator can work out from a loopback link.
+	addresses := lanAddresses()
+	if len(addresses) == 0 {
+		// No address to offer. Saying so is better than a guess: a made-up address is an error the
+		// reader cannot tell from a broken network.
+		fmt.Fprintln(out, "\nthis host has no network address to offer, so from another machine use this")
+		fmt.Fprintln(out, "host's address on THAT machine's network: same port, same fragment.")
+		return
+	}
+	fmt.Fprintln(out, "\nfrom another machine, use whichever of these reaches this host - same port,")
+	fmt.Fprintln(out, "same fragment, and the link above only works on this machine:")
+	for _, addr := range addresses {
+		fmt.Fprintf(out, "  http://%s:%s/#t=%s\n", addr, portOf(found.BaseURL), found.Token)
+	}
+}
+
+// listInterfaces is net.Interfaces, as a variable so a test can inject the failure and the odd
+// shapes a real interface list contains.
+//
+// The repo already does this for the filesystem calls in servicefile.go, for the same reason: the
+// defensive branches of a syscall wrapper are unreachable on a healthy machine, and a branch nothing
+// runs is a branch whose behaviour is whatever a later edit happened to write.
+var listInterfaces = net.Interfaces
+
+// lanAddresses lists the addresses at which THIS machine may be reached from a network.
+//
+// It exists because the address a remote browser needs cannot be derived from the listener: the
+// gateway binds the wildcard and reports loopback (see Addr), which is the right answer for a
+// client ON this machine and the wrong one for every other. The operator cannot work it out from
+// that link either, and asking them to know their own address is exactly the "networking question
+// at the wrong moment" the exposure design set out to remove.
+//
+// These are CANDIDATES and not a promise, which is why all of them are printed rather than one: a
+// machine can be on several networks at once, and which address resolves depends on where the
+// client is - something this process cannot see. The operator recognises their own network in the
+// list, which is a question they can answer and this program cannot.
+func lanAddresses() []string {
+	interfaces, err := listInterfaces()
+	if err != nil {
+		// No interfaces to read is the same outcome as none to offer, and the caller has a sentence
+		// for that. Reporting the error instead would be noise: nothing the operator can change.
+		return nil
+	}
+	return lanAddressesOf(interfaces)
+}
+
+// interfaceAddrs reads one interface's addresses, as a variable for the same reason listInterfaces
+// is one: its failure branch cannot be provoked on a healthy machine, and a branch nothing runs is a
+// branch whose behaviour is whatever a later edit happened to write.
+var interfaceAddrs = func(iface net.Interface) ([]net.Addr, error) { return iface.Addrs() }
+
+// isVirtualInterface names the interfaces that CANNOT carry a client, whatever address they hold.
+//
+// A bridge or a veth pair exists only inside this machine: the address on it answers containers
+// talking to their host, and nothing else on the network can reach it. Offering those is worse than
+// offering nothing, because they sort in among the real answers and the operator cannot tell which
+// is which - the reported symptom is a page that will not load from the address that "clearly" is
+// the host's.
+//
+// The name is the only signal the standard library gives: a bridge is indistinguishable from a
+// physical NIC by its flags or its addresses. The prefixes below are Linux's, which is where these
+// interfaces exist.
+func isVirtualInterface(name string) bool {
+	for _, prefix := range []string{"docker", "br-", "veth", "virbr", "lxc", "vnet", "tun", "tap"} {
+		if strings.HasPrefix(name, prefix) {
+			return true
+		}
+	}
+	return false
+}
+
+// lanAddressesOf is the part that reads an interface list, split out so a test supplies one.
+func lanAddressesOf(interfaces []net.Interface) []string {
+	var out []string
+	for _, iface := range interfaces {
+		// A down interface cannot carry a client, and a loopback one only reaches this machine.
+		if iface.Flags&net.FlagUp == 0 || iface.Flags&net.FlagLoopback != 0 {
+			continue
+		}
+		// An interface that exists only inside this machine has no address a client could use.
+		if isVirtualInterface(iface.Name) {
+			continue
+		}
+		addrs, err := interfaceAddrs(iface)
+		if err != nil {
+			// An interface whose addresses cannot be read is skipped rather than reported: it is
+			// one candidate missing from a list, not a reason to refuse the ones that work.
+			continue
+		}
+		out = append(out, usableAddressesOf(addrs)...)
+	}
+	// IPv4 first, and sorted within each family, so two runs on the same machine print the same
+	// order: an address list that reorders itself looks like the machine changed networks. IPv4
+	// leads because it is what a LAN almost always uses, and a list whose first entry is an IPv6
+	// address reads as if that were the answer to type.
+	sort.Slice(out, func(i, j int) bool {
+		i4, j4 := !strings.HasPrefix(out[i], "["), !strings.HasPrefix(out[j], "[")
+		if i4 != j4 {
+			return i4
+		}
+		return out[i] < out[j]
+	})
+	return out
+}
+
+// usableAddressesOf renders the addresses that can be typed into a URL, leaving out the ones that
+// cannot.
+//
+// Split from the interface walk above so the filters are asserted against addresses built by hand,
+// which is the only way to reach the loopback, link-local and non-IP entries reliably: a test host
+// has whichever interfaces it happens to have.
+func usableAddressesOf(addrs []net.Addr) []string {
+	var out []string
+	for _, a := range addrs {
+		ipnet, ok := a.(*net.IPNet)
+		if !ok {
+			// A net.Addr that is not an IPNet carries no address to offer.
+			continue
+		}
+		ip := ipnet.IP
+		// Unspecified is "every interface", not an address to type. Link-local is skipped because
+		// it needs the interface ZONE to be usable (`fe80::1%eth0`), and a zone is not something a
+		// URL carries - printing one would hand over an address that does not work as written.
+		if ip.IsLoopback() || ip.IsUnspecified() || ip.IsLinkLocalUnicast() {
+			continue
+		}
+		if v4 := ip.To4(); v4 != nil {
+			out = append(out, v4.String())
+			continue
+		}
+		// IPv6 in a URL needs brackets, or the colons read as a port separator.
+		out = append(out, "["+ip.String()+"]")
+	}
+	return out
 }
 
 // webUIEnabled asks whether the gateway this command just started serves the interface.
@@ -160,16 +346,40 @@ func announceWebUI(out io.Writer, found gateway.Found) {
 // answers 404 on. The load is the keyless one, exactly like the version path, because a
 // subcommand has no business demanding a credential to answer this question.
 //
+// The path comes from resolvedConfigPath, which is the SAME resolution `run` uses to load the file
+// the child will inherit. This is not a detail: resolving against fl.configPath ALONE meant that a
+// plain `starlight gateway start`, with no -config and a configuration in the starlight home, asked
+// this question of the DEFAULTS - where the interface is on - while the service it spawned read the
+// home file, where the operator had turned it off. The command handed out a link and the gateway
+// answered 404, which is the exact failure the setting exists to prevent. The default and the
+// child have to be resolved from one place or they eventually disagree.
+//
 // The seam is there for the same reason ServeGateway and DiscoverGateway are: what the tests need
 // to pin is the shape of the announcement, not the configuration loader underneath it.
 func (op Options) webUIEnabled(fl flags) bool {
 	if op.InterfaceEnabled != nil {
 		return op.InterfaceEnabled()
 	}
-	cfg, err := config.LoadWithoutKey(fl.configPath)
-	if err != nil {
-		// A configuration that cannot be read is reported by the command that needs it; here the
-		// honest reading is "we cannot claim there is an interface", so nothing is announced.
+	path := resolvedConfigPath(fl)
+	cfg := config.Default()
+	if path != "" {
+		loaded, err := config.LoadWithoutKey(path)
+		if err != nil {
+			// A configuration that cannot be read is reported by the command that needs it; here
+			// the honest reading is "we cannot claim there is an interface", so nothing is
+			// announced.
+			return false
+		}
+		cfg = loaded
+	}
+	// The environment is applied on top, because the CHILD inherits this process's environment -
+	// spawnDetached leaves cmd.Env nil, which is the parent's. So STARLIGHT_GATEWAY_WEBUI set in
+	// the shell applies to the service that is being spawned, and a resolution that skipped it
+	// would announce a page the child was told to stop serving. LoadWithoutKey and Default do not
+	// apply the environment by themselves: Load does.
+	if err := config.ApplyEnvironment(&cfg); err != nil {
+		// A malformed value is the child's problem to report; here, as above, the safe answer is
+		// to claim nothing.
 		return false
 	}
 	return cfg.Gateway.WebUI

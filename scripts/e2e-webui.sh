@@ -9,8 +9,9 @@
 # The container is run the same way scripts/e2e-gateway.sh runs it, for the same reasons:
 #
 #   --network host  because a debian-slim image ships no HTTP client and the client has to be the
-#                   host. 127.0.0.1 inside IS 127.0.0.1 outside, so gateway.allow_lan stays false
-#                   and the gateway is still bound to loopback - the configuration being tested.
+#                   host. 127.0.0.1 inside IS 127.0.0.1 outside, so the gateway is reached over
+#                   loopback - which is served whatever the origin rules say, and the fixture sets
+#                   none, so this test sees the shipped default.
 #   --user          so the token file is owned by the user running the test (it is created 0600).
 #
 # Usage:  ./scripts/e2e-webui.sh [arch] [image]
@@ -78,7 +79,7 @@ cp configs/e2e-agent.yaml .e2e/config.yaml
 sed -i "s/127.0.0.1:8210/127.0.0.1:$PORT_LLM/" .e2e/config.yaml
 # One key inside the EXISTING gateway block, not a second top-level one: a duplicate key is a
 # different thing to parse, and this test is about the interface rather than about that.
-sed -i "s/^  allow_lan: false$/  allow_lan: false\n  webui: true/" .e2e/config.yaml
+sed -i "s/^  allow: \[\]$/  allow: []\n  webui: true/" .e2e/config.yaml
 grep -q "webui: true" .e2e/config.yaml || { echo "ERROR: the webui setting did not land in the config"; exit 1; }
 [ "$(grep -c '^gateway:' .e2e/config.yaml)" = "1" ] || { echo "ERROR: the config has two gateway blocks"; exit 1; }
 
