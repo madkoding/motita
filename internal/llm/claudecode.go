@@ -196,10 +196,10 @@ func claudeArgs(cfg config.LLM, dir, system string, tools []Tool, self string) (
 	return append(args, "--disable-slash-commands", "--max-turns", "1", "--permission-mode", "dontAsk", "--no-session-persistence"), files
 }
 
-// claudeEnv is this process' environment without anything that would point claude
-// at an API key, another backend or another effort than the user's own
-// subscription login and motita's settings, plus those settings.
-func claudeEnv(cfg config.LLM) []string {
+// claudeBaseEnv is this process' environment without anything that would point
+// claude at an API key, another backend or another effort than the user's own
+// subscription login and motita's settings.
+func claudeBaseEnv() []string {
 	env := []string{} // never nil: a nil Env would hand claude this whole environment
 	for _, kv := range os.Environ() {
 		name, _, _ := strings.Cut(kv, "=")
@@ -208,7 +208,15 @@ func claudeEnv(cfg config.LLM) []string {
 		}
 		env = append(env, kv)
 	}
+	return env
+}
+
+// claudeEnv is the environment of a turn: the base one plus motita's settings.
+func claudeEnv(cfg config.LLM) []string {
+	env := claudeBaseEnv()
 	// os/exec keeps the last value of a repeated name, so these win over the parent's.
+	// Nonessential traffic is off for turns only: it cuts claude's cold start, and it also
+	// stops claude fetching its full model picker, which discovery needs.
 	env = append(env, "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1")
 	if !claudeThinks(cfg.Reasoning) {
 		// Measured: without it claude thinks anyway (haiku spent 355 thinking tokens on a yes/no).
@@ -563,7 +571,9 @@ type ClaudeCodeModel struct {
 func ClaudeCodeModels(ctx context.Context) (ClaudeCodeCatalogue, error) {
 	args := []string{"-p", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose",
 		"--tools", "", "--setting-sources", "", "--strict-mcp-config", "--disable-slash-commands", "--no-session-persistence"}
-	p, err := startClaude(ctx, 30*time.Second, claudeWorkdir(os.TempDir()), args, claudeEnv(config.LLM{}))
+	// The base environment: with nonessential traffic off claude lists 5 models instead of the
+	// account's 11 (measured).
+	p, err := startClaude(ctx, 30*time.Second, claudeWorkdir(os.TempDir()), args, claudeBaseEnv())
 	if err != nil {
 		return ClaudeCodeCatalogue{}, err
 	}

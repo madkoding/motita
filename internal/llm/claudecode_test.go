@@ -705,6 +705,12 @@ func TestNewAcceptsClaudeCodeWithoutAKey(t *testing.T) {
 }
 
 func TestClaudeCodeModels(t *testing.T) {
+	// Neither variable may come from the shell running the tests: the assertion below is about
+	// what motita adds.
+	for _, k := range []string{"CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC", "MAX_THINKING_TOKENS"} {
+		t.Setenv(k, "")
+		_ = os.Unsetenv(k)
+	}
 	_, record := claudeTestClient(t, lines(
 		`{"type":"control_response","response":{"subtype":"success","request_id":"models","response":{`+
 			`"models":[{"value":"sonnet","resolvedModel":"claude-sonnet-5","displayName":"Sonnet","description":"Sonnet 5 · Efficient for routine tasks"},`+
@@ -722,6 +728,16 @@ func TestClaudeCodeModels(t *testing.T) {
 	rec := readRecord(t, record)
 	if len(rec.Frames) != 1 || !strings.Contains(string(rec.Frames[0]), `"control_request"`) || slices.Contains(rec.Args, "--model") {
 		t.Errorf("frames = %s, argv = %q", rec.Frames, rec.Args)
+	}
+	// Nonessential traffic off makes claude list 5 models instead of the account's 11: it is a
+	// setting for turns, and discovery must not carry it (nor the turn's thinking switch).
+	for _, kv := range rec.Env {
+		if strings.HasPrefix(kv, "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=") || strings.HasPrefix(kv, "MAX_THINKING_TOKENS=") {
+			t.Errorf("discovery ran with %s", kv)
+		}
+	}
+	if !slices.Contains(claudeEnv(config.LLM{}), "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1") {
+		t.Error("a turn must still run with nonessential traffic off")
 	}
 }
 
