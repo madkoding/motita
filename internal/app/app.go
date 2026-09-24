@@ -1241,6 +1241,10 @@ func (op Options) runPlan(ctx context.Context, fl flags, cfg config.Config, engi
 	planner := plan.New(engine, ag).
 		WithTimeout(planDefaultTimeout(cfg)).
 		WithLoops(planDefaultLoops(cfg)).
+		// Without the model the session falls back to the 8192-token floor and a one-shot
+		// run that reads a single file dies with "context is full".
+		WithSessionPolicy(cfg.LLM.Model, cfg.LLM.Session.ContextWindow, cfg.LLM.Session.Reserve,
+			cfg.LLM.Session.CompactAt, cfg.LLM.Session.KeepRecent).
 		// The same library the task path uses, so a procedure written down in one mode is
 		// reachable from the other and a verdict lands on one shelf rather than two.
 		WithLibrary(procs.Library).
