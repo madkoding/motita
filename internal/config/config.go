@@ -791,8 +791,7 @@ func (c *Config) validateLLM(requireKey bool) error {
 	if c.LLM.Model == "" {
 		return fmt.Errorf("llm.model cannot be empty")
 	}
-	// claude-code has no key of its own: the claude CLI uses the user's `claude auth login`.
-	if requireKey && c.LLM.APIKey == "" && c.LLM.Provider != "claude-code" {
+	if requireKey && c.LLM.APIKey == "" && ProviderNeedsKey(c.LLM.Provider) {
 		// Name the variable that really works for the configured provider: for
 		// Ollama Cloud that is OLLAMA_API_KEY, and telling the user to export
 		// OPENAI_API_KEY would send them to a name the loader ignores.

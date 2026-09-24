@@ -387,6 +387,13 @@ var providerKeyAliases = map[string]string{
 	"copilot": "GITHUB_COPILOT_TOKEN",
 }
 
+// ProviderNeedsKey reports whether a provider is reached with a key of motita's.
+// claude-code is not: the claude CLI brings the user's own `claude auth login`.
+// Every "is a missing key a problem" question asks this, so the answer cannot drift.
+func ProviderNeedsKey(provider string) bool {
+	return !strings.EqualFold(strings.TrimSpace(provider), "claude-code")
+}
+
 // ProviderKeyVariable returns the provider-specific variable for a key, or the
 // generic one when the provider has no alias of its own.
 func ProviderKeyVariable(provider string) string {
