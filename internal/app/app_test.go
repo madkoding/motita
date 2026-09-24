@@ -1468,7 +1468,7 @@ func TestInitFlagRunsTheWizard(t *testing.T) {
 // The wizard's default destination is the motita home, not the working directory: the file it
 // writes is the one the program looks for on the next run, and a user with no ~/.motita gets
 // one created as part of writing it.
-func TestInitWithoutConfigWritesInTheStarlightHome(t *testing.T) {
+func TestInitWithoutConfigWritesInTheMotitaHome(t *testing.T) {
 	inTempDir(t, func() {
 		home := t.TempDir()
 		t.Setenv("HOME", home)

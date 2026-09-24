@@ -527,7 +527,7 @@ func TestOpenAICompatibilityVariables(t *testing.T) {
 	}
 }
 
-func TestStarlightVariablesWinOverOpenAI(t *testing.T) {
+func TestMotitaVariablesWinOverOpenAI(t *testing.T) {
 	t.Setenv("OPENAI_API_KEY", "openai-key")
 	t.Setenv("OPENAI_MODEL", "openai-model")
 	t.Setenv("MOTITA_LLM_API_KEY", "motita-key")
