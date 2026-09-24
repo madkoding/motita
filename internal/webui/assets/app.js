@@ -741,6 +741,12 @@
     if (!text || running) {
       return;
     }
+    // Remove the placeholder that appears when the conversation is empty, so
+    // the first real message does not sit beside "Nothing yet".
+    const placeholder = conversation.querySelector('.msg.kind');
+    if (placeholder && placeholder.textContent === 'Nothing yet. Ask for something below.') {
+      placeholder.remove();
+    }
     task.value = '';
     submit(text);
   });
