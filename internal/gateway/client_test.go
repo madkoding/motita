@@ -133,6 +133,7 @@ type reasoningService struct {
 	fakeService
 	mu    sync.Mutex
 	level string
+	model string
 }
 
 func (r *reasoningService) Config() config.Config {
@@ -140,7 +141,14 @@ func (r *reasoningService) Config() config.Config {
 	defer r.mu.Unlock()
 	cfg := config.Default()
 	cfg.LLM.Reasoning.Level = r.level
+	cfg.LLM.Model = r.model
 	return cfg
+}
+
+func (r *reasoningService) SetModel(model string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.model = model
 }
 
 func (r *reasoningService) SetReasoning(level string) {
@@ -159,6 +167,18 @@ func TestSetReasoningRefreshesTheCachedConfig(t *testing.T) {
 	c.SetReasoning("high")
 	if got := c.Config().LLM.Reasoning.Level; got != "high" {
 		t.Errorf("level = %q after setting it to high: the cache was not dropped", got)
+	}
+}
+
+// SetModel drops the cache for the same reason: the status line must show the model just picked.
+func TestSetModelRefreshesTheCachedConfig(t *testing.T) {
+	c, _, _ := clientFor(t, &reasoningService{model: "sonnet"})
+	if got := c.Config().LLM.Model; got != "sonnet" {
+		t.Fatalf("model = %q before anything was set", got)
+	}
+	c.SetModel("haiku")
+	if got := c.Config().LLM.Model; got != "haiku" {
+		t.Errorf("model = %q after setting it to haiku: the cache was not dropped", got)
 	}
 }
 

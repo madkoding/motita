@@ -6,6 +6,8 @@ import (
 	"strconv"
 	"strings"
 	"unicode/utf8"
+
+	"github.com/madkoding/motita/internal/config"
 )
 
 // The palette is the standard 16-colour one, so any terminal can render it.
@@ -568,7 +570,7 @@ func (t *TUI) stateGlyph() string {
 	if t.busy {
 		return t.color(colWarning, 0, spinner[t.spin%len(spinner)])
 	}
-	if t.Runner.Config().LLM.APIKey == "" {
+	if llmCfg := t.Runner.Config().LLM; llmCfg.APIKey == "" && config.ProviderNeedsKey(llmCfg.Provider) {
 		return t.color(colError, 0, glyphMissing)
 	}
 	return t.color(colSuccess, 0, glyphReady)

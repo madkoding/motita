@@ -561,6 +561,7 @@ func (s *stubRunner) ResetConversation()                        {}
 func (s *stubRunner) RunModels(context.Context) (string, error) { return "", nil }
 func (s *stubRunner) Config() config.Config                     { return config.Config{} }
 func (s *stubRunner) SetReasoning(string)                       {}
+func (s *stubRunner) SetModel(string)                           {}
 func (s *stubRunner) RecordVerdict(bool, string) string         { return "" }
 func (s *stubRunner) RewardReport() string                      { return "" }
 

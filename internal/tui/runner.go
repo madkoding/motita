@@ -57,6 +57,8 @@ type Runner interface {
 	Config() config.Config
 	// SetReasoning changes the in-memory reasoning level.
 	SetReasoning(level string)
+	// SetModel changes the model the next turns use, in memory like the reasoning level.
+	SetModel(model string)
 	// RecordVerdict applies the user's verdict on the last turn to the skills it read.
 	//
 	// It is the ONLY reward signal: nothing is scored unless the user marks it. The note is
@@ -98,15 +100,20 @@ func defaultAgentFactory(cfg config.Config, log *logx.Logger, engine *llm.Client
 
 // AppRunner is the production implementation that calls the real layers.
 type AppRunner struct {
-	Out      io.Writer
-	Err      io.Writer
+	Out io.Writer
+	Err io.Writer
+	// Cfg and Engine are what the next turn runs with. They are guarded by cfgMu because a front
+	// end changes them (the model, the reasoning level) while a turn may be running.
 	Cfg      config.Config
 	Engine   *llm.Client
+	cfgMu    sync.Mutex
 	Box      *sandbox.Sandbox
 	Log      *logx.Logger
 	newAgent agentFactory
-	// listModels is injectable so the menu can be tested without a network.
-	listModels func(ctx context.Context, baseURL, apiKey string) ([]string, error)
+	// listModels and claudeModels are injectable so the menu can be tested without a network
+	// or a claude CLI.
+	listModels   func(ctx context.Context, baseURL, apiKey string) ([]string, error)
+	claudeModels func(ctx context.Context) (llm.ClaudeCodeCatalogue, error)
 
 	// session is the conversation Plan mode continues across turns. It lives on the runner,
 	// not on the planner, precisely because each turn builds a new planner: a session created
@@ -160,8 +167,9 @@ type AppRunner struct {
 func NewAppRunner(out, errs io.Writer, cfg config.Config, engine *llm.Client, box *sandbox.Sandbox, log *logx.Logger) *AppRunner {
 	return &AppRunner{
 		Out: out, Err: errs, Cfg: cfg, Engine: engine, Box: box, Log: log,
-		newAgent:   defaultAgentFactory,
-		listModels: llm.ListModels,
+		newAgent:     defaultAgentFactory,
+		listModels:   llm.ListModels,
+		claudeModels: llm.ClaudeCodeModels,
 	}
 }
 
@@ -223,41 +231,67 @@ func installApproverOn(ag AgentRunner, fn agent.Approver) {
 }
 
 // Config returns the current configuration.
-func (r *AppRunner) Config() config.Config { return r.Cfg }
+func (r *AppRunner) Config() config.Config {
+	r.cfgMu.Lock()
+	defer r.cfgMu.Unlock()
+	return r.Cfg
+}
 
 // SetReasoning changes the in-memory reasoning level.
 func (r *AppRunner) SetReasoning(level string) {
-	r.Cfg.LLM.Reasoning.Level = level
-	r.Cfg.LLM.Reasoning.Enabled = level != "off"
+	r.setLLM(func(l *config.LLM) {
+		l.Reasoning.Level = level
+		l.Reasoning.Enabled = level != "off"
+	})
 }
 
-// engine returns the injected engine if it exists, otherwise it builds one from
-// the current configuration. This lets the TUI start with no engine (for
-// example when there is no configuration file yet) and still run plan/task when
-// the user chooses them.
-func (r *AppRunner) engine() (*llm.Client, error) {
-	if r.Engine != nil {
-		return r.Engine, nil
+// SetModel changes the model the next turns use.
+func (r *AppRunner) SetModel(model string) {
+	r.setLLM(func(l *config.LLM) { l.Model = model })
+}
+
+// setLLM changes the reasoning engine's settings and drops the engine built from the old ones.
+//
+// Dropping it is the point: the engine was built once and kept, so a change never reached a
+// single request, and /reasoning only ever changed the status line.
+func (r *AppRunner) setLLM(change func(*config.LLM)) {
+	r.cfgMu.Lock()
+	defer r.cfgMu.Unlock()
+	change(&r.Cfg.LLM)
+	r.Engine = nil
+}
+
+// engine returns the configuration a turn runs with and the engine for it: the one given at
+// construction until a setting changes, otherwise one built from the current configuration. This
+// also lets the TUI start with no engine (for example when there is no configuration file yet)
+// and still run plan/task when the user chooses them.
+func (r *AppRunner) engine() (config.Config, *llm.Client, error) {
+	r.cfgMu.Lock()
+	cfg, engine := r.Cfg, r.Engine
+	r.cfgMu.Unlock()
+	if engine != nil {
+		return cfg, engine, nil
 	}
-	return llm.New(r.Cfg.LLM, r.Log)
+	engine, err := llm.New(cfg.LLM, r.Log)
+	return cfg, engine, err
 }
 
 // RunPlan executes the read-only planner and writes the final answer to Out.
 func (r *AppRunner) RunPlan(ctx context.Context, prompt string, progress func(string, ...any)) (string, error) {
-	engine, err := r.engine()
+	cfg, engine, err := r.engine()
 	if err != nil {
 		return "", err
 	}
-	cfg := r.Cfg
-	cfg.Agent.ReadOnly = true
-	ag := r.newAgent(cfg, r.Log, engine, r.Box, nil, true)
+	readOnly := cfg
+	readOnly.Agent.ReadOnly = true
+	ag := r.newAgent(readOnly, r.Log, engine, r.Box, nil, true)
 	// Plan mode is read-only, so the policy refuses rather than asks — but the approver is
 	// installed anyway: the mode is a CONFIGURATION, and a run whose configuration changes under
 	// it must not silently lose the channel that answers its questions.
 	installApproverOn(ag, r.approverOrNil())
 	planner := plan.New(engine, ag).
-		WithTimeout(planDefaultTimeout(r.Cfg)).
-		WithLoops(planDefaultLoops(r.Cfg)).
+		WithTimeout(planDefaultTimeout(cfg)).
+		WithLoops(planDefaultLoops(cfg)).
 		WithTrace(progress).
 		WithStream(func(s string) {
 			progress("%s", s)
@@ -268,13 +302,13 @@ func (r *AppRunner) RunPlan(ctx context.Context, prompt string, progress func(st
 		// worked — so a session created inside one would be a session per question, which
 		// is the amnesia this feature exists to remove.
 		WithSessionPolicy(
-			r.Cfg.LLM.Model,
-			r.Cfg.LLM.Session.ContextWindow,
-			r.Cfg.LLM.Session.Reserve,
-			r.Cfg.LLM.Session.CompactAt,
-			r.Cfg.LLM.Session.KeepRecent,
+			cfg.LLM.Model,
+			cfg.LLM.Session.ContextWindow,
+			cfg.LLM.Session.Reserve,
+			cfg.LLM.Session.CompactAt,
+			cfg.LLM.Session.KeepRecent,
 		).
-		WithSession(r.conversation(engine)).
+		WithSession(r.conversation(cfg, engine)).
 		WithLibrary(r.library()).
 		// The ledger is installed so the search can break ties by what has worked, and so the
 		// planner can report which skills this turn read. Both are needed: a verdict has to
@@ -333,25 +367,28 @@ func (r *AppRunner) rememberTurn(question, answer string, runErr error) {
 // followed by the operational instructions — so the conversation opens with exactly the
 // instruction the model would have received anyway; the summariser is the engine itself,
 // because compacting is a model call like any other and needs no separate configuration.
-func (r *AppRunner) conversation(engine session.Summariser) *session.Session {
+//
+// The summariser is the engine of THIS turn, set on every call: the model or the reasoning level
+// may have changed since the session was created, and compaction should use what the turn uses.
+func (r *AppRunner) conversation(cfg config.Config, engine session.Summariser) *session.Session {
 	r.sessionMu.Lock()
 	defer r.sessionMu.Unlock()
 	if r.session == nil {
-		s := session.New(r.Cfg.LLM.Model, r.soul(), r.Cfg.LLM.Session.ContextWindow)
+		s := session.New(cfg.LLM.Model, r.soul(), cfg.LLM.Session.ContextWindow)
 		// The configuration wins where it says anything, so an operator who knows their
 		// server is configured lower is obeyed. A zero means "unset" and keeps the default.
-		if r.Cfg.LLM.Session.Reserve > 0 {
-			s.Reserve = r.Cfg.LLM.Session.Reserve
+		if cfg.LLM.Session.Reserve > 0 {
+			s.Reserve = cfg.LLM.Session.Reserve
 		}
-		if r.Cfg.LLM.Session.CompactAt > 0 {
-			s.CompactAt = r.Cfg.LLM.Session.CompactAt
+		if cfg.LLM.Session.CompactAt > 0 {
+			s.CompactAt = cfg.LLM.Session.CompactAt
 		}
-		if r.Cfg.LLM.Session.KeepRecent > 0 {
-			s.KeepRecent = r.Cfg.LLM.Session.KeepRecent
+		if cfg.LLM.Session.KeepRecent > 0 {
+			s.KeepRecent = cfg.LLM.Session.KeepRecent
 		}
-		s.Summariser = engine
 		r.session = s
 	}
+	r.session.Summariser = engine
 	return r.session
 }
 
@@ -370,7 +407,7 @@ func (r *AppRunner) procedures() *procedures.Store {
 		// and plan runs use. Both fields below used to be built here directly, which is how
 		// this interface ended up with a library while two other paths promised the model one
 		// and then answered that none was configured.
-		r.store = procedures.Open(r.Cfg, r.Log)
+		r.store = procedures.Open(r.Config(), r.Log)
 	}
 	return r.store
 }
@@ -655,7 +692,7 @@ func summarise(tr agent.TaskResult) string {
 
 // RunTask runs the agent with a single text task and returns a human-readable summary.
 func (r *AppRunner) RunTask(ctx context.Context, task string, progress func(string, ...any)) (string, error) {
-	engine, err := r.engine()
+	cfg, engine, err := r.engine()
 	if err != nil {
 		return "", err
 	}
@@ -664,7 +701,7 @@ func (r *AppRunner) RunTask(ctx context.Context, task string, progress func(stri
 		return "", err
 	}
 	var result string
-	ag := r.newAgent(r.Cfg, r.Log, engine, r.Box, source, true)
+	ag := r.newAgent(cfg, r.Log, engine, r.Box, source, true)
 	// The confirmation channel goes in FIRST, before the run: an action the policy would ask
 	// about is proposed in the middle of the turn, and an approver installed afterwards would
 	// arrive after the question had already been answered with a refusal.
@@ -793,10 +830,15 @@ func (r *AppRunner) RunConfig(ctx context.Context) error {
 // cannot check from the menu otherwise. The key is reported as present/absent and
 // never printed, so the screen can be shared safely.
 func (r *AppRunner) RunModels(ctx context.Context) (string, error) {
-	cfg := r.Cfg
+	cfg := r.Config()
 	var b strings.Builder
 	fmt.Fprintf(&b, "provider : %s\n", cfg.LLM.Provider)
 	fmt.Fprintf(&b, "model    : %s\n", cfg.LLM.Model)
+	if strings.EqualFold(cfg.LLM.Provider, "claude-code") {
+		// No endpoint and no key: the claude CLI is the catalogue, and its login is the account.
+		r.claudeCodeModels(ctx, &b, cfg.LLM.Model)
+		return b.String(), nil
+	}
 	fmt.Fprintf(&b, "base URL : %s\n", cfg.LLM.BaseURL)
 	if cfg.LLM.APIKey == "" {
 		fmt.Fprintf(&b, "api key  : MISSING (set %s)\n", config.ProviderKeyVariable(cfg.LLM.Provider))
@@ -833,4 +875,29 @@ func (r *AppRunner) RunModels(ctx context.Context) (string, error) {
 	}
 	fmt.Fprintf(&b, "\n  (* is the model this configuration uses)\n")
 	return b.String(), nil
+}
+
+// claudeCodeModels adds the plan and the models the logged-in claude account offers, as claude's
+// own model picker lists them.
+func (r *AppRunner) claudeCodeModels(ctx context.Context, b *strings.Builder, current string) {
+	cat, err := r.claudeModels(ctx)
+	if err != nil {
+		fmt.Fprintf(b, "\n  could not read the account's models: %v\n", err)
+		fmt.Fprintf(b, "  the configured model %q will still be used.\n", current)
+		return
+	}
+	fmt.Fprintf(b, "plan     : %s\n", cat.Plan)
+	b.WriteString("\nmodels on this account (/models <id> picks one for this session):\n")
+	for _, m := range cat.Models {
+		mark := "  "
+		if m.Value == current {
+			mark = "* "
+		}
+		fmt.Fprintf(b, "  %s%-22s %s", mark, m.Value, m.DisplayName)
+		if m.Description != "" {
+			fmt.Fprintf(b, " - %s", m.Description)
+		}
+		b.WriteString("\n")
+	}
+	fmt.Fprintf(b, "\n  (* is the model this configuration uses)\n")
 }

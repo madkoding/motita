@@ -243,6 +243,15 @@ func (c *Client) SetReasoning(level string) {
 	c.mu.Unlock()
 }
 
+// SetModel changes the model on the gateway and drops the cache, for the same reason as
+// SetReasoning.
+func (c *Client) SetModel(model string) {
+	_ = c.postJSON(context.Background(), c.scoped("/model"), map[string]string{"model": model}, nil)
+	c.mu.Lock()
+	c.hasCfg = false
+	c.mu.Unlock()
+}
+
 // ConversationSummary returns the session figures, from the cache when there are any.
 //
 // A zero Snapshot means no conversation has started, which the caller renders as no figure at all

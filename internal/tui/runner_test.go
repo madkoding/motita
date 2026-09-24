@@ -160,6 +160,48 @@ func TestAppRunnerRunModelsListsAndMarksTheConfiguredOne(t *testing.T) {
 	}
 }
 
+// TestAppRunnerRunModelsForClaudeCode: the claude CLI is the catalogue and its login the
+// account, so the report shows the plan and the account's models, with no endpoint and no key.
+func TestAppRunnerRunModelsForClaudeCode(t *testing.T) {
+	cfg := config.Default()
+	cfg.LLM.Provider = "claude-code"
+	cfg.LLM.Model = "haiku"
+	cfg.LLM.APIKey = ""
+	r := NewAppRunner(&bytes.Buffer{}, &bytes.Buffer{}, cfg, nil, nil, logx.Global())
+	r.listModels = func(context.Context, string, string) ([]string, error) {
+		t.Error("claude-code has no HTTP catalogue to ask")
+		return nil, nil
+	}
+	r.claudeModels = func(context.Context) (llm.ClaudeCodeCatalogue, error) {
+		return llm.ClaudeCodeCatalogue{Plan: "Claude Max", Models: []llm.ClaudeCodeModel{
+			{Value: "sonnet", DisplayName: "Sonnet", Description: "Sonnet 5 · Efficient for routine tasks"},
+			{Value: "haiku", DisplayName: "Haiku"},
+		}}, nil
+	}
+	report, err := r.RunModels(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"provider : claude-code", "plan     : Claude Max", "sonnet", "Sonnet - Sonnet 5 · Efficient for routine tasks", "* haiku", "/models <id>"} {
+		if !strings.Contains(report, want) {
+			t.Errorf("the report lacks %q:\n%s", want, report)
+		}
+	}
+	for _, unwanted := range []string{"api key", "base URL", "MISSING"} {
+		if strings.Contains(report, unwanted) {
+			t.Errorf("the report must not mention %q:\n%s", unwanted, report)
+		}
+	}
+
+	r.claudeModels = func(context.Context) (llm.ClaudeCodeCatalogue, error) {
+		return llm.ClaudeCodeCatalogue{}, errors.New("claude was not found")
+	}
+	report, err = r.RunModels(context.Background())
+	if err != nil || !strings.Contains(report, "could not read the account's models: claude was not found") || !strings.Contains(report, `"haiku" will still be used`) {
+		t.Errorf("report = %q, err = %v", report, err)
+	}
+}
+
 // TestAppRunnerRunModelsNeverPrintsTheKey: the screen has to be safe to share.
 func TestAppRunnerRunModelsNeverPrintsTheKey(t *testing.T) {
 	var out bytes.Buffer

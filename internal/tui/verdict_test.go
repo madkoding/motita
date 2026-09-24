@@ -155,3 +155,24 @@ func TestTheVerdictCommandsAreInTheCatalogue(t *testing.T) {
 		}
 	}
 }
+
+// TestModelsWithAnIDPicksTheModel: /models <id> picks the model for the session the way
+// /reasoning picks the level, instead of listing the catalogue again.
+func TestModelsWithAnIDPicksTheModel(t *testing.T) {
+	f := &fakeRunner{}
+	tu := newFakeTUI("/models haiku\n", f)
+	tu.Run(context.Background())
+
+	if got := f.Config().LLM.Model; got != "haiku" {
+		t.Errorf("model = %q, want haiku", got)
+	}
+	f.mu.Lock()
+	listed := f.modelsCalled
+	f.mu.Unlock()
+	if listed {
+		t.Error("picking a model must not ask for the catalogue")
+	}
+	if !strings.Contains(lastFrame(t, tu), "model set to haiku") {
+		t.Errorf("the change must be confirmed:\n%s", lastFrame(t, tu))
+	}
+}

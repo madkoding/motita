@@ -36,7 +36,7 @@ type Command struct {
 var commands = []Command{
 	{Name: "/task", Aliases: []string{"/t"}, Help: "run a task in the sandbox"},
 	{Name: "/plan", Aliases: []string{"/p"}, Help: "read-only mode: investigate and explain"},
-	{Name: "/models", Aliases: []string{"/m"}, Help: "list the models the provider publishes"},
+	{Name: "/models", Aliases: []string{"/m"}, Help: "list the provider's models; with an id, switch to it", Arg: "model id"},
 	{Name: "/config", Aliases: []string{"/c"}, Help: "first-run wizard: provider, model, check"},
 	{Name: "/reasoning", Aliases: []string{"/r", "/think"}, Help: "cycle the reasoning level"},
 	{Name: "/find", Aliases: []string{"/f"}, Help: "filter the conversation", Arg: "text"},
@@ -61,7 +61,15 @@ var commands = []Command{
 var commandActions = map[string]func(t *TUI, ctx context.Context, arg string) bool{
 	"/task": func(t *TUI, _ context.Context, _ string) bool { t.setScreen(ScreenTask); return false },
 	"/plan": func(t *TUI, _ context.Context, _ string) bool { t.setScreen(ScreenPlan); return false },
-	"/models": func(t *TUI, ctx context.Context, _ string) bool {
+	"/models": func(t *TUI, ctx context.Context, arg string) bool {
+		// With an id it picks the model for this session, the way /reasoning picks the level:
+		// in memory, from the next turn on.
+		if model := strings.TrimSpace(arg); model != "" {
+			t.Runner.SetModel(model)
+			t.addMessage(AuthorSystem, fmt.Sprintf("model set to %s for this session", model))
+			t.drawFrame()
+			return false
+		}
 		t.setScreen(ScreenModels)
 		t.runModels(ctx)
 		return false

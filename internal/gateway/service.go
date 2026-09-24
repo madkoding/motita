@@ -55,6 +55,8 @@ type Service interface {
 	Config() config.Config
 	// SetReasoning changes the in-memory reasoning level.
 	SetReasoning(level string)
+	// SetModel changes the model the next turns use, in memory like the reasoning level.
+	SetModel(model string)
 	// RecordVerdict applies the user's verdict on the last turn to the skills it read, and
 	// returns a human-readable report.
 	RecordVerdict(good bool, note string) string

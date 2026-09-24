@@ -329,6 +329,7 @@ func (s *Server) routes() *http.ServeMux {
 	mux.Handle("GET /v1/sessions/{id}/config", scoped(s.handleConfig))
 	mux.Handle("GET /v1/sessions/{id}/models", scoped(s.handleModels))
 	mux.Handle("POST /v1/sessions/{id}/reasoning", scoped(s.handleReasoning))
+	mux.Handle("POST /v1/sessions/{id}/model", scoped(s.handleModel))
 	mux.Handle("POST /v1/sessions/{id}/verdict", scoped(s.handleVerdict))
 	mux.Handle("GET /v1/sessions/{id}/reward", scoped(s.handleReward))
 	mux.Handle("GET /v1/sessions/{id}/questions", scoped(s.handleQuestions))
