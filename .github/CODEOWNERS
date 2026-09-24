@@ -1,0 +1,5 @@
+# Code owners for motita.
+# GitHub will automatically request review from these users for every PR.
+# https://docs.github.com/repositories/managing-your-repositorys-settings-and-features/customizing-your-repository/about-code-owners
+
+*           @madkoding
