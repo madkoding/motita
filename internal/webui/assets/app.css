@@ -7,27 +7,39 @@
  * The colours are the same family the terminal interface uses, so the two clients look like the
  * two faces of one program. Both schemes are handled: a phone in daylight and a terminal at night
  * are the same product.
+ *
+ * The background is a holographic canvas that reacts to the mouse — particles connected by lines
+ * that shift colour with depth. It evokes the "ghost in the shell" the product is about without
+ * being a static image: it moves, it responds, and it costs zero bytes of assets.
  */
 
 :root {
-  --bg: #101014;
-  --surface: #1a1a20;
-  --border: #2a2a32;
+  --bg: #0a0a0f;
+  --surface: rgba(22, 22, 32, 0.85);
+  --surface-solid: #16161e;
+  --border: rgba(76, 194, 255, 0.15);
+  --border-hover: rgba(76, 194, 255, 0.35);
   --text: #e8e8ea;
-  --muted: #8a8a94;
+  --muted: #6a6a7a;
   --accent: #4cc2ff;
+  --accent-glow: rgba(76, 194, 255, 0.2);
   --warning: #ffb020;
   --danger: #ff6b6b;
+  --radius: 12px;
+  --blur: 12px;
 }
 
 @media (prefers-color-scheme: light) {
   :root {
-    --bg: #fbfbfd;
-    --surface: #f1f1f4;
-    --border: #d8d8de;
+    --bg: #f5f5f8;
+    --surface: rgba(255, 255, 255, 0.85);
+    --surface-solid: #ffffff;
+    --border: rgba(11, 111, 184, 0.12);
+    --border-hover: rgba(11, 111, 184, 0.3);
     --text: #16161a;
-    --muted: #5f5f6a;
+    --muted: #8a8a94;
     --accent: #0b6fb8;
+    --accent-glow: rgba(11, 111, 184, 0.1);
     --warning: #9a6200;
     --danger: #b3261e;
   }
@@ -39,120 +51,276 @@ body {
   margin: 0;
   background: var(--bg);
   color: var(--text);
-  font: 16px/1.5 system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+  font: 15px/1.55 system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
   display: flex;
   flex-direction: column;
   height: 100vh;
+  overflow: hidden;
+}
+
+/* The holographic canvas sits behind everything, full-viewport, and is the only thing that moves
+ * with the mouse. It is pointer-events: none so it never intercepts a click. */
+#bg {
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
 }
 
 header {
+  position: relative;
+  z-index: 1;
   display: flex;
-  align-items: baseline;
+  align-items: center;
   gap: 12px;
-  padding: 10px 16px;
+  padding: 12px 20px;
   background: var(--surface);
+  backdrop-filter: blur(var(--blur));
+  -webkit-backdrop-filter: blur(var(--blur));
   border-bottom: 1px solid var(--border);
   flex: none;
 }
 
-header h1 { font-size: 15px; font-weight: 600; margin: 0; letter-spacing: 0.02em; }
-#state { font-size: 12px; color: var(--muted); margin-left: auto; }
-#state.bad { color: var(--danger); }
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.logo {
+  font-size: 18px;
+  color: var(--accent);
+  text-shadow: 0 0 12px var(--accent-glow);
+  animation: pulse 3s ease-in-out infinite;
+}
+@keyframes pulse {
+  0%, 100% { opacity: 0.7; }
+  50% { opacity: 1; }
+}
+
+header h1 {
+  font-size: 16px;
+  font-weight: 600;
+  margin: 0;
+  letter-spacing: 0.04em;
+  background: linear-gradient(135deg, var(--text), var(--accent));
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+#state {
+  font-size: 12px;
+  color: var(--muted);
+  margin-left: auto;
+  padding: 4px 10px;
+  border-radius: 20px;
+  background: var(--surface-solid);
+  border: 1px solid var(--border);
+  transition: color 0.3s, border-color 0.3s;
+}
+#state.bad { color: var(--danger); border-color: var(--danger); }
+#state.working {
+  color: var(--accent);
+  border-color: var(--border-hover);
+}
+#state.working::after {
+  content: '';
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  margin-left: 6px;
+  border: 2px solid var(--border);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+  vertical-align: -1px;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
 
 #conversation {
+  position: relative;
+  z-index: 1;
   flex: 1;
   overflow-y: auto;
-  padding: 12px 16px;
+  padding: 16px 20px;
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 8px;
+  scroll-behavior: smooth;
 }
+
+/* Custom scrollbar */
+#conversation::-webkit-scrollbar { width: 6px; }
+#conversation::-webkit-scrollbar-track { background: transparent; }
+#conversation::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: 3px;
+}
+#conversation::-webkit-scrollbar-thumb:hover { background: var(--border-hover); }
 
 .msg {
   /* pre-wrap matters twice: the transcript keeps its own line breaks, and an approval shows a
      command exactly as it will run. Reflowing either one shows the user something else. */
   white-space: pre-wrap;
   word-break: break-word;
-  padding: 8px 12px;
-  border-radius: 8px;
+  padding: 10px 14px;
+  border-radius: var(--radius);
   background: var(--surface);
+  backdrop-filter: blur(var(--blur));
+  -webkit-backdrop-filter: blur(var(--blur));
   border: 1px solid var(--border);
-  max-width: 70ch;
+  max-width: 72ch;
+  animation: msgIn 0.25s ease-out;
+  transition: border-color 0.2s;
+}
+@keyframes msgIn {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
 }
 
-.msg.user { align-self: flex-end; border-color: var(--accent); }
-.msg.agent { align-self: flex-start; }
+.msg.user {
+  align-self: flex-end;
+  border-color: rgba(76, 194, 255, 0.3);
+  background: linear-gradient(135deg, rgba(76, 194, 255, 0.08), var(--surface));
+}
+.msg.agent {
+  align-self: flex-start;
+}
+.msg.agent:hover { border-color: var(--border-hover); }
 .msg.kind { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.06em; }
+.msg.error { border-color: var(--danger); }
+
+/* Activity lines are transient: they show what the agent is doing right now, not what it said.
+ * They are muted, monospace, and left-aligned — the same visual language the TUI uses for its
+ * pending block, which is overwritten as the run advances and replaced by the result. */
+.msg.activity {
+  align-self: flex-start;
+  font-size: 13px;
+  color: var(--muted);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  background: transparent;
+  border: 1px dashed var(--border);
+  max-width: 80ch;
+  padding: 6px 12px;
+}
+.msg.activity.command {
+  color: var(--text);
+  border-color: var(--accent);
+  border-style: solid;
+  background: rgba(76, 194, 255, 0.05);
+}
+.msg.activity.reasoning,
+.msg.activity.synthesis {
+  border-style: dotted;
+  border-color: var(--muted);
+}
+.msg.activity.plan,
+.msg.activity.analysis,
+.msg.activity.check {
+  border-style: dotted;
+}
 
 #composer {
+  position: relative;
+  z-index: 1;
   display: flex;
-  gap: 8px;
-  padding: 10px 16px;
+  gap: 10px;
+  padding: 12px 20px;
   border-top: 1px solid var(--border);
   background: var(--surface);
+  backdrop-filter: blur(var(--blur));
+  -webkit-backdrop-filter: blur(var(--blur));
   flex: none;
 }
 
 #task {
   flex: 1;
-  resize: vertical;
+  resize: none;
   min-height: 44px;
-  padding: 10px 12px;
-  border-radius: 8px;
+  max-height: 120px;
+  padding: 12px 14px;
+  border-radius: var(--radius);
   border: 1px solid var(--border);
-  background: var(--bg);
+  background: var(--surface-solid);
   color: var(--text);
   font: inherit;
+  transition: border-color 0.2s, box-shadow 0.2s;
 }
+#task:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-glow);
+}
+#task::placeholder { color: var(--muted); }
 
 #composer button {
   /* 44px is the smallest target a thumb can hit reliably. It is a requirement, not a taste. */
   min-height: 44px;
   min-width: 44px;
-  padding: 0 18px;
-  border-radius: 8px;
+  padding: 0 20px;
+  border-radius: var(--radius);
   border: 1px solid var(--accent);
-  background: var(--accent);
-  color: var(--bg);
+  background: linear-gradient(135deg, var(--accent), rgba(76, 194, 255, 0.8));
+  color: #fff;
   font: inherit;
   font-weight: 600;
   cursor: pointer;
+  transition: transform 0.1s, box-shadow 0.2s;
+  box-shadow: 0 2px 12px var(--accent-glow);
 }
-
-#composer button:disabled { opacity: 0.5; cursor: default; }
+#composer button:hover { box-shadow: 0 4px 20px var(--accent-glow); }
+#composer button:active { transform: scale(0.97); }
+#composer button:disabled { opacity: 0.4; cursor: default; box-shadow: none; }
 
 #approval {
+  position: relative;
+  z-index: 1;
   flex: none;
-  padding: 12px 16px;
+  padding: 14px 20px;
   border-top: 2px solid var(--warning);
   background: var(--surface);
+  backdrop-filter: blur(var(--blur));
+  -webkit-backdrop-filter: blur(var(--blur));
 }
 
 #approval[hidden] { display: none; }
-#approval h2 { font-size: 13px; margin: 0 0 8px; color: var(--warning); }
+#approval h2 { font-size: 14px; margin: 0 0 8px; color: var(--warning); }
 #approval pre {
   /* The command, whole. Not truncated, not wrapped into a different command: approval is
      approval of THIS text. */
   white-space: pre-wrap;
   word-break: break-all;
   margin: 0 0 10px;
-  padding: 10px;
-  background: var(--bg);
+  padding: 12px;
+  background: var(--surface-solid);
   border: 1px solid var(--border);
-  border-radius: 6px;
+  border-radius: 8px;
   font: 13px/1.45 ui-monospace, SFMono-Regular, Menlo, monospace;
 }
 #approval button {
   min-height: 44px;
   min-width: 44px;
-  padding: 0 16px;
+  padding: 0 18px;
   margin-right: 8px;
-  border-radius: 8px;
+  border-radius: var(--radius);
   font: inherit;
   cursor: pointer;
+  transition: transform 0.1s, box-shadow 0.2s;
 }
-#approval button.allow { border: 1px solid var(--accent); background: var(--accent); color: var(--bg); font-weight: 600; }
-#approval button.deny { border: 1px solid var(--border); background: transparent; color: var(--text); }
+#approval button:active { transform: scale(0.97); }
+#approval button.allow {
+  border: 1px solid var(--accent);
+  background: linear-gradient(135deg, var(--accent), rgba(76, 194, 255, 0.8));
+  color: #fff;
+  font-weight: 600;
+  box-shadow: 0 2px 12px var(--accent-glow);
+}
+#approval button.deny {
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--text);
+}
 
 .visually-hidden {
   position: absolute;

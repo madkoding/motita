@@ -3,18 +3,23 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><circle cx='8' cy='8' r='6' fill='none' stroke='%234cc2ff' stroke-width='2'/></svg>">
 <title>starlight</title>
 <link rel="stylesheet" href="/app.css">
 </head>
 <body>
+<canvas id="bg"></canvas>
 <header>
-  <h1>starlight</h1>
+  <div class="brand">
+    <span class="logo">✦</span>
+    <h1>starlight</h1>
+  </div>
   <span id="state" aria-live="polite">connecting</span>
 </header>
 <main id="conversation" role="log" aria-live="polite" aria-label="conversation"></main>
 <form id="composer">
   <label for="task" class="visually-hidden">Task</label>
-  <textarea id="task" rows="2" placeholder="Ask for something"></textarea>
+  <textarea id="task" rows="2" placeholder="Ask for something…"></textarea>
   <button type="submit">Send</button>
 </form>
 <div id="approval" hidden></div>
