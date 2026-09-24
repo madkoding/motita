@@ -8,21 +8,26 @@
 <link rel="stylesheet" href="/app.css">
 </head>
 <body>
-<canvas id="bg"></canvas>
-<header>
-  <div class="brand">
-    <span class="logo">✦</span>
-    <h1>starlight</h1>
+<div id="scene">
+  <div class="layer" data-depth="0.02" id="layer-particles"></div>
+  <div class="layer" data-depth="0.06" id="layer-cats"></div>
+  <div class="layer" data-depth="0.0" id="layer-ui">
+    <header>
+      <div class="brand">
+        <span class="logo">✦</span>
+        <h1>starlight</h1>
+      </div>
+      <span id="state" aria-live="polite">connecting</span>
+    </header>
+    <main id="conversation" role="log" aria-live="polite" aria-label="conversation"></main>
+    <form id="composer">
+      <label for="task" class="visually-hidden">Task</label>
+      <textarea id="task" rows="2" placeholder="Ask for something…"></textarea>
+      <button type="submit">Send</button>
+    </form>
+    <div id="approval" hidden></div>
   </div>
-  <span id="state" aria-live="polite">connecting</span>
-</header>
-<main id="conversation" role="log" aria-live="polite" aria-label="conversation"></main>
-<form id="composer">
-  <label for="task" class="visually-hidden">Task</label>
-  <textarea id="task" rows="2" placeholder="Ask for something…"></textarea>
-  <button type="submit">Send</button>
-</form>
-<div id="approval" hidden></div>
+</div>
 <script src="/app.js"></script>
 </body>
 </html>
