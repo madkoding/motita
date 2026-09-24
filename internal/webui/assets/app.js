@@ -20,52 +20,103 @@
 // ─── Holographic tilt scene with doodle cats ────────────────────────────────
 //
 // The page is a perspective scene: three layers at different depths shift in
-// paralaje as the mouse moves, like a Pokémon card tilted in the light. The
-// deepest layer is a faint glow; the middle layer carries doodle cats drawn in
-// SVG; the front layer is the UI. Each cat has a wobble animation, and the
-// whole cat layer drifts further than the UI layer, producing the 3D effect.
+// paralaje as the mouse moves, like a Pokemon card tilted in the light. The
+// deepest layer is a faint glow; the middle layer is a DENSE pattern of doodle
+// cats, balls of yarn, paw prints, fish and hearts — like a WhatsApp doodle
+// background — tiled across the whole viewport; the front layer is the UI.
+// The cat layer drifts further than the UI layer, producing the 3D effect.
 (function initTiltScene() {
   const scene = document.getElementById('scene');
   const catsLayer = document.getElementById('layer-cats');
   if (!scene || !catsLayer) return;
 
-  // Cat SVG paths — simple doodle silhouettes, drawn in the accent colour by CSS.
-  // Each is a different pose: sitting, stretching, curled, standing.
-  const catSVGs = [
-    // Sitting cat
-    '<svg viewBox="0 0 60 60" width="50" height="50"><path d="M20 45 Q15 35 18 25 L15 18 L25 25 Q30 22 35 25 L45 18 L42 25 Q45 35 40 45 Z"/><circle cx="26" cy="32" r="1.5" fill="currentColor" stroke="none"/><circle cx="34" cy="32" r="1.5" fill="currentColor" stroke="none"/><path d="M28 38 L30 40 L32 38" fill="none"/><path d="M40 45 Q48 42 50 35" fill="none"/></svg>',
-    // Stretching cat
-    '<svg viewBox="0 0 70 40" width="55" height="35"><path d="M10 30 Q8 20 12 15 L8 8 L18 15 Q35 12 55 15 L60 8 L58 15 Q62 20 60 30 Z"/><circle cx="20" cy="22" r="1.2" fill="currentColor" stroke="none"/><circle cx="28" cy="22" r="1.2" fill="currentColor" stroke="none"/><path d="M22 26 L24 28 L26 26" fill="none"/><path d="M10 30 Q5 28 3 32" fill="none"/></svg>',
-    // Curled cat
-    '<svg viewBox="0 0 50 45" width="45" height="40"><path d="M35 40 Q20 42 15 30 Q12 20 20 15 L15 8 L25 15 Q35 12 38 22 Q42 30 35 40 Z"/><circle cx="28" cy="25" r="1.2" fill="currentColor" stroke="none"/><path d="M32 28 L34 30" fill="none"/><path d="M35 40 Q40 38 42 32" fill="none"/></svg>',
-    // Standing cat
-    '<svg viewBox="0 0 45 55" width="40" height="50"><path d="M15 50 L15 30 Q12 25 15 18 L10 10 L20 18 Q22 15 25 18 L35 10 L32 18 Q35 25 32 30 L32 50 Z"/><circle cx="20" cy="25" r="1.2" fill="currentColor" stroke="none"/><circle cx="27" cy="25" r="1.2" fill="currentColor" stroke="none"/><path d="M22 29 L24 31 L26 29" fill="none"/><path d="M32 30 Q40 25 38 15" fill="none"/></svg>',
-    // Sitting small
-    '<svg viewBox="0 0 50 50" width="40" height="40"><path d="M18 40 Q14 32 17 22 L13 15 L23 22 Q25 19 28 22 L38 15 L35 22 Q38 32 33 40 Z"/><circle cx="23" cy="28" r="1.2" fill="currentColor" stroke="none"/><circle cx="30" cy="28" r="1.2" fill="currentColor" stroke="none"/><path d="M25 33 L27 35 L29 33" fill="none"/><path d="M33 40 Q40 38 42 30" fill="none"/></svg>'
-  ];
+  // A doodle tile: many small cat-themed SVG shapes packed into a 200x200 tile
+  // that repeats to fill the layer. This is the "lleno de doodles" part — the
+  // pattern is dense, like a WhatsApp background, not 7 scattered cats.
+  //
+  // Each shape is a simple line doodle: cat faces, balls of yarn, paw prints,
+  // fish, hearts, stars. They use stroke="currentColor" so the CSS --cat-line
+  // colour drives everything.
+  const tile = '<svg xmlns="http' + '://' + 'www.w3.org/2000/svg" width="200" height="200" viewBox="0 0 200 200">'
+    // Cat face (top-left)
+    + '<g transform="translate(20,20) scale(0.7)" stroke="currentColor" fill="none" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">'
+    + '<path d="M5 30 Q0 20 3 10 L0 3 L12 10 Q20 6 28 10 L40 3 L37 10 Q42 20 37 30 Z"/>'
+    + '<circle cx="15" cy="18" r="1.5" fill="currentColor" stroke="none"/>'
+    + '<circle cx="27" cy="18" r="1.5" fill="currentColor" stroke="none"/>'
+    + '<path d="M19 24 L21 26 L23 24"/>'
+    + '<path d="M37 30 Q44 28 46 22"/>'
+    + '</g>'
+    // Ball of yarn (top-right)
+    + '<g transform="translate(130,15) scale(0.8)" stroke="currentColor" fill="none" stroke-width="1.2">'
+    + '<circle cx="25" cy="25" r="18"/>'
+    + '<path d="M10 25 Q25 10 40 25 Q25 40 10 25"/>'
+    + '<path d="M25 10 Q40 25 25 40 Q10 25 25 10"/>'
+    + '<path d="M8 18 L42 32"/>'
+    + '<path d="M8 32 L42 18"/>'
+    + '</g>'
+    // Paw print (mid-left)
+    + '<g transform="translate(10,80) scale(0.6)" stroke="currentColor" fill="currentColor" stroke-width="1">'
+    + '<ellipse cx="20" cy="28" rx="10" ry="7"/>'
+    + '<circle cx="8" cy="14" r="4"/>'
+    + '<circle cx="18" cy="8" r="4"/>'
+    + '<circle cx="28" cy="8" r="4"/>'
+    + '<circle cx="36" cy="14" r="4"/>'
+    + '</g>'
+    // Fish (mid-right)
+    + '<g transform="translate(120,75) scale(0.7)" stroke="currentColor" fill="none" stroke-width="1.5" stroke-linecap="round">'
+    + '<path d="M5 20 Q15 10 30 15 Q40 12 45 20 Q40 28 30 25 Q15 30 5 20 Z"/>'
+    + '<path d="M45 20 L52 14 L52 26 Z"/>'
+    + '<circle cx="12" cy="18" r="1.5" fill="currentColor" stroke="none"/>'
+    + '</g>'
+    // Heart (bottom-left)
+    + '<g transform="translate(15,140) scale(0.5)" stroke="currentColor" fill="none" stroke-width="1.8" stroke-linecap="round">'
+    + '<path d="M30 50 Q10 35 10 22 Q10 10 22 10 Q28 10 30 18 Q32 10 38 10 Q50 10 50 22 Q50 35 30 50 Z"/>'
+    + '</g>'
+    // Small cat curled (bottom-right)
+    + '<g transform="translate(120,130) scale(0.6)" stroke="currentColor" fill="none" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">'
+    + '<path d="M35 40 Q20 42 15 30 Q12 20 20 15 L15 8 L25 15 Q35 12 38 22 Q42 30 35 40 Z"/>'
+    + '<circle cx="28" cy="25" r="1.2" fill="currentColor" stroke="none"/>'
+    + '<path d="M32 28 L34 30" fill="none"/>'
+    + '<path d="M35 40 Q40 38 42 32" fill="none"/>'
+    + '</g>'
+    // Star (centre)
+    + '<g transform="translate(85,45) scale(0.4)" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round">'
+    + '<path d="M30 5 L36 22 L54 22 L40 33 L46 50 L30 40 L14 50 L20 33 L6 22 L24 22 Z"/>'
+    + '</g>'
+    // Small ball of yarn (centre-bottom)
+    + '<g transform="translate(80,110) scale(0.5)" stroke="currentColor" fill="none" stroke-width="1.2">'
+    + '<circle cx="20" cy="20" r="14"/>'
+    + '<path d="M8 20 Q20 8 32 20 Q20 32 8 20"/>'
+    + '<path d="M20 8 Q32 20 20 32 Q8 20 20 8"/>'
+    + '</g>'
+    // Tiny cat face (bottom-centre)
+    + '<g transform="translate(70,160) scale(0.45)" stroke="currentColor" fill="none" stroke-width="1.5" stroke-linecap="round">'
+    + '<path d="M5 25 Q0 15 3 8 L0 2 L10 8 Q15 5 20 8 L30 2 L27 8 Q32 15 27 25 Z"/>'
+    + '<circle cx="10" cy="15" r="1" fill="currentColor" stroke="none"/>'
+    + '<circle cx="20" cy="15" r="1" fill="currentColor" stroke="none"/>'
+    + '<path d="M13 19 L15 21 L17 19"/>'
+    + '</g>'
+    // Paw print small (top-centre)
+    + '<g transform="translate(75,5) scale(0.4)" stroke="currentColor" fill="currentColor" stroke-width="1">'
+    + '<ellipse cx="20" cy="28" rx="10" ry="7"/>'
+    + '<circle cx="8" cy="14" r="4"/>'
+    + '<circle cx="18" cy="8" r="4"/>'
+    + '<circle cx="28" cy="8" r="4"/>'
+    + '<circle cx="36" cy="14" r="4"/>'
+    + '</g>'
+    // Fish small (bottom-right corner)
+    + '<g transform="translate(155,165) scale(0.4)" stroke="currentColor" fill="none" stroke-width="1.5" stroke-linecap="round">'
+    + '<path d="M5 20 Q15 10 30 15 Q40 12 45 20 Q40 28 30 25 Q15 30 5 20 Z"/>'
+    + '<path d="M45 20 L52 14 L52 26 Z"/>'
+    + '</g>'
+    + '</svg>';
 
-  // Scatter cats across the layer at semi-random positions. Fixed positions, not
-  // random per load, so the scene is stable and a screenshot is reproducible.
-  const positions = [
-    { x: 8, y: 15, s: 0, r: -8, delay: 0 },
-    { x: 75, y: 20, s: 1, r: 5, delay: 1.5 },
-    { x: 15, y: 65, s: 2, r: 3, delay: 0.8 },
-    { x: 60, y: 55, s: 3, r: -5, delay: 2.2 },
-    { x: 85, y: 75, s: 4, r: 10, delay: 1.2 },
-    { x: 40, y: 10, s: 0, r: 15, delay: 3.0 },
-    { x: 30, y: 80, s: 1, r: -12, delay: 0.5 }
-  ];
-
-  for (const p of positions) {
-    const div = document.createElement('div');
-    div.className = 'cat';
-    div.style.left = p.x + '%';
-    div.style.top = p.y + '%';
-    div.style.transform = 'rotate(' + p.r + 'deg)';
-    div.style.animationDelay = p.delay + 's';
-    div.innerHTML = catSVGs[p.s];
-    catsLayer.appendChild(div);
-  }
+  // Set the tile as a repeating background on the cats layer. The SVG is embedded
+  // as a data URI so there are zero image requests.
+  const encoded = encodeURIComponent(tile).replace(/'/g, '%27').replace(/"/g, '%22');
+  catsLayer.style.backgroundImage = "url(\"data:image/svg+xml;charset=utf-8," + encoded + "\")";
+  catsLayer.style.backgroundRepeat = 'repeat';
+  catsLayer.style.backgroundSize = '180px 180px';
 
   // Tilt: each layer shifts by its depth factor times the mouse offset from
   // centre. The cat layer (depth 0.06) moves more than the UI layer (depth 0.0),

@@ -103,32 +103,15 @@ body {
 }
 
 /* ─── Doodle cats (middle layer) ───────────────────────────────────────────
- * Each cat is an SVG path positioned absolutely. They tilt with the mouse via
- * the layer transform, and a subtle hover-wobble animation keeps them alive. */
+ * The cat layer is a repeating SVG tile with doodle cats, balls of yarn, paw
+ * prints, fish and hearts — dense like a WhatsApp background. The SVG uses
+ * stroke="currentColor" so the --cat-line CSS variable drives all colours.
+ * The layer tilts with the mouse via the JS transform. */
 #layer-cats {
   z-index: 1;
   pointer-events: none;
   overflow: hidden;
-}
-
-.cat {
-  position: absolute;
-  opacity: 0.7;
-  filter: drop-shadow(0 0 6px var(--accent-glow));
-  animation: catFloat 6s ease-in-out infinite;
-}
-.cat svg { display: block; }
-.cat path, .cat circle, .cat line {
-  stroke: var(--cat-line);
-  fill: var(--cat-color);
-  stroke-width: 1.5;
-  stroke-linecap: round;
-  stroke-linejoin: round;
-}
-
-@keyframes catFloat {
-  0%, 100% { transform: translateY(0) rotate(-2deg); }
-  50% { transform: translateY(-12px) rotate(2deg); }
+  color: var(--cat-line);
 }
 
 /* ─── UI layer ───────────────────────────────────────────────────────────── */
@@ -398,8 +381,7 @@ header h1 {
   #composer button { width: 100%; }
 }
 
-/* Reduced motion: disable cat wobble and tilt transitions for users who prefer it. */
+/* Reduced motion: disable tilt transitions for users who prefer it. */
 @media (prefers-reduced-motion: reduce) {
-  .cat { animation: none; }
   .layer { transition: none; }
 }
