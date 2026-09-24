@@ -59,7 +59,7 @@ failure this architecture exists to prevent.
 | Layer | What it is | Why it matters |
 |---|---|---|
 | **A · The anchor** | Deterministic code. Runs your command, checks the exit code, matches the output against a pattern, asserts your invariants. | It cannot be talked into a different answer. Fast, boring, predictable. |
-| **B · The reasoning engine** | A hand-written client for OpenAI-compatible, Anthropic and Gemini APIs. | Point it at OpenAI, Ollama Cloud, Groq, OpenRouter, DeepSeek, or your own box. Nothing else in the agent knows which. |
+| **B · The reasoning engine** | A hand-written client for OpenAI-compatible, Anthropic, Gemini, Codex, and Copilot APIs. | Point it at OpenAI, Codex, Ollama Cloud, Copilot, Groq, OpenRouter, DeepSeek, or your own box. Nothing else in the agent knows which. |
 | **C · The sandbox** | Runs the proposed action in an ephemeral directory under real limits. | And it **tells you what it could not apply** instead of pretending the isolation is stronger than it is. |
 
 ## Why that changes what you get
@@ -140,13 +140,33 @@ matters: a binary that installs but won't start.
 Then:
 
 ```sh
-motita -init
+motita
 ```
 
-The wizard asks for a provider, a model, and **the check that decides whether a
-task is really done**. The third question is the one other tools never ask. Your
-API key goes into a separate `0600` file, never into the config, so the config can
-be committed and shared.
+That's it. If no configuration exists, the wizard launches automatically —
+no need to know about `-init`. It walks you through:
+
+1. **Choose a provider**: OpenAI, OpenAI Codex, GitHub Copilot, Ollama Cloud,
+   Anthropic (Claude), or Google Gemini.
+2. **Choose a model**: each provider ships curated defaults, or type any model ID.
+3. **Set the anchor**: the command that decides whether a task is really done.
+   The third question is the one other tools never ask.
+4. **Authenticate**: paste an API key, or **connect directly** — open a link in
+   your browser and enter a one-time code. Direct login is available for
+   Anthropic, Gemini, and Copilot, so you never handle an API key at all.
+
+![The onboarding wizard](docs/screenshots/wizard-onboard.png)
+
+<sub>The first-run wizard: banner, provider list, and the anchor question.
+Runs automatically when no config is found.</sub>
+
+![Direct login in the wizard](docs/screenshots/wizard-auth.png)
+
+<sub>For Anthropic, Gemini, and Copilot: connect with a link and a code,
+no API key needed.</sub>
+
+Your API key (or OAuth token) goes into a separate `0600` file, never into the
+config, so the config can be committed and shared.
 
 ## A terminal interface you'll actually want to use
 
