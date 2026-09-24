@@ -20,6 +20,7 @@ import (
 	"github.com/madkoding/motita/internal/llm"
 	"github.com/madkoding/motita/internal/logx"
 	"github.com/madkoding/motita/internal/onboard"
+	"github.com/madkoding/motita/internal/plan"
 	"github.com/madkoding/motita/internal/sandbox"
 	taskpkg "github.com/madkoding/motita/internal/task"
 )
@@ -396,4 +397,34 @@ func TestRunConfigWithoutHomeUsesTheWorkingDirectory(t *testing.T) {
 			t.Errorf("with no HOME the working directory is used: %v", err)
 		}
 	})
+}
+
+// TestAppRunnerSoulFallbackOnHomeError: when os.UserHomeDir fails (HOME unset
+// on Linux), soul() returns the embedded default system prompt.
+func TestAppRunnerSoulFallbackOnHomeError(t *testing.T) {
+	t.Setenv("HOME", "")
+	r := &AppRunner{}
+	got := r.soul()
+	if got != plan.SystemPrompt {
+		t.Error("soul() must return the default when home cannot be resolved")
+	}
+}
+
+// TestAppRunnerSoulResolvesFromHome: soul() reads the SOUL.md from the home
+// directory when it exists.
+func TestAppRunnerSoulResolvesFromHome(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("HOME", dir)
+	soulDir := filepath.Join(dir, ".motita")
+	if err := os.MkdirAll(soulDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(soulDir, "SOUL.md"), []byte("custom soul"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	r := &AppRunner{}
+	got := r.soul()
+	if !strings.Contains(got, "custom soul") {
+		t.Errorf("soul() = %q, must contain the custom soul text", got)
+	}
 }
