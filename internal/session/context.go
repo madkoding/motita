@@ -30,6 +30,9 @@ var contextWindows = map[string]int{
 	"opus":   200000,
 	"haiku":  200000,
 	"fable":  200000,
+	// claude's own "best" and "default" picks resolve to one of the above.
+	"best":    200000,
+	"default": 200000,
 
 	// Ollama Cloud and the open models it hosts. These are the values their cards
 	// publish; a local Ollama may be configured lower, which is why the configuration
