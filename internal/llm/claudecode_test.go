@@ -114,17 +114,13 @@ func fakeClaude(script string) {
 }
 
 // claudeTestClient points the claude-code provider at the fake with a script,
-// and returns where the fake's record will be. The home is a temporary one, so the
-// stable working directory is created there and not in the real user cache.
+// and returns where the fake's record will be.
 func claudeTestClient(t *testing.T, script string, tweak func(*config.LLM)) (*Client, string) {
 	t.Helper()
 	exe, err := os.Executable()
 	if err != nil {
 		t.Fatal(err)
 	}
-	home := t.TempDir()
-	t.Setenv("HOME", home)
-	t.Setenv("XDG_CACHE_HOME", filepath.Join(home, ".cache"))
 	record := filepath.Join(t.TempDir(), "record.json")
 	t.Setenv("MOTITA_CLAUDE_BIN", exe)
 	t.Setenv("MOTITA_FAKE_CLAUDE", script)
@@ -325,12 +321,6 @@ func TestClaudeCodeToolCallRoundTrip(t *testing.T) {
 			t.Errorf("claude's %s = %q, want %q", k, env[k], v)
 		}
 	}
-	if want := filepath.Join(os.Getenv("XDG_CACHE_HOME"), "motita", "claude"); runtime.GOOS == "linux" && rec.Dir != want {
-		t.Errorf("claude ran in %s, want the stable %s", rec.Dir, want)
-	}
-	if filepath.Base(rec.Dir) != "claude" {
-		t.Errorf("claude ran in %s, not in the stable directory", rec.Dir)
-	}
 
 	var mcp claudeMCPConfig
 	if err := json.Unmarshal([]byte(rec.MCP), &mcp); err != nil {
@@ -364,19 +354,22 @@ func TestClaudeCodeToolCallRoundTrip(t *testing.T) {
 	}
 }
 
-// TestClaudeCodeRunsInOneDirectory: claude puts its working directory in the prompt,
-// so every call must run in the same one or none can reuse the prompt cache.
-func TestClaudeCodeRunsInOneDirectory(t *testing.T) {
+// TestClaudeCodeRunsInMotitasDirectory: claude tells the model where it is working and
+// whether that is a git repository, and the tools resolve paths against motita's directory,
+// so that is where claude must run. Being the same on every call is what the prompt cache
+// needs.
+func TestClaudeCodeRunsInMotitasDirectory(t *testing.T) {
 	c, record := claudeTestClient(t, textScript, nil)
-	var dirs []string
+	cwd := t.TempDir()
+	t.Chdir(cwd)
+	want, _ := filepath.EvalSymlinks(cwd)
 	for range 2 {
 		if _, err := c.CompleteTools(context.Background(), hi, nil); err != nil {
 			t.Fatal(err)
 		}
-		dirs = append(dirs, readRecord(t, record).Dir)
-	}
-	if dirs[0] != dirs[1] {
-		t.Errorf("two calls ran in %q and %q", dirs[0], dirs[1])
+		if got, _ := filepath.EvalSymlinks(readRecord(t, record).Dir); got != want {
+			t.Errorf("claude ran in %q, want motita's %q", got, want)
+		}
 	}
 }
 
@@ -416,22 +409,6 @@ func TestClaudeCodeResolvesRelativePaths(t *testing.T) {
 	}
 	if rec := readRecord(t, record); rec.System != "S" {
 		t.Errorf("claude could not read its system prompt: %q", rec.System)
-	}
-}
-
-func TestClaudeWorkdirFallsBack(t *testing.T) {
-	t.Setenv("XDG_CACHE_HOME", "")
-	t.Setenv("HOME", "")
-	if got := claudeWorkdir("fallback"); got != "fallback" {
-		t.Errorf("with no cache directory the fallback must be used, got %q", got)
-	}
-	// A cache directory that cannot hold the working directory: its parent is a file.
-	file := filepath.Join(t.TempDir(), "file")
-	_ = os.WriteFile(file, nil, 0o600)
-	t.Setenv("HOME", file)
-	t.Setenv("XDG_CACHE_HOME", filepath.Join(file, "cache"))
-	if got := claudeWorkdir("fallback"); got != "fallback" {
-		t.Errorf("a directory that cannot be made must fall back, got %q", got)
 	}
 }
 

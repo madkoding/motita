@@ -179,8 +179,9 @@ llm:
 
 `/models` lists the models your account offers, as claude's own picker does, and
 `/models <id>` switches to one. `llm.reasoning` becomes claude's `--effort` (off switches
-thinking off), and `llm.max_tokens` caps each answer. claude runs from one private, empty
-directory in your user cache, so every turn can reuse the prompt cache. Set
+thinking off), and `llm.max_tokens` caps each answer. claude runs in motita's working
+directory, which it reports to the model (it loads no `CLAUDE.md` or settings from it), and
+the directory stays the same across turns, so every turn can reuse the prompt cache. Set
 `MOTITA_CLAUDE_BIN` if `claude` is not on your `PATH`.
 
 ## A terminal interface you'll actually want to use

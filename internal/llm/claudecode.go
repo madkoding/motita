@@ -228,19 +228,6 @@ func claudeEnv(cfg config.LLM) []string {
 	return env
 }
 
-// claudeWorkdir is where claude runs: one private, empty directory kept across
-// calls. claude writes its working directory into the prompt, so a new one per call
-// would never reuse the prompt cache. fallback is used when there is no such place.
-func claudeWorkdir(fallback string) string {
-	if cache, err := os.UserCacheDir(); err == nil {
-		dir := filepath.Join(cache, "motita", "claude")
-		if os.MkdirAll(dir, 0o700) == nil {
-			return dir
-		}
-	}
-	return fallback
-}
-
 // claudeProcess is one run of the claude CLI: the frames written to it and the
 // events it prints back. A turn and the model discovery are each one.
 type claudeProcess struct {
@@ -255,13 +242,18 @@ type claudeProcess struct {
 	mcp bool
 }
 
-// startClaude runs claude in dir for at most timeout.
-func startClaude(ctx context.Context, timeout time.Duration, dir string, args, env []string) (*claudeProcess, error) {
+// startClaude runs claude for at most timeout, in motita's own working directory.
+//
+// That directory, and not one of claude's own: claude tells the model where it is working and
+// whether that is a git repository, and the tools resolve paths against motita's directory. It is
+// also the same on every call, which the prompt cache needs. With the flags claude is given it
+// reports the directory but loads nothing from it (a CLAUDE.md there is ignored, measured).
+func startClaude(ctx context.Context, timeout time.Duration, args, env []string) (*claudeProcess, error) {
 	bin := os.Getenv("MOTITA_CLAUDE_BIN")
 	if bin == "" {
 		bin = "claude"
 	}
-	// Resolved before cmd.Dir is set: os/exec would read a relative path from there.
+	// Absolute, so what runs does not depend on the directory it runs in.
 	path, err := exec.LookPath(bin)
 	if err == nil {
 		path, err = filepath.Abs(path)
@@ -272,7 +264,6 @@ func startClaude(ctx context.Context, timeout time.Duration, dir string, args, e
 	p := &claudeProcess{}
 	p.ctx, p.cancel = context.WithTimeout(ctx, timeout)
 	p.cmd = exec.CommandContext(p.ctx, path, args...)
-	p.cmd.Dir = dir
 	p.cmd.Env = env
 	p.cmd.Stderr = &p.stderr
 	// Asked to stop rather than killed: a killed claude leaves its socket behind in
@@ -483,7 +474,7 @@ func (c *Client) callClaudeCode(ctx context.Context, messages []Message, tools [
 			return Reply{}, fatalError{fmt.Errorf("claude needs motita's own path to serve it the tools: %w", err)}
 		}
 	}
-	// Absolute, because claude reads the paths below from its own directory.
+	// Absolute, so the paths claude is given do not depend on where it runs.
 	dir, err := os.MkdirTemp("", "motita-claude-")
 	if err == nil {
 		defer os.RemoveAll(dir)
@@ -498,7 +489,7 @@ func (c *Client) callClaudeCode(ctx context.Context, messages []Message, tools [
 			return Reply{}, err
 		}
 	}
-	p, err := startClaude(ctx, c.cfg.Timeout, claudeWorkdir(dir), args, claudeEnv(c.cfg))
+	p, err := startClaude(ctx, c.cfg.Timeout, args, claudeEnv(c.cfg))
 	if err != nil {
 		return Reply{}, err
 	}
@@ -573,7 +564,7 @@ func ClaudeCodeModels(ctx context.Context) (ClaudeCodeCatalogue, error) {
 		"--tools", "", "--setting-sources", "", "--strict-mcp-config", "--disable-slash-commands", "--no-session-persistence"}
 	// The base environment: with nonessential traffic off claude lists 5 models instead of the
 	// account's 11 (measured).
-	p, err := startClaude(ctx, 30*time.Second, claudeWorkdir(os.TempDir()), args, claudeBaseEnv())
+	p, err := startClaude(ctx, 30*time.Second, args, claudeBaseEnv())
 	if err != nil {
 		return ClaudeCodeCatalogue{}, err
 	}
