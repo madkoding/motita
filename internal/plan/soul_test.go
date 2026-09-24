@@ -76,3 +76,17 @@ func TestResolveSoulWithEmptyHomeReturnsDefault(t *testing.T) {
 		t.Error("an empty home must return the embedded default")
 	}
 }
+
+// TestWithSoul: WithSoul sets the system prompt on the planner, and an empty
+// string keeps the default.
+func TestWithSoul(t *testing.T) {
+	p := &Planner{}
+	p.WithSoul("custom soul")
+	if p.soul != "custom soul" {
+		t.Errorf("soul = %q, want \"custom soul\"", p.soul)
+	}
+	p.WithSoul("")
+	if p.soul != "" {
+		t.Errorf("soul = %q, want empty", p.soul)
+	}
+}
