@@ -1,0 +1,558 @@
+{
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+    "title": "Motita architecture",
+    "quality_profile": "standard",
+    "repository": {
+      "url": "https://github.com/madkoding/motita",
+      "provider": "github",
+      "link_mode": "web",
+      "revision": "7c7e4e703d2aefdc83272928a0b6210e5eda30a1"
+    },
+    "views": [
+      {
+        "id": "request-path",
+        "label": "Request lifecycle",
+        "focus": [
+          "user",
+          "gateway",
+          "agent",
+          "llm",
+          "sandbox",
+          "anchor"
+        ],
+        "note": "A task enters via the gateway or TUI, the agent asks the model, executes in the sandbox, and the anchor validates the result."
+      },
+      {
+        "id": "clients",
+        "label": "Clients",
+        "focus": [
+          "user",
+          "tui",
+          "webui",
+          "gateway"
+        ],
+        "note": "Two front-ends share one gateway: a terminal TUI and a browser web UI."
+      },
+      {
+        "id": "guardrails",
+        "label": "Guardrails",
+        "focus": [
+          "policy",
+          "sandbox",
+          "netrules",
+          "anchor",
+          "reward"
+        ],
+        "note": "The layers that prevent untrusted action: policy decisions, sandbox isolation, network rules, and the anchor check."
+      }
+    ]
+  },
+  "components": [
+    {
+      "id": "user",
+      "type": "external",
+      "label": "User",
+      "sublabel": "Terminal / Browser",
+      "pos": [
+        40,
+        180
+      ],
+      "size": [
+        120,
+        56
+      ],
+      "sources": [
+        {
+          "path": "cmd/agent/main.go",
+          "label": "entry point"
+        }
+      ]
+    },
+    {
+      "id": "tui",
+      "type": "frontend",
+      "label": "TUI",
+      "sublabel": "internal/tui",
+      "pos": [
+        240,
+        100
+      ],
+      "size": [
+        120,
+        56
+      ],
+      "sources": [
+        {
+          "path": "internal/tui/render.go",
+          "label": "banner + layout"
+        }
+      ]
+    },
+    {
+      "id": "webui",
+      "type": "frontend",
+      "label": "Web UI",
+      "sublabel": "internal/webui",
+      "pos": [
+        240,
+        260
+      ],
+      "size": [
+        120,
+        56
+      ],
+      "sources": [
+        {
+          "path": "internal/webui/assets/index.html",
+          "label": "doodles + glass"
+        }
+      ]
+    },
+    {
+      "id": "gateway",
+      "type": "backend",
+      "label": "Gateway",
+      "sublabel": "internal/gateway :7477",
+      "pos": [
+        460,
+        180
+      ],
+      "size": [
+        130,
+        60
+      ],
+      "sources": [
+        {
+          "path": "internal/gateway/server.go",
+          "label": "routes + middleware"
+        }
+      ]
+    },
+    {
+      "id": "app",
+      "type": "backend",
+      "label": "App",
+      "sublabel": "internal/app",
+      "pos": [
+        680,
+        180
+      ],
+      "size": [
+        130,
+        60
+      ],
+      "sources": [
+        {
+          "path": "internal/app/app.go",
+          "label": "orchestrator"
+        }
+      ]
+    },
+    {
+      "id": "plan",
+      "type": "backend",
+      "label": "Plan",
+      "sublabel": "internal/plan",
+      "pos": [
+        900,
+        100
+      ],
+      "size": [
+        130,
+        56
+      ],
+      "sources": [
+        {
+          "path": "internal/plan/plan.go",
+          "label": "soul + prompt"
+        }
+      ]
+    },
+    {
+      "id": "agent",
+      "type": "backend",
+      "label": "Agent",
+      "sublabel": "internal/agent",
+      "pos": [
+        900,
+        220
+      ],
+      "size": [
+        130,
+        60
+      ],
+      "sources": [
+        {
+          "path": "internal/agent/agent.go",
+          "label": "task loop"
+        }
+      ]
+    },
+    {
+      "id": "llm",
+      "type": "external",
+      "label": "LLM",
+      "sublabel": "internal/llm",
+      "pos": [
+        1120,
+        160
+      ],
+      "size": [
+        120,
+        56
+      ],
+      "sources": [
+        {
+          "path": "internal/llm/llm.go",
+          "label": "any provider"
+        }
+      ]
+    },
+    {
+      "id": "sandbox",
+      "type": "security",
+      "label": "Sandbox",
+      "sublabel": "internal/sandbox",
+      "pos": [
+        680,
+        340
+      ],
+      "size": [
+        120,
+        56
+      ],
+      "sources": [
+        {
+          "path": "internal/sandbox/sandbox.go",
+          "label": "ephemeral dir"
+        }
+      ]
+    },
+    {
+      "id": "anchor",
+      "type": "security",
+      "label": "Anchor",
+      "sublabel": "internal/anchor",
+      "pos": [
+        900,
+        380
+      ],
+      "size": [
+        120,
+        56
+      ],
+      "sources": [
+        {
+          "path": "internal/anchor/anchor.go",
+          "label": "exit code check"
+        }
+      ]
+    },
+    {
+      "id": "policy",
+      "type": "security",
+      "label": "Policy",
+      "sublabel": "internal/policy",
+      "pos": [
+        240,
+        420
+      ],
+      "size": [
+        120,
+        50
+      ],
+      "sources": [
+        {
+          "path": "internal/policy/policy.go",
+          "label": "allow / ask / deny"
+        }
+      ]
+    },
+    {
+      "id": "netrules",
+      "type": "security",
+      "label": "Net Rules",
+      "sublabel": "internal/netrules",
+      "pos": [
+        460,
+        420
+      ],
+      "size": [
+        120,
+        50
+      ],
+      "sources": [
+        {
+          "path": "internal/netrules/rules.go",
+          "label": "origin rules"
+        }
+      ]
+    },
+    {
+      "id": "reward",
+      "type": "backend",
+      "label": "Reward",
+      "sublabel": "internal/reward",
+      "pos": [
+        900,
+        520
+      ],
+      "size": [
+        120,
+        50
+      ],
+      "sources": [
+        {
+          "path": "internal/reward/ledger.go",
+          "label": "validation ledger"
+        }
+      ]
+    },
+    {
+      "id": "config",
+      "type": "database",
+      "label": "Config",
+      "sublabel": "internal/config",
+      "pos": [
+        40,
+        420
+      ],
+      "size": [
+        120,
+        50
+      ],
+      "sources": [
+        {
+          "path": "internal/config/config.go",
+          "label": "MOTITA_* env"
+        }
+      ]
+    },
+    {
+      "id": "session",
+      "type": "database",
+      "label": "Session",
+      "sublabel": "internal/session",
+      "pos": [
+        1120,
+        300
+      ],
+      "size": [
+        120,
+        50
+      ],
+      "sources": [
+        {
+          "path": "internal/session/session.go",
+          "label": "persist"
+        }
+      ]
+    },
+    {
+      "id": "skills",
+      "type": "database",
+      "label": "Skills",
+      "sublabel": "internal/skills",
+      "pos": [
+        1120,
+        440
+      ],
+      "size": [
+        120,
+        50
+      ],
+      "sources": [
+        {
+          "path": "internal/skills/skills.go",
+          "label": "embedded"
+        }
+      ]
+    }
+  ],
+  "boundaries": [
+    {
+      "kind": "region",
+      "label": "Single binary \u2014 cmd/agent",
+      "wraps": [
+        "tui",
+        "webui",
+        "gateway",
+        "app",
+        "plan",
+        "agent",
+        "llm",
+        "sandbox",
+        "anchor",
+        "policy",
+        "netrules",
+        "reward",
+        "config",
+        "session",
+        "skills"
+      ]
+    }
+  ],
+  "connections": [
+    {
+      "id": "user-to-tui",
+      "from": "user",
+      "to": "tui",
+      "label": "stdin"
+    },
+    {
+      "id": "user-to-webui",
+      "from": "user",
+      "to": "webui",
+      "label": "HTTP",
+      "variant": "dashed"
+    },
+    {
+      "id": "tui-to-gateway",
+      "from": "tui",
+      "to": "gateway",
+      "label": "in-process"
+    },
+    {
+      "id": "webui-to-gateway",
+      "from": "webui",
+      "to": "gateway",
+      "label": "SSE",
+      "variant": "dashed"
+    },
+    {
+      "id": "gateway-to-app",
+      "from": "gateway",
+      "to": "app"
+    },
+    {
+      "id": "gateway-to-netrules",
+      "from": "gateway",
+      "to": "netrules",
+      "label": "origin",
+      "variant": "security",
+      "fromSide": "bottom",
+      "toSide": "top"
+    },
+    {
+      "id": "app-to-plan",
+      "from": "app",
+      "to": "plan",
+      "label": "soul"
+    },
+    {
+      "id": "app-to-agent",
+      "from": "app",
+      "to": "agent"
+    },
+    {
+      "id": "app-to-config",
+      "from": "app",
+      "to": "config",
+      "label": "load",
+      "variant": "dashed",
+      "fromSide": "right",
+      "toSide": "bottom",
+      "via": [
+        [
+          860,
+          210
+        ],
+        [
+          860,
+          600
+        ],
+        [
+          100,
+          600
+        ]
+      ]
+    },
+    {
+      "id": "agent-to-llm",
+      "from": "agent",
+      "to": "llm",
+      "label": "JSON",
+      "variant": "emphasis"
+    },
+    {
+      "id": "plan-to-llm",
+      "from": "plan",
+      "to": "llm",
+      "label": "plan",
+      "variant": "dashed"
+    },
+    {
+      "id": "agent-to-sandbox",
+      "from": "agent",
+      "to": "sandbox",
+      "label": "exec",
+      "variant": "security"
+    },
+    {
+      "id": "agent-to-policy",
+      "from": "agent",
+      "to": "policy",
+      "label": "gate",
+      "variant": "security"
+    },
+    {
+      "id": "sandbox-to-anchor",
+      "from": "sandbox",
+      "to": "anchor",
+      "label": "validate"
+    },
+    {
+      "id": "anchor-to-reward",
+      "from": "anchor",
+      "to": "reward",
+      "label": "signal",
+      "labelDy": 20
+    },
+    {
+      "id": "agent-to-session",
+      "from": "agent",
+      "to": "session",
+      "label": "persist",
+      "variant": "dashed"
+    },
+    {
+      "id": "agent-to-skills",
+      "from": "agent",
+      "to": "skills",
+      "label": "built-ins",
+      "variant": "dashed"
+    }
+  ],
+  "cards": [
+    {
+      "dot": "cyan",
+      "title": "Clients",
+      "items": [
+        "Terminal TUI with ANSI wordmark and plan/task tabs",
+        "Web UI with holographic doodle background and Markdown rendering",
+        "Both share one gateway with bearer-token auth and origin policy"
+      ]
+    },
+    {
+      "dot": "emerald",
+      "title": "Orchestration",
+      "items": [
+        "App wires config, session, gateway, and the agent loop",
+        "Plan resolves the embedded soul + operational prompt",
+        "Agent calls any OpenAI-compatible LLM and executes in the sandbox"
+      ]
+    },
+    {
+      "dot": "rose",
+      "title": "Guardrails",
+      "items": [
+        "Policy gates every action: allow, ask, or deny",
+        "Sandbox isolates execution with rlimits and ephemeral dirs",
+        "Anchor validates exit codes and invariants \u2014 nothing runs unjudged",
+        "Net rules enforce origin policy on gateway requests"
+      ]
+    }
+  ]
+}
