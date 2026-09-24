@@ -10,12 +10,6 @@ stops.
 One static binary. No Docker. No dependencies. It runs on a 2008 netbook with
 484 MB of RAM.
 
-![motita running on Uchikoma, an Acer Aspire One](docs/screenshots/tui-uchikoma.png)
-
-<sub>A real session, not a mockup: an Acer Aspire One (Atom N270, 484 MB RAM,
-Ubuntu 11.04 / kernel 2.6.38) answering a question by running commands and
-reporting what it actually found.</sub>
-
 ---
 
 ## The problem with every other agent
@@ -157,7 +151,7 @@ no need to know about `-init`. It walks you through:
 
 ![The onboarding wizard](docs/screenshots/wizard-onboard.png)
 
-<sub>The first-run wizard: banner, provider list, and the anchor question.
+<sub>The first-run wizard: provider list, model selection, and the anchor question.
 Runs automatically when no config is found.</sub>
 
 ![Direct login in the wizard](docs/screenshots/wizard-auth.png)

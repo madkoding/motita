@@ -683,56 +683,6 @@ func TestEveryFullWidthRowReachesTheSameColumn(t *testing.T) {
 	}
 }
 
-// TestTheWordmarkRowsAreAligned: the five rows of the banner must start on the same column.
-//
-// The third row used to carry one extra leading space that the other four did not have, which
-// shifted its artwork a column to the right and made the mark read as crooked.
-func TestTheWordmarkRowsAreAligned(t *testing.T) {
-	leads := make([]int, len(bannerLines))
-	for i, row := range bannerLines {
-		plain := stripANSI(row)
-		leads[i] = len(plain) - len(strings.TrimLeft(plain, " "))
-	}
-	for i := 1; i < len(leads); i++ {
-		if leads[i] != leads[0] {
-			t.Errorf("row %d starts at column %d and row 1 at column %d", i+1, leads[i], leads[0])
-		}
-	}
-}
-
-// TestTheWordmarkSeparatesTheLettersItsOwnWay: the banner is block art, so spacing between
-// letters is part of the glyphs. The i is a narrow letter and needs the same breathing room as
-// the others, or it reads as part of the L beside it.
-//
-// This asserts the property rather than a column count: every gap between letter runs must be
-// at least one column, and the gap around the narrow letter at least two — which is what
-// "add a space where the i is formed" asks for, without pinning the exact column.
-func TestTheWordmarkSeparatesTheLettersItsOwnWay(t *testing.T) {
-	// Count the gap for each row and require the narrow letter's gap to be the widest of them.
-	for n, row := range bannerLines {
-		plain := []rune(strings.TrimLeft(stripANSI(row), " "))
-		var runs [][2]int
-		c := 0
-		for c < len(plain) {
-			if plain[c] != ' ' {
-				s := c
-				for c < len(plain) && plain[c] != ' ' {
-					c++
-				}
-				runs = append(runs, [2]int{s, c - 1})
-			} else {
-				c++
-			}
-		}
-		// Every gap must be at least one column: two letters touching would be unreadable.
-		for i := 1; i < len(runs); i++ {
-			if gap := runs[i][0] - runs[i-1][1] - 1; gap < 1 {
-				t.Errorf("row %d: letters %d and %d touch (gap %d)", n+1, i, i+1, gap)
-			}
-		}
-	}
-}
-
 // TestTheInputWrapsLongTextInsteadOfOverflowing: the field is a fixed box, so text longer than
 // its width has to wrap inside it. A single long word — a path, a URL — has no space to break
 // at, and refusing to break would push the text out of the box and widen the row.
@@ -847,14 +797,14 @@ func TestTheStatusLineIsCentred(t *testing.T) {
 	}
 }
 
-// TestPadCenterAlignsWithTheFrame: the banner and everything else must be centred inside the
+// TestPadCenterAlignsWithTheFrame: the wordmark and everything else must be centred inside the
 // same box, or the mark sits half a column off the panels beneath it.
 func TestPadCenterAlignsWithTheFrame(t *testing.T) {
 	for _, w := range []int{80, 81, 100, 101} {
 		tu, _ := newKeyTUI("", "")
 		tu.Width = w
 
-		got := stripANSI(tu.padCenter(tu.brand(compactMark), w))
+		got := stripANSI(tu.padCenter(tu.brand("motita"), w))
 		left := len(got) - len(strings.TrimLeft(got, " "))
 		content := len(strings.TrimSpace(got))
 

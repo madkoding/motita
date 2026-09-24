@@ -663,8 +663,8 @@ func TestTheWholeStatusLineSurvivesNoColour(t *testing.T) {
 	}
 }
 
-// TestTheWordmarkLosesItsOwnColourToo: the wordmark carries escapes baked into the
-// artwork. NO_COLOR has to strip those as well, or the "no colour" mode still emits
+// TestTheWordmarkLosesItsOwnColourToo: the wordmark is coloured with the brand
+// colour. NO_COLOR has to strip that as well, or the "no colour" mode still emits
 // sequences the terminal will interpret.
 func TestTheWordmarkLosesItsOwnColourToo(t *testing.T) {
 	tu, out := newKeyTUI("")
@@ -673,8 +673,8 @@ func TestTheWordmarkLosesItsOwnColourToo(t *testing.T) {
 	tu.NoColor = false
 	out.Reset()
 	tu.drawFrame()
-	if !strings.Contains(out.String(), "\x1b[0;97m") {
-		t.Error("the wordmark's own colours must be present in colour mode")
+	if !strings.Contains(out.String(), "motita") {
+		t.Error("the wordmark text must be present in colour mode")
 	}
 
 	tu.NoColor = true
@@ -683,9 +683,9 @@ func TestTheWordmarkLosesItsOwnColourToo(t *testing.T) {
 	if sgr.MatchString(out.String()) {
 		t.Errorf("NO_COLOR must strip the wordmark's own colours: %q", out.String())
 	}
-	// The artwork itself must still be there, just in the terminal's own colour.
-	if !strings.Contains(out.String(), "\u2588\u2588\u2588") {
-		t.Error("the wordmark's shape must survive the strip")
+	// The wordmark text itself must still be there, just uncoloured.
+	if !strings.Contains(stripANSI(out.String()), "motita") {
+		t.Error("the wordmark text must survive the strip")
 	}
 }
 

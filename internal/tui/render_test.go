@@ -163,11 +163,8 @@ func TestWordmarkIsNotFramed(t *testing.T) {
 	if strings.Contains(frame, "\u2554") || strings.Contains(frame, "\u2551") || strings.Contains(frame, "\u255d") {
 		t.Errorf("the wordmark must not be framed any more: %q", frame)
 	}
-	for _, row := range bannerLines {
-		plain := stripANSI(row)
-		if !strings.Contains(frame, plain) {
-			t.Errorf("the wordmark row %q is missing from the frame", plain)
-		}
+	if !strings.Contains(frame, "motita") {
+		t.Errorf("the wordmark text must be present in the frame: %q", frame)
 	}
 }
 
@@ -227,27 +224,6 @@ func TestAVersionTooNarrowToReadIsNotDrawn(t *testing.T) {
 	}
 }
 
-// TestCompactMarkOnANarrowTerminal: the five-row wordmark cannot be shown in
-// a narrow window, so the single-line mark replaces it rather than being
-// wrapped or clipped. The Motita banner is ~35 columns wide, so size() clamps
-// to minWidth (44) which leaves room — we call headerLines directly with a
-// narrow width to exercise the fallback path.
-func TestCompactMarkOnANarrowTerminal(t *testing.T) {
-	tui := newFakeTUI("q\n", &fakeRunner{})
-	// headerLines checks w - 2*leftMargin against the banner width.
-	// With leftMargin=2 and banner ~35 chars, w=30 leaves 26 < 35.
-	hdrs := tui.headerLines(30)
-	frame := stripANSI(strings.Join(hdrs, "\n"))
-	if !strings.Contains(frame, compactMark) {
-		t.Errorf("a narrow terminal must fall back to %q: %q", compactMark, frame)
-	}
-	for _, row := range bannerLines {
-		if strings.Contains(frame, stripANSI(row)) {
-			t.Error("the wide wordmark must not be drawn when it does not fit")
-		}
-	}
-}
-
 // TestNoColourStripsTheWordmark: NO_COLOR mode must not emit escape sequences,
 // which includes the ones baked into the wordmark.
 func TestNoColourStripsTheWordmark(t *testing.T) {
@@ -262,10 +238,8 @@ func TestNoColourStripsTheWordmark(t *testing.T) {
 	if strings.Contains(body, "\x1b[0;97m") {
 		t.Errorf("NO_COLOR must strip the wordmark's own colours: %q", body)
 	}
-	for _, row := range bannerLines {
-		if !strings.Contains(body, stripANSI(row)) {
-			t.Errorf("the plain wordmark row %q is missing", stripANSI(row))
-		}
+	if !strings.Contains(body, "motita") {
+		t.Errorf("the plain wordmark text must be present")
 	}
 }
 
@@ -467,33 +441,33 @@ func TestFrameFitsTheTerminalHeight(t *testing.T) {
 }
 
 // TestSheddingOrder: when the terminal is short, the key hints go first, then the
-// wordmark (five rows, then the one-line mark, then nothing) and only then the
-// conversation. The order matters: the hints are the most redundant part of the
-// screen, the wordmark is identity, and the conversation is the content.
+// wordmark and only then the conversation. The order matters: the hints are the
+// most redundant part of the screen, the wordmark is identity, and the
+// conversation is the content.
 func TestSheddingOrder(t *testing.T) {
 	runner := &fakeRunner{}
 	tui := newFakeTUI("q\n", runner)
 	tui.Width = 80
 
 	full, _ := tui.layout(80, 60)
-	if strings.Contains(strings.Join(full, "\n"), compactMark) {
-		t.Error("a tall terminal must show the full wordmark, not the compact one")
+	if !strings.Contains(stripANSI(strings.Join(full, "\n")), "motita") {
+		t.Error("a tall terminal must show the wordmark")
 	}
 
-	// Shorter: the hints go first, the banner stays.
+	// Shorter: the hints go first, the wordmark stays.
 	short, _ := tui.layout(80, 20)
 	frame := strings.Join(short, "\n")
 	if strings.Contains(frame, "switch mode") {
 		t.Errorf("the hints must be dropped first:\n%s", frame)
 	}
-	if !strings.Contains(frame, stripANSI(bannerLines[0])) {
+	if !strings.Contains(stripANSI(frame), "motita") {
 		t.Errorf("the wordmark must survive the loss of the hints:\n%s", frame)
 	}
 
-	// Shorter still: the wordmark goes in one step, leaving the conversation.
+	// Shorter still: the wordmark goes, leaving the conversation.
 	tiny, _ := tui.layout(80, 15)
 	frame = strings.Join(tiny, "\n")
-	if strings.Contains(frame, compactMark) {
+	if strings.Contains(stripANSI(frame), "motita") {
 		t.Errorf("the wordmark must be dropped on a very short terminal:\n%s", frame)
 	}
 	if !strings.Contains(frame, "Task") {

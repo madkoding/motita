@@ -133,7 +133,7 @@ func Run(ctx context.Context, in io.Reader, out io.Writer, configPath string, pr
 		generated:     now,
 	})
 
-	if err := writeFileAtomic(configPath, config); err != nil {
+	if err := writeFileAtomicFn(configPath, config); err != nil {
 		return Result{}, err
 	}
 
@@ -143,7 +143,7 @@ func Run(ctx context.Context, in io.Reader, out io.Writer, configPath string, pr
 		// The key goes to its own file with 0600 permissions: the configuration
 		// stays shareable, and the secret is never in it.
 		credPath := credentialsPathFor(configPath)
-		if err := writeFileAtomic(credPath, []byte(renderCredentials(provider.EnvKey, key))); err != nil {
+		if err := writeFileAtomicFn(credPath, []byte(renderCredentials(provider.EnvKey, key))); err != nil {
 			return Result{}, err
 		}
 		res.CredentialsPath = credPath
@@ -502,6 +502,10 @@ var (
 	chmodFile  = os.Chmod
 	renameFile = os.Rename
 )
+
+// writeFileAtomicFn is the function used to write files atomically. It is a
+// variable so tests can inject a failure to cover the error paths in Run.
+var writeFileAtomicFn = writeFileAtomic
 
 // writeFileAtomic writes to a temporary file in the same directory and renames it,
 // so the destination is never half-written, and creates the directory if needed.

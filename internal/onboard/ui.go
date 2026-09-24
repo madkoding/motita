@@ -12,35 +12,17 @@ import (
 // them or ignores them. The wizard itself never decides whether to emit colour
 // — that would duplicate a decision the caller already owns.
 const (
-	colReset   = "\x1b[0m"
-	colBold    = "\x1b[1m"
-	colDim     = "\x1b[2m"
-	colCyan    = "\x1b[36m"
-	colGreen   = "\x1b[32m"
-	colYellow  = "\x1b[33m"
-	colMagenta = "\x1b[35m"
-	colBlue    = "\x1b[34m"
-	colGray    = "\x1b[90m"
+	colReset  = "\x1b[0m"
+	colBold   = "\x1b[1m"
+	colDim    = "\x1b[2m"
+	colCyan   = "\x1b[36m"
+	colGreen  = "\x1b[32m"
+	colYellow = "\x1b[33m"
+	colGray   = "\x1b[90m"
 )
 
-// banner is the ASCII art shown at the top of the wizard. It is centred on a
-// 72-column terminal and uses colour to make the wordmark stand out.
-func banner() string {
-	art := `    · · ·   *  ·  ·   ✦  ·  ·   *  ·  ·   ✦  ·  ·
-  ·   ___  ___  ___  ___  ___   ·  __  __   ·
-  ·  |  _||  _|| __|| _ || _ ||   \ \/ /   ·
-  ·  | |_ | | || _||  ||  |||    >  <    ·
-  ·  |  _|| |_| || | |  |||    / /\ \   ·
-  ·  |_|  |___||___|___||_|   /_/  \_\  ·
-  ·  ·   ·   ·   ·   ·   ·   ·   ·   ·   ·`
-	return art
-}
-
-// printBanner writes the banner and the welcome header to the output.
+// printBanner writes the welcome header to the output.
 func printBanner(out io.Writer) {
-	fmt.Fprintln(out)
-	fmt.Fprintf(out, "%s%s%s\n", colMagenta, banner(), colReset)
-	fmt.Fprintln(out)
 	fmt.Fprintf(out, "%s  motita — your autonomous coding agent%s\n", colBold, colReset)
 	fmt.Fprintf(out, "%s  Let's get you set up. This takes about a minute.%s\n", colDim, colReset)
 	fmt.Fprintln(out)

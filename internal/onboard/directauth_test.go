@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"errors"
 	"io"
 	"net/http"
 	"os"
@@ -577,5 +578,48 @@ func TestStripANSIEmpty(t *testing.T) {
 func TestStripANSINoEscape(t *testing.T) {
 	if stripANSI("plain text") != "plain text" {
 		t.Error("expected plain text")
+	}
+}
+
+// TestWriteFileAtomicMkdirError: writing to a path whose parent directory
+// cannot be created returns an error.
+func TestWriteFileAtomicMkdirError(t *testing.T) {
+	// A path inside /proc cannot be created as a directory.
+	err := writeFileAtomic("/proc/nonexistent-cannot-create/motita.yaml", []byte("test"))
+	if err == nil {
+		t.Fatal("expected error when directory cannot be created")
+	}
+}
+
+// TestRunWriteConfigError: when writeFileAtomicFn fails on the config file,
+// Run returns an error.
+func TestRunWriteConfigError(t *testing.T) {
+	dir := t.TempDir()
+	old := writeFileAtomicFn
+	writeFileAtomicFn = func(string, []byte) error { return errors.New("disk full") }
+	t.Cleanup(func() { writeFileAtomicFn = old })
+	_, _, err := run(context.Background(), t, dir, []string{"openai", "1", "2", "", "my-key"}, Answers{})
+	if err == nil {
+		t.Fatal("expected error when config write fails")
+	}
+}
+
+// TestRunWriteCredError: when writeFileAtomicFn fails on the credentials file
+// (but succeeds on config), Run returns an error.
+func TestRunWriteCredError(t *testing.T) {
+	dir := t.TempDir()
+	calls := 0
+	old := writeFileAtomicFn
+	writeFileAtomicFn = func(path string, content []byte) error {
+		calls++
+		if calls == 2 {
+			return errors.New("cred write failed")
+		}
+		return old(path, content)
+	}
+	t.Cleanup(func() { writeFileAtomicFn = old })
+	_, _, err := run(context.Background(), t, dir, []string{"openai", "1", "2", "", "my-key"}, Answers{})
+	if err == nil {
+		t.Fatal("expected error when credentials write fails")
 	}
 }

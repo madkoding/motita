@@ -98,21 +98,6 @@ const (
 	permanentRows = 8
 )
 
-// bannerLines is the Motita wordmark: five shaded rows that carry their own
-// ANSI colours, so they are stored raw and only placed by the layout. In
-// no-colour mode the escape sequences are stripped before printing.
-var bannerLines = []string{
-	"\x1b[0;97m\u2588\x1b[0;37m   \x1b[0;97m\u2588\x1b[0;37m  \x1b[0;97m\u2580\u2580\u2580\x1b[0;37m  \x1b[0;97m\u2580\u2580\u2580\u2580\u2580\x1b[0;37m \x1b[0;97m\u2580\u2580\u2580\u2580\u2580\x1b[0;37m \x1b[0;97m\u2580\u2580\u2580\u2580\u2580\x1b[0;37m  \x1b[0;97m\u2580\u2580\u2580\x1b[0m",
-	"\x1b[0;97m\u2588\u2588\x1b[0;37m \x1b[0;97m\u2588\u2588\x1b[0;37m \x1b[0;97m\u2588\x1b[0;37m   \x1b[0;97m\u2588\x1b[0;37m   \x1b[0;97m\u2580\x1b[0;37m    \x1b[0;97m\u2580\x1b[0;37m    \x1b[0;97m\u2580\x1b[0;37m   \x1b[0;97m\u2580\x1b[0;37m  \x1b[0;97m\u2588\x1b[0;37m   \x1b[0;97m\u2588\x1b[0m",
-	"\x1b[0;97m\u2588\u2588\u2588\u2588\u2588\x1b[0;37m \x1b[0;97m\u2588\x1b[0;37m   \x1b[0;97m\u2588\x1b[0;37m   \x1b[0;97m\u2580\x1b[0;37m    \x1b[0;97m\u2580\x1b[0;37m    \x1b[0;97m\u2580\x1b[0;37m   \x1b[0;97m\u2580\x1b[0;37m  \x1b[0;97m\u2588\u2588\u2588\u2588\u2588\x1b[0m",
-	"\x1b[0;97m\u2588\x1b[0;37m \x1b[0;97m\u2580\x1b[0;37m \x1b[0;97m\u2588\x1b[0;37m \x1b[0;97m\u2588\x1b[0;37m   \x1b[0;97m\u2588\x1b[0;37m   \x1b[0;97m\u2584\x1b[0;37m    \x1b[0;97m\u2584\x1b[0;37m    \x1b[0;97m\u2584\x1b[0;37m   \x1b[0;97m\u2584\x1b[0;37m  \x1b[0;97m\u2588\x1b[0;37m   \x1b[0;97m\u2588\x1b[0m",
-	"\x1b[0;97m\u2588\x1b[0;37m   \x1b[0;97m\u2588\x1b[0;37m  \x1b[0;97m\u2584\u2584\u2584\x1b[0;37m    \x1b[0;97m\u2584\x1b[0;37m  \x1b[0;97m\u2584\u2584\u2584\u2584\u2584\x1b[0;37m   \x1b[0;97m\u2584\x1b[0;37m  \x1b[0;97m\u2588\x1b[0;37m   \x1b[0;97m\u2588\x1b[0m",
-}
-
-// compactMark is the wordmark used when the terminal is too narrow for the
-// five-row banner: the identity survives without wrapping the layout.
-const compactMark = "* M O T I T A"
-
 // spinner is advanced on every repaint of a running turn. It is plain ASCII so
 // it animates on every terminal, including a text console with a VGA font.
 var spinner = [...]string{"|", "/", "-", "\\"}
@@ -536,25 +521,17 @@ func (t *TUI) frameCols() int {
 	return w
 }
 
-// headerLines is the wordmark. It is never framed: the brand sits on its own,
-// centred, so the eye lands on it first and the panel below reads as a separate
-// surface rather than as part of the same box.
+// headerLines is the wordmark. No ASCII art: the name in bold text, centred,
+// with the version underneath. The identity is carried by the name, not by
+// decorative blocks that waste vertical space on small terminals.
 func (t *TUI) headerLines(w int) []string {
-	if w-2*leftMargin < visibleLen(bannerLines[0]) {
-		return []string{"", t.padCenter(t.brand(compactMark), w), t.versionLine(w)}
+	mark := "motita"
+	if t.NoColor {
+		mark = stripANSI(t.brand(mark))
+	} else {
+		mark = t.brand(mark)
 	}
-	lines := make([]string, 0, len(bannerLines)+2)
-	lines = append(lines, "")
-	for _, row := range bannerLines {
-		if t.NoColor {
-			row = stripANSI(row)
-		}
-		lines = append(lines, t.padCenter(row, w))
-	}
-	// The version takes the row of the trailing blank rather than adding one. The vertical
-	// budget is fixed (see permanentRows) and a row spent here is a row taken from the
-	// conversation: on a small terminal it is what pushes the composer off the screen.
-	return append(lines, t.versionLine(w))
+	return []string{"", t.padCenter(mark, w), t.versionLine(w)}
 }
 
 // versionLine names the running build under the wordmark, or draws an empty row when there is
