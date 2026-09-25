@@ -53,11 +53,6 @@ const wsHeartbeatTimeout = 10 * time.Second
 // chatty client never times out — only a silent one does.
 const wsReadTimeout = 90 * time.Second
 
-// wsWelcomeDelay is how long the server waits after the handshake before sending the
-// welcome message. It is zero in practice and exists only so a test can delay it to
-// observe the not-yet-authenticated state.
-var wsWelcomeDelay time.Duration
-
 // wsClient is one connected WebSocket client. It is the state the read loop and the
 // heartbeat goroutine share, and the mutex is what keeps the two writers from
 // interleaving frames on the same connection.

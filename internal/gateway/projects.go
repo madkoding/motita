@@ -9,11 +9,6 @@ import (
 	"time"
 )
 
-// projectKeyType is the context key for the resolved project.
-type projectKeyType struct{}
-
-var projectKey projectKeyType
-
 // handleListProjects answers every project this gateway knows about.
 func (s *Server) handleListProjects(w http.ResponseWriter, _ *http.Request) {
 	if s.projects == nil {

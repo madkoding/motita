@@ -194,14 +194,6 @@ func (c *wsTestClient) close() {
 	c.conn.Close()
 }
 
-// wsDial is the test helper that opens a WebSocket with the heartbeat disabled so the
-// heartbeat goroutine does not inject messages the test is not expecting. Tests that
-// specifically test the heartbeat use wsDialWithHeartbeat instead.
-func wsDial(t *testing.T, srv *Server, sessionID, token string) *wsTestClient {
-	t.Helper()
-	return dialWebSocket(t, srv, sessionID, token)
-}
-
 // newWSTestServer is newTestServer with the WebSocket heartbeat turned off, so tests do
 // not race with the 30-second heartbeat goroutine.
 func newWSTestServer(t *testing.T, svc Service) *Server {

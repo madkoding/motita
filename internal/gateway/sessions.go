@@ -514,24 +514,3 @@ func (s *Server) maybeAutoTitle(c *conversation) {
 		}
 	}
 }
-
-// maxTitleLen caps the auto-derived title: a front end draws it in a sidebar row, and a line
-// that wraps is a row that pushes the rest of the list down.
-const maxTitleLen = 60
-
-// deriveTitle turns the first user message into a short label. It collapses whitespace and
-// truncates with an ellipsis, so a multi-line prompt becomes a single readable row.
-func deriveTitle(text string) string {
-	// Collapse all whitespace (including newlines) into single spaces.
-	fields := strings.Fields(text)
-	title := strings.Join(fields, " ")
-	if len(title) > maxTitleLen {
-		// Trim at the last rune boundary before the limit to avoid cutting a multi-byte
-		// character in half.
-		r := []rune(title)
-		if len(r) > maxTitleLen {
-			title = string(r[:maxTitleLen-1]) + "…"
-		}
-	}
-	return title
-}

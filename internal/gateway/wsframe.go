@@ -224,13 +224,3 @@ func wsWriteClose(conn net.Conn, code uint16, reason string) error {
 	copy(payload[2:], reason)
 	return wsWriteFrame(conn, opClose, payload)
 }
-
-// wsWritePing sends a ping frame. The receiver MUST respond with a pong (RFC 6455 §5.5.2).
-func wsWritePing(conn net.Conn, data []byte) error {
-	return wsWriteFrame(conn, opPing, data)
-}
-
-// wsWritePong sends a pong frame in response to a ping.
-func wsWritePong(conn net.Conn, data []byte) error {
-	return wsWriteFrame(conn, opPong, data)
-}

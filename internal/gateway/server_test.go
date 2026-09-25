@@ -35,7 +35,6 @@ type fakeService struct {
 	reset     int
 	cfg       config.Config
 	reasoning string
-	model     string
 	verdict   func(good bool, note string) string
 	reward    string
 	questions []agent.AskItem

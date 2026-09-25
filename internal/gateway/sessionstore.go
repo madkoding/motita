@@ -110,26 +110,6 @@ func (st *sessionStore) save(c *conversation) error {
 	return nil
 }
 
-// load reads one conversation from disk. Returns nil, nil when the file does
-// not exist — that is the common case for a new session, not an error.
-func (st *sessionStore) load(id string) (*sessionRecord, error) {
-	st.mu.Lock()
-	defer st.mu.Unlock()
-
-	data, err := os.ReadFile(st.path(id))
-	if os.IsNotExist(err) {
-		return nil, nil
-	}
-	if err != nil {
-		return nil, fmt.Errorf("could not read the session %q: %w", id, err)
-	}
-	var rec sessionRecord
-	if err := json.Unmarshal(data, &rec); err != nil {
-		return nil, fmt.Errorf("could not parse the session %q: %w", id, err)
-	}
-	return &rec, nil
-}
-
 // loadAll reads every persisted conversation from disk, sorted by last-used
 // descending so the most recent session is first.
 func (st *sessionStore) loadAll() ([]sessionRecord, error) {
