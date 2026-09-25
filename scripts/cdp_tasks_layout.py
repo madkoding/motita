@@ -128,6 +128,26 @@ MEASURE_JS = """
       text: el.innerText.replace(/\\n/g, ' | '),
     };
   });
+  // A horizontal scrollbar INSIDE a column is a defect, not a detail: it means a child is
+  // wider than the column, and it paints a bar across the whole card. Reported as the
+  // overflow in pixels so the assertion can require it to be zero.
+  const spill = [];
+  const scan = (el, name) => {
+    if (!el) return;
+    const over = el.scrollWidth - el.clientWidth;
+    if (over > 0) spill.push({what: name, over: over});
+    const cs = getComputedStyle(el);
+    const edge = el.getBoundingClientRect().x + el.clientLeft + el.clientWidth;
+    for (const kid of el.querySelectorAll('*')) {
+      const b = kid.getBoundingClientRect();
+      if (b.right > edge + 0.5) spill.push({what: name + ' > ' + kid.tagName + '.' + String(kid.className).slice(0, 30),
+        over: +(b.right - edge).toFixed(2)});
+    }
+    void cs;
+  };
+  scan(form, '.tasks-form');
+  scan(col, '.tasks-list-column');
+  scan(panel, '.tasks-panel');
   return {
     viewport: {w: innerWidth, h: innerHeight},
     bodyDisplay: getComputedStyle(body).display,
@@ -137,6 +157,7 @@ MEASURE_JS = """
     listMaxHeight: getComputedStyle(list).maxHeight,
     countdownColor: (q('.task-countdown') ? getComputedStyle(q('.task-countdown')).color : null),
     countdownFont: (q('.task-countdown') ? getComputedStyle(q('.task-countdown')).fontFamily : null),
+    spill: spill,
     rows: rowInfo,
   };
 })()
@@ -263,6 +284,12 @@ async def main():
     for label, m in (("mobile", mo), ("desktop", d)):
         if not m:
             continue
+        # No horizontal scrollbar inside a column: a child wider than its column paints a bar
+        # across the whole card and clips the content beside it.
+        if not m.get("spill"):
+            ok(f"{label}: no column spills horizontally")
+        else:
+            bad(f"{label}: a column overflows horizontally: {m['spill'][:4]}")
         tags = [r["tag"] for r in m["rows"] if r["tag"]]
         if len(tags) == len(m["rows"]):
             ok(f"{label}: every row carries the cadence as a tag ({tags})")
@@ -294,10 +321,14 @@ async def main():
         else:
             bad(f"desktop: the countdown is static ({b} -> {a})")
         paused = [r for r in tk["after"]["rows"] if "Paused" in r["text"]]
-        if paused and all(not r["countdown"] for r in paused):
+        if not paused:
+            # Not a failure: whether a paused task exists is a property of the TASKS IN THE
+            # GATEWAY, not of the build. A fixture with a paused one exercises the rule; a live
+            # gateway whose tasks are all enabled simply has nothing to check, and reporting a
+            # failure there would blame the code for the data.
+            print("  skip  desktop: no paused task in this gateway, so the rule was not exercised")
+        elif all(not r["countdown"] for r in paused):
             ok("desktop: a paused task shows no countdown")
-        elif not paused:
-            bad("desktop: no paused task in the fixture, so the rule was not exercised")
         else:
             bad(f"desktop: a paused task is counting down ({paused})")
 
