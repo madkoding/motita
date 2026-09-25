@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/madkoding/motita/internal/agent"
+	"github.com/madkoding/motita/internal/schedule"
 	"github.com/madkoding/motita/internal/session"
 )
 
@@ -38,9 +39,7 @@ func (s *Server) handleTask(w http.ResponseWriter, r *http.Request) {
 	c.lastKind = "task"
 	c.stateMu.Unlock()
 	s.saveSession(c)
-	s.startRun(w, r, c, func(ctx context.Context, progress func(string, ...any)) (string, error) {
-		return c.svc.RunTask(ctx, body.Task, progress)
-	})
+	s.startRun(w, r, c, body.Task, schedule.KindTask)
 }
 
 // handlePlan is the same shape for the read-only planner.
@@ -62,54 +61,74 @@ func (s *Server) handlePlan(w http.ResponseWriter, r *http.Request) {
 	c.lastKind = "plan"
 	c.stateMu.Unlock()
 	s.saveSession(c)
-	s.startRun(w, r, c, func(ctx context.Context, progress func(string, ...any)) (string, error) {
-		return c.svc.RunPlan(ctx, body.Prompt, progress)
-	})
+	s.startRun(w, r, c, body.Prompt, schedule.KindPlan)
 }
 
 // startRun begins a turn and streams it to the caller.
 //
-// The slot is taken BEFORE the headers are written, so a refused second client gets a 409 it can
-// read instead of a stream that never starts. That ordering is the whole reason this is one
-// function and not two.
-func (s *Server) startRun(w http.ResponseWriter, r *http.Request, c *conversation, exec func(context.Context, func(string, ...any)) (string, error)) {
-	if !c.takeRunSlot() {
+// The slot is taken BEFORE the headers are written, so a refused second client gets a 409
+// it can read instead of a stream that never starts. That ordering is the whole reason
+// this is one function and not two, and it is preserved here by taking the slot inside
+// startDetachedRun and answering 409 when it comes back refused - attach() writes the
+// headers, and it runs only after the slot is ours.
+func (s *Server) startRun(w http.ResponseWriter, r *http.Request, c *conversation, task, kind string) {
+	rn, started := s.startDetachedRun(c, task, kind, s.approverFactory(c))
+	if !started {
 		writeError(w, http.StatusConflict,
 			"a run is already in progress in this session; a conversation is served one run at a time")
 		return
 	}
+	s.attach(w, r, c, rn, 0)
+}
 
-	// The run derives its context from the PROCESS, not from this request. That is the line the
-	// whole feature turns on: a run bounded by its connection is a run that dies when the client
-	// walks away, and reconnecting to a dead run has nothing to reconnect to.
+// startDetachedRun begins a turn in a conversation with NO client attached, and returns
+// the run so a caller can wait for it.
+//
+// It exists because two paths need exactly this and a third needs it now: the scheduler,
+// the resume after a gateway restart, and - since a scheduled run can have a client
+// watching the same conversation - the slot must be taken through the SAME guard the HTTP
+// path uses. The version in resumeInterruptedSessions set c.running directly "because
+// there is no concurrent client", and that assumption stops being true the moment a task
+// fires into a conversation somebody is looking at.
+//
+// It reports false when the slot is taken, and the CALLER decides how to say so: the HTTP
+// path answers 409, the scheduler records "skipped" on the record.
+func (s *Server) startDetachedRun(c *conversation, task, kind string, approverFor func(*run) agent.Approver) (*run, bool) {
+	if c == nil || c.svc == nil {
+		return nil, false
+	}
+	if !c.takeRunSlot() {
+		return nil, false
+	}
+
+	// The run derives its context from the PROCESS, not from any request: that is what
+	// lets a turn outlive the client that asked for it, and it is also what a gateway
+	// shutdown uses to end everything cleanly.
 	runCtx, cancel := context.WithCancel(s.baseCtx)
 	rn := newRun(newRunID(), runCtx, cancel)
 	c.setCurrentRun(rn)
+	c.svc.SetApprover(approverFor(rn))
 
-	// The approver is installed for THIS run, and it is the transport's job rather than the
-	// agent's. A command that needs approval and has nobody to ask is REFUSED, so the gateway is
-	// exactly the thing that has to become the person asking.
-	c.svc.SetApprover(s.approverFor(c, rn))
-
-	// The run is driven in ITS OWN goroutine, and this handler only reads its events - which is
-	// what lets the turn outlive the request.
 	go func() {
 		defer c.releaseRunSlot()
 		defer c.clearCurrentRun()
-		result, err := exec(runCtx, rn.progress())
+		var result string
+		var err error
+		if kind == schedule.KindPlan {
+			result, err = c.svc.RunPlan(runCtx, task, rn.progress())
+		} else {
+			result, err = c.svc.RunTask(runCtx, task, rn.progress())
+		}
 		switch {
 		case errors.Is(err, context.Canceled):
-			// Cancelled is its OWN outcome and not an error: it is something a person asked for,
-			// and reporting it as a failure would make the interface apologise for the user's
-			// own decision.
 			rn.append(EventError, map[string]string{"error": "the run was cancelled"})
 			rn.finish("cancelled", "", "the run was cancelled", session.Snapshot{})
 		case err != nil:
 			rn.append(EventError, map[string]string{"error": err.Error()})
 			rn.finish("error", "", err.Error(), session.Snapshot{})
 		case result == "":
-			// A run that returns nothing and no error is reported as the failure it is: an empty
-			// answer rendered as success is the interface lying.
+			// A run that returns nothing and no error is reported as the failure it is:
+			// an empty answer rendered as success is the interface lying.
 			rn.append(EventError, map[string]string{"error": "the run finished without reporting a result"})
 			rn.finish("error", "", "the run finished without reporting a result", session.Snapshot{})
 		default:
@@ -118,9 +137,46 @@ func (s *Server) startRun(w http.ResponseWriter, r *http.Request, c *conversatio
 			rn.finish("done", result, "", snap)
 			s.maybeAutoTitle(c)
 		}
+		s.saveSession(c)
 	}()
+	return rn, true
+}
 
-	s.attach(w, r, c, rn, 0)
+// approverFactory adapts approverFor to the factory startDetachedRun takes.
+//
+// The run does not exist until it is created, and the approver needs it to announce a
+// question, so the approver cannot be built before then: a factory is the shape that
+// says so.
+func (s *Server) approverFactory(c *conversation) func(*run) agent.Approver {
+	return func(rn *run) agent.Approver { return s.approverFor(c, rn) }
+}
+
+// unattendedApprover is who a run with NOBODY at the keyboard asks.
+//
+// It REFUSES, with an error, and the error is the answer rather than a failure to report:
+// the agent already has a correct behaviour for "this needs approval and there is nobody
+// to ask" - refuse the action, keep going, and tell the operator how to run such work
+// deliberately (see agent.policy's approve). What this function must NOT do is reuse
+// approverFor, which BLOCKS waiting for an answer that can never arrive: a scheduled run
+// would hold its conversation's only run slot for the life of the process.
+func (s *Server) unattendedApprover(scheduleID string) func(*run) agent.Approver {
+	return func(rn *run) agent.Approver {
+		return func(_ context.Context, req agent.ApprovalRequest) (bool, error) {
+			err := fmt.Errorf("this run was started by the scheduled task %s and has nobody to ask: "+
+				"set agent.policy.enforce=false to run such actions unattended, or run the task by hand",
+				scheduleID)
+			rn.append(EventApprovalDenied, approvalDeniedEvent{
+				Command: req.Command, Reason: req.Reason, Rule: req.Rule, Error: err.Error(),
+			})
+			return false, err
+		}
+	}
+}
+
+// conversationOf finds a live conversation by id, or nil.
+func (s *Server) conversationOf(id string) *conversation {
+	c, _ := s.lookup(id)
+	return c
 }
 
 // attach streams one run to one client, from the given sequence number onwards.

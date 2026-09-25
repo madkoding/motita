@@ -32,6 +32,12 @@ const (
 	// run is blocked on a question has to be told about it, or it waits forever for a run that
 	// is waiting for it.
 	EventAttached = "attached"
+	// EventApprovalDenied reports that a question was asked and REFUSED without a human
+	// answering, which is what a run with nobody at the keyboard does. It is a distinct
+	// event rather than an EventError because the user's next move is different: nothing
+	// broke, and the fix is either to run the task by hand or to configure unattended
+	// execution.
+	EventApprovalDenied = "approval_denied"
 )
 
 // progressEvent is one line of the agent's output.
@@ -56,6 +62,16 @@ type approvalEvent struct {
 type doneEvent struct {
 	Result  string           `json:"result"`
 	Session session.Snapshot `json:"session"`
+}
+
+// approvalDeniedEvent is a command that was asked about and refused because there was
+// nobody to ask.
+type approvalDeniedEvent struct {
+	Command string `json:"command"`
+	Reason  string `json:"reason"`
+	Rule    string `json:"rule"`
+	// Error is the refusal text, which names the setting that changes the outcome.
+	Error string `json:"error"`
 }
 
 // attachedEvent is the preamble of a stream that joined a run in flight.

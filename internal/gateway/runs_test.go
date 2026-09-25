@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/madkoding/motita/internal/agent"
+	"github.com/madkoding/motita/internal/schedule"
 	"github.com/madkoding/motita/internal/session"
 )
 
@@ -803,14 +804,15 @@ func TestNewApprovalIDReportsAFailingSource(t *testing.T) {
 // and wait for whoever attaches next.
 func TestAClientThatCannotBeStreamedToDoesNotLoseTheRun(t *testing.T) {
 	done := make(chan struct{})
-	srv := newTestServer(t, &fakeService{})
+	svc := &fakeService{task: func(context.Context, string, func(string, ...any)) (string, error) {
+		close(done)
+		return "done", nil
+	}}
+	srv := newTestServer(t, svc)
 	req := httptest.NewRequest(http.MethodPost, sessionPath(srv, DefaultSession, "/task"), strings.NewReader("{}"))
 
 	conv := srv.sessions[DefaultSession]
-	srv.startRun(noFlushWriter{}, req, conv, func(context.Context, func(string, ...any)) (string, error) {
-		close(done)
-		return "done", nil
-	})
+	srv.startRun(noFlushWriter{}, req, conv, "a task", schedule.KindTask)
 
 	select {
 	case <-done:

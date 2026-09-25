@@ -1,6 +1,7 @@
 package gateway
 
 import (
+	"context"
 	"encoding/json"
 	"io"
 	"net/http"
@@ -10,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/madkoding/motita/internal/agent"
 	"github.com/madkoding/motita/internal/schedule"
 )
 
@@ -198,4 +200,256 @@ func send(t *testing.T, srv *Server, method, path, token, body string) *httptest
 	w := httptest.NewRecorder()
 	srv.Handler().ServeHTTP(w, req)
 	return w
+}
+
+func createSchedule(t *testing.T, srv *Server, body string) string {
+	t.Helper()
+	w := postJSON(t, srv, "/v1/schedules", testToken, body)
+	if w.Code != http.StatusCreated {
+		t.Fatalf("creating the fixture: status = %d, body = %s", w.Code, w.Body.String())
+	}
+	var out struct {
+		Schedule struct {
+			ID string `json:"id"`
+		} `json:"schedule"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &out); err != nil {
+		t.Fatalf("body = %q: %v", w.Body.String(), err)
+	}
+	return out.Schedule.ID
+}
+
+// Pausing is a PATCH, and a PATCH only touches what it sends: a request that carried
+// the whole record would make "pause this" able to silently rewrite the task.
+func TestUpdateSchedulePausesWithoutTouchingTheTask(t *testing.T) {
+	srv := newTestServer(t, &fakeService{})
+	withSchedules(t, srv, time.Minute)
+	id := createSchedule(t, srv, `{"title":"t","task":"original","every":"30m"}`)
+
+	w := send(t, srv, http.MethodPatch, "/v1/schedules/"+id, testToken, `{"enabled":false}`)
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200: body = %s", w.Code, w.Body.String())
+	}
+	rec, err := srv.schedules.Load(id)
+	if err != nil || rec == nil {
+		t.Fatalf("Load: (%v, %v)", rec, err)
+	}
+	if rec.Enabled {
+		t.Error("the task is still enabled")
+	}
+	if rec.Task != "original" {
+		t.Errorf("Task = %q, want it untouched: a PATCH that only pauses must not rewrite the task", rec.Task)
+	}
+}
+
+func TestUpdateScheduleRefusesAnEmptyTitle(t *testing.T) {
+	srv := newTestServer(t, &fakeService{})
+	withSchedules(t, srv, time.Minute)
+	id := createSchedule(t, srv, `{"title":"t","task":"x","every":"30m"}`)
+
+	w := send(t, srv, http.MethodPatch, "/v1/schedules/"+id, testToken, `{"title":"  "}`)
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400", w.Code)
+	}
+}
+
+func TestUpdateAndDeleteAnUnknownScheduleAreNotFound(t *testing.T) {
+	srv := newTestServer(t, &fakeService{})
+	withSchedules(t, srv, time.Minute)
+
+	if w := send(t, srv, http.MethodPatch, "/v1/schedules/nope", testToken, `{"enabled":false}`); w.Code != http.StatusNotFound {
+		t.Errorf("PATCH of an unknown task = %d, want 404", w.Code)
+	}
+	if w := send(t, srv, http.MethodDelete, "/v1/schedules/nope", testToken, ""); w.Code != http.StatusNotFound {
+		t.Errorf("DELETE of an unknown task = %d, want 404", w.Code)
+	}
+}
+
+func TestDeleteScheduleRemovesTheRecord(t *testing.T) {
+	srv := newTestServer(t, &fakeService{})
+	withSchedules(t, srv, time.Minute)
+	id := createSchedule(t, srv, `{"title":"t","task":"x","every":"30m"}`)
+
+	w := send(t, srv, http.MethodDelete, "/v1/schedules/"+id, testToken, "")
+	if w.Code != http.StatusNoContent {
+		t.Fatalf("status = %d, want 204: body = %s", w.Code, w.Body.String())
+	}
+	rec, err := srv.schedules.Load(id)
+	if err != nil || rec != nil {
+		t.Fatalf("after DELETE the record is (%v, %v), want (nil, nil)", rec, err)
+	}
+}
+
+// Running now STARTS a run in the conversation the task names, and the run is real:
+// the fake service records that it was asked, which is the evidence a handler alone
+// cannot give.
+func TestRunScheduleNowStartsARunInItsSession(t *testing.T) {
+	started := make(chan string, 1)
+	svc := &fakeService{
+		plan: func(_ context.Context, prompt string, _ func(string, ...any)) (string, error) {
+			started <- prompt
+			return "the audit is done", nil
+		},
+	}
+	srv := newTestServer(t, svc)
+	withSchedules(t, srv, time.Minute)
+	id := createSchedule(t, srv, `{"title":"t","task":"audit the logs","kind":"plan","every":"30m"}`)
+
+	w := postJSON(t, srv, "/v1/schedules/"+id+"/run", testToken, "")
+	if w.Code != http.StatusAccepted {
+		t.Fatalf("status = %d, want 202: a run now is started, not waited for: body = %s", w.Code, w.Body.String())
+	}
+	select {
+	case got := <-started:
+		if got != "audit the logs" {
+			t.Errorf("the run was asked for %q, want the task text", got)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("the run never reached the service: 'run now' answered 202 without running anything")
+	}
+}
+
+// A conversation with a run already in flight refuses the second one, and the refusal is
+// reported rather than swallowed: a scheduled task that silently did not run is the one
+// failure a person cannot diagnose.
+func TestRunScheduleNowReportsABusySession(t *testing.T) {
+	release := make(chan struct{})
+	svc := &fakeService{
+		task: func(_ context.Context, _ string, _ func(string, ...any)) (string, error) {
+			<-release
+			return "done", nil
+		},
+	}
+	srv := newTestServer(t, svc)
+	withSchedules(t, srv, time.Minute)
+	id := createSchedule(t, srv, `{"title":"t","task":"x","every":"30m"}`)
+
+	first := postJSON(t, srv, "/v1/schedules/"+id+"/run", testToken, "")
+	if first.Code != http.StatusAccepted {
+		t.Fatalf("the first run = %d, want 202", first.Code)
+	}
+	// Wait until the slot is actually taken, so the second request really races a run.
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) && !srv.sessions[DefaultSession].isRunning() {
+		time.Sleep(time.Millisecond)
+	}
+	second := postJSON(t, srv, "/v1/schedules/"+id+"/run", testToken, "")
+	if second.Code != http.StatusConflict {
+		t.Fatalf("the second run = %d, want 409: body = %s", second.Code, second.Body.String())
+	}
+	close(release)
+}
+
+// A scheduled firing with nobody to ask must not hang: the approver refuses at once and
+// the refusal says how to run unattended. Without this the run blocks forever holding the
+// conversation's one run slot.
+func TestAScheduledRunRefusesAnApprovalInsteadOfWaiting(t *testing.T) {
+	asked := make(chan error, 1)
+	svc := &fakeService{
+		approverWrap: func(fn agent.Approver) {
+			if fn == nil {
+				return
+			}
+			ok, err := fn(context.Background(), agent.ApprovalRequest{Command: "rm -rf /", Reason: "consequential", Rule: "test"})
+			asked <- err
+			if ok {
+				t.Error("the unattended approver approved a command")
+			}
+		},
+	}
+	srv := newTestServer(t, svc)
+	withSchedules(t, srv, time.Minute)
+	id := createSchedule(t, srv, `{"title":"t","task":"x","every":"30m"}`)
+	postJSON(t, srv, "/v1/schedules/"+id+"/run", testToken, "")
+
+	select {
+	case err := <-asked:
+		if err == nil {
+			t.Fatal("the unattended approver returned no error: the agent would read that as a user's refusal, which says nothing about why")
+		}
+		if !strings.Contains(err.Error(), "enforce=false") {
+			t.Errorf("the refusal must say how to run unattended, got: %v", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("the approver was never installed for the scheduled run")
+	}
+}
+
+// A detached run takes the conversation's ONE slot, which is the property the scheduler
+// depends on: two firings into one conversation must not interleave two tasks into one
+// transcript. This is the same rule POST /task enforces, reached from a different door.
+func TestADetachedRunTakesTheConversationsRunSlot(t *testing.T) {
+	release := make(chan struct{})
+	svc := &fakeService{
+		task: func(_ context.Context, _ string, _ func(string, ...any)) (string, error) {
+			<-release
+			return "done", nil
+		},
+	}
+	srv := newTestServer(t, svc)
+	c, ok := srv.lookup(DefaultSession)
+	if !ok {
+		t.Fatal("the default conversation is missing")
+	}
+
+	if _, started := srv.startDetachedRun(c, "first", schedule.KindTask, srv.unattendedApprover("s1")); !started {
+		t.Fatal("the first detached run did not start")
+	}
+	if _, started := srv.startDetachedRun(c, "second", schedule.KindTask, srv.unattendedApprover("s1")); started {
+		t.Error("a second detached run started while the first held the slot: two tasks would interleave into one transcript")
+	}
+	close(release)
+}
+
+// The run is recorded in the conversation, so a client that attaches later sees it: a
+// scheduled firing that left nothing behind is a firing nobody can verify.
+func TestADetachedRunEndsInTheConversation(t *testing.T) {
+	svc := &fakeService{
+		task: func(_ context.Context, _ string, _ func(string, ...any)) (string, error) {
+			return "the audit is done", nil
+		},
+	}
+	srv := newTestServer(t, svc)
+	c, _ := srv.lookup(DefaultSession)
+
+	rn, started := srv.startDetachedRun(c, "audit", schedule.KindTask, srv.unattendedApprover("s1"))
+	if !started {
+		t.Fatal("the detached run did not start")
+	}
+	select {
+	case <-rn.done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("the detached run never finished")
+	}
+	outcome, result, _, _ := rn.outcomeOf()
+	if outcome != "done" || result != "the audit is done" {
+		t.Fatalf("outcome = %q, result = %q", outcome, result)
+	}
+}
+
+// A cancelled detached run is reported as CANCELLED, not as a failure: it is something
+// the gateway's shutdown asked for, and calling it an error would make a restart look
+// like a broken task.
+func TestACancelledDetachedRunIsNotAFailure(t *testing.T) {
+	svc := &fakeService{
+		task: func(ctx context.Context, _ string, _ func(string, ...any)) (string, error) {
+			<-ctx.Done()
+			return "", ctx.Err()
+		},
+	}
+	srv := newTestServer(t, svc)
+	c, _ := srv.lookup(DefaultSession)
+	rn, started := srv.startDetachedRun(c, "audit", schedule.KindTask, srv.unattendedApprover("s1"))
+	if !started {
+		t.Fatal("the detached run did not start")
+	}
+	c.cancelRun()
+	select {
+	case <-rn.done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("the run did not end after being cancelled")
+	}
+	if outcome, _, _, _ := rn.outcomeOf(); outcome != "cancelled" {
+		t.Fatalf("outcome = %q, want cancelled", outcome)
+	}
 }
