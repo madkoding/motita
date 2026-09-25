@@ -314,59 +314,120 @@ def main():
                         if len(ids) != len(set(ids)):
                             failures += fail(f"the same id is printed twice in {label}: {ids}")
                     # Expand/collapse: click the project header and measure what
-                    # the user actually sees. An earlier version of this check
-                    # compared the chevron's CLASS STRING and passed while the
-                    # icon never moved: Tailwind's `transform` plugin is off, so
-                    # `.rotate-90` emitted `translate(var(--tw-translate-x))`
-                    # with that variable undefined, the declaration was dropped,
-                    # and computed `transform` stayed `none`. So this reads the
-                    # computed style and the drawn path, not the class name.
+                    # the user actually sees. Two earlier versions of this check
+                    # were weak and both passed over a real bug:
+                    #   * one compared the chevron's CLASS STRING while the icon
+                    #     never moved (Tailwind's `transform` plugin is off, so
+                    #     `.rotate-90` emitted `translate(var(--tw-translate-x))`
+                    #     with that variable undefined, the declaration was
+                    #     dropped, and computed `transform` stayed `none`);
+                    #   * one COUNTED `.session-row` elements, which stops being
+                    #     evidence the moment the list is animated instead of
+                    #     unmounted - the rows stay in the DOM at zero height.
+                    # So this now measures the collapsed list's real HEIGHT and
+                    # its computed `visibility`, which is true whether the rows
+                    # are removed or merely closed to nothing.
                     if label == "narrow":
-                        before_count = await c.js("document.querySelectorAll('.session-row').length")
-                        arrow_expanded = await c.js("""(() => {
-                            const h = document.querySelector('.project-header');
-                            if (!h) return null;
-                            const svg = h.querySelector('svg');
-                            const pl = svg.querySelector('polyline');
-                            const cs = getComputedStyle(svg);
-                            return { points: pl ? pl.getAttribute('points') : null,
-                                     transform: cs.transform, rect: svg.getBoundingClientRect().width };
-                        })()""")
-                        await c.js("document.querySelector('.project-header').click()")
-                        await asyncio.sleep(0.8)
-                        after_count = await c.js("document.querySelectorAll('.session-row').length")
-                        arrow_collapsed = await c.js("""(() => {
-                            const h = document.querySelector('.project-header');
-                            if (!h) return null;
-                            const svg = h.querySelector('svg');
-                            const pl = svg.querySelector('polyline');
-                            const cs = getComputedStyle(svg);
-                            return { points: pl ? pl.getAttribute('points') : null,
-                                     transform: cs.transform, rect: svg.getBoundingClientRect().width };
-                        })()""")
-                        print(f"  COLLAPSE: sessions {before_count} -> {after_count}")
-                        print(f"            arrow {arrow_expanded['points']!r} -> {arrow_collapsed['points']!r}")
-                        if after_count >= before_count:
-                            failures += fail(f"collapsing a project did not hide its sessions: {before_count} -> {after_count}")
-                        # The arrow must POINT differently in each state. Two
-                        # different paths, both actually drawn: a rotation that
-                        # never applies would keep the same points.
-                        if not arrow_expanded or not arrow_collapsed:
-                            failures += fail("the collapse arrow is missing from the project header")
-                        elif arrow_expanded["points"] == arrow_collapsed["points"]:
-                            failures += fail(f"the arrow does not change direction: {arrow_expanded['points']!r} in both states")
-                        # Expanded points DOWN (6 9 12 15 18 9), collapsed points
-                        # RIGHT (9 18 15 12 9 6) - the direction the list goes.
-                        if arrow_expanded and arrow_expanded["points"] != "6 9 12 15 18 9":
-                            failures += fail(f"expanded arrow must point down, got {arrow_expanded['points']!r}")
-                        if arrow_collapsed and arrow_collapsed["points"] != "9 18 15 12 9 6":
-                            failures += fail(f"collapsed arrow must point right, got {arrow_collapsed['points']!r}")
-                        await c.js("document.querySelector('.project-header').click()")
-                        await asyncio.sleep(0.8)
-                        restored = await c.js("document.querySelectorAll('.session-row').length")
-                        print(f"  EXPAND: sessions -> {restored}")
-                        if restored != before_count:
-                            failures += fail(f"expanding did not restore the sessions: had {before_count}, now {restored}")
+                        async def collapse_state():
+                            return await c.js("""(() => {
+                                const h = document.querySelector('.project-header');
+                                if (!h) return null;
+                                const svg = h.querySelector('svg');
+                                const pl = svg ? svg.querySelector('polyline') : null;
+                                const list = document.querySelector('.project-sessions');
+                                const inner = document.querySelector('.project-sessions-inner');
+                                return {
+                                    points: pl ? pl.getAttribute('points') : null,
+                                    transform: svg ? getComputedStyle(svg).transform : null,
+                                    rows: document.querySelectorAll('.session-row').length,
+                                    listHeight: list ? Math.round(list.getBoundingClientRect().height) : null,
+                                    innerHeight: inner ? Math.round(inner.getBoundingClientRect().height) : null,
+                                    visibility: list ? getComputedStyle(list).visibility : null,
+                                    gridRows: list ? getComputedStyle(list).gridTemplateRows : null,
+                                    transition: list ? getComputedStyle(list).transitionProperty : null,
+                                };
+                            })()""")
+
+                        expanded = await collapse_state()
+                        if not expanded:
+                            failures += fail("no project header to collapse")
+                        else:
+                            # Mid-flight sample: with the transition running, the
+                            # list must be at a height BETWEEN open and closed.
+                            # That is the only way to prove it animates rather
+                            # than jump-cutting, and it is invisible to any check
+                            # that only samples the two end states.
+                            await c.js("document.querySelector('.project-header').click()")
+                            await asyncio.sleep(0.09)
+                            mid = await collapse_state()
+                            await asyncio.sleep(0.9)
+                            collapsed = await collapse_state()
+                            print(f"  COLLAPSE: list height {expanded['listHeight']}px -> "
+                                  f"{mid['listHeight']}px (mid-flight) -> {collapsed['listHeight']}px")
+                            print(f"            arrow transform {expanded['transform']!r} -> {collapsed['transform']!r}")
+
+                            if collapsed["listHeight"] >= 1:
+                                failures += fail(
+                                    f"collapsing a project did not collapse its list: "
+                                    f"{expanded['listHeight']}px -> {collapsed['listHeight']}px")
+                            if collapsed["visibility"] != "hidden":
+                                failures += fail(
+                                    "a collapsed project's list is still visible "
+                                    f"(visibility: {collapsed['visibility']}) - the rows stay "
+                                    "clickable and in the tab order")
+                            if mid and mid["listHeight"] >= expanded["listHeight"] - 1:
+                                failures += fail(
+                                    "the collapse is not animated: the list is still at full "
+                                    f"height 90ms in ({mid['listHeight']}px of {expanded['listHeight']}px)")
+                            if mid and mid["listHeight"] <= 0:
+                                failures += fail(
+                                    "the collapse is not animated: the list had already closed "
+                                    "90ms in, so the transition is not applying")
+                            if "grid-template-rows" not in (expanded["transition"] or ""):
+                                failures += fail(
+                                    "the session list has no grid-template-rows transition, so its "
+                                    f"height cannot animate (transition-property: {expanded['transition']})")
+
+                            # The arrow must MOVE, and it must move by rotating:
+                            # the same path, a different computed transform. Two
+                            # different paths would satisfy "the points differ"
+                            # while the icon still snaps.
+                            if expanded["points"] != collapsed["points"]:
+                                failures += fail(
+                                    "the arrow swaps its path instead of rotating, so it cannot "
+                                    f"animate: {expanded['points']!r} -> {collapsed['points']!r}")
+                            if expanded["transform"] == collapsed["transform"]:
+                                failures += fail(
+                                    "the collapse arrow does not move: computed transform is "
+                                    f"{expanded['transform']!r} in both states")
+                            elif collapsed["transform"] in ("none", None):
+                                failures += fail(
+                                    "the collapsed arrow has no transform applied, so it still "
+                                    "points the wrong way")
+                            # Rotating -90deg from "down" must end pointing right:
+                            # the matrix is [cos, sin, -sin, cos] = [0, -1, 1, 0].
+                            elif not collapsed["transform"].startswith("matrix(0, -1, 1, 0"):
+                                failures += fail(
+                                    f"the collapsed arrow should point right (-90deg), got "
+                                    f"{collapsed['transform']!r}")
+
+                            await c.js("document.querySelector('.project-header').click()")
+                            await asyncio.sleep(0.9)
+                            restored = await collapse_state()
+                            print(f"  EXPAND: list height -> {restored['listHeight']}px")
+                            if restored["listHeight"] != expanded["listHeight"]:
+                                failures += fail(
+                                    "expanding did not restore the list to its height: had "
+                                    f"{expanded['listHeight']}px, now {restored['listHeight']}px")
+                            if restored["visibility"] != "visible":
+                                failures += fail(
+                                    f"an expanded list is not visible (visibility: {restored['visibility']})")
+                            if restored["transform"] != expanded["transform"]:
+                                failures += fail("the arrow did not return when re-expanded")
+                            if restored["rows"] != expanded["rows"]:
+                                failures += fail(
+                                    f"the session count changed across a collapse cycle: "
+                                    f"{expanded['rows']} -> {restored['rows']}")
 
                     for p in m["projects"]:
                         if p.get("error"):

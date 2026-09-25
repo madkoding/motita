@@ -1681,22 +1681,18 @@ export default function App() {
                       onTouchMove={cancelLongPress}
                       onTouchEnd={cancelLongPress}
                     >
-                      {/* The arrow POINTS the way the list goes: down when the
-                          sessions are showing, right when they are hidden.
-                          Two paths rather than a CSS rotation, because the
-                          build disables Tailwind's `transform` plugin and
-                          `.rotate-90` emits `translate(var(--tw-translate-x))`
-                          with that variable undefined - a declaration the
-                          browser drops, so the icon never turned. Measured with
-                          getComputedStyle: transform stayed `none` while the
-                          class said rotate-90. */}
+                      {/* The arrow turns to follow the list: it points RIGHT
+                          when the sessions are hidden and DOWN when they are
+                          showing. One path that rotates, not two paths swapped,
+                          because a swap cannot be animated. The rotation lives
+                          in `.project-chevron` - this build disables Tailwind's
+                          `transform` plugin, so a `rotate-90` utility would emit
+                          a declaration the browser drops. */}
                       <svg
                         width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"
-                        class="flex-none text-[#8a8a9a]"
+                        class={`project-chevron flex-none text-[#8a8a9a]${isCollapsed ? ' is-collapsed' : ''}`}
                       >
-                        {isCollapsed
-                          ? <polyline points="9 18 15 12 9 6" />
-                          : <polyline points="6 9 12 15 18 9" />}
+                        <polyline points="6 9 12 15 18 9" />
                       </svg>
                       {/* Folder icon */}
                       <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="flex-none text-accent/60">
@@ -1798,16 +1794,21 @@ export default function App() {
                         )}
                       </div>
                     </div>
-                    {/* Session list: hidden when collapsed. Indented to read as
-                        nested inside the container, not as a separate block. */}
-                    {!isCollapsed && (
-                      <div class="px-1.5 pb-1.5 space-y-0.5">
-                        {projectSessions.map(s => renderSessionRow(s))}
-                        {projectSessions.length === 0 && (
-                          <div class="px-3 py-1.5 text-xs text-[#6a6a7a] italic">No sessions yet</div>
-                        )}
+                    {/* Session list: always rendered, so its height can
+                        animate. Unmounting it would make the collapse snap,
+                        which is exactly what was reported. The wrapper
+                        collapses to `0fr` and `visibility` takes the rows out
+                        of the tab order and the hit-testing once it has. */}
+                    <div class={`project-sessions${isCollapsed ? ' is-collapsed' : ''}`}>
+                      <div class="project-sessions-inner">
+                        <div class="px-1.5 pb-1.5 space-y-0.5">
+                          {projectSessions.map(s => renderSessionRow(s))}
+                          {projectSessions.length === 0 && (
+                            <div class="px-3 py-1.5 text-xs text-[#6a6a7a] italic">No sessions yet</div>
+                          )}
+                        </div>
                       </div>
-                    )}
+                    </div>
                   </div>
                 )
               })}
