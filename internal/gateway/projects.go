@@ -190,7 +190,20 @@ func (s *Server) handleMergeSession(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	branch := sessionBranch(c.id)
-	res, err := gitx.MergeInto(r.Context(), p.Dir, gitx.Display(r.Context(), p.Dir), branch,
+	base := gitx.Display(r.Context(), p.Dir)
+	// The project's checkout must not be sitting ON the session's branch. Git
+	// accepts `merge --no-ff <branch>` when the checkout is already on that
+	// branch and answers "Already up to date" with exit 0, so the merge reports
+	// success while nothing was integrated - measured. The one way that state
+	// arises is the project having taken a session's branch, which is the
+	// isolation this refuses to let happen in the first place; saying so here is
+	// what keeps the failure from reading as a completed integration.
+	if base == branch {
+		writeError(w, http.StatusConflict,
+			"the project's checkout is on this session's branch ("+branch+"), so there is nothing to integrate and the merge would report a success that changed nothing; check the project out on its own branch first")
+		return
+	}
+	res, err := gitx.MergeInto(r.Context(), p.Dir, base, branch,
 		"motita: integrate session "+c.id)
 	if err != nil {
 		writeError(w, http.StatusConflict, err.Error())

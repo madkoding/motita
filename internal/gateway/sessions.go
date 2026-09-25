@@ -308,10 +308,17 @@ func (s *Server) sessionWorktree(ctx context.Context, repoDir, sessionID string)
 	}
 	path := filepath.Join(s.opts.WorkspaceDir, "worktrees", sessionID)
 	branch := sessionBranch(sessionID)
-	// Already ours: a checkout of this session's branch at this path is the
-	// worktree asked for, whatever created it. Asking git to make it again
-	// would be refused for a worktree that is already there and correct.
-	if gitx.Display(ctx, path) == branch {
+	// Already ours: a LIVE worktree of this repository at this path is the
+	// worktree asked for, whatever created it.
+	//
+	// The test is the PATH, deliberately, and not the branch. A session whose
+	// worktree the user moved to a feature branch is still working in its own
+	// tree - and asking about the branch instead answers "not ours" for it,
+	// which then sends this function down the add below. Measured: that add
+	// fails ("already exists", non-zero), the error propagates as the fallback
+	// to the PROJECT's directory, and two sessions end up editing one checkout -
+	// the exact collision worktrees exist to prevent.
+	if _, ok, err := gitx.LiveWorktreeAt(ctx, repoDir, path); err == nil && ok {
 		return path, nil
 	}
 	if err := gitx.AddWorktree(ctx, repoDir, path, branch); err != nil {
