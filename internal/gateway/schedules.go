@@ -1,6 +1,7 @@
 package gateway
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"net/http"
@@ -198,4 +199,204 @@ func (s *Server) handleCreateSchedule(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusCreated, map[string]any{"schedule": viewOfSchedule(rec, time.Now())})
+}
+
+// handleUpdateSchedule changes one task. It is PATCH semantics: only what the body
+// carries is applied, so "pause this" cannot rewrite the task by accident.
+func (s *Server) handleUpdateSchedule(w http.ResponseWriter, r *http.Request) {
+	rec, ok := s.scheduleOf(w, r)
+	if !ok {
+		return
+	}
+	var body scheduleRequest
+	if !s.decodeBody(w, r, &body) {
+		return
+	}
+
+	if body.Title != "" {
+		title := strings.TrimSpace(body.Title)
+		if title == "" {
+			writeError(w, http.StatusBadRequest, "the title cannot be blank")
+			return
+		}
+		rec.Title = title
+	}
+	if body.Task != "" {
+		task := strings.TrimSpace(body.Task)
+		if task == "" {
+			writeError(w, http.StatusBadRequest, "the task cannot be blank")
+			return
+		}
+		rec.Task = task
+	}
+	if body.Kind != "" {
+		switch body.Kind {
+		case schedule.KindTask, schedule.KindPlan:
+			rec.Kind = body.Kind
+		default:
+			writeError(w, http.StatusBadRequest, fmt.Sprintf("unknown 'kind': %q (use %q or %q)", body.Kind, schedule.KindTask, schedule.KindPlan))
+			return
+		}
+	}
+	if body.Every != "" {
+		every, err := s.parseEvery(body.Every)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		rec.Every = every
+	}
+	if body.SessionID != "" {
+		if _, ok := s.lookup(body.SessionID); !ok {
+			writeError(w, http.StatusNotFound, fmt.Sprintf("there is no session %q to fire into", body.SessionID))
+			return
+		}
+		rec.SessionID = body.SessionID
+	}
+	if body.Enabled != nil {
+		rec.Enabled = *body.Enabled
+	}
+
+	if err := s.schedules.Save(*rec); err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"schedule": viewOfSchedule(*rec, time.Now())})
+}
+
+// scheduleOf resolves the {id} in the path, answering for a missing one HERE so no
+// handler forgets to.
+//
+// A gateway with no store answers 501 rather than 404: the capability is ABSENT, not the
+// record, and a client that reads 404 would go looking for a task that could never exist.
+func (s *Server) scheduleOf(w http.ResponseWriter, r *http.Request) (*schedule.Schedule, bool) {
+	if s.schedules == nil {
+		writeError(w, http.StatusNotImplemented, "this gateway was started without a schedule directory")
+		return nil, false
+	}
+	id := r.PathValue("id")
+	rec, err := s.schedules.Load(id)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return nil, false
+	}
+	if rec == nil {
+		writeError(w, http.StatusNotFound, fmt.Sprintf("there is no scheduled task %q", id))
+		return nil, false
+	}
+	return rec, true
+}
+
+// handleDeleteSchedule removes one task.
+func (s *Server) handleDeleteSchedule(w http.ResponseWriter, r *http.Request) {
+	if _, ok := s.scheduleOf(w, r); !ok {
+		return
+	}
+	if err := s.schedules.Delete(r.PathValue("id")); err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// handleRunScheduleNow starts the task immediately, without touching its cadence.
+//
+// 202 and not 200: a run is STARTED, not finished, and the same is true of a scheduled
+// firing. The cadence is deliberately left alone - "run it now" is a person overriding
+// the clock once, not a decision to move the schedule.
+//
+// An optional body may carry {"wait": true}, which blocks until the run ends and answers
+// with its outcome. It exists for a script that wants the result; the browser does not use
+// it, because blocking an HTTP request on an agent turn is what the SSE stream is for.
+func (s *Server) handleRunScheduleNow(w http.ResponseWriter, r *http.Request) {
+	rec, ok := s.scheduleOf(w, r)
+	if !ok {
+		return
+	}
+	var body struct {
+		Wait bool `json:"wait"`
+	}
+	if r.ContentLength > 0 {
+		if !s.decodeBody(w, r, &body) {
+			return
+		}
+	}
+
+	rn, started := s.startDetachedRun(s.conversationOf(rec.SessionID), rec.Task, rec.Kind,
+		s.unattendedApprover(rec.ID))
+	if !started {
+		writeError(w, http.StatusConflict,
+			fmt.Sprintf("a run is already in progress in session %q, which is where this task fires", rec.SessionID))
+		return
+	}
+	if !body.Wait {
+		writeJSON(w, http.StatusAccepted, map[string]any{"schedule": viewOfSchedule(*rec, time.Now()), "run_id": rn.id})
+		return
+	}
+	<-rn.done
+	outcome, result, errText, _ := rn.outcomeOf()
+	writeJSON(w, http.StatusOK, map[string]any{"outcome": outcome, "result": result, "error": errText})
+}
+
+// startScheduler runs the watcher that fires what is due, in the background, for the
+// life of the gateway.
+//
+// It mirrors startUpdateChecker: one goroutine, cancelled with the process, and a no-op
+// when the feature has no store. The firer BLOCKS until the run ends, which is what makes
+// LastOutcome a fact instead of a hope; a firing that is still in flight is not joined by
+// the next pass (see schedule.Watcher's overlap guard).
+func (s *Server) startScheduler() {
+	if s.schedules == nil {
+		return
+	}
+	tick := s.opts.ScheduleTick
+	if tick <= 0 {
+		tick = defaultScheduleTick
+	}
+	store := s.schedules
+	fire := func(ctx context.Context, sc schedule.Schedule) (string, error) {
+		c := s.conversationOf(sc.SessionID)
+		if c == nil {
+			// Recorded rather than repaired: creating a conversation for a task whose
+			// session was deleted would put a run in a place the user never opened. The
+			// front end shows the outcome, and the fix is to edit the task.
+			return "", fmt.Errorf("there is no session %q to fire into: edit the task or create the session again", sc.SessionID)
+		}
+		rn, ok := s.startDetachedRun(c, sc.Task, sc.Kind, s.unattendedApprover(sc.ID))
+		if !ok {
+			return "", fmt.Errorf("a run is already in progress in session %q", sc.SessionID)
+		}
+		<-rn.done
+		outcome, result, errText, _ := rn.outcomeOf()
+		switch outcome {
+		case "done":
+			return fmt.Sprintf("the run finished: %s", firstLine(result)), nil
+		case "cancelled":
+			return "the run was cancelled", nil
+		default:
+			return "", fmt.Errorf("the run failed: %s", errText)
+		}
+	}
+
+	w := schedule.NewWatcher(store, fire, s.opts.Log)
+	w.SetTick(tick)
+	go w.Run(s.baseCtx)
+}
+
+// defaultScheduleTick is the resolution at which a due task is noticed when nothing is
+// configured. Half a minute: fine enough that "every 5 minutes" means it, coarse enough
+// that the process is not woken for nothing.
+const defaultScheduleTick = 30 * time.Second
+
+// firstLine keeps one line of a run's result for the record. A whole transcript in a
+// JSON field is a field nobody reads.
+func firstLine(text string) string {
+	if i := strings.IndexByte(text, '\n'); i >= 0 {
+		text = text[:i]
+	}
+	const max = 200
+	if len(text) > max {
+		text = text[:max] + "…"
+	}
+	return strings.TrimSpace(text)
 }

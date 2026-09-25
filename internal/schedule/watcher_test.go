@@ -174,3 +174,30 @@ func mustSave(t *testing.T, st *Store, s Schedule) {
 		t.Fatalf("Save(%s): %v", s.ID, err)
 	}
 }
+
+// SetTick is how a test drives the loop without waiting half a minute - and how the
+// end-to-end script does the same. A tick of zero or less would build a ticker with no
+// period, so run() falls back to the default rather than spinning.
+func TestSetTickIsHonouredByTheLoop(t *testing.T) {
+	f := &recordingFirer{result: "ok"}
+	w, st := newTestWatcher(t, f.fire)
+	created := time.Now().Add(-2 * time.Hour)
+	mustSave(t, st, Schedule{ID: "due", Title: "d", Task: "t", Kind: KindTask,
+		Every: Duration(time.Hour), Enabled: true, Created: created})
+	w.SetTick(5 * time.Millisecond)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	stopped := make(chan struct{})
+	go func() { defer close(stopped); w.Run(ctx) }()
+
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) && len(f.ids()) == 0 {
+		time.Sleep(2 * time.Millisecond)
+	}
+	cancel()
+	<-stopped
+
+	if len(f.ids()) != 1 {
+		t.Fatalf("the loop fired %v, want exactly one firing", f.ids())
+	}
+}

@@ -77,6 +77,12 @@ func (w *Watcher) Run(ctx context.Context) {
 	}
 }
 
+// SetTick changes the resolution at which a cadence is noticed. It exists for a test that
+// must see a firing happen in seconds rather than in half a minute, and it must be called
+// before Run: the ticker is built once, so a change made after the loop started would be
+// a change nobody sees.
+func (w *Watcher) SetTick(d time.Duration) { w.tick = d }
+
 // FireDue is one pass: it fires every task that is due and returns their ids.
 //
 // It is SYNCHRONOUS and therefore testable, which is why the asynchrony is in Run and
