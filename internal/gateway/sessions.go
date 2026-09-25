@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"path/filepath"
 	"sort"
 	"strings"
 	"sync"
@@ -67,10 +68,21 @@ type conversation struct {
 	// with its workspace set to the project's directory.
 	projectID string
 	// workspace is the directory the agent works in. It is empty for a
-	// free-standing session, and set to the project's directory for one that
-	// belongs to a project. It is read to report the branch a session is on,
-	// so a front end can show it without another round-trip.
+	// free-standing session. For a session in a git project it is the
+	// session's OWN worktree, and projectDir below is the project it branches
+	// from; for one that belongs to a non-git project the two are the same.
+	// It is read to report the directory and the branch a session is on, so a
+	// front end can show them without another round-trip.
 	workspace string
+	// projectDir is the project's own checkout, and it is what a session's
+	// branch is compared against when deciding whether there is work to
+	// integrate. Empty for a free-standing session.
+	//
+	// It is tracked separately from workspace because they differ exactly when
+	// the feature is working: a session with its own worktree reports that
+	// worktree as its workspace, and comparing its branch against ITSELF would
+	// always report "nothing to merge".
+	projectDir string
 
 	// current is the run in flight, and nil when there is none.
 	//
@@ -222,21 +234,36 @@ type SessionStatus struct {
 	// absent one, so the user knows the action exists even when it has nothing
 	// to do yet.
 	Mergeable bool `json:"mergeable,omitempty"`
+	// Workspace is the directory this session actually runs in. For a session
+	// in a git project that is its OWN worktree, not the project's checkout,
+	// which is what lets two sessions work at once without editing each
+	// other's files. It is empty for a free-standing session.
+	Workspace string `json:"workspace,omitempty"`
 }
 
 func (c *conversation) status() SessionStatus {
 	c.stateMu.Lock()
 	defer c.stateMu.Unlock()
 	st := SessionStatus{ID: c.id, Title: c.title, ProjectID: c.projectID, Created: c.created, LastUsed: c.lastUsed, Running: c.running}
+	st.Workspace = c.workspace
 	if c.workspace != "" {
 		ctx := context.Background()
 		st.Branch = gitx.Display(ctx, c.workspace)
+		// Mergeable compares the session's branch against the PROJECT's branch,
+		// not against whatever the session's own checkout is on. A session with
+		// its own worktree reports its own branch (motita/<id>), so comparing
+		// the two would always say "nothing ahead" - the one answer that is
+		// never useful here.
+		base := st.Branch
+		if c.projectDir != "" {
+			base = gitx.Display(ctx, c.projectDir)
+		}
 		// Mergeable: the session's branch exists and has commits the base
 		// branch does not. A session that never ran in a worktree has no
 		// branch, and one whose work was already merged has none ahead.
 		branch := sessionBranch(c.id)
 		if gitx.BranchExists(ctx, c.workspace, branch) {
-			if ahead, _, err := gitx.CommitsBetween(ctx, c.workspace, st.Branch, branch); err == nil && len(ahead) > 0 {
+			if ahead, _, err := gitx.CommitsBetween(ctx, c.workspace, base, branch); err == nil && len(ahead) > 0 {
 				st.Mergeable = true
 			}
 		}
@@ -244,13 +271,66 @@ func (c *conversation) status() SessionStatus {
 	return st
 }
 
-// setProjectID records which project this conversation belongs to and the
-// workspace it runs in.
-func (c *conversation) setProjectID(pid, ws string) {
+// sessionWorktree gives a session its own checkout of a project, so two
+// sessions in one project can work at the same time without editing each
+// other's files.
+//
+// It returns the directory the session should run in. When a worktree cannot be
+// made it returns the PROJECT's directory and the reason, because worktrees
+// need git: a project folder that is not a repository, or one with no commits
+// yet, must keep working exactly as it did before rather than failing to start
+// a session. Turning "this project is not a repo" into "this session cannot
+// start" would be a far worse answer than running in the directory the user
+// actually pointed at.
+//
+// It is IDEMPOTENT, and that is not a convenience: the common case is a session
+// whose worktree already exists - one restored after a gateway restart, or one
+// the caller asked about twice - and `git worktree add` REFUSES a directory it
+// has already registered. Measured: it fails with "Preparing worktree (checking
+// out 'motita/<id>')" and a non-zero status, which would turn every restored
+// session into one that could not run.
+//
+// The session's branch is the unit of isolation, and it OUTLIVES the worktree:
+// a session whose worktree is removed and recreated finds its own commits again
+// rather than starting over. That is why AddWorktree attaches an existing
+// branch instead of insisting on a new one.
+//
+// The path is derived from the workspace root and the session id alone, so the
+// same session always resolves to the same directory. This is the ONLY place
+// that decides where a session runs: a second copy of that rule is how a
+// session ends up reporting one directory while running in another.
+func (s *Server) sessionWorktree(ctx context.Context, repoDir, sessionID string) (string, error) {
+	if strings.TrimSpace(s.opts.WorkspaceDir) == "" {
+		// Without a workspace root there is nowhere to put a worktree, and a
+		// relative path would be resolved against the process's own directory.
+		// The project directory is a correct answer and needs no extra state.
+		return repoDir, nil
+	}
+	path := filepath.Join(s.opts.WorkspaceDir, "worktrees", sessionID)
+	branch := sessionBranch(sessionID)
+	// Already ours: a checkout of this session's branch at this path is the
+	// worktree asked for, whatever created it. Asking git to make it again
+	// would be refused for a worktree that is already there and correct.
+	if gitx.Display(ctx, path) == branch {
+		return path, nil
+	}
+	if err := gitx.AddWorktree(ctx, repoDir, path, branch); err != nil {
+		return repoDir, err
+	}
+	return path, nil
+}
+
+// setProjectID records which project this conversation belongs to, the project's
+// own checkout, and the workspace the session actually runs in. The last two
+// differ for a session with its own worktree, and both are needed: the workspace
+// is where the agent writes, and the project directory is what its branch gets
+// compared against.
+func (c *conversation) setProjectID(pid, workspace, projectDir string) {
 	c.stateMu.Lock()
 	defer c.stateMu.Unlock()
 	c.projectID = pid
-	c.workspace = ws
+	c.workspace = workspace
+	c.projectDir = projectDir
 }
 
 // setTitle sets the human-readable label for this conversation. Called after the first turn
@@ -426,14 +506,18 @@ func (s *Server) handleCreateSession(w http.ResponseWriter, r *http.Request) {
 	// When a project is named, the session runs in that project's workspace.
 	// The project must exist: a session for a missing project would run in
 	// the wrong directory, which is exactly what the project feature prevents.
-	var workspace string
+	//
+	// For a git project the session gets its OWN worktree rather than the
+	// project's checkout: two sessions in one project would otherwise edit the
+	// same files. The worktree is best-effort - see sessionWorktree - so a
+	// project that is not a repository still gives a usable session.
+	var project *Project
 	if strings.TrimSpace(body.ProjectID) != "" {
-		p := s.projectOf(body.ProjectID)
-		if p == nil {
+		project = s.projectOf(body.ProjectID)
+		if project == nil {
 			writeError(w, http.StatusNotFound, ErrProjectNotFound.Error())
 			return
 		}
-		workspace = p.Dir
 	}
 
 	conv, err := s.createSession()
@@ -443,9 +527,21 @@ func (s *Server) handleCreateSession(w http.ResponseWriter, r *http.Request) {
 	case err != nil:
 		writeError(w, http.StatusNotImplemented, err.Error())
 	default:
-		if workspace != "" {
-			conv.setProjectID(body.ProjectID, workspace)
-			conv.svc.SetWorkspace(workspace)
+		if project != nil {
+			// The worktree is made BEFORE the session is saved, so a session
+			// that is registered is one that can actually run. A failure to
+			// branch falls back to the project's own directory.
+			dir := project.Dir
+			if wt, wtErr := s.sessionWorktree(context.Background(), project.Dir, conv.id); wtErr != nil {
+				if s.opts.Log != nil {
+					s.opts.Log.Warn("the session will run in the project directory: its own worktree could not be created",
+						"id", conv.id, "project", project.Dir, "error", wtErr.Error())
+				}
+			} else {
+				dir = wt
+			}
+			conv.setProjectID(body.ProjectID, dir, project.Dir)
+			conv.svc.SetWorkspace(dir)
 		}
 		s.saveSession(conv)
 		writeJSON(w, http.StatusCreated, conv.status())

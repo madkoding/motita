@@ -1,7 +1,6 @@
 package gateway
 
 import (
-	"context"
 	"encoding/json"
 	"net/http"
 	"os"
@@ -10,8 +9,6 @@ import (
 	"strings"
 	"testing"
 	"time"
-
-	"github.com/madkoding/motita/internal/gitx"
 )
 
 // These tests exercise the gateway's integration with git: the branch a
@@ -76,8 +73,8 @@ func makeProject(t *testing.T, srv *Server, name string) string {
 }
 
 // TestSessionReportsItsBranch is the first half of the feature: a session that
-// belongs to a project draws the branch the project's checkout is on, and a
-// free-standing session draws none.
+// belongs to a project is checked out on its OWN branch (motita/<id>), because
+// the session has its own worktree, and a free-standing session draws none.
 func TestSessionReportsItsBranch(t *testing.T) {
 	srv := newTestServer(t, &fakeService{})
 	ws := t.TempDir()
@@ -93,8 +90,8 @@ func TestSessionReportsItsBranch(t *testing.T) {
 	if err := json.Unmarshal(w.Body.Bytes(), &ss); err != nil {
 		t.Fatalf("parse: %v", err)
 	}
-	if ss.Branch != "main" {
-		t.Errorf("branch = %q, want main: a session in a git project must report its branch", ss.Branch)
+	if want := sessionBranch(ss.ID); ss.Branch != want {
+		t.Errorf("branch = %q, want %q: a session with its own worktree is checked out on its own branch", ss.Branch, want)
 	}
 
 	// A free-standing session has no branch.
@@ -169,7 +166,6 @@ func TestProjectReportsNoBranchForNonRepo(t *testing.T) {
 // TestMergeSessionIntegratesTheBranch: a session's branch is merged back into
 // the project's checkout, and the response carries the merge commit's sha.
 func TestMergeSessionIntegratesTheBranch(t *testing.T) {
-	ctx := context.Background()
 	srv := newTestServer(t, &fakeService{})
 	ws := t.TempDir()
 	withProjects(t, srv, ws)
@@ -185,10 +181,11 @@ func TestMergeSessionIntegratesTheBranch(t *testing.T) {
 	if err := json.Unmarshal(w.Body.Bytes(), &ss); err != nil {
 		t.Fatal(err)
 	}
-	branch := sessionBranch(ss.ID)
-	wtPath := filepath.Join(ws, "worktrees", ss.ID)
-	if err := gitx.AddWorktree(ctx, p.Dir, wtPath, branch); err != nil {
-		t.Fatalf("AddWorktree: %v", err)
+	// The session already has its OWN worktree, created when it was created -
+	// that is the feature. Commit the work there, in the session's checkout.
+	wtPath := ss.Workspace
+	if wtPath == "" {
+		t.Fatal("the session must have a worktree to work in")
 	}
 	if err := os.WriteFile(filepath.Join(wtPath, "new.txt"), []byte("session work\n"), 0o644); err != nil {
 		t.Fatal(err)
@@ -218,7 +215,6 @@ func TestMergeSessionIntegratesTheBranch(t *testing.T) {
 // TestMergeSessionOnAConflictRollsBack: a conflicting merge is reported as a
 // failure, and the project's checkout is returned to what it was.
 func TestMergeSessionOnAConflictRollsBack(t *testing.T) {
-	ctx := context.Background()
 	srv := newTestServer(t, &fakeService{})
 	ws := t.TempDir()
 	withProjects(t, srv, ws)
@@ -233,10 +229,10 @@ func TestMergeSessionOnAConflictRollsBack(t *testing.T) {
 	if err := json.Unmarshal(w.Body.Bytes(), &ss); err != nil {
 		t.Fatal(err)
 	}
-	branch := sessionBranch(ss.ID)
-	wtPath := filepath.Join(ws, "worktrees", ss.ID)
-	if err := gitx.AddWorktree(ctx, p.Dir, wtPath, branch); err != nil {
-		t.Fatalf("AddWorktree: %v", err)
+	// The session already has its own worktree: that is the feature.
+	wtPath := ss.Workspace
+	if wtPath == "" {
+		t.Fatal("the session must have a worktree to work in")
 	}
 	// Create a conflicting change.
 	if err := os.WriteFile(filepath.Join(wtPath, "f.txt"), []byte("from session\n"), 0o644); err != nil {

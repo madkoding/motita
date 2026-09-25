@@ -540,12 +540,18 @@ func TestResumeInterruptedSessionsWithoutStore(t *testing.T) {
 
 func TestConversationSetProjectID(t *testing.T) {
 	c := newConversation("test", &fakeService{})
-	c.setProjectID("proj-1", "/tmp/proj-1")
+	c.setProjectID("proj-1", "/tmp/worktree-1", "/tmp/proj-1")
 	if c.projectID != "proj-1" {
 		t.Errorf("projectID = %q, want %q", c.projectID, "proj-1")
 	}
-	if c.workspace != "/tmp/proj-1" {
-		t.Errorf("workspace = %q, want %q", c.workspace, "/tmp/proj-1")
+	if c.workspace != "/tmp/worktree-1" {
+		t.Errorf("workspace = %q, want %q", c.workspace, "/tmp/worktree-1")
+	}
+	// The project's own checkout is tracked separately: for a session with its
+	// own worktree it is NOT the workspace, and that difference is what makes
+	// "is there work to integrate" answerable.
+	if c.projectDir != "/tmp/proj-1" {
+		t.Errorf("projectDir = %q, want %q", c.projectDir, "/tmp/proj-1")
 	}
 }
 

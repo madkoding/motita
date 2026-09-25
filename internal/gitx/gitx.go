@@ -26,6 +26,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"os/exec"
 	"strings"
 	"time"
@@ -286,6 +287,15 @@ func Dirty(ctx context.Context, dir string) (bool, error) {
 //     the difference between a worktree and a surprise.
 //  3. Is there a commit to branch from?
 //
+// A path git has a registration for but which is GONE from disk is PRUNED
+// first. That state is not exotic: a worktree directory removed by hand - a
+// cleanup, an rm -rf, a container whose volumes did not persist - leaves the
+// registration in .git/worktrees behind, and git then refuses every later
+// `worktree add` at that path with "Preparing worktree (checking out ...)" and
+// a non-zero status. Measured on this machine. Without the prune a session
+// whose directory disappeared could never get its worktree back, which is
+// exactly the state a restart leaves it in.
+//
 // The branch is created when it does not exist and ATTACHED when it does, which
 // is what makes a resumed session work: the session's branch outlives its
 // worktree, so a session restored after a restart - or one whose worktree was
@@ -306,6 +316,14 @@ func AddWorktree(ctx context.Context, repoDir, path, branch string) error {
 	if !HasCommits(ctx, repoDir) {
 		return errors.New("the repository has no commits to branch from")
 	}
+	// A registration whose directory is gone would block the add below, so it
+	// is cleared first. `worktree prune` only removes registrations git itself
+	// considers missing, so a live worktree is never touched by this.
+	if !dirExists(path) {
+		if _, pruneErr := noGitOr(ctx, "the stale worktree registration could not be cleared", repoDir, "worktree", "prune"); pruneErr != nil {
+			return pruneErr
+		}
+	}
 	if err := prepareParent(path); err != nil {
 		return fmt.Errorf("the worktree's directory could not be prepared: %w", err)
 	}
@@ -319,6 +337,15 @@ func AddWorktree(ctx context.Context, repoDir, path, branch string) error {
 		return describe("the worktree could not be created", out, err)
 	}
 	return nil
+}
+
+// dirExists reports whether a path is present on disk.
+//
+// Named apart from the test helper of the same job because both live in this
+// package and the collision is a compile error, not a subtlety.
+func dirExists(path string) bool {
+	_, statErr := os.Stat(path)
+	return statErr == nil
 }
 
 // RemoveWorktree drops the worktree at path.

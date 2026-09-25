@@ -385,6 +385,52 @@ func TestAddWorktreeCreatesTheParentsOfTheWorktreeDirectory(t *testing.T) {
 	}
 }
 
+// TestAddWorktreeReplacesAnOrphanedRegistration is the recovery path a user
+// actually hits: a worktree directory removed by hand - a cleanup, a container
+// that did not persist, an rm -rf - leaves git's registration behind, and every
+// later `worktree add` at that path is REFUSED ("Preparing worktree ..." and a
+// non-zero status) even though nothing is there. Measured on this machine.
+//
+// Without this the session can never get its worktree back, which is exactly
+// the state a gateway restart leaves it in.
+func TestAddWorktreeReplacesAnOrphanedRegistration(t *testing.T) {
+	ctx := context.Background()
+	repo := newRepo(t)
+	wt := filepath.Join(filepath.Dir(repo), "w")
+	addWorktree(t, repo, wt, "motita/s1")
+
+	// The directory goes away without git being told.
+	if err := os.RemoveAll(wt); err != nil {
+		t.Fatal(err)
+	}
+	if err := AddWorktree(ctx, repo, wt, "motita/s1"); err != nil {
+		t.Fatalf("AddWorktree over an orphaned registration: %v", err)
+	}
+	if !exists(wt) {
+		t.Fatal("the worktree must be usable again")
+	}
+	if branch := Display(ctx, wt); branch != "motita/s1" {
+		t.Errorf("branch = %q, want motita/s1", branch)
+	}
+}
+
+// TestAddWorktreeReportsAPruneThatFailed: clearing a stale registration is a
+// recovery step, and a recovery step that fails has to be REPORTED rather than
+// swallowed. Swallowing it would let the add below run against the
+// registration that is still there and fail with git's own words, which say
+// nothing about the real cause.
+func TestAddWorktreeReportsAPruneThatFailed(t *testing.T) {
+	repo := newRepo(t)
+	failOnGit(t, "worktree prune")
+	err := AddWorktree(context.Background(), repo, filepath.Join(filepath.Dir(repo), "w"), "motita/s1")
+	if err == nil {
+		t.Fatal("a failed prune must be reported")
+	}
+	if !strings.Contains(err.Error(), "stale worktree registration") {
+		t.Errorf("the error must name the step that failed, got %q", err)
+	}
+}
+
 // TestAddWorktreeRefusesABranchAlreadyCheckedOutElsewhere is the rule that
 // stops two sessions from being pointed at one directory: git refuses it, and
 // the refusal is reported rather than second-guessed.

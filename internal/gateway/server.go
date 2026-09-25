@@ -724,7 +724,21 @@ func (s *Server) loadPersistedSessions() {
 		conv.created = rec.Created
 		conv.lastUsed = rec.LastUsed
 		conv.setTitle(rec.Title)
-		conv.setProjectID(rec.ProjectID, rec.Workspace)
+		// A session in a project gets its worktree back. The branch outlives the
+		// worktree, so re-attaching it restores the session's own work rather
+		// than starting over; a failure falls back to the project's directory,
+		// exactly as creation does.
+		workspace := rec.Workspace
+		projectDir := rec.ProjectDir
+		if projectDir != "" {
+			if wt, wtErr := s.sessionWorktree(s.baseCtx, projectDir, rec.ID); wtErr == nil {
+				workspace = wt
+			} else if s.opts.Log != nil {
+				s.opts.Log.Warn("the restored session will run in the project directory: its worktree could not be re-created",
+					"id", rec.ID, "project", projectDir, "error", wtErr.Error())
+			}
+		}
+		conv.setProjectID(rec.ProjectID, workspace, projectDir)
 		// Restore the last task/kind so the session knows what it was doing
 		// before the restart. The running flag is restored separately by
 		// resumeInterruptedSessions, which needs the service to be fully
@@ -741,9 +755,11 @@ func (s *Server) loadPersistedSessions() {
 		if rec.Provider != "" || rec.Model != "" {
 			svc.SetLLM(rec.Provider, rec.Model)
 		}
-		// Restore the workspace directory for project sessions.
-		if rec.Workspace != "" {
-			svc.SetWorkspace(rec.Workspace)
+		// Restore the workspace directory for project sessions. It is the
+		// worktree when there is one, so the resumed session writes where its
+		// work already is.
+		if workspace != "" {
+			svc.SetWorkspace(workspace)
 		}
 		s.sessionsMu.Lock()
 		s.sessions[rec.ID] = conv

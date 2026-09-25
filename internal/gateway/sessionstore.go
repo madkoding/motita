@@ -39,6 +39,12 @@ type sessionRecord struct {
 	Provider  string    `json:"provider,omitempty"`
 	Model     string    `json:"model,omitempty"`
 	Workspace string    `json:"workspace,omitempty"`
+	// ProjectDir is the project's OWN checkout, which differs from Workspace
+	// for a session that has its own worktree. It is persisted because the
+	// restore path needs it to re-create that worktree and to know what the
+	// session's branch should be compared against; without it a restarted
+	// gateway would report every session as having nothing to integrate.
+	ProjectDir string `json:"project_dir,omitempty"`
 	// Running, when true, means the session was mid-run when the gateway
 	// shut down (e.g. for an upgrade). The new process reads this and
 	// re-submits LastTask as a task or plan to resume the work.
@@ -72,14 +78,15 @@ func (st *sessionStore) path(id string) string {
 func (st *sessionStore) save(c *conversation) error {
 	c.stateMu.Lock()
 	rec := sessionRecord{
-		ID:        c.id,
-		Title:     c.title,
-		ProjectID: c.projectID,
-		Created:   c.created,
-		LastUsed:  c.lastUsed,
-		Running:   c.running,
-		LastTask:  c.lastTask,
-		LastKind:  c.lastKind,
+		ID:         c.id,
+		Title:      c.title,
+		ProjectID:  c.projectID,
+		Created:    c.created,
+		LastUsed:   c.lastUsed,
+		Running:    c.running,
+		LastTask:   c.lastTask,
+		LastKind:   c.lastKind,
+		ProjectDir: c.projectDir,
 	}
 	c.stateMu.Unlock()
 

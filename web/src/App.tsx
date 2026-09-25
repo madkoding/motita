@@ -1285,7 +1285,7 @@ export default function App() {
                   placeholder="Paste the gateway token…"
                   autoFocus
                   autoComplete="off"
-                  spellCheck={false}
+                  spellcheck={false}
                   disabled={authBusy}
                 />
                 {authError && (
@@ -1825,7 +1825,7 @@ export default function App() {
                 >
                   {providers.map(p => (
                     <option key={p.id} value={p.id}>
-                      {p.name}{p.is_current ? ' (active)' : ''}{!p.key_present ? ' — no key' : ''}
+                      {p.name}{p.is_current ? ' (active)' : ''}{p.key_present ? '' : ' — no key needed'}
                     </option>
                   ))}
                 </select>
