@@ -24,6 +24,7 @@ type Project struct {
 	Description string    `json:"description,omitempty"`
 	Dir         string    `json:"dir"`
 	GitURL      string    `json:"git_url,omitempty"`
+	Branch      string    `json:"branch,omitempty"`
 	Created     time.Time `json:"created"`
 }
 

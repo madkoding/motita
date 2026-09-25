@@ -433,6 +433,7 @@ func (s *Server) routes() *http.ServeMux {
 	mux.Handle("GET /v1/sessions/{id}/questions", scoped(s.handleQuestions))
 	mux.Handle("POST /v1/sessions/{id}/task", scoped(s.handleTask))
 	mux.Handle("POST /v1/sessions/{id}/plan", scoped(s.handlePlan))
+	mux.Handle("POST /v1/sessions/{id}/merge", scoped(s.handleMergeSession))
 	mux.Handle("GET /v1/sessions/{id}/run", scoped(s.handleRunStatus))
 	mux.Handle("GET /v1/sessions/{id}/events", scoped(s.handleAttach))
 	mux.Handle("POST /v1/sessions/{id}/cancel", scoped(s.handleCancelRun))
@@ -723,7 +724,7 @@ func (s *Server) loadPersistedSessions() {
 		conv.created = rec.Created
 		conv.lastUsed = rec.LastUsed
 		conv.setTitle(rec.Title)
-		conv.setProjectID(rec.ProjectID)
+		conv.setProjectID(rec.ProjectID, rec.Workspace)
 		// Restore the last task/kind so the session knows what it was doing
 		// before the restart. The running flag is restored separately by
 		// resumeInterruptedSessions, which needs the service to be fully

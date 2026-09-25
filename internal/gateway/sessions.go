@@ -11,6 +11,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/madkoding/motita/internal/gitx"
 )
 
 // DefaultSession is the conversation every gateway has, and the one an embedded client uses.
@@ -64,6 +66,11 @@ type conversation struct {
 	// is a free-standing session. A session that belongs to a project runs
 	// with its workspace set to the project's directory.
 	projectID string
+	// workspace is the directory the agent works in. It is empty for a
+	// free-standing session, and set to the project's directory for one that
+	// belongs to a project. It is read to report the branch a session is on,
+	// so a front end can show it without another round-trip.
+	workspace string
 
 	// current is the run in flight, and nil when there is none.
 	//
@@ -202,6 +209,7 @@ type SessionStatus struct {
 	ID        string    `json:"id"`
 	Title     string    `json:"title"`
 	ProjectID string    `json:"project_id,omitempty"`
+	Branch    string    `json:"branch,omitempty"`
 	Created   time.Time `json:"created"`
 	LastUsed  time.Time `json:"last_used"`
 	Running   bool      `json:"running"`
@@ -210,14 +218,20 @@ type SessionStatus struct {
 func (c *conversation) status() SessionStatus {
 	c.stateMu.Lock()
 	defer c.stateMu.Unlock()
-	return SessionStatus{ID: c.id, Title: c.title, ProjectID: c.projectID, Created: c.created, LastUsed: c.lastUsed, Running: c.running}
+	st := SessionStatus{ID: c.id, Title: c.title, ProjectID: c.projectID, Created: c.created, LastUsed: c.lastUsed, Running: c.running}
+	if c.workspace != "" {
+		st.Branch = gitx.Display(context.Background(), c.workspace)
+	}
+	return st
 }
 
-// setProjectID records which project this conversation belongs to.
-func (c *conversation) setProjectID(pid string) {
+// setProjectID records which project this conversation belongs to and the
+// workspace it runs in.
+func (c *conversation) setProjectID(pid, ws string) {
 	c.stateMu.Lock()
 	defer c.stateMu.Unlock()
 	c.projectID = pid
+	c.workspace = ws
 }
 
 // setTitle sets the human-readable label for this conversation. Called after the first turn
@@ -411,7 +425,7 @@ func (s *Server) handleCreateSession(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusNotImplemented, err.Error())
 	default:
 		if workspace != "" {
-			conv.setProjectID(body.ProjectID)
+			conv.setProjectID(body.ProjectID, workspace)
 			conv.svc.SetWorkspace(workspace)
 		}
 		s.saveSession(conv)

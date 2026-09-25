@@ -1,12 +1,15 @@
 package gateway
 
 import (
+	"context"
 	"errors"
 	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
 	"time"
+
+	"github.com/madkoding/motita/internal/gitx"
 )
 
 // handleListProjects answers every project this gateway knows about.
@@ -22,6 +25,13 @@ func (s *Server) handleListProjects(w http.ResponseWriter, _ *http.Request) {
 	}
 	if all == nil {
 		all = []Project{}
+	}
+	// The branch is read live: it changes when the user checks out another
+	// one, and a value persisted at creation time would be a value that used
+	// to be true. Reading it here is one git call per project, and a project
+	// that is not a repository answers "" — which omitempty renders as absent.
+	for i := range all {
+		all[i].Branch = gitx.Display(context.Background(), all[i].Dir)
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"projects": all})
 }
@@ -154,3 +164,43 @@ func (s *Server) projectOf(id string) *Project {
 // ErrProjectNotFound is returned when a session is created for a project that
 // does not exist. It is a sentinel so the handler can answer 404 rather than 500.
 var ErrProjectNotFound = errors.New("there is no project with that id")
+
+// handleMergeSession integrates the session's branch back into the project's
+// base branch.
+//
+// "Volver" is an explicit action, not something that happens on close: a
+// session's worktree is where the agent made its changes, and the branch is
+// where those changes live as commits. Merging brings them into the checkout
+// the user sees, in ONE commit whose message names the session, so the question
+// "which session did this" is answered by the history.
+//
+// A conflict is NOT left behind: the merge is aborted and the error says so.
+// The user's checkout is returned to exactly what it was, including any
+// uncommitted change — --autostash sees to that, and the behaviour was
+// measured before it was relied on.
+func (s *Server) handleMergeSession(w http.ResponseWriter, r *http.Request) {
+	c := convOf(r)
+	if c.workspace == "" {
+		writeError(w, http.StatusConflict, "this session does not belong to a project, so there is nothing to merge")
+		return
+	}
+	p := s.projectOf(c.projectID)
+	if p == nil {
+		writeError(w, http.StatusNotFound, ErrProjectNotFound.Error())
+		return
+	}
+	branch := sessionBranch(c.id)
+	res, err := gitx.MergeInto(r.Context(), p.Dir, gitx.Display(r.Context(), p.Dir), branch,
+		"motita: integrate session "+c.id)
+	if err != nil {
+		writeError(w, http.StatusConflict, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"sha": res.SHA, "subject": res.Subject})
+}
+
+// sessionBranch is the branch a session works on. The prefix is what makes the
+// branches findable: `git branch --list 'motita/*'` lists exactly the sessions.
+func sessionBranch(sessionID string) string {
+	return "motita/" + sessionID
+}

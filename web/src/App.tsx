@@ -19,6 +19,7 @@ interface SessionInfo {
   id: string
   title: string
   project_id?: string
+  branch?: string
   created: string
   last_used: string
   running: boolean
@@ -30,6 +31,7 @@ interface ProjectInfo {
   description?: string
   dir: string
   git_url?: string
+  branch?: string
   created: string
 }
 
@@ -1111,6 +1113,11 @@ export default function App() {
           <span class={`flex-1 min-w-0 truncate text-sm ${s.running ? 'text-accent' : 'text-[#e8e8ea]'}`}>
             {s.title || s.id}
           </span>
+          {s.branch && (
+            <span class="flex-none text-[10px] text-muted-foreground font-mono px-1.5 py-0.5 rounded bg-white/5">
+              {s.branch}
+            </span>
+          )}
         </>
       )}
       {renamingId !== s.id && (
@@ -1135,6 +1142,39 @@ export default function App() {
                 </svg>
                 Rename
               </button>
+              {s.project_id && (
+                <button
+                  class="w-full flex items-center gap-2 px-3 py-2 text-sm text-accent hover:bg-accent/10 transition-colors"
+                  onClick={async (e) => {
+                    e.stopPropagation()
+                    setRowMenu(null)
+                    try {
+                      const res = await api('/v1/sessions/' + s.id + '/merge', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: '{}',
+                      })
+                      if (res.status === 409) {
+                        const data = await res.json()
+                        alert(data.error || 'The merge conflicts and was rolled back; nothing was changed.')
+                      } else if (!res.ok) {
+                        const data = await res.json().catch(() => ({}))
+                        alert(data.error || `The merge failed (${res.status}).`)
+                      } else {
+                        const data = await res.json()
+                        alert(`Integrated: ${data.sha} — ${data.subject}`)
+                      }
+                    } catch (err) {
+                      alert(`The merge could not be performed: ${err}`)
+                    }
+                  }}
+                >
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M6 3v12" /><circle cx="6" cy="18" r="3" /><path d="M18 21v-12" /><circle cx="18" cy="6" r="3" /><path d="M6 9a9 9 0 0 0 12 6" />
+                  </svg>
+                  Integrate
+                </button>
+              )}
               <button
                 class="w-full flex items-center gap-2 px-3 py-2 text-sm text-danger hover:bg-danger/10 transition-colors"
                 onClick={(e) => { e.stopPropagation(); setConfirmDelete({ type: 'session', id: s.id, title: s.title || s.id }); setRowMenu(null) }}
@@ -1299,6 +1339,11 @@ export default function App() {
                       <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
                     </svg>
                     <span class="flex-1 min-w-0 truncate font-semibold">{p.title}</span>
+                    {p.branch && (
+                      <span class="flex-none text-[10px] text-muted-foreground font-mono px-1.5 py-0.5 rounded bg-white/5">
+                        {p.branch}
+                      </span>
+                    )}
                     <button
                       class="p-0.5 rounded hover:bg-white/10 opacity-0 group-hover:opacity-100 transition-opacity"
                       title="New session in project"
