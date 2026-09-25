@@ -106,8 +106,7 @@ you'll regret in two years.
 
 `386` is a **first-class target**, not an afterthought nobody tests. The
 end-to-end suite builds the agent and runs it inside a real 32-bit container, so
-what gets verified is the artifact you download. The screenshot at the top of this
-page is that binary, running on 2008 hardware.
+what gets verified is the artifact you download, not a rebuild of it.
 
 ## Install
 
@@ -329,6 +328,7 @@ curl -X DELETE -H "Authorization: Bearer $TOKEN" \
 | `GET /v1/sessions/{id}/report` | the conversation so far |
 | `GET /v1/sessions/{id}/config` `/models` `/reward` `/questions` | the read-only views |
 | `POST /v1/sessions/{id}/reasoning` `/model` `/verdict` `/reset` | change the budget or the model, grade a turn, start over |
+| `GET /v1/sessions/{id}/ws` | **WebSocket**: bidirectional, flag-based message protocol (see below) |
 
 The default conversation belongs to the process that started the gateway: closing it
 is refused, because that process would be left talking to a conversation that no
@@ -341,6 +341,95 @@ well known uses it, and it sits below the ephemeral range a Linux box hands out 
 default. Some hosts widen that range (this one goes down to 1024), in which case a
 fixed port can occasionally collide with an outgoing connection — if a start fails
 with `address already in use`, pick another with `-gateway 127.0.0.1:<port>`.
+
+### WebSocket: a bidirectional flag protocol
+
+The SSE stream (`POST /task`, `GET /events`) is the existing way to follow a run. The
+gateway also speaks **WebSocket** at `GET /v1/sessions/{id}/ws` — a persistent,
+bidirectional connection for a client that wants a structured protocol with flags,
+heartbeat, and push, rather than a one-shot HTTP request. It shares the same
+conversation, the same token, and the same run slot as the HTTP API: a second transport,
+not a second agent.
+
+The WebSocket implementation is **standard library only** — the RFC 6455 handshake and
+frame layer are hand-written (~200 lines), because a WebSocket library costs +150-200 KB
+against a binary with a 10 MB ceiling and under 2 MB of headroom.
+
+**Every message — inbound and outbound — is a JSON envelope:**
+
+```json
+{
+  "msg_id": "550e8400-e29b-41d4-a716-446655440000",
+  "type": "query",
+  "flags": ["PROCESSING"],
+  "timestamp": "2026-09-25T12:00:00.000Z",
+  "payload": {}
+}
+```
+
+| Field | Type | Description |
+|---|---|---|
+| `msg_id` | string | UUID v4 — unique per message |
+| `type` | string | Message type (see table below) |
+| `flags` | string[] | State/condition indicators (see table below) |
+| `timestamp` | string | ISO-8601 |
+| `payload` | object | Type-specific data |
+
+**Message types:**
+
+| Type | Direction | Description |
+|---|---|---|
+| `auth` | Client → Server | Initial authentication |
+| `auth_response` | Server → Client | Authentication result |
+| `query` | Client → Server | A query or request |
+| `query_response` | Server → Client | Answer to a query (ack, partial, or completed) |
+| `heartbeat` | Bidirectional | Keep-alive probe |
+| `heartbeat_ack` | Bidirectional | Keep-alive confirmation |
+| `notification` | Server → Client | Push notification |
+| `error` | Server → Client | Error message |
+
+**Flags:**
+
+| Flag | Meaning |
+|---|---|
+| `AUTHENTICATED` | The client is authenticated |
+| `UNAUTHORIZED` | Authentication failed |
+| `IDLE` | The agent is idle / waiting |
+| `BUSY` | The agent is processing a task |
+| `PROCESSING` | The query is being processed |
+| `COMPLETED` | The task / query finished successfully |
+| `PARTIAL` | The response is partial (streaming) |
+| `ERROR_RECOVERABLE` | An error the connection can recover from |
+| `FATAL_ERROR` | A critical error; the connection will close |
+| `LOW_MEMORY` | The agent is low on memory |
+| `RATE_LIMITED` | The client exceeded the rate limit |
+| `CACHE_HIT` | The response came from cache |
+| `CACHE_MISS` | The response was generated in real time |
+| `ENCRYPTED` | The payload is encrypted |
+
+**Connection flow:**
+
+```
+1. Client connects to /v1/sessions/{id}/ws (bearer token in the upgrade request)
+2. Server sends a welcome:  { type: "auth_response", flags: ["IDLE"] }
+3. Client sends auth:       { type: "auth", payload: { "token": "..." } }
+4. Server responds:         { type: "auth_response", flags: ["AUTHENTICATED","IDLE"] }
+   — or on failure:         { type: "auth_response", flags: ["UNAUTHORIZED"] }
+5. Client sends a query:    { type: "query", payload: { "query": "..." } }
+6. Server acks immediately:  { type: "query_response", flags: ["PROCESSING"] }
+   — progress lines stream:  { type: "query_response", flags: ["PARTIAL","PROCESSING"] }
+   — on completion:          { type: "query_response", flags: ["COMPLETED"], payload: { "result": "..." } }
+   — on error:               { type: "error", flags: ["ERROR_RECOVERABLE"], payload: { "error": "..." } }
+7. Server sends heartbeat every 30s; client must respond with heartbeat_ack in 10s
+   — no ack → the connection is closed
+8. Malformed JSON → error with ERROR_RECOVERABLE
+   Unknown type → error with ERROR_RECOVERABLE
+   Query before auth → error with UNAUTHORIZED
+```
+
+Multiple clients may connect simultaneously — each runs in its own goroutine and is
+independent. The conversation's one-run-at-a-time guard still applies: a second client
+that tries to start a run while one is in flight gets a `query_response` with `BUSY`.
 
 It is a **fixed** port rather than an ephemeral one because the gateway can now be a
 service that outlives the process that started it, and a later process has to be able to

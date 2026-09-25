@@ -231,6 +231,40 @@ func TestEmptyTokenAuthorisesNothingOnEitherPath(t *testing.T) {
 	}
 }
 
+// The logout endpoint clears the cookie so the blocking auth modal reappears.
+// It requires no credential — clearing a credential is not a privilege, and the
+// reason it is called is that the credential the browser holds is no longer
+// valid.
+func TestLogoutClearsTheCookie(t *testing.T) {
+	srv := newTestServer(t, &fakeService{}, func(o *Options) { o.WebUI = true })
+
+	req, err := http.NewRequest(http.MethodDelete, srv.BaseURL()+"/v1/webui/session", nil)
+	if err != nil {
+		t.Fatalf("request: %v", err)
+	}
+	resp, err := (&http.Client{}).Do(req)
+	if err != nil {
+		t.Fatalf("do: %v", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != http.StatusNoContent {
+		t.Fatalf("DELETE /v1/webui/session answered %d, want 204", resp.StatusCode)
+	}
+
+	var found bool
+	for _, c := range resp.Cookies() {
+		if c.Name == webuiCookie {
+			found = true
+			if c.MaxAge != -1 {
+				t.Errorf("cookie MaxAge = %d, want -1 (delete immediately)", c.MaxAge)
+			}
+		}
+	}
+	if !found {
+		t.Fatal("no Set-Cookie was sent on logout: the browser would keep the stale credential")
+	}
+}
+
 // requireBearerAllows drives requireBearer and reports whether it let the request through.
 func requireBearerAllows(token string, r *http.Request) bool {
 	passed := false

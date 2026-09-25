@@ -1860,6 +1860,8 @@ agent:
   workspace_dir: %s
   log_level: error
   log_console: false
+gateway:
+  listen: "127.0.0.1:0"
 `, srv.URL, dir))
 	return path
 }

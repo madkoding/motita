@@ -14,6 +14,7 @@ import (
 	"embed"
 	"fmt"
 	"io/fs"
+	"path"
 	"sort"
 	"strings"
 )
@@ -21,7 +22,7 @@ import (
 //go:embed assets
 var assets embed.FS
 
-// readAsset is the ONE filesystem call in this package, held in a variable so that a test can
+// readAsset is the ONE filesystem call for reading a file, held in a variable so that a test can
 // make it fail.
 //
 // The failure it makes reachable is otherwise UNREACHABLE: go:embed refuses to compile when a
@@ -30,19 +31,92 @@ var assets embed.FS
 // branch nobody knows the behaviour of - so the call is a seam, and the test drives it.
 var readAsset = func(name string) ([]byte, error) { return fs.ReadFile(assets, "assets/"+name) }
 
+// discover walks the embedded filesystem and returns the list of served files. Like readAsset, it
+// is a seam: the walk cannot fail on an embed.FS in a correct build, so the variable lets a test
+// drive the failure branch without a real filesystem error.
+var discover = func() ([]file, error) {
+	var out []file
+	err := walkDir(assets, "assets", func(p string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if d.IsDir() || d.Name() == ".gitkeep" {
+			return nil
+		}
+		rel := strings.TrimPrefix(p, "assets/")
+		urlPath := "/" + rel
+		if rel == "index.html" {
+			urlPath = "/"
+		}
+		out = append(out, file{path: urlPath, name: rel, ctype: contentType(rel)})
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// walkDir is the one call to fs.WalkDir, held in a variable so a test can make it fail. Like
+// readAsset, the failure it makes reachable is UNREACHABLE on an embed.FS in a correct build:
+// the walk only errors on a broken embed, which go:embed refuses to produce. The seam is what
+// lets the coverage gate see the error path through discover's callback and its return.
+var walkDir = fs.WalkDir
+
 // file is one entry of the page.
 type file struct {
+	path  string // the URL path the browser requests
 	name  string // the name inside assets/
 	ctype string
 }
 
-// files is the ONE list of what the page is made of. The router registers exactly these names,
-// the tests walk them, and the size budget measures them - so adding a file to the page cannot
-// leave one of those three behind.
-var files = map[string]file{
-	"/":        {"index.html", "text/html; charset=utf-8"},
-	"/app.css": {"app.css", "text/css; charset=utf-8"},
-	"/app.js":  {"app.js", "text/javascript; charset=utf-8"},
+// contentType returns the Content-Type for an asset based on its extension.
+func contentType(name string) string {
+	switch path.Ext(name) {
+	case ".html":
+		return "text/html; charset=utf-8"
+	case ".css":
+		return "text/css; charset=utf-8"
+	case ".js":
+		return "text/javascript; charset=utf-8"
+	case ".webmanifest":
+		return "application/manifest+json"
+	case ".svg":
+		return "image/svg+xml"
+	case ".jpg", ".jpeg":
+		return "image/jpeg"
+	case ".png":
+		return "image/png"
+	case ".webp":
+		return "image/webp"
+	case ".ttf":
+		return "font/ttf"
+	case ".woff":
+		return "font/woff"
+	case ".woff2":
+		return "font/woff2"
+	}
+	return "application/octet-stream"
+}
+
+// files is the route table, built once at package load from the embedded filesystem. The list is
+// discovered, not hardcoded: adding a file to assets/ makes it served without touching this
+// table, and the router and tests pick it up from Names().
+var files = mustDiscover()
+
+// mustDiscover builds the route table from the embedded filesystem. It panics on failure because
+// a binary whose own assets cannot be listed is not usable; the discover seam is what makes that
+// failure reachable in a test.
+func mustDiscover() map[string]file {
+	entries, err := discover()
+	if err != nil {
+		panic(fmt.Sprintf("webui: discover: %v", err))
+	}
+	m := make(map[string]file, len(entries))
+	for _, f := range entries {
+		m[f.path] = f
+	}
+	return m
 }
 
 // Names returns the paths this package serves, sorted. Sorted rather than map order because a

@@ -55,8 +55,11 @@ type Service interface {
 	Config() config.Config
 	// SetReasoning changes the in-memory reasoning level.
 	SetReasoning(level string)
-	// SetModel changes the model the next turns use, in memory like the reasoning level.
-	SetModel(model string)
+	// SetLLM changes the in-memory provider and/or model. An empty string for either
+	// field means "leave unchanged", so a caller can update one without knowing the
+	// other. The change takes effect on the next turn — the runner builds an engine
+	// per turn from the current configuration.
+	SetLLM(provider, model string)
 	// RecordVerdict applies the user's verdict on the last turn to the skills it read, and
 	// returns a human-readable report.
 	RecordVerdict(good bool, note string) string
@@ -82,6 +85,20 @@ type Service interface {
 	// own view - system prompt, tool calls, tool results - and a front end that rendered it would be
 	// showing the user a wire format. What belongs on a screen is the turns below.
 	Transcript() []agent.DialogueTurn
+	// RestoreTranscript loads a saved conversation into the runner, so a
+	// session that was persisted to disk and reloaded on startup carries its
+	// history forward. It replaces anything the runner currently holds.
+	RestoreTranscript(turns []agent.DialogueTurn)
+	// SetWorkspace changes the directory the agent works in. A session that
+	// belongs to a project runs with its workspace set to the project's
+	// directory, so the agent is confined to that folder.
+	SetWorkspace(dir string)
+	// GenerateTitle asks the model for a short, descriptive title for the
+	// conversation so far. It is called once, after the first turn completes,
+	// to replace the placeholder "Sesión nueva — …" label with something
+	// meaningful. It must never block the caller for long: a timeout or error
+	// falls back to a truncated version of the first user message.
+	GenerateTitle(ctx context.Context, firstUserMessage string) string
 	// SetApprover installs the channel a consequential command is confirmed through.
 	//
 	// The SERVER installs its own before every run. It has to: a command that needs approval

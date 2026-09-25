@@ -22,6 +22,7 @@ import (
 	"github.com/madkoding/motita/internal/logx"
 	"github.com/madkoding/motita/internal/reward"
 	"github.com/madkoding/motita/internal/skills"
+	"github.com/madkoding/motita/internal/usage"
 )
 
 // Store is the library and its ledger, as one thing.
@@ -33,6 +34,10 @@ type Store struct {
 	// before the feature existed. An absent ledger is a working library, not a broken one —
 	// see Open for why it is not an error.
 	Ledger *reward.Ledger
+	// Usage is the per-skill telemetry sidecar: view/use/patch counts, provenance
+	// markers, and lifecycle state. Nil when it could not be read; the curator
+	// and the background review fork are disabled without it.
+	Usage *usage.Ledger
 }
 
 // Open builds the store named by a configuration.
@@ -73,5 +78,17 @@ func Open(cfg config.Config, log *logx.Logger) *Store {
 	// The library reads the ledger for its tie-breaks, so the search prefers the procedure
 	// that has actually worked when two of them fit the question equally well.
 	lib.Scorer = led
+
+	// Usage telemetry sidecar: per-skill counts, provenance, and lifecycle state.
+	// An absent or unreadable ledger disables the curator and the background review
+	// fork, but the library still works — the feature degrades to "no telemetry".
+	ul, err := usage.Open(filepath.Join(dir, ".usage.json"))
+	if err != nil {
+		if log != nil {
+			log.Warn("the usage ledger could not be read; curator and review are off", "error", err)
+		}
+		return st
+	}
+	st.Usage = ul
 	return st
 }

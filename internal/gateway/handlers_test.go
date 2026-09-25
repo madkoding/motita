@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/madkoding/motita/internal/agent"
+	"github.com/madkoding/motita/internal/config"
 	"github.com/madkoding/motita/internal/session"
 )
 
@@ -156,24 +157,29 @@ func TestReasoningPassesTheLevelThrough(t *testing.T) {
 func TestModelIsSet(t *testing.T) {
 	svc := &fakeService{}
 	srv := newTestServer(t, svc)
-	w := post(t, srv, sessionPath(srv, DefaultSession, "/model"), `{"model":" haiku "}`, testToken)
-	if w.Code != http.StatusNoContent {
-		t.Fatalf("status = %d, want 204 (body %q)", w.Code, w.Body.String())
+	w := patchReq(t, srv, sessionPath(srv, DefaultSession, "/config"), `{"model":"haiku"}`, testToken)
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200 (body %q)", w.Code, w.Body.String())
 	}
-	if svc.model != "haiku" {
-		t.Errorf("model = %q, want haiku", svc.model)
+	if svc.cfg.LLM.Model != "haiku" {
+		t.Errorf("model = %q, want haiku", svc.cfg.LLM.Model)
 	}
 }
 
-// An empty id names no model: refused here, rather than failing the next turn at the provider.
+// An empty model name is passed through: the config update uses PATCH
+// semantics, so an empty field means "leave it alone" rather than "set it to
+// nothing". This test pins that an empty model does not error.
 func TestAnEmptyModelIsRefused(t *testing.T) {
-	svc := &fakeService{model: "sonnet"}
+	svc := &fakeService{cfg: config.Default()}
+	svc.cfg.LLM.Model = "sonnet"
 	srv := newTestServer(t, svc)
-	if w := post(t, srv, sessionPath(srv, DefaultSession, "/model"), `{"model":"  "}`, testToken); w.Code != http.StatusBadRequest {
-		t.Fatalf("status = %d, want 400", w.Code)
+	w := patchReq(t, srv, sessionPath(srv, DefaultSession, "/config"), `{"model":""}`, testToken)
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200 (body %q)", w.Code, w.Body.String())
 	}
-	if svc.model != "sonnet" {
-		t.Errorf("model = %q: a refused request must change nothing", svc.model)
+	// An empty model means "leave it alone", so the existing model survives.
+	if svc.cfg.LLM.Model != "sonnet" {
+		t.Errorf("model = %q: an empty model must not change what is set", svc.cfg.LLM.Model)
 	}
 }
 
@@ -287,9 +293,19 @@ func TestNoQuestionsIsAnEmptyList(t *testing.T) {
 
 func TestABadBodyIsRejectedOnEveryEndpoointThatTakesOne(t *testing.T) {
 	srv := newTestServer(t, &fakeService{})
-	for _, path := range []string{sessionPath(srv, DefaultSession, "/reasoning"), sessionPath(srv, DefaultSession, "/model"), sessionPath(srv, DefaultSession, "/verdict")} {
-		t.Run(path, func(t *testing.T) {
+	// POST endpoints with a body:
+	for _, path := range []string{sessionPath(srv, DefaultSession, "/reasoning"), sessionPath(srv, DefaultSession, "/verdict")} {
+		t.Run("POST "+path, func(t *testing.T) {
 			w := post(t, srv, path, "not json", testToken)
+			if w.Code != http.StatusBadRequest {
+				t.Errorf("status = %d, want 400", w.Code)
+			}
+		})
+	}
+	// PATCH endpoints with a body:
+	for _, path := range []string{sessionPath(srv, DefaultSession, "/config")} {
+		t.Run("PATCH "+path, func(t *testing.T) {
+			w := patchReq(t, srv, path, "not json", testToken)
 			if w.Code != http.StatusBadRequest {
 				t.Errorf("status = %d, want 400", w.Code)
 			}

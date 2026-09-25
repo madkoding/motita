@@ -17,6 +17,11 @@ type SessionInfo struct {
 	Running bool
 	// Current marks the one this interface is on, so the list can point at it.
 	Current bool
+	// Branch is the git branch the session's workspace is on, or empty when
+	// the workspace is not a git repository. It is drawn beside the session's
+	// id so a user can tell two sessions in one project apart by where each
+	// one is working.
+	Branch string
 	// LastUsed is when the conversation was last touched, and it is what the list is ORDERED by:
 	// someone opening it is asking "where was I?", and the answer is the most recent one.
 	//
@@ -389,6 +394,9 @@ func (t *TUI) sessionsText(ctx context.Context) (string, error) {
 			detail = "  (a run is in flight)"
 		case !s.LastUsed.IsZero():
 			detail = "  (last used " + humanSince(now.Sub(s.LastUsed)) + ")"
+		}
+		if s.Branch != "" {
+			detail += "  [" + s.Branch + "]"
 		}
 		fmt.Fprintf(&b, "%s%s%s\n", marker, s.ID, detail)
 	}

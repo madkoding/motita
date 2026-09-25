@@ -212,14 +212,19 @@ func (f *fakeRunner) SetReasoning(level string) {
 	f.cfg.LLM.Reasoning.Enabled = level != "off"
 }
 
-func (f *fakeRunner) SetModel(model string) {
+func (f *fakeRunner) SetLLM(provider, model string) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if !f.cfgSet {
 		f.cfg = config.Default()
 		f.cfgSet = true
 	}
-	f.cfg.LLM.Model = model
+	if provider != "" {
+		f.cfg.LLM.Provider = provider
+	}
+	if model != "" {
+		f.cfg.LLM.Model = model
+	}
 }
 
 // cancelOnceRunning starts the interface, waits until the runner reports that it is

@@ -91,7 +91,7 @@ func TestAChangedSettingReachesTheNextTurn(t *testing.T) {
 	injected := &llm.Client{}
 	r := NewAppRunner(&bytes.Buffer{}, &bytes.Buffer{}, cfg, injected, nil, logx.Global())
 
-	r.SetModel("gpt-4o")
+	r.SetLLM("", "gpt-4o")
 	r.SetReasoning("high")
 	got, engine, err := r.engine()
 	if err != nil {

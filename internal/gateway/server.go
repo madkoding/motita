@@ -14,6 +14,8 @@ import (
 
 	"github.com/madkoding/motita/internal/logx"
 	"github.com/madkoding/motita/internal/netrules"
+	"github.com/madkoding/motita/internal/session"
+	"github.com/madkoding/motita/internal/updater"
 	"github.com/madkoding/motita/internal/webui"
 )
 
@@ -57,6 +59,8 @@ type Options struct {
 	MaxBodyKB int
 	// Version is reported by /v1/health, so a client can tell which build answered.
 	Version string
+	// ExePath is the running binary's path, used by the updater to replace it.
+	ExePath string
 	// NewService builds one more conversation when a client asks for one. Nil means this
 	// gateway serves exactly one conversation, which is a real deployment: the embedded case
 	// where the terminal that started this process is the only front end there will ever be.
@@ -76,6 +80,10 @@ type Options struct {
 	// quiet: the tick only fires on a real timer, so a test that waits for one is a test that
 	// sleeps for the heartbeat interval.
 	Heartbeat time.Duration
+	// WSHeartbeat is how often the WebSocket endpoint sends a heartbeat probe. Zero means
+	// wsHeartbeatInterval (30s). Negative turns it off, which is what a test needs so the
+	// heartbeat goroutine does not inject messages the test is not expecting.
+	WSHeartbeat time.Duration
 	// WebUI serves the browser interface from this same mux. The page and the API therefore
 	// share an origin, which is why no proxy and no CORS header are involved anywhere: the
 	// browser asks this server for everything.
@@ -83,6 +91,17 @@ type Options struct {
 	// The page is served WITHOUT a token - it holds no secret and it is the only way a browser
 	// can obtain one - and the API it calls is authorised exactly as before.
 	WebUI bool
+	// SessionDir is the directory where conversations are persisted. Empty
+	// means in-memory only (the behaviour the tests have always had). When
+	// set, the gateway loads every session found there at startup and saves
+	// each conversation's transcript, title and config after every turn.
+	SessionDir string
+	// ProjectDir is the directory where projects are persisted. Empty means
+	// projects are not available.
+	ProjectDir string
+	// WorkspaceDir is the root workspace under which project folders are
+	// created. Required when ProjectDir is set.
+	WorkspaceDir string
 }
 
 // Server is the HTTP face of the conversations this process holds.
@@ -114,6 +133,21 @@ type Server struct {
 
 	sessionsMu sync.Mutex
 	sessions   map[string]*conversation
+
+	// store persists conversations to disk so they survive a restart. nil
+	// when no directory was configured, which means sessions are in-memory
+	// only — the behaviour the tests have always had.
+	store *sessionStore
+	// projects persists project definitions to disk. nil when no project
+	// directory was configured.
+	projects *projectStore
+	// updater is the self-update checker, nil when no ExePath was provided.
+	updater *updater.Updater
+	// lastCheck is the cached result of the most recent update check.
+	// Populated by the periodic checker goroutine and read by
+	// handleUpdateCheck when the frontend polls.
+	lastCheck   updater.CheckResult
+	lastCheckMu sync.RWMutex
 }
 
 // Start binds the listener and returns a Server that is ready to Serve.
@@ -170,6 +204,46 @@ func Start(opts Options) (*Server, error) {
 		baseCtx: baseCtx, baseCancel: baseCancel,
 		heartbeat: heartbeat,
 	}
+	// The self-update checker is built here, once. ExePath may be empty when
+	// running from a test or a non-standard install, which is fine: the
+	// updater endpoints simply report "no update available" rather than
+	// crashing.
+	if strings.TrimSpace(opts.ExePath) != "" {
+		s.updater = updater.New(opts.Version, opts.ExePath)
+	}
+
+	// When a session directory is configured, open the store and load every
+	// persisted conversation from it. A failure to open the store is NOT fatal:
+	// the gateway still works in-memory, and the operator can fix the directory
+	// without losing the running server. A failure to LOAD a session is skipped:
+	// one corrupt file must not block the rest.
+	if dir := strings.TrimSpace(opts.SessionDir); dir != "" {
+		if st, err := newSessionStore(dir); err != nil {
+			if opts.Log != nil {
+				opts.Log.Warn("could not open the session store; sessions will not persist", "error", err.Error())
+			}
+		} else {
+			s.store = st
+			s.loadPersistedSessions()
+			// Resume any sessions that were mid-run when the previous
+			// gateway shut down (e.g. for an upgrade). This must happen
+			// AFTER loadPersistedSessions has registered every
+			// conversation and wired its service, because starting a run
+			// needs a fully constructed conversation.
+			s.resumeInterruptedSessions()
+		}
+	}
+
+	// Open the project store when a directory is configured.
+	if pdir := strings.TrimSpace(opts.ProjectDir); pdir != "" {
+		if ps, err := newProjectStore(pdir); err != nil {
+			if opts.Log != nil {
+				opts.Log.Warn("could not open the project store; projects will not be available", "error", err.Error())
+			}
+		} else {
+			s.projects = ps
+		}
+	}
 	// The origin policy wraps the ENTIRE routing table, including the page and /v1/health.
 	//
 	// Everything rather than only the API, and that is a decision: a rule set that still served the
@@ -190,6 +264,11 @@ func Start(opts Options) (*Server, error) {
 		ReadHeaderTimeout: 10 * time.Second,
 		IdleTimeout:       90 * time.Second,
 	}
+	// Start the periodic update checker. It runs every hour, and the cached
+	// result is what the frontend reads via /v1/update/check — so a user who
+	// never opens the settings modal still sees a toast when a new release
+	// appears, without the frontend having to poll GitHub itself.
+	s.startUpdateChecker()
 	return s, nil
 }
 
@@ -299,13 +378,18 @@ func (s *Server) routes() *http.ServeMux {
 	// The interface, when it is on, BEFORE the API: it is the one part of this server that is
 	// deliberately reachable without a token, because it is the only way a browser can get one.
 	//
-	// The root is registered as "{$}" so that it matches ONLY "/". A bare "GET /" in Go's
-	// ServeMux matches everything not otherwise registered, which would answer a typo with a
-	// page that renders - a bug that looks like it worked.
+	// Every name the webui package exposes gets a route. The root is registered as "GET /{$}"
+	// so that it matches ONLY "/"; every other path uses its own exact pattern. A bare "GET /"
+	// in Go's ServeMux matches everything not otherwise registered, which would answer a typo
+	// with a page that renders - a bug that looks like it worked.
 	if s.opts.WebUI {
-		s.page(mux, "GET /{$}", "/")
-		s.page(mux, "GET /app.css", "/app.css")
-		s.page(mux, "GET /app.js", "/app.js")
+		for _, name := range webui.Names() {
+			pattern := "GET " + name
+			if name == "/" {
+				pattern = "GET /{$}"
+			}
+			s.page(mux, pattern, name)
+		}
 	}
 
 	// auth wraps anything, not just a HandlerFunc: withConversation hands back a Handler, and
@@ -322,29 +406,54 @@ func (s *Server) routes() *http.ServeMux {
 	mux.Handle("POST /v1/sessions", plain(s.handleCreateSession))
 	mux.Handle("DELETE /v1/sessions/{id}", scoped(s.handleDeleteSession))
 
+	mux.Handle("GET /v1/projects", plain(s.handleListProjects))
+	mux.Handle("POST /v1/projects", plain(s.handleCreateProject))
+	mux.Handle("DELETE /v1/projects/{id}", plain(s.handleDeleteProject))
+	mux.Handle("GET /v1/commands", plain(s.handleListCommands))
+
+	// Self-update endpoints: check for a newer release and stream the upgrade.
+	// These are plain (not scoped to a session) because the upgrade is about
+	// the gateway process itself, not any one conversation.
+	mux.Handle("GET /v1/update/check", plain(s.handleUpdateCheck))
+	mux.Handle("POST /v1/update/run", plain(s.handleUpdateRun))
+
 	mux.Handle("GET /v1/sessions/{id}", scoped(s.handleSession))
 	mux.Handle("GET /v1/sessions/{id}/report", scoped(s.handleSessionReport))
 	mux.Handle("GET /v1/sessions/{id}/messages", scoped(s.handleMessages))
 	mux.Handle("POST /v1/sessions/{id}/reset", scoped(s.handleReset))
 	mux.Handle("GET /v1/sessions/{id}/config", scoped(s.handleConfig))
+	mux.Handle("PATCH /v1/sessions/{id}/config", scoped(s.handleUpdateConfig))
+	mux.Handle("PATCH /v1/sessions/{id}", scoped(s.handleRenameSession))
 	mux.Handle("GET /v1/sessions/{id}/models", scoped(s.handleModels))
+	mux.Handle("GET /v1/sessions/{id}/providers", scoped(s.handleProviders))
+	mux.Handle("GET /v1/sessions/{id}/model-list", scoped(s.handleModelList))
 	mux.Handle("POST /v1/sessions/{id}/reasoning", scoped(s.handleReasoning))
-	mux.Handle("POST /v1/sessions/{id}/model", scoped(s.handleModel))
 	mux.Handle("POST /v1/sessions/{id}/verdict", scoped(s.handleVerdict))
 	mux.Handle("GET /v1/sessions/{id}/reward", scoped(s.handleReward))
 	mux.Handle("GET /v1/sessions/{id}/questions", scoped(s.handleQuestions))
 	mux.Handle("POST /v1/sessions/{id}/task", scoped(s.handleTask))
 	mux.Handle("POST /v1/sessions/{id}/plan", scoped(s.handlePlan))
+	mux.Handle("POST /v1/sessions/{id}/merge", scoped(s.handleMergeSession))
 	mux.Handle("GET /v1/sessions/{id}/run", scoped(s.handleRunStatus))
 	mux.Handle("GET /v1/sessions/{id}/events", scoped(s.handleAttach))
 	mux.Handle("POST /v1/sessions/{id}/cancel", scoped(s.handleCancelRun))
 	mux.Handle("POST /v1/sessions/{id}/runs/approval", scoped(s.handleApproval))
+
+	// WebSocket endpoint: a bidirectional, persistent connection that speaks the
+	// flag-based message protocol (auth, query, heartbeat, notification, error). It
+	// shares the same conversation, token and run slot as the HTTP API — a second
+	// transport, not a second agent.
+	mux.Handle("GET /v1/sessions/{id}/ws", scoped(s.handleWebSocket))
 	if s.opts.WebUI {
 		// Authorised by the BEARER token specifically, not by the cookie: this is where the
 		// token taken from the URL fragment is exchanged for the browser's cookie, and it must
 		// stay single-entry. A browser that already holds a cookie has no business minting
 		// itself another one, so requireBearer is used rather than the general check.
 		mux.Handle("POST /v1/webui/session", requireBearer(s.opts.Token, http.HandlerFunc(s.handleWebUISession)))
+		// Logout: clears the browser's cookie. No credential required — clearing a credential
+		// is not a privilege, and the reason it is called is that the credential the browser
+		// holds is no longer valid. The origin policy still applies.
+		mux.Handle("DELETE /v1/webui/session", http.HandlerFunc(s.handleWebUILogout))
 	}
 	return mux
 }
@@ -392,6 +501,20 @@ func (s *Server) handleWebUISession(w http.ResponseWriter, _ *http.Request) {
 		// supported remote path is an SSH tunnel). A Secure cookie is one a browser refuses to
 		// send over http, so setting it would look more careful and silently break the
 		// interface - the browser would never stay connected, with nothing in any log to say why.
+	})
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// handleWebUILogout clears the browser's cookie so the blocking auth modal
+// reappears. It is the complement to handleWebUISession: one mints a cookie,
+// the other removes it. No credential is required because the caller is, by
+// definition, a browser that holds a credential that no longer works.
+func (s *Server) handleWebUILogout(w http.ResponseWriter, _ *http.Request) {
+	http.SetCookie(w, &http.Cookie{
+		Name:   webuiCookie,
+		Value:  "",
+		Path:   "/",
+		MaxAge: -1, // delete immediately
 	})
 	w.WriteHeader(http.StatusNoContent)
 }
@@ -451,9 +574,311 @@ func (s *Server) handleHealth(w http.ResponseWriter, _ *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "version": s.opts.Version})
 }
 
+// handleUpdateCheck asks GitHub whether a newer release exists and returns
+// the comparison to the frontend. When a cached result from the periodic
+// checker is available, it is returned immediately; otherwise a fresh check
+// is performed.
+func (s *Server) handleUpdateCheck(w http.ResponseWriter, r *http.Request) {
+	if s.updater == nil {
+		writeJSON(w, http.StatusOK, updater.CheckResult{
+			CurrentVersion: s.opts.Version,
+			Error:          "self-update is not available: no executable path was configured",
+		})
+		return
+	}
+	// Return the cached result from the periodic checker when available.
+	s.lastCheckMu.RLock()
+	cached := s.lastCheck
+	s.lastCheckMu.RUnlock()
+	if cached.LatestVersion != "" {
+		writeJSON(w, http.StatusOK, cached)
+		return
+	}
+	// No cache yet — do a fresh check.
+	result := s.updater.Check(r.Context())
+	s.lastCheckMu.Lock()
+	s.lastCheck = result
+	s.lastCheckMu.Unlock()
+	writeJSON(w, http.StatusOK, result)
+}
+
+// handleUpdateRun streams the upgrade as SSE events so the frontend can show
+// a progress bar. After the binary is replaced, the handler signals the
+// gateway to restart itself.
+func (s *Server) handleUpdateRun(w http.ResponseWriter, r *http.Request) {
+	if s.updater == nil {
+		writeError(w, http.StatusBadRequest, "self-update is not available: no executable path was configured")
+		return
+	}
+
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("Connection", "keep-alive")
+
+	flusher, ok := w.(http.Flusher)
+	if !ok {
+		writeError(w, http.StatusInternalServerError, "streaming is not supported by this connection")
+		return
+	}
+
+	// First, fetch the release info.
+	sse := func(evt updater.ProgressEvent) {
+		data, _ := json.Marshal(evt)
+		fmt.Fprintf(w, "event: progress\ndata: %s\n\n", data)
+		flusher.Flush()
+	}
+
+	sse(updater.ProgressEvent{Stage: "checking", Percent: 0, Message: "Checking latest release"})
+
+	result := s.updater.Check(r.Context())
+	if result.Error != "" {
+		sse(updater.ProgressEvent{Stage: "error", Message: result.Error})
+		return
+	}
+	if !result.UpdateAvailable {
+		sse(updater.ProgressEvent{Stage: "done", Message: "Already up to date", Version: s.opts.Version})
+		return
+	}
+
+	// Fetch the full release (the check only returned the summary).
+	release, err := s.updater.LatestRelease(r.Context())
+	if err != nil {
+		sse(updater.ProgressEvent{Stage: "error", Message: err.Error()})
+		return
+	}
+
+	if err := s.updater.DownloadAndInstall(r.Context(), release, sse); err != nil {
+		sse(updater.ProgressEvent{Stage: "error", Message: err.Error()})
+		return
+	}
+
+	// Signal the frontend that the restart is coming.
+	sse(updater.ProgressEvent{Stage: "restarting", Percent: 100, Message: "Restarting the gateway", Version: release.TagName})
+
+	// Persist every session — including ones that are mid-run — so the new
+	// process can resume them. This is the whole point of the running/lastTask
+	// fields in sessionRecord: a session that was working when the gateway
+	// shut down for the upgrade picks up where it left off.
+	s.saveAllSessions()
+
+	// Restart the gateway in a goroutine so the SSE response can flush.
+	// The gateway stops itself by cancelling its base context; the service
+	// file holds the spawn parameters, so the caller's `gateway start` logic
+	// can re-spawn the new binary.
+	go func() {
+		// Give the SSE response time to flush before the process exits.
+		time.Sleep(500 * time.Millisecond)
+		s.baseCancel()
+	}()
+
+	// Send a final done event.
+	sse(updater.ProgressEvent{Stage: "done", Percent: 100, Message: "Upgrade complete. The gateway is restarting.", Version: release.TagName})
+}
+
 func (s *Server) handleConfig(w http.ResponseWriter, r *http.Request) {
 	// viewOf, never the configuration itself: see view.go.
 	writeJSON(w, http.StatusOK, viewOf(convOf(r).svc.Config()))
+}
+
+// loadPersistedSessions reads every conversation the store has on disk and
+// registers each one that is not already in memory. The default session is
+// skipped: it is always in memory, and its file (if any) is loaded separately
+// so its transcript can be restored into the existing service.
+func (s *Server) loadPersistedSessions() {
+	if s.store == nil {
+		return
+	}
+	records, err := s.store.loadAll()
+	if err != nil {
+		if s.opts.Log != nil {
+			s.opts.Log.Warn("could not load persisted sessions", "error", err.Error())
+		}
+		return
+	}
+	for _, rec := range records {
+		if rec.ID == DefaultSession {
+			// Restore the transcript into the default session's existing service.
+			if len(rec.Turns) > 0 {
+				s.sessions[DefaultSession].svc.RestoreTranscript(rec.Turns)
+			}
+			if rec.Title != "" {
+				s.sessions[DefaultSession].setTitle(rec.Title)
+			}
+			continue
+		}
+		// A non-default session needs a new service built for it. Without a
+		// factory the session cannot be restored as a live conversation; it is
+		// skipped rather than registered with the default's service, which would
+		// be two names for one transcript.
+		if s.opts.NewService == nil {
+			continue
+		}
+		svc, err := s.opts.NewService()
+		if err != nil {
+			if s.opts.Log != nil {
+				s.opts.Log.Warn("could not build a service for a persisted session", "id", rec.ID, "error", err.Error())
+			}
+			continue
+		}
+		conv := newConversation(rec.ID, svc)
+		conv.created = rec.Created
+		conv.lastUsed = rec.LastUsed
+		conv.setTitle(rec.Title)
+		// A session in a project gets its worktree back. The branch outlives the
+		// worktree, so re-attaching it restores the session's own work rather
+		// than starting over; a failure falls back to the project's directory,
+		// exactly as creation does.
+		workspace := rec.Workspace
+		projectDir := rec.ProjectDir
+		if projectDir != "" {
+			if wt, wtErr := s.sessionWorktree(s.baseCtx, projectDir, rec.ID); wtErr == nil {
+				workspace = wt
+			} else if s.opts.Log != nil {
+				s.opts.Log.Warn("the restored session will run in the project directory: its worktree could not be re-created",
+					"id", rec.ID, "project", projectDir, "error", wtErr.Error())
+			}
+		}
+		conv.setProjectID(rec.ProjectID, workspace, projectDir)
+		// Restore the last task/kind so the session knows what it was doing
+		// before the restart. The running flag is restored separately by
+		// resumeInterruptedSessions, which needs the service to be fully
+		// wired before it can start a run.
+		conv.stateMu.Lock()
+		conv.lastTask = rec.LastTask
+		conv.lastKind = rec.LastKind
+		conv.stateMu.Unlock()
+		if len(rec.Turns) > 0 {
+			svc.RestoreTranscript(rec.Turns)
+		}
+		// Restore provider/model if they were persisted and differ from the
+		// defaults the factory built with.
+		if rec.Provider != "" || rec.Model != "" {
+			svc.SetLLM(rec.Provider, rec.Model)
+		}
+		// Restore the workspace directory for project sessions. It is the
+		// worktree when there is one, so the resumed session writes where its
+		// work already is.
+		if workspace != "" {
+			svc.SetWorkspace(workspace)
+		}
+		s.sessionsMu.Lock()
+		s.sessions[rec.ID] = conv
+		s.sessionsMu.Unlock()
+	}
+}
+
+// resumeInterruptedSessions re-submits the task or plan for every session
+// that was mid-run when the gateway shut down. It is called after
+// loadPersistedSessions has registered every conversation and wired its
+// service, because starting a run needs a fully constructed conversation.
+//
+// A session that was running but has no recorded lastTask cannot be resumed
+// (the task text was lost), and is left in a clean non-running state rather
+// than started with an empty prompt that would produce nothing useful.
+func (s *Server) resumeInterruptedSessions() {
+	if s.store == nil {
+		return
+	}
+	records, err := s.store.loadAll()
+	if err != nil {
+		if s.opts.Log != nil {
+			s.opts.Log.Warn("could not load sessions for resume", "error", err.Error())
+		}
+		return
+	}
+	for _, rec := range records {
+		if !rec.Running || strings.TrimSpace(rec.LastTask) == "" {
+			continue
+		}
+		c, ok := s.lookup(rec.ID)
+		if !ok {
+			continue
+		}
+		// Log the resume so the operator can see it happened.
+		if s.opts.Log != nil {
+			s.opts.Log.Info("resuming interrupted session", "id", rec.ID, "kind", rec.LastKind, "task", rec.LastTask)
+		}
+		// Start the run in a goroutine, exactly as handleTask/handlePlan
+		// would. We do NOT take the run slot through the HTTP path; we
+		// set it directly because there is no concurrent client.
+		c.stateMu.Lock()
+		c.running = true
+		task := rec.LastTask
+		kind := rec.LastKind
+		c.stateMu.Unlock()
+
+		runCtx, cancel := context.WithCancel(s.baseCtx)
+		rn := newRun(newRunID(), runCtx, cancel)
+		c.setCurrentRun(rn)
+		c.svc.SetApprover(s.approverFor(c, rn))
+
+		go func(c *conversation, rn *run, task, kind string) {
+			defer c.releaseRunSlot()
+			defer c.clearCurrentRun()
+			var result string
+			var err error
+			if kind == "plan" {
+				result, err = c.svc.RunPlan(rn.ctx, task, rn.progress())
+			} else {
+				result, err = c.svc.RunTask(rn.ctx, task, rn.progress())
+			}
+			switch {
+			case errors.Is(err, context.Canceled):
+				rn.append(EventError, map[string]string{"error": "the run was cancelled"})
+				rn.finish("cancelled", "", "the run was cancelled", session.Snapshot{})
+			case err != nil:
+				rn.append(EventError, map[string]string{"error": err.Error()})
+				rn.finish("error", "", err.Error(), session.Snapshot{})
+			case result == "":
+				rn.append(EventError, map[string]string{"error": "the run finished without reporting a result"})
+				rn.finish("error", "", "the run finished without reporting a result", session.Snapshot{})
+			default:
+				snap := c.svc.ConversationSummary()
+				rn.append(EventDone, doneEvent{Result: result, Session: snap})
+				rn.finish("done", result, "", snap)
+				s.maybeAutoTitle(c)
+			}
+			s.saveSession(c)
+		}(c, rn, task, kind)
+	}
+}
+
+// saveSession persists one conversation to disk. It is called after a turn
+// finishes, after a rename, and after a config update. A nil store means
+// persistence is not configured, and the call is a no-op.
+func (s *Server) saveSession(c *conversation) {
+	if s.store == nil {
+		return
+	}
+	if err := s.store.save(c); err != nil && s.opts.Log != nil {
+		s.opts.Log.Warn("could not persist the session", "id", c.id, "error", err.Error())
+	}
+}
+
+// saveAllSessions persists every conversation in memory to disk. It is called
+// before a gateway restart (an upgrade) so that running sessions can be
+// resumed by the new process. Sessions that are mid-run are saved with
+// running=true, which is what the new process reads to know which ones to
+// resume.
+func (s *Server) saveAllSessions() {
+	if s.store == nil {
+		return
+	}
+	for _, c := range s.snapshot() {
+		if err := s.store.save(c); err != nil && s.opts.Log != nil {
+			s.opts.Log.Warn("could not persist the session before restart", "id", c.id, "error", err.Error())
+		}
+	}
+}
+
+// deletePersistedSession removes a conversation's file from disk.
+func (s *Server) deletePersistedSession(id string) {
+	if s.store == nil {
+		return
+	}
+	if err := s.store.delete(id); err != nil && s.opts.Log != nil {
+		s.opts.Log.Warn("could not delete the persisted session", "id", id, "error", err.Error())
+	}
 }
 
 // writeJSON is the one place a response body is produced, so the Content-Type is set in the one
@@ -481,4 +906,44 @@ func (s *Server) decodeBody(w http.ResponseWriter, r *http.Request, dst any) boo
 		return false
 	}
 	return true
+}
+
+// updateCheckInterval is how often the background checker asks GitHub whether
+// a newer release exists. One hour: often enough that a user sees a new
+// release the same day, rare enough that GitHub's rate limit is never a
+// concern (the unauthenticated limit is 60 requests/hour).
+const updateCheckInterval = time.Hour
+
+// startUpdateChecker runs a goroutine that periodically checks for a newer
+// release and caches the result. The cache is what handleUpdateCheck returns
+// to the frontend, so the frontend's polling never hits GitHub directly.
+func (s *Server) startUpdateChecker() {
+	if s.updater == nil {
+		return
+	}
+	go func() {
+		// Check once at startup (after a short delay so the gateway binds first).
+		time.Sleep(5 * time.Second)
+		s.runOneCheck()
+		ticker := time.NewTicker(updateCheckInterval)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-s.baseCtx.Done():
+				return
+			case <-ticker.C:
+				s.runOneCheck()
+			}
+		}
+	}()
+}
+
+// runOneCheck performs one update check and caches the result.
+func (s *Server) runOneCheck() {
+	ctx, cancel := context.WithTimeout(s.baseCtx, 15*time.Second)
+	defer cancel()
+	result := s.updater.Check(ctx)
+	s.lastCheckMu.Lock()
+	s.lastCheck = result
+	s.lastCheckMu.Unlock()
 }

@@ -1,0 +1,763 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ─── Sansation font (embedded, self-contained) ─────────────────── */
+@font-face {
+  font-family: 'Sansation';
+  font-weight: 300;
+  font-style: normal;
+  src: url(/Sansation-Light.ttf) format('truetype');
+  font-display: swap;
+}
+@font-face {
+  font-family: 'Sansation';
+  font-weight: 300;
+  font-style: italic;
+  src: url(/Sansation-LightItalic.ttf) format('truetype');
+  font-display: swap;
+}
+@font-face {
+  font-family: 'Sansation';
+  font-weight: 400;
+  font-style: normal;
+  src: url(/Sansation-Regular.ttf) format('truetype');
+  font-display: swap;
+}
+@font-face {
+  font-family: 'Sansation';
+  font-weight: 400;
+  font-style: italic;
+  src: url(/Sansation-Italic.ttf) format('truetype');
+  font-display: swap;
+}
+@font-face {
+  font-family: 'Sansation';
+  font-weight: 700;
+  font-style: normal;
+  src: url(/Sansation-Bold.ttf) format('truetype');
+  font-display: swap;
+}
+@font-face {
+  font-family: 'Sansation';
+  font-weight: 700;
+  font-style: italic;
+  src: url(/Sansation-BoldItalic.ttf) format('truetype');
+  font-display: swap;
+}
+
+/* ─── Terminus Nerd Font Mono (for code blocks) ────────────────── */
+@font-face {
+  font-family: 'TerminusNF';
+  font-weight: 400;
+  font-style: normal;
+  src: url(/TerminusNF-Mono-Regular.ttf) format('truetype');
+  font-display: swap;
+}
+@font-face {
+  font-family: 'TerminusNF';
+  font-weight: 700;
+  font-style: normal;
+  src: url(/TerminusNF-Mono-Bold.ttf) format('truetype');
+  font-display: swap;
+}
+
+/* ─── Dark only ────────────────────────────────────────────────────
+ * The interface is dark, full stop. `color-scheme: dark` is the whole
+ * mechanism: it tells the browser to render the form controls, scrollbars,
+ * the caret and the default canvas dark instead of light, and no light
+ * palette is defined below to be selected. A light `prefers-color-scheme`
+ * gets the same dark surface, never a half-lit one — the old light palette
+ * was a second set of colours to keep in sync with a design that is dark,
+ * and it lost that race (its heading rules still assumed the pre-gradient
+ * markup). Forcing it also keeps the UA's own widgets from turning white on
+ * a phone set to light, which is the half-light a screenshot cannot show. */
+:root {
+  color-scheme: dark;
+  --font-sans: 'Sansation', system-ui, -apple-system, sans-serif;
+  --font-mono: 'TerminusNF', ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+}
+
+body {
+  margin: 0;
+  font-family: var(--font-sans);
+}
+
+/* ─── App background image ────────────────────────────────────────
+ * The image lives on the root container so it shows through every
+ * frosted panel (header, composer, approval). On desktop it is
+ * centered with cover; on mobile it anchors to the right edge
+ * (right-to-left alignment) while keeping its aspect ratio. */
+.app-bg {
+  background-image: url(/chat-bg.jpg);
+  background-size: cover;
+  background-position: center;
+  background-repeat: no-repeat;
+  background-color: #0a0a0f;
+}
+@media (max-width: 640px) {
+  .app-bg {
+    background-position: right center;
+  }
+}
+
+/* chat-bg is now transparent — the root's background image shows through. */
+.chat-bg {
+  background: transparent;
+}
+
+/* ─── Frosted glass panels ────────────────────────────────────────
+ * Semi-transparent background + backdrop blur for the header, composer
+ * and approval panel, so the background image is visible through them. */
+.frosted {
+  background: rgba(10, 10, 16, 0.78);
+  backdrop-filter: blur(20px) saturate(1.3);
+  -webkit-backdrop-filter: blur(20px) saturate(1.3);
+}
+
+/* ─── Sidebar ────────────────────────────────────────────────────
+ * Frosted glass panel for the session sidebar, matching the header
+ * and composer style. */
+.sidebar {
+  background: rgba(10, 10, 16, 0.88);
+  backdrop-filter: blur(20px) saturate(1.3);
+  -webkit-backdrop-filter: blur(20px) saturate(1.3);
+}
+
+/* Session rows: the hover actions are controlled by group-hover in
+ * the JSX, so nothing extra is needed here. */
+.session-row {
+  transition: background-color 0.15s, border-color 0.15s;
+}
+
+/* ─── Message bubbles with frosted glass ──────────────────────────
+ * backdrop-filter: blur() makes the bubble semi-transparent over the
+ * chat background, so the text is readable regardless of what is
+ * behind it. A solid fallback background is set for browsers without
+ * backdrop-filter support. */
+.msg {
+  white-space: pre-wrap;
+  word-break: break-word;
+  padding: 8px 12px;
+  border-radius: 12px;
+  background: rgba(10, 10, 16, 0.82);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  border: 1px solid rgba(76, 194, 255, 0.12);
+  max-width: 85%;
+  width: fit-content;
+  min-width: 0;
+  font-size: 0.92em;
+  animation: msgIn 0.25s ease-out;
+}
+@keyframes msgIn {
+  from { opacity: 0; transform: translateY(8px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.msg.user {
+  align-self: flex-end;
+  border-color: rgba(76, 194, 255, 0.28);
+  background: rgba(10, 10, 16, 0.78);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  max-width: 85%;
+  width: fit-content;
+}
+.msg.agent {
+  align-self: flex-start;
+  position: relative;
+}
+.msg.kind {
+  font-size: 11px;
+  color: #8a8a9a;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  background: transparent;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  border: none;
+}
+.msg.error {
+  border-color: rgba(255, 107, 107, 0.4);
+  background: rgba(255, 107, 107, 0.08);
+}
+
+/* Activity lines: smaller, monospace, also frosted. */
+.msg.activity {
+  align-self: flex-start;
+  font-size: 0.82em;
+  color: #9a9aaa;
+  font-family: var(--font-mono);
+  background: rgba(10, 10, 16, 0.75);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  border: 1px dashed rgba(76, 194, 255, 0.18);
+  max-width: 90%;
+  padding: 5px 10px;
+  border-radius: 8px;
+}
+.msg.activity.command {
+  color: #e8e8ea;
+  border-color: rgba(76, 194, 255, 0.4);
+  border-style: solid;
+  background: rgba(76, 194, 255, 0.08);
+}
+.msg.activity.reasoning,
+.msg.activity.synthesis {
+  border-style: dotted;
+  border-color: rgba(154, 154, 170, 0.3);
+}
+
+/* ─── Markdown body — cyberpunk ────────────────────────────────────
+ * Each tag has a distinct visual identity: neon borders, glow shadows,
+ * monospace accents, hard angles. Margins are tight — no wasted space. */
+.markdown-body { line-height: 1.0; }
+.markdown-body p { margin: 0 0 1px; line-height: 1.5em; }
+.markdown-body p:last-child { margin-bottom: 0; }
+
+/* Headings: cyberpunk colors, border-left accent, gradient background.
+ * Only h1 is inverted: bright gradient fill, dark text. */
+.markdown-body h1 {
+  font-size: 1.28em; font-weight: 800; margin: 3px 0 1px;
+  color: #0a0a0f;
+  padding: 6px 8px;
+  letter-spacing: 0.03em;
+  border-left: 4px solid #4cc2ff;
+  background: linear-gradient(90deg, rgba(76,194,255,0.85), rgba(76,194,255,0.3) 60%, transparent);
+}
+.markdown-body h2 {
+  font-size: 1.14em; font-weight: 700; margin: 2px 0 1px;
+  color: #b078ff;
+  padding: 6px 8px;
+  border-left: 4px solid #b078ff;
+  background: linear-gradient(90deg, rgba(176,120,255,0.15), transparent 70%);
+}
+.markdown-body h3 {
+  font-size: 1.06em; font-weight: 700; margin: 2px 0 1px;
+  color: #50d878;
+  padding: 6px 8px;
+  border-left: 4px solid #50d878;
+  background: linear-gradient(90deg, rgba(80,216,120,0.12), transparent 70%);
+}
+.markdown-body h4 {
+  font-size: 0.96em; font-weight: 600; margin: 2px 0 1px;
+  color: #ffb020;
+  padding: 6px 8px;
+  border-left: 4px solid #ffb020;
+  background: linear-gradient(90deg, rgba(255,176,32,0.12), transparent 70%);
+}
+.markdown-body h5 {
+  font-size: 0.88em; font-weight: 600; margin: 1px 0 1px;
+  color: #ff6b6b;
+  padding: 6px 8px;
+  border-left: 4px solid #ff6b6b;
+  background: linear-gradient(90deg, rgba(255,107,107,0.1), transparent 70%);
+}
+.markdown-body h6 {
+  font-size: 0.82em; font-weight: 500; margin: 1px 0 1px;
+  color: #8a8a9a;
+  padding: 6px 8px;
+  border-left: 4px solid #8a8a9a;
+  background: linear-gradient(90deg, rgba(138,138,154,0.08), transparent 70%);
+}
+
+/* Lists: tight margins, mono bullet markers, but a READABLE line height.
+ * The body is 1.0 so blocks pack densely; a list is prose and wraps, so its
+ * items follow the paragraphs at 1.5em. Without this an item that wraps onto a
+ * second line has its lines touching, which reads as a rendering fault. */
+.markdown-body ul { list-style: disc; }
+.markdown-body ol { list-style: decimal; }
+.markdown-body ul, .markdown-body ol { margin: 1px 0 2px; padding-left: 24px; }
+.markdown-body li { margin: 0; line-height: 1.5em; }
+.markdown-body ul li::marker { color: #4cc2ff; }
+.markdown-body ol li::marker { color: #b078ff; font-family: var(--font-mono); }
+
+/* Inline code: neon box, sharp corners. */
+.markdown-body code {
+  font-family: var(--font-mono);
+  font-size: 1em;
+  color: #4cc2ff;
+  background: rgba(76,194,255,0.08);
+  border: 1px solid rgba(76,194,255,0.2);
+  padding: 1px 5px;
+  border-radius: 3px;
+  line-height: 1.3em;
+}
+
+/* Code blocks: dark terminal, neon border, no radius. */
+.markdown-body pre {
+  position: relative;
+  margin: 2px 0;
+  padding: 6px 9px;
+  background: rgba(0,0,0,0.55);
+  border: 1px solid rgba(76,194,255,0.25);
+  border-left: 3px solid #4cc2ff;
+  border-radius: 0;
+  overflow-x: auto;
+  line-height: 1.3em;
+  max-width: 100%;
+}
+.markdown-body pre code {
+  font-size: 1em;
+  color: #c8c8d0;
+  background: none; border: none; padding: 0; border-radius: 0;
+  white-space: pre;
+  line-height: 1.3em;
+}
+
+/* ─── Syntax highlighting tokens ────────────────────────────────── */
+.markdown-body .tk-key { color: #b078ff; font-weight: 600; }
+.markdown-body .tk-str { color: #50d878; }
+.markdown-body .tk-com { color: #6a6a7a; font-style: italic; }
+.markdown-body .tk-num { color: #ffb020; }
+.markdown-body .tk-fn  { color: #4cc2ff; }
+.markdown-body .tk-op  { color: #e8e8ea; }
+
+/* ─── Copy buttons ──────────────────────────────────────────────── */
+.markdown-body .copy-btn {
+  position: absolute;
+  top: 4px; right: 4px;
+  padding: 2px 8px;
+  font-size: 0.72em;
+  font-family: var(--font-sans);
+  color: #4cc2ff;
+  background: rgba(10,10,16,0.7);
+  border: 1px solid rgba(76,194,255,0.25);
+  border-radius: 3px;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.2s;
+}
+.markdown-body pre:hover .copy-btn { opacity: 1; }
+.markdown-body .copy-btn:hover { background: rgba(76,194,255,0.15); border-color: #4cc2ff; }
+.markdown-body .copy-btn:active { transform: scale(0.95); }
+
+.markdown-body .copy-msg-btn {
+  position: absolute;
+  top: 4px; right: 4px;
+  padding: 2px 8px;
+  font-size: 0.72em;
+  font-family: var(--font-sans);
+  color: #4cc2ff;
+  background: rgba(10,10,16,0.7);
+  border: 1px solid rgba(76,194,255,0.2);
+  border-radius: 3px;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.2s;
+}
+.markdown-body .markdown-body-wrap:hover .copy-msg-btn,
+.msg.agent:hover .copy-msg-btn { opacity: 1; }
+.markdown-body .copy-msg-btn:hover { background: rgba(76,194,255,0.15); border-color: #4cc2ff; }
+.markdown-body .copy-msg-btn:active { transform: scale(0.95); }
+
+/* Blockquotes: enclosed in a bordered box. */
+.markdown-body blockquote {
+  margin: 2px 0; padding: 6px 10px;
+  border: 1px solid rgba(176,120,255,0.3);
+  border-left: 4px solid #b078ff;
+  background: rgba(176,120,255,0.05);
+  border-radius: 0;
+}
+.markdown-body blockquote p { margin: 1px 0; }
+.markdown-body blockquote p:first-child { margin-top: 0; }
+.markdown-body blockquote p:last-child { margin-bottom: 0; }
+
+/* Tables: grid lines, neon header. */
+.markdown-body table {
+  margin: 2px 0; border-collapse: collapse; width: 100%; font-size: 0.82em;
+}
+.markdown-body th, .markdown-body td {
+  padding: 8px 10px;
+  border: 1px solid rgba(76,194,255,0.15);
+  text-align: left;
+}
+.markdown-body th {
+  font-weight: 600;
+  color: #4cc2ff;
+  background: rgba(76,194,255,0.08);
+  border-bottom: 2px solid rgba(76,194,255,0.3);
+}
+.markdown-body tr:nth-child(even) td { background: rgba(255,255,255,0.02); }
+
+/* HR: neon divider line. */
+.markdown-body hr {
+  border: none;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, #4cc2ff, transparent);
+  margin: 3px 0;
+}
+
+/* Inline elements. */
+.markdown-body a { color: #4cc2ff; text-decoration: none; border-bottom: 1px solid rgba(76,194,255,0.3); }
+.markdown-body a:hover { border-bottom-color: #4cc2ff; text-shadow: 0 0 4px rgba(76,194,255,0.5); }
+.markdown-body strong { font-weight: 700; color: #f0f0f4; }
+.markdown-body em { font-style: italic; color: #c8b8f0; }
+.markdown-body del { text-decoration: line-through; opacity: 0.45; color: #ff6b6b; }
+.markdown-body img { max-width: 100%; border: 1px solid rgba(76,194,255,0.2); border-radius: 4px; margin: 2px 0; }
+
+/* Task lists: GFM checkbox syntax. */
+.markdown-body ul.task-list { list-style: none; padding-left: 2px; }
+.markdown-body ul.task-list li { padding-left: 2px; margin: 1px 0; }
+.markdown-body ul.task-list li.task-done { color: #6a6a7a; text-decoration: line-through; }
+.markdown-body .checkbox { font-size: 1em; margin-right: 4px; user-select: none; }
+.markdown-body .checkbox.checked { color: #50d878; text-shadow: 0 0 4px rgba(80,216,120,0.4); }
+
+/* Footnotes: superscript links + definitions section. */
+.markdown-body sup { font-size: 0.72em; vertical-align: super; line-height: 0; }
+.markdown-body sup a { color: #4cc2ff; text-decoration: none; border-bottom: none; }
+.markdown-body sup a:hover { text-shadow: 0 0 4px rgba(76,194,255,0.5); }
+.markdown-body .footnotes { margin: 6px 0 0; padding: 4px 10px; border-top: 1px solid rgba(76,194,255,0.15); font-size: 0.8em; color: #8a8a9a; }
+.markdown-body .footnotes ol { list-style: decimal; padding-left: 16px; }
+.markdown-body .footnotes li { margin: 1px 0; }
+.markdown-body .footnotes li::marker { color: #b078ff; font-family: var(--font-mono); }
+.markdown-body .footnote-ref a { color: #4cc2ff; text-decoration: none; }
+
+/* GFM alerts: each type in a bordered box with distinct neon accent. */
+.markdown-body blockquote.alert {
+  margin: 2px 0; padding: 6px 10px;
+  border: 1px solid rgba(76,194,255,0.3);
+  border-left: 4px solid #4cc2ff;
+  background: rgba(0,0,0,0.3);
+  border-radius: 0;
+}
+.markdown-body blockquote.alert strong {
+  display: block; margin-bottom: 1px;
+  font-size: 0.78em; letter-spacing: 0.08em;
+  font-family: var(--font-mono);
+}
+.markdown-body blockquote.alert-note { border-color: rgba(76,194,255,0.3); border-left-color: #4cc2ff; }
+.markdown-body blockquote.alert-note strong { color: #4cc2ff; }
+.markdown-body blockquote.alert-tip { border-color: rgba(80,216,120,0.3); border-left-color: #50d878; }
+.markdown-body blockquote.alert-tip strong { color: #50d878; }
+.markdown-body blockquote.alert-important { border-color: rgba(176,120,255,0.3); border-left-color: #b078ff; }
+.markdown-body blockquote.alert-important strong { color: #b078ff; }
+.markdown-body blockquote.alert-warning { border-color: rgba(255,176,32,0.3); border-left-color: #ffb020; }
+.markdown-body blockquote.alert-warning strong { color: #ffb020; }
+.markdown-body blockquote.alert-caution { border-color: rgba(255,107,107,0.3); border-left-color: #ff6b6b; }
+.markdown-body blockquote.alert-caution strong { color: #ff6b6b; }
+
+/* ─── Activity spinners — one per action type ───────────────────── */
+.msg.activity span[class^="spin-"] {
+  display: inline-block;
+  width: 10px; height: 10px;
+  margin-right: 6px;
+  vertical-align: -1px;
+  flex-shrink: 0;
+}
+
+/* command: cian spinner — classic rotating ring */
+.spin-command {
+  border: 2px solid rgba(76,194,255,0.15);
+  border-top-color: #4cc2ff;
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+
+/* reasoning: violet pulsing dot */
+.spin-reasoning {
+  background: #b078ff;
+  border-radius: 50%;
+  animation: pulse 1s ease-in-out infinite;
+}
+@keyframes pulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.3; transform: scale(0.6); }
+}
+
+/* check: green bouncing dots (3-bar) */
+.spin-check {
+  width: 14px !important; height: 10px !important;
+  border: none;
+  background:
+    radial-gradient(circle, #50d878 30%, transparent 32%) 0% 50% / 5px 5px no-repeat,
+    radial-gradient(circle, #50d878 30%, transparent 32%) 50% 50% / 5px 5px no-repeat,
+    radial-gradient(circle, #50d878 30%, transparent 32%) 100% 50% / 5px 5px no-repeat;
+  animation: bounce-dots 1.2s ease-in-out infinite;
+}
+@keyframes bounce-dots {
+  0%, 100% { background-position: 0% 30%, 50% 50%, 100% 70%; }
+  50% { background-position: 0% 70%, 50% 30%, 100% 30%; }
+}
+
+/* plan: amber rotating square */
+.spin-plan {
+  width: 8px !important; height: 8px !important;
+  background: #ffb020;
+  border-radius: 1px;
+  animation: spin-square 1s linear infinite;
+}
+@keyframes spin-square {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+/* analysis: red expanding ring */
+.spin-analysis {
+  border: 2px solid #ff6b6b;
+  border-radius: 50%;
+  animation: expand 1.2s ease-out infinite;
+}
+@keyframes expand {
+  0% { transform: scale(0.4); opacity: 1; }
+  100% { transform: scale(1.2); opacity: 0; }
+}
+
+/* synthesis: cian-violet alternating bar */
+.spin-synthesis {
+  width: 3px !important; height: 12px !important;
+  background: #4cc2ff;
+  border-radius: 1px;
+  animation: bar-flip 0.8s ease-in-out infinite alternate;
+}
+@keyframes bar-flip {
+  0% { background: #4cc2ff; height: 4px; }
+  100% { background: #b078ff; height: 12px; }
+}
+
+/* default: gray spinner */
+.spin-default {
+  border: 2px solid rgba(154,154,170,0.15);
+  border-top-color: #9a9aaa;
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+}
+
+/* ─── State badge spinner ────────────────────────────────────────── */
+.state-working::after {
+  content: '';
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  margin-left: 6px;
+  border: 2px solid rgba(76, 194, 255, 0.15);
+  border-top-color: #4cc2ff;
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+  vertical-align: -1px;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* ─── Global animations ───────────────────────────────────────────
+ * Every interactive element and every piece of text that appears has
+ * a transition or an entrance animation. The aim is that nothing in
+ * the UI pops into existence — it slides, fades, or scales in. */
+
+/* Smooth scrolling already set via Tailwind's scroll-smooth on main. */
+
+/* Sidebar slide-in. */
+.sidebar {
+  animation: slideInLeft 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+}
+@keyframes slideInLeft {
+  from { transform: translateX(-100%); opacity: 0; }
+  to   { transform: translateX(0); opacity: 1; }
+}
+
+/* Mobile overlay fade-in. */
+.sidebar ~ div {
+  animation: fadeIn 0.2s ease-out;
+}
+
+/* Session rows: slide in from the left, staggered feel. */
+.session-row {
+  animation: rowIn 0.2s ease-out;
+}
+@keyframes rowIn {
+  from { opacity: 0; transform: translateX(-10px); }
+  to   { opacity: 1; transform: translateX(0); }
+}
+
+/* Project headers: fade in. */
+.project-header {
+  animation: fadeIn 0.25s ease-out;
+}
+
+/* Message bubbles: existing msgIn upgraded with a subtle scale. */
+@keyframes msgIn {
+  from { opacity: 0; transform: translateY(10px) scale(0.98); }
+  to   { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+/* Message text: letter-by-letter fade for agent replies. */
+.msg.agent .markdown-body,
+.msg.agent > span {
+  animation: textFadeIn 0.4s ease-out;
+}
+@keyframes textFadeIn {
+  from { opacity: 0; filter: blur(2px); }
+  to   { opacity: 1; filter: blur(0); }
+}
+
+/* User message text: quick slide-up. */
+.msg.user > span {
+  animation: textSlideUp 0.3s ease-out;
+}
+@keyframes textSlideUp {
+  from { opacity: 0; transform: translateY(6px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+/* Header: fade-down on load. */
+header.frosted {
+  animation: fadeDown 0.3s ease-out;
+}
+@keyframes fadeDown {
+  from { opacity: 0; transform: translateY(-100%); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+/* Composer: slide-up from bottom. */
+form.frosted {
+  animation: slideUp 0.3s ease-out;
+}
+@keyframes slideUp {
+  from { opacity: 0; transform: translateY(100%); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+/* Textarea and inputs: smooth focus glow. */
+textarea, input, select {
+  transition: border-color 0.2s ease-out, box-shadow 0.2s ease-out, background-color 0.2s ease-out;
+}
+textarea:focus, input:focus, select:focus {
+  box-shadow: 0 0 0 2px rgba(76, 194, 255, 0.15);
+}
+
+/* All buttons: smooth press + hover transitions. */
+button {
+  transition: transform 0.15s ease-out, opacity 0.15s ease-out, background-color 0.15s ease-out, border-color 0.15s ease-out, color 0.15s ease-out, box-shadow 0.2s ease-out;
+}
+button:not(:disabled):hover {
+  transform: translateY(-1px);
+}
+button:not(:disabled):active {
+  transform: translateY(0) scale(0.96);
+}
+
+/* State badge: pulse on state change. */
+header .text-xs {
+  animation: badgePulse 0.3s ease-out;
+}
+@keyframes badgePulse {
+  0%   { transform: scale(1); }
+  50%  { transform: scale(1.1); }
+  100% { transform: scale(1); }
+}
+
+/* Approval panel: slide-up with warning glow. */
+section.frosted, .frosted.border-t-2 {
+  animation: approvalIn 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+@keyframes approvalIn {
+  from { opacity: 0; transform: translateY(20px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+/* Activity lines: slide-in from left. */
+.msg.activity {
+  animation: activityIn 0.2s ease-out;
+}
+@keyframes activityIn {
+  from { opacity: 0; transform: translateX(-12px); }
+  to   { opacity: 1; transform: translateX(0); }
+}
+
+/* Modals: scale-in with backdrop fade. */
+[class*="bg-black\\/60"] > div {
+  animation: modalIn 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+}
+@keyframes modalIn {
+  from { opacity: 0; transform: scale(0.92) translateY(10px); }
+  to   { opacity: 1; transform: scale(1) translateY(0); }
+}
+
+/* Backdrop fade. */
+[class*="bg-black\\/60"],
+[class*="bg-black\\/50"] {
+  animation: fadeIn 0.2s ease-out;
+}
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+/* Markdown elements: staggered fade-in for headings and paragraphs. */
+.markdown-body h1, .markdown-body h2, .markdown-body h3,
+.markdown-body h4, .markdown-body h5, .markdown-body h6 {
+  animation: fadeIn 0.35s ease-out;
+}
+.markdown-body p {
+  animation: textFadeIn 0.3s ease-out;
+}
+.markdown-body pre {
+  animation: fadeIn 0.3s ease-out;
+}
+.markdown-body ul, .markdown-body ol {
+  animation: fadeIn 0.3s ease-out;
+}
+.markdown-body table {
+  animation: fadeIn 0.3s ease-out;
+}
+.markdown-body blockquote {
+  animation: fadeIn 0.3s ease-out;
+}
+.markdown-body code {
+  animation: fadeIn 0.2s ease-out;
+}
+
+/* Inline code: subtle glow on hover. */
+.markdown-body code {
+  transition: box-shadow 0.2s ease-out, background-color 0.2s ease-out;
+}
+.markdown-body code:hover {
+  box-shadow: 0 0 6px rgba(76, 194, 255, 0.3);
+}
+
+/* Links: smooth underline + glow. */
+.markdown-body a {
+  transition: text-shadow 0.2s ease-out, border-bottom-color 0.2s ease-out, color 0.2s ease-out;
+}
+
+/* Hamburger / close icon: rotate on toggle. */
+header button svg, aside button svg {
+  transition: transform 0.2s ease-out;
+}
+
+/* Copy buttons: already have opacity transition. */
+.copy-btn, .copy-msg-btn {
+  transition: opacity 0.2s ease-out, background-color 0.2s ease-out, border-color 0.2s ease-out, transform 0.15s ease-out;
+}
+
+/* Sidebar session list: smooth scroll. */
+.flex-1.overflow-y-auto {
+  scroll-behavior: smooth;
+}
+
+/* Disabled buttons: fade rather than snap. */
+button:disabled {
+  transition: opacity 0.2s ease-out;
+}
+
+/* General keyframes reused above. */
+@keyframes slideUp {
+  from { opacity: 0; transform: translateY(100%); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+/* Reduced motion: kill all entrance animations but keep transitions. */
+@media (prefers-reduced-motion: reduce) {
+  .msg, .session-row, .project-header, .sidebar,
+  header.frosted, form.frosted, .msg.activity,
+  [class*="bg-black\\/60"] > div, [class*="bg-black\\/60"],
+  [class*="bg-black\\/50"],
+  .msg.agent .markdown-body, .msg.agent > span, .msg.user > span,
+  .markdown-body h1, .markdown-body h2, .markdown-body h3,
+  .markdown-body h4, .markdown-body h5, .markdown-body h6,
+  .markdown-body p, .markdown-body pre, .markdown-body ul,
+  .markdown-body ol, .markdown-body table, .markdown-body blockquote,
+  .markdown-body code, header .text-xs {
+    animation: none !important;
+  }
+  .state-working::after { animation: none !important; }
+}

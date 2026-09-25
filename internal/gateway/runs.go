@@ -32,6 +32,12 @@ func (s *Server) handleTask(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	c := convOf(r)
+	// Record the task so it can be resumed after a gateway restart.
+	c.stateMu.Lock()
+	c.lastTask = body.Task
+	c.lastKind = "task"
+	c.stateMu.Unlock()
+	s.saveSession(c)
 	s.startRun(w, r, c, func(ctx context.Context, progress func(string, ...any)) (string, error) {
 		return c.svc.RunTask(ctx, body.Task, progress)
 	})
@@ -50,6 +56,12 @@ func (s *Server) handlePlan(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	c := convOf(r)
+	// Record the prompt so it can be resumed after a gateway restart.
+	c.stateMu.Lock()
+	c.lastTask = body.Prompt
+	c.lastKind = "plan"
+	c.stateMu.Unlock()
+	s.saveSession(c)
 	s.startRun(w, r, c, func(ctx context.Context, progress func(string, ...any)) (string, error) {
 		return c.svc.RunPlan(ctx, body.Prompt, progress)
 	})
@@ -104,6 +116,7 @@ func (s *Server) startRun(w http.ResponseWriter, r *http.Request, c *conversatio
 			snap := c.svc.ConversationSummary()
 			rn.append(EventDone, doneEvent{Result: result, Session: snap})
 			rn.finish("done", result, "", snap)
+			s.maybeAutoTitle(c)
 		}
 	}()
 
