@@ -27,6 +27,9 @@ jobs:
           go-version-file: go.mod
           cache: false
 
+      - name: Build web UI (Vite + Preact + Tailwind)
+        run: cd web && npm ci && npm run build
+
       - name: gofmt
         run: |
           unformatted="$(gofmt -l .)"
@@ -146,6 +149,9 @@ jobs:
           go-version-file: go.mod
           cache: false
 
+      - name: Build web UI (Vite + Preact + Tailwind)
+        run: cd web && npm ci && npm run build
+
       - name: Build static binary
         run: |
           mkdir -p dist
@@ -235,6 +241,9 @@ jobs:
         with:
           go-version-file: go.mod
           cache: false
+
+      - name: Build web UI (Vite + Preact + Tailwind)
+        run: cd web && npm ci && npm run build
 
       # One job, not a nine-platform matrix: the gateway is a single HTTP surface, and its
       # behaviour does not vary with the target architecture the way a sandbox or a signal
