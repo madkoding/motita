@@ -329,12 +329,22 @@ curl -X DELETE -H "Authorization: Bearer $TOKEN" \
 | `GET /v1/sessions/{id}/config` `/models` `/reward` `/questions` | the read-only views |
 | `POST /v1/sessions/{id}/reasoning` `/model` `/verdict` `/reset` | change the budget or the model, grade a turn, start over |
 | `GET /v1/sessions/{id}/ws` | **WebSocket**: bidirectional, flag-based message protocol (see below) |
+| `GET` `POST /v1/schedules` | list the tasks that fire on their own, or add one |
+| `PATCH` `DELETE /v1/schedules/{id}` | pause, retarget or remove one |
+| `POST /v1/schedules/{id}/run` | run it now, without moving its cadence |
 
 The default conversation belongs to the process that started the gateway: closing it
 is refused, because that process would be left talking to a conversation that no
 longer exists. `gateway.max_sessions` caps how many a process will hold (`0` means
 the built-in default); the ceiling is there so a client that forgets to close what
 it opened cannot turn the agent into a memory leak.
+
+**Tasks that fire on their own** live in `~/.motita/schedules/`, one JSON file each, and are
+driven through `/v1/schedules`. The cadence is a duration (`30m`, `24h`), not a cron
+expression, and a task fires **into a conversation that already exists** — so a scheduled turn
+appears in that session's transcript and is attachable like any other. A scheduled run has
+nobody to ask, so a command the policy wants to confirm is **refused** and the record says why;
+the documented escape hatch for unattended work is `agent.policy.enforce=false`.
 
 **The port is 7477 by default**, chosen because IANA leaves it unassigned, nothing
 well known uses it, and it sits below the ephemeral range a Linux box hands out by
