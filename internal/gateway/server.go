@@ -14,7 +14,7 @@ import (
 
 	"github.com/madkoding/motita/internal/logx"
 	"github.com/madkoding/motita/internal/netrules"
-	"github.com/madkoding/motita/internal/session"
+	"github.com/madkoding/motita/internal/schedule"
 	"github.com/madkoding/motita/internal/updater"
 	"github.com/madkoding/motita/internal/webui"
 )
@@ -99,6 +99,19 @@ type Options struct {
 	// ProjectDir is the directory where projects are persisted. Empty means
 	// projects are not available.
 	ProjectDir string
+	// ScheduleDir is the directory where scheduled tasks are persisted. Empty means
+	// scheduling is off for this process, and the endpoints answer an empty list
+	// rather than an error: a deployment that does not schedule anything is a
+	// deployment, not a failure.
+	ScheduleDir string
+	// ScheduleMinEvery is the shortest cadence a task may be created with. Zero
+	// means the built-in default (one minute). It comes from the configuration so
+	// the rule lives in ONE place and the handler does not invent its own.
+	ScheduleMinEvery time.Duration
+	// ScheduleTick is the resolution at which a due task is noticed. Zero means the
+	// built-in default. It is injectable because the end-to-end test needs a firing
+	// to happen in seconds, not in half a minute.
+	ScheduleTick time.Duration
 	// WorkspaceDir is the root workspace under which project folders are
 	// created. Required when ProjectDir is set.
 	WorkspaceDir string
@@ -141,6 +154,9 @@ type Server struct {
 	// projects persists project definitions to disk. nil when no project
 	// directory was configured.
 	projects *projectStore
+	// schedules persists the tasks that fire on their own. nil when no directory was
+	// configured, which means scheduling is off.
+	schedules *schedule.Store
 	// updater is the self-update checker, nil when no ExePath was provided.
 	updater *updater.Updater
 	// lastCheck is the cached result of the most recent update check.
@@ -242,6 +258,24 @@ func Start(opts Options) (*Server, error) {
 			}
 		} else {
 			s.projects = ps
+		}
+	}
+
+	// Open the schedule store when a directory is configured, and start the watcher.
+	// A failure to open it is NOT fatal: the gateway serves, and the endpoints report
+	// an empty list, which is the same answer a deployment without scheduling gives.
+	if sdir := strings.TrimSpace(opts.ScheduleDir); sdir != "" {
+		if st, err := schedule.Open(sdir); err != nil {
+			if opts.Log != nil {
+				opts.Log.Warn("could not open the schedule store; scheduled tasks will not run", "error", err.Error())
+			}
+		} else {
+			s.schedules = st
+			// The watcher is started HERE and not in a caller, so that a gateway with a
+			// schedule directory always has one: without this line every scheduled task
+			// passes its tests and never fires in production, because nothing ever looks
+			// at the clock.
+			s.startScheduler()
 		}
 	}
 	// The origin policy wraps the ENTIRE routing table, including the page and /v1/health.
@@ -409,6 +443,19 @@ func (s *Server) routes() *http.ServeMux {
 	mux.Handle("GET /v1/projects", plain(s.handleListProjects))
 	mux.Handle("POST /v1/projects", plain(s.handleCreateProject))
 	mux.Handle("DELETE /v1/projects/{id}", plain(s.handleDeleteProject))
+	// Scheduled tasks are addressed by the PROCESS, not by a conversation, for the same
+	// reason projects are: a schedule exists whether or not anyone is talking to the
+	// agent, and the conversation it fires INTO is a field of the record. Everything
+	// that speaks ABOUT a conversation stays under /v1/sessions/{id}.
+	//
+	// Only the list and the create were registered first, because every commit's route
+	// table is a table every route in it answers for. The three that change or run a
+	// task arrive with the handlers that serve them.
+	mux.Handle("GET /v1/schedules", plain(s.handleListSchedules))
+	mux.Handle("POST /v1/schedules", plain(s.handleCreateSchedule))
+	mux.Handle("PATCH /v1/schedules/{id}", plain(s.handleUpdateSchedule))
+	mux.Handle("DELETE /v1/schedules/{id}", plain(s.handleDeleteSchedule))
+	mux.Handle("POST /v1/schedules/{id}/run", plain(s.handleRunScheduleNow))
 	mux.Handle("GET /v1/commands", plain(s.handleListCommands))
 
 	// Self-update endpoints: check for a newer release and stream the upgrade.
@@ -798,48 +845,17 @@ func (s *Server) resumeInterruptedSessions() {
 		if s.opts.Log != nil {
 			s.opts.Log.Info("resuming interrupted session", "id", rec.ID, "kind", rec.LastKind, "task", rec.LastTask)
 		}
-		// Start the run in a goroutine, exactly as handleTask/handlePlan
-		// would. We do NOT take the run slot through the HTTP path; we
-		// set it directly because there is no concurrent client.
-		c.stateMu.Lock()
-		c.running = true
 		task := rec.LastTask
 		kind := rec.LastKind
-		c.stateMu.Unlock()
-
-		runCtx, cancel := context.WithCancel(s.baseCtx)
-		rn := newRun(newRunID(), runCtx, cancel)
-		c.setCurrentRun(rn)
-		c.svc.SetApprover(s.approverFor(c, rn))
-
-		go func(c *conversation, rn *run, task, kind string) {
-			defer c.releaseRunSlot()
-			defer c.clearCurrentRun()
-			var result string
-			var err error
-			if kind == "plan" {
-				result, err = c.svc.RunPlan(rn.ctx, task, rn.progress())
-			} else {
-				result, err = c.svc.RunTask(rn.ctx, task, rn.progress())
+		// The run is started through the SAME path the scheduler and the HTTP handlers
+		// use, so the slot guard, the completion classification and the persistence are
+		// one implementation and cannot drift. Nothing waits for it: the resumption is a
+		// side effect of starting the gateway.
+		if _, ok := s.startDetachedRun(c, task, kind, s.approverFactory(c)); !ok {
+			if s.opts.Log != nil {
+				s.opts.Log.Warn("could not resume the interrupted session: its conversation is already running", "id", rec.ID)
 			}
-			switch {
-			case errors.Is(err, context.Canceled):
-				rn.append(EventError, map[string]string{"error": "the run was cancelled"})
-				rn.finish("cancelled", "", "the run was cancelled", session.Snapshot{})
-			case err != nil:
-				rn.append(EventError, map[string]string{"error": err.Error()})
-				rn.finish("error", "", err.Error(), session.Snapshot{})
-			case result == "":
-				rn.append(EventError, map[string]string{"error": "the run finished without reporting a result"})
-				rn.finish("error", "", "the run finished without reporting a result", session.Snapshot{})
-			default:
-				snap := c.svc.ConversationSummary()
-				rn.append(EventDone, doneEvent{Result: result, Session: snap})
-				rn.finish("done", result, "", snap)
-				s.maybeAutoTitle(c)
-			}
-			s.saveSession(c)
-		}(c, rn, task, kind)
+		}
 	}
 }
 

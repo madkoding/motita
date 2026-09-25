@@ -19,6 +19,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -76,25 +77,54 @@ func (c *Curator) MaybeRun(ctx context.Context) error {
 	return c.Run(ctx)
 }
 
-// Run executes one curation pass: deterministic transitions, then optional
-// LLM consolidation.
-func (c *Curator) Run(ctx context.Context) error {
+// RunOptions are the knobs of one maintenance run.
+type RunOptions struct {
+	// Consolidate forces the LLM pass even when the configuration leaves it off.
+	Consolidate bool
+	// DryRun reports what a pass would do and changes NOTHING at all.
+	DryRun bool
+}
+
+// RunWith runs one pass with options.
+//
+// Run is RunWith with the zero value, so a caller that already used Run keeps exactly the
+// behaviour it had: the switches are additive.
+func (c *Curator) RunWith(ctx context.Context, opts RunOptions) (*PassReport, error) {
+	if opts.DryRun {
+		// A preview does not consolidate either: the consolidation pass writes to the
+		// library through a model, and "change nothing" has to mean nothing.
+		return c.Preview()
+	}
+
 	report, err := c.deterministicPass()
 	if err != nil {
-		return err
+		return report, err
 	}
 	if c.log != nil {
 		c.log.Info("curator deterministic pass", "stale", report.Stale, "archived", report.Archived)
 	}
 
-	if c.cfg.Consolidate && c.engine != nil {
+	switch {
+	case opts.Consolidate && c.engine == nil:
+		// Asked for and impossible: reported rather than skipped, because a silent skip
+		// reads as "the consolidation ran and found nothing to merge".
+		return report, fmt.Errorf("consolidation was asked for and no engine is configured for it")
+	case c.cfg.Consolidate || opts.Consolidate:
 		if err := c.consolidationPass(ctx); err != nil {
-			c.log.Warn("curator consolidation failed", "error", err)
+			if c.log != nil {
+				c.log.Warn("curator consolidation failed", "error", err)
+			}
 		}
 	}
 
-	// Persist the state.
-	return c.saveState(report)
+	return report, c.saveState(report)
+}
+
+// Run executes one curation pass: deterministic transitions, then optional LLM
+// consolidation. It is RunWith with the zero value.
+func (c *Curator) Run(ctx context.Context) error {
+	_, err := c.RunWith(ctx, RunOptions{})
+	return err
 }
 
 // PassReport summarises one deterministic pass.
@@ -104,17 +134,37 @@ type PassReport struct {
 	RunAt    time.Time
 }
 
-func (c *Curator) deterministicPass() (*PassReport, error) {
-	report := &PassReport{RunAt: c.now()}
+// action is one transition the deterministic pass decided on.
+//
+// The decision is separate from the ACT, and that separation is the whole reason a dry run
+// is trustworthy: a preview that reasoned on its own would eventually disagree with what the
+// real pass does, which is the one thing a preview exists to prevent.
+type action struct {
+	name    string
+	archive bool // false means "mark stale"
+}
+
+// decide returns the transitions the pass would take, in a stable order so a report and a
+// preview are comparable.
+//
+// It reads and does not write. Every rule of the deterministic pass lives here:
+//
+//   - only created_by="agent" skills, because a person's own work is not the background's
+//     to tidy;
+//   - pinned skills are exempt, at ANY age;
+//   - a skill that was never used gets stale_after_days of grace before it is judged at all;
+//   - "idle" is measured from the last USE or the last PATCH, whichever is later, because a
+//     procedure somebody just corrected was touched.
+func (c *Curator) decide() []action {
 	if c.procs.Usage == nil {
-		return report, nil
+		return nil
 	}
 	entries := c.procs.Usage.All()
 	staleAfter := time.Duration(c.cfg.StaleAfterDays) * 24 * time.Hour
 	archiveAfter := time.Duration(c.cfg.ArchiveAfterDays) * 24 * time.Hour
 
+	var out []action
 	for name, entry := range entries {
-		// Only touch curator-managed skills.
 		if entry.CreatedBy != usage.ByAgent {
 			continue
 		}
@@ -139,15 +189,38 @@ func (c *Curator) deterministicPass() (*PassReport, error) {
 
 		switch {
 		case idle >= archiveAfter && entry.State != usage.StateArchived:
-			if err := c.archiveSkill(name); err != nil {
-				c.log.Warn("failed to archive skill", "skill", name, "error", err)
-			} else {
-				report.Archived++
-			}
+			out = append(out, action{name: name, archive: true})
 		case idle >= staleAfter && entry.State == usage.StateActive:
-			c.procs.Usage.SetState(name, usage.StateStale)
-			report.Stale++
+			out = append(out, action{name: name})
 		}
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].name < out[j].name })
+	return out
+}
+
+// apply performs the actions and counts them.
+//
+// It is the only writer, so it is also where "no telemetry" is handled: a curator with no
+// ledger has nothing to decide on and nothing to persist, and every caller gets the same
+// answer instead of each of them guarding.
+func (c *Curator) apply(actions []action) (*PassReport, error) {
+	if c.procs.Usage == nil {
+		return &PassReport{RunAt: c.now()}, nil
+	}
+	report := &PassReport{RunAt: c.now()}
+	for _, a := range actions {
+		if a.archive {
+			if err := c.archiveSkill(a.name); err != nil {
+				if c.log != nil {
+					c.log.Warn("failed to archive skill", "skill", a.name, "error", err)
+				}
+				continue
+			}
+			report.Archived++
+			continue
+		}
+		c.procs.Usage.SetState(a.name, usage.StateStale)
+		report.Stale++
 	}
 	if err := c.procs.Usage.Save(); err != nil {
 		return report, err
@@ -155,15 +228,28 @@ func (c *Curator) deterministicPass() (*PassReport, error) {
 	return report, nil
 }
 
-func (c *Curator) archiveSkill(name string) error {
-	dir := c.procs.Library.Dir
-	src := filepath.Join(dir, name+".md")
-	archiveDir := filepath.Join(dir, ".archive")
-	if err := os.MkdirAll(archiveDir, 0o755); err != nil {
-		return err
+// Preview reports what a pass would do, and touches nothing.
+//
+// It is the only honest answer to "what is this about to do to my library", and it is a
+// DRY RUN: the decision comes from decide, the same function the real pass uses.
+func (c *Curator) Preview() (*PassReport, error) {
+	report := &PassReport{RunAt: c.now()}
+	for _, a := range c.decide() {
+		if a.archive {
+			report.Archived++
+			continue
+		}
+		report.Stale++
 	}
-	dst := filepath.Join(archiveDir, name+".md")
-	if err := os.Rename(src, dst); err != nil {
+	return report, nil
+}
+
+func (c *Curator) deterministicPass() (*PassReport, error) {
+	return c.apply(c.decide())
+}
+
+func (c *Curator) archiveSkill(name string) error {
+	if err := c.procs.Library.Archive(name); err != nil {
 		return err
 	}
 	c.procs.Usage.SetState(name, usage.StateArchived)
@@ -175,10 +261,7 @@ func (c *Curator) archiveSkill(name string) error {
 
 // Restore moves an archived skill back to the active directory.
 func (c *Curator) Restore(name string) error {
-	dir := c.procs.Library.Dir
-	src := filepath.Join(dir, ".archive", name+".md")
-	dst := filepath.Join(dir, name+".md")
-	if err := os.Rename(src, dst); err != nil {
+	if err := c.procs.Library.Restore(name); err != nil {
 		return err
 	}
 	c.procs.Usage.SetState(name, usage.StateActive)
@@ -204,23 +287,7 @@ func (c *Curator) Unpin(name string) error {
 }
 
 // ListArchived returns the names of skills in .archive/.
-func (c *Curator) ListArchived() ([]string, error) {
-	dir := filepath.Join(c.procs.Library.Dir, ".archive")
-	entries, err := os.ReadDir(dir)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return nil, nil
-		}
-		return nil, err
-	}
-	var out []string
-	for _, e := range entries {
-		if !e.IsDir() && strings.HasSuffix(e.Name(), ".md") {
-			out = append(out, strings.TrimSuffix(e.Name(), ".md"))
-		}
-	}
-	return out, nil
-}
+func (c *Curator) ListArchived() ([]string, error) { return c.procs.Library.Archived() }
 
 // Status returns a human-readable summary for the CLI.
 func (c *Curator) Status() string {
@@ -259,6 +326,14 @@ func (c *Curator) Status() string {
 	return b.String()
 }
 
+// jsonMarshalIndent is the one call to json.MarshalIndent in this package, held in a variable
+// so that a test can make it fail. The state it encodes is always JSON-safe (time.Time, int,
+// string), so the error is unreachable in a correct build — the same shape internal/usage
+// documents for the same reason.
+var jsonMarshalIndent = func(v any, prefix, indent string) ([]byte, error) {
+	return json.MarshalIndent(v, prefix, indent)
+}
+
 func (c *Curator) saveState(report *PassReport) error {
 	state := curatorState{
 		LastRunAt:   report.RunAt,
@@ -268,7 +343,7 @@ func (c *Curator) saveState(report *PassReport) error {
 	if c.cfg.StateFile == "" {
 		return nil
 	}
-	data, err := json.MarshalIndent(state, "", "  ")
+	data, err := jsonMarshalIndent(state, "", "  ")
 	if err != nil {
 		return err
 	}

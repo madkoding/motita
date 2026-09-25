@@ -93,6 +93,8 @@ func durationBindings(c *Config) []binding[time.Duration] {
 		{"MOTITA_LLM_BACKOFF_INITIAL", &c.LLM.BackoffInitial},
 		{"MOTITA_LLM_BACKOFF_MAX", &c.LLM.BackoffMax},
 		{"MOTITA_REVIEW_TIMEOUT", &c.Review.Timeout},
+		{"MOTITA_SCHEDULE_TICK", &c.Schedule.Tick},
+		{"MOTITA_SCHEDULE_MIN_EVERY", &c.Schedule.MinEvery},
 	}
 }
 
@@ -124,6 +126,7 @@ func integerBindings(c *Config) []binding[int] {
 		{"MOTITA_CURATOR_MIN_IDLE_MINUTES", &c.Curator.MinIdleMinutes},
 		{"MOTITA_CURATOR_STALE_AFTER_DAYS", &c.Curator.StaleAfterDays},
 		{"MOTITA_CURATOR_ARCHIVE_AFTER_DAYS", &c.Curator.ArchiveAfterDays},
+		{"MOTITA_SCHEDULE_MAX_RUNS_KEPT", &c.Schedule.MaxRunsKept},
 	}
 }
 
@@ -140,6 +143,7 @@ func boolBindings(c *Config) []binding[bool] {
 		{"MOTITA_REVIEW_ENABLED", &c.Review.Enabled},
 		{"MOTITA_CURATOR_ENABLED", &c.Curator.Enabled},
 		{"MOTITA_CURATOR_CONSOLIDATE", &c.Curator.Consolidate},
+		{"MOTITA_SCHEDULE_ENABLED", &c.Schedule.Enabled},
 	}
 }
 

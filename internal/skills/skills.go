@@ -164,6 +164,11 @@ func (l *Library) path(name string) string {
 // document a session writes here can never collide with a path inside it.
 const builtinDir = "builtin"
 
+// archiveDir is where archived documents live, INSIDE the library directory so the library
+// stays one self-contained thing a user can copy, and hidden so the index (which skips
+// dot-names) never offers one as if it were current.
+const archiveDir = ".archive"
+
 // builtinSkills returns the embedded procedures, parsed and keyed by name.
 //
 // It reads on every call rather than caching: an embed.FS serves from memory, the set is small,
@@ -382,6 +387,68 @@ func (l *Library) Save(name, body string) (Skill, error) {
 	s := parse(n, l.path(n), body)
 	s.Body = body
 	return s, nil
+}
+
+// Archive moves a document aside without deleting it.
+//
+// It is the maximum destructive action this library has, and it is reversible on purpose: a
+// procedure that turned out to be unused is still a procedure somebody paid for, and a delete
+// would make that cost unrecoverable.
+func (l *Library) Archive(name string) error {
+	n := Name(name)
+	if n == "" {
+		return errors.New("the skill name is empty")
+	}
+	dir := filepath.Join(l.Dir, archiveDir)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return fmt.Errorf("could not create the archive directory %s: %w", dir, err)
+	}
+	// Through the seam, not os.Rename: the rename is the call whose failure a test cannot
+	// arrange from the outside (a read-only filesystem), which is why Save already goes
+	// through it. One seam for one class of failure.
+	if err := renameFile(l.path(n), filepath.Join(dir, n+".md")); err != nil {
+		return fmt.Errorf("could not archive the skill %q: %w", n, err)
+	}
+	return nil
+}
+
+// Restore brings an archived document back into the library.
+func (l *Library) Restore(name string) error {
+	n := Name(name)
+	if n == "" {
+		return errors.New("the skill name is empty")
+	}
+	src := filepath.Join(l.Dir, archiveDir, n+".md")
+	if err := os.MkdirAll(l.Dir, 0o755); err != nil {
+		return fmt.Errorf("could not create the skills directory %s: %w", l.Dir, err)
+	}
+	if err := renameFile(src, l.path(n)); err != nil {
+		return fmt.Errorf("could not restore the skill %q: %w", n, err)
+	}
+	return nil
+}
+
+// Archived lists the names in the archive, sorted.
+//
+// A directory that is not there is an EMPTY archive and not an error: the first run of a
+// library that never archived anything must not be reported as a failure.
+func (l *Library) Archived() ([]string, error) {
+	entries, err := os.ReadDir(filepath.Join(l.Dir, archiveDir))
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("could not read the archive directory: %w", err)
+	}
+	var out []string
+	for _, e := range entries {
+		if e.IsDir() || !strings.HasSuffix(e.Name(), ".md") || strings.HasPrefix(e.Name(), ".") {
+			continue
+		}
+		out = append(out, strings.TrimSuffix(e.Name(), ".md"))
+	}
+	sort.Strings(out)
+	return out, nil
 }
 
 // builtinPrefix marks the path of an embedded document. It is not a filesystem path, so a

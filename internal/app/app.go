@@ -115,6 +115,14 @@ type Options struct {
 	// cleanly" report is reached, and that report matters: a shutdown that failed is the
 	// difference between a client that was cut off and one that was waited for.
 	CloseGateway func(*gateway.Server, context.Context) error
+	// NewGateway builds the gateway. It is a seam of the same shape as the ones above, and it
+	// exists because the OPTIONS a gateway is started with are a decision this package makes and
+	// nothing else can see: the directory a schedule is persisted to and the resolution at which
+	// a due task is noticed are assembled here from the configuration, and a gateway started for
+	// real would prove the wiring only by leaving the state behind on disk. It receives the
+	// options as built and the configuration they were derived from, and reports the server the
+	// real one would have returned.
+	NewGateway func(gateway.Options, config.Config) (*gateway.Server, error)
 	// RunChild is the sandbox's child mode. It is injected so the success path
 	// can be tested without syscall.Exec replacing the test process (which is
 	// exactly what used to make the coverage profile disappear).

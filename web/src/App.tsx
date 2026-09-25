@@ -118,6 +118,21 @@ interface ProviderInfo {
   is_current: boolean
 }
 
+interface ScheduledTask {
+  id: string
+  title: string
+  task: string
+  kind: string
+  session_id: string
+  every: string
+  enabled: boolean
+  created: string
+  last_run?: string
+  last_outcome?: string
+  run_count: number
+  next_run: string
+}
+
 const STORAGE_KEY = 'motita:last-session'
 const SIDEBAR_KEY = 'motita:sidebar-open'
 const PROJECT_COLLAPSE_KEY = 'motita:collapsed-projects'
@@ -300,6 +315,15 @@ export default function App() {
   const [fetchingModels, setFetchingModels] = useState(false)
   const [showSkillLibrary, setShowSkillLibrary] = useState(false)
   const [showScheduledTasks, setShowScheduledTasks] = useState(false)
+  const [scheduledTasks, setScheduledTasks] = useState<ScheduledTask[]>([])
+  const [scheduledBusy, setScheduledBusy] = useState(false)
+  // The create form's working copy. Like the model switcher's draft, it is edited
+  // HERE and sent only when the user presses Create: a half-typed cadence must not
+  // reach the gateway.
+  const [newTaskTitle, setNewTaskTitle] = useState('')
+  const [newTaskText, setNewTaskText] = useState('')
+  const [newTaskEvery, setNewTaskEvery] = useState('24h')
+  const [newTaskKind, setNewTaskKind] = useState<'task' | 'plan'>('task')
   // Confirm-delete modal: when set, shows a modal asking the user to confirm.
   const [confirmDelete, setConfirmDelete] = useState<{ type: 'session' | 'project'; id: string; title: string } | null>(null)
   // Long-press context menu on mobile: when set, shows a small menu with Edit / Delete.
@@ -554,6 +578,68 @@ export default function App() {
       await fetchProjects()
     } catch { /* ignore */ }
   }, [fetchProjects])
+
+  // loadSchedules reads the tasks the gateway holds. An empty LIST rather than an
+  // error is what the gateway answers when scheduling is off, so this cannot fail
+  // for that reason and does not need a branch for it.
+  const loadSchedules = useCallback(async () => {
+    try {
+      const res = await api('/v1/schedules')
+      if (!res.ok) return
+      const data = await res.json()
+      setScheduledTasks(Array.isArray(data.schedules) ? data.schedules : [])
+    } catch { /* the toast on a real failure is the caller's job */ }
+  }, [])
+
+  const createSchedule = async () => {
+    if (!newTaskTitle.trim() || !newTaskText.trim()) return
+    setScheduledBusy(true)
+    try {
+      const res = await api('/v1/schedules', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          title: newTaskTitle.trim(),
+          task: newTaskText.trim(),
+          kind: newTaskKind,
+          every: newTaskEvery.trim(),
+        }),
+      })
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}))
+        setToast({ message: 'The task could not be created', type: 'error', detail: body.error })
+        return
+      }
+      setNewTaskTitle(''); setNewTaskText('')
+      await loadSchedules()
+    } finally { setScheduledBusy(false) }
+  }
+
+  const toggleSchedule = async (t: ScheduledTask) => {
+    const res = await api('/v1/schedules/' + t.id, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ enabled: !t.enabled }),
+    })
+    if (res.ok) await loadSchedules()
+  }
+
+  const runScheduleNow = async (t: ScheduledTask) => {
+    const res = await api('/v1/schedules/' + t.id + '/run', { method: 'POST' })
+    if (res.status === 409) {
+      const body = await res.json().catch(() => ({}))
+      setToast({ message: 'That task could not start', type: 'error', detail: body.error })
+      return
+    }
+    if (res.ok) {
+      setToast({ message: 'Task started', type: 'success', detail: 'It is running in ' + t.session_id + '.' })
+    }
+  }
+
+  const deleteSchedule = async (t: ScheduledTask) => {
+    const res = await api('/v1/schedules/' + t.id, { method: 'DELETE' })
+    if (res.ok) await loadSchedules()
+  }
 
   // switchSession loads the transcript for a given session id and adopts it.
   const switchSession = useCallback(async (id: string) => {
@@ -1843,7 +1929,7 @@ export default function App() {
               </button>
               <button
                 class="w-full flex items-center gap-2 px-3 py-2.5 rounded-xl hover:bg-white/5 transition-colors text-sm text-[#e8e8ea]"
-                onClick={() => setShowScheduledTasks(true)}
+                onClick={() => { setShowScheduledTasks(true); void loadSchedules() }}
               >
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                   <circle cx="12" cy="12" r="10" /><polyline points="12 6 12 12 16 14" />
@@ -2719,7 +2805,92 @@ export default function App() {
                 </svg>
               </button>
             </div>
-            <p class="text-sm text-[#9a9aaa]">Scheduled tasks are not yet available.</p>
+            {/* The list is what makes the feature usable: a task whose next run and last
+                outcome a user cannot see is a task they cannot trust, so both are on the
+                row and neither is behind a click. */}
+            <div class="space-y-2 max-h-[45vh] overflow-y-auto">
+              {scheduledTasks.length === 0 && (
+                <p class="text-sm text-[#9a9aaa]">
+                  No scheduled tasks yet. One created here fires into the conversation you are in.
+                </p>
+              )}
+              {scheduledTasks.map((t) => (
+                <div key={t.id} class="rounded-xl border border-white/10 p-3">
+                  <div class="flex items-center gap-2">
+                    <span class="flex-1 text-sm text-[#e8e8ea] truncate">{t.title}</span>
+                    <span class="text-[10px] font-mono text-[#6a6a7a]">{t.every}</span>
+                  </div>
+                  <p class="text-xs text-[#9a9aaa] mt-1">
+                    {t.enabled ? 'Next run ' : 'Paused — last '}
+                    {new Date(t.enabled ? t.next_run : (t.last_run || t.created)).toLocaleString()}
+                  </p>
+                  {t.last_outcome && (
+                    <p class="text-xs text-[#6a6a7a] mt-1 break-words">{t.last_outcome}</p>
+                  )}
+                  <div class="flex gap-2 mt-2">
+                    <button
+                      class="min-h-[44px] px-3 rounded-lg border border-white/10 text-xs text-[#e8e8ea] active:scale-95 transition-transform"
+                      onClick={() => void runScheduleNow(t)}
+                    >
+                      Run now
+                    </button>
+                    <button
+                      class="min-h-[44px] px-3 rounded-lg border border-white/10 text-xs text-[#e8e8ea] active:scale-95 transition-transform"
+                      onClick={() => void toggleSchedule(t)}
+                    >
+                      {t.enabled ? 'Pause' : 'Resume'}
+                    </button>
+                    <button
+                      class="min-h-[44px] px-3 rounded-lg border border-danger/30 text-xs text-danger active:scale-95 transition-transform ml-auto"
+                      onClick={() => void deleteSchedule(t)}
+                    >
+                      Delete
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            {/* The create form. Cadence is free text because the gateway validates it and
+                says what is wrong: a fixed dropdown would be a second copy of the rule. */}
+            <div class="mt-4 pt-4 border-t border-white/10 space-y-2">
+              <input
+                class="w-full px-3 py-2 rounded-lg bg-black/30 border border-white/10 text-sm text-[#e8e8ea]"
+                placeholder="Title"
+                value={newTaskTitle}
+                onInput={(e) => setNewTaskTitle((e.target as HTMLInputElement).value)}
+              />
+              <textarea
+                class="w-full px-3 py-2 rounded-lg bg-black/30 border border-white/10 text-sm text-[#e8e8ea] resize-none"
+                rows={3}
+                placeholder="What should it do?"
+                value={newTaskText}
+                onInput={(e) => setNewTaskText((e.target as HTMLTextAreaElement).value)}
+              />
+              <div class="flex gap-2">
+                <input
+                  class="flex-1 px-3 py-2 rounded-lg bg-black/30 border border-white/10 text-sm text-[#e8e8ea] font-mono"
+                  placeholder="24h"
+                  value={newTaskEvery}
+                  onInput={(e) => setNewTaskEvery((e.target as HTMLInputElement).value)}
+                />
+                <select
+                  class="px-3 py-2 rounded-lg bg-black/30 border border-white/10 text-sm text-[#e8e8ea]"
+                  value={newTaskKind}
+                  onChange={(e) => setNewTaskKind((e.target as HTMLSelectElement).value as 'task' | 'plan')}
+                >
+                  <option value="task">Task</option>
+                  <option value="plan">Plan (read-only)</option>
+                </select>
+              </div>
+              <button
+                class="w-full min-h-[44px] px-5 rounded-xl bg-accent/20 border border-accent/30 text-[#e8e8ea] active:scale-95 transition-transform disabled:opacity-50"
+                disabled={scheduledBusy || !newTaskTitle.trim() || !newTaskText.trim()}
+                onClick={() => void createSchedule()}
+              >
+                {scheduledBusy ? 'Creating…' : 'Create'}
+              </button>
+            </div>
             <div class="flex gap-2 mt-5">
               <button
                 class="flex-1 min-h-[44px] px-5 rounded-xl border border-white/10 text-[#e8e8ea] active:scale-95 transition-transform"
