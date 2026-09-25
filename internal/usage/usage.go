@@ -208,6 +208,24 @@ func (l *Ledger) IsCuratorManaged(name string) bool {
 	return ok && e.CreatedBy == ByAgent && !e.Pinned
 }
 
+// jsonMarshalIndent is the one call to json.MarshalIndent, held in a variable so
+// that a test can make it fail. The entries are always JSON-safe (int, time.Time,
+// string, bool), so the error is unreachable in a correct build — exactly the
+// shape the coverage gate rejects.
+var jsonMarshalIndent = func(v any, prefix, indent string) ([]byte, error) {
+	return json.MarshalIndent(v, prefix, indent)
+}
+
+// osCreateTemp is the one call to os.CreateTemp, held in a variable so that a
+// test can make it return a file that fails on Write or Close. Like the seams in
+// internal/webui, this makes an otherwise-unreachable failure branch reachable.
+var osCreateTemp = os.CreateTemp
+
+// closeFile is the one call to tmp.Close, held in a variable so that a test can
+// make Close fail after a successful Write. Close on a regular file essentially
+// never fails, so the error path is unreachable without the seam.
+var closeFile = func(f *os.File) error { return f.Close() }
+
 // Save writes the ledger atomically if it has changed since the last save.
 func (l *Ledger) Save() error {
 	l.mu.Lock()
@@ -226,20 +244,20 @@ func (l *Ledger) Save() error {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return fmt.Errorf("could not create the usage ledger directory: %w", err)
 	}
-	data, err := json.MarshalIndent(map[string]any{"entries": entries}, "", "  ")
+	data, err := jsonMarshalIndent(map[string]any{"entries": entries}, "", "  ")
 	if err != nil {
 		return err
 	}
-	tmp, err := os.CreateTemp(dir, ".usage.*.tmp")
+	tmp, err := osCreateTemp(dir, ".usage.*.tmp")
 	if err != nil {
 		return err
 	}
 	defer os.Remove(tmp.Name())
 	if _, err := tmp.Write(data); err != nil {
-		tmp.Close()
+		closeFile(tmp)
 		return err
 	}
-	if err := tmp.Close(); err != nil {
+	if err := closeFile(tmp); err != nil {
 		return err
 	}
 	return os.Rename(tmp.Name(), l.Path)

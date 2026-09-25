@@ -18,6 +18,55 @@ func TestOpenMissingFileIsNotAnError(t *testing.T) {
 	}
 }
 
+func TestOpenEmptyPath(t *testing.T) {
+	l, err := Open("")
+	if err != nil {
+		t.Fatalf("empty path must not error: %v", err)
+	}
+	if len(l.entries) != 0 {
+		t.Fatalf("expected empty ledger, got %d entries", len(l.entries))
+	}
+	if l.Path != "" {
+		t.Fatalf("expected empty path, got %q", l.Path)
+	}
+}
+
+func TestOpenReadErrorOnDirectory(t *testing.T) {
+	dir := t.TempDir()
+	// Passing a directory path — ReadFile returns a non-IsNotExist error.
+	_, err := Open(dir)
+	if err == nil {
+		t.Fatal("expected an error when opening a directory as a ledger file")
+	}
+}
+
+func TestOpenEmptyFile(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, ".usage.json")
+	if err := os.WriteFile(path, []byte{}, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	l, err := Open(path)
+	if err != nil {
+		t.Fatalf("empty file must be a fresh start, not an error: %v", err)
+	}
+	if len(l.entries) != 0 {
+		t.Fatalf("expected empty ledger, got %d entries", len(l.entries))
+	}
+}
+
+func TestOpenCorruptJSON(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, ".usage.json")
+	if err := os.WriteFile(path, []byte("{not valid json"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	_, err := Open(path)
+	if err == nil {
+		t.Fatal("expected an error when opening a corrupt JSON ledger")
+	}
+}
+
 func TestBumpViewAndUseAccumulate(t *testing.T) {
 	l := &Ledger{Now: func() time.Time { return time.Unix(1000, 0) }, entries: map[string]Entry{}}
 	l.BumpView("zephyr-build")
@@ -29,6 +78,21 @@ func TestBumpViewAndUseAccumulate(t *testing.T) {
 	}
 	if e.CreatedAt.IsZero() {
 		t.Fatal("CreatedAt must be set on first bump")
+	}
+}
+
+func TestBumpUseSetsCreatedAtOnNewEntry(t *testing.T) {
+	l := &Ledger{Now: func() time.Time { return time.Unix(3000, 0) }, entries: map[string]Entry{}}
+	l.BumpUse("fresh-skill")
+	e := l.Get("fresh-skill")
+	if e.UseCount != 1 {
+		t.Fatalf("use count must be 1, got %d", e.UseCount)
+	}
+	if e.CreatedAt.IsZero() {
+		t.Fatal("CreatedAt must be set on first BumpUse")
+	}
+	if !e.LastUsedAt.Equal(time.Unix(3000, 0)) {
+		t.Fatalf("LastUsedAt must be set, got %v", e.LastUsedAt)
 	}
 }
 
@@ -82,6 +146,20 @@ func TestSetStateArchivedSetsTimestamp(t *testing.T) {
 	}
 }
 
+func TestSetStateNonArchivedClearsTimestamp(t *testing.T) {
+	ts := time.Unix(5000, 0)
+	l := &Ledger{Now: func() time.Time { return ts }, entries: map[string]Entry{}}
+	l.SetState("skill", StateArchived)
+	if l.Get("skill").ArchivedAt == nil {
+		t.Fatal("ArchivedAt must be set after archiving")
+	}
+	l.SetState("skill", StateActive)
+	e := l.Get("skill")
+	if e.ArchivedAt != nil {
+		t.Fatalf("ArchivedAt must be cleared on un-archive, got %v", e.ArchivedAt)
+	}
+}
+
 func TestSaveWritesReadableJSON(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, ".usage.json")
@@ -120,6 +198,65 @@ func TestSaveWithoutChangesDoesNotRewrite(t *testing.T) {
 	info2, _ := os.Stat(path)
 	if !info2.ModTime().Equal(firstMod) {
 		t.Fatal("Save without changes must not rewrite the file")
+	}
+}
+
+func TestSaveWithEmptyPathIsNoop(t *testing.T) {
+	l := &Ledger{Now: time.Now, entries: map[string]Entry{}, Path: ""}
+	l.BumpView("x") // make it dirty
+	if err := l.Save(); err != nil {
+		t.Fatalf("Save with empty path must be a no-op, got: %v", err)
+	}
+}
+
+func TestSaveMkdirAllFails(t *testing.T) {
+	dir := t.TempDir()
+	// Create a file where a directory is expected.
+	blocker := filepath.Join(dir, "blocker")
+	if err := os.WriteFile(blocker, []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	// Saving to a path under "blocker" — MkdirAll fails because blocker is a file.
+	path := filepath.Join(blocker, "sub", ".usage.json")
+	l := &Ledger{Now: time.Now, entries: map[string]Entry{}, Path: path}
+	l.BumpView("x") // make it dirty
+	if err := l.Save(); err == nil {
+		t.Fatal("expected MkdirAll to fail")
+	}
+}
+
+func TestSaveCreateTempFails(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("running as root — chmod restrictions do not apply")
+	}
+	dir := t.TempDir()
+	path := filepath.Join(dir, ".usage.json")
+	// Pre-create the directory and make it read-only so CreateTemp fails.
+	// MkdirAll is a no-op on an existing directory, so it succeeds,
+	// but CreateTemp cannot write inside a read-only directory.
+	if err := os.Chmod(dir, 0o500); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(dir, 0o755) })
+	l := &Ledger{Now: time.Now, entries: map[string]Entry{}, Path: path}
+	l.BumpView("x") // make it dirty
+	if err := l.Save(); err == nil {
+		t.Fatal("expected CreateTemp to fail on a read-only directory")
+	}
+}
+
+func TestSaveRenameFails(t *testing.T) {
+	dir := t.TempDir()
+	// Create a directory at the target path — rename of a file over a
+	// directory fails on Linux with ENOTDIR/EISDIR.
+	target := filepath.Join(dir, ".usage.json")
+	if err := os.Mkdir(target, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	l := &Ledger{Now: time.Now, entries: map[string]Entry{}, Path: target}
+	l.BumpView("x") // make it dirty
+	if err := l.Save(); err == nil {
+		t.Fatal("expected Rename to fail when target is a directory")
 	}
 }
 

@@ -20,6 +20,7 @@ interface SessionInfo {
   title: string
   project_id?: string
   branch?: string
+  mergeable?: boolean
   created: string
   last_used: string
   running: boolean
@@ -1144,8 +1145,11 @@ export default function App() {
               </button>
               {s.project_id && (
                 <button
-                  class="w-full flex items-center gap-2 px-3 py-2 text-sm text-accent hover:bg-accent/10 transition-colors"
+                  class={`w-full flex items-center gap-2 px-3 py-2 text-sm transition-colors ${s.mergeable ? 'text-accent hover:bg-accent/10' : 'text-muted-foreground/40 cursor-not-allowed'}`}
+                  disabled={!s.mergeable}
+                  title={s.mergeable ? 'Integrate this session\'s work back into the project' : 'Nothing to integrate yet'}
                   onClick={async (e) => {
+                    if (!s.mergeable) { e.stopPropagation(); return }
                     e.stopPropagation()
                     setRowMenu(null)
                     try {

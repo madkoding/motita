@@ -9,7 +9,9 @@ import (
 	"testing"
 
 	"github.com/madkoding/motita/internal/llm"
+	"github.com/madkoding/motita/internal/review"
 	"github.com/madkoding/motita/internal/skills"
+	"github.com/madkoding/motita/internal/usage"
 )
 
 // raw spells a tool argument the way the model sends it: JSON, not a Go struct.
@@ -368,5 +370,190 @@ func TestReadingASkillThatCannotBeReadIsReported(t *testing.T) {
 	}
 	if strings.Contains(got, "No skill named") {
 		t.Error("unreadable is not the same as missing, and saying so would send the model looking for a name")
+	}
+}
+
+// TestWithUsageInstallsTheLedger: WithUsage must set the usage ledger and return
+// the planner so it chains, the same pattern as the other With* builders.
+func TestWithUsageInstallsTheLedger(t *testing.T) {
+	l, err := usage.Open("")
+	if err != nil {
+		t.Fatalf("opening empty-path ledger: %v", err)
+	}
+	p := (&Planner{}).WithUsage(l)
+	if p.usage != l {
+		t.Fatal("WithUsage must store the ledger on the planner")
+	}
+	// WithUsage returns *Planner, so a chained call compiles and the ledger
+	// survives into the chained builder.
+	chained := (&Planner{}).WithUsage(l).WithLibrary(libOf(t, nil))
+	if chained.usage != l {
+		t.Fatal("WithUsage must chain: the ledger must survive into the next builder")
+	}
+}
+
+// TestSetUsageReplacesTheLedger: SetUsage is the non-chaining setter used by
+// the review fork after construction; it must overwrite the field.
+func TestSetUsageReplacesTheLedger(t *testing.T) {
+	first, err := usage.Open("")
+	if err != nil {
+		t.Fatalf("opening first ledger: %v", err)
+	}
+	second, err := usage.Open("")
+	if err != nil {
+		t.Fatalf("opening second ledger: %v", err)
+	}
+	p := (&Planner{}).WithUsage(first)
+	if p.usage != first {
+		t.Fatal("WithUsage must install the first ledger")
+	}
+	p.SetUsage(second)
+	if p.usage != second {
+		t.Fatal("SetUsage must replace the ledger")
+	}
+}
+
+// TestWithReviewInstallsTheReview: WithReview must set the review fork and
+// return the planner for chaining.
+func TestWithReviewInstallsTheReview(t *testing.T) {
+	r := &review.Review{}
+	p := (&Planner{}).WithReview(r)
+	if p.review != r {
+		t.Fatal("WithReview must store the review on the planner")
+	}
+}
+
+// TestReadSkillBumpsUsageWhenLedgerIsSet: when a usage ledger is installed,
+// reading a skill must bump its view and use counters — the telemetry that
+// drives curation. This is the branch toolReadSkill covers only when
+// p.usage != nil.
+func TestReadSkillBumpsUsageWhenLedgerIsSet(t *testing.T) {
+	l, err := usage.Open(filepath.Join(t.TempDir(), "usage.json"))
+	if err != nil {
+		t.Fatalf("opening usage ledger: %v", err)
+	}
+	p := (&Planner{}).
+		WithLibrary(libOf(t, map[string]string{"zephyr-build": "# Zephyr build\n\nwest\n"})).
+		WithUsage(l)
+
+	got := p.toolReadSkill(raw(`{"name":"zephyr-build"}`))
+	if !strings.Contains(got, "west") {
+		t.Fatalf("the procedure must still be returned:\n%s", got)
+	}
+	e := l.Get("zephyr-build")
+	if e.ViewCount == 0 {
+		t.Error("reading a skill must bump the view counter")
+	}
+	if e.UseCount == 0 {
+		t.Error("reading a skill must bump the use counter")
+	}
+}
+
+// TestSearchSkillsBumpsUsageWhenLedgerIsSet: when a usage ledger is installed,
+// searching skills bumps the use counter for each hit — the same telemetry
+// read_skill records, but for the index rather than the full procedure.
+func TestSearchSkillsBumpsUsageWhenLedgerIsSet(t *testing.T) {
+	l, err := usage.Open(filepath.Join(t.TempDir(), "usage.json"))
+	if err != nil {
+		t.Fatalf("opening usage ledger: %v", err)
+	}
+	p := (&Planner{}).
+		WithLibrary(libOf(t, map[string]string{"nrf": "# NRF firmware\n\nwest and the SDK\n"})).
+		WithUsage(l)
+
+	got := p.toolSearchSkills(raw(`{"query":"firmware"}`))
+	if !strings.Contains(got, "nrf") {
+		t.Fatalf("the search must still return hits:\n%s", got)
+	}
+	e := l.Get("nrf")
+	if e.UseCount == 0 {
+		t.Error("searching skills must bump the use counter")
+	}
+}
+
+// TestSaveSkillBumpsPatchUsageWhenLedgerIsSet: when a usage ledger is installed,
+// saving a skill records the provenance marker — foreground for a user-directed
+// save, agent when the review fork is doing it.
+func TestSaveSkillBumpsPatchUsageWhenLedgerIsSet(t *testing.T) {
+	t.Run("foreground", func(t *testing.T) {
+		l, err := usage.Open(filepath.Join(t.TempDir(), "usage.json"))
+		if err != nil {
+			t.Fatalf("opening usage ledger: %v", err)
+		}
+		p := (&Planner{}).
+			WithLibrary(skills.New(t.TempDir())).
+			WithUsage(l)
+
+		got := p.toolSaveSkill(raw(`{"name":"my-skill","body":"# My Skill\n\ndo stuff\n"}`))
+		if !strings.Contains(got, "Saved") {
+			t.Fatalf("the save must still succeed:\n%s", got)
+		}
+		e := l.Get("my-skill")
+		if e.PatchCount == 0 {
+			t.Error("saving a skill must bump the patch counter")
+		}
+		if e.CreatedBy != usage.ByForeground {
+			t.Errorf("created_by = %q, want %q", e.CreatedBy, usage.ByForeground)
+		}
+	})
+
+	t.Run("agent", func(t *testing.T) {
+		l, err := usage.Open(filepath.Join(t.TempDir(), "usage.json"))
+		if err != nil {
+			t.Fatalf("opening usage ledger: %v", err)
+		}
+		p := (&Planner{}).
+			WithLibrary(skills.New(t.TempDir())).
+			WithUsage(l)
+		p.IsReviewFork = true
+
+		got := p.toolSaveSkill(raw(`{"name":"agent-skill","body":"# Agent Skill\n\ndo stuff\n"}`))
+		if !strings.Contains(got, "Saved") {
+			t.Fatalf("the save must still succeed:\n%s", got)
+		}
+		e := l.Get("agent-skill")
+		if e.PatchCount == 0 {
+			t.Error("saving a skill must bump the patch counter")
+		}
+		if e.CreatedBy != usage.ByAgent {
+			t.Errorf("created_by = %q, want %q", e.CreatedBy, usage.ByAgent)
+		}
+	})
+}
+
+// TestRunTriggersReviewAfterFinalAnswer: when a review fork is installed, Run
+// calls review.MaybeRun after the model delivers a final answer (no tool calls)
+// during the normal loop.
+func TestRunTriggersReviewAfterFinalAnswer(t *testing.T) {
+	a, _ := makeAgent(t, true)
+	engine := &fakeEngine{
+		chunks: []llm.StreamChunk{{Event: llm.StreamText, Text: "here is my plan"}},
+	}
+	p := New(engine, a).WithReview(&review.Review{})
+	out, err := p.Run(context.Background(), "question")
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if out != "here is my plan" {
+		t.Errorf("output = %q, want the model's answer", out)
+	}
+}
+
+// TestRunTriggersReviewAfterForcedAnswer: when a review fork is installed and
+// the model never stops calling tools, Run calls review.MaybeRun after the
+// safety-net Complete call that forces the final answer.
+func TestRunTriggersReviewAfterForcedAnswer(t *testing.T) {
+	a, _ := makeAgent(t, true)
+	call := llm.ToolCall{ID: "c1", Function: llm.FunctionCall{Name: "list_directory", Arguments: json.RawMessage(`{"path":"."}`)}}
+	engine := &fakeEngine{
+		chunks: []llm.StreamChunk{{Event: llm.StreamToolCall, Call: &call}},
+	}
+	p := New(engine, a).WithLoops(1).WithReview(&review.Review{})
+	out, err := p.Run(context.Background(), "question")
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if out != "forced answer" {
+		t.Errorf("output = %q, want the forced answer", out)
 	}
 }

@@ -213,6 +213,15 @@ type SessionStatus struct {
 	Created   time.Time `json:"created"`
 	LastUsed  time.Time `json:"last_used"`
 	Running   bool      `json:"running"`
+	// Mergeable reports whether the session has work that can be integrated
+	// back into the project's base branch. It is true when the session belongs
+	// to a project, the session's branch (motita/<id>) exists, and it has
+	// commits the base branch does not. A session that was never run in a
+	// worktree, or whose work has already been merged, is not mergeable — and
+	// the front end shows that as a disabled Integrate button rather than an
+	// absent one, so the user knows the action exists even when it has nothing
+	// to do yet.
+	Mergeable bool `json:"mergeable,omitempty"`
 }
 
 func (c *conversation) status() SessionStatus {
@@ -220,7 +229,17 @@ func (c *conversation) status() SessionStatus {
 	defer c.stateMu.Unlock()
 	st := SessionStatus{ID: c.id, Title: c.title, ProjectID: c.projectID, Created: c.created, LastUsed: c.lastUsed, Running: c.running}
 	if c.workspace != "" {
-		st.Branch = gitx.Display(context.Background(), c.workspace)
+		ctx := context.Background()
+		st.Branch = gitx.Display(ctx, c.workspace)
+		// Mergeable: the session's branch exists and has commits the base
+		// branch does not. A session that never ran in a worktree has no
+		// branch, and one whose work was already merged has none ahead.
+		branch := sessionBranch(c.id)
+		if gitx.BranchExists(ctx, c.workspace, branch) {
+			if ahead, _, err := gitx.CommitsBetween(ctx, c.workspace, st.Branch, branch); err == nil && len(ahead) > 0 {
+				st.Mergeable = true
+			}
+		}
 	}
 	return st
 }
