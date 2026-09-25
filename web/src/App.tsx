@@ -1031,12 +1031,6 @@ export default function App() {
 
   const stateClass = stateBad ? 'bad' : (stateText === 'working' || stateText === 'reconnecting') ? 'state-working' : ''
 
-  // Open settings modal: fetch current config for the active session.
-  const openSettings = () => {
-    if (sessionId) fetchConfig(sessionId)
-    setShowSettings(true)
-  }
-
   // longPressTimer ref for session/project long-press detection.
   const longPressTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
@@ -1363,16 +1357,25 @@ export default function App() {
               </div>
             )}
 
-            {/* Settings gear at the bottom */}
-            <div class="px-3 py-2 border-t border-white/5 flex-none">
+            {/* Skill library and Scheduled tasks at the bottom */}
+            <div class="px-3 py-2 border-t border-white/5 flex-none space-y-1">
               <button
                 class="w-full flex items-center gap-2 px-3 py-2.5 rounded-xl hover:bg-white/5 transition-colors text-sm text-[#e8e8ea]"
-                onClick={openSettings}
+                onClick={() => setShowSkillLibrary(true)}
               >
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                  <circle cx="12" cy="12" r="3" /><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z" />
+                  <path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z" /><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z" />
                 </svg>
-                Settings
+                Skill library
+              </button>
+              <button
+                class="w-full flex items-center gap-2 px-3 py-2.5 rounded-xl hover:bg-white/5 transition-colors text-sm text-[#e8e8ea]"
+                onClick={() => setShowScheduledTasks(true)}
+              >
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <circle cx="12" cy="12" r="10" /><polyline points="12 6 12 12 16 14" />
+                </svg>
+                Scheduled tasks
               </button>
             </div>
           </aside>
@@ -1413,18 +1416,16 @@ export default function App() {
             {stateText}
           </span>
           {config && (
-            /* The model name is the one string here with no length limit, so it
-               is the one that has to truncate. The ellipsis lives on an INNER
-               span: this pill is a flex container, and text-overflow has no
-               effect on a flex container's own text (it clips at the border box
-               with no ellipsis, which reads as a broken render). min-w-0 lets
-               the inner span shrink below its content width. */
-            <span class="flex-none flex items-center gap-1 max-w-[38vw] max-[360px]:max-w-[30vw] sm:max-w-none text-xs px-2 sm:px-2.5 py-1 rounded-full bg-black/20 border border-white/5 text-[#9a9aaa]" title={`${config.provider} / ${config.model}`}>
+            <button
+              class="flex-none flex items-center gap-1 max-w-[38vw] max-[360px]:max-w-[30vw] sm:max-w-none text-xs px-2 sm:px-2.5 py-1 rounded-full bg-black/20 border border-white/5 text-[#9a9aaa] hover:bg-black/30 hover:border-accent/30 transition-colors cursor-pointer"
+              title={`${config.provider} / ${config.model}`}
+              onClick={() => { fetchProviders(); fetchModelList(); setShowModelSwitcher(true) }}
+            >
               <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="text-accent/60 flex-none">
                 <rect x="2" y="3" width="20" height="14" rx="2" /><line x1="8" y1="21" x2="16" y2="21" /><line x1="12" y1="17" x2="12" y2="21" />
               </svg>
               <span class="truncate min-w-0">{config.provider} / {config.model}</span>
-            </span>
+            </button>
           )}
         </header>
 
@@ -1693,11 +1694,11 @@ export default function App() {
         </div>
       )}
 
-      {/* Settings modal — provider and model selection. */}
-      {showSettings && (
+      {/* Model Switcher modal — provider and model selection. */}
+      {showModelSwitcher && (
         <div
           class="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4"
-          onClick={() => setShowSettings(false)}
+          onClick={() => setShowModelSwitcher(false)}
         >
           <div
             class="frosted rounded-2xl border border-white/10 w-full max-w-md p-5 shadow-2xl"
@@ -1705,13 +1706,13 @@ export default function App() {
           >
             <div class="flex items-center gap-2 mb-4">
               <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="text-accent">
-                <circle cx="12" cy="12" r="3" /><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z" />
+                <rect x="2" y="3" width="20" height="14" rx="2" /><line x1="8" y1="21" x2="16" y2="21" /><line x1="12" y1="17" x2="12" y2="21" />
               </svg>
-              <h2 class="text-base font-semibold">Settings</h2>
+              <h2 class="text-base font-semibold">Model</h2>
               <button
                 class="ml-auto p-1.5 rounded-lg hover:bg-white/5"
-                onClick={() => setShowSettings(false)}
-                aria-label="Close settings"
+                onClick={() => setShowModelSwitcher(false)}
+                aria-label="Close"
               >
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                   <line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" />
@@ -1724,21 +1725,48 @@ export default function App() {
                 <label class="block text-sm text-[#9a9aaa] mb-1.5">Provider</label>
                 <select
                   class="w-full px-3 py-2.5 rounded-xl bg-black/30 border border-white/10 text-[#e8e8ea] focus:outline-none focus:border-accent"
-                  value={settingsProvider}
-                  onInput={(e) => setSettingsProvider((e.target as HTMLSelectElement).value)}
+                  value={config?.provider || ''}
+                  onChange={(e) => {
+                    const newProvider = (e.target as HTMLSelectElement).value
+                    saveProviderModel(newProvider, '')
+                  }}
                 >
-                  {PROVIDERS.map(p => <option key={p} value={p}>{p}</option>)}
+                  {providers.map(p => (
+                    <option key={p.id} value={p.id}>
+                      {p.name}{p.is_current ? ' (active)' : ''}{!p.key_present ? ' — no key' : ''}
+                    </option>
+                  ))}
                 </select>
               </div>
+
               <div>
                 <label class="block text-sm text-[#9a9aaa] mb-1.5">Model</label>
-                <input
-                  class="w-full px-3 py-2.5 rounded-xl bg-black/30 border border-white/10 text-[#e8e8ea] focus:outline-none focus:border-accent font-mono text-sm"
-                  value={settingsModel}
-                  onInput={(e) => setSettingsModel((e.target as HTMLInputElement).value)}
-                  placeholder="e.g. gpt-4o-mini"
-                />
+                {fetchingModels ? (
+                  <div class="flex items-center gap-2 px-3 py-2.5 text-sm text-[#9a9aaa]">
+                    <svg class="animate-spin text-accent" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                      <path d="M21 12a9 9 0 1 1-6.219-8.56" />
+                    </svg>
+                    <span>Loading models...</span>
+                  </div>
+                ) : (
+                  <select
+                    class="w-full px-3 py-2.5 rounded-xl bg-black/30 border border-white/10 text-[#e8e8ea] focus:outline-none focus:border-accent font-mono text-sm"
+                    value={config?.model || ''}
+                    onChange={(e) => {
+                      const newModel = (e.target as HTMLSelectElement).value
+                      saveProviderModel(config?.provider || '', newModel)
+                    }}
+                  >
+                    {(modelList.length > 0 ? modelList : (providers.find(p => p.id === config?.provider)?.models || [])).map(m => (
+                      <option key={m} value={m}>{m}</option>
+                    ))}
+                    {config?.model && !(modelList.includes(config.model) || (providers.find(p => p.id === config?.provider)?.models || []).includes(config.model)) && (
+                      <option value={config.model}>{config.model}</option>
+                    )}
+                  </select>
+                )}
               </div>
+
               {config && (
                 <div class="text-xs text-[#6a6a7a] space-y-1 pt-2 border-t border-white/5">
                   <div>API key: {config.api_key_present ? '✓ set' : '✗ missing'}</div>
@@ -1749,16 +1777,10 @@ export default function App() {
 
             <div class="flex gap-2 mt-5">
               <button
-                class="flex-1 min-h-[44px] px-5 rounded-xl bg-accent text-white font-semibold active:scale-95 transition-transform"
-                onClick={saveConfig}
+                class="flex-1 min-h-[44px] px-5 rounded-xl border border-white/10 text-[#e8e8ea] active:scale-95 transition-transform"
+                onClick={() => setShowModelSwitcher(false)}
               >
-                Save
-              </button>
-              <button
-                class="min-h-[44px] px-5 rounded-xl border border-white/10 text-[#e8e8ea] active:scale-95 transition-transform"
-                onClick={() => setShowSettings(false)}
-              >
-                Cancel
+                Done
               </button>
             </div>
           </div>
@@ -2092,6 +2114,80 @@ export default function App() {
                 )}
               </>
             )}
+          </div>
+        </div>
+      )}
+
+      {showSkillLibrary && (
+        <div
+          class="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4"
+          onClick={() => setShowSkillLibrary(false)}
+        >
+          <div
+            class="frosted rounded-2xl border border-white/10 w-full max-w-md p-5 shadow-2xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div class="flex items-center gap-2 mb-4">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="text-accent">
+                <path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z" /><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z" />
+              </svg>
+              <h2 class="text-base font-semibold">Skill library</h2>
+              <button
+                class="ml-auto p-1.5 rounded-lg hover:bg-white/5"
+                onClick={() => setShowSkillLibrary(false)}
+                aria-label="Close"
+              >
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" />
+                </svg>
+              </button>
+            </div>
+            <p class="text-sm text-[#9a9aaa]">The skill library browser is not yet available.</p>
+            <div class="flex gap-2 mt-5">
+              <button
+                class="flex-1 min-h-[44px] px-5 rounded-xl border border-white/10 text-[#e8e8ea] active:scale-95 transition-transform"
+                onClick={() => setShowSkillLibrary(false)}
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showScheduledTasks && (
+        <div
+          class="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4"
+          onClick={() => setShowScheduledTasks(false)}
+        >
+          <div
+            class="frosted rounded-2xl border border-white/10 w-full max-w-md p-5 shadow-2xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div class="flex items-center gap-2 mb-4">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="text-accent">
+                <circle cx="12" cy="12" r="10" /><polyline points="12 6 12 12 16 14" />
+              </svg>
+              <h2 class="text-base font-semibold">Scheduled tasks</h2>
+              <button
+                class="ml-auto p-1.5 rounded-lg hover:bg-white/5"
+                onClick={() => setShowScheduledTasks(false)}
+                aria-label="Close"
+              >
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" />
+                </svg>
+              </button>
+            </div>
+            <p class="text-sm text-[#9a9aaa]">Scheduled tasks are not yet available.</p>
+            <div class="flex gap-2 mt-5">
+              <button
+                class="flex-1 min-h-[44px] px-5 rounded-xl border border-white/10 text-[#e8e8ea] active:scale-95 transition-transform"
+                onClick={() => setShowScheduledTasks(false)}
+              >
+                Close
+              </button>
+            </div>
           </div>
         </div>
       )}
