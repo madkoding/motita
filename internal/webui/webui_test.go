@@ -2,6 +2,7 @@ package webui
 
 import (
 	"errors"
+	"io/fs"
 	"strings"
 	"testing"
 )
@@ -43,10 +44,15 @@ func TestThePageIsHTMLAndTheAssetsAreNot(t *testing.T) {
 	if !strings.HasPrefix(ctype, "text/html") {
 		t.Fatalf("the page's Content-Type is %q, want text/html", ctype)
 	}
-	if !strings.Contains(string(body), "<!doctype html>") {
+	if !strings.Contains(strings.ToLower(string(body)), "<!doctype html>") {
 		t.Fatalf("the page does not start with a doctype: %q", first(body, 80))
 	}
-	for _, n := range []string{"/app.css", "/app.js"} {
+	// Every other served file must NOT be HTML: a JS or CSS file served as HTML
+	// would be parsed by the browser as a page.
+	for _, n := range Names() {
+		if n == "/" {
+			continue
+		}
 		_, ctype, err := Content(n)
 		if err != nil {
 			t.Fatalf("Content(%q): %v", n, err)
@@ -125,6 +131,86 @@ func TestAReadFailureIsReportedAndNotPanicked(t *testing.T) {
 	}
 	if _, err := Size(); err == nil {
 		t.Fatal("Size returned no error when the read failed")
+	}
+}
+
+// The discover failure is unreachable through the embedded filesystem in a correct build, so the
+// seam is what makes the mustDiscover panic branch a branch the suite has actually run.
+func TestADiscoverFailurePanics(t *testing.T) {
+	restore := discover
+	discover = func() ([]file, error) { return nil, errors.New("the embed broke") }
+	defer func() { discover = restore; files = mustDiscover() }()
+
+	defer func() {
+		if r := recover(); r == nil {
+			t.Fatal("mustDiscover did not panic when discover failed")
+		}
+	}()
+	files = mustDiscover()
+}
+
+// The walk-callback error path inside discover is unreachable on an embed.FS, so the walkDir
+// seam drives it: a walk that calls the callback with an error must propagate it through
+// discover's callback return and its outer return.
+func TestADiscoverWalkErrorIsPropagated(t *testing.T) {
+	restore := walkDir
+	walkDir = func(_ fs.FS, _ string, fn fs.WalkDirFunc) error {
+		// Call the callback with an error, which makes discover's callback
+		// hit its `if err != nil { return err }` branch.
+		return fn("assets/broken", nil, errors.New("walk: permission denied"))
+	}
+	defer func() { walkDir = restore; files = mustDiscover() }()
+
+	entries, err := discover()
+	if err == nil {
+		t.Fatal("discover returned no error when the walk callback failed")
+	}
+	if entries != nil {
+		t.Fatal("discover returned entries alongside an error")
+	}
+}
+
+// The outer walk error (fs.WalkDir itself failing, not the callback) is also unreachable on an
+// embed.FS, so the walkDir seam drives it too.
+func TestADiscoverWalkOuterErrorIsPropagated(t *testing.T) {
+	restore := walkDir
+	walkDir = func(fs.FS, string, fs.WalkDirFunc) error {
+		return errors.New("walk: root does not exist")
+	}
+	defer func() { walkDir = restore; files = mustDiscover() }()
+
+	_, err := discover()
+	if err == nil {
+		t.Fatal("discover returned no error when the walk itself failed")
+	}
+}
+
+// contentType must return a fallback for extensions it does not know. A file the build adds with
+// a new extension must not arrive with an empty Content-Type.
+func TestContentTypeForUnknownExtension(t *testing.T) {
+	got := contentType("file.xyz")
+	if got == "" {
+		t.Fatal("contentType returned empty for an unknown extension")
+	}
+	if got != "application/octet-stream" {
+		t.Fatalf("contentType(%q) = %q, want application/octet-stream", "file.xyz", got)
+	}
+}
+
+// contentType must return the right type for each extension the build actually uses.
+func TestContentTypeForKnownExtensions(t *testing.T) {
+	cases := map[string]string{
+		"index.html":           "text/html; charset=utf-8",
+		"style.css":            "text/css; charset=utf-8",
+		"app.js":               "text/javascript; charset=utf-8",
+		"manifest.webmanifest": "application/manifest+json",
+		"icon.svg":             "image/svg+xml",
+	}
+	for name, want := range cases {
+		got := contentType(name)
+		if got != want {
+			t.Errorf("contentType(%q) = %q, want %q", name, got, want)
+		}
 	}
 }
 

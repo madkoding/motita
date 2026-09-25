@@ -2,9 +2,10 @@ package gateway
 
 import (
 	"net/http"
-	"strings"
 
 	"github.com/madkoding/motita/internal/agent"
+	"github.com/madkoding/motita/internal/llm"
+	"github.com/madkoding/motita/internal/onboard"
 )
 
 // The endpoints that answer in one shot: they read or change a small thing and return. The
@@ -97,23 +98,23 @@ func (s *Server) handleReasoning(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// handleModel changes the model the next turns use.
+// handleUpdateConfig changes the provider and/or model for a conversation.
 //
-// An empty id is refused rather than passed on: it names no model, and the next turn would fail
-// at the provider far from the request that caused it.
-func (s *Server) handleModel(w http.ResponseWriter, r *http.Request) {
+// It is PATCH semantics: only the fields a client sends are applied, and the rest are
+// left alone. The response carries the updated configView so a client can update its
+// display without a second round-trip.
+func (s *Server) handleUpdateConfig(w http.ResponseWriter, r *http.Request) {
 	var body struct {
-		Model string `json:"model"`
+		Provider string `json:"provider"`
+		Model    string `json:"model"`
 	}
 	if !s.decodeBody(w, r, &body) {
 		return
 	}
-	if strings.TrimSpace(body.Model) == "" {
-		writeError(w, http.StatusBadRequest, "model cannot be empty")
-		return
-	}
-	convOf(r).svc.SetModel(strings.TrimSpace(body.Model))
-	w.WriteHeader(http.StatusNoContent)
+	c := convOf(r)
+	c.svc.SetLLM(body.Provider, body.Model)
+	s.saveSession(c)
+	writeJSON(w, http.StatusOK, viewOf(c.svc.Config()))
 }
 
 // handleVerdict applies the user's verdict on the last turn and returns the report.
@@ -144,4 +145,28 @@ func (s *Server) handleQuestions(w http.ResponseWriter, r *http.Request) {
 		items = []agent.AskItem{}
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"items": items, "origin": origin})
+}
+
+// handleProviders answers the providers a front end may switch to: those whose
+// key is available, plus the current one even when its key is missing.
+func (s *Server) handleProviders(w http.ResponseWriter, r *http.Request) {
+	cfg := convOf(r).svc.Config()
+	writeJSON(w, http.StatusOK, map[string]any{"providers": configuredProviders(cfg)})
+}
+
+// handleModelList queries the provider's own API for the list of available
+// models, rather than the static catalogue. A failure is a 502: the agent is
+// fine, the provider is what did not answer.
+func (s *Server) handleModelList(w http.ResponseWriter, r *http.Request) {
+	cfg := convOf(r).svc.Config()
+	baseURL := cfg.LLM.BaseURL
+	if baseURL == "" {
+		baseURL = onboard.DefaultBaseURL(cfg.LLM.Provider)
+	}
+	models, err := llm.ListModels(r.Context(), baseURL, cfg.LLM.APIKey)
+	if err != nil {
+		writeError(w, http.StatusBadGateway, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"models": models})
 }

@@ -76,7 +76,14 @@ func (f *fakeService) ConversationSummary() session.Snapshot { return f.summary 
 func (f *fakeService) ResetConversation()                    { f.reset++ }
 func (f *fakeService) Config() config.Config                 { return f.cfg }
 func (f *fakeService) SetReasoning(level string)             { f.reasoning = level }
-func (f *fakeService) SetModel(model string)                 { f.model = model }
+func (f *fakeService) SetLLM(provider, model string) {
+	if provider != "" {
+		f.cfg.LLM.Provider = provider
+	}
+	if model != "" {
+		f.cfg.LLM.Model = model
+	}
+}
 
 func (f *fakeService) RecordVerdict(good bool, note string) string {
 	if f.verdict == nil {
@@ -104,6 +111,22 @@ func (f *fakeService) SetApprover(fn agent.Approver) {
 // runner does: a caller that mutated the slice it was given would be editing the conversation.
 func (f *fakeService) Transcript() []agent.DialogueTurn {
 	return append([]agent.DialogueTurn(nil), f.transcript...)
+}
+
+// RestoreTranscript loads a saved conversation into the fake, replacing what it holds.
+func (f *fakeService) RestoreTranscript(turns []agent.DialogueTurn) {
+	f.transcript = append([]agent.DialogueTurn(nil), turns...)
+}
+
+func (f *fakeService) SetWorkspace(dir string) {
+	if dir != "" {
+		f.cfg.Agent.WorkspaceDir = dir
+	}
+}
+
+func (f *fakeService) GenerateTitle(_ context.Context, firstUserMessage string) string {
+	// Mirror the fallback: truncate the first user message.
+	return strings.Join(strings.Fields(firstUserMessage), " ")
 }
 
 // newTestServer starts a REAL listener on loopback with an ephemeral port.
@@ -181,7 +204,7 @@ func TestEveryOtherEndpointNeedsTheToken(t *testing.T) {
 			}
 		})
 	}
-	for _, path := range []string{sessionPath(srv, DefaultSession, "/reset"), sessionPath(srv, DefaultSession, "/reasoning"), sessionPath(srv, DefaultSession, "/model"), sessionPath(srv, DefaultSession, "/verdict"), sessionPath(srv, DefaultSession, "/task"), sessionPath(srv, DefaultSession, "/plan"), sessionPath(srv, DefaultSession, "/runs/approval")} {
+	for _, path := range []string{sessionPath(srv, DefaultSession, "/reset"), sessionPath(srv, DefaultSession, "/reasoning"), sessionPath(srv, DefaultSession, "/verdict"), sessionPath(srv, DefaultSession, "/task"), sessionPath(srv, DefaultSession, "/plan"), sessionPath(srv, DefaultSession, "/runs/approval")} {
 		t.Run("POST "+path, func(t *testing.T) {
 			req, _ := http.NewRequest(http.MethodPost, srv.BaseURL()+path, strings.NewReader("{}"))
 			w := httptest.NewRecorder()

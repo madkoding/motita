@@ -24,6 +24,10 @@ import (
 var _ interface {
 	Config() config.Config
 	SetReasoning(string)
+	SetLLM(string, string)
+	SetWorkspace(string)
+	GenerateTitle(context.Context, string) string
+	RestoreTranscript([]agent.DialogueTurn)
 	ConversationSummary() session.Snapshot
 	ConversationReport() string
 	ResetConversation()
@@ -145,7 +149,7 @@ func (r *reasoningService) Config() config.Config {
 	return cfg
 }
 
-func (r *reasoningService) SetModel(model string) {
+func (r *reasoningService) SetLLM(provider, model string) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.model = model
@@ -156,6 +160,12 @@ func (r *reasoningService) SetReasoning(level string) {
 	defer r.mu.Unlock()
 	r.level = level
 }
+
+func (r *reasoningService) SetWorkspace(dir string) {}
+func (r *reasoningService) GenerateTitle(_ context.Context, msg string) string {
+	return strings.Join(strings.Fields(msg), " ")
+}
+func (r *reasoningService) RestoreTranscript(turns []agent.DialogueTurn) {}
 
 // SetReasoning drops the cache instead of patching it: the gateway is the authority on what the
 // level now is, and re-reading it is one request instead of a guess that can drift.
@@ -176,7 +186,7 @@ func TestSetModelRefreshesTheCachedConfig(t *testing.T) {
 	if got := c.Config().LLM.Model; got != "sonnet" {
 		t.Fatalf("model = %q before anything was set", got)
 	}
-	c.SetModel("haiku")
+	c.SetLLM("", "haiku")
 	if got := c.Config().LLM.Model; got != "haiku" {
 		t.Errorf("model = %q after setting it to haiku: the cache was not dropped", got)
 	}

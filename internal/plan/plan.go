@@ -21,9 +21,11 @@ import (
 	"time"
 
 	"github.com/madkoding/motita/internal/llm"
+	"github.com/madkoding/motita/internal/review"
 	"github.com/madkoding/motita/internal/reward"
 	"github.com/madkoding/motita/internal/session"
 	"github.com/madkoding/motita/internal/skills"
+	"github.com/madkoding/motita/internal/usage"
 )
 
 //go:embed soul.md
@@ -81,6 +83,27 @@ type Planner struct {
 	// procedure three times leaned on it three times, and the credit follows that.
 	reward    *reward.Ledger
 	consulted map[string]int
+
+	// usage is the per-skill telemetry sidecar. Nil means telemetry is off: the
+	// curator and the background review fork are disabled, and the skill tools
+	// work exactly as they did before the feature existed.
+	usage *usage.Ledger
+
+	// IsReviewFork is true when this Planner is a background review fork. It
+	// controls the provenance marker on save_skill: "agent" for the fork
+	// (curator-managed), "foreground" for a normal conversation (user-owned).
+	IsReviewFork bool
+
+	// itersSinceSkill counts tool-call iterations since the last save_skill. The
+	// caller (the Planner's Run loop) bumps it each iteration; save_skill resets
+	// it. The background review fork uses it as a trigger: after enough
+	// iterations without a save, the fork runs.
+	itersSinceSkill int
+
+	// review is the background self-improvement fork. Nil means the feature is
+	// off: no post-turn review runs. Non-nil means MaybeRun is called after
+	// finalize, with the session's messages and the current itersSinceSkill.
+	review *review.Review
 	// session is the conversation this planner continues. Nil means "create one on
 	// first use": a planner built directly still works, and one that is handed a
 	// session keeps the same conversation across runs.
@@ -240,6 +263,23 @@ that is who will read it.
 Never save a summary of what you did in this conversation. A diary is not a skill. Save the
 general procedure, with the details that were hard to find.
 
+### Skill format and pathways
+
+The name is lowercase, hyphenated, CLASS-level — never a PR number, error string, or date.
+Structure: # Title, one line when to use, ## Procedure (numbered steps), ## Pitfalls
+(rule + WHY, imperative). No PR numbers, dates, or quoted chat as content. The same lesson
+twice is ONE rule. Never save environment-dependent failures, negative tool claims, or
+unresolved dead ends.
+
+Three pathways create and maintain skills:
+1. FOREGROUND: save/patch during the conversation when you learn a reusable procedure,
+   the user corrects your approach, or a loaded skill was wrong. Patch: read_skill then
+   save_skill (same name = replace).
+2. BACKGROUND REVIEW: after your answer, a background pass replays the conversation and
+   patches the library automatically. You do not control it.
+3. CURATOR: periodically, skills unused 14d become stale, unused 30d are archived
+   (recoverable). Pinned skills are exempt.
+
 ## How to work
 
 1. Read the request for what it implies, as above.
@@ -366,6 +406,11 @@ func (p *Planner) Run(ctx context.Context, input string) (string, error) {
 	loops := p.maxLoops
 	for i := 1; i <= loops; i++ {
 		p.tracef("[thinking...]")
+		// Bump the skill-nudge counter: each tool iteration that does NOT call
+		// save_skill brings the background review closer to firing. save_skill
+		// itself resets it (in toolSaveSkill), so a turn that saves a skill
+		// does not also trigger a review of itself.
+		p.itersSinceSkill++
 		reply, err := p.streamTools(ctx, sess.Messages())
 		if err != nil {
 			return "", fmt.Errorf("could not reach the reasoning engine: %w", err)
@@ -379,7 +424,16 @@ func (p *Planner) Run(ctx context.Context, input string) (string, error) {
 		})
 
 		if !reply.WantsTools() {
-			return p.finalize(reply.Content), nil
+			answer := p.finalize(reply.Content)
+			// Background self-improvement: after the answer is delivered, a
+			// separate goroutine replays the transcript and patches the skill
+			// library. Best-effort: if the process exits, the review is lost.
+			// The fork runs only when enough tool-iterations elapsed without a
+			// save_skill, so a turn that already saved a skill is not re-reviewed.
+			if p.review != nil {
+				p.review.MaybeRun(sess.Messages(), p.itersSinceSkill)
+			}
+			return answer, nil
 		}
 
 		for _, tc := range reply.Calls {
@@ -413,7 +467,11 @@ func (p *Planner) Run(ctx context.Context, input string) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("could not reach the reasoning engine: %w", err)
 	}
-	return p.finalize(reply), nil
+	answer := p.finalize(reply)
+	if p.review != nil {
+		p.review.MaybeRun(sess.Messages(), p.itersSinceSkill)
+	}
+	return answer, nil
 }
 
 // sessionFor returns the conversation this planner is working in, creating one on first
@@ -807,6 +865,28 @@ func (p *Planner) WithReward(l *reward.Ledger) *Planner {
 	return p
 }
 
+// WithUsage installs the per-skill telemetry sidecar. When set, the skill tools
+// bump view/use/patch counters on every call, and save_skill records the
+// provenance marker (agent vs foreground). Nil disables telemetry: the curator
+// and the background review fork are off, and the skill tools work as before.
+func (p *Planner) WithUsage(u *usage.Ledger) *Planner {
+	p.usage = u
+	return p
+}
+
+// SetUsage is the setter for the usage ledger, used by the review fork after
+// construction. It is separate from WithUsage so a caller that builds a
+// planner with chained With* calls can inject the usage ledger later.
+func (p *Planner) SetUsage(u *usage.Ledger) { p.usage = u }
+
+// WithReview installs the background self-improvement fork. When set, Run
+// calls review.MaybeRun after the final answer is delivered. Nil disables the
+// post-turn review.
+func (p *Planner) WithReview(r *review.Review) *Planner {
+	p.review = r
+	return p
+}
+
 // Consulted returns the skills this run read, and how many times each.
 //
 // It is what the caller needs to turn the user's verdict into value: the skills are known
@@ -933,6 +1013,9 @@ func (p *Planner) toolSearchSkills(args json.RawMessage) string {
 	fmt.Fprintf(&b, "%d skill(s) match %q. Use read_skill with the name to read one in full.\n", len(hits), in.Query)
 	for _, s := range hits {
 		fmt.Fprintf(&b, "\n- %s: %s\n  %s%s", s.Name, s.Title, s.Summary, p.historySuffix(s.Name))
+		if p.usage != nil {
+			p.usage.BumpUse(s.Name)
+		}
 	}
 	// The outstanding complaints are appended after the list, so they cannot be missed by a
 	// model that only skims the summaries: a skill the user reported as broken is the reason
@@ -966,6 +1049,10 @@ func (p *Planner) toolReadSkill(args json.RawMessage) string {
 	// The procedure is being read, so it is being relied on: this is the moment the credit
 	// becomes knowable, and the only one.
 	p.consult(s.Name)
+	if p.usage != nil {
+		p.usage.BumpView(s.Name)
+		p.usage.BumpUse(s.Name)
+	}
 
 	var b strings.Builder
 	fmt.Fprintf(&b, "# skill: %s\n(source: %s)\n\n", s.Name, s.Path)
@@ -993,6 +1080,16 @@ func (p *Planner) toolSaveSkill(args json.RawMessage) string {
 	if err != nil {
 		return fmt.Sprintf("Error: %v", err)
 	}
+	if p.usage != nil {
+		by := usage.ByForeground
+		if p.IsReviewFork {
+			by = usage.ByAgent
+		}
+		p.usage.BumpPatch(s.Name, by)
+	}
+	// Reset the iteration counter: a save_skill just happened, so the
+	// background review has no reason to fire for this turn.
+	p.itersSinceSkill = 0
 	return fmt.Sprintf("Saved the skill %q to %s (%d bytes). It is available from now on, including to later sessions.",
 		s.Name, s.Path, len(s.Body))
 }

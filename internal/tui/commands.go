@@ -29,27 +29,35 @@ type Command struct {
 	// Arg is the placeholder for the argument, empty when the command takes none. It is what
 	// the popup shows to teach the syntax.
 	Arg string
+	// Group is the category the completion popup groups by, used for colour coding.
+	// "mode" = changes how the agent runs, "action" = does something, "session" = manages
+	// the conversation, "meta" = help and quit.
+	Group string
 }
 
 // commands is every slash command, in the order the popup presents them: the ones that
 // change mode first, then the ones that act, then the ones about the session, then leaving.
 var commands = []Command{
-	{Name: "/task", Aliases: []string{"/t"}, Help: "run a task in the sandbox"},
-	{Name: "/plan", Aliases: []string{"/p"}, Help: "read-only mode: investigate and explain"},
-	{Name: "/models", Aliases: []string{"/m"}, Help: "list the provider's models; with an id, switch to it", Arg: "model id"},
-	{Name: "/config", Aliases: []string{"/c"}, Help: "first-run wizard: provider, model, check"},
-	{Name: "/reasoning", Aliases: []string{"/r", "/think"}, Help: "cycle the reasoning level"},
-	{Name: "/find", Aliases: []string{"/f"}, Help: "filter the conversation", Arg: "text"},
-	{Name: "/session", Aliases: []string{"/s"}, Help: "context used, and any carried summary"},
-	{Name: "/sessions", Help: "list the conversations the gateway holds"},
-	{Name: "/attach", Help: "move to another conversation", Arg: "session id"},
-	{Name: "/good", Help: "mark the last turn as good (moves skill value)", Arg: "note"},
-	{Name: "/bad", Help: "mark the last turn as bad; the note says what to fix", Arg: "what was wrong"},
-	{Name: "/value", Aliases: []string{"/v"}, Help: "what the library has learned, worst first"},
-	{Name: "/new", Help: "start a new conversation"},
-	{Name: "/help", Aliases: []string{"/h", "h", "help", "?"}, Help: "this screen"},
-	{Name: "/quit", Aliases: []string{"/q", "q", "quit"}, Help: "leave"},
+	{Name: "/task", Aliases: []string{"/t"}, Help: "run a task in the sandbox", Group: "mode"},
+	{Name: "/plan", Aliases: []string{"/p"}, Help: "read-only mode: investigate and explain", Group: "mode"},
+	{Name: "/models", Aliases: []string{"/m"}, Help: "list the models the provider publishes", Group: "mode"},
+	{Name: "/config", Aliases: []string{"/c"}, Help: "first-run wizard: provider, model, check", Group: "mode"},
+	{Name: "/reasoning", Aliases: []string{"/r", "/think"}, Help: "cycle the reasoning level", Group: "mode"},
+	{Name: "/find", Aliases: []string{"/f"}, Help: "filter the conversation", Arg: "text", Group: "action"},
+	{Name: "/session", Aliases: []string{"/s"}, Help: "context used, and any carried summary", Group: "session"},
+	{Name: "/sessions", Help: "list the conversations the gateway holds", Group: "session"},
+	{Name: "/attach", Help: "move to another conversation", Arg: "session id", Group: "session"},
+	{Name: "/good", Help: "mark the last turn as good (moves skill value)", Arg: "note", Group: "action"},
+	{Name: "/bad", Help: "mark the last turn as bad; the note says what to fix", Arg: "what was wrong", Group: "action"},
+	{Name: "/value", Aliases: []string{"/v"}, Help: "what the library has learned, worst first", Group: "action"},
+	{Name: "/new", Help: "start a new conversation", Group: "session"},
+	{Name: "/help", Aliases: []string{"/h", "h", "help", "?"}, Help: "this screen", Group: "meta"},
+	{Name: "/quit", Aliases: []string{"/q", "q", "quit"}, Help: "leave", Group: "meta"},
 }
+
+// Commands returns a copy of the catalogue so other packages (the gateway)
+// can expose it through an endpoint without depending on the internal slice.
+func Commands() []Command { return append([]Command(nil), commands...) }
 
 // commandActions performs a command, keyed by the Name it belongs to. It reports whether the
 // interface should quit.
@@ -65,7 +73,7 @@ var commandActions = map[string]func(t *TUI, ctx context.Context, arg string) bo
 		// With an id it picks the model for this session, the way /reasoning picks the level:
 		// in memory, from the next turn on.
 		if model := strings.TrimSpace(arg); model != "" {
-			t.Runner.SetModel(model)
+			t.Runner.SetLLM("", model)
 			t.addMessage(AuthorSystem, fmt.Sprintf("model set to %s for this session", model))
 			t.drawFrame()
 			return false

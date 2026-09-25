@@ -57,8 +57,8 @@ type Runner interface {
 	Config() config.Config
 	// SetReasoning changes the in-memory reasoning level.
 	SetReasoning(level string)
-	// SetModel changes the model the next turns use, in memory like the reasoning level.
-	SetModel(model string)
+	// SetLLM changes the in-memory provider and/or model.
+	SetLLM(provider, model string)
 	// RecordVerdict applies the user's verdict on the last turn to the skills it read.
 	//
 	// It is the ONLY reward signal: nothing is scored unless the user marks it. The note is
@@ -239,38 +239,125 @@ func (r *AppRunner) Config() config.Config {
 
 // SetReasoning changes the in-memory reasoning level.
 func (r *AppRunner) SetReasoning(level string) {
-	r.setLLM(func(l *config.LLM) {
-		l.Reasoning.Level = level
-		l.Reasoning.Enabled = level != "off"
-	})
+	r.Cfg.LLM.Reasoning.Level = level
+	r.Cfg.LLM.Reasoning.Enabled = level != "off"
 }
 
-// SetModel changes the model the next turns use.
-func (r *AppRunner) SetModel(model string) {
-	r.setLLM(func(l *config.LLM) { l.Model = model })
+// SetLLM changes the in-memory provider and/or model. An empty argument means "leave
+// unchanged". The engine is built per turn from the current configuration, so the next
+// turn uses the new values — but the cached engine is dropped when either field
+// changes, so a caller that reads it back does not get the one built from the old
+// settings.
+func (r *AppRunner) SetLLM(provider, model string) {
+	if provider != "" {
+		r.Cfg.LLM.Provider = provider
+		r.Engine = nil
+	}
+	if model != "" {
+		r.Cfg.LLM.Model = model
+		r.Engine = nil
+	}
 }
 
-// setLLM changes the reasoning engine's settings and drops the engine built from the old ones.
+// SetWorkspace changes the directory the agent works in. A session that
+// belongs to a project runs with its workspace set to the project's directory,
+// so the agent is confined to that folder for every command it runs.
 //
-// Dropping it is the point: the engine was built once and kept, so a change never reached a
-// single request, and /reasoning only ever changed the status line.
-func (r *AppRunner) setLLM(change func(*config.LLM)) {
-	r.cfgMu.Lock()
-	defer r.cfgMu.Unlock()
-	change(&r.Cfg.LLM)
-	r.Engine = nil
+// The sandbox is rebuilt so the new directory takes effect for subsequent runs.
+func (r *AppRunner) SetWorkspace(dir string) {
+	if dir == "" {
+		return
+	}
+	r.Cfg.Agent.WorkspaceDir = dir
+	// Rebuild the sandbox with the new workspace directory so commands
+	// actually execute there, not in the directory the runner was born with.
+	op := sandbox.Options{
+		Dir: r.Cfg.Agent.WorkspaceDir,
+		Limits: sandbox.Limits{
+			MemoryMB:      r.Cfg.Sandbox.MemoryMB,
+			CPUSeconds:    r.Cfg.Sandbox.CPUSeconds,
+			Processes:     r.Cfg.Sandbox.Processes,
+			OpenFiles:     r.Cfg.Sandbox.OpenFiles,
+			MaxFileSizeMB: r.Cfg.Sandbox.MaxFileSizeMB,
+		},
+		CgroupRoot:  r.Cfg.Sandbox.CgroupRoot,
+		Timeout:     r.Cfg.Sandbox.Timeout,
+		MaxOutputKB: r.Cfg.Sandbox.MaxOutputKB,
+		Keep:        r.Cfg.Sandbox.KeepEphemeral,
+		Log:         r.Log,
+	}
+	switch r.Cfg.Sandbox.Kind {
+	case "none":
+		op.Limits = sandbox.Limits{}
+		op.UseCgroups = false
+		op.UseChroot = false
+	case "chroot":
+		op.UseChroot = true
+		op.Root = r.Cfg.Sandbox.Root
+	default:
+		op.UseCgroups = false
+	}
+	if r.Cfg.Sandbox.User != "" {
+		if uid, gid, err := config.ParseUser(r.Cfg.Sandbox.User); err == nil {
+			op.Uid, op.Gid, op.DropPrivs = uid, gid, true
+		}
+	}
+	op.Limits.NoNetwork = r.Cfg.Sandbox.IsolateNetwork
+	if box, err := sandbox.New(op); err == nil {
+		r.Box = box
+	}
 }
 
-// engine returns the configuration a turn runs with and the engine for it: the one given at
-// construction until a setting changes, otherwise one built from the current configuration. This
-// also lets the TUI start with no engine (for example when there is no configuration file yet)
-// and still run plan/task when the user chooses them.
+// GenerateTitle asks the model for a short descriptive title for the conversation.
+// It uses a lightweight single-shot call (no tools, no agent loop) with a tight
+// timeout. On any error or timeout it falls back to a truncated version of the
+// first user message, so the caller always gets something usable.
+func (r *AppRunner) GenerateTitle(ctx context.Context, firstUserMessage string) string {
+	_, engine, err := r.engine()
+	if err != nil {
+		return fallbackTitle(firstUserMessage)
+	}
+	prompt := "Generate a short, descriptive title (at most 6 words, no quotes, no trailing " +
+		"punctuation) for a conversation that starts with this user message:\n\n" + firstUserMessage +
+		"\n\nReply with ONLY the title, nothing else."
+	tctx, cancel := context.WithTimeout(ctx, 15*time.Second)
+	defer cancel()
+	title, err := engine.Complete(tctx, []llm.Message{
+		{Role: "system", Content: "You are a title generator. Respond with only a short title, no quotes, no punctuation at the end. Use the same language as the user's message."},
+		{Role: "user", Content: prompt},
+	})
+	if err != nil || strings.TrimSpace(title) == "" {
+		return fallbackTitle(firstUserMessage)
+	}
+	// Clean up: strip quotes, trailing punctuation, collapse whitespace, cap length.
+	title = strings.TrimSpace(title)
+	title = strings.Trim(title, "\"'`.,;:!?")
+	title = strings.Join(strings.Fields(title), " ")
+	if len([]rune(title)) > 60 {
+		title = string([]rune(title)[:59]) + "…"
+	}
+	return title
+}
+
+// fallbackTitle collapses whitespace and truncates the first user message to a
+// short label. It is used when the LLM call fails or times out.
+func fallbackTitle(text string) string {
+	fields := strings.Fields(text)
+	title := strings.Join(fields, " ")
+	if len([]rune(title)) > 60 {
+		title = string([]rune(title)[:59]) + "…"
+	}
+	return title
+}
+
+// engine returns the injected engine if it exists, otherwise it builds one from
+// the current configuration. This lets the TUI start with no engine (for
+// example when there is no configuration file yet) and still run plan/task when
+// the user chooses them.
 func (r *AppRunner) engine() (config.Config, *llm.Client, error) {
-	r.cfgMu.Lock()
-	cfg, engine := r.Cfg, r.Engine
-	r.cfgMu.Unlock()
-	if engine != nil {
-		return cfg, engine, nil
+	cfg := r.Cfg
+	if r.Engine != nil {
+		return cfg, r.Engine, nil
 	}
 	engine, err := llm.New(cfg.LLM, r.Log)
 	return cfg, engine, err
@@ -795,6 +882,15 @@ func (r *AppRunner) Transcript() []agent.DialogueTurn { return r.history() }
 
 // remember stores the conversation a finished turn ended with.
 func (r *AppRunner) remember(turns []agent.DialogueTurn) {
+	r.transcriptMu.Lock()
+	defer r.transcriptMu.Unlock()
+	r.transcript = append([]agent.DialogueTurn(nil), turns...)
+}
+
+// RestoreTranscript loads a saved conversation into the runner, replacing
+// anything it currently holds. It is how a session persisted to disk and
+// reloaded on startup carries its history forward.
+func (r *AppRunner) RestoreTranscript(turns []agent.DialogueTurn) {
 	r.transcriptMu.Lock()
 	defer r.transcriptMu.Unlock()
 	r.transcript = append([]agent.DialogueTurn(nil), turns...)

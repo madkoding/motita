@@ -1102,6 +1102,17 @@ func TestEveryEnvironmentVariable(t *testing.T) {
 		"MOTITA_AGENT_GRACEFUL_SHUTDOWN_TIMEOUT": "20s",
 		"MOTITA_AGENT_ON_FAILURE_KIND":           "command",
 		"MOTITA_AGENT_ON_FAILURE_COMMAND":        "notify",
+		"MOTITA_REVIEW_ENABLED":                  "true",
+		"MOTITA_REVIEW_INTERVAL":                 "15",
+		"MOTITA_REVIEW_TIMEOUT":                  "120s",
+		"MOTITA_REVIEW_MAX_ITERATIONS":           "8",
+		"MOTITA_CURATOR_ENABLED":                 "true",
+		"MOTITA_CURATOR_INTERVAL_HOURS":          "168",
+		"MOTITA_CURATOR_MIN_IDLE_MINUTES":        "120",
+		"MOTITA_CURATOR_STALE_AFTER_DAYS":        "14",
+		"MOTITA_CURATOR_ARCHIVE_AFTER_DAYS":      "30",
+		"MOTITA_CURATOR_CONSOLIDATE":             "false",
+		"MOTITA_CURATOR_STATE_FILE":              "/tmp/curator.json",
 	}
 	for k, v := range env {
 		t.Setenv(k, v)
@@ -1171,6 +1182,17 @@ func TestEveryEnvironmentVariable(t *testing.T) {
 		{"agent.graceful_shutdown_timeout", cfg.Agent.ShutdownTimeout.String(), "20s"},
 		{"agent.on_failure.kind", cfg.Agent.OnFailure.Kind, "command"},
 		{"agent.on_failure.command", cfg.Agent.OnFailure.Command, "notify"},
+		{"review.enabled", cfg.Review.Enabled, true},
+		{"review.interval", cfg.Review.Interval, 15},
+		{"review.timeout", cfg.Review.Timeout.String(), "2m0s"},
+		{"review.max_iterations", cfg.Review.MaxIterations, 8},
+		{"curator.enabled", cfg.Curator.Enabled, true},
+		{"curator.interval_hours", cfg.Curator.IntervalHours, 168},
+		{"curator.min_idle_minutes", cfg.Curator.MinIdleMinutes, 120},
+		{"curator.stale_after_days", cfg.Curator.StaleAfterDays, 14},
+		{"curator.archive_after_days", cfg.Curator.ArchiveAfterDays, 30},
+		{"curator.consolidate", cfg.Curator.Consolidate, false},
+		{"curator.state_file", cfg.Curator.StateFile, "/tmp/curator.json"},
 	}
 	for _, c := range checks {
 		if c.got != c.want {
@@ -2357,6 +2379,7 @@ func TestEveryScalarSettingHasAnEnvironmentVariable(t *testing.T) {
 	// Set under a sub-block, so the variable is not BLOCK_FIELD.
 	nested := map[string]bool{
 		"MOTITA_AGENT_ON_FAILURE": true, // MOTITA_AGENT_ON_FAILURE_KIND/COMMAND
+		"MOTITA_REVIEW_LLM":       true, // MOTITA_REVIEW_LLM_* sub-fields, handled by applyLLMEnvironment
 	}
 	// Read from the environment elsewhere (see Load), not by ApplyEnvironment.
 	otherReaders := map[string]bool{

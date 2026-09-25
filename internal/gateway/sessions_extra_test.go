@@ -8,6 +8,8 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+
+	"github.com/madkoding/motita/internal/config"
 )
 
 // deleteReq performs an authenticated DELETE and returns the recorder.
@@ -137,16 +139,21 @@ func TestASessionIdThatCannotBeFormedIsReported(t *testing.T) {
 	}
 }
 
-// TestTheDefaultSessionCannotBeClosed: it belongs to the process that started this gateway, and
-// closing it would leave that process talking to a conversation that no longer exists.
-func TestTheDefaultSessionCannotBeClosed(t *testing.T) {
+// TestTheDefaultSessionIsResetNotClosed: it belongs to the process that started this gateway,
+// so it cannot be removed — but a DELETE resets it (clears the transcript, restores the
+// placeholder title) and returns 200 with the updated status.
+func TestTheDefaultSessionIsResetNotClosed(t *testing.T) {
 	srv := newTestServer(t, &fakeService{})
 	w := deleteReq(t, srv, sessionPath(srv, DefaultSession, ""), testToken)
-	if w.Code != http.StatusConflict {
-		t.Fatalf("closing the default answered %d, it must be 409", w.Code)
+	if w.Code != http.StatusOK {
+		t.Fatalf("deleting the default answered %d, it must be 200 (reset)", w.Code)
 	}
-	if !strings.Contains(w.Body.String(), "default session") {
-		t.Errorf("the refusal must say which session: %s", w.Body.String())
+	var status SessionStatus
+	if err := json.Unmarshal(w.Body.Bytes(), &status); err != nil {
+		t.Fatalf("could not parse the reset status: %v", err)
+	}
+	if !strings.HasPrefix(status.Title, "New session —") {
+		t.Errorf("the reset title should start with 'New session —', got: %s", status.Title)
 	}
 }
 
@@ -318,4 +325,92 @@ func TestAPlanIsRefusedWhileATaskRunsInTheSameSession(t *testing.T) {
 	}
 	close(release)
 	_ = context.Background()
+}
+
+// patchReq performs an authenticated PATCH and returns the recorder.
+func patchReq(t *testing.T, srv *Server, path, body, token string) *httptest.ResponseRecorder {
+	t.Helper()
+	req, err := http.NewRequest(http.MethodPatch, srv.BaseURL()+path, strings.NewReader(body))
+	if err != nil {
+		t.Fatalf("building the request: %v", err)
+	}
+	if token != "" {
+		req.Header.Set("Authorization", "Bearer "+token)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(w, req)
+	return w
+}
+
+// TestASessionCanBeRenamed: a front end edits the title through PATCH, and the response carries
+// the updated status so a client can draw it without a second round-trip.
+func TestASessionCanBeRenamed(t *testing.T) {
+	srv := newTestServer(t, &fakeService{}, withFactory())
+	created := post(t, srv, "/v1/sessions", "{}", testToken)
+	var conv SessionStatus
+	if err := json.Unmarshal(created.Body.Bytes(), &conv); err != nil {
+		t.Fatalf("the answer is not a session: %v", err)
+	}
+	w := patchReq(t, srv, sessionPath(srv, conv.ID, ""), `{"title":"my chat"}`, testToken)
+	if w.Code != http.StatusOK {
+		t.Fatalf("rename answered %d: %s", w.Code, w.Body.String())
+	}
+	var updated SessionStatus
+	if err := json.Unmarshal(w.Body.Bytes(), &updated); err != nil {
+		t.Fatalf("the answer is not a session: %v", err)
+	}
+	if updated.Title != "my chat" {
+		t.Errorf("title = %q, want %q", updated.Title, "my chat")
+	}
+	// The list must reflect the new title too.
+	var listed struct {
+		Sessions []SessionStatus `json:"sessions"`
+	}
+	if err := json.Unmarshal(get(t, srv, "/v1/sessions", testToken).Body.Bytes(), &listed); err != nil {
+		t.Fatalf("the list is not a list of sessions: %v", err)
+	}
+	var found bool
+	for _, s := range listed.Sessions {
+		if s.ID == conv.ID {
+			if s.Title != "my chat" {
+				t.Errorf("the list still shows the old title: %q", s.Title)
+			}
+			found = true
+		}
+	}
+	if !found {
+		t.Error("the renamed session is not in the list")
+	}
+}
+
+// TestAnEmptyTitleIsRefused: an empty title would erase the label without a name to replace it,
+// so the rename endpoint refuses rather than installing an empty string.
+func TestAnEmptyTitleIsRefused(t *testing.T) {
+	srv := newTestServer(t, &fakeService{})
+	w := patchReq(t, srv, sessionPath(srv, DefaultSession, ""), `{"title":"  "}`, testToken)
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("an empty title answered %d, it must be 400: %s", w.Code, w.Body.String())
+	}
+}
+
+// TestTheConfigCanBeUpdated: a front end changes the provider and/or model through PATCH, and the
+// response carries the updated configView so a client can update its display.
+func TestTheConfigCanBeUpdated(t *testing.T) {
+	svc := &fakeService{cfg: config.Default()}
+	srv := newTestServer(t, svc)
+	w := patchReq(t, srv, sessionPath(srv, DefaultSession, "/config"), `{"provider":"ollama","model":"qwen3:32b"}`, testToken)
+	if w.Code != http.StatusOK {
+		t.Fatalf("update config answered %d: %s", w.Code, w.Body.String())
+	}
+	var view configView
+	if err := json.Unmarshal(w.Body.Bytes(), &view); err != nil {
+		t.Fatalf("the answer is not a config view: %v", err)
+	}
+	if view.Provider != "ollama" {
+		t.Errorf("provider = %q, want ollama", view.Provider)
+	}
+	if view.Model != "qwen3:32b" {
+		t.Errorf("model = %q, want qwen3:32b", view.Model)
+	}
 }

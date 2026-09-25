@@ -33,6 +33,8 @@ type Config struct {
 	Agent       Agent       `yaml:"agent"`
 	Skills      Skills      `yaml:"skills"`
 	Gateway     Gateway     `yaml:"gateway"`
+	Review      Review      `yaml:"review"`
+	Curator     Curator     `yaml:"curator"`
 }
 
 // Gateway is the HTTP face of the agent: what other front ends - a web page, a phone, a
@@ -316,7 +318,7 @@ func Default() Config {
 			Provider:       "openai",
 			Model:          "gpt-4o-mini",
 			BaseURL:        "https://api.openai.com/v1",
-			MaxTokens:      2048,
+			MaxTokens:      16384,
 			Temperature:    0.2,
 			Timeout:        90 * time.Second,
 			MaxAttempts:    3,
@@ -397,6 +399,20 @@ func Default() Config {
 			LogBackups:      3,
 			ShutdownTimeout: 15 * time.Second,
 			OnFailure:       OnFailure{Kind: "none"},
+		},
+		Review: Review{
+			Enabled:       true,
+			Interval:      15,
+			Timeout:       120 * time.Second,
+			MaxIterations: 8,
+		},
+		Curator: Curator{
+			Enabled:          true,
+			IntervalHours:    168, // 7 days
+			MinIdleMinutes:   120,
+			StaleAfterDays:   14,
+			ArchiveAfterDays: 30,
+			Consolidate:      false,
 		},
 	}
 }
@@ -914,4 +930,31 @@ func parseInteger(s string) (int, error) {
 		return 0, fmt.Errorf("%q is not a number", s)
 	}
 	return n, nil
+}
+
+// ---------------------------------------------------------------------------
+// Self-improvement configuration
+// ---------------------------------------------------------------------------
+
+// Review configures the background self-improvement fork: after a turn
+// completes, a separate planner replays the transcript and patches the skill
+// library. It runs in its own goroutine with optionally a cheaper LLM.
+type Review struct {
+	Enabled       bool          `yaml:"enabled"`
+	Interval      int           `yaml:"interval"` // review after N tool-iterations without a save_skill
+	Timeout       time.Duration `yaml:"timeout"`
+	MaxIterations int           `yaml:"max_iterations"`
+	LLM           *LLM          `yaml:"llm"` // nil = reuse the main engine
+}
+
+// Curator configures periodic skill library maintenance: deterministic
+// stale/archive transitions (no LLM) and optional LLM consolidation.
+type Curator struct {
+	Enabled          bool   `yaml:"enabled"`
+	IntervalHours    int    `yaml:"interval_hours"`
+	MinIdleMinutes   int    `yaml:"min_idle_minutes"`
+	StaleAfterDays   int    `yaml:"stale_after_days"`
+	ArchiveAfterDays int    `yaml:"archive_after_days"`
+	Consolidate      bool   `yaml:"consolidate"`
+	StateFile        string `yaml:"state_file"`
 }

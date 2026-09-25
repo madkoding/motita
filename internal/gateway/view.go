@@ -1,6 +1,12 @@
 package gateway
 
-import "github.com/madkoding/motita/internal/config"
+import (
+	"os"
+	"strings"
+
+	"github.com/madkoding/motita/internal/config"
+	"github.com/madkoding/motita/internal/onboard"
+)
 
 // RedactedKey is what a front end is given in place of a configured API key.
 //
@@ -57,4 +63,55 @@ func configFromView(v configView) config.Config {
 		cfg.LLM.APIKey = RedactedKey
 	}
 	return cfg
+}
+
+// providerInfo is one entry in the providers list a front end draws.
+type providerInfo struct {
+	ID          string   `json:"id"`
+	Name        string   `json:"name"`
+	Models      []string `json:"models"`
+	FetchModels bool     `json:"fetch_models"`
+	KeyPresent  bool     `json:"key_present"`
+	IsCurrent   bool     `json:"is_current"`
+}
+
+// configuredProviders returns the providers a front end may switch to: those
+// whose key is available (env var or YAML), plus the current one even when its
+// key is missing (so the user can see what is active).
+func configuredProviders(cfg config.Config) []providerInfo {
+	providers := onboard.Providers()
+	out := make([]providerInfo, 0, len(providers))
+	for _, p := range providers {
+		keyPresent := providerKeyPresent(cfg, p.ID)
+		isCurrent := strings.EqualFold(cfg.LLM.Provider, p.ID)
+		if !keyPresent && !isCurrent {
+			continue
+		}
+		models := make([]string, 0, len(p.Models))
+		for _, m := range p.Models {
+			models = append(models, m.ID)
+		}
+		out = append(out, providerInfo{
+			ID:          p.ID,
+			Name:        p.Name,
+			Models:      models,
+			FetchModels: p.FetchModels,
+			KeyPresent:  keyPresent,
+			IsCurrent:   isCurrent,
+		})
+	}
+	return out
+}
+
+// providerKeyPresent reports whether a key is available for the given provider:
+// either its provider-specific env var is set, or the YAML api_key is set and
+// the provider uses the generic MOTITA_LLM_API_KEY variable.
+func providerKeyPresent(cfg config.Config, providerID string) bool {
+	if cfg.LLM.APIKey != "" && config.ProviderKeyVariable(providerID) == "MOTITA_LLM_API_KEY" {
+		return true
+	}
+	if _, ok := os.LookupEnv(config.ProviderKeyVariable(providerID)); ok {
+		return true
+	}
+	return false
 }

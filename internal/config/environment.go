@@ -67,6 +67,7 @@ func textBindings(c *Config) []binding[string] {
 
 		{"MOTITA_AGENT_ON_FAILURE_KIND", &c.Agent.OnFailure.Kind},
 		{"MOTITA_AGENT_ON_FAILURE_COMMAND", &c.Agent.OnFailure.Command},
+		{"MOTITA_CURATOR_STATE_FILE", &c.Curator.StateFile},
 	}
 }
 
@@ -91,6 +92,7 @@ func durationBindings(c *Config) []binding[time.Duration] {
 		{"MOTITA_LLM_TIMEOUT", &c.LLM.Timeout},
 		{"MOTITA_LLM_BACKOFF_INITIAL", &c.LLM.BackoffInitial},
 		{"MOTITA_LLM_BACKOFF_MAX", &c.LLM.BackoffMax},
+		{"MOTITA_REVIEW_TIMEOUT", &c.Review.Timeout},
 	}
 }
 
@@ -116,6 +118,12 @@ func integerBindings(c *Config) []binding[int] {
 		{"MOTITA_AGENT_MAX_TASKS", &c.Agent.MaxTasks},
 		{"MOTITA_AGENT_LOG_MAX_MB", &c.Agent.LogMaxMB},
 		{"MOTITA_AGENT_LOG_BACKUPS", &c.Agent.LogBackups},
+		{"MOTITA_REVIEW_INTERVAL", &c.Review.Interval},
+		{"MOTITA_REVIEW_MAX_ITERATIONS", &c.Review.MaxIterations},
+		{"MOTITA_CURATOR_INTERVAL_HOURS", &c.Curator.IntervalHours},
+		{"MOTITA_CURATOR_MIN_IDLE_MINUTES", &c.Curator.MinIdleMinutes},
+		{"MOTITA_CURATOR_STALE_AFTER_DAYS", &c.Curator.StaleAfterDays},
+		{"MOTITA_CURATOR_ARCHIVE_AFTER_DAYS", &c.Curator.ArchiveAfterDays},
 	}
 }
 
@@ -129,6 +137,9 @@ func boolBindings(c *Config) []binding[bool] {
 		{"MOTITA_AGENT_POLICY_STRICT", &c.Agent.Policy.Strict},
 		{"MOTITA_GATEWAY_ENABLED", &c.Gateway.Enabled},
 		{"MOTITA_GATEWAY_WEBUI", &c.Gateway.WebUI},
+		{"MOTITA_REVIEW_ENABLED", &c.Review.Enabled},
+		{"MOTITA_CURATOR_ENABLED", &c.Curator.Enabled},
+		{"MOTITA_CURATOR_CONSOLIDATE", &c.Curator.Consolidate},
 	}
 }
 

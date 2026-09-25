@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/madkoding/motita/internal/config"
@@ -148,10 +149,17 @@ func (op Options) startGateway(fl flags, cfg config.Config, engine *llm.Client, 
 		Allow:       allow,
 		MaxBodyKB:   cfg.Gateway.MaxBodyKB,
 		Version:     op.Version,
+		ExePath:     op.ExePath,
 		Log:         log,
 		// The interface is served from THIS mux, so the page and the API share an origin
 		// and no proxy or CORS is involved anywhere.
 		WebUI: cfg.Gateway.WebUI,
+		// Sessions persist to ~/.motita/sessions so they survive a restart.
+		SessionDir: sessionDir(),
+		// Projects persist to ~/.motita/projects.
+		ProjectDir: projectDir(),
+		// The workspace under which project folders are created.
+		WorkspaceDir: cfg.Agent.WorkspaceDir,
 	})
 	if err != nil {
 		return nil, err
@@ -188,4 +196,23 @@ func (op Options) startGateway(fl flags, cfg config.Config, engine *llm.Client, 
 		}
 	}
 	return srv, nil
+}
+
+// sessionDir returns the directory where conversations are persisted: ~/.motita/sessions.
+// Empty when there is no home directory, which keeps the behaviour the tests have always had.
+func sessionDir() string {
+	d := config.Dir()
+	if d == "" {
+		return ""
+	}
+	return filepath.Join(d, "sessions")
+}
+
+// projectDir returns the directory where projects are persisted: ~/.motita/projects.
+func projectDir() string {
+	d := config.Dir()
+	if d == "" {
+		return ""
+	}
+	return filepath.Join(d, "projects")
 }

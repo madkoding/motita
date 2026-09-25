@@ -15,16 +15,19 @@ PLATFORMS := linux/386 linux/amd64 linux/arm linux/arm64 \
              windows/386 windows/amd64 windows/arm64 \
              darwin/amd64 darwin/arm64
 
-.PHONY: help build dist verify-dist test test-matrix vet bench fmt fmt-check check cover \
+.PHONY: help web build dist verify-dist test test-matrix vet bench fmt fmt-check check cover \
         run smoke e2e e2e-agent e2e-gateway clean
 
 help: ## Show this help
 	@grep -E '^[a-zA-Z0-9_-]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN{FS=":.*?## "}{printf "  \033[36m%-14s\033[0m %s\n", $$1, $$2}'
 
-build: ## Build the agent for the host architecture
+web: ## Build the web UI (Vite + Preact + Tailwind) into internal/webui/assets/
+	cd web && npm ci && npm run build
+
+build: web ## Build the agent for the host architecture (includes web UI)
 	$(GO) build -trimpath -ldflags "$(LDFLAGS)" -o $(DIST)/motita ./cmd/agent
 
-dist: ## Build the agent for every supported platform
+dist: web ## Build the agent for every supported platform (includes web UI)
 	@mkdir -p $(DIST)
 	@for p in $(PLATFORMS); do \
 		os=$${p%/*}; arch=$${p#*/}; ext=""; \

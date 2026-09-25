@@ -23,12 +23,14 @@ import (
 
 	"github.com/madkoding/motita/internal/agent"
 	"github.com/madkoding/motita/internal/config"
+	"github.com/madkoding/motita/internal/curator"
 	"github.com/madkoding/motita/internal/gateway"
 	"github.com/madkoding/motita/internal/llm"
 	"github.com/madkoding/motita/internal/logx"
 	"github.com/madkoding/motita/internal/onboard"
 	"github.com/madkoding/motita/internal/plan"
 	"github.com/madkoding/motita/internal/procedures"
+	"github.com/madkoding/motita/internal/review"
 	"github.com/madkoding/motita/internal/sandbox"
 	"github.com/madkoding/motita/internal/task"
 	"github.com/madkoding/motita/internal/tui"
@@ -824,6 +826,15 @@ func (op Options) run(fl flags) int {
 	ag.SetLibrary(procs.Library)
 	ag.SetReward(procs.Ledger)
 
+	// Curator: run the deterministic pass on session start if enough time has
+	// passed. Cheap (no LLM) and keeps the library tidy without a daemon.
+	if cfg.Curator.Enabled {
+		c := curator.New(cfg.Curator, procs, engine, log, buildSkillRunner)
+		if err := c.MaybeRun(ctx); err != nil {
+			log.Warn("curator pass failed", "error", err)
+		}
+	}
+
 	started := time.Now()
 	runErr := op.runAgent(ctx, ag)
 
@@ -1243,6 +1254,23 @@ func (op Options) runPlan(ctx context.Context, fl flags, cfg config.Config, engi
 	ag.SetLibrary(procs.Library)
 	ag.SetReward(procs.Ledger)
 
+	// Background self-improvement: a separate engine for the review fork, so
+	// the review can run on a cheaper model without touching the conversation's
+	// engine. Falls back to the main engine when no review LLM is configured.
+	var reviewer *review.Review
+	if cfg.Review.Enabled {
+		reviewEngine := engine
+		if cfg.Review.LLM != nil && cfg.Review.LLM.APIKey != "" {
+			eng, err := op.newEngine(*cfg.Review.LLM, log)
+			if err != nil {
+				log.Warn("review engine could not be built; reviews use the main engine", "error", err)
+			} else {
+				reviewEngine = eng
+			}
+		}
+		reviewer = review.New(cfg.Review, reviewEngine, procs, log, buildSkillRunner)
+	}
+
 	planner := plan.New(engine, ag).
 		WithTimeout(planDefaultTimeout(cfg)).
 		WithLoops(planDefaultLoops(cfg)).
@@ -1254,6 +1282,8 @@ func (op Options) runPlan(ctx context.Context, fl flags, cfg config.Config, engi
 		// reachable from the other and a verdict lands on one shelf rather than two.
 		WithLibrary(procs.Library).
 		WithReward(procs.Ledger).
+		WithUsage(procs.Usage).
+		WithReview(reviewer).
 		WithTrace(func(format string, args ...any) { fmt.Fprintf(op.Err, format, args...) })
 
 	if fl.prompt != "" {
@@ -1282,4 +1312,21 @@ func planDefaultLoops(cfg config.Config) int {
 		return cfg.Agent.MaxRetries
 	}
 	return 5
+}
+
+// buildSkillRunner is the RunnerBuilder for the background review fork and the
+// curator's LLM consolidation pass. It creates a *plan.Planner with only the
+// skill tools (no filesystem, no command execution), marked as a review fork
+// so save_skill sets created_by="agent". The planner is constructed with a nil
+// CommandRunner, which disables execute_command; the skill tools do not need
+// it. The soul is the review-specific prompt, not the normal operational prompt.
+func buildSkillRunner(engine *llm.Client, procs *procedures.Store, soul string, maxLoops int) review.SkillRunner {
+	p := plan.New(engine, nil).
+		WithLoops(maxLoops).
+		WithLibrary(procs.Library).
+		WithReward(procs.Ledger).
+		WithUsage(procs.Usage).
+		WithSoul(soul)
+	p.IsReviewFork = true
+	return p
 }

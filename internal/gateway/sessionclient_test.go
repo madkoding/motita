@@ -126,12 +126,12 @@ func TestListSessionsCarriesTheRefusal(t *testing.T) {
 // zeroes - which is exactly the kind of break the shared type is supposed to make impossible, and
 // it is worth a test that reads them.
 func TestASessionStatusRoundTripsThroughTheWire(t *testing.T) {
-	payload := SessionStatus{ID: "sabc", Running: true}
+	payload := SessionStatus{ID: "sabc", Title: "my chat", Running: true}
 	data, err := json.Marshal(payload)
 	if err != nil {
 		t.Fatalf("marshal: %v", err)
 	}
-	for _, want := range []string{`"id":"sabc"`, `"running":true`, `"created"`, `"last_used"`} {
+	for _, want := range []string{`"id":"sabc"`, `"title":"my chat"`, `"running":true`, `"created"`, `"last_used"`} {
 		if !strings.Contains(string(data), want) {
 			t.Errorf("the wire form is missing %s: %s", want, data)
 		}
@@ -140,7 +140,7 @@ func TestASessionStatusRoundTripsThroughTheWire(t *testing.T) {
 	if err := json.Unmarshal(data, &back); err != nil {
 		t.Fatalf("unmarshal: %v", err)
 	}
-	if back.ID != payload.ID || !back.Running {
+	if back.ID != payload.ID || back.Title != payload.Title || !back.Running {
 		t.Errorf("round trip lost data: %+v", back)
 	}
 }

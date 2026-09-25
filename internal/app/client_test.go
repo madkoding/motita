@@ -37,7 +37,7 @@ func (noopRunner) ResetConversation()                        {}
 func (noopRunner) RunModels(context.Context) (string, error) { return "", nil }
 func (noopRunner) Config() config.Config                     { return config.Default() }
 func (noopRunner) SetReasoning(string)                       {}
-func (noopRunner) SetModel(string)                           {}
+func (noopRunner) SetLLM(string, string)                     {}
 func (noopRunner) RecordVerdict(bool, string) string         { return "" }
 func (noopRunner) RewardReport() string                      { return "" }
 

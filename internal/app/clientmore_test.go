@@ -521,7 +521,7 @@ func (answerRunner) ResetConversation()                        {}
 func (answerRunner) RunModels(context.Context) (string, error) { return "", nil }
 func (answerRunner) Config() config.Config                     { return config.Default() }
 func (answerRunner) SetReasoning(string)                       {}
-func (answerRunner) SetModel(string)                           {}
+func (answerRunner) SetLLM(string, string)                     {}
 func (answerRunner) RecordVerdict(bool, string) string         { return "" }
 func (answerRunner) RewardReport() string                      { return "" }
 

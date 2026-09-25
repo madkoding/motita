@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 )
@@ -47,6 +48,22 @@ type conversation struct {
 	created  time.Time
 	lastUsed time.Time
 	running  bool
+	// lastTask is the most recent task or plan prompt submitted to this
+	// conversation. It is saved so that a session interrupted by a gateway
+	// restart (an upgrade) can be resumed automatically: the new process
+	// reads it from the persisted record and re-submits it.
+	lastTask string
+	// lastKind is "task" or "plan", recording which mode the last run was
+	// in. An interrupted plan and an interrupted task resume differently.
+	lastKind string
+	// title is the human-readable label a front end draws for this conversation. It is empty
+	// until the first turn completes and an auto-title is derived from it, and it may be
+	// changed by the user at any time through the rename endpoint.
+	title string
+	// projectID is the project this conversation belongs to, or empty when it
+	// is a free-standing session. A session that belongs to a project runs
+	// with its workspace set to the project's directory.
+	projectID string
 
 	// current is the run in flight, and nil when there is none.
 	//
@@ -75,7 +92,13 @@ type pendingApproval struct {
 
 func newConversation(id string, svc Service) *conversation {
 	now := time.Now()
-	return &conversation{id: id, svc: svc, created: now, lastUsed: now}
+	return &conversation{
+		id:       id,
+		svc:      svc,
+		created:  now,
+		lastUsed: now,
+		title:    "New session — " + now.Format("02/01 15:04:05"),
+	}
 }
 
 // touch records that this conversation was just spoken to.
@@ -176,16 +199,33 @@ func (c *conversation) cancelRun() bool {
 
 // SessionStatus is what the list and create endpoints report about one conversation.
 type SessionStatus struct {
-	ID       string    `json:"id"`
-	Created  time.Time `json:"created"`
-	LastUsed time.Time `json:"last_used"`
-	Running  bool      `json:"running"`
+	ID        string    `json:"id"`
+	Title     string    `json:"title"`
+	ProjectID string    `json:"project_id,omitempty"`
+	Created   time.Time `json:"created"`
+	LastUsed  time.Time `json:"last_used"`
+	Running   bool      `json:"running"`
 }
 
 func (c *conversation) status() SessionStatus {
 	c.stateMu.Lock()
 	defer c.stateMu.Unlock()
-	return SessionStatus{ID: c.id, Created: c.created, LastUsed: c.lastUsed, Running: c.running}
+	return SessionStatus{ID: c.id, Title: c.title, ProjectID: c.projectID, Created: c.created, LastUsed: c.lastUsed, Running: c.running}
+}
+
+// setProjectID records which project this conversation belongs to.
+func (c *conversation) setProjectID(pid string) {
+	c.stateMu.Lock()
+	defer c.stateMu.Unlock()
+	c.projectID = pid
+}
+
+// setTitle sets the human-readable label for this conversation. Called after the first turn
+// completes to derive an auto-title, and by the rename endpoint when the user edits one.
+func (c *conversation) setTitle(t string) {
+	c.stateMu.Lock()
+	defer c.stateMu.Unlock()
+	c.title = t
 }
 
 // conversationKeyType is the context key the resolved conversation travels under. It is an
@@ -339,7 +379,30 @@ func newSessionID() (string, error) {
 // capability is absent. A gateway that is full is 409 - the capability is there and the request is
 // the one that cannot be served yet, and a client that reads 409 can close a session and retry
 // where a 501 tells it to give up.
-func (s *Server) handleCreateSession(w http.ResponseWriter, _ *http.Request) {
+func (s *Server) handleCreateSession(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		ProjectID string `json:"project_id"`
+	}
+	// The body is optional: a client that sends no body gets a free-standing session.
+	if r.ContentLength > 0 {
+		if !s.decodeBody(w, r, &body) {
+			return
+		}
+	}
+
+	// When a project is named, the session runs in that project's workspace.
+	// The project must exist: a session for a missing project would run in
+	// the wrong directory, which is exactly what the project feature prevents.
+	var workspace string
+	if strings.TrimSpace(body.ProjectID) != "" {
+		p := s.projectOf(body.ProjectID)
+		if p == nil {
+			writeError(w, http.StatusNotFound, ErrProjectNotFound.Error())
+			return
+		}
+		workspace = p.Dir
+	}
+
 	conv, err := s.createSession()
 	switch {
 	case errors.Is(err, ErrCeilingReached):
@@ -347,6 +410,11 @@ func (s *Server) handleCreateSession(w http.ResponseWriter, _ *http.Request) {
 	case err != nil:
 		writeError(w, http.StatusNotImplemented, err.Error())
 	default:
+		if workspace != "" {
+			conv.setProjectID(body.ProjectID)
+			conv.svc.SetWorkspace(workspace)
+		}
+		s.saveSession(conv)
 		writeJSON(w, http.StatusCreated, conv.status())
 	}
 }
@@ -366,13 +434,23 @@ func (s *Server) handleListSessions(w http.ResponseWriter, _ *http.Request) {
 
 // handleDeleteSession drops one conversation.
 //
-// The default one is refused: it belongs to the process that started this gateway, and closing it
-// would leave that process talking to a conversation that no longer exists.
+// The default one cannot be removed — it belongs to the process that started this
+// gateway — but deleting it is treated as a reset: the transcript is cleared, the
+// title is restored to the "New session" placeholder, and the persisted file is
+// removed. The session stays alive but empty, which is what a user who presses
+// "delete" on it expects.
 func (s *Server) handleDeleteSession(w http.ResponseWriter, r *http.Request) {
 	c := convOf(r)
 	if c.id == DefaultSession {
-		writeError(w, http.StatusConflict,
-			"the default session belongs to the process that started this gateway and cannot be closed")
+		if c.isRunning() {
+			writeError(w, http.StatusConflict,
+				"a run is in progress in this session: close it after the run finishes")
+			return
+		}
+		c.svc.ResetConversation()
+		c.setTitle("New session — " + time.Now().Format("02/01 15:04:05"))
+		s.deletePersistedSession(c.id)
+		writeJSON(w, http.StatusOK, c.status())
 		return
 	}
 	// A run in flight is refused rather than killed: there is no cancel path in this design, and
@@ -387,5 +465,73 @@ func (s *Server) handleDeleteSession(w http.ResponseWriter, r *http.Request) {
 	// DELETE of the same session would find it gone - which is the outcome both callers asked
 	// for. Reporting 404 to one of them would be reporting a race, not a fact about the session.
 	s.forget(c.id)
+	s.deletePersistedSession(c.id)
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// handleRenameSession changes the human-readable title of a conversation.
+//
+// 200 with the updated status rather than 204: a client that renamed a session draws the new
+// title from the response, and a second round-trip to fetch it would be a race with any other
+// client editing the same session.
+func (s *Server) handleRenameSession(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Title string `json:"title"`
+	}
+	if !s.decodeBody(w, r, &body) {
+		return
+	}
+	title := strings.TrimSpace(body.Title)
+	if title == "" {
+		writeError(w, http.StatusBadRequest, "the title cannot be empty")
+		return
+	}
+	c := convOf(r)
+	c.setTitle(title)
+	s.saveSession(c)
+	writeJSON(w, http.StatusOK, c.status())
+}
+
+// maybeAutoTitle sets a title generated by the LLM when the conversation still
+// has the placeholder "Sesión nueva — …" title. It is called after a turn
+// completes, so a session that was just created gets a human-readable label
+// without the user naming it themselves.
+func (s *Server) maybeAutoTitle(c *conversation) {
+	// Only replace the placeholder title, never a user-set or already-generated one.
+	current := c.status().Title
+	if current != "" && !strings.HasPrefix(current, "New session —") {
+		return
+	}
+	turns := c.svc.Transcript()
+	for _, t := range turns {
+		if t.User != "" {
+			title := c.svc.GenerateTitle(context.Background(), t.User)
+			if title != "" {
+				c.setTitle(title)
+				s.saveSession(c)
+			}
+			return
+		}
+	}
+}
+
+// maxTitleLen caps the auto-derived title: a front end draws it in a sidebar row, and a line
+// that wraps is a row that pushes the rest of the list down.
+const maxTitleLen = 60
+
+// deriveTitle turns the first user message into a short label. It collapses whitespace and
+// truncates with an ellipsis, so a multi-line prompt becomes a single readable row.
+func deriveTitle(text string) string {
+	// Collapse all whitespace (including newlines) into single spaces.
+	fields := strings.Fields(text)
+	title := strings.Join(fields, " ")
+	if len(title) > maxTitleLen {
+		// Trim at the last rune boundary before the limit to avoid cutting a multi-byte
+		// character in half.
+		r := []rune(title)
+		if len(r) > maxTitleLen {
+			title = string(r[:maxTitleLen-1]) + "…"
+		}
+	}
+	return title
 }
