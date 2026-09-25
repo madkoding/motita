@@ -449,6 +449,7 @@ func (s *Server) routes() *http.ServeMux {
 	// the handlers that can actually serve them, so every commit's route table is a
 	// table every route in it answers for.
 	mux.Handle("GET /v1/schedules", plain(s.handleListSchedules))
+	mux.Handle("POST /v1/schedules", plain(s.handleCreateSchedule))
 	mux.Handle("GET /v1/commands", plain(s.handleListCommands))
 
 	// Self-update endpoints: check for a newer release and stream the upgrade.
