@@ -180,7 +180,12 @@ export default function App() {
   const [newProjectGit, setNewProjectGit] = useState('')
   const [creatingProject, setCreatingProject] = useState(false)
   // Toast notification: auto-dismissing message shown at the bottom of the screen.
-  const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null)
+  // `detail` is the second line a user reads — the human explanation.
+  // `technical` is the raw error text, shown small and collapsed behind a
+  // "Details" toggle: it names the file that conflicted, which is the one thing
+  // a user needs in order to act, without putting git's own words in their face.
+  const [toast, setToast] = useState<{ message: string; type: 'success' | 'error'; detail?: string; technical?: string } | null>(null)
+  const [toastDetailsOpen, setToastDetailsOpen] = useState(false)
   const [config, setConfig] = useState<ConfigView | null>(null)
   const [showModelSwitcher, setShowModelSwitcher] = useState(false)
   const [providers, setProviders] = useState<ProviderInfo[]>([])
@@ -214,6 +219,10 @@ export default function App() {
   const [upgradeProgress, setUpgradeProgress] = useState<UpgradeProgressEvent | null>(null)
   const [upgradeBusy, setUpgradeBusy] = useState(false)
   const [upgradeError, setUpgradeError] = useState('')
+  // Whether the raw upgrade error text is unfolded. Collapsed by default, for
+  // the same reason as the toast: the explanation is the point, the exception
+  // string is a footnote for a bug report.
+  const [showUpgradeError, setShowUpgradeError] = useState(false)
 
   // plan and task are mutually exclusive — if one is already an active tag,
   // the other is blocked from being added.
@@ -241,6 +250,19 @@ export default function App() {
   useEffect(() => {
     try { localStorage.setItem(SIDEBAR_KEY, String(sidebarOpen)) } catch { /* ignore */ }
   }, [sidebarOpen])
+
+  // Auto-dismiss toast. One timer, one place: inline setTimeout calls used to
+  // race each other and a stale timer could close a newer toast early.
+  // Durations: an error needs reading, so it stays longest; the "new version"
+  // toast is clickable and important, so it stays longer than a plain success.
+  useEffect(() => {
+    setToastDetailsOpen(false)
+    if (!toast) return
+    const isUpdate = toast.message.includes('New version')
+    const ms = toast.type === 'error' ? 12000 : isUpdate ? 8000 : 5000
+    const t = setTimeout(() => setToast(null), ms)
+    return () => clearTimeout(t)
+  }, [toast])
 
   const setRunningState = (r: boolean) => {
     runningRef.current = r
@@ -339,7 +361,6 @@ export default function App() {
       if (!res.ok) {
         const err = await res.json().catch(() => ({}))
         setToast({ message: err.error || 'could not create the project', type: 'error' })
-        setTimeout(() => setToast(null), 5000)
         setState(err.error || 'could not create the project', true)
         setCreatingProject(false)
         return
@@ -355,7 +376,6 @@ export default function App() {
       }
       // Show a toast and close the modal.
       setToast({ message: `Project "${title}" created` + (data.clone_log ? ' and repo cloned' : ''), type: 'success' })
-      setTimeout(() => setToast(null), 4000)
       setShowNewProject(false)
       setNewProjectTitle('')
       setNewProjectDesc('')
@@ -364,7 +384,6 @@ export default function App() {
       setCreatingProject(false)
     } catch (e) {
       setToast({ message: 'Could not create the project: ' + String(e), type: 'error' })
-      setTimeout(() => setToast(null), 5000)
       setState('could not create the project', true)
       setCreatingProject(false)
     }
@@ -571,8 +590,6 @@ export default function App() {
           const dismissed = localStorage.getItem(UPGRADE_DISMISS_KEY)
           if (dismissed !== data.latest_version) {
             setToast({ message: `New version ${data.latest_version} available — click to upgrade`, type: 'success' })
-            // Auto-dismiss after 8 seconds (longer than normal, since it's important).
-            setTimeout(() => setToast(null), 8000)
           }
         } catch { /* ignore */ }
       }
@@ -583,6 +600,7 @@ export default function App() {
   const runUpgrade = useCallback(async () => {
     setUpgradeBusy(true)
     setUpgradeError('')
+    setShowUpgradeError(false)
     setUpgradeProgress({ stage: 'starting', percent: 0, message: 'Starting upgrade…' })
     try {
       const res = await api('/v1/update/run', { method: 'POST' })
@@ -1159,17 +1177,42 @@ export default function App() {
                         body: '{}',
                       })
                       if (res.status === 409) {
-                        const data = await res.json()
-                        alert(data.error || 'The merge conflicts and was rolled back; nothing was changed.')
+                        // A conflict is a NORMAL outcome, not a crash: the
+                        // session changed lines the project also changed. The
+                        // message says what happened, what did not, and what to
+                        // do — the raw git text rides along as a muted detail
+                        // because it names the file, which is what a user needs
+                        // in order to act.
+                        const data = await res.json().catch(() => ({}))
+                        setToast({
+                          type: 'error',
+                          message: 'This session conflicts with the project',
+                          detail: 'The same lines were changed in both. Nothing was modified — your project is exactly as it was. Bring the project up to date, then try again.',
+                          ...(data.error ? { technical: data.error } : {}),
+                        })
                       } else if (!res.ok) {
                         const data = await res.json().catch(() => ({}))
-                        alert(data.error || `The merge failed (${res.status}).`)
+                        setToast({
+                          type: 'error',
+                          message: 'The integration could not be completed',
+                          detail: `The gateway answered with an error (${res.status}). Nothing was modified.`,
+                          ...(data.error ? { technical: data.error } : {}),
+                        })
                       } else {
                         const data = await res.json()
-                        alert(`Integrated: ${data.sha} — ${data.subject}`)
+                        setToast({
+                          type: 'success',
+                          message: 'Changes integrated into the project',
+                          detail: `Commit ${data.sha} — ${data.subject}`,
+                        })
                       }
                     } catch (err) {
-                      alert(`The merge could not be performed: ${err}`)
+                      setToast({
+                        type: 'error',
+                        message: 'Could not reach the gateway',
+                        detail: 'The integration was not attempted, so nothing changed. Check that the gateway is running and try again.',
+                        technical: String(err),
+                      })
                     }
                   }}
                 >
@@ -1936,46 +1979,85 @@ export default function App() {
       )}
 
       {/* Toast — auto-dismissing notification at the bottom of the screen.
-          When the toast message mentions a new version, clicking it opens
-          the upgrade modal. */}
+          Centred with flex on a full-width wrapper rather than with
+          translate-x-1/2: the slideUp keyframe animates `transform`, and a
+          transform on the card would OVERRIDE the translate that centres it,
+          which pushed the card off the right edge of a narrow window.
+          `detail` is the second line: a merge names the commit it produced, and
+          a failure says what did NOT change, which is the part a user actually
+          needs. When the toast mentions a new version, clicking it opens the
+          upgrade modal. */}
       {toast && (
-        <div
-          class="fixed bottom-6 left-1/2 -translate-x-1/2 z-[60] frosted rounded-xl border shadow-2xl px-4 py-3 flex items-center gap-3 cursor-pointer"
-          style={`animation: slideUp 0.3s ease-out; border-color: ${toast.type === 'error' ? 'rgba(239,68,68,0.3)' : 'rgba(76,194,255,0.3)'}`}
-          onClick={() => {
-            // If this is an update-available toast, open the upgrade modal.
-            if (updateInfo?.update_available && toast.message.includes('New version')) {
-              setShowUpgrade(true)
-            } else {
-              setToast(null)
-            }
-          }}
-        >
+        <div class="fixed bottom-6 inset-x-0 z-[60] flex justify-center px-4 pointer-events-none">
+          <div
+            class="frosted rounded-xl border px-4 py-3 flex items-start gap-3 max-w-md w-full pointer-events-auto"
+            style={`animation: slideUp 0.3s ease-out; box-shadow: 0 20px 45px -10px rgba(0,0,0,0.75); border-color: ${toast.type === 'error' ? 'rgba(239,68,68,0.35)' : 'rgba(76,194,255,0.35)'}`}
+          >
           {toast.type === 'error' ? (
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="text-danger flex-none">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="text-danger flex-none mt-0.5">
               <circle cx="12" cy="12" r="10" /><line x1="12" y1="8" x2="12" y2="12" /><line x1="12" y1="16" x2="12.01" y2="16" />
             </svg>
           ) : updateInfo?.update_available && toast.message.includes('New version') ? (
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="text-accent flex-none animate-pulse">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="text-accent flex-none mt-0.5 animate-pulse">
               <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" /><polyline points="7 10 12 15 17 10" /><line x1="12" y1="15" x2="12" y2="3" />
             </svg>
           ) : (
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" class="text-accent flex-none">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" class="text-accent flex-none mt-0.5">
               <polyline points="20 6 9 17 4 12" />
             </svg>
           )}
-          <span class="text-sm text-[#e8e8ea]">{toast.message}</span>
-          {updateInfo?.update_available && toast.message.includes('New version') && (
-            <button
-              class="ml-2 p-0.5 rounded hover:bg-white/10 text-[#6a6a7a] flex-none"
-              onClick={(e) => { e.stopPropagation(); dismissUpgradeToast() }}
-              aria-label="Dismiss"
-            >
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                <line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" />
-              </svg>
-            </button>
-          )}
+          <div class="flex-1 min-w-0">
+            <p class={`text-sm font-semibold ${toast.type === 'error' ? 'text-danger' : 'text-[#e8e8ea]'}`}>
+              {toast.message}
+            </p>
+            {toast.detail && (
+              <p class="text-xs text-[#9a9aaa] mt-1 leading-relaxed break-words">
+                {toast.detail}
+              </p>
+            )}
+            {toast.technical && (
+              <div class="mt-2">
+                <button
+                  class="text-[11px] text-[#6a6a7a] hover:text-[#9a9aaa] underline decoration-dotted"
+                  onClick={(e) => { e.stopPropagation(); setToastDetailsOpen(v => !v) }}
+                >
+                  {toastDetailsOpen ? 'Hide details' : 'Details'}
+                </button>
+                {toastDetailsOpen && (
+                  <pre class="mt-1.5 text-[11px] text-[#8a8a9a] font-mono bg-black/30 rounded-lg p-2 overflow-x-auto whitespace-pre-wrap break-words max-h-32 overflow-y-auto">
+                    {toast.technical}
+                  </pre>
+                )}
+              </div>
+            )}
+            {updateInfo?.update_available && toast.message.includes('New version') && (
+              <button
+                class="mt-2 text-xs font-semibold text-accent hover:underline"
+                onClick={(e) => { e.stopPropagation(); setShowUpgrade(true) }}
+              >
+                Upgrade now
+              </button>
+            )}
+          </div>
+          <button
+            class="flex-none p-1 rounded-lg hover:bg-white/10 text-[#6a6a7a]"
+            onClick={(e) => {
+              e.stopPropagation()
+              // A version toast is remembered as dismissed, so it does not
+              // come back on the next poll; any other toast just goes away.
+              if (updateInfo?.update_available && toast.message.includes('New version')) {
+                dismissUpgradeToast()
+              } else {
+                setToast(null)
+              }
+            }}
+            aria-label="Dismiss"
+          >
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" />
+            </svg>
+          </button>
+          </div>
         </div>
       )}
 
@@ -2125,10 +2207,32 @@ export default function App() {
                     </span>
                   </div>
 
-                  {/* Error details */}
+                  {/* Error details — the same two-layer shape as the toast: a
+                      plain-language explanation the user can act on, with the
+                      raw text folded away behind "Details" for a bug report.
+                      A bare exception string is not an explanation. */}
                   {upgradeError && (
                     <div class="p-3 rounded-xl bg-danger/10 border border-danger/20">
-                      <pre class="text-xs text-danger whitespace-pre-wrap font-mono">{upgradeError}</pre>
+                      <div class="flex items-start gap-2">
+                        <svg class="text-danger flex-none mt-0.5" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                          <circle cx="12" cy="12" r="10" /><line x1="12" y1="8" x2="12" y2="12" /><line x1="12" y1="16" x2="12.01" y2="16" />
+                        </svg>
+                        <div class="flex-1 min-w-0">
+                          <p class="text-sm font-medium text-danger">The upgrade did not finish</p>
+                          <p class="text-xs text-[#9a9aaa] mt-1 leading-relaxed">
+                            The gateway is still running the version it had before. Nothing was replaced, so you can keep using it and try again.
+                          </p>
+                          <button
+                            class="text-xs text-[#6a6a7a] hover:text-[#9a9aaa] mt-1.5 underline underline-offset-2"
+                            onClick={() => setShowUpgradeError(v => !v)}
+                          >
+                            {showUpgradeError ? 'Hide details' : 'Details'}
+                          </button>
+                          {showUpgradeError && (
+                            <pre class="text-xs text-danger whitespace-pre-wrap font-mono mt-2 p-2 rounded-lg bg-black/40">{upgradeError}</pre>
+                          )}
+                        </div>
+                      </div>
                     </div>
                   )}
 
@@ -2155,6 +2259,7 @@ export default function App() {
                         setShowUpgrade(false)
                         setUpgradeProgress(null)
                         setUpgradeError('')
+                        setShowUpgradeError(false)
                       }}
                     >
                       {upgradeProgress.stage === 'error' ? 'Close' : 'Done'}
@@ -2240,6 +2345,7 @@ export default function App() {
           </div>
         </div>
       )}
+
     </div>
   )
 }

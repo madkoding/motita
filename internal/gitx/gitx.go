@@ -433,7 +433,7 @@ func MergeInto(ctx context.Context, repoDir, baseBranch, branch, message string)
 	if _, abErr := noGitOr(ctx, "the merge conflicted and could not be rolled back", repoDir, "merge", "--abort"); abErr != nil {
 		return MergeResult{}, abErr
 	}
-	return MergeResult{}, fmt.Errorf("the merge conflicts and was rolled back; nothing was changed: %s", firstLine(out))
+	return MergeResult{}, fmt.Errorf("the merge conflicted and was rolled back; nothing was changed: %s", firstLine(out))
 }
 
 // DeleteBranch deletes a local branch at dir.
