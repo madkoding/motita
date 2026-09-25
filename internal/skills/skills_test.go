@@ -369,3 +369,70 @@ func TestSearchIsCaseInsensitive(t *testing.T) {
 		}
 	}
 }
+
+// Archiving is the ONE destructive action the library has, and it is deliberately
+// recoverable: the document is MOVED into .archive/, never deleted, so a restore is a
+// rename and not a rewrite.
+func TestArchiveMovesTheDocumentAsideAndRestoreBringsItBack(t *testing.T) {
+	l := newLib(t)
+	body := "# Build the firmware\n\nUse this when the board will not flash.\n"
+	if _, err := l.Save("Build Firmware", body); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+
+	if err := l.Archive("build-firmware"); err != nil {
+		t.Fatalf("Archive: %v", err)
+	}
+	// Gone from the library...
+	if _, err := os.Stat(filepath.Join(l.Dir, "build-firmware.md")); !os.IsNotExist(err) {
+		t.Errorf("the document is still in the library: %v", err)
+	}
+	// ...and present in the archive, with its bytes intact.
+	archived, err := os.ReadFile(filepath.Join(l.Dir, ".archive", "build-firmware.md"))
+	if err != nil {
+		t.Fatalf("the document was not archived: %v", err)
+	}
+	if string(archived) != body {
+		t.Errorf("archived body = %q, want %q", archived, body)
+	}
+	list, err := l.List()
+	if err != nil {
+		t.Fatalf("List: %v", err)
+	}
+	for _, s := range list {
+		if s.Name == "build-firmware" {
+			t.Error("an archived skill must not appear in the index")
+		}
+	}
+
+	// The restore is the inverse, and the index sees it again.
+	if err := l.Restore("build-firmware"); err != nil {
+		t.Fatalf("Restore: %v", err)
+	}
+	if _, err := l.Get("build-firmware"); err != nil {
+		t.Errorf("Get after Restore: %v", err)
+	}
+}
+
+// Archived is the list a front end draws, and it is empty rather than an error when
+// nothing was ever archived: a fresh library is not a broken one.
+func TestArchivedListsNamesAndToleratesAMissingDirectory(t *testing.T) {
+	l := newLib(t)
+	got, err := l.Archived()
+	if err != nil || len(got) != 0 {
+		t.Fatalf("Archived on a fresh library = %v, %v; want empty, nil", got, err)
+	}
+	if _, err := l.Save("One", "# One\n\nbody\n"); err != nil {
+		t.Fatal(err)
+	}
+	if err := l.Archive("one"); err != nil {
+		t.Fatal(err)
+	}
+	got, err = l.Archived()
+	if err != nil {
+		t.Fatalf("Archived: %v", err)
+	}
+	if len(got) != 1 || got[0] != "one" {
+		t.Errorf("Archived = %v, want [one]", got)
+	}
+}
