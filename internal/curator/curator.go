@@ -156,14 +156,7 @@ func (c *Curator) deterministicPass() (*PassReport, error) {
 }
 
 func (c *Curator) archiveSkill(name string) error {
-	dir := c.procs.Library.Dir
-	src := filepath.Join(dir, name+".md")
-	archiveDir := filepath.Join(dir, ".archive")
-	if err := os.MkdirAll(archiveDir, 0o755); err != nil {
-		return err
-	}
-	dst := filepath.Join(archiveDir, name+".md")
-	if err := os.Rename(src, dst); err != nil {
+	if err := c.procs.Library.Archive(name); err != nil {
 		return err
 	}
 	c.procs.Usage.SetState(name, usage.StateArchived)
@@ -175,10 +168,7 @@ func (c *Curator) archiveSkill(name string) error {
 
 // Restore moves an archived skill back to the active directory.
 func (c *Curator) Restore(name string) error {
-	dir := c.procs.Library.Dir
-	src := filepath.Join(dir, ".archive", name+".md")
-	dst := filepath.Join(dir, name+".md")
-	if err := os.Rename(src, dst); err != nil {
+	if err := c.procs.Library.Restore(name); err != nil {
 		return err
 	}
 	c.procs.Usage.SetState(name, usage.StateActive)
@@ -204,23 +194,7 @@ func (c *Curator) Unpin(name string) error {
 }
 
 // ListArchived returns the names of skills in .archive/.
-func (c *Curator) ListArchived() ([]string, error) {
-	dir := filepath.Join(c.procs.Library.Dir, ".archive")
-	entries, err := os.ReadDir(dir)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return nil, nil
-		}
-		return nil, err
-	}
-	var out []string
-	for _, e := range entries {
-		if !e.IsDir() && strings.HasSuffix(e.Name(), ".md") {
-			out = append(out, strings.TrimSuffix(e.Name(), ".md"))
-		}
-	}
-	return out, nil
-}
+func (c *Curator) ListArchived() ([]string, error) { return c.procs.Library.Archived() }
 
 // Status returns a human-readable summary for the CLI.
 func (c *Curator) Status() string {
