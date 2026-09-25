@@ -36,6 +36,17 @@ func samePath(a, b string) bool {
 	return resolve(a) == resolve(b)
 }
 
+// SamePath is samePath for callers outside this package.
+//
+// It is exported because the comparison it makes is not obvious and must not be
+// reimplemented: a plain string comparison calls a project and its own worktree
+// two different places when one is reached through a symlink (a home directory
+// and /tmp commonly are), and two spellings of one directory must not be counted
+// as two directories.
+func SamePath(a, b string) bool {
+	return samePath(a, b)
+}
+
 // prepareParent creates the directory a worktree will live in.
 //
 // `git worktree add` creates the final directory but NOT its parents, and its

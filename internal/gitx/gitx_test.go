@@ -1011,6 +1011,19 @@ func TestSamePathResolvesSymlinks(t *testing.T) {
 	}
 }
 
+// TestSamePathForCallersOutsideThePackage: SamePath is the exported door to
+// samePath, and a caller outside the package has no other way to ask the
+// question. It must give the same answer.
+func TestSamePathForCallersOutsideThePackage(t *testing.T) {
+	dir := plainDir(t, "outside")
+	if !SamePath(dir, dir) {
+		t.Error("a path must be the same place as itself")
+	}
+	if SamePath(dir, filepath.Join(dir, "..")) {
+		t.Error("a directory and its parent are not the same place")
+	}
+}
+
 // TestSamePathComparesRelativePaths: a relative path must be resolved against
 // the working directory rather than compared to an absolute one as text.
 func TestSamePathComparesRelativePaths(t *testing.T) {
