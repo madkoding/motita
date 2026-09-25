@@ -14,7 +14,7 @@ export default {
       },
       fontFamily: {
         sans: ['Sansation', 'system-ui', '-apple-system', 'Segoe UI', 'Roboto', 'sans-serif'],
-        mono: ['TerminusNF', 'ui-monospace', 'SF Mono', 'Menlo', 'Consolas', 'monospace']
+        mono: ['JetBrainsMonoNF', 'ui-monospace', 'SF Mono', 'Menlo', 'Consolas', 'monospace']
       }
     }
   },
