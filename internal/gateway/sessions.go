@@ -239,6 +239,18 @@ type SessionStatus struct {
 	// which is what lets two sessions work at once without editing each
 	// other's files. It is empty for a free-standing session.
 	Workspace string `json:"workspace,omitempty"`
+	// Changes is how many uncommitted changes this session has in its own
+	// working tree: modified, staged, deleted, renamed and untracked files,
+	// each counted once. It is what the sidebar draws as a count, so a session
+	// that has written something does not read as idle. Absent (0) for a
+	// session with no workspace, or one that is not a repository.
+	Changes int `json:"changes,omitempty"`
+	// Worktree is the NAME of the session's worktree directory, which is its
+	// id - the last path element rather than the whole path, because the path
+	// is long, mostly identical between sessions, and would be truncated to
+	// nothing useful in a narrow sidebar. It is what tells two sessions of one
+	// project apart at a glance. Empty for a session without its own worktree.
+	Worktree string `json:"worktree,omitempty"`
 }
 
 func (c *conversation) status() SessionStatus {
@@ -249,6 +261,29 @@ func (c *conversation) status() SessionStatus {
 	if c.workspace != "" {
 		ctx := context.Background()
 		st.Branch = gitx.Display(ctx, c.workspace)
+		// The worktree is a session's OWN directory, and naming it here is what
+		// tells two sessions of one project apart: they share a project, a
+		// branch prefix and a title format, and the only thing that differs is
+		// the directory each one runs in.
+		//
+		// Asked of git rather than compared with the project directory: a
+		// session that fell back to the project's checkout has no worktree of
+		// its own, and calling that directory one would be inventing a
+		// distinction the filesystem does not make. The listing also settles
+		// the symlinked and relative spellings of the same path, which a string
+		// comparison does not.
+		if c.projectDir != "" {
+			if _, ok, err := gitx.LiveWorktreeAt(ctx, c.projectDir, c.workspace); err == nil && ok {
+				st.Worktree = filepath.Base(c.workspace)
+			}
+		}
+		// Changes is read from the session's own tree, so the count is the work
+		// this session has done. An unreadable tree reports 0 rather than an
+		// error: the count decorates a badge, and a badge that cannot be
+		// computed should be absent rather than break the sidebar.
+		if n, err := gitx.WorkingTreeChanges(ctx, c.workspace); err == nil {
+			st.Changes = n
+		}
 		// Mergeable compares the session's branch against the PROJECT's branch,
 		// not against whatever the session's own checkout is on. A session with
 		// its own worktree reports its own branch (motita/<id>), so comparing

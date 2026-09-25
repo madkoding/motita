@@ -14,18 +14,33 @@ import (
 
 // Project is a named group of sessions that share a workspace directory.
 //
-// A session that belongs to a project runs with its workspace set to the
-// project's directory, so the agent works inside that folder and nowhere
-// else. The directory is either a subfolder of the workspace chosen when the
-// project was created, or a git repository cloned from a URL.
+// A session that belongs to a project runs in its OWN worktree of that
+// directory - see sessionWorktree - so the agent works inside a copy of the
+// folder and nowhere else. The directory is either a subfolder of the workspace
+// chosen when the project was created, or a git repository cloned from a URL.
 type Project struct {
-	ID          string    `json:"id"`
-	Title       string    `json:"title"`
-	Description string    `json:"description,omitempty"`
-	Dir         string    `json:"dir"`
-	GitURL      string    `json:"git_url,omitempty"`
-	Branch      string    `json:"branch,omitempty"`
-	Created     time.Time `json:"created"`
+	ID          string `json:"id"`
+	Title       string `json:"title"`
+	Description string `json:"description,omitempty"`
+	Dir         string `json:"dir"`
+	GitURL      string `json:"git_url,omitempty"`
+	Branch      string `json:"branch,omitempty"`
+	// Changes is how many uncommitted changes are in the project's own
+	// checkout. It is the project's own number, NOT the sum over its sessions:
+	// a session works in its own worktree, and adding the two would report work
+	// the user cannot see in this directory. Absent for a non-repository.
+	Changes int `json:"changes,omitempty"`
+	// Sessions counts the sessions this project has. It is what makes a
+	// project header say how much is running under it without the front end
+	// having to group the session list itself.
+	Sessions int `json:"sessions,omitempty"`
+	// Worktrees counts the session worktrees this project has on disk: one per
+	// session that ran in its own checkout. It is read from git rather than
+	// from the session list, so a worktree left behind by a session that is
+	// gone is still counted - which is exactly the state a user wants to know
+	// about.
+	Worktrees int       `json:"worktrees,omitempty"`
+	Created   time.Time `json:"created"`
 }
 
 // projectStore persists projects to disk as JSON files under a directory the

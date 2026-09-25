@@ -26,12 +26,34 @@ func (s *Server) handleListProjects(w http.ResponseWriter, _ *http.Request) {
 	if all == nil {
 		all = []Project{}
 	}
-	// The branch is read live: it changes when the user checks out another
-	// one, and a value persisted at creation time would be a value that used
-	// to be true. Reading it here is one git call per project, and a project
-	// that is not a repository answers "" — which omitempty renders as absent.
+	// The branch, the changes and the worktrees are all read live: they change
+	// while the gateway runs (the user checks out another branch, edits a file,
+	// a session is created), and a value persisted at creation time would be a
+	// value that used to be true. Reading them here is a fixed number of git
+	// calls per project, and a project that is not a repository answers "" and
+	// zero - which omitempty renders as absent.
+	//
+	// The session count comes from the sessions this gateway holds, not from
+	// disk: what a project header shows is how many sessions are under it right
+	// now, and a persisted count would drift from the list drawn below it.
+	sessions := s.snapshot()
 	for i := range all {
-		all[i].Branch = gitx.Display(context.Background(), all[i].Dir)
+		ctx := context.Background()
+		all[i].Branch = gitx.Display(ctx, all[i].Dir)
+		all[i].Changes, _ = gitx.WorkingTreeChanges(ctx, all[i].Dir)
+		// Worktrees counts the session checkouts, and it is asked of git rather
+		// than of the session list so that a worktree left behind by a session
+		// that is gone is still counted - which is the state a user wants to
+		// know about. The project's own checkout is not a session worktree and
+		// is not counted.
+		if wts, err := gitx.Worktrees(ctx, all[i].Dir); err == nil {
+			all[i].Worktrees = countSessionWorktrees(wts, all[i].Dir)
+		}
+		for _, c := range sessions {
+			if c.projectID == all[i].ID {
+				all[i].Sessions++
+			}
+		}
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"projects": all})
 }
@@ -216,4 +238,30 @@ func (s *Server) handleMergeSession(w http.ResponseWriter, r *http.Request) {
 // branches findable: `git branch --list 'motita/*'` lists exactly the sessions.
 func sessionBranch(sessionID string) string {
 	return "motita/" + sessionID
+}
+
+// countSessionWorktrees counts the checkouts in a worktree listing that are a
+// SESSION's worktree of the project at projectDir.
+//
+// The project's own checkout is in the same listing and is not one: it is where
+// the user works, not a session. It is told apart by path, which is the only
+// thing that distinguishes the two - every entry in this listing is a checkout
+// of the same repository, and a branch-based rule would both count the project's
+// own branch and miss a session whose worktree has been moved.
+//
+// A prunable registration is NOT counted. Its directory is gone, so there is no
+// checkout to speak of, and reporting it as a live worktree would give the user
+// a number they cannot reconcile with anything on disk.
+func countSessionWorktrees(all []gitx.Worktree, projectDir string) int {
+	n := 0
+	for _, w := range all {
+		if w.Prunable {
+			continue
+		}
+		if gitx.SamePath(w.Path, projectDir) {
+			continue
+		}
+		n++
+	}
+	return n
 }

@@ -21,6 +21,8 @@ interface SessionInfo {
   project_id?: string
   branch?: string
   mergeable?: boolean
+  changes?: number
+  worktree?: string
   created: string
   last_used: string
   running: boolean
@@ -33,7 +35,67 @@ interface ProjectInfo {
   dir: string
   git_url?: string
   branch?: string
+  changes?: number
+  sessions?: number
+  worktrees?: number
   created: string
+}
+
+// shortID abbreviates a generated id the way git abbreviates a sha: the first
+// seven characters. A full id is 25 characters and would be the widest thing in
+// the sidebar while telling the reader nothing the first seven do not.
+function shortID(id: string): string {
+  return id.length > 7 ? id.slice(0, 7) : id
+}
+
+// shortBranch keeps a branch name readable when it is one this program
+// generated. `motita/<id>` is the session's OWN branch and the id is the only
+// part that varies, so it is shown as `motita/<first 7>`; a branch the user
+// chose is short and is shown exactly as it is.
+function shortBranch(b: string): string {
+  const m = b.match(/^motita\/(.+)$/)
+  if (m && m[1].length > 7) return 'motita/' + shortID(m[1])
+  return b
+}
+
+// sessionWorktreeChip decides whether a session's worktree needs saying at all.
+//
+// A session on its own branch IS in the worktree that branch names, so printing
+// the id twice is one fact twice: `motita/s63bb92` beside `⌥ s63bb92`. The two
+// differ in exactly one case - the user moved the session to another branch -
+// and that is the case where the worktree is the only way to tell which session
+// the branch belongs to.
+function sessionWorktreeChip(s: SessionInfo): string {
+  if (!s.worktree || !s.branch) return ''
+  return s.branch === 'motita/' + s.worktree ? '' : shortID(s.worktree)
+}
+
+// formatUpdated renders when a session was last used, in the compact form a
+// narrow sidebar can afford: day/month and the time, in the reader's own zone.
+// A session is "updated" when it is spoken to, so this moves every time the
+// user opens it - which is what makes it worth showing at all.
+function formatUpdated(iso?: string): string {
+  if (!iso) return ''
+  const d = new Date(iso)
+  if (Number.isNaN(d.getTime())) return ''
+  const p = (n: number) => String(n).padStart(2, '0')
+  return `${p(d.getDate())}/${p(d.getMonth() + 1)} ${p(d.getHours())}:${p(d.getMinutes())}`
+}
+
+// fullUpdated is the exact time, for the tooltip. The row carries the compact
+// form because that is what fits; hovering is how a user asks "when, exactly",
+// and the answer must not be the truncated one they can already see.
+function fullUpdated(iso?: string): string {
+  if (!iso) return ''
+  const d = new Date(iso)
+  return Number.isNaN(d.getTime()) ? '' : d.toLocaleString()
+}
+
+// changesTitle is what a change count means, spelled out: a bare number in a
+// badge is read as fact, so the tooltip says what it counted.
+function changesTitle(n: number): string {
+  if (n === 1) return '1 uncommitted change in this working tree'
+  return `${n} uncommitted changes in this working tree`
 }
 
 interface ConfigView {
@@ -154,6 +216,39 @@ function parseFrame(raw: string): { id: string | null; event: string | null; dat
   return { id, event, data }
 }
 
+// modelOptions is the list the Model select offers for a DRAFT provider, built from
+// the two catalogues at hand:
+//
+//   - `live` is what /model-list published, and it describes the SAVED provider, not
+//     the draft. It is used only while the draft still points there, because a live
+//     list of another provider's models is worse than no list at all.
+//   - `all` is /providers, which carries every provider's own catalogue, so a draft
+//     provider that has not been saved yet still gets a usable menu.
+//
+// The draft's current value is appended when neither source knows it, so a model in
+// use is never silently dropped from the menu it is being displayed in.
+function modelOptions(draftProvider: string, draftModel: string, savedProvider: string, live: string[], all: ProviderInfo[]): string[] {
+  const out: string[] = []
+  const seen = new Set<string>()
+  const add = (m: string) => {
+    if (!m || seen.has(m)) return
+    seen.add(m)
+    out.push(m)
+  }
+  if (draftProvider === savedProvider) live.forEach(add)
+  ;(all.find(p => p.id === draftProvider)?.models || []).forEach(add)
+  add(draftModel)
+  return out
+}
+
+// firstModelOf is the model a provider switch lands on: the first of the catalogue
+// the provider published. It exists so a switch never leaves the model empty, which
+// the server would read as "leave unchanged" and would therefore keep a model the new
+// provider may not serve.
+function firstModelOf(provider: string, all: ProviderInfo[]): string {
+  return all.find(p => p.id === provider)?.models?.[0] || ''
+}
+
 export default function App() {
   const [messages, setMessages] = useState<Message[]>([])
   const [stateText, setStateText] = useState('connecting')
@@ -188,6 +283,14 @@ export default function App() {
   const [toastDetailsOpen, setToastDetailsOpen] = useState(false)
   const [config, setConfig] = useState<ConfigView | null>(null)
   const [showModelSwitcher, setShowModelSwitcher] = useState(false)
+  // draftProvider/draftModel are the Model Switcher's working copy. The modal
+  // edits THESE, never the saved configuration: a select the user is merely
+  // exploring must not change the running session, so nothing is sent to the
+  // gateway until Done is pressed. The draft is re-seeded from the saved
+  // configuration every time the modal opens, and closing without Done drops it.
+  const [draftProvider, setDraftProvider] = useState('')
+  const [draftModel, setDraftModel] = useState('')
+  const [savingConfig, setSavingConfig] = useState(false)
   const [providers, setProviders] = useState<ProviderInfo[]>([])
   const [modelList, setModelList] = useState<string[]>([])
   const [fetchingModels, setFetchingModels] = useState(false)
@@ -534,6 +637,11 @@ export default function App() {
   }, [sessionId])
 
   // fetchModelList fetches the live model list from the provider API.
+  //
+  // It lists the models of the provider the GATEWAY is configured with, which is
+  // the saved one and not the draft: the endpoint takes no provider argument. That
+  // is why the modal only shows this list while the draft still points at the saved
+  // provider, and falls back to the catalogue otherwise.
   const fetchModelList = useCallback(async () => {
     if (!sessionId) return
     setFetchingModels(true)
@@ -550,30 +658,69 @@ export default function App() {
     setFetchingModels(false)
   }, [sessionId])
 
-  // saveProviderModel sends a provider/model change to the gateway.
-  const saveProviderModel = useCallback(async (provider: string, model: string) => {
+  // openModelSwitcher shows the modal with a draft seeded from the SAVED
+  // configuration. Seeding on open, rather than on every change, is what makes
+  // Done the only commit point: an edit that was cancelled and a modal that was
+  // dismissed both leave the session's provider and model untouched.
+  const openModelSwitcher = useCallback(() => {
+    setDraftProvider(config?.provider || '')
+    setDraftModel(config?.model || '')
+    fetchProviders()
+    fetchModelList()
+    setShowModelSwitcher(true)
+  }, [config, fetchProviders, fetchModelList])
+
+  // closeModelSwitcher dismisses the modal and throws the draft away. The saved
+  // configuration is what the next open seeds from, so nothing has to be undone.
+  //
+  // Nothing is sent here even when the draft differs: Done is the only commit
+  // point, and a dismissal is not one. A user who picks a model and then changes
+  // their mind must be able to walk away from the choice.
+  const closeModelSwitcher = useCallback(() => {
+    setShowModelSwitcher(false)
+  }, [])
+
+  // discardModelSwitcher is the Close (✕) button: it drops the draft and reopens
+  // the modal on what the session is actually running, so the screen cannot be
+  // left showing a selection that was never applied.
+  const discardModelSwitcher = useCallback(() => {
+    setDraftProvider(config?.provider || '')
+    setDraftModel(config?.model || '')
+    setShowModelSwitcher(false)
+  }, [config])
+
+  // applyProviderModel is what Done does, and it is the ONE call that reaches the
+  // gateway. Both fields travel together: the server treats an empty model as
+  // "leave unchanged", so a provider switch sent alone would keep a model that the
+  // new provider may not serve.
+  const applyProviderModel = useCallback(async () => {
     if (!sessionId) return
+    setSavingConfig(true)
     try {
       const res = await api('/v1/sessions/' + sessionId + '/config', {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ provider, model })
+        body: JSON.stringify({ provider: draftProvider, model: draftModel })
       })
       if (!res.ok) {
         const err = await res.json().catch(() => ({}))
         setState(err.error || 'could not update the configuration', true)
+        // The modal stays open on a failure: the choice is still on screen and
+        // can be retried, and a closed modal would read as if it had worked.
         return
       }
       const updated: ConfigView = await res.json()
       setConfig(updated)
-      // If the provider changed, fetch the live model list.
-      if (provider !== config?.provider) {
-        fetchModelList()
-      }
+      setShowModelSwitcher(false)
     } catch {
       setState('could not update the configuration', true)
+    } finally {
+      // In a finally, not at the end of the try: the failure path returns early,
+      // and a flag left set would leave Done disabled and the spinner running
+      // with no way back.
+      setSavingConfig(false)
     }
-  }, [sessionId, config, fetchModelList])
+  }, [sessionId, draftProvider, draftModel])
 
   // checkForUpdates polls /v1/update/check. When a new version is found, a
   // toast is shown (unless the user has dismissed this version before) and
@@ -1082,7 +1229,7 @@ export default function App() {
   const renderSessionRow = (s: SessionInfo) => (
     <div
       key={s.id}
-      class={`session-row group flex items-center gap-2 px-3 py-2.5 rounded-lg cursor-pointer transition-colors mb-0.5 ${
+      class={`session-row group flex items-center gap-2 px-3 py-2 rounded-lg cursor-pointer transition-colors mb-0.5 ${
         s.id === sessionId ? 'bg-accent/10 border border-accent/20' : 'hover:bg-white/5 border border-transparent'
       }`}
       onClick={() => { if (renamingId !== s.id) switchSession(s.id) }}
@@ -1125,18 +1272,55 @@ export default function App() {
       ) : (
         <>
           {s.running && (
-            <svg class="animate-spin flex-none text-accent" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+            <svg class="animate-spin flex-none text-accent self-start mt-1" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
               <path d="M21 12a9 9 0 1 1-6.219-8.56" />
             </svg>
           )}
-          <span class={`flex-1 min-w-0 truncate text-sm ${s.running ? 'text-accent' : 'text-[#e8e8ea]'}`}>
-            {s.title || s.id}
-          </span>
-          {s.branch && (
-            <span class="flex-none text-[10px] text-muted-foreground font-mono px-1.5 py-0.5 rounded bg-white/5">
-              {s.branch}
-            </span>
-          )}
+          {/* Two lines, so the title keeps the full width and the facts sit
+              under it instead of competing for the same row: at a narrow
+              sidebar the branch used to squeeze the title away. */}
+          <div class="flex-1 min-w-0">
+            <div class={`truncate text-sm leading-tight ${s.running ? 'text-accent' : 'text-[#e8e8ea]'}`}>
+              {s.title || s.id}
+            </div>
+            {/* Meta line: when it was last used, always; then the branch, the
+                worktree and the change count, each only when there is
+                something to say. They are ordered most- to least-identifying,
+                and the line clips from the right, so nothing important is lost
+                first. */}
+            <div class="flex items-center gap-x-2 gap-y-0.5 flex-wrap mt-0.5 text-[10px] text-muted-foreground">
+              <span
+                class="flex-none tabular-nums opacity-80"
+                title={s.last_used ? 'Last used ' + fullUpdated(s.last_used) : undefined}
+              >
+                {formatUpdated(s.last_used)}
+              </span>
+              {s.branch && (
+                <span
+                  class="flex-none font-mono truncate max-w-[11rem] px-1 py-px rounded bg-white/5"
+                  title={'Branch ' + s.branch}
+                >
+                  {shortBranch(s.branch)}
+                </span>
+              )}
+              {sessionWorktreeChip(s) && (
+                <span
+                  class="flex-none font-mono truncate max-w-[9rem] px-1 py-px rounded bg-white/5 opacity-80"
+                  title={'Worktree ' + s.worktree}
+                >
+                  ⌥ {sessionWorktreeChip(s)}
+                </span>
+              )}
+              {!!s.changes && (
+                <span
+                  class="flex-none tabular-nums text-accent/90"
+                  title={changesTitle(s.changes)}
+                >
+                  ● {s.changes}
+                </span>
+              )}
+            </div>
+          </div>
         </>
       )}
       {renamingId !== s.id && (
@@ -1244,7 +1428,7 @@ export default function App() {
           It covers the entire screen and cannot be dismissed without a token. */}
       {authState !== 'ok' && (
         <div
-          class="fixed inset-0 z-[100] bg-black/80 backdrop-blur-md flex items-center justify-center p-4"
+          class="fixed inset-0 z-[100] bg-black/80 backdrop-blur-sm flex items-center justify-center p-4"
           onClick={(e) => e.stopPropagation()}
         >
           <div
@@ -1382,17 +1566,51 @@ export default function App() {
                     onTouchMove={cancelLongPress}
                     onTouchEnd={cancelLongPress}
                   >
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="flex-none text-accent/60">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="flex-none text-accent/60 self-start mt-0.5">
                       <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
                     </svg>
-                    <span class="flex-1 min-w-0 truncate font-semibold">{p.title}</span>
-                    {p.branch && (
-                      <span class="flex-none text-[10px] text-muted-foreground font-mono px-1.5 py-0.5 rounded bg-white/5">
-                        {p.branch}
-                      </span>
-                    )}
+                    {/* Title on its own line, facts under it - the same shape
+                        as a session row, so the eye reads one pattern and the
+                        title is never truncated by its own metadata. */}
+                    <div class="flex-1 min-w-0">
+                      <div class="truncate font-semibold normal-case text-[13px] text-[#c8c8d2]">{p.title}</div>
+                      <div class="flex items-center gap-x-2 gap-y-0.5 flex-wrap mt-0.5 text-[10px] normal-case tracking-normal text-muted-foreground">
+                        {p.branch && (
+                          <span
+                            class="flex-none font-mono truncate max-w-[11rem] px-1 py-px rounded bg-white/5"
+                            title={'On branch ' + p.branch}
+                          >
+                            {p.branch}
+                          </span>
+                        )}
+                        {!!p.worktrees && (
+                          <span
+                            class="flex-none tabular-nums opacity-80"
+                            title={p.worktrees === 1 ? '1 session working in its own worktree' : `${p.worktrees} sessions working in their own worktrees`}
+                          >
+                            ⌥ {p.worktrees}
+                          </span>
+                        )}
+                        {!!p.changes && (
+                          <span
+                            class="flex-none tabular-nums text-accent/90"
+                            title={'The project checkout has ' + changesTitle(p.changes)}
+                          >
+                            ● {p.changes}
+                          </span>
+                        )}
+                        {!!p.sessions && (
+                          <span
+                            class="flex-none tabular-nums opacity-80"
+                            title={p.sessions === 1 ? '1 session' : `${p.sessions} sessions`}
+                          >
+                            {p.sessions} {p.sessions === 1 ? 'session' : 'sessions'}
+                          </span>
+                        )}
+                      </div>
+                    </div>
                     <button
-                      class="p-0.5 rounded hover:bg-white/10 opacity-0 group-hover:opacity-100 transition-opacity"
+                      class="p-0.5 rounded hover:bg-white/10 opacity-0 group-hover:opacity-100 transition-opacity flex-none"
                       title="New session in project"
                       onClick={() => createSession(p.id)}
                     >
@@ -1400,7 +1618,7 @@ export default function App() {
                         <line x1="12" y1="5" x2="12" y2="19" /><line x1="5" y1="12" x2="19" y2="12" />
                       </svg>
                     </button>
-                    <div class="relative opacity-0 group-hover:opacity-100 transition-opacity">
+                    <div class="relative opacity-0 group-hover:opacity-100 transition-opacity flex-none">
                       <button
                         class="p-0.5 rounded hover:bg-white/10"
                         title="More actions"
@@ -1511,7 +1729,7 @@ export default function App() {
             <button
               class="flex-none flex items-center gap-1 max-w-[38vw] max-[360px]:max-w-[30vw] sm:max-w-none text-xs px-2 sm:px-2.5 py-1 rounded-full bg-black/20 border border-white/5 text-[#9a9aaa] hover:bg-black/30 hover:border-accent/30 transition-colors cursor-pointer"
               title={`${config.provider} / ${config.model}`}
-              onClick={() => { fetchProviders(); fetchModelList(); setShowModelSwitcher(true) }}
+              onClick={openModelSwitcher}
             >
               <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="text-accent/60 flex-none">
                 <rect x="2" y="3" width="20" height="14" rx="2" /><line x1="8" y1="21" x2="16" y2="21" /><line x1="12" y1="17" x2="12" y2="21" />
@@ -1687,7 +1905,7 @@ export default function App() {
       {/* New project modal — title, description, folder or git URL. */}
       {showNewProject && (
         <div
-          class="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4"
+          class="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4"
           onClick={() => setShowNewProject(false)}
         >
           <div
@@ -1789,8 +2007,8 @@ export default function App() {
       {/* Model Switcher modal — provider and model selection. */}
       {showModelSwitcher && (
         <div
-          class="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4"
-          onClick={() => setShowModelSwitcher(false)}
+          class="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4"
+          onClick={closeModelSwitcher}
         >
           <div
             class="frosted rounded-2xl border border-white/10 w-full max-w-md p-5 shadow-2xl"
@@ -1803,7 +2021,7 @@ export default function App() {
               <h2 class="text-base font-semibold">Model</h2>
               <button
                 class="ml-auto p-1.5 rounded-lg hover:bg-white/5"
-                onClick={() => setShowModelSwitcher(false)}
+                onClick={discardModelSwitcher}
                 aria-label="Close"
               >
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -1817,10 +2035,15 @@ export default function App() {
                 <label class="block text-sm text-[#9a9aaa] mb-1.5">Provider</label>
                 <select
                   class="w-full px-3 py-2.5 rounded-xl bg-black/30 border border-white/10 text-[#e8e8ea] focus:outline-none focus:border-accent"
-                  value={config?.provider || ''}
+                  value={draftProvider}
                   onChange={(e) => {
                     const newProvider = (e.target as HTMLSelectElement).value
-                    saveProviderModel(newProvider, '')
+                    setDraftProvider(newProvider)
+                    // The model is re-chosen rather than carried over: it belonged
+                    // to the provider being left, and the new one may not serve it.
+                    // Going back to the saved provider restores the saved model, so
+                    // a provider round-trip leaves the draft exactly as it was.
+                    setDraftModel(newProvider === (config?.provider || '') ? (config?.model || '') : firstModelOf(newProvider, providers))
                   }}
                 >
                   {providers.map(p => (
@@ -1833,7 +2056,7 @@ export default function App() {
 
               <div>
                 <label class="block text-sm text-[#9a9aaa] mb-1.5">Model</label>
-                {fetchingModels ? (
+                {fetchingModels && draftProvider === (config?.provider || '') ? (
                   <div class="flex items-center gap-2 px-3 py-2.5 text-sm text-[#9a9aaa]">
                     <svg class="animate-spin text-accent" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
                       <path d="M21 12a9 9 0 1 1-6.219-8.56" />
@@ -1843,18 +2066,12 @@ export default function App() {
                 ) : (
                   <select
                     class="w-full px-3 py-2.5 rounded-xl bg-black/30 border border-white/10 text-[#e8e8ea] focus:outline-none focus:border-accent font-mono text-sm"
-                    value={config?.model || ''}
-                    onChange={(e) => {
-                      const newModel = (e.target as HTMLSelectElement).value
-                      saveProviderModel(config?.provider || '', newModel)
-                    }}
+                    value={draftModel}
+                    onChange={(e) => setDraftModel((e.target as HTMLSelectElement).value)}
                   >
-                    {(modelList.length > 0 ? modelList : (providers.find(p => p.id === config?.provider)?.models || [])).map(m => (
+                    {modelOptions(draftProvider, draftModel, config?.provider || '', modelList, providers).map(m => (
                       <option key={m} value={m}>{m}</option>
                     ))}
-                    {config?.model && !(modelList.includes(config.model) || (providers.find(p => p.id === config?.provider)?.models || []).includes(config.model)) && (
-                      <option value={config.model}>{config.model}</option>
-                    )}
                   </select>
                 )}
               </div>
@@ -1869,9 +2086,15 @@ export default function App() {
 
             <div class="flex gap-2 mt-5">
               <button
-                class="flex-1 min-h-[44px] px-5 rounded-xl border border-white/10 text-[#e8e8ea] active:scale-95 transition-transform"
-                onClick={() => setShowModelSwitcher(false)}
+                class="flex-1 min-h-[44px] px-5 rounded-xl bg-accent text-white font-semibold active:scale-95 transition-transform disabled:opacity-30 disabled:cursor-not-allowed disabled:saturate-0"
+                onClick={() => applyProviderModel()}
+                disabled={savingConfig || !draftProvider || draftProvider === (config?.provider || '') && draftModel === (config?.model || '')}
               >
+                {savingConfig && (
+                  <svg class="animate-spin" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="display:inline-block;vertical-align:middle;margin-right:6px">
+                    <path d="M21 12a9 9 0 1 1-6.219-8.56" />
+                  </svg>
+                )}
                 Done
               </button>
             </div>
@@ -1882,7 +2105,7 @@ export default function App() {
       {/* Confirm-delete modal — asks before deleting a session or project. */}
       {confirmDelete && (
         <div
-          class="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4"
+          class="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4"
           onClick={() => setConfirmDelete(null)}
         >
           <div
@@ -2066,7 +2289,7 @@ export default function App() {
           modal becomes non-dismissable. */}
       {showUpgrade && (
         <div
-          class="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4"
+          class="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4"
           onClick={() => { if (!upgradeBusy) setShowUpgrade(false) }}
         >
           <div
@@ -2274,7 +2497,7 @@ export default function App() {
 
       {showSkillLibrary && (
         <div
-          class="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4"
+          class="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4"
           onClick={() => setShowSkillLibrary(false)}
         >
           <div
@@ -2311,7 +2534,7 @@ export default function App() {
 
       {showScheduledTasks && (
         <div
-          class="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4"
+          class="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4"
           onClick={() => setShowScheduledTasks(false)}
         >
           <div
