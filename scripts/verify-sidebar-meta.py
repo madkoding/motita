@@ -257,6 +257,41 @@ def main():
                         ids = [c for c in (ch["text"] for ch in s["chips"]) if re.match(r"^(motita/|⌥ )", c)]
                         if len(ids) != len(set(ids)):
                             failures += fail(f"the same id is printed twice in {label}: {ids}")
+                    # Expand/collapse: click the project header and verify the
+                    # session count changes. When collapsed, the sessions inside
+                    # the container disappear from the DOM; when expanded, they
+                    # return. The chevron must rotate (its transform changes).
+                    if label == "narrow":
+                        before_count = await c.js("document.querySelectorAll('.session-row').length")
+                        chevron_before = await c.js("""(() => {
+                            const h = document.querySelector('.project-header');
+                            if (!h) return null;
+                            const svg = h.querySelector('svg');
+                            return svg ? svg.getAttribute('class') : null;
+                        })()""")
+                        # Click the project header to collapse.
+                        await c.js("document.querySelector('.project-header').click()")
+                        await asyncio.sleep(0.8)
+                        after_count = await c.js("document.querySelectorAll('.session-row').length")
+                        chevron_after = await c.js("""(() => {
+                            const h = document.querySelector('.project-header');
+                            if (!h) return null;
+                            const svg = h.querySelector('svg');
+                            return svg ? svg.getAttribute('class') : null;
+                        })()""")
+                        print(f"  COLLAPSE: sessions {before_count} -> {after_count}, chevron '{chevron_before}' -> '{chevron_after}'")
+                        if after_count >= before_count:
+                            failures += fail(f"collapsing a project did not hide its sessions: {before_count} -> {after_count}")
+                        if chevron_before == chevron_after:
+                            failures += fail(f"the chevron did not rotate on collapse: {chevron_before!r}")
+                        # Click again to expand.
+                        await c.js("document.querySelector('.project-header').click()")
+                        await asyncio.sleep(0.8)
+                        restored = await c.js("document.querySelectorAll('.session-row').length")
+                        print(f"  EXPAND: sessions -> {restored}")
+                        if restored != before_count:
+                            failures += fail(f"expanding did not restore the sessions: had {before_count}, now {restored}")
+
                     for p in m["projects"]:
                         if p.get("error"):
                             failures += fail(f"project header unreadable: {p['error']}")

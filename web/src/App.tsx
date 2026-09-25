@@ -120,6 +120,7 @@ interface ProviderInfo {
 
 const STORAGE_KEY = 'motita:last-session'
 const SIDEBAR_KEY = 'motita:sidebar-open'
+const PROJECT_COLLAPSE_KEY = 'motita:collapsed-projects'
 const UPGRADE_DISMISS_KEY = 'motita:upgrade-dismissed'
 
 // UpdateInfo is what /v1/update/check returns.
@@ -305,6 +306,25 @@ export default function App() {
   const [contextMenu, setContextMenu] = useState<{ type: 'session' | 'project'; id: string; title: string; x: number; y: number } | null>(null)
   // Row dropdown menu: which session/project row has its "⋯" menu open.
   const [rowMenu, setRowMenu] = useState<{ type: 'session' | 'project'; id: string; title: string } | null>(null)
+  // Collapsed projects: a set of project IDs whose session list is hidden.
+  // Persisted in localStorage so a user's choice survives a reload, like the
+  // sidebar's own open/closed state.
+  const [collapsedProjects, setCollapsedProjects] = useState<Set<string>>(() => {
+    try {
+      const raw = localStorage.getItem(PROJECT_COLLAPSE_KEY)
+      if (raw) return new Set(JSON.parse(raw) as string[])
+    } catch { /* ignore */ }
+    return new Set()
+  })
+  const toggleProject = (pid: string) => {
+    setCollapsedProjects(prev => {
+      const next = new Set(prev)
+      if (next.has(pid)) next.delete(pid)
+      else next.add(pid)
+      try { localStorage.setItem(PROJECT_COLLAPSE_KEY, JSON.stringify([...next])) } catch { /* ignore */ }
+      return next
+    })
+  }
   // Slash commands loaded from the backend, and the autocomplete popup state.
   const [slashCommands, setSlashCommands] = useState<{ name: string; aliases: string[]; help: string; arg: string; group: string }[]>([])
   const [slashPopup, setSlashPopup] = useState<{ items: { name: string; aliases: string[]; help: string; arg: string; group: string }[]; index: number } | null>(null)
@@ -1560,98 +1580,125 @@ export default function App() {
               {/* Free-standing sessions (no project) */}
               {sessions.filter(s => !s.project_id).map(s => renderSessionRow(s))}
 
-              {/* Project groups */}
-              {projects.map(p => (
-                <div key={p.id} class="mt-2">
-                  <div
-                    class="project-header group flex items-center gap-1.5 px-3 py-1.5 text-xs uppercase tracking-wide text-[#8a8a9a]"
-                    onTouchStart={(e) => startLongPress('project', p.id, p.title, e as unknown as Event)}
-                    onTouchMove={cancelLongPress}
-                    onTouchEnd={cancelLongPress}
-                  >
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="flex-none text-accent/60 self-start mt-0.5">
-                      <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
-                    </svg>
-                    {/* Title on its own line, facts under it - the same shape
-                        as a session row, so the eye reads one pattern and the
-                        title is never truncated by its own metadata. */}
-                    <div class="flex-1 min-w-0">
-                      <div class="truncate font-semibold normal-case text-[13px] text-[#c8c8d2]">{p.title}</div>
-                      <div class="flex items-center gap-x-2 gap-y-0.5 flex-wrap mt-0.5 text-[10px] normal-case tracking-normal text-muted-foreground">
-                        {p.branch && (
-                          <span
-                            class="flex-none font-mono truncate max-w-[11rem] px-1 py-px rounded bg-white/5"
-                            title={'On branch ' + p.branch}
-                          >
-                            {p.branch}
-                          </span>
-                        )}
-                        {!!p.worktrees && (
-                          <span
-                            class="flex-none tabular-nums opacity-80"
-                            title={p.worktrees === 1 ? '1 session working in its own worktree' : `${p.worktrees} sessions working in their own worktrees`}
-                          >
-                            ⌥ {p.worktrees}
-                          </span>
-                        )}
-                        {!!p.changes && (
-                          <span
-                            class="flex-none tabular-nums text-accent/90"
-                            title={'The project checkout has ' + changesTitle(p.changes)}
-                          >
-                            ● {p.changes}
-                          </span>
-                        )}
-                        {!!p.sessions && (
-                          <span
-                            class="flex-none tabular-nums opacity-80"
-                            title={p.sessions === 1 ? '1 session' : `${p.sessions} sessions`}
-                          >
-                            {p.sessions} {p.sessions === 1 ? 'session' : 'sessions'}
-                          </span>
+              {/* Project groups — each project is a collapsible container with
+                  its sessions nested inside. The header click toggles the
+                  session list; the action buttons are separate so they do not
+                  toggle on touch. */}
+              {projects.map(p => {
+                const isCollapsed = collapsedProjects.has(p.id)
+                const projectSessions = sessions.filter(s => s.project_id === p.id)
+                return (
+                  <div key={p.id} class="mt-1.5 rounded-xl bg-white/[0.02] border border-white/[0.06] overflow-hidden">
+                    {/* Header: click toggles collapse. The chevron rotates. */}
+                    <div
+                      class="project-header group flex items-center gap-1.5 px-2.5 py-2 cursor-pointer select-none hover:bg-white/[0.04] transition-colors"
+                      onClick={() => toggleProject(p.id)}
+                      onTouchStart={(e) => startLongPress('project', p.id, p.title, e as unknown as Event)}
+                      onTouchMove={cancelLongPress}
+                      onTouchEnd={cancelLongPress}
+                    >
+                      {/* Chevron: rotates 90deg when expanded. flex-none so it
+                          never gets squeezed. */}
+                      <svg
+                        width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"
+                        class={`flex-none text-[#8a8a9a] transition-transform duration-150 ${isCollapsed ? '' : 'rotate-90'}`}
+                      >
+                        <polyline points="9 18 15 12 9 6" />
+                      </svg>
+                      {/* Folder icon */}
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="flex-none text-accent/60">
+                        <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
+                      </svg>
+                      {/* Title + meta line: the same two-line shape as a session
+                          row, so the eye reads one pattern. */}
+                      <div class="flex-1 min-w-0">
+                        <div class="truncate font-semibold text-[13px] text-[#c8c8d2]">{p.title}</div>
+                        <div class="flex items-center gap-x-1.5 gap-y-0.5 flex-wrap mt-0.5 text-[10px] text-muted-foreground">
+                          {p.branch && (
+                            <span
+                              class="flex-none font-mono truncate max-w-[10rem] px-1 py-px rounded bg-white/5"
+                              title={'On branch ' + p.branch}
+                            >
+                              {shortBranch(p.branch)}
+                            </span>
+                          )}
+                          {!!p.worktrees && (
+                            <span
+                              class="flex-none tabular-nums opacity-80"
+                              title={p.worktrees === 1 ? '1 session in its own worktree' : `${p.worktrees} sessions in their own worktrees`}
+                            >
+                              ⌥{p.worktrees}
+                            </span>
+                          )}
+                          {!!p.changes && (
+                            <span
+                              class="flex-none tabular-nums text-accent/90"
+                              title={'The project checkout has ' + changesTitle(p.changes)}
+                            >
+                              ●{p.changes}
+                            </span>
+                          )}
+                          {/* Session count badge: always present when there are
+                              sessions, even when collapsed, because it tells
+                              the user what is inside without expanding. */}
+                          {!!p.sessions && (
+                            <span
+                              class="flex-none tabular-nums opacity-70"
+                              title={p.sessions === 1 ? '1 session' : `${p.sessions} sessions`}
+                            >
+                              {p.sessions}
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                      {/* Action buttons: stopPropagation so they don't toggle. */}
+                      <button
+                        class="p-0.5 rounded hover:bg-white/10 opacity-0 group-hover:opacity-100 transition-opacity flex-none"
+                        title="New session in project"
+                        onClick={(e) => { e.stopPropagation(); createSession(p.id) }}
+                      >
+                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                          <line x1="12" y1="5" x2="12" y2="19" /><line x1="5" y1="12" x2="19" y2="12" />
+                        </svg>
+                      </button>
+                      <div class="relative opacity-0 group-hover:opacity-100 transition-opacity flex-none">
+                        <button
+                          class="p-0.5 rounded hover:bg-white/10"
+                          title="More actions"
+                          onClick={(e) => { e.stopPropagation(); setRowMenu(rowMenu?.id === p.id ? null : { type: 'project', id: p.id, title: p.title }) }}
+                        >
+                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <circle cx="12" cy="5" r="1" /><circle cx="12" cy="12" r="1" /><circle cx="12" cy="19" r="1" />
+                          </svg>
+                        </button>
+                        {rowMenu?.id === p.id && (
+                          <div class="absolute right-0 top-full mt-1 z-50 frosted rounded-xl border border-white/10 shadow-2xl py-1 min-w-[140px]" onClick={(e) => e.stopPropagation()}>
+                            <button
+                              class="w-full flex items-center gap-2 px-3 py-2 text-sm text-danger hover:bg-danger/10 transition-colors"
+                              onClick={(e) => { e.stopPropagation(); setConfirmDelete({ type: 'project', id: p.id, title: p.title }); setRowMenu(null) }}
+                            >
+                              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                <polyline points="3 6 5 6 21 6" /><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+                              </svg>
+                              Delete
+                            </button>
+                          </div>
                         )}
                       </div>
                     </div>
-                    <button
-                      class="p-0.5 rounded hover:bg-white/10 opacity-0 group-hover:opacity-100 transition-opacity flex-none"
-                      title="New session in project"
-                      onClick={() => createSession(p.id)}
-                    >
-                      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-                        <line x1="12" y1="5" x2="12" y2="19" /><line x1="5" y1="12" x2="19" y2="12" />
-                      </svg>
-                    </button>
-                    <div class="relative opacity-0 group-hover:opacity-100 transition-opacity flex-none">
-                      <button
-                        class="p-0.5 rounded hover:bg-white/10"
-                        title="More actions"
-                        onClick={(e) => { e.stopPropagation(); setRowMenu(rowMenu?.id === p.id ? null : { type: 'project', id: p.id, title: p.title }) }}
-                      >
-                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                          <circle cx="12" cy="5" r="1" /><circle cx="12" cy="12" r="1" /><circle cx="12" cy="19" r="1" />
-                        </svg>
-                      </button>
-                      {rowMenu?.id === p.id && (
-                        <div class="absolute right-0 top-full mt-1 z-50 frosted rounded-xl border border-white/10 shadow-2xl py-1 min-w-[140px]" onClick={(e) => e.stopPropagation()}>
-                          <button
-                            class="w-full flex items-center gap-2 px-3 py-2 text-sm text-danger hover:bg-danger/10 transition-colors"
-                            onClick={(e) => { e.stopPropagation(); setConfirmDelete({ type: 'project', id: p.id, title: p.title }); setRowMenu(null) }}
-                          >
-                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                              <polyline points="3 6 5 6 21 6" /><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
-                            </svg>
-                            Delete
-                          </button>
-                        </div>
-                      )}
-                    </div>
+                    {/* Session list: hidden when collapsed. Indented to read as
+                        nested inside the container, not as a separate block. */}
+                    {!isCollapsed && (
+                      <div class="px-1.5 pb-1.5 space-y-0.5">
+                        {projectSessions.map(s => renderSessionRow(s))}
+                        {projectSessions.length === 0 && (
+                          <div class="px-3 py-1.5 text-xs text-[#6a6a7a] italic">No sessions yet</div>
+                        )}
+                      </div>
+                    )}
                   </div>
-                  {sessions.filter(s => s.project_id === p.id).map(s => renderSessionRow(s))}
-                  {sessions.filter(s => s.project_id === p.id).length === 0 && (
-                    <div class="px-3 py-1 text-xs text-[#6a6a7a] italic">No sessions yet</div>
-                  )}
-                </div>
-              ))}
+                )
+              })}
             </div>
 
             {/* Upgrade Motita button — shown only when a new version is available. */}
