@@ -6,6 +6,9 @@
 //   - anthropic: POST /v1/messages       (x-api-key + anthropic-version)
 //   - gemini:    POST /v1beta/models/<model>:generateContent (?key=)
 //
+// and claude-code, which drives the local claude CLI on the user's own Claude
+// subscription instead of an HTTP API (see claudecode.go).
+//
 // Every provider is normalised to the same message structure and back to plain
 // text, so the agent loop never needs to know which one is behind it. Parsing of
 // structured responses and retrying with exponential backoff live here.
@@ -54,7 +57,7 @@ func New(cfg config.LLM, log *logx.Logger) (*Client, error) {
 		log = logx.Global()
 	}
 	switch strings.ToLower(cfg.Provider) {
-	case "openai", "ollama", "anthropic", "gemini", "codex", "copilot":
+	case "openai", "ollama", "anthropic", "gemini", "codex", "copilot", "claude-code":
 	default:
 		return nil, fmt.Errorf("unsupported LLM provider: %q", cfg.Provider)
 	}
@@ -68,7 +71,7 @@ func New(cfg config.LLM, log *logx.Logger) (*Client, error) {
 	// Copilot also speaks the OpenAI chat completions protocol, but its base URL
 	// is api.githubcopilot.com and its key is a short-lived Copilot token; the
 	// caller is responsible for the token-exchange (see internal/llm/copilot.go).
-	if cfg.APIKey == "" {
+	if cfg.APIKey == "" && config.ProviderNeedsKey(cfg.Provider) {
 		return nil, errors.New("the LLM key is missing")
 	}
 	if cfg.Timeout <= 0 {
@@ -104,7 +107,13 @@ func (c *Client) openStreamOr() func(context.Context, []Message, []Tool) (<-chan
 	if c.openStream != nil {
 		return c.openStream
 	}
-	return c.callOpenAIToolsStream
+	switch strings.ToLower(c.cfg.Provider) {
+	case "claude-code":
+		return c.callClaudeCodeStream
+	default:
+		// openai, ollama, codex and copilot all speak /chat/completions.
+		return c.callOpenAIToolsStream
+	}
 }
 
 // Complete sends the conversation and returns the model's text, retrying with
@@ -168,13 +177,23 @@ func (c *Client) CompleteToolsStream(ctx context.Context, messages []Message, to
 		for attempt := 1; attempt <= c.cfg.MaxAttempts; attempt++ {
 			chunkCh, err := c.openStreamOr()(ctx, messages, tools)
 			if err == nil {
+				forwarded := false
 				for chunk := range chunkCh {
+					// A failure before anything reached the caller is a failed attempt like
+					// one that could not open: it goes through the same retry policy.
+					if !forwarded && chunk.Event == StreamError {
+						err = chunk.Error
+						break
+					}
+					forwarded = true
 					out <- chunk
 					if chunk.Event == StreamError || chunk.Event == StreamDone {
 						return
 					}
 				}
-				return
+				if err == nil {
+					return
+				}
 			}
 			last = err
 			if !retryable(err) {
@@ -254,6 +273,9 @@ func (e *HTTPError) Error() string {
 
 // retryable says whether it is worth trying again.
 func retryable(err error) bool {
+	if errors.As(err, new(fatalError)) {
+		return false
+	}
 	var he *HTTPError
 	if errors.As(err, &he) {
 		switch {
@@ -274,6 +296,8 @@ func (c *Client) call(ctx context.Context, messages []Message) (string, error) {
 		return c.callAnthropic(ctx, messages)
 	case "gemini":
 		return c.callGemini(ctx, messages)
+	case "claude-code":
+		return c.callClaudeCodeText(ctx, messages)
 	default:
 		// openai, ollama, codex and copilot all speak /chat/completions.
 		return c.callOpenAI(ctx, messages)
@@ -287,6 +311,8 @@ func (c *Client) callTools(ctx context.Context, messages []Message, tools []Tool
 		return c.callAnthropicTools(ctx, messages, tools)
 	case "gemini":
 		return c.callGeminiTools(ctx, messages, tools)
+	case "claude-code":
+		return c.callClaudeCode(ctx, messages, tools, nil)
 	default:
 		// openai, ollama, codex and copilot all speak /chat/completions.
 		return c.callOpenAITools(ctx, messages, tools)

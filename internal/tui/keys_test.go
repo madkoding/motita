@@ -634,6 +634,18 @@ func TestTheStatusIsReadableWithoutColour(t *testing.T) {
 	}
 }
 
+// TestAProviderWithItsOwnLoginIsReady: claude-code has no key of motita's by design, so a
+// missing key is not "nothing to talk to" there.
+func TestAProviderWithItsOwnLoginIsReady(t *testing.T) {
+	cfg := configWithKey("")
+	cfg.LLM.Provider = "claude-code"
+	tu, _ := newKeyTUI("")
+	tu.Runner = &fakeRunner{cfg: cfg, cfgSet: true}
+	if got := stripANSI(tu.stateGlyph()); got != glyphReady {
+		t.Errorf("glyph = %q, want %q", got, glyphReady)
+	}
+}
+
 // TestTheWholeStatusLineSurvivesNoColour: stripping the escapes must leave the
 // information intact, not an empty line. This is the frame a user with NO_COLOR
 // actually reads.

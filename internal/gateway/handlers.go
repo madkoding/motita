@@ -2,6 +2,7 @@ package gateway
 
 import (
 	"net/http"
+	"strings"
 
 	"github.com/madkoding/motita/internal/agent"
 )
@@ -93,6 +94,25 @@ func (s *Server) handleReasoning(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	convOf(r).svc.SetReasoning(body.Level)
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// handleModel changes the model the next turns use.
+//
+// An empty id is refused rather than passed on: it names no model, and the next turn would fail
+// at the provider far from the request that caused it.
+func (s *Server) handleModel(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Model string `json:"model"`
+	}
+	if !s.decodeBody(w, r, &body) {
+		return
+	}
+	if strings.TrimSpace(body.Model) == "" {
+		writeError(w, http.StatusBadRequest, "model cannot be empty")
+		return
+	}
+	convOf(r).svc.SetModel(strings.TrimSpace(body.Model))
 	w.WriteHeader(http.StatusNoContent)
 }
 

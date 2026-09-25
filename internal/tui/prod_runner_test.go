@@ -57,13 +57,13 @@ func TestAppRunnerEngineIsLazy(t *testing.T) {
 	cfg.LLM.APIKey = ""
 	r := NewAppRunner(&bytes.Buffer{}, &bytes.Buffer{}, cfg, nil, nil, logx.Global())
 
-	if _, err := r.engine(); err == nil {
+	if _, _, err := r.engine(); err == nil {
 		t.Error("an engine cannot be built without a key, and that must be an error")
 	}
 
 	// With a key it is built on demand, and an injected one is preferred.
 	r.Cfg.LLM.APIKey = "k"
-	built, err := r.engine()
+	_, built, err := r.engine()
 	if err != nil {
 		t.Fatalf("engine: %v", err)
 	}
@@ -72,12 +72,39 @@ func TestAppRunnerEngineIsLazy(t *testing.T) {
 	}
 	injected := &llm.Client{}
 	r.Engine = injected
-	got, err := r.engine()
+	_, got, err := r.engine()
 	if err != nil {
 		t.Fatalf("engine: %v", err)
 	}
 	if got != injected {
 		t.Error("an injected engine must be reused instead of building a second one")
+	}
+}
+
+// TestAChangedSettingReachesTheNextTurn: the engine given at construction was kept for the
+// life of the runner, so /reasoning and /models changed the status line and nothing else.
+func TestAChangedSettingReachesTheNextTurn(t *testing.T) {
+	cfg := config.Default()
+	cfg.LLM.Provider = "openai"
+	cfg.LLM.APIKey = "k"
+	cfg.LLM.Model = "gpt-4o-mini"
+	injected := &llm.Client{}
+	r := NewAppRunner(&bytes.Buffer{}, &bytes.Buffer{}, cfg, injected, nil, logx.Global())
+
+	r.SetModel("gpt-4o")
+	r.SetReasoning("high")
+	got, engine, err := r.engine()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if engine == injected {
+		t.Error("the engine built from the old settings must not run the next turn")
+	}
+	if got.LLM.Model != "gpt-4o" || got.LLM.Reasoning.Level != "high" || !got.LLM.Reasoning.Enabled {
+		t.Errorf("the turn runs with %+v", got.LLM)
+	}
+	if r.Config().LLM.Model != "gpt-4o" {
+		t.Errorf("Config() = %q", r.Config().LLM.Model)
 	}
 }
 
@@ -272,11 +299,11 @@ func TestTheConversationIsCreatedOnceAndReused(t *testing.T) {
 	r := &AppRunner{Cfg: config.Default()}
 	r.Cfg.LLM.Model = "gpt-4o"
 
-	first := r.conversation(nil)
+	first := r.conversation(r.Cfg, nil)
 	if first == nil {
 		t.Fatal("a conversation must be created on first use")
 	}
-	second := r.conversation(nil)
+	second := r.conversation(r.Cfg, nil)
 	if first != second {
 		t.Error("the same conversation must be returned on the second call")
 	}
@@ -293,7 +320,7 @@ func TestTheConversationHonoursTheConfiguration(t *testing.T) {
 	r.Cfg.LLM.Session.CompactAt = 0.55
 	r.Cfg.LLM.Session.KeepRecent = 5
 
-	s := r.conversation(nil)
+	s := r.conversation(r.Cfg, nil)
 	if s.Window != 2500 {
 		t.Errorf("window = %d, want the configured 2500", s.Window)
 	}
@@ -316,7 +343,7 @@ func TestAnUnconfiguredSessionKeepsTheDefaults(t *testing.T) {
 	r.Cfg.LLM.Model = "gpt-4o"
 	// Default() carries zeroes for the session block, which is the case being tested.
 
-	s := r.conversation(nil)
+	s := r.conversation(r.Cfg, nil)
 	if s.Window <= 0 {
 		t.Error("the window must come from the model when it is not configured")
 	}
@@ -337,11 +364,11 @@ func TestResetConversationStartsAFresh(t *testing.T) {
 	r := &AppRunner{Cfg: config.Default()}
 	r.Cfg.LLM.Model = "gpt-4o"
 
-	first := r.conversation(nil)
+	first := r.conversation(r.Cfg, nil)
 	first.Append(llm.Message{Role: "user", Content: "the previous subject"})
 
 	r.ResetConversation()
-	second := r.conversation(nil)
+	second := r.conversation(r.Cfg, nil)
 	if second == first {
 		t.Fatal("a new session must be a different one")
 	}
@@ -366,7 +393,7 @@ func TestTheReportBeforeAnyConversation(t *testing.T) {
 func TestTheReportDescribesTheSession(t *testing.T) {
 	r := &AppRunner{Cfg: config.Default()}
 	r.Cfg.LLM.Model = "gpt-4o"
-	s := r.conversation(nil)
+	s := r.conversation(r.Cfg, nil)
 	s.Append(llm.Message{Role: "user", Content: "a question"})
 
 	got := r.ConversationReport()
@@ -392,7 +419,7 @@ func TestTheReportShowsWhatTheCompactionCarried(t *testing.T) {
 	r.Cfg.LLM.Session.KeepRecent = 2
 	r.Cfg.LLM.Session.ContextWindow = 1000
 
-	s := r.conversation(&summariserStub{out: "the user asked to count .txt files"})
+	s := r.conversation(r.Cfg, &summariserStub{out: "the user asked to count .txt files"})
 	for i := 0; i < 60; i++ {
 		s.Append(llm.Message{Role: "user", Content: strings.Repeat("word ", 30)})
 	}
@@ -462,7 +489,7 @@ func TestRunPlanHandsTheConversationToThePlanner(t *testing.T) {
 
 	// The runner's conversation must have grown. If RunPlan built a planner without handing
 	// it the session, this stays empty and the next turn is amnesiac.
-	if got := r.conversation(nil).Len(); got == 0 {
+	if got := r.conversation(r.Cfg, nil).Len(); got == 0 {
 		t.Error("RunPlan must give the planner the runner's conversation, or every turn starts from nothing")
 	}
 }
@@ -508,7 +535,7 @@ func TestTwoTurnsOfPlanShareTheConversation(t *testing.T) {
 	}
 
 	// The first question must still be in the conversation the second turn is given.
-	sess := r.conversation(nil)
+	sess := r.conversation(r.Cfg, nil)
 	found := false
 	for _, m := range sess.Messages() {
 		if strings.Contains(m.Content, "my name is Madkoding") {
@@ -564,7 +591,7 @@ func TestANewSessionClearsTheConversationFromTheNextTurn(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	sess := r.conversation(nil)
+	sess := r.conversation(r.Cfg, nil)
 	for _, m := range sess.Messages() {
 		if strings.Contains(m.Content, "the old subject") {
 			t.Errorf("the new session must not carry the old subject, got %+v", sess.Messages())

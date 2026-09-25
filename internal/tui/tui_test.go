@@ -212,6 +212,16 @@ func (f *fakeRunner) SetReasoning(level string) {
 	f.cfg.LLM.Reasoning.Enabled = level != "off"
 }
 
+func (f *fakeRunner) SetModel(model string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if !f.cfgSet {
+		f.cfg = config.Default()
+		f.cfgSet = true
+	}
+	f.cfg.LLM.Model = model
+}
+
 // cancelOnceRunning starts the interface, waits until the runner reports that it is
 // inside the turn, and only then cancels the context. Waiting for the signal rather
 // than sleeping is what makes the cancellation coverage deterministic: with a sleep

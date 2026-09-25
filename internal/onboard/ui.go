@@ -106,9 +106,13 @@ func printSummary(out io.Writer, res Result) {
 
 	fmt.Fprintln(out)
 	fmt.Fprintf(out, "%sNext steps:%s\n", colBold, colReset)
-	if res.CredentialsPath != "" {
+	switch {
+	case res.Provider.Login != "":
+		fmt.Fprintf(out, "  install it (%s), then log in:\n", res.Provider.ConsoleURL)
+		fmt.Fprintf(out, "  %s$%s %s\n", colGray, colReset, res.Provider.Login)
+	case res.CredentialsPath != "":
 		fmt.Fprintf(out, "  %s$%s source %s\n", colGray, colReset, res.CredentialsPath)
-	} else {
+	default:
 		fmt.Fprintf(out, "  %s$%s export %s=...\n", colGray, colReset, res.Provider.EnvKey)
 	}
 	fmt.Fprintf(out, "  %s$%s ./motita -config %s -validate-config\n", colGray, colReset, res.ConfigPath)

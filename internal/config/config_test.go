@@ -355,6 +355,18 @@ func TestValidateAcceptsOllamaProvider(t *testing.T) {
 	}
 }
 
+// TestValidateAcceptsClaudeCodeWithoutAKey: the claude CLI brings the user's own
+// login, so asking for a key would block the provider for nothing.
+func TestValidateAcceptsClaudeCodeWithoutAKey(t *testing.T) {
+	cfg := Default()
+	cfg.LLM.Provider = "Claude-Code"
+	cfg.LLM.Model = "sonnet"
+	cfg.LLM.APIKey = ""
+	if err := cfg.Validate(); err != nil {
+		t.Fatalf("claude-code without a key should be valid: %v", err)
+	}
+}
+
 // TestOrListReadsLikeEnglish: the accepted values are listed the way they would be read
 // aloud, because the message is shown to a person who has just mistyped a setting.
 //

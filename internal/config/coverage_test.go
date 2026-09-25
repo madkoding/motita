@@ -2453,6 +2453,19 @@ func TestReadOnlyAndShellComeFromTheEnvironment(t *testing.T) {
 
 // TestProviderKeyVariable: each provider resolves to the variable its own
 // documentation uses, and an unknown one falls back to the generic name.
+// TestProviderNeedsKey: claude-code is the one provider reached without a key of motita's,
+// and the check reads a provider the way the rest of the configuration does.
+func TestProviderNeedsKey(t *testing.T) {
+	for provider, want := range map[string]bool{
+		"claude-code": false, " Claude-Code ": false,
+		"openai": true, "ollama": true, "anthropic": true, "copilot": true, "": true,
+	} {
+		if got := ProviderNeedsKey(provider); got != want {
+			t.Errorf("ProviderNeedsKey(%q) = %v, want %v", provider, got, want)
+		}
+	}
+}
+
 func TestProviderKeyVariable(t *testing.T) {
 	if got := ProviderKeyVariable("ollama"); got != "OLLAMA_API_KEY" {
 		t.Errorf("ProviderKeyVariable(ollama) = %q", got)

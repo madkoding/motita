@@ -141,7 +141,7 @@ That's it. If no configuration exists, the wizard launches automatically —
 no need to know about `-init`. It walks you through:
 
 1. **Choose a provider**: OpenAI, OpenAI Codex, GitHub Copilot, Ollama Cloud,
-   Anthropic (Claude), or Google Gemini.
+   Anthropic (Claude), Google Gemini, or your Claude subscription through Claude Code.
 2. **Choose a model**: each provider ships curated defaults, or type any model ID.
 3. **Set the anchor**: the command that decides whether a task is really done.
    The third question is the one other tools never ask.
@@ -161,6 +161,28 @@ no API key needed.</sub>
 
 Your API key (or OAuth token) goes into a separate `0600` file, never into the
 config, so the config can be committed and shared.
+
+### Your Claude subscription, through Claude Code
+
+The `claude-code` provider runs motita on your Claude Pro or Max plan by starting the
+official `claude` CLI as its model. You need [Claude Code](https://code.claude.com/docs/en/setup)
+installed and logged in once with `claude auth login`. motita never reads or stores those
+credentials, and it clears `ANTHROPIC_API_KEY` and the other backend overrides from claude's
+environment so your subscription login is the one that gets used. motita still runs its own
+loop, tools and sandbox: claude only answers with text and tool calls.
+
+```yaml
+llm:
+  provider: claude-code
+  model: sonnet        # or opus, haiku, fable, or a full model id
+```
+
+`/models` lists the models your account offers, as claude's own picker does, and
+`/models <id>` switches to one. `llm.reasoning` becomes claude's `--effort` (off switches
+thinking off), and `llm.max_tokens` caps each answer. claude runs in motita's working
+directory, which it reports to the model (it loads no `CLAUDE.md` or settings from it), and
+the directory stays the same across turns, so every turn can reuse the prompt cache. Set
+`MOTITA_CLAUDE_BIN` if `claude` is not on your `PATH`.
 
 ## A terminal interface you'll actually want to use
 
@@ -306,7 +328,7 @@ curl -X DELETE -H "Authorization: Bearer $TOKEN" \
 | `POST /v1/sessions/{id}/runs/approval` | answer a pending confirmation |
 | `GET /v1/sessions/{id}/report` | the conversation so far |
 | `GET /v1/sessions/{id}/config` `/models` `/reward` `/questions` | the read-only views |
-| `POST /v1/sessions/{id}/reasoning` `/verdict` `/reset` | change the budget, grade a turn, start over |
+| `POST /v1/sessions/{id}/reasoning` `/model` `/verdict` `/reset` | change the budget or the model, grade a turn, start over |
 
 The default conversation belongs to the process that started the gateway: closing it
 is refused, because that process would be left talking to a conversation that no
@@ -350,7 +372,7 @@ ports — they are **two views of one conversation**.
 | Command | What it does |
 |---|---|
 | `/task` `/plan` | switch between doing work and read-only exploration |
-| `/models` | your provider, your key status, and the models it really publishes |
+| `/models` `/models <id>` | your provider, your key status and the models it really publishes; with an id, switch to that model for this session |
 | `/reasoning` | cycle the thinking budget |
 | `/good` `/bad` | tell the agent how a turn went |
 | `/value` | see what it has learned from those verdicts |

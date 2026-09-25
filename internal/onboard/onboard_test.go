@@ -73,6 +73,43 @@ func TestGeneratedConfigIsAcceptedByTheProgram(t *testing.T) {
 	}
 }
 
+// TestClaudeCodeAsksForNoKey: the Claude subscription is the claude CLI's own login,
+// so the wizard asks for no endpoint and no key, writes no credentials, and says
+// how to log in instead.
+func TestClaudeCodeAsksForNoKey(t *testing.T) {
+	dir := t.TempDir()
+	// provider, model (default), check (always pass): nothing else may be asked.
+	out, res, err := run(context.Background(), t, dir, []string{"claude-code", "", "2"}, Answers{})
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if res.Model != "sonnet" || res.CredentialsPath != "" {
+		t.Errorf("result = %+v", res)
+	}
+	if _, err := os.Stat(credentialsPathFor(res.ConfigPath)); !os.IsNotExist(err) {
+		t.Errorf("no credentials file may be written: %v", err)
+	}
+	plain := stripANSI(out)
+	for _, asked := range []string{"API endpoint", "API key", "Authentication"} {
+		if strings.Contains(plain, asked) {
+			t.Errorf("the wizard asked for %q", asked)
+		}
+	}
+	if !strings.Contains(plain, "$ claude auth login") || !strings.Contains(plain, "https://code.claude.com/docs/en/setup") {
+		t.Errorf("the summary must say how to log in:\n%s", plain)
+	}
+	content, _ := os.ReadFile(res.ConfigPath)
+	text := string(content)
+	for _, want := range []string{"provider: claude-code", "model: sonnet", `base_url: ""`, "No key is needed", "`claude auth login`"} {
+		if !strings.Contains(text, want) {
+			t.Errorf("the configuration lacks %q:\n%s", want, text)
+		}
+	}
+	if strings.Contains(text, "MOTITA_LLM_API_KEY") {
+		t.Error("the configuration must not send the user to a key variable")
+	}
+}
+
 // TestNothingIsWrittenWhenTheUserCancels: cancelling must leave no trace, so a
 // half-configured agent cannot exist.
 func TestNothingIsWrittenWhenTheUserCancels(t *testing.T) {
@@ -795,12 +832,13 @@ func TestPresetWithAnUnknownProviderFails(t *testing.T) {
 // LLM client can actually talk to. Adding one here without implementing it in
 // internal/llm would be a promise the program cannot keep.
 func TestCatalogueMatchesTheClientProtocols(t *testing.T) {
-	implemented := map[string]bool{"openai": true, "ollama": true, "anthropic": true, "gemini": true, "codex": true, "copilot": true}
+	implemented := map[string]bool{"openai": true, "ollama": true, "anthropic": true, "gemini": true, "codex": true, "copilot": true, "claude-code": true}
 	for _, p := range Providers() {
 		if !implemented[p.ID] {
 			t.Errorf("the wizard offers %q, which the client does not implement", p.ID)
 		}
-		if p.Name == "" || p.DefaultBaseURL == "" || p.EnvKey == "" || p.ConsoleURL == "" {
+		// A provider with its own login has no endpoint and no key to name.
+		if p.Name == "" || p.ConsoleURL == "" || p.Login == "" && (p.DefaultBaseURL == "" || p.EnvKey == "") {
 			t.Errorf("%q is incomplete: %+v", p.ID, p)
 		}
 		if len(p.Models) == 0 && !p.FetchModels {
@@ -814,7 +852,7 @@ func TestCatalogueMatchesTheClientProtocols(t *testing.T) {
 }
 
 func TestNamesAndHelpers(t *testing.T) {
-	if got := Names(); got != "anthropic, codex, copilot, gemini, ollama, openai" {
+	if got := Names(); got != "anthropic, claude-code, codex, copilot, gemini, ollama, openai" {
 		t.Errorf("Names() = %q", got)
 	}
 	if _, ok := Lookup("ANTHROPIC"); !ok {
@@ -830,7 +868,7 @@ func TestNamesAndHelpers(t *testing.T) {
 		t.Errorf("an unknown provider has no default endpoint, got %q", got)
 	}
 	for _, p := range Providers() {
-		if p.EnvKey == "" {
+		if p.EnvKey == "" && p.Login == "" {
 			t.Errorf("provider %q carries no key variable for the instructions", p.ID)
 		}
 	}

@@ -153,6 +153,30 @@ func TestReasoningPassesTheLevelThrough(t *testing.T) {
 	}
 }
 
+func TestModelIsSet(t *testing.T) {
+	svc := &fakeService{}
+	srv := newTestServer(t, svc)
+	w := post(t, srv, sessionPath(srv, DefaultSession, "/model"), `{"model":" haiku "}`, testToken)
+	if w.Code != http.StatusNoContent {
+		t.Fatalf("status = %d, want 204 (body %q)", w.Code, w.Body.String())
+	}
+	if svc.model != "haiku" {
+		t.Errorf("model = %q, want haiku", svc.model)
+	}
+}
+
+// An empty id names no model: refused here, rather than failing the next turn at the provider.
+func TestAnEmptyModelIsRefused(t *testing.T) {
+	svc := &fakeService{model: "sonnet"}
+	srv := newTestServer(t, svc)
+	if w := post(t, srv, sessionPath(srv, DefaultSession, "/model"), `{"model":"  "}`, testToken); w.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400", w.Code)
+	}
+	if svc.model != "sonnet" {
+		t.Errorf("model = %q: a refused request must change nothing", svc.model)
+	}
+}
+
 func TestAVerdictCarriesTheNote(t *testing.T) {
 	var gotGood bool
 	var gotNote string
@@ -263,7 +287,7 @@ func TestNoQuestionsIsAnEmptyList(t *testing.T) {
 
 func TestABadBodyIsRejectedOnEveryEndpoointThatTakesOne(t *testing.T) {
 	srv := newTestServer(t, &fakeService{})
-	for _, path := range []string{sessionPath(srv, DefaultSession, "/reasoning"), sessionPath(srv, DefaultSession, "/verdict")} {
+	for _, path := range []string{sessionPath(srv, DefaultSession, "/reasoning"), sessionPath(srv, DefaultSession, "/model"), sessionPath(srv, DefaultSession, "/verdict")} {
 		t.Run(path, func(t *testing.T) {
 			w := post(t, srv, path, "not json", testToken)
 			if w.Code != http.StatusBadRequest {

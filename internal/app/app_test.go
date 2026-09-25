@@ -914,6 +914,30 @@ func TestChildModeHookError(t *testing.T) {
 	}
 }
 
+// TestClaudeCodeMCPMode: claude starts the program as its MCP server, and that
+// command line is served, not parsed as flags.
+func TestClaudeCodeMCPMode(t *testing.T) {
+	manifest := filepath.Join(t.TempDir(), "tools.json")
+	if err := os.WriteFile(manifest, []byte(`[{"name":"read_file"}]`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	var out, errs bytes.Buffer
+	code := Run(Options{
+		Args:  []string{llm.ClaudeCodeMCPCommand, manifest},
+		Stdin: strings.NewReader(`{"jsonrpc":"2.0","id":1,"method":"tools/list"}` + "\n"),
+		Out:   &out,
+		Err:   &errs,
+	})
+	if code != Success || !strings.Contains(out.String(), `"name":"read_file"`) {
+		t.Fatalf("code = %d, out = %q, errs = %q", code, out.String(), errs.String())
+	}
+
+	code = Run(Options{Args: []string{llm.ClaudeCodeMCPCommand, filepath.Join(t.TempDir(), "missing.json")}, Err: &errs})
+	if code != RunError || !strings.Contains(errs.String(), "claude-code-mcp") {
+		t.Errorf("code = %d, errs = %q", code, errs.String())
+	}
+}
+
 // TestForcedShutdownByDeadline: if the work does not finish within the deadline
 // after the first signal, the exit is forced with the interruption code.
 func TestForcedShutdownByDeadline(t *testing.T) {

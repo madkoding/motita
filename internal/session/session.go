@@ -171,7 +171,10 @@ func (s *Session) Usable() int {
 
 // usableLocked is Usable without the lock, for callers that already hold it.
 func (s *Session) usableLocked() int {
-	usable := s.Window - s.Reserve
+	// The reserve is sized for an ordinary window. Taken whole from a small one (phi3's
+	// 4096) it left nothing, and the session asked to compact before the first request, so
+	// a small window keeps at most a quarter of itself back.
+	usable := s.Window - min(s.Reserve, s.Window/4)
 	if usable < 1 {
 		// A window smaller than the reserve is a misconfiguration, and the honest answer
 		// is a small but positive budget rather than a negative one that would make the

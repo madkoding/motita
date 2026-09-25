@@ -35,6 +35,7 @@ type fakeService struct {
 	reset     int
 	cfg       config.Config
 	reasoning string
+	model     string
 	verdict   func(good bool, note string) string
 	reward    string
 	questions []agent.AskItem
@@ -75,6 +76,7 @@ func (f *fakeService) ConversationSummary() session.Snapshot { return f.summary 
 func (f *fakeService) ResetConversation()                    { f.reset++ }
 func (f *fakeService) Config() config.Config                 { return f.cfg }
 func (f *fakeService) SetReasoning(level string)             { f.reasoning = level }
+func (f *fakeService) SetModel(model string)                 { f.model = model }
 
 func (f *fakeService) RecordVerdict(good bool, note string) string {
 	if f.verdict == nil {
@@ -179,7 +181,7 @@ func TestEveryOtherEndpointNeedsTheToken(t *testing.T) {
 			}
 		})
 	}
-	for _, path := range []string{sessionPath(srv, DefaultSession, "/reset"), sessionPath(srv, DefaultSession, "/reasoning"), sessionPath(srv, DefaultSession, "/verdict"), sessionPath(srv, DefaultSession, "/task"), sessionPath(srv, DefaultSession, "/plan"), sessionPath(srv, DefaultSession, "/runs/approval")} {
+	for _, path := range []string{sessionPath(srv, DefaultSession, "/reset"), sessionPath(srv, DefaultSession, "/reasoning"), sessionPath(srv, DefaultSession, "/model"), sessionPath(srv, DefaultSession, "/verdict"), sessionPath(srv, DefaultSession, "/task"), sessionPath(srv, DefaultSession, "/plan"), sessionPath(srv, DefaultSession, "/runs/approval")} {
 		t.Run("POST "+path, func(t *testing.T) {
 			req, _ := http.NewRequest(http.MethodPost, srv.BaseURL()+path, strings.NewReader("{}"))
 			w := httptest.NewRecorder()

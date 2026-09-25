@@ -110,14 +110,14 @@ func Run(ctx context.Context, in io.Reader, out io.Writer, configPath string, pr
 		return Result{}, err
 	}
 
-	if !provider.FetchModels {
+	if !provider.FetchModels && provider.Login == "" {
 		baseURL, err = w.chooseBaseURL(ctx, provider, preset.BaseURL)
 		if err != nil {
 			return Result{}, err
 		}
 	}
 
-	if key == "" {
+	if key == "" && provider.Login == "" {
 		key, err = w.askAPIKey(ctx, provider)
 		if err != nil {
 			return Result{}, err

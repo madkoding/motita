@@ -15,8 +15,10 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/signal"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/madkoding/motita/internal/agent"
@@ -223,6 +225,19 @@ type flags struct {
 // layers and returns the exit code.
 func Run(op Options) int {
 	op.complete()
+
+	// The claude-code provider points claude at this program as its MCP server. That
+	// command line is claude's, not the user's, so it is handled before parsing too.
+	if len(op.Args) == 2 && op.Args[0] == llm.ClaudeCodeMCPCommand {
+		// main catches SIGINT and SIGTERM for its graceful shutdown, which this server has
+		// none of: claude ends it with SIGTERM, and it has to die of it.
+		signal.Reset(syscall.SIGINT, syscall.SIGTERM)
+		if err := llm.ServeClaudeCodeMCP(op.Stdin, op.Out, op.Args[1]); err != nil {
+			fmt.Fprintf(op.Err, "motita[claude-code-mcp]: %v\n", err)
+			return RunError
+		}
+		return Success
+	}
 
 	// The sandbox re-executes itself to apply the limits in the child. It is
 	// handled before parsing flags: the child's command line belongs to the
@@ -1231,6 +1246,10 @@ func (op Options) runPlan(ctx context.Context, fl flags, cfg config.Config, engi
 	planner := plan.New(engine, ag).
 		WithTimeout(planDefaultTimeout(cfg)).
 		WithLoops(planDefaultLoops(cfg)).
+		// Without the model the session falls back to the 8192-token floor and a one-shot
+		// run that reads a single file dies with "context is full".
+		WithSessionPolicy(cfg.LLM.Model, cfg.LLM.Session.ContextWindow, cfg.LLM.Session.Reserve,
+			cfg.LLM.Session.CompactAt, cfg.LLM.Session.KeepRecent).
 		// The same library the task path uses, so a procedure written down in one mode is
 		// reachable from the other and a verdict lands on one shelf rather than two.
 		WithLibrary(procs.Library).

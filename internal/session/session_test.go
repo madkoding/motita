@@ -62,6 +62,14 @@ func TestProviderVariantsMatchTheirFamily(t *testing.T) {
 		{"qwen2.5-72b", 32768},
 		{"deepseek-v4.1-flash", 65536},
 		{"claude-3-5-sonnet", 200000},
+		// The Claude Code aliases the claude-code provider uses.
+		{"sonnet", 200000},
+		{"opus", 200000},
+		{"haiku", 200000},
+		{"fable", 200000},
+		{"sonnet[1m]", 200000},
+		{"best", 200000},
+		{"default", 200000},
 	} {
 		if got := ContextWindow(tc.model); got != tc.want {
 			t.Errorf("ContextWindow(%q) = %d, want %d", tc.model, got, tc.want)
@@ -178,11 +186,29 @@ func TestTheReserveIsKeptOutOfTheBudget(t *testing.T) {
 		t.Errorf("usable = %d, want %d", got, want)
 	}
 
-	// A window smaller than the reserve is a misconfiguration, and a negative budget would
-	// make the trigger arithmetic meaningless.
-	tiny := New("gpt-4o", "", 100)
-	if tiny.Usable() < 1 {
-		t.Errorf("the budget must stay positive even when the window is smaller than the reserve, got %d", tiny.Usable())
+	// A window with no size is a misconfiguration, and a budget of zero or less would make
+	// the trigger arithmetic meaningless.
+	if empty := (&Session{Reserve: DefaultReserve}); empty.Usable() != 1 {
+		t.Errorf("the budget must stay positive even with no window, got %d", empty.Usable())
+	}
+}
+
+// TestASmallWindowKeepsRoomToWork: the reserve is sized for an ordinary window. Taken whole
+// from phi3's 4096 it left a budget of 1, and the session asked to compact before the first
+// request could be sent.
+func TestASmallWindowKeepsRoomToWork(t *testing.T) {
+	for _, window := range []int{4096, 6144, 7400} {
+		s := New("phi3", "a system prompt", window)
+		if got, want := s.Usable(), window-window/4; got != want {
+			t.Errorf("window %d: usable = %d, want %d", window, got, want)
+		}
+		s.Append(llm.Message{Role: "user", Content: "hello"})
+		if s.NeedsCompaction() {
+			t.Errorf("window %d: a first question must not need compaction", window)
+		}
+	}
+	if got := New("phi3", "", 0).Window; got != 4096 {
+		t.Fatalf("phi3's table window = %d; the case above is about it", got)
 	}
 }
 
