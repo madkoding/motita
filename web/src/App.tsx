@@ -1306,40 +1306,51 @@ export default function App() {
             <div class={`truncate text-sm leading-tight ${s.running ? 'text-accent' : 'text-[#e8e8ea]'}`}>
               {s.title || s.id}
             </div>
-            {/* Meta line: when it was last used, always; then the branch, the
-                worktree and the change count, each only when there is
-                something to say. They are ordered most- to least-identifying,
-                and the line clips from the right, so nothing important is lost
-                first. */}
-            <div class="flex items-center gap-x-2 gap-y-0.5 flex-wrap mt-0.5 text-[10px] text-muted-foreground">
-              <span
-                class="flex-none tabular-nums opacity-80"
-                title={s.last_used ? 'Last used ' + fullUpdated(s.last_used) : undefined}
-              >
-                {formatUpdated(s.last_used)}
-              </span>
+            {/* When it was last used, on its own line. It was sharing the row
+                with the branch and the counts, and at a narrow width the three
+                wrapped into a paragraph nobody could read: a timestamp and a
+                set of labelled facts are two different kinds of information and
+                each gets its own line. */}
+            <div
+              class="mt-0.5 text-[10px] tabular-nums text-muted-foreground opacity-70"
+              title={s.last_used ? 'Last used ' + fullUpdated(s.last_used) : undefined}
+            >
+              {formatUpdated(s.last_used)}
+            </div>
+            {/* Facts line: every value carries its LABEL and its own colour, so
+                a number is never just a number. `main` alone does not say it is
+                a branch, and a bare `3` does not say 3 of what. Colour separates
+                the kinds at a glance; the label says what each one is on the
+                first read, which is what makes colour optional rather than
+                load-bearing. */}
+            <div class="flex items-center gap-x-1.5 gap-y-1 flex-wrap mt-1 text-[10px]">
               {s.branch && (
                 <span
-                  class="flex-none font-mono truncate max-w-[11rem] px-1 py-px rounded bg-white/5"
-                  title={'Branch ' + s.branch}
+                  class="inline-flex items-center gap-1 flex-none px-1 py-px rounded bg-accent/10"
+                  title={'Branch: ' + s.branch}
                 >
-                  {shortBranch(s.branch)}
+                  <span class="text-accent/50 uppercase tracking-wide text-[9px]">branch</span>
+                  <span class="font-mono text-accent truncate max-w-[7rem]">{shortBranch(s.branch)}</span>
                 </span>
               )}
               {sessionWorktreeChip(s) && (
                 <span
-                  class="flex-none font-mono truncate max-w-[9rem] px-1 py-px rounded bg-white/5 opacity-80"
-                  title={'Worktree ' + s.worktree}
+                  class="inline-flex items-center gap-1 flex-none px-1 py-px rounded bg-[#a0a0f0]/10"
+                  title={'Worktree: ' + s.worktree}
                 >
-                  ⌥ {sessionWorktreeChip(s)}
+                  <span class="text-[#a0a0f0]/50 uppercase tracking-wide text-[9px]">worktree</span>
+                  <span class="font-mono text-[#a0a0f0] truncate max-w-[6rem]">{sessionWorktreeChip(s)}</span>
                 </span>
               )}
               {!!s.changes && (
                 <span
-                  class="flex-none tabular-nums text-accent/90"
+                  class="inline-flex items-center gap-1 flex-none px-1 py-px rounded bg-[#f0a040]/10"
                   title={changesTitle(s.changes)}
                 >
-                  ● {s.changes}
+                  <span class="text-[#f0a040]/50 uppercase tracking-wide text-[9px]">
+                    {s.changes === 1 ? 'change' : 'changes'}
+                  </span>
+                  <span class="tabular-nums text-[#f0a040]">{s.changes}</span>
                 </span>
               )}
             </div>
@@ -1589,7 +1600,7 @@ export default function App() {
                 const projectSessions = sessions.filter(s => s.project_id === p.id)
                 return (
                   <div key={p.id} class="mt-1.5 rounded-xl bg-white/[0.02] border border-white/[0.06] overflow-hidden">
-                    {/* Header: click toggles collapse. The chevron rotates. */}
+                    {/* Header: click toggles collapse. */}
                     <div
                       class="project-header group flex items-center gap-1.5 px-2.5 py-2 cursor-pointer select-none hover:bg-white/[0.04] transition-colors"
                       onClick={() => toggleProject(p.id)}
@@ -1597,56 +1608,77 @@ export default function App() {
                       onTouchMove={cancelLongPress}
                       onTouchEnd={cancelLongPress}
                     >
-                      {/* Chevron: rotates 90deg when expanded. flex-none so it
-                          never gets squeezed. */}
+                      {/* The arrow POINTS the way the list goes: down when the
+                          sessions are showing, right when they are hidden.
+                          Two paths rather than a CSS rotation, because the
+                          build disables Tailwind's `transform` plugin and
+                          `.rotate-90` emits `translate(var(--tw-translate-x))`
+                          with that variable undefined - a declaration the
+                          browser drops, so the icon never turned. Measured with
+                          getComputedStyle: transform stayed `none` while the
+                          class said rotate-90. */}
                       <svg
                         width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"
-                        class={`flex-none text-[#8a8a9a] transition-transform duration-150 ${isCollapsed ? '' : 'rotate-90'}`}
+                        class="flex-none text-[#8a8a9a]"
                       >
-                        <polyline points="9 18 15 12 9 6" />
+                        {isCollapsed
+                          ? <polyline points="9 18 15 12 9 6" />
+                          : <polyline points="6 9 12 15 18 9" />}
                       </svg>
                       {/* Folder icon */}
                       <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="flex-none text-accent/60">
                         <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
                       </svg>
-                      {/* Title + meta line: the same two-line shape as a session
-                          row, so the eye reads one pattern. */}
+                      {/* Title + facts, the same two-line shape as a session
+                          row so the eye reads one pattern. */}
                       <div class="flex-1 min-w-0">
                         <div class="truncate font-semibold text-[13px] text-[#c8c8d2]">{p.title}</div>
-                        <div class="flex items-center gap-x-1.5 gap-y-0.5 flex-wrap mt-0.5 text-[10px] text-muted-foreground">
+                        {/* Facts line, labelled and coloured exactly like a
+                            session's: `project` says this is the project's own
+                            checkout rather than a session's, which is the
+                            distinction the number is about. */}
+                        <div class="flex items-center gap-x-1.5 gap-y-1 flex-wrap mt-1 text-[10px]">
                           {p.branch && (
                             <span
-                              class="flex-none font-mono truncate max-w-[10rem] px-1 py-px rounded bg-white/5"
-                              title={'On branch ' + p.branch}
+                              class="inline-flex items-center gap-1 flex-none px-1 py-px rounded bg-accent/10"
+                              title={'Project checkout is on branch: ' + p.branch}
                             >
-                              {shortBranch(p.branch)}
+                              <span class="text-accent/50 uppercase tracking-wide text-[9px]">project</span>
+                              <span class="font-mono text-accent truncate max-w-[7rem]">{shortBranch(p.branch)}</span>
                             </span>
                           )}
                           {!!p.worktrees && (
                             <span
-                              class="flex-none tabular-nums opacity-80"
-                              title={p.worktrees === 1 ? '1 session in its own worktree' : `${p.worktrees} sessions in their own worktrees`}
+                              class="inline-flex items-center gap-1 flex-none px-1 py-px rounded bg-[#a0a0f0]/10"
+                              title={p.worktrees === 1 ? '1 session is working in its own worktree' : `${p.worktrees} sessions are working in their own worktrees`}
                             >
-                              ⌥{p.worktrees}
+                              <span class="text-[#a0a0f0]/50 uppercase tracking-wide text-[9px]">worktrees</span>
+                              <span class="tabular-nums text-[#a0a0f0]">{p.worktrees}</span>
                             </span>
                           )}
                           {!!p.changes && (
                             <span
-                              class="flex-none tabular-nums text-accent/90"
+                              class="inline-flex items-center gap-1 flex-none px-1 py-px rounded bg-[#f0a040]/10"
                               title={'The project checkout has ' + changesTitle(p.changes)}
                             >
-                              ●{p.changes}
+                              <span class="text-[#f0a040]/50 uppercase tracking-wide text-[9px]">
+                                {p.changes === 1 ? 'change' : 'changes'}
+                              </span>
+                              <span class="tabular-nums text-[#f0a040]">{p.changes}</span>
                             </span>
                           )}
-                          {/* Session count badge: always present when there are
-                              sessions, even when collapsed, because it tells
+                          {/* Session count: always present when there are
+                              sessions, even collapsed, because it is what tells
                               the user what is inside without expanding. */}
                           {!!p.sessions && (
                             <span
-                              class="flex-none tabular-nums opacity-70"
-                              title={p.sessions === 1 ? '1 session' : `${p.sessions} sessions`}
+                              class="inline-flex items-center gap-1 flex-none px-1 py-px rounded bg-white/5"
+                              title={p.sessions === 1 ? 'This project has 1 session' : `This project has ${p.sessions} sessions`}
                             >
-                              {p.sessions}
+                              <span class="text-muted-foreground/60 uppercase tracking-wide text-[9px]">
+                                {p.sessions === 1 ? 'session' : 'sessions'}
+                              </span>
+                              <span class="tabular-nums text-muted-foreground">{p.sessions}</span>
                             </span>
                           )}
                         </div>

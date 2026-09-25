@@ -85,15 +85,20 @@ class CDP:
 # what the browser laid out rather than what the source says.
 MEASURE = r"""
 (() => {
-  // A row's layout is: [optional spinner] [container: title, meta] [actions].
-  // Reading the TITLE as "the first div inside a div" picks the container
-  // instead, whose bottom is below the meta line - which is how an earlier
-  // version of this script reported "not under the title" on correct markup.
-  // So the container is selected explicitly, then its first two children.
+  // A row's layout is: [optional spinner] [container: title, timestamp, facts]
+  // [actions]. Reading the TITLE as "the first div inside a div" picks the
+  // container instead, whose bottom is below the facts line - which is how an
+  // earlier version of this script reported "not under the title" on correct
+  // markup. So the container is selected explicitly, then its children: the
+  // first is the title, the second the timestamp, the third the labelled facts.
   const parts = (root) => {
     const c = root.querySelector(':scope > div.flex-1');
     if (!c || c.children.length < 2) return null;
-    return { title: c.children[0], meta: c.children[1] };
+    return {
+      title: c.children[0],
+      stamp: c.children[1],
+      meta: c.children.length > 2 ? c.children[2] : c.children[1],
+    };
   };
 
   const box = (el) => {
@@ -108,24 +113,40 @@ MEASURE = r"""
   for (const row of [...document.querySelectorAll('.session-row')]) {
     const p = parts(row);
     if (!p) { out.sessions.push({ error: 'no title/meta container' }); continue; }
-    const t = box(p.title), m = box(p.meta), r = box(row);
+    const t = box(p.title), m = box(p.meta), r = box(row), st = box(p.stamp);
     const chips = [...p.meta.children].map((c) => {
       const b = box(c);
+      // A chip is [label][value] when it carries a label; the label is the dim
+      // one and the value the bright one. Both are reported so the checks can
+      // assert that every fact NAMES itself and that each kind has its own
+      // colour, rather than trusting the markup.
+      const kids = [...c.children];
+      const label = kids.length > 1 ? kids[0].textContent.trim() : '';
+      const value = kids.length > 1 ? kids[1] : (kids[0] || c);
       return {
         text: c.textContent.trim(), title: c.getAttribute('title') || '',
+        label, valueText: value.textContent.trim(),
+        valueCls: value.className.toString(),
         left: b.left, right: b.right, top: b.top, bottom: b.bottom, w: b.w,
         clipped: c.scrollWidth > c.clientWidth + 1,
         line: Math.round(b.top),
+        cls: c.className.toString(),
       };
     });
     out.sessions.push({
       titleText: p.title.textContent.trim(),
+      stampText: p.stamp.textContent.trim(),
       selected: row.className.includes('bg-accent/10'),
       titleBottom: t.bottom, titleWidth: t.w,
+      stampTop: st.top, stampLeft: st.left, stampRight: st.right,
       metaTop: m.top, metaBottom: m.bottom, metaRight: m.right, metaLeft: m.left,
       rowLeft: r.left, rowRight: r.right,
       chips,
+      // The timestamp is its own line now, so "under the title" is measured for
+      // the stamp as well as for the facts.
       under: m.top >= t.bottom - 1.5,
+      stampUnder: st.top >= t.bottom - 1.5,
+      stampAboveFacts: st.bottom <= m.top + 1.5,
       titleNotStarved: t.w >= 60,
       metaInsideRow: m.right <= r.right + 0.5 && m.left >= r.left - 0.5,
     });
@@ -141,7 +162,16 @@ MEASURE = r"""
       under: m.top >= t.bottom - 1.5,
       titleNotStarved: t.w >= 60,
       metaInsideRow: m.right <= r.right + 0.5,
-      chips: [...p.meta.children].map((c) => c.textContent.trim()),
+      chips: [...p.meta.children].map((c) => {
+        const kids = [...c.children];
+        const label = kids.length > 1 ? kids[0].textContent.trim() : '';
+        const value = kids.length > 1 ? kids[1] : (kids[0] || c);
+        return {
+          text: c.textContent.trim(), label,
+          valueText: value.textContent.trim(),
+          valueCls: value.className.toString(),
+        };
+      }),
     });
   }
 
@@ -225,27 +255,53 @@ def main():
                             failures += fail(f"session row unreadable: {s['error']}")
                             continue
                         print(f"  - title {s['titleText']!r}")
-                        print(f"      title bottom={s['titleBottom']:.1f}  meta top={s['metaTop']:.1f}  under={s['under']}")
+                        print(f"      title bottom={s['titleBottom']:.1f}  stamp top={s['stampTop']:.1f}  facts top={s['metaTop']:.1f}")
+                        print(f"      stamp {s['stampText']!r}  under={s['stampUnder']}  aboveFacts={s['stampAboveFacts']}")
                         print(f"      title width={s['titleWidth']:.1f} (starved={not s['titleNotStarved']})")
                         for ch in s["chips"]:
-                            print(f"      chip {ch['text']!r:42} left={ch['left']:.1f} right={ch['right']:.1f} w={ch['w']:.1f} clipped={ch['clipped']}")
+                            print(f"      chip {ch['text']!r:46} w={ch['w']:.1f} clipped={ch['clipped']}")
                         if not s["under"]:
-                            failures += fail(f"meta is not under the title in {label}: {s['titleText']!r}")
+                            failures += fail(f"facts are not under the title in {label}: {s['titleText']!r}")
+                        # The timestamp must be on its own line, BETWEEN the
+                        # title and the facts - that is the break the user asked
+                        # for. Sharing the facts line is the old behaviour.
+                        if not s["stampUnder"] or not s["stampAboveFacts"]:
+                            failures += fail(f"the timestamp is not on its own line under the title in {label}: {s['titleText']!r}")
+                        # The timestamp LINE is what must carry the format, not a
+                        # chip: it moved out of the facts row deliberately.
+                        if not re.search(r"\d\d/\d\d/\d{4} :: \d\d:\d\d:\d\d", s["stampText"]):
+                            failures += fail(f"the timestamp line is not dd/mm/yyyy :: HH:mm:ss in {label}: {s['stampText']!r}")
                         if not s["titleNotStarved"]:
                             failures += fail(f"title squeezed to {s['titleWidth']:.1f}px in {label}: {s['titleText']!r}")
                         if not s["metaInsideRow"]:
                             failures += fail(f"meta sticks out of its row in {label}: {s['titleText']!r}")
-                        # Chips only collide when they share a line: the meta line
-                        # wraps at narrow widths, so comparing a chip with the one
-                        # on the next line reports an overlap that is not there.
+                        # Chips that share a line must not collide.
                         chips = sorted(s["chips"], key=lambda x: (x["line"], x["left"]))
                         for a, b in zip(chips, chips[1:]):
                             if a["line"] == b["line"] and b["left"] < a["right"] - 0.5:
                                 failures += fail(f"meta chips overlap in {label}: {a['text']!r} / {b['text']!r}")
-                        # Every session shows when it was last updated, in the
-                        # exact format asked for: dd/mm/yyyy :: HH:mm:ss.
-                        if not any(re.search(r"\d\d/\d\d/\d{4} :: \d\d:\d\d:\d\d", ch["text"]) for ch in s["chips"]):
-                            failures += fail(f"no dd/mm/yyyy :: HH:mm:ss timestamp in {label}: {s['titleText']!r}")
+                        # Each KIND of fact is drawn in its own colour, so the
+                        # eye separates them before reading them. Comparing the
+                        # class is enough here: the colours are literals in the
+                        # class, and this asserts they differ per kind rather
+                        # than that a particular palette is in use.
+                        colours = {}
+                        for ch in s["chips"]:
+                            m2 = re.search(r"text-\[(#[0-9a-fA-F]+)\]|text-(accent|muted-foreground|danger)", ch.get("valueCls", ""))
+                            if m2:
+                                kind = (ch.get("label") or "").lower()
+                                colours.setdefault(kind, set()).add(m2.group(0))
+                        distinct = {k: sorted(v) for k, v in colours.items()}
+                        print(f"      colours by kind: {distinct}")
+                        used = [c for v in colours.values() for c in v]
+                        if len(used) > 1 and len(set(used)) < len(colours):
+                            failures += fail(f"two kinds of fact share a colour in {label}: {distinct}")
+                        # Every session fact must NAME itself: `main` beside a
+                        # count says nothing about which is a branch and which a
+                        # worktree. A chip with no label element is unlabelled.
+                        for ch in s["chips"]:
+                            if (ch.get("text") or "").strip() and not ch.get("label"):
+                                failures += fail(f"session chip in {label} has no label element: {ch['text']!r}")
                         # An unbroken string of 25 chars can still be clipped by
                         # the max-width, which would hide the value being shown.
                         for ch in s["chips"]:
@@ -257,34 +313,54 @@ def main():
                         ids = [c for c in (ch["text"] for ch in s["chips"]) if re.match(r"^(motita/|⌥ )", c)]
                         if len(ids) != len(set(ids)):
                             failures += fail(f"the same id is printed twice in {label}: {ids}")
-                    # Expand/collapse: click the project header and verify the
-                    # session count changes. When collapsed, the sessions inside
-                    # the container disappear from the DOM; when expanded, they
-                    # return. The chevron must rotate (its transform changes).
+                    # Expand/collapse: click the project header and measure what
+                    # the user actually sees. An earlier version of this check
+                    # compared the chevron's CLASS STRING and passed while the
+                    # icon never moved: Tailwind's `transform` plugin is off, so
+                    # `.rotate-90` emitted `translate(var(--tw-translate-x))`
+                    # with that variable undefined, the declaration was dropped,
+                    # and computed `transform` stayed `none`. So this reads the
+                    # computed style and the drawn path, not the class name.
                     if label == "narrow":
                         before_count = await c.js("document.querySelectorAll('.session-row').length")
-                        chevron_before = await c.js("""(() => {
+                        arrow_expanded = await c.js("""(() => {
                             const h = document.querySelector('.project-header');
                             if (!h) return null;
                             const svg = h.querySelector('svg');
-                            return svg ? svg.getAttribute('class') : null;
+                            const pl = svg.querySelector('polyline');
+                            const cs = getComputedStyle(svg);
+                            return { points: pl ? pl.getAttribute('points') : null,
+                                     transform: cs.transform, rect: svg.getBoundingClientRect().width };
                         })()""")
-                        # Click the project header to collapse.
                         await c.js("document.querySelector('.project-header').click()")
                         await asyncio.sleep(0.8)
                         after_count = await c.js("document.querySelectorAll('.session-row').length")
-                        chevron_after = await c.js("""(() => {
+                        arrow_collapsed = await c.js("""(() => {
                             const h = document.querySelector('.project-header');
                             if (!h) return null;
                             const svg = h.querySelector('svg');
-                            return svg ? svg.getAttribute('class') : null;
+                            const pl = svg.querySelector('polyline');
+                            const cs = getComputedStyle(svg);
+                            return { points: pl ? pl.getAttribute('points') : null,
+                                     transform: cs.transform, rect: svg.getBoundingClientRect().width };
                         })()""")
-                        print(f"  COLLAPSE: sessions {before_count} -> {after_count}, chevron '{chevron_before}' -> '{chevron_after}'")
+                        print(f"  COLLAPSE: sessions {before_count} -> {after_count}")
+                        print(f"            arrow {arrow_expanded['points']!r} -> {arrow_collapsed['points']!r}")
                         if after_count >= before_count:
                             failures += fail(f"collapsing a project did not hide its sessions: {before_count} -> {after_count}")
-                        if chevron_before == chevron_after:
-                            failures += fail(f"the chevron did not rotate on collapse: {chevron_before!r}")
-                        # Click again to expand.
+                        # The arrow must POINT differently in each state. Two
+                        # different paths, both actually drawn: a rotation that
+                        # never applies would keep the same points.
+                        if not arrow_expanded or not arrow_collapsed:
+                            failures += fail("the collapse arrow is missing from the project header")
+                        elif arrow_expanded["points"] == arrow_collapsed["points"]:
+                            failures += fail(f"the arrow does not change direction: {arrow_expanded['points']!r} in both states")
+                        # Expanded points DOWN (6 9 12 15 18 9), collapsed points
+                        # RIGHT (9 18 15 12 9 6) - the direction the list goes.
+                        if arrow_expanded and arrow_expanded["points"] != "6 9 12 15 18 9":
+                            failures += fail(f"expanded arrow must point down, got {arrow_expanded['points']!r}")
+                        if arrow_collapsed and arrow_collapsed["points"] != "9 18 15 12 9 6":
+                            failures += fail(f"collapsed arrow must point right, got {arrow_collapsed['points']!r}")
                         await c.js("document.querySelector('.project-header').click()")
                         await asyncio.sleep(0.8)
                         restored = await c.js("document.querySelectorAll('.session-row').length")
@@ -296,11 +372,19 @@ def main():
                         if p.get("error"):
                             failures += fail(f"project header unreadable: {p['error']}")
                             continue
-                        print(f"  - project {p['titleText']!r}  under={p['under']} title w={p['titleWidth']:.1f} chips={p['chips']}")
+                        print(f"  - project {p['titleText']!r}  under={p['under']} title w={p['titleWidth']:.1f}")
+                        for ch in p["chips"]:
+                            print(f"      chip label={ch.get('label')!r:12} value={ch.get('valueText')!r}")
                         if not p["under"]:
-                            failures += fail(f"project meta is not under the title in {label}: {p['titleText']!r}")
+                            failures += fail(f"project facts are not under the title in {label}: {p['titleText']!r}")
                         if not p["titleNotStarved"]:
                             failures += fail(f"project title squeezed in {label}: {p['titleText']!r}")
+                        # A project's facts must name themselves too: the whole
+                        # complaint was a bare `3` beside an icon nobody could
+                        # identify.
+                        for ch in p["chips"]:
+                            if (ch.get("text") or "").strip() and not ch.get("label"):
+                                failures += fail(f"project chip in {label} has no label element: {ch['text']!r}")
                     if m["spill"]:
                         for sp in m["spill"]:
                             failures += fail(f"spills past the sidebar in {label}: {sp}")
