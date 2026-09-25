@@ -132,17 +132,44 @@ func TestThePageMeetsItsHardRequirements(t *testing.T) {
 
 // The page must fit what the binary can afford. The Vite + Preact + Tailwind build targets
 // ~40 KB for code, a compressed chat background image (~45 KB), and the embedded Sansation
-// font family (~270 KB, 6 TTF files). The budget is set to 512 KB to accommodate all three
-// while still catching runaway bloat.
+// font family (~270 KB, 6 TTF files).
+//
+// The mono face is the exception that needs its own line. Code is set in JetBrains Mono Nerd
+// Font, and "Nerd Font" means 10,610 extra icon glyphs on top of the ~1,600 text ones: they
+// are what makes a terminal's box-drawing and file icons render. They are kept in a SEPARATE
+// face carrying a `unicode-range` of the private-use blocks, so a browser lays out ordinary
+// code from the 53 KB text face and never requests the icons at all (measured: loading the app
+// fetches only the text face). But `Size()` counts the bytes EMBEDDED in the binary, and those
+// are shipped whether or not a given client downloads them.
+//
+// So the guard is split rather than raised wholesale: everything except the icon face must
+// still fit the original 512 KB, and the icon face gets its own ceiling. Raising one number
+// for the whole page would have thrown away the check that catches runaway bloat in the code,
+// the images and the other fonts.
 func TestThePageStaysInsideItsBudget(t *testing.T) {
 	const budget = 512 * 1024
+	const iconFace = "/JetBrainsMonoNerdFont-Icons.woff2"
+	const iconBudget = 1024 * 1024
+
 	got, err := Size()
 	if err != nil {
 		t.Fatalf("Size: %v", err)
 	}
-	if got > budget {
-		t.Fatalf("the page is %d bytes, budget is %d: "+
-			"check that Preact (not React) is installed and Tailwind corePlugins are restricted", got, budget)
+	icons, _, err := Content(iconFace)
+	if err != nil {
+		// Not a failure: a build without the Nerd Font icon face is smaller, not broken.
+		// The check below is about the face not becoming unbounded once it is there.
+		icons = nil
+	}
+
+	if rest := got - len(icons); rest > budget {
+		t.Fatalf("the page is %d bytes without the icon font, budget is %d: "+
+			"check that Preact (not React) is installed and Tailwind corePlugins are restricted", rest, budget)
+	}
+	if len(icons) > iconBudget {
+		t.Fatalf("the mono icon face is %d bytes, budget is %d: the Nerd Font icon subset has "+
+			"grown, or is being built without subsetting at all (the unsubset upstream face is 2.5 MB)",
+			len(icons), iconBudget)
 	}
 }
 

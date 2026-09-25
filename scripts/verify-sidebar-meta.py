@@ -35,13 +35,20 @@ import websockets
 PORT = int(os.environ.get("CDP_PORT", "9341"))
 BASE = os.environ.get("GATEWAY_URL", "http://127.0.0.1:7477")
 SHOTS = os.environ.get("SHOTS_DIR", "/tmp/motita-sidebar-shots")
+# A throwaway gateway runs under an isolated HOME, so the token and the browser
+# are looked up through the environment rather than assumed to be in the real
+# home: expanduser would otherwise reach the wrong tree (or the wrong file).
+TOKEN_FILE = os.environ.get("MOTITA_TOKEN_FILE", "~/.motita/gateway.token")
 CHROME = os.path.expanduser(
-    "~/.hermes/cache/chrome/chrome-headless-shell-linux64/chrome-headless-shell"
+    os.environ.get(
+        "CDP_CHROME",
+        "~/.hermes/cache/chrome/chrome-headless-shell-linux64/chrome-headless-shell",
+    )
 )
 
 
 def token():
-    with open(os.path.expanduser("~/.motita/gateway.token")) as f:
+    with open(os.path.expanduser(TOKEN_FILE)) as f:
         return f.read().strip()
 
 
@@ -78,15 +85,20 @@ class CDP:
 # what the browser laid out rather than what the source says.
 MEASURE = r"""
 (() => {
-  // A row's layout is: [optional spinner] [container: title, meta] [actions].
-  // Reading the TITLE as "the first div inside a div" picks the container
-  // instead, whose bottom is below the meta line - which is how an earlier
-  // version of this script reported "not under the title" on correct markup.
-  // So the container is selected explicitly, then its first two children.
+  // A row's layout is: [optional spinner] [container: title, timestamp, facts]
+  // [actions]. Reading the TITLE as "the first div inside a div" picks the
+  // container instead, whose bottom is below the facts line - which is how an
+  // earlier version of this script reported "not under the title" on correct
+  // markup. So the container is selected explicitly, then its children: the
+  // first is the title, the second the timestamp, the third the labelled facts.
   const parts = (root) => {
     const c = root.querySelector(':scope > div.flex-1');
     if (!c || c.children.length < 2) return null;
-    return { title: c.children[0], meta: c.children[1] };
+    return {
+      title: c.children[0],
+      stamp: c.children[1],
+      meta: c.children.length > 2 ? c.children[2] : c.children[1],
+    };
   };
 
   const box = (el) => {
@@ -101,24 +113,40 @@ MEASURE = r"""
   for (const row of [...document.querySelectorAll('.session-row')]) {
     const p = parts(row);
     if (!p) { out.sessions.push({ error: 'no title/meta container' }); continue; }
-    const t = box(p.title), m = box(p.meta), r = box(row);
+    const t = box(p.title), m = box(p.meta), r = box(row), st = box(p.stamp);
     const chips = [...p.meta.children].map((c) => {
       const b = box(c);
+      // A chip is [label][value] when it carries a label; the label is the dim
+      // one and the value the bright one. Both are reported so the checks can
+      // assert that every fact NAMES itself and that each kind has its own
+      // colour, rather than trusting the markup.
+      const kids = [...c.children];
+      const label = kids.length > 1 ? kids[0].textContent.trim() : '';
+      const value = kids.length > 1 ? kids[1] : (kids[0] || c);
       return {
         text: c.textContent.trim(), title: c.getAttribute('title') || '',
+        label, valueText: value.textContent.trim(),
+        valueCls: value.className.toString(),
         left: b.left, right: b.right, top: b.top, bottom: b.bottom, w: b.w,
         clipped: c.scrollWidth > c.clientWidth + 1,
         line: Math.round(b.top),
+        cls: c.className.toString(),
       };
     });
     out.sessions.push({
       titleText: p.title.textContent.trim(),
+      stampText: p.stamp.textContent.trim(),
       selected: row.className.includes('bg-accent/10'),
       titleBottom: t.bottom, titleWidth: t.w,
+      stampTop: st.top, stampLeft: st.left, stampRight: st.right,
       metaTop: m.top, metaBottom: m.bottom, metaRight: m.right, metaLeft: m.left,
       rowLeft: r.left, rowRight: r.right,
       chips,
+      // The timestamp is its own line now, so "under the title" is measured for
+      // the stamp as well as for the facts.
       under: m.top >= t.bottom - 1.5,
+      stampUnder: st.top >= t.bottom - 1.5,
+      stampAboveFacts: st.bottom <= m.top + 1.5,
       titleNotStarved: t.w >= 60,
       metaInsideRow: m.right <= r.right + 0.5 && m.left >= r.left - 0.5,
     });
@@ -134,7 +162,16 @@ MEASURE = r"""
       under: m.top >= t.bottom - 1.5,
       titleNotStarved: t.w >= 60,
       metaInsideRow: m.right <= r.right + 0.5,
-      chips: [...p.meta.children].map((c) => c.textContent.trim()),
+      chips: [...p.meta.children].map((c) => {
+        const kids = [...c.children];
+        const label = kids.length > 1 ? kids[0].textContent.trim() : '';
+        const value = kids.length > 1 ? kids[1] : (kids[0] || c);
+        return {
+          text: c.textContent.trim(), label,
+          valueText: value.textContent.trim(),
+          valueCls: value.className.toString(),
+        };
+      }),
     });
   }
 
@@ -218,26 +255,53 @@ def main():
                             failures += fail(f"session row unreadable: {s['error']}")
                             continue
                         print(f"  - title {s['titleText']!r}")
-                        print(f"      title bottom={s['titleBottom']:.1f}  meta top={s['metaTop']:.1f}  under={s['under']}")
+                        print(f"      title bottom={s['titleBottom']:.1f}  stamp top={s['stampTop']:.1f}  facts top={s['metaTop']:.1f}")
+                        print(f"      stamp {s['stampText']!r}  under={s['stampUnder']}  aboveFacts={s['stampAboveFacts']}")
                         print(f"      title width={s['titleWidth']:.1f} (starved={not s['titleNotStarved']})")
                         for ch in s["chips"]:
-                            print(f"      chip {ch['text']!r:42} left={ch['left']:.1f} right={ch['right']:.1f} w={ch['w']:.1f} clipped={ch['clipped']}")
+                            print(f"      chip {ch['text']!r:46} w={ch['w']:.1f} clipped={ch['clipped']}")
                         if not s["under"]:
-                            failures += fail(f"meta is not under the title in {label}: {s['titleText']!r}")
+                            failures += fail(f"facts are not under the title in {label}: {s['titleText']!r}")
+                        # The timestamp must be on its own line, BETWEEN the
+                        # title and the facts - that is the break the user asked
+                        # for. Sharing the facts line is the old behaviour.
+                        if not s["stampUnder"] or not s["stampAboveFacts"]:
+                            failures += fail(f"the timestamp is not on its own line under the title in {label}: {s['titleText']!r}")
+                        # The timestamp LINE is what must carry the format, not a
+                        # chip: it moved out of the facts row deliberately.
+                        if not re.search(r"\d\d/\d\d/\d{4} :: \d\d:\d\d:\d\d", s["stampText"]):
+                            failures += fail(f"the timestamp line is not dd/mm/yyyy :: HH:mm:ss in {label}: {s['stampText']!r}")
                         if not s["titleNotStarved"]:
                             failures += fail(f"title squeezed to {s['titleWidth']:.1f}px in {label}: {s['titleText']!r}")
                         if not s["metaInsideRow"]:
                             failures += fail(f"meta sticks out of its row in {label}: {s['titleText']!r}")
-                        # Chips only collide when they share a line: the meta line
-                        # wraps at narrow widths, so comparing a chip with the one
-                        # on the next line reports an overlap that is not there.
+                        # Chips that share a line must not collide.
                         chips = sorted(s["chips"], key=lambda x: (x["line"], x["left"]))
                         for a, b in zip(chips, chips[1:]):
                             if a["line"] == b["line"] and b["left"] < a["right"] - 0.5:
                                 failures += fail(f"meta chips overlap in {label}: {a['text']!r} / {b['text']!r}")
-                        # Every session shows when it was last updated.
-                        if not any(re.search(r"\d\d/\d\d \d\d:\d\d", ch["text"]) for ch in s["chips"]):
-                            failures += fail(f"no last-updated timestamp in {label}: {s['titleText']!r}")
+                        # Each KIND of fact is drawn in its own colour, so the
+                        # eye separates them before reading them. Comparing the
+                        # class is enough here: the colours are literals in the
+                        # class, and this asserts they differ per kind rather
+                        # than that a particular palette is in use.
+                        colours = {}
+                        for ch in s["chips"]:
+                            m2 = re.search(r"text-\[(#[0-9a-fA-F]+)\]|text-(accent|muted-foreground|danger)", ch.get("valueCls", ""))
+                            if m2:
+                                kind = (ch.get("label") or "").lower()
+                                colours.setdefault(kind, set()).add(m2.group(0))
+                        distinct = {k: sorted(v) for k, v in colours.items()}
+                        print(f"      colours by kind: {distinct}")
+                        used = [c for v in colours.values() for c in v]
+                        if len(used) > 1 and len(set(used)) < len(colours):
+                            failures += fail(f"two kinds of fact share a colour in {label}: {distinct}")
+                        # Every session fact must NAME itself: `main` beside a
+                        # count says nothing about which is a branch and which a
+                        # worktree. A chip with no label element is unlabelled.
+                        for ch in s["chips"]:
+                            if (ch.get("text") or "").strip() and not ch.get("label"):
+                                failures += fail(f"session chip in {label} has no label element: {ch['text']!r}")
                         # An unbroken string of 25 chars can still be clipped by
                         # the max-width, which would hide the value being shown.
                         for ch in s["chips"]:
@@ -249,15 +313,139 @@ def main():
                         ids = [c for c in (ch["text"] for ch in s["chips"]) if re.match(r"^(motita/|⌥ )", c)]
                         if len(ids) != len(set(ids)):
                             failures += fail(f"the same id is printed twice in {label}: {ids}")
+                    # Expand/collapse: click the project header and measure what
+                    # the user actually sees. Two earlier versions of this check
+                    # were weak and both passed over a real bug:
+                    #   * one compared the chevron's CLASS STRING while the icon
+                    #     never moved (Tailwind's `transform` plugin is off, so
+                    #     `.rotate-90` emitted `translate(var(--tw-translate-x))`
+                    #     with that variable undefined, the declaration was
+                    #     dropped, and computed `transform` stayed `none`);
+                    #   * one COUNTED `.session-row` elements, which stops being
+                    #     evidence the moment the list is animated instead of
+                    #     unmounted - the rows stay in the DOM at zero height.
+                    # So this now measures the collapsed list's real HEIGHT and
+                    # its computed `visibility`, which is true whether the rows
+                    # are removed or merely closed to nothing.
+                    if label == "narrow":
+                        async def collapse_state():
+                            return await c.js("""(() => {
+                                const h = document.querySelector('.project-header');
+                                if (!h) return null;
+                                const svg = h.querySelector('svg');
+                                const pl = svg ? svg.querySelector('polyline') : null;
+                                const list = document.querySelector('.project-sessions');
+                                const inner = document.querySelector('.project-sessions-inner');
+                                return {
+                                    points: pl ? pl.getAttribute('points') : null,
+                                    transform: svg ? getComputedStyle(svg).transform : null,
+                                    rows: document.querySelectorAll('.session-row').length,
+                                    listHeight: list ? Math.round(list.getBoundingClientRect().height) : null,
+                                    innerHeight: inner ? Math.round(inner.getBoundingClientRect().height) : null,
+                                    visibility: list ? getComputedStyle(list).visibility : null,
+                                    gridRows: list ? getComputedStyle(list).gridTemplateRows : null,
+                                    transition: list ? getComputedStyle(list).transitionProperty : null,
+                                };
+                            })()""")
+
+                        expanded = await collapse_state()
+                        if not expanded:
+                            failures += fail("no project header to collapse")
+                        else:
+                            # Mid-flight sample: with the transition running, the
+                            # list must be at a height BETWEEN open and closed.
+                            # That is the only way to prove it animates rather
+                            # than jump-cutting, and it is invisible to any check
+                            # that only samples the two end states.
+                            await c.js("document.querySelector('.project-header').click()")
+                            await asyncio.sleep(0.09)
+                            mid = await collapse_state()
+                            await asyncio.sleep(0.9)
+                            collapsed = await collapse_state()
+                            print(f"  COLLAPSE: list height {expanded['listHeight']}px -> "
+                                  f"{mid['listHeight']}px (mid-flight) -> {collapsed['listHeight']}px")
+                            print(f"            arrow transform {expanded['transform']!r} -> {collapsed['transform']!r}")
+
+                            if collapsed["listHeight"] >= 1:
+                                failures += fail(
+                                    f"collapsing a project did not collapse its list: "
+                                    f"{expanded['listHeight']}px -> {collapsed['listHeight']}px")
+                            if collapsed["visibility"] != "hidden":
+                                failures += fail(
+                                    "a collapsed project's list is still visible "
+                                    f"(visibility: {collapsed['visibility']}) - the rows stay "
+                                    "clickable and in the tab order")
+                            if mid and mid["listHeight"] >= expanded["listHeight"] - 1:
+                                failures += fail(
+                                    "the collapse is not animated: the list is still at full "
+                                    f"height 90ms in ({mid['listHeight']}px of {expanded['listHeight']}px)")
+                            if mid and mid["listHeight"] <= 0:
+                                failures += fail(
+                                    "the collapse is not animated: the list had already closed "
+                                    "90ms in, so the transition is not applying")
+                            if "grid-template-rows" not in (expanded["transition"] or ""):
+                                failures += fail(
+                                    "the session list has no grid-template-rows transition, so its "
+                                    f"height cannot animate (transition-property: {expanded['transition']})")
+
+                            # The arrow must MOVE, and it must move by rotating:
+                            # the same path, a different computed transform. Two
+                            # different paths would satisfy "the points differ"
+                            # while the icon still snaps.
+                            if expanded["points"] != collapsed["points"]:
+                                failures += fail(
+                                    "the arrow swaps its path instead of rotating, so it cannot "
+                                    f"animate: {expanded['points']!r} -> {collapsed['points']!r}")
+                            if expanded["transform"] == collapsed["transform"]:
+                                failures += fail(
+                                    "the collapse arrow does not move: computed transform is "
+                                    f"{expanded['transform']!r} in both states")
+                            elif collapsed["transform"] in ("none", None):
+                                failures += fail(
+                                    "the collapsed arrow has no transform applied, so it still "
+                                    "points the wrong way")
+                            # Rotating -90deg from "down" must end pointing right:
+                            # the matrix is [cos, sin, -sin, cos] = [0, -1, 1, 0].
+                            elif not collapsed["transform"].startswith("matrix(0, -1, 1, 0"):
+                                failures += fail(
+                                    f"the collapsed arrow should point right (-90deg), got "
+                                    f"{collapsed['transform']!r}")
+
+                            await c.js("document.querySelector('.project-header').click()")
+                            await asyncio.sleep(0.9)
+                            restored = await collapse_state()
+                            print(f"  EXPAND: list height -> {restored['listHeight']}px")
+                            if restored["listHeight"] != expanded["listHeight"]:
+                                failures += fail(
+                                    "expanding did not restore the list to its height: had "
+                                    f"{expanded['listHeight']}px, now {restored['listHeight']}px")
+                            if restored["visibility"] != "visible":
+                                failures += fail(
+                                    f"an expanded list is not visible (visibility: {restored['visibility']})")
+                            if restored["transform"] != expanded["transform"]:
+                                failures += fail("the arrow did not return when re-expanded")
+                            if restored["rows"] != expanded["rows"]:
+                                failures += fail(
+                                    f"the session count changed across a collapse cycle: "
+                                    f"{expanded['rows']} -> {restored['rows']}")
+
                     for p in m["projects"]:
                         if p.get("error"):
                             failures += fail(f"project header unreadable: {p['error']}")
                             continue
-                        print(f"  - project {p['titleText']!r}  under={p['under']} title w={p['titleWidth']:.1f} chips={p['chips']}")
+                        print(f"  - project {p['titleText']!r}  under={p['under']} title w={p['titleWidth']:.1f}")
+                        for ch in p["chips"]:
+                            print(f"      chip label={ch.get('label')!r:12} value={ch.get('valueText')!r}")
                         if not p["under"]:
-                            failures += fail(f"project meta is not under the title in {label}: {p['titleText']!r}")
+                            failures += fail(f"project facts are not under the title in {label}: {p['titleText']!r}")
                         if not p["titleNotStarved"]:
                             failures += fail(f"project title squeezed in {label}: {p['titleText']!r}")
+                        # A project's facts must name themselves too: the whole
+                        # complaint was a bare `3` beside an icon nobody could
+                        # identify.
+                        for ch in p["chips"]:
+                            if (ch.get("text") or "").strip() and not ch.get("label"):
+                                failures += fail(f"project chip in {label} has no label element: {ch['text']!r}")
                     if m["spill"]:
                         for sp in m["spill"]:
                             failures += fail(f"spills past the sidebar in {label}: {sp}")

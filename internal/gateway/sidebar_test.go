@@ -245,6 +245,35 @@ func TestCountSessionWorktreesSkipsTheProjectAndPrunableEntries(t *testing.T) {
 	}
 }
 
+// TestSessionOnTheProjectCheckoutReportsNoWorktree: a session that could not
+// get its own worktree runs in the project's directory, and that directory IS a
+// listed worktree of the repository - so "git knows this path" answers yes and
+// the sidebar would print the project's own folder as the session's worktree.
+// The project's checkout is the project; it is not a session's.
+func TestSessionOnTheProjectCheckoutReportsNoWorktree(t *testing.T) {
+	srv := newTestServer(t, &fakeService{})
+	// The workspace must be a real directory even though the point of the test
+	// is that no worktree is made in it: an EMPTY workspace root makes
+	// makeProject create its repository as a RELATIVE path, which lands inside
+	// the package directory and leaves a stray repo behind. A root is required,
+	// a worktree root is not.
+	ws := t.TempDir()
+	withProjects(t, srv, ws)
+	pid := makeProject(t, srv, "repo")
+	p := srv.projectOf(pid)
+	// Remove the worktree root so sessionWorktree has nowhere to create one and
+	// falls back to the project's own directory.
+	srv.opts.WorkspaceDir = ""
+
+	ss := createSessionIn(t, srv, pid)
+	if !gitx.SamePath(ss.Workspace, p.Dir) {
+		t.Fatalf("workspace = %q, want the project's own checkout %q", ss.Workspace, p.Dir)
+	}
+	if got := sessionByID(t, srv, ss.ID); got.Worktree != "" {
+		t.Errorf("worktree = %q, want empty: the project's checkout is not a session's worktree", got.Worktree)
+	}
+}
+
 // sessionByID reads one session back from the list endpoint, which is what the
 // sidebar draws from - so a test cannot pass on a field the front end never
 // receives.
