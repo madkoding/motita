@@ -6,9 +6,9 @@
 // configuration stay where they are, and this package reaches them through the Service
 // interface below.
 //
-// Everything here is the standard library. That is not a preference: the released binary has a
-// 10 MB ceiling with under 2 MB of room beneath it, so a dependency is a cost this feature
-// cannot pay.
+// Everything here is the standard library. That is a preference and a discipline: the
+// released binary has a ceiling that guards against runaway growth, so a dependency is a
+// cost a feature has to earn rather than assume.
 package gateway
 
 import (

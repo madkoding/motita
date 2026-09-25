@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from 'preact/hooks'
+import { useState, useEffect, useRef, useCallback, useMemo } from 'preact/hooks'
 import { Markdown } from './Markdown'
 
 interface Message {
@@ -137,6 +137,79 @@ const STORAGE_KEY = 'motita:last-session'
 const SIDEBAR_KEY = 'motita:sidebar-open'
 const PROJECT_COLLAPSE_KEY = 'motita:collapsed-projects'
 const UPGRADE_DISMISS_KEY = 'motita:upgrade-dismissed'
+
+// ─── Scheduled tasks: reading a cadence in words, and a countdown ────────────
+//
+// `every` arrives from the gateway as a Go duration string (the DTO formats it),
+// so the units are known: the tag reads "Every 24h", never a second, invented
+// spelling of the same cadence.
+
+// countdown is how long is left before the next run, as a chronometer:
+// mm:ss under an hour, h:mm:ss under a day, days and hours beyond that. The
+// seconds field is why this ticks at all - a countdown that only moved once a
+// minute would look frozen on the run that matters, the imminent one. Past a day
+// the seconds are dropped because they would be noise, and the panel re-renders
+// on the same interval either way.
+function pad(n: number): string {
+  return n < 10 ? '0' + n : String(n)
+}
+
+function countdown(fromMs: number, nowMs: number): { text: string; past: boolean } {
+  const delta = Math.round((fromMs - nowMs) / 1000)
+  const past = delta < 0
+  const s = Math.abs(delta)
+  let text: string
+  if (s < 3600) text = Math.floor(s / 60) + ':' + pad(s % 60)
+  else if (s < 86400) text = Math.floor(s / 3600) + ':' + pad(Math.floor((s % 3600) / 60)) + ':' + pad(s % 60)
+  else text = Math.floor(s / 86400) + 'd ' + Math.floor((s % 86400) / 3600) + 'h'
+  return { text, past }
+}
+
+// durationOf reads a Go duration string ("24h0m0s") twice over, which is the
+// only reason it is one function: the cadence is needed as MILLISECONDS (for the
+// clock skew below) and as the SHORT form a person typed (for the row's tag).
+// Two parsers over the same grammar is two things to keep in step, and the
+// normalised form the gateway sends is not what belongs on a tag - "24h0m0s" is
+// a machine's spelling of "24h". A cadence that cannot be read comes back with
+// the text it arrived as, which is more useful than an empty tag on a row that
+// does have one.
+const DURATION_UNITS: Record<string, number> = {
+  ns: 1e-6, us: 1e-3, 'µs': 1e-3, ms: 1, s: 1000, m: 60000, h: 3600000,
+}
+
+function durationOf(every: string): { ms: number; short: string } {
+  const re = /(\d+(?:\.\d+)?)(ns|us|µs|ms|s|m|h)/g
+  let ms = 0
+  let short = ''
+  let match: RegExpExecArray | null
+  while ((match = re.exec(every)) !== null) {
+    const n = parseFloat(match[1])
+    ms += n * DURATION_UNITS[match[2]]
+    // Only whole units reach the tag: "0h" out of "24h0m0s" is noise, and the
+    // unit order the parser walks is the order Go prints, h first.
+    if (n > 0) short += match[1] + match[2]
+  }
+  return { ms, short: short || every }
+}
+
+// nextClockSkew is the skew assumed when nothing can be derived from the tasks:
+// zero, so the countdown is exactly what the gateway's timestamps say. It only
+// applies to a task set that is empty or unreadable, where the correction has
+// nothing to correct.
+const nextClockSkew = 0
+
+// taskCountdown answers how long until this task fires, as the panel shows it.
+// A paused task counts down to nothing: its next_run is a projection, and a
+// ticker over a task that will not fire would be a lie with a pulse. An overdue
+// one says so, because "0s" is not the same fact as "it should have gone off".
+function taskCountdown(t: ScheduledTask, nowMs: number, skew: number) {
+  if (!t.enabled) return null
+  const ts = Date.parse(t.next_run)
+  if (Number.isNaN(ts)) return null
+  const c = countdown(ts - skew, nowMs)
+  return { text: c.text, overdue: c.past }
+}
+
 
 // UpdateInfo is what /v1/update/check returns.
 interface UpdateInfo {
@@ -317,6 +390,17 @@ export default function App() {
   const [showScheduledTasks, setShowScheduledTasks] = useState(false)
   const [scheduledTasks, setScheduledTasks] = useState<ScheduledTask[]>([])
   const [scheduledBusy, setScheduledBusy] = useState(false)
+  // nowMs drives the countdown painted inside each task card. It ticks ONLY
+  // while the panel is open: a timer that runs (and re-renders the whole app)
+  // while nobody is looking at a countdown is pure cost. One second is the
+  // unit the countdown itself shows at its finest.
+  const [nowMs, setNowMs] = useState(() => Date.now())
+  useEffect(() => {
+    if (!showScheduledTasks) return
+    setNowMs(Date.now())
+    const id = setInterval(() => setNowMs(Date.now()), 1000)
+    return () => clearInterval(id)
+  }, [showScheduledTasks])
   // The create form's working copy. Like the model switcher's draft, it is edited
   // HERE and sent only when the user presses Create: a half-typed cadence must not
   // reach the gateway.
@@ -640,6 +724,23 @@ export default function App() {
     const res = await api('/v1/schedules/' + t.id, { method: 'DELETE' })
     if (res.ok) await loadSchedules()
   }
+
+  // The countdown is drawn between the BROWSER's clock and next_run, which the
+  // GATEWAY computed. When the two machines disagree the countdown lies by the
+  // difference ("4h" on a task that fires in a minute), and the gateway is the
+  // one holding the schedule store: this is the smallest correction that keeps
+  // the number honest. It is a memo and not state because loadSchedules is not
+  // in the render path - a skew from a set of tasks a second old is fine, and
+  // this way there is no second render.
+  const clockSkew = useMemo(() => {
+    let min = nextClockSkew
+    for (const t of scheduledTasks) {
+      const ts = Date.parse(t.next_run)
+      if (Number.isNaN(ts)) continue
+      min = Math.min(min, Date.now() - (ts - durationOf(t.every).ms))
+    }
+    return min
+  }, [scheduledTasks])
 
   // switchSession loads the transcript for a given session id and adopts it.
   const switchSession = useCallback(async (id: string) => {
@@ -2787,10 +2888,10 @@ export default function App() {
           onClick={() => setShowScheduledTasks(false)}
         >
           <div
-            class="frosted rounded-2xl border border-white/10 w-full max-w-md p-5 shadow-2xl"
+            class="tasks-panel frosted rounded-2xl border border-white/10 w-full max-w-md p-5 shadow-2xl"
             onClick={(e) => e.stopPropagation()}
           >
-            <div class="flex items-center gap-2 mb-4">
+            <div class="tasks-head flex items-center gap-2 mb-4">
               <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="text-accent">
                 <circle cx="12" cy="12" r="10" /><polyline points="12 6 12 12 16 14" />
               </svg>
@@ -2805,93 +2906,125 @@ export default function App() {
                 </svg>
               </button>
             </div>
-            {/* The list is what makes the feature usable: a task whose next run and last
-                outcome a user cannot see is a task they cannot trust, so both are on the
-                row and neither is behind a click. */}
-            <div class="space-y-2 max-h-[45vh] overflow-y-auto">
-              {scheduledTasks.length === 0 && (
-                <p class="text-sm text-[#9a9aaa]">
-                  No scheduled tasks yet. One created here fires into the conversation you are in.
-                </p>
-              )}
-              {scheduledTasks.map((t) => (
-                <div key={t.id} class="rounded-xl border border-white/10 p-3">
-                  <div class="flex items-center gap-2">
-                    <span class="flex-1 text-sm text-[#e8e8ea] truncate">{t.title}</span>
-                    <span class="text-[10px] font-mono text-[#6a6a7a]">{t.every}</span>
-                  </div>
-                  <p class="text-xs text-[#9a9aaa] mt-1">
-                    {t.enabled ? 'Next run ' : 'Paused — last '}
-                    {new Date(t.enabled ? t.next_run : (t.last_run || t.created)).toLocaleString()}
-                  </p>
-                  {t.last_outcome && (
-                    <p class="text-xs text-[#6a6a7a] mt-1 break-words">{t.last_outcome}</p>
+
+            {/* On a phone this is one column, list first and the create form below it -
+                the order that fits a narrow screen. On a screen with room the form
+                moves to the LEFT of the list (see .tasks-body in index.css), which is
+                the order a person works in: write the task, then watch it land in the
+                list beside it. The DOM keeps the phone's order and the two columns are
+                PLACED by the stylesheet, so neither layout duplicates the markup. */}
+            <div class="tasks-body">
+              {/* The list is what makes the feature usable: a task whose next run and
+                  last outcome a user cannot see is a task they cannot trust, so both
+                  are on the row and neither is behind a click. */}
+              <div class="tasks-list-column">
+                <p class="tasks-heading">Scheduled ({scheduledTasks.length})</p>
+                <div class="tasks-list space-y-2 max-h-[45vh] overflow-y-auto">
+                  {scheduledTasks.length === 0 && (
+                    <p class="text-sm text-[#9a9aaa]">
+                      No scheduled tasks yet. One created here fires into the conversation you are in.
+                    </p>
                   )}
-                  <div class="flex gap-2 mt-2">
-                    <button
-                      class="min-h-[44px] px-3 rounded-lg border border-white/10 text-xs text-[#e8e8ea] active:scale-95 transition-transform"
-                      onClick={() => void runScheduleNow(t)}
-                    >
-                      Run now
-                    </button>
-                    <button
-                      class="min-h-[44px] px-3 rounded-lg border border-white/10 text-xs text-[#e8e8ea] active:scale-95 transition-transform"
-                      onClick={() => void toggleSchedule(t)}
-                    >
-                      {t.enabled ? 'Pause' : 'Resume'}
-                    </button>
-                    <button
-                      class="min-h-[44px] px-3 rounded-lg border border-danger/30 text-xs text-danger active:scale-95 transition-transform ml-auto"
-                      onClick={() => void deleteSchedule(t)}
-                    >
-                      Delete
-                    </button>
-                  </div>
+                  {scheduledTasks.map((t) => {
+                    const cd = taskCountdown(t, nowMs, clockSkew)
+                    return (
+                      <div key={t.id} class="rounded-xl border border-white/10 p-3">
+                        <div class="flex items-center gap-2">
+                          <span class="flex-1 text-sm text-[#e8e8ea] truncate">{t.title}</span>
+                          {/* The cadence stays visible, but as a TAG: what a person
+                              wants off a row is when it fires NEXT, and `every` is
+                              the setting they typed when they created it. */}
+                          <span class="task-tag">every {durationOf(t.every).short}</span>
+                        </div>
+                        {/* The countdown is the row's headline figure: the tag says what
+                            the task is SET to, this says how long is left. A paused task
+                            shows none - its next run is a projection, and a ticker over a
+                            task that will not fire would be a lie with a pulse. */}
+                        {cd && (
+                          <p class="text-xs text-[#9a9aaa] mt-1.5">
+                            {cd.overdue ? 'due now' : 'fires in '}
+                            {!cd.overdue && <span class="task-countdown">{cd.text}</span>}
+                          </p>
+                        )}
+                        {!t.enabled && (
+                          <p class="text-xs text-[#9a9aaa] mt-1.5">
+                            Paused — last {new Date(t.last_run || t.created).toLocaleString()}
+                          </p>
+                        )}
+                        {t.last_outcome && (
+                          <p class="text-xs text-[#6a6a7a] mt-1 break-words">{t.last_outcome}</p>
+                        )}
+                        <div class="flex gap-2 mt-2">
+                          <button
+                            class="min-h-[44px] px-3 rounded-lg border border-white/10 text-xs text-[#e8e8ea] active:scale-95 transition-transform"
+                            onClick={() => void runScheduleNow(t)}
+                          >
+                            Run now
+                          </button>
+                          <button
+                            class="min-h-[44px] px-3 rounded-lg border border-white/10 text-xs text-[#e8e8ea] active:scale-95 transition-transform"
+                            onClick={() => void toggleSchedule(t)}
+                          >
+                            {t.enabled ? 'Pause' : 'Resume'}
+                          </button>
+                          <button
+                            class="min-h-[44px] px-3 rounded-lg border border-danger/30 text-xs text-danger active:scale-95 transition-transform ml-auto"
+                            onClick={() => void deleteSchedule(t)}
+                          >
+                            Delete
+                          </button>
+                        </div>
+                      </div>
+                    )
+                  })}
                 </div>
-              ))}
+              </div>
+
+              {/* The create form. Cadence is free text because the gateway validates it
+                  and says what is wrong: a fixed dropdown would be a second copy of the
+                  rule. */}
+              <div class="tasks-form pt-4 border-t border-white/10 space-y-2">
+                <p class="tasks-heading">New task</p>
+                <input
+                  class="w-full px-3 py-2 rounded-lg bg-black/30 border border-white/10 text-sm text-[#e8e8ea]"
+                  placeholder="Title"
+                  value={newTaskTitle}
+                  onInput={(e) => setNewTaskTitle((e.target as HTMLInputElement).value)}
+                />
+                <textarea
+                  class="w-full px-3 py-2 rounded-lg bg-black/30 border border-white/10 text-sm text-[#e8e8ea] resize-none"
+                  rows={3}
+                  placeholder="What should it do?"
+                  value={newTaskText}
+                  onInput={(e) => setNewTaskText((e.target as HTMLTextAreaElement).value)}
+                />
+                <div class="flex gap-2">
+                  <input
+                    class="flex-1 px-3 py-2 rounded-lg bg-black/30 border border-white/10 text-sm text-[#e8e8ea] font-mono"
+                    placeholder="24h"
+                    value={newTaskEvery}
+                    onInput={(e) => setNewTaskEvery((e.target as HTMLInputElement).value)}
+                  />
+                  <select
+                    class="px-3 py-2 rounded-lg bg-black/30 border border-white/10 text-sm text-[#e8e8ea]"
+                    value={newTaskKind}
+                    onChange={(e) => setNewTaskKind((e.target as HTMLSelectElement).value as 'task' | 'plan')}
+                  >
+                    <option value="task">Task</option>
+                    <option value="plan">Plan (read-only)</option>
+                  </select>
+                </div>
+                <button
+                  class="w-full min-h-[44px] px-5 rounded-xl bg-accent/20 border border-accent/30 text-[#e8e8ea] active:scale-95 transition-transform disabled:opacity-50"
+                  disabled={scheduledBusy || !newTaskTitle.trim() || !newTaskText.trim()}
+                  onClick={() => void createSchedule()}
+                >
+                  {scheduledBusy ? 'Creating…' : 'Create'}
+                </button>
+              </div>
             </div>
 
-            {/* The create form. Cadence is free text because the gateway validates it and
-                says what is wrong: a fixed dropdown would be a second copy of the rule. */}
-            <div class="mt-4 pt-4 border-t border-white/10 space-y-2">
-              <input
-                class="w-full px-3 py-2 rounded-lg bg-black/30 border border-white/10 text-sm text-[#e8e8ea]"
-                placeholder="Title"
-                value={newTaskTitle}
-                onInput={(e) => setNewTaskTitle((e.target as HTMLInputElement).value)}
-              />
-              <textarea
-                class="w-full px-3 py-2 rounded-lg bg-black/30 border border-white/10 text-sm text-[#e8e8ea] resize-none"
-                rows={3}
-                placeholder="What should it do?"
-                value={newTaskText}
-                onInput={(e) => setNewTaskText((e.target as HTMLTextAreaElement).value)}
-              />
-              <div class="flex gap-2">
-                <input
-                  class="flex-1 px-3 py-2 rounded-lg bg-black/30 border border-white/10 text-sm text-[#e8e8ea] font-mono"
-                  placeholder="24h"
-                  value={newTaskEvery}
-                  onInput={(e) => setNewTaskEvery((e.target as HTMLInputElement).value)}
-                />
-                <select
-                  class="px-3 py-2 rounded-lg bg-black/30 border border-white/10 text-sm text-[#e8e8ea]"
-                  value={newTaskKind}
-                  onChange={(e) => setNewTaskKind((e.target as HTMLSelectElement).value as 'task' | 'plan')}
-                >
-                  <option value="task">Task</option>
-                  <option value="plan">Plan (read-only)</option>
-                </select>
-              </div>
-              <button
-                class="w-full min-h-[44px] px-5 rounded-xl bg-accent/20 border border-accent/30 text-[#e8e8ea] active:scale-95 transition-transform disabled:opacity-50"
-                disabled={scheduledBusy || !newTaskTitle.trim() || !newTaskText.trim()}
-                onClick={() => void createSchedule()}
-              >
-                {scheduledBusy ? 'Creating…' : 'Create'}
-              </button>
-            </div>
-            <div class="flex gap-2 mt-5">
+            <div class="tasks-foot flex gap-2 mt-5">
               <button
                 class="flex-1 min-h-[44px] px-5 rounded-xl border border-white/10 text-[#e8e8ea] active:scale-95 transition-transform"
                 onClick={() => setShowScheduledTasks(false)}

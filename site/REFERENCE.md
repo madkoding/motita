@@ -392,9 +392,11 @@ build flags (`-trimpath -ldflags "-s -w"`, no cgo):
 | `dist/motita-darwin-amd64` | 7.58 MB |
 | `dist/motita-darwin-arm64` | 7.02 MB |
 
-The whole range is 6.88 – 7.66 MB, and the requirement CI enforces is under 10 MB per
-binary. The sizes move with the Go release, so treat them as measurements rather than
-specifications: the gate is the limit, not these numbers.
+The whole range is 6.88 – 7.66 MB as measured when the interface was a text one; the web
+interface, the WebSocket transport and scheduled tasks have since added to that. The
+requirement CI enforces is under 20 MB per binary. The sizes move with the Go release, so
+treat them as measurements rather than specifications: the gate is the limit, not these
+numbers, and it is there to catch runaway growth rather than to bound a feature.
 
 Copy them to the i386 machine over `scp`, `ftp` or USB:
 

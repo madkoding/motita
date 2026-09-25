@@ -363,7 +363,7 @@ not a second agent.
 
 The WebSocket implementation is **standard library only** — the RFC 6455 handshake and
 frame layer are hand-written (~200 lines), because a WebSocket library costs +150-200 KB
-against a binary with a 10 MB ceiling and under 2 MB of headroom.
+against a binary whose ceiling is a runaway-growth guard, not a per-feature budget.
 
 **Every message — inbound and outbound — is a JSON envelope:**
 

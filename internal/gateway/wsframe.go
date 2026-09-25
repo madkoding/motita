@@ -2,11 +2,11 @@ package gateway
 
 // RFC 6455 frame helpers, implemented with the standard library only.
 //
-// The gateway has a 10 MB binary ceiling and under 2 MB of headroom, so a WebSocket
-// library is a cost this feature cannot pay the way gorilla/websocket (+~150 KB) or
-// nhooyr.io/websocket (+~200 KB) would. The subset the flag protocol needs is small:
-// text frames, close, ping/pong, and the server side of the handshake. That is what
-// lives here, and nothing more.
+// The binary carries a ceiling that guards against runaway growth, and it is measured per
+// release: a WebSocket library is a cost this feature did not need to pay the way
+// gorilla/websocket (+~150 KB) or nhooyr.io/websocket (+~200 KB) would. The subset the flag
+// protocol needs is small: text frames, close, ping/pong, and the server side of the
+// handshake. That is what lives here, and nothing more.
 //
 // The frame format (RFC 6455 §5.2):
 //

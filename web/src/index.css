@@ -151,6 +151,115 @@ body {
   transition: background-color 0.15s, border-color 0.15s;
 }
 
+/* ─── Scheduled tasks panel ───────────────────────────────────────
+ * One form and one list, which a phone has no room to show side by side.
+ * Below 768px the panel keeps the column it always was - tasks first,
+ * then the form - and the list scrolls on its own (45vh) so a long set
+ * never pushes the Create form out of reach.
+ *
+ * From 768px up there IS room for both, so the panel widens and the form
+ * takes the LEFT column with the tasks on the right, which is the order a
+ * person works in: write the task, watch it land in the list beside it.
+ * Both blocks are PLACED by `grid-row` there, so the two columns start on
+ * the same line whatever order the markup uses - the DOM keeps the phone's
+ * order and neither layout needs its own copy of the markup.
+ *
+ * Only the list scrolls on a desktop (the panel is capped to the viewport),
+ * so the form stays anchored instead of sliding away under a long set.
+ *
+ * Plain CSS on purpose: these are geometry declarations, and the Tailwind
+ * utilities this project's config disables emit nothing. */
+.tasks-heading {
+  font-size: 0.7rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #6a6a7a;
+  margin: 0 0 0.5rem;
+}
+
+/* The cadence, as a tag: it is a setting, not the answer to "when does this
+ * fire next", so it is small, recessed and never the row's headline. */
+.task-tag {
+  flex: 0 0 auto;
+  padding: 2px 8px;
+  border-radius: 9999px;
+  background: rgba(76, 194, 255, 0.1);
+  border: 1px solid rgba(76, 194, 255, 0.22);
+  color: #8fd4ff;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  line-height: 1.5;
+  white-space: nowrap;
+}
+
+/* The countdown: the figure a person opens this panel to read, so it is the
+ * accent colour and monospaced (the digits must not reflow as they tick). */
+.task-countdown {
+  font-family: var(--font-mono);
+  font-size: 0.8rem;
+  color: #4cc2ff;
+  font-variant-numeric: tabular-nums;
+}
+
+/* The phone's stacking, declared here rather than as a Tailwind `space-y-*`
+ * utility on .tasks-body: that utility's selector is `.tasks-body > * + *`,
+ * so it is the SIBLING's margin that separates the blocks - and it would
+ * survive into the desktop grid, where the gap is the whole separation and
+ * the columns must start on the same line. Same shape here, overridden by
+ * the query below on specificity rather than on source order. */
+.tasks-body > * + * {
+  margin-top: 1rem;
+}
+
+@media (min-width: 768px) {
+  .tasks-panel {
+    max-width: 56rem;
+    max-height: calc(100vh - 2rem);
+    display: flex;
+    flex-direction: column;
+  }
+  .tasks-head {
+    flex: 0 0 auto;
+  }
+  .tasks-body {
+    flex: 1 1 auto;
+    min-height: 0;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1.25fr);
+    gap: 1.25rem;
+  }
+  .tasks-body > .tasks-form {
+    grid-column: 1;
+    grid-row: 1;
+    margin-top: 0;
+    padding-top: 0;
+    border-top-width: 0;
+    min-height: 0;
+    overflow-y: auto;
+  }
+  .tasks-body > .tasks-list-column {
+    grid-column: 2;
+    grid-row: 1;
+    margin-top: 0;
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    border-left: 1px solid rgba(255, 255, 255, 0.1);
+    padding-left: 1.25rem;
+  }
+  .tasks-list {
+    flex: 1 1 auto;
+    min-height: 0;
+    max-height: none;
+  }
+  .tasks-foot {
+    flex: 0 0 auto;
+    justify-content: flex-end;
+    min-width: 10rem;
+    align-self: flex-end;
+  }
+}
+
 /* ─── Message bubbles with frosted glass ──────────────────────────
  * backdrop-filter: blur() makes the bubble semi-transparent over the
  * chat background, so the text is readable regardless of what is

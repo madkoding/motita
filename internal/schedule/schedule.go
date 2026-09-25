@@ -6,8 +6,8 @@
 // instead of a real timer. The gateway supplies the two things this package cannot
 // know: where the records live (a directory) and what firing actually does (a Firer).
 //
-// Nothing here adds a dependency: encoding/json and time are the standard library, and
-// the released binary has a 10 MB ceiling with roughly 1 MB of room beneath it.
+// Nothing here adds a dependency: encoding/json and time are the standard library, and the
+// package is small enough to sit under the binary's growth ceiling without arguing for it.
 package schedule
 
 import (
