@@ -89,7 +89,7 @@ body {
  * centered with cover; on mobile it anchors to the right edge
  * (right-to-left alignment) while keeping its aspect ratio. */
 .app-bg {
-  background-image: url(/chat-bg.jpg);
+  background-image: url(/chat-bg.webp);
   background-size: cover;
   background-position: center;
   background-repeat: no-repeat;
