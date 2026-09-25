@@ -469,6 +469,7 @@ func TestHandleUpdateRunWithoutUpdater(t *testing.T) {
 
 func TestHandleUpdateCheckWithCache(t *testing.T) {
 	srv := newTestServer(t, &fakeService{})
+	srv.updater = updater.New("test", "/tmp/fake-exe")
 	srv.lastCheckMu.Lock()
 	srv.lastCheck = updater.CheckResult{LatestVersion: "v9.9.9", CurrentVersion: "test"}
 	srv.lastCheckMu.Unlock()
@@ -619,14 +620,31 @@ func TestWsWriteCloseViaPipe(t *testing.T) {
 	client, server := net.Pipe()
 	defer client.Close()
 	defer server.Close()
-	wsWriteClose(server, CloseNormal, "bye")
-	client.SetReadDeadline(time.Now().Add(2 * time.Second))
-	_, payload, _, _, err := wsReadFrame(client)
-	if err != nil {
-		t.Fatalf("read: %v", err)
+	// net.Pipe is synchronous: the write blocks until the read side consumes it,
+	// so the read must happen in a goroutine before the write.
+	type result struct {
+		payload []byte
+		err     error
 	}
-	if len(payload) < 2 {
-		t.Fatalf("payload too short: %d bytes", len(payload))
+	done := make(chan result, 1)
+	go func() {
+		client.SetReadDeadline(time.Now().Add(2 * time.Second))
+		_, payload, _, _, err := wsReadFrame(client)
+		done <- result{payload, err}
+	}()
+	if err := wsWriteClose(server, CloseNormal, "bye"); err != nil {
+		t.Fatalf("write close: %v", err)
+	}
+	select {
+	case r := <-done:
+		if r.err != nil {
+			t.Fatalf("read: %v", r.err)
+		}
+		if len(r.payload) < 2 {
+			t.Fatalf("payload too short: %d bytes", len(r.payload))
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("timed out waiting for the close frame")
 	}
 }
 

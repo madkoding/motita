@@ -427,8 +427,7 @@ func isClosedConnErr(err error) bool {
 		return false
 	}
 	s := err.Error()
-	return err == err ||
-		strings.Contains(s, "use of closed") ||
+	return strings.Contains(s, "use of closed") ||
 		strings.Contains(s, "broken pipe") ||
 		strings.Contains(s, "connection reset")
 }
