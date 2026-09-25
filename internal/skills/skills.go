@@ -403,7 +403,10 @@ func (l *Library) Archive(name string) error {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return fmt.Errorf("could not create the archive directory %s: %w", dir, err)
 	}
-	if err := os.Rename(l.path(n), filepath.Join(dir, n+".md")); err != nil {
+	// Through the seam, not os.Rename: the rename is the call whose failure a test cannot
+	// arrange from the outside (a read-only filesystem), which is why Save already goes
+	// through it. One seam for one class of failure.
+	if err := renameFile(l.path(n), filepath.Join(dir, n+".md")); err != nil {
 		return fmt.Errorf("could not archive the skill %q: %w", n, err)
 	}
 	return nil
@@ -419,7 +422,7 @@ func (l *Library) Restore(name string) error {
 	if err := os.MkdirAll(l.Dir, 0o755); err != nil {
 		return fmt.Errorf("could not create the skills directory %s: %w", l.Dir, err)
 	}
-	if err := os.Rename(src, l.path(n)); err != nil {
+	if err := renameFile(src, l.path(n)); err != nil {
 		return fmt.Errorf("could not restore the skill %q: %w", n, err)
 	}
 	return nil
