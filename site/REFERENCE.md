@@ -425,6 +425,9 @@ The three settings that are lists or maps (`task_source.headers`, `anchor.args`
 and `anchor.checks`) have no variable: they are collections, so they are set in
 the YAML file.
 
+The `schedule` block reads `MOTITA_SCHEDULE_ENABLED`, `MOTITA_SCHEDULE_TICK`,
+`MOTITA_SCHEDULE_MIN_EVERY` and `MOTITA_SCHEDULE_MAX_RUNS_KEPT`.
+
 One setting also answers to its older name: `agent.graceful_shutdown_timeout` is
 `MOTITA_AGENT_GRACEFUL_SHUTDOWN_TIMEOUT`, and
 `MOTITA_AGENT_SHUTDOWN_TIMEOUT` (the name of the earlier release) is still
@@ -441,6 +444,7 @@ honoured. The documented one wins when both are set.
 | `agent` | `max_retries`, `subtask_depth`, `max_tasks`, `workspace_dir`, `log_file`, `log_level`, `log_console`, `log_max_mb`, `log_backups`, `graceful_shutdown_timeout`, `read_only`, `shell`, `policy{enforce,strict}`, `on_failure` |
 | `skills` | `dir`, `max_file_bytes` |
 | `gateway` | `enabled`, `listen`, `token_file`, `allow`, `max_body_kb` |
+| `schedule` | `enabled`, `tick`, `min_every`, `max_runs_kept` |
 
 `skills.dir` is the procedure library: the directory of documents the agent may
 list, search, read and extend. It defaults to `skills` under the working
@@ -841,6 +845,69 @@ has already ended and report a success that stopped nothing.
 
 A verdict the gateway refuses with `409` (*nothing is waiting for an approval*) is an
 error and not something to swallow: it means the client's view is stale.
+
+### Scheduled tasks
+
+A **scheduled task** is a task or a plan the gateway submits on its own, on a cadence,
+with nobody at the keyboard. It is a block of its own (`schedule`) because a task
+that fires on its own is not a property of the transport: the records live in
+`~/.motita/schedules/`, one JSON file per task, and they are meant to be readable and
+editable by hand.
+
+```yaml
+schedule:
+  enabled: true
+  tick: 30s         # resolution at which a cadence is NOTICED, not the cadence itself
+  min_every: 1m     # shortest cadence a task may be given
+  max_runs_kept: 50 # firings kept in a task's record
+```
+
+| Endpoint | What it does |
+|---|---|
+| `GET /v1/schedules` | every task, with its `next_run` computed server-side |
+| `POST /v1/schedules` | create one: `title`, `task`, `every` (`"30m"`), optional `kind`, `session_id` |
+| `PATCH /v1/schedules/{id}` | change one field: `enabled`, `title`, `task`, `every`, `kind`, `session_id` |
+| `DELETE /v1/schedules/{id}` | remove one |
+| `POST /v1/schedules/{id}/run` | run it now; `202`, and the cadence is left alone |
+
+```bash
+TOKEN="$(cat ~/.motita/gateway.token)"
+curl -s -H "Authorization: Bearer ***" http://127.0.0.1:7477/v1/schedules
+# {"schedules":[]} — an empty LIST, never null
+
+curl -s -X POST -H "Authorization: Bearer ***" -H 'Content-Type: application/json' \
+  -d '{"title":"nightly audit","task":"check the logs and report","kind":"plan","every":"24h"}' \
+  http://127.0.0.1:7477/v1/schedules
+# 201 with the record, its id and its next_run
+```
+
+**There is no cron syntax.** The cadence is a Go duration (`30m`, `6h`, `24h`), and the
+reason is that a duration is what the arithmetic needs: `every 6h` means six hours after
+the last firing, while `0 */6 * * *` means six hours after midnight, and offering the
+second would mean parsing a calendar to answer a question the first already answers. The
+minimum is `schedule.min_every` (one minute): a tighter cadence starts a task faster than
+an agent turn can finish.
+
+**First firing is one cadence after creation**, and later firings are measured from the
+last run. A task created at 10:00 with `every: 6h` fires at 16:00 — not immediately — and
+a gateway that restarted twice does not catch up on the firings it missed.
+
+**A task fires INTO a conversation that already exists**, named by `session_id` (the
+default one when the field is absent). Creating a conversation per firing would put a run
+in a place nobody opened, and the conversations the gateway holds are the only place a run
+can be watched: a scheduled turn appears in that session's transcript and is attachable
+exactly like one you started by hand.
+
+**A task that is still running is not joined by the next firing.** The conversation's
+one-run-at-a-time rule applies, so a firing that arrives while the previous one is in
+flight is recorded as skipped with the reason, and the outcome is on the record.
+
+**A scheduled run cannot approve anything.** A command the policy wants to ask about is
+refused, and the record says so, because there is nobody to ask — the same behaviour a
+batch run already has. The refusal names the fix: set `agent.policy.enforce=false` to run
+such work deliberately, which is the documented escape hatch for an unattended job. It is
+not a new guardrail and it is not configurable per task: a switch a task could flip is how
+a guardrail gets switched off during the incident it was meant for.
 
 ### What runs silently, and why that is a design decision
 
