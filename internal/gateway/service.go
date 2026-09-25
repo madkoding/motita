@@ -95,9 +95,9 @@ type Service interface {
 	SetWorkspace(dir string)
 	// GenerateTitle asks the model for a short, descriptive title for the
 	// conversation so far. It is called once, after the first turn completes,
-	// to replace the placeholder "Sesión nueva — …" label with something
-	// meaningful. It must never block the caller for long: a timeout or error
-	// falls back to a truncated version of the first user message.
+	// to replace the placeholder label with something meaningful. It must
+	// never block the caller for long: a timeout or error falls back to a
+	// truncated version of the first user message.
 	GenerateTitle(ctx context.Context, firstUserMessage string) string
 	// SetApprover installs the channel a consequential command is confirmed through.
 	//

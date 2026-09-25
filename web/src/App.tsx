@@ -70,16 +70,19 @@ function sessionWorktreeChip(s: SessionInfo): string {
   return s.branch === 'motita/' + s.worktree ? '' : shortID(s.worktree)
 }
 
-// formatUpdated renders when a session was last used, in the compact form a
-// narrow sidebar can afford: day/month and the time, in the reader's own zone.
-// A session is "updated" when it is spoken to, so this moves every time the
-// user opens it - which is what makes it worth showing at all.
+// formatUpdated renders when a session was last used, as dd/mm/yyyy :: HH:mm:ss.
+//
+// Seconds and the full year are carried even though a sidebar usually shows
+// something shorter, because the user asked for this exact format and a
+// timestamp is a fact: two sessions opened a minute apart are told apart by the
+// seconds, and the year is what keeps a session restored from a backup from
+// reading as if it were touched today.
 function formatUpdated(iso?: string): string {
   if (!iso) return ''
   const d = new Date(iso)
   if (Number.isNaN(d.getTime())) return ''
   const p = (n: number) => String(n).padStart(2, '0')
-  return `${p(d.getDate())}/${p(d.getMonth() + 1)} ${p(d.getHours())}:${p(d.getMinutes())}`
+  return `${p(d.getDate())}/${p(d.getMonth() + 1)}/${d.getFullYear()} :: ${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`
 }
 
 // fullUpdated is the exact time, for the tooltip. The row carries the compact

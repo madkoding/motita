@@ -35,13 +35,20 @@ import websockets
 PORT = int(os.environ.get("CDP_PORT", "9341"))
 BASE = os.environ.get("GATEWAY_URL", "http://127.0.0.1:7477")
 SHOTS = os.environ.get("SHOTS_DIR", "/tmp/motita-sidebar-shots")
+# A throwaway gateway runs under an isolated HOME, so the token and the browser
+# are looked up through the environment rather than assumed to be in the real
+# home: expanduser would otherwise reach the wrong tree (or the wrong file).
+TOKEN_FILE = os.environ.get("MOTITA_TOKEN_FILE", "~/.motita/gateway.token")
 CHROME = os.path.expanduser(
-    "~/.hermes/cache/chrome/chrome-headless-shell-linux64/chrome-headless-shell"
+    os.environ.get(
+        "CDP_CHROME",
+        "~/.hermes/cache/chrome/chrome-headless-shell-linux64/chrome-headless-shell",
+    )
 )
 
 
 def token():
-    with open(os.path.expanduser("~/.motita/gateway.token")) as f:
+    with open(os.path.expanduser(TOKEN_FILE)) as f:
         return f.read().strip()
 
 
@@ -235,9 +242,10 @@ def main():
                         for a, b in zip(chips, chips[1:]):
                             if a["line"] == b["line"] and b["left"] < a["right"] - 0.5:
                                 failures += fail(f"meta chips overlap in {label}: {a['text']!r} / {b['text']!r}")
-                        # Every session shows when it was last updated.
-                        if not any(re.search(r"\d\d/\d\d \d\d:\d\d", ch["text"]) for ch in s["chips"]):
-                            failures += fail(f"no last-updated timestamp in {label}: {s['titleText']!r}")
+                        # Every session shows when it was last updated, in the
+                        # exact format asked for: dd/mm/yyyy :: HH:mm:ss.
+                        if not any(re.search(r"\d\d/\d\d/\d{4} :: \d\d:\d\d:\d\d", ch["text"]) for ch in s["chips"]):
+                            failures += fail(f"no dd/mm/yyyy :: HH:mm:ss timestamp in {label}: {s['titleText']!r}")
                         # An unbroken string of 25 chars can still be clipped by
                         # the max-width, which would hide the value being shown.
                         for ch in s["chips"]:

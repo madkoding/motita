@@ -139,6 +139,43 @@ func TestASessionIdThatCannotBeFormedIsReported(t *testing.T) {
 	}
 }
 
+// TestIsPlaceholderTitleRecognisesOnlyUnchosenTitles: auto-titling replaces a
+// placeholder and nothing else. Getting this wrong is not cosmetic - it either
+// overwrites a name the user typed, or leaves a session that was never named
+// stuck with a generated placeholder forever.
+func TestIsPlaceholderTitleRecognisesOnlyUnchosenTitles(t *testing.T) {
+	cases := []struct {
+		title string
+		want  bool
+		why   string
+	}{
+		{placeholderTitle, true, "the current placeholder is unchosen"},
+		{"New session", true, "exactly the placeholder, not merely a title starting with it"},
+		{"New session — 25/09 17:46:25", true, "the dated placeholder an older build persisted is still unchosen"},
+		{"New session notes", false, "a title the user typed must never be overwritten"},
+		{"Refactor the sidebar", false, "a real title is not a placeholder"},
+		{"", false, "an empty title is not the placeholder it is compared against"},
+	}
+	for _, tc := range cases {
+		if got := isPlaceholderTitle(tc.title); got != tc.want {
+			t.Errorf("isPlaceholderTitle(%q) = %v, want %v: %s", tc.title, got, tc.want, tc.why)
+		}
+	}
+}
+
+// TestANewSessionTitleCarriesNoDate: the creation time used to be half the
+// title. It now lives in the metadata line every session draws, and a title
+// that repeats it says one thing twice while naming nothing.
+func TestANewSessionTitleCarriesNoDate(t *testing.T) {
+	c := newConversation("s-no-date", &fakeService{})
+	if c.status().Title != placeholderTitle {
+		t.Errorf("title = %q, want %q", c.status().Title, placeholderTitle)
+	}
+	if strings.ContainsAny(c.status().Title, "0123456789") {
+		t.Errorf("a new session's title must not carry a date, got %q", c.status().Title)
+	}
+}
+
 // TestTheDefaultSessionIsResetNotClosed: it belongs to the process that started this gateway,
 // so it cannot be removed — but a DELETE resets it (clears the transcript, restores the
 // placeholder title) and returns 200 with the updated status.
@@ -152,8 +189,13 @@ func TestTheDefaultSessionIsResetNotClosed(t *testing.T) {
 	if err := json.Unmarshal(w.Body.Bytes(), &status); err != nil {
 		t.Fatalf("could not parse the reset status: %v", err)
 	}
-	if !strings.HasPrefix(status.Title, "New session —") {
-		t.Errorf("the reset title should start with 'New session —', got: %s", status.Title)
+	// The placeholder carries no date: when the session was created and when it
+	// was last used belong in the metadata line, not in the title.
+	if status.Title != placeholderTitle {
+		t.Errorf("the reset title should be the placeholder %q, got: %s", placeholderTitle, status.Title)
+	}
+	if strings.ContainsAny(status.Title, "0123456789") {
+		t.Errorf("the placeholder title must not carry a date, got: %s", status.Title)
 	}
 }
 
