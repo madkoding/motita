@@ -745,8 +745,77 @@ button:disabled {
   to   { opacity: 1; transform: translateY(0); }
 }
 
+/* ─── Row dropdown menu (the ⋯ in the sidebar) ──────────────────────
+ * The menu rises in and fades out. It animates in BOTH directions on
+ * purpose: a menu that slides in and then vanishes in a single frame
+ * reads as a glitch, because the eye has just been taught that this
+ * element moves. `row-menu-closing` is what the component switches to
+ * on the way out; it holds the element mounted while it plays.
+ *
+ * Written here rather than as Tailwind utilities because this build has
+ * the `opacity`, `transform` and every `transition*` plugin disabled, so
+ * `transition-transform` / `opacity-0` / `duration-150` emit NO rule at
+ * all — the markup carried them and nothing happened at runtime. */
+.row-menu {
+  transform-origin: top right;
+  animation: rowMenuIn 0.14s cubic-bezier(0.4, 0, 0.2, 1);
+  /* `shadow-2xl` is in the markup but emits nothing: the `boxShadow`
+     plugin is off. The menu floats over the session list, so it needs a
+     real shadow to separate from it. */
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.55), 0 2px 8px rgba(0, 0, 0, 0.4);
+}
+.row-menu-closing {
+  animation: rowMenuOut 0.14s ease-in forwards;
+  /* The menu is already dismissed: it must not swallow the click that
+     dismissed it, which would otherwise land on the row underneath. */
+  pointer-events: none;
+}
+@keyframes rowMenuIn {
+  from { opacity: 0; transform: translateY(-6px) scale(0.96); }
+  to   { opacity: 1; transform: translateY(0) scale(1); }
+}
+@keyframes rowMenuOut {
+  from { opacity: 1; transform: translateY(0) scale(1); }
+  to   { opacity: 0; transform: translateY(-6px) scale(0.96); }
+}
+
+/* Rows inside the menu: smooth hover, and a DISABLED item is dimmed.
+ * The dimming is the point — an unavailable "Integrate" used to render
+ * exactly like an available one, so the only way to find out was to
+ * click it and get nothing. */
+.row-menu-item {
+  transition: background-color 0.15s ease-out, color 0.15s ease-out, opacity 0.15s ease-out;
+}
+.row-menu-item:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+/* Row actions (⋯) stay out of the way until the row is hovered. Guarded
+ * by `hover: hover` so a touch device, which never hovers, keeps them
+ * always visible — hiding them there would make the menu unreachable. */
+@media (hover: hover) {
+  .session-row .row-actions,
+  .project-header .row-actions {
+    opacity: 0;
+    transition: opacity 0.15s ease-out;
+  }
+  .session-row:hover .row-actions,
+  .session-row:focus-within .row-actions,
+  .project-header:hover .row-actions,
+  .project-header:focus-within .row-actions,
+  .row-actions.row-actions-open {
+    opacity: 1;
+  }
+}
+
 /* Reduced motion: kill all entrance animations but keep transitions. */
 @media (prefers-reduced-motion: reduce) {
+  /* The closing animation is the exception to "keep transitions": with it
+     removed the menu would sit fully visible until it unmounts, so hide it
+     outright instead. */
+  .row-menu, .row-menu-closing { animation: none !important; }
+  .row-menu-closing { opacity: 0; }
   .msg, .session-row, .project-header, .sidebar,
   header.frosted, form.frosted, .msg.activity,
   [class*="bg-black\\/60"] > div, [class*="bg-black\\/60"],

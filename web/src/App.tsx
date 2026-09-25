@@ -306,6 +306,37 @@ export default function App() {
   const [contextMenu, setContextMenu] = useState<{ type: 'session' | 'project'; id: string; title: string; x: number; y: number } | null>(null)
   // Row dropdown menu: which session/project row has its "⋯" menu open.
   const [rowMenu, setRowMenu] = useState<{ type: 'session' | 'project'; id: string; title: string } | null>(null)
+  // Closing state: the menu keeps rendering for the length of its exit
+  // animation. Without it the element would unmount on the same frame the
+  // user clicked outside and the exit animation would never be seen.
+  const [rowMenuClosing, setRowMenuClosing] = useState(false)
+  const rowMenuTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const rowMenuClosingRef = useRef(false)
+
+  // closeRowMenu plays the exit animation, then unmounts. Idempotent: a
+  // second call while the timer runs would otherwise stack timers, and the
+  // last one to fire would reset the state under a menu already reopened.
+  const closeRowMenu = useCallback(() => {
+    if (rowMenuClosingRef.current) return
+    rowMenuClosingRef.current = true
+    setRowMenuClosing(true)
+    if (rowMenuTimer.current) clearTimeout(rowMenuTimer.current)
+    rowMenuTimer.current = setTimeout(() => {
+      setRowMenu(null)
+      setRowMenuClosing(false)
+      rowMenuClosingRef.current = false
+      rowMenuTimer.current = null
+    }, 140)
+  }, [])
+
+  // openRowMenu opens the menu, cancelling a close that is mid-flight so
+  // the new menu does not inherit the old one's exit state.
+  const openRowMenu = useCallback((m: { type: 'session' | 'project'; id: string; title: string } | null) => {
+    if (rowMenuTimer.current) { clearTimeout(rowMenuTimer.current); rowMenuTimer.current = null }
+    rowMenuClosingRef.current = false
+    setRowMenuClosing(false)
+    setRowMenu(m)
+  }, [])
   // Collapsed projects: a set of project IDs whose session list is hidden.
   // Persisted in localStorage so a user's choice survives a reload, like the
   // sidebar's own open/closed state.
@@ -1198,6 +1229,33 @@ export default function App() {
     }
   }, [authInput, authBusy, fetchProjects, fetchSessions, switchSession])
 
+  // Click-outside / Escape closes the row menu, WITH its exit animation.
+  // Listening on `document` in the CAPTURE phase (not bubble) so the menu
+  // closes even when the click lands on an element that stops propagation —
+  // a session row does exactly that, which is why a bubble-phase listener
+  // would leave the menu open when the user clicked a different row.
+  //
+  // The `⋯` toggle itself is excluded: `mousedown` fires BEFORE `click`, so
+  // treating it as an outside click would flip the state twice (closed here,
+  // then reopened by the button's own handler) and the button would seem dead.
+  useEffect(() => {
+    if (!rowMenu) return
+    const onDown = (e: Event) => {
+      const t = e.target as HTMLElement | null
+      if (t && (t.closest('.row-menu') || t.closest('button[title="More actions"]'))) return
+      closeRowMenu()
+    }
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') closeRowMenu() }
+    document.addEventListener('mousedown', onDown, true)
+    document.addEventListener('touchstart', onDown, true)
+    document.addEventListener('keydown', onKey)
+    return () => {
+      document.removeEventListener('mousedown', onDown, true)
+      document.removeEventListener('touchstart', onDown, true)
+      document.removeEventListener('keydown', onKey)
+    }
+  }, [rowMenu, closeRowMenu])
+
   // Copy button handler: delegate clicks from copy-btn and copy-msg-btn.
   useEffect(() => {
     const handler = (e: Event) => {
@@ -1358,21 +1416,28 @@ export default function App() {
         </>
       )}
       {renamingId !== s.id && (
-        <div class="relative flex-none opacity-0 group-hover:opacity-100 transition-opacity">
+        <div class={`row-actions relative flex-none${rowMenu?.id === s.id ? ' row-actions-open' : ''}`}>
           <button
             class="p-1 rounded hover:bg-white/10"
             title="More actions"
-            onClick={(e) => { e.stopPropagation(); setRowMenu(rowMenu?.id === s.id ? null : { type: 'session', id: s.id, title: s.title || s.id }) }}
+            onClick={(e) => {
+              e.stopPropagation()
+              if (rowMenu?.id === s.id) closeRowMenu()
+              else openRowMenu({ type: 'session', id: s.id, title: s.title || s.id })
+            }}
           >
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
               <circle cx="12" cy="5" r="1" /><circle cx="12" cy="12" r="1" /><circle cx="12" cy="19" r="1" />
             </svg>
           </button>
           {rowMenu?.id === s.id && (
-            <div class="absolute right-0 top-full mt-1 z-50 frosted rounded-xl border border-white/10 shadow-2xl py-1 min-w-[140px]" onClick={(e) => e.stopPropagation()}>
+            <div
+              class={`row-menu absolute right-0 top-full mt-1 z-50 frosted rounded-xl border border-white/10 py-1 min-w-[140px]${rowMenuClosing ? ' row-menu-closing' : ''}`}
+              onClick={(e) => e.stopPropagation()}
+            >
               <button
-                class="w-full flex items-center gap-2 px-3 py-2 text-sm text-[#e8e8ea] hover:bg-white/5 transition-colors"
-                onClick={(e) => { e.stopPropagation(); setRenamingId(s.id); setRenameValue(s.title || ''); setRowMenu(null) }}
+                class="row-menu-item w-full flex items-center gap-2 px-3 py-2 text-sm text-[#e8e8ea] hover:bg-white/5"
+                onClick={(e) => { e.stopPropagation(); setRenamingId(s.id); setRenameValue(s.title || ''); closeRowMenu() }}
               >
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                   <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" /><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
@@ -1381,13 +1446,13 @@ export default function App() {
               </button>
               {s.project_id && (
                 <button
-                  class={`w-full flex items-center gap-2 px-3 py-2 text-sm transition-colors ${s.mergeable ? 'text-accent hover:bg-accent/10' : 'text-muted-foreground/40 cursor-not-allowed'}`}
+                  class={`row-menu-item w-full flex items-center gap-2 px-3 py-2 text-sm ${s.mergeable ? 'text-accent hover:bg-accent/10' : 'text-[#8a8a9a]'}`}
                   disabled={!s.mergeable}
                   title={s.mergeable ? 'Integrate this session\'s work back into the project' : 'Nothing to integrate yet'}
                   onClick={async (e) => {
                     if (!s.mergeable) { e.stopPropagation(); return }
                     e.stopPropagation()
-                    setRowMenu(null)
+                    closeRowMenu()
                     try {
                       const res = await api('/v1/sessions/' + s.id + '/merge', {
                         method: 'POST',
@@ -1441,8 +1506,8 @@ export default function App() {
                 </button>
               )}
               <button
-                class="w-full flex items-center gap-2 px-3 py-2 text-sm text-danger hover:bg-danger/10 transition-colors"
-                onClick={(e) => { e.stopPropagation(); setConfirmDelete({ type: 'session', id: s.id, title: s.title || s.id }); setRowMenu(null) }}
+                class="row-menu-item w-full flex items-center gap-2 px-3 py-2 text-sm text-danger hover:bg-danger/10"
+                onClick={(e) => { e.stopPropagation(); setConfirmDelete({ type: 'session', id: s.id, title: s.title || s.id }); closeRowMenu() }}
               >
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                   <polyline points="3 6 5 6 21 6" /><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
@@ -1598,8 +1663,16 @@ export default function App() {
               {projects.map(p => {
                 const isCollapsed = collapsedProjects.has(p.id)
                 const projectSessions = sessions.filter(s => s.project_id === p.id)
+                // The container does NOT clip. It must not: the "⋯" menu is
+                // absolutely positioned and overflows the box, so any
+                // `overflow-hidden` here cuts it off (measured: 21 of its 46 px
+                // hidden, and worse on the last row). Clipping is not needed for
+                // the collapse either — the session list is not rendered while
+                // collapsed, and the list's own padding keeps the inner hover
+                // backgrounds off the rounded corners. It was purely cosmetic and
+                // it broke the menu.
                 return (
-                  <div key={p.id} class="mt-1.5 rounded-xl bg-white/[0.02] border border-white/[0.06] overflow-hidden">
+                  <div key={p.id} class="mt-1.5 rounded-xl bg-white/[0.02] border border-white/[0.06]">
                     {/* Header: click toggles collapse. */}
                     <div
                       class="project-header group flex items-center gap-1.5 px-2.5 py-2 cursor-pointer select-none hover:bg-white/[0.04] transition-colors"
@@ -1693,21 +1766,28 @@ export default function App() {
                           <line x1="12" y1="5" x2="12" y2="19" /><line x1="5" y1="12" x2="19" y2="12" />
                         </svg>
                       </button>
-                      <div class="relative opacity-0 group-hover:opacity-100 transition-opacity flex-none">
+                      <div class={`row-actions relative flex-none${rowMenu?.id === p.id ? ' row-actions-open' : ''}`}>
                         <button
                           class="p-0.5 rounded hover:bg-white/10"
                           title="More actions"
-                          onClick={(e) => { e.stopPropagation(); setRowMenu(rowMenu?.id === p.id ? null : { type: 'project', id: p.id, title: p.title }) }}
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            if (rowMenu?.id === p.id) closeRowMenu()
+                            else openRowMenu({ type: 'project', id: p.id, title: p.title })
+                          }}
                         >
                           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                             <circle cx="12" cy="5" r="1" /><circle cx="12" cy="12" r="1" /><circle cx="12" cy="19" r="1" />
                           </svg>
                         </button>
                         {rowMenu?.id === p.id && (
-                          <div class="absolute right-0 top-full mt-1 z-50 frosted rounded-xl border border-white/10 shadow-2xl py-1 min-w-[140px]" onClick={(e) => e.stopPropagation()}>
+                          <div
+                            class={`row-menu absolute right-0 top-full mt-1 z-50 frosted rounded-xl border border-white/10 py-1 min-w-[140px]${rowMenuClosing ? ' row-menu-closing' : ''}`}
+                            onClick={(e) => e.stopPropagation()}
+                          >
                             <button
-                              class="w-full flex items-center gap-2 px-3 py-2 text-sm text-danger hover:bg-danger/10 transition-colors"
-                              onClick={(e) => { e.stopPropagation(); setConfirmDelete({ type: 'project', id: p.id, title: p.title }); setRowMenu(null) }}
+                              class="row-menu-item w-full flex items-center gap-2 px-3 py-2 text-sm text-danger hover:bg-danger/10"
+                              onClick={(e) => { e.stopPropagation(); setConfirmDelete({ type: 'project', id: p.id, title: p.title }); closeRowMenu() }}
                             >
                               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                                 <polyline points="3 6 5 6 21 6" /><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
