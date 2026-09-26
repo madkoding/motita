@@ -422,6 +422,21 @@ else
   esac
 fi
 
+step "8d. the sidebar's activity spinner, in a real browser"
+# Four separate defects lived in this one element, and every one of them was invisible to a
+# check that reads the markup: a class that emits no rule in this build (so the ring never
+# turned), an in-flow element that pushed the row it sat on, an absolutely positioned element
+# resolving against the sidebar instead of its own row, and a flag that outlived its turn.
+# They are properties of the RENDERED page over TIME, so this drives a real browser, starts a
+# run it can watch, and measures. It brings up its own gateway under its own HOME, so it never
+# touches the conversations of whoever is running the gate.
+if ./scripts/verify-spinner.sh >/tmp/verify_spinner.log 2>&1; then
+  ok "the spinner appears, turns and clears"
+else
+  bad "the spinner check failed (see /tmp/verify_spinner.log)"
+  tail -25 /tmp/verify_spinner.log | sed 's/^/    /'
+fi
+
 printf '\n========================================\n'
 if [ "$failures" -eq 0 ]; then
   echo "VERIFICATION PASSED: the repository is clean, tested and functional."

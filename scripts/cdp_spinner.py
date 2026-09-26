@@ -293,10 +293,25 @@ async def main(ws_url):
         if mid_fade == 0:
             failures += fail("the spinner jumps straight on or off: nothing landed between the two states")
 
-        lefts = sorted({r["left"] for rec in samples for r in rec["rows"] if r["left"] is not None})
-        print(f"  distinct title-left values across the whole turn: {lefts}")
-        if len(lefts) > 1:
-            failures += fail(f"the row's title moves during the turn: {lefts}")
+        # Per ROW, not across the whole sidebar. A single row's title must not
+        # move; two DIFFERENT rows legitimately sit at different offsets (a row
+        # inside a project is indented), so pooling every row's left into one set
+        # fails on a correct sidebar. Each row is tracked by its POSITION in the
+        # list, and a row that keeps one left for the whole turn is a row that
+        # never moved.
+        tracks = {}
+        for rec in samples:
+            for i, row in enumerate(rec["rows"]):
+                if row["left"] is not None:
+                    tracks.setdefault(i, []).append((rec["t"], row["left"], row["title"]))
+        moved_rows = []
+        for i, vals in sorted(tracks.items()):
+            lefts = sorted({v[1] for v in vals})
+            if len(lefts) > 1:
+                moved_rows.append((vals[0][2][:40], lefts))
+        print(f"  rows whose title moved during the turn: {moved_rows}")
+        if moved_rows:
+            failures += fail(f"a row's title moves during the turn: {moved_rows}")
 
         idle_anim = await c.js("""[...document.querySelectorAll('.session-spinner:not(.is-running)')]
             .map(e => getComputedStyle(e).animationName).filter(n => n && n !== 'none').length""")
