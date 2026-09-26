@@ -267,3 +267,37 @@ func TestMergeSessionWithoutProjectIs409(t *testing.T) {
 		t.Fatalf("merge without project: %d, want 409: %s", w.Code, w.Body.String())
 	}
 }
+
+// TestMergeSessionOnItsOwnBranchIsNotASilentSuccess: when the project's checkout
+// is already ON the session's branch, git accepts the merge and answers "Already
+// up to date" with exit 0 - so the endpoint used to respond 200 with a sha for a
+// merge that changed nothing. Measured against git 2.47.3.
+//
+// The state only arises when the project took a session's branch, which the
+// isolation guard refuses; but a repository can be put there by hand, and the
+// answer must then say that nothing was integrated rather than reporting a
+// success.
+func TestMergeSessionOnItsOwnBranchIsNotASilentSuccess(t *testing.T) {
+	srv := newTestServer(t, &fakeService{})
+	withProjects(t, srv, t.TempDir())
+	pid := makeProject(t, srv, "repo")
+	p := srv.projectOf(pid)
+
+	ss := createSessionIn(t, srv, pid)
+	// Move the session's worktree off its branch, then put the PROJECT's
+	// checkout on it: the state git permits and reports as a no-op merge.
+	mustRun(t, "git", "-C", p.Dir, "branch", "feature")
+	mustRun(t, "git", "-C", ss.Workspace, "checkout", "-q", "feature")
+	mustRun(t, "git", "-C", p.Dir, "checkout", "-q", sessionBranch(ss.ID))
+
+	w := post(t, srv, sessionPath(srv, ss.ID, "/merge"), "{}", testToken)
+	if w.Code == http.StatusOK {
+		t.Fatalf("a merge that integrated nothing must not report success: %d %s", w.Code, w.Body.String())
+	}
+	if w.Code != http.StatusConflict {
+		t.Errorf("status = %d, want 409: %s", w.Code, w.Body.String())
+	}
+	if !strings.Contains(w.Body.String(), "nothing to integrate") {
+		t.Errorf("the refusal must say nothing was integrated, got %s", w.Body.String())
+	}
+}

@@ -52,3 +52,6 @@ workspace/
 # our own words in the go-i386-openai-agent skill instead.
 /.skill-tui-design/
 .starlight/
+
+# Stray git repository left inside a package by a local experiment
+/internal/gateway/repo/

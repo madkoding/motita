@@ -1,8 +1,10 @@
 package usage
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -273,4 +275,88 @@ func TestAllReturnsSnapshot(t *testing.T) {
 	if l.Get("a").UseCount != 0 {
 		t.Fatal("All must return a copy, not the internal map")
 	}
+}
+
+// ---- Save's error paths, through the seams the file declares for them ----
+//
+// jsonMarshalIndent, osCreateTemp and closeFile exist so a test can reach the three failures
+// Save has and no filesystem can produce on demand: an unencodable ledger, a temp file that
+// cannot be created, and a Close that fails AFTER a successful Write. Without them those
+// returns are statements nobody can execute, which is what "84%" meant here.
+
+// assertSeamFails is the shape every one of these tests needs: replace one seam, make the
+// ledger dirty, call Save, put the seam back. The restore is registered with Cleanup so a
+// failing assertion cannot leave a broken seam behind for the next test in the process.
+func assertSeamFails(t *testing.T, restore func(), want string) {
+	t.Helper()
+	t.Cleanup(restore)
+	l := &Ledger{Now: time.Now, entries: map[string]Entry{}, Path: filepath.Join(t.TempDir(), ".usage.json")}
+	l.BumpView("x") // make it dirty, or Save returns early and never reaches the seam
+
+	err := l.Save()
+	if err == nil {
+		t.Fatalf("Save must report a failure when the file cannot be %s", want)
+	}
+	if !strings.Contains(err.Error(), want) {
+		t.Errorf("the error must say what the file cannot do (%q): %v", want, err)
+	}
+}
+
+// An entry that cannot be encoded must be reported, not written as a partial ledger: the file
+// is the only record of what the user thought of the library.
+func TestSaveReportsAnUnencodableLedger(t *testing.T) {
+	orig := jsonMarshalIndent
+	jsonMarshalIndent = func(any, string, string) ([]byte, error) {
+		return nil, errors.New("encode exploded")
+	}
+	assertSeamFails(t, func() { jsonMarshalIndent = orig }, "encode exploded")
+}
+
+// A temp file that cannot be created means the write never started, and the ledger on disk must
+// be left exactly as it was.
+func TestSaveReportsATempFileThatCannotBeCreated(t *testing.T) {
+	orig := osCreateTemp
+	osCreateTemp = func(string, string) (*os.File, error) {
+		return nil, errors.New("no temp file")
+	}
+	assertSeamFails(t, func() { osCreateTemp = orig }, "no temp file")
+}
+
+// A write that fails partway must be reported, not renamed into place. Write has no seam of
+// its own and the package does not need one: osCreateTemp already returns the file, so handing
+// back the same path opened READ-ONLY makes the write the thing that fails while Close and the
+// atomic rename stay out of the way.
+func TestSaveReportsAWriteFailure(t *testing.T) {
+	dir := t.TempDir()
+	orig := osCreateTemp
+	osCreateTemp = func(string, string) (*os.File, error) {
+		f, err := os.CreateTemp(dir, ".usage.*.tmp")
+		if err != nil {
+			return nil, err
+		}
+		name := f.Name()
+		_ = f.Close()
+		return os.Open(name) // read-only: Close succeeds, Write cannot
+	}
+	t.Cleanup(func() { osCreateTemp = orig })
+
+	l := &Ledger{Now: time.Now, entries: map[string]Entry{}, Path: filepath.Join(dir, ".usage.json")}
+	l.BumpView("x")
+	if err := l.Save(); err == nil {
+		t.Error("a temp file that cannot be written must be reported, not renamed into place")
+	}
+	if _, err := os.Stat(l.Path); !os.IsNotExist(err) {
+		t.Error("a failed write must not reach the rename: the ledger on disk must be untouched")
+	}
+}
+
+// Close on a regular file essentially never fails, which is why the seam exists: a Close that
+// fails after a successful Write must be reported, not treated as a finished save.
+func TestSaveReportsACloseFailure(t *testing.T) {
+	orig := closeFile
+	closeFile = func(f *os.File) error {
+		_ = f.Close() // actually close it, so the temp file is not leaked
+		return errors.New("close exploded")
+	}
+	assertSeamFails(t, func() { closeFile = orig }, "close exploded")
 }

@@ -35,6 +35,7 @@ type Config struct {
 	Gateway     Gateway     `yaml:"gateway"`
 	Review      Review      `yaml:"review"`
 	Curator     Curator     `yaml:"curator"`
+	Schedule    Schedule    `yaml:"schedule"`
 }
 
 // Gateway is the HTTP face of the agent: what other front ends - a web page, a phone, a
@@ -414,6 +415,12 @@ func Default() Config {
 			ArchiveAfterDays: 30,
 			Consolidate:      false,
 		},
+		Schedule: Schedule{
+			Enabled:     true,
+			Tick:        30 * time.Second,
+			MinEvery:    time.Minute,
+			MaxRunsKept: 50,
+		},
 	}
 }
 
@@ -662,6 +669,9 @@ func (c *Config) validate(requireKey bool) error {
 	if err := c.validateGateway(); err != nil {
 		return err
 	}
+	if err := c.validateSchedule(); err != nil {
+		return err
+	}
 	return c.validateAgent()
 }
 
@@ -835,6 +845,25 @@ func (c *Config) validateFinalAction() error {
 	return nil
 }
 
+// validateSchedule checks the settings of the scheduled-task module.
+//
+// A NEGATIVE value is refused and a ZERO is accepted, which is not the same as being
+// lenient: zero means "the built-in default" and says so, while a negative number is
+// one nobody meant - and silently treating it as the default would hide the typo that
+// produced it. Same rule the gateway's max_sessions follows.
+func (c *Config) validateSchedule() error {
+	if c.Schedule.Tick < 0 {
+		return fmt.Errorf("schedule.tick is %s: it cannot be negative (0 means the built-in default)", c.Schedule.Tick)
+	}
+	if c.Schedule.MinEvery < 0 {
+		return fmt.Errorf("schedule.min_every is %s: it cannot be negative (0 means the built-in default)", c.Schedule.MinEvery)
+	}
+	if c.Schedule.MaxRunsKept < 0 {
+		return fmt.Errorf("schedule.max_runs_kept is %d: it cannot be negative (0 means the built-in default)", c.Schedule.MaxRunsKept)
+	}
+	return nil
+}
+
 func (c *Config) validateAgent() error {
 	if c.Agent.MaxRetries < 0 {
 		return fmt.Errorf("agent.max_retries cannot be negative")
@@ -957,4 +986,31 @@ type Curator struct {
 	ArchiveAfterDays int    `yaml:"archive_after_days"`
 	Consolidate      bool   `yaml:"consolidate"`
 	StateFile        string `yaml:"state_file"`
+}
+
+// Schedule configures the tasks that fire on their own.
+//
+// It is a block of its OWN rather than settings under gateway, because a scheduled
+// task is not a property of the transport: the store is read and written by the
+// scheduler, and the gateway is merely the process it happens to live in today.
+//
+// Every field is a knob an operator can turn from the environment as well as the
+// YAML (see environment.go): MOTITA_SCHEDULE_ENABLED, _TICK, _MIN_EVERY,
+// _MAX_RUNS_KEPT.
+type Schedule struct {
+	// Enabled turns the whole module on and off. On by default, because the browser
+	// interface ships a window for it: a feature whose window exists while the
+	// feature is off is a window that says nothing useful.
+	Enabled bool `yaml:"enabled"`
+	// Tick is how often the scheduler looks for something that is due. It is NOT the
+	// cadence of any task: it is the resolution at which a cadence is noticed, so a
+	// task set to "every 1h" may start up to Tick late.
+	Tick time.Duration `yaml:"tick"`
+	// MinEvery is the shortest cadence a task may be given. A minute is the floor
+	// because it is below the time an agent turn takes: a tighter loop would stack
+	// runs on top of each other instead of scheduling them.
+	MinEvery time.Duration `yaml:"min_every"`
+	// MaxRunsKept bounds the per-task history kept in the record, so a task firing
+	// every minute cannot grow the file without bound.
+	MaxRunsKept int `yaml:"max_runs_kept"`
 }

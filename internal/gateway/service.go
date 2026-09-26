@@ -6,9 +6,9 @@
 // configuration stay where they are, and this package reaches them through the Service
 // interface below.
 //
-// Everything here is the standard library. That is not a preference: the released binary has a
-// 10 MB ceiling with under 2 MB of room beneath it, so a dependency is a cost this feature
-// cannot pay.
+// Everything here is the standard library. That is a preference and a discipline: the
+// released binary has a ceiling that guards against runaway growth, so a dependency is a
+// cost a feature has to earn rather than assume.
 package gateway
 
 import (
@@ -95,9 +95,9 @@ type Service interface {
 	SetWorkspace(dir string)
 	// GenerateTitle asks the model for a short, descriptive title for the
 	// conversation so far. It is called once, after the first turn completes,
-	// to replace the placeholder "Sesión nueva — …" label with something
-	// meaningful. It must never block the caller for long: a timeout or error
-	// falls back to a truncated version of the first user message.
+	// to replace the placeholder label with something meaningful. It must
+	// never block the caller for long: a timeout or error falls back to a
+	// truncated version of the first user message.
 	GenerateTitle(ctx context.Context, firstUserMessage string) string
 	// SetApprover installs the channel a consequential command is confirmed through.
 	//

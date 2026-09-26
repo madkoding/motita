@@ -247,3 +247,18 @@ gateway:
   # Off means an API-only gateway, which is a real deployment: a script that drives
   # the agent has no use for a page.
   webui: true
+
+schedule:
+  # Tasks that fire on their own. On by default, because the browser interface ships a
+  # window for them and a window over a disabled feature says nothing useful.
+  enabled: true
+  # How often the scheduler LOOKS for something that is due. This is not the cadence of
+  # any task: it is the resolution at which a cadence is noticed, so a task set to
+  # "every 1h" may start up to this late.
+  tick: 30s
+  # The shortest cadence a task may be given. A tighter one starts a task faster than an
+  # agent turn can finish, which stacks runs instead of scheduling them.
+  min_every: 1m
+  # How many firings are kept in a task's record. It bounds a task that fires every
+  # minute from growing its file without bound.
+  max_runs_kept: 50

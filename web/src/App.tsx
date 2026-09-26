@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from 'preact/hooks'
+import { useState, useEffect, useRef, useCallback, useMemo } from 'preact/hooks'
 import { Markdown } from './Markdown'
 
 interface Message {
@@ -21,6 +21,8 @@ interface SessionInfo {
   project_id?: string
   branch?: string
   mergeable?: boolean
+  changes?: number
+  worktree?: string
   created: string
   last_used: string
   running: boolean
@@ -33,7 +35,70 @@ interface ProjectInfo {
   dir: string
   git_url?: string
   branch?: string
+  changes?: number
+  sessions?: number
+  worktrees?: number
   created: string
+}
+
+// shortID abbreviates a generated id the way git abbreviates a sha: the first
+// seven characters. A full id is 25 characters and would be the widest thing in
+// the sidebar while telling the reader nothing the first seven do not.
+function shortID(id: string): string {
+  return id.length > 7 ? id.slice(0, 7) : id
+}
+
+// shortBranch keeps a branch name readable when it is one this program
+// generated. `motita/<id>` is the session's OWN branch and the id is the only
+// part that varies, so it is shown as `motita/<first 7>`; a branch the user
+// chose is short and is shown exactly as it is.
+function shortBranch(b: string): string {
+  const m = b.match(/^motita\/(.+)$/)
+  if (m && m[1].length > 7) return 'motita/' + shortID(m[1])
+  return b
+}
+
+// sessionWorktreeChip decides whether a session's worktree needs saying at all.
+//
+// A session on its own branch IS in the worktree that branch names, so printing
+// the id twice is one fact twice: `motita/s63bb92` beside `⌥ s63bb92`. The two
+// differ in exactly one case - the user moved the session to another branch -
+// and that is the case where the worktree is the only way to tell which session
+// the branch belongs to.
+function sessionWorktreeChip(s: SessionInfo): string {
+  if (!s.worktree || !s.branch) return ''
+  return s.branch === 'motita/' + s.worktree ? '' : shortID(s.worktree)
+}
+
+// formatUpdated renders when a session was last used, as dd/mm/yyyy :: HH:mm:ss.
+//
+// Seconds and the full year are carried even though a sidebar usually shows
+// something shorter, because the user asked for this exact format and a
+// timestamp is a fact: two sessions opened a minute apart are told apart by the
+// seconds, and the year is what keeps a session restored from a backup from
+// reading as if it were touched today.
+function formatUpdated(iso?: string): string {
+  if (!iso) return ''
+  const d = new Date(iso)
+  if (Number.isNaN(d.getTime())) return ''
+  const p = (n: number) => String(n).padStart(2, '0')
+  return `${p(d.getDate())}/${p(d.getMonth() + 1)}/${d.getFullYear()} :: ${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`
+}
+
+// fullUpdated is the exact time, for the tooltip. The row carries the compact
+// form because that is what fits; hovering is how a user asks "when, exactly",
+// and the answer must not be the truncated one they can already see.
+function fullUpdated(iso?: string): string {
+  if (!iso) return ''
+  const d = new Date(iso)
+  return Number.isNaN(d.getTime()) ? '' : d.toLocaleString()
+}
+
+// changesTitle is what a change count means, spelled out: a bare number in a
+// badge is read as fact, so the tooltip says what it counted.
+function changesTitle(n: number): string {
+  if (n === 1) return '1 uncommitted change in this working tree'
+  return `${n} uncommitted changes in this working tree`
 }
 
 interface ConfigView {
@@ -53,9 +118,98 @@ interface ProviderInfo {
   is_current: boolean
 }
 
+interface ScheduledTask {
+  id: string
+  title: string
+  task: string
+  kind: string
+  session_id: string
+  every: string
+  enabled: boolean
+  created: string
+  last_run?: string
+  last_outcome?: string
+  run_count: number
+  next_run: string
+}
+
 const STORAGE_KEY = 'motita:last-session'
 const SIDEBAR_KEY = 'motita:sidebar-open'
+const PROJECT_COLLAPSE_KEY = 'motita:collapsed-projects'
 const UPGRADE_DISMISS_KEY = 'motita:upgrade-dismissed'
+
+// ─── Scheduled tasks: reading a cadence in words, and a countdown ────────────
+//
+// `every` arrives from the gateway as a Go duration string (the DTO formats it),
+// so the units are known: the tag reads "Every 24h", never a second, invented
+// spelling of the same cadence.
+
+// countdown is how long is left before the next run, as a chronometer:
+// mm:ss under an hour, h:mm:ss under a day, days and hours beyond that. The
+// seconds field is why this ticks at all - a countdown that only moved once a
+// minute would look frozen on the run that matters, the imminent one. Past a day
+// the seconds are dropped because they would be noise, and the panel re-renders
+// on the same interval either way.
+function pad(n: number): string {
+  return n < 10 ? '0' + n : String(n)
+}
+
+function countdown(fromMs: number, nowMs: number): { text: string; past: boolean } {
+  const delta = Math.round((fromMs - nowMs) / 1000)
+  const past = delta < 0
+  const s = Math.abs(delta)
+  let text: string
+  if (s < 3600) text = Math.floor(s / 60) + ':' + pad(s % 60)
+  else if (s < 86400) text = Math.floor(s / 3600) + ':' + pad(Math.floor((s % 3600) / 60)) + ':' + pad(s % 60)
+  else text = Math.floor(s / 86400) + 'd ' + Math.floor((s % 86400) / 3600) + 'h'
+  return { text, past }
+}
+
+// durationOf reads a Go duration string ("24h0m0s") twice over, which is the
+// only reason it is one function: the cadence is needed as MILLISECONDS (for the
+// clock skew below) and as the SHORT form a person typed (for the row's tag).
+// Two parsers over the same grammar is two things to keep in step, and the
+// normalised form the gateway sends is not what belongs on a tag - "24h0m0s" is
+// a machine's spelling of "24h". A cadence that cannot be read comes back with
+// the text it arrived as, which is more useful than an empty tag on a row that
+// does have one.
+const DURATION_UNITS: Record<string, number> = {
+  ns: 1e-6, us: 1e-3, 'µs': 1e-3, ms: 1, s: 1000, m: 60000, h: 3600000,
+}
+
+function durationOf(every: string): { ms: number; short: string } {
+  const re = /(\d+(?:\.\d+)?)(ns|us|µs|ms|s|m|h)/g
+  let ms = 0
+  let short = ''
+  let match: RegExpExecArray | null
+  while ((match = re.exec(every)) !== null) {
+    const n = parseFloat(match[1])
+    ms += n * DURATION_UNITS[match[2]]
+    // Only whole units reach the tag: "0h" out of "24h0m0s" is noise, and the
+    // unit order the parser walks is the order Go prints, h first.
+    if (n > 0) short += match[1] + match[2]
+  }
+  return { ms, short: short || every }
+}
+
+// nextClockSkew is the skew assumed when nothing can be derived from the tasks:
+// zero, so the countdown is exactly what the gateway's timestamps say. It only
+// applies to a task set that is empty or unreadable, where the correction has
+// nothing to correct.
+const nextClockSkew = 0
+
+// taskCountdown answers how long until this task fires, as the panel shows it.
+// A paused task counts down to nothing: its next_run is a projection, and a
+// ticker over a task that will not fire would be a lie with a pulse. An overdue
+// one says so, because "0s" is not the same fact as "it should have gone off".
+function taskCountdown(t: ScheduledTask, nowMs: number, skew: number) {
+  if (!t.enabled) return null
+  const ts = Date.parse(t.next_run)
+  if (Number.isNaN(ts)) return null
+  const c = countdown(ts - skew, nowMs)
+  return { text: c.text, overdue: c.past }
+}
+
 
 // UpdateInfo is what /v1/update/check returns.
 interface UpdateInfo {
@@ -154,6 +308,39 @@ function parseFrame(raw: string): { id: string | null; event: string | null; dat
   return { id, event, data }
 }
 
+// modelOptions is the list the Model select offers for a DRAFT provider, built from
+// the two catalogues at hand:
+//
+//   - `live` is what /model-list published, and it describes the SAVED provider, not
+//     the draft. It is used only while the draft still points there, because a live
+//     list of another provider's models is worse than no list at all.
+//   - `all` is /providers, which carries every provider's own catalogue, so a draft
+//     provider that has not been saved yet still gets a usable menu.
+//
+// The draft's current value is appended when neither source knows it, so a model in
+// use is never silently dropped from the menu it is being displayed in.
+function modelOptions(draftProvider: string, draftModel: string, savedProvider: string, live: string[], all: ProviderInfo[]): string[] {
+  const out: string[] = []
+  const seen = new Set<string>()
+  const add = (m: string) => {
+    if (!m || seen.has(m)) return
+    seen.add(m)
+    out.push(m)
+  }
+  if (draftProvider === savedProvider) live.forEach(add)
+  ;(all.find(p => p.id === draftProvider)?.models || []).forEach(add)
+  add(draftModel)
+  return out
+}
+
+// firstModelOf is the model a provider switch lands on: the first of the catalogue
+// the provider published. It exists so a switch never leaves the model empty, which
+// the server would read as "leave unchanged" and would therefore keep a model the new
+// provider may not serve.
+function firstModelOf(provider: string, all: ProviderInfo[]): string {
+  return all.find(p => p.id === provider)?.models?.[0] || ''
+}
+
 export default function App() {
   const [messages, setMessages] = useState<Message[]>([])
   const [stateText, setStateText] = useState('connecting')
@@ -188,17 +375,95 @@ export default function App() {
   const [toastDetailsOpen, setToastDetailsOpen] = useState(false)
   const [config, setConfig] = useState<ConfigView | null>(null)
   const [showModelSwitcher, setShowModelSwitcher] = useState(false)
+  // draftProvider/draftModel are the Model Switcher's working copy. The modal
+  // edits THESE, never the saved configuration: a select the user is merely
+  // exploring must not change the running session, so nothing is sent to the
+  // gateway until Done is pressed. The draft is re-seeded from the saved
+  // configuration every time the modal opens, and closing without Done drops it.
+  const [draftProvider, setDraftProvider] = useState('')
+  const [draftModel, setDraftModel] = useState('')
+  const [savingConfig, setSavingConfig] = useState(false)
   const [providers, setProviders] = useState<ProviderInfo[]>([])
   const [modelList, setModelList] = useState<string[]>([])
   const [fetchingModels, setFetchingModels] = useState(false)
   const [showSkillLibrary, setShowSkillLibrary] = useState(false)
   const [showScheduledTasks, setShowScheduledTasks] = useState(false)
+  const [scheduledTasks, setScheduledTasks] = useState<ScheduledTask[]>([])
+  const [scheduledBusy, setScheduledBusy] = useState(false)
+  // nowMs drives the countdown painted inside each task card. It ticks ONLY
+  // while the panel is open: a timer that runs (and re-renders the whole app)
+  // while nobody is looking at a countdown is pure cost. One second is the
+  // unit the countdown itself shows at its finest.
+  const [nowMs, setNowMs] = useState(() => Date.now())
+  useEffect(() => {
+    if (!showScheduledTasks) return
+    setNowMs(Date.now())
+    const id = setInterval(() => setNowMs(Date.now()), 1000)
+    return () => clearInterval(id)
+  }, [showScheduledTasks])
+  // The create form's working copy. Like the model switcher's draft, it is edited
+  // HERE and sent only when the user presses Create: a half-typed cadence must not
+  // reach the gateway.
+  const [newTaskTitle, setNewTaskTitle] = useState('')
+  const [newTaskText, setNewTaskText] = useState('')
+  const [newTaskEvery, setNewTaskEvery] = useState('24h')
+  const [newTaskKind, setNewTaskKind] = useState<'task' | 'plan'>('task')
   // Confirm-delete modal: when set, shows a modal asking the user to confirm.
   const [confirmDelete, setConfirmDelete] = useState<{ type: 'session' | 'project'; id: string; title: string } | null>(null)
   // Long-press context menu on mobile: when set, shows a small menu with Edit / Delete.
   const [contextMenu, setContextMenu] = useState<{ type: 'session' | 'project'; id: string; title: string; x: number; y: number } | null>(null)
   // Row dropdown menu: which session/project row has its "⋯" menu open.
   const [rowMenu, setRowMenu] = useState<{ type: 'session' | 'project'; id: string; title: string } | null>(null)
+  // Closing state: the menu keeps rendering for the length of its exit
+  // animation. Without it the element would unmount on the same frame the
+  // user clicked outside and the exit animation would never be seen.
+  const [rowMenuClosing, setRowMenuClosing] = useState(false)
+  const rowMenuTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const rowMenuClosingRef = useRef(false)
+
+  // closeRowMenu plays the exit animation, then unmounts. Idempotent: a
+  // second call while the timer runs would otherwise stack timers, and the
+  // last one to fire would reset the state under a menu already reopened.
+  const closeRowMenu = useCallback(() => {
+    if (rowMenuClosingRef.current) return
+    rowMenuClosingRef.current = true
+    setRowMenuClosing(true)
+    if (rowMenuTimer.current) clearTimeout(rowMenuTimer.current)
+    rowMenuTimer.current = setTimeout(() => {
+      setRowMenu(null)
+      setRowMenuClosing(false)
+      rowMenuClosingRef.current = false
+      rowMenuTimer.current = null
+    }, 140)
+  }, [])
+
+  // openRowMenu opens the menu, cancelling a close that is mid-flight so
+  // the new menu does not inherit the old one's exit state.
+  const openRowMenu = useCallback((m: { type: 'session' | 'project'; id: string; title: string } | null) => {
+    if (rowMenuTimer.current) { clearTimeout(rowMenuTimer.current); rowMenuTimer.current = null }
+    rowMenuClosingRef.current = false
+    setRowMenuClosing(false)
+    setRowMenu(m)
+  }, [])
+  // Collapsed projects: a set of project IDs whose session list is hidden.
+  // Persisted in localStorage so a user's choice survives a reload, like the
+  // sidebar's own open/closed state.
+  const [collapsedProjects, setCollapsedProjects] = useState<Set<string>>(() => {
+    try {
+      const raw = localStorage.getItem(PROJECT_COLLAPSE_KEY)
+      if (raw) return new Set(JSON.parse(raw) as string[])
+    } catch { /* ignore */ }
+    return new Set()
+  })
+  const toggleProject = (pid: string) => {
+    setCollapsedProjects(prev => {
+      const next = new Set(prev)
+      if (next.has(pid)) next.delete(pid)
+      else next.add(pid)
+      try { localStorage.setItem(PROJECT_COLLAPSE_KEY, JSON.stringify([...next])) } catch { /* ignore */ }
+      return next
+    })
+  }
   // Slash commands loaded from the backend, and the autocomplete popup state.
   const [slashCommands, setSlashCommands] = useState<{ name: string; aliases: string[]; help: string; arg: string; group: string }[]>([])
   const [slashPopup, setSlashPopup] = useState<{ items: { name: string; aliases: string[]; help: string; arg: string; group: string }[]; index: number } | null>(null)
@@ -398,6 +663,85 @@ export default function App() {
     } catch { /* ignore */ }
   }, [fetchProjects])
 
+  // loadSchedules reads the tasks the gateway holds. An empty LIST rather than an
+  // error is what the gateway answers when scheduling is off, so this cannot fail
+  // for that reason and does not need a branch for it.
+  const loadSchedules = useCallback(async () => {
+    try {
+      const res = await api('/v1/schedules')
+      if (!res.ok) return
+      const data = await res.json()
+      setScheduledTasks(Array.isArray(data.schedules) ? data.schedules : [])
+    } catch { /* the toast on a real failure is the caller's job */ }
+  }, [])
+
+  const createSchedule = async () => {
+    if (!newTaskTitle.trim() || !newTaskText.trim()) return
+    setScheduledBusy(true)
+    try {
+      const res = await api('/v1/schedules', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          title: newTaskTitle.trim(),
+          task: newTaskText.trim(),
+          kind: newTaskKind,
+          every: newTaskEvery.trim(),
+        }),
+      })
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}))
+        setToast({ message: 'The task could not be created', type: 'error', detail: body.error })
+        return
+      }
+      setNewTaskTitle(''); setNewTaskText('')
+      await loadSchedules()
+    } finally { setScheduledBusy(false) }
+  }
+
+  const toggleSchedule = async (t: ScheduledTask) => {
+    const res = await api('/v1/schedules/' + t.id, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ enabled: !t.enabled }),
+    })
+    if (res.ok) await loadSchedules()
+  }
+
+  const runScheduleNow = async (t: ScheduledTask) => {
+    const res = await api('/v1/schedules/' + t.id + '/run', { method: 'POST' })
+    if (res.status === 409) {
+      const body = await res.json().catch(() => ({}))
+      setToast({ message: 'That task could not start', type: 'error', detail: body.error })
+      return
+    }
+    if (res.ok) {
+      setToast({ message: 'Task started', type: 'success', detail: 'It is running in ' + t.session_id + '.' })
+    }
+  }
+
+  const deleteSchedule = async (t: ScheduledTask) => {
+    const res = await api('/v1/schedules/' + t.id, { method: 'DELETE' })
+    if (res.ok) await loadSchedules()
+  }
+
+  // The countdown is drawn between the BROWSER's clock and next_run, which the
+  // GATEWAY computed. When the two machines disagree the countdown lies by the
+  // difference ("4h" on a task that fires in a minute), and the gateway is the
+  // one holding the schedule store: this is the smallest correction that keeps
+  // the number honest. It is a memo and not state because loadSchedules is not
+  // in the render path - a skew from a set of tasks a second old is fine, and
+  // this way there is no second render.
+  const clockSkew = useMemo(() => {
+    let min = nextClockSkew
+    for (const t of scheduledTasks) {
+      const ts = Date.parse(t.next_run)
+      if (Number.isNaN(ts)) continue
+      min = Math.min(min, Date.now() - (ts - durationOf(t.every).ms))
+    }
+    return min
+  }, [scheduledTasks])
+
   // switchSession loads the transcript for a given session id and adopts it.
   const switchSession = useCallback(async (id: string) => {
     setSessionId(id)
@@ -534,6 +878,11 @@ export default function App() {
   }, [sessionId])
 
   // fetchModelList fetches the live model list from the provider API.
+  //
+  // It lists the models of the provider the GATEWAY is configured with, which is
+  // the saved one and not the draft: the endpoint takes no provider argument. That
+  // is why the modal only shows this list while the draft still points at the saved
+  // provider, and falls back to the catalogue otherwise.
   const fetchModelList = useCallback(async () => {
     if (!sessionId) return
     setFetchingModels(true)
@@ -550,30 +899,69 @@ export default function App() {
     setFetchingModels(false)
   }, [sessionId])
 
-  // saveProviderModel sends a provider/model change to the gateway.
-  const saveProviderModel = useCallback(async (provider: string, model: string) => {
+  // openModelSwitcher shows the modal with a draft seeded from the SAVED
+  // configuration. Seeding on open, rather than on every change, is what makes
+  // Done the only commit point: an edit that was cancelled and a modal that was
+  // dismissed both leave the session's provider and model untouched.
+  const openModelSwitcher = useCallback(() => {
+    setDraftProvider(config?.provider || '')
+    setDraftModel(config?.model || '')
+    fetchProviders()
+    fetchModelList()
+    setShowModelSwitcher(true)
+  }, [config, fetchProviders, fetchModelList])
+
+  // closeModelSwitcher dismisses the modal and throws the draft away. The saved
+  // configuration is what the next open seeds from, so nothing has to be undone.
+  //
+  // Nothing is sent here even when the draft differs: Done is the only commit
+  // point, and a dismissal is not one. A user who picks a model and then changes
+  // their mind must be able to walk away from the choice.
+  const closeModelSwitcher = useCallback(() => {
+    setShowModelSwitcher(false)
+  }, [])
+
+  // discardModelSwitcher is the Close (✕) button: it drops the draft and reopens
+  // the modal on what the session is actually running, so the screen cannot be
+  // left showing a selection that was never applied.
+  const discardModelSwitcher = useCallback(() => {
+    setDraftProvider(config?.provider || '')
+    setDraftModel(config?.model || '')
+    setShowModelSwitcher(false)
+  }, [config])
+
+  // applyProviderModel is what Done does, and it is the ONE call that reaches the
+  // gateway. Both fields travel together: the server treats an empty model as
+  // "leave unchanged", so a provider switch sent alone would keep a model that the
+  // new provider may not serve.
+  const applyProviderModel = useCallback(async () => {
     if (!sessionId) return
+    setSavingConfig(true)
     try {
       const res = await api('/v1/sessions/' + sessionId + '/config', {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ provider, model })
+        body: JSON.stringify({ provider: draftProvider, model: draftModel })
       })
       if (!res.ok) {
         const err = await res.json().catch(() => ({}))
         setState(err.error || 'could not update the configuration', true)
+        // The modal stays open on a failure: the choice is still on screen and
+        // can be retried, and a closed modal would read as if it had worked.
         return
       }
       const updated: ConfigView = await res.json()
       setConfig(updated)
-      // If the provider changed, fetch the live model list.
-      if (provider !== config?.provider) {
-        fetchModelList()
-      }
+      setShowModelSwitcher(false)
     } catch {
       setState('could not update the configuration', true)
+    } finally {
+      // In a finally, not at the end of the try: the failure path returns early,
+      // and a flag left set would leave Done disabled and the spinner running
+      // with no way back.
+      setSavingConfig(false)
     }
-  }, [sessionId, config, fetchModelList])
+  }, [sessionId, draftProvider, draftModel])
 
   // checkForUpdates polls /v1/update/check. When a new version is found, a
   // toast is shown (unless the user has dismissed this version before) and
@@ -1028,6 +1416,33 @@ export default function App() {
     }
   }, [authInput, authBusy, fetchProjects, fetchSessions, switchSession])
 
+  // Click-outside / Escape closes the row menu, WITH its exit animation.
+  // Listening on `document` in the CAPTURE phase (not bubble) so the menu
+  // closes even when the click lands on an element that stops propagation —
+  // a session row does exactly that, which is why a bubble-phase listener
+  // would leave the menu open when the user clicked a different row.
+  //
+  // The `⋯` toggle itself is excluded: `mousedown` fires BEFORE `click`, so
+  // treating it as an outside click would flip the state twice (closed here,
+  // then reopened by the button's own handler) and the button would seem dead.
+  useEffect(() => {
+    if (!rowMenu) return
+    const onDown = (e: Event) => {
+      const t = e.target as HTMLElement | null
+      if (t && (t.closest('.row-menu') || t.closest('button[title="More actions"]'))) return
+      closeRowMenu()
+    }
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') closeRowMenu() }
+    document.addEventListener('mousedown', onDown, true)
+    document.addEventListener('touchstart', onDown, true)
+    document.addEventListener('keydown', onKey)
+    return () => {
+      document.removeEventListener('mousedown', onDown, true)
+      document.removeEventListener('touchstart', onDown, true)
+      document.removeEventListener('keydown', onKey)
+    }
+  }, [rowMenu, closeRowMenu])
+
   // Copy button handler: delegate clicks from copy-btn and copy-msg-btn.
   useEffect(() => {
     const handler = (e: Event) => {
@@ -1082,7 +1497,7 @@ export default function App() {
   const renderSessionRow = (s: SessionInfo) => (
     <div
       key={s.id}
-      class={`session-row group flex items-center gap-2 px-3 py-2.5 rounded-lg cursor-pointer transition-colors mb-0.5 ${
+      class={`session-row group flex items-center gap-2 px-3 py-2 rounded-lg cursor-pointer transition-colors mb-0.5 ${
         s.id === sessionId ? 'bg-accent/10 border border-accent/20' : 'hover:bg-white/5 border border-transparent'
       }`}
       onClick={() => { if (renamingId !== s.id) switchSession(s.id) }}
@@ -1125,36 +1540,91 @@ export default function App() {
       ) : (
         <>
           {s.running && (
-            <svg class="animate-spin flex-none text-accent" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+            <svg class="animate-spin flex-none text-accent self-start mt-1" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
               <path d="M21 12a9 9 0 1 1-6.219-8.56" />
             </svg>
           )}
-          <span class={`flex-1 min-w-0 truncate text-sm ${s.running ? 'text-accent' : 'text-[#e8e8ea]'}`}>
-            {s.title || s.id}
-          </span>
-          {s.branch && (
-            <span class="flex-none text-[10px] text-muted-foreground font-mono px-1.5 py-0.5 rounded bg-white/5">
-              {s.branch}
-            </span>
-          )}
+          {/* Two lines, so the title keeps the full width and the facts sit
+              under it instead of competing for the same row: at a narrow
+              sidebar the branch used to squeeze the title away. */}
+          <div class="flex-1 min-w-0">
+            <div class={`truncate text-sm leading-tight ${s.running ? 'text-accent' : 'text-[#e8e8ea]'}`}>
+              {s.title || s.id}
+            </div>
+            {/* When it was last used, on its own line. It was sharing the row
+                with the branch and the counts, and at a narrow width the three
+                wrapped into a paragraph nobody could read: a timestamp and a
+                set of labelled facts are two different kinds of information and
+                each gets its own line. */}
+            <div
+              class="mt-0.5 text-[10px] tabular-nums text-muted-foreground opacity-70"
+              title={s.last_used ? 'Last used ' + fullUpdated(s.last_used) : undefined}
+            >
+              {formatUpdated(s.last_used)}
+            </div>
+            {/* Facts line: every value carries its LABEL and its own colour, so
+                a number is never just a number. `main` alone does not say it is
+                a branch, and a bare `3` does not say 3 of what. Colour separates
+                the kinds at a glance; the label says what each one is on the
+                first read, which is what makes colour optional rather than
+                load-bearing. */}
+            <div class="flex items-center gap-x-1.5 gap-y-1 flex-wrap mt-1 text-[10px]">
+              {s.branch && (
+                <span
+                  class="inline-flex items-center gap-1 flex-none px-1 py-px rounded bg-accent/10"
+                  title={'Branch: ' + s.branch}
+                >
+                  <span class="text-accent/50 uppercase tracking-wide text-[9px]">branch</span>
+                  <span class="font-mono text-accent truncate max-w-[7rem]">{shortBranch(s.branch)}</span>
+                </span>
+              )}
+              {sessionWorktreeChip(s) && (
+                <span
+                  class="inline-flex items-center gap-1 flex-none px-1 py-px rounded bg-[#a0a0f0]/10"
+                  title={'Worktree: ' + s.worktree}
+                >
+                  <span class="text-[#a0a0f0]/50 uppercase tracking-wide text-[9px]">worktree</span>
+                  <span class="font-mono text-[#a0a0f0] truncate max-w-[6rem]">{sessionWorktreeChip(s)}</span>
+                </span>
+              )}
+              {!!s.changes && (
+                <span
+                  class="inline-flex items-center gap-1 flex-none px-1 py-px rounded bg-[#f0a040]/10"
+                  title={changesTitle(s.changes)}
+                >
+                  <span class="text-[#f0a040]/50 uppercase tracking-wide text-[9px]">
+                    {s.changes === 1 ? 'change' : 'changes'}
+                  </span>
+                  <span class="tabular-nums text-[#f0a040]">{s.changes}</span>
+                </span>
+              )}
+            </div>
+          </div>
         </>
       )}
       {renamingId !== s.id && (
-        <div class="relative flex-none opacity-0 group-hover:opacity-100 transition-opacity">
+        <div class={`row-actions relative flex-none${rowMenu?.id === s.id ? ' row-actions-open' : ''}`}>
           <button
             class="p-1 rounded hover:bg-white/10"
             title="More actions"
-            onClick={(e) => { e.stopPropagation(); setRowMenu(rowMenu?.id === s.id ? null : { type: 'session', id: s.id, title: s.title || s.id }) }}
+            onClick={(e) => {
+              e.stopPropagation()
+              if (rowMenu?.id === s.id) closeRowMenu()
+              else openRowMenu({ type: 'session', id: s.id, title: s.title || s.id })
+            }}
           >
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
               <circle cx="12" cy="5" r="1" /><circle cx="12" cy="12" r="1" /><circle cx="12" cy="19" r="1" />
             </svg>
           </button>
           {rowMenu?.id === s.id && (
-            <div class="absolute right-0 top-full mt-1 z-50 frosted rounded-xl border border-white/10 shadow-2xl py-1 min-w-[140px]" onClick={(e) => e.stopPropagation()}>
+            <div
+              class={`row-menu absolute right-0 top-full mt-1 z-50 frosted rounded-xl border border-white/10 py-1 min-w-[140px]${rowMenuClosing ? ' row-menu-closing' : ''}`}
+              onClick={(e) => e.stopPropagation()}
+            >
               <button
-                class="w-full flex items-center gap-2 px-3 py-2 text-sm text-[#e8e8ea] hover:bg-white/5 transition-colors"
-                onClick={(e) => { e.stopPropagation(); setRenamingId(s.id); setRenameValue(s.title || ''); setRowMenu(null) }}
+                class="row-menu-item w-full flex items-center gap-2 px-3 py-2 text-sm text-[#e8e8ea] hover:bg-white/5"
+                onClick={(e) => { e.stopPropagation(); setRenamingId(s.id); setRenameValue(s.title || ''); closeRowMenu() }}
               >
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                   <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" /><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
@@ -1163,13 +1633,13 @@ export default function App() {
               </button>
               {s.project_id && (
                 <button
-                  class={`w-full flex items-center gap-2 px-3 py-2 text-sm transition-colors ${s.mergeable ? 'text-accent hover:bg-accent/10' : 'text-muted-foreground/40 cursor-not-allowed'}`}
+                  class={`row-menu-item w-full flex items-center gap-2 px-3 py-2 text-sm ${s.mergeable ? 'text-accent hover:bg-accent/10' : 'text-[#8a8a9a]'}`}
                   disabled={!s.mergeable}
                   title={s.mergeable ? 'Integrate this session\'s work back into the project' : 'Nothing to integrate yet'}
                   onClick={async (e) => {
                     if (!s.mergeable) { e.stopPropagation(); return }
                     e.stopPropagation()
-                    setRowMenu(null)
+                    closeRowMenu()
                     try {
                       const res = await api('/v1/sessions/' + s.id + '/merge', {
                         method: 'POST',
@@ -1223,8 +1693,8 @@ export default function App() {
                 </button>
               )}
               <button
-                class="w-full flex items-center gap-2 px-3 py-2 text-sm text-danger hover:bg-danger/10 transition-colors"
-                onClick={(e) => { e.stopPropagation(); setConfirmDelete({ type: 'session', id: s.id, title: s.title || s.id }); setRowMenu(null) }}
+                class="row-menu-item w-full flex items-center gap-2 px-3 py-2 text-sm text-danger hover:bg-danger/10"
+                onClick={(e) => { e.stopPropagation(); setConfirmDelete({ type: 'session', id: s.id, title: s.title || s.id }); closeRowMenu() }}
               >
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                   <polyline points="3 6 5 6 21 6" /><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
@@ -1244,7 +1714,7 @@ export default function App() {
           It covers the entire screen and cannot be dismissed without a token. */}
       {authState !== 'ok' && (
         <div
-          class="fixed inset-0 z-[100] bg-black/80 backdrop-blur-md flex items-center justify-center p-4"
+          class="fixed inset-0 z-[100] bg-black/80 backdrop-blur-sm flex items-center justify-center p-4"
           onClick={(e) => e.stopPropagation()}
         >
           <div
@@ -1373,64 +1843,162 @@ export default function App() {
               {/* Free-standing sessions (no project) */}
               {sessions.filter(s => !s.project_id).map(s => renderSessionRow(s))}
 
-              {/* Project groups */}
-              {projects.map(p => (
-                <div key={p.id} class="mt-2">
-                  <div
-                    class="project-header group flex items-center gap-1.5 px-3 py-1.5 text-xs uppercase tracking-wide text-[#8a8a9a]"
-                    onTouchStart={(e) => startLongPress('project', p.id, p.title, e as unknown as Event)}
-                    onTouchMove={cancelLongPress}
-                    onTouchEnd={cancelLongPress}
-                  >
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="flex-none text-accent/60">
-                      <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
-                    </svg>
-                    <span class="flex-1 min-w-0 truncate font-semibold">{p.title}</span>
-                    {p.branch && (
-                      <span class="flex-none text-[10px] text-muted-foreground font-mono px-1.5 py-0.5 rounded bg-white/5">
-                        {p.branch}
-                      </span>
-                    )}
-                    <button
-                      class="p-0.5 rounded hover:bg-white/10 opacity-0 group-hover:opacity-100 transition-opacity"
-                      title="New session in project"
-                      onClick={() => createSession(p.id)}
+              {/* Project groups — each project is a collapsible container with
+                  its sessions nested inside. The header click toggles the
+                  session list; the action buttons are separate so they do not
+                  toggle on touch. */}
+              {projects.map(p => {
+                const isCollapsed = collapsedProjects.has(p.id)
+                const projectSessions = sessions.filter(s => s.project_id === p.id)
+                // The container does NOT clip. It must not: the "⋯" menu is
+                // absolutely positioned and overflows the box, so any
+                // `overflow-hidden` here cuts it off (measured: 21 of its 46 px
+                // hidden, and worse on the last row). Clipping is not needed for
+                // the collapse either — the session list is not rendered while
+                // collapsed, and the list's own padding keeps the inner hover
+                // backgrounds off the rounded corners. It was purely cosmetic and
+                // it broke the menu.
+                return (
+                  <div key={p.id} class="mt-1.5 rounded-xl bg-white/[0.02] border border-white/[0.06]">
+                    {/* Header: click toggles collapse. */}
+                    <div
+                      class="project-header group flex items-center gap-1.5 px-2.5 py-2 cursor-pointer select-none hover:bg-white/[0.04] transition-colors"
+                      onClick={() => toggleProject(p.id)}
+                      onTouchStart={(e) => startLongPress('project', p.id, p.title, e as unknown as Event)}
+                      onTouchMove={cancelLongPress}
+                      onTouchEnd={cancelLongPress}
                     >
-                      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-                        <line x1="12" y1="5" x2="12" y2="19" /><line x1="5" y1="12" x2="19" y2="12" />
-                      </svg>
-                    </button>
-                    <div class="relative opacity-0 group-hover:opacity-100 transition-opacity">
-                      <button
-                        class="p-0.5 rounded hover:bg-white/10"
-                        title="More actions"
-                        onClick={(e) => { e.stopPropagation(); setRowMenu(rowMenu?.id === p.id ? null : { type: 'project', id: p.id, title: p.title }) }}
+                      {/* The arrow turns to follow the list: it points RIGHT
+                          when the sessions are hidden and DOWN when they are
+                          showing. One path that rotates, not two paths swapped,
+                          because a swap cannot be animated. The rotation lives
+                          in `.project-chevron` - this build disables Tailwind's
+                          `transform` plugin, so a `rotate-90` utility would emit
+                          a declaration the browser drops. */}
+                      <svg
+                        width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"
+                        class={`project-chevron flex-none text-[#8a8a9a]${isCollapsed ? ' is-collapsed' : ''}`}
                       >
-                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                          <circle cx="12" cy="5" r="1" /><circle cx="12" cy="12" r="1" /><circle cx="12" cy="19" r="1" />
+                        <polyline points="6 9 12 15 18 9" />
+                      </svg>
+                      {/* Folder icon */}
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="flex-none text-accent/60">
+                        <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
+                      </svg>
+                      {/* Title + facts, the same two-line shape as a session
+                          row so the eye reads one pattern. */}
+                      <div class="flex-1 min-w-0">
+                        <div class="truncate font-semibold text-[13px] text-[#c8c8d2]">{p.title}</div>
+                        {/* Facts line, labelled and coloured exactly like a
+                            session's: `project` says this is the project's own
+                            checkout rather than a session's, which is the
+                            distinction the number is about. */}
+                        <div class="flex items-center gap-x-1.5 gap-y-1 flex-wrap mt-1 text-[10px]">
+                          {p.branch && (
+                            <span
+                              class="inline-flex items-center gap-1 flex-none px-1 py-px rounded bg-accent/10"
+                              title={'Project checkout is on branch: ' + p.branch}
+                            >
+                              <span class="text-accent/50 uppercase tracking-wide text-[9px]">project</span>
+                              <span class="font-mono text-accent truncate max-w-[7rem]">{shortBranch(p.branch)}</span>
+                            </span>
+                          )}
+                          {!!p.worktrees && (
+                            <span
+                              class="inline-flex items-center gap-1 flex-none px-1 py-px rounded bg-[#a0a0f0]/10"
+                              title={p.worktrees === 1 ? '1 session is working in its own worktree' : `${p.worktrees} sessions are working in their own worktrees`}
+                            >
+                              <span class="text-[#a0a0f0]/50 uppercase tracking-wide text-[9px]">worktrees</span>
+                              <span class="tabular-nums text-[#a0a0f0]">{p.worktrees}</span>
+                            </span>
+                          )}
+                          {!!p.changes && (
+                            <span
+                              class="inline-flex items-center gap-1 flex-none px-1 py-px rounded bg-[#f0a040]/10"
+                              title={'The project checkout has ' + changesTitle(p.changes)}
+                            >
+                              <span class="text-[#f0a040]/50 uppercase tracking-wide text-[9px]">
+                                {p.changes === 1 ? 'change' : 'changes'}
+                              </span>
+                              <span class="tabular-nums text-[#f0a040]">{p.changes}</span>
+                            </span>
+                          )}
+                          {/* Session count: always present when there are
+                              sessions, even collapsed, because it is what tells
+                              the user what is inside without expanding. */}
+                          {!!p.sessions && (
+                            <span
+                              class="inline-flex items-center gap-1 flex-none px-1 py-px rounded bg-white/5"
+                              title={p.sessions === 1 ? 'This project has 1 session' : `This project has ${p.sessions} sessions`}
+                            >
+                              <span class="text-muted-foreground/60 uppercase tracking-wide text-[9px]">
+                                {p.sessions === 1 ? 'session' : 'sessions'}
+                              </span>
+                              <span class="tabular-nums text-muted-foreground">{p.sessions}</span>
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                      {/* Action buttons: stopPropagation so they don't toggle. */}
+                      <button
+                        class="p-0.5 rounded hover:bg-white/10 opacity-0 group-hover:opacity-100 transition-opacity flex-none"
+                        title="New session in project"
+                        onClick={(e) => { e.stopPropagation(); createSession(p.id) }}
+                      >
+                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                          <line x1="12" y1="5" x2="12" y2="19" /><line x1="5" y1="12" x2="19" y2="12" />
                         </svg>
                       </button>
-                      {rowMenu?.id === p.id && (
-                        <div class="absolute right-0 top-full mt-1 z-50 frosted rounded-xl border border-white/10 shadow-2xl py-1 min-w-[140px]" onClick={(e) => e.stopPropagation()}>
-                          <button
-                            class="w-full flex items-center gap-2 px-3 py-2 text-sm text-danger hover:bg-danger/10 transition-colors"
-                            onClick={(e) => { e.stopPropagation(); setConfirmDelete({ type: 'project', id: p.id, title: p.title }); setRowMenu(null) }}
+                      <div class={`row-actions relative flex-none${rowMenu?.id === p.id ? ' row-actions-open' : ''}`}>
+                        <button
+                          class="p-0.5 rounded hover:bg-white/10"
+                          title="More actions"
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            if (rowMenu?.id === p.id) closeRowMenu()
+                            else openRowMenu({ type: 'project', id: p.id, title: p.title })
+                          }}
+                        >
+                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <circle cx="12" cy="5" r="1" /><circle cx="12" cy="12" r="1" /><circle cx="12" cy="19" r="1" />
+                          </svg>
+                        </button>
+                        {rowMenu?.id === p.id && (
+                          <div
+                            class={`row-menu absolute right-0 top-full mt-1 z-50 frosted rounded-xl border border-white/10 py-1 min-w-[140px]${rowMenuClosing ? ' row-menu-closing' : ''}`}
+                            onClick={(e) => e.stopPropagation()}
                           >
-                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                              <polyline points="3 6 5 6 21 6" /><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
-                            </svg>
-                            Delete
-                          </button>
+                            <button
+                              class="row-menu-item w-full flex items-center gap-2 px-3 py-2 text-sm text-danger hover:bg-danger/10"
+                              onClick={(e) => { e.stopPropagation(); setConfirmDelete({ type: 'project', id: p.id, title: p.title }); closeRowMenu() }}
+                            >
+                              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                <polyline points="3 6 5 6 21 6" /><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+                              </svg>
+                              Delete
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                    {/* Session list: always rendered, so its height can
+                        animate. Unmounting it would make the collapse snap,
+                        which is exactly what was reported. The wrapper
+                        collapses to `0fr` and `visibility` takes the rows out
+                        of the tab order and the hit-testing once it has. */}
+                    <div class={`project-sessions${isCollapsed ? ' is-collapsed' : ''}`}>
+                      <div class="project-sessions-inner">
+                        <div class="px-1.5 pb-1.5 space-y-0.5">
+                          {projectSessions.map(s => renderSessionRow(s))}
+                          {projectSessions.length === 0 && (
+                            <div class="px-3 py-1.5 text-xs text-[#6a6a7a] italic">No sessions yet</div>
+                          )}
                         </div>
-                      )}
+                      </div>
                     </div>
                   </div>
-                  {sessions.filter(s => s.project_id === p.id).map(s => renderSessionRow(s))}
-                  {sessions.filter(s => s.project_id === p.id).length === 0 && (
-                    <div class="px-3 py-1 text-xs text-[#6a6a7a] italic">No sessions yet</div>
-                  )}
-                </div>
-              ))}
+                )
+              })}
             </div>
 
             {/* Upgrade Motita button — shown only when a new version is available. */}
@@ -1462,7 +2030,7 @@ export default function App() {
               </button>
               <button
                 class="w-full flex items-center gap-2 px-3 py-2.5 rounded-xl hover:bg-white/5 transition-colors text-sm text-[#e8e8ea]"
-                onClick={() => setShowScheduledTasks(true)}
+                onClick={() => { setShowScheduledTasks(true); void loadSchedules() }}
               >
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                   <circle cx="12" cy="12" r="10" /><polyline points="12 6 12 12 16 14" />
@@ -1511,7 +2079,7 @@ export default function App() {
             <button
               class="flex-none flex items-center gap-1 max-w-[38vw] max-[360px]:max-w-[30vw] sm:max-w-none text-xs px-2 sm:px-2.5 py-1 rounded-full bg-black/20 border border-white/5 text-[#9a9aaa] hover:bg-black/30 hover:border-accent/30 transition-colors cursor-pointer"
               title={`${config.provider} / ${config.model}`}
-              onClick={() => { fetchProviders(); fetchModelList(); setShowModelSwitcher(true) }}
+              onClick={openModelSwitcher}
             >
               <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="text-accent/60 flex-none">
                 <rect x="2" y="3" width="20" height="14" rx="2" /><line x1="8" y1="21" x2="16" y2="21" /><line x1="12" y1="17" x2="12" y2="21" />
@@ -1687,7 +2255,7 @@ export default function App() {
       {/* New project modal — title, description, folder or git URL. */}
       {showNewProject && (
         <div
-          class="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4"
+          class="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4"
           onClick={() => setShowNewProject(false)}
         >
           <div
@@ -1789,8 +2357,8 @@ export default function App() {
       {/* Model Switcher modal — provider and model selection. */}
       {showModelSwitcher && (
         <div
-          class="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4"
-          onClick={() => setShowModelSwitcher(false)}
+          class="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4"
+          onClick={closeModelSwitcher}
         >
           <div
             class="frosted rounded-2xl border border-white/10 w-full max-w-md p-5 shadow-2xl"
@@ -1803,7 +2371,7 @@ export default function App() {
               <h2 class="text-base font-semibold">Model</h2>
               <button
                 class="ml-auto p-1.5 rounded-lg hover:bg-white/5"
-                onClick={() => setShowModelSwitcher(false)}
+                onClick={discardModelSwitcher}
                 aria-label="Close"
               >
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -1817,10 +2385,15 @@ export default function App() {
                 <label class="block text-sm text-[#9a9aaa] mb-1.5">Provider</label>
                 <select
                   class="w-full px-3 py-2.5 rounded-xl bg-black/30 border border-white/10 text-[#e8e8ea] focus:outline-none focus:border-accent"
-                  value={config?.provider || ''}
+                  value={draftProvider}
                   onChange={(e) => {
                     const newProvider = (e.target as HTMLSelectElement).value
-                    saveProviderModel(newProvider, '')
+                    setDraftProvider(newProvider)
+                    // The model is re-chosen rather than carried over: it belonged
+                    // to the provider being left, and the new one may not serve it.
+                    // Going back to the saved provider restores the saved model, so
+                    // a provider round-trip leaves the draft exactly as it was.
+                    setDraftModel(newProvider === (config?.provider || '') ? (config?.model || '') : firstModelOf(newProvider, providers))
                   }}
                 >
                   {providers.map(p => (
@@ -1833,7 +2406,7 @@ export default function App() {
 
               <div>
                 <label class="block text-sm text-[#9a9aaa] mb-1.5">Model</label>
-                {fetchingModels ? (
+                {fetchingModels && draftProvider === (config?.provider || '') ? (
                   <div class="flex items-center gap-2 px-3 py-2.5 text-sm text-[#9a9aaa]">
                     <svg class="animate-spin text-accent" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
                       <path d="M21 12a9 9 0 1 1-6.219-8.56" />
@@ -1843,18 +2416,12 @@ export default function App() {
                 ) : (
                   <select
                     class="w-full px-3 py-2.5 rounded-xl bg-black/30 border border-white/10 text-[#e8e8ea] focus:outline-none focus:border-accent font-mono text-sm"
-                    value={config?.model || ''}
-                    onChange={(e) => {
-                      const newModel = (e.target as HTMLSelectElement).value
-                      saveProviderModel(config?.provider || '', newModel)
-                    }}
+                    value={draftModel}
+                    onChange={(e) => setDraftModel((e.target as HTMLSelectElement).value)}
                   >
-                    {(modelList.length > 0 ? modelList : (providers.find(p => p.id === config?.provider)?.models || [])).map(m => (
+                    {modelOptions(draftProvider, draftModel, config?.provider || '', modelList, providers).map(m => (
                       <option key={m} value={m}>{m}</option>
                     ))}
-                    {config?.model && !(modelList.includes(config.model) || (providers.find(p => p.id === config?.provider)?.models || []).includes(config.model)) && (
-                      <option value={config.model}>{config.model}</option>
-                    )}
                   </select>
                 )}
               </div>
@@ -1869,9 +2436,15 @@ export default function App() {
 
             <div class="flex gap-2 mt-5">
               <button
-                class="flex-1 min-h-[44px] px-5 rounded-xl border border-white/10 text-[#e8e8ea] active:scale-95 transition-transform"
-                onClick={() => setShowModelSwitcher(false)}
+                class="flex-1 min-h-[44px] px-5 rounded-xl bg-accent text-white font-semibold active:scale-95 transition-transform disabled:opacity-30 disabled:cursor-not-allowed disabled:saturate-0"
+                onClick={() => applyProviderModel()}
+                disabled={savingConfig || !draftProvider || draftProvider === (config?.provider || '') && draftModel === (config?.model || '')}
               >
+                {savingConfig && (
+                  <svg class="animate-spin" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="display:inline-block;vertical-align:middle;margin-right:6px">
+                    <path d="M21 12a9 9 0 1 1-6.219-8.56" />
+                  </svg>
+                )}
                 Done
               </button>
             </div>
@@ -1882,7 +2455,7 @@ export default function App() {
       {/* Confirm-delete modal — asks before deleting a session or project. */}
       {confirmDelete && (
         <div
-          class="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4"
+          class="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4"
           onClick={() => setConfirmDelete(null)}
         >
           <div
@@ -2066,7 +2639,7 @@ export default function App() {
           modal becomes non-dismissable. */}
       {showUpgrade && (
         <div
-          class="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4"
+          class="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4"
           onClick={() => { if (!upgradeBusy) setShowUpgrade(false) }}
         >
           <div
@@ -2274,7 +2847,7 @@ export default function App() {
 
       {showSkillLibrary && (
         <div
-          class="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4"
+          class="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4"
           onClick={() => setShowSkillLibrary(false)}
         >
           <div
@@ -2311,14 +2884,14 @@ export default function App() {
 
       {showScheduledTasks && (
         <div
-          class="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4"
+          class="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4"
           onClick={() => setShowScheduledTasks(false)}
         >
           <div
-            class="frosted rounded-2xl border border-white/10 w-full max-w-md p-5 shadow-2xl"
+            class="tasks-panel frosted rounded-2xl border border-white/10 w-full max-w-md p-5 shadow-2xl"
             onClick={(e) => e.stopPropagation()}
           >
-            <div class="flex items-center gap-2 mb-4">
+            <div class="tasks-head flex items-center gap-2 mb-4">
               <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="text-accent">
                 <circle cx="12" cy="12" r="10" /><polyline points="12 6 12 12 16 14" />
               </svg>
@@ -2333,8 +2906,131 @@ export default function App() {
                 </svg>
               </button>
             </div>
-            <p class="text-sm text-[#9a9aaa]">Scheduled tasks are not yet available.</p>
-            <div class="flex gap-2 mt-5">
+
+            {/* On a phone this is one column, list first and the create form below it -
+                the order that fits a narrow screen. On a screen with room the form
+                moves to the LEFT of the list (see .tasks-body in index.css), which is
+                the order a person works in: write the task, then watch it land in the
+                list beside it. The DOM keeps the phone's order and the two columns are
+                PLACED by the stylesheet, so neither layout duplicates the markup. */}
+            <div class="tasks-body">
+              {/* The list is what makes the feature usable: a task whose next run and
+                  last outcome a user cannot see is a task they cannot trust, so both
+                  are on the row and neither is behind a click. */}
+              <div class="tasks-list-column">
+                <p class="tasks-heading">Scheduled ({scheduledTasks.length})</p>
+                <div class="tasks-list space-y-2 max-h-[45vh] overflow-y-auto">
+                  {scheduledTasks.length === 0 && (
+                    <p class="text-sm text-[#9a9aaa]">
+                      No scheduled tasks yet. One created here fires into the conversation you are in.
+                    </p>
+                  )}
+                  {scheduledTasks.map((t) => {
+                    const cd = taskCountdown(t, nowMs, clockSkew)
+                    return (
+                      <div key={t.id} class="rounded-xl border border-white/10 p-3">
+                        <div class="flex items-center gap-2">
+                          <span class="flex-1 text-sm text-[#e8e8ea] truncate">{t.title}</span>
+                          {/* The cadence stays visible, but as a TAG: what a person
+                              wants off a row is when it fires NEXT, and `every` is
+                              the setting they typed when they created it. */}
+                          <span class="task-tag">every {durationOf(t.every).short}</span>
+                        </div>
+                        {/* The countdown is the row's headline figure: the tag says what
+                            the task is SET to, this says how long is left. A paused task
+                            shows none - its next run is a projection, and a ticker over a
+                            task that will not fire would be a lie with a pulse. */}
+                        {cd && (
+                          <p class="text-xs text-[#9a9aaa] mt-1.5">
+                            {cd.overdue ? 'due now' : 'fires in '}
+                            {!cd.overdue && <span class="task-countdown">{cd.text}</span>}
+                          </p>
+                        )}
+                        {!t.enabled && (
+                          <p class="text-xs text-[#9a9aaa] mt-1.5">
+                            Paused — last {new Date(t.last_run || t.created).toLocaleString()}
+                          </p>
+                        )}
+                        {t.last_outcome && (
+                          <p class="text-xs text-[#6a6a7a] mt-1 break-words">{t.last_outcome}</p>
+                        )}
+                        <div class="flex gap-2 mt-2">
+                          <button
+                            class="min-h-[44px] px-3 rounded-lg border border-white/10 text-xs text-[#e8e8ea] active:scale-95 transition-transform"
+                            onClick={() => void runScheduleNow(t)}
+                          >
+                            Run now
+                          </button>
+                          <button
+                            class="min-h-[44px] px-3 rounded-lg border border-white/10 text-xs text-[#e8e8ea] active:scale-95 transition-transform"
+                            onClick={() => void toggleSchedule(t)}
+                          >
+                            {t.enabled ? 'Pause' : 'Resume'}
+                          </button>
+                          <button
+                            class="min-h-[44px] px-3 rounded-lg border border-danger/30 text-xs text-danger active:scale-95 transition-transform ml-auto"
+                            onClick={() => void deleteSchedule(t)}
+                          >
+                            Delete
+                          </button>
+                        </div>
+                      </div>
+                    )
+                  })}
+                </div>
+              </div>
+
+              {/* The create form. Cadence is free text because the gateway validates it
+                  and says what is wrong: a fixed dropdown would be a second copy of the
+                  rule. */}
+              <div class="tasks-form pt-4 border-t border-white/10 space-y-2">
+                <p class="tasks-heading">New task</p>
+                <input
+                  class="w-full px-3 py-2 rounded-lg bg-black/30 border border-white/10 text-sm text-[#e8e8ea]"
+                  placeholder="Title"
+                  value={newTaskTitle}
+                  onInput={(e) => setNewTaskTitle((e.target as HTMLInputElement).value)}
+                />
+                <textarea
+                  class="w-full px-3 py-2 rounded-lg bg-black/30 border border-white/10 text-sm text-[#e8e8ea] resize-none"
+                  rows={3}
+                  placeholder="What should it do?"
+                  value={newTaskText}
+                  onInput={(e) => setNewTaskText((e.target as HTMLTextAreaElement).value)}
+                />
+                <div class="flex gap-2">
+                  <input
+                    class="flex-1 px-3 py-2 rounded-lg bg-black/30 border border-white/10 text-sm text-[#e8e8ea] font-mono"
+                    placeholder="24h"
+                    value={newTaskEvery}
+                    onInput={(e) => setNewTaskEvery((e.target as HTMLInputElement).value)}
+                  />
+                  {/* min-w-0: a flex item's automatic minimum size is its longest word, and a
+                      <select> is a replaced element whose text and arrow give it a real
+                      min-content width - wide enough ("Plan (read-only)") that the row was 3px
+                      past the form and grew a horizontal scrollbar over the whole left column.
+                      It keeps its intrinsic width while the column is wide enough and gives way
+                      before pushing anything out of the card. */}
+                  <select
+                    class="min-w-0 px-3 py-2 rounded-lg bg-black/30 border border-white/10 text-sm text-[#e8e8ea]"
+                    value={newTaskKind}
+                    onChange={(e) => setNewTaskKind((e.target as HTMLSelectElement).value as 'task' | 'plan')}
+                  >
+                    <option value="task">Task</option>
+                    <option value="plan">Plan (read-only)</option>
+                  </select>
+                </div>
+                <button
+                  class="w-full min-h-[44px] px-5 rounded-xl bg-accent/20 border border-accent/30 text-[#e8e8ea] active:scale-95 transition-transform disabled:opacity-50"
+                  disabled={scheduledBusy || !newTaskTitle.trim() || !newTaskText.trim()}
+                  onClick={() => void createSchedule()}
+                >
+                  {scheduledBusy ? 'Creating…' : 'Create'}
+                </button>
+              </div>
+            </div>
+
+            <div class="tasks-foot flex gap-2 mt-5">
               <button
                 class="flex-1 min-h-[44px] px-5 rounded-xl border border-white/10 text-[#e8e8ea] active:scale-95 transition-transform"
                 onClick={() => setShowScheduledTasks(false)}

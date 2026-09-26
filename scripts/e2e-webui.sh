@@ -142,19 +142,35 @@ case "$(cat .e2e/page.html)" in
   *) bad "the page has no <title>: $(head -c 200 .e2e/page.html)" ;;
 esac
 
-css_code="$(curl -s -o .e2e/app.css -w '%{http_code}' "$BASE/app.css")"
-js_code="$(curl -s -o .e2e/app.js -w '%{http_code}' "$BASE/app.js")"
-[ "$css_code" = "200" ] && [ "$js_code" = "200" ] && ok "the stylesheet and the script are served" \
-  || bad "the assets answered $css_code/$js_code, want 200/200"
+# The assets are the ones THE PAGE ITSELF names, extracted from the markup that was just
+# downloaded - not a fixed "app.css"/"app.js". Those names belonged to the hand-written
+# interface and stopped existing when it moved to Vite, which emits content-hashed names
+# under /assets/. Reading the page also makes this the stronger check: a hash that the
+# bundle no longer has (a stale embed, a half-rebuilt binary) shows up as a 404 here,
+# while a hardcoded name would have been satisfied by any file with the old name.
+picks() { # picks <extension> -> the first matching path the page names, or nothing
+  grep -o "/assets/[A-Za-z0-9._-]*\.$1" .e2e/page.html | head -1
+}
+CSS_PATH="$(picks css)"
+JS_PATH="$(picks js)"
+if [ -z "$CSS_PATH" ] || [ -z "$JS_PATH" ]; then
+  bad "the page names no /assets/*.css and *.js (got '$CSS_PATH' / '$JS_PATH')"
+else
+  ok "the page names its own assets: $CSS_PATH, $JS_PATH"
+  css_code="$(curl -s -o .e2e/page-asset.css -w '%{http_code}' "$BASE$CSS_PATH")"
+  js_code="$(curl -s -o .e2e/page-asset.js -w '%{http_code}' "$BASE$JS_PATH")"
+  [ "$css_code" = "200" ] && [ "$js_code" = "200" ] && ok "the stylesheet and the script are served" \
+    || bad "the assets answered $css_code/$js_code, want 200/200"
+fi
 
 # The page is served UNauthenticated, so it must hold no secret. This scans what actually crossed
 # the wire, which makes it a check of the responses rather than of the code that writes them.
-if grep -q "$TOKEN" .e2e/page.html .e2e/app.css .e2e/app.js 2>/dev/null; then
+if grep -q "$TOKEN" .e2e/page.html .e2e/page-asset.css .e2e/page-asset.js 2>/dev/null; then
   bad "the token appears in the page: it is served unauthenticated"
 else
   ok "the page carries no token"
 fi
-if grep -q 'sk-' .e2e/page.html .e2e/app.css .e2e/app.js 2>/dev/null; then
+if grep -qE 'sk-[A-Za-z0-9_-]{16,}' .e2e/page.html .e2e/page-asset.css .e2e/page-asset.js 2>/dev/null; then
   bad "an API key appears in the page"
 else
   ok "no API key in the page"
@@ -249,7 +265,7 @@ case "$transcript" in
   *) bad "the transcript does not carry the turn: $transcript" ;;
 esac
 
-if printf '%s\n%s\n' "$transcript" "$(cat .e2e/turn.sse)" | grep -q 'sk-'; then
+if printf '%s\n%s\n' "$transcript" "$(cat .e2e/turn.sse)" | grep -qE 'sk-[A-Za-z0-9_-]{16,}'; then
   bad "an API key appeared in a response served to the browser"
 else
   ok "no API key in any response served to the browser"

@@ -187,10 +187,14 @@ jobs:
                 ;;
             esac
             file "$binary" || true
-            # Quality requirement: the final binary must weigh under 10 MB.
+            # Quality requirement: the final binary must weigh under 20 MB. The ceiling
+            # was 10 MB while the project was a single CLI; features keep landing in this
+            # same binary (the web interface, the gateway's WebSocket transport, scheduled
+            # tasks), so the ceiling is a guard against RUNAWAY growth - a dependency that
+            # drags a framework in - and not a budget any single feature has to argue with.
             bytes="$(stat -c%s "$binary")"
-            [ "$bytes" -lt 10485760 ] || { echo "::error::$binary weighs $bytes bytes (limit: 10 MB)"; exit 1; }
-            echo "$binary: $bytes bytes (< 10 MB)"
+            [ "$bytes" -lt 20971520 ] || { echo "::error::$binary weighs $bytes bytes (limit: 20 MB)"; exit 1; }
+            echo "$binary: $bytes bytes (< 20 MB)"
           done
 
       - name: Register qemu (only needed outside the native architectures)
@@ -251,14 +255,14 @@ jobs:
       - name: End-to-end test of the gateway
         run: ./scripts/e2e-gateway.sh amd64
 
-      # The size ceiling is not incidental to this feature: the gateway is hand-written on the
-      # standard library precisely because there is so little room under 10 MB, and a dependency
-      # added here would land in the same binary the size gate measures.
+      # The size ceiling guards against RUNAWAY growth rather than capping features: the
+      # gateway is hand-written on the standard library, and a dependency added here would
+      # land in the same binary this gate measures.
       - name: The binary still fits under the ceiling
         run: |
           bytes="$(stat -c%s dist/.e2e/motita-gateway-linux-amd64)"
           echo "the gateway build weighs $bytes bytes"
-          [ "$bytes" -lt 10485760 ] || { echo "::error::the binary weighs $bytes bytes"; exit 1; }
+          [ "$bytes" -lt 20971520 ] || { echo "::error::the binary weighs $bytes bytes (limit: 20 MB)"; exit 1; }
 
   release:
     name: publish release

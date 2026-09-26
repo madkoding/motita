@@ -116,8 +116,34 @@ func newConversation(id string, svc Service) *conversation {
 		svc:      svc,
 		created:  now,
 		lastUsed: now,
-		title:    "New session — " + now.Format("02/01 15:04:05"),
+		title:    placeholderTitle,
 	}
+}
+
+// placeholderTitle is the title a session carries until something better names
+// it.
+//
+// It used to embed the creation time ("New session — 02/01 15:04:05"), and the
+// time is not gone - it moved to the session's own metadata line, where every
+// session shows when it was last used. Two places showing one timestamp meant
+// the title was half date, and a title is for the name.
+const placeholderTitle = "New session"
+
+// legacyPlaceholderPrefix is the opening of the dated placeholder older builds
+// wrote. Sessions persisted by one of those builds are still on disk and still
+// unnamed, so they must still be recognised as placeholders - otherwise a
+// session created before this change would keep its date forever instead of
+// being auto-titled on its next turn.
+const legacyPlaceholderPrefix = "New session — "
+
+// isPlaceholderTitle reports whether a title is one nobody chose: the current
+// placeholder, or the dated one an older build wrote.
+//
+// An exact match is required for the current placeholder. A prefix match would
+// also swallow a title the user set themselves ("New session notes"), and
+// overwriting a name the user typed is worse than leaving a session unnamed.
+func isPlaceholderTitle(title string) bool {
+	return title == placeholderTitle || strings.HasPrefix(title, legacyPlaceholderPrefix)
 }
 
 // touch records that this conversation was just spoken to.
@@ -239,6 +265,18 @@ type SessionStatus struct {
 	// which is what lets two sessions work at once without editing each
 	// other's files. It is empty for a free-standing session.
 	Workspace string `json:"workspace,omitempty"`
+	// Changes is how many uncommitted changes this session has in its own
+	// working tree: modified, staged, deleted, renamed and untracked files,
+	// each counted once. It is what the sidebar draws as a count, so a session
+	// that has written something does not read as idle. Absent (0) for a
+	// session with no workspace, or one that is not a repository.
+	Changes int `json:"changes,omitempty"`
+	// Worktree is the NAME of the session's worktree directory, which is its
+	// id - the last path element rather than the whole path, because the path
+	// is long, mostly identical between sessions, and would be truncated to
+	// nothing useful in a narrow sidebar. It is what tells two sessions of one
+	// project apart at a glance. Empty for a session without its own worktree.
+	Worktree string `json:"worktree,omitempty"`
 }
 
 func (c *conversation) status() SessionStatus {
@@ -249,6 +287,35 @@ func (c *conversation) status() SessionStatus {
 	if c.workspace != "" {
 		ctx := context.Background()
 		st.Branch = gitx.Display(ctx, c.workspace)
+		// The worktree is a session's OWN directory, and naming it here is what
+		// tells two sessions of one project apart: they share a project, a
+		// branch prefix and a title format, and the only thing that differs is
+		// the directory each one runs in.
+		//
+		// Asked of git rather than compared with the project directory: a
+		// session that fell back to the project's checkout has no worktree of
+		// its own, and calling that directory one would be inventing a
+		// distinction the filesystem does not make. The listing also settles
+		// the symlinked and relative spellings of the same path, which a string
+		// comparison does not.
+		//
+		// The project's own checkout IS a listed worktree of its repository, so
+		// "git knows this path" is not the question - the question is whether
+		// this path is somewhere OTHER than the project. Without that second
+		// test a session that fell back to the project's checkout reports the
+		// project's directory as its worktree, which is the one thing it is not.
+		if c.projectDir != "" && !gitx.SamePath(c.workspace, c.projectDir) {
+			if _, ok, err := gitx.LiveWorktreeAt(ctx, c.projectDir, c.workspace); err == nil && ok {
+				st.Worktree = filepath.Base(c.workspace)
+			}
+		}
+		// Changes is read from the session's own tree, so the count is the work
+		// this session has done. An unreadable tree reports 0 rather than an
+		// error: the count decorates a badge, and a badge that cannot be
+		// computed should be absent rather than break the sidebar.
+		if n, err := gitx.WorkingTreeChanges(ctx, c.workspace); err == nil {
+			st.Changes = n
+		}
 		// Mergeable compares the session's branch against the PROJECT's branch,
 		// not against whatever the session's own checkout is on. A session with
 		// its own worktree reports its own branch (motita/<id>), so comparing
@@ -308,10 +375,17 @@ func (s *Server) sessionWorktree(ctx context.Context, repoDir, sessionID string)
 	}
 	path := filepath.Join(s.opts.WorkspaceDir, "worktrees", sessionID)
 	branch := sessionBranch(sessionID)
-	// Already ours: a checkout of this session's branch at this path is the
-	// worktree asked for, whatever created it. Asking git to make it again
-	// would be refused for a worktree that is already there and correct.
-	if gitx.Display(ctx, path) == branch {
+	// Already ours: a LIVE worktree of this repository at this path is the
+	// worktree asked for, whatever created it.
+	//
+	// The test is the PATH, deliberately, and not the branch. A session whose
+	// worktree the user moved to a feature branch is still working in its own
+	// tree - and asking about the branch instead answers "not ours" for it,
+	// which then sends this function down the add below. Measured: that add
+	// fails ("already exists", non-zero), the error propagates as the fallback
+	// to the PROJECT's directory, and two sessions end up editing one checkout -
+	// the exact collision worktrees exist to prevent.
+	if _, ok, err := gitx.LiveWorktreeAt(ctx, repoDir, path); err == nil && ok {
 		return path, nil
 	}
 	if err := gitx.AddWorktree(ctx, repoDir, path, branch); err != nil {
@@ -577,7 +651,7 @@ func (s *Server) handleDeleteSession(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		c.svc.ResetConversation()
-		c.setTitle("New session — " + time.Now().Format("02/01 15:04:05"))
+		c.setTitle(placeholderTitle)
 		s.deletePersistedSession(c.id)
 		writeJSON(w, http.StatusOK, c.status())
 		return
@@ -622,13 +696,12 @@ func (s *Server) handleRenameSession(w http.ResponseWriter, r *http.Request) {
 }
 
 // maybeAutoTitle sets a title generated by the LLM when the conversation still
-// has the placeholder "Sesión nueva — …" title. It is called after a turn
+// has an unchosen placeholder title. It is called after a turn
 // completes, so a session that was just created gets a human-readable label
 // without the user naming it themselves.
 func (s *Server) maybeAutoTitle(c *conversation) {
-	// Only replace the placeholder title, never a user-set or already-generated one.
-	current := c.status().Title
-	if current != "" && !strings.HasPrefix(current, "New session —") {
+	// Only replace a placeholder title, never a user-set or already-generated one.
+	if !isPlaceholderTitle(c.status().Title) {
 		return
 	}
 	turns := c.svc.Transcript()

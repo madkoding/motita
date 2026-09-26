@@ -11,12 +11,30 @@
 #   5. coverage      — per package and aggregate, against a minimum
 #   6. English check — no user-visible Spanish left in code, configs or scripts
 #   7. i386 E2E      — both end-to-end tests in real 32-bit containers
+#
+# It mirrors the CI's `verify` job, and the two must agree: a step CI enforces and this
+# script skips is a step that reports green on a red branch. staticcheck was the one that
+# did exactly that - the CI failed on an SA4006 while this gate passed the same commit.
 set -uo pipefail
 
 cd "$(dirname "$0")/.."
-export PATH=/opt/data/cache/go/bin:$PATH
-export GOCACHE=${GOCACHE:-/opt/data/cache/go-build}
-export GOPATH=${GOPATH:-/opt/data/cache/gopath}
+
+# Use the Go on PATH, and only fall back to a cached install when there is none. Pinning
+# GOCACHE/GOPATH to one machine's layout is what broke every e2e check on a host where
+# that layout does not exist: they pointed at /opt/data/cache/..., a directory that
+# belongs to a different installation and another user, so all ten e2e checks died with
+# "could not create module cache: mkdir /opt/data/cache/gopath: permission denied" -
+# which reads like a broken repository and is nothing of the sort. Go's own defaults
+# ($HOME/.cache/go-build, $HOME/go) are correct everywhere, so they are left alone unless
+# the caller sets GOCACHE/GOPATH deliberately.
+if ! command -v go >/dev/null 2>&1; then
+  for candidate in /opt/data/cache/go/bin "$HOME/.hermes/cache/go/bin"; do
+    if [ -x "$candidate/go" ]; then
+      export PATH="$candidate:$PATH"
+      break
+    fi
+  done
+fi
 
 MIN_COVERAGE=${MIN_COVERAGE:-100}
 failures=0
@@ -43,6 +61,112 @@ else
   echo "$output" | tail -30 | sed 's/^/    /'
 fi
 
+step "4b. staticcheck (the CI pins v0.6.1)"
+# The CI has run this since it was added there and this script did not, which is how a
+# branch passed here and failed there on an SA4006 the same commit. It is the step that
+# catches the tautological assertions go vet is happy with, so the gap was not cosmetic.
+#
+# The version is PINNED and must match .github/workflows/ci.yml: an unpinned @latest turns
+# a green build red the day upstream adds a check, with no change in this repository.
+# `go run pkg@version` builds the tool without touching go.mod, so the zero-dependency
+# property is preserved (no require line, no go.sum).
+#
+# It must run on the go.mod TOOLCHAIN: a toolchain OLDER than the module makes staticcheck
+# fail to read the export data ("module requires at least go1.26, but Staticcheck was built
+# with go1.24.4"), which reads like a finding and is the tool being unable to parse the
+# compiler's output. The toolchain name has to be a PATCH release (`go1.26.0`): the `go 1.26`
+# directive is a language version, and GOTOOLCHAIN rejects it with "go1.26 is a language
+# version but not a toolchain version". The latest patch is resolved rather than guessed,
+# because the stdlib vulnerabilities govulncheck reports are only fixed in a .x release.
+statictoolchain() {
+  local minor patch
+  minor="$(sed -n 's/^go \([0-9][0-9]*\.[0-9][0-9]*\).*$/\1/p' go.mod | head -1)"
+  [ -n "$minor" ] || return 1
+  # GOTOOLCHAIN needs the `go` prefix and a PATCH release: `go 1.26` is a language version
+  # and is rejected with "go1.26 is a language version but not a toolchain version".
+  patch="$(GOTOOLCHAIN="go$minor.0" go version 2>/dev/null | sed -n 's/.*go\([0-9][0-9]*\.[0-9][0-9]*\.[0-9][0-9]*\).*/\1/p')"
+  [ -n "$patch" ] || return 1
+  printf 'go%s' "$patch"
+}
+STATICCHECK_PIN="honnef.co/go/tools/cmd/staticcheck@v0.6.1"
+statictc="$(statictoolchain)" || statictc=""
+if [ -z "$statictc" ]; then
+  printf '  ..   staticcheck skipped: go.mod declares no usable go directive for a toolchain\n'
+else
+  printf '     toolchain %s, pin %s\n' "$statictc" "$STATICCHECK_PIN"
+  if output=$(GOTOOLCHAIN="$statictc" go run "$STATICCHECK_PIN" ./... 2>&1); then
+    ok "staticcheck clean"
+  else
+    bad "staticcheck reported findings"
+    echo "$output" | head -20 | sed 's/^/    /'
+  fi
+fi
+
+step "4c. govulncheck (the CI pins v1.8.0)"
+# Against the standard library and the module. With no external dependencies the reachable
+# surface is stdlib CVEs, and this is what says the pinned toolchain has no known
+# vulnerability reachable from the code. Same pin, same toolchain rule as above.
+#
+# A finding here is a property of the TOOLCHAIN PATCH, not of this repository: `go 1.26` in go.mod
+# is a language version that resolves to whatever patch happens to be installed, while CI's
+# setup-go installs the current one. Scanning a fixed `go1.26.0` would therefore report the same
+# advisories on every run forever - a step that has stopped being a check and become a banner.
+#
+# So the patch that carries the fixes is DERIVED from the tool rather than guessed: govulncheck
+# names it itself ("Fixed in: net/http@go1.26.6"), and the newest one it names is what CI
+# effectively runs. A finding that survives that retry is actionable, and fails.
+GOVULNCHECK_PIN="golang.org/x/vuln/cmd/govulncheck@v1.8.0"
+if [ -z "$statictc" ]; then
+  printf '  ..   govulncheck skipped: go.mod declares no usable go directive for a toolchain\n'
+elif ! command -v go >/dev/null 2>&1; then
+  printf '  ..   govulncheck skipped: no go on PATH\n'
+elif [ "${SKIP_GOVULNCHECK:-0}" = "1" ]; then
+  # It reaches out to vuln.go.dev, so an offline host would fail on the network rather than
+  # on the code. The CI has connectivity and always runs it; here it can be skipped
+  # deliberately, and never silently.
+  printf '  ..   govulncheck skipped (SKIP_GOVULNCHECK=1)\n'
+else
+  # The newest toolchain any advisory says it is fixed in, e.g. `go1.26.6`. Reads govulncheck's
+  # output on stdin. `printf | fn` rather than a herestring: this script keeps parsing as POSIX
+  # sh, which step 7 verifies. The FULL name is returned so it can be handed to GOTOOLCHAIN as
+  # it stands - stripping the prefix and reassembling it gave `go1.26.1.26.6`.
+  newest_fixed_toolchain() {
+    grep -oE 'Fixed in: [a-z0-9/]+@go[0-9]+\.[0-9]+\.[0-9]+' \
+      | sed 's/.*@//' | sort -t. -k1,1n -k2,2n -k3,3n | tail -1
+  }
+  govuln_found() { grep -qE 'Your code is affected|Vulnerability #'; }
+  govuln_found_in() { printf '%s\n' "$1" | govuln_found; }
+
+  if output="$(GOTOOLCHAIN="$statictc" go run "$GOVULNCHECK_PIN" ./... 2>&1)"; then
+    ok "govulncheck clean"
+  elif govuln_found_in "$output"; then
+    fix_toolchain="$(printf '%s\n' "$output" | newest_fixed_toolchain)"
+    # Same MINOR: a fix in a different line of Go is not something this repository can adopt by
+    # changing a toolchain, and jumping minors is a change nobody asked this gate to make.
+    if [ -n "$fix_toolchain" ] && [ "$fix_toolchain" != "$statictc" ] \
+       && [ "${fix_toolchain%.*}" = "${statictc%.*}" ]; then
+      # Retry on the toolchain that carries the fixes, which is what CI runs. It is downloaded on
+      # first use and cached by Go; a host with no network lands in the branch below and says so
+      # rather than reporting a vulnerability it could not check.
+      printf '     advisories found on %s; retrying on %s\n' "$statictc" "$fix_toolchain"
+      if output="$(GOTOOLCHAIN="$fix_toolchain" go run "$GOVULNCHECK_PIN" ./... 2>&1)"; then
+        ok "govulncheck clean on $fix_toolchain (the toolchain that carries the fixes)"
+      elif govuln_found_in "$output"; then
+        bad "govulncheck reports a reachable vulnerability even on $fix_toolchain"
+        printf '%s\n' "$output" | grep -E 'Vulnerability #|Found in|Fixed in|Your code' | head -12 | sed 's/^/    /'
+      else
+        printf '  ..   govulncheck could not run on %s (network or toolchain): %s\n' \
+          "$fix_toolchain" "$(printf '%s\n' "$output" | tail -1)"
+      fi
+    else
+      bad "govulncheck reports a reachable vulnerability with no ${statictc%.*}.x fix named"
+      printf '%s\n' "$output" | grep -E 'Vulnerability #|Found in|Fixed in|Your code' | head -12 | sed 's/^/    /'
+    fi
+  else
+    printf '  ..   govulncheck could not run (network or toolchain): %s\n' "$(printf '%s\n' "$output" | tail -1)"
+  fi
+fi
+
 step "5. coverage (gate: ${MIN_COVERAGE}% per package)"
 # Checked package by package: a gap must not hide behind the aggregate.
 #
@@ -52,10 +176,18 @@ step "5. coverage (gate: ${MIN_COVERAGE}% per package)"
 # test has already failed. Holding a harness to the same bar as the program would mean
 # writing tests for the tests, and the branches that would be covered are the ones that fire
 # on failure — so the coverage number would go up without a single new check.
+# Whether a package has tests is a property of the PACKAGE: go list answers it, while go
+# test's report does not survive a toolchain change. Go 1.26 stopped printing "no test
+# files", so the string match this loop used to do silently stopped skipping the test-less
+# packages and started gating them at 0.0% — internal/review was reported at 0% on a tree
+# the CI (fixed for exactly this reason) calls clean. Same question, same answer, both loops.
+has_tests() {
+  [ "$(go list -f '{{len .TestGoFiles}}{{len .XTestGoFiles}}' "$1" 2>/dev/null)" != "00" ]
+}
 below=0
 for pkg in $(go list ./internal/... ./cmd/... 2>/dev/null); do
   result="$(go test -count=1 -cover "$pkg" 2>/dev/null)"
-  if echo "$result" | grep -q 'no test files'; then
+  if ! has_tests "$pkg"; then
     printf '    %-52s (no test files)\n' "$pkg"
     continue
   fi
@@ -85,10 +217,7 @@ supported_by_name() {
 # Whether a package has tests is a property of the package: go list answers it, while
 # go test's report does not survive a toolchain change. Go 1.26 stopped printing "no test
 # files", so a string match on it silently stopped skipping the test-less harnesses and
-# started gating them at 0.0%.
-has_tests() {
-  [ "$(go list -f '{{len .TestGoFiles}}{{len .XTestGoFiles}}' "$1" 2>/dev/null)" != "00" ]
-}
+# started gating them at 0.0%  (has_tests is defined with the loop above).
 for pkg in $(go list ./tools/... 2>/dev/null); do
   result="$(go test -count=1 -cover "$pkg" 2>/dev/null)"
   cov="$(echo "$result" | grep -oE 'coverage: [0-9.]+' | grep -oE '[0-9.]+')"
@@ -270,6 +399,27 @@ if ./scripts/e2e-webui.sh amd64 >/tmp/verify_e2e_webui.log 2>&1; then
 else
   bad "web interface E2E failed (see /tmp/verify_e2e_webui.log)"
   tail -20 /tmp/verify_e2e_webui.log | sed 's/^/    /'
+fi
+
+step "8c. the built binary stays under the ceiling"
+# The ceiling was checked in CI only, and that gap hid a real regression: the binary
+# crossed 10 MB with the web interface and the sidebar work merged, while this gate kept
+# reporting a clean repository because nothing here measured it. CI still checks it per
+# platform in the build matrix; this is the local half, so the failure shows up before the
+# push rather than after it.
+#
+# It measures the HOST build (dist/motita), which is the one a contributor installs and
+# runs. Cross-compiled binaries differ by a few hundred KB and CI covers those.
+if [ ! -f dist/motita ]; then
+  printf '  ..   dist/motita is not built yet (run: make build)\n'
+  printf '       the ceiling is still checked in CI, per platform\n'
+elif size_out="$(sh scripts/check-binary-size.sh dist/motita 2>&1)"; then
+  ok "$size_out"
+else
+  case "$?" in
+    2) printf '  ..   %s\n' "$size_out" ;;
+    *) bad "$size_out" ;;
+  esac
 fi
 
 printf '\n========================================\n'

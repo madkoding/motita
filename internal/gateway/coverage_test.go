@@ -564,7 +564,10 @@ func TestIsClosedConnErr(t *testing.T) {
 		want bool
 	}{
 		{nil, false},
-		{io.EOF, false},
+		// EOF is the NORMAL end of a WebSocket connection - a browser closing its tab - and it is
+		// classified as a clean exit. It used to be classified as a failure, which logged a warning
+		// for every client that hung up.
+		{io.EOF, true},
 		{errors.New("use of closed network connection"), true},
 		{errors.New("write: broken pipe"), true},
 		{errors.New("read: connection reset by peer"), true},

@@ -28,7 +28,9 @@ import (
 	"context"
 	"crypto/subtle"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"strings"
@@ -126,12 +128,30 @@ func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 
 	// Run the read loop. This blocks until the client disconnects or a fatal error
 	// closes the connection.
-	client.readLoop(r.Context(), ackCh)
+	//
+	// The loop is bound to the GATEWAY's lifetime, not the request's. Measured, not assumed: after
+	// the upgrade hijacks the connection, net/http stops managing it and r.Context() is NEVER
+	// cancelled - neither by Shutdown nor by the client going away - so a loop bound to it would
+	// hold a connection past the shutdown that was supposed to end it.
+	//
+	// The connection is CLOSED when that lifetime ends, because the loop is normally blocked inside
+	// a read and would otherwise sit there until the 90-second read deadline. A client whose gateway
+	// is being replaced by an upgrade has to be told, promptly, that it should reconnect - and the
+	// close frame is that message.
+	stopOnShutdown := context.AfterFunc(s.baseCtx, func() {
+		client.close(CloseGoingAway, "the gateway is shutting down")
+	})
+	defer stopOnShutdown()
+
+	client.readLoop(s.baseCtx, ackCh)
 }
 
 // readLoop reads frames, dispatches them to handlers, and manages the heartbeat ack
 // channel. It returns when the connection is closed, a fatal error occurs, or the
-// request's context is cancelled.
+// gateway's context is cancelled.
+//
+// reqCtx is the GATEWAY's context, not the request's: see the caller for why the request's is not
+// usable after an upgrade.
 func (cl *wsClient) readLoop(reqCtx context.Context, ackCh chan<- struct{}) {
 	for {
 		// Set a read deadline so a silent client is dropped rather than held forever.
@@ -201,14 +221,6 @@ func (cl *wsClient) readLoop(reqCtx context.Context, ackCh chan<- struct{}) {
 		}
 
 		cl.dispatch(msg, ackCh)
-
-		// Check if the request context (and therefore the gateway) is shutting down.
-		select {
-		case <-reqCtx.Done():
-			cl.close(CloseGoingAway, "the gateway is shutting down")
-			return
-		default:
-		}
 	}
 }
 
@@ -291,7 +303,12 @@ func (cl *wsClient) handleQuery(msg wsMessage) {
 		cl.sendError(FlagErrorRecoverable, fmt.Sprintf("the query payload is not the expected shape: %v", err))
 		return
 	}
-	if payload.Query == "" {
+	// Trimmed, exactly as handlePlan does it: the same text reaches the agent through either
+	// transport, and a query of only spaces is an empty prompt that would spend a model call to
+	// answer nothing. Two transports validating one input differently is how a client finds a way
+	// around a rule.
+	query := strings.TrimSpace(payload.Query)
+	if query == "" {
 		cl.sendError(FlagErrorRecoverable, "the query is empty")
 		return
 	}
@@ -305,7 +322,7 @@ func (cl *wsClient) handleQuery(msg wsMessage) {
 
 	// Run the query through the agent's planner. This is a read-only operation, the
 	// same path the /v1/sessions/{id}/plan endpoint uses.
-	result, err := cl.svc.RunPlan(context.Background(), payload.Query, func(format string, args ...any) {
+	result, err := cl.svc.RunPlan(context.Background(), query, func(format string, args ...any) {
 		// Progress lines are sent as partial responses, so a client watching a long
 		// query sees incremental output rather than a single silent result.
 		line := fmt.Sprintf(format, args...)
@@ -419,15 +436,23 @@ func (cl *wsClient) close(code uint16, reason string) {
 	cl.conn.Close()
 }
 
-// isClosedConnErr reports whether an error is the result of a closed connection (EOF,
-// a reset, or a use-of-closed-connection), which are the normal end-of-life signals
-// rather than protocol failures worth logging.
+// isClosedConnErr reports whether an error is the result of a closed connection (EOF, a reset, or a
+// use-of-closed-connection), which are the normal end-of-life signals rather than protocol failures
+// worth logging.
+//
+// EOF is part of that list and was MISSING from it: every client that simply hung up - which is what
+// a browser does when the tab closes, and what this endpoint sees all day - was logged as a warning,
+// drowning the failures that matter.
 func isClosedConnErr(err error) bool {
 	if err == nil {
 		return false
 	}
+	if errors.Is(err, io.EOF) || errors.Is(err, net.ErrClosed) {
+		return true
+	}
 	s := err.Error()
 	return strings.Contains(s, "use of closed") ||
 		strings.Contains(s, "broken pipe") ||
-		strings.Contains(s, "connection reset")
+		strings.Contains(s, "connection reset") ||
+		strings.Contains(s, "EOF")
 }

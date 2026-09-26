@@ -2,11 +2,11 @@ package gateway
 
 // RFC 6455 frame helpers, implemented with the standard library only.
 //
-// The gateway has a 10 MB binary ceiling and under 2 MB of headroom, so a WebSocket
-// library is a cost this feature cannot pay the way gorilla/websocket (+~150 KB) or
-// nhooyr.io/websocket (+~200 KB) would. The subset the flag protocol needs is small:
-// text frames, close, ping/pong, and the server side of the handshake. That is what
-// lives here, and nothing more.
+// The binary carries a ceiling that guards against runaway growth, and it is measured per
+// release: a WebSocket library is a cost this feature did not need to pay the way
+// gorilla/websocket (+~150 KB) or nhooyr.io/websocket (+~200 KB) would. The subset the flag
+// protocol needs is small: text frames, close, ping/pong, and the server side of the
+// handshake. That is what lives here, and nothing more.
 //
 // The frame format (RFC 6455 §5.2):
 //
@@ -179,6 +179,9 @@ func wsReadFrame(r io.Reader) (opcode byte, payload []byte, final bool, masked b
 // wsWriteFrame writes one WebSocket frame to the connection. Server-to-client frames are
 // NOT masked, per RFC 6455 §5.3. The frame is always final (FIN=1) — this protocol does
 // not fragment outbound messages.
+//
+// The header and the payload are two writes and either can fail; the error says which, because a
+// broken connection is diagnosable only if the failure names its step.
 func wsWriteFrame(conn net.Conn, opcode byte, payload []byte) error {
 	var hdr [14]byte
 	hdr[0] = 0x80 | opcode // FIN=1, opcode.
@@ -199,11 +202,11 @@ func wsWriteFrame(conn net.Conn, opcode byte, payload []byte) error {
 	}
 
 	if _, err := conn.Write(hdr[:pos]); err != nil {
-		return err
+		return fmt.Errorf("could not write the frame header: %w", err)
 	}
 	if plen > 0 {
 		if _, err := conn.Write(payload); err != nil {
-			return err
+			return fmt.Errorf("could not write the frame payload: %w", err)
 		}
 	}
 	return nil

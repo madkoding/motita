@@ -140,7 +140,16 @@ func (op Options) startGateway(fl flags, cfg config.Config, engine *llm.Client, 
 		return nil, fmt.Errorf("gateway.allow: %w", err)
 	}
 
-	srv, err := gateway.Start(gateway.Options{
+	// schedule.enabled=false means NOTHING is scheduled, which is why the directory is
+	// WITHHELD rather than merely ignored: the store the gateway opens is the thing that
+	// persists the tasks and runs the watcher, and a store opened with a watcher running IS
+	// scheduling - exactly what the setting asks not to happen.
+	scheduleDirValue := scheduleDir()
+	if !cfg.Schedule.Enabled {
+		scheduleDirValue = ""
+	}
+
+	srv, err := op.newGateway(gateway.Options{
 		Service:     runner,
 		NewService:  newService,
 		MaxSessions: cfg.Gateway.MaxSessions,
@@ -158,9 +167,15 @@ func (op Options) startGateway(fl flags, cfg config.Config, engine *llm.Client, 
 		SessionDir: sessionDir(),
 		// Projects persist to ~/.motita/projects.
 		ProjectDir: projectDir(),
+		// Scheduled tasks persist to ~/.motita/schedules, and the resolution at which a
+		// due task is noticed comes from the configuration: a second default here is how
+		// the two drift.
+		ScheduleDir:      scheduleDirValue,
+		ScheduleMinEvery: cfg.Schedule.MinEvery,
+		ScheduleTick:     cfg.Schedule.Tick,
 		// The workspace under which project folders are created.
 		WorkspaceDir: cfg.Agent.WorkspaceDir,
-	})
+	}, cfg)
 	if err != nil {
 		return nil, err
 	}
@@ -215,4 +230,30 @@ func projectDir() string {
 		return ""
 	}
 	return filepath.Join(d, "projects")
+}
+
+// scheduleDir returns the directory where scheduled tasks are persisted:
+// ~/.motita/schedules. Empty when there is no home directory, which keeps the behaviour
+// the tests have always had - and which the end-to-end container exercises, because it
+// runs with HOME=/.
+func scheduleDir() string {
+	d := config.Dir()
+	if d == "" {
+		return ""
+	}
+	return filepath.Join(d, "schedules")
+}
+
+// newGateway builds the gateway, or the replacement a test injected.
+//
+// It is a seam of the same shape as ServeGateway, CloseGateway, DiscoverGateway and NewClient,
+// and it follows their rule: the injected function receives exactly what the real call receives,
+// so what a test observes is the wiring itself rather than a copy of it. The configuration is
+// handed over because the options are DERIVED from it, and a test that asserted on a second copy
+// of the derivation would be testing the test.
+func (op Options) newGateway(opts gateway.Options, cfg config.Config) (*gateway.Server, error) {
+	if op.NewGateway != nil {
+		return op.NewGateway(opts, cfg)
+	}
+	return gateway.Start(opts)
 }

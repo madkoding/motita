@@ -462,3 +462,130 @@ func TestFormsLeavesShortWordsAlone(t *testing.T) {
 		t.Errorf("forms(widgets) = %v", got)
 	}
 }
+
+// TestArchiveRefusesAnEmptyName: the name is sanitised, and a name that sanitises to nothing
+// must be refused rather than producing a path to the archive directory itself.
+func TestArchiveRefusesAnEmptyName(t *testing.T) {
+	l := newLib(t)
+	if err := l.Archive("!!!"); err == nil {
+		t.Error("an empty name must be refused")
+	}
+	if err := l.Restore("!!!"); err == nil {
+		t.Error("an empty name must be refused on the way back too")
+	}
+}
+
+// TestArchiveReportsADirectoryItCannotCreate: the same rule Save follows. A library whose
+// path is a FILE cannot grow an archive inside it, and the message has to name the path.
+func TestArchiveReportsADirectoryItCannotCreate(t *testing.T) {
+	root := t.TempDir()
+	blocker := filepath.Join(root, "blocked")
+	if err := os.WriteFile(blocker, []byte("in the way"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	// The blocker is a FILE, so MkdirAll cannot succeed underneath it.
+	l := New(blocker)
+	if err := l.Archive("x"); err == nil {
+		t.Fatal("Archive must fail when the archive directory cannot be created")
+	}
+	// And Restore, whose MkdirAll creates the LIBRARY directory, fails the same way.
+	if err := l.Restore("x"); err == nil {
+		t.Fatal("Restore must fail when the library directory cannot be created")
+	}
+}
+
+// TestArchiveReportsARenameFailure: the document is not where it should be, so the library was
+// not changed and the caller must not be told it was. The rename goes through the same seam
+// Save uses, for the same reason: a read-only filesystem cannot be arranged from a test.
+func TestArchiveReportsARenameFailure(t *testing.T) {
+	l := newLib(t)
+	if _, err := l.Save("x", "# X\n\nbody\n"); err != nil {
+		t.Fatal(err)
+	}
+	boom := errors.New("read-only file system")
+
+	old := renameFile
+	renameFile = func(oldpath, newpath string) error { return boom }
+	defer func() { renameFile = old }()
+
+	if err := l.Archive("x"); !errors.Is(err, boom) {
+		t.Errorf("Archive err = %v, want the rename failure", err)
+	}
+	if err := l.Restore("x"); !errors.Is(err, boom) {
+		t.Errorf("Restore err = %v, want the rename failure", err)
+	}
+}
+
+// TestArchivedReportsAnUnreadableDirectory: absent is an empty archive, unreadable is a
+// problem. The two lead to different next steps, which is the distinction the whole package
+// makes everywhere else.
+func TestArchivedReportsAnUnreadableDirectory(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("root ignores the permission bits")
+	}
+	dir := filepath.Join(t.TempDir(), "skills")
+	if err := os.MkdirAll(filepath.Join(dir, ".archive"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	// Chmod AFTER creating it: MkdirAll with a mode is subject to the umask, and a directory
+	// that could not be created in the first place would fail this test for the wrong reason.
+	if err := os.Chmod(filepath.Join(dir, ".archive"), 0o000); err != nil {
+		t.Fatal(err)
+	}
+	defer os.Chmod(filepath.Join(dir, ".archive"), 0o755)
+
+	if _, err := New(dir).Archived(); err == nil {
+		t.Error("an unreadable archive must be reported, not reported as empty")
+	}
+}
+
+// TestArchivedIgnoresEverythingThatIsNotADocument: a subdirectory, a file that is not markdown
+// and a temporary file from an interrupted write are all in there after a few passes, and none
+// of them is a skill a user could restore.
+func TestArchivedIgnoresEverythingThatIsNotADocument(t *testing.T) {
+	l := newLib(t)
+	archive := filepath.Join(l.Dir, ".archive")
+	if err := os.MkdirAll(filepath.Join(archive, "sub"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"notes.txt", ".half-written.md"} {
+		if err := os.WriteFile(filepath.Join(archive, name), []byte("x"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.WriteFile(filepath.Join(archive, "real.md"), []byte("# Real\n\nbody\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := l.Archived()
+	if err != nil {
+		t.Fatalf("Archived: %v", err)
+	}
+	if len(got) != 1 || got[0] != "real" {
+		t.Errorf("Archived = %v, want exactly [real]", got)
+	}
+}
+
+// TestArchivedIsSorted: a front end draws the list as it arrives, so the order has to be the
+// same every time rather than whatever the directory happens to return.
+func TestArchivedIsSorted(t *testing.T) {
+	l := newLib(t)
+	for _, name := range []string{"zeta", "alpha", "mid"} {
+		if _, err := l.Save(name, "# "+name+"\n\nbody\n"); err != nil {
+			t.Fatal(err)
+		}
+		if err := l.Archive(name); err != nil {
+			t.Fatal(err)
+		}
+	}
+	got, err := l.Archived()
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"alpha", "mid", "zeta"}
+	for i := range want {
+		if i >= len(got) || got[i] != want[i] {
+			t.Fatalf("Archived = %v, want %v", got, want)
+		}
+	}
+}

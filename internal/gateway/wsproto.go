@@ -1,9 +1,9 @@
 package gateway
 
 import (
-	"crypto/rand"
 	"encoding/json"
 	"fmt"
+	"io"
 	"time"
 )
 
@@ -78,7 +78,11 @@ func newMsg(msgType string, flags []string, payload any) wsMessage {
 // probe that gates access is worse than a crash that names the cause.
 func newUUIDv4() string {
 	b := make([]byte, 16)
-	if _, err := rand.Read(b); err != nil {
+	// randReader, not crypto/rand directly: it is the package's ONE source of randomness, declared
+	// in token.go as a variable precisely so this failure path is a test rather than a hypothetical.
+	// The panic is deliberate and stays - a predictable id gates access on a probe, so a crash that
+	// names the cause is the better trade - but the branch is now reachable and asserted.
+	if _, err := io.ReadFull(randReader, b); err != nil {
 		panic(fmt.Sprintf("could not generate a uuid: %v", err))
 	}
 	b[6] = (b[6] & 0x0f) | 0x40 // version 4
