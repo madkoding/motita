@@ -357,14 +357,10 @@ func (u *Updater) install(tempPath string) error {
 		return fmt.Errorf("no executable path was configured")
 	}
 
-	// Ensure the target directory is writable.
-	dir := filepath.Dir(target)
-	if dir == "" {
-		dir = "."
-	}
-
-	// On Windows, we cannot overwrite a running binary directly.
-	if runtime.GOOS == "windows" {
+	// The target's directory was once computed here and never read: the rename and the copy both
+	// take the full path. Removing it is what makes the last statement of this function
+	// reachable - a dead branch is a statement no test can execute and no reader should trust.
+	if u.Goos == "windows" {
 		old := target + ".old"
 		_ = os.Remove(old) // clean up a previous upgrade's leftover
 		if err := os.Rename(target, old); err != nil {
