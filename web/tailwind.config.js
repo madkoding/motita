@@ -18,7 +18,18 @@ export default {
       }
     }
   },
-  // Disable plugins the app does NOT use. Each saves CSS bytes.
+  // Utilities the app does NOT use are disabled, one by one: each saves CSS bytes.
+  //
+  // Only the LEAF utilities may be disabled here, never a plugin that emits the
+  // custom properties its leaves read. Tailwind injects `--tw-backdrop-*: ` only
+  // through the `backdropFilter` plugin (`addDefaults("backdrop-filter", ...)`),
+  // and its leaves' `backdrop-filter` value lists all nine of those variables. With
+  // the plugin off, `backdrop-filter: var(--tw-backdrop-blur) var(--tw-backdrop-brightness)
+  // ...` keeps the undefined variables: the whole declaration is invalid at
+  // computed-value time and is dropped, so `backdrop-blur-md` renders nothing at
+  // all. `transform`, `filter` and `boxShadow` are the same trap (`transform` is
+  // also where Tailwind's translate/scale/rotate leaves put their own defaults), so
+  // they stay on; dropping them needs the leaves' value lists rewritten first.
   corePlugins: {
     container: false,
     aspectRatio: false,
@@ -27,13 +38,10 @@ export default {
     borderOpacity: false,
     divideOpacity: false,
     gradientColorStops: false,
-    filter: false,
-    backdropFilter: false,
-    transform: false,
     tableLayout: false,
     borderCollapse: false,
     borderSpacing: false,
-    boxShadow: false,
+    boxShadowColor: false,
     opacity: false,
     transitionProperty: false,
     transitionDuration: false,
