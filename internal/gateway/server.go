@@ -84,6 +84,13 @@ type Options struct {
 	// wsHeartbeatInterval (30s). Negative turns it off, which is what a test needs so the
 	// heartbeat goroutine does not inject messages the test is not expecting.
 	WSHeartbeat time.Duration
+	// UpdateCheckInterval is how often the background checker asks the release API whether a
+	// newer version exists. Zero means updateCheckInterval (one hour). Negative turns the checker
+	// off entirely, which is what a test needs in order to assert what the gateway does WITHOUT
+	// reaching the network: the tick only fires on a real timer, so a test that waits for the
+	// default is a test that waits an hour. A value shorter than the startup delay also shortens
+	// that delay, so a test is never caught between the two.
+	UpdateCheckInterval time.Duration
 	// WebUI serves the browser interface from this same mux. The page and the API therefore
 	// share an origin, which is why no proxy and no CORS header are involved anywhere: the
 	// browser asks this server for everything.
@@ -937,11 +944,28 @@ func (s *Server) startUpdateChecker() {
 	if s.updater == nil {
 		return
 	}
+	// Resolved here for the same reason Options.Heartbeat is: zero means the default, negative
+	// means off, and the decision is made once. Negative is what a test needs so that no goroutine
+	// ever polls GitHub, and a test that asserted "the gateway did not call the network" would
+	// otherwise have to wait for an hour to say so.
+	interval := s.opts.UpdateCheckInterval
+	if interval == 0 {
+		interval = updateCheckInterval
+	}
+	if interval < 0 {
+		return
+	}
+	// The first check waits for the gateway to finish binding. Five seconds is the production
+	// figure, capped by the interval so that a test which shortens the interval to milliseconds is
+	// not left waiting five seconds for a check that was supposed to be quick.
+	firstDelay := 5 * time.Second
+	if interval < firstDelay {
+		firstDelay = interval
+	}
 	go func() {
-		// Check once at startup (after a short delay so the gateway binds first).
-		time.Sleep(5 * time.Second)
+		time.Sleep(firstDelay)
 		s.runOneCheck()
-		ticker := time.NewTicker(updateCheckInterval)
+		ticker := time.NewTicker(interval)
 		defer ticker.Stop()
 		for {
 			select {

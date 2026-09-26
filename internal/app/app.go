@@ -1262,21 +1262,24 @@ func (op Options) runPlan(ctx context.Context, fl flags, cfg config.Config, engi
 	ag.SetLibrary(procs.Library)
 	ag.SetReward(procs.Ledger)
 
-	// Background self-improvement: a separate engine for the review fork, so
-	// the review can run on a cheaper model without touching the conversation's
-	// engine. Falls back to the main engine when no review LLM is configured.
+	// Background self-improvement: the review fork runs on the conversation's engine.
+	//
+	// The second engine this used to build (cfg.Review.LLM, a cheaper model for the fork) was
+	// UNREACHABLE, and it was removed rather than left as an uncovered branch:
+	//
+	//   - the YAML decoder refuses a pointed-to struct. Review.LLM is *config.LLM, so a
+	//     `review: {llm: {...}}` block fails with "expected a simple value and found a nested
+	//     block", which is the one shape the decoder cannot fill;
+	//   - there is no MOTITA_REVIEW_LLM_* overlay, unlike the other LLM settings;
+	//   - the option appears in neither configs/agent.yaml.example nor docs/.
+	//
+	// So no configuration could ever reach it, and the fallback below is the path every real
+	// deployment takes. Restoring the feature means wiring ONE of those three - which is a change
+	// with a config surface, and should land with one. The field stays in config.Review so that a
+	// wired implementation has somewhere to read from.
 	var reviewer *review.Review
 	if cfg.Review.Enabled {
-		reviewEngine := engine
-		if cfg.Review.LLM != nil && cfg.Review.LLM.APIKey != "" {
-			eng, err := op.newEngine(*cfg.Review.LLM, log)
-			if err != nil {
-				log.Warn("review engine could not be built; reviews use the main engine", "error", err)
-			} else {
-				reviewEngine = eng
-			}
-		}
-		reviewer = review.New(cfg.Review, reviewEngine, procs, log, buildSkillRunner)
+		reviewer = review.New(cfg.Review, engine, procs, log, buildSkillRunner)
 	}
 
 	planner := plan.New(engine, ag).

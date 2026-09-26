@@ -179,6 +179,9 @@ func wsReadFrame(r io.Reader) (opcode byte, payload []byte, final bool, masked b
 // wsWriteFrame writes one WebSocket frame to the connection. Server-to-client frames are
 // NOT masked, per RFC 6455 §5.3. The frame is always final (FIN=1) — this protocol does
 // not fragment outbound messages.
+//
+// The header and the payload are two writes and either can fail; the error says which, because a
+// broken connection is diagnosable only if the failure names its step.
 func wsWriteFrame(conn net.Conn, opcode byte, payload []byte) error {
 	var hdr [14]byte
 	hdr[0] = 0x80 | opcode // FIN=1, opcode.
@@ -199,11 +202,11 @@ func wsWriteFrame(conn net.Conn, opcode byte, payload []byte) error {
 	}
 
 	if _, err := conn.Write(hdr[:pos]); err != nil {
-		return err
+		return fmt.Errorf("could not write the frame header: %w", err)
 	}
 	if plen > 0 {
 		if _, err := conn.Write(payload); err != nil {
-			return err
+			return fmt.Errorf("could not write the frame payload: %w", err)
 		}
 	}
 	return nil
