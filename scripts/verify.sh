@@ -14,9 +14,23 @@
 set -uo pipefail
 
 cd "$(dirname "$0")/.."
-export PATH=/opt/data/cache/go/bin:$PATH
-export GOCACHE=${GOCACHE:-/opt/data/cache/go-build}
-export GOPATH=${GOPATH:-/opt/data/cache/gopath}
+
+# Use the Go on PATH, and only fall back to a cached install when there is none. Pinning
+# GOCACHE/GOPATH to one machine's layout is what broke every e2e check on a host where
+# that layout does not exist: they pointed at /opt/data/cache/..., a directory that
+# belongs to a different installation and another user, so all ten e2e checks died with
+# "could not create module cache: mkdir /opt/data/cache/gopath: permission denied" -
+# which reads like a broken repository and is nothing of the sort. Go's own defaults
+# ($HOME/.cache/go-build, $HOME/go) are correct everywhere, so they are left alone unless
+# the caller sets GOCACHE/GOPATH deliberately.
+if ! command -v go >/dev/null 2>&1; then
+  for candidate in /opt/data/cache/go/bin "$HOME/.hermes/cache/go/bin"; do
+    if [ -x "$candidate/go" ]; then
+      export PATH="$candidate:$PATH"
+      break
+    fi
+  done
+fi
 
 MIN_COVERAGE=${MIN_COVERAGE:-100}
 failures=0
@@ -52,10 +66,18 @@ step "5. coverage (gate: ${MIN_COVERAGE}% per package)"
 # test has already failed. Holding a harness to the same bar as the program would mean
 # writing tests for the tests, and the branches that would be covered are the ones that fire
 # on failure — so the coverage number would go up without a single new check.
+# Whether a package has tests is a property of the PACKAGE: go list answers it, while go
+# test's report does not survive a toolchain change. Go 1.26 stopped printing "no test
+# files", so the string match this loop used to do silently stopped skipping the test-less
+# packages and started gating them at 0.0% — internal/review was reported at 0% on a tree
+# the CI (fixed for exactly this reason) calls clean. Same question, same answer, both loops.
+has_tests() {
+  [ "$(go list -f '{{len .TestGoFiles}}{{len .XTestGoFiles}}' "$1" 2>/dev/null)" != "00" ]
+}
 below=0
 for pkg in $(go list ./internal/... ./cmd/... 2>/dev/null); do
   result="$(go test -count=1 -cover "$pkg" 2>/dev/null)"
-  if echo "$result" | grep -q 'no test files'; then
+  if ! has_tests "$pkg"; then
     printf '    %-52s (no test files)\n' "$pkg"
     continue
   fi
@@ -85,10 +107,7 @@ supported_by_name() {
 # Whether a package has tests is a property of the package: go list answers it, while
 # go test's report does not survive a toolchain change. Go 1.26 stopped printing "no test
 # files", so a string match on it silently stopped skipping the test-less harnesses and
-# started gating them at 0.0%.
-has_tests() {
-  [ "$(go list -f '{{len .TestGoFiles}}{{len .XTestGoFiles}}' "$1" 2>/dev/null)" != "00" ]
-}
+# started gating them at 0.0%  (has_tests is defined with the loop above).
 for pkg in $(go list ./tools/... 2>/dev/null); do
   result="$(go test -count=1 -cover "$pkg" 2>/dev/null)"
   cov="$(echo "$result" | grep -oE 'coverage: [0-9.]+' | grep -oE '[0-9.]+')"
