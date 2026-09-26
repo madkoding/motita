@@ -11,6 +11,10 @@
 #   5. coverage      — per package and aggregate, against a minimum
 #   6. English check — no user-visible Spanish left in code, configs or scripts
 #   7. i386 E2E      — both end-to-end tests in real 32-bit containers
+#
+# It mirrors the CI's `verify` job, and the two must agree: a step CI enforces and this
+# script skips is a step that reports green on a red branch. staticcheck was the one that
+# did exactly that - the CI failed on an SA4006 while this gate passed the same commit.
 set -uo pipefail
 
 cd "$(dirname "$0")/.."
@@ -55,6 +59,75 @@ if output=$(go test -count=1 -race -timeout 300s ./... 2>&1); then
 else
   bad "tests failed"
   echo "$output" | tail -30 | sed 's/^/    /'
+fi
+
+step "4b. staticcheck (the CI pins v0.6.1)"
+# The CI has run this since it was added there and this script did not, which is how a
+# branch passed here and failed there on an SA4006 the same commit. It is the step that
+# catches the tautological assertions go vet is happy with, so the gap was not cosmetic.
+#
+# The version is PINNED and must match .github/workflows/ci.yml: an unpinned @latest turns
+# a green build red the day upstream adds a check, with no change in this repository.
+# `go run pkg@version` builds the tool without touching go.mod, so the zero-dependency
+# property is preserved (no require line, no go.sum).
+#
+# It must run on the go.mod TOOLCHAIN: a toolchain OLDER than the module makes staticcheck
+# fail to read the export data ("module requires at least go1.26, but Staticcheck was built
+# with go1.24.4"), which reads like a finding and is the tool being unable to parse the
+# compiler's output. The toolchain name has to be a PATCH release (`go1.26.0`): the `go 1.26`
+# directive is a language version, and GOTOOLCHAIN rejects it with "go1.26 is a language
+# version but not a toolchain version". The latest patch is resolved rather than guessed,
+# because the stdlib vulnerabilities govulncheck reports are only fixed in a .x release.
+statictoolchain() {
+  local minor patch
+  minor="$(sed -n 's/^go \([0-9][0-9]*\.[0-9][0-9]*\).*$/\1/p' go.mod | head -1)"
+  [ -n "$minor" ] || return 1
+  # GOTOOLCHAIN needs the `go` prefix and a PATCH release: `go 1.26` is a language version
+  # and is rejected with "go1.26 is a language version but not a toolchain version".
+  patch="$(GOTOOLCHAIN="go$minor.0" go version 2>/dev/null | sed -n 's/.*go\([0-9][0-9]*\.[0-9][0-9]*\.[0-9][0-9]*\).*/\1/p')"
+  [ -n "$patch" ] || return 1
+  printf 'go%s' "$patch"
+}
+STATICCHECK_PIN="honnef.co/go/tools/cmd/staticcheck@v0.6.1"
+statictc="$(statictoolchain)" || statictc=""
+if [ -z "$statictc" ]; then
+  printf '  ..   staticcheck skipped: go.mod declares no usable go directive for a toolchain\n'
+else
+  printf '     toolchain %s, pin %s\n' "$statictc" "$STATICCHECK_PIN"
+  if output=$(GOTOOLCHAIN="$statictc" go run "$STATICCHECK_PIN" ./... 2>&1); then
+    ok "staticcheck clean"
+  else
+    bad "staticcheck reported findings"
+    echo "$output" | head -20 | sed 's/^/    /'
+  fi
+fi
+
+step "4c. govulncheck (the CI pins v1.8.0)"
+# Against the standard library and the module. With no external dependencies the reachable
+# surface is stdlib CVEs, and this is what says the pinned toolchain has no known
+# vulnerability reachable from the code. Same pin, same toolchain rule as above.
+GOVULNCHECK_PIN="golang.org/x/vuln/cmd/govulncheck@v1.8.0"
+if [ -z "$statictc" ]; then
+  printf '  ..   govulncheck skipped: go.mod declares no usable go directive for a toolchain\n'
+elif ! command -v go >/dev/null 2>&1; then
+  printf '  ..   govulncheck skipped: no go on PATH\n'
+elif [ "${SKIP_GOVULNCHECK:-0}" = "1" ]; then
+  # It reaches out to vuln.go.dev, so an offline host would fail on the network rather than
+  # on the code. The CI has connectivity and always runs it; here it can be skipped
+  # deliberately, and never silently.
+  printf '  ..   govulncheck skipped (SKIP_GOVULNCHECK=1)\n'
+else
+  if output=$(GOTOOLCHAIN="$statictc" go run "$GOVULNCHECK_PIN" ./... 2>&1); then
+    ok "govulncheck clean"
+  else
+    rc=$?
+    if echo "$output" | grep -qE 'Your code is affected|Vulnerability #'; then
+      bad "govulncheck reported a reachable vulnerability"
+      echo "$output" | grep -E 'Vulnerability #|Found in|Fixed in|Your code is affected' | head -12 | sed 's/^/    /'
+    else
+      printf '  ..   govulncheck could not run (network or toolchain): %s\n' "$(echo "$output" | tail -1)"
+    fi
+  fi
 fi
 
 step "5. coverage (gate: ${MIN_COVERAGE}% per package)"
