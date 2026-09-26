@@ -198,6 +198,12 @@ func TestContentTypeForUnknownExtension(t *testing.T) {
 }
 
 // contentType must return the right type for each extension the build actually uses.
+//
+// Every branch of the switch is exercised, and the list is a SUPERSET of the extensions in
+// assets/ rather than a copy of it: the point of the function is to serve a file the build
+// adds later without a code change, so pinning only what happens to be there today would let
+// a branch rot until the day it is first needed. The extensions that assets/ does NOT carry
+// yet (.jpg, .png, .ttf, .woff) are named here on purpose.
 func TestContentTypeForKnownExtensions(t *testing.T) {
 	cases := map[string]string{
 		"index.html":           "text/html; charset=utf-8",
@@ -205,10 +211,34 @@ func TestContentTypeForKnownExtensions(t *testing.T) {
 		"app.js":               "text/javascript; charset=utf-8",
 		"manifest.webmanifest": "application/manifest+json",
 		"icon.svg":             "image/svg+xml",
+		"photo.jpg":            "image/jpeg",
+		"photo.jpeg":           "image/jpeg",
+		"icon.png":             "image/png",
+		"background.webp":      "image/webp",
+		"font.ttf":             "font/ttf",
+		"font.woff":            "font/woff",
+		"font.woff2":           "font/woff2",
 	}
 	for name, want := range cases {
 		got := contentType(name)
 		if got != want {
+			t.Errorf("contentType(%q) = %q, want %q", name, got, want)
+		}
+	}
+}
+
+// contentType decides on the EXTENSION, not on the name, and it is the last dot that does:
+// an asset with dots in its name (a Vite hash is not the only shape a name can take) must
+// still resolve. A path with no dot at all is the unknown case, not a panic.
+func TestContentTypeLooksAtTheLastExtension(t *testing.T) {
+	cases := map[string]string{
+		"index-B39OGPPm.min.js": "text/javascript; charset=utf-8",
+		"archive.tar.gz":        "application/octet-stream", // gz is not a served type
+		"noextension":           "application/octet-stream",
+		"":                      "application/octet-stream",
+	}
+	for name, want := range cases {
+		if got := contentType(name); got != want {
 			t.Errorf("contentType(%q) = %q, want %q", name, got, want)
 		}
 	}

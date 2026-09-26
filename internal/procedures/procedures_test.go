@@ -226,3 +226,62 @@ func TestANilLoggerIsTolerated(t *testing.T) {
 		t.Error("the broken ledger must still be treated as absent")
 	}
 }
+
+// TestABrokenUsageLedgerIsReportedAndSurvived: there are TWO ledgers, and they fail
+// independently. The scores one is covered above; this is the usage sidecar, which disables the
+// curator and the background review fork and nothing else. A corrupt .usage.json must cost that
+// telemetry and leave the library and the scores exactly as they were - a store that lost the
+// scores because a count file was truncated would be trading a loss for a bigger one.
+func TestABrokenUsageLedgerIsReportedAndSurvived(t *testing.T) {
+	dir := t.TempDir()
+	// A scores ledger that IS readable, so the assertion below is about the usage one failing
+	// and not about both being absent for the same reason.
+	if err := os.WriteFile(filepath.Join(dir, ".scores.json"), []byte(`{"entries":{}}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, ".usage.json"), []byte("{broken"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	logPath := filepath.Join(t.TempDir(), "motita.log")
+	l, err := logx.New(logx.Options{Level: logx.Warn, Path: logPath})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	st := Open(cfgAt(dir), l)
+	if st.Library == nil {
+		t.Fatal("an unreadable usage ledger must not cost the procedures")
+	}
+	if st.Ledger == nil {
+		t.Error("the scores ledger was readable and must still be there")
+	}
+	if st.Usage != nil {
+		t.Error("a usage ledger that cannot be read must be absent rather than half-built")
+	}
+
+	data, err := os.ReadFile(logPath)
+	if err != nil {
+		t.Fatalf("the warning must have been written: %v", err)
+	}
+	if !strings.Contains(string(data), "usage ledger") {
+		t.Errorf("the loss must be reported as the usage ledger, got %q", string(data))
+	}
+}
+
+// TestABrokenUsageLedgerIsSurvivedWithoutALogger: the same failure on a path with no logger
+// configured. The warning has nowhere to go, and that must not turn into a panic before the
+// library is returned - the degraded state (no curator, no review) is still usable.
+func TestABrokenUsageLedgerIsSurvivedWithoutALogger(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, ".usage.json"), []byte("{broken"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	st := Open(cfgAt(dir), nil)
+	if st.Library == nil {
+		t.Fatal("a nil logger must not stop the library from being built")
+	}
+	if st.Usage != nil {
+		t.Error("the broken usage ledger must still be treated as absent")
+	}
+}

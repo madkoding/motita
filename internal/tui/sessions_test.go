@@ -945,6 +945,31 @@ func TestASessionWithARunInFlightIsCalledOut(t *testing.T) {
 	}
 }
 
+// TestTheListingShowsTheBranchOfEachSession: a session works on a branch, and which one is the
+// difference between two entries carrying the same title. The branch is appended AFTER the age,
+// so an entry can carry both - a session used three hours ago on a branch says both things
+// rather than one replacing the other.
+func TestTheListingShowsTheBranchOfEachSession(t *testing.T) {
+	r := &switcherRunner{sessions: []SessionInfo{
+		{ID: "onbranch", Branch: "feat/sidebar", LastUsed: time.Now().Add(-3 * time.Hour)},
+		{ID: "plain"},
+	}}
+	ui := switcher(r)
+	out, err := ui.sessionsText(context.Background())
+	if err != nil {
+		t.Fatalf("sessionsText: %v", err)
+	}
+	if !strings.Contains(out, "[feat/sidebar]") {
+		t.Errorf("the list does not show the branch a session is on:\n%s", out)
+	}
+	if !strings.Contains(out, "3h ago") {
+		t.Errorf("the age and the branch must both appear, not one instead of the other:\n%s", out)
+	}
+	if strings.Contains(out, "plain  [") {
+		t.Errorf("a session with no branch must not be given one:\n%s", out)
+	}
+}
+
 // TestTheSessionListSaysHowLongAgoEachWasUsed: "2h ago" is what someone needs to pick a
 // conversation. A timestamp to the second is a number they have to subtract from the current time
 // themselves, which is exactly the work the list exists to save them.
