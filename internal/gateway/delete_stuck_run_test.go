@@ -107,9 +107,42 @@ func newStuckServer(t *testing.T) (*Server, *stuckService) {
 	})
 	// Released at the end, so the goroutine does not outlive the test - but only
 	// at the end, so the run is still stuck while the deletion is refused.
-	t.Cleanup(func() { close(svc.release) })
+	//
+	// And then WAITED for. Releasing it is not enough: the run then finishes
+	// normally and its goroutine still generates an auto-title and saves the
+	// session, so that write races t.TempDir's RemoveAll exactly the way the
+	// pre-existing flake in server_paths_test.go did. Waiting for the conversation
+	// to stop running is what makes the temp dirs quiet before they are removed -
+	// isRunning is false only after the goroutine's last defer.
+	t.Cleanup(func() {
+		close(svc.release)
+		waitForNoRun(t, srv)
+	})
 	shrinkDeleteStopTimeout(t)
 	return srv, svc
+}
+
+// waitForNoRun blocks until no conversation on the server is running.
+//
+// It exists so a test's temp directories are quiet before t.TempDir's cleanup removes
+// them: a run that has just been released still writes, and that write racing RemoveAll
+// is a flake that fails about one run in twenty under load.
+func waitForNoRun(t *testing.T, srv *Server) {
+	t.Helper()
+	deadline := time.Now().Add(10 * time.Second)
+	for time.Now().Before(deadline) {
+		running := false
+		for _, c := range srv.snapshot() {
+			if c.isRunning() {
+				running = true
+			}
+		}
+		if !running {
+			return
+		}
+		time.Sleep(time.Millisecond)
+	}
+	t.Error("a run never finished, so its writer can still race the temp dir")
 }
 
 // shrinkDeleteStopTimeout makes the deletion's wait short for one test and restores
@@ -134,7 +167,10 @@ func TestDeletingAProjectWhoseRunWillNotStopIsRefused(t *testing.T) {
 		o.WorkspaceDir = t.TempDir()
 		o.NewService = func() (Service, error) { return svc, nil }
 	})
-	t.Cleanup(func() { close(svc.release) })
+	t.Cleanup(func() {
+		close(svc.release)
+		waitForNoRun(t, srv)
+	})
 	shrinkDeleteStopTimeout(t)
 
 	proj := post(t, srv, "/v1/projects", `{"title":"p","dir":"projdir"}`, testToken)
