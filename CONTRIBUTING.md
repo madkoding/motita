@@ -86,11 +86,12 @@ make test-matrix   # builds tests for every platform
 
 ### 7. The binary stays under 20 MB
 
-CI rejects any binary over 20 MB. The ceiling guards against runaway
-growth — a dependency that drags a framework in — rather than capping
-features. If you add a dependency (the project currently has **zero**
-external dependencies — only the Go standard library), check the binary
-size impact.
+CI rejects any binary over 20 MB, and `scripts/verify.sh` checks the host build
+as step 8c — both read the same ceiling through `scripts/check-binary-size.sh`.
+The ceiling guards against runaway growth — a dependency that drags a framework
+in — rather than capping features. If you add a dependency (the project
+currently has **zero** external dependencies — only the Go standard library),
+check the binary size impact.
 
 ### 8. `staticcheck` and `govulncheck` pass
 

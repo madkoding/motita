@@ -272,6 +272,27 @@ else
   tail -20 /tmp/verify_e2e_webui.log | sed 's/^/    /'
 fi
 
+step "8c. the built binary stays under the ceiling"
+# The ceiling was checked in CI only, and that gap hid a real regression: the binary
+# crossed 10 MB with the web interface and the sidebar work merged, while this gate kept
+# reporting a clean repository because nothing here measured it. CI still checks it per
+# platform in the build matrix; this is the local half, so the failure shows up before the
+# push rather than after it.
+#
+# It measures the HOST build (dist/motita), which is the one a contributor installs and
+# runs. Cross-compiled binaries differ by a few hundred KB and CI covers those.
+if [ ! -f dist/motita ]; then
+  printf '  ..   dist/motita is not built yet (run: make build)\n'
+  printf '       the ceiling is still checked in CI, per platform\n'
+elif size_out="$(sh scripts/check-binary-size.sh dist/motita 2>&1)"; then
+  ok "$size_out"
+else
+  case "$?" in
+    2) printf '  ..   %s\n' "$size_out" ;;
+    *) bad "$size_out" ;;
+  esac
+fi
+
 printf '\n========================================\n'
 if [ "$failures" -eq 0 ]; then
   echo "VERIFICATION PASSED: the repository is clean, tested and functional."
