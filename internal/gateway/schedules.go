@@ -349,12 +349,22 @@ func (s *Server) startScheduler() {
 	if s.schedules == nil {
 		return
 	}
-	tick := s.opts.ScheduleTick
-	if tick <= 0 {
-		tick = defaultScheduleTick
-	}
-	store := s.schedules
-	fire := func(ctx context.Context, sc schedule.Schedule) (string, error) {
+	// The tick is handed on as configured, including a zero or negative one: schedule.Watcher
+	// replaces a non-positive resolution with its own default, and normalising it here too would be
+	// a second copy of one clamp that can drift from the first.
+	w := schedule.NewWatcher(s.schedules, s.schedulerFirer(), s.opts.Log)
+	w.SetTick(s.opts.ScheduleTick)
+	go w.Run(s.baseCtx)
+}
+
+// schedulerFirer is what a scheduled firing MEANS on a gateway: one agent turn in the task's
+// own conversation, joined to its end so the record can carry the outcome.
+//
+// It is a method rather than a closure inside startScheduler so a test can drive one pass with
+// schedule.Watcher.FireDue and no ticker at all - the arithmetic of WHAT is due belongs to the
+// schedule package, and only the meaning of firing lives here.
+func (s *Server) schedulerFirer() schedule.Firer {
+	return func(ctx context.Context, sc schedule.Schedule) (string, error) {
 		c := s.conversationOf(sc.SessionID)
 		if c == nil {
 			// Recorded rather than repaired: creating a conversation for a task whose
@@ -377,16 +387,7 @@ func (s *Server) startScheduler() {
 			return "", fmt.Errorf("the run failed: %s", errText)
 		}
 	}
-
-	w := schedule.NewWatcher(store, fire, s.opts.Log)
-	w.SetTick(tick)
-	go w.Run(s.baseCtx)
 }
-
-// defaultScheduleTick is the resolution at which a due task is noticed when nothing is
-// configured. Half a minute: fine enough that "every 5 minutes" means it, coarse enough
-// that the process is not woken for nothing.
-const defaultScheduleTick = 30 * time.Second
 
 // firstLine keeps one line of a run's result for the record. A whole transcript in a
 // JSON field is a field nobody reads.

@@ -291,7 +291,12 @@ func (cl *wsClient) handleQuery(msg wsMessage) {
 		cl.sendError(FlagErrorRecoverable, fmt.Sprintf("the query payload is not the expected shape: %v", err))
 		return
 	}
-	if payload.Query == "" {
+	// Trimmed, exactly as handlePlan does it: the same text reaches the agent through either
+	// transport, and a query of only spaces is an empty prompt that would spend a model call to
+	// answer nothing. Two transports validating one input differently is how a client finds a way
+	// around a rule.
+	query := strings.TrimSpace(payload.Query)
+	if query == "" {
 		cl.sendError(FlagErrorRecoverable, "the query is empty")
 		return
 	}
@@ -305,7 +310,7 @@ func (cl *wsClient) handleQuery(msg wsMessage) {
 
 	// Run the query through the agent's planner. This is a read-only operation, the
 	// same path the /v1/sessions/{id}/plan endpoint uses.
-	result, err := cl.svc.RunPlan(context.Background(), payload.Query, func(format string, args ...any) {
+	result, err := cl.svc.RunPlan(context.Background(), query, func(format string, args ...any) {
 		// Progress lines are sent as partial responses, so a client watching a long
 		// query sees incremental output rather than a single silent result.
 		line := fmt.Sprintf(format, args...)
