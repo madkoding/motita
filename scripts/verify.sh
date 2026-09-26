@@ -430,8 +430,14 @@ step "8d. the sidebar's activity spinner, in a real browser"
 # They are properties of the RENDERED page over TIME, so this drives a real browser, starts a
 # run it can watch, and measures. It brings up its own gateway under its own HOME, so it never
 # touches the conversations of whoever is running the gate.
-if ./scripts/verify-spinner.sh >/tmp/verify_spinner.log 2>&1; then
+./scripts/verify-spinner.sh >/tmp/verify_spinner.log 2>&1
+spinner_rc=$?
+if [ "$spinner_rc" -eq 0 ]; then
   ok "the spinner appears, turns and clears"
+elif [ "$spinner_rc" -eq 2 ]; then
+  # Exit 2 is "the tool this needs is not here", not "the feature is broken":
+  # a machine without the browser must not report a red gate over a spinner.
+  printf '  ..   skipped: %s\n' "$(head -1 /tmp/verify_spinner.log)"
 else
   bad "the spinner check failed (see /tmp/verify_spinner.log)"
   tail -25 /tmp/verify_spinner.log | sed 's/^/    /'

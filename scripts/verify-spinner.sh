@@ -55,6 +55,20 @@ trap cleanup EXIT
 export PATH="${PATH}:/home/madkoding/.hermes/cache/go/bin"
 command -v go >/dev/null 2>&1 || { echo "ERROR: go is not on the PATH"; exit 2; }
 command -v curl >/dev/null 2>&1 || { echo "ERROR: curl is not on the PATH"; exit 2; }
+# A browser this machine does not have is a MISSING TOOL, not a defect in the
+# spinner. Exit 2 is the convention verify.sh reads as "skipped" - the same one
+# check-binary-size.sh uses for a binary that is not built - so a contributor
+# without the browser gets an honest skip instead of a red gate that says the
+# feature is broken.
+#
+# NOTE: this runs in the LOCAL gate. Like the other browser probes here
+# (verify-tasks-layout.sh, verify-modal-blur.sh), CI does not run it and does not
+# install a browser; only e2e-gateway.sh and e2e-agent.sh run there.
+if [ ! -x "$CHROME" ]; then
+  echo "SKIP: no chrome-headless-shell at $CHROME"
+  echo "      set CHROME=... to the one on this machine"
+  exit 2
+fi
 
 echo "==> Building the agent and the simulated LLM"
 go build -o "$OUT/motita" ./cmd/agent || { echo "ERROR: the agent does not build"; exit 2; }
