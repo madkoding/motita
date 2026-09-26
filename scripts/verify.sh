@@ -107,12 +107,14 @@ step "4c. govulncheck (the CI pins v1.8.0)"
 # surface is stdlib CVEs, and this is what says the pinned toolchain has no known
 # vulnerability reachable from the code. Same pin, same toolchain rule as above.
 #
-# A finding here is a property of the TOOLCHAIN, not of this repository: `go 1.26` in go.mod
-# resolves to whatever patch is installed locally, and the stdlib advisories govulncheck
-# reports are fixed in later ones (net/url@go1.26.1, net/http@go1.26.6...). CI installs the
-# current patch via setup-go and stays green, so a local run against an older patch reports
-# CVEs no commit in this repository can fix. That difference is NAMED rather than passed,
-# because a gate that fails on the environment teaches the reader to ignore it.
+# A finding here is a property of the TOOLCHAIN PATCH, not of this repository: `go 1.26` in go.mod
+# is a language version that resolves to whatever patch happens to be installed, while CI's
+# setup-go installs the current one. Scanning a fixed `go1.26.0` would therefore report the same
+# advisories on every run forever - a step that has stopped being a check and become a banner.
+#
+# So the patch that carries the fixes is DERIVED from the tool rather than guessed: govulncheck
+# names it itself ("Fixed in: net/http@go1.26.6"), and the newest one it names is what CI
+# effectively runs. A finding that survives that retry is actionable, and fails.
 GOVULNCHECK_PIN="golang.org/x/vuln/cmd/govulncheck@v1.8.0"
 if [ -z "$statictc" ]; then
   printf '  ..   govulncheck skipped: go.mod declares no usable go directive for a toolchain\n'
@@ -124,19 +126,44 @@ elif [ "${SKIP_GOVULNCHECK:-0}" = "1" ]; then
   # deliberately, and never silently.
   printf '  ..   govulncheck skipped (SKIP_GOVULNCHECK=1)\n'
 else
-  if output=$(GOTOOLCHAIN="$statictc" go run "$GOVULNCHECK_PIN" ./... 2>&1); then
+  # The newest toolchain any advisory says it is fixed in, e.g. `go1.26.6`. Reads govulncheck's
+  # output on stdin. `printf | fn` rather than a herestring: this script keeps parsing as POSIX
+  # sh, which step 7 verifies. The FULL name is returned so it can be handed to GOTOOLCHAIN as
+  # it stands - stripping the prefix and reassembling it gave `go1.26.1.26.6`.
+  newest_fixed_toolchain() {
+    grep -oE 'Fixed in: [a-z0-9/]+@go[0-9]+\.[0-9]+\.[0-9]+' \
+      | sed 's/.*@//' | sort -t. -k1,1n -k2,2n -k3,3n | tail -1
+  }
+  govuln_found() { grep -qE 'Your code is affected|Vulnerability #'; }
+  govuln_found_in() { printf '%s\n' "$1" | govuln_found; }
+
+  if output="$(GOTOOLCHAIN="$statictc" go run "$GOVULNCHECK_PIN" ./... 2>&1)"; then
     ok "govulncheck clean"
-  else
-    if echo "$output" | grep -qE 'Your code is affected|Vulnerability #'; then
-      # Every stdlib advisory it reports is fixed in a later PATCH of the same minor, and none
-      # of them is actionable in this repository. It is reported, and it is not a failure: the
-      # toolchain is pinned by go.mod's minor and CI runs the current patch.
-      stdlib_fixes="$(echo "$output" | grep -oE 'Fixed in: [a-z/]+@go[0-9.]+' | sed 's/.*@//' | sort -u | tr '\n' ' ')"
-      printf '  ..   govulncheck reports stdlib advisories fixed in %s (local toolchain %s; CI runs the current patch)\n' \
-        "${stdlib_fixes:-a later patch}" "$statictc"
+  elif govuln_found_in "$output"; then
+    fix_toolchain="$(printf '%s\n' "$output" | newest_fixed_toolchain)"
+    # Same MINOR: a fix in a different line of Go is not something this repository can adopt by
+    # changing a toolchain, and jumping minors is a change nobody asked this gate to make.
+    if [ -n "$fix_toolchain" ] && [ "$fix_toolchain" != "$statictc" ] \
+       && [ "${fix_toolchain%.*}" = "${statictc%.*}" ]; then
+      # Retry on the toolchain that carries the fixes, which is what CI runs. It is downloaded on
+      # first use and cached by Go; a host with no network lands in the branch below and says so
+      # rather than reporting a vulnerability it could not check.
+      printf '     advisories found on %s; retrying on %s\n' "$statictc" "$fix_toolchain"
+      if output="$(GOTOOLCHAIN="$fix_toolchain" go run "$GOVULNCHECK_PIN" ./... 2>&1)"; then
+        ok "govulncheck clean on $fix_toolchain (the toolchain that carries the fixes)"
+      elif govuln_found_in "$output"; then
+        bad "govulncheck reports a reachable vulnerability even on $fix_toolchain"
+        printf '%s\n' "$output" | grep -E 'Vulnerability #|Found in|Fixed in|Your code' | head -12 | sed 's/^/    /'
+      else
+        printf '  ..   govulncheck could not run on %s (network or toolchain): %s\n' \
+          "$fix_toolchain" "$(printf '%s\n' "$output" | tail -1)"
+      fi
     else
-      printf '  ..   govulncheck could not run (network or toolchain): %s\n' "$(echo "$output" | tail -1)"
+      bad "govulncheck reports a reachable vulnerability with no ${statictc%.*}.x fix named"
+      printf '%s\n' "$output" | grep -E 'Vulnerability #|Found in|Fixed in|Your code' | head -12 | sed 's/^/    /'
     fi
+  else
+    printf '  ..   govulncheck could not run (network or toolchain): %s\n' "$(printf '%s\n' "$output" | tail -1)"
   fi
 fi
 
