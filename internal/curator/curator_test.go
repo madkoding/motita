@@ -397,15 +397,17 @@ func TestPinUnpinAndRestoreRoundTrip(t *testing.T) {
 		t.Error("Unpin did not remove the pin")
 	}
 
-	// The pin survives a reload, which is the point of putting it in a file.
+	// The pin survives a reload, which is the point of putting it in a file. The reload is
+	// taken AFTER the Pin: a handle opened before it would be read here as evidence of
+	// persistence while holding the state from before the write, and staticcheck is right
+	// that the first one was dead - nothing read it before it was replaced.
+	if err := c.Pin("mine"); err != nil {
+		t.Fatal(err)
+	}
 	reloaded, err := usage.Open(filepath.Join(dir, ".usage.json"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := c.Pin("mine"); err != nil {
-		t.Fatal(err)
-	}
-	reloaded, _ = usage.Open(filepath.Join(dir, ".usage.json"))
 	if !reloaded.Get("mine").Pinned {
 		t.Error("the pin was not persisted")
 	}
