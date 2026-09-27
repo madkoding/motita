@@ -168,6 +168,12 @@ func (c *Curator) decide() []action {
 		if entry.CreatedBy != usage.ByAgent {
 			continue
 		}
+		// A skill the user turned off is not the curator's to age. "Disabled" is a
+		// decision about USING it, and archiving it would turn that decision into a
+		// disappearance from the list the user asked to keep it in.
+		if entry.Disabled {
+			continue
+		}
 		if entry.Pinned {
 			continue
 		}

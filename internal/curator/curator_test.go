@@ -203,6 +203,40 @@ func TestAPinnedSkillIsExempt(t *testing.T) {
 	}
 }
 
+// TestADisabledSkillIsLeftAlone: turning a skill off is the user's decision not to use it,
+// not an invitation for the curator to archive it. Without this guard, an old disabled
+// skill archives itself, and "off" would end up meaning "gone from the list", which is
+// exactly what the user asked would not happen.
+func TestADisabledSkillIsLeftAlone(t *testing.T) {
+	now := time.Now()
+	c, procs, dir, _ := testCurator(t, config.Curator{}, map[string]usage.Entry{
+		"mine": agentEntry(now.Add(-90 * 24 * time.Hour)),
+	})
+	procs.Usage.SetDisabled("mine", true)
+
+	for _, a := range c.decide() {
+		if a.name == "mine" {
+			t.Errorf("the pass decided on a skill the user turned off: %+v", a)
+		}
+	}
+
+	// And the full pass agrees with the decision, which is the thing the guard is for: the
+	// document stays in the library at the state the user left it in - off, not archived.
+	report, err := c.RunWith(context.Background(), RunOptions{})
+	if err != nil {
+		t.Fatalf("RunWith: %v", err)
+	}
+	if report.Stale != 0 || report.Archived != 0 {
+		t.Errorf("a disabled skill was transitioned: %d stale, %d archived", report.Stale, report.Archived)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "mine.md")); err != nil {
+		t.Errorf("a disabled skill left the library: %v", err)
+	}
+	if got := procs.Usage.Get("mine").State; got != usage.StateActive {
+		t.Errorf("a disabled skill's state changed to %q", got)
+	}
+}
+
 // TestANeverUsedSkillKeepsItsGracePeriod: a skill that was written and never reached for
 // gets stale_after_days of grace before it can be judged at all. Without it, the pass would
 // archive everything a session wrote on the day it wrote it.

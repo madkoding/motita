@@ -60,6 +60,11 @@ type Entry struct {
 	State         State      `json:"state"`
 	ArchivedAt    *time.Time `json:"archived_at,omitempty"`
 	Pinned        bool       `json:"pinned,omitempty"`
+	// Disabled means the user turned this skill off: the agent no longer sees it in
+	// the index or the search, and autonomous curation leaves it alone. The document
+	// stays on disk and stays listed in the interface, so "off" is one click away
+	// from "on" and nothing about it is lost.
+	Disabled bool `json:"disabled,omitempty"`
 }
 
 // Ledger is the usage sidecar. Thread-safe, atomic saves.
@@ -197,6 +202,29 @@ func (l *Ledger) SetPinned(name string, pinned bool) {
 	e.Pinned = pinned
 	l.entries[name] = e
 	l.dirty = true
+}
+
+// SetDisabled turns a skill off or back on.
+//
+// It is deliberately NOT a lifecycle state: a disabled skill is not stale and not
+// archived, it is a document the user asked the agent to stop using. Recording it as
+// a state would make the curator's transitions and the user's decision the same field,
+// and the first automatic pass would move a skill the user had only switched off.
+func (l *Ledger) SetDisabled(name string, disabled bool) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	e := l.entries[name]
+	e.Disabled = disabled
+	l.entries[name] = e
+	l.dirty = true
+}
+
+// Disabled reports whether a skill was turned off. A name with no entry is not
+// disabled: asking the question must not create telemetry for a skill nobody has.
+func (l *Ledger) Disabled(name string) bool {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.entries[name].Disabled
 }
 
 // IsCuratorManaged returns true if the skill may be touched by autonomous

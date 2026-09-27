@@ -135,6 +135,37 @@ func TestPinnedBlocksCuratorManaged(t *testing.T) {
 	}
 }
 
+// TestDisabledIsAFlagAndNotAState: turning a skill off is not archiving it. The document
+// stays in the list (badged "off"), the agent stops seeing it, and the curator must leave
+// it alone: archiving it would make "off" and "archived" the same thing, and the document
+// would leave the very list the user asked to keep it in.
+func TestDisabledIsAFlagAndNotAState(t *testing.T) {
+	l, err := Open(filepath.Join(t.TempDir(), "usage.json"))
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	// An unseen skill is not disabled, and asking must not create it.
+	if l.Disabled("never-seen") {
+		t.Error("an unseen skill must not read as disabled")
+	}
+	if e, ok := l.All()["never-seen"]; ok {
+		t.Errorf("asking must not create an entry: %+v", e)
+	}
+
+	l.SetDisabled("mine", true)
+	if !l.Disabled("mine") {
+		t.Fatal("SetDisabled(true) did not stick")
+	}
+	// And it is NOT a state: the lifecycle is untouched, because turning off is not archiving.
+	if e := l.Get("mine"); e.State == StateArchived {
+		t.Errorf("disabling must not archive: %+v", e)
+	}
+	l.SetDisabled("mine", false)
+	if l.Disabled("mine") {
+		t.Error("SetDisabled(false) did not clear the flag")
+	}
+}
+
 func TestSetStateArchivedSetsTimestamp(t *testing.T) {
 	ts := time.Unix(5000, 0)
 	l := &Ledger{Now: func() time.Time { return ts }, entries: map[string]Entry{}}
