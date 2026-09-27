@@ -598,6 +598,39 @@ func (r *AppRunner) RestoreSkill(name string) error {
 	return nil
 }
 
+// SetSkillDisabled turns a skill off or back on.
+//
+// It is REFUSED without a ledger for the same reason the pin is: the flag is the promise that
+// the agent stops seeing the document, and a front end told "done" for a promise nobody could
+// remember would be lying about the one thing it was asked to change.
+func (r *AppRunner) SetSkillDisabled(name string, disabled bool) error {
+	u := r.procedures().Usage
+	if u == nil {
+		return errors.New("no usage ledger is configured, so a skill cannot be disabled")
+	}
+	u.SetDisabled(skills.Name(name), disabled)
+	return u.Save()
+}
+
+// DeleteSkill removes a document for good, and the telemetry that describes it.
+//
+// The ledger entry goes too: a name left behind would be handed to the curator as a skill that
+// no longer exists, and a document re-created under the same name later would arrive carrying
+// the counters and complaints of the one that was deleted.
+//
+// A missing ledger does not block it. The document is what the user asked to be rid of, and the
+// telemetry that would have described it is exactly the thing that is not there.
+func (r *AppRunner) DeleteSkill(name string) error {
+	if err := r.library().Delete(name); err != nil {
+		return err
+	}
+	if u := r.procedures().Usage; u != nil {
+		u.Forget(skills.Name(name))
+		return u.Save()
+	}
+	return nil
+}
+
 // ArchivedSkills lists what the archive holds.
 func (r *AppRunner) ArchivedSkills() ([]string, error) { return r.library().Archived() }
 

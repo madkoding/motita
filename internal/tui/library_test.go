@@ -2,7 +2,9 @@ package tui
 
 import (
 	"io"
+	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/madkoding/motita/internal/config"
@@ -121,5 +123,110 @@ func TestTheRunnerReportsWhatTheLibraryRefuses(t *testing.T) {
 	}
 	if err := r.RestoreSkill("nope"); err == nil {
 		t.Error("RestoreSkill on a document that is not archived must fail")
+	}
+}
+
+// TestTheRunnerTurnsASkillOffAndBackOn: the interface does not talk to the ledger, it talks to the
+// runner, and the runner is what holds the shared store. Turning off has to be visible in the
+// ledger AND in the index, which is what proves the seam is installed on the path this takes.
+func TestTheRunnerTurnsASkillOffAndBackOn(t *testing.T) {
+	dir := t.TempDir()
+	led, err := usage.Open(filepath.Join(dir, ".usage.json"))
+	if err != nil {
+		t.Fatalf("usage.Open: %v", err)
+	}
+	store := &procedures.Store{Library: skills.New(dir), Usage: led}
+	store.Library.Hidden = led.Disabled
+	r := NewAppRunner(io.Discard, io.Discard, config.Default(), nil, nil, nil)
+	r.UseStore(store)
+
+	if _, err := r.SaveSkill("one", "# One\n\nbody\n"); err != nil {
+		t.Fatalf("SaveSkill: %v", err)
+	}
+	if err := r.SetSkillDisabled("one", true); err != nil {
+		t.Fatalf("SetSkillDisabled: %v", err)
+	}
+	if !r.SkillTelemetry()["one"].Disabled {
+		t.Error("the flag did not reach the ledger")
+	}
+	if index, _ := r.Skills(); len(index) != 0 {
+		t.Errorf("index = %+v: a disabled skill must not be offered", index)
+	}
+	// And it is still openable: turned off is not deleted.
+	if _, err := r.Skill("one"); err != nil {
+		t.Errorf("a disabled skill must still be readable by name: %v", err)
+	}
+	if err := r.SetSkillDisabled("one", false); err != nil {
+		t.Fatalf("re-enabling: %v", err)
+	}
+	if index, _ := r.Skills(); len(index) != 1 {
+		t.Errorf("index = %+v: enabling did not restore it", index)
+	}
+}
+
+// TestDisablingWithoutALedgerIsRefused: the flag is the promise that the agent stops seeing the
+// document, and without a ledger there is nowhere to remember it. A reported success for a veto
+// that cannot be stored is the one answer that will not do, the same rule the pin follows.
+func TestDisablingWithoutALedgerIsRefused(t *testing.T) {
+	r := NewAppRunner(io.Discard, io.Discard, config.Default(), nil, nil, nil)
+	r.UseStore(&procedures.Store{Library: skills.New(t.TempDir())})
+
+	err := r.SetSkillDisabled("one", true)
+	if err == nil {
+		t.Fatal("disabling with no ledger must fail")
+	}
+	if !strings.Contains(err.Error(), "ledger") {
+		t.Errorf("the refusal must name what is missing: %v", err)
+	}
+}
+
+// TestTheRunnerDeletesTheDocumentAndItsTelemetry: deleting a skill without deleting its telemetry
+// leaves rubbish the curator keeps counting, and the name can be created again later carrying the
+// old counters. The two go together.
+func TestTheRunnerDeletesTheDocumentAndItsTelemetry(t *testing.T) {
+	dir := t.TempDir()
+	led, err := usage.Open(filepath.Join(dir, ".usage.json"))
+	if err != nil {
+		t.Fatalf("usage.Open: %v", err)
+	}
+	store := &procedures.Store{Library: skills.New(dir), Usage: led}
+	r := NewAppRunner(io.Discard, io.Discard, config.Default(), nil, nil, nil)
+	r.UseStore(store)
+
+	if _, err := r.SaveSkill("one", "# One\n\nbody\n"); err != nil {
+		t.Fatalf("SaveSkill: %v", err)
+	}
+	if err := r.DeleteSkill("one"); err != nil {
+		t.Fatalf("DeleteSkill: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "one.md")); !os.IsNotExist(err) {
+		t.Errorf("the document survived: %v", err)
+	}
+	if _, ok := r.SkillTelemetry()["one"]; ok {
+		t.Error("the telemetry survived the document it describes")
+	}
+
+	// A name that is not there is a failure to report, not a quiet success.
+	if err := r.DeleteSkill("nope"); err == nil {
+		t.Error("deleting a name that is not there must fail")
+	}
+}
+
+// TestDeletingWithoutALedgerStillRemovesTheDocument: the document is the thing the user asked to
+// be rid of, and a missing ledger describes nothing. Refusing the deletion over telemetry that
+// does not exist would block the operation for the wrong reason.
+func TestDeletingWithoutALedgerStillRemovesTheDocument(t *testing.T) {
+	dir := t.TempDir()
+	r := NewAppRunner(io.Discard, io.Discard, config.Default(), nil, nil, nil)
+	r.UseStore(&procedures.Store{Library: skills.New(dir)})
+
+	if _, err := r.SaveSkill("one", "# One\n\nbody\n"); err != nil {
+		t.Fatalf("SaveSkill: %v", err)
+	}
+	if err := r.DeleteSkill("one"); err != nil {
+		t.Fatalf("DeleteSkill without a ledger: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "one.md")); !os.IsNotExist(err) {
+		t.Errorf("the document survived: %v", err)
 	}
 }

@@ -227,6 +227,25 @@ func (l *Ledger) Disabled(name string) bool {
 	return l.entries[name].Disabled
 }
 
+// Forget removes an entry and its history.
+//
+// It exists for the one operation that makes a name stop existing: a deleted document leaves no
+// subject for the counts to describe, and a survivor would be handed to the curator as a skill
+// that cannot be found. A name re-created later must start from zero rather than arrive carrying
+// the counters and complaints of the one that was deleted.
+//
+// Forgetting a name that has no entry is not an error: the caller asked for an absence and an
+// absence is what it has. It must not create one either.
+func (l *Ledger) Forget(name string) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if _, ok := l.entries[name]; !ok {
+		return
+	}
+	delete(l.entries, name)
+	l.dirty = true
+}
+
 // IsCuratorManaged returns true if the skill may be touched by autonomous
 // curation. Mirrors Hermes' rule: only created_by="agent" qualifies.
 func (l *Ledger) IsCuratorManaged(name string) bool {

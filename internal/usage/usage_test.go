@@ -391,3 +391,50 @@ func TestSaveReportsACloseFailure(t *testing.T) {
 	}
 	assertSeamFails(t, func() { closeFile = orig }, "close exploded")
 }
+
+// TestForgetRemovesTheEntry: the document has been deleted and its history describes something
+// that is no longer there. Leaving it behind would be a phantom entry the curator walks over, and
+// counters a future skill of the same name would inherit without having earned them.
+func TestForgetRemovesTheEntry(t *testing.T) {
+	l, err := Open(filepath.Join(t.TempDir(), "usage.json"))
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	l.BumpPatch("one", ByAgent)
+	l.SetPinned("one", true)
+	l.Forget("one")
+	if e := l.Get("one"); e.PatchCount != 0 || e.Pinned || e.CreatedBy != "" {
+		t.Errorf("the entry survived Forget: %+v", e)
+	}
+	if _, ok := l.All()["one"]; ok {
+		t.Error("the entry is still in All()")
+	}
+	// Forgetting what is not there is not an error, and must not invent an entry.
+	l.Forget("never-seen")
+	if _, ok := l.All()["never-seen"]; ok {
+		t.Error("Forget created the entry it was asked to forget")
+	}
+}
+
+// TestForgetIsRemembered: a forgotten entry that comes back with the next save would make the
+// deletion of a document a thing that only lasts until the process restarts.
+func TestForgetIsRemembered(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "usage.json")
+	l, err := Open(path)
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	l.BumpPatch("one", ByAgent)
+	l.Forget("one")
+	if err := l.Save(); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+
+	back, err := Open(path)
+	if err != nil {
+		t.Fatalf("reopening: %v", err)
+	}
+	if _, ok := back.All()["one"]; ok {
+		t.Error("the forgotten entry was written back to disk")
+	}
+}
