@@ -89,6 +89,15 @@ type Library struct {
 	// It is off in New so a library is exactly the directory it was given: a test that asks
 	// what is in a directory must not be answered with what is in the executable.
 	Builtins bool
+	// Hidden, when set, reports documents that are turned OFF: they leave the index and
+	// the search, and they remain reachable by name.
+	//
+	// It is a function and not a dependency on the telemetry ledger because the ledger
+	// lives in another package that already imports this one: a Library that knew about
+	// usage.Entry would be a cycle. All the library asks is "should the model see this",
+	// and nil means "yes to everything", which is the behaviour it had before the
+	// feature existed.
+	Hidden func(name string) bool
 }
 
 // DefaultMaxFileBytes is the cap when none is configured: enough for a thorough procedure,
@@ -158,6 +167,11 @@ func Name(raw string) string {
 // the result is always inside the directory.
 func (l *Library) path(name string) string {
 	return filepath.Join(l.Dir, name+".md")
+}
+
+// hidden reports whether a document was turned off. A library with no seam hides nothing.
+func (l *Library) hidden(name string) bool {
+	return l.Hidden != nil && l.Hidden(name)
 }
 
 // builtinDir is the folder inside the embedded filesystem. It is not a valid skill name, so a
@@ -451,6 +465,36 @@ func (l *Library) Archived() ([]string, error) {
 	return out, nil
 }
 
+// Delete removes a document for good.
+//
+// It is the ONE irreversible operation this library has, which is why it is a method of
+// its own and not a flag on Archive: archiving is the maximum action that can be taken
+// back, and a caller that wants a deletion has to say so. The interface asks for a
+// confirmation before it reaches here.
+//
+// A document that is NOT on disk is refused rather than removed: the name resolves to
+// the procedure embedded in the binary, which no operation on the filesystem can touch.
+// Reporting success for that would be a lie the user would discover by looking.
+func (l *Library) Delete(name string) error {
+	n := Name(name)
+	if n == "" {
+		return errors.New("the skill name is empty")
+	}
+	p := l.path(n)
+	if _, err := os.Stat(p); err != nil {
+		if _, ok, berr := l.builtin(n); berr != nil {
+			return berr
+		} else if ok {
+			return fmt.Errorf("the skill %q is built in: it ships inside the binary and cannot be deleted", n)
+		}
+		return fmt.Errorf("could not delete the skill %q: %w", n, err)
+	}
+	if err := os.Remove(p); err != nil {
+		return fmt.Errorf("could not delete the skill %q: %w", n, err)
+	}
+	return nil
+}
+
 // builtinPrefix marks the path of an embedded document. It is not a filesystem path, so a
 // document carrying it must never be handed to the disk.
 const builtinPrefix = "builtin:"
@@ -500,6 +544,11 @@ func (l *Library) index() ([]Skill, error) {
 		if strings.HasPrefix(name, ".") {
 			continue
 		}
+		// A document the user turned off is not offered to the model: it keeps its
+		// place on disk and in the interface, and it leaves the index.
+		if l.hidden(name) {
+			continue
+		}
 		p := filepath.Join(l.Dir, e.Name())
 		body, err := l.read(p)
 		if err != nil {
@@ -519,6 +568,9 @@ func (l *Library) index() ([]Skill, error) {
 		}
 		for name, s := range built {
 			if seen[name] {
+				continue
+			}
+			if l.hidden(name) {
 				continue
 			}
 			out = append(out, s)
