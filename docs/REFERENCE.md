@@ -187,6 +187,33 @@ matters — a binary that does not run on this machine.
 `SHA256SUMS` comes from the same release as the binary, so verification catches
 a corrupted transfer, not a compromised release.
 
+**On Windows**, in PowerShell:
+
+```powershell
+irm https://madkoding.github.io/motita/install.ps1 | iex
+```
+
+It does the same four things as the shell installer — detect the architecture,
+download the matching `.exe`, verify it against the release's `SHA256SUMS`, and
+put it on your `PATH` — using what Windows has: `PROCESSOR_ARCHITEW6432` for the
+architecture (a 32-bit PowerShell on 64-bit Windows reports `x86` and must be
+corrected, or you silently get the 32-bit binary), `Get-FileHash` for the
+digest, and the **user** `PATH` scope, so it never needs administrator rights.
+
+It installs to `%LOCALAPPDATA%\Programs\motita\motita.exe` by default; override
+with `$env:MOTITA_INSTALL_DIR`, and pin a release with `$env:MOTITA_VERSION`:
+
+```powershell
+$env:MOTITA_VERSION = 'v0.7.0'
+irm https://madkoding.github.io/motita/install.ps1 | iex
+```
+
+On failure it **throws** instead of exiting, and that is deliberate: the script
+is normally run through `irm ... | iex`, and `exit` inside `Invoke-Expression`
+ends *your* PowerShell session — a failed download would close the window. A
+thrown error is printed, is catchable, and still gives exit status 1 when the
+file is run directly.
+
 **By hand**, if you prefer to see each step:
 
 ```bash

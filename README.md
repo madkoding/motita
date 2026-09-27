@@ -114,6 +114,16 @@ what gets verified is the artifact you download, not a rebuild of it.
 curl -fsSL https://madkoding.github.io/motita/install.sh | sh
 ```
 
+On Windows, in PowerShell:
+
+```powershell
+irm https://madkoding.github.io/motita/install.ps1 | iex
+```
+
+That is the same installer for Windows: it detects the architecture, downloads
+the matching `.exe`, verifies it against the release's `SHA256SUMS`, and puts it
+on your `PATH` without administrator rights. Everything below applies to both.
+
 ```mermaid
 flowchart LR
     D["Detects your OS<br/>and architecture"] --> G["Downloads the<br/>matching binary"]
@@ -712,4 +722,8 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 ```sh
 curl -fsSL https://madkoding.github.io/motita/install.sh | sh
+```
+
+```powershell
+irm https://madkoding.github.io/motita/install.ps1 | iex
 ```
