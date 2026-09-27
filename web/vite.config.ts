@@ -3,17 +3,11 @@ import preact from '@preact/preset-vite'
 import tailwindcss from 'tailwindcss'
 import autoprefixer from 'autoprefixer'
 import { VitePWA } from 'vite-plugin-pwa'
-import mermaidSlim from './build/mermaid-slim.mjs'
 
 // The build output goes directly into the Go embed directory.
 // go:embed in internal/webui picks up everything under assets/.
 export default defineConfig({
   plugins: [
-    // Keeps mermaid affordable to EMBED: full mermaid is 5.3 MB of lazy chunks
-    // (plus elkjs and cytoscape), and this page's assets live inside a Go binary
-    // with a hard ceiling. The plugin keeps the flowchart family only — the one
-    // diagram type this project's documentation uses. See build/mermaid-slim.mjs.
-    mermaidSlim(),
     preact(),
     // PWA with injectManifest: a hand-written ~2 KB SW instead of
     // Workbox's ~50 KB generated one.

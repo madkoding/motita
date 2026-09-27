@@ -1,6 +1,6 @@
-// Type declarations for the two kinds of module TypeScript cannot see into:
-// the markdown-it plugins that ship no `.d.ts`, and the virtual module the
-// mermaid-slim build plugin resolves to.
+// Type declarations for the Markdown-IT plugins that ship no `.d.ts`.
+// (mermaid's own types come from the package; it is used through its main entry
+// now that the diagram families are not hand-picked — see web/src/mermaid.ts.)
 
 declare module 'markdown-it-footnote' {
   import type { PluginSimple } from 'markdown-it'
@@ -28,22 +28,3 @@ declare module 'markdown-it-task-lists' {
   export default plugin
 }
 
-// The mermaid-slim plugin rewrites mermaid so that only the flowchart family is
-// bundled, and resolves this specifier to mermaid's own flowchart chunk. The
-// chunk exports a `DiagramDefinition`; the app only ever passes it straight back
-// to mermaid, so the shape it needs is spelled out here rather than imported from
-// a deep path inside mermaid's dist/.
-declare module 'virtual:mermaid-flowchart' {
-  import type { ExternalDiagramDefinition } from 'mermaid'
-  export const diagram: ExternalDiagramDefinition['diagram']
-}
-
-// mermaid's "core" build is the one the slim plugin transforms. The package maps
-// its TYPES only for the main entry (`mermaid`), so the specifier the plugin
-// rewrites needs its own declaration. It is structurally the same mermaid, and it
-// has to be declared as a VALUE: `import type` would make the default export
-// unusable as a runtime object, which is all this module ever does with it.
-declare module 'mermaid/dist/mermaid.core.mjs' {
-  const mermaid: (typeof import('mermaid'))['default']
-  export default mermaid
-}

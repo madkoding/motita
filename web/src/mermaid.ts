@@ -1,16 +1,27 @@
 // The mermaid side of the Markdown renderer, split out so it can be imported
-// LAZILY: this module and everything it drags in (about 1.1 MB) is only fetched
-// when an answer actually contains a diagram, and a reader who never sees one
-// never downloads it.
+// LAZILY: this module and everything it drags in is only fetched when an answer
+// actually contains a diagram, and a reader who never sees one never downloads it.
 //
-// Only the FLOWCHART family is bundled. `web/build/mermaid-slim.mjs` explains why
-// and how: the honest summary is that full mermaid is 5.3 MB of embedded bytes,
-// the project has a hard binary ceiling, and this is the one diagram type the
-// project's own documentation uses.
-import mermaid from 'mermaid/dist/mermaid.core.mjs'
-// Resolved by the mermaid-slim build plugin to mermaid's own flowchart chunk.
-// Deep-path import on purpose: this IS the wiring the plugin keeps alive.
-import { diagram } from 'virtual:mermaid-flowchart'
+// ## Why this is the FULL mermaid, and not a trimmed one
+//
+// An earlier version of this file registered only the flowchart family to keep the
+// chunk small, and it did — 698 KB instead of 5.3 MB. That was still a bad trade, and
+// it is worth recording why rather than re-litigating it: this renderer exists so an
+// answer can show what it means, and "that diagram type is not supported" is a defect
+// the reader cannot work around. A gantt chart, a sequence diagram or an ER model is
+// exactly the sort of thing an answer contains, and half a renderer that fails on
+// them is worse than none.
+//
+// The cost is bounded by the fact that it is LAZY. The whole library is ~5.3 MB of
+// source and ~1.7 MB transferred, and it is fetched when — and only when — a message
+// contains a diagram. The page's shell budget is untouched, and a reader who never
+// sees a diagram pays nothing for this.
+//
+// So this module deliberately does NOT hand-pick diagram types: every family mermaid
+// registers by itself is available — flowchart, sequence, class, state, ER, gantt,
+// pie, journey, gitGraph, mindmap, timeline, quadrantChart, sankey, block, packet,
+// architecture, radar, treemap, xychart and the rest.
+import mermaid from 'mermaid'
 
 // The diagram id mermaid wants for each render. It is a DOM id inside the SVG, so
 // it must be unique per render and must not start with a digit; a counter is
@@ -59,20 +70,6 @@ function ensureReady(): Promise<void> {
         htmlLabels: true,
         flowchart: { useMaxWidth: true },
       })
-      await mermaid.registerExternalDiagrams(
-        [
-          {
-            id: 'flowchart-v2',
-            detector: (text: string) => /^\s*(graph|flowchart)\b/.test(text),
-            // mermaid destructures { id, diagram } out of what the loader resolves
-            // to, and its own chunk exports `diagram` without an id, so the loader
-            // supplies both halves: hand it the bare diagram and mermaid dies
-            // reading `.styles` off undefined.
-            loader: async () => ({ id: 'flowchart-v2', diagram }),
-          },
-        ],
-        { lazyLoad: true },
-      )
     })()
   }
   return ready
@@ -81,9 +78,9 @@ function ensureReady(): Promise<void> {
 /**
  * Renders one diagram source to SVG.
  *
- * Throws if the source is not a valid diagram the bundle can draw; the caller
- * decides how to show that, because an unparseable diagram is information the
- * reader needs rather than a failure to swallow.
+ * Throws if the source is not a valid diagram; the caller decides how to show that,
+ * because an unparseable diagram is information the reader needs rather than a
+ * failure to swallow.
  */
 export async function renderMermaid(source: string): Promise<string> {
   await ensureReady()
