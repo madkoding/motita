@@ -55,3 +55,7 @@ workspace/
 
 # Stray git repository left inside a package by a local experiment
 /internal/gateway/repo/
+
+# Python bytecode from the CDP probes and verification scripts.
+__pycache__/
+*.pyc
