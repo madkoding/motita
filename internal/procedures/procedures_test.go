@@ -285,3 +285,51 @@ func TestABrokenUsageLedgerIsSurvivedWithoutALogger(t *testing.T) {
 		t.Error("the broken usage ledger must still be treated as absent")
 	}
 }
+
+// TestTheLedgerAndTheLibraryAreConnected: a turned-off skill has to disappear from the index the
+// model is given. They are two sidecar files and one directory, and the only place that can tie
+// them together is this constructor: if the seam is not installed here, the flag is written to
+// the JSON and nothing changes, which is the worst kind of working.
+//
+// The count is not the thing to assert: the store turns the shipped procedures on, so the index
+// holds them too. What changes when a document is turned off is whether THAT NAME is offered.
+func TestTheLedgerAndTheLibraryAreConnected(t *testing.T) {
+	st := Open(cfgAt(t.TempDir()), quiet(t))
+	if st.Usage == nil {
+		t.Fatal("no usage ledger")
+	}
+	if _, err := st.Library.Save("mine", "# Mine\n\nThe procedure.\n"); err != nil {
+		t.Fatal(err)
+	}
+
+	if !offered(t, st, "mine") {
+		t.Fatal("the document must be offered before it is turned off")
+	}
+	st.Usage.SetDisabled("mine", true)
+	if offered(t, st, "mine") {
+		t.Error("disabling did not reach the library's index")
+	}
+	// And the search, which is the other way a skill arrives unasked.
+	if hits, _ := st.Library.Search("procedure", 10); len(hits) != 0 {
+		t.Errorf("search = %+v: disabling did not reach the search", hits)
+	}
+	st.Usage.SetDisabled("mine", false)
+	if !offered(t, st, "mine") {
+		t.Error("enabling did not reach the library's index")
+	}
+}
+
+// offered reports whether a name is currently in the index the model is given.
+func offered(t *testing.T, st *Store, name string) bool {
+	t.Helper()
+	all, err := st.Library.List()
+	if err != nil {
+		t.Fatalf("List: %v", err)
+	}
+	for _, s := range all {
+		if s.Name == name {
+			return true
+		}
+	}
+	return false
+}

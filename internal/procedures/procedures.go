@@ -90,5 +90,10 @@ func Open(cfg config.Config, log *logx.Logger) *Store {
 		return st
 	}
 	st.Usage = ul
+	// The library ASKS the ledger which documents are turned off, at the doors the model
+	// reaches the library through. It is wired here because this is where the two sidecars
+	// meet the one directory, and because it is the only place that can: internal/skills
+	// must not import internal/usage.
+	st.Library.Hidden = ul.Disabled
 	return st
 }
