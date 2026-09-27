@@ -16,6 +16,16 @@ export default defineConfig({
       strategies: 'injectManifest',
       srcDir: 'src',
       filename: 'sw.ts',
+      // The emoji set is 1285 WebP files, and the generated precache manifest listed every
+      // one of them: install would have pulled several MB (and the whole set into the
+      // cache) before the page was usable. They are cached on first use instead — the
+      // service worker's fetch handler stores what it serves — so an answer that shows one
+      // gets it from the cache afterwards, and an install pays nothing for the set.
+      injectManifest: {
+        globPatterns: ['**/*.{js,css,html,svg,webp,woff2,webmanifest}'],
+        globIgnores: ['emoji/**'],
+        maximumFileSizeToCacheInBytes: 3 * 1024 * 1024,
+      },
       manifest: {
         name: 'Motita',
         short_name: 'Motita',

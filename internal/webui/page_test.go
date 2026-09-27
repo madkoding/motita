@@ -189,6 +189,7 @@ func TestThePageStaysInsideItsBudget(t *testing.T) {
 
 	shell := 0
 	lazy := 0
+	emoji := 0
 	for _, name := range Names() {
 		body, _, err := Content(name)
 		if err != nil {
@@ -197,6 +198,9 @@ func TestThePageStaysInsideItsBudget(t *testing.T) {
 		switch {
 		case name == iconFace:
 			// Measured on its own below.
+		case strings.HasPrefix(name, "/emoji/"):
+			// Measured on its own below, for the same reason as the icon face.
+			emoji += len(body)
 		case isLazyChunk(name):
 			lazy += len(body)
 		case name == "/sw.js" || name == "/registerSW.js":
@@ -212,11 +216,28 @@ func TestThePageStaysInsideItsBudget(t *testing.T) {
 			"check what became eager. A chunk meant to be loaded on demand has to be reached "+
 			"through a dynamic import(), or it stops being lazy and lands in this number", shell, shellBudget)
 	}
-	t.Logf("shell %d bytes, lazy %d bytes (of which the icon face is %d)", shell, lazy, len(icons))
+	t.Logf("shell %d bytes, lazy %d bytes, emoji set %d bytes (of which the icon face is %d)",
+		shell, lazy, emoji, len(icons))
 	if len(icons) > iconBudget {
 		t.Fatalf("the mono icon face is %d bytes, budget is %d: the Nerd Font icon subset has "+
 			"grown, or is being built without subsetting at all (the unsubset upstream face is 2.5 MB)",
 			len(icons), iconBudget)
+	}
+	// The emoji set is downloaded one file at a time, when a message actually shows one —
+	// which is the same property as a lazy chunk, so it belongs in this accounting. It is
+	// also the one part of the page whose size is set by an UPSTREAM release rather than by
+	// this project, so it gets a ceiling of its own: at the measured ~2.1 KB per image a
+	// ceiling of 3 MB catches a re-run of the generator at the wrong size (the source SVGs
+	// are 23 MB and would land here immediately) while leaving room for a larger style.
+	const emojiBudget = 3 * 1024 * 1024
+	if emoji > emojiBudget {
+		t.Fatalf("the emoji set is %d bytes, budget is %d: it is generated, so check the size "+
+			"the generator was run at — the source SVGs are 23 MB and embedding those instead "+
+			"is the mistake this number exists to catch", emoji, emojiBudget)
+	}
+	if emoji == 0 {
+		t.Error("no emoji assets are served: /emoji/* is empty, so every emoji falls back to " +
+			"the font's own glyph — the feature is present in the code and absent in the build")
 	}
 }
 
@@ -313,7 +334,7 @@ func entryChunk() (name, body string, ok bool) {
 //     KaTeX's MathML and from mermaid's SVG (`xmlns`). They name a vocabulary, they are
 //     not resolvable hosts, and a browser never fetches them.
 //  2. "http://${...}" and "http://" + <identifier> — a TEMPLATE, not an address. These come
-//     from url-normalising code (linkify-it's `e.url = \`http://${e.url}\``, mermaid's
+//     from url-normalising code (linkify-it's `e.url = \`http://${e.url}\“, mermaid's
 //     `\`http://${e}\`.replace(/^http:\/\//, "")`) whose whole job is to give a schemeless
 //     input a scheme. There is no host here to fetch from; the string is completed at
 //     RUNTIME from whatever the user typed, and the completed value is only ever used as an

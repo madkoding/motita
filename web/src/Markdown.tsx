@@ -303,7 +303,10 @@ async function hydrate(root: HTMLElement): Promise<void> {
   const math = Array.from(root.querySelectorAll<HTMLElement>('.math-inline:not([data-done]), .math-block:not([data-done])'))
   const code = Array.from(root.querySelectorAll<HTMLElement>('pre.code-block:not([data-done])'))
   const diagrams = Array.from(root.querySelectorAll<HTMLElement>('.mermaid-block:not([data-done])'))
-  if (math.length + code.length + diagrams.length === 0) return
+  // Emoji is the one step that is not a placeholder: it rewrites text that is already
+  // rendered, so its marker goes on the ROOT and it runs on every mount that has not had it.
+  const wantsEmoji = root.getAttribute('data-emoji') !== 'ok'
+  if (math.length + code.length + diagrams.length === 0 && !wantsEmoji) return
 
   // Marked BEFORE any await: two effects can overlap while a module loads, and an
   // unmarked element would be picked up by both.
@@ -366,6 +369,21 @@ async function hydrate(root: HTMLElement): Promise<void> {
       }
     } catch (err) {
       for (const el of diagrams) fail(el, 'the diagram renderer could not be loaded', err)
+    }
+  }
+
+  // LAST, and after every await: the emoji pass rewrites text nodes, and doing it before
+  // the math and diagram placeholders were replaced would convert inside content that is
+  // about to be thrown away (and, for a formula, inside LaTeX source).
+  if (wantsEmoji) {
+    root.setAttribute('data-emoji', 'ok')
+    try {
+      const { renderEmoji } = await import('./emoji')
+      root.setAttribute('data-emoji-count', String(renderEmoji(root)))
+    } catch (err) {
+      // An emoji that stays a character is exactly as readable as before this existed.
+      root.setAttribute('data-emoji', 'plain')
+      console.error('motita: the emoji images are unavailable:', err)
     }
   }
 }

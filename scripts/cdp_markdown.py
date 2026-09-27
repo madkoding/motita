@@ -70,14 +70,59 @@ $$
 \\int_0^\\infty e^{-x^2}\\,dx = \\frac{\\sqrt{\\pi}}{2}
 $$
 
+Una fórmula que exige mucho más del motor: una matriz, una suma con límites, un
+límite, una raíz, un sumatorio doble y letras griegas.
+
+$$
+\\begin{pmatrix} a & b \\\\ c & d \\end{pmatrix}
+\\qquad
+\\sum_{n=1}^{\\infty} \\frac{1}{n^2} = \\frac{\\pi^2}{6}
+\\qquad
+\\lim_{x \\to 0} \\frac{\\sin x}{x} = 1
+\\qquad
+\\sqrt[3]{\\frac{\\alpha \\cdot \\beta}{\\gamma}}
+$$
+
 ```mermaid
 graph LR
   A[Inicio] --> B[Fin]
 ```
 
+```mermaid
+sequenceDiagram
+  participant U as Usuario
+  participant S as Servidor
+  U->>S: petición
+  S-->>U: respuesta
+```
+
+```mermaid
+gantt
+  title Plan
+  dateFormat YYYY-MM-DD
+  section Fase
+  trabajo :a1, 2026-01-01, 30d
+```
+
+```mermaid
+pie title Reparto
+  "uno" : 60
+  "dos" : 40
+```
+
 ```js
 const arrow = a --> b
 ```
+
+Emoji: caras 🙂 🥳 🚀 ❤️ 🔥, bandera arcoiris 🏳️‍🌈, gato negro 🐈‍⬛, teclas 1️⃣ 2️⃣, una sin asset 🇨🇱 y otra sin asset 🏴󠁧󠁢󠁳󠁣󠁴󠁿.
+
+Dentro de código no debe convertirse: `const x = "🔥"` ni en un bloque:
+
+```
+echo "🚀 despegar"
+```
+
+Y en cursiva *🦀* junto a texto normal.
 """
 
 
@@ -171,21 +216,38 @@ MEASURE = r"""
   const rawTex = ['\\int_0', '\\frac', '\\sqrt', '\\infty'].filter(t => text.includes(t));
   const annotationLeak = maths.some(m => /\\[a-zA-Z]+/.test(m.textContent));
 
-  // 7. DIAGRAM: drawn, with visible LABELS. `nodeLabel` text is the whole point: the
-  //    SVG renders two empty boxes without it, which every shape-based check passes.
-  const mm = box.querySelector('.mermaid-block');
-  const svg = mm ? mm.querySelector('svg') : null;
-  const svgRect = svg ? svg.getBoundingClientRect() : null;
-  const labels = [...(mm ? mm.querySelectorAll('.nodeLabel') : [])]
-    .map(n => n.textContent.trim()).filter(Boolean);
-  const labelVisible = [...(mm ? mm.querySelectorAll('.nodeLabel') : [])].some(n => {
-    const r = n.getBoundingClientRect();
-    return r.width > 0 && r.height > 0;
+  // 7. DIAGRAMS: every diagram on the page, drawn, with visible LABELS. The label
+  //    text is the whole point: the SVG renders empty boxes without it, which every
+  //    shape-based check passes. All four are checked, because the reason mermaid is
+  //    the full build is that a reader can put ANY diagram type in an answer.
+  const blocks = [...box.querySelectorAll('.mermaid-block')];
+  const diagrams = blocks.map(b => {
+    const s = b.querySelector('svg');
+    const r = s ? s.getBoundingClientRect() : null;
+    const lab = [...b.querySelectorAll('.nodeLabel')]
+      .map(n => n.textContent.trim()).filter(Boolean);
+    // A label can also be a plain SVG <text> (sequence, gantt, pie all draw theirs
+    // that way), so the visible-ink test covers both rather than trusting one class.
+    const texts = [...b.querySelectorAll('text')]
+      .map(t => t.textContent.trim()).filter(Boolean);
+    return {
+      done: b.getAttribute('data-done'),
+      svg: !!s, w: r ? Math.round(r.width) : 0, h: r ? Math.round(r.height) : 0,
+      // The reason lives in .render-error-reason (see fail() in Markdown.tsx).
+      error: b.classList.contains('render-error')
+        ? ((b.querySelector('.render-error-reason') || {}).textContent || '').slice(0, 300)
+          + ' || source: ' + ((b.querySelector('pre') || {}).textContent || '').slice(0, 80)
+        : null,
+      labels: lab, texts,
+      edges: b.querySelectorAll('.edgePaths path, path.flowchart-link').length,
+      arrowMarker: [...b.querySelectorAll('path')].some(p => p.getAttribute('marker-end')),
+      actors: [...b.querySelectorAll('.actor')].map(a => a.textContent.trim()).filter(Boolean),
+      tasks: [...b.querySelectorAll('.taskText, .sectionTitle')]
+        .map(t => t.textContent.trim()).filter(Boolean),
+      slices: [...b.querySelectorAll('.pieCircle, .slice')].length,
+    };
   });
-  const edges = mm ? mm.querySelectorAll('.edgePaths path, path.flowchart-link').length : 0;
-  const arrowMarker = mm
-    ? [...mm.querySelectorAll('path')].some(p => p.getAttribute('marker-end'))
-    : false;
+  const mm = blocks[0] || null;
 
   // 8. alerts render as callouts, not as blockquotes with the word NOTE inside.
   const alerts = [...box.querySelectorAll('.markdown-alert')].map(e => e.className);
@@ -201,6 +263,41 @@ MEASURE = r"""
   // 10. the message's own copy payload, which contains `-->` too.
   const msgRaw = box.getAttribute('data-raw') || '';
 
+  // 11. EMOJI: converted to images in the text, and NOT inside code. The second half is
+  //    the assertion that matters: a conversion that runs over a code block would corrupt
+  //    the snippet the reader copies, which is a defect worse than not having the feature.
+  const emojiImgs = [...box.querySelectorAll('img.emoji')];
+  const emojiInText = emojiImgs.filter(i => !i.closest('pre, code')).length;
+  const emojiInCode = emojiImgs.filter(i => i.closest('pre, code')).length;
+  const codeEmojiLeft = [...box.querySelectorAll('pre code')]
+    .some(c => /[\u{1F300}-\u{1FAFF}]/u.test(c.textContent));
+  const emojiGeom = emojiImgs.slice(0, 4).map(i => {
+    const r = i.getBoundingClientRect();
+    const cs = getComputedStyle(i);
+    return {w: Math.round(r.width), h: Math.round(r.height), src: i.getAttribute('src'),
+            alt: i.alt, loaded: i.complete && i.naturalWidth > 0};
+  });
+  // hydrate() runs on the element the component rendered, which is the PARENT of
+  // `.markdown-body`, so the marker is looked up from the box outwards rather than read off
+  // the box: reading it off the box directly is how this reported "the pass did not run"
+  // while fifteen emoji were already rendered as images.
+  const emojiHost = box.closest('[data-emoji]') || box;
+  const emojiState = emojiHost.getAttribute('data-emoji');
+  const emojiCount = emojiHost.getAttribute('data-emoji-count') || box.getAttribute('data-emoji-count');
+  // A ZWJ sequence (the rainbow flag, the black cat) is ONE picture, and a country flag has
+  // no FluentUI asset at all: both must survive as their original characters rather than
+  // becoming a series of images that shows half a sequence or a broken image.
+  const emojiAlt = emojiImgs.map(i => i.alt);
+  const textLeft = box.textContent || '';
+  const flagLeft = textLeft.includes('🇨🇱');
+  const zwjWhole = emojiAlt.includes('🏳️‍🌈') && emojiAlt.includes('🐈‍⬛')
+  const zwjSplit = emojiAlt.some(a => a === '🏳' || a === '🌈' || a === '🐈' || a === '⬛')
+  // A keycap (`1️⃣`) and a tag-sequence flag (Scotland) are both multi-codepoint too, and
+  // both are cases where a lookup that misses looks identical to a character with no asset.
+  const keycapOk = emojiAlt.includes('1️⃣') && emojiAlt.includes('2️⃣')
+  const tagFlagLeft = textLeft.includes('\u{1F3F4}\u{E0067}\u{E0062}\u{E0073}\u{E0063}\u{E0074}\u{E007F}')
+  const blackFlagShown = emojiAlt.includes('🏴')
+
   return {
     lineBreak: {br: brCount, paragraphHeight: p1Height},
     escape: {text: escapeText, emInside: escapeHasEm},
@@ -210,16 +307,23 @@ MEASURE = r"""
     math: {count: maths.length, geom: mathGeom,
            blockVisible: blockMath ? blockMath.getBoundingClientRect().height > 0 : false,
            rawTexShowing: rawTex, annotationLeak},
-    mermaid: {present: !!mm, svg: !!svg,
-              w: svgRect ? Math.round(svgRect.width) : 0,
-              h: svgRect ? Math.round(svgRect.height) : 0,
-              labels, labelVisible, edges, arrowMarker,
+    mermaid: {present: !!mm, svg: !!mm && !!mm.querySelector('svg'),
+              w: mm && mm.querySelector('svg')
+                 ? Math.round(mm.querySelector('svg').getBoundingClientRect().width) : 0,
+              h: mm && mm.querySelector('svg')
+                 ? Math.round(mm.querySelector('svg').getBoundingClientRect().height) : 0,
               done: mm ? mm.getAttribute('data-done') : null},
+    diagrams,
     alerts,
     code: {copyTextLen: copyText === null ? null : copyText.length,
            copyText, tokenColor,
            codeLen: codeText ? codeText.textContent.length : 0},
     messageCopyLen: msgRaw.length,
+    emoji: {state: emojiState, count: emojiCount, total: emojiImgs.length,
+            inText: emojiInText, inCode: emojiInCode, codeEmojiLeft,
+            alt: emojiAlt, flagLeft, zwjWhole, zwjSplit,
+            keycapOk, tagFlagLeft, blackFlagShown,
+            geom: emojiGeom},
     renderErrors: q('.render-error'),
   };
 })()
@@ -371,8 +475,8 @@ async def run(ws_url, base, token, shots):
 
         # --- math -------------------------------------------------------------
         math = m["math"]
-        if math["count"] >= 2 and math["blockVisible"]:
-            ok(f"both formulas are typeset as MathML ({math['count']} <math>, "
+        if math["count"] >= 3 and math["blockVisible"]:
+            ok(f"the formulas are typeset as MathML ({math['count']} <math>, "
                f"block height > 0): {math['geom']}")
         else:
             bad(f"the formulas were not typeset: {math}")
@@ -383,20 +487,102 @@ async def run(ws_url, base, token, shots):
         else:
             ok("no raw LaTeX is printed beside the typeset formula")
 
-        # --- diagram ----------------------------------------------------------
+        # --- diagrams: every type, drawn AND labelled -------------------------
+        # The point of the full mermaid build is that ANY diagram type works, so one
+        # type rendering is not evidence. Each entry names the ink that proves its own
+        # type drew: a flowchart has node labels and an edge, a sequence has actors, a
+        # gantt has task/section text, a pie has slices.
+        diagrams = m["diagrams"]
+        expected = [
+            ("flowchart", lambda d: d["labels"] == ["Inicio", "Fin"] and d["edges"] >= 1,
+             "node labels Inicio/Fin and an edge"),
+            ("sequenceDiagram", lambda d: "Usuario" in d["actors"] and "Servidor" in d["actors"],
+             "both actors"),
+            ("gantt", lambda d: any("trabajo" in t for t in d["tasks"]),
+             "the task text"),
+            ("pie", lambda d: d["slices"] >= 2, "its slices"),
+        ]
+        if len(diagrams) != len(expected):
+            bad(f"expected {len(expected)} diagrams on the page, found {len(diagrams)}")
+        for (name, check, what), d in zip(expected, diagrams):
+            if d["error"]:
+                bad(f"the {name} diagram failed to render: {d['error']}")
+            elif not d["svg"] or d["w"] == 0 or d["h"] == 0:
+                bad(f"the {name} diagram has no drawn size ({d['w']}x{d['h']})")
+            elif not check(d):
+                bad(f"the {name} diagram drew no {what}: labels={d['labels']} "
+                    f"actors={d['actors']} tasks={d['tasks']} slices={d['slices']} "
+                    f"texts={d['texts'][:6]}")
+            else:
+                ok(f"the {name} diagram draws its own content ({what}), "
+                   f"{d['w']}x{d['h']}, done={d['done']}")
+
+        # The exact regression this file exists for: empty boxes with a live arrow.
         mm = m["mermaid"]
         if not (mm["present"] and mm["svg"]):
-            bad("the diagram was not drawn at all")
-        elif mm["w"] == 0 or mm["h"] == 0:
-            bad(f"the diagram has no size ({mm['w']}x{mm['h']})")
+            bad("the first diagram was not drawn at all")
+        elif not diagrams or diagrams[0]["labels"] != ["Inicio", "Fin"]:
+            bad(f"the diagram's node labels are missing (boxes, edges and markers can "
+                f"all render with no text in them): {diagrams[0]['labels'] if diagrams else None}")
+
+        # --- emoji: images in the text, characters in the code ------------------
+        # The first half proves the feature ran; the second is the one that would catch a
+        # conversion walking into a code block and corrupting what the reader copies.
+        em = m["emoji"]
+        if em["state"] != "ok":
+            bad(f"the emoji pass did not run (data-emoji={em['state']!r})")
+        elif em["inText"] < 6:
+            bad(f"only {em['inText']} emoji became images (expected at least 6: the "
+                f"characters, the ZWJ sequences, the one in emphasis): {em['geom']}")
         else:
-            ok(f"the diagram is drawn ({mm['w']}x{mm['h']}, {mm['edges']} edge, "
-               f"arrow marker: {mm['arrowMarker']})")
-        if mm["labels"] == ["Inicio", "Fin"] and mm["labelVisible"]:
-            ok(f"the diagram's node labels are drawn and visible: {mm['labels']}")
+            ok(f"emoji in the text render as FluentUI images ({em['inText']} of "
+               f"{em['total']}, data-emoji-count={em['count']}): {em['geom']}")
+        # A ZWJ sequence is ONE emoji and has ONE asset: split into its parts it would show
+        # a picture of something the answer did not say.
+        if em["zwjSplit"]:
+            bad(f"a ZWJ sequence was split into separate images: {em['alt']}")
+        elif em["zwjWhole"]:
+            ok("a ZWJ sequence stays one image (rainbow flag, black cat)")
         else:
-            bad(f"the diagram's node labels are missing or invisible: {mm['labels']} "
-                f"(boxes, edges and markers can all render with no text in them)")
+            bad(f"the ZWJ sequences did not render as one image each: {em['alt']}")
+        # A character with no FluentUI asset (a country flag) must stay a character: it is
+        # the font's glyph or nothing, and an <img> pointing at a file that does not exist
+        # would be a broken picture.
+        if em["flagLeft"]:
+            ok("an emoji with no asset (a country flag) stays a character, not a broken image")
+        else:
+            bad("the country flag was converted or dropped: an emoji with no asset must fall "
+                "back to the font's own glyph")
+        # A tag-sequence flag shares its base codepoint with the plain black flag, so a
+        # sequence that is not consumed whole degrades to the WRONG picture and no lookup
+        # miss can be seen. Both halves are asserted.
+        if em["blackFlagShown"]:
+            bad("the England flag was drawn as the plain black flag: its tag characters were "
+                "not part of the match, so the lookup named the base codepoint")
+        elif em["tagFlagLeft"]:
+            ok("a tag-sequence flag stays its own characters instead of becoming a wrong image")
+        else:
+            bad("the tag-sequence flag vanished: it was neither converted nor left as characters")
+        if em["keycapOk"]:
+            ok("multi-codepoint keycaps convert (1️⃣ 2️⃣)")
+        else:
+            bad(f"the keycaps did not convert — a key that misses looks identical to a "
+                f"character with no asset: {em['alt']}")
+        if em["inCode"] > 0:
+            bad(f"{em['inCode']} emoji were converted INSIDE code: the snippet the reader "
+                f"copies is now an <img> instead of a character")
+        elif em["codeEmojiLeft"]:
+            ok("emoji inside code stay characters, as they must")
+        else:
+            bad("no emoji was left in the code to prove the skip works: the fixture no "
+                "longer exercises it, so this check would pass on a conversion that "
+                "walked into code blocks")
+        imgs = [g for g in em["geom"] if g["src"]]
+        if len(imgs) >= 3 and all(g["loaded"] and g["w"] > 0 and g["h"] > 0 for g in imgs):
+            ok(f"the emoji images load and are sized from the font ({imgs[0]['w']}x"
+               f"{imgs[0]['h']} for {imgs[0]['src']})")
+        else:
+            bad(f"the emoji images did not load or have no size: {em['geom']}")
 
         # --- alerts -----------------------------------------------------------
         kinds = sorted("note" if "note" in a else "warning" for a in m["alerts"] if "markdown-alert" in a)

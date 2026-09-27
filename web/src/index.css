@@ -607,6 +607,21 @@ body {
  * conversation that has no diagrams at all. */
 .markdown-body .mermaid-block { margin: 4px 0; overflow-x: auto; }
 .markdown-body .mermaid-block svg { max-width: 100%; height: auto; }
+
+/* An emoji rendered from its FluentUI asset. 1em puts it on the text baseline at the size
+   of the surrounding type — the images are 64px so they stay sharp on a 2x display, and
+   sizing in `em` means that resolution is available without the layout changing with it.
+   `vertical-align: -0.12em` is a nudge, not a measurement: a glyph sits slightly below the
+   baseline and a replaced image sits exactly on it, so without this the images ride high
+   next to the text they replace. */
+.markdown-body img.emoji {
+  display: inline-block;
+  width: 1em;
+  height: 1em;
+  margin: 0 0.05em;
+  vertical-align: -0.12em;
+  object-fit: contain;
+}
 /* While the diagram module is being fetched there is nothing to show yet, and a
  * spinner for something that usually resolves in milliseconds is noise. */
 .markdown-body .mermaid-block[data-done="pending"] { min-height: 0; }

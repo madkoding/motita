@@ -66,8 +66,18 @@ go build -o "$OUT/mockllm" ./tools/mockllm || { echo "ERROR: the simulated LLM d
 # and hardcodes the ".motita" leaf. There is no MOTITA_HOME, so an isolated HOME is the
 # only way to keep this off the real conversations. The seeded session is written
 # straight into that HOME's session store, which is what the page then renders.
+#
+# The browser profile is wiped with it, and that is not housekeeping: the page registers
+# a service worker, and a SW persists in the profile across runs. A profile from an
+# earlier run holds a precache of THAT build's chunks, so the browser answers the new
+# page out of a stale cache and a chunk the build added since — elk, when mermaid went
+# from one diagram family to the whole library — is never fetched correctly. That
+# presents as "Failed to fetch dynamically imported module" with the file sitting right
+# there on disk, served with a 200 by the gateway. A gate that keeps a stale browser
+# between runs is measuring the last build, not this one.
 echo "==> Seeding a conversation in $HOME_DIR/.motita/sessions"
-rm -rf "$HOME_DIR" && mkdir -p "$HOME_DIR/.motita/sessions" "$OUT/work"
+rm -rf "$HOME_DIR" "$OUT/cdp-profile" "$OUT/work"
+mkdir -p "$HOME_DIR/.motita/sessions" "$OUT/work"
 printf 'leave the report with the requested content\n' > "$OUT/task.txt"
 # sandbox.kind=none: the check is about rendering, and a container would need
 # privileges that say nothing about whether a formula is typeset.
