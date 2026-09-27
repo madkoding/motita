@@ -3,6 +3,8 @@ package gateway
 import (
 	"path/filepath"
 	"testing"
+
+	"github.com/madkoding/motita/internal/config"
 )
 
 // The service file lives under the motita home, beside the token and the workspace, so the
@@ -39,5 +41,29 @@ func TestServiceFilePathIgnoresBlankHome(t *testing.T) {
 
 	if got := ServiceFilePath(); got != "gateway.json" {
 		t.Fatalf("ServiceFilePath() = %q, want the relative fallback for a blank HOME", got)
+	}
+}
+
+// The service file FOLLOWS the motita home rather than deciding for itself where that is.
+//
+// It used to read HOME directly and fall back to a bare relative name, which was a SECOND copy
+// of the rule config.Dir() already implements - and two copies of one rule drift. They had: the
+// gateway's copy knew nothing of the operating-system fallback, so on Windows (which has no
+// HOME) it wrote "gateway.json" beside whatever directory the user happened to be in, while the
+// rest of the program used the OS home. This asserts the one shared answer.
+//
+// On Linux this cannot fail before the fix as well as after, because both implementations
+// compute the same string there. What it does is pin the COUPLING, so re-introducing a private
+// copy of the rule is caught here rather than on a Windows machine nobody tests on.
+func TestServiceFilePathFollowsTheMotitaHome(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+
+	if got, want := ServiceFilePath(), filepath.Join(config.Dir(), "gateway.json"); got != want {
+		t.Fatalf("ServiceFilePath() = %q, want it to follow config.Dir() (%q)", got, want)
+	}
+	// And the answer is the same one the rest of the program's state uses, not a lookalike.
+	if got, want := ServiceFilePath(), filepath.Join(home, ".motita", "gateway.json"); got != want {
+		t.Fatalf("ServiceFilePath() = %q, want %q", got, want)
 	}
 }

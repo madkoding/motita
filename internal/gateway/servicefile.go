@@ -8,6 +8,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/madkoding/motita/internal/config"
 )
 
 // ServiceFile says where a running gateway can be reached, so that a process started LATER can
@@ -68,16 +70,23 @@ func (s ServiceFile) IsZero() bool { return s.Address == "" && s.Token == "" && 
 
 // ServiceFilePath is where the description of a running gateway lives.
 //
-// It sits beside the token file under ~/.motita, so that the whole of the program's state is
-// one folder the user can find, back up or delete as a unit. It resolves HOME the same way
-// config.Dir does, and for the same reasons - including the fallback: with no HOME there is no
-// home to use, and a relative path is better than guessing a directory the user did not choose.
+// It sits beside the token file under the motita home, so that the whole of the program's state
+// is one folder the user can find, back up or delete as a unit.
+//
+// The home comes from config.Dir() rather than being recomputed here. It used to read HOME
+// itself, which was a SECOND copy of the rule config.Dir() already implements - and two copies
+// of one rule drift. They had: this one knew nothing of the operating-system fallback, so on
+// Windows (which defines no HOME) it wrote a bare "gateway.json" beside whatever directory the
+// user happened to be in, while the rest of the program used the OS home.
+//
+// With no home the relative fallback stands. A stripped environment - cron, a minimal container
+// - is a real case, and guessing "/tmp" or "/" would put the address of a gateway somewhere the
+// user did not choose.
 func ServiceFilePath() string {
-	home := strings.TrimSpace(os.Getenv("HOME"))
-	if home == "" {
-		return "gateway.json"
+	if d := config.Dir(); d != "" {
+		return filepath.Join(d, "gateway.json")
 	}
-	return filepath.Join(home, ".motita", "gateway.json")
+	return "gateway.json"
 }
 
 // WriteServiceFile writes the description of a running gateway, replacing any previous one.
