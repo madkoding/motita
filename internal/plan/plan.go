@@ -902,6 +902,14 @@ func (p *Planner) Consulted() map[string]int {
 	return out
 }
 
+// ItersSinceSkill is how many tool-call rounds this run has taken since the last save_skill.
+//
+// It is read by a caller that owns the post-turn review: the counter is per-run, while the
+// budget the review fires on spans turns, so the owner of the conversation is the only place
+// that can accumulate it. A run that called save_skill reports zero, because the planner resets
+// it there — a turn that has just written a skill down does not also need reviewing.
+func (p *Planner) ItersSinceSkill() int { return p.itersSinceSkill }
+
 // consult records that a skill was read.
 func (p *Planner) consult(name string) {
 	if p.consulted == nil {

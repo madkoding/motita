@@ -557,3 +557,24 @@ func TestRunTriggersReviewAfterForcedAnswer(t *testing.T) {
 		t.Errorf("output = %q, want the forced answer", out)
 	}
 }
+
+// TestTheIterationCountIsReportable: the counter that decides whether the background review
+// fork fires is per-run, and the party that needs it BETWEEN runs is the runner that owns the
+// conversation. Without a getter, that owner would have to guess, and guessing here means
+// either never reviewing or reviewing on every single turn.
+func TestTheIterationCountIsReportable(t *testing.T) {
+	p := (&Planner{}).WithLibrary(libOf(t, nil))
+	if got := p.ItersSinceSkill(); got != 0 {
+		t.Errorf("a fresh planner reports %d iterations, want 0", got)
+	}
+	p.itersSinceSkill = 4
+	if got := p.ItersSinceSkill(); got != 4 {
+		t.Errorf("ItersSinceSkill = %d, want 4", got)
+	}
+	// And a save_skill resets it: a turn that already wrote a skill down has no reason to
+	// be reviewed for the same turn.
+	_ = p.toolSaveSkill(raw(`{"name":"x","body":"# X\n\nsteps\n"}`))
+	if got := p.ItersSinceSkill(); got != 0 {
+		t.Errorf("after save_skill the counter is %d, want 0", got)
+	}
+}
