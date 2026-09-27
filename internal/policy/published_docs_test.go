@@ -34,6 +34,12 @@ func TestThePublishedDocCopiesMatchTheirSource(t *testing.T) {
 		// https://madkoding.github.io/motita/install.sh — and the moment there
 		// are two copies, one of them is the one nobody edits.
 		{"scripts/install.sh", "site/install.sh", "published as the install URL, https://madkoding.github.io/motita/install.sh"},
+		// Same reasoning, on the platform that has no shell: published at
+		// https://madkoding.github.io/motita/install.ps1, and fetched by
+		// `irm ... | iex` rather than linked. Measured on real Pages sites: a
+		// .ps1 is served as application/octet-stream, which Invoke-RestMethod
+		// decodes to a string regardless — the content type does not matter.
+		{"scripts/install.ps1", "site/install.ps1", "published as the install URL, https://madkoding.github.io/motita/install.ps1"},
 	}
 
 	for _, p := range pairs {

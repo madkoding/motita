@@ -59,7 +59,48 @@ if [ "$root" = site ]; then
     printf 'error: site/install.sh does not parse as sh\n' >&2
     exit 1
   fi
-  printf 'the published installer is shipped and parses as sh\n'
+  printf 'the published shell installer is shipped and parses as sh\n'
+
+  # And its Windows sibling, for the same reasons and with the same risk. What is
+  # NOT repeated here is the CR check: PowerShell reads LF and CRLF alike (both
+  # measured on 7.6.6), so failing on a CR would be a check that cannot catch a
+  # real defect.
+  if [ ! -f site/install.ps1 ]; then
+    printf 'error: site/install.ps1 is missing, but the site advertises https://madkoding.github.io/motita/install.ps1\n' >&2
+    exit 1
+  fi
+  if ! cmp -s scripts/install.ps1 site/install.ps1; then
+    printf 'error: site/install.ps1 has drifted from scripts/install.ps1\n' >&2
+    printf '       fix it with a copy, not an edit:  cp scripts/install.ps1 site/install.ps1\n' >&2
+    exit 1
+  fi
+  # ASCII only: a fetched script is evaluated in the process that fetched it, and
+  # a non-ASCII byte is how a pipe-to-interpreter fails for the people who cannot
+  # debug it.
+  if LC_ALL=C grep -qP '[^\x00-\x7F]' site/install.ps1; then
+    printf 'error: site/install.ps1 contains non-ASCII characters; it is fetched and evaluated, and must stay ASCII\n' >&2
+    exit 1
+  fi
+  # `exit` inside Invoke-Expression ends the CALLER's session, so a failed install
+  # would close the user's window. Measured: the caller never regains control. The
+  # script must fail by throwing.
+  if grep -qE '^[[:space:]]*exit\b|\bexit [0-9]' site/install.ps1; then
+    printf 'error: site/install.ps1 uses exit; under `irm | iex` that ends the caller session. Throw instead.\n' >&2
+    exit 1
+  fi
+  if command -v pwsh >/dev/null 2>&1; then
+    if pwsh -NoProfile -Command '
+        $t=$null;$e=$null
+        [System.Management.Automation.Language.Parser]::ParseFile("site/install.ps1",[ref]$t,[ref]$e)|Out-Null
+        if($e.Count -gt 0){ $e | ForEach-Object { Write-Host $_ }; exit 1 }' >/dev/null 2>&1; then
+      printf 'install.ps1 is shipped, identical, ASCII and parses as PowerShell\n'
+    else
+      printf 'error: site/install.ps1 does not parse as PowerShell\n' >&2
+      exit 1
+    fi
+  else
+    printf 'install.ps1 is shipped, identical and ASCII (parse check skipped: no pwsh)\n'
+  fi
 fi
 
 cd "$root"
