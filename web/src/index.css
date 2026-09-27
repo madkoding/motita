@@ -637,34 +637,43 @@ body {
   object-fit: contain;
 }
 
-/* ─── The chat spinner ────────────────────────────────────────────
- * Covers the message area while the conversation is being put there: the transcript is being
- * fetched, or the messages are on screen and their formulas, diagrams and emoji are still
- * being built. The container is `position: relative`, which is what keeps this centred on the
- * messages rather than on the window.
+/* ─── The session modal ───────────────────────────────────────────
+ * A small centred card while the conversation is being put on screen: the transcript arriving,
+ * and its formulas, diagrams and emoji being built. Deliberately NOT a full-bleed overlay — the
+ * reader keeps sight of the page taking shape underneath, and a card that covers everything
+ * would read as a blocked interface rather than a busy one.
  *
- * It is a SIBLING of the scroll container, not a child: anything inside a scrolling box moves
- * with the content, and this has to stay where it is while the page underneath changes height.
+ * The scrim is a SIBLING of the scroll container: anything inside a scrolling box moves with the
+ * content, and this has to stay where it is while the page underneath changes height.
  */
-.chat-spinner-wrap {
+.chat-modal-scrim {
   position: absolute;
   inset: 0;
   display: flex;
-  flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 10px;
-  /* The message area may still be empty, so there is nothing to dim — but a light scrim keeps
-   * the spinner readable once the first messages are on screen underneath it. */
-  background: rgba(10, 10, 15, 0.55);
-  backdrop-filter: blur(1.5px);
+  background: rgba(10, 10, 15, 0.35);
   z-index: 5;
   pointer-events: none;
 }
 
+.chat-modal {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 18px;
+  border-radius: 12px;
+  border: 1px solid rgba(76, 194, 255, 0.25);
+  background: rgba(10, 10, 16, 0.92);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.5);
+}
+
 .chat-spinner {
-  width: 44px;
-  height: 44px;
+  width: 20px;
+  height: 20px;
+  flex: none;
   display: block;
 }
 
@@ -681,10 +690,10 @@ body {
   fill: currentColor;
 }
 
-.chat-spinner-label {
-  font-size: 12px;
+.chat-modal-label {
+  font-size: 13px;
   letter-spacing: 0.02em;
-  color: var(--muted-foreground, #9aa0b5);
+  color: #e8e8ea;
 }
 
 /* The rotation is `animateTransform` INSIDE the SVG, so `prefers-reduced-motion` cannot stop

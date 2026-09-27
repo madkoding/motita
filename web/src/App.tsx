@@ -581,11 +581,11 @@ export default function App() {
     if (!el) return
     let frame = 0
     const onHydrated = () => {
-      // A message announcing the end of its own deferred work is what clears the spinner: at
-      // that point the formulas, diagrams and emoji are on screen, so the conversation is
-      // readable. Cleared here rather than from a timer, so it is the work itself that says
-      // when it is done.
-      setChatLoading(false)
+      // A message finishing its own deferred work does NOT clear the spinner any more: a
+      // conversation is ready when the LAST of them is, and clearing on the first would take
+      // the spinner down while diagrams further down are still being built. The spinner waits
+      // for `motita:chat-idle`, which the hydration module raises when nothing visible is
+      // still pending.
       scrollToBottom()
       cancelAnimationFrame(frame)
       frame = requestAnimationFrame(() => scrollToBottom())
@@ -597,13 +597,23 @@ export default function App() {
     }
   }, [scrollToBottom])
 
-  // The spinner must not stay up on a conversation with nothing deferred in it.
-  //
-  // Every message that has anything to hydrate announces itself, and one that has nothing to
-  // hydrate does not — a plain "Nothing yet" line, or an answer with no formula, diagram or
-  // emoji in it. Waiting only for the event would leave the spinner turning forever on exactly
-  // those, so after the messages are on screen the container is checked directly: if no
-  // message still carries `data-hydrating`, there is nothing coming and the spinner goes.
+  /**
+   * Clears the spinner only when the whole visible conversation is built.
+   *
+   * Raised by `hydration.ts` when no message near the viewport is still pending, so it covers
+   * every message at once rather than the one that happened to finish last. `inView` is part of
+   * that condition and matters: a message far above the fold stays unbuilt on purpose for the
+   * whole session, and counting it would keep the spinner up forever.
+   */
+  useEffect(() => {
+    const onIdle = () => setChatLoading(false)
+    document.addEventListener('motita:chat-idle', onIdle)
+    // A conversation with nothing to hydrate never raises it — the hydration module reports
+    // idle when it has nothing registered — so the same fallback as before applies: once the
+    // messages are on screen, check whether anything is still marked as being built.
+    return () => document.removeEventListener('motita:chat-idle', onIdle)
+  }, [])
+
   useEffect(() => {
     if (!chatLoading) return
     if (messages.length === 0) return
@@ -2501,25 +2511,25 @@ export default function App() {
           )}
         </main>
 
-        {/* The chat spinner, over the message area while the conversation is being put there:
-            the transcript is arriving, or the messages are on screen and their formulas,
-            diagrams and emoji are still being built. It is a SIBLING of the scroll container
-            rather than a child of it, because a child of a scrolling box scrolls away with the
-            content — the spinner has to stay put while the page it is covering changes height.
-
-            `aria-hidden` on the mark and a `role="status"` on the wrapper: the rotation is not
-            information, but "the conversation is loading" is, and it is announced once. */}
+        {/* The session modal: a small centred card, not a full-bleed overlay.
+            It says what is happening ("Loading session") rather than covering the page, and
+            the mark turns while the transcript arrives and its formulas, diagrams and emoji
+            are built. It is a SIBLING of the scroll container rather than a child, because a
+            child of a scrolling box scrolls away with the content — and this has to stay put
+            while the page underneath changes height. */}
         {chatLoading && (
-          <div class="chat-spinner-wrap" role="status" aria-live="polite">
-            <span class="chat-spinner" aria-hidden="true">
-              <svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" focusable="false">
-                <path d="M12,23a9.63,9.63,0,0,1-8-9.5,9.51,9.51,0,0,1,6.79-9.1A1.66,1.66,0,0,0,12,2.81h0a1.67,1.67,0,0,0-1.94-1.64A11,11,0,0,0,12,23Z">
-                  <animateTransform attributeName="transform" type="rotate" dur="0.75s"
-                    values="0 12 12;360 12 12" repeatCount="indefinite" />
-                </path>
-              </svg>
-            </span>
-            <span class="chat-spinner-label">Rendering the conversation…</span>
+          <div class="chat-modal-scrim">
+            <div class="chat-modal" role="status" aria-live="polite">
+              <span class="chat-spinner" aria-hidden="true">
+                <svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" focusable="false">
+                  <path d="M12,23a9.63,9.63,0,0,1-8-9.5,9.51,9.51,0,0,1,6.79-9.1A1.66,1.66,0,0,0,12,2.81h0a1.67,1.67,0,0,0-1.94-1.64A11,11,0,0,0,12,23Z">
+                    <animateTransform attributeName="transform" type="rotate" dur="0.75s"
+                      values="0 12 12;360 12 12" repeatCount="indefinite" />
+                  </path>
+                </svg>
+              </span>
+              <span class="chat-modal-label">Loading session</span>
+            </div>
           </div>
         )}
 

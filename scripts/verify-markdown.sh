@@ -133,16 +133,47 @@ mod = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(mod)
 
 now = "2026-01-01T00:00:00Z"
+
+# The conversation is DELIBERATELY long, and the example is its LAST turn.
+#
+# Lazy hydration is only observable with more than one message: with a single answer everything
+# is in the viewport, the observer has nothing to defer, and a build that hydrates every message
+# eagerly would pass every check. The filler turns are each expensive (a diagram and a formula),
+# so the conversation is several screens tall and the older ones sit far enough above the fold
+# to stay unbuilt. The example goes last so it is the message in front of the reader when the
+# transcript opens — which is what the measurements below are taken against.
+filler = """## Turno de relleno
+
+Un parrafo con una formula en linea $E = mc^2$ y un diagrama que si compila.
+
+```mermaid
+graph TD
+  A[Paso uno] --> B[Paso dos]
+```
+
+| columna | valor | porcentaje |
+|:--------|:-----:|-----------:|
+| primero | 12    | 3%         |
+| segundo | 34    | 7%         |
+
+Emoji de relleno 🙂 🚀 para que el paso de emoji tenga trabajo.
+"""
+
+turns = []
+for i in range(8):
+    turns.append({"User": f"relleno {i + 1}", "Agent": filler, "Kind": "chat"})
+turns.append({"User": "show me the markdown you render", "Agent": mod.EXAMPLE, "Kind": "chat"})
+
 record = {
     "id": "markdown",
     "title": "Markdown rendering",
     "created": now,
     "last_used": now,
-    "turns": [{"User": "show me the markdown you render", "Agent": mod.EXAMPLE, "Kind": "chat"}],
+    "turns": turns,
 }
 with open(os.path.join(out_dir, "markdown.json"), "w") as f:
     json.dump(record, f)
-print(f"    seeded {len(mod.EXAMPLE)} characters of Markdown")
+print(f"    seeded {len(turns)} turns; the example is {len(mod.EXAMPLE)} characters and comes last")
 PYSEED
 
 HOME="$HOME_DIR" "$OUT/mockllm" -port "$PORT_LLM" -delay-ms 20 > "$OUT/mock.log" 2>&1 &
@@ -187,7 +218,7 @@ fi
 
 css="$(curl -fsS "$BASE/$CSS_NAME" 2>/dev/null)"
 for c in markdown-body math-block math-inline mermaid-block render-error hljs-keyword \
-         chat-spinner-wrap chat-spinner chat-spinner-label; do
+         chat-modal-scrim chat-modal chat-spinner chat-modal-label; do
   case "$css" in
     *".$c"*) ok "the served CSS defines .$c" ;;
     *) bad "the served CSS has no .$c: the element would render unstyled" ;;

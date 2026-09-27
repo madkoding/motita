@@ -421,7 +421,7 @@ async def run(ws_url, base, token, shots):
             const anim = path && path.querySelector('animateTransform');
             const r = svg ? svg.getBoundingClientRect() : null;
             return {
-              label: (wrap.querySelector('.chat-spinner-label') || {}).textContent || null,
+              label: (wrap.querySelector('.chat-modal-label') || {}).textContent || null,
               d: path ? path.getAttribute('d') : null,
               fill: path ? getComputedStyle(path).fill : null,
               w: r ? Math.round(r.width) : 0,
@@ -429,8 +429,21 @@ async def run(ws_url, base, token, shots):
               rotate: anim ? anim.getAttribute('values') : null,
               dur: anim ? anim.getAttribute('dur') : null,
               repeat: anim ? anim.getAttribute('repeatCount') : null,
-              role: wrap.getAttribute('role'),
+              role: (wrap.querySelector('.chat-modal') || wrap).getAttribute('role'),
               live: !!wrap.isConnected,
+              // The card, and the area it sits in: a small modal is a much smaller box inside
+              // the scrim, which is also how the two designs are told apart in a measurement.
+              modal: (() => {
+                const card = wrap.querySelector('.chat-modal');
+                const cr = card ? card.getBoundingClientRect() : null;
+                const sr = wrap.getBoundingClientRect();
+                return {
+                  w: cr ? Math.round(cr.width) : 0,
+                  h: cr ? Math.round(cr.height) : 0,
+                  scrimW: Math.round(sr.width),
+                  scrimH: Math.round(sr.height),
+                };
+              })(),
             };
           };
           const note = (wrap) => {
@@ -444,26 +457,59 @@ async def run(ws_url, base, token, shots):
             // about whether the deferred work resized the page.
             if (m && document.querySelector('.markdown-body')) log.heights.push(m.scrollHeight);
           };
+          const io = window.__ioLog = { callbacks: 0, decisions: [] };
+          // The real observer is wrapped so its callbacks are recorded: a `data-inview` of 1 is
+          // otherwise indistinguishable from "the observer never reported and the default stuck".
+          const RealIO = window.IntersectionObserver;
+          window.IntersectionObserver = class extends RealIO {
+            constructor(cb, opts) {
+              super((records, ob) => {
+                io.callbacks++;
+                if (io.opts === undefined) io.opts = opts && {rootMargin: opts.rootMargin, threshold: opts.threshold};
+                for (const r of records) {
+                  const b = r.boundingClientRect, rb = r.rootBounds;
+                  io.decisions.push({
+                    hit: r.isIntersecting,
+                    top: Math.round(b.top), h: Math.round(b.height),
+                    rootTop: rb ? Math.round(rb.top) : null,
+                    rootBottom: rb ? Math.round(rb.bottom) : null,
+                  });
+                }
+                if (io.decisions.length > 40) io.decisions = io.decisions.slice(-40);
+                cb(records, ob);
+              }, opts);
+            }
+          };
+
           const obs = new MutationObserver((records) => {
             for (const rec of records) {
               for (const n of rec.addedNodes) {
                 if (n.nodeType !== 1) continue;
-                if (n.matches('.chat-spinner-wrap')) { note(n); continue; }
-                const inner = n.querySelector && n.querySelector('.chat-spinner-wrap');
+                if (n.matches('.chat-modal-scrim')) { note(n); continue; }
+                const inner = n.querySelector && n.querySelector('.chat-modal-scrim');
                 if (inner) note(inner);
               }
               if (log.clearedAt === null) {
                 for (const n of rec.removedNodes) {
                   if (n.nodeType !== 1) continue;
-                  const gone = n.matches('.chat-spinner-wrap') ||
-                               (n.querySelector && n.querySelector('.chat-spinner-wrap'));
-                  if (gone && log.seen) log.clearedAt = performance.now();
+                  const gone = n.matches('.chat-modal-scrim') ||
+                               (n.querySelector && n.querySelector('.chat-modal-scrim'));
+                  if (gone && log.seen) {
+                    log.clearedAt = performance.now();
+                    const hosts = [...document.querySelectorAll('[data-hydrating]')];
+                    const vis = hosts.filter(h => h.getAttribute('data-inview') !== '0');
+                    log.atClear = {
+                      hostsPending: hosts.length,
+                      visiblePending: vis.length,
+                      hydratedSoFar: (window.__idleLog || {}).hydratedCount || 0,
+                    };
+                  }
                 }
               }
             }
             // A spinner still on screen is described again from the live node: the first
             // sighting may arrive in a batch where nothing has been laid out yet.
-            const now = document.querySelector('.chat-spinner-wrap');
+            const now = document.querySelector('.chat-modal-scrim');
             if (now) note(now);
             sample();
           });
@@ -472,6 +518,17 @@ async def run(ws_url, base, token, shots):
             attributeFilter: ['data-hydrating'],
           });
           sample();
+          // A second, tiny recorder for the timing question: did the modal come down only
+          // AFTER the last message finished? `__loadLog` already times the clear; this counts
+          // the completions and stamps the last one, plus when the page called itself idle.
+          const idle = window.__idleLog = { hydratedCount: 0, lastHydratedAt: null, idleAt: null };
+          document.addEventListener('motita:hydrated', () => {
+            idle.hydratedCount++;
+            idle.lastHydratedAt = performance.now();
+          }, true);
+          document.addEventListener('motita:chat-idle', () => {
+            if (idle.idleAt === null) idle.idleAt = performance.now();
+          });
           window.__loadLogStop = () => obs.disconnect();
           return true;
         })()""")
@@ -499,6 +556,18 @@ async def run(ws_url, base, token, shots):
             print("\nVERDICT: FAILED (the page was never reached)")
             return 1
         ok("the seeded answer is rendered in the interface")
+
+        # The example is the LAST turn, so it is off the bottom of a long conversation where it
+        # would stay UNBUILT (that is the point of the observer). Scroll to the end the way a
+        # reader would — this is also what starts its hydration, since entering the viewport is
+        # what triggers it. Without this the whole measurement below would run against a message
+        # the reader has not reached yet.
+        await c.js("""(() => {
+            const el = document.querySelector('main[role="log"]');
+            if (el) el.scrollTo({ top: el.scrollHeight, behavior: 'auto' });
+            return true;
+        })()""")
+        await asyncio.sleep(0.5)
 
         # On-demand modules: wait for the diagram to finish rather than guessing.
         for _ in range(40):
@@ -817,6 +886,128 @@ async def run(ws_url, base, token, shots):
             else:
                 bad(f"the spinner does not turn as asked: values={sp.get('rotate')!r} "
                     f"dur={sp.get('dur')!r} repeat={sp.get('repeat')!r}")
+            # A small modal, not a full-bleed overlay: the card has to be much smaller than the
+            # area it sits in, which is also what tells the two designs apart in a measurement.
+            modal = sp.get("modal") or {}
+            if modal.get("w") and modal.get("h") and \
+                    modal["w"] < 420 and modal["h"] < 140 and modal.get("scrimW", 0) > modal["w"]:
+                ok(f"the spinner is a small modal card ({modal['w']}x{modal['h']} inside a "
+                   f"{modal['scrimW']}x{modal['scrimH']} area), not a full-bleed overlay")
+            else:
+                bad(f"the spinner is not presented as a small modal: {modal}")
+
+        # --- the deferred work only happens for what is about to be READ ----------
+        # The page must not build every diagram of every turn on mount. The conversation seeded
+        # here is deliberately long for this: the filler turns sit far above the fold and must
+        # still be UNBUILT when the transcript is up, while the message the reader is on is built.
+        #
+        # Judged in the DOM (`data-inview`, `data-hydrating`) rather than by counting SVGs: the
+        # number of nodes is what is being kept down, so counting them is the measurement, but
+        # WHICH ones is a property of the observer. Both are reported.
+        obs = await c.js("""(() => {
+            // The host element that carries the hydration markers is the one hydrate() received.
+            const hosts = [...document.querySelectorAll('[data-hydrating], [data-inview]')];
+            const blocks = [...document.querySelectorAll('.mermaid-block')];
+            const drawn = blocks.filter(b => b.querySelector('svg'));
+            // "The reader sees a diagram" is about what is on SCREEN, so the drawn blocks are
+            // counted by whether they are inside the viewport — not merely present in the DOM,
+            // which is what the deferral makes meaningful in the first place.
+            return {
+              hosts: hosts.length,
+              // The SAME mark the observer maintains, read as the count on the page: this is
+              // what the spinner's visible-pending question is answered from, so it is the
+              // attribute that has to be right in both directions.
+              inView: hosts.filter(h => h.getAttribute('data-inview') === '1').length,
+              outOfView: hosts.filter(h => h.getAttribute('data-inview') === '0').length,
+              stillPending: hosts.filter(h => h.hasAttribute('data-hydrating')).length,
+              // The message the reader is ON: is anything in it still unbuilt? That is the
+              // requirement, and it is not the same question as "is a diagram visible" — the
+              // block in front of the reader here is the deliberately-broken one, which must
+              // NOT be drawn.
+              inViewPending: hosts.filter(h => h.getAttribute('data-inview') === '1'
+                                              && h.hasAttribute('data-hydrating')).length,
+              mermaidBlocks: blocks.length,
+              mermaidDrawn: drawn.length,
+              scrollTop: Math.round((document.querySelector('main[role="log"]') || {}).scrollTop || 0),
+            };
+        })()""")
+        with open(f"{shots}/observer.json", "w") as f:
+            json.dump(obs, f, indent=2, ensure_ascii=False)
+        if not obs or obs.get("hosts", 0) < 2:
+            bad(f"no messages registered for deferred work: {obs}")
+        else:
+            ok(f"{obs['hosts']} message(s) registered for deferred hydration "
+               f"({obs['inView']} in view, {obs['outOfView']} out of view)")
+            # The load-bearing one. Both halves are needed: an eager build makes every message
+            # "in view" (outOfView 0), and an observer that never reported leaves every message
+            # at whatever it was initialised to — which looks identical from this side.
+            both = obs["inView"] > 0 and obs["outOfView"] > 0
+            if both:
+                ok(f"visibility is a real measurement with both outcomes ({obs['inView']} in "
+                   f"view, {obs['outOfView']} out of view) — messages off screen are left UNBUILT, "
+                   f"so a long conversation does not render every diagram it holds on mount")
+            else:
+                bad(f"every one of the {obs['hosts']} message(s) reads as {('in view' if obs['outOfView'] == 0 else 'out of view')}"
+                    f" (inView={obs['inView']}, outOfView={obs['outOfView']}): either everything "
+                    f"was hydrated regardless of visibility, or the observer never reported")
+            # And the flip side: what the reader IS looking at must be built, or the deferral is
+            # just a page that never renders.
+            if obs["inViewPending"] == 0:
+                ok(f"the message in front of the reader is fully built (nothing in view is still "
+                   f"pending), with {obs['mermaidDrawn']} of {obs['mermaidBlocks']} diagram(s) "
+                   f"drawn on the page")
+            else:
+                bad(f"{obs['inViewPending']} message(s) in view are still unbuilt — the deferral "
+                    f"never fired for what the reader is looking at")
+            # The undrawn block is the malformed one at the end of the fixture, which is the
+            # renderer's error box and must stay a box. Everything else must have been built,
+            # including the turns that were hydrated on the way down.
+            if obs["mermaidDrawn"] >= obs["mermaidBlocks"] - 1:
+                ok(f"every valid diagram was built, including the ones hydrated while scrolling "
+                   f"({obs['mermaidDrawn']} drawn, only the deliberately-broken block left undrawn)")
+            else:
+                bad(f"{obs['mermaidBlocks'] - obs['mermaidDrawn']} diagram(s) are still undrawn, "
+                    f"more than the one malformed block in the fixture: the observer left work "
+                    f"undone for messages the reader scrolled through")
+
+        # --- the spinner waits for the whole page, not for the first message ------
+        # The honest form of "waits until everything is parsed": at the instant the modal came
+        # down, was anything VISIBLE still unbuilt? Comparing raw timestamps was the first
+        # attempt and it is wrong — a message can finish its work long after the reader stopped
+        # waiting for it (it scrolled away, or it was never in view), so a later completion is
+        # not evidence that the spinner gave up early.
+        at_clear = (ll or {}).get("atClear") or {}
+        cleared = (ll or {}).get("clearedAt")
+        if cleared is None:
+            bad("the modal was never taken down")
+        elif not at_clear:
+            bad(f"the state at the moment the modal was cleared was not captured: {ll and list(ll)}")
+        elif at_clear.get("visiblePending", 0) == 0:
+            ok(f"the modal came down only once nothing visible was still being built "
+               f"({at_clear.get('hostsPending', 0)} message(s) still pending overall but none in "
+               f"view, {at_clear.get('hydratedSoFar', 0)} already finished)")
+        else:
+            bad(f"the modal was cleared while {at_clear['visiblePending']} visible message(s) "
+                f"were still unbuilt: it is not waiting for the whole page")
+        # And the observer has to be the thing deciding, not a default: it must have reported.
+        io = await c.js("window.__ioLog")
+        with open(f"{shots}/io.json", "w") as f:
+            json.dump(io, f, indent=2, ensure_ascii=False)
+        if not io or io.get("callbacks", 0) < 1:
+            bad(f"the IntersectionObserver never reported: the visibility of a message is "
+                f"whatever it was initialised to, not a measurement: {io}")
+        else:
+            seen_hit = sum(1 for d in io.get("decisions", []) if d.get("hit"))
+            seen_miss = sum(1 for d in io.get("decisions", []) if not d.get("hit"))
+            ok(f"the intersection observer reported {io['callbacks']} time(s) over "
+               f"{len(io.get('decisions', []))} observation(s) — {seen_hit} seen, {seen_miss} not "
+               f"seen (rootMargin {((io.get('opts') or {}).get('rootMargin'))})")
+            if seen_miss > 0:
+                ok(f"the observer really does report both outcomes ({seen_miss} observation(s) "
+                   f"outside the margin), so a message is only built on a real measurement")
+            else:
+                bad("the observer never reported a single observation as outside the viewport: "
+                    "the deferral has not been demonstrated, only configured")
 
         # --- the page follows the deferred work instead of stranding itself ----
         # Formulas, diagrams and emoji images are built after the message is rendered, and
