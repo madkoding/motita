@@ -67,7 +67,7 @@ REQUIREMENTS = {
 # `.sub` is here because a section subtitle is a direct child of `.wrap`, which
 # has no background at all - so it is on the illustration, and it was the case
 # this probe first missed entirely.
-SELECTORS = ".lede, .hero-note, .hero-title, .pill, .sub"
+SELECTORS = ".lede, .hero-note, .hero-title, .pill, .sub, .tab"
 
 failures = []
 checked = []

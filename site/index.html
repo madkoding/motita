@@ -292,6 +292,21 @@
   .copy:hover { background: var(--border); border-color: var(--accent); }
   .hero-note { font-size: .82rem; color: var(--muted-fg); margin: 0; }
 
+  /* Two installers, one for each kind of machine. The tabs reuse the page's own tokens
+     (--muted-fg at rest, --fg when selected) rather than introducing a colour pair: a new
+     combination would also be a new contrast question, and scripts/cdp_site_contrast.py
+     already measures these two against the background. */
+  .tabs { display: flex; gap: var(--space-2); margin-bottom: var(--space-3); }
+  .tab {
+    background: none; border: 1px solid var(--border); border-radius: 100px;
+    color: var(--muted-fg); font-family: var(--mono); font-size: .78rem;
+    padding: 8px 16px; min-height: 44px; cursor: pointer;
+    transition: color .15s ease, border-color .15s ease;
+  }
+  .tab:hover { border-color: var(--accent); }
+  .tab[aria-selected="true"] { color: var(--fg); border-color: var(--accent); }
+  .panel[hidden] { display: none; }
+
   /* ---------- run: launch commands ---------- */
   /* The four blocks are a grid, and a grid child defaults to min-width:auto —
      meaning the longest command inside a <pre> stretches the column instead of
@@ -473,12 +488,54 @@
     </p>
 
     <div class="install">
-      <div class="cmd">
-        <span class="prompt" aria-hidden="true">$</span>
-        <code id="install-cmd">curl -fsSL https://madkoding.github.io/motita/install.sh | sh</code>
-        <button class="copy" type="button" data-copy="install-cmd">Copy</button>
-        <span class="sr" role="status" id="copy-status"></span>
+      <!-- Two tabs. The `hidden` on the Windows panel is in the MARKUP rather than being set
+           by the script, so that with JavaScript there is no flash of both commands before
+           the script runs. That choice costs a reader with JavaScript BLOCKED the Windows
+           command - the panel stays closed and no script is there to open it - so the
+           <noscript> below gives them both commands instead. Measured: with
+           --disable-javascript the panel really is closed and the noscript block is what
+           carries the command. -->
+      <div class="tabs" role="tablist" aria-label="Install command by platform">
+        <button class="tab" type="button" role="tab" id="tab-unix"
+                aria-selected="true" aria-controls="panel-unix">Linux &middot; macOS</button>
+        <button class="tab" type="button" role="tab" id="tab-windows"
+                aria-selected="false" aria-controls="panel-windows" tabindex="-1">Windows</button>
       </div>
+
+      <div class="panel" id="panel-unix" role="tabpanel" aria-labelledby="tab-unix">
+        <div class="cmd">
+          <span class="prompt" aria-hidden="true">$</span>
+          <code id="install-cmd">curl -fsSL https://madkoding.github.io/motita/install.sh | sh</code>
+          <button class="copy" type="button" data-copy="install-cmd">Copy</button>
+        </div>
+      </div>
+
+      <div class="panel" id="panel-windows" role="tabpanel" aria-labelledby="tab-windows" hidden>
+        <div class="cmd">
+          <span class="prompt" aria-hidden="true">&gt;</span>
+          <code id="install-cmd-windows">irm https://madkoding.github.io/motita/install.ps1 | iex</code>
+          <button class="copy" type="button" data-copy="install-cmd-windows">Copy</button>
+        </div>
+      </div>
+
+      <!-- No JavaScript: the tabs cannot switch, so show the command they would have
+           revealed and take the dead controls away. The Unix command is NOT repeated here -
+           panel-unix is already visible on its own - which is what an earlier draft of this
+           block got wrong, and only measuring it (scripting disabled, 3 visible rows with
+           the Unix command twice) showed it.
+           A <style> inside <noscript> is parsed only when scripting is off, which is exactly
+           the condition it is for. -->
+      <noscript>
+        <style>.tabs { display: none; }</style>
+        <div class="cmd">
+          <span class="prompt" aria-hidden="true">&gt;</span>
+          <code>irm https://madkoding.github.io/motita/install.ps1 | iex</code>
+        </div>
+      </noscript>
+
+      <!-- ONE status region for both buttons: it lived inside the single command row
+           before, and with two panels it would have had to be duplicated. -->
+      <span class="sr" role="status" id="copy-status"></span>
       <p class="hero-note">One static binary. No Docker, no runtime, no dependency tree. It runs on a 2008 netbook with 484 MB of RAM.</p>
     </div>
 
@@ -757,21 +814,51 @@ attempt 2  <span class="g">PASS</span>  anchor: exit 0 — output.txt present an
 </footer>
 
 <script>
-  // Copy button: the only script on the page, and it degrades to a plain command.
-  document.querySelectorAll('.copy').forEach(function (btn) {
-    btn.addEventListener('click', async function () {
-      var target = document.getElementById(btn.dataset.copy);
-      var status = document.getElementById('copy-status');
-      try {
-        await navigator.clipboard.writeText(target.textContent.trim());
-        btn.textContent = 'Copied';
-        status.textContent = 'Install command copied to clipboard.';
-      } catch (e) {
-        status.textContent = 'Copy failed — select the command and copy it manually.';
-      }
-      setTimeout(function () { btn.textContent = 'Copy'; }, 1800);
+  // Two behaviours, and the page works without either: the Windows panel carries `hidden`
+  // in the MARKUP (not set by this script), so a reader with JavaScript blocked still sees
+  // the Windows command rather than an empty box.
+  (function () {
+    var tabs = Array.prototype.slice.call(document.querySelectorAll('.tab'));
+
+    function select(tab) {
+      tabs.forEach(function (other) {
+        var panel = document.getElementById(other.getAttribute('aria-controls'));
+        var on = other === tab;
+        other.setAttribute('aria-selected', on ? 'true' : 'false');
+        other.tabIndex = on ? 0 : -1;
+        panel.hidden = !on;
+      });
+    }
+
+    tabs.forEach(function (tab, index) {
+      tab.addEventListener('click', function () { select(tab); });
+      tab.addEventListener('keydown', function (event) {
+        // Left/Right move between the tabs, which is what a tablist is expected to do.
+        var step = event.key === 'ArrowRight' ? 1 : event.key === 'ArrowLeft' ? -1 : 0;
+        if (!step) { return; }
+        event.preventDefault();
+        var next = tabs[(index + step + tabs.length) % tabs.length];
+        select(next);
+        next.focus();
+      });
     });
-  });
+
+    // Copy button: it degrades to a plain command the reader can select by hand.
+    document.querySelectorAll('.copy').forEach(function (btn) {
+      btn.addEventListener('click', async function () {
+        var target = document.getElementById(btn.dataset.copy);
+        var status = document.getElementById('copy-status');
+        try {
+          await navigator.clipboard.writeText(target.textContent.trim());
+          btn.textContent = 'Copied';
+          status.textContent = 'Install command copied to clipboard.';
+        } catch (e) {
+          status.textContent = 'Copy failed — select the command and copy it manually.';
+        }
+        setTimeout(function () { btn.textContent = 'Copy'; }, 1800);
+      });
+    });
+  })();
 </script>
 </body>
 </html>
