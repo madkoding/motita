@@ -469,3 +469,80 @@ func TestEveryBuiltAssetIsEmbedded(t *testing.T) {
 			len(missing), missing)
 	}
 }
+
+func TestThePageNamesAssetsThatAreActuallyThere(t *testing.T) {
+	// The page names its own bundles by their hashed filenames, so an index.html from one build
+	// and a bundle tree from another point at files that do not exist. The UI is then blank with
+	// no server error: the HTML is a 200, and the browser 404s the script it was told to run.
+	//
+	// The case that produces it is a REBUILD whose index.html was not committed.
+	// `internal/webui/assets/*` is gitignored EXCEPT that file, so a commit of the new bundles
+	// leaves the tracked index.html naming the PREVIOUS build's hashes. Nothing caught it:
+	// TestEveryBuiltAssetIsEmbedded walks disk -> binary, this walks page -> served, and CI
+	// builds the frontend fresh (so there the two always agree).
+	body, _, err := Content("/")
+	if err != nil {
+		t.Fatalf("the page itself is not served: %v", err)
+	}
+	if len(body) == 0 {
+		t.Fatal("the served index.html is empty")
+	}
+
+	served := make(map[string]bool)
+	for _, name := range Names() {
+		served[name] = true
+	}
+
+	// Every asset the page tells the browser to fetch. Written as a scan over the references
+	// rather than a regex for a known naming scheme: the point is to catch a name the build
+	// chose, whatever it looks like.
+	missing := make([]string, 0)
+	seen := make(map[string]bool)
+	for _, ref := range assetRefs(string(body)) {
+		if seen[ref] {
+			continue
+		}
+		seen[ref] = true
+		if !served[ref] {
+			missing = append(missing, ref)
+		}
+	}
+	if len(seen) == 0 {
+		t.Fatal("the page names no assets at all: the scan has gone blind, not the build")
+	}
+	if len(missing) > 0 {
+		sort.Strings(missing)
+		t.Fatalf("the page names %d asset(s) the binary does not carry: %v\n"+
+			"every visitor gets a page that 404s its own bundle. A rebuild rewrites the hashed "+
+			"names in index.html, and that file is TRACKED while the bundles it names are not — "+
+			"so a build whose index.html was not committed leaves this checkout naming the "+
+			"previous build. Rebuild and commit internal/webui/assets/index.html with the change "+
+			"that moved the hashes (%d asset(s) checked, %d served in total).",
+			len(missing), missing, len(seen), len(served))
+	}
+}
+
+// assetRefs pulls the local asset paths out of the page: src/href attributes and the paths Vite
+// emits in its preload links. An absolute URL is not this build's business.
+func assetRefs(html string) []string {
+	var out []string
+	for _, attr := range []string{"src=\"", "href=\""} {
+		rest := html
+		for {
+			i := strings.Index(rest, attr)
+			if i < 0 {
+				break
+			}
+			rest = rest[i+len(attr):]
+			j := strings.IndexByte(rest, '"')
+			if j < 0 {
+				break
+			}
+			v := rest[:j]
+			if strings.HasPrefix(v, "/") && !strings.HasPrefix(v, "//") {
+				out = append(out, v)
+			}
+		}
+	}
+	return out
+}
