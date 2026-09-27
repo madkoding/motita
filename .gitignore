@@ -48,7 +48,7 @@ workspace/
 #
 # The TUI design skill (github.com/pageton/tui-design-skill) ships no license, so
 # it is all rights reserved. A copy is kept locally for consultation, but it must
-# not be redistributed from this MIT repository. Its lessons were re-written in
+# not be redistributed from this repository. Its lessons were re-written in
 # our own words in the go-i386-openai-agent skill instead.
 /.skill-tui-design/
 .starlight/

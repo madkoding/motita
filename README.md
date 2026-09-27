@@ -671,7 +671,32 @@ how to extend the agent with your own task source, provider or final action.
 **[docs/TUI-DESIGN-REVIEW.md](docs/TUI-DESIGN-REVIEW.md)** — how the interface
 was designed against the standard library alone.
 
-**MIT licensed.** Take it, ship it, run it on hardware everyone else wrote off.
+## Licence
+
+motita is free software under the **GNU General Public License, version 3 or
+later** (GPL-3.0-or-later). Take it, ship it, run it on hardware everyone else
+wrote off — and if you ship a modified version, the licence stays with it.
+
+The full text is in [LICENSE](LICENSE). To save you reconstructing the notice,
+this is the one to carry in a modified version:
+
+```text
+motita — an autonomous agent whose anchor decides, not the model
+Copyright (C) 2026 madkoding
+
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU General Public License as published by
+the Free Software Foundation, either version 3 of the License, or
+(at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+GNU General Public License for more details.
+
+You should have received a copy of the GNU General Public License
+along with this program.  If not, see <https://www.gnu.org/licenses/>.
+```
 
 ```sh
 curl -fsSL https://madkoding.github.io/motita/install.sh | sh
