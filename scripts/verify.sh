@@ -309,10 +309,10 @@ EXEMPT='spanish-fixture:|accented latin|multi-byte|"café|"áéíóú|"ñ"|"á"|
 found=$(
   {
     git ls-files -z 2>/dev/null \
-      | grep -zE '\.(go|ya?ml|sh|md)$|(^|/)Makefile$' \
+      | grep -zE '\.(go|ya?ml|sh|ps1|md)$|(^|/)Makefile$' \
       | xargs -0 -r grep -lE "$accents" 2>/dev/null
     git ls-files -z 2>/dev/null \
-      | grep -zE '\.(go|ya?ml|sh|md)$|(^|/)Makefile$' \
+      | grep -zE '\.(go|ya?ml|sh|ps1|md)$|(^|/)Makefile$' \
       | xargs -0 -r grep -liE "$pattern" 2>/dev/null
   } | sort -u | grep -v '^scripts/verify\.sh$' | xargs -r grep -niE "$accents|$pattern" 2>/dev/null \
   | grep -vE "$EXEMPT" || true
@@ -337,7 +337,23 @@ else
   sh -n scripts/install.sh && ok "parses as sh" || bad "scripts/install.sh does not parse"
 fi
 
-step "7b. the e2e scripts cannot overwrite a released artifact"
+step "7b. the Windows installer works end to end"
+# A different question from step 7: that one asks whether install.sh PARSES as POSIX sh,
+# and this one RUNS install.ps1 against a simulated release and checks what it installed.
+# A parse check cannot see a wrong asset name, a checksum compared against the wrong file,
+# or - the failure this exists for - an `exit` that would close the caller's window under
+# `irm | iex`.
+set +e
+ps1_out="$(./scripts/verify-install-ps1.sh 2>&1)"
+ps1_rc=$?
+set -e
+case "$ps1_rc" in
+  0) ok "$(printf '%s\n' "$ps1_out" | tail -1)" ;;
+  2) printf '  skip  %s\n' "$(printf '%s\n' "$ps1_out" | grep '^SKIP' || echo 'skipped: no pwsh')" ;;
+  *) bad "$(printf '%s\n' "$ps1_out" | grep -E '^error' | head -3)" ;;
+esac
+
+step "7c. the e2e scripts cannot overwrite a released artifact"
 # This is a regression guard, not a style check. Both e2e scripts used to build
 # their test binary straight into dist/motita-linux-<arch>, which is the path
 # the CI uploads as the release asset — so every published binary was the test
