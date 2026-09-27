@@ -127,12 +127,27 @@ func (op Options) startGateway(fl flags, cfg config.Config, engine *llm.Client, 
 	// to disappear.
 	cur := curator.New(cfg.Curator, store, engine, log, buildSkillRunner)
 
+	// The background self-improvement fork, built ONCE for this process.
+	//
+	// It used to be built only inside runPlan, which is the command line's one-shot plan run:
+	// the served gateway therefore had no review at all, and a conversation held in the browser
+	// never produced a skill on its own. It is built here, where the ONE store is, and handed to
+	// the runner every conversation in this process shares.
+	//
+	// It is built even when the review is configured OFF, and that is deliberate: the fork's
+	// MaybeRun is the single place that reads cfg.Review.Enabled. A second test of the same
+	// switch, here, is how the two would drift apart.
+	reviewer := op.newReview(cfg.Review, engine, store, log, buildSkillRunner)
+	runner.SetReview(reviewer)
+
 	// NewService is what lets a client open a conversation of its own. It is wired in BOTH modes,
 	// because the interface's gateway IS the gateway -serve starts: the difference between them is
 	// what they DRAW, not who may talk to them.
 	newService := func() (gateway.Service, error) {
 		r := tui.NewAppRunner(op.Out, op.Err, cfg, engine, box, log)
 		r.UseStore(store)
+		// Every conversation gets the same fork: one library, one review budget.
+		r.SetReview(reviewer)
 		return r, nil
 	}
 

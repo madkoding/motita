@@ -123,6 +123,12 @@ type Options struct {
 	// options as built and the configuration they were derived from, and reports the server the
 	// real one would have returned.
 	NewGateway func(gateway.Options, config.Config) (*gateway.Server, error)
+	// NewReview builds the background self-improvement fork. It is a seam of the same shape as
+	// NewEngine and NewGateway: the injected function receives exactly what the real call
+	// receives, so what a test observes is the wiring rather than a copy of it. Without it the
+	// fork's presence in the served gateway is only provable by holding a conversation with a
+	// model and waiting to see whether a skill appears.
+	NewReview func(config.Review, *llm.Client, *procedures.Store, *logx.Logger, review.RunnerBuilder) *review.Review
 	// RunChild is the sandbox's child mode. It is injected so the success path
 	// can be tested without syscall.Exec replacing the test process (which is
 	// exactly what used to make the coverage profile disappear).
@@ -971,6 +977,14 @@ func (op Options) newEngine(c config.LLM, log *logx.Logger) (*llm.Client, error)
 		return op.NewEngine(c, log)
 	}
 	return llm.New(c, log)
+}
+
+// newReview builds the background self-improvement fork, or the replacement a test injected.
+func (op Options) newReview(cfg config.Review, engine *llm.Client, procs *procedures.Store, log *logx.Logger, build review.RunnerBuilder) *review.Review {
+	if op.NewReview != nil {
+		return op.NewReview(cfg, engine, procs, log, build)
+	}
+	return review.New(cfg, engine, procs, log, build)
 }
 
 // runAgent launches the agent (replaceable in tests).

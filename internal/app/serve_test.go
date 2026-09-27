@@ -21,6 +21,8 @@ import (
 	"github.com/madkoding/motita/internal/gateway"
 	"github.com/madkoding/motita/internal/llm"
 	"github.com/madkoding/motita/internal/logx"
+	"github.com/madkoding/motita/internal/procedures"
+	"github.com/madkoding/motita/internal/review"
 	"github.com/madkoding/motita/internal/sandbox"
 )
 
@@ -594,5 +596,52 @@ func TestAServeOnATakenPortReportsAConfigError(t *testing.T) {
 	}
 	if !strings.Contains(out.String(), "could not listen") {
 		t.Errorf("the refusal must say the bind failed, got %q", out.String())
+	}
+}
+
+// TestTheServedGatewayBuildsAReviewFork: without this, automatic skill creation exists in the
+// command line and NOT in the browser, which is the state this was in: the fork was built inside
+// runPlan, which is the one-shot command line run, and the served gateway never reached it. A
+// conversation held in the web interface therefore never produced a skill on its own.
+//
+// It is proved through the construction seam, which is what makes it visible without a model and
+// without a network - the same shape NewEngine and NewGateway already have.
+func TestTheServedGatewayBuildsAReviewFork(t *testing.T) {
+	silence(t)
+	srv := planServer(t, []string{"hello"})
+	defer srv.Close()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	cfgPath, logPath := gatewayConfig(t, srv)
+
+	var mu sync.Mutex
+	var seen, gotLibrary, gotBuilder bool
+	var out syncBuffer
+	opts := gatewayTestOptions(t, &out, "", "-serve", "-config", cfgPath)
+	opts.BaseCtx = ctx
+	opts.Signals = nil
+	opts.NewEngine = mockEngine(srv)
+	opts.NewReview = func(cfg config.Review, engine *llm.Client, procs *procedures.Store, log *logx.Logger, build review.RunnerBuilder) *review.Review {
+		mu.Lock()
+		seen = true
+		gotLibrary = procs != nil && procs.Library != nil
+		gotBuilder = build != nil
+		mu.Unlock()
+		return review.New(cfg, engine, procs, log, build)
+	}
+	go func() { _ = Run(opts) }()
+	_ = waitForAddress(t, logPath)
+
+	mu.Lock()
+	defer mu.Unlock()
+	if !seen {
+		t.Fatal("the served gateway built no review fork: automatic skill creation does not exist in the browser")
+	}
+	if !gotLibrary {
+		t.Error("the fork was built without the shared store's library")
+	}
+	if !gotBuilder {
+		t.Error("the fork was built without a runner builder, so its own pass could never run")
 	}
 }
