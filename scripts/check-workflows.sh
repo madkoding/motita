@@ -60,6 +60,8 @@ fi
 "$python3_bin" - "$dir" <<'PY'
 import pathlib
 import re
+import shutil
+import subprocess
 import sys
 
 import yaml
@@ -168,7 +170,38 @@ def main():
                 if isinstance(shell, str) and shell.startswith("sh"):
                     continue
 
-                import subprocess
+                # A PowerShell step is NOT bash. Checking it as bash failed it on
+                # every run - `$ErrorActionPreference = 'Stop'` is a syntax error to
+                # bash - so a perfectly good workflow was reported as broken, which
+                # is the worst direction for a gate to fail in. Parse it with
+                # PowerShell when it is available, and otherwise leave it alone
+                # rather than guess with the wrong interpreter.
+                if isinstance(shell, str) and shell in ("pwsh", "powershell"):
+                    exe = shutil.which("pwsh") or shutil.which("powershell")
+                    if exe:
+                        proc = subprocess.run(
+                            [
+                                exe,
+                                "-NoProfile",
+                                "-Command",
+                                "$t=$null;$e=$null;"
+                                "[System.Management.Automation.Language.Parser]::ParseInput("
+                                "[Console]::In.ReadToEnd(),[ref]$t,[ref]$e)|Out-Null;"
+                                "if($e.Count -gt 0){$e|ForEach-Object{Write-Host $_};exit 1}",
+                            ],
+                            input=script,
+                            capture_output=True,
+                            text=True,
+                        )
+                        if proc.returncode != 0:
+                            label = step.get("name", "<unnamed step>")
+                            detail = (proc.stdout or "").strip().splitlines()
+                            fail(
+                                path,
+                                f"step {label!r} is not valid PowerShell: "
+                                f"{detail[0] if detail else '?'}",
+                            )
+                    continue
 
                 proc = subprocess.run(
                     ["bash", "-n"], input=script, capture_output=True, text=True
