@@ -19,7 +19,19 @@ import (
 	"strings"
 )
 
-//go:embed assets
+// The interface, embedded in the binary rather than read from disk (see the package comment).
+//
+// `all:` is NOT decoration. `//go:embed assets` skips files whose names begin with `_` or
+// `.`, silently — it is an inherited rule from Go's file matching, not a mermaid quirk — and
+// Rollup names shared chunks that way: `_baseUniq-<hash>.js`, `_basePickBy-<hash>.js`. Those
+// files exist under assets/assets, are served by the router when it is built from THIS list,
+// and are simply absent from the binary without `all:`. The failure is invisible until a
+// dynamic import reaches one: mermaid's flowchart layout pulls in elk, elk imports the shared
+// chunk, the browser 404s it, and the diagram reports "could not be drawn" while every other
+// diagram type renders. Measured: two files, `_baseUniq` and `_basePickBy`, dropped from a
+// build whose disk copy had them.
+//
+//go:embed all:assets
 var assets embed.FS
 
 // readAsset is the ONE filesystem call for reading a file, held in a variable so that a test can

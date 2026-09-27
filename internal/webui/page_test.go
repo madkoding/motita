@@ -1,6 +1,9 @@
 package webui
 
 import (
+	"os"
+	"path/filepath"
+	"sort"
 	"strings"
 	"testing"
 )
@@ -301,31 +304,53 @@ func entryChunk() (name, body string, ok bool) {
 }
 
 // containsExternalHTTP reports whether s contains an http:// URL that is NOT one of the
-// two things known to be harmless. Anything else is a bug: this page is served from the
+// things known to be harmless. Anything else is a bug: this page is served from the
 // gateway's own origin and must reach no other.
 //
-// The two exceptions, and why the check is written around them rather than loosened:
+// The exceptions, and why the check is written around them rather than loosened:
 //
-//  1. "http://www.w3.org/..." — XML namespace identifiers from Preact's runtime and from
-//     KaTeX's MathML (`xmlns`). They name a vocabulary, they are not resolvable hosts, and
-//     a browser never fetches them.
+//  1. "http://www.w3.org/..." — XML namespace identifiers from Preact's runtime, from
+//     KaTeX's MathML and from mermaid's SVG (`xmlns`). They name a vocabulary, they are
+//     not resolvable hosts, and a browser never fetches them.
 //  2. "http://${...}" and "http://" + <identifier> — a TEMPLATE, not an address. These come
-//     from url-normalising code (linkify-it's `e.url = \`http://${e.url}\“, mermaid's
+//     from url-normalising code (linkify-it's `e.url = \`http://${e.url}\``, mermaid's
 //     `\`http://${e}\`.replace(/^http:\/\//, "")`) whose whole job is to give a schemeless
 //     input a scheme. There is no host here to fetch from; the string is completed at
 //     RUNTIME from whatever the user typed, and the completed value is only ever used as an
 //     href or a comparison.
+//  3. Licence banners and package URIs that arrive inside the libraries themselves. These
+//     are string CONSTANTS — copyright notices ("MIT License: http://en.wikipedia.org/...")
+//     and EMF/Ecore package names (`Qm = "http://www.eclipse.org/elk/ElkGraph"`) — measured
+//     in the chunks that full mermaid pulls in (elk, cytoscape, cynefin, mermaid). None is
+//     used as a loading target: grepping for `src=`, `href=`, `fetch(`, `import(` or `new
+//     URL(` in front of them finds nothing, because a namespace is compared, never fetched.
 //
-// The exceptions are matched on the EXACT PREFIX ("http://" followed by the interpolation
-// marker) so a real address cannot slip through them: "http://evil.example" has no `$` or
-// quote after the slashes and is still reported.
+// Every exception is a COMPLETE URL, spelled out, never a host or a path prefix. That is the
+// property that keeps the check honest: `http://www.eclipse.org/` as a prefix would silently
+// absolve `import("http://www.eclipse.org/evil.js")`, and an earlier version of this list did
+// exactly that — `TestTheExternalURLExceptionsAreNotTooLoose` caught it, which is why the
+// loosening is pinned in both directions rather than trusted. The full list is these eight
+// strings, and the whole served bundle contains exactly eight such URLs: adding `all:` to the
+// embed put `_baseUniq`/`_basePickBy` in the binary and every one of these came in with the
+// mermaid chunks, not from anything this project wrote.
 func containsExternalHTTP(s string) bool {
 	exceptions := []string{
+		// vocabularies, not hosts
 		"http://www.w3.org/",
+		// templates completed at runtime
 		"http://${",
 		`http://"`,
 		"http://'+",
 		"http://\"+",
+		// licence banners and package URIs, measured in the mermaid/elk/cytoscape chunks
+		`http:///org/eclipse/emf/ecore/util/ExtendedMetaData`,
+		"http://en.wikipedia.org/wiki/MIT_License",
+		"http://engelschall.com)",
+		"http://opensource.org/licenses/MIT)",
+		"http://underscorejs.org/LICENSE",
+		`http://www.eclipse.org/elk/ElkGraph"`,
+		`http://www.eclipse.org/emf/2002/Ecore"`,
+		`http://www.eclipse.org/emf/2003/XMLType"`,
 	}
 	for _, ex := range exceptions {
 		s = strings.ReplaceAll(s, ex, "\x00")
@@ -370,4 +395,56 @@ func TestTheServiceWorkerIsPresent(t *testing.T) {
 		}
 	}
 	t.Error("no service worker (sw.js) found in served assets")
+}
+
+// Every file the build put in assets/ must be in the binary, not only the ones whose names
+// happen to survive embedding.
+//
+// This is the regression that shipped a broken flowchart: `//go:embed assets` silently drops
+// files beginning with `_` or `.`, Rollup names SHARED chunks that way (`_baseUniq-<hash>.js`),
+// and the loss is invisible from inside the package — the router is built from the embedded
+// list, so `Names()` agrees with itself and every other test passes. Only the browser notices,
+// when a dynamic import reaches the missing module and 404s.
+//
+// The comparison is against the BINARY, not against the package: an earlier form of this check
+// walked `assets` with `fs.WalkDir`, which cannot see a file that was never embedded. That is
+// the same shape of self-agreement the bug relied on, and it is why this test asks the built
+// artifact where it came from. `go test` runs in this directory, so the source tree is the
+// right side of the comparison; a `go build` elsewhere does not move that path.
+func TestEveryBuiltAssetIsEmbedded(t *testing.T) {
+	// A build without a frontend has nothing on disk to compare, and is smaller rather than
+	// broken: Vite writes into assets/assets/, and a fresh clone that has not run it has no
+	// such directory.
+	onDisk, err := filepath.Glob(filepath.Join("assets", "assets", "*"))
+	if err != nil {
+		t.Fatalf("globbing the build output: %v", err)
+	}
+	if len(onDisk) == 0 {
+		t.Skip("no frontend build under assets/assets: nothing to compare")
+	}
+
+	served := make(map[string]bool, len(onDisk))
+	for _, name := range Names() {
+		served[name] = true
+	}
+
+	missing := make([]string, 0)
+	for _, p := range onDisk {
+		if info, err := os.Stat(p); err != nil || info.IsDir() {
+			continue
+		}
+		base := filepath.Base(p)
+		if !served["/assets/"+base] {
+			missing = append(missing, base)
+		}
+	}
+	if len(missing) > 0 {
+		sort.Strings(missing)
+		t.Fatalf("the build wrote %d file(s) that are NOT in the binary: %v\n"+
+			"the page will 404 them the moment a dynamic import reaches one. Files whose names "+
+			"start with '_' or '.' are the usual cause: `//go:embed assets` skips them unless the "+
+			"directive says `all:` (see the embed in webui.go). The router is built from the "+
+			"embedded list, so Names() cannot catch this — only the browser can.",
+			len(missing), missing)
+	}
 }
