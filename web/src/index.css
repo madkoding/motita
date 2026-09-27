@@ -291,6 +291,16 @@ body {
   color: #8fd4ff;
 }
 
+/* off: the user turned it off. A NEUTRAL badge and not a warning — the document is
+ * exactly as good as it was, and the agent simply stops seeing it. The strikethrough is
+ * what makes it unmistakable at a glance in a list where the row is otherwise normal. */
+.skill-tag-off {
+  background: rgba(255, 255, 255, 0.04);
+  border-color: rgba(255, 255, 255, 0.08);
+  color: #6a6a7a;
+  text-decoration: line-through;
+}
+
 /* The document's body. The markdown rules are written for the transcript, which
  * is set solid; a card needs its own measure, so the block is bounded and the
  * overflow scrolls rather than pushing the modal's buttons off-screen. */

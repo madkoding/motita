@@ -144,6 +144,7 @@ interface SkillInfo {
   created_by?: 'agent' | 'foreground'
   state?: 'active' | 'stale' | 'archived'
   pinned?: boolean
+  disabled?: boolean
   use_count: number
   view_count: number
   patch_count: number
@@ -435,7 +436,7 @@ export default function App() {
   const [newTaskEvery, setNewTaskEvery] = useState('24h')
   const [newTaskKind, setNewTaskKind] = useState<'task' | 'plan'>('task')
   // Confirm-delete modal: when set, shows a modal asking the user to confirm.
-  const [confirmDelete, setConfirmDelete] = useState<{ type: 'session' | 'project'; id: string; title: string } | null>(null)
+  const [confirmDelete, setConfirmDelete] = useState<{ type: 'session' | 'project' | 'skill'; id: string; title: string } | null>(null)
   // Long-press context menu on mobile: when set, shows a small menu with Edit / Delete.
   const [contextMenu, setContextMenu] = useState<{ type: 'session' | 'project'; id: string; title: string; x: number; y: number } | null>(null)
   // Row dropdown menu: which session/project row has its "⋯" menu open.
@@ -791,6 +792,45 @@ export default function App() {
       await fetchSkills()
     } catch {
       setState('could not restore the skill', true)
+    }
+  }, [fetchSkills])
+
+  // disableSkill turns a skill off or back on. The list is patched locally: the answer is
+  // one boolean and the row is already on screen, exactly like the pin.
+  const disableSkill = useCallback(async (name: string, disabled: boolean) => {
+    try {
+      const res = await api('/v1/skills/' + encodeURIComponent(name) + '/disable', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ disabled })
+      })
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}))
+        setState(err.error || 'could not change the skill', true)
+        return
+      }
+      setSkills(prev => prev.map(s => (s.name === name ? { ...s, disabled } : s)))
+      setSkillOpen(prev => (prev && prev.name === name ? { ...prev, disabled } : prev))
+    } catch {
+      setState('could not change the skill', true)
+    }
+  }, [])
+
+  // deleteSkill removes the document for good, then RELOADS the list: a file left the
+  // library and the browser must not keep a guess about a directory it cannot see. The
+  // confirmation is asked before this is ever reached.
+  const deleteSkill = useCallback(async (name: string) => {
+    try {
+      const res = await api('/v1/skills/' + encodeURIComponent(name), { method: 'DELETE' })
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}))
+        setState(err.error || 'could not delete the skill', true)
+        return
+      }
+      setSkillOpen(null)
+      await fetchSkills()
+    } catch {
+      setState('could not delete the skill', true)
     }
   }, [fetchSkills])
 
@@ -2739,7 +2779,9 @@ export default function App() {
                 ? confirmDelete.id === 'default'
                   ? 'This is the default session. Deleting it will clear its history and reset its title, but the session itself will remain.'
                   : 'This conversation will be permanently deleted. This cannot be undone.'
-                : 'This project and all its sessions will be permanently deleted. This cannot be undone.'}
+                : confirmDelete.type === 'skill'
+                  ? 'This skill will be permanently deleted, with its usage history. This cannot be undone. A built-in procedure cannot be deleted.'
+                  : 'This project and all its sessions will be permanently deleted. This cannot be undone.'}
             </p>
             <div class="flex gap-2">
               <button
@@ -2747,6 +2789,8 @@ export default function App() {
                 onClick={async () => {
                   if (confirmDelete.type === 'session') {
                     await deleteSession(confirmDelete.id)
+                  } else if (confirmDelete.type === 'skill') {
+                    await deleteSkill(confirmDelete.id)
                   } else {
                     await deleteProject(confirmDelete.id)
                   }
@@ -3129,6 +3173,23 @@ export default function App() {
                   {skillOpen.pinned ? 'Unpin' : 'Pin'}
                 </button>
               )}
+              {skillOpen && (
+                <button
+                  class="ml-1 px-2.5 py-1 rounded-lg border border-white/10 text-xs text-[#9a9aaa] hover:text-[#e8e8ea] active:scale-95 transition-transform"
+                  onClick={() => disableSkill(skillOpen.name, !skillOpen.disabled)}
+                  title={skillOpen.disabled ? 'The agent will see this again' : 'The agent stops seeing this in its index and its search'}
+                >
+                  {skillOpen.disabled ? 'Turn on' : 'Turn off'}
+                </button>
+              )}
+              {skillOpen && (
+                <button
+                  class="ml-1 px-2.5 py-1 rounded-lg border border-danger/30 text-xs text-danger hover:border-danger/60 active:scale-95 transition-transform"
+                  onClick={() => setConfirmDelete({ type: 'skill', id: skillOpen.name, title: skillOpen.title || skillOpen.name })}
+                >
+                  Delete
+                </button>
+              )}
               <button
                 class="ml-auto p-1.5 rounded-lg hover:bg-white/5"
                 onClick={() => setShowSkillLibrary(false)}
@@ -3147,6 +3208,7 @@ export default function App() {
                   {skillOpen.created_by === 'agent' && <span class="skill-tag">agent</span>}
                   {skillOpen.state === 'stale' && <span class="skill-tag skill-tag-warn">stale</span>}
                   {skillOpen.pinned && <span class="skill-tag skill-tag-accent">pinned</span>}
+                  {skillOpen.disabled && <span class="skill-tag skill-tag-off">off</span>}
                   <span>used {skillOpen.use_count}×</span>
                 </div>
                 <div class="skill-body rounded-xl border border-white/5 p-3">
@@ -3188,9 +3250,9 @@ export default function App() {
                 ) : (
                   <ul class="space-y-1.5">
                     {filteredSkills.map((s) => (
-                      <li key={s.name}>
+                      <li key={s.name} class="flex items-center gap-1">
                         <button
-                          class="w-full text-left px-3 py-2.5 rounded-xl border border-white/5 hover:border-white/15 hover:bg-white/[0.03] active:scale-[0.99] transition-all"
+                          class="flex-1 min-w-0 text-left px-3 py-2.5 rounded-xl border border-white/5 hover:border-white/15 hover:bg-white/[0.03] active:scale-[0.99] transition-all"
                           onClick={() => openSkill(s)}
                         >
                           <div class="flex items-center gap-2">
@@ -3198,11 +3260,19 @@ export default function App() {
                             {s.created_by === 'agent' && <span class="skill-tag">agent</span>}
                             {s.state === 'stale' && <span class="skill-tag skill-tag-warn">stale</span>}
                             {s.pinned && <span class="skill-tag skill-tag-accent">pinned</span>}
+                            {s.disabled && <span class="skill-tag skill-tag-off">off</span>}
                             <span class="ml-auto text-xs text-[#6a6a7a] shrink-0">used {s.use_count}×</span>
                           </div>
                           {s.summary && (
                             <p class="text-xs text-[#9a9aaa] mt-0.5 truncate">{s.summary}</p>
                           )}
+                        </button>
+                        <button
+                          class="px-2.5 py-1 rounded-lg border border-white/10 text-xs text-[#9a9aaa] hover:text-[#e8e8ea] shrink-0"
+                          onClick={() => disableSkill(s.name, !s.disabled)}
+                          title={s.disabled ? 'The agent will see this again' : 'The agent stops seeing this in its index and its search'}
+                        >
+                          {s.disabled ? 'on' : 'off'}
                         </button>
                       </li>
                     ))}
