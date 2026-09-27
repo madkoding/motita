@@ -56,12 +56,23 @@ let ready: Promise<void> | null = null
  * that is why `sanitize` in Markdown.tsx lets that one element through. BOTH halves are
  * needed: measured, turning the sanitizer's widening off while leaving this ON made the
  * labels vanish again, so neither change is the fix on its own.
+ * `suppressErrorRendering: true` is what keeps a bad diagram from drawing its own error icon.
+ * Mermaid 12 catches a parse failure and, when this is false (the default), calls
+ * `Diagram.fromText("error")` to render a red X with "Syntax error in text" and its version —
+ * and it does NOT call `removeTempElements()` on that path. So a diagram with a syntax error
+ * leaves mermaid's own error SVG behind and reports itself in its own words, in place of the
+ * message from this renderer, which shows the reason and the source. Measured in the installed
+ * 12.0.0: the guard is `if (config.suppressErrorRendering) { removeTempElements(); throw error }`.
+ * Setting it true takes that path instead: the failure propagates to `fail()` in Markdown.tsx,
+ * which is the box the reader should see.
  */
 function ensureReady(): Promise<void> {
   if (!ready) {
     ready = (async () => {
       mermaid.initialize({
         startOnLoad: false,
+        // A parse failure must arrive here as an exception, not as mermaid's own error icon.
+        suppressErrorRendering: true,
         // A model-authored label must never become a live click target or a script.
         securityLevel: 'strict',
         theme: 'dark',

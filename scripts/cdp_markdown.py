@@ -123,6 +123,13 @@ echo "🚀 despegar"
 ```
 
 Y en cursiva *🦀* junto a texto normal.
+
+Y un diagrama que NO compila, para probar qué se muestra cuando el diagrama está mal:
+
+```mermaid
+graph LR
+  A[Inicio --> B[Fin]
+```
 """
 
 
@@ -502,9 +509,42 @@ async def run(ws_url, base, token, shots):
              "the task text"),
             ("pie", lambda d: d["slices"] >= 2, "its slices"),
         ]
-        if len(diagrams) != len(expected):
-            bad(f"expected {len(expected)} diagrams on the page, found {len(diagrams)}")
-        for (name, check, what), d in zip(expected, diagrams):
+        # FOUR diagram types plus the one malformed diagram at the end of the fixture.
+        if len(diagrams) != len(expected) + 1:
+            bad(f"expected {len(expected)} diagrams plus the malformed one on the page, "
+                f"found {len(diagrams)}")
+        # The malformed diagram is the one that proves the failure path: it must be reported
+        # by THIS renderer (a .render-error box with the reason and the offending source), not
+        # by mermaid drawing its own "Syntax error in text" icon. Suppressing that icon is why
+        # it is `suppressErrorRendering: true` in mermaid.ts.
+        valid, broken = diagrams[:len(expected)], diagrams[len(expected):]
+        if len(broken) != 1:
+            bad(f"expected 1 deliberately-broken diagram, found {len(broken)}: the failure "
+                f"path is not being exercised, so this check would pass on a page that "
+                f"shows mermaid's own error icon")
+        else:
+            b = broken[0]
+            if b["error"]:
+                ok(f"a malformed diagram is reported by the renderer, not by mermaid "
+                   f"(reason: {(b['error'] or '').split(' || ')[0][:70]!r})")
+            else:
+                bad(f"the malformed diagram did not produce this renderer's error box "
+                    f"(done={b['done']!r}): mermaid's own error icon is what a reader would "
+                    f"see instead of the reason and the source")
+        mermaidOwn = await c.js("""(() => ({
+          inBody: [...document.body.querySelectorAll('svg')]
+            .filter(s => /Syntax error in text/.test(s.textContent || '')).length,
+          version: document.body.textContent.includes('mermaid version'),
+          inBlock: [...document.querySelectorAll('.mermaid-block svg')]
+            .filter(s => /Syntax error in text/.test(s.textContent || '')).length,
+        }))()""")
+        if mermaidOwn["inBody"] or mermaidOwn["version"]:
+            bad(f"mermaid's own error icon is on the page ({mermaidOwn}): it draws a red X "
+                f"with 'Syntax error in text' and its version, and that path does not clean "
+                f"up its temporary element — which is how it ends up outside the block")
+        else:
+            ok("no 'Syntax error in text' icon anywhere on the page, inside or outside a block")
+        for (name, check, what), d in zip(expected, valid):
             if d["error"]:
                 bad(f"the {name} diagram failed to render: {d['error']}")
             elif not d["svg"] or d["w"] == 0 or d["h"] == 0:
@@ -614,11 +654,19 @@ async def run(ws_url, base, token, shots):
             bad(f"the message's own copy payload is missing "
                 f"({m['messageCopyLen']} chars): copying an answer would paste nothing")
 
-        # --- nothing failed to render ----------------------------------------
-        if m["renderErrors"] == 0:
-            ok("no element reported a render failure")
+        # --- nothing failed to render, EXCEPT the one that is meant to ---------
+        # The fixture ends with a malformed diagram on purpose, so exactly one error box is
+        # the expected count. Asserting 0 here would be asserting the failure path is never
+        # exercised, which is the state that let mermaid's own error icon reach the page.
+        if m["renderErrors"] == 1:
+            ok("exactly one element is an error box: the deliberately-broken diagram, and "
+               "nothing else")
+        elif m["renderErrors"] == 0:
+            bad("no element reported a render failure, but the fixture contains a malformed "
+                "diagram: it failed silently, which is worse than showing the reason")
         else:
-            bad(f"{m['renderErrors']} element(s) rendered as an error box")
+            bad(f"{m['renderErrors']} elements rendered as error boxes; only the one "
+                f"deliberately-broken diagram should be")
 
     for n in notes:
         print(f"  note  {n}")
