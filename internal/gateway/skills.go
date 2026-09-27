@@ -202,13 +202,19 @@ func (s *Server) handleDeleteSkill(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusNotImplemented, noLibrary)
 		return
 	}
-	// 409 and not 404: a shipped procedure is a real skill with a real name, and what
-	// failed is the library's STATE - that document cannot be deleted - not the lookup.
-	if err := s.opts.Skills.DeleteSkill(r.PathValue("name")); err != nil {
-		writeError(w, http.StatusConflict, err.Error())
+	err := s.opts.Skills.DeleteSkill(r.PathValue("name"))
+	if err == nil {
+		w.WriteHeader(http.StatusNoContent)
 		return
 	}
-	w.WriteHeader(http.StatusNoContent)
+	// The two refusals are different facts and get different codes. 404 for a name that is
+	// not there: the client's to fix, and the same answer the read gives. 409 for a shipped
+	// procedure: a real skill with a real name, where what failed is the library's STATE.
+	if errors.Is(err, skills.ErrNotFound) {
+		writeError(w, http.StatusNotFound, err.Error())
+		return
+	}
+	writeError(w, http.StatusConflict, err.Error())
 }
 
 // handleRestoreSkill brings an archived document back.

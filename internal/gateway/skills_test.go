@@ -733,3 +733,20 @@ func TestTheIndexCarriesTheOffFlag(t *testing.T) {
 		t.Errorf("the off flag did not ride along: %s", rec.Body.String())
 	}
 }
+
+// TestDeletingANameThatIsNotThereIsANotFound: 404 and not 409. A shipped procedure is a real
+// document that the library refuses to part with; a name that is nowhere is a lookup that
+// failed. They lead somewhere different - "that one is mine to keep" against "check your
+// spelling" - and answering the second with the first sends the user to look for a document
+// that does not exist.
+func TestDeletingANameThatIsNotThereIsANotFound(t *testing.T) {
+	srv := withSkills(t, &fakeSkills{deleteEr: fmt.Errorf("%w: %q", skills.ErrNotFound, "nope")})
+
+	rec := call(t, srv, http.MethodDelete, "/v1/skills/nope", "", testToken)
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("= %d, want 404: %s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), "no skill matches") {
+		t.Errorf("the 404 does not carry the library's reason: %s", rec.Body.String())
+	}
+}

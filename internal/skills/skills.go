@@ -474,9 +474,11 @@ func (l *Library) Archived() ([]string, error) {
 // back, and a caller that wants a deletion has to say so. The interface asks for a
 // confirmation before it reaches here.
 //
-// A document that is NOT on disk is refused rather than removed: the name resolves to
-// the procedure embedded in the binary, which no operation on the filesystem can touch.
-// Reporting success for that would be a lie the user would discover by looking.
+// A name that is NOT on disk is refused rather than removed, and WHICH refusal it is
+// matters to the caller: a shipped procedure is a document that exists and cannot be
+// deleted, while a name that is nowhere is a lookup that failed. The two lead somewhere
+// different - one says "that one is mine to keep", the other says "check your spelling" -
+// so the second wraps ErrNotFound and a front end can answer 404 rather than 409.
 func (l *Library) Delete(name string) error {
 	n := Name(name)
 	if n == "" {
@@ -489,7 +491,7 @@ func (l *Library) Delete(name string) error {
 		} else if ok {
 			return fmt.Errorf("the skill %q is built in: it ships inside the binary and cannot be deleted", n)
 		}
-		return fmt.Errorf("could not delete the skill %q: %w", n, err)
+		return fmt.Errorf("%w: %q", ErrNotFound, n)
 	}
 	if err := os.Remove(p); err != nil {
 		return fmt.Errorf("could not delete the skill %q: %w", n, err)
