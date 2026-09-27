@@ -27,6 +27,10 @@ type fakeSkills struct {
 	telemetry map[string]usage.Entry
 	pinned    map[string]bool
 	pinErr    error
+	disabled  map[string]bool
+	disableEr error
+	deleted   []string
+	deleteEr  error
 	restored  []string
 	restoreEr error
 	archived  []string
@@ -55,6 +59,22 @@ func (f *fakeSkills) SetSkillPinned(n string, p bool) error {
 }
 
 func (f *fakeSkills) ArchiveSkill(string) error { return nil }
+
+// SetSkillDisabled and DeleteSkill exist on the double because the interface grew them: a
+// front end that could stop seeing a skill but not stop it, or offer a deletion with nothing
+// behind it, would be a front end with a button that lies.
+func (f *fakeSkills) SetSkillDisabled(n string, d bool) error {
+	if f.disabled == nil {
+		f.disabled = map[string]bool{}
+	}
+	f.disabled[n] = d
+	return f.disableEr
+}
+
+func (f *fakeSkills) DeleteSkill(n string) error {
+	f.deleted = append(f.deleted, n)
+	return f.deleteEr
+}
 
 func (f *fakeSkills) RestoreSkill(n string) error {
 	f.restored = append(f.restored, n)
@@ -327,6 +347,8 @@ func TestTheSkillsEndpointsSayWhenNoLibraryIsConfigured(t *testing.T) {
 		{http.MethodGet, "/v1/skills/one", ""},
 		{http.MethodPost, "/v1/skills/one/pin", `{"pinned":true}`},
 		{http.MethodPost, "/v1/skills/one/restore", `{}`},
+		{http.MethodPost, "/v1/skills/one/disable", `{"disabled":true}`},
+		{http.MethodDelete, "/v1/skills/one", ""},
 	}
 	for _, c := range cases {
 		rec := call(t, srv, c.method, c.path, c.body, testToken)
@@ -493,10 +515,30 @@ func TestTheSkillRoutesNeedTheToken(t *testing.T) {
 // grow their own branch.
 func call(t *testing.T, srv *Server, method, path, body, token string) *httptest.ResponseRecorder {
 	t.Helper()
-	if method == http.MethodGet {
+	switch method {
+	case http.MethodGet:
 		return get(t, srv, path, token)
+	case http.MethodDelete:
+		return del(t, srv, path, token)
 	}
 	return post(t, srv, path, body, token)
+}
+
+// del performs one authenticated DELETE. It exists because call() grew a third method: the
+// deletion of a document is the one route here that carries its whole meaning in the verb,
+// and a table whose DELETE case silently became a POST would test the wrong handler.
+func del(t *testing.T, srv *Server, path, token string) *httptest.ResponseRecorder {
+	t.Helper()
+	req, err := http.NewRequest(http.MethodDelete, srv.BaseURL()+path, nil)
+	if err != nil {
+		t.Fatalf("building the request: %v", err)
+	}
+	if token != "" {
+		req.Header.Set("Authorization", "Bearer "+token)
+	}
+	w := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(w, req)
+	return w
 }
 
 // decodeJSON unmarshals a recorder's body, naming the body when it is not JSON.
@@ -519,6 +561,7 @@ func TestTheSkillWritesRejectAMalformedBody(t *testing.T) {
 	for _, c := range []struct{ method, path string }{
 		{http.MethodPost, "/v1/skills"},
 		{http.MethodPost, "/v1/skills/one/pin"},
+		{http.MethodPost, "/v1/skills/one/disable"},
 		{http.MethodPost, "/v1/curator/run"},
 	} {
 		if rec := call(t, srv, c.method, c.path, `{"name":`, testToken); rec.Code != http.StatusBadRequest {
@@ -526,8 +569,8 @@ func TestTheSkillWritesRejectAMalformedBody(t *testing.T) {
 		}
 	}
 	// And nothing reached either backing service.
-	if lib.savedName != "" || lib.pinned != nil {
-		t.Errorf("a malformed body reached the library: saved=%q pinned=%v", lib.savedName, lib.pinned)
+	if lib.savedName != "" || lib.pinned != nil || lib.disabled != nil {
+		t.Errorf("a malformed body reached the library: saved=%q pinned=%v disabled=%v", lib.savedName, lib.pinned, lib.disabled)
 	}
 	if cur.seen != [2]bool{false, false} {
 		t.Error("a malformed body ran the maintenance pass")
@@ -601,5 +644,92 @@ func TestTheIndexCarriesTheLastUsedTime(t *testing.T) {
 	rec2 := get(t, withSkills(t, lib2), "/v1/skills", testToken)
 	if strings.Contains(rec2.Body.String(), "last_used_at") {
 		t.Errorf("a never-used skill carries a zero timestamp: %s", rec2.Body.String())
+	}
+}
+
+// TestTurningASkillOffAndOn: the body is {"disabled":true|false}, and 204 in both directions.
+// It is not a state of the document but a decision of the user, so nothing comes back: there
+// is nothing to say beyond "it was applied".
+func TestTurningASkillOffAndOn(t *testing.T) {
+	lib := &fakeSkills{}
+	srv := withSkills(t, lib)
+
+	if rec := post(t, srv, "/v1/skills/one/disable", `{"disabled":true}`, testToken); rec.Code != http.StatusNoContent {
+		t.Fatalf("disabling = %d, want 204: %s", rec.Code, rec.Body.String())
+	}
+	if !lib.disabled["one"] {
+		t.Error("disabling did not reach the library")
+	}
+	if rec := post(t, srv, "/v1/skills/one/disable", `{"disabled":false}`, testToken); rec.Code != http.StatusNoContent {
+		t.Fatalf("enabling = %d, want 204", rec.Code)
+	}
+	if lib.disabled["one"] {
+		t.Error("enabling did not reach the library")
+	}
+}
+
+// TestTheDisableEndpointReportsWhyItFailed: 400 and not 500, because the documented failure is
+// a gateway without a usage ledger — the environment the client is talking to, not a broken
+// server — and the message travels whole, which is the whole difference for whoever reads it.
+func TestTheDisableEndpointReportsWhyItFailed(t *testing.T) {
+	srv := withSkills(t, &fakeSkills{disableEr: errors.New("no usage ledger is configured")})
+
+	rec := post(t, srv, "/v1/skills/one/disable", `{"disabled":true}`, testToken)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("= %d, want 400: %s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), "ledger") {
+		t.Errorf("the reason is not carried: %s", rec.Body.String())
+	}
+}
+
+// TestDeletingASkill: DELETE and 204. It is the library's one irreversible operation, and the
+// interface asks for a confirmation before reaching here; the endpoint asks nothing, because a
+// confirmation has to be on the side of the human who answers it.
+func TestDeletingASkill(t *testing.T) {
+	lib := &fakeSkills{}
+	srv := withSkills(t, lib)
+
+	rec := call(t, srv, http.MethodDelete, "/v1/skills/one", "", testToken)
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("DELETE = %d, want 204: %s", rec.Code, rec.Body.String())
+	}
+	if len(lib.deleted) != 1 || lib.deleted[0] != "one" {
+		t.Errorf("deleted = %v, want [one]", lib.deleted)
+	}
+}
+
+// TestDeletingABuiltinIsRefused: 409 and not 400. The name is fine and what failed is the
+// library's STATE — the document is the one that ships with the binary — which is the same
+// distinction the archive makes with the default session.
+func TestDeletingABuiltinIsRefused(t *testing.T) {
+	srv := withSkills(t, &fakeSkills{deleteEr: errors.New(`the skill "x" is built in: it ships inside the binary and cannot be deleted`)})
+
+	rec := call(t, srv, http.MethodDelete, "/v1/skills/x", "", testToken)
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("= %d, want 409: %s", rec.Code, rec.Body.String())
+	}
+}
+
+// TestTheIndexCarriesTheOffFlag: the list is where the user sees which skills are off, so the
+// flag rides along with the rest of the telemetry — a badge the front end cannot draw without
+// a round trip per skill is a badge that does not get drawn.
+func TestTheIndexCarriesTheOffFlag(t *testing.T) {
+	lib := &fakeSkills{
+		index:     []skills.Skill{{Name: "one", Title: "One"}},
+		telemetry: map[string]usage.Entry{"one": {Disabled: true, State: usage.StateActive}},
+	}
+	srv := withSkills(t, lib)
+
+	rec := get(t, srv, "/v1/skills", testToken)
+	var out struct {
+		Skills []struct {
+			Name     string `json:"name"`
+			Disabled bool   `json:"disabled"`
+		} `json:"skills"`
+	}
+	decodeJSON(t, rec, &out)
+	if len(out.Skills) != 1 || !out.Skills[0].Disabled {
+		t.Errorf("the off flag did not ride along: %s", rec.Body.String())
 	}
 }

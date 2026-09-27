@@ -487,6 +487,8 @@ func (s *Server) routes() *http.ServeMux {
 	mux.Handle("GET /v1/skills/archived", plain(s.handleArchivedSkills))
 	mux.Handle("GET /v1/skills/{name}", plain(s.handleSkill))
 	mux.Handle("POST /v1/skills/{name}/pin", plain(s.handlePinSkill))
+	mux.Handle("POST /v1/skills/{name}/disable", plain(s.handleDisableSkill))
+	mux.Handle("DELETE /v1/skills/{name}", plain(s.handleDeleteSkill))
 	mux.Handle("POST /v1/skills/{name}/restore", plain(s.handleRestoreSkill))
 	mux.Handle("GET /v1/curator", plain(s.handleCurator))
 	mux.Handle("POST /v1/curator/run", plain(s.handleCuratorRun))
