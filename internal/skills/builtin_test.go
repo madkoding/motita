@@ -22,10 +22,22 @@ func builtinLib(t *testing.T) *Library {
 	return l
 }
 
-// webSkill is the name of the shipped procedure about reaching the network. It is a constant
-// because two tests name it: the one that checks the search finds it by the words of the job,
-// and the one that checks a fresh library ships it at all.
-const webSkill = "searching-the-web"
+// The shipped procedures, by name, so a test can assert on the DOCUMENT rather than on
+// "something matched". Several of the queries below also match another document — "search the
+// web" hits the FILE procedure, because "search" is in its text — so a test that only asked for
+// a hit would go green on the wrong answer and a document could be deleted with nothing failing.
+const (
+	fileSkill     = "files-and-directories"
+	webSkill      = "searching-the-web"
+	commandsSkill = "running-commands"
+	gitSkill      = "git-in-a-repository"
+	curlSkill     = "calling-an-http-api"
+)
+
+// shippedCore is what a fresh install is expected to carry, in one list: the tests that ask "does
+// a fresh install ship this" and "does the search find it" both read it, so adding a document
+// means adding it here and nowhere else.
+var shippedCore = []string{fileSkill, webSkill, commandsSkill, gitSkill, curlSkill}
 
 // TestTheShippedProceduresLoad is the base case: a fresh install has something to look up. An
 // embed directive that names a folder the binary does not carry would leave the library empty
@@ -53,57 +65,129 @@ func TestTheShippedProceduresLoad(t *testing.T) {
 	}
 }
 
-// TestTheShippedProceduresAreFoundByTheWordsOfTheJob: the search is the only way the model
-// reaches a skill it was not told about, so the words a person would actually use have to find
-// it. These are the phrases the procedure claims to cover.
+// TestTheShippedProceduresAreFoundByTheWordsOfTheJob: the search is the only way the model reaches
+// a skill it was not told about, so the words a person would actually use have to find it — and
+// find the RIGHT document, not merely something. These are the phrases each procedure claims to
+// cover, and they are the queries a real session starts from.
 func TestTheShippedProceduresAreFoundByTheWordsOfTheJob(t *testing.T) {
 	l := builtinLib(t)
-	for _, q := range []string{
-		"files and directories",
-		"list a directory",
-		"read a file",
-		"find text in files",
-		"copy a folder",
-		"delete a directory",
-		"create a file",
-	} {
-		hits, err := l.Search(q, 10)
-		if err != nil {
-			t.Fatalf("Search(%q): %v", q, err)
-		}
-		if len(hits) == 0 {
-			t.Errorf("Search(%q) found nothing in a library that ships a procedure about it", q)
+	cases := []struct {
+		skill string
+		words []string
+	}{
+		{fileSkill, []string{
+			"files and directories",
+			"list a directory",
+			"read a file",
+			"find text in files",
+			"copy a folder",
+			"delete a directory",
+			"create a file",
+		}},
+		{webSkill, []string{
+			"search the web",
+			"look up the documentation for a library",
+			"fetch a web page",
+			"research something online",
+			"check a URL",
+		}},
+		{commandsSkill, []string{
+			"what will happen if I run this command",
+			"the output was truncated",
+			"which commands are refused",
+			"the command needs approval",
+			"how do I read a value out of json",
+		}},
+		{gitSkill, []string{
+			"undo my last commit",
+			"which branch am I on",
+			"make a commit",
+			"restore a deleted file from git",
+			"resolve a merge conflict",
+		}},
+		{curlSkill, []string{
+			"call an api and get json",
+			"why does curl return nothing",
+			"post json to a service",
+			"check an http status code",
+		}},
+	}
+	for _, c := range cases {
+		for _, q := range c.words {
+			hits, err := l.Search(q, 10)
+			if err != nil {
+				t.Fatalf("Search(%q): %v", q, err)
+			}
+			found := false
+			for _, h := range hits {
+				if h.Name == c.skill {
+					found = true
+				}
+			}
+			if !found {
+				t.Errorf("Search(%q) did not find %q: got %v", q, c.skill, hitNames(hits))
+			}
 		}
 	}
 }
 
-// TestTheShippedWebProcedureIsFoundByTheWordsOfTheJob: the second shipped document answers a
-// different question, and the check is on the DOCUMENT and not on "something matched". A query
-// like "search the web" also hits the file procedure, because "search" is in its text, so a test
-// that only asked for a hit would go green on the wrong answer and the web document could be
-// deleted without anything failing.
-func TestTheShippedWebProcedureIsFoundByTheWordsOfTheJob(t *testing.T) {
+// TestAFreshInstallShipsTheCoreProcedures: one fresh install, one document per kind of work an
+// agent cannot do without a procedure for. This is what a new user starts with, and nothing tells
+// them what a library is supposed to hold — so a document that fell out of the embed because its
+// file was renamed would leave a gap they cannot see. The directory does not exist here, which is
+// the state of a first run.
+func TestAFreshInstallShipsTheCoreProcedures(t *testing.T) {
 	l := builtinLib(t)
-	for _, q := range []string{
-		"search the web",
-		"look up the documentation for a library",
-		"fetch a web page",
-		"research something online",
-		"check a URL",
-		"an API returns json and I need one field",
-	} {
-		hits, err := l.Search(q, 10)
+	for _, name := range shippedCore {
+		got, err := l.Get(name)
 		if err != nil {
-			t.Fatalf("Search(%q): %v", q, err)
+			t.Errorf("a fresh install must ship %q: %v", name, err)
+			continue
 		}
+		if !strings.HasPrefix(got.Path, builtinPrefix) {
+			t.Errorf("%q came from %q, want the binary", name, got.Path)
+		}
+	}
+	all, err := l.List()
+	if err != nil {
+		t.Fatalf("List: %v", err)
+	}
+	offered := hitNames(all)
+	for _, name := range shippedCore {
 		found := false
-		for _, h := range hits {
-			if h.Name == webSkill {
+		for _, n := range offered {
+			if n == name {
 				found = true
 			}
 		}
 		if !found {
-			t.Errorf("Search(%q) did not find %q: got %v", q, webSkill, hitNames(hits))
+			t.Errorf("the index does not offer %q: %v", name, offered)
+		}
+	}
+}
+
+// TestEveryShippedProcedureIsDistinct: two documents that answer the same question are worse than
+// one — the model is then choosing between two accounts of the same work and the search cannot
+// tell it which to trust. The title is the first thing a reader sees, so a shared one is the tell.
+//
+// The names in shippedCore are checked against the embedded set too: a name no file matches would
+// make the tests above pass while asserting nothing, which is the quietest way for a test suite
+// to stop protecting anything.
+func TestEveryShippedProcedureIsDistinct(t *testing.T) {
+	all, err := builtinSkills()
+	if err != nil {
+		t.Fatal(err)
+	}
+	byTitle := map[string]string{}
+	for name, s := range all {
+		if prev, dup := byTitle[s.Title]; dup {
+			t.Errorf("%q and %q share the title %q", prev, name, s.Title)
+		}
+		byTitle[s.Title] = name
+	}
+	for _, want := range shippedCore {
+		if _, ok := all[want]; !ok {
+			t.Errorf("shippedCore names %q but the binary does not hold it", want)
 		}
 	}
 }
@@ -115,38 +199,6 @@ func hitNames(hits []Skill) []string {
 		out = append(out, h.Name)
 	}
 	return out
-}
-
-// TestAFreshInstallShipsTheWebProcedure: the document about reaching the network is part of
-// what a fresh install starts with, and that is the whole reason it is embedded rather than
-// left to the first session that needs it. A fresh install has no `~/.motita/skills/` at all,
-// so the shipped set is the entire library — and a model that cannot search the web for a
-// version, an API shape or an error message answers from its training data instead, which is
-// exactly the failure this document exists to prevent.
-func TestAFreshInstallShipsTheWebProcedure(t *testing.T) {
-	l := builtinLib(t)
-	// The directory does not exist, which is the state of a first run.
-	got, err := l.Get(webSkill)
-	if err != nil {
-		t.Fatalf("a fresh install must ship %q: %v", webSkill, err)
-	}
-	if !strings.HasPrefix(got.Path, builtinPrefix) {
-		t.Errorf("%q came from %q, want the binary", webSkill, got.Path)
-	}
-	all, err := l.List()
-	if err != nil {
-		t.Fatalf("List: %v", err)
-	}
-	names := hitNames(all)
-	found := false
-	for _, n := range names {
-		if n == webSkill {
-			found = true
-		}
-	}
-	if !found {
-		t.Errorf("the index does not offer %q: %v", webSkill, names)
-	}
 }
 
 // TestAShippedProcedureIsReadableByTheAgent: the model reads a skill by NAME, and the name it
@@ -188,7 +240,7 @@ func TestTheBuiltinsAreOffByDefault(t *testing.T) {
 	if len(all) != 0 {
 		t.Errorf("a plain library must hold only its directory, got %d skills", len(all))
 	}
-	if _, err := l.Get("files-and-directories"); err == nil {
+	if _, err := l.Get(fileSkill); err == nil {
 		t.Error("a plain library must not serve a shipped procedure")
 	}
 	hits, err := l.Search("files directories", 10)
@@ -335,7 +387,7 @@ func TestABrokenEmbeddedSetIsReported(t *testing.T) {
 		if _, err := builtinSkills(); !errors.Is(err, boom) {
 			t.Errorf("err = %v, want the read failure", err)
 		}
-		if _, err := builtinLib(t).Get("files-and-directories"); !errors.Is(err, boom) {
+		if _, err := builtinLib(t).Get(fileSkill); !errors.Is(err, boom) {
 			t.Errorf("Get = %v, want it reported rather than not-found", err)
 		}
 	})
