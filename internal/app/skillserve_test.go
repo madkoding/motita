@@ -341,3 +341,155 @@ func TestTheCuratorAdapterReportsAFailingPass(t *testing.T) {
 		t.Error("CuratorStatus answered nothing")
 	}
 }
+
+// TestTheAdapterForwardsTurningOffAndDeleting: the two controls the library offers a browser, over
+// HTTP against the real process. The off switch has to reach the LEDGER and the delete has to
+// reach the DISK, and an adapter that forgot either would answer 204 for a button that does
+// nothing - which is exactly the class of failure the other forwarding test exists to catch.
+//
+// The deletion runs LAST, because it is the one operation here that cannot be undone.
+func TestTheAdapterForwardsTurningOffAndDeleting(t *testing.T) {
+	silence(t)
+	srv := planServer(t, []string{"hello"})
+	defer srv.Close()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	cfgPath, logPath := gatewayConfig(t, srv)
+	var out syncBuffer
+	opts := gatewayTestOptions(t, &out, "", "-serve", "-config", cfgPath)
+	opts.BaseCtx = ctx
+	opts.Signals = nil
+	opts.NewEngine = mockEngine(srv)
+	go func() { _ = Run(opts) }()
+	addr := waitForAddress(t, logPath)
+	token := readToken(t, filepath.Join(filepath.Dir(cfgPath), "gateway.token"))
+	client := &http.Client{Timeout: 5 * time.Second}
+	base := "http://" + addr
+
+	if err := postJSONInto(t, client, base+"/v1/skills",
+		`{"name":"switch-check","body":"# Switch Check\n\nbody\n"}`, token, nil); err != nil {
+		t.Fatalf("saving: %v", err)
+	}
+
+	// A fresh destination every read: `disabled` is omitempty, so a shared variable would
+	// report the flag that was just cleared.
+	readEntry := func(name string) (disabled bool, listed bool, body string) {
+		t.Helper()
+		var index struct {
+			Skills []struct {
+				Name     string `json:"name"`
+				Disabled bool   `json:"disabled"`
+			} `json:"skills"`
+		}
+		if err := getJSONInto(t, client, base+"/v1/skills", token, &index); err != nil {
+			t.Fatalf("reading the index: %v", err)
+		}
+		for _, e := range index.Skills {
+			if e.Name == name {
+				listed, disabled = true, e.Disabled
+			}
+		}
+		return disabled, listed, body
+	}
+
+	// OFF: still listed, flagged, and the agent stops being offered it.
+	if err := postJSONInto(t, client, base+"/v1/skills/switch-check/disable",
+		`{"disabled":true}`, token, nil); err != nil {
+		t.Fatalf("turning off: %v", err)
+	}
+	disabled, listed, _ := readEntry("switch-check")
+	if !listed {
+		t.Fatal("turning off removed the document from the list: it is supposed to stay, badged")
+	}
+	if !disabled {
+		t.Error("the flag did not reach the ledger: the agent would still be offered it")
+	}
+	// And it is still readable by name: turned off is not deleted.
+	var doc struct {
+		Body string `json:"body"`
+	}
+	if err := getJSONInto(t, client, base+"/v1/skills/switch-check", token, &doc); err != nil {
+		t.Fatalf("reading a turned-off skill by name: %v", err)
+	}
+	if doc.Body == "" {
+		t.Error("a turned-off document came back without a body")
+	}
+
+	// ON again.
+	if err := postJSONInto(t, client, base+"/v1/skills/switch-check/disable",
+		`{"disabled":false}`, token, nil); err != nil {
+		t.Fatalf("turning back on: %v", err)
+	}
+	if disabled, _, _ := readEntry("switch-check"); disabled {
+		t.Error("the flag was not cleared")
+	}
+
+	// DELETE, and the document is gone from the list.
+	req, err := http.NewRequest(http.MethodDelete, base+"/v1/skills/switch-check", nil)
+	if err != nil {
+		t.Fatalf("building the request: %v", err)
+	}
+	req.Header.Set("Authorization", "Bearer "+token)
+	resp, err := client.Do(req)
+	if err != nil {
+		t.Fatalf("deleting: %v", err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusNoContent {
+		t.Fatalf("DELETE answered %d, want 204", resp.StatusCode)
+	}
+	if _, listed, _ := readEntry("switch-check"); listed {
+		t.Error("the deleted document is still in the index: the delete did not reach the disk")
+	}
+}
+
+// TestTheAdapterRefusesToDeleteAShippedProcedure: 409, and the document survives. A built-in lives
+// inside the binary, so a delete that reported success would be a lie the user finds by looking.
+func TestTheAdapterRefusesToDeleteAShippedProcedure(t *testing.T) {
+	silence(t)
+	srv := planServer(t, []string{"hello"})
+	defer srv.Close()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	cfgPath, logPath := gatewayConfig(t, srv)
+	var out syncBuffer
+	opts := gatewayTestOptions(t, &out, "", "-serve", "-config", cfgPath)
+	opts.BaseCtx = ctx
+	opts.Signals = nil
+	opts.NewEngine = mockEngine(srv)
+	go func() { _ = Run(opts) }()
+	addr := waitForAddress(t, logPath)
+	token := readToken(t, filepath.Join(filepath.Dir(cfgPath), "gateway.token"))
+	client := &http.Client{Timeout: 5 * time.Second}
+	base := "http://" + addr
+
+	req, err := http.NewRequest(http.MethodDelete, base+"/v1/skills/files-and-directories", nil)
+	if err != nil {
+		t.Fatalf("building the request: %v", err)
+	}
+	req.Header.Set("Authorization", "Bearer "+token)
+	resp, err := client.Do(req)
+	if err != nil {
+		t.Fatalf("deleting: %v", err)
+	}
+	body, _ := io.ReadAll(resp.Body)
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusConflict {
+		t.Fatalf("DELETE of a shipped procedure answered %d, want 409: %s", resp.StatusCode, body)
+	}
+	if !strings.Contains(string(body), "built in") {
+		t.Errorf("the 409 does not say why: %s", body)
+	}
+
+	// And it is still there.
+	var doc struct {
+		Body string `json:"body"`
+	}
+	if err := getJSONInto(t, client, base+"/v1/skills/files-and-directories", token, &doc); err != nil {
+		t.Fatalf("the shipped procedure must survive the refusal: %v", err)
+	}
+}

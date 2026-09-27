@@ -579,8 +579,10 @@ func (r *AppRunner) UseStore(st *procedures.Store) {
 // so rather than to treat it as a failure.
 func (r *AppRunner) rewardOrNil() *reward.Ledger { return r.procedures().Ledger }
 
-// Skills returns the library index, for a front end that draws it.
-func (r *AppRunner) Skills() ([]skills.Skill, error) { return r.library().List() }
+// Skills is the index the INTERFACE draws, so it includes the documents turned off: they belong
+// in the list with a badge, which is what makes turning one back on a click rather than a hunt
+// for a file that is no longer visible. The model's own list is Library.List, and it drops them.
+func (r *AppRunner) Skills() ([]skills.Skill, error) { return r.library().Catalog() }
 
 // Skill returns one document with its body.
 func (r *AppRunner) Skill(name string) (skills.Skill, error) { return r.library().Get(name) }

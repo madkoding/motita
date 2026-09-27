@@ -245,7 +245,9 @@ func (l *Library) Search(query string, limit int) ([]Skill, error) {
 		limit = 10
 	}
 
-	all, err := l.index()
+	// The search is the model's path, so it asks the model's question: a turned-off document
+	// must not be answerable through it either.
+	all, err := l.index(true)
 	if err != nil {
 		return nil, err
 	}
@@ -515,10 +517,28 @@ func (l *Library) body(s Skill) (string, error) {
 // List returns every skill's headings, without the bodies: it is what the model reads to
 // decide what to look up, and loading every document to answer it would cost the whole
 // library in context.
-func (l *Library) List() ([]Skill, error) { return l.index() }
+//
+// A document the user turned off is NOT here. See Catalog for the list a person draws.
+func (l *Library) List() ([]Skill, error) { return l.index(true) }
+
+// Catalog returns every skill, INCLUDING the ones turned off.
+//
+// The two lists are different because they answer different questions. List answers "what should
+// the model be offered", and a turned-off document must not be in it. Catalog answers "what does
+// this library hold", and the interface that draws it has to show the turned-off document with a
+// badge - that is what makes turning it back on one click rather than a search for a file the
+// user can no longer see.
+//
+// It is a second method rather than a flag on List because every caller of List is the model's
+// own path: offering a seam there would be offering a way to leak a document back into the
+// prompt from a call site nobody re-reads.
+func (l *Library) Catalog() ([]Skill, error) { return l.index(false) }
 
 // index reads the directory and parses the headings of each document.
-func (l *Library) index() ([]Skill, error) {
+//
+// offer selects the question being asked: true drops the documents turned off (the model's
+// list), false keeps them (the interface's).
+func (l *Library) index(offer bool) ([]Skill, error) {
 	entries, err := os.ReadDir(l.Dir)
 	// A directory that is not there yet is not an empty library when the binary SHIPS
 	// procedures: it is a fresh install, which is exactly the case the shipped ones exist for.
@@ -545,8 +565,8 @@ func (l *Library) index() ([]Skill, error) {
 			continue
 		}
 		// A document the user turned off is not offered to the model: it keeps its
-		// place on disk and in the interface, and it leaves the index.
-		if l.hidden(name) {
+		// place on disk and in the interface, and it leaves this list.
+		if offer && l.hidden(name) {
 			continue
 		}
 		p := filepath.Join(l.Dir, e.Name())
@@ -570,7 +590,7 @@ func (l *Library) index() ([]Skill, error) {
 			if seen[name] {
 				continue
 			}
-			if l.hidden(name) {
+			if offer && l.hidden(name) {
 				continue
 			}
 			out = append(out, s)

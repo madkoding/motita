@@ -128,7 +128,9 @@ func TestTheRunnerReportsWhatTheLibraryRefuses(t *testing.T) {
 
 // TestTheRunnerTurnsASkillOffAndBackOn: the interface does not talk to the ledger, it talks to the
 // runner, and the runner is what holds the shared store. Turning off has to be visible in the
-// ledger AND in the index, which is what proves the seam is installed on the path this takes.
+// ledger, has to leave the model's list, and has to STAY in the interface's list with a flag -
+// those three are the whole meaning of "off", and dropping the third would make the switch
+// one-way.
 func TestTheRunnerTurnsASkillOffAndBackOn(t *testing.T) {
 	dir := t.TempDir()
 	led, err := usage.Open(filepath.Join(dir, ".usage.json"))
@@ -149,8 +151,13 @@ func TestTheRunnerTurnsASkillOffAndBackOn(t *testing.T) {
 	if !r.SkillTelemetry()["one"].Disabled {
 		t.Error("the flag did not reach the ledger")
 	}
-	if index, _ := r.Skills(); len(index) != 0 {
-		t.Errorf("index = %+v: a disabled skill must not be offered", index)
+	// The MODEL's list drops it: that is the promise the switch makes.
+	if index, _ := r.library().List(); len(index) != 0 {
+		t.Errorf("the model's index = %+v: a disabled skill must not be offered", index)
+	}
+	// The INTERFACE's list keeps it, so the badge can be drawn and the switch reversed.
+	if index, _ := r.Skills(); len(index) != 1 || index[0].Name != "one" {
+		t.Errorf("the interface's index = %+v, want the document still listed with its flag", index)
 	}
 	// And it is still openable: turned off is not deleted.
 	if _, err := r.Skill("one"); err != nil {
@@ -159,8 +166,8 @@ func TestTheRunnerTurnsASkillOffAndBackOn(t *testing.T) {
 	if err := r.SetSkillDisabled("one", false); err != nil {
 		t.Fatalf("re-enabling: %v", err)
 	}
-	if index, _ := r.Skills(); len(index) != 1 {
-		t.Errorf("index = %+v: enabling did not restore it", index)
+	if index, _ := r.library().List(); len(index) != 1 {
+		t.Errorf("the model's index = %+v: enabling did not restore it", index)
 	}
 }
 

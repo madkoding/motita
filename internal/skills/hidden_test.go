@@ -5,7 +5,10 @@ package skills
 // ways a skill reaches a session unasked are the index and the search, and the search reads the
 // index, so the filter lives in the one place both of them pass through.
 
-import "testing"
+import (
+	"sort"
+	"testing"
+)
 
 // TestHiddenDocumentsLeaveTheIndexAndTheSearch: the index and the search are how a skill arrives
 // without anyone asking for it by name, and a user who turned one off wants exactly that to stop.
@@ -91,5 +94,41 @@ func TestHiddenAlsoFiltersTheBuiltins(t *testing.T) {
 	}
 	if len(all) != 1 || all[0].Name != "mine" {
 		t.Errorf("List = %v, want only the document that was not turned off", all)
+	}
+}
+
+// TestTheCatalogKeepsWhatTheListDrops: the two lists answer different questions. List is what the
+// model is offered, and it drops a turned-off document; Catalog is what the library HOLDS, and the
+// interface that draws it has to show the turned-off document with a badge. Without Catalog the
+// switch would be one-way: the document would leave the only list the user can see, and turning it
+// back on would mean finding a file by hand.
+func TestTheCatalogKeepsWhatTheListDrops(t *testing.T) {
+	l := newLib(t)
+	if _, err := l.Save("off-one", "# Off one\n\nbody\n"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := l.Save("on-one", "# On one\n\nbody\n"); err != nil {
+		t.Fatal(err)
+	}
+	l.Hidden = func(name string) bool { return name == "off-one" }
+
+	offered, err := l.List()
+	if err != nil {
+		t.Fatalf("List: %v", err)
+	}
+	if len(offered) != 1 || offered[0].Name != "on-one" {
+		t.Errorf("List = %+v, want only the document that was not turned off", offered)
+	}
+	held, err := l.Catalog()
+	if err != nil {
+		t.Fatalf("Catalog: %v", err)
+	}
+	if len(held) != 2 {
+		t.Fatalf("Catalog = %+v, want both documents: the turned-off one has to stay listed", held)
+	}
+	names := []string{held[0].Name, held[1].Name}
+	sort.Strings(names)
+	if names[0] != "off-one" || names[1] != "on-one" {
+		t.Errorf("Catalog names = %v, want both documents", names)
 	}
 }

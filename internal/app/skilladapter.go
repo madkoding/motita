@@ -27,9 +27,15 @@ func (a skillAdapter) SaveSkill(n, b string) (skills.Skill, error) {
 }
 func (a skillAdapter) SkillTelemetry() map[string]usage.Entry { return a.runner.SkillTelemetry() }
 func (a skillAdapter) SetSkillPinned(n string, p bool) error  { return a.runner.SetSkillPinned(n, p) }
-func (a skillAdapter) ArchiveSkill(n string) error            { return a.runner.ArchiveSkill(n) }
-func (a skillAdapter) RestoreSkill(n string) error            { return a.runner.RestoreSkill(n) }
-func (a skillAdapter) ArchivedSkills() ([]string, error)      { return a.runner.ArchivedSkills() }
+func (a skillAdapter) SetSkillDisabled(n string, d bool) error {
+	return a.runner.SetSkillDisabled(n, d)
+}
+func (a skillAdapter) DeleteSkill(n string) error { return a.runner.DeleteSkill(n) }
+func (a skillAdapter) ArchiveSkill(n string) error {
+	return a.runner.ArchiveSkill(n)
+}
+func (a skillAdapter) RestoreSkill(n string) error       { return a.runner.RestoreSkill(n) }
+func (a skillAdapter) ArchivedSkills() ([]string, error) { return a.runner.ArchivedSkills() }
 
 // curatorAdapter exposes the maintenance pass. The pass needs the runner builder, which
 // lives in THIS package, so the curator is built here and the gateway only sees the two
