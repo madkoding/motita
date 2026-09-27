@@ -1,6 +1,7 @@
 package config
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -288,5 +289,81 @@ func TestResolvePathsWithNothingToAnchorOn(t *testing.T) {
 	resolvePaths(&c, "")
 	if c.Agent.WorkspaceDir != before {
 		t.Errorf("workspace = %q, want it unchanged (%q)", c.Agent.WorkspaceDir, before)
+	}
+}
+
+// --- the home the OPERATING SYSTEM knows about -------------------------------
+
+// A HOME that is set is the answer, unchanged: this is the whole of the Unix behaviour and
+// every existing test above depends on it.
+func TestHomeDirPrefersTheHomeVariable(t *testing.T) {
+	t.Setenv("HOME", "/home/alguien")
+	if got := HomeDir(); got != "/home/alguien" {
+		t.Fatalf("HomeDir() = %q, want the HOME variable", got)
+	}
+}
+
+// With no HOME the OS is asked, and this is what makes the program usable on Windows: Windows
+// does not define HOME at all, only USERPROFILE, and os.UserHomeDir is the call that knows the
+// difference.
+//
+// The seam exists because a Linux host CANNOT be made to answer USERPROFILE through
+// os.UserHomeDir() - it reads HOME there - so without replacing it the Windows branch would be
+// unreachable from the only platform CI runs on.
+func TestHomeDirFallsBackToTheOperatingSystem(t *testing.T) {
+	t.Setenv("HOME", "")
+	restore := osUserHomeDir
+	osUserHomeDir = func() (string, error) { return `C:\Users\madkoding`, nil }
+	defer func() { osUserHomeDir = restore }()
+
+	if got := HomeDir(); got != `C:\Users\madkoding` {
+		t.Fatalf("HomeDir() = %q, want the OS answer when HOME is unset", got)
+	}
+	// And the point of it: the motita home lands under that directory, which is what a Windows
+	// user never got before.
+	if got := Dir(); got != filepath.Join(`C:\Users\madkoding`, ".motita") {
+		t.Fatalf("Dir() = %q, want it under the OS home", got)
+	}
+}
+
+// A blank HOME is not a home: whitespace in it would produce a path like "  /.motita". It falls
+// through to the OS, which on a stripped Unix host answers nothing - and the empty result is
+// what tells the callers to keep their relative paths.
+func TestHomeDirIgnoresBlankHomeAndTheOsAnswer(t *testing.T) {
+	t.Setenv("HOME", "   ")
+	restore := osUserHomeDir
+	osUserHomeDir = func() (string, error) { return "", errors.New("$HOME is not defined") }
+	defer func() { osUserHomeDir = restore }()
+
+	if got := HomeDir(); got != "" {
+		t.Fatalf("HomeDir() = %q, want empty when neither answer is usable", got)
+	}
+	if got := Dir(); got != "" {
+		t.Fatalf("Dir() = %q, want empty", got)
+	}
+}
+
+// Whitespace from the OS is not a home either, for the same reason.
+func TestHomeDirIgnoresABlankOsAnswer(t *testing.T) {
+	t.Setenv("HOME", "")
+	restore := osUserHomeDir
+	osUserHomeDir = func() (string, error) { return "   ", nil }
+	defer func() { osUserHomeDir = restore }()
+
+	if got := HomeDir(); got != "" {
+		t.Fatalf("HomeDir() = %q, want empty for a blank OS answer", got)
+	}
+}
+
+// And the error from the OS is not fatal: a caller gets the empty string rather than a panic,
+// which is what lets every path default fall back to the working directory.
+func TestHomeDirWithAFailingOsCall(t *testing.T) {
+	t.Setenv("HOME", "")
+	restore := osUserHomeDir
+	osUserHomeDir = func() (string, error) { return "", errors.New("no home here") }
+	defer func() { osUserHomeDir = restore }()
+
+	if got := HomeDir(); got != "" {
+		t.Fatalf("HomeDir() = %q, want empty", got)
 	}
 }

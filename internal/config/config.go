@@ -424,19 +424,53 @@ func Default() Config {
 	}
 }
 
+// osUserHomeDir is os.UserHomeDir, and it is a variable so a test can reach the branch where
+// HOME is unset and only the operating system knows the answer. On a Linux host that branch is
+// otherwise unreachable — os.UserHomeDir reads HOME there — and a Windows-only failure is
+// exactly the one no test on this platform would ever see.
+var osUserHomeDir = os.UserHomeDir
+
+// HomeDir is the user's home directory, or the empty string when there is none.
+//
+// It is ONE function because two callers need the same answer and drifting apart is the bug
+// that matters: Dir() builds the motita home from it, and the gateway's service file must land
+// beside the rest of the program's state rather than somewhere of its own invention.
+//
+// The HOME variable is read FIRST, and that is deliberate: it is what the shell the user is in
+// exported, and on a minimal container where the user database and the environment disagree it
+// is the environment that matches what they typed. It is also what the program has always read,
+// so every existing setup keeps working exactly as it did.
+//
+// When HOME is unset the OPERATING SYSTEM is asked, and this is what makes the program usable on
+// Windows: Windows does not define HOME at all. It defines USERPROFILE, and os.UserHomeDir is
+// the standard-library call that knows the difference (HOME on Unix, USERPROFILE on Windows).
+// Without this fallback a Windows user got NO home — the configuration landed in the current
+// directory, and the sessions, projects and scheduled tasks were silently kept in memory.
+//
+// A blank or whitespace-only answer is not a home: it would produce a path like "  /.motita".
+// When neither source can answer, the empty string tells the caller to keep its relative paths,
+// which is the honest answer for a stripped environment (a cron job, a minimal container)
+// rather than a guess.
+func HomeDir() string {
+	if home := strings.TrimSpace(os.Getenv("HOME")); home != "" {
+		return home
+	}
+	if home, err := osUserHomeDir(); err == nil {
+		if trimmed := strings.TrimSpace(home); trimmed != "" {
+			return trimmed
+		}
+	}
+	return ""
+}
+
 // Dir is the default home for motita's own state: the configuration file, the workspace the
 // agent writes to, the log, and the library of skills.
 //
 // It is ~/.motita. Everything the program owns lives under one folder the user can find,
 // back up or delete as a unit, instead of the configuration landing in the current directory
 // beside whatever project happened to be open.
-//
-// The HOME variable is read rather than the OS user database, because the program runs on
-// minimal containers where the two disagree and HOME is the one that matches the shell the user
-// is in. When it is unset — a stripped environment, a cron job — there is no sensible home, and
-// the empty result tells the caller to keep the old relative paths rather than guess.
 func Dir() string {
-	if home := strings.TrimSpace(os.Getenv("HOME")); home != "" {
+	if home := HomeDir(); home != "" {
 		return filepath.Join(home, ".motita")
 	}
 	return ""
