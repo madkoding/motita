@@ -293,12 +293,16 @@ func TestABrokenUsageLedgerIsSurvivedWithoutALogger(t *testing.T) {
 //
 // The count is not the thing to assert: the store turns the shipped procedures on, so the index
 // holds them too. What changes when a document is turned off is whether THAT NAME is offered.
+//
+// The search below uses a word that is in the body of THIS document and in nothing the binary
+// ships: a shared word ("procedure", "the") matches a shipped document and the assertion then
+// fails for the wrong reason — the seam working perfectly while the message says it did not.
 func TestTheLedgerAndTheLibraryAreConnected(t *testing.T) {
 	st := Open(cfgAt(t.TempDir()), quiet(t))
 	if st.Usage == nil {
 		t.Fatal("no usage ledger")
 	}
-	if _, err := st.Library.Save("mine", "# Mine\n\nThe procedure.\n"); err != nil {
+	if _, err := st.Library.Save("mine", "# Mine\n\nThe procedure, about a zebra.\n"); err != nil {
 		t.Fatal(err)
 	}
 
@@ -310,8 +314,14 @@ func TestTheLedgerAndTheLibraryAreConnected(t *testing.T) {
 		t.Error("disabling did not reach the library's index")
 	}
 	// And the search, which is the other way a skill arrives unasked.
-	if hits, _ := st.Library.Search("procedure", 10); len(hits) != 0 {
-		t.Errorf("search = %+v: disabling did not reach the search", hits)
+	hits, err := st.Library.Search("zebra", 10)
+	if err != nil {
+		t.Fatalf("Search: %v", err)
+	}
+	for _, h := range hits {
+		if h.Name == "mine" {
+			t.Errorf("search = %+v: disabling did not reach the search", hits)
+		}
 	}
 	st.Usage.SetDisabled("mine", false)
 	if !offered(t, st, "mine") {

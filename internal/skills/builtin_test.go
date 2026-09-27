@@ -22,6 +22,11 @@ func builtinLib(t *testing.T) *Library {
 	return l
 }
 
+// webSkill is the name of the shipped procedure about reaching the network. It is a constant
+// because two tests name it: the one that checks the search finds it by the words of the job,
+// and the one that checks a fresh library ships it at all.
+const webSkill = "searching-the-web"
+
 // TestTheShippedProceduresLoad is the base case: a fresh install has something to look up. An
 // embed directive that names a folder the binary does not carry would leave the library empty
 // and say nothing, which is the failure this catches.
@@ -69,6 +74,78 @@ func TestTheShippedProceduresAreFoundByTheWordsOfTheJob(t *testing.T) {
 		if len(hits) == 0 {
 			t.Errorf("Search(%q) found nothing in a library that ships a procedure about it", q)
 		}
+	}
+}
+
+// TestTheShippedWebProcedureIsFoundByTheWordsOfTheJob: the second shipped document answers a
+// different question, and the check is on the DOCUMENT and not on "something matched". A query
+// like "search the web" also hits the file procedure, because "search" is in its text, so a test
+// that only asked for a hit would go green on the wrong answer and the web document could be
+// deleted without anything failing.
+func TestTheShippedWebProcedureIsFoundByTheWordsOfTheJob(t *testing.T) {
+	l := builtinLib(t)
+	for _, q := range []string{
+		"search the web",
+		"look up the documentation for a library",
+		"fetch a web page",
+		"research something online",
+		"check a URL",
+		"an API returns json and I need one field",
+	} {
+		hits, err := l.Search(q, 10)
+		if err != nil {
+			t.Fatalf("Search(%q): %v", q, err)
+		}
+		found := false
+		for _, h := range hits {
+			if h.Name == webSkill {
+				found = true
+			}
+		}
+		if !found {
+			t.Errorf("Search(%q) did not find %q: got %v", q, webSkill, hitNames(hits))
+		}
+	}
+}
+
+// hitNames is what a failing search message shows, so the reader can see what came back instead.
+func hitNames(hits []Skill) []string {
+	out := make([]string, 0, len(hits))
+	for _, h := range hits {
+		out = append(out, h.Name)
+	}
+	return out
+}
+
+// TestAFreshInstallShipsTheWebProcedure: the document about reaching the network is part of
+// what a fresh install starts with, and that is the whole reason it is embedded rather than
+// left to the first session that needs it. A fresh install has no `~/.motita/skills/` at all,
+// so the shipped set is the entire library — and a model that cannot search the web for a
+// version, an API shape or an error message answers from its training data instead, which is
+// exactly the failure this document exists to prevent.
+func TestAFreshInstallShipsTheWebProcedure(t *testing.T) {
+	l := builtinLib(t)
+	// The directory does not exist, which is the state of a first run.
+	got, err := l.Get(webSkill)
+	if err != nil {
+		t.Fatalf("a fresh install must ship %q: %v", webSkill, err)
+	}
+	if !strings.HasPrefix(got.Path, builtinPrefix) {
+		t.Errorf("%q came from %q, want the binary", webSkill, got.Path)
+	}
+	all, err := l.List()
+	if err != nil {
+		t.Fatalf("List: %v", err)
+	}
+	names := hitNames(all)
+	found := false
+	for _, n := range names {
+		if n == webSkill {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("the index does not offer %q: %v", webSkill, names)
 	}
 }
 

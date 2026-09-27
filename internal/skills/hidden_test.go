@@ -65,11 +65,14 @@ func TestHiddenDocumentsLeaveTheIndexAndTheSearch(t *testing.T) {
 // the two libraries it is showing, so a shipped procedure has to be turned off by the same rule.
 // A filter applied only to the directory would leave the model reading a procedure the user
 // removed from view.
+//
+// The assertion is "the named one is gone and mine is still there", NOT a count: the binary ships
+// as many procedures as it ships, and a count written against today's set would fail the next time
+// one is added — a test that breaks on a healthy change teaches the wrong reflex.
 func TestHiddenAlsoFiltersTheBuiltins(t *testing.T) {
 	l := builtinLib(t)
 	// A document of the session's own, so the listing after the filter still has something in
-	// it: the binary may ship a single procedure, and a check against an empty index would pass
-	// without asserting anything.
+	// it: a check against an empty index would pass without asserting anything.
 	if _, err := l.Save("mine", "# Mine\n\nbody\n"); err != nil {
 		t.Fatal(err)
 	}
@@ -92,9 +95,20 @@ func TestHiddenAlsoFiltersTheBuiltins(t *testing.T) {
 	if err != nil {
 		t.Fatalf("List: %v", err)
 	}
-	if len(all) != 1 || all[0].Name != "mine" {
-		t.Errorf("List = %v, want only the document that was not turned off", all)
+	for _, s := range all {
+		if s.Name == "files-and-directories" {
+			t.Errorf("a turned-off shipped procedure is still offered: %v", all)
+		}
 	}
+	if len(all) == 0 {
+		t.Error("turning one document off emptied the whole index")
+	}
+	for _, s := range all {
+		if s.Name == "mine" {
+			return
+		}
+	}
+	t.Errorf("List = %v, want the session's own document still offered", all)
 }
 
 // TestTheCatalogKeepsWhatTheListDrops: the two lists answer different questions. List is what the
