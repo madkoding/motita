@@ -513,6 +513,30 @@ case "$contrast_rc" in
   *) bad "$(printf '%s\n' "$contrast_out" | grep -E 'FAIL|VERDICT' | head -5)" ;;
 esac
 
+step "8g. the Markdown an answer is rendered with, in a real browser"
+# Every defect this covers is invisible in the markup: a diagram whose source attribute
+# was emptied by the sanitizer (its source contained `-->`, which SAFE_FOR_XML reacts
+# to), a diagram whose labels never reached the SVG while its boxes and arrows did, and
+# a formula whose raw LaTeX was printed under the typeset one. Each of those renders
+# shapes that read as correct, so the check drives a browser and measures the page.
+#
+# It brings up its own gateway under its own HOME and seeds the conversation itself, so
+# it never touches the conversations of whoever is running the gate.
+#
+# Exit 2 is "skipped" (no browser, no probe venv), the same convention the spinner and
+# modal-blur checks use - a contributor without a browser gets an honest skip instead of
+# a red gate about a feature that is fine.
+set +e
+markdown_out="$(./scripts/verify-markdown.sh 2>&1)"
+markdown_rc=$?
+set -e
+case "$markdown_rc" in
+  0) ok "$(printf '%s\n' "$markdown_out" | grep '^VERDICT:' | tail -1 | sed 's/^VERDICT: //')" ;;
+  2) printf '  skip  %s\n' "$(printf '%s\n' "$markdown_out" | grep '^SKIP' || echo 'skipped: no browser or probe venv')" ;;
+  *) bad "the Markdown rendering check failed (see the run above)"
+     printf '%s\n' "$markdown_out" | grep -E '^  FAIL|^    FAIL' | head -8 | sed 's/^/    /' ;;
+esac
+
 printf '\n========================================\n'
 if [ "$failures" -eq 0 ]; then
   echo "VERIFICATION PASSED: the repository is clean, tested and functional."

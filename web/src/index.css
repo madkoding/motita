@@ -553,13 +553,78 @@ body {
   line-height: 1.3em;
 }
 
-/* ─── Syntax highlighting tokens ────────────────────────────────── */
-.markdown-body .tk-key { color: #b078ff; font-weight: 600; }
-.markdown-body .tk-str { color: #50d878; }
-.markdown-body .tk-com { color: #6a6a7a; font-style: italic; }
-.markdown-body .tk-num { color: #ffb020; }
-.markdown-body .tk-fn  { color: #4cc2ff; }
-.markdown-body .tk-op  { color: #e8e8ea; }
+/* ─── Syntax highlighting (highlight.js) ─────────────────────────────
+ * Colours carried over from the hand-written highlighter this replaced, so a code
+ * block looks the same as it always did: keywords purple, strings green, comments
+ * grey-italic, numbers amber, functions blue. `tk-*` was its own vocabulary; these
+ * are the classes highlight.js actually emits. It is scoped to `.markdown-body` so
+ * it cannot leak into the rest of the interface. */
+.markdown-body .hljs-keyword,
+.markdown-body .hljs-selector-tag,
+.markdown-body .hljs-built_in,
+.markdown-body .hljs-name,
+.markdown-body .hljs-tag { color: #b078ff; font-weight: 600; }
+.markdown-body .hljs-string,
+.markdown-body .hljs-attr,
+.markdown-body .hljs-symbol,
+.markdown-body .hljs-template-variable,
+.markdown-body .hljs-addition { color: #50d878; }
+.markdown-body .hljs-comment,
+.markdown-body .hljs-quote,
+.markdown-body .hljs-meta { color: #6a6a7a; font-style: italic; }
+.markdown-body .hljs-number,
+.markdown-body .hljs-literal,
+.markdown-body .hljs-bullet { color: #ffb020; }
+.markdown-body .hljs-title,
+.markdown-body .hljs-function,
+.markdown-body .hljs-section,
+.markdown-body .hljs-selector-id { color: #4cc2ff; }
+.markdown-body .hljs-variable,
+.markdown-body .hljs-params,
+.markdown-body .hljs-property { color: #e8e8ea; }
+.markdown-body .hljs-type,
+.markdown-body .hljs-class .hljs-title,
+.markdown-body .hljs-title.class_ { color: #4cc2ff; font-weight: 600; }
+.markdown-body .hljs-deletion { color: #ff6b6b; }
+.markdown-body .hljs-emphasis { font-style: italic; }
+.markdown-body .hljs-strong { font-weight: 700; }
+
+/* ─── Math ─────────────────────────────────────────────────────────
+ * KaTeX is used with `output: 'mathml'`, so there are no font files to load and
+ * almost nothing to style: the browser lays the formula out from the MathML. These
+ * are the only rules it needs — `display="block"` centres, and an inline formula
+ * must not disturb the line height of the text it sits in. */
+.markdown-body .math-inline { display: inline-block; vertical-align: middle; }
+.markdown-body .math-block,
+.markdown-body .math-block math[display="block"] { display: block; margin: 4px 0; text-align: center; }
+.markdown-body .math-block { overflow-x: auto; }
+/* A formula KaTeX could not parse: shown, with the reason, rather than hidden. */
+.markdown-body .katex-error { color: #ff6b6b; background: rgba(255,107,107,0.06); padding: 1px 3px; border-radius: 3px; }
+
+/* ─── Diagrams (mermaid) ───────────────────────────────────────────
+ * The block is empty until the diagram is drawn, so it reserves nothing: an empty
+ * element with a border and a `min-height` would leave a visible gap for a
+ * conversation that has no diagrams at all. */
+.markdown-body .mermaid-block { margin: 4px 0; overflow-x: auto; }
+.markdown-body .mermaid-block svg { max-width: 100%; height: auto; }
+/* While the diagram module is being fetched there is nothing to show yet, and a
+ * spinner for something that usually resolves in milliseconds is noise. */
+.markdown-body .mermaid-block[data-done="pending"] { min-height: 0; }
+
+/* ─── What could not be rendered ───────────────────────────────────
+ * A formula, a diagram or a highlighter that failed says so, and shows the source
+ * it was given. Silently rendering nothing would leave the reader unable to tell a
+ * wrong answer from a broken page. */
+.markdown-body .render-error {
+  border-left: 2px solid #ff6b6b;
+  padding: 4px 8px;
+  margin: 4px 0;
+  background: rgba(255,107,107,0.05);
+  font-size: 0.85em;
+}
+.markdown-body .render-error p { margin: 0 0 2px; }
+.markdown-body .render-error pre { margin: 2px 0; font-size: 0.95em; }
+.markdown-body .render-error-reason { color: #ff9b9b; }
 
 /* ─── Copy buttons ──────────────────────────────────────────────── */
 .markdown-body .copy-btn {

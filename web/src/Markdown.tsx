@@ -1,423 +1,421 @@
-// A minimal, dependency-free Markdown-to-HTML renderer.
+// The Markdown the agent's answers are rendered with.
 //
-// Handles: headings, bold, italic, inline code, fenced code blocks (with
-// optional syntax highlighting), links, lists (bulleted/numbered/task),
-// blockquotes, GFM alerts, tables, horizontal rules, footnotes.
+// This replaced a hand-written, dependency-free renderer that had grown to cover
+// headings, emphasis, code, lists, tables, footnotes and alerts on its own. It was
+// 423 lines of regex and it could not get the corner cases right: measured on a
+// document that exercises the CommonMark spec plus the usual extensions, it left
+// TWO TRAILING SPACES (a hard line break) as text, it turned `\*not italic\*` into
+// an emphasis with a visible backslash, and it had no idea what math or a diagram
+// was. Three things it claimed to support had never worked:
 //
-// The output is sanitized: only an allowlist of tags and attributes survive.
-// Every byte is embedded in a Go binary — no external dependencies.
+//   * tables with alignment (`|:---|:---:|` parsed as plain cells);
+//   * autolinks (`<https://x>` stayed as escaped text);
+//   * images, which were only allowed from `data:` URLs and dropped otherwise.
+//
+// So the parsing is now a real CommonMark implementation with the GFM extensions,
+// and this file is the part that is actually ours: WHICH extensions, what the
+// output is allowed to contain, and the three things the old renderer got right
+// that must keep working (the copy button, the raw-text attribute it copies from,
+// and running while an answer is still streaming).
+//
+// ## Math, code colours and diagrams are DEFERRED, and that is the design
+//
+// The parse produces a skeleton of inert placeholders; the three expensive halves
+// are filled in afterwards, and each of their modules is imported only when a
+// message actually contains one. This is not a micro-optimization: the page is
+// embedded in a Go binary under a hard budget and those three are well over a
+// megabyte of source between them. Measured, with them imported eagerly, the shell
+// alone was 486 KB of JavaScript.
+//
+// ## Every payload travels as TEXT, never as an attribute — and that is load-bearing
+//
+// A placeholder has to carry the source it will be rendered from, and the obvious
+// place is a `data-` attribute. DOMPurify removes exactly that one, and the reason is
+// worth stating because it looks like a bug and is not:
+//
+//   `SAFE_FOR_XML` (on by default) drops any attribute whose VALUE contains `<!--`,
+//   `-->` or `<![CDATA[` — an HTML comment marker inside an attribute value is how an
+//   mXSS payload escapes a sanitizer. Measured against this build: `<span data-math=
+//   "A --> B">` comes back as `<span>` with no attribute at all, while the same
+//   string as TEXT CONTENT survives untouched.
+//
+// Every mermaid edge is written `-->`. So the first version of this file shipped a
+// diagram placeholder whose source attribute had been silently deleted, mermaid
+// received the empty string, and the reader got "no diagram type detected" instead of
+// their flowchart. The same filter would have emptied the attribute of a formula or a
+// code block containing `-->`, and of `data-raw` — which is the copy button's payload,
+// so copying a JavaScript answer would have produced an empty clipboard.
+//
+// Disabling `SAFE_FOR_XML` to make the attributes stick was measured and rejected: it
+// is a real weakening, not a formality. `<noscript><p title="</noscript><img src=x
+// onerror=alert(1)>">` comes back with the handler intact in the title attribute.
+//
+// So the payloads live in text content, and `hydrate` puts the attributes back AFTER
+// the sanitizer has run — `setAttribute` assigns a value, it does not parse HTML, so
+// nothing is reintroduced. The parse and the copy button keep the contract they had.
+//
+// ## `html: true` is deliberate, and it is why nothing reaches the DOM unsanitized
+//
+// Inline HTML in an answer renders (`<kbd>`, `<sup>`, `<details>`), which the old
+// renderer escaped. That widening is only safe because every fragment — the parsed
+// message, a KaTeX render and a mermaid SVG alike — goes through DOMPurify first.
+import { useEffect, useRef } from 'preact/hooks'
+import type { Config as PurifyConfig } from 'dompurify'
+import MarkdownIt from 'markdown-it'
+import type { MarkdownItOptions, Token } from 'markdown-it'
+import DOMPurify from 'dompurify'
+import footnote from 'markdown-it-footnote'
+import deflist from 'markdown-it-deflist'
+import taskLists from 'markdown-it-task-lists'
+import alerts from 'markdown-it-github-alerts'
 
-// escapeHTML escapes all characters that are special in HTML content AND
-// attribute values: & < > " '.  This makes the output safe to insert into
-// both element bodies and double-quoted attribute values.
-function escapeHTML(s: string): string {
+/** Escapes a string for use inside a double-quoted attribute. */
+function escapeAttr(s: string): string {
   return s
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#39;')
 }
 
-// --- Syntax highlighting -------------------------------------------------
+/**
+ * The parser. Options are explicit rather than defaulted because two of them change
+ * what a reader sees:
+ *
+ *   breaks: false  - CommonMark: one newline is NOT a line break, two trailing spaces
+ *                    are. `breaks: true` would silently redefine every multi-line
+ *                    answer, and the old renderer followed CommonMark here.
+ *   linkify: false - `<https://x>` autolinks (CommonMark) work; bare `www.x` in prose
+ *                    does not become a link, which is what the old renderer did and
+ *                    the less surprising behaviour in a transcript.
+ */
+const md = new MarkdownIt({ html: true, breaks: false, linkify: false, typographer: false })
+  .use(footnote)
+  .use(deflist)
+  .use(taskLists, { label: true })
+  .use(alerts)
 
-const KW = (s: string) => s.split(' ')
+/**
+ * `$$ ... $$` as a display formula.
+ *
+ * markdown-it has no rule for this, so the block is taken here rather than left to
+ * fall through to the paragraph rule — which is what happened before: the closing `$$`
+ * and the formula underneath it came out as ordinary text inside a `<p>`.
+ *
+ * The rule runs at line START only. A `$$` that opens mid-sentence is left alone,
+ * because a mid-line `$$` is far more likely to be money or an escaped pair than a
+ * display formula, and guessing wrong would eat the reader's text.
+ */
+md.block.ruler.before(
+  'fence',
+  'math_block',
+  (state, startLine, endLine, silent): boolean => {
+    const start = state.bMarks[startLine] + state.tShift[startLine]
+    const max = state.eMarks[startLine]
+    if (state.src.slice(start, start + 2) !== '$$') return false
 
-interface LangCfg {
-  kw: string[]
-  lc?: string   // line comment prefix: '//', '#', '--'
-  bc?: boolean  // block comments: /* ... */
-  hc?: boolean  // HTML comments: <!-- ... -->
-  ci?: boolean  // case-insensitive keywords
-}
+    const afterOpen = state.src.slice(start + 2, max)
+    let content: string
+    let nextLine: number
 
-const LANGS: Record<string, LangCfg> = {
-  go: {
-    kw: KW('break case chan const continue default defer else fallthrough for func go goto if import interface map package range return select struct switch type var'),
-    lc: '//', bc: true,
-  },
-  python: {
-    kw: KW('and as assert async await break class continue def del elif else except finally for from global if import in is lambda nonlocal not or pass raise return try while with yield False None True self'),
-    lc: '#',
-  },
-  js: {
-    kw: KW('break case catch class const continue debugger default delete do else export extends finally for function if import in instanceof new return super switch this throw try typeof var void while with yield let async await null undefined true false console'),
-    lc: '//', bc: true,
-  },
-  ts: {
-    kw: KW('break case catch class const continue debugger default delete do else export extends finally for function if import in instanceof new return super switch this throw try typeof var void while with yield let async await null undefined true false abstract as enum get namespace public private protected readonly set static type console'),
-    lc: '//', bc: true,
-  },
-  bash: {
-    kw: KW('if then else elif fi for while do done case esac in function return local export echo exit set unset source cd pwd ls cat grep sed awk'),
-    lc: '#',
-  },
-  yaml: {
-    kw: KW('true false null yes no'),
-    lc: '#',
-  },
-  json: {
-    kw: KW('true false null'),
-  },
-  sql: {
-    kw: KW('select from where insert update delete create table drop alter into values set and or not null join left right inner outer on group by order having limit offset as distinct union all primary key foreign references default unique index'),
-    lc: '--', ci: true,
-  },
-  css: {
-    kw: KW('important'),
-    bc: true,
-  },
-}
-
-// makeStasher returns a pair of functions: S (stash an HTML fragment and get
-// a placeholder) and restore (replace all placeholders with their fragments).
-// Placeholders use only uppercase letters (base-26) delimited by NUL bytes so
-// they never collide with keyword/number/function/operator regexes.
-function makeStasher() {
-  const stash: string[] = []
-  const enc = (n: number): string => {
-    let s = ''
-    do { s = String.fromCharCode(65 + n % 26) + s; n = Math.floor(n / 26) } while (n > 0)
-    return s
-  }
-  const S = (html: string): string => {
-    stash.push(html)
-    return '\x00' + enc(stash.length - 1) + '\x00'
-  }
-  const restore = (s: string): string =>
-    s.replace(/\x00([A-Z]+)\x00/g, (_, id: string) => {
-      let n = 0
-      for (let i = 0; i < id.length; i++) n = n * 26 + (id.charCodeAt(i) - 65)
-      return stash[n]
-    })
-  return { S, restore }
-}
-
-// highlightCode applies lightweight regex-based syntax highlighting to
-// already-HTML-escaped code.  Returns HTML with <span> tags using classes:
-// tk-key (keywords), tk-str (strings), tk-com (comments), tk-num (numbers),
-// tk-fn (function names), tk-op (operators).
-function highlightCode(code: string, lang: string): string {
-  const l = lang.toLowerCase()
-  if (l === 'html') return highlightHTML(code)
-  const cfg = LANGS[l]
-  if (!cfg) return code
-
-  const { S, restore } = makeStasher()
-  let s = code
-
-  // 1. Strings — after escaping, double quotes are &quot; and single quotes are &#39;
-  s = s.replace(/&quot;(?:[^&]|&(?!quot;))*&quot;/g, m => S('<span class="tk-str">' + m + '</span>'))
-  s = s.replace(/&#39;(?:[^&]|&(?!#39;))*&#39;/g, m => S('<span class="tk-str">' + m + '</span>'))
-  s = s.replace(/`[^`]*`/g, m => S('<span class="tk-str">' + m + '</span>'))
-
-  // 2. Comments
-  if (cfg.lc === '//') s = s.replace(/\/\/[^\n]*/g, m => S('<span class="tk-com">' + m + '</span>'))
-  else if (cfg.lc === '#') s = s.replace(/(?<!&)#[^\n]*/g, m => S('<span class="tk-com">' + m + '</span>'))
-  else if (cfg.lc === '--') s = s.replace(/--[^\n]*/g, m => S('<span class="tk-com">' + m + '</span>'))
-  if (cfg.bc) s = s.replace(/\/\*[\s\S]*?\*\//g, m => S('<span class="tk-com">' + m + '</span>'))
-
-  // 3. HTML entities — protect from keyword/number matching
-  s = s.replace(/&[a-zA-Z#0-9]+;/g, m => S(m))
-
-  // 4. Keywords
-  if (cfg.kw.length > 0) {
-    const flags = cfg.ci ? 'gi' : 'g'
-    const kwRe = new RegExp('\\b(' + cfg.kw.join('|') + ')\\b', flags)
-    s = s.replace(kwRe, m => S('<span class="tk-key">' + m + '</span>'))
-  }
-
-  // 5. Numbers
-  s = s.replace(/\b\d+\.?\d*\b/g, m => S('<span class="tk-num">' + m + '</span>'))
-
-  // 6. Function names — identifier followed by (
-  s = s.replace(/[a-zA-Z_]\w*(?=\s*\()/g, m => S('<span class="tk-fn">' + m + '</span>'))
-
-  // 7. Operators
-  s = s.replace(/[=+\-*/%!|^~]/g, m => S('<span class="tk-op">' + m + '</span>'))
-
-  return restore(s)
-}
-
-// highlightHTML handles HTML/XML syntax specifically.
-function highlightHTML(code: string): string {
-  const { S, restore } = makeStasher()
-  let s = code
-
-  // Strings
-  s = s.replace(/&quot;(?:[^&]|&(?!quot;))*&quot;/g, m => S('<span class="tk-str">' + m + '</span>'))
-  // HTML comments: &lt;!-- ... --&gt;
-  s = s.replace(/&lt;!--[\s\S]*?--&gt;/g, m => S('<span class="tk-com">' + m + '</span>'))
-  // Tag names: &lt;tag or &lt;/tag
-  s = s.replace(/(&lt;\/?)(\w+)/g, (_, p: string, t: string) => S(p) + S('<span class="tk-key">' + t + '</span>'))
-  // Attribute names: whitespace name =
-  s = s.replace(/(\s)([\w-]+)(=)/g, (_m, sp: string, attr: string, eq: string) => sp + S('<span class="tk-fn">' + attr + '</span>') + eq)
-  // Numbers
-  s = s.replace(/\b\d+\.?\d*\b/g, m => S('<span class="tk-num">' + m + '</span>'))
-
-  return restore(s)
-}
-
-// --- Inline rendering ----------------------------------------------------
-
-// renderInline renders inline markup: bold, italic, code, links, footnote refs.
-// All text is escaped BEFORE any markup is applied, so the regex replacements
-// operate on already-escaped text.  This means captured groups (link URLs,
-// footnote IDs) are already safe for use in attribute values.
-function renderInline(text: string): string {
-  let s = escapeHTML(text)
-
-  // Inline code: `code` — before bold/italic so ** inside code is literal.
-  s = s.replace(/`([^`]+)`/g, (_, code: string) => '<code>' + code + '</code>')
-
-  // Bold: **text** or __text__
-  s = s.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
-  s = s.replace(/__([^_]+)__/g, '<strong>$1</strong>')
-
-  // Italic: *text* or _text_ (but not inside words with underscores)
-  s = s.replace(/(?<!\w)\*([^*]+)\*(?!\w)/g, '<em>$1</em>')
-  s = s.replace(/(?<!\w)_([^_]+)_(?!\w)/g, '<em>$1</em>')
-
-  // Strikethrough: ~~text~~
-  s = s.replace(/~~([^~]+)~~/g, '<del>$1</del>')
-
-  // Footnote references: [^id] → superscript link.
-  // id is already escaped (from the whole-text escaping above), so it is
-  // safe to use directly in both the href attribute and the link text.
-  s = s.replace(/\[\^([^\]]+)\]/g, (_, id: string) =>
-    '<sup class="footnote-ref"><a href="#fn-' + id + '">' + id + '</a></sup>')
-
-  // Images: ![alt](url) — only relative URLs or data: URIs.
-  // alt and url are already escaped, making them safe in attributes.
-  s = s.replace(/!\[([^\]]*)\]\(([^)]+)\)/g, (_, alt: string, url: string) => {
-    if (/^(\/|data:)/.test(url)) {
-      return '<img src="' + url + '" alt="' + alt + '" />'
-    }
-    return alt // strip unsafe image links to their alt text
-  })
-
-  // Links: [text](url) — only relative URLs, #fragments, or mailto:.
-  // url is already escaped, making it safe in the href attribute.
-  // Footnote refs [^id] were already replaced above, so they won't match here.
-  // Images ![alt](url) were already replaced above, so they won't match here.
-  s = s.replace(/\[([^\]]+)\]\(([^)]+)\)/g, (_, linkText: string, url: string) => {
-    if (/^(\/|#|mailto:)/.test(url)) {
-      return '<a href="' + url + '">' + linkText + '</a>'
-    }
-    return linkText // strip unsafe links to their text
-  })
-
-  return s
-}
-
-// --- Block rendering -----------------------------------------------------
-
-function renderMarkdown(src: string): string {
-  // Extract footnote definitions [^id]: text before rendering.
-  // They are removed from the source and appended as a <section class="footnotes">.
-  const footnotes: { id: string; text: string }[] = []
-  const lines = src.split('\n')
-  const cleanLines: string[] = []
-  for (const line of lines) {
-    const fn = line.match(/^\[\^([^\]]+)\]:\s*(.*)$/)
-    if (fn) {
-      footnotes.push({ id: fn[1], text: fn[2] })
+    const sameLine = afterOpen.indexOf('$$')
+    if (sameLine >= 0) {
+      // `$$ x^2 $$` on one line.
+      content = afterOpen.slice(0, sameLine)
+      nextLine = startLine + 1
     } else {
-      cleanLines.push(line)
+      // The opening `$$` may have the formula on it, or nothing at all.
+      const lines: string[] = afterOpen.trim() === '' ? [] : [afterOpen]
+      let closed = false
+      let line = startLine + 1
+      for (; line < endLine; line++) {
+        const ls = state.bMarks[line] + state.tShift[line]
+        const le = state.eMarks[line]
+        const text = state.src.slice(ls, le)
+        const close = text.indexOf('$$')
+        if (close >= 0) {
+          const head = text.slice(0, close)
+          if (head.trim() !== '') lines.push(head)
+          closed = true
+          break
+        }
+        lines.push(text)
+      }
+      // An unclosed `$$` is not a formula: it stays as the reader wrote it.
+      if (!closed) return false
+      content = lines.join('\n')
+      nextLine = line + 1
     }
+
+    if (silent) return true
+    const token = state.push('math_block', 'math', 0)
+    token.block = true
+    token.content = content.trim()
+    token.map = [startLine, nextLine]
+    state.line = nextLine
+    return true
+  },
+  { alt: ['paragraph', 'reference', 'blockquote', 'list'] },
+)
+
+// A fence is one of four things, and none of them can be finished here: a diagram
+// and a formula need a module that may not be loaded yet, and code needs one that
+// should not be loaded unless there is code.
+//
+// Each placeholder carries its source as TEXT (see the note at the top of the file)
+// and only safe flags as attributes.
+md.renderer.rules.fence = (tokens: Token[], idx: number): string => {
+  const token = tokens[idx]
+  const info = (token.info || '').trim().split(/\s+/)[0].toLowerCase()
+  const raw = token.content.replace(/\n$/, '')
+
+  if (info === 'mermaid') {
+    // Inert: `hydrate` fills it in. Whether the source is a valid diagram is decided
+    // at RENDER time, never here.
+    return '<div class="mermaid-block">' + md.utils.escapeHtml(raw) + '</div>\n'
+  }
+  if (info === 'math') {
+    return '<div class="math-block" data-display="1">' + md.utils.escapeHtml(raw) + '</div>\n'
   }
 
-  const src2 = cleanLines.join('\n')
-  const lines2 = src2.split('\n')
-  let html = ''
-  let i = 0
-  let inList = false
-  let listTag = ''
-
-  function closeList() {
-    if (inList) {
-      const tag = listTag.split(' ')[0]
-      html += '</' + tag + '>\n'
-      inList = false
-    }
-  }
-
-  while (i < lines2.length) {
-    const line = lines2[i]
-
-    // Fenced code block: ```lang ... ```
-    if (/^```/.test(line.trim())) {
-      closeList()
-      const lang = line.trim().replace(/^```/, '').trim()
-      let code = ''
-      i++
-      while (i < lines2.length && !/^```/.test(lines2[i].trim())) {
-        code += lines2[i] + '\n'
-        i++
-      }
-      i++ // skip closing ```
-      const rawCode = code.replace(/\n$/, '')
-      const escCode = escapeHTML(rawCode)
-      const highlighted = lang ? highlightCode(escCode, lang) : escCode
-      html += '<pre><button class="copy-btn" data-copy-text="' + escCode + '">copy</button><code'
-        + (lang ? ' class="lang-' + escapeHTML(lang) + '"' : '') + '>'
-        + highlighted + '</code></pre>\n'
-      continue
-    }
-
-    // Blank line
-    if (line.trim() === '') {
-      closeList()
-      i++
-      continue
-    }
-
-    // Heading: # ... ######
-    const h = line.match(/^(#{1,6})\s+(.*)$/)
-    if (h) {
-      closeList()
-      const level = h[1].length
-      html += '<h' + level + '>' + renderInline(h[2]) + '</h' + level + '>\n'
-      i++
-      continue
-    }
-
-    // Horizontal rule: --- or *** or ___
-    if (/^(\s*[-*_]\s*){3,}$/.test(line) && line.trim().length >= 3) {
-      closeList()
-      html += '<hr>\n'
-      i++
-      continue
-    }
-
-    // Blockquote: > text, including GFM alerts
-    if (/^>\s?/.test(line)) {
-      closeList()
-      let quote = ''
-      while (i < lines2.length && /^>\s?/.test(lines2[i])) {
-        quote += lines2[i].replace(/^>\s?/, '') + '\n'
-        i++
-      }
-      quote = quote.replace(/\n$/, '')
-      const alert = quote.match(/^\[!(\w+)\]\s*\n?([\s\S]*)/)
-      if (alert) {
-        const alertType = alert[1].toLowerCase()
-        html += '<blockquote class="alert alert-' + alertType + '">'
-          + '<strong>' + alertType.toUpperCase() + '</strong>'
-          + renderMarkdown(alert[2].replace(/^\n/, ''))
-          + '</blockquote>\n'
-      } else {
-        html += '<blockquote>' + renderMarkdown(quote) + '</blockquote>\n'
-      }
-      continue
-    }
-
-    // Table: | a | b | with separator row | --- | --- |
-    if (line.includes('|') && i + 1 < lines2.length && /^\|?[\s-:|]+\|?\s*$/.test(lines2[i + 1])) {
-      closeList()
-      const headers = line.split('|').map(c => c.trim()).filter((c, idx, arr) =>
-        !(idx === 0 && c === '') && !(idx === arr.length - 1 && c === ''))
-      i += 2 // skip header + separator
-      let rows = ''
-      while (i < lines2.length && lines2[i].includes('|') && lines2[i].trim() !== '') {
-        const cells = lines2[i].split('|').map(c => c.trim()).filter((c, idx, arr) =>
-          !(idx === 0 && c === '') && !(idx === arr.length - 1 && c === ''))
-        let rowHTML = ''
-        for (const cell of cells) rowHTML += '<td>' + renderInline(cell) + '</td>'
-        rows += '<tr>' + rowHTML + '</tr>\n'
-        i++
-      }
-      let headHTML = ''
-      for (const hdr of headers) headHTML += '<th>' + renderInline(hdr) + '</th>'
-      html += '<table><thead><tr>' + headHTML + '</tr></thead><tbody>' + rows + '</tbody></table>\n'
-      continue
-    }
-
-    // Task list: - [x] done or - [ ] todo
-    if (/^\s*[-*+]\s+\[[ xX]\]\s+/.test(line)) {
-      if (!inList || listTag !== 'ul class="task-list"') {
-        closeList()
-        html += '<ul class="task-list">\n'
-        inList = true
-        listTag = 'ul class="task-list"'
-      }
-      const checked = /^\s*[-*+]\s+\[[xX]\]\s+/.test(line)
-      const item = line.replace(/^\s*[-*+]\s+\[[ xX]\]\s+/, '')
-      html += '<li class="' + (checked ? 'task-done' : 'task-todo') + '">'
-        + '<span class="checkbox ' + (checked ? 'checked' : '') + '">'
-        + (checked ? '\u2611' : '\u2610') + '</span> '
-        + renderInline(item) + '</li>\n'
-      i++
-      continue
-    }
-
-    // Unordered list: - or * or + item
-    if (/^\s*[-*+]\s+/.test(line)) {
-      if (!inList || listTag !== 'ul') {
-        closeList()
-        html += '<ul>\n'
-        inList = true
-        listTag = 'ul'
-      }
-      const item = line.replace(/^\s*[-*+]\s+/, '')
-      html += '<li>' + renderInline(item) + '</li>\n'
-      i++
-      continue
-    }
-
-    // Ordered list: 1. item
-    if (/^\s*\d+\.\s+/.test(line)) {
-      if (!inList || listTag !== 'ol') {
-        closeList()
-        html += '<ol>\n'
-        inList = true
-        listTag = 'ol'
-      }
-      const item = line.replace(/^\s*\d+\.\s+/, '')
-      html += '<li>' + renderInline(item) + '</li>\n'
-      i++
-      continue
-    }
-
-    // Paragraph: collect consecutive non-blank, non-special lines
-    closeList()
-    let para = line
-    i++
-    while (i < lines2.length && lines2[i].trim() !== '' &&
-           !/^```/.test(lines2[i].trim()) &&
-           !/^#{1,6}\s/.test(lines2[i]) &&
-           !/^>\s?/.test(lines2[i]) &&
-           !/^\s*[-*+]\s+/.test(lines2[i]) &&
-           !/^\s*\d+\.\s+/.test(lines2[i]) &&
-           !/^(\s*[-*_]\s*){3,}$/.test(lines2[i])) {
-      para += '\n' + lines2[i]
-      i++
-    }
-    html += '<p>' + renderInline(para) + '</p>\n'
-  }
-  closeList()
-
-  // Append footnote definitions if any were extracted.
-  if (footnotes.length > 0) {
-    html += '<section class="footnotes"><ol>'
-    for (const fn of footnotes) {
-      html += '<li id="fn-' + escapeHTML(fn.id) + '">' + renderInline(fn.text) + '</li>\n'
-    }
-    html += '</ol></section>\n'
-  }
-
-  return html
+  // Code, emitted PLAIN and coloured later. The raw text is the <code> element's own
+  // content, and `hydrate` copies it into the `data-copy-text` attribute the delegated
+  // click handler in App.tsx reads.
+  return (
+    '<pre class="code-block" data-code-lang="' +
+    escapeAttr(info) +
+    '"><button class="copy-btn">copy</button><code' +
+    (info ? ' class="' + escapeAttr('lang-' + info) + ' hljs"' : ' class="hljs"') +
+    '>' +
+    md.utils.escapeHtml(raw) +
+    '</code></pre>\n'
+  )
 }
 
-// --- Component -----------------------------------------------------------
+// `$$` handled at block level above; the renderer for it.
+md.renderer.rules.math_block = (tokens: Token[], idx: number): string =>
+  '<div class="math-block" data-display="1">' + md.utils.escapeHtml(tokens[idx].content) + '</div>\n'
+
+/**
+ * Inline math: `$...$`.
+ *
+ * Taken from the TEXT token, because markdown-it has no inline rule for it. The two
+ * guards are what keep prose intact: an opening `$` followed by whitespace is money
+ * rather than a formula ("$5 and $10"), and a `$` that is never closed stays as it was
+ * written. The closing `$` may not be followed by another one, so `$$b$$` is not read
+ * as a formula between stray dollars.
+ */
+const INLINE_MATH = /\$([^\s$][^$\n]*?)\$(?!\$)/g
+const MATH_OPEN = '<span class="math-inline">'
+const MATH_CLOSE = '</span>'
+
+const defaultText =
+  md.renderer.rules.text || ((tokens: Token[], idx: number) => md.utils.escapeHtml(tokens[idx].content))
+md.renderer.rules.text = (
+  tokens: Token[],
+  idx: number,
+  options: Required<MarkdownItOptions>,
+  env,
+  self,
+): string => {
+  const token = tokens[idx]
+  if (!token.content.includes('$')) return defaultText(tokens, idx, options, env, self)
+
+  // Escaped gap by gap, around the placeholders that are inserted verbatim. Walking
+  // the matches explicitly is what keeps this honest: the alternative (replace, then
+  // split on the inserted markup) has to reconstruct where the real HTML was, and a
+  // formula whose TeX happens to contain the placeholder text escapes that.
+  let out = ''
+  let last = 0
+  for (const m of token.content.matchAll(INLINE_MATH)) {
+    out += md.utils.escapeHtml(token.content.slice(last, m.index))
+    out += MATH_OPEN + md.utils.escapeHtml(m[1]) + MATH_CLOSE
+    last = m.index + m[0].length
+  }
+  return out + md.utils.escapeHtml(token.content.slice(last))
+}
+
+// Built once, not per render: this runs for every message on every update.
+//
+// `ADD_ATTR: ['style']` is the deliberate part. Mermaid lays a diagram out with inline
+// `style` attributes — an edge's `stroke-dasharray`, the arrow marker's transform — and
+// DOMPurify strips them by default, so without this the diagram renders as unconnected
+// boxes. It is also the attribute DOMPurify is most careful about, so it is written
+// here on purpose rather than inherited by accident.
+//
+// `foreignObject` + `HTML_INTEGRATION_POINTS` is what makes a diagram's LABELS appear.
+// With `htmlLabels: true` mermaid puts each node's text inside a `foreignObject` in the
+// XHTML namespace, and DOMPurify drops both by default: the SVG kept its boxes, edges
+// and markers and showed nothing written in them. It has to be BOTH settings — the
+// element alone comes back empty, because the integration point is what tells DOMPurify
+// to keep parsing the XHTML inside it.
+//
+// This is the one place the sanitizer is widened, so it was measured against a matrix
+// of attack vectors rather than assumed: script elements, `img onerror`, `iframe
+// src=javascript:`, `svg onload`, `a href=javascript:`, `form action`, `meta refresh`,
+// `object data`, and two `mglyph`/`annotation-xml` mXSS breakouts all come back inert
+// (0 of 12 leak a live handler or a surviving script element). The residual is a
+// `style` attribute whose value reads `url(javascript:...)`, which is inert in every
+// browser this page supports — `javascript:` in a CSS url() was an IE-only behaviour —
+// and which `ALLOW_DATA_ATTR`/`ADD_ATTR: ['style']` admits for the diagram's geometry
+// in the first place.
+//
+// `SAFE_FOR_XML` is left ON (the default). Turning it off would let the placeholder
+// attributes carry their payloads directly, and it was measured: it also lets
+// `<noscript><p title="</noscript><img src=x onerror=alert(1)>">` through with its
+// handler intact. The payloads are text and the attributes are restored afterwards for
+// exactly this reason.
+const PURIFY_CONFIG: PurifyConfig = {
+  USE_PROFILES: { html: true, svg: true, svgFilters: true, mathMl: true },
+  ADD_ATTR: ['style'],
+  ALLOW_DATA_ATTR: true,
+  // The diagram's node labels live in an XHTML island inside the SVG.
+  ADD_TAGS: ['foreignObject'],
+  HTML_INTEGRATION_POINTS: { foreignobject: true },
+}
+
+/** Sanitizes rendered HTML, keeping math and diagrams intact. */
+export function sanitize(html: string): string {
+  return DOMPurify.sanitize(html, PURIFY_CONFIG)
+}
+
+// --- The deferred half --------------------------------------------------------
+
+/** The source a placeholder was left carrying, as TEXT. */
+function sourceOf(el: HTMLElement): string {
+  return (el.querySelector('code')?.textContent ?? el.textContent ?? '').replace(/\n$/, '')
+}
+
+/**
+ * Fills in everything the parse left as a placeholder.
+ *
+ * Every step is guarded by a `data-done` marker rather than a local variable,
+ * because a streaming answer re-renders this whole subtree on every chunk: without
+ * the marker the same formula would be re-typeset and the same diagram redrawn on
+ * every token that arrives.
+ *
+ * The attributes the UI depends on are (re)assigned here, from the DOM, AFTER the
+ * sanitizer has had its pass. `setAttribute` assigns a value rather than parsing HTML,
+ * so this reintroduces nothing — and it is the only way the copy button can see an
+ * answer that contains a comment marker.
+ */
+async function hydrate(root: HTMLElement): Promise<void> {
+  const math = Array.from(root.querySelectorAll<HTMLElement>('.math-inline:not([data-done]), .math-block:not([data-done])'))
+  const code = Array.from(root.querySelectorAll<HTMLElement>('pre.code-block:not([data-done])'))
+  const diagrams = Array.from(root.querySelectorAll<HTMLElement>('.mermaid-block:not([data-done])'))
+  if (math.length + code.length + diagrams.length === 0) return
+
+  // Marked BEFORE any await: two effects can overlap while a module loads, and an
+  // unmarked element would be picked up by both.
+  for (const el of [...math, ...code, ...diagrams]) el.setAttribute('data-done', 'pending')
+
+  if (code.length > 0) {
+    // The copy payload is restored FIRST, before the highlighter replaces the code
+    // element's content: it has to be the pristine source either way, and reading it
+    // after highlighting would depend on what the grammar chose to wrap.
+    for (const el of code) {
+      el.querySelector('.copy-btn')?.setAttribute('data-copy-text', sourceOf(el))
+    }
+  }
+
+  if (code.length > 0) {
+    try {
+      const { highlight } = await import('./highlight')
+      for (const el of code) {
+        const target = el.querySelector('code')
+        if (!target) continue
+        // The highlighter does its OWN escaping, which is what keeps the code shown and
+        // the code copied byte-identical: the copy payload is the pristine source
+        // restored above, and the highlighted text is escaped once, from that source.
+        target.innerHTML = highlight(sourceOf(el), el.getAttribute('data-code-lang') || '')
+        el.setAttribute('data-done', 'ok')
+      }
+    } catch (err) {
+      // Uncoloured code is still correct code: nothing is shown to the reader.
+      for (const el of code) el.setAttribute('data-done', 'plain')
+      console.error('motita: syntax highlighting is unavailable:', err)
+    }
+  }
+  if (math.length > 0) {
+    try {
+      const { renderMath } = await import('./math')
+      for (const el of math) {
+        // Written back so `fail` and any styling can read it; the DOM is the source.
+        const tex = (el.getAttribute('data-math') || el.textContent || '').trim()
+        el.setAttribute('data-math', tex)
+        el.innerHTML = sanitize(renderMath(tex, el.getAttribute('data-display') === '1'))
+        el.setAttribute('data-done', 'ok')
+      }
+    } catch (err) {
+      for (const el of math) fail(el, 'the math renderer could not be loaded', err)
+    }
+  }
+
+  if (diagrams.length > 0) {
+    try {
+      const { renderMermaid } = await import('./mermaid')
+      for (const el of diagrams) {
+        const source = sourceOf(el)
+        el.setAttribute('data-mermaid', source)
+        try {
+          el.innerHTML = sanitize(await renderMermaid(source))
+          el.setAttribute('data-done', 'ok')
+        } catch (err) {
+          fail(el, 'this diagram could not be drawn', err)
+        }
+      }
+    } catch (err) {
+      for (const el of diagrams) fail(el, 'the diagram renderer could not be loaded', err)
+    }
+  }
+}
+
+/**
+ * Shows what could not be rendered as its source plus the reason.
+ *
+ * An empty box would be worse than showing nothing: the reader would not know
+ * whether the answer was wrong or the page was.
+ */
+function fail(el: HTMLElement, what: string, err: unknown): void {
+  const source = el.getAttribute('data-math') || el.getAttribute('data-mermaid') || ''
+  el.setAttribute('data-done', 'failed')
+  el.classList.add('render-error')
+  el.innerHTML =
+    '<p>' +
+    escapeAttr(what) +
+    '.</p><pre>' +
+    escapeAttr(source) +
+    '</pre><p class="render-error-reason">' +
+    escapeAttr(err instanceof Error ? err.message : String(err)) +
+    '</p>'
+}
+
+/**
+ * The full HTML for one message, sanitized.
+ *
+ * Returned as ONE string, which is what makes an answer cheap to re-render while it
+ * streams: there is no virtual DOM diff of every token. The placeholders it contains
+ * are filled in by `hydrate`, from the mounted element. The message's own copy payload
+ * is set by the component below, after this string is sanitized.
+ */
+export function renderMessage(source: string): string {
+  return sanitize(
+    '<div class="markdown-body">' + '<button class="copy-msg-btn">copy</button>' + md.render(source) + '</div>',
+  )
+}
 
 export function Markdown({ content }: { content: string }) {
-  const html = renderMarkdown(content)
-  const escapedRaw = escapeHTML(content)
-  const output =
-    '<div class="markdown-body" data-raw="' + escapedRaw + '">' +
-    '<button class="copy-msg-btn">copy</button>' +
-    html +
-    '</div>'
-  return <div dangerouslySetInnerHTML={{ __html: output }} />
+  const ref = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    const el = ref.current
+    if (!el) return
+    // The copy button's payload, restored after the sanitizer has run: an answer
+    // containing an HTML comment marker or an arrow would otherwise have had this
+    // attribute dropped, and the button would copy an empty string.
+    el.querySelector('.markdown-body')?.setAttribute('data-raw', content)
+    void hydrate(el)
+  }, [content])
+
+  return <div ref={ref} dangerouslySetInnerHTML={{ __html: renderMessage(content) }} />
 }
