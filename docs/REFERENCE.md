@@ -946,6 +946,8 @@ curator:
 | `GET /v1/skills/{name}` | one document, **with its body** |
 | `POST /v1/skills` | write one: `name`, `body` — creates or replaces |
 | `POST /v1/skills/{name}/pin` | `{"pinned":true}` exempts it from every automatic transition |
+| `POST /v1/skills/{name}/disable` | `{"disabled":true}` stops the agent seeing it: still listed, still readable, one click back |
+| `DELETE /v1/skills/{name}` | delete one for good, telemetry included; a shipped procedure is refused with `409` |
 | `GET /v1/skills/archived` | the names of everything in the archive |
 | `POST /v1/skills/{name}/restore` | bring an archived document back |
 | `GET /v1/curator` | the thresholds, the last pass, and the lifecycle counts |
@@ -987,21 +989,36 @@ is filesystem work, and requiring a model to sort files is requiring a model to 
 something that does not use one. `--consolidate` is the exception, deliberately: that
 IS the path that talks to a model, so it is the one that needs the key.
 
+**Turning a skill off is not archiving it.** `{"disabled":true}` takes the document out
+of the index and out of the search — the two doors the model reaches the library
+through — and leaves it exactly where it is: still listed in the interface (badged
+`off`), still openable by name, and exempt from every automatic transition, like a
+pinned one. It is for a procedure that is right but wrong for now.
+
+**Deleting is the one thing that cannot be taken back**, and it is the only operation
+that keeps nothing: the document and its telemetry both go. A shipped procedure is
+refused with `409` — it lives inside the binary, and reporting success for a deletion
+that did not happen is the one answer worth less than the refusal.
+
 **The curator never deletes.** A document that ages out is *moved* to `.archive/`
 inside the skills directory, and `POST /v1/skills/{name}/restore` (or
 `motita curator restore`) puts it back. There is no automatic transition that ends in
 a missing file, because the pass runs without anybody watching: a maintenance job that
-can discard work is a maintenance job nobody leaves switched on.
+can discard work is a maintenance job nobody leaves switched on. The **user** is the
+one who can delete, from the interface that asks for a confirmation first, and that is
+the only route to a missing file in this library.
 
 **Only agent-written documents are aged.** The pass reads `created_by` off the ledger
 and skips everything else: a document you wrote by hand is yours, and the machine does
 not get to call it stale. Setting `pinned` takes a document out of the pass entirely.
 
 The status codes are the ordinary ones, and they are worth naming because a client
-has to tell them apart: `201` when `POST /v1/skills` creates, `204` from `pin` and
-`restore`, `404` for a name that is not there, and `501` from every endpoint when the
-process was started without a library at all — which is a different answer from "the
-library is empty", and the reason a front end can say which one it is looking at.
+has to tell them apart: `201` when `POST /v1/skills` creates, `204` from `pin`,
+`disable` and `restore`, `404` for a name that is not there, `409` when a deletion is
+refused because the document ships inside the binary, and `501` from every endpoint
+when the process was started without a library at all — which is a different answer
+from "the library is empty", and the reason a front end can say which one it is
+looking at.
 
 ### What runs silently, and why that is a design decision
 

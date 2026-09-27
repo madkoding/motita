@@ -336,6 +336,8 @@ curl -X DELETE -H "Authorization: Bearer $TOKEN" \
 | `GET /v1/skills/{name}` | one document, body included |
 | `GET /v1/skills/archived` | what the curator moved aside |
 | `POST /v1/skills/{name}/pin` `/restore` | exempt it from curation, or bring it back |
+| `POST /v1/skills/{name}/disable` | turn it off: the agent stops seeing it, the document stays |
+| `DELETE /v1/skills/{name}` | delete one for good; a shipped procedure is refused with `409` |
 | `GET /v1/curator` `POST /v1/curator/run` | the maintenance pass: report it, or run one |
 
 The default conversation belongs to the process that started the gateway: closing it
@@ -517,7 +519,8 @@ extra bill. Just a ledger next to a shelf.
 A library you cannot look at is a library you have to trust. `motita` serves it:
 the browser interface has a **Skill library** window — every document with what it
 is for and how often it has been used, a filter, the document itself rendered, and
-the archive behind it with a way back. `GET /v1/skills` is the same thing for
+the archive behind it with a way back — and a switch on every row to turn one **off**
+without losing it. `GET /v1/skills` is the same thing for
 anything else you want to build on top.
 
 Left alone, a shelf rots: procedures that stopped being true stay listed as if they
@@ -532,17 +535,26 @@ flowchart LR
     A["a document nobody<br/>has used in 14 days"] -->|"marks it"| S["<b>stale</b><br/>still listed, still searchable,<br/>now visibly suspect"]
     S -->|"30 days later"| R["<b>archived</b><br/>out of the way, never deleted<br/>— one command brings it back"]
     P(["<b>pinned</b><br/>you said so"]) -.->|"exempt from<br/>every one of these"| S
+    O(["<b>off</b><br/>you turned it off"]) -.->|"exempt too, and out of<br/>the agent's index"| S
 
     style A fill:#ffffff08,stroke:#ffffff22
     style S fill:#d2992222,stroke:#d29922
     style R fill:#ffffff08,stroke:#ffffff22
     style P fill:#3fb95022,stroke:#3fb950
+    style O fill:#ffffff08,stroke:#ffffff22
 ```
 
-Nothing is ever deleted, and **pinning is the veto**: a document you pinned is
-skipped by every automatic transition, forever. That is the whole point of the
-feature — it is your library, and the machine's job is to keep it in order without
+**No automatic transition ever deletes**, and **pinning is the veto**: a document you
+pinned is skipped by every automatic transition, forever. That is the whole point of
+the feature — it is your library, and the machine's job is to keep it in order without
 ever being able to quietly throw away the part you care about.
+
+You are the one who can, in the one place that asks first: **Turn off** takes a
+document out of the agent's index and its search while leaving it in the list, badged
+`off` and one click from coming back, and **Delete** is the only operation that keeps
+nothing at all — the document and its usage history both go. A procedure that ships
+inside the binary is refused, because reporting success for a deletion that did not
+happen is worse than the refusal.
 
 From the terminal it is one command away:
 
