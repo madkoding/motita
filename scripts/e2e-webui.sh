@@ -170,8 +170,19 @@ if grep -q "$TOKEN" .e2e/page.html .e2e/page-asset.css .e2e/page-asset.js 2>/dev
 else
   ok "the page carries no token"
 fi
-if grep -qE 'sk-[A-Za-z0-9_-]{16,}' .e2e/page.html .e2e/page-asset.css .e2e/page-asset.js 2>/dev/null; then
-  bad "an API key appears in the page"
+# A MINIFIED class name can produce the bare shape: measured here, `task-list-item-checkbox`
+# in the bundle yields `sk-lis<minified>kbox`, which `sk-[A-Za-z0-9_-]{16,}` matches and no
+# key does. That pattern alone is therefore a false positive on every run, which is a gate
+# that gets skipped rather than read. Requiring a boundary before `sk-` is what tells them
+# apart: a class is always preceded by a letter (`ta|sk-lis`), while a key stands at the
+# start of its token or after `=`, `"` or `'`. Both directions are asserted at the end of
+# this script against the real bundle and against a real-shaped key.
+KEY_PATTERN='(^|[^A-Za-z0-9_-])sk-[A-Za-z0-9_-]{16,}'
+if grep -qE "$KEY_PATTERN" .e2e/page.html .e2e/page-asset.css .e2e/page-asset.js 2>/dev/null; then
+  # The finding is printed with its context: a gate that hides what it matched cannot be
+  # debugged, and the context is what says whether it is a key or a class name.
+  bad "an API key appears in the page: $(grep -ohE "$KEY_PATTERN.{0,32}" \
+    .e2e/page.html .e2e/page-asset.css .e2e/page-asset.js 2>/dev/null | head -3 | tr '\n' ' ')"
 else
   ok "no API key in the page"
 fi
@@ -265,10 +276,28 @@ case "$transcript" in
   *) bad "the transcript does not carry the turn: $transcript" ;;
 esac
 
-if printf '%s\n%s\n' "$transcript" "$(cat .e2e/turn.sse)" | grep -qE 'sk-[A-Za-z0-9_-]{16,}'; then
+if printf '%s\n%s\n' "$transcript" "$(cat .e2e/turn.sse)" | grep -qE "$KEY_PATTERN"; then
   bad "an API key appeared in a response served to the browser"
 else
   ok "no API key in any response served to the browser"
+fi
+
+echo
+echo "==> The secret check itself, in both directions"
+# A key check that cannot fail is not a check, and one that fails on a class name is a check
+# nobody reads. Both are asserted here against real inputs: the shape this run's bundle
+# actually contains, and a key-shaped string.
+CLASS_SHAPED="rn b.content.indexOf(\"[ ] \")===0?E.content='<input class=\"task-list-item-checkbox\"'+C+'type=\"checkbox\">':"
+if printf '%s' "$CLASS_SHAPED" | grep -qE "$KEY_PATTERN"; then
+  bad "the key pattern still fires on a minified class name: it would report a key on every run"
+else
+  ok "the key pattern does not fire on a minified class name (task-list-item-checkbox)"
+fi
+KEY_SHAPED="OPENAI_API_KEY=\"sk-proj-abcdefghijklmnopqrstuvwxyz0123\""
+if printf '%s' "$KEY_SHAPED" | grep -qE "$KEY_PATTERN"; then
+  ok "the key pattern still catches a real-shaped key"
+else
+  bad "the key pattern does not catch a real-shaped key: the check above proves nothing"
 fi
 
 echo
