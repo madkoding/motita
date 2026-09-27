@@ -19,12 +19,18 @@ on:
       - site/**
       - docs/**
       - .github/workflows/pages.yml
-  # A tag is what "the version" means, and a release does not touch site/ — so
-  # without this trigger the page would keep advertising the previous tag until
-  # somebody happened to edit a page. `tags: ['v*']` fires the deploy the moment
-  # a release is published.
-  tags:
-    - 'v*'
+    # A tag is what "the version" means, and a release does not touch site/ — so
+    # without this trigger the page would keep advertising the previous tag until
+    # somebody happened to edit a page. It fires the deploy the moment a release
+    # is published.
+    #
+    # NESTED under push, not a sibling of it. `on.tags` is not a trigger GitHub
+    # knows, and an unrecognised key there does not warn - the whole workflow
+    # fails instantly with "workflow file issue", no job, no log. That is exactly
+    # how this was first written, and the pages run on main was green right up
+    # until the branch that carried it.
+    tags:
+      - 'v*'
   workflow_dispatch:
 
 permissions:

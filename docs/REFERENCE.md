@@ -1272,4 +1272,6 @@ Every package keeps its tests next to the code (`*_test.go`).
 
 ## License
 
-MIT — see [LICENSE](LICENSE).
+GPL-3.0-or-later — see [LICENSE](LICENSE). The copyright notice to carry in a modified
+version is quoted in the README, because section 5 of the GPL does not allow the licence
+document itself to be changed.

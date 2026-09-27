@@ -79,6 +79,48 @@ func waitForRunStart(t *testing.T, svc *deleteProbeService) {
 	}
 }
 
+// quietRunFor registers a cleanup that waits until the run goroutine serving this
+// session is completely done, so t.TempDir's RemoveAll cannot race its last write.
+//
+// It holds the conversation POINTER, and it deliberately does not use waitForNoRun:
+// that helper polls srv.snapshot(), and a successful DELETE FORGETS the
+// conversation, so by the time this cleanup runs the registry is empty and the poll
+// returns instantly while the goroutine is still writing. Measured: the
+// snapshot-based wait left the failure at 1 in 40 runs, exactly like no wait at
+// all. The pointer is captured while the session is still registered, which is what
+// makes the wait bite.
+//
+// The ordering it relies on, from the run goroutine in runs.go:
+//
+//	RunTask returns -> append the final event -> rn.finish (closes rn.done) ->
+//	saveSession -> clearCurrentRun -> releaseRunSlot (isRunning() = false)
+//
+// So !isRunning() means saveSession has already returned and nothing else will
+// write. Note that rn.done closing is NOT that signal - it happens one step
+// earlier, which is why a DELETE that answered does not make the directory quiet.
+//
+// Register it AFTER the session exists: cleanups run LIFO, so registering later
+// than the server's own Close is what makes the wait run BEFORE the server closes
+// (Close cancels baseCtx, which can wake a blocked fake task into writing) and
+// before the temp directory is removed.
+func quietRunFor(t *testing.T, srv *Server, id string) {
+	t.Helper()
+	conv, ok := srv.lookup(id)
+	if !ok {
+		t.Fatalf("the session %q is not registered, so its run cannot be waited for", id)
+	}
+	t.Cleanup(func() {
+		deadline := time.Now().Add(10 * time.Second)
+		for time.Now().Before(deadline) {
+			if !conv.isRunning() {
+				return
+			}
+			time.Sleep(time.Millisecond)
+		}
+		t.Error("the run never finished, so its writer can still race the temp dir")
+	})
+}
+
 // TestDeletingASessionStopsItsRun is the whole point: the agent must stop working
 // before the session it was working in is removed.
 func TestDeletingASessionStopsItsRun(t *testing.T) {
@@ -91,6 +133,7 @@ func TestDeletingASessionStopsItsRun(t *testing.T) {
 		o.NewService = func() (Service, error) { return svc, nil }
 	})
 	created := newSessionFor(t, srv)
+	quietRunFor(t, srv, created.ID)
 
 	abandon := startInBackground(t, srv, created.ID, "/task", `{"task":"work forever"}`)
 	defer abandon()
@@ -137,6 +180,7 @@ func TestDeletingASessionWaitsForTheRunToUnwind(t *testing.T) {
 		o.NewService = func() (Service, error) { return unw, nil }
 	})
 	created := newSessionFor(t, srv)
+	quietRunFor(t, srv, created.ID)
 
 	abandon := startInBackground(t, srv, created.ID, "/task", `{"task":"unwind slowly"}`)
 	defer abandon()
@@ -198,6 +242,7 @@ func TestDeletingAProjectStopsItsSessionsRuns(t *testing.T) {
 	if err := json.Unmarshal(sw.Body.Bytes(), &created); err != nil {
 		t.Fatalf("decoding the created session: %v", err)
 	}
+	quietRunFor(t, srv, created.ID)
 
 	abandon := startInBackground(t, srv, created.ID, "/task", `{"task":"work forever"}`)
 	defer abandon()
