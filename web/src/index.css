@@ -608,19 +608,93 @@ body {
 .markdown-body .mermaid-block { margin: 4px 0; overflow-x: auto; }
 .markdown-body .mermaid-block svg { max-width: 100%; height: auto; }
 
-/* An emoji rendered from its FluentUI asset. 1em puts it on the text baseline at the size
-   of the surrounding type — the images are 64px so they stay sharp on a 2x display, and
-   sizing in `em` means that resolution is available without the layout changing with it.
-   `vertical-align: -0.12em` is a nudge, not a measurement: a glyph sits slightly below the
-   baseline and a replaced image sits exactly on it, so without this the images ride high
-   next to the text they replace. */
+/* An emoji rendered from its FluentUI asset.
+ *
+ * Sizing in `em` puts it on the text's own scale: the images are 64px so they stay sharp on a
+ * 2x display, and a reader who changes the font size gets emoji that follow it. 1.25em rather
+ * than 1em because an emoji is a GLYPH — the font draws its own emoji noticeably larger than
+ * the surrounding lowercase, and an image sized to exactly 1em reads as small next to them.
+ *
+ * `vertical-align: -0.15em` is a nudge, not a measurement: a glyph sits slightly below the
+ * baseline and a replaced image sits exactly on it, so without this the images ride high next
+ * to the text they replace. It scales with the size above.
+ *
+ * The resets are the whole point of qualifying this with `img.emoji` rather than `img`. The
+ * rule for `.markdown-body img` above styles a SCREENSHOT — a border to frame it, a radius,
+ * outer margin — and every one of those is wrong on a character: an emoji came out inside a
+ * box with a gap around it, which is what a reader sees as a stray border and padding. The
+ * generic rule is not touched, because a pasted image still wants its frame. */
 .markdown-body img.emoji {
   display: inline-block;
-  width: 1em;
-  height: 1em;
-  margin: 0 0.05em;
-  vertical-align: -0.12em;
+  width: 1.25em;
+  height: 1.25em;
+  margin: 0 0.04em;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: none;
+  vertical-align: -0.15em;
   object-fit: contain;
+}
+
+/* ─── The chat spinner ────────────────────────────────────────────
+ * Covers the message area while the conversation is being put there: the transcript is being
+ * fetched, or the messages are on screen and their formulas, diagrams and emoji are still
+ * being built. The container is `position: relative`, which is what keeps this centred on the
+ * messages rather than on the window.
+ *
+ * It is a SIBLING of the scroll container, not a child: anything inside a scrolling box moves
+ * with the content, and this has to stay where it is while the page underneath changes height.
+ */
+.chat-spinner-wrap {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  /* The message area may still be empty, so there is nothing to dim — but a light scrim keeps
+   * the spinner readable once the first messages are on screen underneath it. */
+  background: rgba(10, 10, 15, 0.55);
+  backdrop-filter: blur(1.5px);
+  z-index: 5;
+  pointer-events: none;
+}
+
+.chat-spinner {
+  width: 44px;
+  height: 44px;
+  display: block;
+}
+
+.chat-spinner svg {
+  width: 100%;
+  height: 100%;
+  display: block;
+  /* The mark takes its colour from here, so the theme can move it in one place; the path
+   * inherits it below rather than carrying the literal the caller passed in. */
+  color: hsl(228, 97%, 42%);
+}
+
+.chat-spinner svg path {
+  fill: currentColor;
+}
+
+.chat-spinner-label {
+  font-size: 12px;
+  letter-spacing: 0.02em;
+  color: var(--muted-foreground, #9aa0b5);
+}
+
+/* The rotation is `animateTransform` INSIDE the SVG, so `prefers-reduced-motion` cannot stop
+ * it with a CSS `animation: none` — an SMIL timeline is not a CSS animation. Hiding the mark
+ * would remove the only sign that something is happening, so the label stays and it is the
+ * MARK that goes: the text says the same thing without moving. */
+@media (prefers-reduced-motion: reduce) {
+  .chat-spinner {
+    display: none;
+  }
 }
 /* While the diagram module is being fetched there is nothing to show yet, and a
  * spinner for something that usually resolves in milliseconds is noise. */

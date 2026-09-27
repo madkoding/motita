@@ -432,7 +432,24 @@ export function Markdown({ content }: { content: string }) {
     // containing an HTML comment marker or an arrow would otherwise have had this
     // attribute dropped, and the button would copy an empty string.
     el.querySelector('.markdown-body')?.setAttribute('data-raw', content)
-    void hydrate(el)
+    // The deferred work (formulas, diagrams, emoji) runs AFTER this effect returns, and each
+    // step changes the height of the message. Nothing in the state changes while that
+    // happens, so a scroll that reacts to state alone stops wherever it was and the page
+    // ends up short of the bottom — the reader has to drag it down themselves. Announcing
+    // the end of the deferred work is what lets the container follow it.
+    //
+    // Fired on the element, so the listener stays scoped to this message's subtree: one
+    // answer finishing its formulas must not scroll the container while the reader is
+    // reading something else. `bubbles: true` is what carries it up to the container.
+    el.setAttribute('data-hydrating', '1')
+    // Both outcomes announce themselves. A rejection would otherwise leave the attribute set
+    // and the spinner turning forever — a diagram that fails is already reported inside the
+    // message, and it must not also hold the conversation hostage.
+    const done = () => {
+      el.removeAttribute('data-hydrating')
+      el.dispatchEvent(new CustomEvent('motita:hydrated', { bubbles: true }))
+    }
+    void hydrate(el).then(done, done)
   }, [content])
 
   return <div ref={ref} dangerouslySetInnerHTML={{ __html: renderMessage(content) }} />

@@ -282,7 +282,14 @@ MEASURE = r"""
     const r = i.getBoundingClientRect();
     const cs = getComputedStyle(i);
     return {w: Math.round(r.width), h: Math.round(r.height), src: i.getAttribute('src'),
-            alt: i.alt, loaded: i.complete && i.naturalWidth > 0};
+            alt: i.alt, loaded: i.complete && i.naturalWidth > 0,
+            // A character, not a framed picture: the generic `.markdown-body img` rule styles
+            // a screenshot, and any of its box properties reaching an emoji shows up as a
+            // stray border with padding. The font size is carried alongside so the size can
+            // be judged against the text rather than against a number that means nothing here.
+            border: cs.borderTopWidth, radius: cs.borderTopLeftRadius, margin: cs.marginLeft,
+            pad: cs.paddingTop, display: cs.display, va: cs.verticalAlign,
+            font: cs.fontSize};
   });
   // hydrate() runs on the element the component rendered, which is the PARENT of
   // `.markdown-body`, so the marker is looked up from the box outwards rather than read off
@@ -396,6 +403,79 @@ async def run(ws_url, base, token, shots):
         await asyncio.sleep(3)
 
         # The seeded conversation, opened by clicking its row the way a reader would.
+        #
+        # The observation is installed BEFORE the click, and that is the only place it can be:
+        # the spinner exists exactly while the conversation is being put on screen, so a check
+        # that looks for it afterwards is looking for something that has deliberately gone.
+        #
+        # It watches the MUTATION RECORDS rather than re-querying the document, so a node that
+        # is added and removed between two callbacks is still seen. The description is taken
+        # from the live element whenever one is present, because `getComputedStyle` on a
+        # detached node reports nothing — which is what the colour check would read.
+        await c.js(r"""(() => {
+          const log = window.__loadLog = { spinner: null, seen: 0, clearedAt: null,
+                                            heights: [], samples: 0 };
+          const describe = (wrap) => {
+            const svg = wrap.querySelector('svg');
+            const path = svg && svg.querySelector('path');
+            const anim = path && path.querySelector('animateTransform');
+            const r = svg ? svg.getBoundingClientRect() : null;
+            return {
+              label: (wrap.querySelector('.chat-spinner-label') || {}).textContent || null,
+              d: path ? path.getAttribute('d') : null,
+              fill: path ? getComputedStyle(path).fill : null,
+              w: r ? Math.round(r.width) : 0,
+              h: r ? Math.round(r.height) : 0,
+              rotate: anim ? anim.getAttribute('values') : null,
+              dur: anim ? anim.getAttribute('dur') : null,
+              repeat: anim ? anim.getAttribute('repeatCount') : null,
+              role: wrap.getAttribute('role'),
+              live: !!wrap.isConnected,
+            };
+          };
+          const note = (wrap) => {
+            log.seen++;
+            if (wrap.isConnected) log.spinner = describe(wrap);
+          };
+          const sample = () => {
+            const m = document.querySelector('main[role="log"]');
+            log.samples++;
+            // Only once the conversation has content: the height before that says nothing
+            // about whether the deferred work resized the page.
+            if (m && document.querySelector('.markdown-body')) log.heights.push(m.scrollHeight);
+          };
+          const obs = new MutationObserver((records) => {
+            for (const rec of records) {
+              for (const n of rec.addedNodes) {
+                if (n.nodeType !== 1) continue;
+                if (n.matches('.chat-spinner-wrap')) { note(n); continue; }
+                const inner = n.querySelector && n.querySelector('.chat-spinner-wrap');
+                if (inner) note(inner);
+              }
+              if (log.clearedAt === null) {
+                for (const n of rec.removedNodes) {
+                  if (n.nodeType !== 1) continue;
+                  const gone = n.matches('.chat-spinner-wrap') ||
+                               (n.querySelector && n.querySelector('.chat-spinner-wrap'));
+                  if (gone && log.seen) log.clearedAt = performance.now();
+                }
+              }
+            }
+            // A spinner still on screen is described again from the live node: the first
+            // sighting may arrive in a batch where nothing has been laid out yet.
+            const now = document.querySelector('.chat-spinner-wrap');
+            if (now) note(now);
+            sample();
+          });
+          obs.observe(document.body, {
+            childList: true, subtree: true, attributes: true,
+            attributeFilter: ['data-hydrating'],
+          });
+          sample();
+          window.__loadLogStop = () => obs.disconnect();
+          return true;
+        })()""")
+
         opened = False
         for _ in range(8):
             rows = await c.js("""(() => [...document.querySelectorAll('.session-row')].map((r, i) => ({
@@ -623,6 +703,35 @@ async def run(ws_url, base, token, shots):
                f"{imgs[0]['h']} for {imgs[0]['src']})")
         else:
             bad(f"the emoji images did not load or have no size: {em['geom']}")
+        # An emoji is a CHARACTER, not a framed picture. The generic `.markdown-body img` rule
+        # styles a pasted screenshot with a border, a radius and an outer margin, and all three
+        # reach an emoji through inheritance of the plain selector — which is a stray box drawn
+        # around every emoji in the text.
+        framed = [g for g in imgs
+                  if g["border"] not in ("0px", "") or g["radius"] not in ("0px", "")
+                  or g["pad"] not in ("0px", "")]
+        if not imgs:
+            bad("no emoji images to check for a stray frame")
+        elif not framed:
+            ok(f"an emoji is drawn as a bare character: no border ({imgs[0]['border']}), "
+               f"no radius ({imgs[0]['radius']}), no padding ({imgs[0]['pad']})")
+        else:
+            bad(f"{len(framed)} emoji(s) carry the screenshot rule's box — border "
+                f"{framed[0]['border']}, radius {framed[0]['radius']}, padding "
+                f"{framed[0]['pad']}: at least one emoji is inside a box")
+        # Larger than the text it sits in: an emoji glyph is drawn well above the cap height of
+        # the surrounding letters, and an image sized to the font exactly reads as small next
+        # to one. Judged against the computed font size rather than a pixel count, so it holds
+        # at any font size the reader picks.
+        sized = [g for g in imgs if g["h"] >= 1.15 * float(g["font"].replace("px", ""))]
+        if not imgs:
+            pass
+        elif sized:
+            ok(f"emoji are drawn larger than the text they sit in ({imgs[0]['h']}px tall "
+               f"against a {imgs[0]['font']} font)")
+        else:
+            bad(f"emoji are not larger than the text: {imgs[0]['h']}px against a "
+                f"{imgs[0]['font']} font (want at least 1.15em)")
 
         # --- alerts -----------------------------------------------------------
         kinds = sorted("note" if "note" in a else "warning" for a in m["alerts"] if "markdown-alert" in a)
@@ -667,6 +776,79 @@ async def run(ws_url, base, token, shots):
         else:
             bad(f"{m['renderErrors']} elements rendered as error boxes; only the one "
                 f"deliberately-broken diagram should be")
+
+        # --- the loading spinner over the conversation -------------------------
+        ll = await c.js("window.__loadLog")
+        await c.js("window.__loadLogStop && window.__loadLogStop()")
+        with open(f"{shots}/loadlog.json", "w") as f:
+            json.dump(ll, f, indent=2, ensure_ascii=False)
+        sp = (ll or {}).get("spinner") or {}
+        if not ll or ll.get("seen", 0) < 1:
+            bad("the chat spinner never appeared while the conversation was loading")
+        elif not sp.get("live"):
+            bad("the chat spinner appeared but was detached before it could be measured")
+        else:
+            ok(f"the chat spinner covers the conversation while it loads ({ll['seen']} sightings, "
+               f"{sp['w']}x{sp['h']})")
+            if sp.get("role") == "status":
+                ok("the spinner announces itself to assistive tech (role=status)")
+            else:
+                bad(f"the spinner carries no role: {sp.get('role')!r}")
+            if sp.get("label"):
+                ok(f"the spinner says what it is doing: {sp['label']!r}")
+            else:
+                bad("the spinner has no label")
+            # The mark asked for: this exact path, painted in hsl(228, 97%, 42%).
+            # That converts to rgb(3, 45, 211) — measured, not assumed: a first version of this
+            # check hardcoded the conversion wrong (rgb(3, 14, 231), which is closer to hue 232)
+            # and failed a spinner that was painted correctly.
+            if (sp.get("d") or "").startswith("M12,23a9.63"):
+                ok("the spinner draws the arc that was asked for")
+            else:
+                bad(f"the spinner's path is not the one asked for: {(sp.get('d') or '')[:40]!r}")
+            if sp.get("fill") == "rgb(3, 45, 211)":
+                ok(f"the spinner is painted the requested colour ({sp['fill']})")
+            else:
+                bad(f"the spinner's colour is {sp.get('fill')!r}, not the requested "
+                    f"hsl(228, 97%, 42%) = rgb(3, 45, 211)")
+            if sp.get("rotate") == "0 12 12;360 12 12" and sp.get("dur") == "0.75s" \
+                    and sp.get("repeat") == "indefinite":
+                ok(f"the spinner turns ({sp['rotate']} in {sp['dur']}, {sp['repeat']})")
+            else:
+                bad(f"the spinner does not turn as asked: values={sp.get('rotate')!r} "
+                    f"dur={sp.get('dur')!r} repeat={sp.get('repeat')!r}")
+
+        # --- the page follows the deferred work instead of stranding itself ----
+        # Formulas, diagrams and emoji images are built after the message is rendered, and
+        # each one changes the scroll height. A container that only reacts to state stops
+        # wherever that work first left it and the reader has to drag it down by hand.
+        #
+        # Measured as: how much the container GREW while loading — if the deferred work really
+        # does resize the page, that number is large, and it is what makes the check
+        # meaningful rather than a tautology about a page that never changed size.
+        heights = (ll or {}).get("heights", [])
+        grew = (max(heights) - min(heights)) if len(heights) > 1 else 0
+        if grew >= 40:
+            ok(f"the deferred work resizes the conversation ({min(heights)}px -> {max(heights)}px, "
+               f"+{grew}px while loading) - so staying at the bottom is a real requirement")
+        else:
+            bad(f"the conversation barely changed height while loading ({heights}); the scroll "
+                f"check below would prove nothing")
+        m2 = await c.js("""(() => {
+            const el = document.querySelector('main[role="log"]');
+            if (!el) return {error: 'no conversation container'};
+            return { atBottom: el.scrollHeight - el.scrollTop - el.clientHeight,
+                     scrollHeight: el.scrollHeight, clientHeight: el.clientHeight };
+        })()""")
+        if "error" in m2:
+            bad(m2["error"])
+        elif m2["scrollHeight"] > m2["clientHeight"] and m2["atBottom"] <= 2:
+            ok(f"the conversation ends at its last line with no scrolling left to do "
+               f"({m2['atBottom']}px below the viewport, {m2['scrollHeight']}px of content)")
+        else:
+            bad(f"the conversation is not scrolled to the bottom: {m2['atBottom']}px of content "
+                f"is stranded below the fold ({m2['scrollHeight']}px tall, "
+                f"{m2['clientHeight']}px visible)")
 
     for n in notes:
         print(f"  note  {n}")

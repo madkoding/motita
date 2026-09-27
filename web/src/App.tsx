@@ -531,12 +531,88 @@ export default function App() {
   const msgIdRef = useRef(0)
   const sessionRef = useRef('')
 
+  // Whether the conversation on screen is still being PUT there: the transcript is being
+  // fetched, or the messages are on screen but their formulas, diagrams and emoji are still
+  // being built. Both are the same thing to the reader — the conversation is not ready to
+  // read yet — and both are shown by one spinner over the message area.
+  const [chatLoading, setChatLoading] = useState(false)
+
   const nextId = () => ++msgIdRef.current
 
   // Auto-scroll on new messages or activity.
+  //
+  // `behavior: 'auto'` (instant) rather than 'smooth', and that is deliberate. The container
+  // also has `scroll-smooth` in its class list, so a smooth scroll is animated over hundreds
+  // of milliseconds; an animation that is still running when the deferred work adds another
+  // 200px leaves the view short of the bottom, and the next effect starts a NEW animation from
+  // there. Instant scrolls land exactly where they are aimed, so each one is correct on its
+  // own and the last one wins.
+  const scrollToBottom = useCallback(() => {
+    const el = scrollRef.current
+    if (!el) return
+    el.scrollTo({ top: el.scrollHeight, behavior: 'auto' })
+  }, [])
+
   useEffect(() => {
-    scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: 'smooth' })
-  }, [messages, activity])
+    scrollToBottom()
+  }, [messages, activity, scrollToBottom])
+
+  /**
+   * Follows the deferred work while it grows the page.
+   *
+   * A formula, a diagram and an emoji image are all built AFTER the message is rendered, and
+   * every one of them changes the height of the container. None of that changes any state,
+   * so the effect above — which reacts to state — never runs again: the page finished
+   * rendering and stayed wherever it was, which is the "it does not go all the way down"
+   * symptom.
+   *
+   * The listener is on the container with `capture`, and the signal is the `motita:hydrated`
+   * event one message dispatches when its own deferred work is done. Capture is what keeps it
+   * to THIS conversation: the container is the element the messages are rendered into, so an
+   * event from inside it is ours, and events do not cross between conversations.
+   *
+   * `scrollHeight` is therefore read twice — synchronously, and once more on the next frame.
+   * The synchronous read is the correct one for a change that has already been laid out; the
+   * rAF read catches an image or a font that only has a size after layout, and it is
+   * scheduled rather than awaited so it cannot delay the answer's own work.
+   */
+  useEffect(() => {
+    const el = scrollRef.current
+    if (!el) return
+    let frame = 0
+    const onHydrated = () => {
+      // A message announcing the end of its own deferred work is what clears the spinner: at
+      // that point the formulas, diagrams and emoji are on screen, so the conversation is
+      // readable. Cleared here rather than from a timer, so it is the work itself that says
+      // when it is done.
+      setChatLoading(false)
+      scrollToBottom()
+      cancelAnimationFrame(frame)
+      frame = requestAnimationFrame(() => scrollToBottom())
+    }
+    el.addEventListener('motita:hydrated', onHydrated, true)
+    return () => {
+      cancelAnimationFrame(frame)
+      el.removeEventListener('motita:hydrated', onHydrated, true)
+    }
+  }, [scrollToBottom])
+
+  // The spinner must not stay up on a conversation with nothing deferred in it.
+  //
+  // Every message that has anything to hydrate announces itself, and one that has nothing to
+  // hydrate does not — a plain "Nothing yet" line, or an answer with no formula, diagram or
+  // emoji in it. Waiting only for the event would leave the spinner turning forever on exactly
+  // those, so after the messages are on screen the container is checked directly: if no
+  // message still carries `data-hydrating`, there is nothing coming and the spinner goes.
+  useEffect(() => {
+    if (!chatLoading) return
+    if (messages.length === 0) return
+    const id = requestAnimationFrame(() => {
+      const el = scrollRef.current
+      if (el && el.querySelector('[data-hydrating]') === null) setChatLoading(false)
+    })
+    return () => cancelAnimationFrame(id)
+  }, [messages, chatLoading])
 
   // Persist sidebar preference.
   useEffect(() => {
@@ -989,6 +1065,11 @@ export default function App() {
     setActivity(null)
     setApproval(null)
     lastIdRef.current = 0
+    // The transcript is being fetched: the message area is empty until it arrives, and an
+    // empty area is not the same message as "this conversation has nothing in it yet". The
+    // spinner covers the fetch AND the deferred rendering that follows, and is cleared below
+    // once the messages are on screen and their formulas and diagrams are built.
+    setChatLoading(true)
     // This tab's run belongs to ONE conversation, and it keeps running while
     // the user looks elsewhere. Carry its flag into the row it belongs to, so
     // coming back to that conversation shows the spinner its own turn earned -
@@ -1019,6 +1100,8 @@ export default function App() {
       } catch { /* non-fatal */ }
     } catch {
       setState('could not load the conversation', true)
+      // Nothing will be rendered, so nothing will announce itself as hydrated either.
+      setChatLoading(false)
     }
   }, [])
 
@@ -2344,7 +2427,10 @@ export default function App() {
       )}
 
       {/* Main column — header, conversation, composer. */}
-      <div class="flex flex-col flex-1 min-w-0 h-[100dvh]">
+      {/* `relative` is what anchors the chat spinner (below) to THIS column: without it the
+          spinner would be positioned against the nearest positioned ancestor, or the window,
+          and would cover the sidebar too. */}
+      <div class="flex flex-col flex-1 min-w-0 h-[100dvh] relative">
         {/* Header — frosted glass over the background image.
             A phone is where this row runs out of room: title, status pill and
             provider/model pill all want width, and the two pills cannot shrink.
@@ -2414,6 +2500,28 @@ export default function App() {
             </div>
           )}
         </main>
+
+        {/* The chat spinner, over the message area while the conversation is being put there:
+            the transcript is arriving, or the messages are on screen and their formulas,
+            diagrams and emoji are still being built. It is a SIBLING of the scroll container
+            rather than a child of it, because a child of a scrolling box scrolls away with the
+            content — the spinner has to stay put while the page it is covering changes height.
+
+            `aria-hidden` on the mark and a `role="status"` on the wrapper: the rotation is not
+            information, but "the conversation is loading" is, and it is announced once. */}
+        {chatLoading && (
+          <div class="chat-spinner-wrap" role="status" aria-live="polite">
+            <span class="chat-spinner" aria-hidden="true">
+              <svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" focusable="false">
+                <path d="M12,23a9.63,9.63,0,0,1-8-9.5,9.51,9.51,0,0,1,6.79-9.1A1.66,1.66,0,0,0,12,2.81h0a1.67,1.67,0,0,0-1.94-1.64A11,11,0,0,0,12,23Z">
+                  <animateTransform attributeName="transform" type="rotate" dur="0.75s"
+                    values="0 12 12;360 12 12" repeatCount="indefinite" />
+                </path>
+              </svg>
+            </span>
+            <span class="chat-spinner-label">Rendering the conversation…</span>
+          </div>
+        )}
 
         {/* Approval panel — solid opaque, above the gradient. */}
         {approval && (

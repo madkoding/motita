@@ -186,7 +186,8 @@ else
 fi
 
 css="$(curl -fsS "$BASE/$CSS_NAME" 2>/dev/null)"
-for c in markdown-body math-block math-inline mermaid-block render-error hljs-keyword; do
+for c in markdown-body math-block math-inline mermaid-block render-error hljs-keyword \
+         chat-spinner-wrap chat-spinner chat-spinner-label; do
   case "$css" in
     *".$c"*) ok "the served CSS defines .$c" ;;
     *) bad "the served CSS has no .$c: the element would render unstyled" ;;
