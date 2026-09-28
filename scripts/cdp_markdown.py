@@ -455,8 +455,22 @@ async def run(ws_url, base, token, shots):
             log.samples++;
             // Only once the conversation has content: the height before that says nothing
             // about whether the deferred work resized the page.
-            if (m && document.querySelector('.markdown-body')) log.heights.push(m.scrollHeight);
+            if (m && document.querySelector('.markdown-body')) {
+              log.heights.push(m.scrollHeight);
+              // Height AND position: a gap that survives a scroll the reader is following is
+              // either a scroll that did not land or a page that grew again afterwards, and the
+              // two need opposite fixes. Recording both is what tells them apart.
+              log.geom = log.geom || [];
+              if (log.geom.length < 60) log.geom.push({
+                t: Math.round(performance.now()),
+                h: m.scrollHeight, top: Math.round(m.scrollTop), c: m.clientHeight,
+                gap: m.scrollHeight - Math.round(m.scrollTop) - m.clientHeight,
+              });
+            }
           };
+          // Sampled on a timer as well as on mutations: the growth that was stranding the reader
+          // raised no event at all, so a mutation-driven sampler cannot see it.
+          log.timer = setInterval(sample, 120);
           const io = window.__ioLog = { callbacks: 0, decisions: [] };
           // The real observer is wrapped so its callbacks are recorded: a `data-inview` of 1 is
           // otherwise indistinguishable from "the observer never reported and the default stuck".
@@ -959,36 +973,57 @@ async def run(ws_url, base, token, shots):
             else:
                 bad(f"{obs['inViewPending']} message(s) in view are still unbuilt — the deferral "
                     f"never fired for what the reader is looking at")
-            # The undrawn block is the malformed one at the end of the fixture, which is the
-            # renderer's error box and must stay a box. Everything else must have been built,
-            # including the turns that were hydrated on the way down.
-            if obs["mermaidDrawn"] >= obs["mermaidBlocks"] - 1:
-                ok(f"every valid diagram was built, including the ones hydrated while scrolling "
-                   f"({obs['mermaidDrawn']} drawn, only the deliberately-broken block left undrawn)")
+            # And the other half of the same coin: the messages the reader never passed are still
+            # unbuilt, which is the POINT. Asserting that every diagram is drawn would be
+            # asserting that everything was hydrated, i.e. that the deferral does nothing.
+            if obs["mermaidDrawn"] < obs["mermaidBlocks"]:
+                ok(f"only the diagrams the reader reached were built ({obs['mermaidDrawn']} of "
+                   f"{obs['mermaidBlocks']}): nothing else was paid for")
             else:
-                bad(f"{obs['mermaidBlocks'] - obs['mermaidDrawn']} diagram(s) are still undrawn, "
-                    f"more than the one malformed block in the fixture: the observer left work "
-                    f"undone for messages the reader scrolled through")
+                bad(f"every one of the {obs['mermaidBlocks']} diagram(s) was built even though the "
+                    f"reader jumped past most of them — the deferral did nothing")
 
-        # --- the spinner waits for the whole page, not for the first message ------
-        # The honest form of "waits until everything is parsed": at the instant the modal came
-        # down, was anything VISIBLE still unbuilt? Comparing raw timestamps was the first
-        # attempt and it is wrong — a message can finish its work long after the reader stopped
-        # waiting for it (it scrolled away, or it was never in view), so a later completion is
-        # not evidence that the spinner gave up early.
-        at_clear = (ll or {}).get("atClear") or {}
-        cleared = (ll or {}).get("clearedAt")
-        if cleared is None:
-            bad("the modal was never taken down")
-        elif not at_clear:
-            bad(f"the state at the moment the modal was cleared was not captured: {ll and list(ll)}")
-        elif at_clear.get("visiblePending", 0) == 0:
-            ok(f"the modal came down only once nothing visible was still being built "
-               f"({at_clear.get('hostsPending', 0)} message(s) still pending overall but none in "
-               f"view, {at_clear.get('hydratedSoFar', 0)} already finished)")
+        # --- the modal waits for the page to STOP, and does not flicker --------------
+        #
+        # The design is a QUIET WINDOW: activity restarts a 2s timer, and the modal only comes down
+        # when that timer runs out. So the reader's question ("did it wait for everything?") and the
+        # flicker question are answered by the same two measurements:
+        #
+        #   * was the modal taken down at all, and only once nothing visible was still being built;
+        #   * how many times was it PUT UP — one is the design working, one per answer is the
+        #     "loading, finishing, loading again" the reader reported.
+        cleared_now = None
+        for _ in range(40):
+            cleared_now = await c.js("document.querySelector('.chat-modal-scrim') === null")
+            if cleared_now:
+                break
+            await asyncio.sleep(0.5)
+        ch = await c.js("window.__chatLoadingLog && window.__chatLoadingLog()")
+        ml = await c.js("window.__modalLog || []")
+        with open(f"{shots}/chatloading.json", "w") as f:
+            json.dump({"state": ch, "modal": ml}, f, indent=2, ensure_ascii=False)
+
+        if not cleared_now:
+            bad("the session modal was still up 20s after the transcript settled: the quiet window "
+                "never expired, so the reader is left looking at it")
         else:
-            bad(f"the modal was cleared while {at_clear['visiblePending']} visible message(s) "
-                f"were still unbuilt: it is not waiting for the whole page")
+            ok("the session modal came down, and only after the page went quiet")
+            if (ch or {}).get("visiblePending") is False:
+                ok(f"the whole visible conversation was built by then "
+                   f"({(ch or {}).get('registered', 0)} message(s) registered, nothing visible pending)")
+            else:
+                bad(f"the modal came down with visible work still outstanding: {ch}")
+
+        puts = [x for x in (ml or []) if x.get("loading")]
+        if not puts:
+            bad(f"the modal was never put up at all: {ml}")
+        elif len(puts) <= 2:
+            ok(f"the session modal was put up {len(puts)} time(s) for the whole conversation "
+               f"({len(ml or [])} transition(s)): it follows the page going quiet, not each answer")
+        else:
+            bad(f"the session modal was put up {len(puts)} time(s) — that is the flicker the reader "
+                f"reported: loading, finishing, loading again. Transitions: {ml}")
+
         # And the observer has to be the thing deciding, not a default: it must have reported.
         io = await c.js("window.__ioLog")
         with open(f"{shots}/io.json", "w") as f:

@@ -42,9 +42,30 @@ type Entry = {
 
 const entries = new Map<Element, Entry>()
 
-/** One observer for the whole page, created when the first message registers. */
+/** One observer for the whole page, created on first use and kept for the session. */
 let observer: IntersectionObserver | null = null
 let unsupported = false
+
+/**
+ * Every transition of the "is the conversation ready" question, with the reason.
+ *
+ * Kept because the failure this replaced was a FLICKER — the modal went away and came back, and
+ * that is invisible in a single end-state reading. A log with timestamps is the only way to see
+ * that a clear was followed by a re-open.
+ */
+type Transition = { at: number; idle: boolean; pending: number; registered: number; reason: string }
+const transitions: Transition[] = []
+
+function record(idle: boolean, reason: string): void {
+  let pending = 0
+  for (const e of entries.values()) if (!e.finished) pending++
+  const last = transitions[transitions.length - 1]
+  // Only the CHANGES are kept: the observer fires often and a log of identical rows would hide
+  // the flicker inside its own noise.
+  if (last && last.idle === idle && last.pending === pending) return
+  transitions.push({ at: Math.round(performance.now()), idle, pending, registered: entries.size, reason })
+  if (transitions.length > 60) transitions.shift()
+}
 
 /** How far ahead of the viewport a message starts building. */
 const MARGIN = '600px 0px'
@@ -63,10 +84,44 @@ function visiblePending(): boolean {
   return false
 }
 
-/** Announce that the visible conversation is ready, whenever that becomes true. */
-function announce(): void {
-  if (visiblePending()) return
-  document.dispatchEvent(new CustomEvent('motita:chat-idle'))
+/**
+ * The QUIET WINDOW: how long the page must be silent before the parse is considered over.
+ *
+ * This is the shape the whole thing was missing. Every completion is a separate event, and a
+ * conversation arrives as many of them — so asking "are we done?" after each one gives an answer
+ * that is true and useless: it flips, and whatever is watching flips with it. Waiting for a
+ * window with NO activity answers the question the reader actually has, because a parse that is
+ * still running cannot be silent for two seconds.
+ *
+ * 2s is generous on purpose. It is the difference between "the interface reacted instantly" and
+ * "the interface decided too early and had to change again", and the reader is looking at a
+ * spinner either way.
+ */
+const QUIET_MS = 2000
+let quietTimer: ReturnType<typeof setTimeout> | null = null
+
+/**
+ * Report that something happened. Callers: a message registering, a message finishing, and the
+ * app when it starts loading a transcript. The timer is RESTARTED on each one, which is what makes
+ * the window quiet rather than fixed.
+ */
+export function noteActivity(): void {
+  if (quietTimer !== null) clearTimeout(quietTimer)
+  quietTimer = setTimeout(() => {
+    quietTimer = null
+    document.dispatchEvent(new CustomEvent('motita:chat-quiet'))
+  }, QUIET_MS)
+}
+
+/** Stop the window without announcing. For tests and teardown. */
+export function cancelQuiet(): void {
+  if (quietTimer !== null) clearTimeout(quietTimer)
+  quietTimer = null
+}
+
+/** The transition log, for the gate and for a bug report. */
+export function hydrationLog(): Transition[] {
+  return transitions.slice()
 }
 
 function ensureObserver(): IntersectionObserver | null {
@@ -99,9 +154,10 @@ function ensureObserver(): IntersectionObserver | null {
           started = true
         }
       }
-      // A message that scrolled AWAY while it was pending is no longer something the reader
-      // is waiting for, so the conversation can count as ready.
-      if (started || records.some((r) => !r.isIntersecting)) announce()
+      // A message that scrolled AWAY while it was pending is no longer something the reader is
+      // waiting for — but the transition is still activity, and the quiet window is what decides
+      // when the page has stopped, so it is restarted here too.
+      if (started || records.some((r) => !r.isIntersecting)) noteActivity()
     },
     { root: null, rootMargin: MARGIN, threshold: 0 },
   )
@@ -124,6 +180,10 @@ export function watchForHydration(el: HTMLElement, task: () => void): () => void
   // with a yes that nothing ever corrects.
   el.setAttribute('data-hydrating', '1')
   el.setAttribute('data-inview', '0')
+  record(!visiblePending(), 'register')
+  // A message appearing is activity: it restarts the quiet window, so the window cannot expire
+  // between two messages that are still arriving.
+  noteActivity()
   entries.set(el, {
     inView: false,
     started: false,
@@ -145,7 +205,14 @@ export function watchForHydration(el: HTMLElement, task: () => void): () => void
   return () => {
     entries.delete(el)
     obs?.unobserve(el)
-    announce()
+    // Deliberately NO announce() here, and this is the flicker that was reported: a cleanup runs
+    // when the effect re-runs (the message's content changed) and when the message is unmounted
+    // (a session switch clears the transcript before fetching the next one). Announcing from here
+    // reports the conversation READY at the exact moment its work is about to restart — so the
+    // modal closed, and reopened when the messages mounted again. The gap is not short: a session
+    // switch clears the transcript, fetches, and mounts, which is hundreds of milliseconds — long
+    // enough that no settling delay can paper over it. The state belongs to the caller that
+    // started the load, which is `switchSession`.
   }
 }
 
@@ -154,7 +221,11 @@ function finish(el: HTMLElement): void {
   const entry = entries.get(el)
   if (entry) entry.finished = true
   el.removeAttribute('data-hydrating')
-  announce()
+  record(!visiblePending(), 'finish')
+  // A message finishing is activity too, and this is the one that matters: it is what keeps the
+  // window open while the conversation is still being built, and what lets it close when the
+  // finishing stops.
+  noteActivity()
 }
 
 /** How many messages are registered, in view, and still unbuilt. For the gate and the log. */

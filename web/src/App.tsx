@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'preact/hooks'
 import { Markdown } from './Markdown'
+import { hydrationState, hydrationLog, noteActivity } from './hydration'
 
 interface Message {
   id: number
@@ -539,21 +540,103 @@ export default function App() {
 
   const nextId = () => ++msgIdRef.current
 
-  // Auto-scroll on new messages or activity.
+  // Auto-scroll on new messages or activity, when the reader is following along.
   //
-  // `behavior: 'auto'` (instant) rather than 'smooth', and that is deliberate. The container
-  // also has `scroll-smooth` in its class list, so a smooth scroll is animated over hundreds
-  // of milliseconds; an animation that is still running when the deferred work adds another
-  // 200px leaves the view short of the bottom, and the next effect starts a NEW animation from
-  // there. Instant scrolls land exactly where they are aimed, so each one is correct on its
-  // own and the last one wins.
+  // Two things make this trustworthy, and both were learned by measurement:
+  //
+  //   1. `behavior: 'instant'`, NOT 'auto'. 'auto' defers to the CSS `scroll-behavior`, and this
+  //      container carries Tailwind's `scroll-smooth` — so what looked like an instant jump was in
+  //      fact an animation hundreds of milliseconds long, and the deferred work's next growth
+  //      would land on top of it mid-flight and leave the view short of the end.
+  //   2. Only when already at the end. Hydration is deferred now, so every message the viewport
+  //      passes over reports a completion — scrolling on each would drag a reader who deliberately
+  //      went back up to an earlier answer down to the bottom again.
+  //
+  // How close to the end counts as "following along": one flick of the wheel is ~100px, so
+  // anything under this is somebody who has not deliberately scrolled away.
+  const BOTTOM_SLACK = 120
+
+  // Whether the reader is at the end of the conversation, tracked from scroll events rather than
+  // measured on demand. Measuring at the moment a message finishes is WRONG and was the reason the
+  // view stopped following: by then the container has already grown, so the gap is large BECAUSE
+  // of the growth, and the check reads a reader who never moved as one who scrolled away. The
+  // question is where the reader was before the growth, and only a scroll event knows that.
+  const pinnedRef = useRef(true)
+
   const scrollToBottom = useCallback(() => {
     const el = scrollRef.current
     if (!el) return
-    el.scrollTo({ top: el.scrollHeight, behavior: 'auto' })
+    // `behavior: 'instant'` and not 'auto'. 'auto' defers to the CSS `scroll-behavior`, and this
+    // container carries Tailwind's `scroll-smooth` — so "instant" was in fact an animation,
+    // hundreds of milliseconds long, which the next 200px of formulas would land on top of. That
+    // is the "it does not go all the way down when it finishes" symptom: the last animation was
+    // interrupted by the next growth. 'instant' overrides the CSS and lands exactly where aimed.
+    el.scrollTo({ top: el.scrollHeight, behavior: 'instant' as ScrollBehavior })
+  }, [])
+
+  /**
+   * The last thing that happens: the bottom is computed and the modal comes down.
+   *
+   * This is the step that needs the page to have STOPPED, and it is why it hangs off the quiet
+   * window rather than off a completion. Measured on the way here: the conversation grew 5431px ->
+   * 5611px AFTER the last completion, with `scrollTop` unmoved, because what changes the height
+   * last — the images decoding, the font being laid out — raises no event at all. An anchor
+   * applied before that growth leaves the reader 181px short of the end, every time. Waiting for
+   * two seconds of silence is what makes the final height knowable.
+   */
+  useEffect(() => {
+    const onQuiet = () => {
+      if (pinnedRef.current) scrollToBottom()
+      // The height has settled, so this one lands. A second pass on the next frame costs nothing
+      // and covers a layout that the browser had not committed when the first was measured.
+      requestAnimationFrame(() => {
+        if (pinnedRef.current) scrollToBottom()
+      })
+    }
+    document.addEventListener('motita:chat-quiet', onQuiet)
+    return () => document.removeEventListener('motita:chat-quiet', onQuiet)
+  }, [scrollToBottom])
+
+  useEffect(() => {
+    const el = scrollRef.current
+    if (!el) return
+    // Only the READER'S OWN INPUT unpins them, and this is not a refinement — it is the fix for
+    // the bug that kept stranding the view. Measured: the container's `scrollTop` went 4551 ->
+    // 4511 on its own while the deferred work replaced a placeholder with a smaller drawing, and
+    // a rule that read "the position went up" as "the reader went back" unpinned them. From then
+    // on the anchor stopped following and the conversation ended 181px short, every single run.
+    // Scroll events also fire when CONTENT changes, so they cannot carry intent at all.
+    const unpin = () => {
+      if (el.scrollHeight - el.scrollTop - el.clientHeight > BOTTOM_SLACK) pinnedRef.current = false
+    }
+    const onWheel = (e: WheelEvent) => {
+      if (e.deltaY < 0) unpin()
+    }
+    const onKey = (e: KeyboardEvent) => {
+      if (['ArrowUp', 'PageUp', 'Home'].includes(e.key)) unpin()
+    }
+    const onScroll = () => {
+      // Being at the end always re-pins: the reader has arrived at the last line, so following
+      // the growth is what they want again.
+      if (el.scrollHeight - el.scrollTop - el.clientHeight <= BOTTOM_SLACK) pinnedRef.current = true
+    }
+    onScroll()
+    el.addEventListener('wheel', onWheel, { passive: true })
+    el.addEventListener('touchmove', unpin, { passive: true })
+    el.addEventListener('keydown', onKey)
+    el.addEventListener('scroll', onScroll, { passive: true })
+    return () => {
+      el.removeEventListener('wheel', onWheel)
+      el.removeEventListener('touchmove', unpin)
+      el.removeEventListener('keydown', onKey)
+      el.removeEventListener('scroll', onScroll)
+    }
   }, [])
 
   useEffect(() => {
+    // Following along only if the reader was at the end before this message arrived. Scrolling on
+    // every change would drag someone who deliberately went back up to an earlier answer.
+    if (!pinnedRef.current) return
     scrollToBottom()
   }, [messages, activity, scrollToBottom])
 
@@ -581,11 +664,10 @@ export default function App() {
     if (!el) return
     let frame = 0
     const onHydrated = () => {
-      // A message finishing its own deferred work does NOT clear the spinner any more: a
-      // conversation is ready when the LAST of them is, and clearing on the first would take
-      // the spinner down while diagrams further down are still being built. The spinner waits
-      // for `motita:chat-idle`, which the hydration module raises when nothing visible is
-      // still pending.
+      // A message finishing its own deferred work does NOT clear the modal: a conversation is
+      // ready when nothing visible is still pending, which the modal effect reads from
+      // `hydrationState` on a settle. This listener is only about keeping the view at the end.
+      if (!pinnedRef.current) return
       scrollToBottom()
       cancelAnimationFrame(frame)
       frame = requestAnimationFrame(() => scrollToBottom())
@@ -598,21 +680,48 @@ export default function App() {
   }, [scrollToBottom])
 
   /**
-   * Clears the spinner only when the whole visible conversation is built.
+   * The session modal follows the conversation, and comes down on a QUIET WINDOW.
    *
-   * Raised by `hydration.ts` when no message near the viewport is still pending, so it covers
-   * every message at once rather than the one that happened to finish last. `inView` is part of
-   * that condition and matters: a message far above the fold stays unbuilt on purpose for the
-   * whole session, and counting it would keep the spinner up forever.
+   * Every completion is a separate event, and a conversation arrives as many of them, so asking
+   * "are we done?" after each one gives an answer that is true and useless: it flips, and the
+   * modal flips with it — the flicker. What the reader means by "until everything is parsed" is
+   * that the page has STOPPED WORKING, and the only way to know that is to wait for a window with
+   * no activity at all. `hydration.ts` restarts that window on every registration and every
+   * completion, and raises `motita:chat-quiet` when it has run out.
+   *
+   * Only then is the bottom computed and the modal taken down, in that order: the final height is
+   * not known until the work is over, so scrolling before this is scrolling towards a guess.
+   *
+   * It also OPENS on the same signal, so a conversation that starts more work while the reader
+   * waits puts the modal back up instead of hiding it.
    */
   useEffect(() => {
-    const onIdle = () => setChatLoading(false)
-    document.addEventListener('motita:chat-idle', onIdle)
-    // A conversation with nothing to hydrate never raises it — the hydration module reports
-    // idle when it has nothing registered — so the same fallback as before applies: once the
-    // messages are on screen, check whether anything is still marked as being built.
-    return () => document.removeEventListener('motita:chat-idle', onIdle)
+    // Exposed for the gate: the flicker this replaced was invisible at any single instant, so what
+    // has to be measurable is the SEQUENCE of times the modal was put up and taken down.
+    ;(window as any).__chatLoadingLog = () => ({
+      transitions: hydrationLog(),
+      visiblePending: hydrationState().visiblePending,
+      registered: hydrationState().registered,
+    })
+    const onQuiet = () => setChatLoading(hydrationState().visiblePending)
+    document.addEventListener('motita:chat-quiet', onQuiet)
+    return () => document.removeEventListener('motita:chat-quiet', onQuiet)
   }, [])
+
+  // A transcript that is replaced has to be re-read even if no message ever reports: a
+  // conversation whose messages are all ABOVE the fold never starts their work, so no completion
+  // would ever arrive to close the window that `switchSession` opened.
+  useEffect(() => {
+    noteActivity()
+  }, [messages])
+
+  // Every time the modal itself is put up or taken down. This is what "flickering" means, and it is
+  // what the gate counts: the underlying readiness can change many times without the reader seeing
+  // anything, because the quiet window stands between the two.
+  useEffect(() => {
+    const log = ((window as any).__modalLog = (window as any).__modalLog || [])
+    log.push({ at: Math.round(performance.now()), loading: chatLoading })
+  }, [chatLoading])
 
   useEffect(() => {
     if (!chatLoading) return
