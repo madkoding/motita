@@ -13,22 +13,33 @@ name: pages
 # from a sentence somebody remembered to update, and a hand-written number in a
 # static file is wrong the day after the next tag.
 on:
+  # TAGS ONLY, plus a manual dispatch. NOT `branches: [main]`, and the reason is
+  # measured rather than stylistic.
+  #
+  # A merge to main and the tag cut on that same merge trigger this deploy twice on
+  # the SAME commit. The main run starts a few seconds earlier - before the tag
+  # exists - so it stamps the PREVIOUS release. GitHub Pages then keys a deployment
+  # on the commit (`pages_build_version` is the SHA), so both runs are the same
+  # artifact: the first one to publish wins and the other is a no-op.
+  #
+  # Measured on v0.8.2: the merge deploy stamped v0.8.1, the tag's own deploy did
+  # nothing, and re-running EITHER of them left the live page on v0.8.1. That was
+  # confirmed at the origin, not the CDN - a non-entry file fetched with a unique
+  # query string still reported `x-cache: MISS` and `last-modified` at the merge
+  # deploy's timestamp.
+  #
+  # Deploying only on tags removes the race by removing the second contender: a
+  # release is the moment the version is known, and the page publishes with it.
+  # Editing site/ on main no longer publishes by itself - run this workflow from
+  # the Actions tab when the page must go live between releases, which is one
+  # click and is deliberate rather than accidental.
+  #
+  # NESTED under push, not a sibling of it. `on.tags` is not a trigger GitHub
+  # knows, and an unrecognised key there does not warn - the whole workflow
+  # fails instantly with "workflow file issue", no job, no log. That is exactly
+  # how this was first written, and the pages run on main was green right up
+  # until the branch that carried it.
   push:
-    branches: [main]
-    paths:
-      - site/**
-      - docs/**
-      - .github/workflows/pages.yml
-    # A tag is what "the version" means, and a release does not touch site/ — so
-    # without this trigger the page would keep advertising the previous tag until
-    # somebody happened to edit a page. It fires the deploy the moment a release
-    # is published.
-    #
-    # NESTED under push, not a sibling of it. `on.tags` is not a trigger GitHub
-    # knows, and an unrecognised key there does not warn - the whole workflow
-    # fails instantly with "workflow file issue", no job, no log. That is exactly
-    # how this was first written, and the pages run on main was green right up
-    # until the branch that carried it.
     tags:
       - 'v*'
   workflow_dispatch:
@@ -60,10 +71,20 @@ jobs:
           fetch-depth: 0
 
       - name: Stamp the version the page advertises
-        # Ask git for the newest reachable v* tag. On a tag push that IS the tag
-        # being released; on a push to main it is the last one published, which is
-        # the honest answer - main may be ahead of it, and claiming otherwise
-        # would advertise a release that does not exist yet.
+        # Which tag is "the version" here?
+        #
+        # On a tag push it is literally the tag being pushed, so GITHUB_REF_NAME is
+        # the answer and no git command is involved.
+        #
+        # A manual dispatch runs on a BRANCH, so it asks which v* tag names the
+        # commit being published, and falls back to the newest reachable one. Two
+        # traps live in that sentence, both measured on git 2.47.3 and both SILENT:
+        #
+        #   - `git tag --points-at X --match Y` fails with "unknown option: `match'".
+        #     Stdout is then empty, which reads as "no tag here" and falls through.
+        #     The pattern goes POSITIONALLY: `git tag -l --points-at HEAD 'v*'`.
+        #   - `--sort=-v:refname` is not a version sort: it puts v3.1.0 above
+        #     v3.10.0. `sort -V` is the one that orders versions.
         #
         # The marker in site/index.html is replaced in place and the job FAILS if
         # it is absent: a page whose version cannot be stamped would otherwise be
@@ -71,7 +92,14 @@ jobs:
         # would say so.
         run: |
           set -eu
-          version="$(git describe --tags --abbrev=0 --match 'v*' 2>/dev/null || true)"
+          if [ "${GITHUB_REF_TYPE:-}" = "tag" ]; then
+            version="$GITHUB_REF_NAME"
+          else
+            version="$(git tag -l --points-at HEAD 'v*' 2>/dev/null | grep -E '^v[0-9]' | sort -V | tail -1 || true)"
+            if [ -z "$version" ]; then
+              version="$(git tag --merged HEAD -l 'v*' 2>/dev/null | grep -E '^v[0-9]' | sort -V | tail -1 || true)"
+            fi
+          fi
           if [ -z "$version" ]; then
             echo "::error::no v* tag is reachable, so there is no version to publish"
             exit 1
