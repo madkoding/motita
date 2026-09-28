@@ -705,6 +705,58 @@ export default function App() {
   }, [messages, activity, scrollToBottom])
 
   /**
+   * Follows the growth that NO event announces.
+   *
+   * Measured on a real 44-message conversation at 1400x900: the content climbed in steps
+   * (58118 -> 58158 -> ... -> 59176) and the LAST step landed at 5486ms, while the modal came
+   * down at 6826ms. The anchoring that runs on the quiet window therefore aims at a height the
+   * page has already left, and anything that grows afterwards — an image decoding, a font
+   * swapping in, mermaid replacing its own drawing — raises no event at all, so `motita:hydrated`
+   * (which only covers work a message ANNOUNCES) never fires for it. The reader sees exactly what
+   * they reported: it finishes loading and looks right, then something changes the height.
+   *
+   * A ResizeObserver on the messages is the honest instrument: it fires as part of layout, so it
+   * sees the real size of the element rather than a guess made from an event. It is also the
+   * reason this is not a timer — a slower machine, a bigger image or a cold font cache all just
+   * work, instead of needing the interval retuned.
+   *
+   * Re-anchoring stays conditional on `pinnedRef`: a reader who deliberately scrolled back is
+   * never dragged down by a message above them finishing.
+   */
+  useEffect(() => {
+    const el = scrollRef.current
+    if (!el) return
+    let frame = 0
+    const settle = () => {
+      if (!pinnedRef.current) return
+      cancelAnimationFrame(frame)
+      frame = requestAnimationFrame(() => {
+        if (pinnedRef.current) scrollToBottom()
+      })
+    }
+    if (typeof ResizeObserver === 'undefined') return
+    const ro = new ResizeObserver(settle)
+    const seen = new WeakSet<Element>()
+    const watch = () => {
+      for (const child of Array.from(el.children)) {
+        if (seen.has(child)) continue
+        seen.add(child)
+        ro.observe(child)
+      }
+    }
+    watch()
+    ro.observe(el)
+    // The messages arrive as React renders them, so the set to observe changes over time.
+    const mo = new MutationObserver(watch)
+    mo.observe(el, { childList: true })
+    return () => {
+      cancelAnimationFrame(frame)
+      ro.disconnect()
+      mo.disconnect()
+    }
+  }, [scrollToBottom])
+
+  /**
    * Follows the deferred work while it grows the page.
    *
    * A formula, a diagram and an emoji image are all built AFTER the message is rendered, and

@@ -443,12 +443,31 @@ async def run(ws_url, base, token, shots):
                 }
                 if (el) {
                   const cs = getComputedStyle(el);
-                  const stable = cs.opacity + '|' + loading + '|' + el.scrollHeight;
+                  const stable = cs.opacity + '|' + loading + '|' + el.scrollHeight + '|' +
+                                 el.scrollTop;
                   if (stable !== lastKey) {
-                    log.push({ at: Math.round(performance.now()), opacity: cs.opacity,
-                               loading: loading, modal: !!scrim,
-                               contentHeight: el.scrollHeight,
-                               boxHeight: Math.round(el.getBoundingClientRect().height) });
+                    // Everything that could move the scroll when the conversation changes size.
+                    // Attributed per element so a resize is NAMED instead of guessed at.
+                    const box = (n) => {
+                      if (!n) return null;
+                      const r = n.getBoundingClientRect();
+                      return { h: Math.round(r.height), top: Math.round(r.top) };
+                    };
+                    const parent = el.parentElement;
+                    log.push({
+                      at: Math.round(performance.now()), opacity: cs.opacity,
+                      loading: loading, modal: !!scrim,
+                      contentHeight: el.scrollHeight,
+                      boxHeight: Math.round(el.getBoundingClientRect().height),
+                      scrollTop: Math.round(el.scrollTop),
+                      clientHeight: el.clientHeight,
+                      parent: box(parent),
+                      parentClient: parent ? parent.clientHeight : null,
+                      header: box(document.querySelector('header')),
+                      aside: box(document.querySelector('aside')),
+                      docHeight: document.documentElement.scrollHeight,
+                      innerHeight: window.innerHeight,
+                    });
                   }
                 }
               };
@@ -1128,6 +1147,48 @@ async def run(ws_url, base, token, shots):
                    f"when the work is over ({len(runs)} loading window(s), hidden from "
                    f"{hidden[0]['at']}ms, revealed at {settled['at']}ms, allowance {FADE_MS}ms "
                    f"read from the CSS)")
+
+        # --- what changes size AFTER the reveal -------------------------------------
+        #
+        # The failure the reader still sees: it finishes loading, it looks right, and then something
+        # changes the height and the scroll moves. This names the element and the amount, so the
+        # cause is measured rather than guessed.
+        # Its own computation of the reveal instant: this block sits ABOVE the one that defines
+        # `reveal_at`, and reaching for it there raised UnboundLocalError - the probe printed no
+        # verdict at all, which the gate reports as a failure with no measurement behind it.
+        _loading_ats = [f["at"] for f in (frames or []) if f.get("loading") == "1"]
+        _rev_at = None
+        if _loading_ats:
+            _last = max(_loading_ats)
+            for f in (frames or []):
+                if (f["at"] > _last and f.get("chat") is not None
+                        and float(f["chat"]) > 0.9 and f.get("loading") == "0"):
+                    _rev_at = f["at"]
+                    break
+        if _rev_at is not None:
+            after = [x for x in (vis_log or []) if x["at"] >= _rev_at]
+            if len(after) >= 2:
+                first, last = after[0], after[-1]
+                changed = {}
+                for k in ("contentHeight", "boxHeight", "clientHeight", "docHeight",
+                          "innerHeight", "parentClient"):
+                    a, b = first.get(k), last.get(k)
+                    if a is not None and b is not None and a != b:
+                        changed[k] = f"{a} -> {b}"
+                for name in ("parent", "header", "aside"):
+                    a, b = first.get(name), last.get(name)
+                    if a and b and (a["h"] != b["h"] or a["top"] != b["top"]):
+                        changed[name] = f"h {a['h']} -> {b['h']}, top {a['top']} -> {b['top']}"
+                with open(f"{shots}/resize-after-reveal.json", "w") as fh:
+                    json.dump({"first": first, "last": last, "changed": changed}, fh, indent=2)
+                if not changed:
+                    ok("nothing changes size after the chat becomes readable "
+                       "(the conversation was already at its final height)")
+                else:
+                    bad(f"the layout still changes AFTER the chat is readable: "
+                        f"{changed} - the view is re-aimed and the reader sees it move")
+            else:
+                bad(f"only {len(after)} sample(s) after the reveal: the aftermath was not measured")
 
         # --- nothing moves the view AFTER the reveal --------------------------------
         #

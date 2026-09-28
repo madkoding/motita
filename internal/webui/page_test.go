@@ -522,6 +522,110 @@ func TestThePageNamesAssetsThatAreActuallyThere(t *testing.T) {
 	}
 }
 
+func TestTheServiceWorkerPrecachesOnlyWhatIsServed(t *testing.T) {
+	// Two real bugs, both silent, both with the same symptom: the reader reloads after a fix and
+	// sees no change at all.
+	//
+	//  1. The precache listed `index.html`, which this server does not serve — the page is
+	//     registered at `/` alone. `cache.addAll` is all-or-nothing, so that ONE 404 rejected the
+	//     whole install: the new worker never activated, the previous shell stayed in the cache,
+	//     and every later build was invisible to that browser. Measured against a running gateway:
+	//     84 precache entries, `index.html` the only 404, and `caches.keys()` returning an empty
+	//     cache with nothing in it.
+	//  2. The worker answered NAVIGATIONS from the cache. The document names the bundle by hash, so
+	//     a cached document keeps naming the old one and the reader reloads into the previous
+	//     build. The server already marks this file `no-store`; the worker was overriding it.
+	//
+	// Both are invisible to a typecheck and to `Content("/")`, so they are pinned here.
+	sw, _, err := Content("/sw.js")
+	if err != nil {
+		t.Fatalf("the service worker is not served: %v", err)
+	}
+	worker := string(sw)
+	if len(worker) == 0 {
+		t.Fatal("the served service worker is empty")
+	}
+
+	// (1) Every precache entry must be a file this server actually has. Read from the worker's own
+	// manifest, so an asset added to the build cannot quietly add an entry that 404s.
+	urls := precacheURLs(worker)
+	if len(urls) < 3 {
+		t.Fatalf("the worker listed %d precache entr(ies): the scan has gone blind, not the "+
+			"build (expected the bundles, the fonts and the manifest)", len(urls))
+	}
+	served := make(map[string]bool)
+	for _, name := range Names() {
+		served[name] = true
+	}
+	var missing []string
+	for _, u := range urls {
+		if strings.HasPrefix(u, "http://") || strings.HasPrefix(u, "https://") {
+			continue
+		}
+		if !strings.HasPrefix(u, "/") {
+			u = "/" + u
+		}
+		if !served[u] {
+			missing = append(missing, u)
+		}
+	}
+	if len(missing) > 0 {
+		sort.Strings(missing)
+		t.Fatalf("the service worker precaches %d file(s) this server does not serve: %v\n"+
+			"`cache.addAll` rejects the ENTIRE install on a single 404, so the worker never "+
+			"activates, the previous shell stays cached and the reader keeps the old build - the "+
+			"fix looks like it did nothing. A document entry is the usual cause: the page is "+
+			"served at \"/\" and not at \"/index.html\".", len(missing), missing)
+	}
+
+	// (2) The document must not be precached, and navigation must not be answered cache-first:
+	// together they are what pins a browser to a previous build.
+	for _, u := range urls {
+		base := strings.TrimPrefix(strings.TrimPrefix(u, "/"), "./")
+		if base == "" || base == "index.html" || strings.HasSuffix(base, "/index.html") {
+			t.Fatalf("the service worker precaches the document (%q). It names the bundle by "+
+				"hash, so a cached copy keeps naming the OLD bundle and the reader goes on "+
+				"running the previous build. Exclude it from the precache.", u)
+		}
+	}
+	if !strings.Contains(worker, "request.mode") {
+		t.Error("the service worker has no network-first path for NAVIGATIONS. Cache-first for " +
+			"the document is what makes a deploy a no-op for a browser that already has the " +
+			"shell: a reload serves the previous index.html together with the bundle hash it " +
+			"names. The server sends `no-store` for this file; the worker must not override it.")
+	}
+	// And one failed entry must cost one file, not the whole install.
+	if strings.Contains(worker, "addAll") {
+		t.Error("the worker precaches with `addAll`, which is all-or-nothing: one entry that " +
+			"404s rejects the install and the new worker never activates.")
+	}
+}
+
+// precacheURLs reads the urls out of the worker's injected manifest, tolerating whatever JSON
+// spacing the bundler chooses.
+func precacheURLs(worker string) []string {
+	var out []string
+	// The injected manifest is a JSON array of objects with a "url" key. Scanning for the key and
+	// then for the next quoted string keeps this independent of the minifier's whitespace.
+	for _, chunk := range strings.Split(worker, `"url"`)[1:] {
+		colon := strings.Index(chunk, ":")
+		if colon < 0 {
+			continue
+		}
+		rest := chunk[colon+1:]
+		q := strings.Index(rest, `"`)
+		if q < 0 {
+			continue
+		}
+		end := strings.Index(rest[q+1:], `"`)
+		if end < 0 {
+			continue
+		}
+		out = append(out, rest[q+1:q+1+end])
+	}
+	return out
+}
+
 // assetRefs pulls the local asset paths out of the page: src/href attributes and the paths Vite
 // emits in its preload links. An absolute URL is not this build's business.
 func assetRefs(html string) []string {

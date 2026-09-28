@@ -23,7 +23,13 @@ export default defineConfig({
       // gets it from the cache afterwards, and an install pays nothing for the set.
       injectManifest: {
         globPatterns: ['**/*.{js,css,html,svg,webp,woff2,webmanifest}'],
-        globIgnores: ['emoji/**'],
+        // `index.html` is excluded, and it is the difference between a deploy that lands and one
+        // that does not. The document names the bundle by hash, so a precached copy keeps naming
+        // the PREVIOUS bundle: the reader reloads after a fix and runs the old build. Worse, it
+        // is served at `/` and not at `/index.html`, so listing it made `cache.addAll` reject the
+        // whole install on that single 404 and no new worker ever activated. Measured against a
+        // running gateway: 84 entries, `index.html` the only 404, and the cache left empty.
+        globIgnores: ['emoji/**', 'index.html'],
         maximumFileSizeToCacheInBytes: 3 * 1024 * 1024,
       },
       manifest: {
