@@ -655,6 +655,19 @@ body {
   background: rgba(10, 10, 15, 0.35);
   z-index: 5;
   pointer-events: none;
+  /* The modal's OWN entrance and exit. The exit needs this here and a matching delay in the state
+   * that removes the node: an element that is unmounted cannot transition, so the reader saw it
+   * disappear in one frame. `MODAL_EXIT_MS` in App.tsx is this duration. */
+  opacity: 1;
+  transition: opacity 220ms ease-out;
+}
+
+.chat-modal-leaving {
+  opacity: 0;
+}
+
+.chat-modal-leaving .chat-modal {
+  transform: translateY(-3px);
 }
 
 .chat-modal {
@@ -701,11 +714,34 @@ body {
  * shape — formulas arriving, diagrams growing, the text reflowing under their eyes — and the scroll
  * is chasing a height that is not final. It is `opacity` and not `visibility`/`display` because the
  * work has to KEEP HAPPENING underneath: the observer still has to see and measure what is in view,
- * and the layout has to be real for the bottom to be computable. The reveal is transitioned so the
- * first frame is not a flash, and `prefers-reduced-motion` gets the same reveal without the fade. */
+ * and the layout has to be real for the bottom to be computable.
+ *
+ * The TRANSITION lives on the container itself, not inside `.chat-loading`, and that is the whole
+ * difference between a fade and a jump: a transition declared only in the loading rule disappears
+ * in the same frame the class is removed, so the chat arrived at full opacity in ONE frame —
+ * reported by the reader as "it appears very suddenly". Declared here, both directions animate.
+ *
+ * The reveal is also staggered: `.chat-loading > *` holds the messages back for 120ms so the
+ * container's fade and the content's own arrival are not the same motion. */
+main[role="log"] {
+  transition: opacity 420ms ease-out;
+}
+
 .chat-loading {
   opacity: 0;
-  transition: opacity 180ms ease-out;
+  pointer-events: none;
+}
+
+.chat-loading > * {
+  opacity: 0;
+  transform: translateY(6px);
+  transition: opacity 320ms ease-out, transform 320ms ease-out;
+}
+
+main[role="log"]:not(.chat-loading) > * {
+  opacity: 1;
+  transform: none;
+  transition-delay: 120ms;
 }
 
 /* The rotation is `animateTransform` INSIDE the SVG, so `prefers-reduced-motion` cannot stop
@@ -715,6 +751,13 @@ body {
 @media (prefers-reduced-motion: reduce) {
   .chat-spinner {
     display: none;
+  }
+  /* The reveal still happens, it just stops being a motion: the reader keeps the information
+   * (the chat was not there, now it is) without the movement. */
+  main[role="log"],
+  main[role="log"] > *,
+  .chat-modal-scrim {
+    transition: none;
   }
 }
 /* While the diagram module is being fetched there is nothing to show yet, and a

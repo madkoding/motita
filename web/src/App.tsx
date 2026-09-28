@@ -157,6 +157,12 @@ const SIDEBAR_KEY = 'motita:sidebar-open'
 const PROJECT_COLLAPSE_KEY = 'motita:collapsed-projects'
 const UPGRADE_DISMISS_KEY = 'motita:upgrade-dismissed'
 
+// How long the loading modal takes to leave, in milliseconds. It must match the
+// `chat-modal-leaving` transition in index.css: the state is held for exactly this long so the
+// fade-out can finish before the node is removed. Measured: without it the modal vanished in ONE
+// frame, because a node that is unmounted cannot transition.
+const MODAL_EXIT_MS = 220
+
 // ─── Scheduled tasks: reading a cadence in words, and a countdown ────────────
 //
 // `every` arrives from the gateway as a Go duration string (the DTO formats it),
@@ -538,6 +544,38 @@ export default function App() {
   // read yet — and both are shown by one spinner over the message area.
   const [chatLoading, setChatLoading] = useState(false)
 
+  // The modal's exit runs BEFORE `chatLoading` is allowed to go false, because a node that is
+  // removed from the DOM cannot transition: the reader saw it vanish in one frame. This timer is
+  // the one that holds the state during `MODAL_EXIT_MS`, so the fade-out is real.
+  const [modalLeaving, setModalLeaving] = useState(false)
+
+  // The ONLY way the modal is opened or closed. Closing runs the exit FIRST and holds the state
+  // until the fade has finished, so the modal leaves the way a reader expects instead of blinking
+  // out of existence. Both directions are idempotent: a conversation that starts more work while
+  // the modal is on its way out cancels the exit rather than stacking timers under a modal that is
+  // already returning.
+  const modalTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const requestModal = useCallback((open: boolean) => {
+    if (modalTimerRef.current) {
+      clearTimeout(modalTimerRef.current)
+      modalTimerRef.current = null
+    }
+    if (open) {
+      setModalLeaving(false)
+      setChatLoading(true)
+      return
+    }
+    setModalLeaving(true)
+    modalTimerRef.current = setTimeout(() => {
+      modalTimerRef.current = null
+      setChatLoading(false)
+      setModalLeaving(false)
+    }, MODAL_EXIT_MS)
+  }, [])
+  useEffect(() => () => {
+    if (modalTimerRef.current) clearTimeout(modalTimerRef.current)
+  }, [])
+
   const nextId = () => ++msgIdRef.current
 
   // Auto-scroll on new messages or activity, when the reader is following along.
@@ -703,10 +741,10 @@ export default function App() {
       visiblePending: hydrationState().visiblePending,
       registered: hydrationState().registered,
     })
-    const onQuiet = () => setChatLoading(hydrationState().visiblePending)
+    const onQuiet = () => requestModal(hydrationState().visiblePending)
     document.addEventListener('motita:chat-quiet', onQuiet)
     return () => document.removeEventListener('motita:chat-quiet', onQuiet)
-  }, [])
+  }, [requestModal])
 
   // A transcript that is replaced has to be re-read even if no message ever reports: a
   // conversation whose messages are all ABOVE the fold never starts their work, so no completion
@@ -728,7 +766,7 @@ export default function App() {
     if (messages.length === 0) return
     const id = requestAnimationFrame(() => {
       const el = scrollRef.current
-      if (el && el.querySelector('[data-hydrating]') === null) setChatLoading(false)
+      if (el && el.querySelector('[data-hydrating]') === null) requestModal(false)
     })
     return () => cancelAnimationFrame(id)
   }, [messages, chatLoading])
@@ -1188,7 +1226,7 @@ export default function App() {
     // empty area is not the same message as "this conversation has nothing in it yet". The
     // spinner covers the fetch AND the deferred rendering that follows, and is cleared below
     // once the messages are on screen and their formulas and diagrams are built.
-    setChatLoading(true)
+    requestModal(true)
     // This tab's run belongs to ONE conversation, and it keeps running while
     // the user looks elsewhere. Carry its flag into the row it belongs to, so
     // coming back to that conversation shows the spinner its own turn earned -
@@ -1220,7 +1258,7 @@ export default function App() {
     } catch {
       setState('could not load the conversation', true)
       // Nothing will be rendered, so nothing will announce itself as hydrated either.
-      setChatLoading(false)
+      requestModal(false)
     }
   }, [])
 
@@ -2629,7 +2667,7 @@ export default function App() {
             child of a scrolling box scrolls away with the content — and this has to stay put
             while the page underneath changes height. */}
         {chatLoading && (
-          <div class="chat-modal-scrim">
+          <div class={`chat-modal-scrim${modalLeaving ? ' chat-modal-leaving' : ''}`}>
             <div class="chat-modal" role="status" aria-live="polite">
               <span class="chat-spinner" aria-hidden="true">
                 <svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" focusable="false">

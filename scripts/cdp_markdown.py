@@ -414,23 +414,43 @@ async def run(ws_url, base, token, shots):
             (() => {
               const log = [];
               window.__visLog = log;
+              const frames = [];
+              window.__frameLog = frames;
               let lastKey = null;
               const tick = () => {
                 const el = document.querySelector('main[role="log"]');
+                const scrim = document.querySelector('.chat-modal-scrim');
+                const loading = el ? el.getAttribute('data-chat-loading') : null;
+                // Per-FRAME, and every frame: a transition is many intermediate values, a jump is
+                // one. Thinned by the key so the array stays small, but the key includes the
+                // opacity so every intermediate step is kept.
+                const key = (el ? getComputedStyle(el).opacity : '-') + '|' + loading + '|' +
+                            (scrim ? getComputedStyle(scrim).opacity : '-');
+                if (key !== lastKey) {
+                  lastKey = key;
+                  frames.push({
+                    at: Math.round(performance.now()),
+                    chat: el ? getComputedStyle(el).opacity : null,
+                    loading: loading,
+                    modal: scrim ? getComputedStyle(scrim).opacity : null,
+                    msg: (() => {
+                      const c = el && el.firstElementChild;
+                      return c ? getComputedStyle(c).opacity : null;
+                    })(),
+                  });
+                }
                 if (el) {
                   const cs = getComputedStyle(el);
-                  const loading = el.getAttribute('data-chat-loading');
-                  const key = cs.opacity + '|' + loading + '|' + el.scrollHeight;
-                  if (key !== lastKey) {
-                    lastKey = key;
+                  const stable = cs.opacity + '|' + loading + '|' + el.scrollHeight;
+                  if (stable !== lastKey) {
                     log.push({ at: Math.round(performance.now()), opacity: cs.opacity,
-                               loading: loading, modal: !!document.querySelector('.chat-modal-scrim'),
+                               loading: loading, modal: !!scrim,
                                contentHeight: el.scrollHeight,
                                boxHeight: Math.round(el.getBoundingClientRect().height) });
                   }
                 }
               };
-              setInterval(tick, 40);
+              setInterval(tick, 16);
             })();
             """,
         )
@@ -1034,6 +1054,7 @@ async def run(ws_url, base, token, shots):
                 break
             await asyncio.sleep(0.5)
         vis_log = await c.js("window.__visLog || []")
+        frames = await c.js("window.__frameLog || []")
         with open(f"{shots}/visibility-log.json", "w") as f:
             json.dump(vis_log, f, indent=2, ensure_ascii=False)
         hidden = [x for x in (vis_log or []) if float(x.get("opacity", 1)) == 0]
@@ -1052,7 +1073,19 @@ async def run(ws_url, base, token, shots):
         #     loading begins are still on their way down (measured 1 -> 0.46 -> 0.099 -> 0 over
         #     ~150ms). What the reader must never see is a FULLY-opaque transcript while the parse
         #     is still running, once the fade has had time to finish.
-        FADE_MS = 300
+        fade_ms = await c.js("""(() => {
+            const el = document.querySelector('main[role="log"]');
+            if (!el) return 0;
+            const d = getComputedStyle(el).transitionDuration || '0s';
+            // '0.42s' or '420ms'; take the first value and normalise to ms.
+            const first = d.split(',')[0].trim();
+            const n = parseFloat(first) || 0;
+            return Math.round(first.endsWith('ms') ? n : n * 1000);
+        })()""")
+        # The allowance is the fade PLUS a margin for the frame cadence: the assertion is that the
+        # reader never sees the transcript at full opacity while it is being built, not that the
+        # browser finishes a CSS transition on an exact millisecond.
+        FADE_MS = (fade_ms or 0) + 150
         while_loading = [x for x in (vis_log or []) if x.get("loading") == "1"]
         hidden = [x for x in (vis_log or []) if float(x.get("opacity", 1)) == 0]
         settled = (vis_log or [{}])[-1]
@@ -1064,18 +1097,75 @@ async def run(ws_url, base, token, shots):
             bad(f"the conversation was NEVER held at opacity 0 while it loaded - the reader "
                 f"watches it change shape. Transitions: {vis_log}")
         else:
-            started = while_loading[0]["at"]
-            late = [x for x in while_loading if x["at"] > started + FADE_MS]
-            exposed = [x for x in late if float(x.get("opacity", 0)) > 0.05]
-            if exposed:
-                bad(f"the conversation is still visible {FADE_MS}ms into loading, so the reader "
-                    f"watches it change shape: {exposed}")
+            # Each LOADING WINDOW is judged on its own, because there is more than one in a real
+            # session (the transcript being replaced, then the conversation being opened) and a
+            # threshold computed from the first window's start flagged every sample of the second
+            # one as "still visible". A window is a run of consecutive loading samples with no
+            # settled sample between them.
+            runs, current = [], []
+            for sample in (vis_log or []):
+                if sample.get("loading") == "1":
+                    current.append(sample)
+                elif current:
+                    runs.append(current)
+                    current = []
+            if current:
+                runs.append(current)
+            offenders = []
+            for run in runs:
+                begun = run[0]["at"]
+                offenders += [x for x in run
+                              if x["at"] > begun + FADE_MS and float(x.get("opacity", 0)) > 0.05]
+            if offenders:
+                bad(f"the conversation is still visible {FADE_MS}ms into a loading window, so the "
+                    f"reader watches it change shape: {offenders}")
             elif settled.get("loading") != "0" or float(settled.get("opacity", 0)) < 0.9:
                 bad(f"the conversation was never revealed after the work finished: {settled}")
             else:
                 ok(f"the conversation is held at opacity 0 for the whole parse and revealed only "
-                   f"when the work is over (hidden from {hidden[0]['at']}ms, "
-                   f"{len(while_loading)} sample(s) while loading, revealed at {settled['at']}ms)")
+                   f"when the work is over ({len(runs)} loading window(s), hidden from "
+                   f"{hidden[0]['at']}ms, revealed at {settled['at']}ms, allowance {FADE_MS}ms "
+                   f"read from the CSS)")
+
+        # --- the modal must LEAVE and the chat must ARRIVE, both gradually -----------
+        #
+        # Counted from per-frame opacity samples: a transition shows several intermediate values, a
+        # jump shows one. The reader reported "it appears very suddenly", which is exactly one frame
+        # at the new value, so the assertion counts DISTINCT values strictly between the ends.
+        def steps(values):
+            seen = []
+            for v in values:
+                f = float(v)
+                if not seen or abs(f - seen[-1]) > 0.01:
+                    seen.append(f)
+            return seen
+
+        modal_out = steps([x["modal"] for x in (frames or []) if x.get("modal") is not None])
+        chat_in = steps([x["chat"] for x in (frames or []) if x.get("chat") is not None])
+        intermediate_modal = [v for v in modal_out if 0.02 < v < 0.98]
+        intermediate_chat = [v for v in chat_in if 0.02 < v < 0.98]
+        with open(f"{shots}/transitions.json", "w") as f:
+            json.dump({"modal": modal_out, "chat": chat_in, "frames": frames},
+                      f, indent=2, ensure_ascii=False)
+
+        if not frames:
+            bad("no per-frame opacity samples were recorded, so nothing about the transitions "
+                "was measured")
+        else:
+            if len(intermediate_modal) >= 2:
+                ok(f"the modal fades OUT rather than vanishing ({len(intermediate_modal)} "
+                   f"intermediate opacity value(s): "
+                   f"{[round(v, 2) for v in intermediate_modal]})")
+            else:
+                bad(f"the modal disappears in one frame - no fade-out was measured. Opacity "
+                    f"sequence: {modal_out}")
+            if len(intermediate_chat) >= 2:
+                ok(f"the chat fades IN rather than appearing at once "
+                   f"({len(intermediate_chat)} intermediate opacity value(s): "
+                   f"{[round(v, 2) for v in intermediate_chat]})")
+            else:
+                bad(f"the chat appears at full opacity in one frame - no fade-in was measured. "
+                    f"Opacity sequence: {chat_in}")
 
         # And the height it settled at: the hidden phase is what keeps the reader from watching it
         # grow, so the two numbers together are the whole story.
