@@ -555,17 +555,42 @@ export default function App() {
   // the modal is on its way out cancels the exit rather than stacking timers under a modal that is
   // already returning.
   const modalTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  // Whether the modal is mounted right now, tracked OUTSIDE React state so `requestModal` can be
+  // idempotent without being re-created: the quiet window fires once per settle, and a close that
+  // arrives while the modal is already on its way out must not restart the timer.
+  let modalOpen = false
+  // The exit class is applied ONE FRAME after the scrim mounts. React commits the DOM before the
+  // next paint, so hiding the new element in the same commit would give the browser no starting
+  // opacity to interpolate from - and the fade-out would be a fade from 0 to 0, i.e. a blink.
+  const modalExitFrame = useRef<number | null>(null)
   const requestModal = useCallback((open: boolean) => {
     if (modalTimerRef.current) {
       clearTimeout(modalTimerRef.current)
       modalTimerRef.current = null
     }
     if (open) {
+      modalOpen = true
+      if (modalExitFrame.current !== null) {
+        cancelAnimationFrame(modalExitFrame.current)
+        modalExitFrame.current = null
+      }
       setModalLeaving(false)
       setChatLoading(true)
       return
     }
-    setModalLeaving(true)
+    if (!modalOpen) return
+    modalOpen = false
+    if (modalExitFrame.current !== null) cancelAnimationFrame(modalExitFrame.current)
+    // Two frames, and both are needed. The FIRST mounts the scrim with no exit class, so the
+    // browser has a real starting opacity; the SECOND adds `.chat-modal-leaving`, which is what
+    // animates. This also handles the case that bit me: React batches, so setting both in one
+    // handler produced a single commit (scrim + exit class together = a blink from 0 to 0).
+    modalExitFrame.current = requestAnimationFrame(() => {
+      modalExitFrame.current = requestAnimationFrame(() => {
+        modalExitFrame.current = null
+        setModalLeaving(true)
+      })
+    })
     modalTimerRef.current = setTimeout(() => {
       modalTimerRef.current = null
       setChatLoading(false)
@@ -574,6 +599,7 @@ export default function App() {
   }, [])
   useEffect(() => () => {
     if (modalTimerRef.current) clearTimeout(modalTimerRef.current)
+    if (modalExitFrame.current !== null) cancelAnimationFrame(modalExitFrame.current)
   }, [])
 
   const nextId = () => ++msgIdRef.current
@@ -2639,7 +2665,7 @@ export default function App() {
           role="log"
           aria-live="polite"
           aria-label="conversation"
-          class={`chat-bg flex-1 overflow-y-auto px-3 py-4 sm:px-5 sm:py-5 flex flex-col gap-2.5 scroll-smooth${
+          class={`chat-bg flex-1 overflow-y-auto px-3 py-4 sm:px-5 sm:py-5 flex flex-col gap-2.5${
             chatLoading ? ' chat-loading' : ''}`}
           data-chat-loading={chatLoading ? '1' : '0'}
         >

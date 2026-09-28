@@ -433,6 +433,8 @@ async def run(ws_url, base, token, shots):
                     chat: el ? getComputedStyle(el).opacity : null,
                     loading: loading,
                     modal: scrim ? getComputedStyle(scrim).opacity : null,
+                    scrollTop: el ? Math.round(el.scrollTop) : null,
+                    scrollBehavior: el ? getComputedStyle(el).scrollBehavior : null,
                     msg: (() => {
                       const c = el && el.firstElementChild;
                       return c ? getComputedStyle(c).opacity : null;
@@ -1127,6 +1129,46 @@ async def run(ws_url, base, token, shots):
                    f"{hidden[0]['at']}ms, revealed at {settled['at']}ms, allowance {FADE_MS}ms "
                    f"read from the CSS)")
 
+        # --- nothing moves the view AFTER the reveal --------------------------------
+        #
+        # The reader's second report: the chat appears and then "the height readjusts and it ends up
+        # wrong". That is a scroll still travelling once the content is visible, and an end-state
+        # check cannot see it - the final position is correct either way. Sample the position across
+        # the reveal and require it to stop.
+        # Only frames AFTER the last loading sample count: the page is legitimately visible before
+        # a session starts loading (measured: opacity 1, loading 0), so the first "revealed" frame is
+        # the empty shell and measuring from it reported the whole load as movement.
+        loading_ats = [f["at"] for f in (frames or []) if f.get("loading") == "1"]
+        reveal_at = None
+        if loading_ats:
+            last_loading = max(loading_ats)
+            for f in (frames or []):
+                if (f["at"] > last_loading and f.get("chat") is not None
+                        and float(f["chat"]) > 0.9 and f.get("loading") == "0"):
+                    reveal_at = f["at"]
+                    break
+        if reveal_at is None:
+            bad("the reveal never happened in the recording, so its aftermath was not measured")
+        else:
+            samples = [f for f in (frames or []) if f["at"] >= reveal_at and f.get("scrollTop") is not None]
+            with open(f"{shots}/scroll-after-reveal.json", "w") as fh:
+                json.dump(samples, fh, indent=2, ensure_ascii=False)
+            positions = [x["scrollTop"] for x in samples]
+            if not positions:
+                bad("no scroll position was recorded after the reveal")
+            else:
+                span = max(positions) - min(positions)
+                # A scroll animation shows as a sequence of increasing positions after the reveal;
+                # an exact landing shows one value, or a couple of pixels of sub-pixel rounding.
+                if span <= 2:
+                    ok(f"the view is already at rest when the chat becomes readable "
+                       f"({span}px of movement across {len(positions)} sample(s), "
+                       f"scroll-behavior: {samples[0].get('scrollBehavior')})")
+                else:
+                    bad(f"the view keeps moving AFTER the chat is revealed ({span}px across "
+                        f"{len(positions)} sample(s): {positions[:8]}) - that is the height "
+                        f"readjusting the reader reported")
+
         # --- the modal must LEAVE and the chat must ARRIVE, both gradually -----------
         #
         # Counted from per-frame opacity samples: a transition shows several intermediate values, a
@@ -1166,6 +1208,18 @@ async def run(ws_url, base, token, shots):
             else:
                 bad(f"the chat appears at full opacity in one frame - no fade-in was measured. "
                     f"Opacity sequence: {chat_in}")
+
+        behavior = await c.js("""(() => {
+            const el = document.querySelector('main[role="log"]');
+            return el ? getComputedStyle(el).scrollBehavior : null;
+        })()""")
+        if behavior is None:
+            bad("the conversation container was not found when measuring its scroll behaviour")
+        elif behavior == "smooth":
+            bad(f"the conversation container smooth-scrolls (scroll-behavior: {behavior}), so every "
+                f"programmatic landing is animated and the next layout change catches it mid-flight")
+        else:
+            ok(f"the conversation container scrolls exactly (scroll-behavior: {behavior})")
 
         # And the height it settled at: the hidden phase is what keeps the reader from watching it
         # grow, so the two numbers together are the whole story.

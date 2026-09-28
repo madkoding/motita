@@ -655,15 +655,17 @@ body {
   background: rgba(10, 10, 15, 0.35);
   z-index: 5;
   pointer-events: none;
-  /* The modal's OWN entrance and exit. The exit needs this here and a matching delay in the state
-   * that removes the node: an element that is unmounted cannot transition, so the reader saw it
-   * disappear in one frame. `MODAL_EXIT_MS` in App.tsx is this duration. */
+  /* `transition: none` by default, so the modal can APPEAR in the same frame it is mounted: the
+   * reader is waiting, and an entrance animation only delays the information. The fade belongs to
+   * the exit and is opt-in through `.chat-modal-leaving`, which is applied one frame after the
+   * scrim appears — so the browser has a starting value to interpolate from. */
   opacity: 1;
-  transition: opacity 220ms ease-out;
+  transition: none;
 }
 
 .chat-modal-leaving {
   opacity: 0;
+  transition: opacity 220ms ease-out;
 }
 
 .chat-modal-leaving .chat-modal {
@@ -724,6 +726,16 @@ body {
  * The reveal is also staggered: `.chat-loading > *` holds the messages back for 120ms so the
  * container's fade and the content's own arrival are not the same motion. */
 main[role="log"] {
+  transition: none;
+}
+
+/* Reveal: the transition lives on the state the element is ENTERING, and on BOTH levels. A
+ * transition declared only on the hidden state is dropped in the same frame the class is removed -
+ * that is what made the chat arrive at once, and what made the MESSAGES snap while the container
+ * faded (they kept their own `transition` only under `.chat-loading`, so their opacity and their
+ * 6px offset jumped). Reported as "it appears, but the height readjusts and it ends up wrong". */
+main[role="log"]:not(.chat-loading) {
+  opacity: 1;
   transition: opacity 420ms ease-out;
 }
 
@@ -735,13 +747,14 @@ main[role="log"] {
 .chat-loading > * {
   opacity: 0;
   transform: translateY(6px);
-  transition: opacity 320ms ease-out, transform 320ms ease-out;
 }
 
 main[role="log"]:not(.chat-loading) > * {
   opacity: 1;
   transform: none;
-  transition-delay: 120ms;
+  /* The delay staggers the messages behind the container's own fade, so the reveal is one motion
+   * rather than everything at once. */
+  transition: opacity 340ms ease-out 120ms, transform 340ms ease-out 120ms;
 }
 
 /* The rotation is `animateTransform` INSIDE the SVG, so `prefers-reduced-motion` cannot stop
@@ -1195,8 +1208,14 @@ header button svg, aside button svg {
   transition: opacity 0.2s ease-out, background-color 0.2s ease-out, border-color 0.2s ease-out, transform 0.15s ease-out;
 }
 
-/* Sidebar session list: smooth scroll. */
-.flex-1.overflow-y-auto {
+/* Sidebar session list: smooth scroll — SCOPED to the sidebar. It was written as a bare
+ * `.flex-1.overflow-y-auto`, which also matches the CONVERSATION container (it carries both
+ * classes), so every programmatic scroll of the chat was animated. `behavior: 'instant'` cannot
+ * help there: the CSSOM's `scroll-behavior` is what decides whether a scroll is smooth when the
+ * behavior is passed as 'instant'... it is 'auto' that defers to it, so an 'instant' call is exact,
+ * while anything else in the tree that scrolls that box still animates. The reader's "the height
+ * readjusts and it ends up wrong" is a scroll caught mid-animation by the next layout change. */
+aside .flex-1.overflow-y-auto {
   scroll-behavior: smooth;
 }
 

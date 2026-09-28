@@ -225,6 +225,35 @@ for c in markdown-body math-block math-inline mermaid-block render-error hljs-ke
   esac
 done
 
+# The transitions themselves, and they must be checked by ROLE, not by unit: the minifier rewrites
+# `420ms` as `.42s`, so grepping for a value with a unit in it finds nothing and reads as a missing
+# rule. Measured - searching the served CSS for "420ms" returned 0 while the rule was right there.
+case "$css" in
+  *".chat-modal-leaving"*)
+    ok "the served CSS defines .chat-modal-leaving, so the modal can fade out before it is removed" ;;
+  *) bad "the served CSS has no .chat-modal-leaving: the modal would vanish instead of fading" ;;
+esac
+case "$css" in
+  *'main[role=log]:not(.chat-loading){'*'transition:opacity'*)
+    ok "the reveal transition lives on the REVEALED state, so it exists in the frame the class is removed (both directions animate, and the hidden state stays a hard cut)" ;;
+  *) bad "the reveal transition is not on the revealed state: removing the loading class would drop it in the same frame and the chat would appear at once" ;;
+esac
+case "$css" in
+  *'.chat-modal-leaving{opacity:0;transition:opacity'*)
+    ok "the modal's fade-out is opt-in on the leaving state, so it appears instantly and leaves gradually" ;;
+  *) bad "the modal's exit transition is not on the leaving state: the modal would blink out" ;;
+esac
+case "$css" in
+  *'.chat-loading>*{opacity:0'*|*'.chat-loading > *{opacity:0'*)
+    ok "the messages are staggered behind the container, so the reveal is not one single flat motion" ;;
+  *) bad "the messages carry no stagger: the reveal would be a single flat fade" ;;
+esac
+if printf '%s' "$css" | tr '}' '\n' | grep -q 'main\[role=log\]'; then
+  ok "prefers-reduced-motion covers the reveal (information kept, motion dropped)"
+else
+  bad "prefers-reduced-motion does not cover the conversation reveal"
+fi
+
 # The lazy chunks must be reachable from the page's own HTML: if mermaid's chunk is
 # eagerly imported the shell grows by ~700 KB, and if it is not reachable the diagram
 # never draws. Both are checked by the probe below; here the entry bundle is checked for
