@@ -82,6 +82,21 @@ func (a *Anchor) Validate(ctx context.Context) Result {
 	}
 
 	checks := a.checks()
+	if len(checks) == 0 {
+		// Only reachable with kind=auto: it is the one kind whose checks come from
+		// the directory, and a directory that declares no gate produces an empty
+		// list. Letting the loop below run over nothing would leave Pass true - an
+		// optimistic PASS over a project nobody checked, which is the exact failure
+		// this package exists to refuse.
+		res.Pass = false
+		res.Reason = "anchor.kind=auto found no gate to run in " + a.dir +
+			": looked for " + declaredGateFile + " (one command per line), a Makefile with check or test, " +
+			"go.mod, package.json (lint/typecheck/test), Cargo.toml and pyproject.toml; " +
+			"declare the project's gate in " + declaredGateFile + " or configure anchor.kind=command"
+		res.DurationMS = time.Since(start).Milliseconds()
+		a.log.Error("anchor found no gate: the result cannot be verified", "dir", a.dir, "reason", res.Reason)
+		return res
+	}
 	for _, c := range checks {
 		record := a.runCheck(ctx, c)
 		res.Checks = append(res.Checks, record)
@@ -113,7 +128,15 @@ func (a *Anchor) Validate(ctx context.Context) Result {
 }
 
 // checks normalises the configuration into a homogeneous list.
+//
+// With kind=auto the list comes from the PROJECT rather than from the file: the
+// anchor reads the gate the directory declares (see detect.go). That is what makes
+// one configuration work across projects, and why the detection is asked here - the
+// only place that builds a check list - rather than at the call site.
 func (a *Anchor) checks() []config.Check {
+	if strings.EqualFold(a.cfg.Kind, "auto") {
+		return a.detectChecks()
+	}
 	list := make([]config.Check, 0, 1+len(a.cfg.Checks))
 	if a.cfg.Command != "" {
 		list = append(list, config.Check{

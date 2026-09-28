@@ -105,7 +105,7 @@ func Run(ctx context.Context, in io.Reader, out io.Writer, configPath string, pr
 		return Result{}, err
 	}
 
-	anchorCommand, anchorArgs, err := w.chooseAnchor(ctx, preset.AnchorCommand, preset.AnchorArgs)
+	anchor, err := w.chooseAnchor(ctx, preset.AnchorCommand, preset.AnchorArgs)
 	if err != nil {
 		return Result{}, err
 	}
@@ -128,8 +128,9 @@ func Run(ctx context.Context, in io.Reader, out io.Writer, configPath string, pr
 		provider:      provider.ID,
 		model:         model,
 		baseURL:       baseURL,
-		anchorCommand: anchorCommand,
-		anchorArgs:    anchorArgs,
+		anchorCommand: anchor.command,
+		anchorArgs:    anchor.args,
+		anchorAuto:    anchor.auto,
 		generated:     now,
 	})
 
@@ -326,47 +327,65 @@ func (s *session) chooseModel(ctx context.Context, p Provider, preset, listURL, 
 // chooseAnchor asks what decides PASS. This is the question that makes the agent
 // what it is: without a validator it refuses to run, so the wizard either takes a
 // real command or records the explicit "always pass" escape.
-func (s *session) chooseAnchor(ctx context.Context, preset string, presetArgs []string) (string, []string, error) {
+func (s *session) chooseAnchor(ctx context.Context, preset string, presetArgs []string) (anchorChoice, error) {
 	if preset != "" {
-		return preset, presetArgs, nil
+		return anchorChoice{command: preset, args: presetArgs}, nil
 	}
 
 	s.say("")
 	printSection(s.out, "What decides that a task is done?")
-	s.say("  %s1.%s A command that must succeed (for example: make test)", colYellow, colReset)
-	s.say("  %s2.%s No check yet, while I try the agent out", colYellow, colReset)
+	s.say("  %s1.%s Detect it from the project (recommended)", colYellow, colReset)
+	s.say("  %s2.%s A command that must succeed (for example: make test)", colYellow, colReset)
+	s.say("  %s3.%s No check yet, while I try the agent out", colYellow, colReset)
 	s.say("")
 	printInfo(s.out, "The agent never trusts the model: only this check can declare PASS.")
-	printInfo(s.out, "Option 2 configures NO check, so the agent will tell you it could not verify the work rather than calling it done.")
+	printInfo(s.out, "Option 1 reads the gate the project declares (a Makefile's check/test, go.mod, package.json, Cargo.toml), so one configuration works on every project.")
+	printInfo(s.out, "Option 3 configures NO check, so the agent will tell you it could not verify the work rather than calling it done.")
 
 	for attempt := 0; attempt < 3; attempt++ {
 		answer, err := s.ask(ctx, "Check [1]:")
 		if err != nil {
-			return "", nil, err
+			return anchorChoice{}, err
 		}
 		switch answer {
 		case "", "1":
+			// The detected gate: nothing is hardcoded, because the gate comes from
+			// the project at run time. A project that wants to be explicit writes
+			// .motita/anchor.
+			return anchorChoice{auto: true}, nil
+		case "2":
 			cmd, err := s.ask(ctx, "Command to run as the check [make]:")
 			if err != nil {
-				return "", nil, err
+				return anchorChoice{}, err
 			}
 			if cmd == "" {
-				cmd = "make"
-				return cmd, []string{"test"}, nil
+				return anchorChoice{command: "make", args: []string{"test"}}, nil
 			}
 			parts := strings.Fields(cmd)
-			return parts[0], parts[1:], nil
-		case "2":
+			return anchorChoice{command: parts[0], args: parts[1:]}, nil
+		case "3":
 			// "Always pass" is recorded as NO anchor, not as a command that cannot fail.
 			// The agent then refuses to declare PASS and says why, which is the honest
 			// shape of "I am just trying this out" — see render.go for the measurement
 			// that made this a defect rather than a preference.
-			return "", nil, nil
+			return anchorChoice{}, nil
 		default:
-			s.say("  Choose 1 or 2.")
+			s.say("  Choose 1, 2 or 3.")
 		}
 	}
-	return "", nil, fmt.Errorf("no valid check after three attempts")
+	return anchorChoice{}, fmt.Errorf("no valid check after three attempts")
+}
+
+// anchorChoice is what the wizard decided about the validator.
+//
+// Three outcomes, and they are not variations of one: a gate DISCOVERED from the
+// project, a gate NAMED by the user, and NO gate at all. Modelling them as one makes
+// "no gate" and "a gate I have not decided yet" the same value, which is exactly the
+// confusion that let `command: "true"` be written as an anchor.
+type anchorChoice struct {
+	auto    bool
+	command string
+	args    []string
 }
 
 func (s *session) askAPIKey(ctx context.Context, p Provider) (string, error) {

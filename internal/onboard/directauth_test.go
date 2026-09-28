@@ -496,7 +496,7 @@ func TestAskAPIKeyDirectAuthThreeAttempts(t *testing.T) {
 	stubDirectAuth(t, "stub")
 	// Provider=anthropic(5), model=1, anchor=always-pass(2), baseURL=default,
 	// auth-choice: three invalid answers ("3","3","3") → error.
-	_, _, err := run(context.Background(), t, dir, []string{"5", "1", "2", "", "3", "3", "3"}, Answers{})
+	_, _, err := run(context.Background(), t, dir, []string{"5", "1", "3", "", "3", "3", "3"}, Answers{})
 	if err == nil {
 		t.Fatal("expected error after three invalid auth choices")
 	}
@@ -509,7 +509,7 @@ func TestAskAPIKeyDirectAuthDefaultChoice(t *testing.T) {
 	stubDirectAuth(t, "default-direct")
 	// Provider=anthropic(5), model=1, anchor=always-pass(2), baseURL=default,
 	// auth-choice: Enter (default=1=direct auth).
-	_, _, err := run(context.Background(), t, dir, []string{"5", "1", "2", "", ""}, Answers{})
+	_, _, err := run(context.Background(), t, dir, []string{"5", "1", "3", "", ""}, Answers{})
 	if err != nil {
 		t.Fatalf("err = %v", err)
 	}
@@ -526,7 +526,7 @@ func TestAskAPIKeyDirectAuthChoosePasteKey(t *testing.T) {
 	dir := t.TempDir()
 	// Provider=anthropic(5), model=1, anchor=always-pass(2), baseURL=default,
 	// auth-choice=2 (paste key), key="my-key".
-	_, _, err := run(context.Background(), t, dir, []string{"5", "1", "2", "", "2", "my-key"}, Answers{})
+	_, _, err := run(context.Background(), t, dir, []string{"5", "1", "3", "", "2", "my-key"}, Answers{})
 	if err != nil {
 		t.Fatalf("err = %v", err)
 	}
@@ -542,7 +542,7 @@ func TestAskAPIKeyDirectAuthAskError(t *testing.T) {
 	dir := t.TempDir()
 	// Provider=anthropic(5), model=1, anchor=always-pass(2), baseURL=default,
 	// auth-choice: EOF (no more input) → ask returns io.EOF.
-	_, _, err := run(context.Background(), t, dir, []string{"5", "1", "2", ""}, Answers{})
+	_, _, err := run(context.Background(), t, dir, []string{"5", "1", "3", ""}, Answers{})
 	if err == nil {
 		t.Fatal("expected error when input runs out at auth choice")
 	}
@@ -598,7 +598,7 @@ func TestRunWriteConfigError(t *testing.T) {
 	old := writeFileAtomicFn
 	writeFileAtomicFn = func(string, []byte) error { return errors.New("disk full") }
 	t.Cleanup(func() { writeFileAtomicFn = old })
-	_, _, err := run(context.Background(), t, dir, []string{"openai", "1", "2", "", "my-key"}, Answers{})
+	_, _, err := run(context.Background(), t, dir, []string{"openai", "1", "3", "", "my-key"}, Answers{})
 	if err == nil {
 		t.Fatal("expected error when config write fails")
 	}
@@ -618,7 +618,7 @@ func TestRunWriteCredError(t *testing.T) {
 		return old(path, content)
 	}
 	t.Cleanup(func() { writeFileAtomicFn = old })
-	_, _, err := run(context.Background(), t, dir, []string{"openai", "1", "2", "", "my-key"}, Answers{})
+	_, _, err := run(context.Background(), t, dir, []string{"openai", "1", "3", "", "my-key"}, Answers{})
 	if err == nil {
 		t.Fatal("expected error when credentials write fails")
 	}

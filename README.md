@@ -152,8 +152,12 @@ no need to know about `-init`. It walks you through:
 1. **Choose a provider**: OpenAI, OpenAI Codex, GitHub Copilot, Ollama Cloud,
    Anthropic (Claude), Google Gemini, or your Claude subscription through Claude Code.
 2. **Choose a model**: each provider ships curated defaults, or type any model ID.
-3. **Set the anchor**: the command that decides whether a task is really done.
-   The third question is the one other tools never ask.
+3. **Set the anchor**: what decides whether a task is really done. The third
+   question is the one other tools never ask — and the default answer is
+   **detect it from the project**, so one configuration works on every repository
+   (`check`/`test` from a Makefile, `go test ./...`, a `package.json`'s
+   `lint`/`typecheck`/`test`, `cargo test`). A project with an unusual build names
+   its own gate in `.motita/anchor`, one command per line.
 4. **Authenticate**: paste an API key, or **connect directly** — open a link in
    your browser and enter a one-time code. Direct login is available for
    Anthropic, Gemini, and Copilot, so you never handle an API key at all.

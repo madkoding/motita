@@ -815,7 +815,7 @@ func (c *Config) validateTaskSource() error {
 }
 
 func (c *Config) validateAnchor() error {
-	if err := oneOf("anchor.kind", c.Anchor.Kind, "none", "command"); err != nil {
+	if err := oneOf("anchor.kind", c.Anchor.Kind, "none", "command", "auto"); err != nil {
 		return err
 	}
 	if c.Anchor.Kind == "command" {

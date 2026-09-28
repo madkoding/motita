@@ -49,6 +49,13 @@ Design rules the code actually enforces:
   and the agent **refuses to start**, because there is no authority that can
   declare `PASS`. A `PASS` with no real check is exactly the failure this
   architecture exists to prevent.
+- **`anchor.kind=auto` reads the gate the PROJECT declares**, in the directory the
+  agent is working in, so one configuration works across projects: `check`/`test`
+  from a Makefile, `go test ./...` from a `go.mod`, the `lint`/`typecheck`/`test`
+  scripts from a `package.json`, `cargo test`, `pytest`. A project with an unusual
+  build names its own gate in `.motita/anchor` (one command per line, `#` comments),
+  and that wins over every convention. Detection only READS, so it is idempotent.
+  With no gate found the anchor returns `FAIL` and names what it looked for.
 - **Every check must pass.** A single failing `check` invalidates the whole
   result.
 - **An anchor that cannot be evaluated is a failure, not a silent success**: if
@@ -465,7 +472,7 @@ honoured. The documented one wins when both are set.
 | Block | Contents |
 |---|---|
 | `task_source` | `kind` (`stdin`/`file`/`api`/`queue`), `path`, `dir`, `url`, `method`, `field`, `interval`, `headers`, `body` |
-| `anchor` | `kind` (`command`/`none`), `command`, `args`, `timeout`, `expect_exit`, `expect_output` (regex), `checks[]` |
+| `anchor` | `kind` (`auto`/`command`/`none`), `command`, `args`, `timeout`, `expect_exit`, `expect_output` (regex), `checks[]` |
 | `sandbox` | `kind` (`none`/`chroot`/`cgroups`), `root`, `user`, `memory_mb`, `cpu_seconds`, `processes`, `open_files`, `max_file_size_mb`, `isolate_network`, `cgroups`, `cgroup_root`, `timeout`, `keep_ephemeral`, `max_output_kb` |
 | `llm` | `provider` (`openai`/`anthropic`/`gemini`), `model`, `api_key`, `base_url`, `max_tokens`, `temperature`, `timeout`, `max_attempts`, `backoff_initial`, `backoff_max`, `reasoning{enabled,level}`, `session{context_window,reserve,compact_at,keep_recent}` |
 | `prompts` | `analyze`, `plan`, `execute`, `synthesize`, each with `system` and `user` |
@@ -1266,6 +1273,7 @@ about itself.
 | `the process was terminated by a signal` | A sandbox limit did its job (CPU or memory). Raise `cpu_seconds` / `memory_mb`. |
 | The agent always fails with `ran out of attempts` | Look at the anchor's `reason`: it is in the error message and in the log. It is usually a badly configured anchor, not the model. |
 | `anchor.kind=none: this agent only declares a task complete...` | Intentional: without a deterministic validator there is no `PASS`. Configure a real anchor. |
+| `anchor.kind=auto found no gate to run in ...` | The directory the agent works in declares no gate. The reason names every convention that was looked for: add `.motita/anchor` with the project's command, or set `anchor.kind=command`. |
 | The binary will not start (`not found`) | It is a 32-bit ELF: `head -c 5 binary \| od -An -tx1` must start with `7f 45 4c 46 01`. |
 | `output truncated by the sandbox limit` | Raise `sandbox.max_output_kb` if the command produces more output than expected. |
 | `fatal error: runtime: cannot allocate memory` | A `memory_mb` that is too low. The agent detects it (it compares against the address space the launcher needs), raises it and logs a warning. If it still appears, raise `memory_mb`. |
