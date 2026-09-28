@@ -93,11 +93,11 @@ function visiblePending(): boolean {
  * window with NO activity answers the question the reader actually has, because a parse that is
  * still running cannot be silent for two seconds.
  *
- * 2s is generous on purpose. It is the difference between "the interface reacted instantly" and
- * "the interface decided too early and had to change again", and the reader is looking at a
- * spinner either way.
+ * 1s is the operator's number, and the shape is what matters: it has to be longer than the gap
+ * between one message finish and the next message registering, and shorter than the point where a
+ * reader calls the interface stuck. A parse that is still running cannot be silent for a second.
  */
-const QUIET_MS = 2000
+const QUIET_MS = 1000
 let quietTimer: ReturnType<typeof setTimeout> | null = null
 
 /**

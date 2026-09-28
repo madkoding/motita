@@ -2601,7 +2601,9 @@ export default function App() {
           role="log"
           aria-live="polite"
           aria-label="conversation"
-          class="chat-bg flex-1 overflow-y-auto px-3 py-4 sm:px-5 sm:py-5 flex flex-col gap-2.5 scroll-smooth"
+          class={`chat-bg flex-1 overflow-y-auto px-3 py-4 sm:px-5 sm:py-5 flex flex-col gap-2.5 scroll-smooth${
+            chatLoading ? ' chat-loading' : ''}`}
+          data-chat-loading={chatLoading ? '1' : '0'}
         >
           {messages.map(m => (
             <div key={m.id} class={`msg ${m.role}${m.kind ? ' ' + m.kind : ''}`}>

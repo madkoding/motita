@@ -696,6 +696,18 @@ body {
   color: #e8e8ea;
 }
 
+/* The conversation is held INVISIBLE while the session is being read and parsed, and only then
+ * revealed. A loading mark over half-built answers shows the reader a page that is still changing
+ * shape — formulas arriving, diagrams growing, the text reflowing under their eyes — and the scroll
+ * is chasing a height that is not final. It is `opacity` and not `visibility`/`display` because the
+ * work has to KEEP HAPPENING underneath: the observer still has to see and measure what is in view,
+ * and the layout has to be real for the bottom to be computable. The reveal is transitioned so the
+ * first frame is not a flash, and `prefers-reduced-motion` gets the same reveal without the fade. */
+.chat-loading {
+  opacity: 0;
+  transition: opacity 180ms ease-out;
+}
+
 /* The rotation is `animateTransform` INSIDE the SVG, so `prefers-reduced-motion` cannot stop
  * it with a CSS `animation: none` — an SMIL timeline is not a CSS animation. Hiding the mark
  * would remove the only sign that something is happening, so the label stays and it is the

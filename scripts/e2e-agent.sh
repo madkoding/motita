@@ -35,7 +35,22 @@ command -v go >/dev/null 2>&1 || { echo "ERROR: go is not on the PATH"; exit 2; 
 
 ARCH="${1:-386}"
 IMAGE="${2:-}"
+
+# A run must not be able to see another run's work. Measured with two
+# simultaneous runs: one exited 0 and the other reported MISSING report.txt even
+# though its own agent logged "task completed" - because BOTH did rm -rf .e2e and
+# mounted the SAME host directory, so each deleted the other's workspace as it
+# started. The scratch tree is now per-run; dist/.e2e (the test binaries) is
+# fixed by design and shared by architecture.
+#
+# PORT is NOT made unique, and that is measured rather than assumed: two
+# concurrent runs both bound 8210 and both passed, because each `docker run` has
+# its own network namespace. Scanning the host for a free port would add a
+# dependency and a false sense of safety.
 PORT="${PORT:-8210}"
+WORK=".e2e-local/$ARCH-$$-$(date +%s)"
+case "$WORK" in .e2e-local/*) ;; *) echo "ERROR: the scratch tree must live under .e2e-local/"; exit 1 ;; esac
+echo "    scratch tree: $WORK (the simulated LLM binds $PORT inside the container)"
 
 # The image has to match the architecture: running an arm binary in an amd64
 # container fails with "exec format error", which looks like a broken binary.
@@ -84,15 +99,15 @@ esac
 echo "    ELF class confirmed ($clase)"
 
 echo "==> Preparing the scenario"
-rm -rf .e2e && mkdir -p .e2e/work
-cp configs/e2e-agent.yaml .e2e/config.yaml
-cp configs/e2e-task.txt .e2e/task.txt
+rm -rf "$WORK" && mkdir -p "$WORK/work"
+cp configs/e2e-agent.yaml "$WORK/config.yaml"
+cp configs/e2e-task.txt "$WORK/task.txt"
 
 echo "==> Running in $IMAGE ($PLATFORM)"
 output="$(
   docker run --rm --platform "$PLATFORM" \
     -v "$PWD/dist:/dist:ro" \
-    -v "$PWD/.e2e:/e2e" \
+    -v "$PWD/$WORK:/e2e" \
     -w /e2e \
     "$IMAGE" sh -c "
     set -e
@@ -117,11 +132,11 @@ failures=0
 check() {
   if [ -e "$1" ]; then echo "  ok  $2"; else echo "  MISSING: $2 ($1)"; failures=$((failures+1)); fi
 }
-check .e2e/work/report.txt "the final attempt's command created the report"
-check .e2e/work/final-action.txt "the final action ran after PASS"
+check "$WORK/work/report.txt" "the final attempt's command created the report"
+check "$WORK/work/final-action.txt" "the final action ran after PASS"
 
-if [ -f .e2e/work/report.txt ]; then
-  content="$(cat .e2e/work/report.txt)"
+if [ -f "$WORK/work/report.txt" ]; then
+  content="$(cat "$WORK/work/report.txt")"
   if [ "$content" = "content-valid" ]; then
     echo "  ok  the report holds the requested contents: $content"
   else
@@ -132,13 +147,14 @@ fi
 
 # The anchor must have failed on the first attempt and passed on the second:
 # that proves the retry loop works with real data.
-if grep -q "attempt failed" .e2e/agent.log 2>/dev/null || echo "$output" | grep -q "attempt failed"; then
+if grep -q "attempt failed" "$WORK/agent.log" 2>/dev/null || echo "$output" | grep -q "attempt failed"; then
   echo "  ok  there was a failed attempt before PASS (the retry worked)"
 else
   echo "  ?   no record of a failed attempt found"
 fi
 
-rm -rf .e2e
+rm -rf "$WORK"
+rmdir .e2e-local 2>/dev/null || true
 
 echo
 if [ "$failures" -eq 0 ]; then

@@ -380,6 +380,12 @@ async def run(ws_url, base, token, shots):
     def ok(msg):
         print(f"  ok    {msg}")
 
+    def note(msg):
+        # A fact worth printing that is not a verdict: the probe must never FAIL on data
+        # it was given (a shortened quiet window means a state was not sampled, not a defect).
+        notes.append(msg)
+        print(f"  note  {msg}")
+
     async with websockets.connect(ws_url, max_size=80 * 1024 * 1024) as ws:
         c = CDP(ws)
         await c.call("Page.enable")
@@ -399,6 +405,35 @@ async def run(ws_url, base, token, shots):
             for (const k of await caches.keys()) await caches.delete(k);
         })()""")
         await c.call("Page.navigate", url="about:blank")
+        # A recorder that outlives the navigation it observes: it watches the conversation container
+        # from the first frame, so "was it hidden WHILE loading?" is answered from the page's own
+        # history instead of being inferred from a sample taken later.
+        await c.call(
+            "Page.addScriptToEvaluateOnNewDocument",
+            source="""
+            (() => {
+              const log = [];
+              window.__visLog = log;
+              let lastKey = null;
+              const tick = () => {
+                const el = document.querySelector('main[role="log"]');
+                if (el) {
+                  const cs = getComputedStyle(el);
+                  const loading = el.getAttribute('data-chat-loading');
+                  const key = cs.opacity + '|' + loading + '|' + el.scrollHeight;
+                  if (key !== lastKey) {
+                    lastKey = key;
+                    log.push({ at: Math.round(performance.now()), opacity: cs.opacity,
+                               loading: loading, modal: !!document.querySelector('.chat-modal-scrim'),
+                               contentHeight: el.scrollHeight,
+                               boxHeight: Math.round(el.getBoundingClientRect().height) });
+                  }
+                }
+              };
+              setInterval(tick, 40);
+            })();
+            """,
+        )
         await c.call("Page.navigate", url=f"{base}/#t={token}")
         await asyncio.sleep(3)
 
@@ -998,10 +1033,95 @@ async def run(ws_url, base, token, shots):
             if cleared_now:
                 break
             await asyncio.sleep(0.5)
+        vis_log = await c.js("window.__visLog || []")
+        with open(f"{shots}/visibility-log.json", "w") as f:
+            json.dump(vis_log, f, indent=2, ensure_ascii=False)
+        hidden = [x for x in (vis_log or []) if float(x.get("opacity", 1)) == 0]
+        visible = [x for x in (vis_log or []) if float(x.get("opacity", 1)) > 0.9]
+        while_loading = [x for x in (vis_log or []) if x.get("loading") == "1"]
+        at_full = [x for x in while_loading if float(x.get("opacity", 0)) > 0.9]
+        hidden = [x for x in (vis_log or []) if float(x.get("opacity", 1)) == 0]
+        revealed = [x for x in (vis_log or []) if float(x.get("opacity", 1)) > 0.9
+                    and x.get("loading") == "0"]
+        # Two things this must NOT claim, both of which a naive reading gets wrong:
+        #
+        #   * The page is legitimately at full opacity BEFORE a session starts loading (measured:
+        #     opacity 1, loading 0, no modal at 50ms). That is not a "reveal", so ordering the two
+        #     states against each other tests nothing.
+        #   * The fade is intentional (`transition: opacity 180ms`), so the first frames after
+        #     loading begins are still on their way down (measured 1 -> 0.46 -> 0.099 -> 0 over
+        #     ~150ms). What the reader must never see is a FULLY-opaque transcript while the parse
+        #     is still running, once the fade has had time to finish.
+        FADE_MS = 300
+        while_loading = [x for x in (vis_log or []) if x.get("loading") == "1"]
+        hidden = [x for x in (vis_log or []) if float(x.get("opacity", 1)) == 0]
+        settled = (vis_log or [{}])[-1]
+        if not vis_log:
+            bad("nothing recorded the conversation's visibility while the page loaded")
+        elif not while_loading:
+            bad(f"the conversation never reported itself as loading: {vis_log}")
+        elif not hidden:
+            bad(f"the conversation was NEVER held at opacity 0 while it loaded - the reader "
+                f"watches it change shape. Transitions: {vis_log}")
+        else:
+            started = while_loading[0]["at"]
+            late = [x for x in while_loading if x["at"] > started + FADE_MS]
+            exposed = [x for x in late if float(x.get("opacity", 0)) > 0.05]
+            if exposed:
+                bad(f"the conversation is still visible {FADE_MS}ms into loading, so the reader "
+                    f"watches it change shape: {exposed}")
+            elif settled.get("loading") != "0" or float(settled.get("opacity", 0)) < 0.9:
+                bad(f"the conversation was never revealed after the work finished: {settled}")
+            else:
+                ok(f"the conversation is held at opacity 0 for the whole parse and revealed only "
+                   f"when the work is over (hidden from {hidden[0]['at']}ms, "
+                   f"{len(while_loading)} sample(s) while loading, revealed at {settled['at']}ms)")
+
+        # And the height it settled at: the hidden phase is what keeps the reader from watching it
+        # grow, so the two numbers together are the whole story.
+        if vis_log:
+            first_h = (vis_log[0].get("contentHeight") or 0)
+            last_h = (vis_log[-1].get("contentHeight") or 0)
+            if last_h > first_h:
+                note(f"the conversation's content grew {first_h}px -> {last_h}px behind the modal, "
+                     f"which is exactly what the reader is spared from watching")
+            else:
+                bad(f"the conversation's content never grew ({first_h}px -> {last_h}px): the "
+                    f"hidden phase and the final scroll are then untested")
+
         ch = await c.js("window.__chatLoadingLog && window.__chatLoadingLog()")
         ml = await c.js("window.__modalLog || []")
         with open(f"{shots}/chatloading.json", "w") as f:
             json.dump({"state": ch, "modal": ml}, f, indent=2, ensure_ascii=False)
+
+        # --- the conversation is HIDDEN while it is being built ---------------------
+        #
+        # Measured on the computed style of the real container, not on a class name: the reader
+        # must not watch formulas arrive and diagrams grow, and the scroll must not chase a height
+        # that is still changing.
+        vis = await c.js("""(() => {
+            const el = document.querySelector('main[role="log"]');
+            if (!el) return null;
+            const cs = getComputedStyle(el);
+            const r = el.getBoundingClientRect();
+            // opacity 0 on an element is only meaningful if it is really painted, so this also
+            // reports what is behind it: the reader sees the modal, not a half-built transcript.
+            return { opacity: cs.opacity, loading: el.getAttribute('data-chat-loading'),
+                     width: Math.round(r.width), height: Math.round(r.height),
+                     modal: !!document.querySelector('.chat-modal-scrim') };
+        })()""")
+        with open(f"{shots}/visibility.json", "w") as f:
+            json.dump(vis, f, indent=2, ensure_ascii=False)
+        if not vis:
+            bad("the conversation container was not found, so nothing about its visibility was measured")
+        elif cleared_now:
+            if vis.get("loading") == "0" and float(vis.get("opacity", 0)) > 0.9:
+                ok(f"the conversation is revealed once the page went quiet "
+                   f"(opacity {vis.get('opacity')}, {vis.get('width')}x{vis.get('height')}px)")
+            else:
+                bad(f"the page went quiet but the conversation is still hidden: {vis}")
+        else:
+            bad("the conversation was never revealed")
 
         if not cleared_now:
             bad("the session modal was still up 20s after the transcript settled: the quiet window "
