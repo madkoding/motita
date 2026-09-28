@@ -83,8 +83,13 @@ jobs:
         #   - `git tag --points-at X --match Y` fails with "unknown option: `match'".
         #     Stdout is then empty, which reads as "no tag here" and falls through.
         #     The pattern goes POSITIONALLY: `git tag -l --points-at HEAD 'v*'`.
-        #   - `--sort=-v:refname` is not a version sort: it puts v3.1.0 above
-        #     v3.10.0. `sort -V` is the one that orders versions.
+        #   - The order tags come back in is NOT the version order. The default is
+        #     lexicographic ascending, so v3.9.0 precedes v3.10.0, and even
+        #     `--sort=-refname` ranks v3.9.0 as the greatest. `sort -V` is a real
+        #     version sort and ranks v3.10.0 correctly. (Note that `-v:refname`
+        #     DOES version-sort correctly, so a sort spec cannot be judged by its
+        #     shape - it was measured, with v3.1.0/v3.2.0/v3.9.0/v3.10.0, before
+        #     being written down here.)
         #
         # The marker in site/index.html is replaced in place and the job FAILS if
         # it is absent: a page whose version cannot be stamped would otherwise be
