@@ -521,6 +521,14 @@ learns something**. They're files, so you can read them, fix them, and version
 them. The built-ins ship inside the binary, so a fresh install starts with a
 library instead of an empty shelf.
 
+The shelf is not only about tools. Two of the documents that ship are about the
+**shape of the answer**: one for showing the work — a diagram of the flow, a
+`gitGraph` of the branches, the files a commit touched, a before/after that can be
+read at a glance — and one for **verifying** a change rather than announcing it,
+because a command that exited `0` is a statement about the program running and not
+about the effect existing. Both apply to nearly every task, so the model searches
+for them the way it searches for the rest of the shelf.
+
 Then `/good` and `/bad` land on the procedures that turn actually used, and the
 library is searched by what has worked out before. No fine-tuning, no API, no
 extra bill. Just a ledger next to a shelf.

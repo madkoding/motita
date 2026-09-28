@@ -134,3 +134,41 @@ them.
 Report the branch, the commit sha and the files, from what the commands actually returned. "Fixed
 the issue" is not reportable; "committed `a1b2c3d` on `fix/parser`, touching `parser.go` and its
 test" is.
+
+### Showing it: the branch graph, and the files that moved
+
+A branch name in prose is one line of a picture the reader has to assemble themselves. Two things
+carry it better, and both are cheap:
+
+**The shape of the branches**, as a `gitGraph` in the answer when the interface renders diagrams.
+Measured on this renderer: `gitGraph` draws commits, tags and branch labels. Put it in a fence
+tagged `mermaid`, and read the real log for the ids rather than inventing them:
+
+```mermaid
+gitGraph
+  commit id: "a1b2c3d" tag: "v0.1.0"
+  branch feat/parser
+  commit id: "b7c8d9e"
+  checkout main
+  merge feat/parser id: "c0ffee1"
+```
+
+`gitGraph` is picky about one thing: do not `branch` the branch you are already on. It fails with
+*Trying to create an existing branch* and the diagram draws nothing, which reads as "the feature
+is broken" rather than "the syntax is wrong". `git log --oneline --graph --all` is the text
+version, and it is what a terminal surface gets — see the `diagrams-and-reports` procedure for
+which surface draws what.
+
+**The files that moved**, as a table, from `git show --stat` (or `git diff --stat` for work not
+yet committed) — never from memory, and never with a count you did not just read:
+
+| file | + | − |
+| --- | ---: | ---: |
+| `internal/gitx/gitx.go` | 42 | 7 |
+| `internal/gitx/gitx_test.go` | 61 | 0 |
+
+For a squash merge or a branch that is already pushed, `git log --oneline main..<branch>` gives
+the commits that are actually in it, and `git diff --stat <base>...<branch>` the total. `...`
+(three dots) is the one you want against a base that has moved on: two dots reports every commit
+the base gained since the fork as if the branch were removing them.
+

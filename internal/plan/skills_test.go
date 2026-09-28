@@ -292,6 +292,33 @@ func TestTheSystemPromptSaysTheSkillsExistButAreNotInContext(t *testing.T) {
 	}
 }
 
+// TestTheSystemPromptNamesTheProceduresThatShapeAnAnswer: a procedure the model has to
+// DISCOVER on its own is one it reaches for only by accident. The two documents about how a
+// result is SHOWN and VERIFIED apply to nearly every task, so the prompt names them — and
+// names them by the NAME the index prints, not by a paraphrase, or the search would not
+// find what the prompt sent it looking for.
+//
+// The names are asserted against the embedded set in the skills package, which is where the
+// files are; here the contract is only that the prompt uses them.
+func TestTheSystemPromptNamesTheProceduresThatShapeAnAnswer(t *testing.T) {
+	text := promptText()
+	for _, want := range []string{"diagrams-and-reports", "verifying-a-change"} {
+		if !strings.Contains(text, want) {
+			t.Errorf("the system prompt must name the %q procedure so the model looks it up", want)
+		}
+	}
+	// And the sentence has to say WHEN: a bare name in a list is not an instruction.
+	for _, want := range []string{
+		"SHAPE of your answer",
+		"before laying out a plan",
+		"before claiming that something works",
+	} {
+		if !strings.Contains(text, want) {
+			t.Errorf("the prompt must say when to reach for those procedures, missing %q", want)
+		}
+	}
+}
+
 // TestTheSystemPromptTellsTheModelToFillInWhatIsUnsaid: the user omits most of what they mean,
 // and the prompt has to make supplying it the model's job.
 func TestTheSystemPromptTellsTheModelToFillInWhatIsUnsaid(t *testing.T) {

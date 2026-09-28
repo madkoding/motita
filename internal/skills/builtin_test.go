@@ -32,12 +32,14 @@ const (
 	commandsSkill = "running-commands"
 	gitSkill      = "git-in-a-repository"
 	curlSkill     = "calling-an-http-api"
+	showSkill     = "diagrams-and-reports"
+	verifySkill   = "verifying-a-change"
 )
 
 // shippedCore is what a fresh install is expected to carry, in one list: the tests that ask "does
 // a fresh install ship this" and "does the search find it" both read it, so adding a document
 // means adding it here and nowhere else.
-var shippedCore = []string{fileSkill, webSkill, commandsSkill, gitSkill, curlSkill}
+var shippedCore = []string{fileSkill, webSkill, commandsSkill, gitSkill, curlSkill, showSkill, verifySkill}
 
 // TestTheShippedProceduresLoad is the base case: a fresh install has something to look up. An
 // embed directive that names a folder the binary does not carry would leave the library empty
@@ -110,6 +112,25 @@ func TestTheShippedProceduresAreFoundByTheWordsOfTheJob(t *testing.T) {
 			"why does curl return nothing",
 			"post json to a service",
 			"check an http status code",
+		}},
+		// The two procedures about the SHAPE of an answer rather than about a tool. Their
+		// queries are the sentences a session actually starts from when a result has to be
+		// shown rather than told.
+		{showSkill, []string{
+			"show the branches and the files that changed",
+			"draw a diagram of the flow",
+			"uml class diagram of these types",
+			"a gantt chart of the plan",
+			"before and after comparison of the change",
+			"visual report of what improved",
+			"show the steps as a diagram",
+		}},
+		{verifySkill, []string{
+			"did it actually work",
+			"prove the fix works",
+			"the test passes but the bug is still there",
+			"how do I know the change took effect",
+			"verify a change against the running binary",
 		}},
 	}
 	for _, c := range cases {

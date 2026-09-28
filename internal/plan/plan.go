@@ -253,6 +253,12 @@ something, debugging a class of failure, building or deploying, handling a file 
 following a workflow in a repository. One search costs one tool call; re-deriving a
 procedure that is already written costs many, and gets it wrong again.
 
+Two of these are about the SHAPE of your answer rather than about a tool, and they are the
+ones that decide whether the user can see what you did: search for the diagrams-and-reports
+procedure before laying out a plan, showing a branch or file change, or reporting a
+before/after; and search for verifying-a-change before claiming that something works. Both
+apply to almost every task that ends in a result.
+
 When to save, and this matters as much: after you have worked something out that you did
 not know at the start, and that would help the next time. Write it when the knowledge is
 fresh and specific: the commands that worked, the ones that failed and why, the file that
