@@ -102,7 +102,7 @@ you'll regret in two years.
 | **Linux** | `386`, `amd64`, `arm` (ARMv7), `arm64` |
 | **Windows** | `386`, `amd64`, `arm64` |
 | **macOS** | `amd64`, `arm64` |
-| **Published size** | 6.9 – 7.7 MB per binary (measured on all 9 targets with this toolchain) |
+| **Published size** | 17.1 – 18.1 MiB per binary (measured on all 9 released targets with this toolchain) |
 
 `386` is a **first-class target**, not an afterthought nobody tests. The
 end-to-end suite builds the agent and runs it inside a real 32-bit container, so
@@ -300,8 +300,9 @@ that, because the first reading sends people hunting for a key that was never me
 
 The page paints the conversation the gateway already has, streams a turn live, resumes
 from the last event it saw when the connection drops, and shows an approval with the
-command **whole**. It is compiled into the binary: **+28 KB** measured, against 1.16 MB of
-margin under the size gate, and a test fails if the assets outgrow their budget.
+command **whole**. It is compiled into the binary: **+28 KB** measured on the page's own
+shell, against the **560 KiB** budget the web interface is held to, and a test fails
+if the assets outgrow it.
 
 ### More than one conversation at a time
 
@@ -636,9 +637,9 @@ This is tested the way you'd test something you were about to bet on.
 
 | | |
 |---|---|
-| **Statement coverage** | **100% in every package that ships** — 20 of 20 (`./internal/... ./cmd/...`), checked package by package so a gap can't hide behind an average. `tools/` holds the CI harnesses and is counted separately |
-| **Test functions** | 1,763 across 110 files |
-| **Code vs tests** | 20,434 lines of Go · 41,402 lines of test |
+| **Statement coverage** | **100% in every package that ships** — 29 of 30 (`./internal/... ./cmd/...`), checked package by package so a gap can't hide behind an average. `internal/review` is the one package without tests, and `tools/` holds the CI harnesses and is counted separately |
+| **Test functions** | 3,141 across 202 files |
+| **Code vs tests** | 35,225 lines of Go · 78,932 lines of test |
 | **External dependencies** | 0 |
 | **Platforms CI builds** | 9 — every one gets `-version` run in its own container on Linux, and a PE/Mach-O header + size check on Windows and macOS |
 
