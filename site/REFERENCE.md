@@ -481,6 +481,27 @@ directory. The documents **shipped inside the binary** are served even when that
 directory does not exist yet, so a fresh install has a library rather than an
 empty shelf; your own documents shadow a built-in of the same name.
 
+**A session that belongs to a project gets a library of its own.** Procedures
+describe a place — how THIS repository builds, which gate decides here — and a
+document about one project offered while you work on another is worse than
+nothing: the model reads a confident procedure about a codebase you are not in.
+So the library is scoped:
+
+| Session | Sees |
+| --- | --- |
+| No project | the shared shelf (`skills.dir`) and the shipped procedures |
+| Inside a project | its own documents **+** the shared shelf **+** the shipped ones |
+
+A project's own procedures live in `<project>/.motita/skills/`, next to the
+checkout rather than in a session's worktree — a worktree is removed when the
+session ends, and a procedure written into one would go with it. Inside a project
+a document there **shadows** a shared or shipped document of the same name, so a
+correction made for one project applies there and nowhere else. A document written
+while working in a project is created in that project, so what you learn stays
+where you learned it; work done with no project open goes to the shared shelf and
+everybody sees it. Nothing written inside a project is visible to another project,
+or to a session with no project at all.
+
 `agent.read_only` is plan mode: the agent explores and proposes, and every action
 that could change the system is refused before it runs.
 

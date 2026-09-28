@@ -134,6 +134,24 @@ type StreamResult struct {
 }
 
 // Handle adds a chunk to the accumulator and returns true when the stream ended.
+//
+// ## Identity: an ID announces a call, and only an ID does
+//
+// A provider streams a tool call in FRAGMENTS, and the fragments do not all look alike. Measured
+// against the wire format a real gateway sends: the first fragment carries `id`, `function.name`
+// and the first slice of `arguments`; every CONTINUATION carries `arguments` only, with no id at
+// all. Some gateways repeat the id on every fragment, and some send the name again on
+// continuations.
+//
+// So identity is decided by the ID ALONE, and a fragment without one CONTINUES the call in
+// progress rather than starting a new one. The rule this replaces compared `LastCall.ID !=
+// chunk.Call.ID`, which is true for every id-less continuation — so each one was appended as a
+// new, empty call and the real arguments were lost.
+//
+// That is not a cosmetic defect: the caller then saw a list of empty shells while the provider
+// had sent a usable call, and the run failed with "the model produced nothing usable" over a
+// reply that contained everything. It is why `finish_reason="tool_calls"` and an empty list
+// appeared in the same message.
 func (sr *StreamResult) Handle(chunk StreamChunk) bool {
 	switch chunk.Event {
 	case StreamDone:
@@ -143,16 +161,56 @@ func (sr *StreamResult) Handle(chunk StreamChunk) bool {
 	case StreamText:
 		sr.Content.WriteString(chunk.Text)
 	case StreamToolCall:
-		if chunk.Call != nil {
-			if sr.LastCall == nil || sr.LastCall.ID != chunk.Call.ID {
-				sr.Calls = append(sr.Calls, *chunk.Call)
-				// LastCall must point at the copy that is now in the slice.
-				// Pointing it at the incoming chunk (which the caller may reuse)
-				// made the later fragments of the same call land outside the
-				// slice, so the arguments kept only their first piece.
-				sr.LastCall = &sr.Calls[len(sr.Calls)-1]
+		if chunk.Call == nil {
+			return false
+		}
+		c := chunk.Call
+		// A call is announced by an ID we have not seen yet. A repeated ID is the same call
+		// restated (a gateway that sends the id on every fragment), and an absent ID is by
+		// definition a continuation.
+		startsCall := c.ID != "" && (sr.LastCall == nil || sr.LastCall.ID != c.ID)
+		if startsCall || sr.LastCall == nil {
+			sr.Calls = append(sr.Calls, *c)
+			// LastCall must point at the copy that is now in the slice. Pointing it at the
+			// incoming chunk (which the caller may reuse) made the later fragments of the same
+			// call land outside the slice, so the arguments kept only their first piece.
+			sr.LastCall = &sr.Calls[len(sr.Calls)-1]
+			return false
+		}
+		// A continuation: it contributes the pieces it carries and must not erase what the
+		// announcing fragment already said. Overwriting the whole struct dropped the ID and the
+		// NAME of the call on the first continuation, which left the caller with a call it could
+		// not dispatch.
+		//
+		// `arguments` is the one field whose treatment depends on WHICH provider is speaking,
+		// and the difference was measured against each rather than assumed:
+		//
+		//   - OpenAI (and the specification) streams the arguments as PIECES of one JSON
+		//     document: the first fragment ends mid-string and the next continues it, so they
+		//     must be JOINED. This is the id-less case, and joining is the only reading that
+		//     produces parseable JSON.
+		//   - Other gateways RESTATE the whole call on a fragment that repeats the id, which is
+		//     the case the "last one wins" rule was written for: joining there would produce two
+		//     JSON documents back to back.
+		//
+		// So a fragment that repeats the id REPLACES the arguments, and one without an id
+		// APPENDS to them.
+		if c.ID != "" {
+			sr.LastCall.ID = c.ID
+		}
+		if c.Type != "" {
+			sr.LastCall.Type = c.Type
+		}
+		if c.Function.Name != "" {
+			sr.LastCall.Function.Name = c.Function.Name
+		}
+		if len(c.Function.Arguments) > 0 {
+			if c.ID != "" {
+				// A restated call: the fragment carries the arguments whole.
+				sr.LastCall.Function.Arguments = c.Function.Arguments
 			} else {
-				*sr.LastCall = *chunk.Call
+				// A piece of the arguments: it continues the document in progress.
+				sr.LastCall.Function.Arguments = append(sr.LastCall.Function.Arguments, c.Function.Arguments...)
 			}
 		}
 	}

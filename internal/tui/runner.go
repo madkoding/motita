@@ -21,6 +21,7 @@ import (
 	"github.com/madkoding/motita/internal/onboard"
 	"github.com/madkoding/motita/internal/plan"
 	"github.com/madkoding/motita/internal/procedures"
+	"github.com/madkoding/motita/internal/projectskills"
 	"github.com/madkoding/motita/internal/review"
 	"github.com/madkoding/motita/internal/reward"
 	"github.com/madkoding/motita/internal/sandbox"
@@ -160,6 +161,12 @@ type AppRunner struct {
 	// interface ended up with one while the other two promised the model a library and then
 	// answered that none was configured.
 	store *procedures.Store
+	// projectScope is the project this runner's library belongs to, remembered even before a
+	// store exists: the gateway tells a session which project it is in when the session is
+	// created or restored, which can happen before anything has run a turn.
+	//
+	// Guarded by sessionMu, like store, because both are read while a turn runs.
+	projectScope string
 
 	// rewardMu guards the last attribution.
 	//
@@ -319,6 +326,43 @@ func (r *AppRunner) SetWorkspace(dir string) {
 	if box, err := sandbox.New(op); err == nil {
 		r.Box = box
 	}
+}
+
+// SetProjectScope makes this runner's procedure library belong to ONE project.
+//
+// It is the piece the whole feature rests on. Every conversation in a gateway process shares
+// one library (that sharing is deliberate — one ledger, one truth), so scoping cannot be a
+// property of the library itself: it has to be a property of the RUNNER, applied when the
+// gateway tells a session which project it belongs to.
+//
+// The library is COPIED rather than mutated, and that is the point: mutating the shared one
+// would scope every other conversation in the process to the project that happened to be set
+// last, which is a bug that would only show up once two projects were open at once.
+//
+// An empty projectDir is the "no project" case and clears the scope, leaving the shared shelf.
+func (r *AppRunner) SetProjectScope(projectDir string) {
+	r.sessionMu.Lock()
+	shared := r.store
+	if shared == nil {
+		// Nothing has built the library yet. Remember the scope and apply it when one is
+		// built, rather than building one here: a runner that has never run a turn has no
+		// business creating a directory.
+		r.projectScope = projectDir
+		r.sessionMu.Unlock()
+		return
+	}
+	r.sessionMu.Unlock()
+
+	scoped := *shared
+	if shared.Library != nil {
+		lib := *shared.Library
+		projectskills.Scope(&lib, projectDir)
+		scoped.Library = &lib
+	}
+	r.sessionMu.Lock()
+	r.store = &scoped
+	r.projectScope = projectDir
+	r.sessionMu.Unlock()
 }
 
 // GenerateTitle asks the model for a short descriptive title for the conversation.
@@ -551,7 +595,16 @@ func (r *AppRunner) procedures() *procedures.Store {
 		// and plan runs use. Both fields below used to be built here directly, which is how
 		// this interface ended up with a library while two other paths promised the model one
 		// and then answered that none was configured.
-		r.store = procedures.Open(r.Config(), r.Log)
+		st := procedures.Open(r.Config(), r.Log)
+		// A scope remembered before the store existed is applied HERE, on the way in: the
+		// gateway may name a session's project before any turn has run, and a library built
+		// afterwards must not come up unscoped just because of the order the two happened in.
+		if r.projectScope != "" && st.Library != nil {
+			lib := *st.Library
+			projectskills.Scope(&lib, r.projectScope)
+			st.Library = &lib
+		}
+		r.store = st
 	}
 	return r.store
 }

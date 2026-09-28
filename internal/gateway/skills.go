@@ -65,13 +65,39 @@ const noLibrary = "this gateway was started without a procedure library"
 // noCurator is the same fact for the maintenance pass.
 const noCurator = "this gateway was started without a curator"
 
+// skillServiceFor picks the library service a request should be answered from.
+//
+// It exists because a procedure library is not process-wide any more: a session that belongs to
+// a project gets that project's documents layered over the shared shelf, so the index the
+// library browser draws depends on WHICH session is asking. Answering every request from the
+// process-wide adapter — which is what this used to do — would show a user inside a project the
+// shelf of a session with no project, and their own procedures would be invisible in the one
+// window that exists to show them.
+//
+// The session's own service is used when the request is ABOUT a conversation and the service
+// behind it can carry a scope. Everything else — and every embedder that does not scope — falls
+// back to the process-wide adapter, which is the behaviour that existed before scoping and is
+// never wrong, only less specific. The same optional-interface pattern the rest of this package
+// uses for SetLibrary and the approver.
+func (s *Server) skillServiceFor(r *http.Request) SkillService {
+	if conv := conversationIfAny(r); conv != nil && conv.svc != nil {
+		if scoped, ok := conv.svc.(SkillService); ok {
+			if _, scopes := conv.svc.(interface{ SetProjectScope(string) }); scopes {
+				return scoped
+			}
+		}
+	}
+	return s.opts.Skills
+}
+
 // handleSkills answers the index a library browser draws.
-func (s *Server) handleSkills(w http.ResponseWriter, _ *http.Request) {
-	if s.opts.Skills == nil {
+func (s *Server) handleSkills(w http.ResponseWriter, r *http.Request) {
+	svc := s.skillServiceFor(r)
+	if svc == nil {
 		writeError(w, http.StatusNotImplemented, noLibrary)
 		return
 	}
-	index, err := s.opts.Skills.Skills()
+	index, err := svc.Skills()
 	if err != nil {
 		// 500 and not an empty list: an unreadable library is not an empty one, and a
 		// browser that drew "no skills" for a broken directory would send the user looking
@@ -79,7 +105,7 @@ func (s *Server) handleSkills(w http.ResponseWriter, _ *http.Request) {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	telemetry := s.opts.Skills.SkillTelemetry()
+	telemetry := svc.SkillTelemetry()
 	views := make([]skillView, 0, len(index))
 	for _, sk := range index {
 		v := skillView{Name: sk.Name, Title: sk.Title, Summary: sk.Summary, Path: sk.Path}

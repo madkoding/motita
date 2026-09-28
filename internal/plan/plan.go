@@ -1024,7 +1024,17 @@ func (p *Planner) toolSearchSkills(args json.RawMessage) string {
 	}
 
 	var b strings.Builder
-	fmt.Fprintf(&b, "%d skill(s) match %q. Use read_skill with the name to read one in full.\n", len(hits), in.Query)
+	fmt.Fprintf(&b, "%d skill(s) match %q.\n", len(hits), in.Query)
+	// The obligation, and the reason it is worded this strongly.
+	//
+	// Measured on a real gateway: 14 searches against 2 reads. The line used to read "Use
+	// read_skill with the name to read one in full", which describes an OPTION — and a model
+	// under an anchor that cannot fail takes the option that costs nothing. It searched, read
+	// nothing, changed nothing, and the run was reported complete.
+	//
+	// What follows is the same tool with the choice removed: the summaries are explicitly NOT
+	// the procedure, and reading one is stated as the next step rather than as a possibility.
+	b.WriteString("A summary above is NOT the procedure: it is a title and one line, and acting on it is how the wrong thing gets done. Read the one that fits with read_skill BEFORE you act — the full text carries the steps and the pitfalls that the summary cannot.\n")
 	for _, s := range hits {
 		fmt.Fprintf(&b, "\n- %s: %s\n  %s%s", s.Name, s.Title, s.Summary, p.historySuffix(s.Name))
 		if p.usage != nil {

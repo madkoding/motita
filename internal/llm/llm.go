@@ -459,6 +459,37 @@ type openAIResponse struct {
 	} `json:"error,omitempty"`
 }
 
+// emptyReason explains WHY a reply carried nothing usable.
+//
+// It exists because the bare `finish_reason` was not enough to act on. The four causes need
+// different responses from the caller, and all four used to arrive as the same sentence:
+//
+//   - `length`  — the answer was cut off by the token budget. Retrying identically wastes a
+//     call; the budget or the prompt has to change.
+//   - `tool_calls` — the provider says it sent calls and none arrived. That is a PARSE defect
+//     on this side, not a model that refused to answer, and retrying it is pointless.
+//   - `content_filter` — the provider blocked the answer. Nothing to retry.
+//   - anything else, including "stop" — the model genuinely produced nothing.
+//
+// The `tool_calls` case is not hypothetical: it is the message that sent a real run into three
+// pointless retries while the calls it had asked for were sitting in the stream.
+func emptyReason(finishReason, content string, toolCalls int) string {
+	trimmed := strings.TrimSpace(content)
+	switch finishReason {
+	case "tool_calls":
+		return fmt.Sprintf("finish_reason=%q with %d tool call(s) and %d byte(s) of text: the provider "+
+			"reported calls that did not arrive, which is a parsing failure on this side rather than "+
+			"an empty answer — retrying cannot help", finishReason, toolCalls, len(trimmed))
+	case "length":
+		return fmt.Sprintf("finish_reason=%q: the answer was cut off by the token budget (%d byte(s) "+
+			"received); retrying unchanged will truncate again", finishReason, len(trimmed))
+	case "content_filter":
+		return fmt.Sprintf("finish_reason=%q: the provider blocked the answer", finishReason)
+	default:
+		return fmt.Sprintf("finish_reason=%q: the model produced no text and asked for no tools", finishReason)
+	}
+}
+
 func (c *Client) callOpenAI(ctx context.Context, messages []Message) (string, error) {
 	body := map[string]any{
 		"model":       c.cfg.Model,
@@ -493,7 +524,14 @@ func (c *Client) callOpenAI(ctx context.Context, messages []Message) (string, er
 		// tool_calls we cannot honour here. Treat it as a retryable error so
 		// the Complete loop re-asks instead of propagating "" to ExtractJSON,
 		// where it becomes the opaque "the LLM response is empty" failure.
-		return "", fmt.Errorf("OpenAI returned an empty response (finish_reason=%q)", choice.FinishReason)
+		//
+		// Retryable is right on THIS path and wrong on the tools path, and the difference is
+		// the point: a text-only call that came back empty may genuinely succeed on a second
+		// attempt (the model had a bad moment), while a tools call whose `finish_reason` says
+		// "tool_calls" did not. Same wording via emptyReason, opposite retry policy, because
+		// the two situations are not the same.
+		return "", fmt.Errorf("OpenAI returned no usable content (%s)", emptyReason(
+			choice.FinishReason, choice.Message.Content, len(choice.Message.ToolCalls)))
 	}
 	return choice.Message.Content, nil
 }
@@ -529,8 +567,15 @@ func (c *Client) callOpenAITools(ctx context.Context, messages []Message, tools 
 	choice := resp.Choices[0]
 	if strings.TrimSpace(choice.Message.Content) == "" && len(choice.Message.ToolCalls) == 0 {
 		// No text and no tool calls: the model produced nothing usable.
-		// Treat it as a retryable error, same rationale as callOpenAI.
-		return Reply{}, fmt.Errorf("OpenAI returned an empty response (finish_reason=%q)", choice.FinishReason)
+		//
+		// The message NAMES the reason instead of only quoting finish_reason, because the
+		// bare form cost a real diagnosis. A run failed three times with
+		// `finish_reason="tool_calls"` and an empty call list, which reads as a contradiction:
+		// the provider was saying it HAD sent calls. Deciding what to do about it — retry,
+		// report a truncated answer, or fix the parser — depends on which of the four causes it
+		// was, and the old message could not tell them apart.
+		return Reply{}, fatalError{fmt.Errorf("OpenAI returned no usable content (%s)", emptyReason(
+			choice.FinishReason, choice.Message.Content, len(choice.Message.ToolCalls)))}
 	}
 	return Reply{
 		Content:      choice.Message.Content,

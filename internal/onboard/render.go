@@ -48,21 +48,38 @@ func renderConfig(v configValues) []byte {
 	b.WriteString("  kind: stdin          # take the task from what you type/pass in\n")
 	b.WriteString("\n")
 
+	// The anchor, and the two shapes it can take.
+	//
+	// When the user picked "always pass while I try the agent out", the file records `kind:
+	// none` and NOT a command that exits 0. The difference is not cosmetic: `kind: none`
+	// refuses to declare PASS and says why, while `command: "true"` PASSES on every run having
+	// checked nothing — so the agent reports "task completed" over work it never did, and the
+	// guarantee that only the anchor can declare PASS becomes a guarantee about nothing.
 	b.WriteString("anchor:\n")
-	b.WriteString("  kind: command\n")
-	fmt.Fprintf(&b, "  command: %s\n", yamlScalar(v.anchorCommand))
-	if len(v.anchorArgs) > 0 {
-		b.WriteString("  args: [")
-		for i, a := range v.anchorArgs {
-			if i > 0 {
-				b.WriteString(", ")
+	if v.anchorCommand == "" {
+		b.WriteString("  # No check is configured, so NO task can be declared a success.\n")
+		b.WriteString("  # Replace this with the command that decides the work is done, for example:\n")
+		b.WriteString("  #   kind: command\n")
+		b.WriteString("  #   command: make\n")
+		b.WriteString("  #   args: [test]\n")
+		b.WriteString("  kind: none\n")
+		b.WriteString("\n")
+	} else {
+		b.WriteString("  kind: command\n")
+		fmt.Fprintf(&b, "  command: %s\n", yamlScalar(v.anchorCommand))
+		if len(v.anchorArgs) > 0 {
+			b.WriteString("  args: [")
+			for i, a := range v.anchorArgs {
+				if i > 0 {
+					b.WriteString(", ")
+				}
+				b.WriteString(yamlScalar(a))
 			}
-			b.WriteString(yamlScalar(a))
+			b.WriteString("]\n")
 		}
-		b.WriteString("]\n")
+		b.WriteString("  expect_exit: 0\n")
+		b.WriteString("\n")
 	}
-	b.WriteString("  expect_exit: 0\n")
-	b.WriteString("\n")
 
 	b.WriteString("sandbox:\n")
 	b.WriteString("  kind: none           # none | chroot | cgroups; none works everywhere\n")

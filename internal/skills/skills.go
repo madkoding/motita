@@ -54,7 +54,46 @@ type Skill struct {
 	Path string
 	// Body is the whole document, filled in by Load and left empty by the index.
 	Body string
+	// Origin says which LAYER served this document: "" for the directory the library was
+	// rooted at, or the overlay's label for one that came from a scope over it. It exists so
+	// a caller can tell a project's own procedure from the shared one, which is information
+	// the interface shows and the curator must not lose.
+	Origin string
 }
+
+// Overlay is a SECOND directory layered over the one a library was rooted at.
+//
+// It exists so a scope can be applied to a library without the library knowing what the scope
+// MEANS: one directory is consulted before the other, and writes land in the front one. What
+// the front directory represents — a project, a workspace, a branch — is the caller's
+// business. See internal/projectskills for the policy that uses it.
+//
+// The two directories are layered, never merged in place:
+//
+//   - A read consults Primary first and falls back to Secondary, so a document in Primary
+//     shadows one of the same name in Secondary — which is what makes a correction written
+//     for one scope take effect there and nowhere else.
+//   - The embedded procedures are consulted LAST, and shadowed by either directory.
+//   - A WRITE goes to Primary only, so a document created inside a scope is born scoped and
+//     cannot leak into the shared directory by being written there.
+//
+// A nil Overlay is the unscoped library: every door behaves exactly as it did before this
+// existed, which is what every caller that does not scope anything gets.
+type Overlay struct {
+	// Primary is consulted first and is where writes land. It may not exist yet: a scope
+	// that has never been written to is a legal state, not an error.
+	Primary string
+	// Secondary is the directory the library was rooted at, consulted after Primary.
+	Secondary string
+}
+
+// Root returns the directory the library writes to when it is not scoped, which is also the
+// directory a scope layers OVER.
+//
+// It is the value an overlay must capture as its Secondary, and it is exposed as a method
+// rather than as a field so that scoping a library twice cannot make the two directories
+// become each other: the second call reads the same original root as the first.
+func (l *Library) Root() string { return l.Dir }
 
 // Scorer is the long-term value of a skill, as the library needs it.
 //
@@ -98,6 +137,42 @@ type Library struct {
 	// and nil means "yes to everything", which is the behaviour it had before the
 	// feature existed.
 	Hidden func(name string) bool
+	// Overlay, when set, layers a second directory over Dir: see Overlay. Nil is the
+	// unscoped library, so every caller that does not scope anything is unaffected.
+	Overlay *Overlay
+}
+
+// dirFor returns the directory an operation should READ from first, and the one it falls back
+// to. Without an overlay the two are the same directory, which is what keeps every unscoped
+// path identical to what it was.
+func (l *Library) readDirs() (primary, secondary string, layered bool) {
+	if l.Overlay == nil {
+		return l.Dir, "", false
+	}
+	return l.Overlay.Primary, l.Overlay.Secondary, true
+}
+
+// writeDir returns the directory a write lands in: the overlay's front layer when scoped, and
+// the library's own root otherwise.
+//
+// Writes landing in the FRONT layer is what makes scoping hold in the only direction that
+// cannot be repaired later: a document written inside a project is created in the project, so
+// it never reaches the shared shelf for another project to find.
+func (l *Library) writeDir() string {
+	if l.Overlay != nil {
+		return l.Overlay.Primary
+	}
+	return l.Dir
+}
+
+// layers returns the directories a READ walks, in priority order: the scope first, then the
+// shelf it was layered over. Without an overlay it is the one directory, which is what keeps
+// every unscoped path identical to what it was.
+func (l *Library) layers() []string {
+	if l.Overlay == nil {
+		return []string{l.Dir}
+	}
+	return []string{l.Overlay.Primary, l.Overlay.Secondary}
 }
 
 // DefaultMaxFileBytes is the cap when none is configured: enough for a thorough procedure,
@@ -165,8 +240,56 @@ func Name(raw string) string {
 
 // path is where a skill named name lives. The sanitised name cannot contain a separator, so
 // the result is always inside the directory.
+//
+// It is the READ path: with an overlay it returns the document in the FRONT layer, and falls
+// back to the back one. A caller that must write uses writePath, whose target is the front
+// layer only — a document created inside a scope is born scoped.
 func (l *Library) path(name string) string {
+	if p, ok := l.lookup(name); ok {
+		return p
+	}
 	return filepath.Join(l.Dir, name+".md")
+}
+
+// writePath is where a WRITE for name lands: the overlay's front layer when scoped, the
+// library's own root otherwise.
+func (l *Library) writePath(name string) string {
+	return filepath.Join(l.writeDir(), name+".md")
+}
+
+// lookup finds where a named document actually is, front layer first.
+//
+// The reported bool distinguishes "this document exists" from "this is where it would go",
+// which is the difference between shadowing a shared document and creating a new one.
+func (l *Library) lookup(name string) (string, bool) {
+	primary, secondary, layered := l.readDirs()
+	p := filepath.Join(primary, name+".md")
+	if _, err := os.Stat(p); err == nil {
+		return p, true
+	}
+	if layered {
+		p = filepath.Join(secondary, name+".md")
+		if _, err := os.Stat(p); err == nil {
+			return p, true
+		}
+	}
+	return "", false
+}
+
+// originOf names the layer a path came from, for a caller that must tell a document written
+// inside a scope from one that came from the shelf it was layered over.
+func (l *Library) originOf(path string) string {
+	primary, secondary, layered := l.readDirs()
+	if !layered {
+		return ""
+	}
+	if filepath.Dir(path) == filepath.Clean(primary) {
+		return "project"
+	}
+	if filepath.Dir(path) == filepath.Clean(secondary) {
+		return "shared"
+	}
+	return ""
 }
 
 // hidden reports whether a document was turned off. A library with no seam hides nothing.
@@ -355,6 +478,7 @@ func (l *Library) Get(name string) (Skill, error) {
 	}
 	s := parse(n, p, body)
 	s.Body = body
+	s.Origin = l.originOf(p)
 	return s, nil
 }
 
@@ -377,13 +501,16 @@ func (l *Library) Save(name, body string) (Skill, error) {
 	if !utf8.ValidString(body) {
 		return Skill{}, errors.New("the skill body is not valid UTF-8")
 	}
-	if err := os.MkdirAll(l.Dir, 0o755); err != nil {
-		return Skill{}, fmt.Errorf("could not create the skills directory %s: %w", l.Dir, err)
+	// The write lands in the FRONT layer when the library is scoped, which is what makes a
+	// document created inside a project born scoped: it cannot reach the shared shelf.
+	dir := l.writeDir()
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return Skill{}, fmt.Errorf("could not create the skills directory %s: %w", dir, err)
 	}
 
 	// Written atomically: a session that dies mid-write must not leave a half document that
 	// the next search reads as a procedure.
-	tmp, err := createTemp(l.Dir, "."+n+".*.tmp")
+	tmp, err := createTemp(dir, "."+n+".*.tmp")
 	if err != nil {
 		return Skill{}, fmt.Errorf("could not create the skill file: %w", err)
 	}
@@ -396,12 +523,14 @@ func (l *Library) Save(name, body string) (Skill, error) {
 	if err := closeTemp(tmp); err != nil {
 		return Skill{}, fmt.Errorf("could not close the skill file: %w", err)
 	}
-	if err := renameFile(tmp.Name(), l.path(n)); err != nil {
+	target := l.writePath(n)
+	if err := renameFile(tmp.Name(), target); err != nil {
 		return Skill{}, fmt.Errorf("could not install the skill: %w", err)
 	}
 
-	s := parse(n, l.path(n), body)
+	s := parse(n, target, body)
 	s.Body = body
+	s.Origin = l.originOf(target)
 	return s, nil
 }
 
@@ -415,53 +544,93 @@ func (l *Library) Archive(name string) error {
 	if n == "" {
 		return errors.New("the skill name is empty")
 	}
-	dir := filepath.Join(l.Dir, archiveDir)
+	// The document that is VISIBLE is the one archived, and its archive lives beside it: a
+	// project's document is archived inside the project, so archiving one does not move a
+	// shared document out from under every other project.
+	p := l.path(n)
+	dir := filepath.Join(filepath.Dir(p), archiveDir)
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return fmt.Errorf("could not create the archive directory %s: %w", dir, err)
 	}
 	// Through the seam, not os.Rename: the rename is the call whose failure a test cannot
 	// arrange from the outside (a read-only filesystem), which is why Save already goes
 	// through it. One seam for one class of failure.
-	if err := renameFile(l.path(n), filepath.Join(dir, n+".md")); err != nil {
+	if err := renameFile(p, filepath.Join(dir, n+".md")); err != nil {
 		return fmt.Errorf("could not archive the skill %q: %w", n, err)
 	}
 	return nil
 }
 
 // Restore brings an archived document back into the library.
+//
+// The archive of the FRONT layer is consulted first, so a document archived inside a project
+// comes back into that project rather than reappearing on the shared shelf.
 func (l *Library) Restore(name string) error {
 	n := Name(name)
 	if n == "" {
 		return errors.New("the skill name is empty")
 	}
-	src := filepath.Join(l.Dir, archiveDir, n+".md")
-	if err := os.MkdirAll(l.Dir, 0o755); err != nil {
-		return fmt.Errorf("could not create the skills directory %s: %w", l.Dir, err)
+	// Archiving preserves the layer: the archive sits inside the directory the document came
+	// from, so restoring it puts it back in the same place. Both layers are tried, front
+	// first, because the caller knows the NAME and not which layer it was archived from.
+	//
+	// There is deliberately NO pre-flight stat here. The rename IS the test of existence, and
+	// its failure is the answer the caller wants: an early stat would replace the real failure
+	// (a refused rename) with a lookup miss, which reads as "there is no such document" when
+	// the truth is that the document could not be moved.
+	dirs := []string{l.writeDir()}
+	if shared := l.Root(); shared != dirs[0] {
+		dirs = append(dirs, shared)
 	}
-	if err := renameFile(src, l.path(n)); err != nil {
-		return fmt.Errorf("could not restore the skill %q: %w", n, err)
+	var lastErr error
+	for _, d := range dirs {
+		if err := os.MkdirAll(d, 0o755); err != nil {
+			return fmt.Errorf("could not create the skills directory %s: %w", d, err)
+		}
+		src := filepath.Join(d, archiveDir, n+".md")
+		err := renameFile(src, filepath.Join(d, n+".md"))
+		if err == nil {
+			return nil
+		}
+		lastErr = err
 	}
-	return nil
+	return fmt.Errorf("could not restore the skill %q: %w", n, lastErr)
 }
 
 // Archived lists the names in the archive, sorted.
 //
 // A directory that is not there is an EMPTY archive and not an error: the first run of a
 // library that never archived anything must not be reported as a failure.
+//
+// With an overlay the two archives are merged, front layer first, and a name in both is
+// reported ONCE: the interface draws one list, and a duplicated row would be a row the user
+// cannot tell apart from its twin.
 func (l *Library) Archived() ([]string, error) {
-	entries, err := os.ReadDir(filepath.Join(l.Dir, archiveDir))
-	if err != nil {
-		if os.IsNotExist(err) {
-			return nil, nil
-		}
-		return nil, fmt.Errorf("could not read the archive directory: %w", err)
+	dirs := []string{l.writeDir()}
+	if shared := l.Root(); shared != dirs[0] {
+		dirs = append(dirs, shared)
 	}
+	seen := map[string]bool{}
 	var out []string
-	for _, e := range entries {
-		if e.IsDir() || !strings.HasSuffix(e.Name(), ".md") || strings.HasPrefix(e.Name(), ".") {
-			continue
+	for _, d := range dirs {
+		entries, err := os.ReadDir(filepath.Join(d, archiveDir))
+		if err != nil {
+			if os.IsNotExist(err) {
+				continue // an absent archive is empty, not a failure
+			}
+			return nil, fmt.Errorf("could not read the archive directory: %w", err)
 		}
-		out = append(out, strings.TrimSuffix(e.Name(), ".md"))
+		for _, e := range entries {
+			if e.IsDir() || !strings.HasSuffix(e.Name(), ".md") || strings.HasPrefix(e.Name(), ".") {
+				continue
+			}
+			name := strings.TrimSuffix(e.Name(), ".md")
+			if seen[name] {
+				continue
+			}
+			seen[name] = true
+			out = append(out, name)
+		}
 	}
 	sort.Strings(out)
 	return out, nil
@@ -493,6 +662,10 @@ func (l *Library) Delete(name string) error {
 		}
 		return fmt.Errorf("%w: %q", ErrNotFound, n)
 	}
+	// The VISIBLE document is the one removed, which with an overlay is the scope's own copy
+	// when it has one. Deleting a project's document must not remove the shared one it was
+	// shadowing: the shadow is a correction for one place, and the shelf underneath it is
+	// still the shelf.
 	if err := os.Remove(p); err != nil {
 		return fmt.Errorf("could not delete the skill %q: %w", n, err)
 	}
@@ -540,44 +713,61 @@ func (l *Library) Catalog() ([]Skill, error) { return l.index(false) }
 //
 // offer selects the question being asked: true drops the documents turned off (the model's
 // list), false keeps them (the interface's).
+//
+// With an overlay both layers are read, the FRONT one first: a document there shadows one of
+// the same name further back, which is what keeps a project's correction to itself. A layer
+// that does not exist is skipped — a scope nobody has written to yet is a legal state, and the
+// shared shelf it layers over must still be offered.
 func (l *Library) index(offer bool) ([]Skill, error) {
-	entries, err := os.ReadDir(l.Dir)
-	// A directory that is not there yet is not an empty library when the binary SHIPS
-	// procedures: it is a fresh install, which is exactly the case the shipped ones exist for.
-	// Returning early here made the first run report "the library is empty" with the shipped
-	// documents sitting in the executable unused — the model asks, is told there is nothing,
-	// and stops asking.
-	//
-	// Anything else that fails (a directory that exists but cannot be read) is still reported:
-	// the distinction between absent and unreadable is real, and the caller acts differently on
-	// each.
-	if err != nil && !os.IsNotExist(err) {
-		return nil, fmt.Errorf("could not read the skills directory %s: %w", l.Dir, err)
-	}
-
 	var out []Skill
 	seen := make(map[string]bool)
-	for _, e := range entries {
-		if e.IsDir() || !strings.HasSuffix(e.Name(), ".md") {
-			continue
-		}
-		name := strings.TrimSuffix(e.Name(), ".md")
-		// A temporary file from an interrupted write is not a skill.
-		if strings.HasPrefix(name, ".") {
-			continue
-		}
-		// A document the user turned off is not offered to the model: it keeps its
-		// place on disk and in the interface, and it leaves this list.
-		if offer && l.hidden(name) {
-			continue
-		}
-		p := filepath.Join(l.Dir, e.Name())
-		body, err := l.read(p)
+
+	for _, dir := range l.layers() {
+		entries, err := os.ReadDir(dir)
+		// A directory that is not there yet is not an empty library when the binary SHIPS
+		// procedures: it is a fresh install, which is exactly the case the shipped ones exist
+		// for. Returning early here made the first run report "the library is empty" with the
+		// shipped documents sitting in the executable unused — the model asks, is told there
+		// is nothing, and stops asking.
+		//
+		// Anything else that fails (a directory that exists but cannot be read) is still
+		// reported: the distinction between absent and unreadable is real, and the caller acts
+		// differently on each.
 		if err != nil {
-			continue
+			if os.IsNotExist(err) {
+				continue
+			}
+			return nil, fmt.Errorf("could not read the skills directory %s: %w", dir, err)
 		}
-		out = append(out, parse(name, p, body))
-		seen[name] = true
+		for _, e := range entries {
+			if e.IsDir() || !strings.HasSuffix(e.Name(), ".md") {
+				continue
+			}
+			name := strings.TrimSuffix(e.Name(), ".md")
+			// A temporary file from an interrupted write is not a skill.
+			if strings.HasPrefix(name, ".") {
+				continue
+			}
+			// A document in an earlier layer wins: the front layer is the scope, and the
+			// library was already rooted at the layer behind it.
+			if seen[name] {
+				continue
+			}
+			// A document the user turned off is not offered to the model: it keeps its
+			// place on disk and in the interface, and it leaves this list.
+			if offer && l.hidden(name) {
+				continue
+			}
+			p := filepath.Join(dir, e.Name())
+			body, err := l.read(p)
+			if err != nil {
+				continue
+			}
+			s := parse(name, p, body)
+			s.Origin = l.originOf(p)
+			out = append(out, s)
+			seen[name] = true
+		}
 	}
 
 	// The embedded procedures come last, minus the ones a document here already named. The

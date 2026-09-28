@@ -113,7 +113,7 @@ func TestOpenAIEmptyContentIsRetryable(t *testing.T) {
 	if err == nil {
 		t.Fatal("an empty content must be an error, not a silent success")
 	}
-	if !strings.Contains(err.Error(), "empty response") {
+	if !strings.Contains(err.Error(), "no usable content") {
 		t.Errorf("error should mention the empty response, got: %v", err)
 	}
 }
@@ -131,7 +131,7 @@ func TestOpenAIEmptyContentToolsIsRetryable(t *testing.T) {
 	if err == nil {
 		t.Fatal("empty content with no tool calls must be an error")
 	}
-	if !strings.Contains(err.Error(), "empty response") {
+	if !strings.Contains(err.Error(), "no usable content") {
 		t.Errorf("error should mention the empty response, got: %v", err)
 	}
 }

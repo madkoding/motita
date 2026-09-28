@@ -334,9 +334,10 @@ func (s *session) chooseAnchor(ctx context.Context, preset string, presetArgs []
 	s.say("")
 	printSection(s.out, "What decides that a task is done?")
 	s.say("  %s1.%s A command that must succeed (for example: make test)", colYellow, colReset)
-	s.say("  %s2.%s Always pass, while I try the agent out", colYellow, colReset)
+	s.say("  %s2.%s No check yet, while I try the agent out", colYellow, colReset)
 	s.say("")
 	printInfo(s.out, "The agent never trusts the model: only this check can declare PASS.")
+	printInfo(s.out, "Option 2 configures NO check, so the agent will tell you it could not verify the work rather than calling it done.")
 
 	for attempt := 0; attempt < 3; attempt++ {
 		answer, err := s.ask(ctx, "Check [1]:")
@@ -356,7 +357,11 @@ func (s *session) chooseAnchor(ctx context.Context, preset string, presetArgs []
 			parts := strings.Fields(cmd)
 			return parts[0], parts[1:], nil
 		case "2":
-			return "true", nil, nil
+			// "Always pass" is recorded as NO anchor, not as a command that cannot fail.
+			// The agent then refuses to declare PASS and says why, which is the honest
+			// shape of "I am just trying this out" — see render.go for the measurement
+			// that made this a defect rather than a preference.
+			return "", nil, nil
 		default:
 			s.say("  Choose 1 or 2.")
 		}

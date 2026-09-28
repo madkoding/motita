@@ -14,6 +14,7 @@ import (
 
 	"github.com/madkoding/motita/internal/logx"
 	"github.com/madkoding/motita/internal/netrules"
+	"github.com/madkoding/motita/internal/projectskills"
 	"github.com/madkoding/motita/internal/schedule"
 	"github.com/madkoding/motita/internal/updater"
 	"github.com/madkoding/motita/internal/webui"
@@ -490,6 +491,17 @@ func (s *Server) routes() *http.ServeMux {
 	mux.Handle("POST /v1/skills/{name}/disable", plain(s.handleDisableSkill))
 	mux.Handle("DELETE /v1/skills/{name}", plain(s.handleDeleteSkill))
 	mux.Handle("POST /v1/skills/{name}/restore", plain(s.handleRestoreSkill))
+	// The SAME index, addressed by the conversation it is for.
+	//
+	// A library is not process-wide any more: a session that belongs to a project gets its
+	// own documents layered over the shared shelf, so "what does this session see" is a
+	// question only the session can answer. The process-wide list above stays exactly as it
+	// was — it is the shelf, which is a real and useful thing to look at — while this one
+	// answers for a conversation, which is what a window opened INSIDE a project must draw.
+	//
+	// It is scoped, so a session that does not exist is refused here rather than answered
+	// about the wrong library.
+	mux.Handle("GET /v1/sessions/{id}/skills", scoped(s.handleSkills))
 	mux.Handle("GET /v1/curator", plain(s.handleCurator))
 	mux.Handle("POST /v1/curator/run", plain(s.handleCuratorRun))
 
@@ -843,6 +855,10 @@ func (s *Server) loadPersistedSessions() {
 		if workspace != "" {
 			svc.SetWorkspace(workspace)
 		}
+		// The scope comes back with the project. A restored session must serve the
+		// SAME shelf it had before the restart, or the procedures it learned while
+		// working on this project would silently disappear from its answers.
+		scopeProceduresTo(svc, projectskills.ProjectDirFor(projectDir, workspace))
 		s.sessionsMu.Lock()
 		s.sessions[rec.ID] = conv
 		s.sessionsMu.Unlock()

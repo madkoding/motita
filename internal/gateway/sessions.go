@@ -438,6 +438,24 @@ func (s *Server) sessionWorktree(ctx context.Context, repoDir, sessionID string)
 	return path, nil
 }
 
+// scopeProceduresTo points a session's procedure library at its project, when the service
+// behind it can carry a scope.
+//
+// It is an OPTIONAL interface and a type assertion rather than a method on Service, the same
+// pattern SetLibrary, SetReward and the approver already follow here: the many small services
+// the tests build never run a turn and have no library to scope, and forcing every one of them
+// to grow a no-op method would be noise in exchange for a guarantee they do not need. A
+// service that cannot be scoped keeps the shared shelf, which is the behaviour that existed
+// before this feature and is never wrong — only less specific.
+//
+// The directory passed is the PROJECT's checkout, never a session's worktree: a worktree is
+// removed when its session ends, and a procedure written into one would go with it.
+func scopeProceduresTo(svc Service, projectDir string) {
+	if scoper, ok := svc.(interface{ SetProjectScope(string) }); ok {
+		scoper.SetProjectScope(projectDir)
+	}
+}
+
 // setProjectID records which project this conversation belongs to, the project's
 // own checkout, and the workspace the session actually runs in. The last two
 // differ for a session with its own worktree, and both are needed: the workspace
@@ -477,6 +495,21 @@ func convOf(r *http.Request) *conversation {
 	c, ok := r.Context().Value(conversationKey).(*conversation)
 	if !ok {
 		panic("a gateway handler was reached without a conversation: it is not registered through withConversation")
+	}
+	return c
+}
+
+// conversationIfAny is convOf for a handler that is ALSO reachable without one.
+//
+// The skill endpoints are process-wide routes ("GET /v1/skills"), so most of their callers have
+// no conversation in the context — but when one comes in under a session path it does, and that
+// is the case that has to be answered from the session's own library rather than the shared one.
+// A nil return is therefore a normal answer here, not a programming error, which is exactly what
+// convOf's panic would turn it into.
+func conversationIfAny(r *http.Request) *conversation {
+	c, ok := r.Context().Value(conversationKey).(*conversation)
+	if !ok {
+		return nil
 	}
 	return c
 }
@@ -660,6 +693,11 @@ func (s *Server) handleCreateSession(w http.ResponseWriter, r *http.Request) {
 			}
 			conv.setProjectID(body.ProjectID, dir, project.Dir)
 			conv.svc.SetWorkspace(dir)
+			// The procedures learned here belong to THIS project. A session inside a
+			// project runs its worktree, but the project's checkout is what the scope
+			// is anchored to: a worktree is removed when the session ends, and a
+			// procedure written into one would be lost with it.
+			scopeProceduresTo(conv.svc, project.Dir)
 		}
 		s.saveSession(conv)
 		writeJSON(w, http.StatusCreated, conv.status())

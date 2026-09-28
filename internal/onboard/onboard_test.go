@@ -675,19 +675,23 @@ func TestChooseAnchorDefaultIsMakeTest(t *testing.T) {
 	}
 }
 
-// TestChooseAnchorAlwaysPassIsExplicit: option 2 is the escape hatch, and it is
-// written as a real command so the agent's rule (never trust the model) holds.
-func TestChooseAnchorAlwaysPassIsExplicit(t *testing.T) {
+// TestChooseAnchorNoCheckIsHonest replaces the old expectation that the escape hatch was
+// written as `command: "true"`. That command exits 0, so the anchor PASSED on every run and
+// the agent reported success over work it had not done — measured on a real gateway: 17
+// validations, 17 passes, 0 failures. The escape hatch still exists, but as `kind: none`,
+// which refuses to declare PASS and says why. The full reasoning is in anchor_test.go.
+func TestChooseAnchorNoCheckIsHonest(t *testing.T) {
 	dir := t.TempDir()
 	_, _, err := run(context.Background(), t, dir, []string{"openai", "1", "2", "", ""}, Answers{})
 	if err != nil {
 		t.Fatalf("Run: %v", err)
 	}
 	cfg, _ := os.ReadFile(filepath.Join(dir, "config.yaml"))
-	// The string "true" is quoted so YAML does not turn it into a boolean: the
-	// anchor runs the command /bin/true, which exits 0 and therefore passes.
-	if !strings.Contains(string(cfg), `command: "true"`) {
-		t.Errorf("the escape hatch must be written as a real command:\n%s", cfg)
+	if strings.Contains(string(cfg), `command: "true"`) {
+		t.Errorf("an anchor that cannot fail must not be written as a command:\n%s", cfg)
+	}
+	if !strings.Contains(string(cfg), "kind: none") {
+		t.Errorf("choosing no check must be recorded as `kind: none`:\n%s", cfg)
 	}
 }
 

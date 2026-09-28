@@ -1248,6 +1248,26 @@ button:disabled {
      plugin is off. The menu floats over the session list, so it needs a
      real shadow to separate from it. */
   box-shadow: 0 12px 32px rgba(0, 0, 0, 0.55), 0 2px 8px rgba(0, 0, 0, 0.4);
+  /* `position: fixed` from the markup, and it is load-bearing: the menu is
+     placed in VIEWPORT coordinates because the row it belongs to lives in a
+     container that clips (`overflow-y: auto` computes `overflow-x` as `auto`
+     too, so both axes clip). An `absolute` menu was cut off there — measured,
+     and worst on the rows near the bottom of the list, where the menu is
+     flipped above the row instead. A fixed element is not clipped by any
+     ancestor's overflow, which is why the long-press menu in the same file
+     never had the defect. */
+}
+/* A menu flipped ABOVE its row grows from the wrong corner, so its animation has to start from
+ * the bottom edge and move DOWN into place. Declared after `.row-menu` on purpose: both rules
+ * set `transform-origin` and `animation`, and equal specificity means the LAST one wins — which
+ * is why this block sits below rather than above it. */
+.row-menu-above {
+  transform-origin: bottom right;
+  animation: rowMenuInAbove 0.14s cubic-bezier(0.4, 0, 0.2, 1);
+}
+@keyframes rowMenuInAbove {
+  from { opacity: 0; transform: translateY(6px) scale(0.96); }
+  to   { opacity: 1; transform: translateY(0) scale(1); }
 }
 .row-menu-closing {
   animation: rowMenuOut 0.14s ease-in forwards;

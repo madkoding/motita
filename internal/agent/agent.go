@@ -1445,7 +1445,11 @@ func (a *Agent) searchSkills(query string) string {
 		return fmt.Sprintf("No skill matches %q. Work from your own knowledge, and save a skill afterwards if what you work out is worth keeping.", query)
 	}
 	var b strings.Builder
-	fmt.Fprintf(&b, "%d skill(s) match %q. Read one in full with read_skill.\n", len(hits), query)
+	fmt.Fprintf(&b, "%d skill(s) match %q.\n", len(hits), query)
+	// Same obligation as the planner's search, and for the same measured reason: a summary is
+	// one line, and a model that treats the list as the answer acts on a title. See the comment
+	// in internal/plan/plan.go for the numbers that made this wording.
+	b.WriteString("A summary above is NOT the procedure: read the one that fits with read_skill BEFORE you act.\n")
 	for _, s := range hits {
 		fmt.Fprintf(&b, "\n- %s: %s\n  %s%s", s.Name, s.Title, s.Summary, a.historySuffix(s.Name))
 	}

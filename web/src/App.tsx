@@ -448,6 +448,24 @@ export default function App() {
   const [contextMenu, setContextMenu] = useState<{ type: 'session' | 'project'; id: string; title: string; x: number; y: number } | null>(null)
   // Row dropdown menu: which session/project row has its "⋯" menu open.
   const [rowMenu, setRowMenu] = useState<{ type: 'session' | 'project'; id: string; title: string } | null>(null)
+  // rowMenuPos is where the open menu is drawn, in VIEWPORT coordinates.
+  //
+  // The menu used to be `absolute` inside the row, and it was clipped: the session list is
+  // `overflow-y: auto`, and an element with a non-visible `overflow-y` cannot keep
+  // `overflow-x: visible` — the used value is computed as `auto` too, so the list clips BOTH
+  // axes. Measured on the served CSS: the list carries `overflow-y:auto` and the menu sits below
+  // the row it belongs to, so the last rows (and any row near the bottom of the scroll area) had
+  // the menu cut off.
+  //
+  // `position: fixed` escapes that clip, because a fixed element is laid out against the viewport
+  // and no ancestor's overflow applies — which is exactly how the long-press menu in this file
+  // already works, and why it never had the defect. The position therefore has to be COMPUTED
+  // from the trigger's rect, and flipped above the row when there is no room below.
+  const [rowMenuPos, setRowMenuPos] = useState<{ top: number; left: number } | null>(null)
+  // rowMenuAbove says the menu was flipped above its row, which changes the animation's origin:
+  // a menu growing downward from a top-right pivot looks wrong when it sits above the trigger.
+  const [rowMenuAbove, setRowMenuAbove] = useState(false)
+  const rowMenuAnchor = useRef<HTMLElement | null>(null)
   // Closing state: the menu keeps rendering for the length of its exit
   // animation. Without it the element would unmount on the same frame the
   // user clicked outside and the exit animation would never be seen.
@@ -478,6 +496,32 @@ export default function App() {
     rowMenuClosingRef.current = false
     setRowMenuClosing(false)
     setRowMenu(m)
+  }, [])
+
+  // MENU_W / MENU_H are the menu's own box, and they are constants rather than a measurement
+  // taken after render because the position has to be decided BEFORE the menu is drawn: a menu
+  // that renders first and is moved afterwards is a menu the reader sees jump.
+  //
+  // They mirror the markup — `min-w-[140px]`, one `py-1` and two items of ~36px — and the flip
+  // decision only needs to be approximately right: being a few pixels out means the menu sits a
+  // few pixels away from the ideal, not that it is clipped.
+  const MENU_W = 160
+  const MENU_H = 96
+
+  // placeRowMenu computes where the menu goes for a given trigger, in viewport coordinates.
+  //
+  // Below the button by default, and ABOVE it when the menu would not fit below — which is the
+  // case that matters most, because the rows at the bottom of the list are exactly where the
+  // clipping was worst. The horizontal position is flush with the button's right edge (the menu
+  // is right-aligned) and kept inside the viewport, so a narrow sidebar cannot push it off.
+  const placeRowMenu = useCallback((trigger: HTMLElement) => {
+    const r = trigger.getBoundingClientRect()
+    const below = r.bottom + 4
+    const fitsBelow = below + MENU_H <= window.innerHeight
+    const top = fitsBelow ? below : Math.max(4, r.top - 4 - MENU_H)
+    const left = Math.min(Math.max(4, r.right - MENU_W), Math.max(4, window.innerWidth - MENU_W - 4))
+    setRowMenuAbove(!fitsBelow)
+    setRowMenuPos({ top, left })
   }, [])
   // Collapsed projects: a set of project IDs whose session list is hidden.
   // Persisted in localStorage so a user's choice survives a reload, like the
@@ -1030,10 +1074,17 @@ export default function App() {
   // fetchSkills loads the index and the archive together: they are two halves of one answer
   // to "what is in the library", and a browser that showed one without the other would hide
   // the very skills a user opens it to recover.
+  //
+  // The index is asked FOR THIS SESSION when there is one, and that is not a detail: a library
+  // is scoped to a project, so a window opened inside a project must draw that project's shelf.
+  // The process-wide list would show the shared documents and hide the project's own — the one
+  // thing the window exists to display. Falls back to the process-wide list when no session has
+  // been opened yet, which is the state the window starts in.
   const fetchSkills = useCallback(async () => {
     setSkillsBusy(true)
+    const indexUrl = sessionId ? `/v1/sessions/${encodeURIComponent(sessionId)}/skills` : '/v1/skills'
     try {
-      const [res, arch] = await Promise.all([api('/v1/skills'), api('/v1/skills/archived')])
+      const [res, arch] = await Promise.all([api(indexUrl), api('/v1/skills/archived')])
       if (!res.ok) {
         setState('could not load the skill library', true)
         setSkillsBusy(false)
@@ -1049,7 +1100,7 @@ export default function App() {
       setState('could not load the skill library', true)
     }
     setSkillsBusy(false)
-  }, [])
+  }, [sessionId])
 
   // openSkill fetches one document's body. The index deliberately does not carry it.
   const openSkill = useCallback(async (skill: SkillInfo) => {
@@ -2024,6 +2075,28 @@ export default function App() {
     }
   }, [rowMenu, closeRowMenu])
 
+  // A FIXED menu does not move with the page, so it would stay put while the row it belongs to
+  // scrolls away — a menu pointing at nothing. Re-place it from its anchor on every scroll, in
+  // the CAPTURE phase so it also sees the sidebar's own scroll container (a scroll does not
+  // bubble, so a listener on `window` alone would miss it).
+  //
+  // The listener is attached only while a menu is open, which is what keeps it off the hot path
+  // of ordinary scrolling.
+  useEffect(() => {
+    if (!rowMenu) return
+    const reposition = () => {
+      const anchor = rowMenuAnchor.current
+      if (anchor && anchor.isConnected) placeRowMenu(anchor)
+      else closeRowMenu() // the row was removed from under the menu
+    }
+    window.addEventListener('scroll', reposition, true)
+    window.addEventListener('resize', reposition)
+    return () => {
+      window.removeEventListener('scroll', reposition, true)
+      window.removeEventListener('resize', reposition)
+    }
+  }, [rowMenu, placeRowMenu, closeRowMenu])
+
   // The library is fetched when the modal OPENS, and the draft state is reset with it so a
   // reopened modal never shows the previous document or the previous filter.
   useEffect(() => {
@@ -2227,8 +2300,11 @@ export default function App() {
             title="More actions"
             onClick={(e) => {
               e.stopPropagation()
-              if (rowMenu?.id === s.id) closeRowMenu()
-              else openRowMenu({ type: 'session', id: s.id, title: s.title || s.id })
+              if (rowMenu?.id === s.id) { closeRowMenu(); return }
+              const btn = e.currentTarget as HTMLElement
+              rowMenuAnchor.current = btn
+              placeRowMenu(btn)
+              openRowMenu({ type: 'session', id: s.id, title: s.title || s.id })
             }}
           >
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -2237,7 +2313,8 @@ export default function App() {
           </button>
           {rowMenu?.id === s.id && (
             <div
-              class={`row-menu absolute right-0 top-full mt-1 z-50 frosted rounded-xl border border-white/10 py-1 min-w-[140px]${rowMenuClosing ? ' row-menu-closing' : ''}`}
+              class={`row-menu fixed z-50 frosted rounded-xl border border-white/10 py-1 min-w-[140px]${rowMenuAbove ? ' row-menu-above' : ''}${rowMenuClosing ? ' row-menu-closing' : ''}`}
+              style={rowMenuPos ? { top: `${rowMenuPos.top}px`, left: `${rowMenuPos.left}px` } : undefined}
               onClick={(e) => e.stopPropagation()}
             >
               <button
@@ -2574,8 +2651,11 @@ export default function App() {
                           title="More actions"
                           onClick={(e) => {
                             e.stopPropagation()
-                            if (rowMenu?.id === p.id) closeRowMenu()
-                            else openRowMenu({ type: 'project', id: p.id, title: p.title })
+                            if (rowMenu?.id === p.id) { closeRowMenu(); return }
+                            const btn = e.currentTarget as HTMLElement
+                            rowMenuAnchor.current = btn
+                            placeRowMenu(btn)
+                            openRowMenu({ type: 'project', id: p.id, title: p.title })
                           }}
                         >
                           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -2584,7 +2664,8 @@ export default function App() {
                         </button>
                         {rowMenu?.id === p.id && (
                           <div
-                            class={`row-menu absolute right-0 top-full mt-1 z-50 frosted rounded-xl border border-white/10 py-1 min-w-[140px]${rowMenuClosing ? ' row-menu-closing' : ''}`}
+                            class={`row-menu fixed z-50 frosted rounded-xl border border-white/10 py-1 min-w-[140px]${rowMenuAbove ? ' row-menu-above' : ''}${rowMenuClosing ? ' row-menu-closing' : ''}`}
+              style={rowMenuPos ? { top: `${rowMenuPos.top}px`, left: `${rowMenuPos.left}px` } : undefined}
                             onClick={(e) => e.stopPropagation()}
                           >
                             <button
