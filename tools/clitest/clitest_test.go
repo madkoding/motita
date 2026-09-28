@@ -3,8 +3,10 @@ package clitest
 import (
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"os"
+	"strconv"
 	"testing"
 	"time"
 )
@@ -89,4 +91,52 @@ func TestMain(m *testing.M) {
 // TestTheSharedContract runs every rule the mocks are held to, on clitest.
 func TestTheSharedContract(t *testing.T) {
 	Run(t, selfTool())
+}
+
+// TestReservePortStepsAsideWhenThePreferredOneIsTaken pins the fix for the CI failure:
+// `TestTheStartupContract/answers_healthz` hardcoded 18210, found it occupied, and failed with
+// `bind: address already in use` after its full 10s deadline — red for a package the branch under
+// test never touched.
+//
+// The test is deterministic rather than a reproduction of the flake: it TAKES the preferred port
+// itself and then asks for it, which is the situation the subprocess hits. A regression to "just
+// return tool.Port" fails here instead of on someone else's pipeline.
+func TestReservePortStepsAsideWhenThePreferredOneIsTaken(t *testing.T) {
+	// Hold a port, so the preferred one is provably unavailable.
+	busy, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Skipf("no port can be bound on this machine: %v", err)
+	}
+	defer busy.Close()
+	taken := busy.Addr().(*net.TCPAddr).Port
+
+	got := reservePort(t, taken)
+	if got == taken {
+		t.Fatalf("reservePort returned %d, which is bound right now: the caller would get "+
+			"`bind: address already in use`", got)
+	}
+	// And what it hands back must actually be usable: the point is to bind, not to return a
+	// different number.
+	l, err := net.Listen("tcp", "127.0.0.1:"+strconv.Itoa(got))
+	if err != nil {
+		t.Fatalf("reservePort returned %d, which cannot be bound: %v", got, err)
+	}
+	_ = l.Close()
+}
+
+// TestReservePortKeepsThePreferredOneWhenItIsFree: the preferred number stays the FIRST choice,
+// because an e2e script may already know the mock by it. Silently randomising it would make the
+// test and the script disagree about where the mock is.
+func TestReservePortKeepsThePreferredOneWhenItIsFree(t *testing.T) {
+	l, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Skipf("no port can be bound on this machine: %v", err)
+	}
+	preferred := l.Addr().(*net.TCPAddr).Port
+	_ = l.Close() // free again: this is the ordinary case
+
+	if got := reservePort(t, preferred); got != preferred {
+		t.Errorf("reservePort(%d) = %d, want the preferred port back when it is free",
+			preferred, got)
+	}
 }

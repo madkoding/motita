@@ -10,6 +10,7 @@ package clitest
 
 import (
 	"errors"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -26,7 +27,10 @@ type Tool struct {
 	Name string
 	// Marker is the environment variable that makes the test binary run main().
 	Marker string
-	// Port is a fixed, unusual port so the test cannot clash with a running mock.
+	// Port is the port the bootstrap is asked to prefer. The tests that really BIND ask for it
+	// through reservePort, which falls back to an OS-chosen port when the preferred one is taken:
+	// a fixed number is a shared resource, and hoping nobody else picked it is how this contract
+	// failed on CI (see reservePort).
 	Port int
 	// ForceFailure is the variable the program reads to simulate a bind failure.
 	ForceFailure string
@@ -51,6 +55,38 @@ func Run(t *testing.T, tool Tool) {
 	t.Run("real_server_binds_and_serves", func(t *testing.T) { testRealServerBindsAndServes(t, tool) })
 }
 
+// reservePort returns a port this test can actually bind: the tool's preferred one when it is
+// free, and an OS-chosen one otherwise.
+//
+// A hardcoded port is a shared resource, and this contract failed on CI because of it:
+// `TestTheStartupContract/answers_healthz` reported
+//
+//	mockllm did not answer on http://127.0.0.1:18210/healthz (stderr: ... bind: address already
+//	in use)
+//
+// after burning its full 10s deadline — a red build for a package the branch under test never
+// touched. The occupied-port reproduction is exact: hold 18210 and the same test fails with
+// that same message.
+//
+// The preferred port is still the FIRST choice on purpose. When the tool under test is a mock
+// the e2e scripts may already know by that number, falling back to a random one would make the
+// two disagree; asking the kernel first is enough, and it is a `net.Listen` that is closed
+// again, so the window is microseconds.
+func reservePort(t *testing.T, preferred int) int {
+	t.Helper()
+	if l, err := net.Listen("tcp", "127.0.0.1:"+strconv.Itoa(preferred)); err == nil {
+		_ = l.Close()
+		return preferred
+	}
+	l, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Skipf("no port can be bound on this machine: %v", err)
+	}
+	port := l.Addr().(*net.TCPAddr).Port
+	_ = l.Close()
+	return port
+}
+
 // testAnswersHealthz starts the program for real and checks it answers. It is the
 // only way to cover the flag parsing and the server bootstrap.
 func testAnswersHealthz(t *testing.T, tool Tool) {
@@ -60,7 +96,9 @@ func testAnswersHealthz(t *testing.T, tool Tool) {
 		t.Skip("could not locate the test binary")
 	}
 
-	port := strconv.Itoa(tool.Port)
+	// Handing the port to a subprocess is exactly the case a hardcoded number cannot cover:
+	// the child binds it a moment later, so it has to be free NOW.
+	port := strconv.Itoa(reservePort(t, tool.Port))
 	cmd := exec.Command(binary, "-port", port, "-host", "127.0.0.1")
 	cmd.Env = append(os.Environ(), tool.Marker+"=1")
 	var stderr strings.Builder
@@ -155,9 +193,12 @@ func testBootstrapStartsAndStops(t *testing.T, tool Tool) {
 
 // testRealServerBindsAndServes drives the production listen helper, which the tests
 // above replace: without this the real one would never run under a test.
+//
+// It binds for real, so it reserves too — `Port+1` is just as shared as `Port`, and this
+// test holding a number nobody checked is the same failure one field over.
 func testRealServerBindsAndServes(t *testing.T, tool Tool) {
 	t.Helper()
-	addr := "127.0.0.1:" + strconv.Itoa(tool.Port+1)
+	addr := "127.0.0.1:" + strconv.Itoa(reservePort(t, tool.Port+1))
 	srv := &http.Server{
 		Addr:              addr,
 		Handler:           tool.Handler,
