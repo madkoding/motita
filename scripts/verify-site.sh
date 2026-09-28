@@ -103,6 +103,32 @@ if [ "$root" = site ]; then
   fi
 fi
 
+# --- the version marker ------------------------------------------------------
+# The pages workflow REWRITES this marker to the tag being released, and aborts
+# the deploy if the marker is gone. That abort only happens on a TAG, so without
+# a local check a broken marker can sit in main for days and then fail the
+# release - surfacing at the worst moment, with the version already cut.
+#
+# The workflow's regex needs the element spelled exactly like this, so that is
+# what is asserted. "The page mentions a version somewhere" would not be the same
+# contract: it would pass while the deploy fails.
+if [ "$root" = site ]; then
+  marker='<span data-motita-version>'
+  # `grep -o | wc -l`, NOT `grep -c`, for two reasons that both bit here:
+  #   - `grep -c` counts LINES, so two markers on one line count as one and a
+  #     duplicated marker would pass - the silent failure this file is about.
+  #   - `grep -c` exits 1 when it finds nothing, and under `set -e` a command
+  #     substitution inherits that, so the script died before printing the error
+  #     it was written to print. Ending the pipeline in `wc -l` keeps the status 0.
+  found=$(grep -o -- "$marker" site/index.html | wc -l)
+  if [ "$found" -ne 1 ]; then
+    printf 'error: site/index.html has %s occurrences of "%s"; the deploy rewrites exactly one and fails otherwise\n' "$found" "$marker" >&2
+    printf '       the pages workflow aborts a TAG push when this is wrong, so the defect would surface during a release\n' >&2
+    exit 1
+  fi
+  printf 'the version marker the deploy rewrites is present, exactly once\n'
+fi
+
 cd "$root"
 
 missing=0
