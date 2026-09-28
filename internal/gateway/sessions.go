@@ -38,14 +38,16 @@ var deleteStopTimeout = 10 * time.Second
 // have to open a conversation first in order to do it.
 const DefaultSession = "default"
 
-// defaultMaxSessions bounds how many conversations one process will hold.
+// defaultMaxSessions bounds how many conversations one process holds IN MEMORY.
 //
-// A conversation is not free: it keeps a transcript, a session and a reward attribution alive for
-// as long as it exists. The ceiling is what stops a client that forgets to close what it opened
-// from turning the agent into a memory leak. Eight is far more than the handful of front ends
-// this serves and far less than anything that would matter on a machine that already runs
-// commands.
-const defaultMaxSessions = 8
+// A conversation that is idle costs very little by itself (measured: ~14 kB for the
+// struct and its service shell), so the ceiling is NOT a memory-leak guard for the
+// struct — it is a bound on how many TRANSCRIPTS are resident, because a transcript
+// can be megabytes and the restore used to load every one on disk without checking.
+// Sixty-four is far more than the handful of front ends this serves and costs under
+// 1 MB of struct overhead, while keeping the recent conversations a user is likely
+// to return to hot.
+const defaultMaxSessions = 64
 
 // conversation is ONE agent conversation: the service that speaks for it, the right to run in
 // it, and the question waiting to be answered in it.
@@ -567,6 +569,15 @@ func (s *Server) forget(id string) bool {
 	return true
 }
 
+// sessionCount reports how many conversations the process is ACTUALLY holding in
+// memory. It is what the ceiling message must report, not the configured ceiling:
+// a gateway configured for 8 that restored 3 says "it holds 3", not "it holds 8".
+func (s *Server) sessionCount() int {
+	s.sessionsMu.Lock()
+	defer s.sessionsMu.Unlock()
+	return len(s.sessions)
+}
+
 // maxSessions is the ceiling in force, defaulted when none was configured.
 func (s *Server) maxSessions() int {
 	if s.opts.MaxSessions > 0 {
@@ -592,8 +603,10 @@ var ErrCeilingReached = errors.New("this gateway is at its ceiling of conversati
 func (s *Server) newSession(svc Service) (*conversation, error) {
 	s.sessionsMu.Lock()
 	defer s.sessionsMu.Unlock()
-	if len(s.sessions) >= s.maxSessions() {
-		return nil, fmt.Errorf("%w: it holds %d, which is its ceiling, so close one first", ErrCeilingReached, s.maxSessions())
+	held := len(s.sessions)
+	if held >= s.maxSessions() {
+		return nil, fmt.Errorf("%w: it holds %d, which is its ceiling, so close one first",
+			ErrCeilingReached, held)
 	}
 	id, err := newSessionID()
 	if err != nil {

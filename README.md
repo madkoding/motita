@@ -353,9 +353,9 @@ curl -X DELETE -H "Authorization: Bearer $TOKEN" \
 
 The default conversation belongs to the process that started the gateway: closing it
 is refused, because that process would be left talking to a conversation that no
-longer exists. `gateway.max_sessions` caps how many a process will hold (`0` means
-the built-in default); the ceiling is there so a client that forgets to close what
-it opened cannot turn the agent into a memory leak.
+longer exists. `gateway.max_sessions` caps how many a process holds IN MEMORY (`0`
+means the built-in default, 64); the ceiling bounds how many transcripts are
+resident — conversations beyond it stay on disk and are re-materialised on demand.
 
 **Tasks that fire on their own** live in `~/.motita/schedules/`, one JSON file each, and are
 driven through `/v1/schedules`. The cadence is a duration (`30m`, `24h`), not a cron

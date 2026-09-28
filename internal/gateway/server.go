@@ -789,6 +789,16 @@ func (s *Server) loadPersistedSessions() {
 		}
 		return
 	}
+	// The ceiling applies to RESTORE the same way it applies to creation: a gateway
+	// configured to hold 8 that finds 60 on disk must NOT load all 60. The records
+	// from loadAll are sorted by last_used DESCENDING, so the first N non-default
+	// records are the most recently used ones — the ones a user is most likely to
+	// return to. The rest stay on disk, where they can be re-materialised on demand.
+	//
+	// The default session is always in memory (it was registered at Start), so the
+	// budget for restored sessions is the ceiling minus one.
+	ceiling := s.maxSessions()
+	restored := 0
 	for _, rec := range records {
 		if rec.ID == DefaultSession {
 			// Restore the transcript into the default session's existing service.
@@ -806,6 +816,18 @@ func (s *Server) loadPersistedSessions() {
 		// be two names for one transcript.
 		if s.opts.NewService == nil {
 			continue
+		}
+		// The ceiling: once enough sessions have been restored to fill the
+		// budget (ceiling minus the default that is always in memory), stop.
+		// The remaining records are on disk and can be re-materialised on
+		// demand; loading them all is what made a gateway with max_sessions=8
+		// arrive holding 60 and then refuse a new one.
+		if restored >= ceiling-1 {
+			if s.opts.Log != nil {
+				s.opts.Log.Info("session restore stopped at the ceiling",
+					"restored", restored, "ceiling", ceiling, "remaining_on_disk", len(records)-restored-1)
+			}
+			break
 		}
 		svc, err := s.opts.NewService()
 		if err != nil {
@@ -862,6 +884,7 @@ func (s *Server) loadPersistedSessions() {
 		s.sessionsMu.Lock()
 		s.sessions[rec.ID] = conv
 		s.sessionsMu.Unlock()
+		restored++
 	}
 }
 
