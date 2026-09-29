@@ -641,6 +641,26 @@ type Action struct {
 	Reasoning string    `json:"reasoning"`
 	Actions   []Command `json:"actions"`
 	Final     Command   `json:"final_action"`
+	// Done is the model's own report that the task is FINISHED, and it is what turns the
+	// loop from a retry loop into a progress loop.
+	//
+	// Without it the loop returned the moment the anchor was happy — and the anchor checks
+	// the state of the PROJECT, not how much of the plan was carried out, so a healthy
+	// repository passed before any work had happened. Measured: a plan of eleven steps, one
+	// batch of four actions, "task completed" in twelve seconds.
+	//
+	// It defaults to TRUE when absent, which is what keeps every existing configuration
+	// working: a prompt that predates this field does not send it, and reading that as "not
+	// finished" would spend the whole step budget on a task that was already done.
+	Done *bool `json:"done"`
+}
+
+// isDone reports whether the model considers the task finished.
+//
+// A nil pointer means the field was absent, and absent means finished: the behaviour of
+// every prompt that predates it.
+func (a Action) isDone() bool {
+	return a.Done == nil || *a.Done
 }
 
 // Command is an executable action.
@@ -1063,7 +1083,14 @@ func (a *Agent) loop(ctx context.Context, t task.Task, depth int) TaskResult {
 
 	// [5] Splitting into subtasks: each one re-enters the same flow, one level
 	// further down. The limit is respected to avoid infinite recursion.
-	if analysis.NeedsSubtasks && len(plan.Subtasks) > 0 {
+	//
+	// The PLAN is what decides. It used to require a second vote from the analysis phase
+	// (`analysis.NeedsSubtasks`), and when the two disagreed the plan's own subtasks were
+	// silently dropped: measured in a real run, `plan generated` reported five subtasks and
+	// the line below never executed, so five declared pieces of work were thrown away.
+	// A model that wrote down subtasks has said there are subtasks; asking it twice only
+	// adds a way to lose them.
+	if len(plan.Subtasks) > 0 {
 		if depth >= a.cfg.Agent.SubtaskDepth {
 			a.log.Warn(prefix+"subtask splitting reached the configured limit; continuing as a single task",
 				"depth", depth, "limit", a.cfg.Agent.SubtaskDepth,
@@ -1102,14 +1129,30 @@ func (a *Agent) loop(ctx context.Context, t task.Task, depth int) TaskResult {
 	}
 
 	// [6]-[9] Execution and validation cycle.
+	//
+	// TWO bounds, because they answer two different questions and only one of them existed.
+	//
+	// rejected counts rounds the ANCHOR refused. Those are corrections, and max_retries is
+	// what bounds them — it always was.
+	//
+	// round counts rounds the agent has TAKEN. A round in which the model reports there is
+	// still work to do is not a failure: it is work. Before this counter existed the loop
+	// returned the moment the anchor was happy, so a plan of eleven steps ended after one
+	// batch of four actions with "task completed" — measured on a real run in a real
+	// project. The anchor could not see it, because it validates the state of the PROJECT
+	// and never how much of the plan was carried out.
+	//
+	// maxStepsFor() is the bound on that other axis, so a model that never reports the task
+	// finished cannot run forever either.
 	failedAttempts := []string{}
-
-	for attempt := 1; attempt <= a.cfg.Agent.MaxRetries+1; attempt++ {
-		res.Attempts = attempt
+	rejected := 0
+	maxSteps := a.maxSteps()
+	for round := 1; round <= maxSteps; round++ {
+		res.Attempts = round
 
 		// [6] The LLM proposes the concrete action.
-		a.report("deciding action (attempt %d/%d)...", attempt, a.cfg.Agent.MaxRetries+1)
-		action, err := a.actionPhase(ctx, t, plan, failedAttempts, attempt, prefix)
+		a.report("deciding action (attempt %d/%d)...", round, maxSteps)
+		action, err := a.actionPhase(ctx, t, plan, failedAttempts, round, prefix)
 		if err != nil {
 			res.Reason = "could not obtain the action from the LLM: " + err.Error()
 			res.DurationMS = time.Since(start).Milliseconds()
@@ -1128,16 +1171,35 @@ func (a *Agent) loop(ctx context.Context, t task.Task, depth int) TaskResult {
 		res.Validation = &validation
 
 		if validation.Pass && runErr == nil {
-			// [9] Validation PASS: now the final action.
+			// The anchor is happy. That is a statement about the PROJECT, not about the
+			// WORK: on a healthy repository the gate passes before anything has been done.
+			// So the model is asked whether IT considers the task finished, and a round
+			// that reports work left continues instead of returning.
+			if !action.isDone() {
+				a.report("validation passed; the model reports there is more to do (%d/%d)", round, maxSteps)
+				a.log.Info(prefix+"continuing: the model reports work left",
+					"round", round, "max_steps", maxSteps,
+					"reasoning", truncate(action.Reasoning, 200))
+				// The round is recorded so the next one is told what was already done —
+				// without this the model proposes the same first step again and the
+				// extra rounds buy nothing.
+				failedAttempts = append(failedAttempts, fmt.Sprintf(
+					"## Round %d: done, but the model reported there is more to do\nOutput:\n%s",
+					round, truncate(runOutput, 3000)))
+				continue
+			}
+
+			// [9] Validation PASS and the model reports the task finished: now the final action.
 			a.report("validation passed; running final action...")
 			finalAction, finalErr := a.runFinalAction(ctx, action.Final, prefix)
 			res.FinalAction = finalAction
 			if finalErr != nil {
 				detail := fmt.Sprintf("validation passed but the final action failed: %v\nOutput: %s", finalErr, finalAction)
 				failedAttempts = append(failedAttempts, detail)
+				rejected++
 				a.report("final action failed: %v", finalErr)
-				a.log.Error(prefix+"final action failed", "attempt", attempt, "final_action", finalAction, "error", finalErr)
-				if attempt > a.cfg.Agent.MaxRetries {
+				a.log.Error(prefix+"final action failed", "round", round, "final_action", finalAction, "error", finalErr)
+				if rejected > a.cfg.Agent.MaxRetries {
 					res.Reason = detail
 					res.DurationMS = time.Since(start).Milliseconds()
 					a.escalate(ctx, prefix)
@@ -1165,32 +1227,63 @@ func (a *Agent) loop(ctx context.Context, t task.Task, depth int) TaskResult {
 				res.Assumption = proceededOnAssumption
 				a.report("(proceeded assuming: %s)", proceededOnAssumption)
 			}
-			a.log.Info(prefix+"validation passed", "attempt", attempt, "final_action", finalAction,
+			a.log.Info(prefix+"validation passed", "round", round, "final_action", finalAction,
 				"assumed", truncate(proceededOnAssumption, 160))
 			return res
 		}
 
-		// FAIL: the records are accumulated so the LLM can correct with data.
+		// The anchor refused this round. THAT is a correction, and max_retries is what
+		// bounds it — separately from the rounds counter above, because the two answer
+		// different questions.
+		rejected++
 		detail := a.summariseFailure(action, runOutput, validation, runErr)
 		failedAttempts = append(failedAttempts, detail)
 		a.report("attempt failed: %s", validation.Reason)
 		a.log.Warn(prefix+"attempt failed",
-			"attempt", attempt, "max_attempts", a.cfg.Agent.MaxRetries+1,
+			"attempt", rejected, "max_attempts", a.cfg.Agent.MaxRetries+1,
+			"round", round, "max_steps", maxSteps,
 			"commands", proposedCommands(action),
 			"validation", validation.Reason)
 
-		if attempt > a.cfg.Agent.MaxRetries {
-			break
+		if rejected > a.cfg.Agent.MaxRetries {
+			// The retries ran out. This is a DIFFERENT outcome from the step budget
+			// running out, and the message has to say which one it was, or the reader
+			// goes looking for a broken check.
+			res.Reason = fmt.Sprintf("all %d attempts were exhausted without passing validation: %s",
+				a.cfg.Agent.MaxRetries+1, validation.Reason)
+			res.DurationMS = time.Since(start).Milliseconds()
+			a.report("%s", res.Reason)
+			a.escalate(ctx, prefix)
+			return res
 		}
 	}
 
-	// Attempts exhausted: escalate.
-	res.Reason = fmt.Sprintf("all %d attempts were exhausted without passing validation", a.cfg.Agent.MaxRetries+1)
+	// The step budget ran out with the anchor happy and the model still reporting work.
+	// NOT a retry exhaustion: nothing was refused, there was simply more to do than the
+	// budget allowed.
+	res.Reason = fmt.Sprintf(
+		"the task is not finished: %d rounds were used and the model still reports work left. "+
+			"Raise agent.max_steps, or split the request into smaller tasks", maxSteps)
 	res.DurationMS = time.Since(start).Milliseconds()
 	a.report("%s", res.Reason)
+	a.log.Warn(prefix+"the step budget ran out with work left", "max_steps", maxSteps)
 	a.escalate(ctx, prefix)
 	return res
 }
+
+// maxSteps is the round budget in force, defaulted when none was configured.
+func (a *Agent) maxSteps() int {
+	if a.cfg.Agent.MaxSteps > 0 {
+		return a.cfg.Agent.MaxSteps
+	}
+	return defaultMaxSteps
+}
+
+// defaultMaxSteps is how many rounds one task may take when the configuration names no
+// bound. It is generous because "do what I asked" is usually a plan and not a single step,
+// and small enough that a model which never reports the task finished cannot spend the day
+// on it.
+const defaultMaxSteps = 24
 
 // --- Phases -----------------------------------------------------------------
 

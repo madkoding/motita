@@ -226,9 +226,22 @@ type OnFailure struct {
 
 // Agent groups the parameters of the main loop.
 type Agent struct {
-	MaxRetries      int           `yaml:"max_retries"`
-	SubtaskDepth    int           `yaml:"subtask_depth"`
-	MaxTasks        int           `yaml:"max_tasks"`
+	MaxRetries   int `yaml:"max_retries"`
+	SubtaskDepth int `yaml:"subtask_depth"`
+	MaxTasks     int `yaml:"max_tasks"`
+	// MaxSteps bounds how many rounds a SINGLE task may take, which is a different
+	// question from max_retries.
+	//
+	// max_retries bounds how many times a REJECTED round may be corrected, and it was the
+	// only bound there was — so the loop stopped the moment the anchor was happy, even with
+	// most of the plan untouched. Measured: a plan of eleven steps, one batch of four
+	// actions, and "task completed" in twelve seconds. The anchor cannot see this: it
+	// validates the state of the PROJECT, not how much of the plan was carried out, so on a
+	// healthy repository it passes before any work has happened.
+	//
+	// MaxSteps is the bound on the other axis: how many rounds a task is allowed when the
+	// model reports there is still work to do. Zero means the built-in default.
+	MaxSteps        int           `yaml:"max_steps"`
 	WorkspaceDir    string        `yaml:"workspace_dir"`
 	LogFile         string        `yaml:"log_file"`
 	LogLevel        string        `yaml:"log_level"`
@@ -383,6 +396,11 @@ func Default() Config {
 		Agent: Agent{
 			MaxRetries:   3,
 			SubtaskDepth: 1,
+			// A task is allowed to take many rounds, because "do what I asked" is usually a
+			// plan and not a single step. Twenty-four is generous enough for real work and
+			// small enough that a model which never reports the task finished cannot spend
+			// the day doing it.
+			MaxSteps:     24,
 			WorkspaceDir: defaultWorkspaceDir(),
 			LogLevel:     "info",
 			// The policy asks before a consequential action runs, and refuses what it

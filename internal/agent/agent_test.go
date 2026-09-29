@@ -31,9 +31,17 @@ type fakeLLMServer struct {
 	// actionsPerAttempt states, for each attempt, which commands the "model"
 	// proposes in the execution phase.
 	actionsPerAttempt [][]string
-	calls             int32
-	phases            []string
-	failOn            string // when not empty, that phase returns an HTTP error
+	// donePerAttempt states, for each round, what the model reports in "done". A short
+	// slice repeats its LAST value, so `[]bool{false}` means "never finished" and
+	// `[]bool{false, true}` means "finished on the second round". A nil slice omits the
+	// field entirely, which is what an older prompt would do.
+	donePerAttempt []bool
+	calls          int32
+	phases         []string
+	failOn         string // when not empty, that phase returns an HTTP error
+	// prompts records every execute-phase prompt, so a test can assert what the model
+	// was told about the rounds that came before.
+	prompts []string
 }
 
 func (s *fakeLLMServer) handler(t *testing.T) http.HandlerFunc {
@@ -80,6 +88,7 @@ func (s *fakeLLMServer) handler(t *testing.T) http.HandlerFunc {
 
 		case strings.Contains(text, "## ACTION"):
 			s.phases = append(s.phases, "execute")
+			s.prompts = append(s.prompts, text)
 			n := 0
 			for _, f := range s.phases {
 				if f == "execute" {
@@ -102,6 +111,15 @@ func (s *fakeLLMServer) handler(t *testing.T) http.HandlerFunc {
 				"reasoning":    "automated test",
 				"actions":      actions,
 				"final_action": map[string]string{"description": "none", "command": ""},
+			}
+			// The "done" field is only sent when the test set it, so a nil slice keeps
+			// testing the older shape a custom prompt would send.
+			if len(s.donePerAttempt) > 0 {
+				round := idx
+				if round >= len(s.donePerAttempt) {
+					round = len(s.donePerAttempt) - 1
+				}
+				response["done"] = s.donePerAttempt[round]
 			}
 			// The response envelope is built with the content already serialised.
 			data, _ := json.Marshal(map[string]any{
@@ -849,4 +867,13 @@ func TestProposedCommands(t *testing.T) {
 			}
 		})
 	}
+}
+
+// lastExecutePrompt returns the prompt of the most recent execute phase, so a test can
+// assert what the model was TOLD about the rounds that came before it.
+func (s *fakeLLMServer) lastExecutePrompt() string {
+	if len(s.prompts) == 0 {
+		return ""
+	}
+	return s.prompts[len(s.prompts)-1]
 }

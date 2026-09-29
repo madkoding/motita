@@ -152,14 +152,35 @@ START
 [2] EXTRACT       context and success criteria (the anchor's rules)
 [3] LLM           analyses the task   -> {"understandable", "success_criteria", ...}
 [4] LLM           produces a plan     -> {"plan", "subtasks", ...}
-[5] SPLIT          into subtasks if the analysis asks for it (bounded depth)
-[6] LLM           produces the action -> {"actions", "final_action"}
+[5] SPLIT          into subtasks when the plan declares them (bounded depth)
+[6] LLM           produces the action -> {"actions", "final_action", "done"}
 [7] RUN            in the SANDBOX (Layer C)
 [8] VALIDATE       with the ANCHOR (Layer A) — always, even if [7] failed
+    FAIL  -> failure records to the LLM, back to [6] while rejected rounds <= MAX_RETRIES
+    PASS and "done": false -> the round's work is recorded, back to [6] for the NEXT batch
+    PASS and "done": true  -> [9]
 [9] PASS  -> run the final action (command | api | git_commit) and END
-    FAIL  -> failure records to the LLM, back to [6] while attempts < MAX
-    exhausted -> escalate (agent.on_failure) and END
+    rounds exhausted -> escalate (agent.on_failure) and END
 ```
+
+**The loop has TWO bounds, because they answer two different questions.**
+
+- `agent.max_retries` bounds **rejected** rounds: a validation the anchor refused, which
+  the model corrects from the failure records it is handed.
+- `agent.max_steps` (default 24) bounds **rounds altogether**. A request is usually a
+  plan and not a single step, and the model reports whether it is finished through the
+  `done` field of its action. With `"done": false` the round is not a failure — it is
+  work — so it does not spend the retry budget, and the loop continues with everything
+  already run in front of the model.
+
+Without the second bound the anchor decided when to stop, and the anchor validates the
+state of the PROJECT: on a healthy repository it passes before any work has happened.
+Measured on a real run: a plan of eleven steps, one batch of four actions, and
+`task completed` in twelve seconds with the other ten steps untouched.
+
+A run that uses all its rounds with the model still reporting work left fails with a
+message that says so — "the task is not finished: N rounds were used and the model still
+reports work left" — and never declares PASS.
 
 If the analysis declares the task **not understandable** (information missing),
 nothing runs: the task is discarded with the reason and counts as a failure for
@@ -477,7 +498,7 @@ honoured. The documented one wins when both are set.
 | `llm` | `provider` (`openai`/`anthropic`/`gemini`), `model`, `api_key`, `base_url`, `max_tokens`, `temperature`, `timeout`, `max_attempts`, `backoff_initial`, `backoff_max`, `reasoning{enabled,level}`, `session{context_window,reserve,compact_at,keep_recent}` |
 | `prompts` | `analyze`, `plan`, `execute`, `synthesize`, each with `system` and `user` |
 | `final_action` | `kind` (`none`/`command`/`api`/`git_commit`), `command`, `args`, `url`, `method`, `commit_message` |
-| `agent` | `max_retries`, `subtask_depth`, `max_tasks`, `workspace_dir`, `log_file`, `log_level`, `log_console`, `log_max_mb`, `log_backups`, `graceful_shutdown_timeout`, `read_only`, `shell`, `policy{enforce,strict}`, `on_failure` |
+| `agent` | `max_retries`, `max_steps`, `subtask_depth`, `max_tasks`, `workspace_dir`, `log_file`, `log_level`, `log_console`, `log_max_mb`, `log_backups`, `graceful_shutdown_timeout`, `read_only`, `shell`, `policy{enforce,strict}`, `on_failure` |
 | `skills` | `dir`, `max_file_bytes` |
 | `gateway` | `enabled`, `listen`, `token_file`, `allow`, `max_body_kb` |
 | `schedule` | `enabled`, `tick`, `min_every`, `max_runs_kept` |

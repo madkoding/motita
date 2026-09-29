@@ -766,9 +766,92 @@ func (s *Server) handleDeleteSession(w http.ResponseWriter, r *http.Request) {
 	// No "was it there?" branch: withConversation already proved it is, and a concurrent second
 	// DELETE of the same session would find it gone - which is the outcome both callers asked
 	// for. Reporting 404 to one of them would be reporting a race, not a fact about the session.
+	//
+	// The session's own CHECKOUT is given back with it. A session that belonged to a git
+	// project worked in a worktree of it, and forgetting the conversation left the directory
+	// and its registration behind: measured on a real gateway, six orphaned worktrees of one
+	// project, two of them over 800 MB, none of which any session would ever touch again.
+	// The branch is NOT deleted - that is a separate decision, and the work may be worth
+	// keeping - but the registration cannot be left pointing at a session nobody has.
+	if err := s.releaseWorktree(c); err != nil {
+		// The removal is refused rather than forced when the checkout holds work that is
+		// not committed. Deleting the session would otherwise destroy it silently, and a
+		// worktree with uncommitted changes is exactly the state the user cannot recover
+		// from. The session is kept so the decision stays theirs.
+		writeError(w, http.StatusConflict, err.Error())
+		return
+	}
 	s.forget(c.id)
 	s.deletePersistedSession(c.id)
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// worktreeInspect counts the uncommitted changes in a checkout. It is a package VARIABLE
+// so a test can reach the branch where the count cannot be read — the state a revoked
+// mount or a broken registration leaves, which no filesystem produces on demand.
+var worktreeInspect = gitx.WorkingTreeChanges
+
+// worktreeRemove gives a checkout back to git. Also a variable, for the branch where git
+// refuses a checkout that was already proven clean.
+var worktreeRemove = gitx.RemoveWorktree
+
+// releaseWorktree gives back the checkout a session was working in.
+//
+// It is best-effort about everything EXCEPT a checkout with uncommitted work, which is the
+// one case that must not pass silently: the worktree is a copy of the project, and once
+// the session is forgotten nothing points at it again.
+//
+// A session with no project, or one whose worktree was already removed, has nothing to
+// give back and this is a no-op.
+func (s *Server) releaseWorktree(c *conversation) error {
+	projectDir := c.projectDir
+	workspace := c.workspace
+	if projectDir == "" || workspace == "" {
+		return nil
+	}
+	// Only a directory that git knows as a LIVE worktree of THIS project is removed. The
+	// workspace falls back to the project's own checkout when its worktree could not be
+	// created, and removing that would delete the user's project.
+	if gitx.SamePath(workspace, projectDir) {
+		return nil
+	}
+	if _, ok, err := gitx.LiveWorktreeAt(context.Background(), projectDir, workspace); err != nil || !ok {
+		return nil
+	}
+
+	// Uncommitted work stops it. `git worktree remove` refuses a dirty checkout by
+	// itself, but by then the user has lost the session that named it and has no way to
+	// find out what was in it - so the check is made here, where the message can say
+	// which session and how many files.
+	changes, err := worktreeInspect(context.Background(), workspace)
+	if err != nil {
+		// The count could not be read, so the checkout cannot be proven clean. Refusing
+		// is the answer that cannot lose work.
+		return fmt.Errorf("the session's checkout at %s could not be inspected (%v), so the session was not deleted: "+
+			"check it by hand and remove it with `git worktree remove %s`", workspace, err, workspace)
+	}
+	if changes > 0 {
+		return fmt.Errorf("the session has %d uncommitted change(s) in %s, so deleting it would destroy them: "+
+			"commit them, or remove the checkout with `git worktree remove --force %s` and delete the session again",
+			changes, workspace, workspace)
+	}
+
+	if err := worktreeRemove(context.Background(), projectDir, workspace, false); err != nil {
+		// The checkout was clean and git still refused. That is reported rather than
+		// forced, for the same reason: this program does not delete work it cannot prove
+		// is safe to delete, and the message names the command that does.
+		if s.opts.Log != nil {
+			s.opts.Log.Warn("the session's worktree could not be removed",
+				"id", c.id, "worktree", workspace, "error", err.Error())
+		}
+		return fmt.Errorf("the session's checkout at %s could not be removed (%v): "+
+			"remove it with `git worktree remove %s` and delete the session again", workspace, err, workspace)
+	}
+	if s.opts.Log != nil {
+		s.opts.Log.Info("the session's worktree was released with it",
+			"id", c.id, "worktree", workspace, "branch", sessionBranch(c.id))
+	}
+	return nil
 }
 
 // handleRenameSession changes the human-readable title of a conversation.

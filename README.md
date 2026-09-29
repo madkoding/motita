@@ -335,7 +335,7 @@ curl -X DELETE -H "Authorization: Bearer $TOKEN" \
 |---|---|
 | `GET /v1/health` | the only one that needs no token: liveness |
 | `GET` `POST /v1/sessions` | list what is held, or open one more |
-| `DELETE /v1/sessions/{id}` | close one and get its memory back |
+| `DELETE /v1/sessions/{id}` | close one and get its memory back, its worktree included |
 | `GET /v1/sessions/{id}` | that conversation's figures, `running` included |
 | `POST /v1/sessions/{id}/task` | run a task, streamed as server-sent events |
 | `POST /v1/sessions/{id}/plan` | the same, read-only |

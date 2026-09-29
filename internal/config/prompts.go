@@ -187,7 +187,8 @@ Return a JSON object with this exact shape:
   "actions": [
     {"kind": "command", "description": "what it does", "command": "exact shell command"}
   ],
-  "final_action": {"description": "commit, submission or save planned", "command": "exact command or empty"}
+  "final_action": {"description": "commit, submission or save planned", "command": "exact command or empty"},
+  "done": false
 }
 Rules:
 - "actions" are the steps that produce the result; they will be run isolated.
@@ -195,6 +196,25 @@ Rules:
   the command as "" and describe why.
 - If an attempt failed before, correct it from the logs; do not repeat the same
   action expecting a different result.
+
+## "done" — THE MOST IMPORTANT FIELD
+
+A request is usually a PLAN, not a single step, and you are expected to carry the whole
+thing out across as many rounds as it takes. "done" is how you tell the loop whether
+there is more to do:
+
+- "done": false — there is work left. Propose the NEXT batch of actions. You will be
+  called again with everything you have already run in PREVIOUS ATTEMPTS, so continue
+  from there instead of starting over. Do NOT set it to false out of caution once the
+  task really is finished: that spends the round budget and ends in a failure that says
+  the task was never finished.
+- "done": true — the task is COMPLETE and nothing is left. Only now does the final
+  action run and the user get their answer.
+
+Judge it against the task as the user stated it, not against the plan alone. If the
+request was to change something, "done": true means the change is on disk and verified;
+if it was to investigate, it means you have the answer. Do not stop at "I have made a
+good start". Do not keep going after the work is finished.
 
 ## YOUR PROCEDURE LIBRARY
 
