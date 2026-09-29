@@ -518,22 +518,60 @@ func (c *Client) callOpenAI(ctx context.Context, messages []Message) (string, er
 		return "", errors.New("OpenAI returned empty choices")
 	}
 	choice := resp.Choices[0]
-	if strings.TrimSpace(choice.Message.Content) == "" {
-		// An empty content with HTTP 200 is not a success: the model hit a
-		// length limit, was blocked by a content filter, or answered with
-		// tool_calls we cannot honour here. Treat it as a retryable error so
-		// the Complete loop re-asks instead of propagating "" to ExtractJSON,
-		// where it becomes the opaque "the LLM response is empty" failure.
-		//
-		// Retryable is right on THIS path and wrong on the tools path, and the difference is
-		// the point: a text-only call that came back empty may genuinely succeed on a second
-		// attempt (the model had a bad moment), while a tools call whose `finish_reason` says
-		// "tool_calls" did not. Same wording via emptyReason, opposite retry policy, because
-		// the two situations are not the same.
+	// A reply that carried TOOL CALLS is not an empty reply, whatever the text says.
+	//
+	// This guard used to look at the text alone, so a response of `tool_calls` with no
+	// prose was reported as "no usable content ... the provider reported calls that did not
+	// arrive" and thrown away — while the calls were in the very struct being examined. The
+	// message even counted them, which is how it read as a contradiction.
+	//
+	// Measured on a real run: every phase of the agent asks for its JSON as TEXT, so a
+	// provider that answers one of those calls with a tool call lost the whole turn, and
+	// the user was told the LLM had produced nothing. The calls are now reported as what
+	// they are, so the caller decides: the agent's text phases turn them into a named error
+	// that says which call arrived (see the caller's own guard), instead of a retry of a
+	// reply that will come back the same way.
+	if strings.TrimSpace(choice.Message.Content) == "" && len(choice.Message.ToolCalls) == 0 {
+		// Nothing at all: the model hit a length limit, was blocked by a content filter, or
+		// genuinely produced nothing. Retryable on THIS path, because a text-only call that
+		// came back empty may succeed on a second attempt.
 		return "", fmt.Errorf("OpenAI returned no usable content (%s)", emptyReason(
 			choice.FinishReason, choice.Message.Content, len(choice.Message.ToolCalls)))
 	}
+	if strings.TrimSpace(choice.Message.Content) == "" {
+		// A tool call with no text. The text path cannot honour it, and saying so NAMES what
+		// arrived — the alternative was an opaque "empty answer" and three retries.
+		//
+		// It is a fatalError for the same reason the tools path uses one: the provider has
+		// ROUTED this answer through a tool, and asking again the same way returns the same
+		// thing. Measured: three identical failures and a message that blamed a parse defect
+		// — the most confusing outcome available, because the reader goes looking for a bug
+		// in the parser instead of at the prompt or the provider's routing.
+		return "", fatalError{fmt.Errorf("OpenAI answered with %d tool call(s) instead of text (%s): "+
+			"this phase asks for its answer as text, so the call cannot be honoured here, and asking "+
+			"again returns the same thing", len(choice.Message.ToolCalls), describeCalls(choice.Message.ToolCalls))}
+	}
 	return choice.Message.Content, nil
+}
+
+// describeCalls renders the names of a reply's tool calls for an error message.
+//
+// The NAME is what makes the message actionable: it tells a reader which tool the provider
+// wanted, which is the difference between "the model refused to answer" and "the provider
+// routed this through a tool the text path does not have".
+func describeCalls(calls []ToolCall) string {
+	if len(calls) == 0 {
+		return "none"
+	}
+	names := make([]string, 0, len(calls))
+	for _, c := range calls {
+		if c.Function.Name != "" {
+			names = append(names, c.Function.Name)
+			continue
+		}
+		names = append(names, "(unnamed)")
+	}
+	return strings.Join(names, ", ")
 }
 
 func (c *Client) callOpenAITools(ctx context.Context, messages []Message, tools []Tool) (Reply, error) {

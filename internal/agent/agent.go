@@ -1154,9 +1154,15 @@ func (a *Agent) loop(ctx context.Context, t task.Task, depth int) TaskResult {
 		a.report("deciding action (attempt %d/%d)...", round, maxSteps)
 		action, err := a.actionPhase(ctx, t, plan, failedAttempts, round, prefix)
 		if err != nil {
+			// The CAUSE is carried, and it is the LLM's own message. The old prefix said
+			// "could not obtain the action from the LLM" and left the reader to guess: the
+			// action was not missing, the reply arrived shaped in a way this phase cannot
+			// use, and the message below now says which shape and which tool.
 			res.Reason = "could not obtain the action from the LLM: " + err.Error()
 			res.DurationMS = time.Since(start).Milliseconds()
 			a.report("failed to get an action: %v", err)
+			a.log.Error(prefix+"the action phase produced nothing usable",
+				"round", round, "error", err.Error())
 			a.escalate(ctx, prefix)
 			return res
 		}
