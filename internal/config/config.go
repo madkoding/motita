@@ -397,10 +397,18 @@ func Default() Config {
 			MaxRetries:   3,
 			SubtaskDepth: 1,
 			// A task is allowed to take many rounds, because "do what I asked" is usually a
-			// plan and not a single step. Twenty-four is generous enough for real work and
-			// small enough that a model which never reports the task finished cannot spend
-			// the day doing it.
-			MaxSteps:     24,
+			// plan and not a single step.
+			//
+			// 100 rather than 24: measured on a real request ("habilitar el area del
+			// mantenedor para agregar fichas de vtuberdex"), where the agent explored,
+			// installed dependencies, wrote code and iterated - and a 24-round budget
+			// stopped it while it was still working. The budget exists to catch a loop
+			// that cannot converge, not to limit honest work, and at 24 it was the latter
+			// that happened.
+			//
+			// Running out is not a failure either: the loop ASKS whether to continue with
+			// another budget, so this number is a checkpoint rather than a wall.
+			MaxSteps:     100,
 			WorkspaceDir: defaultWorkspaceDir(),
 			LogLevel:     "info",
 			// The policy asks before a consequential action runs, and refuses what it

@@ -464,6 +464,16 @@ export default function App() {
     error?: string
   } | null>(null)
   const [previewLoading, setPreviewLoading] = useState(false)
+  // True while the deletion the user confirmed is IN FLIGHT.
+  //
+  // A deletion is not instant: the gateway stops the session's run first, then
+  // gives its checkout back to git, and on a project it does that for every
+  // session it owns. Measured on a project with two sessions holding work: the
+  // request took long enough that a second click was possible, and without this
+  // the modal sat there looking idle while the work was already under way.
+  // Locking the button and showing that something is happening is the honest
+  // report of a request in flight.
+  const [deleting, setDeleting] = useState(false)
   // Long-press context menu on mobile: when set, shows a small menu with Edit / Delete.
   const [contextMenu, setContextMenu] = useState<{ type: 'session' | 'project'; id: string; title: string; x: number; y: number } | null>(null)
   // Row dropdown menu: which session/project row has its "⋯" menu open.
@@ -1550,6 +1560,9 @@ export default function App() {
   useEffect(() => {
     if (!confirmDelete) {
       setDeletionPreview(null)
+      // Reset with the modal: a fresh confirmation must start unlocked, whatever
+      // the previous one left behind.
+      setDeleting(false)
       return
     }
     // Both kinds ask the same question of their own endpoint: a session names its own
@@ -3429,27 +3442,44 @@ export default function App() {
 
             <div class="flex gap-2">
               <button
-                class="flex-1 min-h-[44px] px-5 rounded-xl bg-danger text-white font-semibold active:scale-95 transition-transform disabled:opacity-50"
-                disabled={(confirmDelete.type === 'session' && confirmDelete.id !== 'default' || confirmDelete.type === 'project') && (previewLoading || deletionPreview?.inspection_failed === true)}
+                class="flex-1 min-h-[44px] px-5 rounded-xl bg-danger text-white font-semibold active:scale-95 transition-transform disabled:opacity-50 disabled:cursor-not-allowed inline-flex items-center justify-center gap-2"
+                disabled={deleting || ((confirmDelete.type === 'session' && confirmDelete.id !== 'default' || confirmDelete.type === 'project') && (previewLoading || deletionPreview?.inspection_failed === true))}
                 onClick={async () => {
-                  if (confirmDelete.type === 'session') {
-                    // The confirmation is what authorises the discard. `count > 0` is known
-                    // here because the preview was read before this button was drawn.
-                    await deleteSession(confirmDelete.id, (deletionPreview?.count ?? 0) > 0)
-                  } else if (confirmDelete.type === 'skill') {
-                    await deleteSkill(confirmDelete.id)
-                  } else {
-                    await deleteProject(confirmDelete.id, (deletionPreview?.count ?? 0) > 0)
+                  // Locked FIRST, so a second click cannot start a second deletion
+                  // while the first is still unwinding on the gateway.
+                  setDeleting(true)
+                  try {
+                    if (confirmDelete.type === 'session') {
+                      // The confirmation is what authorises the discard. `count > 0` is known
+                      // here because the preview was read before this button was drawn.
+                      await deleteSession(confirmDelete.id, (deletionPreview?.count ?? 0) > 0)
+                    } else if (confirmDelete.type === 'skill') {
+                      await deleteSkill(confirmDelete.id)
+                    } else {
+                      await deleteProject(confirmDelete.id, (deletionPreview?.count ?? 0) > 0)
+                    }
+                  } finally {
+                    setDeleting(false)
+                    setConfirmDelete(null)
                   }
-                  setConfirmDelete(null)
                 }}
               >
-                {deletionPreview && deletionPreview.count > 0
-                  ? 'Discard and delete'
-                  : 'Delete'}
+                {deleting && (
+                  // The same ring the sidebar uses for a run in flight, so "something
+                  // is happening" reads the same wherever it appears. A static button
+                  // on a request that can take seconds is the interface lying about
+                  // being idle.
+                  <span class="state-working inline-block" aria-hidden="true" />
+                )}
+                {deleting
+                  ? 'Deleting…'
+                  : deletionPreview && deletionPreview.count > 0
+                    ? 'Discard and delete'
+                    : 'Delete'}
               </button>
               <button
-                class="min-h-[44px] px-5 rounded-xl border border-white/10 text-[#e8e8ea] active:scale-95 transition-transform"
+                class="min-h-[44px] px-5 rounded-xl border border-white/10 text-[#e8e8ea] active:scale-95 transition-transform disabled:opacity-50 disabled:cursor-not-allowed"
+                disabled={deleting}
                 onClick={() => setConfirmDelete(null)}
               >
                 Cancel

@@ -63,7 +63,7 @@ func changePaths(t *testing.T, preview map[string]any) []string {
 }
 
 // TestThePreviewNamesWhatDeletingWouldDiscard: the list, not a number. This is the
-// contract the user asked for - "mostrar cuáles son esos cambios en el modal".
+// contract the user asked for: show WHICH changes those are, inside the modal.
 func TestThePreviewNamesWhatDeletingWouldDiscard(t *testing.T) {
 	srv, _, id := newSessionInProject(t)
 	wt := filepath.Join(srv.opts.WorkspaceDir, "worktrees", id)

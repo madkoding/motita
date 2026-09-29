@@ -46,8 +46,15 @@ func (s *Server) handleListProjects(w http.ResponseWriter, _ *http.Request) {
 		// that is gone is still counted - which is the state a user wants to
 		// know about. The project's own checkout is not a session worktree and
 		// is not counted.
+		//
+		// It is counted against the sessions this gateway still HOLDS, though:
+		// a registration whose session is gone is not something the project can
+		// name or clean up, and reporting it as a live worktree gives a number
+		// the user cannot reconcile with anything on disk. Measured: a project
+		// with every session deleted still said "worktrees: 1".
+		live := liveSessionIDsFor(sessions, all[i].ID)
 		if wts, err := gitx.Worktrees(ctx, all[i].Dir); err == nil {
-			all[i].Worktrees = countSessionWorktrees(wts, all[i].Dir)
+			all[i].Worktrees = countSessionWorktrees(wts, all[i].Dir, live)
 		}
 		for _, c := range sessions {
 			if c.projectID == all[i].ID {
@@ -56,6 +63,21 @@ func (s *Server) handleListProjects(w http.ResponseWriter, _ *http.Request) {
 		}
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"projects": all})
+}
+
+// liveSessionIDsFor collects the ids of the sessions the gateway holds for one
+// project, as the set the worktree count is checked against.
+//
+// A nil map would mean "cannot say", and this caller CAN: the snapshot it was
+// given is the same list the session count above it comes from.
+func liveSessionIDsFor(sessions []*conversation, projectID string) map[string]bool {
+	live := map[string]bool{}
+	for _, c := range sessions {
+		if c.projectID == projectID {
+			live[c.id] = true
+		}
+	}
+	return live
 }
 
 // handleCreateProject mints a new project, optionally cloning a git repo.
@@ -302,7 +324,18 @@ func sessionBranch(sessionID string) string {
 // A prunable registration is NOT counted. Its directory is gone, so there is no
 // checkout to speak of, and reporting it as a live worktree would give the user
 // a number they cannot reconcile with anything on disk.
-func countSessionWorktrees(all []gitx.Worktree, projectDir string) int {
+//
+// The count is also bounded by what the PROJECT can still reach, and this is the
+// half that was missing. Measured on a real gateway: a project whose sessions had
+// all been deleted still reported "worktrees: 1", because a registration from a
+// run whose checkout lived outside the workspace was counted like any other. A
+// number the user cannot reconcile with anything they can see is worse than no
+// number: it says work is out there and offers no way to find it.
+//
+// `live` are the session ids the gateway still holds. A registration whose path
+// does not end in one of them is not a session's worktree any more - whatever it
+// is, it is not something this project can name or clean up.
+func countSessionWorktrees(all []gitx.Worktree, projectDir string, live map[string]bool) int {
 	n := 0
 	for _, w := range all {
 		if w.Prunable {
@@ -311,7 +344,29 @@ func countSessionWorktrees(all []gitx.Worktree, projectDir string) int {
 		if gitx.SamePath(w.Path, projectDir) {
 			continue
 		}
+		if !isLiveSessionWorktree(w.Path, live) {
+			continue
+		}
 		n++
 	}
 	return n
+}
+
+// isLiveSessionWorktree reports whether a checkout's path is a session of this
+// gateway's worktree.
+//
+// The path is `<workspace>/worktrees/<session id>`, so the LAST element carries
+// the id and that is what is asked about. The id has to be one the gateway still
+// holds: a registration left by a deleted session, or by a session of a project
+// that no longer exists, would otherwise keep the count up for ever.
+//
+// A nil map means the caller cannot say which sessions are live, and then the
+// answer is "yes" for every checkout: hiding a real one is the worse mistake, and
+// the number is decoration either way.
+func isLiveSessionWorktree(path string, live map[string]bool) bool {
+	if live == nil {
+		return true
+	}
+	id := filepath.Base(filepath.Clean(path))
+	return live[id]
 }

@@ -9,9 +9,9 @@ package gateway
 // sidebar (which groups sessions UNDER their project), and still holding its
 // worktree and branch. Nothing could reach them again.
 //
-// The user's words for the requirement: "en ese caso si hay cambios, entonces al
-// poner eliminar (y debiera ser en todos) debiera comprobar si el usuario esta
-// realmente seguro, y si hay cambios mostrar cuales son".
+// The requirement, in the reporter's own words: pressing delete (on ALL of them,
+// not just sessions) must first check whether the user is really sure, and if there
+// ARE changes, show which ones they are.
 //
 // So the rules are the session deletion's rules, applied to every session of the
 // project:

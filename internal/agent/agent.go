@@ -1147,134 +1147,198 @@ func (a *Agent) loop(ctx context.Context, t task.Task, depth int) TaskResult {
 	failedAttempts := []string{}
 	rejected := 0
 	maxSteps := a.maxSteps()
-	for round := 1; round <= maxSteps; round++ {
-		res.Attempts = round
-
-		// [6] The LLM proposes the concrete action.
-		a.report("deciding action (attempt %d/%d)...", round, maxSteps)
-		action, err := a.actionPhase(ctx, t, plan, failedAttempts, round, prefix)
-		if err != nil {
-			// The CAUSE is carried, and it is the LLM's own message. The old prefix said
-			// "could not obtain the action from the LLM" and left the reader to guess: the
-			// action was not missing, the reply arrived shaped in a way this phase cannot
-			// use, and the message below now says which shape and which tool.
-			res.Reason = "could not obtain the action from the LLM: " + err.Error()
-			res.DurationMS = time.Since(start).Milliseconds()
-			a.report("failed to get an action: %v", err)
-			a.log.Error(prefix+"the action phase produced nothing usable",
-				"round", round, "error", err.Error())
-			a.escalate(ctx, prefix)
-			return res
+	// The budget is a CHECKPOINT, not a wall. Measured on a real request: the agent was
+	// still working when 24 rounds ran out, and the run ended with "the task is not
+	// finished" and nothing else - the user had to start over and hope the next attempt
+	// got further. The work it had done was in the checkout; the DECISION left to the
+	// user was simply never offered.
+	//
+	// So when the budget runs out with work left, the loop asks. Yes means another
+	// maxSteps rounds on the SAME run, continuing from everything already done, which
+	// is the difference between "keep going" and "start again".
+	//
+	// The number of times it may ask is not bounded here on purpose: each ask is a
+	// human answering, and a human who keeps saying yes is not a runaway loop.
+	round := 0
+	for {
+		if rounded := round / maxSteps; rounded > 0 && round%maxSteps == 0 {
+			// One full budget has been spent. Ask before spending another.
+			cont, err := a.continueBudget(ctx, round, maxSteps, prefix)
+			if err != nil || !cont {
+				res.Reason = fmt.Sprintf(
+					"the task is not finished: %d rounds were used and the model still reports work left. "+
+						"Raise agent.max_steps, or split the request into smaller tasks", round)
+				res.DurationMS = time.Since(start).Milliseconds()
+				a.report("%s", res.Reason)
+				a.log.Warn(prefix+"the step budget ran out and the user did not continue",
+					"max_steps", maxSteps, "rounds", round)
+				a.escalate(ctx, prefix)
+				return res
+			}
+			a.report("continuing with another %d rounds...", maxSteps)
 		}
-		a.report("action: %s", truncate(action.Reasoning, 120))
-
-		// [7] Run in the sandbox.
-		runOutput, runErr := a.runActions(ctx, action.Actions, prefix)
-
-		// [8] Validate with the anchor, always.
-		a.report("validating with anchor...")
-		validation := anchor.New(a.cfg.Anchor, a.cfg.Agent.WorkspaceDir, a.sandbox).Validate(ctx)
-		res.Validation = &validation
-
-		if validation.Pass && runErr == nil {
-			// The anchor is happy. That is a statement about the PROJECT, not about the
-			// WORK: on a healthy repository the gate passes before anything has been done.
-			// So the model is asked whether IT considers the task finished, and a round
-			// that reports work left continues instead of returning.
-			if !action.isDone() {
-				a.report("validation passed; the model reports there is more to do (%d/%d)", round, maxSteps)
-				a.log.Info(prefix+"continuing: the model reports work left",
-					"round", round, "max_steps", maxSteps,
-					"reasoning", truncate(action.Reasoning, 200))
-				// The round is recorded so the next one is told what was already done —
-				// without this the model proposes the same first step again and the
-				// extra rounds buy nothing.
-				failedAttempts = append(failedAttempts, fmt.Sprintf(
-					"## Round %d: done, but the model reported there is more to do\nOutput:\n%s",
-					round, truncate(runOutput, 3000)))
-				continue
-			}
-
-			// [9] Validation PASS and the model reports the task finished: now the final action.
-			a.report("validation passed; running final action...")
-			finalAction, finalErr := a.runFinalAction(ctx, action.Final, prefix)
-			res.FinalAction = finalAction
-			if finalErr != nil {
-				detail := fmt.Sprintf("validation passed but the final action failed: %v\nOutput: %s", finalErr, finalAction)
-				failedAttempts = append(failedAttempts, detail)
-				rejected++
-				a.report("final action failed: %v", finalErr)
-				a.log.Error(prefix+"final action failed", "round", round, "final_action", finalAction, "error", finalErr)
-				if rejected > a.cfg.Agent.MaxRetries {
-					res.Reason = detail
-					res.DurationMS = time.Since(start).Milliseconds()
-					a.escalate(ctx, prefix)
-					return res
-				}
-				continue
-			}
-			res.Pass = true
-			res.Reason = validation.Reason
-			res.DurationMS = time.Since(start).Milliseconds()
-			a.report("task complete: %s", validation.Reason)
-			if a.cfg.Prompts.Synthesize.User != "" && a.cfg.Prompts.Synthesize.System != "" {
-				a.report("synthesizing answer...")
-				summary := a.synthesizePhase(ctx, t, runOutput, validation)
-				if summary != "" {
-					res.Summary = summary
-					a.report("%s", summary)
-				}
-			}
-			// When there was nobody to ask, the run proceeded on a reading the agent chose. Saying
-			// so is what makes the result honest: the answer is correct GIVEN that reading, and a
-			// user reading it later needs to know which one was taken — otherwise a reasonable
-			// assumption looks like a wrong answer.
-			if proceededOnAssumption != "" {
-				res.Assumption = proceededOnAssumption
-				a.report("(proceeded assuming: %s)", proceededOnAssumption)
-			}
-			a.log.Info(prefix+"validation passed", "round", round, "final_action", finalAction,
-				"assumed", truncate(proceededOnAssumption, 160))
-			return res
-		}
-
-		// The anchor refused this round. THAT is a correction, and max_retries is what
-		// bounds it — separately from the rounds counter above, because the two answer
-		// different questions.
-		rejected++
-		detail := a.summariseFailure(action, runOutput, validation, runErr)
-		failedAttempts = append(failedAttempts, detail)
-		a.report("attempt failed: %s", validation.Reason)
-		a.log.Warn(prefix+"attempt failed",
-			"attempt", rejected, "max_attempts", a.cfg.Agent.MaxRetries+1,
-			"round", round, "max_steps", maxSteps,
-			"commands", proposedCommands(action),
-			"validation", validation.Reason)
-
-		if rejected > a.cfg.Agent.MaxRetries {
-			// The retries ran out. This is a DIFFERENT outcome from the step budget
-			// running out, and the message has to say which one it was, or the reader
-			// goes looking for a broken check.
-			res.Reason = fmt.Sprintf("all %d attempts were exhausted without passing validation: %s",
-				a.cfg.Agent.MaxRetries+1, validation.Reason)
+		round++
+		if round > maxSteps*maxBudgetExtensions {
+			// A ceiling on the ceiling. A gateway whose approver answers "yes" without a
+			// human (a script, a test) would otherwise loop for ever; the limit is high
+			// enough that no real session reaches it, because reaching it means 100
+			// answered questions.
+			res.Reason = fmt.Sprintf(
+				"the task is not finished after %d rounds and %d continuations, so this run stops here. "+
+					"Split the request into smaller tasks", round-1, maxBudgetExtensions-1)
 			res.DurationMS = time.Since(start).Milliseconds()
 			a.report("%s", res.Reason)
 			a.escalate(ctx, prefix)
 			return res
 		}
-	}
+		{
+			res.Attempts = round
 
-	// The step budget ran out with the anchor happy and the model still reporting work.
-	// NOT a retry exhaustion: nothing was refused, there was simply more to do than the
-	// budget allowed.
-	res.Reason = fmt.Sprintf(
-		"the task is not finished: %d rounds were used and the model still reports work left. "+
-			"Raise agent.max_steps, or split the request into smaller tasks", maxSteps)
-	res.DurationMS = time.Since(start).Milliseconds()
-	a.report("%s", res.Reason)
-	a.log.Warn(prefix+"the step budget ran out with work left", "max_steps", maxSteps)
-	a.escalate(ctx, prefix)
-	return res
+			// [6] The LLM proposes the concrete action.
+			a.report("deciding action (attempt %d/%d)...", round, maxSteps*(1+(round-1)/maxSteps))
+			action, err := a.actionPhase(ctx, t, plan, failedAttempts, round, prefix)
+			if err != nil {
+				// The CAUSE is carried, and it is the LLM's own message. The old prefix said
+				// "could not obtain the action from the LLM" and left the reader to guess: the
+				// action was not missing, the reply arrived shaped in a way this phase cannot
+				// use, and the message below now says which shape and which tool.
+				res.Reason = "could not obtain the action from the LLM: " + err.Error()
+				res.DurationMS = time.Since(start).Milliseconds()
+				a.report("failed to get an action: %v", err)
+				a.log.Error(prefix+"the action phase produced nothing usable",
+					"round", round, "error", err.Error())
+				a.escalate(ctx, prefix)
+				return res
+			}
+			a.report("action: %s", truncate(action.Reasoning, 120))
+
+			// [7] Run in the sandbox.
+			runOutput, runErr := a.runActions(ctx, action.Actions, prefix)
+
+			// [8] Validate with the anchor, always.
+			a.report("validating with anchor...")
+			validation := anchor.New(a.cfg.Anchor, a.cfg.Agent.WorkspaceDir, a.sandbox).Validate(ctx)
+			res.Validation = &validation
+
+			if validation.Pass && runErr == nil {
+				// The anchor is happy. That is a statement about the PROJECT, not about the
+				// WORK: on a healthy repository the gate passes before anything has been done.
+				// So the model is asked whether IT considers the task finished, and a round
+				// that reports work left continues instead of returning.
+				if !action.isDone() {
+					a.report("validation passed; the model reports there is more to do (%d/%d)", round, maxSteps)
+					a.log.Info(prefix+"continuing: the model reports work left",
+						"round", round, "max_steps", maxSteps,
+						"reasoning", truncate(action.Reasoning, 200))
+					// The round is recorded so the next one is told what was already done —
+					// without this the model proposes the same first step again and the
+					// extra rounds buy nothing.
+					failedAttempts = append(failedAttempts, fmt.Sprintf(
+						"## Round %d: done, but the model reported there is more to do\nOutput:\n%s",
+						round, truncate(runOutput, 3000)))
+					continue
+				}
+
+				// [9] Validation PASS and the model reports the task finished: now the final action.
+				a.report("validation passed; running final action...")
+				finalAction, finalErr := a.runFinalAction(ctx, action.Final, prefix)
+				res.FinalAction = finalAction
+				if finalErr != nil {
+					detail := fmt.Sprintf("validation passed but the final action failed: %v\nOutput: %s", finalErr, finalAction)
+					failedAttempts = append(failedAttempts, detail)
+					rejected++
+					a.report("final action failed: %v", finalErr)
+					a.log.Error(prefix+"final action failed", "round", round, "final_action", finalAction, "error", finalErr)
+					if rejected > a.cfg.Agent.MaxRetries {
+						res.Reason = detail
+						res.DurationMS = time.Since(start).Milliseconds()
+						a.escalate(ctx, prefix)
+						return res
+					}
+					continue
+				}
+				res.Pass = true
+				res.Reason = validation.Reason
+				res.DurationMS = time.Since(start).Milliseconds()
+				a.report("task complete: %s", validation.Reason)
+				if a.cfg.Prompts.Synthesize.User != "" && a.cfg.Prompts.Synthesize.System != "" {
+					a.report("synthesizing answer...")
+					summary := a.synthesizePhase(ctx, t, runOutput, validation)
+					if summary != "" {
+						res.Summary = summary
+						a.report("%s", summary)
+					}
+				}
+				// When there was nobody to ask, the run proceeded on a reading the agent chose. Saying
+				// so is what makes the result honest: the answer is correct GIVEN that reading, and a
+				// user reading it later needs to know which one was taken — otherwise a reasonable
+				// assumption looks like a wrong answer.
+				if proceededOnAssumption != "" {
+					res.Assumption = proceededOnAssumption
+					a.report("(proceeded assuming: %s)", proceededOnAssumption)
+				}
+				a.log.Info(prefix+"validation passed", "round", round, "final_action", finalAction,
+					"assumed", truncate(proceededOnAssumption, 160))
+				return res
+			}
+
+			// The anchor refused this round. THAT is a correction, and max_retries is what
+			// bounds it — separately from the rounds counter above, because the two answer
+			// different questions.
+			rejected++
+			detail := a.summariseFailure(action, runOutput, validation, runErr)
+			failedAttempts = append(failedAttempts, detail)
+			a.report("attempt failed: %s", validation.Reason)
+			a.log.Warn(prefix+"attempt failed",
+				"attempt", rejected, "max_attempts", a.cfg.Agent.MaxRetries+1,
+				"round", round, "max_steps", maxSteps,
+				"commands", proposedCommands(action),
+				"validation", validation.Reason)
+
+			if rejected > a.cfg.Agent.MaxRetries {
+				// The retries ran out. This is a DIFFERENT outcome from the step budget
+				// running out, and the message has to say which one it was, or the reader
+				// goes looking for a broken check.
+				res.Reason = fmt.Sprintf("all %d attempts were exhausted without passing validation: %s",
+					a.cfg.Agent.MaxRetries+1, validation.Reason)
+				res.DurationMS = time.Since(start).Milliseconds()
+				a.report("%s", res.Reason)
+				a.escalate(ctx, prefix)
+				return res
+			}
+		}
+	}
+}
+
+// maxBudgetExtensions bounds how many times the loop may ASK to continue. It is a
+// ceiling on the ceiling: a gateway whose approver answers "yes" without a human
+// behind it (a script, a test) would otherwise loop for ever. Reaching it means a
+// hundred answered questions, which no real session does.
+const maxBudgetExtensions = 10
+
+// continueBudget asks the user whether the run should keep going with another full
+// budget, after one has been spent with work left.
+//
+// It is the same approval mechanism a consequential command uses, which is the point:
+// "may I keep working" is a question the user answers, and the interface that already
+// knows how to ask it is this one. No approver (a run from a script) means no answer,
+// and no answer means stop - the same conservative default the command approval uses.
+func (a *Agent) continueBudget(ctx context.Context, rounds, maxSteps int, prefix string) (bool, error) {
+	if a.approver == nil {
+		return false, nil
+	}
+	ok, err := a.approver(ctx, ApprovalRequest{
+		Command: fmt.Sprintf("continue for another %d rounds (%d used, work left)", maxSteps, rounds),
+		Reason: "the step budget ran out and the model still reports work left; " +
+			"continuing keeps everything already done instead of starting over",
+		Rule: "agent.max_steps",
+	})
+	if err != nil || !ok {
+		a.log.Warn(prefix+"the budget continuation was not approved", "rounds", rounds)
+		return false, err
+	}
+	a.log.Info(prefix+"continuing with another budget", "rounds", rounds, "max_steps", maxSteps)
+	return true, nil
 }
 
 // maxSteps is the round budget in force, defaulted when none was configured.
@@ -1287,9 +1351,10 @@ func (a *Agent) maxSteps() int {
 
 // defaultMaxSteps is how many rounds one task may take when the configuration names no
 // bound. It is generous because "do what I asked" is usually a plan and not a single step,
-// and small enough that a model which never reports the task finished cannot spend the day
-// on it.
-const defaultMaxSteps = 24
+// and it is a CHECKPOINT rather than a wall: a run that reaches it with work left asks the
+// user before spending another, so the bound protects against a loop that cannot converge
+// without cutting off honest work.
+const defaultMaxSteps = 100
 
 // --- Phases -----------------------------------------------------------------
 

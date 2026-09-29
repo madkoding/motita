@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"os"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -437,7 +438,74 @@ func (s *Server) sessionWorktree(ctx context.Context, repoDir, sessionID string)
 	if err := gitx.AddWorktree(ctx, repoDir, path, branch); err != nil {
 		return repoDir, err
 	}
+	// The checkout is complete as far as git is concerned, and that is not the same as
+	// being able to RUN.
+	//
+	// `git worktree add` copies nothing git ignores, so a project whose dependencies live
+	// in an ignored directory - `node_modules/` is the common one - gets a checkout where
+	// `npm run lint`, `tsc` and `vitest` do not exist. The anchor then runs the project's
+	// own gate and reports "failed checks: npm lint, npm typecheck, npm test", which
+	// reads as broken CODE and is really a missing TOOLCHAIN. Measured on a real session:
+	// the agent spent round after round discovering this, and the user's report was
+	// "demasiado determinista?" about a gate that was simply running in an empty tree.
+	//
+	// Linking is what makes the checkout runnable without a fresh install per session
+	// (measured: 860 MB and ~30 s for one project). It is a LINK and not a copy: the
+	// dependencies are the same bytes, npm reads them without writing, and a copy per
+	// session would multiply the disk by the number of sessions.
+	linkSharedDirs(repoDir, path)
 	return path, nil
+}
+
+// linkSharedDirs points a fresh checkout at the dependency directories the project
+// already has, so its gate can run before anything is installed.
+//
+// Only directories that are BOTH ignored by git and already present in the project are
+// linked, and each candidate is a well-known dependency folder. That list is deliberately
+// short: an ignored directory can hold anything (build output, a local database, the
+// user's own scratch), and linking one the toolchain does not read would hand the session
+// a directory it may write to that is not its own.
+//
+// A failure is silent by design: the session still works, it simply has to install its own
+// dependencies, which is exactly what happened before this existed. A link that cannot be
+// made must not stop a session from being created.
+func linkSharedDirs(projectDir, worktree string) {
+	for _, name := range sharedDependencyDirs {
+		src := filepath.Join(projectDir, name)
+		dst := filepath.Join(worktree, name)
+		// Nothing to share, or something is already there: both are "leave it alone".
+		if !isReadableDir(src) || pathExists(dst) {
+			continue
+		}
+		if err := os.Symlink(src, dst); err != nil {
+			continue
+		}
+	}
+}
+
+// sharedDependencyDirs are the ignored directories a checkout needs in order to RUN its
+// own gate. Each is a dependency tree a package manager writes and reads, never project
+// source: linking one shares the bytes instead of copying them.
+var sharedDependencyDirs = []string{
+	"node_modules", // npm, pnpm, yarn
+	".venv",        // python
+	"venv",         // python, the other spelling
+	"vendor",       // go, php
+	"target",       // rust, and java's build output
+	".bundle",      // ruby
+	"Pods",         // cocoa
+}
+
+// isReadableDir reports whether path is a directory that can be read.
+func isReadableDir(path string) bool {
+	info, err := os.Stat(path)
+	return err == nil && info.IsDir()
+}
+
+// pathExists reports whether anything at all is at path, symlink included.
+func pathExists(path string) bool {
+	_, err := os.Lstat(path)
+	return err == nil
 }
 
 // scopeProceduresTo points a session's procedure library at its project, when the service

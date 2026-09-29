@@ -240,8 +240,31 @@ func TestCountSessionWorktreesSkipsTheProjectAndPrunableEntries(t *testing.T) {
 		{Path: "/work/wt/gone", Prunable: true},    // directory removed, nothing there to work in
 		{Path: "/work/wt/sB", Branch: "feature"},   // a session moved to a branch of its own
 	}
-	if got := countSessionWorktrees(all, project); got != 2 {
+	// nil = "this caller cannot say which sessions are live", which counts every real
+	// checkout. The exclusions above are the ones this test is about.
+	if got := countSessionWorktrees(all, project, nil); got != 2 {
 		t.Errorf("count = %d, want 2: the project checkout and the prunable entry are not session worktrees", got)
+	}
+}
+
+// TestCountSessionWorktreesIgnoresCheckoutsNoSessionOwns is the defect a user reported:
+// after deleting every session of a project, the panel still said "worktrees: 1".
+//
+// Measured on a real gateway, and the reason was a registration left behind by a run
+// whose checkout lived OUTSIDE the workspace - a stale path no session can name and
+// nothing can clean up. A count the user cannot reconcile with anything they can see is
+// worse than no count: it says work is out there and offers no way to find it.
+func TestCountSessionWorktreesIgnoresCheckoutsNoSessionOwns(t *testing.T) {
+	project := "/work/proj"
+	live := map[string]bool{"sA": true}
+	all := []gitx.Worktree{
+		{Path: project, Branch: "main"},
+		{Path: "/work/wt/sA", Branch: "motita/sA"},                // live
+		{Path: "/elsewhere/wt/sGONE", Branch: "motita/sGONE"},     // no session holds it
+		{Path: "/work/wt/sLIVE-OTHER-PROJECT", Branch: "feature"}, // a session of another project
+	}
+	if got := countSessionWorktrees(all, project, live); got != 1 {
+		t.Errorf("count = %d, want 1: only a checkout a LIVE session of this project owns is countable", got)
 	}
 }
 
