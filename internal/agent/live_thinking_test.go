@@ -118,7 +118,7 @@ func TestPartialStringsDecodesEscapesAndCutOffs(t *testing.T) {
 		text string
 		want []string
 	}{
-		{`{"f": "a\nb\tc\rd\"e\\f\/g\u00e9h"}`, []string{"a\nb\tcd\"e\\f/géh"}},
+		{`{"f": "a\nb\tc\rd\"e\\f\/g\u00e9h"}`, []string{"a\nb\tcd\"e\\f/g\u00e9h"}},
 		{`{"f":"cut \`, []string{"cut "}},
 		{`{"f":"cut \u00`, []string{"cut "}},
 		{`{"f":"bad \uzzzzok"}`, []string{"bad ok"}},

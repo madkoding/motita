@@ -524,10 +524,10 @@ func TestTheJournalCompactsOldRounds(t *testing.T) {
 	}
 }
 
-// TestTruncationNeverSplitsACharacter: a cut in the middle of "ó" used to put invalid UTF-8
+// TestTruncationNeverSplitsACharacter: a cut in the middle of a two-byte character used to put invalid UTF-8
 // in prompts and in the chat.
 func TestTruncationNeverSplitsACharacter(t *testing.T) {
-	s := strings.Repeat("acción ", 50)
+	s := strings.Repeat("acci\u00f3n ", 50)
 	for max := 1; max < len(s); max++ {
 		if got := truncate(s, max); !utf8.ValidString(got) {
 			t.Fatalf("truncate(_, %d) = invalid UTF-8", max)
