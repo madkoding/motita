@@ -46,8 +46,6 @@ interface ProjectInfo {
   git_url?: string
   branch?: string
   changes?: number
-  sessions?: number
-  worktrees?: number
   created: string
 }
 
@@ -3014,8 +3012,15 @@ export default function App() {
                         <div class="truncate font-semibold text-[13px] text-[#c8c8d2]">{p.title}</div>
                         {/* Facts line, labelled and coloured exactly like a
                             session's: `project` says this is the project's own
-                            checkout rather than a session's, which is the
-                            distinction the number is about. */}
+                            checkout rather than a session's.
+
+                            There is deliberately NO session/worktree count
+                            here. The counts were the width the user asked to be
+                            rid of, and they are visible without them: the
+                            sessions are the rows under this header, and a
+                            session's worktree is named by its own row. The
+                            gateway still reports `sessions`/`worktrees` in
+                            GET /v1/projects for clients that want them. */}
                         <div class="flex items-center gap-x-1.5 gap-y-1 flex-wrap mt-1 text-[10px]">
                           {p.branch && (
                             <span
@@ -3024,15 +3029,6 @@ export default function App() {
                             >
                               <span class="text-accent/50 uppercase tracking-wide text-[9px]">project</span>
                               <span class="font-mono text-accent truncate max-w-[7rem]">{shortBranch(p.branch)}</span>
-                            </span>
-                          )}
-                          {!!p.worktrees && (
-                            <span
-                              class="inline-flex items-center gap-1 flex-none px-1 py-px rounded bg-[#a0a0f0]/10"
-                              title={p.worktrees === 1 ? '1 session is working in its own worktree' : `${p.worktrees} sessions are working in their own worktrees`}
-                            >
-                              <span class="text-[#a0a0f0]/50 uppercase tracking-wide text-[9px]">worktrees</span>
-                              <span class="tabular-nums text-[#a0a0f0]">{p.worktrees}</span>
                             </span>
                           )}
                           {!!p.changes && (
@@ -3044,20 +3040,6 @@ export default function App() {
                                 {p.changes === 1 ? 'change' : 'changes'}
                               </span>
                               <span class="tabular-nums text-[#f0a040]">{p.changes}</span>
-                            </span>
-                          )}
-                          {/* Session count: always present when there are
-                              sessions, even collapsed, because it is what tells
-                              the user what is inside without expanding. */}
-                          {!!p.sessions && (
-                            <span
-                              class="inline-flex items-center gap-1 flex-none px-1 py-px rounded bg-white/5"
-                              title={p.sessions === 1 ? 'This project has 1 session' : `This project has ${p.sessions} sessions`}
-                            >
-                              <span class="text-muted-foreground/60 uppercase tracking-wide text-[9px]">
-                                {p.sessions === 1 ? 'session' : 'sessions'}
-                              </span>
-                              <span class="tabular-nums text-muted-foreground">{p.sessions}</span>
                             </span>
                           )}
                         </div>
