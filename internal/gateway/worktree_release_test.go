@@ -23,6 +23,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/madkoding/motita/internal/gitx"
 )
 
 // gitRepo initialises a repository with one commit, which is what a worktree needs.
@@ -270,13 +272,13 @@ func TestTheRemovalIsRefusedWhenTheCheckoutCannotBeInspected(t *testing.T) {
 	srv, _, id := newSessionInProject(t)
 	c, _ := srv.lookup(id)
 
-	restore := worktreeInspect
-	worktreeInspect = func(context.Context, string) (int, error) {
-		return 0, errors.New("the checkout could not be read")
+	restore := worktreeInspectList
+	worktreeInspectList = func(context.Context, string) ([]gitx.Change, error) {
+		return nil, errors.New("the checkout could not be read")
 	}
-	t.Cleanup(func() { worktreeInspect = restore })
+	t.Cleanup(func() { worktreeInspectList = restore })
 
-	err := srv.releaseWorktree(c)
+	err := srv.releaseWorktree(c, false)
 	if err == nil {
 		t.Fatal("a checkout that cannot be inspected must be refused, not removed")
 	}

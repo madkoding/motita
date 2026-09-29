@@ -456,6 +456,8 @@ func (s *Server) routes() *http.ServeMux {
 	mux.Handle("GET /v1/sessions", plain(s.handleListSessions))
 	mux.Handle("POST /v1/sessions", plain(s.handleCreateSession))
 	mux.Handle("DELETE /v1/sessions/{id}", scoped(s.handleDeleteSession))
+	mux.Handle("GET /v1/sessions/{id}/deletion-preview", scoped(s.handleDeletionPreview))
+	mux.Handle("GET /v1/projects/{id}/deletion-preview", plain(s.handleProjectDeletionPreview))
 
 	mux.Handle("GET /v1/projects", plain(s.handleListProjects))
 	mux.Handle("POST /v1/projects", plain(s.handleCreateProject))

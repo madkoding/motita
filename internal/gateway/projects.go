@@ -175,6 +175,18 @@ func (s *Server) handleDeleteProject(w http.ResponseWriter, r *http.Request) {
 	// for the same reason a session deletion stops its own: the run's goroutine
 	// still unwinds and saves. It also means a client that was watching one of
 	// those sessions sees it end rather than freeze.
+	//
+	// The sessions are also DELETED, which is what the dialog has always promised
+	// ("this project and all its sessions will be permanently deleted") and what
+	// the handler did not do. Measured: every session survived its project,
+	// pointing at an id nothing could resolve, invisible in the sidebar - which
+	// groups sessions under their project - and still holding its worktree. No
+	// user action could reach them again.
+	//
+	// Their checkouts follow the same rule as a single session's: uncommitted work
+	// stops the whole deletion unless the user confirmed the discard with
+	// `?force=1`. The work belongs to the user, not to the project record, and
+	// deleting the record is not a decision to destroy it.
 	for _, c := range s.snapshot() {
 		if c.projectID != id {
 			continue
@@ -184,6 +196,23 @@ func (s *Server) handleDeleteProject(w http.ResponseWriter, r *http.Request) {
 				"a run in one of this project's sessions did not stop in time, so the project was not deleted: stop it and try again")
 			return
 		}
+	}
+	discard := isForced(r)
+	for _, c := range s.sessionsOfProject(id) {
+		if err := s.releaseWorktree(c, discard); err != nil {
+			// Refused, not forced: the message names the session and its files, so
+			// the decision stays with the user. Nothing is forgotten yet, which is
+			// why this runs BEFORE any session is dropped.
+			writeError(w, http.StatusConflict, err.Error())
+			return
+		}
+	}
+	// Only now that every checkout has been proven safe to give back are the
+	// sessions forgotten and the project removed. A partial deletion would leave
+	// the sessions unreachable AND their worktrees gone.
+	for _, c := range s.sessionsOfProject(id) {
+		s.forget(c.id)
+		s.deletePersistedSession(c.id)
 	}
 	if err := s.projects.delete(id); err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
