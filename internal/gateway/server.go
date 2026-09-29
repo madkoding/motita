@@ -411,6 +411,11 @@ func (s *Server) Serve() error {
 // on its stream rather than a connection that just ends.
 func (s *Server) Close(ctx context.Context) error {
 	s.closeOnce.Do(func() {
+		// Every session is written BEFORE the runs are cancelled, while the ones in flight
+		// still hold their slot: they are persisted as running, with the task they were on,
+		// and the next process resumes them. After the cancel a run's own final save races
+		// the process exit, and a lost race is a lost session.
+		s.saveAllSessions()
 		s.baseCancel()
 		s.closeErr = s.server.Shutdown(ctx)
 	})
@@ -534,6 +539,7 @@ func (s *Server) routes() *http.ServeMux {
 	mux.Handle("GET /v1/sessions/{id}/events", scoped(s.handleAttach))
 	mux.Handle("POST /v1/sessions/{id}/cancel", scoped(s.handleCancelRun))
 	mux.Handle("POST /v1/sessions/{id}/runs/approval", scoped(s.handleApproval))
+	mux.Handle("POST /v1/sessions/{id}/auto-approve", scoped(s.handleAutoApprove))
 
 	// WebSocket endpoint: a bidirectional, persistent connection that speaks the
 	// flag-based message protocol (auth, query, heartbeat, notification, error). It
@@ -945,14 +951,23 @@ func (s *Server) resumeInterruptedSessions() {
 // forgotten the session and deleted its file; without this guard, that late
 // save would resurrect the session on disk and it would reappear on the next
 // loadPersistedSessions.
-func (s *Server) saveSession(c *conversation) {
+func (s *Server) saveSession(c *conversation) { s.persist(c, false) }
+
+// saveEndedSession persists a conversation whose run has just ended: see sessionStore.saveEnded.
+func (s *Server) saveEndedSession(c *conversation) { s.persist(c, true) }
+
+func (s *Server) persist(c *conversation, ended bool) {
 	if s.store == nil {
 		return
 	}
 	if _, ok := s.lookup(c.id); !ok {
 		return
 	}
-	if err := s.store.save(c); err != nil && s.opts.Log != nil {
+	save := s.store.save
+	if ended {
+		save = s.store.saveEnded
+	}
+	if err := save(c); err != nil && s.opts.Log != nil {
 		s.opts.Log.Warn("could not persist the session", "id", c.id, "error", err.Error())
 	}
 }

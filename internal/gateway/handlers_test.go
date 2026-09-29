@@ -324,3 +324,30 @@ func TestAnOversizedBodyIsRejected(t *testing.T) {
 		t.Errorf("status = %d, want 400 for a body over the cap", w.Code)
 	}
 }
+
+// The model picker saves the reasoning level with the model, in one request.
+func TestConfigPatchCarriesTheReasoningLevel(t *testing.T) {
+	svc := &fakeService{cfg: config.Default()}
+	srv := newTestServer(t, svc)
+	w := patchReq(t, srv, sessionPath(srv, DefaultSession, "/config"), `{"model":"haiku","reasoning":"high"}`, testToken)
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d (body %q)", w.Code, w.Body.String())
+	}
+	if svc.reasoning != "high" || svc.cfg.LLM.Model != "haiku" {
+		t.Errorf("reasoning = %q, model = %q: both must be applied", svc.reasoning, svc.cfg.LLM.Model)
+	}
+}
+
+// A level nobody understands is refused, and NOTHING is applied - not even the model.
+func TestConfigPatchRefusesAnUnknownReasoningLevel(t *testing.T) {
+	svc := &fakeService{cfg: config.Default()}
+	before := svc.cfg.LLM.Model
+	srv := newTestServer(t, svc)
+	w := patchReq(t, srv, sessionPath(srv, DefaultSession, "/config"), `{"model":"haiku","reasoning":"extreme"}`, testToken)
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400 (body %q)", w.Code, w.Body.String())
+	}
+	if svc.reasoning != "" || svc.cfg.LLM.Model != before {
+		t.Errorf("a refused request changed state: reasoning=%q model=%q", svc.reasoning, svc.cfg.LLM.Model)
+	}
+}

@@ -32,7 +32,7 @@ Env:
     MOTITA_TOKEN   bearer token; falls back to MOTITA_TOKEN_FILE
     MOTITA_TOKEN_FILE  file holding the token (default ~/.motita/gateway.token)
     CDP_PORT       Chrome DevTools port (default 9444)
-    SHOTS_DIR      where screenshots land (default /tmp/motita-row-menu-shots)
+    SHOTS_DIR      where screenshots land (default $TMPDIR/motita-row-menu-shots)
 Exit code is 0 only when every check passes.
 """
 
@@ -48,7 +48,7 @@ import websockets
 
 BASE = os.environ.get("GATEWAY_URL", "http://127.0.0.1:7477")
 CDP_PORT = int(os.environ.get("CDP_PORT", "9444"))
-SHOTS_DIR = os.environ.get("SHOTS_DIR", "/tmp/motita-row-menu-shots")
+SHOTS_DIR = os.environ.get("SHOTS_DIR", os.path.join(os.environ.get("TMPDIR", "/tmp"), "motita-row-menu-shots"))
 CHROME = os.path.expanduser(
     "~/.hermes/cache/chrome/chrome-headless-shell-linux64/chrome-headless-shell"
 )

@@ -63,11 +63,29 @@ var execCommand = func(ctx context.Context, name string, args ...string) ([]byte
 
 // execute runs git once in dir and returns its trimmed output.
 func execute(ctx context.Context, dir string, args ...string) (string, error) {
-	c, cancel := context.WithTimeout(ctx, gitTimeout)
+	return executeWithin(ctx, gitTimeout, dir, args...)
+}
+
+// removeTimeout bounds `git worktree remove`. It is NOT a read: it deletes every file of the
+// checkout, and a checkout carrying a real node_modules (measured: 120 MB, ~1100 entries) does
+// not finish in gitTimeout. The kill left a half-removed worktree and an error with no text -
+// reported as "I cannot delete the project session".
+const removeTimeout = 5 * time.Minute
+
+// removeTimeoutFor is removeTimeout as a variable, so a test can reach the expiry.
+var removeTimeoutFor = removeTimeout
+
+// executeWithin runs git once in dir, killed after limit.
+func executeWithin(ctx context.Context, limit time.Duration, dir string, args ...string) (string, error) {
+	c, cancel := context.WithTimeout(ctx, limit)
 	defer cancel()
 	out, err := execCommand(c, "git", append([]string{"-C", dir}, args...)...)
 	if err != nil && errors.Is(err, exec.ErrNotFound) {
 		return "", ErrNoGit
+	}
+	if err != nil && errors.Is(c.Err(), context.DeadlineExceeded) {
+		// A killed process reports "signal: killed", which names nothing.
+		err = context.DeadlineExceeded
 	}
 	return strings.TrimSpace(string(out)), err
 }
@@ -91,6 +109,9 @@ func isNoGit(err error) bool {
 func describe(what, out string, err error) error {
 	if isNoGit(err) {
 		return ErrNoGit
+	}
+	if errors.Is(err, context.DeadlineExceeded) {
+		return fmt.Errorf("%s: git did not finish in time", what)
 	}
 	return fmt.Errorf("%s: %s", what, firstLine(out))
 }
@@ -358,13 +379,25 @@ func dirExists(path string) bool {
 // force is git's own --force, and it is passed through rather than decided
 // here: a dirty worktree refuses removal (measured: "contains modified or
 // untracked files"), and whether to override that is the user's call, not this
-// package's.
+// package's. It is passed TWICE: a single --force still refuses a LOCKED
+// worktree (measured: "cannot remove a locked working tree; use 'remove -f -f'"),
+// and a caller that asked to force meant the removal, not half of it.
 func RemoveWorktree(ctx context.Context, repoDir, path string, force bool) error {
 	args := []string{"worktree", "remove"}
 	if force {
-		args = append(args, "--force")
+		args = append(args, "--force", "--force")
 	}
-	_, err := noGitOr(ctx, "the worktree could not be removed", repoDir, append(args, path)...)
+	out, err := executeWithin(ctx, removeTimeoutFor, repoDir, append(args, path)...)
+	if err == nil {
+		return nil
+	}
+	return describe("the worktree could not be removed", out, err)
+}
+
+// PruneWorktrees clears the registrations whose directory no longer exists. It never
+// touches a live worktree: git only prunes what it considers missing.
+func PruneWorktrees(ctx context.Context, repoDir string) error {
+	_, err := noGitOr(ctx, "the stale worktree registrations could not be cleared", repoDir, "worktree", "prune")
 	return err
 }
 

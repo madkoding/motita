@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 // These tests drive REAL git in a REAL temporary repository. That is not
@@ -948,6 +949,9 @@ func TestNoGitIsReportedAsItsOwnFailure(t *testing.T) {
 	if err := RemoveWorktree(ctx, repo, filepath.Join(repo, "w"), false); err != ErrNoGit {
 		t.Errorf("RemoveWorktree must report ErrNoGit, got %v", err)
 	}
+	if err := PruneWorktrees(ctx, repo); err != ErrNoGit {
+		t.Errorf("PruneWorktrees must report ErrNoGit, got %v", err)
+	}
 	if _, err := MergeInto(ctx, repo, "main", "b", "m"); err != ErrNoGit {
 		t.Errorf("MergeInto must report ErrNoGit, got %v", err)
 	}
@@ -1099,5 +1103,85 @@ func TestNoGitIsReportedByAMergeThatReachedGitOnce(t *testing.T) {
 	_, err := MergeInto(context.Background(), repo, "main", "main", "integrate")
 	if err != ErrNoGit {
 		t.Errorf("a merge that loses git must report ErrNoGit, got %v", err)
+	}
+}
+
+// TestForceRemovesALockedWorktree: a single --force still refuses a LOCKED worktree
+// ("use 'remove -f -f'"), and a caller that asked to force meant the removal.
+func TestForceRemovesALockedWorktree(t *testing.T) {
+	ctx := context.Background()
+	repo := newRepo(t)
+	wt := filepath.Join(filepath.Dir(repo), "locked")
+	addWorktree(t, repo, wt, "motita/locked")
+	write(t, filepath.Join(wt, "f.txt"), "uncommitted\n")
+	if out, err := exec.Command("git", "-C", repo, "worktree", "lock", wt).CombinedOutput(); err != nil {
+		t.Fatalf("lock: %v %s", err, out)
+	}
+	if err := RemoveWorktree(ctx, repo, wt, true); err != nil {
+		t.Fatalf("force must remove a locked worktree: %v", err)
+	}
+	if exists(wt) {
+		t.Error("the locked worktree must be gone")
+	}
+}
+
+// TestPruneClearsAMissingRegistration: a worktree whose directory vanished is pruned, and a
+// live one is left alone.
+func TestPruneClearsAMissingRegistration(t *testing.T) {
+	ctx := context.Background()
+	repo := newRepo(t)
+	gone := filepath.Join(filepath.Dir(repo), "gone")
+	live := filepath.Join(filepath.Dir(repo), "live")
+	addWorktree(t, repo, gone, "motita/gone")
+	addWorktree(t, repo, live, "motita/live")
+	if err := os.RemoveAll(gone); err != nil {
+		t.Fatal(err)
+	}
+	if err := PruneWorktrees(ctx, repo); err != nil {
+		t.Fatalf("PruneWorktrees: %v", err)
+	}
+	out, _ := exec.Command("git", "-C", repo, "worktree", "list").CombinedOutput()
+	if strings.Contains(string(out), gone) || !strings.Contains(string(out), live) {
+		t.Errorf("after the prune the list must hold the live worktree only:\n%s", out)
+	}
+}
+
+// TestRemovingAWorktreeIsNotHeldToTheReadTimeout: `git worktree remove` deletes every file of
+// the checkout. It inherited the 10 s bound meant for reads, so a session whose checkout held a
+// real node_modules was killed halfway and the user was told "git reported no detail" - the
+// reported "cannot delete a project session".
+func TestRemovingAWorktreeIsNotHeldToTheReadTimeout(t *testing.T) {
+	var limit time.Duration
+	withExec(t, func(ctx context.Context, name string, args ...string) ([]byte, error) {
+		dl, ok := ctx.Deadline()
+		if !ok {
+			t.Fatal("the removal has no bound at all")
+		}
+		limit = time.Until(dl)
+		return nil, nil
+	})
+	if err := RemoveWorktree(context.Background(), t.TempDir(), "x", true); err != nil {
+		t.Fatal(err)
+	}
+	if limit <= gitTimeout {
+		t.Errorf("the removal was given %v, no more than a read (%v): a large checkout cannot finish", limit, gitTimeout)
+	}
+}
+
+// TestAKilledGitSaysItRanOutOfTime: a process killed by its deadline prints nothing, and the
+// message used to be "git reported no detail" - which names no cause.
+func TestAKilledGitSaysItRanOutOfTime(t *testing.T) {
+	withExec(t, func(ctx context.Context, name string, args ...string) ([]byte, error) {
+		<-ctx.Done()
+		return nil, errors.New("signal: killed")
+	})
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	prev := removeTimeoutFor
+	removeTimeoutFor = 20 * time.Millisecond
+	defer func() { removeTimeoutFor = prev }()
+	err := RemoveWorktree(ctx, t.TempDir(), "x", false)
+	if err == nil || !strings.Contains(err.Error(), "did not finish in time") {
+		t.Fatalf("a timeout must say so, got %v", err)
 	}
 }

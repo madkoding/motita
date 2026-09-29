@@ -245,6 +245,8 @@ type resultAgent struct {
 	observer  func(agent.TaskResult)
 	progress  func(string, ...any)
 	runCalled bool
+	// live records whether the runner turned the live view of the reasoning on.
+	live bool
 	// transcript is what the runner handed in, and what the run left behind. It is kept so a
 	// test can assert the round trip: what the previous turn said must arrive, and what this
 	// turn said must be carried out.
@@ -278,6 +280,24 @@ func (a *resultAgent) RunCommand(context.Context, string) (string, int, error) {
 func (a *resultAgent) SetObserver(fn func(agent.TaskResult)) { a.observer = fn }
 
 func (a *resultAgent) SetProgress(fn func(format string, args ...any)) { a.progress = fn }
+
+func (a *resultAgent) SetLiveThinking(on bool) { a.live = on }
+
+// TestAppRunnerTurnsTheLiveReasoningOn: every front end reached through RunTask either renders
+// the model's reasoning while it is written or drops the snapshots, so the runner turns it on.
+func TestAppRunnerTurnsTheLiveReasoningOn(t *testing.T) {
+	r := NewAppRunner(&bytes.Buffer{}, &bytes.Buffer{}, config.Default(), &llm.Client{}, &sandbox.Sandbox{}, logx.Global())
+	fake := &resultAgent{silent: true}
+	r.newAgent = func(config.Config, *logx.Logger, *llm.Client, *sandbox.Sandbox, taskpkg.Source, bool) AgentRunner {
+		return fake
+	}
+	if _, err := r.RunTask(context.Background(), "a task", func(string, ...any) {}); err != nil {
+		t.Fatal(err)
+	}
+	if !fake.live {
+		t.Error("the runner must turn the live reasoning on")
+	}
+}
 
 // TestRealAgentSatisfiesTheObserverInterface: the runner installs its hooks
 // through an interface, so the production agent must keep satisfying it. A change
@@ -660,5 +680,25 @@ func TestRunPlanRecordsTheTurnInTheTranscript(t *testing.T) {
 	// chat reply, and a reader who cannot tell them apart cannot tell what happened.
 	if last.Kind != "plan" {
 		t.Errorf("the turn's kind = %q, want \"plan\": a plan is not a task", last.Kind)
+	}
+}
+
+// TestTitleFromReplyKeepsOnlyATitle: a session was named after a JSON reply in the sidebar.
+// Whatever the model wraps its answer in, only a title - or nothing - comes out.
+func TestTitleFromReplyKeepsOnlyATitle(t *testing.T) {
+	cases := map[string]string{
+		"Fix the login bug":                            "Fix the login bug",
+		"<think>the user wants</think>\nFix the login": "Fix the login",
+		"<think>never closed":                          "",
+		"<think>a</think>One<think>b</think> two":      "One two",
+		`{"title":"Report cleanup"}`:                   "Report cleanup",
+		`{"actions":[{"command":"printf"}]}`:           "",
+		`[1, 2`:                                        "",
+		"Deploy notes\nThis title describes...":        "Deploy notes",
+	}
+	for in, want := range cases {
+		if got := titleFromReply(in); got != want {
+			t.Errorf("titleFromReply(%q) = %q, want %q", in, got, want)
+		}
 	}
 }

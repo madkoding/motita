@@ -114,6 +114,10 @@ const (
 	StreamToolCall
 	StreamError
 	StreamDone
+	// StreamThinking carries the model's own reasoning tokens, for a provider that streams
+	// them apart from the answer (reasoning_content, reasoning). They are shown to the user
+	// while the answer is being written, and are never part of the answer.
+	StreamThinking
 )
 
 // StreamChunk is one piece of a streaming response. It carries either a text

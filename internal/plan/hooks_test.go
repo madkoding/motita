@@ -328,3 +328,15 @@ func TestUnknownToolIsReportedToTheModel(t *testing.T) {
 		t.Errorf("the answer must name the unknown tool, got %q", got)
 	}
 }
+
+// TestEmitToolCallKeepsNonStringArguments: one boolean argument used to fail the whole
+// decode, and the trace showed the tool with no arguments at all.
+func TestEmitToolCallKeepsNonStringArguments(t *testing.T) {
+	var seen string
+	emitToolCall(func(format string, args ...any) {
+		seen = fmt.Sprintf(format, args...)
+	}, "search_in_files", json.RawMessage(`{"pattern":"TODO","literal":true}`))
+	if !strings.Contains(seen, "pattern=TODO") || !strings.Contains(seen, "literal=true") {
+		t.Errorf("every argument must be traced, got %q", seen)
+	}
+}

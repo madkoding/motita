@@ -239,3 +239,63 @@ func TestAConfiguredDelayActuallySlowsAReply(t *testing.T) {
 		t.Fatalf("the reply took %v with a 30ms delay configured, so the delay is not applied", elapsed)
 	}
 }
+
+// TestAStreamedRequestIsAnsweredAsAStream: the agent streams its phases so the user can watch
+// the model think, and the mock answers the way a real provider does - reasoning tokens first,
+// then the reply in fragments that add up to exactly the non-streamed reply.
+func TestAStreamedRequestIsAnsweredAsAStream(t *testing.T) {
+	atomic.StoreInt32(&executionAttempts, 0)
+	old := atomic.LoadInt64(&replyDelayMS)
+	atomic.StoreInt64(&replyDelayMS, 20)
+	defer atomic.StoreInt64(&replyDelayMS, old)
+
+	rec := httptest.NewRecorder()
+	body := `{"stream":true,"messages":[{"role":"user","content":"## ANALYSIS OF THE TASK"}]}`
+	handle(rec, httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(body)))
+
+	if ct := rec.Header().Get("Content-Type"); ct != "text/event-stream" {
+		t.Fatalf("content type = %q", ct)
+	}
+	var thought, content strings.Builder
+	for _, line := range strings.Split(rec.Body.String(), "\n") {
+		payload, ok := strings.CutPrefix(line, "data: ")
+		if !ok || payload == "[DONE]" {
+			continue
+		}
+		var chunk struct {
+			Choices []struct {
+				Delta struct {
+					Content          string `json:"content"`
+					ReasoningContent string `json:"reasoning_content"`
+				} `json:"delta"`
+			} `json:"choices"`
+		}
+		if err := json.Unmarshal([]byte(payload), &chunk); err != nil {
+			t.Fatalf("bad frame %q: %v", payload, err)
+		}
+		thought.WriteString(chunk.Choices[0].Delta.ReasoningContent)
+		content.WriteString(chunk.Choices[0].Delta.Content)
+	}
+	if !strings.Contains(rec.Body.String(), "data: [DONE]") {
+		t.Error("the stream must end with [DONE]")
+	}
+	if thought.Len() == 0 {
+		t.Error("the stream must carry reasoning tokens")
+	}
+	if content.String() != contentJSON("analyze", 0) {
+		t.Errorf("the fragments must add up to the reply: %q", content.String())
+	}
+
+	// A scripted reply streams too, and a non-openai dialect never does.
+	rec = httptest.NewRecorder()
+	handle(rec, httptest.NewRequest(http.MethodPost, "/v1/chat/completions",
+		strings.NewReader(`{"stream":true,"messages":[{"content":"RESPOND_WITH: fixed"}]}`)))
+	if !strings.Contains(rec.Body.String(), `"content":"fixed`) {
+		t.Errorf("scripted reply not streamed: %s", rec.Body.String())
+	}
+	rec = httptest.NewRecorder()
+	handle(rec, httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(`{"stream":true}`)))
+	if strings.Contains(rec.Body.String(), "data: ") {
+		t.Error("the anthropic dialect is not streamed")
+	}
+}

@@ -132,12 +132,55 @@ func handle(w http.ResponseWriter, r *http.Request) {
 	}
 	log.Printf("phase=%s dialect=%s execution_attempt=%d prompt_bytes=%d", f, dialect, n, len(text))
 
+	content := contentJSON(f, n)
 	if msg := scriptedReply(text); msg != "" {
 		// The configuration may ask for fixed replies (not used here).
-		respond(w, dialect, msg)
+		content = msg
+	}
+	if dialect == "openai" && wantsStream(body) {
+		stream(w, f, content)
 		return
 	}
-	respond(w, dialect, contentJSON(f, n))
+	respond(w, dialect, content)
+}
+
+// wantsStream reports whether the request asked for a streamed reply.
+func wantsStream(body []byte) bool {
+	var req struct {
+		Stream bool `json:"stream"`
+	}
+	return json.Unmarshal(body, &req) == nil && req.Stream
+}
+
+// streamChunk is how long the mock waits between two streamed fragments, so a browser check
+// can catch the reply being written. It is a fraction of the reply delay: zero when there is
+// none, which keeps every other caller as fast as before.
+func streamChunk() time.Duration {
+	return time.Duration(atomic.LoadInt64(&replyDelayMS)) * time.Millisecond / 20
+}
+
+// stream answers as an OpenAI-compatible provider streams: the model's reasoning tokens first
+// (reasoning_content), then the reply in small fragments, then [DONE]. The agent shows both
+// while they arrive.
+func stream(w http.ResponseWriter, phaseName, content string) {
+	w.Header().Set("Content-Type", "text/event-stream")
+	flusher, _ := w.(http.Flusher)
+	frame := func(delta map[string]string) {
+		data, _ := json.Marshal(map[string]any{"choices": []any{map[string]any{"delta": delta}}})
+		fmt.Fprintf(w, "data: %s\n\n", data)
+		if flusher != nil {
+			flusher.Flush()
+		}
+		time.Sleep(streamChunk())
+	}
+	frame(map[string]string{"reasoning_content": "Considering the " + phaseName + " step. "})
+	frame(map[string]string{"reasoning_content": "The report has to hold the requested content."})
+	for len(content) > 0 {
+		n := min(12, len(content))
+		frame(map[string]string{"content": content[:n]})
+		content = content[n:]
+	}
+	fmt.Fprint(w, "data: [DONE]\n\n")
 }
 
 // scriptedReply allows fixed replies through the prompt, used by other tests in

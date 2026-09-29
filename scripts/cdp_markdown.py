@@ -350,7 +350,7 @@ def main():
     base = os.environ["GATEWAY_URL"]
     token = open(os.environ["GATEWAY_STATE"]).read().strip()
     cdp_port = os.environ.get("CDP_PORT", "9355")
-    shots = os.environ.get("SHOTS_DIR", "/tmp/motita-markdown")
+    shots = os.environ.get("SHOTS_DIR", os.path.join(os.environ.get("TMPDIR", "/tmp"), "motita-markdown"))
     os.makedirs(shots, exist_ok=True)
 
     # The gateway URL is resolved to a live WebSocket, so this probe never starts a

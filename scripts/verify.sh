@@ -36,6 +36,18 @@ if ! command -v go >/dev/null 2>&1; then
   done
 fi
 
+# Scratch space. Logs and coverage profiles live under the (gitignored) dist/ and NOT in
+# /tmp: /tmp is a small tmpfs on many machines and shared with other sessions, and when it
+# fills every e2e log fails to open, so the gate reports nine failures that say nothing
+# about the code.
+VERIFY_WORK="${VERIFY_WORK:-$PWD/dist/.verify}"
+# TMPDIR (go test's t.TempDir, the verify-*.sh helpers) goes on the same disk but OUTSIDE
+# the repository: a temp dir inside the work tree is inside a git repo, so every test that
+# needs "a directory that is not a repository" finds this one instead and fails.
+VERIFY_TMP="${VERIFY_TMP:-${XDG_CACHE_HOME:-$HOME/.cache}/motita-verify}"
+mkdir -p "$VERIFY_WORK" "$VERIFY_TMP" || { echo "verify: cannot create $VERIFY_WORK or $VERIFY_TMP" >&2; exit 2; }
+export TMPDIR="$VERIFY_TMP"
+
 MIN_COVERAGE=${MIN_COVERAGE:-100}
 failures=0
 step() { printf '\n=== %s ===\n' "$1"; }
@@ -265,8 +277,8 @@ for pkg in $(go list ./tools/... 2>/dev/null); do
   fi
 done
 [ "$below" -eq 0 ] && ok "every package at ${MIN_COVERAGE}% or above"
-go test -coverpkg=./... -coverprofile=/tmp/verify_cov.out -covermode=atomic ./... >/dev/null 2>&1
-total=$(go tool cover -func=/tmp/verify_cov.out | tail -1 | awk '{print $3}' | tr -d '%')
+go test -coverpkg=./... -coverprofile=$VERIFY_WORK/verify_cov.out -covermode=atomic ./... >/dev/null 2>&1
+total=$(go tool cover -func=$VERIFY_WORK/verify_cov.out | tail -1 | awk '{print $3}' | tr -d '%')
 printf '    %-52s %s%%\n' "aggregate" "$total"
 
 step "6. no Spanish left in code, configs or scripts"
@@ -422,17 +434,17 @@ fi
 step "8. end-to-end tests on linux"
 # Every linux architecture the project publishes is exercised.
 for arch in 386 amd64 arm arm64; do
-  if ./scripts/e2e-agent.sh "$arch" >"/tmp/verify_e2e_agent_$arch.log" 2>&1; then
+  if ./scripts/e2e-agent.sh "$arch" >"$VERIFY_WORK/verify_e2e_agent_$arch.log" 2>&1; then
     ok "agent E2E on linux/$arch"
   else
-    bad "agent E2E failed on linux/$arch (see /tmp/verify_e2e_agent_$arch.log)"
-    tail -15 "/tmp/verify_e2e_agent_$arch.log" | sed 's/^/    /'
+    bad "agent E2E failed on linux/$arch (see $VERIFY_WORK/verify_e2e_agent_$arch.log)"
+    tail -15 "$VERIFY_WORK/verify_e2e_agent_$arch.log" | sed 's/^/    /'
   fi
-  if ./scripts/e2e.sh "$arch" >"/tmp/verify_e2e_$arch.log" 2>&1; then
+  if ./scripts/e2e.sh "$arch" >"$VERIFY_WORK/verify_e2e_$arch.log" 2>&1; then
     ok "E2E on linux/$arch"
   else
-    bad "E2E failed on linux/$arch (see /tmp/verify_e2e_$arch.log)"
-    tail -15 "/tmp/verify_e2e_$arch.log" | sed 's/^/    /'
+    bad "E2E failed on linux/$arch (see $VERIFY_WORK/verify_e2e_$arch.log)"
+    tail -15 "$VERIFY_WORK/verify_e2e_$arch.log" | sed 's/^/    /'
   fi
 done
 
@@ -441,11 +453,11 @@ step "8b. end-to-end test of the browser interface"
 # page is the same bytes everywhere and the HTTP surface does not vary), it uses a port of its
 # own, and it is the only check that proves the DERIVED cookie authorises the API - which is the
 # property the whole interface design rests on.
-if ./scripts/e2e-webui.sh amd64 >/tmp/verify_e2e_webui.log 2>&1; then
+if ./scripts/e2e-webui.sh amd64 >$VERIFY_WORK/verify_e2e_webui.log 2>&1; then
   ok "web interface E2E on linux/amd64"
 else
-  bad "web interface E2E failed (see /tmp/verify_e2e_webui.log)"
-  tail -20 /tmp/verify_e2e_webui.log | sed 's/^/    /'
+  bad "web interface E2E failed (see $VERIFY_WORK/verify_e2e_webui.log)"
+  tail -20 $VERIFY_WORK/verify_e2e_webui.log | sed 's/^/    /'
 fi
 
 step "8c. the built binary stays under the ceiling"
@@ -477,17 +489,17 @@ step "8d. the sidebar's activity spinner, in a real browser"
 # They are properties of the RENDERED page over TIME, so this drives a real browser, starts a
 # run it can watch, and measures. It brings up its own gateway under its own HOME, so it never
 # touches the conversations of whoever is running the gate.
-./scripts/verify-spinner.sh >/tmp/verify_spinner.log 2>&1
+./scripts/verify-spinner.sh >$VERIFY_WORK/verify_spinner.log 2>&1
 spinner_rc=$?
 if [ "$spinner_rc" -eq 0 ]; then
   ok "the spinner appears, turns and clears"
 elif [ "$spinner_rc" -eq 2 ]; then
   # Exit 2 is "the tool this needs is not here", not "the feature is broken":
   # a machine without the browser must not report a red gate over a spinner.
-  printf '  ..   skipped: %s\n' "$(head -1 /tmp/verify_spinner.log)"
+  printf '  ..   skipped: %s\n' "$(head -1 $VERIFY_WORK/verify_spinner.log)"
 else
-  bad "the spinner check failed (see /tmp/verify_spinner.log)"
-  tail -25 /tmp/verify_spinner.log | sed 's/^/    /'
+  bad "the spinner check failed (see $VERIFY_WORK/verify_spinner.log)"
+  tail -25 $VERIFY_WORK/verify_spinner.log | sed 's/^/    /'
 fi
 
 step "8e. the published site resolves, installer included"

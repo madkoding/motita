@@ -161,11 +161,19 @@ Return a JSON object with this exact shape:
   "plan": [
     {"step": 1, "action": "what is done", "command": "exact shell command or empty"}
   ],
-  "subtasks": ["independent subtask, if the task has to be split"],
+  "subtasks": [],
   "expected_result": "what should be seen when it is done right"
 }
 The commands must be verifiable and non-destructive unless the task explicitly
-requires otherwise. One single command per step.`,
+requires otherwise. One single command per step.
+
+"subtasks" is EMPTY for almost every task: the steps of "plan" are carried out one round
+after another by the same worker, with everything already done in view. Split into
+subtasks ONLY when the request is really several separate pieces of work that can each
+be finished and verified on its own (for example "add the endpoint, then write its
+documentation page"). Each subtask is then run as its own task, in the order listed, so
+write each one as a complete instruction that names what it applies to, and list them
+in the order the work has to happen. Never split a single change into its steps.`,
 }
 
 // BaseExecuteTemplate asks for the concrete action to run and, when applicable,
@@ -175,8 +183,22 @@ var BaseExecuteTemplate = Template{
 	User: `## TASK
 {{task}}
 
+## WHAT DONE MEANS
+{{analysis}}
+
 ## PLAN
 {{plan}}
+
+## CONTEXT
+- Working directory: {{workspace}}
+- Round: {{attempt}}
+
+## SHOW WHAT CHANGED
+The person reading the result is not reading code. When your change is something they can SEE (a page, a screen, a UI, a chart, a rendered document), do not stop at "it builds": run it, take a screenshot of the affected view with whatever tool the machine has (a headless browser, an OS screenshot command, a renderer) and save it as a .png under .motita/previews/ in the working directory (for example .motita/previews/after.png). The program shows those pictures to the user, first, above the list of changed files. Skip this for changes with nothing to look at (logic, tests, config); never fake a picture.
+
+## VALIDATION THAT DECIDES PASS
+It runs only when you report "done": true.
+{{rules}}
 
 {{history}}
 
@@ -188,14 +210,28 @@ Return a JSON object with this exact shape:
     {"kind": "command", "description": "what it does", "command": "exact shell command"}
   ],
   "final_action": {"description": "commit, submission or save planned", "command": "exact command or empty"},
+  "notes": "short running summary: what is decided, what is done, what is left",
   "done": false
 }
 Rules:
 - "actions" are the steps that produce the result; they will be run isolated.
 - "final_action" runs ONLY if the validation passes; if it does not apply, leave
   the command as "" and describe why.
-- If an attempt failed before, correct it from the logs; do not repeat the same
-  action expecting a different result.
+- If a round was REJECTED, correct it from its output; do not repeat the same
+  action expecting a different result. A round marked PROGRESS already happened:
+  build on it, do not redo it.
+- Your context is NOT unlimited and earlier rounds shrink to one line. What you need to
+  keep goes in "notes" (replaced whole each round, keep it short: decisions made, files
+  already changed, what remains). The full output of every read is kept for you under
+  "WHAT YOU HAVE ALREADY READ": look there BEFORE running cat/sed/grep again. A repeated
+  read is not executed. Read a file once, then act on it.
+- Prefer acting to re-reading: when you know what to change, write it in this round.
+- "actions" may be EMPTY only together with "done": true, when the work is already
+  finished and nothing is left to run.
+- A check that fails because a TOOL or DEPENDENCY is missing ("command not found",
+  "Cannot find module", "No module named") is not a bug in the code: install the
+  project's dependencies the way the project does (npm ci, pip install -r ...,
+  go mod download) and run it again.
 
 ## "done" — THE MOST IMPORTANT FIELD
 

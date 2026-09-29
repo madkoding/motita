@@ -589,3 +589,31 @@ func TestArchivedIsSorted(t *testing.T) {
 		}
 	}
 }
+
+// TestSearchUnderstandsAccentedWords: a Spanish query is split on letters of any script. The
+// split used to accept only a-z, so an accented word was searched as its unaccented fragments.
+func TestSearchUnderstandsAccentedWords(t *testing.T) {
+	dir := t.TempDir()
+	lib := New(dir)
+	if _, err := lib.Save("deploy-notes", "# Notas de despliegue\nPasos de configuración del servidor."); err != nil { // spanish-fixture: a Spanish skill
+		t.Fatal(err)
+	}
+	if _, err := lib.Save("other", "# Other\nNothing about servers."); err != nil {
+		t.Fatal(err)
+	}
+	if got := queryWords("configuración búsqueda"); len(got) != 2 || got[0] != "configuración" || got[1] != "búsqueda" { // spanish-fixture: a Spanish query
+		t.Errorf("queryWords = %q, want the two whole words", got)
+	}
+	hits, err := lib.Search("configuración", 5) // spanish-fixture: a Spanish query
+	if err != nil || len(hits) != 1 || hits[0].Name != "deploy-notes" {
+		t.Errorf("hits = %+v err=%v", hits, err)
+	}
+}
+
+// TestSearchIgnoresStopWords: a query written as a sentence does not match the whole library
+// on "the", "with" or "para".
+func TestSearchIgnoresStopWords(t *testing.T) {
+	if got := queryWords("how to deploy the app with docker para el servidor"); strings.Join(got, " ") != "deploy app docker servidor" {
+		t.Errorf("queryWords = %q", got)
+	}
+}

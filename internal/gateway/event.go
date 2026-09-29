@@ -38,6 +38,11 @@ const (
 	// broke, and the fix is either to run the task by hand or to configure unattended
 	// execution.
 	EventApprovalDenied = "approval_denied"
+	// EventThinking is a SNAPSHOT of the model's reasoning while it is being written. It is
+	// EPHEMERAL: it carries no sequence number (its id is 0), it is not kept in the run's log,
+	// and a reader that reconnects is not given it again - each one replaces the one before,
+	// and the phase's finished reasoning arrives as an ordinary progress line.
+	EventThinking = "thinking"
 )
 
 // progressEvent is one line of the agent's output.
@@ -62,6 +67,9 @@ type approvalEvent struct {
 type doneEvent struct {
 	Result  string           `json:"result"`
 	Session session.Snapshot `json:"session"`
+	// Changes is what the run changed, as pictures and a file summary. It is omitted when
+	// the run changed nothing, so a plain answer costs nothing extra.
+	Changes *changeReport `json:"changes,omitempty"`
 }
 
 // approvalDeniedEvent is a command that was asked about and refused because there was

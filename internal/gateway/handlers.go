@@ -1,6 +1,7 @@
 package gateway
 
 import (
+	"fmt"
 	"net/http"
 
 	"github.com/madkoding/motita/internal/agent"
@@ -98,6 +99,15 @@ func (s *Server) handleReasoning(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
+// validReasoning reports whether level is one the agent understands.
+func validReasoning(level string) bool {
+	switch level {
+	case "off", "low", "medium", "high":
+		return true
+	}
+	return false
+}
+
 // handleUpdateConfig changes the provider and/or model for a conversation.
 //
 // It is PATCH semantics: only the fields a client sends are applied, and the rest are
@@ -107,12 +117,26 @@ func (s *Server) handleUpdateConfig(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		Provider string `json:"provider"`
 		Model    string `json:"model"`
+		// Reasoning is how hard the model thinks. Empty leaves it alone, like the other two
+		// fields, so the model picker can save all three with the one Done.
+		Reasoning string `json:"reasoning"`
 	}
 	if !s.decodeBody(w, r, &body) {
 		return
 	}
+	// Refused BEFORE anything is applied: POST /reasoning passes its level through because
+	// the terminal cycles a fixed list, but this comes from a form, and a half-applied
+	// change (model switched, level refused) is worse than none.
+	if body.Reasoning != "" && !validReasoning(body.Reasoning) {
+		writeError(w, http.StatusBadRequest,
+			fmt.Sprintf("the reasoning level %q is not one of off, low, medium, high", body.Reasoning))
+		return
+	}
 	c := convOf(r)
 	c.svc.SetLLM(body.Provider, body.Model)
+	if body.Reasoning != "" {
+		c.svc.SetReasoning(body.Reasoning)
+	}
 	s.saveSession(c)
 	writeJSON(w, http.StatusOK, viewOf(c.svc.Config()))
 }

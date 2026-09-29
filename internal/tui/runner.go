@@ -5,6 +5,7 @@ package tui
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -383,17 +384,54 @@ func (r *AppRunner) GenerateTitle(ctx context.Context, firstUserMessage string) 
 		{Role: "system", Content: "You are a title generator. Respond with only a short title, no quotes, no punctuation at the end. Use the same language as the user's message."},
 		{Role: "user", Content: prompt},
 	})
-	if err != nil || strings.TrimSpace(title) == "" {
+	if err != nil {
+		return fallbackTitle(firstUserMessage)
+	}
+	title = titleFromReply(title)
+	if title == "" {
 		return fallbackTitle(firstUserMessage)
 	}
 	// Clean up: strip quotes, trailing punctuation, collapse whitespace, cap length.
-	title = strings.TrimSpace(title)
 	title = strings.Trim(title, "\"'`.,;:!?")
 	title = strings.Join(strings.Fields(title), " ")
 	if len([]rune(title)) > 60 {
 		title = string([]rune(title)[:59]) + "…"
 	}
 	return title
+}
+
+// titleFromReply is the title in what the model answered, or "" when there is none.
+//
+// A model does not always answer with only a title, whatever it was asked: a reasoning model
+// opens with a <think> block, another answers in JSON, another adds a line of explanation.
+// Measured: a session was named `{"actions":[{"command":"printf ...` in the sidebar. The think
+// block is dropped, a JSON reply gives its "title" field or nothing, and only the first line
+// of prose counts.
+func titleFromReply(reply string) string {
+	for {
+		start := strings.Index(reply, "<think>")
+		if start < 0 {
+			break
+		}
+		end := strings.Index(reply[start:], "</think>")
+		if end < 0 {
+			reply = reply[:start]
+			break
+		}
+		reply = reply[:start] + reply[start+end+len("</think>"):]
+	}
+	reply = strings.TrimSpace(reply)
+	if strings.HasPrefix(reply, "{") || strings.HasPrefix(reply, "[") {
+		var shaped struct {
+			Title string `json:"title"`
+		}
+		if json.Unmarshal([]byte(reply), &shaped) != nil {
+			return ""
+		}
+		return strings.TrimSpace(shaped.Title)
+	}
+	line, _, _ := strings.Cut(reply, "\n")
+	return strings.TrimSpace(line)
 }
 
 // fallbackTitle collapses whitespace and truncates the first user message to a
@@ -1035,6 +1073,12 @@ func (r *AppRunner) RunTask(ctx context.Context, task string, progress func(stri
 	// what makes the agent conversational: the turn that asked a question recorded it, and the
 	// next turn reads it together with the user's answer, so "yes" means something.
 	ag.SetTranscript(r.history())
+	// The model's reasoning is shown while it is written. Every front end reached through here
+	// either renders the snapshots (the web view replaces one with the next) or drops them
+	// (this package's own view, see progressSender).
+	if live, ok := ag.(interface{ SetLiveThinking(bool) }); ok {
+		live.SetLiveThinking(true)
+	}
 	if o, ok := ag.(taskObserver); ok {
 		o.SetProgress(progress)
 		o.SetObserver(func(tr agent.TaskResult) {

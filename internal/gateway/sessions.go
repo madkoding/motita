@@ -116,6 +116,25 @@ type conversation struct {
 	// can be told about it: the question was asked while it was away, and a client that is not
 	// told will sit forever watching a run that is waiting for the answer it will never give.
 	pending *pendingApproval
+	// autoApprove is the user's "allow all commands for this session": while it is set, every
+	// command the policy would ASK about is approved without asking. It never reaches what the
+	// policy DENIES - that is decided before any approver is consulted - and it lives in memory
+	// only, so a gateway restart asks again. Guarded by stateMu.
+	autoApprove bool
+}
+
+// setAutoApprove turns "allow all commands for this session" on or off.
+func (c *conversation) setAutoApprove(on bool) {
+	c.stateMu.Lock()
+	defer c.stateMu.Unlock()
+	c.autoApprove = on
+}
+
+// autoApproving reports whether the user allowed every command in this session.
+func (c *conversation) autoApproving() bool {
+	c.stateMu.Lock()
+	defer c.stateMu.Unlock()
+	return c.autoApprove
 }
 
 // pendingApproval is one question waiting for a human answer.
@@ -324,12 +343,16 @@ type SessionStatus struct {
 	// nothing useful in a narrow sidebar. It is what tells two sessions of one
 	// project apart at a glance. Empty for a session without its own worktree.
 	Worktree string `json:"worktree,omitempty"`
+	// AutoApprove is set while the user has allowed every command in this session, so the
+	// interface can say so - and offer to take it back.
+	AutoApprove bool `json:"auto_approve,omitempty"`
 }
 
 func (c *conversation) status() SessionStatus {
 	c.stateMu.Lock()
 	defer c.stateMu.Unlock()
-	st := SessionStatus{ID: c.id, Title: c.title, ProjectID: c.projectID, Created: c.created, LastUsed: c.lastUsed, Running: c.running}
+	st := SessionStatus{ID: c.id, Title: c.title, ProjectID: c.projectID, Created: c.created, LastUsed: c.lastUsed,
+		Running: c.running, AutoApprove: c.autoApprove}
 	st.Workspace = c.workspace
 	if c.workspace != "" {
 		ctx := context.Background()
@@ -469,18 +492,67 @@ func (s *Server) sessionWorktree(ctx context.Context, repoDir, sessionID string)
 // A failure is silent by design: the session still works, it simply has to install its own
 // dependencies, which is exactly what happened before this existed. A link that cannot be
 // made must not stop a session from being created.
+//
+// The directories are looked for at EVERY level of the checkout, not only at its root, down to
+// sharedDirsMaxDepth. A monorepo keeps its dependencies next to each package - `web/node_modules`,
+// `packages/api/node_modules`, `services/ml/.venv` - and linking the root alone left exactly those
+// checks with no toolchain: this repository's own web UI is one. The walk follows the CHECKOUT's
+// directories, which are the tracked ones, so it never descends into something git ignores, and
+// it never enters a dependency directory or a link it made.
 func linkSharedDirs(projectDir, worktree string) {
-	for _, name := range sharedDependencyDirs {
-		src := filepath.Join(projectDir, name)
-		dst := filepath.Join(worktree, name)
-		// Nothing to share, or something is already there: both are "leave it alone".
-		if !isReadableDir(src) || pathExists(dst) {
-			continue
+	visited := 0
+	var walk func(rel string, depth int)
+	walk = func(rel string, depth int) {
+		visited++
+		for _, name := range sharedDependencyDirs {
+			src := filepath.Join(projectDir, rel, name)
+			dst := filepath.Join(worktree, rel, name)
+			// Nothing to share, or something is already there: both are "leave it alone". A
+			// link that cannot be made is left alone too - see above.
+			if !isReadableDir(src) || pathExists(dst) {
+				continue
+			}
+			_ = os.Symlink(src, dst)
 		}
-		if err := os.Symlink(src, dst); err != nil {
-			continue
+		if depth >= sharedDirsMaxDepth {
+			return
+		}
+		entries, err := os.ReadDir(filepath.Join(worktree, rel))
+		if err != nil {
+			return
+		}
+		for _, e := range entries {
+			// A bound on the walk itself: a checkout with tens of thousands of tracked
+			// directories must not make creating a session slow.
+			if visited >= sharedDirsMaxVisits {
+				return
+			}
+			// DirEntry reports a symlink as a symlink, so a link made above is never entered.
+			if !e.IsDir() || e.Name() == ".git" || isSharedDependencyDir(e.Name()) {
+				continue
+			}
+			walk(filepath.Join(rel, e.Name()), depth+1)
 		}
 	}
+	walk("", 0)
+}
+
+// sharedDirsMaxDepth is how deep below the checkout's root dependency directories are looked
+// for. Four levels covers `packages/<group>/<name>/node_modules`, the deepest common layout.
+const sharedDirsMaxDepth = 4
+
+// sharedDirsMaxVisits bounds how many directories the walk looks at. A variable so a test can
+// reach the bound without building a checkout of that size.
+var sharedDirsMaxVisits = 5000
+
+// isSharedDependencyDir reports whether name is one of sharedDependencyDirs.
+func isSharedDependencyDir(name string) bool {
+	for _, d := range sharedDependencyDirs {
+		if d == name {
+			return true
+		}
+	}
+	return false
 }
 
 // sharedDependencyDirs are the ignored directories a checkout needs in order to RUN its
@@ -1000,6 +1072,35 @@ var worktreeInspectList = gitx.WorkingTreeChangeList
 // refuses a checkout that was already proven clean.
 var worktreeRemove = gitx.RemoveWorktree
 
+// worktreePrune clears stale registrations. A variable for the same reason as worktreeRemove.
+var worktreePrune = gitx.PruneWorktrees
+
+// forceRemoveCheckout deletes a session's checkout as a directory, once the user has
+// confirmed discarding it and git would not remove it.
+//
+// It only ever deletes a path INSIDE this gateway's own worktrees directory: that is where
+// sessionWorktree puts every checkout it makes, and a workspace anywhere else - the
+// project's own checkout, a path a restored session carried in - is not a session's to
+// delete. os.RemoveAll removes the dependency links sessionWorktree made, never what they
+// point at.
+func (s *Server) forceRemoveCheckout(projectDir, workspace string) error {
+	root := filepath.Join(s.opts.WorkspaceDir, "worktrees")
+	rel, err := filepath.Rel(root, workspace)
+	if strings.TrimSpace(s.opts.WorkspaceDir) == "" || err != nil || rel == "." ||
+		rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return fmt.Errorf("%s is not inside this gateway's worktrees directory", workspace)
+	}
+	if err := os.RemoveAll(workspace); err != nil {
+		return err
+	}
+	// The directory is gone; a registration left pointing at it is harmless (the next
+	// worktree add prunes it too), so a failed prune is logged and not reported.
+	if perr := worktreePrune(context.Background(), projectDir); perr != nil && s.opts.Log != nil {
+		s.opts.Log.Warn("the worktree registration could not be pruned", "project", projectDir, "error", perr.Error())
+	}
+	return nil
+}
+
 // worktreeRelease is what a session's checkout is worth giving back, and it is the answer
 // a caller needs BEFORE asking the user to confirm.
 //
@@ -1082,9 +1183,10 @@ func (s *Server) releaseWorktree(c *conversation, discard bool) error {
 	// remove` refuses a dirty checkout by itself, but by then the user has lost the session
 	// that named it and has no way to find out what was in it - so the check is made here,
 	// where the message can say which session and which files.
-	if release.InspectErr != nil {
+	if release.InspectErr != nil && !discard {
 		// The count could not be read, so the checkout cannot be proven clean. Refusing
-		// is the answer that cannot lose work.
+		// is the answer that cannot lose work - unless the user already said to discard
+		// whatever is there, which is an answer that does not depend on the count.
 		return fmt.Errorf("the session's checkout at %s could not be inspected (%v), so the session was not deleted: "+
 			"check it by hand and remove it with `git worktree remove %s`", workspace, release.InspectErr, workspace)
 	}
@@ -1102,11 +1204,28 @@ func (s *Server) releaseWorktree(c *conversation, discard bool) error {
 
 	// `force` is passed when the discard was confirmed: git refuses a dirty checkout, and
 	// the refusal would otherwise arrive after the user had already said yes.
-	if err := worktreeRemove(context.Background(), release.ProjectDir, workspace, discard); err != nil {
-		// git refused a checkout that was proven clean, OR a discard it would not carry
-		// out. That is reported rather than forced twice, for the same reason: this program
-		// does not delete work it cannot prove is safe to delete, and the message names the
-		// command that does.
+	err := worktreeRemove(context.Background(), release.ProjectDir, workspace, discard)
+	if err != nil && discard {
+		// The user confirmed the discard and git STILL refused: a checkout holding a
+		// submodule, a registration git no longer reads. Reported from real use as "I
+		// accept deleting it and it throws a git error" - the one answer the user had
+		// already given was overruled by a tool. With the discard confirmed, the checkout
+		// is removed as a directory and its registration pruned.
+		if ferr := s.forceRemoveCheckout(release.ProjectDir, workspace); ferr == nil {
+			if s.opts.Log != nil {
+				s.opts.Log.Warn("git refused to remove the session's worktree; it was removed as a directory",
+					"id", c.id, "worktree", workspace, "git_error", err.Error())
+			}
+			err = nil
+		} else {
+			err = fmt.Errorf("%v; removing it as a directory failed too: %v", err, ferr)
+		}
+	}
+	if err != nil {
+		// git refused a checkout that was proven clean. That is reported rather than
+		// forced, for the same reason: this program does not delete work it cannot prove
+		// is safe to delete without the user's word, and the message names the command
+		// that does.
 		if s.opts.Log != nil {
 			s.opts.Log.Warn("the session's worktree could not be removed",
 				"id", c.id, "worktree", workspace, "error", err.Error())

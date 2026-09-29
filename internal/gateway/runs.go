@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/madkoding/motita/internal/agent"
+	"github.com/madkoding/motita/internal/gitx"
 	"github.com/madkoding/motita/internal/schedule"
 	"github.com/madkoding/motita/internal/session"
 )
@@ -109,6 +110,20 @@ func (s *Server) startDetachedRun(c *conversation, task, kind string, approverFo
 	c.setCurrentRun(rn)
 	c.svc.SetApprover(approverFor(rn))
 
+	// The session is written NOW, with the run in flight and the task it is doing. A gateway
+	// that dies without a chance to say so (a kill, a crash, the machine going down) would
+	// otherwise leave a record that says "idle", and the work would never be resumed: the
+	// only record of it was in memory.
+	c.stateMu.Lock()
+	c.lastTask, c.lastKind = task, kind
+	c.stateMu.Unlock()
+	s.saveSession(c)
+
+	// The mark the run's changes are measured against, and a clean folder for its screenshots
+	// so a picture from an earlier run is never shown as this one's result.
+	startRev := gitx.HeadRev(runCtx, c.workspace)
+	clearPreviews(c.workspace)
+
 	go func() {
 		defer c.releaseRunSlot()
 		defer c.clearCurrentRun()
@@ -133,11 +148,26 @@ func (s *Server) startDetachedRun(c *conversation, task, kind string, approverFo
 			rn.finish("error", "", "the run finished without reporting a result", session.Snapshot{})
 		default:
 			snap := c.svc.ConversationSummary()
-			rn.append(EventDone, doneEvent{Result: result, Session: snap})
+			done := doneEvent{Result: result, Session: snap}
+			if rep := buildChangeReport(s.baseCtx, c.workspace, startRev); len(rep.Files) > 0 || len(rep.Previews) > 0 {
+				done.Changes = &rep
+			}
+			rn.append(EventDone, done)
 			rn.finish("done", result, "", snap)
 			s.maybeAutoTitle(c)
 		}
-		s.saveSession(c)
+		// The record says whether this run was INTERRUPTED or ENDED, and getting that wrong
+		// is what lost sessions. The slot is still held here, so a plain save writes
+		// running=true - which is right when the gateway is closing (the run did not end,
+		// it was cut, and the next start must resume it) and wrong in every other case: this
+		// save used to run before the deferred release, so every run that FINISHED was
+		// persisted as still running and launched again on the next start (measured: one
+		// finished session relaunched 25 times).
+		if s.baseCtx.Err() == nil {
+			s.saveEndedSession(c)
+		} else {
+			s.saveSession(c)
+		}
 	}()
 	return rn, true
 }
@@ -293,7 +323,8 @@ func (s *Server) attach(w http.ResponseWriter, r *http.Request, c *conversation,
 // nanoseconds wide: driven from attach it is unreachable on demand, and an untested branch in the
 // middle of the write path is one that rots.
 func (r *run) writeIfNew(w http.ResponseWriter, rc *http.ResponseController, e loggedEvent, replayLast uint64) error {
-	if e.Seq <= replayLast {
+	// Sequence 0 is an ephemeral event (see flash): never in the replay, always new.
+	if e.Seq != 0 && e.Seq <= replayLast {
 		return nil
 	}
 	return writeRaw(w, rc, e)
@@ -311,8 +342,9 @@ func (r *run) drainFrom(w http.ResponseWriter, rc *http.ResponseController, sub 
 	for {
 		select {
 		case e := <-sub.ch:
-			if e.Seq <= after {
-				// Already sent in the replay.
+			if e.Seq == 0 || e.Seq <= after {
+				// Already sent in the replay - or an ephemeral snapshot of a run that has
+				// ended, which describes nothing any more.
 				continue
 			}
 			if err := writeRaw(w, rc, e); err != nil {
@@ -331,7 +363,13 @@ func (r *run) drainFrom(w http.ResponseWriter, rc *http.ResponseController, sub 
 // makes it available to a client that was not there when it was emitted.
 func (r *run) progress() func(string, ...any) {
 	return func(format string, args ...any) {
-		r.append(EventProgress, progressEvent{Text: fmt.Sprintf(format, args...)})
+		text := fmt.Sprintf(format, args...)
+		// A live snapshot of the model's reasoning is flashed, not logged: see EventThinking.
+		if live, ok := strings.CutPrefix(text, agent.LivePrefix); ok {
+			r.flash(EventThinking, progressEvent{Text: live})
+			return
+		}
+		r.append(EventProgress, progressEvent{Text: text})
 	}
 }
 
@@ -344,6 +382,13 @@ func (r *run) progress() func(string, ...any) {
 // the policy deliberately refused to decide on its own.
 func (s *Server) approverFor(c *conversation, rn *run) agent.Approver {
 	return func(ctx context.Context, req agent.ApprovalRequest) (bool, error) {
+		// "Allow all commands for this session". Said once, it answers every later command
+		// question - announced in the run, so what ran on that answer is still visible. The
+		// question of spending another step budget is not a command and is still asked.
+		if req.Rule != agent.BudgetRule && c.autoApproving() {
+			rn.append(EventProgress, progressEvent{Text: "approved (all commands allowed in this session): " + req.Command})
+			return true, nil
+		}
 		id, err := newApprovalID()
 		if err != nil {
 			// Without an id the question cannot be asked safely: a predictable one would let one
@@ -373,12 +418,15 @@ func (s *Server) handleApproval(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		ID      string `json:"id"`
 		Approve bool   `json:"approve"`
+		// Scope "session" approves this command AND every later one in this session.
+		Scope string `json:"scope"`
 	}
 	if !s.decodeBody(w, r, &body) {
 		return
 	}
 
-	p := convOf(r).pendingApprovalNow()
+	c := convOf(r)
+	p := c.pendingApprovalNow()
 	switch {
 	case p == nil:
 		writeError(w, http.StatusConflict, "nothing is waiting for an approval right now")
@@ -389,6 +437,10 @@ func (s *Server) handleApproval(w http.ResponseWriter, r *http.Request) {
 		// EARLIER run must not approve the current one, and the id is what makes that impossible.
 		writeError(w, http.StatusConflict, "that approval id does not match the command being asked about")
 	default:
+		// Set BEFORE the answer is delivered, so the run's very next question already sees it.
+		if body.Approve && body.Scope == "session" {
+			c.setAutoApprove(true)
+		}
 		// Buffered with room for one, so this never blocks even if the run has already moved on or
 		// already been cancelled. A blocking send here would hang the answering client on a
 		// question that no longer exists.
@@ -398,6 +450,21 @@ func (s *Server) handleApproval(w http.ResponseWriter, r *http.Request) {
 		}
 		w.WriteHeader(http.StatusNoContent)
 	}
+}
+
+// handleAutoApprove turns "allow all commands for this session" on or off, and answers the
+// session's status. Taking it back is the reason this exists: the approval panel is where it
+// is turned on, and this is where the interface turns it off.
+func (s *Server) handleAutoApprove(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Enabled bool `json:"enabled"`
+	}
+	if !s.decodeBody(w, r, &body) {
+		return
+	}
+	c := convOf(r)
+	c.setAutoApprove(body.Enabled)
+	writeJSON(w, http.StatusOK, c.status())
 }
 
 // handleAttach lets a client join a run already in flight, from where it left off.

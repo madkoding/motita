@@ -166,10 +166,11 @@ func TestThePageMeetsItsHardRequirements(t *testing.T) {
 // embedded either way, so it gets a ceiling of its own.
 func TestThePageStaysInsideItsBudget(t *testing.T) {
 	// What a visitor waits for: the entry bundle, the stylesheet, the background, the text
-	// faces, the page. Measured at 535 KB when this split was made; the ceiling stays at the
-	// number that was protecting it. It is deliberately tight because everything in it is
-	// paid on EVERY load.
-	const shellBudget = 560 * 1024
+	// faces, the page. Measured at 535 KB when this split was made, with a ceiling of 560 KiB.
+	// The ceiling was doubled to 1120 KiB on request when the shell reached 561 KiB (the
+	// interface grew: conversation resume, pending turns, the work trail). Everything in this
+	// number is paid on EVERY load, so a jump toward the new ceiling should still be looked at.
+	const shellBudget = 1120 * 1024
 	const iconFace = "/JetBrainsMonoNerdFont-Icons.woff2"
 	const iconBudget = 1024 * 1024
 

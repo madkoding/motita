@@ -110,10 +110,77 @@ func (c *Client) openStreamOr() func(context.Context, []Message, []Tool) (<-chan
 	switch strings.ToLower(c.cfg.Provider) {
 	case "claude-code":
 		return c.callClaudeCodeStream
+	case "anthropic", "gemini":
+		// Neither speaks /chat/completions. Both used to be sent there anyway - a plan-mode
+		// turn with either provider was a request to the wrong API - and they are answered
+		// by their own non-streaming call instead, delivered through the same channel.
+		return c.callAsStream
 	default:
 		// openai, ollama, codex and copilot all speak /chat/completions.
 		return c.callOpenAIToolsStream
 	}
+}
+
+// callAsStream makes one non-streaming request and delivers it as a stream: the text, one
+// chunk per tool call, then the reply. A failure is returned before the channel exists, so
+// the caller's retry policy applies to it like to any stream that could not open.
+func (c *Client) callAsStream(ctx context.Context, messages []Message, tools []Tool) (<-chan StreamChunk, error) {
+	var reply Reply
+	var err error
+	if len(tools) == 0 {
+		reply.Content, err = c.call(ctx, messages)
+	} else {
+		reply, err = c.callTools(ctx, messages, tools)
+	}
+	if err != nil {
+		return nil, err
+	}
+	out := make(chan StreamChunk, len(reply.Calls)+2)
+	if reply.Content != "" {
+		out <- StreamChunk{Event: StreamText, Text: reply.Content}
+	}
+	for i := range reply.Calls {
+		out <- StreamChunk{Event: StreamToolCall, Call: &reply.Calls[i]}
+	}
+	out <- StreamChunk{Event: StreamDone, Reply: reply}
+	close(out)
+	return out, nil
+}
+
+// CompleteStream is Complete with the text delivered while it is generated.
+//
+// onDelta receives every fragment as it arrives: thinking is true for the model's own
+// reasoning tokens, which are shown and never returned. What it returns is the answer, the
+// same text Complete would have.
+//
+// A stream that fails is retried as a plain Complete: an endpoint that mishandles
+// `stream: true` must still answer, only without the live view.
+func (c *Client) CompleteStream(ctx context.Context, messages []Message, onDelta func(text string, thinking bool)) (string, error) {
+	var text strings.Builder
+	var streamErr error
+	for chunk := range c.CompleteToolsStream(ctx, messages, nil) {
+		switch chunk.Event {
+		case StreamText:
+			text.WriteString(chunk.Text)
+			onDelta(chunk.Text, false)
+		case StreamThinking:
+			onDelta(chunk.Text, true)
+		case StreamError:
+			streamErr = chunk.Error
+		case StreamDone:
+			if text.Len() == 0 {
+				text.WriteString(chunk.Reply.Content)
+			}
+		}
+	}
+	if streamErr == nil && strings.TrimSpace(text.String()) != "" {
+		return text.String(), nil
+	}
+	if ctx.Err() != nil {
+		return "", ctx.Err()
+	}
+	c.log.Warn("the streamed completion failed; asking again without streaming", "error", fmt.Sprint(streamErr))
+	return c.Complete(ctx, messages)
 }
 
 // Complete sends the conversation and returns the model's text, retrying with
@@ -490,6 +557,11 @@ func emptyReason(finishReason, content string, toolCalls int) string {
 	}
 }
 
+// ErrToolCallForText marks a reply that answered a text-only phase with a tool call. Asking
+// again UNCHANGED returns the same thing, but asking again with the reason stated does not:
+// the caller can tell the model, which a bare failure gave it no chance to do.
+var ErrToolCallForText = errors.New("the model called a tool where text was required")
+
 func (c *Client) callOpenAI(ctx context.Context, messages []Message) (string, error) {
 	body := map[string]any{
 		"model":       c.cfg.Model,
@@ -547,9 +619,9 @@ func (c *Client) callOpenAI(ctx context.Context, messages []Message) (string, er
 		// thing. Measured: three identical failures and a message that blamed a parse defect
 		// — the most confusing outcome available, because the reader goes looking for a bug
 		// in the parser instead of at the prompt or the provider's routing.
-		return "", fatalError{fmt.Errorf("OpenAI answered with %d tool call(s) instead of text (%s): "+
+		return "", fatalError{fmt.Errorf("%w: OpenAI answered with %d tool call(s) instead of text (%s): "+
 			"this phase asks for its answer as text, so the call cannot be honoured here, and asking "+
-			"again returns the same thing", len(choice.Message.ToolCalls), describeCalls(choice.Message.ToolCalls))}
+			"again unchanged returns the same thing", ErrToolCallForText, len(choice.Message.ToolCalls), describeCalls(choice.Message.ToolCalls))}
 	}
 	return choice.Message.Content, nil
 }
@@ -626,6 +698,10 @@ func (c *Client) callOpenAITools(ctx context.Context, messages []Message, tools 
 type openAIStreamDelta struct {
 	Content   string     `json:"content"`
 	ToolCalls []ToolCall `json:"tool_calls"`
+	// ReasoningContent and Reasoning are the model's thinking, under the two names the
+	// OpenAI-compatible servers use for it (DeepSeek and vLLM; Ollama and OpenRouter).
+	ReasoningContent string `json:"reasoning_content"`
+	Reasoning        string `json:"reasoning"`
 }
 
 // openAIStreamChunk is one SSE line from /chat/completions?stream=true.
@@ -640,11 +716,15 @@ func (c *Client) callOpenAIToolsStream(ctx context.Context, messages []Message, 
 	body := map[string]any{
 		"model":          c.cfg.Model,
 		"messages":       toOpenAIMessages(messages),
-		"tools":          tools,
 		"max_tokens":     c.cfg.MaxTokens,
 		"temperature":    c.cfg.Temperature,
 		"stream":         true,
 		"stream_options": map[string]bool{"include_usage": false},
+	}
+	// Omitted when there are none: a plain streamed completion has no tools, and some
+	// servers reject `"tools": null` or an empty list.
+	if len(tools) > 0 {
+		body["tools"] = tools
 	}
 	if c.cfg.Reasoning.Enabled && c.cfg.Reasoning.Level != "off" {
 		body["reasoning_effort"] = c.cfg.Reasoning.Level
@@ -716,6 +796,9 @@ func (c *Client) callOpenAIToolsStream(ctx context.Context, messages []Message, 
 				continue
 			}
 			delta := chunk.Choices[0].Delta
+			if thought := delta.ReasoningContent + delta.Reasoning; thought != "" {
+				out <- StreamChunk{Event: StreamThinking, Text: thought}
+			}
 			if delta.Content != "" {
 				out <- StreamChunk{Event: StreamText, Text: delta.Content}
 			}

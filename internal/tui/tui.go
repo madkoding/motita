@@ -750,10 +750,19 @@ func (t *TUI) cycleReasoning() {
 //
 // It is one named function rather than the same select inlined twice, so the
 // behaviour is stated once and can be tested on its own.
+//
+// A live snapshot of the model's reasoning (agent.LivePrefix) is dropped here: this view writes
+// every line as a frozen block, and a snapshot is meant to be REPLACED by the next one - kept,
+// they would fill the conversation with the same sentence growing a word at a time. The
+// phase's finished reasoning arrives as its own line and is kept.
 func progressSender(ctx context.Context, ch chan string) func(format string, args ...any) {
 	return func(format string, args ...any) {
+		line := fmt.Sprintf(format, args...)
+		if strings.HasPrefix(line, agent.LivePrefix) {
+			return
+		}
 		select {
-		case ch <- fmt.Sprintf(format, args...):
+		case ch <- line:
 		case <-ctx.Done():
 		}
 	}

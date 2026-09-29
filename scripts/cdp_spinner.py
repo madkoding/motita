@@ -23,7 +23,7 @@ import asyncio, base64, json, os, subprocess, sys, time, urllib.request
 PORT = int(os.environ.get("CDP_PORT", "9355"))
 CHROME = os.environ.get("CHROME", os.path.expanduser(
     "~/.hermes/cache/chrome/chrome-headless-shell-linux64/chrome-headless-shell"))
-SHOTS = os.environ.get("SHOTS_DIR", "/tmp/motita-spinner")
+SHOTS = os.environ.get("SHOTS_DIR", os.path.join(os.environ.get("TMPDIR", "/tmp"), "motita-spinner"))
 
 
 class CDP:
@@ -171,7 +171,13 @@ async def main(ws_url):
             window.__samples = [];
             const t0 = performance.now();
             window.__sampler = setInterval(() => {
-                const rec = {t: Math.round(performance.now() - t0), rows: []};
+                const rec = {t: Math.round(performance.now() - t0), rows: [],
+                             trail: document.querySelectorAll('.activity-trail .trail-step').length,
+                             thoughts: document.querySelectorAll('.activity-trail .trail-step.thought').length,
+                             live: document.querySelectorAll('.msg.thought-live').length,
+                             frozen: [...document.querySelectorAll('.animate-spin, .msg.activity span[class^="spin-"], .thought-label span[class^="spin-"], .session-spinner.is-running')]
+                                 .filter(e => { const n = getComputedStyle(e).animationName; return !n || n === 'none'; })
+                                 .map(e => e.className.baseVal ?? e.className)};
                 for (const row of [...document.querySelectorAll('.session-row')]) {
                     const sp = row.querySelector('.session-spinner');
                     const title = row.querySelector(':scope > div.flex-1 > div');
@@ -210,6 +216,14 @@ async def main(ws_url):
         else:
             print("  the gateway reports the run in flight")
 
+        # The model's reasoning, while it is being written: wait for the live box and keep a
+        # picture of it, which is the screen the user asked to be able to see.
+        for _ in range(100):
+            if await c.js("document.querySelectorAll('.msg.thought-live').length"):
+                break
+            await asyncio.sleep(0.05)
+        await c.shot(f"{SHOTS}/thinking-live.png")
+
         await asyncio.sleep(0.6)
         mid = await c.js(SPIN)
         running_rows = [r for r in mid if r["opacity"] > 0.02]
@@ -239,6 +253,16 @@ async def main(ws_url):
             print(f"  rotation: {a} -> {b}")
             if a == b:
                 failures += fail("the computed transform never changes: the spinner is not rotating")
+            # A change is not a ROTATION: the ring was once centred with translateY(-50%), which
+            # the spin keyframes replace, leaving a transform that only ever translated.
+            def _skews(m):
+                try:
+                    v = [float(x) for x in m.split("(")[1].rstrip(")").split(",")]
+                    return abs(v[1]) > 1e-6 or abs(v[2]) > 1e-6
+                except Exception:
+                    return False
+            if not (_skews(a) or _skews(b)):
+                failures += fail(f"the transform never contains a rotation ({a} -> {b}): the ring slides, it does not turn")
             moved = [(r["title"], at_rest.get(r["title"]), r["titleLeft"]) for r in mid
                      if r["title"] in at_rest and abs(at_rest[r["title"]] - r["titleLeft"]) > 0.5]
             print(f"  titles shifted while running: {moved}")
@@ -312,6 +336,42 @@ async def main(ws_url):
         print(f"  rows whose title moved during the turn: {moved_rows}")
         if moved_rows:
             failures += fail(f"a row's title moves during the turn: {moved_rows}")
+
+        # The run's trail: the steps already taken stay on screen WHILE it works, so
+        # the user can see what the agent is doing, and they are gone with the answer -
+        # they are not part of the conversation.
+        live_max = max((rec.get("live", 0) for rec in samples), default=0)
+        thoughts_max = max((rec.get("thoughts", 0) for rec in samples), default=0)
+        frozen = sorted({f for rec in samples for f in rec.get("frozen", [])})
+        print(f"  live reasoning shown: {bool(live_max)}; reasoning steps in the trail: up to {thoughts_max}")
+        print(f"  spinners without an animation during the run: {frozen}")
+        if not live_max:
+            failures += fail("the model's reasoning was never shown while it was being written")
+        if not thoughts_max:
+            failures += fail("no finished reasoning ever reached the trail")
+        if frozen:
+            failures += fail(f"frozen spinners: {frozen}")
+        # A utility the markup names must turn: `animate-spin` emitted no rule at all once,
+        # and every loading icon that carried it was a static arc.
+        util = await c.js("""(() => {
+            const d = document.createElement('div');
+            d.className = 'animate-spin'; document.body.appendChild(d);
+            const p = document.createElement('div');
+            p.className = 'animate-pulse'; document.body.appendChild(p);
+            const out = [getComputedStyle(d).animationName, getComputedStyle(p).animationName];
+            d.remove(); p.remove(); return out;
+        })()""")
+        print(f"  animate-spin / animate-pulse animations: {util}")
+        if "none" in util or "" in util:
+            failures += fail(f"a Tailwind animation utility has no rule: {util}")
+
+        trail_max = max((rec.get("trail", 0) for rec in samples), default=0)
+        trail_after = await c.js("document.querySelectorAll('.activity-trail .trail-step').length")
+        print(f"  trail steps seen during the run: up to {trail_max}; after the answer: {trail_after}")
+        if trail_max < 1:
+            failures += fail("no step of the run was ever shown in the trail while it worked")
+        if trail_after:
+            failures += fail(f"{trail_after} trail step(s) are still showing after the answer landed")
 
         idle_anim = await c.js("""[...document.querySelectorAll('.session-spinner:not(.is-running)')]
             .map(e => getComputedStyle(e).animationName).filter(n => n && n !== 'none').length""")

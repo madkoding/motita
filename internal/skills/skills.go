@@ -19,6 +19,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"unicode"
 	"unicode/utf8"
 )
 
@@ -852,17 +853,45 @@ func parse(name, path, body string) Skill {
 // document, so matching them would rank the whole library equally and the ranking would carry
 // no information. Two-character technical terms do suffer from this, which is the price of a
 // rule that is otherwise right; a query about "go" is better phrased with the word around it.
+//
+// A word is any run of LETTERS and digits, in any script. The split used to accept only a-z,
+// so every accented letter was a separator: a word with an accent was split in two at the
+// accented letter, and a Spanish query matched fragments, or nothing.
+//
+// Stop words go too, for the same reason as the short ones: "the", "with", "para" and "como"
+// are three letters or more and appear in every document, so a query phrased as a sentence
+// matched the whole library on them.
 func queryWords(lowered string) []string {
 	var out []string
 	for _, w := range strings.FieldsFunc(lowered, func(r rune) bool {
-		return !(r >= 'a' && r <= 'z') && !(r >= '0' && r <= '9') && r != '-' && r != '_'
+		return !unicode.IsLetter(r) && !unicode.IsDigit(r) && r != '-' && r != '_'
 	}) {
-		if len([]rune(w)) >= 3 {
+		if len([]rune(w)) >= 3 && !stopWords[w] {
 			out = append(out, w)
 		}
 	}
 	return out
 }
+
+// stopWords are the words of three letters or more that carry no topic, in the languages
+// queries arrive in. Matching them ranks the whole library equally.
+var stopWords = func() map[string]bool {
+	m := map[string]bool{}
+	for _, line := range []string{
+		"the and for with from that this into onto over under about how what when where which",
+		"who why can could should would will are was were has have had not but all any its",
+		"our your their them then than there here also just only very some such each other",
+		"que los las una unos unas para por con sin del como cuando donde cual quien esto", // spanish-fixture: stop words
+		"esta este estos estas ese esa eso pero mas más muy hay ser son fue sus nos les",   // spanish-fixture: stop words
+		"hacer haz hace quiero necesito",                             // spanish-fixture: stop words
+		"uma umas uns com sem pelo pela não nao isso essa esse mais", // spanish-fixture: portuguese stop words
+	} {
+		for _, w := range strings.Fields(line) {
+			m[w] = true
+		}
+	}
+	return m
+}()
 
 // forms returns the spellings of a query word that count as the same word.
 //

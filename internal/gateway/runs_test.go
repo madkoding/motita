@@ -283,6 +283,10 @@ func TestTheRunSlotIsReleasedAfterEveryOutcome(t *testing.T) {
 				if events := collect(t, srv, http.MethodPost, sessionPath(srv, DefaultSession, "/task"), `{"task":"x"}`); len(events) == 0 {
 					t.Fatalf("run %d produced no events", i)
 				}
+				// The stream ends at its terminal event, and the slot is released by a defer that
+				// runs AFTER it (and after saveSession). Asking again at once is asking too early,
+				// and 409 is the right answer to that: wait for the gateway to report the run over.
+				waitForNoRun(t, srv)
 			}
 		})
 	}

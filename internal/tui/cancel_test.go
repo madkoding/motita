@@ -8,6 +8,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/madkoding/motita/internal/agent"
 )
 
 // The last two branches of the interactive loop: the progress callback that fires
@@ -205,5 +207,18 @@ func TestDrainProgressOnAnEmptyChannel(t *testing.T) {
 	case <-done:
 	case <-time.After(2 * time.Second):
 		t.Fatal("drainProgress must return immediately when there is nothing queued")
+	}
+}
+
+// TestProgressSenderDropsLiveSnapshots: this view writes every line as a frozen block, and a
+// live snapshot of the reasoning is meant to be replaced by the next - kept, the conversation
+// would fill with one sentence growing a word at a time.
+func TestProgressSenderDropsLiveSnapshots(t *testing.T) {
+	progress := make(chan string, 2)
+	send := progressSender(context.Background(), progress)
+	send("%sweighing it", agent.LivePrefix)
+	send("thinking: decided")
+	if got := <-progress; got != "thinking: decided" {
+		t.Errorf("got %q: the snapshot must be dropped and the final reasoning kept", got)
 	}
 }

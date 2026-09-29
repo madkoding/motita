@@ -185,6 +185,12 @@ body {
   position: absolute;
   left: 6px;
   top: 50%;
+  /* Centred with a margin, NOT with translateY(-50%): `@keyframes spin` sets `transform`
+     and REPLACES it, so a transform-based centring vanished the moment the ring started
+     turning (measured: the samples were a pure translation, never a rotation). Motion in
+     and out uses the individual `translate`/`scale` properties, which the rotation leaves
+     alone. */
+  margin-top: -8px;
   width: 12px;
   height: 12px;
   border: 2px solid rgba(76, 194, 255, 0.2);
@@ -193,14 +199,16 @@ body {
   opacity: 0;
   /* Scaled down and pushed back out of the gutter while hidden, so it
      reads as coming from the row's edge rather than blinking on. */
-  transform: translate(-6px, -50%) scale(0.5);
-  transition: opacity 0.22s ease-out, transform 0.22s cubic-bezier(0.4, 0, 0.2, 1);
+  translate: -6px 0;
+  scale: 0.5;
+  transition: opacity 0.22s ease-out, translate 0.22s cubic-bezier(0.4, 0, 0.2, 1), scale 0.22s cubic-bezier(0.4, 0, 0.2, 1);
   /* Not a hit target and not a tab stop: it is decoration. */
   pointer-events: none;
 }
 .session-spinner.is-running {
   opacity: 1;
-  transform: translate(0, -50%) scale(1);
+  translate: 0 0;
+  scale: 1;
   /* The rotation is declared on `is-running` and NOT on the base class:
      a sidebar of twenty conversations would otherwise have twenty rings
      rotating forever behind an opacity of 0. An animation that runs
@@ -455,6 +463,186 @@ body {
   border-style: dotted;
   border-color: rgba(154, 154, 170, 0.3);
 }
+
+/* The steps a run has already taken, above the one in progress. Quieter than
+   the live line: they are context, and they vanish with the answer. */
+.activity-trail {
+  align-self: flex-start;
+  max-width: 90%;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 6px 10px;
+  /* Frosted like the live line below it: the conversation sits over a busy
+     picture, and grey text straight on top of it could not be read. */
+  background: rgba(10, 10, 16, 0.8);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-left: 2px solid rgba(76, 194, 255, 0.35);
+  border-radius: 8px;
+  font-family: var(--font-mono);
+  font-size: 0.74em;
+  color: #a4a4b4;
+}
+.trail-step {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  animation: activityIn 0.2s ease-out;
+}
+.trail-step::before {
+  content: '✓ ';
+  color: rgba(80, 216, 120, 0.55);
+}
+.trail-step.command { color: #a8d4ef; }
+.trail-step.check { color: #93d6a8; }
+
+/* A thought or a command's output is worth READING, not only glancing at: it
+   keeps its lines, clamped to three, and opens in full on a click. */
+.trail-step.is-long {
+  white-space: pre-wrap;
+  word-break: break-word;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  line-clamp: 3;
+  cursor: pointer;
+  padding: 2px 0;
+}
+.trail-step.is-long.is-open {
+  display: block;
+  -webkit-line-clamp: unset;
+  line-clamp: unset;
+  max-height: 40vh;
+  overflow-y: auto;
+}
+.trail-step.thought {
+  color: #cdbfe8;
+  font-family: var(--font-sans, inherit);
+  font-size: 0.86em;
+}
+.trail-step.thought::before { content: '💭 '; font-style: normal; }
+.trail-step.output { color: #aeb6c4; }
+.trail-step.output::before { content: none; }
+
+/* A shell command reads as a terminal: the command after a prompt, its output in
+   a dark block with an exit badge (green on success, red on failure). */
+.trail-step.term-cmd::before { content: '$ '; color: #7ee787; font-weight: 700; }
+.trail-step.term-cmd {
+  color: #e6edf3;
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+.term-cmd-text { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.msg.activity.command { display: flex; align-items: baseline; }
+.term-exit.running { color: #9a9aaa; background: rgba(154, 154, 170, 0.14); }
+.trail-step.term-out {
+  position: relative;
+  margin: 1px 0 4px;
+  padding: 6px 8px;
+  background: rgba(0, 0, 0, 0.45);
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  border-left: 2px solid rgba(126, 231, 135, 0.6);
+  border-radius: 6px;
+  color: #c9d1d9;
+}
+.trail-step.term-out.failed { border-left-color: rgba(255, 123, 114, 0.8); }
+.term-body { margin: 0; font: inherit; white-space: pre-wrap; word-break: break-word; }
+.term-exit {
+  flex: none;
+  margin: 0;
+  padding: 0 6px;
+  border-radius: 999px;
+  font-size: 0.85em;
+  color: #7ee787;
+  background: rgba(126, 231, 135, 0.12);
+}
+.term-exit.bad { color: #ff7b72; background: rgba(255, 123, 114, 0.14); }
+
+/* What the model is writing right now. It grows while the phase is generated
+   and is replaced by the finished reasoning when the phase ends. */
+.msg.thought-live {
+  align-self: flex-start;
+  max-width: 90%;
+  padding: 6px 10px;
+  border-radius: 8px;
+  border: 1px solid rgba(176, 120, 255, 0.4);
+  background: rgba(18, 12, 30, 0.85);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  color: #e2d7f7;
+  font-size: 0.85em;
+  animation: activityIn 0.2s ease-out;
+}
+.thought-label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.78em;
+  color: #b9a2e6;
+  margin-bottom: 3px;
+  font-family: var(--font-mono);
+}
+.thought-label span[class^="spin-"] {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+}
+.thought-text {
+  word-break: break-word;
+  max-height: 30vh;
+  overflow-y: auto;
+  font-size: 0.86em;
+  color: #cdbfe8;
+}
+
+/* A thought is Markdown at the size of a margin note: the answer's headings, code and
+   lists, scaled down and quieter so it reads as thinking, not as the reply. */
+.thought-md .markdown-body { line-height: 1.35; white-space: normal; }
+.thought-md .markdown-body p,
+.thought-md .markdown-body li { line-height: 1.4em; animation: none; }
+.thought-md .markdown-body p { margin: 0 0 4px; }
+.thought-md .markdown-body h1,
+.thought-md .markdown-body h2,
+.thought-md .markdown-body h3,
+.thought-md .markdown-body h4,
+.thought-md .markdown-body h5,
+.thought-md .markdown-body h6 {
+  font-size: 1em;
+  margin: 4px 0 2px;
+  padding: 1px 6px;
+  color: #d9ccf3;
+  background: none;
+  border-left-width: 2px;
+  animation: none;
+}
+.thought-md .markdown-body pre { font-size: 0.92em; margin: 3px 0; padding: 4px 7px; animation: none; }
+.thought-md .markdown-body code { font-size: 0.95em; animation: none; }
+.thought-md .markdown-body ul,
+.thought-md .markdown-body ol { margin: 2px 0 4px; padding-left: 18px; animation: none; }
+.thought-md .markdown-body blockquote,
+.thought-md .markdown-body table { animation: none; }
+.thought-md .copy-msg-btn { display: none; }
+
+/* Each chunk of a streaming thought fades in as it arrives; what was already on
+   screen is plain text and does not move. */
+.tk-new { animation: chunkIn 0.45s ease-out both; }
+@keyframes chunkIn {
+  from { opacity: 0; transform: translateY(3px); filter: blur(2px); }
+  to   { opacity: 1; transform: translateY(0); filter: blur(0); }
+}
+
+/* The standing "allow all commands" answer, and the way to take it back. */
+.auto-approve-pill {
+  color: #ffcf6a;
+  background: rgba(255, 176, 32, 0.12);
+  border: 1px solid rgba(255, 176, 32, 0.4);
+  cursor: pointer;
+}
+.auto-approve-pill:hover { background: rgba(255, 176, 32, 0.22); }
 
 /* ─── Markdown body — cyberpunk ────────────────────────────────────
  * Each tag has a distinct visual identity: neon borders, glow shadows,
@@ -994,6 +1182,20 @@ main[role="log"]:not(.chat-loading) > * {
   100% { background: #b078ff; height: 12px; }
 }
 
+/* thought and output: the kinds a phase's reasoning and a command's result
+   arrive as, drawn with the spinners of their nearest relatives. */
+.spin-thought {
+  background: #b078ff;
+  border-radius: 50%;
+  animation: pulse 1s ease-in-out infinite;
+}
+.spin-output {
+  border: 2px solid rgba(76,194,255,0.15);
+  border-top-color: #4cc2ff;
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+
 /* default: gray spinner */
 .spin-default {
   border: 2px solid rgba(154,154,170,0.15);
@@ -1016,6 +1218,24 @@ main[role="log"]:not(.chat-loading) > * {
   vertical-align: -1px;
 }
 @keyframes spin { to { transform: rotate(360deg); } }
+
+/* ─── The utilities the markup names, declared here ──────────────────
+ * This build disables Tailwind's `animation` plugin (see tailwind.config.js),
+ * so `animate-spin` and `animate-pulse` emit NO rule: every loading icon that
+ * carried them - deleting a session, creating a project, cloning, saving,
+ * upgrading - was drawn as a frozen arc. They are plain CSS now, on the same
+ * keyframes every other spinner here already uses. */
+.animate-spin {
+  animation: spin 0.8s linear infinite;
+  transform-origin: 50% 50%;
+}
+.animate-pulse {
+  animation: soft-pulse 1.6s ease-in-out infinite;
+}
+@keyframes soft-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.45; }
+}
 
 /* ─── State badge: warning and error ─────────────────────────────────
  * The pill in the header answers "what is this session doing", and these are
@@ -1415,7 +1635,7 @@ button:disabled {
   .row-menu, .row-menu-closing { animation: none !important; }
   .row-menu-closing { opacity: 0; }
   .msg, .session-row, .project-header, .sidebar,
-  header.frosted, form.frosted, .msg.activity,
+  header.frosted, form.frosted, .msg.activity, .trail-step, .msg.thought-live,
   [class*="bg-black\\/60"] > div, [class*="bg-black\\/60"],
   [class*="bg-black\\/50"],
   .msg.agent .markdown-body, .msg.agent > span, .msg.user > span,
@@ -1426,16 +1646,19 @@ button:disabled {
   .markdown-body code, header .text-xs {
     animation: none !important;
   }
-  .state-working::after { animation: none !important; }
-
-  /* The row spinner is a STATUS, not decoration: with the rotation gone it
-     must still be visible, so it is stopped rather than hidden. Killing the
-     animation alone would leave it drawn mid-rotation - an arc that reads as
-     a finished badge - and hiding it would take away the only signal that
-     says which conversation the agent is working in. */
-  .session-spinner { animation: none !important; }
+  /* A LOADING indicator keeps turning, slowly. Stopping it was tried and it
+     was worse: a stopped ring is an arc frozen mid-rotation, which reads as a
+     finished badge or a broken page - exactly the "is it doing anything?"
+     question the indicator exists to answer. The motion is essential to its
+     meaning, so it is slowed rather than removed. */
+  .state-working::after,
+  .animate-spin,
+  .session-spinner.is-running,
+  .msg.activity span[class^="spin-"],
+  .thought-label span[class^="spin-"] {
+    animation-duration: 2.4s !important;
+  }
   .session-spinner.is-running {
-    animation: none !important;
     opacity: 1;
     transform: translate(0, -50%) scale(1);
   }
@@ -1443,4 +1666,184 @@ button:disabled {
      and disappears at once - but the gutter it lives in is unaffected, so
      nothing in the row moves either way. */
   .session-spinner, .session-row { transition: none; }
+}
+
+/* ─── Reasoning level, in the model picker ─────────────────────────
+ * A segmented control rather than a <select>: four fixed choices are faster to read and to
+ * hit as buttons. Plain CSS, because this build's Tailwind cannot be trusted for new utilities. */
+.reasoning-levels {
+  display: flex;
+  gap: 4px;
+  padding: 3px;
+  border-radius: 12px;
+  background: rgba(0, 0, 0, 0.3);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+.reasoning-level {
+  flex: 1;
+  min-height: 36px;
+  border-radius: 9px;
+  font-size: 13px;
+  text-transform: capitalize;
+  color: #9a9aaa;
+  transition: background-color 0.15s ease, color 0.15s ease;
+}
+.reasoning-level:hover { background: rgba(255, 255, 255, 0.05); color: #e8e8ea; }
+.reasoning-level.is-active { background: var(--accent, #4cc2ff); color: #fff; font-weight: 600; }
+.reasoning-level:focus-visible { outline: 2px solid var(--accent, #4cc2ff); outline-offset: 1px; }
+
+/* The reasoning level beside the model in the header pill. Dimmer when off, so a session that
+ * is NOT thinking is visible at a glance. */
+.header-reasoning {
+  flex: none;
+  padding-left: 6px;
+  border-left: 1px solid rgba(255, 255, 255, 0.12);
+  color: #4cc2ff;
+}
+.header-reasoning.is-off { color: #6a6a7a; }
+
+/* What a finished run changed: pictures first, files folded underneath. */
+.changes-card { margin-top: 10px; display: flex; flex-direction: column; gap: 8px; }
+.changes-previews { display: flex; flex-wrap: wrap; gap: 10px; }
+.changes-shot { margin: 0; flex: 1 1 260px; max-width: 100%; cursor: zoom-in; }
+.changes-shot img {
+  display: block; width: 100%; max-height: 360px; object-fit: contain;
+  background: rgba(0, 0, 0, 0.35); border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 8px;
+}
+.changes-shot figcaption { margin-top: 3px; font-size: 0.72em; color: #9a9aaa; }
+.changes-files { font-size: 0.82em; color: #b4b4c4; }
+.changes-files summary { cursor: pointer; padding: 2px 0; }
+.changes-files ul { list-style: none; margin: 4px 0 0; padding: 0; display: flex; flex-direction: column; gap: 2px; font-family: var(--font-mono); font-size: 0.92em; }
+.changes-files li { display: flex; gap: 8px; align-items: baseline; }
+.chg-path { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.chg-tag { flex: none; min-width: 3.6em; text-align: center; padding: 0 6px; border-radius: 999px; font-size: 0.85em; background: rgba(255,255,255,0.08); }
+.chg-tag.added { color: #7ee787; background: rgba(126, 231, 135, 0.12); }
+.chg-tag.deleted { color: #ff7b72; background: rgba(255, 123, 114, 0.14); }
+.chg-tag.modified { color: #a8d4ef; background: rgba(76, 194, 255, 0.12); }
+.chg-add { color: #7ee787; } .chg-del { color: #ff7b72; }
+.changes-zoom {
+  position: fixed; inset: 0; z-index: 1000; display: flex; align-items: center; justify-content: center;
+  background: rgba(0, 0, 0, 0.82); cursor: zoom-out; padding: 4vmin;
+}
+.changes-zoom img { max-width: 100%; max-height: 100%; border-radius: 8px; }
+
+
+/* ─── The terminal drawer ────────────────────────────────────────────
+ * A retro CRT screen that opens to the LEFT from a tab on the right edge. Closed, only the
+ * tab is visible; the panel is translated off-screen and `visibility` takes it out of the
+ * tab order and the hit-testing once the slide has finished. */
+.term-drawer {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: min(560px, 92%);
+  z-index: 12;
+  pointer-events: none;
+  transform: translateX(100%);
+  transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+.term-drawer.is-open { transform: translateX(0); }
+.term-tab {
+  position: absolute;
+  top: 40%;
+  left: -34px;
+  width: 34px;
+  padding: 10px 0;
+  pointer-events: auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.12em;
+  color: #7ee787;
+  background: #06120a;
+  border: 1px solid rgba(126, 231, 135, 0.45);
+  border-right: none;
+  border-radius: 8px 0 0 8px;
+  box-shadow: -4px 0 14px rgba(0, 0, 0, 0.5), 0 0 10px rgba(126, 231, 135, 0.15);
+  cursor: pointer;
+}
+.term-tab:hover { background: #0a1c10; }
+.term-tab-label { writing-mode: vertical-rl; transform: rotate(180deg); }
+.term-tab-count {
+  min-width: 18px;
+  padding: 0 4px;
+  border-radius: 999px;
+  font-size: 10px;
+  line-height: 16px;
+  text-align: center;
+  color: #06120a;
+  background: #7ee787;
+}
+.term-panel {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  pointer-events: auto;
+  background: #050c07;
+  border-left: 1px solid rgba(126, 231, 135, 0.45);
+  box-shadow: -12px 0 40px rgba(0, 0, 0, 0.6);
+  font-family: var(--font-mono);
+  color: #7ee787;
+  visibility: hidden;
+  transition: visibility 0s linear 0.3s;
+}
+.term-drawer.is-open .term-panel { visibility: visible; transition-delay: 0s; }
+.term-titlebar {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 10px;
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  color: #4fae5a;
+  background: #08150c;
+  border-bottom: 1px solid rgba(126, 231, 135, 0.25);
+}
+.term-close { color: #4fae5a; font-size: 18px; line-height: 1; padding: 0 4px; cursor: pointer; }
+.term-close:hover { color: #7ee787; }
+.term-screen {
+  position: relative;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 10px 12px 16px;
+  font-size: 12px;
+  line-height: 1.45;
+  text-shadow: 0 0 6px rgba(126, 231, 135, 0.45);
+  /* scanlines */
+  background-image: repeating-linear-gradient(to bottom, rgba(0, 0, 0, 0) 0, rgba(0, 0, 0, 0) 2px, rgba(0, 0, 0, 0.22) 3px);
+}
+.term-entry { margin-bottom: 10px; }
+.term-line { color: #d8ffde; word-break: break-all; white-space: pre-wrap; }
+.term-prompt { color: #7ee787; font-weight: 700; }
+.term-output {
+  margin: 2px 0 0;
+  font: inherit;
+  color: #a6d9ad;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.term-status { color: #4fae5a; font-size: 11px; }
+.term-status.bad { color: #ff7b72; text-shadow: 0 0 6px rgba(255, 123, 114, 0.45); }
+.term-status.running { color: #e3c56a; }
+.term-empty { color: #4fae5a; }
+.term-caret {
+  display: inline-block;
+  width: 7px;
+  height: 12px;
+  margin-left: 4px;
+  vertical-align: -2px;
+  background: #7ee787;
+  animation: termBlink 1s steps(2, start) infinite;
+}
+@keyframes termBlink { to { visibility: hidden; } }
+@media (prefers-reduced-motion: reduce) {
+  .term-drawer, .term-panel { transition: none; }
+  .term-caret, .tk-new { animation: none; }
 }

@@ -476,3 +476,27 @@ func TestWatchResizeBurstDoesNotBlock(t *testing.T) {
 		t.Fatal("stop() hung: the watcher goroutine is blocked")
 	}
 }
+
+// TestGenerateTitleIgnoresAReplyThatIsNotATitle: a model that answers in JSON does not name
+// the session after its JSON; the first user message does.
+func TestGenerateTitleIgnoresAReplyThatIsNotATitle(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprint(w, `{"choices":[{"message":{"content":"{\"actions\":[{\"command\":\"printf x\"}]}"}}]}`)
+	}))
+	defer srv.Close()
+	cfg := config.Default()
+	cfg.LLM.Provider = "openai"
+	cfg.LLM.APIKey = "key"
+	cfg.LLM.BaseURL = srv.URL
+	cfg.LLM.MaxAttempts = 1
+	cfg.LLM.Timeout = 5 * time.Second
+	r := NewAppRunner(&bytes.Buffer{}, &bytes.Buffer{}, cfg, nil, nil, logx.Global())
+	engine, err := llm.New(cfg.LLM, r.Log)
+	if err != nil {
+		t.Fatal(err)
+	}
+	r.Engine = engine
+	if title := r.GenerateTitle(context.Background(), "write the report"); title != "write the report" {
+		t.Errorf("GenerateTitle = %q, want the first message", title)
+	}
+}

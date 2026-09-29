@@ -23,7 +23,7 @@ from PIL import Image
 
 PORT = int(os.environ.get("CDP_PORT", "9334"))
 BASE = os.environ.get("GATEWAY_URL", "http://127.0.0.1:7477")
-SHOTS = os.environ.get("SHOTS_DIR", "/tmp/motita-modal-blur")
+SHOTS = os.environ.get("SHOTS_DIR", os.path.join(os.environ.get("TMPDIR", "/tmp"), "motita-modal-blur"))
 
 
 class CDP:

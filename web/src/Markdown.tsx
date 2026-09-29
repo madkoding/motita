@@ -59,7 +59,7 @@
 // Inline HTML in an answer renders (`<kbd>`, `<sup>`, `<details>`), which the old
 // renderer escaped. That widening is only safe because every fragment — the parsed
 // message, a KaTeX render and a mermaid SVG alike — goes through DOMPurify first.
-import { useEffect, useRef } from 'preact/hooks'
+import { useEffect, useLayoutEffect, useRef } from 'preact/hooks'
 import type { Config as PurifyConfig } from 'dompurify'
 import MarkdownIt from 'markdown-it'
 import type { MarkdownItOptions, Token } from 'markdown-it'
@@ -454,4 +454,60 @@ export function Markdown({ content }: { content: string }) {
   }, [content])
 
   return <div ref={ref} dangerouslySetInnerHTML={{ __html: renderMessage(content) }} />
+}
+
+/**
+ * The Markdown of a model's reasoning: the same parser and the same sanitizer as an answer,
+ * without the copy button and without the deferred hydration (a thought has no diagram nor a
+ * formula worth building while it is still being written).
+ *
+ * `chunks` is what makes it appear as it streams: the reasoning arrives as SNAPSHOTS that
+ * only ever grow, so whatever text lies beyond what the previous snapshot showed is wrapped
+ * in a `.tk-new` span, and the stylesheet fades that span in. The text already on screen is
+ * plain, so it does not move or flash when the snapshot is re-rendered.
+ */
+export function renderLite(source: string): string {
+  return sanitize('<div class="markdown-body">' + md.render(source) + '</div>')
+}
+
+// wrapFresh wraps the text of `root` past the first `from` characters in .tk-new spans and
+// returns the total length. A text node that straddles the boundary is split in two.
+function wrapFresh(root: HTMLElement, from: number): number {
+  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT)
+  const nodes: Text[] = []
+  for (let n = walker.nextNode(); n; n = walker.nextNode()) nodes.push(n as Text)
+  let pos = 0
+  for (const node of nodes) {
+    const len = node.data.length
+    const start = pos
+    pos += len
+    if (pos <= from || len === 0) continue
+    const cut = Math.max(0, from - start)
+    const fresh = node.data.slice(cut)
+    if (!fresh.trim()) continue
+    const span = document.createElement('span')
+    span.className = 'tk-new'
+    span.textContent = fresh
+    node.data = node.data.slice(0, cut)
+    node.parentNode?.insertBefore(span, node.nextSibling)
+  }
+  return pos
+}
+
+export function MarkdownLite({ content, chunks = false }: { content: string; chunks?: boolean }) {
+  const ref = useRef<HTMLDivElement>(null)
+  const shown = useRef(0)
+  const html = renderLite(content)
+
+  useLayoutEffect(() => {
+    const el = ref.current
+    if (!el) return
+    if (!chunks) return
+    // A snapshot that is SHORTER than what was shown is a rewrite, not growth: start over.
+    const total = (el.textContent || '').length
+    const from = total < shown.current ? 0 : shown.current
+    shown.current = wrapFresh(el, from)
+  }, [html, chunks])
+
+  return <div ref={ref} class="thought-md" dangerouslySetInnerHTML={{ __html: html }} />
 }

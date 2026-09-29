@@ -157,11 +157,12 @@ func TestAModelThatNeverFinishesIsBoundedAndSaysSo(t *testing.T) {
 }
 
 // TestARejectedRoundStillCountsAgainstTheRetries: the two counters mean different things
-// and both must keep working. A round the anchor REJECTS is what max_retries bounds.
+// and both must keep working. A claim of "done" the anchor REJECTS is what max_retries bounds.
 func TestARejectedRoundStillCountsAgainstTheRetries(t *testing.T) {
 	fake := &fakeLLMServer{
 		actionsPerAttempt: [][]string{{"echo wrong"}},
-		donePerAttempt:    []bool{false},
+		// Every round CLAIMS the task is done, and the anchor refuses every claim.
+		donePerAttempt: []bool{true},
 	}
 	srv := httptest.NewServer(fake.handler(t))
 	defer srv.Close()
@@ -265,17 +266,17 @@ func TestTheNextRoundIsToldWhatThePreviousOneDid(t *testing.T) {
 // retry budget, which is the opposite failure of the one this file fixes.
 //
 // This is the test that tells the two apart: MaxRetries=1 leaves room for exactly TWO
-// refused rounds. The first round is ACCEPTED (done=false), and two more are refused, so
-// the run must reach round three. If a progress round were charged to the retry budget,
-// it would stop at round two.
+// refused claims. The first round is PROGRESS (done=false), and the next two claim the task
+// done and are refused, so the run must reach round three. If a progress round were charged
+// to the retry budget, it would stop at round two.
 func TestProgressRoundsDoNotSpendTheRetryBudget(t *testing.T) {
 	fake := &fakeLLMServer{
 		actionsPerAttempt: [][]string{
-			{"echo progress > progress.txt"}, // round 1: ACCEPTED, but more to do
-			{"rm -f progress.txt"},           // round 2: refused (rejected=1)
-			{"echo wrong"},                   // round 3: refused (rejected=2 > max_retries)
+			{"echo progress > progress.txt"}, // round 1: progress, more to do
+			{"rm -f progress.txt"},           // round 2: claims done, refused (rejected=1)
+			{"echo wrong"},                   // round 3: claims done, refused (rejected=2 > max_retries)
 		},
-		donePerAttempt: []bool{false},
+		donePerAttempt: []bool{false, true},
 	}
 	srv := httptest.NewServer(fake.handler(t))
 	defer srv.Close()

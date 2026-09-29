@@ -28,6 +28,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
 
 	"github.com/madkoding/motita/internal/anchor"
 	"github.com/madkoding/motita/internal/config"
@@ -105,6 +106,11 @@ type Agent struct {
 	// the log.
 	Observer func(TaskResult)
 
+	// streamThoughts shows the model's reasoning WHILE it is being written, as LivePrefix
+	// progress lines. Off by default: it changes the request to a streamed one, and only an
+	// interface that renders the snapshots should pay for them. See SetLiveThinking.
+	streamThoughts bool
+
 	// approver asks the user before a consequential command runs, and nil means there is
 	// nobody to ask — which is a real state, not a missing dependency: a task piped in from
 	// a script has no user, and a command that needs approval in that situation is refused
@@ -152,6 +158,24 @@ func (a *Agent) consult(name string) {
 	}
 	a.consulted[name]++
 }
+
+// SetLiveThinking turns on the live view of the model's reasoning: while a phase is being
+// generated, snapshots of what the model has written so far are reported as progress lines
+// starting with LivePrefix, at most one per liveInterval.
+//
+// Reported from real use: "I still cannot see what the model decides, reasons or thinks while
+// I wait - only states". The phases took tens of seconds each and all the interface could say
+// was "deciding action...".
+func (a *Agent) SetLiveThinking(on bool) { a.streamThoughts = on }
+
+// LivePrefix marks a progress line that is a SNAPSHOT of the reasoning being written right
+// now. Each one replaces the one before it, so an interface shows the latest and a log keeps
+// none: the phase's final reasoning is reported again, whole, as a ThinkingPrefix line.
+const LivePrefix = "live: "
+
+// ThinkingPrefix marks the finished reasoning of a phase: what the model understood, planned
+// or decided, in its own words.
+const ThinkingPrefix = "thinking: "
 
 // SetProgress registers the callback that receives the human-readable phase
 // lines ("running: ls", "validating…"). It is the same hook as the Progress
@@ -225,6 +249,74 @@ type DialogueTurn struct {
 	// Kind records what the turn was, so the transcript can be summarised honestly: a chat turn
 	// and a finished task are not the same thing to a reader.
 	Kind string
+	// Pending marks a turn that was written when its task STARTED and has not been closed by
+	// an outcome. It is how a run that is cut off (a restart, a crash) still leaves the
+	// request and the work done so far in the conversation, instead of nothing at all.
+	Pending bool `json:",omitempty"`
+}
+
+// pendingText is what a turn says before its task has an outcome.
+const pendingText = "(no result recorded yet: the run is still working, or it was interrupted before it finished)"
+
+// pendingLimit caps the work trail kept in a pending turn.
+const pendingLimit = 3000
+
+// begin writes the turn for a task that is starting. A pending turn for the same request
+// is reused: a run that resumes after a restart continues its own turn, it does not add a
+// second one.
+func (a *Agent) begin(t task.Task) {
+	a.transcriptMu.Lock()
+	defer a.transcriptMu.Unlock()
+	if n := len(a.transcript); n > 0 && a.transcript[n-1].Pending && a.transcript[n-1].User == t.Description {
+		return
+	}
+	a.transcript = append(a.transcript, DialogueTurn{
+		User: t.Description, Agent: pendingText, Kind: KindTask, Pending: true,
+	})
+}
+
+// trail updates the pending turn with what the run has done so far.
+func (a *Agent) trail(t task.Task, lines []string) {
+	a.transcriptMu.Lock()
+	defer a.transcriptMu.Unlock()
+	n := len(a.transcript)
+	if n == 0 || !a.transcript[n-1].Pending || a.transcript[n-1].User != t.Description {
+		return
+	}
+	text := strings.Join(lines, "\n")
+	if len(text) > pendingLimit {
+		start := len(text) - pendingLimit
+		for !utf8.RuneStart(text[start]) {
+			start++
+		}
+		text = "..." + text[start:]
+	}
+	a.transcript[n-1].Agent = pendingText + workMarker + text
+}
+
+// workSoFar is the trail of the pending turn for this request, or "" when there is none.
+func (a *Agent) workSoFar(t task.Task) string {
+	a.transcriptMu.Lock()
+	defer a.transcriptMu.Unlock()
+	n := len(a.transcript)
+	if n == 0 || !a.transcript[n-1].Pending || a.transcript[n-1].User != t.Description {
+		return ""
+	}
+	_, work, _ := strings.Cut(a.transcript[n-1].Agent, workMarker)
+	return work
+}
+
+// workMarker separates the pending text from the trail inside a pending turn.
+const workMarker = "\nWork so far:\n"
+
+// record appends a finished turn. It closes the pending turn of the same request, if there
+// is one, instead of leaving it beside its own outcome.
+func (a *Agent) record(turn DialogueTurn) {
+	if n := len(a.transcript); n > 0 && a.transcript[n-1].Pending && a.transcript[n-1].User == turn.User {
+		a.transcript[n-1] = turn
+		return
+	}
+	a.transcript = append(a.transcript, turn)
 }
 
 // SetTranscript seeds the conversation, which is how an interface hands over what the user has
@@ -246,7 +338,7 @@ func (a *Agent) Transcript() []DialogueTurn {
 func (a *Agent) converse(t task.Task, reply string) {
 	a.transcriptMu.Lock()
 	defer a.transcriptMu.Unlock()
-	a.transcript = append(a.transcript, DialogueTurn{
+	a.record(DialogueTurn{
 		User:  t.Description,
 		Agent: reply,
 		Kind:  KindChat,
@@ -260,7 +352,7 @@ func (a *Agent) converse(t task.Task, reply string) {
 func (a *Agent) note(t task.Task, outcome string, kind string) {
 	a.transcriptMu.Lock()
 	defer a.transcriptMu.Unlock()
-	a.transcript = append(a.transcript, DialogueTurn{
+	a.record(DialogueTurn{
 		User:  t.Description,
 		Agent: outcome,
 		Kind:  kind,
@@ -290,6 +382,11 @@ func (a *Agent) dialogue() string {
 	}
 	for _, turn := range turns {
 		fmt.Fprintf(&b, "user: %s\n", truncate(collapse(turn.User), 500))
+		if turn.Pending {
+			// Not an outcome: the work trail would read as something the agent said.
+			b.WriteString("you: (that request was cut off before it finished)\n")
+			continue
+		}
 		said := truncate(collapse(turn.Agent), 500)
 		switch turn.Kind {
 		case KindChat:
@@ -653,6 +750,9 @@ type Action struct {
 	// working: a prompt that predates this field does not send it, and reading that as "not
 	// finished" would spend the whole step budget on a task that was already done.
 	Done *bool `json:"done"`
+	// Notes is the model's own running summary: what it has decided, what is done, what is
+	// left. It is kept whole between rounds and replaced whenever a reply carries new ones.
+	Notes string `json:"notes"`
 }
 
 // isDone reports whether the model considers the task finished.
@@ -859,6 +959,9 @@ func (a *Agent) Run(ctx context.Context) error {
 // processTask runs the 9-step loop for one task and notifies the observer of the
 // result (exactly once, whatever the exit path).
 func (a *Agent) processTask(ctx context.Context, t task.Task, depth int) TaskResult {
+	if depth == 0 {
+		a.begin(t)
+	}
 	r := a.loop(ctx, t, depth)
 	if a.Observer != nil {
 		a.Observer(r)
@@ -876,7 +979,16 @@ func (a *Agent) processTask(ctx context.Context, t task.Task, depth int) TaskRes
 	// question are written where they are decided, because what they said is known only there. What
 	// this adds is the outcome of work that was actually done.
 	if depth == 0 && r.Kind != KindChat && !r.NeedsInput {
-		a.note(t, taskOutcome(r), KindTask)
+		outcome := taskOutcome(r)
+		// A run that did not finish keeps what it had done: the result alone ("cancelled",
+		// "stalled") would erase the only record of the work, and the next turn - or a
+		// person reading the conversation - starts from nothing.
+		if !r.Pass {
+			if work := a.workSoFar(t); work != "" {
+				outcome += "\nWork done before it stopped:\n" + work
+			}
+		}
+		a.note(t, outcome, KindTask)
 	}
 	return r
 }
@@ -923,6 +1035,25 @@ func (a *Agent) loop(ctx context.Context, t task.Task, depth int) TaskResult {
 	// [3] Analysis.
 	a.report("analysing the task...")
 	analysis := a.analysisPhase(ctx, t, rules, depth)
+
+	// A SUBTASK is work by construction: the plan that declared it already decided there is
+	// something to do. It must not be answered as chat - that counted as a PASS for work never
+	// done - and it cannot stop to ask: its question would surface as the parent's failure
+	// ("only 0 of 3 subtasks passed") with the question itself lost, because the user is
+	// talking to the PARENT turn. It proceeds on the reading the analysis stated instead.
+	if depth > 0 {
+		if analysis.resolveKind() != KindTask || !analysis.Understandable || analysis.Question != "" {
+			a.log.Info(prefix+"a subtask cannot chat or ask: proceeding as work",
+				"kind", analysis.Kind, "question", truncate(analysis.Question, 160))
+			if assumed := cleanAssumption(analysis.Assumption); assumed != "" {
+				proceededOnAssumption = assumed
+			}
+		}
+		analysis.Kind = KindTask
+		analysis.Understandable = true
+		analysis.Question = ""
+		analysis.Questions = nil
+	}
 
 	// The message is not always a task. A greeting, a question about what just happened, or
 	// thinking out loud has nothing to do, and running the loop for it would plan work nobody
@@ -1075,11 +1206,17 @@ func (a *Agent) loop(ctx context.Context, t task.Task, depth int) TaskResult {
 		}
 	}
 	a.report("understood: %s", analysis.Summary)
+	if len(analysis.SuccessCrit) > 0 {
+		a.report("%sdone means:\n- %s", ThinkingPrefix, strings.Join(analysis.SuccessCrit, "\n- "))
+	}
 
 	// [4] Plan.
 	a.report("planning...")
 	plan := a.planPhase(ctx, t, analysis, depth)
 	a.report("plan ready: %d steps", len(plan.Steps))
+	if len(plan.Steps) > 0 {
+		a.report("%splan:\n%s", ThinkingPrefix, strings.TrimRight(describePlan(plan), "\n"))
+	}
 
 	// [5] Splitting into subtasks: each one re-enters the same flow, one level
 	// further down. The limit is respected to avoid infinite recursion.
@@ -1090,62 +1227,71 @@ func (a *Agent) loop(ctx context.Context, t task.Task, depth int) TaskResult {
 	// the line below never executed, so five declared pieces of work were thrown away.
 	// A model that wrote down subtasks has said there are subtasks; asking it twice only
 	// adds a way to lose them.
-	if len(plan.Subtasks) > 0 {
+	//
+	// Blank entries are dropped BEFORE deciding: a plan whose subtasks are all blank has no
+	// subtasks, and it used to end as "only 0 of 0 subtasks passed validation" - a failure
+	// for a task nobody ever tried.
+	if subs := nonBlank(plan.Subtasks); len(subs) > 0 {
 		if depth >= a.cfg.Agent.SubtaskDepth {
 			a.log.Warn(prefix+"subtask splitting reached the configured limit; continuing as a single task",
 				"depth", depth, "limit", a.cfg.Agent.SubtaskDepth,
-				"subtasks", len(plan.Subtasks))
+				"subtasks", len(subs))
 		} else {
-			a.log.Info(prefix+"splitting into subtasks", "count", len(plan.Subtasks))
-			passed := 0
-			for _, sub := range plan.Subtasks {
-				if ctx.Err() != nil {
-					res.Reason = "cancelled during the subtasks"
-					res.DurationMS = time.Since(start).Milliseconds()
-					return res
-				}
-				if strings.TrimSpace(sub) == "" {
-					continue
-				}
-				res.Subtasks++
-				subResult := a.processTask(ctx, task.Task{
-					Description: sub,
-					Origin:      t.Origin + " (subtask)",
-				}, depth+1)
-				if subResult.Pass {
-					passed++
-				}
-			}
-			res.Pass = passed == res.Subtasks && res.Subtasks > 0
-			res.Attempts = 1
-			res.DurationMS = time.Since(start).Milliseconds()
-			if res.Pass {
-				res.Reason = fmt.Sprintf("%d subtasks completed", passed)
-			} else {
-				res.Reason = fmt.Sprintf("only %d of %d subtasks passed validation", passed, res.Subtasks)
-			}
-			return res
+			return a.runSubtasks(ctx, t, analysis, subs, depth, start, prefix)
 		}
 	}
 
 	// [6]-[9] Execution and validation cycle.
 	//
-	// TWO bounds, because they answer two different questions and only one of them existed.
+	// THE LOOP CONTRACT. Every round ends in exactly one of these, and each has its own bound:
 	//
-	// rejected counts rounds the ANCHOR refused. Those are corrections, and max_retries is
-	// what bounds them — it always was.
+	//  - PROGRESS: the model ran actions and reports work left ("done": false). It is work,
+	//    not a failure, so it spends only the step budget. The anchor does NOT run on these
+	//    rounds: the state halfway through a change routinely breaks the project's gate (a
+	//    renamed function before its callers are updated), and charging that to max_retries
+	//    killed multi-step tasks at the fourth intermediate round. It also cost the whole
+	//    gate - measured at ~45 s on a real project - on every round of a long task.
+	//  - CLAIM: the model reports the task done. The anchor runs, always, and it alone
+	//    decides: PASS ends the task, a refusal is a REJECTED claim, and those are what
+	//    max_retries bounds.
+	//  - UNUSABLE: the reply could not be used (malformed JSON, or nothing to run while
+	//    claiming work is left). One bad reply used to end the whole task; it is now
+	//    told to the model, and only maxUnusableReplies IN A ROW end the run.
+	//  - STALL: a progress round identical to the one before it, same actions and same
+	//    output. The model is warned, and a run that keeps repeating itself is stopped
+	//    instead of spending the rest of the budget going nowhere.
 	//
-	// round counts rounds the agent has TAKEN. A round in which the model reports there is
-	// still work to do is not a failure: it is work. Before this counter existed the loop
-	// returned the moment the anchor was happy, so a plan of eleven steps ended after one
-	// batch of four actions with "task completed" — measured on a real run in a real
-	// project. The anchor could not see it, because it validates the state of the PROJECT
-	// and never how much of the plan was carried out.
-	//
-	// maxStepsFor() is the bound on that other axis, so a model that never reports the task
-	// finished cannot run forever either.
-	failedAttempts := []string{}
+	// Every round is recorded in the journal the next round reads, labelled with what it
+	// WAS. It used to be labelled "failed attempt" whatever happened, so a model that made
+	// progress was told it had failed and redid the work.
+	journal := []roundRecord{}
+	// mem is what the run remembers besides the journal: the whole output of every read
+	// still valid, and the model's own notes. See workmemory.go for why the journal alone
+	// made a run re-read the same files a hundred times.
+	mem := &workMemory{}
+	var trail []string
+	// A run that RESUMES after an interruption (a restart, a crash) begins with the work its
+	// earlier life recorded, instead of an empty journal. The files it changed are on disk,
+	// but the reasons and the order are not: without this the model reads the request as new,
+	// re-reads the project and rebuilds what it already built.
+	if prior := a.workSoFar(t); prior != "" {
+		trail = []string{prior}
+		journal = append(journal, roundRecord{
+			round: 0, kind: roundProgress, commands: "(before the interruption)",
+			detail: "This task was already being worked on when the run was interrupted. What " +
+				"it had done, oldest first:\n" + prior + "\nThe changes are in the working " +
+				"directory. Check it with `git status` and `git diff` FIRST, then continue " +
+				"with what is left: do not start over.",
+		})
+	}
+	// workLog is what every round ran and printed, for the final answer: the synthesis used
+	// to see only the LAST round, which on a long task is a final `git status` and nothing
+	// of the work.
+	var workLog strings.Builder
 	rejected := 0
+	unusable := 0
+	repeats := 0
+	lastSignature := ""
 	maxSteps := a.maxSteps()
 	// The budget is a CHECKPOINT, not a wall. Measured on a real request: the agent was
 	// still working when 24 rounds ran out, and the run ended with "the task is not
@@ -1191,13 +1337,28 @@ func (a *Agent) loop(ctx context.Context, t task.Task, depth int) TaskResult {
 			a.escalate(ctx, prefix)
 			return res
 		}
-		{
-			res.Attempts = round
+		res.Attempts = round
 
-			// [6] The LLM proposes the concrete action.
-			a.report("deciding action (attempt %d/%d)...", round, maxSteps*(1+(round-1)/maxSteps))
-			action, err := a.actionPhase(ctx, t, plan, failedAttempts, round, prefix)
-			if err != nil {
+		// [6] The LLM proposes the concrete action.
+		a.report("deciding action (round %d/%d)...", round, maxSteps*(1+(round-1)/maxSteps))
+		action, err := a.actionPhase(ctx, t, analysis, plan, journal, mem, round, prefix)
+		if err == nil && len(action.Actions) == 0 && !action.isDone() {
+			// Nothing to run while claiming there is work left is not a round of work: it is
+			// a reply the loop cannot act on, and the model is told so rather than being
+			// credited with progress it did not make.
+			err = errors.New(`the reply proposed no actions but reported "done": false; ` +
+				`propose the next actions, or report "done": true if the task is complete`)
+		}
+		if err != nil {
+			if ctx.Err() != nil {
+				res.Reason = "the run was cancelled"
+				res.DurationMS = time.Since(start).Milliseconds()
+				return res
+			}
+			unusable++
+			a.log.Warn(prefix+"the action phase produced nothing usable",
+				"round", round, "in_a_row", unusable, "error", err.Error())
+			if unusable >= maxUnusableReplies {
 				// The CAUSE is carried, and it is the LLM's own message. The old prefix said
 				// "could not obtain the action from the LLM" and left the reader to guess: the
 				// action was not missing, the reply arrived shaped in a way this phase cannot
@@ -1205,109 +1366,353 @@ func (a *Agent) loop(ctx context.Context, t task.Task, depth int) TaskResult {
 				res.Reason = "could not obtain the action from the LLM: " + err.Error()
 				res.DurationMS = time.Since(start).Milliseconds()
 				a.report("failed to get an action: %v", err)
-				a.log.Error(prefix+"the action phase produced nothing usable",
-					"round", round, "error", err.Error())
 				a.escalate(ctx, prefix)
 				return res
 			}
-			a.report("action: %s", truncate(action.Reasoning, 120))
+			a.report("the reply could not be used, asking again: %s", truncate(err.Error(), 160))
+			journal = append(journal, roundRecord{
+				round: round, kind: roundUnusable, commands: "(no usable reply)",
+				detail: "The reply could not be used: " + truncate(err.Error(), 1000) +
+					"\nAnswer with the JSON object exactly as the ACTION section shows it.",
+			})
+			continue
+		}
+		unusable = 0
+		// The model's reasoning for this round, whole. It used to be cut at 120 characters,
+		// which is where the reasoning usually starts to say something.
+		if r := strings.TrimSpace(action.Reasoning); r != "" {
+			a.report("%s%s", ThinkingPrefix, r)
+		}
 
-			// [7] Run in the sandbox.
-			runOutput, runErr := a.runActions(ctx, action.Actions, prefix)
+		// [7] Run in the sandbox.
+		mem.setNotes(action.Notes)
+		mem.executed, mem.recalled = 0, 0
+		runOutput, runErr := a.runRound(ctx, action.Actions, prefix, mem, round)
+		if strings.TrimSpace(runOutput) != "" {
+			fmt.Fprintf(&workLog, "## Round %d\n%s\n", round, runOutput)
+		}
 
-			// [8] Validate with the anchor, always.
-			a.report("validating with anchor...")
-			validation := anchor.New(a.cfg.Anchor, a.cfg.Agent.WorkspaceDir, a.sandbox).Validate(ctx)
-			res.Validation = &validation
-
-			if validation.Pass && runErr == nil {
-				// The anchor is happy. That is a statement about the PROJECT, not about the
-				// WORK: on a healthy repository the gate passes before anything has been done.
-				// So the model is asked whether IT considers the task finished, and a round
-				// that reports work left continues instead of returning.
-				if !action.isDone() {
-					a.report("validation passed; the model reports there is more to do (%d/%d)", round, maxSteps)
-					a.log.Info(prefix+"continuing: the model reports work left",
-						"round", round, "max_steps", maxSteps,
-						"reasoning", truncate(action.Reasoning, 200))
-					// The round is recorded so the next one is told what was already done —
-					// without this the model proposes the same first step again and the
-					// extra rounds buy nothing.
-					failedAttempts = append(failedAttempts, fmt.Sprintf(
-						"## Round %d: done, but the model reported there is more to do\nOutput:\n%s",
-						round, truncate(runOutput, 3000)))
-					continue
-				}
-
-				// [9] Validation PASS and the model reports the task finished: now the final action.
-				a.report("validation passed; running final action...")
-				finalAction, finalErr := a.runFinalAction(ctx, action.Final, prefix)
-				res.FinalAction = finalAction
-				if finalErr != nil {
-					detail := fmt.Sprintf("validation passed but the final action failed: %v\nOutput: %s", finalErr, finalAction)
-					failedAttempts = append(failedAttempts, detail)
-					rejected++
-					a.report("final action failed: %v", finalErr)
-					a.log.Error(prefix+"final action failed", "round", round, "final_action", finalAction, "error", finalErr)
-					if rejected > a.cfg.Agent.MaxRetries {
-						res.Reason = detail
-						res.DurationMS = time.Since(start).Milliseconds()
-						a.escalate(ctx, prefix)
-						return res
-					}
-					continue
-				}
-				res.Pass = true
-				res.Reason = validation.Reason
-				res.DurationMS = time.Since(start).Milliseconds()
-				a.report("task complete: %s", validation.Reason)
-				if a.cfg.Prompts.Synthesize.User != "" && a.cfg.Prompts.Synthesize.System != "" {
-					a.report("synthesizing answer...")
-					summary := a.synthesizePhase(ctx, t, runOutput, validation)
-					if summary != "" {
-						res.Summary = summary
-						a.report("%s", summary)
-					}
-				}
-				// When there was nobody to ask, the run proceeded on a reading the agent chose. Saying
-				// so is what makes the result honest: the answer is correct GIVEN that reading, and a
-				// user reading it later needs to know which one was taken — otherwise a reasonable
-				// assumption looks like a wrong answer.
-				if proceededOnAssumption != "" {
-					res.Assumption = proceededOnAssumption
-					a.report("(proceeded assuming: %s)", proceededOnAssumption)
-				}
-				a.log.Info(prefix+"validation passed", "round", round, "final_action", finalAction,
-					"assumed", truncate(proceededOnAssumption, 160))
-				return res
+		if !action.isDone() {
+			// PROGRESS. The anchor is not consulted - see the loop contract above - and
+			// nothing is charged to max_retries. The round is recorded so the next one
+			// continues from it instead of proposing the same first step again.
+			detail := "Actions:\n" + commandList(action) + "\nOutput:\n" + truncate(runOutput, 3000)
+			if runErr != nil {
+				detail += "\nExecution error: " + runErr.Error()
 			}
-
-			// The anchor refused this round. THAT is a correction, and max_retries is what
-			// bounds it — separately from the rounds counter above, because the two answer
-			// different questions.
-			rejected++
-			detail := a.summariseFailure(action, runOutput, validation, runErr)
-			failedAttempts = append(failedAttempts, detail)
-			a.report("attempt failed: %s", validation.Reason)
-			a.log.Warn(prefix+"attempt failed",
-				"attempt", rejected, "max_attempts", a.cfg.Agent.MaxRetries+1,
-				"round", round, "max_steps", maxSteps,
-				"commands", proposedCommands(action),
-				"validation", validation.Reason)
-
-			if rejected > a.cfg.Agent.MaxRetries {
-				// The retries ran out. This is a DIFFERENT outcome from the step budget
-				// running out, and the message has to say which one it was, or the reader
-				// goes looking for a broken check.
-				res.Reason = fmt.Sprintf("all %d attempts were exhausted without passing validation: %s",
-					a.cfg.Agent.MaxRetries+1, validation.Reason)
+			signature := proposedCommands(action) + "\x00" + runOutput
+			// A round that only asked for things it already holds did nothing, whatever
+			// its commands were: it counts as a repeat even when the wording differs.
+			if signature == lastSignature || (mem.recalled > 0 && mem.executed == 0) {
+				repeats++
+			} else {
+				repeats = 0
+			}
+			lastSignature = signature
+			if repeats >= stallStopAt {
+				res.Reason = fmt.Sprintf("the run stalled: the same actions produced the same output %d rounds in a row "+
+					"without the task being reported done. Rephrase the request, or split it into smaller tasks", repeats+1)
 				res.DurationMS = time.Since(start).Milliseconds()
 				a.report("%s", res.Reason)
+				a.log.Warn(prefix+"the run stalled", "round", round, "repeats", repeats+1,
+					"commands", proposedCommands(action))
 				a.escalate(ctx, prefix)
 				return res
 			}
+			if repeats >= stallWarnAt {
+				detail += "\n!! This round repeated the previous one exactly: same actions, same output. " +
+					"Repeating it again will not change anything. Do something DIFFERENT, or report " +
+					`"done": true if the task is already complete.`
+			}
+			journal = append(journal, roundRecord{
+				round: round, kind: roundProgress, commands: proposedCommands(action), detail: detail,
+			})
+			trail = append(trail, fmt.Sprintf("round %d: %s", round, truncate(collapse(proposedCommands(action)), 200)))
+			if depth == 0 {
+				a.trail(t, trail)
+			}
+			a.report("round %d done; the model reports more to do", round)
+			a.log.Info(prefix+"continuing: the model reports work left",
+				"round", round, "max_steps", maxSteps,
+				"reasoning", truncate(action.Reasoning, 200))
+			continue
+		}
+		repeats, lastSignature = 0, ""
+
+		// [8] The model claims the task is done: validate with the anchor, always.
+		a.report("validating with anchor...")
+		validation := anchor.New(a.cfg.Anchor, a.cfg.Agent.WorkspaceDir, a.sandbox).Validate(ctx)
+		res.Validation = &validation
+
+		if validation.Pass && runErr == nil {
+			// [9] Validation PASS and the model reports the task finished: now the final action.
+			a.report("validation passed; running final action...")
+			finalAction, finalErr := a.runFinalAction(ctx, action.Final, prefix)
+			res.FinalAction = finalAction
+			if finalErr != nil {
+				detail := fmt.Sprintf("validation passed but the final action failed: %v\nOutput: %s", finalErr, finalAction)
+				journal = append(journal, roundRecord{
+					round: round, kind: roundRejected, commands: proposedCommands(action), detail: detail,
+				})
+				rejected++
+				a.report("final action failed: %v", finalErr)
+				a.log.Error(prefix+"final action failed", "round", round, "final_action", finalAction, "error", finalErr)
+				if rejected > a.cfg.Agent.MaxRetries {
+					res.Reason = detail
+					res.DurationMS = time.Since(start).Milliseconds()
+					a.escalate(ctx, prefix)
+					return res
+				}
+				continue
+			}
+			res.Pass = true
+			res.Reason = validation.Reason
+			res.DurationMS = time.Since(start).Milliseconds()
+			a.report("task complete: %s", validation.Reason)
+			if a.cfg.Prompts.Synthesize.User != "" && a.cfg.Prompts.Synthesize.System != "" {
+				a.report("synthesizing answer...")
+				summary := a.synthesizePhase(ctx, t, workLog.String(), validation)
+				if summary != "" {
+					res.Summary = summary
+					a.report("%s", summary)
+				}
+			}
+			// When there was nobody to ask, the run proceeded on a reading the agent chose. Saying
+			// so is what makes the result honest: the answer is correct GIVEN that reading, and a
+			// user reading it later needs to know which one was taken — otherwise a reasonable
+			// assumption looks like a wrong answer.
+			if proceededOnAssumption != "" {
+				res.Assumption = proceededOnAssumption
+				a.report("(proceeded assuming: %s)", proceededOnAssumption)
+			}
+			a.log.Info(prefix+"validation passed", "round", round, "final_action", finalAction,
+				"assumed", truncate(proceededOnAssumption, 160))
+			return res
+		}
+
+		// The anchor refused a claim of "done". THAT is a correction, and max_retries is
+		// what bounds it — separately from the rounds counter above, because the two answer
+		// different questions.
+		rejected++
+		journal = append(journal, roundRecord{
+			round: round, kind: roundRejected, commands: proposedCommands(action),
+			detail: a.summariseFailure(action, runOutput, validation, runErr),
+		})
+		a.report("attempt failed: %s", validation.Reason)
+		a.log.Warn(prefix+"attempt failed",
+			"attempt", rejected, "max_attempts", a.cfg.Agent.MaxRetries+1,
+			"round", round, "max_steps", maxSteps,
+			"commands", proposedCommands(action),
+			"validation", validation.Reason)
+
+		if rejected > a.cfg.Agent.MaxRetries {
+			// The retries ran out. This is a DIFFERENT outcome from the step budget
+			// running out, and the message has to say which one it was, or the reader
+			// goes looking for a broken check.
+			res.Reason = fmt.Sprintf("all %d attempts were exhausted without passing validation: %s",
+				a.cfg.Agent.MaxRetries+1, validation.Reason)
+			res.DurationMS = time.Since(start).Milliseconds()
+			a.report("%s", res.Reason)
+			a.escalate(ctx, prefix)
+			return res
 		}
 	}
+}
+
+// maxUnusableReplies is how many replies IN A ROW may be unusable before the run stops.
+// One malformed reply is noise a model recovers from when told; three in a row is a model
+// that cannot follow the format, and more rounds will not change that.
+const maxUnusableReplies = 3
+
+// stallWarnAt and stallStopAt bound a run that repeats itself: after stallWarnAt identical
+// progress rounds in a row the model is warned, and at stallStopAt the run stops. Identical
+// means the same actions AND the same output, so a poll whose output changes is not a stall.
+const (
+	stallWarnAt = 2
+	stallStopAt = 4
+)
+
+// keepRoundsInFull is how many of the latest rounds the next round reads in full. Older
+// rounds shrink to one line each: a long task would otherwise grow the prompt by up to 3 KB
+// per round until the history crowded out the task - a hundred rounds is 300 KB.
+const keepRoundsInFull = 6
+
+// roundKind is what a round of the loop turned out to be. See the loop contract in loop.
+type roundKind int
+
+const (
+	roundProgress roundKind = iota
+	roundRejected
+	roundUnusable
+)
+
+// label is the one-word name of the kind, for a round compacted to one line.
+func (k roundKind) label() string {
+	switch k {
+	case roundProgress:
+		return "progress"
+	case roundRejected:
+		return "rejected"
+	default:
+		return "unusable reply"
+	}
+}
+
+// heading is what the model is told the round WAS. Getting this right is the point of the
+// journal: a progress round labelled as a failure is how a model ends up undoing its own work.
+func (k roundKind) heading() string {
+	switch k {
+	case roundProgress:
+		return "PROGRESS: these actions ran and you reported more work left"
+	case roundRejected:
+		return "REJECTED: you reported the task done and it was NOT accepted; fix what this says"
+	default:
+		return "UNUSABLE: your reply could not be used"
+	}
+}
+
+// roundRecord is one round, as the rounds after it are told about it.
+type roundRecord struct {
+	round    int
+	kind     roundKind
+	commands string // one line, for when the round is compacted
+	detail   string // the full account, for the latest rounds
+}
+
+// renderRounds is the journal the execute phase reads as {{history}}.
+func renderRounds(rounds []roundRecord) string {
+	if len(rounds) == 0 {
+		return "## PREVIOUS ROUNDS\n(none: this is the first round)"
+	}
+	var b strings.Builder
+	b.WriteString("## PREVIOUS ROUNDS\n")
+	b.WriteString("Everything already done for this task, oldest first. Continue from where it " +
+		"stands: do not redo a round that made progress.\n")
+	older := len(rounds) - keepRoundsInFull
+	for i, r := range rounds {
+		if i < older {
+			fmt.Fprintf(&b, "- Round %d (%s): %s\n", r.round, r.kind.label(), r.commands)
+			continue
+		}
+		fmt.Fprintf(&b, "\n### Round %d - %s\n%s\n", r.round, r.kind.heading(), r.detail)
+	}
+	return b.String()
+}
+
+// commandList renders the actions of a round, one per line.
+func commandList(action Action) string {
+	var b strings.Builder
+	for _, c := range action.Actions {
+		line := strings.TrimSpace(c.Command)
+		if k := strings.ToLower(strings.TrimSpace(c.Kind)); k != "" && k != "command" {
+			line = "[" + k + "] " + line
+		}
+		fmt.Fprintf(&b, "- %s\n", line)
+	}
+	return b.String()
+}
+
+// nonBlank returns the entries that carry text, trimmed.
+func nonBlank(in []string) []string {
+	var out []string
+	for _, s := range in {
+		if s = strings.TrimSpace(s); s != "" {
+			out = append(out, s)
+		}
+	}
+	return out
+}
+
+// runSubtasks carries out a task the plan split, one subtask at a time, in order.
+//
+// THE SUBTASK CONTRACT:
+//
+//   - A subtask is told what it is part of. It used to receive its own line and nothing
+//     else - "update the callers" with no idea of which function, which request, or what
+//     the subtask before it had just done - so it was analysed and planned from scratch,
+//     and often re-did or contradicted its siblings.
+//   - The subtasks run IN ORDER and the first failure stops the rest. The plan lists them
+//     in the order the work goes, so a later one routinely builds on an earlier one, and
+//     running it on top of a failure spends its whole budget on a broken base.
+//   - The parent passes only when every subtask passed, and its answer is what they did,
+//     not "3 subtasks completed".
+func (a *Agent) runSubtasks(ctx context.Context, t task.Task, analysis Analysis, subs []string,
+	depth int, start time.Time, prefix string) TaskResult {
+	res := TaskResult{Task: t.Description, Attempts: 1}
+	a.log.Info(prefix+"splitting into subtasks", "count", len(subs))
+	var outcomes []string
+	for i, sub := range subs {
+		if ctx.Err() != nil {
+			res.Reason = "cancelled during the subtasks"
+			res.DurationMS = time.Since(start).Milliseconds()
+			return res
+		}
+		res.Subtasks++
+		a.report("subtask %d/%d: %s", i+1, len(subs), truncate(sub, 160))
+		subResult := a.processTask(ctx, task.Task{
+			Description: subtaskBrief(t.Description, analysis.Summary, subs, i, outcomes),
+			Origin:      t.Origin + " (subtask)",
+			Context:     t.Context,
+		}, depth+1)
+		res.Validation = subResult.Validation
+		if !subResult.Pass {
+			skipped := len(subs) - i - 1
+			res.Reason = fmt.Sprintf("subtask %d of %d did not pass (%s): %s", i+1, len(subs),
+				truncate(sub, 120), subResult.Reason)
+			if skipped > 0 {
+				res.Reason += fmt.Sprintf("; the %d after it were not started, because later subtasks build on earlier ones", skipped)
+			}
+			res.Summary = subtaskSummary(subs, outcomes)
+			res.DurationMS = time.Since(start).Milliseconds()
+			a.report("%s", res.Reason)
+			return res
+		}
+		outcomes = append(outcomes, taskOutcome(subResult))
+	}
+	res.Pass = true
+	res.Reason = fmt.Sprintf("%d subtasks completed", len(subs))
+	res.Summary = subtaskSummary(subs, outcomes)
+	res.DurationMS = time.Since(start).Milliseconds()
+	return res
+}
+
+// subtaskBrief is the description a subtask is analysed, planned and executed from.
+//
+// The subtask's own line goes FIRST, so a log line or a truncated prompt still shows what it
+// is; the request it belongs to and the state of its siblings follow.
+func subtaskBrief(parent, summary string, subs []string, i int, outcomes []string) string {
+	var b strings.Builder
+	b.WriteString(subs[i])
+	fmt.Fprintf(&b, "\n\n(This is subtask %d of %d of a larger request. Do ONLY this subtask: "+
+		"the others are carried out separately, before or after it.)\n", i+1, len(subs))
+	fmt.Fprintf(&b, "Overall request: %s\n", truncate(collapse(parent), 1000))
+	if s := strings.TrimSpace(summary); s != "" && s != strings.TrimSpace(parent) {
+		fmt.Fprintf(&b, "What the request has to achieve: %s\n", truncate(collapse(s), 500))
+	}
+	b.WriteString("Subtasks:\n")
+	for j, s := range subs {
+		switch {
+		case j < len(outcomes):
+			fmt.Fprintf(&b, "%d. [done] %s - %s\n", j+1, s, truncate(collapse(outcomes[j]), 300))
+		case j == i:
+			fmt.Fprintf(&b, "%d. [THIS ONE] %s\n", j+1, s)
+		default:
+			fmt.Fprintf(&b, "%d. [later] %s\n", j+1, s)
+		}
+	}
+	return b.String()
+}
+
+// subtaskSummary is the parent's answer: what each finished subtask did.
+func subtaskSummary(subs []string, outcomes []string) string {
+	if len(outcomes) == 0 {
+		return ""
+	}
+	var b strings.Builder
+	for j, o := range outcomes {
+		fmt.Fprintf(&b, "%d. **%s** - %s\n", j+1, subs[j], strings.TrimSpace(o))
+	}
+	return strings.TrimRight(b.String(), "\n")
 }
 
 // maxBudgetExtensions bounds how many times the loop may ASK to continue. It is a
@@ -1331,7 +1736,7 @@ func (a *Agent) continueBudget(ctx context.Context, rounds, maxSteps int, prefix
 		Command: fmt.Sprintf("continue for another %d rounds (%d used, work left)", maxSteps, rounds),
 		Reason: "the step budget ran out and the model still reports work left; " +
 			"continuing keeps everything already done instead of starting over",
-		Rule: "agent.max_steps",
+		Rule: BudgetRule,
 	})
 	if err != nil || !ok {
 		a.log.Warn(prefix+"the budget continuation was not approved", "rounds", rounds)
@@ -1340,6 +1745,11 @@ func (a *Agent) continueBudget(ctx context.Context, rounds, maxSteps int, prefix
 	a.log.Info(prefix+"continuing with another budget", "rounds", rounds, "max_steps", maxSteps)
 	return true, nil
 }
+
+// BudgetRule is the Rule of the question "may this run spend another budget?". It is not a
+// command, so an approver that approves every COMMAND on the user's behalf must not answer it:
+// the user said yes to running commands, not to working for ever.
+const BudgetRule = "agent.max_steps"
 
 // maxSteps is the round budget in force, defaulted when none was configured.
 func (a *Agent) maxSteps() int {
@@ -1392,17 +1802,7 @@ func (a *Agent) analysisPhase(ctx context.Context, t task.Task, rules string, de
 
 func (a *Agent) planPhase(ctx context.Context, t task.Task, analysis Analysis, depth int) Plan {
 	vars := a.baseVariables(t)
-	var sb strings.Builder
-	if analysis.Summary != "" {
-		fmt.Fprintf(&sb, "- Summary: %s\n", analysis.Summary)
-	}
-	for _, c := range analysis.SuccessCrit {
-		fmt.Fprintf(&sb, "- Success criterion: %s\n", c)
-	}
-	for _, r := range analysis.Risks {
-		fmt.Fprintf(&sb, "- Risk: %s\n", r)
-	}
-	vars["analysis"] = sb.String()
+	vars["analysis"] = describeAnalysis(analysis)
 
 	text, err := a.ask(ctx, a.cfg.Prompts.Plan, vars, "plan")
 	if err != nil {
@@ -1418,11 +1818,22 @@ func (a *Agent) planPhase(ctx context.Context, t task.Task, analysis Analysis, d
 	return plan
 }
 
-func (a *Agent) actionPhase(ctx context.Context, t task.Task, plan Plan, failures []string, attempt int, prefix string) (Action, error) {
+// actionPhase asks for the next round's actions.
+//
+// The analysis travels with the plan. Without it the execute phase saw only the TASK, which on a
+// turn that answers a question is the answer itself - "yes, do it" - and the success criteria the
+// work is judged by were never in front of the phase that does the work.
+//
+// An empty list of actions is NOT an error here: "done": true with nothing left to run is how a
+// finished task is reported, and it used to fail the whole task with "the LLM proposed no
+// action". The loop decides what an empty list means, because only the loop knows "done".
+func (a *Agent) actionPhase(ctx context.Context, t task.Task, analysis Analysis, plan Plan,
+	journal []roundRecord, mem *workMemory, round int, prefix string) (Action, error) {
 	vars := a.baseVariables(t)
+	vars["analysis"] = describeAnalysis(analysis)
 	vars["plan"] = describePlan(plan)
-	vars["history"] = template.History(failures)
-	vars["attempt"] = fmt.Sprint(attempt)
+	vars["history"] = renderRounds(journal) + mem.render()
+	vars["attempt"] = fmt.Sprint(round)
 	vars["max_attempts"] = fmt.Sprint(a.cfg.Agent.MaxRetries + 1)
 
 	text, err := a.ask(ctx, a.cfg.Prompts.Execute, vars, "execute")
@@ -1433,18 +1844,33 @@ func (a *Agent) actionPhase(ctx context.Context, t task.Task, plan Plan, failure
 	if err := llm.DecodeJSON(text, &action); err != nil {
 		return Action{}, err
 	}
-	if len(action.Actions) == 0 {
-		return Action{}, errors.New("the LLM proposed no action")
-	}
-	a.log.Info(prefix+"action proposed", "reasoning", truncate(action.Reasoning, 200), "actions", len(action.Actions))
+	a.log.Info(prefix+"action proposed", "reasoning", truncate(action.Reasoning, 200),
+		"actions", len(action.Actions), "done", action.isDone())
 	return action, nil
+}
+
+// describeAnalysis renders the analysis for the phases after it.
+func describeAnalysis(analysis Analysis) string {
+	var sb strings.Builder
+	if analysis.Summary != "" {
+		fmt.Fprintf(&sb, "- Summary: %s\n", analysis.Summary)
+	}
+	for _, c := range analysis.SuccessCrit {
+		fmt.Fprintf(&sb, "- Success criterion: %s\n", c)
+	}
+	for _, r := range analysis.Risks {
+		fmt.Fprintf(&sb, "- Risk: %s\n", r)
+	}
+	return sb.String()
 }
 
 // synthesizePhase asks the LLM for a concise, evidence-based answer after the
 // actions have run and the anchor has validated them.
 func (a *Agent) synthesizePhase(ctx context.Context, t task.Task, output string, validation anchor.Result) string {
 	vars := a.baseVariables(t)
-	vars["output"] = truncate(output, 4000)
+	// The output of every round, so the head AND the tail are kept: the start says what was
+	// found, the end says where the work landed.
+	vars["output"] = truncateMiddle(output, 6000)
 	vars["validation"] = validation.Reason
 
 	text, err := a.ask(ctx, a.cfg.Prompts.Synthesize, vars, "synthesize")
@@ -1479,7 +1905,26 @@ func (a *Agent) ask(ctx context.Context, p config.Template, vars map[string]stri
 	messages = append(messages, llm.Message{Role: "user", Content: user})
 
 	start := time.Now()
-	text, err := a.engine.Complete(ctx, messages)
+	var text string
+	var err error
+	if a.streamThoughts && a.Progress != nil {
+		live := &liveView{a: a, phase: phase}
+		text, err = a.engine.CompleteStream(ctx, messages, live.add)
+	} else {
+		text, err = a.engine.Complete(ctx, messages)
+	}
+	if errors.Is(err, llm.ErrToolCallForText) && ctx.Err() == nil {
+		// Reported from real use: "I ask it for things and the agent does nothing". The model
+		// answered a phase that wants a JSON TEXT with a tool call (search_skills, ...); every
+		// round asked the same way and got the same call, so each subtask died on round 1
+		// with no work done. One retry that SAYS what went wrong is what makes it answerable
+		// - the tools it reached for are still available as actions inside the JSON.
+		a.log.Warn("the model answered with a tool call; asking once more for text", "phase", phase)
+		retry := append(append([]llm.Message{}, messages...), llm.Message{Role: "user", Content: "Your last reply was a " +
+			"tool call, and this step cannot run tool calls. Reply with ONLY the JSON object the instructions " +
+			"describe. If you wanted to use a tool, put it in the \"actions\" list of that JSON (kind and command)."})
+		text, err = a.engine.Complete(ctx, retry)
+	}
 	if err != nil {
 		return "", err
 	}
@@ -1707,6 +2152,13 @@ func (a *Agent) feedbackSuffix(name string) string {
 }
 
 func (a *Agent) runActions(ctx context.Context, actions []Command, prefix string) (string, error) {
+	return a.runRound(ctx, actions, prefix, nil, 0)
+}
+
+// runRound is runActions with the run's working memory. A read the run already holds, and
+// that nothing has invalidated, is answered from memory instead of being executed; a read
+// that ran is kept; a write forgets every kept read. mem == nil is the plain behaviour.
+func (a *Agent) runRound(ctx context.Context, actions []Command, prefix string, mem *workMemory, round int) (string, error) {
 	var sb strings.Builder
 	var lastErr error
 
@@ -1747,6 +2199,17 @@ func (a *Agent) runActions(ctx context.Context, actions []Command, prefix string
 		if strings.TrimSpace(action.Command) == "" {
 			a.log.Debug(prefix+"action with no command (descriptive)", "description", action.Description)
 			continue
+		}
+		if mem != nil && isRead(action) {
+			if rec, ok := mem.recall(action.Command); ok {
+				fmt.Fprintf(&sb, "$ %s\n[not run again: the same read was made in round %d and nothing has "+
+					"changed since. Its full output is under \"WHAT YOU HAVE ALREADY READ\" in this prompt]\n",
+					action.Command, rec.round)
+				a.log.Info(prefix+"read answered from memory", "command", truncate(action.Command, 120),
+					"round", rec.round)
+				mem.recalled++
+				continue
+			}
 		}
 		a.report("running: %s", action.Command)
 		a.log.Info(prefix+"running in sandbox", "n", i+1, "command", action.Command, "description", truncate(action.Description, 120))
@@ -1795,6 +2258,13 @@ func (a *Agent) runActions(ctx context.Context, actions []Command, prefix string
 		}
 
 		output, truncated, exit, err := a.exec(ctx, plan.Request)
+		// What the command printed, so the user sees what the agent is looking at, not only
+		// that it ran something.
+		//
+		// It is reported even when the command printed nothing: the exit code is what tells
+		// the reader whether it worked, and a silent success (`printf > file`) would
+		// otherwise never be marked as finished.
+		a.report("output (exit %d):\n%s", exit, truncateMiddle(strings.TrimSpace(output), 800))
 
 		fmt.Fprintf(&sb, "$ %s\n", action.Command)
 		if output != "" {
@@ -1807,6 +2277,16 @@ func (a *Agent) runActions(ctx context.Context, actions []Command, prefix string
 			sb.WriteString("[output truncated by the sandbox limit]\n")
 		}
 		fmt.Fprintf(&sb, "[exit=%d]\n", exit)
+
+		if mem != nil {
+			mem.executed++
+			switch {
+			case isWrite(action):
+				mem.invalidate()
+			case isRead(action) && err == nil && exit == 0 && !truncated:
+				mem.remember(action.Command, round, output)
+			}
+		}
 
 		if err != nil {
 			lastErr = fmt.Errorf("action %d (%s) could not run: %w", i+1, action.Command, err)
@@ -2031,6 +2511,151 @@ func (a *Agent) escalate(ctx context.Context, prefix string) {
 	a.log.Info(prefix+"escalation executed", "exit", exit, "output", truncate(output, 300))
 }
 
+// liveInterval is the least time between two live snapshots. A model writes dozens of
+// fragments a second; a snapshot per fragment would flood the interface and the socket for no
+// visible gain. A variable so a test can take every snapshot.
+var liveInterval = 250 * time.Millisecond
+
+// liveView turns a streamed completion into snapshots of what the model is saying.
+type liveView struct {
+	a       *Agent
+	phase   string
+	answer  strings.Builder
+	thought strings.Builder
+	last    time.Time
+	sent    string
+}
+
+// add takes one fragment and reports a snapshot when enough time has passed.
+func (l *liveView) add(fragment string, thinking bool) {
+	if thinking {
+		l.thought.WriteString(fragment)
+	} else {
+		l.answer.WriteString(fragment)
+	}
+	if time.Since(l.last) < liveInterval {
+		return
+	}
+	view := liveText(l.phase, l.thought.String(), l.answer.String())
+	if view == "" || view == l.sent {
+		return
+	}
+	l.sent, l.last = view, time.Now()
+	l.a.report("%s%s", LivePrefix, view)
+}
+
+// liveFields are, per phase, the JSON fields a person wants to read while the reply is being
+// written, and what to put in front of each. The rest of the reply is structure.
+var liveFields = map[string][]struct{ name, lead string }{
+	"analyze":    {{"summary", ""}, {"reply", ""}, {"question", ""}},
+	"plan":       {{"action", "- "}},
+	"execute":    {{"reasoning", ""}, {"command", "$ "}},
+	"synthesize": {{"summary", ""}},
+}
+
+// liveMaxRunes bounds one snapshot: the TAIL is kept, because it is what is being written.
+const liveMaxRunes = 1500
+
+// liveText is the readable part of a reply that is still being written.
+//
+// The model answers in JSON, so the text is read out of the fields it is filling in, even
+// half-written. Reasoning tokens the provider streamed apart are shown while the answer has
+// nothing readable yet, and prose - a model thinking out loud before its JSON - is shown as is.
+func liveText(phase, thought, answer string) string {
+	var parts []string
+	for _, f := range liveFields[phase] {
+		for _, v := range partialStrings(answer, f.name) {
+			if v = strings.TrimSpace(v); v != "" {
+				parts = append(parts, f.lead+v)
+			}
+		}
+	}
+	text := strings.Join(parts, "\n")
+	if text == "" {
+		trimmed := strings.TrimSpace(answer)
+		if trimmed != "" && !strings.HasPrefix(trimmed, "{") && !strings.HasPrefix(trimmed, "`") {
+			text = trimmed
+		}
+	}
+	if text == "" {
+		text = strings.TrimSpace(thought)
+	}
+	if r := []rune(text); len(r) > liveMaxRunes {
+		text = "…" + string(r[len(r)-liveMaxRunes:])
+	}
+	return text
+}
+
+// partialStrings returns every value of the string field `name` in a JSON text that may be
+// cut off anywhere: the last value is returned as far as it goes.
+func partialStrings(text, name string) []string {
+	var out []string
+	key := `"` + name + `"`
+	for i := 0; ; {
+		at := strings.Index(text[i:], key)
+		if at < 0 {
+			return out
+		}
+		j := i + at + len(key)
+		i = j
+		for j < len(text) && (text[j] == ' ' || text[j] == '\t' || text[j] == '\n' || text[j] == '\r') {
+			j++
+		}
+		if j >= len(text) || text[j] != ':' {
+			continue
+		}
+		j++
+		for j < len(text) && (text[j] == ' ' || text[j] == '\t' || text[j] == '\n' || text[j] == '\r') {
+			j++
+		}
+		if j >= len(text) || text[j] != '"' {
+			continue
+		}
+		value, end := decodePartial(text[j+1:])
+		out = append(out, value)
+		i = j + 1 + end
+	}
+}
+
+// decodePartial decodes a JSON string body up to its closing quote or the end of the text,
+// and returns the value and how many bytes it consumed. An escape cut off at the end stops the
+// value there rather than guessing.
+func decodePartial(s string) (string, int) {
+	var b strings.Builder
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		switch {
+		case c == '"':
+			return b.String(), i + 1
+		case c != '\\':
+			b.WriteByte(c)
+		case i+1 >= len(s):
+			return b.String(), len(s)
+		default:
+			i++
+			switch s[i] {
+			case 'n':
+				b.WriteByte('\n')
+			case 't':
+				b.WriteByte('\t')
+			case 'r':
+			case 'u':
+				if i+4 >= len(s) {
+					return b.String(), len(s)
+				}
+				var r rune
+				if _, err := fmt.Sscanf(s[i+1:i+5], "%04x", &r); err == nil {
+					b.WriteRune(r)
+				}
+				i += 4
+			default:
+				b.WriteByte(s[i])
+			}
+		}
+	}
+	return b.String(), len(s)
+}
+
 // shellQuote quotes text for passing to sh -c.
 func shellQuote(s string) string {
 	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
@@ -2044,9 +2669,31 @@ func modesToStrings(modes []sandbox.Mode) []string {
 	return out
 }
 
+// truncate shortens s to at most max bytes plus an ellipsis, never cutting a character in
+// half. A byte cut used to split a multi-byte rune - any accented letter of a Spanish request -
+// and the invalid UTF-8 went into prompts, logs and the chat.
 func truncate(s string, max int) string {
 	if len(s) <= max {
 		return s
 	}
-	return s[:max] + "..."
+	cut := max
+	for cut > 0 && !utf8.RuneStart(s[cut]) {
+		cut--
+	}
+	return s[:cut] + "..."
+}
+
+// truncateMiddle keeps the first and the last part of s and drops the middle, when s is
+// longer than max bytes. Both ends are cut on a character boundary.
+func truncateMiddle(s string, max int) string {
+	if len(s) <= max {
+		return s
+	}
+	head := max / 3
+	tail := max - head
+	start := len(s) - tail
+	for start < len(s) && !utf8.RuneStart(s[start]) {
+		start++
+	}
+	return truncate(s, head) + "\n[... middle omitted ...]\n" + s[start:]
 }

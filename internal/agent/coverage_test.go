@@ -207,23 +207,39 @@ func TestActionPhaseWithInvalidResponse(t *testing.T) {
 	}
 }
 
-// TestActionPhaseWithoutActions: the JSON is valid but carries no actions.
+// TestActionPhaseWithoutActions: the JSON is valid, carries no actions, and reports the task
+// finished (an absent "done" means finished). That is how a model reports work that is
+// already complete, and it goes to the anchor like any other claim: the anchor, not the
+// number of actions, decides.
 func TestActionPhaseWithoutActions(t *testing.T) {
-	server := phaseServer{
-		analysis: `{"understandable":true,"summary":"x","needs_subtasks":false}`,
-		plan:     `{"plan":[]}`,
-		action:   `{"reasoning":"I do nothing","actions":[]}`,
-	}
-	srv := httptest.NewServer(server.handler(t))
-	defer srv.Close()
+	for _, tc := range []struct {
+		name   string
+		anchor string
+		pass   bool
+	}{
+		{"the anchor accepts the claim", "exit 0", true},
+		{"the anchor refuses the claim", "exit 1", false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			server := phaseServer{
+				analysis: `{"understandable":true,"summary":"x","needs_subtasks":false}`,
+				plan:     `{"plan":[]}`,
+				action:   `{"reasoning":"it is already done","actions":[]}`,
+			}
+			srv := httptest.NewServer(server.handler(t))
+			defer srv.Close()
 
-	e := mount(t, srv, config.Anchor{Kind: "command", Command: "true", Timeout: 5 * time.Second}, nil)
-	var result *TaskResult
-	e.agent.Observer = func(r TaskResult) { result = &r }
+			e := mount(t, srv, config.Anchor{Kind: "command", Command: "sh", Args: []string{"-c", tc.anchor},
+				Timeout: 5 * time.Second}, nil)
+			var result *TaskResult
+			e.agent.Observer = func(r TaskResult) { result = &r }
 
-	e.agent.Run(context.Background())
-	if result.Pass {
-		t.Error("with no actions there is nothing to validate")
+			e.agent.Run(context.Background())
+			if result.Pass != tc.pass {
+				t.Errorf("pass = %v, want %v: an empty claim of done is judged by the anchor (%s)",
+					result.Pass, tc.pass, result.Reason)
+			}
+		})
 	}
 }
 
@@ -1414,8 +1430,13 @@ func TestSubtaskThatFailsIsReportedInTheReason(t *testing.T) {
 	if last.Pass {
 		t.Error("it cannot pass with failing subtasks")
 	}
-	if !strings.Contains(last.Reason, "only 0 of 2") {
-		t.Errorf("the reason must count the passing subtasks: %q", last.Reason)
+	// The reason names WHICH subtask failed, and says the one after it never started: it
+	// builds on the first, and running it on a failed base would spend its whole budget.
+	if !strings.Contains(last.Reason, "subtask 1 of 2") || !strings.Contains(last.Reason, "not started") {
+		t.Errorf("the reason must name the failing subtask and the skipped ones: %q", last.Reason)
+	}
+	if last.Subtasks != 1 {
+		t.Errorf("subtasks started = %d, want 1: the second must not run after the first failed", last.Subtasks)
 	}
 }
 
@@ -1508,8 +1529,8 @@ func TestExecutePromptCarriesTheAttemptNumber(t *testing.T) {
 	if err := e.agent.Run(context.Background()); err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(executePrompt, "attempt") {
-		t.Errorf("the execute prompt must carry the attempt number")
+	if !strings.Contains(executePrompt, "Round: 1") {
+		t.Errorf("the execute prompt must carry the round number")
 	}
 }
 

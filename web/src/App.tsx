@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'preact/hooks'
-import { Markdown } from './Markdown'
+import { Markdown, MarkdownLite } from './Markdown'
 import { hydrationState, hydrationLog, noteActivity } from './hydration'
 
 interface Message {
@@ -7,6 +7,13 @@ interface Message {
   role: 'user' | 'agent' | 'activity'
   text: string
   kind?: string
+  // changes is what the run changed: pictures first, files as a summary.
+  changes?: ChangeReport
+}
+
+interface ChangeReport {
+  files?: { path: string; status: string; added: number; deleted: number }[]
+  previews?: { name: string; url: string }[]
 }
 
 interface PendingApproval {
@@ -24,6 +31,8 @@ interface SessionInfo {
   mergeable?: boolean
   changes?: number
   worktree?: string
+  // auto_approve is set while the user has allowed every command in this session.
+  auto_approve?: boolean
   created: string
   last_used: string
   running: boolean
@@ -153,6 +162,22 @@ interface SkillInfo {
 }
 
 const STORAGE_KEY = 'motita:last-session'
+
+// The open conversation lives in the URL (?session=<id>) so a link, a reload or the
+// back button returns to it. Query and not path: the gateway serves the page at one path.
+function sessionFromUrl(): string {
+  try { return new URLSearchParams(window.location.search).get('session') || '' } catch { return '' }
+}
+function writeSessionUrl(id: string, mode: 'push' | 'replace') {
+  try {
+    const u = new URL(window.location.href)
+    if (u.searchParams.get('session') === id) return
+    u.searchParams.set('session', id)
+    const url = u.pathname + u.search + u.hash
+    if (mode === 'push') history.pushState(null, '', url)
+    else history.replaceState(null, '', url)
+  } catch { /* ignore */ }
+}
 const SIDEBAR_KEY = 'motita:sidebar-open'
 const PROJECT_COLLAPSE_KEY = 'motita:collapsed-projects'
 const UPGRADE_DISMISS_KEY = 'motita:upgrade-dismissed'
@@ -309,14 +334,135 @@ async function api(path: string, options?: RequestInit): Promise<Response> {
 
 // classifyProgress reads the prefix of a progress line and returns the kind.
 function classifyProgress(text: string): string | null {
+  if (/^thinking:/.test(text)) return 'thought'
+  if (/^output \(exit/.test(text)) return 'output'
+  if (/^approved \(all commands/.test(text)) return 'check'
   if (/^running:/.test(text)) return 'command'
   if (/^action:/.test(text)) return 'reasoning'
   if (/^(validating|validation)/.test(text)) return 'check'
-  if (/^(planning|plan ready)/.test(text)) return 'plan'
+  if (/^(planning|plan ready|subtask)/.test(text)) return 'plan'
   if (/^(analysing|understood)/.test(text)) return 'analysis'
-  if (/^deciding/.test(text)) return 'reasoning'
+  if (/^(deciding|round \d+ done)/.test(text)) return 'reasoning'
   if (/^(task complete|synthesizing)/.test(text)) return 'synthesis'
   return null
+}
+
+// TRAIL_MAX is how many of a run's latest steps stay on screen while it works.
+const TRAIL_MAX = 8
+
+// TrailStep is one progress line of the run in flight. The trail is deliberately
+// NOT part of the conversation: it exists so the user can see the agent working
+// while it works, and it is dropped the moment the answer arrives.
+interface TrailStep {
+  id: number
+  text: string
+  kind: string
+  // exit is a command's result once it has finished: null while it runs.
+  exit?: number | null
+}
+
+// SHELL_LOG_MAX bounds the terminal history so a very long session cannot grow it forever.
+const SHELL_LOG_MAX = 500
+
+// NO_RESULT closes a command that never reported an exit code.
+const NO_RESULT = -999
+
+// ShellEntry is one command the agent ran, with everything it printed. The conversation
+// only shows that the command ran and whether it worked; the full input and output live
+// in the terminal drawer, as a history.
+interface ShellEntry {
+  id: number
+  cmd: string
+  exit: number | null
+  out: string
+}
+
+// REASONING_LEVELS are the levels the gateway accepts, in the order they are offered.
+const REASONING_LEVELS = ['off', 'low', 'medium', 'high']
+
+// reasoningOf is the level a configuration is running: "off" when reasoning is disabled,
+// whatever level string is stored beside it.
+function reasoningOf(c: ConfigView | null): string {
+  if (!c) return 'medium'
+  return c.reasoning_enabled ? (c.reasoning || 'medium') : 'off'
+}
+
+// THOUGHT_PREFIX is what the agent puts in front of a phase's finished reasoning.
+const THOUGHT_PREFIX = 'thinking: '
+
+// stepText is what a trail row shows: a thought without its prefix, anything else as is.
+function stepText(step: TrailStep): string {
+  return step.kind === 'thought' ? step.text.slice(THOUGHT_PREFIX.length) : step.text
+}
+
+// splitOutput reads a command's output line ("output (exit N):\n<body>") into the
+// exit code and the body, so the trail can show them as a terminal block instead of the
+// raw progress text. A line that does not match is returned whole with no code.
+function splitOutput(text: string): { exit: number | null; body: string } {
+  const m = /^output \(exit (-?\d+)\):\n?([\s\S]*)$/.exec(text)
+  return m ? { exit: Number(m[1]), body: m[2] } : { exit: null, body: text }
+}
+
+const STATUS_LABEL: Record<string, string> = { added: 'new', modified: 'edited', deleted: 'removed', renamed: 'moved' }
+
+// ChangesCard is what a finished run shows the user about its work: the pictures first, since
+// that is what a person can judge, then the files as a folded summary. The code stays in the diff.
+function ChangesCard({ changes }: { changes: ChangeReport }) {
+  const files = changes.files ?? []
+  const pics = changes.previews ?? []
+  const [zoom, setZoom] = useState<string | null>(null)
+  const added = files.reduce((n, f) => n + f.added, 0)
+  const deleted = files.reduce((n, f) => n + f.deleted, 0)
+  return (
+    <div class="changes-card">
+      {pics.length > 0 && (
+        <div class="changes-previews">
+          {pics.map(p => (
+            <figure key={p.name} class="changes-shot" onClick={() => setZoom(p.url)}>
+              <img src={p.url} alt={p.name} loading="lazy" />
+              <figcaption>{p.name}</figcaption>
+            </figure>
+          ))}
+        </div>
+      )}
+      {files.length > 0 && (
+        <details class="changes-files">
+          <summary>
+            {files.length} {files.length === 1 ? 'file' : 'files'} changed
+            <span class="chg-add"> +{added}</span><span class="chg-del"> −{deleted}</span>
+          </summary>
+          <ul>
+            {files.map(f => (
+              <li key={f.path}>
+                <span class={`chg-tag ${f.status}`}>{STATUS_LABEL[f.status] ?? f.status}</span>
+                <span class="chg-path">{f.path}</span>
+                {(f.added > 0 || f.deleted > 0) && <span class="chg-nums"><span class="chg-add">+{f.added}</span> <span class="chg-del">−{f.deleted}</span></span>}
+              </li>
+            ))}
+          </ul>
+        </details>
+      )}
+      {zoom && (
+        <div class="changes-zoom" onClick={() => setZoom(null)} role="dialog" aria-label="preview">
+          <img src={zoom} alt="preview" />
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ShellStatus is all the conversation says about a command's result: still running, worked,
+// or failed with which code. What it printed is in the terminal drawer.
+function ShellStatus({ exit }: { exit: number | null | undefined }) {
+  if (exit == null) return <span class="term-exit running">running</span>
+  return <span class={`term-exit${exit ? ' bad' : ''}`}>{exit ? `failed · exit ${exit}` : 'ok'}</span>
+}
+
+// oneLine folds a progress line into one short row for the trail: a synthesized
+// summary is reported as progress too, and it can be a whole Markdown document.
+function oneLine(text: string, max = 160): string {
+  const flat = text.replace(/\s+/g, ' ').trim()
+  return flat.length > max ? flat.slice(0, max - 1) + '…' : flat
 }
 
 // parseFrame reads one SSE frame (text between two blank lines).
@@ -373,6 +519,19 @@ export default function App() {
   const [running, setRunning] = useState(false)
   const [activity, setActivity] = useState<string | null>(null)
   const [activityKind, setActivityKind] = useState<string>('')
+  // The steps the run in flight has already taken, oldest first. See TrailStep.
+  const [trail, setTrail] = useState<TrailStep[]>([])
+  // What the model is writing RIGHT NOW, while a phase is being generated. Each
+  // 'thinking' event replaces the last, and the next ordinary step clears it: by
+  // then the phase's finished reasoning has arrived as a step of its own.
+  const [liveThought, setLiveThought] = useState<string | null>(null)
+  // The trail rows the user opened to read in full.
+  const [openSteps, setOpenSteps] = useState<Set<number>>(new Set())
+  // Every command the agent ran in this conversation, with its output: what the terminal
+  // drawer replays. The drawer is closed by default; the tab on the right edge opens it.
+  const [shellLog, setShellLog] = useState<ShellEntry[]>([])
+  const [termOpen, setTermOpen] = useState(false)
+  const termBodyRef = useRef<HTMLDivElement>(null)
   const [approval, setApproval] = useState<PendingApproval | null>(null)
   const [input, setInput] = useState('')
 
@@ -407,6 +566,7 @@ export default function App() {
   // configuration every time the modal opens, and closing without Done drops it.
   const [draftProvider, setDraftProvider] = useState('')
   const [draftModel, setDraftModel] = useState('')
+  const [draftReasoning, setDraftReasoning] = useState('medium')
   const [savingConfig, setSavingConfig] = useState(false)
   const [providers, setProviders] = useState<ProviderInfo[]>([])
   const [modelList, setModelList] = useState<string[]>([])
@@ -776,7 +936,7 @@ export default function App() {
     // every change would drag someone who deliberately went back up to an earlier answer.
     if (!pinnedRef.current) return
     scrollToBottom()
-  }, [messages, activity, scrollToBottom])
+  }, [messages, activity, liveThought, trail, scrollToBottom])
 
   /**
    * Follows the growth that NO event announces.
@@ -1421,12 +1581,19 @@ export default function App() {
   }, [scheduledTasks])
 
   // switchSession loads the transcript for a given session id and adopts it.
-  const switchSession = useCallback(async (id: string) => {
+  // `urlMode` says how the address bar follows: 'push' for a click, 'replace' for the
+  // initial load, 'none' when the URL already changed (back/forward).
+  const followRef = useRef<() => void>(() => {})
+  const switchSession = useCallback(async (id: string, urlMode: 'push' | 'replace' | 'none' = 'push') => {
     setSessionId(id)
     sessionRef.current = id
     try { localStorage.setItem(STORAGE_KEY, id) } catch { /* ignore */ }
+    if (urlMode !== 'none') writeSessionUrl(id, urlMode)
     setMessages([])
     setActivity(null)
+    setTrail([])
+    setShellLog([])
+    setLiveThought(null)
     setApproval(null)
     lastIdRef.current = 0
     // The transcript is being fetched: the message area is empty until it arrives, and an
@@ -1443,12 +1610,30 @@ export default function App() {
     if (liveRun) setRunningState(true, liveRun)
     // Load transcript for the new session.
     try {
-      const res = await api('/v1/sessions/' + id + '/messages')
+      const res = await api('/v1/sessions/' + encodeURIComponent(id) + '/messages')
       const data = await res.json()
+      // The user may have clicked another conversation while this one was loading: a
+      // late answer must not paint over the one now on screen.
+      if (sessionRef.current !== id) return
       const msgs = data.messages || []
+      // Is a run in flight in this conversation? The gateway relaunches an interrupted run on
+      // its own after a restart, and this tab knows nothing of it: it never started the
+      // stream. Asking is what lets the reader see it and follow it.
+      let live = false
+      try {
+        const rs = await api('/v1/sessions/' + encodeURIComponent(id) + '/run')
+        if (rs.ok) {
+          const st = await rs.json()
+          live = !st.outcome
+        }
+      } catch { /* no run to follow */ }
+      if (sessionRef.current !== id) return
       const out: Message[] = []
       for (const m of msgs) {
         if (m.User) out.push({ id: nextId(), role: 'user', text: m.User })
+        // A turn still open carries what the run had done before it was cut. The stream only
+        // brings what happens FROM NOW ON, so this is the one place the reader can see where
+        // it got to - it is drawn whether or not the run is live.
         if (m.Agent) out.push({ id: nextId(), role: 'agent', text: m.Agent })
       }
       if (out.length === 0) {
@@ -1456,11 +1641,18 @@ export default function App() {
       }
       setMessages(out)
       setState('ready')
+      if (live && !runningRef.current) {
+        runSessionRef.current = id
+        setRunningState(true, id)
+        setState('working')
+        lastIdRef.current = 0
+        followRef.current()
+      }
       // Load config so the header shows the current provider/model.
       try {
-        const cfgRes = await api('/v1/sessions/' + id + '/config')
+        const cfgRes = await api('/v1/sessions/' + encodeURIComponent(id) + '/config')
         const cfgData: ConfigView = await cfgRes.json()
-        setConfig(cfgData)
+        if (sessionRef.current === id) setConfig(cfgData)
       } catch { /* non-fatal */ }
     } catch {
       setState('could not load the conversation', true)
@@ -1468,6 +1660,16 @@ export default function App() {
       requestModal(false)
     }
   }, [])
+
+  // Back/forward: the URL already names the conversation, so only adopt it.
+  useEffect(() => {
+    const onPop = () => {
+      const id = sessionFromUrl()
+      if (id && id !== sessionRef.current) switchSession(id, 'none')
+    }
+    window.addEventListener('popstate', onPop)
+    return () => window.removeEventListener('popstate', onPop)
+  }, [switchSession])
 
   // createSession opens a new conversation and switches to it.
   const createSession = useCallback(async (projectId?: string) => {
@@ -1655,6 +1857,7 @@ export default function App() {
   const openModelSwitcher = useCallback(() => {
     setDraftProvider(config?.provider || '')
     setDraftModel(config?.model || '')
+    setDraftReasoning(reasoningOf(config))
     fetchProviders()
     fetchModelList()
     setShowModelSwitcher(true)
@@ -1676,6 +1879,7 @@ export default function App() {
   const discardModelSwitcher = useCallback(() => {
     setDraftProvider(config?.provider || '')
     setDraftModel(config?.model || '')
+    setDraftReasoning(reasoningOf(config))
     setShowModelSwitcher(false)
   }, [config])
 
@@ -1690,7 +1894,7 @@ export default function App() {
       const res = await api('/v1/sessions/' + sessionId + '/config', {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ provider: draftProvider, model: draftModel })
+        body: JSON.stringify({ provider: draftProvider, model: draftModel, reasoning: draftReasoning })
       })
       if (!res.ok) {
         const err = await res.json().catch(() => ({}))
@@ -1710,7 +1914,7 @@ export default function App() {
       // with no way back.
       setSavingConfig(false)
     }
-  }, [sessionId, draftProvider, draftModel])
+  }, [sessionId, draftProvider, draftModel, draftReasoning])
 
   // checkForUpdates polls /v1/update/check. When a new version is found, a
   // toast is shown (unless the user has dismissed this version before) and
@@ -1827,16 +2031,39 @@ export default function App() {
   }, [])
 
   // answerApproval sends the approval response.
-  const answerApproval = useCallback(async (id: string, approve: boolean) => {
+  //
+  // `all` is "allow every command for the rest of this session": the gateway then
+  // answers yes on the user's behalf until they take it back from the header.
+  const answerApproval = useCallback(async (id: string, approve: boolean, all = false) => {
     setApproval(null)
     try {
       await api('/v1/sessions/' + sessionRef.current + '/runs/approval', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ id, approve })
+        body: JSON.stringify(all ? { id, approve, scope: 'session' } : { id, approve })
       })
+      if (all) {
+        const sid = sessionRef.current
+        setSessions(prev => prev.map(s => s.id === sid ? { ...s, auto_approve: true } : s))
+      }
     } catch {
       setState('could not answer the approval', true)
+    }
+  }, [])
+
+  // stopAutoApprove takes back "allow all commands": the next command is asked again.
+  const stopAutoApprove = useCallback(async () => {
+    const sid = sessionRef.current
+    try {
+      const res = await api('/v1/sessions/' + sid + '/auto-approve', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ enabled: false })
+      })
+      if (!res.ok) throw new Error()
+      setSessions(prev => prev.map(s => s.id === sid ? { ...s, auto_approve: false } : s))
+    } catch {
+      setState('could not stop allowing all commands', true)
     }
   }, [])
 
@@ -1848,6 +2075,12 @@ export default function App() {
     setRunningState(false, runSessionRef.current || sessionRef.current)
     runSessionRef.current = ''
     setActivity(null)
+    setTrail([])
+    // A command that never reported a result (refused, declined, or cut off by a cancel)
+    // must not read "running" for ever: it is closed as "no result".
+    setShellLog(prev => prev.some(e => e.exit == null) ? prev.map(e => e.exit == null ? { ...e, exit: NO_RESULT } : e) : prev)
+    setLiveThought(null)
+    setOpenSteps(new Set())
     setState('ready')
     // After a run finishes, refresh the session list so the auto-title shows up.
     fetchSessions()
@@ -1874,9 +2107,53 @@ export default function App() {
       }
       if (payload.pending_approval) setApproval(payload.pending_approval)
       break
-    case 'progress':
-      setActivity(payload.text || '')
-      setActivityKind(classifyProgress(payload.text || '') ?? '')
+    case 'progress': {
+      const text: string = payload.text || ''
+      const kind = classifyProgress(text) ?? ''
+      if (kind === 'output') {
+        // A command's output is NOT a step of the conversation: the trail shows the
+        // command and whether it worked, and the terminal drawer keeps what it printed.
+        // The result lands on the command it belongs to.
+        const { exit, body } = splitOutput(text)
+        setTrail(prev => {
+          for (let i = prev.length - 1; i >= 0; i--) {
+            if (prev[i].kind === 'command' && prev[i].exit == null) {
+              const next = prev.slice()
+              next[i] = { ...prev[i], exit: exit ?? 0 }
+              return next
+            }
+          }
+          return prev
+        })
+        setShellLog(prev => {
+          for (let i = prev.length - 1; i >= 0; i--) {
+            if (prev[i].exit == null) {
+              const next = prev.slice()
+              next[i] = { ...prev[i], exit: exit ?? 0, out: body }
+              return next
+            }
+          }
+          return prev
+        })
+        setLiveThought(null)
+        break
+      }
+      setActivity(text)
+      setActivityKind(kind)
+      // Every step is kept for the trail, not only the latest: one line that keeps
+      // being replaced told the user the agent was busy, and nothing of what it had
+      // already done on the way.
+      if (text) setTrail(prev => [...prev, { id: nextId(), text, kind, ...(kind === 'command' ? { exit: null } : {}) }].slice(-TRAIL_MAX))
+      if (kind === 'command') {
+        const cmd = text.replace(/^running:\s*/, '')
+        setShellLog(prev => [...prev, { id: nextId(), cmd, exit: null, out: '' }].slice(-SHELL_LOG_MAX))
+      }
+      setLiveThought(null)
+      break
+    }
+    case 'thinking':
+      // Ephemeral: never replayed, never kept. See EventThinking in the gateway.
+      setLiveThought(payload.text || null)
       break
     case 'approval':
       setActivity(null)
@@ -1885,7 +2162,7 @@ export default function App() {
     case 'done':
       setActivity(null)
       if (payload.result) {
-        setMessages(prev => [...prev, { id: nextId(), role: 'agent', text: payload.result }])
+        setMessages(prev => [...prev, { id: nextId(), role: 'agent', text: payload.result, changes: payload.changes }])
       }
       finish()
       break
@@ -1959,9 +2236,26 @@ export default function App() {
     }
   }, [finish, transcript, readStream])
 
+  useEffect(() => { followRef.current = followReconnect }, [followReconnect])
+
+  // Follow the terminal while it fills, unless the reader scrolled up to look at something.
+  useEffect(() => {
+    const el = termBodyRef.current
+    if (!el || !termOpen) return
+    const nearEnd = el.scrollHeight - el.scrollTop - el.clientHeight < 80
+    if (nearEnd) el.scrollTop = el.scrollHeight
+  }, [shellLog, termOpen])
+
+  // Opening it lands on the latest command.
+  useEffect(() => {
+    if (termOpen && termBodyRef.current) termBodyRef.current.scrollTop = termBodyRef.current.scrollHeight
+  }, [termOpen])
+
   // submit sends a task and reads the SSE response.
   const submit = useCallback(async (text: string) => {
     setMessages(prev => [...prev, { id: nextId(), role: 'user', text }])
+    setTrail([])
+    setLiveThought(null)
     // Pinned BEFORE the run starts, so the spinner and its clearing are both
     // addressed to the conversation this turn belongs to.
     runSessionRef.current = sessionRef.current
@@ -2095,9 +2389,11 @@ export default function App() {
         // Try to resume the last-used session, falling back to default.
         let lastId = ''
         try { lastId = localStorage.getItem(STORAGE_KEY) || '' } catch { /* ignore */ }
+        const fromUrl = sessionFromUrl()
+        if (fromUrl && list.some(s => s.id === fromUrl)) lastId = fromUrl
         const exists = list.some(s => s.id === lastId)
         const target = exists ? lastId : 'default'
-        await switchSession(target)
+        await switchSession(target, 'replace')
         setState('ready')
       } catch {
         setState('not connected', true)
@@ -2159,9 +2455,11 @@ export default function App() {
         const list = await fetchSessions()
         let lastId = ''
         try { lastId = localStorage.getItem(STORAGE_KEY) || '' } catch { /* ignore */ }
+        const fromUrl = sessionFromUrl()
+        if (fromUrl && list.some(s => s.id === fromUrl)) lastId = fromUrl
         const exists = list.some(s => s.id === lastId)
         const target = exists ? lastId : 'default'
-        await switchSession(target)
+        await switchSession(target, 'replace')
         setState('ready')
       } catch {
         setState('not connected', true)
@@ -2901,6 +3199,15 @@ export default function App() {
               {sessions.find(s => s.id === sessionId)?.title || 'Motita'}
             </h1>
           </div>
+          {sessions.find(s => s.id === sessionId)?.auto_approve && (
+            <button
+              class="auto-approve-pill flex-none whitespace-nowrap text-xs px-2 sm:px-2.5 py-1 rounded-full"
+              title="Every command in this session runs without asking. Click to be asked again."
+              onClick={stopAutoApprove}
+            >
+              all commands allowed ✕
+            </button>
+          )}
           <span
             class={`flex-none whitespace-nowrap text-xs px-2 sm:px-2.5 py-1 rounded-full bg-black/20 border border-white/5 ${stateClass}`}
             aria-live="polite"
@@ -2910,13 +3217,16 @@ export default function App() {
           {config && (
             <button
               class="flex-none flex items-center gap-1 max-w-[38vw] max-[360px]:max-w-[30vw] sm:max-w-none text-xs px-2 sm:px-2.5 py-1 rounded-full bg-black/20 border border-white/5 text-[#9a9aaa] hover:bg-black/30 hover:border-accent/30 transition-colors cursor-pointer"
-              title={`${config.provider} / ${config.model}`}
+              title={`${config.provider} / ${config.model} — reasoning: ${reasoningOf(config)}`}
               onClick={openModelSwitcher}
             >
               <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="text-accent/60 flex-none">
                 <rect x="2" y="3" width="20" height="14" rx="2" /><line x1="8" y1="21" x2="16" y2="21" /><line x1="12" y1="17" x2="12" y2="21" />
               </svg>
               <span class="truncate min-w-0">{config.provider} / {config.model}</span>
+              {/* Its own span and flex-none: the model name is what truncates on a narrow
+                  screen, and the level must survive it. */}
+              <span class={`header-reasoning is-${reasoningOf(config)}`}>{reasoningOf(config)}</span>
             </button>
           )}
         </header>
@@ -2938,15 +3248,96 @@ export default function App() {
               ) : (
                 <span>{m.text}</span>
               )}
+              {m.changes && <ChangesCard changes={m.changes} />}
             </div>
           ))}
+          {/* The steps already taken in this run, above the one in progress. They
+              are transient on purpose: the conversation keeps the answer, and this
+              only shows that - and how - the agent is getting there. */}
+          {running && trail.length > 1 && (
+            <div class="activity-trail" aria-label="steps so far">
+              {trail.slice(0, activity ? -1 : undefined).map(step => {
+                // A thought or an output is several lines worth reading: it is shown
+                // clamped, and opens in full on a click. Everything else is one line.
+                const long = step.kind === 'thought'
+                const open = openSteps.has(step.id)
+                const toggle = () => setOpenSteps(prev => {
+                  const next = new Set(prev)
+                  if (next.has(step.id)) next.delete(step.id); else next.add(step.id)
+                  return next
+                })
+                if (step.kind === 'command') {
+                  const cmd = step.text.replace(/^running:\s*/, '')
+                  return (
+                    <div key={step.id} class="trail-step command term-cmd" title={cmd}>
+                      <span class="term-cmd-text">{oneLine(cmd)}</span>
+                      <ShellStatus exit={step.exit} />
+                    </div>
+                  )
+                }
+                return long ? (
+                  <div key={step.id} class={`trail-step ${step.kind} is-long${open ? ' is-open' : ''}`} onClick={toggle}>
+                    <MarkdownLite content={stepText(step)} />
+                  </div>
+                ) : (
+                  <div key={step.id} class={`trail-step ${step.kind}`} title={step.text}>{oneLine(step.text)}</div>
+                )
+              })}
+            </div>
+          )}
+          {running && liveThought && (
+            <div class="msg thought-live" aria-live="off">
+              <div class="thought-label"><span class="spin-reasoning" aria-hidden="true"></span>thinking…</div>
+              <div class="thought-text"><MarkdownLite content={liveThought} chunks /></div>
+            </div>
+          )}
           {activity && (
-            <div class={`msg activity ${activityKind}`} style={{ whiteSpace: 'pre-wrap' }}>
+            <div class={`msg activity ${activityKind}`} style={{ whiteSpace: activityKind === 'thought' ? 'normal' : 'pre-wrap' }}>
               <span class={`spin-${activityKind || 'default'}`}></span>
-              {activity}
+              {activityKind === 'thought'
+                ? <MarkdownLite content={activity.slice(THOUGHT_PREFIX.length)} />
+                : activityKind === 'command'
+                  ? <><span class="term-cmd-text">{oneLine(activity.replace(/^running:\s*/, ''))}</span><ShellStatus exit={trail.length ? trail[trail.length - 1].exit : null} /></>
+                  : activity}
             </div>
           )}
         </main>
+
+        {/* The terminal drawer: everything the agent ran in this conversation, input and
+            output, as a retro screen. The tab sits on the right edge and the drawer opens
+            to the LEFT from it. It is a sibling of the scroll container for the reason the
+            session modal is: it must stay put while the conversation scrolls. */}
+        <div class={`term-drawer${termOpen ? ' is-open' : ''}`}>
+          <button
+            type="button"
+            class="term-tab"
+            aria-expanded={termOpen}
+            aria-controls="term-panel"
+            title={termOpen ? 'Close the terminal' : 'Open the terminal history'}
+            onClick={() => setTermOpen(o => !o)}
+          >
+            <span class="term-tab-label">{termOpen ? '▶' : '◀'} TTY</span>
+            {shellLog.length > 0 && <span class="term-tab-count">{shellLog.length}</span>}
+          </button>
+          <div class="term-panel" id="term-panel" role="region" aria-label="terminal history" aria-hidden={!termOpen}>
+            <div class="term-titlebar">
+              <span>motita@shell — {shellLog.length} command{shellLog.length === 1 ? '' : 's'}</span>
+              <button type="button" class="term-close" onClick={() => setTermOpen(false)} aria-label="Close the terminal" tabIndex={termOpen ? 0 : -1}>×</button>
+            </div>
+            <div class="term-screen" ref={termBodyRef}>
+              {shellLog.length === 0 && <div class="term-empty">no commands yet<span class="term-caret" /></div>}
+              {shellLog.map(e => (
+                <div key={e.id} class="term-entry">
+                  <div class="term-line"><span class="term-prompt">$</span> {e.cmd}</div>
+                  {e.out && <pre class="term-output">{e.out}</pre>}
+                  {e.exit == null
+                    ? <div class="term-status running">running…<span class="term-caret" /></div>
+                    : <div class={`term-status${e.exit ? ' bad' : ''}`}>{e.exit === NO_RESULT ? '[no result]' : e.exit ? `[exit ${e.exit}]` : '[ok]'}</div>}
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
 
         {/* The session modal: a small centred card, not a full-bleed overlay.
             It says what is happening ("Loading session") rather than covering the page, and
@@ -2979,12 +3370,19 @@ export default function App() {
             <pre class="whitespace-pre-wrap break-all max-h-[35vh] overflow-y-auto mb-2.5 p-3 bg-black/20 border border-white/5 rounded-lg font-mono text-[13px]">
               {approval.command ?? ''}
             </pre>
-            <div class="flex gap-2">
+            <div class="flex flex-wrap gap-2">
               <button
                 class="min-h-[44px] min-w-[44px] px-5 rounded-xl bg-accent text-white font-semibold active:scale-95 transition-transform"
                 onClick={() => answerApproval(approval.id, true)}
               >
                 Run it
+              </button>
+              <button
+                class="min-h-[44px] min-w-[44px] px-4 rounded-xl border border-accent/40 text-accent font-semibold active:scale-95 transition-transform"
+                title="Run this and every later command in this session without asking. Commands the policy forbids stay forbidden."
+                onClick={() => answerApproval(approval.id, true, true)}
+              >
+                Allow all this session
               </button>
               <button
                 class="min-h-[44px] min-w-[44px] px-5 rounded-xl border border-white/10 text-[#e8e8ea] active:scale-95 transition-transform"
@@ -3282,10 +3680,27 @@ export default function App() {
                 )}
               </div>
 
+              <div>
+                <label class="block text-sm text-[#9a9aaa] mb-1.5">Reasoning</label>
+                <div class="reasoning-levels" role="radiogroup" aria-label="Reasoning level">
+                  {REASONING_LEVELS.map(level => (
+                    <button
+                      key={level}
+                      type="button"
+                      role="radio"
+                      aria-checked={draftReasoning === level}
+                      class={`reasoning-level${draftReasoning === level ? ' is-active' : ''}`}
+                      onClick={() => setDraftReasoning(level)}
+                    >
+                      {level}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
               {config && (
                 <div class="text-xs text-[#6a6a7a] space-y-1 pt-2 border-t border-white/5">
                   <div>API key: {config.api_key_present ? '✓ set' : '✗ missing'}</div>
-                  <div>Reasoning: {config.reasoning_enabled ? config.reasoning : 'off'}</div>
                 </div>
               )}
             </div>
@@ -3294,7 +3709,7 @@ export default function App() {
               <button
                 class="flex-1 min-h-[44px] px-5 rounded-xl bg-accent text-white font-semibold active:scale-95 transition-transform disabled:opacity-30 disabled:cursor-not-allowed disabled:saturate-0"
                 onClick={() => applyProviderModel()}
-                disabled={savingConfig || !draftProvider || draftProvider === (config?.provider || '') && draftModel === (config?.model || '')}
+                disabled={savingConfig || !draftProvider || (draftProvider === (config?.provider || '') && draftModel === (config?.model || '') && draftReasoning === reasoningOf(config))}
               >
                 {savingConfig && (
                   <svg class="animate-spin" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="display:inline-block;vertical-align:middle;margin-right:6px">
@@ -3353,8 +3768,8 @@ export default function App() {
                   </p>
                   <p class="text-xs text-[#9a9aaa] break-words">{deletionPreview.error}</p>
                   <p class="text-xs text-[#9a9aaa] mt-2">
-                    Its contents cannot be shown, so deleting is refused until you remove the
-                    checkout by hand.
+                    Its contents cannot be shown. Deleting discards whatever it holds,
+                    uncommitted work included.
                   </p>
                 </div>
               ) : deletionPreview && deletionPreview.count > 0 ? (
@@ -3398,8 +3813,8 @@ export default function App() {
                   </p>
                   <p class="text-xs text-[#9a9aaa] break-words">{deletionPreview.error}</p>
                   <p class="text-xs text-[#9a9aaa] mt-2">
-                    Its contents cannot be shown, so deleting is refused until you remove the
-                    checkout by hand.
+                    Its contents cannot be shown. Deleting discards whatever it holds,
+                    uncommitted work included.
                   </p>
                 </div>
               ) : deletionPreview && deletionPreview.count > 0 ? (
@@ -3443,20 +3858,23 @@ export default function App() {
             <div class="flex gap-2">
               <button
                 class="flex-1 min-h-[44px] px-5 rounded-xl bg-danger text-white font-semibold active:scale-95 transition-transform disabled:opacity-50 disabled:cursor-not-allowed inline-flex items-center justify-center gap-2"
-                disabled={deleting || ((confirmDelete.type === 'session' && confirmDelete.id !== 'default' || confirmDelete.type === 'project') && (previewLoading || deletionPreview?.inspection_failed === true))}
+                disabled={deleting || ((confirmDelete.type === 'session' && confirmDelete.id !== 'default' || confirmDelete.type === 'project') && previewLoading)}
                 onClick={async () => {
                   // Locked FIRST, so a second click cannot start a second deletion
                   // while the first is still unwinding on the gateway.
                   setDeleting(true)
                   try {
                     if (confirmDelete.type === 'session') {
-                      // The confirmation is what authorises the discard. `count > 0` is known
-                      // here because the preview was read before this button was drawn.
-                      await deleteSession(confirmDelete.id, (deletionPreview?.count ?? 0) > 0)
+                      // The confirmation IS the authorisation to discard. It used to be sent only
+                      // when the preview had counted changes, so a checkout whose changes arrived
+                      // after the preview (the run being stopped by this very deletion), or whose
+                      // preview could not be read, was refused with a git error AFTER the user had
+                      // said yes.
+                      await deleteSession(confirmDelete.id, true)
                     } else if (confirmDelete.type === 'skill') {
                       await deleteSkill(confirmDelete.id)
                     } else {
-                      await deleteProject(confirmDelete.id, (deletionPreview?.count ?? 0) > 0)
+                      await deleteProject(confirmDelete.id, true)
                     }
                   } finally {
                     setDeleting(false)
@@ -3473,7 +3891,7 @@ export default function App() {
                 )}
                 {deleting
                   ? 'Deleting…'
-                  : deletionPreview && deletionPreview.count > 0
+                  : deletionPreview && (deletionPreview.count > 0 || deletionPreview.inspection_failed)
                     ? 'Discard and delete'
                     : 'Delete'}
               </button>

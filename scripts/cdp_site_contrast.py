@@ -39,7 +39,7 @@ import time
 CDP_PORT = os.environ.get("CDP_PORT", "9356")
 CHROME = os.environ.get("CHROME", "")
 PAGE = os.environ.get("SITE_URL", "")
-SHOTS = os.environ.get("SHOTS_DIR", "/tmp/motita-site-contrast")
+SHOTS = os.environ.get("SHOTS_DIR", os.path.join(os.environ.get("TMPDIR", "/tmp"), "motita-site-contrast"))
 WIDTH = int(os.environ.get("SITE_WIDTH", "1440"))
 HEIGHT = int(os.environ.get("SITE_HEIGHT", "900"))
 

@@ -473,7 +473,12 @@ func (p *Planner) Run(ctx context.Context, input string) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("could not reach the reasoning engine: %w", err)
 	}
+	// The forced answer is part of the conversation like any other. Left out, the session
+	// ended on the "you have reached the tool-call limit" instruction, the next turn opened
+	// with a second user message in a row, and the answer the user read was not in the
+	// history the model saw next.
 	answer := p.finalize(reply)
+	sess.Append(llm.Message{Role: "assistant", Content: answer})
 	if p.review != nil {
 		p.review.MaybeRun(sess.Messages(), p.itersSinceSkill)
 	}
@@ -548,11 +553,14 @@ func emitToolCall(trace func(string, ...any), name string, args json.RawMessage)
 	if trace == nil {
 		return
 	}
-	var kvMap map[string]string
+	// Values are decoded as ANY: a map of strings failed the whole decode on the first
+	// non-string argument (search_in_files' "literal": true), and the trace then showed the
+	// tool with no arguments at all.
+	var kvMap map[string]any
 	_ = json.Unmarshal(args, &kvMap)
 	var kv []string
 	for k, v := range kvMap {
-		kv = append(kv, fmt.Sprintf("%s=%s", k, v))
+		kv = append(kv, fmt.Sprintf("%s=%v", k, v))
 	}
 	sort.Strings(kv)
 	trace("[using tool: %s %s]", name, strings.Join(kv, " "))

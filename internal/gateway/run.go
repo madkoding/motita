@@ -142,6 +142,29 @@ func (r *run) append(event string, payload any) uint64 {
 // from is EXCLUSIVE: a client sends the last event it saw, and gets the next one. That is what
 // makes reconnection a one-line operation for the client instead of a reconciliation. Asking from a
 // number past the end is therefore not an error - it means the client is current.
+// flash sends an EPHEMERAL event to the readers attached right now. It takes no sequence
+// number and is not kept in the log, so a stream of snapshots can never evict the events a
+// reconnecting client needs, nor be replayed to it.
+//
+// A reader whose queue is half full is SKIPPED for this snapshot rather than cut off: the
+// next snapshot supersedes it anyway, and cutting a reader off over something that was never
+// going to be kept would turn a slow phone into a dropped stream.
+func (r *run) flash(event string, payload any) {
+	data, err := marshalEvent(payload)
+	if err != nil {
+		return
+	}
+	e := loggedEvent{Event: event, Data: data}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	for s := range r.subs {
+		// Every sender holds r.mu, so with room left this send cannot block.
+		if len(s.ch) < cap(s.ch)/2 {
+			s.ch <- e
+		}
+	}
+}
+
 func (r *run) since(from uint64) ([]loggedEvent, logInfo) {
 	r.mu.Lock()
 	defer r.mu.Unlock()

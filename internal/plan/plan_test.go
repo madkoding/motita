@@ -1207,3 +1207,33 @@ func TestAFailedCompactionBetweenRoundsStopsTheRun(t *testing.T) {
 		t.Error("a failed compaction must not be counted")
 	}
 }
+
+// TestTheForcedAnswerIsKeptInTheSession: the answer produced after the tool-call limit is
+// part of the conversation. Without it the session ended on the limit instruction and the
+// next turn opened with two user messages in a row.
+func TestTheForcedAnswerIsKeptInTheSession(t *testing.T) {
+	a, _ := makeAgent(t, true)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if bytes.Contains(ioMustRead(r.Body), []byte(`"stream":true`)) {
+			w.Header().Set("Content-Type", "text/event-stream")
+			calls := []map[string]any{toolCall("execute_command", "c1", map[string]string{"command": "true"})}
+			delta := map[string]any{"tool_calls": calls}
+			chunk, _ := json.Marshal(map[string]any{"choices": []any{map[string]any{"delta": delta, "finish_reason": "tool_calls"}}})
+			fmt.Fprintf(w, "data: %s\n\n", chunk)
+			fmt.Fprint(w, "data: [DONE]\n\n")
+			return
+		}
+		fmt.Fprint(w, `{"choices":[{"message":{"role":"assistant","content":"the forced answer"}}]}`)
+	}))
+	defer srv.Close()
+	p := New(newClient(t, srv), a).WithLoops(1)
+	answer, err := p.Run(context.Background(), "ask")
+	if err != nil || answer != "the forced answer" {
+		t.Fatalf("answer=%q err=%v", answer, err)
+	}
+	msgs := p.Session().Messages()
+	last := msgs[len(msgs)-1]
+	if last.Role != "assistant" || last.Content != "the forced answer" {
+		t.Errorf("the session must end on the answer the user read, got %s: %q", last.Role, last.Content)
+	}
+}

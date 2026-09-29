@@ -22,8 +22,10 @@ package agent
 // obtain the action" with no cause attached.
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -105,10 +107,42 @@ func TestAReplyThatIsAToolCallNamesItAndIsNotRetried(t *testing.T) {
 		t.Errorf("the failure is not a parse defect on our side — the reply was well-formed and "+
 			"carried a call.\ngot: %s", result.Reason)
 	}
-	// 3. One attempt, not three: the LLM is asked once, and the agent does not re-ask.
-	//    The analysis and plan phases fail first, so the count is small and bounded.
-	if got := atomic.LoadInt32(&calls); got != 1 {
-		t.Errorf("the provider was asked %d times; a reply that cannot improve must be asked ONCE", got)
+	// 3. Bounded: the ask, plus ONE corrective ask that says what went wrong. Not the three
+	//    identical retries the reported run spent. The analysis phase fails first.
+	if got := atomic.LoadInt32(&calls); got != 2 {
+		t.Errorf("the provider was asked %d times; want the ask and ONE corrective retry", got)
+	}
+}
+
+// TestAToolCallForTextIsAnsweredOnceTheModelIsTold: the reported "I ask and the agent does
+// nothing". A model that answers a text phase with a tool call is told so, once, and the task
+// then runs. Before, every subtask died on round 1 with no work done.
+func TestAToolCallForTextIsAnsweredOnceTheModelIsTold(t *testing.T) {
+	fake := &fakeLLMServer{actionsPerAttempt: [][]string{{"echo hello > ok.txt"}}}
+	inner := fake.handler(t)
+	var toolCalls int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		raw, _ := io.ReadAll(r.Body)
+		r.Body = io.NopCloser(bytes.NewReader(raw))
+		if !bytes.Contains(raw, []byte("Your last reply was a tool call")) {
+			atomic.AddInt32(&toolCalls, 1)
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"choices":[{"finish_reason":"tool_calls","message":{"content":null,"tool_calls":` +
+				`[{"id":"c","type":"function","function":{"name":"search_skills","arguments":"{}"}}]}}]}`))
+			return
+		}
+		inner.ServeHTTP(w, r)
+	}))
+	defer srv.Close()
+	e := mount(t, srv, config.Anchor{Kind: "command", Command: "sh", Args: []string{"-c", "test -s ok.txt"},
+		Timeout: 10 * time.Second, ExpectExit: 0}, nil)
+	var result *TaskResult
+	e.agent.Observer = func(r TaskResult) { result = &r }
+	if err := e.agent.Run(context.Background()); err != nil || result == nil || !result.Pass {
+		t.Fatalf("the task must complete once the model is told; err=%v result=%+v", err, result)
+	}
+	if atomic.LoadInt32(&toolCalls) == 0 {
+		t.Fatal("the fixture never answered with a tool call, so nothing was proven")
 	}
 }
 

@@ -24,6 +24,7 @@ package agent
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
@@ -40,8 +41,15 @@ import (
 // and their shapes are the ones the real loop reads.
 func alwaysWorkingServer(t *testing.T) *httptest.Server {
 	t.Helper()
+	// A DIFFERENT harmless action every round: a run that repeats itself exactly is stopped
+	// as a stall (see the loop contract), and what these tests pin is the budget, so every
+	// round has to be genuine progress as far as the loop can tell.
+	var rounds [][]string
+	for i := 1; i <= 500; i++ {
+		rounds = append(rounds, []string{fmt.Sprintf("echo round-%d", i)})
+	}
 	fake := &fakeLLMServer{
-		actionsPerAttempt: [][]string{{"true"}},
+		actionsPerAttempt: rounds,
 		// One value: it repeats, so the model never reports the task finished.
 		donePerAttempt: []bool{false},
 	}
