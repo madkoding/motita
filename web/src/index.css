@@ -1017,6 +1017,34 @@ main[role="log"]:not(.chat-loading) > * {
 }
 @keyframes spin { to { transform: rotate(360deg); } }
 
+/* ─── State badge: warning and error ─────────────────────────────────
+ * The pill in the header answers "what is this session doing", and these are
+ * two of its answers.
+ *
+ * Neither class existed before: the code set a `bad` class on failure and the
+ * stylesheet had no rule for it, so a broken request was drawn exactly as calm
+ * as "ready" while the pill's TEXT carried the whole sentence. Both halves are
+ * fixed - the pill says the severity, these rules colour it - and the message
+ * moved to the toast, which is the surface that can hold one.
+ *
+ * The colours are the ones the toast already uses for the same two meanings
+ * (rgba(239,68,68) for an error), so a failure reads the same wherever it is
+ * reported.
+ */
+.bad {
+  color: #ef8a8a;
+  background: rgba(239, 68, 68, 0.12);
+  border-color: rgba(239, 68, 68, 0.35);
+}
+/* A warning is the recoverable one: the tab is reconnecting on its own, which is
+ * not the same as a request that failed. It is drawn in amber so the two are
+ * told apart at a glance rather than by reading. */
+.state-warning {
+  color: #edc06a;
+  background: rgba(237, 181, 88, 0.12);
+  border-color: rgba(237, 181, 88, 0.35);
+}
+
 /* ─── Global animations ───────────────────────────────────────────
  * Every interactive element and every piece of text that appears has
  * a transition or an entrance animation. The aim is that nothing in

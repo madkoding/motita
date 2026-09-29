@@ -396,7 +396,7 @@ export default function App() {
   // `technical` is the raw error text, shown small and collapsed behind a
   // "Details" toggle: it names the file that conflicted, which is the one thing
   // a user needs in order to act, without putting git's own words in their face.
-  const [toast, setToast] = useState<{ message: string; type: 'success' | 'error'; detail?: string; technical?: string } | null>(null)
+  const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' | 'warning'; detail?: string; technical?: string } | null>(null)
   const [toastDetailsOpen, setToastDetailsOpen] = useState(false)
   const [config, setConfig] = useState<ConfigView | null>(null)
   const [showModelSwitcher, setShowModelSwitcher] = useState(false)
@@ -444,6 +444,26 @@ export default function App() {
   const [newTaskKind, setNewTaskKind] = useState<'task' | 'plan'>('task')
   // Confirm-delete modal: when set, shows a modal asking the user to confirm.
   const [confirmDelete, setConfirmDelete] = useState<{ type: 'session' | 'project' | 'skill'; id: string; title: string } | null>(null)
+  // What the deletion would DISCARD, asked of the gateway when the modal opens.
+  //
+  // The modal used to promise only "this will be deleted", so a session whose
+  // checkout held uncommitted work could not be deleted at all: the gateway
+  // refused, the refusal arrived after the fact, and nothing in the interface
+  // said which files were in the way. Now the modal asks first, names them, and
+  // the confirm button carries the answer.
+  //
+  // `checking` is a real state, not decoration: the modal must not offer to
+  // discard before it knows whether there is anything to discard.
+  const [deletionPreview, setDeletionPreview] = useState<{
+    worktree?: string
+    branch?: string
+    changes: { path: string; kind: string; from?: string }[]
+    sessions?: { id: string; title: string; changes: { path: string; kind: string; from?: string }[] }[]
+    count: number
+    inspection_failed?: boolean
+    error?: string
+  } | null>(null)
+  const [previewLoading, setPreviewLoading] = useState(false)
   // Long-press context menu on mobile: when set, shows a small menu with Edit / Delete.
   const [contextMenu, setContextMenu] = useState<{ type: 'session' | 'project'; id: string; title: string; x: number; y: number } | null>(null)
   // Row dropdown menu: which session/project row has its "⋯" menu open.
@@ -906,7 +926,10 @@ export default function App() {
     setToastDetailsOpen(false)
     if (!toast) return
     const isUpdate = toast.message.includes('New version')
-    const ms = toast.type === 'error' ? 12000 : isUpdate ? 8000 : 5000
+    // An error needs reading, so it stays longest. A warning is between the two:
+    // it says something is wrong but recovering, which is worth more than the
+    // five seconds a success gets and less than an error.
+    const ms = toast.type === 'error' ? 12000 : toast.type === 'warning' ? 9000 : isUpdate ? 8000 : 5000
     const t = setTimeout(() => setToast(null), ms)
     return () => clearTimeout(t)
   }, [toast])
@@ -979,9 +1002,49 @@ export default function App() {
     }
   }
 
+  // setState drives the header pill, which is a STATUS and not a message.
+  //
+  // It used to be handed a whole failure sentence - `setState('could not load the
+  // skill library', true)` - so the header read like a log line while looking
+  // exactly as calm as "ready": `.bad` was never defined in the stylesheet
+  // (measured: no rule for it in index.css), so the two states were drawn
+  // identically.
+  //
+  // The division now: the TOAST carries the message, and the pill carries the
+  // severity and nothing else - "warning" or "error". `bad` stays as the second
+  // argument because every existing call already passes it, and it is the only
+  // thing that distinguishes a failure from a state.
   const setState = (text: string, bad = false) => {
+    if (bad) {
+      // A failure is announced once, in the toast, which is the surface built
+      // for a message and already renders the gateway's own error bodies.
+      //
+      // A connection state is NOT announced: the websocket dropping and coming
+      // back is something the user watches in the pill, and it happens while
+      // they are waiting - a toast popping up would be an alarm about a
+      // condition they can see.
+      const connection = isConnectionState(text)
+      if (!connection) {
+        setToast({ message: text, type: 'error' })
+      }
+      // "reconnecting" is the recoverable one: the tab is trying again on its
+      // own, so the pill warns. Everything else - not connected, a request that
+      // failed - is an error.
+      const warning = connection && text.trim().toLowerCase() === 'reconnecting'
+      setStateText(warning ? 'warning' : 'error')
+      setStateBad(true)
+      return
+    }
     setStateText(text)
-    setStateBad(bad)
+    setStateBad(false)
+  }
+
+  // isConnectionState reports whether a failure message is really a STATE this
+  // tab is in - the websocket dropped, or the gateway is not answering at all.
+  // Those are drawn by the pill, not announced by a toast.
+  const isConnectionState = (text: string) => {
+    const t = (text || '').trim().toLowerCase()
+    return t === 'reconnecting' || t === 'not connected' || t === 'connecting'
   }
 
   // exchange trades the URL fragment for the cookie.
@@ -1225,7 +1288,6 @@ export default function App() {
       })
       if (!res.ok) {
         const err = await res.json().catch(() => ({}))
-        setToast({ message: err.error || 'could not create the project', type: 'error' })
         setState(err.error || 'could not create the project', true)
         setCreatingProject(false)
         return
@@ -1248,20 +1310,26 @@ export default function App() {
       setNewProjectGit('')
       setCreatingProject(false)
     } catch (e) {
-      setToast({ message: 'Could not create the project: ' + String(e), type: 'error' })
-      setState('could not create the project', true)
+      setState('could not create the project: ' + String(e), true)
       setCreatingProject(false)
     }
   }, [newProjectTitle, newProjectDesc, newProjectDir, newProjectGit, fetchProjects])
 
   // deleteProject removes a project from the gateway.
-  const deleteProject = useCallback(async (id: string) => {
+  // `discard` carries the user's answer, exactly as it does for a session: a project
+  // whose sessions hold uncommitted work is refused without it.
+  const deleteProject = useCallback(async (id: string, discard = false) => {
     try {
-      const res = await api('/v1/projects/' + id, { method: 'DELETE' })
-      if (!res.ok && res.status !== 204) return
+      const res = await api('/v1/projects/' + id + (discard ? '?force=1' : ''), { method: 'DELETE' })
+      if (!res.ok && res.status !== 204) {
+        const err = await res.json().catch(() => ({}))
+        setState(err.error || 'could not delete the project', true)
+        return
+      }
       await fetchProjects()
+      await fetchSessions()
     } catch { /* ignore */ }
-  }, [fetchProjects])
+  }, [fetchProjects, fetchSessions])
 
   // loadSchedules reads the tasks the gateway holds. An empty LIST rather than an
   // error is what the gateway answers when scheduling is off, so this cannot fail
@@ -1426,9 +1494,14 @@ export default function App() {
   }, [createSession])
 
   // deleteSession removes a conversation from the gateway and the sidebar.
-  const deleteSession = useCallback(async (id: string) => {
+  //
+  // `discard` carries the user's answer to the question the modal asked. It is
+  // sent as `?force=1`, and the gateway treats it as the ONLY thing that may
+  // destroy uncommitted work: without it, a session whose checkout holds changes
+  // is refused and the work survives.
+  const deleteSession = useCallback(async (id: string, discard = false) => {
     try {
-      const res = await api('/v1/sessions/' + id, { method: 'DELETE' })
+      const res = await api('/v1/sessions/' + id + (discard ? '?force=1' : ''), { method: 'DELETE' })
       // 204 = deleted, 200 = default session was reset instead of removed.
       if (!res.ok && res.status !== 204 && res.status !== 200) {
         const err = await res.json().catch(() => ({}))
@@ -1466,6 +1539,44 @@ export default function App() {
       setState('could not delete the session', true)
     }
   }, [fetchSessions, switchSession])
+
+  // The deletion preview is fetched when the modal OPENS, so the dialog can say what
+  // will be lost before anything is decided.
+  //
+  // It is fetched for a session only: a project's deletion is its own decision, and
+  // the gateway answers the same question for it separately. A failed request is not
+  // treated as "nothing to lose" — the modal then falls back to asking the plain
+  // confirmation, and the gateway's own refusal still protects the work.
+  useEffect(() => {
+    if (!confirmDelete) {
+      setDeletionPreview(null)
+      return
+    }
+    // Both kinds ask the same question of their own endpoint: a session names its own
+    // checkout's changes, a project names each of its sessions' changes. A skill has no
+    // checkout, so there is nothing to ask.
+    if (confirmDelete.type === 'skill') {
+      setDeletionPreview(null)
+      return
+    }
+    let cancelled = false
+    setPreviewLoading(true)
+    const previewPath = confirmDelete.type === 'session'
+      ? '/v1/sessions/' + confirmDelete.id + '/deletion-preview'
+      : '/v1/projects/' + confirmDelete.id + '/deletion-preview'
+    api(previewPath)
+      .then(async (res) => {
+        if (!res.ok) return null
+        return res.json().catch(() => null)
+      })
+      .then((data) => {
+        if (cancelled) return
+        setDeletionPreview(data && typeof data === 'object' ? data : null)
+      })
+      .catch(() => { if (!cancelled) setDeletionPreview(null) })
+      .finally(() => { if (!cancelled) setPreviewLoading(false) })
+    return () => { cancelled = true }
+  }, [confirmDelete])
 
   // renameSession changes the title of a conversation.
   const renameSession = useCallback(async (id: string, title: string) => {
@@ -2140,7 +2251,12 @@ export default function App() {
     return () => document.removeEventListener('click', handler)
   }, [])
 
-  const stateClass = stateBad ? 'bad' : (stateText === 'working' || stateText === 'reconnecting') ? 'state-working' : ''
+  // The pill's class. `stateBad` is set for both severities, so the TEXT decides
+  // which of the two it is drawn as: the code sets "warning" for the recoverable
+  // case and "error" for the rest.
+  const stateClass = stateBad
+    ? (stateText === 'warning' ? 'state-warning bad' : 'bad')
+    : (stateText === 'working' || stateText === 'reconnecting') ? 'state-working' : ''
 
   // longPressTimer ref for session/project long-press detection.
   const longPressTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -3209,21 +3325,128 @@ export default function App() {
                   ? 'This skill will be permanently deleted, with its usage history. This cannot be undone. A built-in procedure cannot be deleted.'
                   : 'This project and all its sessions will be permanently deleted. This cannot be undone.'}
             </p>
+
+            {/* What the deletion would DISCARD. The gateway is asked when the modal opens,
+                and its answer is shown here: a count warns, but only the list lets someone
+                decide. A checkout whose changes could not be read says so, because an empty
+                list would read as "nothing to lose". */}
+            {confirmDelete.type === 'session' && confirmDelete.id !== 'default' && (
+              previewLoading ? (
+                <p class="text-xs text-[#9a9aaa] mb-5">Checking what this session is holding…</p>
+              ) : deletionPreview?.inspection_failed ? (
+                <div class="mb-5 rounded-xl border border-danger/40 bg-danger/10 p-3">
+                  <p class="text-xs text-[#e8e8ea] font-semibold mb-1">
+                    This session's checkout could not be inspected
+                  </p>
+                  <p class="text-xs text-[#9a9aaa] break-words">{deletionPreview.error}</p>
+                  <p class="text-xs text-[#9a9aaa] mt-2">
+                    Its contents cannot be shown, so deleting is refused until you remove the
+                    checkout by hand.
+                  </p>
+                </div>
+              ) : deletionPreview && deletionPreview.count > 0 ? (
+                <div class="mb-5 rounded-xl border border-danger/40 bg-danger/10 p-3">
+                  <p class="text-xs text-[#e8e8ea] font-semibold mb-2">
+                    {deletionPreview.count === 1
+                      ? '1 uncommitted change will be discarded'
+                      : deletionPreview.count + ' uncommitted changes will be discarded'}
+                    {deletionPreview.branch ? ' in ' + deletionPreview.branch : ''}
+                  </p>
+                  <ul class="space-y-1 max-h-40 overflow-y-auto">
+                    {deletionPreview.changes.map((c) => (
+                      <li class="flex items-start gap-2 text-xs">
+                        <span class="text-[#9a9aaa] font-mono flex-none w-[4.5rem]">{c.kind}</span>
+                        <span class="text-[#e8e8ea] font-mono break-all">
+                          {c.from ? c.from + ' → ' + c.path : c.path}
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                  <p class="text-xs text-[#9a9aaa] mt-2">
+                    These files are not committed anywhere. Deleting the session discards them for good.
+                  </p>
+                </div>
+              ) : deletionPreview?.worktree ? (
+                <p class="text-xs text-[#9a9aaa] mb-5">
+                  The session's checkout is clean, so nothing uncommitted is lost.
+                </p>
+              ) : null
+            )}
+
+            {/* A project's sessions each hold their own checkout, so the list is grouped
+                by session. This is what "and all its sessions" actually costs. */}
+            {confirmDelete.type === 'project' && (
+              previewLoading ? (
+                <p class="text-xs text-[#9a9aaa] mb-5">Checking what this project's sessions are holding…</p>
+              ) : deletionPreview?.inspection_failed ? (
+                <div class="mb-5 rounded-xl border border-danger/40 bg-danger/10 p-3">
+                  <p class="text-xs text-[#e8e8ea] font-semibold mb-1">
+                    A session's checkout could not be inspected
+                  </p>
+                  <p class="text-xs text-[#9a9aaa] break-words">{deletionPreview.error}</p>
+                  <p class="text-xs text-[#9a9aaa] mt-2">
+                    Its contents cannot be shown, so deleting is refused until you remove the
+                    checkout by hand.
+                  </p>
+                </div>
+              ) : deletionPreview && deletionPreview.count > 0 ? (
+                <div class="mb-5 rounded-xl border border-danger/40 bg-danger/10 p-3">
+                  <p class="text-xs text-[#e8e8ea] font-semibold mb-2">
+                    {deletionPreview.count === 1
+                      ? '1 uncommitted change will be discarded'
+                      : deletionPreview.count + ' uncommitted changes will be discarded'}
+                  </p>
+                  <div class="space-y-2 max-h-48 overflow-y-auto">
+                    {(deletionPreview.sessions || [])
+                      .filter((s) => s.changes.length > 0)
+                      .map((s) => (
+                        <div>
+                          <p class="text-xs text-[#9a9aaa] truncate">{s.title || s.id}</p>
+                          <ul class="space-y-1 mt-1">
+                            {s.changes.map((c) => (
+                              <li class="flex items-start gap-2 text-xs pl-2">
+                                <span class="text-[#9a9aaa] font-mono flex-none w-[4.5rem]">{c.kind}</span>
+                                <span class="text-[#e8e8ea] font-mono break-all">
+                                  {c.from ? c.from + ' → ' + c.path : c.path}
+                                </span>
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
+                      ))}
+                  </div>
+                  <p class="text-xs text-[#9a9aaa] mt-2">
+                    These files are not committed anywhere. Deleting the project discards them for good.
+                  </p>
+                </div>
+              ) : deletionPreview ? (
+                <p class="text-xs text-[#9a9aaa] mb-5">
+                  No session holds uncommitted changes, so nothing uncommitted is lost. The
+                  project's own checkout is not touched.
+                </p>
+              ) : null
+            )}
+
             <div class="flex gap-2">
               <button
-                class="flex-1 min-h-[44px] px-5 rounded-xl bg-danger text-white font-semibold active:scale-95 transition-transform"
+                class="flex-1 min-h-[44px] px-5 rounded-xl bg-danger text-white font-semibold active:scale-95 transition-transform disabled:opacity-50"
+                disabled={(confirmDelete.type === 'session' && confirmDelete.id !== 'default' || confirmDelete.type === 'project') && (previewLoading || deletionPreview?.inspection_failed === true)}
                 onClick={async () => {
                   if (confirmDelete.type === 'session') {
-                    await deleteSession(confirmDelete.id)
+                    // The confirmation is what authorises the discard. `count > 0` is known
+                    // here because the preview was read before this button was drawn.
+                    await deleteSession(confirmDelete.id, (deletionPreview?.count ?? 0) > 0)
                   } else if (confirmDelete.type === 'skill') {
                     await deleteSkill(confirmDelete.id)
                   } else {
-                    await deleteProject(confirmDelete.id)
+                    await deleteProject(confirmDelete.id, (deletionPreview?.count ?? 0) > 0)
                   }
                   setConfirmDelete(null)
                 }}
               >
-                Delete
+                {deletionPreview && deletionPreview.count > 0
+                  ? 'Discard and delete'
+                  : 'Delete'}
               </button>
               <button
                 class="min-h-[44px] px-5 rounded-xl border border-white/10 text-[#e8e8ea] active:scale-95 transition-transform"
@@ -3295,11 +3518,18 @@ export default function App() {
         <div class="fixed bottom-6 inset-x-0 z-[60] flex justify-center px-4 pointer-events-none">
           <div
             class="frosted rounded-xl border px-4 py-3 flex items-start gap-3 max-w-md w-full pointer-events-auto"
-            style={`animation: slideUp 0.3s ease-out; box-shadow: 0 20px 45px -10px rgba(0,0,0,0.75); border-color: ${toast.type === 'error' ? 'rgba(239,68,68,0.35)' : 'rgba(76,194,255,0.35)'}`}
+            style={`animation: slideUp 0.3s ease-out; box-shadow: 0 20px 45px -10px rgba(0,0,0,0.75); border-color: ${toast.type === 'error' ? 'rgba(239,68,68,0.35)' : toast.type === 'warning' ? 'rgba(237,181,88,0.35)' : 'rgba(76,194,255,0.35)'}`}
           >
           {toast.type === 'error' ? (
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="text-danger flex-none mt-0.5">
               <circle cx="12" cy="12" r="10" /><line x1="12" y1="8" x2="12" y2="12" /><line x1="12" y1="16" x2="12.01" y2="16" />
+            </svg>
+          ) : toast.type === 'warning' ? (
+            // A triangle, not the error's circle: the two are different answers
+            // ("something is wrong but recovering" vs "this failed"), and a shared
+            // icon would make the reader parse the sentence to tell them apart.
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="text-[#edc06a] flex-none mt-0.5">
+              <path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" /><line x1="12" y1="9" x2="12" y2="13" /><line x1="12" y1="17" x2="12.01" y2="17" />
             </svg>
           ) : updateInfo?.update_available && toast.message.includes('New version') ? (
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="text-accent flex-none mt-0.5 animate-pulse">
@@ -3311,7 +3541,7 @@ export default function App() {
             </svg>
           )}
           <div class="flex-1 min-w-0">
-            <p class={`text-sm font-semibold ${toast.type === 'error' ? 'text-danger' : 'text-[#e8e8ea]'}`}>
+            <p class={`text-sm font-semibold ${toast.type === 'error' ? 'text-danger' : toast.type === 'warning' ? 'text-[#edc06a]' : 'text-[#e8e8ea]'}`}>
               {toast.message}
             </p>
             {toast.detail && (
