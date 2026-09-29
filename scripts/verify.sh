@@ -57,8 +57,21 @@ if output=$(go test -count=1 -race -timeout 300s ./... 2>&1); then
   ok "all tests pass"
   echo "$output" | grep -E '^(ok|FAIL)' | sed 's/^/    /'
 else
+  # The FAILURE is shown, not the tail. `tail -30` looked reasonable and was not: a
+  # suite of 30+ packages prints one `ok` line each, so the window landed entirely on
+  # passing packages and the reason was cut off the top — measured on a real failure,
+  # where the report named no test at all and the cause had to be found by re-running
+  # the command by hand. What a reader needs is the package that broke and the lines
+  # around it.
   bad "tests failed"
-  echo "$output" | tail -30 | sed 's/^/    /'
+  echo "$output" | grep -E '^(FAIL|---) ' | sed 's/^/    /' | head -40
+  # The detail of the failing tests, which is where the assertion message is.
+  echo "$output" | grep -E '^\s+---|_test\.go:[0-9]+:' | sed 's/^/    /' | head -40
+  # Nothing matched means the failure was not a test assertion (a build error, a
+  # timeout, a panic). Saying so beats printing an empty block.
+  if ! echo "$output" | grep -qE '^(FAIL|---) |_test\.go:'; then
+    echo "$output" | tail -40 | sed 's/^/    /'
+  fi
 fi
 
 step "4c. the workflow files are valid"
