@@ -108,6 +108,44 @@ func TestAChangedSettingReachesTheNextTurn(t *testing.T) {
 	}
 }
 
+// TestReasoningAloneAlsoDropsTheEngine: the same defect the test above covers, at the OTHER
+// entry point. SetLLM dropped the stale engine and SetReasoning did not, so a level changed on its
+// own - which is exactly what POST /sessions/{id}/reasoning does, and therefore what the terminal's
+// /reasoning and every front end that uses it do - kept asking the model at the OLD level.
+//
+// Measured on a served gateway before the fix: `POST /reasoning high` left the level reporting
+// "high" while the body sent upstream still carried `reasoning_effort: "medium"`.
+func TestReasoningAloneAlsoDropsTheEngine(t *testing.T) {
+	cfg := config.Default()
+	cfg.LLM.Provider = "openai"
+	cfg.LLM.APIKey = "k"
+	injected := &llm.Client{}
+	r := NewAppRunner(&bytes.Buffer{}, &bytes.Buffer{}, cfg, injected, nil, logx.Global())
+
+	r.SetReasoning("high")
+	got, engine, err := r.engine()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if engine == injected {
+		t.Error("the engine built from the old level must not run the next turn: the model would be asked at the level the user just changed")
+	}
+	if got.LLM.Reasoning.Level != "high" || !got.LLM.Reasoning.Enabled {
+		t.Errorf("the turn runs with %+v, want the level AND the flag set together", got.LLM.Reasoning)
+	}
+
+	// And back down to off, which sets the flag the other way: the request builders send nothing at
+	// all unless the pair moves together.
+	r.SetReasoning("off")
+	got, _, err = r.engine()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.LLM.Reasoning.Level != "off" || got.LLM.Reasoning.Enabled {
+		t.Errorf("turning it off left %+v", got.LLM.Reasoning)
+	}
+}
+
 // TestAppRunnerRunTaskMapsEveryOutcome: the summary shown in the chat is built
 // from the task result, and each shape of result has to produce a sentence a user
 // can read.

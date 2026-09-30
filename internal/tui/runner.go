@@ -259,9 +259,23 @@ func (r *AppRunner) Config() config.Config {
 }
 
 // SetReasoning changes the in-memory reasoning level.
+//
+// It moves the LEVEL and the FLAG together, and that is the whole point of it being one call: the
+// level arrives on its own from a front end, and a level left beside `enabled: false` is read by
+// config.normalize as "nobody applied this" - it is turned back into the default and the request
+// builders send nothing. The pair has one invariant: anything other than "off" means reasoning is
+// on.
+//
+// The ENGINE is dropped exactly as SetLLM drops it, and for the same reason: the client given at
+// construction was built from a snapshot of the settings, and it reads that snapshot for every
+// request. Keeping it meant the level changed what the status line and the interface showed while
+// the model was still asked at the old one - measured on a served gateway, `POST
+// /sessions/{id}/reasoning high` left the body sent upstream at `reasoning_effort: "medium"`,
+// while the same level through PATCH /config (which calls SetLLM first) arrived as "high".
 func (r *AppRunner) SetReasoning(level string) {
 	r.Cfg.LLM.Reasoning.Level = level
 	r.Cfg.LLM.Reasoning.Enabled = level != "off"
+	r.Engine = nil
 }
 
 // SetLLM changes the in-memory provider and/or model. An empty argument means "leave
