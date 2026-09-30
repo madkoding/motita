@@ -382,6 +382,9 @@ func AddWorktree(ctx context.Context, repoDir, path, branch string) error {
 	if err := prepareParent(path); err != nil {
 		return fmt.Errorf("the worktree's directory could not be prepared: %w", err)
 	}
+	// Advisory: a worktree whose status is noisy is still a worktree, so a failure here must
+	// not stop the session from getting one.
+	_ = EnsureIgnoreBase(ctx, repoDir)
 	var out string
 	if BranchExists(ctx, repoDir, branch) {
 		out, err = execute(ctx, repoDir, "worktree", "add", path, branch)
