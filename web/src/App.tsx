@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'preact/hooks'
 import { Markdown, MarkdownLite } from './Markdown'
+import { createFollower } from './smoothscroll'
 import { hydrationState, hydrationLog, noteActivity } from './hydration'
 
 interface Message {
@@ -858,6 +859,19 @@ export default function App() {
   // of the growth, and the check reads a reader who never moved as one who scrolled away. The
   // question is where the reader was before the growth, and only a scroll event knows that.
   const pinnedRef = useRef(true)
+  // chatLoading as a ref, so the follower can ask it without being rebuilt.
+  const chatLoadingNow = useRef(false)
+
+  // The smooth follower for what grows WHILE A RUN IS WORKING (a step, a thought, an answer):
+  // the view glides to the new end instead of jumping to it. It re-reads the end on every
+  // frame, so growth that lands mid-glide is followed rather than left behind - which is the
+  // reason native smooth scrolling was ruled out below. Loading a session and the hydration
+  // anchoring keep the exact, instant jump: there the height is still changing under a modal.
+  const chatFollower = useRef(createFollower(() => scrollRef.current, () => pinnedRef.current))
+  const followEnd = useCallback(() => {
+    if (chatLoadingNow.current) chatFollower.current.jump()
+    else chatFollower.current.kick()
+  }, [])
 
   const scrollToBottom = useCallback(() => {
     const el = scrollRef.current
@@ -867,6 +881,7 @@ export default function App() {
     // hundreds of milliseconds long, which the next 200px of formulas would land on top of. That
     // is the "it does not go all the way down when it finishes" symptom: the last animation was
     // interrupted by the next growth. 'instant' overrides the CSS and lands exactly where aimed.
+    chatFollower.current.stop()
     el.scrollTo({ top: el.scrollHeight, behavior: 'instant' as ScrollBehavior })
   }, [])
 
@@ -933,8 +948,8 @@ export default function App() {
     // Following along only if the reader was at the end before this message arrived. Scrolling on
     // every change would drag someone who deliberately went back up to an earlier answer.
     if (!pinnedRef.current) return
-    scrollToBottom()
-  }, [messages, activity, liveThought, trail, scrollToBottom])
+    followEnd()
+  }, [messages, activity, liveThought, trail, followEnd])
 
   /**
    * Follows the growth that NO event announces.
@@ -963,7 +978,7 @@ export default function App() {
       if (!pinnedRef.current) return
       cancelAnimationFrame(frame)
       frame = requestAnimationFrame(() => {
-        if (pinnedRef.current) scrollToBottom()
+        if (pinnedRef.current) followEnd()
       })
     }
     if (typeof ResizeObserver === 'undefined') return
@@ -986,7 +1001,7 @@ export default function App() {
       ro.disconnect()
       mo.disconnect()
     }
-  }, [scrollToBottom])
+  }, [followEnd])
 
   /**
    * Follows the deferred work while it grows the page.
@@ -1069,6 +1084,8 @@ export default function App() {
   useEffect(() => {
     const log = ((window as any).__modalLog = (window as any).__modalLog || [])
     log.push({ at: Math.round(performance.now()), loading: chatLoading })
+    chatLoadingNow.current = chatLoading
+    if (chatLoading) chatFollower.current.stop()
   }, [chatLoading])
 
   useEffect(() => {

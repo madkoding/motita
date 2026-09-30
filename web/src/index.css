@@ -94,6 +94,8 @@
  * markup). Forcing it also keeps the UA's own widgets from turning white on
  * a phone set to light, which is the half-light a screenshot cannot show. */
 :root {
+  /* The one measure of the live blocks (activity line, steps trail, live thought). */
+  --live-w: min(90%, 44rem);
   color-scheme: dark;
   --font-sans: 'Sansation', system-ui, -apple-system, sans-serif;
   --font-mono: 'JetBrainsMonoNF', ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
@@ -441,7 +443,12 @@ body {
 /* Activity lines: smaller, monospace, also frosted. */
 .msg.activity {
   align-self: flex-start;
-  font-size: 0.82em;
+  /* One fixed measure for the three live blocks (this line, the steps trail and the live
+     thought): their width followed their content, so it changed with every line that arrived
+     and the whole column breathed. */
+  width: var(--live-w);
+  box-sizing: border-box;
+  font-size: 0.74em;
   color: #9a9aaa;
   font-family: var(--font-mono);
   background: rgba(10, 10, 16, 0.75);
@@ -468,6 +475,8 @@ body {
    the live line: they are context, and they vanish with the answer. */
 .activity-trail {
   align-self: flex-start;
+  width: var(--live-w);
+  box-sizing: border-box;
   max-width: 90%;
   min-width: 0;
   display: flex;
@@ -483,7 +492,7 @@ body {
   border-left: 2px solid rgba(76, 194, 255, 0.35);
   border-radius: 8px;
   font-family: var(--font-mono);
-  font-size: 0.74em;
+  font-size: 0.68em;
   color: #a4a4b4;
 }
 .trail-step {
@@ -566,6 +575,8 @@ body {
    and is replaced by the finished reasoning when the phase ends. */
 .msg.thought-live {
   align-self: flex-start;
+  width: var(--live-w);
+  box-sizing: border-box;
   max-width: 90%;
   padding: 6px 10px;
   border-radius: 8px;
@@ -592,6 +603,8 @@ body {
   height: 8px;
 }
 .thought-text {
+  /* The scrollbar appearing would take width from the text and re-wrap every line. */
+  scrollbar-gutter: stable;
   word-break: break-word;
   max-height: 30vh;
   overflow-y: auto;
@@ -629,10 +642,10 @@ body {
 
 /* Each chunk of a streaming thought fades in as it arrives; what was already on
    screen is plain text and does not move. */
-.tk-new { animation: chunkIn 0.45s ease-out both; }
+.tk-new { animation: chunkIn 520ms ease-out both; }
 @keyframes chunkIn {
-  from { opacity: 0; transform: translateY(3px); filter: blur(2px); }
-  to   { opacity: 1; transform: translateY(0); filter: blur(0); }
+  from { opacity: 0; }
+  to   { opacity: 1; }
 }
 
 /* The standing "allow all commands" answer, and the way to take it back. */
@@ -1385,9 +1398,10 @@ section.frosted, .frosted.border-t-2 {
 .msg.activity {
   animation: activityIn 0.2s ease-out;
 }
+/* Opacity only: a line that slides in sideways moves the text around it. */
 @keyframes activityIn {
-  from { opacity: 0; transform: translateX(-12px); }
-  to   { opacity: 1; transform: translateX(0); }
+  from { opacity: 0; }
+  to   { opacity: 1; }
 }
 
 /* Modals: scale-in with backdrop fade. */
