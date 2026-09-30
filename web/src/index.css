@@ -1783,8 +1783,12 @@ button:disabled {
 .term-tab:hover { background: #0a1c10; }
 .term-tab-label { writing-mode: vertical-rl; transform: rotate(180deg); }
 .term-tab-count {
-  min-width: 18px;
-  padding: 0 4px;
+  /* A tall pill whose digits are turned a quarter turn, reading the same way as the label. */
+  writing-mode: vertical-rl;
+  transform: rotate(180deg);
+  width: 16px;
+  min-height: 18px;
+  padding: 4px 0;
   border-radius: 999px;
   font-size: 10px;
   line-height: 16px;
@@ -1813,7 +1817,7 @@ button:disabled {
   align-items: center;
   justify-content: space-between;
   padding: 6px 10px;
-  font-size: 11px;
+  font-size: 10px;
   letter-spacing: 0.06em;
   color: #4fae5a;
   background: #08150c;
@@ -1821,29 +1825,107 @@ button:disabled {
 }
 .term-close { color: #4fae5a; font-size: 18px; line-height: 1; padding: 0 4px; cursor: pointer; }
 .term-close:hover { color: #7ee787; }
-.term-screen {
+.term-viewport {
   position: relative;
   flex: 1 1 auto;
   min-height: 0;
+  overflow: hidden;
+}
+.term-screen {
+  position: absolute;
+  inset: 0;
   overflow-y: auto;
   padding: 10px 12px 16px;
-  font-size: 12px;
+  font-size: 11px;
   line-height: 1.45;
-  text-shadow: 0 0 6px rgba(126, 231, 135, 0.45);
-  /* scanlines */
-  background-image: repeating-linear-gradient(to bottom, rgba(0, 0, 0, 0) 0, rgba(0, 0, 0, 0) 2px, rgba(0, 0, 0, 0.22) 3px);
+  /* A soft glow, not a smear: the halo stays under the text's own weight so the glyph
+     edges remain crisp. */
+  text-shadow: 0 0 5px rgba(126, 231, 135, 0.35);
+  animation: termFlicker 6s infinite;
+}
+/* The effects. Each is a layer above the text with a LOW alpha: together they take under
+   a fifth of the text's contrast, which is what keeps it readable. */
+.term-fx { position: absolute; inset: 0; pointer-events: none; }
+.term-fx-scan {
+  z-index: 2;
+  /* INTERLACED: a 4px cycle of two dark and two clear pixel rows. The animation below
+     moves it by half a cycle, so the rows that were dark become clear and back again: the
+     two fields of an interlaced picture drawn one after the other. */
+  background: repeating-linear-gradient(to bottom,
+    rgba(0, 0, 0, 0.17) 0, rgba(0, 0, 0, 0.17) 2px,
+    rgba(0, 0, 0, 0) 2px, rgba(0, 0, 0, 0) 4px);
+  animation: termFields 0.08s steps(1, end) infinite;
+}
+/* The comb: on a real interlaced tube the fields land a fraction of a pixel apart, which
+   fringes every vertical edge. A faint second layer of alternate rows, offset sideways,
+   is what reads as that fringe. */
+.term-fx-scan::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: repeating-linear-gradient(to bottom,
+    rgba(126, 231, 135, 0.025) 0, rgba(126, 231, 135, 0.025) 1px,
+    rgba(0, 0, 0, 0) 1px, rgba(0, 0, 0, 0) 2px);
+  transform: translateX(1px);
+}
+@keyframes termFields {
+  0%   { background-position: 0 0; }
+  50%  { background-position: 0 2px; }
+}
+/* The rolling bar of a CRT refresh: a wide, faint band that travels down the screen. */
+.term-fx-sweep {
+  z-index: 3;
+  top: -30%;
+  bottom: auto;
+  height: 30%;
+  background: linear-gradient(to bottom,
+    rgba(126, 231, 135, 0) 0%, rgba(126, 231, 135, 0.07) 55%,
+    rgba(160, 255, 170, 0.13) 92%, rgba(126, 231, 135, 0) 100%);
+  animation: termSweep 7s linear infinite;
+}
+/* Film-grain noise: a fractal-noise tile, shifted in steps so it crawls like static. */
+.term-fx-noise {
+  z-index: 4;
+  opacity: 0.09;
+  mix-blend-mode: screen;
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='160' height='160'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/><feColorMatrix values='0 0 0 0 0.5  0 0 0 0 1  0 0 0 0 0.55  0 0 0 1.4 -0.2'/></filter><rect width='160' height='160' filter='url(%23n)'/></svg>");
+  background-size: 160px 160px;
+  animation: termNoise 0.6s steps(6) infinite;
+}
+/* The tube's curvature: the corners fall away, the middle stays clean. */
+.term-fx-vignette {
+  z-index: 5;
+  background: radial-gradient(ellipse at center, rgba(0, 0, 0, 0) 62%, rgba(0, 0, 0, 0.5) 100%);
+}
+@keyframes termSweep { from { transform: translateY(0); } to { transform: translateY(433%); } }
+@keyframes termNoise {
+  0%   { background-position: 0 0; }
+  17%  { background-position: -37px 21px; }
+  34%  { background-position: 52px -44px; }
+  51%  { background-position: -18px -63px; }
+  68%  { background-position: 73px 30px; }
+  85%  { background-position: -60px 48px; }
+  100% { background-position: 0 0; }
+}
+/* A barely-there brightness wobble; the deviation is a few percent so it never hurts. */
+@keyframes termFlicker {
+  0%, 100% { opacity: 1; }
+  47% { opacity: 1; }
+  48% { opacity: 0.955; }
+  50% { opacity: 1; }
+  83% { opacity: 0.975; }
 }
 .term-entry { margin-bottom: 10px; }
-.term-line { color: #d8ffde; word-break: break-all; white-space: pre-wrap; }
+.term-line { color: #e4ffe8; word-break: break-all; white-space: pre-wrap; }
 .term-prompt { color: #7ee787; font-weight: 700; }
 .term-output {
   margin: 2px 0 0;
   font: inherit;
-  color: #a6d9ad;
+  color: #b9ecc0;
   white-space: pre-wrap;
   word-break: break-word;
 }
-.term-status { color: #4fae5a; font-size: 11px; }
+.term-status { color: #4fae5a; font-size: 10px; }
 .term-status.bad { color: #ff7b72; text-shadow: 0 0 6px rgba(255, 123, 114, 0.45); }
 .term-status.running { color: #e3c56a; }
 .term-empty { color: #4fae5a; }
@@ -1860,4 +1942,51 @@ button:disabled {
 @media (prefers-reduced-motion: reduce) {
   .term-drawer, .term-panel { transition: none; }
   .term-caret, .tk-new { animation: none; }
+  .term-screen, .term-fx-scan, .term-fx-sweep, .term-fx-noise { animation: none; }
+  .term-fx-sweep { display: none; }
 }
+
+/* Syntax colouring inside the terminal: a palette that lives on green-black, so it reads on
+   the phosphor screen instead of fighting it. The command is highlight.js bash; the output
+   is coloured by line (Term.tsx). */
+.term-code { color: #e4ffe8; }
+.term-screen .hljs-keyword,
+.term-screen .hljs-built_in,
+.term-screen .hljs-name,
+.term-screen .hljs-tag { color: #ff9ee0; font-weight: 600; }
+.term-screen .hljs-string,
+.term-screen .hljs-attr,
+.term-screen .hljs-addition { color: #ffe08a; }
+.term-screen .hljs-number,
+.term-screen .hljs-literal { color: #ffb86b; }
+.term-screen .hljs-variable,
+.term-screen .hljs-template-variable { color: #8fe3ff; }
+.term-screen .hljs-comment { color: #5f9d69; font-style: italic; }
+.term-screen .hljs-title,
+.term-screen .hljs-function { color: #8fe3ff; }
+.term-screen .hljs-meta,
+.term-screen .hljs-symbol { color: #b9a6ff; }
+.term-screen .hljs-deletion { color: #ff8a80; }
+.term-output .to-err { color: #ff8a80; }
+.term-output .to-ok { color: #8dff9a; }
+.term-output .to-warn { color: #ffd166; }
+.term-output .to-add { color: #8dff9a; }
+.term-output .to-del { color: #ff8a80; }
+.term-output .to-hunk { color: #8fe3ff; }
+.term-output .to-diffhead { color: #b9a6ff; font-weight: 600; }
+.term-output .to-loc { color: #8fe3ff; text-decoration: underline; text-decoration-color: rgba(143, 227, 255, 0.4); text-underline-offset: 2px; }
+
+/* The typewriter's cursor: a block that rides at the end of the text being typed and is gone
+   when the text is complete. It is generated content, so it is not part of what is selected
+   or copied. */
+.is-typing::after {
+  content: '';
+  display: inline-block;
+  width: 0.55em;
+  height: 1em;
+  margin-left: 1px;
+  vertical-align: -0.15em;
+  background: #7ee787;
+  box-shadow: 0 0 6px rgba(126, 231, 135, 0.6);
+}
+@media (prefers-reduced-motion: reduce) { .is-typing::after { display: none; } }
