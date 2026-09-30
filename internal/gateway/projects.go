@@ -101,6 +101,10 @@ func (s *Server) handleCreateProject(w http.ResponseWriter, r *http.Request) {
 		Description string `json:"description"`
 		Dir         string `json:"dir"`
 		GitURL      string `json:"git_url"`
+		// GitUserName and GitUserEmail answer the "git_identity_required" refusal:
+		// they are saved as the user's global git identity.
+		GitUserName  string `json:"git_user_name"`
+		GitUserEmail string `json:"git_user_email"`
 	}
 	if !s.decodeBody(w, r, &body) {
 		return
@@ -142,10 +146,21 @@ func (s *Server) handleCreateProject(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	} else {
-		// Create the directory if it does not exist.
+		// The folder is created in the workspace when it does not exist, and a
+		// folder that is new or empty becomes a git repository. A folder that
+		// already holds files is somebody's work and is not turned into one.
+		if willInit(absDir) && !s.ensureGitIdentity(w, r, body.GitUserName, body.GitUserEmail) {
+			return
+		}
 		if err := os.MkdirAll(absDir, 0o755); err != nil {
 			writeError(w, http.StatusInternalServerError, "could not create the project directory: "+err.Error())
 			return
+		}
+		if entries, err := os.ReadDir(absDir); err == nil && len(entries) == 0 {
+			if err := gitx.Init(r.Context(), absDir); err != nil {
+				writeError(w, http.StatusInternalServerError, err.Error())
+				return
+			}
 		}
 	}
 
@@ -175,6 +190,46 @@ func (s *Server) handleCreateProject(w http.ResponseWriter, r *http.Request) {
 		"created":     p.Created,
 		"clone_log":   cloneLog,
 	})
+}
+
+// errGitIdentityRequired is the machine-readable reason a project was not
+// created: git has no user, and the client has to ask for one.
+const errGitIdentityRequired = "git_identity_required"
+
+// willInit reports whether creating a project in dir will make it a repository:
+// the folder is missing or holds nothing.
+func willInit(dir string) bool {
+	entries, err := os.ReadDir(dir)
+	return errors.Is(err, os.ErrNotExist) || (err == nil && len(entries) == 0)
+}
+
+// ensureGitIdentity makes sure git has a user before a repository is created.
+//
+// The global configuration is what a commit is made under, so that is what is
+// checked. When it is incomplete and the request brought no name and email, the
+// answer is a 409 carrying errGitIdentityRequired - the client opens a dialog
+// and repeats the request with them. It returns false once it has answered.
+func (s *Server) ensureGitIdentity(w http.ResponseWriter, r *http.Request, name, email string) bool {
+	if n, e := gitx.GlobalIdentity(r.Context()); n != "" && e != "" {
+		return true
+	}
+	name, email = strings.TrimSpace(name), strings.TrimSpace(email)
+	if name == "" && email == "" {
+		writeJSON(w, http.StatusConflict, map[string]string{
+			"error": "git has no user configured: a name and an email are needed to create the repository",
+			"code":  errGitIdentityRequired,
+		})
+		return false
+	}
+	if name == "" || !strings.Contains(email, "@") || strings.ContainsAny(name+email, "\r\n") {
+		writeError(w, http.StatusBadRequest, "the git name cannot be empty and the email must be an address")
+		return false
+	}
+	if err := gitx.SetGlobalIdentity(r.Context(), name, email); err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return false
+	}
+	return true
 }
 
 // handleDeleteProject removes a project. Sessions that belong to it are NOT

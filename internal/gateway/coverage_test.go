@@ -21,6 +21,7 @@ import (
 
 	"github.com/madkoding/motita/internal/agent"
 	"github.com/madkoding/motita/internal/config"
+	"github.com/madkoding/motita/internal/gitx"
 	"github.com/madkoding/motita/internal/updater"
 )
 
@@ -337,6 +338,149 @@ func TestHandleCreateProjectWithGitURL(t *testing.T) {
 	srv.Handler().ServeHTTP(w, req)
 	if w.Code != http.StatusBadGateway {
 		t.Errorf("status = %d, want 502", w.Code)
+	}
+}
+
+// createProjectIn posts a project with no git_url and returns the response code.
+func createProjectIn(t *testing.T, wsdir, dir string) int {
+	t.Helper()
+	srv := newTestServer(t, &fakeService{}, func(o *Options) {
+		o.ProjectDir = t.TempDir()
+		o.WorkspaceDir = wsdir
+	})
+	req, _ := http.NewRequest(http.MethodPost, srv.BaseURL()+"/v1/projects", strings.NewReader(`{"title":"x","dir":"`+dir+`"}`))
+	req.Header.Set("Authorization", "Bearer "+testToken)
+	w := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(w, req)
+	return w.Code
+}
+
+func TestCreateProjectInitialisesAMissingFolder(t *testing.T) {
+	ws := t.TempDir()
+	if code := createProjectIn(t, ws, "fresh"); code != http.StatusCreated {
+		t.Fatalf("status = %d, want 201", code)
+	}
+	if _, err := os.Stat(filepath.Join(ws, "fresh", ".git")); err != nil {
+		t.Errorf("a new project folder must be a git repository: %v", err)
+	}
+}
+
+func TestCreateProjectInitialisesAnEmptyFolder(t *testing.T) {
+	ws := t.TempDir()
+	if err := os.Mkdir(filepath.Join(ws, "empty"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if code := createProjectIn(t, ws, "empty"); code != http.StatusCreated {
+		t.Fatalf("status = %d, want 201", code)
+	}
+	if _, err := os.Stat(filepath.Join(ws, "empty", ".git")); err != nil {
+		t.Errorf("an empty project folder must be a git repository: %v", err)
+	}
+}
+
+func TestCreateProjectLeavesAFolderWithFilesAlone(t *testing.T) {
+	ws := t.TempDir()
+	dir := filepath.Join(ws, "full")
+	if err := os.Mkdir(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "a.txt"), []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if code := createProjectIn(t, ws, "full"); code != http.StatusCreated {
+		t.Fatalf("status = %d, want 201", code)
+	}
+	if _, err := os.Stat(filepath.Join(dir, ".git")); err == nil {
+		t.Error("a folder that already holds files must not be turned into a repository")
+	}
+}
+
+func TestCreateProjectFolderIsAFile(t *testing.T) {
+	ws := t.TempDir()
+	if err := os.WriteFile(filepath.Join(ws, "afile"), []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if code := createProjectIn(t, ws, "afile"); code != http.StatusInternalServerError {
+		t.Errorf("status = %d, want 500", code)
+	}
+}
+
+func TestCreateProjectWithoutGitReports500(t *testing.T) {
+	t.Setenv("PATH", t.TempDir())
+	w, _ := postProject(t, filepath.Join(t.TempDir(), "gitconfig"), `{"title":"x","dir":"p","git_user_name":"Ada","git_user_email":"ada@example.com"}`)
+	if w.Code != http.StatusInternalServerError {
+		t.Errorf("status = %d, want 500", w.Code)
+	}
+}
+
+// postProject posts a JSON body to a gateway whose git has NO global identity.
+func postProject(t *testing.T, cfg, body string) (*httptest.ResponseRecorder, string) {
+	t.Helper()
+	t.Setenv("GIT_CONFIG_GLOBAL", cfg)
+	ws := t.TempDir()
+	srv := newTestServer(t, &fakeService{}, func(o *Options) {
+		o.ProjectDir = t.TempDir()
+		o.WorkspaceDir = ws
+	})
+	req, _ := http.NewRequest(http.MethodPost, srv.BaseURL()+"/v1/projects", strings.NewReader(body))
+	req.Header.Set("Authorization", "Bearer "+testToken)
+	w := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(w, req)
+	return w, ws
+}
+
+func TestCreateProjectAsksForAGitIdentity(t *testing.T) {
+	cfg := filepath.Join(t.TempDir(), "gitconfig")
+	w, ws := postProject(t, cfg, `{"title":"x","dir":"p"}`)
+	if w.Code != http.StatusConflict || !strings.Contains(w.Body.String(), `"code":"git_identity_required"`) {
+		t.Fatalf("status = %d body = %s, want 409 git_identity_required", w.Code, w.Body.String())
+	}
+	if _, err := os.Stat(filepath.Join(ws, "p")); err == nil {
+		t.Error("nothing may be created before the identity is known")
+	}
+}
+
+func TestCreateProjectSavesTheGitIdentityItIsGiven(t *testing.T) {
+	cfg := filepath.Join(t.TempDir(), "gitconfig")
+	w, ws := postProject(t, cfg, `{"title":"x","dir":"p","git_user_name":"Ada","git_user_email":"ada@example.com"}`)
+	if w.Code != http.StatusCreated {
+		t.Fatalf("status = %d body = %s", w.Code, w.Body.String())
+	}
+	if _, err := os.Stat(filepath.Join(ws, "p", ".git")); err != nil {
+		t.Errorf("not a repository: %v", err)
+	}
+	if n, e := gitx.GlobalIdentity(context.Background()); n != "Ada" || e != "ada@example.com" {
+		t.Errorf("saved identity = %q %q", n, e)
+	}
+}
+
+func TestCreateProjectRejectsABadGitIdentity(t *testing.T) {
+	for _, body := range []string{
+		`{"title":"x","dir":"p","git_user_name":"Ada"}`,
+		`{"title":"x","dir":"p","git_user_name":"Ada","git_user_email":"nope"}`,
+		`{"title":"x","dir":"p","git_user_email":"a@b.c"}`,
+	} {
+		if w, _ := postProject(t, filepath.Join(t.TempDir(), "gitconfig"), body); w.Code != http.StatusBadRequest {
+			t.Errorf("%s: status = %d, want 400", body, w.Code)
+		}
+	}
+}
+
+func TestCreateProjectGitIdentityNotSaved(t *testing.T) {
+	// A config path that is a directory makes `git config --global` fail.
+	w, _ := postProject(t, t.TempDir(), `{"title":"x","dir":"p","git_user_name":"Ada","git_user_email":"ada@example.com"}`)
+	if w.Code != http.StatusInternalServerError {
+		t.Errorf("status = %d, want 500", w.Code)
+	}
+}
+
+func TestCreateProjectWithFilesNeedsNoGitIdentity(t *testing.T) {
+	t.Setenv("GIT_CONFIG_GLOBAL", filepath.Join(t.TempDir(), "gitconfig"))
+	ws := t.TempDir()
+	os.MkdirAll(filepath.Join(ws, "full"), 0o755)
+	os.WriteFile(filepath.Join(ws, "full", "a"), []byte("x"), 0o644)
+	if code := createProjectIn(t, ws, "full"); code != http.StatusCreated {
+		t.Errorf("status = %d, want 201", code)
 	}
 }
 
