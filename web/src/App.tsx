@@ -561,6 +561,11 @@ export default function App() {
   const [newProjectDesc, setNewProjectDesc] = useState('')
   const [newProjectDir, setNewProjectDir] = useState('')
   const [newProjectGit, setNewProjectGit] = useState('')
+  // The git identity dialog: opened when the gateway answers that git has no user, and
+  // submitted together with the project it interrupted.
+  const [showGitIdentity, setShowGitIdentity] = useState(false)
+  const [gitUserName, setGitUserName] = useState('')
+  const [gitUserEmail, setGitUserEmail] = useState('')
   const [creatingProject, setCreatingProject] = useState(false)
   // Toast notification: auto-dismissing message shown at the bottom of the screen.
   // `detail` is the second line a user reads — the human explanation.
@@ -1460,7 +1465,7 @@ export default function App() {
   // createProject sends a new project to the gateway. When a git URL is set,
   // the gateway clones the repo and returns the clone log, which we show in
   // the modal so the user can see what happened.
-  const createProject = useCallback(async () => {
+  const createProject = useCallback(async (identity?: { name: string; email: string }) => {
     const title = newProjectTitle.trim()
     let dir = newProjectDir.trim()
     const gitUrl = newProjectGit.trim()
@@ -1482,10 +1487,18 @@ export default function App() {
           description: newProjectDesc.trim(),
           dir,
           git_url: gitUrl || undefined,
+          git_user_name: identity?.name,
+          git_user_email: identity?.email,
         })
       })
       if (!res.ok) {
         const err = await res.json().catch(() => ({}))
+        if (res.status === 409 && err.code === 'git_identity_required') {
+          // Nothing was created: ask for the user and send the same request again.
+          setShowGitIdentity(true)
+          setCreatingProject(false)
+          return
+        }
         setState(err.error || 'could not create the project', true)
         setCreatingProject(false)
         return
@@ -1506,6 +1519,7 @@ export default function App() {
       setNewProjectDesc('')
       setNewProjectDir('')
       setNewProjectGit('')
+      setShowGitIdentity(false)
       setCreatingProject(false)
     } catch (e) {
       setState('could not create the project: ' + String(e), true)
@@ -3688,6 +3702,66 @@ export default function App() {
               </button>
             </div>
           </div>
+        </div>
+      )}
+
+      {/* Git identity modal — asked when git has no user and a repository has to be created. */}
+      {showGitIdentity && (
+        <div
+          class="fixed inset-0 bg-black/60 backdrop-blur-sm z-[60] flex items-center justify-center p-4"
+          onClick={() => setShowGitIdentity(false)}
+        >
+          <form
+            class="frosted rounded-2xl border border-white/10 w-full max-w-md p-5 shadow-2xl"
+            onClick={(e) => e.stopPropagation()}
+            onSubmit={(e) => {
+              e.preventDefault()
+              createProject({ name: gitUserName.trim(), email: gitUserEmail.trim() })
+            }}
+          >
+            <h2 class="text-base font-semibold mb-1">Git user</h2>
+            <p class="text-sm text-[#9a9aaa] mb-4">
+              Git has no user configured. It is saved as your global git identity and signs the commits of every repository.
+            </p>
+            <div class="space-y-4">
+              <div>
+                <label class="block text-sm text-[#9a9aaa] mb-1.5">Name <span class="text-danger">*</span></label>
+                <input
+                  class="w-full px-3 py-2.5 rounded-xl bg-black/30 border border-white/10 text-[#e8e8ea] focus:outline-none focus:border-accent"
+                  value={gitUserName}
+                  onInput={(e) => setGitUserName((e.target as HTMLInputElement).value)}
+                  placeholder="Ada Lovelace"
+                  autoFocus
+                />
+              </div>
+              <div>
+                <label class="block text-sm text-[#9a9aaa] mb-1.5">Email <span class="text-danger">*</span></label>
+                <input
+                  type="email"
+                  class="w-full px-3 py-2.5 rounded-xl bg-black/30 border border-white/10 text-[#e8e8ea] focus:outline-none focus:border-accent"
+                  value={gitUserEmail}
+                  onInput={(e) => setGitUserEmail((e.target as HTMLInputElement).value)}
+                  placeholder="ada@example.com"
+                />
+              </div>
+            </div>
+            <div class="flex gap-2 mt-5">
+              <button
+                type="submit"
+                class="flex-1 min-h-[44px] px-5 rounded-xl bg-accent text-white font-semibold active:scale-95 transition-transform disabled:opacity-30 disabled:cursor-not-allowed disabled:saturate-0"
+                disabled={creatingProject || !gitUserName.trim() || !gitUserEmail.includes('@')}
+              >
+                {creatingProject ? 'Saving…' : 'Save and create'}
+              </button>
+              <button
+                type="button"
+                class="min-h-[44px] px-5 rounded-xl border border-white/10 text-[#e8e8ea] active:scale-95 transition-transform"
+                onClick={() => setShowGitIdentity(false)}
+              >
+                Cancel
+              </button>
+            </div>
+          </form>
         </div>
       )}
 
