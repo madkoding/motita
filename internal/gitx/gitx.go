@@ -167,6 +167,40 @@ func Repo(ctx context.Context, dir string) error {
 	return nil
 }
 
+// Init makes dir a git repository, on branch `main`.
+//
+// Nothing is written to the repository's config: git reads the user's GLOBAL
+// configuration (identity, credential helper) on its own for every repository,
+// and copying it into .git/config would freeze a value the user may change.
+// An existing repository is left untouched, so calling this twice is harmless.
+func Init(ctx context.Context, dir string) error {
+	if Repo(ctx, dir) == nil {
+		return nil
+	}
+	_, err := noGitOr(ctx, "could not initialise a git repository", dir, "init", "--initial-branch=main")
+	return err
+}
+
+// GlobalIdentity is the name and email in the user's GLOBAL git configuration,
+// which is where a repository made by Init gets the identity of its commits.
+// Either is empty when it is not set.
+func GlobalIdentity(ctx context.Context) (name, email string) {
+	name, _ = execute(ctx, ".", "config", "--global", "user.name")
+	email, _ = execute(ctx, ".", "config", "--global", "user.email")
+	return strings.TrimSpace(name), strings.TrimSpace(email)
+}
+
+// SetGlobalIdentity writes the name and email into the user's global git
+// configuration, so that every repository - this one and the ones already on
+// the machine - commits under them.
+func SetGlobalIdentity(ctx context.Context, name, email string) error {
+	if _, err := noGitOr(ctx, "could not save the git name", ".", "config", "--global", "user.name", name); err != nil {
+		return err
+	}
+	_, err := noGitOr(ctx, "could not save the git email", ".", "config", "--global", "user.email", email)
+	return err
+}
+
 // Head reports the branch a directory is checked out on, or the short sha when
 // the checkout is detached.
 //
