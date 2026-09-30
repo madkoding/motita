@@ -816,6 +816,12 @@ func (s *Server) loadPersistedSessions() {
 			if rec.Title != "" {
 				s.sessions[DefaultSession].setTitle(rec.Title)
 			}
+			s.sessions[DefaultSession].setAutoApprove(rec.AutoApprove)
+			// The level this conversation was running comes back with it, or the interface would
+			// paint a level the session is not actually using.
+			if rec.Reasoning != "" {
+				s.sessions[DefaultSession].svc.SetReasoning(rec.Reasoning)
+			}
 			continue
 		}
 		// A non-default session needs a new service built for it. Without a
@@ -848,6 +854,7 @@ func (s *Server) loadPersistedSessions() {
 		conv.created = rec.Created
 		conv.lastUsed = rec.LastUsed
 		conv.setTitle(rec.Title)
+		conv.setAutoApprove(rec.AutoApprove)
 		// A session in a project gets its worktree back. The branch outlives the
 		// worktree, so re-attaching it restores the session's own work rather
 		// than starting over; a failure falls back to the project's directory,
@@ -878,6 +885,13 @@ func (s *Server) loadPersistedSessions() {
 		// defaults the factory built with.
 		if rec.Provider != "" || rec.Model != "" {
 			svc.SetLLM(rec.Provider, rec.Model)
+		}
+		// Restore the reasoning level this session was running. It is restored AFTER SetLLM
+		// because a service is free to reset the level with the provider (a level one provider
+		// does not honour is not a reason to keep showing it), and the session's own choice is
+		// what has to win.
+		if rec.Reasoning != "" {
+			svc.SetReasoning(rec.Reasoning)
 		}
 		// Restore the workspace directory for project sessions. It is the
 		// worktree when there is one, so the resumed session writes where its

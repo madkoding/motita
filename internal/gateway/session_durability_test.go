@@ -13,12 +13,18 @@ package gateway
 //     and no trace of the work done (see the agent's pending turn).
 
 import (
+	"bufio"
 	"context"
 	"encoding/json"
+	"fmt"
+	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
+
+	"github.com/madkoding/motita/internal/agent"
 )
 
 func readRecordOnDisk(t *testing.T, dir, id string) sessionRecord {
@@ -211,4 +217,118 @@ func TestASyncedWriteReportsAFullDisk(t *testing.T) {
 	if err := writeSynced(filepath.Join(t.TempDir(), "no", "such", "dir", "f"), []byte("x")); err == nil {
 		t.Error("an unopenable path must be reported")
 	}
+}
+
+// TestAllowAllSurvivesARestart: reported from real use - after refreshing the page (and after an
+// upgrade) the interface no longer showed that every command was allowed in the session. The
+// standing answer lived in memory only, so the new process asked again. It is saved with the
+// session now, on BOTH paths a session is restored by: the default session, and any other.
+func TestAllowAllSurvivesARestart(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "sessions")
+	opts := func() Options {
+		return Options{
+			Token: testToken, WorkspaceDir: t.TempDir(), SessionDir: dir,
+			ProjectDir: filepath.Join(t.TempDir(), "projects"),
+			Service:    &fakeService{},
+			NewService: func() (Service, error) { return &fakeService{}, nil },
+		}
+	}
+
+	first, _ := startServer(t, opts())
+	other := seedConversationOn(t, first, "s-other")
+	for _, id := range []string{DefaultSession, other} {
+		w := post(t, first, sessionPath(first, id, "/auto-approve"), `{"enabled":true}`, testToken)
+		if w.Code != http.StatusOK {
+			t.Fatalf("turning it on for %s = %d %s", id, w.Code, w.Body.String())
+		}
+		if rec := readRecordOnDisk(t, dir, id); !rec.AutoApprove {
+			t.Fatalf("%s: the answer was given but not written to disk: a restart would forget it", id)
+		}
+	}
+	_ = first.Close(context.Background())
+
+	second, _ := startServer(t, opts())
+	for _, id := range []string{DefaultSession, other} {
+		c, ok := second.lookup(id)
+		if !ok {
+			t.Fatalf("%s was not restored", id)
+		}
+		if !c.autoApproving() {
+			t.Errorf("%s: allow-all was forgotten across the restart", id)
+		}
+		if !c.status().AutoApprove {
+			t.Errorf("%s: the status the interface reads does not say it is on", id)
+		}
+	}
+
+	// Taking it back is a decision too, and must not be undone by the next restart.
+	if w := post(t, second, sessionPath(second, other, "/auto-approve"), `{"enabled":false}`, testToken); w.Code != http.StatusOK {
+		t.Fatalf("turning it off = %d", w.Code)
+	}
+	if rec := readRecordOnDisk(t, dir, other); rec.AutoApprove {
+		t.Error("taking it back was not written to disk: the next restart would turn it on again")
+	}
+}
+
+// TestAnAllowAllAnswerIsWrittenAtOnce: answering "allow all commands" in the approval panel saves
+// the session right then, not at the end of the run - a gateway stopped while the run is still
+// going must already know it.
+func TestAnAllowAllAnswerIsWrittenAtOnce(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "sessions")
+	svc := &fakeService{}
+	release := make(chan struct{})
+	svc.task = func(ctx context.Context, _ string, _ func(string, ...any)) (string, error) {
+		ok, err := svc.approver(ctx, agent.ApprovalRequest{Command: "npm test", Reason: "r", Rule: "unclassified"})
+		if err != nil || !ok {
+			return "", err
+		}
+		<-release
+		return "done", nil
+	}
+	// newTestServer and not startServer: this one has to ANSWER over the socket, and only the
+	// former runs Serve.
+	srv := newTestServer(t, svc, func(o *Options) {
+		o.WorkspaceDir = t.TempDir()
+		o.SessionDir = dir
+		o.ProjectDir = filepath.Join(t.TempDir(), "projects")
+	})
+
+	req, _ := http.NewRequest(http.MethodPost, srv.BaseURL()+sessionPath(srv, DefaultSession, "/task"), strings.NewReader(`{"task":"x"}`))
+	req.Header.Set("Authorization", "Bearer "+testToken)
+	resp, err := (&http.Client{}).Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	br := bufio.NewReader(resp.Body)
+	// Registered AFTER the server's own cleanup, so it runs BEFORE it: the run is released, its
+	// stream is drained to the end, and only then is the session directory removed.
+	t.Cleanup(func() {
+		close(release)
+		readEvents(t, br)
+		resp.Body.Close()
+		waitForNoRun(t, srv)
+	})
+	ask := waitForApproval(t, br)
+	w := post(t, srv, sessionPath(srv, DefaultSession, "/runs/approval"),
+		fmt.Sprintf(`{"id":%q,"approve":true,"scope":"session"}`, ask.ID), testToken)
+	if w.Code != http.StatusNoContent {
+		t.Fatalf("answer = %d %s", w.Code, w.Body.String())
+	}
+	// The run is still blocked on `release`: whatever is on disk now was written by the answer.
+	if rec := readRecordOnDisk(t, dir, DefaultSession); !rec.AutoApprove {
+		t.Fatal("the answer was not saved while the run was still going")
+	}
+}
+
+// seedConversationOn registers a second, non-default conversation on a running server and
+// persists it, the way a session the user created is.
+func seedConversationOn(t *testing.T, srv *Server, id string) string {
+	t.Helper()
+	conv := newConversation(id, &fakeService{})
+	conv.setTitle("other")
+	srv.sessionsMu.Lock()
+	srv.sessions[id] = conv
+	srv.sessionsMu.Unlock()
+	srv.saveSession(conv)
+	return id
 }

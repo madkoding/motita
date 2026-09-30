@@ -39,6 +39,16 @@ type sessionRecord struct {
 	Provider  string    `json:"provider,omitempty"`
 	Model     string    `json:"model,omitempty"`
 	Workspace string    `json:"workspace,omitempty"`
+	// Reasoning is the level this conversation runs at, as chosen from a front end (the web UI's
+	// picker, or the terminal's /reasoning). It is saved with the session for the same reason
+	// AutoApprove is: it is the user's decision about THIS conversation, and kept only in memory it
+	// was forgotten by every restart and upgrade - the interface then showed a level the session was
+	// not running.
+	//
+	// The level ALONE is stored; the enabled flag is derived from it on the way back in, because
+	// "enabled with level off" and a level other than off with enabled false are both states
+	// config.normalize reconciles rather than states worth persisting.
+	Reasoning string `json:"reasoning,omitempty"`
 	// ProjectDir is the project's OWN checkout, which differs from Workspace
 	// for a session that has its own worktree. It is persisted because the
 	// restore path needs it to re-create that worktree and to know what the
@@ -48,6 +58,11 @@ type sessionRecord struct {
 	// Running, when true, means the session was mid-run when the gateway
 	// shut down (e.g. for an upgrade). The new process reads this and
 	// re-submits LastTask as a task or plan to resume the work.
+	// AutoApprove is the user's "allow all commands for this session". It is the user's
+	// decision about THIS conversation, so it lives with the conversation: kept in memory only
+	// it was forgotten at every restart and upgrade.
+	AutoApprove bool `json:"auto_approve,omitempty"`
+
 	Running  bool                 `json:"running,omitempty"`
 	LastTask string               `json:"last_task,omitempty"`
 	LastKind string               `json:"last_kind,omitempty"`
@@ -86,15 +101,16 @@ func (st *sessionStore) saveEnded(c *conversation) error { return st.write(c, tr
 func (st *sessionStore) write(c *conversation, ended bool) error {
 	c.stateMu.Lock()
 	rec := sessionRecord{
-		ID:         c.id,
-		Title:      c.title,
-		ProjectID:  c.projectID,
-		Created:    c.created,
-		LastUsed:   c.lastUsed,
-		Running:    c.running && !ended,
-		LastTask:   c.lastTask,
-		LastKind:   c.lastKind,
-		ProjectDir: c.projectDir,
+		ID:          c.id,
+		Title:       c.title,
+		ProjectID:   c.projectID,
+		Created:     c.created,
+		LastUsed:    c.lastUsed,
+		Running:     c.running && !ended,
+		LastTask:    c.lastTask,
+		LastKind:    c.lastKind,
+		ProjectDir:  c.projectDir,
+		AutoApprove: c.autoApprove,
 	}
 	c.stateMu.Unlock()
 
@@ -106,6 +122,10 @@ func (st *sessionStore) write(c *conversation, ended bool) error {
 		rec.Provider = cfg.LLM.Provider
 		rec.Model = cfg.LLM.Model
 		rec.Workspace = cfg.Agent.WorkspaceDir
+		// The level as the service reports it, which is what the request builders will use. Read
+		// from the service rather than kept on the conversation: the service is the thing that
+		// runs the turn, and a second copy here would be a second answer to the same question.
+		rec.Reasoning = cfg.LLM.Reasoning.Level
 	}
 
 	st.mu.Lock()

@@ -54,6 +54,11 @@ type Service interface {
 	// server reduces it with viewOf before it goes anywhere near a network. See view.go.
 	Config() config.Config
 	// SetReasoning changes the in-memory reasoning level.
+	//
+	// The LEVEL ALONE is not the setting: config.normalize reads a level other than "off"
+	// beside `enabled: false` as "nobody applied this" and turns it back into the default, and
+	// the request builders send nothing at all. An implementation therefore has to move both
+	// fields together - see tui.AppRunner.SetReasoning, which does.
 	SetReasoning(level string)
 	// SetLLM changes the in-memory provider and/or model. An empty string for either
 	// field means "leave unchanged", so a caller can update one without knowing the

@@ -85,7 +85,7 @@ func TestTheViewReportsAMissingKey(t *testing.T) {
 // the key field is whether it is EMPTY (the status dot turns red when it is), so the sentinel
 // is documented rather than clever and this pins the contract.
 func TestConfigFromViewPutsASentinelWhereTheKeyWas(t *testing.T) {
-	cfg := configFromView(configView{Provider: "ollama", Model: "m", Reasoning: "low", APIKeyPresent: true})
+	cfg := configFromView(configView{Provider: "ollama", Model: "m", Reasoning: "low", ReasoningOn: true, APIKeyPresent: true})
 	if cfg.LLM.APIKey != RedactedKey {
 		t.Errorf("api key = %q, want the sentinel %q", cfg.LLM.APIKey, RedactedKey)
 	}
@@ -102,6 +102,33 @@ func TestConfigFromViewPutsASentinelWhereTheKeyWas(t *testing.T) {
 	}
 	if empty.LLM.Reasoning.Enabled {
 		t.Error("reasoning_enabled must survive as false")
+	}
+}
+
+// TestViewOfCannotDescribeAnImpossibleReasoningPair: reported from real use - the level a session
+// was running did not survive a restart. The rule that bit is config.normalize's: a level other
+// than "off" beside `enabled: false` means "nobody applied this", and the level is turned back into
+// the default while the request builders send nothing. A view that COPIED the flag would tell a
+// front end "high, off" for such a configuration, and the interface would then paint a level the
+// session cannot use. The flag is derived from the level, so the two can never disagree on the wire.
+func TestViewOfCannotDescribeAnImpossibleReasoningPair(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		cfg    config.Reasoning
+		want   string
+		wantOn bool
+	}{
+		{"a level with the flag forgotten still travels as on", config.Reasoning{Enabled: false, Level: "high"}, "high", true},
+		{"off travels as off", config.Reasoning{Enabled: true, Level: "off"}, "off", false},
+		{"medium with the flag set", config.Reasoning{Enabled: true, Level: "medium"}, "medium", true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got := viewOf(config.Config{LLM: config.LLM{Reasoning: tc.cfg}})
+			if got.Reasoning != tc.want || got.ReasoningOn != tc.wantOn {
+				t.Errorf("view = %q/%v, want %q/%v: a front end must be told the level the session will USE",
+					got.Reasoning, got.ReasoningOn, tc.want, tc.wantOn)
+			}
+		})
 	}
 }
 

@@ -440,6 +440,9 @@ func (s *Server) handleApproval(w http.ResponseWriter, r *http.Request) {
 		// Set BEFORE the answer is delivered, so the run's very next question already sees it.
 		if body.Approve && body.Scope == "session" {
 			c.setAutoApprove(true)
+			// Written now: the answer is the user's decision, and a gateway that is stopped a
+			// moment later must still know it.
+			s.saveSession(c)
 		}
 		// Buffered with room for one, so this never blocks even if the run has already moved on or
 		// already been cancelled. A blocking send here would hang the answering client on a
@@ -464,6 +467,7 @@ func (s *Server) handleAutoApprove(w http.ResponseWriter, r *http.Request) {
 	}
 	c := convOf(r)
 	c.setAutoApprove(body.Enabled)
+	s.saveSession(c)
 	writeJSON(w, http.StatusOK, c.status())
 }
 

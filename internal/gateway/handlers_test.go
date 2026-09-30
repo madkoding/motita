@@ -6,6 +6,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -151,6 +152,95 @@ func TestReasoningPassesTheLevelThrough(t *testing.T) {
 	}
 	if svc.reasoning != "" {
 		t.Errorf("level = %q, want it passed through as given", svc.reasoning)
+	}
+}
+
+// TestTheReasoningLevelSurvivesARestart: reported from real use - the level picked in the web
+// interface was gone after a restart, and the interface then painted a level the session was not
+// running. The level is the user's decision about THIS conversation, so it is saved with it, on
+// both paths a session comes back by: the default session and any other.
+func TestTheReasoningLevelSurvivesARestart(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "sessions")
+	opts := func() Options {
+		return Options{
+			Token: testToken, WorkspaceDir: t.TempDir(), SessionDir: dir,
+			ProjectDir: filepath.Join(t.TempDir(), "projects"),
+			Service:    &fakeService{},
+			NewService: func() (Service, error) { return &fakeService{}, nil },
+		}
+	}
+
+	first, _ := startServer(t, opts())
+	other := registerOtherSession(t, first, "s-other")
+	for _, id := range []string{DefaultSession, other} {
+		if w := post(t, first, sessionPath(first, id, "/reasoning"), `{"level":"high"}`, testToken); w.Code != http.StatusNoContent {
+			t.Fatalf("setting the level for %s = %d %s", id, w.Code, w.Body.String())
+		}
+		if rec := readRecordOnDisk(t, dir, id); rec.Reasoning != "high" {
+			t.Fatalf("%s: the level was chosen but not written to disk (record: %+v): a restart would forget it", id, rec.Reasoning)
+		}
+		// The whole POINT of the level is that it reaches the model, and it only does when the
+		// `enabled` flag travels with it: config.normalize turns a level beside enabled=false back
+		// into the default, and the request builders then send nothing at all.
+		if cfg := lookupService(t, first, id).Config(); !cfg.LLM.Reasoning.Enabled {
+			t.Errorf("%s: reasoning is at %q with the flag off, which normalize reads as \"nobody applied this\"", id, cfg.LLM.Reasoning.Level)
+		}
+	}
+	_ = first.Close(context.Background())
+
+	second, _ := startServer(t, opts())
+	for _, id := range []string{DefaultSession, other} {
+		cfg := lookupService(t, second, id).Config()
+		if cfg.LLM.Reasoning.Level != "high" || !cfg.LLM.Reasoning.Enabled {
+			t.Errorf("%s: reasoning came back as %q/%v, want high/true",
+				id, cfg.LLM.Reasoning.Level, cfg.LLM.Reasoning.Enabled)
+		}
+	}
+}
+
+// lookupService is the Service behind a session, which is where the reasoning level actually lives
+// (the conversation holds a reference to it, not a copy of its settings).
+func lookupService(t *testing.T, srv *Server, id string) Service {
+	t.Helper()
+	conv, ok := srv.lookup(id)
+	if !ok {
+		t.Fatalf("%s is not registered", id)
+	}
+	return conv.svc
+}
+
+// registerOtherSession puts a second, non-default conversation in a running server and persists it,
+// so a restore can be proven for both paths `loadPersistedSessions` has: the default session (which
+// already has a service) and one whose service comes from NewService.
+//
+// It builds the conversation itself rather than reaching for a helper elsewhere in the package: this
+// file has to compile on its own against the released tree, and a shared helper is one more thing a
+// merge can take away.
+func registerOtherSession(t *testing.T, srv *Server, id string) string {
+	t.Helper()
+	conv := newConversation(id, &fakeService{})
+	conv.setTitle("other")
+	srv.sessionsMu.Lock()
+	srv.sessions[id] = conv
+	srv.sessionsMu.Unlock()
+	srv.saveSession(conv)
+	return id
+}
+
+// TestAnEmptyLevelDoesNotEraseTheStoredOne: the transport passes an empty level through (see
+// TestReasoningPassesTheLevelThrough), and a save that recorded that empty string would replace a
+// real level with nothing on the next restart. The record is left alone instead.
+func TestAnEmptyLevelDoesNotEraseTheStoredOne(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "sessions")
+	srv, _ := startServer(t, Options{
+		Token: testToken, WorkspaceDir: t.TempDir(), SessionDir: dir,
+		ProjectDir: filepath.Join(t.TempDir(), "projects"),
+		Service:    &fakeService{}, NewService: func() (Service, error) { return &fakeService{}, nil },
+	})
+	post(t, srv, sessionPath(srv, DefaultSession, "/reasoning"), `{"level":"high"}`, testToken)
+	post(t, srv, sessionPath(srv, DefaultSession, "/reasoning"), `{"level":""}`, testToken)
+	if rec := readRecordOnDisk(t, dir, DefaultSession); rec.Reasoning != "high" {
+		t.Errorf("stored reasoning = %q, want the level that was actually chosen (high)", rec.Reasoning)
 	}
 }
 

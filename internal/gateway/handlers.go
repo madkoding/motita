@@ -95,7 +95,17 @@ func (s *Server) handleReasoning(w http.ResponseWriter, r *http.Request) {
 	if !s.decodeBody(w, r, &body) {
 		return
 	}
-	convOf(r).svc.SetReasoning(body.Level)
+	c := convOf(r)
+	c.svc.SetReasoning(body.Level)
+	// Written now, like the model and the "allow all commands" answer: the level is the user's
+	// decision about this conversation, and a gateway stopped a moment later must still know it.
+	//
+	// An empty level is passed through but NOT saved: it is this transport's "leave unchanged"
+	// sentinel (see TestReasoningPassesTheLevelThrough), and writing it would replace a stored
+	// level with nothing on the next restart.
+	if body.Level != "" {
+		s.saveSession(c)
+	}
 	w.WriteHeader(http.StatusNoContent)
 }
 

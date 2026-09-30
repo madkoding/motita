@@ -37,12 +37,20 @@ type configView struct {
 }
 
 // viewOf reduces a configuration to what may leave the process.
+//
+// ReasoningOn is DERIVED from the level rather than copied from the flag, and that is deliberate: a
+// config.Config on this side of the wire may have been built by hand with the pair out of step
+// (configFromView, the onboarding wizard, a test), and a level other than "off" beside a false flag
+// is read by config.normalize as "nobody applied this" - the level is then turned back into the
+// default and the request builders send nothing at all. Deriving it here means a front end is told
+// the truth about what the session will actually send, whatever shape the struct is in.
 func viewOf(cfg config.Config) configView {
+	level := cfg.LLM.Reasoning.Level
 	return configView{
 		Provider:      cfg.LLM.Provider,
 		Model:         cfg.LLM.Model,
-		Reasoning:     cfg.LLM.Reasoning.Level,
-		ReasoningOn:   cfg.LLM.Reasoning.Enabled,
+		Reasoning:     level,
+		ReasoningOn:   level != "off",
 		APIKeyPresent: cfg.LLM.APIKey != "",
 	}
 }
