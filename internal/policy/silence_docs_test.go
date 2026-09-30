@@ -76,6 +76,20 @@ func TestTheDocumentedSilenceTableHolds(t *testing.T) {
 
 		// "inline flags are read per interpreter" — gcc -c is a compile flag, python3 -c is code.
 		{"gcc -c foo.c", Allow, "docs: a compile flag is not inline code"},
+
+		// The line editors, whose two rows in the table are the same tool asked twice. The
+		// reading form is how a coding agent looks at a file; the writing form is a flag (in
+		// sed) or a redirection in the script (in awk), and the docs name both.
+		{`sed -n '1,300p' file`, Allow, "docs: sed in its printing form is silent"},
+		{`awk '{print $1}' file`, Allow, "docs: and so is awk"},
+		{`sed -i 's/a/b/' file`, Ask, "docs: sed in place is asked about"},
+		{`awk '{print > "f"}' file`, Ask, "docs: an awk redirection is asked about"},
+
+		// "a reader whose second operand is an output file" — the mirror defect, where the
+		// table said "only reads" and the line wrote a file in silence.
+		{"sort -o out.txt in.txt", Ask, "docs: sort -o is asked about"},
+		{"uniq in.txt out.txt", Ask, "docs: uniq with an output operand is asked about"},
+		{"xxd in.bin out.hex", Ask, "docs: xxd with an output operand is asked about"},
 	}
 
 	// Every documented "asked" row must also be REFUSED under strict, and every "silent" row

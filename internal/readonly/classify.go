@@ -53,13 +53,18 @@ func Classify(command string, args []string) (Kind, string) {
 	}
 
 	// Writing programs, refused by name even when an argument would make them read.
-	// `sed -n` only reads, but `sed -i` rewrites, and one policy is easier to keep honest
-	// than a table of exceptions.
+	// `git commit` is a writer whatever else it says, and one policy is easier to keep
+	// honest than a table of exceptions.
 	if _, bad := writers[name]; bad {
 		return KindWriter, ""
 	}
 
-	// Commands whose arguments decide: the writing form is named explicitly.
+	// Commands whose arguments decide: the writing form is named explicitly. This runs
+	// BEFORE the reader list, and that order is the whole point of the table: `sed` and
+	// `sort` read with one argument list and write with another, so the name alone
+	// cannot answer. A reader whose writing form were checked after the reader list was
+	// found would be allowed to write in silence, which is the one failure this package
+	// cannot have — see the note on KindReader.
 	if rule, ok := argumentRules[name]; ok {
 		if reason, bad := rule(args); bad {
 			return KindWriter, reason

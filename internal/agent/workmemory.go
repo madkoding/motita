@@ -23,6 +23,8 @@ package agent
 import (
 	"fmt"
 	"strings"
+
+	"github.com/madkoding/motita/internal/readonly"
 )
 
 const (
@@ -126,26 +128,16 @@ func (m *workMemory) render() string {
 	return b.String()
 }
 
-// readerPrograms are the programs whose use as the first word of a segment reads only.
-// sed and awk are here because their read forms are what a model uses to look at a file
-// (`sed -n '1,200p' f`); their writing forms are refused in readsOnly.
-var readerPrograms = map[string]bool{
-	"cat": true, "head": true, "tail": true, "nl": true, "sed": true, "awk": true,
-	"grep": true, "egrep": true, "fgrep": true, "rg": true, "ls": true, "find": true,
-	"wc": true, "echo": true, "printf": true, "sort": true, "uniq": true, "cut": true,
-	"tr": true, "stat": true, "file": true, "tree": true, "pwd": true, "true": true,
-	"git": true,
-}
-
-// readerGit are the git subcommands that only observe.
-var readerGit = map[string]bool{
-	"status": true, "diff": true, "log": true, "show": true, "ls-files": true,
-	"rev-parse": true, "grep": true,
-}
-
 // readsOnly reports whether a shell line cannot change anything. It is conservative on
 // purpose: a line it cannot vouch for is treated as a write, which costs one extra
 // execution and never a stale answer.
+//
+// The per-program judgement is NOT here. It used to be a second reader list of its own —
+// `readerPrograms` with `git`, `sed`, `find` and `awk` special-cased inline — and having two
+// lists meant having two answers: this one said `sed -n '1,300p' file` could not change
+// anything and the policy said it could, so the same line was refused mid-run and, on the
+// rounds where the model was not asked about it, not even remembered. readonly.Classify is
+// now the single answer.
 func readsOnly(line string) bool {
 	line = strings.NewReplacer("2>/dev/null", " ", "2>&1", " ").Replace(line)
 	var quote rune
@@ -190,45 +182,18 @@ func readsOnly(line string) bool {
 			continue
 		}
 		seen = true
-		if !readerSegment(f) {
+		// The PROGRAM-and-its-arguments decision is the shared one, in readonly, so the
+		// memory that decides whether a read may be replayed and the policy that decides
+		// whether a line may run cannot disagree — they already did: both treated `sed`
+		// as a writer whatever its arguments said, so `sed -n '1,300p' file` was never
+		// remembered, and both were silent about `sort -o out.txt`, which writes. The
+		// metacharacters above are checked first because they are what this function
+		// knows and readonly, by construction, never sees.
+		if kind, _ := readonly.Classify(f[0], f[1:]); kind != readonly.KindReader {
 			return false
 		}
 	}
 	return seen
-}
-
-// readerSegment judges one simple command: its program, then the arguments that turn a
-// reader into a writer.
-func readerSegment(f []string) bool {
-	name := f[0]
-	if !readerPrograms[name] {
-		return false
-	}
-	args := f[1:]
-	switch name {
-	case "git":
-		return len(args) > 0 && readerGit[args[0]]
-	case "sed":
-		for _, a := range args {
-			if strings.HasPrefix(a, "-i") || a == "--in-place" || strings.HasPrefix(a, "--in-place=") {
-				return false
-			}
-		}
-	case "find":
-		for _, a := range args {
-			switch a {
-			case "-exec", "-execdir", "-ok", "-okdir", "-delete", "-fprint", "-fprintf", "-fls":
-				return false
-			}
-		}
-	case "awk":
-		for _, a := range args {
-			if strings.Contains(a, "system(") {
-				return false
-			}
-		}
-	}
-	return true
 }
 
 // isRead reports whether an action is a plain shell command that only reads.

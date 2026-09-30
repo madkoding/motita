@@ -1127,8 +1127,33 @@ The boundary cases are deliberate, and each one is a test:
 | `python3 /opt/other/build.py` | asked | a script from outside — the policy cannot read it as yours |
 | `python3 -c '...'` | asked | inline code is as opaque as a shell line |
 | `make`, `go build`, `npm test` | silent | the local toolchain |
+| ``sed -n '1,300p' file``, ``awk '{print $1}' file`` | silent | the line editors in their printing form, which is how a file gets read |
+| `sed -i 's/a/b/' file`, ``awk '{print > "f"}'`` | **asked** | the same programs in their writing form: a flag, or a redirection in the script |
+| `sort -o out.txt in.txt`, `uniq in.txt out.txt`, `xxd in.bin out.hex` | **asked** | a reader whose second operand is an output file |
 | `pip install x`, `git push` | asked | it reaches the network |
 | `htop`, an unknown binary | asked | nobody can classify it; with `strict` on, refused |
+
+**A program's name is not the answer about the program.** The rows above with two entries
+are the same tool asked twice, and the answer differs because the ARGUMENTS differ. `sed`
+was once in the writers table, so `sed -n '1,300p' file` — the way a coding agent looks at a
+file, measured 197 times in one real session — was refused in plan mode and put in front of
+the user as a question in every other mode, while the program was being used as a reader.
+The mirror of that defect is worse: `sort -o out.txt in.txt` and `uniq in.txt out.txt` were
+listed as readers with no rule, so they ran **in silence while writing a file**.
+
+Both are fixed the same way: a program that reads in one argument list and writes in another
+gets a rule, and the rule is consulted **before** the reader list. The two shapes of rule lean
+in different directions, deliberately. A rule that **counts operands** (`uniq`, `xxd`) cannot
+know whether an unrecognised flag takes a value, so a separate value counts as an operand —
+`xxd -l 16 f` would be refused as a write without the per-program table of options it does
+take. A rule that **scans flags** (`sed`, `awk`, `yq`, `xmllint`, `base64`, `sort`) refuses the
+writing flags it knows and treats the rest as reads, because refusing every unrecognised flag
+would interrupt the ordinary work of looking at a file. Two forms write and are still not
+refused, because no lexical rule can tell them from the reading use: `awk '{print > out}'` (an
+unquoted redirection target, which reads exactly like the comparison `$1 > out`) and
+`sed -n '1w out' f` (a `w` command inside the script, which needs no `-i`). They are recorded
+as known gaps in `internal/readonly/argument_rules_test.go` rather than papered over with a
+rule that guesses.
 
 There is one asymmetry in that table worth naming, because it is the row an
 operator is most likely to trip over: **`./scripts/deploy.sh` runs silently but
