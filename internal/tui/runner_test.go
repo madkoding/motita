@@ -470,3 +470,30 @@ func TestAppRunnerSoulResolvesFromHome(t *testing.T) {
 		t.Errorf("soul() = %q, must contain the custom soul text", got)
 	}
 }
+
+// TestSetLLMMovesTheKeyAndEndpointWithTheProvider: a switch used to keep the previous
+// provider's base URL and key, so the next request went to the wrong vendor.
+func TestSetLLMMovesTheKeyAndEndpointWithTheProvider(t *testing.T) {
+	t.Setenv("ANTHROPIC_API_KEY", "sk-ant")
+	t.Setenv("OPENAI_API_KEY", "")
+	cfg := config.Default()
+	cfg.LLM.Provider, cfg.LLM.BaseURL, cfg.LLM.APIKey = "openai", "https://api.openai.com/v1", "sk-yaml"
+	r := NewAppRunner(&bytes.Buffer{}, &bytes.Buffer{}, cfg, &llm.Client{}, &sandbox.Sandbox{}, logx.Global())
+
+	r.SetLLM("anthropic", "claude-sonnet-5-5")
+	if got := r.Config().LLM; got.BaseURL != "https://api.anthropic.com" || got.APIKey != "sk-ant" {
+		t.Errorf("anthropic: base=%q key=%q", got.BaseURL, got.APIKey)
+	}
+	r.SetLLM("codex", "")
+	if got := r.Config().LLM; got.APIKey != "" {
+		t.Errorf("codex after anthropic must not inherit the Anthropic key: %q", got.APIKey)
+	}
+	r.SetLLM("openai", "gpt-5-mini")
+	if got := r.Config().LLM; got.BaseURL != "https://api.openai.com/v1" || got.APIKey != "sk-yaml" {
+		t.Errorf("back to openai: base=%q key=%q", got.BaseURL, got.APIKey)
+	}
+	r.SetLLM("codex", "")
+	if got := r.Config().LLM; got.APIKey != "sk-yaml" {
+		t.Errorf("openai and codex share the OpenAI key, got %q", got.APIKey)
+	}
+}

@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/madkoding/motita/internal/config"
 	"github.com/madkoding/motita/internal/llm"
 )
 
@@ -38,6 +39,10 @@ type Result struct {
 	CredentialsPath string // empty when no key was given
 	Provider        Provider
 	Model           string
+	// LoggedIn is true when a login (OAuth, device code) was stored instead of a key.
+	LoggedIn bool
+	// Keyless is true for a provider that takes no key here (a self-hosted Ollama).
+	Keyless bool
 }
 
 // Run interviews the user, writes a working configuration and returns what it
@@ -78,22 +83,32 @@ func Run(ctx context.Context, in io.Reader, out io.Writer, configPath string, pr
 		return Result{}, err
 	}
 
-	// Providers that expose their own catalogue (Ollama Cloud) need the key
-	// before we can ask for the model, and their base URL is fixed.
+	// Ollama is either the user's own server (no key) or Ollama Cloud (a key):
+	// the host decides everything that follows, so it is asked first.
+	var baseURL string
+	if strings.EqualFold(provider.ID, "ollama") {
+		baseURL, err = w.chooseOllamaHost(ctx, preset.BaseURL)
+		if err != nil {
+			return Result{}, err
+		}
+	}
+	keyless := config.IsSelfHostedOllama(config.LLM{Provider: provider.ID, BaseURL: baseURL})
+
+	// Providers that expose their own catalogue (Ollama) need the key before we
+	// can ask for the model.
 	key := preset.APIKey
-	if provider.FetchModels {
-		if key == "" {
-			key, err = w.askAPIKey(ctx, provider)
-			if err != nil {
-				return Result{}, err
-			}
+	if provider.FetchModels && key == "" && !keyless {
+		key, err = w.askAPIKey(ctx, provider)
+		if err != nil {
+			return Result{}, err
 		}
 	}
 
-	var baseURL string
 	var listURL string
 	if provider.FetchModels {
-		baseURL = provider.DefaultBaseURL
+		if baseURL == "" {
+			baseURL = provider.DefaultBaseURL
+		}
 		if preset.BaseURL != "" {
 			baseURL = preset.BaseURL
 		}
@@ -111,13 +126,20 @@ func Run(ctx context.Context, in io.Reader, out io.Writer, configPath string, pr
 	}
 
 	if !provider.FetchModels && provider.Login == "" {
-		baseURL, err = w.chooseBaseURL(ctx, provider, preset.BaseURL)
-		if err != nil {
-			return Result{}, err
+		if provider.AskBaseURL {
+			baseURL, err = w.chooseBaseURL(ctx, provider, preset.BaseURL)
+			if err != nil {
+				return Result{}, err
+			}
+		} else {
+			baseURL = provider.DefaultBaseURL
+			if preset.BaseURL != "" {
+				baseURL = preset.BaseURL
+			}
 		}
 	}
 
-	if key == "" && provider.Login == "" {
+	if key == "" && provider.Login == "" && !keyless && !w.loggedIn {
 		key, err = w.askAPIKey(ctx, provider)
 		if err != nil {
 			return Result{}, err
@@ -138,7 +160,7 @@ func Run(ctx context.Context, in io.Reader, out io.Writer, configPath string, pr
 		return Result{}, err
 	}
 
-	res := Result{ConfigPath: configPath, Provider: provider, Model: model}
+	res := Result{ConfigPath: configPath, Provider: provider, Model: model, LoggedIn: w.loggedIn, Keyless: keyless}
 
 	if key != "" {
 		// The key goes to its own file with 0600 permissions: the configuration
@@ -158,6 +180,8 @@ func Run(ctx context.Context, in io.Reader, out io.Writer, configPath string, pr
 type session struct {
 	in  *bufio.Reader
 	out io.Writer
+	// loggedIn records that a direct login was stored, so no key is asked for.
+	loggedIn bool
 }
 
 func (s *session) say(format string, args ...any) {
@@ -397,7 +421,7 @@ func (s *session) askAPIKey(ctx context.Context, p Provider) (string, error) {
 	// pasted. This is the path the user asked for — "connect with a link and a
 	// one-time code" — and it is the better UX for the providers that offer it.
 	if p.SupportsDirectAuth {
-		s.say("  %s1.%s Connect directly (open a link, enter a code)", colYellow, colReset)
+		s.say("  %s1.%s Log in with your account (open a link in the browser)", colYellow, colReset)
 		s.say("  %s2.%s Paste an API key", colYellow, colReset)
 		s.say("")
 		for attempt := 0; attempt < 3; attempt++ {
@@ -451,7 +475,49 @@ func (s *session) askForAPIKey(ctx context.Context, p Provider) (string, error) 
 var directAuthRunner = runDirectAuth
 
 func (s *session) directAuth(ctx context.Context, p Provider) (string, error) {
-	return directAuthRunner(ctx, s.out, s.in, p)
+	key, err := directAuthRunner(ctx, s.out, s.in, p)
+	if err == nil && key == "" {
+		s.loggedIn = true
+	}
+	return key, err
+}
+
+// chooseOllamaHost asks whether Ollama runs on the user's own machine or is
+// Ollama Cloud. Only the cloud needs a key: a local server takes none, and the
+// wizard used to demand one anyway, so a local Ollama could not be configured.
+func (s *session) chooseOllamaHost(ctx context.Context, preset string) (string, error) {
+	if preset != "" {
+		return strings.TrimRight(preset, "/"), nil
+	}
+	s.say("")
+	printSection(s.out, "Where does Ollama run?")
+	s.say("  %s1.%s On this machine or my network (http://localhost:11434, no key)", colYellow, colReset)
+	s.say("  %s2.%s Ollama Cloud (https://ollama.com, needs a key)", colYellow, colReset)
+	s.say("  %s3.%s Another URL", colYellow, colReset)
+	for attempt := 0; attempt < 3; attempt++ {
+		answer, err := s.ask(ctx, "Ollama [1]:")
+		if err != nil {
+			return "", err
+		}
+		switch answer {
+		case "", "1":
+			return "http://localhost:11434/v1", nil
+		case "2":
+			return "https://ollama.com/v1", nil
+		case "3":
+			u, err := s.ask(ctx, "Ollama base URL (ending in /v1):")
+			if err != nil {
+				return "", err
+			}
+			if strings.HasPrefix(u, "http://") || strings.HasPrefix(u, "https://") {
+				return strings.TrimRight(u, "/"), nil
+			}
+			s.say("  A URL must start with http:// or https://.")
+		default:
+			s.say("  Choose 1, 2 or 3.")
+		}
+	}
+	return "", fmt.Errorf("no valid Ollama host after three attempts")
 }
 
 // chooseBaseURL asks for the API endpoint. OpenAI-compatible providers need this
@@ -507,7 +573,7 @@ func renderCredentials(envKey, key string) string {
 			"# out of the repository and out of any backup you share.\n"+
 			"# Load it in the current shell with:  source %s\n"+
 			"export %s=%s\n",
-		filepath.Base(envKey), envKey, shellQuote(key))
+		"<this file>", envKey, shellQuote(key))
 }
 
 // shellQuote makes a value safe to put in an export line, so a key containing a

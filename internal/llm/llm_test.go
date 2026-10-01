@@ -124,9 +124,10 @@ func TestAnthropicOK(t *testing.T) {
 // --- Gemini -----------------------------------------------------------------
 
 func TestGeminiOK(t *testing.T) {
-	var path string
+	var path, key string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		path = r.URL.String()
+		key = r.Header.Get("x-goog-api-key")
 		fmt.Fprint(w, `{"candidates":[{"content":{"parts":[{"text":"gemini response"}]},"finishReason":"STOP"}]}`)
 	}))
 	defer srv.Close()
@@ -139,8 +140,11 @@ func TestGeminiOK(t *testing.T) {
 	if text != "gemini response" {
 		t.Errorf("text = %q", text)
 	}
-	if !strings.Contains(path, "generateContent") || !strings.Contains(path, "key=key") {
-		t.Errorf("unexpected path: %q", path)
+	if !strings.Contains(path, "generateContent") || strings.Contains(path, "key=") {
+		t.Errorf("unexpected path (the key must never be in the URL): %q", path)
+	}
+	if key != "key" {
+		t.Errorf("the key must travel in x-goog-api-key, got %q", key)
 	}
 }
 
@@ -544,8 +548,12 @@ func TestNewOllamaFillsDefaultBaseURL(t *testing.T) {
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
-	if c.cfg.BaseURL != "https://ollama.com/v1" {
-		t.Errorf("BaseURL = %q", c.cfg.BaseURL)
+	tgt, err := c.target(context.Background(), false)
+	if err != nil {
+		t.Fatalf("target: %v", err)
+	}
+	if tgt.base != "https://ollama.com/v1" {
+		t.Errorf("base = %q", tgt.base)
 	}
 }
 

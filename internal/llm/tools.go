@@ -33,6 +33,9 @@ type ToolCall struct {
 	ID       string       `json:"id"`
 	Type     string       `json:"type"`
 	Function FunctionCall `json:"function"`
+	// signature is Gemini's thought signature for this call, which Gemini 3 wants
+	// echoed back with it. It is never serialised: no other provider knows it.
+	signature string
 }
 
 // FunctionCall carries the name and the arguments of a call.

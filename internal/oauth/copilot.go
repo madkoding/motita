@@ -2,8 +2,9 @@ package oauth
 
 import (
 	"context"
-	"encoding/json"
+	"errors"
 	"fmt"
+	"strings"
 	"time"
 )
 
@@ -82,16 +83,17 @@ func CopilotPollAccessToken(ctx context.Context, client HTTPClient, cfg CopilotC
 		"grant_type":  "urn:ietf:params:oauth:grant-type:device_code",
 	}
 	var resp copilotAccessTokenResponse
-	if err := postJSON(ctx, client, "https://github.com/login/oauth/access_token", body, nil, &resp); err != nil {
-		// A 400 with a JSON error field is a normal poll response
-		// (authorization_pending, slow_down). Check pollError first.
-		if perr := pollError(resp.Error); perr != nil {
-			return "", perr
-		}
+	err := postJSON(ctx, client, "https://github.com/login/oauth/access_token", body, nil, &resp)
+	// GitHub answers a pending poll with 200 and an error field; other servers use
+	// 400. Either way the error field is what says whether to keep polling.
+	if perr := pollError(resp.Error); perr != nil {
+		return "", perr
+	}
+	if err != nil {
 		return "", err
 	}
-	if err := pollError(resp.Error); err != nil {
-		return "", err
+	if resp.AccessToken == "" {
+		return "", errors.New("GitHub returned no access token")
 	}
 	return resp.AccessToken, nil
 }
@@ -118,7 +120,7 @@ func CopilotExchangeToken(ctx context.Context, client HTTPClient, githubToken st
 	if err := getJSON(ctx, client, "https://api.github.com/copilot_internal/v2/token", headers, &resp); err != nil {
 		return CopilotToken{}, err
 	}
-	apiURL := resp.Endpoints.API
+	apiURL := strings.TrimRight(resp.Endpoints.API, "/")
 	if apiURL == "" {
 		apiURL = "https://api.individual.githubcopilot.com"
 	}
@@ -157,17 +159,13 @@ func (t CopilotToken) ChatURL() string {
 	return t.APIBaseURL + "/chat/completions"
 }
 
-// CopilotModels is the list of models known to be available through the Copilot
-// chat API. The API is undocumented and reverse-engineered, so this list may
-// not be exhaustive or current.
+// CopilotModels are the ids the Copilot chat API has served; the live list is
+// read from <api>/models, which is what the wizard and the web UI offer.
 var CopilotModels = []string{
-	"gpt-4o",
 	"gpt-4.1",
+	"gpt-4o",
 	"gpt-5-mini",
-	"gpt-5.2",
-	"gpt-5.2-codex",
 	"claude-sonnet-4",
-	"claude-sonnet-4.5",
 	"gemini-2.5-pro",
 }
 
@@ -179,13 +177,43 @@ type CopilotAuthResult struct {
 	CopilotToken CopilotToken
 }
 
+// Credential converts the result into what is stored: the GitHub token is the
+// refresh token (it is what renews the session token), and the session token is
+// the access token.
+func (r CopilotAuthResult) Credential() Credential {
+	return Credential{
+		Provider:     "copilot",
+		AccessToken:  r.CopilotToken.Token,
+		RefreshToken: r.GitHubToken,
+		ExpiresAt:    r.CopilotToken.ExpiresAt,
+		BaseURL:      r.CopilotToken.APIBaseURL,
+	}
+}
+
+// CopilotRefreshCredential renews the Copilot session token of a credential
+// whose refresh token is the GitHub OAuth token.
+func CopilotRefreshCredential(ctx context.Context, client HTTPClient, old Credential) (Credential, error) {
+	if old.RefreshToken == "" {
+		return Credential{}, errors.New("the Copilot login has no GitHub token: log in again")
+	}
+	ct, err := CopilotExchangeToken(ctx, client, old.RefreshToken)
+	if err != nil {
+		return Credential{}, fmt.Errorf("could not renew the Copilot token (is the Copilot subscription active?): %w", err)
+	}
+	if ct.Token == "" {
+		return Credential{}, errors.New("GitHub returned no Copilot token: the account has no active Copilot subscription")
+	}
+	return CopilotAuthResult{GitHubToken: old.RefreshToken, CopilotToken: ct}.Credential(), nil
+}
+
 // CopilotFullFlow runs the complete Copilot device flow: device code → poll for
 // GitHub token → exchange for Copilot token. The onCode callback is called with
 // the device code so the wizard can display it to the user. The onPoll callback
 // is called on each poll attempt (useful for showing a spinner).
 //
-// The interval between polls is taken from the device code response (default 5s).
-// The function blocks until the user authorises or the flow expires.
+// The interval between polls is taken from the device code response (default
+// 5s) and grows when GitHub answers slow_down. The function blocks until the
+// user authorises, denies, or the code expires.
 func CopilotFullFlow(ctx context.Context, client HTTPClient, cfg CopilotConfig, onCode func(DeviceCode), onPoll func()) (CopilotAuthResult, error) {
 	dc, err := CopilotRequestDeviceCode(ctx, client, cfg)
 	if err != nil {
@@ -194,54 +222,21 @@ func CopilotFullFlow(ctx context.Context, client HTTPClient, cfg CopilotConfig, 
 	if onCode != nil {
 		onCode(dc)
 	}
-
-	interval := dc.Interval
-	if interval <= 0 {
-		interval = 5
-	}
-
-	var ghToken string
-	for {
+	ghToken, err := PollDevice(ctx, dc.Interval, PollSleep, func() (string, error) {
 		if onPoll != nil {
 			onPoll()
 		}
-		ghToken, err = CopilotPollAccessToken(ctx, client, cfg, dc)
-		if err == nil {
-			break
-		}
-		if err == ErrSlowDown {
-			interval += 5
-		}
-		if err == ErrAuthorizationPending {
-			select {
-			case <-ctx.Done():
-				return CopilotAuthResult{}, ctx.Err()
-			case <-time.After(time.Duration(interval) * time.Second):
-			}
-			continue
-		}
+		return CopilotPollAccessToken(ctx, client, cfg, dc)
+	})
+	if err != nil {
 		return CopilotAuthResult{}, err
 	}
-
 	ct, err := CopilotExchangeToken(ctx, client, ghToken)
 	if err != nil {
-		return CopilotAuthResult{}, fmt.Errorf("copilot token exchange failed: %w", err)
+		return CopilotAuthResult{}, fmt.Errorf("copilot token exchange failed (is the Copilot subscription active?): %w", err)
 	}
 	return CopilotAuthResult{GitHubToken: ghToken, CopilotToken: ct}, nil
 }
 
-// CopilotStoreJSON is the JSON shape for persisting a Copilot auth result to
-// disk. The GitHub token is long-lived and the Copilot token is short-lived,
-// so both are stored: the GitHub token is used to refresh the Copilot token.
-type CopilotStoreJSON struct {
-	GitHubToken string `json:"github_token"`
-	APIBaseURL  string `json:"api_base_url"`
-}
-
-// MarshalJSON serializes the CopilotAuthResult for storage.
-func (r CopilotAuthResult) MarshalJSON() ([]byte, error) {
-	return json.Marshal(CopilotStoreJSON{
-		GitHubToken: r.GitHubToken,
-		APIBaseURL:  r.CopilotToken.APIBaseURL,
-	})
-}
+// PollSleep is the pause between device-flow polls. Tests replace it.
+var PollSleep = time.After

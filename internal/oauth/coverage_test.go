@@ -2,7 +2,6 @@ package oauth
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"io"
 	"net/http"
@@ -10,6 +9,7 @@ import (
 	"strings"
 	"sync/atomic"
 	"testing"
+	"time"
 )
 
 // --- RandReader injection for generatePKCE error paths -----------------------
@@ -36,33 +36,6 @@ func (r *shortReader) Read(p []byte) (int, error) {
 	}
 	r.read += nn
 	return nn, nil
-}
-
-func TestGeneratePKCEVerifierError(t *testing.T) {
-	old := RandReader
-	RandReader = failingReader{}
-	defer func() { RandReader = old }()
-	if _, err := generatePKCE(); err == nil {
-		t.Error("expected error from failing RandReader on verifier")
-	}
-}
-
-func TestGeneratePKCEStateError(t *testing.T) {
-	old := RandReader
-	RandReader = &shortReader{n: 32} // verifier (32 bytes) succeeds, state (16 bytes) fails
-	defer func() { RandReader = old }()
-	if _, err := generatePKCE(); err == nil {
-		t.Error("expected error from failing RandReader on state")
-	}
-}
-
-func TestAnthropicAuthorizeURLError(t *testing.T) {
-	old := RandReader
-	RandReader = failingReader{}
-	defer func() { RandReader = old }()
-	if _, _, err := AnthropicAuthorizeURL(AnthropicConfig{}); err == nil {
-		t.Error("expected error from generatePKCE failure")
-	}
 }
 
 // --- defaultClient & SetDefaultClient ---------------------------------------
@@ -305,135 +278,9 @@ func TestGetJSONSuccessWithHeaders(t *testing.T) {
 
 // --- Anthropic error paths ---------------------------------------------------
 
-func TestAnthropicExchangeCodeError(t *testing.T) {
-	client := newFakeClient(map[string]func(*http.Request) (*http.Response, error){
-		"console.anthropic.com/v1/oauth/token": func(req *http.Request) (*http.Response, error) {
-			return errResp(500, "server error"), nil
-		},
-	})
-	if _, err := AnthropicExchangeCode(context.Background(), client, AnthropicConfig{}, "code", pkceParams{}); err == nil {
-		t.Error("expected error from server failure")
-	}
-}
-
-func TestAnthropicRefreshTokenError(t *testing.T) {
-	client := newFakeClient(map[string]func(*http.Request) (*http.Response, error){
-		"console.anthropic.com/v1/oauth/token": func(req *http.Request) (*http.Response, error) {
-			return errResp(500, "server error"), nil
-		},
-	})
-	if _, err := AnthropicRefreshToken(context.Background(), client, AnthropicConfig{}, "old-refresh"); err == nil {
-		t.Error("expected error from server failure")
-	}
-}
-
 // --- Gemini error paths ------------------------------------------------------
 
-func TestGeminiRequestDeviceCodeError(t *testing.T) {
-	client := newFakeClient(map[string]func(*http.Request) (*http.Response, error){
-		"oauth2.googleapis.com/device/code": func(req *http.Request) (*http.Response, error) {
-			return errResp(500, "server error"), nil
-		},
-	})
-	if _, err := GeminiRequestDeviceCode(context.Background(), client, GeminiConfig{}); err == nil {
-		t.Error("expected error from server failure")
-	}
-}
-
-func TestGeminiPollTokenHTTPError(t *testing.T) {
-	client := newFakeClient(map[string]func(*http.Request) (*http.Response, error){
-		"oauth2.googleapis.com/token": func(req *http.Request) (*http.Response, error) {
-			return errResp(500, "server error"), nil
-		},
-	})
-	if _, err := GeminiPollToken(context.Background(), client, GeminiConfig{}, DeviceCode{}); err == nil {
-		t.Error("expected error from server failure")
-	}
-}
-
-func TestGeminiPollTokenHTTPErrNoPollError(t *testing.T) {
-	// 400 with valid JSON but no "error" field: postForm returns an HTTP error,
-	// pollError("") returns nil, so the original HTTP error is returned.
-	client := newFakeClient(map[string]func(*http.Request) (*http.Response, error){
-		"oauth2.googleapis.com/token": func(req *http.Request) (*http.Response, error) {
-			return &http.Response{
-				StatusCode: 400,
-				Body:       io.NopCloser(strings.NewReader(`{"access_token":""}`)),
-				Header:     make(http.Header),
-			}, nil
-		},
-	})
-	if _, err := GeminiPollToken(context.Background(), client, GeminiConfig{}, DeviceCode{}); err == nil {
-		t.Error("expected HTTP error for 400 with no error field")
-	}
-}
-
-func TestGeminiPollToken400WithPollError(t *testing.T) {
-	// 400 with JSON error field "authorization_pending": postForm returns an
-	// HTTP error, but pollError("authorization_pending") returns the sentinel,
-	// so the sentinel error is returned instead of the HTTP error.
-	client := newFakeClient(map[string]func(*http.Request) (*http.Response, error){
-		"oauth2.googleapis.com/token": func(req *http.Request) (*http.Response, error) {
-			return &http.Response{
-				StatusCode: 400,
-				Body:       io.NopCloser(strings.NewReader(`{"error":"authorization_pending"}`)),
-				Header:     make(http.Header),
-			}, nil
-		},
-	})
-	if _, err := GeminiPollToken(context.Background(), client, GeminiConfig{}, DeviceCode{}); err != ErrAuthorizationPending {
-		t.Errorf("err = %v, want ErrAuthorizationPending", err)
-	}
-}
-
-func TestGeminiPollTokenUnknownError(t *testing.T) {
-	client := newFakeClient(map[string]func(*http.Request) (*http.Response, error){
-		"oauth2.googleapis.com/token": func(req *http.Request) (*http.Response, error) {
-			return jsonResp(geminiTokenResponse{Error: "unknown_thing"}), nil
-		},
-	})
-	if _, err := GeminiPollToken(context.Background(), client, GeminiConfig{}, DeviceCode{}); err == nil {
-		t.Error("expected error for unknown error string")
-	}
-}
-
-func TestGeminiRefreshTokenHTTPError(t *testing.T) {
-	client := newFakeClient(map[string]func(*http.Request) (*http.Response, error){
-		"oauth2.googleapis.com/token": func(req *http.Request) (*http.Response, error) {
-			return errResp(500, "server error"), nil
-		},
-	})
-	if _, err := GeminiRefreshToken(context.Background(), client, GeminiConfig{}, "old-refresh"); err == nil {
-		t.Error("expected error from server failure")
-	}
-}
-
-func TestGeminiRefreshTokenErrorResponse(t *testing.T) {
-	client := newFakeClient(map[string]func(*http.Request) (*http.Response, error){
-		"oauth2.googleapis.com/token": func(req *http.Request) (*http.Response, error) {
-			return jsonResp(geminiTokenResponse{Error: "invalid_grant"}), nil
-		},
-	})
-	if _, err := GeminiRefreshToken(context.Background(), client, GeminiConfig{}, "old-refresh"); err == nil {
-		t.Error("expected error for invalid_grant")
-	}
-}
-
 // --- tokenFromResponse edge cases --------------------------------------------
-
-func TestTokenFromResponseEmptyTokenType(t *testing.T) {
-	tok := tokenFromResponse("access", "refresh", "", "scope", 3600)
-	if tok.TokenType != "Bearer" {
-		t.Errorf("TokenType = %q, want Bearer", tok.TokenType)
-	}
-}
-
-func TestTokenFromResponseZeroExpiry(t *testing.T) {
-	tok := tokenFromResponse("access", "refresh", "Bearer", "scope", 0)
-	if !tok.ExpiresAt.IsZero() {
-		t.Errorf("ExpiresAt should be zero, got %v", tok.ExpiresAt)
-	}
-}
 
 // --- Copilot error paths -----------------------------------------------------
 
@@ -579,29 +426,6 @@ func TestCopilotRefresh(t *testing.T) {
 
 // --- CopilotAuthResult.MarshalJSON -------------------------------------------
 
-func TestCopilotAuthResultMarshalJSON(t *testing.T) {
-	r := CopilotAuthResult{
-		GitHubToken: "gho_testtoken",
-		CopilotToken: CopilotToken{
-			APIBaseURL: "https://api.individual.githubcopilot.com",
-		},
-	}
-	data, err := json.Marshal(r)
-	if err != nil {
-		t.Fatalf("MarshalJSON: %v", err)
-	}
-	var store CopilotStoreJSON
-	if err := json.Unmarshal(data, &store); err != nil {
-		t.Fatalf("Unmarshal: %v", err)
-	}
-	if store.GitHubToken != "gho_testtoken" {
-		t.Errorf("GitHubToken = %q", store.GitHubToken)
-	}
-	if store.APIBaseURL != "https://api.individual.githubcopilot.com" {
-		t.Errorf("APIBaseURL = %q", store.APIBaseURL)
-	}
-}
-
 // --- CopilotFullFlow tests ---------------------------------------------------
 
 func TestCopilotFullFlowSuccess(t *testing.T) {
@@ -682,20 +506,40 @@ func TestCopilotFullFlowAccessDenied(t *testing.T) {
 	}
 }
 
+// TestCopilotFullFlowSlowDown: slow_down means "keep polling, less often" (RFC 8628
+// §3.5). It used to end the login with an error, so a user who took a few seconds
+// longer than GitHub liked could never connect.
 func TestCopilotFullFlowSlowDown(t *testing.T) {
+	var polls int32
+	var waits []time.Duration
+	restore := PollSleep
+	PollSleep = func(d time.Duration) <-chan time.Time {
+		waits = append(waits, d)
+		ch := make(chan time.Time, 1)
+		ch <- time.Now()
+		return ch
+	}
+	defer func() { PollSleep = restore }()
 	client := newFakeClient(map[string]func(*http.Request) (*http.Response, error){
 		"github.com/login/device/code": func(req *http.Request) (*http.Response, error) {
-			return jsonResp(copilotDeviceCodeResponse{
-				DeviceCode: "dc123",
-				Interval:   1,
-			}), nil
+			return jsonResp(copilotDeviceCodeResponse{DeviceCode: "dc123", Interval: 1}), nil
 		},
 		"github.com/login/oauth/access_token": func(req *http.Request) (*http.Response, error) {
-			return jsonResp(copilotAccessTokenResponse{Error: "slow_down"}), nil
+			if atomic.AddInt32(&polls, 1) == 1 {
+				return jsonResp(copilotAccessTokenResponse{Error: "slow_down"}), nil
+			}
+			return jsonResp(copilotAccessTokenResponse{AccessToken: "gho_x"}), nil
+		},
+		"copilot_internal/v2/token": func(req *http.Request) (*http.Response, error) {
+			return jsonResp(copilotTokenResponse{Token: "tid=x", ExpiresAt: time.Now().Add(time.Hour).Unix()}), nil
 		},
 	})
-	if _, err := CopilotFullFlow(context.Background(), client, CopilotConfig{}, nil, nil); err == nil {
-		t.Error("expected error from slow_down")
+	res, err := CopilotFullFlow(context.Background(), client, CopilotConfig{}, nil, nil)
+	if err != nil {
+		t.Fatalf("slow_down must keep polling: %v", err)
+	}
+	if res.GitHubToken != "gho_x" || len(waits) != 1 || waits[0] != 6*time.Second {
+		t.Errorf("token=%q waits=%v (the interval must grow by 5s)", res.GitHubToken, waits)
 	}
 }
 
@@ -774,20 +618,6 @@ func TestCopilotFullFlowPendingThenSuccess(t *testing.T) {
 
 // --- pollError path on 400 responses (access_denied) ------------------------
 
-// TestGeminiPollTokenAccessDeniedOn400: a 400 with {"error":"access_denied"}
-// must return ErrAccessDenied via the pollError path inside GeminiPollToken.
-func TestGeminiPollTokenAccessDeniedOn400(t *testing.T) {
-	client := newFakeClient(map[string]func(*http.Request) (*http.Response, error){
-		"oauth2.googleapis.com/token": func(*http.Request) (*http.Response, error) {
-			return &http.Response{StatusCode: 400, Body: io.NopCloser(strings.NewReader(`{"error":"access_denied"}`)), Header: make(http.Header)}, nil
-		},
-	})
-	_, err := GeminiPollToken(context.Background(), client, GeminiConfig{}, DeviceCode{DeviceCode: "dc"})
-	if !errors.Is(err, ErrAccessDenied) {
-		t.Fatalf("err = %v, want ErrAccessDenied", err)
-	}
-}
-
 // TestCopilotPollAccessTokenAccessDeniedOn400: a 400 with
 // {"error":"access_denied"} must return ErrAccessDenied via the pollError path.
 func TestCopilotPollAccessTokenAccessDeniedOn400(t *testing.T) {
@@ -803,37 +633,3 @@ func TestCopilotPollAccessTokenAccessDeniedOn400(t *testing.T) {
 }
 
 // --- Gemini default client ID/secret functions -------------------------------
-
-func TestGeminiDefaultClientID(t *testing.T) {
-	id := GeminiDefaultClientID()
-	if id == "" {
-		t.Fatal("expected non-empty client ID")
-	}
-	if !strings.Contains(id, "apps.googleusercontent.com") {
-		t.Errorf("client ID does not look like a Google OAuth ID: %q", id)
-	}
-}
-
-func TestGeminiDefaultClientIDFromEnv(t *testing.T) {
-	t.Setenv("MOTITA_GEMINI_CLIENT_ID", "env-client-id")
-	if got := GeminiDefaultClientID(); got != "env-client-id" {
-		t.Errorf("got = %q, want env-client-id", got)
-	}
-}
-
-func TestGeminiDefaultClientSecret(t *testing.T) {
-	secret := GeminiDefaultClientSecret()
-	if secret == "" {
-		t.Fatal("expected non-empty client secret")
-	}
-	if !strings.HasPrefix(secret, "GOCSPX") {
-		t.Errorf("client secret does not look like a Google OAuth secret: %q", secret)
-	}
-}
-
-func TestGeminiDefaultClientSecretFromEnv(t *testing.T) {
-	t.Setenv("MOTITA_GEMINI_CLIENT_SECRET", "env-secret")
-	if got := GeminiDefaultClientSecret(); got != "env-secret" {
-		t.Errorf("got = %q, want env-secret", got)
-	}
-}

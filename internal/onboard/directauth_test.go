@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"encoding/base64"
 	"errors"
 	"io"
 	"net/http"
@@ -36,410 +37,241 @@ func (rt *onboardRT) RoundTrip(req *http.Request) (*http.Response, error) {
 
 func jsonBody(s string) io.ReadCloser { return io.NopCloser(strings.NewReader(s)) }
 
-// TestRunDirectAuthUnsupportedProvider: calling direct auth for a provider that
-// does not support it returns an error immediately.
+// useAuthDir points the stored logins at a temporary directory.
+func useAuthDir(t *testing.T) string {
+	t.Helper()
+	dir := t.TempDir()
+	old := authDir
+	authDir = func() string { return dir }
+	t.Cleanup(func() { authDir = old })
+	return dir
+}
+
+func instantSleep(t *testing.T) {
+	t.Helper()
+	old := sleepFor
+	sleepFor = func(time.Duration) <-chan time.Time {
+		ch := make(chan time.Time, 1)
+		ch <- time.Now()
+		return ch
+	}
+	oldPoll := oauth.PollSleep
+	oauth.PollSleep = sleepFor
+	t.Cleanup(func() { sleepFor = old; oauth.PollSleep = oldPoll })
+}
+
+func withTransport(t *testing.T, rt http.RoundTripper) {
+	t.Helper()
+	restore := oauth.SetDefaultClient(func() *http.Client { return &http.Client{Transport: rt} })
+	t.Cleanup(restore)
+}
+
+func resp200(body string) (*http.Response, error) {
+	return &http.Response{StatusCode: 200, Body: jsonBody(body), Header: make(http.Header)}, nil
+}
+
+// TestRunDirectAuthUnsupportedProvider: direct login for a provider that has none,
+// Anthropic included (a Claude subscription goes through claude-code), is refused.
 func TestRunDirectAuthUnsupportedProvider(t *testing.T) {
-	_, err := runDirectAuth(context.Background(), io.Discard, bufio.NewReader(strings.NewReader("")), Provider{ID: "openai"})
-	if err == nil || !strings.Contains(err.Error(), "not supported") {
-		t.Fatalf("err = %v", err)
+	for _, id := range []string{"openai", "anthropic"} {
+		_, err := runDirectAuth(context.Background(), io.Discard, bufio.NewReader(strings.NewReader("")), Provider{ID: id})
+		if err == nil || !strings.Contains(err.Error(), "not supported") {
+			t.Fatalf("%s: err = %v", id, err)
+		}
 	}
 }
 
-// TestRunDirectAuthDispatchGemini: runDirectAuth dispatches to geminiDirectAuth.
-func TestRunDirectAuthDispatchGemini(t *testing.T) {
-	rt := &onboardRT{
-		responses: map[string]func(*http.Request) (*http.Response, error){
-			"/device/code": func(*http.Request) (*http.Response, error) {
-				return &http.Response{StatusCode: 200, Body: jsonBody(`{"device_code":"dc","user_code":"UC","verification_url":"https://x.com","interval":0,"expires_in":900}`), Header: make(http.Header)}, nil
-			},
-			"/token": func(*http.Request) (*http.Response, error) {
-				return &http.Response{StatusCode: 200, Body: jsonBody(`{"access_token":"tok","token_type":"Bearer","expires_in":3600}`), Header: make(http.Header)}, nil
-			},
+// TestCopilotDirectAuthStoresARenewableLogin: the GitHub token is stored as the
+// refresh token, so the short-lived Copilot token can be renewed at run time.
+func TestCopilotDirectAuthStoresARenewableLogin(t *testing.T) {
+	dir := useAuthDir(t)
+	instantSleep(t)
+	withTransport(t, &onboardRT{responses: map[string]func(*http.Request) (*http.Response, error){
+		"/login/device/code": func(*http.Request) (*http.Response, error) {
+			return resp200(`{"device_code":"dc","user_code":"XYZ-WUV","verification_uri":"https://github.com/login/device","interval":1,"expires_in":900}`)
 		},
-	}
-	restore := oauth.SetDefaultClient(func() *http.Client { return &http.Client{Transport: rt} })
-	defer restore()
-	tok, err := runDirectAuth(context.Background(), io.Discard, bufio.NewReader(strings.NewReader("")), Provider{ID: "gemini"})
-	if err != nil {
-		t.Fatalf("err = %v", err)
-	}
-	if tok != "tok" {
-		t.Errorf("token = %q", tok)
-	}
-}
-
-// TestRunDirectAuthDispatchCopilot: runDirectAuth dispatches to copilotDirectAuth.
-func TestRunDirectAuthDispatchCopilot(t *testing.T) {
-	rt := &onboardRT{
-		responses: map[string]func(*http.Request) (*http.Response, error){
-			"/login/device/code": func(*http.Request) (*http.Response, error) {
-				return &http.Response{StatusCode: 200, Body: jsonBody(`{"device_code":"dc","user_code":"UC","verification_uri":"https://x.com","interval":0,"expires_in":900}`), Header: make(http.Header)}, nil
-			},
-			"/login/oauth/access_token": func(*http.Request) (*http.Response, error) {
-				return &http.Response{StatusCode: 200, Body: jsonBody(`{"access_token":"gho_tok","token_type":"bearer","scope":"read:user"}`), Header: make(http.Header)}, nil
-			},
-			"/copilot_internal/v2/token": func(*http.Request) (*http.Response, error) {
-				return &http.Response{StatusCode: 200, Body: jsonBody(`{"token":"tid","expires_at":9999999999}`), Header: make(http.Header)}, nil
-			},
+		"/login/oauth/access_token": func(*http.Request) (*http.Response, error) {
+			return resp200(`{"access_token":"gho_tok","token_type":"bearer"}`)
 		},
-	}
-	restore := oauth.SetDefaultClient(func() *http.Client { return &http.Client{Transport: rt} })
-	defer restore()
-	tok, err := runDirectAuth(context.Background(), io.Discard, bufio.NewReader(strings.NewReader("")), Provider{ID: "copilot"})
-	if err != nil {
-		t.Fatalf("err = %v", err)
-	}
-	if tok != "gho_tok" {
-		t.Errorf("token = %q", tok)
-	}
-}
-
-// TestRunDirectAuthDispatchAnthropic: runDirectAuth dispatches to anthropicDirectAuth.
-func TestRunDirectAuthDispatchAnthropic(t *testing.T) {
-	rt := &onboardRT{
-		responses: map[string]func(*http.Request) (*http.Response, error){
-			"/v1/oauth/token": func(*http.Request) (*http.Response, error) {
-				return &http.Response{StatusCode: 200, Body: jsonBody(`{"access_token":"sk-ant-tok","token_type":"bearer","expires_in":28800}`), Header: make(http.Header)}, nil
-			},
+		"/copilot_internal/v2/token": func(*http.Request) (*http.Response, error) {
+			return resp200(`{"token":"tid","expires_at":9999999999,"endpoints":{"api":"https://api.individual.githubcopilot.com"}}`)
 		},
-	}
-	restore := oauth.SetDefaultClient(func() *http.Client { return &http.Client{Transport: rt} })
-	defer restore()
-	tok, err := runDirectAuth(context.Background(), io.Discard, bufio.NewReader(strings.NewReader("code123\n")), Provider{ID: "anthropic"})
-	if err != nil {
-		t.Fatalf("err = %v", err)
-	}
-	if tok != "sk-ant-tok" {
-		t.Errorf("token = %q", tok)
-	}
-}
-
-// TestGeminiDirectAuthSuccess: the full Gemini device flow completes when the
-// poll returns a token.
-func TestGeminiDirectAuthSuccess(t *testing.T) {
-	rt := &onboardRT{
-		responses: map[string]func(*http.Request) (*http.Response, error){
-			"/device/code": func(*http.Request) (*http.Response, error) {
-				return &http.Response{StatusCode: 200, Body: jsonBody(`{"device_code":"dc123","user_code":"ABC-DEF","verification_url":"https://example.com/device","interval":0,"expires_in":900}`), Header: make(http.Header)}, nil
-			},
-			"/token": func(*http.Request) (*http.Response, error) {
-				return &http.Response{StatusCode: 200, Body: jsonBody(`{"access_token":"ya29.test-token","token_type":"Bearer","expires_in":3600,"refresh_token":"ref123"}`), Header: make(http.Header)}, nil
-			},
-		},
-	}
-	restore := oauth.SetDefaultClient(func() *http.Client { return &http.Client{Transport: rt} })
-	defer restore()
-
+	}})
 	var out bytes.Buffer
-	tok, err := geminiDirectAuth(context.Background(), &out, bufio.NewReader(strings.NewReader("")))
-	if err != nil {
-		t.Fatalf("err = %v", err)
-	}
-	if tok != "ya29.test-token" {
-		t.Errorf("token = %q", tok)
-	}
-	if !strings.Contains(out.String(), "ABC-DEF") {
-		t.Error("user code not shown")
-	}
-}
-
-// TestGeminiDirectAuthDeviceCodeError: when the device code request fails, the
-// flow returns an error.
-func TestGeminiDirectAuthDeviceCodeError(t *testing.T) {
-	rt := &onboardRT{
-		responses: map[string]func(*http.Request) (*http.Response, error){
-			"/device/code": func(*http.Request) (*http.Response, error) {
-				return &http.Response{StatusCode: 500, Body: jsonBody(`{"error":"server_error"}`), Header: make(http.Header)}, nil
-			},
-		},
-	}
-	restore := oauth.SetDefaultClient(func() *http.Client { return &http.Client{Transport: rt} })
-	defer restore()
-
-	_, err := geminiDirectAuth(context.Background(), io.Discard, bufio.NewReader(strings.NewReader("")))
-	if err == nil || !strings.Contains(err.Error(), "device flow") {
-		t.Fatalf("err = %v", err)
-	}
-}
-
-// TestGeminiDirectAuthContextCancelled: when the context is cancelled while
-// polling, the flow returns the context error.
-func TestGeminiDirectAuthContextCancelled(t *testing.T) {
-	rt := &onboardRT{
-		responses: map[string]func(*http.Request) (*http.Response, error){
-			"/device/code": func(*http.Request) (*http.Response, error) {
-				return &http.Response{StatusCode: 200, Body: jsonBody(`{"device_code":"dc123","user_code":"ABC-DEF","verification_url":"https://example.com/device","interval":1,"expires_in":900}`), Header: make(http.Header)}, nil
-			},
-			"/token": func(*http.Request) (*http.Response, error) {
-				return &http.Response{StatusCode: 400, Body: jsonBody(`{"error":"authorization_pending"}`), Header: make(http.Header)}, nil
-			},
-		},
-	}
-	restore := oauth.SetDefaultClient(func() *http.Client { return &http.Client{Transport: rt} })
-	defer restore()
-
-	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
-	defer cancel()
-	_, err := geminiDirectAuth(ctx, io.Discard, bufio.NewReader(strings.NewReader("")))
-	if err == nil {
-		t.Fatal("expected context deadline error")
-	}
-}
-
-// TestGeminiDirectAuthPollError: when the poll returns a non-recoverable error,
-// the flow returns it.
-func TestGeminiDirectAuthPollError(t *testing.T) {
-	rt := &onboardRT{
-		responses: map[string]func(*http.Request) (*http.Response, error){
-			"/device/code": func(*http.Request) (*http.Response, error) {
-				return &http.Response{StatusCode: 200, Body: jsonBody(`{"device_code":"dc123","user_code":"ABC-DEF","verification_url":"https://example.com/device","interval":0,"expires_in":900}`), Header: make(http.Header)}, nil
-			},
-			"/token": func(*http.Request) (*http.Response, error) {
-				return &http.Response{StatusCode: 400, Body: jsonBody(`{"error":"access_denied"}`), Header: make(http.Header)}, nil
-			},
-		},
-	}
-	restore := oauth.SetDefaultClient(func() *http.Client { return &http.Client{Transport: rt} })
-	defer restore()
-
-	_, err := geminiDirectAuth(context.Background(), io.Discard, bufio.NewReader(strings.NewReader("")))
-	if err == nil {
-		t.Fatal("expected access_denied error")
-	}
-}
-
-// TestGeminiDirectAuthSlowDown: the slow_down error increases the interval but
-// the flow continues; a subsequent poll succeeds.
-func TestGeminiDirectAuthSlowDown(t *testing.T) {
-	calls := 0
-	rt := &onboardRT{
-		responses: map[string]func(*http.Request) (*http.Response, error){
-			"/device/code": func(*http.Request) (*http.Response, error) {
-				return &http.Response{StatusCode: 200, Body: jsonBody(`{"device_code":"dc123","user_code":"ABC-DEF","verification_url":"https://example.com/device","interval":0,"expires_in":900}`), Header: make(http.Header)}, nil
-			},
-			"/token": func(*http.Request) (*http.Response, error) {
-				calls++
-				if calls == 1 {
-					return &http.Response{StatusCode: 400, Body: jsonBody(`{"error":"slow_down"}`), Header: make(http.Header)}, nil
-				}
-				return &http.Response{StatusCode: 200, Body: jsonBody(`{"access_token":"ya29.slow","token_type":"Bearer","expires_in":3600}`), Header: make(http.Header)}, nil
-			},
-		},
-	}
-	restore := oauth.SetDefaultClient(func() *http.Client { return &http.Client{Transport: rt} })
-	defer restore()
-
-	// Override the sleep to be instant in tests.
-	oldAfter := sleepFor
-	sleepFor = func(_ time.Duration) <-chan time.Time {
-		ch := make(chan time.Time, 1)
-		ch <- time.Now()
-		return ch
-	}
-	t.Cleanup(func() { sleepFor = oldAfter })
-
-	tok, err := geminiDirectAuth(context.Background(), io.Discard, bufio.NewReader(strings.NewReader("")))
-	if err != nil {
-		t.Fatalf("err = %v", err)
-	}
-	if tok != "ya29.slow" {
-		t.Errorf("token = %q", tok)
-	}
-}
-
-// TestGeminiDirectAuthPendingThenSuccess: the authorization_pending error makes
-// the flow wait and retry; a subsequent poll succeeds.
-func TestGeminiDirectAuthPendingThenSuccess(t *testing.T) {
-	calls := 0
-	rt := &onboardRT{
-		responses: map[string]func(*http.Request) (*http.Response, error){
-			"/device/code": func(*http.Request) (*http.Response, error) {
-				return &http.Response{StatusCode: 200, Body: jsonBody(`{"device_code":"dc123","user_code":"ABC-DEF","verification_url":"https://example.com/device","interval":0,"expires_in":900}`), Header: make(http.Header)}, nil
-			},
-			"/token": func(*http.Request) (*http.Response, error) {
-				calls++
-				if calls == 1 {
-					return &http.Response{StatusCode: 400, Body: jsonBody(`{"error":"authorization_pending"}`), Header: make(http.Header)}, nil
-				}
-				return &http.Response{StatusCode: 200, Body: jsonBody(`{"access_token":"ya29.pending","token_type":"Bearer","expires_in":3600}`), Header: make(http.Header)}, nil
-			},
-		},
-	}
-	restore := oauth.SetDefaultClient(func() *http.Client { return &http.Client{Transport: rt} })
-	defer restore()
-
-	oldAfter := sleepFor
-	sleepFor = func(_ time.Duration) <-chan time.Time {
-		ch := make(chan time.Time, 1)
-		ch <- time.Now()
-		return ch
-	}
-	t.Cleanup(func() { sleepFor = oldAfter })
-
-	tok, err := geminiDirectAuth(context.Background(), io.Discard, bufio.NewReader(strings.NewReader("")))
-	if err != nil {
-		t.Fatalf("err = %v", err)
-	}
-	if tok != "ya29.pending" {
-		t.Errorf("token = %q", tok)
-	}
-}
-
-// TestCopilotDirectAuthSuccess: the full Copilot flow completes.
-func TestCopilotDirectAuthSuccess(t *testing.T) {
-	rt := &onboardRT{
-		responses: map[string]func(*http.Request) (*http.Response, error){
-			"/login/device/code": func(*http.Request) (*http.Response, error) {
-				return &http.Response{StatusCode: 200, Body: jsonBody(`{"device_code":"dc456","user_code":"XYZ-WUV","verification_uri":"https://github.com/login/device","interval":0,"expires_in":900}`), Header: make(http.Header)}, nil
-			},
-			"/login/oauth/access_token": func(*http.Request) (*http.Response, error) {
-				return &http.Response{StatusCode: 200, Body: jsonBody(`{"access_token":"gho_test-copilot","token_type":"bearer","scope":"read:user"}`), Header: make(http.Header)}, nil
-			},
-			"/copilot_internal/v2/token": func(*http.Request) (*http.Response, error) {
-				return &http.Response{StatusCode: 200, Body: jsonBody(`{"token":"tid:test-copilot","expires_at":9999999999}`), Header: make(http.Header)}, nil
-			},
-		},
-	}
-	restore := oauth.SetDefaultClient(func() *http.Client { return &http.Client{Transport: rt} })
-	defer restore()
-
-	oldAfter := sleepFor
-	sleepFor = func(_ time.Duration) <-chan time.Time {
-		ch := make(chan time.Time, 1)
-		ch <- time.Now()
-		return ch
-	}
-	t.Cleanup(func() { sleepFor = oldAfter })
-
-	var out bytes.Buffer
-	tok, err := copilotDirectAuth(context.Background(), &out, bufio.NewReader(strings.NewReader("")))
-	if err != nil {
-		t.Fatalf("err = %v", err)
-	}
-	if tok != "gho_test-copilot" {
-		t.Errorf("token = %q, want gho_test-copilot", tok)
+	key, err := runDirectAuth(context.Background(), &out, bufio.NewReader(strings.NewReader("")), Provider{ID: "copilot"})
+	if err != nil || key != "" {
+		t.Fatalf("key=%q err=%v (a login is stored, not returned as a key)", key, err)
 	}
 	if !strings.Contains(out.String(), "XYZ-WUV") {
-		t.Error("user code not shown")
+		t.Error("the user code must be shown")
+	}
+	c, err := oauth.LoadCredential(dir, "copilot")
+	if err != nil || c.RefreshToken != "gho_tok" || c.AccessToken != "tid" || c.BaseURL == "" {
+		t.Errorf("stored %+v, %v", c, err)
 	}
 }
 
-// TestCopilotDirectAuthDeviceCodeError: device code request failure.
-func TestCopilotDirectAuthDeviceCodeError(t *testing.T) {
-	rt := &onboardRT{
-		responses: map[string]func(*http.Request) (*http.Response, error){
-			"/login/device/code": func(*http.Request) (*http.Response, error) {
-				return &http.Response{StatusCode: 500, Body: jsonBody(`{"error":"server_error"}`), Header: make(http.Header)}, nil
-			},
+func TestCopilotDirectAuthReportsAMissingSubscription(t *testing.T) {
+	useAuthDir(t)
+	instantSleep(t)
+	withTransport(t, &onboardRT{responses: map[string]func(*http.Request) (*http.Response, error){
+		"/login/device/code": func(*http.Request) (*http.Response, error) {
+			return &http.Response{StatusCode: 500, Body: jsonBody(`{"error":"server_error"}`), Header: make(http.Header)}, nil
 		},
-	}
-	restore := oauth.SetDefaultClient(func() *http.Client { return &http.Client{Transport: rt} })
-	defer restore()
-
-	_, err := copilotDirectAuth(context.Background(), io.Discard, bufio.NewReader(strings.NewReader("")))
-	if err == nil || !strings.Contains(err.Error(), "copilot") {
+	}})
+	if _, err := runDirectAuth(context.Background(), io.Discard, bufio.NewReader(strings.NewReader("")), Provider{ID: "copilot"}); err == nil || !strings.Contains(err.Error(), "copilot") {
 		t.Fatalf("err = %v", err)
 	}
-}
-
-// TestAnthropicDirectAuthSuccess: the PKCE flow with a pasted code.
-func TestAnthropicDirectAuthSuccess(t *testing.T) {
-	rt := &onboardRT{
-		responses: map[string]func(*http.Request) (*http.Response, error){
-			"/v1/oauth/token": func(*http.Request) (*http.Response, error) {
-				return &http.Response{StatusCode: 200, Body: jsonBody(`{"access_token":"sk-ant-oauth-test","token_type":"bearer","expires_in":28800,"refresh_token":"rt123"}`), Header: make(http.Header)}, nil
-			},
+	withTransport(t, &onboardRT{responses: map[string]func(*http.Request) (*http.Response, error){
+		"/login/device/code":        func(*http.Request) (*http.Response, error) { return resp200(`{"device_code":"dc","interval":1}`) },
+		"/login/oauth/access_token": func(*http.Request) (*http.Response, error) { return resp200(`{"access_token":"gho"}`) },
+		"/copilot_internal/v2/token": func(*http.Request) (*http.Response, error) {
+			return resp200(`{}`)
 		},
-	}
-	restore := oauth.SetDefaultClient(func() *http.Client { return &http.Client{Transport: rt} })
-	defer restore()
-
-	var out bytes.Buffer
-	tok, err := anthropicDirectAuth(context.Background(), &out, bufio.NewReader(strings.NewReader("my-auth-code\n")))
-	if err != nil {
-		t.Fatalf("err = %v", err)
-	}
-	if tok != "sk-ant-oauth-test" {
-		t.Errorf("token = %q", tok)
-	}
-}
-
-// TestAnthropicDirectAuthEmptyCode: pasting an empty code returns an error.
-func TestAnthropicDirectAuthEmptyCode(t *testing.T) {
-	_, err := anthropicDirectAuth(context.Background(), io.Discard, bufio.NewReader(strings.NewReader("\n")))
-	if err == nil || !strings.Contains(err.Error(), "no code") {
+	}})
+	if _, err := runDirectAuth(context.Background(), io.Discard, bufio.NewReader(strings.NewReader("")), Provider{ID: "copilot"}); err == nil || !strings.Contains(err.Error(), "subscription") {
 		t.Fatalf("err = %v", err)
 	}
 }
 
-// TestAnthropicDirectAuthExchangeError: when the exchange fails, an error is returned.
-func TestAnthropicDirectAuthExchangeError(t *testing.T) {
-	rt := &onboardRT{
-		responses: map[string]func(*http.Request) (*http.Response, error){
-			"/v1/oauth/token": func(*http.Request) (*http.Response, error) {
-				return &http.Response{StatusCode: 400, Body: jsonBody(`{"error":"invalid_grant"}`), Header: make(http.Header)}, nil
-			},
+// TestQwenDirectAuthStoresTheResourceHost: the login names the host its token
+// is valid for, and that host is what the client will use.
+func TestQwenDirectAuthStoresTheResourceHost(t *testing.T) {
+	dir := useAuthDir(t)
+	instantSleep(t)
+	polls := 0
+	withTransport(t, &onboardRT{responses: map[string]func(*http.Request) (*http.Response, error){
+		"/api/v1/oauth2/device/code": func(*http.Request) (*http.Response, error) {
+			return resp200(`{"device_code":"dc","user_code":"QW-1","verification_uri_complete":"https://chat.qwen.ai/authorize?user_code=QW-1","expires_in":600}`)
 		},
-	}
-	restore := oauth.SetDefaultClient(func() *http.Client { return &http.Client{Transport: rt} })
-	defer restore()
-
-	_, err := anthropicDirectAuth(context.Background(), io.Discard, bufio.NewReader(strings.NewReader("bad-code\n")))
-	if err == nil || !strings.Contains(err.Error(), "exchange") {
-		t.Fatalf("err = %v", err)
-	}
-}
-
-// TestGeminiDirectAuthSlowDownContextCancelled: when the context is cancelled
-// during a slow_down wait, the flow returns the context error.
-func TestGeminiDirectAuthSlowDownContextCancelled(t *testing.T) {
-	rt := &onboardRT{
-		responses: map[string]func(*http.Request) (*http.Response, error){
-			"/device/code": func(*http.Request) (*http.Response, error) {
-				return &http.Response{StatusCode: 200, Body: jsonBody(`{"device_code":"dc","user_code":"UC","verification_url":"https://x.com","interval":0,"expires_in":900}`), Header: make(http.Header)}, nil
-			},
-			"/token": func(*http.Request) (*http.Response, error) {
+		"/api/v1/oauth2/token": func(*http.Request) (*http.Response, error) {
+			polls++
+			if polls == 1 {
 				return &http.Response{StatusCode: 400, Body: jsonBody(`{"error":"slow_down"}`), Header: make(http.Header)}, nil
-			},
+			}
+			return resp200(`{"access_token":"qa","refresh_token":"qr","expires_in":3600,"resource_url":"portal.qwen.ai"}`)
 		},
+	}})
+	var out bytes.Buffer
+	if _, err := runDirectAuth(context.Background(), &out, bufio.NewReader(strings.NewReader("")), Provider{ID: "qwen"}); err != nil {
+		t.Fatal(err)
 	}
-	restore := oauth.SetDefaultClient(func() *http.Client { return &http.Client{Transport: rt} })
-	defer restore()
-
-	ctx, cancel := context.WithCancel(context.Background())
-	cancel()
-	_, err := geminiDirectAuth(ctx, io.Discard, bufio.NewReader(strings.NewReader("")))
-	if err == nil {
-		t.Fatal("expected context cancelled error")
+	if !strings.Contains(out.String(), "QW-1") {
+		t.Error("the user code must be shown")
 	}
-}
-
-// TestAnthropicDirectAuthAuthorizeError: when the PKCE generation fails, the
-// flow returns an error.
-func TestAnthropicDirectAuthAuthorizeError(t *testing.T) {
-	old := oauth.RandReader
-	oauth.RandReader = &eofReader{}
-	t.Cleanup(func() { oauth.RandReader = old })
-
-	_, err := anthropicDirectAuth(context.Background(), io.Discard, bufio.NewReader(strings.NewReader("code\n")))
-	if err == nil || !strings.Contains(err.Error(), "auth flow") {
-		t.Fatalf("err = %v", err)
+	c, _ := oauth.LoadCredential(dir, "qwen")
+	if c.BaseURL != "https://portal.qwen.ai/v1" || c.RefreshToken != "qr" {
+		t.Errorf("stored %+v", c)
 	}
 }
 
-// TestAnthropicDirectAuthReadLineError: when reading the code from the user
-// fails (EOF without newline), the flow returns an error.
-func TestAnthropicDirectAuthReadLineError(t *testing.T) {
-	_, err := anthropicDirectAuth(context.Background(), io.Discard, bufio.NewReader(strings.NewReader("")))
-	if err == nil {
-		t.Fatal("expected readLine error")
+// TestCodexDirectAuthAcceptsAPastedRedirect: on a machine the browser cannot
+// reach, the user pastes the URL the browser ended on.
+func TestCodexDirectAuthAcceptsAPastedRedirect(t *testing.T) {
+	dir := useAuthDir(t)
+	oldStart := startLoopback
+	startLoopback = func(string, string, string) (*oauth.Loopback, error) {
+		return nil, errors.New("port 1455 is busy")
+	}
+	t.Cleanup(func() { startLoopback = oldStart })
+	oldRand := oauth.RandReader
+	oauth.RandReader = strings.NewReader(strings.Repeat("a", 48))
+	t.Cleanup(func() { oauth.RandReader = oldRand })
+	pk, _ := oauth.NewPKCE()
+	oauth.RandReader = strings.NewReader(strings.Repeat("a", 48))
+
+	claims := `{"https://api.openai.com/auth":{"chatgpt_account_id":"acct-1"}}`
+	jwt := "e30." + base64.RawURLEncoding.EncodeToString([]byte(claims)) + ".sig"
+	withTransport(t, &onboardRT{responses: map[string]func(*http.Request) (*http.Response, error){
+		"/oauth/token": func(r *http.Request) (*http.Response, error) {
+			b, _ := io.ReadAll(r.Body)
+			if !strings.Contains(string(b), "code=the-code") {
+				t.Errorf("form = %s", b)
+			}
+			return resp200(`{"id_token":"` + jwt + `","access_token":"at","refresh_token":"rt","expires_in":3600}`)
+		},
+	}})
+	pasted := "http://localhost:1455/auth/callback?code=the-code&state=" + pk.State + "\n"
+	var out bytes.Buffer
+	if _, err := runDirectAuth(context.Background(), &out, bufio.NewReader(strings.NewReader(pasted)), Provider{ID: "codex"}); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out.String(), "auth.openai.com/oauth/authorize") || !strings.Contains(out.String(), "port 1455 is busy") {
+		t.Errorf("output = %s", out.String())
+	}
+	c, _ := oauth.LoadCredential(dir, "codex")
+	if c.AccountID != "acct-1" || c.AccessToken != "at" {
+		t.Errorf("stored %+v", c)
 	}
 }
 
-// failingReader always returns an error.
-type eofReader struct{}
+// TestGeminiDirectAuthUsesGcloudCredentials: without a client of the user's own,
+// gcloud's Application Default Credentials are used, and renewed once to prove them.
+func TestGeminiDirectAuthUsesGcloudCredentials(t *testing.T) {
+	dir := useAuthDir(t)
+	adc := filepath.Join(t.TempDir(), "adc.json")
+	_ = os.WriteFile(adc, []byte(`{"type":"authorized_user","client_id":"c","client_secret":"s","refresh_token":"r","quota_project_id":"qp"}`), 0o600)
+	t.Setenv("GOOGLE_APPLICATION_CREDENTIALS", adc)
+	t.Setenv("MOTITA_GEMINI_CLIENT_ID", "")
+	withTransport(t, &onboardRT{responses: map[string]func(*http.Request) (*http.Response, error){
+		"/token": func(*http.Request) (*http.Response, error) {
+			return resp200(`{"access_token":"ya29","expires_in":3600}`)
+		},
+	}})
+	if _, err := runDirectAuth(context.Background(), io.Discard, bufio.NewReader(strings.NewReader("\n")), Provider{ID: "gemini"}); err != nil {
+		t.Fatal(err)
+	}
+	c, _ := oauth.LoadCredential(dir, "gemini")
+	if c.ProjectID != "qp" || c.AccessToken != "ya29" || c.RefreshToken != "r" {
+		t.Errorf("stored %+v", c)
+	}
+}
 
-func (eofReader) Read([]byte) (int, error) { return 0, io.EOF }
+func TestGeminiDirectAuthExplainsWhatIsMissing(t *testing.T) {
+	useAuthDir(t)
+	t.Setenv("GOOGLE_APPLICATION_CREDENTIALS", filepath.Join(t.TempDir(), "none.json"))
+	t.Setenv("MOTITA_GEMINI_CLIENT_ID", "")
+	var out bytes.Buffer
+	if _, err := runDirectAuth(context.Background(), &out, bufio.NewReader(strings.NewReader("\n")), Provider{ID: "gemini"}); err == nil {
+		t.Fatal("no client and no gcloud login must be an error")
+	}
+	if !strings.Contains(out.String(), "MOTITA_GEMINI_CLIENT_ID") || !strings.Contains(out.String(), "gcloud auth application-default login") {
+		t.Errorf("the way out must be explained: %s", out.String())
+	}
+	t.Setenv("MOTITA_GEMINI_CLIENT_ID", "cid")
+	if _, err := runDirectAuth(context.Background(), io.Discard, bufio.NewReader(strings.NewReader("\n")), Provider{ID: "gemini"}); err == nil {
+		t.Error("an own client without a project must be refused")
+	}
+}
+
+// TestWaitForCodeConsumesTheEnterAfterABrowserLogin: the reader started for a
+// paste must not be left behind to swallow the next answer.
+func TestWaitForCodeConsumesTheEnterAfterABrowserLogin(t *testing.T) {
+	lb, err := oauth.StartLoopback("127.0.0.1:0", "127.0.0.1", "/cb")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer lb.Close()
+	pr, pw := io.Pipe()
+	in := bufio.NewReader(pr)
+	go func() {
+		r, err := http.Get(lb.RedirectURI + "?code=c1&state=s")
+		if err == nil {
+			r.Body.Close()
+		}
+		time.Sleep(50 * time.Millisecond)
+		_, _ = io.WriteString(pw, "\nnext answer\n")
+	}()
+	code, err := waitForCode(context.Background(), io.Discard, in, lb, "s")
+	if err != nil || code != "c1" {
+		t.Fatalf("code=%q err=%v", code, err)
+	}
+	line, _ := in.ReadString('\n')
+	if line != "next answer\n" {
+		t.Errorf("the next answer was swallowed: %q", line)
+	}
+}
+
 func TestReadLineSuccess(t *testing.T) {
 	line, err := readLine(context.Background(), bufio.NewReader(strings.NewReader("hello\n")))
 	if err != nil {
@@ -494,9 +326,9 @@ func TestSayRaw(t *testing.T) {
 func TestAskAPIKeyDirectAuthThreeAttempts(t *testing.T) {
 	dir := t.TempDir()
 	stubDirectAuth(t, "stub")
-	// Provider=anthropic(5), model=1, anchor=always-pass(2), baseURL=default,
+	// Provider=gemini(7), model=1, anchor=no check(3),
 	// auth-choice: three invalid answers ("3","3","3") → error.
-	_, _, err := run(context.Background(), t, dir, []string{"5", "1", "3", "", "3", "3", "3"}, Answers{})
+	_, _, err := run(context.Background(), t, dir, []string{"7", "1", "3", "3", "3", "3"}, Answers{})
 	if err == nil {
 		t.Fatal("expected error after three invalid auth choices")
 	}
@@ -507,9 +339,9 @@ func TestAskAPIKeyDirectAuthThreeAttempts(t *testing.T) {
 func TestAskAPIKeyDirectAuthDefaultChoice(t *testing.T) {
 	dir := t.TempDir()
 	stubDirectAuth(t, "default-direct")
-	// Provider=anthropic(5), model=1, anchor=always-pass(2), baseURL=default,
+	// Provider=gemini(7), model=1, anchor=no check(3),
 	// auth-choice: Enter (default=1=direct auth).
-	_, _, err := run(context.Background(), t, dir, []string{"5", "1", "3", "", ""}, Answers{})
+	_, _, err := run(context.Background(), t, dir, []string{"7", "1", "3", ""}, Answers{})
 	if err != nil {
 		t.Fatalf("err = %v", err)
 	}
@@ -524,9 +356,9 @@ func TestAskAPIKeyDirectAuthDefaultChoice(t *testing.T) {
 // the traditional key entry path.
 func TestAskAPIKeyDirectAuthChoosePasteKey(t *testing.T) {
 	dir := t.TempDir()
-	// Provider=anthropic(5), model=1, anchor=always-pass(2), baseURL=default,
+	// Provider=gemini(7), model=1, anchor=no check(3),
 	// auth-choice=2 (paste key), key="my-key".
-	_, _, err := run(context.Background(), t, dir, []string{"5", "1", "3", "", "2", "my-key"}, Answers{})
+	_, _, err := run(context.Background(), t, dir, []string{"7", "1", "3", "2", "my-key"}, Answers{})
 	if err != nil {
 		t.Fatalf("err = %v", err)
 	}
@@ -540,9 +372,9 @@ func TestAskAPIKeyDirectAuthChoosePasteKey(t *testing.T) {
 // auth choice question, askAPIKey returns the error (not a cancellation).
 func TestAskAPIKeyDirectAuthAskError(t *testing.T) {
 	dir := t.TempDir()
-	// Provider=anthropic(5), model=1, anchor=always-pass(2), baseURL=default,
+	// Provider=gemini(7), model=1, anchor=no check(3),
 	// auth-choice: EOF (no more input) → ask returns io.EOF.
-	_, _, err := run(context.Background(), t, dir, []string{"5", "1", "3", ""}, Answers{})
+	_, _, err := run(context.Background(), t, dir, []string{"7", "1", "3"}, Answers{})
 	if err == nil {
 		t.Fatal("expected error when input runs out at auth choice")
 	}

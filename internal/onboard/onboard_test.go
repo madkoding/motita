@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/madkoding/motita/internal/config"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -360,7 +361,7 @@ func TestChooseModelIsLimitedToTheProvider(t *testing.T) {
 		var answers []string
 		if p.FetchModels {
 			stubOllamaModels(t, []string{"llama3.3", "qwen2.5"})
-			answers = []string{p.ID, "dummy-key", "", "3", ""}
+			answers = []string{p.ID, "2", "dummy-key", "", "3", ""}
 		} else if p.SupportsDirectAuth {
 			// provider, model, anchor(always pass), baseURL(default), auth(direct)
 			answers = []string{p.ID, "", "3", "", "1"}
@@ -418,7 +419,7 @@ func TestChooseModelAcceptsAFreeTextID(t *testing.T) {
 func TestOllamaWizardUsesFixedBaseURL(t *testing.T) {
 	stubOllamaModels(t, []string{"llama3.3", "qwen2.5"})
 	dir := t.TempDir()
-	_, res, err := run(context.Background(), t, dir, []string{"ollama", "my-key", "", "3", ""}, Answers{})
+	_, res, err := run(context.Background(), t, dir, []string{"ollama", "2", "my-key", "", "3", ""}, Answers{})
 	if err != nil {
 		t.Fatalf("Run: %v", err)
 	}
@@ -439,7 +440,7 @@ func TestOllamaWizardUsesFixedBaseURL(t *testing.T) {
 func TestOllamaWizardSelectsAFetchedModelByNumber(t *testing.T) {
 	stubOllamaModels(t, []string{"llama3.3", "qwen2.5"})
 	dir := t.TempDir()
-	out, res, err := run(context.Background(), t, dir, []string{"ollama", "my-key", "2", "3", ""}, Answers{})
+	out, res, err := run(context.Background(), t, dir, []string{"ollama", "2", "my-key", "2", "3", ""}, Answers{})
 	if err != nil {
 		t.Fatalf("Run: %v", err)
 	}
@@ -460,7 +461,7 @@ func TestOllamaWizardAcceptsTypedModelWhenFetchFails(t *testing.T) {
 		return nil, errors.New("mock network error")
 	}
 	defer func() { modelLister = old }()
-	_, res, err := run(context.Background(), t, dir, []string{"ollama", "my-key", "custom-model", "3", ""}, Answers{})
+	_, res, err := run(context.Background(), t, dir, []string{"ollama", "2", "my-key", "custom-model", "3", ""}, Answers{})
 	if err != nil {
 		t.Fatalf("Run: %v", err)
 	}
@@ -478,7 +479,7 @@ func TestOllamaWizardFallsBackToBuiltInListWhenEmpty(t *testing.T) {
 		return []string{}, nil
 	}
 	defer func() { modelLister = old }()
-	out, res, err := run(context.Background(), t, dir, []string{"ollama", "my-key", "", "3", ""}, Answers{})
+	out, res, err := run(context.Background(), t, dir, []string{"ollama", "2", "my-key", "", "3", ""}, Answers{})
 	if err != nil {
 		t.Fatalf("Run: %v", err)
 	}
@@ -531,7 +532,7 @@ func TestListOllamaModelsWrapperUsesTheAPI(t *testing.T) {
 	defer func() { modelLister = old }()
 
 	dir := t.TempDir()
-	_, res, err := run(context.Background(), t, dir, []string{"ollama", "test-key", "", "3", ""}, Answers{BaseURL: srv.URL + "/v1"})
+	_, res, err := run(context.Background(), t, dir, []string{"ollama", "", "3", ""}, Answers{BaseURL: srv.URL + "/v1", APIKey: "test-key"})
 	if err != nil {
 		t.Fatalf("Run: %v", err)
 	}
@@ -545,7 +546,7 @@ func TestListOllamaModelsWrapperUsesTheAPI(t *testing.T) {
 func TestOllamaWizardUsesPresetKey(t *testing.T) {
 	stubOllamaModels(t, []string{"llama3.3", "qwen2.5"})
 	dir := t.TempDir()
-	out, res, err := run(context.Background(), t, dir, []string{"", "3", ""}, Answers{Provider: "ollama", APIKey: "preset-key"})
+	out, res, err := run(context.Background(), t, dir, []string{"2", "", "3", ""}, Answers{Provider: "ollama", APIKey: "preset-key"})
 	if err != nil {
 		t.Fatalf("Run: %v", err)
 	}
@@ -562,7 +563,7 @@ func TestOllamaWizardUsesPresetKey(t *testing.T) {
 func TestOllamaWizardRequiresKeyBeforeModel(t *testing.T) {
 	stubOllamaModels(t, []string{"llama3.3", "qwen2.5"})
 	dir := t.TempDir()
-	out, _, err := run(context.Background(), t, dir, []string{"ollama", "my-key", "", "3", ""}, Answers{})
+	out, _, err := run(context.Background(), t, dir, []string{"ollama", "2", "my-key", "", "3", ""}, Answers{})
 	if err != nil {
 		t.Fatalf("Run: %v", err)
 	}
@@ -623,7 +624,7 @@ func TestGeneratedHeaderNamesTheProviderVariable(t *testing.T) {
 		answers  []string
 	}{
 		// ollama: provider, key, model, anchor
-		{"ollama", "OLLAMA_API_KEY", []string{"ollama", "k", "", "3"}},
+		{"ollama", "OLLAMA_API_KEY", []string{"ollama", "2", "k", "", "3"}},
 		// openai: provider, model, anchor, base URL, key
 		{"openai", "MOTITA_LLM_API_KEY", []string{"openai", "", "3", "", "k"}},
 	} {
@@ -841,7 +842,10 @@ func TestPresetWithAnUnknownProviderFails(t *testing.T) {
 // LLM client can actually talk to. Adding one here without implementing it in
 // internal/llm would be a promise the program cannot keep.
 func TestCatalogueMatchesTheClientProtocols(t *testing.T) {
-	implemented := map[string]bool{"openai": true, "ollama": true, "anthropic": true, "gemini": true, "codex": true, "copilot": true, "claude-code": true}
+	implemented := map[string]bool{}
+	for _, p := range config.Providers {
+		implemented[p] = true
+	}
 	for _, p := range Providers() {
 		if !implemented[p.ID] {
 			t.Errorf("the wizard offers %q, which the client does not implement", p.ID)
@@ -861,7 +865,7 @@ func TestCatalogueMatchesTheClientProtocols(t *testing.T) {
 }
 
 func TestNamesAndHelpers(t *testing.T) {
-	if got := Names(); got != "anthropic, claude-code, codex, copilot, gemini, ollama, openai" {
+	if got := Names(); got != "anthropic, claude-code, codex, copilot, gemini, ollama, openai, qwen" {
 		t.Errorf("Names() = %q", got)
 	}
 	if _, ok := Lookup("ANTHROPIC"); !ok {
@@ -1236,4 +1240,49 @@ func TestWriteFileAtomicReportsEveryFilesystemFailure(t *testing.T) {
 			t.Error("a failed write must be reported")
 		}
 	})
+}
+
+// TestOllamaLocalAsksForNoKey: a local Ollama takes no key, and the wizard used to
+// demand one before it would list a single model.
+func TestOllamaLocalAsksForNoKey(t *testing.T) {
+	dir := t.TempDir()
+	var gotKey, gotURL string
+	old := modelLister
+	modelLister = func(_ context.Context, baseURL, key string) ([]string, error) {
+		gotURL, gotKey = baseURL, key
+		return []string{"llama3.3"}, nil
+	}
+	t.Cleanup(func() { modelLister = old })
+	// provider, host (local), model, check: nothing else may be asked.
+	out, res, err := run(context.Background(), t, dir, []string{"ollama", "1", "", "3"}, Answers{})
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if gotURL != "http://localhost:11434/v1" || gotKey != "" || res.Model != "llama3.3" || !res.Keyless || res.CredentialsPath != "" {
+		t.Errorf("url=%q key=%q res=%+v", gotURL, gotKey, res)
+	}
+	if strings.Contains(stripANSI(out), "Paste the key") {
+		t.Error("a local Ollama must not be asked for a key")
+	}
+	cfg, _ := os.ReadFile(res.ConfigPath)
+	if !strings.Contains(string(cfg), "http://localhost:11434/v1") {
+		t.Errorf("the local endpoint must be written:\n%s", cfg)
+	}
+}
+
+// TestALoginIsNotWrittenAsAKey: after a direct login nothing is exported, because
+// the login lives in its own renewable file.
+func TestALoginIsNotWrittenAsAKey(t *testing.T) {
+	dir := t.TempDir()
+	stubDirectAuth(t, "")
+	out, res, err := run(context.Background(), t, dir, []string{"qwen", "", "3", "1"}, Answers{})
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if !res.LoggedIn || res.CredentialsPath != "" {
+		t.Errorf("res = %+v", res)
+	}
+	if strings.Contains(stripANSI(out), "export DASHSCOPE_API_KEY") {
+		t.Errorf("a login must not be told to export a key:\n%s", stripANSI(out))
+	}
 }
