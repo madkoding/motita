@@ -68,8 +68,16 @@ type run struct {
 	id     string
 	ctx    context.Context
 	cancel context.CancelFunc
+	// intent classifies why the run was started. Empty means a normal task/plan;
+	// "merge" means the run is integrating the session's work into its project.
+	// The intent is read when the run finishes to trigger post-run bookkeeping.
+	intent string
 	// done is closed when the run has finished, whatever the outcome.
 	done chan struct{}
+	// turn is the conversation turn this run became, and onLine receives every progress line
+	// that is a step (not a live snapshot): it is how a turn's steps reach its checkpoint.
+	turn   int
+	onLine func(string)
 
 	mu      sync.Mutex
 	seq     uint64
@@ -86,13 +94,14 @@ type run struct {
 // newRun creates a run with its own context and cancellation.
 //
 // The caller passes the context and its cancel func rather than the run building them, so
-// cancellation has exactly ONE owner: the conversation, which also knows whether a run is in
-// flight. Two owners would be two answers to "is this run still going".
-func newRun(id string, ctx context.Context, cancel context.CancelFunc) *run {
+// cancellation has exactly ONE owner: the conversation, which also knows whether a run is
+// in flight. Two owners would be two answers to "is this run still going".
+func newRun(id string, ctx context.Context, cancel context.CancelFunc, intent string) *run {
 	return &run{
 		id:     id,
 		ctx:    ctx,
 		cancel: cancel,
+		intent: intent,
 		done:   make(chan struct{}),
 		subs:   map[*subscriber]struct{}{},
 	}

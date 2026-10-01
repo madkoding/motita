@@ -22,6 +22,8 @@ package agent
 
 import (
 	"fmt"
+	"path/filepath"
+	"strconv"
 	"strings"
 
 	"github.com/madkoding/motita/internal/readonly"
@@ -30,10 +32,10 @@ import (
 const (
 	// evidenceEach caps one kept read. A 550-line source file is about 25 KB; the cap keeps
 	// the head and the tail of anything larger rather than dropping it.
-	evidenceEach = 24000
+	evidenceEach = 48000
 	// evidenceTotal caps everything kept, newest first: the prompt must not grow with the
 	// number of files a long task has looked at.
-	evidenceTotal = 90000
+	evidenceTotal = 160000
 	// notesMax caps the model's notes.
 	notesMax = 4000
 )
@@ -42,6 +44,11 @@ const (
 type readRecord struct {
 	round  int
 	output string
+	// path and from..to say which lines of which file this read holds, when it was a plain
+	// file read (cat, sed -n 'A,Bp', head). They are what lets a DIFFERENT command that asks
+	// for lines already held be answered from memory instead of being run again.
+	path     string
+	from, to int
 }
 
 // workMemory is what a run remembers besides the journal. The zero value is empty and usable.
@@ -49,6 +56,14 @@ type workMemory struct {
 	reads map[string]readRecord
 	order []string // keys of reads, oldest first
 	notes string
+	// fp is the fingerprint of the working tree as of the last check, and fpOK whether it could
+	// be taken. A command that might write only invalidates the kept reads when the tree
+	// really differs from this: `npm install` and `go test` run and change nothing the reads
+	// depend on.
+	fp   string
+	fpOK bool
+	// verif is the last run of every check the run executed itself (see verify.go).
+	verif map[string]verifRecord
 	// executed and recalled count, for the round in progress, the commands that ran and the
 	// reads answered from memory. The loop resets them each round.
 	executed, recalled int
@@ -59,10 +74,55 @@ func readKey(command string) string {
 	return strings.Join(strings.Fields(command), " ")
 }
 
-// recall returns the kept output of an identical read, if nothing has been written since.
+// layout says which kept reads the prompt actually shows, and which of those are shown in full.
+// Newest first, each capped at evidenceEach, all capped at evidenceTotal. It is the single place
+// that decides this, because "what the model was shown" and "what may be answered from memory"
+// must be the same set: telling the model a read is "under WHAT YOU HAVE ALREADY READ" when the
+// prompt dropped it to fit is how a run ends up unable to see a file it is forbidden to re-read.
+func (m *workMemory) layout() (shown, whole map[string]bool) {
+	shown, whole = map[string]bool{}, map[string]bool{}
+	left := evidenceTotal
+	for i := len(m.order) - 1; i >= 0 && left > 0; i-- {
+		key := m.order[i]
+		out := m.reads[key].output
+		limit := min(evidenceEach, left)
+		shown[key] = true
+		whole[key] = len(out) <= limit
+		left -= min(len(out), limit)
+	}
+	return shown, whole
+}
+
+// recall returns the kept output of a read that already answers this command, if nothing has
+// been written since. The same words in the same order always do; and so does a plain file read
+// whose lines are ALL inside a read still held: `cat f` after `sed -n '1,400p' f`, or
+// `sed -n '10,50p' f` after `cat -n f`. Measured on a real session, one 550-line file was read
+// eight times under six spellings, and the exact-text match recognised none of the repeats.
 func (m *workMemory) recall(command string) (readRecord, bool) {
-	rec, ok := m.reads[readKey(command)]
-	return rec, ok
+	key := readKey(command)
+	shown, whole := m.layout()
+	// The identical command is answered when the prompt still SHOWS it (a huge output is shown
+	// head and tail, and running it again would show the same head and tail). One the prompt
+	// dropped to make room is not "already read" any more, so it runs again and goes to the front.
+	if rec, ok := m.reads[key]; ok && shown[key] {
+		return rec, true
+	}
+	path, from, to, ok := fileRead(command)
+	if !ok {
+		return readRecord{}, false
+	}
+	// Containment is only sound for what the model was actually shown IN FULL.
+	var best readRecord
+	found := false
+	for k, rec := range m.reads {
+		if !whole[k] || rec.path != path || rec.from > from || rec.to < to {
+			continue
+		}
+		if !found || rec.round > best.round {
+			best, found = rec, true
+		}
+	}
+	return best, found
 }
 
 // remember keeps the output of a read. A read that is seen again moves to the newest place.
@@ -74,7 +134,13 @@ func (m *workMemory) remember(command string, round int, output string) {
 	if _, seen := m.reads[key]; seen {
 		m.forget(key)
 	}
-	m.reads[key] = readRecord{round: round, output: output}
+	path, from, to, _ := fileRead(command)
+	// A range that asked for more lines than came back reached the end of the file, so it holds
+	// the whole of it: `sed -n '1,400p' f` on a 300-line file answers a later `cat f`.
+	if path != "" && to != wholeFile && strings.Count(strings.TrimRight(output, "\n"), "\n")+1 < to-from+1 {
+		to = wholeFile
+	}
+	m.reads[key] = readRecord{round: round, output: output, path: path, from: from, to: to}
 	m.order = append(m.order, key)
 }
 
@@ -86,6 +152,22 @@ func (m *workMemory) forget(key string) {
 			return
 		}
 	}
+}
+
+// sync compares the working tree with the one last seen and drops every kept read when it
+// differs, or when it cannot be told. It reports whether the reads were dropped.
+//
+// It replaces "this command LOOKS like a write, so forget everything": `npm install`, `go test`
+// and `git status` all look like writes, run in every long task, and changed none of the files
+// the model had read - and each one cost the run its whole evidence, which it then re-read.
+func (m *workMemory) sync(dir string) bool {
+	cur, ok := treeFingerprint(dir, false)
+	changed := !ok || !m.fpOK || cur != m.fp
+	m.fp, m.fpOK = cur, ok
+	if changed {
+		m.invalidate()
+	}
+	return changed
 }
 
 // invalidate drops every kept read: something was written, so none of them can be trusted.
@@ -211,3 +293,78 @@ func isWrite(c Command) bool {
 	}
 	return strings.TrimSpace(c.Command) != "" && !readsOnly(c.Command)
 }
+
+// wholeFile is the upper bound of a read of the entire file.
+const wholeFile = int(^uint(0) >> 1)
+
+// fileRead recognises a line that does nothing but print part of one file, and says which part:
+// `cat f`, `cat -n f`, `head -n N f`, `head -N f` and `sed -n 'A,Bp' f` (also `Ap`). Anything
+// else - a pipe, a redirection, several files, a flag it does not know - is not a file read and
+// gets no range, so it can only ever be matched by its exact words. It errs toward "not
+// recognised", which costs one extra execution and never a wrong answer.
+func fileRead(command string) (path string, from, to int, ok bool) {
+	if strings.ContainsAny(command, "|&;<>`$(){}*?[]\n") {
+		return "", 0, 0, false
+	}
+	f := strings.Fields(command)
+	if len(f) < 2 {
+		return "", 0, 0, false
+	}
+	unq := func(s string) string { return strings.Trim(s, "'\"") }
+	switch f[0] {
+	case "cat":
+		args := f[1:]
+		if args[0] == "-n" {
+			args = args[1:]
+		}
+		if len(args) != 1 || strings.HasPrefix(args[0], "-") {
+			return "", 0, 0, false
+		}
+		return cleanPath(unq(args[0])), 1, wholeFile, true
+	case "head":
+		args := f[1:]
+		n := 10
+		switch {
+		case len(args) == 3 && args[0] == "-n":
+			v, err := strconv.Atoi(args[1])
+			if err != nil || v < 1 {
+				return "", 0, 0, false
+			}
+			n, args = v, args[2:]
+		case len(args) == 2 && len(args[0]) > 1 && args[0][0] == '-':
+			v, err := strconv.Atoi(args[0][1:])
+			if err != nil || v < 1 {
+				return "", 0, 0, false
+			}
+			n, args = v, args[1:]
+		}
+		if len(args) != 1 || strings.HasPrefix(args[0], "-") {
+			return "", 0, 0, false
+		}
+		return cleanPath(unq(args[0])), 1, n, true
+	case "sed":
+		if len(f) != 4 || f[1] != "-n" {
+			return "", 0, 0, false
+		}
+		script := unq(f[2])
+		if !strings.HasSuffix(script, "p") {
+			return "", 0, 0, false
+		}
+		span := strings.TrimSuffix(script, "p")
+		lo, hi, found := strings.Cut(span, ",")
+		a, err := strconv.Atoi(lo)
+		if err != nil || a < 1 {
+			return "", 0, 0, false
+		}
+		b := a
+		if found {
+			if b, err = strconv.Atoi(hi); err != nil || b < a {
+				return "", 0, 0, false
+			}
+		}
+		return cleanPath(unq(f[3])), a, b, true
+	}
+	return "", 0, 0, false
+}
+
+func cleanPath(p string) string { return filepath.Clean(p) }

@@ -16,6 +16,11 @@ import (
 	"github.com/madkoding/motita/internal/session"
 )
 
+// runIntentMerge marks a run whose purpose is to integrate the session's work
+// back into its project. When such a run finishes successfully and the project's
+// HEAD has moved, the session is marked as merged.
+const runIntentMerge = "merge"
+
 // handleTask runs a task and streams the turn.
 //
 // The caller becomes the run's FIRST subscriber, and that is the difference from what this used to
@@ -34,6 +39,10 @@ func (s *Server) handleTask(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	c := convOf(r)
+	if c.merged {
+		writeError(w, http.StatusConflict, "this session has already been integrated into the project; continue in a new session to keep working")
+		return
+	}
 	// Record the task so it can be resumed after a gateway restart.
 	c.stateMu.Lock()
 	c.lastTask = body.Task
@@ -56,6 +65,10 @@ func (s *Server) handlePlan(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	c := convOf(r)
+	if c.merged {
+		writeError(w, http.StatusConflict, "this session has already been integrated into the project; continue in a new session to keep working")
+		return
+	}
 	// Record the prompt so it can be resumed after a gateway restart.
 	c.stateMu.Lock()
 	c.lastTask = body.Prompt
@@ -73,7 +86,13 @@ func (s *Server) handlePlan(w http.ResponseWriter, r *http.Request) {
 // startDetachedRun and answering 409 when it comes back refused - attach() writes the
 // headers, and it runs only after the slot is ours.
 func (s *Server) startRun(w http.ResponseWriter, r *http.Request, c *conversation, task, kind string) {
-	rn, started := s.startDetachedRun(c, task, kind, s.approverFactory(c))
+	s.startRunWithIntent(w, r, c, task, kind, "")
+}
+
+// startRunWithIntent is the same as startRun, but it records why the turn was started so the
+// gateway can perform post-run bookkeeping (for example, marking a session as merged).
+func (s *Server) startRunWithIntent(w http.ResponseWriter, r *http.Request, c *conversation, task, kind, intent string) {
+	rn, started := s.startDetachedRun(c, task, kind, intent, s.approverFactory(c))
 	if !started {
 		writeError(w, http.StatusConflict,
 			"a run is already in progress in this session; a conversation is served one run at a time")
@@ -94,7 +113,7 @@ func (s *Server) startRun(w http.ResponseWriter, r *http.Request, c *conversatio
 //
 // It reports false when the slot is taken, and the CALLER decides how to say so: the HTTP
 // path answers 409, the scheduler records "skipped" on the record.
-func (s *Server) startDetachedRun(c *conversation, task, kind string, approverFor func(*run) agent.Approver) (*run, bool) {
+func (s *Server) startDetachedRun(c *conversation, task, kind, intent string, approverFor func(*run) agent.Approver) (*run, bool) {
 	if c == nil || c.svc == nil {
 		return nil, false
 	}
@@ -106,7 +125,11 @@ func (s *Server) startDetachedRun(c *conversation, task, kind string, approverFo
 	// lets a turn outlive the client that asked for it, and it is also what a gateway
 	// shutdown uses to end everything cleanly.
 	runCtx, cancel := context.WithCancel(s.baseCtx)
-	rn := newRun(newRunID(), runCtx, cancel)
+	rn := newRun(newRunID(), runCtx, cancel, intent)
+	turns := c.svc.Transcript()
+	rn.turn = turnFor(turns, task)
+	resumed := rn.turn < len(turns)
+	rn.onLine = func(text string) { c.recordStep(rn.turn, text) }
 	c.setCurrentRun(rn)
 	c.svc.SetApprover(approverFor(rn))
 
@@ -122,6 +145,13 @@ func (s *Server) startDetachedRun(c *conversation, task, kind string, approverFo
 	// The mark the run's changes are measured against, and a clean folder for its screenshots
 	// so a picture from an earlier run is never shown as this one's result.
 	startRev := gitx.HeadRev(runCtx, c.workspace)
+	// For merge runs we also record the project's HEAD before the agent acts. Integration is
+	// successful when the project's HEAD moves: the agent used git to merge the session's
+	// branch into the project's base branch. This is recorded AFTER the run finishes.
+	var projectStartRev string
+	if rn.intent == runIntentMerge && c.projectDir != "" {
+		projectStartRev = gitx.HeadRev(runCtx, c.projectDir)
+	}
 	clearPreviews(c.workspace)
 
 	go func() {
@@ -129,11 +159,30 @@ func (s *Server) startDetachedRun(c *conversation, task, kind string, approverFo
 		defer c.clearCurrentRun()
 		var result string
 		var err error
+		// The checkpoint is taken BEFORE the agent does anything: it is the state this input
+		// found, which is what going back has to return to.
+		if c.openCheckpoint(rn.turn, task, kind, resumed) {
+			s.takeSnapshot(c, rn.turn)
+		}
 		if kind == schedule.KindPlan {
 			result, err = c.svc.RunPlan(runCtx, task, rn.progress())
 		} else {
 			result, err = c.svc.RunTask(runCtx, task, rn.progress())
 		}
+
+		// A merge run that succeeded may have moved the project's HEAD. We check this AFTER
+		// the agent reported a result, because the LLM is the one that used the git skill to
+		// integrate; the gateway only records the outcome.
+		if err == nil && rn.intent == runIntentMerge && c.projectDir != "" && projectStartRev != "" {
+			projectHead := gitx.HeadRev(runCtx, c.projectDir)
+			if projectHead != "" && projectHead != projectStartRev {
+				c.setMerged(projectHead)
+				if s.baseCtx.Err() == nil {
+					s.saveSession(c)
+				}
+			}
+		}
+
 		switch {
 		case errors.Is(err, context.Canceled):
 			rn.append(EventError, map[string]string{"error": "the run was cancelled"})
@@ -149,6 +198,9 @@ func (s *Server) startDetachedRun(c *conversation, task, kind string, approverFo
 		default:
 			snap := c.svc.ConversationSummary()
 			done := doneEvent{Result: result, Session: snap}
+			if src, ok := c.svc.(interface{ TakeReport() *agent.Report }); ok && kind != schedule.KindPlan {
+				done.Report = src.TakeReport()
+			}
 			if rep := buildChangeReport(s.baseCtx, c.workspace, startRev); len(rep.Files) > 0 || len(rep.Previews) > 0 {
 				done.Changes = &rep
 			}
@@ -241,7 +293,7 @@ func (s *Server) attach(w http.ResponseWriter, r *http.Request, c *conversation,
 	outcome, _, _, _ := rn.outcomeOf()
 	if err := writeEvent(w, rc, 0, EventAttached, attachedEvent{
 		RunID: rn.id, FirstSeq: info.FirstSeq, LastSeq: info.LastSeq,
-		Dropped: info.Dropped, PendingApproval: pending, Outcome: outcome,
+		Dropped: info.Dropped, PendingApproval: pending, Outcome: outcome, Turn: rn.turn,
 	}); err != nil {
 		return
 	}
@@ -368,6 +420,9 @@ func (r *run) progress() func(string, ...any) {
 		if live, ok := strings.CutPrefix(text, agent.LivePrefix); ok {
 			r.flash(EventThinking, progressEvent{Text: live})
 			return
+		}
+		if r.onLine != nil {
+			r.onLine(text)
 		}
 		r.append(EventProgress, progressEvent{Text: text})
 	}

@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 
+	"github.com/madkoding/motita/internal/agent"
 	"github.com/madkoding/motita/internal/session"
 )
 
@@ -70,6 +71,10 @@ type doneEvent struct {
 	// Changes is what the run changed, as pictures and a file summary. It is omitted when
 	// the run changed nothing, so a plain answer costs nothing extra.
 	Changes *changeReport `json:"changes,omitempty"`
+	// Report is the answer as structure (status, changes, verification, risks, next steps), for
+	// a front end that lays it out itself. Result stays the flat text every client can show; the
+	// report is omitted when the turn produced none (a chat reply, a plan, a failure).
+	Report *agent.Report `json:"report,omitempty"`
 }
 
 // approvalDeniedEvent is a command that was asked about and refused because there was
@@ -108,6 +113,9 @@ type attachedEvent struct {
 	// ends. A client that attaches to a finished run is TOLD, instead of waiting on a stream
 	// that will never produce anything.
 	Outcome string `json:"outcome,omitempty"`
+	// Turn is the conversation turn (and checkpoint) this run belongs to, so a client that
+	// joins mid-run knows where the steps it is about to receive go.
+	Turn int `json:"turn"`
 }
 
 // startStream writes the headers a long-lived stream needs, and gets them on the wire before

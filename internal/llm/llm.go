@@ -179,7 +179,14 @@ func (c *Client) CompleteStream(ctx context.Context, messages []Message, onDelta
 	if ctx.Err() != nil {
 		return "", ctx.Err()
 	}
-	c.log.Warn("the streamed completion failed; asking again without streaming", "error", fmt.Sprint(streamErr))
+	// The reason is named. A stream that ends with no error and no text used to be logged as
+	// `error=<nil>`, which reads as a bug in the logger and hides what happened: the endpoint
+	// closed the stream without an answer.
+	reason := "the stream ended without any text"
+	if streamErr != nil {
+		reason = streamErr.Error()
+	}
+	c.log.Warn("the streamed completion failed; asking again without streaming", "error", reason)
 	return c.Complete(ctx, messages)
 }
 

@@ -502,6 +502,38 @@ else
   tail -25 $VERIFY_WORK/verify_spinner.log | sed 's/^/    /'
 fi
 
+step "8d2. thinking drawer, kept steps, pinned inputs and checkpoints, in a real browser"
+# The reasoning goes to the orange THINK drawer and never into the chat; the steps stay under
+# their input after the answer and after a reload; the input of the turn on screen is pinned
+# and hands over to the previous one; the ⋯ menu goes back, files included. Same harness and
+# the same "exit 2 is skipped" convention as the spinner check.
+./scripts/verify-checkpoints.sh >$VERIFY_WORK/verify_checkpoints.log 2>&1
+cp_rc=$?
+if [ "$cp_rc" -eq 0 ]; then
+  ok "thinking in its drawer, steps kept, inputs pinned, checkpoints restore"
+elif [ "$cp_rc" -eq 2 ]; then
+  printf '  ..   skipped: %s\n' "$(head -1 $VERIFY_WORK/verify_checkpoints.log)"
+else
+  bad "the checkpoints check failed (see $VERIFY_WORK/verify_checkpoints.log)"
+  tail -25 $VERIFY_WORK/verify_checkpoints.log | sed 's/^/    /'
+fi
+
+step "8d3. a big command output reaches the terminal whole, in a real browser"
+# The agent reported a command's output through truncateMiddle(output, 800): a `grep` over a tree
+# arrived in the chat and in the drawer as ~9 lines and a bare "[... middle omitted ...]", which
+# reads as the command's whole output. Measured on the reader's own sessions: 49 kept steps carried
+# that mark at exactly 829 bytes each.
+./scripts/verify-grep-output.sh >$VERIFY_WORK/verify_grep_output.log 2>&1
+go_rc=$?
+if [ "$go_rc" -eq 0 ]; then
+  ok "a 700-line command output arrives whole in the terminal drawer"
+elif [ "$go_rc" -eq 2 ]; then
+  printf '  ..   skipped: %s\n' "$(head -1 $VERIFY_WORK/verify_grep_output.log)"
+else
+  bad "the grep-output check failed (see $VERIFY_WORK/verify_grep_output.log)"
+  tail -25 $VERIFY_WORK/verify_grep_output.log | sed 's/^/    /'
+fi
+
 step "8e. the published site resolves, installer included"
 # The site is uploaded ON ITS OWN, so a reference that resolves because docs/ or
 # web/public/ happens to sit beside the page is dead in production while looking

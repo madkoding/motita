@@ -324,10 +324,10 @@ func TestAnAutomaticTitleOnlyReplacesAPlaceholder(t *testing.T) {
 func TestADetachedRunWithoutAConversationOrServiceIsRefused(t *testing.T) {
 	srv := newTestServer(t, &fakeService{})
 
-	if _, ok := srv.startDetachedRun(nil, "a task", "task", srv.unattendedApprover("s1")); ok {
+	if _, ok := srv.startDetachedRun(nil, "a task", "task", "", srv.unattendedApprover("s1")); ok {
 		t.Error("a nil conversation has no run slot")
 	}
-	if _, ok := srv.startDetachedRun(&conversation{id: "s1"}, "a task", "task", srv.unattendedApprover("s1")); ok {
+	if _, ok := srv.startDetachedRun(&conversation{id: "s1"}, "a task", "task", "", srv.unattendedApprover("s1")); ok {
 		t.Error("a conversation with no service cannot run anything")
 	}
 }

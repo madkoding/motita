@@ -392,10 +392,10 @@ func TestADetachedRunTakesTheConversationsRunSlot(t *testing.T) {
 		t.Fatal("the default conversation is missing")
 	}
 
-	if _, started := srv.startDetachedRun(c, "first", schedule.KindTask, srv.unattendedApprover("s1")); !started {
+	if _, started := srv.startDetachedRun(c, "first", schedule.KindTask, "", srv.unattendedApprover("s1")); !started {
 		t.Fatal("the first detached run did not start")
 	}
-	if _, started := srv.startDetachedRun(c, "second", schedule.KindTask, srv.unattendedApprover("s1")); started {
+	if _, started := srv.startDetachedRun(c, "second", schedule.KindTask, "", srv.unattendedApprover("s1")); started {
 		t.Error("a second detached run started while the first held the slot: two tasks would interleave into one transcript")
 	}
 	close(release)
@@ -412,7 +412,7 @@ func TestADetachedRunEndsInTheConversation(t *testing.T) {
 	srv := newTestServer(t, svc)
 	c, _ := srv.lookup(DefaultSession)
 
-	rn, started := srv.startDetachedRun(c, "audit", schedule.KindTask, srv.unattendedApprover("s1"))
+	rn, started := srv.startDetachedRun(c, "audit", schedule.KindTask, "", srv.unattendedApprover("s1"))
 	if !started {
 		t.Fatal("the detached run did not start")
 	}
@@ -439,7 +439,7 @@ func TestACancelledDetachedRunIsNotAFailure(t *testing.T) {
 	}
 	srv := newTestServer(t, svc)
 	c, _ := srv.lookup(DefaultSession)
-	rn, started := srv.startDetachedRun(c, "audit", schedule.KindTask, srv.unattendedApprover("s1"))
+	rn, started := srv.startDetachedRun(c, "audit", schedule.KindTask, "", srv.unattendedApprover("s1"))
 	if !started {
 		t.Fatal("the detached run did not start")
 	}

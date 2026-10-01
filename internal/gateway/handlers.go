@@ -69,7 +69,9 @@ func (s *Server) handleSessionReport(w http.ResponseWriter, r *http.Request) {
 // 204 rather than a body: there is nothing to say about it, and a client that gets an empty 200
 // has to guess whether it worked.
 func (s *Server) handleReset(w http.ResponseWriter, r *http.Request) {
-	convOf(r).svc.ResetConversation()
+	c := convOf(r)
+	c.svc.ResetConversation()
+	s.forgetCheckpoints(c)
 	w.WriteHeader(http.StatusNoContent)
 }
 

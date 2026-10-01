@@ -8,6 +8,14 @@ DIST      := dist
 COVERPKG  := ./...
 # Packages with tests (the coverage report walks them one by one).
 PKGS      := ./internal/... ./cmd/... ./tools/...
+# The linter CI runs. It is PINNED, and it is run on the go.mod toolchain
+# (GOTOOLCHAIN=go1.26.0): no published staticcheck parses the export data of a
+# much newer Go, and running it on this machine's Go reports "internal error in
+# importing internal/byteorder" instead of the findings. Without this step,
+# `make check` says "what CI runs" and is not: measured, a S1030 in
+# checkpoints_test.go passed here and failed there.
+STATICCHECK    := honnef.co/go/tools/cmd/staticcheck@v0.6.1
+STATICCHECK_GO ?= go1.26.0
 
 # Every platform Go can build cmd/agent for. windows/arm, darwin/386 and
 # darwin/arm do not exist in Go: the toolchain refuses them, so they are not listed.
@@ -16,7 +24,7 @@ PLATFORMS := linux/386 linux/amd64 linux/arm linux/arm64 \
              darwin/amd64 darwin/arm64
 
 .PHONY: help web build dist verify-dist test test-matrix vet bench fmt fmt-check check cover \
-        run smoke e2e e2e-agent e2e-gateway clean
+        staticcheck run smoke e2e e2e-agent e2e-gateway clean
 
 help: ## Show this help
 	@grep -E '^[a-zA-Z0-9_-]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN{FS=":.*?## "}{printf "  \033[36m%-14s\033[0m %s\n", $$1, $$2}'
@@ -89,7 +97,10 @@ fmt: ## Format the code
 fmt-check: ## Fail if any file is unformatted
 	@test -z "$$(gofmt -l . )" || { echo "Unformatted:"; gofmt -l .; exit 1; }
 
-check: fmt-check vet test ## Full verification (what CI runs)
+check: fmt-check vet staticcheck test ## Full verification (what CI runs)
+
+staticcheck: ## Run the linter CI runs, on the go.mod toolchain
+	@GOTOOLCHAIN=$(STATICCHECK_GO) $(GO) run $(STATICCHECK) ./...
 
 cover: ## Coverage per package (the gate is 100%) and aggregate
 	@$(GO) list $(PKGS) | while read -r pkg; do \

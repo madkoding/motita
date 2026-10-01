@@ -653,7 +653,7 @@ func TestAnApprovalIsRecordedBeforeItBlocks(t *testing.T) {
 	conv := srv.sessions[DefaultSession]
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	rn := newRun("r-test", ctx, cancel)
+	rn := newRun("r-test", ctx, cancel, "")
 
 	answered := make(chan struct{})
 	var got bool

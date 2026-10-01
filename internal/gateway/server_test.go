@@ -38,7 +38,9 @@ type fakeService struct {
 	verdict   func(good bool, note string) string
 	reward    string
 	questions []agent.AskItem
-	origin    string
+	// structured is what TakeReport hands back: the report of the last task, as structure.
+	structured *agent.Report
+	origin     string
 	// transcript is the conversation the service holds. It is what the read endpoint publishes,
 	// so a test can put a conversation there and read it back over HTTP.
 	transcript []agent.DialogueTurn
@@ -62,6 +64,8 @@ func (f *fakeService) RunTask(ctx context.Context, t2 string, pr func(string, ..
 	}
 	return f.task(ctx, t2, pr)
 }
+
+func (f *fakeService) TakeReport() *agent.Report { return f.structured }
 
 func (f *fakeService) RunModels(ctx context.Context) (string, error) {
 	if f.models == nil {

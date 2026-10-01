@@ -63,7 +63,7 @@ func TestAFinishedRunIsNotPersistedAsRunning(t *testing.T) {
 			if !ok {
 				t.Fatal("no default session")
 			}
-			rn, started := srv.startDetachedRun(c, "do the work", "task", srv.approverFactory(c))
+			rn, started := srv.startDetachedRun(c, "do the work", "task", "", srv.approverFactory(c))
 			if !started {
 				t.Fatal("the run did not start")
 			}
@@ -98,7 +98,7 @@ func TestAShutdownMidRunIsStillResumed(t *testing.T) {
 	})
 	t.Cleanup(func() { close(release); waitForNoRun(t, srv) })
 	c, _ := srv.lookup(DefaultSession)
-	if _, ok := srv.startDetachedRun(c, "long job", "task", srv.approverFactory(c)); !ok {
+	if _, ok := srv.startDetachedRun(c, "long job", "task", "", srv.approverFactory(c)); !ok {
 		t.Fatal("the run did not start")
 	}
 	select {

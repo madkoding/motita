@@ -94,7 +94,7 @@
  * markup). Forcing it also keeps the UA's own widgets from turning white on
  * a phone set to light, which is the half-light a screenshot cannot show. */
 :root {
-  /* The one measure of the live blocks (activity line, steps trail, live thought). */
+  /* The one measure of the live blocks (activity line, steps trail). */
   --live-w: min(90%, 44rem);
   color-scheme: dark;
   --font-sans: 'Sansation', system-ui, -apple-system, sans-serif;
@@ -471,8 +471,10 @@ body {
   border-color: rgba(154, 154, 170, 0.3);
 }
 
-/* The steps a run has already taken, above the one in progress. Quieter than
-   the live line: they are context, and they vanish with the answer. */
+/* The steps of ONE input: quieter than the answer, and part of the conversation now - they stay
+   under the input that caused them, so the box grows with them and the CHAT is what scrolls.
+   An inner scroll here was tried and rejected: it pressed the steps into a fixed-height frame
+   inside a scrolling page, which reads as a clipped card. */
 .activity-trail {
   align-self: flex-start;
   width: var(--live-w);
@@ -508,31 +510,6 @@ body {
 .trail-step.command { color: #a8d4ef; }
 .trail-step.check { color: #93d6a8; }
 
-/* A thought or a command's output is worth READING, not only glancing at: it
-   keeps its lines, clamped to three, and opens in full on a click. */
-.trail-step.is-long {
-  white-space: pre-wrap;
-  word-break: break-word;
-  display: -webkit-box;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 3;
-  line-clamp: 3;
-  cursor: pointer;
-  padding: 2px 0;
-}
-.trail-step.is-long.is-open {
-  display: block;
-  -webkit-line-clamp: unset;
-  line-clamp: unset;
-  max-height: 40vh;
-  overflow-y: auto;
-}
-.trail-step.thought {
-  color: #cdbfe8;
-  font-family: var(--font-sans, inherit);
-  font-size: 0.86em;
-}
-.trail-step.thought::before { content: '💭 '; font-style: normal; }
 .trail-step.output { color: #aeb6c4; }
 .trail-step.output::before { content: none; }
 
@@ -570,83 +547,6 @@ body {
   background: rgba(126, 231, 135, 0.12);
 }
 .term-exit.bad { color: #ff7b72; background: rgba(255, 123, 114, 0.14); }
-
-/* What the model is writing right now. It grows while the phase is generated
-   and is replaced by the finished reasoning when the phase ends. */
-.msg.thought-live {
-  align-self: flex-start;
-  width: var(--live-w);
-  box-sizing: border-box;
-  max-width: 90%;
-  padding: 6px 10px;
-  border-radius: 8px;
-  border: 1px solid rgba(176, 120, 255, 0.4);
-  background: rgba(18, 12, 30, 0.85);
-  backdrop-filter: blur(10px);
-  -webkit-backdrop-filter: blur(10px);
-  color: #e2d7f7;
-  font-size: 0.85em;
-  animation: activityIn 0.2s ease-out;
-}
-.thought-label {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 0.78em;
-  color: #b9a2e6;
-  margin-bottom: 3px;
-  font-family: var(--font-mono);
-}
-.thought-label span[class^="spin-"] {
-  display: inline-block;
-  width: 8px;
-  height: 8px;
-}
-.thought-text {
-  /* The scrollbar appearing would take width from the text and re-wrap every line. */
-  scrollbar-gutter: stable;
-  word-break: break-word;
-  max-height: 30vh;
-  overflow-y: auto;
-  font-size: 0.86em;
-  color: #cdbfe8;
-}
-
-/* A thought is Markdown at the size of a margin note: the answer's headings, code and
-   lists, scaled down and quieter so it reads as thinking, not as the reply. */
-.thought-md .markdown-body { line-height: 1.35; white-space: normal; }
-.thought-md .markdown-body p,
-.thought-md .markdown-body li { line-height: 1.4em; animation: none; }
-.thought-md .markdown-body p { margin: 0 0 4px; }
-.thought-md .markdown-body h1,
-.thought-md .markdown-body h2,
-.thought-md .markdown-body h3,
-.thought-md .markdown-body h4,
-.thought-md .markdown-body h5,
-.thought-md .markdown-body h6 {
-  font-size: 1em;
-  margin: 4px 0 2px;
-  padding: 1px 6px;
-  color: #d9ccf3;
-  background: none;
-  border-left-width: 2px;
-  animation: none;
-}
-.thought-md .markdown-body pre { font-size: 0.92em; margin: 3px 0; padding: 4px 7px; animation: none; }
-.thought-md .markdown-body code { font-size: 0.95em; animation: none; }
-.thought-md .markdown-body ul,
-.thought-md .markdown-body ol { margin: 2px 0 4px; padding-left: 18px; animation: none; }
-.thought-md .markdown-body blockquote,
-.thought-md .markdown-body table { animation: none; }
-.thought-md .copy-msg-btn { display: none; }
-
-/* Each chunk of a streaming thought fades in as it arrives; what was already on
-   screen is plain text and does not move. */
-.tk-new { animation: chunkIn 520ms ease-out both; }
-@keyframes chunkIn {
-  from { opacity: 0; }
-  to   { opacity: 1; }
-}
 
 /* The standing "allow all commands" answer, and the way to take it back. */
 .auto-approve-pill {
@@ -1649,7 +1549,7 @@ button:disabled {
   .row-menu, .row-menu-closing { animation: none !important; }
   .row-menu-closing { opacity: 0; }
   .msg, .session-row, .project-header, .sidebar,
-  header.frosted, form.frosted, .msg.activity, .trail-step, .msg.thought-live,
+  header.frosted, form.frosted, .msg.activity, .trail-step,
   [class*="bg-black\\/60"] > div, [class*="bg-black\\/60"],
   [class*="bg-black\\/50"],
   .msg.agent .markdown-body, .msg.agent > span, .msg.user > span,
@@ -1668,8 +1568,7 @@ button:disabled {
   .state-working::after,
   .animate-spin,
   .session-spinner.is-running,
-  .msg.activity span[class^="spin-"],
-  .thought-label span[class^="spin-"] {
+  .msg.activity span[class^="spin-"] {
     animation-duration: 2.4s !important;
   }
   .session-spinner.is-running {
@@ -1746,6 +1645,40 @@ button:disabled {
  * A retro CRT screen that opens to the LEFT from a tab on the right edge. Closed, only the
  * tab is visible; the panel is translated off-screen and `visibility` takes it out of the
  * tab order and the hit-testing once the slide has finished. */
+
+/* The drawer's colour is a set of variables: green is the terminal, orange (.is-think) is the
+ * thinking drawer. Every effect below reads them, so the two are the same screen in two tints. */
+.term-drawer {
+  --tx-rgb: 126, 231, 135;
+  --tx-hi-rgb: 160, 255, 170;
+  --tx-main: #7ee787;
+  --tx-dim: #4fae5a;
+  --tx-bg: #050c07;
+  --tx-bar: #08150c;
+  --tx-tab-bg: #06120a;
+  --tx-tab-hover: #0a1c10;
+}
+.term-drawer.is-think {
+  --tx-rgb: 255, 159, 67;
+  --tx-hi-rgb: 255, 200, 140;
+  --tx-main: #ffa54a;
+  --tx-dim: #c47a2c;
+  --tx-bg: #0d0803;
+  --tx-bar: #170e05;
+  --tx-tab-bg: #120a03;
+  --tx-tab-hover: #1e1206;
+}
+/* Its tab sits above the terminal's, so the two never cover each other. */
+.term-drawer.is-think .term-tab { top: calc(40% - 118px); }
+.term-drawer.is-think .term-tab.is-live .term-tab-label { animation: thinkPulse 1.2s ease-in-out infinite; }
+@keyframes thinkPulse { 50% { opacity: 0.35; } }
+.think-entry { margin-bottom: 12px; }
+.think-entry + .think-entry { padding-top: 10px; border-top: 1px dashed rgba(var(--tx-rgb), 0.2); }
+.think-text { margin: 0; font: inherit; color: #ffdcb0; white-space: pre-wrap; word-break: break-word; }
+.think-entry.is-live .think-text::after {
+  content: ''; display: inline-block; width: 7px; height: 12px; margin-left: 3px;
+  vertical-align: -2px; background: var(--tx-main); animation: termBlink 1s steps(2, start) infinite;
+}
 .term-drawer {
   position: absolute;
   top: 0;
@@ -1772,15 +1705,15 @@ button:disabled {
   font-family: var(--font-mono);
   font-size: 11px;
   letter-spacing: 0.12em;
-  color: #7ee787;
-  background: #06120a;
-  border: 1px solid rgba(126, 231, 135, 0.45);
+  color: var(--tx-main);
+  background: var(--tx-tab-bg);
+  border: 1px solid rgba(var(--tx-rgb), 0.45);
   border-right: none;
   border-radius: 8px 0 0 8px;
-  box-shadow: -4px 0 14px rgba(0, 0, 0, 0.5), 0 0 10px rgba(126, 231, 135, 0.15);
+  box-shadow: -4px 0 14px rgba(0, 0, 0, 0.5), 0 0 10px rgba(var(--tx-rgb), 0.15);
   cursor: pointer;
 }
-.term-tab:hover { background: #0a1c10; }
+.term-tab:hover { background: var(--tx-tab-hover); }
 .term-tab-label { writing-mode: vertical-rl; transform: rotate(180deg); }
 .term-tab-count {
   /* A tall pill whose digits are turned a quarter turn, reading the same way as the label. */
@@ -1793,8 +1726,8 @@ button:disabled {
   font-size: 10px;
   line-height: 16px;
   text-align: center;
-  color: #06120a;
-  background: #7ee787;
+  color: var(--tx-tab-bg);
+  background: var(--tx-main);
 }
 .term-panel {
   position: absolute;
@@ -1802,11 +1735,11 @@ button:disabled {
   display: flex;
   flex-direction: column;
   pointer-events: auto;
-  background: #050c07;
-  border-left: 1px solid rgba(126, 231, 135, 0.45);
+  background: var(--tx-bg);
+  border-left: 1px solid rgba(var(--tx-rgb), 0.45);
   box-shadow: -12px 0 40px rgba(0, 0, 0, 0.6);
   font-family: var(--font-mono);
-  color: #7ee787;
+  color: var(--tx-main);
   visibility: hidden;
   transition: visibility 0s linear 0.3s;
 }
@@ -1819,12 +1752,12 @@ button:disabled {
   padding: 6px 10px;
   font-size: 10px;
   letter-spacing: 0.06em;
-  color: #4fae5a;
-  background: #08150c;
-  border-bottom: 1px solid rgba(126, 231, 135, 0.25);
+  color: var(--tx-dim);
+  background: var(--tx-bar);
+  border-bottom: 1px solid rgba(var(--tx-rgb), 0.25);
 }
-.term-close { color: #4fae5a; font-size: 18px; line-height: 1; padding: 0 4px; cursor: pointer; }
-.term-close:hover { color: #7ee787; }
+.term-close { color: var(--tx-dim); font-size: 18px; line-height: 1; padding: 0 4px; cursor: pointer; }
+.term-close:hover { color: var(--tx-main); }
 .term-viewport {
   position: relative;
   flex: 1 1 auto;
@@ -1840,7 +1773,7 @@ button:disabled {
   line-height: 1.45;
   /* A soft glow, not a smear: the halo stays under the text's own weight so the glyph
      edges remain crisp. */
-  text-shadow: 0 0 5px rgba(126, 231, 135, 0.35);
+  text-shadow: 0 0 5px rgba(var(--tx-rgb), 0.35);
   animation: termFlicker 6s infinite;
 }
 /* The effects. Each is a layer above the text with a LOW alpha: together they take under
@@ -1864,7 +1797,7 @@ button:disabled {
   position: absolute;
   inset: 0;
   background: repeating-linear-gradient(to bottom,
-    rgba(126, 231, 135, 0.025) 0, rgba(126, 231, 135, 0.025) 1px,
+    rgba(var(--tx-rgb), 0.025) 0, rgba(var(--tx-rgb), 0.025) 1px,
     rgba(0, 0, 0, 0) 1px, rgba(0, 0, 0, 0) 2px);
   transform: translateX(1px);
 }
@@ -1879,8 +1812,8 @@ button:disabled {
   bottom: auto;
   height: 30%;
   background: linear-gradient(to bottom,
-    rgba(126, 231, 135, 0) 0%, rgba(126, 231, 135, 0.07) 55%,
-    rgba(160, 255, 170, 0.13) 92%, rgba(126, 231, 135, 0) 100%);
+    rgba(var(--tx-rgb), 0) 0%, rgba(var(--tx-rgb), 0.07) 55%,
+    rgba(var(--tx-hi-rgb), 0.13) 92%, rgba(var(--tx-rgb), 0) 100%);
   animation: termSweep 7s linear infinite;
 }
 /* Film-grain noise: a fractal-noise tile, shifted in steps so it crawls like static. */
@@ -1917,7 +1850,7 @@ button:disabled {
 }
 .term-entry { margin-bottom: 10px; }
 .term-line { color: #e4ffe8; word-break: break-all; white-space: pre-wrap; }
-.term-prompt { color: #7ee787; font-weight: 700; }
+.term-prompt { color: var(--tx-main); font-weight: 700; }
 .term-output {
   margin: 2px 0 0;
   font: inherit;
@@ -1925,17 +1858,17 @@ button:disabled {
   white-space: pre-wrap;
   word-break: break-word;
 }
-.term-status { color: #4fae5a; font-size: 10px; }
+.term-status { color: var(--tx-dim); font-size: 10px; }
 .term-status.bad { color: #ff7b72; text-shadow: 0 0 6px rgba(255, 123, 114, 0.45); }
 .term-status.running { color: #e3c56a; }
-.term-empty { color: #4fae5a; }
+.term-empty { color: var(--tx-dim); }
 .term-caret {
   display: inline-block;
   width: 7px;
   height: 12px;
   margin-left: 4px;
   vertical-align: -2px;
-  background: #7ee787;
+  background: var(--tx-main);
   animation: termBlink 1s steps(2, start) infinite;
 }
 @keyframes termBlink { to { visibility: hidden; } }
@@ -1990,3 +1923,55 @@ button:disabled {
   box-shadow: 0 0 6px rgba(126, 231, 135, 0.6);
 }
 @media (prefers-reduced-motion: reduce) { .is-typing::after { display: none; } }
+
+/* ─── Turns, the pinned input and the checkpoint menu ─────────────────
+ * Each input is a group with its steps and its answer. The input is sticky INSIDE the group:
+ * it stays at the top while its own turn is on screen, and when the reader scrolls up past it
+ * the previous input takes its place - which is exactly a sticky element bounded by its parent. */
+.turn { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+.turn-head {
+  position: sticky;
+  top: 0;
+  z-index: 6;
+  align-self: flex-end;
+  display: flex;
+  align-items: flex-start;
+  gap: 4px;
+  max-width: 100%;
+}
+.turn-head .msg.user {
+  max-height: 26vh;
+  overflow-y: auto;
+  /* Opaque enough to sit over the text that scrolls under it. */
+  background: rgba(10, 10, 16, 0.94);
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.45);
+}
+.cp-wrap { position: relative; flex: none; }
+.cp-btn {
+  display: flex; align-items: center; justify-content: center;
+  width: 28px; height: 28px; border-radius: 8px;
+  color: #8a8a9a; cursor: pointer;
+  background: rgba(10, 10, 16, 0.9);
+  border: 1px solid rgba(76, 194, 255, 0.18);
+}
+.cp-btn:hover, .cp-btn[aria-expanded="true"] { color: #d8f3ff; border-color: rgba(76, 194, 255, 0.5); }
+.cp-menu {
+  position: absolute; right: 0; top: 32px; z-index: 20;
+  min-width: 240px; padding: 4px;
+  display: flex; flex-direction: column; gap: 2px;
+  background: #0d0d14; border: 1px solid rgba(76, 194, 255, 0.3); border-radius: 10px;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.6);
+}
+.cp-menu button {
+  display: flex; flex-direction: column; align-items: flex-start; gap: 1px;
+  padding: 7px 10px; border-radius: 7px; text-align: left; cursor: pointer;
+  font-size: 0.86em; color: #e6e6f0;
+}
+.cp-menu button:hover:not(:disabled) { background: rgba(76, 194, 255, 0.12); }
+.cp-menu button small { font-size: 0.8em; color: #8a8a9a; }
+.cp-menu button:disabled { opacity: 0.4; cursor: not-allowed; }
+.cp-menu button.is-armed { background: rgba(255, 123, 114, 0.16); color: #ffb0aa; }
+.cp-menu button.is-armed small { color: #ff9a92; }
+/* Commands of a turn are one line each: they are held to the width of the block instead of
+   running past it, and the output stays in the terminal drawer. */
+.turn .trail-step.term-cmd { overflow: hidden; }

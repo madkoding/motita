@@ -194,3 +194,137 @@ func TestAddWorktreeSurvivesAnIgnoreBaseFailure(t *testing.T) {
 	}
 	addWorktree(t, repo, filepath.Join(filepath.Dir(repo), "worktrees", "s1"), "motita/s1")
 }
+
+// Reported from a real session: `.npm/` showed up among the files the session had changed. The
+// sandbox runs every command with HOME set to the working directory, so what npm, pip, cargo and
+// the rest keep in their HOME lands inside the project. It is not the user's work and never goes
+// to the repository.
+func TestWhatToolsWriteInTheirHomeIsNotAChange(t *testing.T) {
+	ctx := context.Background()
+	repo := newRepo(t)
+	write(t, filepath.Join(repo, "package.json"), "{}\n")
+	git(t, repo, "add", ".")
+	git(t, repo, "commit", "-qm", "manifest")
+	wt := filepath.Join(filepath.Dir(repo), "worktrees", "s1")
+	addWorktree(t, repo, wt, "motita/s1")
+
+	write(t, filepath.Join(wt, ".npm", "_cacache", "index-v5", "ab", "cd"), "x")
+	write(t, filepath.Join(wt, ".npm", "_logs", "2026-debug.log"), "x")
+	write(t, filepath.Join(wt, ".cache", "pip", "http", "x"), "x")
+	write(t, filepath.Join(wt, ".local", "share", "pnpm", "x"), "x")
+	write(t, filepath.Join(wt, ".bash_history"), "x")
+	write(t, filepath.Join(wt, "src", ".cache", "mine.txt"), "the project's own") // deeper: the project's
+	write(t, filepath.Join(wt, ".cargo", "config.toml"), "[build]\n")             // committed by many projects
+	write(t, filepath.Join(wt, "real.txt"), "work")
+
+	changes, err := WorkingTreeChangeList(ctx, wt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got []string
+	for _, c := range changes {
+		got = append(got, c.Path)
+	}
+	want := map[string]bool{"real.txt": true, "src/.cache/mine.txt": true, ".cargo/config.toml": true}
+	if len(got) != len(want) {
+		t.Fatalf("changes = %v, want only %v", got, want)
+	}
+	for _, p := range got {
+		if !want[p] {
+			t.Errorf("%q is not the user's work: %v", p, got)
+		}
+	}
+	if n, _ := WorkingTreeChanges(ctx, wt); n != 3 {
+		t.Errorf("the count must agree with the list: %d, want 3", n)
+	}
+	files, err := ChangesSince(ctx, wt, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, f := range files {
+		if IsToolHome(f.Path) {
+			t.Errorf("the run's summary lists %q", f.Path)
+		}
+	}
+}
+
+// A project that has no worktree (a session working in the project's own directory) never gets the
+// exclude block, so the readers must not depend on it.
+func TestToolHomeIsFilteredEvenWithoutTheExcludeBlock(t *testing.T) {
+	ctx := context.Background()
+	repo := newRepo(t)
+	write(t, filepath.Join(repo, ".npm", "_cacache", "x"), "x")
+	write(t, filepath.Join(repo, "real.txt"), "work")
+	changes, _ := WorkingTreeChangeList(ctx, repo)
+	if len(changes) != 1 || changes[0].Path != "real.txt" {
+		t.Fatalf("changes = %+v", changes)
+	}
+	if n, _ := WorkingTreeChanges(ctx, repo); n != 1 {
+		t.Errorf("count = %d, want 1", n)
+	}
+	files, _ := ChangesSince(ctx, repo, "")
+	for _, f := range files {
+		if IsToolHome(f.Path) {
+			t.Errorf("the summary lists %q", f.Path)
+		}
+	}
+	if len(files) == 0 {
+		t.Error("the summary must still list the real work")
+	}
+}
+
+// A file the project TRACKS is the project's even when it sits where a tool would write; and a
+// rename out of or into a tool's home is not reported either.
+func TestIsToolHomeAndRenames(t *testing.T) {
+	for p, want := range map[string]bool{
+		".npm": true, ".npm/_cacache/x": true, "./.npm/x": true, ".cache/pip/x": true, ".local/share/a": true,
+		".bash_history": true, ".cargo/registry/x": true,
+		".cargo/config.toml": false, "src/.cache/x": false, ".npmrc": false, ".npmx/y": false, "a/.npm/x": false,
+		".yarn/releases/yarn.cjs": false, ".config/app.json": false, "npm/x": false,
+	} {
+		if got := IsToolHome(p); got != want {
+			t.Errorf("IsToolHome(%q) = %v, want %v", p, got, want)
+		}
+	}
+	// `R  .npm/a -> real.txt`: git lists the new path then the old one as its own record.
+	out := "R  real.txt\x00.npm/a\x00 M other.txt\x00R  .npm/b\x00.npm/c\x00"
+	got := parseChangeList(out)
+	if len(got) != 2 || got[0].Path != "real.txt" || got[0].From != ".npm/a" || got[1].Path != "other.txt" {
+		t.Errorf("parseChangeList = %+v", got)
+	}
+}
+
+// A rename shows as `old -> new` in the count and as its own record in the list; and a file in a
+// tool's home that git TRACKED (committed before anyone noticed) is still not reported as work.
+func TestRenamesAndTrackedFilesInAToolHome(t *testing.T) {
+	ctx := context.Background()
+	repo := newRepo(t)
+	write(t, filepath.Join(repo, ".npm", "tracked"), "old")
+	write(t, filepath.Join(repo, "keep.txt"), "keep")
+	git(t, repo, "add", "-f", ".")
+	git(t, repo, "commit", "-qm", "tracked a cache by mistake")
+
+	// Staged renames: one INTO a tool's home, one OUT of it.
+	git(t, repo, "mv", "keep.txt", ".npm/moved")
+	git(t, repo, "mv", ".npm/tracked", "out.txt")
+	write(t, filepath.Join(repo, "real.txt"), "work")
+	git(t, repo, "add", "real.txt")
+
+	if n, _ := WorkingTreeChanges(ctx, repo); n != 2 { // out.txt (the rename out of .npm) + real.txt
+		t.Errorf("count = %d, want 2", n)
+	}
+	for _, f := range mustChangesSince(t, repo) {
+		if IsToolHome(f.Path) {
+			t.Errorf("the summary lists %q", f.Path)
+		}
+	}
+}
+
+func mustChangesSince(t *testing.T, dir string) []FileChange {
+	t.Helper()
+	files, err := ChangesSince(context.Background(), dir, "HEAD")
+	if err != nil {
+		t.Fatal(err)
+	}
+	return files
+}

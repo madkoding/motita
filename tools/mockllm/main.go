@@ -40,6 +40,8 @@ var (
 // received.
 func phase(text string) string {
 	switch {
+	case strings.Contains(text, "## FINAL ANSWER"):
+		return "synthesize"
 	case strings.Contains(text, "## ANALYSIS OF THE TASK") || strings.Contains(text, "success_criteria"):
 		return "analyze"
 	case strings.Contains(text, "## ACTION PLAN") || strings.Contains(text, "expected_result"):
@@ -51,9 +53,30 @@ func phase(text string) string {
 	}
 }
 
+// bigOutputCommand is the execution command this mock proposes when MOCK_BIG_OUTPUT is set: it
+// prints many matching lines, which is the shape of a `grep` over a tree. It exists so a check can
+// drive a real command whose output is far larger than any cap on the way to the interface.
+const bigOutputCommand = `grep -n "match line" big.txt`
+
 // contentJSON returns the JSON the "model" would put in the response.
 func contentJSON(phaseName string, n int) string {
+	if os.Getenv("MOCK_BIG_OUTPUT") != "" && phaseName != "analyze" && phaseName != "plan" {
+		response := map[string]any{
+			"reasoning": fmt.Sprintf("attempt %d", n),
+			"actions": []map[string]string{
+				{"kind": "command", "description": "grep the tree", "command": bigOutputCommand},
+			},
+			"final_action": map[string]string{"description": "notify", "command": ""},
+			"done":         true,
+		}
+		data, _ := json.Marshal(response)
+		return string(data)
+	}
 	switch phaseName {
+	case "synthesize":
+		// The structured report the final answer is asked to be (agent.Report), with every
+		// section filled, so a front end can be driven against the whole shape.
+		return `{"status":"done","summary":"I wrote **report.txt** and checked its content.","changes":[{"path":"report.txt","kind":"added","description":"holds the requested content"}],"verification":[{"check":"anchor: content is valid","result":"pass","evidence":"ANCHOR_OK"},{"check":"browser screenshot","result":"skipped","evidence":"nothing visual to look at"}],"risks":["the file is overwritten on every run"],"next_steps":["commit report.txt"]}`
 	case "analyze":
 		return `{"understandable":true,"summary":"leave the report with the requested content","success_criteria":["report.txt holds content-valid"],"risks":[],"needs_subtasks":false}`
 	case "plan":

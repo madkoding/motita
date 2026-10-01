@@ -548,7 +548,7 @@ func TestTheSchedulerSkipsATaskWhoseSessionIsBusy(t *testing.T) {
 	if !ok {
 		t.Fatal("the default conversation must exist")
 	}
-	if _, started := srv.startDetachedRun(c, "someone is typing", schedule.KindTask, srv.unattendedApprover("other")); !started {
+	if _, started := srv.startDetachedRun(c, "someone is typing", schedule.KindTask, "", srv.unattendedApprover("other")); !started {
 		t.Fatal("the occupying run did not start")
 	}
 	defer close(release)

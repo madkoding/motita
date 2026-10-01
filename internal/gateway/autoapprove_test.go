@@ -79,7 +79,7 @@ func TestTheBudgetQuestionIsStillAsked(t *testing.T) {
 	conv := srv.sessions[DefaultSession]
 	conv.setAutoApprove(true)
 	ctx, cancel := context.WithCancel(context.Background())
-	rn := newRun("r", ctx, cancel)
+	rn := newRun("r", ctx, cancel, "")
 	var returned atomic.Bool
 	go func() {
 		srv.approverFor(conv, rn)(ctx, agent.ApprovalRequest{Command: "continue", Rule: agent.BudgetRule})
@@ -121,7 +121,7 @@ func TestAllowAllCanBeTakenBack(t *testing.T) {
 func TestLiveReasoningIsFlashedNotLogged(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	rn := newRun("r", ctx, cancel)
+	rn := newRun("r", ctx, cancel, "")
 	sub := rn.subscribe()
 	progress := rn.progress()
 	progress("%sweighing the options", agent.LivePrefix)
@@ -161,7 +161,7 @@ func TestLiveReasoningIsFlashedNotLogged(t *testing.T) {
 func TestAnEphemeralEventIsWrittenLiveButNotAfterTheRun(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	rn := newRun("r2", ctx, cancel)
+	rn := newRun("r2", ctx, cancel, "")
 	sub := rn.subscribe()
 	rn.flash(EventThinking, progressEvent{Text: "stale"})
 	rec := httptest.NewRecorder()

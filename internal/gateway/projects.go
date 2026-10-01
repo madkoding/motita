@@ -3,6 +3,7 @@ package gateway
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -10,6 +11,8 @@ import (
 	"time"
 
 	"github.com/madkoding/motita/internal/gitx"
+	"github.com/madkoding/motita/internal/projectskills"
+	"github.com/madkoding/motita/internal/schedule"
 )
 
 // handleListProjects answers every project this gateway knows about.
@@ -314,21 +317,22 @@ func (s *Server) projectOf(id string) *Project {
 // does not exist. It is a sentinel so the handler can answer 404 rather than 500.
 var ErrProjectNotFound = errors.New("there is no project with that id")
 
-// handleMergeSession integrates the session's branch back into the project's
-// base branch.
+// handleMergeSession starts an agent turn that integrates the session's work
+// back into the project's base branch using git.
 //
-// "Volver" is an explicit action, not something that happens on close: a
-// session's worktree is where the agent made its changes, and the branch is
-// where those changes live as commits. Merging brings them into the checkout
-// the user sees, in ONE commit whose message names the session, so the question
-// "which session did this" is answered by the history.
+// Integration is now a task the LLM carries out, not a mechanical git operation:
+// the agent receives the session and project context, commits any pending work
+// to the session branch, and merges that branch into the project. When the run
+// finishes and the project's HEAD has moved, the session is marked as merged.
 //
-// A conflict is NOT left behind: the merge is aborted and the error says so.
-// The user's checkout is returned to exactly what it was, including any
-// uncommitted change — --autostash sees to that, and the behaviour was
-// measured before it was relied on.
+// The caller receives an SSE stream exactly like /task, so the UI can show the
+// agent's progress and the final summary in the chat.
 func (s *Server) handleMergeSession(w http.ResponseWriter, r *http.Request) {
 	c := convOf(r)
+	if c.merged {
+		writeError(w, http.StatusConflict, "this session has already been integrated into the project")
+		return
+	}
 	if c.workspace == "" {
 		writeError(w, http.StatusConflict, "this session does not belong to a project, so there is nothing to merge")
 		return
@@ -340,25 +344,100 @@ func (s *Server) handleMergeSession(w http.ResponseWriter, r *http.Request) {
 	}
 	branch := sessionBranch(c.id)
 	base := gitx.Display(r.Context(), p.Dir)
-	// The project's checkout must not be sitting ON the session's branch. Git
-	// accepts `merge --no-ff <branch>` when the checkout is already on that
-	// branch and answers "Already up to date" with exit 0, so the merge reports
-	// success while nothing was integrated - measured. The one way that state
-	// arises is the project having taken a session's branch, which is the
-	// isolation this refuses to let happen in the first place; saying so here is
-	// what keeps the failure from reading as a completed integration.
+	if base == "" {
+		writeError(w, http.StatusConflict, "the project has no base branch to merge into")
+		return
+	}
+	// The project's checkout must not be sitting ON the session's branch. Git accepts
+	// `merge --no-ff <branch>` when the checkout is already on that branch and answers
+	// "Already up to date" with exit 0, so the merge reports success while nothing was
+	// integrated - measured.
 	if base == branch {
 		writeError(w, http.StatusConflict,
 			"the project's checkout is on this session's branch ("+branch+"), so there is nothing to integrate and the merge would report a success that changed nothing; check the project out on its own branch first")
 		return
 	}
-	res, err := gitx.MergeInto(r.Context(), p.Dir, base, branch,
-		"motita: integrate session "+c.id)
-	if err != nil {
+	// With nothing ahead and no uncommitted work, there is nothing to integrate. This check
+	// avoids burning an LLM turn on a session that has no changes.
+	ahead, _, _ := gitx.CommitsBetween(r.Context(), p.Dir, base, branch)
+	changes, _ := gitx.WorkingTreeChanges(r.Context(), c.workspace)
+	if len(ahead) == 0 && changes == 0 {
+		writeError(w, http.StatusConflict, "this session has no work to integrate: its branch has no commits the project's branch lacks and its worktree has no uncommitted changes")
+		return
+	}
+
+	task := fmt.Sprintf(`Integrate this session's work into the project.
+
+Follow the git-in-a-repository skill. Commit any pending changes on the session branch, then merge the session branch into the project's base branch with a merge commit whose subject is "motita: integrate session %s".
+
+Session ID: %s
+Session branch: %s
+Session worktree: %s
+Project directory: %s
+Project base branch: %s
+
+Report the merge commit SHA and the files changed. If there is a conflict, abort the merge and explain what needs to be resolved first.`, c.id, c.id, branch, c.workspace, p.Dir, base)
+
+	s.startRunWithIntent(w, r, c, task, schedule.KindTask, runIntentMerge)
+}
+
+// handleContinueSession creates a fresh session from a merged one. It pulls the
+// project's base branch and gives the new session its own worktree, so work can
+// keep going without rewriting history that is already part of the project.
+func (s *Server) handleContinueSession(w http.ResponseWriter, r *http.Request) {
+	c := convOf(r)
+	if !c.merged {
+		writeError(w, http.StatusConflict, "this session has not been integrated yet; merge it first")
+		return
+	}
+	if c.workspace == "" {
+		writeError(w, http.StatusConflict, "this session does not belong to a project, so there is nothing to continue from")
+		return
+	}
+	p := s.projectOf(c.projectID)
+	if p == nil {
+		writeError(w, http.StatusNotFound, ErrProjectNotFound.Error())
+		return
+	}
+	base := gitx.Display(r.Context(), p.Dir)
+	if base == "" {
+		writeError(w, http.StatusConflict, "the project has no base branch to pull into")
+		return
+	}
+	// Bring the project's checkout up to date before branching from it. A session
+	// that continues from stale code would build on top of a state the project has
+	// already left behind, and the merge later would be harder for no reason.
+	if err := gitx.PullFastForward(r.Context(), p.Dir, base); err != nil {
 		writeError(w, http.StatusConflict, err.Error())
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]string{"sha": res.SHA, "subject": res.Subject})
+	newConv, err := s.createSession()
+	if err != nil {
+		if errors.Is(err, ErrCeilingReached) {
+			writeError(w, http.StatusConflict, err.Error())
+			return
+		}
+		writeError(w, http.StatusNotImplemented, err.Error())
+		return
+	}
+	dir := p.Dir
+	if wt, wtErr := s.sessionWorktree(r.Context(), p.Dir, newConv.id); wtErr != nil {
+		if s.opts.Log != nil {
+			s.opts.Log.Warn("the continued session will run in the project directory: its own worktree could not be created",
+				"id", newConv.id, "project", p.Dir, "error", wtErr.Error())
+		}
+	} else {
+		dir = wt
+	}
+	newConv.setProjectID(c.projectID, dir, p.Dir)
+	newConv.svc.SetWorkspace(dir)
+	// The title says where it came from, but only if the old session had a real one.
+	if !isPlaceholderTitle(c.title) {
+		newConv.setTitle("continue: " + c.title)
+	}
+	scopeProceduresTo(newConv.svc, projectskills.ProjectDirFor(p.Dir, dir))
+	s.saveSession(newConv)
+	writeJSON(w, http.StatusCreated, newConv.status())
 }
 
 // sessionBranch is the branch a session works on. The prefix is what makes the

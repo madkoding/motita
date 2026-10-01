@@ -1,0 +1,52 @@
+/* The structured task report. Colours follow the app's frosted dark surface; the accent of the
+ * card is the verdict, so the state of the work reads before a word of it does. */
+.rpt {
+  --rpt-accent: 126, 231, 135;
+  white-space: normal;
+  display: flex; flex-direction: column; gap: 12px;
+  min-width: min(100%, 22rem);
+}
+.rpt-partial { --rpt-accent: 240, 160, 64; }
+.rpt-failed  { --rpt-accent: 255, 107, 107; }
+.rpt-head { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.rpt-badge {
+  font-size: 0.72rem; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase;
+  padding: 3px 10px; border-radius: 999px;
+  color: rgb(var(--rpt-accent)); background: rgba(var(--rpt-accent), 0.12);
+  border: 1px solid rgba(var(--rpt-accent), 0.35);
+}
+.rpt-tally { font-size: 0.75rem; color: #9a9aaa; }
+.rpt-tally.bad { color: #ff8a8a; }
+.rpt-summary { white-space: normal; }
+.rpt-summary > :first-child { margin-top: 0; }
+.rpt-summary > :last-child { margin-bottom: 0; }
+.rpt-sec { border-top: 1px solid rgba(255, 255, 255, 0.07); padding-top: 10px; }
+.rpt-sec h4 {
+  margin: 0 0 6px; font-size: 0.68rem; font-weight: 700; letter-spacing: 0.09em;
+  text-transform: uppercase; color: #8a8a9a;
+}
+.rpt-sec ul { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.rpt-sec li { display: flex; gap: 10px; align-items: baseline; font-size: 0.88em; line-height: 1.4; }
+.rpt-body { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+.rpt-path { font-family: var(--font-mono); font-size: 0.92em; color: #c8d4ff; overflow-wrap: anywhere; }
+.rpt-desc, .rpt-evidence { color: #a8a8b8; font-size: 0.94em; }
+.rpt-evidence { font-family: var(--font-mono); font-size: 0.85em; overflow-wrap: anywhere; }
+.rpt-check { color: #e6e6f0; overflow-wrap: anywhere; }
+.rpt-kind {
+  flex: none; min-width: 3.6em; text-align: center; font-size: 0.68rem; font-weight: 600;
+  padding: 1px 7px; border-radius: 6px; background: rgba(255, 255, 255, 0.07); color: #b4b4c4;
+}
+.rpt-kind.added { color: #7ee787; background: rgba(126, 231, 135, 0.12); }
+.rpt-kind.modified { color: #79c0ff; background: rgba(121, 192, 255, 0.12); }
+.rpt-kind.deleted { color: #ff8a8a; background: rgba(255, 107, 107, 0.12); }
+.rpt-mark {
+  flex: none; width: 1.35em; height: 1.35em; border-radius: 50%; display: inline-grid;
+  place-items: center; font-size: 0.78rem; font-weight: 700; background: rgba(255, 255, 255, 0.08);
+  color: #9a9aaa; align-self: flex-start; margin-top: 1px;
+}
+.rpt-checks .pass .rpt-mark { color: #0b1a0e; background: #7ee787; }
+.rpt-checks .fail .rpt-mark { color: #240909; background: #ff6b6b; }
+.rpt-risks li, .rpt-next li { position: relative; padding-left: 14px; display: block; }
+.rpt-risks li::before, .rpt-next li::before { content: ''; position: absolute; left: 2px; top: 0.6em; width: 5px; height: 5px; border-radius: 50%; }
+.rpt-risks li::before { background: #f0a040; }
+.rpt-next li::before { background: #4cc2ff; }

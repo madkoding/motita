@@ -104,6 +104,14 @@ func parseChangeList(out string) []Change {
 		}
 		code := rec[:2]
 		path := rec[3:]
+		// What a tool wrote in its HOME is not the user's work. A rename names a second path in
+		// the next record, which is consumed with it.
+		if IsToolHome(path) {
+			if (code[0] == 'R' || code[0] == 'C' || code[1] == 'R' || code[1] == 'C') && i+1 < len(records) {
+				i++
+			}
+			continue
+		}
 		c := Change{Path: path, Code: code, Kind: changeKind(code)}
 		// For a rename or a copy, the NEXT record is the original path.
 		if c.Kind == "renamed" || c.Kind == "copied" {

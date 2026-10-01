@@ -942,13 +942,15 @@ func TestASessionReportsItselfMergeableWhenItHasUnmergedWork(t *testing.T) {
 	}
 }
 
-// A session whose work was ALREADY merged reports itself not mergeable: the front end shows a
-// disabled Integrate button rather than an action that would do nothing.
+// TestASessionReportsItselfMergedOnceItsWorkIsIntegrated: a session whose work was
+// ALREADY merged reports itself not mergeable: the front end shows a disabled Integrate
+// button rather than an action that would do nothing.
 func TestASessionReportsItselfMergedOnceItsWorkIsIntegrated(t *testing.T) {
 	srv := newTestServer(t, &fakeService{})
 	ws := t.TempDir()
-	withProjects(t, srv, ws)
+	fs := withProjectsAndFake(t, srv, ws)
 	pid := makeProject(t, srv, "repo")
+	p := srv.projectOf(pid)
 
 	w := post(t, srv, "/v1/sessions", `{"project_id":"`+pid+`"}`, testToken)
 	if w.Code != http.StatusCreated {
@@ -964,10 +966,9 @@ func TestASessionReportsItselfMergedOnceItsWorkIsIntegrated(t *testing.T) {
 	mustRun(t, "git", "-C", ss.Workspace, "add", "work.txt")
 	mustRun(t, "git", "-C", ss.Workspace, "commit", "-qm", "session work")
 
-	// Integrate it, then ask again.
-	if w := post(t, srv, sessionPath(srv, ss.ID, "/merge"), "{}", testToken); w.Code != http.StatusOK {
-		t.Fatalf("merge: %d %s", w.Code, w.Body.String())
-	}
+	fs.task = mergeIntegrationTask(t, srv, ss, p)
+	doMerge(t, srv, ss, p)
+
 	c, ok := srv.lookup(ss.ID)
 	if !ok {
 		t.Fatal("the session must be registered")

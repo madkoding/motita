@@ -127,6 +127,14 @@ func (a *Anchor) Validate(ctx context.Context) Result {
 	return res
 }
 
+// Planned returns the checks Validate would run right now, without running them.
+//
+// It exists so the model can be TOLD what it will be measured against. With kind=auto the gate is
+// read from the project's files, and a prompt that could not name it said "no validation is
+// configured" about a project whose gate is `npm run lint`, `npm run typecheck` and `npm test`:
+// the run then found out what decided PASS by failing it.
+func (a *Anchor) Planned() []config.Check { return a.checks() }
+
 // checks normalises the configuration into a homogeneous list.
 //
 // With kind=auto the list comes from the PROJECT rather than from the file: the

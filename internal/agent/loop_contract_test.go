@@ -540,7 +540,16 @@ func TestTruncationNeverSplitsACharacter(t *testing.T) {
 		t.Errorf("a short text is kept whole: %q", got)
 	}
 	long := "HEAD" + strings.Repeat("-", 1000) + "TAIL"
-	if got := truncateMiddle(long, 90); !strings.HasPrefix(got, "HEAD") || !strings.HasSuffix(got, "TAIL") {
+	got := truncateMiddle(long, 90)
+	if !strings.HasPrefix(got, "HEAD") || !strings.HasSuffix(got, "TAIL") {
 		t.Errorf("both ends must survive: %q", got)
+	}
+	// A cut that does not say how much is missing reads as the whole answer.
+	if !strings.Contains(got, fmt.Sprintf("%d of %d bytes omitted", 1004-len(got)+len("[...  of  bytes omitted ...]")-0, len(long))) &&
+		!strings.Contains(got, "bytes omitted") {
+		t.Errorf("the marker must say how much was dropped: %q", got)
+	}
+	if !strings.Contains(got, fmt.Sprintf("of %d bytes", len(long))) {
+		t.Errorf("the marker must say how long the whole was: %q", got)
 	}
 }

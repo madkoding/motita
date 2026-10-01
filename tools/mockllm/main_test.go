@@ -34,6 +34,7 @@ func TestPhaseDetectsEachStep(t *testing.T) {
 		"expected_result appears":      "plan",
 		"## ACTION\n...":               "execute",
 		"reasoning appears":            "execute",
+		"## FINAL ANSWER\n...":         "synthesize",
 		"something else entirely":      "unknown",
 	}
 	for prompt, want := range cases {
@@ -72,6 +73,37 @@ func TestContentJSONForTheUnknownPhase(t *testing.T) {
 	text := contentJSON("unknown", 1)
 	if !strings.Contains(text, "actions") {
 		t.Errorf("the fallback must be an execution answer: %s", text)
+	}
+}
+
+// TestContentJSONProposesTheBigOutputCommandWhenAsked: with MOCK_BIG_OUTPUT set the mock proposes a
+// command whose output is far larger than any cap on the way to the interface. It exists so a check
+// can drive that path in a real browser, and without this test the branch is only ever reached from
+// a shell script - which the coverage gate does not run.
+func TestContentJSONProposesTheBigOutputCommandWhenAsked(t *testing.T) {
+	t.Setenv("MOCK_BIG_OUTPUT", "1")
+
+	text := contentJSON("execute", 1)
+	var decoded struct {
+		Actions []struct {
+			Command string `json:"command"`
+		} `json:"actions"`
+		Done bool `json:"done"`
+	}
+	if err := json.Unmarshal([]byte(text), &decoded); err != nil {
+		t.Fatalf("the answer must be JSON: %v (%s)", err, text)
+	}
+	// Compared DECODED: in the JSON the quotes inside the command are escaped, so a raw
+	// strings.Contains against bigOutputCommand would never match.
+	if len(decoded.Actions) != 1 || decoded.Actions[0].Command != bigOutputCommand {
+		t.Errorf("actions = %+v, want the big-output command", decoded.Actions)
+	}
+	// The phases that DECIDE what to do keep their own answer: replacing the analysis with a
+	// command would make the run act before it has understood the task.
+	for _, phase := range []string{"analyze", "plan"} {
+		if got := contentJSON(phase, 1); strings.Contains(got, "grep the tree") {
+			t.Errorf("%s must keep its own answer with MOCK_BIG_OUTPUT set: %s", phase, got)
+		}
 	}
 }
 
@@ -297,5 +329,25 @@ func TestAStreamedRequestIsAnsweredAsAStream(t *testing.T) {
 	handle(rec, httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(`{"stream":true}`)))
 	if strings.Contains(rec.Body.String(), "data: ") {
 		t.Error("the anthropic dialect is not streamed")
+	}
+}
+
+// TestTheSynthesisReplyIsAFullStructuredReport: the final answer is a report with every section,
+// so a front end can be driven against the whole shape and not just the sentence.
+func TestTheSynthesisReplyIsAFullStructuredReport(t *testing.T) {
+	var rep struct {
+		Status       string           `json:"status"`
+		Summary      string           `json:"summary"`
+		Changes      []map[string]any `json:"changes"`
+		Verification []map[string]any `json:"verification"`
+		Risks        []string         `json:"risks"`
+		NextSteps    []string         `json:"next_steps"`
+	}
+	if err := json.Unmarshal([]byte(contentJSON("synthesize", 1)), &rep); err != nil {
+		t.Fatalf("the synthesis reply is not JSON: %v", err)
+	}
+	if rep.Status != "done" || rep.Summary == "" || len(rep.Changes) == 0 || len(rep.Verification) < 2 ||
+		len(rep.Risks) == 0 || len(rep.NextSteps) == 0 {
+		t.Errorf("the report is missing a section: %+v", rep)
 	}
 }
