@@ -111,6 +111,12 @@ func (m Mode) DecisionFor(command string, args []string, dir string) Decision {
 	}
 	kind, reason := readonly.Classify(command, args)
 	name := baseName(command)
+	// Installing what the project's own manifest declares, and running the project's own dev
+	// tools, is the ordinary work of every project: without it the run stops to ask before
+	// `npm ci` on a run with nobody to answer, and the anchor then fails on a missing module.
+	if d, hit := projectToolDecision(name, args); hit {
+		return d
+	}
 	switch kind {
 	case readonly.KindReader:
 		return Decision{Allow, reason, "reader", false}
@@ -537,12 +543,27 @@ func (m Mode) DecideLine(line, dir string) Decision {
 		worst Decision
 		found bool
 	)
-	for _, seg := range lineSegments(line) {
+	// A heredoc BODY is data handed to a program, not commands of the line. Reading it as
+	// commands is what refused `cat > f << 'EOF'`, the ordinary way a model writes a file: the
+	// first word of the body became an "unknown program" and the whole write was asked about.
+	// The body is taken out before the line is cut into segments, and what makes it dangerous
+	// is judged separately below.
+	main, docs := splitHeredocs(line)
+	if d, hit := m.heredocVerdict(main, docs); hit {
+		return m.Relaxing(d)
+	}
+	for _, seg := range lineSegments(main) {
 		var d Decision
 		if seg.redirect {
 			d = m.redirectTarget(seg, dir)
 		} else {
-			name, args, err := readonly.SplitCommand(strings.Join(seg.words, " "))
+			words, syntax := stripShellKeyword(seg.words)
+			if syntax {
+				// `for f in a b`, `done`, `fi`: the control syntax of a loop or a branch runs
+				// nothing by itself. What it wraps is a segment of its own and is judged as one.
+				continue
+			}
+			name, args, err := readonly.SplitCommand(strings.Join(words, " "))
 			if err != nil {
 				// A segment that still cannot be read: an unclosed quote, a trailing
 				// backslash. It is offered whole, or refused in strict mode, with the
@@ -562,6 +583,40 @@ func (m Mode) DecideLine(line, dir string) Decision {
 		return Decision{Deny, "there is no command to run", "missing", false}
 	}
 	return m.Relaxing(worst)
+}
+
+// shellKeywords are the words that shape a compound command and are not programs. A loop such
+// as `for f in server/test/*.mjs; do head -70 "$f"; done` reaches the segment reader as three
+// segments whose first words are `for`, `do` and `done`; taking those for unknown programs made
+// every read-only loop a question to the user, and on a run with nobody at the keyboard that
+// question stops the whole task. Measured on a real session: the same loop asked twice, for 85 s
+// and 14 s, in a run whose every other command was a plain read.
+var (
+	// keywordsBeforeCommand are followed by the command they introduce, which is judged on its own.
+	keywordsBeforeCommand = map[string]bool{"do": true, "then": true, "else": true, "elif": true,
+		"if": true, "while": true, "until": true, "!": true, "time": true}
+	// keywordsAlone carry no command: they open or close the construct, or list what it iterates.
+	keywordsAlone = map[string]bool{"done": true, "fi": true, "esac": true, "in": true}
+)
+
+// stripShellKeyword removes the control word a segment starts with. It reports syntax=true when
+// nothing executable is left: a bare `done`, or the header `for NAME in WORDS`, whose words are
+// data (a substitution inside them is stopped earlier, by the floor scan of the raw line).
+func stripShellKeyword(words []string) (rest []string, syntax bool) {
+	for len(words) > 0 {
+		w := words[0]
+		switch {
+		case keywordsAlone[w]:
+			return nil, true
+		case w == "for" || w == "select" || w == "case":
+			return nil, true
+		case keywordsBeforeCommand[w]:
+			words = words[1:]
+		default:
+			return words, false
+		}
+	}
+	return nil, true
 }
 
 // worse returns the more cautious of two verdicts. Deny beats Ask beats Allow, and the
@@ -666,6 +721,9 @@ func lineSegments(line string) []lineSegment {
 		// been taken. An `&` reference (`2>&1`) closes it on the spot, because its
 		// destination is part of the operator and there is no file to come.
 		op string
+		// fdRef is true right after the `&` of `2>&1`: the descriptor that follows belongs to
+		// the redirection. Left in the stream, `npm ci 2>&1` reached the command as `npm ci 1`.
+		fdRef bool
 	)
 
 	flushWord := func() {
@@ -696,6 +754,12 @@ func lineSegments(line string) []lineSegment {
 	}
 
 	for _, r := range line {
+		if fdRef {
+			fdRef = false
+			if (r >= '0' && r <= '9') || r == '-' {
+				continue
+			}
+		}
 		switch {
 		case escaped:
 			current.WriteRune(r)
@@ -733,6 +797,7 @@ func lineSegments(line string) []lineSegment {
 			flushWord()
 			redirects = append(redirects, lineSegment{redirect: true, op: op + "&"})
 			op = ""
+			fdRef = true
 		case r == ' ' || r == '	':
 			if op != "" {
 				// A word while a redirection is open is its target. A blank before any
@@ -1524,4 +1589,268 @@ func resolveAsFarAsPossible(abs string) string {
 			return filepath.Clean(filepath.Join(resolved, remainder))
 		}
 	}
+}
+
+// ---------------------------------------------------------------------------
+// Heredocs
+// ---------------------------------------------------------------------------
+
+// heredoc is one `<< DELIM` body found in a line.
+type heredoc struct {
+	delim string
+	// quoted is true for <<'EOF', <<"EOF" and <<\EOF: the shell then expands nothing in the body.
+	quoted bool
+	body   string
+}
+
+// splitHeredocs takes the bodies of heredocs out of a line. It returns the line WITHOUT them (the
+// `<< DELIM` operator stays, so the segment reader still sees an input redirection) and the
+// bodies, each with its delimiter.
+//
+// It is a scanner and not a parser, like the rest of this file: quotes are tracked so that a `<<`
+// inside a string is not an operator, and a body ends at the first line that is exactly its
+// delimiter (leading tabs ignored for `<<-`). A body with no closing line runs to the end of
+// the line, which is what the shell does too.
+func splitHeredocs(line string) (string, []heredoc) {
+	if !strings.Contains(line, "<<") {
+		return line, nil
+	}
+	type pending struct {
+		delim         string
+		quoted, strip bool
+	}
+	var (
+		out    strings.Builder
+		docs   []heredoc
+		queue  []pending
+		quote  rune
+		runes  = []rune(line)
+		escape bool
+	)
+	for i := 0; i < len(runes); i++ {
+		r := runes[i]
+		switch {
+		case escape:
+			escape = false
+		case r == '\\' && quote != '\'':
+			escape = true
+		case quote != 0:
+			if r == quote {
+				quote = 0
+			}
+		case r == '\'' || r == '"':
+			quote = r
+		case r == '<' && i+1 < len(runes) && runes[i+1] == '<' && (i+2 >= len(runes) || runes[i+2] != '<'):
+			// `<<` (a here-STRING is `<<<`, which has no body).
+			j := i + 2
+			strip := false
+			if j < len(runes) && runes[j] == '-' {
+				strip = true
+				j++
+			}
+			for j < len(runes) && (runes[j] == ' ' || runes[j] == '\t') {
+				j++
+			}
+			var d strings.Builder
+			quoted := false
+			for j < len(runes) && !strings.ContainsRune(" \t\n;|&()<>", runes[j]) {
+				switch runes[j] {
+				case '\'', '"', '\\':
+					quoted = true
+				default:
+					d.WriteRune(runes[j])
+				}
+				j++
+			}
+			if d.Len() > 0 {
+				queue = append(queue, pending{d.String(), quoted, strip})
+			}
+			out.WriteString(string(runes[i:j]))
+			i = j - 1
+			continue
+		case r == '\n' && len(queue) > 0:
+			out.WriteRune(r)
+			rest := string(runes[i+1:])
+			consumed := 0
+			for _, h := range queue {
+				var body strings.Builder
+				for consumed < len(rest) {
+					nl := strings.IndexByte(rest[consumed:], '\n')
+					var ln string
+					if nl < 0 {
+						ln, nl = rest[consumed:], len(rest)-consumed
+					} else {
+						ln = rest[consumed : consumed+nl]
+					}
+					consumed += nl + 1
+					if consumed > len(rest) {
+						consumed = len(rest)
+					}
+					cmp := strings.TrimRight(ln, "\r")
+					if h.strip {
+						cmp = strings.TrimLeft(cmp, "\t")
+					}
+					if cmp == h.delim {
+						break
+					}
+					body.WriteString(ln + "\n")
+				}
+				docs = append(docs, heredoc{delim: h.delim, quoted: h.quoted, body: body.String()})
+			}
+			queue = nil
+			i += len([]rune(rest[:consumed]))
+			continue
+		}
+		out.WriteRune(r)
+	}
+	return out.String(), docs
+}
+
+// heredocVerdict judges what a heredoc body can do. The body is text; it becomes a danger only
+// when something EXECUTES it, and there are two ways it can:
+//
+//   - the receiving program is an interpreter or a shell (`sh << EOF`, `python3 - << EOF`,
+//     `node - << EOF`): the body is then a program given as text, exactly like `python3 -c`, and
+//     is offered to the user whole;
+//   - the delimiter is unquoted and the body has `$(...)` or a backtick: the shell runs that
+//     substitution while it expands the body, before any program sees it.
+//
+// Writing text into a file (`cat > f << 'EOF'`, `tee f << EOF`) is neither, and is judged by the
+// redirection and the program like any other write.
+func (m Mode) heredocVerdict(main string, docs []heredoc) (Decision, bool) {
+	if len(docs) == 0 {
+		return Decision{}, false
+	}
+	for _, seg := range lineSegments(main) {
+		if seg.redirect {
+			continue
+		}
+		words, syntax := stripShellKeyword(seg.words)
+		if syntax || len(words) == 0 {
+			continue
+		}
+		name := baseName(unquote(words[0]))
+		if interpreters[name] || name == "sh" || name == "bash" || name == "zsh" || name == "dash" ||
+			name == "ksh" || name == "fish" || name == "eval" || name == "source" || name == "." {
+			return m.unclassified(fmt.Sprintf("%q is given a program as a heredoc, and text that is "+
+				"run cannot be checked", name), "heredoc-program"), true
+		}
+	}
+	for _, d := range docs {
+		if !d.quoted && (strings.Contains(d.body, "$(") || strings.Contains(d.body, "`")) {
+			return m.unclassified("a heredoc with an unquoted delimiter runs the substitutions in its body",
+				"heredoc-substitution"), true
+		}
+	}
+	return Decision{}, false
+}
+
+// ---------------------------------------------------------------------------
+// The project's own tooling
+// ---------------------------------------------------------------------------
+
+// devTools are the programs `npx` and its kin run that belong to a project's own toolchain. Any
+// OTHER package `npx` would fetch is unreviewed code from the network, and is still asked about.
+var devTools = map[string]bool{
+	"vitest": true, "jest": true, "tsc": true, "eslint": true, "prettier": true, "next": true,
+	"vite": true, "tsx": true, "ts-node": true, "mocha": true, "playwright": true, "cypress": true,
+	"biome": true, "stylelint": true, "turbo": true, "nx": true, "webpack": true, "rollup": true,
+	"esbuild": true, "svelte-check": true, "vue-tsc": true, "astro": true, "nuxt": true, "c8": true,
+	"nyc": true, "ava": true, "tap": true, "knip": true, "depcheck": true, "prisma": true,
+	"drizzle-kit": true, "tailwindcss": true, "postcss": true, "sass": true, "storybook": true,
+	"expo": true, "ng": true, "remix": true,
+}
+
+// projectToolDecision allows two families of command that every project needs and that the
+// default classification would ask about:
+//
+//   - a dependency install that takes its list FROM THE MANIFEST: `npm ci`, `npm install`,
+//     `yarn`, `pnpm install`, `pip install -r requirements.txt`, `pip install -e .`,
+//     `go mod download`, `bundle install`, `composer install`, `poetry install`, `uv sync`. What
+//     gets installed is what the project already declares, and stays in the project. Naming a
+//     package (`npm install left-pad`), a global install (`-g`) and anything with a privilege
+//     wrapper are not this and still go to the user.
+//   - `npx` (and `pnpm exec`) running one of the project's own dev tools.
+func projectToolDecision(name string, args []string) (Decision, bool) {
+	allow := func(what string) (Decision, bool) {
+		return Decision{Allow, fmt.Sprintf("%s installs or runs what the project itself declares", what),
+			"project-tooling", false}, true
+	}
+	var positional []string
+	global, fromFile := false, false
+	for i := 0; i < len(args); i++ {
+		a := args[i]
+		switch {
+		case a == "-g" || a == "--global" || a == "--prefix" || a == "--user" || a == "--target" ||
+			a == "--registry" || a == "--index-url" || a == "--extra-index-url" || a == "-i" ||
+			strings.HasPrefix(a, "--registry=") || strings.HasPrefix(a, "--index-url=") ||
+			strings.HasPrefix(a, "--extra-index-url=") || strings.HasPrefix(a, "--prefix="):
+			global = true
+		case a == "-r" || a == "--requirement" || a == "-e" || a == "--editable" || a == "-c" || a == "--constraint":
+			// The value is a file or a path in the project, not a package name.
+			fromFile = a != "-c" && a != "--constraint"
+			i++
+		case strings.HasPrefix(a, "-r") && len(a) > 2 && !strings.HasPrefix(a, "--"):
+			fromFile = true
+		case !strings.HasPrefix(a, "-"):
+			positional = append(positional, a)
+		}
+	}
+	if global {
+		return Decision{}, false
+	}
+	sub := ""
+	if len(positional) > 0 {
+		sub = positional[0]
+	}
+	switch name {
+	case "npm":
+		if sub == "ci" || sub == "clean-install" || ((sub == "install" || sub == "i") && len(positional) == 1) {
+			return allow("npm")
+		}
+	case "yarn":
+		if len(positional) == 0 || (sub == "install" && len(positional) == 1) {
+			return allow("yarn")
+		}
+	case "pnpm":
+		if (sub == "install" || sub == "i") && len(positional) == 1 {
+			return allow("pnpm")
+		}
+		if sub == "exec" && len(positional) >= 2 && devTools[baseName(positional[1])] {
+			return allow("pnpm exec")
+		}
+	case "bun":
+		if (sub == "install" || sub == "i") && len(positional) == 1 {
+			return allow("bun")
+		}
+	case "pip", "pip3":
+		if sub == "install" && len(positional) == 1 && fromFile {
+			return allow("pip")
+		}
+		if sub == "install" && len(positional) == 2 && positional[1] == "." {
+			return allow("pip")
+		}
+	case "go":
+		if sub == "mod" && len(positional) == 2 && (positional[1] == "download" || positional[1] == "tidy" || positional[1] == "verify") {
+			return allow("go mod")
+		}
+	case "bundle", "composer", "poetry":
+		if sub == "install" && len(positional) == 1 {
+			return allow(name)
+		}
+	case "uv":
+		if sub == "sync" && len(positional) == 1 {
+			return allow("uv")
+		}
+	case "cargo":
+		if sub == "fetch" && len(positional) == 1 {
+			return allow("cargo")
+		}
+	case "npx":
+		// `npx --no-install tool`, `npx -y tool`, `npx tool args`: the first non-flag is the tool.
+		if len(positional) > 0 && devTools[baseName(positional[0])] {
+			return allow("npx " + baseName(positional[0]))
+		}
+	}
+	return Decision{}, false
 }
