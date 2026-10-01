@@ -329,7 +329,9 @@ func (op *Options) complete() {
 	}
 	if op.RunOnboard == nil {
 		op.RunOnboard = func(ctx context.Context, in io.Reader, out io.Writer, path string, preset onboard.Answers) (onboard.Result, error) {
-			return onboard.Run(ctx, in, out, path, preset, time.Now())
+			// The menus follow the arrow keys when the answers come from a terminal; from a pipe
+			// they are read as lines, so a script can still answer them.
+			return onboard.RunWithKeys(ctx, in, out, path, preset, time.Now(), tui.KeyModeFor(in))
 		}
 	}
 	if op.BaseCtx == nil {

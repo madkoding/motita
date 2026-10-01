@@ -296,7 +296,10 @@ and `/config` runs it from inside the interface.
 
 ![The setup](screenshots/wizard-onboard.png)
 
-It is five steps, and every step says where it is (`[2/5]`):
+It is five steps, and every step says where it is (`[2/5]`). In a terminal every list
+follows `↑` `↓` and Enter takes the highlighted option; typing still works (a number, a
+provider's name, any model id), and a pasted key is masked. From a pipe the answers are
+read as lines, so a script can answer it:
 
 1. **Provider** — each one listed with what it takes to connect: an API key, a login
    with your account, or nothing (an Ollama server of your own).

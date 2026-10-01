@@ -1264,7 +1264,7 @@ func (r *AppRunner) ResetTranscript() {
 func (r *AppRunner) RunConfig(ctx context.Context) error {
 	// The same default the first run uses, so the file the wizard writes is the one the program
 	// looks for next time. With no HOME it falls back to the working directory.
-	_, err := onboard.Run(ctx, os.Stdin, r.Out, setupPath(), onboard.Answers{}, time.Now())
+	_, err := onboard.RunWithKeys(ctx, os.Stdin, r.Out, setupPath(), onboard.Answers{}, time.Now(), KeyModeFor(os.Stdin))
 	return err
 }
 

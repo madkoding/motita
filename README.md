@@ -147,8 +147,10 @@ motita
 ```
 
 That's it. If no configuration exists, a short setup launches automatically —
-no need to know about `-init`. It shows where you are (`[2/5]`), takes the value in
-`[brackets]` when you press Enter, and writes nothing until you have seen the result:
+no need to know about `-init`. It shows where you are (`[2/5]`), lets you move through
+every list with `↑` `↓` (or type the number, or the answer itself), takes the highlighted value
+when you press Enter, masks a key as you paste it, and writes nothing until you have seen the
+result:
 
 1. **Provider**: OpenAI, OpenAI Codex, GitHub Copilot, Ollama (local or Cloud), Anthropic
    (Claude), your Claude subscription through Claude Code, Google Gemini, or Qwen — each

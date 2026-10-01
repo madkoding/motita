@@ -95,15 +95,31 @@ type setup struct {
 // The sign-in comes BEFORE the model so a provider that publishes its catalogue can
 // be asked for it with the key the user just gave.
 func Run(ctx context.Context, in io.Reader, out io.Writer, configPath string, preset Answers, now time.Time) (Result, error) {
+	return runSetup(ctx, in, out, configPath, preset, now, nil)
+}
+
+func runSetup(ctx context.Context, in io.Reader, out io.Writer, configPath string, preset Answers, now time.Time, keys KeyMode) (Result, error) {
 	r := bufio.NewReader(in)
 	w := &session{in: r, out: out, configPath: configPath}
+
+	// The keyboard drives the menus only when the terminal can really be switched: it is tried
+	// once here, and every question switches it again for as long as it asks. Between questions
+	// the terminal is as the user left it, so a sign-in flow that reads a pasted URL is untouched.
+	if keys != nil {
+		if restore, ok := keys(); ok {
+			restore()
+			w.keys = keys
+			w.lines = &lineCounter{w: out}
+			w.out = w.lines
+		}
+	}
 
 	// The banner and the review are shown only when the wizard is interactive (no preset). A
 	// preset means the answers come from a script or a test, and both would be noise - or, for
 	// the review, a question a script cannot answer.
 	interactive := isPresetEmpty(preset)
 	if interactive {
-		printBanner(out)
+		printBanner(w.out, w.lines != nil)
 	}
 
 	for {
@@ -118,7 +134,7 @@ func Run(ctx context.Context, in io.Reader, out io.Writer, configPath string, pr
 			}
 			if !ok {
 				w.say("")
-				printInfo(out, "No problem: let's go through it again. Nothing has been written.")
+				printInfo(w.out, "No problem: let's go through it again. Nothing has been written.")
 				continue
 			}
 		}
@@ -269,15 +285,24 @@ type session struct {
 	// connectShown records that the "Connect" step's header was written in this pass, so the
 	// endpoint and the sign-in questions share one header instead of each opening a step.
 	connectShown bool
+	// keys switches the terminal to character mode for a question, and lines counts what has been
+	// written so a menu can be redrawn in place. Both are nil when answers are read as lines.
+	keys  KeyMode
+	lines *lineCounter
 }
 
 func (s *session) say(format string, args ...any) {
 	fmt.Fprintf(s.out, format+"\n", args...)
 }
 
-// ask reads one line. EOF and a lone "q" cancel the wizard; so does a cancelled
-// context, which is how Ctrl+C during -init is handled.
+// ask reads one answer: a key at a time when the keyboard drives the setup, a line otherwise.
 func (s *session) ask(ctx context.Context, prompt string) (string, error) {
+	return s.question(ctx, prompt, nil, false)
+}
+
+// askLine reads one line. EOF and a lone "q" cancel the wizard; so does a cancelled
+// context, which is how Ctrl+C during -init is handled.
+func (s *session) askLine(ctx context.Context, prompt string) (string, error) {
 	s.say("")
 	printPrompt(s.out, prompt)
 	line, err := s.readLine(ctx)
@@ -320,9 +345,10 @@ type lineResult struct {
 
 // pick reads a choice from a numbered menu of n options: Enter takes the first and a number takes
 // that option. It gives up after three answers it cannot use, saying what it was asking for.
-func (s *session) pick(ctx context.Context, prompt string, n int, what string) (int, error) {
+func (s *session) pick(ctx context.Context, prompt string, m *menu, what string) (int, error) {
+	n := len(m.labels)
 	for attempt := 0; attempt < 3; attempt++ {
-		answer, err := s.ask(ctx, prompt)
+		answer, err := s.choose(ctx, prompt, m)
 		if err != nil {
 			return 0, err
 		}
@@ -351,10 +377,10 @@ func (s *session) chooseProvider(ctx context.Context, preset string) (Provider, 
 	printStep(s.out, stepProvider, "Which AI provider do you want to use?")
 	printInfo(s.out, "Pick the one you already have an account with. You can change it later.")
 	s.say("")
-	printProviders(s.out, providers)
+	m := s.showMenu(providerOptions(providers))
 
 	for attempt := 0; attempt < 3; attempt++ {
-		answer, err := s.ask(ctx, "Provider [1]:")
+		answer, err := s.choose(ctx, "Provider [1]:", m)
 		if err != nil {
 			return Provider{}, err
 		}
@@ -502,19 +528,17 @@ func (s *session) askAPIKey(ctx context.Context, p Provider) (string, bool, bool
 	s.say("")
 	s.say("%sHow do you want to sign in?", indent)
 	labels := make([]string, len(opts))
+	notes := make([]string, len(opts))
 	for i, o := range opts {
-		labels[i] = o.label
+		labels[i], notes[i] = o.label, o.note
 	}
-	w := labelWidth(labels)
-	for i, o := range opts {
-		printOption(s.out, i+1, o.label, w, o.note)
-	}
+	m := s.showMenu(labels, notes)
 
 	// A failed sign-in is not the end of the setup: the browser may have been closed, the code
 	// may have expired. The user is told what happened and asked again, with the other ways in
 	// still on the menu.
 	for attempt := 0; attempt < 3; attempt++ {
-		i, err := s.pick(ctx, "Sign-in [1]:", len(opts), "authentication choice")
+		i, err := s.pick(ctx, "Sign-in [1]:", m, "authentication choice")
 		if err != nil {
 			return "", false, false, err
 		}
@@ -541,7 +565,7 @@ func (s *session) askForAPIKey(ctx context.Context, p Provider) (string, error) 
 	s.say("%sYour API key. Get one at:", indent)
 	printLink(s.out, p.ConsoleURL)
 	printInfo(s.out, "It is saved apart from the settings, in a private file (%s).", credentialsProtection())
-	return s.ask(ctx, "Paste the key, or press Enter to add it later:")
+	return s.question(ctx, "Paste the key, or press Enter to add it later:", nil, true)
 }
 
 // directAuthRunner runs the provider-specific OAuth/device-code flow. It shows the
@@ -589,14 +613,17 @@ func (s *session) chooseModel(ctx context.Context, p Provider, preset, listURL, 
 	if len(models) == 0 {
 		printInfo(s.out, "no models were offered; type the model id you want")
 	}
-	printModels(s.out, models)
+	var m *menu
+	if len(models) > 0 {
+		m = s.showMenu(modelOptions(models))
+	}
 
 	for attempt := 0; attempt < 3; attempt++ {
 		prompt := "Model [1, or type any model id]:"
 		if len(models) == 0 {
 			prompt = "Model id:"
 		}
-		answer, err := s.ask(ctx, prompt)
+		answer, err := s.choose(ctx, prompt, m)
 		if err != nil {
 			return "", err
 		}
@@ -640,14 +667,13 @@ func (s *session) chooseAnchor(ctx context.Context, preset string, presetArgs []
 	printStep(s.out, stepCheck, "How should motita check that a task is really done?")
 	printInfo(s.out, "motita never takes the model's word for it: only this check can declare a task done.")
 	s.say("")
-	labels := []string{"Detect it from the project", "A command I choose", "No check for now"}
-	w := labelWidth(labels)
-	printOption(s.out, 1, labels[0], w, "recommended: make test, go test, npm test, cargo test...")
-	printOption(s.out, 2, labels[1], w, "for example: make test")
-	printOption(s.out, 3, labels[2], w, "just trying it out: tasks are reported as unverified")
+	m := s.showMenu(
+		[]string{"Detect it from the project", "A command I choose", "No check for now"},
+		[]string{"recommended: make test, go test, npm test, cargo test...", "for example: make test",
+			"just trying it out: tasks are reported as unverified"})
 
 	for attempt := 0; attempt < 3; attempt++ {
-		answer, err := s.ask(ctx, "Check [1]:")
+		answer, err := s.choose(ctx, "Check [1]:", m)
 		if err != nil {
 			return anchorChoice{}, err
 		}
@@ -710,13 +736,11 @@ func (a anchorChoice) describe() string {
 func (s *session) chooseOllamaHost(ctx context.Context, p Provider) (string, error) {
 	s.connectHeader(p)
 	s.say("%sWhere does Ollama run?", indent)
-	labels := []string{"On this computer or my network", "Ollama Cloud", "Another address"}
-	w := labelWidth(labels)
-	printOption(s.out, 1, labels[0], w, "http://localhost:11434 · free, no key")
-	printOption(s.out, 2, labels[1], w, "https://ollama.com · needs a key")
-	printOption(s.out, 3, labels[2], w, "a URL ending in /v1")
+	m := s.showMenu(
+		[]string{"On this computer or my network", "Ollama Cloud", "Another address"},
+		[]string{"http://localhost:11434 · free, no key", "https://ollama.com · needs a key", "a URL ending in /v1"})
 	for attempt := 0; attempt < 3; attempt++ {
-		answer, err := s.ask(ctx, "Ollama [1]:")
+		answer, err := s.choose(ctx, "Ollama [1]:", m)
 		if err != nil {
 			return "", err
 		}

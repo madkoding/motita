@@ -40,15 +40,19 @@ const (
 // conversation is what makes it read as one screen instead of a log.
 const indent = "  "
 
-// printBanner writes the welcome: what is about to happen, how long it takes, and the two keys a
-// newcomer needs (Enter takes the default, q leaves).
-func printBanner(out io.Writer) {
+// printBanner writes the welcome: what is about to happen, how long it takes, and the keys a
+// newcomer needs (the arrows choose, Enter takes the default, q leaves).
+func printBanner(out io.Writer, arrows bool) {
 	fmt.Fprintln(out)
 	fmt.Fprintf(out, "%s%s* motita%s %s· setup%s\n", indent, colBold, colReset, colDim, colReset)
 	printDivider(out)
 	fmt.Fprintf(out, "%sWelcome! Let's connect motita to an AI model. It takes about a minute.\n", indent)
 	fmt.Fprintln(out)
 	fmt.Fprintf(out, "%s%s\n", indent, breadcrumb())
+	if arrows {
+		fmt.Fprintf(out, "%s%sUse ↑↓ to choose and Enter to accept, or type the answer. Type q to quit at any time.%s\n", indent, colGray, colReset)
+		return
+	}
 	fmt.Fprintf(out, "%s%sPress Enter to accept the value in [brackets]. Type q to quit at any time.%s\n", indent, colGray, colReset)
 }
 
@@ -77,16 +81,21 @@ func printSection(out io.Writer, title string) {
 	fmt.Fprintf(out, "%s%s▎ %s%s%s\n", indent, colCyan, colBold, title, colReset)
 }
 
-// printOption writes one numbered choice of a menu: the number, the label padded to the menu's
-// label column so every description starts in the same place, and the description.
-func printOption(out io.Writer, n int, label string, width int, note string) {
+// optionRow is one numbered choice of a menu: the number, the label padded to the menu's label
+// column so every description starts in the same place, and the description. The highlighted row,
+// when the arrows drive the menu, carries the marker the input prompt uses.
+func optionRow(n int, label string, width int, note string, selected bool) string {
 	// The padding only exists to line the descriptions up: an option with none ends at its label.
 	pad := ""
 	if note != "" {
 		pad = strings.Repeat(" ", width-len([]rune(label)))
 		note = fmt.Sprintf("  %s%s%s", colDim, note, colReset)
 	}
-	fmt.Fprintf(out, "%s  %s%2d%s  %s%s%s%s%s\n", indent, colYellow, n, colReset, colBold, label, colReset, pad, note)
+	marker := "  "
+	if selected {
+		marker = colCyan + "›" + colReset + " "
+	}
+	return fmt.Sprintf("%s%s%s%2d%s  %s%s%s%s%s", indent, marker, colYellow, n, colReset, colBold, label, colReset, pad, note)
 }
 
 // labelWidth is the widest label of a menu, which is where its description column starts.
@@ -100,34 +109,27 @@ func labelWidth(labels []string) int {
 	return w
 }
 
-// printProviders writes the provider menu: what each one is called and what it takes to connect.
-func printProviders(out io.Writer, providers []Provider) {
-	labels := make([]string, len(providers))
-	for i, p := range providers {
-		labels[i] = p.Short
+// providerOptions is the provider menu: what each one is called and what it takes to connect.
+func providerOptions(providers []Provider) (labels, notes []string) {
+	for _, p := range providers {
+		labels = append(labels, p.Short)
+		notes = append(notes, p.Access)
 	}
-	w := labelWidth(labels)
-	for i, p := range providers {
-		printOption(out, i+1, p.Short, w, p.Access)
-	}
+	return labels, notes
 }
 
-// printModels writes the model menu. The first entry is the default, and it says so: the user
-// who does not know which model to pick should not have to guess which one Enter takes.
-func printModels(out io.Writer, models []Model) {
-	labels := make([]string, len(models))
-	for i, m := range models {
-		labels[i] = m.ID
-	}
-	w := labelWidth(labels)
+// modelOptions is the model menu. The first entry is the default, and it says so: the user who
+// does not know which model to pick should not have to guess which one Enter takes.
+func modelOptions(models []Model) (labels, notes []string) {
 	for i, m := range models {
 		note := m.Note
 		if i == 0 {
-			note = strings.TrimSpace("recommended · " + note)
-			note = strings.TrimSuffix(note, " ·")
+			note = strings.TrimSuffix(strings.TrimSpace("recommended · "+note), " ·")
 		}
-		printOption(out, i+1, m.ID, w, note)
+		labels = append(labels, m.ID)
+		notes = append(notes, note)
 	}
+	return labels, notes
 }
 
 // printSuccess writes a success line with a green checkmark.
