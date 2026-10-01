@@ -38,8 +38,65 @@ var ignoreBase = []struct {
 	{[]string{"mix.exs"}, []string{"_build/", "deps/"}},
 }
 
-// ignoreEverywhere is the editor and OS litter that belongs in no project.
-var ignoreEverywhere = []string{".DS_Store", "Thumbs.db", "*.swp", "*~"}
+// ignoreEverywhere is the editor and OS litter that belongs in no project, and the home of the
+// tools the agent runs (see toolHomeDirs).
+var ignoreEverywhere = append([]string{".DS_Store", "Thumbs.db", "*.swp", "*~"}, toolHomePatterns()...)
+
+// toolHomeDirs are what the programs a run executes leave in their HOME.
+//
+// The sandbox runs every command with HOME set to the working directory, so the caches and state
+// of npm, pip, cargo, yarn and their kin land INSIDE the project: `.npm/_cacache`, `.cache/`,
+// `.local/share`... They are not the user's work and never belong in the repository, but git
+// saw them as new files, so a session reported `.npm/` as a change it had made (and, through
+// `add -A`, would have kept it in a checkpoint).
+//
+// Every entry is anchored to the ROOT of the tree, because that is where HOME is: a `.cache`
+// folder deeper in the project is the project's. Deliberately NOT here: `.cargo/` as a whole
+// (`.cargo/config.toml` is committed in many projects), `.yarn/` (Yarn Berry commits
+// `.yarn/releases`), `.config/` and `.npmrc`. Only the parts a tool writes by itself are named.
+var toolHomeDirs = []string{
+	".npm", ".cache", ".pnpm-store", ".yarn/cache", ".yarn/berry", ".bun", ".deno", ".nvm", ".volta",
+	".node-gyp", ".cargo/registry", ".cargo/git", ".rustup", ".m2", ".gradle", ".nuget", ".dotnet",
+	".gem", ".bundle/cache", ".composer/cache", ".local/share", ".local/state", ".ivy2", ".sbt",
+	".config/configstore", ".config/pip",
+}
+
+// toolHomeFiles are the single files the same tools write, at the root for the same reason.
+var toolHomeFiles = []string{
+	".bash_history", ".zsh_history", ".lesshst", ".python_history", ".node_repl_history",
+	".viminfo", ".wget-hsts", ".sqlite_history", ".psql_history",
+}
+
+// toolHomePatterns renders toolHomeDirs and toolHomeFiles as root-anchored ignore rules.
+func toolHomePatterns() []string {
+	var out []string
+	for _, d := range toolHomeDirs {
+		out = append(out, "/"+d+"/")
+	}
+	for _, f := range toolHomeFiles {
+		out = append(out, "/"+f)
+	}
+	return out
+}
+
+// IsToolHome reports whether a path, relative to the tree root, is something a tool wrote in its
+// HOME. It is the same list the ignore rules are made from, applied to a path, for the readers
+// that must agree with git about what counts as a change (a file git tracks is not hidden by an
+// ignore rule, and a count that included it would disagree with `git status`).
+func IsToolHome(path string) bool {
+	path = strings.TrimPrefix(filepath.ToSlash(path), "./")
+	for _, d := range toolHomeDirs {
+		if path == d || strings.HasPrefix(path, d+"/") {
+			return true
+		}
+	}
+	for _, f := range toolHomeFiles {
+		if path == f {
+			return true
+		}
+	}
+	return false
+}
 
 // EnsureIgnoreBase makes the project's ignore rules hold in EVERY worktree of it.
 //

@@ -37,9 +37,21 @@ func WorkingTreeChanges(ctx context.Context, dir string) (int, error) {
 	}
 	n := 0
 	for _, line := range strings.Split(out, "\n") {
-		if strings.TrimSpace(line) != "" {
-			n++
+		if strings.TrimSpace(line) == "" {
+			continue
 		}
+		// `XY path`, or `XY old -> new` for a rename: the path is what is tested.
+		path := strings.TrimSpace(line)
+		if len(line) > 3 {
+			path = line[3:]
+		}
+		if i := strings.LastIndex(path, " -> "); i >= 0 {
+			path = path[i+4:]
+		}
+		if IsToolHome(strings.Trim(path, "\"")) {
+			continue
+		}
+		n++
 	}
 	return n, nil
 }
