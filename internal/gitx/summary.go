@@ -87,6 +87,9 @@ func parseChanges(nameStatus, numstat, untracked string) []FileChange {
 			continue
 		}
 		path := f[len(f)-1]
+		if IsToolHome(path) {
+			continue
+		}
 		st := "modified"
 		switch f[0][0] {
 		case 'A':
@@ -101,7 +104,7 @@ func parseChanges(nameStatus, numstat, untracked string) []FileChange {
 		seen[path] = true
 	}
 	for _, p := range strings.Split(untracked, "\n") {
-		if p = strings.TrimSpace(p); p != "" && !seen[p] {
+		if p = strings.TrimSpace(p); p != "" && !seen[p] && !IsToolHome(p) {
 			out = append(out, FileChange{Path: p, Status: "added"})
 		}
 	}
