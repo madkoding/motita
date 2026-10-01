@@ -155,7 +155,7 @@ func TestGoingBackTakesTheConversationAndTheFilesBack(t *testing.T) {
 		FilesRestored bool   `json:"files_restored"`
 		UndoKept      bool   `json:"undo_kept"`
 	}
-	if err := json.Unmarshal([]byte(w.Body.String()), &got); err != nil {
+	if err := json.Unmarshal(w.Body.Bytes(), &got); err != nil {
 		t.Fatal(err)
 	}
 	if got.Task != "two" || !got.FilesRestored || !got.UndoKept {
