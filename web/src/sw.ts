@@ -12,7 +12,7 @@ declare const self: ServiceWorkerGlobalScope
 // Bumping this name is what retires the previous generation of the cache: `activate` deletes every
 // cache that is not this one, so a worker that was broken (or served a shell from a stale build)
 // does not leave its entries behind for the next one to match.
-const SHELL_CACHE = 'motita-shell-v19'
+const SHELL_CACHE = 'motita-shell-v20'
 
 // Shell assets to pre-cache on install. The PWA plugin injects the actual
 // build manifest entries here via self.__WB_MANIFEST.

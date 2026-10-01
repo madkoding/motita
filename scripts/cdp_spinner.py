@@ -173,9 +173,9 @@ async def main(ws_url):
             window.__sampler = setInterval(() => {
                 const rec = {t: Math.round(performance.now() - t0), rows: [],
                              trail: document.querySelectorAll('.activity-trail .trail-step').length,
-                             thoughts: document.querySelectorAll('.activity-trail .trail-step.thought').length,
-                             live: document.querySelectorAll('.msg.thought-live').length,
-                             frozen: [...document.querySelectorAll('.animate-spin, .msg.activity span[class^="spin-"], .thought-label span[class^="spin-"], .session-spinner.is-running')]
+                             thoughts: document.querySelectorAll('.is-think .think-entry').length,
+                             live: document.querySelectorAll('.is-think .think-entry.is-live').length,
+                             frozen: [...document.querySelectorAll('.animate-spin, .msg.activity span[class^="spin-"], .session-spinner.is-running')]
                                  .filter(e => { const n = getComputedStyle(e).animationName; return !n || n === 'none'; })
                                  .map(e => e.className.baseVal ?? e.className)};
                 for (const row of [...document.querySelectorAll('.session-row')]) {
@@ -216,10 +216,10 @@ async def main(ws_url):
         else:
             print("  the gateway reports the run in flight")
 
-        # The model's reasoning, while it is being written: wait for the live box and keep a
-        # picture of it, which is the screen the user asked to be able to see.
+        # The model's reasoning, while it is being written: it lives in the orange THINK drawer
+        # now, not in the chat. Wait for the live entry and keep a picture of it.
         for _ in range(100):
-            if await c.js("document.querySelectorAll('.msg.thought-live').length"):
+            if await c.js("document.querySelectorAll('.is-think .think-entry.is-live').length"):
                 break
             await asyncio.sleep(0.05)
         await c.shot(f"{SHOTS}/thinking-live.png")
@@ -370,8 +370,10 @@ async def main(ws_url):
         print(f"  trail steps seen during the run: up to {trail_max}; after the answer: {trail_after}")
         if trail_max < 1:
             failures += fail("no step of the run was ever shown in the trail while it worked")
-        if trail_after:
-            failures += fail(f"{trail_after} trail step(s) are still showing after the answer landed")
+        # The steps are the history of the work now: they must STAY under their input once the
+        # answer has landed (the opposite of the old contract, where they vanished).
+        if trail_max and trail_after < 1:
+            failures += fail("the run's steps disappeared from the chat when the answer landed")
 
         idle_anim = await c.js("""[...document.querySelectorAll('.session-spinner:not(.is-running)')]
             .map(e => getComputedStyle(e).animationName).filter(n => n && n !== 'none').length""")

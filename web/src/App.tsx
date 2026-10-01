@@ -1,7 +1,10 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'preact/hooks'
-import { Markdown, MarkdownLite } from './Markdown'
+import { Markdown } from './Markdown'
+import { ReportCard, hasReport, type TaskReport } from './Report'
+import './report.css'
 import { TermEntry, TermEmpty } from './Term'
 import { createFollower } from './smoothscroll'
+import { useFollowEnd } from './useFollowEnd'
 import { hydrationState, hydrationLog, noteActivity } from './hydration'
 
 interface Message {
@@ -11,6 +14,11 @@ interface Message {
   kind?: string
   // changes is what the run changed: pictures first, files as a summary.
   changes?: ChangeReport
+  // report is the answer as structure, when the run produced one: drawn as a card.
+  report?: TaskReport
+  // turn, on a message of the user's, is the checkpoint that input became: the number the
+  // gateway knows it by. It is unset until the gateway has said which one it is.
+  turn?: number
 }
 
 interface ChangeReport {
@@ -31,6 +39,9 @@ interface SessionInfo {
   project_id?: string
   branch?: string
   mergeable?: boolean
+  merged?: boolean
+  merged_sha?: string
+  continuable?: boolean
   changes?: number
   worktree?: string
   // auto_approve is set while the user has allowed every command in this session.
@@ -347,19 +358,25 @@ function classifyProgress(text: string): string | null {
   return null
 }
 
-// TRAIL_MAX is how many of a run's latest steps stay on screen while it works.
-const TRAIL_MAX = 8
-
-// TrailStep is one progress line of the run in flight. The trail is deliberately
-// NOT part of the conversation: it exists so the user can see the agent working
-// while it works, and it is dropped the moment the answer arrives.
-interface TrailStep {
-  id: number
-  text: string
+// StepView is one thing the agent did during a turn, as the gateway keeps it. Steps are the
+// history of the work: they stay under the input that caused them, and survive a restart.
+// A thought is a step too, but it is shown in the thinking drawer and not in the chat.
+interface StepView {
   kind: string
+  text: string
   // exit is a command's result once it has finished: null while it runs.
   exit?: number | null
+  out?: string
 }
+
+// CheckpointInfo is what the client needs to know about a checkpoint besides its steps.
+interface CheckpointInfo {
+  // files: the checkpoint kept the state of the files, so they can be restored too.
+  files: boolean
+}
+
+// STEPS_MAX mirrors the gateway's cap on the steps one turn keeps.
+const STEPS_MAX = 300
 
 // SHELL_LOG_MAX bounds the terminal history so a very long session cannot grow it forever.
 const SHELL_LOG_MAX = 500
@@ -385,14 +402,6 @@ const REASONING_LEVELS = ['off', 'low', 'medium', 'high']
 function reasoningOf(c: ConfigView | null): string {
   if (!c) return 'medium'
   return c.reasoning_enabled ? (c.reasoning || 'medium') : 'off'
-}
-
-// THOUGHT_PREFIX is what the agent puts in front of a phase's finished reasoning.
-const THOUGHT_PREFIX = 'thinking: '
-
-// stepText is what a trail row shows: a thought without its prefix, anything else as is.
-function stepText(step: TrailStep): string {
-  return step.kind === 'thought' ? step.text.slice(THOUGHT_PREFIX.length) : step.text
 }
 
 // splitOutput reads a command's output line ("output (exit N):\n<body>") into the
@@ -453,7 +462,9 @@ function ChangesCard({ changes }: { changes: ChangeReport }) {
 
 // ShellStatus is all the conversation says about a command's result: still running, worked,
 // or failed with which code. What it printed is in the terminal drawer.
-function ShellStatus({ exit }: { exit: number | null | undefined }) {
+function ShellStatus({ exit, settled = false }: { exit: number | null | undefined; settled?: boolean }) {
+  // A command of a turn that has ended and never reported a result was cut off or refused.
+  if (exit == null && settled) return <span class="term-exit">no result</span>
   if (exit == null) return <span class="term-exit running">running</span>
   return <span class={`term-exit${exit ? ' bad' : ''}`}>{exit ? `failed · exit ${exit}` : 'ok'}</span>
 }
@@ -519,27 +530,26 @@ export default function App() {
   const [running, setRunning] = useState(false)
   const [activity, setActivity] = useState<string | null>(null)
   const [activityKind, setActivityKind] = useState<string>('')
-  // The steps the run in flight has already taken, oldest first. See TrailStep.
-  const [trail, setTrail] = useState<TrailStep[]>([])
+  // The steps of every turn, by turn number: the history of the work, kept with the session.
+  const [stepsByTurn, setStepsByTurn] = useState<Record<number, StepView[]>>({})
+  const [cpInfo, setCpInfo] = useState<Record<number, CheckpointInfo>>({})
+  // The turn the run in flight belongs to, once the gateway has said which one it is.
+  const liveTurnRef = useRef<number | null>(null)
   // What the model is writing RIGHT NOW, while a phase is being generated. Each
   // 'thinking' event replaces the last, and the next ordinary step clears it: by
   // then the phase's finished reasoning has arrived as a step of its own.
   const [liveThought, setLiveThought] = useState<string | null>(null)
-  // The trail rows the user opened to read in full.
-  const [openSteps, setOpenSteps] = useState<Set<number>>(new Set())
   // Every command the agent ran in this conversation, with its output: what the terminal
   // drawer replays. The drawer is closed by default; the tab on the right edge opens it.
   const [shellLog, setShellLog] = useState<ShellEntry[]>([])
   const [termOpen, setTermOpen] = useState(false)
-  const termBodyRef = useRef<HTMLDivElement>(null)
-  // Whether the terminal is following its end. It stays true until the READER scrolls up, and
-  // comes back the moment they reach the bottom again. A distance test at each update was
-  // tried first and it lost the end: the typewriter grows the text faster than any margin.
-  const termPinned = useRef(true)
-  // The reader is acting on the scroll right now (wheel, touch, or a drag on the bar). Only
-  // THAT can take the terminal off the end: growth of the content never can.
-  const termUserAt = useRef(0)
-  const termDragging = useRef(false)
+  // The thinking drawer: what the model reasoned, in the same retro screen but orange. It is
+  // closed by default, and opening one drawer closes the other: they share the edge.
+  const [thinkOpen, setThinkOpen] = useState(false)
+  const term = useFollowEnd(termOpen)
+  const think = useFollowEnd(thinkOpen)
+  const termBodyRef = term.ref
+  const stickTerm = term.stick
   // The highest history id the drawer has finished playing. Everything at or below it is
   // drawn whole; the first entry above it is the one being typed; the rest wait their turn.
   // An id and not a position, because the log is capped and its oldest entries fall off.
@@ -605,10 +615,11 @@ export default function App() {
   // while the panel is open: a timer that runs (and re-renders the whole app)
   // while nobody is looking at a countdown is pure cost. One second is the
   // unit the countdown itself shows at its finest.
+  const selectedSession = useMemo(() => sessions.find(s => s.id === sessionId), [sessions, sessionId])
+  const isMerged = selectedSession?.merged === true
   const [nowMs, setNowMs] = useState(() => Date.now())
   useEffect(() => {
     if (!showScheduledTasks) return
-    setNowMs(Date.now())
     const id = setInterval(() => setNowMs(Date.now()), 1000)
     return () => clearInterval(id)
   }, [showScheduledTasks])
@@ -967,7 +978,7 @@ export default function App() {
     // every change would drag someone who deliberately went back up to an earlier answer.
     if (!pinnedRef.current) return
     followEnd()
-  }, [messages, activity, liveThought, trail, followEnd])
+  }, [messages, activity, liveThought, stepsByTurn, followEnd])
 
   /**
    * Follows the growth that NO event announces.
@@ -1626,6 +1637,7 @@ export default function App() {
   // `urlMode` says how the address bar follows: 'push' for a click, 'replace' for the
   // initial load, 'none' when the URL already changed (back/forward).
   const followRef = useRef<() => void>(() => {})
+  const switchSessionRef = useRef<((id: string, urlMode?: 'push' | 'replace' | 'none') => Promise<void>) | null>(null)
   const switchSession = useCallback(async (id: string, urlMode: 'push' | 'replace' | 'none' = 'push') => {
     setSessionId(id)
     sessionRef.current = id
@@ -1633,7 +1645,9 @@ export default function App() {
     if (urlMode !== 'none') writeSessionUrl(id, urlMode)
     setMessages([])
     setActivity(null)
-    setTrail([])
+    setStepsByTurn({})
+    setCpInfo({})
+    liveTurnRef.current = null
     setShellLog([])
     setTermSeenId(0)
     setLiveThought(null)
@@ -1672,8 +1686,8 @@ export default function App() {
       } catch { /* no run to follow */ }
       if (sessionRef.current !== id) return
       const out: Message[] = []
-      for (const m of msgs) {
-        if (m.User) out.push({ id: nextId(), role: 'user', text: m.User })
+      for (const [i, m] of msgs.entries()) {
+        if (m.User) out.push({ id: nextId(), role: 'user', text: m.User, turn: i })
         // A turn still open carries what the run had done before it was cut. The stream only
         // brings what happens FROM NOW ON, so this is the one place the reader can see where
         // it got to - it is drawn whether or not the run is live.
@@ -1683,6 +1697,7 @@ export default function App() {
         out.push({ id: nextId(), role: 'agent', text: 'Nothing yet. Ask for something below.', kind: 'kind' })
       }
       setMessages(out)
+      await loadCheckpoints(id, true)
       setState('ready')
       if (live && !runningRef.current) {
         runSessionRef.current = id
@@ -1703,6 +1718,8 @@ export default function App() {
       requestModal(false)
     }
   }, [])
+
+  useEffect(() => { switchSessionRef.current = switchSession }, [switchSession])
 
   // Back/forward: the URL already names the conversation, so only adopt it.
   useEffect(() => {
@@ -1906,6 +1923,28 @@ export default function App() {
     setShowModelSwitcher(true)
   }, [config, fetchProviders, fetchModelList])
 
+  // continueSession creates a fresh session from a merged one, pulling the
+  // project's base branch first so the new work starts from the latest state.
+  const continueSession = useCallback(async (s: SessionInfo) => {
+    try {
+      const res = await api('/v1/sessions/' + s.id + '/continue', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: '{}',
+      })
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}))
+        setToast({ message: 'Could not continue this session', type: 'error', detail: data.error || ('HTTP ' + res.status) })
+        return
+      }
+      const next: SessionInfo = await res.json()
+      await fetchSessions()
+      await switchSession(next.id)
+      setToast({ message: 'Continued in a new session', type: 'success', detail: next.title })
+    } catch (err) {
+      setToast({ message: 'Could not reach the gateway', type: 'error', detail: String(err) })
+    }
+  }, [fetchSessions, switchSession])
   // closeModelSwitcher dismisses the modal and throws the draft away. The saved
   // configuration is what the next open seeds from, so nothing has to be undone.
   //
@@ -2056,6 +2095,44 @@ export default function App() {
     setToast(null)
   }, [updateInfo])
 
+  // loadCheckpoints reads the steps the gateway kept for every input of a conversation.
+  //
+  // `rebuildTerm` also rebuilds the terminal drawer from them: the commands of a conversation
+  // that was closed, reloaded or restarted are still there, because the gateway kept them.
+  // A refresh at the end of a run leaves the terminal alone - it already has those commands,
+  // and rebuilding it would type them all again.
+  const loadCheckpoints = useCallback(async (id: string, rebuildTerm = false) => {
+    let cps: { turn: number; files: boolean; steps: StepView[] }[]
+    try {
+      const res = await api('/v1/sessions/' + encodeURIComponent(id) + '/checkpoints')
+      if (!res.ok) return
+      cps = (await res.json()).checkpoints ?? []
+    } catch { return }
+    // A late answer must not paint over the conversation now on screen.
+    if (sessionRef.current !== id) return
+    const live = liveTurnRef.current
+    setStepsByTurn(prev => {
+      const next: Record<number, StepView[]> = rebuildTerm ? {} : { ...prev }
+      for (const cp of cps) if (cp.turn !== live) next[cp.turn] = cp.steps ?? []
+      if (live != null && prev[live]) next[live] = prev[live]
+      return next
+    })
+    setCpInfo(Object.fromEntries(cps.map(cp => [cp.turn, { files: cp.files }])))
+    if (rebuildTerm) {
+      const entries: ShellEntry[] = []
+      for (const cp of cps) {
+        for (const st of cp.steps ?? []) {
+          if (st.kind !== 'command') continue
+          entries.push({ id: nextId(), cmd: st.text.replace(/^running:\s*/, ''), exit: st.exit ?? NO_RESULT, out: st.out ?? '' })
+        }
+      }
+      const kept = entries.slice(-SHELL_LOG_MAX)
+      setShellLog(kept)
+      // What was already there is drawn whole, not typed again.
+      setTermSeenId(kept.length ? kept[kept.length - 1].id : 0)
+    }
+  }, [])
+
   // transcript paints the conversation that already exists.
   const transcript = useCallback(async () => {
     const res = await api('/v1/sessions/' + sessionRef.current + '/messages')
@@ -2066,11 +2143,12 @@ export default function App() {
       return
     }
     const out: Message[] = []
-    for (const m of msgs) {
-      if (m.User) out.push({ id: nextId(), role: 'user', text: m.User })
+    msgs.forEach((m: { User?: string; Agent?: string }, i: number) => {
+      if (m.User) out.push({ id: nextId(), role: 'user', text: m.User, turn: i })
       if (m.Agent) out.push({ id: nextId(), role: 'agent', text: m.Agent })
-    }
+    })
     setMessages(out)
+    void loadCheckpoints(sessionRef.current, true)
   }, [])
 
   // answerApproval sends the approval response.
@@ -2118,16 +2196,18 @@ export default function App() {
     setRunningState(false, runSessionRef.current || sessionRef.current)
     runSessionRef.current = ''
     setActivity(null)
-    setTrail([])
+    // The turn is over: its steps stay where they are, and the gateway is asked for its side
+    // (whether the files were checkpointed) now that the run has ended.
+    liveTurnRef.current = null
+    void loadCheckpoints(sessionRef.current)
     // A command that never reported a result (refused, declined, or cut off by a cancel)
     // must not read "running" for ever: it is closed as "no result".
     setShellLog(prev => prev.some(e => e.exit == null) ? prev.map(e => e.exit == null ? { ...e, exit: NO_RESULT } : e) : prev)
     setLiveThought(null)
-    setOpenSteps(new Set())
     setState('ready')
     // After a run finishes, refresh the session list so the auto-title shows up.
     fetchSessions()
-  }, [fetchSessions])
+  }, [fetchSessions, loadCheckpoints])
 
   // dispatchEvent handles one parsed SSE event.
   const dispatchEvent = useCallback((name: string, data: string | null, id: string | null) => {
@@ -2141,7 +2221,25 @@ export default function App() {
       return
     }
     switch (name) {
-    case 'attached':
+    case 'attached': {
+      // Which checkpoint this run is. A run that is replayed from the start rebuilds its steps
+      // from that replay, so what was loaded for it is dropped first: it would be doubled.
+      if (typeof payload.turn === 'number') {
+        const t: number = payload.turn
+        liveTurnRef.current = t
+        setMessages(prev => {
+          for (let i = prev.length - 1; i >= 0; i--) {
+            if (prev[i].role === 'user') {
+              if (prev[i].turn != null) break
+              const next = prev.slice()
+              next[i] = { ...prev[i], turn: t }
+              return next
+            }
+          }
+          return prev
+        })
+        if (lastIdRef.current === 0) setStepsByTurn(prev => ({ ...prev, [t]: [] }))
+      }
       if (payload.dropped > 0) {
         setMessages(prev => [...prev, {
           id: nextId(), role: 'agent', kind: 'kind',
@@ -2150,6 +2248,7 @@ export default function App() {
       }
       if (payload.pending_approval) setApproval(payload.pending_approval)
       break
+    }
     case 'progress': {
       const text: string = payload.text || ''
       const kind = classifyProgress(text) ?? ''
@@ -2158,16 +2257,20 @@ export default function App() {
         // command and whether it worked, and the terminal drawer keeps what it printed.
         // The result lands on the command it belongs to.
         const { exit, body } = splitOutput(text)
-        setTrail(prev => {
-          for (let i = prev.length - 1; i >= 0; i--) {
-            if (prev[i].kind === 'command' && prev[i].exit == null) {
-              const next = prev.slice()
-              next[i] = { ...prev[i], exit: exit ?? 0 }
-              return next
+        const t = liveTurnRef.current
+        if (t != null) {
+          setStepsByTurn(prev => {
+            const steps = prev[t] ?? []
+            for (let i = steps.length - 1; i >= 0; i--) {
+              if (steps[i].kind === 'command' && steps[i].exit == null) {
+                const next = steps.slice()
+                next[i] = { ...steps[i], exit: exit ?? 0, out: body }
+                return { ...prev, [t]: next }
+              }
             }
-          }
-          return prev
-        })
+            return prev
+          })
+        }
         setShellLog(prev => {
           for (let i = prev.length - 1; i >= 0; i--) {
             if (prev[i].exit == null) {
@@ -2181,12 +2284,17 @@ export default function App() {
         setLiveThought(null)
         break
       }
-      setActivity(text)
-      setActivityKind(kind)
-      // Every step is kept for the trail, not only the latest: one line that keeps
-      // being replaced told the user the agent was busy, and nothing of what it had
-      // already done on the way.
-      if (text) setTrail(prev => [...prev, { id: nextId(), text, kind, ...(kind === 'command' ? { exit: null } : {}) }].slice(-TRAIL_MAX))
+      // A finished thought belongs to the thinking drawer, not to the chat: it is filed with
+      // the turn's steps (where it is kept) and the live snapshot it grew from is done.
+      if (kind !== 'thought') {
+        setActivity(text)
+        setActivityKind(kind)
+      }
+      const turn = liveTurnRef.current
+      if (text && turn != null) {
+        const step: StepView = { kind: kind === 'command' ? 'command' : kind === 'thought' ? 'thought' : 'step', text, ...(kind === 'command' ? { exit: null } : {}) }
+        setStepsByTurn(prev => ({ ...prev, [turn]: [...(prev[turn] ?? []), step].slice(-STEPS_MAX) }))
+      }
       if (kind === 'command') {
         const cmd = text.replace(/^running:\s*/, '')
         setShellLog(prev => [...prev, { id: nextId(), cmd, exit: null, out: '' }].slice(-SHELL_LOG_MAX))
@@ -2205,7 +2313,7 @@ export default function App() {
     case 'done':
       setActivity(null)
       if (payload.result) {
-        setMessages(prev => [...prev, { id: nextId(), role: 'agent', text: payload.result, changes: payload.changes }])
+        setMessages(prev => [...prev, { id: nextId(), role: 'agent', text: payload.result, changes: payload.changes, report: hasReport(payload.report) ? payload.report : undefined }])
       }
       finish()
       break
@@ -2281,42 +2389,6 @@ export default function App() {
 
   useEffect(() => { followRef.current = followReconnect }, [followReconnect])
 
-  // stickTerm keeps the end of the history in view while the terminal is following it.
-  // The follow is ANIMATED, not a jump: a line of text that arrives moves the view a little and
-  // softly, and a chunk that arrives mid-glide is followed further (see smoothscroll.ts).
-  const termFollower = useRef(createFollower(() => termBodyRef.current, () => termPinned.current, 110))
-  const stickTerm = useCallback(() => { termFollower.current.kick() }, [])
-  // A scroll event does not say who caused it: the terminal's own jump to the end raises one
-  // too. So the terminal is taken off the end only while the reader is acting on it (a wheel
-  // or touch in the last moment, or a drag on the bar) - a distance test alone unpinned it the
-  // first time an entry grew by more than its margin between two frames.
-  const onTermScroll = useCallback(() => {
-    const el = termBodyRef.current
-    if (!el) return
-    const gap = el.scrollHeight - el.scrollTop - el.clientHeight
-    if (termDragging.current || performance.now() - termUserAt.current < 800) {
-      termPinned.current = gap < 24
-      // The reader has taken the scroll: whatever glide is under way stops with it.
-      if (!termPinned.current) termFollower.current.stop()
-    } else if (gap < 2) termPinned.current = true
-  }, [])
-  const markTermUser = useCallback(() => { termUserAt.current = performance.now() }, [])
-  useEffect(() => {
-    const up = () => { termDragging.current = false }
-    window.addEventListener('pointerup', up)
-    window.addEventListener('pointercancel', up)
-    return () => { window.removeEventListener('pointerup', up); window.removeEventListener('pointercancel', up) }
-  }, [])
-  // Whatever changes the terminal's content - a typed character, a new entry, a status - grows
-  // it, and following the end is the reaction to THAT, so it does not depend on every writer
-  // remembering to ask.
-  useEffect(() => {
-    const el = termBodyRef.current
-    if (!el || typeof MutationObserver === 'undefined') return
-    const mo = new MutationObserver(() => stickTerm())
-    mo.observe(el, { childList: true, subtree: true, characterData: true })
-    return () => mo.disconnect()
-  }, [stickTerm])
   useEffect(() => { stickTerm() }, [shellLog, stickTerm])
 
   // The queue the drawer plays: one entry at a time, in order, only while it is open. When
@@ -2329,19 +2401,55 @@ export default function App() {
     const pending = shellLog.filter(e => e.id > termSeenId)
     if (pending.length > TERM_CAP) setTermSeenId(pending[pending.length - 6].id)
   }, [termOpen, shellLog, termSeenId])
-  // Opening it lands on the latest command, and follows from there.
+  // The checkpoint whose ⋯ menu is open, and whether the destructive item was armed.
+  const [cpMenu, setCpMenu] = useState<number | null>(null)
+  const [cpArmed, setCpArmed] = useState(false)
   useEffect(() => {
-    if (!termOpen) return
-    termPinned.current = true
-    // Opening lands on the latest command at once; the glide is for what arrives afterwards.
-    termFollower.current.jump()
-  }, [termOpen])
+    if (cpMenu == null) return
+    const close = () => { setCpMenu(null); setCpArmed(false) }
+    // Deferred one tick: the click that opened the menu must not be the one that closes it.
+    const t = setTimeout(() => document.addEventListener('click', close), 0)
+    return () => { clearTimeout(t); document.removeEventListener('click', close) }
+  }, [cpMenu])
+
+  // restoreCheckpoint takes the conversation back to before an input; with `files` it also puts
+  // the files back. The input's text returns to the composer, so it can be edited and sent again.
+  const restoreCheckpoint = useCallback(async (turn: number, files: boolean) => {
+    setCpMenu(null)
+    setCpArmed(false)
+    if (runningRef.current) return
+    const sid = sessionRef.current
+    try {
+      const res = await api('/v1/sessions/' + encodeURIComponent(sid) + '/checkpoints/' + turn + '/restore', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ files }),
+      })
+      const body = await res.json().catch(() => ({}))
+      if (!res.ok) {
+        setToast({ message: 'Could not go back to that checkpoint', type: 'error', detail: body.error })
+        return
+      }
+      if (sessionRef.current !== sid) return
+      setInput(body.task ?? '')
+      await switchSessionRef.current?.(sid, 'none')
+      setToast({
+        message: body.files_restored ? 'Back at the checkpoint — conversation and files' : 'Back at the checkpoint — conversation only',
+        type: 'success',
+        detail: body.files_restored && body.undo_kept ? 'What the files were before is kept in git as refs/motita/undo/' + sid : undefined,
+      })
+    } catch {
+      setToast({ message: 'Could not go back to that checkpoint', type: 'error' })
+    }
+  }, [])
 
   // submit sends a task and reads the SSE response.
-  const submit = useCallback(async (text: string) => {
+  const submit = useCallback(async (text: string, endpoint?: string) => {
     setMessages(prev => [...prev, { id: nextId(), role: 'user', text }])
-    setTrail([])
     setLiveThought(null)
+    // A new run numbers its events from 1 again: a cursor left over from the last one would
+    // ask a reconnection for events that do not exist yet.
+    lastIdRef.current = 0
     // Pinned BEFORE the run starts, so the spinner and its clearing are both
     // addressed to the conversation this turn belongs to.
     runSessionRef.current = sessionRef.current
@@ -2349,7 +2457,7 @@ export default function App() {
     setState('working')
     let res: Response
     try {
-      res = await api('/v1/sessions/' + sessionRef.current + '/task', {
+      res = await api(endpoint || '/v1/sessions/' + sessionRef.current + '/task', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ task: text })
@@ -2361,10 +2469,26 @@ export default function App() {
     }
     if (!res.ok) {
       let msg = 'the gateway refused the turn'
+      let merged = false
       try {
         const err = await res.json()
         if (err.error) msg = err.error
+        merged = err.error && err.error.includes('already been integrated')
       } catch { /* keep generic */ }
+      if (merged) {
+        const s = sessions.find(x => x.id === sessionRef.current)
+        if (s?.continuable) {
+          setToast({
+            message: 'This session is already integrated',
+            type: 'warning',
+            detail: 'Click Continue in the session menu to keep working from the latest project branch.',
+          })
+        } else {
+          setToast({ message: msg, type: 'error' })
+        }
+      } else {
+        setToast({ message: msg, type: 'error' })
+      }
       setState(msg, true)
       finish()
       return
@@ -2839,7 +2963,7 @@ export default function App() {
                 </svg>
                 Rename
               </button>
-              {s.project_id && (
+              {s.project_id && !s.merged && (
                 <button
                   class={`row-menu-item w-full flex items-center gap-2 px-3 py-2 text-sm ${s.mergeable ? 'text-accent hover:bg-accent/10' : 'text-[#8a8a9a]'}`}
                   disabled={!s.mergeable}
@@ -2848,50 +2972,9 @@ export default function App() {
                     if (!s.mergeable) { e.stopPropagation(); return }
                     e.stopPropagation()
                     closeRowMenu()
-                    try {
-                      const res = await api('/v1/sessions/' + s.id + '/merge', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: '{}',
-                      })
-                      if (res.status === 409) {
-                        // A conflict is a NORMAL outcome, not a crash: the
-                        // session changed lines the project also changed. The
-                        // message says what happened, what did not, and what to
-                        // do — the raw git text rides along as a muted detail
-                        // because it names the file, which is what a user needs
-                        // in order to act.
-                        const data = await res.json().catch(() => ({}))
-                        setToast({
-                          type: 'error',
-                          message: 'This session conflicts with the project',
-                          detail: 'The same lines were changed in both. Nothing was modified — your project is exactly as it was. Bring the project up to date, then try again.',
-                          ...(data.error ? { technical: data.error } : {}),
-                        })
-                      } else if (!res.ok) {
-                        const data = await res.json().catch(() => ({}))
-                        setToast({
-                          type: 'error',
-                          message: 'The integration could not be completed',
-                          detail: `The gateway answered with an error (${res.status}). Nothing was modified.`,
-                          ...(data.error ? { technical: data.error } : {}),
-                        })
-                      } else {
-                        const data = await res.json()
-                        setToast({
-                          type: 'success',
-                          message: 'Changes integrated into the project',
-                          detail: `Commit ${data.sha} — ${data.subject}`,
-                        })
-                      }
-                    } catch (err) {
-                      setToast({
-                        type: 'error',
-                        message: 'Could not reach the gateway',
-                        detail: 'The integration was not attempted, so nothing changed. Check that the gateway is running and try again.',
-                        technical: String(err),
-                      })
-                    }
+                    // Integration is now a run of the agent: it commits, merges and reports through
+                    // the same SSE channel as a normal task, so the chat shows what happened.
+                    await submit('Integrate', '/v1/sessions/' + s.id + '/merge')
                   }}
                 >
                   <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -2899,6 +2982,27 @@ export default function App() {
                   </svg>
                   Integrate
                 </button>
+              )}
+              {s.project_id && s.merged && s.continuable && (
+                <button
+                  class="row-menu-item w-full flex items-center gap-2 px-3 py-2 text-sm text-accent hover:bg-accent/10"
+                  title="Create a new session from the project's current branch and keep working"
+                  onClick={async (e) => {
+                    e.stopPropagation()
+                    closeRowMenu()
+                    await continueSession(s)
+                  }}
+                >
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M5 12h14" /><path d="M12 5v14" />
+                  </svg>
+                  Continue
+                </button>
+              )}
+              {s.project_id && s.merged && s.merged_sha && (
+                <div class="row-menu-item w-full px-3 py-2 text-xs text-[#9a9aaa]">
+                  merged {shortID(s.merged_sha)}
+                </div>
               )}
               <button
                 class="row-menu-item w-full flex items-center gap-2 px-3 py-2 text-sm text-danger hover:bg-danger/10"
@@ -3311,66 +3415,112 @@ export default function App() {
             chatLoading ? ' chat-loading' : ''}`}
           data-chat-loading={chatLoading ? '1' : '0'}
         >
-          {messages.map(m => (
-            <div key={m.id} class={`msg ${m.role}${m.kind ? ' ' + m.kind : ''}`}>
-              {m.role === 'agent' && !m.kind ? (
-                <Markdown content={m.text} />
-              ) : (
-                <span>{m.text}</span>
-              )}
-              {m.changes && <ChangesCard changes={m.changes} />}
-            </div>
-          ))}
-          {/* The steps already taken in this run, above the one in progress. They
-              are transient on purpose: the conversation keeps the answer, and this
-              only shows that - and how - the agent is getting there. */}
-          {running && trail.length > 1 && (
-            <div class="activity-trail" aria-label="steps so far">
-              {trail.slice(0, activity ? -1 : undefined).map(step => {
-                // A thought or an output is several lines worth reading: it is shown
-                // clamped, and opens in full on a click. Everything else is one line.
-                const long = step.kind === 'thought'
-                const open = openSteps.has(step.id)
-                const toggle = () => setOpenSteps(prev => {
-                  const next = new Set(prev)
-                  if (next.has(step.id)) next.delete(step.id); else next.add(step.id)
-                  return next
-                })
-                if (step.kind === 'command') {
-                  const cmd = step.text.replace(/^running:\s*/, '')
-                  return (
-                    <div key={step.id} class="trail-step command term-cmd" title={cmd}>
-                      <span class="term-cmd-text">{oneLine(cmd)}</span>
-                      <ShellStatus exit={step.exit} />
+          {(() => {
+            // One group per input: the input, the steps it caused, and the answer. The input is
+            // sticky INSIDE its group, so it stays at the top while its own turn is on screen and
+            // hands over to the previous one when the reader scrolls back up past it.
+            const groups: { key: number; turn?: number; items: Message[] }[] = []
+            for (const m of messages) {
+              if (m.role === 'user' || groups.length === 0) groups.push({ key: m.id, turn: m.turn, items: [m] })
+              else groups[groups.length - 1].items.push(m)
+            }
+            return groups.map((g, gi) => {
+              const isLast = gi === groups.length - 1
+              const head = g.items[0].role === 'user' ? g.items[0] : null
+              const rest = head ? g.items.slice(1) : g.items
+              const steps = (g.turn != null ? stepsByTurn[g.turn] : undefined) ?? []
+              // Thoughts live in the thinking drawer; the chat keeps steps and actions.
+              const shown = steps.filter(st => st.kind !== 'thought')
+              const liveHere = running && isLast
+              // The step in progress is the activity line below, so it is not drawn twice.
+              const trail = liveHere && activity ? shown.slice(0, -1) : shown
+              const canGoBack = head != null && g.turn != null && cpInfo[g.turn] !== undefined && !running
+              return (
+                <div key={g.key} class="turn">
+                  {head && (
+                    <div class="turn-head">
+                      <div class="msg user"><span>{head.text}</span></div>
+                      {canGoBack && (
+                        <div class="cp-wrap">
+                          <button
+                            type="button"
+                            class="cp-btn"
+                            aria-label="Checkpoint menu"
+                            aria-haspopup="menu"
+                            aria-expanded={cpMenu === g.turn}
+                            title="Checkpoint"
+                            onClick={() => { setCpArmed(false); setCpMenu(m => m === g.turn ? null : g.turn!) }}
+                          >
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+                              <circle cx="12" cy="5" r="1.8" /><circle cx="12" cy="12" r="1.8" /><circle cx="12" cy="19" r="1.8" />
+                            </svg>
+                          </button>
+                          {cpMenu === g.turn && (
+                            <div class="cp-menu" role="menu">
+                              <button type="button" role="menuitem" onClick={() => restoreCheckpoint(g.turn!, false)}>
+                                Go back to this checkpoint
+                                <small>conversation only</small>
+                              </button>
+                              <button
+                                type="button"
+                                role="menuitem"
+                                class={cpArmed ? 'is-armed' : ''}
+                                disabled={!cpInfo[g.turn!]?.files}
+                                title={cpInfo[g.turn!]?.files ? '' : 'This checkpoint did not keep the files'}
+                                onClick={(e) => {
+                                  if (!cpArmed) { e.stopPropagation(); setCpArmed(true); return }
+                                  restoreCheckpoint(g.turn!, true)
+                                }}
+                              >
+                                {cpArmed ? 'Click again: discard changes since' : 'Go back and restore the changes'}
+                                <small>conversation and files</small>
+                              </button>
+                            </div>
+                          )}
+                        </div>
+                      )}
                     </div>
-                  )
-                }
-                return long ? (
-                  <div key={step.id} class={`trail-step ${step.kind} is-long${open ? ' is-open' : ''}`} onClick={toggle}>
-                    <MarkdownLite content={stepText(step)} />
-                  </div>
-                ) : (
-                  <div key={step.id} class={`trail-step ${step.kind}`} title={step.text}>{oneLine(step.text)}</div>
-                )
-              })}
-            </div>
-          )}
-          {running && liveThought && (
-            <div class="msg thought-live" aria-live="off">
-              <div class="thought-label"><span class="spin-reasoning" aria-hidden="true"></span>thinking…</div>
-              <div class="thought-text"><MarkdownLite content={liveThought} chunks /></div>
-            </div>
-          )}
-          {activity && (
-            <div class={`msg activity ${activityKind}`} style={{ whiteSpace: activityKind === 'thought' ? 'normal' : 'pre-wrap' }}>
-              <span class={`spin-${activityKind || 'default'}`}></span>
-              {activityKind === 'thought'
-                ? <MarkdownLite content={activity.slice(THOUGHT_PREFIX.length)} />
-                : activityKind === 'command'
-                  ? <><span class="term-cmd-text">{oneLine(activity.replace(/^running:\s*/, ''))}</span><ShellStatus exit={trail.length ? trail[trail.length - 1].exit : null} /></>
-                  : activity}
-            </div>
-          )}
+                  )}
+                  {trail.length > 0 && (
+                    <div class="activity-trail" aria-label="steps">
+                      {trail.map((step, i) => {
+                        if (step.kind === 'command') {
+                          const cmd = step.text.replace(/^running:\s*/, '')
+                          return (
+                            <div key={i} class="trail-step command term-cmd" title={cmd}>
+                              <span class="term-cmd-text">{oneLine(cmd)}</span>
+                              <ShellStatus exit={step.exit} settled={!liveHere} />
+                            </div>
+                          )
+                        }
+                        return <div key={i} class={`trail-step ${classifyProgress(step.text) ?? ''}`} title={step.text}>{oneLine(step.text)}</div>
+                      })}
+                    </div>
+                  )}
+                  {rest.map(m => (
+                    <div key={m.id} class={`msg ${m.role}${m.kind ? ' ' + m.kind : ''}`}>
+                      {m.role === 'agent' && !m.kind && m.report ? (
+                        <ReportCard report={m.report} />
+                      ) : m.role === 'agent' && !m.kind ? (
+                        <Markdown content={m.text} />
+                      ) : (
+                        <span>{m.text}</span>
+                      )}
+                      {m.changes && <ChangesCard changes={m.changes} />}
+                    </div>
+                  ))}
+                  {liveHere && activity && (
+                    <div class={`msg activity ${activityKind}`} style={{ whiteSpace: 'pre-wrap' }}>
+                      <span class={`spin-${activityKind || 'default'}`}></span>
+                      {activityKind === 'command'
+                        ? <><span class="term-cmd-text">{oneLine(activity.replace(/^running:\s*/, ''))}</span><ShellStatus exit={shown.length ? shown[shown.length - 1].exit : null} /></>
+                        : activity}
+                    </div>
+                  )}
+                </div>
+              )
+            })
+          })()}
         </main>
 
         {/* The terminal drawer: everything the agent ran in this conversation, input and
@@ -3384,7 +3534,7 @@ export default function App() {
             aria-expanded={termOpen}
             aria-controls="term-panel"
             title={termOpen ? 'Close the terminal' : 'Open the terminal history'}
-            onClick={() => setTermOpen(o => !o)}
+            onClick={() => { setTermOpen(o => !o); setThinkOpen(false) }}
           >
             <span class="term-tab-label">TTY</span>
             {shellLog.length > 0 && <span class="term-tab-count">{shellLog.length}</span>}
@@ -3398,11 +3548,7 @@ export default function App() {
             <div
               class="term-screen"
               ref={termBodyRef}
-              onScroll={onTermScroll}
-              onWheel={markTermUser}
-              onTouchStart={markTermUser}
-              onTouchMove={markTermUser}
-              onPointerDown={() => { termDragging.current = true; markTermUser() }}
+              {...term.handlers}
             >
               {shellLog.length === 0 && <TermEmpty onTick={stickTerm} />}
               {(() => {
@@ -3435,6 +3581,55 @@ export default function App() {
             </div>
           </div>
         </div>
+
+        {/* The thinking drawer: the model's reasoning, on the same retro screen as the terminal
+            but orange. The reasoning does not go into the chat any more - the chat keeps the
+            steps and the actions - so this is where it is written live and where it stays
+            afterwards. Its tab sits above the terminal's; opening one closes the other. */}
+        {(() => {
+          const thoughts: { key: string; text: string; live?: boolean }[] = []
+          for (const t of Object.keys(stepsByTurn).map(Number).sort((a, b) => a - b)) {
+            stepsByTurn[t].forEach((st, i) => {
+              if (st.kind === 'thought') thoughts.push({ key: t + ':' + i, text: st.text.replace(/^thinking:\s*/, '') })
+            })
+          }
+          if (running && liveThought) thoughts.push({ key: 'live', text: liveThought, live: true })
+          return (
+            <div class={`term-drawer is-think${thinkOpen ? ' is-open' : ''}`}>
+              <button
+                type="button"
+                class={`term-tab${running && liveThought ? ' is-live' : ''}`}
+                aria-expanded={thinkOpen}
+                aria-controls="think-panel"
+                title={thinkOpen ? 'Close the thinking' : 'Open the thinking'}
+                onClick={() => { setThinkOpen(o => !o); setTermOpen(false) }}
+              >
+                <span class="term-tab-label">THINK</span>
+                {thoughts.length > 0 && <span class="term-tab-count">{thoughts.length}</span>}
+              </button>
+              <div class="term-panel" id="think-panel" role="region" aria-label="thinking" aria-hidden={!thinkOpen}>
+                <div class="term-titlebar">
+                  <span>motita@mind — {thoughts.length} thought{thoughts.length === 1 ? '' : 's'}</span>
+                  <button type="button" class="term-close" onClick={() => setThinkOpen(false)} aria-label="Close the thinking" tabIndex={thinkOpen ? 0 : -1}>×</button>
+                </div>
+                <div class="term-viewport">
+                  <div class="term-screen" ref={think.ref} {...think.handlers}>
+                    {thoughts.length === 0 && <div class="term-empty">no thoughts yet<span class="term-caret" /></div>}
+                    {thoughts.map(t => (
+                      <div key={t.key} class={`think-entry${t.live ? ' is-live' : ''}`}>
+                        <pre class="think-text">{t.text}</pre>
+                      </div>
+                    ))}
+                  </div>
+                  <div class="term-fx term-fx-scan" aria-hidden="true" />
+                  <div class="term-fx term-fx-sweep" aria-hidden="true" />
+                  <div class="term-fx term-fx-noise" aria-hidden="true" />
+                  <div class="term-fx term-fx-vignette" aria-hidden="true" />
+                </div>
+              </div>
+            </div>
+          )
+        })()}
 
         {/* The session modal: a small centred card, not a full-bleed overlay.
             It says what is happening ("Loading session") rather than covering the page, and
@@ -3496,6 +3691,14 @@ export default function App() {
           class="frosted flex gap-2 px-3 py-2.5 sm:px-5 sm:py-3 border-t border-white/5 flex-none z-10 relative"
           onSubmit={handleSubmit}
         >
+          {isMerged && (
+            <span class="inline-flex items-center gap-1.5 px-2.5 py-2 rounded-xl text-xs font-semibold bg-[#f0a040]/15 text-[#f0a040] border border-[#f0a040]/20 flex-none">
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M12 2v20M2 12h20" />
+              </svg>
+              Merged — Read Only
+            </span>
+          )}
           {/* Slash command autocomplete popup — positioned above the textarea,
               inside the form so it tracks the input position. */}
           {slashPopup && (
@@ -3554,6 +3757,7 @@ export default function App() {
               id="task"
               rows={1}
               value={input}
+              disabled={isMerged}
               onInput={(e) => {
               const val = (e.target as HTMLTextAreaElement).value
               setInput(val)
@@ -3587,13 +3791,13 @@ export default function App() {
               }
             }}
             onKeyDown={handleKeydown}
-            placeholder={activeTags.length > 0 ? 'argument…' : 'Ask for something…'}
-            class="flex-1 min-h-[28px] max-h-[100px] px-1 py-1 bg-transparent border-0 outline-none ring-0 text-[#e8e8ea] resize-none focus:outline-none focus:ring-0 focus:border-0 font-sans text-[14px] leading-relaxed"
+            placeholder={isMerged ? 'This session is read-only after integration' : activeTags.length > 0 ? 'argument…' : 'Ask for something…'}
+            class="flex-1 min-h-[28px] max-h-[100px] px-1 py-1 bg-transparent border-0 outline-none ring-0 text-[#e8e8ea] resize-none focus:outline-none focus:ring-0 focus:border-0 font-sans text-[14px] leading-relaxed disabled:opacity-50 disabled:cursor-not-allowed"
           />
           </div>
           <button
             type="submit"
-            disabled={running}
+            disabled={running || isMerged}
             class="min-h-[44px] min-w-[44px] px-5 sm:px-6 rounded-2xl bg-accent text-white font-semibold disabled:opacity-40 active:scale-95 transition-transform flex items-center justify-center"
           >
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
