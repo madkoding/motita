@@ -31,9 +31,24 @@ func TestCompletionsWhenAnAliasIsTheOnlyMatch(t *testing.T) {
 // TestCompletionsWithNoLeadingSlash: the function is given whatever the caller has, and a bare
 // word must be treated as the start of a command.
 func TestCompletionsWithNoLeadingSlash(t *testing.T) {
-	got := completions("pl")
-	if len(got) != 1 || got[0].Name != "/plan" {
-		t.Errorf("completions(pl) = %v, want /plan", got)
+	// A bare word is a message, not a command being typed: completing it is how "new" sent as a
+	// message cleared the conversation and "good" typed as an answer was recorded as a rating.
+	for _, word := range []string{"pl", "new", "good", "a", ""} {
+		if got := completions(word); got != nil {
+			t.Errorf("completions(%q) = %v, want none", word, got)
+		}
+	}
+	if got := completions("/pl"); len(got) != 1 || got[0].Name != "/plan" {
+		t.Errorf("completions(/pl) = %v, want /plan", got)
+	}
+}
+
+// TestAOneWordMessageIsSentAsAMessage: Enter on a bare word that names a command sends the word.
+func TestAOneWordMessageIsSentAsAMessage(t *testing.T) {
+	tu, _ := newKeyTUI("")
+	tu.draft = "good"
+	if line := tu.acceptLine(); line != "good" {
+		t.Errorf("acceptLine = %q, want the word itself", line)
 	}
 }
 
@@ -85,19 +100,23 @@ func TestTheContextLabelShowsPercentageAndCounts(t *testing.T) {
 	}
 }
 
-// TestTheBottomBarKeepsTheModeAndContextWhenThereIsNoRoom: the two ends must survive a narrow
-// terminal, and the key hints are what gives way.
+// TestTheBottomBarKeepsTheModeAndContextWhenThereIsNoRoom: on a narrow terminal the footer gives
+// up its least important keys first, then the context gauge, and keeps the key that sends.
 func TestTheBottomBarKeepsTheModeAndContextWhenThereIsNoRoom(t *testing.T) {
 	tu, _ := newKeyTUI("", "")
 	tu.Runner.(*fakeRunner).snapshot = session.Snapshot{Window: 1000, Tokens: 10, Used: 0.01}
 	tu.Width, tu.Height = 30, 24
 
 	got := stripANSI(tu.bottomBar(30))
-	if !strings.Contains(got, "Task") {
-		t.Errorf("the mode must survive: %q", got)
+	if !strings.Contains(got, "Enter send") {
+		t.Errorf("the key that sends must survive: %q", got)
 	}
-	if !strings.Contains(got, "context") {
-		t.Errorf("the context must survive: %q", got)
+	if strings.Contains(got, "quit") {
+		t.Errorf("the least important hints must go first: %q", got)
+	}
+	// Wide enough, the context is there beside the keys.
+	if wide := stripANSI(tu.bottomBar(120)); !strings.Contains(wide, "context 1%") {
+		t.Errorf("the context must be shown when there is room: %q", wide)
 	}
 	if visibleLen(got) > 30 {
 		t.Errorf("the bar overflows the terminal (%d cols): %q", visibleLen(got), got)
@@ -111,8 +130,8 @@ func TestTheBottomBarWithNoRoomAtAll(t *testing.T) {
 	tu.Runner.(*fakeRunner).snapshot = session.Snapshot{Window: 1000, Tokens: 10, Used: 0.01}
 
 	got := stripANSI(tu.bottomBar(2))
-	if !strings.Contains(got, "Task") {
-		t.Errorf("the mode is the last thing to go: %q", got)
+	if !strings.Contains(got, "Enter") {
+		t.Errorf("the key that sends is the last thing to go: %q", got)
 	}
 }
 
@@ -124,7 +143,7 @@ func TestScrollIsReportedInTheBottomBar(t *testing.T) {
 	tu.scroll = 3
 
 	got := stripANSI(tu.bottomBar(100))
-	if !strings.Contains(got, "3") || !strings.Contains(got, "back") {
+	if !strings.Contains(got, "3") || !strings.Contains(got, "lines up") {
 		t.Errorf("the scroll position must be reported: %q", got)
 	}
 }
@@ -145,14 +164,17 @@ func TestTheStatusLineFallsBackToTheDocumentedDefaults(t *testing.T) {
 	}
 }
 
-// TestTheStatusLineNeverReportsTheKey: the user who reached a chat has a working key, and
-// printing it — or its state — on every repaint is noise. This is asserted rather than
-// assumed because it was a visible part of the old design.
+// TestTheStatusLineNeverReportsTheKey: a setup that HAS a key shows nothing about it - the value,
+// a fragment of it, or a "key ok" that the eye learns to skip. Only a missing key is news.
 func TestTheStatusLineNeverReportsTheKey(t *testing.T) {
 	tu, _ := newKeyTUI("", "")
+	cfg := config.Default()
+	cfg.LLM.APIKey = "sk-canary-value"
+	tu.Runner.(*fakeRunner).cfg = cfg
+	tu.Runner.(*fakeRunner).cfgSet = true
 	joined := stripANSI(strings.Join(tu.statusLines(100), "\n"))
 
-	for _, unwanted := range []string{"key", "ready", "sk-"} {
+	for _, unwanted := range []string{"key", "ready", "sk-", "canary"} {
 		if strings.Contains(strings.ToLower(joined), unwanted) {
 			t.Errorf("the status line must not mention %q: %q", unwanted, joined)
 		}
@@ -334,27 +356,25 @@ func TestTheComposerIsPeggedToTheBottom(t *testing.T) {
 	if prompt == "" {
 		t.Fatal("the composer must be drawn")
 	}
-	// The stack from the bottom: status bar, rule, input field (inputRows tall), then a blank
-	// row that gives the conversation breathing room before the input box — the divider
-	// above the input was removed because it read as the bottom of the chat and made the
-	// whole input block look "shifted up" against the cursor at its top.
+	// The stack from the bottom: the footer, the box's bottom border, the input field
+	// (inputRows tall), then the box's top border, which carries the mode.
 	n := len(lines)
-	if got := stripANSI(lines[n-1]); !strings.Contains(got, "Task") {
-		t.Errorf("the last row must be the status bar, got %q", got)
+	if got := stripANSI(lines[n-1]); !strings.Contains(got, "Enter send") {
+		t.Errorf("the last row must be the footer, got %q", got)
 	}
-	if got := lines[n-2]; setOf(got) != "─" {
-		t.Errorf("the second-to-last row must be the rule, got %q", stripANSI(got))
+	if got := stripANSI(lines[n-2]); !strings.HasPrefix(strings.TrimSpace(got), glyphBotLeft) {
+		t.Errorf("the second-to-last row must close the box, got %q", got)
 	}
 	// Measured layout, from the bottom up:
 	//
-	//	n-1         status bar
-	//	n-2         rule
+	//	n-1         footer
+	//	n-2         the box's bottom border
 	//	n-2-i .. n-3  the input field (inputRows rows)
-	//	n-3-i       the blank row above the input, separating the chat from the composer
+	//	n-3-i       the box's top border, titled with the mode
 	fieldStart := n - 2 - inputRows
 	above := stripANSI(lines[fieldStart-1])
-	if strings.TrimSpace(above) != "" {
-		t.Errorf("the row above the input must be a blank, got %q", above)
+	if !strings.Contains(above, glyphTopLeft) || !strings.Contains(above, "Task") {
+		t.Errorf("the row above the input must open the box with the mode, got %q", above)
 	}
 	field := lines[fieldStart : n-2]
 	if len(field) != inputRows {
@@ -407,22 +427,6 @@ func TestTheModeIsNamedExactlyOnce(t *testing.T) {
 		t.Errorf("Plan must appear on exactly one row, found %d:\n%s",
 			count, stripANSI(strings.Join(lines, "\n")))
 	}
-}
-
-// setOf is the set of distinct non-space runes in a decorated line: how a divider is recognised
-// without hard-coding its width.
-func setOf(decorated string) string {
-	seen := map[rune]bool{}
-	for _, r := range stripANSI(decorated) {
-		if r != ' ' {
-			seen[r] = true
-		}
-	}
-	out := ""
-	for r := range seen {
-		out += string(r)
-	}
-	return out
 }
 
 // TestTheFrameNeverWritesPastTheLastRow: the number of line breaks a frame writes must be one
@@ -732,12 +736,13 @@ func TestTheInputFieldIsAFixedHeight(t *testing.T) {
 	tu, _ := newKeyTUI("", "")
 	tu.Width, tu.Height = 80, 24
 	tu.draft = "one line"
-	if got := len(tu.composerLines()); got != inputRows {
-		t.Errorf("composerLines = %d rows, want %d", got, inputRows)
+	// The field is inputRows tall, inside the box's two borders.
+	if got := len(tu.composerLines()); got != inputRows+2 {
+		t.Errorf("composerLines = %d rows, want %d", got, inputRows+2)
 	}
 	tu.draft = strings.Repeat("largo ", 80)
-	if got := len(tu.composerLines()); got != inputRows {
-		t.Errorf("composerLines with a long draft = %d rows, want %d", got, inputRows)
+	if got := len(tu.composerLines()); got != inputRows+2 {
+		t.Errorf("composerLines with a long draft = %d rows, want %d", got, inputRows+2)
 	}
 }
 
@@ -771,70 +776,6 @@ func TestWrapVisibleKeepsEscapesWithTheirText(t *testing.T) {
 	if !strings.Contains(got[0], "\x1b[31m") {
 		t.Errorf("the escape was not kept with its text: %q", got[0])
 	}
-}
-
-// TestTheStatusLineIsCentred: the identity line sits under the wordmark and must be on the
-// mark's axis, not against the left edge.
-func TestTheStatusLineIsCentred(t *testing.T) {
-	tu, _ := newKeyTUI("", "")
-	tu.Width, tu.Height = 100, 24
-
-	line := stripANSI(tu.statusLines(100)[0])
-	left := len(line) - len(strings.TrimLeft(line, " "))
-	content := len(strings.TrimSpace(line))
-
-	// It is centred in the drawing area, so the lead equals what the lead would be for a
-	// centred string of this length: (room - content) / 2, plus the margin. Trailing padding is
-	// not written — a row that ends where its text ends is what the frame expects.
-	room := 100 - leftMargin - 1
-	want := leftMargin + (room-content)/2
-	if left != want {
-		t.Errorf("the status line is off centre: lead %d, want %d:\n%q", left, want, line)
-	}
-	// And it is genuinely indented from the left edge, not flush against it.
-	if left <= leftMargin {
-		t.Errorf("the status line is not centred at all: %d columns of lead:\n%q", left, line)
-	}
-}
-
-// TestPadCenterAlignsWithTheFrame: the wordmark and everything else must be centred inside the
-// same box, or the mark sits half a column off the panels beneath it.
-func TestPadCenterAlignsWithTheFrame(t *testing.T) {
-	for _, w := range []int{80, 81, 100, 101} {
-		tu, _ := newKeyTUI("", "")
-		tu.Width = w
-
-		got := stripANSI(tu.padCenter(tu.brand("motita"), w))
-		left := len(got) - len(strings.TrimLeft(got, " "))
-		content := len(strings.TrimSpace(got))
-
-		room := w - leftMargin - 1
-		want := leftMargin + (room-content)/2
-		if left != want {
-			t.Errorf("width %d: the mark leads with %d columns, want %d", w, left, want)
-		}
-	}
-}
-
-// TestCenterPlainReservesTheMargin: an oversized string keeps the left margin, because the
-// margin is part of the drawing area for every row.
-func TestCenterPlainReservesTheMargin(t *testing.T) {
-	tu, _ := newKeyTUI("", "")
-
-	got := stripANSI(tu.centerPlain(strings.Repeat("x", 200), 40))
-	if !strings.HasPrefix(got, "  ") {
-		t.Errorf("the margin must be kept: %q", got[:min(10, len(got))])
-	}
-	if strings.Contains(got, "\n") {
-		t.Error("centring must never introduce a line break")
-	}
-}
-
-func min(a, b int) int {
-	if a < b {
-		return a
-	}
-	return b
 }
 
 // TestChatRowsHitsItsFloorOnAShortTerminal: between the size gate and the height the fixed rows
@@ -913,9 +854,9 @@ func TestTheCursorFollowsTheInputAsItWraps(t *testing.T) {
 		}
 		// The column must be where the drawn text ENDS on that row: one past its last character.
 		drawn := stripANSI(lines[row])
-		if col-1 != visibleLen(drawn) && n > 0 {
-			t.Errorf("n=%d: the cursor is at column %d but the row is %d columns wide: %q",
-				n, col-1, visibleLen(drawn), drawn)
+		if col-1 != textEnd(drawn) && n > 0 {
+			t.Errorf("n=%d: the cursor is at column %d but the row's text ends at %d: %q",
+				n, col-1, textEnd(drawn), drawn)
 		}
 	}
 }

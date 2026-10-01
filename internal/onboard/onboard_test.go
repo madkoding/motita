@@ -13,6 +13,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -79,8 +80,8 @@ func TestGeneratedConfigIsAcceptedByTheProgram(t *testing.T) {
 // how to log in instead.
 func TestClaudeCodeAsksForNoKey(t *testing.T) {
 	dir := t.TempDir()
-	// provider, model (default), check (always pass): nothing else may be asked.
-	out, res, err := run(context.Background(), t, dir, []string{"claude-code", "", "3"}, Answers{})
+	// provider, model (default), check (no check), save: nothing else may be asked.
+	out, res, err := run(context.Background(), t, dir, []string{"claude-code", "", "3", ""}, Answers{})
 	if err != nil {
 		t.Fatalf("Run: %v", err)
 	}
@@ -91,7 +92,7 @@ func TestClaudeCodeAsksForNoKey(t *testing.T) {
 		t.Errorf("no credentials file may be written: %v", err)
 	}
 	plain := stripANSI(out)
-	for _, asked := range []string{"API endpoint", "API key", "Authentication"} {
+	for _, asked := range []string{"API base URL", "Paste the key", "How do you want to sign in"} {
 		if strings.Contains(plain, asked) {
 			t.Errorf("the wizard asked for %q", asked)
 		}
@@ -199,7 +200,7 @@ func TestChooseProviderByNumber(t *testing.T) {
 	stubDirectAuth(t, "test-token")
 	provider := Providers()[4] // anthropic
 	model := provider.Models[0].ID
-	out, res, err := run(context.Background(), t, dir, []string{"5", "1", "3", "", "1"}, Answers{})
+	out, res, err := run(context.Background(), t, dir, []string{"5", "", "1", "3", ""}, Answers{})
 	if err != nil {
 		t.Fatalf("Run: %v", err)
 	}
@@ -209,7 +210,7 @@ func TestChooseProviderByNumber(t *testing.T) {
 	if res.Model != model {
 		t.Errorf("model = %q, want %q", res.Model, model)
 	}
-	if !strings.Contains(out, "Choose your LLM provider") {
+	if !strings.Contains(out, "Which AI provider do you want to use?") {
 		t.Errorf("the provider question must be asked: %q", out)
 	}
 }
@@ -217,7 +218,7 @@ func TestChooseProviderByNumber(t *testing.T) {
 func TestChooseProviderByName(t *testing.T) {
 	dir := t.TempDir()
 	stubDirectAuth(t, "test-token")
-	_, res, err := run(context.Background(), t, dir, []string{"gemini", "2", "3", "", "1"}, Answers{})
+	_, res, err := run(context.Background(), t, dir, []string{"gemini", "1", "2", "3", ""}, Answers{})
 	if err != nil {
 		t.Fatalf("Run: %v", err)
 	}
@@ -229,7 +230,7 @@ func TestChooseProviderByName(t *testing.T) {
 // TestChooseProviderTakesTheDefault: pressing Enter must pick the first option.
 func TestChooseProviderTakesTheDefault(t *testing.T) {
 	dir := t.TempDir()
-	_, res, err := run(context.Background(), t, dir, []string{"", "", "3", "", ""}, Answers{})
+	_, res, err := run(context.Background(), t, dir, []string{"", "", "", "", "3", ""}, Answers{})
 	if err != nil {
 		t.Fatalf("Run: %v", err)
 	}
@@ -245,7 +246,7 @@ func TestChooseProviderTakesTheDefault(t *testing.T) {
 // and a number outside the list is refused.
 func TestChooseProviderRejectsGarbage(t *testing.T) {
 	dir := t.TempDir()
-	out, res, err := run(context.Background(), t, dir, []string{"nonsense", "9", "openai", "1", "3", "", ""}, Answers{})
+	out, res, err := run(context.Background(), t, dir, []string{"nonsense", "9", "openai", "", "", "1", "3", ""}, Answers{})
 	if err != nil {
 		t.Fatalf("Run: %v", err)
 	}
@@ -310,23 +311,16 @@ func TestOllamaKeyPromptError(t *testing.T) {
 	}
 }
 
-// menuEntryPresent reports whether a label appears as a numbered menu entry in
-// the wizard output — the pattern "  N. Label" — as opposed to a bare substring
-// match that would fire inside another provider's longer label.
-func menuEntryPresent(out, label string) bool {
-	for _, line := range strings.Split(out, "\n") {
-		line = strings.TrimSpace(line)
-		// A menu entry looks like "1. Label — note" or "1. Label".
-		dot := strings.Index(line, ". ")
-		if dot < 0 {
+// menuEntryPresent reports whether an id appears as a numbered menu entry in
+// the wizard output — the pattern "N  id  note" — as opposed to a bare substring
+// match that would fire inside another entry's description.
+func menuEntryPresent(out, id string) bool {
+	for _, line := range strings.Split(stripANSI(out), "\n") {
+		f := strings.Fields(line)
+		if len(f) < 2 {
 			continue
 		}
-		rest := strings.TrimSpace(line[dot+2:])
-		// Strip the " — note" suffix to compare only the label.
-		if dash := strings.Index(rest, " — "); dash >= 0 {
-			rest = rest[:dash]
-		}
-		if rest == label {
+		if _, err := strconv.Atoi(f[0]); err == nil && f[1] == id {
 			return true
 		}
 	}
@@ -359,14 +353,23 @@ func TestChooseModelIsLimitedToTheProvider(t *testing.T) {
 		// Providers with SupportsDirectAuth ask an extra question (how to
 		// authenticate) before the key prompt.
 		var answers []string
-		if p.FetchModels {
+		switch {
+		case p.FetchModels:
 			stubOllamaModels(t, []string{"llama3.3", "qwen2.5"})
+			// provider, host (cloud), key, model, anchor, save
 			answers = []string{p.ID, "2", "dummy-key", "", "3", ""}
-		} else if p.SupportsDirectAuth {
-			// provider, model, anchor(always pass), baseURL(default), auth(direct)
-			answers = []string{p.ID, "", "3", "", "1"}
-		} else {
-			answers = []string{p.ID, "", "3", "", ""}
+		case p.SupportsDirectAuth:
+			// provider, auth (direct), model, anchor (no check), save
+			answers = []string{p.ID, "1", "", "3", ""}
+		case p.Login != "":
+			// provider, model, anchor, save: a login of its own needs nothing else
+			answers = []string{p.ID, "", "3", ""}
+		case p.AskBaseURL:
+			// provider, endpoint, key, model, anchor, save
+			answers = []string{p.ID, "", "", "", "3", ""}
+		default:
+			// provider, key, model, anchor, save
+			answers = []string{p.ID, "", "", "3", ""}
 		}
 		out, res, err := run(context.Background(), t, dir, answers, Answers{})
 		if err != nil {
@@ -381,6 +384,10 @@ func TestChooseModelIsLimitedToTheProvider(t *testing.T) {
 		if res.Model != wantModel {
 			t.Errorf("%s: model = %q, want %q", p.ID, res.Model, wantModel)
 		}
+		// The matcher below must be able to see a menu entry at all, or every "absent" is vacuous.
+		if !menuEntryPresent(out, wantModel) {
+			t.Errorf("%s: the menu does not list its own first model %q:\n%s", p.ID, wantModel, stripANSI(out))
+		}
 		// No model of any other provider may appear in the menu. Model IDs and
 		// even label substrings can legitimately overlap across providers (gpt-4o
 		// is offered by both openai and copilot), so the check looks for the
@@ -391,7 +398,10 @@ func TestChooseModelIsLimitedToTheProvider(t *testing.T) {
 				continue
 			}
 			for _, m := range other.Models {
-				if menuEntryPresent(out, m.Label) {
+				if ownModel(p, m.ID) {
+					continue // the same id offered by both (gpt-4.1 by OpenAI and Copilot)
+				}
+				if menuEntryPresent(out, m.ID) {
 					t.Errorf("%s: the menu offers %s, from %s", p.ID, m.Label, other.ID)
 				}
 			}
@@ -399,11 +409,21 @@ func TestChooseModelIsLimitedToTheProvider(t *testing.T) {
 	}
 }
 
+// ownModel reports whether a provider offers a model id itself.
+func ownModel(p Provider, id string) bool {
+	for _, m := range p.Models {
+		if m.ID == id {
+			return true
+		}
+	}
+	return false
+}
+
 // TestChooseModelAcceptsAFreeTextID: the catalogue is a shortcut, not a limit;
 // models appear faster than any list can follow.
 func TestChooseModelAcceptsAFreeTextID(t *testing.T) {
 	dir := t.TempDir()
-	_, res, err := run(context.Background(), t, dir, []string{"openai", "gpt-5.2-turbo-experimental", "3", "", ""}, Answers{})
+	_, res, err := run(context.Background(), t, dir, []string{"openai", "", "", "gpt-5.2-turbo-experimental", "3", ""}, Answers{})
 	if err != nil {
 		t.Fatalf("Run: %v", err)
 	}
@@ -568,7 +588,7 @@ func TestOllamaWizardRequiresKeyBeforeModel(t *testing.T) {
 		t.Fatalf("Run: %v", err)
 	}
 	keyIdx := strings.Index(out, "Paste the key")
-	modelIdx := strings.Index(out, "Choose a model")
+	modelIdx := strings.Index(out, "Which model should motita use?")
 	if keyIdx == -1 || modelIdx == -1 || keyIdx > modelIdx {
 		t.Errorf("the key prompt must come before the model prompt:\n%s", out)
 	}
@@ -623,10 +643,10 @@ func TestGeneratedHeaderNamesTheProviderVariable(t *testing.T) {
 		want     string
 		answers  []string
 	}{
-		// ollama: provider, key, model, anchor
-		{"ollama", "OLLAMA_API_KEY", []string{"ollama", "2", "k", "", "3"}},
-		// openai: provider, model, anchor, base URL, key
-		{"openai", "MOTITA_LLM_API_KEY", []string{"openai", "", "3", "", "k"}},
+		// ollama: provider, host (cloud), key, model, anchor, save
+		{"ollama", "OLLAMA_API_KEY", []string{"ollama", "2", "k", "", "3", ""}},
+		// openai: provider, endpoint, key, model, anchor, save
+		{"openai", "MOTITA_LLM_API_KEY", []string{"openai", "", "k", "", "3", ""}},
 	} {
 		dir := t.TempDir()
 		if tc.provider == "ollama" {
@@ -650,7 +670,7 @@ func TestGeneratedHeaderNamesTheProviderVariable(t *testing.T) {
 
 func TestChooseAnchorWithACommand(t *testing.T) {
 	dir := t.TempDir()
-	_, _, err := run(context.Background(), t, dir, []string{"openai", "1", "2", "go", "3", "", ""}, Answers{})
+	_, _, err := run(context.Background(), t, dir, []string{"openai", "", "", "1", "2", "go", ""}, Answers{})
 	if err != nil {
 		t.Fatalf("Run: %v", err)
 	}
@@ -665,13 +685,12 @@ func TestChooseAnchorWithACommand(t *testing.T) {
 
 // TestChooseAnchorDefaultIsMakeTest: pressing Enter takes the sensible default.
 //
-// The order of the questions is: provider, model, anchor, base URL, key — so the
-// ANCHOR is the THIRD answer. With the anchor question's third option being "no
-// check", the sequence here is provider=openai, model=1, anchor=2 (a command,
-// answered with the empty line that takes the `make test` default).
+// The order of the questions is: provider, endpoint, key, model, check, save — so the
+// sequence here is provider=openai, the default endpoint, no key, model=1, check=2 (a
+// command, answered with the empty line that takes the `make test` default), save.
 func TestChooseAnchorDefaultIsMakeTest(t *testing.T) {
 	dir := t.TempDir()
-	_, _, err := run(context.Background(), t, dir, []string{"openai", "1", "2", "", "3", "", ""}, Answers{})
+	_, _, err := run(context.Background(), t, dir, []string{"openai", "", "", "1", "2", "", ""}, Answers{})
 	if err != nil {
 		t.Fatalf("Run: %v", err)
 	}
@@ -688,7 +707,7 @@ func TestChooseAnchorDefaultIsMakeTest(t *testing.T) {
 // which refuses to declare PASS and says why. The full reasoning is in anchor_test.go.
 func TestChooseAnchorNoCheckIsHonest(t *testing.T) {
 	dir := t.TempDir()
-	_, _, err := run(context.Background(), t, dir, []string{"openai", "1", "3", "", ""}, Answers{})
+	_, _, err := run(context.Background(), t, dir, []string{"openai", "", "", "1", "3", ""}, Answers{})
 	if err != nil {
 		t.Fatalf("Run: %v", err)
 	}
@@ -703,7 +722,7 @@ func TestChooseAnchorNoCheckIsHonest(t *testing.T) {
 
 func TestChooseAnchorRejectsGarbage(t *testing.T) {
 	dir := t.TempDir()
-	out, _, err := run(context.Background(), t, dir, []string{"openai", "1", "4", "1", "3", "", ""}, Answers{})
+	out, _, err := run(context.Background(), t, dir, []string{"openai", "", "", "1", "4", "1", ""}, Answers{})
 	if err != nil {
 		t.Fatalf("Run: %v", err)
 	}
@@ -718,7 +737,7 @@ func TestChooseAnchorRejectsGarbage(t *testing.T) {
 // configuration with 0600 permissions and never inside the configuration.
 func TestTheKeyGoesToItsOwnFile(t *testing.T) {
 	dir := t.TempDir()
-	_, res, err := run(context.Background(), t, dir, []string{"openai", "1", "3", "", "sk-secret-value"}, Answers{})
+	_, res, err := run(context.Background(), t, dir, []string{"openai", "", "sk-secret-value", "1", "3", ""}, Answers{})
 	if err != nil {
 		t.Fatalf("Run: %v", err)
 	}
@@ -755,7 +774,7 @@ func TestTheKeyGoesToItsOwnFile(t *testing.T) {
 // environment, and the summary says which variable to export.
 func TestNoKeyMeansNoCredentialsFile(t *testing.T) {
 	dir := t.TempDir()
-	out, res, err := run(context.Background(), t, dir, []string{"openai", "1", "3", "", ""}, Answers{})
+	out, res, err := run(context.Background(), t, dir, []string{"openai", "", "", "1", "3", ""}, Answers{})
 	if err != nil {
 		t.Fatalf("Run: %v", err)
 	}
@@ -771,7 +790,7 @@ func TestNoKeyMeansNoCredentialsFile(t *testing.T) {
 // the value has to be quoted safely.
 func TestAKeyWithQuotesCannotBreakTheFile(t *testing.T) {
 	dir := t.TempDir()
-	_, res, err := run(context.Background(), t, dir, []string{"openai", "1", "3", "", "it's a 'weird' key"}, Answers{})
+	_, res, err := run(context.Background(), t, dir, []string{"openai", "", "it's a 'weird' key", "1", "3", ""}, Answers{})
 	if err != nil {
 		t.Fatalf("Run: %v", err)
 	}
@@ -1000,10 +1019,11 @@ func TestReadErrorAtEachQuestion(t *testing.T) {
 		preset    Answers
 	}{
 		{"provider", 0, Answers{}},
-		{"model", 1, Answers{}},
-		{"anchor", 2, Answers{}},
-		{"base_url", 3, Answers{}},
-		{"key", 4, Answers{}},
+		{"base_url", 1, Answers{}},
+		{"key", 2, Answers{}},
+		{"model", 3, Answers{}},
+		{"anchor", 4, Answers{}},
+		{"review", 5, Answers{}},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -1025,10 +1045,12 @@ func TestCancellingAtEachQuestion(t *testing.T) {
 		answers []string
 	}{
 		{"provider", []string{"q"}},
-		{"model", []string{"openai", "quit"}},
-		{"anchor", []string{"openai", "1", "q"}},
-		{"base_url", []string{"openai", "1", "3", "q"}},
-		{"key", []string{"openai", "1", "3", "", "q"}},
+		{"base_url", []string{"openai", "q"}},
+		{"key", []string{"openai", "", "q"}},
+		{"model", []string{"openai", "", "", "quit"}},
+		{"anchor", []string{"openai", "", "", "1", "q"}},
+		{"anchor command", []string{"openai", "", "", "1", "2", "q"}},
+		{"review", []string{"openai", "", "", "1", "3", "q"}},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -1050,7 +1072,7 @@ func TestCancellingAtEachQuestion(t *testing.T) {
 // TestModelQuestionGivesUpAfterThreeAttempts.
 func TestModelQuestionGivesUpAfterThreeAttempts(t *testing.T) {
 	dir := t.TempDir()
-	_, _, err := run(context.Background(), t, dir, []string{"openai", "0", "0", "0"}, Answers{})
+	_, _, err := run(context.Background(), t, dir, []string{"openai", "", "", "0", "0", "0"}, Answers{})
 	if err == nil || !strings.Contains(err.Error(), "three attempts") {
 		t.Errorf("err = %v", err)
 	}
@@ -1059,7 +1081,7 @@ func TestModelQuestionGivesUpAfterThreeAttempts(t *testing.T) {
 // TestAnchorQuestionGivesUpAfterThreeAttempts.
 func TestAnchorQuestionGivesUpAfterThreeAttempts(t *testing.T) {
 	dir := t.TempDir()
-	_, _, err := run(context.Background(), t, dir, []string{"openai", "1", "x", "y", "z"}, Answers{})
+	_, _, err := run(context.Background(), t, dir, []string{"openai", "", "", "1", "x", "y", "z"}, Answers{})
 	if err == nil || !strings.Contains(err.Error(), "three attempts") {
 		t.Errorf("err = %v", err)
 	}
@@ -1068,37 +1090,32 @@ func TestAnchorQuestionGivesUpAfterThreeAttempts(t *testing.T) {
 // TestConfigurationCannotBeWrittenIsReported: an impossible destination must be
 // reported and must not leave a partial file.
 func TestConfigurationCannotBeWrittenIsReported(t *testing.T) {
-	if os.Geteuid() == 0 {
-		t.Skip("as root the permission check does not apply")
-	}
 	dir := t.TempDir()
-	blocked := filepath.Join(dir, "blocked")
-	if err := os.Mkdir(blocked, 0o500); err != nil {
-		t.Fatal(err)
-	}
-	in := strings.NewReader("openai\n1\n3\n\n\n")
-	var out bytes.Buffer
-	_, err := Run(context.Background(), in, &out, filepath.Join(blocked, "x", "config.yaml"), Answers{}, fixedTime())
+	old := writeFileAtomicFn
+	writeFileAtomicFn = func(string, []byte) error { return errors.New("read-only file system") }
+	t.Cleanup(func() { writeFileAtomicFn = old })
+	_, _, err := run(context.Background(), t, dir, []string{"openai", "", "", "1", "3", ""}, Answers{})
 	if err == nil {
 		t.Error("an unwritable configuration path must be reported")
+	}
+	if _, statErr := os.Stat(filepath.Join(dir, "config.yaml")); !os.IsNotExist(statErr) {
+		t.Error("nothing may be left behind")
 	}
 }
 
 // TestCredentialsWriteFailureIsReported: if the configuration can be written but
 // the key file cannot, the wizard must say so instead of pretending it worked.
 func TestCredentialsWriteFailureIsReported(t *testing.T) {
-	if os.Geteuid() == 0 {
-		t.Skip("as root the permission check does not apply")
-	}
 	dir := t.TempDir()
-	// The credentials go to <base>.env, so occupying that name with a directory
-	// makes the write fail while the configuration succeeds.
-	if err := os.Mkdir(filepath.Join(dir, "config.env"), 0o500); err != nil {
-		t.Fatal(err)
+	old := writeFileAtomicFn
+	writeFileAtomicFn = func(p string, c []byte) error {
+		if strings.HasSuffix(p, ".env") {
+			return errors.New("read-only file system")
+		}
+		return old(p, c)
 	}
-	in := strings.NewReader("openai\n1\n3\n\nsk-abc\n")
-	var out bytes.Buffer
-	_, err := Run(context.Background(), in, &out, filepath.Join(dir, "config.yaml"), Answers{}, fixedTime())
+	t.Cleanup(func() { writeFileAtomicFn = old })
+	_, _, err := run(context.Background(), t, dir, []string{"openai", "", "sk-abc", "1", "3", ""}, Answers{})
 	if err == nil {
 		t.Error("a credentials write failure must be reported")
 	}
@@ -1124,7 +1141,7 @@ func TestRenderIncludesTheSeparatorBetweenArguments(t *testing.T) {
 // TestChooseBaseURLUsesTheDefault: pressing Enter accepts the provider default.
 func TestChooseBaseURLUsesTheDefault(t *testing.T) {
 	dir := t.TempDir()
-	_, res, err := run(context.Background(), t, dir, []string{"openai", "1", "3", "", ""}, Answers{})
+	_, res, err := run(context.Background(), t, dir, []string{"openai", "", "", "1", "3", ""}, Answers{})
 	if err != nil {
 		t.Fatalf("Run: %v", err)
 	}
@@ -1137,7 +1154,7 @@ func TestChooseBaseURLUsesTheDefault(t *testing.T) {
 // TestChooseBaseURLAcceptsACustomEndpoint: any OpenAI-compatible URL works.
 func TestChooseBaseURLAcceptsACustomEndpoint(t *testing.T) {
 	dir := t.TempDir()
-	_, res, err := run(context.Background(), t, dir, []string{"openai", "1", "3", "https://ollama.com/v1", ""}, Answers{})
+	_, res, err := run(context.Background(), t, dir, []string{"openai", "https://ollama.com/v1", "", "1", "3", ""}, Answers{})
 	if err != nil {
 		t.Fatalf("Run: %v", err)
 	}
@@ -1150,7 +1167,7 @@ func TestChooseBaseURLAcceptsACustomEndpoint(t *testing.T) {
 // TestChooseBaseURLRejectsGarbage: a URL without scheme is explained and asked again.
 func TestChooseBaseURLRejectsGarbage(t *testing.T) {
 	dir := t.TempDir()
-	out, res, err := run(context.Background(), t, dir, []string{"openai", "1", "3", "not-a-url", "https://ollama.com/v1", ""}, Answers{})
+	out, res, err := run(context.Background(), t, dir, []string{"openai", "not-a-url", "https://ollama.com/v1", "", "1", "3", ""}, Answers{})
 	if err != nil {
 		t.Fatalf("Run: %v", err)
 	}
@@ -1166,7 +1183,7 @@ func TestChooseBaseURLRejectsGarbage(t *testing.T) {
 // TestChooseBaseURLGivesUpAfterThreeAttempts.
 func TestChooseBaseURLGivesUpAfterThreeAttempts(t *testing.T) {
 	dir := t.TempDir()
-	_, _, err := run(context.Background(), t, dir, []string{"openai", "1", "3", "bad", "bad", "bad"}, Answers{})
+	_, _, err := run(context.Background(), t, dir, []string{"openai", "bad", "bad", "bad"}, Answers{})
 	if err == nil || !strings.Contains(err.Error(), "three attempts") {
 		t.Errorf("err = %v", err)
 	}
@@ -1253,8 +1270,8 @@ func TestOllamaLocalAsksForNoKey(t *testing.T) {
 		return []string{"llama3.3"}, nil
 	}
 	t.Cleanup(func() { modelLister = old })
-	// provider, host (local), model, check: nothing else may be asked.
-	out, res, err := run(context.Background(), t, dir, []string{"ollama", "1", "", "3"}, Answers{})
+	// provider, host (local), model, check, save: nothing else may be asked.
+	out, res, err := run(context.Background(), t, dir, []string{"ollama", "1", "", "3", ""}, Answers{})
 	if err != nil {
 		t.Fatalf("Run: %v", err)
 	}
@@ -1275,7 +1292,7 @@ func TestOllamaLocalAsksForNoKey(t *testing.T) {
 func TestALoginIsNotWrittenAsAKey(t *testing.T) {
 	dir := t.TempDir()
 	stubDirectAuth(t, "")
-	out, res, err := run(context.Background(), t, dir, []string{"qwen", "", "3", "1"}, Answers{})
+	out, res, err := run(context.Background(), t, dir, []string{"qwen", "1", "", "3", ""}, Answers{})
 	if err != nil {
 		t.Fatalf("Run: %v", err)
 	}
@@ -1290,7 +1307,7 @@ func TestALoginIsNotWrittenAsAKey(t *testing.T) {
 func TestChooseOllamaHostChoices(t *testing.T) {
 	stubOllamaModels(t, []string{"m"})
 	dir := t.TempDir()
-	_, res, err := run(context.Background(), t, dir, []string{"ollama", "9", "3", "not-a-url", "3", "http://gpu-box:11434/v1/", "", "3"}, Answers{})
+	_, res, err := run(context.Background(), t, dir, []string{"ollama", "9", "3", "not-a-url", "3", "http://gpu-box:11434/v1/", "", "3", ""}, Answers{})
 	if err != nil {
 		t.Fatalf("Run: %v", err)
 	}
@@ -1311,7 +1328,7 @@ func TestChooseOllamaHostChoices(t *testing.T) {
 
 func TestPresetBaseURLForAnOpenAIHost(t *testing.T) {
 	dir := t.TempDir()
-	_, res, err := run(context.Background(), t, dir, []string{"", "3", "k"}, Answers{Provider: "openai", BaseURL: "https://api.groq.com/openai/v1"})
+	_, res, err := run(context.Background(), t, dir, []string{"k", "", "3"}, Answers{Provider: "openai", BaseURL: "https://api.groq.com/openai/v1"})
 	if err != nil {
 		t.Fatal(err)
 	}

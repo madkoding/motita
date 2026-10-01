@@ -250,10 +250,10 @@ func TestEmptyStatePerScreen(t *testing.T) {
 		screen Screen
 		want   string
 	}{
-		{ScreenTask, "Describe a task and press Enter."},
-		{ScreenPlan, "Ask a question and press Enter."},
+		{ScreenTask, "Describe the task and press Enter."},
+		{ScreenPlan, "Plan mode: ask anything about your project."},
 		{ScreenModels, "Press Enter to ask the provider"},
-		{ScreenConfig, "Press Enter to walk through the first-run wizard"},
+		{ScreenConfig, "Press Enter to run the setup again"},
 	} {
 		t.Run(tc.screen.String(), func(t *testing.T) {
 			tui := newFakeTUI("q\n", &fakeRunner{})
@@ -268,21 +268,22 @@ func TestEmptyStatePerScreen(t *testing.T) {
 	}
 }
 
-// TestTypingInAModelsViewDoesNotRerunIt: the catalogue is an action. Any key other
-// than Enter must not run it again and write over the report being read.
+// TestTypingInAModelsViewDoesNotRerunIt: the catalogue is an action, run by Enter on an empty
+// line. Text typed there is a TASK - someone who just read the models and types what they want
+// done meant a task - and it must neither rerun the catalogue nor be refused.
 func TestTypingInAModelsViewDoesNotRerunIt(t *testing.T) {
 	runner := &fakeRunner{}
-	// The input has exactly two empty lines: the one that runs the view and the
-	// one implied by the end of the typed word. A third Enter would legitimately
-	// run it again.
 	tui := newFakeTUI("/m\n\nsomething\nq\n", runner)
 	tui.Run(context.Background())
 
 	if runner.modelsCalls != 2 {
 		t.Errorf("RunModels ran %d times, want 2 (the /m and the empty line only)", runner.modelsCalls)
 	}
-	if !strings.Contains(stripANSI(outputOf(tui)), "press Enter to refresh this view") {
-		t.Errorf("typed text in the models view must be answered with a hint: %q", stripANSI(outputOf(tui)))
+	if !runner.taskCalled || runner.lastTask != "something" {
+		t.Errorf("typed text in the models view must run as a task (called=%v task=%q)", runner.taskCalled, runner.lastTask)
+	}
+	if tui.screen != ScreenTask {
+		t.Errorf("running a task moves the view to Task, got %s", tui.screen)
 	}
 }
 
@@ -310,8 +311,9 @@ func TestSpinnerAppearsWhileRunning(t *testing.T) {
 	tui := newFakeTUI("q\n", runner)
 	tui.busy = true
 	tui.spin = 1
-	if got := tui.stateGlyph(); !strings.Contains(got, spinner[1]) {
-		t.Errorf("a busy session must show a spinner frame, got %q", got)
+	// The running turn is shown on the input box, where the user looks while waiting.
+	if got := tui.boxTop(80); !strings.Contains(got, spinner[1]) {
+		t.Errorf("a busy session must show a spinner frame on the input box, got %q", stripANSI(got))
 	}
 	tui.busy = false
 	// This TUI carries no key, so its steady state is the "nothing to talk to"
@@ -440,38 +442,25 @@ func TestFrameFitsTheTerminalHeight(t *testing.T) {
 	}
 }
 
-// TestSheddingOrder: when the terminal is short, the key hints go first, then the
-// wordmark and only then the conversation. The order matters: the hints are the
-// most redundant part of the screen, the wordmark is identity, and the
-// conversation is the content.
+// TestSheddingOrder: when the terminal is short, the conversation gives up rows and nothing else
+// does: the top bar names who is answering, the box is where the user types, and the footer says
+// which keys work. Each is a single row, and the frame is exactly as tall as the window.
 func TestSheddingOrder(t *testing.T) {
 	runner := &fakeRunner{}
 	tui := newFakeTUI("q\n", runner)
 	tui.Width = 80
 
-	full, _ := tui.layout(80, 60)
-	if !strings.Contains(stripANSI(strings.Join(full, "\n")), "motita") {
-		t.Error("a tall terminal must show the wordmark")
-	}
-
-	// Shorter: the hints go first, the wordmark stays.
-	short, _ := tui.layout(80, 20)
-	frame := strings.Join(short, "\n")
-	if strings.Contains(frame, "switch mode") {
-		t.Errorf("the hints must be dropped first:\n%s", frame)
-	}
-	if !strings.Contains(stripANSI(frame), "motita") {
-		t.Errorf("the wordmark must survive the loss of the hints:\n%s", frame)
-	}
-
-	// Shorter still: the wordmark goes, leaving the conversation.
-	tiny, _ := tui.layout(80, 15)
-	frame = strings.Join(tiny, "\n")
-	if strings.Contains(stripANSI(frame), "motita") {
-		t.Errorf("the wordmark must be dropped on a very short terminal:\n%s", frame)
-	}
-	if !strings.Contains(frame, "Task") {
-		t.Errorf("the mode line and the conversation must remain:\n%s", frame)
+	for _, h := range []int{60, 20, minHeight} {
+		lines, _ := tui.layout(80, h)
+		if len(lines) != h {
+			t.Errorf("height %d: the frame has %d rows", h, len(lines))
+		}
+		frame := stripANSI(strings.Join(lines, "\n"))
+		for _, want := range []string{"motita", "Task", "Enter send"} {
+			if !strings.Contains(frame, want) {
+				t.Errorf("height %d: %q must survive:\n%s", h, want, frame)
+			}
+		}
 	}
 }
 
@@ -504,5 +493,21 @@ func TestSizeFallsBackToTheColourVariables(t *testing.T) {
 	t.Setenv("LINES", "not-a-number")
 	if _, h := tui.size(); h != 0 {
 		t.Errorf("an unparsable LINES means the height is unknown, got %d", h)
+	}
+}
+
+// The muted colour is the bright black of the palette, which has a code of its own: "ESC[38m" is
+// the introducer of an extended colour with its parameters missing, and terminals render it as
+// nothing or misread what follows.
+func TestTheMutedColourIsAValidSGRCode(t *testing.T) {
+	tu := &TUI{}
+	if got := tu.muted("x"); got != "\x1b[90mx\x1b[0m" {
+		t.Errorf("muted = %q, want bright black (90)", got)
+	}
+	if got := tu.color(colBase, colMuted, "x"); got != "\x1b[37;100mx\x1b[0m" {
+		t.Errorf("a bright background = %q, want 100", got)
+	}
+	if got := tu.color(colAccent, colBase, "x"); got != "\x1b[36;47mx\x1b[0m" {
+		t.Errorf("the base palette = %q", got)
 	}
 }

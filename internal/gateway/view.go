@@ -1,6 +1,7 @@
 package gateway
 
 import (
+	"net/url"
 	"os"
 	"strings"
 
@@ -34,6 +35,10 @@ type configView struct {
 	Reasoning     string `json:"reasoning"`
 	ReasoningOn   bool   `json:"reasoning_enabled"`
 	APIKeyPresent bool   `json:"api_key_present"`
+	// BaseURL is the endpoint, with any user:password part removed. A front end needs it to tell
+	// a self-hosted Ollama (no key) from Ollama Cloud (a key): without it the terminal interface
+	// marked every local Ollama as "no key", because the provider alone cannot say which one it is.
+	BaseURL string `json:"base_url,omitempty"`
 }
 
 // viewOf reduces a configuration to what may leave the process.
@@ -52,7 +57,22 @@ func viewOf(cfg config.Config) configView {
 		Reasoning:     level,
 		ReasoningOn:   level != "off",
 		APIKeyPresent: cfg.LLM.APIKey != "",
+		BaseURL:       publicURL(cfg.LLM.BaseURL),
 	}
+}
+
+// publicURL is an endpoint without the credentials a URL can carry: the user:password part and
+// the query string (where some proxies take a key). What is left names a host, which is what a
+// front end needs, and nothing it must not see.
+func publicURL(raw string) string {
+	u, err := url.Parse(strings.TrimSpace(raw))
+	if err != nil || u.Host == "" {
+		return ""
+	}
+	u.User = nil
+	u.RawQuery = ""
+	u.Fragment = ""
+	return u.String()
 }
 
 // configFromView rebuilds the part of a configuration a front end reads.
@@ -66,6 +86,7 @@ func configFromView(v configView) config.Config {
 	cfg.LLM.Model = v.Model
 	cfg.LLM.Reasoning.Level = v.Reasoning
 	cfg.LLM.Reasoning.Enabled = v.ReasoningOn
+	cfg.LLM.BaseURL = v.BaseURL
 	if v.APIKeyPresent {
 		// The sentinel, never a key: this side of the wire has no key to carry.
 		cfg.LLM.APIKey = RedactedKey

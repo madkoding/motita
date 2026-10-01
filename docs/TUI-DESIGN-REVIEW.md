@@ -204,3 +204,85 @@ again to find them.
 - On Uchikoma: the wordmark unframed, the panel 99 columns uniform with the border
   straight, `100%` in the border while scrolled, the cursor parked on row 29 at the
   prompt, and real answers produced by real tools.
+
+## The end-user pass: setup, layout and control
+
+The previous passes made the interface correct; this one makes it usable by somebody who
+has never read this file. It started from a fresh `HOME`, ran `motita` the way a newcomer
+does, and wrote down every place the program left them stuck. Each finding below was
+reproduced on a real terminal before it was fixed, and each fix has the test that fails
+without it.
+
+### Defects found on the way in
+
+- **The first run ended in an error.** The setup stored the pasted key in `motita.env` and
+  told the user to `source` it — then opened the interface in the same process, where
+  nothing had been sourced: `❌ the LLM key is missing`. The loader now reads the key file
+  beside the configuration as if it were in it (the environment still wins), so a first
+  run works with no shell step at all.
+- **A local Ollama was marked "no key".** The configuration view sent over the gateway
+  dropped the endpoint, and an endpoint is the only thing that tells a self-hosted Ollama
+  from Ollama Cloud. It now carries the base URL, without any credentials a URL can hold.
+- **`/config` did not apply what it wrote.** It said "configuration written" while every
+  following turn ran with the old provider until a restart nobody mentioned. The runner
+  now reloads the file after the setup (`POST /v1/sessions/{id}/config/reload` behind a
+  gateway), and the conversation says what is in use now.
+- **A wrapper hid the client's capabilities.** The interface was handed the gateway
+  client inside a type that declared only the basic methods, so every optional one was
+  invisible: `/sessions` answered "not attached to a gateway" from inside one, the agent's
+  questions never opened their window, and Escape could not reach the gateway. The setup
+  is now a field of its own and the client is handed over unwrapped.
+- **No key was read while a turn ran.** A turn was awaited in place, so Escape did nothing
+  and the only way out of a long task was Ctrl+C, which closes the program. The input loop
+  now drives the turn — its progress, its approvals, its outcome and the spinner are
+  applied between keystrokes, on the one goroutine that owns the view — so Escape stops
+  it (at the gateway too), the conversation scrolls, and a message typed meanwhile is
+  queued and sent when the turn ends. Leaving is still not stopping: `/quit` ends the
+  local wait and a gateway's run lives on.
+- **A stopped turn was reported as finished.** The agent ends its loop quietly when it is
+  cancelled, so the gateway recorded a stopped task as done and then asked the model for a
+  title while still holding the conversation, refusing the next message for as long as
+  that took. A cancelled turn is now reported as cancelled, and the client waits a bounded
+  time for a conversation that is still closing its previous turn instead of failing.
+- **One-word messages ran commands.** A bare word was completed as if it had a slash, and
+  Enter accepts the highlighted candidate: `new` cleared the conversation, and `good` typed
+  as an answer was recorded as a rating. The popup now opens only after `/`.
+- **The muted colour was not a colour.** Index 8 was written as `ESC[38m` — the introducer
+  of an extended colour with its parameters missing — instead of `ESC[90m`.
+
+### The setup
+
+Five numbered steps (`[2/5]`), each provider listed with what it takes to connect, the
+sign-in before the model so a live catalogue can be read with the key just given, a
+review of every answer before anything is written, keeping a saved key or login offered
+first on a second run, the replaced file kept as `.bak`, and a summary that ends with the
+one command to run next. A sign-in that fails is offered again rather than ending the
+setup, and an unreachable server is said in words.
+
+### The layout
+
+```
+* motita  v1.2                    • openai · gpt-5-mini  ·  reasoning medium
+────────────────────────────────────────────────────────────────────────────
+conversation, or the welcome screen
+┌─ Task · makes changes, then proves them with your check ─────────────────┐
+│ › what the user is typing                                                │
+│                                                                          │
+│                                                                          │
+└──────────────────────────────────────────────────────────────────────────┘
+Enter send  ·  Tab Plan mode  ·  / commands  ·  ? help  ·  ^C quit    context 12%
+```
+
+- **One top row** replaces the three-row wordmark: the name, the readiness and the model,
+  and — in words — a missing key and the command that fixes it.
+- **The input is a box titled with the mode**, so what Enter will do is written where the
+  user is looking; while a turn runs the title says so and how to stop it. The box keeps
+  the eight permanent rows of the previous frame, so the size gate did not move.
+- **The footer lists the keys that work right now**, changing while a command is typed, a
+  turn runs, a window is open or the view is lifted. It sheds its least important keys
+  first on a narrow terminal.
+- **The welcome screen is an instruction**: what to type, two examples, the four keys a
+  newcomer needs, and the missing key with its fix. On a short terminal it keeps its top.
+- **References open at their top** (the help, `/session`, `/value`), help is grouped by
+  topic, the models report keeps its columns, answers keep their paragraph breaks, and a
+  failed turn carries a one-line hint for the failures newcomers meet first.

@@ -223,7 +223,7 @@ func TestTheWrappedDraftKeepsTheCursorOnItsOwnRow(t *testing.T) {
 	tu := &TUI{Width: w, Height: h, Out: &strings.Builder{}, Runner: &fakeRunner{cfg: configWithKey("k")}}
 
 	// Long enough to wrap: a draft past the body width lands on a later row of the box.
-	tu.draft = strings.Repeat("x", tu.bodyWidth()+5)
+	tu.draft = strings.Repeat("x", tu.inputWidth()+5)
 	lines, prompt := tu.layout(w, h)
 
 	box := 0
@@ -247,8 +247,8 @@ func TestTheWrappedDraftKeepsTheCursorOnItsOwnRow(t *testing.T) {
 			want, up)
 	}
 	// And it sits one past the last character drawn on that row.
-	if drawn := stripANSI(lines[box+1]); col-1 != visibleLen(drawn) {
-		t.Errorf("the cursor is at column %d but the row is %d columns wide: %q",
-			col-1, visibleLen(drawn), drawn)
+	if drawn := stripANSI(lines[box+1]); col-1 != textEnd(drawn) {
+		t.Errorf("the cursor is at column %d but the row's text ends at %d: %q",
+			col-1, textEnd(drawn), drawn)
 	}
 }

@@ -27,6 +27,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/madkoding/motita/internal/agent"
 	"github.com/madkoding/motita/internal/config"
@@ -255,6 +256,16 @@ func (c *Client) SetLLM(provider, model string) {
 	c.mu.Unlock()
 }
 
+// ReloadConfig asks the gateway to apply its configuration file as it is now, after the setup
+// wizard wrote a new one, and drops the cached view so the interface draws the new setup.
+func (c *Client) ReloadConfig(ctx context.Context) error {
+	err := c.do(ctx, http.MethodPost, c.scoped("/config/reload"), nil, nil)
+	c.mu.Lock()
+	c.hasCfg = false
+	c.mu.Unlock()
+	return err
+}
+
 // SetWorkspace is a no-op on the remote client: the workspace is set by the
 // gateway when a session is created inside a project, and the client does not
 // need to push it. The method exists to satisfy the Service interface.
@@ -410,10 +421,28 @@ func (c *Client) run(ctx context.Context, path string, body any, progress func(s
 	started := false
 	var lastErr error
 
+	var waited time.Duration
 	for attempt := 0; attempt < runAttempts; attempt++ {
 		resumed, err := c.streamOnce(ctx, path, request, started, &last, &result, progress)
 		if err == nil {
 			return result, nil
+		}
+		// The conversation is still finishing the turn before this one - closing a stopped run,
+		// or naming the conversation after its first answer. That is a matter of moments, and
+		// refusing the message the user just typed for it would make them type it again: the
+		// slot is waited for instead, for a bounded time, and the wait is said.
+		if !started && slotTaken(err) && waited < slotWait {
+			if waited == 0 && progress != nil {
+				progress("%s", "waiting for the previous turn in this conversation to finish...")
+			}
+			select {
+			case <-ctx.Done():
+				return result, ctx.Err()
+			case <-time.After(slotPoll):
+			}
+			waited += slotPoll
+			attempt-- // waiting for the slot is not a failed attempt
+			continue
 		}
 		lastErr = err
 		// A cancelled context is the user saying stop, and it must never be read as "try again":
@@ -431,6 +460,19 @@ func (c *Client) run(ctx context.Context, path string, body any, progress func(s
 		}
 	}
 	return result, fmt.Errorf("the connection to the gateway kept dropping and the run could not be followed: %w", lastErr)
+}
+
+// slotPoll and slotWait bound how long a new turn waits for the conversation's previous one to let
+// go of it. Variables so a test does not have to wait for real.
+var (
+	slotPoll = 250 * time.Millisecond
+	slotWait = 15 * time.Second
+)
+
+// slotTaken reports whether a refusal says the conversation is busy with another run - as opposed
+// to the other refusals that share its status, which waiting will not change.
+func slotTaken(err error) bool {
+	return statusIs(err, http.StatusConflict) && strings.Contains(err.Error(), "already in progress")
 }
 
 // runAttempts is how many times a client will try to follow a run whose connection dropped.

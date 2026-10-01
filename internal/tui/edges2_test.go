@@ -360,7 +360,7 @@ func TestThePopupIsMeasuredEvenWhenItDrawsNothing(t *testing.T) {
 	if len(with) != len(without) {
 		t.Errorf("the frame height must not change with the popup: %d vs %d", len(without), len(with))
 	}
-	if !strings.Contains(stripANSI(strings.Join(with, "\n")), "→ completes") {
+	if !strings.Contains(stripANSI(strings.Join(with, "\n")), "› /task") {
 		t.Error("the popup must be drawn once a command is being typed")
 	}
 }

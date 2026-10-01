@@ -146,31 +146,45 @@ Then:
 motita
 ```
 
-That's it. If no configuration exists, the wizard launches automatically —
-no need to know about `-init`. It walks you through:
+That's it. If no configuration exists, a short setup launches automatically —
+no need to know about `-init`. It shows where you are (`[2/5]`), takes the value in
+`[brackets]` when you press Enter, and writes nothing until you have seen the result:
 
-1. **Choose a provider**: OpenAI, OpenAI Codex, GitHub Copilot, Ollama (local or
-   Cloud), Anthropic (Claude), your Claude subscription through Claude Code, Google
-   Gemini, or Qwen.
-2. **Choose a model**: each provider ships curated defaults, or type any model ID.
-3. **Set the anchor**: what decides whether a task is really done. The third
-   question is the one other tools never ask — and the default answer is
-   **detect it from the project**, so one configuration works on every repository
-   (`check`/`test` from a Makefile, `go test ./...`, a `package.json`'s
-   `lint`/`typecheck`/`test`, `cargo test`). A project with an unusual build names
-   its own gate in `.motita/anchor`, one command per line.
-4. **Authenticate**: paste an API key, or **log in with your account** — open a link
-   in your browser (and, for device logins, enter a one-time code). The login is
-   stored and renewed automatically, so you never handle a key at all.
+1. **Provider**: OpenAI, OpenAI Codex, GitHub Copilot, Ollama (local or Cloud), Anthropic
+   (Claude), your Claude subscription through Claude Code, Google Gemini, or Qwen — each
+   one listed with what it takes to connect (an API key, a login, nothing).
+2. **Connect**: the endpoint where it can vary (any OpenAI-compatible host; Ollama on your
+   machine or in the cloud), then the sign-in: **log in with your account** — open a link
+   in your browser (and, for device logins, enter a one-time code) — or paste an API key.
+   A login that fails is offered again instead of ending the setup.
+3. **Model**: each provider ships curated defaults (the first one is marked
+   *recommended*), Ollama lists what your server actually has, or type any model ID.
+4. **Check**: what decides whether a task is really done. This is the question other
+   tools never ask — and the default answer is **detect it from the project**, so one
+   configuration works on every repository (`check`/`test` from a Makefile,
+   `go test ./...`, a `package.json`'s `lint`/`typecheck`/`test`, `cargo test`). A
+   project with an unusual build names its own gate in `.motita/anchor`, one command per
+   line.
+5. **Review and save**: every answer on one screen, the key masked. `n` goes through the
+   questions again; Enter saves.
 
-![The onboarding wizard](docs/screenshots/wizard-onboard.png)
+![The setup](docs/screenshots/wizard-onboard.png)
 
-<sub>The first-run wizard: provider list, model selection, and the anchor question.
-Runs automatically when no config is found.</sub>
+<sub>The first-run setup: each provider says what it needs, Ollama is asked where it runs, and
+an unreachable server is explained instead of dumped as a dial error.</sub>
 
-![Direct login in the wizard](docs/screenshots/wizard-auth.png)
+![Review and save](docs/screenshots/wizard-review.png)
+
+<sub>Nothing is written before the review. The summary says what to do before the first task.</sub>
+
+![Direct login in the setup](docs/screenshots/wizard-auth.png)
 
 <sub>For Copilot, Codex, Gemini and Qwen: log in with your account, no API key needed.</sub>
+
+Running the setup again — `/config` inside motita, or `motita -init` — is how you change
+the provider, the key, the model or the check. It **offers to keep** the key and the login
+you already have, keeps the previous configuration as `motita.yaml.bak`, and the new setup
+**takes effect immediately** in the session you ran it from.
 
 ### Providers and how each one authenticates
 
@@ -188,8 +202,10 @@ Runs automatically when no config is found.</sub>
 Logins live in `~/.motita/auth/<provider>.json` (`0600`, override the directory with
 `MOTITA_AUTH_DIR`) together with their refresh token; motita renews the access token
 before it expires and once more if the server refuses it. An API key always wins over a
-stored login. A key you paste goes into a separate `0600` file, never into the config, so
-the config can be committed and shared.
+stored login. A key you paste goes into a separate `0600` file beside the configuration
+(`~/.motita/motita.env`), never into the config, so the config can be committed and shared.
+motita reads that file on its own — nothing has to be sourced — and a variable exported in
+your shell still wins over it.
 
 - **Claude subscriptions** are reached only through the `claude-code` provider: Anthropic
   allows Pro/Max plans in its own Claude Code client, so motita drives that client instead
@@ -228,10 +244,28 @@ the directory stays the same across turns, so every turn can reuse the prompt ca
 
 ## A terminal interface you'll actually want to use
 
-Run it with no arguments and you get a full TUI: streaming answers with a
-typewriter reveal, tab completion, a live model catalogue from your provider,
-session context tracking, and mouse support. Written against the standard library
+Run it with no arguments and you get a full TUI. Written against the standard library
 alone — it's the same binary, not a wrapper around something else.
+
+![The interface right after the setup](docs/screenshots/tui-welcome.png)
+
+- **One line says who is answering**: the provider and model, how hard it thinks, and —
+  in words, not just a red dot — when there is no API key and how to add one.
+- **The input box says what Enter will do**: its title is the mode. **Task** makes changes
+  and proves them with your check; **Plan** (press `Tab`) only reads and explains.
+- **The footer shows the keys that work right now** — while you type a command, while a
+  task runs, while you scroll back — instead of a manual.
+- **You stay in control while it works**: `Esc` stops the running task (on the gateway
+  too), the conversation scrolls, and a message typed meanwhile is queued and sent when
+  the task finishes.
+- **`/` opens the command list** (`↑↓` to choose, `→` to complete, `Enter` to run), and
+  `?` shows every command and key. A plain word is always a message: typing `new` or
+  `good` never runs a command by accident.
+- **A failed turn says what to do**: the error as it happened, plus a hint for the
+  failures newcomers meet first — a local Ollama that is not running, a key the provider
+  refused, a model that does not exist, a rate limit.
+
+![A failed turn with its hint](docs/screenshots/tui-error-hint.png)
 
 **The same process is also a gateway.** It listens on **every interface** and enforces
 **no origin rules** — the same posture as a machine with a fresh, empty firewall table:
@@ -372,6 +406,7 @@ curl -X DELETE -H "Authorization: Bearer $TOKEN" \
 | `GET /v1/sessions/{id}/report` | the conversation so far |
 | `GET /v1/sessions/{id}/config` `/models` `/reward` `/questions` | the read-only views |
 | `POST /v1/sessions/{id}/reasoning` `/model` `/verdict` `/reset` | change the budget or the model, grade a turn, start over |
+| `POST /v1/sessions/{id}/config/reload` | apply the configuration file as it is now (what `/config` calls after the setup) |
 | `GET /v1/sessions/{id}/ws` | **WebSocket**: bidirectional, flag-based message protocol (see below) |
 | `GET` `POST /v1/schedules` | list the tasks that fire on their own, or add one |
 | `PATCH` `DELETE /v1/schedules/{id}` | pause, retarget or remove one |

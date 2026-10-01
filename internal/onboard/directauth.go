@@ -224,7 +224,7 @@ func waitForCode(ctx context.Context, out io.Writer, in *bufio.Reader, lb *oauth
 	}()
 	code, pasted, err := lb.Wait(ctx, state, lines)
 	if err == nil && !pasted {
-		fmt.Fprintf(out, "%sLogged in in the browser. Press Enter to continue.%s ", colCyan, colReset)
+		printPrompt(out, "Signed in in the browser. Press Enter to continue.")
 		select {
 		case <-lines:
 		case <-ctx.Done():
@@ -237,7 +237,7 @@ func waitForCode(ctx context.Context, out io.Writer, in *bufio.Reader, lb *oauth
 // promptLine asks one question inside a login flow. The end of the input is
 // an empty answer, not a failure: the question has a default.
 func promptLine(ctx context.Context, out io.Writer, in *bufio.Reader, prompt string) (string, error) {
-	fmt.Fprintf(out, "%s%s%s ", colCyan, prompt, colReset)
+	printPrompt(out, prompt)
 	line, err := readLine(ctx, in)
 	if err != nil && !errors.Is(err, io.EOF) {
 		return "", err
@@ -252,10 +252,10 @@ var sleepFor = time.After
 
 // printDeviceInfo shows the device code information to the user.
 func printDeviceInfo(out io.Writer, dc oauth.DeviceCode) {
-	fmt.Fprintf(out, "  %sOpen this URL:%s %s%s%s\n", colBold, colReset, colCyan, dc.VerificationURL, colReset)
-	fmt.Fprintf(out, "  %sEnter this code:%s %s%s%s\n", colBold, colReset, colYellow, dc.UserCode, colReset)
+	fmt.Fprintf(out, "%s  %s1. Open this URL:%s   %s%s%s\n", indent, colBold, colReset, colCyan, dc.VerificationURL, colReset)
+	fmt.Fprintf(out, "%s  %s2. Enter this code:%s %s%s%s\n", indent, colBold, colReset, colYellow, dc.UserCode, colReset)
 	fmt.Fprintln(out)
-	fmt.Fprintf(out, "  %sWaiting for you to authorise...%s\n", colDim, colReset)
+	fmt.Fprintf(out, "%s%sWaiting for you to authorise...%s\n", indent, colDim, colReset)
 	fmt.Fprintln(out)
 }
 

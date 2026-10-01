@@ -38,21 +38,21 @@ type Command struct {
 // commands is every slash command, in the order the popup presents them: the ones that
 // change mode first, then the ones that act, then the ones about the session, then leaving.
 var commands = []Command{
-	{Name: "/task", Aliases: []string{"/t"}, Help: "run a task in the sandbox", Group: "mode"},
-	{Name: "/plan", Aliases: []string{"/p"}, Help: "read-only mode: investigate and explain", Group: "mode"},
-	{Name: "/models", Aliases: []string{"/m"}, Help: "list the models the provider publishes", Group: "mode"},
-	{Name: "/config", Aliases: []string{"/c"}, Help: "first-run wizard: provider, model, check", Group: "mode"},
-	{Name: "/reasoning", Aliases: []string{"/r", "/think"}, Help: "cycle the reasoning level", Group: "mode"},
+	{Name: "/task", Aliases: []string{"/t"}, Help: "Task mode: make changes and prove them with your check", Group: "mode"},
+	{Name: "/plan", Aliases: []string{"/p"}, Help: "Plan mode: ask about the project, nothing is changed", Group: "mode"},
+	{Name: "/models", Aliases: []string{"/m"}, Help: "list the provider's models, or switch to one", Arg: "[id]", Group: "mode"},
+	{Name: "/config", Aliases: []string{"/c"}, Help: "run the setup again: provider, key, model, check", Group: "mode"},
+	{Name: "/reasoning", Aliases: []string{"/r", "/think"}, Help: "how hard the model thinks: off, low, medium, high", Group: "mode"},
 	{Name: "/find", Aliases: []string{"/f"}, Help: "filter the conversation", Arg: "text", Group: "action"},
-	{Name: "/session", Aliases: []string{"/s"}, Help: "context used, and any carried summary", Group: "session"},
+	{Name: "/session", Aliases: []string{"/s"}, Help: "context used, and what was carried over", Group: "session"},
 	{Name: "/sessions", Help: "list the conversations the gateway holds", Group: "session"},
-	{Name: "/attach", Help: "move to another conversation", Arg: "session id", Group: "session"},
-	{Name: "/good", Help: "mark the last turn as good (moves skill value)", Arg: "note", Group: "action"},
-	{Name: "/bad", Help: "mark the last turn as bad; the note says what to fix", Arg: "what was wrong", Group: "action"},
-	{Name: "/value", Aliases: []string{"/v"}, Help: "what the library has learned, worst first", Group: "action"},
-	{Name: "/new", Help: "start a new conversation", Group: "session"},
-	{Name: "/help", Aliases: []string{"/h", "h", "help", "?"}, Help: "this screen", Group: "meta"},
-	{Name: "/quit", Aliases: []string{"/q", "q", "quit"}, Help: "leave", Group: "meta"},
+	{Name: "/attach", Help: "switch to another conversation", Arg: "session id", Group: "session"},
+	{Name: "/good", Help: "rate the last answer as good", Arg: "note", Group: "action"},
+	{Name: "/bad", Help: "rate the last answer as bad; the note says what to fix", Arg: "what was wrong", Group: "action"},
+	{Name: "/value", Aliases: []string{"/v"}, Help: "what motita has learned from your ratings", Group: "action"},
+	{Name: "/new", Help: "start a fresh conversation", Group: "session"},
+	{Name: "/help", Aliases: []string{"/h", "h", "help", "?"}, Help: "every command and key", Group: "meta"},
+	{Name: "/quit", Aliases: []string{"/q", "q", "quit"}, Help: "leave motita", Group: "meta"},
 }
 
 // Commands returns a copy of the catalogue so other packages (the gateway)
@@ -82,9 +82,12 @@ var commandActions = map[string]func(t *TUI, ctx context.Context, arg string) bo
 		t.runModels(ctx)
 		return false
 	},
+	// The setup is something done and finished, not a place to stay: once it has run, the next
+	// thing typed is a task with the new setup, so the interface goes back to Task.
 	"/config": func(t *TUI, ctx context.Context, _ string) bool {
 		t.setScreen(ScreenConfig)
 		t.runConfig(ctx)
+		t.setScreen(ScreenTask)
 		return false
 	},
 	"/reasoning": func(t *TUI, _ context.Context, _ string) bool { t.cycleReasoning(); return false },
@@ -130,9 +133,15 @@ var commandActions = map[string]func(t *TUI, ctx context.Context, arg string) bo
 		t.addPreformatted(AuthorSystem, t.Runner.RewardReport())
 		return false
 	},
+	// A new conversation is a clean screen: the old one is gone from the model's memory, and
+	// leaving it on screen would suggest the next answer can still see it. The welcome screen says
+	// what happened, the way it greets a first run.
 	"/new": func(t *TUI, _ context.Context, _ string) bool {
 		t.Runner.ResetConversation()
-		t.addMessage(AuthorSystem, "started a new session: the next question begins a fresh conversation.")
+		t.messages = nil
+		t.scroll = 0
+		t.Notice = "Started a new conversation: the next message begins fresh."
+		t.drawFrame()
 		return false
 	},
 	"/help": func(t *TUI, _ context.Context, _ string) bool {
@@ -175,19 +184,18 @@ var singleKeyBindings = map[string]func(t *TUI){
 	"g":   func(t *TUI) { t.scrollToTop() },
 }
 
-// completions returns the commands whose name or alias starts with the given prefix.
+// completions returns the commands whose name or alias starts with what has been typed.
 //
-// A leading slash is expected and stripped if missing, so the function answers the same
-// question whether it is called with what the user has typed ("/pl") or with a bare word.
-// An empty completion list means the typed text is not a command prefix, and the caller then
-// treats the line as ordinary input.
+// Only a line that starts with "/" is a command being typed. A bare word used to be completed as
+// if the slash were there, and Enter accepts the highlighted candidate - so a message that
+// happened to be one word was turned into a command: "new" cleared the conversation, and "good",
+// typed as the answer to the agent's question, was recorded as a rating of the last turn. The bare
+// spellings a user DOES mean as commands ("q", "help", "?") are matched in full by the handler,
+// with no popup needed. An empty list means the text is not a command, and the line is a message.
 func completions(line string) []Command {
 	prefix := strings.ToLower(strings.TrimSpace(line))
-	if prefix == "" {
-		return nil
-	}
 	if !strings.HasPrefix(prefix, "/") {
-		prefix = "/" + prefix
+		return nil
 	}
 	// A line with a space is already an argument: the popup has done its job and must get
 	// out of the way.
@@ -239,28 +247,16 @@ func (t *TUI) completionLinesCapped(w, max int) []string {
 		}
 	}
 
-	// The cap counts EVERY row this function will return, including the optional "and N more" row
-	// and the hint. Rendering a candidate and then adding two trailer rows is how a cap of one
-	// came out as four, which quietly put the frame back past the bottom of the terminal — the
-	// cap has to bound the result, not the candidate loop.
+	// The cap counts EVERY row this function will return, including the "and N more" row: a cap
+	// that bounded only the candidates would let the trailer push the frame past the bottom of the
+	// terminal. The keys that work in the popup are in the footer, so no row is spent on them here.
 	showMore := false
-	// How many rows the trailer costs. The hint is worth a row whenever there is one to spare;
-	// below that it is dropped, because seeing WHICH command is offered matters more than being
-	// told which key accepts it — and without dropping something a one-row popup is impossible,
-	// which is what a very short terminal needs.
-	trailer := 0
-	showHint := max <= 0 || max >= 2
-	if showHint {
-		trailer++
-	}
-
 	shown := cands
 	hidden := 0
-	if max > 0 && len(cands) > max-trailer {
-		// The cap counts every row returned, trailer included. The budget here is at least one
-		// because the cap is never below one: the layout owns that floor, and duplicating it
-		// would be a guard that cannot be reached.
-		keep := max - trailer
+	if max > 0 && len(cands) > max {
+		// The budget is at least one because the cap is never below one: the layout owns that
+		// floor, and duplicating it would be a guard that cannot be reached.
+		keep := max
 		// The "and N more" line costs a row too, and only makes sense when a candidate survives
 		// beside it — with a budget of one the candidate wins, because seeing WHICH command is
 		// offered matters more than being told how many others there are.
@@ -280,7 +276,7 @@ func (t *TUI) completionLinesCapped(w, max int) []string {
 		}
 		pad := strings.Repeat(" ", nameWidth-visibleLen(label))
 		row := t.color(colAccent, 0, label) + pad + "  " + t.muted(c.Help)
-		if !t.fits(row, w-2*leftMargin) {
+		if !t.fits(row, w-2*leftMargin-2) {
 			row = t.color(colAccent, 0, label)
 		}
 		// The selected row carries an arrow marker so the user can see which row
@@ -296,20 +292,16 @@ func (t *TUI) completionLinesCapped(w, max int) []string {
 		// end of the visible window, no row carries it — the popup is honest about
 		// what it can show, and the next keystroke either scrolls the highlight
 		// back into view or the popup shrinks enough to fit it.
+		// The other rows are indented by the marker's width, so every name starts in the same
+		// column whichever row is highlighted.
 		if i == t.completingIdx {
 			lines = append(lines, t.plainLine(t.color(colAccent, 0, "›")+" "+row))
 		} else {
-			lines = append(lines, t.plainLine(row))
+			lines = append(lines, t.plainLine("  "+row))
 		}
 	}
 	if showMore {
-		lines = append(lines, t.plainLine(t.muted(fmt.Sprintf("… and %d more", hidden))))
-	}
-	// The hint is dropped before a candidate is: knowing that a key completes the list is worth
-	// less than seeing what it would complete to. It is also the row that makes a one-row popup
-	// possible at all, which is what keeps the frame inside a very short terminal.
-	if showHint {
-		lines = append(lines, t.plainLine(t.muted("→ completes · Enter runs · Esc cancels")))
+		lines = append(lines, t.plainLine(t.muted(fmt.Sprintf("… and %d more, keep typing", hidden))))
 	}
 	return lines
 }

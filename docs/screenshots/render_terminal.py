@@ -19,6 +19,18 @@ PALETTE = {
     7: (229, 229, 229), # white/light gray
 }
 
+# The bright half of the palette (ANSI 90-97 foreground, 100-107 background).
+BRIGHT = {
+    0: (118, 118, 118), # bright black: the muted text
+    1: (241, 76, 76),
+    2: (35, 209, 139),
+    3: (245, 245, 67),
+    4: (59, 142, 234),
+    5: (214, 112, 214),
+    6: (41, 184, 219),
+    7: (255, 255, 255),
+}
+
 BG = (18, 18, 24)
 FG = (229, 229, 229)
 FONT_SIZE = 16
@@ -27,29 +39,64 @@ LINE_HEIGHT = 20
 
 ESC = re.compile(r'\x1b\[(\d+(?:;\d+)*)m')
 
+def _dim(c):
+    return tuple(int(v * 0.6 + b * 0.4) for v, b in zip(c, BG))
+
+def _xterm256(n):
+    """The colour of an xterm 256-colour index, which is what tmux writes for some colours."""
+    if n < 8:
+        return PALETTE[n]
+    if n < 16:
+        return BRIGHT[n - 8]
+    if n < 232:
+        n -= 16
+        steps = [0, 95, 135, 175, 215, 255]
+        return (steps[n // 36], steps[(n // 6) % 6], steps[n % 6])
+    v = 8 + (n - 232) * 10
+    return (v, v, v)
+
 def parse_ansi(text):
     """Yield (char, fg, bg) tuples."""
-    fg, bg = FG, None
+    fg, bg, dim = FG, None, False
     pos = 0
     for m in ESC.finditer(text):
         start, end = m.span()
         if start > pos:
             for ch in text[pos:start]:
-                yield ch, fg, bg
+                yield ch, (_dim(fg) if dim else fg), bg
         codes = [int(c) for c in m.group(1).split(';') if c]
         i = 0
         while i < len(codes):
             c = codes[i]
             if c == 0:
-                fg, bg = FG, None
+                fg, bg, dim = FG, None, False
+            elif c == 2:
+                dim = True
+            elif c == 22:
+                dim = False
+            elif c == 39:
+                fg = FG
+            elif c == 49:
+                bg = None
             elif 30 <= c <= 37:
                 fg = PALETTE[c - 30]
             elif 40 <= c <= 47:
                 bg = PALETTE[c - 40]
+            elif 90 <= c <= 97:
+                fg = BRIGHT[c - 90]
+            elif 100 <= c <= 107:
+                bg = BRIGHT[c - 100]
+            elif c in (38, 48) and i + 2 < len(codes) and codes[i + 1] == 5:
+                col = _xterm256(codes[i + 2])
+                if c == 38:
+                    fg = col
+                else:
+                    bg = col
+                i += 2
             i += 1
         pos = end
     for ch in text[pos:]:
-        yield ch, fg, bg
+        yield ch, (_dim(fg) if dim else fg), bg
 
 def render(text, out_path, title=None):
     lines = text.splitlines()

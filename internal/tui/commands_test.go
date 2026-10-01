@@ -230,11 +230,13 @@ func TestThePopupExplainsHowToAccept(t *testing.T) {
 	tu.Width, tu.Height = 110, 30
 	tu.draft = "/pl"
 
-	joined := strings.Join(tuiPopupBody(tu), "\n")
-	// The key that accepts a completion is the right arrow, because Tab is the mode switch.
-	for _, want := range []string{"→", "Enter", "Esc"} {
+	// The keys are in the footer, which follows what the user is doing: while the popup is open it
+	// lists the keys that work in it. The key that accepts a completion is the right arrow,
+	// because Tab is the mode switch.
+	joined := stripANSI(tu.bottomBar(110))
+	for _, want := range []string{"→", "Enter", "Esc", "↑↓"} {
 		if !strings.Contains(joined, want) {
-			t.Errorf("the popup must say how to use %q:\n%s", want, joined)
+			t.Errorf("the footer must say how to use %q while the popup is open:\n%s", want, joined)
 		}
 	}
 }
@@ -303,7 +305,7 @@ func TestTheLayoutCountsThePopup(t *testing.T) {
 		t.Errorf("the frame must still fit a 30-row terminal, got %d rows", len(withPopup))
 	}
 	// What the popup costs the conversation is what must be visible.
-	if !strings.Contains(stripANSI(strings.Join(withPopup, "\n")), "→ completes") {
+	if !strings.Contains(stripANSI(strings.Join(withPopup, "\n")), "› /task") {
 		t.Error("the popup must be drawn")
 	}
 }
@@ -324,11 +326,11 @@ func TestThePopupShrinksTheConversationNotTheComposer(t *testing.T) {
 		t.Errorf("the frame must fit, got %d rows", len(lines))
 	}
 	body := stripANSI(strings.Join(lines, "\n"))
-	if !strings.Contains(body, "→ completes") {
+	if !strings.Contains(body, "› /task") {
 		t.Errorf("the popup must be visible:\n%s", body)
 	}
-	// The status bar is the last row.
-	if !strings.Contains(stripANSI(lines[len(lines)-1]), "Task") {
+	// The footer is the last row.
+	if !strings.Contains(stripANSI(lines[len(lines)-1]), "Esc") {
 		t.Errorf("the status bar must be last: %q", stripANSI(lines[len(lines)-1]))
 	}
 }

@@ -15,15 +15,19 @@ package tui
 import (
 	"bufio"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os"
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 	"unicode/utf8"
 
 	"github.com/madkoding/motita/internal/agent"
+	"github.com/madkoding/motita/internal/config"
+	"github.com/madkoding/motita/internal/onboard"
 )
 
 // Exit codes returned by the TUI.
@@ -112,6 +116,22 @@ type TUI struct {
 	// Empty draws no box at all, which is what an embedder that does not care gets for free.
 	Version string
 
+	// Setup runs the setup wizard for /config, and nil means the runner's own (RunConfig). It is a
+	// field rather than a runner method because the wizard is the one thing that cannot be remote:
+	// it reads the terminal in front of the user and writes the configuration of the machine they
+	// are sitting at, so an interface speaking to a gateway is handed THIS process's wizard here,
+	// while every other request still goes to the gateway through the runner, unwrapped.
+	Setup func(context.Context) error
+
+	// LiveInput asks for character-at-a-time editing even when the terminal mode could not be
+	// changed: for an embedder that already put its terminal in that mode, and for the tests,
+	// which drive the live editor through a pipe.
+	LiveInput bool
+
+	// Notice is shown at the top of the welcome screen until the first message: what just happened
+	// before the interface opened, such as a setup that was completed. Empty shows nothing.
+	Notice string
+
 	// Width and Height override the drawing area. Zero means "ask the
 	// environment": tests set them to make the layout deterministic, and an
 	// embedder can pin them to a fixed size.
@@ -126,8 +146,19 @@ type TUI struct {
 	lastFrame     []string
 	paintedScreen bool
 
-	screen     Screen
-	messages   []Message
+	screen   Screen
+	messages []Message
+	// current is the turn in flight and nil when there is none; queued is the message typed while
+	// it ran, sent when it ends. Both belong to the input loop's goroutine (see turns.go).
+	current *turn
+	queued  string
+	// loopCtx is the context the input loop runs under, for turns started outside a key press.
+	loopCtx context.Context
+	// inbox receives the byte the one outstanding read produced, and reading says that read is
+	// still waiting. There is never more than one: a second reader on the same input would race the
+	// first for the next keystroke, and whichever lost would swallow it.
+	inbox      chan byteRead
+	reading    bool
 	reader     *bufio.Reader
 	cancelRun  context.CancelFunc
 	runningCtx context.Context
@@ -243,6 +274,7 @@ func (t *TUI) readKey(ctx context.Context) (byte, bool) {
 // Run displays the chat and dispatches user input until the user quits or the
 // context is cancelled.
 func (t *TUI) Run(ctx context.Context) int {
+	t.loopCtx = ctx
 	t.drawFrame()
 
 	// The confirmation channel is installed before anything can run: a turn that proposes a
@@ -288,7 +320,7 @@ func (t *TUI) Run(ctx context.Context) int {
 	// reading whole lines, which is the behaviour it had before, and the completion popup
 	// simply does not appear.
 	mode := enterRaw()
-	t.charMode = mode.active
+	t.charMode = mode.active || t.LiveInput
 	t.termMode = mode
 	defer mode.restore()
 	defer recoverRaw(mode)()
@@ -310,10 +342,21 @@ func (t *TUI) Run(ctx context.Context) int {
 	for {
 		line, ok := t.readLine(ctx)
 		if !ok {
+			// A turn still running is let finish (a closed input is a script that piped its
+			// task and is waiting for the answer), or has been stopped by the same cancellation
+			// that ended the read.
+			t.finishTurn(ctx)
 			if ctx.Err() != nil {
 				return ExitInterrupted
 			}
 			return ExitSuccess
+		}
+
+		// While a command waits for approval the keys answer it. This is only reached in
+		// character mode: without it the window is answered where the turn is awaited.
+		if t.answeringConfirm() {
+			t.handleConfirmLine(line)
+			continue
 		}
 
 		// While the search is open the input belongs to it: a line typed there is a
@@ -333,33 +376,28 @@ func (t *TUI) Run(ctx context.Context) int {
 		// Global shortcuts are checked before interpreting the line as chat.
 		if handled, quit := t.handleShortcut(ctx, line); handled {
 			if quit {
+				t.leaveTurn(ctx)
 				return ExitSuccess
 			}
 			continue
 		}
 
-		// In Model/Config screens an empty line triggers the runner action.
-		switch t.screen {
-		case ScreenTask:
-			t.runTask(ctx, line)
-		case ScreenPlan:
-			t.runPlan(ctx, line)
-		case ScreenModels:
-			// The catalogue and the wizard are actions, not conversations: they
-			// are triggered by Enter on an empty line. Anything else would run
-			// them again by accident and write over the report the user is
-			// reading, so other input is answered with a reminder instead.
-			if strings.TrimSpace(line) == "" {
-				t.runModels(ctx)
-			} else {
-				t.addMessage(AuthorSystem, "press Enter to refresh this view, or Tab to switch mode.")
-			}
-		case ScreenConfig:
-			if strings.TrimSpace(line) == "" {
-				t.runConfig(ctx)
-			} else {
-				t.addMessage(AuthorSystem, "press Enter to start the wizard, or Tab to switch mode.")
-			}
+		// A message typed while the agent works waits for it, instead of being lost or starting a
+		// second turn over the first.
+		if t.current != nil && strings.TrimSpace(line) != "" {
+			t.queue(line)
+			continue
+		}
+
+		// On the Models and Setup screens an empty line runs the screen's action (refresh the
+		// catalogue, run the setup), and anything typed is a task: see submit.
+		switch {
+		case t.screen == ScreenModels && strings.TrimSpace(line) == "":
+			t.runModels(ctx)
+		case t.screen == ScreenConfig && strings.TrimSpace(line) == "":
+			t.runConfig(ctx)
+		default:
+			t.submit(ctx, line)
 		}
 	}
 }
@@ -539,6 +577,9 @@ func (t *TUI) handleTypedCommand(ctx context.Context, line string) (bool, bool) 
 	for _, c := range commands {
 		if c.Name != name && !c.hasAlias(name) {
 			continue
+		}
+		if t.refuseWhileBusy(c.Name) {
+			return true, false
 		}
 		run, ok := commandActions[c.Name]
 		if !ok {
@@ -839,15 +880,15 @@ func (t *TUI) runTask(ctx context.Context, task string) {
 	}
 	t.addMessage(AuthorUser, task)
 
-	// Cancel any previous run before starting a new one.
-	if t.cancelRun != nil {
-		t.cancelRun()
+	// Cancel any previous run before starting a new one: a run followed from the gateway is
+	// driven from its own goroutine, and a new task replaces it.
+	if cancel := t.currentCancel(); cancel != nil {
+		cancel()
 	}
 
 	progress := make(chan string, 16)
 	runCtx, cancel := context.WithCancel(ctx)
-	t.cancelRun = cancel
-	t.runningCtx = runCtx
+	t.setCancel(t.stopper(cancel), runCtx)
 
 	done := make(chan runOutcome, 1)
 	go func() {
@@ -860,39 +901,45 @@ func (t *TUI) runTask(ctx context.Context, task string) {
 	t.messages[pendingIdx].Pending = true
 	t.advance()
 
-	// Task mode reports its phases through the same callback. A phase is a
-	// transient label for the block that is running, so it is overwritten as the
-	// run advances and the last visible one is replaced by the result. It is never
-	// frozen: unlike a plan tool call, a phase is not an event worth keeping.
-	outcome := t.awaitRun(runCtx, progress, done, func(p string) {
-		t.messages[pendingIdx].Text = p
-		t.advance()
+	t.startTurn(runCtx, &turn{
+		progress: progress,
+		done:     done,
+		leave:    cancel,
+		// Task mode reports its phases through the same callback. A phase is a transient label
+		// for the block that is running, so it is overwritten as the run advances and the last
+		// visible one is replaced by the result. It is never frozen: unlike a plan tool call, a
+		// phase is not an event worth keeping.
+		onProgress: func(p string) {
+			t.messages[pendingIdx].Text = p
+			t.advance()
+		},
+		onDone: func(outcome runOutcome) {
+			t.clearCancel()
+			cancel()
+
+			var messageText string
+			switch {
+			case outcome.err == context.Canceled:
+				messageText = "cancelled."
+			case outcome.err != nil:
+				messageText = t.errorText(outcome.err)
+			case outcome.result != "":
+				messageText = outcome.result
+			default:
+				messageText = "the task finished without reporting a result."
+			}
+			// The block is settled here: the text goes in and the pending flag is cleared
+			// together, so the frame the answer arrives on shows it whole.
+			t.messages[pendingIdx].Text = messageText
+			t.messages[pendingIdx].Pending = false
+			t.endTurn()
+
+			// The agent asked something. The window opens now, after the turn has ended, because
+			// the question only exists once the run has returned — and opening it mid-run would
+			// put the window over a turn that is still writing to the conversation.
+			t.openAskIfPending()
+		},
 	})
-
-	t.cancelRun = nil
-	t.runningCtx = nil
-
-	var messageText string
-	switch {
-	case outcome.err == context.Canceled:
-		messageText = "cancelled."
-	case outcome.err != nil:
-		messageText = fmt.Sprintf("error: %v", outcome.err)
-	case outcome.result != "":
-		messageText = outcome.result
-	default:
-		messageText = "the task finished without reporting a result."
-	}
-	// The block is settled here: the text goes in and the pending flag is cleared together, so
-	// the frame the answer arrives on shows it whole.
-	t.messages[pendingIdx].Text = messageText
-	t.messages[pendingIdx].Pending = false
-	t.endTurn()
-
-	// The agent asked something. The window opens now, after the turn has ended, because the
-	// question only exists once the run has returned — and opening it mid-run would put the
-	// window over a turn that is still writing to the conversation.
-	t.openAskIfPending()
 }
 
 // askSource is implemented by a runner that can hand over the questions of the last turn.
@@ -977,7 +1024,7 @@ func (s *planStream) settle(err error, answer string) {
 	case err == context.Canceled:
 		s.setText("cancelled.")
 	case err != nil:
-		s.setText(fmt.Sprintf("error: %v", err))
+		s.setText(s.tui.errorText(err))
 	case answer != "":
 		s.setText(answer)
 	case s.text != "":
@@ -999,20 +1046,16 @@ func (t *TUI) runPlan(ctx context.Context, prompt string) {
 	}
 	t.addMessage(AuthorUser, prompt)
 
-	if t.cancelRun != nil {
-		t.cancelRun()
+	if cancel := t.currentCancel(); cancel != nil {
+		cancel()
 	}
 
 	progress := make(chan string, 64)
 	runCtx, cancel := context.WithCancel(ctx)
-	t.cancelRun = cancel
-	t.runningCtx = runCtx
+	t.setCancel(t.stopper(cancel), runCtx)
 
 	done := make(chan runOutcome, 1)
-	var wg sync.WaitGroup
-	wg.Add(1)
 	go func() {
-		defer wg.Done()
 		answer, err := t.Runner.RunPlan(runCtx, prompt, progressSender(runCtx, progress))
 		done <- runOutcome{result: answer, err: err}
 	}()
@@ -1023,27 +1066,31 @@ func (t *TUI) runPlan(ctx context.Context, prompt string) {
 	t.messages[stream.pendingIdx].Pending = true
 	t.advance()
 
-	result := t.awaitRun(runCtx, progress, done, func(p string) {
-		stream.handle(p)
-		t.advance()
+	t.startTurn(runCtx, &turn{
+		progress: progress,
+		done:     done,
+		leave:    cancel,
+		onProgress: func(p string) {
+			stream.handle(p)
+			t.advance()
+		},
+		onDone: func(result runOutcome) {
+			// Whatever the runner queued before reporting is still worth showing: the
+			// outcome can arrive while lines are in flight.
+			drainProgress(progress, stream.handle)
+
+			t.clearCancel()
+			cancel()
+
+			stream.closePending()
+			if stream.pendingIdx >= len(t.messages) {
+				// The last block was empty and got dropped: settle on a fresh one.
+				stream.openPending()
+			}
+			stream.settle(result.err, result.result)
+			t.endTurn()
+		},
 	})
-	wg.Wait()
-	close(done)
-
-	// Whatever the runner queued before reporting is still worth showing: the
-	// outcome can arrive while lines are in flight.
-	drainProgress(progress, stream.handle)
-
-	t.cancelRun = nil
-	t.runningCtx = nil
-
-	stream.closePending()
-	if stream.pendingIdx >= len(t.messages) {
-		// The last block was empty and got dropped: settle on a fresh one.
-		stream.openPending()
-	}
-	stream.settle(result.err, result.result)
-	t.endTurn()
 }
 
 // runModels lists the catalogue inside the panel: the report comes back as text
@@ -1063,38 +1110,65 @@ func (t *TUI) runModels(ctx context.Context) {
 	case strings.TrimSpace(report) == "":
 		t.messages[pendingIdx].Text = "the provider published no models."
 	default:
-		// A report is a block of labelled lines: it is shown as the model's
-		// answer so the panel draws it on the rail.
+		// A report is a block of labelled lines: it is shown as the model's answer, and drawn
+		// as written - re-flowing it as prose collapsed the column its values are aligned on and
+		// the indentation that marks the model in use. It ends with how to act on it.
 		t.messages[pendingIdx].Author = AuthorAgent
-		t.messages[pendingIdx].Text = strings.TrimRight(report, "\n")
+		t.messages[pendingIdx].Preformatted = true
+		t.messages[pendingIdx].Text = strings.TrimRight(report, "\n") + "\n\n/models <id> switches to one of them for this session."
 	}
 	t.messages[pendingIdx].Pending = false
 	t.endTurn()
 }
 
-// runConfig runs the first-run wizard. It suspends the chat while the wizard asks its
-// questions, so the prompt and the chat frame do not get drawn on top of each other: the
-// wizard is line-oriented (it needs the terminal back in cooked mode to read whole lines),
-// and the chat is byte-oriented (it draws one frame at a time in cbreak mode), so running
-// both at once leaves the two fighting for the screen.
+// runConfig runs the setup wizard and applies what it wrote. It suspends the chat while the wizard
+// asks its questions, so the prompt and the chat frame do not get drawn on top of each other: the
+// wizard is line-oriented (it needs the terminal back in cooked mode to read whole lines), and the
+// chat is byte-oriented (it draws one frame at a time in cbreak mode), so running both at once
+// leaves the two fighting for the screen.
 //
-// On the way in the terminal is restored to cooked, the cursor is put back where the shell
-// expects it, and the screen is wiped. On the way out the terminal is put back into the same
-// mode it was in, the chat is told to repaint from a clean state, and any spinner that was
-// running is parked so the user does not see a stale animation when the wizard is gone.
+// A setup that was written is APPLIED before this returns (see configReloader): the user ran the
+// wizard to change what the next message runs with, and "configuration written" over a session
+// still using the old provider was a sentence that was true about the file and false about motita.
 func (t *TUI) runConfig(ctx context.Context) {
 	t.beginTurn()
-	t.addMessage(AuthorSystem, "starting the configuration wizard...")
+	t.addMessage(AuthorSystem, "opening the setup...")
 	pendingIdx := len(t.messages) - 1
 	t.advance()
 
-	if err := t.suspendForWizard(ctx); err != nil {
-		t.messages[pendingIdx].Text = fmt.Sprintf("the wizard failed: %v", err)
-	} else {
-		t.messages[pendingIdx].Text = "configuration written."
+	err := t.suspendForWizard(ctx)
+	switch {
+	case errors.Is(err, onboard.ErrCancelled):
+		t.messages[pendingIdx].Text = "setup cancelled: nothing was changed."
+	case err != nil:
+		t.messages[pendingIdx].Text = fmt.Sprintf("the setup failed: %v", err)
+	default:
+		t.messages[pendingIdx].Text = t.applySetup(ctx)
 	}
 	t.messages[pendingIdx].Pending = false
 	t.endTurn()
+}
+
+// configReloader is a runner that can apply the configuration file as it is now.
+type configReloader interface {
+	ReloadConfig(ctx context.Context) error
+}
+
+// applySetup applies the setup the wizard just wrote and says what is in use now.
+func (t *TUI) applySetup(ctx context.Context) string {
+	rl, ok := t.Runner.(configReloader)
+	if !ok {
+		return "setup saved. Restart motita to use it."
+	}
+	if err := rl.ReloadConfig(ctx); err != nil {
+		return fmt.Sprintf("setup saved, but it could not be applied now (%v). Restart motita to use it.", err)
+	}
+	llmCfg := t.Runner.Config().LLM
+	text := "setup saved and applied: now using " + providerName(llmCfg.Provider) + " " + glyphMid + " " + llmCfg.Model + "."
+	if llmCfg.APIKey == "" && config.LLMNeedsKey(llmCfg) {
+		text += " There is no API key yet: run /config again to add one."
+	}
+	return text
 }
 
 // suspendForWizard hands the terminal to the wizard, runs it, and hands it back. The
@@ -1127,7 +1201,11 @@ func (t *TUI) suspendForWizard(ctx context.Context) error {
 	// Run the wizard through the runner so its config-file path and error mapping stay
 	// in one place. Errors here are wizard failures (bad input, write error), not chat
 	// failures, and the caller maps them onto the chat's own message format.
-	err := t.Runner.RunConfig(ctx)
+	run := t.Runner.RunConfig
+	if t.Setup != nil {
+		run = t.Setup
+	}
+	err := run(ctx)
 
 	// Hand the terminal back, regardless of whether the wizard succeeded. The new
 	// handle replaces the one Run is holding in its defer, so the next keystroke is
@@ -1159,8 +1237,23 @@ func (t *TUI) addMessage(author Author, text string) {
 // as written instead of being word wrapped. The help screen is a key reference: the
 // alignment between a key and its description is what makes it scannable, and
 // wrapping collapses the runs of spaces that produce it.
+//
+// A reference is read from its TOP. When it is taller than the window, the view is lifted so its
+// first line is the first one on screen: pinned to the bottom like an answer, the help screen
+// opened on its last command and its first half was never seen.
 func (t *TUI) addPreformatted(author Author, text string) {
-	t.messages = append(t.messages, Message{Author: author, Text: text, Preformatted: true})
+	m := Message{Author: author, Text: text, Preformatted: true}
+	t.messages = append(t.messages, m)
+	inner := t.conversationWidth()
+	tall := len(t.messageLines(m, inner))
+	start := len(t.chatLines(inner)) - tall
+	lift := tall - t.chatRows()
+	if start > 0 {
+		lift++ // the "earlier lines" marker takes the top row once anything is above
+	}
+	if lift > 0 {
+		t.scroll = lift
+	}
 	t.drawFrame()
 }
 
@@ -1467,49 +1560,62 @@ type lineResult struct {
 // that documents a spelling nothing accepts is worse than no help at all.
 var helpText = buildHelp()
 
-// buildHelp renders the reference: the navigation keys first, because they are what a
-// newcomer needs, then every command with the description the catalogue carries.
+// helpSections names the catalogue's groups as the help screen titles them, in the order they are
+// shown. The group values themselves are shared with the browser interface, which colours by them,
+// so the friendly titles live here rather than in the catalogue.
+var helpSections = [][2]string{
+	{"mode", "Modes and setup"},
+	{"session", "Conversations"},
+	{"action", "Search and feedback"},
+	{"meta", "Help"},
+}
+
+// buildHelp renders the reference: the keys first, because they are what a newcomer needs, then
+// every command under its topic, with the description the catalogue carries.
 func buildHelp() string {
 	var b strings.Builder
-	b.WriteString("Motita chat\n\n")
-	b.WriteString("Navigation — no Enter needed\n")
+	b.WriteString("Keys (no Enter needed)\n")
 	for _, h := range [][2]string{
+		{"Enter", "send what you typed"},
 		{"Tab", "switch between Task and Plan"},
-		{"→", "complete the command being typed"},
-		{"j/k", "scroll one line"},
-		{"PgUp/PgDn", "scroll one page"},
-		{"Ctrl+U/Ctrl+D", "scroll half a page"},
-		{"g/G", "oldest / newest"},
-		{"Ctrl+F", "search the chat"},
-		{"/find", "the same search, typed"},
-		{"Esc", "search / cancel / bottom"},
-		{"Ctrl+C", "cancel and leave"},
+		{"/", "open the command list (↑↓ choose, → complete)"},
+		{"↑↓ PgUp PgDn", "scroll the conversation (also j/k, Ctrl+U/Ctrl+D)"},
+		{"g / G", "oldest / newest"},
+		{"Ctrl+F", "search the conversation (or /find)"},
+		{"Esc", "close / stop the running task / back to the newest"},
+		{"Ctrl+C", "stop and quit"},
 	} {
 		b.WriteString("  " + pad(h[0], 16) + h[1] + "\n")
 	}
 
-	b.WriteString("\nCommands — type them and press Enter\n")
-	for _, c := range commands {
-		label := c.Name
-		if len(c.Aliases) > 0 {
-			label += " (" + strings.Join(c.Aliases, ", ") + ")"
+	for _, sec := range helpSections {
+		b.WriteString("\n" + sec[1] + "\n")
+		for _, c := range commands {
+			if c.Group != sec[0] {
+				continue
+			}
+			label := c.Name
+			if len(c.Aliases) > 0 {
+				label += " (" + strings.Join(c.Aliases, ", ") + ")"
+			}
+			if c.Arg != "" {
+				label += " " + c.Arg
+			}
+			b.WriteString("  " + pad(label, 24) + c.Help + "\n")
 		}
-		if c.Arg != "" {
-			label += " " + c.Arg
-		}
-		b.WriteString("  " + pad(label, 24) + c.Help + "\n")
 	}
 	return b.String()
 }
 
-// pad pads a plain string to a column, for the help's two-column layout. The width is in
-// BYTES here because the labels are ASCII by construction: a command name is sanitised and the
-// key names are literals. A rune-aware version would be the right call for anything else.
+// pad pads a plain string to a column, for the help's two-column layout. The width is counted
+// in runes: the key names include arrows, and counting their bytes would push every description
+// after them out of its column.
 func pad(s string, width int) string {
-	if len(s) >= width {
+	n := utf8.RuneCountInString(s)
+	if n >= width {
 		return s + " "
 	}
-	return s + strings.Repeat(" ", width-len(s))
+	return s + strings.Repeat(" ", width-n)
 }
 
 // minHeight is the number of rows below which the interface stops trying to draw
@@ -1621,27 +1727,63 @@ func (t *TUI) readLineLive(ctx context.Context) (string, bool) {
 	}
 }
 
-// readByteOrCancel returns the next byte, or reports that the run is over.
-//
-// Reading happens on its own goroutine so a cancelled context can abandon the read: a
-// blocking ReadByte on a terminal that is waiting for a keystroke never returns on its own,
-// and without this the interface would ignore Ctrl+C until the user pressed something else.
-func (t *TUI) readByteOrCancel(ctx context.Context) (byte, bool) {
-	ch := make(chan byte, 1)
-	go func() {
-		b, err := t.input().ReadByte()
-		if err != nil {
-			close(ch)
-			return
-		}
-		ch <- b
-	}()
+// byteRead is what the one outstanding read produced.
+type byteRead struct {
+	b   byte
+	err error
+}
 
-	select {
-	case v, ok := <-ch:
-		return v, ok
-	case <-ctx.Done():
-		return 0, false
+// readByteOrCancel returns the next byte, or reports that the input is over.
+//
+// The byte is read on its own goroutine so a cancelled context can abandon the WAIT: a blocking
+// ReadByte on a terminal that is waiting for a keystroke never returns on its own, and without this
+// the interface would ignore Ctrl+C until the user pressed something else. The READ is not
+// abandoned: it stays outstanding, and the byte it eventually produces is the one the next call
+// returns. Starting a fresh read on every call - which is what this used to do - left the old one
+// running beside it, and the keystroke went to whichever won.
+//
+// While waiting, this is also where a turn in flight is driven: its progress, its requests for
+// approval, its outcome and the spinner's tick are applied here, between keystrokes, on the
+// goroutine that owns the view (see turns.go).
+func (t *TUI) readByteOrCancel(ctx context.Context) (byte, bool) {
+	if t.inbox == nil {
+		t.inbox = make(chan byteRead, 1)
+	}
+	if !t.reading {
+		t.reading = true
+		go func() {
+			b, err := t.input().ReadByte()
+			t.inbox <- byteRead{b: b, err: err}
+		}()
+	}
+	approvals := t.approvalChannel()
+	for {
+		var (
+			progress <-chan string
+			done     <-chan runOutcome
+			tick     <-chan time.Time
+		)
+		if tr := t.current; tr != nil {
+			progress, done, tick = tr.progress, tr.done, tr.tick.C
+		}
+		select {
+		case r := <-t.inbox:
+			t.reading = false
+			if r.err != nil {
+				return 0, false
+			}
+			return r.b, true
+		case <-ctx.Done():
+			return 0, false
+		case p := <-progress:
+			t.current.onProgress(p)
+		case c := <-approvals:
+			t.openConfirm(c)
+		case out := <-done:
+			t.endCurrent(ctx, out)
+		case <-tick:
+			t.advance()
+		}
 	}
 }
 

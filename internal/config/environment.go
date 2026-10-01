@@ -425,7 +425,8 @@ func speaksOpenAIKey(provider string) bool {
 }
 
 // ProviderKeyFromEnv returns the key the environment holds for one provider: its
-// own variable, then OPENAI_API_KEY for the OpenAI providers. The generic
+// own variable, then OPENAI_API_KEY for the OpenAI providers, then the credentials
+// file the wizard wrote in the motita home (under the provider's own variable). The generic
 // MOTITA_LLM_API_KEY is NOT consulted: it belongs to the configured provider, and
 // handing it to another one on a switch sent one vendor's key to another vendor.
 func ProviderKeyFromEnv(provider string) string {
@@ -433,9 +434,13 @@ func ProviderKeyFromEnv(provider string) string {
 		return v
 	}
 	if speaksOpenAIKey(provider) {
-		return strings.TrimSpace(os.Getenv("OPENAI_API_KEY"))
+		if v := strings.TrimSpace(os.Getenv("OPENAI_API_KEY")); v != "" {
+			return v
+		}
 	}
-	return ""
+	// Last, the key the wizard stored in the motita home under the provider's own name, so a
+	// provider that was set up once is usable on a switch without exporting anything.
+	return homeCredentialKey(provider)
 }
 
 // ProviderNeedsKey reports whether a provider is reached with a key of motita's.

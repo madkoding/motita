@@ -1469,7 +1469,7 @@ func TestInitFlagRunsTheWizard(t *testing.T) {
 			Args:  []string{"-init", "-config", path},
 			Out:   &out,
 			Err:   &errs,
-			Stdin: strings.NewReader("openai\n1\n3\n\n\n"),
+			Stdin: strings.NewReader("openai\n\n\n1\n3\n\n"),
 		})
 		if code != Success {
 			t.Fatalf("code = %d, errs = %q", code, errs.String())
@@ -1478,7 +1478,7 @@ func TestInitFlagRunsTheWizard(t *testing.T) {
 			t.Fatalf("the configuration must exist: %v", err)
 		}
 		text := out.String()
-		if !strings.Contains(text, "motita — your autonomous coding agent") {
+		if !strings.Contains(text, "Welcome! Let's connect motita to an AI model") {
 			t.Errorf("the wizard must introduce itself: %q", text)
 		}
 		// It must prove the generated file loads, which is the point of the wizard.
@@ -1503,7 +1503,7 @@ func TestInitWithoutConfigWritesInTheMotitaHome(t *testing.T) {
 			Args:  []string{"-init"},
 			Out:   &out,
 			Err:   &errs,
-			Stdin: strings.NewReader("openai\n1\n3\n\n\n"),
+			Stdin: strings.NewReader("openai\n\n\n1\n3\n\n"),
 		})
 		if code != Success {
 			t.Fatalf("code = %d, errs = %q", code, errs.String())
@@ -1530,7 +1530,7 @@ func TestInitWithoutHomeFallsBackToTheWorkingDirectory(t *testing.T) {
 			Args:  []string{"-init"},
 			Out:   &out,
 			Err:   &errs,
-			Stdin: strings.NewReader("openai\n1\n3\n\n\n"),
+			Stdin: strings.NewReader("openai\n\n\n1\n3\n\n"),
 		})
 		if code != Success {
 			t.Fatalf("code = %d, errs = %q", code, errs.String())
@@ -1685,7 +1685,7 @@ func TestAutoOnboardingWhenTUILaunchesWithoutConfig(t *testing.T) {
 			Args:  []string{}, // bare invocation → TUI
 			Out:   &out,
 			Err:   &errs,
-			Stdin: strings.NewReader("openai\n1\n3\n\n\n"),
+			Stdin: strings.NewReader("openai\n\n\n1\n3\n\n"),
 			RunOnboard: func(_ context.Context, in io.Reader, w io.Writer, gotPath string, preset onboard.Answers) (onboard.Result, error) {
 				wizardRan = true
 				// Write a valid config so the rest of the run can proceed.

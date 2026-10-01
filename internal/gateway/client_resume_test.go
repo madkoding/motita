@@ -2,12 +2,15 @@ package gateway
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/madkoding/motita/internal/agent"
 )
@@ -179,11 +182,11 @@ func TestTheClientDoesNotResumeAfterTheGatewayRefused(t *testing.T) {
 		mu.Unlock()
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusConflict)
-		_, _ = io.WriteString(w, `{"error":"a run is already in progress in this session"}`)
+		_, _ = io.WriteString(w, `{"error":"this session has already been integrated into the project"}`)
 	})
 
 	_, err := c.RunTask(context.Background(), "x", func(string, ...any) {})
-	if err == nil || !strings.Contains(err.Error(), "already in progress") {
+	if err == nil || !strings.Contains(err.Error(), "already been integrated") {
 		t.Fatalf("err = %v, the gateway's reason must reach the user", err)
 	}
 	mu.Lock()
@@ -543,5 +546,78 @@ func TestAnUnparseablePreambleEndsTheRun(t *testing.T) {
 	_, err := c.RunTask(context.Background(), "x", func(string, ...any) {})
 	if err == nil {
 		t.Fatal("an unreadable preamble must be reported rather than ignored")
+	}
+}
+
+// fastSlot makes the wait for a busy conversation quick, and bounded at `wait`.
+func fastSlot(t *testing.T, wait time.Duration) {
+	t.Helper()
+	oldPoll, oldWait := slotPoll, slotWait
+	slotPoll, slotWait = time.Millisecond, wait
+	t.Cleanup(func() { slotPoll, slotWait = oldPoll, oldWait })
+}
+
+// A conversation still closing the turn before this one (a stopped run, a title being written) is
+// waited for, and the wait is said: refusing the message the user just typed would make them type
+// it again a moment later.
+func TestTheClientWaitsForTheConversationToBeFree(t *testing.T) {
+	fastSlot(t, time.Second)
+	var mu sync.Mutex
+	attempts := 0
+	c := resumeGateway(t, func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		attempts++
+		n := attempts
+		mu.Unlock()
+		if n < 3 {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusConflict)
+			_, _ = io.WriteString(w, `{"error":"a run is already in progress in this session"}`)
+			return
+		}
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.WriteHeader(http.StatusOK)
+		writeFrame(w, 0, EventAttached, `{"run_id":"r1"}`)
+		writeFrame(w, 1, EventDone, `{"result":"answered"}`)
+	})
+
+	var said []string
+	got, err := c.RunTask(context.Background(), "x", func(format string, args ...any) {
+		said = append(said, fmt.Sprintf(format, args...))
+	})
+	if err != nil || got != "answered" {
+		t.Fatalf("got %q, err %v", got, err)
+	}
+	if len(said) == 0 || !strings.Contains(said[0], "waiting for the previous turn") {
+		t.Errorf("the wait must be said once, got %v", said)
+	}
+}
+
+// The wait is bounded: a conversation that stays busy is reported as busy.
+func TestTheWaitForABusyConversationIsBounded(t *testing.T) {
+	fastSlot(t, 20*time.Millisecond)
+	c := resumeGateway(t, func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusConflict)
+		_, _ = io.WriteString(w, `{"error":"a run is already in progress in this session"}`)
+	})
+	_, err := c.RunTask(context.Background(), "x", nil)
+	if err == nil || !strings.Contains(err.Error(), "already in progress") {
+		t.Fatalf("err = %v, the gateway's reason must reach the user", err)
+	}
+}
+
+// Stopping while waiting stops the wait.
+func TestTheWaitForABusyConversationCanBeStopped(t *testing.T) {
+	fastSlot(t, time.Hour)
+	ctx, cancel := context.WithCancel(context.Background())
+	c := resumeGateway(t, func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusConflict)
+		_, _ = io.WriteString(w, `{"error":"a run is already in progress in this session"}`)
+	})
+	// The wait is announced just before it starts, which is where the user stops it.
+	if _, err := c.RunTask(ctx, "x", func(string, ...any) { cancel() }); !errors.Is(err, context.Canceled) {
+		t.Fatalf("err = %v, want context.Canceled", err)
 	}
 }
