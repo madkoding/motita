@@ -149,6 +149,9 @@ func (s *Server) startDetachedRun(c *conversation, task, kind string, approverFo
 		default:
 			snap := c.svc.ConversationSummary()
 			done := doneEvent{Result: result, Session: snap}
+			if src, ok := c.svc.(interface{ TakeReport() *agent.Report }); ok && kind != schedule.KindPlan {
+				done.Report = src.TakeReport()
+			}
 			if rep := buildChangeReport(s.baseCtx, c.workspace, startRev); len(rep.Files) > 0 || len(rep.Previews) > 0 {
 				done.Changes = &rep
 			}

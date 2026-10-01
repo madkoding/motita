@@ -131,8 +131,10 @@ type AppRunner struct {
 	// pending is the questions the last turn asked and the request they clarify, waiting for
 	// the interface to open the window on them. Guarded by pendingMu for the same reason the
 	// transcript is: a run can finish while the interface is reading.
-	pendingMu     sync.Mutex
-	pending       []agent.AskItem
+	pendingMu sync.Mutex
+	pending   []agent.AskItem
+	// report is the structured account of the last finished task, kept for TakeReport.
+	report        *agent.Report
 	pendingOrigin string
 
 	// review is the background self-improvement fork, and reviewMu guards it together with
@@ -1039,6 +1041,10 @@ func summarise(tr agent.TaskResult) string {
 			b.WriteString(tr.Assumption)
 		}
 		return b.String()
+	// The structured report is shown as plain text: this is the answer the terminal draws, and the
+	// fallback for any client that does not lay the report out itself.
+	case tr.Pass && tr.Report != nil && tr.Report.Summary != "":
+		return tr.Report.Text()
 	case tr.Pass && tr.Summary != "":
 		return tr.Summary
 	case tr.Pass:
@@ -1097,6 +1103,7 @@ func (r *AppRunner) RunTask(ctx context.Context, task string, progress func(stri
 		o.SetProgress(progress)
 		o.SetObserver(func(tr agent.TaskResult) {
 			result = summarise(tr)
+			r.setReport(tr.Report)
 			// The questions are handed to the caller as STRUCTURE, not only as the sentence
 			// above: the window needs the question, its assumption and its options to draw a
 			// pickable list, and none of that survives being flattened into a string.
@@ -1144,6 +1151,25 @@ func (r *AppRunner) TakePendingQuestions() ([]agent.AskItem, string) {
 	items, origin := r.pending, r.pendingOrigin
 	r.pending, r.pendingOrigin = nil, ""
 	return items, origin
+}
+
+// setReport records the structured report of the turn that just finished. A turn without one
+// (a question, a chat reply, a failure) clears the previous, so a stale report is never attached
+// to an unrelated answer.
+func (r *AppRunner) setReport(rep *agent.Report) {
+	r.pendingMu.Lock()
+	defer r.pendingMu.Unlock()
+	r.report = rep
+}
+
+// TakeReport returns the structured report of the last task and clears it, or nil when that turn
+// produced none. Taking clears for the reason TakePendingQuestions does: one turn, one delivery.
+func (r *AppRunner) TakeReport() *agent.Report {
+	r.pendingMu.Lock()
+	defer r.pendingMu.Unlock()
+	rep := r.report
+	r.report = nil
+	return rep
 }
 
 // history returns the Task-mode conversation to seed a new agent with.

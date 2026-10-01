@@ -782,6 +782,9 @@ type TaskResult struct {
 	Reason      string         `json:"reason"`
 	// Summary is a human-readable answer produced by the model and shown in the UI.
 	Summary string `json:"summary,omitempty"`
+	// Report is the same account as structured data, for a front end that lays it out itself.
+	// It is nil when the model produced no summary; Summary is then empty too.
+	Report *Report `json:"report,omitempty"`
 	// NeedsInput is set when the agent could not interpret the request well enough to act and is
 	// asking the user instead of guessing. Question carries what to ask and Assumption what it
 	// would do without an answer.
@@ -1269,6 +1272,15 @@ func (a *Agent) loop(ctx context.Context, t task.Task, depth int) TaskResult {
 	// still valid, and the model's own notes. See workmemory.go for why the journal alone
 	// made a run re-read the same files a hundred times.
 	mem := &workMemory{}
+	// The sources as the run found them. It is what a claim of "done" is measured against: a
+	// project's own checks are green on a tree nobody touched, so the anchor alone cannot tell
+	// "finished" from "never started". See tree.go.
+	baseline, baselineOK := treeFingerprint(a.cfg.Agent.WorkspaceDir, true)
+	lastSources := baseline
+	readOnlyRounds := 0
+	unbackedDone := 0
+	verifyChallenges := 0
+	toolingRetries := 0
 	var trail []string
 	// A run that RESUMES after an interruption (a restart, a crash) begins with the work its
 	// earlier life recorded, instead of an empty journal. The files it changed are on disk,
@@ -1424,6 +1436,24 @@ func (a *Agent) loop(ctx context.Context, t task.Task, depth int) TaskResult {
 					"Repeating it again will not change anything. Do something DIFFERENT, or report " +
 					`"done": true if the task is already complete.`
 			}
+			// Rounds that only READ. Reported from a real session: thirteen rounds of reading and no
+			// writing, each one re-reading what the last had already shown. The model is told how
+			// long it has been reading, and that what it read is in front of it.
+			if cur, ok := treeFingerprint(a.cfg.Agent.WorkspaceDir, true); ok && cur != lastSources {
+				lastSources, readOnlyRounds = cur, 0
+			} else {
+				readOnlyRounds++
+			}
+			if readOnlyRounds >= readOnlyWarnAt {
+				detail += fmt.Sprintf("\n!! %d rounds in a row have only READ; no file has changed. What you read "+
+					"is kept in full under \"WHAT YOU HAVE ALREADY READ\". Stop exploring and WRITE the change "+
+					"now: create or edit the files this request needs, in this round. If one specific thing is "+
+					"still missing, read only that, in the same round as the writing.", readOnlyRounds)
+			}
+			// A check that failed this round is the next round's starting point.
+			if failed := mem.failedInRound(round); len(failed) > 0 {
+				detail += failedCheckNote(failed)
+			}
 			journal = append(journal, roundRecord{
 				round: round, kind: roundProgress, commands: proposedCommands(action), detail: detail,
 			})
@@ -1438,6 +1468,51 @@ func (a *Agent) loop(ctx context.Context, t task.Task, depth int) TaskResult {
 			continue
 		}
 		repeats, lastSignature = 0, ""
+
+		// [7b] A claim of "done" over a tree that has not changed. Reported from a real session:
+		// thirteen rounds of reading, no file written, "done" - and the anchor PASSED, because the
+		// project's lint, typecheck and tests are green on code nobody touched. The run closed as
+		// complete and the answer said, truthfully, that nothing had been changed.
+		//
+		// It is told ONCE, and it is not a rejection: nothing is charged to max_retries and the
+		// anchor is not spent. A request that only needed an answer (an investigation, a question
+		// about the code) is not blocked - the model says so and claims done again, and that claim
+		// goes through. What it can no longer do is finish a change it never made without being
+		// asked whether that is what it meant.
+		if cur, ok := treeFingerprint(a.cfg.Agent.WorkspaceDir, true); ok && baselineOK && cur == baseline && unbackedDone == 0 && readOnlyRounds >= doneGuardAfter {
+			unbackedDone++
+			a.report("done claimed but nothing has been changed yet; asking the model to confirm")
+			a.log.Warn(prefix+"done claimed over an unchanged working tree", "round", round)
+			journal = append(journal, roundRecord{
+				round: round, kind: roundProgress, commands: proposedCommands(action),
+				detail: "You reported \"done\": true, but NO FILE in the working directory has changed since " +
+					"the task began. If the request asked you to add, change, fix or remove something, " +
+					"then nothing has been done yet: you already hold what you read under \"WHAT YOU HAVE " +
+					"ALREADY READ\", so WRITE the change in this round (create or edit the files), then " +
+					"run the project's checks and a test for what you added. If the request only needed " +
+					"an answer or an investigation and no file should change, report \"done\": true again " +
+					"and say in \"notes\" that nothing had to change and why.",
+			})
+			continue
+		}
+
+		// [7c] A claim of "done" while a check the run ran ITSELF is still failing. Reported from a
+		// real session: the server's tests failed 22 of 45, the run called them pre-existing without
+		// comparing, never tested the endpoint it had written, and claimed done - with the anchor
+		// green, because the anchor only runs what the project declares. It is sent back, without
+		// charging the anchor or max_retries, up to maxVerifyChallenges times: a run that truly cannot
+		// fix a check (a service that is not here) still ends, with the gap in its report.
+		if open := mem.openFailures(); len(open) > 0 && verifyChallenges < maxVerifyChallenges {
+			verifyChallenges++
+			a.report("done claimed while a check is still failing; sending the run back to it (%d/%d)", verifyChallenges, maxVerifyChallenges)
+			a.log.Warn(prefix+"done claimed over a failing check", "round", round,
+				"check", truncate(open[0].command, 160), "challenge", verifyChallenges)
+			journal = append(journal, roundRecord{
+				round: round, kind: roundProgress, commands: proposedCommands(action),
+				detail: unresolvedCheckChallenge(open, verifyChallenges),
+			})
+			continue
+		}
 
 		// [8] The model claims the task is done: validate with the anchor, always.
 		a.report("validating with anchor...")
@@ -1471,10 +1546,9 @@ func (a *Agent) loop(ctx context.Context, t task.Task, depth int) TaskResult {
 			a.report("task complete: %s", validation.Reason)
 			if a.cfg.Prompts.Synthesize.User != "" && a.cfg.Prompts.Synthesize.System != "" {
 				a.report("synthesizing answer...")
-				summary := a.synthesizePhase(ctx, t, workLog.String(), validation)
-				if summary != "" {
-					res.Summary = summary
-					a.report("%s", summary)
+				if rep := a.synthesizePhase(ctx, t, workLog.String(), validation); rep != nil {
+					res.Summary, res.Report = rep.Summary, rep
+					a.report("%s", rep.Summary)
 				}
 			}
 			// When there was nobody to ask, the run proceeded on a reading the agent chose. Saying
@@ -1493,7 +1567,16 @@ func (a *Agent) loop(ctx context.Context, t task.Task, depth int) TaskResult {
 		// The anchor refused a claim of "done". THAT is a correction, and max_retries is
 		// what bounds it — separately from the rounds counter above, because the two answer
 		// different questions.
-		rejected++
+		//
+		// A gate that failed because a TOOL IS NOT INSTALLED (no node_modules, no venv) says
+		// nothing about the code, so it is not charged: the run is told to install the project's
+		// dependencies and try again. Bounded, so a machine that can never install them still ends.
+		tooling := missingTooling(validation) && toolingRetries < maxToolingRetries
+		if tooling {
+			toolingRetries++
+		} else {
+			rejected++
+		}
 		journal = append(journal, roundRecord{
 			round: round, kind: roundRejected, commands: proposedCommands(action),
 			detail: a.summariseFailure(action, runOutput, validation, runErr),
@@ -1505,7 +1588,7 @@ func (a *Agent) loop(ctx context.Context, t task.Task, depth int) TaskResult {
 			"commands", proposedCommands(action),
 			"validation", validation.Reason)
 
-		if rejected > a.cfg.Agent.MaxRetries {
+		if !tooling && rejected > a.cfg.Agent.MaxRetries {
 			// The retries ran out. This is a DIFFERENT outcome from the step budget
 			// running out, and the message has to say which one it was, or the reader
 			// goes looking for a broken check.
@@ -1519,10 +1602,49 @@ func (a *Agent) loop(ctx context.Context, t task.Task, depth int) TaskResult {
 	}
 }
 
+// readOnlyWarnAt is how many progress rounds in a row may only read before the model is told to
+// write. Five is enough to explore a real project and too few to re-read it twice.
+const readOnlyWarnAt = 5
+
+// doneGuardAfter is how many rounds that only read must have gone by before a claim of "done"
+// over an unchanged tree is questioned. A run that claims done at once is not second-guessed
+// here (its check is the anchor and the synthesis, which says plainly what was changed); the
+// pattern this exists for is the one that explores for many rounds and then closes.
+const doneGuardAfter = 2
+
+// maxToolingRetries is how many refusals caused by a missing tool are not charged to max_retries.
+const maxToolingRetries = 3
+
+// missingTooling reports whether every check that failed did so because a program or module it
+// needs is not installed, which is a fact about the machine and not about the change.
+func missingTooling(v anchor.Result) bool {
+	failed := 0
+	for _, c := range v.Checks {
+		if c.Pass {
+			continue
+		}
+		failed++
+		out := strings.ToLower(c.Output + " " + c.Error)
+		hit := false
+		for _, sig := range []string{"command not found", ": not found", "cannot find module", "no module named",
+			"module_not_found", "cannot find package", "executable file not found", "is not recognized as",
+			"err_module_not_found", "could not find a package.json", "eslint: command not found"} {
+			if strings.Contains(out, sig) {
+				hit = true
+				break
+			}
+		}
+		if !hit {
+			return false
+		}
+	}
+	return failed > 0
+}
+
 // maxUnusableReplies is how many replies IN A ROW may be unusable before the run stops.
 // One malformed reply is noise a model recovers from when told; three in a row is a model
 // that cannot follow the format, and more rounds will not change that.
-const maxUnusableReplies = 3
+const maxUnusableReplies = 5
 
 // stallWarnAt and stallStopAt bound a run that repeats itself: after stallWarnAt identical
 // progress rounds in a row the model is warned, and at stallStopAt the run stops. Identical
@@ -1866,26 +1988,28 @@ func describeAnalysis(analysis Analysis) string {
 
 // synthesizePhase asks the LLM for a concise, evidence-based answer after the
 // actions have run and the anchor has validated them.
-func (a *Agent) synthesizePhase(ctx context.Context, t task.Task, output string, validation anchor.Result) string {
+func (a *Agent) synthesizePhase(ctx context.Context, t task.Task, output string, validation anchor.Result) *Report {
 	vars := a.baseVariables(t)
 	// The output of every round, so the head AND the tail are kept: the start says what was
 	// found, the end says where the work landed.
-	vars["output"] = truncateMiddle(output, 6000)
+	vars["output"] = truncateMiddle(output, roundOutputChars)
 	vars["validation"] = validation.Reason
 
 	text, err := a.ask(ctx, a.cfg.Prompts.Synthesize, vars, "synthesize")
 	if err != nil {
 		a.log.Warn("synthesis phase failed", "error", err)
-		return ""
+		return nil
 	}
-	var reply struct {
-		Summary string `json:"summary"`
-	}
-	if err := llm.DecodeJSON(text, &reply); err != nil {
+	var rep Report
+	if err := llm.DecodeJSON(text, &rep); err != nil {
 		a.log.Warn("synthesis response has an unexpected format", "error", err, "response", truncate(text, 300))
-		return ""
+		return nil
 	}
-	return strings.TrimSpace(reply.Summary)
+	rep.normalize(validation.Pass)
+	if rep.Summary == "" {
+		return nil
+	}
+	return &rep
 }
 
 // ask renders the prompt and calls the LLM, logging any variables that were
@@ -1968,9 +2092,33 @@ func (a *Agent) describeRules() string {
 			fmt.Fprintf(&sb, "- In addition: %s %s (expected exit code %d)\n", c.Command, strings.Join(c.Args, " "), c.ExpectExit)
 		}
 		return sb.String()
+	case "auto":
+		return a.describeAutoRules()
 	default:
 		return "- No deterministic validation is configured (anchor.kind=none). The agent will not declare PASS on its own: review the configuration."
 	}
+}
+
+// describeAutoRules names the gate the PROJECT declares, which is what kind=auto runs. The model
+// is told the exact commands, because the difference between a run that finishes and one that
+// spends its attempts is whether it ran those same commands itself before claiming done.
+func (a *Agent) describeAutoRules() string {
+	checks := anchor.New(a.cfg.Anchor, a.cfg.Agent.WorkspaceDir, nil).Planned()
+	var sb strings.Builder
+	if len(checks) == 0 {
+		sb.WriteString("- This project declares NO gate yet (looked for .motita/anchor, a Makefile with check or test, " +
+			"go.mod, package.json lint/typecheck/test, Cargo.toml, pyproject.toml), so a claim of done will be REFUSED.\n" +
+			"- Declare it: find how the project checks itself (README, CI workflow, package.json scripts, Makefile) " +
+			"and write those commands, one per line, in .motita/anchor. Run them yourself before claiming done.\n")
+		return sb.String()
+	}
+	sb.WriteString("- The project's own gate runs after you claim done, in the project directory. Each of these must pass:\n")
+	for _, c := range checks {
+		fmt.Fprintf(&sb, "  - %s %s (must exit %d)\n", c.Command, strings.Join(c.Args, " "), c.ExpectExit)
+	}
+	sb.WriteString("- Run these same commands yourself BEFORE claiming done and fix what they report: a claim the gate " +
+		"refuses costs one of your limited attempts, and running them first costs nothing.\n")
+	return sb.String()
 }
 
 func describePlan(p Plan) string {
@@ -2161,6 +2309,11 @@ func (a *Agent) runActions(ctx context.Context, actions []Command, prefix string
 func (a *Agent) runRound(ctx context.Context, actions []Command, prefix string, mem *workMemory, round int) (string, error) {
 	var sb strings.Builder
 	var lastErr error
+	// The tree as this round finds it. Anything that changed it since the last look (the
+	// anchor ran a build, a test wrote a file) makes the kept reads untrustworthy.
+	if mem != nil {
+		mem.sync(a.cfg.Agent.WorkspaceDir)
+	}
 
 	for i, action := range actions {
 		// A library action is not a shell command: it is answered from the procedure library and
@@ -2264,7 +2417,13 @@ func (a *Agent) runRound(ctx context.Context, actions []Command, prefix string, 
 		// It is reported even when the command printed nothing: the exit code is what tells
 		// the reader whether it worked, and a silent success (`printf > file`) would
 		// otherwise never be marked as finished.
-		a.report("output (exit %d):\n%s", exit, truncateMiddle(strings.TrimSpace(output), 800))
+		// What the reader and the terminal see is what the command actually printed, up to a cap
+		// that is generous on purpose: a `grep` of a large tree is exactly the output a person
+		// asks for, and cutting it to a handful of lines made the terminal useless as a record.
+		// What is kept is the whole result of a normal command; only an enormous one is cut, and
+		// then the cut says so, with how much was left out.
+		a.report("output (exit %d):\n%s", exit,
+			truncateMiddle(strings.TrimSpace(output), terminalOutputChars))
 
 		fmt.Fprintf(&sb, "$ %s\n", action.Command)
 		if output != "" {
@@ -2280,9 +2439,11 @@ func (a *Agent) runRound(ctx context.Context, actions []Command, prefix string, 
 
 		if mem != nil {
 			mem.executed++
+			mem.noteVerification(action.Command, round, exit, err, output)
 			switch {
 			case isWrite(action):
-				mem.invalidate()
+				// It looks like it could write; whether it DID is a question about the files.
+				mem.sync(a.cfg.Agent.WorkspaceDir)
 			case isRead(action) && err == nil && exit == 0 && !truncated:
 				mem.remember(action.Command, round, output)
 			}
@@ -2309,6 +2470,12 @@ func (a *Agent) summariseFailure(action Action, execution string, validation anc
 	}
 	if runErr != nil {
 		fmt.Fprintf(&sb, "\nExecution error: %s\n", runErr)
+	}
+	if missingTooling(validation) {
+		sb.WriteString("\nEvery failed check failed because a tool or module is NOT INSTALLED here, which says " +
+			"nothing about your change. Install the project's dependencies the way the project does " +
+			"(npm ci, pip install -r requirements.txt, go mod download, bundle install...) and claim done again. " +
+			"This attempt is not counted against you.\n")
 	}
 	sb.WriteString("\nResult of the deterministic validation (JSON):\n")
 	sb.WriteString(validation.JSON())
@@ -2683,8 +2850,21 @@ func truncate(s string, max int) string {
 	return s[:cut] + "..."
 }
 
+// Caps on how much of one command's output is passed on. See the two uses in runActions:
+// terminalOutputChars is what the user reads (the chat step and the terminal drawer, which is
+// the record of the run), and roundOutputChars is what the model is handed to work with.
+//
+// The terminal's cap is the larger of the two: a person asking for a `grep` wants the lines,
+// and a drawer that is silently cut is a worse record than a long one. The model's is smaller
+// because it goes into a prompt, where the same text costs tokens on every round.
+const (
+	terminalOutputChars = 32 << 10
+	roundOutputChars    = 16 << 10
+)
+
 // truncateMiddle keeps the first and the last part of s and drops the middle, when s is
-// longer than max bytes. Both ends are cut on a character boundary.
+// longer than max bytes. Both ends are cut on a character boundary, and the marker says how
+// many bytes are missing, so a reader can tell a short answer from a cut one.
 func truncateMiddle(s string, max int) string {
 	if len(s) <= max {
 		return s
@@ -2695,5 +2875,5 @@ func truncateMiddle(s string, max int) string {
 	for start < len(s) && !utf8.RuneStart(s[start]) {
 		start++
 	}
-	return truncate(s, head) + "\n[... middle omitted ...]\n" + s[start:]
+	return truncate(s, head) + fmt.Sprintf("\n[... %d of %d bytes omitted ...]\n", len(s)-head-(len(s)-start), len(s)) + s[start:]
 }

@@ -20,6 +20,24 @@ the result, and that read is what goes in the answer.
 | "it is 15% faster" | the change looks faster | both numbers, same machine, same input, before and after |
 | "the page shows it" | the CSS rule exists | the computed style / the pixel |
 
+## New code ships with its own proof
+
+If you added or changed behaviour — a component, a function, a handler, a flag — the task is not
+finished when the code is written. Leave a test in the repository, in the same change:
+
+1. Find how the project tests (neighbouring `*_test.*` files, the Makefile, `package.json`) and
+   follow that style; do not invent a new harness.
+2. Write a test that exercises the NEW code path and asserts on its result. For a fix, it must fail
+   without the fix.
+3. Run it and read the output for the test's NAME and count. `ok` with 0 tests run, or a suite that
+   never imports your file, proves nothing.
+4. Run the project's full gate too (build, lint, tests): a new test can pass while the change
+   breaks a neighbour.
+5. Report the test's path and its result. If the project genuinely cannot test this kind of change,
+   say so and verify the effect another way (run it, render it, call it).
+
+"The existing tests still pass" is not this: they never saw your code.
+
 ## Reproduce the failure BEFORE believing the fix
 
 A fix you never saw fail is a fix you cannot claim. Three steps, in this order:

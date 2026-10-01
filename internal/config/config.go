@@ -394,7 +394,7 @@ func Default() Config {
 			CommitMessage: "agent: {{task}}",
 		},
 		Agent: Agent{
-			MaxRetries:   3,
+			MaxRetries:   5,
 			SubtaskDepth: 1,
 			// A task is allowed to take many rounds, because "do what I asked" is usually a
 			// plan and not a single step.

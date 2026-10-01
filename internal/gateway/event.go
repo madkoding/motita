@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 
+	"github.com/madkoding/motita/internal/agent"
 	"github.com/madkoding/motita/internal/session"
 )
 
@@ -70,6 +71,10 @@ type doneEvent struct {
 	// Changes is what the run changed, as pictures and a file summary. It is omitted when
 	// the run changed nothing, so a plain answer costs nothing extra.
 	Changes *changeReport `json:"changes,omitempty"`
+	// Report is the answer as structure (status, changes, verification, risks, next steps), for
+	// a front end that lays it out itself. Result stays the flat text every client can show; the
+	// report is omitted when the turn produced none (a chat reply, a plan, a failure).
+	Report *agent.Report `json:"report,omitempty"`
 }
 
 // approvalDeniedEvent is a command that was asked about and refused because there was

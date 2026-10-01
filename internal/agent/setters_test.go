@@ -93,7 +93,11 @@ func synthesisTask(t *testing.T) task.Task {
 // the documented JSON object and the summary is what the chat will show.
 func TestSynthesizePhaseReturnsTheSummary(t *testing.T) {
 	a := synthesisAgent(t, `{"summary":"there are 20 .txt files in /home"}`)
-	got := a.synthesizePhase(context.Background(), synthesisTask(t), "20", anchor.Result{Reason: "1 check passed"})
+	rep := a.synthesizePhase(context.Background(), synthesisTask(t), "20", anchor.Result{Reason: "1 check passed"})
+	got := ""
+	if rep != nil {
+		got = rep.Summary
+	}
 	if got != "there are 20 .txt files in /home" {
 		t.Errorf("summary = %q", got)
 	}
@@ -103,7 +107,11 @@ func TestSynthesizePhaseReturnsTheSummary(t *testing.T) {
 // would render as blank lines inside the panel, so it is trimmed.
 func TestSynthesizePhaseTrimsTheSummary(t *testing.T) {
 	a := synthesisAgent(t, `{"summary":"  hay 20  \n"}`)
-	got := a.synthesizePhase(context.Background(), synthesisTask(t), "20", anchor.Result{Reason: "ok"})
+	rep := a.synthesizePhase(context.Background(), synthesisTask(t), "20", anchor.Result{Reason: "ok"})
+	got := ""
+	if rep != nil {
+		got = rep.Summary
+	}
 	if got != "hay 20" {
 		t.Errorf("summary = %q, want it trimmed", got)
 	}
@@ -114,8 +122,8 @@ func TestSynthesizePhaseTrimsTheSummary(t *testing.T) {
 // back to the validation reason then.
 func TestSynthesizePhaseWithABlankSummary(t *testing.T) {
 	a := synthesisAgent(t, `{"summary":"   "}`)
-	if got := a.synthesizePhase(context.Background(), synthesisTask(t), "20", anchor.Result{Reason: "ok"}); got != "" {
-		t.Errorf("a blank summary must come back empty, got %q", got)
+	if got := a.synthesizePhase(context.Background(), synthesisTask(t), "20", anchor.Result{Reason: "ok"}); got != nil {
+		t.Errorf("a blank summary must come back empty, got %+v", got)
 	}
 }
 
@@ -124,13 +132,13 @@ func TestSynthesizePhaseWithABlankSummary(t *testing.T) {
 // garbled text.
 func TestSynthesizePhaseOnAnUnexpectedReply(t *testing.T) {
 	a := synthesisAgent(t, `not JSON at all`)
-	if got := a.synthesizePhase(context.Background(), synthesisTask(t), "20", anchor.Result{Reason: "ok"}); got != "" {
-		t.Errorf("an unparsable reply must yield no summary, got %q", got)
+	if got := a.synthesizePhase(context.Background(), synthesisTask(t), "20", anchor.Result{Reason: "ok"}); got != nil {
+		t.Errorf("an unparsable reply must yield no summary, got %+v", got)
 	}
 	// A JSON value that decodes but is not an object is equally unusable.
 	b := synthesisAgent(t, `[1, 2, 3]`)
-	if got := b.synthesizePhase(context.Background(), synthesisTask(t), "20", anchor.Result{Reason: "ok"}); got != "" {
-		t.Errorf("a non-object reply must yield no summary, got %q", got)
+	if got := b.synthesizePhase(context.Background(), synthesisTask(t), "20", anchor.Result{Reason: "ok"}); got != nil {
+		t.Errorf("a non-object reply must yield no summary, got %+v", got)
 	}
 }
 
@@ -155,7 +163,7 @@ func TestSynthesizePhaseWithAFailingEngine(t *testing.T) {
 	}
 	a := New(cfg, logx.Global(), engine, &sandbox.Sandbox{}, nil)
 
-	if got := a.synthesizePhase(context.Background(), synthesisTask(t), "20", anchor.Result{Reason: "ok"}); got != "" {
-		t.Errorf("a failing engine must yield no summary, got %q", got)
+	if got := a.synthesizePhase(context.Background(), synthesisTask(t), "20", anchor.Result{Reason: "ok"}); got != nil {
+		t.Errorf("a failing engine must yield no summary, got %+v", got)
 	}
 }

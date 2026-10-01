@@ -34,6 +34,7 @@ func TestPhaseDetectsEachStep(t *testing.T) {
 		"expected_result appears":      "plan",
 		"## ACTION\n...":               "execute",
 		"reasoning appears":            "execute",
+		"## FINAL ANSWER\n...":         "synthesize",
 		"something else entirely":      "unknown",
 	}
 	for prompt, want := range cases {
@@ -297,5 +298,25 @@ func TestAStreamedRequestIsAnsweredAsAStream(t *testing.T) {
 	handle(rec, httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(`{"stream":true}`)))
 	if strings.Contains(rec.Body.String(), "data: ") {
 		t.Error("the anthropic dialect is not streamed")
+	}
+}
+
+// TestTheSynthesisReplyIsAFullStructuredReport: the final answer is a report with every section,
+// so a front end can be driven against the whole shape and not just the sentence.
+func TestTheSynthesisReplyIsAFullStructuredReport(t *testing.T) {
+	var rep struct {
+		Status       string           `json:"status"`
+		Summary      string           `json:"summary"`
+		Changes      []map[string]any `json:"changes"`
+		Verification []map[string]any `json:"verification"`
+		Risks        []string         `json:"risks"`
+		NextSteps    []string         `json:"next_steps"`
+	}
+	if err := json.Unmarshal([]byte(contentJSON("synthesize", 1)), &rep); err != nil {
+		t.Fatalf("the synthesis reply is not JSON: %v", err)
+	}
+	if rep.Status != "done" || rep.Summary == "" || len(rep.Changes) == 0 || len(rep.Verification) < 2 ||
+		len(rep.Risks) == 0 || len(rep.NextSteps) == 0 {
+		t.Errorf("the report is missing a section: %+v", rep)
 	}
 }

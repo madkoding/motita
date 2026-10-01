@@ -350,3 +350,20 @@ func snapshotDir(t *testing.T, dir string) string {
 	}
 	return sb.String()
 }
+
+// Planned is what the model is TOLD it will be measured against: the commands Validate would run,
+// without running them. With no gate it is empty, which is the signal to say so.
+func TestPlannedNamesTheGateWithoutRunningIt(t *testing.T) {
+	dir := t.TempDir()
+	if got := autoAnchor(dir).Planned(); len(got) != 0 {
+		t.Fatalf("a project with no gate plans nothing, got %+v", got)
+	}
+	writeFile(t, dir, "package.json", `{"scripts":{"lint":"eslint .","test":"vitest run"}}`)
+	got := autoAnchor(dir).Planned()
+	if len(got) != 2 || got[0].Command != "npm" || strings.Join(got[0].Args, " ") != "run lint" || got[1].Name != "npm test" {
+		t.Fatalf("planned = %+v", got)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "node_modules")); err == nil {
+		t.Error("planning must not run anything")
+	}
+}
