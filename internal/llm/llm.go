@@ -1,10 +1,15 @@
 // Package llm implements Layer B: the reasoning engine.
 //
-// It is a lightweight, SDK-free client that talks to three families of API:
+// It is a lightweight, SDK-free client that talks to four families of API:
 //
-//   - openai:    POST /chat/completions  (Bearer)
-//   - anthropic: POST /v1/messages       (x-api-key + anthropic-version)
-//   - gemini:    POST /v1beta/models/<model>:generateContent (?key=)
+//   - chat completions: POST /chat/completions (Bearer) — openai, ollama, qwen, copilot
+//   - responses:        POST /responses (Bearer) — codex, with a key or a ChatGPT login
+//   - anthropic:        POST /v1/messages (x-api-key + anthropic-version)
+//   - gemini:           POST /v1beta/models/<model>:generateContent (x-goog-api-key, or
+//     a Google login's Bearer token)
+//
+// How each request is authenticated (a key, or a stored login that is renewed
+// before it expires) is decided in auth.go.
 //
 // and claude-code, which drives the local claude CLI on the user's own Claude
 // subscription instead of an HTTP API (see claudecode.go).
@@ -49,6 +54,8 @@ type Client struct {
 	// wrapper can be tested against a producer that fails, or closes without a
 	// done chunk, without having to make a real server misbehave.
 	openStream func(context.Context, []Message, []Tool) (<-chan StreamChunk, error)
+	// login is the stored login the client authenticates with, nil for a key.
+	login *loginState
 }
 
 // New creates the reasoning engine client.
@@ -56,23 +63,12 @@ func New(cfg config.LLM, log *logx.Logger) (*Client, error) {
 	if log == nil {
 		log = logx.Global()
 	}
-	switch strings.ToLower(cfg.Provider) {
-	case "openai", "ollama", "anthropic", "gemini", "codex", "copilot", "claude-code":
-	default:
+	known := false
+	for _, p := range config.Providers {
+		known = known || strings.EqualFold(cfg.Provider, p)
+	}
+	if !known {
 		return nil, fmt.Errorf("unsupported LLM provider: %q", cfg.Provider)
-	}
-	// Ollama Cloud uses the OpenAI protocol; if no base URL is set we point at the
-	// official endpoint so the user only has to provide the key.
-	if strings.ToLower(cfg.Provider) == "ollama" && cfg.BaseURL == "" {
-		cfg.BaseURL = "https://ollama.com/v1"
-	}
-	// Codex uses the same OpenAI-compatible protocol as openai, with the same
-	// endpoint. The difference is only the model id (gpt-5-codex etc.).
-	// Copilot also speaks the OpenAI chat completions protocol, but its base URL
-	// is api.githubcopilot.com and its key is a short-lived Copilot token; the
-	// caller is responsible for the token-exchange (see internal/llm/copilot.go).
-	if cfg.APIKey == "" && config.ProviderNeedsKey(cfg.Provider) {
-		return nil, errors.New("the LLM key is missing")
 	}
 	if cfg.Timeout <= 0 {
 		cfg.Timeout = 90 * time.Second
@@ -87,15 +83,29 @@ func New(cfg config.LLM, log *logx.Logger) (*Client, error) {
 		cfg.BackoffMax = cfg.BackoffInitial
 	}
 
-	return &Client{
-		cfg: cfg,
-		http: &http.Client{
-			Timeout: cfg.Timeout,
-			Transport: &http.Transport{
-				TLSClientConfig: TLSConfig(),
-			},
+	hc := &http.Client{
+		Timeout: cfg.Timeout,
+		Transport: &http.Transport{
+			Proxy:           http.ProxyFromEnvironment,
+			TLSClientConfig: TLSConfig(),
 		},
-		log: log,
+	}
+	login, err := newLoginState(cfg, hc)
+	if err != nil {
+		return nil, err
+	}
+	if cfg.APIKey == "" && login == nil && config.LLMNeedsKey(cfg) {
+		if config.SupportsLogin(cfg.Provider) {
+			return nil, fmt.Errorf("the LLM key is missing: set %s, or log in with `motita -init`", config.ProviderKeyVariable(cfg.Provider))
+		}
+		return nil, errors.New("the LLM key is missing")
+	}
+
+	return &Client{
+		cfg:   cfg,
+		http:  hc,
+		log:   log,
+		login: login,
 		sleep: func(d time.Duration) {
 			time.Sleep(d)
 		},
@@ -110,13 +120,15 @@ func (c *Client) openStreamOr() func(context.Context, []Message, []Tool) (<-chan
 	switch strings.ToLower(c.cfg.Provider) {
 	case "claude-code":
 		return c.callClaudeCodeStream
+	case "codex":
+		return c.callResponsesStream
 	case "anthropic", "gemini":
 		// Neither speaks /chat/completions. Both used to be sent there anyway - a plan-mode
 		// turn with either provider was a request to the wrong API - and they are answered
 		// by their own non-streaming call instead, delivered through the same channel.
 		return c.callAsStream
 	default:
-		// openai, ollama, codex and copilot all speak /chat/completions.
+		// openai, ollama, qwen and copilot all speak /chat/completions.
 		return c.callOpenAIToolsStream
 	}
 }
@@ -372,8 +384,17 @@ func (c *Client) call(ctx context.Context, messages []Message) (string, error) {
 		return c.callGemini(ctx, messages)
 	case "claude-code":
 		return c.callClaudeCodeText(ctx, messages)
+	case "codex":
+		reply, err := c.callResponses(ctx, messages, nil)
+		if err != nil {
+			return "", err
+		}
+		if strings.TrimSpace(reply.Content) == "" {
+			return "", fmt.Errorf("codex returned no text (%d tool call(s))", len(reply.Calls))
+		}
+		return reply.Content, nil
 	default:
-		// openai, ollama, codex and copilot all speak /chat/completions.
+		// openai, ollama, qwen and copilot all speak /chat/completions.
 		return c.callOpenAI(ctx, messages)
 	}
 }
@@ -387,8 +408,10 @@ func (c *Client) callTools(ctx context.Context, messages []Message, tools []Tool
 		return c.callGeminiTools(ctx, messages, tools)
 	case "claude-code":
 		return c.callClaudeCode(ctx, messages, tools, nil)
+	case "codex":
+		return c.callResponses(ctx, messages, tools)
 	default:
-		// openai, ollama, codex and copilot all speak /chat/completions.
+		// openai, ollama, qwen and copilot all speak /chat/completions.
 		return c.callOpenAITools(ctx, messages, tools)
 	}
 }
@@ -428,7 +451,11 @@ func ListModels(ctx context.Context, baseURL, apiKey string) ([]string, error) {
 
 	var firstErr error
 	for _, url := range candidates {
-		names, err := fetchModelList(ctx, url, apiKey)
+		headers := map[string]string{}
+		if apiKey != "" {
+			headers["Authorization"] = "Bearer " + apiKey
+		}
+		names, err := fetchModelList(ctx, url, headers)
 		if err == nil && len(names) > 0 {
 			return names, nil
 		}
@@ -444,18 +471,19 @@ func ListModels(ctx context.Context, baseURL, apiKey string) ([]string, error) {
 
 // fetchModelList performs one request and decodes both response shapes the two
 // endpoint families use: {"data":[{"id":...}]} and {"models":[{"name":...}]}.
-func fetchModelList(ctx context.Context, url, apiKey string) ([]string, error) {
+func fetchModelList(ctx context.Context, url string, headers map[string]string) ([]string, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return nil, err
 	}
-	if apiKey != "" {
-		req.Header.Set("Authorization", "Bearer "+apiKey)
+	for k, v := range headers {
+		req.Header.Set(k, v)
 	}
 
 	client := http.Client{
 		Timeout: 15 * time.Second,
 		Transport: &http.Transport{
+			Proxy:           http.ProxyFromEnvironment,
 			TLSClientConfig: TLSConfig(),
 		},
 	}
@@ -570,19 +598,8 @@ func emptyReason(finishReason, content string, toolCalls int) string {
 var ErrToolCallForText = errors.New("the model called a tool where text was required")
 
 func (c *Client) callOpenAI(ctx context.Context, messages []Message) (string, error) {
-	body := map[string]any{
-		"model":       c.cfg.Model,
-		"messages":    toOpenAIMessages(messages),
-		"max_tokens":  c.cfg.MaxTokens,
-		"temperature": c.cfg.Temperature,
-	}
-	if c.cfg.Reasoning.Enabled && c.cfg.Reasoning.Level != "off" {
-		body["reasoning_effort"] = c.cfg.Reasoning.Level
-	}
-	url := c.baseURL("https://api.openai.com/v1") + "/chat/completions"
-	headers := map[string]string{"Authorization": "Bearer " + c.cfg.APIKey}
-
-	data, err := c.post(ctx, url, headers, body)
+	body := c.openAIBody(messages, nil)
+	data, err := c.post(ctx, "/chat/completions", body)
 	if err != nil {
 		return "", err
 	}
@@ -654,20 +671,8 @@ func describeCalls(calls []ToolCall) string {
 }
 
 func (c *Client) callOpenAITools(ctx context.Context, messages []Message, tools []Tool) (Reply, error) {
-	body := map[string]any{
-		"model":       c.cfg.Model,
-		"messages":    toOpenAIMessages(messages),
-		"tools":       tools,
-		"max_tokens":  c.cfg.MaxTokens,
-		"temperature": c.cfg.Temperature,
-	}
-	if c.cfg.Reasoning.Enabled && c.cfg.Reasoning.Level != "off" {
-		body["reasoning_effort"] = c.cfg.Reasoning.Level
-	}
-	url := c.baseURL("https://api.openai.com/v1") + "/chat/completions"
-	headers := map[string]string{"Authorization": "Bearer " + c.cfg.APIKey}
-
-	data, err := c.post(ctx, url, headers, body)
+	body := c.openAIBody(messages, tools)
+	data, err := c.post(ctx, "/chat/completions", body)
 	if err != nil {
 		return Reply{}, err
 	}
@@ -720,47 +725,11 @@ type openAIStreamChunk struct {
 }
 
 func (c *Client) callOpenAIToolsStream(ctx context.Context, messages []Message, tools []Tool) (<-chan StreamChunk, error) {
-	body := map[string]any{
-		"model":          c.cfg.Model,
-		"messages":       toOpenAIMessages(messages),
-		"max_tokens":     c.cfg.MaxTokens,
-		"temperature":    c.cfg.Temperature,
-		"stream":         true,
-		"stream_options": map[string]bool{"include_usage": false},
-	}
-	// Omitted when there are none: a plain streamed completion has no tools, and some
-	// servers reject `"tools": null` or an empty list.
-	if len(tools) > 0 {
-		body["tools"] = tools
-	}
-	if c.cfg.Reasoning.Enabled && c.cfg.Reasoning.Level != "off" {
-		body["reasoning_effort"] = c.cfg.Reasoning.Level
-	}
-	url := c.baseURL("https://api.openai.com/v1") + "/chat/completions"
-	headers := map[string]string{"Authorization": "Bearer " + c.cfg.APIKey}
-
-	data, err := json.Marshal(body)
-	if err != nil {
-		return nil, fmt.Errorf("could not serialise the request: %w", err)
-	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(data))
-	if err != nil {
-		return nil, fmt.Errorf("invalid request: %w", err)
-	}
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Accept", "text/event-stream")
-	for k, v := range headers {
-		req.Header.Set(k, v)
-	}
-
-	resp, err := c.http.Do(req)
+	body := c.openAIBody(messages, tools)
+	body["stream"] = true
+	resp, _, err := c.send(ctx, "/chat/completions", body, true)
 	if err != nil {
 		return nil, err
-	}
-	if resp.StatusCode != http.StatusOK {
-		defer resp.Body.Close()
-		b, _ := io.ReadAll(io.LimitReader(resp.Body, 8<<20))
-		return nil, &HTTPError{Code: resp.StatusCode, Body: strings.TrimSpace(string(b))}
 	}
 
 	out := make(chan StreamChunk, 8)
@@ -901,13 +870,7 @@ func (c *Client) callAnthropic(ctx context.Context, messages []Message) (string,
 		body["system"] = system
 	}
 
-	url := c.baseURL("https://api.anthropic.com") + "/v1/messages"
-	headers := map[string]string{
-		"x-api-key":         c.cfg.APIKey,
-		"anthropic-version": "2023-06-01",
-	}
-
-	data, err := c.post(ctx, url, headers, body)
+	data, err := c.post(ctx, "/v1/messages", body)
 	if err != nil {
 		return "", err
 	}
@@ -931,49 +894,7 @@ func (c *Client) callAnthropic(ctx context.Context, messages []Message) (string,
 }
 
 func (c *Client) callAnthropicTools(ctx context.Context, messages []Message, tools []Tool) (Reply, error) {
-	var system string
-	conversation := make([]map[string]any, 0, len(messages))
-	for _, m := range messages {
-		if m.Role == "system" {
-			if system != "" {
-				system += "\n\n"
-			}
-			system += m.Content
-			continue
-		}
-		role := "user"
-		if m.Role == "assistant" {
-			role = "assistant"
-		} else if m.Role == "tool" {
-			role = "user"
-		}
-		var blocks []map[string]any
-		if m.Content != "" {
-			blocks = append(blocks, map[string]any{"type": "text", "text": m.Content})
-		}
-		for _, tc := range m.ToolCalls {
-			blocks = append(blocks, map[string]any{
-				"type":  "tool_use",
-				"id":    tc.ID,
-				"name":  tc.Function.Name,
-				"input": tc.Function.Arguments,
-			})
-		}
-		if m.ToolCallID != "" {
-			blocks = append(blocks, map[string]any{
-				"type":        "tool_result",
-				"tool_use_id": m.ToolCallID,
-				"content":     m.Content,
-			})
-		}
-		if len(blocks) == 0 {
-			blocks = append(blocks, map[string]any{"type": "text", "text": ""})
-		}
-		conversation = append(conversation, map[string]any{
-			"role":    role,
-			"content": blocks,
-		})
-	}
+	system, conversation := toAnthropicMessages(messages)
 
 	body := map[string]any{
 		"model":       c.cfg.Model,
@@ -986,13 +907,7 @@ func (c *Client) callAnthropicTools(ctx context.Context, messages []Message, too
 		body["system"] = system
 	}
 
-	url := c.baseURL("https://api.anthropic.com") + "/v1/messages"
-	headers := map[string]string{
-		"x-api-key":         c.cfg.APIKey,
-		"anthropic-version": "2023-06-01",
-	}
-
-	data, err := c.post(ctx, url, headers, body)
+	data, err := c.post(ctx, "/v1/messages", body)
 	if err != nil {
 		return Reply{}, err
 	}
@@ -1028,15 +943,81 @@ func toAnthropicTools(tools []Tool) []map[string]any {
 	out := make([]map[string]any, 0, len(tools))
 	for _, t := range tools {
 		out = append(out, map[string]any{
-			"name":        t.Function.Name,
-			"description": t.Function.Description,
-			"input_schema": map[string]any{
-				"type":       "object",
-				"properties": t.Function.Parameters,
-			},
+			"name":         t.Function.Name,
+			"description":  t.Function.Description,
+			"input_schema": toolSchema(t),
 		})
 	}
 	return out
+}
+
+// toAnthropicMessages converts the conversation for the Messages API with tools.
+//
+// Three rules of that API shape it, and each one used to be broken:
+//   - a tool result is a tool_result block in a USER turn, and nothing else: the
+//     result text was also sent as a text block before it, and Anthropic refuses a
+//     user turn whose text precedes its tool_result blocks;
+//   - every tool_use must be answered in the very next turn, so the results of
+//     parallel calls are merged into ONE user turn (consecutive turns of the same
+//     role are merged in general);
+//   - a tool_use input is an object, and a text block is never empty.
+func toAnthropicMessages(messages []Message) (string, []map[string]any) {
+	var system string
+	var conversation []map[string]any
+	for _, m := range messages {
+		if m.Role == "system" {
+			if system != "" {
+				system += "\n\n"
+			}
+			system += m.Content
+			continue
+		}
+		role := "user"
+		if m.Role == "assistant" {
+			role = "assistant"
+		}
+		var blocks []map[string]any
+		switch {
+		case m.Role == "tool" || m.ToolCallID != "":
+			blocks = append(blocks, map[string]any{
+				"type":        "tool_result",
+				"tool_use_id": m.ToolCallID,
+				"content":     nonEmpty(m.Content),
+			})
+		default:
+			if strings.TrimSpace(m.Content) != "" {
+				blocks = append(blocks, map[string]any{"type": "text", "text": m.Content})
+			}
+			for _, tc := range m.ToolCalls {
+				input := map[string]any{}
+				_ = tc.Function.DecodeArguments(&input)
+				blocks = append(blocks, map[string]any{
+					"type":  "tool_use",
+					"id":    tc.ID,
+					"name":  tc.Function.Name,
+					"input": input,
+				})
+			}
+		}
+		if len(blocks) == 0 {
+			blocks = append(blocks, map[string]any{"type": "text", "text": "(empty)"})
+		}
+		if n := len(conversation); n > 0 && conversation[n-1]["role"] == role {
+			prev := conversation[n-1]["content"].([]map[string]any)
+			conversation[n-1]["content"] = append(prev, blocks...)
+			continue
+		}
+		conversation = append(conversation, map[string]any{"role": role, "content": blocks})
+	}
+	return system, conversation
+}
+
+// nonEmpty keeps a block's text from being empty, which the Messages API refuses.
+func nonEmpty(s string) string {
+	if strings.TrimSpace(s) == "" {
+		return "(no output)"
+	}
+	return s
 }
 
 // --- Gemini -----------------------------------------------------------------
@@ -1046,8 +1027,10 @@ type geminiResponse struct {
 		Content struct {
 			Role  string `json:"role"`
 			Parts []struct {
-				Text         string          `json:"text"`
-				FunctionCall json.RawMessage `json:"functionCall"`
+				Text             string          `json:"text"`
+				Thought          bool            `json:"thought"`
+				FunctionCall     json.RawMessage `json:"functionCall"`
+				ThoughtSignature string          `json:"thoughtSignature"`
 			} `json:"parts"`
 		} `json:"content"`
 		FinishReason string `json:"finishReason"`
@@ -1058,6 +1041,7 @@ type geminiResponse struct {
 }
 
 type geminiFunctionCall struct {
+	ID   string          `json:"id"`
 	Name string          `json:"name"`
 	Args json.RawMessage `json:"args"`
 }
@@ -1093,10 +1077,7 @@ func (c *Client) callGemini(ctx context.Context, messages []Message) (string, er
 		}
 	}
 
-	base := c.baseURL("https://generativelanguage.googleapis.com")
-	url := fmt.Sprintf("%s/v1beta/models/%s:generateContent?key=%s", base, c.cfg.Model, c.cfg.APIKey)
-
-	data, err := c.post(ctx, url, nil, body)
+	data, err := c.post(ctx, c.geminiPath(), body)
 	if err != nil {
 		return "", err
 	}
@@ -1121,51 +1102,7 @@ func (c *Client) callGemini(ctx context.Context, messages []Message) (string, er
 }
 
 func (c *Client) callGeminiTools(ctx context.Context, messages []Message, tools []Tool) (Reply, error) {
-	var system string
-	var contents []map[string]any
-	for _, m := range messages {
-		if m.Role == "system" {
-			system += m.Content + "\n"
-			continue
-		}
-		role := "user"
-		if m.Role == "assistant" {
-			role = "model"
-		}
-		var parts []map[string]any
-		if m.Content != "" {
-			parts = append(parts, map[string]any{"text": m.Content})
-		}
-		for _, tc := range m.ToolCalls {
-			var args json.RawMessage
-			if len(tc.Function.Arguments) > 0 {
-				var obj map[string]any
-				_ = json.Unmarshal(tc.Function.Arguments, &obj)
-				args, _ = json.Marshal(obj)
-			}
-			parts = append(parts, map[string]any{
-				"functionCall": map[string]any{
-					"name": tc.Function.Name,
-					"args": args,
-				},
-			})
-		}
-		if m.ToolCallID != "" {
-			parts = append(parts, map[string]any{
-				"functionResponse": map[string]any{
-					"name":     m.ToolCallID,
-					"response": m.Content,
-				},
-			})
-		}
-		if len(parts) == 0 {
-			parts = append(parts, map[string]any{"text": ""})
-		}
-		contents = append(contents, map[string]any{
-			"role":  role,
-			"parts": parts,
-		})
-	}
+	system, contents := toGeminiContents(messages)
 
 	body := map[string]any{
 		"contents": contents,
@@ -1173,9 +1110,11 @@ func (c *Client) callGeminiTools(ctx context.Context, messages []Message, tools 
 			"maxOutputTokens": c.cfg.MaxTokens,
 			"temperature":     c.cfg.Temperature,
 		},
-		"tools": []map[string]any{
+	}
+	if len(tools) > 0 {
+		body["tools"] = []map[string]any{
 			{"functionDeclarations": toGeminiToolDeclarations(tools)},
-		},
+		}
 	}
 	if system != "" {
 		body["systemInstruction"] = map[string]any{
@@ -1183,10 +1122,7 @@ func (c *Client) callGeminiTools(ctx context.Context, messages []Message, tools 
 		}
 	}
 
-	base := c.baseURL("https://generativelanguage.googleapis.com")
-	url := fmt.Sprintf("%s/v1beta/models/%s:generateContent?key=%s", base, c.cfg.Model, c.cfg.APIKey)
-
-	data, err := c.post(ctx, url, nil, body)
+	data, err := c.post(ctx, c.geminiPath(), body)
 	if err != nil {
 		return Reply{}, err
 	}
@@ -1202,22 +1138,34 @@ func (c *Client) callGeminiTools(ctx context.Context, messages []Message, tools 
 	}
 
 	reply := Reply{FinishReason: resp.Candidates[0].FinishReason}
-	for _, part := range resp.Candidates[0].Content.Parts {
-		if part.Text != "" {
+	for i, part := range resp.Candidates[0].Content.Parts {
+		if part.Text != "" && !part.Thought {
 			reply.Content += part.Text
 		}
 		if len(part.FunctionCall) > 0 {
 			var fc geminiFunctionCall
 			if err := json.Unmarshal(part.FunctionCall, &fc); err == nil {
+				// Gemini names its calls only sometimes; the agent needs an id to pair
+				// each result with its call, and the result needs the function NAME.
+				id := fc.ID
+				if id == "" {
+					id = fmt.Sprintf("gemini-%d-%s", i, fc.Name)
+				}
+				args := fc.Args
+				if len(args) == 0 || string(args) == "null" {
+					args = json.RawMessage("{}")
+				}
 				reply.Calls = append(reply.Calls, ToolCall{
-					Type: "function",
-					Function: FunctionCall{
-						Name:      fc.Name,
-						Arguments: fc.Args,
-					},
+					ID:        id,
+					Type:      "function",
+					Function:  FunctionCall{Name: fc.Name, Arguments: args},
+					signature: part.ThoughtSignature,
 				})
 			}
 		}
+	}
+	if len(reply.Calls) > 0 {
+		reply.FinishReason = "tool_calls"
 	}
 	return reply, nil
 }
@@ -1225,49 +1173,95 @@ func (c *Client) callGeminiTools(ctx context.Context, messages []Message, tools 
 func toGeminiToolDeclarations(tools []Tool) []map[string]any {
 	out := make([]map[string]any, 0, len(tools))
 	for _, t := range tools {
-		out = append(out, map[string]any{
+		decl := map[string]any{
 			"name":        t.Function.Name,
 			"description": t.Function.Description,
-			"parameters": map[string]any{
-				"type":       "object",
-				"properties": t.Function.Parameters,
-			},
-		})
+		}
+		// Gemini refuses an OBJECT with no properties: a tool that takes nothing is
+		// declared with no parameters at all.
+		schema := toolSchema(t)
+		if props, _ := schema["properties"].(map[string]any); len(props) > 0 {
+			decl["parameters"] = schema
+		}
+		out = append(out, decl)
 	}
 	return out
 }
 
-// --- transport --------------------------------------------------------------
+// geminiSkipSignature is the placeholder Google documents for a function call
+// whose thought signature is not available (a history replayed from storage or
+// from another model). Gemini 3 refuses a function call without one.
+const geminiSkipSignature = "skip_thought_signature_validator"
 
-func (c *Client) post(ctx context.Context, url string, headers map[string]string, body any) ([]byte, error) {
-	data, err := json.Marshal(body)
-	if err != nil {
-		return nil, fmt.Errorf("could not serialise the request: %w", err)
+// toGeminiContents converts the conversation for generateContent with tools.
+//
+// A tool result is a functionResponse part that names the FUNCTION (not the call
+// id, which is what used to be sent) and carries an OBJECT (a bare string is
+// refused); the results of parallel calls go in one turn, right after the turn
+// that made the calls.
+func toGeminiContents(messages []Message) (string, []map[string]any) {
+	var system string
+	var contents []map[string]any
+	names := map[string]string{} // call id -> function name
+	for _, m := range messages {
+		if m.Role == "system" {
+			system += m.Content + "\n"
+			continue
+		}
+		role := "user"
+		if m.Role == "assistant" {
+			role = "model"
+		}
+		var parts []map[string]any
+		if m.Role == "tool" || m.ToolCallID != "" {
+			name := names[m.ToolCallID]
+			if name == "" {
+				name = m.ToolCallID
+			}
+			parts = append(parts, map[string]any{
+				"functionResponse": map[string]any{
+					"name":     name,
+					"response": map[string]any{"content": m.Content},
+				},
+			})
+		} else {
+			if m.Content != "" {
+				parts = append(parts, map[string]any{"text": m.Content})
+			}
+			for i, tc := range m.ToolCalls {
+				names[tc.ID] = tc.Function.Name
+				args := map[string]any{}
+				_ = tc.Function.DecodeArguments(&args)
+				part := map[string]any{
+					"functionCall": map[string]any{"name": tc.Function.Name, "args": args},
+				}
+				// Only the first call of a turn carries the signature.
+				if i == 0 {
+					sig := tc.signature
+					if sig == "" {
+						sig = geminiSkipSignature
+					}
+					part["thoughtSignature"] = sig
+				}
+				parts = append(parts, part)
+			}
+		}
+		if len(parts) == 0 {
+			parts = append(parts, map[string]any{"text": " "})
+		}
+		if n := len(contents); n > 0 && contents[n-1]["role"] == role {
+			prev := contents[n-1]["parts"].([]map[string]any)
+			contents[n-1]["parts"] = append(prev, parts...)
+			continue
+		}
+		contents = append(contents, map[string]any{"role": role, "parts": parts})
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(data))
-	if err != nil {
-		return nil, fmt.Errorf("invalid request: %w", err)
-	}
-	req.Header.Set("Content-Type", "application/json")
-	for k, v := range headers {
-		req.Header.Set(k, v)
-	}
-
-	resp, err := c.http.Do(req)
-	if err != nil {
-		return nil, err // network error: retryable
-	}
-	defer resp.Body.Close()
-
-	response, err := io.ReadAll(io.LimitReader(resp.Body, 8<<20))
-	if err != nil {
-		return nil, err
-	}
-	if resp.StatusCode != http.StatusOK {
-		return nil, &HTTPError{Code: resp.StatusCode, Body: strings.TrimSpace(string(response))}
-	}
-	return response, nil
+	return system, contents
 }
+
+// --- transport --------------------------------------------------------------
+//
+// send and post live in auth.go, beside the credentials they attach.
 
 // truncate limits a text for error messages.
 func truncate(s string, max int) string {

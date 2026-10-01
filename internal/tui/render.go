@@ -570,7 +570,7 @@ func (t *TUI) stateGlyph() string {
 	if t.busy {
 		return t.color(colWarning, 0, spinner[t.spin%len(spinner)])
 	}
-	if llmCfg := t.Runner.Config().LLM; llmCfg.APIKey == "" && config.ProviderNeedsKey(llmCfg.Provider) {
+	if llmCfg := t.Runner.Config().LLM; llmCfg.APIKey == "" && config.LLMNeedsKey(llmCfg) {
 		return t.color(colError, 0, glyphMissing)
 	}
 	return t.color(colSuccess, 0, glyphReady)

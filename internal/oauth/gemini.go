@@ -2,172 +2,185 @@ package oauth
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
 	"fmt"
 	"net/url"
 	"os"
+	"path/filepath"
+	"strings"
 	"time"
 )
 
-// GeminiConfig holds the parameters for the Google Gemini device flow.
+// Gemini: a Google account login for the Gemini API (generativelanguage).
 //
-// The ClientID and ClientSecret are obtained from the Google Cloud Console
-// (APIs & Services → Credentials → Create Credentials → OAuth client ID →
-// Desktop app). The Gemini CLI's public client_id is shipped as a default but
-// users are encouraged to create their own for reliability.
+// Google's device flow does not grant the Gemini API scopes, and the public
+// client of the Gemini CLI is meant for that CLI and its Code Assist backend, so
+// neither is used. A login uses an OAuth client the user owns:
 //
-// The scope must be "https://www.googleapis.com/auth/generative-language" for
-// access to the Generative Language API (Gemini).
-type GeminiConfig struct {
-	ClientID     string
-	ClientSecret string
-	Scope        string
+//   - their own "Desktop app" OAuth client (MOTITA_GEMINI_CLIENT_ID and
+//     MOTITA_GEMINI_CLIENT_SECRET), through an authorisation-code flow with PKCE
+//     and a loopback redirect; or
+//   - the Application Default Credentials gcloud already wrote
+//     (`gcloud auth application-default login`), whose refresh token is copied.
+//
+// Either way the requests carry a Bearer token and the Google Cloud project that
+// pays for them (x-goog-user-project), as the Gemini API's OAuth guide requires.
+const (
+	GoogleAuthURL  = "https://accounts.google.com/o/oauth2/v2/auth"
+	GoogleTokenURL = "https://oauth2.googleapis.com/token"
+	// GeminiScopes are the scopes the Gemini API documents for OAuth.
+	GeminiScopes = "https://www.googleapis.com/auth/cloud-platform https://www.googleapis.com/auth/generative-language.retriever"
+)
+
+// GeminiClient is the user's own OAuth client.
+type GeminiClient struct {
+	ID     string
+	Secret string
 }
 
-// GeminiDefaultClientID returns the Gemini CLI's public OAuth client_id. It is
-// read from MOTITA_GEMINI_CLIENT_ID when set, otherwise a built-in default is
-// used. The default is assembled at call time rather than stored as a string
-// literal to avoid triggering automated secret scanners: it is a public OAuth
-// client_id for a desktop app, not a secret, but scanners cannot tell the
-// difference.
-func GeminiDefaultClientID() string {
-	if v := os.Getenv("MOTITA_GEMINI_CLIENT_ID"); v != "" {
-		return v
+// GeminiClientFromEnv reads the user's OAuth client from the environment.
+func GeminiClientFromEnv() (GeminiClient, bool) {
+	c := GeminiClient{
+		ID:     strings.TrimSpace(os.Getenv("MOTITA_GEMINI_CLIENT_ID")),
+		Secret: strings.TrimSpace(os.Getenv("MOTITA_GEMINI_CLIENT_SECRET")),
 	}
-	return defaultGeminiClientID()
+	return c, c.ID != ""
 }
 
-// GeminiDefaultClientSecret returns the Gemini CLI's public client secret.
-// Desktop OAuth apps have a client secret that is not truly secret — it is
-// shipped in the CLI's source — so it is included here for the same reason.
-// Read from MOTITA_GEMINI_CLIENT_SECRET when set.
-func GeminiDefaultClientSecret() string {
-	if v := os.Getenv("MOTITA_GEMINI_CLIENT_SECRET"); v != "" {
-		return v
+// GeminiAuthorizeURL builds the consent URL for the user's client.
+func GeminiAuthorizeURL(client GeminiClient, p PKCE, redirectURI string) string {
+	q := url.Values{
+		"response_type":         {"code"},
+		"client_id":             {client.ID},
+		"redirect_uri":          {redirectURI},
+		"scope":                 {GeminiScopes},
+		"code_challenge":        {p.Challenge},
+		"code_challenge_method": {"S256"},
+		"state":                 {p.State},
+		// offline + consent is what makes Google issue a refresh token every time,
+		// not only on the first consent.
+		"access_type": {"offline"},
+		"prompt":      {"consent"},
 	}
-	return defaultGeminiClientSecret()
+	return GoogleAuthURL + "?" + q.Encode()
 }
 
-// GeminiDefaultScope is the scope required to call the Generative Language API.
-const GeminiDefaultScope = "https://www.googleapis.com/auth/generative-language"
-
-// defaultGeminiClientID assembles the Gemini CLI's public OAuth client_id from
-// parts so it does not appear as a single string literal (which triggers secret
-// scanners). The value is public and ships in Google's own CLI source.
-func defaultGeminiClientID() string {
-	return "681255809395" + "-" +
-		"oo8ft2oprdrnp9e3aqf6av3hmdib135j" + "." +
-		"apps.googleusercontent.com"
+type googleTokenResponse struct {
+	AccessToken      string `json:"access_token"`
+	RefreshToken     string `json:"refresh_token"`
+	ExpiresIn        int    `json:"expires_in"`
+	Scope            string `json:"scope"`
+	Error            string `json:"error"`
+	ErrorDescription string `json:"error_description"`
 }
 
-// defaultGeminiClientSecret assembles the Gemini CLI's public client secret.
-// Desktop OAuth app secrets are not truly secret — they ship in the CLI's
-// source code — but secret scanners cannot distinguish them from real secrets.
-func defaultGeminiClientSecret() string {
-	return "GOCSPX" + "-" +
-		"4uHgMPm" + "-" +
-		"1o7Sk" + "-" +
-		"geV6Cu5clXFsxl"
+// GeminiExchangeCode trades the authorisation code for tokens.
+func GeminiExchangeCode(ctx context.Context, hc HTTPClient, client GeminiClient, code, redirectURI string, p PKCE, project string) (Credential, error) {
+	form := url.Values{
+		"grant_type":    {"authorization_code"},
+		"code":          {code},
+		"redirect_uri":  {redirectURI},
+		"client_id":     {client.ID},
+		"code_verifier": {p.Verifier},
+	}
+	if client.Secret != "" {
+		form.Set("client_secret", client.Secret)
+	}
+	var resp googleTokenResponse
+	if err := postForm(ctx, hc, GoogleTokenURL, form, &resp); err != nil {
+		return Credential{}, err
+	}
+	return googleCredential(resp, Credential{ClientID: client.ID, ClientSecret: client.Secret, ProjectID: project})
 }
 
-// geminiDeviceCodeResponse is the JSON returned by POST /device/code.
-type geminiDeviceCodeResponse struct {
-	DeviceCode      string `json:"device_code"`
-	UserCode        string `json:"user_code"`
-	VerificationURL string `json:"verification_url"`
-	ExpiresIn       int    `json:"expires_in"`
-	Interval        int    `json:"interval"`
-}
-
-// geminiTokenResponse is the JSON returned by POST /token (success or error).
-type geminiTokenResponse struct {
-	AccessToken  string `json:"access_token"`
-	RefreshToken string `json:"refresh_token"`
-	ExpiresIn    int    `json:"expires_in"`
-	TokenType    string `json:"token_type"`
-	Scope        string `json:"scope"`
-	Error        string `json:"error"`
-}
-
-// GeminiRequestDeviceCode starts the device flow by asking Google to issue a
-// device code. The returned DeviceCode tells the wizard what to show the user
-// (the verification URL and the user code) and what to poll with.
-func GeminiRequestDeviceCode(ctx context.Context, client HTTPClient, cfg GeminiConfig) (DeviceCode, error) {
-	if cfg.Scope == "" {
-		cfg.Scope = GeminiDefaultScope
+// GeminiRefresh renews the access token with the client that issued it.
+func GeminiRefresh(ctx context.Context, hc HTTPClient, old Credential) (Credential, error) {
+	if old.RefreshToken == "" {
+		return Credential{}, errors.New("the Google login has no refresh token: log in again")
 	}
 	form := url.Values{
-		"client_id": {cfg.ClientID},
-		"scope":     {cfg.Scope},
-	}
-	var resp geminiDeviceCodeResponse
-	if err := postForm(ctx, client, "https://oauth2.googleapis.com/device/code", form, &resp); err != nil {
-		return DeviceCode{}, err
-	}
-	return DeviceCode(resp), nil
-}
-
-// GeminiPollToken polls the token endpoint until the user authorises the device
-// or the flow expires. It should be called on a ticker with the interval from
-// the DeviceCode. The error is ErrAuthorizationPending while waiting.
-func GeminiPollToken(ctx context.Context, client HTTPClient, cfg GeminiConfig, dc DeviceCode) (Token, error) {
-	if cfg.Scope == "" {
-		cfg.Scope = GeminiDefaultScope
-	}
-	form := url.Values{
-		"client_id":     {cfg.ClientID},
-		"client_secret": {cfg.ClientSecret},
-		"device_code":   {dc.DeviceCode},
-		"grant_type":    {"urn:ietf:params:oauth:grant-type:device_code"},
-	}
-	var resp geminiTokenResponse
-	if err := postForm(ctx, client, "https://oauth2.googleapis.com/token", form, &resp); err != nil {
-		// A 400 with a JSON error field is a normal poll response
-		// (authorization_pending, slow_down). Check pollError before
-		// giving up.
-		if perr := pollError(resp.Error); perr != nil {
-			return Token{}, perr
-		}
-		return Token{}, err
-	}
-	if err := pollError(resp.Error); err != nil {
-		return Token{}, err
-	}
-	return tokenFromResponse(resp.AccessToken, resp.RefreshToken, resp.TokenType, resp.Scope, resp.ExpiresIn), nil
-}
-
-// GeminiRefreshToken refreshes an expired access token using the stored refresh
-// token. Not every flow issues a refresh token; when it does, the caller should
-// use it to avoid sending the user through the device flow again.
-func GeminiRefreshToken(ctx context.Context, client HTTPClient, cfg GeminiConfig, refreshToken string) (Token, error) {
-	form := url.Values{
-		"client_id":     {cfg.ClientID},
-		"client_secret": {cfg.ClientSecret},
-		"refresh_token": {refreshToken},
 		"grant_type":    {"refresh_token"},
+		"refresh_token": {old.RefreshToken},
+		"client_id":     {old.ClientID},
 	}
-	var resp geminiTokenResponse
-	if err := postForm(ctx, client, "https://oauth2.googleapis.com/token", form, &resp); err != nil {
-		return Token{}, err
+	if old.ClientSecret != "" {
+		form.Set("client_secret", old.ClientSecret)
 	}
-	if resp.Error != "" {
-		return Token{}, fmt.Errorf("token refresh failed: %s", resp.Error)
+	var resp googleTokenResponse
+	if err := postForm(ctx, hc, GoogleTokenURL, form, &resp); err != nil {
+		return Credential{}, err
 	}
-	return tokenFromResponse(resp.AccessToken, resp.RefreshToken, resp.TokenType, resp.Scope, resp.ExpiresIn), nil
+	return googleCredential(resp, old)
 }
 
-// tokenFromResponse builds a Token from the common fields of a token response.
-func tokenFromResponse(accessToken, refreshToken, tokenType, scope string, expiresIn int) Token {
-	t := Token{
-		AccessToken:  accessToken,
-		RefreshToken: refreshToken,
-		TokenType:    tokenType,
-		Scopes:       scope,
+func googleCredential(resp googleTokenResponse, old Credential) (Credential, error) {
+	if resp.Error != "" {
+		return Credential{}, errors.New("the Google login failed: " + strings.TrimSpace(resp.Error+" "+resp.ErrorDescription))
 	}
-	if tokenType == "" {
-		t.TokenType = "Bearer"
+	if resp.AccessToken == "" {
+		return Credential{}, errors.New("the Google login returned no access token")
 	}
-	if expiresIn > 0 {
-		t.ExpiresAt = time.Now().Add(time.Duration(expiresIn) * time.Second)
+	c := old
+	c.Provider = "gemini"
+	c.AccessToken = resp.AccessToken
+	if resp.RefreshToken != "" {
+		c.RefreshToken = resp.RefreshToken
 	}
-	return t
+	c.ExpiresAt = time.Time{}
+	if resp.ExpiresIn > 0 {
+		c.ExpiresAt = time.Now().Add(time.Duration(resp.ExpiresIn) * time.Second)
+	}
+	return c, nil
+}
+
+// ADCPath is where gcloud writes the Application Default Credentials.
+func ADCPath(home string) string {
+	if p := os.Getenv("GOOGLE_APPLICATION_CREDENTIALS"); p != "" {
+		return p
+	}
+	if appData := os.Getenv("APPDATA"); appData != "" {
+		if p := filepath.Join(appData, "gcloud", "application_default_credentials.json"); fileExists(p) {
+			return p
+		}
+	}
+	return filepath.Join(home, ".config", "gcloud", "application_default_credentials.json")
+}
+
+func fileExists(p string) bool {
+	_, err := os.Stat(p)
+	return err == nil
+}
+
+// GeminiFromADC turns gcloud's user credentials into a Gemini credential. Only
+// "authorized_user" credentials are accepted: a service account key is a
+// different kind of secret and is not copied around.
+func GeminiFromADC(path, project string) (Credential, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return Credential{}, fmt.Errorf("no gcloud credentials at %s (run `gcloud auth application-default login`): %w", path, err)
+	}
+	var adc struct {
+		Type           string `json:"type"`
+		ClientID       string `json:"client_id"`
+		ClientSecret   string `json:"client_secret"`
+		RefreshToken   string `json:"refresh_token"`
+		QuotaProjectID string `json:"quota_project_id"`
+	}
+	if err := json.Unmarshal(data, &adc); err != nil {
+		return Credential{}, fmt.Errorf("the gcloud credentials at %s are unreadable: %w", path, err)
+	}
+	if adc.Type != "authorized_user" || adc.RefreshToken == "" {
+		return Credential{}, fmt.Errorf("the credentials at %s are not a user login (type %q)", path, adc.Type)
+	}
+	if project == "" {
+		project = adc.QuotaProjectID
+	}
+	return Credential{
+		Provider:     "gemini",
+		RefreshToken: adc.RefreshToken,
+		ClientID:     adc.ClientID,
+		ClientSecret: adc.ClientSecret,
+		ProjectID:    project,
+	}, nil
 }

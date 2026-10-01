@@ -9,7 +9,9 @@
 # Every scalar setting can be overridden with a MOTITA_<BLOCK>_<FIELD>
 # environment variable (see README.md). The lists and maps (task_source.headers,
 # anchor.args, anchor.checks) are set here. Credentials must NEVER live in this
-# file: use MOTITA_LLM_API_KEY or OPENAI_API_KEY.
+# file: use MOTITA_LLM_API_KEY, the provider's own variable (OPENAI_API_KEY,
+# ANTHROPIC_API_KEY, GEMINI_API_KEY, DASHSCOPE_API_KEY, OLLAMA_API_KEY,
+# GITHUB_COPILOT_TOKEN), or a stored login (motita -init).
 # graceful_shutdown_timeout also accepts the older name of the previous release:
 # MOTITA_AGENT_SHUTDOWN_TIMEOUT.
 
@@ -77,7 +79,7 @@ sandbox:
 # Layer B — THE REASONING ENGINE
 # ---------------------------------------------------------------------------
 llm:
-  provider: openai     # openai | anthropic | gemini
+  provider: openai     # openai | codex | copilot | ollama | anthropic | claude-code | gemini | qwen
   model: gpt-4o-mini
   api_key: ""          # BETTER: export MOTITA_LLM_API_KEY
   base_url: https://api.openai.com/v1   # any compatible gateway works

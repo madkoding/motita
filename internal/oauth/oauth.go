@@ -1,17 +1,22 @@
-// Package oauth implements the direct-login flows (device code and PKCE) that
-// let a user connect to a provider without pasting an API key: the wizard shows
-// a URL and a code, the user authorises in their browser, and the resulting
-// token is stored for the LLM client to use.
+// Package oauth implements the direct logins (device code and PKCE) that let a
+// user connect to a provider without pasting an API key: the wizard shows a URL
+// (and a code), the user authorises in their browser, and the resulting
+// credential is stored (see store.go) for the LLM client to use and renew.
 //
-// Three providers are supported:
+// Supported logins:
 //
-//   - Gemini: Google's OAuth2 device flow (POST /device/code → poll /token).
-//   - Copilot: GitHub's device flow + Copilot token exchange (two-step).
-//   - Anthropic: PKCE authorisation-code flow (browser redirect + manual paste).
+//   - Copilot: GitHub's device flow + Copilot session-token exchange.
+//   - Codex: "Sign in with ChatGPT", PKCE with a loopback (or pasted) redirect.
+//   - Qwen: the qwen.ai device flow with PKCE.
+//   - Gemini: Google OAuth with the user's own client, or gcloud's ADC.
+//
+// Claude subscriptions are deliberately absent: Anthropic only allows them
+// through its own Claude Code client, which motita drives as the claude-code
+// provider instead of borrowing that client's OAuth identity.
 //
 // The package has no dependency on internal/llm or internal/config: it produces
-// tokens, and the caller decides what to do with them. This keeps the transport
-// of each flow testable in isolation.
+// credentials, and the caller decides what to do with them. This keeps the
+// transport of each flow testable in isolation.
 package oauth
 
 import (

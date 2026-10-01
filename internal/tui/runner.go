@@ -118,6 +118,9 @@ type AppRunner struct {
 	// or a claude CLI.
 	listModels   func(ctx context.Context, baseURL, apiKey string) ([]string, error)
 	claudeModels func(ctx context.Context) (llm.ClaudeCodeCatalogue, error)
+	// endpoints remembers the base URL and key of each provider the session has used, so a
+	// switch back restores what the configuration said (see switchEndpoint).
+	endpoints map[string]llmEndpoint
 
 	// session is the conversation Plan mode continues across turns. It lives on the runner,
 	// not on the planner, precisely because each turn builds a new planner: a session created
@@ -191,7 +194,6 @@ func NewAppRunner(out, errs io.Writer, cfg config.Config, engine *llm.Client, bo
 	return &AppRunner{
 		Out: out, Err: errs, Cfg: cfg, Engine: engine, Box: box, Log: log,
 		newAgent:     defaultAgentFactory,
-		listModels:   llm.ListModels,
 		claudeModels: llm.ClaudeCodeModels,
 	}
 }
@@ -286,7 +288,8 @@ func (r *AppRunner) SetReasoning(level string) {
 // changes, so a caller that reads it back does not get the one built from the old
 // settings.
 func (r *AppRunner) SetLLM(provider, model string) {
-	if provider != "" {
+	if provider != "" && !strings.EqualFold(provider, r.Cfg.LLM.Provider) {
+		r.switchEndpoint(provider)
 		r.Cfg.LLM.Provider = provider
 		r.Engine = nil
 	}
@@ -294,6 +297,43 @@ func (r *AppRunner) SetLLM(provider, model string) {
 		r.Cfg.LLM.Model = model
 		r.Engine = nil
 	}
+}
+
+// switchEndpoint moves the key and the base URL along with a provider switch.
+//
+// They used to stay behind: switching from openai to anthropic in the model picker sent the
+// next request to api.openai.com with the OpenAI key and an Anthropic model id, and switching
+// to Ollama sent the OpenAI key to ollama.com. Each provider now gets its own: the endpoint and
+// key it was configured with, if it was the configured one, otherwise its default endpoint and
+// the key its own variable holds (or none, for a stored login or a keyless provider).
+func (r *AppRunner) switchEndpoint(provider string) {
+	if r.endpoints == nil {
+		r.endpoints = map[string]llmEndpoint{}
+	}
+	cur := strings.ToLower(r.Cfg.LLM.Provider)
+	// The outgoing provider's settings are remembered as they are now.
+	r.endpoints[cur] = llmEndpoint{baseURL: r.Cfg.LLM.BaseURL, apiKey: r.Cfg.LLM.APIKey}
+	next := strings.ToLower(provider)
+	if ep, ok := r.endpoints[next]; ok {
+		r.Cfg.LLM.BaseURL, r.Cfg.LLM.APIKey = ep.baseURL, ep.apiKey
+	} else {
+		r.Cfg.LLM.BaseURL = onboard.DefaultBaseURL(next)
+		r.Cfg.LLM.APIKey = config.ProviderKeyFromEnv(next)
+	}
+	// openai and codex are the same account: the key carries over between them.
+	if r.Cfg.LLM.APIKey == "" && sameOpenAIAccount(cur, next) {
+		r.Cfg.LLM.APIKey = r.endpoints[cur].apiKey
+	}
+}
+
+// llmEndpoint is the base URL and key one provider runs with.
+type llmEndpoint struct {
+	baseURL, apiKey string
+}
+
+func sameOpenAIAccount(a, b string) bool {
+	isOpenAI := func(p string) bool { return p == "openai" || p == "codex" }
+	return isOpenAI(a) && isOpenAI(b)
 }
 
 // SetWorkspace changes the directory the agent works in. A session that
@@ -1243,10 +1283,15 @@ func (r *AppRunner) RunModels(ctx context.Context) (string, error) {
 		return b.String(), nil
 	}
 	fmt.Fprintf(&b, "base URL : %s\n", cfg.LLM.BaseURL)
-	if cfg.LLM.APIKey == "" {
-		fmt.Fprintf(&b, "api key  : MISSING (set %s)\n", config.ProviderKeyVariable(cfg.LLM.Provider))
-	} else {
+	switch {
+	case cfg.LLM.APIKey != "":
 		fmt.Fprintf(&b, "api key  : present\n")
+	case config.HasLogin(cfg.LLM.Provider):
+		fmt.Fprintf(&b, "api key  : none needed (stored login)\n")
+	case !config.LLMNeedsKey(cfg.LLM):
+		fmt.Fprintf(&b, "api key  : none needed\n")
+	default:
+		fmt.Fprintf(&b, "api key  : MISSING (set %s)\n", config.ProviderKeyVariable(cfg.LLM.Provider))
 	}
 
 	base := cfg.LLM.BaseURL
@@ -1255,11 +1300,18 @@ func (r *AppRunner) RunModels(ctx context.Context) (string, error) {
 	}
 	fmt.Fprintf(&b, "\nmodels published by %s:\n", base)
 
-	lister := r.listModels
-	if lister == nil {
-		lister = llm.ListModels
+	var models []string
+	var err error
+	if r.listModels != nil {
+		models, err = r.listModels(ctx, base, cfg.LLM.APIKey)
+	} else {
+		// The provider's own client, so the listing is authenticated the way the requests
+		// are: a header key for Anthropic and Gemini, a stored login for Copilot or Qwen.
+		var client *llm.Client
+		if client, err = llm.New(cfg.LLM, r.Log); err == nil {
+			models, err = client.ListModels(ctx)
+		}
 	}
-	models, err := lister(ctx, base, cfg.LLM.APIKey)
 	if err != nil {
 		// A listing failure must not look like a broken agent: say what failed
 		// and still show the model the configuration will use.

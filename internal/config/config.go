@@ -137,9 +137,13 @@ type Sandbox struct {
 	MaxOutputKB    int           `yaml:"max_output_kb"`
 }
 
+// Providers are the values llm.provider accepts. The LLM client, the wizard and
+// the validation all read this one list.
+var Providers = []string{"openai", "codex", "copilot", "ollama", "anthropic", "claude-code", "gemini", "qwen"}
+
 // LLM describes the reasoning engine (Layer B).
 type LLM struct {
-	Provider       string        `yaml:"provider"` // openai | anthropic | gemini
+	Provider       string        `yaml:"provider"` // one of Providers
 	Model          string        `yaml:"model"`
 	APIKey         string        `yaml:"api_key"`
 	BaseURL        string        `yaml:"base_url"`
@@ -871,16 +875,19 @@ func (c *Config) validateSandbox() error {
 }
 
 func (c *Config) validateLLM(requireKey bool) error {
-	if err := oneOf("llm.provider", c.LLM.Provider, "openai", "ollama", "anthropic", "gemini", "codex", "copilot", "claude-code"); err != nil {
+	if err := oneOf("llm.provider", c.LLM.Provider, Providers...); err != nil {
 		return err
 	}
 	if c.LLM.Model == "" {
 		return fmt.Errorf("llm.model cannot be empty")
 	}
-	if requireKey && c.LLM.APIKey == "" && ProviderNeedsKey(c.LLM.Provider) {
+	if requireKey && c.LLM.APIKey == "" && LLMNeedsKey(c.LLM) {
 		// Name the variable that really works for the configured provider: for
 		// Ollama Cloud that is OLLAMA_API_KEY, and telling the user to export
 		// OPENAI_API_KEY would send them to a name the loader ignores.
+		if SupportsLogin(c.LLM.Provider) {
+			return fmt.Errorf("the LLM key is missing: set llm.api_key in the YAML or %s, or log in with `motita -init`", ProviderKeyVariable(c.LLM.Provider))
+		}
 		return fmt.Errorf("the LLM key is missing: set llm.api_key in the YAML or %s", ProviderKeyVariable(c.LLM.Provider))
 	}
 	if c.LLM.MaxAttempts < 1 {

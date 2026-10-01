@@ -6,7 +6,6 @@ import (
 
 	"github.com/madkoding/motita/internal/agent"
 	"github.com/madkoding/motita/internal/llm"
-	"github.com/madkoding/motita/internal/onboard"
 )
 
 // The endpoints that answer in one shot: they read or change a small thing and return. The
@@ -195,11 +194,15 @@ func (s *Server) handleProviders(w http.ResponseWriter, r *http.Request) {
 // fine, the provider is what did not answer.
 func (s *Server) handleModelList(w http.ResponseWriter, r *http.Request) {
 	cfg := convOf(r).svc.Config()
-	baseURL := cfg.LLM.BaseURL
-	if baseURL == "" {
-		baseURL = onboard.DefaultBaseURL(cfg.LLM.Provider)
+	// The provider's own client lists the models, authenticated the way its requests are:
+	// a bare Bearer key was sent to every provider, which Anthropic and Gemini refuse and
+	// which cannot express a stored login.
+	client, err := llm.New(cfg.LLM, nil)
+	if err != nil {
+		writeError(w, http.StatusBadGateway, err.Error())
+		return
 	}
-	models, err := llm.ListModels(r.Context(), baseURL, cfg.LLM.APIKey)
+	models, err := client.ListModels(r.Context())
 	if err != nil {
 		writeError(w, http.StatusBadGateway, err.Error())
 		return

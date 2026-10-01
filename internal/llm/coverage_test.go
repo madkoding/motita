@@ -315,8 +315,8 @@ func TestGeminiUnreadable(t *testing.T) {
 // --- transport --------------------------------------------------------------
 
 func TestPostInvalidURL(t *testing.T) {
-	c, _ := New(config.LLM{Provider: "openai", APIKey: "k"}, logx.Global())
-	if _, err := c.post(context.Background(), "://bad url", nil, map[string]any{}); err == nil {
+	c, _ := New(config.LLM{Provider: "openai", APIKey: "k", BaseURL: "://bad url"}, logx.Global())
+	if _, err := c.post(context.Background(), "", map[string]any{}); err == nil {
 		t.Error("an invalid URL must be an error")
 	}
 }
@@ -324,8 +324,8 @@ func TestPostInvalidURL(t *testing.T) {
 // TestPostUnserialisableBody covers the body serialisation failure: a channel
 // cannot be marshalled to JSON.
 func TestPostUnserialisableBody(t *testing.T) {
-	c, _ := New(config.LLM{Provider: "openai", APIKey: "k"}, logx.Global())
-	if _, err := c.post(context.Background(), "http://127.0.0.1:1", nil, make(chan int)); err == nil {
+	c, _ := New(config.LLM{Provider: "openai", APIKey: "k", BaseURL: "http://127.0.0.1:1"}, logx.Global())
+	if _, err := c.post(context.Background(), "", make(chan int)); err == nil {
 		t.Error("an unserialisable body must be an error")
 	}
 }
@@ -474,7 +474,7 @@ func TestPostUnreadableBody(t *testing.T) {
 	defer srv.Close()
 
 	c, _ := New(config.LLM{Provider: "openai", APIKey: "k", BaseURL: srv.URL, MaxAttempts: 1}, logx.Global())
-	if _, err := c.post(context.Background(), srv.URL, nil, map[string]any{}); err == nil {
+	if _, err := c.post(context.Background(), "", map[string]any{}); err == nil {
 		t.Error("a truncated body must be an error")
 	}
 }

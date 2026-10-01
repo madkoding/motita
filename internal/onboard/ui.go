@@ -110,6 +110,10 @@ func printSummary(out io.Writer, res Result) {
 	case res.Provider.Login != "":
 		fmt.Fprintf(out, "  install it (%s), then log in:\n", res.Provider.ConsoleURL)
 		fmt.Fprintf(out, "  %s$%s %s\n", colGray, colReset, res.Provider.Login)
+	case res.LoggedIn:
+		printInfo(out, "the login is stored and renewed automatically; nothing to export")
+	case res.Keyless:
+		printInfo(out, "make sure the Ollama server is running (ollama serve) and the model is pulled")
 	case res.CredentialsPath != "":
 		fmt.Fprintf(out, "  %s$%s source %s\n", colGray, colReset, res.CredentialsPath)
 	default:

@@ -2,10 +2,15 @@ package config
 
 import (
 	"fmt"
+	"net"
+	"net/url"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/madkoding/motita/internal/oauth"
 )
 
 // ---------------------------------------------------------------------------
@@ -201,7 +206,11 @@ func applyLLMEnvironment(c *Config) error {
 	// accept. They are applied HERE, in the one overlay that every loading path
 	// runs — reading them only inside Load left the -p and TUI paths, which load the
 	// defaults plus the environment, with no key at all.
-	if _, explicit := os.LookupEnv("MOTITA_LLM_API_KEY"); !explicit {
+	//
+	// Only for the providers that ARE OpenAI: an OPENAI_API_KEY exported for another tool
+	// used to become the Anthropic, Gemini or Ollama key too, and the user got a 401 from a
+	// provider that was never given that key.
+	if _, explicit := os.LookupEnv("MOTITA_LLM_API_KEY"); !explicit && speaksOpenAIKey(c.LLM.Provider) {
 		if _, own := os.LookupEnv(ProviderKeyVariable(c.LLM.Provider)); !own {
 			c.LLM.APIKey = readText("OPENAI_API_KEY", c.LLM.APIKey)
 		}
@@ -399,15 +408,101 @@ func readBool(key string, current bool) (bool, error) {
 // documentation uses. Keeping the table here means the wizard, the loader and the
 // tests all agree on one name per provider.
 var providerKeyAliases = map[string]string{
-	"ollama":  "OLLAMA_API_KEY",
-	"copilot": "GITHUB_COPILOT_TOKEN",
+	"ollama":    "OLLAMA_API_KEY",
+	"copilot":   "GITHUB_COPILOT_TOKEN",
+	"anthropic": "ANTHROPIC_API_KEY",
+	"gemini":    "GEMINI_API_KEY",
+	"qwen":      "DASHSCOPE_API_KEY",
+}
+
+// speaksOpenAIKey reports whether OPENAI_API_KEY is a key for this provider.
+func speaksOpenAIKey(provider string) bool {
+	switch strings.ToLower(strings.TrimSpace(provider)) {
+	case "", "openai", "codex":
+		return true
+	}
+	return false
+}
+
+// ProviderKeyFromEnv returns the key the environment holds for one provider: its
+// own variable, then OPENAI_API_KEY for the OpenAI providers. The generic
+// MOTITA_LLM_API_KEY is NOT consulted: it belongs to the configured provider, and
+// handing it to another one on a switch sent one vendor's key to another vendor.
+func ProviderKeyFromEnv(provider string) string {
+	if v := strings.TrimSpace(os.Getenv(ProviderKeyVariable(provider))); v != "" && ProviderKeyVariable(provider) != "MOTITA_LLM_API_KEY" {
+		return v
+	}
+	if speaksOpenAIKey(provider) {
+		return strings.TrimSpace(os.Getenv("OPENAI_API_KEY"))
+	}
+	return ""
 }
 
 // ProviderNeedsKey reports whether a provider is reached with a key of motita's.
 // claude-code is not: the claude CLI brings the user's own `claude auth login`.
-// Every "is a missing key a problem" question asks this, so the answer cannot drift.
 func ProviderNeedsKey(provider string) bool {
 	return !strings.EqualFold(strings.TrimSpace(provider), "claude-code")
+}
+
+// SupportsLogin reports whether a provider can be connected with a stored
+// login (OAuth or device code) instead of a key. Anthropic is not one: a Claude
+// subscription is reached through the claude-code provider.
+func SupportsLogin(provider string) bool {
+	switch strings.ToLower(strings.TrimSpace(provider)) {
+	case "copilot", "codex", "gemini", "qwen":
+		return true
+	}
+	return false
+}
+
+// AuthDir is where stored logins live: one 0600 file per provider.
+func AuthDir() string {
+	if d := strings.TrimSpace(os.Getenv("MOTITA_AUTH_DIR")); d != "" {
+		return d
+	}
+	if d := Dir(); d != "" {
+		return filepath.Join(d, "auth")
+	}
+	return ""
+}
+
+// HasLogin reports whether a login is stored for provider.
+func HasLogin(provider string) bool {
+	return SupportsLogin(provider) && oauth.HasCredential(AuthDir(), provider)
+}
+
+// IsSelfHostedOllama reports whether an ollama configuration points at a server
+// of the user's own, which takes no key: Ollama's port 11434, a loopback or
+// private address, or a LAN name. Anything else (Ollama Cloud, a public host)
+// is treated as needing a key.
+func IsSelfHostedOllama(l LLM) bool {
+	if !strings.EqualFold(strings.TrimSpace(l.Provider), "ollama") || strings.TrimSpace(l.BaseURL) == "" {
+		return false
+	}
+	u, err := url.Parse(strings.TrimSpace(l.BaseURL))
+	if err != nil || u.Host == "" {
+		return false
+	}
+	host := strings.ToLower(u.Hostname())
+	if u.Port() == "11434" {
+		return true // Ollama's own port
+	}
+	if host == "localhost" || !strings.Contains(host, ".") ||
+		strings.HasSuffix(host, ".local") || strings.HasSuffix(host, ".lan") || strings.HasSuffix(host, ".internal") {
+		return true
+	}
+	ip := net.ParseIP(host)
+	return ip != nil && (ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast())
+}
+
+// LLMNeedsKey answers "is a missing key a problem" for a whole configuration:
+// not for claude-code, not for a self-hosted Ollama, and not for a provider
+// with a stored login. Every caller asks this, so the answer cannot drift.
+func LLMNeedsKey(l LLM) bool {
+	if !ProviderNeedsKey(l.Provider) || IsSelfHostedOllama(l) {
+		return false
+	}
+	return !HasLogin(l.Provider)
 }
 
 // ProviderKeyVariable returns the provider-specific variable for a key, or the

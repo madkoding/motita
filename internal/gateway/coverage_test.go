@@ -22,6 +22,7 @@ import (
 	"github.com/madkoding/motita/internal/agent"
 	"github.com/madkoding/motita/internal/config"
 	"github.com/madkoding/motita/internal/gitx"
+	"github.com/madkoding/motita/internal/oauth"
 	"github.com/madkoding/motita/internal/updater"
 )
 
@@ -867,4 +868,29 @@ func TestWsWriteFrameLargePayload(t *testing.T) {
 	remaining := make([]byte, 70000)
 	io.ReadFull(client, remaining)
 	<-done
+}
+
+// TestProviderKeyPresentReadsLoginsAndEachProvidersVariable: a stored login counts
+// as a credential, and a key exported for one vendor does not count for another.
+func TestProviderKeyPresentReadsLoginsAndEachProvidersVariable(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("MOTITA_AUTH_DIR", dir)
+	t.Setenv("OPENAI_API_KEY", "")
+	t.Setenv("ANTHROPIC_API_KEY", "sk-ant")
+	t.Setenv("DASHSCOPE_API_KEY", "")
+	os.Unsetenv("DASHSCOPE_API_KEY") // set-but-empty still counts as named; t.Setenv restores it
+	cfg := config.Default()
+	cfg.LLM.APIKey = ""
+	if !providerKeyPresent(cfg, "anthropic") {
+		t.Error("ANTHROPIC_API_KEY must count for anthropic")
+	}
+	if providerKeyPresent(cfg, "qwen") {
+		t.Error("nothing is configured for qwen yet")
+	}
+	if err := oauth.SaveCredential(dir, oauth.Credential{Provider: "qwen", RefreshToken: "r"}); err != nil {
+		t.Fatal(err)
+	}
+	if !providerKeyPresent(cfg, "qwen") {
+		t.Error("a stored login must count")
+	}
 }

@@ -53,7 +53,7 @@ failure this architecture exists to prevent.
 | Layer | What it is | Why it matters |
 |---|---|---|
 | **A · The anchor** | Deterministic code. Runs your command, checks the exit code, matches the output against a pattern, asserts your invariants. | It cannot be talked into a different answer. Fast, boring, predictable. |
-| **B · The reasoning engine** | A hand-written client for OpenAI-compatible, Anthropic, Gemini, Codex, and Copilot APIs. | Point it at OpenAI, Codex, Ollama Cloud, Copilot, Groq, OpenRouter, DeepSeek, or your own box. Nothing else in the agent knows which. |
+| **B · The reasoning engine** | A hand-written client for the OpenAI chat and Responses APIs, Anthropic, Gemini, Copilot and Qwen. | Point it at OpenAI, Codex, Claude, Gemini, Qwen, Copilot, Ollama (local or Cloud), Groq, OpenRouter, DeepSeek, or your own box. Nothing else in the agent knows which. |
 | **C · The sandbox** | Runs the proposed action in an ephemeral directory under real limits. | And it **tells you what it could not apply** instead of pretending the isolation is stronger than it is. |
 
 ## Why that changes what you get
@@ -149,8 +149,9 @@ motita
 That's it. If no configuration exists, the wizard launches automatically —
 no need to know about `-init`. It walks you through:
 
-1. **Choose a provider**: OpenAI, OpenAI Codex, GitHub Copilot, Ollama Cloud,
-   Anthropic (Claude), Google Gemini, or your Claude subscription through Claude Code.
+1. **Choose a provider**: OpenAI, OpenAI Codex, GitHub Copilot, Ollama (local or
+   Cloud), Anthropic (Claude), your Claude subscription through Claude Code, Google
+   Gemini, or Qwen.
 2. **Choose a model**: each provider ships curated defaults, or type any model ID.
 3. **Set the anchor**: what decides whether a task is really done. The third
    question is the one other tools never ask — and the default answer is
@@ -158,9 +159,9 @@ no need to know about `-init`. It walks you through:
    (`check`/`test` from a Makefile, `go test ./...`, a `package.json`'s
    `lint`/`typecheck`/`test`, `cargo test`). A project with an unusual build names
    its own gate in `.motita/anchor`, one command per line.
-4. **Authenticate**: paste an API key, or **connect directly** — open a link in
-   your browser and enter a one-time code. Direct login is available for
-   Anthropic, Gemini, and Copilot, so you never handle an API key at all.
+4. **Authenticate**: paste an API key, or **log in with your account** — open a link
+   in your browser (and, for device logins, enter a one-time code). The login is
+   stored and renewed automatically, so you never handle a key at all.
 
 ![The onboarding wizard](docs/screenshots/wizard-onboard.png)
 
@@ -169,11 +170,39 @@ Runs automatically when no config is found.</sub>
 
 ![Direct login in the wizard](docs/screenshots/wizard-auth.png)
 
-<sub>For Anthropic, Gemini, and Copilot: connect with a link and a code,
-no API key needed.</sub>
+<sub>For Copilot, Codex, Gemini and Qwen: log in with your account, no API key needed.</sub>
 
-Your API key (or OAuth token) goes into a separate `0600` file, never into the
-config, so the config can be committed and shared.
+### Providers and how each one authenticates
+
+| Provider (`llm.provider`) | API key (variable) | Account login | Protocol |
+|---|---|---|---|
+| `openai` | `OPENAI_API_KEY` / `MOTITA_LLM_API_KEY` | — | `/chat/completions` (any OpenAI-compatible host) |
+| `codex` | `OPENAI_API_KEY` / `MOTITA_LLM_API_KEY` | **Sign in with ChatGPT** (PKCE; Plus/Pro/Business plans) | `/responses` |
+| `copilot` | `GITHUB_COPILOT_TOKEN` (a GitHub OAuth token) | **GitHub device code** (active Copilot subscription) | `/chat/completions`, session token renewed every ~30 min |
+| `ollama` | `OLLAMA_API_KEY` (Ollama Cloud only) | — (a local server needs nothing) | `/chat/completions` |
+| `anthropic` | `ANTHROPIC_API_KEY` | — (see `claude-code`) | `/v1/messages` |
+| `claude-code` | — | `claude auth login` (Anthropic's own CLI holds it) | the `claude` CLI |
+| `gemini` | `GEMINI_API_KEY` | **Google login** with your own OAuth client, or gcloud's ADC | `generateContent` |
+| `qwen` | `DASHSCOPE_API_KEY` | **qwen.ai device code** (Qwen Code account) | `/chat/completions` |
+
+Logins live in `~/.motita/auth/<provider>.json` (`0600`, override the directory with
+`MOTITA_AUTH_DIR`) together with their refresh token; motita renews the access token
+before it expires and once more if the server refuses it. An API key always wins over a
+stored login. A key you paste goes into a separate `0600` file, never into the config, so
+the config can be committed and shared.
+
+- **Claude subscriptions** are reached only through the `claude-code` provider: Anthropic
+  allows Pro/Max plans in its own Claude Code client, so motita drives that client instead
+  of borrowing its OAuth identity.
+- **Gemini login** needs an OAuth client you own: either run
+  `gcloud auth application-default login --client-id-file=client_secret.json --scopes='https://www.googleapis.com/auth/cloud-platform,https://www.googleapis.com/auth/generative-language.retriever'`
+  (the wizard copies those credentials), or export `MOTITA_GEMINI_CLIENT_ID` and
+  `MOTITA_GEMINI_CLIENT_SECRET` for a *Desktop app* client. The calls are billed to the
+  Google Cloud project you name.
+- **Codex login** receives the browser on `http://localhost:1455`. On a machine the browser
+  cannot reach (SSH), paste the URL the browser ends on into the wizard.
+- **Ollama**: the wizard asks whether it runs locally (`http://localhost:11434/v1`, no key)
+  or on Ollama Cloud.
 
 ### Your Claude subscription, through Claude Code
 
@@ -650,8 +679,8 @@ This is tested the way you'd test something you were about to bet on.
 | | |
 |---|---|
 | **Statement coverage** | **100% in every package that ships** — 30 of 31 (`./internal/... ./cmd/...`), checked package by package so a gap can't hide behind an average. `internal/review` is the one package without tests, and `tools/` holds the CI harnesses and is counted separately |
-| **Test functions** | 3,386 across 236 files |
-| **Code vs tests** | 35,225 lines of Go · 78,932 lines of test |
+| **Test functions** | 3,541 across 257 files |
+| **Code vs tests** | 42,920 lines of Go · 91,804 lines of test |
 | **External dependencies** | 0 |
 | **Platforms CI builds** | 9 — every one gets `-version` run in its own container on Linux, and a PE/Mach-O header + size check on Windows and macOS |
 

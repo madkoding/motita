@@ -111,15 +111,20 @@ func configuredProviders(cfg config.Config) []providerInfo {
 	return out
 }
 
-// providerKeyPresent reports whether a key is available for the given provider:
-// either its provider-specific env var is set, or the YAML api_key is set and
-// the provider uses the generic MOTITA_LLM_API_KEY variable.
+// providerKeyPresent reports whether a credential is available for the given
+// provider: its provider-specific env var is set, a login is stored for it, or
+// the YAML api_key is set and the provider uses the generic MOTITA_LLM_API_KEY
+// variable.
 func providerKeyPresent(cfg config.Config, providerID string) bool {
 	if cfg.LLM.APIKey != "" && config.ProviderKeyVariable(providerID) == "MOTITA_LLM_API_KEY" {
 		return true
 	}
-	if _, ok := os.LookupEnv(config.ProviderKeyVariable(providerID)); ok {
+	// A stored login is as good as a key, and the variable may be one of the OpenAI names.
+	if config.HasLogin(providerID) || config.ProviderKeyFromEnv(providerID) != "" {
 		return true
 	}
-	return false
+	// The generic variable counts for the providers that read it (openai and codex,
+	// which share the OpenAI account).
+	_, ok := os.LookupEnv(config.ProviderKeyVariable(providerID))
+	return ok
 }

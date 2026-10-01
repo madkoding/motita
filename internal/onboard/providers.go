@@ -33,8 +33,13 @@ type Provider struct {
 	FetchModels bool
 	// SupportsDirectAuth, when true, means the wizard offers a "connect
 	// directly" option in addition to pasting an API key. The user visits a
-	// URL, enters a code, and the resulting token is stored instead of a key.
+	// URL (and enters a code), and the resulting login is stored and renewed
+	// instead of a key.
 	SupportsDirectAuth bool
+	// AskBaseURL, when true, asks for the endpoint: the provider's protocol is
+	// spoken by many hosts (OpenAI-compatible). The others have one endpoint, or
+	// a login that names its own, and asking would only invite a wrong answer.
+	AskBaseURL bool
 	// Login, when set, is the command that logs the provider's own tool in: the
 	// provider needs no key of motita's, so the wizard asks for no endpoint and no
 	// key, writes no credentials file, and tells the user to run this instead.
@@ -54,27 +59,31 @@ func Providers() []Provider {
 	return []Provider{
 		{
 			ID:             "openai",
-			Name:           "OpenAI",
+			Name:           "OpenAI (platform key)",
 			DefaultBaseURL: "https://api.openai.com/v1",
 			EnvKey:         "MOTITA_LLM_API_KEY",
 			ConsoleURL:     "https://platform.openai.com/api-keys",
+			AskBaseURL:     true,
 			Models: []Model{
-				{ID: "gpt-4o-mini", Label: "GPT-4o mini", Note: "cheap and fast, the right default"},
-				{ID: "gpt-4o", Label: "GPT-4o", Note: "better reasoning, more expensive"},
-				{ID: "gpt-4.1-mini", Label: "GPT-4.1 mini", Note: "newer small model"},
-				{ID: "o4-mini", Label: "o4-mini", Note: "reasoning model, slow and costly"},
+				{ID: "gpt-5-mini", Label: "GPT-5 mini", Note: "cheap and fast, the right default"},
+				{ID: "gpt-5", Label: "GPT-5", Note: "strongest reasoning, more expensive"},
+				{ID: "gpt-4.1", Label: "GPT-4.1", Note: "no reasoning step, honours temperature"},
+				{ID: "gpt-4o-mini", Label: "GPT-4o mini", Note: "previous generation, cheapest"},
 			},
 		},
 		{
-			ID:             "codex",
-			Name:           "OpenAI Codex (coding models)",
-			DefaultBaseURL: "https://api.openai.com/v1",
-			EnvKey:         "MOTITA_LLM_API_KEY",
-			ConsoleURL:     "https://platform.openai.com/api-keys",
+			// Codex models are served by /responses only; with a ChatGPT login the
+			// requests are billed to the user's ChatGPT plan instead of API credit.
+			ID:                 "codex",
+			Name:               "OpenAI Codex (ChatGPT plan or OpenAI key)",
+			DefaultBaseURL:     "https://api.openai.com/v1",
+			EnvKey:             "MOTITA_LLM_API_KEY",
+			ConsoleURL:         "https://platform.openai.com/api-keys",
+			SupportsDirectAuth: true,
 			Models: []Model{
 				{ID: "gpt-5.2-codex", Label: "GPT-5.2 Codex", Note: "agentic coding, strongest"},
-				{ID: "gpt-5-codex", Label: "GPT-5 Codex", Note: "agentic coding, previous gen"},
-				{ID: "o4-mini", Label: "Codex: o4-mini", Note: "reasoning, lighter"},
+				{ID: "gpt-5.1-codex", Label: "GPT-5.1 Codex", Note: "agentic coding, previous gen"},
+				{ID: "gpt-5-codex", Label: "GPT-5 Codex", Note: "agentic coding, first gen"},
 			},
 		},
 		{
@@ -84,15 +93,18 @@ func Providers() []Provider {
 			EnvKey:             "GITHUB_COPILOT_TOKEN",
 			ConsoleURL:         "https://github.com/settings/copilot",
 			SupportsDirectAuth: true,
+			// The ids the Copilot API uses, which are NOT the vendors' own: Copilot
+			// answers "claude-sonnet-4", and refuses "claude-sonnet-4-20250514".
 			Models: []Model{
-				{ID: "gpt-4o", Label: "Copilot: GPT-4o", Note: "requires active Copilot subscription"},
-				{ID: "claude-sonnet-4-20250514", Label: "Copilot: Claude Sonnet 4", Note: "requires active Copilot subscription"},
-				{ID: "gpt-4o-mini", Label: "Copilot: GPT-4o mini", Note: "lighter, via Copilot"},
+				{ID: "gpt-4.1", Label: "Copilot: GPT-4.1", Note: "included in every plan"},
+				{ID: "gpt-5-mini", Label: "Copilot: GPT-5 mini", Note: "included in every plan"},
+				{ID: "claude-sonnet-4", Label: "Copilot: Claude Sonnet 4", Note: "premium requests"},
+				{ID: "gemini-2.5-pro", Label: "Copilot: Gemini 2.5 Pro", Note: "premium requests"},
 			},
 		},
 		{
 			ID:             "ollama",
-			Name:           "Ollama Cloud",
+			Name:           "Ollama (local or Ollama Cloud)",
 			DefaultBaseURL: "https://ollama.com/v1",
 			EnvKey:         "OLLAMA_API_KEY",
 			ConsoleURL:     "https://ollama.com/settings/keys",
@@ -112,36 +124,25 @@ func Providers() []Provider {
 			FetchModels: true,
 		},
 		{
-			ID:                 "anthropic",
-			Name:               "Anthropic (Claude)",
-			DefaultBaseURL:     "https://api.anthropic.com",
-			EnvKey:             "MOTITA_LLM_API_KEY",
-			ConsoleURL:         "https://console.anthropic.com/settings/keys",
-			SupportsDirectAuth: true,
+			// An API key from the Claude Console. A Claude Pro/Max subscription is NOT
+			// reached from here: Anthropic only allows it through its own Claude Code
+			// client, which is the claude-code provider below.
+			ID:             "anthropic",
+			Name:           "Anthropic Claude (Console key)",
+			DefaultBaseURL: "https://api.anthropic.com",
+			EnvKey:         "ANTHROPIC_API_KEY",
+			ConsoleURL:     "https://console.anthropic.com/settings/keys",
 			Models: []Model{
-				{ID: "claude-3-5-haiku-latest", Label: "Claude 3.5 Haiku", Note: "cheap and fast"},
-				{ID: "claude-sonnet-4-20250514", Label: "Claude Sonnet 4", Note: "strong reasoning"},
-				{ID: "claude-3-7-sonnet-latest", Label: "Claude 3.7 Sonnet", Note: "previous generation"},
-			},
-		},
-		{
-			ID:                 "gemini",
-			Name:               "Google Gemini",
-			DefaultBaseURL:     "https://generativelanguage.googleapis.com",
-			EnvKey:             "MOTITA_LLM_API_KEY",
-			ConsoleURL:         "https://aistudio.google.com/apikey",
-			SupportsDirectAuth: true,
-			Models: []Model{
-				{ID: "gemini-2.0-flash", Label: "Gemini 2.0 Flash", Note: "cheap and fast"},
-				{ID: "gemini-2.5-flash", Label: "Gemini 2.5 Flash", Note: "newer, still cheap"},
-				{ID: "gemini-2.5-pro", Label: "Gemini 2.5 Pro", Note: "strong reasoning"},
+				{ID: "claude-sonnet-5-5", Label: "Claude Sonnet 5.5", Note: "the right default"},
+				{ID: "claude-opus-5-5", Label: "Claude Opus 5.5", Note: "strongest, more expensive"},
+				{ID: "claude-haiku-4-5", Label: "Claude Haiku 4.5", Note: "cheap and fast"},
 			},
 		},
 		{
 			// The local claude CLI on the user's own subscription: motita never sees
-			// the credentials, `claude auth login` holds them.
+			// the credentials, `claude auth login` (Anthropic's own OAuth) holds them.
 			ID:         "claude-code",
-			Name:       "Claude subscription (Claude Code CLI)",
+			Name:       "Claude subscription (Pro/Max, via Claude Code CLI)",
 			ConsoleURL: "https://code.claude.com/docs/en/setup",
 			Login:      "claude auth login",
 			Models: []Model{
@@ -149,6 +150,33 @@ func Providers() []Provider {
 				{ID: "opus", Label: "Opus"},
 				{ID: "haiku", Label: "Haiku"},
 				{ID: "fable", Label: "Fable"},
+			},
+		},
+		{
+			ID:                 "gemini",
+			Name:               "Google Gemini (AI Studio key or Google login)",
+			DefaultBaseURL:     "https://generativelanguage.googleapis.com",
+			EnvKey:             "GEMINI_API_KEY",
+			ConsoleURL:         "https://aistudio.google.com/apikey",
+			SupportsDirectAuth: true,
+			Models: []Model{
+				{ID: "gemini-2.5-flash", Label: "Gemini 2.5 Flash", Note: "cheap and fast"},
+				{ID: "gemini-2.5-pro", Label: "Gemini 2.5 Pro", Note: "strong reasoning"},
+				{ID: "gemini-2.5-flash-lite", Label: "Gemini 2.5 Flash-Lite", Note: "cheapest"},
+			},
+		},
+		{
+			// A DashScope (Alibaba Model Studio) key, or a qwen.ai account login.
+			ID:                 "qwen",
+			Name:               "Qwen (qwen.ai login or DashScope key)",
+			DefaultBaseURL:     "https://dashscope-intl.aliyuncs.com/compatible-mode/v1",
+			EnvKey:             "DASHSCOPE_API_KEY",
+			ConsoleURL:         "https://modelstudio.console.alibabacloud.com/?tab=api#/api-key",
+			SupportsDirectAuth: true,
+			Models: []Model{
+				{ID: "qwen3-coder-plus", Label: "Qwen3 Coder Plus", Note: "agentic coding, the right default"},
+				{ID: "qwen3-coder-flash", Label: "Qwen3 Coder Flash", Note: "faster and cheaper"},
+				{ID: "qwen-max", Label: "Qwen Max", Note: "general reasoning (DashScope key)"},
 			},
 		},
 	}
