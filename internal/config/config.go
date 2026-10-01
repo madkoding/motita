@@ -679,6 +679,11 @@ func load(path string, requireKey bool) (Config, error) {
 		// an empty path with the default, and a value arriving afterwards would keep the
 		// default's relative form.
 		resolvePaths(&cfg, filepath.Dir(path))
+		// The key the wizard stored beside the file counts as if it were written in it: the
+		// environment, applied next, still wins over both.
+		if cfg.LLM.APIKey == "" {
+			cfg.LLM.APIKey = credentialKey(path, cfg.LLM.Provider)
+		}
 	}
 
 	// Environment variables (they win over the YAML), including the standard

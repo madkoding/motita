@@ -23,8 +23,12 @@ func TestTypingInAConfigViewDoesNotStartTheWizard(t *testing.T) {
 	if runner.configCalls != 1 {
 		t.Errorf("the wizard ran %d times, want exactly 1 (the /c only)", runner.configCalls)
 	}
-	if !strings.Contains(stripANSI(outputOf(tui)), "press Enter to start the wizard") {
-		t.Errorf("typed text in the config view must be answered with a hint:\n%s", stripANSI(outputOf(tui)))
+	// The setup is something done and finished: the next thing typed is a task.
+	if !runner.taskCalled || runner.lastTask != "something" {
+		t.Errorf("text typed after the setup must run as a task (called=%v task=%q)", runner.taskCalled, runner.lastTask)
+	}
+	if tui.screen != ScreenTask {
+		t.Errorf("the interface must be back in Task mode after the setup, got %s", tui.screen)
 	}
 }
 

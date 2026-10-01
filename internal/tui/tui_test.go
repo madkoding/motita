@@ -407,7 +407,7 @@ func TestRunConfigError(t *testing.T) {
 	runner := &fakeRunner{configErr: errors.New("wizard failed")}
 	tui := newFakeTUI("/c\n\nq\n", runner)
 	tui.Run(context.Background())
-	if !strings.Contains(outputOf(tui), "the wizard failed: wizard failed") {
+	if !strings.Contains(outputOf(tui), "the setup failed: wizard failed") {
 		t.Errorf("error not reported: %q", outputOf(tui))
 	}
 }

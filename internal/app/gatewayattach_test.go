@@ -314,28 +314,6 @@ func tuiTestOptions(t *testing.T, out *syncBuffer) Options {
 	return op
 }
 
-// The wrapper hands the interface THIS process's wizard, whatever client it speaks through: the
-// wizard reads the terminal in front of the user, so it cannot be remote, and running it on the
-// gateway's host would configure the wrong machine.
-func TestTheLocalWizardIsHandedToTheInterface(t *testing.T) {
-	ran := false
-	w := localWizard{
-		Runner:    &noopRunner{},
-		runConfig: func(context.Context) error { ran = true; return nil },
-	}
-	if err := w.RunConfig(context.Background()); err != nil {
-		t.Fatalf("RunConfig: %v", err)
-	}
-	if !ran {
-		t.Fatal("the local wizard was not run")
-	}
-	// And it is still the client underneath: everything else is passed straight through, so the
-	// interface sees no difference between a wrapped client and a bare one.
-	if _, err := w.RunModels(context.Background()); err != nil {
-		t.Fatalf("RunModels through the wrapper: %v", err)
-	}
-}
-
 // A gateway that cannot record where it is still SERVES, and says so.
 //
 // This is the opposite of refusing, and deliberately: the file is what lets `gateway status` and

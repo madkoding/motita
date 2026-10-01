@@ -1161,6 +1161,14 @@ func (r *AppRunner) RunTask(ctx context.Context, task string, progress func(stri
 	if consult, ok := ag.(interface{ Consulted() map[string]int }); ok {
 		r.rememberUsage(consult.Consulted(), task)
 	}
+	// A STOPPED turn is reported as stopped. The agent ends its loop quietly when its context is
+	// cancelled - that is right for a daemon being shut down - so without this a turn the user
+	// stopped came back as a finished one: the gateway recorded it as done, and went on to ask the
+	// model for the conversation's title while still holding the conversation, refusing the
+	// user's next message for as long as that took.
+	if runErr == nil && ctx.Err() != nil {
+		runErr = ctx.Err()
+	}
 	if runErr != nil {
 		return result, runErr
 	}
@@ -1256,12 +1264,44 @@ func (r *AppRunner) ResetTranscript() {
 func (r *AppRunner) RunConfig(ctx context.Context) error {
 	// The same default the first run uses, so the file the wizard writes is the one the program
 	// looks for next time. With no HOME it falls back to the working directory.
-	path := config.File()
-	if path == "" {
-		path = "./motita.yaml"
-	}
-	_, err := onboard.Run(ctx, os.Stdin, r.Out, path, onboard.Answers{}, time.Now())
+	_, err := onboard.RunWithKeys(ctx, os.Stdin, r.Out, setupPath(), onboard.Answers{}, time.Now(), KeyModeFor(os.Stdin))
 	return err
+}
+
+// setupPath is the file the setup wizard writes and ReloadConfig reads: the motita home's
+// configuration, or the working directory's when there is no home.
+func setupPath() string {
+	if path := config.File(); path != "" {
+		return path
+	}
+	return "./motita.yaml"
+}
+
+// ReloadConfig re-reads the configuration the setup wizard writes and applies what the wizard
+// decides - the provider, its endpoint and key, the model, and the check - to the turns that follow.
+//
+// It exists because the wizard used to write the file and stop there: /config said
+// "configuration written" while every following turn still ran with the provider and the key the
+// program had started with, and the new setup only took effect after a restart nobody mentioned.
+//
+// A setup with no key yet is still applied - the interface then says the key is missing, which is
+// the truth - but a file that does not load is an error, and nothing is changed.
+func (r *AppRunner) ReloadConfig(context.Context) error {
+	path := setupPath()
+	cfg, err := config.Load(path)
+	if err != nil {
+		if cfg, err = config.LoadWithoutKey(path); err != nil {
+			return err
+		}
+	}
+	r.cfgMu.Lock()
+	defer r.cfgMu.Unlock()
+	r.Cfg.LLM = cfg.LLM
+	r.Cfg.Anchor = cfg.Anchor
+	r.Engine = nil
+	// The endpoints remembered for a provider switch belong to the setup that was just replaced.
+	r.endpoints = nil
+	return nil
 }
 
 // RunModels builds the report of the active setup and the catalogue the provider

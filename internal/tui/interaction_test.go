@@ -277,7 +277,7 @@ func TestHelpListsTheCommands(t *testing.T) {
 	// content. (Adding the reward commands made the help long enough to expose that.)
 	//
 	// The screen is still checked below: that SOMETHING of the help is on it.
-	for _, want := range []string{"switch between Task and Plan", "complete the command", "task", "plan", "models", "config", "reasoning", "quit"} {
+	for _, want := range []string{"switch between Task and Plan", "→ complete", "task", "plan", "models", "config", "reasoning", "quit"} {
 		if !strings.Contains(helpText, want) {
 			t.Errorf("the help must mention %q:\n%s", want, helpText)
 		}

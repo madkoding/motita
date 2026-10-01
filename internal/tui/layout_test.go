@@ -207,21 +207,6 @@ func TestPhaseLabelRecognisesTheMarkers(t *testing.T) {
 	}
 }
 
-// TestPadCenterCentresAndDoesNotShrink: an item wider than the frame is left
-// alone (it will be dealt with by the caller) instead of being cut in half.
-func TestPadCenterCentresAndDoesNotShrink(t *testing.T) {
-	tui := &TUI{}
-	got := tui.padCenter("abc", 9)
-	if got != "   abc" {
-		t.Errorf("padCenter = %q, want %q", got, "   abc")
-	}
-	// An oversized string is returned as-is, only with the left margin: the margin is part of
-	// the drawing area, and a centred row is still a row of this interface.
-	if got := tui.padCenter("abcdefghij", 4); got != "  abcdefghij" {
-		t.Errorf("an oversized string must be returned unchanged apart from the margin, got %q", got)
-	}
-}
-
 // TestVisibleMessagesKeepsTheNewest: the scrollback is bounded, and what is kept
 // is the end of the conversation.
 func TestVisibleMessagesKeepsTheNewest(t *testing.T) {
@@ -253,8 +238,16 @@ func TestWordWrapHandlesPathsAndBlankLines(t *testing.T) {
 	if got := wordWrap("", 20); len(got) != 1 || got[0] != "" {
 		t.Errorf("an empty string must wrap to one empty line, got %q", got)
 	}
-	if got := wordWrap("a\n\nb", 20); len(got) != 2 {
-		t.Errorf("blank paragraphs must be skipped, got %q", got)
+	// One blank line separates paragraphs, however many the text had, and none is kept at either
+	// end: the separation is what makes a list and the sentence after it readable.
+	if got := wordWrap("a\n\nb", 20); len(got) != 3 || got[1] != "" {
+		t.Errorf("a blank line must separate the paragraphs, got %q", got)
+	}
+	if got := wordWrap("\n\na\n\n\n\nb\n\n", 20); len(got) != 3 || got[0] != "a" || got[2] != "b" {
+		t.Errorf("runs of blank lines collapse to one and the ends are trimmed, got %q", got)
+	}
+	if got := wordWrap("\n\n", 20); len(got) != 1 || got[0] != "" {
+		t.Errorf("only blank lines wrap to one empty line, got %q", got)
 	}
 	if got := wordWrap("anything", 0); len(got) != 1 {
 		t.Errorf("a zero width must return the text unchanged, got %q", got)

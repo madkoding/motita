@@ -311,24 +311,13 @@ func TestPrintDeviceInfo(t *testing.T) {
 
 // --- onboard.go coverage gaps -----------------------------------------------
 
-// TestSayRaw: sayRaw writes without a trailing newline.
-func TestSayRaw(t *testing.T) {
-	var out bytes.Buffer
-	s := &session{out: &out}
-	s.sayRaw("hello %s", "world")
-	if out.String() != "hello world" {
-		t.Errorf("output = %q", out.String())
-	}
-}
-
 // TestAskAPIKeyDirectAuthThreeAttempts: three invalid choices at the auth menu
 // return an error.
 func TestAskAPIKeyDirectAuthThreeAttempts(t *testing.T) {
 	dir := t.TempDir()
 	stubDirectAuth(t, "stub")
-	// Provider=gemini(7), model=1, anchor=no check(3),
-	// auth-choice: three invalid answers ("3","3","3") → error.
-	_, _, err := run(context.Background(), t, dir, []string{"7", "1", "3", "3", "3", "3"}, Answers{})
+	// Provider=gemini(7), auth-choice: three invalid answers ("3","3","3") → error.
+	_, _, err := run(context.Background(), t, dir, []string{"7", "3", "3", "3"}, Answers{})
 	if err == nil {
 		t.Fatal("expected error after three invalid auth choices")
 	}
@@ -339,9 +328,9 @@ func TestAskAPIKeyDirectAuthThreeAttempts(t *testing.T) {
 func TestAskAPIKeyDirectAuthDefaultChoice(t *testing.T) {
 	dir := t.TempDir()
 	stubDirectAuth(t, "default-direct")
-	// Provider=gemini(7), model=1, anchor=no check(3),
-	// auth-choice: Enter (default=1=direct auth).
-	_, _, err := run(context.Background(), t, dir, []string{"7", "1", "3", ""}, Answers{})
+	// Provider=gemini(7), auth-choice: Enter (default=1=direct auth), model=1, anchor=no check(3),
+	// save.
+	_, _, err := run(context.Background(), t, dir, []string{"7", "", "1", "3", ""}, Answers{})
 	if err != nil {
 		t.Fatalf("err = %v", err)
 	}
@@ -356,9 +345,9 @@ func TestAskAPIKeyDirectAuthDefaultChoice(t *testing.T) {
 // the traditional key entry path.
 func TestAskAPIKeyDirectAuthChoosePasteKey(t *testing.T) {
 	dir := t.TempDir()
-	// Provider=gemini(7), model=1, anchor=no check(3),
-	// auth-choice=2 (paste key), key="my-key".
-	_, _, err := run(context.Background(), t, dir, []string{"7", "1", "3", "2", "my-key"}, Answers{})
+	// Provider=gemini(7), auth-choice=2 (paste key), key="my-key", model=1, anchor=no check(3),
+	// save.
+	_, _, err := run(context.Background(), t, dir, []string{"7", "2", "my-key", "1", "3", ""}, Answers{})
 	if err != nil {
 		t.Fatalf("err = %v", err)
 	}
@@ -372,9 +361,8 @@ func TestAskAPIKeyDirectAuthChoosePasteKey(t *testing.T) {
 // auth choice question, askAPIKey returns the error (not a cancellation).
 func TestAskAPIKeyDirectAuthAskError(t *testing.T) {
 	dir := t.TempDir()
-	// Provider=gemini(7), model=1, anchor=no check(3),
-	// auth-choice: EOF (no more input) → ask returns io.EOF.
-	_, _, err := run(context.Background(), t, dir, []string{"7", "1", "3"}, Answers{})
+	// Provider=gemini(7), auth-choice: EOF (no more input) → ask returns io.EOF.
+	_, _, err := run(context.Background(), t, dir, []string{"7"}, Answers{})
 	if err == nil {
 		t.Fatal("expected error when input runs out at auth choice")
 	}

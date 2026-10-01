@@ -86,17 +86,15 @@ const (
 	// permanentRows is how many rows the frame always draws, whatever is on screen. Enumerated
 	// because the frame arithmetic depends on the count being exact:
 	//
-	//	1  the status line (provider/model, reasoning)
-	//	1  the rule above the conversation
-	//	1  the empty row that separates the conversation from the input box
+	//	1  the top bar (the name, the readiness, provider and model)
+	//	1  the rule under it
+	//	1  the top border of the input box, which carries the mode
 	//	3  the input field
-	//	1  the rule under the input
-	//	1  the status bar (mode, context, keys)
+	//	1  the bottom border of the input box
+	//	1  the footer (the keys that work right now, and the context used)
 	//
-	// Eight. The rule above the input box was removed so the conversation has a breathing row
-	// before the input; an extra row would push the cursor off the field at the bottom of a
-	// small terminal, so the empty row replaces the divider and the count stays where the rest
-	// of the layout expects.
+	// Eight. The box's borders are what separate the conversation from the input, so no blank
+	// row or extra rule is spent on it.
 	permanentRows = 8
 )
 
@@ -104,62 +102,40 @@ const (
 // it animates on every terminal, including a text console with a VGA font.
 var spinner = [...]string{"|", "/", "-", "\\"}
 
-// blank is the separator row used between sections.
-const blank = ""
-
-// layout builds the frame and, when the terminal is not tall enough, drops
-// content in a defined order of importance instead of letting the top scroll off
-// the screen.
+// layout is the whole interface, top to bottom, fitted to the terminal:
 //
-// The order is the priority list, most expendable first:
+//	motita  v1.2                 • openai · gpt-5-mini · reasoning medium
+//	────────────────────────────────────────────────────────────────────
+//	conversation (or the welcome screen)
+//	(completion popup / questions / confirmation)
+//	┌─ Task · makes changes, then proves them with your check ────────┐
+//	│ › what the user is typing                                       │
+//	│                                                                 │
+//	│                                                                 │
+//	└─────────────────────────────────────────────────────────────────┘
+//	Enter send · Tab Plan mode · / commands · ? help        context 12%
 //
-//  1. the key hints (the mode line already teaches the interface),
-//  2. the wordmark,
-//  3. the oldest rows of the conversation.
-//
-// The compact one-line mark is not part of this list: it exists for a terminal
-// that is too *narrow* for the five-row banner, not as a height fallback. On a
-// short terminal three rows of conversation are worth more than three rows of
-// branding, so the wordmark goes in one step.
-//
-// The prompt, the mode line and at least a few rows of conversation are never
-// dropped: they are what the user came for. A layout that scrolls would push the
-// prompt off the bottom, and that is the one row that must always be visible.
-// layout is the whole interface, top to bottom, fitted to the terminal.
-//
-// The order is the one the user asked for:
-//
-//	wordmark                        (dropped first: it is branding)
-//	provider/model  reasoning       (no key, no readiness)
-//	────────────────────────────────
-//	conversation (thinking, tools, answers)
-//	────────────────────────────────
-//	composer  (with the completion popup above it)
-//	────────────────────────────────
-//	mode · context used        keys
-//
-// The conversation is NOT boxed. A border around the only content there is adds a row of noise
-// at each end and pushes the composer away from the bottom of the screen; the rules carry the
-// structure instead, which is what separating with space rather than with a box means.
+// One row of identity at the top, the conversation in the middle, and everything the user acts
+// with at the bottom: the box says what Enter will do (the mode is its title), and the footer says
+// which keys work right now.
 //
 // FITTING. Every part is counted and the total is exactly h whenever h can hold the permanent
 // rows, because a frame taller than the terminal scrolls — and a frame that scrolls moves the
 // whole interface up on every repaint, which the user sees as the screen jumping when they
 // press a key.
 //
-// The order of sacrifice is the wordmark, then the popup, then the conversation down to its
-// floor. The composer, the rules and the status bar are never dropped: they are what the
-// interface is. A height of zero means the terminal did not report one, and nothing can be
-// trimmed — everything is drawn and the shell scrolls, as it must.
+// The order of sacrifice is the popup, then the conversation down to its floor. The top bar, the
+// box and the footer are never dropped: they are what the interface is. A height of zero means
+// the terminal did not report one, and nothing can be trimmed — everything is drawn and the shell
+// scrolls, as it must.
 func (t *TUI) layout(w, h int) ([]string, string) {
-	header := t.headerLines(w)
-	status := t.statusLines(w)
+	top := t.statusLines(w)
 	body := t.chatLines(t.conversationWidth())
 	bar := t.bottomBar(w)
 	popup := t.popupRows()
 
-	// The composer is always two rows above the end of the frame — the rule and the status bar —
-	// so the cursor is walked back up to it from wherever the frame leaves it.
+	// The composer is always two rows above the end of the frame — the box's bottom border and
+	// the footer — so the cursor is walked back up to it from wherever the frame leaves it.
 	const belowComposer = rowsBelowComposer
 
 	// A terminal too small to hold the interface gets an explanation instead of a broken frame.
@@ -168,41 +144,25 @@ func (t *TUI) layout(w, h int) ([]string, string) {
 	}
 
 	if h <= 0 {
-		lines := append([]string{}, header...)
-		if len(header) > 0 {
-			lines = append(lines, blank)
-		}
-		lines = append(lines, status...)
+		lines := append([]string{}, top...)
 		lines = append(lines, t.rule(w))
 		lines = append(lines, body...)
-		lines = append(lines, blank)
 		lines = append(lines, t.composerLinesCapped(0)...)
-		lines = append(lines, t.rule(w))
 		lines = append(lines, bar)
 		return lines, t.composerPrompt(belowComposer + inputRows - 1)
 	}
 
-	// 1. The wordmark is branding: it goes before anything the user came for.
-	headerHeight := 0
-	if len(header) > 0 {
-		headerHeight = len(header) + 1 // plus the blank row beneath it
-	}
-	if permanentRows+headerHeight+popup+minChatLines > h {
-		header = nil
-		headerHeight = 0
-	}
-
-	// 2. The popup takes what is left after the permanent rows, the wordmark and a conversation
-	// floor. It GROWS as the user types, so it is the part that can push the frame past the
-	// bottom of the window if it is not capped here. It always keeps at least one row: a popup
-	// that shows the command it is offering is worth a row, and the rest is a keystroke away.
+	// 1. The popup takes what is left after the permanent rows and a conversation floor. It
+	// GROWS as the user types, so it is the part that can push the frame past the bottom of the
+	// window if it is not capped here. It always keeps at least one row: a popup that shows the
+	// command it is offering is worth a row, and the rest is a keystroke away.
 	//
 	// The cap is applied to the popup's OWN row count, which is what it will actually draw —
 	// completionLinesCapped is given this number and returns exactly that many rows, trailing
 	// hint included. Capping against a reservation instead of against the drawn rows is how the
 	// frame came out one row too tall.
 	if popup > 0 {
-		if spare := h - permanentRows - headerHeight - minChatLines; popup > spare {
+		if spare := h - permanentRows - minChatLines; popup > spare {
 			popup = spare
 			if popup < 1 {
 				popup = 1
@@ -210,19 +170,13 @@ func (t *TUI) layout(w, h int) ([]string, string) {
 		}
 	}
 
-	// 3. The conversation takes the remainder, and the total is exactly h — as long as the
-	// terminal can hold the permanent rows and the popup it asked for.
-	//
-	// `room` is a RESIDUE, computed once and never re-decided: every earlier attempt that
-	// clamped it separately (to a conversation floor) is what made the parts sum to more than
-	// the window. When the terminal is genuinely too small the sum is allowed to exceed it, and
-	// the size gate reports that case before this point is ever reached.
-	// The residue is always positive here: the gate above refused anything shorter than
-	// minHeight, and minHeight already includes the permanent rows and a conversation floor, so
-	// subtracting the popup can only bring it down to that floor. A guard would be unreachable.
-	room := h - permanentRows - headerHeight - popup
+	// 2. The conversation takes the remainder, and the total is exactly h. `room` is a RESIDUE,
+	// computed once and never re-decided: the size gate above refused anything shorter than
+	// minHeight, which already includes the permanent rows and a conversation floor, so
+	// subtracting the capped popup can only bring it down to that floor.
+	room := h - permanentRows - popup
 
-	// 4. Anchor the window to the newest line unless the user lifted it. The offset is applied
+	// 3. Anchor the window to the newest line unless the user lifted it. The offset is applied
 	// before trimming, so paging walks one row at a time instead of jumping by whatever the
 	// current window happens to hold.
 	if t.scroll > 0 {
@@ -233,33 +187,31 @@ func (t *TUI) layout(w, h int) ([]string, string) {
 		body = body[:end]
 	}
 
-	// 5. Trim to the room, then PAD back up to it. The padding is what puts the composer on the
+	// 4. Trim to the room, then PAD back up to it. The padding is what puts the composer on the
 	// last rows of the window instead of letting it float in the middle of a short conversation:
 	// the input belongs at the foot of the screen.
+	//
+	// A conversation loses its OLDEST rows, because the newest are what the user is following.
+	// The welcome screen is the opposite: it is read from the top, and losing its greeting to
+	// keep its last tip would be cutting the wrong end.
 	if len(body) > room {
-		hidden := len(body) - room + 1
-		body = append([]string{t.plainLine(t.muted(fmt.Sprintf("... %d earlier lines", hidden)))},
-			body[len(body)-room+1:]...)
+		if len(t.messages) == 0 {
+			body = body[:room]
+		} else {
+			hidden := len(body) - room + 1
+			body = append([]string{t.plainLine(t.muted(fmt.Sprintf("... %d earlier lines", hidden)))},
+				body[len(body)-room+1:]...)
+		}
 	}
 	for len(body) < room {
 		body = append(body, "")
 	}
 
-	lines := make([]string, 0, permanentRows+headerHeight+popup+len(body))
-	lines = append(lines, header...)
-	if len(header) > 0 {
-		lines = append(lines, blank)
-	}
-	lines = append(lines, status...)
+	lines := make([]string, 0, permanentRows+popup+len(body))
+	lines = append(lines, top...)
 	lines = append(lines, t.rule(w))
 	lines = append(lines, body...)
-	// The rule above the conversation is now an empty row: the divider reads as the bottom of
-	// the chat and lifts the whole input block visually against the cursor at its top, so the
-	// row before the input box is left blank and the rule under the input remains as the only
-	// horizontal line that frames the composer.
-	lines = append(lines, blank)
 	lines = append(lines, t.composerLinesCapped(popup)...)
-	lines = append(lines, t.rule(w))
 	lines = append(lines, bar)
 
 	// The cursor is walked back up from the end of the frame to the row of the input field
@@ -267,19 +219,15 @@ func (t *TUI) layout(w, h int) ([]string, string) {
 	// caller only has to count the rows BELOW the cursor's row: everything drawn under the input
 	// and the box's own rows that come after it.
 	//
-	// The popup is NOT one of them. It is appended to the composer ABOVE the input box
-	// (composerLinesCapped draws it first), so from the last row of the frame the window is
-	// reached by walking up belowComposer + inputRows - 1 rows and no further — the popup's rows
-	// are beyond it. Counting them in put the cursor popup rows too high: with "/" typed the
-	// popup is 14 rows tall here and the cursor was left at row 12 of a 30-row screen while the
-	// user was typing on row 26. That is the same report as the zero walk-up below — "the cursor
-	// is not where I am typing" — and it is the same arithmetic error: rows on the wrong side.
+	// The popup is NOT one of them. It is drawn ABOVE the input box (composerLinesCapped draws
+	// it first), so counting its rows would put the cursor that many rows too high — on a line of
+	// the popup instead of in the box the user is typing into.
 	rowsBelow := belowComposer + inputRows - 1
 	return lines, t.composerPrompt(rowsBelow)
 }
 
-// rowsBelowComposer is how many rows sit under the input box: the rule beneath it and the status
-// bar. It is a package constant rather than a local of layout because the cursor arithmetic needs
+// rowsBelowComposer is how many rows sit under the input field: the box's bottom border and the
+// footer. It is a package constant rather than a local of layout because the cursor arithmetic needs
 // the same number, and two definitions of "how tall is the composer" would drift apart.
 const rowsBelowComposer = 2
 
@@ -523,36 +471,6 @@ func (t *TUI) frameCols() int {
 	return w
 }
 
-// headerLines is the wordmark. No ASCII art: the name in bold text, centred,
-// with the version underneath. The identity is carried by the name, not by
-// decorative blocks that waste vertical space on small terminals.
-func (t *TUI) headerLines(w int) []string {
-	mark := "motita"
-	if t.NoColor {
-		mark = stripANSI(t.brand(mark))
-	} else {
-		mark = t.brand(mark)
-	}
-	return []string{"", t.padCenter(mark, w), t.versionLine(w)}
-}
-
-// versionLine names the running build under the wordmark, or draws an empty row when there is
-// nothing to name or no room to name it.
-//
-// It returns an EMPTY row rather than a shortened version, for the same reason the rest of the
-// interface refuses to cut a word: "v0.5.0-70-g9e7" is not a version anybody can look up, and a
-// version nobody can look up answers the question it is drawn for no better than a blank.
-func (t *TUI) versionLine(w int) string {
-	v := strings.TrimSpace(t.Version)
-	if v == "" {
-		return ""
-	}
-	if !t.fits("motita "+v, w-2*leftMargin) {
-		return ""
-	}
-	return t.padCenter(t.muted(v), w)
-}
-
 // fits reports whether a decorated string is narrow enough for the given number
 // of columns.
 func (t *TUI) fits(s string, cols int) bool { return visibleLen(s) <= cols }
@@ -566,10 +484,11 @@ func (t *TUI) fits(s string, cols int) bool { return visibleLen(s) <= cols }
 //
 // The glyphs stay inside the CP437 repertoire for the same reason as the rest of
 // the interface: a physical console with a VGA font has to render them.
+//
+// It shows READINESS only. A running turn is shown where the work is - on the answer being
+// written and on the input box - and a third spinner in the corner would be the same fact drawn
+// three times.
 func (t *TUI) stateGlyph() string {
-	if t.busy {
-		return t.color(colWarning, 0, spinner[t.spin%len(spinner)])
-	}
 	if llmCfg := t.Runner.Config().LLM; llmCfg.APIKey == "" && config.LLMNeedsKey(llmCfg) {
 		return t.color(colError, 0, glyphMissing)
 	}
@@ -619,33 +538,103 @@ func (t *TUI) noMatches(inner int) []string {
 	return append(lines, t.cell("", inner))
 }
 
-// emptyState is a designed first screen, not a blank one: it says what the view
-// is for and what to do next.
+// emptyState is a designed first screen, not a blank one: what the view is for, what to type,
+// how the two modes differ, the handful of commands a newcomer needs, and - when the setup is not
+// usable yet - exactly how to fix it.
+//
+// Each block is short and wrapped to the width, so the screen reads the same on a netbook console
+// as on a wide terminal. On a short terminal the layout keeps its TOP, which is why the most
+// useful lines come first.
 func (t *TUI) emptyState(inner int) []string {
-	var msg string
-	switch t.screen {
-	case ScreenPlan:
-		msg = "Ask a question and press Enter.\n" +
-			"Plan mode only reads: it lists and reads files and runs read-only\n" +
-			"commands, and it says what it would do before anything is executed."
-	case ScreenModels:
-		msg = "Press Enter to ask the provider which models it publishes, and to check\n" +
-			"that the endpoint and the key in this configuration actually work."
-	case ScreenConfig:
-		msg = "Press Enter to walk through the first-run wizard: provider, model and\n" +
-			"the check the anchor runs. It writes a working configuration file."
-	default:
-		msg = "Describe a task and press Enter.\n" +
-			"The agent runs it in the sandbox, checks the result and reports back\n" +
-			"what it actually did."
-	}
+	width := inner - leftMargin
 	lines := []string{t.cell("", inner)}
-	for _, l := range strings.Split(msg, "\n") {
-		for _, wrapped := range wordWrap(l, inner-leftMargin) {
-			lines = append(lines, t.cell(t.muted(wrapped), inner))
+	text := func(s string, col int) {
+		for _, l := range wordWrap(s, width) {
+			lines = append(lines, t.cell(t.color(col, 0, l), inner))
 		}
 	}
+	gap := func() { lines = append(lines, t.cell("", inner)) }
+	// pairs draws a short key/description table, with the keys in the accent colour and their
+	// descriptions aligned. A row that does not fit drops its description rather than wrapping
+	// in the middle of the table.
+	pairs := func(rows [][2]string) {
+		kw := 0
+		for _, r := range rows {
+			if n := visibleLen(r[0]); n > kw {
+				kw = n
+			}
+		}
+		for _, r := range rows {
+			row := "  " + t.color(colAccent, 0, r[0]) + strings.Repeat(" ", kw-visibleLen(r[0])) + "  " + t.muted(r[1])
+			if !t.fits(row, width) {
+				row = "  " + t.color(colAccent, 0, r[0])
+			}
+			lines = append(lines, t.cell(row, inner))
+		}
+	}
+
+	// examples draws what the user could type, after the mark their messages carry once sent.
+	examples := func(ex ...string) {
+		for _, e := range ex {
+			for _, l := range wordWrap(e, width-4) {
+				lines = append(lines, t.cell("  "+t.color(colAccent, 0, glyphUser)+" "+l, inner))
+			}
+		}
+	}
+
+	if t.Notice != "" {
+		text(t.Notice, colSuccess)
+		gap()
+	}
+
+	switch t.screen {
+	case ScreenPlan:
+		text("Plan mode: ask anything about your project.", colBase)
+		text("motita reads files and runs read-only commands to answer. Nothing is changed.", colMuted)
+		gap()
+		text("Try something like", colMuted)
+		examples("how is the configuration loaded?", "what would it take to add a --json flag?")
+		gap()
+		pairs([][2]string{{"Tab", "back to Task mode, to make changes"}})
+	case ScreenModels:
+		text("Press Enter to ask the provider which models it offers.", colBase)
+		text("It also checks that the endpoint and the key in your setup really work.", colMuted)
+		gap()
+		pairs([][2]string{{"/models <id>", "switch to that model for this session"}})
+	case ScreenConfig:
+		text("Press Enter to run the setup again: provider, sign-in, model and check.", colBase)
+		text("Your current settings are kept as a backup, and the new ones apply right away.", colMuted)
+	default:
+		text("What should motita do? Describe the task and press Enter.", colBase)
+		text("It makes the change, then runs your check to prove it worked before calling it done.", colMuted)
+		gap()
+		text("Try something like", colMuted)
+		examples("add a --verbose flag and a test for it", "fix the failing test in the parser")
+		gap()
+		pairs([][2]string{
+			{"Tab", "Plan mode: ask questions, nothing is changed"},
+			{"/models", "choose another model"},
+			{"/config", "change provider, key or check"},
+			{"?", "every command and key"},
+		})
+	}
+
+	// A setup that cannot answer is said HERE, on the screen the user is looking at, with the
+	// fix. A red dot in a corner is not an explanation.
+	if llmCfg := t.Runner.Config().LLM; llmCfg.APIKey == "" && config.LLMNeedsKey(llmCfg) {
+		gap()
+		text(glyphMissing+" No API key for "+providerName(llmCfg.Provider)+" yet: type /config to add one,", colWarning)
+		text("  or export "+config.ProviderKeyVariable(llmCfg.Provider)+" before starting motita.", colWarning)
+	}
 	return append(lines, t.cell("", inner))
+}
+
+// providerName is the provider as the top bar shows it, with the default spelled out.
+func providerName(p string) string {
+	if p == "" {
+		return "openai"
+	}
+	return p
 }
 
 // messageLines renders one turn: a header that identifies the speaker, then the
@@ -671,6 +660,13 @@ func (t *TUI) messageLines(m Message, inner int) []string {
 		if m.Pending {
 			head += "  " + t.color(colWarning, 0, spinner[t.spin%len(spinner)]+" working")
 			body = colWarning
+		}
+		if m.Preformatted {
+			lines := []string{t.cell(head, inner)}
+			for _, l := range strings.Split(m.Text, "\n") {
+				lines = append(lines, t.cell(t.color(body, 0, clipLine(l, inner-leftMargin)), inner))
+			}
+			return lines
 		}
 		return append([]string{t.cell(head, inner)}, t.railLines(m.Text, inner, body, colMuted)...)
 
@@ -824,42 +820,6 @@ func (t *TUI) cell(s string, available int) string {
 	return strings.Repeat(" ", leftMargin) + s + strings.Repeat(" ", pad)
 }
 
-// padCenter centres a decorated string in the given number of columns.
-// padCenter centres a decorated string in the drawing area.
-//
-// It centres inside the SAME box everything else is drawn in — the frame minus the left margin
-// and minus the column kept free at the end — not against the raw terminal width. Centring on
-// the raw width put the banner half a column off from the panels beneath it, which is visible
-// on an odd-width terminal and is what makes a centred mark look "not quite centred".
-func (t *TUI) padCenter(s string, w int) string {
-	// No floor on room: the size gate refuses anything narrower than minWidth, and minWidth is
-	// wider than the margin plus the reserved column, so this is always positive.
-	room := w - leftMargin - 1
-	pad := room - visibleLen(s)
-	if pad <= 0 {
-		return strings.Repeat(" ", leftMargin) + s
-	}
-	// Both halves are rounded down, so the extra column stays on the right where it does not
-	// shift the mark off the centre of the content.
-	return strings.Repeat(" ", leftMargin+pad/2) + s
-}
-
-// centerPlain centres an undecorated string in the drawing area, for the status line under the
-// banner. It pads BOTH sides so the result spans the full width, which keeps a row that is only
-// sometimes wider from jumping around. See padCenter for why the box is the frame's, not the
-// terminal's.
-func (t *TUI) centerPlain(s string, w int) string {
-	// Same reasoning as padCenter: the gate makes this positive.
-	room := w - leftMargin - 1
-	n := visibleLen(s)
-	if n >= room {
-		return strings.Repeat(" ", leftMargin) + s
-	}
-	pad := room - n
-	left := pad / 2
-	return strings.Repeat(" ", leftMargin+left) + s
-}
-
 // visibleMessages keeps the conversation bounded in memory.
 func (t *TUI) visibleMessages() []Message {
 	if len(t.messages) <= maxScrollback {
@@ -875,14 +835,29 @@ func (t *TUI) muted(s string) string { return t.color(colMuted, 0, s) }
 func (t *TUI) brand(s string) string { return t.color(colBrand, 0, s) }
 
 // color returns an ANSI-coloured string. fg/bg use the 16-colour palette.
+//
+// Colours 8 to 15 are the BRIGHT half of the palette, and they have codes of their own (90-97 and
+// 100-107). Adding 8 to the base code, which is what this used to do for the muted colour, wrote
+// "ESC[38m" - not a colour at all but the introducer of an extended one, missing its parameters.
+// A terminal is free to ignore it or to read the next sequence as its arguments, which is how the
+// hints, the rules and every secondary line came out in the default colour, or not at all.
 func (t *TUI) color(fg, bg int, s string) string {
 	if t.NoColor {
 		return s
 	}
 	if bg == 0 {
-		return fmt.Sprintf("\x1b[%dm%s\x1b[0m", 30+fg, s)
+		return fmt.Sprintf("\x1b[%dm%s\x1b[0m", paletteCode(30, fg), s)
 	}
-	return fmt.Sprintf("\x1b[%d;%dm%s\x1b[0m", 30+fg, 40+bg, s)
+	return fmt.Sprintf("\x1b[%d;%dm%s\x1b[0m", paletteCode(30, fg), paletteCode(40, bg), s)
+}
+
+// paletteCode is the SGR code of a palette colour: base+c for the first eight, and base+60+(c-8) for the
+// bright ones (30 -> 90 for a foreground, 40 -> 100 for a background).
+func paletteCode(base, c int) int {
+	if c >= 8 {
+		return base + 60 + c - 8
+	}
+	return base + c
 }
 
 // wordWrap breaks text into lines of at most `width` COLUMNS.
@@ -913,6 +888,15 @@ func wordWrap(s string, width int) []string {
 	}
 	var lines []string
 	for _, para := range strings.Split(s, "\n") {
+		// A blank line between paragraphs is kept, once: it is what separates the steps of an
+		// answer, and dropping it ran a list and the sentence after it together. Runs of blank
+		// lines are collapsed, and the ones at either end are trimmed below.
+		if strings.TrimSpace(para) == "" {
+			if len(lines) > 0 && lines[len(lines)-1] != "" {
+				lines = append(lines, "")
+			}
+			continue
+		}
 		var cur strings.Builder
 		curWidth := 0
 
@@ -961,6 +945,9 @@ func wordWrap(s string, width int) []string {
 			}
 		}
 		flush()
+	}
+	if n := len(lines); n > 0 && lines[n-1] == "" {
+		lines = lines[:n-1]
 	}
 	if len(lines) == 0 {
 		lines = append(lines, "")
@@ -1150,18 +1137,14 @@ func (t *TUI) bodyWidth() int {
 	return w - 2*leftMargin
 }
 
-// statusLines is the line under the wordmark: which model is answering, and how hard it is
-// thinking. Nothing about keys or readiness — a user who reached a chat has a working key,
-// and reporting it on every repaint is noise that the eye learns to skip past.
+// statusLines is the top bar: the name of the program on the left, and on the right whether the
+// setup can answer, which provider and model it answers with, and how hard the model thinks.
 //
-// The values are brighter than their labels, so the model stands out and the words around
-// it recede. A narrow terminal drops from the tail: the model is never the thing dropped.
+// The right side is shed from its tail on a narrow terminal - the reasoning level, then the
+// filter - and the model is never the thing dropped: it is what the bar is for. When the setup has
+// no key, the bar says so in words, because a coloured dot alone is not an instruction.
 func (t *TUI) statusLines(w int) []string {
 	cfg := t.Runner.Config()
-	provider := cfg.LLM.Provider
-	if provider == "" {
-		provider = "openai"
-	}
 	model := cfg.LLM.Model
 	if model == "" {
 		model = "unknown"
@@ -1170,61 +1153,67 @@ func (t *TUI) statusLines(w int) []string {
 	if cfg.LLM.Reasoning.Enabled {
 		reasoning = cfg.LLM.Reasoning.Level
 	}
-	state := t.stateGlyph()
 
-	parts := []string{
-		state + " " + t.color(colBase, 0, provider) + t.muted("/") + t.color(colBase, 0, model),
-		t.muted("reasoning ") + t.color(colBase, 0, reasoning),
+	left := t.brand(glyphAgent + " motita")
+	if v := strings.TrimSpace(t.Version); v != "" {
+		left += "  " + t.muted(v)
 	}
+
+	parts := []string{t.stateGlyph() + " " + t.color(colBase, 0, providerName(cfg.LLM.Provider)) + t.muted(" "+glyphMid+" ") + t.color(colBase, 0, model)}
+	// A missing key is said in words, beside the model it is missing for, and it is kept longer
+	// than the reasoning level when the line is shed: it is the reason nothing will work.
+	if cfg.LLM.APIKey == "" && config.LLMNeedsKey(cfg.LLM) {
+		parts = append(parts, t.color(colError, 0, "no API key")+t.muted(" (/config)"))
+	}
+	parts = append(parts, t.muted("reasoning ")+t.color(colBase, 0, reasoning))
 	if t.query != "" || t.searching {
 		parts = append(parts, t.color(colAccent, 0, "filter "+strconv.Quote(t.query)))
 	}
-	// Centred under the wordmark, in the same box: the identity line is part of the header, so it
-	// belongs on the mark's axis rather than against the left edge.
-	//
-	// The shedding stays: on a narrow terminal the parts are dropped from the tail until what is
-	// left fits. The provider and the model are never the thing dropped — they are what the line
-	// is for.
-	line := strings.Join(parts, t.muted("   "))
-	for !t.fits(line, w-2*leftMargin-1) && len(parts) > 1 {
+
+	room := w - leftMargin - 1
+	right := strings.Join(parts, t.muted("  "+glyphMid+"  "))
+	for visibleLen(left)+2+visibleLen(right) > room && len(parts) > 1 {
 		parts = parts[:len(parts)-1]
-		line = strings.Join(parts, t.muted("   "))
+		right = strings.Join(parts, t.muted("  "+glyphMid+"  "))
 	}
-	return []string{t.centerPlain(line, w)}
+	// Too narrow for the name AND the model: the model wins, it is the line's whole purpose.
+	if visibleLen(left)+2+visibleLen(right) > room {
+		return []string{t.plainLine(right)}
+	}
+	gap := room - visibleLen(left) - visibleLen(right)
+	return []string{t.plainLine(left + strings.Repeat(" ", gap) + right)}
 }
 
-// bottomBar is the last line: where you are on the left, what you can do and how much
-// context is gone on the right.
+// bottomBar is the footer: the keys that work RIGHT NOW on the left, and how much of the model's
+// context is in use on the right.
 //
-// The context figure is a percentage of the model's window with the token count beside it,
-// because the percentage is what tells a user whether they are about to lose the earlier
-// conversation and the count is what makes it trustworthy.
+// The hints follow what the user is doing - typing a command, reading back through history, waiting
+// for a run, searching - because a list of every key is a manual, and a list of the three that work
+// at this moment is an instruction.
 func (t *TUI) bottomBar(w int) string {
-	left := t.color(colAccent, 0, t.screen.String())
-
+	left := t.keyHints()
 	right := t.muted(t.contextLabel())
-	if keys := t.keyHints(); keys != "" {
-		right = keys + t.muted("   ") + right
-	}
 	if t.scroll > 0 {
-		right = t.color(colWarning, 0, glyphDot+" "+strconv.Itoa(t.scroll)+" back") + t.muted("   ") + right
+		left = t.color(colWarning, 0, glyphDot+" "+strconv.Itoa(t.scroll)+" lines up") + t.muted("  "+glyphMid+"  ") + left
 	}
 
 	// The available columns are the frame minus the ONE margin plainLine will add: the right
-	// edge is the last usable column, and nothing is reserved twice. Subtracting the margin here
-	// as well as in plainLine is what left the bar one column short of the rules above it.
+	// edge is the last usable column, and nothing is reserved twice.
 	room := w - leftMargin - 1
 
+	// Hints are dropped from the END until the line fits: the first ones are the most important.
+	hints := t.hintList()
+	for visibleLen(left)+1+visibleLen(right) > room && len(hints) > 1 {
+		hints = hints[:len(hints)-1]
+		left = t.formatHints(hints)
+		if t.scroll > 0 {
+			left = t.color(colWarning, 0, glyphDot+" "+strconv.Itoa(t.scroll)+" lines up") + t.muted("  "+glyphMid+"  ") + left
+		}
+	}
 	gap := room - visibleLen(left) - visibleLen(right)
 	if gap < 1 {
-		// Too narrow for both ends: the mode and the context are what must survive, so the
-		// key hints are what goes.
-		only := t.muted(t.contextLabel())
-		gap = room - visibleLen(left) - visibleLen(only)
-		if gap < 1 {
-			return t.plainLine(left)
-		}
-		return t.plainLine(left + strings.Repeat(" ", gap) + only)
+		// Too narrow for both: the keys are what the user acts with, the context is a gauge.
+		return t.plainLine(left)
 	}
 	return t.plainLine(left + strings.Repeat(" ", gap) + right)
 }
@@ -1242,18 +1231,36 @@ func (t *TUI) contextLabel() string {
 	return fmt.Sprintf("context %d%% (%d/%d)", int(s.Used*100+0.5), s.Tokens, s.Window)
 }
 
-// keyHints is the short list of keys for the current context, formatted for the status bar.
-//
-// While the search is open the hints change to the ones that work there, which is the
-// guide's rule about showing only what is relevant right now.
-func (t *TUI) keyHints() string {
-	var hints [][2]string
-	if t.searching {
-		hints = [][2]string{{"Enter", "apply"}, {"Esc", "clear"}}
-	} else {
-		hints = [][2]string{{"^C", "stop"}, {"/", "commands"}, {"?", "help"}}
+// hintList is the keys that work right now, most important first.
+func (t *TUI) hintList() [][2]string {
+	switch {
+	case t.answeringConfirm():
+		return [][2]string{{"y", "run it"}, {"n", "don't"}, {"Enter", "don't"}}
+	case t.asking():
+		return [][2]string{{"1-9", "pick"}, {"←→", "question"}, {"Enter", "send answers"}, {"Esc", "close"}}
+	case t.searching:
+		return [][2]string{{"Enter", "apply"}, {"Esc", "clear"}}
+	case t.completing():
+		return [][2]string{{"↑↓", "choose"}, {"Enter", "run"}, {"→", "complete"}, {"Esc", "close"}}
+	case t.busy:
+		return [][2]string{{"Esc", "stop"}, {"PgUp/PgDn", "scroll"}, {"^C", "quit"}}
+	case t.scroll > 0:
+		return [][2]string{{"PgUp/PgDn", "scroll"}, {"End", "newest"}}
+	case t.query != "":
+		return [][2]string{{"Esc", "show everything"}, {"^F", "search again"}}
 	}
-	var parts []string
+	other := "Plan mode"
+	if t.screen == ScreenPlan {
+		other = "Task mode"
+	}
+	return [][2]string{{"Enter", "send"}, {"Tab", other}, {"/", "commands"}, {"?", "help"}, {"^C", "quit"}}
+}
+
+// keyHints is the hint list formatted for the footer.
+func (t *TUI) keyHints() string { return t.formatHints(t.hintList()) }
+
+func (t *TUI) formatHints(hints [][2]string) string {
+	parts := make([]string, 0, len(hints))
 	for _, h := range hints {
 		parts = append(parts, t.color(colAccent, 0, h[0])+" "+t.muted(h[1]))
 	}
@@ -1303,38 +1310,98 @@ func (t *TUI) composerLinesCapped(popupCap int) []string {
 	return lines
 }
 
-// inputBoxLines draws the input: a divider, then the field with what has been typed, then the
-// blank row that keeps the field from touching the status bar.
+// inputBoxLines draws the input box: a top border that names the mode (what Enter will do), the
+// field with what has been typed, and a bottom border.
 //
-// The label is drawn INSIDE the field, on the first row, so the cursor starts after it.
+// The box is what makes the input findable at a glance: a prompt on a bare line looks like one
+// more line of the conversation. It is a FIXED height, so the frame never changes shape while the
+// user types, and the text is wrapped inside it rather than scrolled.
 func (t *TUI) inputBoxLines() []string {
-	width := t.bodyWidth()
-	rows := inputRows
+	w, _ := t.size()
+	outer := w - leftMargin - 1 // the same span as the rule above the conversation
+	inner := t.inputWidth()
 
-	// The field, wrapping the label plus the draft across the available rows. The width passed to
-	// the wrap is the TEXT area, not the body: the left margin is spent by plainLine below, and
-	// wrapping to the un-margined width would push every row two columns past the frame.
 	text := t.composerLabel() + t.draft
-	wrapped := wrapVisible(text, width)
-	if len(wrapped) > rows {
+	wrapped := wrapVisible(text, inner)
+	if len(wrapped) > inputRows {
 		// Keep the END: the user is typing there, and the tail is what matters.
-		wrapped = wrapped[len(wrapped)-rows:]
+		wrapped = wrapped[len(wrapped)-inputRows:]
 	}
 
-	// EVERY row of the box goes through plainLine, filled and wrapped alike.
-	//
-	// The wrapped rows used to be emitted raw while the padding rows went through plainLine, so
-	// the first rows of the field began at column 0 and the empty ones at column 2. The cursor
-	// then had no column that was correct for both: it was computed with the margin, so it sat two
-	// columns past the text on every row that carried any.
-	out := make([]string, 0, rows)
-	for _, l := range wrapped {
-		out = append(out, t.plainLine(l))
+	side := t.muted(glyphRail)
+	out := make([]string, 0, inputRows+2)
+	out = append(out, t.plainLine(t.boxTop(outer)))
+	for i := 0; i < inputRows; i++ {
+		row := ""
+		if i < len(wrapped) {
+			row = wrapped[i]
+		}
+		out = append(out, t.plainLine(side+" "+row+strings.Repeat(" ", inner-visibleLen(row))+" "+side))
 	}
-	for len(out) < rows {
-		out = append(out, t.plainLine(""))
-	}
+	out = append(out, t.plainLine(t.muted(glyphBotLeft+strings.Repeat(glyphRule, outer-2)+glyphBotRight)))
 	return out
+}
+
+// inputWidth is the number of columns inside the input box: the box spans the drawing area, and
+// its two sides and the space beside each take four.
+func (t *TUI) inputWidth() int {
+	w, _ := t.size()
+	return w - leftMargin - 1 - 4
+}
+
+// boxTop is the input box's top border, with the mode as its title: what the line will be used
+// for, and - while a turn runs - that it is running and how to stop it.
+//
+// The title is shortened from its tail when the terminal is narrow. The mode's NAME is never the
+// part dropped: it is the one word that says what Enter does.
+func (t *TUI) boxTop(outer int) string {
+	name, about := t.modeTitle()
+	head := t.color(colAccent, 0, name)
+	desc := t.muted(" " + glyphMid + " " + about)
+	working := ""
+	if t.busy {
+		working = "  " + t.color(colWarning, 0, spinner[t.spin%len(spinner)]+" working") + t.muted(", Esc stops")
+	}
+	// The longest title that fits wins: everything; the name and the running notice; the name and
+	// what the mode does; the name and a bare "working"; the name alone.
+	candidates := []string{head + desc + working, head + working, head + desc}
+	if t.busy {
+		candidates = append(candidates, head+" "+t.color(colWarning, 0, spinner[t.spin%len(spinner)]+" working"))
+	}
+	// ┌─ title ─...─┐ : the corners, the first rule and the two spaces cost five columns.
+	room := outer - 5
+	title := head
+	for _, c := range candidates {
+		if visibleLen(c) <= room {
+			title = c
+			break
+		}
+	}
+	// No floor on the fill: the narrowest frame the size gate accepts leaves room for the longest
+	// mode name, so the last candidate - the name alone - always fits.
+	fill := room - visibleLen(title)
+	return t.muted(glyphTopLeft+glyphRule+" ") + title + t.muted(" "+strings.Repeat(glyphRule, fill)+glyphTopRight)
+}
+
+// modeTitle is what the input box is for right now, and a few words on what that means.
+func (t *TUI) modeTitle() (string, string) {
+	switch {
+	case t.answeringConfirm():
+		return "Approve", "the agent is waiting for your answer"
+	case t.asking():
+		return "Answer", "type an answer, or pick an option above"
+	case t.searching:
+		return "Search", "filter the conversation"
+	}
+	switch t.screen {
+	case ScreenPlan:
+		return "Plan", "read-only: explores and explains"
+	case ScreenModels:
+		return "Models", "Enter lists them, /models <id> switches"
+	case ScreenConfig:
+		return "Setup", "Enter runs the setup again"
+	}
+	return "Task", "makes changes, then proves them with your check"
 }
 
 // wrapVisible wraps a decorated string to a column width, carrying escape sequences along with
@@ -1426,10 +1493,10 @@ func (t *TUI) composerPrompt(rowsBelow int) string {
 	// at all. The user sees a cursor that is not where they are typing.
 	//
 	// It is derived from the same wrap the box draws with, so the two cannot disagree.
-	width := t.bodyWidth()
-	wrapped := wrapVisible(t.composerLabel()+t.draft, width)
+	wrapped := wrapVisible(t.composerLabel()+t.draft, t.inputWidth())
 	row := len(wrapped) - 1
-	col := leftMargin + visibleLen(wrapped[row])
+	// The text starts after the margin, the box's side and the space beside it.
+	col := leftMargin + 2 + visibleLen(wrapped[row])
 	if row >= inputRows {
 		// The box shows only the last inputRows rows, so the cursor is on the last visible one.
 		row = inputRows - 1
@@ -1596,7 +1663,7 @@ func (t *TUI) popupRows() int {
 	if !t.completing() {
 		return 0
 	}
-	return len(completions(t.draft)) + 1
+	return len(completions(t.draft))
 }
 
 // clearOnExit wipes the screen and parks the cursor at the origin.

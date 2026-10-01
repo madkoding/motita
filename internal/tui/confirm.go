@@ -137,43 +137,55 @@ func (t *TUI) installApprover() {
 // agent is blocked in a background goroutine waiting on the answer, and the keys are being read
 // here. The window closes as soon as the answer is given, so the turn continues immediately.
 func (t *TUI) answerConfirm(ctx context.Context, c *confirmState) {
-	t.confirm = c
-	t.drawFrame()
-	// The window is always closed on the way out, whatever the reason: an open window after the
-	// turn ended would capture the keys of a user who is trying to type their next message.
-	defer func() {
-		t.confirm = nil
-		t.drawFrame()
-	}()
-
-	for {
+	t.openConfirm(c)
+	for t.confirm == c {
 		line, ok := t.readLine(ctx)
 		if !ok {
 			// The input ended or the run was cancelled. The command is NOT approved: the user
 			// did not say yes, and a consequential action must not run on a guess.
-			t.recordDecision(c.req, false)
-			c.reply <- false
+			t.decideConfirm(false)
 			return
 		}
-		switch line {
-		// The Spanish spellings are tolerated as well as the advertised keys: a Spanish typist
-		// reaches for them, and accepting an answer the hint did not name costs nothing.
-		case "s", "S", "y", "Y", "si", "sí", "yes": // spanish-fixture: accepted input, a Spanish typist reaches for these
-			t.recordDecision(c.req, true)
-			c.reply <- true
-			return
-		case "n", "N", "no", keyEsc, keyEnter:
-			// Enter is the CAUTIOUS answer, not the eager one. A stray Enter is far more likely
-			// than a considered one, and the action behind this window is the one the user
-			// should have to say yes to on purpose.
-			t.recordDecision(c.req, false)
-			c.reply <- false
-			return
-		}
+		t.handleConfirmLine(line)
+	}
+}
+
+// openConfirm shows the window for a command the agent is waiting on.
+func (t *TUI) openConfirm(c *confirmState) {
+	t.confirm = c
+	t.drawFrame()
+}
+
+// handleConfirmLine answers the open window with one key. It is the ONE place the keys are read
+// as an answer, whether the window is answered where the turn is awaited (answerConfirm) or by the
+// input loop while the turn runs beside it.
+func (t *TUI) handleConfirmLine(line string) {
+	switch line {
+	// The Spanish spellings are tolerated as well as the advertised keys: a Spanish typist
+	// reaches for them, and accepting an answer the hint did not name costs nothing.
+	case "s", "S", "y", "Y", "si", "sí", "yes": // spanish-fixture: accepted input, a Spanish typist reaches for these
+		t.decideConfirm(true)
+	case "n", "N", "no", keyEsc, keyEnter:
+		// Enter is the CAUTIOUS answer, not the eager one. A stray Enter is far more likely
+		// than a considered one, and the action behind this window is the one the user
+		// should have to say yes to on purpose.
+		t.decideConfirm(false)
+	default:
 		// Anything else is not an answer: it is redrawn away so the window stays on screen and
 		// the keys hint stays visible.
 		t.drawFrame()
 	}
+}
+
+// decideConfirm closes the window with an answer: the decision is recorded in the conversation and
+// handed to the agent waiting for it. The window is closed FIRST, so the frame that records the
+// decision no longer shows it, and the keys go back to the input.
+func (t *TUI) decideConfirm(approved bool) {
+	c := t.confirm
+	t.confirm = nil
+	t.recordDecision(c.req, approved)
+	c.reply <- approved
+	t.drawFrame()
 }
 
 // confirmHintText is the sentence the conversation keeps after a decision, so the transcript

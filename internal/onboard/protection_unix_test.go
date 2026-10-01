@@ -13,7 +13,7 @@ import (
 // it is asserted rather than merely described.
 func TestCredentialsAreReallyPrivateOnThisPlatform(t *testing.T) {
 	dir := t.TempDir()
-	_, res, err := run(context.Background(), t, dir, []string{"openai", "1", "3", "", "sk-a-key"}, Answers{})
+	_, res, err := run(context.Background(), t, dir, []string{"openai", "", "sk-a-key", "1", "3", ""}, Answers{})
 	if err != nil {
 		t.Fatalf("Run: %v", err)
 	}

@@ -220,6 +220,9 @@ Environment variables: MOTITA_* (see README.md; also accepts OPENAI_API_KEY).
 
 // flags parsed out of Args.
 type flags struct {
+	// notice is what the interface says first, when something happened before it opened: the
+	// first-run setup that just finished, or was cancelled. It is not a command-line flag.
+	notice         string
 	configPath     string
 	task           string
 	taskFile       string
@@ -295,7 +298,8 @@ func Run(op Options) int {
 	}
 
 	if fl.initConfig {
-		return op.initConfig(fl)
+		code, _ := op.initConfig(fl)
+		return code
 	}
 
 	// A subcommand is dispatched here, before the main path, because it pays for neither the
@@ -325,7 +329,9 @@ func (op *Options) complete() {
 	}
 	if op.RunOnboard == nil {
 		op.RunOnboard = func(ctx context.Context, in io.Reader, out io.Writer, path string, preset onboard.Answers) (onboard.Result, error) {
-			return onboard.Run(ctx, in, out, path, preset, time.Now())
+			// The menus follow the arrow keys when the answers come from a terminal; from a pipe
+			// they are read as lines, so a script can still answer them.
+			return onboard.RunWithKeys(ctx, in, out, path, preset, time.Now(), tui.KeyModeFor(in))
 		}
 	}
 	if op.BaseCtx == nil {
@@ -601,7 +607,7 @@ func parse(args []string) (flags, error) {
 // initConfig runs the first-run wizard. The default destination is
 // ./motita.yaml next to wherever the agent is being set up, which is what the
 // summary then tells the user to pass with -config.
-func (op Options) initConfig(fl flags) int {
+func (op Options) initConfig(fl flags) (int, bool) {
 	path := fl.configPath
 	if path == "" {
 		// The wizard's default is the motita home, so a first run lands where the program
@@ -621,10 +627,10 @@ func (op Options) initConfig(fl flags) int {
 	if err != nil {
 		if errors.Is(err, onboard.ErrCancelled) {
 			fmt.Fprintf(op.Out, "\nCancelled: nothing was written.\n")
-			return Success
+			return Success, false
 		}
 		fmt.Fprintf(op.Err, "❌ %v\n", err)
-		return ConfigError
+		return ConfigError, false
 	}
 
 	// Prove right away that the file works: if the wizard wrote something the
@@ -632,10 +638,10 @@ func (op Options) initConfig(fl flags) int {
 	cfg, err := config.LoadWithoutKey(res.ConfigPath)
 	if err != nil {
 		fmt.Fprintf(op.Err, "❌ the generated configuration does not load: %v\n", err)
-		return ConfigError
+		return ConfigError, false
 	}
 	fmt.Fprintf(op.Out, "✅ the configuration loads: %s\n", DescribeConfig(cfg))
-	return Success
+	return Success, true
 }
 
 // resolvedConfigPath answers WHICH configuration file an invocation reads, and the empty string
@@ -758,9 +764,15 @@ func (op Options) run(fl flags) int {
 	// (-task, -p, -version) are excluded: they do not need a provider, and
 	// launching a wizard from a script would hang it.
 	if op.needsOnboarding(fl) {
-		code := op.initConfig(fl)
+		code, written := op.initConfig(fl)
 		if code != Success {
 			return code
+		}
+		// The interface clears the screen when it opens, and the wizard's summary goes with it:
+		// the first thing it shows is therefore what just happened, in one line.
+		fl.notice = "Setup complete. Describe your first task below, or press Tab to ask questions first."
+		if !written {
+			fl.notice = "The setup was cancelled, so nothing is configured yet. Type /config whenever you are ready."
 		}
 		// The wizard wrote the file, so now it is there to be loaded. Continue
 		// with the normal path.
@@ -1191,6 +1203,7 @@ func (op Options) runTUI(ctx context.Context, fl flags, cfg config.Config, engin
 	ui.Out = op.Out
 	ui.Err = op.Err
 	ui.NoColor = noColour(os.Getenv, op.Out)
+	ui.Notice = fl.notice
 
 	// The interface CONNECTS to a gateway rather than assuming it is the only one.
 	//
@@ -1215,26 +1228,16 @@ func (op Options) runTUI(ctx context.Context, fl flags, cfg config.Config, engin
 	ui.Version = version
 
 	// The wizard runs HERE, in the terminal this process was started from: it reads lines from
-	// stdin, so it cannot travel over a socket. That is why it is handed to the interface as a
-	// WRAPPER rather than left to the client: the client speaks to a gateway that may be on another
-	// machine, and a wizard answered over there would be configuring the wrong host.
-	ui.Runner = localWizard{Runner: client, runConfig: runner.RunConfig}
+	// stdin, so it cannot travel over a socket, and a wizard answered on the gateway's host would
+	// configure the wrong machine. It is handed to the interface as its Setup, and the client is
+	// handed over UNWRAPPED: a wrapper exposes only the methods it declares, and the one that used
+	// to sit here hid every optional capability of the client - stopping a run on the gateway,
+	// listing and switching sessions, the agent's questions - so /sessions answered "not attached
+	// to a gateway" from inside one.
+	ui.Runner = client
+	ui.Setup = runner.RunConfig
 	return ui.Run(ctx)
 }
-
-// localWizard hands the interface THIS process's first-run wizard, whatever client it is speaking
-// through.
-//
-// It exists because the wizard is the one thing that cannot be remote: it reads from the terminal in
-// front of the user and writes the configuration of the machine they are sitting at. A client of a
-// gateway on another host has no wizard of its own - and should not, because running one over there
-// would set up the wrong machine.
-type localWizard struct {
-	tui.Runner
-	runConfig func(context.Context) error
-}
-
-func (l localWizard) RunConfig(ctx context.Context) error { return l.runConfig(ctx) }
 
 // attachGateway resolves WHICH gateway this process will speak through, and returns the client for
 // it together with the function that releases it.

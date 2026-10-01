@@ -20,6 +20,12 @@ type Provider struct {
 	ID string
 	// Name is what the user sees.
 	Name string
+	// Short is the name in the wizard's menu, where the column beside it says how to connect.
+	Short string
+	// Access says, in a few words, what the user needs to connect: an API key, a login, nothing.
+	// It is what a newcomer actually chooses by - most people know which account they HAVE, not
+	// which protocol a vendor speaks.
+	Access string
 	// DefaultBaseURL is written to llm.base_url.
 	DefaultBaseURL string
 	// EnvKey is the variable the key is read from, for the instructions.
@@ -60,6 +66,8 @@ func Providers() []Provider {
 		{
 			ID:             "openai",
 			Name:           "OpenAI (platform key)",
+			Short:          "OpenAI",
+			Access:         "API key from platform.openai.com",
 			DefaultBaseURL: "https://api.openai.com/v1",
 			EnvKey:         "MOTITA_LLM_API_KEY",
 			ConsoleURL:     "https://platform.openai.com/api-keys",
@@ -76,6 +84,8 @@ func Providers() []Provider {
 			// requests are billed to the user's ChatGPT plan instead of API credit.
 			ID:                 "codex",
 			Name:               "OpenAI Codex (ChatGPT plan or OpenAI key)",
+			Short:              "OpenAI Codex",
+			Access:             "sign in with ChatGPT, or an API key",
 			DefaultBaseURL:     "https://api.openai.com/v1",
 			EnvKey:             "MOTITA_LLM_API_KEY",
 			ConsoleURL:         "https://platform.openai.com/api-keys",
@@ -89,6 +99,8 @@ func Providers() []Provider {
 		{
 			ID:                 "copilot",
 			Name:               "GitHub Copilot (subscription)",
+			Short:              "GitHub Copilot",
+			Access:             "sign in with GitHub (Copilot plan)",
 			DefaultBaseURL:     "https://api.githubcopilot.com",
 			EnvKey:             "GITHUB_COPILOT_TOKEN",
 			ConsoleURL:         "https://github.com/settings/copilot",
@@ -105,6 +117,8 @@ func Providers() []Provider {
 		{
 			ID:             "ollama",
 			Name:           "Ollama (local or Ollama Cloud)",
+			Short:          "Ollama",
+			Access:         "free on your own machine, or Ollama Cloud",
 			DefaultBaseURL: "https://ollama.com/v1",
 			EnvKey:         "OLLAMA_API_KEY",
 			ConsoleURL:     "https://ollama.com/settings/keys",
@@ -129,6 +143,8 @@ func Providers() []Provider {
 			// client, which is the claude-code provider below.
 			ID:             "anthropic",
 			Name:           "Anthropic Claude (Console key)",
+			Short:          "Anthropic Claude",
+			Access:         "API key from console.anthropic.com",
 			DefaultBaseURL: "https://api.anthropic.com",
 			EnvKey:         "ANTHROPIC_API_KEY",
 			ConsoleURL:     "https://console.anthropic.com/settings/keys",
@@ -143,6 +159,8 @@ func Providers() []Provider {
 			// the credentials, `claude auth login` (Anthropic's own OAuth) holds them.
 			ID:         "claude-code",
 			Name:       "Claude subscription (Pro/Max, via Claude Code CLI)",
+			Short:      "Claude Pro/Max",
+			Access:     "your Claude plan, via the Claude Code CLI",
 			ConsoleURL: "https://code.claude.com/docs/en/setup",
 			Login:      "claude auth login",
 			Models: []Model{
@@ -155,6 +173,8 @@ func Providers() []Provider {
 		{
 			ID:                 "gemini",
 			Name:               "Google Gemini (AI Studio key or Google login)",
+			Short:              "Google Gemini",
+			Access:             "sign in with Google, or an AI Studio key",
 			DefaultBaseURL:     "https://generativelanguage.googleapis.com",
 			EnvKey:             "GEMINI_API_KEY",
 			ConsoleURL:         "https://aistudio.google.com/apikey",
@@ -169,6 +189,8 @@ func Providers() []Provider {
 			// A DashScope (Alibaba Model Studio) key, or a qwen.ai account login.
 			ID:                 "qwen",
 			Name:               "Qwen (qwen.ai login or DashScope key)",
+			Short:              "Qwen",
+			Access:             "sign in with qwen.ai, or a DashScope key",
 			DefaultBaseURL:     "https://dashscope-intl.aliyuncs.com/compatible-mode/v1",
 			EnvKey:             "DASHSCOPE_API_KEY",
 			ConsoleURL:         "https://modelstudio.console.alibabacloud.com/?tab=api#/api-key",

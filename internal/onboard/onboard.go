@@ -14,6 +14,7 @@ import (
 
 	"github.com/madkoding/motita/internal/config"
 	"github.com/madkoding/motita/internal/llm"
+	"github.com/madkoding/motita/internal/oauth"
 )
 
 // ErrCancelled means the user stopped the wizard: nothing was written.
@@ -37,18 +38,17 @@ type Answers struct {
 type Result struct {
 	ConfigPath      string
 	CredentialsPath string // empty when no key was given
-	Provider        Provider
-	Model           string
+	// BackupPath is where the configuration the wizard replaced was kept, and empty when there
+	// was none to replace.
+	BackupPath string
+	Provider   Provider
+	Model      string
 	// LoggedIn is true when a login (OAuth, device code) was stored instead of a key.
 	LoggedIn bool
 	// Keyless is true for a provider that takes no key here (a self-hosted Ollama).
 	Keyless bool
 }
 
-// Run interviews the user, writes a working configuration and returns what it
-// did. It reads answers from in and writes the conversation to out, so the whole
-// flow can be tested without a terminal. Nothing is written if the user cancels:
-// the file appears only once every answer is known (see writeFileAtomic).
 // modelLister is the function the wizard uses to fetch models from hosts that
 // publish them. It is a package-level variable so tests can replace it with a
 // stub that does not hit the network.
@@ -60,140 +60,251 @@ func listOllamaModels(ctx context.Context, baseURL, apiKey string) ([]string, er
 }
 
 // isPresetEmpty reports whether the preset has no answers set at all, which is
-// the interactive case where the banner should be shown.
+// the interactive case where the banner and the review are shown.
 func isPresetEmpty(a Answers) bool {
 	return a.Provider == "" && a.Model == "" && a.BaseURL == "" &&
 		a.AnchorCommand == "" && len(a.AnchorArgs) == 0 && a.APIKey == ""
 }
 
+// setup is everything one pass through the wizard decided, before anything is written.
+//
+// It is a value of its own so the review can show it and the user can throw it away: the
+// wizard used to write as it went, and the only way to correct a wrong answer was to finish,
+// read the file and run the whole thing again.
+type setup struct {
+	provider Provider
+	baseURL  string
+	keyless  bool
+	key      string
+	// keptKey records that the key is the one already saved, so the review says so instead of
+	// presenting it as new.
+	keptKey  bool
+	loggedIn bool
+	model    string
+	anchor   anchorChoice
+}
+
+// Run interviews the user, writes a working configuration and returns what it
+// did. It reads answers from in and writes the conversation to out, so the whole
+// flow can be tested without a terminal. Nothing is written if the user cancels:
+// the file appears only once every answer is known and, when the wizard is
+// interactive, once the user has reviewed and accepted them.
+//
+// The questions follow the order a newcomer thinks in: which service, how to reach
+// it (endpoint and sign-in), which model, what proves a task is done, and a review.
+// The sign-in comes BEFORE the model so a provider that publishes its catalogue can
+// be asked for it with the key the user just gave.
 func Run(ctx context.Context, in io.Reader, out io.Writer, configPath string, preset Answers, now time.Time) (Result, error) {
+	return runSetup(ctx, in, out, configPath, preset, now, nil)
+}
+
+func runSetup(ctx context.Context, in io.Reader, out io.Writer, configPath string, preset Answers, now time.Time, keys KeyMode) (Result, error) {
 	r := bufio.NewReader(in)
-	w := &session{in: r, out: out}
+	w := &session{in: r, out: out, configPath: configPath}
 
-	// The banner is shown only when the wizard is interactive (no preset). A
-	// preset means the answers come from a script or a test, and the colour art
-	// would be noise. Answers carries a slice, so the comparison is field by
-	// field rather than with ==.
-	if isPresetEmpty(preset) {
-		printBanner(out)
+	// The keyboard drives the menus only when the terminal can really be switched: it is tried
+	// once here, and every question switches it again for as long as it asks. Between questions
+	// the terminal is as the user left it, so a sign-in flow that reads a pasted URL is untouched.
+	if keys != nil {
+		if restore, ok := keys(); ok {
+			restore()
+			w.keys = keys
+			w.lines = &lineCounter{w: out}
+			w.out = w.lines
+		}
 	}
 
-	provider, err := w.chooseProvider(ctx, preset.Provider)
-	if err != nil {
-		return Result{}, err
+	// The banner and the review are shown only when the wizard is interactive (no preset). A
+	// preset means the answers come from a script or a test, and both would be noise - or, for
+	// the review, a question a script cannot answer.
+	interactive := isPresetEmpty(preset)
+	if interactive {
+		printBanner(w.out, w.lines != nil)
 	}
 
-	// Ollama is either the user's own server (no key) or Ollama Cloud (a key):
-	// the host decides everything that follows, so it is asked first.
-	var baseURL string
-	if strings.EqualFold(provider.ID, "ollama") {
-		baseURL, err = w.chooseOllamaHost(ctx, preset.BaseURL)
+	for {
+		s, err := w.collect(ctx, preset)
 		if err != nil {
 			return Result{}, err
 		}
-	}
-	keyless := config.IsSelfHostedOllama(config.LLM{Provider: provider.ID, BaseURL: baseURL})
-
-	// Providers that expose their own catalogue (Ollama) need the key before we
-	// can ask for the model.
-	key := preset.APIKey
-	if provider.FetchModels && key == "" && !keyless {
-		key, err = w.askAPIKey(ctx, provider)
-		if err != nil {
-			return Result{}, err
+		if interactive {
+			ok, err := w.review(ctx, s)
+			if err != nil {
+				return Result{}, err
+			}
+			if !ok {
+				w.say("")
+				printInfo(w.out, "No problem: let's go through it again. Nothing has been written.")
+				continue
+			}
 		}
+		return w.save(s, now)
+	}
+}
+
+// collect asks every question of one pass, skipping the ones the preset answers.
+func (s *session) collect(ctx context.Context, preset Answers) (setup, error) {
+	var st setup
+	var err error
+	s.connectShown = false
+
+	if st.provider, err = s.chooseProvider(ctx, preset.Provider); err != nil {
+		return setup{}, err
+	}
+	if st.baseURL, err = s.chooseEndpoint(ctx, st.provider, preset.BaseURL); err != nil {
+		return setup{}, err
+	}
+	st.keyless = config.IsSelfHostedOllama(config.LLM{Provider: st.provider.ID, BaseURL: st.baseURL})
+	if err = s.connect(ctx, &st, preset.APIKey); err != nil {
+		return setup{}, err
 	}
 
 	// The host chosen above is where the live catalogue is read from.
 	var listURL string
-	if provider.FetchModels {
-		listURL = baseURL
+	if st.provider.FetchModels {
+		listURL = st.baseURL
 	}
-
-	model, err := w.chooseModel(ctx, provider, preset.Model, listURL, key)
-	if err != nil {
-		return Result{}, err
+	if st.model, err = s.chooseModel(ctx, st.provider, preset.Model, listURL, st.key); err != nil {
+		return setup{}, err
 	}
-
-	anchor, err := w.chooseAnchor(ctx, preset.AnchorCommand, preset.AnchorArgs)
-	if err != nil {
-		return Result{}, err
+	if st.anchor, err = s.chooseAnchor(ctx, preset.AnchorCommand, preset.AnchorArgs); err != nil {
+		return setup{}, err
 	}
+	return st, nil
+}
 
-	if !provider.FetchModels && provider.Login == "" {
-		if provider.AskBaseURL {
-			baseURL, err = w.chooseBaseURL(ctx, provider, preset.BaseURL)
-			if err != nil {
-				return Result{}, err
-			}
-		} else {
-			baseURL = provider.DefaultBaseURL
-			if preset.BaseURL != "" {
-				baseURL = preset.BaseURL
-			}
-		}
-	}
-
-	if key == "" && provider.Login == "" && !keyless && !w.loggedIn {
-		key, err = w.askAPIKey(ctx, provider)
-		if err != nil {
-			return Result{}, err
-		}
-	}
-
-	config := renderConfig(configValues{
-		provider:      provider.ID,
-		model:         model,
-		baseURL:       baseURL,
-		anchorCommand: anchor.command,
-		anchorArgs:    anchor.args,
-		anchorAuto:    anchor.auto,
+// save writes the configuration (and the key, apart from it) and reports what it wrote.
+func (s *session) save(st setup, now time.Time) (Result, error) {
+	content := renderConfig(configValues{
+		provider:      st.provider.ID,
+		model:         st.model,
+		baseURL:       st.baseURL,
+		anchorCommand: st.anchor.command,
+		anchorArgs:    st.anchor.args,
+		anchorAuto:    st.anchor.auto,
 		generated:     now,
 	})
 
-	if err := writeFileAtomicFn(configPath, config); err != nil {
+	res := Result{ConfigPath: s.configPath, Provider: st.provider, Model: st.model, LoggedIn: st.loggedIn, Keyless: st.keyless}
+
+	// The configuration being replaced is kept beside it. Running the wizard again is how a user
+	// changes the model, and a hand-tuned file (a sandbox limit, a schedule) lost to that would be
+	// a punishment for using the tool the way it invites.
+	if old, err := os.ReadFile(s.configPath); err == nil {
+		backup := s.configPath + ".bak"
+		if err := writeFileAtomicFn(backup, old); err != nil {
+			return Result{}, fmt.Errorf("could not keep a copy of the current configuration: %w", err)
+		}
+		res.BackupPath = backup
+	}
+
+	if err := writeFileAtomicFn(s.configPath, content); err != nil {
 		return Result{}, err
 	}
 
-	res := Result{ConfigPath: configPath, Provider: provider, Model: model, LoggedIn: w.loggedIn, Keyless: keyless}
-
-	if key != "" {
+	credPath := config.CredentialsPath(s.configPath)
+	if st.key != "" {
 		// The key goes to its own file with 0600 permissions: the configuration
 		// stays shareable, and the secret is never in it.
-		credPath := credentialsPathFor(configPath)
-		if err := writeFileAtomicFn(credPath, []byte(renderCredentials(provider.EnvKey, key))); err != nil {
+		if err := writeFileAtomicFn(credPath, []byte(renderCredentials(st.provider.EnvKey, st.key))); err != nil {
 			return Result{}, err
 		}
 		res.CredentialsPath = credPath
+	} else if err := removeFile(credPath); err != nil && !os.IsNotExist(err) {
+		// A key saved for the PREVIOUS setup would otherwise be read for this one: the loader
+		// takes the generic variable for whichever provider the file names, and a key sent to
+		// the wrong vendor is a leak. The user was offered to keep it and did not.
+		printWarning(s.out, "The key of the previous setup could not be removed from %s: %v", credPath, err)
 	}
 
-	w.summary(res)
+	printSummary(s.out, res)
 	return res, nil
+}
+
+// removeFile deletes the stale credentials file. A variable so the failure is testable.
+var removeFile = os.Remove
+
+// review shows every answer of the pass and asks whether to save it. It returns false when the
+// user wants to go through the questions again.
+func (s *session) review(ctx context.Context, st setup) (bool, error) {
+	printStep(s.out, stepSave, "Review and save")
+	s.say("")
+	printField(s.out, "Provider", st.provider.Short)
+	if st.baseURL != "" {
+		printField(s.out, "Endpoint", st.baseURL)
+	}
+	printField(s.out, "Sign-in", signInDescription(st))
+	printField(s.out, "Model", st.model)
+	printField(s.out, "Check", st.anchor.describe())
+	file := s.configPath
+	if _, err := os.Stat(s.configPath); err == nil {
+		file += colDim + "  (replaces the current one; a copy is kept as .bak)" + colReset
+	}
+	printField(s.out, "File", file)
+
+	for attempt := 0; attempt < 3; attempt++ {
+		answer, err := s.ask(ctx, "Save this setup? [Y/n]:")
+		if err != nil {
+			return false, err
+		}
+		switch strings.ToLower(answer) {
+		case "", "y", "yes":
+			return true, nil
+		case "n", "no":
+			return false, nil
+		default:
+			s.say("    Answer y to save, or n to change something.")
+		}
+	}
+	return false, fmt.Errorf("no answer to the review after three attempts")
+}
+
+// signInDescription says how the setup reaches the provider, for the review.
+func signInDescription(st setup) string {
+	switch {
+	case st.provider.Login != "":
+		return "your own login (" + st.provider.Login + ")"
+	case st.loggedIn:
+		return "your account (stored login, renewed automatically)"
+	case st.keyless:
+		return "none needed"
+	case st.keptKey:
+		return "API key " + maskKey(st.key) + " (the one already saved)"
+	case st.key != "":
+		return "API key " + maskKey(st.key)
+	default:
+		return colYellow + "no key yet: add it later" + colReset
+	}
 }
 
 // session holds the conversation state.
 type session struct {
-	in  *bufio.Reader
-	out io.Writer
-	// loggedIn records that a direct login was stored, so no key is asked for.
-	loggedIn bool
+	in         *bufio.Reader
+	out        io.Writer
+	configPath string
+	// connectShown records that the "Connect" step's header was written in this pass, so the
+	// endpoint and the sign-in questions share one header instead of each opening a step.
+	connectShown bool
+	// keys switches the terminal to character mode for a question, and lines counts what has been
+	// written so a menu can be redrawn in place. Both are nil when answers are read as lines.
+	keys  KeyMode
+	lines *lineCounter
 }
 
 func (s *session) say(format string, args ...any) {
 	fmt.Fprintf(s.out, format+"\n", args...)
 }
 
-// sayRaw writes a string without a trailing newline, for prompts that read a
-// line from the user.
-func (s *session) sayRaw(format string, args ...any) {
-	fmt.Fprintf(s.out, format, args...)
+// ask reads one answer: a key at a time when the keyboard drives the setup, a line otherwise.
+func (s *session) ask(ctx context.Context, prompt string) (string, error) {
+	return s.question(ctx, prompt, nil, false)
 }
 
-// ask reads one line. EOF and a lone "q" cancel the wizard; so does a cancelled
+// askLine reads one line. EOF and a lone "q" cancel the wizard; so does a cancelled
 // context, which is how Ctrl+C during -init is handled.
-func (s *session) ask(ctx context.Context, prompt string) (string, error) {
+func (s *session) askLine(ctx context.Context, prompt string) (string, error) {
 	s.say("")
-	fmt.Fprintf(s.out, "%s ", prompt)
+	printPrompt(s.out, prompt)
 	line, err := s.readLine(ctx)
 	if err != nil {
 		if errors.Is(err, context.Canceled) {
@@ -232,6 +343,26 @@ type lineResult struct {
 	err  error
 }
 
+// pick reads a choice from a numbered menu of n options: Enter takes the first and a number takes
+// that option. It gives up after three answers it cannot use, saying what it was asking for.
+func (s *session) pick(ctx context.Context, prompt string, m *menu, what string) (int, error) {
+	n := len(m.labels)
+	for attempt := 0; attempt < 3; attempt++ {
+		answer, err := s.choose(ctx, prompt, m)
+		if err != nil {
+			return 0, err
+		}
+		if answer == "" {
+			return 0, nil
+		}
+		if v, err := strconv.Atoi(answer); err == nil && v >= 1 && v <= n {
+			return v - 1, nil
+		}
+		s.say("    Choose a number from 1 to %d.", n)
+	}
+	return 0, fmt.Errorf("no valid %s after three attempts", what)
+}
+
 func (s *session) chooseProvider(ctx context.Context, preset string) (Provider, error) {
 	providers := Providers()
 
@@ -243,15 +374,13 @@ func (s *session) chooseProvider(ctx context.Context, preset string) (Provider, 
 		return p, nil
 	}
 
-	printSection(s.out, "Choose your LLM provider")
-	printCancelHint(s.out)
-	fmt.Fprintln(s.out)
-	for i, p := range providers {
-		printProvider(s.out, i+1, p)
-	}
+	printStep(s.out, stepProvider, "Which AI provider do you want to use?")
+	printInfo(s.out, "Pick the one you already have an account with. You can change it later.")
+	s.say("")
+	m := s.showMenu(providerOptions(providers))
 
 	for attempt := 0; attempt < 3; attempt++ {
-		answer, err := s.ask(ctx, "Provider [1]:")
+		answer, err := s.choose(ctx, "Provider [1]:", m)
 		if err != nil {
 			return Provider{}, err
 		}
@@ -263,25 +392,198 @@ func (s *session) chooseProvider(ctx context.Context, preset string) (Provider, 
 			if n >= 1 && n <= len(providers) {
 				return providers[n-1], nil
 			}
-			s.say("  There is no option %d.", n)
+			s.say("    There is no option %d.", n)
 			continue
 		}
 		if p, ok := Lookup(answer); ok {
 			return p, nil
 		}
-		s.say("  I do not know %q. Use a number, or one of: %s.", answer, Names())
+		s.say("    I do not know %q. Use a number, or one of: %s.", answer, Names())
 	}
 	return Provider{}, fmt.Errorf("no valid provider after three attempts")
 }
 
+// connectHeader opens the "Connect" step once per pass, whichever of its questions comes first.
+func (s *session) connectHeader(p Provider) {
+	if s.connectShown {
+		return
+	}
+	s.connectShown = true
+	printStep(s.out, stepConnect, "Connect to "+p.Short)
+}
+
+// chooseEndpoint decides the API endpoint: asked where the protocol is spoken by many hosts
+// (OpenAI-compatible) or where the server may be the user's own (Ollama), and the provider's own
+// endpoint otherwise.
+func (s *session) chooseEndpoint(ctx context.Context, p Provider, preset string) (string, error) {
+	switch {
+	case preset != "":
+		return strings.TrimRight(preset, "/"), nil
+	case strings.EqualFold(p.ID, "ollama"):
+		// Ollama is either the user's own server (no key) or Ollama Cloud (a key): the host
+		// decides everything that follows, so it is asked first.
+		return s.chooseOllamaHost(ctx, p)
+	case p.Login != "":
+		// A login that names its own endpoint (the claude CLI): there is nothing to configure.
+		return "", nil
+	case p.AskBaseURL:
+		return s.chooseBaseURL(ctx, p)
+	default:
+		return p.DefaultBaseURL, nil
+	}
+}
+
+// connect settles how the setup authenticates: a login of the provider's own tool, nothing (a
+// server of the user's own), a stored login, or a key.
+func (s *session) connect(ctx context.Context, st *setup, presetKey string) error {
+	p := st.provider
+	switch {
+	case presetKey != "":
+		st.key = presetKey
+		return nil
+	case p.Login != "":
+		s.connectHeader(p)
+		printInfo(s.out, "No key is needed: motita uses your own %s login.", p.Short)
+		printInfo(s.out, "If you have not logged in yet, run this after the setup:")
+		printCommand(s.out, p.Login)
+		return nil
+	case st.keyless:
+		printInfo(s.out, "No key is needed for an Ollama server of your own.")
+		return nil
+	}
+	key, loggedIn, kept, err := s.askAPIKey(ctx, p)
+	st.key, st.loggedIn, st.keptKey = key, loggedIn, kept
+	return err
+}
+
+// storedKey is the key the credentials file beside the configuration already holds for this
+// provider, so a user who runs the wizard again to change the model is not asked to paste it
+// again.
+//
+// The generic variable is only offered back to the provider that wrote it (OpenAI and Codex share
+// it, being the same account): it would otherwise offer one vendor's key to another.
+func (s *session) storedKey(p Provider) string {
+	if p.EnvKey == "" {
+		return ""
+	}
+	key := config.StoredCredentials(s.configPath)[p.EnvKey]
+	if key == "" || p.EnvKey != "MOTITA_LLM_API_KEY" {
+		return key
+	}
+	old, err := config.LoadWithoutKey(s.configPath)
+	if err != nil {
+		return ""
+	}
+	switch strings.ToLower(old.LLM.Provider) {
+	case "openai", "codex":
+		return key
+	}
+	return ""
+}
+
+// authOption is one way to sign in that the wizard can offer.
+type authOption struct {
+	label, note string
+	// signIn marks the account login: its failure is something to try again (a closed browser,
+	// an expired code), while a failure of the others is a failure of the terminal itself.
+	signIn bool
+	run    func() (key string, loggedIn, kept bool, err error)
+}
+
+// askAPIKey asks how to authenticate and returns the key (empty for a login), whether a login
+// was stored, and whether the key is the one already saved.
+//
+// The options are built from what is possible right now: keeping a login or a key that is already
+// there comes first, because re-running the wizard to change one thing should not mean signing in
+// again; then the account login, for the providers that have one; then pasting a key.
+func (s *session) askAPIKey(ctx context.Context, p Provider) (string, bool, bool, error) {
+	s.connectHeader(p)
+	var opts []authOption
+	if p.SupportsDirectAuth && oauth.HasCredential(authDir(), p.ID) {
+		opts = append(opts, authOption{label: "Keep your current sign-in", note: "already signed in on this computer",
+			run: func() (string, bool, bool, error) { return "", true, false, nil }})
+	}
+	if stored := s.storedKey(p); stored != "" {
+		opts = append(opts, authOption{label: "Keep the saved API key", note: maskKey(stored),
+			run: func() (string, bool, bool, error) { return stored, false, true, nil }})
+	}
+	if p.SupportsDirectAuth {
+		opts = append(opts, authOption{label: "Sign in with your account", note: "opens a link in your browser", signIn: true,
+			run: func() (string, bool, bool, error) {
+				key, err := directAuthRunner(ctx, s.out, s.in, p)
+				return key, err == nil && key == "", false, err
+			}})
+	}
+	opts = append(opts, authOption{label: "Paste an API key", note: "from " + p.ConsoleURL,
+		run: func() (string, bool, bool, error) {
+			key, err := s.askForAPIKey(ctx, p)
+			return key, false, false, err
+		}})
+
+	// One way in is not a choice: the key is asked for directly.
+	if len(opts) == 1 {
+		return opts[0].run()
+	}
+
+	s.say("")
+	s.say("%sHow do you want to sign in?", indent)
+	labels := make([]string, len(opts))
+	notes := make([]string, len(opts))
+	for i, o := range opts {
+		labels[i], notes[i] = o.label, o.note
+	}
+	m := s.showMenu(labels, notes)
+
+	// A failed sign-in is not the end of the setup: the browser may have been closed, the code
+	// may have expired. The user is told what happened and asked again, with the other ways in
+	// still on the menu.
+	for attempt := 0; attempt < 3; attempt++ {
+		i, err := s.pick(ctx, "Sign-in [1]:", m, "authentication choice")
+		if err != nil {
+			return "", false, false, err
+		}
+		key, loggedIn, kept, err := opts[i].run()
+		if err == nil {
+			return key, loggedIn, kept, nil
+		}
+		if ctx.Err() != nil {
+			return "", false, false, ErrCancelled
+		}
+		if !opts[i].signIn {
+			return "", false, false, err
+		}
+		s.say("")
+		printWarning(s.out, "The sign-in did not finish: %v", err)
+		printInfo(s.out, "Try again, or choose another option.")
+	}
+	return "", false, false, fmt.Errorf("no sign-in after three attempts")
+}
+
+// askForAPIKey is the paste-the-key path.
+func (s *session) askForAPIKey(ctx context.Context, p Provider) (string, error) {
+	s.say("")
+	s.say("%sYour API key. Get one at:", indent)
+	printLink(s.out, p.ConsoleURL)
+	printInfo(s.out, "It is saved apart from the settings, in a private file (%s).", credentialsProtection())
+	return s.question(ctx, "Paste the key, or press Enter to add it later:", nil, true)
+}
+
+// directAuthRunner runs the provider-specific OAuth/device-code flow. It shows the
+// user a URL and a code, waits for them to authorise, and stores the login.
+//
+// It is a package variable so tests can replace it without a network.
+var directAuthRunner = runDirectAuth
+
 // chooseModel offers the models of the chosen provider and accepts any other name
 // typed by hand: the catalogue is a convenience, not a limitation, and models are
 // released faster than any list can follow. For providers that publish their own
-// catalogue (Ollama Cloud), the list is fetched live from /api/tags.
+// catalogue (Ollama), the list is fetched live.
 func (s *session) chooseModel(ctx context.Context, p Provider, preset, listURL, apiKey string) (string, error) {
 	if preset != "" {
 		return preset, nil
 	}
+
+	printStep(s.out, stepModel, "Which model should motita use?")
 
 	models := p.Models
 	if p.FetchModels {
@@ -294,11 +596,12 @@ func (s *session) chooseModel(ctx context.Context, p Provider, preset, listURL, 
 		case err != nil:
 			// Never leave the user staring at an empty menu: fall back to the
 			// known catalogue and say plainly that it is a fallback.
-			s.say("  Could not read the live catalogue from %s: %v", url, err)
-			s.say("  Showing the built-in list instead; any model id can be typed by hand.")
+			printWarning(s.out, "Could not read the models available at %s: %s", url, unreachable(err))
+			printInfo(s.out, "Showing the built-in list instead; any model id can be typed by hand.")
 		case len(fetched) == 0:
-			s.say("  The catalogue at %s is empty; showing the built-in list.", url)
+			printWarning(s.out, "The catalogue at %s is empty; showing the built-in list.", url)
 		default:
+			printInfo(s.out, "These are the models available at %s.", url)
 			models = make([]Model, 0, len(fetched))
 			for _, id := range fetched {
 				models = append(models, Model{ID: id, Label: id})
@@ -307,12 +610,12 @@ func (s *session) chooseModel(ctx context.Context, p Provider, preset, listURL, 
 	}
 
 	s.say("")
-	printSection(s.out, fmt.Sprintf("Choose a model from %s", p.Name))
 	if len(models) == 0 {
 		printInfo(s.out, "no models were offered; type the model id you want")
 	}
-	for i, m := range models {
-		printModel(s.out, i+1, m)
+	var m *menu
+	if len(models) > 0 {
+		m = s.showMenu(modelOptions(models))
 	}
 
 	for attempt := 0; attempt < 3; attempt++ {
@@ -320,13 +623,13 @@ func (s *session) chooseModel(ctx context.Context, p Provider, preset, listURL, 
 		if len(models) == 0 {
 			prompt = "Model id:"
 		}
-		answer, err := s.ask(ctx, prompt)
+		answer, err := s.choose(ctx, prompt, m)
 		if err != nil {
 			return "", err
 		}
 		if answer == "" {
 			if len(models) == 0 {
-				s.say("  You must type a model id.")
+				s.say("    You must type a model id.")
 				continue
 			}
 			return models[0].ID, nil
@@ -335,7 +638,7 @@ func (s *session) chooseModel(ctx context.Context, p Provider, preset, listURL, 
 			if n >= 1 && n <= len(models) {
 				return models[n-1].ID, nil
 			}
-			s.say("  There is no option %d.", n)
+			s.say("    There is no option %d.", n)
 			continue
 		}
 		return answer, nil // a model id typed by hand
@@ -343,26 +646,34 @@ func (s *session) chooseModel(ctx context.Context, p Provider, preset, listURL, 
 	return "", fmt.Errorf("no valid model after three attempts")
 }
 
+// unreachable says why a catalogue could not be read in the words a user acts on. A server that
+// refuses the connection is, nearly always, an Ollama that has not been started yet: the raw
+// "dial tcp 127.0.0.1:11434: connect: connection refused" is accurate and says neither.
+func unreachable(err error) string {
+	if strings.Contains(err.Error(), "connection refused") {
+		return "nothing is answering there yet (for Ollama on this computer, start it with `ollama serve`)"
+	}
+	return err.Error()
+}
+
 // chooseAnchor asks what decides PASS. This is the question that makes the agent
 // what it is: without a validator it refuses to run, so the wizard either takes a
-// real command or records the explicit "always pass" escape.
+// real command or records the explicit "no check yet".
 func (s *session) chooseAnchor(ctx context.Context, preset string, presetArgs []string) (anchorChoice, error) {
 	if preset != "" {
 		return anchorChoice{command: preset, args: presetArgs}, nil
 	}
 
+	printStep(s.out, stepCheck, "How should motita check that a task is really done?")
+	printInfo(s.out, "motita never takes the model's word for it: only this check can declare a task done.")
 	s.say("")
-	printSection(s.out, "What decides that a task is done?")
-	s.say("  %s1.%s Detect it from the project (recommended)", colYellow, colReset)
-	s.say("  %s2.%s A command that must succeed (for example: make test)", colYellow, colReset)
-	s.say("  %s3.%s No check yet, while I try the agent out", colYellow, colReset)
-	s.say("")
-	printInfo(s.out, "The agent never trusts the model: only this check can declare PASS.")
-	printInfo(s.out, "Option 1 reads the gate the project declares (a Makefile's check/test, go.mod, package.json, Cargo.toml), so one configuration works on every project.")
-	printInfo(s.out, "Option 3 configures NO check, so the agent will tell you it could not verify the work rather than calling it done.")
+	m := s.showMenu(
+		[]string{"Detect it from the project", "A command I choose", "No check for now"},
+		[]string{"recommended: make test, go test, npm test, cargo test...", "for example: make test",
+			"just trying it out: tasks are reported as unverified"})
 
 	for attempt := 0; attempt < 3; attempt++ {
-		answer, err := s.ask(ctx, "Check [1]:")
+		answer, err := s.choose(ctx, "Check [1]:", m)
 		if err != nil {
 			return anchorChoice{}, err
 		}
@@ -373,7 +684,7 @@ func (s *session) chooseAnchor(ctx context.Context, preset string, presetArgs []
 			// .motita/anchor.
 			return anchorChoice{auto: true}, nil
 		case "2":
-			cmd, err := s.ask(ctx, "Command to run as the check [make]:")
+			cmd, err := s.ask(ctx, "Command to run as the check [make test]:")
 			if err != nil {
 				return anchorChoice{}, err
 			}
@@ -389,7 +700,7 @@ func (s *session) chooseAnchor(ctx context.Context, preset string, presetArgs []
 			// that made this a defect rather than a preference.
 			return anchorChoice{}, nil
 		default:
-			s.say("  Choose 1, 2 or 3.")
+			s.say("    Choose 1, 2 or 3.")
 		}
 	}
 	return anchorChoice{}, fmt.Errorf("no valid check after three attempts")
@@ -407,90 +718,29 @@ type anchorChoice struct {
 	args    []string
 }
 
-func (s *session) askAPIKey(ctx context.Context, p Provider) (string, error) {
-	s.say("")
-	printSection(s.out, "Authentication")
-
-	// When the provider supports direct auth (OAuth/device flow), offer it as
-	// the first option: the user opens a URL, enters a code, and no key is
-	// pasted. This is the path the user asked for — "connect with a link and a
-	// one-time code" — and it is the better UX for the providers that offer it.
-	if p.SupportsDirectAuth {
-		s.say("  %s1.%s Log in with your account (open a link in the browser)", colYellow, colReset)
-		s.say("  %s2.%s Paste an API key", colYellow, colReset)
-		s.say("")
-		for attempt := 0; attempt < 3; attempt++ {
-			answer, err := s.ask(ctx, "How do you want to authenticate? [1]:")
-			if err != nil {
-				return "", err
-			}
-			switch answer {
-			case "", "1":
-				return s.directAuth(ctx, p)
-			case "2":
-				return s.askForAPIKey(ctx, p)
-			default:
-				s.say("  Choose 1 or 2.")
-			}
-		}
-		return "", fmt.Errorf("no valid authentication choice after three attempts")
+// describe says what the check is, for the review.
+func (a anchorChoice) describe() string {
+	switch {
+	case a.auto:
+		return "detected from each project"
+	case a.command != "":
+		return strings.Join(append([]string{a.command}, a.args...), " ")
+	default:
+		return colYellow + "none yet: tasks are reported as unverified" + colReset
 	}
-
-	return s.askForAPIKey(ctx, p)
-}
-
-// askForAPIKey is the traditional paste-the-key path, used when the provider
-// does not support direct auth or the user chose option 2.
-func (s *session) askForAPIKey(ctx context.Context, p Provider) (string, error) {
-	s.say("")
-	printSection(s.out, "API key")
-	// Name only the variables that really work for this provider: telling an
-	// Ollama user to export OPENAI_API_KEY would send them to a variable the
-	// loader does not consult for it.
-	if p.EnvKey == "MOTITA_LLM_API_KEY" {
-		printInfo(s.out, "The key is read from %s.", p.EnvKey)
-	} else {
-		printInfo(s.out, "The key is read from %s, or from MOTITA_LLM_API_KEY.", p.EnvKey)
-	}
-	printInfo(s.out, "You can get one at:")
-	printLink(s.out, p.ConsoleURL)
-	key, err := s.ask(ctx, "Paste the key, or press Enter to set it later:")
-	if err != nil {
-		return "", err
-	}
-	return key, nil
-}
-
-// directAuth runs the provider-specific OAuth/device-code flow. It shows the
-// user a URL and a code, waits for them to authorise, and returns the resulting
-// token as the "API key" — the rest of the wizard treats it the same way.
-//
-// The flow is injected via the directAuthRunner package variable so tests can
-// replace it without a network.
-var directAuthRunner = runDirectAuth
-
-func (s *session) directAuth(ctx context.Context, p Provider) (string, error) {
-	key, err := directAuthRunner(ctx, s.out, s.in, p)
-	if err == nil && key == "" {
-		s.loggedIn = true
-	}
-	return key, err
 }
 
 // chooseOllamaHost asks whether Ollama runs on the user's own machine or is
 // Ollama Cloud. Only the cloud needs a key: a local server takes none, and the
 // wizard used to demand one anyway, so a local Ollama could not be configured.
-func (s *session) chooseOllamaHost(ctx context.Context, preset string) (string, error) {
-	if preset != "" {
-		return strings.TrimRight(preset, "/"), nil
-	}
-	s.say("")
-	printSection(s.out, "Where does Ollama run?")
-	s.say("  %s1.%s On this machine or my network (http://localhost:11434, no key)", colYellow, colReset)
-	s.say("  %s2.%s Ollama Cloud (https://ollama.com, needs a key)", colYellow, colReset)
-	s.say("  %s3.%s Another URL", colYellow, colReset)
+func (s *session) chooseOllamaHost(ctx context.Context, p Provider) (string, error) {
+	s.connectHeader(p)
+	s.say("%sWhere does Ollama run?", indent)
+	m := s.showMenu(
+		[]string{"On this computer or my network", "Ollama Cloud", "Another address"},
+		[]string{"http://localhost:11434 · free, no key", "https://ollama.com · needs a key", "a URL ending in /v1"})
 	for attempt := 0; attempt < 3; attempt++ {
-		answer, err := s.ask(ctx, "Ollama [1]:")
+		answer, err := s.choose(ctx, "Ollama [1]:", m)
 		if err != nil {
 			return "", err
 		}
@@ -507,29 +757,23 @@ func (s *session) chooseOllamaHost(ctx context.Context, preset string) (string, 
 			if strings.HasPrefix(u, "http://") || strings.HasPrefix(u, "https://") {
 				return strings.TrimRight(u, "/"), nil
 			}
-			s.say("  A URL must start with http:// or https://.")
+			s.say("    A URL must start with http:// or https://.")
 		default:
-			s.say("  Choose 1, 2 or 3.")
+			s.say("    Choose 1, 2 or 3.")
 		}
 	}
 	return "", fmt.Errorf("no valid Ollama host after three attempts")
 }
 
 // chooseBaseURL asks for the API endpoint. OpenAI-compatible providers need this
-// because the same protocol is spoken by many hosts (OpenAI, Ollama Cloud, Groq,
-// OpenRouter, DeepSeek, etc.).
-func (s *session) chooseBaseURL(ctx context.Context, p Provider, preset string) (string, error) {
-	if preset != "" {
-		return preset, nil
+// because the same protocol is spoken by many hosts (OpenAI, Groq, OpenRouter,
+// DeepSeek, LM Studio, etc.).
+func (s *session) chooseBaseURL(ctx context.Context, p Provider) (string, error) {
+	s.connectHeader(p)
+	s.say("%sPress Enter to use %s itself, or paste the address of any compatible service:", indent, p.Short)
+	for _, u := range []string{"https://api.groq.com/openai/v1", "https://openrouter.ai/api/v1", "https://api.deepseek.com/v1"} {
+		printInfo(s.out, "  %s", u)
 	}
-
-	s.say("")
-	printSection(s.out, "API endpoint")
-	printInfo(s.out, "Examples of OpenAI-compatible URLs:")
-	s.say("  %shttps://api.openai.com/v1%s", colDim, colReset)
-	s.say("  %shttps://ollama.com/v1%s", colDim, colReset)
-	s.say("  %shttps://api.groq.com/openai/v1%s", colDim, colReset)
-	s.say("  %shttps://openrouter.ai/api/v1%s", colDim, colReset)
 
 	defaultURL := p.DefaultBaseURL
 	for attempt := 0; attempt < 3; attempt++ {
@@ -544,29 +788,25 @@ func (s *session) chooseBaseURL(ctx context.Context, p Provider, preset string) 
 		if strings.HasPrefix(u, "http://") || strings.HasPrefix(u, "https://") {
 			return strings.TrimRight(answer, "/"), nil
 		}
-		s.say("  A URL must start with http:// or https://.")
+		s.say("    A URL must start with http:// or https://.")
 	}
 	return "", fmt.Errorf("no valid API base URL after three attempts")
 }
 
-func (s *session) summary(res Result) {
-	printSummary(s.out, res)
-}
-
 // credentialsPathFor returns the credentials file that goes next to a
-// configuration: same directory, same base name, .env extension.
+// configuration: same directory, same base name, .env extension. It is the
+// loader's own definition, so the file the wizard writes is the one it reads.
 func credentialsPathFor(configPath string) string {
-	base := strings.TrimSuffix(configPath, filepath.Ext(configPath))
-	return base + ".env"
+	return config.CredentialsPath(configPath)
 }
 
 // renderCredentials writes a file the user can source. It is a shell script so
-// that sourcing it is the whole setup.
+// that sourcing it is the whole setup elsewhere; motita itself reads it on its own.
 func renderCredentials(envKey, key string) string {
 	return fmt.Sprintf(
 		"# Generated by motita -init. This file holds a secret: keep it\n"+
 			"# out of the repository and out of any backup you share.\n"+
-			"# Load it in the current shell with:  source %s\n"+
+			"# motita reads it automatically. Other tools can load it with:  source %s\n"+
 			"export %s=%s\n",
 		"<this file>", envKey, shellQuote(key))
 }

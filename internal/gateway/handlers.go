@@ -1,6 +1,7 @@
 package gateway
 
 import (
+	"context"
 	"fmt"
 	"net/http"
 
@@ -147,6 +148,34 @@ func (s *Server) handleUpdateConfig(w http.ResponseWriter, r *http.Request) {
 	c.svc.SetLLM(body.Provider, body.Model)
 	if body.Reasoning != "" {
 		c.svc.SetReasoning(body.Reasoning)
+	}
+	s.saveSession(c)
+	writeJSON(w, http.StatusOK, viewOf(c.svc.Config()))
+}
+
+// configReloader is a service that can re-read the configuration the setup wizard writes. It is
+// an optional interface: a service without it answers 501, which tells a client the gateway it is
+// talking to cannot do it, rather than pretending the new setup was applied.
+type configReloader interface {
+	ReloadConfig(ctx context.Context) error
+}
+
+// handleReloadConfig applies the configuration file as it is NOW to this conversation: it is what
+// the terminal's /config calls once the wizard has written a new setup, so the next turn runs with
+// it instead of with the one the gateway started with.
+//
+// The file is read on the gateway's side and nothing secret travels: the key is in the file (or
+// beside it), and the request carries no body at all.
+func (s *Server) handleReloadConfig(w http.ResponseWriter, r *http.Request) {
+	c := convOf(r)
+	rl, ok := c.svc.(configReloader)
+	if !ok {
+		writeError(w, http.StatusNotImplemented, "this gateway cannot reload its configuration: restart it to apply the new setup")
+		return
+	}
+	if err := rl.ReloadConfig(r.Context()); err != nil {
+		writeError(w, http.StatusUnprocessableEntity, "the new configuration could not be applied: "+err.Error())
+		return
 	}
 	s.saveSession(c)
 	writeJSON(w, http.StatusOK, viewOf(c.svc.Config()))

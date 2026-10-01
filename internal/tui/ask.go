@@ -310,9 +310,9 @@ func (t *TUI) submitAnswers(origin string, answers []agent.Answers) {
 	}
 	switch t.screen {
 	case ScreenPlan:
-		t.runPlan(t.runningCtxOr(context.Background()), prompt)
+		t.runPlan(t.runningCtxOr(t.loopCtxOr(context.Background())), prompt)
 	default:
-		t.runTask(t.runningCtxOr(context.Background()), prompt)
+		t.runTask(t.runningCtxOr(t.loopCtxOr(context.Background())), prompt)
 	}
 }
 

@@ -1,6 +1,10 @@
 package tui
 
-import "os"
+import (
+	"os"
+
+	"github.com/madkoding/motita/internal/onboard"
+)
 
 // IsTerminal reports whether a writer is a terminal.
 //
@@ -98,4 +102,21 @@ func mouseScroll(seq string) (int, bool) {
 		return -1, true // wheel down: towards the newest line
 	}
 	return 0, false
+}
+
+// KeyModeFor is the setup wizard's switch into character-at-a-time input, for an input that is a
+// terminal, and nil for anything else (a pipe, a file, a test's reader): the wizard then reads
+// whole lines, which is what a script feeding it answers needs.
+//
+// The terminal is switched with the same code the interface uses, so the two cannot disagree about
+// how to put it back.
+func KeyModeFor(in any) onboard.KeyMode {
+	f, ok := in.(*os.File)
+	if !ok || !IsTerminal(f) {
+		return nil
+	}
+	return func() (func(), bool) {
+		m := enterRaw()
+		return m.restore, m.active
+	}
 }

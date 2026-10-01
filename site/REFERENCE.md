@@ -21,12 +21,13 @@ TASK ──► [Layer B] analyse ─► plan ─► propose an action
 ```
 
 Running the binary with no arguments starts an **interactive text user
-interface (TUI)** that lets you choose between read-only plan mode, task mode,
-the configuration wizard, a screen that shows the provider and the models it
-publishes, and help. Task mode and plan mode are both driven by the same 3-layer
-agent.
+interface (TUI)**: a conversation with the agent in **Task** mode (it changes files
+and proves the change with your check) or read-only **Plan** mode (`Tab` switches),
+with `/` opening the command list — the setup (`/config`), the models your provider
+publishes (`/models`), the sessions the gateway holds, and help (`?`). Task mode and
+plan mode are both driven by the same 3-layer agent.
 
-![Main menu](docs/screenshots/menu.png)
+![The command list](screenshots/menu.png)
 
 ---
 
@@ -286,113 +287,83 @@ curl -fsSLO https://github.com/madkoding/motita/releases/latest/download/SHA256S
 sha256sum -c SHA256SUMS --ignore-missing
 ```
 
-## First run: the wizard
+## First run: the setup
 
 The binary needs a configuration that names a provider, a model and — most
-importantly — the check that decides whether a task is really done. `-init` asks
-for the three and writes a file that works:
+importantly — the check that decides whether a task is really done. Running `motita`
+with no configuration starts the setup on its own; `motita -init` runs it on purpose,
+and `/config` runs it from inside the interface.
 
-```bash
-./motita -init
-```
+![The setup](screenshots/wizard-onboard.png)
 
-```
-Welcome to motita.
-This wizard writes a working configuration in ./motita.yaml.
-Nothing is written until every answer is in: press q to cancel at any point.
-Which provider will run the reasoning?
-  1. OpenAI-compatible (openai)
-  2. Ollama Cloud (ollama)
-  3. Anthropic (anthropic)
-  4. Google Gemini (gemini)
+It is five steps, and every step says where it is (`[2/5]`). In a terminal every list
+follows `↑` `↓` and Enter takes the highlighted option; typing still works (a number, a
+provider's name, any model id), and a pasted key is masked. From a pipe the answers are
+read as lines, so a script can answer it:
 
-Provider [1]: 2
+1. **Provider** — each one listed with what it takes to connect: an API key, a login
+   with your account, or nothing (an Ollama server of your own).
+2. **Connect** — the endpoint, where it can vary (any OpenAI-compatible host; Ollama on
+   this machine, on Ollama Cloud, or at another address), then the sign-in. Providers
+   with an account login offer it first; a login that fails is offered again, with
+   pasting a key as the alternative. When a key or a login is already saved for this
+   provider, **keeping it** is the default.
+3. **Model** — the curated list (the first is marked *recommended*), the live catalogue
+   for Ollama, or any id typed by hand. A server that does not answer is said in words —
+   "nothing is answering there yet (start it with `ollama serve`)" — and the built-in
+   list is offered instead.
+4. **Check** — detect it from the project (the default: one configuration works on every
+   repository), a command you name, or no check for now, recorded as `kind: none` so a
+   task is reported as unverified rather than passed.
+5. **Review and save** — every answer on one screen, the key masked. `n` goes through
+   the questions again; Enter writes the files.
 
-The key is read from OLLAMA_API_KEY, or from MOTITA_LLM_API_KEY.
-You can get one at https://ollama.com/settings/keys
+![Review and save](screenshots/wizard-review.png)
 
-Paste the key, or press Enter to set it later: 
+What the setup does and does not do:
 
-Which model from Ollama Cloud?
-  1. nemotron-3-ultra
-  2. gpt-oss:20b
-  ...
+- Nothing is written before the review is accepted, and `q` at any question leaves.
+- The configuration goes to `~/.motita/motita.yaml` (or `./motita.yaml` with no home).
+  The one it replaces is kept as `motita.yaml.bak`.
+- The key goes to a **separate file** beside it, `motita.env`, with `0600`
+  permissions, never into the configuration, so the configuration can be committed or
+  shared. **motita reads that file itself** — there is nothing to `source` — and a
+  variable exported in the shell still wins over it. A setup with no key removes the
+  previous setup's key file, so a key is never sent to a provider it was not given to.
+- The setup ends by loading what it wrote, so a broken file is caught immediately.
+- Run from the interface (`/config`), the new setup **is applied to the session at
+  once** — the provider, its endpoint and key, the model and the check — and the
+  conversation says what is in use now. Behind a gateway this is
+  `POST /v1/sessions/{id}/config/reload`.
 
-Model [1, or type any model id]: 7
-
-What decides that a task is really done?
-  1. A command that must succeed (for example: make test)
-  2. Always pass, while I try the agent out
-
-Check [1]: 1
-Command to run as the check [make]: make test
-
-✅ Written ./motita.yaml
-   provider: Ollama Cloud (ollama)
-   model:    deepseek-v4.1-flash
-✅ Written ./motita.env
-   permissions 0600, keep it out of the repository
-```
-
-### Ollama Cloud
-
-Ollama Cloud is a provider of its own in the wizard. It always talks to
-`https://ollama.com/v1`, asks **only for the key**, and then reads the live
-catalogue from the API so you pick a model from what your account can actually
-run — no URL to remember and no model list to keep up to date by hand:
+The `ollama` provider talks to `http://localhost:11434/v1` (no key) or to Ollama Cloud
+(`https://ollama.com/v1`, a key in `OLLAMA_API_KEY`), and reads the live catalogue from
+the server you chose:
 
 ```yaml
 llm:
   provider: ollama
-  base_url: https://ollama.com/v1
-  model:    deepseek-v4.1-flash
+  base_url: http://localhost:11434/v1
+  model:    gpt-oss:20b
 ```
-
-The key is read from `OLLAMA_API_KEY` (the name Ollama itself documents) or from
-`MOTITA_LLM_API_KEY`, in that order of preference. If the catalogue cannot be
-reached, the wizard falls back to a built-in list and says so, so you are never
-left with an empty menu.
-
-The interactive menu has a **Models & providers** entry that shows the active
-provider, the model, whether a key is present (never the key itself) and the
-models the endpoint publishes, with the one in use marked:
-
-![Models and providers](docs/screenshots/models.png)
 
 The provider called `openai` is really **OpenAI-compatible**: it speaks the
 OpenAI `/chat/completions` protocol, so you can point it at OpenAI itself, Groq,
-OpenRouter, DeepSeek, a self-hosted Ollama, or any other host that implements the
-same endpoints. The wizard asks you for the base URL when you choose it:
+OpenRouter, DeepSeek, a self-hosted server, or any other host that implements the
+same endpoints. The setup asks for the base URL when you choose it:
 
 ```yaml
 llm:
   provider: openai
   base_url: https://api.openai.com/v1     # or https://api.groq.com/openai/v1, ...
-  model:    gpt-4o-mini
+  model:    gpt-5-mini
 ```
 
-Then:
+`/models` inside the interface shows the active provider, the model, whether a key is
+present (never the key itself) and the models the endpoint publishes, with the one in
+use marked; `/models <id>` switches to one for the session.
 
-```bash
-source ./motita.env                                       # the key, if you pasted one
-./motita -config ./motita.yaml -validate-config  # does it load?
-./motita -config ./motita.yaml -task "what to do"
-```
-
-What the wizard does and does not do:
-
-- The three providers are the ones the client implements (OpenAI-compatible,
-  Anthropic, Gemini). The model list is a shortcut: **any** model id can be typed
-  by hand. The `openai` provider accepts any `base_url` that speaks the OpenAI
-  `/chat/completions` protocol.
-- The check (layer A, the anchor) is asked because the agent refuses to run
-  without one: it never takes the model's word that a task is done. Option 2
-  writes `command: "true"`, an explicit "everything passes" while you try it out.
-- The key goes to a **separate file** with `0600` permissions, never into the
-  configuration, so the configuration can be committed or shared.
-- Nothing is written if you cancel: the file appears only once every answer is in.
-- With no `-config` the destination is `./motita.yaml`.
-- The wizard ends by loading what it wrote, so a broken file is caught immediately.
+![Models and providers](screenshots/models.png)
 
 ## Cross-compilation from source
 
@@ -654,7 +625,7 @@ motita curator pin build-firmware
 motita curator list-archived
 ```
 
-The interface draws the same version under the wordmark, and it always names the build
+The interface draws the same version on its top bar, and it always names the build
 that is **actually answering**. An interface speaking through a gateway in its own
 process names this program; one attached to a gateway that was already running — through
 `-connect`, or to a service an earlier `gateway start` left behind — names **that**
@@ -1222,7 +1193,7 @@ motita -config my.yaml -isolation
 motita -p "list the .go files and suggest a refactor"
 ```
 
-![Plan mode](docs/screenshots/plan.png)
+![Plan mode](screenshots/plan.png)
 
 Plan mode is **structurally read-only**: the agent calls tools (`read_file`,
 `execute_command`) through a path that never invokes a shell, so redirections,

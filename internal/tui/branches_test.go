@@ -22,18 +22,13 @@ func TestInnerHasNoClampBecauseSizeAlreadyDoes(t *testing.T) {
 	}
 }
 
-// TestStatusLinesDefaultsAnIncompleteConfiguration: a configuration with no
-// provider and no model still has to describe something, and the values it shows
-// are the fallbacks rather than empty fields.
 // TestStatusLinesDefaultsAnIncompleteConfiguration: a configuration that names neither a
-// provider nor a model must still produce a readable line rather than an empty one.
-//
-// The key is deliberately NOT on this line any more: a user who reached the chat has a
-// working key, and repeating it on every repaint is noise the eye learns to skip.
+// provider nor a model must still produce a readable line rather than an empty one, and a setup
+// with no key says so in words - never by printing anything of the key itself.
 func TestStatusLinesDefaultsAnIncompleteConfiguration(t *testing.T) {
 	tui := newFakeTUI("q\n", &fakeRunner{})
 
-	line := stripANSI(strings.Join(tui.statusLines(80), "\n"))
+	line := stripANSI(strings.Join(tui.statusLines(100), "\n"))
 	if !strings.Contains(line, "openai") {
 		t.Errorf("an unnamed provider must default to openai, got %q", line)
 	}
@@ -45,8 +40,8 @@ func TestStatusLinesDefaultsAnIncompleteConfiguration(t *testing.T) {
 	if !strings.Contains(line, "reasoning") {
 		t.Errorf("the reasoning level must be shown, got %q", line)
 	}
-	if strings.Contains(line, "key") {
-		t.Errorf("the key must not be reported in the chat, got %q", line)
+	if !strings.Contains(line, "no API key") {
+		t.Errorf("a missing key must be said in words, got %q", line)
 	}
 }
 

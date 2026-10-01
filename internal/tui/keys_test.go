@@ -303,7 +303,7 @@ func TestThePositionIndicatorAppearsOnlyWhenScrolled(t *testing.T) {
 	tu.scroll = 0
 	out.Reset()
 	tu.drawFrame()
-	if body := stripANSI(lastFrameOf(out)); strings.Contains(body, "back") {
+	if body := stripANSI(lastFrameOf(out)); strings.Contains(body, "lines up") {
 		t.Errorf("no indicator must be shown at the bottom: %q", body)
 	}
 
@@ -311,13 +311,13 @@ func TestThePositionIndicatorAppearsOnlyWhenScrolled(t *testing.T) {
 	tu.scroll = 5
 	tu.drawFrame()
 	body := stripANSI(lastFrameOf(out))
-	if !strings.Contains(body, "5 back") {
+	if !strings.Contains(body, "5 lines up") {
 		t.Errorf("a scrolled view must show where it is: %q", body)
 	}
 	// The offset is reported on the status bar at the foot of the screen. The check is on
 	// the LAST frame: the buffer keeps every repaint.
 	body = stripANSI(lastFrameOf(out))
-	if !strings.Contains(body, "5 back") {
+	if !strings.Contains(body, "5 lines up") {
 		t.Errorf("the status bar must say how far back the view is: %q", body)
 	}
 }
@@ -584,18 +584,17 @@ func TestTheFrameHoldsItsShapeWhileScrolled(t *testing.T) {
 		if n := strings.Count(body, strings.Repeat(glyphRule, 10)); n < 2 {
 			t.Errorf("width %d: the two rules must bracket the conversation, found %d:\n%s", width, n, body)
 		}
-		// At the minimum width the bar cannot hold the mode, the keys and the offset at once,
-		// and the mode wins. The offset is asserted where there is room for it.
-		if width >= 80 && !strings.Contains(body, "5 back") {
+		// The offset is on the footer; the mode is the title of the input box.
+		if width >= 80 && !strings.Contains(body, "5 lines up") {
 			t.Errorf("width %d: the scrolled offset must be on the status bar:\n%s", width, body)
 		}
 		if !strings.Contains(body, tu.screen.String()) {
 			t.Errorf("width %d: the active mode must survive on the status bar:\n%s", width, body)
 		}
-		// The composer is the row before the rule and the status bar, and the status bar is
-		// last: the input sits at the foot of the window, which is the whole point.
-		if !strings.Contains(lines[len(lines)-1], tu.screen.String()) {
-			t.Errorf("width %d: the last row must be the status bar:\n%s", width, stripANSI(lines[len(lines)-1]))
+		// The input box is above the footer, and the footer is last and says the view is lifted:
+		// the input sits at the foot of the window, which is the whole point.
+		if !strings.Contains(stripANSI(lines[len(lines)-1]), "lines up") {
+			t.Errorf("width %d: the last row must be the footer:\n%s", width, stripANSI(lines[len(lines)-1]))
 		}
 	}
 }
@@ -618,7 +617,6 @@ func TestTheStatusIsReadableWithoutColour(t *testing.T) {
 
 	readyGlyph := stripANSI(ready.stateGlyph())
 	missingGlyph := stripANSI(missing.stateGlyph())
-	busyGlyph := stripANSI(busy.stateGlyph())
 
 	if readyGlyph == missingGlyph {
 		t.Errorf("ready and missing look identical without colour: %q", readyGlyph)
@@ -629,8 +627,10 @@ func TestTheStatusIsReadableWithoutColour(t *testing.T) {
 	if missingGlyph != glyphMissing {
 		t.Errorf("missing glyph = %q, want %q", missingGlyph, glyphMissing)
 	}
-	if busyGlyph == readyGlyph || busyGlyph == missingGlyph {
-		t.Errorf("the running indicator must differ from both steady states, got %q", busyGlyph)
+	// A running turn is said in words where the work is - on the input box - rather than by a
+	// third shape in the corner.
+	if top := stripANSI(busy.boxTop(60)); !strings.Contains(top, "working") {
+		t.Errorf("a running turn must say so on the input box without colour: %q", top)
 	}
 }
 
@@ -822,7 +822,7 @@ func TestTheHelpKeepsItsColumns(t *testing.T) {
 
 	// Every documented line must survive with its indentation, not re-flowed into a
 	// paragraph.
-	for _, want := range []string{"  Tab             switch between Task and Plan", "  PgUp/PgDn       scroll one page", "  Ctrl+U/Ctrl+D   scroll half a page"} {
+	for _, want := range []string{"  Tab             switch between Task and Plan", "  g / G           oldest / newest", "  Ctrl+F          search the conversation (or /find)"} {
 		if !strings.Contains(frame, want) {
 			t.Errorf("the help lost its alignment; %q is missing from:\n%s", want, frame)
 		}
@@ -1529,7 +1529,12 @@ func TestANewSessionCanBeStarted(t *testing.T) {
 	if !reset {
 		t.Error("/new must reset the conversation")
 	}
-	if body := stripANSI(out.String()); !strings.Contains(body, "new session") {
+	if body := stripANSI(out.String()); !strings.Contains(body, "Started a new conversation") {
 		t.Errorf("the interface must say what happened:\n%s", body)
+	}
+	// And the screen is clean: the old conversation is gone from the model's memory, and leaving
+	// it on screen would suggest the next answer can still see it.
+	if len(tu.messages) != 0 {
+		t.Errorf("the old conversation must be cleared from the view, got %d messages", len(tu.messages))
 	}
 }

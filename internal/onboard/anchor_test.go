@@ -50,8 +50,8 @@ func readConfig(t *testing.T, dir string) string {
 // reads: a unit test of the in-memory struct would pass while the file on disk said otherwise.
 func TestTheEscapeHatchIsAnHonestConfiguration(t *testing.T) {
 	dir := t.TempDir()
-	// Answers: provider, model, anchor=2 (the escape hatch), then blanks for the rest.
-	if _, _, err := run(t.Context(), t, dir, []string{"openai", "1", "3", "", ""}, Answers{}); err != nil {
+	// Answers: provider, endpoint, key, model, anchor=3 (the escape hatch), save.
+	if _, _, err := run(t.Context(), t, dir, []string{"openai", "", "", "1", "3", ""}, Answers{}); err != nil {
 		t.Fatalf("run: %v", err)
 	}
 	cfg := readConfig(t, dir)
@@ -69,7 +69,7 @@ func TestTheEscapeHatchIsAnHonestConfiguration(t *testing.T) {
 // Option 1 takes a command from the user and that command IS the validator.
 func TestARealCommandIsStillARealAnchor(t *testing.T) {
 	dir := t.TempDir()
-	if _, _, err := run(t.Context(), t, dir, []string{"openai", "1", "2", "make test", "", ""}, Answers{}); err != nil {
+	if _, _, err := run(t.Context(), t, dir, []string{"openai", "", "", "1", "2", "make test", ""}, Answers{}); err != nil {
 		t.Fatalf("run: %v", err)
 	}
 	cfg := readConfig(t, dir)
@@ -97,8 +97,8 @@ func TestARealCommandIsStillARealAnchor(t *testing.T) {
 // running agent reads.
 func TestTheDetectedGateIsWhatTheWizardWritesByDefault(t *testing.T) {
 	dir := t.TempDir()
-	// provider, model, anchor=1 (the detected gate), then blanks.
-	if _, _, err := run(t.Context(), t, dir, []string{"openai", "1", "1", "", ""}, Answers{}); err != nil {
+	// provider, endpoint, key, model, anchor=1 (the detected gate), save.
+	if _, _, err := run(t.Context(), t, dir, []string{"openai", "", "", "1", "1", ""}, Answers{}); err != nil {
 		t.Fatalf("run: %v", err)
 	}
 	cfg := readConfig(t, dir)
@@ -117,7 +117,7 @@ func TestTheDetectedGateIsWhatTheWizardWritesByDefault(t *testing.T) {
 // generated configuration the program refuses would be worse than no wizard at all.
 func TestTheDetectedGateConfigIsAcceptedByTheLoader(t *testing.T) {
 	dir := t.TempDir()
-	if _, _, err := run(t.Context(), t, dir, []string{"openai", "1", "1", "", ""}, Answers{}); err != nil {
+	if _, _, err := run(t.Context(), t, dir, []string{"openai", "", "", "1", "1", ""}, Answers{}); err != nil {
 		t.Fatalf("run: %v", err)
 	}
 	cfgPath := filepath.Join(dir, "config.yaml")
@@ -137,8 +137,8 @@ func TestTheDetectedGateConfigIsAcceptedByTheLoader(t *testing.T) {
 // command named after the whole sentence.
 func TestACommandWithArgumentsIsSplitOnSpaces(t *testing.T) {
 	dir := t.TempDir()
-	// provider, model, anchor=2 (a command), then the command with its arguments.
-	if _, _, err := run(t.Context(), t, dir, []string{"openai", "1", "2", "go test ./...", "", ""}, Answers{}); err != nil {
+	// provider, endpoint, key, model, anchor=2 (a command), the command with its arguments, save.
+	if _, _, err := run(t.Context(), t, dir, []string{"openai", "", "", "1", "2", "go test ./...", ""}, Answers{}); err != nil {
 		t.Fatalf("run: %v", err)
 	}
 	cfg := readConfig(t, dir)

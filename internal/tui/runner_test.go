@@ -115,7 +115,7 @@ func TestAppRunnerRunConfig(t *testing.T) {
 		defer func() { os.Stdin = oldStdin; r2.Close() }()
 		go func() {
 			defer w2.Close()
-			w2.WriteString("openai\n1\n3\n\n\n")
+			w2.WriteString("openai\n\n\n1\n3\n\n")
 		}()
 		err := r.RunConfig(context.Background())
 		if err != nil {
@@ -431,7 +431,7 @@ func TestRunConfigWithoutHomeUsesTheWorkingDirectory(t *testing.T) {
 		defer func() { os.Stdin = oldStdin; r2.Close() }()
 		go func() {
 			defer w2.Close()
-			w2.WriteString("openai\n1\n3\n\n\n")
+			w2.WriteString("openai\n\n\n1\n3\n\n")
 		}()
 		if err := r.RunConfig(context.Background()); err != nil {
 			t.Fatalf("RunConfig error: %v", err)

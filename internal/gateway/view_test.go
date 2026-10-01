@@ -44,6 +44,7 @@ func TestTheConfigViewNeverCarriesTheAPIKey(t *testing.T) {
 		Reasoning:     "high",
 		ReasoningOn:   true,
 		APIKeyPresent: true,
+		BaseURL:       "https://api.openai.com/v1",
 	}
 	if got != want {
 		t.Errorf("view = %+v, want %+v", got, want)
@@ -143,5 +144,36 @@ func TestTheReasoningFlagIsCarriedSeparately(t *testing.T) {
 	in = configView{Provider: "openai", Model: "m", Reasoning: "high", ReasoningOn: true}
 	if cfg := configFromView(in); !cfg.LLM.Reasoning.Enabled || cfg.LLM.Reasoning.Level != "high" {
 		t.Errorf("reasoning = %+v, want high/enabled", cfg.LLM.Reasoning)
+	}
+}
+
+// A self-hosted Ollama takes no key, and the only thing that says it is self-hosted is the
+// endpoint: without it the terminal interface marked every local Ollama as "no key".
+func TestTheViewCarriesTheEndpointSoAFrontEndCanTellALocalOllama(t *testing.T) {
+	cfg := config.Default()
+	cfg.LLM.Provider = "ollama"
+	cfg.LLM.BaseURL = "http://localhost:11434/v1"
+	cfg.LLM.APIKey = ""
+	back := configFromView(viewOf(cfg))
+	if back.LLM.BaseURL != "http://localhost:11434/v1" {
+		t.Fatalf("base url = %q", back.LLM.BaseURL)
+	}
+	if config.LLMNeedsKey(back.LLM) {
+		t.Error("a local Ollama seen through the view must not need a key")
+	}
+}
+
+// The endpoint is reduced to a host: credentials in a URL never leave the process.
+func TestPublicURLDropsCredentials(t *testing.T) {
+	for in, want := range map[string]string{
+		"https://user:secret@proxy.example/v1?key=abc#frag": "https://proxy.example/v1",
+		"http://localhost:11434/v1":                         "http://localhost:11434/v1",
+		"":                                                  "",
+		"not a url":                                         "",
+		"://bad":                                            "",
+	} {
+		if got := publicURL(in); got != want {
+			t.Errorf("publicURL(%q) = %q, want %q", in, got, want)
+		}
 	}
 }
