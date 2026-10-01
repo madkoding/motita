@@ -76,6 +76,37 @@ func TestContentJSONForTheUnknownPhase(t *testing.T) {
 	}
 }
 
+// TestContentJSONProposesTheBigOutputCommandWhenAsked: with MOCK_BIG_OUTPUT set the mock proposes a
+// command whose output is far larger than any cap on the way to the interface. It exists so a check
+// can drive that path in a real browser, and without this test the branch is only ever reached from
+// a shell script - which the coverage gate does not run.
+func TestContentJSONProposesTheBigOutputCommandWhenAsked(t *testing.T) {
+	t.Setenv("MOCK_BIG_OUTPUT", "1")
+
+	text := contentJSON("execute", 1)
+	var decoded struct {
+		Actions []struct {
+			Command string `json:"command"`
+		} `json:"actions"`
+		Done bool `json:"done"`
+	}
+	if err := json.Unmarshal([]byte(text), &decoded); err != nil {
+		t.Fatalf("the answer must be JSON: %v (%s)", err, text)
+	}
+	// Compared DECODED: in the JSON the quotes inside the command are escaped, so a raw
+	// strings.Contains against bigOutputCommand would never match.
+	if len(decoded.Actions) != 1 || decoded.Actions[0].Command != bigOutputCommand {
+		t.Errorf("actions = %+v, want the big-output command", decoded.Actions)
+	}
+	// The phases that DECIDE what to do keep their own answer: replacing the analysis with a
+	// command would make the run act before it has understood the task.
+	for _, phase := range []string{"analyze", "plan"} {
+		if got := contentJSON(phase, 1); strings.Contains(got, "grep the tree") {
+			t.Errorf("%s must keep its own answer with MOCK_BIG_OUTPUT set: %s", phase, got)
+		}
+	}
+}
+
 // TestRespondInEveryDialect: the mock offers the three dialects so any provider
 // can be exercised; each one must produce the shape that provider expects.
 func TestRespondInEveryDialect(t *testing.T) {

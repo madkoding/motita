@@ -53,12 +53,12 @@ func phase(text string) string {
 	}
 }
 
-// contentJSON returns the JSON the "model" would put in the response.
 // bigOutputCommand is the execution command this mock proposes when MOCK_BIG_OUTPUT is set: it
 // prints many matching lines, which is the shape of a `grep` over a tree. It exists so a check can
 // drive a real command whose output is far larger than any cap on the way to the interface.
 const bigOutputCommand = `grep -n "match line" big.txt`
 
+// contentJSON returns the JSON the "model" would put in the response.
 func contentJSON(phaseName string, n int) string {
 	if os.Getenv("MOCK_BIG_OUTPUT") != "" && phaseName != "analyze" && phaseName != "plan" {
 		response := map[string]any{
