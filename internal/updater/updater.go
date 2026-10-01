@@ -191,6 +191,15 @@ func (u *Updater) DownloadAndInstall(ctx context.Context, release *Release, prog
 		return err
 	}
 
+	// The checksums are REQUIRED, and are looked for before anything is downloaded. A release
+	// without them used to install unverified, which turned "the publisher forgot a file" into
+	// "run whatever the download returned". Refusing early also spares the user a download that
+	// is going to be thrown away.
+	checksumsURL := u.findChecksumsURL(release)
+	if checksumsURL == "" {
+		return fmt.Errorf("the release %s publishes no SHA256SUMS, so the download cannot be verified and will not be installed", release.TagName)
+	}
+
 	// Stage 1: download
 	progress(ProgressEvent{Stage: "downloading", Percent: 0, Message: "Downloading " + release.TagName})
 	tmpDir, err := os.MkdirTemp("", "motita-update-*")
@@ -205,12 +214,9 @@ func (u *Updater) DownloadAndInstall(ctx context.Context, release *Release, prog
 	}
 
 	// Stage 2: verify checksum
-	checksumsURL := u.findChecksumsURL(release)
-	if checksumsURL != "" {
-		progress(ProgressEvent{Stage: "verifying", Percent: 100, Message: "Verifying checksum"})
-		if err := u.verifyChecksum(ctx, checksumsURL, tmpBin); err != nil {
-			return fmt.Errorf("checksum verification failed: %w", err)
-		}
+	progress(ProgressEvent{Stage: "verifying", Percent: 100, Message: "Verifying checksum"})
+	if err := u.verifyChecksum(ctx, checksumsURL, tmpBin); err != nil {
+		return fmt.Errorf("checksum verification failed: %w", err)
 	}
 
 	// Stage 3: install (replace the running binary)

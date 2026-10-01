@@ -61,6 +61,8 @@ func TestAFullUpgradeReplacesTheBinaryAndRestarts(t *testing.T) {
 	srv.opts.Version = "v1.0.0"
 	srv.updater = updater.New("v1.0.0", exe)
 	srv.updater.APIURL = func() string { return ts.URL + "/release" }
+	restarted := make(chan struct{})
+	srv.opts.Restart = func() { close(restarted) }
 
 	w := httptest.NewRecorder()
 	srv.handleUpdateRun(w, httptest.NewRequest(http.MethodPost, "/v1/update/run", nil))
@@ -84,12 +86,60 @@ func TestAFullUpgradeReplacesTheBinaryAndRestarts(t *testing.T) {
 		t.Errorf("the binary was not replaced: %q", got)
 	}
 
-	// And the gateway signalled its own restart by cancelling its base context. The handler sleeps
-	// 500ms before doing so, to let the SSE response flush.
+	// And the gateway asked its host to restart it - the host is what stops the process and
+	// starts the new binary. The handler sleeps 500ms first, to let the SSE response flush.
 	select {
-	case <-srv.baseCtx.Done():
+	case <-restarted:
 	case <-time.After(5 * time.Second):
 		t.Error("a completed upgrade must restart the gateway, or the new binary never runs")
+	}
+}
+
+// TestAnUpgradeWithoutARestartHookLeavesTheGatewayRunning: a gateway that cannot replace itself
+// (the one inside a terminal's interface) installs the binary, SAYS the user has to start again,
+// and keeps serving. Cancelling it would end the user's session for a restart nothing performs.
+func TestAnUpgradeWithoutARestartHookLeavesTheGatewayRunning(t *testing.T) {
+	exe := filepath.Join(t.TempDir(), "motita")
+	if err := os.WriteFile(exe, []byte("old"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	newBinary := []byte("new")
+	sum := sha256.Sum256(newBinary)
+	assetName := assetNameForThisPlatform()
+	var base string
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/release":
+			_, _ = io.WriteString(w, `{"tag_name":"v9.9.9","assets":[
+				{"name":"`+assetName+`","browser_download_url":"`+base+`/binary"},
+				{"name":"SHA256SUMS","browser_download_url":"`+base+`/checksums"}]}`)
+		case "/binary":
+			_, _ = w.Write(newBinary)
+		case "/checksums":
+			_, _ = io.WriteString(w, hex.EncodeToString(sum[:])+"  "+assetName+"\n")
+		}
+	}))
+	defer ts.Close()
+	base = ts.URL
+
+	srv := newTestServer(t, &fakeService{})
+	srv.updater = updater.New("v1.0.0", exe)
+	srv.updater.APIURL = func() string { return ts.URL + "/release" }
+	srv.opts.Restart = nil
+
+	w := httptest.NewRecorder()
+	srv.handleUpdateRun(w, httptest.NewRequest(http.MethodPost, "/v1/update/run", nil))
+
+	body := w.Body.String()
+	if strings.Contains(body, `"stage":"restarting"`) || !strings.Contains(body, "start motita again") {
+		t.Errorf("the stream must say it will not restart, got: %s", body)
+	}
+	if got, _ := os.ReadFile(exe); string(got) != "new" {
+		t.Errorf("the binary must still be installed: %q", got)
+	}
+	time.Sleep(700 * time.Millisecond) // longer than the handler's flush delay
+	if srv.baseCtx.Err() != nil {
+		t.Error("a gateway with no way to restart must not stop itself")
 	}
 }
 

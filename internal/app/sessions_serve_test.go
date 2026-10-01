@@ -35,7 +35,7 @@ func TestAServedGatewayCanOpenAnotherSession(t *testing.T) {
 	opts.BaseCtx = ctx
 	opts.Signals = nil
 	opts.NewEngine = mockEngine(srv)
-	go func() { _ = Run(opts) }()
+	serveInBackground(t, opts, cancel)
 	addr := waitForAddress(t, logPath)
 
 	// The token is read back from the file the gateway writes, which is what a remote client has

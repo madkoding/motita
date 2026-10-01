@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 
 	"github.com/madkoding/motita/internal/config"
 	"github.com/madkoding/motita/internal/curator"
@@ -27,23 +28,49 @@ import (
 func (op Options) runServe(ctx context.Context, fl flags, cfg config.Config, engine *llm.Client, box *sandbox.Sandbox, log *logx.Logger) int {
 	// owned=false: this IS the service the user asked for. It stops when it is told to, and nothing
 	// about the interface's lifetime has any say over it.
-	srv, err := op.startGateway(fl, cfg, engine, box, log, false)
+	// An upgrade ends this process by cancelling the same context a signal does, so there is ONE
+	// way to stop and one shutdown. What differs is only what happens AFTER it: the flag says the
+	// stop was an upgrade, and the new binary is started once the old one has let go of its port.
+	ctx, stop := context.WithCancel(ctx)
+	defer stop()
+	var upgraded atomic.Bool
+	restart := func() {
+		upgraded.Store(true)
+		stop()
+	}
+
+	srv, err := op.startGateway(fl, cfg, engine, box, log, false, restart)
 	if err != nil {
 		fmt.Fprintf(op.Err, "the gateway could not start: %v\n", err)
 		return ConfigError
 	}
-	defer op.runGatewayLoop(ctx, srv, log)()
+	closeGateway := op.runGatewayLoop(ctx, srv, log)
 
 	// Serve until the process is asked to stop. The signal handling already in run() cancels
 	// this context; nothing else ends a server.
 	<-ctx.Done()
 	log.Info("the gateway is shutting down")
+	closeGateway()
 
 	// The description of a gateway that is no longer listening is worse than none: discovery trusts
 	// it, and the next start would probe an address nothing answers on before deciding to bring its
 	// own up. Removed here rather than by the client, because this process is the one that knows it
 	// has stopped.
 	_ = gateway.RemoveServiceFile(op.serviceFilePath())
+
+	// The replacement is started LAST, after the listener is closed and the description removed:
+	// started earlier it would find the port taken, exit, and leave no gateway at all. It is the
+	// same spawn `gateway start` uses, so it comes up on the same configuration and address, as
+	// the new binary at ExePath.
+	if upgraded.Load() {
+		// Not the cancelled ctx: that one is the reason we are here, and a spawn bound to it
+		// would be killed before it started.
+		if err := op.SpawnGateway(context.Background(), op.spawnSpec(fl)); err != nil {
+			log.Error("the upgraded gateway could not be started", "error", err)
+			return RunError
+		}
+		log.Info("the upgraded gateway was started")
+	}
 	return Success
 }
 
@@ -94,7 +121,10 @@ func (op Options) runGatewayLoop(ctx context.Context, srv *gateway.Server, log *
 // The file is written with the EFFECTIVE address (srv.Addr()), not the one that was asked for: with
 // a port of 0 the real port is chosen at bind time, and writing the zero down would leave a file
 // nobody can use.
-func (op Options) startGateway(fl flags, cfg config.Config, engine *llm.Client, box *sandbox.Sandbox, log *logx.Logger, owned bool) (*gateway.Server, error) {
+//
+// restart is what the updater calls once a new binary is installed, and nil for a gateway that
+// cannot replace itself (see gateway.Options.Restart).
+func (op Options) startGateway(fl flags, cfg config.Config, engine *llm.Client, box *sandbox.Sandbox, log *logx.Logger, owned bool, restart func()) (*gateway.Server, error) {
 	switch {
 	case strings.EqualFold(strings.TrimSpace(fl.gateway), "off"):
 		return nil, errors.New("the gateway was turned off with -gateway off")
@@ -181,6 +211,7 @@ func (op Options) startGateway(fl flags, cfg config.Config, engine *llm.Client, 
 		MaxBodyKB:   cfg.Gateway.MaxBodyKB,
 		Version:     op.Version,
 		ExePath:     op.ExePath,
+		Restart:     restart,
 		Log:         log,
 		// The interface is served from THIS mux, so the page and the API share an origin
 		// and no proxy or CORS is involved anywhere.

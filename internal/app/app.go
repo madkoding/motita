@@ -1322,7 +1322,7 @@ func (op Options) startOwnGateway(ctx context.Context, fl flags, cfg config.Conf
 		baseURL, token, err := op.StartGatewayForTest(true)
 		return baseURL, token, nil, err
 	}
-	srv, err := op.startGateway(fl, cfg, engine, box, log, true)
+	srv, err := op.startGateway(fl, cfg, engine, box, log, true, nil)
 	if err != nil {
 		return "", "", nil, err
 	}

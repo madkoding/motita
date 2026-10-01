@@ -8,6 +8,8 @@ package gateway
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"io"
@@ -450,9 +452,31 @@ func TestTheUpgradeStreamReportsWhenThereIsNowhereToInstall(t *testing.T) {
 	srv := newTestServer(t, &fakeService{})
 	srv.opts.Version = "v1.0.0"
 	// An updater with an ExePath of "" - the install step is where the refusal has to come from.
-	srv.updater = updaterFor(t, srv, `{"tag_name":"v9.9.9","name":"newer","assets":[
-		{"name":"`+assetNameForThisPlatform()+`","browser_download_url":"`+assetPayloadURL(t)+`"}]}`)
-	srv.updater.ExePath = ""
+	// The release is verifiable (a matching SHA256SUMS), so the one thing wrong with it is the
+	// missing path: an unverifiable release is refused earlier, for a different reason.
+	payload := []byte("a small fake binary")
+	sum := sha256.Sum256(payload)
+	assetName := assetNameForThisPlatform()
+	var base string
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/release":
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = io.WriteString(w, `{"tag_name":"v9.9.9","name":"newer","assets":[
+				{"name":"`+assetName+`","browser_download_url":"`+base+`/binary"},
+				{"name":"SHA256SUMS","browser_download_url":"`+base+`/checksums"}]}`)
+		case "/binary":
+			_, _ = w.Write(payload)
+		case "/checksums":
+			_, _ = io.WriteString(w, hex.EncodeToString(sum[:])+"  "+assetName+"\n")
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer ts.Close()
+	base = ts.URL
+	srv.updater = updater.New("v1.0.0", "")
+	srv.updater.APIURL = func() string { return ts.URL + "/release" }
 
 	w := httptest.NewRecorder()
 	srv.handleUpdateRun(w, httptest.NewRequest(http.MethodPost, "/v1/update/run", nil))
@@ -516,17 +540,6 @@ func newMsgWithUnmarshalablePayload() wsMessage {
 		Timestamp: time.Now().UTC().Format(time.RFC3339Nano),
 		Payload:   json.RawMessage(`{"unencodable":`),
 	}
-}
-
-// assetPayloadURL serves a small body as the release asset, which is what an upgrade downloads
-// before it reaches the install step.
-func assetPayloadURL(t *testing.T) string {
-	t.Helper()
-	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		_, _ = w.Write([]byte("a small fake binary"))
-	}))
-	t.Cleanup(ts.Close)
-	return ts.URL
 }
 
 // logxImport keeps the logx import honest in a file whose only other use of it is a type.

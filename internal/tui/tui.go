@@ -325,6 +325,23 @@ func (t *TUI) Run(ctx context.Context) int {
 	defer mode.restore()
 	defer recoverRaw(mode)()
 
+	// The offer to upgrade is made beside the loop, never before it: the check can wait on the
+	// network, and the interface must open without it. It is waited for on the way out, before
+	// the screen is wiped, for the reason the painter below is.
+	if _, ok := t.Runner.(updater); ok {
+		checkCtx, stopCheck := context.WithCancel(ctx)
+		var checking sync.WaitGroup
+		checking.Add(1)
+		go func() {
+			defer checking.Done()
+			t.announceUpdate(checkCtx)
+		}()
+		defer func() {
+			stopCheck()
+			checking.Wait()
+		}()
+	}
+
 	resized, stopWatch := watchResize()
 	var painting sync.WaitGroup
 	painting.Add(1)
