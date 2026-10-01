@@ -65,9 +65,6 @@ func CredentialPath(dir, provider string) string {
 
 // HasCredential reports whether a usable credential is stored for provider.
 func HasCredential(dir, provider string) bool {
-	if dir == "" {
-		return false
-	}
 	c, err := LoadCredential(dir, provider)
 	return err == nil && (c.AccessToken != "" || c.RefreshToken != "")
 }
@@ -107,28 +104,18 @@ func SaveCredential(dir string, c Credential) error {
 		return fmt.Errorf("could not create %s: %w", dir, err)
 	}
 	c.UpdatedAt = time.Now().UTC()
-	data, err := json.MarshalIndent(c, "", "  ")
-	if err != nil {
-		return err
+	data, _ := json.MarshalIndent(c, "", "  ") // a struct of strings and times always encodes
+	// The temporary name carries the pid, so two processes renewing at once do not
+	// write into each other's file before the rename.
+	tmp := filepath.Join(dir, fmt.Sprintf(".%s-%d.tmp", strings.ToLower(c.Provider), os.Getpid()))
+	if err := os.WriteFile(tmp, data, 0o600); err != nil {
+		return fmt.Errorf("could not write the login: %w", err)
 	}
-	tmp, err := os.CreateTemp(dir, ".auth-*.tmp")
-	if err != nil {
-		return fmt.Errorf("could not write in %s: %w", dir, err)
+	if err := os.Rename(tmp, CredentialPath(dir, c.Provider)); err != nil {
+		os.Remove(tmp)
+		return fmt.Errorf("could not store the login: %w", err)
 	}
-	name := tmp.Name()
-	defer os.Remove(name) // no-op after a successful rename
-	if err := tmp.Chmod(0o600); err != nil {
-		tmp.Close()
-		return err
-	}
-	if _, err := tmp.Write(data); err != nil {
-		tmp.Close()
-		return err
-	}
-	if err := tmp.Close(); err != nil {
-		return err
-	}
-	return os.Rename(name, CredentialPath(dir, c.Provider))
+	return nil
 }
 
 // DeleteCredential removes a stored login. A missing file is not an error.

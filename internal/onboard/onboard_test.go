@@ -1286,3 +1286,37 @@ func TestALoginIsNotWrittenAsAKey(t *testing.T) {
 		t.Errorf("a login must not be told to export a key:\n%s", stripANSI(out))
 	}
 }
+
+func TestChooseOllamaHostChoices(t *testing.T) {
+	stubOllamaModels(t, []string{"m"})
+	dir := t.TempDir()
+	_, res, err := run(context.Background(), t, dir, []string{"ollama", "9", "3", "not-a-url", "3", "http://gpu-box:11434/v1/", "", "3"}, Answers{})
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	cfg, _ := os.ReadFile(res.ConfigPath)
+	if !strings.Contains(string(cfg), "http://gpu-box:11434/v1") || !res.Keyless {
+		t.Errorf("res=%+v\n%s", res, cfg)
+	}
+	if _, _, err := run(context.Background(), t, dir, []string{"ollama", "x", "y", "z"}, Answers{}); err == nil {
+		t.Error("three wrong answers must end the wizard")
+	}
+	if _, _, err := run(context.Background(), t, dir, []string{"ollama", "3"}, Answers{}); err == nil {
+		t.Error("the end of the input at the URL question must end the wizard")
+	}
+	if _, _, err := run(context.Background(), t, dir, []string{"ollama", "2"}, Answers{}); err == nil {
+		t.Error("the end of the input at the Cloud key must end the wizard")
+	}
+}
+
+func TestPresetBaseURLForAnOpenAIHost(t *testing.T) {
+	dir := t.TempDir()
+	_, res, err := run(context.Background(), t, dir, []string{"", "3", "k"}, Answers{Provider: "openai", BaseURL: "https://api.groq.com/openai/v1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg, _ := os.ReadFile(res.ConfigPath)
+	if !strings.Contains(string(cfg), "api.groq.com") {
+		t.Errorf("the preset endpoint must be written:\n%s", cfg)
+	}
+}

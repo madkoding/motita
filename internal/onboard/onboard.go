@@ -104,14 +104,9 @@ func Run(ctx context.Context, in io.Reader, out io.Writer, configPath string, pr
 		}
 	}
 
+	// The host chosen above is where the live catalogue is read from.
 	var listURL string
 	if provider.FetchModels {
-		if baseURL == "" {
-			baseURL = provider.DefaultBaseURL
-		}
-		if preset.BaseURL != "" {
-			baseURL = preset.BaseURL
-		}
 		listURL = baseURL
 	}
 

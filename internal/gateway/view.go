@@ -123,8 +123,8 @@ func providerKeyPresent(cfg config.Config, providerID string) bool {
 	if config.HasLogin(providerID) || config.ProviderKeyFromEnv(providerID) != "" {
 		return true
 	}
-	if _, ok := os.LookupEnv(config.ProviderKeyVariable(providerID)); ok {
-		return true
-	}
-	return false
+	// The generic variable counts for the providers that read it (openai and codex,
+	// which share the OpenAI account).
+	_, ok := os.LookupEnv(config.ProviderKeyVariable(providerID))
+	return ok
 }

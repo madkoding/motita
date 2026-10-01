@@ -3,6 +3,7 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/madkoding/motita/internal/oauth"
@@ -87,5 +88,57 @@ func TestEveryProviderIsValid(t *testing.T) {
 		if err := c.validateLLM(true); err != nil {
 			t.Errorf("%s: %v", p, err)
 		}
+	}
+}
+
+func TestProviderKeyFromEnvReadsTheProvidersOwnVariable(t *testing.T) {
+	t.Setenv("DASHSCOPE_API_KEY", " sk-dash ")
+	t.Setenv("OPENAI_API_KEY", "")
+	if got := ProviderKeyFromEnv("qwen"); got != "sk-dash" {
+		t.Errorf("qwen = %q", got)
+	}
+	t.Setenv("MOTITA_LLM_API_KEY", "generic")
+	if got := ProviderKeyFromEnv("openai"); got != "" {
+		t.Errorf("the generic variable belongs to the configured provider only, got %q", got)
+	}
+}
+
+func TestAuthDirWithoutAHome(t *testing.T) {
+	t.Setenv("MOTITA_AUTH_DIR", "")
+	t.Setenv("HOME", "")
+	restore := osUserHomeDir
+	osUserHomeDir = func() (string, error) { return "", os.ErrNotExist }
+	defer func() { osUserHomeDir = restore }()
+	if got := AuthDir(); got != "" {
+		t.Errorf("AuthDir = %q, want none rather than a relative directory", got)
+	}
+}
+
+func TestIsSelfHostedOllamaEdges(t *testing.T) {
+	cases := map[string]bool{
+		"://bad":                              false,
+		"localhost-without-scheme":            false,
+		"https://ollama.example.com:11434/v1": true,
+		"http://box.local/v1":                 true,
+		"http://[fe80::1]/v1":                 true,
+		"https://example.com/v1":              false,
+	}
+	for base, want := range cases {
+		if got := IsSelfHostedOllama(LLM{Provider: "ollama", BaseURL: base}); got != want {
+			t.Errorf("%s: %v", base, got)
+		}
+	}
+	if IsSelfHostedOllama(LLM{Provider: "openai", BaseURL: "http://localhost:11434/v1"}) {
+		t.Error("only ollama can be self-hosted Ollama")
+	}
+}
+
+func TestMissingKeyForALoginProviderSuggestsTheLogin(t *testing.T) {
+	t.Setenv("MOTITA_AUTH_DIR", t.TempDir())
+	c := Default()
+	c.LLM.Provider, c.LLM.APIKey = "codex", ""
+	err := c.validateLLM(true)
+	if err == nil || !strings.Contains(err.Error(), "motita -init") {
+		t.Errorf("err = %v", err)
 	}
 }

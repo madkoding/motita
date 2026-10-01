@@ -19,6 +19,7 @@ import (
 	"github.com/madkoding/motita/internal/config"
 	"github.com/madkoding/motita/internal/llm"
 	"github.com/madkoding/motita/internal/logx"
+	"github.com/madkoding/motita/internal/oauth"
 	"github.com/madkoding/motita/internal/onboard"
 	"github.com/madkoding/motita/internal/plan"
 	"github.com/madkoding/motita/internal/sandbox"
@@ -495,5 +496,49 @@ func TestSetLLMMovesTheKeyAndEndpointWithTheProvider(t *testing.T) {
 	r.SetLLM("codex", "")
 	if got := r.Config().LLM; got.APIKey != "sk-yaml" {
 		t.Errorf("openai and codex share the OpenAI key, got %q", got.APIKey)
+	}
+}
+
+// TestAppRunnerRunModelsReportsALoginOrAKeylessProvider: no key is not always a
+// missing key: a stored login or a local Ollama needs none.
+func TestAppRunnerRunModelsReportsALoginOrAKeylessProvider(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("MOTITA_AUTH_DIR", dir)
+	if err := oauth.SaveCredential(dir, oauth.Credential{Provider: "qwen", RefreshToken: "r"}); err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct{ provider, base, want string }{
+		{"qwen", "", "stored login"},
+		{"ollama", "http://localhost:11434/v1", "none needed\n"},
+	} {
+		cfg := config.Default()
+		cfg.LLM.Provider, cfg.LLM.BaseURL, cfg.LLM.APIKey = tc.provider, tc.base, ""
+		r := NewAppRunner(&bytes.Buffer{}, &bytes.Buffer{}, cfg, &llm.Client{}, &sandbox.Sandbox{}, logx.Global())
+		r.listModels = func(context.Context, string, string) ([]string, error) { return []string{"m"}, nil }
+		report, err := r.RunModels(context.Background())
+		if err != nil || !strings.Contains(report, tc.want) {
+			t.Errorf("%s: %v\n%s", tc.provider, err, report)
+		}
+	}
+}
+
+// TestAppRunnerRunModelsListsWithTheProvidersOwnClient: without an injected lister the
+// provider's own client is asked, so a refused key is reported, not hidden.
+func TestAppRunnerRunModelsListsWithTheProvidersOwnClient(t *testing.T) {
+	t.Setenv("MOTITA_AUTH_DIR", t.TempDir())
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("x-api-key") != "sk-ant" {
+			w.WriteHeader(http.StatusUnauthorized)
+			return
+		}
+		fmt.Fprint(w, `{"data":[{"id":"claude-x"}]}`)
+	}))
+	defer srv.Close()
+	cfg := config.Default()
+	cfg.LLM.Provider, cfg.LLM.BaseURL, cfg.LLM.APIKey = "anthropic", srv.URL, "sk-ant"
+	r := NewAppRunner(&bytes.Buffer{}, &bytes.Buffer{}, cfg, &llm.Client{}, &sandbox.Sandbox{}, logx.Global())
+	report, err := r.RunModels(context.Background())
+	if err != nil || !strings.Contains(report, "claude-x") {
+		t.Errorf("%v\n%s", err, report)
 	}
 }

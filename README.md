@@ -679,8 +679,8 @@ This is tested the way you'd test something you were about to bet on.
 | | |
 |---|---|
 | **Statement coverage** | **100% in every package that ships** — 30 of 31 (`./internal/... ./cmd/...`), checked package by package so a gap can't hide behind an average. `internal/review` is the one package without tests, and `tools/` holds the CI harnesses and is counted separately |
-| **Test functions** | 3,507 across 254 files |
-| **Code vs tests** | 42,948 lines of Go · 90,942 lines of test |
+| **Test functions** | 3,541 across 257 files |
+| **Code vs tests** | 42,920 lines of Go · 91,804 lines of test |
 | **External dependencies** | 0 |
 | **Platforms CI builds** | 9 — every one gets `-version` run in its own container on Linux, and a PE/Mach-O header + size check on Windows and macOS |
 

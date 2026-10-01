@@ -266,19 +266,11 @@ func (c *Client) post(ctx context.Context, path string, body any) ([]byte, error
 
 // ListModels lists the models of the configured provider with its own
 // credentials, so a login (Copilot, Qwen) can list what it is entitled to.
+// claude-code is not listed here: its catalogue is the claude CLI's own
+// (ClaudeCodeModels).
 func (c *Client) ListModels(ctx context.Context) ([]string, error) {
 	provider := strings.ToLower(c.cfg.Provider)
 	switch provider {
-	case "claude-code":
-		cat, err := ClaudeCodeModels(ctx)
-		if err != nil {
-			return nil, err
-		}
-		ids := make([]string, 0, len(cat.Models))
-		for _, m := range cat.Models {
-			ids = append(ids, m.Value)
-		}
-		return ids, nil
 	case "anthropic":
 		return c.listJSON(ctx, "/v1/models", func(b []byte) []string {
 			var p struct {

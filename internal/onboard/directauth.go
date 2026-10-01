@@ -234,14 +234,12 @@ func waitForCode(ctx context.Context, out io.Writer, in *bufio.Reader, lb *oauth
 	return code, err
 }
 
-// promptLine asks one question inside a login flow.
+// promptLine asks one question inside a login flow. The end of the input is
+// an empty answer, not a failure: the question has a default.
 func promptLine(ctx context.Context, out io.Writer, in *bufio.Reader, prompt string) (string, error) {
 	fmt.Fprintf(out, "%s%s%s ", colCyan, prompt, colReset)
 	line, err := readLine(ctx, in)
-	if err != nil && !(errors.Is(err, io.EOF) && line != "") {
-		if errors.Is(err, io.EOF) {
-			return "", nil
-		}
+	if err != nil && !errors.Is(err, io.EOF) {
 		return "", err
 	}
 	return strings.TrimSpace(line), nil
