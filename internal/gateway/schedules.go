@@ -322,7 +322,7 @@ func (s *Server) handleRunScheduleNow(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	rn, started := s.startDetachedRun(s.conversationOf(rec.SessionID), rec.Task, rec.Kind,
+	rn, started := s.startDetachedRun(s.conversationOf(rec.SessionID), rec.Task, rec.Kind, "",
 		s.unattendedApprover(rec.ID))
 	if !started {
 		writeError(w, http.StatusConflict,
@@ -372,7 +372,7 @@ func (s *Server) schedulerFirer() schedule.Firer {
 			// front end shows the outcome, and the fix is to edit the task.
 			return "", fmt.Errorf("there is no session %q to fire into: edit the task or create the session again", sc.SessionID)
 		}
-		rn, ok := s.startDetachedRun(c, sc.Task, sc.Kind, s.unattendedApprover(sc.ID))
+		rn, ok := s.startDetachedRun(c, sc.Task, sc.Kind, "", s.unattendedApprover(sc.ID))
 		if !ok {
 			return "", fmt.Errorf("a run is already in progress in session %q", sc.SessionID)
 		}

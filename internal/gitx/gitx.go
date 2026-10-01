@@ -533,6 +533,22 @@ func MergeInto(ctx context.Context, repoDir, baseBranch, branch, message string)
 	return MergeResult{}, fmt.Errorf("the merge conflicted and was rolled back; nothing was changed: %s", firstLine(out))
 }
 
+// PullFastForward updates the checkout at dir to the latest state of branch on
+// the default remote, but only if it can fast-forward. It refuses a diverged
+// remote because pulling and merging blindly would change history the user did
+// not ask to merge.
+func PullFastForward(ctx context.Context, dir, branch string) error {
+	if _, err := noGitOr(ctx, "could not fetch the latest changes", dir, "fetch", "origin", branch); err != nil {
+		return err
+	}
+	// A fetch is not a merge. The local branch must be able to move forward only.
+	out, err := execute(ctx, dir, "merge", "--ff-only", "origin/"+branch)
+	if err != nil {
+		return describe("the project could not be updated to the latest "+branch, out, err)
+	}
+	return nil
+}
+
 // DeleteBranch deletes a local branch at dir.
 //
 // -d and never -D: a branch whose commits are merged nowhere is work that

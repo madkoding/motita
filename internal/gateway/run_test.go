@@ -20,7 +20,7 @@ func contextWithCancelForTest() (context.Context, context.CancelFunc) {
 // about numbering.
 func newTestRun() *run {
 	ctx, cancel := contextWithCancelForTest()
-	return newRun("r1", ctx, cancel)
+	return newRun("r1", ctx, cancel, "")
 }
 
 // TestTheLogReplaysFromTheBeginning: a client that connects to a run already in flight asks for

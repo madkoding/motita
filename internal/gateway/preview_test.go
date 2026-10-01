@@ -142,7 +142,7 @@ func TestDoneCarriesTheChangesTheRunMade(t *testing.T) {
 		}}
 		srv := newTestServer(t, svc)
 		c := &conversation{id: "c", svc: svc, workspace: ws}
-		rn, ok := srv.startDetachedRun(c, "t", "task", srv.approverFactory(c))
+		rn, ok := srv.startDetachedRun(c, "t", "task", "", srv.approverFactory(c))
 		if !ok {
 			t.Fatal("run did not start")
 		}

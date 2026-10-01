@@ -113,6 +113,9 @@ type attachedEvent struct {
 	// ends. A client that attaches to a finished run is TOLD, instead of waiting on a stream
 	// that will never produce anything.
 	Outcome string `json:"outcome,omitempty"`
+	// Turn is the conversation turn (and checkpoint) this run belongs to, so a client that
+	// joins mid-run knows where the steps it is about to receive go.
+	Turn int `json:"turn"`
 }
 
 // startStream writes the headers a long-lived stream needs, and gets them on the wire before

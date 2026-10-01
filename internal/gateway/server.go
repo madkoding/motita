@@ -522,6 +522,8 @@ func (s *Server) routes() *http.ServeMux {
 	mux.Handle("GET /v1/sessions/{id}/report", scoped(s.handleSessionReport))
 	mux.Handle("GET /v1/sessions/{id}/messages", scoped(s.handleMessages))
 	mux.Handle("POST /v1/sessions/{id}/reset", scoped(s.handleReset))
+	mux.Handle("GET /v1/sessions/{id}/checkpoints", scoped(s.handleCheckpoints))
+	mux.Handle("POST /v1/sessions/{id}/checkpoints/{turn}/restore", scoped(s.handleRestoreCheckpoint))
 	mux.Handle("GET /v1/sessions/{id}/config", scoped(s.handleConfig))
 	mux.Handle("PATCH /v1/sessions/{id}/config", scoped(s.handleUpdateConfig))
 	mux.Handle("PATCH /v1/sessions/{id}", scoped(s.handleRenameSession))
@@ -535,6 +537,7 @@ func (s *Server) routes() *http.ServeMux {
 	mux.Handle("POST /v1/sessions/{id}/task", scoped(s.handleTask))
 	mux.Handle("POST /v1/sessions/{id}/plan", scoped(s.handlePlan))
 	mux.Handle("POST /v1/sessions/{id}/merge", scoped(s.handleMergeSession))
+	mux.Handle("POST /v1/sessions/{id}/continue", scoped(s.handleContinueSession))
 	mux.Handle("GET /v1/sessions/{id}/run", scoped(s.handleRunStatus))
 	mux.Handle("GET /v1/sessions/{id}/events", scoped(s.handleAttach))
 	mux.Handle("POST /v1/sessions/{id}/cancel", scoped(s.handleCancelRun))
@@ -813,6 +816,7 @@ func (s *Server) loadPersistedSessions() {
 			if len(rec.Turns) > 0 {
 				s.sessions[DefaultSession].svc.RestoreTranscript(rec.Turns)
 			}
+			s.sessions[DefaultSession].setCheckpoints(rec.Checkpoints)
 			if rec.Title != "" {
 				s.sessions[DefaultSession].setTitle(rec.Title)
 			}
@@ -855,6 +859,7 @@ func (s *Server) loadPersistedSessions() {
 		conv.lastUsed = rec.LastUsed
 		conv.setTitle(rec.Title)
 		conv.setAutoApprove(rec.AutoApprove)
+		conv.setMerged(rec.MergedSHA)
 		// A session in a project gets its worktree back. The branch outlives the
 		// worktree, so re-attaching it restores the session's own work rather
 		// than starting over; a failure falls back to the project's directory,
@@ -881,6 +886,7 @@ func (s *Server) loadPersistedSessions() {
 		if len(rec.Turns) > 0 {
 			svc.RestoreTranscript(rec.Turns)
 		}
+		conv.setCheckpoints(rec.Checkpoints)
 		// Restore provider/model if they were persisted and differ from the
 		// defaults the factory built with.
 		if rec.Provider != "" || rec.Model != "" {
@@ -947,7 +953,7 @@ func (s *Server) resumeInterruptedSessions() {
 		// use, so the slot guard, the completion classification and the persistence are
 		// one implementation and cannot drift. Nothing waits for it: the resumption is a
 		// side effect of starting the gateway.
-		if _, ok := s.startDetachedRun(c, task, kind, s.approverFactory(c)); !ok {
+		if _, ok := s.startDetachedRun(c, task, kind, "", s.approverFactory(c)); !ok {
 			if s.opts.Log != nil {
 				s.opts.Log.Warn("could not resume the interrupted session: its conversation is already running", "id", rec.ID)
 			}

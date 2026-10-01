@@ -1233,3 +1233,26 @@ func TestAHeartbeatOfZeroIsOff(t *testing.T) {
 		t.Fatalf("an unset heartbeat = %s, want %s", other.heartbeat, defaultHeartbeat)
 	}
 }
+
+// TestTheDoneEventCarriesTheStructuredReport: a front end lays the answer out from FIELDS, so the
+// done event has to carry them next to the flat text, and a plan (which has no report) must not
+// borrow the task's.
+func TestTheDoneEventCarriesTheStructuredReport(t *testing.T) {
+	rep := &agent.Report{Version: agent.ReportVersion, Status: "done", Summary: "added Foo",
+		Verification: []agent.ReportCheck{{Check: "go test", Result: "pass", Evidence: "3 passed"}}}
+	svc := &fakeService{structured: rep, task: func(context.Context, string, func(string, ...any)) (string, error) {
+		return "added Foo", nil
+	}, plan: func(context.Context, string, func(string, ...any)) (string, error) { return "a plan", nil }}
+	srv := newTestServer(t, svc)
+
+	raw := rawStream(t, srv, http.MethodPost, sessionPath(srv, DefaultSession, "/task"), `{"task":"x"}`)
+	for _, want := range []string{`"report":{"version":1,"status":"done"`, `"check":"go test"`, `"evidence":"3 passed"`} {
+		if !strings.Contains(raw, want) {
+			t.Errorf("the done event lacks %s:\n%s", want, raw)
+		}
+	}
+	raw = rawStream(t, srv, http.MethodPost, sessionPath(srv, DefaultSession, "/plan"), `{"prompt":"x"}`)
+	if strings.Contains(raw, `"report"`) {
+		t.Errorf("a plan must not carry a task report:\n%s", raw)
+	}
+}

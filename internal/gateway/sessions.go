@@ -123,6 +123,20 @@ type conversation struct {
 	// give the same answer again; the pill in the interface says it is on and takes it back.
 	// Guarded by stateMu.
 	autoApprove bool
+
+	// merged marks a session whose work has already been integrated back into
+	// the project. A merged session is read-only: it still appears in the list,
+	// but tasks and plans are refused because continuing would write on a branch
+	// whose history is already part of the project.
+	merged bool
+	// mergedSha is the commit produced by the integration, if any.
+	mergedSha string
+
+	// checkpoints is one record per user input, oldest first: where to go back to, and what
+	// the agent did on the way. See checkpoints.go. Guarded by cpMu, a lock of its own because
+	// a run appends a step for every progress line and must not contend with stateMu readers.
+	cpMu        sync.Mutex
+	checkpoints []*checkpoint
 }
 
 // setAutoApprove turns "allow all commands for this session" on or off.
@@ -327,7 +341,17 @@ type SessionStatus struct {
 	// the front end shows that as a disabled Integrate button rather than an
 	// absent one, so the user knows the action exists even when it has nothing
 	// to do yet.
-	Mergeable bool `json:"mergeable,omitempty"`
+	Mergeable bool `json:"mergeable"`
+	// Merged marks a session whose work has already been integrated back into
+	// the project. A merged session is read-only: it still appears in the list
+	// so the user can see its commit and transcript, but it cannot be written to.
+	Merged bool `json:"merged"`
+	// MergedSHA is the commit the integration produced, if any. It is what the
+	// front end shows when the user asks "which commit did this session make".
+	MergedSHA string `json:"merged_sha,omitempty"`
+	// Continuable is true when a merged session belongs to a project: the user
+	// can open a fresh session from the project's up-to-date base branch.
+	Continuable bool `json:"continuable"`
 	// Workspace is the directory this session actually runs in. For a session
 	// in a git project that is its OWN worktree, not the project's checkout,
 	// which is what lets two sessions work at once without editing each
@@ -397,22 +421,38 @@ func (c *conversation) status() SessionStatus {
 		if c.projectDir != "" {
 			base = gitx.Display(ctx, c.projectDir)
 		}
-		// Mergeable: the session's branch exists and has commits the base
+		if c.merged {
+			st.Merged = true
+			st.MergedSHA = c.mergedSha
+			st.Continuable = c.projectDir != "" && c.projectID != ""
+			return st
+		}
+		// Integrate: the session's branch exists and has commits the base
 		// branch does not. A session that never ran in a worktree has no
 		// branch, and one whose work was already merged has none ahead.
 		branch := sessionBranch(c.id)
+		mergeable := false
 		if gitx.BranchExists(ctx, c.workspace, branch) {
 			if ahead, _, err := gitx.CommitsBetween(ctx, c.workspace, base, branch); err == nil && len(ahead) > 0 {
-				st.Mergeable = true
+				mergeable = true
 			}
 		}
+		// Work the agent WROTE is integrable before anything has committed it. Nothing commits
+		// what an agent writes (the default final action is none), so a session's branch sits
+		// exactly where it branched and a rule that asks only for commits ahead left the button
+		// disabled for every session that had done its job. Integrating commits the work first
+		// (see handleMergeSession); this is what lets the user reach that action.
+		if st.Worktree != "" && st.Changes > 0 {
+			mergeable = true
+		}
+		// Expose mergeable through the renamed status fields so the front end still has a
+		// single word to draw the menu item with. Merged sessions do not reach here.
+		st.Mergeable = mergeable
 	}
 	return st
 }
 
 // sessionWorktree gives a session its own checkout of a project, so two
-// sessions in one project can work at the same time without editing each
-// other's files.
 //
 // It returns the directory the session should run in. When a worktree cannot be
 // made it returns the PROJECT's directory and the reason, because worktrees
@@ -611,6 +651,19 @@ func (c *conversation) setProjectID(pid, workspace, projectDir string) {
 	c.projectID = pid
 	c.workspace = workspace
 	c.projectDir = projectDir
+}
+
+// setMerged marks the session as integrated and records the commit that did it.
+// A blank SHA is treated as "not merged", which is the safe default for records
+// that predate the field.
+func (c *conversation) setMerged(sha string) {
+	c.stateMu.Lock()
+	defer c.stateMu.Unlock()
+	if sha == "" {
+		return
+	}
+	c.merged = true
+	c.mergedSha = sha
 }
 
 // setTitle sets the human-readable label for this conversation. Called after the first turn
@@ -959,6 +1012,7 @@ func (s *Server) handleDeleteSession(w http.ResponseWriter, r *http.Request) {
 	}
 	if c.id == DefaultSession {
 		c.svc.ResetConversation()
+		s.forgetCheckpoints(c)
 		c.setTitle(placeholderTitle)
 		s.deletePersistedSession(c.id)
 		writeJSON(w, http.StatusOK, c.status())
@@ -988,6 +1042,7 @@ func (s *Server) handleDeleteSession(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusConflict, err.Error())
 		return
 	}
+	s.forgetCheckpoints(c)
 	s.forget(c.id)
 	s.deletePersistedSession(c.id)
 	w.WriteHeader(http.StatusNoContent)

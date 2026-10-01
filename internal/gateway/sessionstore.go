@@ -62,11 +62,22 @@ type sessionRecord struct {
 	// decision about THIS conversation, so it lives with the conversation: kept in memory only
 	// it was forgotten at every restart and upgrade.
 	AutoApprove bool `json:"auto_approve,omitempty"`
+	// Merged marks a session whose work has already been integrated back into
+	// the project. A merged session is read-only: tasks and plans are refused,
+	// because the branch it wrote on has become part of the project's history.
+	// It stays in the list so the user can still see its commit and transcript.
+	Merged bool `json:"merged,omitempty"`
+	// MergedSHA is the commit produced by the integration, if any. It is what
+	// the front end shows when the user asks "which commit did this session make".
+	MergedSHA string `json:"merged_sha,omitempty"`
 
 	Running  bool                 `json:"running,omitempty"`
 	LastTask string               `json:"last_task,omitempty"`
 	LastKind string               `json:"last_kind,omitempty"`
 	Turns    []agent.DialogueTurn `json:"turns"`
+	// Checkpoints are the user's inputs with the way back to each and the steps the agent took:
+	// what the chat and the terminal drawer show for a turn, kept so a restart does not erase it.
+	Checkpoints []checkpoint `json:"checkpoints,omitempty"`
 }
 
 // newSessionStore creates a store rooted at dir. The directory is created if
@@ -111,6 +122,8 @@ func (st *sessionStore) write(c *conversation, ended bool) error {
 		LastKind:    c.lastKind,
 		ProjectDir:  c.projectDir,
 		AutoApprove: c.autoApprove,
+		Merged:      c.merged,
+		MergedSHA:   c.mergedSha,
 	}
 	c.stateMu.Unlock()
 
@@ -118,6 +131,7 @@ func (st *sessionStore) write(c *conversation, ended bool) error {
 	// concurrency protection.
 	if c.svc != nil {
 		rec.Turns = c.svc.Transcript()
+		rec.Checkpoints = c.checkpointRecords()
 		cfg := c.svc.Config()
 		rec.Provider = cfg.LLM.Provider
 		rec.Model = cfg.LLM.Model
