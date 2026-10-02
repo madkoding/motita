@@ -114,6 +114,31 @@ func gatewayTestOptions(t *testing.T, out *syncBuffer, stdin string, args ...str
 	}
 }
 
+// serveInBackground runs the process the way a test needs it: in the background, and STOPPED AND
+// WAITED FOR when the test ends.
+//
+// A bare `go Run(opts)` followed by a deferred cancel() only ASKS the process to stop. -serve then
+// saves every session on its way out, and that write races the removal of the test's TempDir, which
+// failed intermittently with "unlinkat .../sessions: directory not empty" (measured: 3 of 30 runs,
+// and 4 of 30 on a clean checkout). The cleanup below is registered after the directories are
+// created, so it runs BEFORE their removal: cancel, then wait until Run has returned.
+func serveInBackground(t *testing.T, opts Options, cancel context.CancelFunc) {
+	t.Helper()
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		_ = Run(opts)
+	}()
+	t.Cleanup(func() {
+		cancel()
+		select {
+		case <-done:
+		case <-time.After(30 * time.Second):
+			t.Error("the served process did not stop within 30s of being cancelled")
+		}
+	})
+}
+
 // mockEngine points the reasoning engine at the simulated LLM.
 func mockEngine(srv *httptest.Server) func(config.LLM, *logx.Logger) (*llm.Client, error) {
 	return func(c config.LLM, l *logx.Logger) (*llm.Client, error) {
@@ -499,7 +524,7 @@ func TestStartGatewayRefusesAMalformedRuleDirectly(t *testing.T) {
 	cfg.Gateway.Allow = []string{"not a rule"}
 
 	op := Options{Out: &syncBuffer{}, Err: &syncBuffer{}}
-	_, err := op.startGateway(flags{}, cfg, nil, nil, nil, false)
+	_, err := op.startGateway(flags{}, cfg, nil, nil, nil, false, nil)
 	if err == nil {
 		t.Fatal("a malformed rule was accepted when the gateway was built")
 	}
@@ -630,7 +655,7 @@ func TestTheServedGatewayBuildsAReviewFork(t *testing.T) {
 		mu.Unlock()
 		return review.New(cfg, engine, procs, log, build)
 	}
-	go func() { _ = Run(opts) }()
+	serveInBackground(t, opts, cancel)
 	_ = waitForAddress(t, logPath)
 
 	mu.Lock()

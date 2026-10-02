@@ -655,25 +655,23 @@ func TestDownloadAndInstallSuccess(t *testing.T) {
 	}
 }
 
-func TestDownloadAndInstallNoChecksums(t *testing.T) {
-	// Same but without SHA256SUMS asset → skip verification.
-	ext := ""
-	name := fmt.Sprintf("motita-linux-amd64%s", ext)
-	binContent := []byte("no-checksums binary")
+func TestDownloadAndInstallRefusesAReleaseWithoutChecksums(t *testing.T) {
+	// A release with no SHA256SUMS is refused BEFORE the download, and the installed binary is
+	// left untouched: nothing unverifiable is ever put in place.
+	name := "motita-linux-amd64"
+	downloaded := false
 
 	mux := http.NewServeMux()
 	srv := httptest.NewServer(mux)
 	defer srv.Close()
 	mux.HandleFunc("/"+name, func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Length", fmt.Sprintf("%d", len(binContent)))
-		_, _ = w.Write(binContent)
+		downloaded = true
+		_, _ = w.Write([]byte("unverifiable binary"))
 	})
 
 	release := Release{
 		TagName: "v0.7.0",
-		Assets: []Asset{
-			{Name: name, BrowserDownloadURL: srv.URL + "/" + name},
-		},
+		Assets:  []Asset{{Name: name, BrowserDownloadURL: srv.URL + "/" + name}},
 	}
 
 	dir := t.TempDir()
@@ -682,20 +680,17 @@ func TestDownloadAndInstallNoChecksums(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	u := &Updater{
-		Goos:       "linux",
-		Goarch:     "amd64",
-		ExePath:    target,
-		HTTPClient: srv.Client(),
-	}
+	u := &Updater{Goos: "linux", Goarch: "amd64", ExePath: target, HTTPClient: srv.Client()}
 
 	err := u.DownloadAndInstall(context.Background(), &release, func(ProgressEvent) {})
-	if err != nil {
-		t.Fatal(err)
+	if err == nil || !strings.Contains(err.Error(), "SHA256SUMS") {
+		t.Fatalf("a release without checksums must be refused, got %v", err)
 	}
-	got, _ := os.ReadFile(target)
-	if string(got) != "no-checksums binary" {
-		t.Errorf("target = %q", got)
+	if downloaded {
+		t.Error("the binary must not be downloaded when it cannot be verified")
+	}
+	if got, _ := os.ReadFile(target); string(got) != "old" {
+		t.Errorf("the installed binary was modified: %q", got)
 	}
 }
 
@@ -778,6 +773,7 @@ func TestDownloadAndInstallDownloadFails(t *testing.T) {
 		TagName: "v0.7.0",
 		Assets: []Asset{
 			{Name: "motita-linux-amd64", BrowserDownloadURL: srv.URL + "/motita-linux-amd64"},
+			{Name: "SHA256SUMS", BrowserDownloadURL: srv.URL + "/SHA256SUMS"},
 		},
 	}
 
@@ -1190,6 +1186,7 @@ func TestDownloadAndInstallMkdirTempFails(t *testing.T) {
 		TagName: "v0.7.0",
 		Assets: []Asset{
 			{Name: "motita-linux-amd64", BrowserDownloadURL: srv.URL + "/motita-linux-amd64"},
+			{Name: "SHA256SUMS", BrowserDownloadURL: srv.URL + "/SHA256SUMS"},
 		},
 	}
 	u := &Updater{

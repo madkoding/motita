@@ -563,6 +563,7 @@ ports — they are **two views of one conversation**.
 | `/reasoning` | cycle the thinking budget |
 | `/good` `/bad` | tell the agent how a turn went |
 | `/value` | see what it has learned from those verdicts |
+| `/update` | install the newest release (the welcome screen says when there is one; the download must match the release's `SHA256SUMS`, or nothing is installed) |
 | `/session` `/find` `/new` `/help` | context, search, fresh start, help |
 
 **Plan mode is structurally read-only**, and that word is doing real work:

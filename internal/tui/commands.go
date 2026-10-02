@@ -51,6 +51,7 @@ var commands = []Command{
 	{Name: "/bad", Help: "rate the last answer as bad; the note says what to fix", Arg: "what was wrong", Group: "action"},
 	{Name: "/value", Aliases: []string{"/v"}, Help: "what motita has learned from your ratings", Group: "action"},
 	{Name: "/new", Help: "start a fresh conversation", Group: "session"},
+	{Name: "/update", Help: "install the newest motita release", Group: "action"},
 	{Name: "/help", Aliases: []string{"/h", "h", "help", "?"}, Help: "every command and key", Group: "meta"},
 	{Name: "/quit", Aliases: []string{"/q", "q", "quit"}, Help: "leave motita", Group: "meta"},
 }
@@ -144,6 +145,9 @@ var commandActions = map[string]func(t *TUI, ctx context.Context, arg string) bo
 		t.drawFrame()
 		return false
 	},
+	// The gateway replaces its own binary and restarts, so the interface says what is
+	// happening and then lets the user decide when to come back.
+	"/update": func(t *TUI, ctx context.Context, _ string) bool { t.runUpdate(ctx); return false },
 	"/help": func(t *TUI, _ context.Context, _ string) bool {
 		t.addPreformatted(AuthorSystem, helpText)
 		return false

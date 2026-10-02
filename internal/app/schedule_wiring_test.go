@@ -70,7 +70,7 @@ func TestTheGatewayGetsTheScheduleSettingsFromTheConfiguration(t *testing.T) {
 			},
 		}
 		_ = got
-		srv, err := op.startGateway(flags{}, cfg, nil, nil, logx.Global(), false)
+		srv, err := op.startGateway(flags{}, cfg, nil, nil, logx.Global(), false, nil)
 		if srv != nil || err == nil {
 			t.Fatalf("startGateway = (%v, %v), want a nil server and the injected error", srv, err)
 		}
@@ -107,7 +107,7 @@ func TestTheGatewayIsWiredWithoutAScheduleDirectoryWhenSchedulingIsOff(t *testin
 				return nil, errors.New("stop here: the wiring is what is under test")
 			},
 		}
-		srv, err := op.startGateway(flags{}, cfg, nil, nil, logx.Global(), false)
+		srv, err := op.startGateway(flags{}, cfg, nil, nil, logx.Global(), false, nil)
 		if srv != nil || err == nil {
 			t.Fatalf("startGateway = (%v, %v), want a nil server and the injected error", srv, err)
 		}

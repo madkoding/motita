@@ -42,7 +42,7 @@ func TestTheServedGatewayIsGivenTheLibraryAndTheCurator(t *testing.T) {
 	opts.BaseCtx = ctx
 	opts.Signals = nil
 	opts.NewEngine = mockEngine(srv)
-	go func() { _ = Run(opts) }()
+	serveInBackground(t, opts, cancel)
 	addr := waitForAddress(t, logPath)
 
 	token := readToken(t, filepath.Join(filepath.Dir(cfgPath), "gateway.token"))
@@ -189,7 +189,7 @@ func TestTheAdapterForwardsEveryWriteToTheLibrary(t *testing.T) {
 	opts.BaseCtx = ctx
 	opts.Signals = nil
 	opts.NewEngine = mockEngine(srv)
-	go func() { _ = Run(opts) }()
+	serveInBackground(t, opts, cancel)
 	addr := waitForAddress(t, logPath)
 	token := readToken(t, filepath.Join(filepath.Dir(cfgPath), "gateway.token"))
 	client := &http.Client{Timeout: 5 * time.Second}
@@ -362,7 +362,7 @@ func TestTheAdapterForwardsTurningOffAndDeleting(t *testing.T) {
 	opts.BaseCtx = ctx
 	opts.Signals = nil
 	opts.NewEngine = mockEngine(srv)
-	go func() { _ = Run(opts) }()
+	serveInBackground(t, opts, cancel)
 	addr := waitForAddress(t, logPath)
 	token := readToken(t, filepath.Join(filepath.Dir(cfgPath), "gateway.token"))
 	client := &http.Client{Timeout: 5 * time.Second}
@@ -461,7 +461,7 @@ func TestTheAdapterRefusesToDeleteAShippedProcedure(t *testing.T) {
 	opts.BaseCtx = ctx
 	opts.Signals = nil
 	opts.NewEngine = mockEngine(srv)
-	go func() { _ = Run(opts) }()
+	serveInBackground(t, opts, cancel)
 	addr := waitForAddress(t, logPath)
 	token := readToken(t, filepath.Join(filepath.Dir(cfgPath), "gateway.token"))
 	client := &http.Client{Timeout: 5 * time.Second}

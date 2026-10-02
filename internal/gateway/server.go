@@ -62,6 +62,15 @@ type Options struct {
 	Version string
 	// ExePath is the running binary's path, used by the updater to replace it.
 	ExePath string
+	// Restart is how this process starts running the binary the updater just installed. It is
+	// called once the new binary is in place and the sessions are saved, and it is expected to
+	// stop this process and bring up its replacement.
+	//
+	// Nil means this process CANNOT replace itself - the gateway that lives inside a terminal's
+	// interface is the example, because its lifetime belongs to that terminal - and the upgrade
+	// then installs the binary and says so, instead of cancelling a gateway nobody would start
+	// again. Cancelling without a replacement is how an upgrade turns into an outage.
+	Restart func()
 	// NewService builds one more conversation when a client asks for one. Nil means this
 	// gateway serves exactly one conversation, which is a real deployment: the embedded case
 	// where the terminal that started this process is the only front end there will ever be.
@@ -758,6 +767,13 @@ func (s *Server) handleUpdateRun(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// A process that cannot replace itself has done all it can: the binary is in place, and the
+	// next start runs it. It stays up, because stopping it would leave nothing serving.
+	if s.opts.Restart == nil {
+		sse(updater.ProgressEvent{Stage: "done", Percent: 100, Message: "Upgrade installed. This gateway does not restart itself: start motita again to run " + release.TagName, Version: release.TagName})
+		return
+	}
+
 	// Signal the frontend that the restart is coming.
 	sse(updater.ProgressEvent{Stage: "restarting", Percent: 100, Message: "Restarting the gateway", Version: release.TagName})
 
@@ -767,14 +783,12 @@ func (s *Server) handleUpdateRun(w http.ResponseWriter, r *http.Request) {
 	// shut down for the upgrade picks up where it left off.
 	s.saveAllSessions()
 
-	// Restart the gateway in a goroutine so the SSE response can flush.
-	// The gateway stops itself by cancelling its base context; the service
-	// file holds the spawn parameters, so the caller's `gateway start` logic
-	// can re-spawn the new binary.
+	// Restart in a goroutine so the SSE response can flush: the process stops, and whoever
+	// supplied Restart brings the new binary up in its place.
 	go func() {
 		// Give the SSE response time to flush before the process exits.
 		time.Sleep(500 * time.Millisecond)
-		s.baseCancel()
+		s.opts.Restart()
 	}()
 
 	// Send a final done event.

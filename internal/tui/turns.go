@@ -160,7 +160,7 @@ func (t *TUI) submit(ctx context.Context, line string) {
 // not ended. Everything else - help, search, scrolling, switching the mode for the next message -
 // works while the agent works.
 var busyCommands = map[string]bool{
-	"/models": true, "/config": true, "/new": true, "/attach": true, "/good": true, "/bad": true,
+	"/models": true, "/config": true, "/new": true, "/attach": true, "/good": true, "/bad": true, "/update": true,
 }
 
 // refuseWhileBusy answers a command that has to wait for the turn to end.
