@@ -397,6 +397,52 @@ func TestANewChildInheritsTheParentsRules(t *testing.T) {
 	if !ran {
 		t.Error("with no sandbox the child must use the parent's executor")
 	}
+	// A configured anchor states the whole task's goal: the child is held to the project's gate.
+	if child.cfg.Anchor.Kind != "auto" || child.cfg.Anchor.Command != "" {
+		t.Errorf("child anchor = %+v, want the project's gate", child.cfg.Anchor)
+	}
+	a.cfg.Anchor = config.Anchor{Kind: "auto", Timeout: time.Minute}
+	if got := a.newChild(childPlace{dir: a.cfg.Agent.WorkspaceDir, branch: "b"}).cfg.Anchor; got.Timeout != time.Minute {
+		t.Errorf("a project gate must be kept as configured: %+v", got)
+	}
+}
+
+// TestABackgroundAgentIsHeldToTheProjectsGate: the main agent's anchor is the task's goal, which a
+// piece of it cannot meet; the background agent's tree has a gate of its own, and that is what it
+// must pass - it fails it once, fixes it, and finishes.
+func TestABackgroundAgentIsHeldToTheProjectsGate(t *testing.T) {
+	childRound, mainRound := 0, 0
+	s := &scriptServer{execute: func(_ int, prompt string) string {
+		if isChildPrompt(prompt) {
+			childRound++
+			if childRound == 1 {
+				return step(true, "echo wip > notes.txt") // claims done with the gate still red
+			}
+			return step(true, "echo ok > gate.flag")
+		}
+		mainRound++
+		switch mainRound {
+		case 1:
+			return acts(false, kindAct{"spawn_agent", "the gate\nMake the project's gate pass."})
+		case 2:
+			return acts(false, kindAct{"wait_agents", ""})
+		}
+		return step(true, "true")
+	}}
+	_, result, sink := fleetRun(t, s, func(c *config.Config) {
+		projectGate(t, "test -f gate.flag")(c)
+		// The main agent's own anchor is a stated goal, as in the real run.
+		c.Anchor = config.Anchor{Kind: "command", Command: "sh", Args: []string{"-c", "exit 0"}, Timeout: 10 * time.Second}
+	}, nil)
+	if !result.Pass {
+		t.Fatalf("the run must pass: %s", result.Reason)
+	}
+	if childRound != 2 {
+		t.Errorf("the background agent must be sent back by its gate once: %d rounds", childRound)
+	}
+	if agents := sink.lastAgents(t); len(agents) != 2 || agents[1].State != AgentPassed {
+		t.Fatalf("final snapshot = %+v", agents)
+	}
 }
 
 // How an agent ended decides its state, and a commit that fails or a worktree that will not go
