@@ -264,6 +264,10 @@ gateway:
   # the agent has no use for a page.
   webui: true
 
+  # Chat: false (default) shows only a counter of the commands and actions run;
+  # true lists every one of them.
+  show_actions: false
+
 schedule:
   # Tasks that fire on their own. On by default, because the browser interface ships a
   # window for them and a window over a disabled feature says nothing useful.

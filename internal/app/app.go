@@ -1205,6 +1205,7 @@ func (op Options) runTUI(ctx context.Context, fl flags, cfg config.Config, engin
 	ui.Err = op.Err
 	ui.NoColor = noColour(os.Getenv, op.Out)
 	ui.Notice = fl.notice
+	ui.ShowActions = cfg.Gateway.ShowActions
 
 	// The interface CONNECTS to a gateway rather than assuming it is the only one.
 	//

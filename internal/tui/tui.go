@@ -108,6 +108,9 @@ type TUI struct {
 	Runner  Runner
 	NoColor bool
 
+	// ShowActions lists every command and action the agent runs; false (the default) shows only a counter.
+	ShowActions bool
+
 	// Version is the build to name in the header box. WHICH build depends on how this interface
 	// was started, and the caller decides: an interface speaking through a local gateway names
 	// this program, and one attached to a gateway somebody else runs names THE GATEWAY - because a
@@ -1008,6 +1011,11 @@ type planStream struct {
 	tui        *TUI
 	pendingIdx int
 	text       string
+
+	// actionCount and counterIdx back the compact view: one frozen line that counts the tools.
+	actionCount int
+	hasCounter  bool
+	counterIdx  int
 }
 
 func (s *planStream) handle(line string) {
@@ -1022,6 +1030,10 @@ func (s *planStream) handle(line string) {
 		return
 	}
 	if label, isTool := toolLabel(line); isTool {
+		if !s.tui.ShowActions {
+			s.countAction()
+			return
+		}
 		s.closePending()
 		// The frozen tool line: it must never be written into again.
 		s.tui.messages = append(s.tui.messages, Message{Author: AuthorAgent, Text: label, Frozen: true})
@@ -1030,6 +1042,28 @@ func (s *planStream) handle(line string) {
 	}
 	s.text += line
 	s.tui.messages[s.pendingIdx].Text = s.text
+}
+
+// actionLabel is the counter line shown instead of each command.
+func actionLabel(n int) string {
+	if n == 1 {
+		return "1 action"
+	}
+	return fmt.Sprintf("%d actions", n)
+}
+
+// countAction records one tool call as a counter that is updated in place.
+func (s *planStream) countAction() {
+	s.actionCount++
+	if s.hasCounter {
+		s.tui.messages[s.counterIdx].Text = actionLabel(s.actionCount)
+		return
+	}
+	s.closePending()
+	s.tui.messages = append(s.tui.messages, Message{Author: AuthorAgent, Text: actionLabel(s.actionCount), Frozen: true})
+	s.counterIdx = len(s.tui.messages) - 1
+	s.hasCounter = true
+	s.openPending()
 }
 
 // closePending finishes the block being written, dropping it when it stayed empty

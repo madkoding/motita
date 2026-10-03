@@ -168,6 +168,7 @@ func (op Options) runClient(ctx context.Context, fl flags, cfg config.Config) in
 	ui.Out = op.Out
 	ui.Err = op.Err
 	ui.NoColor = noColour(os.Getenv, op.Out)
+	ui.ShowActions = cfg.Gateway.ShowActions
 	// The version of the GATEWAY, not of this binary. This process is a client: it builds no
 	// sandbox and runs no commands, so the build that matters is the one on the other end - and
 	// showing our own here would be a confident answer to a question nobody asked.

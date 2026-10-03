@@ -274,6 +274,8 @@ func newFakeTUI(inputs string, runner Runner) *TUI {
 		Err:     &bytes.Buffer{},
 		Runner:  runner,
 		NoColor: true,
+		// Older tests assert the detail of every tool call.
+		ShowActions: true,
 		// A pinned size keeps the layout deterministic: without it the frame
 		// would depend on COLUMNS/LINES in the environment that runs the test,
 		// which is how a test starts passing or failing for no reason.
