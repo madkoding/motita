@@ -88,6 +88,9 @@ func TestCheckFailedSeesThroughAPipe(t *testing.T) {
 		{"npm err", 0, nil, "npm ERR! code ELIFECYCLE", true, true},
 		{"python", 0, nil, "Traceback (most recent call last):\n  File", true, true},
 		{"command not found", 0, nil, "sh: 1: vitest: command not found", true, true},
+		// dash, the /bin/sh of Debian and Ubuntu, says it shorter; behind `| tail` it was missed.
+		{"dash not found", 0, nil, "sh: 1: node: not found", true, true},
+		{"not found in prose", 0, nil, "page not found: 0 failed", false, false},
 	}
 	for _, c := range cases {
 		f, m := checkFailed(c.exit, c.err, c.out)

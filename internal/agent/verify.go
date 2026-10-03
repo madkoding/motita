@@ -49,7 +49,7 @@ var verifyWrappers = regexp.MustCompile(`^((npx|pnpm exec|pnpm dlx|yarn dlx|bunx
 // verifyFailure is what a failing check prints, in the runners that print one. It is read from the
 // OUTPUT because the exit status cannot be trusted: a check piped into `tail` exits with tail's
 // status. It asks for a NON-ZERO count, so "0 failed" and "Found 0 errors" do not match.
-var verifyFailure = regexp.MustCompile(`(?im)(^\s*(not ok\b|FAIL\b|FAILED\b|✗|✖|×)|^--- FAIL|\b[1-9]\d*\s+(failed|failing|errors?)\b|#\s*fail\s+[1-9]|npm ERR!|error TS\d+|Test Files\s+.*\b[1-9]\d*\s+failed|^panic:|Traceback \(most recent call last\)|AssertionError|Assertion failed|^E\s{2,}|Cannot find module|command not found)`)
+var verifyFailure = regexp.MustCompile(`(?im)(^\s*(not ok\b|FAIL\b|FAILED\b|✗|✖|×)|^--- FAIL|\b[1-9]\d*\s+(failed|failing|errors?)\b|#\s*fail\s+[1-9]|npm ERR!|error TS\d+|Test Files\s+.*\b[1-9]\d*\s+failed|^panic:|Traceback \(most recent call last\)|AssertionError|Assertion failed|^E\s{2,}|Cannot find module|command not found|^\S+: \d+: \S+: not found)`)
 
 // verifRecord is the last run of one check.
 type verifRecord struct {
