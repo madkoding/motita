@@ -272,6 +272,14 @@ func (a *Agent) newChild(place childPlace) *Agent {
 	cfg.Agent.ReadOnly = a.cfg.Agent.ReadOnly || place.branch == ""
 	cfg.FinalAction = config.FinalAction{Kind: "none"}
 	cfg.Agent.OnFailure = config.OnFailure{}
+	// A background agent is judged by the PROJECT'S gate, never by a check the configuration
+	// wrote. That check states what the whole task must achieve, and one piece of it cannot pass
+	// it: measured on a real run, a child asked to write b.txt was held to `test -s a.txt && test -s
+	// b.txt`, a file another agent was writing. The main agent's anchor still judges the merged
+	// result.
+	if !strings.EqualFold(cfg.Anchor.Kind, "auto") {
+		cfg.Anchor = config.Anchor{Kind: "auto", Baseline: a.cfg.Anchor.Baseline}
+	}
 	box := a.sandbox
 	if box != nil {
 		box = box.WithDir(place.dir)
@@ -485,5 +493,11 @@ func (a *Agent) validateClaim(ctx context.Context, before *runBaseline) anchor.R
 	}
 	v := anchor.New(a.cfg.Anchor, a.cfg.Agent.WorkspaceDir, a.sandbox).
 		WithTools(a.cfg.Sandbox.ToolsDir, a.cfg.Sandbox.CheckTimeout).Validate(ctx)
+	// A background agent's tree with no gate to run has nothing to be measured against here; its
+	// branch is measured when the main agent merges it and claims done.
+	if a.isChild && !v.Pass && len(v.Checks) == 0 {
+		return anchor.Result{Pass: true, Checks: []anchor.CheckLog{},
+			Reason: "no project gate in the background agent's tree: its branch is validated by the main agent's anchor once merged"}
+	}
 	return before.judge(ctx, v)
 }
