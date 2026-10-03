@@ -139,7 +139,11 @@ func (c *Client) callAsStream(ctx context.Context, messages []Message, tools []T
 	var reply Reply
 	var err error
 	if len(tools) == 0 {
-		reply.Content, err = c.call(ctx, messages)
+		// The text call returns only its text; a Meter of its own catches what it consumed, so
+		// the streamed reply carries the usage like every other stream's does.
+		own := &Meter{}
+		reply.Content, err = c.call(WithMeter(ctx, own), messages)
+		reply.Usage = own.Usage()
 	} else {
 		reply, err = c.callTools(ctx, messages, tools)
 	}
@@ -555,6 +559,7 @@ type openAIResponse struct {
 		} `json:"message"`
 		FinishReason string `json:"finish_reason"`
 	} `json:"choices"`
+	Usage *openAIUsage `json:"usage"`
 	Error *struct {
 		Message string `json:"message"`
 	} `json:"error,omitempty"`
@@ -606,6 +611,8 @@ func (c *Client) callOpenAI(ctx context.Context, messages []Message) (string, er
 	if err := json.Unmarshal(data, &resp); err != nil {
 		return "", fmt.Errorf("unreadable OpenAI response: %w", err)
 	}
+	// Recorded before anything is judged: a reply that is then refused was still billed.
+	recordUsage(ctx, resp.Usage.usage())
 	if resp.Error != nil && resp.Error.Message != "" {
 		return "", &HTTPError{Code: 400, Body: resp.Error.Message}
 	}
@@ -679,6 +686,7 @@ func (c *Client) callOpenAITools(ctx context.Context, messages []Message, tools 
 	if err := json.Unmarshal(data, &resp); err != nil {
 		return Reply{}, fmt.Errorf("unreadable OpenAI response: %w", err)
 	}
+	recordUsage(ctx, resp.Usage.usage())
 	if resp.Error != nil && resp.Error.Message != "" {
 		return Reply{}, &HTTPError{Code: 400, Body: resp.Error.Message}
 	}
@@ -702,6 +710,7 @@ func (c *Client) callOpenAITools(ctx context.Context, messages []Message, tools 
 		Content:      choice.Message.Content,
 		Calls:        choice.Message.ToolCalls,
 		FinishReason: choice.FinishReason,
+		Usage:        resp.Usage.usage(),
 	}, nil
 }
 
@@ -721,11 +730,25 @@ type openAIStreamChunk struct {
 		Delta        openAIStreamDelta `json:"delta"`
 		FinishReason string            `json:"finish_reason"`
 	} `json:"choices"`
+	// Usage arrives on a chunk of its own, after the one with finish_reason and with no
+	// choices, when the request asked for it (stream_options.include_usage). Some servers
+	// put it on the last chunk with choices instead; both are read.
+	Usage *openAIUsage `json:"usage"`
 }
 
 func (c *Client) callOpenAIToolsStream(ctx context.Context, messages []Message, tools []Tool) (<-chan StreamChunk, error) {
 	body := c.openAIBody(messages, tools)
 	body["stream"] = true
+	// A stream reports no usage unless asked, and only OpenAI's own API is asked. The other
+	// /chat/completions servers (Ollama, Qwen, Copilot, a local server behind the openai
+	// provider) are not known to accept the field - one that refuses an unknown field would
+	// refuse the whole request for a counter - and waiting for a usage chunk that never comes
+	// would bring back the hang the finish_reason return below exists to prevent. Those that
+	// put usage on their last chunk anyway are still read.
+	wantUsage := isOfficialOpenAI(c.baseURL(DefaultBaseURL(c.cfg.Provider)))
+	if wantUsage {
+		body["stream_options"] = map[string]any{"include_usage": true}
+	}
 	resp, _, err := c.send(ctx, "/chat/completions", body, true)
 	if err != nil {
 		return nil, err
@@ -737,11 +760,19 @@ func (c *Client) callOpenAIToolsStream(ctx context.Context, messages []Message, 
 		defer resp.Body.Close()
 		reader := bufio.NewReader(resp.Body)
 		var acc StreamResult
+		var usage Usage
+		finished := false
+		done := func() {
+			reply := acc.FinalReply()
+			reply.Usage = usage
+			recordUsage(ctx, usage)
+			out <- StreamChunk{Event: StreamDone, Reply: reply}
+		}
 		for {
 			line, err := reader.ReadBytes('\n')
 			if err != nil {
 				if err == io.EOF {
-					out <- StreamChunk{Event: StreamDone, Reply: acc.FinalReply()}
+					done()
 				} else {
 					out <- StreamChunk{Event: StreamError, Error: err}
 				}
@@ -760,12 +791,20 @@ func (c *Client) callOpenAIToolsStream(ctx context.Context, messages []Message, 
 			}
 			payload := bytes.TrimPrefix(line, []byte(dataPrefix))
 			if string(payload) == "[DONE]" {
-				out <- StreamChunk{Event: StreamDone, Reply: acc.FinalReply()}
+				done()
 				return
 			}
 			var chunk openAIStreamChunk
 			if err := json.Unmarshal(payload, &chunk); err != nil {
 				continue
+			}
+			if u := chunk.Usage.usage(); u.Total() > 0 {
+				usage = u
+				if finished {
+					// The usage chunk is the last thing a stream that asked for it sends.
+					done()
+					return
+				}
 			}
 			if len(chunk.Choices) == 0 {
 				continue
@@ -792,8 +831,15 @@ func (c *Client) callOpenAIToolsStream(ctx context.Context, messages []Message, 
 			// only tool_calls — is what keeps a provider that omits [DONE] and
 			// holds the connection open from hanging the caller until the
 			// client timeout expires.
+			//
+			// The one exception is a stream that asked OpenAI for its usage and has not had it:
+			// OpenAI sends it on the next chunk and then [DONE], so reading on cannot hang there.
 			if chunk.Choices[0].FinishReason != "" {
-				out <- StreamChunk{Event: StreamDone, Reply: acc.FinalReply()}
+				if wantUsage && usage.Total() == 0 {
+					finished = true
+					continue
+				}
+				done()
 				return
 			}
 		}
@@ -829,6 +875,7 @@ type anthropicResponse struct {
 		// Input is the Anthropic function arguments object.
 		Input map[string]any `json:"input"`
 	} `json:"content"`
+	Usage *anthropicUsage `json:"usage"`
 	Error *struct {
 		Message string `json:"message"`
 	} `json:"error,omitempty"`
@@ -877,6 +924,7 @@ func (c *Client) callAnthropic(ctx context.Context, messages []Message) (string,
 	if err := json.Unmarshal(data, &resp); err != nil {
 		return "", fmt.Errorf("unreadable Anthropic response: %w", err)
 	}
+	recordUsage(ctx, resp.Usage.usage())
 	if resp.Error != nil && resp.Error.Message != "" {
 		return "", &HTTPError{Code: 400, Body: resp.Error.Message}
 	}
@@ -914,11 +962,12 @@ func (c *Client) callAnthropicTools(ctx context.Context, messages []Message, too
 	if err := json.Unmarshal(data, &resp); err != nil {
 		return Reply{}, fmt.Errorf("unreadable Anthropic response: %w", err)
 	}
+	recordUsage(ctx, resp.Usage.usage())
 	if resp.Error != nil && resp.Error.Message != "" {
 		return Reply{}, &HTTPError{Code: 400, Body: resp.Error.Message}
 	}
 
-	reply := Reply{FinishReason: "stop"}
+	reply := Reply{FinishReason: "stop", Usage: resp.Usage.usage()}
 	for _, part := range resp.Content {
 		switch part.Type {
 		case "text":
@@ -1034,7 +1083,8 @@ type geminiResponse struct {
 		} `json:"content"`
 		FinishReason string `json:"finishReason"`
 	} `json:"candidates"`
-	Error *struct {
+	UsageMetadata *geminiUsage `json:"usageMetadata"`
+	Error         *struct {
 		Message string `json:"message"`
 	} `json:"error,omitempty"`
 }
@@ -1084,6 +1134,7 @@ func (c *Client) callGemini(ctx context.Context, messages []Message) (string, er
 	if err := json.Unmarshal(data, &resp); err != nil {
 		return "", fmt.Errorf("unreadable Gemini response: %w", err)
 	}
+	recordUsage(ctx, resp.UsageMetadata.usage())
 	if resp.Error != nil && resp.Error.Message != "" {
 		return "", &HTTPError{Code: 400, Body: resp.Error.Message}
 	}
@@ -1129,6 +1180,7 @@ func (c *Client) callGeminiTools(ctx context.Context, messages []Message, tools 
 	if err := json.Unmarshal(data, &resp); err != nil {
 		return Reply{}, fmt.Errorf("unreadable Gemini response: %w", err)
 	}
+	recordUsage(ctx, resp.UsageMetadata.usage())
 	if resp.Error != nil && resp.Error.Message != "" {
 		return Reply{}, &HTTPError{Code: 400, Body: resp.Error.Message}
 	}
@@ -1136,7 +1188,7 @@ func (c *Client) callGeminiTools(ctx context.Context, messages []Message, tools 
 		return Reply{}, errors.New("gemini returned a response with no candidates (safety block?)")
 	}
 
-	reply := Reply{FinishReason: resp.Candidates[0].FinishReason}
+	reply := Reply{FinishReason: resp.Candidates[0].FinishReason, Usage: resp.UsageMetadata.usage()}
 	for i, part := range resp.Candidates[0].Content.Parts {
 		if part.Text != "" && !part.Thought {
 			reply.Content += part.Text

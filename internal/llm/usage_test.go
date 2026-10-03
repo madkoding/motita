@@ -49,3 +49,13 @@ func TestRecordUsageWithoutAMeterOrUsageDoesNothing(t *testing.T) {
 		t.Fatal("a nil meter must leave the context as it is")
 	}
 }
+
+func TestNestedMetersAllRecordTheCall(t *testing.T) {
+	run, agent := &Meter{}, &Meter{}
+	ctx := WithMeter(WithMeter(context.Background(), run), agent)
+	recordUsage(ctx, Usage{Input: 3})
+	recordUsage(WithMeter(context.Background(), run), Usage{Output: 1})
+	if run.Usage() != (Usage{Input: 3, Output: 1}) || agent.Usage() != (Usage{Input: 3}) {
+		t.Fatalf("run=%+v agent=%+v", run.Usage(), agent.Usage())
+	}
+}

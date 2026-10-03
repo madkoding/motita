@@ -113,7 +113,11 @@ type claudeEvent struct {
 			Text       string `json:"text"`
 			StopReason string `json:"stop_reason"`
 		} `json:"delta"`
+		// Usage is a message's whole consumption, on its message_delta.
+		Usage *anthropicUsage `json:"usage"`
 	} `json:"event"`
+	// Usage is the whole turn's consumption, on the result event.
+	Usage    *anthropicUsage `json:"usage"`
 	Response json.RawMessage `json:"response"`
 	// StructuredOutput is the object a --json-schema turn produced, repeated on its result.
 	StructuredOutput json.RawMessage `json:"structured_output"`
@@ -385,6 +389,10 @@ func (p *claudeProcess) replay(frames []claudeFrame) error {
 func (p *claudeProcess) readTurn(onText func(string)) (Reply, error) {
 	var reply, msg Reply // what the turn has, and what the current message adds
 	stop := ""
+	// A turn usually ends at a message_stop, before claude prints its result, so what it
+	// consumed is added up message by message; the result's totals replace the sum when they
+	// do arrive, because they also count what no message_delta reported.
+	var msgUsage Usage
 	keep := func() {
 		reply.Content += msg.Content
 		reply.Calls = append(reply.Calls, msg.Calls...)
@@ -409,14 +417,16 @@ func (p *claudeProcess) readTurn(onText func(string)) (Reply, error) {
 		case "stream_event":
 			switch ev.Event.Type {
 			case "message_start":
-				msg, stop = Reply{}, ""
+				msg, stop, msgUsage = Reply{}, "", Usage{}
 			case "content_block_delta":
 				if ev.Event.Delta.Type == "text_delta" && onText != nil {
 					onText(ev.Event.Delta.Text)
 				}
 			case "message_delta":
 				stop = ev.Event.Delta.StopReason
+				msgUsage = ev.Event.Usage.usage()
 			case "message_stop":
+				reply.Usage, msgUsage = reply.Usage.Add(msgUsage), Usage{}
 				final := stop == "end_turn" || stop == "tool_use" || stop == "stop_sequence"
 				if final && (msg.Content != "" || len(msg.Calls) > 0) {
 					// ponytail: claude may start another upstream request after message_stop
@@ -453,6 +463,9 @@ func (p *claudeProcess) readTurn(onText func(string)) (Reply, error) {
 			}
 		case "result":
 			keep()
+			if u := ev.Usage.usage(); u.Total() > 0 {
+				reply.Usage = u
+			}
 			if reply.Content == "" && len(reply.Calls) == 0 && len(ev.StructuredOutput) > 0 && string(ev.StructuredOutput) != "null" {
 				reply.Content = string(ev.StructuredOutput)
 			}
@@ -518,7 +531,12 @@ func (c *Client) callClaudeCode(ctx context.Context, messages []Message, tools [
 	if err := p.replay(frames); err != nil {
 		return Reply{}, err
 	}
-	return p.readTurn(onText)
+	reply, err := p.readTurn(onText)
+	if err != nil {
+		return Reply{}, err
+	}
+	recordUsage(ctx, reply.Usage)
+	return reply, nil
 }
 
 // callClaudeCodeText is Complete's single call: text only, no tools.
