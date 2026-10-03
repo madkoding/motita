@@ -66,6 +66,8 @@ func (t *TUI) startTurn(runCtx context.Context, tr *turn) {
 // queued while it ran.
 func (t *TUI) endCurrent(ctx context.Context, out runOutcome) {
 	tr := t.current
+	// Lines still queued when the outcome arrived belong to this turn; see awaitRun.
+	drainProgress(tr.progress, tr.onProgress)
 	t.current = nil
 	tr.tick.Stop()
 	// A confirmation still open belongs to a turn that is over: nobody is waiting for the answer,

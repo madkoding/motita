@@ -159,10 +159,13 @@ func TestAwaitRunKeepsDrainingProgressWhileTheTurnRuns(t *testing.T) {
 	var seen []string
 	out := (&TUI{}).awaitRun(context.Background(), progress, done, func(p string) { seen = append(seen, p) })
 
-	// The outcome may win the first select, which is correct: the caller drains the
-	// rest of the buffer itself. What must hold is that the answer is the runner's.
+	// The outcome may win the first select; the lines still queued are applied before it is
+	// returned, in order. The last one is often the run's final agents snapshot.
 	if out.result != "the answer" {
 		t.Errorf("result = %q", out.result)
+	}
+	if strings.Join(seen, ",") != "first,second" {
+		t.Errorf("seen = %v, want every queued line in order", seen)
 	}
 }
 
