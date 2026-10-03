@@ -116,6 +116,15 @@ type Agent struct {
 	// a script has no user, and a command that needs approval in that situation is refused
 	// rather than run on the user's behalf. See Approver.
 	approver Approver
+
+	// fleet is the run's agents and member is this agent's row in it; subs is what the main agent
+	// started with spawn_agent. isChild marks a background agent (it cannot start agents), and
+	// research one that is read-only because there was no worktree to give it. See subagents.go.
+	fleet    *Fleet
+	member   *fleetMember
+	subs     *subagents
+	isChild  bool
+	research bool
 }
 
 // SetObserver allows external callers (such as the TUI) to register a callback
@@ -830,6 +839,11 @@ func (a *Agent) report(format string, args ...any) {
 	if a.Progress != nil {
 		a.Progress(format, args...)
 	}
+	// The main agent's latest line is its activity in the fleet. A background agent's Progress
+	// already is exactly that, and nothing else.
+	if a.member != nil && !a.isChild {
+		a.noteActivity(fmt.Sprintf(format, args...))
+	}
 }
 
 // Run processes tasks from the source until it is exhausted (io.EOF) or the
@@ -964,8 +978,13 @@ func (a *Agent) Run(ctx context.Context) error {
 func (a *Agent) processTask(ctx context.Context, t task.Task, depth int) TaskResult {
 	if depth == 0 {
 		a.begin(t)
+		a.startFleet(t)
 	}
 	r := a.loop(ctx, t, depth)
+	if depth == 0 {
+		// Whatever way the loop ended, nothing it started keeps running behind it.
+		a.endFleet(r)
+	}
 	if a.Observer != nil {
 		a.Observer(r)
 	}
@@ -1354,6 +1373,7 @@ func (a *Agent) loop(ctx context.Context, t task.Task, depth int) TaskResult {
 			return res
 		}
 		res.Attempts = round
+		a.noteRound(round)
 
 		// [6] The LLM proposes the concrete action.
 		a.report("deciding action (round %d/%d)...", round, maxSteps*(1+(round-1)/maxSteps))
@@ -1404,6 +1424,11 @@ func (a *Agent) loop(ctx context.Context, t task.Task, depth int) TaskResult {
 		mem.setNotes(action.Notes)
 		mem.executed, mem.recalled = 0, 0
 		runOutput, runErr := a.runRound(ctx, action.Actions, prefix, mem, round)
+		// The background agents that finished since the last round report here, so the model reads
+		// their results without having to ask for them.
+		if reports := a.takeReports(nil); reports != "" {
+			runOutput += reports
+		}
 		if strings.TrimSpace(runOutput) != "" {
 			fmt.Fprintf(&workLog, "## Round %d\n%s\n", round, runOutput)
 		}
@@ -1473,6 +1498,13 @@ func (a *Agent) loop(ctx context.Context, t task.Task, depth int) TaskResult {
 		}
 		repeats, lastSignature = 0, ""
 
+		// [7a] A claim of "done" while background agents are still running. Their work would be
+		// cancelled and their reports never read, so the claim is sent back ONCE; a second claim
+		// means the run does not need them, and they are cancelled.
+		if a.holdForChildren(round, proposedCommands(action), &journal) {
+			continue
+		}
+
 		// [7b] A claim of "done" over a tree that has not changed. Reported from a real session:
 		// thirteen rounds of reading, no file written, "done" - and the anchor PASSED, because the
 		// project's lint, typecheck and tests are green on code nobody touched. The run closed as
@@ -1483,7 +1515,7 @@ func (a *Agent) loop(ctx context.Context, t task.Task, depth int) TaskResult {
 		// about the code) is not blocked - the model says so and claims done again, and that claim
 		// goes through. What it can no longer do is finish a change it never made without being
 		// asked whether that is what it meant.
-		if cur, ok := treeFingerprint(a.cfg.Agent.WorkspaceDir, true); ok && baselineOK && cur == baseline && unbackedDone == 0 && readOnlyRounds >= doneGuardAfter {
+		if cur, ok := treeFingerprint(a.cfg.Agent.WorkspaceDir, true); ok && baselineOK && cur == baseline && unbackedDone == 0 && readOnlyRounds >= doneGuardAfter && !a.research {
 			unbackedDone++
 			a.report("done claimed but nothing has been changed yet; asking the model to confirm")
 			a.log.Warn(prefix+"done claimed over an unchanged working tree", "round", round)
@@ -1520,9 +1552,7 @@ func (a *Agent) loop(ctx context.Context, t task.Task, depth int) TaskResult {
 
 		// [8] The model claims the task is done: validate with the anchor, always.
 		a.report("validating with anchor...")
-		validation := anchor.New(a.cfg.Anchor, a.cfg.Agent.WorkspaceDir, a.sandbox).
-			WithTools(a.cfg.Sandbox.ToolsDir, a.cfg.Sandbox.CheckTimeout).Validate(ctx)
-		validation = before.judge(ctx, validation)
+		validation := a.validateClaim(ctx, before)
 		res.Validation = &validation
 
 		if validation.Pass && runErr == nil {
@@ -2042,6 +2072,10 @@ func (a *Agent) synthesizePhase(ctx context.Context, t task.Task, output string,
 // ask renders the prompt and calls the LLM, logging any variables that were
 // missing (unfilled gaps in a user template).
 func (a *Agent) ask(ctx context.Context, p config.Template, vars map[string]string, phase string) (string, error) {
+	// Every call this agent makes is counted on its row of the fleet.
+	if a.member != nil {
+		ctx = llm.WithMeter(ctx, a.member.meter)
+	}
 	system, missingS := template.Render(p.System, vars)
 	user, missingU := template.Render(p.User, vars)
 	if len(missingS)+len(missingU) > 0 {
@@ -2349,6 +2383,16 @@ func (a *Agent) runRound(ctx context.Context, actions []Command, prefix string, 
 		// kind, because that is how this mode names things — the same four operations the
 		// planner exposes as tools, reachable from here too.
 		if kind := strings.ToLower(strings.TrimSpace(action.Kind)); kind != "" && kind != "command" {
+			// A background agent started or waited for (see subagents.go).
+			if handled, out, refusal := a.runAgentAction(ctx, kind, action); handled {
+				fmt.Fprintf(&sb, "[%s] %s\n%s\n", kind, action.Description, out)
+				a.report("running: %s %s", kind, firstLineOf(action.Command))
+				a.log.Info(prefix+"agent action", "kind", kind, "command", truncate(firstLineOf(action.Command), 120))
+				if refusal != nil {
+					lastErr = fmt.Errorf("action %d (%s) was refused: %w", i+1, kind, refusal)
+				}
+				continue
+			}
 			// A file written by the program itself (see fileactions.go). It is a write, so the
 			// kept reads are checked against the tree exactly as after a shell write.
 			if handled, out, refusal := a.runFileAction(kind, action); handled {
@@ -2383,7 +2427,7 @@ func (a *Agent) runRound(ctx context.Context, actions []Command, prefix string, 
 			// and answers with a kind that exists.
 			if strings.TrimSpace(action.Command) != "" || strings.TrimSpace(action.Description) != "" {
 				fmt.Fprintf(&sb, "[%s] %s\n[refused: %q is not an action this mode has. "+
-					"Available: command, write_file, edit_file, list_skills, search_skills, read_skill, save_skill. "+
+					"Available: command, write_file, edit_file, spawn_agent, wait_agents, list_skills, search_skills, read_skill, save_skill. "+
 					"To run a shell command, use kind \"command\".]\n",
 					kind, action.Description, kind)
 				a.log.Warn(prefix+"action with an unknown kind",

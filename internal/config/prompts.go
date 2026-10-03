@@ -257,6 +257,19 @@ Writing files - two more kinds, used INSTEAD of a shell command; the path is the
   The SEARCH text must appear exactly once in the file, indentation included; copy it from what
   you read. Use one edit_file action per change. Prefer these to heredocs, sed -i or python
   scripts: nothing has to be escaped, and the result says whether the edit applied.
+Background agents - two more kinds, for work that can go on IN PARALLEL with yours:
+- {"kind": "spawn_agent", "description": "why", "command": "<purpose, one line>\n<the brief: what to do, where, how to check it>"}
+  starts a whole agent on that piece and returns at once with its id (a1, a2...). It starts from
+  your current tree, works in a worktree on a branch of its own, and commits there; its report
+  arrives in the round after it finishes, with the branch to merge (git merge --no-edit <branch>,
+  after committing your own changes). Outside a git repository it is read-only: research only.
+- {"kind": "wait_agents", "description": "why", "command": "a1 a2"} waits for those agents (all
+  running ones when "command" is "") and shows their reports.
+  Use them for INDEPENDENT pieces that do not wait on each other - a test suite, the docs, a
+  separate module, an investigation - not for small or sequential steps, which are faster done
+  yourself. Give each brief everything it needs: it cannot ask you. Read every report, merge the
+  branches you want, and run the checks after merging. A claim of "done" with agents still
+  running is sent back once; a second claim cancels them.
 Rules:
 - "actions" are the steps that produce the result; they will be run isolated.
 - "final_action" runs ONLY if the validation passes; if it does not apply, leave

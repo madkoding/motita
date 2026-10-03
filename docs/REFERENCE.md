@@ -485,7 +485,7 @@ honoured. The documented one wins when both are set.
 | `llm` | `provider` (`openai`/`anthropic`/`gemini`), `model`, `api_key`, `base_url`, `max_tokens`, `temperature`, `timeout`, `max_attempts`, `backoff_initial`, `backoff_max`, `reasoning{enabled,level}`, `session{context_window,reserve,compact_at,keep_recent}` |
 | `prompts` | `analyze`, `plan`, `execute`, `synthesize`, each with `system` and `user` |
 | `final_action` | `kind` (`none`/`command`/`api`/`git_commit`), `command`, `args`, `url`, `method`, `commit_message` |
-| `agent` | `max_retries`, `max_steps`, `subtask_depth`, `max_tasks`, `workspace_dir`, `log_file`, `log_level`, `log_console`, `log_max_mb`, `log_backups`, `graceful_shutdown_timeout`, `read_only`, `shell`, `policy{enforce,strict}`, `on_failure` |
+| `agent` | `max_retries`, `max_steps`, `subtask_depth`, `max_parallel` (background agents started with `spawn_agent` running at once, default `3`; `0` turns it off), `max_tasks`, `workspace_dir`, `log_file`, `log_level`, `log_console`, `log_max_mb`, `log_backups`, `graceful_shutdown_timeout`, `read_only`, `shell`, `policy{enforce,strict}`, `on_failure` |
 | `skills` | `dir`, `max_file_bytes` |
 | `gateway` | `enabled`, `listen`, `token_file`, `allow`, `max_body_kb` |
 | `schedule` | `enabled`, `tick`, `min_every`, `max_runs_kept` |
