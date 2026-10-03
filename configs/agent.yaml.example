@@ -170,6 +170,7 @@ final_action:
 agent:
   max_retries: 3               # total attempts = max_retries + 1
   subtask_depth: 1             # allowed splitting levels
+  max_parallel: 3              # background agents (spawn_agent) running at once; 0 = off
   max_tasks: 0                 # 0 = no limit
   workspace_dir: ./workspace
   log_file: ./workspace/motita.log   # empty = console only
