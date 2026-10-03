@@ -38,7 +38,7 @@ task_source:
 # Layer A — THE ANCHOR (deterministic validator)
 # ---------------------------------------------------------------------------
 anchor:
-  kind: command        # command | none
+  kind: command        # auto (read the project's own gate) | command | none
   command: make        # run as is, with no reasoning
   args: [test]
   timeout: 120s

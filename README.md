@@ -10,6 +10,11 @@ stops.
 One static binary. No Docker. No dependencies. It runs on a 2008 netbook with
 484 MB of RAM.
 
+Bring your own model: an API key, or a subscription you already pay for (ChatGPT,
+GitHub Copilot, Claude, Qwen). Give it a big job and it can split the work across
+background agents, each on its own git branch, and show you what every one of them is
+doing, for how long and at what cost in tokens.
+
 ---
 
 ## The problem with every other agent
@@ -31,7 +36,7 @@ motita splits every task in three, and the model only ever gets to *propose*.
 ```mermaid
 flowchart TD
     T([Task]) --> B["<b>B · Reasoning engine</b><br/>Reads the task, proposes an action.<br/><i>It never gets to declare success.</i>"]
-    B --> C["<b>C · Sandbox</b><br/>Runs the action in its own directory, under real<br/>limits: memory, CPU, time, no network."]
+    B --> C["<b>C · Sandbox</b><br/>Runs the action in its own directory, under real<br/>limits: memory, CPU, time, and no network when you say so."]
     C --> A["<b>A · The anchor</b> — <i>your code, not AI</i><br/>Runs your check: exit code, output pattern,<br/>your own invariants. It has no opinions."]
     A --> V{"What does the<br/>check say?"}
     V -- "FAIL" --> R["The failing command, its real output and<br/>the verdict go back to the model"]
@@ -46,15 +51,16 @@ flowchart TD
 ```
 
 **The one rule that makes it work: the model can *propose* a `PASS`, but only
-layer A can *declare* one.** With no anchor configured, the agent refuses to
-start. There is no "trust me" mode — a `PASS` with nothing behind it is the exact
-failure this architecture exists to prevent.
+layer A can *declare* one.** With no real check behind it, nothing is ever declared
+`PASS`: a batch run with `anchor.kind: none` refuses to start, and an interactive one
+reports every result as unverified. There is no "trust me" mode — a `PASS` with nothing
+behind it is the exact failure this architecture exists to prevent.
 
 | Layer | What it is | Why it matters |
 |---|---|---|
-| **A · The anchor** | Deterministic code. Runs your command, checks the exit code, matches the output against a pattern, asserts your invariants. | It cannot be talked into a different answer. Fast, boring, predictable. |
-| **B · The reasoning engine** | A hand-written client for the OpenAI chat and Responses APIs, Anthropic, Gemini, Copilot and Qwen. | Point it at OpenAI, Codex, Claude, Gemini, Qwen, Copilot, Ollama (local or Cloud), Groq, OpenRouter, DeepSeek, or your own box. Nothing else in the agent knows which. |
-| **C · The sandbox** | Runs the proposed action in an ephemeral directory under real limits. | And it **tells you what it could not apply** instead of pretending the isolation is stronger than it is. |
+| **A · The anchor** | Deterministic code. By default it **reads the gate the project already declares** (`.motita/anchor`, a Makefile's `check`/`test`, `go test ./...`, a `package.json`'s `lint`/`typecheck`/`test`, `cargo test`, `pytest`); or it runs your own command and checks, exit code and output pattern. | It cannot be talked into a different answer. Fast, boring, predictable. |
+| **B · The reasoning engine** | A hand-written client for the OpenAI chat and Responses APIs, Anthropic, Gemini, Copilot and Qwen, plus the official `claude` CLI for a Claude subscription. It counts the tokens each provider reports, per agent. | Point it at OpenAI, Codex, Claude, Gemini, Qwen, Copilot, Ollama (local or Cloud), Groq, OpenRouter, DeepSeek, or your own box. Nothing else in the agent knows which. |
+| **C · The sandbox** | Runs the proposed action under real limits, with its HOME, temporary files and installed toolchains kept **outside** your repository. | And it **tells you what it could not apply** instead of pretending the isolation is stronger than it is. |
 
 ## Why that changes what you get
 
@@ -87,6 +93,35 @@ on every commit.
 any failed, `2` for a bad configuration. Drop it in cron or systemd and it behaves
 like a program, not like a chatbot.
 
+## Long tasks, without wasted rounds
+
+A check that decides is only half of it; the other half is getting there without
+burning the round budget. A real session on this repository is the reason for most of
+what follows: about 130 rounds over 35 minutes, 51 replies that could not be used, 22
+rounds spent installing a toolchain, and a gate that could never pass because `make` was
+not on its `PATH`. The same kind of task now finishes in about a minute.
+
+- **Replies that can't come back malformed.** With the `claude-code` provider the next
+  action is requested with a JSON schema the CLI enforces. With every other provider the
+  reply is read tolerantly: every candidate is tried, stray control characters are
+  repaired, and commands written as pseudo tool calls are still read as commands.
+- **Files are written, not escaped.** `write_file` and `edit_file` (one exact
+  search/replace block) change files without a heredoc or an inline script, confined to
+  the workspace and refused in read-only mode.
+- **Toolchains are installed once.** Commands run with `HOME` and `TMPDIR` under
+  `sandbox.tools_dir` (`~/.motita-tools` by default), outside the repository; a toolchain
+  unpacked into `tools/<name>/` is on `PATH` from the next command, in every later
+  session, and for the anchor too. Long gates get `sandbox.check_timeout` (15 minutes)
+  instead of the per-command limit.
+- **A failing check is not waved through.** A claim of done while a check the run
+  executed itself is still red is sent back, including one whose exit status was hidden
+  behind `| tail`.
+- **Old failures are named, not blamed.** When the project's own gate fails on a claim
+  of done, the failing checks are run once on a clean checkout of the tree the run
+  started from (`anchor.baseline`). A check that failed there too is reported as
+  already failing; one that passed there is a breakage the run caused, and the rejection
+  says so. A check you configured states the goal and is never excused this way.
+
 ## It runs where nothing else runs
 
 motita is written in **pure Go: standard library only, zero external
@@ -102,7 +137,7 @@ you'll regret in two years.
 | **Linux** | `386`, `amd64`, `arm` (ARMv7), `arm64` |
 | **Windows** | `386`, `amd64`, `arm64` |
 | **macOS** | `amd64`, `arm64` |
-| **Published size** | 17.1 – 18.1 MiB per binary (measured on all 9 released targets with this toolchain) |
+| **Published size** | 18.2 – 19.2 MiB per binary (measured on all 9 targets built from this tree) |
 
 `386` is a **first-class target**, not an afterthought nobody tests. The
 end-to-end suite builds the agent and runs it inside a real 32-bit container, so
@@ -307,9 +342,8 @@ motita -connect 127.0.0.1:7477 -p "how many files are there?"
 
 A process in `-connect` mode builds **no sandbox, no procedure library and no reasoning
 engine** — all three belong to the machine running the gateway. That is what lets it run
-where the agent could never run: a laptop, a phone, a tablet. Reach a gateway on another
-host through a tunnel (`ssh -N -L 7477:127.0.0.1:7477 the-host`); there is no TLS in this
-version.
+where the agent could never run: a laptop, a phone, a tablet — through the tunnel
+above.
 
 Inside the interface, `/sessions` lists the conversations the gateway holds — marking the
 one you are on and naming any with a run in flight — and `/attach <id>` moves to another
@@ -369,9 +403,27 @@ that, because the first reading sends people hunting for a key that was never me
 
 The page paints the conversation the gateway already has, streams a turn live, resumes
 from the last event it saw when the connection drops, and shows an approval with the
-command **whole**. It is compiled into the binary: **+28 KB** measured on the page's own
-shell, against the **560 KiB** budget the web interface is held to, and a test fails
-if the assets outgrow it.
+command **whole** (or, once you choose "allow all commands" for a session, says which
+command ran on that standing answer). Around the conversation:
+
+- **Answers rendered as Markdown**, and a conversation that does not move under you
+  while you read.
+- **A thinking drawer** with the model's reasoning as it streams, and **a terminal
+  drawer** with every command and its output.
+- **An agents drawer** with the run's background agents: purpose, state, elapsed time,
+  tokens (input, output, cache) and, once one finishes, its summary and the command that
+  merges its branch.
+- **The steps of a turn collapse into a counter** ("12 actions") that opens on click;
+  `gateway.show_actions: true` lists them instead.
+- **A report you can check** at the end of a task: what changed, how it was verified,
+  the risks, and the screenshots the agent saved under `.motita/previews/`, first.
+- **Projects and sessions** in the sidebar, checkpoints to go back, the skill library
+  and the schedules, and failures reported in a toast instead of a silent nothing.
+- It installs as an app (PWA).
+
+It is compiled into the binary: the shell every visit downloads is **596 KiB**, against a
+**1,120 KiB** budget, with the heavy parts (syntax highlighting, formulas, diagrams, the
+emoji set) loaded only when a message needs them. A test fails if the assets outgrow it.
 
 ### More than one conversation at a time
 
@@ -399,27 +451,29 @@ curl -X DELETE -H "Authorization: Bearer $TOKEN" \
 | Endpoint | What it does |
 |---|---|
 | `GET /v1/health` | the only one that needs no token: liveness |
-| `GET` `POST /v1/sessions` | list what is held, or open one more |
-| `DELETE /v1/sessions/{id}` | close one and get its memory back, its worktree included |
-| `GET /v1/sessions/{id}` | that conversation's figures, `running` included |
-| `POST /v1/sessions/{id}/task` | run a task, streamed as server-sent events |
-| `POST /v1/sessions/{id}/plan` | the same, read-only |
-| `POST /v1/sessions/{id}/runs/approval` | answer a pending confirmation |
-| `GET /v1/sessions/{id}/report` | the conversation so far |
-| `GET /v1/sessions/{id}/config` `/models` `/reward` `/questions` | the read-only views |
-| `POST /v1/sessions/{id}/reasoning` `/model` `/verdict` `/reset` | change the budget or the model, grade a turn, start over |
+| `GET` `POST /v1/projects` · `DELETE /v1/projects/{id}` | the repositories motita works on; adding one runs `git init` when it is not a repository yet |
+| `GET /v1/projects/{id}/deletion-preview` | what deleting a project would discard, before you confirm with `?force=1` |
+| `GET` `POST /v1/sessions` | list what is held, or open one more (in a project: its own worktree and branch) |
+| `GET` `PATCH` `DELETE /v1/sessions/{id}` | that conversation's figures (`running`, `agents_running`, branch, changes), rename it, or close it and give its worktree back |
+| `GET /v1/sessions/{id}/deletion-preview` | the uncommitted work a deletion would lose; `DELETE …?force=1` confirms |
+| `POST /v1/sessions/{id}/task` `/plan` | run a task (or a read-only one), streamed as server-sent events |
+| `GET /v1/sessions/{id}/events?from=<seq>` `/run` | re-attach to the run in flight from the last event seen, or ask whether there is one |
+| `POST /v1/sessions/{id}/cancel` | stop the run |
+| `POST /v1/sessions/{id}/runs/approval` `/auto-approve` | answer a pending confirmation, or allow every command for this session |
+| `GET /v1/sessions/{id}/agents` | the run's agents: purpose, state, elapsed time, tokens, branch |
+| `GET /v1/sessions/{id}/checkpoints` · `POST …/checkpoints/{turn}/restore` | the turns you can go back to; the conversation always rewinds, the files only with `{"files":true}` |
+| `POST /v1/sessions/{id}/merge` `/continue` | the agent integrates the session's branch (the session becomes read-only), or a fresh session starts from the updated base |
+| `GET /v1/sessions/{id}/messages` `/report` | the transcript, and the conversation so far |
+| `GET /v1/sessions/{id}/config` `/models` `/model-list` `/providers` `/reward` `/questions` `/skills` | the read-only views |
+| `PATCH /v1/sessions/{id}/config` · `POST …/reasoning` `/verdict` `/reset` | change the provider or the model, the thinking budget, grade a turn, start over |
 | `POST /v1/sessions/{id}/config/reload` | apply the configuration file as it is now (what `/config` calls after the setup) |
 | `GET /v1/sessions/{id}/ws` | **WebSocket**: bidirectional, flag-based message protocol (see below) |
-| `GET` `POST /v1/schedules` | list the tasks that fire on their own, or add one |
-| `PATCH` `DELETE /v1/schedules/{id}` | pause, retarget or remove one |
-| `POST /v1/schedules/{id}/run` | run it now, without moving its cadence |
-| `GET` `POST /v1/skills` | the procedure library's index, or write one |
-| `GET /v1/skills/{name}` | one document, body included |
-| `GET /v1/skills/archived` | what the curator moved aside |
-| `POST /v1/skills/{name}/pin` `/restore` | exempt it from curation, or bring it back |
-| `POST /v1/skills/{name}/disable` | turn it off: the agent stops seeing it, the document stays |
-| `DELETE /v1/skills/{name}` | delete one for good; a shipped procedure is refused with `409` |
+| `GET` `POST /v1/schedules` · `PATCH` `DELETE /v1/schedules/{id}` · `POST …/run` | tasks that fire on their own: list, add, pause, retarget, remove, run now |
+| `GET` `POST /v1/skills` · `GET` `DELETE /v1/skills/{name}` · `GET /v1/skills/archived` | the procedure library: index, write, read, delete (a shipped one is refused with `409`), the archive |
+| `POST /v1/skills/{name}/pin` `/restore` `/disable` | exempt one from curation, bring it back, or turn it off |
 | `GET /v1/curator` `POST /v1/curator/run` | the maintenance pass: report it, or run one |
+| `GET /v1/update/check` `POST /v1/update/run` | is there a newer release, and install it (verified against `SHA256SUMS`) |
+| `GET /v1/commands` | the slash commands, for a client that offers them |
 
 The default conversation belongs to the process that started the gateway: closing it
 is refused, because that process would be left talking to a conversation that no
@@ -439,6 +493,49 @@ well known uses it, and it sits below the ephemeral range a Linux box hands out 
 default. Some hosts widen that range (this one goes down to 1024), in which case a
 fixed port can occasionally collide with an outgoing connection — if a start fails
 with `address already in use`, pick another with `-gateway 127.0.0.1:<port>`.
+
+### Projects, sessions, and going back
+
+Point motita at a repository and it becomes a **project**. Every session in a project
+works in **its own git worktree on its own branch** (`motita/<session>`), with the
+project's dependency folders (`node_modules`, `.venv`, `vendor`, …) linked rather than
+reinstalled. Two sessions never step on each other's files, and your own checkout is
+never touched while they work.
+
+- **Every turn is a checkpoint.** Go back to any of them: the conversation always
+  rewinds, and the files too when you ask, after the current state is saved where it can
+  be recovered.
+- **The agent integrates its own work.** Ask for it (the button in the browser, or
+  `POST …/merge`) and the agent commits what is left and merges the branch into the
+  project's; the session then becomes read-only, and *continue* opens a fresh session
+  from the updated base.
+- **Deleting asks first.** A session or project with uncommitted work shows exactly
+  which files would be lost, and nothing is discarded until you confirm.
+- **Procedures can belong to a project.** `<project>/.motita/skills/` is searched first
+  and shadows the shared library.
+
+### Background agents, side by side
+
+A task with independent pieces doesn't have to be done one piece at a time. The agent
+can start **background agents** (`spawn_agent`) and collect them later (`wait_agents`):
+
+- Each one starts from a snapshot of the current tree (uncommitted work included) and
+  works in **its own worktree, on its own branch** (`motita/sub/…`). When it finishes,
+  its report says what it did, how many files changed, and the command that merges it.
+- At most `agent.max_parallel` run at once (3 by default; `0` turns the feature off). A
+  claim of done while one is still running is sent back once; a second one cancels it.
+- A background agent is held to **the project's own gate**, not to a check that states
+  the whole task's goal, which one piece of it could never pass; the main agent's check
+  judges the merged result.
+- Nobody is watching a background agent, so it **never opens a question**: in a session
+  where you allowed every command it runs what the main agent could, and otherwise a
+  command that needs approval is refused with a reason.
+- **You see all of it**: purpose, state, elapsed time, round, current activity and the
+  tokens each one has spent, in the terminal (`Ctrl+G` or `/agents`, and a
+  `≡ 2 running · 48.2k tok` segment in the footer) and in the browser's agents drawer.
+
+Outside a repository there is nothing to branch, so a background agent runs read-only
+and is good for research and review.
 
 ### WebSocket: a bidirectional flag protocol
 
@@ -563,8 +660,14 @@ ports — they are **two views of one conversation**.
 | `/reasoning` | cycle the thinking budget |
 | `/good` `/bad` | tell the agent how a turn went |
 | `/value` | see what it has learned from those verdicts |
-| `/update` | install the newest release (the welcome screen says when there is one; the download must match the release's `SHA256SUMS`, or nothing is installed) |
-| `/session` `/find` `/new` `/help` | context, search, fresh start, help |
+| `/agents` or `Ctrl+G` | open or close the panel of the run's agents: purpose, state, elapsed time, round, tokens, activity |
+| `/sessions` `/attach <id>` | the conversations the gateway holds, and move to another one |
+| `/config` | run the setup again; the new configuration applies to the session you are in |
+| `/update` | install the newest release (the welcome screen says when there is one; the download must match the release's `SHA256SUMS`, or nothing is installed); a `-serve` gateway restarts itself on the new binary, an interface tells you to restart it |
+| `/session` `/find` `/new` `/help` `/quit` | context, search, fresh start, help, leave |
+
+The steps a turn runs show as one line that counts them ("7 actions");
+`gateway.show_actions: true` lists every one instead.
 
 **Plan mode is structurally read-only**, and that word is doing real work:
 
@@ -591,6 +694,10 @@ paid for. The model looks one up when it needs it, and **writes a new one when i
 learns something**. They're files, so you can read them, fix them, and version
 them. The built-ins ship inside the binary, so a fresh install starts with a
 library instead of an empty shelf.
+
+Eight procedures ship with it: running commands, files and directories, git in a
+repository, calling an HTTP API, searching the web, installing a toolchain, verifying a
+change, and diagrams and reports.
 
 The shelf is not only about tools. Two of the documents that ship are about the
 **shape of the answer**: one for showing the work — a diagram of the flow, a
@@ -717,8 +824,8 @@ This is tested the way you'd test something you were about to bet on.
 | | |
 |---|---|
 | **Statement coverage** | **100% in every package that ships** — 30 of 31 (`./internal/... ./cmd/...`), checked package by package so a gap can't hide behind an average. `internal/review` is the one package without tests, and `tools/` holds the CI harnesses and is counted separately |
-| **Test functions** | 3,541 across 257 files |
-| **Code vs tests** | 42,920 lines of Go · 91,804 lines of test |
+| **Test functions** | 3,735 across 291 files |
+| **Code vs tests** | 47,237 lines of Go · 96,959 lines of test |
 | **External dependencies** | 0 |
 | **Platforms CI builds** | 9 — every one gets `-version` run in its own container on Linux, and a PE/Mach-O header + size check on Windows and macOS |
 
