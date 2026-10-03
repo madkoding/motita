@@ -82,6 +82,8 @@ type Gateway struct {
 	// It is on by default, because the interface arriving WITH the gateway is the point of it:
 	// a second deliberate act to get a page would defeat that.
 	WebUI bool `yaml:"webui"`
+	// ShowActions lists every command and action; false shows only a counter.
+	ShowActions bool `yaml:"show_actions"`
 }
 
 // TaskSource describes where the tasks come from.

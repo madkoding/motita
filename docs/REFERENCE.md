@@ -487,7 +487,7 @@ honoured. The documented one wins when both are set.
 | `final_action` | `kind` (`none`/`command`/`api`/`git_commit`), `command`, `args`, `url`, `method`, `commit_message` |
 | `agent` | `max_retries`, `max_steps`, `subtask_depth`, `max_parallel` (background agents started with `spawn_agent` running at once, default `3`; `0` turns it off), `max_tasks`, `workspace_dir`, `log_file`, `log_level`, `log_console`, `log_max_mb`, `log_backups`, `graceful_shutdown_timeout`, `read_only`, `shell`, `policy{enforce,strict}`, `on_failure` |
 | `skills` | `dir`, `max_file_bytes` |
-| `gateway` | `enabled`, `listen`, `token_file`, `allow`, `max_body_kb` |
+| `gateway` | `enabled`, `listen`, `token_file`, `allow`, `max_body_kb`, `webui`, `show_actions` (bool, default `false`: the chat shows a counter of the commands and actions a turn ran instead of each one; the web UI's counter expands on click) |
 | `schedule` | `enabled`, `tick`, `min_every`, `max_runs_kept` |
 
 `skills.dir` is the procedure library: the directory of documents the agent may
