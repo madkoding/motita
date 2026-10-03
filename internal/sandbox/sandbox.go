@@ -77,7 +77,11 @@ type Options struct {
 	Keep        bool
 	Timeout     time.Duration
 	MaxOutputKB int
-	Log         *logx.Logger
+	// ToolsDir is a persistent directory OUTSIDE every repository where the agent's
+	// toolchains, its HOME and its temporary directories live. Empty keeps the old
+	// layout (HOME and TMPDIR inside the working directory). See tools.go.
+	ToolsDir string
+	Log      *logx.Logger
 }
 
 // Sandbox runs commands in a controlled environment.
@@ -273,8 +277,10 @@ func (s *Sandbox) Run(ctx context.Context, p execx.Request) (string, bool, int, 
 	}
 	workDir = absWorkDir
 
-	// TMPDIR ephemeral and private to this run.
-	tempDir, err := os.MkdirTemp(s.base, "tmp-*")
+	// TMPDIR ephemeral and private to this run. It is created under the tools directory
+	// when there is one: inside the working directory every run left a tmp-* folder in
+	// the repository, in git status and in front of gofmt.
+	tempDir, err := os.MkdirTemp(s.tempRoot(), "tmp-*")
 	if err != nil {
 		return "", false, -1, fmt.Errorf("could not create the temporary directory: %w", err)
 	}
@@ -391,9 +397,13 @@ func (s *Sandbox) launch(ctx context.Context, command string, args []string, dir
 // agent's secrets and with TMPDIR pointing at the ephemeral temporary directory
 // of this run.
 func (s *Sandbox) environmentWithTmp(tempDir string) []string {
+	path, home := systemPath, s.base
+	if tools := s.toolsDir(); tools != "" {
+		path, home = ToolPath(tools, systemPath), filepath.Join(tools, "home")
+	}
 	base := []string{
-		"PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
-		"HOME=" + s.base,
+		"PATH=" + path,
+		"HOME=" + home,
 		"LANG=C.UTF-8",
 		"TMPDIR=" + tempDir,
 	}

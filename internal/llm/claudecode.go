@@ -36,6 +36,9 @@ const ClaudeCodeMCPCommand = "__claude-code-mcp"
 // claudeToolPrefix is how claude names a tool served by the "motita" MCP server.
 const claudeToolPrefix = "mcp__motita__"
 
+// claudeStructuredTool is the tool claude answers a --json-schema turn with.
+const claudeStructuredTool = "StructuredOutput"
+
 // writeFile and executable are indirected so their failures can be tested: a fresh
 // temporary directory does not refuse a write, and os.Executable does not fail, on demand.
 var (
@@ -112,6 +115,8 @@ type claudeEvent struct {
 		} `json:"delta"`
 	} `json:"event"`
 	Response json.RawMessage `json:"response"`
+	// StructuredOutput is the object a --json-schema turn produced, repeated on its result.
+	StructuredOutput json.RawMessage `json:"structured_output"`
 }
 
 // claudeFrames turns the conversation into the system prompt and the stream-json
@@ -173,7 +178,7 @@ func claudeThinks(r config.Reasoning) bool { return r.Enabled && r.Level != "off
 
 // claudeArgs is claude's command line for one turn, and the files it names, which
 // go in dir. self is this program, which claude starts as the tool server.
-func claudeArgs(cfg config.LLM, dir, system string, tools []Tool, self string) ([]string, map[string][]byte) {
+func claudeArgs(cfg config.LLM, dir, system string, tools []Tool, self string, schema json.RawMessage) ([]string, map[string][]byte) {
 	files := map[string][]byte{"system.md": []byte(system)}
 	args := []string{"-p", "--model", cfg.Model,
 		"--input-format", "stream-json", "--output-format", "stream-json", "--verbose", "--include-partial-messages",
@@ -189,6 +194,12 @@ func claudeArgs(cfg config.LLM, dir, system string, tools []Tool, self string) (
 			"motita": {Command: self, Args: []string{ClaudeCodeMCPCommand, filepath.Join(dir, "tools.json")}},
 		}})
 		args = append(args, "--mcp-config", string(mcp))
+	} else if len(schema) > 0 {
+		// A phase that wants one JSON object gets it enforced instead of hoped for: claude
+		// answers through a schema-checked tool of its own, and none of the replies that
+		// cost real runs whole rounds (prose, a pseudo tool call, a tab inside a string)
+		// can come back. It only applies without tools: a tool turn answers with calls.
+		args = append(args, "--json-schema", string(schema))
 	}
 	if claudeThinks(cfg.Reasoning) {
 		args = append(args, "--effort", cfg.Reasoning.Level)
@@ -429,6 +440,12 @@ func (p *claudeProcess) readTurn(onText func(string)) (Reply, error) {
 				case "text":
 					msg.Content += b.Text
 				case "tool_use":
+					// With --json-schema claude delivers the answer as a call to its own
+					// StructuredOutput tool. It is the reply, not a tool motita should run.
+					if b.Name == claudeStructuredTool {
+						msg.Content += string(b.Input)
+						continue
+					}
 					msg.Calls = append(msg.Calls, ToolCall{ID: b.ID, Type: "function", Function: FunctionCall{
 						Name: strings.TrimPrefix(b.Name, claudeToolPrefix), Arguments: b.Input,
 					}})
@@ -436,6 +453,9 @@ func (p *claudeProcess) readTurn(onText func(string)) (Reply, error) {
 			}
 		case "result":
 			keep()
+			if reply.Content == "" && len(reply.Calls) == 0 && len(ev.StructuredOutput) > 0 && string(ev.StructuredOutput) != "null" {
+				reply.Content = string(ev.StructuredOutput)
+			}
 			// error_max_turns after tool calls is claude trying to run a denied tool once
 			// the answer was complete: the answer stands.
 			if ev.IsError && (ev.Subtype != "error_max_turns" || len(reply.Calls) == 0) {
@@ -483,7 +503,7 @@ func (c *Client) callClaudeCode(ctx context.Context, messages []Message, tools [
 	if err != nil {
 		return Reply{}, err
 	}
-	args, files := claudeArgs(c.cfg, dir, system, tools, self)
+	args, files := claudeArgs(c.cfg, dir, system, tools, self, jsonSchemaFrom(ctx))
 	for name, data := range files {
 		if err := writeFile(filepath.Join(dir, name), data, 0o600); err != nil {
 			return Reply{}, err

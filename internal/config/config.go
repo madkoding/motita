@@ -107,6 +107,13 @@ type Anchor struct {
 	ExpectExit   int           `yaml:"expect_exit"`
 	ExpectOutput string        `yaml:"expect_output"` // optional regular expression
 	Checks       []Check       `yaml:"checks"`
+	// Baseline, when a check fails on a claim of done, runs that check once more against a
+	// clean checkout of the commit the run started from. A check that failed there too is
+	// reported as ALREADY FAILING and does not block the claim; one that passed there is a
+	// failure the run caused. Reported from a real session: the gate failed on the untouched
+	// commit (tests needing a tool the machine lacked), so no change could ever pass, and the
+	// agent spent ~15 rounds proving that by hand.
+	Baseline bool `yaml:"baseline"`
 }
 
 // Check is an extra check of the anchor.
@@ -133,8 +140,17 @@ type Sandbox struct {
 	Cgroups        string        `yaml:"cgroups"` // auto | on | off
 	CgroupRoot     string        `yaml:"cgroup_root"`
 	Timeout        time.Duration `yaml:"timeout"`
-	KeepEphemeral  bool          `yaml:"keep_ephemeral"`
-	MaxOutputKB    int           `yaml:"max_output_kb"`
+	// CheckTimeout is the timeout of a command that CHECKS something (a test runner, a
+	// linter, `make check`) and of the anchor's checks. Reported from a real session: the
+	// project's gate took longer than the 60 s timeout, so the agent ran it in the
+	// background and polled it across rounds.
+	CheckTimeout  time.Duration `yaml:"check_timeout"`
+	KeepEphemeral bool          `yaml:"keep_ephemeral"`
+	MaxOutputKB   int           `yaml:"max_output_kb"`
+	// ToolsDir is a persistent directory outside every repository that holds the agent's
+	// HOME, its temporary directories and the toolchains it installs (their bin directories
+	// are put on PATH). Empty keeps HOME and TMPDIR inside the working directory.
+	ToolsDir string `yaml:"tools_dir"`
 }
 
 // Providers are the values llm.provider accepts. The LLM client, the wizard and
@@ -319,6 +335,9 @@ func Default() Config {
 		Anchor: Anchor{
 			Kind:    "none",
 			Timeout: 120 * time.Second,
+			// On: the comparison costs nothing while the gate is green, and only runs the
+			// checks that failed when it is red.
+			Baseline: true,
 		},
 		Sandbox: Sandbox{
 			Kind:          "none",
@@ -330,7 +349,9 @@ func Default() Config {
 			OpenFiles:     256,
 			MaxFileSizeMB: 64,
 			Timeout:       300 * time.Second,
+			CheckTimeout:  15 * time.Minute,
 			MaxOutputKB:   256,
+			ToolsDir:      defaultToolsDir(),
 		},
 		LLM: LLM{
 			Provider:       "openai",
@@ -504,6 +525,29 @@ func Dir() string {
 		return filepath.Join(home, ".motita")
 	}
 	return ""
+}
+
+// defaultToolsDir is ~/.motita-tools: beside the program's own state, outside every repository
+// the agent works in, so what it installs survives the session and never lands in a commit.
+// With no home it is empty, which keeps the old layout rather than guessing a directory.
+func defaultToolsDir() string {
+	if home := HomeDir(); home != "" {
+		return filepath.Join(home, ".motita-tools")
+	}
+	return ""
+}
+
+// expandHome turns a leading "~" of a path written in the configuration into the home directory,
+// because a YAML value is not read by a shell. Without a home the path is left as written.
+func expandHome(p string) string {
+	if p != "~" && !strings.HasPrefix(p, "~/") {
+		return p
+	}
+	home := HomeDir()
+	if home == "" {
+		return p
+	}
+	return filepath.Join(home, strings.TrimPrefix(p, "~"))
 }
 
 // defaultGatewayListen is where the gateway listens when nothing else is configured.
@@ -812,6 +856,7 @@ func (c *Config) normalize() {
 	c.TaskSource.Kind = normalize(c.TaskSource.Kind)
 	c.Anchor.Kind = normalize(c.Anchor.Kind)
 	c.Sandbox.Kind = normalize(c.Sandbox.Kind)
+	c.Sandbox.ToolsDir = expandHome(strings.TrimSpace(c.Sandbox.ToolsDir))
 	c.LLM.Provider = normalize(c.LLM.Provider)
 	c.FinalAction.Kind = normalize(c.FinalAction.Kind)
 	c.Agent.LogLevel = normalize(c.Agent.LogLevel)

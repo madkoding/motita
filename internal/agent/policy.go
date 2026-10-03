@@ -104,6 +104,13 @@ func (a *Agent) policyDir() string {
 //     on their own filesystem.
 func (a *Agent) planRequest(command string) RequestPlan {
 	timeout := a.cfg.Sandbox.Timeout
+	// A CHECK (a test runner, a linter, the project's gate) gets the check timeout. Reported
+	// from a real session: `make check` outlived the 60 s command timeout, so the run put it in
+	// the background and polled it across rounds - and the per-run TMPDIR, deleted when the
+	// launching command returned, killed the background `go test` halfway through.
+	if a.cfg.Sandbox.CheckTimeout > timeout && len(verificationKeys(command)) > 0 {
+		timeout = a.cfg.Sandbox.CheckTimeout
+	}
 
 	if a.readOnly() {
 		// The tokeniser is the SHARED one, in readonly, so that the mode that runs programs

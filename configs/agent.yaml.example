@@ -44,6 +44,10 @@ anchor:
   timeout: 120s
   expect_exit: 0       # exit code that means PASS
   expect_output: ""    # optional regular expression over the output
+  # When a check fails on a claim of done, run it again on a clean checkout of the
+  # commit the run started from: a check that failed there too is reported as
+  # already failing instead of blocking the run forever (needs a repository).
+  baseline: true
   # Extra checks: EVERY one of them must pass for the anchor to give PASS.
   checks:
     - name: formatting
@@ -72,8 +76,16 @@ sandbox:
   cgroups: auto        # auto | on | off   (v1: memory + pids)
   cgroup_root: /sys/fs/cgroup
   timeout: 300s
+  # Timeout of a command that checks something (tests, lint, `make check`) and
+  # the least a detected anchor check gets: a whole gate outlives `timeout`.
+  check_timeout: 15m
   keep_ephemeral: false   # true = do not delete the attempt's temp directory
   max_output_kb: 256
+  # Persistent directory OUTSIDE every repository holding the agent's HOME, its
+  # temporary directories and the toolchains it installs; <tools_dir>/bin and
+  # every <tools_dir>/tools/<name>/bin are on PATH. "" = HOME and TMPDIR inside
+  # the working directory (the old layout). Ignored with kind=chroot.
+  tools_dir: ~/.motita-tools
 
 # ---------------------------------------------------------------------------
 # Layer B — THE REASONING ENGINE

@@ -67,6 +67,9 @@ func (a *Anchor) detectChecks() []config.Check {
 	if timeout <= 0 {
 		timeout = autoCheckTimeout
 	}
+	if a.checkTimeout > timeout {
+		timeout = a.checkTimeout
+	}
 	if checks := a.declaredChecks(timeout); len(checks) > 0 {
 		return checks
 	}

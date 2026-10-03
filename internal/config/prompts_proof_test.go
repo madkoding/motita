@@ -57,7 +57,7 @@ func TestTheExecutePromptTeachesGettingToTheFinish(t *testing.T) {
 		"GETTING TO THE FINISH, ON ANY PROJECT",
 		"LOOK just enough",
 		"WRITE in the same round",
-		"cat > path << 'EOF'",
+		"Create a file with write_file and change one with edit_file",
 		"no node_modules, no venv, no vendor",
 		"RUN the project's own checks",
 		"say in \"notes\" exactly what is left",

@@ -1277,6 +1277,10 @@ func (a *Agent) loop(ctx context.Context, t task.Task, depth int) TaskResult {
 	// "finished" from "never started". See tree.go.
 	baseline, baselineOK := treeFingerprint(a.cfg.Agent.WorkspaceDir, true)
 	lastSources := baseline
+	// The same tree as a commit, for the anchor: a check that fails on a claim is run again on
+	// it to tell a failure the run caused from one that was already there. See baseline.go.
+	before := a.startBaseline(ctx)
+	defer before.close(ctx)
 	readOnlyRounds := 0
 	unbackedDone := 0
 	verifyChallenges := 0
@@ -1408,7 +1412,7 @@ func (a *Agent) loop(ctx context.Context, t task.Task, depth int) TaskResult {
 			// PROGRESS. The anchor is not consulted - see the loop contract above - and
 			// nothing is charged to max_retries. The round is recorded so the next one
 			// continues from it instead of proposing the same first step again.
-			detail := "Actions:\n" + commandList(action) + "\nOutput:\n" + truncate(runOutput, 3000)
+			detail := "Actions:\n" + commandList(action) + "\nOutput:\n" + truncateMiddle(runOutput, roundDetailOutput)
 			if runErr != nil {
 				detail += "\nExecution error: " + runErr.Error()
 			}
@@ -1516,7 +1520,9 @@ func (a *Agent) loop(ctx context.Context, t task.Task, depth int) TaskResult {
 
 		// [8] The model claims the task is done: validate with the anchor, always.
 		a.report("validating with anchor...")
-		validation := anchor.New(a.cfg.Anchor, a.cfg.Agent.WorkspaceDir, a.sandbox).Validate(ctx)
+		validation := anchor.New(a.cfg.Anchor, a.cfg.Agent.WorkspaceDir, a.sandbox).
+			WithTools(a.cfg.Sandbox.ToolsDir, a.cfg.Sandbox.CheckTimeout).Validate(ctx)
+		validation = before.judge(ctx, validation)
 		res.Validation = &validation
 
 		if validation.Pass && runErr == nil {
@@ -1657,7 +1663,23 @@ const (
 // keepRoundsInFull is how many of the latest rounds the next round reads in full. Older
 // rounds shrink to one line each: a long task would otherwise grow the prompt by up to 3 KB
 // per round until the history crowded out the task - a hundred rounds is 300 KB.
-const keepRoundsInFull = 6
+//
+// It was 6. Reported from a real session: the model said "the previous output was not visible
+// in my context" and read the same region of tui.go five times. Most of its reads were not kept
+// as evidence (they wrote to /tmp, or exported a PATH first, so they were not provably reads),
+// which left the journal as the only copy, and six rounds is about one explore-write-check
+// cycle. Ten keeps two of them, for at most ~10 KB more than before on the older rounds.
+const keepRoundsInFull = 10
+
+// keepRoundsWhole is how many of the newest rounds keep their output up to roundDetailOutput;
+// the other rounds shown in full are cut to roundDetailOlder. The round just run is the one the
+// next decision is about, and its output was cut at 3000 bytes from the HEAD - so a 300-line
+// file read lost its end, and a check lost the summary line that says whether it passed.
+const (
+	keepRoundsWhole   = 2
+	roundDetailOutput = 12000
+	roundDetailOlder  = 3000
+)
 
 // roundKind is what a round of the loop turned out to be. See the loop contract in loop.
 type roundKind int
@@ -1711,12 +1733,17 @@ func renderRounds(rounds []roundRecord) string {
 	b.WriteString("Everything already done for this task, oldest first. Continue from where it " +
 		"stands: do not redo a round that made progress.\n")
 	older := len(rounds) - keepRoundsInFull
+	whole := len(rounds) - keepRoundsWhole
 	for i, r := range rounds {
 		if i < older {
 			fmt.Fprintf(&b, "- Round %d (%s): %s\n", r.round, r.kind.label(), r.commands)
 			continue
 		}
-		fmt.Fprintf(&b, "\n### Round %d - %s\n%s\n", r.round, r.kind.heading(), r.detail)
+		detail := r.detail
+		if i < whole {
+			detail = truncateMiddle(detail, roundDetailOlder)
+		}
+		fmt.Fprintf(&b, "\n### Round %d - %s\n%s\n", r.round, r.kind.heading(), detail)
 	}
 	return b.String()
 }
@@ -1958,12 +1985,12 @@ func (a *Agent) actionPhase(ctx context.Context, t task.Task, analysis Analysis,
 	vars["attempt"] = fmt.Sprint(round)
 	vars["max_attempts"] = fmt.Sprint(a.cfg.Agent.MaxRetries + 1)
 
-	text, err := a.ask(ctx, a.cfg.Prompts.Execute, vars, "execute")
+	text, err := a.ask(llm.WithJSONSchema(ctx, actionSchema), a.cfg.Prompts.Execute, vars, "execute")
 	if err != nil {
 		return Action{}, err
 	}
-	var action Action
-	if err := llm.DecodeJSON(text, &action); err != nil {
+	action, err := decodeAction(text)
+	if err != nil {
 		return Action{}, err
 	}
 	a.log.Info(prefix+"action proposed", "reasoning", truncate(action.Reasoning, 200),
@@ -2070,6 +2097,7 @@ func (a *Agent) baseVariables(t task.Task) map[string]string {
 		"history":      a.dialogue(),
 		"model":        a.cfg.LLM.Model,
 		"provider":     a.cfg.LLM.Provider,
+		"tools":        describeTools(a.cfg.Sandbox),
 	}
 	for k, v := range t.Context {
 		vars["context_"+k] = v
@@ -2321,6 +2349,21 @@ func (a *Agent) runRound(ctx context.Context, actions []Command, prefix string, 
 		// kind, because that is how this mode names things — the same four operations the
 		// planner exposes as tools, reachable from here too.
 		if kind := strings.ToLower(strings.TrimSpace(action.Kind)); kind != "" && kind != "command" {
+			// A file written by the program itself (see fileactions.go). It is a write, so the
+			// kept reads are checked against the tree exactly as after a shell write.
+			if handled, out, refusal := a.runFileAction(kind, action); handled {
+				fmt.Fprintf(&sb, "[%s] %s\n%s\n", kind, action.Description, out)
+				a.report("running: %s %s", kind, firstLineOf(action.Command))
+				a.log.Info(prefix+"file action", "kind", kind, "path", firstLineOf(action.Command), "result", out)
+				if refusal != nil {
+					lastErr = fmt.Errorf("action %d (%s) was refused: %w", i+1, kind, refusal)
+				}
+				if mem != nil {
+					mem.executed++
+					mem.sync(a.cfg.Agent.WorkspaceDir)
+				}
+				continue
+			}
 			if handled, out := a.runLibraryAction(kind, action); handled {
 				fmt.Fprintf(&sb, "[%s] %s\n%s\n", kind, action.Description, out)
 				a.log.Info(prefix+"library action", "kind", kind, "description",
@@ -2340,7 +2383,7 @@ func (a *Agent) runRound(ctx context.Context, actions []Command, prefix string, 
 			// and answers with a kind that exists.
 			if strings.TrimSpace(action.Command) != "" || strings.TrimSpace(action.Description) != "" {
 				fmt.Fprintf(&sb, "[%s] %s\n[refused: %q is not an action this mode has. "+
-					"Available: command, list_skills, search_skills, read_skill, save_skill. "+
+					"Available: command, write_file, edit_file, list_skills, search_skills, read_skill, save_skill. "+
 					"To run a shell command, use kind \"command\".]\n",
 					kind, action.Description, kind)
 				a.log.Warn(prefix+"action with an unknown kind",
@@ -2476,6 +2519,25 @@ func (a *Agent) summariseFailure(action Action, execution string, validation anc
 			"nothing about your change. Install the project's dependencies the way the project does " +
 			"(npm ci, pip install -r requirements.txt, go mod download, bundle install...) and claim done again. " +
 			"This attempt is not counted against you.\n")
+	}
+	// What the baseline measured, in words: the JSON carries the flags, but a model skimming it
+	// is exactly the one that chased old failures for fifteen rounds.
+	var broke, old []string
+	for _, c := range validation.Checks {
+		if c.PassedBefore {
+			broke = append(broke, c.Name)
+		}
+		if c.PreExisting {
+			old = append(old, c.Name)
+		}
+	}
+	if len(broke) > 0 {
+		fmt.Fprintf(&sb, "\nThis check passed before your change (on the code the run started from), so "+
+			"your change is what broke it: %s. Fix that first.\n", strings.Join(broke, ", "))
+	}
+	if len(old) > 0 {
+		fmt.Fprintf(&sb, "\nAlready failing before your change, the same way (not yours; do not spend "+
+			"rounds on them): %s.\n", strings.Join(old, ", "))
 	}
 	sb.WriteString("\nResult of the deterministic validation (JSON):\n")
 	sb.WriteString(validation.JSON())

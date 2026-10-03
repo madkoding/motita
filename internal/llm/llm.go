@@ -28,7 +28,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"regexp"
 	"strings"
 	"time"
 
@@ -1279,57 +1278,6 @@ func maxInt(a, b int) int {
 }
 
 // --- Structured responses ---------------------------------------------------
-
-var jsonBlock = regexp.MustCompile("(?s)```(?:json)?\\s*(\\{.*?\\}|\\[.*?\\])\\s*```")
-
-// ExtractJSON gets the first JSON object out of an LLM response, tolerating the
-// usual decorations: markdown blocks, text before and after, and nested braces.
-func ExtractJSON(text string) ([]byte, error) {
-	clean := strings.TrimSpace(text)
-	if clean == "" {
-		return nil, errors.New("the LLM response is empty")
-	}
-
-	if m := jsonBlock.FindStringSubmatch(clean); len(m) == 2 {
-		return []byte(m[1]), nil
-	}
-
-	// First '{' and its balanced partner, respecting strings and escapes.
-	start := strings.IndexAny(clean, "{[")
-	if start < 0 {
-		return nil, fmt.Errorf("the response contains no JSON: %q", truncate(clean, 200))
-	}
-	open := clean[start]
-	closing := byte('}')
-	if open == '[' {
-		closing = ']'
-	}
-
-	depth := 0
-	inString := false
-	escaped := false
-	for i := start; i < len(clean); i++ {
-		ch := clean[i]
-		switch {
-		case escaped:
-			escaped = false
-		case ch == '\\' && inString:
-			escaped = true
-		case ch == '"':
-			inString = !inString
-		case inString:
-			// nothing
-		case ch == open:
-			depth++
-		case ch == closing:
-			depth--
-			if depth == 0 {
-				return []byte(clean[start : i+1]), nil
-			}
-		}
-	}
-	return nil, fmt.Errorf("the JSON in the response is truncated: %q", truncate(clean, 200))
-}
 
 // DecodeJSON extracts and deserialises into dest, with explainable errors.
 func DecodeJSON(text string, dest any) error {
