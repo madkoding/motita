@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -503,5 +504,49 @@ func TestWaitAgentsEdges(t *testing.T) {
 	a.cfg.Sandbox.CheckTimeout = 0 // the default bound; the cancelled context ends the wait first
 	if got := a.waitAgents(cancelled, ""); !strings.Contains(got, "still running after the wait: a1") {
 		t.Errorf("cancelled: %q", got)
+	}
+}
+
+// TestABackgroundAgentAsksThroughTheMainApproverMarked: a background agent's question reaches the
+// main agent's approver marked as background and named, so the interface can answer it from a
+// standing decision; a run with no approver gives its children none.
+func TestABackgroundAgentAsksThroughTheMainApproverMarked(t *testing.T) {
+	var got []ApprovalRequest
+	var mu sync.Mutex
+	mainRound := 0
+	s := &scriptServer{execute: func(_ int, prompt string) string {
+		if isChildPrompt(prompt) {
+			return step(true, "rm -rf ../outside-of-the-tree")
+		}
+		mainRound++
+		switch mainRound {
+		case 1:
+			return acts(false, kindAct{"spawn_agent", "tidy\nRemove the old folder."})
+		case 2:
+			return acts(false, kindAct{"wait_agents", ""})
+		}
+		return step(true, "true")
+	}}
+	fleetRun(t, s, func(c *config.Config) {
+		inRepo(t)(c)
+		c.Agent.Policy.Enforce = true
+	}, func(e *fixture) {
+		e.agent.approver = func(_ context.Context, req ApprovalRequest) (bool, error) {
+			mu.Lock()
+			got = append(got, req)
+			mu.Unlock()
+			return false, nil
+		}
+	})
+	mu.Lock()
+	defer mu.Unlock()
+	var background []ApprovalRequest
+	for _, r := range got {
+		if r.Background {
+			background = append(background, r)
+		}
+	}
+	if len(background) == 0 || background[0].Agent != "a1" || !strings.Contains(background[0].Command, "outside-of-the-tree") {
+		t.Fatalf("the child's question must reach the main approver, marked: %+v", got)
 	}
 }

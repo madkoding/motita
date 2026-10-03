@@ -41,6 +41,12 @@ type ApprovalRequest struct {
 	Reason string
 	// Rule names the policy rule, so a repeat complaint can be traced to a line of code.
 	Rule string
+	// Background is set when the question comes from a background agent (spawn_agent), named by
+	// Agent. Nobody is watching that agent, and the interface has one question open at a time: an
+	// approver answers it only from a standing decision ("allow all commands for this session")
+	// and otherwise refuses without opening a question that would cover the main agent's.
+	Background bool
+	Agent      string
 }
 
 // Approver asks the user whether a command may run. It returns false to refuse.
