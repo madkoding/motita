@@ -164,6 +164,20 @@ START
     rounds exhausted -> escalate (agent.on_failure) and END
 ```
 
+Each entry of `actions` has a `kind`. `command` runs a shell line in the sandbox;
+`write_file` (path on the first line of `command`, the whole content after it) and
+`edit_file` (path, then one `<<<<<<< SEARCH` / `=======` / `>>>>>>> REPLACE` block whose
+search text must occur exactly once) write files directly, without a shell, so source with
+tabs and quotes needs no escaping. Both stay inside the working directory and are refused in
+read-only mode. The procedure-library kinds (`list_skills`, `search_skills`, `read_skill`,
+`save_skill`) are described in the execute prompt.
+
+When the anchor refuses a claim of done and `anchor.baseline` is on, the failing checks are run
+once more on a clean checkout of the tree the run started from. A check that failed there too
+is reported as **already failing before this change**: when that is true of every failing
+check the claim passes, and the verdict names those checks; a check that passed there is a
+breakage the run caused, and the rejection says so.
+
 **The loop has TWO bounds, because they answer two different questions.**
 
 - `agent.max_retries` bounds **rejected** rounds: a validation the anchor refused, which
@@ -464,7 +478,7 @@ honoured. The documented one wins when both are set.
 | Block | Contents |
 |---|---|
 | `task_source` | `kind` (`stdin`/`file`/`api`/`queue`), `path`, `dir`, `url`, `method`, `field`, `interval`, `headers`, `body` |
-| `anchor` | `kind` (`auto`/`command`/`none`), `command`, `args`, `timeout`, `expect_exit`, `expect_output` (regex), `checks[]` |
+| `anchor` | `kind` (`auto`/`command`/`none`), `command`, `args`, `timeout`, `expect_exit`, `expect_output` (regex), `baseline` (bool, default `true`: a check that fails on a claim of done is run again on a clean checkout of the starting commit, and one that failed there too is reported as already failing instead of blocking), `checks[]` |
 | `sandbox` | `kind` (`none`/`chroot`/`cgroups`), `root`, `user`, `memory_mb`, `cpu_seconds`, `processes`, `open_files`, `max_file_size_mb`, `isolate_network`, `cgroups`, `cgroup_root`, `timeout`, `check_timeout`, `keep_ephemeral`, `max_output_kb`, `tools_dir` |
 | `llm` | `provider` (`openai`/`anthropic`/`gemini`), `model`, `api_key`, `base_url`, `max_tokens`, `temperature`, `timeout`, `max_attempts`, `backoff_initial`, `backoff_max`, `reasoning{enabled,level}`, `session{context_window,reserve,compact_at,keep_recent}` |
 | `prompts` | `analyze`, `plan`, `execute`, `synthesize`, each with `system` and `user` |
