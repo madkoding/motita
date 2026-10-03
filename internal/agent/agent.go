@@ -1958,12 +1958,12 @@ func (a *Agent) actionPhase(ctx context.Context, t task.Task, analysis Analysis,
 	vars["attempt"] = fmt.Sprint(round)
 	vars["max_attempts"] = fmt.Sprint(a.cfg.Agent.MaxRetries + 1)
 
-	text, err := a.ask(ctx, a.cfg.Prompts.Execute, vars, "execute")
+	text, err := a.ask(llm.WithJSONSchema(ctx, actionSchema), a.cfg.Prompts.Execute, vars, "execute")
 	if err != nil {
 		return Action{}, err
 	}
-	var action Action
-	if err := llm.DecodeJSON(text, &action); err != nil {
+	action, err := decodeAction(text)
+	if err != nil {
 		return Action{}, err
 	}
 	a.log.Info(prefix+"action proposed", "reasoning", truncate(action.Reasoning, 200),
