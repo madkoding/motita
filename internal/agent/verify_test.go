@@ -36,6 +36,21 @@ func TestVerificationKeysRecognisesChecksOnAnyProject(t *testing.T) {
 		"npm ci":                                      nil,
 		"cd a;; npm test ; ;":                         {"a|npm test"}, // empty segments are skipped
 		"(cd a && npm test) && (cd b && npm test)":    {"a|npm test", "b|npm test"},
+		// The real session: a search whose PATTERN names a runner is not a run of it.
+		`cd /w && grep -rnE '"running: |running: ' internal | grep -v _test; grep -n '"test\|vitest\|testing-library' web/package.json`: nil,
+		`grep -c "a|make check|b" Makefile`:                            nil,
+		`echo "x" | grep -q "y\" | go test" || npm test`:               {"|npm test"},
+		`printf %s \| && npm test`:                                     {"|npm test"},
+		"echo 'unclosed | npm test":                                    nil,
+		`echo "unclosed | npm test`:                                    nil,
+		`echo "trailing\`:                                              nil,
+		"cat > Makefile <<'EOF'\ncheck:\n\tmake test\nEOF\nmake check": {"|make check"},
+		"cat > a.md <<-EOF\nnpm test\n\tEOF\nnpm run lint":             {"|npm lint"},
+		"cat > a.md << \"END\"\nnpm test\nEND":                         nil,
+		"cat > a.md <<EOF; true\nnpm test\nEOF\ngo test ./...":         {"|go test"},
+		"cat > a.md <<'EOF\nnpm test":                                  nil, // an unclosed heredoc word starts no body
+		"cat <<EOF\nnpm test":                                          nil, // a body with no terminator runs to the end
+		"cat <<<'npm test' && echo $((1 << 2))\nnpm test":              {"|npm test"},
 	}
 	for cmd, want := range cases {
 		got := verificationKeys(cmd)

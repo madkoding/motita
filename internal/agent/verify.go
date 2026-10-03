@@ -106,11 +106,125 @@ func verificationKeys(command string) []string {
 }
 
 // splitSegments cuts a command line at the separators of the shell: `&&`, `||`, `;`, `|` and
-// newlines. Quotes are not tracked: a separator inside a quoted word only yields a segment that
-// matches no check.
+// newlines - but only where the shell itself would. A separator inside single or double quotes is
+// part of a word, and the body of a heredoc is data, not commands.
+//
+// Quotes used to be ignored, on the theory that a separator inside a quoted word only yields a
+// segment that matches no check. Reported from a real session: the search
+// `grep -n '"test\|vitest\|testing-library' web/package.json` was cut at the `|` of the pattern,
+// the piece `vitest\` matched the vitest runner, and grep's exit 1 (no match) was recorded as a
+// FAILING vitest check. No vitest run ever closed it (they ran from another directory), and three
+// claims of done were sent back over a check that had never run. A heredoc that writes a Makefile
+// or a README has the same shape: its `make test` line is text being written, not a test that ran.
 func splitSegments(command string) []string {
-	r := strings.NewReplacer("&&", "\n", "||", "\n", ";", "\n", "|", "\n")
-	return strings.Split(r.Replace(command), "\n")
+	var segs []string
+	var cur strings.Builder
+	cut := func() {
+		segs = append(segs, cur.String())
+		cur.Reset()
+	}
+	var heredocs []string // terminators of the heredocs opened on the current line
+	for i := 0; i < len(command); i++ {
+		ch := command[i]
+		switch {
+		case ch == '\'':
+			// Nothing is special inside single quotes, not even a backslash. An unclosed quote runs
+			// to the end of the line, which is what the shell would complain about anyway.
+			end := strings.IndexByte(command[i+1:], '\'')
+			if end < 0 {
+				cur.WriteString(command[i:])
+				i = len(command)
+				continue
+			}
+			cur.WriteString(command[i : i+end+2])
+			i += end + 1
+		case ch == '"':
+			j := i + 1
+			for ; j < len(command) && command[j] != '"'; j++ {
+				if command[j] == '\\' {
+					j++
+				}
+			}
+			if j >= len(command) {
+				cur.WriteString(command[i:])
+				i = len(command)
+				continue
+			}
+			cur.WriteString(command[i : j+1])
+			i = j
+		case ch == '\\' && i+1 < len(command):
+			cur.WriteString(command[i : i+2])
+			i++
+		case strings.HasPrefix(command[i:], "<<<"):
+			// A here-string: its word is on the same line, and no body follows.
+			cur.WriteString("<<<")
+			i += 2
+		case strings.HasPrefix(command[i:], "<<"):
+			word, n := heredocWord(command[i+2:])
+			// A number is a shift in arithmetic (`$((1 << 2))`), not the start of a heredoc.
+			if strings.Trim(word, "0123456789") != "" {
+				heredocs = append(heredocs, word)
+			}
+			cur.WriteString(command[i : i+2+n])
+			i += 1 + n
+		case ch == '\n':
+			cut()
+			// The lines after a heredoc's opening line, up to its terminator, are its body.
+			for _, word := range heredocs {
+				for i+1 < len(command) {
+					end := strings.IndexByte(command[i+1:], '\n')
+					line := command[i+1:]
+					if end >= 0 {
+						line = command[i+1 : i+1+end]
+					}
+					i += len(line) + 1
+					if strings.TrimLeft(line, "\t") == word {
+						break
+					}
+				}
+			}
+			heredocs = nil
+		case ch == ';':
+			cut()
+		case ch == '&' && i+1 < len(command) && command[i+1] == '&':
+			cut()
+			i++
+		case ch == '|':
+			cut()
+			if i+1 < len(command) && command[i+1] == '|' {
+				i++
+			}
+		default:
+			cur.WriteByte(ch)
+		}
+	}
+	cut()
+	return segs
+}
+
+// heredocWord reads the terminator of a heredoc from what follows `<<`: an optional `-`, blanks,
+// then the word, bare or quoted. It returns the word without its quotes and how many bytes it used.
+func heredocWord(s string) (string, int) {
+	n := 0
+	if n < len(s) && s[n] == '-' {
+		n++
+	}
+	for n < len(s) && (s[n] == ' ' || s[n] == '\t') {
+		n++
+	}
+	if n < len(s) && (s[n] == '\'' || s[n] == '"') {
+		q := s[n]
+		end := strings.IndexByte(s[n+1:], q)
+		if end < 0 {
+			return "", n
+		}
+		return s[n+1 : n+1+end], n + end + 2
+	}
+	start := n
+	for n < len(s) && !strings.ContainsRune(" \t\n;&|<>()", rune(s[n])) {
+		n++
+	}
+	return s[start:n], n
 }
 
 // checkFailed decides whether one execution of a check failed: a non-zero status, a run that could
