@@ -2328,6 +2328,21 @@ func (a *Agent) runRound(ctx context.Context, actions []Command, prefix string, 
 		// kind, because that is how this mode names things — the same four operations the
 		// planner exposes as tools, reachable from here too.
 		if kind := strings.ToLower(strings.TrimSpace(action.Kind)); kind != "" && kind != "command" {
+			// A file written by the program itself (see fileactions.go). It is a write, so the
+			// kept reads are checked against the tree exactly as after a shell write.
+			if handled, out, refusal := a.runFileAction(kind, action); handled {
+				fmt.Fprintf(&sb, "[%s] %s\n%s\n", kind, action.Description, out)
+				a.report("running: %s %s", kind, firstLineOf(action.Command))
+				a.log.Info(prefix+"file action", "kind", kind, "path", firstLineOf(action.Command), "result", out)
+				if refusal != nil {
+					lastErr = fmt.Errorf("action %d (%s) was refused: %w", i+1, kind, refusal)
+				}
+				if mem != nil {
+					mem.executed++
+					mem.sync(a.cfg.Agent.WorkspaceDir)
+				}
+				continue
+			}
 			if handled, out := a.runLibraryAction(kind, action); handled {
 				fmt.Fprintf(&sb, "[%s] %s\n%s\n", kind, action.Description, out)
 				a.log.Info(prefix+"library action", "kind", kind, "description",
@@ -2347,7 +2362,7 @@ func (a *Agent) runRound(ctx context.Context, actions []Command, prefix string, 
 			// and answers with a kind that exists.
 			if strings.TrimSpace(action.Command) != "" || strings.TrimSpace(action.Description) != "" {
 				fmt.Fprintf(&sb, "[%s] %s\n[refused: %q is not an action this mode has. "+
-					"Available: command, list_skills, search_skills, read_skill, save_skill. "+
+					"Available: command, write_file, edit_file, list_skills, search_skills, read_skill, save_skill. "+
 					"To run a shell command, use kind \"command\".]\n",
 					kind, action.Description, kind)
 				a.log.Warn(prefix+"action with an unknown kind",
