@@ -885,6 +885,7 @@ lines"*:
 | `dropped` | How many events were evicted, so a hole is a size and not a suspicion. |
 | `pending_approval` | The question being asked **right now**, with its `id`, if the run is blocked on one. |
 | `outcome` | Empty while the turn is going; `done`, `error` or `cancelled` once it has ended. A client attaching to a finished turn is **told**, instead of waiting on a stream that will never produce. |
+| `agents` | The latest list of the run's agents (see below), when there is one. |
 
 The preamble carries a pending question on purpose. A client that reconnects while the
 run is blocked on an approval would otherwise receive a silent stream — and the run would
@@ -911,8 +912,30 @@ four seconds is worse than telling it four seconds are gone.
 |---|---|
 | `GET /v1/sessions/{id}/run` | Whether a run is in flight, its span, and how many clients are watching it. One JSON reply, so a client can decide before opening a stream. |
 | `GET /v1/sessions/{id}/events?from=N` | Attach, from event `N` onwards. |
+| `GET /v1/sessions/{id}/agents` | The agents of the run in flight, or of the last run: `{"agents":[...]}`, `[]` when there were none. |
 | `POST /v1/sessions/{id}/cancel` | Stop the run in this conversation. |
 | `POST /v1/sessions/{id}/runs/approval` | Answer the pending question, by `id`. |
+
+**The run's agents.** A run can start agents of its own in the background. Their list
+travels as `event: agents`, `data: {"agents":[...]}`, every time it changes. Like
+`thinking` it is ephemeral (`id: 0`, not in the log, not replayed): each one replaces the
+one before, and a client that attaches gets the latest in the preamble. Each entry is:
+
+| Field | Meaning |
+|---|---|
+| `id` / `parent` | The agent, and the one that started it. The main agent has no `parent`. |
+| `purpose` | What it was started for, in the words of the agent that started it. |
+| `state` | `running`, `passed`, `failed` or `cancelled`. |
+| `started` / `finished` | When it started, and when it ended (absent while it runs). |
+| `elapsed_ms` | Its running time when the list was sent; count from `started` to show a live clock. |
+| `tokens` | `input`, `output`, `cache_read`, `cache_write`, as the provider reported them. |
+| `calls`, `round` | Model calls made, and the round it is on. |
+| `activity` | Its latest progress line. |
+| `branch`, `summary` | Where its work is and what it says it did, once it finished. |
+
+The session list counts them too: `agents_running` is how many background agents (the
+main one aside) are working right now. In the terminal, the footer shows the count and
+the tokens spent, and **Ctrl+G** or `/agents` opens the full list.
 
 Cancelling is addressed to the **session**, not to a run id, so a client that
 reconnected and remembers a stale run cannot stop the wrong turn — or reach a run that
