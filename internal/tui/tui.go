@@ -231,6 +231,13 @@ type TUI struct {
 	// It is transient view state, deliberately not persisted: it describes where
 	// the window is, not what the session contains.
 	scroll int
+
+	// agents is the latest snapshot of the run's agents, and agentsOpen whether their panel is
+	// showing (see agents.go). Both are read while painting, so they are written under draw.
+	agents     []agent.AgentInfo
+	agentsOpen bool
+	// clock is what elapsed times are measured against; nil is the wall clock. Tests pin it.
+	clock func() time.Time
 }
 
 // New creates a TUI with sensible defaults for production use.
@@ -1000,6 +1007,10 @@ type planStream struct {
 }
 
 func (s *planStream) handle(line string) {
+	// The drain at the end of a plan calls this directly, past the turn's wrapper.
+	if s.tui.takeAgents(line) {
+		return
+	}
 	if _, isPhase := phaseLabel(line); isPhase {
 		// A phase is shown as movement (the spinner and the marker on the open
 		// block), never as answer text: the block stays empty until real output
@@ -1599,6 +1610,7 @@ func buildHelp() string {
 		{"↑↓ PgUp PgDn", "scroll the conversation (also j/k, Ctrl+U/Ctrl+D)"},
 		{"g / G", "oldest / newest"},
 		{"Ctrl+F", "search the conversation (or /find)"},
+		{"Ctrl+G", "show or hide the run's agents (or /agents)"},
 		{"Esc", "close / stop the running task / back to the newest"},
 		{"Ctrl+C", "stop and quit"},
 	} {
@@ -1828,6 +1840,10 @@ func (t *TUI) handleLiveKey(b byte) (line string, dispatch, handled bool) {
 
 	case 0x7f, 0x08: // backspace
 		t.backspace()
+		return "", false, true
+
+	case keyAgents: // Ctrl+G
+		t.toggleAgents()
 		return "", false, true
 
 	case '\t':

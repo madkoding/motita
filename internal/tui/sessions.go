@@ -289,6 +289,10 @@ func (t *TUI) stopAndCancel(rc RunController, cancel context.CancelFunc) context
 // conversation keeps the account of the run - and it is why coming back to a session mid-turn
 // shows the work rather than only its latest line.
 func (t *TUI) addProgress(text string) {
+	if t.takeAgents(text) {
+		t.advance()
+		return
+	}
 	t.draw.Lock()
 	t.messages = append(t.messages, Message{Author: AuthorAgent, Text: text, Frozen: true})
 	t.draw.Unlock()

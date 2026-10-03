@@ -44,11 +44,21 @@ const (
 	// and a reader that reconnects is not given it again - each one replaces the one before,
 	// and the phase's finished reasoning arrives as an ordinary progress line.
 	EventThinking = "thinking"
+	// EventAgents is a SNAPSHOT of the run's agents: the main one and every agent it started in
+	// the background, each with its purpose, state, time and tokens. Like EventThinking it is
+	// ephemeral - each one replaces the one before - and a client that (re)attaches gets the
+	// latest in the preamble instead of a replay.
+	EventAgents = "agents"
 )
 
 // progressEvent is one line of the agent's output.
 type progressEvent struct {
 	Text string `json:"text"`
+}
+
+// agentsEvent is the run's list of agents. The list is never null: an empty run is [].
+type agentsEvent struct {
+	Agents []agent.AgentInfo `json:"agents"`
 }
 
 // approvalEvent is a command waiting for a human answer.
@@ -116,6 +126,10 @@ type attachedEvent struct {
 	// Turn is the conversation turn (and checkpoint) this run belongs to, so a client that
 	// joins mid-run knows where the steps it is about to receive go.
 	Turn int `json:"turn"`
+	// Agents is the latest snapshot of the run's agents, so a client that joins while agents run
+	// in the background sees them at once instead of after the next change. Omitted when there is
+	// none.
+	Agents []agent.AgentInfo `json:"agents,omitempty"`
 }
 
 // startStream writes the headers a long-lived stream needs, and gets them on the wire before

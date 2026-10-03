@@ -44,6 +44,16 @@ var spinInterval = 200 * time.Millisecond
 // there is no key to read until a whole line is typed, so nothing would be gained by returning:
 // the turn is awaited here, the way it always was.
 func (t *TUI) startTurn(runCtx context.Context, tr *turn) {
+	// A snapshot of the run's agents is view state, not a line of the turn: it is taken here, once,
+	// for every kind of turn, before the turn's own handler can write it into the conversation.
+	handle := tr.onProgress
+	tr.onProgress = func(p string) {
+		if t.takeAgents(p) {
+			t.advance()
+			return
+		}
+		handle(p)
+	}
 	if !t.charMode {
 		tr.onDone(t.awaitRun(runCtx, tr.progress, tr.done, tr.onProgress))
 		return

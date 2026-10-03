@@ -571,8 +571,22 @@ func (c *Client) readRunStream(ctx context.Context, body io.Reader, from *uint64
 			if err := json.Unmarshal(data, &a); err != nil {
 				return err
 			}
+			// The agents already working when this client joined. They are handed over as the same
+			// line the agent writes in local mode, so a consumer has ONE format to understand
+			// whichever way it is connected.
+			if len(a.Agents) > 0 && progress != nil {
+				progress("%s", agent.AgentsLine(a.Agents))
+			}
 			if a.PendingApproval != nil {
 				return c.answerApproval(ctx, *a.PendingApproval)
+			}
+		case EventAgents:
+			var a agentsEvent
+			if err := json.Unmarshal(data, &a); err != nil {
+				return err
+			}
+			if progress != nil {
+				progress("%s", agent.AgentsLine(a.Agents))
 			}
 		case EventProgress:
 			var p struct {
