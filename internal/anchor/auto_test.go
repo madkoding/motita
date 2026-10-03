@@ -72,6 +72,10 @@ func TestAutoSkipsCommentsAndBlanksInTheDeclaredFile(t *testing.T) {
 	if len(checks) != 2 {
 		t.Fatalf("expected 2 checks (the comments and blanks skipped), got %d: %+v", len(checks), checks)
 	}
+	// Each line is a check of its own, with a name of its own: the baseline tells them apart by it.
+	if checks[0].Name != "declared" || checks[1].Name != "declared 2" {
+		t.Errorf("names = %q, %q; want \"declared\", \"declared 2\"", checks[0].Name, checks[1].Name)
+	}
 }
 
 // TestAutoPrefersTheMakefileCheck: `check` is the conventional name for the whole

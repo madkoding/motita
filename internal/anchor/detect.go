@@ -26,6 +26,7 @@ package anchor
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -104,8 +105,14 @@ func (a *Anchor) declaredChecks(timeout time.Duration) []config.Check {
 		if line == "" || strings.HasPrefix(line, "#") {
 			continue
 		}
+		// Each line gets a name of its own: the baseline tells checks apart by name, and two
+		// lines both called "declared" would share one verdict.
+		name := "declared"
+		if len(out) > 0 {
+			name = fmt.Sprintf("declared %d", len(out)+1)
+		}
 		out = append(out, config.Check{
-			Name:       "declared",
+			Name:       name,
 			Command:    "sh",
 			Args:       []string{"-c", line},
 			Timeout:    timeout,
