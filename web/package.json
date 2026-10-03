@@ -6,7 +6,8 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "test": "vitest run"
   },
   "dependencies": {
     "dompurify": "^3.4.16",
@@ -32,6 +33,7 @@
     "tailwindcss": "^3.4.0",
     "typescript": "^5.6.0",
     "vite": "^6.0.0",
-    "vite-plugin-pwa": "^0.21.0"
+    "vite-plugin-pwa": "^0.21.0",
+    "vitest": "^5.0.3"
   }
 }

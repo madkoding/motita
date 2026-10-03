@@ -6,6 +6,7 @@ import { TermEntry, TermEmpty } from './Term'
 import { createFollower } from './smoothscroll'
 import { useFollowEnd } from './useFollowEnd'
 import { hydrationState, hydrationLog, noteActivity } from './hydration'
+import { ActionTrail } from './ActionTrail'
 
 interface Message {
   id: number
@@ -3634,7 +3635,7 @@ export default function App() {
                     </div>
                   )}
                   {trail.length > 0 && (
-                    <div class="activity-trail" aria-label="steps">
+                    <ActionTrail count={trail.length}>
                       {trail.map((step, i) => {
                         if (step.kind === 'command') {
                           const cmd = step.text.replace(/^running:\s*/, '')
@@ -3647,7 +3648,7 @@ export default function App() {
                         }
                         return <div key={i} class={`trail-step ${classifyProgress(step.text) ?? ''}`} title={step.text}>{oneLine(step.text)}</div>
                       })}
-                    </div>
+                    </ActionTrail>
                   )}
                   {rest.map(m => (
                     <div key={m.id} class={`msg ${m.role}${m.kind ? ' ' + m.kind : ''}`}>
