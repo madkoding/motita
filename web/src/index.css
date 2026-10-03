@@ -2046,3 +2046,18 @@ button:disabled {
 /* Commands of a turn are one line each: they are held to the width of the block instead of
    running past it, and the output stays in the terminal drawer. */
 .turn .trail-step.term-cmd { overflow: hidden; }
+
+/* Action counter: the steps of a turn collapse into one line; click to expand. */
+.action-trail { align-self: flex-start; }
+.action-trail-toggle {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 2px 8px; border-radius: 8px; cursor: pointer;
+  font-size: 0.72rem; color: #8a8a9a;
+  background: rgba(10, 10, 16, 0.6); border: 1px solid rgba(255, 255, 255, 0.08);
+}
+.action-trail-toggle:hover { color: #c8c8d6; }
+
+/* Chat typography, one step smaller (centralised here). */
+.msg { font-size: 0.93em; }
+.msg code, .msg pre { font-size: 0.88em; }
+.trail-step { font-size: 0.9em; }
