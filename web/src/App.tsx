@@ -2643,6 +2643,12 @@ export default function App() {
     const argText = input.trim()
     const tagText = activeTags.map(t => t.name).join(' ')
     const text = activeTags.length > 0 ? (argText ? tagText + ' ' + argText : tagText) : argText
+    if (text === '/agents') {
+      setAgentsOpen(true); setTermOpen(false); setThinkOpen(false)
+      setInput('')
+      setActiveTags([])
+      return
+    }
     if (!text || runningRef.current) return
     // Remove placeholder messages (.kind) before the first real turn.
     setMessages(prev => prev.filter(m => m.kind !== 'kind'))
@@ -2672,6 +2678,14 @@ export default function App() {
       if (e.key === 'Tab' || (e.key === 'Enter' && !e.shiftKey && !e.ctrlKey && !e.metaKey && !e.altKey)) {
         e.preventDefault()
         const selected = slashPopup.items[slashPopup.index]
+        if (selected?.name === '/agents') {
+          // A view of this page, not a request to the agent: it opens the agents drawer, as the
+          // TUI's /agents opens its panel.
+          setAgentsOpen(true); setTermOpen(false); setThinkOpen(false)
+          setInput('')
+          setSlashPopup(null)
+          return
+        }
         if (selected && !isCommandBlocked(selected.name)) {
           setActiveTags(prev => [...prev, { name: selected.name, group: selected.group }])
           setInput('')
@@ -2694,6 +2708,12 @@ export default function App() {
     // If there are active tags, send tags + argument. If no tags and no text, nothing.
     const tagText = activeTags.map(t => t.name).join(' ')
     const text = activeTags.length > 0 ? (argText ? tagText + ' ' + argText : tagText) : argText
+    if (text === '/agents') {
+      setAgentsOpen(true); setTermOpen(false); setThinkOpen(false)
+      setInput('')
+      setActiveTags([])
+      return
+    }
     if (!text || runningRef.current) return
     setMessages(prev => prev.filter(m => m.kind !== 'kind'))
     setInput('')
