@@ -140,6 +140,7 @@ func integerBindings(c *Config) []binding[int] {
 
 func boolBindings(c *Config) []binding[bool] {
 	return []binding[bool]{
+		{"MOTITA_ANCHOR_BASELINE", &c.Anchor.Baseline},
 		{"MOTITA_SANDBOX_KEEP_EPHEMERAL", &c.Sandbox.KeepEphemeral},
 		{"MOTITA_SANDBOX_ISOLATE_NETWORK", &c.Sandbox.IsolateNetwork},
 		{"MOTITA_AGENT_LOG_CONSOLE", &c.Agent.LogConsole},

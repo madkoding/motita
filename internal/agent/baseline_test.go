@@ -1,0 +1,200 @@
+package agent
+
+import (
+	"context"
+	"errors"
+	"net/http/httptest"
+	"os"
+	"os/exec"
+	"strings"
+	"testing"
+
+	"github.com/madkoding/motita/internal/anchor"
+	"github.com/madkoding/motita/internal/config"
+)
+
+// inRepo turns the run's workspace into a repository with one commit, which is what a session
+// worktree is, and what a baseline needs.
+func inRepo(t *testing.T) func(*config.Config) {
+	t.Helper()
+	return func(c *config.Config) {
+		dir := c.Agent.WorkspaceDir
+		for _, args := range [][]string{
+			{"init", "-q", "-b", "main"},
+			{"config", "user.email", "test@example.com"},
+			{"config", "user.name", "Test"},
+			{"config", "commit.gpgsign", "false"},
+		} {
+			repoCmd(t, dir, args...)
+		}
+		if err := os.WriteFile(dir+"/README.md", []byte("project\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		repoCmd(t, dir, "add", "README.md")
+		repoCmd(t, dir, "commit", "-qm", "init")
+		c.Agent.MaxRetries = 3
+		c.Anchor.Baseline = true
+	}
+}
+
+// idleServer is an LLM nobody asks: these tests call the baseline directly.
+func idleServer(t *testing.T) *httptest.Server {
+	t.Helper()
+	srv := httptest.NewServer((&scriptServer{}).handler(t))
+	t.Cleanup(srv.Close)
+	return srv
+}
+
+func repoCmd(t *testing.T, dir string, args ...string) {
+	t.Helper()
+	out, err := exec.Command("git", append([]string{"-C", dir}, args...)...).CombinedOutput()
+	if err != nil {
+		t.Fatalf("git %v: %v\n%s", args, err, out)
+	}
+}
+
+// TestACheckThatFailedBeforeTheRunDoesNotBlockIt replays the real session: the project's gate
+// fails on the untouched commit, so no change could ever pass it. The claim is accepted, and the
+// verdict says - in words - which check was already failing; it is never a plain green.
+func TestACheckThatFailedBeforeTheRunDoesNotBlockIt(t *testing.T) {
+	s := &scriptServer{execute: func(round int, _ string) string {
+		return step(true, "echo feature > feature.txt")
+	}}
+	_, result, err := runScript(t, s, "echo 'FAIL: needs a tool this machine lacks'; exit 1", inRepo(t))
+	if err != nil || !result.Pass {
+		t.Fatalf("an old failure must not block the run: err=%v reason=%s", err, result.Reason)
+	}
+	if len(s.executes) != 1 {
+		t.Errorf("the run must end on its first claim, it took %d rounds", len(s.executes))
+	}
+	if !strings.Contains(result.Reason, "ALREADY FAILING BEFORE THIS CHANGE") || !strings.Contains(result.Reason, "main") {
+		t.Errorf("the verdict must name the old failure: %s", result.Reason)
+	}
+	if result.Validation == nil || len(result.Validation.PreExisting) != 1 {
+		t.Errorf("the validation must carry the pre-existing check: %+v", result.Validation)
+	}
+}
+
+// TestACheckTheRunBrokeIsNamedAsSuch: the gate passed before the run, the run broke it. The claim
+// is refused as usual, the rejection says the check passed before, and a second claim over the
+// same failure is judged from what was already measured.
+func TestACheckTheRunBrokeIsNamedAsSuch(t *testing.T) {
+	s := &scriptServer{execute: func(round int, _ string) string {
+		switch round {
+		case 1:
+			return step(true, "touch broken.flag")
+		case 2:
+			return step(true, "true")
+		}
+		return step(true, "rm broken.flag")
+	}}
+	_, result, err := runScript(t, s, "test ! -f broken.flag", inRepo(t))
+	if err != nil || !result.Pass {
+		t.Fatalf("err=%v reason=%s", err, result.Reason)
+	}
+	if len(s.executes) != 3 {
+		t.Fatalf("rounds = %d, want 3", len(s.executes))
+	}
+	for _, i := range []int{1, 2} {
+		if !strings.Contains(s.executes[i], "This check passed before your change") {
+			t.Errorf("round %d must be told the run broke the check:\n%s", i+1, s.executes[i])
+		}
+	}
+	if strings.Contains(result.Reason, "ALREADY FAILING") {
+		t.Errorf("a clean pass must not carry a caveat: %s", result.Reason)
+	}
+}
+
+// TestAnOldFailureBesideANewOneIsNamedButStillBlocks: one check was already red, the run broke
+// another. The claim is refused for the new one, and the rejection names both, so the run fixes
+// what is its own instead of chasing what is not.
+func TestAnOldFailureBesideANewOneIsNamedButStillBlocks(t *testing.T) {
+	s := &scriptServer{execute: func(round int, _ string) string {
+		if round == 1 {
+			return step(true, "touch broken.flag")
+		}
+		return step(true, "rm broken.flag")
+	}}
+	_, result, err := runScript(t, s, "test ! -f broken.flag", func(c *config.Config) {
+		inRepo(t)(c)
+		c.Anchor.Checks = []config.Check{{Name: "legacy", Command: "false", Timeout: c.Anchor.Timeout}}
+	})
+	if err != nil || !result.Pass {
+		t.Fatalf("err=%v reason=%s", err, result.Reason)
+	}
+	second := s.executes[1]
+	if !strings.Contains(second, "passed before your change") || !strings.Contains(second, "broke it: main") ||
+		!strings.Contains(second, "Already failing before your change, the same way (not yours; do not spend rounds on them): legacy") {
+		t.Errorf("the rejection must name the new failure and the old one:\n%s", second)
+	}
+	if !strings.Contains(result.Reason, "ALREADY FAILING BEFORE THIS CHANGE") || !strings.Contains(result.Reason, "legacy") {
+		t.Errorf("the final verdict must keep the caveat about the old failure: %s", result.Reason)
+	}
+}
+
+// TestNoBaselineIsTakenWhereThereIsNothingToCompare: turned off, no anchor, or not a repository -
+// the run behaves exactly as before.
+func TestNoBaselineIsTakenWhereThereIsNothingToCompare(t *testing.T) {
+	e := mount(t, idleServer(t), config.Anchor{Kind: "command", Command: "true", Baseline: true}, nil)
+	ctx := context.Background()
+	if e.agent.startBaseline(ctx) != nil {
+		t.Error("a workspace that is not a repository has no baseline")
+	}
+	e.agent.cfg.Anchor.Baseline = false
+	if e.agent.startBaseline(ctx) != nil {
+		t.Error("a baseline that is turned off must not be taken")
+	}
+	e.agent.cfg.Anchor.Baseline = true
+	e.agent.cfg.Anchor.Kind = "none"
+	if e.agent.startBaseline(ctx) != nil {
+		t.Error("with no anchor there is nothing to compare")
+	}
+	// A nil baseline is a no-op everywhere.
+	var b *runBaseline
+	b.close(ctx)
+	if got := b.judge(ctx, anchor.Result{Reason: "failed checks: x"}); got.Pass || got.Reason != "failed checks: x" {
+		t.Errorf("a nil baseline must not change the verdict: %+v", got)
+	}
+}
+
+// TestABaselineThatCannotBeMadeChangesNoVerdict: every step that can fail on a real machine leaves
+// the anchor's verdict exactly as it was.
+func TestABaselineThatCannotBeMadeChangesNoVerdict(t *testing.T) {
+	ctx := context.Background()
+	e := mount(t, idleServer(t), config.Anchor{Kind: "command", Command: "false", Baseline: true}, inRepo(t))
+	failed := anchor.Result{Reason: "failed checks: main", Checks: []anchor.CheckLog{{Name: "main"}}}
+
+	old := baselineSnapshot
+	baselineSnapshot = func(context.Context, string, string) (string, string, error) {
+		return "", "", errors.New("index.lock exists")
+	}
+	if e.agent.startBaseline(ctx) != nil {
+		t.Error("a snapshot that failed must leave no baseline")
+	}
+	baselineSnapshot = old
+
+	b := e.agent.startBaseline(ctx)
+	if b == nil {
+		t.Fatal("a repository must get a baseline")
+	}
+	defer b.close(ctx)
+
+	oldTemp := baselineTempDir
+	baselineTempDir = func(string, string) (string, error) { return "", errors.New("disk full") }
+	if got := b.judge(ctx, failed); got.Pass || got.Reason != failed.Reason {
+		t.Errorf("no place to check out must change nothing: %+v", got)
+	}
+	baselineTempDir = oldTemp
+
+	oldCheckout := baselineCheckout
+	baselineCheckout = func(context.Context, string, string, string) error { return errors.New("pruned") }
+	if got := b.judge(ctx, failed); got.Pass || got.Reason != failed.Reason {
+		t.Errorf("a checkout that failed must change nothing: %+v", got)
+	}
+	baselineCheckout = oldCheckout
+
+	// And a passing verdict is never re-checked.
+	if got := b.judge(ctx, anchor.Result{Pass: true, Reason: "ok"}); !got.Pass || len(b.known) != 0 {
+		t.Errorf("a pass must not be measured: %+v %v", got, b.known)
+	}
+}

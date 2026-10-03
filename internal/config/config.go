@@ -107,6 +107,13 @@ type Anchor struct {
 	ExpectExit   int           `yaml:"expect_exit"`
 	ExpectOutput string        `yaml:"expect_output"` // optional regular expression
 	Checks       []Check       `yaml:"checks"`
+	// Baseline, when a check fails on a claim of done, runs that check once more against a
+	// clean checkout of the commit the run started from. A check that failed there too is
+	// reported as ALREADY FAILING and does not block the claim; one that passed there is a
+	// failure the run caused. Reported from a real session: the gate failed on the untouched
+	// commit (tests needing a tool the machine lacked), so no change could ever pass, and the
+	// agent spent ~15 rounds proving that by hand.
+	Baseline bool `yaml:"baseline"`
 }
 
 // Check is an extra check of the anchor.
@@ -328,6 +335,9 @@ func Default() Config {
 		Anchor: Anchor{
 			Kind:    "none",
 			Timeout: 120 * time.Second,
+			// On: the comparison costs nothing while the gate is green, and only runs the
+			// checks that failed when it is red.
+			Baseline: true,
 		},
 		Sandbox: Sandbox{
 			Kind:          "none",

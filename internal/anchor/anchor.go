@@ -26,6 +26,10 @@ type Result struct {
 	Checks     []CheckLog `json:"checks"`
 	DurationMS int64      `json:"duration_ms"`
 	Reason     string     `json:"reason"`
+	// PreExisting names the checks that failed but failed the same way BEFORE the run changed
+	// anything (see WithBaseline). A result with Pass true and a non-empty PreExisting is a pass
+	// WITH A CAVEAT, and Reason says so in words: it is never reported as plain green.
+	PreExisting []string `json:"pre_existing,omitempty"`
 }
 
 // CheckLog is the structured record of one check.
@@ -38,6 +42,11 @@ type CheckLog struct {
 	Output     string `json:"output,omitempty"`
 	Error      string `json:"error,omitempty"`
 	Truncated  bool   `json:"output_truncated,omitempty"`
+	// PreExisting marks a failing check that also failed on the baseline: the code as it was
+	// before the run.
+	PreExisting bool `json:"pre_existing,omitempty"`
+	// PassedBefore marks a failing check that PASSED on the baseline: the run broke it.
+	PassedBefore bool `json:"passed_before,omitempty"`
 }
 
 // Anchor validates results according to the configuration.
@@ -151,6 +160,94 @@ func (a *Anchor) Validate(ctx context.Context) Result {
 // configured" about a project whose gate is `npm run lint`, `npm run typecheck` and `npm test`:
 // the run then found out what decided PASS by failing it.
 func (a *Anchor) Planned() []config.Check { return a.checks() }
+
+// Failing returns the names of the checks that did not pass, in order.
+func (r Result) Failing() []string {
+	var names []string
+	for _, c := range r.Checks {
+		if !c.Pass {
+			names = append(names, c.Name)
+		}
+	}
+	return names
+}
+
+// Rerun runs only the named checks and reports, for each one that ran, whether it passed.
+//
+// It is how the baseline is measured: the anchor is built over a clean checkout of the commit the
+// run started from, and only the checks that failed on the claim are run there. Running the whole
+// gate again would double the cost of every red claim for checks that are already green.
+func (a *Anchor) Rerun(ctx context.Context, names []string) map[string]bool {
+	want := map[string]bool{}
+	for _, n := range names {
+		want[n] = true
+	}
+	passed := map[string]bool{}
+	for _, c := range a.checks() {
+		name := c.Name
+		if name == "" {
+			name = "check"
+		}
+		if want[name] {
+			passed[name] = a.runCheck(ctx, c).Pass
+		}
+	}
+	return passed
+}
+
+// WithBaseline judges a failed result against how the same checks did on the baseline (before:
+// check name -> passed there).
+//
+// Every failing check that also failed before the run is marked PreExisting; when that is ALL of
+// them, the result passes WITH A CAVEAT, and the reason names those checks so neither the user nor
+// the summary can read it as a clean pass. A failing check that passed before, or that the
+// baseline could not run, keeps the result failed: the first is a breakage the run caused (marked
+// PassedBefore, so the rejection can say so), the second is unproven either way, and unproven
+// is not a pass.
+func WithBaseline(res Result, before map[string]bool) Result {
+	if res.Pass {
+		return res
+	}
+	allOld := true
+	var old, broken []string
+	for i := range res.Checks {
+		c := &res.Checks[i]
+		if c.Pass {
+			continue
+		}
+		passedThere, ran := before[c.Name]
+		switch {
+		case ran && !passedThere:
+			c.PreExisting = true
+			old = append(old, c.Name)
+		case ran:
+			c.PassedBefore = true
+			broken = append(broken, c.Name)
+			allOld = false
+		default:
+			allOld = false
+		}
+	}
+	res.PreExisting = old
+	if len(old) == 0 {
+		if len(broken) > 0 {
+			res.Reason += "; passed before this change: " + strings.Join(broken, ", ")
+		}
+		return res
+	}
+	if !allOld {
+		res.Reason += "; already failing before this change: " + strings.Join(old, ", ")
+		if len(broken) > 0 {
+			res.Reason += "; passed before this change: " + strings.Join(broken, ", ")
+		}
+		return res
+	}
+	res.Pass = true
+	res.Reason = fmt.Sprintf("%d check(s) passed; ALREADY FAILING BEFORE THIS CHANGE (they fail the same way "+
+		"on the code the run started from, so they are not this change's doing, and they are not "+
+		"verified either): %s", len(res.Checks)-len(old), strings.Join(old, ", "))
+	return res
+}
 
 // checks normalises the configuration into a homogeneous list.
 //

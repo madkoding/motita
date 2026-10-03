@@ -1277,6 +1277,10 @@ func (a *Agent) loop(ctx context.Context, t task.Task, depth int) TaskResult {
 	// "finished" from "never started". See tree.go.
 	baseline, baselineOK := treeFingerprint(a.cfg.Agent.WorkspaceDir, true)
 	lastSources := baseline
+	// The same tree as a commit, for the anchor: a check that fails on a claim is run again on
+	// it to tell a failure the run caused from one that was already there. See baseline.go.
+	before := a.startBaseline(ctx)
+	defer before.close(ctx)
 	readOnlyRounds := 0
 	unbackedDone := 0
 	verifyChallenges := 0
@@ -1518,6 +1522,7 @@ func (a *Agent) loop(ctx context.Context, t task.Task, depth int) TaskResult {
 		a.report("validating with anchor...")
 		validation := anchor.New(a.cfg.Anchor, a.cfg.Agent.WorkspaceDir, a.sandbox).
 			WithTools(a.cfg.Sandbox.ToolsDir, a.cfg.Sandbox.CheckTimeout).Validate(ctx)
+		validation = before.judge(ctx, validation)
 		res.Validation = &validation
 
 		if validation.Pass && runErr == nil {
@@ -2478,6 +2483,25 @@ func (a *Agent) summariseFailure(action Action, execution string, validation anc
 			"nothing about your change. Install the project's dependencies the way the project does " +
 			"(npm ci, pip install -r requirements.txt, go mod download, bundle install...) and claim done again. " +
 			"This attempt is not counted against you.\n")
+	}
+	// What the baseline measured, in words: the JSON carries the flags, but a model skimming it
+	// is exactly the one that chased old failures for fifteen rounds.
+	var broke, old []string
+	for _, c := range validation.Checks {
+		if c.PassedBefore {
+			broke = append(broke, c.Name)
+		}
+		if c.PreExisting {
+			old = append(old, c.Name)
+		}
+	}
+	if len(broke) > 0 {
+		fmt.Fprintf(&sb, "\nThis check passed before your change (on the code the run started from), so "+
+			"your change is what broke it: %s. Fix that first.\n", strings.Join(broke, ", "))
+	}
+	if len(old) > 0 {
+		fmt.Fprintf(&sb, "\nAlready failing before your change, the same way (not yours; do not spend "+
+			"rounds on them): %s.\n", strings.Join(old, ", "))
 	}
 	sb.WriteString("\nResult of the deterministic validation (JSON):\n")
 	sb.WriteString(validation.JSON())

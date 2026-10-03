@@ -44,6 +44,10 @@ anchor:
   timeout: 120s
   expect_exit: 0       # exit code that means PASS
   expect_output: ""    # optional regular expression over the output
+  # When a check fails on a claim of done, run it again on a clean checkout of the
+  # commit the run started from: a check that failed there too is reported as
+  # already failing instead of blocking the run forever (needs a repository).
+  baseline: true
   # Extra checks: EVERY one of them must pass for the anchor to give PASS.
   checks:
     - name: formatting
