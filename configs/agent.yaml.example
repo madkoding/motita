@@ -47,6 +47,7 @@ anchor:
   # When a check fails on a claim of done, run it again on a clean checkout of the
   # commit the run started from: a check that failed there too is reported as
   # already failing instead of blocking the run forever (needs a repository).
+  # Only with kind: auto - a configured check states the goal and is never excused.
   baseline: true
   # Extra checks: EVERY one of them must pass for the anchor to give PASS.
   checks:

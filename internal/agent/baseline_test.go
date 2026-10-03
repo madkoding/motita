@@ -8,6 +8,7 @@ import (
 	"os/exec"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/madkoding/motita/internal/anchor"
 	"github.com/madkoding/motita/internal/config"
@@ -37,6 +38,25 @@ func inRepo(t *testing.T) func(*config.Config) {
 	}
 }
 
+// projectGate makes the run's anchor the PROJECT'S OWN gate, the only kind the baseline compares:
+// kind auto, reading the given lines from .motita/anchor, committed like a real project's file.
+func projectGate(t *testing.T, lines ...string) func(*config.Config) {
+	t.Helper()
+	return func(c *config.Config) {
+		inRepo(t)(c)
+		dir := c.Agent.WorkspaceDir
+		if err := os.MkdirAll(dir+"/.motita", 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(dir+"/.motita/anchor", []byte(strings.Join(lines, "\n")+"\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		repoCmd(t, dir, "add", ".motita/anchor")
+		repoCmd(t, dir, "commit", "-qm", "gate")
+		c.Anchor = config.Anchor{Kind: "auto", Timeout: 10 * time.Second, Baseline: true}
+	}
+}
+
 // idleServer is an LLM nobody asks: these tests call the baseline directly.
 func idleServer(t *testing.T) *httptest.Server {
 	t.Helper()
@@ -60,14 +80,14 @@ func TestACheckThatFailedBeforeTheRunDoesNotBlockIt(t *testing.T) {
 	s := &scriptServer{execute: func(round int, _ string) string {
 		return step(true, "echo feature > feature.txt")
 	}}
-	_, result, err := runScript(t, s, "echo 'FAIL: needs a tool this machine lacks'; exit 1", inRepo(t))
+	_, result, err := runScript(t, s, "unused", projectGate(t, "echo 'FAIL: needs a tool this machine lacks'; exit 1"))
 	if err != nil || !result.Pass {
 		t.Fatalf("an old failure must not block the run: err=%v reason=%s", err, result.Reason)
 	}
 	if len(s.executes) != 1 {
 		t.Errorf("the run must end on its first claim, it took %d rounds", len(s.executes))
 	}
-	if !strings.Contains(result.Reason, "ALREADY FAILING BEFORE THIS CHANGE") || !strings.Contains(result.Reason, "main") {
+	if !strings.Contains(result.Reason, "ALREADY FAILING BEFORE THIS CHANGE") || !strings.Contains(result.Reason, "declared") {
 		t.Errorf("the verdict must name the old failure: %s", result.Reason)
 	}
 	if result.Validation == nil || len(result.Validation.PreExisting) != 1 {
@@ -88,7 +108,7 @@ func TestACheckTheRunBrokeIsNamedAsSuch(t *testing.T) {
 		}
 		return step(true, "rm broken.flag")
 	}}
-	_, result, err := runScript(t, s, "test ! -f broken.flag", inRepo(t))
+	_, result, err := runScript(t, s, "unused", projectGate(t, "test ! -f broken.flag"))
 	if err != nil || !result.Pass {
 		t.Fatalf("err=%v reason=%s", err, result.Reason)
 	}
@@ -115,30 +135,32 @@ func TestAnOldFailureBesideANewOneIsNamedButStillBlocks(t *testing.T) {
 		}
 		return step(true, "rm broken.flag")
 	}}
-	_, result, err := runScript(t, s, "test ! -f broken.flag", func(c *config.Config) {
-		inRepo(t)(c)
-		c.Anchor.Checks = []config.Check{{Name: "legacy", Command: "false", Timeout: c.Anchor.Timeout}}
-	})
+	_, result, err := runScript(t, s, "unused", projectGate(t, "test ! -f broken.flag", "false"))
 	if err != nil || !result.Pass {
 		t.Fatalf("err=%v reason=%s", err, result.Reason)
 	}
 	second := s.executes[1]
-	if !strings.Contains(second, "passed before your change") || !strings.Contains(second, "broke it: main") ||
-		!strings.Contains(second, "Already failing before your change, the same way (not yours; do not spend rounds on them): legacy") {
+	if !strings.Contains(second, "passed before your change") || !strings.Contains(second, "broke it: declared") ||
+		!strings.Contains(second, "Already failing before your change, the same way (not yours; do not spend rounds on them): declared 2") {
 		t.Errorf("the rejection must name the new failure and the old one:\n%s", second)
 	}
-	if !strings.Contains(result.Reason, "ALREADY FAILING BEFORE THIS CHANGE") || !strings.Contains(result.Reason, "legacy") {
+	if !strings.Contains(result.Reason, "ALREADY FAILING BEFORE THIS CHANGE") || !strings.Contains(result.Reason, "declared 2") {
 		t.Errorf("the final verdict must keep the caveat about the old failure: %s", result.Reason)
 	}
 }
 
-// TestNoBaselineIsTakenWhereThereIsNothingToCompare: turned off, no anchor, or not a repository -
-// the run behaves exactly as before.
+// TestNoBaselineIsTakenWhereThereIsNothingToCompare: turned off, no anchor, an anchor the
+// configuration wrote, or not a repository - the run behaves exactly as before.
 func TestNoBaselineIsTakenWhereThereIsNothingToCompare(t *testing.T) {
-	e := mount(t, idleServer(t), config.Anchor{Kind: "command", Command: "true", Baseline: true}, nil)
+	e := mount(t, idleServer(t), config.Anchor{Kind: "auto", Baseline: true}, nil)
 	ctx := context.Background()
 	if e.agent.startBaseline(ctx) != nil {
 		t.Error("a workspace that is not a repository has no baseline")
+	}
+	inRepo(t)(&e.agent.cfg)
+	e.agent.cfg.Anchor = config.Anchor{Kind: "command", Command: "true", Baseline: true}
+	if e.agent.startBaseline(ctx) != nil {
+		t.Error("an anchor the configuration wrote states the goal, and must not be compared")
 	}
 	e.agent.cfg.Anchor.Baseline = false
 	if e.agent.startBaseline(ctx) != nil {
@@ -161,7 +183,7 @@ func TestNoBaselineIsTakenWhereThereIsNothingToCompare(t *testing.T) {
 // the anchor's verdict exactly as it was.
 func TestABaselineThatCannotBeMadeChangesNoVerdict(t *testing.T) {
 	ctx := context.Background()
-	e := mount(t, idleServer(t), config.Anchor{Kind: "command", Command: "false", Baseline: true}, inRepo(t))
+	e := mount(t, idleServer(t), config.Anchor{Kind: "command", Command: "false", Baseline: true}, projectGate(t, "false"))
 	failed := anchor.Result{Reason: "failed checks: main", Checks: []anchor.CheckLog{{Name: "main"}}}
 
 	old := baselineSnapshot
@@ -196,5 +218,28 @@ func TestABaselineThatCannotBeMadeChangesNoVerdict(t *testing.T) {
 	// And a passing verdict is never re-checked.
 	if got := b.judge(ctx, anchor.Result{Pass: true, Reason: "ok"}); !got.Pass || len(b.known) != 0 {
 		t.Errorf("a pass must not be measured: %+v %v", got, b.known)
+	}
+}
+
+// TestAGoalTheConfigurationStatesIsNeverCalledAlreadyFailing replays a real run: the anchor was the
+// task's own acceptance check (`test -s a.txt`), which fails on the starting tree by design. The
+// baseline called it "already failing" and a claim of done went through with nothing written.
+// Without a baseline for configured checks, that claim is refused until the file exists.
+func TestAGoalTheConfigurationStatesIsNeverCalledAlreadyFailing(t *testing.T) {
+	s := &scriptServer{execute: func(round int, _ string) string {
+		if round == 1 {
+			return step(true, "true") // claims done having written nothing
+		}
+		return step(true, "echo alpha > a.txt")
+	}}
+	_, result, err := runScript(t, s, "test -s a.txt", inRepo(t))
+	if err != nil || !result.Pass {
+		t.Fatalf("err=%v reason=%s", err, result.Reason)
+	}
+	if len(s.executes) != 2 {
+		t.Fatalf("rounds = %d, want 2: the empty claim must be refused", len(s.executes))
+	}
+	if strings.Contains(result.Reason, "ALREADY FAILING") {
+		t.Errorf("a stated goal must never be excused as pre-existing: %s", result.Reason)
 	}
 }

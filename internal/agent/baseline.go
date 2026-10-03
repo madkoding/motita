@@ -54,8 +54,16 @@ type runBaseline struct {
 // it is turned off, there is no anchor, or the workspace is not the root of a repository with
 // a commit (a Snapshot needs one to hang from). nil is a valid *runBaseline: every method on it
 // is a no-op, so the loop does not branch on it.
+//
+// Only the PROJECT'S OWN gate (anchor.kind auto) is compared. A gate the project declares - its
+// tests, its lint, its build - is meant to be green before anyone touches it, so a red one is the
+// environment's doing. A check written into the configuration (kind command, or checks) is the
+// opposite: it usually states what the task must achieve, and it fails before the run BY DESIGN.
+// Measured on a real run whose anchor was `test -s a.txt && test -s b.txt`: the baseline found it
+// failing on the starting tree, called it "already failing", and accepted a claim of done with
+// neither file written.
 func (a *Agent) startBaseline(ctx context.Context) *runBaseline {
-	if !a.cfg.Anchor.Baseline || strings.EqualFold(a.cfg.Anchor.Kind, "none") || a.cfg.Anchor.Kind == "" {
+	if !a.cfg.Anchor.Baseline || !strings.EqualFold(a.cfg.Anchor.Kind, "auto") {
 		return nil
 	}
 	dir := a.cfg.Agent.WorkspaceDir

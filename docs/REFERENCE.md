@@ -176,7 +176,9 @@ When the anchor refuses a claim of done and `anchor.baseline` is on, the failing
 once more on a clean checkout of the tree the run started from. A check that failed there too
 is reported as **already failing before this change**: when that is true of every failing
 check the claim passes, and the verdict names those checks; a check that passed there is a
-breakage the run caused, and the rejection says so.
+breakage the run caused, and the rejection says so. Only the project's own gate
+(`anchor.kind: auto`) is compared this way: a check written into the configuration usually
+states what the task must achieve, fails before the run by design, and is never excused.
 
 **The loop has TWO bounds, because they answer two different questions.**
 
@@ -478,7 +480,7 @@ honoured. The documented one wins when both are set.
 | Block | Contents |
 |---|---|
 | `task_source` | `kind` (`stdin`/`file`/`api`/`queue`), `path`, `dir`, `url`, `method`, `field`, `interval`, `headers`, `body` |
-| `anchor` | `kind` (`auto`/`command`/`none`), `command`, `args`, `timeout`, `expect_exit`, `expect_output` (regex), `baseline` (bool, default `true`: a check that fails on a claim of done is run again on a clean checkout of the starting commit, and one that failed there too is reported as already failing instead of blocking), `checks[]` |
+| `anchor` | `kind` (`auto`/`command`/`none`), `command`, `args`, `timeout`, `expect_exit`, `expect_output` (regex), `baseline` (bool, default `true`, `kind: auto` only: a check that fails on a claim of done is run again on a clean checkout of the starting commit, and one that failed there too is reported as already failing instead of blocking), `checks[]` |
 | `sandbox` | `kind` (`none`/`chroot`/`cgroups`), `root`, `user`, `memory_mb`, `cpu_seconds`, `processes`, `open_files`, `max_file_size_mb`, `isolate_network`, `cgroups`, `cgroup_root`, `timeout`, `check_timeout`, `keep_ephemeral`, `max_output_kb`, `tools_dir` |
 | `llm` | `provider` (`openai`/`anthropic`/`gemini`), `model`, `api_key`, `base_url`, `max_tokens`, `temperature`, `timeout`, `max_attempts`, `backoff_initial`, `backoff_max`, `reasoning{enabled,level}`, `session{context_window,reserve,compact_at,keep_recent}` |
 | `prompts` | `analyze`, `plan`, `execute`, `synthesize`, each with `system` and `user` |
