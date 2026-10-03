@@ -46,6 +46,10 @@ type Anchor struct {
 	dir     string // working directory the checks run in
 	sandbox *sandbox.Sandbox
 	log     *logx.Logger
+	// tools is the sandbox's tools directory, put on PATH of a check that runs WITHOUT the
+	// sandbox. checkTimeout is the least a DETECTED check gets. See WithTools.
+	tools        string
+	checkTimeout time.Duration
 }
 
 // New builds an anchor. The sandbox is optional: when it is nil, the checks run
@@ -58,6 +62,19 @@ type Anchor struct {
 // too (for instance with the sandbox in chroot mode).
 func New(cfg config.Anchor, dir string, box *sandbox.Sandbox) *Anchor {
 	return &Anchor{cfg: cfg, dir: dir, sandbox: box, log: logx.Global()}
+}
+
+// WithTools gives the anchor the agent's tools directory and its check timeout.
+//
+// Reported from a real session: the toolchain the agent had installed was not on the anchor's
+// PATH, so `make check` failed in 3 ms with make not found and the run could never pass; and the
+// detected gate got the anchor's 120 s default, less than a whole test suite needs. A check run
+// through the sandbox already gets the tools on PATH from the sandbox itself; one run directly
+// gets them here. The timeout applies to DETECTED checks only: an explicit check keeps the
+// timeout its author chose.
+func (a *Anchor) WithTools(tools string, checkTimeout time.Duration) *Anchor {
+	a.tools, a.checkTimeout = tools, checkTimeout
+	return a
 }
 
 // Validator is the abstraction, so it can be replaced in tests.
@@ -191,6 +208,10 @@ func (a *Anchor) runCheck(ctx context.Context, c config.Check) CheckLog {
 	if a.sandbox != nil {
 		output, truncated, exit, runErr = a.sandbox.Run(ctx, request)
 	} else {
+		if a.tools != "" {
+			request.Environment = sandbox.ToolEnvironment(a.tools, nil)
+			request.Command = sandbox.LookTool(a.tools, request.Command)
+		}
 		output, truncated, exit, runErr = runDirect(ctx, request)
 	}
 

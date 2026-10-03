@@ -1516,7 +1516,8 @@ func (a *Agent) loop(ctx context.Context, t task.Task, depth int) TaskResult {
 
 		// [8] The model claims the task is done: validate with the anchor, always.
 		a.report("validating with anchor...")
-		validation := anchor.New(a.cfg.Anchor, a.cfg.Agent.WorkspaceDir, a.sandbox).Validate(ctx)
+		validation := anchor.New(a.cfg.Anchor, a.cfg.Agent.WorkspaceDir, a.sandbox).
+			WithTools(a.cfg.Sandbox.ToolsDir, a.cfg.Sandbox.CheckTimeout).Validate(ctx)
 		res.Validation = &validation
 
 		if validation.Pass && runErr == nil {
@@ -2070,6 +2071,7 @@ func (a *Agent) baseVariables(t task.Task) map[string]string {
 		"history":      a.dialogue(),
 		"model":        a.cfg.LLM.Model,
 		"provider":     a.cfg.LLM.Provider,
+		"tools":        describeTools(a.cfg.Sandbox),
 	}
 	for k, v := range t.Context {
 		vars["context_"+k] = v

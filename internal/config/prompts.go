@@ -196,7 +196,7 @@ var BaseExecuteTemplate = Template{
 ## CONTEXT
 - Working directory: {{workspace}}
 - Round: {{attempt}}
-
+{{tools}}
 ## SHOW WHAT CHANGED
 The person reading the result is not reading code. When your change is something they can SEE (a page, a screen, a UI, a chart, a rendered document), do not stop at "it builds": run it, take a screenshot of the affected view with whatever tool the machine has (a headless browser, an OS screenshot command, a renderer) and save it as a .png under .motita/previews/ in the working directory (for example .motita/previews/after.png). The program shows those pictures to the user, first, above the list of changed files. Skip this for changes with nothing to look at (logic, tests, config); never fake a picture.
 

@@ -53,6 +53,7 @@ func textBindings(c *Config) []binding[string] {
 		{"MOTITA_SANDBOX_USER", &c.Sandbox.User},
 		{"MOTITA_SANDBOX_CGROUPS", &c.Sandbox.Cgroups},
 		{"MOTITA_SANDBOX_CGROUP_ROOT", &c.Sandbox.CgroupRoot},
+		{"MOTITA_SANDBOX_TOOLS_DIR", &c.Sandbox.ToolsDir},
 
 		{"MOTITA_SKILLS_DIR", &c.Skills.Dir},
 
@@ -94,6 +95,7 @@ func durationBindings(c *Config) []binding[time.Duration] {
 		{"MOTITA_TASK_SOURCE_INTERVAL", &c.TaskSource.Interval},
 		{"MOTITA_ANCHOR_TIMEOUT", &c.Anchor.Timeout},
 		{"MOTITA_SANDBOX_TIMEOUT", &c.Sandbox.Timeout},
+		{"MOTITA_SANDBOX_CHECK_TIMEOUT", &c.Sandbox.CheckTimeout},
 		{"MOTITA_LLM_TIMEOUT", &c.LLM.Timeout},
 		{"MOTITA_LLM_BACKOFF_INITIAL", &c.LLM.BackoffInitial},
 		{"MOTITA_LLM_BACKOFF_MAX", &c.LLM.BackoffMax},

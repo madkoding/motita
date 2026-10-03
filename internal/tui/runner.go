@@ -361,6 +361,7 @@ func (r *AppRunner) SetWorkspace(dir string) {
 		Timeout:     r.Cfg.Sandbox.Timeout,
 		MaxOutputKB: r.Cfg.Sandbox.MaxOutputKB,
 		Keep:        r.Cfg.Sandbox.KeepEphemeral,
+		ToolsDir:    r.Cfg.Sandbox.ToolsDir,
 		Log:         r.Log,
 	}
 	switch r.Cfg.Sandbox.Kind {
