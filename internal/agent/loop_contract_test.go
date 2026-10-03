@@ -524,6 +524,29 @@ func TestTheJournalCompactsOldRounds(t *testing.T) {
 	}
 }
 
+// TestTheNewestRoundsKeepTheirWholeOutput replays "the previous output was not visible in my
+// context": the round just run keeps its output, head AND tail (the end of a file, the summary line
+// of a check); the older rounds still shown in full are cut, so ten of them stay affordable.
+func TestTheNewestRoundsKeepTheirWholeOutput(t *testing.T) {
+	big := "HEAD-MARK\n" + strings.Repeat("x", roundDetailOutput/2) + "\nTAIL-MARK"
+	var rounds []roundRecord
+	for i := 1; i <= keepRoundsInFull; i++ {
+		rounds = append(rounds, roundRecord{round: i, kind: roundProgress, commands: "cmd", detail: big})
+	}
+	got := renderRounds(rounds)
+	sections := strings.Split(got, "\n### Round ")
+	newest, older := sections[len(sections)-1], sections[1]
+	if !strings.Contains(newest, "HEAD-MARK") || !strings.Contains(newest, "TAIL-MARK") || strings.Contains(newest, "omitted") {
+		t.Errorf("the newest round must be whole:\n%.300s", newest)
+	}
+	if !strings.Contains(older, "HEAD-MARK") || !strings.Contains(older, "TAIL-MARK") || !strings.Contains(older, "omitted") {
+		t.Errorf("an older round must keep its head and tail around a cut:\n%.300s", older)
+	}
+	if len(older) > roundDetailOlder+200 {
+		t.Errorf("an older round must be cut to about %d bytes, it is %d", roundDetailOlder, len(older))
+	}
+}
+
 // TestTruncationNeverSplitsACharacter: a cut in the middle of a two-byte character used to put invalid UTF-8
 // in prompts and in the chat.
 func TestTruncationNeverSplitsACharacter(t *testing.T) {

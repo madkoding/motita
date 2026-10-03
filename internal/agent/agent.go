@@ -1412,7 +1412,7 @@ func (a *Agent) loop(ctx context.Context, t task.Task, depth int) TaskResult {
 			// PROGRESS. The anchor is not consulted - see the loop contract above - and
 			// nothing is charged to max_retries. The round is recorded so the next one
 			// continues from it instead of proposing the same first step again.
-			detail := "Actions:\n" + commandList(action) + "\nOutput:\n" + truncate(runOutput, 3000)
+			detail := "Actions:\n" + commandList(action) + "\nOutput:\n" + truncateMiddle(runOutput, roundDetailOutput)
 			if runErr != nil {
 				detail += "\nExecution error: " + runErr.Error()
 			}
@@ -1663,7 +1663,23 @@ const (
 // keepRoundsInFull is how many of the latest rounds the next round reads in full. Older
 // rounds shrink to one line each: a long task would otherwise grow the prompt by up to 3 KB
 // per round until the history crowded out the task - a hundred rounds is 300 KB.
-const keepRoundsInFull = 6
+//
+// It was 6. Reported from a real session: the model said "the previous output was not visible
+// in my context" and read the same region of tui.go five times. Most of its reads were not kept
+// as evidence (they wrote to /tmp, or exported a PATH first, so they were not provably reads),
+// which left the journal as the only copy, and six rounds is about one explore-write-check
+// cycle. Ten keeps two of them, for at most ~10 KB more than before on the older rounds.
+const keepRoundsInFull = 10
+
+// keepRoundsWhole is how many of the newest rounds keep their output up to roundDetailOutput;
+// the other rounds shown in full are cut to roundDetailOlder. The round just run is the one the
+// next decision is about, and its output was cut at 3000 bytes from the HEAD - so a 300-line
+// file read lost its end, and a check lost the summary line that says whether it passed.
+const (
+	keepRoundsWhole   = 2
+	roundDetailOutput = 12000
+	roundDetailOlder  = 3000
+)
 
 // roundKind is what a round of the loop turned out to be. See the loop contract in loop.
 type roundKind int
@@ -1717,12 +1733,17 @@ func renderRounds(rounds []roundRecord) string {
 	b.WriteString("Everything already done for this task, oldest first. Continue from where it " +
 		"stands: do not redo a round that made progress.\n")
 	older := len(rounds) - keepRoundsInFull
+	whole := len(rounds) - keepRoundsWhole
 	for i, r := range rounds {
 		if i < older {
 			fmt.Fprintf(&b, "- Round %d (%s): %s\n", r.round, r.kind.label(), r.commands)
 			continue
 		}
-		fmt.Fprintf(&b, "\n### Round %d - %s\n%s\n", r.round, r.kind.heading(), r.detail)
+		detail := r.detail
+		if i < whole {
+			detail = truncateMiddle(detail, roundDetailOlder)
+		}
+		fmt.Fprintf(&b, "\n### Round %d - %s\n%s\n", r.round, r.kind.heading(), detail)
 	}
 	return b.String()
 }
