@@ -261,7 +261,12 @@ type Agent struct {
 	//
 	// MaxSteps is the bound on the other axis: how many rounds a task is allowed when the
 	// model reports there is still work to do. Zero means the built-in default.
-	MaxSteps        int           `yaml:"max_steps"`
+	MaxSteps int `yaml:"max_steps"`
+	// MaxParallel is how many background agents (spawn_agent) one run may have running at the
+	// same time. Each one is a whole agent - its own model calls, its own worktree, its own
+	// checks - so the bound is on cost and on the machine, not on usefulness. Zero turns
+	// spawn_agent off.
+	MaxParallel     int           `yaml:"max_parallel"`
 	WorkspaceDir    string        `yaml:"workspace_dir"`
 	LogFile         string        `yaml:"log_file"`
 	LogLevel        string        `yaml:"log_level"`
@@ -433,7 +438,10 @@ func Default() Config {
 			//
 			// Running out is not a failure either: the loop ASKS whether to continue with
 			// another budget, so this number is a checkpoint rather than a wall.
-			MaxSteps:     100,
+			MaxSteps: 100,
+			// Three agents at once: enough to put a test suite, the docs and a separate module
+			// in parallel, few enough that a laptop and a subscription's rate limit both survive.
+			MaxParallel:  3,
 			WorkspaceDir: defaultWorkspaceDir(),
 			LogLevel:     "info",
 			// The policy asks before a consequential action runs, and refuses what it

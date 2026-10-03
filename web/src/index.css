@@ -1679,6 +1679,76 @@ button:disabled {
   content: ''; display: inline-block; width: 7px; height: 12px; margin-left: 3px;
   vertical-align: -2px; background: var(--tx-main); animation: termBlink 1s steps(2, start) infinite;
 }
+/* The agents drawer: the same screen in cyan. Its tab sits below the terminal's. */
+.term-drawer.is-agents {
+  --tx-rgb: 121, 192, 255;
+  --tx-hi-rgb: 170, 215, 255;
+  --tx-main: #79c0ff;
+  --tx-dim: #4a86bd;
+  --tx-bg: #03080d;
+  --tx-bar: #061019;
+  --tx-tab-bg: #040c14;
+  --tx-tab-hover: #08182a;
+}
+.term-drawer.is-agents .term-tab { top: calc(40% + 118px); }
+.term-drawer.is-agents .term-tab.is-live .term-tab-count { animation: thinkPulse 1.6s ease-in-out infinite; }
+.agent-row {
+  display: flex;
+  gap: 8px;
+  padding: 7px 4px;
+  border-bottom: 1px dashed rgba(var(--tx-rgb), 0.18);
+}
+.agent-row.is-done { cursor: pointer; }
+.agent-row.is-done:hover { background: rgba(var(--tx-rgb), 0.05); }
+.agent-state { flex: none; width: 14px; text-align: center; color: var(--tx-main); }
+.agent-row.is-failed .agent-state { color: #ff7b72; }
+.agent-row.is-cancelled .agent-state { color: var(--tx-dim); }
+.agent-spin {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  margin-top: 2px;
+  border: 1.5px solid rgba(var(--tx-rgb), 0.3);
+  border-top-color: var(--tx-main);
+  border-radius: 50%;
+  animation: agentSpin 0.8s linear infinite;
+}
+@keyframes agentSpin { to { transform: rotate(360deg); } }
+.agent-body { flex: 1 1 auto; min-width: 0; }
+.agent-head { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 2px 10px; }
+.agent-purpose { min-width: 0; color: #dcefff; overflow-wrap: anywhere; }
+.agent-tag {
+  display: inline-block;
+  margin-right: 6px;
+  padding: 0 4px;
+  font-size: 9px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--tx-bg);
+  background: var(--tx-dim);
+  border-radius: 3px;
+}
+.agent-meta { flex: none; font-size: 10px; color: var(--tx-dim); font-variant-numeric: tabular-nums; }
+.agent-activity {
+  margin-top: 2px;
+  font-size: 10px;
+  color: var(--tx-dim);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.agent-detail { margin-top: 4px; cursor: auto; }
+.agent-summary { margin: 0; font: inherit; color: #b9dcff; white-space: pre-wrap; word-break: break-word; }
+.agent-branch { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 6px; font-size: 10px; }
+.agent-branch code { color: var(--tx-main); overflow-wrap: anywhere; }
+.agent-copy {
+  padding: 0 6px;
+  color: var(--tx-main);
+  border: 1px solid rgba(var(--tx-rgb), 0.45);
+  border-radius: 3px;
+  cursor: pointer;
+}
+.agent-copy:hover { background: rgba(var(--tx-rgb), 0.1); }
 .term-drawer {
   position: absolute;
   top: 0;
@@ -1875,6 +1945,7 @@ button:disabled {
 @media (prefers-reduced-motion: reduce) {
   .term-drawer, .term-panel { transition: none; }
   .term-caret, .tk-new { animation: none; }
+  .agent-spin, .term-drawer.is-agents .term-tab.is-live .term-tab-count { animation: none; }
   .term-screen, .term-fx-scan, .term-fx-sweep, .term-fx-noise { animation: none; }
   .term-fx-sweep { display: none; }
 }

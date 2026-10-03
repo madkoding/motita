@@ -176,7 +176,9 @@ When the anchor refuses a claim of done and `anchor.baseline` is on, the failing
 once more on a clean checkout of the tree the run started from. A check that failed there too
 is reported as **already failing before this change**: when that is true of every failing
 check the claim passes, and the verdict names those checks; a check that passed there is a
-breakage the run caused, and the rejection says so.
+breakage the run caused, and the rejection says so. Only the project's own gate
+(`anchor.kind: auto`) is compared this way: a check written into the configuration usually
+states what the task must achieve, fails before the run by design, and is never excused.
 
 **The loop has TWO bounds, because they answer two different questions.**
 
@@ -478,12 +480,12 @@ honoured. The documented one wins when both are set.
 | Block | Contents |
 |---|---|
 | `task_source` | `kind` (`stdin`/`file`/`api`/`queue`), `path`, `dir`, `url`, `method`, `field`, `interval`, `headers`, `body` |
-| `anchor` | `kind` (`auto`/`command`/`none`), `command`, `args`, `timeout`, `expect_exit`, `expect_output` (regex), `baseline` (bool, default `true`: a check that fails on a claim of done is run again on a clean checkout of the starting commit, and one that failed there too is reported as already failing instead of blocking), `checks[]` |
+| `anchor` | `kind` (`auto`/`command`/`none`), `command`, `args`, `timeout`, `expect_exit`, `expect_output` (regex), `baseline` (bool, default `true`, `kind: auto` only: a check that fails on a claim of done is run again on a clean checkout of the starting commit, and one that failed there too is reported as already failing instead of blocking), `checks[]` |
 | `sandbox` | `kind` (`none`/`chroot`/`cgroups`), `root`, `user`, `memory_mb`, `cpu_seconds`, `processes`, `open_files`, `max_file_size_mb`, `isolate_network`, `cgroups`, `cgroup_root`, `timeout`, `check_timeout`, `keep_ephemeral`, `max_output_kb`, `tools_dir` |
 | `llm` | `provider` (`openai`/`anthropic`/`gemini`), `model`, `api_key`, `base_url`, `max_tokens`, `temperature`, `timeout`, `max_attempts`, `backoff_initial`, `backoff_max`, `reasoning{enabled,level}`, `session{context_window,reserve,compact_at,keep_recent}` |
 | `prompts` | `analyze`, `plan`, `execute`, `synthesize`, each with `system` and `user` |
 | `final_action` | `kind` (`none`/`command`/`api`/`git_commit`), `command`, `args`, `url`, `method`, `commit_message` |
-| `agent` | `max_retries`, `max_steps`, `subtask_depth`, `max_tasks`, `workspace_dir`, `log_file`, `log_level`, `log_console`, `log_max_mb`, `log_backups`, `graceful_shutdown_timeout`, `read_only`, `shell`, `policy{enforce,strict}`, `on_failure` |
+| `agent` | `max_retries`, `max_steps`, `subtask_depth`, `max_parallel` (background agents started with `spawn_agent` running at once, default `3`; `0` turns it off), `max_tasks`, `workspace_dir`, `log_file`, `log_level`, `log_console`, `log_max_mb`, `log_backups`, `graceful_shutdown_timeout`, `read_only`, `shell`, `policy{enforce,strict}`, `on_failure` |
 | `skills` | `dir`, `max_file_bytes` |
 | `gateway` | `enabled`, `listen`, `token_file`, `allow`, `max_body_kb` |
 | `schedule` | `enabled`, `tick`, `min_every`, `max_runs_kept` |
@@ -883,6 +885,7 @@ lines"*:
 | `dropped` | How many events were evicted, so a hole is a size and not a suspicion. |
 | `pending_approval` | The question being asked **right now**, with its `id`, if the run is blocked on one. |
 | `outcome` | Empty while the turn is going; `done`, `error` or `cancelled` once it has ended. A client attaching to a finished turn is **told**, instead of waiting on a stream that will never produce. |
+| `agents` | The latest list of the run's agents (see below), when there is one. |
 
 The preamble carries a pending question on purpose. A client that reconnects while the
 run is blocked on an approval would otherwise receive a silent stream — and the run would
@@ -909,8 +912,30 @@ four seconds is worse than telling it four seconds are gone.
 |---|---|
 | `GET /v1/sessions/{id}/run` | Whether a run is in flight, its span, and how many clients are watching it. One JSON reply, so a client can decide before opening a stream. |
 | `GET /v1/sessions/{id}/events?from=N` | Attach, from event `N` onwards. |
+| `GET /v1/sessions/{id}/agents` | The agents of the run in flight, or of the last run: `{"agents":[...]}`, `[]` when there were none. |
 | `POST /v1/sessions/{id}/cancel` | Stop the run in this conversation. |
 | `POST /v1/sessions/{id}/runs/approval` | Answer the pending question, by `id`. |
+
+**The run's agents.** A run can start agents of its own in the background. Their list
+travels as `event: agents`, `data: {"agents":[...]}`, every time it changes. Like
+`thinking` it is ephemeral (`id: 0`, not in the log, not replayed): each one replaces the
+one before, and a client that attaches gets the latest in the preamble. Each entry is:
+
+| Field | Meaning |
+|---|---|
+| `id` / `parent` | The agent, and the one that started it. The main agent has no `parent`. |
+| `purpose` | What it was started for, in the words of the agent that started it. |
+| `state` | `running`, `passed`, `failed` or `cancelled`. |
+| `started` / `finished` | When it started, and when it ended (absent while it runs). |
+| `elapsed_ms` | Its running time when the list was sent; count from `started` to show a live clock. |
+| `tokens` | `input`, `output`, `cache_read`, `cache_write`, as the provider reported them. |
+| `calls`, `round` | Model calls made, and the round it is on. |
+| `activity` | Its latest progress line. |
+| `branch`, `summary` | Where its work is and what it says it did, once it finished. |
+
+The session list counts them too: `agents_running` is how many background agents (the
+main one aside) are working right now. In the terminal, the footer shows the count and
+the tokens spent, and **Ctrl+G** or `/agents` opens the full list.
 
 Cancelling is addressed to the **session**, not to a run id, so a client that
 reconnected and remembers a stale run cannot stop the wrong turn — or reach a run that

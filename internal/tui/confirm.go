@@ -2,6 +2,7 @@ package tui
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 
@@ -87,6 +88,11 @@ func (t *TUI) confirmLine(s string, width int) string {
 // The context is watched on both sides of the handoff, so a cancelled run (Ctrl+C, a closed
 // input, a shutdown) does not leave a goroutine parked forever on a window nobody will answer.
 func (t *TUI) askConfirm(ctx context.Context, req agent.ApprovalRequest) (bool, error) {
+	if req.Background {
+		// The window is the main agent's: a background agent's question would queue behind it, or
+		// cover it, about a run the user is not looking at. It is refused, and the refusal says so.
+		return false, errors.New("a background agent cannot ask for approval here; leave this step to the main agent")
+	}
 	c := &confirmState{req: req, reply: make(chan bool, 1)}
 
 	select {

@@ -47,6 +47,7 @@ anchor:
   # When a check fails on a claim of done, run it again on a clean checkout of the
   # commit the run started from: a check that failed there too is reported as
   # already failing instead of blocking the run forever (needs a repository).
+  # Only with kind: auto - a configured check states the goal and is never excused.
   baseline: true
   # Extra checks: EVERY one of them must pass for the anchor to give PASS.
   checks:
@@ -169,6 +170,7 @@ final_action:
 agent:
   max_retries: 3               # total attempts = max_retries + 1
   subtask_depth: 1             # allowed splitting levels
+  max_parallel: 3              # background agents (spawn_agent) running at once; 0 = off
   max_tasks: 0                 # 0 = no limit
   workspace_dir: ./workspace
   log_file: ./workspace/motita.log   # empty = console only

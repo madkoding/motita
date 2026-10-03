@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"sync"
 
+	"github.com/madkoding/motita/internal/agent"
 	"github.com/madkoding/motita/internal/session"
 )
 
@@ -78,6 +79,9 @@ type run struct {
 	// that is a step (not a live snapshot): it is how a turn's steps reach its checkpoint.
 	turn   int
 	onLine func(string)
+	// onAgents receives every snapshot of the run's agents. It is how the snapshot reaches the
+	// CONVERSATION, which keeps it after the run ends - the run itself is gone by then.
+	onAgents func([]agent.AgentInfo)
 
 	mu      sync.Mutex
 	seq     uint64

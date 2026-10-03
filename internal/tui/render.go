@@ -1192,7 +1192,8 @@ func (t *TUI) statusLines(w int) []string {
 // at this moment is an instruction.
 func (t *TUI) bottomBar(w int) string {
 	left := t.keyHints()
-	right := t.muted(t.contextLabel())
+	// The agents segment goes before the context gauge: it is what changes while a run works.
+	right := t.muted(strings.Join(nonEmpty(t.agentsLabel(), t.contextLabel()), "  "+glyphMid+"  "))
 	if t.scroll > 0 {
 		left = t.color(colWarning, 0, glyphDot+" "+strconv.Itoa(t.scroll)+" lines up") + t.muted("  "+glyphMid+"  ") + left
 	}
@@ -1296,6 +1297,8 @@ func (t *TUI) composerLinesCapped(popupCap int) []string {
 		lines = append(lines, t.confirmLines(popupCap)...)
 	} else if t.asking() {
 		lines = append(lines, t.askLines(popupCap)...)
+	} else if t.showingAgents() {
+		lines = append(lines, t.agentsLinesCapped(popupCap)...)
 	} else {
 		lines = append(lines, t.completionLinesCapped(t.bodyWidth(), popupCap)...)
 	}
@@ -1659,6 +1662,9 @@ func (t *TUI) popupRows() int {
 	// measured and the interface would scroll on a keypress.
 	if t.asking() {
 		return t.askRows()
+	}
+	if t.showingAgents() {
+		return t.agentsRows()
 	}
 	if !t.completing() {
 		return 0

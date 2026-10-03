@@ -476,3 +476,25 @@ func TestReadByteOrCancelReportsAFailedRead(t *testing.T) {
 		t.Error("a failed read is the end of the input")
 	}
 }
+
+// TestEndingATurnAppliesTheLinesItLeftQueued: the outcome and the last lines arrive together, and
+// the input loop's select may take the outcome first. The lines are the turn's, and are applied
+// before it is settled.
+func TestEndingATurnAppliesTheLinesItLeftQueued(t *testing.T) {
+	tu, _ := newKeyTUI("")
+	progress := make(chan string, 2)
+	progress <- "late line"
+	progress <- "final snapshot"
+	var seen []string
+	settled := false
+	tu.current = &turn{
+		progress:   progress,
+		onProgress: func(p string) { seen = append(seen, p) },
+		onDone:     func(runOutcome) { settled = len(seen) == 2 },
+		tick:       time.NewTicker(time.Hour),
+	}
+	tu.endCurrent(context.Background(), runOutcome{result: "end"})
+	if !settled {
+		t.Errorf("the queued lines must be applied before the turn is settled: %v", seen)
+	}
+}

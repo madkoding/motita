@@ -44,6 +44,16 @@ var spinInterval = 200 * time.Millisecond
 // there is no key to read until a whole line is typed, so nothing would be gained by returning:
 // the turn is awaited here, the way it always was.
 func (t *TUI) startTurn(runCtx context.Context, tr *turn) {
+	// A snapshot of the run's agents is view state, not a line of the turn: it is taken here, once,
+	// for every kind of turn, before the turn's own handler can write it into the conversation.
+	handle := tr.onProgress
+	tr.onProgress = func(p string) {
+		if t.takeAgents(p) {
+			t.advance()
+			return
+		}
+		handle(p)
+	}
 	if !t.charMode {
 		tr.onDone(t.awaitRun(runCtx, tr.progress, tr.done, tr.onProgress))
 		return
@@ -56,6 +66,8 @@ func (t *TUI) startTurn(runCtx context.Context, tr *turn) {
 // queued while it ran.
 func (t *TUI) endCurrent(ctx context.Context, out runOutcome) {
 	tr := t.current
+	// Lines still queued when the outcome arrived belong to this turn; see awaitRun.
+	drainProgress(tr.progress, tr.onProgress)
 	t.current = nil
 	tr.tick.Stop()
 	// A confirmation still open belongs to a turn that is over: nobody is waiting for the answer,

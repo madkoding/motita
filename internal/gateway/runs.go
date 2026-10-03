@@ -130,6 +130,9 @@ func (s *Server) startDetachedRun(c *conversation, task, kind, intent string, ap
 	rn.turn = turnFor(turns, task)
 	resumed := rn.turn < len(turns)
 	rn.onLine = func(text string) { c.recordStep(rn.turn, text) }
+	// The last run's agents are not this one's: the list starts over with the run.
+	c.setAgents(nil)
+	rn.onAgents = c.setAgents
 	c.setCurrentRun(rn)
 	c.svc.SetApprover(approverFor(rn))
 
@@ -294,6 +297,7 @@ func (s *Server) attach(w http.ResponseWriter, r *http.Request, c *conversation,
 	if err := writeEvent(w, rc, 0, EventAttached, attachedEvent{
 		RunID: rn.id, FirstSeq: info.FirstSeq, LastSeq: info.LastSeq,
 		Dropped: info.Dropped, PendingApproval: pending, Outcome: outcome, Turn: rn.turn,
+		Agents: c.agentsNow(),
 	}); err != nil {
 		return
 	}
@@ -421,6 +425,15 @@ func (r *run) progress() func(string, ...any) {
 			r.flash(EventThinking, progressEvent{Text: live})
 			return
 		}
+		// So is the list of the run's agents. It is not a step: written into the checkpoint it
+		// would come back as a line of JSON in the transcript, once per change of every agent.
+		if agents, ok := agent.ParseAgentsLine(text); ok {
+			if r.onAgents != nil {
+				r.onAgents(agents)
+			}
+			r.flash(EventAgents, agentsEvent{Agents: agents})
+			return
+		}
 		if r.onLine != nil {
 			r.onLine(text)
 		}
@@ -441,8 +454,17 @@ func (s *Server) approverFor(c *conversation, rn *run) agent.Approver {
 		// question - announced in the run, so what ran on that answer is still visible. The
 		// question of spending another step budget is not a command and is still asked.
 		if req.Rule != agent.BudgetRule && c.autoApproving() {
-			rn.append(EventProgress, progressEvent{Text: "approved (all commands allowed in this session): " + req.Command})
+			who := ""
+			if req.Background {
+				who = "background agent " + req.Agent + ": "
+			}
+			rn.append(EventProgress, progressEvent{Text: "approved (all commands allowed in this session): " + who + req.Command})
 			return true, nil
+		}
+		if req.Background {
+			// One question is open at a time, and it belongs to the agent the user is watching.
+			return false, errors.New("a background agent cannot ask for approval: allow all commands for this " +
+				"session to let it run this, or leave this step to the main agent")
 		}
 		id, err := newApprovalID()
 		if err != nil {
@@ -559,6 +581,13 @@ func (s *Server) handleRunStatus(w http.ResponseWriter, r *http.Request) {
 		"run_id": rn.id, "outcome": outcome, "first_seq": info.FirstSeq,
 		"last_seq": info.LastSeq, "dropped": info.Dropped, "subscribers": rn.subscriberCount(),
 	})
+}
+
+// handleAgents reports the agents of the run in flight, or of the last one when the session is
+// idle: a front end that opens a session after its agents finished can still show what they did,
+// what they cost and where their work is. A session that never ran any reports [].
+func (s *Server) handleAgents(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, http.StatusOK, agentsEvent{Agents: convOf(r).agentsNow()})
 }
 
 // handleCancelRun stops the run in flight in this conversation.

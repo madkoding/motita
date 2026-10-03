@@ -14,6 +14,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/madkoding/motita/internal/agent"
 	"github.com/madkoding/motita/internal/gitx"
 )
 
@@ -77,6 +78,9 @@ type conversation struct {
 	// lastKind is "task" or "plan", recording which mode the last run was
 	// in. An interrupted plan and an interrupted task resume differently.
 	lastKind string
+	// agents is the latest snapshot of the agents of the run in flight, or of the last run. It is
+	// kept here and not on the run so a session whose agents finished still says what they did.
+	agents []agent.AgentInfo
 	// title is the human-readable label a front end draws for this conversation. It is empty
 	// until the first turn completes and an auto-title is derived from it, and it may be
 	// changed by the user at any time through the rename endpoint.
@@ -372,13 +376,43 @@ type SessionStatus struct {
 	// AutoApprove is set while the user has allowed every command in this session, so the
 	// interface can say so - and offer to take it back.
 	AutoApprove bool `json:"auto_approve,omitempty"`
+	// AgentsRunning is how many agents the session's run has working in the background right
+	// now, not counting the main one. It is what the sidebar draws, so a session whose main agent
+	// is waiting on others does not read as stuck.
+	AgentsRunning int `json:"agents_running,omitempty"`
+}
+
+// setAgents keeps the latest snapshot of the run's agents.
+func (c *conversation) setAgents(agents []agent.AgentInfo) {
+	c.stateMu.Lock()
+	c.agents = agents
+	c.stateMu.Unlock()
+}
+
+// agentsNow is the latest snapshot of the run's agents, never nil: a JSON reader is given [] and
+// not null for a session that has none.
+func (c *conversation) agentsNow() []agent.AgentInfo {
+	c.stateMu.Lock()
+	defer c.stateMu.Unlock()
+	return append([]agent.AgentInfo{}, c.agents...)
+}
+
+// runningSubagents counts the agents of a snapshot that are still working, the main one aside.
+func runningSubagents(agents []agent.AgentInfo) int {
+	n := 0
+	for _, a := range agents {
+		if a.Parent != "" && a.State == agent.AgentRunning {
+			n++
+		}
+	}
+	return n
 }
 
 func (c *conversation) status() SessionStatus {
 	c.stateMu.Lock()
 	defer c.stateMu.Unlock()
 	st := SessionStatus{ID: c.id, Title: c.title, ProjectID: c.projectID, Created: c.created, LastUsed: c.lastUsed,
-		Running: c.running, AutoApprove: c.autoApprove}
+		Running: c.running, AutoApprove: c.autoApprove, AgentsRunning: runningSubagents(c.agents)}
 	st.Workspace = c.workspace
 	if c.workspace != "" {
 		ctx := context.Background()

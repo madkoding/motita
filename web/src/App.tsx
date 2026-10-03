@@ -49,6 +49,85 @@ interface SessionInfo {
   created: string
   last_used: string
   running: boolean
+  // agents_running counts the background agents the session's run started that are still
+  // working. Older gateways do not send it.
+  agents_running?: number
+}
+
+// AgentInfo is one agent of a run, as the gateway reports it (agent.AgentInfo). The row with no
+// parent is the main agent; the others are background agents it started.
+interface AgentTokens {
+  input: number
+  output: number
+  cache_read?: number
+  cache_write?: number
+}
+
+interface AgentInfo {
+  id: string
+  parent?: string
+  purpose: string
+  state: string // running | passed | failed | cancelled
+  started: string
+  finished?: string
+  elapsed_ms: number
+  tokens: AgentTokens
+  calls: number
+  round?: number
+  activity?: string
+  branch?: string
+  summary?: string
+}
+
+// The prefix of a progress line that carries the agent list, for a gateway that forwards it as a
+// plain line instead of an `agents` event (agent.AgentsPrefix).
+const AGENTS_PREFIX = 'agents: '
+
+function tokenTotal(t?: AgentTokens): number {
+  if (!t) return 0
+  return (t.input || 0) + (t.output || 0) + (t.cache_read || 0) + (t.cache_write || 0)
+}
+
+// formatTokens humanises a count the way a reader scans it: 950, 12.3k, 1.2M.
+function formatTokens(n: number): string {
+  if (n < 1000) return String(n)
+  if (n < 1_000_000) return (n / 1000).toFixed(n < 10_000 ? 1 : 0).replace(/\.0$/, '') + 'k'
+  return (n / 1_000_000).toFixed(1).replace(/\.0$/, '') + 'M'
+}
+
+function tokenBreakdown(t: AgentTokens): string {
+  const parts = ['in ' + formatTokens(t.input || 0), 'out ' + formatTokens(t.output || 0)]
+  if (t.cache_read) parts.push('cache read ' + formatTokens(t.cache_read))
+  if (t.cache_write) parts.push('cache write ' + formatTokens(t.cache_write))
+  return parts.join(' · ')
+}
+
+// formatElapsed: 8s, 3m 05s, 1h 02m.
+function formatElapsed(ms: number): string {
+  const s = Math.max(0, Math.floor(ms / 1000))
+  if (s < 60) return s + 's'
+  const m = Math.floor(s / 60)
+  if (m < 60) return m + 'm ' + String(s % 60).padStart(2, '0') + 's'
+  return Math.floor(m / 60) + 'h ' + String(m % 60).padStart(2, '0') + 'm'
+}
+
+// agentElapsed counts a running agent's clock from its start, so it ticks between snapshots; a
+// finished one is the span it ran, or what the gateway measured when that is all there is.
+function agentElapsed(a: AgentInfo, now: number): number {
+  const start = Date.parse(a.started)
+  if (Number.isNaN(start)) return a.elapsed_ms || 0
+  if (a.state === 'running') return Math.max(a.elapsed_ms || 0, now - start)
+  const end = a.finished ? Date.parse(a.finished) : NaN
+  return Number.isNaN(end) ? a.elapsed_ms || 0 : end - start
+}
+
+// sortAgents puts the main agent first, then the background agents in the order they started.
+function sortAgents(list: unknown): AgentInfo[] {
+  if (!Array.isArray(list)) return []
+  return (list as AgentInfo[]).filter(a => a && typeof a.id === 'string').slice().sort((a, b) => {
+    if (!a.parent !== !b.parent) return a.parent ? 1 : -1
+    return (Date.parse(a.started) || 0) - (Date.parse(b.started) || 0)
+  })
 }
 
 interface ProjectInfo {
@@ -546,6 +625,12 @@ export default function App() {
   // The thinking drawer: what the model reasoned, in the same retro screen but orange. It is
   // closed by default, and opening one drawer closes the other: they share the edge.
   const [thinkOpen, setThinkOpen] = useState(false)
+  // The run's agents (the main one and the background ones it started), for the AGENTS drawer.
+  const [agents, setAgents] = useState<AgentInfo[]>([])
+  const [agentsOpen, setAgentsOpen] = useState(false)
+  const [agentOpenId, setAgentOpenId] = useState<string | null>(null)
+  const [agentCopied, setAgentCopied] = useState<string | null>(null)
+  const [agentNow, setAgentNow] = useState(() => Date.now())
   const term = useFollowEnd(termOpen)
   const think = useFollowEnd(thinkOpen)
   const termBodyRef = term.ref
@@ -1637,6 +1722,7 @@ export default function App() {
   // `urlMode` says how the address bar follows: 'push' for a click, 'replace' for the
   // initial load, 'none' when the URL already changed (back/forward).
   const followRef = useRef<() => void>(() => {})
+  const loadAgentsRef = useRef<(id: string) => Promise<void>>(async () => {})
   const switchSessionRef = useRef<((id: string, urlMode?: 'push' | 'replace' | 'none') => Promise<void>) | null>(null)
   const switchSession = useCallback(async (id: string, urlMode: 'push' | 'replace' | 'none' = 'push') => {
     setSessionId(id)
@@ -1652,6 +1738,9 @@ export default function App() {
     setTermSeenId(0)
     setLiveThought(null)
     setApproval(null)
+    setAgents([])
+    setAgentOpenId(null)
+    void loadAgentsRef.current(id)
     lastIdRef.current = 0
     // The transcript is being fetched: the message area is empty until it arrives, and an
     // empty area is not the same message as "this conversation has nothing in it yet". The
@@ -2188,6 +2277,31 @@ export default function App() {
     }
   }, [])
 
+  // loadAgents asks the gateway for a session's agents. A gateway that predates the endpoint
+  // answers 404, read as "no agents". It is kept in a ref so switchSession, defined earlier, can
+  // call it.
+  const loadAgents = useCallback(async (id: string) => {
+    if (!id) return
+    try {
+      const res = await api('/v1/sessions/' + encodeURIComponent(id) + '/agents')
+      if (sessionRef.current !== id) return
+      if (!res.ok) { setAgents([]); return }
+      const data = await res.json()
+      if (sessionRef.current !== id) return
+      setAgents(sortAgents(data.agents))
+    } catch { /* no agents to show */ }
+  }, [])
+  loadAgentsRef.current = loadAgents
+
+  // A running agent's clock ticks while the drawer shows it, and only then.
+  const agentsTicking = agentsOpen && agents.some(a => a.state === 'running')
+  useEffect(() => {
+    if (!agentsTicking) return
+    setAgentNow(Date.now())
+    const t = setInterval(() => setAgentNow(Date.now()), 1000)
+    return () => clearInterval(t)
+  }, [agentsTicking])
+
   // finish marks the run as done.
   const finish = useCallback(() => {
     // Cleared against the session the run was STARTED in, not against whatever
@@ -2205,6 +2319,8 @@ export default function App() {
     setShellLog(prev => prev.some(e => e.exit == null) ? prev.map(e => e.exit == null ? { ...e, exit: NO_RESULT } : e) : prev)
     setLiveThought(null)
     setState('ready')
+    // The agents' final states and costs, as the gateway has them now that the run is over.
+    void loadAgentsRef.current(sessionRef.current)
     // After a run finishes, refresh the session list so the auto-title shows up.
     fetchSessions()
   }, [fetchSessions, loadCheckpoints])
@@ -2247,10 +2363,20 @@ export default function App() {
         }])
       }
       if (payload.pending_approval) setApproval(payload.pending_approval)
+      if (Array.isArray(payload.agents)) setAgents(sortAgents(payload.agents))
       break
     }
+    case 'agents':
+      // A snapshot of the run's agents: it replaces the one before it.
+      setAgents(sortAgents(payload.agents))
+      break
     case 'progress': {
       const text: string = payload.text || ''
+      if (text.startsWith(AGENTS_PREFIX)) {
+        // The agent list sent as a plain line: a snapshot, never a step of the conversation.
+        try { setAgents(sortAgents(JSON.parse(text.slice(AGENTS_PREFIX.length)))) } catch { /* not a list */ }
+        break
+      }
       const kind = classifyProgress(text) ?? ''
       if (kind === 'output') {
         // A command's output is NOT a step of the conversation: the trail shows the
@@ -2517,6 +2643,12 @@ export default function App() {
     const argText = input.trim()
     const tagText = activeTags.map(t => t.name).join(' ')
     const text = activeTags.length > 0 ? (argText ? tagText + ' ' + argText : tagText) : argText
+    if (text === '/agents') {
+      setAgentsOpen(true); setTermOpen(false); setThinkOpen(false)
+      setInput('')
+      setActiveTags([])
+      return
+    }
     if (!text || runningRef.current) return
     // Remove placeholder messages (.kind) before the first real turn.
     setMessages(prev => prev.filter(m => m.kind !== 'kind'))
@@ -2546,6 +2678,14 @@ export default function App() {
       if (e.key === 'Tab' || (e.key === 'Enter' && !e.shiftKey && !e.ctrlKey && !e.metaKey && !e.altKey)) {
         e.preventDefault()
         const selected = slashPopup.items[slashPopup.index]
+        if (selected?.name === '/agents') {
+          // A view of this page, not a request to the agent: it opens the agents drawer, as the
+          // TUI's /agents opens its panel.
+          setAgentsOpen(true); setTermOpen(false); setThinkOpen(false)
+          setInput('')
+          setSlashPopup(null)
+          return
+        }
         if (selected && !isCommandBlocked(selected.name)) {
           setActiveTags(prev => [...prev, { name: selected.name, group: selected.group }])
           setInput('')
@@ -2568,6 +2708,12 @@ export default function App() {
     // If there are active tags, send tags + argument. If no tags and no text, nothing.
     const tagText = activeTags.map(t => t.name).join(' ')
     const text = activeTags.length > 0 ? (argText ? tagText + ' ' + argText : tagText) : argText
+    if (text === '/agents') {
+      setAgentsOpen(true); setTermOpen(false); setThinkOpen(false)
+      setInput('')
+      setActiveTags([])
+      return
+    }
     if (!text || runningRef.current) return
     setMessages(prev => prev.filter(m => m.kind !== 'kind'))
     setInput('')
@@ -2889,6 +3035,12 @@ export default function App() {
               title={s.last_used ? 'Last used ' + fullUpdated(s.last_used) : undefined}
             >
               {formatUpdated(s.last_used)}
+              {!!s.agents_running && s.agents_running > 0 && (
+                <span
+                  class="ml-1.5 text-[#79c0ff]"
+                  title={s.agents_running + ' background agent' + (s.agents_running === 1 ? '' : 's') + ' running'}
+                >⧉ {s.agents_running}</span>
+              )}
             </div>
             {/* Facts line: every value carries its LABEL and its own colour, so
                 a number is never just a number. `main` alone does not say it is
@@ -3534,7 +3686,7 @@ export default function App() {
             aria-expanded={termOpen}
             aria-controls="term-panel"
             title={termOpen ? 'Close the terminal' : 'Open the terminal history'}
-            onClick={() => { setTermOpen(o => !o); setThinkOpen(false) }}
+            onClick={() => { setTermOpen(o => !o); setThinkOpen(false); setAgentsOpen(false) }}
           >
             <span class="term-tab-label">TTY</span>
             {shellLog.length > 0 && <span class="term-tab-count">{shellLog.length}</span>}
@@ -3602,7 +3754,7 @@ export default function App() {
                 aria-expanded={thinkOpen}
                 aria-controls="think-panel"
                 title={thinkOpen ? 'Close the thinking' : 'Open the thinking'}
-                onClick={() => { setThinkOpen(o => !o); setTermOpen(false) }}
+                onClick={() => { setThinkOpen(o => !o); setTermOpen(false); setAgentsOpen(false) }}
               >
                 <span class="term-tab-label">THINK</span>
                 {thoughts.length > 0 && <span class="term-tab-count">{thoughts.length}</span>}
@@ -3624,6 +3776,106 @@ export default function App() {
                   <div class="term-fx term-fx-scan" aria-hidden="true" />
                   <div class="term-fx term-fx-sweep" aria-hidden="true" />
                   <div class="term-fx term-fx-noise" aria-hidden="true" />
+                  <div class="term-fx term-fx-vignette" aria-hidden="true" />
+                </div>
+              </div>
+            </div>
+          )
+        })()}
+
+        {/* The agents drawer: the run's main agent and the background agents it started, with
+            what each is for, how long it has run and what it has cost. Collapsed by default, and
+            not there at all until a run has something to show. Its tab sits below the
+            terminal's; opening one drawer closes the others. */}
+        {(() => {
+          const subagents = agents.filter(a => a.parent)
+          const runningSubs = subagents.filter(a => a.state === 'running').length
+          if (subagents.length === 0 && !agents.some(a => tokenTotal(a.tokens) > 0)) return null
+          const total = agents.reduce<AgentTokens>((acc, a) => ({
+            input: acc.input + (a.tokens?.input || 0),
+            output: acc.output + (a.tokens?.output || 0),
+            cache_read: (acc.cache_read || 0) + (a.tokens?.cache_read || 0),
+            cache_write: (acc.cache_write || 0) + (a.tokens?.cache_write || 0),
+          }), { input: 0, output: 0, cache_read: 0, cache_write: 0 })
+          const canCopy = typeof navigator !== 'undefined' && !!navigator.clipboard?.writeText
+          return (
+            <div class={`term-drawer is-agents${agentsOpen ? ' is-open' : ''}`}>
+              <button
+                type="button"
+                class={`term-tab${runningSubs > 0 ? ' is-live' : ''}`}
+                aria-expanded={agentsOpen}
+                aria-controls="agents-panel"
+                title={agentsOpen ? 'Close the agents' : 'Open the agents'}
+                onClick={() => { setAgentsOpen(o => !o); setTermOpen(false); setThinkOpen(false) }}
+              >
+                <span class="term-tab-label">AGENTS</span>
+                {runningSubs > 0 && <span class="term-tab-count">{runningSubs}</span>}
+              </button>
+              <div class="term-panel" id="agents-panel" role="region" aria-label="agents" aria-hidden={!agentsOpen}>
+                <div class="term-titlebar">
+                  <span title={tokenBreakdown(total)}>
+                    motita@fleet — {agents.length} agent{agents.length === 1 ? '' : 's'} · {formatTokens(tokenTotal(total))} tok
+                  </span>
+                  <button type="button" class="term-close" onClick={() => setAgentsOpen(false)} aria-label="Close the agents" tabIndex={agentsOpen ? 0 : -1}>×</button>
+                </div>
+                <div class="term-viewport">
+                  <div class="term-screen">
+                    {agents.map(a => {
+                      const done = a.state !== 'running'
+                      const open = done && agentOpenId === a.id
+                      const mark = a.state === 'running' ? null : a.state === 'passed' ? '✓' : a.state === 'failed' ? '✗' : '⊘'
+                      const merge = a.branch ? 'git merge --no-edit ' + a.branch : ''
+                      return (
+                        <div
+                          key={a.id}
+                          class={`agent-row is-${a.state}${done ? ' is-done' : ''}`}
+                          onClick={() => { if (done) setAgentOpenId(id => id === a.id ? null : a.id) }}
+                          aria-expanded={done ? open : undefined}
+                        >
+                          <span class="agent-state" aria-label={a.state}>
+                            {mark ?? <span class="agent-spin" aria-hidden="true" />}
+                          </span>
+                          <div class="agent-body">
+                            <div class="agent-head">
+                              <span class="agent-purpose" title={a.purpose}>
+                                {!a.parent && <span class="agent-tag">main</span>}
+                                {a.purpose || a.id}
+                              </span>
+                              <span class="agent-meta" title={tokenBreakdown(a.tokens || { input: 0, output: 0 })}>
+                                {formatElapsed(agentElapsed(a, agentNow))} · {formatTokens(tokenTotal(a.tokens))} tok{a.round ? ' · r' + a.round : ''}
+                              </span>
+                            </div>
+                            {a.activity && !open && <div class="agent-activity" title={a.activity}>{a.activity}</div>}
+                            {open && (
+                              <div class="agent-detail" onClick={e => e.stopPropagation()}>
+                                {a.summary
+                                  ? <pre class="agent-summary">{a.summary}</pre>
+                                  : <div class="agent-activity">no summary</div>}
+                                {a.branch && (
+                                  <div class="agent-branch">
+                                    <code>{merge}</code>
+                                    {canCopy && (
+                                      <button
+                                        type="button"
+                                        class="agent-copy"
+                                        onClick={() => {
+                                          navigator.clipboard.writeText(merge).then(() => {
+                                            setAgentCopied(a.id)
+                                            setTimeout(() => setAgentCopied(c => c === a.id ? null : c), 1500)
+                                          }, () => {})
+                                        }}
+                                      >{agentCopied === a.id ? 'copied' : 'copy'}</button>
+                                    )}
+                                  </div>
+                                )}
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      )
+                    })}
+                  </div>
+                  <div class="term-fx term-fx-scan" aria-hidden="true" />
                   <div class="term-fx term-fx-vignette" aria-hidden="true" />
                 </div>
               </div>
