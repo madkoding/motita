@@ -888,6 +888,10 @@ func (t *TUI) awaitRun(ctx context.Context, progress <-chan string, done <-chan 
 			// input would race with this one for the keystroke.
 			t.answerConfirm(ctx, c)
 		case out := <-done:
+			// When the outcome and the last lines are ready together, select picks at random, and
+			// the lines left in the channel were lost. The last one is often the run's final
+			// snapshot of its agents: lost, the panel showed them running forever.
+			drainProgress(progress, onProgress)
 			return out
 		case <-ctx.Done():
 			// Waiting here is bounded: the runner watches this very context, and
