@@ -122,6 +122,7 @@ type responsesEvent struct {
 		Error *struct {
 			Message string `json:"message"`
 		} `json:"error"`
+		Usage *responsesUsage `json:"usage"`
 	} `json:"response"`
 	Message string `json:"message"`
 	Code    string `json:"code"`
@@ -142,11 +143,14 @@ func (c *Client) callResponsesStream(ctx context.Context, messages []Message, to
 		defer resp.Body.Close()
 		reader := bufio.NewReader(resp.Body)
 		var acc StreamResult
+		var usage Usage
 		finish := func() {
 			r := acc.FinalReply()
 			if len(r.Calls) > 0 {
 				r.FinishReason = "tool_calls"
 			}
+			r.Usage = usage
+			recordUsage(ctx, usage)
 			out <- StreamChunk{Event: StreamDone, Reply: r}
 		}
 		for {
@@ -175,6 +179,10 @@ func (c *Client) callResponsesStream(ctx context.Context, messages []Message, to
 			var ev responsesEvent
 			if json.Unmarshal(payload, &ev) != nil {
 				continue
+			}
+			// The final events (completed, done, incomplete) carry the response with its usage.
+			if u := ev.Response.Usage.usage(); u.Total() > 0 {
+				usage = u
 			}
 			switch ev.Type {
 			case "response.output_text.delta":

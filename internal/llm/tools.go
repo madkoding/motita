@@ -104,6 +104,9 @@ type Reply struct {
 	Calls []ToolCall
 	// FinishReason is what the provider reported ("stop", "tool_calls", "length").
 	FinishReason string
+	// Usage is what the call consumed, as the provider reported it; zero when it reported
+	// nothing. The same figure is recorded in the Meter of the call's context (WithMeter).
+	Usage Usage
 }
 
 // WantsTools reports whether the model is waiting for function results.

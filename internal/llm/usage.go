@@ -64,24 +64,29 @@ func (m *Meter) Calls() int64 {
 	return m.calls
 }
 
-// meterKey carries the Meter of the agent making a call. See WithMeter.
+// meterKey carries the Meters of the agent making a call. See WithMeter.
 type meterKey struct{}
 
-// WithMeter makes every provider call made with ctx record its usage in m. A nil m is ignored.
+// WithMeter makes every provider call made with ctx record its usage in m, as well as in every
+// Meter an outer WithMeter already put there: a run's total and each agent's share are counted by
+// the same calls. A nil m is ignored.
 func WithMeter(ctx context.Context, m *Meter) context.Context {
 	if m == nil {
 		return ctx
 	}
-	return context.WithValue(ctx, meterKey{}, m)
+	outer, _ := ctx.Value(meterKey{}).([]*Meter)
+	meters := append(append(make([]*Meter, 0, len(outer)+1), outer...), m)
+	return context.WithValue(ctx, meterKey{}, meters)
 }
 
-// recordUsage adds u to the Meter in ctx, if there is one. A call that reported nothing (a
-// provider or server that does not send usage) records nothing, not a zero call.
+// recordUsage adds u to every Meter in ctx. A call that reported nothing (a provider or server
+// that does not send usage) records nothing, not a zero call.
 func recordUsage(ctx context.Context, u Usage) {
 	if u.Total() == 0 {
 		return
 	}
-	if m, ok := ctx.Value(meterKey{}).(*Meter); ok {
+	meters, _ := ctx.Value(meterKey{}).([]*Meter)
+	for _, m := range meters {
 		m.Add(u)
 	}
 }
