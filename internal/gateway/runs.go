@@ -454,8 +454,17 @@ func (s *Server) approverFor(c *conversation, rn *run) agent.Approver {
 		// question - announced in the run, so what ran on that answer is still visible. The
 		// question of spending another step budget is not a command and is still asked.
 		if req.Rule != agent.BudgetRule && c.autoApproving() {
-			rn.append(EventProgress, progressEvent{Text: "approved (all commands allowed in this session): " + req.Command})
+			who := ""
+			if req.Background {
+				who = "background agent " + req.Agent + ": "
+			}
+			rn.append(EventProgress, progressEvent{Text: "approved (all commands allowed in this session): " + who + req.Command})
 			return true, nil
+		}
+		if req.Background {
+			// One question is open at a time, and it belongs to the agent the user is watching.
+			return false, errors.New("a background agent cannot ask for approval: allow all commands for this " +
+				"session to let it run this, or leave this step to the main agent")
 		}
 		id, err := newApprovalID()
 		if err != nil {

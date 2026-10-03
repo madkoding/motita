@@ -192,6 +192,15 @@ func (a *Agent) spawnAgent(ctx context.Context, command string) (string, error) 
 	}
 	child := a.newChild(place)
 	child.member = a.fleet.add(a.member.id, id, truncate(collapse(purpose), 120), place.branch)
+	// The main agent's approver, marked: a session where the user allowed every command lets a
+	// background agent run what the main agent could, and any other question is refused instead of
+	// being asked about a run nobody is watching. With no approver at all, a child has none either.
+	if parent := a.approver; parent != nil {
+		child.approver = func(ctx context.Context, req ApprovalRequest) (bool, error) {
+			req.Background, req.Agent = true, id
+			return parent(ctx, req)
+		}
+	}
 
 	cctx, cancel := context.WithCancel(ctx)
 	c := &subagent{id: id, purpose: purpose, branch: place.branch, cancel: cancel, done: make(chan struct{})}

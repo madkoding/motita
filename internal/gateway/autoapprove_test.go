@@ -179,3 +179,51 @@ func TestAnEphemeralEventIsWrittenLiveButNotAfterTheRun(t *testing.T) {
 		t.Errorf("an ephemeral event must be written whatever the replay covered: %s", rec.Body.String())
 	}
 }
+
+// TestABackgroundAgentIsAnsweredOnlyByAStandingDecision: a background agent's question is never
+// opened as a window (there is one, and it is the main agent's); with "allow all" on it runs, and
+// the run says which agent it was.
+func TestABackgroundAgentIsAnsweredOnlyByAStandingDecision(t *testing.T) {
+	var answers []bool
+	var errs []error
+	var conv *conversation
+	svc := &fakeService{}
+	svc.task = func(ctx context.Context, _ string, _ func(string, ...any)) (string, error) {
+		req := agent.ApprovalRequest{Command: "npm test", Rule: "unclassified", Background: true, Agent: "a1"}
+		ok, err := svc.approver(ctx, req) // nobody allowed all: refused, not asked
+		answers, errs = append(answers, ok), append(errs, err)
+		conv.setAutoApprove(true)
+		ok, err = svc.approver(ctx, req)
+		answers, errs = append(answers, ok), append(errs, err)
+		return "done", nil
+	}
+	srv := newTestServer(t, svc)
+	conv = srv.sessions[DefaultSession]
+
+	req, _ := http.NewRequest(http.MethodPost, srv.BaseURL()+sessionPath(srv, DefaultSession, "/task"), strings.NewReader(`{"task":"x"}`))
+	req.Header.Set("Authorization", "Bearer "+testToken)
+	resp, err := (&http.Client{}).Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	events := readEvents(t, bufio.NewReader(resp.Body))
+	if len(answers) != 2 || answers[0] || errs[0] == nil || !strings.Contains(errs[0].Error(), "background agent cannot ask") {
+		t.Fatalf("without allow-all the question must be refused with a reason: %v %v", answers, errs)
+	}
+	if !answers[1] || errs[1] != nil {
+		t.Fatalf("with allow-all the background agent's command must run: %v %v", answers, errs)
+	}
+	var said bool
+	for _, e := range events {
+		if e.Event == EventApproval {
+			t.Errorf("a background agent's question must never be opened: %s", e.Data)
+		}
+		if e.Event == EventProgress && strings.Contains(string(e.Data), "background agent a1: npm test") {
+			said = true
+		}
+	}
+	if !said {
+		t.Errorf("the run must say which agent ran on the standing answer: %+v", events)
+	}
+}
