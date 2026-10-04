@@ -549,6 +549,21 @@ func PullFastForward(ctx context.Context, dir, branch string) error {
 	return nil
 }
 
+// HasRemote reports whether the repository at dir has a remote called origin.
+// A project without one has nothing to bring in, which is not a failure.
+func HasRemote(ctx context.Context, dir string) bool {
+	out, err := execute(ctx, dir, "remote")
+	if err != nil {
+		return false
+	}
+	for _, name := range strings.Fields(out) {
+		if name == "origin" {
+			return true
+		}
+	}
+	return false
+}
+
 // DeleteBranch deletes a local branch at dir.
 //
 // -d and never -D: a branch whose commits are merged nowhere is work that
