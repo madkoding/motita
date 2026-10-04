@@ -975,16 +975,21 @@ func TestDownloadAndInstallInstallFails(t *testing.T) {
 	srv, release := newUpdateServer(t, "linux", "amd64")
 	defer srv.Close()
 
-	// Point ExePath to a file in a nonexistent directory so os.Rename fails.
+	// Point ExePath at a directory that is not empty, so the final os.Rename over it fails after the
+	// download (staged beside it) and the checksum have both succeeded.
+	target := filepath.Join(t.TempDir(), "motita")
+	if err := os.MkdirAll(filepath.Join(target, "occupied"), 0o755); err != nil {
+		t.Fatal(err)
+	}
 	u := &Updater{
 		Goos:       "linux",
 		Goarch:     "amd64",
-		ExePath:    filepath.Join(t.TempDir(), "nonexistent-subdir", "motita"),
+		ExePath:    target,
 		HTTPClient: srv.Client(),
 	}
 	err := u.DownloadAndInstall(context.Background(), &release, func(ProgressEvent) {})
-	if err == nil {
-		t.Error("expected install to fail")
+	if err == nil || !strings.Contains(err.Error(), "could not install") {
+		t.Errorf("expected install to fail, got %v", err)
 	}
 }
 
@@ -1167,8 +1172,8 @@ func TestDownloadFileWriteErrorMidStream(t *testing.T) {
 	}
 }
 
-// TestDownloadAndInstallMkdirTempFails: os.MkdirTemp fails because TMPDIR
-// points to a nonexistent directory, covering line 198-199.
+// TestDownloadAndInstallMkdirTempFails: os.MkdirTemp fails because the directory the download is
+// staged in - the executable's own - does not exist.
 func TestDownloadAndInstallMkdirTempFails(t *testing.T) {
 	// Create the temp dir and server BEFORE setting TMPDIR, since t.TempDir()
 	// and httptest both use the temp directory.
@@ -1177,10 +1182,6 @@ func TestDownloadAndInstallMkdirTempFails(t *testing.T) {
 		_, _ = w.Write([]byte("x"))
 	}))
 	defer srv.Close()
-
-	// Now set TMPDIR to a nonexistent path so os.MkdirTemp("", ...) fails.
-	// t.Setenv restores the original value after the test.
-	t.Setenv("TMPDIR", "/nonexistent-tmpdir-xyz-abc")
 
 	release := Release{
 		TagName: "v0.7.0",
@@ -1192,11 +1193,59 @@ func TestDownloadAndInstallMkdirTempFails(t *testing.T) {
 	u := &Updater{
 		Goos:       "linux",
 		Goarch:     "amd64",
-		ExePath:    filepath.Join(dir, "motita"),
+		ExePath:    filepath.Join(dir, "gone", "motita"),
 		HTTPClient: srv.Client(),
 	}
 	err := u.DownloadAndInstall(context.Background(), &release, func(ProgressEvent) {})
-	if err == nil {
-		t.Error("expected MkdirTemp error")
+	if err == nil || !strings.Contains(err.Error(), "temp directory") {
+		t.Errorf("expected MkdirTemp error, got %v", err)
+	}
+}
+
+// TestTheDownloadIsStagedBesideTheExecutable replays the real failure: /tmp on a tmpfs, the binary
+// on the root disk, and a rename that cannot cross between them. The download must wait in the
+// executable's own directory, so the rename never crosses a filesystem, and the staging directory
+// must be gone afterwards.
+func TestTheDownloadIsStagedBesideTheExecutable(t *testing.T) {
+	srv, release := newUpdateServer(t, "linux", "amd64")
+	defer srv.Close()
+	dir := t.TempDir()
+	target := filepath.Join(dir, "motita")
+	if err := os.WriteFile(target, []byte("old"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	staged := false
+	u := &Updater{Goos: "linux", Goarch: "amd64", ExePath: target, HTTPClient: srv.Client()}
+	err := u.DownloadAndInstall(context.Background(), &release, func(e ProgressEvent) {
+		if e.Stage != "verifying" {
+			return
+		}
+		entries, _ := os.ReadDir(dir)
+		for _, en := range entries {
+			if en.IsDir() && strings.HasPrefix(en.Name(), ".motita-update-") {
+				staged = true
+			}
+		}
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !staged {
+		t.Error("the download must be staged in the executable's directory, not the system temp dir")
+	}
+	entries, _ := os.ReadDir(dir)
+	if len(entries) != 1 || entries[0].Name() != "motita" {
+		t.Errorf("only the installed binary may remain beside it, found %v", entries)
+	}
+}
+
+// Without an executable path there is nothing to stage beside: the system temp dir is used, and
+// install refuses as it always did.
+func TestStagingWithoutAnExecutablePathUsesTheTempDir(t *testing.T) {
+	if got := (&Updater{}).stagingDir(); got != os.TempDir() {
+		t.Errorf("stagingDir = %q, want %q", got, os.TempDir())
+	}
+	if got := (&Updater{ExePath: "/opt/motita/bin/motita"}).stagingDir(); got != "/opt/motita/bin" {
+		t.Errorf("stagingDir = %q", got)
 	}
 }
