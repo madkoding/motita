@@ -474,6 +474,7 @@ curl -X DELETE -H "Authorization: Bearer $TOKEN" \
 | `GET /v1/curator` `POST /v1/curator/run` | the maintenance pass: report it, or run one |
 | `GET /v1/update/check` `POST /v1/update/run` | is there a newer release, and install it (verified against `SHA256SUMS`) |
 | `GET /v1/commands` | the slash commands, for a client that offers them |
+| `GET` `PUT /v1/ui` | the interface language: auto, en or es, saved in the configuration |
 
 The default conversation belongs to the process that started the gateway: closing it
 is refused, because that process would be left talking to a conversation that no
@@ -823,7 +824,7 @@ This is tested the way you'd test something you were about to bet on.
 
 | | |
 |---|---|
-| **Statement coverage** | **100% in every package that ships** — 30 of 31 (`./internal/... ./cmd/...`), checked package by package so a gap can't hide behind an average. `internal/review` is the one package without tests, and `tools/` holds the CI harnesses and is counted separately |
+| **Statement coverage** | **100% in every package that ships** — 31 of 32 (`./internal/... ./cmd/...`), checked package by package so a gap can't hide behind an average. `internal/review` is the one package without tests, and `tools/` holds the CI harnesses and is counted separately |
 | **Test functions** | 3,735 across 291 files |
 | **Code vs tests** | 47,237 lines of Go · 96,959 lines of test |
 | **External dependencies** | 0 |

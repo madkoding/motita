@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/madkoding/motita/internal/config"
+	"github.com/madkoding/motita/internal/i18n"
 	"github.com/madkoding/motita/internal/llm"
 	"github.com/madkoding/motita/internal/oauth"
 )
@@ -32,6 +33,9 @@ type Answers struct {
 	// APIKey is optional. When given it is written to a separate file with 0600
 	// permissions, never into the configuration.
 	APIKey string
+	// Lang is the language the wizard speaks, already resolved from ui.language and the
+	// environment by the caller.
+	Lang i18n.Lang
 }
 
 // Result reports what the wizard did.

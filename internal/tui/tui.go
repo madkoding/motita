@@ -27,6 +27,7 @@ import (
 
 	"github.com/madkoding/motita/internal/agent"
 	"github.com/madkoding/motita/internal/config"
+	"github.com/madkoding/motita/internal/i18n"
 	"github.com/madkoding/motita/internal/onboard"
 )
 
@@ -107,6 +108,9 @@ type TUI struct {
 	Err     io.Writer
 	Runner  Runner
 	NoColor bool
+	// Lang is the language the interface speaks, resolved from ui.language and the environment
+	// by whoever builds it.
+	Lang i18n.Lang
 
 	// ShowActions lists every command and action the agent runs; false (the default) shows only a counter.
 	ShowActions bool
