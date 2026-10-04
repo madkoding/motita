@@ -67,7 +67,7 @@
    *   surface         rgba(10,10,16,.78) — .frosted, over the illustration
    *   fg              #e8e8ea  — the app's primary text
    *   muted-fg        #9a9aaa  — the app's secondary text
-   *   faint           #6a6a7a  — the app's labels and section headings
+   *   faint           #7a7a8c  — the app's labels and section headings (4.7:1 on base)
    *   warning         #f0a040  — the app's warning (App.tsx)
    *   danger          #ff6b6b  — the app's danger (tailwind.config.js)
    * The page kept a green (#22C55E) that appears nowhere in the product,
@@ -82,7 +82,7 @@
     --muted: rgba(255, 255, 255, 0.06);
     --fg: #e8e8ea;
     --muted-fg: #9a9aaa;
-    --faint: #6a6a7a;
+    --faint: #7a7a8c;
     --border: rgba(255, 255, 255, 0.10);
     --border-strong: rgba(255, 255, 255, 0.18);
     --accent: #4cc2ff;
@@ -244,6 +244,31 @@
     font-family: var(--mono); min-height: 44px;
   }
   .gh:hover { border-color: var(--accent); text-decoration: none; background: var(--accent-glow); }
+
+  /* Cut-corner shape (design system Pill/Button): top-left and bottom-right are 45deg
+     cuts. ::after is the fill, ::before the 1px edge that follows the cut; the glow is a
+     drop-shadow so it follows the shape. Only these two corners, only on pill and button. */
+  .pill, .gh {
+    --cut: 8px; --edge: var(--neon-cyan); --fill: rgba(0, 240, 255, 0.08);
+    --glow: rgba(0, 240, 255, 0.55);
+    position: relative; isolation: isolate; border: 0; border-radius: 0; background: none;
+    box-shadow: none; filter: drop-shadow(0 0 6px var(--glow));
+  }
+  .pill::before, .pill::after, .gh::before, .gh::after {
+    content: ""; position: absolute; inset: 0; z-index: -1; pointer-events: none;
+  }
+  .pill::after, .gh::after {
+    background: var(--fill);
+    clip-path: polygon(var(--cut) 0, 100% 0, 100% calc(100% - var(--cut)), calc(100% - var(--cut)) 100%, 0 100%, 0 var(--cut));
+  }
+  .pill::before, .gh::before {
+    --in: calc(var(--cut) + .41px); background: var(--edge);
+    clip-path: polygon(evenodd, var(--cut) 0, 100% 0, 100% calc(100% - var(--cut)), calc(100% - var(--cut)) 100%, 0 100%, 0 var(--cut), var(--cut) 0,
+      var(--in) 1px, calc(100% - 1px) 1px, calc(100% - 1px) calc(100% - var(--in)), calc(100% - var(--in)) calc(100% - 1px), 1px calc(100% - 1px), 1px var(--in), var(--in) 1px);
+  }
+  .gh { --cut: 10px; --edge: var(--neon-cyan); color: var(--neon-cyan); text-transform: uppercase; letter-spacing: .1em; }
+  .gh:hover { --fill: rgba(0, 240, 255, 0.18); background: none; }
+  .gh:focus-visible { outline: 2px solid var(--fg); outline-offset: 3px; }
   @media (max-width: 860px) { nav a:not(.gh) { display: none; } }
 
   /* ---------- hero ---------- */
@@ -252,7 +277,6 @@
     display: inline-flex; align-items: center; gap: var(--space-2);
     font-family: var(--mono); font-size: .78rem; font-weight: 400;
     color: var(--accent); background: var(--accent-glow);
-    border: 1px solid var(--neon-cyan); border-radius: 2px; box-shadow: var(--glow-cyan);
     text-transform: uppercase; letter-spacing: .1em;
     padding: 6px 14px; margin-bottom: var(--space-5);
   }

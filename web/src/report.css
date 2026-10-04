@@ -13,7 +13,7 @@
   font-size: 0.72rem; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase;
   padding: 3px 10px; border-radius: 999px;
   color: rgb(var(--rpt-accent)); background: rgba(var(--rpt-accent), 0.12);
-  border: 1px solid rgba(var(--rpt-accent), 0.35);
+  border: 1px solid rgb(var(--rpt-accent));
 }
 .rpt-tally { font-size: 0.75rem; color: #9a9aaa; }
 .rpt-tally.bad { color: #ff8a8a; }
