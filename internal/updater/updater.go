@@ -202,7 +202,7 @@ func (u *Updater) DownloadAndInstall(ctx context.Context, release *Release, prog
 
 	// Stage 1: download
 	progress(ProgressEvent{Stage: "downloading", Percent: 0, Message: "Downloading " + release.TagName})
-	tmpDir, err := os.MkdirTemp("", "motita-update-*")
+	tmpDir, err := os.MkdirTemp(u.stagingDir(), ".motita-update-*")
 	if err != nil {
 		return fmt.Errorf("could not create a temp directory: %w", err)
 	}
@@ -227,6 +227,21 @@ func (u *Updater) DownloadAndInstall(ctx context.Context, release *Release, prog
 
 	progress(ProgressEvent{Stage: "installed", Percent: 100, Message: "Installed " + release.TagName})
 	return nil
+}
+
+// stagingDir is where the download waits to be installed: beside the executable it will replace.
+//
+// It used to be the system temp directory. Reported from a real machine: /tmp was a tmpfs and the
+// binary lived on the root disk, so the final rename failed with "invalid cross-device link" -
+// after the download and the checksum had both succeeded - and /update could never work there. A
+// rename is only atomic (and only possible) within one filesystem, and the executable's own
+// directory is the one place guaranteed to share it. Without a configured path there is nothing to
+// sit beside, and install refuses anyway.
+func (u *Updater) stagingDir() string {
+	if u.ExePath == "" {
+		return os.TempDir()
+	}
+	return filepath.Dir(u.ExePath)
 }
 
 // downloadFile downloads a URL to a local path, reporting progress.
