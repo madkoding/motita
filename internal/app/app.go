@@ -25,6 +25,7 @@ import (
 	"github.com/madkoding/motita/internal/config"
 	"github.com/madkoding/motita/internal/curator"
 	"github.com/madkoding/motita/internal/gateway"
+	"github.com/madkoding/motita/internal/gitforge"
 	"github.com/madkoding/motita/internal/i18n"
 	"github.com/madkoding/motita/internal/llm"
 	"github.com/madkoding/motita/internal/logx"
@@ -274,6 +275,16 @@ func Run(op Options) int {
 			return RunError
 		}
 		return Success
+	}
+
+	// git runs this program as its credential helper, and the agent runs `motita forge` from
+	// its shell. Both command lines are another program's or a script's, not a user's flags, so
+	// they are read before parsing, like the two above.
+	if len(op.Args) >= 1 && op.Args[0] == gitforge.HelperCommand {
+		return op.runGitCredential(op.BaseCtx, op.Args)
+	}
+	if len(op.Args) >= 1 && op.Args[0] == forgeCommand {
+		return op.runForge(op.BaseCtx, op.Args[1:])
 	}
 
 	// The sandbox re-executes itself to apply the limits in the child. It is
@@ -1085,6 +1096,8 @@ func SandboxOptions(cfg config.Config, log *logx.Logger) sandbox.Options {
 		Keep:          cfg.Sandbox.KeepEphemeral,
 		ToolsDir:      cfg.Sandbox.ToolsDir,
 		ConfineWrites: cfg.Sandbox.ConfineWrites,
+		GitAuthDir:    config.AuthDir(),
+		GitHome:       config.HomeDir(),
 		Log:           log,
 	}
 

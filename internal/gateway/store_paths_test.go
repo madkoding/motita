@@ -429,7 +429,7 @@ func TestCloneGitRepoRefusesAnUncreatableParent(t *testing.T) {
 	blocked := filepath.Join(t.TempDir(), "blocked")
 	blockStoreDirectory(t, blocked)
 
-	out, err := cloneGitRepo("https://example.invalid/repo.git", filepath.Join(blocked, "child", "repo"))
+	out, err := cloneGitRepo("https://example.invalid/repo.git", filepath.Join(blocked, "child", "repo"), nil)
 	if err == nil {
 		t.Fatal("a parent directory that cannot be created must be reported")
 	}

@@ -35,6 +35,7 @@ import (
 	"time"
 
 	"github.com/madkoding/motita/internal/execx"
+	"github.com/madkoding/motita/internal/gitforge"
 	"github.com/madkoding/motita/internal/logx"
 )
 
@@ -87,7 +88,13 @@ type Options struct {
 	// the command does (Linux, Landlock). A request marked Unconfined, one the user approved, is
 	// exempt. Reads are never restricted.
 	ConfineWrites bool
-	Log           *logx.Logger
+	// GitAuthDir is the directory of the git logins and GitHome the user's real home. They
+	// give the git the agent runs what the user's terminal has: the user's own git
+	// configuration and the logins motita holds, neither of which is visible from the
+	// sandbox's HOME. Both empty leaves the environment as it was.
+	GitAuthDir string
+	GitHome    string
+	Log        *logx.Logger
 }
 
 // Sandbox runs commands in a controlled environment.
@@ -445,6 +452,9 @@ func (s *Sandbox) environmentWithTmp(tempDir string) []string {
 		if v, ok := os.LookupEnv(key); ok {
 			base = append(base, key+"="+v)
 		}
+	}
+	if s.op.GitAuthDir != "" || s.op.GitHome != "" {
+		base = append(base, gitforge.GitEnv(s.executable, s.op.GitAuthDir, s.op.GitHome)...)
 	}
 	return base
 }

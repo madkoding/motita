@@ -711,7 +711,7 @@ func TestTheOrdinaryWorkOfAProjectStaysSilent(t *testing.T) {
 		"go test ./...", "go build ./...", "go vet ./...",
 		"npm test", "npm run build", "cargo build", "pytest -q",
 		"python3 build.py", "node index.js", "gcc -o a a.c",
-		"git status", "git add -A", "git commit -m x",
+		"git status", "git add -A", "git commit -m \"chore: x\"",
 		"docker ps", "kubectl get pods",
 		"ls -la", "grep -rn TODO .", "cat README.md", "rm -rf build", "mkdir -p out",
 		"./scripts/deploy.sh", "./bin/mytool --check",

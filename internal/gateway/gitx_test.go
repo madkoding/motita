@@ -66,7 +66,7 @@ func mergeIntegrationTask(t *testing.T, srv *Server, ss SessionStatus, p *Projec
 		}
 
 		// Merge into the project's base branch.
-		if err := exec.Command("git", "-C", p.Dir, "merge", "--no-ff", "-m", "motita: integrate session "+ss.ID, branch).Run(); err != nil {
+		if err := exec.Command("git", "-C", p.Dir, "merge", "--no-ff", "-m", "chore(motita): integrate session "+ss.ID, branch).Run(); err != nil {
 			_ = exec.Command("git", "-C", p.Dir, "merge", "--abort").Run()
 			return "", fmt.Errorf("merge failed: %w", err)
 		}
@@ -479,7 +479,7 @@ func TestASessionWithUncommittedWorkCanBeIntegrated(t *testing.T) {
 	}
 	// One commit for the work, on the SESSION's branch, and one merge commit that names the session.
 	log := gitOut(t, p.Dir, "log", "--format=%s", "-3")
-	if !strings.Contains(log, "motita: integrate session "+ss.ID) {
+	if !strings.Contains(log, "chore(motita): integrate session "+ss.ID) {
 		t.Errorf("the merge must name the session:\n%s", log)
 	}
 	if n := strings.TrimSpace(gitOut(t, p.Dir, "rev-list", "--count", "main.."+sessionBranch(ss.ID))); n != "0" {
@@ -525,7 +525,7 @@ func TestIntegratingLeavesToolCachesOutAndNamesTheTask(t *testing.T) {
 		t.Errorf("the session branch must have a commit with the agent's work")
 	}
 	mergeSubj := gitOut(t, p.Dir, "log", "--format=%s", "-1")
-	if !strings.Contains(mergeSubj, "motita: integrate session "+ss.ID) {
+	if !strings.Contains(mergeSubj, "chore(motita): integrate session "+ss.ID) {
 		t.Errorf("the merge commit must name the session: %q", mergeSubj)
 	}
 }

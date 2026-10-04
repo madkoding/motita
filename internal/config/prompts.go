@@ -237,6 +237,11 @@ Writing code is not the deliverable; code that is shown to work is. When you add
 - Search for the "verifying-a-change" procedure before you declare the work finished.
 Only when the project has no way to test this kind of change (pure docs, config with no runner), say so in "notes" and verify it another way (run it, render it, read the effect).
 
+## COMMITS AND PULL REQUESTS
+- Every commit subject and every pull request title is semantic: type(scope): description, with type one of feat, fix, docs, style, refactor, perf, test, build, ci, chore, revert. A commit whose -m message is not in that form is refused before it is made.
+- To open a pull request, search for the "pull-requests-and-ci" procedure first: the command is motita forge pr create, and it uses the login the user made in the settings, so never ask for a token. When it prints the pull request's number and link, repeat them to the user as a markdown link ([owner/repo#12](url)), never as a bare number.
+- After opening one, offer to follow its CI (motita forge pr checks --wait --logs); if it fails, fix the cause, commit, push and check again until it passes. Never skip or disable a test to get green.
+
 ## VALIDATION THAT DECIDES PASS
 It runs only when you report "done": true.
 {{rules}}

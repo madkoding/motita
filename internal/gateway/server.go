@@ -14,6 +14,7 @@ import (
 
 	"github.com/madkoding/motita/internal/logx"
 	"github.com/madkoding/motita/internal/netrules"
+	"github.com/madkoding/motita/internal/oauth"
 	"github.com/madkoding/motita/internal/projectskills"
 	"github.com/madkoding/motita/internal/schedule"
 	"github.com/madkoding/motita/internal/updater"
@@ -60,8 +61,15 @@ type Options struct {
 	MaxBodyKB int
 	// Version is reported by /v1/health, so a client can tell which build answered.
 	Version string
-	// ExePath is the running binary's path, used by the updater to replace it.
+	// ExePath is the running binary's path, used by the updater to replace it. It is also the
+	// credential helper git is given when the gateway clones a repository.
 	ExePath string
+	// GitAuthDir is where the git logins live (config.AuthDir()). Empty means this gateway has no
+	// place to keep them, and the /v1/git endpoints say so.
+	GitAuthDir string
+	// GitHTTP is the transport of the git hosts' APIs and OAuth servers. Nil means the default
+	// client; a test injects a fake.
+	GitHTTP oauth.HTTPClient
 	// Restart is how this process starts running the binary the updater just installed. It is
 	// called once the new binary is in place and the sessions are saved, and it is expected to
 	// stop this process and bring up its replacement.
@@ -202,6 +210,10 @@ type Server struct {
 	// handleUpdateCheck when the frontend polls.
 	lastCheck   updater.CheckResult
 	lastCheckMu sync.RWMutex
+
+	// gitFlows are the logins to a git host that are waiting for the user's browser. See git.go.
+	gitMu    sync.Mutex
+	gitFlows map[string]*gitFlow
 }
 
 // Start binds the listener and returns a Server that is ready to Serve.
@@ -485,6 +497,7 @@ func (s *Server) routes() *http.ServeMux {
 	mux.Handle("GET /v1/sessions/{id}/deletion-preview", scoped(s.handleDeletionPreview))
 	mux.Handle("GET /v1/projects/{id}/deletion-preview", plain(s.handleProjectDeletionPreview))
 
+	s.gitRoutes(mux, plain)
 	mux.Handle("GET /v1/projects", plain(s.handleListProjects))
 	mux.Handle("POST /v1/projects", plain(s.handleCreateProject))
 	mux.Handle("DELETE /v1/projects/{id}", plain(s.handleDeleteProject))

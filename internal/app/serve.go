@@ -211,8 +211,11 @@ func (op Options) startGateway(fl flags, cfg config.Config, engine *llm.Client, 
 		MaxBodyKB:   cfg.Gateway.MaxBodyKB,
 		Version:     op.Version,
 		ExePath:     op.ExePath,
-		Restart:     restart,
-		Log:         log,
+		// The git logins: the connection the user makes in the settings, which the
+		// credential helper then serves to every git a session runs.
+		GitAuthDir: config.AuthDir(),
+		Restart:    restart,
+		Log:        log,
 		// The interface is served from THIS mux, so the page and the API share an origin
 		// and no proxy or CORS is involved anywhere.
 		WebUI: cfg.Gateway.WebUI,

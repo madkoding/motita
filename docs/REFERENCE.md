@@ -1383,7 +1383,10 @@ internal/skills/        the procedure library: the documents, and their archive
 internal/curator/       the maintenance pass: stale, archive, and consolidation
 internal/procedures/    the library as the tools see it (search, load, save)
 internal/usage/         the ledger next to the shelf (/good, /bad, lifecycle telemetry)
-internal/gateway/       HTTP + WebSocket gateway (sessions, projects, schedules, skills)
+internal/gateway/       HTTP + WebSocket gateway (sessions, projects, schedules, skills, git logins)
+internal/gitforge/      git hosts: logins, credential helper, repositories, pull requests, CI
+internal/oauth/         direct logins (device code, PKCE, refresh) for the providers and the git hosts
+internal/semantic/      Conventional Commits check for commit subjects and pull request titles
 internal/webui/         the browser interface's built assets
 internal/logx/        JSON logging with rotation
 internal/readonly/    structural read-only guarantee (no shell + allowlist)

@@ -458,6 +458,9 @@ curl -X DELETE -H "Authorization: Bearer $TOKEN" \
 | `GET /v1/health` | the only one that needs no token: liveness |
 | `GET` `POST /v1/projects` · `DELETE /v1/projects/{id}` | the repositories motita works on; adding one runs `git init` when it is not a repository yet |
 | `GET /v1/projects/{id}/deletion-preview` | what deleting a project would discard, before you confirm with `?force=1` |
+| `GET /v1/git/accounts` · `DELETE /v1/git/accounts/{id}` | the git hosts, who you are on each, and how each can be connected; disconnect one |
+| `POST /v1/git/connect` · `GET` `DELETE /v1/git/flows/{id}` · `POST …/paste` | log in to a host (device code, browser code, or a token); poll, cancel or finish a login in progress |
+| `GET /v1/git/repos?service=&q=&page=` | your repositories on a connected host, for the new-project picker (`409 git_auth_required` when a login is missing) |
 | `GET` `POST /v1/sessions` | list what is held, or open one more (in a project: its own worktree and branch) |
 | `GET` `PATCH` `DELETE /v1/sessions/{id}` | that conversation's figures (`running`, `agents_running`, branch, changes), rename it, or close it and give its worktree back |
 | `GET /v1/sessions/{id}/deletion-preview` | the uncommitted work a deletion would lose; `DELETE …?force=1` confirms |
@@ -519,6 +522,32 @@ never touched while they work.
   which files would be lost, and nothing is discarded until you confirm.
 - **Procedures can belong to a project.** `<project>/.motita/skills/` is searched first
   and shadows the shared library.
+
+### Git hosts: connect once, and every session can push
+
+Connect motita to **GitHub, GitLab, Bitbucket, Codeberg/Gitea** (or a self-hosted GitLab,
+Gitea or GitHub Enterprise) from **Settings → Git connections** in the browser, or with
+`/git connect` in the terminal. GitHub logs in with one click (a device code: open the
+page, type the code, done); the other hosts do the same as soon as you give motita an OAuth
+application of yours (`MOTITA_GITLAB_CLIENT_ID`, `MOTITA_BITBUCKET_CLIENT_ID` +
+`MOTITA_BITBUCKET_CLIENT_SECRET`, `MOTITA_CODEBERG_CLIENT_ID` + `…_SECRET`, or
+`MOTITA_GITHUB_CLIENT_ID` to replace the default), and a token you create by hand always
+works — it is checked against the host before it is saved.
+
+- **Creating a project** offers your own repositories: pick one from a list (search,
+  private repos marked) instead of typing a URL. With no host connected the dialog offers to
+  connect one, and a clone refused for credentials opens the same login and retries.
+- **Worktrees see your credentials.** A session's git used to run with a `HOME` of its own
+  and so found neither your `~/.gitconfig` nor any login. Now your global git configuration
+  is passed through and motita acts as a credential helper (`motita git-credential`) for the
+  hosts you connected, so `git clone`, `git pull` and `git push` work inside a session's
+  worktree. Prompts for a password are turned off: a missing login fails fast and says so.
+- **Commits and pull requests are semantic.** A `git commit -m` whose subject is not
+  `type(scope): description` is refused before it is made, and so is a pull request title.
+- **Pull requests, with the link.** The agent opens one with `motita forge pr create` (you
+  are asked first, as for a push) and tells you where it is — `[owner/repo#12](url)`, never a
+  bare number. It then offers to follow the CI (`motita forge pr checks --wait --logs`): if a
+  job fails it reads the log, fixes the cause, pushes, and checks again until it is green.
 
 ### Background agents, side by side
 
@@ -830,7 +859,7 @@ This is tested the way you'd test something you were about to bet on.
 
 | | |
 |---|---|
-| **Statement coverage** | **100% in every package that ships** — 31 of 32 (`./internal/... ./cmd/...`), checked package by package so a gap can't hide behind an average. `internal/review` is the one package without tests, and `tools/` holds the CI harnesses and is counted separately |
+| **Statement coverage** | **100% in every package that ships** — 33 of 34 (`./internal/... ./cmd/...`), checked package by package so a gap can't hide behind an average. `internal/review` is the one package without tests, and `tools/` holds the CI harnesses and is counted separately |
 | **Test functions** | 3,735 across 291 files |
 | **Code vs tests** | 47,237 lines of Go · 96,959 lines of test |
 | **External dependencies** | 0 |
