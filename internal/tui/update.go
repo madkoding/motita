@@ -2,7 +2,6 @@ package tui
 
 import (
 	"context"
-	"fmt"
 	"strings"
 	"time"
 )
@@ -44,7 +43,7 @@ func (t *TUI) announceUpdate(ctx context.Context) {
 	if err != nil || !available {
 		return
 	}
-	offer := fmt.Sprintf("motita %s is available (this is %s). Type /update to install it.", latest, current)
+	offer := t.trf("motita %s is available (this is %s). Type /update to install it.", latest, current)
 	if t.Notice != "" {
 		offer = t.Notice + "\n" + offer
 	}
@@ -62,28 +61,28 @@ func (t *TUI) announceUpdate(ctx context.Context) {
 func (t *TUI) runUpdate(ctx context.Context) {
 	u, ok := t.Runner.(updater)
 	if !ok {
-		t.addMessage(AuthorSystem, "update: this interface is not attached to a gateway, and the gateway is what upgrades itself.")
+		t.addMessage(AuthorSystem, t.tr("update: this interface is not attached to a gateway, and the gateway is what upgrades itself."))
 		return
 	}
 	current, latest, available, err := u.UpdateAvailable(ctx)
 	switch {
 	case err != nil:
-		t.addMessage(AuthorSystem, "update: could not check for a newer release: "+err.Error())
+		t.addMessage(AuthorSystem, t.trf("update: could not check for a newer release: %s", err.Error()))
 		return
 	case !available:
-		t.addMessage(AuthorSystem, fmt.Sprintf("update: motita %s is the newest release.", current))
+		t.addMessage(AuthorSystem, t.trf("update: motita %s is the newest release.", current))
 		return
 	}
-	t.addMessage(AuthorSystem, fmt.Sprintf("update: installing %s (this is %s)…", latest, current))
+	t.addMessage(AuthorSystem, t.trf("update: installing %s (this is %s)…", latest, current))
 	installed, err := u.RunUpdate(ctx, func(stage string) {
 		if s := strings.TrimSpace(stage); s != "" {
-			t.addMessage(AuthorSystem, "update: "+s)
+			t.addMessage(AuthorSystem, t.tr("update:")+" "+s)
 		}
 	})
 	if err != nil {
-		t.addMessage(AuthorSystem, "update failed: "+err.Error())
+		t.addMessage(AuthorSystem, t.trf("update failed: %s", err.Error()))
 		return
 	}
 	t.Notice = ""
-	t.addMessage(AuthorSystem, fmt.Sprintf("update: %s is installed. The gateway is restarting: quit (/quit) and start motita again to use it.", installed))
+	t.addMessage(AuthorSystem, t.trf("update: %s is installed. The gateway is restarting: quit (/quit) and start motita again to use it.", installed))
 }

@@ -108,12 +108,14 @@ type AppRunner struct {
 	Err io.Writer
 	// Cfg and Engine are what the next turn runs with. They are guarded by cfgMu because a front
 	// end changes them (the model, the reasoning level) while a turn may be running.
-	Cfg      config.Config
-	Engine   *llm.Client
-	cfgMu    sync.Mutex
-	Box      *sandbox.Sandbox
-	Log      *logx.Logger
-	newAgent agentFactory
+	Cfg    config.Config
+	Engine *llm.Client
+	cfgMu  sync.Mutex
+	// uiLanguage is the ui.language setting saved through /language in this process.
+	uiLanguage string
+	Box        *sandbox.Sandbox
+	Log        *logx.Logger
+	newAgent   agentFactory
 	// listModels and claudeModels are injectable so the menu can be tested without a network
 	// or a claude CLI.
 	listModels   func(ctx context.Context, baseURL, apiKey string) ([]string, error)
@@ -1271,6 +1273,30 @@ func (r *AppRunner) RunConfig(ctx context.Context) error {
 
 // setupPath is the file the setup wizard writes and ReloadConfig reads: the motita home's
 // configuration, or the working directory's when there is no home.
+// saveUILanguage writes ui.language into the configuration file. It is a variable so a test can
+// stand in for the file.
+var saveUILanguage = config.SetUILanguage
+
+// UILanguage is the ui.language setting this runner saved, or "" when it has saved none: the
+// setting the interface started with is the one the configuration file holds.
+func (r *AppRunner) UILanguage() string {
+	r.cfgMu.Lock()
+	defer r.cfgMu.Unlock()
+	return r.uiLanguage
+}
+
+// SetUILanguage saves ui.language in the configuration file the setup writes, so the next start
+// and every other interface reading that file use it too.
+func (r *AppRunner) SetUILanguage(lang string) error {
+	if err := saveUILanguage(setupPath(), lang); err != nil {
+		return err
+	}
+	r.cfgMu.Lock()
+	r.uiLanguage = lang
+	r.cfgMu.Unlock()
+	return nil
+}
+
 func setupPath() string {
 	if path := config.File(); path != "" {
 		return path

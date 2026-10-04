@@ -88,7 +88,7 @@ func (t *TUI) endCurrent(ctx context.Context, out runOutcome) {
 		if t.draft == "" {
 			t.draft = q
 		}
-		t.addMessage(AuthorSystem, "Stopped. Your queued message was not sent; it is in the input box if it was empty.")
+		t.addMessage(AuthorSystem, t.tr("Stopped. Your queued message was not sent; it is in the input box if it was empty."))
 		return
 	}
 	t.submit(ctx, q)
@@ -145,9 +145,9 @@ func (t *TUI) leaveTurn(ctx context.Context) {
 // One message, not a list: a second one replaces the first, and the conversation says so. A
 // queue the user cannot see is a queue that sends things they forgot they typed.
 func (t *TUI) queue(line string) {
-	note := "Queued: it will be sent when the current task finishes. Esc stops the current one."
+	note := t.tr("Queued: it will be sent when the current task finishes. Esc stops the current one.")
 	if t.queued != "" {
-		note = "Queued, replacing the message queued before. Esc stops the current task."
+		note = t.tr("Queued, replacing the message queued before. Esc stops the current task.")
 	}
 	t.queued = line
 	t.addMessage(AuthorSystem, note+"\n"+glyphPrompt+" "+line)
@@ -180,7 +180,7 @@ func (t *TUI) refuseWhileBusy(name string) bool {
 	if t.current == nil || !busyCommands[name] {
 		return false
 	}
-	t.addMessage(AuthorSystem, strings.TrimPrefix(name, "/")+" has to wait: motita is still working. Press Esc to stop it first.")
+	t.addMessage(AuthorSystem, t.trf("%s has to wait: motita is still working. Press Esc to stop it first.", strings.TrimPrefix(name, "/")))
 	return true
 }
 

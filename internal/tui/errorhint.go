@@ -1,7 +1,6 @@
 package tui
 
 import (
-	"fmt"
 	"strings"
 
 	"github.com/madkoding/motita/internal/config"
@@ -15,9 +14,11 @@ import (
 // leaves out: "connection refused" is accurate, and it does not say that the Ollama server is not
 // running or which command starts it.
 func (t *TUI) errorText(err error) string {
-	text := fmt.Sprintf("error: %v", err)
+	text := t.trf("error: %v", err)
 	if hint := t.errorHint(err); hint != "" {
-		text += "\n\n" + hint
+		// The hints are fixed sentences, translated as they are; the one built around the
+		// provider's name is translated where it is built.
+		text += "\n\n" + t.tr(hint)
 	}
 	return text
 }
@@ -46,7 +47,7 @@ func (t *TUI) errorHint(err error) string {
 	case has("already in progress"):
 		return "hint: the previous task is still stopping. Wait a moment and send it again."
 	case has("key is missing"):
-		return "hint: there is no API key for " + providerName(llmCfg.Provider) + ". Type /config to add one."
+		return t.trf("hint: there is no API key for %s. Type /config to add one.", providerName(llmCfg.Provider))
 	case has("401", "403", "unauthorized", "forbidden", "invalid api key", "invalid_api_key", "incorrect api key"):
 		return "hint: the provider refused the key or the login. Type /config to enter a new one."
 	case has("429", "rate limit", "quota", "insufficient_quota"):

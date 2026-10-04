@@ -2,7 +2,6 @@ package tui
 
 import (
 	"context"
-	"fmt"
 	"strings"
 )
 
@@ -43,6 +42,7 @@ var commands = []Command{
 	{Name: "/models", Aliases: []string{"/m"}, Help: "list the provider's models, or switch to one", Arg: "[id]", Group: "mode"},
 	{Name: "/config", Aliases: []string{"/c"}, Help: "run the setup again: provider, key, model, check", Group: "mode"},
 	{Name: "/reasoning", Aliases: []string{"/r", "/think"}, Help: "how hard the model thinks: off, low, medium, high", Group: "mode"},
+	{Name: "/language", Aliases: []string{"/lang"}, Help: "the interface's language: en, es or auto", Arg: "[en|es|auto]", Group: "mode"},
 	{Name: "/find", Aliases: []string{"/f"}, Help: "filter the conversation", Arg: "text", Group: "action"},
 	{Name: "/session", Aliases: []string{"/s"}, Help: "context used, and what was carried over", Group: "session"},
 	{Name: "/sessions", Help: "list the conversations the gateway holds", Group: "session"},
@@ -76,7 +76,7 @@ var commandActions = map[string]func(t *TUI, ctx context.Context, arg string) bo
 		// in memory, from the next turn on.
 		if model := strings.TrimSpace(arg); model != "" {
 			t.Runner.SetLLM("", model)
-			t.addMessage(AuthorSystem, fmt.Sprintf("model set to %s for this session", model))
+			t.addMessage(AuthorSystem, t.trf("model set to %s for this session", model))
 			t.drawFrame()
 			return false
 		}
@@ -93,6 +93,7 @@ var commandActions = map[string]func(t *TUI, ctx context.Context, arg string) bo
 		return false
 	},
 	"/reasoning": func(t *TUI, _ context.Context, _ string) bool { t.cycleReasoning(); return false },
+	"/language":  func(t *TUI, _ context.Context, arg string) bool { t.runLanguage(arg); t.drawFrame(); return false },
 	// The typed alternative to Ctrl+F, and the one that works everywhere: a terminal in
 	// canonical mode consumes control bytes itself (Ctrl+U is the driver's kill-line,
 	// Ctrl+D its EOF), so the shortcut cannot be relied on. This goes through the ordinary
@@ -118,7 +119,7 @@ var commandActions = map[string]func(t *TUI, ctx context.Context, arg string) bo
 	"/attach": func(t *TUI, ctx context.Context, arg string) bool {
 		id := strings.TrimSpace(arg)
 		if id == "" {
-			t.addMessage(AuthorSystem, "usage: /attach <session id> — /sessions lists them.")
+			t.addMessage(AuthorSystem, t.tr("usage: /attach <session id> — /sessions lists them."))
 			return false
 		}
 		if err := t.attachTo(ctx, id); err != nil {
@@ -143,7 +144,7 @@ var commandActions = map[string]func(t *TUI, ctx context.Context, arg string) bo
 		t.Runner.ResetConversation()
 		t.messages = nil
 		t.scroll = 0
-		t.Notice = "Started a new conversation: the next message begins fresh."
+		t.Notice = t.tr("Started a new conversation: the next message begins fresh.")
 		t.drawFrame()
 		return false
 	},
@@ -151,7 +152,7 @@ var commandActions = map[string]func(t *TUI, ctx context.Context, arg string) bo
 	// happening and then lets the user decide when to come back.
 	"/update": func(t *TUI, ctx context.Context, _ string) bool { t.runUpdate(ctx); return false },
 	"/help": func(t *TUI, _ context.Context, _ string) bool {
-		t.addPreformatted(AuthorSystem, helpText)
+		t.addPreformatted(AuthorSystem, buildHelp(t.Lang))
 		return false
 	},
 	"/quit": func(t *TUI, _ context.Context, _ string) bool { return true },
@@ -246,7 +247,7 @@ func (t *TUI) completionLinesCapped(w, max int) []string {
 	for _, c := range cands {
 		label := c.Name
 		if c.Arg != "" {
-			label += " " + c.Arg
+			label += " " + t.tr(c.Arg)
 		}
 		if n := visibleLen(label); n > nameWidth {
 			nameWidth = n
@@ -278,10 +279,10 @@ func (t *TUI) completionLinesCapped(w, max int) []string {
 	for i, c := range shown {
 		label := c.Name
 		if c.Arg != "" {
-			label += " " + c.Arg
+			label += " " + t.tr(c.Arg)
 		}
 		pad := strings.Repeat(" ", nameWidth-visibleLen(label))
-		row := t.color(colAccent, 0, label) + pad + "  " + t.muted(c.Help)
+		row := t.color(colAccent, 0, label) + pad + "  " + t.muted(t.tr(c.Help))
 		if !t.fits(row, w-2*leftMargin-2) {
 			row = t.color(colAccent, 0, label)
 		}
@@ -307,7 +308,7 @@ func (t *TUI) completionLinesCapped(w, max int) []string {
 		}
 	}
 	if showMore {
-		lines = append(lines, t.plainLine(t.muted(fmt.Sprintf("… and %d more, keep typing", hidden))))
+		lines = append(lines, t.plainLine(t.muted(t.trf("… and %d more, keep typing", hidden))))
 	}
 	return lines
 }
