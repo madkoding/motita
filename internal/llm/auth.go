@@ -222,6 +222,8 @@ func (c *Client) send(ctx context.Context, path string, body any, stream bool) (
 	if err != nil {
 		return nil, target{}, fmt.Errorf("could not serialise the request: %w", err)
 	}
+	data = c.clampOutputLimit(data)
+	relearned := false
 	for attempt := 0; ; attempt++ {
 		t, err := c.target(ctx, attempt > 0)
 		if err != nil {
@@ -249,6 +251,20 @@ func (c *Client) send(ctx context.Context, path string, body any, stream bool) (
 		resp.Body.Close()
 		if resp.StatusCode == http.StatusUnauthorized && t.login && attempt == 0 {
 			continue
+		}
+		// Asked for more output than the model allows: the refusal names the limit.
+		// Ask once more within it, and keep it for the next request.
+		if resp.StatusCode == http.StatusBadRequest && !relearned {
+			if asked := requestedOutputLimit(data); asked > 0 {
+				if limit := limitFromRefusal(asked, string(b)); limit > 0 {
+					relearned = true
+					c.outputCap.Store(int64(limit))
+					c.log.Warn("the model allows less output than max_tokens asks for; using its limit",
+						"asked", asked, "limit", limit)
+					data = c.clampOutputLimit(data)
+					continue
+				}
+			}
 		}
 		return nil, t, &HTTPError{Code: resp.StatusCode, Body: strings.TrimSpace(string(b))}
 	}

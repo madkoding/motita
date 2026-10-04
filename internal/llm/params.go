@@ -1,6 +1,10 @@
 package llm
 
 import (
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
 	"net/url"
 	"strings"
 )
@@ -60,6 +64,64 @@ func (c *Client) openAIBody(messages []Message, tools []Tool) map[string]any {
 		}
 	}
 	return body
+}
+
+// maxBudgetTokens caps how far an answer cut off by the token budget is retried with a larger one.
+const maxBudgetTokens = 65536
+
+// raiseBudget multiplies the output-token limit of a request body by four, up to
+// maxBudgetTokens, and reports whether it changed anything.
+//
+// It exists for reasoning models: their hidden thinking is billed against the same limit as
+// the answer, so a modest max_tokens can be spent entirely on thinking and leave 0 bytes of
+// text (finish_reason="length"). Repeating that request unchanged truncates again.
+func raiseBudget(body map[string]any, learnedCap int) bool {
+	for _, key := range []string{"max_completion_tokens", "max_tokens"} {
+		cur, ok := body[key].(int)
+		ceiling := maxBudgetTokens
+		if learnedCap > 0 {
+			ceiling = min(ceiling, learnedCap)
+		}
+		if !ok || cur >= ceiling {
+			continue
+		}
+		body[key] = min(cur*4, ceiling)
+		return true
+	}
+	return false
+}
+
+// openAIChoice posts a /chat/completions request and returns its first choice.
+//
+// An answer that is empty because the token budget ran out is asked again with a larger
+// budget (see raiseBudget) before it is reported as a failure.
+func (c *Client) openAIChoice(ctx context.Context, messages []Message, tools []Tool) (openAIChoice, *openAIUsage, error) {
+	body := c.openAIBody(messages, tools)
+	for {
+		data, err := c.post(ctx, "/chat/completions", body)
+		if err != nil {
+			return openAIChoice{}, nil, err
+		}
+		var resp openAIResponse
+		if err := json.Unmarshal(data, &resp); err != nil {
+			return openAIChoice{}, nil, fmt.Errorf("unreadable OpenAI response: %w", err)
+		}
+		// Recorded before anything is judged: a reply that is then refused was still billed.
+		recordUsage(ctx, resp.Usage.usage())
+		if resp.Error != nil && resp.Error.Message != "" {
+			return openAIChoice{}, nil, &HTTPError{Code: 400, Body: resp.Error.Message}
+		}
+		if len(resp.Choices) == 0 {
+			return openAIChoice{}, nil, errors.New("OpenAI returned empty choices")
+		}
+		choice := resp.Choices[0]
+		if choice.FinishReason == "length" && strings.TrimSpace(choice.Message.Content) == "" &&
+			len(choice.Message.ToolCalls) == 0 && raiseBudget(body, int(c.outputCap.Load())) {
+			c.log.Warn("the answer was cut off before any text; asking again with a larger token budget")
+			continue
+		}
+		return choice, resp.Usage, nil
+	}
 }
 
 // geminiPath is the generateContent path of the configured model. The model id

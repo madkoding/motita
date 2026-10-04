@@ -817,6 +817,20 @@ func (s *Server) handleCreateSession(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// The first thing a project session does is bring in the latest changes of the
+	// project's base branch, so its worktree branches from current code and not from
+	// whatever the checkout held when it was last touched. A project with no origin has
+	// nothing to bring in; any other failure (offline, diverged) is reported rather than
+	// silently starting the session on stale code.
+	if project != nil {
+		if base := gitx.Display(r.Context(), project.Dir); base != "" && gitx.HasRemote(r.Context(), project.Dir) {
+			if err := gitx.PullFastForward(r.Context(), project.Dir, base); err != nil {
+				writeError(w, http.StatusConflict, err.Error())
+				return
+			}
+		}
+	}
+
 	conv, err := s.createSession()
 	switch {
 	case errors.Is(err, ErrCeilingReached):

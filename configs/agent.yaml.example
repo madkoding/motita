@@ -96,7 +96,8 @@ llm:
   model: gpt-4o-mini
   api_key: ""          # BETTER: export MOTITA_LLM_API_KEY
   base_url: https://api.openai.com/v1   # any compatible gateway works
-  max_tokens: 2048
+  max_tokens: 16384    # output ceiling (you pay only for what is generated). gpt-4o-mini caps at 16384;
+                       # for reasoning models (gpt-5, o-series) use 65536: hidden thinking counts against it
   temperature: 0.2
   timeout: 90s
   max_attempts: 3      # retries with exponential backoff on 429/5xx/network

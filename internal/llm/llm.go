@@ -29,6 +29,7 @@ import (
 	"io"
 	"net/http"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/madkoding/motita/internal/config"
@@ -55,6 +56,8 @@ type Client struct {
 	openStream func(context.Context, []Message, []Tool) (<-chan StreamChunk, error)
 	// login is the stored login the client authenticates with, nil for a key.
 	login *loginState
+	// outputCap is the output-token limit learned from a provider's refusal, 0 while unknown.
+	outputCap atomic.Int64
 }
 
 // New creates the reasoning engine client.
@@ -551,16 +554,18 @@ type openAIMessage struct {
 	ToolCallID string     `json:"tool_call_id,omitempty"`
 }
 
+type openAIChoice struct {
+	Message struct {
+		Content   string     `json:"content"`
+		ToolCalls []ToolCall `json:"tool_calls"`
+	} `json:"message"`
+	FinishReason string `json:"finish_reason"`
+}
+
 type openAIResponse struct {
-	Choices []struct {
-		Message struct {
-			Content   string     `json:"content"`
-			ToolCalls []ToolCall `json:"tool_calls"`
-		} `json:"message"`
-		FinishReason string `json:"finish_reason"`
-	} `json:"choices"`
-	Usage *openAIUsage `json:"usage"`
-	Error *struct {
+	Choices []openAIChoice `json:"choices"`
+	Usage   *openAIUsage   `json:"usage"`
+	Error   *struct {
 		Message string `json:"message"`
 	} `json:"error,omitempty"`
 }
@@ -602,24 +607,10 @@ func emptyReason(finishReason, content string, toolCalls int) string {
 var ErrToolCallForText = errors.New("the model called a tool where text was required")
 
 func (c *Client) callOpenAI(ctx context.Context, messages []Message) (string, error) {
-	body := c.openAIBody(messages, nil)
-	data, err := c.post(ctx, "/chat/completions", body)
+	choice, _, err := c.openAIChoice(ctx, messages, nil)
 	if err != nil {
 		return "", err
 	}
-	var resp openAIResponse
-	if err := json.Unmarshal(data, &resp); err != nil {
-		return "", fmt.Errorf("unreadable OpenAI response: %w", err)
-	}
-	// Recorded before anything is judged: a reply that is then refused was still billed.
-	recordUsage(ctx, resp.Usage.usage())
-	if resp.Error != nil && resp.Error.Message != "" {
-		return "", &HTTPError{Code: 400, Body: resp.Error.Message}
-	}
-	if len(resp.Choices) == 0 {
-		return "", errors.New("OpenAI returned empty choices")
-	}
-	choice := resp.Choices[0]
 	// A reply that carried TOOL CALLS is not an empty reply, whatever the text says.
 	//
 	// This guard used to look at the text alone, so a response of `tool_calls` with no
@@ -677,23 +668,10 @@ func describeCalls(calls []ToolCall) string {
 }
 
 func (c *Client) callOpenAITools(ctx context.Context, messages []Message, tools []Tool) (Reply, error) {
-	body := c.openAIBody(messages, tools)
-	data, err := c.post(ctx, "/chat/completions", body)
+	choice, usage, err := c.openAIChoice(ctx, messages, tools)
 	if err != nil {
 		return Reply{}, err
 	}
-	var resp openAIResponse
-	if err := json.Unmarshal(data, &resp); err != nil {
-		return Reply{}, fmt.Errorf("unreadable OpenAI response: %w", err)
-	}
-	recordUsage(ctx, resp.Usage.usage())
-	if resp.Error != nil && resp.Error.Message != "" {
-		return Reply{}, &HTTPError{Code: 400, Body: resp.Error.Message}
-	}
-	if len(resp.Choices) == 0 {
-		return Reply{}, errors.New("OpenAI returned empty choices")
-	}
-	choice := resp.Choices[0]
 	if strings.TrimSpace(choice.Message.Content) == "" && len(choice.Message.ToolCalls) == 0 {
 		// No text and no tool calls: the model produced nothing usable.
 		//
@@ -710,7 +688,7 @@ func (c *Client) callOpenAITools(ctx context.Context, messages []Message, tools 
 		Content:      choice.Message.Content,
 		Calls:        choice.Message.ToolCalls,
 		FinishReason: choice.FinishReason,
-		Usage:        resp.Usage.usage(),
+		Usage:        usage.usage(),
 	}, nil
 }
 

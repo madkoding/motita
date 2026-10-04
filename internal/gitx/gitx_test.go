@@ -1290,3 +1290,22 @@ func TestPullFastForwardReportsNoGit(t *testing.T) {
 		t.Errorf("a missing git must be reported as ErrNoGit, got %v", err)
 	}
 }
+
+func TestHasRemoteSeesOnlyOrigin(t *testing.T) {
+	ctx := context.Background()
+	if HasRemote(ctx, t.TempDir()) {
+		t.Error("a directory that is not a repository has no remote")
+	}
+	repo := newRepo(t)
+	if HasRemote(ctx, repo) {
+		t.Error("a repository with no remote has no origin")
+	}
+	git(t, repo, "remote", "add", "upstream", t.TempDir())
+	if HasRemote(ctx, repo) {
+		t.Error("a remote with another name is not origin")
+	}
+	git(t, repo, "remote", "add", "origin", t.TempDir())
+	if !HasRemote(ctx, repo) {
+		t.Error("origin must be found")
+	}
+}
