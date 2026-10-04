@@ -355,7 +355,7 @@ func TestClipMiddleKeepsTheEndsAndWholeRunes(t *testing.T) {
 	if got := clipMiddle("short", 100); got != "short" {
 		t.Errorf("short text changed: %q", got)
 	}
-	long := strings.Repeat("é", 400) + "END"
+	long := strings.Repeat("é", 400) + "END" // spanish-fixture: a multi-byte rune, so a cut could land inside one
 	got := clipMiddle(long, 101)
 	// The marker itself is extra: the cap bounds what is KEPT, not the note saying what was cut.
 	if len(got) > 101+60 || !strings.HasSuffix(got, "END") || !strings.Contains(got, "bytes omitted") {
@@ -366,7 +366,7 @@ func TestClipMiddleKeepsTheEndsAndWholeRunes(t *testing.T) {
 	}
 	// Whatever the byte offset, the cut never lands inside a rune, at either end.
 	for max := 40; max < 60; max++ {
-		for _, r := range clipMiddle(strings.Repeat("é", 200), max) {
+		for _, r := range clipMiddle(strings.Repeat("é", 200), max) { // spanish-fixture: the same multi-byte rune
 			if r == '\uFFFD' {
 				t.Fatalf("max %d: a rune was cut in half", max)
 			}
