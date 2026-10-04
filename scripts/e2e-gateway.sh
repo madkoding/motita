@@ -380,7 +380,12 @@ done
 kill "$first_pid" 2>/dev/null || true
 wait "$first_pid" 2>/dev/null || true
 
-SEEN="$(grep -o '^id: [0-9]*' .e2e/first.sse 2>/dev/null | tail -1 | grep -o '[0-9]*' || true)"
+# Only a LOGGED event is a position in the log. The live view of the model's reasoning (and the
+# list of agents) is sent with `id: 0` and is never logged, so a client that was cut off right
+# after one of those has seen nothing it could resume from. Taking the last id of any kind made
+# this check fail now and then, whenever the kill landed just after such an event: SEEN was 0, and
+# the resumed stream legitimately carries its own `id: 0` events.
+SEEN="$(grep -o '^id: [0-9]*' .e2e/first.sse 2>/dev/null | grep -o '[0-9]*' | grep -v '^0$' | tail -1 || true)"
 echo "    the client left after event ${SEEN:-none}"
 [ "$seen_running" -eq 1 ] \
   && ok "the run was in flight, and had spoken, when its client was killed" \
