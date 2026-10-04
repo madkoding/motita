@@ -282,3 +282,9 @@ schedule:
   # How many firings are kept in a task's record. It bounds a task that fires every
   # minute from growing its file without bound.
   max_runs_kept: 50
+
+ui:
+  # The language of the terminal, the browser and the setup wizard: auto | en | es.
+  # auto follows the terminal's locale (LC_ALL, LC_MESSAGES, LANG) and the browser's
+  # language. Changing it from the browser or the terminal saves it here.
+  language: auto

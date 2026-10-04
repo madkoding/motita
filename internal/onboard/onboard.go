@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/madkoding/motita/internal/config"
+	"github.com/madkoding/motita/internal/i18n"
 	"github.com/madkoding/motita/internal/llm"
 	"github.com/madkoding/motita/internal/oauth"
 )
@@ -32,6 +33,14 @@ type Answers struct {
 	// APIKey is optional. When given it is written to a separate file with 0600
 	// permissions, never into the configuration.
 	APIKey string
+
+	// Lang is the language the wizard speaks when it starts: the caller resolves ui.language
+	// (auto follows the locale) before running it. The zero value is English. It is not an
+	// answer: setting it does not make the run non-interactive.
+	Lang i18n.Lang
+	// LanguageSetting is the ui.language the configuration had, written back as it was unless
+	// the user switches language during the setup. Empty means auto.
+	LanguageSetting string
 }
 
 // Result reports what the wizard did.
@@ -100,7 +109,7 @@ func Run(ctx context.Context, in io.Reader, out io.Writer, configPath string, pr
 
 func runSetup(ctx context.Context, in io.Reader, out io.Writer, configPath string, preset Answers, now time.Time, keys KeyMode) (Result, error) {
 	r := bufio.NewReader(in)
-	w := &session{in: r, out: out, configPath: configPath}
+	w := &session{in: r, out: out, configPath: configPath, langSetting: preset.LanguageSetting}
 
 	// The keyboard drives the menus only when the terminal can really be switched: it is tried
 	// once here, and every question switches it again for as long as it asks. Between questions
@@ -113,6 +122,9 @@ func runSetup(ctx context.Context, in io.Reader, out io.Writer, configPath strin
 			w.out = w.lines
 		}
 	}
+	// Outermost, so every line is still counted for the menus and written in the user's language.
+	w.lw = &langWriter{w: w.out, lang: preset.Lang}
+	w.out = w.lw
 
 	// The banner and the review are shown only when the wizard is interactive (no preset). A
 	// preset means the answers come from a script or a test, and both would be noise - or, for
@@ -182,6 +194,7 @@ func (s *session) save(st setup, now time.Time) (Result, error) {
 		anchorCommand: st.anchor.command,
 		anchorArgs:    st.anchor.args,
 		anchorAuto:    st.anchor.auto,
+		language:      s.languageToWrite(),
 		generated:     now,
 	})
 
@@ -224,6 +237,34 @@ func (s *session) save(st setup, now time.Time) (Result, error) {
 // removeFile deletes the stale credentials file. A variable so the failure is testable.
 var removeFile = os.Remove
 
+// languageToWrite is the ui.language the new configuration records: the language the user picked
+// during the setup, when they switched; otherwise the setting the configuration already had, so
+// running the setup again to change the model does not undo a language chosen before. A setting
+// that is not one motita accepts is written as auto rather than copied into a file that would then
+// fail to load.
+func (s *session) languageToWrite() string {
+	if s.langChosen {
+		return string(s.lw.lang)
+	}
+	setting := strings.ToLower(strings.TrimSpace(s.langSetting))
+	if setting == "" || !i18n.Valid(setting) {
+		return i18n.Auto
+	}
+	return setting
+}
+
+// languageAnswer reads a language from an answer to the first question: es or en, or the language's
+// name in either of the two.
+func languageAnswer(answer string) (i18n.Lang, bool) {
+	switch strings.ToLower(answer) {
+	case "es", "español", "espanol", "spanish": // spanish-fixture: the names a Spanish speaker types
+		return i18n.ES, true
+	case "en", "english", "inglés", "ingles": // spanish-fixture: the names a Spanish speaker types
+		return i18n.EN, true
+	}
+	return "", false
+}
+
 // review shows every answer of the pass and asks whether to save it. It returns false when the
 // user wants to go through the questions again.
 func (s *session) review(ctx context.Context, st setup) (bool, error) {
@@ -233,12 +274,12 @@ func (s *session) review(ctx context.Context, st setup) (bool, error) {
 	if st.baseURL != "" {
 		printField(s.out, "Endpoint", st.baseURL)
 	}
-	printField(s.out, "Sign-in", signInDescription(st))
+	printField(s.out, "Sign-in", signInDescription(s.out, st))
 	printField(s.out, "Model", st.model)
-	printField(s.out, "Check", st.anchor.describe())
+	printField(s.out, "Check", st.anchor.describe(s.out))
 	file := s.configPath
 	if _, err := os.Stat(s.configPath); err == nil {
-		file += colDim + "  (replaces the current one; a copy is kept as .bak)" + colReset
+		file += colDim + "  " + tr(s.out, "(replaces the current one; a copy is kept as .bak)") + colReset
 	}
 	printField(s.out, "File", file)
 
@@ -247,8 +288,10 @@ func (s *session) review(ctx context.Context, st setup) (bool, error) {
 		if err != nil {
 			return false, err
 		}
+		// The Spanish answers are accepted whatever the language: a Spanish typist reaches for
+		// them, and they cannot mean anything else here.
 		switch strings.ToLower(answer) {
-		case "", "y", "yes":
+		case "", "y", "yes", "s", "si", "sí": // spanish-fixture: accepted input
 			return true, nil
 		case "n", "no":
 			return false, nil
@@ -260,20 +303,20 @@ func (s *session) review(ctx context.Context, st setup) (bool, error) {
 }
 
 // signInDescription says how the setup reaches the provider, for the review.
-func signInDescription(st setup) string {
+func signInDescription(out io.Writer, st setup) string {
 	switch {
 	case st.provider.Login != "":
-		return "your own login (" + st.provider.Login + ")"
+		return fmt.Sprintf(tr(out, "your own login (%s)"), st.provider.Login)
 	case st.loggedIn:
-		return "your account (stored login, renewed automatically)"
+		return tr(out, "your account (stored login, renewed automatically)")
 	case st.keyless:
-		return "none needed"
+		return tr(out, "none needed")
 	case st.keptKey:
-		return "API key " + maskKey(st.key) + " (the one already saved)"
+		return fmt.Sprintf(tr(out, "API key %s (the one already saved)"), maskKey(st.key))
 	case st.key != "":
-		return "API key " + maskKey(st.key)
+		return fmt.Sprintf(tr(out, "API key %s"), maskKey(st.key))
 	default:
-		return colYellow + "no key yet: add it later" + colReset
+		return colYellow + tr(out, "no key yet: add it later") + colReset
 	}
 }
 
@@ -289,10 +332,20 @@ type session struct {
 	// written so a menu can be redrawn in place. Both are nil when answers are read as lines.
 	keys  KeyMode
 	lines *lineCounter
+	// lw is the language the conversation is written in; it is also s.out. langChosen records
+	// that the user switched it during the setup, and langSetting is the ui.language the
+	// configuration had, written back unless they did.
+	lw          *langWriter
+	langChosen  bool
+	langSetting string
 }
 
+// say writes one line. Its format is translated without its leading spaces, which are layout and
+// not part of the sentence the catalog knows.
 func (s *session) say(format string, args ...any) {
-	fmt.Fprintf(s.out, format+"\n", args...)
+	body := strings.TrimLeft(format, " ")
+	lead := format[:len(format)-len(body)]
+	fmt.Fprintf(s.out, lead+tr(s.out, body)+"\n", args...)
 }
 
 // ask reads one answer: a key at a time when the keyboard drives the setup, a line otherwise.
@@ -374,10 +427,13 @@ func (s *session) chooseProvider(ctx context.Context, preset string) (Provider, 
 		return p, nil
 	}
 
-	printStep(s.out, stepProvider, "Which AI provider do you want to use?")
-	printInfo(s.out, "Pick the one you already have an account with. You can change it later.")
-	s.say("")
-	m := s.showMenu(providerOptions(providers))
+	ask := func() *menu {
+		printStep(s.out, stepProvider, "Which AI provider do you want to use?")
+		printInfo(s.out, "Pick the one you already have an account with. You can change it later.")
+		s.say("")
+		return s.showMenu(providerOptions(providers))
+	}
+	m := ask()
 
 	for attempt := 0; attempt < 3; attempt++ {
 		answer, err := s.choose(ctx, "Provider [1]:", m)
@@ -386,6 +442,15 @@ func (s *session) chooseProvider(ctx context.Context, preset string) (Provider, 
 		}
 		if answer == "" {
 			return providers[0], nil
+		}
+		// The language switch the banner announces: es or en changes the language of the rest of
+		// the setup, and of motita once it is saved. The question is asked again in it, and the
+		// switch is not a wrong answer, so it does not use up an attempt.
+		if l, ok := languageAnswer(answer); ok {
+			s.lw.lang, s.langChosen = l, true
+			m = ask()
+			attempt--
+			continue
 		}
 		// A number, or the name itself.
 		if n, err := strconv.Atoi(answer); err == nil {
@@ -409,7 +474,7 @@ func (s *session) connectHeader(p Provider) {
 		return
 	}
 	s.connectShown = true
-	printStep(s.out, stepConnect, "Connect to "+p.Short)
+	printStep(s.out, stepConnect, fmt.Sprintf(tr(s.out, "Connect to %s"), p.Short))
 }
 
 // chooseEndpoint decides the API endpoint: asked where the protocol is spoken by many hosts
@@ -514,7 +579,7 @@ func (s *session) askAPIKey(ctx context.Context, p Provider) (string, bool, bool
 				return key, err == nil && key == "", false, err
 			}})
 	}
-	opts = append(opts, authOption{label: "Paste an API key", note: "from " + p.ConsoleURL,
+	opts = append(opts, authOption{label: "Paste an API key", note: fmt.Sprintf(tr(s.out, "from %s"), p.ConsoleURL),
 		run: func() (string, bool, bool, error) {
 			key, err := s.askForAPIKey(ctx, p)
 			return key, false, false, err
@@ -564,7 +629,7 @@ func (s *session) askForAPIKey(ctx context.Context, p Provider) (string, error) 
 	s.say("")
 	s.say("%sYour API key. Get one at:", indent)
 	printLink(s.out, p.ConsoleURL)
-	printInfo(s.out, "It is saved apart from the settings, in a private file (%s).", credentialsProtection())
+	printInfo(s.out, "It is saved apart from the settings, in a private file (%s).", tr(s.out, credentialsProtection()))
 	return s.question(ctx, "Paste the key, or press Enter to add it later:", nil, true)
 }
 
@@ -596,7 +661,7 @@ func (s *session) chooseModel(ctx context.Context, p Provider, preset, listURL, 
 		case err != nil:
 			// Never leave the user staring at an empty menu: fall back to the
 			// known catalogue and say plainly that it is a fallback.
-			printWarning(s.out, "Could not read the models available at %s: %s", url, unreachable(err))
+			printWarning(s.out, "Could not read the models available at %s: %s", url, unreachable(s.out, err))
 			printInfo(s.out, "Showing the built-in list instead; any model id can be typed by hand.")
 		case len(fetched) == 0:
 			printWarning(s.out, "The catalogue at %s is empty; showing the built-in list.", url)
@@ -615,7 +680,7 @@ func (s *session) chooseModel(ctx context.Context, p Provider, preset, listURL, 
 	}
 	var m *menu
 	if len(models) > 0 {
-		m = s.showMenu(modelOptions(models))
+		m = s.showMenu(modelOptions(s.out, models))
 	}
 
 	for attempt := 0; attempt < 3; attempt++ {
@@ -649,9 +714,9 @@ func (s *session) chooseModel(ctx context.Context, p Provider, preset, listURL, 
 // unreachable says why a catalogue could not be read in the words a user acts on. A server that
 // refuses the connection is, nearly always, an Ollama that has not been started yet: the raw
 // "dial tcp 127.0.0.1:11434: connect: connection refused" is accurate and says neither.
-func unreachable(err error) string {
+func unreachable(out io.Writer, err error) string {
 	if strings.Contains(err.Error(), "connection refused") {
-		return "nothing is answering there yet (for Ollama on this computer, start it with `ollama serve`)"
+		return tr(out, "nothing is answering there yet (for Ollama on this computer, start it with `ollama serve`)")
 	}
 	return err.Error()
 }
@@ -718,15 +783,15 @@ type anchorChoice struct {
 	args    []string
 }
 
-// describe says what the check is, for the review.
-func (a anchorChoice) describe() string {
+// describe says what the check is, for the review, in the language of out.
+func (a anchorChoice) describe(out io.Writer) string {
 	switch {
 	case a.auto:
-		return "detected from each project"
+		return tr(out, "detected from each project")
 	case a.command != "":
 		return strings.Join(append([]string{a.command}, a.args...), " ")
 	default:
-		return colYellow + "none yet: tasks are reported as unverified" + colReset
+		return colYellow + tr(out, "none yet: tasks are reported as unverified") + colReset
 	}
 }
 
@@ -777,7 +842,7 @@ func (s *session) chooseBaseURL(ctx context.Context, p Provider) (string, error)
 
 	defaultURL := p.DefaultBaseURL
 	for attempt := 0; attempt < 3; attempt++ {
-		answer, err := s.ask(ctx, fmt.Sprintf("API base URL [%s]:", defaultURL))
+		answer, err := s.ask(ctx, fmt.Sprintf(tr(s.out, "API base URL [%s]:"), defaultURL))
 		if err != nil {
 			return "", err
 		}

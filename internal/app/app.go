@@ -25,6 +25,7 @@ import (
 	"github.com/madkoding/motita/internal/config"
 	"github.com/madkoding/motita/internal/curator"
 	"github.com/madkoding/motita/internal/gateway"
+	"github.com/madkoding/motita/internal/i18n"
 	"github.com/madkoding/motita/internal/llm"
 	"github.com/madkoding/motita/internal/logx"
 	"github.com/madkoding/motita/internal/onboard"
@@ -623,7 +624,7 @@ func (op Options) initConfig(fl flags) (int, bool) {
 
 	// The welcome banner is printed by the wizard itself; the old messages are
 	// removed to avoid duplication. The wizard handles the full UX now.
-	res, err := op.RunOnboard(op.BaseCtx, op.Stdin, op.Out, path, onboard.Answers{})
+	res, err := op.RunOnboard(op.BaseCtx, op.Stdin, op.Out, path, wizardAnswers(path))
 	if err != nil {
 		if errors.Is(err, onboard.ErrCancelled) {
 			fmt.Fprintf(op.Out, "\nCancelled: nothing was written.\n")
@@ -1206,6 +1207,7 @@ func (op Options) runTUI(ctx context.Context, fl flags, cfg config.Config, engin
 	ui.NoColor = noColour(os.Getenv, op.Out)
 	ui.Notice = fl.notice
 	ui.ShowActions = cfg.Gateway.ShowActions
+	ui.Lang = i18n.Resolve(cfg.UI.Language, os.Getenv)
 
 	// The interface CONNECTS to a gateway rather than assuming it is the only one.
 	//

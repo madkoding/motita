@@ -293,7 +293,7 @@ func TestSignInDescriptions(t *testing.T) {
 		{setup{provider: anthropic, key: "short"}, "API key ••••••"},
 		{setup{provider: anthropic}, "no key yet"},
 	} {
-		if got := stripANSI(signInDescription(tc.st)); !strings.Contains(got, tc.want) {
+		if got := stripANSI(signInDescription(io.Discard, tc.st)); !strings.Contains(got, tc.want) {
 			t.Errorf("signInDescription = %q, want %q", got, tc.want)
 		}
 	}
@@ -353,10 +353,10 @@ func TestAModelNumberOutsideTheMenuIsRefused(t *testing.T) {
 }
 
 func TestAnUnreachableCatalogueIsExplained(t *testing.T) {
-	if got := unreachable(errors.New(`Get "http://localhost:11434/v1/models": dial tcp 127.0.0.1:11434: connect: connection refused`)); !strings.Contains(got, "ollama serve") {
+	if got := unreachable(io.Discard, errors.New(`Get "http://localhost:11434/v1/models": dial tcp 127.0.0.1:11434: connect: connection refused`)); !strings.Contains(got, "ollama serve") {
 		t.Errorf("unreachable = %q", got)
 	}
-	if got := unreachable(errors.New("HTTP 401")); got != "HTTP 401" {
+	if got := unreachable(io.Discard, errors.New("HTTP 401")); got != "HTTP 401" {
 		t.Errorf("any other failure is reported as it is, got %q", got)
 	}
 }

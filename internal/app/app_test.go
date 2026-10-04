@@ -1459,6 +1459,9 @@ agent:
 // TestInitFlagRunsTheWizard: -init must write a configuration at the given path
 // and say how to use it, without needing a key or a config to exist beforehand.
 func TestInitFlagRunsTheWizard(t *testing.T) {
+	// The wizard speaks the locale's language when nothing is configured; this test reads its
+	// English, so the locale is pinned rather than taken from the machine running it.
+	clearLocale(t, "en_US.UTF-8")
 	inTempDir(t, func() {
 		silence(t)
 		dir := t.TempDir()

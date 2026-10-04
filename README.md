@@ -298,6 +298,9 @@ alone — it's the same binary, not a wrapper around something else.
 - **`/` opens the command list** (`↑↓` to choose, `→` to complete, `Enter` to run), and
   `?` shows every command and key. A plain word is always a message: typing `new` or
   `good` never runs a command by accident.
+- **In English or in Spanish**: the terminal, the browser and the setup follow your
+  system's language, or the one you choose (`ui.language`, see [the reference](docs/REFERENCE.md#the-interface-language)). `/language es` switches
+  at once, and the choice is saved for every interface.
 - **A failed turn says what to do**: the error as it happened, plus a hint for the
   failures newcomers meet first — a local Ollama that is not running, a key the provider
   refused, a model that does not exist, a rate limit.
@@ -415,6 +418,8 @@ command ran on that standing answer). Around the conversation:
   merges its branch.
 - **The steps of a turn collapse into a counter** ("12 actions") that opens on click;
   `gateway.show_actions: true` lists them instead.
+- **A language selector** in the sidebar: Automatic (the browser's), English or Español.
+  It is saved in the configuration, so the terminal changes with it.
 - **A report you can check** at the end of a task: what changed, how it was verified,
   the risks, and the screenshots the agent saved under `.motita/previews/`, first.
 - **Projects and sessions** in the sidebar, checkpoints to go back, the skill library
@@ -474,6 +479,7 @@ curl -X DELETE -H "Authorization: Bearer $TOKEN" \
 | `GET /v1/curator` `POST /v1/curator/run` | the maintenance pass: report it, or run one |
 | `GET /v1/update/check` `POST /v1/update/run` | is there a newer release, and install it (verified against `SHA256SUMS`) |
 | `GET /v1/commands` | the slash commands, for a client that offers them |
+| `GET` `PUT /v1/ui` | the interface language: auto, en or es, saved in the configuration |
 
 The default conversation belongs to the process that started the gateway: closing it
 is refused, because that process would be left talking to a conversation that no
@@ -663,6 +669,7 @@ ports — they are **two views of one conversation**.
 | `/agents` or `Ctrl+G` | open or close the panel of the run's agents: purpose, state, elapsed time, round, tokens, activity |
 | `/sessions` `/attach <id>` | the conversations the gateway holds, and move to another one |
 | `/config` | run the setup again; the new configuration applies to the session you are in |
+| `/language [en\|es\|auto]` | show or change the language of the interfaces; it is saved in the configuration |
 | `/update` | install the newest release (the welcome screen says when there is one; the download must match the release's `SHA256SUMS`, or nothing is installed); a `-serve` gateway restarts itself on the new binary, an interface tells you to restart it |
 | `/session` `/find` `/new` `/help` `/quit` | context, search, fresh start, help, leave |
 
@@ -823,7 +830,7 @@ This is tested the way you'd test something you were about to bet on.
 
 | | |
 |---|---|
-| **Statement coverage** | **100% in every package that ships** — 30 of 31 (`./internal/... ./cmd/...`), checked package by package so a gap can't hide behind an average. `internal/review` is the one package without tests, and `tools/` holds the CI harnesses and is counted separately |
+| **Statement coverage** | **100% in every package that ships** — 31 of 32 (`./internal/... ./cmd/...`), checked package by package so a gap can't hide behind an average. `internal/review` is the one package without tests, and `tools/` holds the CI harnesses and is counted separately |
 | **Test functions** | 3,735 across 291 files |
 | **Code vs tests** | 47,237 lines of Go · 96,959 lines of test |
 | **External dependencies** | 0 |

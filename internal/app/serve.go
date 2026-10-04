@@ -233,6 +233,10 @@ func (op Options) startGateway(fl flags, cfg config.Config, engine *llm.Client, 
 		// pass is the same object the periodic curator would use.
 		Skills:  skillAdapter{runner: runner},
 		Curator: curatorAdapter{c: cur},
+		// The interface language is read from, and saved into, the same file this process
+		// loaded: resolvedConfigPath is the one answer to "which file", shared with run.
+		ConfigPath: resolvedConfigPath(fl),
+		UILanguage: cfg.UI.Language,
 	}, cfg)
 	if err != nil {
 		return nil, err

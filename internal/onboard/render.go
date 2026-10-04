@@ -19,7 +19,9 @@ type configValues struct {
 	// to know about — and the first reader that does not would write it into the file
 	// as a command named "\x00auto".
 	anchorAuto bool
-	generated  time.Time
+	// language is ui.language: auto, en or es. Empty is written as auto.
+	language  string
+	generated time.Time
 }
 
 // renderConfig builds a configuration that works on its own, with no reference to
@@ -126,6 +128,16 @@ func renderConfig(v configValues) []byte {
 	b.WriteString("  log_file: ./workspace/motita.log\n")
 	b.WriteString("  log_level: info\n")
 	b.WriteString("  log_console: true\n")
+	b.WriteString("\n")
+
+	language := v.language
+	if language == "" {
+		language = "auto"
+	}
+	b.WriteString("ui:\n")
+	b.WriteString("  # The language of the interfaces: auto follows the terminal's locale and the\n")
+	b.WriteString("  # browser's language; en or es fixes it.\n")
+	fmt.Fprintf(&b, "  language: %s\n", yamlScalar(language))
 
 	return []byte(b.String())
 }

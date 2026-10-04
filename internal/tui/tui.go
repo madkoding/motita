@@ -19,7 +19,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -27,6 +26,7 @@ import (
 
 	"github.com/madkoding/motita/internal/agent"
 	"github.com/madkoding/motita/internal/config"
+	"github.com/madkoding/motita/internal/i18n"
 	"github.com/madkoding/motita/internal/onboard"
 )
 
@@ -107,9 +107,13 @@ type TUI struct {
 	Err     io.Writer
 	Runner  Runner
 	NoColor bool
-
 	// ShowActions lists every command and action the agent runs; false (the default) shows only a counter.
 	ShowActions bool
+
+	// Lang is the language the interface is drawn in, resolved from ui.language and the
+	// environment by whoever builds it. The zero value is English, the language every string is
+	// written in; /language changes it while the interface runs.
+	Lang i18n.Lang
 
 	// Version is the build to name in the header box. WHICH build depends on how this interface
 	// was started, and the caller decides: an interface speaking through a local gateway names
@@ -616,7 +620,7 @@ func (t *TUI) handleTypedCommand(ctx context.Context, line string) (bool, bool) 
 			// so it was never a question, and sending it on would spend a turn on a line
 			// nobody asked. A menu entry that says it is broken is better than one that
 			// becomes a task by accident.
-			t.addMessage(AuthorSystem, "the command "+c.Name+" is listed but has no implementation.")
+			t.addMessage(AuthorSystem, t.trf("the command %s is listed but has no implementation.", c.Name))
 			return true, false
 		}
 		return true, run(t, ctx, arg)
@@ -807,7 +811,7 @@ func (t *TUI) cycleReasoning() {
 	}
 	next := levels[nextIdx]
 	t.Runner.SetReasoning(next)
-	t.addMessage(AuthorSystem, fmt.Sprintf("reasoning set to %s", next))
+	t.addMessage(AuthorSystem, t.trf("reasoning set to %s", next))
 	t.drawFrame()
 }
 
@@ -951,13 +955,13 @@ func (t *TUI) runTask(ctx context.Context, task string) {
 			var messageText string
 			switch {
 			case outcome.err == context.Canceled:
-				messageText = "cancelled."
+				messageText = t.tr("cancelled.")
 			case outcome.err != nil:
 				messageText = t.errorText(outcome.err)
 			case outcome.result != "":
 				messageText = outcome.result
 			default:
-				messageText = "the task finished without reporting a result."
+				messageText = t.tr("the task finished without reporting a result.")
 			}
 			// The block is settled here: the text goes in and the pending flag is cleared
 			// together, so the frame the answer arrives on shows it whole.
@@ -1088,7 +1092,7 @@ func (s *planStream) openPending() {
 func (s *planStream) settle(err error, answer string) {
 	switch {
 	case err == context.Canceled:
-		s.setText("cancelled.")
+		s.setText(s.tui.tr("cancelled."))
 	case err != nil:
 		s.setText(s.tui.errorText(err))
 	case answer != "":
@@ -1096,7 +1100,7 @@ func (s *planStream) settle(err error, answer string) {
 	case s.text != "":
 		s.setText(s.text)
 	default:
-		s.setText("the model returned nothing to show.")
+		s.setText(s.tui.tr("the model returned nothing to show."))
 	}
 }
 
@@ -1164,7 +1168,7 @@ func (t *TUI) runPlan(ctx context.Context, prompt string) {
 // never written over the frame.
 func (t *TUI) runModels(ctx context.Context) {
 	t.beginTurn()
-	t.addMessage(AuthorSystem, "asking the provider for its catalogue...")
+	t.addMessage(AuthorSystem, t.tr("asking the provider for its catalogue..."))
 	pendingIdx := len(t.messages) - 1
 	t.advance()
 
@@ -1172,16 +1176,16 @@ func (t *TUI) runModels(ctx context.Context) {
 	switch {
 	case err != nil:
 		t.messages[pendingIdx].Author = AuthorSystem
-		t.messages[pendingIdx].Text = fmt.Sprintf("the catalogue could not be read: %v", err)
+		t.messages[pendingIdx].Text = t.trf("the catalogue could not be read: %v", err)
 	case strings.TrimSpace(report) == "":
-		t.messages[pendingIdx].Text = "the provider published no models."
+		t.messages[pendingIdx].Text = t.tr("the provider published no models.")
 	default:
 		// A report is a block of labelled lines: it is shown as the model's answer, and drawn
 		// as written - re-flowing it as prose collapsed the column its values are aligned on and
 		// the indentation that marks the model in use. It ends with how to act on it.
 		t.messages[pendingIdx].Author = AuthorAgent
 		t.messages[pendingIdx].Preformatted = true
-		t.messages[pendingIdx].Text = strings.TrimRight(report, "\n") + "\n\n/models <id> switches to one of them for this session."
+		t.messages[pendingIdx].Text = strings.TrimRight(report, "\n") + "\n\n" + t.tr("/models <id> switches to one of them for this session.")
 	}
 	t.messages[pendingIdx].Pending = false
 	t.endTurn()
@@ -1198,16 +1202,16 @@ func (t *TUI) runModels(ctx context.Context) {
 // still using the old provider was a sentence that was true about the file and false about motita.
 func (t *TUI) runConfig(ctx context.Context) {
 	t.beginTurn()
-	t.addMessage(AuthorSystem, "opening the setup...")
+	t.addMessage(AuthorSystem, t.tr("opening the setup..."))
 	pendingIdx := len(t.messages) - 1
 	t.advance()
 
 	err := t.suspendForWizard(ctx)
 	switch {
 	case errors.Is(err, onboard.ErrCancelled):
-		t.messages[pendingIdx].Text = "setup cancelled: nothing was changed."
+		t.messages[pendingIdx].Text = t.tr("setup cancelled: nothing was changed.")
 	case err != nil:
-		t.messages[pendingIdx].Text = fmt.Sprintf("the setup failed: %v", err)
+		t.messages[pendingIdx].Text = t.trf("the setup failed: %v", err)
 	default:
 		t.messages[pendingIdx].Text = t.applySetup(ctx)
 	}
@@ -1224,15 +1228,15 @@ type configReloader interface {
 func (t *TUI) applySetup(ctx context.Context) string {
 	rl, ok := t.Runner.(configReloader)
 	if !ok {
-		return "setup saved. Restart motita to use it."
+		return t.tr("setup saved. Restart motita to use it.")
 	}
 	if err := rl.ReloadConfig(ctx); err != nil {
-		return fmt.Sprintf("setup saved, but it could not be applied now (%v). Restart motita to use it.", err)
+		return t.trf("setup saved, but it could not be applied now (%v). Restart motita to use it.", err)
 	}
 	llmCfg := t.Runner.Config().LLM
-	text := "setup saved and applied: now using " + providerName(llmCfg.Provider) + " " + glyphMid + " " + llmCfg.Model + "."
+	text := t.trf("setup saved and applied: now using %s %s %s.", providerName(llmCfg.Provider), glyphMid, llmCfg.Model)
 	if llmCfg.APIKey == "" && config.LLMNeedsKey(llmCfg) {
-		text += " There is no API key yet: run /config again to add one."
+		text += " " + t.tr("There is no API key yet: run /config again to add one.")
 	}
 	return text
 }
@@ -1624,7 +1628,7 @@ type lineResult struct {
 // the previous version was a second copy of the same list, and it had already gone out of
 // step — it advertised "/t task" while the handler and the popup knew "/task". A help screen
 // that documents a spelling nothing accepts is worse than no help at all.
-var helpText = buildHelp()
+var helpText = buildHelp(i18n.EN)
 
 // helpSections names the catalogue's groups as the help screen titles them, in the order they are
 // shown. The group values themselves are shared with the browser interface, which colours by them,
@@ -1638,9 +1642,10 @@ var helpSections = [][2]string{
 
 // buildHelp renders the reference: the keys first, because they are what a newcomer needs, then
 // every command under its topic, with the description the catalogue carries.
-func buildHelp() string {
+func buildHelp(lang i18n.Lang) string {
+	tr := func(s string) string { return i18n.T(lang, s) }
 	var b strings.Builder
-	b.WriteString("Keys (no Enter needed)\n")
+	b.WriteString(tr("Keys (no Enter needed)") + "\n")
 	for _, h := range [][2]string{
 		{"Enter", "send what you typed"},
 		{"Tab", "switch between Task and Plan"},
@@ -1652,11 +1657,11 @@ func buildHelp() string {
 		{"Esc", "close / stop the running task / back to the newest"},
 		{"Ctrl+C", "stop and quit"},
 	} {
-		b.WriteString("  " + pad(h[0], 16) + h[1] + "\n")
+		b.WriteString("  " + pad(h[0], 16) + tr(h[1]) + "\n")
 	}
 
 	for _, sec := range helpSections {
-		b.WriteString("\n" + sec[1] + "\n")
+		b.WriteString("\n" + tr(sec[1]) + "\n")
 		for _, c := range commands {
 			if c.Group != sec[0] {
 				continue
@@ -1666,9 +1671,9 @@ func buildHelp() string {
 				label += " (" + strings.Join(c.Aliases, ", ") + ")"
 			}
 			if c.Arg != "" {
-				label += " " + c.Arg
+				label += " " + tr(c.Arg)
 			}
-			b.WriteString("  " + pad(label, 24) + c.Help + "\n")
+			b.WriteString("  " + pad(label, 24) + tr(c.Help) + "\n")
 		}
 	}
 	return b.String()
@@ -1703,13 +1708,12 @@ const minHeight = permanentRows + minChatLines
 func (t *TUI) tooSmallLines(w, h int) []string {
 	msg := []string{
 		"",
-		"  " + t.color(colWarning, 0, "The window is too small to draw Motita."),
+		"  " + t.color(colWarning, 0, t.tr("The window is too small to draw Motita.")),
 		"",
-		"  resize it to at least " + strconv.Itoa(minWidth) + " columns and " +
-			strconv.Itoa(minHeight) + " rows,",
-		"  or press q to quit.",
+		"  " + t.trf("resize it to at least %d columns and %d rows,", minWidth, minHeight),
+		"  " + t.tr("or press q to quit."),
 		"",
-		"  now: " + strconv.Itoa(w) + " x " + strconv.Itoa(h),
+		"  " + t.trf("now: %d x %d", w, h),
 	}
 	return msg
 }
