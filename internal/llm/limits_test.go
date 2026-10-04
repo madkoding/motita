@@ -61,3 +61,12 @@ func TestAnOutputLimitTheModelRefusesIsLearnedAndKept(t *testing.T) {
 		t.Fatalf("limits asked = %v, want %v", asked, want)
 	}
 }
+
+// TestLimitFromOllamaCloudRefusal: the message Ollama Cloud sends (measured by others against
+// the live API), including a model tag whose digits must not be taken for the limit.
+func TestLimitFromOllamaCloudRefusal(t *testing.T) {
+	msg := "max_tokens (100000) exceeds model's maximum output tokens (65536) for model deepseek-v4-flash:0731"
+	if got := limitFromRefusal(100000, msg); got != 65536 {
+		t.Fatalf("got %d, want 65536", got)
+	}
+}
