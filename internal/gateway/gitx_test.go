@@ -689,3 +689,19 @@ func TestContinueSessionPullsMainAndStartsAFreshSession(t *testing.T) {
 		t.Errorf("continue on unmerged session = %d, want 409", w.Code)
 	}
 }
+
+// A project session starts by bringing in the base branch from origin; an origin that cannot
+// be reached refuses the session instead of branching from stale code.
+func TestCreateSessionRefusesWhenTheProjectCannotBeUpdated(t *testing.T) {
+	srv := newTestServer(t, &fakeService{})
+	ws := t.TempDir()
+	withProjectsAndFake(t, srv, ws)
+	pid := makeProject(t, srv, "repo")
+	p := srv.projectOf(pid)
+	mustRun(t, "git", "-C", p.Dir, "remote", "add", "origin", filepath.Join(ws, "missing.git"))
+
+	w := post(t, srv, "/v1/sessions", `{"project_id":"`+pid+`"}`, testToken)
+	if w.Code != http.StatusConflict {
+		t.Fatalf("create with an unreachable origin = %d, want 409: %s", w.Code, w.Body.String())
+	}
+}

@@ -70,3 +70,36 @@ func TestLimitFromOllamaCloudRefusal(t *testing.T) {
 		t.Fatalf("got %d, want 65536", got)
 	}
 }
+
+func TestOutputLimitRewriting(t *testing.T) {
+	gemini := []byte(`{"generationConfig":{"maxOutputTokens":9000}}`)
+	if got := requestedOutputLimit(gemini); got != 9000 {
+		t.Errorf("gemini limit = %d, want 9000", got)
+	}
+	var out map[string]map[string]float64
+	if err := json.Unmarshal(rewriteOutputLimit(gemini, func(int) (int, bool) { return 100, true }), &out); err != nil || out["generationConfig"]["maxOutputTokens"] != 100 {
+		t.Errorf("the nested limit must be replaced: %v %v", out, err)
+	}
+	for name, data := range map[string][]byte{"not json": []byte("nope"), "no limit": []byte(`{"model":"m"}`)} {
+		if got := rewriteOutputLimit(data, func(int) (int, bool) { return 1, true }); string(got) != string(data) {
+			t.Errorf("%s must be returned as is, got %s", name, got)
+		}
+		if requestedOutputLimit(data) != 0 {
+			t.Errorf("%s asks for no limit", name)
+		}
+	}
+	keep := []byte(`{"max_tokens":10}`)
+	if got := rewriteOutputLimit(keep, func(int) (int, bool) { return 1, false }); string(got) != string(keep) {
+		t.Errorf("a refused rewrite must leave the request alone, got %s", got)
+	}
+}
+
+func TestRaiseBudgetStopsAtTheLearnedLimit(t *testing.T) {
+	body := map[string]any{"max_tokens": 4000}
+	if !raiseBudget(body, 10000) || body["max_tokens"] != 10000 {
+		t.Fatalf("must raise to the learned limit, got %v", body)
+	}
+	if raiseBudget(body, 10000) {
+		t.Error("nothing is left to raise once the limit is reached")
+	}
+}

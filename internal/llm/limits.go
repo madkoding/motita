@@ -58,10 +58,8 @@ func rewriteOutputLimit(data []byte, decide func(asked int) (int, bool)) []byte 
 		return data
 	}
 	set(n)
-	out, err := json.Marshal(body)
-	if err != nil {
-		return data
-	}
+	// A map decoded from JSON always encodes again.
+	out, _ := json.Marshal(body)
 	return out
 }
 
