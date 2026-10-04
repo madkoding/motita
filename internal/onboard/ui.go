@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"io"
 	"strings"
+
+	"github.com/madkoding/motita/internal/i18n"
 )
 
 // ANSI colour codes used by the wizard. They are written unconditionally: the
@@ -36,6 +38,34 @@ const (
 	stepSave
 )
 
+// langWriter is the wizard's output with the language it speaks. Every helper below writes through
+// one and reads the language from it to translate what it writes: the language travels with the
+// writer instead of through every signature, so the sign-in flows, which only receive the writer,
+// speak it too.
+type langWriter struct {
+	w    io.Writer
+	lang i18n.Lang
+}
+
+func (l *langWriter) Write(p []byte) (int, error) { return l.w.Write(p) }
+
+// langOf is the language of out: the one its langWriter carries, English for any other writer.
+func langOf(out io.Writer) i18n.Lang {
+	if l, ok := out.(*langWriter); ok {
+		return l.lang
+	}
+	return i18n.EN
+}
+
+// tr translates text into the language of out.
+func tr(out io.Writer, text string) string { return i18n.T(langOf(out), text) }
+
+// fprintf is fmt.Fprintf with the format translated into the language of out first, so the catalog
+// is keyed by the format and never by one rendered instance of it.
+func fprintf(out io.Writer, format string, args ...any) {
+	fmt.Fprintf(out, tr(out, format), args...)
+}
+
 // indent is the left margin of everything the wizard writes. One margin for the whole
 // conversation is what makes it read as one screen instead of a log.
 const indent = "  "
@@ -46,22 +76,30 @@ func printBanner(out io.Writer, arrows bool) {
 	fmt.Fprintln(out)
 	fmt.Fprintf(out, "%s%s* motita%s %s· setup%s\n", indent, colBold, colReset, colDim, colReset)
 	printDivider(out)
-	fmt.Fprintf(out, "%sWelcome! Let's connect motita to an AI model. It takes about a minute.\n", indent)
+	fprintf(out, "%sWelcome! Let's connect motita to an AI model. It takes about a minute.\n", indent)
 	fmt.Fprintln(out)
-	fmt.Fprintf(out, "%s%s\n", indent, breadcrumb())
+	fmt.Fprintf(out, "%s%s\n", indent, breadcrumb(out))
 	if arrows {
-		fmt.Fprintf(out, "%s%sUse ↑↓ to choose and Enter to accept, or type the answer. Type q to quit at any time.%s\n", indent, colGray, colReset)
-		return
+		fprintf(out, "%s%sUse ↑↓ to choose and Enter to accept, or type the answer. Type q to quit at any time.%s\n", indent, colGray, colReset)
+	} else {
+		fprintf(out, "%s%sPress Enter to accept the value in [brackets]. Type q to quit at any time.%s\n", indent, colGray, colReset)
 	}
-	fmt.Fprintf(out, "%s%sPress Enter to accept the value in [brackets]. Type q to quit at any time.%s\n", indent, colGray, colReset)
+	printLanguageHint(out)
+}
+
+// printLanguageHint says which language the setup speaks and how to switch: es or en, typed as the
+// answer to the first question, changes it (see chooseProvider). It is written in the current
+// language and names the other one in its own words, so a reader of either can find it.
+func printLanguageHint(out io.Writer) {
+	fprintf(out, "%s%sLanguage: English · type es at the first question for Español.%s\n", indent, colGray, colReset) // spanish-fixture: the other language named in its own words
 }
 
 // breadcrumb is the list of steps, so the user knows how far there is to go before the first
 // question is even asked.
-func breadcrumb() string {
+func breadcrumb(out io.Writer) string {
 	parts := make([]string, len(steps))
 	for i, s := range steps {
-		parts[i] = fmt.Sprintf("%s%d%s %s", colCyan, i+1, colReset, s)
+		parts[i] = fmt.Sprintf("%s%d%s %s", colCyan, i+1, colReset, tr(out, s))
 	}
 	return strings.Join(parts, colGray+"  ›  "+colReset)
 }
@@ -71,14 +109,14 @@ func breadcrumb() string {
 func printStep(out io.Writer, n int, question string) {
 	fmt.Fprintln(out)
 	fmt.Fprintln(out)
-	fmt.Fprintf(out, "%s%s[%d/%d] %s%s%s%s\n", indent, colCyan, n, len(steps), colReset, colBold, question, colReset)
+	fmt.Fprintf(out, "%s%s[%d/%d] %s%s%s%s\n", indent, colCyan, n, len(steps), colReset, colBold, tr(out, question), colReset)
 }
 
 // printSection writes a sub-heading inside a step: the login flows use it to name the account
 // they are connecting to.
 func printSection(out io.Writer, title string) {
 	fmt.Fprintln(out)
-	fmt.Fprintf(out, "%s%s▎ %s%s%s\n", indent, colCyan, colBold, title, colReset)
+	fmt.Fprintf(out, "%s%s▎ %s%s%s\n", indent, colCyan, colBold, tr(out, title), colReset)
 }
 
 // optionRow is one numbered choice of a menu: the number, the label padded to the menu's label
@@ -119,12 +157,13 @@ func providerOptions(providers []Provider) (labels, notes []string) {
 }
 
 // modelOptions is the model menu. The first entry is the default, and it says so: the user who
-// does not know which model to pick should not have to guess which one Enter takes.
-func modelOptions(models []Model) (labels, notes []string) {
+// does not know which model to pick should not have to guess which one Enter takes. The notes are
+// translated here because the first one is built from two parts.
+func modelOptions(out io.Writer, models []Model) (labels, notes []string) {
 	for i, m := range models {
-		note := m.Note
+		note := tr(out, m.Note)
 		if i == 0 {
-			note = strings.TrimSuffix(strings.TrimSpace("recommended · "+note), " ·")
+			note = strings.TrimSuffix(strings.TrimSpace(tr(out, "recommended")+" · "+note), " ·")
 		}
 		labels = append(labels, m.ID)
 		notes = append(notes, note)
@@ -134,18 +173,18 @@ func modelOptions(models []Model) (labels, notes []string) {
 
 // printSuccess writes a success line with a green checkmark.
 func printSuccess(out io.Writer, format string, args ...any) {
-	fmt.Fprintf(out, "%s%s✓%s %s\n", indent, colGreen, colReset, fmt.Sprintf(format, args...))
+	fmt.Fprintf(out, "%s%s✓%s %s\n", indent, colGreen, colReset, fmt.Sprintf(tr(out, format), args...))
 }
 
 // printWarning writes a problem the user can do something about, in yellow, with the "!" that
 // keeps it readable without colour.
 func printWarning(out io.Writer, format string, args ...any) {
-	fmt.Fprintf(out, "%s%s! %s%s\n", indent, colYellow, fmt.Sprintf(format, args...), colReset)
+	fmt.Fprintf(out, "%s%s! %s%s\n", indent, colYellow, fmt.Sprintf(tr(out, format), args...), colReset)
 }
 
 // printInfo writes an informational line in dim.
 func printInfo(out io.Writer, format string, args ...any) {
-	fmt.Fprintf(out, "%s%s%s%s\n", indent, colDim, fmt.Sprintf(format, args...), colReset)
+	fmt.Fprintf(out, "%s%s%s%s\n", indent, colDim, fmt.Sprintf(tr(out, format), args...), colReset)
 }
 
 // printLink writes a URL in cyan, so the user can see it is clickable in terminals that support
@@ -161,7 +200,7 @@ func printCommand(out io.Writer, command string) {
 
 // printPrompt writes the input prompt with a coloured arrow. The answer is typed on the same line.
 func printPrompt(out io.Writer, prompt string) {
-	fmt.Fprintf(out, "%s%s›%s %s ", indent, colCyan, colReset, prompt)
+	fmt.Fprintf(out, "%s%s›%s %s ", indent, colCyan, colReset, tr(out, prompt))
 }
 
 // printDivider writes a horizontal divider line.
@@ -170,9 +209,14 @@ func printDivider(out io.Writer) {
 }
 
 // printField writes one row of the review and of the summary: a dim label in a fixed column and
-// its value.
+// its value. The column fits the longest label of the language it is written in (the Spanish "Configuracion"
+// is three characters longer than any English one, plus the gap).
 func printField(out io.Writer, label, value string) {
-	fmt.Fprintf(out, "%s  %s%-10s%s %s\n", indent, colDim, label, colReset, value)
+	width := 10
+	if langOf(out) == i18n.ES {
+		width = 14
+	}
+	fmt.Fprintf(out, "%s  %s%-*s%s %s\n", indent, colDim, width, tr(out, label), colReset, value)
 }
 
 // printSummary writes what was saved and what to do next. It is the last thing a first run shows
@@ -184,12 +228,12 @@ func printSummary(out io.Writer, res Result) {
 	fmt.Fprintln(out)
 	printField(out, "Settings", res.ConfigPath)
 	if res.CredentialsPath != "" {
-		printField(out, "API key", res.CredentialsPath+colDim+"  (read automatically, "+credentialsProtection()+")"+colReset)
+		printField(out, "API key", res.CredentialsPath+colDim+"  "+fmt.Sprintf(tr(out, "(read automatically, %s)"), tr(out, credentialsProtection()))+colReset)
 	}
 	printField(out, "Model", res.Model)
 
 	fmt.Fprintln(out)
-	fmt.Fprintf(out, "%s%sBefore your first task%s\n", indent, colBold, colReset)
+	fprintf(out, "%s%sBefore your first task%s\n", indent, colBold, colReset)
 	switch {
 	case res.Provider.Login != "":
 		printInfo(out, "Install it (%s), then log in:", res.Provider.ConsoleURL)
@@ -208,7 +252,7 @@ func printSummary(out io.Writer, res Result) {
 	}
 
 	fmt.Fprintln(out)
-	fmt.Fprintf(out, "%s%sStart working%s\n", indent, colBold, colReset)
+	fprintf(out, "%s%sStart working%s\n", indent, colBold, colReset)
 	printInfo(out, "Open a terminal in your project and run:")
 	printCommand(out, "motita")
 	printInfo(out, "Change any of this later with /config inside motita, or with: motita -init")

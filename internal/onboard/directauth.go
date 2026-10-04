@@ -252,10 +252,10 @@ var sleepFor = time.After
 
 // printDeviceInfo shows the device code information to the user.
 func printDeviceInfo(out io.Writer, dc oauth.DeviceCode) {
-	fmt.Fprintf(out, "%s  %s1. Open this URL:%s   %s%s%s\n", indent, colBold, colReset, colCyan, dc.VerificationURL, colReset)
-	fmt.Fprintf(out, "%s  %s2. Enter this code:%s %s%s%s\n", indent, colBold, colReset, colYellow, dc.UserCode, colReset)
+	fprintf(out, "%s  %s1. Open this URL:%s   %s%s%s\n", indent, colBold, colReset, colCyan, dc.VerificationURL, colReset)
+	fprintf(out, "%s  %s2. Enter this code:%s %s%s%s\n", indent, colBold, colReset, colYellow, dc.UserCode, colReset)
 	fmt.Fprintln(out)
-	fmt.Fprintf(out, "%s%sWaiting for you to authorise...%s\n", indent, colDim, colReset)
+	fprintf(out, "%s%sWaiting for you to authorise...%s\n", indent, colDim, colReset)
 	fmt.Fprintln(out)
 }
 
