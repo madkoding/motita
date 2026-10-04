@@ -185,3 +185,38 @@ func TestOtherSessionNotBlockedAndNotMixed(t *testing.T) {
 		t.Fatal("A should still be running")
 	}
 }
+
+// A body that is not JSON, and a session that was already integrated, are refused.
+func TestQueueAndInterruptRefuseWhatTheyCannotServe(t *testing.T) {
+	srv, _ := newQueueServer(t)
+	a := newSessionFor(t, srv)
+	base := "/v1/sessions/" + a.ID
+	for _, path := range []string{"/queue", "/interrupt"} {
+		if w := post(t, srv, base+path, `not json`, testToken); w.Code != http.StatusBadRequest {
+			t.Errorf("%s with a broken body: %d", path, w.Code)
+		}
+	}
+	srv.conversationOf(a.ID).merged = true
+	if w := post(t, srv, base+"/queue", `{"task":"x"}`, testToken); w.Code != http.StatusConflict {
+		t.Errorf("queue into an integrated session: %d", w.Code)
+	}
+}
+
+// When the slot is taken between the end of a run and the start of the next one, the message
+// stays in the queue for the run that holds it.
+func TestDrainQueueKeepsTheMessageWhenTheSlotIsTaken(t *testing.T) {
+	srv, rec := newQueueServer(t)
+	a := newSessionFor(t, srv)
+	quietRunFor(t, srv, a.ID)
+	t.Cleanup(func() { close(rec.release) })
+	abandon := startInBackground(t, srv, a.ID, "/task", `{"task":"block-1"}`)
+	defer abandon()
+	waitBlocked(t, rec)
+
+	c := srv.conversationOf(a.ID)
+	c.pushQueue("waiting", false)
+	srv.drainQueue(c)
+	if got, ok := c.popQueue(); !ok || got != "waiting" {
+		t.Fatalf("the message must be kept: %q %v", got, ok)
+	}
+}
