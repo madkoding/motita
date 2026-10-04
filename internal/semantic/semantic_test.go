@@ -55,7 +55,7 @@ func TestCommitSubject(t *testing.T) {
 		{[]string{"-m", "first", "--message", "second"}, "first", true},
 		{[]string{"-m", "first", "--message=second"}, "first", true},
 		{[]string{"--no-verify", "-S", "src/a.go", "-m", "chore: q"}, "chore: q", true},
-				{[]string{"-m", "  padded  "}, "padded", true},
+		{[]string{"-m", "  padded  "}, "padded", true},
 		// The subject cannot be known from the line.
 		{nil, "", false},
 		{[]string{"--amend"}, "", false},
@@ -82,5 +82,36 @@ func TestCommitSubject(t *testing.T) {
 		if got != c.want || ok != c.ok {
 			t.Errorf("%q: (%q, %v), want (%q, %v)", c.args, got, ok, c.want, c.ok)
 		}
+	}
+}
+
+func TestCoerce(t *testing.T) {
+	cases := map[string]string{
+		"":                                "chore(agent): validated changes",
+		"   \n ":                          "chore(agent): validated changes",
+		"fix(parser): handle empty input": "fix(parser): handle empty input",
+		"agent: fix the parser":           "chore(agent): agent: fix the parser",
+		"Fix the\nparser   now":           "chore(agent): Fix the parser now",
+	}
+	for in, want := range cases {
+		got := Coerce(in, "agent")
+		if err := LintSubject(got); err != nil {
+			t.Errorf("%q -> %q is not valid: %v", in, got, err)
+		}
+		if want != "" && got != want {
+			t.Errorf("%q -> %q, want %q", in, got, want)
+		}
+	}
+	long := Coerce("feat: "+strings.Repeat("word ", 30), "agent")
+	if len(long) > 100 || !strings.HasPrefix(long, "feat: word") || strings.HasSuffix(long, " ") {
+		t.Errorf("long = %q (%d)", long, len(long))
+	}
+	// One unbreakable word over the limit still ends valid.
+	if got := Coerce(strings.Repeat("x", 200), "agent"); LintSubject(got) != nil {
+		t.Errorf("got %q", got)
+	}
+	// A message whose cut leaves nothing usable still ends valid.
+	if got := Coerce("feat: "+strings.Repeat("-", 200), "agent"); LintSubject(got) != nil {
+		t.Errorf("got %q", got)
 	}
 }

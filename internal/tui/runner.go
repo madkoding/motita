@@ -366,6 +366,8 @@ func (r *AppRunner) SetWorkspace(dir string) {
 		Keep:          r.Cfg.Sandbox.KeepEphemeral,
 		ToolsDir:      r.Cfg.Sandbox.ToolsDir,
 		ConfineWrites: r.Cfg.Sandbox.ConfineWrites,
+		GitAuthDir:    config.AuthDir(),
+		GitHome:       config.HomeDir(),
 		Log:           r.Log,
 	}
 	switch r.Cfg.Sandbox.Kind {

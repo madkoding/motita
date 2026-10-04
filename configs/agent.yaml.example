@@ -163,7 +163,7 @@ final_action:
   args: []
   url: ""              # kind=api: POSTs {task, command, status:"pass"}
   method: POST
-  commit_message: "agent: {{task}}"
+  commit_message: "chore(agent): {{task}}"
 
 # ---------------------------------------------------------------------------
 # Main loop, logging and shutdown

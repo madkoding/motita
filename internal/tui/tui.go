@@ -26,6 +26,7 @@ import (
 
 	"github.com/madkoding/motita/internal/agent"
 	"github.com/madkoding/motita/internal/config"
+	"github.com/madkoding/motita/internal/gitforge"
 	"github.com/madkoding/motita/internal/i18n"
 	"github.com/madkoding/motita/internal/onboard"
 )
@@ -245,6 +246,17 @@ type TUI struct {
 	agentsOpen bool
 	// clock is what elapsed times are measured against; nil is the wall clock. Tests pin it.
 	clock func() time.Time
+
+	// The git login seams (git.go): the store of logins, the browser opener and the line reader
+	// a login prompts with. Nil means the real one. gitNudged is set once the startup nudge has
+	// been decided, and gitNudge turns the nudge on (New does; a bare struct literal stays quiet).
+	gitStore  func() gitforge.Store
+	openURL   func(string) error
+	gitLine   func(ctx context.Context, secret bool) (string, bool)
+	gitNudge  bool
+	gitNudged bool
+	// prompting is true while a git login reads a line; maskInput hides what is typed (a token).
+	prompting, maskInput bool
 }
 
 // New creates a TUI with sensible defaults for production use.
@@ -255,6 +267,8 @@ func New(runner Runner) *TUI {
 		Err:    os.Stderr,
 		Runner: runner,
 		screen: ScreenTask,
+
+		gitNudge: true,
 	}
 }
 
@@ -338,6 +352,11 @@ func (t *TUI) Run(ctx context.Context) int {
 	t.termMode = mode
 	defer mode.restore()
 	defer recoverRaw(mode)()
+
+	// The nudge to connect a git host: local files only, so it can be made before the loop.
+	if t.gitNudge {
+		t.announceGit()
+	}
 
 	// The offer to upgrade is made beside the loop, never before it: the check can wait on the
 	// network, and the interface must open without it. It is waited for on the way out, before

@@ -698,6 +698,7 @@ ports — they are **two views of one conversation**.
 | `/agents` or `Ctrl+G` | open or close the panel of the run's agents: purpose, state, elapsed time, round, tokens, activity |
 | `/sessions` `/attach <id>` | the conversations the gateway holds, and move to another one |
 | `/config` | run the setup again; the new configuration applies to the session you are in |
+| `/git` `/git connect [host] [token]` `/git disconnect <host>` `/git repos [query]` | connect GitHub, GitLab, Bitbucket or Codeberg (or a self-hosted `gitlab:git.example.com`) so motita can clone, push and open pull requests: a browser login with a code when the host offers it, otherwise a token typed in without echo; `/git` alone shows who you are connected as, `/git repos` lists the repositories you can reach. motita says so on start when no host is connected |
 | `/language [en\|es\|auto]` | show or change the language of the interfaces; it is saved in the configuration |
 | `/update` | install the newest release (the welcome screen says when there is one; the download must match the release's `SHA256SUMS`, or nothing is installed); a `-serve` gateway restarts itself on the new binary, an interface tells you to restart it |
 | `/session` `/find` `/new` `/help` `/quit` | context, search, fresh start, help, leave |

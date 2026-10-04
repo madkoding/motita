@@ -110,7 +110,7 @@ prompts:
 # A commit is only made if the tests passed.
 final_action:
   kind: git_commit
-  commit_message: "agent: {{task}}"
+  commit_message: "chore(agent): {{task}}"
 
 agent:
   max_retries: 3

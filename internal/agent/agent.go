@@ -38,6 +38,7 @@ import (
 	"github.com/madkoding/motita/internal/policy"
 	"github.com/madkoding/motita/internal/reward"
 	"github.com/madkoding/motita/internal/sandbox"
+	"github.com/madkoding/motita/internal/semantic"
 	"github.com/madkoding/motita/internal/skills"
 	"github.com/madkoding/motita/internal/task"
 	"github.com/madkoding/motita/internal/template"
@@ -2740,9 +2741,9 @@ func (a *Agent) runFinalAction(ctx context.Context, c Command, prefix string) (s
 
 	case "git_commit":
 		message, _ := template.Render(final.CommitMessage, map[string]string{"task": c.Description})
-		if strings.TrimSpace(message) == "" {
-			message = "agent: validated changes"
-		}
+		// A commit made by the agent is a semantic one like every other: the configured
+		// message is kept when it already is, and is given the chore(agent) prefix when not.
+		message = semantic.Coerce(message, "agent")
 		// The staging line is a fixed command of this program, and it is checked like any
 		// other so that a workspace pointed at a strange place cannot turn it into
 		// something else. Nothing here is configurable as a command: the operator chooses

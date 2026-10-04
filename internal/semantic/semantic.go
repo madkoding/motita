@@ -98,3 +98,36 @@ func clusterTakesMessage(a string) bool {
 	}
 	return true
 }
+
+// Coerce makes a message that is going to be committed by a program, not typed by a person,
+// into a valid subject: whitespace is collapsed to one line, a message that is not already
+// semantic gets the "chore(scope): " prefix, and a subject over the limit is cut at a word.
+// A message with nothing left becomes "chore(scope): validated changes". The result always
+// passes LintSubject.
+func Coerce(message, scope string) string {
+	prefix := "chore(" + scope + "): "
+	fallback := prefix + "validated changes"
+	subject := strings.Join(strings.Fields(message), " ")
+	if subject == "" {
+		return fallback
+	}
+	if subject = cut(subject); LintSubject(subject) == nil {
+		return subject
+	}
+	if subject = cut(prefix + subject); LintSubject(subject) == nil {
+		return subject
+	}
+	return fallback
+}
+
+// cut shortens a subject to the limit, at a word when there is one.
+func cut(subject string) string {
+	if len(subject) <= maxSubject {
+		return subject
+	}
+	subject = subject[:maxSubject]
+	if i := strings.LastIndexByte(subject, ' '); i > 0 {
+		subject = subject[:i]
+	}
+	return strings.TrimRight(subject, " .,;:-")
+}
