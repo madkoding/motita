@@ -29,6 +29,7 @@ import (
 	"io"
 	"net/http"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/madkoding/motita/internal/config"
@@ -55,6 +56,8 @@ type Client struct {
 	openStream func(context.Context, []Message, []Tool) (<-chan StreamChunk, error)
 	// login is the stored login the client authenticates with, nil for a key.
 	login *loginState
+	// outputCap is the output-token limit learned from a provider's refusal, 0 while unknown.
+	outputCap atomic.Int64
 }
 
 // New creates the reasoning engine client.

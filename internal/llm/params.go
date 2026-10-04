@@ -75,13 +75,17 @@ const maxBudgetTokens = 65536
 // It exists for reasoning models: their hidden thinking is billed against the same limit as
 // the answer, so a modest max_tokens can be spent entirely on thinking and leave 0 bytes of
 // text (finish_reason="length"). Repeating that request unchanged truncates again.
-func raiseBudget(body map[string]any) bool {
+func raiseBudget(body map[string]any, learnedCap int) bool {
 	for _, key := range []string{"max_completion_tokens", "max_tokens"} {
 		cur, ok := body[key].(int)
-		if !ok || cur >= maxBudgetTokens {
+		ceiling := maxBudgetTokens
+		if learnedCap > 0 {
+			ceiling = min(ceiling, learnedCap)
+		}
+		if !ok || cur >= ceiling {
 			continue
 		}
-		body[key] = min(cur*4, maxBudgetTokens)
+		body[key] = min(cur*4, ceiling)
 		return true
 	}
 	return false
@@ -112,7 +116,7 @@ func (c *Client) openAIChoice(ctx context.Context, messages []Message, tools []T
 		}
 		choice := resp.Choices[0]
 		if choice.FinishReason == "length" && strings.TrimSpace(choice.Message.Content) == "" &&
-			len(choice.Message.ToolCalls) == 0 && raiseBudget(body) {
+			len(choice.Message.ToolCalls) == 0 && raiseBudget(body, int(c.outputCap.Load())) {
 			c.log.Warn("the answer was cut off before any text; asking again with a larger token budget")
 			continue
 		}
