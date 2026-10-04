@@ -298,6 +298,9 @@ alone — it's the same binary, not a wrapper around something else.
 - **`/` opens the command list** (`↑↓` to choose, `→` to complete, `Enter` to run), and
   `?` shows every command and key. A plain word is always a message: typing `new` or
   `good` never runs a command by accident.
+- **In English or in Spanish**: the terminal, the browser and the setup follow your
+  system's language, or the one you choose (`ui.language`, see [the reference](docs/REFERENCE.md#the-interface-language)). `/language es` switches
+  at once, and the choice is saved for every interface.
 - **A failed turn says what to do**: the error as it happened, plus a hint for the
   failures newcomers meet first — a local Ollama that is not running, a key the provider
   refused, a model that does not exist, a rate limit.
@@ -415,6 +418,8 @@ command ran on that standing answer). Around the conversation:
   merges its branch.
 - **The steps of a turn collapse into a counter** ("12 actions") that opens on click;
   `gateway.show_actions: true` lists them instead.
+- **A language selector** in the sidebar: Automatic (the browser's), English or Español.
+  It is saved in the configuration, so the terminal changes with it.
 - **A report you can check** at the end of a task: what changed, how it was verified,
   the risks, and the screenshots the agent saved under `.motita/previews/`, first.
 - **Projects and sessions** in the sidebar, checkpoints to go back, the skill library
@@ -664,6 +669,7 @@ ports — they are **two views of one conversation**.
 | `/agents` or `Ctrl+G` | open or close the panel of the run's agents: purpose, state, elapsed time, round, tokens, activity |
 | `/sessions` `/attach <id>` | the conversations the gateway holds, and move to another one |
 | `/config` | run the setup again; the new configuration applies to the session you are in |
+| `/language [en\|es\|auto]` | show or change the language of the interfaces; it is saved in the configuration |
 | `/update` | install the newest release (the welcome screen says when there is one; the download must match the release's `SHA256SUMS`, or nothing is installed); a `-serve` gateway restarts itself on the new binary, an interface tells you to restart it |
 | `/session` `/find` `/new` `/help` `/quit` | context, search, fresh start, help, leave |
 
