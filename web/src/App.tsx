@@ -3340,7 +3340,7 @@ export default function App() {
                     {authError}
                   </p>
                 )}
-                <p class="text-xs text-[#6a6a7a] mt-3 leading-relaxed">
+                <p class="text-xs text-[#7a7a8c] mt-3 leading-relaxed">
                   {t('Run')} <code class="font-mono text-accent bg-accent/10 px-1 rounded">motita gateway start</code> {t('in a terminal to print the link, or paste the token here.')}
                 </p>
                 <button
@@ -3377,7 +3377,7 @@ export default function App() {
               <span class="text-accent text-lg">🐱</span>
               <h1 class="text-base font-semibold tracking-wide">Motita</h1>
               {updateInfo?.current_version && (
-                <span class="text-[10px] text-[#6a6a7a] font-mono mt-0.5">v{updateInfo.current_version.replace(/^v/, '')}</span>
+                <span class="text-[10px] text-[#7a7a8c] font-mono mt-0.5">v{updateInfo.current_version.replace(/^v/, '')}</span>
               )}
               <button
                 class="ml-auto p-1.5 rounded-lg hover:bg-white/5 transition-colors"
@@ -3554,7 +3554,7 @@ export default function App() {
                         <div class="px-1.5 pb-1.5 space-y-0.5">
                           {projectSessions.map(s => renderSessionRow(s))}
                           {projectSessions.length === 0 && (
-                            <div class="px-3 py-1.5 text-xs text-[#6a6a7a] italic">{t('No sessions yet')}</div>
+                            <div class="px-3 py-1.5 text-xs text-[#7a7a8c] italic">{t('No sessions yet')}</div>
                           )}
                         </div>
                       </div>
@@ -4103,7 +4103,7 @@ export default function App() {
                   onMouseEnter={() => setSlashPopup({ ...slashPopup, index: i })}
                 >
                   <span class={`font-mono text-sm font-semibold flex-none w-20 ${groupColor[c.group] || 'text-[#e8e8ea]'}`}>{c.name}</span>
-                  {c.aliases && c.aliases.length > 0 && <span class="text-xs text-[#6a6a7a] flex-none">{c.aliases.join(', ')}</span>}
+                  {c.aliases && c.aliases.length > 0 && <span class="text-xs text-[#7a7a8c] flex-none">{c.aliases.join(', ')}</span>}
                   <span class="flex-1 min-w-0 truncate text-xs text-[#9a9aaa]">{t(c.help)}</span>
                 </div>
               )
@@ -4236,14 +4236,14 @@ export default function App() {
                 />
               </div>
               <div>
-                <label class="block text-sm text-[#9a9aaa] mb-1.5">{t('Folder name')} <span class="text-[#6a6a7a] text-xs">{t('(auto from git URL if empty)')}</span></label>
+                <label class="block text-sm text-[#9a9aaa] mb-1.5">{t('Folder name')} <span class="text-[#7a7a8c] text-xs">{t('(auto from git URL if empty)')}</span></label>
                 <input
                   class="w-full px-3 py-2.5 rounded-xl bg-black/30 border border-white/10 text-[#e8e8ea] focus:outline-none focus:border-accent font-mono text-sm"
                   value={newProjectDir}
                   onInput={(e) => setNewProjectDir((e.target as HTMLInputElement).value)}
                   placeholder="my-project"
                 />
-                <p class="text-xs text-[#6a6a7a] mt-1">{t('A folder created under the workspace. Simple name, no paths.')}</p>
+                <p class="text-xs text-[#7a7a8c] mt-1">{t('A folder created under the workspace. Simple name, no paths.')}</p>
               </div>
               <div>
                 <label class="block text-sm text-[#9a9aaa] mb-1.5">{t('Git URL or SSH (optional — clones instead of creating a folder)')}</label>
@@ -4253,7 +4253,7 @@ export default function App() {
                   onInput={(e) => setNewProjectGit((e.target as HTMLInputElement).value)}
                   placeholder={t('https://github.com/user/repo.git  or  git@github.com:user/repo.git')}
                 />
-                <p class="text-xs text-[#6a6a7a] mt-1">{t('HTTPS or SSH. When set, the repo is cloned into the folder name above.')}</p>
+                <p class="text-xs text-[#7a7a8c] mt-1">{t('HTTPS or SSH. When set, the repo is cloned into the folder name above.')}</p>
               </div>
             </div>
 
@@ -4442,7 +4442,7 @@ export default function App() {
               </div>
 
               {config && (
-                <div class="text-xs text-[#6a6a7a] space-y-1 pt-2 border-t border-white/5">
+                <div class="text-xs text-[#7a7a8c] space-y-1 pt-2 border-t border-white/5">
                   <div>{t('API key')}: {config.api_key_present ? '✓ ' + t('set') : '✗ ' + t('missing')}</div>
                 </div>
               )}
@@ -4736,7 +4736,7 @@ export default function App() {
             {toast.technical && (
               <div class="mt-2">
                 <button
-                  class="text-[11px] text-[#6a6a7a] hover:text-[#9a9aaa] underline decoration-dotted"
+                  class="text-[11px] text-[#7a7a8c] hover:text-[#9a9aaa] underline decoration-dotted"
                   onClick={(e) => { e.stopPropagation(); setToastDetailsOpen(v => !v) }}
                 >
                   {t(toastDetailsOpen ? 'Hide details' : 'Details')}
@@ -4758,7 +4758,7 @@ export default function App() {
             )}
           </div>
           <button
-            class="flex-none p-1 rounded-lg hover:bg-white/10 text-[#6a6a7a]"
+            class="flex-none p-1 rounded-lg hover:bg-white/10 text-[#7a7a8c]"
             onClick={(e) => {
               e.stopPropagation()
               // A version toast is remembered as dismissed, so it does not
@@ -4815,14 +4815,14 @@ export default function App() {
                 <div class="space-y-3">
                   <div class="flex items-center justify-between p-3 rounded-xl bg-black/20 border border-white/5">
                     <div>
-                      <div class="text-xs text-[#6a6a7a] mb-0.5">{t('Current version')}</div>
+                      <div class="text-xs text-[#7a7a8c] mb-0.5">{t('Current version')}</div>
                       <div class="font-mono text-sm text-[#e8e8ea]">{updateInfo?.current_version || t('unknown')}</div>
                     </div>
-                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="text-[#6a6a7a]">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="text-[#7a7a8c]">
                       <line x1="5" y1="12" x2="19" y2="12" /><polyline points="12 5 19 12 12 19" />
                     </svg>
                     <div class="text-right">
-                      <div class="text-xs text-[#6a6a7a] mb-0.5">{t('Latest version')}</div>
+                      <div class="text-xs text-[#7a7a8c] mb-0.5">{t('Latest version')}</div>
                       <div class="font-mono text-sm text-accent">{updateInfo?.latest_version || t('unknown')}</div>
                     </div>
                   </div>
@@ -4896,7 +4896,7 @@ export default function App() {
                           ? t('Failed')
                           : `${upgradeProgress.percent || 0}%`}
                       </span>
-                      <span class="text-xs font-mono text-[#6a6a7a]">
+                      <span class="text-xs font-mono text-[#7a7a8c]">
                         {upgradeProgress.version && `→ ${upgradeProgress.version}`}
                       </span>
                     </div>
@@ -4940,7 +4940,7 @@ export default function App() {
                             {t('The gateway is still running the version it had before. Nothing was replaced, so you can keep using it and try again.')}
                           </p>
                           <button
-                            class="text-xs text-[#6a6a7a] hover:text-[#9a9aaa] mt-1.5 underline underline-offset-2"
+                            class="text-xs text-[#7a7a8c] hover:text-[#9a9aaa] mt-1.5 underline underline-offset-2"
                             onClick={() => setShowUpgradeError(v => !v)}
                           >
                             {t(showUpgradeError ? 'Hide details' : 'Details')}
@@ -4955,12 +4955,12 @@ export default function App() {
 
                   {/* Restarting note */}
                   {upgradeProgress.stage === 'restarting' && (
-                    <p class="text-xs text-[#6a6a7a] leading-relaxed">
+                    <p class="text-xs text-[#7a7a8c] leading-relaxed">
                       {t('The gateway is restarting. This page will reload automatically once it is back.')}
                     </p>
                   )}
                   {upgradeProgress.stage === 'done' && (
-                    <p class="text-xs text-[#6a6a7a] leading-relaxed">
+                    <p class="text-xs text-[#7a7a8c] leading-relaxed">
                       {t('The upgrade is complete and the gateway is restarting. This page will reload automatically in a moment.')}
                     </p>
                   )}
@@ -5041,7 +5041,7 @@ export default function App() {
 
             {skillOpen ? (
               <div>
-                <div class="flex items-center gap-2 mb-3 text-xs text-[#6a6a7a]">
+                <div class="flex items-center gap-2 mb-3 text-xs text-[#7a7a8c]">
                   <span class="font-mono">{skillOpen.name}</span>
                   {skillOpen.created_by === 'agent' && <span class="skill-tag">{t('agent')}</span>}
                   {skillOpen.state === 'stale' && <span class="skill-tag skill-tag-warn">{t('stale')}</span>}
@@ -5099,7 +5099,7 @@ export default function App() {
                             {s.state === 'stale' && <span class="skill-tag skill-tag-warn">{t('stale')}</span>}
                             {s.pinned && <span class="skill-tag skill-tag-accent">{t('pinned')}</span>}
                             {s.disabled && <span class="skill-tag skill-tag-off">{tc('skill', 'off')}</span>}
-                            <span class="ml-auto text-xs text-[#6a6a7a] shrink-0">{tf('used {n}×', { n: s.use_count })}</span>
+                            <span class="ml-auto text-xs text-[#7a7a8c] shrink-0">{tf('used {n}×', { n: s.use_count })}</span>
                           </div>
                           {s.summary && (
                             <p class="text-xs text-[#9a9aaa] mt-0.5 truncate">{s.summary}</p>
@@ -5119,7 +5119,7 @@ export default function App() {
 
                 {archivedSkills.length > 0 && (
                   <div class="mt-5 pt-4 border-t border-white/5">
-                    <h3 class="text-xs uppercase tracking-wide text-[#6a6a7a] mb-2">{t('Archived')}</h3>
+                    <h3 class="text-xs uppercase tracking-wide text-[#7a7a8c] mb-2">{t('Archived')}</h3>
                     <ul class="space-y-1.5">
                       {archivedSkills.map((name) => (
                         <li key={name} class="flex items-center gap-2 px-3 py-2 rounded-xl border border-white/5">
@@ -5220,7 +5220,7 @@ export default function App() {
                           </p>
                         )}
                         {task.last_outcome && (
-                          <p class="text-xs text-[#6a6a7a] mt-1 break-words">{task.last_outcome}</p>
+                          <p class="text-xs text-[#7a7a8c] mt-1 break-words">{task.last_outcome}</p>
                         )}
                         <div class="flex gap-2 mt-2">
                           <button
