@@ -8,6 +8,7 @@ import { useFollowEnd } from './useFollowEnd'
 import { hydrationState, hydrationLog, noteActivity } from './hydration'
 import { ActionTrail } from './ActionTrail'
 import { t, tc, tf, plural, useLang, setLang, resolveLang, type LangSetting } from './i18n'
+import { SettingsModal } from './Settings'
 
 interface Message {
   id: number
@@ -742,6 +743,7 @@ export default function App() {
   const [fetchingModels, setFetchingModels] = useState(false)
   const [showSkillLibrary, setShowSkillLibrary] = useState(false)
   const [showScheduledTasks, setShowScheduledTasks] = useState(false)
+  const [showSettings, setShowSettings] = useState(false)
   const [scheduledTasks, setScheduledTasks] = useState<ScheduledTask[]>([])
   // The library browser's state. The list is fetched when the modal OPENS and not on every
   // render: refetching forty documents while the user types in the filter would spend the
@@ -2700,6 +2702,29 @@ export default function App() {
     }
   }, [finish, readStream, followReconnect])
 
+  // queueMessage sends a message while a run is in flight. The gateway keeps one queue per
+  // session: a busy session queues it, an idle one (another session) starts it, so a working
+  // agent never blocks writing elsewhere.
+  const queueMessage = (text: string) => {
+    const sid = sessionRef.current
+    void api('/v1/sessions/' + encodeURIComponent(sid) + '/queue', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ task: text }),
+    }).then(res => {
+      if (!res.ok) setToast({ message: t('the gateway refused the turn'), type: 'error' })
+    }).catch(() => setToast({ message: t('the gateway refused the turn'), type: 'error' }))
+  }
+
+  // interruptRun stops the current turn of the session on screen.
+  const interruptRun = () => {
+    void api('/v1/sessions/' + encodeURIComponent(sessionRef.current) + '/interrupt', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: '{}',
+    }).catch(() => {})
+  }
+
   // handleSubmit is called when the form is submitted.
   const handleSubmit = (e: Event) => {
     e.preventDefault()
@@ -2712,7 +2737,13 @@ export default function App() {
       setActiveTags([])
       return
     }
-    if (!text || runningRef.current) return
+    if (!text) return
+    if (runningRef.current) {
+      setInput('')
+      setActiveTags([])
+      queueMessage(text)
+      return
+    }
     // Remove placeholder messages (.kind) before the first real turn.
     setMessages(prev => prev.filter(m => m.kind !== 'kind'))
     setInput('')
@@ -2762,6 +2793,11 @@ export default function App() {
         return
       }
     }
+    if (e.key === 'Escape' && runningRef.current) {
+      e.preventDefault()
+      interruptRun()
+      return
+    }
     if (e.key !== 'Enter') return
     // Coarse pointer = touch device; skip Enter-to-send there.
     if (window.matchMedia('(pointer: coarse)').matches) return
@@ -2777,7 +2813,13 @@ export default function App() {
       setActiveTags([])
       return
     }
-    if (!text || runningRef.current) return
+    if (!text) return
+    if (runningRef.current) {
+      setInput('')
+      setActiveTags([])
+      queueMessage(text)
+      return
+    }
     setMessages(prev => prev.filter(m => m.kind !== 'kind'))
     setInput('')
     setActiveTags([])
@@ -3602,23 +3644,22 @@ export default function App() {
               </button>
               {/* The language of every interface (this page, the terminal), saved in the gateway's
                   configuration. Hidden on a gateway that does not have the setting. */}
-              {uiLangAvailable && (
-                <label class="w-full flex items-center gap-2 px-3 py-2 rounded-xl text-sm text-[#e8e8ea]">
-                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="flex-none">
-                    <circle cx="12" cy="12" r="10" /><line x1="2" y1="12" x2="22" y2="12" /><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z" />
-                  </svg>
-                  <span class="flex-1">{t('Language')}</span>
-                  <select
-                    class="min-w-0 px-2 py-1 rounded-lg bg-black/30 border border-white/10 text-xs text-[#e8e8ea] focus:outline-none focus:border-accent"
-                    value={uiLangSetting}
-                    aria-label={t('Language')}
-                    onChange={(e) => void changeLanguage((e.target as HTMLSelectElement).value as LangSetting)}
-                  >
-                    <option value="auto">{t('Automatic')}</option>
-                    <option value="en">English</option>
-                    <option value="es">Español</option>
-                  </select>
-                </label>
+              <button
+                class="w-full flex items-center gap-2 px-3 py-2.5 rounded-xl hover:bg-white/5 transition-colors text-sm text-[#e8e8ea]"
+                onClick={() => setShowSettings(true)}
+              >
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="flex-none">
+                  <circle cx="12" cy="12" r="3" /><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
+                </svg>
+                {t('Settings')}
+              </button>
+              {showSettings && (
+                <SettingsModal
+                  langSetting={uiLangSetting}
+                  langAvailable={uiLangAvailable}
+                  onLang={(s) => void changeLanguage(s)}
+                  onClose={() => setShowSettings(false)}
+                />
               )}
             </div>
           </aside>

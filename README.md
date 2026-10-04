@@ -830,7 +830,7 @@ This is tested the way you'd test something you were about to bet on.
 
 | | |
 |---|---|
-| **Statement coverage** | **100% in every package that ships** — 31 of 32 (`./internal/... ./cmd/...`), checked package by package so a gap can't hide behind an average. `internal/review` is the one package without tests, and `tools/` holds the CI harnesses and is counted separately |
+| **Statement coverage** | **100% in every package that ships** — 32 of 33 (`./internal/... ./cmd/...`), checked package by package so a gap can't hide behind an average. `internal/review` is the one package without tests, and `tools/` holds the CI harnesses and is counted separately |
 | **Test functions** | 3,735 across 291 files |
 | **Code vs tests** | 47,237 lines of Go · 96,959 lines of test |
 | **External dependencies** | 0 |

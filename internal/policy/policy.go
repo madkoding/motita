@@ -111,6 +111,12 @@ func (m Mode) DecisionFor(command string, args []string, dir string) Decision {
 	}
 	kind, reason := readonly.Classify(command, args)
 	name := baseName(command)
+	// A task works in the directory it was given. Moving the command's directory elsewhere
+	// (`cd /other && git commit`, `git -C /other push`) runs the rest of the line against a
+	// different tree, which no path check on the arguments can see, so it is judged first.
+	if d, hit := leavesWorkspace(name, args, dir); hit {
+		return d
+	}
 	// Installing what the project's own manifest declares, and running the project's own dev
 	// tools, is the ordinary work of every project: without it the run stops to ask before
 	// `npm ci` on a run with nobody to answer, and the anchor then fails on a missing module.
@@ -168,6 +174,38 @@ func (m Mode) DecisionFor(command string, args []string, dir string) Decision {
 		return m.unclassified(fmt.Sprintf("%q is not a command this program knows, so what it "+
 			"changes cannot be predicted", baseName(command)), "unclassified")
 	}
+}
+
+// leavesWorkspace asks about a command that points itself at a directory outside dir: `cd` and
+// `pushd`, and the `-C` flag of `git` and `make`. The task's workspace is where the work lives,
+// and a line that walks out of it is how a session ends up committing in the wrong checkout.
+//
+// A bare `cd` (home) and `cd -` (the previous directory) are outside by construction. It answers
+// false for a command that stays inside, and for one with no workspace to compare against.
+func leavesWorkspace(name string, args []string, dir string) (Decision, bool) {
+	if dir == "" {
+		return Decision{}, false
+	}
+	var target string
+	switch name {
+	case "cd", "pushd":
+		target = "~"
+		if operands := rmTargets(args); len(operands) > 0 {
+			target = operands[0]
+		}
+	case "git", "make":
+		for i, a := range args {
+			if a == "-C" && i+1 < len(args) {
+				target = args[i+1]
+				break
+			}
+		}
+	}
+	if target == "" || (target != "-" && firstOutside([]string{target}, dir) == "") {
+		return Decision{}, false
+	}
+	return Decision{Ask, fmt.Sprintf("%q moves to %q, which is outside the directory this task "+
+		"works in (%s)", name, target, dir), "leaves-workspace", false}, true
 }
 
 // projectLocalDecision allows a program that lives inside the workspace and is passed explicit

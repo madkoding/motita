@@ -81,7 +81,7 @@ verify-dist: ## Check every built binary really is what its name says
 	[ "$$fail" = "0" ] && echo "  every binary matches its platform (ELF / PE / Mach-O)"
 
 test: ## Run the tests
-	$(GO) test -count=1 ./...
+	GIT_CONFIG_NOSYSTEM=1 $(GO) test -count=1 ./...
 
 test-matrix: ## Check the tests build for every supported platform
 	@for p in $(PLATFORMS); do \
