@@ -14,8 +14,10 @@ var verb = regexp.MustCompile(`%[-+# 0]*[0-9]*(\.[0-9]+)?[a-zA-Z%]`)
 // swapped, would print the wrong value in the wrong place, and only in Spanish. The layout that
 // code relies on is checked too: a prompt's "[1" (the keyboard rewrites it) and a trailing newline.
 func TestEveryTranslationKeepsItsVerbs(t *testing.T) {
-	if len(catalogs[ES]) == 0 {
-		t.Fatal("the Spanish catalog is empty, so this check would pass by accident")
+	// Both surfaces register from init: the interface's catalog is the larger one, so a count that
+	// only the two together reach fails if either stops registering, instead of passing by accident.
+	if len(catalogs[ES]) < 300 {
+		t.Fatalf("the Spanish catalog has %d entries; a surface's catalog did not register", len(catalogs[ES]))
 	}
 	for key, value := range catalogs[ES] {
 		if strings.HasSuffix(key, " test") {
