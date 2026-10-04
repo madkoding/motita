@@ -137,7 +137,7 @@ you'll regret in two years.
 | **Linux** | `386`, `amd64`, `arm` (ARMv7), `arm64` |
 | **Windows** | `386`, `amd64`, `arm64` |
 | **macOS** | `amd64`, `arm64` |
-| **Published size** | 18.2 – 19.2 MiB per binary (measured on all 9 targets built from this tree) |
+| **Published size** | 17.8 – 18.9 MiB per binary (measured on all 9 binaries of the v0.10.0 release) |
 
 `386` is a **first-class target**, not an afterthought nobody tests. The
 end-to-end suite builds the agent and runs it inside a real 32-bit container, so
