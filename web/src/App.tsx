@@ -9,6 +9,7 @@ import { hydrationState, hydrationLog, noteActivity } from './hydration'
 import { ActionTrail } from './ActionTrail'
 import { t, tc, tf, plural, useLang, setLang, resolveLang, type LangSetting } from './i18n'
 import { SettingsModal } from './Settings'
+import { NewSessionButton } from './NewSessionButton'
 
 interface Message {
   id: number
@@ -1885,8 +1886,15 @@ export default function App() {
     return () => window.removeEventListener('popstate', onPop)
   }, [switchSession])
 
+  // Which "+" is creating a session right now: '' for the free-standing button, a
+  // project id for a project's button, null when nothing is running. Creating a
+  // session in a project makes the gateway pull/fetch the repo first, which is not
+  // instant, so the button shows a spinner and refuses a second click while it runs.
+  const [creatingSession, setCreatingSession] = useState<string | null>(null)
+
   // createSession opens a new conversation and switches to it.
   const createSession = useCallback(async (projectId?: string) => {
+    setCreatingSession(projectId ?? '')
     try {
       const body = projectId ? JSON.stringify({ project_id: projectId }) : '{}'
       const res = await api('/v1/sessions', {
@@ -1904,6 +1912,8 @@ export default function App() {
       await switchSession(data.id)
     } catch {
       setState('could not create a session', true)
+    } finally {
+      setCreatingSession(null)
     }
   }, [fetchSessions, switchSession])
 
@@ -3434,15 +3444,11 @@ export default function App() {
 
             {/* New session + New project buttons */}
             <div class="px-3 py-2 flex-none flex gap-2">
-              <button
-                class="flex-1 flex items-center justify-center gap-2 px-3 py-2.5 rounded-xl bg-accent/10 border border-accent/20 text-accent font-medium hover:bg-accent/20 active:scale-95 transition-all"
+              <NewSessionButton
+                loading={creatingSession === ''}
                 onClick={() => createSession()}
-              >
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                  <line x1="12" y1="5" x2="12" y2="19" /><line x1="5" y1="12" x2="19" y2="12" />
-                </svg>
-                {t('New session')}
-              </button>
+                label={t('New session')}
+              />
               <button
                 class="flex items-center justify-center px-3 py-2.5 rounded-xl border border-white/10 text-[#e8e8ea] hover:bg-white/5 active:scale-95 transition-all"
                 onClick={() => setShowNewProject(true)}
@@ -3540,15 +3546,12 @@ export default function App() {
                         </div>
                       </div>
                       {/* Action buttons: stopPropagation so they don't toggle. */}
-                      <button
-                        class="p-0.5 rounded hover:bg-white/10 opacity-0 group-hover:opacity-100 transition-opacity flex-none"
-                        title={t('New session in project')}
+                      <NewSessionButton
+                        compact
+                        loading={creatingSession === p.id}
                         onClick={(e) => { e.stopPropagation(); createSession(p.id) }}
-                      >
-                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-                          <line x1="12" y1="5" x2="12" y2="19" /><line x1="5" y1="12" x2="19" y2="12" />
-                        </svg>
-                      </button>
+                        title={t('New session in project')}
+                      />
                       <div class={`row-actions relative flex-none${rowMenu?.id === p.id ? ' row-actions-open' : ''}`}>
                         <button
                           class="p-0.5 rounded hover:bg-white/10"

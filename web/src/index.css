@@ -1754,12 +1754,17 @@ button:disabled {
   right: 0;
   bottom: 0;
   width: min(560px, 92%);
-  z-index: 12;
+  /* A CLOSED drawer sits ABOVE the open one (see .is-open below). The open panel
+     spans the full drawer width, which includes the 34px strip where the other
+     two tabs live, so at equal z-index it painted over them and they vanished
+     behind it. A closed drawer's panel is translated off-screen, so all that
+     shows of it is its tab — and that tab now stays on top. */
+  z-index: 13;
   pointer-events: none;
   transform: translateX(100%);
   transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
 }
-.term-drawer.is-open { transform: translateX(0); }
+.term-drawer.is-open { transform: translateX(0); z-index: 12; }
 .term-tab {
   position: absolute;
   top: 40%;
@@ -1805,7 +1810,9 @@ button:disabled {
   flex-direction: column;
   pointer-events: auto;
   background: var(--tx-bg);
-  border-left: 1px solid rgba(var(--tx-rgb), 0.45);
+  /* The border is the DRAWER's own colour (green TTY, orange THINK, cyan AGENTS),
+     not a fixed one: each window's edge says which window it is. */
+  border: 1px solid rgba(var(--tx-rgb), 0.45);
   box-shadow: -12px 0 40px rgba(0, 0, 0, 0.6);
   font-family: var(--font-mono);
   color: var(--tx-main);
@@ -2060,10 +2067,33 @@ button:disabled {
 .msg { font-size: 0.82em; }
 .msg code, .msg pre { font-size: 0.8em; }
 .trail-step { font-size: 0.8em; }
-html[data-font-size="small"] .msg { font-size: 0.74em; }
-html[data-font-size="large"] .msg { font-size: 0.95em; }
+
+/* ─── Global typography & density ─────────────────────────────────
+ * The two settings in the Settings modal are applied to <html> as
+ * `data-font-size` / `data-density` (settings.ts). They used to reach only the
+ * chat bubbles (`.msg`) and the turn gap, so a reader who picked "Large" got
+ * bigger answers and an unchanged sidebar, header, composer and drawers.
+ *
+ * Font size scales the ROOT font size. Every rem-based size in the app follows
+ * it — Tailwind's `text-xs`/`text-sm`/`text-base`/`text-lg` are all rem, and so
+ * is anything sized in `em` — which is what makes it global without touching a
+ * single component. The chat keeps its own one-step-smaller ratio on top.
+ *
+ * Density tightens the vertical rhythm of the app's main surfaces (sidebar rows,
+ * project headers, the terminal screen, agent rows, menu items), not only the
+ * inside of a turn. Plain CSS, because this build disables Tailwind's spacing
+ * and transition plugins, so a utility added in markup would emit nothing. */
+html { font-size: 16px; }
+html[data-font-size="small"] { font-size: 14px; }
+html[data-font-size="large"] { font-size: 18px; }
+
 html[data-density="compact"] .turn { gap: 6px; }
 html[data-density="compact"] .msg { padding-top: 4px; padding-bottom: 4px; }
+html[data-density="compact"] .session-row { padding-top: 4px; padding-bottom: 4px; }
+html[data-density="compact"] .project-header { padding-top: 4px; padding-bottom: 4px; }
+html[data-density="compact"] .term-screen { padding-top: 6px; padding-bottom: 10px; }
+html[data-density="compact"] .agent-row { padding-top: 4px; padding-bottom: 4px; }
+html[data-density="compact"] .row-menu-item { padding-top: 5px; padding-bottom: 5px; }
 
 /* Phones: a more compact chat, and the pinned input capped so it cannot cover the answer. */
 @media (max-width: 640px) {
@@ -2095,7 +2125,7 @@ html[data-density="compact"] .msg { padding-top: 4px; padding-bottom: 4px; }
   box-shadow: 0 0 12px rgba(0, 240, 255, 0.18);
 }
 .sidebar { border-right: 1px solid rgba(0, 240, 255, 0.3); }
-.chat-modal, .row-menu, .cp-menu, .term-panel {
+.chat-modal, .row-menu, .cp-menu {
   border-radius: var(--radius-cut);
   border: 1px solid var(--neon-cyan);
   box-shadow: var(--glow-cyan);
@@ -2131,3 +2161,42 @@ html[data-density="compact"] .msg { padding-top: 4px; padding-bottom: 4px; }
 .rpt-failed { --rpt-accent: 255, 43, 214; }
 .markdown-body h1, .markdown-body h2, .markdown-body h3 { font-family: var(--font-mono); letter-spacing: -0.01em; }
 :focus-visible { outline: 2px solid var(--neon-cyan); outline-offset: 2px; }
+
+/* ─── Buttons: the design system's diagonal corners ────────────────
+ * Every button carries the cut corners of the design system (the same shape as
+ * the Pill, at a smaller cut). It is applied to the `button` element itself, so
+ * no markup has to change and no button is left behind with the old rounded
+ * style. `clip-path` also clips the button's own border along the diagonal: the
+ * straight edges keep their border, the diagonal edge is the cut itself.
+ *
+ * The auto-approve pill is excluded — it already draws its own, larger cut with a
+ * `::before` ring, and clipping it again would shave that ring off. The terminal
+ * drawer's tab is excluded too: it is flush with the panel edge, where a cut would
+ * leave a notch. */
+button:not(.auto-approve-pill):not(.term-tab) {
+  --btn-cut: 4px;
+  border-radius: 0;
+  clip-path: polygon(
+    var(--btn-cut) 0,
+    100% 0,
+    100% calc(100% - var(--btn-cut)),
+    calc(100% - var(--btn-cut)) 100%,
+    0 100%,
+    0 var(--btn-cut)
+  );
+}
+
+/* The spinner a button shows while it works: the "+" that creates a session in a
+ * project, which makes the gateway pull/fetch the repo first. Plain CSS, because
+ * this build disables Tailwind's `animation` plugin and `animate-spin` emits
+ * nothing. */
+.btn-spinner {
+  display: inline-block;
+  width: 14px;
+  height: 14px;
+  border: 2px solid rgba(76, 194, 255, 0.25);
+  border-top-color: #4cc2ff;
+  border-radius: 50%;
+  animation: btnSpin 0.8s linear infinite;
+}
+@keyframes btnSpin { to { transform: rotate(360deg); } }
