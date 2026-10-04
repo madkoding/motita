@@ -5,18 +5,21 @@ import (
 
 	"github.com/madkoding/motita/internal/config"
 	"github.com/madkoding/motita/internal/i18n"
+	"github.com/madkoding/motita/internal/onboard"
 )
 
-// wizardLanguage is the language the setup wizard speaks: ui.language from the file it is about
+// wizardAnswers carries the language into the setup wizard: ui.language from the file it is about
 // to rewrite, when there is one, resolved against this terminal's locale. A first run has no file
 // and no setting, so "auto" applies and the wizard speaks the locale's language - the question of
 // which language to use is answered before anyone has had to understand a question in English.
-func wizardLanguage(path string) i18n.Lang {
+// The setting itself travels too, so the wizard writes it back as it was (an explicit es stays es,
+// auto stays auto) unless the user switches language during the setup.
+func wizardAnswers(path string) onboard.Answers {
 	setting := os.Getenv("MOTITA_UI_LANGUAGE")
 	if cfg, err := config.LoadWithoutKey(path); err == nil {
 		setting = cfg.UI.Language
 	}
-	return i18n.Resolve(setting, os.Getenv)
+	return onboard.Answers{Lang: i18n.Resolve(setting, os.Getenv), LanguageSetting: setting}
 }
 
 // uiLanguageReader is the part of a gateway client that reads the interface language setting.

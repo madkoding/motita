@@ -624,7 +624,7 @@ func (op Options) initConfig(fl flags) (int, bool) {
 
 	// The welcome banner is printed by the wizard itself; the old messages are
 	// removed to avoid duplication. The wizard handles the full UX now.
-	res, err := op.RunOnboard(op.BaseCtx, op.Stdin, op.Out, path, onboard.Answers{Lang: wizardLanguage(path)})
+	res, err := op.RunOnboard(op.BaseCtx, op.Stdin, op.Out, path, wizardAnswers(path))
 	if err != nil {
 		if errors.Is(err, onboard.ErrCancelled) {
 			fmt.Fprintf(op.Out, "\nCancelled: nothing was written.\n")

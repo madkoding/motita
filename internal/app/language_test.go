@@ -23,19 +23,19 @@ func TestTheWizardSpeaksTheConfiguredOrTheLocalesLanguage(t *testing.T) {
 	clearLocale(t, "en_US.UTF-8")
 	dir := t.TempDir()
 	path := filepath.Join(dir, "motita.yaml")
-	if got := wizardLanguage(path); got != i18n.EN {
-		t.Errorf("no file, English locale = %s", got)
+	if got := wizardAnswers(path); got.Lang != i18n.EN || got.LanguageSetting != "" {
+		t.Errorf("no file, English locale = %+v", got)
 	}
 	t.Setenv("MOTITA_UI_LANGUAGE", "es")
-	if got := wizardLanguage(path); got != i18n.ES {
-		t.Errorf("no file, MOTITA_UI_LANGUAGE=es = %s", got)
+	if got := wizardAnswers(path); got.Lang != i18n.ES || got.LanguageSetting != "es" {
+		t.Errorf("no file, MOTITA_UI_LANGUAGE=es = %+v", got)
 	}
 	t.Setenv("MOTITA_UI_LANGUAGE", "")
 	if err := os.WriteFile(path, []byte("llm:\n  provider: ollama\nui:\n  language: es\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if got := wizardLanguage(path); got != i18n.ES {
-		t.Errorf("a file saying es = %s", got)
+	if got := wizardAnswers(path); got.Lang != i18n.ES || got.LanguageSetting != "es" {
+		t.Errorf("a file saying es = %+v (the setting must travel, to be written back)", got)
 	}
 }
 
