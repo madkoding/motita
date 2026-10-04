@@ -326,6 +326,11 @@ step "6. no Spanish left in code, configs or scripts"
 #
 # The second is the word list, kept for what the characters miss: unaccented Spanish words
 # (salida, tarea, comando) look like ordinary English text to a character test.
+#
+# The Spanish catalog the interfaces are translated with (internal/i18n/es_*.go) is the one
+# place Spanish is the content, not a leftover, and it is exempt by NAME: one directory, one file
+# pattern, so a Spanish string anywhere else still fails. The English it translates stays in the
+# code, which is why the rest of the gate is unchanged.
 pattern='\b(función|también|todavía|además|así|está|están|desde|hacia|según|mientras|porque|cuando|entonces|siempre|nunca|nada|pero|sólo|debe|puede|hace|hacer|tiene|tienen|usar|usando|valores|opciones|campo|nombre|ruta|salida|entrada|comando|resultado|ejemplo|archivo|fichero|cola|tarea|tareas|ancla|peligro|aviso|no se|sin embargo)\b'
 accents='[áéíóúüñÁÉÍÓÚÜÑ¿¡]'
 # The exempt lines are stated once, here, as the set of things this check agrees to ignore, so
@@ -339,7 +344,7 @@ found=$(
     git ls-files -z 2>/dev/null \
       | grep -zE '\.(go|ya?ml|sh|ps1|md)$|(^|/)Makefile$' \
       | xargs -0 -r grep -liE "$pattern" 2>/dev/null
-  } | sort -u | grep -v '^scripts/verify\.sh$' | xargs -r grep -niE "$accents|$pattern" 2>/dev/null \
+  } | sort -u | grep -vE '^scripts/verify\.sh$|^internal/i18n/es_[a-z0-9_]+\.go$' | xargs -r grep -niE "$accents|$pattern" 2>/dev/null \
   | grep -vE "$EXEMPT" || true
 )
 if [ -z "$found" ]; then
