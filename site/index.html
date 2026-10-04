@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Motita — the AI agent that has to prove it finished</title>
-<meta name="description" content="A three-layer AI agent that runs a real check to prove a task is done. One static binary, zero dependencies, runs on a 2008 netbook.">
+<meta name="description" content="An AI agent that has to prove it finished: a real check, not the model, declares a task done. Runs on your Claude, ChatGPT or Copilot subscription or any API, works in git worktrees, runs background agents in parallel. One static binary, zero dependencies.">
 <meta name="color-scheme" content="dark">
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><g stroke='%234cc2ff' stroke-width='2' fill='none' stroke-linecap='round' stroke-linejoin='round'><path d='M8 24 Q4 18 6 12 L4 6 L12 11 Q16 8 20 11 L28 6 L26 12 Q28 18 24 24 Z'/><circle cx='13' cy='16' r='1.5' fill='%234cc2ff' stroke='none'/><circle cx='21' cy='16' r='1.5' fill='%234cc2ff' stroke='none'/><path d='M16 20 L18 22 L20 20'/><path d='M24 24 Q28 22 30 18'/></g></svg>">
 <!-- Preload the two faces the first paint needs, so the headline is not
@@ -460,6 +460,9 @@
     <nav>
       <a href="#run">Run it</a>
       <a href="#how">How it works</a>
+      <a href="#providers">Providers</a>
+      <a href="#sessions">Sessions</a>
+      <a href="#agents">Agents</a>
       <a href="#guardrails">Guardrails</a>
       <a href="#numbers">Numbers</a>
       <a href="REFERENCE.md">Reference</a>
@@ -556,15 +559,18 @@
       <div class="run">
         <div>
           <h3>First run · configure</h3>
-<pre><code><span class="c"># the wizard: provider, model, anchor, and how to authenticate</span>
+<pre><code><span class="c"># the wizard: provider → connect → model → check → review</span>
 motita -init
 
 <span class="c"># or just start it — with no config found, the wizard runs itself</span>
 motita</code></pre>
           <p class="hint">
-            It writes <code>~/.motita/motita.yaml</code>, and a file the program has
-            already proven it can load. <code>-init -config path/to/motita.yaml</code>
-            puts it somewhere else instead.
+            Five steps, <code>↑</code> <code>↓</code> through every list: the provider, how
+            to connect (sign in with your account, or paste a key), the model, the
+            <strong>check</strong> — detected from the project by default — and a review
+            where nothing has been written yet. It saves <code>~/.motita/motita.yaml</code>
+            (<code>-init -config path</code> puts it elsewhere); <code>/config</code> runs it
+            again from inside the interface and keeps what you already have.
           </p>
         </div>
 
@@ -581,9 +587,12 @@ motita -task "fix the failing test in internal/policy"
 motita -p "how many files are there?"</code></pre>
           <p class="hint">
             Inside the interface: <code>/task</code> and <code>/plan</code> switch between
-            doing work and read-only exploration, <code>/models</code>,
-            <code>/reasoning</code>, <code>/good</code> <code>/bad</code>,
-            <code>/value</code>, and <code>/help</code> for the rest.
+            doing work and read-only exploration; <code>/models</code>, <code>/reasoning</code>,
+            <code>/config</code>; <code>/sessions</code> and <code>/attach</code> move between
+            conversations; <code>/agents</code> (or <code>Ctrl+G</code>) shows the background
+            agents; <code>/good</code> <code>/bad</code> <code>/value</code>; <code>/update</code>
+            installs the newest release after checking it against its <code>SHA256SUMS</code>;
+            <code>/help</code> for the rest.
           </p>
         </div>
 
@@ -601,7 +610,9 @@ motita -serve -gateway 127.0.0.1:7477</code></pre>
             <code>http://127.0.0.1:7477/#t=&lt;token&gt;</code> — which a browser opens
             once to trade the fragment for a cookie. The same port serves the page and
             its <code>/v1/...</code> API, so there is no CORS and no second server.
-            <code>gateway.allow</code> in the YAML says who may reach it.
+            <code>gateway.allow</code> in the YAML says who may reach it. An update applied
+            to a <code>-serve</code> gateway restarts it on the new binary, with the same
+            flags.
           </p>
         </div>
 
@@ -618,9 +629,10 @@ motita -validate-config
 motita -isolation</code></pre>
           <p class="hint">
             Every setting also takes a <code>MOTITA_*</code> environment override, for
-            containers and secrets. The API key or OAuth token lives in its own
-            <code>0600</code> file, never in the config — so the config can be committed
-            and shared.
+            containers and secrets. A pasted key goes to <code>~/.motita/motita.env</code>
+            and a login to <code>~/.motita/auth/&lt;provider&gt;.json</code>, both
+            <code>0600</code>, never into the config — so the config can be committed and
+            shared.
           </p>
         </div>
       </div>
@@ -634,8 +646,9 @@ motita -isolation</code></pre>
       <p class="sub">
         motita splits every task in three, and the model only ever gets to
         <strong>propose</strong>. The one rule that makes it work: the model can propose a
-        <code>PASS</code>, but only layer A can declare one. With no anchor configured,
-        the agent refuses to start — there is no "trust me" mode.
+        <code>PASS</code>, but only layer A can declare one. Without a real check, nothing is
+        ever declared done — there is no "trust me" mode. The wizard's default,
+        <code>anchor.kind: auto</code>, finds the check the project already has.
       </p>
 
       <div class="diagram">
@@ -651,18 +664,40 @@ motita -isolation</code></pre>
         <div class="card">
           <span class="k">Layer A · the anchor</span>
           <h3>Deterministic code, not AI</h3>
-          <p>Runs your command and checks the exit code, the output against a pattern, and your own invariants. It cannot be talked into a different answer.</p>
+          <p>By default it runs the gate the project declares: <code>.motita/anchor</code>, a Makefile's <code>check</code>/<code>test</code>, <code>go test</code>, a <code>package.json</code>'s lint/typecheck/test, <code>cargo test</code>, <code>pytest</code>. Or your own command, exit code and output pattern. When the project's gate was already red before the task, only a failure that is <em>new</em> blocks it — and the verdict names the checks that were red. It cannot be talked into a different answer.</p>
         </div>
         <div class="card">
           <span class="k">Layer B · reasoning</span>
           <h3>Any provider, one client</h3>
-          <p>A hand-written client for OpenAI-compatible, Anthropic and Gemini APIs. OpenAI, Ollama Cloud, Groq, OpenRouter, DeepSeek, or your own box — nothing else knows which.</p>
+          <p>A hand-written client for OpenAI (chat and Responses), Anthropic, Gemini, Copilot, Qwen and Ollama — and your Claude subscription through the official Claude Code CLI. Replies are held to a schema where the provider can enforce one, and the tokens every call reports are counted per agent.</p>
         </div>
         <div class="card">
           <span class="k">Layer C · the sandbox</span>
           <h3>Honest about its limits</h3>
-          <p>Runs the action in an ephemeral directory under real limits — and tells you what it could <em>not</em> apply, instead of pretending the isolation is stronger than it is.</p>
+          <p>Runs the action under real limits — and tells you what it could <em>not</em> apply, instead of pretending the isolation is stronger than it is. HOME and temporary files live outside your repository, and a toolchain the agent installs once stays on its <code>PATH</code> for every session after.</p>
         </div>
+      </div>
+    </div>
+  </section>
+
+  <section id="providers">
+    <div class="wrap">
+      <p class="eyebrow">Providers</p>
+      <h2>Your subscription, or any API.</h2>
+      <p class="sub">
+        Sign in with the account you already pay for, or paste a key. Logins are renewed
+        before they expire, and an API key always wins over a stored login. Nothing else in
+        the agent knows which provider is behind it.
+      </p>
+      <div class="cards">
+        <div class="card"><span class="k">claude-code</span><p>Your Claude Pro or Max plan, through Anthropic's own <code>claude</code> CLI after <code>claude auth login</code>. motita never reads those credentials.</p></div>
+        <div class="card"><span class="k">codex</span><p><strong>Sign in with ChatGPT</strong> (Plus, Pro, Business) or an OpenAI key, over the Responses API.</p></div>
+        <div class="card"><span class="k">copilot</span><p>A GitHub device-code login with an active Copilot subscription; the session token is renewed on its own.</p></div>
+        <div class="card"><span class="k">openai</span><p>An API key, against OpenAI or any OpenAI-compatible host: Groq, OpenRouter, DeepSeek, your own box.</p></div>
+        <div class="card"><span class="k">ollama</span><p>A local server needs nothing at all; Ollama Cloud takes a key. The wizard lists the models your server really has.</p></div>
+        <div class="card"><span class="k">anthropic</span><p>An Anthropic API key, over the Messages API.</p></div>
+        <div class="card"><span class="k">gemini</span><p>A key, a Google login with your own OAuth client, or gcloud's application-default credentials.</p></div>
+        <div class="card"><span class="k">qwen</span><p>A qwen.ai device-code login, or a DashScope key.</p></div>
       </div>
     </div>
   </section>
@@ -686,6 +721,103 @@ attempt 2  <span class="g">PASS</span>  anchor: exit 0 — output.txt present an
 <span class="g">0</span>  every task passed its check
 <span class="y">1</span>  a task failed — with the reason in the message itself
 <span class="y">2</span>  bad configuration</code></pre>
+    </div>
+  </section>
+
+  <section>
+    <div class="wrap">
+      <p class="eyebrow">Long tasks</p>
+      <h2>Rounds spent on the work, not on the plumbing.</h2>
+      <p class="sub">
+        A real task takes dozens of rounds. Every one the agent spends fighting its own
+        tools is one it does not spend on yours, so the loop is built to waste none.
+      </p>
+      <ul class="plain">
+        <li><strong>Replies that cannot come back in the wrong shape.</strong> The next action is a JSON object held to a schema where the provider enforces one; elsewhere, a reply in another shape is read rather than thrown away.</li>
+        <li><strong>Files written as they are.</strong> <code>write_file</code> and <code>edit_file</code> put content on disk exactly — tabs and quotes included — with no heredoc or script to escape it, and an edit that does not match says so.</li>
+        <li><strong>A check it ran itself and saw fail</strong> is not walked away from: a claim of done over it is sent back, even when <code>| tail</code> hid the exit status.</li>
+        <li><strong>Toolchains installed once.</strong> Go, Node or <code>make</code> unpacked into the tools directory are on <code>PATH</code> in every later round and every later session — and the check sees them too. Long gates get <code>sandbox.check_timeout</code>, 15 minutes by default.</li>
+      </ul>
+    </div>
+  </section>
+
+  <section id="sessions">
+    <div class="wrap">
+      <p class="eyebrow">Projects &amp; sessions</p>
+      <h2>Every conversation on its own branch.</h2>
+      <p class="sub">
+        Point motita at a repository and each session works in a <strong>git worktree</strong>
+        of its own, on branch <code>motita/&lt;session&gt;</code>. Your checkout is never the one
+        being edited, and two sessions never step on each other.
+      </p>
+      <div class="cards">
+        <div class="card"><span class="k">Checkpoints</span><h3>Go back a turn</h3><p>Every turn is a checkpoint. Going back rewinds the conversation, and the files too when you ask — after the current state is saved, so going back is itself reversible.</p></div>
+        <div class="card"><span class="k">Integrate</span><h3>The agent merges its own work</h3><p>It commits the session's work and merges it into the project's branch. The session then becomes read-only, and <em>continue</em> opens a fresh one from the updated base.</p></div>
+        <div class="card"><span class="k">A report you can check</span><h3>Evidence, not adjectives</h3><p>A finished task answers with what changed, how it was verified and with what result, the risks and the next steps — the changed files listed, and screenshots first when the change is something you can see.</p></div>
+        <div class="card"><span class="k">Delete</span><h3>Asked first, with the list</h3><p>Deleting a session or a project names the files that would be lost before anything goes, and gives the worktrees back.</p></div>
+      </div>
+    </div>
+  </section>
+
+  <section id="agents">
+    <div class="wrap">
+      <p class="eyebrow">Background agents</p>
+      <h2>Hand off a piece. Keep working.</h2>
+      <p class="sub">
+        The agent can start agents of its own for independent pieces of a task — a test
+        suite, the docs, an investigation — and keep going while they run. Each one works
+        in its own worktree, on its own branch, from a snapshot of the tree as it was,
+        uncommitted work included.
+      </p>
+<pre><code><span class="c"># Ctrl+G or /agents in the terminal; the AGENTS drawer in the browser</span>
+Agents  1 running · 48.2k tok
+ /  main · fix the session export     2m14s   31.0k tok  r12
+ /  write the export tests             1m02s   11.9k tok  r6   running: go test ./internal/export
+ <span class="g">√</span>  update the reference               0m48s    5.3k tok  r4   motita/sub/…-a2 · 1 file changed</code></pre>
+      <ul class="plain" style="margin-top: var(--space-6)">
+        <li><strong><code>spawn_agent</code> and <code>wait_agents</code>.</strong> A finished agent reports on its own: what it did, the files it changed, and the one command that brings its branch in.</li>
+        <li><strong>Held to the project's own gate</strong>, not to a check that states the whole task — the main agent's check judges the merged result.</li>
+        <li><strong>Bounded</strong> by <code>agent.max_parallel</code>, 3 by default. A claim of done with agents still running is sent back once; insisting cancels them.</li>
+        <li><strong>Nobody is interrupted</strong> by a background agent: "allow all commands for this session" covers it, and anything else is refused instead of asked.</li>
+        <li><strong>Real tokens</strong>, as each provider reports them — input, output and cache — per agent and in total.</li>
+      </ul>
+    </div>
+  </section>
+
+  <section>
+    <div class="wrap">
+      <p class="eyebrow">The browser interface</p>
+      <h2>Same port, same conversation, any screen.</h2>
+      <p class="sub">
+        The gateway serves a web interface from its own port — no second server, no CORS.
+        The token rides in the URL fragment, which a browser never sends, and is traded for
+        a cookie holding an <strong>HMAC</strong> of it, so a lifted cookie is not a reusable
+        credential. On a phone it installs as an app.
+      </p>
+      <div class="cards">
+        <div class="card"><span class="k">The conversation</span><p>Answers rendered as Markdown, streamed live and resumed after a dropped connection. The commands of a turn collapse into a counter you open when you want them.</p></div>
+        <div class="card"><span class="k">Drawers</span><p>The model's reasoning as it writes it, a terminal with every command and its output, and the agents with their purpose, time and tokens.</p></div>
+        <div class="card"><span class="k">Projects</span><p>Sessions grouped by project in the sidebar, checkpoints to go back, the report with its screenshots, and an approval shown with the command whole.</p></div>
+        <div class="card"><span class="k">Windows</span><p>The skill library, the tasks that fire on their own, and failures reported where you will see them.</p></div>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <div class="wrap">
+      <p class="eyebrow">It learns</p>
+      <h2>From you, not from a retraining pipeline.</h2>
+      <p class="sub">
+        A library of procedures: how a kind of work is done, the commands that work, the
+        pitfalls someone already paid for. Eight ship inside the binary, the agent writes
+        new ones when it learns something, and a project can keep its own. They are files —
+        read them, fix them, version them.
+      </p>
+      <ul class="plain">
+        <li><strong><code>/good</code> and <code>/bad</code></strong> land on the procedures a turn actually used, and the library is searched by what has worked before. No fine-tuning, no extra bill.</li>
+        <li><strong>A curator keeps the shelf tidy</strong> without a model: unused procedures are marked stale, then archived — never deleted — and a pinned one is never touched.</li>
+        <li><strong>You can see the shelf</strong> — every document, how often it was used, a switch to turn one off — in the browser, or through <code>/v1/skills</code>.</li>
+      </ul>
     </div>
   </section>
 
@@ -720,6 +852,9 @@ attempt 2  <span class="g">PASS</span>  anchor: exit 0 — output.txt present an
         nothing. There is no YAML key, no environment variable and no flag that relaxes
         the floor — <strong>that's the point</strong>. A guardrail an operator can switch off is a
         guardrail that will be switched off, during the incident it was meant for.
+        What you <em>can</em> say is "allow all commands for this session": one answer for
+        the rest of that conversation, remembered across a restart, and announced every
+        time it is used.
       </p>
     </div>
   </section>
@@ -737,7 +872,7 @@ attempt 2  <span class="g">PASS</span>  anchor: exit 0 — output.txt present an
         <div class="stat"><span class="n">100%</span><span class="l">statement coverage in every package that ships — 30 of 31 (<code>./internal/... ./cmd/...</code>), checked one by one so a gap can't hide behind an average; <code>internal/review</code> is the one exception and the CI harnesses in <code>tools/</code> are counted separately</span></div>
         <div class="stat"><span class="n">0</span><span class="l">external dependencies — <code>go.mod</code> has no <code>require</code> line, and there is no <code>go.sum</code></span></div>
         <div class="stat"><span class="n">9</span><span class="l">platforms CI builds, with <code>386</code> as a first-class target — each one runs its container on Linux, and gets a header and size check on Windows and macOS</span></div>
-        <div class="stat"><span class="n">17.1–18.1&nbsp;MiB</span><span class="l">per published static binary, measured across all 9 targets — copy it over <code>scp</code> and walk away</span></div>
+        <div class="stat"><span class="n">18.2–19.2&nbsp;MiB</span><span class="l">per static binary, measured across all 9 targets — copy it over <code>scp</code> and walk away</span></div>
       </div>
 
       <p class="sub" style="margin-top: var(--space-6)">
@@ -791,6 +926,10 @@ attempt 2  <span class="g">PASS</span>  anchor: exit 0 — output.txt present an
         <div class="card"><span class="k">/models</span><p>Your provider, your key status, and the models it really publishes.</p></div>
         <div class="card"><span class="k">/good &nbsp; /bad</span><p>Tell the agent how a turn went. It lands on the procedures that turn used.</p></div>
         <div class="card"><span class="k">/value</span><p>See what it has learned from those verdicts — no fine-tuning, no extra bill.</p></div>
+        <div class="card"><span class="k">/sessions &nbsp; /attach</span><p>The conversations the gateway holds, which one has a run in flight, and a move to another.</p></div>
+        <div class="card"><span class="k">/agents &nbsp; Ctrl+G</span><p>The background agents: purpose, elapsed time, tokens, what each is doing. The footer keeps the count and the total.</p></div>
+        <div class="card"><span class="k">/config &nbsp; /update</span><p>The setup again, applied at once; the newest release, verified before it is installed.</p></div>
+        <div class="card"><span class="k">Quiet by default</span><p>The commands a turn runs are a counter, not a wall of lines; <code>gateway.show_actions: true</code> lists every one.</p></div>
       </div>
       <p class="sub" style="margin-top: var(--space-6); margin-bottom: 0">
         <strong>Plan mode is structurally read-only.</strong> It calls tools through a path that never
