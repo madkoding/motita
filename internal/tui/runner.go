@@ -17,6 +17,7 @@ import (
 
 	"github.com/madkoding/motita/internal/agent"
 	"github.com/madkoding/motita/internal/config"
+	"github.com/madkoding/motita/internal/i18n"
 	"github.com/madkoding/motita/internal/llm"
 	"github.com/madkoding/motita/internal/logx"
 	"github.com/madkoding/motita/internal/onboard"
@@ -108,12 +109,14 @@ type AppRunner struct {
 	Err io.Writer
 	// Cfg and Engine are what the next turn runs with. They are guarded by cfgMu because a front
 	// end changes them (the model, the reasoning level) while a turn may be running.
-	Cfg      config.Config
-	Engine   *llm.Client
-	cfgMu    sync.Mutex
-	Box      *sandbox.Sandbox
-	Log      *logx.Logger
-	newAgent agentFactory
+	Cfg    config.Config
+	Engine *llm.Client
+	cfgMu  sync.Mutex
+	// uiLanguage is the ui.language setting saved through /language in this process.
+	uiLanguage string
+	Box        *sandbox.Sandbox
+	Log        *logx.Logger
+	newAgent   agentFactory
 	// listModels and claudeModels are injectable so the menu can be tested without a network
 	// or a claude CLI.
 	listModels   func(ctx context.Context, baseURL, apiKey string) ([]string, error)
@@ -1265,12 +1268,42 @@ func (r *AppRunner) ResetTranscript() {
 func (r *AppRunner) RunConfig(ctx context.Context) error {
 	// The same default the first run uses, so the file the wizard writes is the one the program
 	// looks for next time. With no HOME it falls back to the working directory.
-	_, err := onboard.RunWithKeys(ctx, os.Stdin, r.Out, setupPath(), onboard.Answers{}, time.Now(), KeyModeFor(os.Stdin))
+	// It speaks the interface's language, and writes the setting back as it was.
+	setting := r.UILanguage()
+	answers := onboard.Answers{Lang: i18n.Resolve(setting, os.Getenv), LanguageSetting: setting}
+	_, err := onboard.RunWithKeys(ctx, os.Stdin, r.Out, setupPath(), answers, time.Now(), KeyModeFor(os.Stdin))
 	return err
 }
 
 // setupPath is the file the setup wizard writes and ReloadConfig reads: the motita home's
 // configuration, or the working directory's when there is no home.
+// saveUILanguage writes ui.language into the configuration file. It is a variable so a test can
+// stand in for the file.
+var saveUILanguage = config.SetUILanguage
+
+// UILanguage is the ui.language setting: the one /language saved in this process, or the one the
+// configuration was loaded with.
+func (r *AppRunner) UILanguage() string {
+	r.cfgMu.Lock()
+	defer r.cfgMu.Unlock()
+	if r.uiLanguage != "" {
+		return r.uiLanguage
+	}
+	return r.Cfg.UI.Language
+}
+
+// SetUILanguage saves ui.language in the configuration file the setup writes, so the next start
+// and every other interface reading that file use it too.
+func (r *AppRunner) SetUILanguage(lang string) error {
+	if err := saveUILanguage(setupPath(), lang); err != nil {
+		return err
+	}
+	r.cfgMu.Lock()
+	r.uiLanguage = lang
+	r.cfgMu.Unlock()
+	return nil
+}
+
 func setupPath() string {
 	if path := config.File(); path != "" {
 		return path

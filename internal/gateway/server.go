@@ -141,6 +141,13 @@ type Options struct {
 	// Curator is the maintenance pass these endpoints can trigger. Nil makes them
 	// answer the same 501.
 	Curator CuratorService
+	// ConfigPath is the configuration file this gateway was started with: what PUT /v1/ui
+	// writes the interface language into. Empty means no file is known (the defaults are in
+	// force), and that endpoint then answers 409 instead of writing somewhere nobody reads.
+	ConfigPath string
+	// UILanguage is ui.language as the configuration had it at start: auto, en or es. Empty
+	// means auto.
+	UILanguage string
 }
 
 // Server is the HTTP face of the conversations this process holds.
@@ -155,6 +162,11 @@ type Server struct {
 	// caller would have to know to ignore.
 	closeOnce sync.Once
 	closeErr  error
+
+	// uiLanguage is ui.language as PUT /v1/ui last set it; empty until then, when the value the
+	// process started with (opts.UILanguage) is the answer. See ui.go.
+	uiMu       sync.Mutex
+	uiLanguage string
 
 	// baseCtx is cancelled when this server closes, and every run derives its context from it.
 	//
@@ -490,6 +502,10 @@ func (s *Server) routes() *http.ServeMux {
 	mux.Handle("DELETE /v1/schedules/{id}", plain(s.handleDeleteSchedule))
 	mux.Handle("POST /v1/schedules/{id}/run", plain(s.handleRunScheduleNow))
 	mux.Handle("GET /v1/commands", plain(s.handleListCommands))
+	// The interface language: PROCESS-WIDE, like the library, because it is one setting of the
+	// one configuration every conversation runs on.
+	mux.Handle("GET /v1/ui", plain(s.handleGetUI))
+	mux.Handle("PUT /v1/ui", plain(s.handlePutUI))
 
 	// The procedure library and its maintenance pass. PROCESS-WIDE, like /v1/projects
 	// and /v1/commands: a skill is not a property of one conversation, and the ledger

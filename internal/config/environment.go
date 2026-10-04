@@ -57,6 +57,8 @@ func textBindings(c *Config) []binding[string] {
 
 		{"MOTITA_SKILLS_DIR", &c.Skills.Dir},
 
+		{"MOTITA_UI_LANGUAGE", &c.UI.Language},
+
 		{"MOTITA_GATEWAY_LISTEN", &c.Gateway.Listen},
 		{"MOTITA_GATEWAY_TOKEN_FILE", &c.Gateway.TokenFile},
 

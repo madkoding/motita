@@ -266,6 +266,37 @@ func (c *Client) ReloadConfig(ctx context.Context) error {
 	return err
 }
 
+// FetchUILanguage asks the gateway for the interface language: the setting (auto, en or es) and
+// what it resolves to on the gateway's host.
+func (c *Client) FetchUILanguage(ctx context.Context) (setting, resolved string, err error) {
+	var v uiView
+	if err := c.getJSON(ctx, "/v1/ui", &v); err != nil {
+		return "", "", err
+	}
+	return v.Language, v.Resolved, nil
+}
+
+// SaveUILanguage sets the interface language on the gateway, which writes it into its
+// configuration file so every interface started afterwards speaks it too.
+func (c *Client) SaveUILanguage(ctx context.Context, lang string) error {
+	return c.do(ctx, http.MethodPut, "/v1/ui", map[string]string{"language": lang}, nil)
+}
+
+// UILanguage is the interface language SETTING (auto, en or es), or "" when the gateway cannot
+// be asked. It is the context-free form the terminal's runner interface uses.
+func (c *Client) UILanguage() string {
+	setting, _, err := c.FetchUILanguage(context.Background())
+	if err != nil {
+		return ""
+	}
+	return setting
+}
+
+// SetUILanguage is SaveUILanguage in the context-free form the terminal's runner interface uses.
+func (c *Client) SetUILanguage(lang string) error {
+	return c.SaveUILanguage(context.Background(), lang)
+}
+
 // SetWorkspace is a no-op on the remote client: the workspace is set by the
 // gateway when a session is created inside a project, and the client does not
 // need to push it. The method exists to satisfy the Service interface.

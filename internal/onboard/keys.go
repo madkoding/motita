@@ -54,7 +54,16 @@ func (c *lineCounter) Write(p []byte) (int, error) {
 
 // showMenu writes a numbered list. With the keyboard driving it, the highlighted row carries the
 // marker; without, the rows are written as they always were.
+//
+// The labels and notes are translated here, once, so the redraws (which write to the terminal
+// directly) repeat the translated rows; the column is measured on what is actually shown.
 func (s *session) showMenu(labels, notes []string) *menu {
+	shownLabels := make([]string, len(labels))
+	shownNotes := make([]string, len(notes))
+	for i := range labels {
+		shownLabels[i], shownNotes[i] = tr(s.out, labels[i]), tr(s.out, notes[i])
+	}
+	labels, notes = shownLabels, shownNotes
 	m := &menu{labels: labels, notes: notes, width: labelWidth(labels)}
 	if s.lines != nil {
 		m.first = s.lines.n
@@ -78,6 +87,9 @@ func (s *session) choose(ctx context.Context, prompt string, m *menu) (string, e
 
 // question is ask, with the menu it answers and whether the answer is a secret.
 func (s *session) question(ctx context.Context, prompt string, m *menu, secret bool) (string, error) {
+	// Translated here, before the keyboard path writes it to the raw terminal; a translation keeps
+	// the "[1" that withDefault rewrites.
+	prompt = tr(s.out, prompt)
 	if s.lines == nil {
 		return s.askLine(ctx, prompt)
 	}

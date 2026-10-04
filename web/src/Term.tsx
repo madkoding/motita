@@ -14,6 +14,7 @@
 // text nodes leaves every <span class="hljs-..."> in place, so the colours are there from the
 // first letter and nothing has to be re-highlighted per keystroke.
 import { useEffect, useLayoutEffect, useRef, useState } from 'preact/hooks'
+import { t } from './i18n'
 
 function esc(s: string): string {
   return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
@@ -281,7 +282,7 @@ export function TermEntry({ cmd, out, status, phase, boost, onTick, onFinished }
 export function TermEmpty({ onTick }: Pick<PieceProps, 'onTick'>) {
   return (
     <div class="term-empty">
-      <Typed html="no commands yet" onTick={onTick} />
+      <Typed html={t('no commands yet')} onTick={onTick} />
       <span class="term-caret" />
     </div>
   )

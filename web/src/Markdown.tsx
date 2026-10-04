@@ -65,6 +65,7 @@ import MarkdownIt from 'markdown-it'
 import type { MarkdownItOptions, Token } from 'markdown-it'
 import DOMPurify from 'dompurify'
 import { watchForHydration } from './hydration'
+import { t } from './i18n'
 import footnote from 'markdown-it-footnote'
 import deflist from 'markdown-it-deflist'
 import taskLists from 'markdown-it-task-lists'
@@ -185,7 +186,7 @@ md.renderer.rules.fence = (tokens: Token[], idx: number): string => {
   return (
     '<pre class="code-block" data-code-lang="' +
     escapeAttr(info) +
-    '"><button class="copy-btn">copy</button><code' +
+    '"><button class="copy-btn">' + md.utils.escapeHtml(t('copy')) + '</button><code' +
     (info ? ' class="' + escapeAttr('lang-' + info) + ' hljs"' : ' class="hljs"') +
     '>' +
     md.utils.escapeHtml(raw) +
@@ -351,7 +352,7 @@ async function hydrate(root: HTMLElement): Promise<void> {
         el.setAttribute('data-done', 'ok')
       }
     } catch (err) {
-      for (const el of math) fail(el, 'the math renderer could not be loaded', err)
+      for (const el of math) fail(el, t('the math renderer could not be loaded'), err)
     }
   }
 
@@ -365,11 +366,11 @@ async function hydrate(root: HTMLElement): Promise<void> {
           el.innerHTML = sanitize(await renderMermaid(source))
           el.setAttribute('data-done', 'ok')
         } catch (err) {
-          fail(el, 'this diagram could not be drawn', err)
+          fail(el, t('this diagram could not be drawn'), err)
         }
       }
     } catch (err) {
-      for (const el of diagrams) fail(el, 'the diagram renderer could not be loaded', err)
+      for (const el of diagrams) fail(el, t('the diagram renderer could not be loaded'), err)
     }
   }
 
@@ -419,7 +420,7 @@ function fail(el: HTMLElement, what: string, err: unknown): void {
  */
 export function renderMessage(source: string): string {
   return sanitize(
-    '<div class="markdown-body">' + '<button class="copy-msg-btn">copy</button>' + md.render(source) + '</div>',
+    '<div class="markdown-body">' + '<button class="copy-msg-btn">' + md.utils.escapeHtml(t('copy')) + '</button>' + md.render(source) + '</div>',
   )
 }
 

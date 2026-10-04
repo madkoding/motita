@@ -199,7 +199,7 @@ func (t *TUI) layout(w, h int) ([]string, string) {
 			body = body[:room]
 		} else {
 			hidden := len(body) - room + 1
-			body = append([]string{t.plainLine(t.muted(fmt.Sprintf("... %d earlier lines", hidden)))},
+			body = append([]string{t.plainLine(t.muted(t.trf("... %d earlier lines", hidden)))},
 				body[len(body)-room+1:]...)
 		}
 	}
@@ -511,7 +511,7 @@ func (t *TUI) chatLines(inner int) []string {
 
 	var lines []string
 	if len(t.messages) > len(msgs) && t.query == "" {
-		lines = append(lines, t.cell(t.muted(fmt.Sprintf("... %d earlier messages", len(t.messages)-len(msgs))), inner))
+		lines = append(lines, t.cell(t.muted(t.trf("... %d earlier messages", len(t.messages)-len(msgs))), inner))
 	}
 	for i, m := range msgs {
 		if i > 0 {
@@ -528,10 +528,10 @@ func (t *TUI) chatLines(inner int) []string {
 func (t *TUI) noMatches(inner int) []string {
 	lines := []string{t.cell("", inner)}
 	for _, l := range []string{
-		fmt.Sprintf("No line matches %q", t.query),
+		t.trf("No line matches %q", t.query),
 		"",
-		"Ctrl+F  search again",
-		"Esc     show the whole conversation",
+		t.tr("Ctrl+F  search again"),
+		t.tr("Esc     show the whole conversation"),
 	} {
 		lines = append(lines, t.cell(t.muted(l), inner))
 	}
@@ -548,8 +548,10 @@ func (t *TUI) noMatches(inner int) []string {
 func (t *TUI) emptyState(inner int) []string {
 	width := inner - leftMargin
 	lines := []string{t.cell("", inner)}
+	// The static texts below are translated here, once; a line built from parts is translated
+	// where it is built, as one format, so the catalog never holds a fragment.
 	text := func(s string, col int) {
-		for _, l := range wordWrap(s, width) {
+		for _, l := range wordWrap(t.tr(s), width) {
 			lines = append(lines, t.cell(t.color(col, 0, l), inner))
 		}
 	}
@@ -565,7 +567,7 @@ func (t *TUI) emptyState(inner int) []string {
 			}
 		}
 		for _, r := range rows {
-			row := "  " + t.color(colAccent, 0, r[0]) + strings.Repeat(" ", kw-visibleLen(r[0])) + "  " + t.muted(r[1])
+			row := "  " + t.color(colAccent, 0, r[0]) + strings.Repeat(" ", kw-visibleLen(r[0])) + "  " + t.muted(t.tr(r[1]))
 			if !t.fits(row, width) {
 				row = "  " + t.color(colAccent, 0, r[0])
 			}
@@ -576,7 +578,7 @@ func (t *TUI) emptyState(inner int) []string {
 	// examples draws what the user could type, after the mark their messages carry once sent.
 	examples := func(ex ...string) {
 		for _, e := range ex {
-			for _, l := range wordWrap(e, width-4) {
+			for _, l := range wordWrap(t.tr(e), width-4) {
 				lines = append(lines, t.cell("  "+t.color(colAccent, 0, glyphUser)+" "+l, inner))
 			}
 		}
@@ -623,8 +625,8 @@ func (t *TUI) emptyState(inner int) []string {
 	// fix. A red dot in a corner is not an explanation.
 	if llmCfg := t.Runner.Config().LLM; llmCfg.APIKey == "" && config.LLMNeedsKey(llmCfg) {
 		gap()
-		text(glyphMissing+" No API key for "+providerName(llmCfg.Provider)+" yet: type /config to add one,", colWarning)
-		text("  or export "+config.ProviderKeyVariable(llmCfg.Provider)+" before starting motita.", colWarning)
+		text(t.trf("%s No API key for %s yet: type /config to add one,", glyphMissing, providerName(llmCfg.Provider)), colWarning)
+		text(t.trf("  or export %s before starting motita.", config.ProviderKeyVariable(llmCfg.Provider)), colWarning)
 	}
 	return append(lines, t.cell("", inner))
 }
@@ -643,22 +645,22 @@ func providerName(p string) string {
 func (t *TUI) messageLines(m Message, inner int) []string {
 	switch m.Author {
 	case AuthorUser:
-		head := t.color(colAccent, 0, glyphUser+" ") + t.muted("you")
+		head := t.color(colAccent, 0, glyphUser+" ") + t.muted(t.tr("you"))
 		return append([]string{t.cell(head, inner)}, t.railLines(m.Text, inner, colBase, colMuted)...)
 
 	case AuthorAgent:
 		// A frozen line holds a label that was already formatted (a tool
 		// announcement), so it is shown as an event and never as answer text.
 		if m.Frozen {
-			return []string{t.cell(t.muted("  "+glyphAgent+" ")+t.color(colAccent, 0, m.Text), inner)}
+			return []string{t.cell(t.muted("  "+glyphAgent+" ")+t.color(colAccent, 0, t.eventLabel(m.Text)), inner)}
 		}
 		if label, ok := toolLabel(m.Text); ok {
-			return []string{t.cell(t.muted("  "+glyphAgent+" ")+t.color(colAccent, 0, label), inner)}
+			return []string{t.cell(t.muted("  "+glyphAgent+" ")+t.color(colAccent, 0, t.eventLabel(label)), inner)}
 		}
 		head := t.color(colSuccess, 0, glyphAgent+" motita")
 		body := colBase
 		if m.Pending {
-			head += "  " + t.color(colWarning, 0, spinner[t.spin%len(spinner)]+" working")
+			head += "  " + t.color(colWarning, 0, spinner[t.spin%len(spinner)]+" "+t.tr("working"))
 			body = colWarning
 		}
 		if m.Preformatted {
@@ -1147,7 +1149,7 @@ func (t *TUI) statusLines(w int) []string {
 	cfg := t.Runner.Config()
 	model := cfg.LLM.Model
 	if model == "" {
-		model = "unknown"
+		model = t.tr("unknown")
 	}
 	reasoning := "off"
 	if cfg.LLM.Reasoning.Enabled {
@@ -1163,11 +1165,11 @@ func (t *TUI) statusLines(w int) []string {
 	// A missing key is said in words, beside the model it is missing for, and it is kept longer
 	// than the reasoning level when the line is shed: it is the reason nothing will work.
 	if cfg.LLM.APIKey == "" && config.LLMNeedsKey(cfg.LLM) {
-		parts = append(parts, t.color(colError, 0, "no API key")+t.muted(" (/config)"))
+		parts = append(parts, t.color(colError, 0, t.tr("no API key"))+t.muted(" (/config)"))
 	}
-	parts = append(parts, t.muted("reasoning ")+t.color(colBase, 0, reasoning))
+	parts = append(parts, t.muted(t.tr("reasoning")+" ")+t.color(colBase, 0, reasoning))
 	if t.query != "" || t.searching {
-		parts = append(parts, t.color(colAccent, 0, "filter "+strconv.Quote(t.query)))
+		parts = append(parts, t.color(colAccent, 0, t.trf("filter %s", strconv.Quote(t.query))))
 	}
 
 	room := w - leftMargin - 1
@@ -1195,7 +1197,7 @@ func (t *TUI) bottomBar(w int) string {
 	// The agents segment goes before the context gauge: it is what changes while a run works.
 	right := t.muted(strings.Join(nonEmpty(t.agentsLabel(), t.contextLabel()), "  "+glyphMid+"  "))
 	if t.scroll > 0 {
-		left = t.color(colWarning, 0, glyphDot+" "+strconv.Itoa(t.scroll)+" lines up") + t.muted("  "+glyphMid+"  ") + left
+		left = t.color(colWarning, 0, t.trf("%s %d lines up", glyphDot, t.scroll)) + t.muted("  "+glyphMid+"  ") + left
 	}
 
 	// The available columns are the frame minus the ONE margin plainLine will add: the right
@@ -1208,7 +1210,7 @@ func (t *TUI) bottomBar(w int) string {
 		hints = hints[:len(hints)-1]
 		left = t.formatHints(hints)
 		if t.scroll > 0 {
-			left = t.color(colWarning, 0, glyphDot+" "+strconv.Itoa(t.scroll)+" lines up") + t.muted("  "+glyphMid+"  ") + left
+			left = t.color(colWarning, 0, t.trf("%s %d lines up", glyphDot, t.scroll)) + t.muted("  "+glyphMid+"  ") + left
 		}
 	}
 	gap := room - visibleLen(left) - visibleLen(right)
@@ -1229,7 +1231,7 @@ func (t *TUI) contextLabel() string {
 	if s.Window <= 0 {
 		return ""
 	}
-	return fmt.Sprintf("context %d%% (%d/%d)", int(s.Used*100+0.5), s.Tokens, s.Window)
+	return t.trf("context %d%% (%d/%d)", int(s.Used*100+0.5), s.Tokens, s.Window)
 }
 
 // hintList is the keys that work right now, most important first.
@@ -1263,7 +1265,7 @@ func (t *TUI) keyHints() string { return t.formatHints(t.hintList()) }
 func (t *TUI) formatHints(hints [][2]string) string {
 	parts := make([]string, 0, len(hints))
 	for _, h := range hints {
-		parts = append(parts, t.color(colAccent, 0, h[0])+" "+t.muted(h[1]))
+		parts = append(parts, t.color(colAccent, 0, h[0])+" "+t.muted(t.tr(h[1])))
 	}
 	return strings.Join(parts, t.muted("  "+glyphMid+"  "))
 }
@@ -1359,17 +1361,18 @@ func (t *TUI) inputWidth() int {
 // part dropped: it is the one word that says what Enter does.
 func (t *TUI) boxTop(outer int) string {
 	name, about := t.modeTitle()
+	name, about = t.tr(name), t.tr(about)
 	head := t.color(colAccent, 0, name)
 	desc := t.muted(" " + glyphMid + " " + about)
 	working := ""
 	if t.busy {
-		working = "  " + t.color(colWarning, 0, spinner[t.spin%len(spinner)]+" working") + t.muted(", Esc stops")
+		working = "  " + t.color(colWarning, 0, spinner[t.spin%len(spinner)]+" "+t.tr("working")) + t.muted(t.tr(", Esc stops"))
 	}
 	// The longest title that fits wins: everything; the name and the running notice; the name and
 	// what the mode does; the name and a bare "working"; the name alone.
 	candidates := []string{head + desc + working, head + working, head + desc}
 	if t.busy {
-		candidates = append(candidates, head+" "+t.color(colWarning, 0, spinner[t.spin%len(spinner)]+" working"))
+		candidates = append(candidates, head+" "+t.color(colWarning, 0, spinner[t.spin%len(spinner)]+" "+t.tr("working")))
 	}
 	// ┌─ title ─...─┐ : the corners, the first rule and the two spaces cost five columns.
 	room := outer - 5
@@ -1459,7 +1462,7 @@ func (t *TUI) composerLabel() string {
 	//
 	// The search is the exception: while the box is open the line being typed is a query, not a
 	// task, and that is something the user has to be able to see at the point of typing.
-	find := t.color(colAccent, 0, "find") + t.muted(" > ")
+	find := t.color(colAccent, 0, t.tr("find")) + t.muted(" > ")
 	if t.searching {
 		return find
 	}
@@ -1467,8 +1470,8 @@ func (t *TUI) composerLabel() string {
 		// An applied filter has to be visible at all times, count included: without it the
 		// user is looking at a short history and has no way to tell why, and the count is
 		// what makes the number of rows on screen agree with what they are being shown.
-		label := t.muted("filter "+strconv.Quote(t.query)+"  ") +
-			t.color(colAccent, 0, strconv.Itoa(len(t.matchingMessages()))+" lines")
+		label := t.muted(t.trf("filter %s", strconv.Quote(t.query))+"  ") +
+			t.color(colAccent, 0, t.trf("%d lines", len(t.matchingMessages())))
 		return label + t.muted("  ") + find
 	}
 	return t.color(colAccent, 0, glyphPrompt) + t.muted(" ")
@@ -1693,4 +1696,22 @@ func (t *TUI) clearOnExit() {
 		return
 	}
 	fmt.Fprint(t.Out, exitClear)
+}
+
+// eventLabel is a frozen event line (a tool announcement, the actions counter) in the
+// interface's language. The line is stored in English, as it was produced, and translated each
+// time it is drawn, so switching the language redraws the history too.
+func (t *TUI) eventLabel(text string) string {
+	if text == "using a tool" {
+		return t.tr(text)
+	}
+	if rest, ok := strings.CutPrefix(text, "using "); ok {
+		return t.trf("using %s", rest)
+	}
+	if n, ok := strings.CutSuffix(text, " actions"); ok {
+		if count, err := strconv.Atoi(n); err == nil {
+			return t.trf("%d actions", count)
+		}
+	}
+	return t.tr(text)
 }

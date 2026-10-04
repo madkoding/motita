@@ -3,10 +3,10 @@ package tui
 import (
 	"context"
 	"errors"
-	"fmt"
 	"strings"
 
 	"github.com/madkoding/motita/internal/agent"
+	"github.com/madkoding/motita/internal/i18n"
 )
 
 // confirmState is the window a consequential command is approved in.
@@ -53,7 +53,7 @@ func (t *TUI) confirmLines(max int) []string {
 	width := t.bodyWidth()
 	var out []string
 
-	out = append(out, t.confirmLine(t.color(colAccent, colBase, "The agent wants to run:"), width))
+	out = append(out, t.confirmLine(t.color(colAccent, colBase, t.tr("The agent wants to run:")), width))
 	// The command is WRAPPED rather than clipped: a long line is exactly the one worth reading
 	// to the end, and the user is approving this text and not a summary of it.
 	for _, l := range wrapVisible(t.confirm.req.Command, width-4) {
@@ -64,7 +64,7 @@ func (t *TUI) confirmLines(max int) []string {
 			out = append(out, t.confirmLine("  "+t.muted(l), width))
 		}
 	}
-	out = append(out, t.confirmLine(t.muted("y = yes, run it · Enter or n = no"), width))
+	out = append(out, t.confirmLine(t.muted(t.tr("y = yes, run it · Enter or n = no")), width))
 
 	if max > 0 && len(out) > max {
 		// The cap keeps the LAST row, so the keys hint always survives the cut: the user has
@@ -196,12 +196,12 @@ func (t *TUI) decideConfirm(approved bool) {
 
 // confirmHintText is the sentence the conversation keeps after a decision, so the transcript
 // records what was approved and what was not.
-func confirmHintText(req agent.ApprovalRequest, approved bool) string {
-	verb := "rejected"
+func confirmHintText(lang i18n.Lang, req agent.ApprovalRequest, approved bool) string {
+	format := "[rejected by the user] %s"
 	if approved {
-		verb = "approved"
+		format = "[approved by the user] %s"
 	}
-	return fmt.Sprintf("[%s by the user] %s", verb, strings.TrimSpace(req.Command))
+	return i18n.Tf(lang, format, strings.TrimSpace(req.Command))
 }
 
 // recordDecision writes that sentence into the conversation.
@@ -210,5 +210,5 @@ func confirmHintText(req agent.ApprovalRequest, approved bool) string {
 // different things, and it is a method on the TUI rather than a bare helper so the note lands in
 // the transcript the user reads instead of only being reachable from a test.
 func (t *TUI) recordDecision(req agent.ApprovalRequest, approved bool) {
-	t.addMessage(AuthorAgent, confirmHintText(req, approved))
+	t.addMessage(AuthorAgent, confirmHintText(t.Lang, req, approved))
 }

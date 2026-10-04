@@ -489,6 +489,7 @@ honoured. The documented one wins when both are set.
 | `skills` | `dir`, `max_file_bytes` |
 | `gateway` | `enabled`, `listen`, `token_file`, `allow`, `max_body_kb`, `webui`, `show_actions` (bool, default `false`: the chat shows a counter of the commands and actions a turn ran instead of each one; the web UI's counter expands on click) |
 | `schedule` | `enabled`, `tick`, `min_every`, `max_runs_kept` |
+| `ui` | `language` (`auto`/`en`/`es`, default `auto`: the language of the terminal, the browser and the setup wizard; `auto` follows the locale and the browser) |
 
 `skills.dir` is the procedure library: the directory of documents the agent may
 list, search, read and extend. It defaults to `skills` under the working
@@ -1006,6 +1007,30 @@ batch run already has. The refusal names the fix: set `agent.policy.enforce=fals
 such work deliberately, which is the documented escape hatch for an unattended job. It is
 not a new guardrail and it is not configurable per task: a switch a task could flip is how
 a guardrail gets switched off during the incident it was meant for.
+
+### The interface language
+
+The terminal, the browser and the setup wizard speak English or Spanish, chosen by one
+setting:
+
+```yaml
+ui:
+  language: auto   # auto | en | es
+```
+
+`auto` (the default) follows the environment each interface runs in: the terminal reads
+`LC_ALL`, then `LC_MESSAGES`, then `LANG`, and a value naming Spanish (`es`, `es_CL.UTF-8`)
+picks Spanish; the browser uses its own language. `MOTITA_UI_LANGUAGE` overrides the file.
+Text a translation does not cover yet is shown in English rather than left blank.
+
+The setting is one for every interface: changing it from the browser's settings or from the
+terminal goes through the gateway, which writes it into the configuration file it started
+with (in place: comments and every other line are kept).
+
+| Endpoint | What it does |
+|---|---|
+| `GET /v1/ui` | `{"language":"auto","resolved":"es"}`: the setting, and what it means on the gateway's host |
+| `PUT /v1/ui` | `{"language":"es"}` saves it; `400` for anything but `auto`, `en`, `es`, `409` when the gateway runs on the built-in defaults with no file to write |
 
 ### The skill library
 

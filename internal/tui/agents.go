@@ -53,7 +53,7 @@ func (t *TUI) toggleAgents() {
 	open, n := t.agentsOpen, len(t.agents)
 	t.draw.Unlock()
 	if open && n == 0 {
-		t.addMessage(AuthorSystem, "No agents yet: a task lists here the agents it starts, with their time and tokens.")
+		t.addMessage(AuthorSystem, t.tr("No agents yet: a task lists here the agents it starts, with their time and tokens."))
 	}
 	t.drawFrame()
 }
@@ -83,7 +83,7 @@ func (t *TUI) agentsLabel() string {
 	}
 	switch {
 	case subs > 0:
-		return fmt.Sprintf("%s %d running %s %s tok", glyphAgents, running, glyphMid, humanTokens(total))
+		return t.trf("%s %d running %s %s tok", glyphAgents, running, glyphMid, humanTokens(total))
 	case total > 0:
 		return humanTokens(total) + " tok"
 	}
@@ -112,10 +112,10 @@ func (t *TUI) agentsLinesCapped(max int) []string {
 // elapsed time, tokens and round, its latest activity after it, and, once it has finished, where
 // its work is.
 func (t *TUI) agentsLines(width int) []string {
-	head := t.color(colAccent, 0, "Agents") + t.muted(" "+glyphMid+" Ctrl+G or /agents closes")
+	head := t.color(colAccent, 0, t.tr("Agents")) + t.muted(" "+glyphMid+" "+t.tr("Ctrl+G or /agents closes"))
 	lines := []string{t.plainLine(clipLine(head, width))}
 	if len(t.agents) == 0 {
-		return append(lines, t.plainLine(t.muted(clipLine("  none yet", width))))
+		return append(lines, t.plainLine(t.muted(clipLine("  "+t.tr("none yet"), width))))
 	}
 	now := t.timeNow()
 	for _, a := range t.agents {
@@ -125,7 +125,7 @@ func (t *TUI) agentsLines(width int) []string {
 		}
 		purpose := a.Purpose
 		if a.Parent == "" {
-			purpose = "main " + glyphMid + " " + purpose
+			purpose = t.tr("main") + " " + glyphMid + " " + purpose
 		}
 		// The figures are never cut: they are what the panel is for. The purpose takes what is
 		// left, and the activity only what is left after that.

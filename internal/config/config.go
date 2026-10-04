@@ -36,6 +36,7 @@ type Config struct {
 	Review      Review      `yaml:"review"`
 	Curator     Curator     `yaml:"curator"`
 	Schedule    Schedule    `yaml:"schedule"`
+	UI          UI          `yaml:"ui"`
 }
 
 // Gateway is the HTTP face of the agent: what other front ends - a web page, a phone, a
@@ -482,6 +483,7 @@ func Default() Config {
 			MinEvery:    time.Minute,
 			MaxRunsKept: 50,
 		},
+		UI: UI{Language: "auto"},
 	}
 }
 
@@ -795,6 +797,9 @@ func (c *Config) validate(requireKey bool) error {
 	if err := c.validateSchedule(); err != nil {
 		return err
 	}
+	if err := c.validateUI(); err != nil {
+		return err
+	}
 	return c.validateAgent()
 }
 
@@ -870,6 +875,7 @@ func (c *Config) normalize() {
 	c.LLM.Provider = normalize(c.LLM.Provider)
 	c.FinalAction.Kind = normalize(c.FinalAction.Kind)
 	c.Agent.LogLevel = normalize(c.Agent.LogLevel)
+	c.UI.Language = normalize(c.UI.Language)
 
 	// Reasoning is two fields that have to agree: "enabled with level off" means
 	// nothing, and a level other than off with reasoning disabled is a setting

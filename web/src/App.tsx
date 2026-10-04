@@ -7,6 +7,7 @@ import { createFollower } from './smoothscroll'
 import { useFollowEnd } from './useFollowEnd'
 import { hydrationState, hydrationLog, noteActivity } from './hydration'
 import { ActionTrail } from './ActionTrail'
+import { t, tc, tf, plural, useLang, setLang, resolveLang, type LangSetting } from './i18n'
 
 interface Message {
   id: number
@@ -97,9 +98,9 @@ function formatTokens(n: number): string {
 }
 
 function tokenBreakdown(t: AgentTokens): string {
-  const parts = ['in ' + formatTokens(t.input || 0), 'out ' + formatTokens(t.output || 0)]
-  if (t.cache_read) parts.push('cache read ' + formatTokens(t.cache_read))
-  if (t.cache_write) parts.push('cache write ' + formatTokens(t.cache_write))
+  const parts = [tf('in {n}', { n: formatTokens(t.input || 0) }), tf('out {n}', { n: formatTokens(t.output || 0) })]
+  if (t.cache_read) parts.push(tf('cache read {n}', { n: formatTokens(t.cache_read) }))
+  if (t.cache_write) parts.push(tf('cache write {n}', { n: formatTokens(t.cache_write) }))
   return parts.join(' · ')
 }
 
@@ -198,8 +199,7 @@ function fullUpdated(iso?: string): string {
 // changesTitle is what a change count means, spelled out: a bare number in a
 // badge is read as fact, so the tooltip says what it counted.
 function changesTitle(n: number): string {
-  if (n === 1) return '1 uncommitted change in this working tree'
-  return `${n} uncommitted changes in this working tree`
+  return plural(n, '1 uncommitted change in this working tree', '{n} uncommitted changes in this working tree')
 }
 
 interface ConfigView {
@@ -517,13 +517,13 @@ function ChangesCard({ changes }: { changes: ChangeReport }) {
       {files.length > 0 && (
         <details class="changes-files">
           <summary>
-            {files.length} {files.length === 1 ? 'file' : 'files'} changed
+            {plural(files.length, '1 file changed', '{n} files changed')}
             <span class="chg-add"> +{added}</span><span class="chg-del"> −{deleted}</span>
           </summary>
           <ul>
             {files.map(f => (
               <li key={f.path}>
-                <span class={`chg-tag ${f.status}`}>{STATUS_LABEL[f.status] ?? f.status}</span>
+                <span class={`chg-tag ${f.status}`}>{STATUS_LABEL[f.status] ? t(STATUS_LABEL[f.status]) : f.status}</span>
                 <span class="chg-path">{f.path}</span>
                 {(f.added > 0 || f.deleted > 0) && <span class="chg-nums"><span class="chg-add">+{f.added}</span> <span class="chg-del">−{f.deleted}</span></span>}
               </li>
@@ -532,8 +532,8 @@ function ChangesCard({ changes }: { changes: ChangeReport }) {
         </details>
       )}
       {zoom && (
-        <div class="changes-zoom" onClick={() => setZoom(null)} role="dialog" aria-label="preview">
-          <img src={zoom} alt="preview" />
+        <div class="changes-zoom" onClick={() => setZoom(null)} role="dialog" aria-label={t('preview')}>
+          <img src={zoom} alt={t('preview')} />
         </div>
       )}
     </div>
@@ -544,9 +544,9 @@ function ChangesCard({ changes }: { changes: ChangeReport }) {
 // or failed with which code. What it printed is in the terminal drawer.
 function ShellStatus({ exit, settled = false }: { exit: number | null | undefined; settled?: boolean }) {
   // A command of a turn that has ended and never reported a result was cut off or refused.
-  if (exit == null && settled) return <span class="term-exit">no result</span>
-  if (exit == null) return <span class="term-exit running">running</span>
-  return <span class={`term-exit${exit ? ' bad' : ''}`}>{exit ? `failed · exit ${exit}` : 'ok'}</span>
+  if (exit == null && settled) return <span class="term-exit">{t('no result')}</span>
+  if (exit == null) return <span class="term-exit running">{t('running')}</span>
+  return <span class={`term-exit${exit ? ' bad' : ''}`}>{exit ? tf('failed · exit {code}', { code: exit }) : 'ok'}</span>
 }
 
 // oneLine folds a progress line into one short row for the trail: a synthesized
@@ -554,6 +554,58 @@ function ShellStatus({ exit, settled = false }: { exit: number | null | undefine
 function oneLine(text: string, max = 160): string {
   const flat = text.replace(/\s+/g, ' ').trim()
   return flat.length > max ? flat.slice(0, max - 1) + '…' : flat
+}
+
+// sessionTitle is what a session row and the header call a conversation. A session nobody has
+// named yet carries the gateway's English placeholder, which is shown in the reader's language.
+function sessionTitle(s: SessionInfo): string {
+  if (!s.title) return s.id
+  return s.title === 'New session' ? t('New session') : s.title
+}
+
+// PROGRESS_FORMS are the agent's own phase lines (agent.report in Go), in English on the wire, and
+// the format each one is shown with. Anything that is not one of these - a command, the model's
+// reasoning, a gateway message - is shown exactly as it arrived.
+const PROGRESS_FORMS: [RegExp, string, string[]][] = [
+  [/^analysing the task\.\.\.$/, 'analysing the task...', []],
+  [/^understood: ([\s\S]*)$/, 'understood: {x}', ['x']],
+  [/^planning\.\.\.$/, 'planning...', []],
+  [/^plan ready: (\d+) steps?$/, 'plan ready: {n} steps', ['n']],
+  [/^deciding action \(round (\d+)\/(\d+)\)\.\.\.$/, 'deciding action (round {a}/{b})...', ['a', 'b']],
+  [/^round (\d+) done; the model reports more to do$/, 'round {n} done; the model reports more to do', ['n']],
+  [/^validating with anchor\.\.\.$/, 'validating with anchor...', []],
+  [/^validation passed; running final action\.\.\.$/, 'validation passed; running final action...', []],
+  [/^task complete: ([\s\S]*)$/, 'task complete: {x}', ['x']],
+  [/^synthesizing answer\.\.\.$/, 'synthesizing answer...', []],
+  [/^subtask (\d+)\/(\d+): ([\s\S]*)$/, 'subtask {a}/{b}: {x}', ['a', 'b', 'x']],
+  [/^asking you to approve: ([\s\S]*)$/, 'asking you to approve: {x}', ['x']],
+  [/^approved \(all commands allowed in this session\): ([\s\S]*)$/, 'approved (all commands allowed in this session): {x}', ['x']],
+  [/^the reply could not be used, asking again: ([\s\S]*)$/, 'the reply could not be used, asking again: {x}', ['x']],
+]
+
+// progressText shows one of the agent's phase lines in the reader's language.
+function progressText(text: string): string {
+  for (const [re, format, names] of PROGRESS_FORMS) {
+    const m = re.exec(text)
+    if (!m) continue
+    const args: Record<string, string> = {}
+    names.forEach((n, i) => { args[n] = m[i + 1] })
+    return tf(format, args)
+  }
+  return text
+}
+
+// upgradeMessage shows a stage message of /v1/update/run in the reader's language. The gateway
+// writes them in English; the ones that carry a number or a version are matched by shape.
+function upgradeMessage(message?: string): string {
+  const m = message || ''
+  let x = /^Downloaded (\d+)%$/.exec(m)
+  if (x) return tf('Downloaded {p}%', { p: x[1] })
+  x = /^Downloading (.+)$/.exec(m)
+  if (x) return tf('Downloading {v}', { v: x[1] })
+  x = /^Installed (.+)$/.exec(m)
+  if (x) return tf('Installed {v}', { v: x[1] })
+  return t(m)
 }
 
 // parseFrame reads one SSE frame (text between two blank lines).
@@ -604,6 +656,8 @@ function firstModelOf(provider: string, all: ProviderInfo[]): string {
 }
 
 export default function App() {
+  // Every component under App re-renders when the language changes: App itself subscribes.
+  useLang()
   const [messages, setMessages] = useState<Message[]>([])
   const [stateText, setStateText] = useState('connecting')
   const [stateBad, setStateBad] = useState(false)
@@ -668,7 +722,9 @@ export default function App() {
   // `technical` is the raw error text, shown small and collapsed behind a
   // "Details" toggle: it names the file that conflicted, which is the one thing
   // a user needs in order to act, without putting git's own words in their face.
-  const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' | 'warning'; detail?: string; technical?: string } | null>(null)
+  // `update` marks the "new version" toast: it is clickable and stays longer. It is a flag and not
+  // a test on the text, because the text is translated.
+  const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' | 'warning'; detail?: string; technical?: string; update?: boolean } | null>(null)
   const [toastDetailsOpen, setToastDetailsOpen] = useState(false)
   const [config, setConfig] = useState<ConfigView | null>(null)
   const [showModelSwitcher, setShowModelSwitcher] = useState(false)
@@ -870,6 +926,11 @@ export default function App() {
   // the same reason as the toast: the explanation is the point, the exception
   // string is a footnote for a bug report.
   const [showUpgradeError, setShowUpgradeError] = useState(false)
+
+  // The ui.language setting as the gateway stores it, and whether this gateway has the endpoint at
+  // all: an older one answers 404, and then the setting is hidden and the browser's language is used.
+  const [uiLangSetting, setUiLangSetting] = useState<LangSetting>('auto')
+  const [uiLangAvailable, setUiLangAvailable] = useState(false)
 
   // plan and task are mutually exclusive — if one is already an active tag,
   // the other is blocked from being added.
@@ -1225,7 +1286,7 @@ export default function App() {
   useEffect(() => {
     setToastDetailsOpen(false)
     if (!toast) return
-    const isUpdate = toast.message.includes('New version')
+    const isUpdate = toast.update === true
     // An error needs reading, so it stays longest. A warning is between the two:
     // it says something is wrong but recovering, which is worth more than the
     // five seconds a success gets and less than an error.
@@ -1325,7 +1386,8 @@ export default function App() {
       // condition they can see.
       const connection = isConnectionState(text)
       if (!connection) {
-        setToast({ message: text, type: 'error' })
+        // Translated here, once, for every caller: their messages are the English keys.
+        setToast({ message: t(text), type: 'error' })
       }
       // "reconnecting" is the recoverable one: the tab is trying again on its
       // own, so the pill warns. Everything else - not connected, a request that
@@ -1610,7 +1672,7 @@ export default function App() {
         }, 100)
       }
       // Show a toast and close the modal.
-      setToast({ message: `Project "${title}" created` + (data.clone_log ? ' and repo cloned' : ''), type: 'success' })
+      setToast({ message: tf(data.clone_log ? 'Project "{title}" created and repo cloned' : 'Project "{title}" created', { title }), type: 'success' })
       setShowNewProject(false)
       setNewProjectTitle('')
       setNewProjectDesc('')
@@ -1619,7 +1681,7 @@ export default function App() {
       setShowGitIdentity(false)
       setCreatingProject(false)
     } catch (e) {
-      setState('could not create the project: ' + String(e), true)
+      setState(tf('could not create the project: {err}', { err: String(e) }), true)
       setCreatingProject(false)
     }
   }, [newProjectTitle, newProjectDesc, newProjectDir, newProjectGit, fetchProjects])
@@ -1668,7 +1730,7 @@ export default function App() {
       })
       if (!res.ok) {
         const body = await res.json().catch(() => ({}))
-        setToast({ message: 'The task could not be created', type: 'error', detail: body.error })
+        setToast({ message: t('The task could not be created'), type: 'error', detail: body.error })
         return
       }
       setNewTaskTitle(''); setNewTaskText('')
@@ -1685,15 +1747,15 @@ export default function App() {
     if (res.ok) await loadSchedules()
   }
 
-  const runScheduleNow = async (t: ScheduledTask) => {
-    const res = await api('/v1/schedules/' + t.id + '/run', { method: 'POST' })
+  const runScheduleNow = async (task: ScheduledTask) => {
+    const res = await api('/v1/schedules/' + task.id + '/run', { method: 'POST' })
     if (res.status === 409) {
       const body = await res.json().catch(() => ({}))
-      setToast({ message: 'That task could not start', type: 'error', detail: body.error })
+      setToast({ message: t('That task could not start'), type: 'error', detail: body.error })
       return
     }
     if (res.ok) {
-      setToast({ message: 'Task started', type: 'success', detail: 'It is running in ' + t.session_id + '.' })
+      setToast({ message: t('Task started'), type: 'success', detail: tf('It is running in {session}.', { session: task.session_id }) })
     }
   }
 
@@ -2024,15 +2086,15 @@ export default function App() {
       })
       if (!res.ok) {
         const data = await res.json().catch(() => ({}))
-        setToast({ message: 'Could not continue this session', type: 'error', detail: data.error || ('HTTP ' + res.status) })
+        setToast({ message: t('Could not continue this session'), type: 'error', detail: data.error || ('HTTP ' + res.status) })
         return
       }
       const next: SessionInfo = await res.json()
       await fetchSessions()
       await switchSession(next.id)
-      setToast({ message: 'Continued in a new session', type: 'success', detail: next.title })
+      setToast({ message: t('Continued in a new session'), type: 'success', detail: next.title })
     } catch (err) {
-      setToast({ message: 'Could not reach the gateway', type: 'error', detail: String(err) })
+      setToast({ message: t('Could not reach the gateway'), type: 'error', detail: String(err) })
     }
   }, [fetchSessions, switchSession])
   // closeModelSwitcher dismisses the modal and throws the draft away. The saved
@@ -2102,7 +2164,7 @@ export default function App() {
         try {
           const dismissed = localStorage.getItem(UPGRADE_DISMISS_KEY)
           if (dismissed !== data.latest_version) {
-            setToast({ message: `New version ${data.latest_version} available — click to upgrade`, type: 'success' })
+            setToast({ message: tf('New version {version} available — click to upgrade', { version: data.latest_version }), type: 'success', update: true })
           }
         } catch { /* ignore */ }
       }
@@ -2114,12 +2176,12 @@ export default function App() {
     setUpgradeBusy(true)
     setUpgradeError('')
     setShowUpgradeError(false)
-    setUpgradeProgress({ stage: 'starting', percent: 0, message: 'Starting upgrade…' })
+    setUpgradeProgress({ stage: 'starting', percent: 0, message: t('Starting upgrade…') })
     try {
       const res = await api('/v1/update/run', { method: 'POST' })
       if (!res.ok) {
         const err = await res.json().catch(() => ({}))
-        setUpgradeError(err.error || 'could not start the upgrade')
+        setUpgradeError(err.error || t('could not start the upgrade'))
         setUpgradeBusy(false)
         return
       }
@@ -2144,7 +2206,7 @@ export default function App() {
               const evt: UpgradeProgressEvent = JSON.parse(dataLine)
               setUpgradeProgress(evt)
               if (evt.stage === 'error') {
-                setUpgradeError(evt.message || 'upgrade failed')
+                setUpgradeError(evt.message || t('upgrade failed'))
                 setUpgradeBusy(false)
               } else if (evt.stage === 'done') {
                 setUpgradeBusy(false)
@@ -2360,7 +2422,7 @@ export default function App() {
       if (payload.dropped > 0) {
         setMessages(prev => [...prev, {
           id: nextId(), role: 'agent', kind: 'kind',
-          text: '(' + payload.dropped + ' event(s) were not kept while nothing was listening)'
+          text: tf('({n} event(s) were not kept while nothing was listening)', { n: payload.dropped })
         }])
       }
       if (payload.pending_approval) setApproval(payload.pending_approval)
@@ -2554,19 +2616,19 @@ export default function App() {
       })
       const body = await res.json().catch(() => ({}))
       if (!res.ok) {
-        setToast({ message: 'Could not go back to that checkpoint', type: 'error', detail: body.error })
+        setToast({ message: t('Could not go back to that checkpoint'), type: 'error', detail: body.error })
         return
       }
       if (sessionRef.current !== sid) return
       setInput(body.task ?? '')
       await switchSessionRef.current?.(sid, 'none')
       setToast({
-        message: body.files_restored ? 'Back at the checkpoint — conversation and files' : 'Back at the checkpoint — conversation only',
+        message: t(body.files_restored ? 'Back at the checkpoint — conversation and files' : 'Back at the checkpoint — conversation only'),
         type: 'success',
-        detail: body.files_restored && body.undo_kept ? 'What the files were before is kept in git as refs/motita/undo/' + sid : undefined,
+        detail: body.files_restored && body.undo_kept ? tf('What the files were before is kept in git as {ref}', { ref: 'refs/motita/undo/' + sid }) : undefined,
       })
     } catch {
-      setToast({ message: 'Could not go back to that checkpoint', type: 'error' })
+      setToast({ message: t('Could not go back to that checkpoint'), type: 'error' })
     }
   }, [])
 
@@ -2606,9 +2668,9 @@ export default function App() {
         const s = sessions.find(x => x.id === sessionRef.current)
         if (s?.continuable) {
           setToast({
-            message: 'This session is already integrated',
+            message: t('This session is already integrated'),
             type: 'warning',
-            detail: 'Click Continue in the session menu to keep working from the latest project branch.',
+            detail: t('Click Continue in the session menu to keep working from the latest project branch.'),
           })
         } else {
           setToast({ message: msg, type: 'error' })
@@ -2788,6 +2850,51 @@ export default function App() {
     return () => clearInterval(interval)
   }, [authState, checkForUpdates])
 
+  // The language before anything is known: the browser's. It is what the token prompt is shown in,
+  // since the gateway's setting can only be read once the browser holds a credential.
+  useEffect(() => { void setLang(resolveLang('auto')) }, [])
+
+  // Then the gateway's ui.language, which applies to all of motita: this page, the terminal, every
+  // browser. `auto` still means "the browser's language" here, not the gateway machine's locale.
+  useEffect(() => {
+    if (authState !== 'ok') return
+    let cancelled = false
+    ;(async () => {
+      try {
+        const res = await api('/v1/ui')
+        if (!res.ok || cancelled) return
+        const data = await res.json()
+        const setting: LangSetting = data.language === 'en' || data.language === 'es' ? data.language : 'auto'
+        setUiLangSetting(setting)
+        setUiLangAvailable(true)
+        await setLang(resolveLang(setting))
+      } catch { /* an older gateway: the browser's language stands */ }
+    })()
+    return () => { cancelled = true }
+  }, [authState])
+
+  // changeLanguage saves the setting for all of motita and switches this page at once.
+  const changeLanguage = useCallback(async (setting: LangSetting) => {
+    const before = uiLangSetting
+    setUiLangSetting(setting)
+    await setLang(resolveLang(setting))
+    try {
+      const res = await api('/v1/ui', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ language: setting }),
+      })
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}))
+        throw new Error(err.error || 'HTTP ' + res.status)
+      }
+    } catch (e) {
+      setUiLangSetting(before)
+      await setLang(resolveLang(before))
+      setToast({ message: t('Could not save the language'), type: 'error', detail: String(e) })
+    }
+  }, [uiLangSetting])
+
   // submitAuth is called when the user enters a token in the blocking modal.
   const submitAuth = useCallback(async () => {
     const token = authInput.trim()
@@ -2822,7 +2929,7 @@ export default function App() {
         setState('not connected', true)
       }
     } else {
-      setAuthError('That token was rejected. Try again.')
+      setAuthError(t('That token was rejected. Try again.'))
       setAuthBusy(false)
     }
   }, [authInput, authBusy, fetchProjects, fetchSessions, switchSession])
@@ -2840,7 +2947,7 @@ export default function App() {
     if (!rowMenu) return
     const onDown = (e: Event) => {
       const t = e.target as HTMLElement | null
-      if (t && (t.closest('.row-menu') || t.closest('button[title="More actions"]'))) return
+      if (t && (t.closest('.row-menu') || t.closest('button[data-row-menu-trigger]'))) return
       closeRowMenu()
     }
     const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') closeRowMenu() }
@@ -2905,13 +3012,13 @@ export default function App() {
         const text = target.getAttribute('data-copy-text') || ''
         navigator.clipboard?.writeText(text).then(() => {
           target.textContent = '✓'
-          setTimeout(() => { target.textContent = 'copy' }, 1500)
+          setTimeout(() => { target.textContent = t('copy') }, 1500)
         }).catch(() => {})
       } else if (target.classList.contains('copy-msg-btn')) {
         const text = target.getAttribute('data-raw') || ''
         navigator.clipboard?.writeText(text).then(() => {
           target.textContent = '✓'
-          setTimeout(() => { target.textContent = 'copy' }, 1500)
+          setTimeout(() => { target.textContent = t('copy') }, 1500)
         }).catch(() => {})
       }
     }
@@ -3000,7 +3107,7 @@ export default function App() {
           />
           <button
             class="p-1 rounded hover:bg-accent/20 text-accent flex-none"
-            title="Confirm"
+            title={t('Confirm')}
             onClick={(e) => { e.stopPropagation(); renameSession(s.id, renameValue); setRenamingId(null) }}
           >
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
@@ -3009,7 +3116,7 @@ export default function App() {
           </button>
           <button
             class="p-1 rounded hover:bg-white/10 text-[#9a9aaa] flex-none"
-            title="Cancel"
+            title={t('Cancel')}
             onClick={(e) => { e.stopPropagation(); setRenamingId(null) }}
           >
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -3024,7 +3131,7 @@ export default function App() {
               sidebar the branch used to squeeze the title away. */}
           <div class="flex-1 min-w-0">
             <div class={`truncate text-sm leading-tight ${busy ? 'text-accent' : 'text-[#e8e8ea]'}`}>
-              {s.title || s.id}
+              {sessionTitle(s)}
             </div>
             {/* When it was last used, on its own line. It was sharing the row
                 with the branch and the counts, and at a narrow width the three
@@ -3033,13 +3140,13 @@ export default function App() {
                 each gets its own line. */}
             <div
               class="mt-0.5 text-[10px] tabular-nums text-muted-foreground opacity-70"
-              title={s.last_used ? 'Last used ' + fullUpdated(s.last_used) : undefined}
+              title={s.last_used ? tf('Last used {when}', { when: fullUpdated(s.last_used) }) : undefined}
             >
               {formatUpdated(s.last_used)}
               {!!s.agents_running && s.agents_running > 0 && (
                 <span
                   class="ml-1.5 text-[#79c0ff]"
-                  title={s.agents_running + ' background agent' + (s.agents_running === 1 ? '' : 's') + ' running'}
+                  title={plural(s.agents_running, '1 background agent running', '{n} background agents running')}
                 >⧉ {s.agents_running}</span>
               )}
             </div>
@@ -3053,18 +3160,18 @@ export default function App() {
               {s.branch && (
                 <span
                   class="inline-flex items-center gap-1 flex-none px-1 py-px rounded bg-accent/10"
-                  title={'Branch: ' + s.branch}
+                  title={tf('Branch: {branch}', { branch: s.branch })}
                 >
-                  <span class="text-accent/50 uppercase tracking-wide text-[9px]">branch</span>
+                  <span class="text-accent/50 uppercase tracking-wide text-[9px]">{t('branch')}</span>
                   <span class="font-mono text-accent truncate max-w-[7rem]">{shortBranch(s.branch)}</span>
                 </span>
               )}
               {sessionWorktreeChip(s) && (
                 <span
                   class="inline-flex items-center gap-1 flex-none px-1 py-px rounded bg-[#a0a0f0]/10"
-                  title={'Worktree: ' + s.worktree}
+                  title={tf('Worktree: {worktree}', { worktree: s.worktree || '' })}
                 >
-                  <span class="text-[#a0a0f0]/50 uppercase tracking-wide text-[9px]">worktree</span>
+                  <span class="text-[#a0a0f0]/50 uppercase tracking-wide text-[9px]">{t('worktree')}</span>
                   <span class="font-mono text-[#a0a0f0] truncate max-w-[6rem]">{sessionWorktreeChip(s)}</span>
                 </span>
               )}
@@ -3074,7 +3181,7 @@ export default function App() {
                   title={changesTitle(s.changes)}
                 >
                   <span class="text-[#f0a040]/50 uppercase tracking-wide text-[9px]">
-                    {s.changes === 1 ? 'change' : 'changes'}
+                    {t(s.changes === 1 ? 'change' : 'changes')}
                   </span>
                   <span class="tabular-nums text-[#f0a040]">{s.changes}</span>
                 </span>
@@ -3087,7 +3194,8 @@ export default function App() {
         <div class={`row-actions relative flex-none${rowMenu?.id === s.id ? ' row-actions-open' : ''}`}>
           <button
             class="p-1 rounded hover:bg-white/10"
-            title="More actions"
+            title={t('More actions')}
+            data-row-menu-trigger
             onClick={(e) => {
               e.stopPropagation()
               if (rowMenu?.id === s.id) { closeRowMenu(); return }
@@ -3114,13 +3222,13 @@ export default function App() {
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                   <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" /><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
                 </svg>
-                Rename
+                {t('Rename')}
               </button>
               {s.project_id && !s.merged && (
                 <button
                   class={`row-menu-item w-full flex items-center gap-2 px-3 py-2 text-sm ${s.mergeable ? 'text-accent hover:bg-accent/10' : 'text-[#8a8a9a]'}`}
                   disabled={!s.mergeable}
-                  title={s.mergeable ? 'Integrate this session\'s work back into the project' : 'Nothing to integrate yet'}
+                  title={t(s.mergeable ? 'Integrate this session\'s work back into the project' : 'Nothing to integrate yet')}
                   onClick={async (e) => {
                     if (!s.mergeable) { e.stopPropagation(); return }
                     e.stopPropagation()
@@ -3133,13 +3241,13 @@ export default function App() {
                   <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                     <path d="M6 3v12" /><circle cx="6" cy="18" r="3" /><path d="M18 21v-12" /><circle cx="18" cy="6" r="3" /><path d="M6 9a9 9 0 0 0 12 6" />
                   </svg>
-                  Integrate
+                  {t('Integrate')}
                 </button>
               )}
               {s.project_id && s.merged && s.continuable && (
                 <button
                   class="row-menu-item w-full flex items-center gap-2 px-3 py-2 text-sm text-accent hover:bg-accent/10"
-                  title="Create a new session from the project's current branch and keep working"
+                  title={t("Create a new session from the project's current branch and keep working")}
                   onClick={async (e) => {
                     e.stopPropagation()
                     closeRowMenu()
@@ -3149,12 +3257,12 @@ export default function App() {
                   <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                     <path d="M5 12h14" /><path d="M12 5v14" />
                   </svg>
-                  Continue
+                  {t('Continue')}
                 </button>
               )}
               {s.project_id && s.merged && s.merged_sha && (
                 <div class="row-menu-item w-full px-3 py-2 text-xs text-[#9a9aaa]">
-                  merged {shortID(s.merged_sha)}
+                  {tf('merged {sha}', { sha: shortID(s.merged_sha) })}
                 </div>
               )}
               <button
@@ -3164,7 +3272,7 @@ export default function App() {
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                   <polyline points="3 6 5 6 21 6" /><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
                 </svg>
-                Delete
+                {t('Delete')}
               </button>
             </div>
           )}
@@ -3195,8 +3303,8 @@ export default function App() {
                 </svg>
               </div>
               <div>
-                <h2 class="text-base font-semibold text-[#e8e8ea]">Authentication required</h2>
-                <p class="text-xs text-[#9a9aaa] mt-0.5">Enter the gateway token to continue</p>
+                <h2 class="text-base font-semibold text-[#e8e8ea]">{t('Authentication required')}</h2>
+                <p class="text-xs text-[#9a9aaa] mt-0.5">{t('Enter the gateway token to continue')}</p>
               </div>
             </div>
 
@@ -3205,20 +3313,20 @@ export default function App() {
                 <svg class="animate-spin text-accent" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
                   <path d="M21 12a9 9 0 1 1-6.219-8.56" />
                 </svg>
-                <span>Checking credentials…</span>
+                <span>{t('Checking credentials…')}</span>
               </div>
             ) : (
               <form
                 onSubmit={(e) => { e.preventDefault(); submitAuth() }}
               >
-                <label class="block text-sm text-[#9a9aaa] mb-1.5" htmlFor="auth-token">Token or password</label>
+                <label class="block text-sm text-[#9a9aaa] mb-1.5" htmlFor="auth-token">{t('Token or password')}</label>
                 <input
                   id="auth-token"
                   type="password"
                   class="w-full px-3 py-2.5 rounded-xl bg-black/30 border border-white/10 text-[#e8e8ea] focus:outline-none focus:border-accent font-mono text-sm"
                   value={authInput}
                   onInput={(e) => setAuthInput((e.target as HTMLInputElement).value)}
-                  placeholder="Paste the gateway token…"
+                  placeholder={t('Paste the gateway token…')}
                   autoFocus
                   autoComplete="off"
                   spellcheck={false}
@@ -3233,7 +3341,7 @@ export default function App() {
                   </p>
                 )}
                 <p class="text-xs text-[#6a6a7a] mt-3 leading-relaxed">
-                  Run <code class="font-mono text-accent bg-accent/10 px-1 rounded">motita gateway start</code> in a terminal to print the link, or paste the token here.
+                  {t('Run')} <code class="font-mono text-accent bg-accent/10 px-1 rounded">motita gateway start</code> {t('in a terminal to print the link, or paste the token here.')}
                 </p>
                 <button
                   type="submit"
@@ -3245,9 +3353,9 @@ export default function App() {
                       <svg class="animate-spin" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
                         <path d="M21 12a9 9 0 1 1-6.219-8.56" />
                       </svg>
-                      Connecting…
+                      {t('Connecting…')}
                     </>
-                  ) : 'Connect'}
+                  ) : t('Connect')}
                 </button>
               </form>
             )}
@@ -3274,7 +3382,7 @@ export default function App() {
               <button
                 class="ml-auto p-1.5 rounded-lg hover:bg-white/5 transition-colors"
                 onClick={() => setSidebarOpen(false)}
-                aria-label="Close sidebar"
+                aria-label={t('Close sidebar')}
               >
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                   <line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" />
@@ -3291,12 +3399,12 @@ export default function App() {
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                   <line x1="12" y1="5" x2="12" y2="19" /><line x1="5" y1="12" x2="19" y2="12" />
                 </svg>
-                New session
+                {t('New session')}
               </button>
               <button
                 class="flex items-center justify-center px-3 py-2.5 rounded-xl border border-white/10 text-[#e8e8ea] hover:bg-white/5 active:scale-95 transition-all"
                 onClick={() => setShowNewProject(true)}
-                title="New project"
+                title={t('New project')}
               >
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                   <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" /><line x1="12" y1="11" x2="12" y2="17" /><line x1="9" y1="14" x2="15" y2="14" />
@@ -3370,19 +3478,19 @@ export default function App() {
                           {p.branch && (
                             <span
                               class="inline-flex items-center gap-1 flex-none px-1 py-px rounded bg-accent/10"
-                              title={'Project checkout is on branch: ' + p.branch}
+                              title={tf('Project checkout is on branch: {branch}', { branch: p.branch })}
                             >
-                              <span class="text-accent/50 uppercase tracking-wide text-[9px]">project</span>
+                              <span class="text-accent/50 uppercase tracking-wide text-[9px]">{t('project')}</span>
                               <span class="font-mono text-accent truncate max-w-[7rem]">{shortBranch(p.branch)}</span>
                             </span>
                           )}
                           {!!p.changes && (
                             <span
                               class="inline-flex items-center gap-1 flex-none px-1 py-px rounded bg-[#f0a040]/10"
-                              title={'The project checkout has ' + changesTitle(p.changes)}
+                              title={tf('The project checkout has {what}', { what: changesTitle(p.changes) })}
                             >
                               <span class="text-[#f0a040]/50 uppercase tracking-wide text-[9px]">
-                                {p.changes === 1 ? 'change' : 'changes'}
+                                {t(p.changes === 1 ? 'change' : 'changes')}
                               </span>
                               <span class="tabular-nums text-[#f0a040]">{p.changes}</span>
                             </span>
@@ -3392,7 +3500,7 @@ export default function App() {
                       {/* Action buttons: stopPropagation so they don't toggle. */}
                       <button
                         class="p-0.5 rounded hover:bg-white/10 opacity-0 group-hover:opacity-100 transition-opacity flex-none"
-                        title="New session in project"
+                        title={t('New session in project')}
                         onClick={(e) => { e.stopPropagation(); createSession(p.id) }}
                       >
                         <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
@@ -3402,7 +3510,8 @@ export default function App() {
                       <div class={`row-actions relative flex-none${rowMenu?.id === p.id ? ' row-actions-open' : ''}`}>
                         <button
                           class="p-0.5 rounded hover:bg-white/10"
-                          title="More actions"
+                          title={t('More actions')}
+                          data-row-menu-trigger
                           onClick={(e) => {
                             e.stopPropagation()
                             if (rowMenu?.id === p.id) { closeRowMenu(); return }
@@ -3429,7 +3538,7 @@ export default function App() {
                               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                                 <polyline points="3 6 5 6 21 6" /><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
                               </svg>
-                              Delete
+                              {t('Delete')}
                             </button>
                           </div>
                         )}
@@ -3445,7 +3554,7 @@ export default function App() {
                         <div class="px-1.5 pb-1.5 space-y-0.5">
                           {projectSessions.map(s => renderSessionRow(s))}
                           {projectSessions.length === 0 && (
-                            <div class="px-3 py-1.5 text-xs text-[#6a6a7a] italic">No sessions yet</div>
+                            <div class="px-3 py-1.5 text-xs text-[#6a6a7a] italic">{t('No sessions yet')}</div>
                           )}
                         </div>
                       </div>
@@ -3465,7 +3574,7 @@ export default function App() {
                   <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                     <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" /><polyline points="7 10 12 15 17 10" /><line x1="12" y1="15" x2="12" y2="3" />
                   </svg>
-                  <span class="flex-1 text-left">Upgrade Motita</span>
+                  <span class="flex-1 text-left">{t('Upgrade Motita')}</span>
                   <span class="text-[10px] font-mono opacity-70">{updateInfo.latest_version}</span>
                 </button>
               </div>
@@ -3480,7 +3589,7 @@ export default function App() {
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                   <path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z" /><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z" />
                 </svg>
-                Skill library
+                {t('Skill library')}
               </button>
               <button
                 class="w-full flex items-center gap-2 px-3 py-2.5 rounded-xl hover:bg-white/5 transition-colors text-sm text-[#e8e8ea]"
@@ -3489,8 +3598,28 @@ export default function App() {
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                   <circle cx="12" cy="12" r="10" /><polyline points="12 6 12 12 16 14" />
                 </svg>
-                Scheduled tasks
+                {t('Scheduled tasks')}
               </button>
+              {/* The language of every interface (this page, the terminal), saved in the gateway's
+                  configuration. Hidden on a gateway that does not have the setting. */}
+              {uiLangAvailable && (
+                <label class="w-full flex items-center gap-2 px-3 py-2 rounded-xl text-sm text-[#e8e8ea]">
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="flex-none">
+                    <circle cx="12" cy="12" r="10" /><line x1="2" y1="12" x2="22" y2="12" /><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z" />
+                  </svg>
+                  <span class="flex-1">{t('Language')}</span>
+                  <select
+                    class="min-w-0 px-2 py-1 rounded-lg bg-black/30 border border-white/10 text-xs text-[#e8e8ea] focus:outline-none focus:border-accent"
+                    value={uiLangSetting}
+                    aria-label={t('Language')}
+                    onChange={(e) => void changeLanguage((e.target as HTMLSelectElement).value as LangSetting)}
+                  >
+                    <option value="auto">{t('Automatic')}</option>
+                    <option value="en">English</option>
+                    <option value="es">Español</option>
+                  </select>
+                </label>
+              )}
             </div>
           </aside>
         </>
@@ -3513,7 +3642,7 @@ export default function App() {
             <button
               class="p-1.5 rounded-lg hover:bg-white/5 transition-colors flex-none"
               onClick={() => setSidebarOpen(true)}
-              aria-label="Open sidebar"
+              aria-label={t('Open sidebar')}
             >
               <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                 <line x1="3" y1="12" x2="21" y2="12" /><line x1="3" y1="6" x2="21" y2="6" /><line x1="3" y1="18" x2="21" y2="18" />
@@ -3523,28 +3652,28 @@ export default function App() {
           <div class="flex items-center gap-1.5 sm:gap-2 min-w-0 flex-1">
             <span class="text-accent text-base sm:text-lg flex-none">🐱</span>
             <h1 class="text-sm sm:text-base font-semibold tracking-wide truncate min-w-0">
-              {sessions.find(s => s.id === sessionId)?.title || 'Motita'}
+              {selectedSession ? sessionTitle(selectedSession) : 'Motita'}
             </h1>
           </div>
           {sessions.find(s => s.id === sessionId)?.auto_approve && (
             <button
               class="auto-approve-pill flex-none whitespace-nowrap text-xs px-2 sm:px-2.5 py-1 rounded-full"
-              title="Every command in this session runs without asking. Click to be asked again."
+              title={t('Every command in this session runs without asking. Click to be asked again.')}
               onClick={stopAutoApprove}
             >
-              all commands allowed ✕
+              {t('all commands allowed')} ✕
             </button>
           )}
           <span
             class={`flex-none whitespace-nowrap text-xs px-2 sm:px-2.5 py-1 rounded-full bg-black/20 border border-white/5 ${stateClass}`}
             aria-live="polite"
           >
-            {stateText}
+            {t(stateText)}
           </span>
           {config && (
             <button
               class="flex-none flex items-center gap-1 max-w-[38vw] max-[360px]:max-w-[30vw] sm:max-w-none text-xs px-2 sm:px-2.5 py-1 rounded-full bg-black/20 border border-white/5 text-[#9a9aaa] hover:bg-black/30 hover:border-accent/30 transition-colors cursor-pointer"
-              title={`${config.provider} / ${config.model} — reasoning: ${reasoningOf(config)}`}
+              title={tf('{provider} / {model} — reasoning: {level}', { provider: config.provider, model: config.model, level: t(reasoningOf(config)) })}
               onClick={openModelSwitcher}
             >
               <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="text-accent/60 flex-none">
@@ -3553,7 +3682,7 @@ export default function App() {
               <span class="truncate min-w-0">{config.provider} / {config.model}</span>
               {/* Its own span and flex-none: the model name is what truncates on a narrow
                   screen, and the level must survive it. */}
-              <span class={`header-reasoning is-${reasoningOf(config)}`}>{reasoningOf(config)}</span>
+              <span class={`header-reasoning is-${reasoningOf(config)}`}>{t(reasoningOf(config))}</span>
             </button>
           )}
         </header>
@@ -3563,7 +3692,7 @@ export default function App() {
           ref={scrollRef}
           role="log"
           aria-live="polite"
-          aria-label="conversation"
+          aria-label={t('conversation')}
           class={`chat-bg flex-1 overflow-y-auto px-3 py-4 sm:px-5 sm:py-5 flex flex-col gap-2.5${
             chatLoading ? ' chat-loading' : ''}`}
           data-chat-loading={chatLoading ? '1' : '0'}
@@ -3598,10 +3727,10 @@ export default function App() {
                           <button
                             type="button"
                             class="cp-btn"
-                            aria-label="Checkpoint menu"
+                            aria-label={t('Checkpoint menu')}
                             aria-haspopup="menu"
                             aria-expanded={cpMenu === g.turn}
-                            title="Checkpoint"
+                            title={t('Checkpoint')}
                             onClick={() => { setCpArmed(false); setCpMenu(m => m === g.turn ? null : g.turn!) }}
                           >
                             <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
@@ -3611,22 +3740,22 @@ export default function App() {
                           {cpMenu === g.turn && (
                             <div class="cp-menu" role="menu">
                               <button type="button" role="menuitem" onClick={() => restoreCheckpoint(g.turn!, false)}>
-                                Go back to this checkpoint
-                                <small>conversation only</small>
+                                {t('Go back to this checkpoint')}
+                                <small>{t('conversation only')}</small>
                               </button>
                               <button
                                 type="button"
                                 role="menuitem"
                                 class={cpArmed ? 'is-armed' : ''}
                                 disabled={!cpInfo[g.turn!]?.files}
-                                title={cpInfo[g.turn!]?.files ? '' : 'This checkpoint did not keep the files'}
+                                title={cpInfo[g.turn!]?.files ? '' : t('This checkpoint did not keep the files')}
                                 onClick={(e) => {
                                   if (!cpArmed) { e.stopPropagation(); setCpArmed(true); return }
                                   restoreCheckpoint(g.turn!, true)
                                 }}
                               >
-                                {cpArmed ? 'Click again: discard changes since' : 'Go back and restore the changes'}
-                                <small>conversation and files</small>
+                                {t(cpArmed ? 'Click again: discard changes since' : 'Go back and restore the changes')}
+                                <small>{t('conversation and files')}</small>
                               </button>
                             </div>
                           )}
@@ -3646,7 +3775,7 @@ export default function App() {
                             </div>
                           )
                         }
-                        return <div key={i} class={`trail-step ${classifyProgress(step.text) ?? ''}`} title={step.text}>{oneLine(step.text)}</div>
+                        return <div key={i} class={`trail-step ${classifyProgress(step.text) ?? ''}`} title={step.text}>{oneLine(progressText(step.text))}</div>
                       })}
                     </ActionTrail>
                   )}
@@ -3657,7 +3786,7 @@ export default function App() {
                       ) : m.role === 'agent' && !m.kind ? (
                         <Markdown content={m.text} />
                       ) : (
-                        <span>{m.text}</span>
+                        <span>{m.kind === 'kind' ? t(m.text) : m.text}</span>
                       )}
                       {m.changes && <ChangesCard changes={m.changes} />}
                     </div>
@@ -3667,7 +3796,7 @@ export default function App() {
                       <span class={`spin-${activityKind || 'default'}`}></span>
                       {activityKind === 'command'
                         ? <><span class="term-cmd-text">{oneLine(activity.replace(/^running:\s*/, ''))}</span><ShellStatus exit={shown.length ? shown[shown.length - 1].exit : null} /></>
-                        : activity}
+                        : progressText(activity)}
                     </div>
                   )}
                 </div>
@@ -3686,16 +3815,16 @@ export default function App() {
             class="term-tab"
             aria-expanded={termOpen}
             aria-controls="term-panel"
-            title={termOpen ? 'Close the terminal' : 'Open the terminal history'}
+            title={t(termOpen ? 'Close the terminal' : 'Open the terminal history')}
             onClick={() => { setTermOpen(o => !o); setThinkOpen(false); setAgentsOpen(false) }}
           >
             <span class="term-tab-label">TTY</span>
             {shellLog.length > 0 && <span class="term-tab-count">{shellLog.length}</span>}
           </button>
-          <div class="term-panel" id="term-panel" role="region" aria-label="terminal history" aria-hidden={!termOpen}>
+          <div class="term-panel" id="term-panel" role="region" aria-label={t('terminal history')} aria-hidden={!termOpen}>
             <div class="term-titlebar">
-              <span>motita@shell — {shellLog.length} command{shellLog.length === 1 ? '' : 's'}</span>
-              <button type="button" class="term-close" onClick={() => setTermOpen(false)} aria-label="Close the terminal" tabIndex={termOpen ? 0 : -1}>×</button>
+              <span>motita@shell — {plural(shellLog.length, '1 command', '{n} commands')}</span>
+              <button type="button" class="term-close" onClick={() => setTermOpen(false)} aria-label={t('Close the terminal')} tabIndex={termOpen ? 0 : -1}>×</button>
             </div>
             <div class="term-viewport">
             <div
@@ -3719,8 +3848,8 @@ export default function App() {
                     phase={e.id <= termSeenId ? 'done' : termOpen && e === firstPending ? 'live' : 'wait'}
                     onFinished={() => setTermSeenId(n => Math.max(n, e.id))}
                     status={e.exit == null
-                      ? { label: 'running…', kind: 'running' }
-                      : { label: e.exit === NO_RESULT ? '[no result]' : e.exit ? `[exit ${e.exit}]` : '[ok]', kind: e.exit && e.exit !== NO_RESULT ? 'bad' : '' }}
+                      ? { label: t('running…'), kind: 'running' }
+                      : { label: e.exit === NO_RESULT ? t('[no result]') : e.exit ? `[exit ${e.exit}]` : '[ok]', kind: e.exit && e.exit !== NO_RESULT ? 'bad' : '' }}
                   />
                 ))
               })()}
@@ -3754,20 +3883,20 @@ export default function App() {
                 class={`term-tab${running && liveThought ? ' is-live' : ''}`}
                 aria-expanded={thinkOpen}
                 aria-controls="think-panel"
-                title={thinkOpen ? 'Close the thinking' : 'Open the thinking'}
+                title={t(thinkOpen ? 'Close the thinking' : 'Open the thinking')}
                 onClick={() => { setThinkOpen(o => !o); setTermOpen(false); setAgentsOpen(false) }}
               >
                 <span class="term-tab-label">THINK</span>
                 {thoughts.length > 0 && <span class="term-tab-count">{thoughts.length}</span>}
               </button>
-              <div class="term-panel" id="think-panel" role="region" aria-label="thinking" aria-hidden={!thinkOpen}>
+              <div class="term-panel" id="think-panel" role="region" aria-label={t('thinking')} aria-hidden={!thinkOpen}>
                 <div class="term-titlebar">
-                  <span>motita@mind — {thoughts.length} thought{thoughts.length === 1 ? '' : 's'}</span>
-                  <button type="button" class="term-close" onClick={() => setThinkOpen(false)} aria-label="Close the thinking" tabIndex={thinkOpen ? 0 : -1}>×</button>
+                  <span>motita@mind — {plural(thoughts.length, '1 thought', '{n} thoughts')}</span>
+                  <button type="button" class="term-close" onClick={() => setThinkOpen(false)} aria-label={t('Close the thinking')} tabIndex={thinkOpen ? 0 : -1}>×</button>
                 </div>
                 <div class="term-viewport">
                   <div class="term-screen" ref={think.ref} {...think.handlers}>
-                    {thoughts.length === 0 && <div class="term-empty">no thoughts yet<span class="term-caret" /></div>}
+                    {thoughts.length === 0 && <div class="term-empty">{t('no thoughts yet')}<span class="term-caret" /></div>}
                     {thoughts.map(t => (
                       <div key={t.key} class={`think-entry${t.live ? ' is-live' : ''}`}>
                         <pre class="think-text">{t.text}</pre>
@@ -3806,18 +3935,18 @@ export default function App() {
                 class={`term-tab${runningSubs > 0 ? ' is-live' : ''}`}
                 aria-expanded={agentsOpen}
                 aria-controls="agents-panel"
-                title={agentsOpen ? 'Close the agents' : 'Open the agents'}
+                title={t(agentsOpen ? 'Close the agents' : 'Open the agents')}
                 onClick={() => { setAgentsOpen(o => !o); setTermOpen(false); setThinkOpen(false) }}
               >
                 <span class="term-tab-label">AGENTS</span>
                 {runningSubs > 0 && <span class="term-tab-count">{runningSubs}</span>}
               </button>
-              <div class="term-panel" id="agents-panel" role="region" aria-label="agents" aria-hidden={!agentsOpen}>
+              <div class="term-panel" id="agents-panel" role="region" aria-label={t('agents')} aria-hidden={!agentsOpen}>
                 <div class="term-titlebar">
                   <span title={tokenBreakdown(total)}>
-                    motita@fleet — {agents.length} agent{agents.length === 1 ? '' : 's'} · {formatTokens(tokenTotal(total))} tok
+                    motita@fleet — {plural(agents.length, '1 agent', '{n} agents')} · {formatTokens(tokenTotal(total))} tok
                   </span>
-                  <button type="button" class="term-close" onClick={() => setAgentsOpen(false)} aria-label="Close the agents" tabIndex={agentsOpen ? 0 : -1}>×</button>
+                  <button type="button" class="term-close" onClick={() => setAgentsOpen(false)} aria-label={t('Close the agents')} tabIndex={agentsOpen ? 0 : -1}>×</button>
                 </div>
                 <div class="term-viewport">
                   <div class="term-screen">
@@ -3833,13 +3962,13 @@ export default function App() {
                           onClick={() => { if (done) setAgentOpenId(id => id === a.id ? null : a.id) }}
                           aria-expanded={done ? open : undefined}
                         >
-                          <span class="agent-state" aria-label={a.state}>
+                          <span class="agent-state" aria-label={t(a.state)}>
                             {mark ?? <span class="agent-spin" aria-hidden="true" />}
                           </span>
                           <div class="agent-body">
                             <div class="agent-head">
                               <span class="agent-purpose" title={a.purpose}>
-                                {!a.parent && <span class="agent-tag">main</span>}
+                                {!a.parent && <span class="agent-tag">{t('main')}</span>}
                                 {a.purpose || a.id}
                               </span>
                               <span class="agent-meta" title={tokenBreakdown(a.tokens || { input: 0, output: 0 })}>
@@ -3851,7 +3980,7 @@ export default function App() {
                               <div class="agent-detail" onClick={e => e.stopPropagation()}>
                                 {a.summary
                                   ? <pre class="agent-summary">{a.summary}</pre>
-                                  : <div class="agent-activity">no summary</div>}
+                                  : <div class="agent-activity">{t('no summary')}</div>}
                                 {a.branch && (
                                   <div class="agent-branch">
                                     <code>{merge}</code>
@@ -3865,7 +3994,7 @@ export default function App() {
                                             setTimeout(() => setAgentCopied(c => c === a.id ? null : c), 1500)
                                           }, () => {})
                                         }}
-                                      >{agentCopied === a.id ? 'copied' : 'copy'}</button>
+                                      >{t(agentCopied === a.id ? 'copied' : 'copy')}</button>
                                     )}
                                   </div>
                                 )}
@@ -3901,7 +4030,7 @@ export default function App() {
                   </path>
                 </svg>
               </span>
-              <span class="chat-modal-label">Loading session</span>
+              <span class="chat-modal-label">{t('Loading session')}</span>
             </div>
           </div>
         )}
@@ -3910,7 +4039,7 @@ export default function App() {
         {approval && (
           <div class="frosted flex-none px-4 sm:px-5 py-3.5 border-t-2 border-warning z-10">
             <h2 class="text-sm mb-2 text-warning">
-              {approval.question ?? approval.reason ?? 'This needs your approval'}
+              {approval.question ?? approval.reason ?? t('This needs your approval')}
             </h2>
             <pre class="whitespace-pre-wrap break-all max-h-[35vh] overflow-y-auto mb-2.5 p-3 bg-black/20 border border-white/5 rounded-lg font-mono text-[13px]">
               {approval.command ?? ''}
@@ -3920,20 +4049,20 @@ export default function App() {
                 class="min-h-[44px] min-w-[44px] px-5 rounded-xl bg-accent text-white font-semibold active:scale-95 transition-transform"
                 onClick={() => answerApproval(approval.id, true)}
               >
-                Run it
+                {t('Run it')}
               </button>
               <button
                 class="min-h-[44px] min-w-[44px] px-4 rounded-xl border border-accent/40 text-accent font-semibold active:scale-95 transition-transform"
-                title="Run this and every later command in this session without asking. Commands the policy forbids stay forbidden."
+                title={t('Run this and every later command in this session without asking. Commands the policy forbids stay forbidden.')}
                 onClick={() => answerApproval(approval.id, true, true)}
               >
-                Allow all this session
+                {t('Allow all this session')}
               </button>
               <button
                 class="min-h-[44px] min-w-[44px] px-5 rounded-xl border border-white/10 text-[#e8e8ea] active:scale-95 transition-transform"
                 onClick={() => answerApproval(approval.id, false)}
               >
-                No
+                {t('No')}
               </button>
             </div>
           </div>
@@ -3949,7 +4078,7 @@ export default function App() {
               <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                 <path d="M12 2v20M2 12h20" />
               </svg>
-              Merged — Read Only
+              {t('Merged — Read Only')}
             </span>
           )}
           {/* Slash command autocomplete popup — positioned above the textarea,
@@ -3975,14 +4104,14 @@ export default function App() {
                 >
                   <span class={`font-mono text-sm font-semibold flex-none w-20 ${groupColor[c.group] || 'text-[#e8e8ea]'}`}>{c.name}</span>
                   {c.aliases && c.aliases.length > 0 && <span class="text-xs text-[#6a6a7a] flex-none">{c.aliases.join(', ')}</span>}
-                  <span class="flex-1 min-w-0 truncate text-xs text-[#9a9aaa]">{c.help}</span>
+                  <span class="flex-1 min-w-0 truncate text-xs text-[#9a9aaa]">{t(c.help)}</span>
                 </div>
               )
             })}
           </div>
         )}
 
-          <label htmlFor="task" class="sr-only">Task</label>
+          <label htmlFor="task" class="sr-only">{t('Task')}</label>
           <div class="flex-1 flex flex-wrap items-center gap-1.5 min-h-[44px] max-h-[120px] p-2 rounded-2xl bg-black/30 border border-white/5 focus-within:border-accent backdrop-blur-sm overflow-y-auto">
             {activeTags.map((tag, ti) => (
               <span
@@ -4044,7 +4173,7 @@ export default function App() {
               }
             }}
             onKeyDown={handleKeydown}
-            placeholder={isMerged ? 'This session is read-only after integration' : activeTags.length > 0 ? 'argument…' : 'Ask for something…'}
+            placeholder={t(isMerged ? 'This session is read-only after integration' : activeTags.length > 0 ? 'argument…' : 'Ask for something…')}
             class="flex-1 min-h-[28px] max-h-[100px] px-1 py-1 bg-transparent border-0 outline-none ring-0 text-[#e8e8ea] resize-none focus:outline-none focus:ring-0 focus:border-0 font-sans text-[14px] leading-relaxed disabled:opacity-50 disabled:cursor-not-allowed"
           />
           </div>
@@ -4074,11 +4203,11 @@ export default function App() {
               <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="text-accent">
                 <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
               </svg>
-              <h2 class="text-base font-semibold">New project</h2>
+              <h2 class="text-base font-semibold">{t('New project')}</h2>
               <button
                 class="ml-auto p-1.5 rounded-lg hover:bg-white/5"
                 onClick={() => setShowNewProject(false)}
-                aria-label="Close"
+                aria-label={t('Close')}
               >
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                   <line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" />
@@ -4088,43 +4217,43 @@ export default function App() {
 
             <div class="space-y-4">
               <div>
-                <label class="block text-sm text-[#9a9aaa] mb-1.5">Title <span class="text-danger">*</span></label>
+                <label class="block text-sm text-[#9a9aaa] mb-1.5">{t('Title')} <span class="text-danger">*</span></label>
                 <input
                   class="w-full px-3 py-2.5 rounded-xl bg-black/30 border border-white/10 text-[#e8e8ea] focus:outline-none focus:border-accent"
                   value={newProjectTitle}
                   onInput={(e) => setNewProjectTitle((e.target as HTMLInputElement).value)}
-                  placeholder="My project"
+                  placeholder={t('My project')}
                   autoFocus
                 />
               </div>
               <div>
-                <label class="block text-sm text-[#9a9aaa] mb-1.5">Description (optional)</label>
+                <label class="block text-sm text-[#9a9aaa] mb-1.5">{t('Description (optional)')}</label>
                 <input
                   class="w-full px-3 py-2.5 rounded-xl bg-black/30 border border-white/10 text-[#e8e8ea] focus:outline-none focus:border-accent"
                   value={newProjectDesc}
                   onInput={(e) => setNewProjectDesc((e.target as HTMLInputElement).value)}
-                  placeholder="What this project is about"
+                  placeholder={t('What this project is about')}
                 />
               </div>
               <div>
-                <label class="block text-sm text-[#9a9aaa] mb-1.5">Folder name <span class="text-[#6a6a7a] text-xs">(auto from git URL if empty)</span></label>
+                <label class="block text-sm text-[#9a9aaa] mb-1.5">{t('Folder name')} <span class="text-[#6a6a7a] text-xs">{t('(auto from git URL if empty)')}</span></label>
                 <input
                   class="w-full px-3 py-2.5 rounded-xl bg-black/30 border border-white/10 text-[#e8e8ea] focus:outline-none focus:border-accent font-mono text-sm"
                   value={newProjectDir}
                   onInput={(e) => setNewProjectDir((e.target as HTMLInputElement).value)}
                   placeholder="my-project"
                 />
-                <p class="text-xs text-[#6a6a7a] mt-1">A folder created under the workspace. Simple name, no paths.</p>
+                <p class="text-xs text-[#6a6a7a] mt-1">{t('A folder created under the workspace. Simple name, no paths.')}</p>
               </div>
               <div>
-                <label class="block text-sm text-[#9a9aaa] mb-1.5">Git URL or SSH (optional — clones instead of creating a folder)</label>
+                <label class="block text-sm text-[#9a9aaa] mb-1.5">{t('Git URL or SSH (optional — clones instead of creating a folder)')}</label>
                 <input
                   class="w-full px-3 py-2.5 rounded-xl bg-black/30 border border-white/10 text-[#e8e8ea] focus:outline-none focus:border-accent font-mono text-sm"
                   value={newProjectGit}
                   onInput={(e) => setNewProjectGit((e.target as HTMLInputElement).value)}
-                  placeholder="https://github.com/user/repo.git  or  git@github.com:user/repo.git"
+                  placeholder={t('https://github.com/user/repo.git  or  git@github.com:user/repo.git')}
                 />
-                <p class="text-xs text-[#6a6a7a] mt-1">HTTPS or SSH. When set, the repo is cloned into the folder name above.</p>
+                <p class="text-xs text-[#6a6a7a] mt-1">{t('HTTPS or SSH. When set, the repo is cloned into the folder name above.')}</p>
               </div>
             </div>
 
@@ -4134,7 +4263,7 @@ export default function App() {
                 <svg class="animate-spin flex-none text-accent" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
                   <path d="M21 12a9 9 0 1 1-6.219-8.56" />
                 </svg>
-                <span>Cloning repository…</span>
+                <span>{t('Cloning repository…')}</span>
               </div>
             )}
 
@@ -4149,13 +4278,13 @@ export default function App() {
                     <path d="M21 12a9 9 0 1 1-6.219-8.56" />
                   </svg>
                 )}
-                {creatingProject ? 'Cloning…' : 'Create'}
+                {t(creatingProject ? 'Cloning…' : 'Create')}
               </button>
               <button
                 class="min-h-[44px] px-5 rounded-xl border border-white/10 text-[#e8e8ea] active:scale-95 transition-transform"
                 onClick={() => setShowNewProject(false)}
               >
-                Cancel
+                {t('Cancel')}
               </button>
             </div>
           </div>
@@ -4176,13 +4305,13 @@ export default function App() {
               createProject({ name: gitUserName.trim(), email: gitUserEmail.trim() })
             }}
           >
-            <h2 class="text-base font-semibold mb-1">Git user</h2>
+            <h2 class="text-base font-semibold mb-1">{t('Git user')}</h2>
             <p class="text-sm text-[#9a9aaa] mb-4">
-              Git has no user configured. It is saved as your global git identity and signs the commits of every repository.
+              {t('Git has no user configured. It is saved as your global git identity and signs the commits of every repository.')}
             </p>
             <div class="space-y-4">
               <div>
-                <label class="block text-sm text-[#9a9aaa] mb-1.5">Name <span class="text-danger">*</span></label>
+                <label class="block text-sm text-[#9a9aaa] mb-1.5">{t('Name')} <span class="text-danger">*</span></label>
                 <input
                   class="w-full px-3 py-2.5 rounded-xl bg-black/30 border border-white/10 text-[#e8e8ea] focus:outline-none focus:border-accent"
                   value={gitUserName}
@@ -4192,7 +4321,7 @@ export default function App() {
                 />
               </div>
               <div>
-                <label class="block text-sm text-[#9a9aaa] mb-1.5">Email <span class="text-danger">*</span></label>
+                <label class="block text-sm text-[#9a9aaa] mb-1.5">{t('Email')} <span class="text-danger">*</span></label>
                 <input
                   type="email"
                   class="w-full px-3 py-2.5 rounded-xl bg-black/30 border border-white/10 text-[#e8e8ea] focus:outline-none focus:border-accent"
@@ -4208,14 +4337,14 @@ export default function App() {
                 class="flex-1 min-h-[44px] px-5 rounded-xl bg-accent text-white font-semibold active:scale-95 transition-transform disabled:opacity-30 disabled:cursor-not-allowed disabled:saturate-0"
                 disabled={creatingProject || !gitUserName.trim() || !gitUserEmail.includes('@')}
               >
-                {creatingProject ? 'Saving…' : 'Save and create'}
+                {t(creatingProject ? 'Saving…' : 'Save and create')}
               </button>
               <button
                 type="button"
                 class="min-h-[44px] px-5 rounded-xl border border-white/10 text-[#e8e8ea] active:scale-95 transition-transform"
                 onClick={() => setShowGitIdentity(false)}
               >
-                Cancel
+                {t('Cancel')}
               </button>
             </div>
           </form>
@@ -4236,11 +4365,11 @@ export default function App() {
               <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="text-accent">
                 <rect x="2" y="3" width="20" height="14" rx="2" /><line x1="8" y1="21" x2="16" y2="21" /><line x1="12" y1="17" x2="12" y2="21" />
               </svg>
-              <h2 class="text-base font-semibold">Model</h2>
+              <h2 class="text-base font-semibold">{t('Model')}</h2>
               <button
                 class="ml-auto p-1.5 rounded-lg hover:bg-white/5"
                 onClick={discardModelSwitcher}
-                aria-label="Close"
+                aria-label={t('Close')}
               >
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                   <line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" />
@@ -4250,7 +4379,7 @@ export default function App() {
 
             <div class="space-y-4">
               <div>
-                <label class="block text-sm text-[#9a9aaa] mb-1.5">Provider</label>
+                <label class="block text-sm text-[#9a9aaa] mb-1.5">{t('Provider')}</label>
                 <select
                   class="w-full px-3 py-2.5 rounded-xl bg-black/30 border border-white/10 text-[#e8e8ea] focus:outline-none focus:border-accent"
                   value={draftProvider}
@@ -4266,20 +4395,20 @@ export default function App() {
                 >
                   {providers.map(p => (
                     <option key={p.id} value={p.id}>
-                      {p.name}{p.is_current ? ' (active)' : ''}{p.key_present ? '' : ' — no key needed'}
+                      {p.name}{p.is_current ? ' ' + t('(active)') : ''}{p.key_present ? '' : ' — ' + t('no key needed')}
                     </option>
                   ))}
                 </select>
               </div>
 
               <div>
-                <label class="block text-sm text-[#9a9aaa] mb-1.5">Model</label>
+                <label class="block text-sm text-[#9a9aaa] mb-1.5">{t('Model')}</label>
                 {fetchingModels && draftProvider === (config?.provider || '') ? (
                   <div class="flex items-center gap-2 px-3 py-2.5 text-sm text-[#9a9aaa]">
                     <svg class="animate-spin text-accent" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
                       <path d="M21 12a9 9 0 1 1-6.219-8.56" />
                     </svg>
-                    <span>Loading models...</span>
+                    <span>{t('Loading models...')}</span>
                   </div>
                 ) : (
                   <select
@@ -4295,8 +4424,8 @@ export default function App() {
               </div>
 
               <div>
-                <label class="block text-sm text-[#9a9aaa] mb-1.5">Reasoning</label>
-                <div class="reasoning-levels" role="radiogroup" aria-label="Reasoning level">
+                <label class="block text-sm text-[#9a9aaa] mb-1.5">{t('Reasoning')}</label>
+                <div class="reasoning-levels" role="radiogroup" aria-label={t('Reasoning level')}>
                   {REASONING_LEVELS.map(level => (
                     <button
                       key={level}
@@ -4306,7 +4435,7 @@ export default function App() {
                       class={`reasoning-level${draftReasoning === level ? ' is-active' : ''}`}
                       onClick={() => setDraftReasoning(level)}
                     >
-                      {level}
+                      {t(level)}
                     </button>
                   ))}
                 </div>
@@ -4314,7 +4443,7 @@ export default function App() {
 
               {config && (
                 <div class="text-xs text-[#6a6a7a] space-y-1 pt-2 border-t border-white/5">
-                  <div>API key: {config.api_key_present ? '✓ set' : '✗ missing'}</div>
+                  <div>{t('API key')}: {config.api_key_present ? '✓ ' + t('set') : '✗ ' + t('missing')}</div>
                 </div>
               )}
             </div>
@@ -4330,7 +4459,7 @@ export default function App() {
                     <path d="M21 12a9 9 0 1 1-6.219-8.56" />
                   </svg>
                 )}
-                Done
+                {t('Done')}
               </button>
             </div>
           </div>
@@ -4354,18 +4483,18 @@ export default function App() {
                 </svg>
               </div>
               <div class="flex-1 min-w-0">
-                <h2 class="text-base font-semibold">Delete {confirmDelete.type}</h2>
+                <h2 class="text-base font-semibold">{t(confirmDelete.type === 'session' ? 'Delete session' : confirmDelete.type === 'project' ? 'Delete project' : 'Delete skill')}</h2>
                 <p class="text-sm text-[#9a9aaa] truncate">{confirmDelete.title}</p>
               </div>
             </div>
             <p class="text-sm text-[#9a9aaa] mb-5">
-              {confirmDelete.type === 'session'
+              {t(confirmDelete.type === 'session'
                 ? confirmDelete.id === 'default'
                   ? 'This is the default session. Deleting it will clear its history and reset its title, but the session itself will remain.'
                   : 'This conversation will be permanently deleted. This cannot be undone.'
                 : confirmDelete.type === 'skill'
                   ? 'This skill will be permanently deleted, with its usage history. This cannot be undone. A built-in procedure cannot be deleted.'
-                  : 'This project and all its sessions will be permanently deleted. This cannot be undone.'}
+                  : 'This project and all its sessions will be permanently deleted. This cannot be undone.')}
             </p>
 
             {/* What the deletion would DISCARD. The gateway is asked when the modal opens,
@@ -4374,25 +4503,22 @@ export default function App() {
                 list would read as "nothing to lose". */}
             {confirmDelete.type === 'session' && confirmDelete.id !== 'default' && (
               previewLoading ? (
-                <p class="text-xs text-[#9a9aaa] mb-5">Checking what this session is holding…</p>
+                <p class="text-xs text-[#9a9aaa] mb-5">{t('Checking what this session is holding…')}</p>
               ) : deletionPreview?.inspection_failed ? (
                 <div class="mb-5 rounded-xl border border-danger/40 bg-danger/10 p-3">
                   <p class="text-xs text-[#e8e8ea] font-semibold mb-1">
-                    This session's checkout could not be inspected
+                    {t("This session's checkout could not be inspected")}
                   </p>
                   <p class="text-xs text-[#9a9aaa] break-words">{deletionPreview.error}</p>
                   <p class="text-xs text-[#9a9aaa] mt-2">
-                    Its contents cannot be shown. Deleting discards whatever it holds,
-                    uncommitted work included.
+                    {t('Its contents cannot be shown. Deleting discards whatever it holds, uncommitted work included.')}
                   </p>
                 </div>
               ) : deletionPreview && deletionPreview.count > 0 ? (
                 <div class="mb-5 rounded-xl border border-danger/40 bg-danger/10 p-3">
                   <p class="text-xs text-[#e8e8ea] font-semibold mb-2">
-                    {deletionPreview.count === 1
-                      ? '1 uncommitted change will be discarded'
-                      : deletionPreview.count + ' uncommitted changes will be discarded'}
-                    {deletionPreview.branch ? ' in ' + deletionPreview.branch : ''}
+                    {plural(deletionPreview.count, '1 uncommitted change will be discarded', '{n} uncommitted changes will be discarded')}
+                    {deletionPreview.branch ? ' ' + tf('in {branch}', { branch: deletionPreview.branch }) : ''}
                   </p>
                   <ul class="space-y-1 max-h-40 overflow-y-auto">
                     {deletionPreview.changes.map((c) => (
@@ -4405,12 +4531,12 @@ export default function App() {
                     ))}
                   </ul>
                   <p class="text-xs text-[#9a9aaa] mt-2">
-                    These files are not committed anywhere. Deleting the session discards them for good.
+                    {t('These files are not committed anywhere. Deleting the session discards them for good.')}
                   </p>
                 </div>
               ) : deletionPreview?.worktree ? (
                 <p class="text-xs text-[#9a9aaa] mb-5">
-                  The session's checkout is clean, so nothing uncommitted is lost.
+                  {t("The session's checkout is clean, so nothing uncommitted is lost.")}
                 </p>
               ) : null
             )}
@@ -4419,31 +4545,28 @@ export default function App() {
                 by session. This is what "and all its sessions" actually costs. */}
             {confirmDelete.type === 'project' && (
               previewLoading ? (
-                <p class="text-xs text-[#9a9aaa] mb-5">Checking what this project's sessions are holding…</p>
+                <p class="text-xs text-[#9a9aaa] mb-5">{t("Checking what this project's sessions are holding…")}</p>
               ) : deletionPreview?.inspection_failed ? (
                 <div class="mb-5 rounded-xl border border-danger/40 bg-danger/10 p-3">
                   <p class="text-xs text-[#e8e8ea] font-semibold mb-1">
-                    A session's checkout could not be inspected
+                    {t("A session's checkout could not be inspected")}
                   </p>
                   <p class="text-xs text-[#9a9aaa] break-words">{deletionPreview.error}</p>
                   <p class="text-xs text-[#9a9aaa] mt-2">
-                    Its contents cannot be shown. Deleting discards whatever it holds,
-                    uncommitted work included.
+                    {t('Its contents cannot be shown. Deleting discards whatever it holds, uncommitted work included.')}
                   </p>
                 </div>
               ) : deletionPreview && deletionPreview.count > 0 ? (
                 <div class="mb-5 rounded-xl border border-danger/40 bg-danger/10 p-3">
                   <p class="text-xs text-[#e8e8ea] font-semibold mb-2">
-                    {deletionPreview.count === 1
-                      ? '1 uncommitted change will be discarded'
-                      : deletionPreview.count + ' uncommitted changes will be discarded'}
+                    {plural(deletionPreview.count, '1 uncommitted change will be discarded', '{n} uncommitted changes will be discarded')}
                   </p>
                   <div class="space-y-2 max-h-48 overflow-y-auto">
                     {(deletionPreview.sessions || [])
                       .filter((s) => s.changes.length > 0)
                       .map((s) => (
                         <div>
-                          <p class="text-xs text-[#9a9aaa] truncate">{s.title || s.id}</p>
+                          <p class="text-xs text-[#9a9aaa] truncate">{s.title === 'New session' ? t('New session') : (s.title || s.id)}</p>
                           <ul class="space-y-1 mt-1">
                             {s.changes.map((c) => (
                               <li class="flex items-start gap-2 text-xs pl-2">
@@ -4458,13 +4581,12 @@ export default function App() {
                       ))}
                   </div>
                   <p class="text-xs text-[#9a9aaa] mt-2">
-                    These files are not committed anywhere. Deleting the project discards them for good.
+                    {t('These files are not committed anywhere. Deleting the project discards them for good.')}
                   </p>
                 </div>
               ) : deletionPreview ? (
                 <p class="text-xs text-[#9a9aaa] mb-5">
-                  No session holds uncommitted changes, so nothing uncommitted is lost. The
-                  project's own checkout is not touched.
+                  {t("No session holds uncommitted changes, so nothing uncommitted is lost. The project's own checkout is not touched.")}
                 </p>
               ) : null
             )}
@@ -4503,18 +4625,18 @@ export default function App() {
                   // being idle.
                   <span class="state-working inline-block" aria-hidden="true" />
                 )}
-                {deleting
+                {t(deleting
                   ? 'Deleting…'
                   : deletionPreview && (deletionPreview.count > 0 || deletionPreview.inspection_failed)
                     ? 'Discard and delete'
-                    : 'Delete'}
+                    : 'Delete')}
               </button>
               <button
                 class="min-h-[44px] px-5 rounded-xl border border-white/10 text-[#e8e8ea] active:scale-95 transition-transform disabled:opacity-50 disabled:cursor-not-allowed"
                 disabled={deleting}
                 onClick={() => setConfirmDelete(null)}
               >
-                Cancel
+                {t('Cancel')}
               </button>
             </div>
           </div>
@@ -4549,7 +4671,7 @@ export default function App() {
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                 <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" /><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
               </svg>
-              Rename
+              {t('Rename')}
             </button>
             <button
               class="w-full flex items-center gap-2 px-4 py-2.5 text-sm text-danger hover:bg-danger/10 transition-colors"
@@ -4561,7 +4683,7 @@ export default function App() {
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                 <polyline points="3 6 5 6 21 6" /><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
               </svg>
-              Delete
+              {t('Delete')}
             </button>
           </div>
         </div>
@@ -4593,7 +4715,7 @@ export default function App() {
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="text-[#edc06a] flex-none mt-0.5">
               <path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" /><line x1="12" y1="9" x2="12" y2="13" /><line x1="12" y1="17" x2="12.01" y2="17" />
             </svg>
-          ) : updateInfo?.update_available && toast.message.includes('New version') ? (
+          ) : updateInfo?.update_available && toast.update ? (
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="text-accent flex-none mt-0.5 animate-pulse">
               <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" /><polyline points="7 10 12 15 17 10" /><line x1="12" y1="15" x2="12" y2="3" />
             </svg>
@@ -4617,7 +4739,7 @@ export default function App() {
                   class="text-[11px] text-[#6a6a7a] hover:text-[#9a9aaa] underline decoration-dotted"
                   onClick={(e) => { e.stopPropagation(); setToastDetailsOpen(v => !v) }}
                 >
-                  {toastDetailsOpen ? 'Hide details' : 'Details'}
+                  {t(toastDetailsOpen ? 'Hide details' : 'Details')}
                 </button>
                 {toastDetailsOpen && (
                   <pre class="mt-1.5 text-[11px] text-[#8a8a9a] font-mono bg-black/30 rounded-lg p-2 overflow-x-auto whitespace-pre-wrap break-words max-h-32 overflow-y-auto">
@@ -4626,12 +4748,12 @@ export default function App() {
                 )}
               </div>
             )}
-            {updateInfo?.update_available && toast.message.includes('New version') && (
+            {updateInfo?.update_available && toast.update && (
               <button
                 class="mt-2 text-xs font-semibold text-accent hover:underline"
                 onClick={(e) => { e.stopPropagation(); setShowUpgrade(true) }}
               >
-                Upgrade now
+                {t('Upgrade now')}
               </button>
             )}
           </div>
@@ -4641,13 +4763,13 @@ export default function App() {
               e.stopPropagation()
               // A version toast is remembered as dismissed, so it does not
               // come back on the next poll; any other toast just goes away.
-              if (updateInfo?.update_available && toast.message.includes('New version')) {
+              if (updateInfo?.update_available && toast.update) {
                 dismissUpgradeToast()
               } else {
                 setToast(null)
               }
             }}
-            aria-label="Dismiss"
+            aria-label={t('Dismiss')}
           >
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
               <line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" />
@@ -4673,12 +4795,12 @@ export default function App() {
               <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="text-accent">
                 <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" /><polyline points="7 10 12 15 17 10" /><line x1="12" y1="15" x2="12" y2="3" />
               </svg>
-              <h2 class="text-base font-semibold">Upgrade Motita</h2>
+              <h2 class="text-base font-semibold">{t('Upgrade Motita')}</h2>
               <button
                 class="ml-auto p-1.5 rounded-lg hover:bg-white/5"
                 onClick={() => { if (!upgradeBusy) setShowUpgrade(false) }}
                 disabled={upgradeBusy}
-                aria-label="Close"
+                aria-label={t('Close')}
                 style={upgradeBusy ? 'opacity:0.3;cursor:not-allowed' : ''}
               >
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -4693,24 +4815,23 @@ export default function App() {
                 <div class="space-y-3">
                   <div class="flex items-center justify-between p-3 rounded-xl bg-black/20 border border-white/5">
                     <div>
-                      <div class="text-xs text-[#6a6a7a] mb-0.5">Current version</div>
-                      <div class="font-mono text-sm text-[#e8e8ea]">{updateInfo?.current_version || 'unknown'}</div>
+                      <div class="text-xs text-[#6a6a7a] mb-0.5">{t('Current version')}</div>
+                      <div class="font-mono text-sm text-[#e8e8ea]">{updateInfo?.current_version || t('unknown')}</div>
                     </div>
                     <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="text-[#6a6a7a]">
                       <line x1="5" y1="12" x2="19" y2="12" /><polyline points="12 5 19 12 12 19" />
                     </svg>
                     <div class="text-right">
-                      <div class="text-xs text-[#6a6a7a] mb-0.5">Latest version</div>
-                      <div class="font-mono text-sm text-accent">{updateInfo?.latest_version || 'unknown'}</div>
+                      <div class="text-xs text-[#6a6a7a] mb-0.5">{t('Latest version')}</div>
+                      <div class="font-mono text-sm text-accent">{updateInfo?.latest_version || t('unknown')}</div>
                     </div>
                   </div>
                   {updateInfo?.release_name && (
                     <div class="text-sm text-[#9a9aaa]">{updateInfo.release_name}</div>
                   )}
                   <p class="text-sm text-[#9a9aaa] leading-relaxed">
-                    This will download the new binary from GitHub, verify its checksum, replace the
-                    current executable, and <strong class="text-[#e8e8ea]">restart the gateway</strong>.
-                    Any running tasks will be interrupted.
+                    {t('This will download the new binary from GitHub, verify its checksum, replace the current executable, and')} <strong class="text-[#e8e8ea]">{t('restart the gateway')}</strong>.
+                    {' '}{t('Any running tasks will be interrupted.')}
                   </p>
                   {updateInfo?.release_url && (
                     <a
@@ -4719,7 +4840,7 @@ export default function App() {
                       rel="noopener noreferrer"
                       class="text-xs text-accent hover:underline"
                     >
-                      View release notes ↗
+                      {t('View release notes')} ↗
                     </a>
                   )}
                 </div>
@@ -4731,13 +4852,13 @@ export default function App() {
                     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                       <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" /><polyline points="7 10 12 15 17 10" /><line x1="12" y1="15" x2="12" y2="3" />
                     </svg>
-                    Download &amp; Install
+                    {t('Download & Install')}
                   </button>
                   <button
                     class="min-h-[44px] px-5 rounded-xl border border-white/10 text-[#e8e8ea] active:scale-95 transition-transform"
                     onClick={() => setShowUpgrade(false)}
                   >
-                    Cancel
+                    {t('Cancel')}
                   </button>
                 </div>
               </>
@@ -4768,11 +4889,11 @@ export default function App() {
                     <div class="flex justify-between mt-1.5">
                       <span class="text-xs text-[#9a9aaa]">
                         {upgradeProgress.stage === 'restarting'
-                          ? 'Restarting…'
+                          ? t('Restarting…')
                           : upgradeProgress.stage === 'done'
-                          ? 'Complete'
+                          ? t('Complete')
                           : upgradeProgress.stage === 'error'
-                          ? 'Failed'
+                          ? t('Failed')
                           : `${upgradeProgress.percent || 0}%`}
                       </span>
                       <span class="text-xs font-mono text-[#6a6a7a]">
@@ -4799,7 +4920,7 @@ export default function App() {
                       </svg>
                     )}
                     <span class={upgradeProgress.stage === 'error' ? 'text-danger' : 'text-[#e8e8ea]'}>
-                      {upgradeProgress.message}
+                      {upgradeMessage(upgradeProgress.message)}
                     </span>
                   </div>
 
@@ -4814,15 +4935,15 @@ export default function App() {
                           <circle cx="12" cy="12" r="10" /><line x1="12" y1="8" x2="12" y2="12" /><line x1="12" y1="16" x2="12.01" y2="16" />
                         </svg>
                         <div class="flex-1 min-w-0">
-                          <p class="text-sm font-medium text-danger">The upgrade did not finish</p>
+                          <p class="text-sm font-medium text-danger">{t('The upgrade did not finish')}</p>
                           <p class="text-xs text-[#9a9aaa] mt-1 leading-relaxed">
-                            The gateway is still running the version it had before. Nothing was replaced, so you can keep using it and try again.
+                            {t('The gateway is still running the version it had before. Nothing was replaced, so you can keep using it and try again.')}
                           </p>
                           <button
                             class="text-xs text-[#6a6a7a] hover:text-[#9a9aaa] mt-1.5 underline underline-offset-2"
                             onClick={() => setShowUpgradeError(v => !v)}
                           >
-                            {showUpgradeError ? 'Hide details' : 'Details'}
+                            {t(showUpgradeError ? 'Hide details' : 'Details')}
                           </button>
                           {showUpgradeError && (
                             <pre class="text-xs text-danger whitespace-pre-wrap font-mono mt-2 p-2 rounded-lg bg-black/40">{upgradeError}</pre>
@@ -4835,13 +4956,12 @@ export default function App() {
                   {/* Restarting note */}
                   {upgradeProgress.stage === 'restarting' && (
                     <p class="text-xs text-[#6a6a7a] leading-relaxed">
-                      The gateway is restarting. This page will reload automatically once it is back.
+                      {t('The gateway is restarting. This page will reload automatically once it is back.')}
                     </p>
                   )}
                   {upgradeProgress.stage === 'done' && (
                     <p class="text-xs text-[#6a6a7a] leading-relaxed">
-                      The upgrade is complete and the gateway is restarting. This page will reload
-                      automatically in a moment.
+                      {t('The upgrade is complete and the gateway is restarting. This page will reload automatically in a moment.')}
                     </p>
                   )}
                 </div>
@@ -4858,7 +4978,7 @@ export default function App() {
                         setShowUpgradeError(false)
                       }}
                     >
-                      {upgradeProgress.stage === 'error' ? 'Close' : 'Done'}
+                      {t(upgradeProgress.stage === 'error' ? 'Close' : 'Done')}
                     </button>
                   </div>
                 )}
@@ -4881,23 +5001,23 @@ export default function App() {
               <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="text-accent">
                 <path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z" /><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z" />
               </svg>
-              <h2 class="text-base font-semibold">{skillOpen ? (skillOpen.title || skillOpen.name) : 'Skill library'}</h2>
+              <h2 class="text-base font-semibold">{skillOpen ? (skillOpen.title || skillOpen.name) : t('Skill library')}</h2>
               {skillOpen && (
                 <button
                   class="ml-1 px-2.5 py-1 rounded-lg border border-white/10 text-xs text-[#9a9aaa] hover:text-[#e8e8ea] active:scale-95 transition-transform"
                   onClick={() => pinSkill(skillOpen.name, !skillOpen.pinned)}
-                  title={skillOpen.pinned ? 'The curator will leave this alone' : 'Exempt this from every automatic transition'}
+                  title={t(skillOpen.pinned ? 'The curator will leave this alone' : 'Exempt this from every automatic transition')}
                 >
-                  {skillOpen.pinned ? 'Unpin' : 'Pin'}
+                  {t(skillOpen.pinned ? 'Unpin' : 'Pin')}
                 </button>
               )}
               {skillOpen && (
                 <button
                   class="ml-1 px-2.5 py-1 rounded-lg border border-white/10 text-xs text-[#9a9aaa] hover:text-[#e8e8ea] active:scale-95 transition-transform"
                   onClick={() => disableSkill(skillOpen.name, !skillOpen.disabled)}
-                  title={skillOpen.disabled ? 'The agent will see this again' : 'The agent stops seeing this in its index and its search'}
+                  title={t(skillOpen.disabled ? 'The agent will see this again' : 'The agent stops seeing this in its index and its search')}
                 >
-                  {skillOpen.disabled ? 'Turn on' : 'Turn off'}
+                  {t(skillOpen.disabled ? 'Turn on' : 'Turn off')}
                 </button>
               )}
               {skillOpen && (
@@ -4905,13 +5025,13 @@ export default function App() {
                   class="ml-1 px-2.5 py-1 rounded-lg border border-danger/30 text-xs text-danger hover:border-danger/60 active:scale-95 transition-transform"
                   onClick={() => setConfirmDelete({ type: 'skill', id: skillOpen.name, title: skillOpen.title || skillOpen.name })}
                 >
-                  Delete
+                  {t('Delete')}
                 </button>
               )}
               <button
                 class="ml-auto p-1.5 rounded-lg hover:bg-white/5"
                 onClick={() => setShowSkillLibrary(false)}
-                aria-label="Close"
+                aria-label={t('Close')}
               >
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                   <line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" />
@@ -4923,11 +5043,11 @@ export default function App() {
               <div>
                 <div class="flex items-center gap-2 mb-3 text-xs text-[#6a6a7a]">
                   <span class="font-mono">{skillOpen.name}</span>
-                  {skillOpen.created_by === 'agent' && <span class="skill-tag">agent</span>}
-                  {skillOpen.state === 'stale' && <span class="skill-tag skill-tag-warn">stale</span>}
-                  {skillOpen.pinned && <span class="skill-tag skill-tag-accent">pinned</span>}
-                  {skillOpen.disabled && <span class="skill-tag skill-tag-off">off</span>}
-                  <span>used {skillOpen.use_count}×</span>
+                  {skillOpen.created_by === 'agent' && <span class="skill-tag">{t('agent')}</span>}
+                  {skillOpen.state === 'stale' && <span class="skill-tag skill-tag-warn">{t('stale')}</span>}
+                  {skillOpen.pinned && <span class="skill-tag skill-tag-accent">{t('pinned')}</span>}
+                  {skillOpen.disabled && <span class="skill-tag skill-tag-off">{tc('skill', 'off')}</span>}
+                  <span>{tf('used {n}×', { n: skillOpen.use_count })}</span>
                 </div>
                 <div class="skill-body rounded-xl border border-white/5 p-3">
                   <Markdown content={skillBody} />
@@ -4937,13 +5057,13 @@ export default function App() {
                     class="flex-1 min-h-[44px] px-5 rounded-xl border border-white/10 text-[#e8e8ea] active:scale-95 transition-transform"
                     onClick={() => setSkillOpen(null)}
                   >
-                    Back to the list
+                    {t('Back to the list')}
                   </button>
                   <button
                     class="min-h-[44px] px-5 rounded-xl border border-white/10 text-[#e8e8ea] active:scale-95 transition-transform"
                     onClick={() => setShowSkillLibrary(false)}
                   >
-                    Close
+                    {t('Close')}
                   </button>
                 </div>
               </div>
@@ -4953,17 +5073,17 @@ export default function App() {
                   type="text"
                   value={skillQuery}
                   onInput={(e) => setSkillQuery((e.target as HTMLInputElement).value)}
-                  placeholder="Filter by name, title or what it is for"
+                  placeholder={t('Filter by name, title or what it is for')}
                   class="w-full mb-3 px-3 py-2.5 rounded-xl bg-black/30 border border-white/10 text-sm text-[#e8e8ea] placeholder:text-[#5a5a68] focus:outline-none focus:border-accent/50"
                 />
 
                 {skillsBusy ? (
-                  <p class="text-sm text-[#9a9aaa] py-8 text-center">Loading the library…</p>
+                  <p class="text-sm text-[#9a9aaa] py-8 text-center">{t('Loading the library…')}</p>
                 ) : filteredSkills.length === 0 ? (
                   <p class="text-sm text-[#9a9aaa] py-8 text-center">
                     {skillQueryNorm !== ''
-                      ? `Nothing matches “${skillQuery.trim()}”.`
-                      : 'No skills yet. The agent writes one when it works something out.'}
+                      ? tf('Nothing matches “{q}”.', { q: skillQuery.trim() })
+                      : t('No skills yet. The agent writes one when it works something out.')}
                   </p>
                 ) : (
                   <ul class="space-y-1.5">
@@ -4975,11 +5095,11 @@ export default function App() {
                         >
                           <div class="flex items-center gap-2">
                             <span class="text-sm font-medium text-[#e8e8ea] truncate">{s.title || s.name}</span>
-                            {s.created_by === 'agent' && <span class="skill-tag">agent</span>}
-                            {s.state === 'stale' && <span class="skill-tag skill-tag-warn">stale</span>}
-                            {s.pinned && <span class="skill-tag skill-tag-accent">pinned</span>}
-                            {s.disabled && <span class="skill-tag skill-tag-off">off</span>}
-                            <span class="ml-auto text-xs text-[#6a6a7a] shrink-0">used {s.use_count}×</span>
+                            {s.created_by === 'agent' && <span class="skill-tag">{t('agent')}</span>}
+                            {s.state === 'stale' && <span class="skill-tag skill-tag-warn">{t('stale')}</span>}
+                            {s.pinned && <span class="skill-tag skill-tag-accent">{t('pinned')}</span>}
+                            {s.disabled && <span class="skill-tag skill-tag-off">{tc('skill', 'off')}</span>}
+                            <span class="ml-auto text-xs text-[#6a6a7a] shrink-0">{tf('used {n}×', { n: s.use_count })}</span>
                           </div>
                           {s.summary && (
                             <p class="text-xs text-[#9a9aaa] mt-0.5 truncate">{s.summary}</p>
@@ -4988,9 +5108,9 @@ export default function App() {
                         <button
                           class="px-2.5 py-1 rounded-lg border border-white/10 text-xs text-[#9a9aaa] hover:text-[#e8e8ea] shrink-0"
                           onClick={() => disableSkill(s.name, !s.disabled)}
-                          title={s.disabled ? 'The agent will see this again' : 'The agent stops seeing this in its index and its search'}
+                          title={t(s.disabled ? 'The agent will see this again' : 'The agent stops seeing this in its index and its search')}
                         >
-                          {s.disabled ? 'on' : 'off'}
+                          {tc('skill-toggle', s.disabled ? 'on' : 'off')}
                         </button>
                       </li>
                     ))}
@@ -4999,7 +5119,7 @@ export default function App() {
 
                 {archivedSkills.length > 0 && (
                   <div class="mt-5 pt-4 border-t border-white/5">
-                    <h3 class="text-xs uppercase tracking-wide text-[#6a6a7a] mb-2">Archived</h3>
+                    <h3 class="text-xs uppercase tracking-wide text-[#6a6a7a] mb-2">{t('Archived')}</h3>
                     <ul class="space-y-1.5">
                       {archivedSkills.map((name) => (
                         <li key={name} class="flex items-center gap-2 px-3 py-2 rounded-xl border border-white/5">
@@ -5008,7 +5128,7 @@ export default function App() {
                             class="ml-auto px-2.5 py-1 rounded-lg border border-white/10 text-xs text-[#e8e8ea] hover:border-accent/40 active:scale-95 transition-transform shrink-0"
                             onClick={() => restoreSkill(name)}
                           >
-                            Restore
+                            {t('Restore')}
                           </button>
                         </li>
                       ))}
@@ -5021,7 +5141,7 @@ export default function App() {
                     class="flex-1 min-h-[44px] px-5 rounded-xl border border-white/10 text-[#e8e8ea] active:scale-95 transition-transform"
                     onClick={() => setShowSkillLibrary(false)}
                   >
-                    Close
+                    {t('Close')}
                   </button>
                 </div>
               </div>
@@ -5043,11 +5163,11 @@ export default function App() {
               <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="text-accent">
                 <circle cx="12" cy="12" r="10" /><polyline points="12 6 12 12 16 14" />
               </svg>
-              <h2 class="text-base font-semibold">Scheduled tasks</h2>
+              <h2 class="text-base font-semibold">{t('Scheduled tasks')}</h2>
               <button
                 class="ml-auto p-1.5 rounded-lg hover:bg-white/5"
                 onClick={() => setShowScheduledTasks(false)}
-                aria-label="Close"
+                aria-label={t('Close')}
               >
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                   <line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" />
@@ -5066,23 +5186,23 @@ export default function App() {
                   last outcome a user cannot see is a task they cannot trust, so both
                   are on the row and neither is behind a click. */}
               <div class="tasks-list-column">
-                <p class="tasks-heading">Scheduled ({scheduledTasks.length})</p>
+                <p class="tasks-heading">{tf('Scheduled ({n})', { n: scheduledTasks.length })}</p>
                 <div class="tasks-list space-y-2 max-h-[45vh] overflow-y-auto">
                   {scheduledTasks.length === 0 && (
                     <p class="text-sm text-[#9a9aaa]">
-                      No scheduled tasks yet. One created here fires into the conversation you are in.
+                      {t('No scheduled tasks yet. One created here fires into the conversation you are in.')}
                     </p>
                   )}
-                  {scheduledTasks.map((t) => {
-                    const cd = taskCountdown(t, nowMs, clockSkew)
+                  {scheduledTasks.map((task) => {
+                    const cd = taskCountdown(task, nowMs, clockSkew)
                     return (
-                      <div key={t.id} class="rounded-xl border border-white/10 p-3">
+                      <div key={task.id} class="rounded-xl border border-white/10 p-3">
                         <div class="flex items-center gap-2">
-                          <span class="flex-1 text-sm text-[#e8e8ea] truncate">{t.title}</span>
+                          <span class="flex-1 text-sm text-[#e8e8ea] truncate">{task.title}</span>
                           {/* The cadence stays visible, but as a TAG: what a person
                               wants off a row is when it fires NEXT, and `every` is
                               the setting they typed when they created it. */}
-                          <span class="task-tag">every {durationOf(t.every).short}</span>
+                          <span class="task-tag">{tf('every {d}', { d: durationOf(task.every).short })}</span>
                         </div>
                         {/* The countdown is the row's headline figure: the tag says what
                             the task is SET to, this says how long is left. A paused task
@@ -5090,36 +5210,36 @@ export default function App() {
                             task that will not fire would be a lie with a pulse. */}
                         {cd && (
                           <p class="text-xs text-[#9a9aaa] mt-1.5">
-                            {cd.overdue ? 'due now' : 'fires in '}
+                            {cd.overdue ? t('due now') : t('fires in') + ' '}
                             {!cd.overdue && <span class="task-countdown">{cd.text}</span>}
                           </p>
                         )}
-                        {!t.enabled && (
+                        {!task.enabled && (
                           <p class="text-xs text-[#9a9aaa] mt-1.5">
-                            Paused — last {new Date(t.last_run || t.created).toLocaleString()}
+                            {tf('Paused — last {when}', { when: new Date(task.last_run || task.created).toLocaleString() })}
                           </p>
                         )}
-                        {t.last_outcome && (
-                          <p class="text-xs text-[#6a6a7a] mt-1 break-words">{t.last_outcome}</p>
+                        {task.last_outcome && (
+                          <p class="text-xs text-[#6a6a7a] mt-1 break-words">{task.last_outcome}</p>
                         )}
                         <div class="flex gap-2 mt-2">
                           <button
                             class="min-h-[44px] px-3 rounded-lg border border-white/10 text-xs text-[#e8e8ea] active:scale-95 transition-transform"
-                            onClick={() => void runScheduleNow(t)}
+                            onClick={() => void runScheduleNow(task)}
                           >
-                            Run now
+                            {t('Run now')}
                           </button>
                           <button
                             class="min-h-[44px] px-3 rounded-lg border border-white/10 text-xs text-[#e8e8ea] active:scale-95 transition-transform"
-                            onClick={() => void toggleSchedule(t)}
+                            onClick={() => void toggleSchedule(task)}
                           >
-                            {t.enabled ? 'Pause' : 'Resume'}
+                            {t(task.enabled ? 'Pause' : 'Resume')}
                           </button>
                           <button
                             class="min-h-[44px] px-3 rounded-lg border border-danger/30 text-xs text-danger active:scale-95 transition-transform ml-auto"
-                            onClick={() => void deleteSchedule(t)}
+                            onClick={() => void deleteSchedule(task)}
                           >
-                            Delete
+                            {t('Delete')}
                           </button>
                         </div>
                       </div>
@@ -5132,17 +5252,17 @@ export default function App() {
                   and says what is wrong: a fixed dropdown would be a second copy of the
                   rule. */}
               <div class="tasks-form pt-4 border-t border-white/10 space-y-2">
-                <p class="tasks-heading">New task</p>
+                <p class="tasks-heading">{t('New task')}</p>
                 <input
                   class="w-full px-3 py-2 rounded-lg bg-black/30 border border-white/10 text-sm text-[#e8e8ea]"
-                  placeholder="Title"
+                  placeholder={t('Title')}
                   value={newTaskTitle}
                   onInput={(e) => setNewTaskTitle((e.target as HTMLInputElement).value)}
                 />
                 <textarea
                   class="w-full px-3 py-2 rounded-lg bg-black/30 border border-white/10 text-sm text-[#e8e8ea] resize-none"
                   rows={3}
-                  placeholder="What should it do?"
+                  placeholder={t('What should it do?')}
                   value={newTaskText}
                   onInput={(e) => setNewTaskText((e.target as HTMLTextAreaElement).value)}
                 />
@@ -5164,8 +5284,8 @@ export default function App() {
                     value={newTaskKind}
                     onChange={(e) => setNewTaskKind((e.target as HTMLSelectElement).value as 'task' | 'plan')}
                   >
-                    <option value="task">Task</option>
-                    <option value="plan">Plan (read-only)</option>
+                    <option value="task">{t('Task')}</option>
+                    <option value="plan">{t('Plan (read-only)')}</option>
                   </select>
                 </div>
                 <button
@@ -5173,7 +5293,7 @@ export default function App() {
                   disabled={scheduledBusy || !newTaskTitle.trim() || !newTaskText.trim()}
                   onClick={() => void createSchedule()}
                 >
-                  {scheduledBusy ? 'Creating…' : 'Create'}
+                  {t(scheduledBusy ? 'Creating…' : 'Create')}
                 </button>
               </div>
             </div>
@@ -5183,7 +5303,7 @@ export default function App() {
                 class="flex-1 min-h-[44px] px-5 rounded-xl border border-white/10 text-[#e8e8ea] active:scale-95 transition-transform"
                 onClick={() => setShowScheduledTasks(false)}
               >
-                Close
+                {t('Close')}
               </button>
             </div>
           </div>

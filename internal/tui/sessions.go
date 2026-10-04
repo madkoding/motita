@@ -125,7 +125,7 @@ func (t *TUI) AttachTo(ctx context.Context, id string) error { return t.attachTo
 func (t *TUI) attachTo(ctx context.Context, id string) error {
 	sw, ok := t.Runner.(SessionSwitcher)
 	if !ok {
-		return errors.New("this interface is not attached to a gateway that holds several sessions")
+		return errors.New(t.tr("this interface is not attached to a gateway that holds several sessions"))
 	}
 	if err := sw.SwitchSession(ctx, id); err != nil {
 		return err
@@ -133,7 +133,7 @@ func (t *TUI) attachTo(ctx context.Context, id string) error {
 
 	turns, err := sw.Conversation(ctx)
 	if err != nil {
-		return fmt.Errorf("attached to session %s, but its conversation could not be read: %w", id, err)
+		return fmt.Errorf(t.tr("attached to session %s, but its conversation could not be read: %w"), id, err)
 	}
 
 	// The view is REPLACED rather than appended: the lines on screen belong to the conversation
@@ -154,9 +154,9 @@ func (t *TUI) attachTo(ctx context.Context, id string) error {
 	if len(turns) == 0 {
 		// An empty screen is ambiguous - a conversation with no turns and a view that never
 		// loaded look identical - and one line removes the ambiguity.
-		t.addMessage(AuthorSystem, "attached to session "+id+", which has no turns yet.")
+		t.addMessage(AuthorSystem, t.trf("attached to session %s, which has no turns yet.", id))
 	} else {
-		t.addMessage(AuthorSystem, "attached to session "+id+". "+turnCount(len(turns)))
+		t.addMessage(AuthorSystem, t.trf("attached to session %s.", id)+" "+t.turnCount(len(turns)))
 	}
 
 	t.followRunIfAny(ctx)
@@ -194,7 +194,7 @@ func (t *TUI) followRunIfAny(ctx context.Context) {
 	case err != nil:
 		// A gateway that cannot answer is worth saying out loud, and it is not a reason to undo the
 		// attach: the user is in the conversation and can read it.
-		t.addMessage(AuthorSystem, "the gateway could not be asked whether a turn is in flight: "+err.Error())
+		t.addMessage(AuthorSystem, t.trf("the gateway could not be asked whether a turn is in flight: %s", err.Error()))
 	case running:
 		go t.followLiveRun(ctx, rc, live)
 	}
@@ -257,11 +257,11 @@ func (t *TUI) followLiveRun(ctx context.Context, rc RunController, live LiveRun)
 	case errors.Is(outcome.err, context.Canceled):
 		text = "cancelled."
 	case outcome.err != nil:
-		text = fmt.Sprintf("the turn could not be followed: %v", outcome.err)
+		text = t.trf("the turn could not be followed: %v", outcome.err)
 	case outcome.result != "":
 		text = outcome.result
 	default:
-		text = "the turn finished."
+		text = t.tr("the turn finished.")
 	}
 	t.addMessage(AuthorAgent, text)
 	t.endTurn()
@@ -301,11 +301,11 @@ func (t *TUI) addProgress(text string) {
 
 // turnCount describes how much was read back, so the user can tell a conversation with three turns
 // from one with thirty before scrolling.
-func turnCount(n int) string {
+func (t *TUI) turnCount(n int) string {
 	if n == 1 {
-		return "1 turn in the conversation."
+		return t.tr("1 turn in the conversation.")
 	}
-	return fmt.Sprintf("%d turns in the conversation.", n)
+	return t.trf("%d turns in the conversation.", n)
 }
 
 // resetView clears what is on screen because the CONVERSATION changed underneath it.
@@ -360,14 +360,14 @@ func (t *TUI) printSessions(ctx context.Context) {
 func (t *TUI) sessionsText(ctx context.Context) (string, error) {
 	sw, ok := t.Runner.(SessionSwitcher)
 	if !ok {
-		return "", errors.New("this interface is not attached to a gateway that holds several sessions")
+		return "", errors.New(t.tr("this interface is not attached to a gateway that holds several sessions"))
 	}
 	all, err := sw.ListSessions(ctx)
 	if err != nil {
-		return "", fmt.Errorf("the gateway could not be asked which sessions it holds: %w", err)
+		return "", fmt.Errorf(t.tr("the gateway could not be asked which sessions it holds: %w"), err)
 	}
 	if len(all) == 0 {
-		return "", errors.New("the gateway reports no sessions, which should not be possible")
+		return "", errors.New(t.tr("the gateway reports no sessions, which should not be possible"))
 	}
 
 	// Sorted here rather than by the gateway: the ordering rule is a property of how THIS interface
@@ -383,7 +383,7 @@ func (t *TUI) sessionsText(ctx context.Context) (string, error) {
 	})
 
 	var b strings.Builder
-	b.WriteString("sessions (most recent first):\n")
+	b.WriteString(t.tr("sessions (most recent first):") + "\n")
 	now := time.Now()
 	for _, s := range all {
 		marker := "  "
@@ -395,16 +395,16 @@ func (t *TUI) sessionsText(ctx context.Context) (string, error) {
 		var detail string
 		switch {
 		case s.Running:
-			detail = "  (a run is in flight)"
+			detail = "  " + t.tr("(a run is in flight)")
 		case !s.LastUsed.IsZero():
-			detail = "  (last used " + humanSince(now.Sub(s.LastUsed)) + ")"
+			detail = "  " + t.trf("(last used %s)", t.humanSince(now.Sub(s.LastUsed)))
 		}
 		if s.Branch != "" {
 			detail += "  [" + s.Branch + "]"
 		}
 		fmt.Fprintf(&b, "%s%s%s\n", marker, s.ID, detail)
 	}
-	b.WriteString("\n/attach <id> to go back to one.")
+	b.WriteString("\n" + t.tr("/attach <id> to go back to one."))
 	return b.String(), nil
 }
 
@@ -412,15 +412,15 @@ func (t *TUI) sessionsText(ctx context.Context) (string, error) {
 //
 // It is coarse on purpose: "2 hours ago" is what the user needs to pick a conversation, and a
 // timestamp to the second is a number they have to subtract from the current time themselves.
-func humanSince(d time.Duration) string {
+func (t *TUI) humanSince(d time.Duration) string {
 	switch {
 	case d < time.Minute:
-		return "just now"
+		return t.tr("just now")
 	case d < time.Hour:
-		return fmt.Sprintf("%dm ago", int(d.Minutes()))
+		return t.trf("%dm ago", int(d.Minutes()))
 	case d < 24*time.Hour:
-		return fmt.Sprintf("%dh ago", int(d.Hours()))
+		return t.trf("%dh ago", int(d.Hours()))
 	default:
-		return fmt.Sprintf("%dd ago", int(d.Hours()/24))
+		return t.trf("%dd ago", int(d.Hours()/24))
 	}
 }
