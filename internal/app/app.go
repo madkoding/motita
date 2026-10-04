@@ -1079,12 +1079,13 @@ func SandboxOptions(cfg config.Config, log *logx.Logger) sandbox.Options {
 			OpenFiles:     cfg.Sandbox.OpenFiles,
 			MaxFileSizeMB: cfg.Sandbox.MaxFileSizeMB,
 		},
-		CgroupRoot:  cfg.Sandbox.CgroupRoot,
-		Timeout:     cfg.Sandbox.Timeout,
-		MaxOutputKB: cfg.Sandbox.MaxOutputKB,
-		Keep:        cfg.Sandbox.KeepEphemeral,
-		ToolsDir:    cfg.Sandbox.ToolsDir,
-		Log:         log,
+		CgroupRoot:    cfg.Sandbox.CgroupRoot,
+		Timeout:       cfg.Sandbox.Timeout,
+		MaxOutputKB:   cfg.Sandbox.MaxOutputKB,
+		Keep:          cfg.Sandbox.KeepEphemeral,
+		ToolsDir:      cfg.Sandbox.ToolsDir,
+		ConfineWrites: cfg.Sandbox.ConfineWrites,
+		Log:           log,
 	}
 
 	switch cfg.Sandbox.Kind {

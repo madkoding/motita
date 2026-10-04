@@ -360,12 +360,13 @@ func (r *AppRunner) SetWorkspace(dir string) {
 			OpenFiles:     r.Cfg.Sandbox.OpenFiles,
 			MaxFileSizeMB: r.Cfg.Sandbox.MaxFileSizeMB,
 		},
-		CgroupRoot:  r.Cfg.Sandbox.CgroupRoot,
-		Timeout:     r.Cfg.Sandbox.Timeout,
-		MaxOutputKB: r.Cfg.Sandbox.MaxOutputKB,
-		Keep:        r.Cfg.Sandbox.KeepEphemeral,
-		ToolsDir:    r.Cfg.Sandbox.ToolsDir,
-		Log:         r.Log,
+		CgroupRoot:    r.Cfg.Sandbox.CgroupRoot,
+		Timeout:       r.Cfg.Sandbox.Timeout,
+		MaxOutputKB:   r.Cfg.Sandbox.MaxOutputKB,
+		Keep:          r.Cfg.Sandbox.KeepEphemeral,
+		ToolsDir:      r.Cfg.Sandbox.ToolsDir,
+		ConfineWrites: r.Cfg.Sandbox.ConfineWrites,
+		Log:           r.Log,
 	}
 	switch r.Cfg.Sandbox.Kind {
 	case "none":

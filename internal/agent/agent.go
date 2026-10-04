@@ -240,6 +240,8 @@ func (a *Agent) RunCommand(ctx context.Context, command string) (string, int, er
 			return "[not approved: the user declined]\n", 1,
 				fmt.Errorf("the user declined to run: %s", command)
 		}
+		// A person said yes to this line by name, including to where it writes.
+		p.Request.Unconfined = true
 	}
 	output, _, exit, err := a.exec(ctx, p.Request)
 	return output, exit, err
@@ -2495,6 +2497,7 @@ func (a *Agent) runRound(ctx context.Context, actions []Command, prefix string, 
 				continue
 			}
 			a.log.Info(prefix+"action approved by the user", "command", action.Command)
+			plan.Request.Unconfined = true
 		}
 
 		output, truncated, exit, err := a.exec(ctx, plan.Request)

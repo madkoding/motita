@@ -673,3 +673,15 @@ func TestTaskModeRunsInsideTheWorkspaceWithoutAsking(t *testing.T) {
 		t.Errorf("all three must have run, ran = %#v", ran)
 	}
 }
+
+// The write confinement follows the policy: with it on a command is confined unless the user
+// approved it, with it off nobody is confirming anything and nothing is confined.
+func TestConfinementFollowsThePolicy(t *testing.T) {
+	for _, enforce := range []bool{true, false} {
+		a := &Agent{cfg: config.Config{}}
+		a.cfg.Agent.Policy.Enforce = enforce
+		if got := a.planRequest("ls").Request.Unconfined; got == enforce {
+			t.Errorf("enforce=%v: unconfined=%v", enforce, got)
+		}
+	}
+}

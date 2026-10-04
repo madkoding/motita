@@ -38,6 +38,8 @@ type Spec struct {
 	Uid            int      `json:"uid,omitempty"`
 	Gid            int      `json:"gid,omitempty"`
 	Environment    []string `json:"environment,omitempty"`
+	// WriteRoots, when set, are the only directories the command may write (see landlock_linux.go).
+	WriteRoots []string `json:"write_roots,omitempty"`
 }
 
 // jsonMarshal is the serialiser used for the sandbox spec and for the isolation
@@ -75,6 +77,9 @@ var childHooks = struct {
 	exec: execCommand,
 	exit: os.Exit,
 }
+
+// confineWritesHook is the platform's write confinement, replaceable so a test can make it fail.
+var confineWritesHook = confineWrites
 
 // RunAsChild is the entry point of the child mode. It never returns if all goes
 // well: it replaces the current process with the requested command.
@@ -116,6 +121,16 @@ func RunAsChild(args []string) error {
 		// Privileges are dropped last: chroot needs root.
 		if err := dropPrivileges(spec.Uid, spec.Gid); err != nil {
 			return err
+		}
+	}
+
+	// The confinement comes after everything that needs to write or to see the rest of the system
+	// (the chdir above) and before the exec, so it is the command's own limit and not ours. The
+	// parent only asks for it when the kernel offers it, so a failure here is a real one and the
+	// command must not run unconfined by accident.
+	if len(spec.WriteRoots) > 0 {
+		if err := confineWritesHook(spec.WriteRoots); err != nil {
+			return fmt.Errorf("could not confine writes: %w", err)
 		}
 	}
 

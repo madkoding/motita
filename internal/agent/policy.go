@@ -153,7 +153,10 @@ func (a *Agent) planRequest(command string) RequestPlan {
 	// before anything is classified.
 	d := mode.DecideLine(command, dir)
 	return RequestPlan{
-		Request:   execx.Request{Command: shellFor(a.cfg), Args: []string{"-c", command}, Timeout: timeout},
+		// With the policy off nobody is confirming anything, and confining would be a second
+		// policy the operator switched off.
+		Request: execx.Request{Command: shellFor(a.cfg), Args: []string{"-c", command}, Timeout: timeout,
+			Unconfined: !mode.Enforce},
 		Verdict:   d.Verdict,
 		Reason:    d.Reason,
 		Rule:      d.Rule,

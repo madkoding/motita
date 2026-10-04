@@ -154,6 +154,10 @@ type Sandbox struct {
 	// HOME, its temporary directories and the toolchains it installs (their bin directories
 	// are put on PATH). Empty keeps HOME and TMPDIR inside the working directory.
 	ToolsDir string `yaml:"tools_dir"`
+	// ConfineWrites lets a command write only under the working directory, the tools directory
+	// and its own temporary directory, whatever it does itself (Linux, Landlock). A command the
+	// user approves is exempt. Reads are not restricted.
+	ConfineWrites bool `yaml:"confine_writes"`
 }
 
 // Providers are the values llm.provider accepts. The LLM client, the wizard and
@@ -360,6 +364,7 @@ func Default() Config {
 			CheckTimeout:  15 * time.Minute,
 			MaxOutputKB:   256,
 			ToolsDir:      defaultToolsDir(),
+			ConfineWrites: true,
 		},
 		LLM: LLM{
 			Provider:       "openai",
