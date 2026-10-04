@@ -17,6 +17,7 @@ import (
 
 	"github.com/madkoding/motita/internal/agent"
 	"github.com/madkoding/motita/internal/config"
+	"github.com/madkoding/motita/internal/i18n"
 	"github.com/madkoding/motita/internal/llm"
 	"github.com/madkoding/motita/internal/logx"
 	"github.com/madkoding/motita/internal/onboard"
@@ -1267,7 +1268,10 @@ func (r *AppRunner) ResetTranscript() {
 func (r *AppRunner) RunConfig(ctx context.Context) error {
 	// The same default the first run uses, so the file the wizard writes is the one the program
 	// looks for next time. With no HOME it falls back to the working directory.
-	_, err := onboard.RunWithKeys(ctx, os.Stdin, r.Out, setupPath(), onboard.Answers{}, time.Now(), KeyModeFor(os.Stdin))
+	// It speaks the interface's language, and writes the setting back as it was.
+	setting := r.UILanguage()
+	answers := onboard.Answers{Lang: i18n.Resolve(setting, os.Getenv), LanguageSetting: setting}
+	_, err := onboard.RunWithKeys(ctx, os.Stdin, r.Out, setupPath(), answers, time.Now(), KeyModeFor(os.Stdin))
 	return err
 }
 
@@ -1277,12 +1281,15 @@ func (r *AppRunner) RunConfig(ctx context.Context) error {
 // stand in for the file.
 var saveUILanguage = config.SetUILanguage
 
-// UILanguage is the ui.language setting this runner saved, or "" when it has saved none: the
-// setting the interface started with is the one the configuration file holds.
+// UILanguage is the ui.language setting: the one /language saved in this process, or the one the
+// configuration was loaded with.
 func (r *AppRunner) UILanguage() string {
 	r.cfgMu.Lock()
 	defer r.cfgMu.Unlock()
-	return r.uiLanguage
+	if r.uiLanguage != "" {
+		return r.uiLanguage
+	}
+	return r.Cfg.UI.Language
 }
 
 // SetUILanguage saves ui.language in the configuration file the setup writes, so the next start

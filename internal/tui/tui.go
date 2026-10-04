@@ -107,15 +107,12 @@ type TUI struct {
 	Err     io.Writer
 	Runner  Runner
 	NoColor bool
-	// Lang is the language the interface speaks, resolved from ui.language and the environment
-	// by whoever builds it.
-	Lang i18n.Lang
-
 	// ShowActions lists every command and action the agent runs; false (the default) shows only a counter.
 	ShowActions bool
 
-	// Lang is the language the interface is drawn in. The zero value is English, the language
-	// every string is written in; /language changes it while the interface runs.
+	// Lang is the language the interface is drawn in, resolved from ui.language and the
+	// environment by whoever builds it. The zero value is English, the language every string is
+	// written in; /language changes it while the interface runs.
 	Lang i18n.Lang
 
 	// Version is the build to name in the header box. WHICH build depends on how this interface
