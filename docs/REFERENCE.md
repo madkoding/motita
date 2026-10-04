@@ -1160,6 +1160,7 @@ The boundary cases are deliberate, and each one is a test:
 | `./scripts/deploy.sh` | silent | the same, when you name it directly |
 | `sh scripts/deploy.sh` | **asked** | a shell interpreter is opaque by construction — see below |
 | `cd /elsewhere`, `pushd`, `git -C /elsewhere`, `make -C /elsewhere` | asked | the task works in its own directory; a line that walks out of it runs the rest against another tree |
+| a program that is not installed (not on the sandbox `PATH`) | asked | the question says it is missing and offers the way forward: approve the install, or install it yourself and retry |
 | `python3 /opt/other/build.py` | asked | a script from outside — the policy cannot read it as yours |
 | `python3 -c '...'` | asked | inline code is as opaque as a shell line |
 | `make`, `go build`, `npm test` | silent | the local toolchain |

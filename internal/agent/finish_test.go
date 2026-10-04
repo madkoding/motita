@@ -406,6 +406,7 @@ func TestTreeFingerprintCapAndUnreadableDirectories(t *testing.T) {
 // answered (agent.approver is nil here, so an Ask is a refusal), and the run ends with the files
 // on disk and a PASS.
 func TestARequestIsFinishedWithThePolicyOnAndNobodyToAsk(t *testing.T) {
+	needSandboxTool(t, "npm")
 	s := &scriptServer{execute: func(round int, _ string) string {
 		switch round {
 		case 1:

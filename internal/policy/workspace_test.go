@@ -32,3 +32,20 @@ func TestStayingInTheWorkspaceIsNotAQuestion(t *testing.T) {
 		t.Error("with no workspace there is nothing to leave")
 	}
 }
+
+func TestAMissingToolIsAskedAboutWithTheWayForward(t *testing.T) {
+	have := func(name string) bool { return name != "rg" }
+	m := Mode{Enforce: true, Have: have}
+	d := m.DecideLine("ls && rg foo", t.TempDir())
+	if d.Verdict != Ask || d.Rule != "tool-missing" {
+		t.Fatalf("got %+v", d)
+	}
+	for _, line := range []string{"ls", "cd . && echo hi", "./rg foo", "FOO=1 ls", "echo $HOME"} {
+		if d := m.DecideLine(line, t.TempDir()); d.Rule == "tool-missing" {
+			t.Errorf("%q: %+v", line, d)
+		}
+	}
+	if d := (Mode{Enforce: true}).DecideLine("rg foo", t.TempDir()); d.Rule == "tool-missing" {
+		t.Errorf("without a lookup nothing can be called missing: %+v", d)
+	}
+}

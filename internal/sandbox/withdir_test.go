@@ -2,6 +2,7 @@ package sandbox
 
 import (
 	"context"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -43,4 +44,28 @@ func resolvedSame(t *testing.T, a, b string) bool {
 		t.Fatalf("EvalSymlinks: %v %v", errA, errB)
 	}
 	return ra == rb
+}
+
+func TestHasToolLooksOnTheSandboxPath(t *testing.T) {
+	tools := t.TempDir()
+	bin := filepath.Join(tools, "bin")
+	if err := os.MkdirAll(bin, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(bin, "mytool"), []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(bin, "notexec"), []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	s := &Sandbox{op: Options{ToolsDir: tools}}
+	if !s.HasTool("mytool") || s.HasTool("notexec") || s.HasTool("definitely-not-installed-xyz") {
+		t.Error("HasTool must find executables on the tools path and nothing else")
+	}
+	if !s.HasTool("/anything/with/a/path") {
+		t.Error("a path has nothing to look up")
+	}
+	if !(&Sandbox{op: Options{UseChroot: true}}).HasTool("whatever") {
+		t.Error("a chroot cannot be inspected from here")
+	}
 }
