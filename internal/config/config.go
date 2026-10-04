@@ -102,7 +102,7 @@ type TaskSource struct {
 // Anchor is the deterministic validator (Layer A). It may be a single command
 // or a list of checks; every one of them must pass.
 type Anchor struct {
-	Kind         string        `yaml:"kind"` // command | none
+	Kind         string        `yaml:"kind"` // auto | command | none
 	Command      string        `yaml:"command"`
 	Args         []string      `yaml:"args"`
 	Timeout      time.Duration `yaml:"timeout"`
