@@ -2061,3 +2061,38 @@ button:disabled {
 .msg { font-size: 0.93em; }
 .msg code, .msg pre { font-size: 0.88em; }
 .trail-step { font-size: 0.9em; }
+
+/* ─── Cyberpunk layer (Motita design system) ──────────────────────
+ * Neon edges and glow over the same dark ground. Corners are hard (2px) with a
+ * complete border on every side: no clip-paths, no grids or textures. Tailwind's
+ * rounded-* utilities are overridden here, after `@tailwind utilities`, so no
+ * markup changes; rounded-full (dots, avatars, spinners) is left alone. */
+:root {
+  --neon-cyan: #00f0ff;
+  --neon-magenta: #ff2bd6;
+  --neon-yellow: #fcee0a;
+  --radius-cut: 2px;
+  --glow-cyan: 0 0 12px rgba(0, 240, 255, 0.55);
+  --glow-magenta: 0 0 12px rgba(255, 43, 214, 0.55);
+}
+.rounded, .rounded-md, .rounded-lg, .rounded-xl, .rounded-2xl { border-radius: var(--radius-cut); }
+.frosted {
+  border: 1px solid rgba(0, 240, 255, 0.35);
+  box-shadow: 0 0 12px rgba(0, 240, 255, 0.18);
+}
+.sidebar { border-right: 1px solid rgba(0, 240, 255, 0.3); }
+.chat-modal, .row-menu, .cp-menu, .term-panel {
+  border-radius: var(--radius-cut);
+  border: 1px solid var(--neon-cyan);
+  box-shadow: var(--glow-cyan);
+}
+.auto-approve-pill, .task-tag, .skill-tag, .agent-tag, .rpt-badge, .rpt-kind {
+  border-radius: var(--radius-cut);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+.rpt-badge { box-shadow: 0 0 10px rgba(var(--rpt-accent), 0.45); }
+.rpt-partial { --rpt-accent: 252, 238, 10; }
+.rpt-failed { --rpt-accent: 255, 43, 214; }
+.markdown-body h1, .markdown-body h2, .markdown-body h3 { font-family: var(--font-mono); letter-spacing: -0.01em; }
+:focus-visible { outline: 2px solid var(--neon-cyan); outline-offset: 2px; }

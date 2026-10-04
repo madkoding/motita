@@ -6,6 +6,9 @@ export default {
     extend: {
       colors: {
         accent: '#4cc2ff',
+        'neon-cyan': '#00f0ff',
+        'neon-magenta': '#ff2bd6',
+        'neon-yellow': '#fcee0a',
         'accent-glow': 'rgba(76, 194, 255, 0.2)',
         'surface-solid': '#16161e',
         'surface-opaque': '#1a1a22',
