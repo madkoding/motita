@@ -24,7 +24,13 @@ PLATFORMS := linux/386 linux/amd64 linux/arm linux/arm64 \
              darwin/amd64 darwin/arm64
 
 .PHONY: help web build dist verify-dist test test-matrix vet bench fmt fmt-check check cover \
-        staticcheck run smoke e2e e2e-agent e2e-gateway clean
+        staticcheck run smoke e2e e2e-agent e2e-gateway clean test-release release-dry-run
+
+test-release: ## Check Conventional Commits map to the right version bump
+	./scripts/test-release-bump.sh
+
+release-dry-run: ## Show the next version semantic-release would publish (publishes nothing)
+	./scripts/release-dry-run.sh
 
 help: ## Show this help
 	@grep -E '^[a-zA-Z0-9_-]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN{FS=":.*?## "}{printf "  \033[36m%-14s\033[0m %s\n", $$1, $$2}'

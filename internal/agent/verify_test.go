@@ -179,6 +179,7 @@ const nodeTest = `printf 'const t=require("node:test");const fs=require("node:fs
 // would pass (it runs only the project's own gate). The run is sent back TWICE; the third claim,
 // after it fixed the check, is the one that goes through.
 func TestDoneOverAFailingCheckIsSentBackToIt(t *testing.T) {
+	requireSandboxNode(t)
 	run := "node --test feature.test.js 2>&1 | tail -30"
 	s := &scriptServer{execute: func(round int, prompt string) string {
 		switch round {
@@ -239,6 +240,7 @@ func TestAChallengedRunThatCannotFixTheCheckStillEnds(t *testing.T) {
 
 // TestAPassingCheckIsNotChallenged: a run whose checks are green is not slowed down at all.
 func TestAPassingCheckIsNotChallenged(t *testing.T) {
+	requireSandboxNode(t)
 	s := &scriptServer{execute: func(round int, _ string) string {
 		if round == 1 {
 			return step(false, nodeTest+"echo fixed > fixed.flag", "node --test feature.test.js 2>&1 | tail -30")

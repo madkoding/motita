@@ -1,0 +1,37 @@
+name: release-version
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+  issues: write
+  pull-requests: write
+
+concurrency:
+  group: release-version
+  cancel-in-progress: false
+
+jobs:
+  version:
+    name: semantic release
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+
+      - run: npm ci
+
+      - name: Compute the version from Conventional Commits, tag and publish
+        # A tag pushed with GITHUB_TOKEN does not trigger the tag workflows (ci
+        # binaries, pages). Set the RELEASE_TOKEN secret (a PAT) to make them run.
+        run: npx semantic-release
+        env:
+          GITHUB_TOKEN: ${{ secrets.RELEASE_TOKEN || secrets.GITHUB_TOKEN }}

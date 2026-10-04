@@ -60,3 +60,4 @@ workspace/
 # Python bytecode from the CDP probes and verification scripts.
 __pycache__/
 *.pyc
+node_modules/

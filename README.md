@@ -921,3 +921,7 @@ curl -fsSL https://madkoding.github.io/motita/install.sh | sh
 ```powershell
 irm https://madkoding.github.io/motita/install.ps1 | iex
 ```
+
+## Automatic releases
+
+Every push to `main` runs semantic-release (`.github/workflows/release.yml`). Commits follow Conventional Commits: `feat` bumps minor, `fix` bumps patch, `BREAKING CHANGE` or `!` bumps major. It tags and publishes a GitHub release with notes. Preview locally with `make release-dry-run`; test the bump rules with `make test-release`.
