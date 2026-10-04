@@ -555,7 +555,6 @@ body {
   border: 1px solid rgba(255, 176, 32, 0.4);
   cursor: pointer;
 }
-.auto-approve-pill:hover { background: rgba(255, 176, 32, 0.22); }
 
 /* ─── Markdown body — cyberpunk ────────────────────────────────────
  * Each tag has a distinct visual identity: neon borders, glow shadows,
@@ -2079,7 +2078,7 @@ html[data-density="compact"] .msg { padding-top: 4px; padding-bottom: 4px; }
 
 /* ─── Cyberpunk layer (Motita design system) ──────────────────────
  * Neon edges and glow over the same dark ground. Corners are hard (2px) with a
- * complete border on every side: no clip-paths, no grids or textures. Tailwind's
+ * complete border on every side: clip-paths only on Pill and Button corners, no grids or textures. Tailwind's
  * rounded-* utilities are overridden here, after `@tailwind utilities`, so no
  * markup changes; rounded-full (dots, avatars, spinners) is left alone. */
 :root {
@@ -2101,11 +2100,32 @@ html[data-density="compact"] .msg { padding-top: 4px; padding-bottom: 4px; }
   border: 1px solid var(--neon-cyan);
   box-shadow: var(--glow-cyan);
 }
-.auto-approve-pill, .task-tag, .skill-tag, .agent-tag, .rpt-badge, .rpt-kind {
+.task-tag, .skill-tag, .agent-tag, .rpt-badge, .rpt-kind {
   border-radius: var(--radius-cut);
   text-transform: uppercase;
   letter-spacing: 0.08em;
 }
+/* Pill: top-left and bottom-right 45deg cuts (design system Pill); the 1px edge is a
+ * clip-path ring in ::before, the glow a drop-shadow so both follow the cut. */
+.auto-approve-pill {
+  --cut: 8px; --in: calc(var(--cut) + .41px);
+  position: relative; isolation: isolate; border: 0; border-radius: 0; background: none;
+  color: #ffcf6a; text-transform: uppercase; letter-spacing: 0.08em;
+  filter: drop-shadow(0 0 6px rgba(255, 176, 32, 0.45));
+}
+.auto-approve-pill::before, .auto-approve-pill::after {
+  content: ''; position: absolute; inset: 0; z-index: -1; pointer-events: none;
+}
+.auto-approve-pill::after {
+  background: rgba(255, 176, 32, 0.12);
+  clip-path: polygon(var(--cut) 0, 100% 0, 100% calc(100% - var(--cut)), calc(100% - var(--cut)) 100%, 0 100%, 0 var(--cut));
+}
+.auto-approve-pill::before {
+  background: #ffb020;
+  clip-path: polygon(evenodd, var(--cut) 0, 100% 0, 100% calc(100% - var(--cut)), calc(100% - var(--cut)) 100%, 0 100%, 0 var(--cut), var(--cut) 0,
+    var(--in) 1px, calc(100% - 1px) 1px, calc(100% - 1px) calc(100% - var(--in)), calc(100% - var(--in)) calc(100% - 1px), 1px calc(100% - 1px), 1px var(--in), var(--in) 1px);
+}
+.auto-approve-pill:hover::after { background: rgba(255, 176, 32, 0.22); }
 .rpt-badge { box-shadow: 0 0 10px rgba(var(--rpt-accent), 0.45); }
 .rpt-partial { --rpt-accent: 252, 238, 10; }
 .rpt-failed { --rpt-accent: 255, 43, 214; }
