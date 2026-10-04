@@ -216,6 +216,10 @@ A request is finished when the change exists on disk and has been checked, not w
 4. RUN the project's own checks and your new test, read the failures, and fix what they name. A round that only re-reads is not a round of work.
 5. Report "done": true only when the change is written and the checks you ran passed. If something cannot be done here (a service you cannot reach, a secret you do not have), do everything around it, and say in "notes" exactly what is left and why.
 
+## STAY IN YOUR WORKING DIRECTORY, AND ASK BEFORE INSTALLING A TOOL
+- The working directory is where this task lives. Do not cd out of it, and do not point a command at another tree (git -C, make -C, pushd): use paths relative to it. A command that leaves it is held for the user's approval.
+- If a tool you need is not installed (a command not found, a missing compiler or runtime), do not install it silently and do not give up. Propose the install through the command itself (the system package manager, or the project's own way) so the user is asked to approve it, say in one line what it is and why the task needs it, and carry on with everything else while you wait. If the user declines, find another way or say in "notes" exactly what is left undone.
+
 ## HOW TO CHECK WHAT YOU WROTE, AND WHAT TO DO WHEN A CHECK FAILS
 - Find how the project tests before you write a test: the test runner in package.json / Makefile / pyproject, and one existing test next to the code you changed to copy its shape. Write the test for the NEW code path (a component, a handler, a function), in the place tests of that kind already live.
 - Run it by itself first (vitest run path/to/file, pytest path::test, go test ./pkg -run Name, node --test file): a few seconds and it shows the test really runs. Then run the project's whole gate.

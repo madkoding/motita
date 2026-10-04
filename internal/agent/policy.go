@@ -63,10 +63,14 @@ func (a *Agent) SetApprover(fn Approver) { a.approver = fn }
 
 // policyMode is the operator's policy configuration, as the agent applies it.
 func (a *Agent) policyMode() policy.Mode {
-	return policy.Mode{
+	mode := policy.Mode{
 		Enforce: a.cfg.Agent.Policy.Enforce,
 		Strict:  a.cfg.Agent.Policy.Strict,
 	}
+	if a.sandbox != nil {
+		mode.Have = a.sandbox.HasTool
+	}
+	return mode
 }
 
 // policyDir is the directory the policy measures "inside" against: the workspace the
@@ -149,7 +153,10 @@ func (a *Agent) planRequest(command string) RequestPlan {
 	// before anything is classified.
 	d := mode.DecideLine(command, dir)
 	return RequestPlan{
-		Request:   execx.Request{Command: shellFor(a.cfg), Args: []string{"-c", command}, Timeout: timeout},
+		// With the policy off nobody is confirming anything, and confining would be a second
+		// policy the operator switched off.
+		Request: execx.Request{Command: shellFor(a.cfg), Args: []string{"-c", command}, Timeout: timeout,
+			Unconfined: !mode.Enforce},
 		Verdict:   d.Verdict,
 		Reason:    d.Reason,
 		Rule:      d.Rule,

@@ -481,7 +481,7 @@ honoured. The documented one wins when both are set.
 |---|---|
 | `task_source` | `kind` (`stdin`/`file`/`api`/`queue`), `path`, `dir`, `url`, `method`, `field`, `interval`, `headers`, `body` |
 | `anchor` | `kind` (`auto`/`command`/`none`), `command`, `args`, `timeout`, `expect_exit`, `expect_output` (regex), `baseline` (bool, default `true`, `kind: auto` only: a check that fails on a claim of done is run again on a clean checkout of the starting commit, and one that failed there too is reported as already failing instead of blocking), `checks[]` |
-| `sandbox` | `kind` (`none`/`chroot`/`cgroups`), `root`, `user`, `memory_mb`, `cpu_seconds`, `processes`, `open_files`, `max_file_size_mb`, `isolate_network`, `cgroups`, `cgroup_root`, `timeout`, `check_timeout`, `keep_ephemeral`, `max_output_kb`, `tools_dir` |
+| `sandbox` | `kind` (`none`/`chroot`/`cgroups`), `root`, `user`, `memory_mb`, `cpu_seconds`, `processes`, `open_files`, `max_file_size_mb`, `isolate_network`, `cgroups`, `cgroup_root`, `timeout`, `check_timeout`, `keep_ephemeral`, `max_output_kb`, `tools_dir`, `confine_writes` (default `true`: on Linux a command can write only under the working directory, the tools directory and its own temp directory, even from a script that changes directory; a command you approve is exempt) |
 | `llm` | `provider` (`openai`/`codex`/`copilot`/`ollama`/`anthropic`/`claude-code`/`gemini`/`qwen`), `model`, `api_key`, `base_url`, `max_tokens`, `temperature`, `timeout`, `max_attempts`, `backoff_initial`, `backoff_max`, `reasoning{enabled,level}`, `session{context_window,reserve,compact_at,keep_recent}` |
 | `prompts` | `analyze`, `plan`, `execute`, `synthesize`, each with `system` and `user` |
 | `final_action` | `kind` (`none`/`command`/`api`/`git_commit`), `command`, `args`, `url`, `method`, `commit_message` |
@@ -1159,6 +1159,8 @@ The boundary cases are deliberate, and each one is a test:
 | `python3 build.py` (inside the workspace) | silent | a script that belongs to the project |
 | `./scripts/deploy.sh` | silent | the same, when you name it directly |
 | `sh scripts/deploy.sh` | **asked** | a shell interpreter is opaque by construction — see below |
+| `cd /elsewhere`, `pushd`, `git -C /elsewhere`, `make -C /elsewhere` | asked | the task works in its own directory; a line that walks out of it runs the rest against another tree |
+| a program that is not installed (not on the sandbox `PATH`) | asked | the question says it is missing and offers the way forward: approve the install, or install it yourself and retry |
 | `python3 /opt/other/build.py` | asked | a script from outside — the policy cannot read it as yours |
 | `python3 -c '...'` | asked | inline code is as opaque as a shell line |
 | `make`, `go build`, `npm test` | silent | the local toolchain |

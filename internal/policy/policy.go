@@ -93,6 +93,10 @@ type Mode struct {
 	//
 	// It does NOT reach the mandatory floor.
 	Strict bool
+	// Have reports whether a program is installed where the agent's commands will look for it.
+	// It is optional: with nil the policy cannot tell a missing tool from a present one and says
+	// nothing about it.
+	Have func(name string) bool
 }
 
 // DecisionFor decides one command.
@@ -111,6 +115,12 @@ func (m Mode) DecisionFor(command string, args []string, dir string) Decision {
 	}
 	kind, reason := readonly.Classify(command, args)
 	name := baseName(command)
+	// A task works in the directory it was given. Moving the command's directory elsewhere
+	// (`cd /other && git commit`, `git -C /other push`) runs the rest of the line against a
+	// different tree, which no path check on the arguments can see, so it is judged first.
+	if d, hit := leavesWorkspace(name, args, dir); hit {
+		return d
+	}
 	// Installing what the project's own manifest declares, and running the project's own dev
 	// tools, is the ordinary work of every project: without it the run stops to ask before
 	// `npm ci` on a run with nobody to answer, and the anchor then fails on a missing module.
@@ -168,6 +178,64 @@ func (m Mode) DecisionFor(command string, args []string, dir string) Decision {
 		return m.unclassified(fmt.Sprintf("%q is not a command this program knows, so what it "+
 			"changes cannot be predicted", baseName(command)), "unclassified")
 	}
+}
+
+// shellBuiltins are the words a shell runs itself, which no PATH lookup can find.
+var shellBuiltins = map[string]bool{
+	"cd": true, "pushd": true, "popd": true, "dirs": true, "echo": true, "printf": true, "export": true,
+	"set": true, "unset": true, "test": true, "[": true, "[[": true, "source": true, ".": true,
+	"exit": true, "return": true, "read": true, "type": true, "command": true, "alias": true,
+	"eval": true, "exec": true, "true": true, "false": true, ":": true, "pwd": true, "wait": true,
+	"shift": true, "trap": true, "ulimit": true, "umask": true, "local": true, "declare": true,
+	"let": true, "hash": true, "builtin": true, "jobs": true, "fg": true, "bg": true, "getopts": true,
+	"break": true, "continue": true, "kill": true, "history": true, "times": true,
+}
+
+// missingTool turns a program that is not installed into a question, with the way forward in it.
+//
+// Running it would only fail with "command not found", and the model's usual answer to that is to
+// install the tool on its own. Asking first puts that decision with the user, who can approve the
+// install or do it themselves. It answers false for what it cannot judge: no way to look programs
+// up, a path, a shell builtin or an assignment.
+func (m Mode) missingTool(name string) (Decision, bool) {
+	if m.Have == nil || name == "" || shellBuiltins[name] || strings.ContainsAny(name, "/=$~") || m.Have(name) {
+		return Decision{}, false
+	}
+	return Decision{Ask, fmt.Sprintf("%q is not installed. Approve to let the agent install it with the "+
+		"system package manager or the project's own way, or install it yourself and run the "+
+		"command again", name), "tool-missing", false}, true
+}
+
+// leavesWorkspace asks about a command that points itself at a directory outside dir: `cd` and
+// `pushd`, and the `-C` flag of `git` and `make`. The task's workspace is where the work lives,
+// and a line that walks out of it is how a session ends up committing in the wrong checkout.
+//
+// A bare `cd` (home) and `cd -` (the previous directory) are outside by construction. It answers
+// false for a command that stays inside, and for one with no workspace to compare against.
+func leavesWorkspace(name string, args []string, dir string) (Decision, bool) {
+	if dir == "" {
+		return Decision{}, false
+	}
+	var target string
+	switch name {
+	case "cd", "pushd":
+		target = "~"
+		if operands := rmTargets(args); len(operands) > 0 {
+			target = operands[0]
+		}
+	case "git", "make":
+		for i, a := range args {
+			if a == "-C" && i+1 < len(args) {
+				target = args[i+1]
+				break
+			}
+		}
+	}
+	if target == "" || (target != "-" && firstOutside([]string{target}, dir) == "") {
+		return Decision{}, false
+	}
+	return Decision{Ask, fmt.Sprintf("%q moves to %q, which is outside the directory this task "+
+		"works in (%s)", name, target, dir), "leaves-workspace", false}, true
 }
 
 // projectLocalDecision allows a program that lives inside the workspace and is passed explicit
@@ -571,7 +639,11 @@ func (m Mode) DecideLine(line, dir string) Decision {
 				return m.unclassified(fmt.Sprintf("%s: this part of the line cannot be read as one "+
 					"program with arguments", err), "line-unreadable")
 			}
-			d = m.Decide(name, args, dir)
+			if missing, hit := m.missingTool(name); hit {
+				d = missing
+			} else {
+				d = m.Decide(name, args, dir)
+			}
 		}
 		if !found {
 			worst, found = d, true

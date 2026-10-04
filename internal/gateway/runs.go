@@ -158,6 +158,7 @@ func (s *Server) startDetachedRun(c *conversation, task, kind, intent string, ap
 	clearPreviews(c.workspace)
 
 	go func() {
+		defer s.drainQueue(c)
 		defer c.releaseRunSlot()
 		defer c.clearCurrentRun()
 		var result string

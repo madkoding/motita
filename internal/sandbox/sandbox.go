@@ -62,6 +62,7 @@ const (
 	ModeChroot       Mode = "chroot"
 	ModeNoNetwork    Mode = "netns_no_network"
 	ModeUnprivileged Mode = "unprivileged"
+	ModeWriteConfine Mode = "write_confined"
 )
 
 // Options for building the sandbox.
@@ -81,7 +82,12 @@ type Options struct {
 	// toolchains, its HOME and its temporary directories live. Empty keeps the old
 	// layout (HOME and TMPDIR inside the working directory). See tools.go.
 	ToolsDir string
-	Log      *logx.Logger
+	// ConfineWrites restricts what a command can WRITE to the working directory, the tools
+	// directory, its own temporary directory and the git directories a worktree needs, whatever
+	// the command does (Linux, Landlock). A request marked Unconfined, one the user approved, is
+	// exempt. Reads are never restricted.
+	ConfineWrites bool
+	Log           *logx.Logger
 }
 
 // Sandbox runs commands in a controlled environment.
@@ -154,6 +160,12 @@ func New(op Options) (*Sandbox, error) {
 		}
 	}
 
+	if op.ConfineWrites && !s.op.UseChroot && landlockABI() == 0 {
+		s.notApplied = append(s.notApplied, "write confinement: this kernel has no Landlock, so a command can "+
+			"still write outside the working directory")
+		s.op.ConfineWrites = false
+	}
+
 	if !hasLimits(op.Limits) {
 		s.log.Debug("no POSIX limits configured: only the ephemeral directory is isolated")
 	}
@@ -211,6 +223,9 @@ func (s *Sandbox) Isolation() []Mode {
 	}
 	if s.op.Limits.NoNetwork {
 		modes = append(modes, ModeNoNetwork)
+	}
+	if s.op.ConfineWrites && !s.op.UseChroot {
+		modes = append(modes, ModeWriteConfine)
 	}
 	return modes
 }
@@ -300,6 +315,10 @@ func (s *Sandbox) Run(ctx context.Context, p execx.Request) (string, bool, int, 
 		Environment: s.environmentWithTmp(tempDir),
 	}
 
+	if s.op.ConfineWrites && !s.op.UseChroot && !p.Unconfined {
+		spec.WriteRoots = s.writeRoots(workDir, tempDir)
+	}
+
 	command := s.executable
 	var args []string
 
@@ -332,6 +351,21 @@ func (s *Sandbox) Run(ctx context.Context, p execx.Request) (string, bool, int, 
 		"isolation", strings.Join(modesToStrings(s.Isolation()), ","))
 
 	return s.launch(ctx, command, args, workDir, timeout, maxOutput)
+}
+
+// writeRoots are the directories a confined command may write: where it works, where the sandbox
+// keeps its tools and home, its own temporary directory, the git directories a worktree writes
+// into, and /dev for `> /dev/null`.
+func (s *Sandbox) writeRoots(workDir, tempDir string) []string {
+	roots := []string{s.base, workDir, tempDir, "/dev"}
+	if tools := s.toolsDir(); tools != "" {
+		roots = append(roots, tools)
+	}
+	roots = append(roots, gitDirs(workDir)...)
+	if workDir != s.base {
+		roots = append(roots, gitDirs(s.base)...)
+	}
+	return roots
 }
 
 // launchCommand builds the command that the isolation child will run. It is a

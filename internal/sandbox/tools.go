@@ -117,3 +117,18 @@ func isDir(p string) bool {
 	info, err := os.Stat(p)
 	return err == nil && info.IsDir()
 }
+
+// HasTool reports whether name is an executable on the PATH this sandbox gives its commands: the
+// tools directory's bin directories in front of the system ones. A name with a path, and a sandbox
+// in a chroot (whose own tree this process cannot see), answer true: there is nothing to look up.
+func (s *Sandbox) HasTool(name string) bool {
+	if s.op.UseChroot || strings.ContainsRune(name, os.PathSeparator) {
+		return true
+	}
+	for _, dir := range filepath.SplitList(ToolPath(s.toolsDir(), systemPath)) {
+		if info, err := os.Stat(filepath.Join(dir, name)); err == nil && !info.IsDir() && info.Mode()&0o111 != 0 {
+			return true
+		}
+	}
+	return false
+}

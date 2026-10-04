@@ -2057,9 +2057,24 @@ button:disabled {
 .action-trail-toggle:hover { color: #c8c8d6; }
 
 /* Chat typography, one step smaller (centralised here). */
-.msg { font-size: 0.93em; }
-.msg code, .msg pre { font-size: 0.88em; }
-.trail-step { font-size: 0.9em; }
+.msg { font-size: 0.82em; }
+.msg code, .msg pre { font-size: 0.8em; }
+.trail-step { font-size: 0.8em; }
+html[data-font-size="small"] .msg { font-size: 0.74em; }
+html[data-font-size="large"] .msg { font-size: 0.95em; }
+html[data-density="compact"] .turn { gap: 6px; }
+html[data-density="compact"] .msg { padding-top: 4px; padding-bottom: 4px; }
+
+/* Phones: a more compact chat, and the pinned input capped so it cannot cover the answer. */
+@media (max-width: 640px) {
+  .msg { font-size: 0.76em; }
+  .msg code, .msg pre { font-size: 0.74em; }
+  .trail-step { font-size: 0.74em; }
+  .turn { gap: 6px; }
+  .turn-head .msg.user { max-height: 14vh; overflow-y: auto; padding: 4px 8px; }
+  .cp-btn { width: 24px; height: 24px; }
+  html[data-font-size="small"] .msg { font-size: 0.68em; }
+}
 
 /* ─── Cyberpunk layer (Motita design system) ──────────────────────
  * Neon edges and glow over the same dark ground. Corners are hard (2px) with a

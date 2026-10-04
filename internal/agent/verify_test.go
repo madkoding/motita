@@ -179,6 +179,7 @@ const nodeTest = `printf 'const t=require("node:test");const fs=require("node:fs
 // would pass (it runs only the project's own gate). The run is sent back TWICE; the third claim,
 // after it fixed the check, is the one that goes through.
 func TestDoneOverAFailingCheckIsSentBackToIt(t *testing.T) {
+	requireSandboxNode(t)
 	run := "node --test feature.test.js 2>&1 | tail -30"
 	s := &scriptServer{execute: func(round int, prompt string) string {
 		switch round {
@@ -222,6 +223,7 @@ func TestDoneOverAFailingCheckIsSentBackToIt(t *testing.T) {
 // cannot fix a check (a service that is not here) is sent back maxVerifyChallenges times and the
 // next claim goes to the anchor, instead of looping for ever.
 func TestAChallengedRunThatCannotFixTheCheckStillEnds(t *testing.T) {
+	needSandboxTool(t, "node")
 	s := &scriptServer{execute: func(round int, _ string) string {
 		if round == 1 {
 			return step(false, nodeTest+"node --test feature.test.js 2>&1 | tail -30")
@@ -239,6 +241,7 @@ func TestAChallengedRunThatCannotFixTheCheckStillEnds(t *testing.T) {
 
 // TestAPassingCheckIsNotChallenged: a run whose checks are green is not slowed down at all.
 func TestAPassingCheckIsNotChallenged(t *testing.T) {
+	requireSandboxNode(t)
 	s := &scriptServer{execute: func(round int, _ string) string {
 		if round == 1 {
 			return step(false, nodeTest+"echo fixed > fixed.flag", "node --test feature.test.js 2>&1 | tail -30")
@@ -280,5 +283,24 @@ func TestThePromptNamesTheGateThatWillDecide(t *testing.T) {
 	e2 := mount(t, srv, auto, func(c *config.Config) { c.Agent.WorkspaceDir = empty })
 	if r := e2.agent.describeRules(); !strings.Contains(r, "declares NO gate") || !strings.Contains(r, ".motita/anchor") {
 		t.Errorf("a project without a gate must be told how to declare one:\n%s", r)
+	}
+}
+
+// needSandboxTool skips a test that runs a real tool the way the sandbox finds it: by the system
+// PATH, not the one of the process running the tests. On a machine without it the policy now asks
+// before running the missing program, which is the behaviour under test elsewhere.
+func needSandboxTool(t *testing.T, names ...string) {
+	t.Helper()
+	for _, name := range names {
+		found := false
+		for _, dir := range []string{"/usr/local/sbin", "/usr/local/bin", "/usr/sbin", "/usr/bin", "/sbin", "/bin"} {
+			if info, err := os.Stat(filepath.Join(dir, name)); err == nil && !info.IsDir() {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Skipf("%s is not on the sandbox PATH of this machine", name)
+		}
 	}
 }

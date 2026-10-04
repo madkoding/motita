@@ -141,6 +141,10 @@ type conversation struct {
 	// a run appends a step for every progress line and must not contend with stateMu readers.
 	cpMu        sync.Mutex
 	checkpoints []*checkpoint
+
+	// queue holds messages sent while a run was in flight, oldest first. Guarded by stateMu.
+	// It is per conversation, so a busy session never holds back another one.
+	queue []string
 }
 
 // setAutoApprove turns "allow all commands for this session" on or off.
