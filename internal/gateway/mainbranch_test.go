@@ -290,3 +290,37 @@ func TestCreateProjectFromAURLSettlesOnTheChosenBranch(t *testing.T) {
 		t.Errorf("the clone must end on the chosen branch: %d %v", code, out)
 	}
 }
+
+// The dialog asks which branch a remote's HEAD points to before cloning anything.
+func TestDefaultBranchOfARemote(t *testing.T) {
+	srv, _ := projectServer(t)
+	ask := func(url string) (int, string) {
+		w := send(t, srv, http.MethodGet, "/v1/git/default-branch?url="+url, testToken, "")
+		var out struct {
+			Branch string `json:"branch"`
+		}
+		_ = json.Unmarshal(w.Body.Bytes(), &out)
+		return w.Code, out.Branch
+	}
+
+	origin := t.TempDir()
+	gitRepo(t, origin)
+	mustGit(t, origin, "branch", "-m", "main", "develop")
+	if code, branch := ask(origin); code != http.StatusOK || branch != "develop" {
+		t.Errorf("a repository on develop: %d %q", code, branch)
+	}
+
+	// No commits, no HEAD to point anywhere: an empty answer, not an error.
+	empty := t.TempDir()
+	mustGit(t, empty, "init", "-q", "--bare")
+	if code, branch := ask(empty); code != http.StatusOK || branch != "" {
+		t.Errorf("an empty repository: %d %q", code, branch)
+	}
+
+	if code, _ := ask(""); code != http.StatusBadRequest {
+		t.Errorf("no URL: %d", code)
+	}
+	if code, _ := ask(filepath.Join(t.TempDir(), "nothing-here")); code != http.StatusBadGateway {
+		t.Errorf("a remote that cannot be read: %d", code)
+	}
+}

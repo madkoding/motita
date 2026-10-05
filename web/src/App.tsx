@@ -755,6 +755,10 @@ export default function App() {
   const [newProjectGit, setNewProjectGit] = useState('')
   // The branch the new project treats as its main line: main unless the person picks master.
   const [newProjectMain, setNewProjectMain] = useState('main')
+  // The branch the remote repository's HEAD points to, once asked; and whether the person has
+  // already chosen a main branch themselves (a detected one must never overwrite that).
+  const [remoteMain, setRemoteMain] = useState('')
+  const mainChosen = useRef(false)
   // The edit-project dialog: what is being edited and the branches its selector offers.
   const [editProject, setEditProject] = useState<{ id: string; title: string; description: string; main: string; branches: string[]; current: string } | null>(null)
   const [savingProject, setSavingProject] = useState(false)
@@ -1751,6 +1755,7 @@ export default function App() {
       setNewProjectDir('')
       setNewProjectGit('')
       setNewProjectMode(null)
+      mainChosen.current = false
       setNewProjectMain('main')
       setNewProjectPodman(false)
       setShowGitIdentity(false)
@@ -1770,6 +1775,28 @@ export default function App() {
     listAccounts(api).then(a => { if (live) setGitAccounts(a) }).catch(() => { if (live) setGitAccounts([]) })
     return () => { live = false }
   }, [showNewProject, gitRev])
+
+  // When a repository URL is typed, ask its remote which branch it uses and offer that one: a
+  // repository on develop or master should not need the person to know to change the selector.
+  // Debounced, because the field changes on every key; and silent on failure, because the
+  // selector works without the answer (the gateway settles on a branch when it clones).
+  useEffect(() => {
+    setRemoteMain('')
+    const url = newProjectGit.trim()
+    if (!showNewProject || newProjectMode !== 'git' || !repoNameOf(url)) return
+    let live = true
+    const timer = setTimeout(async () => {
+      try {
+        const res = await api('/v1/git/default-branch?url=' + encodeURIComponent(url))
+        if (!res.ok || !live) return
+        const d = await res.json()
+        if (!live || !d.branch) return
+        setRemoteMain(d.branch)
+        if (!mainChosen.current) setNewProjectMain(d.branch)
+      } catch { /* the selector keeps what it has */ }
+    }, 600)
+    return () => { live = false; clearTimeout(timer) }
+  }, [showNewProject, newProjectMode, newProjectGit])
 
   // Ask the gateway which container runtimes the machine has, so podman is only offered when it is there.
   // Read on start (the project menu needs it) and again when the dialog opens.
@@ -3813,7 +3840,7 @@ export default function App() {
               />
               <button
                 class="flex items-center justify-center px-3 py-2.5 rounded-xl border border-white/10 text-[#e8e8ea] hover:bg-white/5 active:scale-95 transition-all"
-                onClick={() => { setNewProjectMode(null); setShowNewProject(true) }}
+                onClick={() => { setNewProjectMode(null); mainChosen.current = false; setNewProjectMain('main'); setShowNewProject(true) }}
                 title={t('New project')}
               >
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -4890,12 +4917,13 @@ export default function App() {
                     data-testid="new-project-main"
                     class="w-full px-3 py-2.5 rounded-xl bg-black/30 border border-white/10 text-[#e8e8ea] focus:outline-none focus:border-accent font-mono text-sm"
                     value={newProjectMain}
-                    onChange={(e) => setNewProjectMain((e.target as HTMLSelectElement).value)}
+                    onChange={(e) => { mainChosen.current = true; setNewProjectMain((e.target as HTMLSelectElement).value) }}
                   >
-                    <option value="main">main</option>
-                    <option value="master">master</option>
+                    {Array.from(new Set(['main', 'master', newProjectMain, ...(remoteMain ? [remoteMain] : [])])).map(b => (
+                      <option key={b} value={b}>{b}</option>
+                    ))}
                   </select>
-                  <p class="text-xs text-[#7a7a8c] mt-1">{t('The project always goes back to this branch when it has no sessions. A cloned repository uses it when it has it.')}</p>
+                  <p class="text-xs text-[#7a7a8c] mt-1">{remoteMain ? tf('The repository uses {branch}.', { branch: remoteMain }) + ' ' : ''}{t('The project always goes back to this branch when it has no sessions. A cloned repository uses it when it has it.')}</p>
                 </div>
 
                   {/* Everything with a sensible default lives behind one line. */}

@@ -63,6 +63,7 @@ const es: Record<string, string> = {
   "Creating the project…": "Creando el proyecto…",
   "Creating…": "Creando…",
   "Clone and create": "Clonar y crear",
+  "The repository uses {branch}.": "El repositorio usa {branch}.",
   "Run menu": "Menú de la ejecución",
   "Stop the agent": "Detener al agente",
   "Enter sends a message that interrupts; Alt+Enter queues it": "Enter envía un mensaje que interrumpe; Alt+Enter lo deja en cola",
