@@ -66,3 +66,8 @@ test('each drawer window border uses its own colour', () => {
   assert.match(css, /\.term-panel\s*\{[^}]*border:\s*1px solid rgba\(var\(--tx-rgb\)/, 'the panel border is the drawer colour')
   assert.ok(!/\.term-panel[^{]*\{[^}]*border:\s*1px solid var\(--neon-cyan\)/.test(css), 'no fixed cyan border is forced on the panels')
 })
+
+test('the diagonal stroke of a bordered button follows its border width', () => {
+  assert.match(css, /button\.border-2\s*\{\s*--btn-bw:\s*2px/, 'border-2 widens the stroke')
+  assert.match(css, /border-top:\s*var\(--btn-bw,\s*1px\)\s+solid;\s*border-top-color:\s*inherit/, 'the stroke uses the width and the border colour')
+})
