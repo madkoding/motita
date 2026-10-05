@@ -488,6 +488,13 @@ interface ShellEntry {
   out: string
 }
 
+// shellCommandOf reads a line the person typed as a shell command: `!ls -la` or `/shell ls -la`.
+// Anything else is a message for the agent, and null.
+function shellCommandOf(text: string): string | null {
+  const m = /^(?:!|\/shell\s)\s*(\S[\s\S]*)$/.exec(text.trim())
+  return m ? m[1].trim() : null
+}
+
 // REASONING_LEVELS are the levels the gateway accepts, in the order they are offered.
 const REASONING_LEVELS = ['off', 'low', 'medium', 'high']
 
@@ -2491,12 +2498,68 @@ export default function App() {
     void loadCheckpoints(sessionRef.current, true)
   }, [])
 
+  // runShellLine runs a command the person typed, in the session's workspace and under the same
+  // policy as the agent's commands. Its output goes to the terminal drawer, where the agent's
+  // commands are. When the policy would ask, the question is the approval panel's, and the
+  // answer comes back through answerApproval with a "shell:" id.
+  const shellPendingRef = useRef<string | null>(null)
+  const runShellLine = useCallback(async (command: string, approved = false) => {
+    const sid = sessionRef.current
+    const entryId = nextId()
+    setShellLog(prev => [...prev, { id: entryId, cmd: command, exit: null, out: '' }].slice(-SHELL_LOG_MAX))
+    setTermOpen(true); setAgentsOpen(false); setThinkOpen(false)
+    const settle = (exit: number, out: string) =>
+      setShellLog(prev => prev.map(e => e.id === entryId ? { ...e, exit, out } : e))
+    try {
+      const res = await api('/v1/sessions/' + encodeURIComponent(sid) + '/shell', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ command, approved }),
+      })
+      const body = await res.json().catch(() => ({}))
+      if (!res.ok) {
+        settle(NO_RESULT, body.error ?? '')
+        setToast({ message: t('The command could not be run'), type: 'error', detail: body.error })
+        return
+      }
+      if (body.needs_approval) {
+        // Nothing ran: the line leaves the terminal and waits for the person's yes.
+        setShellLog(prev => prev.filter(e => e.id !== entryId))
+        shellPendingRef.current = command
+        setApproval({ id: 'shell:' + entryId, question: body.reason || t('This needs your approval'), command })
+        return
+      }
+      const out = [body.output, body.error].filter(Boolean).join('\n')
+      settle(body.error && !body.output ? NO_RESULT : (body.exit ?? 0), out)
+    } catch {
+      settle(NO_RESULT, '')
+      setToast({ message: t('The command could not be run'), type: 'error' })
+    }
+  }, [])
+
   // answerApproval sends the approval response.
   //
   // `all` is "allow every command for the rest of this session": the gateway then
   // answers yes on the user's behalf until they take it back from the header.
   const answerApproval = useCallback(async (id: string, approve: boolean, all = false) => {
     setApproval(null)
+    if (id.startsWith('shell:')) {
+      // A typed command's question has no run to answer: it is asked again with the yes in hand.
+      const command = shellPendingRef.current
+      shellPendingRef.current = null
+      if (!approve || !command) return
+      if (all) {
+        const sid = sessionRef.current
+        const res = await api('/v1/sessions/' + sid + '/auto-approve', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ enabled: true }),
+        }).catch(() => null)
+        if (res?.ok) setSessions(prev => prev.map(s => s.id === sid ? { ...s, auto_approve: true } : s))
+      }
+      void runShellLine(command, true)
+      return
+    }
     try {
       await api('/v1/sessions/' + sessionRef.current + '/runs/approval', {
         method: 'POST',
@@ -2510,7 +2573,7 @@ export default function App() {
     } catch {
       setState('could not answer the approval', true)
     }
-  }, [])
+  }, [runShellLine])
 
   const approvalId = approval?.id
   useEffect(() => {
@@ -2955,6 +3018,9 @@ export default function App() {
     }).catch(() => {})
   }
 
+  // shellMode: what is typed is a shell command (`!ls` or `/shell ls`), so the send button says so.
+  const shellMode = activeTags.length === 0 && /^\s*(!|\/shell\s)/.test(input)
+
   // handleSubmit is called when the form is submitted.
   const handleSubmit = (e: Event) => {
     e.preventDefault()
@@ -2968,6 +3034,13 @@ export default function App() {
       return
     }
     if (!text) return
+    const shellLine = shellCommandOf(text)
+    if (shellLine) {
+      setInput('')
+      setActiveTags([])
+      void runShellLine(shellLine)
+      return
+    }
     if (runningRef.current) {
       setInput('')
       setActiveTags([])
@@ -3044,6 +3117,13 @@ export default function App() {
       return
     }
     if (!text) return
+    const shellLine = shellCommandOf(text)
+    if (shellLine) {
+      setInput('')
+      setActiveTags([])
+      void runShellLine(shellLine)
+      return
+    }
     if (runningRef.current) {
       setInput('')
       setActiveTags([])
@@ -4525,11 +4605,19 @@ export default function App() {
           <button
             type="submit"
             disabled={running || isMerged}
-            class="min-h-[44px] min-w-[44px] px-5 sm:px-6 rounded-2xl bg-accent text-white font-semibold disabled:opacity-40 active:scale-95 transition-transform flex items-center justify-center"
+            title={shellMode ? t('Run in the shell') : undefined}
+            aria-label={shellMode ? t('Run in the shell') : t('Send')}
+            class={`min-h-[44px] min-w-[44px] px-5 sm:px-6 rounded-2xl text-white font-semibold disabled:opacity-40 active:scale-95 transition-transform flex items-center justify-center ${shellMode ? 'send-shell' : 'bg-accent'}`}
           >
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-              <line x1="22" y1="2" x2="11" y2="13" /><polygon points="22 2 15 22 11 13 2 9 22 2" />
-            </svg>
+            {shellMode ? (
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <polyline points="4 17 10 11 4 5" /><line x1="12" y1="19" x2="20" y2="19" />
+              </svg>
+            ) : (
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <line x1="22" y1="2" x2="11" y2="13" /><polygon points="22 2 15 22 11 13 2 9 22 2" />
+              </svg>
+            )}
           </button>
         </form>
       </div>

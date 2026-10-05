@@ -2246,3 +2246,7 @@ main.chat-bg.chat-bg { padding-right: 46px; }
   outline: 2px solid #ffcf6a; outline-offset: 2px;
   box-shadow: 0 0 12px rgba(255, 176, 32, 0.4);
 }
+
+/* The send button while the line is a shell command: terminal green, like the drawer's prompt. */
+.send-shell { background: #1f8a4c; box-shadow: 0 0 10px rgba(126, 231, 135, 0.35); }
+.send-shell:hover:not(:disabled) { background: #26a259; }

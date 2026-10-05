@@ -597,6 +597,7 @@ func (s *Server) routes() *http.ServeMux {
 	mux.Handle("GET /v1/sessions/{id}/events", scoped(s.handleAttach))
 	mux.Handle("POST /v1/sessions/{id}/cancel", scoped(s.handleCancelRun))
 	mux.Handle("POST /v1/sessions/{id}/queue", scoped(s.handleQueue))
+	mux.Handle("POST /v1/sessions/{id}/shell", scoped(s.handleShell))
 	mux.Handle("POST /v1/sessions/{id}/interrupt", scoped(s.handleInterrupt))
 	mux.Handle("POST /v1/sessions/{id}/runs/approval", scoped(s.handleApproval))
 	mux.Handle("POST /v1/sessions/{id}/auto-approve", scoped(s.handleAutoApprove))
