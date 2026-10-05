@@ -397,6 +397,8 @@ func (p *Planner) Run(ctx context.Context, input string) (string, error) {
 	if strings.TrimSpace(input) == "" {
 		return "", errors.New("the instruction is empty")
 	}
+	// The counts the skill tools accumulate are written once, when the turn ends.
+	defer p.saveUsage()
 
 	sess := p.sessionFor()
 	sess.Append(llm.Message{Role: "user", Content: input})
@@ -888,6 +890,13 @@ func (p *Planner) WithUsage(u *usage.Ledger) *Planner {
 	return p
 }
 
+// saveUsage writes the accumulated skill counts; a planner without a ledger has none.
+func (p *Planner) saveUsage() {
+	if p.usage != nil {
+		_ = p.usage.Save()
+	}
+}
+
 // SetUsage is the setter for the usage ledger, used by the review fork after
 // construction. It is separate from WithUsage so a caller that builds a
 // planner with chained With* calls can inject the usage ledger later.
@@ -1045,9 +1054,6 @@ func (p *Planner) toolSearchSkills(args json.RawMessage) string {
 	b.WriteString("A summary above is NOT the procedure: it is a title and one line, and acting on it is how the wrong thing gets done. Read the one that fits with read_skill BEFORE you act — the full text carries the steps and the pitfalls that the summary cannot.\n")
 	for _, s := range hits {
 		fmt.Fprintf(&b, "\n- %s: %s\n  %s%s", s.Name, s.Title, s.Summary, p.historySuffix(s.Name))
-		if p.usage != nil {
-			p.usage.BumpUse(s.Name)
-		}
 	}
 	// The outstanding complaints are appended after the list, so they cannot be missed by a
 	// model that only skims the summaries: a skill the user reported as broken is the reason

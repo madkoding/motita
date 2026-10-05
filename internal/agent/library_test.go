@@ -442,7 +442,7 @@ func TestRunActionsStillRunsCommands(t *testing.T) {
 	}
 }
 
-func TestReadingAndSearchingCountTowardsTheSkillUsage(t *testing.T) {
+func TestOnlyReadingCountsAndTheRunSavesOnce(t *testing.T) {
 	a := libraryAgent(t, map[string]string{"deploy": "# Deploy\nShip it.\n"})
 	path := filepath.Join(t.TempDir(), "usage.json")
 	u, err := usage.Open(path)
@@ -453,16 +453,19 @@ func TestReadingAndSearchingCountTowardsTheSkillUsage(t *testing.T) {
 
 	act(t, a, "search_skills", "deploy")
 	act(t, a, "read_skill", "deploy")
-	e := u.Get("deploy")
-	if e.UseCount != 2 || e.ViewCount != 1 {
-		t.Fatalf("use=%d view=%d, want 2 and 1", e.UseCount, e.ViewCount)
+	if e := u.Get("deploy"); e.UseCount != 1 || e.ViewCount != 1 {
+		t.Fatalf("use=%d view=%d, want 1 and 1: a search is not a use", e.UseCount, e.ViewCount)
 	}
-	// It is on disk too: a reopened ledger (a restart) still shows the count.
+	if _, err := os.Stat(path); err == nil {
+		t.Error("nothing is written until the run ends")
+	}
+	a.saveUsage()
 	again, err := usage.Open(path)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := again.Get("deploy").UseCount; got != 2 {
-		t.Errorf("persisted use count = %d, want 2", got)
+	if got := again.Get("deploy").UseCount; got != 1 {
+		t.Errorf("persisted use count = %d, want 1", got)
 	}
+	(&Agent{}).saveUsage() // no ledger: nothing to do
 }

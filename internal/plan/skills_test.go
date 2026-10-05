@@ -476,10 +476,9 @@ func TestReadSkillBumpsUsageWhenLedgerIsSet(t *testing.T) {
 	}
 }
 
-// TestSearchSkillsBumpsUsageWhenLedgerIsSet: when a usage ledger is installed,
-// searching skills bumps the use counter for each hit — the same telemetry
-// read_skill records, but for the index rather than the full procedure.
-func TestSearchSkillsBumpsUsageWhenLedgerIsSet(t *testing.T) {
+// TestSearchSkillsDoesNotCountAsUse: a search returns summaries nobody acted on, so only
+// read_skill moves the use counter.
+func TestSearchSkillsDoesNotCountAsUse(t *testing.T) {
 	l, err := usage.Open(filepath.Join(t.TempDir(), "usage.json"))
 	if err != nil {
 		t.Fatalf("opening usage ledger: %v", err)
@@ -492,9 +491,8 @@ func TestSearchSkillsBumpsUsageWhenLedgerIsSet(t *testing.T) {
 	if !strings.Contains(got, "nrf") {
 		t.Fatalf("the search must still return hits:\n%s", got)
 	}
-	e := l.Get("nrf")
-	if e.UseCount == 0 {
-		t.Error("searching skills must bump the use counter")
+	if e := l.Get("nrf"); e.UseCount != 0 {
+		t.Errorf("searching must not bump the use counter, got %d", e.UseCount)
 	}
 }
 
@@ -604,4 +602,22 @@ func TestTheIterationCountIsReportable(t *testing.T) {
 	if got := p.ItersSinceSkill(); got != 0 {
 		t.Errorf("after save_skill the counter is %d, want 0", got)
 	}
+}
+
+func TestSaveUsageWritesTheLedgerAndToleratesNone(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "usage.json")
+	l, err := usage.Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	l.BumpUse("x")
+	(&Planner{}).WithUsage(l).saveUsage()
+	again, err := usage.Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if again.Get("x").UseCount != 1 {
+		t.Error("the planner must persist the counts when a turn ends")
+	}
+	(&Planner{}).saveUsage()
 }

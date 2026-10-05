@@ -152,17 +152,12 @@ func (a *Agent) SetReward(l *reward.Ledger) { a.reward = l }
 // this run searched and read.
 func (a *Agent) SetUsage(u *usage.Ledger) { a.usage = u }
 
-// bumpUsage records a skill being loaded into context and saves it: the planner path
-// persists through the review fork, which a plain task run does not have.
-func (a *Agent) bumpUsage(name string, read bool) {
-	if a.usage == nil {
-		return
+// saveUsage writes the counts a run accumulated, once, when it ends: a plain task run has no
+// review fork to persist them, and a write per read would be a write per tool call.
+func (a *Agent) saveUsage() {
+	if a.usage != nil {
+		_ = a.usage.Save()
 	}
-	if read {
-		a.usage.BumpView(name)
-	}
-	a.usage.BumpUse(name)
-	_ = a.usage.Save()
 }
 
 // Consulted returns the skills this run read, and how many times each.
@@ -871,6 +866,7 @@ func (a *Agent) report(format string, args ...any) {
 // Run processes tasks from the source until it is exhausted (io.EOF) or the
 // context is cancelled (graceful shutdown).
 func (a *Agent) Run(ctx context.Context) error {
+	defer a.saveUsage()
 	if strings.EqualFold(a.cfg.Anchor.Kind, "none") || a.cfg.Anchor.Kind == "" {
 		// Without an anchor there is no authority to declare PASS, so every task
 		// would end up escalated after burning attempts against the LLM. Failing
@@ -2293,7 +2289,6 @@ func (a *Agent) searchSkills(query string) string {
 	b.WriteString("A summary above is NOT the procedure: read the one that fits with read_skill BEFORE you act.\n")
 	for _, s := range hits {
 		fmt.Fprintf(&b, "\n- %s: %s\n  %s%s", s.Name, s.Title, s.Summary, a.historySuffix(s.Name))
-		a.bumpUsage(s.Name, false)
 	}
 	for _, s := range hits {
 		b.WriteString(a.feedbackSuffix(s.Name))
@@ -2312,7 +2307,10 @@ func (a *Agent) readSkill(name string) string {
 	}
 	// The read is the moment the credit becomes knowable, and the only one.
 	a.consult(s.Name)
-	a.bumpUsage(s.Name, true)
+	if a.usage != nil {
+		a.usage.BumpView(s.Name)
+		a.usage.BumpUse(s.Name)
+	}
 	var b strings.Builder
 	fmt.Fprintf(&b, "# skill: %s\n(source: %s)\n\n", s.Name, s.Path)
 	b.WriteString(s.Body)
