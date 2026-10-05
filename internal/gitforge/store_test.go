@@ -194,3 +194,16 @@ func TestStoreForRemote(t *testing.T) {
 		t.Errorf("err = %v", err)
 	}
 }
+
+func TestAccountsDeletesTheLoginOfARetiredService(t *testing.T) {
+	dir := t.TempDir()
+	old := filepath.Join(dir, "git-codeberg.json")
+	if err := os.WriteFile(old, []byte(`{"access_token":"x"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	s := Store{Dir: dir, Env: noEnv}
+	s.Accounts()
+	if _, err := os.Stat(old); !os.IsNotExist(err) {
+		t.Errorf("the retired login must be removed, stat err = %v", err)
+	}
+}

@@ -5233,7 +5233,7 @@ export default function App() {
                   : 'This conversation will be permanently deleted. This cannot be undone.'
                 : confirmDelete.type === 'skill'
                   ? 'This skill will be permanently deleted, with its usage history. This cannot be undone. A built-in procedure cannot be deleted.'
-                  : 'This project and all its sessions will be permanently deleted. This cannot be undone.')}
+                  : 'This project, all its sessions and its folder will be permanently deleted. This cannot be undone.')}
             </p>
 
             {/* What the deletion would DISCARD. The gateway is asked when the modal opens,

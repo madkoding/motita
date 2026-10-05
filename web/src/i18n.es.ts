@@ -211,7 +211,7 @@ const es: Record<string, string> = {
   "This conversation will be permanently deleted. This cannot be undone.": "Esta conversación se eliminará para siempre. No se puede deshacer.",
   "This is the default session. Deleting it will clear its history and reset its title, but the session itself will remain.": "Esta es la sesión por defecto. Eliminarla borra su historial y restablece su título, pero la sesión sigue existiendo.",
   "This needs your approval": "Esto necesita tu aprobación",
-  "This project and all its sessions will be permanently deleted. This cannot be undone.": "Este proyecto y todas sus sesiones se eliminarán para siempre. No se puede deshacer.",
+  "This project, all its sessions and its folder will be permanently deleted. This cannot be undone.": "Este proyecto, todas sus sesiones y su carpeta se eliminarán para siempre. No se puede deshacer.",
   "This session is already integrated": "Esta sesión ya está integrada",
   "This session is read-only after integration": "Esta sesión es de solo lectura después de integrarla",
   "This session's checkout could not be inspected": "No se pudo revisar el checkout de esta sesión",
