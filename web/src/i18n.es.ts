@@ -5,6 +5,19 @@
 // shown in English, never as an empty string.
 
 const es: Record<string, string> = {
+  "Image": "Imagen",
+  "Next image": "Imagen siguiente",
+  "Previous image": "Imagen anterior",
+  "Fit": "Ajustar",
+  "Zoom out": "Alejar",
+  "Zoom in": "Acercar",
+  "Image not available": "Imagen no disponible",
+  "No image": "Sin imagen",
+  "Click to enlarge": "Clic para ampliar",
+  "Screenshot": "Captura",
+  "After": "Después",
+  "Before": "Antes",
+  "Before and after": "Antes y después",
   "(active)": "(activo)",
   "(auto from git URL if empty)": "(se toma de la URL de git si está vacío)",
   "({n} event(s) were not kept while nothing was listening)": "({n} evento(s) no se guardaron mientras nadie escuchaba)",

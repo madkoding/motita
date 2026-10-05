@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'preact/hooks'
 import { Markdown } from './Markdown'
+import { Lightbox } from './Lightbox'
 import { ReportCard, hasReport, type TaskReport } from './Report'
 import './report.css'
 import { TermEntry, TermEmpty } from './Term'
@@ -1848,6 +1849,21 @@ export default function App() {
     } catch { setState('could not open the artifact', true) }
   }, [artifactScope, artifactBase])
 
+  // loadEvidenceImage fetches a screenshot a report names, from this session's artifacts, as an
+  // object URL the card can show. The same file is fetched once, however many cards ask.
+  const evidenceUrls = useRef(new Map<string, Promise<string | null>>())
+  const loadEvidenceImage = useCallback((name: string) => {
+    const key = sessionId + '/' + name
+    let p = evidenceUrls.current.get(key)
+    if (!p) {
+      p = api(artifactBase() + '/' + encodeURIComponent(name))
+        .then(async res => (res.ok ? URL.createObjectURL(await res.blob()) : null))
+        .catch(() => null)
+      evidenceUrls.current.set(key, p)
+    }
+    return p
+  }, [sessionId, artifactBase])
+
   const deleteArtifact = useCallback(async (name: string) => {
     try {
       const res = await api(artifactBase() + '/' + encodeURIComponent(name) + scopeQuery(artifactScope), { method: 'DELETE' })
@@ -3446,11 +3462,18 @@ export default function App() {
         s.title.toLowerCase().includes(skillQueryNorm) ||
         s.summary.toLowerCase().includes(skillQueryNorm))
 
+  // A picture inside an answer opens in the full-window preview (zoom, pan). A picture that is
+  // also a link keeps being a link.
+  const [previewImage, setPreviewImage] = useState<{ src: string; label: string } | null>(null)
+
   // Copy button handler: delegate clicks from copy-btn and copy-msg-btn.
   useEffect(() => {
     const handler = (e: Event) => {
       const target = e.target as HTMLElement
-      if (target.classList.contains('copy-btn')) {
+      if (target.tagName === 'IMG' && target.closest('.markdown-body') && !target.closest('a')) {
+        const img = target as HTMLImageElement
+        if (img.currentSrc || img.src) setPreviewImage({ src: img.currentSrc || img.src, label: img.alt || t('Image') })
+      } else if (target.classList.contains('copy-btn')) {
         const text = target.getAttribute('data-copy-text') || ''
         void copyText(text).then((ok) => {
           if (!ok) return
@@ -4279,7 +4302,7 @@ export default function App() {
                   {rest.map(m => (
                     <div key={m.id} class={`msg ${m.role}${m.kind ? ' ' + m.kind : ''}`} data-who={m.role === 'agent' && !m.kind ? t('Agent') : undefined}>
                       {m.role === 'agent' && !m.kind && m.report ? (
-                        <ReportCard report={m.report} />
+                        <ReportCard report={m.report} loadImage={loadEvidenceImage} />
                       ) : m.role === 'agent' && !m.kind ? (
                         <Markdown content={m.text} />
                       ) : (
@@ -5889,6 +5912,7 @@ export default function App() {
         </div>
       )}
 
+      {previewImage && <Lightbox images={[previewImage]} start={0} onClose={() => setPreviewImage(null)} />}
       {showArtifacts && (
         <div
           class="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4"

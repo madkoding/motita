@@ -21,7 +21,7 @@ func TestSynthesizePhaseDecodesTheStructuredReport(t *testing.T) {
 	want := Report{Version: ReportVersion, Status: "done", Summary: "added Foo",
 		Changes:      []ReportChange{{Path: "a.go", Kind: "added", Description: "Foo"}},
 		Verification: []ReportCheck{{Check: "go test ./...", Result: "pass", Evidence: "12 passed"}},
-		Risks:        []string{"none known"}, NextSteps: []string{"wire it up"}}
+		Evidence:     []ReportEvidence{}, Risks: []string{"none known"}, NextSteps: []string{"wire it up"}}
 	if !reflect.DeepEqual(*rep, want) {
 		t.Errorf("report = %+v\nwant     %+v", *rep, want)
 	}
@@ -86,5 +86,39 @@ func TestReportTextIsThePlainViewForTheTerminal(t *testing.T) {
 	}
 	if got := (&Report{Summary: "only this"}).Text(); got != "only this" {
 		t.Errorf("a bare summary must stay bare, got %q", got)
+	}
+}
+
+// TestReportEvidenceKeepsOnlyImageFileNames: the screenshots a report names are looked up in the
+// artifacts folder, so a path is cut to its file name, a non-image is dropped, and an entry with
+// no usable side is removed. One side alone is a valid comparison (a new screen has no "before").
+func TestReportEvidenceKeepsOnlyImageFileNames(t *testing.T) {
+	r := Report{Evidence: []ReportEvidence{
+		{Title: " Login ", Before: "../../etc/a-before.png", After: `C:\x\a-after.PNG`},
+		{Title: "new", After: "new.webp"},
+		{Title: "not an image", Before: "notes.txt", After: ".hidden.png"},
+		{Title: "empty"},
+	}}
+	r.normalize(true)
+	want := []ReportEvidence{
+		{Title: "Login", Before: "a-before.png", After: "a-after.PNG"},
+		{Title: "new", After: "new.webp"},
+	}
+	if !reflect.DeepEqual(r.Evidence, want) {
+		t.Errorf("evidence = %+v\nwant       %+v", r.Evidence, want)
+	}
+}
+
+// TestReportTextListsTheScreenshots: a terminal draws no images, so it names each comparison and
+// the files of its sides; a side that does not exist is left out.
+func TestReportTextListsTheScreenshots(t *testing.T) {
+	r := Report{Summary: "s", Evidence: []ReportEvidence{
+		{Title: "Login", Before: "a-before.png", After: "a-after.png"},
+		{Title: "New", After: "n.png"},
+		{Before: "old.png"},
+	}}
+	want := "s\n\nScreenshots:\n  Login before=a-before.png after=a-after.png\n  New after=n.png\n  before=old.png"
+	if got := r.Text(); got != want {
+		t.Errorf("Text() =\n%s\nwant\n%s", got, want)
 	}
 }

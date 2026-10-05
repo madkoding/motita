@@ -1,6 +1,9 @@
 package agent
 
-import "strings"
+import (
+	"path"
+	"strings"
+)
 
 // ReportVersion is the version of the Report shape. A front end that draws the report checks it
 // before trusting the fields, and it goes up only when a field changes meaning or goes away.
@@ -23,6 +26,9 @@ type Report struct {
 	Changes []ReportChange `json:"changes"`
 	// Verification is the proof: each check that was run and what it showed.
 	Verification []ReportCheck `json:"verification"`
+	// Evidence is the visual proof: screenshots of how something looked before and after the
+	// change. Each image is the name of a file the agent saved in its artifacts folder.
+	Evidence []ReportEvidence `json:"evidence"`
 	// Risks is what the reader should know before trusting the result.
 	Risks []string `json:"risks"`
 	// NextSteps is what remains, or what the agent would do next.
@@ -43,6 +49,34 @@ type ReportCheck struct {
 	// Result is "pass", "fail" or "skipped".
 	Result   string `json:"result"`
 	Evidence string `json:"evidence"`
+}
+
+// ReportEvidence is one before/after comparison. Before and After are artifact file names (no
+// directory); either may be empty when only one side exists, e.g. a new screen has no "before".
+type ReportEvidence struct {
+	Title   string `json:"title"`
+	Before  string `json:"before"`
+	After   string `json:"after"`
+	Caption string `json:"caption"`
+}
+
+// artifactImageName reduces a model-written reference to a bare file name of an image type, or
+// "" when it is not one. The name is only ever looked up in the artifacts folder, so a path in it
+// is cut down to its last element rather than trusted.
+func artifactImageName(s string) string {
+	s = strings.TrimSpace(strings.ReplaceAll(s, "\\", "/"))
+	if s == "" {
+		return ""
+	}
+	s = path.Base(s)
+	switch strings.ToLower(path.Ext(s)) {
+	case ".png", ".jpg", ".jpeg", ".webp", ".gif", ".svg":
+		if strings.HasPrefix(s, ".") {
+			return ""
+		}
+		return s
+	}
+	return ""
 }
 
 // normalize makes a decoded report safe to draw: the version is set, an unknown enum falls back to
@@ -92,6 +126,16 @@ func (r *Report) normalize(pass bool) {
 		checks = append(checks, v)
 	}
 	r.Verification = checks
+	evidence := make([]ReportEvidence, 0, len(r.Evidence))
+	for _, e := range r.Evidence {
+		e.Before, e.After = artifactImageName(e.Before), artifactImageName(e.After)
+		e.Title, e.Caption = strings.TrimSpace(e.Title), strings.TrimSpace(e.Caption)
+		if e.Before == "" && e.After == "" {
+			continue
+		}
+		evidence = append(evidence, e)
+	}
+	r.Evidence = evidence
 	r.Risks = cleanLines(r.Risks)
 	r.NextSteps = cleanLines(r.NextSteps)
 }
@@ -142,6 +186,18 @@ func (r *Report) Text() string {
 		checks = append(checks, line)
 	}
 	block("Checked", checks)
+	var shots []string
+	for _, e := range r.Evidence {
+		line := e.Title
+		if e.Before != "" {
+			line += " before=" + e.Before
+		}
+		if e.After != "" {
+			line += " after=" + e.After
+		}
+		shots = append(shots, strings.TrimSpace(line))
+	}
+	block("Screenshots", shots)
 	block("Worth knowing", r.Risks)
 	block("Next", r.NextSteps)
 	return b.String()
