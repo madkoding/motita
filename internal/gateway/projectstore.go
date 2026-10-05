@@ -178,12 +178,11 @@ func freeCloneDir(dir, gitURL string, env []string) string {
 	if usable(dir) {
 		return dir
 	}
-	for i := 2; i < 1000; i++ {
+	for i := 2; ; i++ {
 		if cand := fmt.Sprintf("%s-%d", dir, i); usable(cand) {
 			return cand
 		}
 	}
-	return dir
 }
 
 // cloneGitRepo clones a git URL into the given directory and returns the

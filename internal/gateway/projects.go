@@ -549,9 +549,9 @@ func (s *Server) handleDeleteProject(w http.ResponseWriter, r *http.Request) {
 	}
 	s.removeProjectArtifacts(id)
 	if projectDir != "" {
-		if err := os.RemoveAll(projectDir); err != nil && s.opts.Log != nil {
-			s.opts.Log.Warn("the deleted project's folder could not be removed", "dir", projectDir, "error", err.Error())
-		}
+		// Best effort: the project is already gone, and a folder that resists (a file in use)
+		// is left for the user rather than failing a deletion that has otherwise happened.
+		_ = os.RemoveAll(projectDir)
 	}
 	w.WriteHeader(http.StatusNoContent)
 }

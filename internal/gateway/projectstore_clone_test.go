@@ -41,3 +41,23 @@ func TestFreeCloneDirPicksNextFreeName(t *testing.T) {
 		t.Fatalf("a missing folder must be used as is, got %q", got)
 	}
 }
+
+func TestOwnsProjectDirOnlyInsideTheWorkspace(t *testing.T) {
+	root := t.TempDir()
+	s := &Server{opts: Options{WorkspaceDir: root}}
+	for dir, want := range map[string]bool{
+		filepath.Join(root, "proj"):            true,
+		filepath.Join(root, "a", "b"):          true,
+		root:                                   false,
+		filepath.Dir(root):                     false,
+		filepath.Join(filepath.Dir(root), "x"): false,
+		"":                                     false,
+	} {
+		if got := s.ownsProjectDir(dir); got != want {
+			t.Errorf("ownsProjectDir(%q) = %v, want %v", dir, got, want)
+		}
+	}
+	if (&Server{}).ownsProjectDir(filepath.Join(root, "proj")) {
+		t.Error("with no workspace configured nothing is owned")
+	}
+}
