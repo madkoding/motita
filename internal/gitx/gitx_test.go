@@ -24,6 +24,17 @@ import (
 // exact moment the package is mid-recovery. Everything else runs the real
 // program.
 
+// TestMain hides the machine's git configuration from every test. The tests
+// assert what git does in a repository with NO identity and NO signing, so a
+// developer's global identity or commit.gpgsign (and a system-wide one) would
+// otherwise change the answer. CI has neither, which is why only a developer
+// machine fails without this.
+func TestMain(m *testing.M) {
+	os.Setenv("GIT_CONFIG_NOSYSTEM", "1")
+	os.Setenv("GIT_CONFIG_GLOBAL", os.DevNull)
+	os.Exit(m.Run())
+}
+
 // git runs git in dir and fails the test if it does not succeed. Setup uses it;
 // the package under test never does.
 func git(t *testing.T, dir string, args ...string) string {
