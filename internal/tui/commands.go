@@ -41,6 +41,7 @@ var commands = []Command{
 	{Name: "/plan", Aliases: []string{"/p"}, Help: "Plan mode: ask about the project, nothing is changed", Group: "mode"},
 	{Name: "/models", Aliases: []string{"/m"}, Help: "list the provider's models, or switch to one", Arg: "[id]", Group: "mode"},
 	{Name: "/config", Aliases: []string{"/c"}, Help: "run the setup again: provider, key, model, check", Group: "mode"},
+	{Name: "/git", Help: "connect GitHub, GitLab or Bitbucket", Arg: "[connect]", Group: "mode"},
 	{Name: "/reasoning", Aliases: []string{"/r", "/think"}, Help: "how hard the model thinks: off, low, medium, high", Group: "mode"},
 	{Name: "/language", Aliases: []string{"/lang"}, Help: "the interface's language: en, es or auto", Arg: "[en|es|auto]", Group: "mode"},
 	{Name: "/find", Aliases: []string{"/f"}, Help: "filter the conversation", Arg: "text", Group: "action"},
@@ -92,6 +93,7 @@ var commandActions = map[string]func(t *TUI, ctx context.Context, arg string) bo
 		t.setScreen(ScreenTask)
 		return false
 	},
+	"/git":       func(t *TUI, ctx context.Context, arg string) bool { t.runGit(ctx, arg); return false },
 	"/reasoning": func(t *TUI, _ context.Context, _ string) bool { t.cycleReasoning(); return false },
 	"/language":  func(t *TUI, _ context.Context, arg string) bool { t.runLanguage(arg); t.drawFrame(); return false },
 	// The typed alternative to Ctrl+F, and the one that works everywhere: a terminal in
@@ -316,7 +318,7 @@ func (t *TUI) completionLinesCapped(w, max int) []string {
 // completing reports whether the popup should be drawn: the user is typing a command and
 // there is at least one candidate.
 func (t *TUI) completing() bool {
-	if t.searching {
+	if t.searching || t.prompting {
 		return false
 	}
 	return len(completions(t.draft)) > 0

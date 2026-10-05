@@ -1326,7 +1326,7 @@ func (t *TUI) inputBoxLines() []string {
 	outer := w - leftMargin - 1 // the same span as the rule above the conversation
 	inner := t.inputWidth()
 
-	text := t.composerLabel() + t.draft
+	text := t.composerLabel() + t.shownDraft()
 	wrapped := wrapVisible(text, inner)
 	if len(wrapped) > inputRows {
 		// Keep the END: the user is typing there, and the tail is what matters.
@@ -1499,7 +1499,7 @@ func (t *TUI) composerPrompt(rowsBelow int) string {
 	// at all. The user sees a cursor that is not where they are typing.
 	//
 	// It is derived from the same wrap the box draws with, so the two cannot disagree.
-	wrapped := wrapVisible(t.composerLabel()+t.draft, t.inputWidth())
+	wrapped := wrapVisible(t.composerLabel()+t.shownDraft(), t.inputWidth())
 	row := len(wrapped) - 1
 	// The text starts after the margin, the box's side and the space beside it.
 	col := leftMargin + 2 + visibleLen(wrapped[row])

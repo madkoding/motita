@@ -145,14 +145,14 @@ func TestProjectStoreDeleteMissing(t *testing.T) {
 }
 
 func TestCloneGitRepoEmptyURL(t *testing.T) {
-	_, err := cloneGitRepo("", t.TempDir())
+	_, err := cloneGitRepo("", t.TempDir(), nil)
 	if err == nil {
 		t.Error("expected error for empty git URL")
 	}
 }
 
 func TestCloneGitRepoInvalidURL(t *testing.T) {
-	_, err := cloneGitRepo("not-a-valid-url", filepath.Join(t.TempDir(), "repo"))
+	_, err := cloneGitRepo("not-a-valid-url", filepath.Join(t.TempDir(), "repo"), nil)
 	if err == nil {
 		t.Error("expected error for invalid git URL")
 	}

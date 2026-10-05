@@ -28,6 +28,7 @@ import (
 	"strings"
 
 	"github.com/madkoding/motita/internal/readonly"
+	"github.com/madkoding/motita/internal/semantic"
 )
 
 // Verdict is what may be done with one command.
@@ -121,6 +122,15 @@ func (m Mode) DecisionFor(command string, args []string, dir string) Decision {
 	if d, hit := leavesWorkspace(name, args, dir); hit {
 		return d
 	}
+	// Two rules about the work the agent does for the user's repository, judged before the
+	// generic ones because the generic ones cannot see them: a commit whose message is not
+	// semantic, and the commands motita gives the agent for pull requests.
+	if d, hit := commitMessageDecision(name, args); hit {
+		return d
+	}
+	if d, hit := forgeDecision(name, args); hit {
+		return d
+	}
 	// Installing what the project's own manifest declares, and running the project's own dev
 	// tools, is the ordinary work of every project: without it the run stops to ask before
 	// `npm ci` on a run with nobody to answer, and the anchor then fails on a missing module.
@@ -178,6 +188,58 @@ func (m Mode) DecisionFor(command string, args []string, dir string) Decision {
 		return m.unclassified(fmt.Sprintf("%q is not a command this program knows, so what it "+
 			"changes cannot be predicted", baseName(command)), "unclassified")
 	}
+}
+
+// commitMessageDecision refuses a `git commit` whose message is on the command line and is not a
+// semantic (Conventional Commits) subject. It is a refusal and not a question: there is no
+// reason to approve a message the repository's release tooling cannot read, and the reason
+// carries the form to write so the next attempt is right. A commit whose message cannot be
+// seen from the line (-F, an editor, --amend with no -m) is not judged here.
+func commitMessageDecision(name string, args []string) (Decision, bool) {
+	if name != "git" {
+		return Decision{}, false
+	}
+	sub, rest := gitSubcommand(args)
+	if sub != "commit" {
+		return Decision{}, false
+	}
+	subject, ok := semantic.CommitSubject(rest)
+	if !ok {
+		return Decision{}, false
+	}
+	if err := semantic.LintSubject(subject); err != nil {
+		return Decision{Deny, "the commit message is not semantic: " + err.Error(), "semantic-commit", false}, true
+	}
+	return Decision{}, false
+}
+
+// gitSubcommand splits git's arguments into its subcommand and what follows it, skipping the
+// global options before the subcommand, some of which take a value (`git -C dir commit`).
+func gitSubcommand(args []string) (sub string, rest []string) {
+	for i := 0; i < len(args); i++ {
+		switch a := args[i]; {
+		case a == "-C" || a == "-c" || a == "--git-dir" || a == "--work-tree" || a == "--namespace" || a == "--exec-path":
+			i++
+		case strings.HasPrefix(a, "-"):
+		default:
+			return a, args[i+1:]
+		}
+	}
+	return "", nil
+}
+
+// forgeDecision classifies `motita forge ...`, the commands the agent uses to open a pull request
+// and read its CI. Reading the CI and listing the connections change nothing, so they run.
+// Opening a pull request publishes the user's work under their name on a host they own, so
+// the user is asked, the same way `git push` is.
+func forgeDecision(name string, args []string) (Decision, bool) {
+	if name != "motita" || len(args) == 0 || args[0] != "forge" {
+		return Decision{}, false
+	}
+	if len(args) >= 3 && args[1] == "pr" && args[2] == "create" {
+		return Decision{Ask, "this opens a pull request on the git host, under the user's account", "external-effect", false}, true
+	}
+	return Decision{Allow, "this only reads from the git host", "reader", false}, true
 }
 
 // shellBuiltins are the words a shell runs itself, which no PATH lookup can find.

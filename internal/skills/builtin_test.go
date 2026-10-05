@@ -34,12 +34,13 @@ const (
 	curlSkill     = "calling-an-http-api"
 	showSkill     = "diagrams-and-reports"
 	verifySkill   = "verifying-a-change"
+	prSkill       = "pull-requests-and-ci"
 )
 
 // shippedCore is what a fresh install is expected to carry, in one list: the tests that ask "does
 // a fresh install ship this" and "does the search find it" both read it, so adding a document
 // means adding it here and nowhere else.
-var shippedCore = []string{fileSkill, webSkill, commandsSkill, gitSkill, curlSkill, showSkill, verifySkill}
+var shippedCore = []string{fileSkill, webSkill, commandsSkill, gitSkill, curlSkill, showSkill, verifySkill, prSkill}
 
 // TestTheShippedProceduresLoad is the base case: a fresh install has something to look up. An
 // embed directive that names a folder the binary does not carry would leave the library empty
@@ -124,6 +125,13 @@ func TestTheShippedProceduresAreFoundByTheWordsOfTheJob(t *testing.T) {
 			"before and after comparison of the change",
 			"visual report of what improved",
 			"show the steps as a diagram",
+		}},
+		{prSkill, []string{
+			"open a pull request",
+			"watch the ci until it passes",
+			"the ci failed on my pull request",
+			"conventional commit message",
+			"give the user the link to the pr",
 		}},
 		{verifySkill, []string{
 			"did it actually work",

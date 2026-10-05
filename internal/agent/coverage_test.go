@@ -430,7 +430,7 @@ func fakeExecutor(log *[]string, codes map[string]int) func(context.Context, exe
 func TestFinalActionGitCommitRunsAddAndCommit(t *testing.T) {
 	var commands []string
 	e := mount(t, httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {})), config.Anchor{Kind: "command", Command: "true", Timeout: 5 * time.Second}, func(c *config.Config) {
-		c.FinalAction = config.FinalAction{Kind: "git_commit", CommitMessage: "agent: {{task}}"}
+		c.FinalAction = config.FinalAction{Kind: "git_commit", CommitMessage: "chore(agent): {{task}}"}
 	})
 	e.agent.ExecCommand = fakeExecutor(&commands, nil)
 
@@ -1343,7 +1343,7 @@ func TestGitCommitWithNoMessageFallsBackToADefault(t *testing.T) {
 	if len(commands) != 2 {
 		t.Fatalf("commands = %v", commands)
 	}
-	if !strings.Contains(commands[1], "agent: validated changes") {
+	if !strings.Contains(commands[1], "chore(agent): validated changes") {
 		t.Errorf("the default message must be used: %q", commands[1])
 	}
 }

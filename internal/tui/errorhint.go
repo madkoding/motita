@@ -48,6 +48,9 @@ func (t *TUI) errorHint(err error) string {
 		return "hint: the previous task is still stopping. Wait a moment and send it again."
 	case has("key is missing"):
 		return t.trf("hint: there is no API key for %s. Type /config to add one.", providerName(llmCfg.Provider))
+	case has("authentication failed", "could not read username", "could not read password", "terminal prompts disabled",
+		"permission denied (publickey)", "http basic: access denied"):
+		return "hint: git could not sign in to the host. Type /git connect to connect GitHub, GitLab or Bitbucket."
 	case has("401", "403", "unauthorized", "forbidden", "invalid api key", "invalid_api_key", "incorrect api key"):
 		return "hint: the provider refused the key or the login. Type /config to enter a new one."
 	case has("429", "rate limit", "quota", "insufficient_quota"):

@@ -10,6 +10,9 @@ import { ActionTrail } from './ActionTrail'
 import { t, tc, tf, plural, useLang, setLang, resolveLang, type LangSetting } from './i18n'
 import { SettingsModal } from './Settings'
 import { NewSessionButton } from './NewSessionButton'
+import { GitConnectModal, type SelfHosted } from './GitConnect'
+import { RepoPicker } from './RepoPicker'
+import { listAccounts, connectedAccounts, repoShortName, type GitAccount, type GitRepo } from './gitApi'
 
 interface Message {
   id: number
@@ -716,6 +719,14 @@ export default function App() {
   // The git identity dialog: opened when the gateway answers that git has no user, and
   // submitted together with the project it interrupted.
   const [showGitIdentity, setShowGitIdentity] = useState(false)
+  // Git host connections: the connect modal (from Settings, the New project dialog or a refused
+  // clone), the repository picker, and the hosts that are connected right now.
+  // `then` says what to do once the host is connected: pick a repository, or send the create again.
+  const [gitConnect, setGitConnect] = useState<{ service?: string; selfHosted?: SelfHosted; then?: 'picker' | 'create' } | null>(null)
+  const [showRepoPicker, setShowRepoPicker] = useState(false)
+  const [gitAccounts, setGitAccounts] = useState<GitAccount[] | null>(null)
+  const [gitRev, setGitRev] = useState(0)
+  const createProjectRef = useRef<() => void>(() => {})
   const [gitUserName, setGitUserName] = useState('')
   const [gitUserEmail, setGitUserEmail] = useState('')
   const [creatingProject, setCreatingProject] = useState(false)
@@ -1655,6 +1666,12 @@ export default function App() {
       })
       if (!res.ok) {
         const err = await res.json().catch(() => ({}))
+        if (res.status === 409 && err.code === 'git_auth_required') {
+          // The clone was refused for credentials: connect that host, then send the same request again.
+          setCreatingProject(false)
+          setGitConnect({ service: err.service || undefined, then: 'create' })
+          return
+        }
         if (res.status === 409 && err.code === 'git_identity_required') {
           // Nothing was created: ask for the user and send the same request again.
           setShowGitIdentity(true)
@@ -1688,6 +1705,34 @@ export default function App() {
       setCreatingProject(false)
     }
   }, [newProjectTitle, newProjectDesc, newProjectDir, newProjectGit, fetchProjects])
+
+  createProjectRef.current = () => { void createProject() }
+
+  // The hosts that are connected, for the New project dialog. Read when it opens and after a connect.
+  useEffect(() => {
+    if (!showNewProject) return
+    let live = true
+    listAccounts(api).then(a => { if (live) setGitAccounts(a) }).catch(() => { if (live) setGitAccounts([]) })
+    return () => { live = false }
+  }, [showNewProject, gitRev])
+
+  const onGitConnected = useCallback((_service: string, account: string) => {
+    const then = gitConnect?.then
+    setGitRev(n => n + 1)
+    setToast({ message: account ? tf('Connected as {user}', { user: account }) : t('Connected'), type: 'success' })
+    if (then === 'picker') setShowRepoPicker(true)
+    if (then === 'create') setTimeout(() => createProjectRef.current(), 0)
+  }, [gitConnect])
+
+  // pickRepo fills the New project form from a repository the user chose.
+  const pickRepo = useCallback((r: GitRepo) => {
+    const name = repoShortName(r)
+    setNewProjectGit(r.clone_url)
+    setNewProjectTitle(prev => prev.trim() ? prev : name)
+    setNewProjectDir(prev => prev.trim() ? prev : name)
+    setNewProjectDesc(prev => prev.trim() ? prev : (r.description || ''))
+    setShowRepoPicker(false)
+  }, [])
 
   // deleteProject removes a project from the gateway.
   // `discard` carries the user's answer, exactly as it does for a session: a project
@@ -3662,6 +3707,12 @@ export default function App() {
                   langAvailable={uiLangAvailable}
                   onLang={(s) => void changeLanguage(s)}
                   onClose={() => setShowSettings(false)}
+                  git={{
+                    api,
+                    rev: gitRev,
+                    onConnect: (service, selfHosted) => setGitConnect({ service, selfHosted }),
+                    onNotice: (message, error) => setToast({ message, type: error ? 'error' : 'success' }),
+                  }}
                 />
               )}
             </div>
@@ -4298,6 +4349,14 @@ export default function App() {
                   placeholder={t('https://github.com/user/repo.git  or  git@github.com:user/repo.git')}
                 />
                 <p class="text-xs text-[#7a7a8c] mt-1">{t('HTTPS or SSH. When set, the repo is cloned into the folder name above.')}</p>
+                {gitAccounts && connectedAccounts(gitAccounts).length > 0 ? (
+                  <button type="button" class="mt-2 text-sm text-accent underline underline-offset-2" onClick={() => setShowRepoPicker(true)}>{t('Choose from my repositories')}</button>
+                ) : gitAccounts && (
+                  <div class="mt-2 flex items-center gap-2 p-2.5 rounded-xl border border-white/10 bg-black/20" data-testid="git-connect-banner">
+                    <span class="flex-1 text-xs text-[#9a9aaa]">{t('Connect GitHub, GitLab or Bitbucket to pick one of your repositories')}</span>
+                    <button type="button" class="flex-none px-3 min-h-[32px] rounded-lg bg-accent text-white text-xs font-semibold" onClick={() => setGitConnect({ then: 'picker' })}>{t('Connect')}</button>
+                  </div>
+                )}
               </div>
             </div>
 
@@ -4393,6 +4452,27 @@ export default function App() {
             </div>
           </form>
         </div>
+      )}
+
+      {/* Git host connections: the repository picker, and the connect flow on top of it. */}
+      {showRepoPicker && gitAccounts && (
+        <RepoPicker
+          api={api}
+          accounts={connectedAccounts(gitAccounts)}
+          onPick={pickRepo}
+          onClose={() => setShowRepoPicker(false)}
+          onConnectAnother={() => setGitConnect({ then: 'picker' })}
+          onAuthRequired={(service) => { setShowRepoPicker(false); setGitConnect({ service, then: 'picker' }) }}
+        />
+      )}
+      {gitConnect && (
+        <GitConnectModal
+          api={api}
+          service={gitConnect.service}
+          selfHosted={gitConnect.selfHosted}
+          onClose={() => setGitConnect(null)}
+          onConnected={onGitConnected}
+        />
       )}
 
       {/* Model Switcher modal — provider and model selection. */}

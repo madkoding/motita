@@ -35,6 +35,12 @@ type Credential struct {
 	// client that issued the token (Google: the user's own OAuth client).
 	ClientID     string `json:"client_id,omitempty"`
 	ClientSecret string `json:"client_secret,omitempty"`
+	// Username is the account a git host login belongs to: the name a credential
+	// helper answers with, and what the settings screen shows as "connected as".
+	Username string `json:"username,omitempty"`
+	// Basic marks a token that is really a password (a Bitbucket app password) and
+	// is therefore sent with HTTP Basic and the Username, not as a Bearer token.
+	Basic bool `json:"basic,omitempty"`
 	// UpdatedAt is when the file was last written, for the status line.
 	UpdatedAt time.Time `json:"updated_at,omitempty"`
 }

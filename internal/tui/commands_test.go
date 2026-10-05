@@ -125,10 +125,11 @@ func TestCompletionsMatchPrefixes(t *testing.T) {
 		// POPUP - pressing Enter on "/s" still runs /session, because an alias is matched whole.
 		{"/s", []string{"/session", "/sessions"}},
 		{"/m", []string{"/models"}},
+		{"/gi", []string{"/git"}},
 		{"/n", []string{"/new"}},
 		{"/a", []string{"/attach", "/agents"}},
 		{"/se", []string{"/session", "/sessions"}},
-		{"/", []string{"/task", "/plan", "/models", "/config", "/reasoning", "/language", "/find", "/session", "/sessions", "/attach", "/agents", "/good", "/bad", "/value", "/new", "/update", "/help", "/quit"}},
+		{"/", []string{"/task", "/plan", "/models", "/config", "/git", "/reasoning", "/language", "/find", "/session", "/sessions", "/attach", "/agents", "/good", "/bad", "/value", "/new", "/update", "/help", "/quit"}},
 	} {
 		got := completions(tc.typed)
 		var names []string

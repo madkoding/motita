@@ -273,7 +273,7 @@ func TestAQueryStreamsProgressAsNotifications(t *testing.T) {
 func TestCloneGitRepoReportsWhatGitSaid(t *testing.T) {
 	dest := filepath.Join(t.TempDir(), "clone")
 	// A local path that is not a repository: git fails, and its message must come back.
-	out, err := cloneGitRepo("/definitely/not/a/repository", dest)
+	out, err := cloneGitRepo("/definitely/not/a/repository", dest, nil)
 	if err == nil {
 		t.Fatal("cloning a non-repository must fail")
 	}
@@ -296,7 +296,7 @@ func TestCloneGitRepoClonesALocalRepository(t *testing.T) {
 	gitInit(t, src)
 
 	dest := filepath.Join(t.TempDir(), "clone")
-	out, err := cloneGitRepo(src, dest)
+	out, err := cloneGitRepo(src, dest, nil)
 	if err != nil {
 		t.Fatalf("cloneGitRepo: %v (output: %s)", err, out)
 	}

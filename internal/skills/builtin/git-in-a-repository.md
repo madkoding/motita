@@ -15,6 +15,12 @@ was never recorded anywhere.
 | Local change | `add`, `commit`, `checkout`, `switch`, `restore`, `stash`, `merge`, `rebase`, `init`, `clone`, `worktree`, `rm`, `mv` | **refused** | runs silently |
 | Reaches out / rewrites | `push`, `pull`, `fetch`, `reset`, `clean`, `filter-branch`, `gc`, `submodule`, `cherry-pick` | **refused** | **the user is asked** |
 
+`git push`, `git pull` and `git clone` authenticate through the login the user made in motita's
+settings, in a session's worktree as much as in the main checkout (and the user's own git
+configuration still applies). If one fails with "Authentication failed" or "could not read
+Username", do not hunt for a token: tell the user to connect the host in Settings → Git
+connections (web) or `/git connect` (terminal).
+
 Two consequences worth knowing before you plan a step:
 
 - **`git commit` runs without a confirmation; `git push` asks.** So a local commit is cheap and a
@@ -91,6 +97,10 @@ working in the same tree, and leave theirs in the working tree.
 - **Stage explicitly** (`git add <paths>`), not `git add -A`, when more than one writer shares the
   tree. `git add -A` is how a scratch file or another session's half-written test gets committed
   under your message.
+- **Every commit subject is semantic: `type(scope): description`** (Conventional Commits: `feat`,
+  `fix`, `docs`, `style`, `refactor`, `perf`, `test`, `build`, `ci`, `chore`, `revert`; `!` marks a
+  breaking change). A `git commit -m` whose subject is not in that form is refused before the commit
+  is made. The pull-requests-and-ci skill has the table and how to open a pull request.
 - **Write the message about the change, not the session.** What the commit does, and why the
   non-obvious choice was made. A diary is not a commit message.
 - **`git commit -F -` with a heredoc** is how to write a multi-paragraph message without shell

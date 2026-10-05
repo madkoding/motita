@@ -24,7 +24,9 @@ Running the binary with no arguments starts an **interactive text user
 interface (TUI)**: a conversation with the agent in **Task** mode (it changes files
 and proves the change with your check) or read-only **Plan** mode (`Tab` switches),
 with `/` opening the command list — the setup (`/config`), the models your provider
-publishes (`/models`), the sessions the gateway holds, and help (`?`). Task mode and
+publishes (`/models`), the git hosts (`/git`: connect GitHub, GitLab, Bitbucket or Codeberg, or a
+self-hosted `gitlab:git.example.com`, by browser login or a token; `/git repos` lists what you can
+reach), the sessions the gateway holds, and help (`?`). Task mode and
 plan mode are both driven by the same 3-layer agent.
 
 ![The command list](screenshots/menu.png)
@@ -1383,7 +1385,10 @@ internal/skills/        the procedure library: the documents, and their archive
 internal/curator/       the maintenance pass: stale, archive, and consolidation
 internal/procedures/    the library as the tools see it (search, load, save)
 internal/usage/         the ledger next to the shelf (/good, /bad, lifecycle telemetry)
-internal/gateway/       HTTP + WebSocket gateway (sessions, projects, schedules, skills)
+internal/gateway/       HTTP + WebSocket gateway (sessions, projects, schedules, skills, git logins)
+internal/gitforge/      git hosts: logins, credential helper, repositories, pull requests, CI
+internal/oauth/         direct logins (device code, PKCE, refresh) for the providers and the git hosts
+internal/semantic/      Conventional Commits check for commit subjects and pull request titles
 internal/webui/         the browser interface's built assets
 internal/logx/        JSON logging with rotation
 internal/readonly/    structural read-only guarantee (no shell + allowlist)

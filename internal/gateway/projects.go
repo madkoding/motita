@@ -143,9 +143,9 @@ func (s *Server) handleCreateProject(w http.ResponseWriter, r *http.Request) {
 	if gitURL != "" {
 		// Clone the repo into the directory.
 		var err error
-		cloneLog, err = cloneGitRepo(gitURL, absDir)
+		cloneLog, err = cloneGitRepo(gitURL, absDir, s.gitCommandEnv())
 		if err != nil {
-			writeError(w, http.StatusBadGateway, err.Error())
+			s.writeCloneError(w, gitURL, err)
 			return
 		}
 	} else {
@@ -368,7 +368,7 @@ func (s *Server) handleMergeSession(w http.ResponseWriter, r *http.Request) {
 
 	task := fmt.Sprintf(`Integrate this session's work into the project.
 
-Follow the git-in-a-repository skill. Commit any pending changes on the session branch, then merge the session branch into the project's base branch with a merge commit whose subject is "motita: integrate session %s".
+Follow the git-in-a-repository skill. Commit any pending changes on the session branch, then merge the session branch into the project's base branch with a merge commit whose subject is "chore(motita): integrate session %s".
 
 Session ID: %s
 Session branch: %s

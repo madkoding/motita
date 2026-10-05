@@ -304,11 +304,11 @@ func TestAChainIsJudgedByEveryPart(t *testing.T) {
 
 	// A local commit is work, and must not be questioned: the agent commits its own
 	// validated changes, and a prompt on every `git add` would be pure friction.
-	if d := testMode().DecideLine("git add -A && git commit -m x", dir); d.Verdict != Allow {
+	if d := testMode().DecideLine("git add -A && git commit -m \"chore: x\"", dir); d.Verdict != Allow {
 		t.Errorf("a local commit must be allowed, got %s: %s", d.Verdict, d.Reason)
 	}
 	// The same line with a push is a different matter: it leaves the machine.
-	if d := testMode().DecideLine("git add -A && git commit -m x && git push", dir); d.Verdict != Ask {
+	if d := testMode().DecideLine("git add -A && git commit -m \"chore: x\" && git push", dir); d.Verdict != Ask {
 		t.Errorf("a chain that pushes must be asked about, got %s: %s", d.Verdict, d.Reason)
 	}
 	outside := filepath.Join(filepath.Dir(dir), "outside.txt")
@@ -496,7 +496,7 @@ func TestLocalVerbsOfExternalToolsAreNotQuestioned(t *testing.T) {
 	dir := t.TempDir()
 	for _, line := range []string{
 		"git status",
-		"git commit -m x",
+		"git commit -m \"chore: x\"",
 		"git add -A",
 		"go test ./...",
 		"go build ./...",

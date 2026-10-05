@@ -146,7 +146,7 @@ func (ps *projectStore) delete(id string) error {
 // cloneGitRepo clones a git URL into the given directory and returns the
 // combined output of the git command. It is called when a project is created
 // with a git URL instead of a local folder.
-func cloneGitRepo(gitURL, destDir string) (string, error) {
+func cloneGitRepo(gitURL, destDir string, env []string) (string, error) {
 	if strings.TrimSpace(gitURL) == "" {
 		return "", fmt.Errorf("the git URL is empty")
 	}
@@ -154,6 +154,9 @@ func cloneGitRepo(gitURL, destDir string) (string, error) {
 		return "", fmt.Errorf("could not create the parent directory: %w", err)
 	}
 	cmd := exec.Command("git", "clone", "--progress", gitURL, destDir)
+	// env carries the credential helper, so a repository of a host the user connected clones
+	// without a prompt nobody can answer. Nil keeps the process environment.
+	cmd.Env = env
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		return string(out), fmt.Errorf("could not clone %q: %w\n%s", gitURL, err, string(out))

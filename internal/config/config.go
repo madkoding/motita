@@ -429,7 +429,7 @@ func Default() Config {
 		FinalAction: FinalAction{
 			Kind:          "none",
 			Method:        "POST",
-			CommitMessage: "agent: {{task}}",
+			CommitMessage: "chore(agent): {{task}}",
 		},
 		Agent: Agent{
 			MaxRetries:   5,
