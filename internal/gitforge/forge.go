@@ -1,5 +1,5 @@
 // Package gitforge is motita's knowledge of git hosts: GitHub, GitLab,
-// Bitbucket and the Gitea family (Codeberg, Forgejo).
+// Bitbucket and the Gitea family (self-hosted Gitea, Forgejo).
 //
 // It exists because three things the user asked for are the SAME thing seen from
 // three sides. Connecting to a host (OAuth, or a pasted token), letting `git`
@@ -27,7 +27,7 @@ import (
 type Kind string
 
 // The four dialects. GitHub Enterprise speaks github, a self-hosted GitLab
-// speaks gitlab, and Codeberg and Forgejo speak gitea.
+// speaks gitlab, and Forgejo speaks gitea.
 const (
 	KindGitHub    Kind = "github"
 	KindGitLab    Kind = "gitlab"
@@ -55,7 +55,7 @@ const ghCLIClientID = "178c6fc778ccc68e1d6a"
 // Service is one git host motita can connect to.
 type Service struct {
 	// ID names the login on disk and in the API: "github", "gitlab", "bitbucket",
-	// "codeberg", or "<kind>@<host>" for a self-hosted one.
+	// or "<kind>@<host>" for a self-hosted one.
 	ID   string
 	Name string
 	Kind Kind
@@ -140,17 +140,6 @@ func Defaults(env Lookup) []Service {
 			Scope:     "repository:write pullrequest:write account",
 			TokenURL:  "https://bitbucket.org/account/settings/app-passwords/new",
 			EnvPrefix: "MOTITA_BITBUCKET",
-		}, env),
-		configure(Service{
-			ID: "codeberg", Name: "Codeberg", Kind: KindGitea, Host: "codeberg.org",
-			APIBase: "https://codeberg.org/api/v1",
-			Endpoints: oauth.Endpoints{
-				AuthorizeURL: "https://codeberg.org/login/oauth/authorize",
-				TokenURL:     "https://codeberg.org/login/oauth/access_token",
-			},
-			Scope:     "",
-			TokenURL:  "https://codeberg.org/user/settings/applications",
-			EnvPrefix: "MOTITA_CODEBERG",
 		}, env),
 	}
 }

@@ -24,7 +24,7 @@ Running the binary with no arguments starts an **interactive text user
 interface (TUI)**: a conversation with the agent in **Task** mode (it changes files
 and proves the change with your check) or read-only **Plan** mode (`Tab` switches),
 with `/` opening the command list — the setup (`/config`), the models your provider
-publishes (`/models`), the git hosts (`/git`: connect GitHub, GitLab, Bitbucket or Codeberg, or a
+publishes (`/models`), the git hosts (`/git`: connect GitHub, GitLab or Bitbucket, or a
 self-hosted `gitlab:git.example.com`, by browser login or a token; `/git repos` lists what you can
 reach), the sessions the gateway holds, and help (`?`). Task mode and
 plan mode are both driven by the same 3-layer agent.
