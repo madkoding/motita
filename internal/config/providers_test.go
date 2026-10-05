@@ -138,7 +138,7 @@ func TestMissingKeyForALoginProviderSuggestsTheLogin(t *testing.T) {
 	c := Default()
 	c.LLM.Provider, c.LLM.APIKey = "codex", ""
 	err := c.validateLLM(true)
-	if err == nil || !strings.Contains(err.Error(), "motita -init") {
+	if err == nil || !strings.Contains(err.Error(), "motita config") {
 		t.Errorf("err = %v", err)
 	}
 }

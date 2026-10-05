@@ -36,7 +36,7 @@ func renderConfig(v configValues) []byte {
 
 	b.WriteString("# motita configuration\n")
 	b.WriteString("#\n")
-	b.WriteString("# Written by `motita -init`")
+	b.WriteString("# Written by `motita config`")
 	if !v.generated.IsZero() {
 		b.WriteString(" on " + v.generated.UTC().Format("2006-01-02"))
 	}

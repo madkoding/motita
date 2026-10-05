@@ -2,7 +2,7 @@ package onboard
 
 // The anchor the wizard writes, and the defect this file exists to prevent.
 //
-// `motita -init` used to record option 2 ("Always pass, while I try the agent out") as
+// `motita config` used to record option 2 ("Always pass, while I try the agent out") as
 // `anchor: {kind: command, command: "true"}`. The comment in the test called it "the escape
 // hatch", and it was not one: `true` exits 0, so the anchor PASSED on every run and the agent
 // reported "task completed" over work it had not done. Measured on a real gateway's log after

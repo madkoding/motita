@@ -957,7 +957,7 @@ func (c *Config) validateLLM(requireKey bool) error {
 		// Ollama Cloud that is OLLAMA_API_KEY, and telling the user to export
 		// OPENAI_API_KEY would send them to a name the loader ignores.
 		if SupportsLogin(c.LLM.Provider) {
-			return fmt.Errorf("the LLM key is missing: set llm.api_key in the YAML or %s, or log in with `motita -init`", ProviderKeyVariable(c.LLM.Provider))
+			return fmt.Errorf("the LLM key is missing: set llm.api_key in the YAML or %s, or log in with `motita config`", ProviderKeyVariable(c.LLM.Provider))
 		}
 		return fmt.Errorf("the LLM key is missing: set llm.api_key in the YAML or %s", ProviderKeyVariable(c.LLM.Provider))
 	}

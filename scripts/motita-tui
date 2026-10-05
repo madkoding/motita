@@ -85,7 +85,7 @@ fi
 
 if [ ! -f "$CONFIG" ]; then
     echo "motita-tui: configuration not found: $CONFIG" >&2
-    echo "  create it with: motita -init" >&2
+    echo "  create it with: motita config" >&2
     exit 2
 fi
 

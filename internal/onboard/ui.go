@@ -255,7 +255,7 @@ func printSummary(out io.Writer, res Result) {
 	fprintf(out, "%s%sStart working%s\n", indent, colBold, colReset)
 	printInfo(out, "Open a terminal in your project and run:")
 	printCommand(out, "motita")
-	printInfo(out, "Change any of this later with /config inside motita, or with: motita -init")
+	printInfo(out, "Change any of this later with /config inside motita, or with: motita config")
 	printDivider(out)
 }
 

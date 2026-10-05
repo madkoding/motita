@@ -11,7 +11,7 @@
 # anchor.args, anchor.checks) are set here. Credentials must NEVER live in this
 # file: use MOTITA_LLM_API_KEY, the provider's own variable (OPENAI_API_KEY,
 # ANTHROPIC_API_KEY, GEMINI_API_KEY, DASHSCOPE_API_KEY, OLLAMA_API_KEY,
-# GITHUB_COPILOT_TOKEN), or a stored login (motita -init).
+# GITHUB_COPILOT_TOKEN), or a stored login (motita config).
 # graceful_shutdown_timeout also accepts the older name of the previous release:
 # MOTITA_AGENT_SHUTDOWN_TIMEOUT.
 

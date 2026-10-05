@@ -175,6 +175,6 @@ func init() {
 		"  or export it in your shell:":                                              "  o expórtala en tu shell:",
 		"%s%sStart working%s\n":                                                      "%s%sEmpieza a trabajar%s\n",
 		"Open a terminal in your project and run:":                                   "Abre una terminal en tu proyecto y ejecuta:",
-		"Change any of this later with /config inside motita, or with: motita -init": "Cambia cualquiera de estas opciones después con /config dentro de motita, o con: motita -init",
+		"Change any of this later with /config inside motita, or with: motita config": "Cambia cualquiera de estas opciones después con /config dentro de motita, o con: motita config",
 	})
 }

@@ -152,19 +152,18 @@ func announceExposure(out io.Writer, found gateway.Found) {
 		// there is nothing to warn about.
 		return
 	}
-	fmt.Fprintf(out, "\nthis gateway is listening on every interface (port %s): any machine that can\n", portOf(found.BaseURL))
-	fmt.Fprintln(out, "reach this host may connect, subject to the rules below.")
+	fmt.Fprintf(out, "\nNETWORK ACCESS\n  listening on every interface (port %s): any machine that can reach this\n", portOf(found.BaseURL))
+	fmt.Fprintln(out, "  host may connect, subject to the rules below.")
 	if found.Allow == "every origin" {
 		// The documented default, and the one case that deserves to be spelled out rather than
 		// left to a rule list that says nothing: it is the same posture as a machine with a fresh,
 		// empty firewall table, and an operator who did not expect it has to find out now.
-		fmt.Fprintln(out, "no origin rules are set, so EVERY origin is accepted (gateway.allow is empty).")
-		fmt.Fprintln(out, "add a rule to gateway.allow to narrow it: \"lan\", an address, a network, or")
-		fmt.Fprintln(out, "\"!any\" for this machine only.")
+		fmt.Fprintln(out, "  rules: none set, so EVERY origin is accepted (gateway.allow is empty).")
+		fmt.Fprintln(out, "         narrow it with \"lan\", an address, a network, or \"!any\" (this machine only).")
 	} else {
-		fmt.Fprintf(out, "gateway.allow: %s\n", found.Allow)
+		fmt.Fprintf(out, "  rules: gateway.allow: %s\n", found.Allow)
 	}
-	fmt.Fprintln(out, "there is no TLS, so the token travels in clear text to every one of them.")
+	fmt.Fprintln(out, "  there is no TLS, so the token travels in clear text to every one of them.")
 }
 
 // portOf extracts the port from a base URL, for the sentence above it.
@@ -192,8 +191,12 @@ func announceWebUI(out io.Writer, found gateway.Found) {
 	if strings.TrimSpace(found.Token) == "" {
 		return
 	}
-	fmt.Fprintf(out, "\nthe interface is at %s/#t=%s\n", found.BaseURL, found.Token)
-	fmt.Fprintln(out, "open that link once: the page trades the fragment for a cookie and drops it")
+	port := portOf(found.BaseURL)
+	fmt.Fprintf(out, "\nACCESS TOKEN\n  %s\n", found.Token)
+	fmt.Fprintln(out, "  (also kept in the token file; a client asks for it when connecting)")
+	fmt.Fprintln(out, "\nINTERFACE: open a link once in a browser (the web interface trades the token for a")
+	fmt.Fprintln(out, "cookie and drops it)")
+	fmt.Fprintf(out, "  this machine       %s/#t=%s\n", found.BaseURL, found.Token)
 	if !found.Reachable {
 		// Bound to loopback: the link above IS the only way in, and offering network addresses
 		// would send the reader to an address that refuses them.
@@ -208,13 +211,13 @@ func announceWebUI(out io.Writer, found gateway.Found) {
 		// No address to offer. Saying so is better than a guess: a made-up address is an error the
 		// reader cannot tell from a broken network.
 		fmt.Fprintln(out, "\nthis host has no network address to offer, so from another machine use this")
-		fmt.Fprintln(out, "host's address on THAT machine's network: same port, same fragment.")
+		fmt.Fprintln(out, "host's address on THAT machine's network: same port, same #t=<token> ending.")
 		return
 	}
-	fmt.Fprintln(out, "\nfrom another machine, use whichever of these reaches this host - same port,")
-	fmt.Fprintln(out, "same fragment, and the link above only works on this machine:")
+	fmt.Fprintln(out, "  from another machine, use whichever reaches this host")
+	fmt.Fprintln(out, "  (the \"this machine\" link only works on this machine):")
 	for _, addr := range addresses {
-		fmt.Fprintf(out, "  http://%s:%s/#t=%s\n", addr, portOf(found.BaseURL), found.Token)
+		fmt.Fprintf(out, "  other machine      http://%s:%s/#t=%s\n", addr, port, found.Token)
 	}
 }
 

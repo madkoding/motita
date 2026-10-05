@@ -242,7 +242,7 @@ func TestANetworkReachableAnnouncementOffersALANLink(t *testing.T) {
 		}
 	}
 	// And it no longer asks the operator to work the address out for themselves.
-	if strings.Contains(got, "same fragment - the link above") {
+	if strings.Contains(got, "same #t=<token> ending") {
 		t.Errorf("the announcement still asks the operator to derive the address:\n%s", got)
 	}
 }
@@ -673,7 +673,7 @@ func TestStartDoesNotAnnounceAnInterfaceItsGatewayWillNotServe(t *testing.T) {
 	if code := Run(op); code != Success {
 		t.Fatalf("exit %d, want %d (output: %s)", code, Success, out.String())
 	}
-	if strings.Contains(out.String(), "the interface is at") {
+	if strings.Contains(out.String(), "INTERFACE") {
 		t.Fatalf("a gateway configured with webui: false was announced with an interface link:\n%s",
 			out.String())
 	}
@@ -703,7 +703,7 @@ func TestStartAnnouncesTheInterfaceItsGatewayWillServe(t *testing.T) {
 	if code := Run(op); code != Success {
 		t.Fatalf("exit %d, want %d (output: %s)", code, Success, out.String())
 	}
-	if !strings.Contains(out.String(), "the interface is at") {
+	if !strings.Contains(out.String(), "INTERFACE") {
 		t.Fatalf("the interface was not announced for a gateway that serves it:\n%s", out.String())
 	}
 }

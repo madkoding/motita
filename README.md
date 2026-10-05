@@ -182,7 +182,7 @@ motita
 ```
 
 That's it. If no configuration exists, a short setup launches automatically —
-no need to know about `-init`. It shows where you are (`[2/5]`), lets you move through
+no need to know about `motita config`. It shows where you are (`[2/5]`), lets you move through
 every list with `↑` `↓` (or type the number, or the answer itself), takes the highlighted value
 when you press Enter, masks a key as you paste it, and writes nothing until you have seen the
 result:
@@ -218,7 +218,7 @@ an unreachable server is explained instead of dumped as a dial error.</sub>
 
 <sub>For Copilot, Codex, Gemini and Qwen: log in with your account, no API key needed.</sub>
 
-Running the setup again — `/config` inside motita, or `motita -init` — is how you change
+Running the setup again — `/config` inside motita, or `motita config` — is how you change
 the provider, the key, the model or the check. It **offers to keep** the key and the login
 you already have, keeps the previous configuration as `motita.yaml.bak`, and the new setup
 **takes effect immediately** in the session you ran it from.

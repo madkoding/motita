@@ -309,7 +309,7 @@ sha256sum -c SHA256SUMS --ignore-missing
 
 The binary needs a configuration that names a provider, a model and — most
 importantly — the check that decides whether a task is really done. Running `motita`
-with no configuration starts the setup on its own; `motita -init` runs it on purpose,
+with no configuration starts the setup on its own; `motita config` runs it on purpose,
 and `/config` runs it from inside the interface.
 
 ![The setup](screenshots/wizard-onboard.png)
@@ -1269,7 +1269,7 @@ pipes and shell metacharacters are syntactically impossible. Destructive
 commands are refused before they run.
 
 **Graceful shutdown:** `Ctrl+C` (or `SIGINT`/`SIGTERM`) works everywhere. The first
-signal cancels the current work in progress, returns from the TUI or `-init`
+signal cancels the current work in progress, returns from the TUI or `motita config`
 wizard, and grants `agent.graceful_shutdown_timeout` seconds to finish; the
 second signal exits immediately with code 130.
 

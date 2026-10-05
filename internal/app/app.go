@@ -195,13 +195,13 @@ Options:
   -connect string    connect to a gateway somebody else is running, as a client
                      (this process then builds no sandbox and runs no commands)
   -session string    which conversation to attach to (default "default")
-  -init              first-run wizard: choose the provider, the model and the
-                     check, and write a working configuration
   -validate-config   validate the configuration and exit (does not call the LLM)
   -isolation         print the available sandbox isolation and exit
   -version           print the version and exit
 
 Commands:
+  config             setup wizard: choose the provider, the model and the check,
+                     and write a working configuration (-init still works)
   gateway start      bring the gateway up as a service and leave it running
   gateway stop       stop the gateway named by the service file
   gateway status     report whether a gateway is running
@@ -473,6 +473,12 @@ func parse(args []string) (flags, error) {
 					// interface.
 					return b, fmt.Errorf("unknown gateway action %q: start, stop or status", args[i+1])
 				}
+				consumed = true
+			case "config":
+				// The setup wizard. A word and not a flag because -config already names the
+				// YAML file; `motita config` is the one place the two cannot be confused.
+				b.initConfig = true
+				args = append(append([]string{}, args[:i]...), args[i+1:]...)
 				consumed = true
 			case "curator":
 				if i+1 >= len(args) {
