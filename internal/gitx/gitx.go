@@ -28,6 +28,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"sort"
 	"strings"
 	"time"
 )
@@ -174,10 +175,58 @@ func Repo(ctx context.Context, dir string) error {
 // and copying it into .git/config would freeze a value the user may change.
 // An existing repository is left untouched, so calling this twice is harmless.
 func Init(ctx context.Context, dir string) error {
+	return InitOn(ctx, dir, "main")
+}
+
+// InitOn is Init on a branch of the caller's choosing: the one a project is told
+// to treat as its main line.
+func InitOn(ctx context.Context, dir, branch string) error {
 	if Repo(ctx, dir) == nil {
 		return nil
 	}
-	_, err := noGitOr(ctx, "could not initialise a git repository", dir, "init", "--initial-branch=main")
+	_, err := noGitOr(ctx, "could not initialise a git repository", dir, "init", "--initial-branch="+branch)
+	return err
+}
+
+// ValidBranch reports whether name is a branch name git accepts. It is asked of git, which
+// owns the rules (no spaces, no "..", no trailing ".lock"), rather than approximated here.
+func ValidBranch(ctx context.Context, name string) bool {
+	if strings.TrimSpace(name) == "" || strings.HasPrefix(name, "-") {
+		return false
+	}
+	_, err := execute(ctx, ".", "check-ref-format", "--branch", name)
+	return err == nil
+}
+
+// Branches lists the branches a repository can be put on: the local ones and those that exist
+// only on origin (a clone has the remote's other branches as remote-tracking refs, and
+// checking one out creates the local branch). The session branches this program makes
+// (motita/...) are left out: they are not lines of work a person chooses between.
+func Branches(ctx context.Context, dir string) ([]string, error) {
+	out, err := noGitOr(ctx, "could not list the branches", dir,
+		"for-each-ref", "--format=%(refname)", "refs/heads", "refs/remotes/origin")
+	if err != nil {
+		return nil, err
+	}
+	seen := map[string]bool{}
+	var names []string
+	for _, ref := range strings.Fields(out) {
+		name := strings.TrimPrefix(strings.TrimPrefix(ref, "refs/heads/"), "refs/remotes/origin/")
+		if name == "HEAD" || strings.HasPrefix(name, "motita/") || seen[name] {
+			continue
+		}
+		seen[name] = true
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	return names, nil
+}
+
+// Checkout puts the checkout at dir on a branch. A branch that exists only on origin is created
+// locally, tracking it. Git's own refusal (uncommitted changes that would be overwritten, a
+// branch checked out in another worktree) is reported as it is.
+func Checkout(ctx context.Context, dir, branch string) error {
+	_, err := noGitOr(ctx, "could not check out "+branch, dir, "checkout", branch, "--")
 	return err
 }
 

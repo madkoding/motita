@@ -1013,6 +1013,10 @@ func (s *Server) handleDeleteSession(w http.ResponseWriter, r *http.Request) {
 	s.forgetCheckpoints(c)
 	s.forget(c.id)
 	s.deletePersistedSession(c.id)
+	// The last session of a project is gone: its checkout goes back to the main branch.
+	if c.projectID != "" {
+		s.returnToMain(s.projectOf(c.projectID))
+	}
 	w.WriteHeader(http.StatusNoContent)
 }
 

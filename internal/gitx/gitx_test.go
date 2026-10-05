@@ -1320,3 +1320,78 @@ func TestHasRemoteSeesOnlyOrigin(t *testing.T) {
 		t.Error("origin must be found")
 	}
 }
+
+// ---------- the main branch of a project ----------
+
+func TestInitOnNamesTheBranchAndInitIsMain(t *testing.T) {
+	ctx := context.Background()
+	dir := filepath.Join(t.TempDir(), "p")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := InitOn(ctx, dir, "master"); err != nil {
+		t.Fatal(err)
+	}
+	if got := Display(ctx, dir); got != "master" {
+		t.Errorf("InitOn(master) left the repository on %q", got)
+	}
+	// An existing repository is left as it is.
+	if err := InitOn(ctx, dir, "other"); err != nil || Display(ctx, dir) != "master" {
+		t.Errorf("a second init must change nothing: %v %q", err, Display(ctx, dir))
+	}
+	plain := filepath.Join(t.TempDir(), "q")
+	if err := os.MkdirAll(plain, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := Init(ctx, plain); err != nil || Display(ctx, plain) != "main" {
+		t.Errorf("Init must make main: %v %q", err, Display(ctx, plain))
+	}
+}
+
+func TestValidBranchAsksGit(t *testing.T) {
+	ctx := context.Background()
+	for name, want := range map[string]bool{
+		"main": true, "feature/x": true, "": false, "  ": false, "-d": false,
+		"has space": false, "a..b": false, "x.lock": false,
+	} {
+		if got := ValidBranch(ctx, name); got != want {
+			t.Errorf("ValidBranch(%q) = %v, want %v", name, got, want)
+		}
+	}
+}
+
+func TestBranchesListsLocalAndRemoteOnesWithoutSessionBranches(t *testing.T) {
+	ctx := context.Background()
+	origin := newRepo(t)
+	git(t, origin, "branch", "release")
+	clone := filepath.Join(t.TempDir(), "clone")
+	git(t, filepath.Dir(clone), "clone", "-q", origin, clone)
+	git(t, clone, "branch", "motita/s1")
+	git(t, clone, "branch", "local-only")
+
+	got, err := Branches(ctx, clone)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Join(got, ",") != "local-only,main,release" {
+		t.Errorf("Branches = %v: local and origin-only branches, once each, no HEAD and no motita/*", got)
+	}
+	if _, err := Branches(ctx, t.TempDir()); err == nil {
+		t.Error("a directory that is not a repository must be an error")
+	}
+}
+
+func TestCheckoutMovesAndCreatesATrackingBranch(t *testing.T) {
+	ctx := context.Background()
+	origin := newRepo(t)
+	git(t, origin, "branch", "release")
+	clone := filepath.Join(t.TempDir(), "clone")
+	git(t, filepath.Dir(clone), "clone", "-q", origin, clone)
+
+	if err := Checkout(ctx, clone, "release"); err != nil || Display(ctx, clone) != "release" {
+		t.Fatalf("checking out an origin-only branch: %v %q", err, Display(ctx, clone))
+	}
+	if err := Checkout(ctx, clone, "ghost"); err == nil {
+		t.Error("a branch that does not exist must be refused")
+	}
+}
