@@ -223,6 +223,8 @@ func (op Options) startGateway(fl flags, cfg config.Config, engine *llm.Client, 
 		SessionDir: sessionDir(),
 		// Projects persist to ~/.motita/projects.
 		ProjectDir: projectDir(),
+		// What an agent produced for the person is kept in ~/.motita/artifacts.
+		ArtifactDir: artifactDir(),
 		// Scheduled tasks persist to ~/.motita/schedules, and the resolution at which a
 		// due task is noticed comes from the configuration: a second default here is how
 		// the two drift.
@@ -286,6 +288,15 @@ func sessionDir() string {
 		return ""
 	}
 	return filepath.Join(d, "sessions")
+}
+
+// artifactDir returns the directory where the files agents produced are kept: ~/.motita/artifacts.
+func artifactDir() string {
+	d := config.Dir()
+	if d == "" {
+		return ""
+	}
+	return filepath.Join(d, "artifacts")
 }
 
 // projectDir returns the directory where projects are persisted: ~/.motita/projects.

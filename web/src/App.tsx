@@ -718,6 +718,11 @@ export default function App() {
   const [newProjectDir, setNewProjectDir] = useState('')
   const [newProjectGit, setNewProjectGit] = useState('')
   // Podman: whether this machine has it (asked when the dialog opens) and the user's answer.
+  // Artifacts: the files the agent saved for the person in the selected session, and the one
+  // being looked at. `body` is the text of a text file, `url` a blob for an image.
+  const [showArtifacts, setShowArtifacts] = useState(false)
+  const [artifacts, setArtifacts] = useState<{ name: string; size: number; type: string; modified: string }[]>([])
+  const [artifactView, setArtifactView] = useState<{ name: string; type: string; body?: string; url?: string } | null>(null)
   const [hasPodman, setHasPodman] = useState(false)
   const [hasPodmanCompose, setHasPodmanCompose] = useState(false)
   const [newProjectPodman, setNewProjectPodman] = useState(false)
@@ -1734,6 +1739,45 @@ export default function App() {
     }).catch(() => { if (live) { setHasPodman(false); setHasPodmanCompose(false) } })
     return () => { live = false }
   }, [showNewProject])
+
+  const loadArtifacts = useCallback(async () => {
+    if (!sessionId) { setArtifacts([]); return }
+    try {
+      const res = await api('/v1/sessions/' + encodeURIComponent(sessionId) + '/artifacts')
+      const d = res.ok ? await res.json() : {}
+      setArtifacts(Array.isArray(d.artifacts) ? d.artifacts : [])
+    } catch { setArtifacts([]) }
+  }, [sessionId])
+
+  // openArtifact fetches one file with the token (a plain link would not carry it) and shows it
+  // by kind: pages in a sandboxed frame, images as pictures, text as text, anything else is saved.
+  const openArtifact = useCallback(async (a: { name: string; type: string }) => {
+    try {
+      const res = await api('/v1/sessions/' + encodeURIComponent(sessionId) + '/artifacts/' + encodeURIComponent(a.name))
+      if (!res.ok) { setState('could not open the artifact', true); return }
+      if (a.type.startsWith('image/')) {
+        setArtifactView({ name: a.name, type: a.type, url: URL.createObjectURL(await res.blob()) })
+      } else if (a.type.startsWith('text/') || a.type === 'application/json') {
+        setArtifactView({ name: a.name, type: a.type, body: await res.text() })
+      } else {
+        const url = URL.createObjectURL(await res.blob())
+        const link = document.createElement('a')
+        link.href = url
+        link.download = a.name
+        link.click()
+        setTimeout(() => URL.revokeObjectURL(url), 1000)
+      }
+    } catch { setState('could not open the artifact', true) }
+  }, [sessionId])
+
+  const deleteArtifact = useCallback(async (name: string) => {
+    try {
+      const res = await api('/v1/sessions/' + encodeURIComponent(sessionId) + '/artifacts/' + encodeURIComponent(name), { method: 'DELETE' })
+      if (!res.ok && res.status !== 204) { setState('could not delete the artifact', true); return }
+      setArtifactView(v => (v && v.name === name ? null : v))
+      await loadArtifacts()
+    } catch { setState('could not delete the artifact', true) }
+  }, [sessionId, loadArtifacts])
 
   // setProjectPodman changes the answer given at creation: the gateway tells the open sessions.
   const setProjectPodman = useCallback(async (id: string, podman: boolean) => {
@@ -3732,6 +3776,17 @@ export default function App() {
                 {t('Skill library')}
               </button>
               <button
+                class="w-full flex items-center gap-2 px-3 py-2.5 rounded-xl hover:bg-white/5 transition-colors text-sm text-[#e8e8ea] disabled:opacity-40"
+                data-testid="artifacts-button"
+                disabled={!sessionId}
+                onClick={() => { setArtifactView(null); setShowArtifacts(true); void loadArtifacts() }}
+              >
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" /><polyline points="14 2 14 8 20 8" />
+                </svg>
+                {t('Artifacts')}
+              </button>
+              <button
                 class="w-full flex items-center gap-2 px-3 py-2.5 rounded-xl hover:bg-white/5 transition-colors text-sm text-[#e8e8ea]"
                 onClick={() => { setShowScheduledTasks(true); void loadSchedules() }}
               >
@@ -5333,6 +5388,54 @@ export default function App() {
                   </button>
                 </div>
               </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {showArtifacts && (
+        <div
+          class="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4"
+          onClick={() => setShowArtifacts(false)}
+        >
+          <div
+            class="frosted rounded-2xl border border-white/10 w-full max-w-2xl p-5 shadow-2xl max-h-[85vh] flex flex-col"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div class="flex items-center gap-2 mb-4">
+              <h2 class="text-base font-semibold">{t('Artifacts')}</h2>
+              <button class="ml-auto p-1.5 rounded-lg hover:bg-white/5" onClick={() => setShowArtifacts(false)} aria-label={t('Close')}>
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" />
+                </svg>
+              </button>
+            </div>
+            {artifactView ? (
+              <div class="flex flex-col min-h-0 flex-1">
+                <button class="self-start text-sm text-accent underline underline-offset-2 mb-2" onClick={() => setArtifactView(null)}>{t('Back to the list')}</button>
+                <div class="text-sm font-mono text-[#c8c8d2] mb-2 truncate">{artifactView.name}</div>
+                {artifactView.url ? (
+                  <img src={artifactView.url} alt={artifactView.name} class="max-w-full max-h-[60vh] object-contain rounded-lg" />
+                ) : artifactView.type.startsWith('text/html') ? (
+                  <iframe sandbox="" srcDoc={artifactView.body} title={artifactView.name} class="w-full flex-1 min-h-[50vh] rounded-lg bg-white" />
+                ) : (
+                  <pre class="overflow-auto flex-1 text-xs font-mono p-3 rounded-lg bg-black/30 whitespace-pre-wrap">{artifactView.body}</pre>
+                )}
+              </div>
+            ) : artifacts.length === 0 ? (
+              <p class="text-sm text-[#9a9aaa]">{t('Nothing saved in this session yet. Ask for a report, a page or a diagram and it will show up here.')}</p>
+            ) : (
+              <ul class="overflow-auto space-y-1.5">
+                {artifacts.map(a => (
+                  <li key={a.name} class="flex items-center gap-2 p-2.5 rounded-xl border border-white/10 bg-black/20">
+                    <button class="flex-1 min-w-0 text-left" onClick={() => void openArtifact(a)}>
+                      <div class="truncate text-sm text-[#e8e8ea] font-mono">{a.name}</div>
+                      <div class="text-xs text-[#7a7a8c]">{a.type} · {Math.max(1, Math.round(a.size / 1024))} KB</div>
+                    </button>
+                    <button class="flex-none px-2 min-h-[32px] rounded-lg text-xs text-danger hover:bg-danger/10" onClick={() => void deleteArtifact(a.name)}>{t('Delete')}</button>
+                  </li>
+                ))}
+              </ul>
             )}
           </div>
         </div>

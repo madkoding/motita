@@ -187,6 +187,10 @@ func (s *Server) startDetachedRun(c *conversation, task, kind, intent string, ap
 			}
 		}
 
+		// Whatever the agent left as artifacts is copied out now, success or not: a run that
+		// failed late can still have produced the report the person wants to read.
+		s.collectArtifacts(c.id, c.workspace)
+
 		switch {
 		case errors.Is(err, context.Canceled):
 			rn.append(EventError, map[string]string{"error": "the run was cancelled"})

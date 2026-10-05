@@ -121,6 +121,9 @@ type Options struct {
 	// set, the gateway loads every session found there at startup and saves
 	// each conversation's transcript, title and config after every turn.
 	SessionDir string
+	// ArtifactDir is the directory the files an agent produced are kept in, one folder per
+	// session. Empty means artifacts are not kept.
+	ArtifactDir string
 	// ProjectDir is the directory where projects are persisted. Empty means
 	// projects are not available.
 	ProjectDir string
@@ -560,6 +563,9 @@ func (s *Server) routes() *http.ServeMux {
 
 	mux.Handle("GET /v1/sessions/{id}", scoped(s.handleSession))
 	mux.Handle("GET /v1/sessions/{id}/report", scoped(s.handleSessionReport))
+	mux.Handle("GET /v1/sessions/{id}/artifacts", scoped(s.handleListArtifacts))
+	mux.Handle("GET /v1/sessions/{id}/artifacts/{name}", scoped(s.handleGetArtifact))
+	mux.Handle("DELETE /v1/sessions/{id}/artifacts/{name}", scoped(s.handleDeleteArtifact))
 	mux.Handle("GET /v1/sessions/{id}/messages", scoped(s.handleMessages))
 	mux.Handle("POST /v1/sessions/{id}/reset", scoped(s.handleReset))
 	mux.Handle("GET /v1/sessions/{id}/checkpoints", scoped(s.handleCheckpoints))
@@ -1060,6 +1066,7 @@ func (s *Server) saveAllSessions() {
 
 // deletePersistedSession removes a conversation's file from disk.
 func (s *Server) deletePersistedSession(id string) {
+	s.removeArtifacts(id)
 	if s.store == nil {
 		return
 	}

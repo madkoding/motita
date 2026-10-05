@@ -380,6 +380,8 @@ const es: Record<string, string> = {
   "{n}y ago": "hace {n} años",
   "Choose from my repositories": "Elegir de mis repositorios",
   "Podman was found on this machine. Use it to run this project?": "Se encontró Podman en esta máquina. ¿Quieres usarlo para levantar este proyecto?",
+  "Artifacts": "Artefactos",
+  "Nothing saved in this session yet. Ask for a report, a page or a diagram and it will show up here.": "Aún no hay nada guardado en esta sesión. Pide un informe, una página o un diagrama y aparecerá aquí.",
   "Stop using podman": "Dejar de usar podman",
   "Run with podman": "Levantar con podman",
   "This project is run with podman": "Este proyecto se levanta con podman",

@@ -62,7 +62,7 @@ func buildChangeReport(ctx context.Context, workspace, rev string) changeReport 
 	}
 	for _, f := range files {
 		// The screenshots are evidence, not a change the user asked for.
-		if strings.HasPrefix(f.Path, PreviewDir+"/") {
+		if strings.HasPrefix(f.Path, PreviewDir+"/") || strings.HasPrefix(f.Path, ArtifactDir+"/") {
 			continue
 		}
 		rep.Files = append(rep.Files, f)
