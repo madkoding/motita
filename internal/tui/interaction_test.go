@@ -288,8 +288,8 @@ func TestHelpListsTheCommands(t *testing.T) {
 			t.Errorf("the help must document %q:\n%s", want, helpText)
 		}
 	}
-	// The help did reach the interface: its tail is what the window shows.
-	if !strings.Contains(stripANSI(lastFrame(t, tui)), "/value") {
+	// The help did reach the interface: a line well inside the window is on the screen.
+	if !strings.Contains(stripANSI(lastFrame(t, tui)), "/sessions") {
 		t.Errorf("the help must be shown:\n%s", stripANSI(lastFrame(t, tui)))
 	}
 }

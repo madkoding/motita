@@ -53,3 +53,17 @@ func TestTheProjectDirectoryIsEmptyWithoutAHome(t *testing.T) {
 		t.Fatalf("projectDir() = %q with no HOME, want empty", got)
 	}
 }
+
+// TestTheArtifactDirectoryLivesUnderTheHome: what agents produce is state the program owns, so it
+// sits under the motita home like the rest, and is empty (not kept) without one.
+func TestTheArtifactDirectoryLivesUnderTheHome(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	if got, want := artifactDir(), filepath.Join(home, ".motita", "artifacts"); got != want {
+		t.Fatalf("artifactDir() = %q, want %q", got, want)
+	}
+	t.Setenv("HOME", "")
+	if got := artifactDir(); got != "" {
+		t.Fatalf("artifactDir() = %q with no HOME, want empty", got)
+	}
+}

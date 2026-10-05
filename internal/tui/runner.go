@@ -176,6 +176,11 @@ type AppRunner struct {
 	//
 	// Guarded by sessionMu, like store, because both are read while a turn runs.
 	projectScope string
+	// containerRuntime is the runtime the project is run with ("podman" or empty), and
+	// runtimeNote is the sentence it added to the system prompt, kept so a change can
+	// swap it. Guarded by sessionMu, like the session it edits.
+	containerRuntime string
+	runtimeNote      string
 
 	// rewardMu guards the last attribution.
 	//
@@ -390,6 +395,29 @@ func (r *AppRunner) SetWorkspace(dir string) {
 	if box, err := sandbox.New(op); err == nil {
 		r.Box = box
 	}
+}
+
+// SetContainerRuntime tells the agent how this project is run: with podman, instead of
+// docker. An empty name clears it. The sentence goes into the session's system prompt, so
+// it holds for every turn, and it replaces the previous one when the user changes the answer.
+func (r *AppRunner) SetContainerRuntime(name string) {
+	r.sessionMu.Lock()
+	defer r.sessionMu.Unlock()
+	r.containerRuntime = name
+	if r.session != nil {
+		r.applyRuntimeNote()
+	}
+}
+
+// applyRuntimeNote rewrites the runtime sentence at the end of the system prompt.
+// The caller holds sessionMu and has a session.
+func (r *AppRunner) applyRuntimeNote() {
+	note := ""
+	if r.containerRuntime == "podman" {
+		note = "\n\nThis project is run with podman. Use `podman` (and `podman compose` when the project has a compose file) to build and start it, and do not use docker."
+	}
+	r.session.System = strings.TrimSuffix(r.session.System, r.runtimeNote) + note
+	r.runtimeNote = note
 }
 
 // SetProjectScope makes this runner's procedure library belong to ONE project.
@@ -676,6 +704,8 @@ func (r *AppRunner) conversation(cfg config.Config, engine session.Summariser) *
 			s.KeepRecent = cfg.LLM.Session.KeepRecent
 		}
 		r.session = s
+		r.runtimeNote = ""
+		r.applyRuntimeNote()
 	}
 	r.session.Summariser = engine
 	return r.session

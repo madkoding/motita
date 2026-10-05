@@ -187,6 +187,10 @@ func (s *Server) startDetachedRun(c *conversation, task, kind, intent string, ap
 			}
 		}
 
+		// Whatever the agent left as artifacts is copied out now, success or not: a run that
+		// failed late can still have produced the report the person wants to read.
+		madeArtifacts := s.collectArtifacts(c)
+
 		switch {
 		case errors.Is(err, context.Canceled):
 			rn.append(EventError, map[string]string{"error": "the run was cancelled"})
@@ -208,6 +212,7 @@ func (s *Server) startDetachedRun(c *conversation, task, kind, intent string, ap
 			if rep := buildChangeReport(s.baseCtx, c.workspace, startRev); len(rep.Files) > 0 || len(rep.Previews) > 0 {
 				done.Changes = &rep
 			}
+			done.Artifacts = madeArtifacts
 			rn.append(EventDone, done)
 			rn.finish("done", result, "", snap)
 			s.maybeAutoTitle(c)

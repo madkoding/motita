@@ -4,6 +4,10 @@
 VERSION   ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 LDFLAGS   := -s -w -X main.version=$(VERSION)
 GO        ?= go
+# The container runtime for the e2e targets: docker when its daemon answers, else podman.
+# CONTAINER_RUNTIME=podman forces one. See scripts/container-runtime.sh.
+CTR ?= $(shell sh -c '. ./scripts/container-runtime.sh; echo $$CTR')
+
 DIST      := dist
 COVERPKG  := ./...
 # Packages with tests (the coverage report walks them one by one).
@@ -112,6 +116,7 @@ staticcheck: ## Run the linter CI runs, on the go.mod toolchain
 	@GOTOOLCHAIN=$(STATICCHECK_GO) $(GO) run $(STATICCHECK) ./...
 
 cover: ## Coverage per package (the gate is 100%) and aggregate
+	@if [ "$$(id -u)" = "0" ]; then echo "note: running as root: tests that need a permission error skip themselves, so a package may read below 100% here; run as a normal user for the real figure"; fi
 	@$(GO) list $(PKGS) | while read -r pkg; do \
 		out=$$($(GO) test -count=1 -cover $$pkg 2>/dev/null | grep -oE 'coverage: [0-9.]+%'); \
 		[ -z "$$out" ] && out='(no test files)'; \
@@ -132,7 +137,7 @@ smoke: dist ## Run the linux binaries inside their own container
 		case "$$arch" in arm) image="arm32v7/debian:bookworm-slim"; pl="linux/arm/v7";; esac; \
 		case "$$arch" in arm64) image="arm64v8/debian:bookworm-slim";; esac; \
 		printf '  %-12s ' "$$arch"; \
-		docker run --rm --platform "$$pl" -v "$(CURDIR)/$(DIST):/t:ro" "$$image" \
+		$(CTR) run --rm --platform "$$pl" -v "$(CURDIR)/$(DIST):/t:ro" "$$image" \
 			sh -c "/t/motita-linux-$$arch -version" || exit 1; \
 	done
 

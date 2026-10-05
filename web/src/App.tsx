@@ -23,6 +23,8 @@ interface Message {
   changes?: ChangeReport
   // report is the answer as structure, when the run produced one: drawn as a card.
   report?: TaskReport
+  // artifacts are the files this run saved for the person, offered under the answer.
+  artifacts?: { name: string; type: string; size: number }[]
   // turn, on a message of the user's, is the checkpoint that input became: the number the
   // gateway knows it by. It is unset until the gateway has said which one it is.
   turn?: number
@@ -143,9 +145,16 @@ interface ProjectInfo {
   description?: string
   dir: string
   git_url?: string
+  podman?: boolean
   branch?: string
   changes?: number
   created: string
+}
+
+// daysUntil is how many whole days remain until a moment, rounded up: "deleted in 1 days" is
+// shown for the last day, never "0".
+function daysUntil(iso: string): number {
+  return Math.ceil((new Date(iso).getTime() - Date.now()) / 86400000)
 }
 
 // shortID abbreviates a generated id the way git abbreviates a sha: the first
@@ -716,6 +725,18 @@ export default function App() {
   const [newProjectDesc, setNewProjectDesc] = useState('')
   const [newProjectDir, setNewProjectDir] = useState('')
   const [newProjectGit, setNewProjectGit] = useState('')
+  // Podman: whether this machine has it (asked when the dialog opens) and the user's answer.
+  // Artifacts: the files the agent saved for the person in the selected session, and the one
+  // being looked at. `body` is the text of a text file, `url` a blob for an image.
+  const [showArtifacts, setShowArtifacts] = useState(false)
+  const [artifactScope, setArtifactScope] = useState<'session' | 'project'>('session')
+  const [artifacts, setArtifacts] = useState<{ name: string; size: number; type: string; modified: string; pinned?: boolean; expires_at?: string }[]>([])
+  const [artifactView, setArtifactView] = useState<{ name: string; type: string; body?: string; url?: string } | null>(null)
+  const [hasPodman, setHasPodman] = useState(false)
+  const [hasPodmanCompose, setHasPodmanCompose] = useState(false)
+  // Installed is not the same as working: `podman info` can fail on a machine that has the binary.
+  const [podmanReady, setPodmanReady] = useState(false)
+  const [newProjectPodman, setNewProjectPodman] = useState(false)
   // The git identity dialog: opened when the gateway answers that git has no user, and
   // submitted together with the project it interrupted.
   const [showGitIdentity, setShowGitIdentity] = useState(false)
@@ -1660,6 +1681,7 @@ export default function App() {
           description: newProjectDesc.trim(),
           dir,
           git_url: gitUrl || undefined,
+          use_podman: hasPodman && newProjectPodman ? true : undefined,
           git_user_name: identity?.name,
           git_user_email: identity?.email,
         })
@@ -1698,13 +1720,14 @@ export default function App() {
       setNewProjectDesc('')
       setNewProjectDir('')
       setNewProjectGit('')
+      setNewProjectPodman(false)
       setShowGitIdentity(false)
       setCreatingProject(false)
     } catch (e) {
       setState(tf('could not create the project: {err}', { err: String(e) }), true)
       setCreatingProject(false)
     }
-  }, [newProjectTitle, newProjectDesc, newProjectDir, newProjectGit, fetchProjects])
+  }, [newProjectTitle, newProjectDesc, newProjectDir, newProjectGit, newProjectPodman, hasPodman, fetchProjects])
 
   createProjectRef.current = () => { void createProject() }
 
@@ -1715,6 +1738,110 @@ export default function App() {
     listAccounts(api).then(a => { if (live) setGitAccounts(a) }).catch(() => { if (live) setGitAccounts([]) })
     return () => { live = false }
   }, [showNewProject, gitRev])
+
+  // Ask the gateway which container runtimes the machine has, so podman is only offered when it is there.
+  // Read on start (the project menu needs it) and again when the dialog opens.
+  useEffect(() => {
+    let live = true
+    api('/v1/runtimes').then(r => r.json()).then(d => {
+      if (!live) return
+      setHasPodman(!!d.podman)
+      setHasPodmanCompose(!!d.podman_compose)
+      setPodmanReady(!!d.podman_ready)
+    }).catch(() => { if (live) { setHasPodman(false); setHasPodmanCompose(false); setPodmanReady(false) } })
+    return () => { live = false }
+  }, [showNewProject])
+
+  const artifactBase = useCallback(
+    () => '/v1/sessions/' + encodeURIComponent(sessionId) + '/artifacts',
+    [sessionId])
+  const scopeQuery = (scope: 'session' | 'project') => (scope === 'project' ? '?scope=project' : '')
+
+  const loadArtifacts = useCallback(async (scope: 'session' | 'project' = artifactScope) => {
+    if (!sessionId) { setArtifacts([]); return }
+    try {
+      const res = await api(artifactBase() + scopeQuery(scope))
+      const d = res.ok ? await res.json() : {}
+      setArtifacts(Array.isArray(d.artifacts) ? d.artifacts : [])
+    } catch { setArtifacts([]) }
+  }, [sessionId, artifactScope, artifactBase])
+
+  // openArtifact fetches one file with the token (a plain link would not carry it) and shows it
+  // by kind: pages in a sandboxed frame, Markdown rendered, images and PDFs as themselves, text as
+  // text; anything else is saved.
+  const openArtifact = useCallback(async (a: { name: string; type: string }, scope: 'session' | 'project' = artifactScope) => {
+    try {
+      const res = await api(artifactBase() + '/' + encodeURIComponent(a.name) + scopeQuery(scope))
+      if (!res.ok) { setState('could not open the artifact', true); return }
+      if (a.type.startsWith('image/') || a.type.startsWith('application/pdf')) {
+        setArtifactView({ name: a.name, type: a.type, url: URL.createObjectURL(await res.blob()) })
+      } else if (a.type.startsWith('text/') || a.type === 'application/json') {
+        setArtifactView({ name: a.name, type: a.type, body: await res.text() })
+      } else {
+        const url = URL.createObjectURL(await res.blob())
+        const link = document.createElement('a')
+        link.href = url
+        link.download = a.name
+        link.click()
+        setTimeout(() => URL.revokeObjectURL(url), 1000)
+      }
+    } catch { setState('could not open the artifact', true) }
+  }, [artifactScope, artifactBase])
+
+  const deleteArtifact = useCallback(async (name: string) => {
+    try {
+      const res = await api(artifactBase() + '/' + encodeURIComponent(name) + scopeQuery(artifactScope), { method: 'DELETE' })
+      if (!res.ok && res.status !== 204) { setState('could not delete the artifact', true); return }
+      setArtifactView(v => (v && v.name === name ? null : v))
+      await loadArtifacts()
+    } catch { setState('could not delete the artifact', true) }
+  }, [artifactScope, artifactBase, loadArtifacts])
+
+  // pinArtifact keeps a file out of the retention, or lets it expire again.
+  const pinArtifact = useCallback(async (name: string, pinned: boolean) => {
+    try {
+      const res = await api(artifactBase() + '/' + encodeURIComponent(name) + '/pin' + scopeQuery(artifactScope), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ pinned })
+      })
+      if (!res.ok && res.status !== 204) { setState('could not pin the artifact', true); return }
+      await loadArtifacts()
+    } catch { setState('could not pin the artifact', true) }
+  }, [artifactScope, artifactBase, loadArtifacts])
+
+  // uploadArtifact saves a file the person picks into this session, as the raw body.
+  const uploadArtifact = useCallback(async (file: File) => {
+    try {
+      const res = await api(artifactBase() + '/' + encodeURIComponent(file.name), { method: 'PUT', body: file })
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}))
+        setState(err.error || 'could not save the file', true)
+        return
+      }
+      setArtifactScope('session')
+      await loadArtifacts('session')
+    } catch { setState('could not save the file', true) }
+  }, [artifactBase, loadArtifacts])
+
+  // setProjectPodman changes the answer given at creation: the gateway tells the open sessions.
+  const setProjectPodman = useCallback(async (id: string, podman: boolean) => {
+    try {
+      const res = await api('/v1/projects/' + id, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ podman })
+      })
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}))
+        setState(err.error || 'could not change the project', true)
+        return
+      }
+      await fetchProjects()
+    } catch {
+      setState('could not change the project', true)
+    }
+  }, [fetchProjects])
 
   const onGitConnected = useCallback((_service: string, account: string) => {
     const then = gitConnect?.then
@@ -2559,7 +2686,7 @@ export default function App() {
     case 'done':
       setActivity(null)
       if (payload.result) {
-        setMessages(prev => [...prev, { id: nextId(), role: 'agent', text: payload.result, changes: payload.changes, report: hasReport(payload.report) ? payload.report : undefined }])
+        setMessages(prev => [...prev, { id: nextId(), role: 'agent', text: payload.result, changes: payload.changes, artifacts: Array.isArray(payload.artifacts) && payload.artifacts.length ? payload.artifacts : undefined, report: hasReport(payload.report) ? payload.report : undefined }])
       }
       finish()
       break
@@ -3577,6 +3704,9 @@ export default function App() {
                               <span class="font-mono text-accent truncate max-w-[7rem]">{shortBranch(p.branch)}</span>
                             </span>
                           )}
+                          {p.podman && (
+                            <span class="inline-flex items-center flex-none px-1 py-px rounded bg-accent/10 text-accent text-[9px] uppercase tracking-wide" title={t('This project is run with podman')}>podman</span>
+                          )}
                           {!!p.changes && (
                             <span
                               class="inline-flex items-center gap-1 flex-none px-1 py-px rounded bg-[#f0a040]/10"
@@ -3621,6 +3751,15 @@ export default function App() {
               style={rowMenuPos ? { top: `${rowMenuPos.top}px`, left: `${rowMenuPos.left}px` } : undefined}
                             onClick={(e) => e.stopPropagation()}
                           >
+                            {(hasPodman || p.podman) && (
+                              <button
+                                class="row-menu-item w-full flex items-center gap-2 px-3 py-2 text-sm text-[#e8e8ea] hover:bg-white/5"
+                                data-testid="podman-toggle"
+                                onClick={(e) => { e.stopPropagation(); void setProjectPodman(p.id, !p.podman); closeRowMenu() }}
+                              >
+                                {t(p.podman ? 'Stop using podman' : 'Run with podman')}
+                              </button>
+                            )}
                             <button
                               class="row-menu-item w-full flex items-center gap-2 px-3 py-2 text-sm text-danger hover:bg-danger/10"
                               onClick={(e) => { e.stopPropagation(); setConfirmDelete({ type: 'project', id: p.id, title: p.title }); closeRowMenu() }}
@@ -3680,6 +3819,17 @@ export default function App() {
                   <path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z" /><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z" />
                 </svg>
                 {t('Skill library')}
+              </button>
+              <button
+                class="w-full flex items-center gap-2 px-3 py-2.5 rounded-xl hover:bg-white/5 transition-colors text-sm text-[#e8e8ea] disabled:opacity-40"
+                data-testid="artifacts-button"
+                disabled={!sessionId}
+                onClick={() => { setArtifactView(null); setArtifactScope('session'); setShowArtifacts(true); void loadArtifacts('session') }}
+              >
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" /><polyline points="14 2 14 8 20 8" />
+                </svg>
+                {t('Artifacts')}
               </button>
               <button
                 class="w-full flex items-center gap-2 px-3 py-2.5 rounded-xl hover:bg-white/5 transition-colors text-sm text-[#e8e8ea]"
@@ -3884,6 +4034,19 @@ export default function App() {
                         <span>{m.kind === 'kind' ? t(m.text) : m.text}</span>
                       )}
                       {m.changes && <ChangesCard changes={m.changes} />}
+                      {m.artifacts && (
+                        <div class="mt-2 flex flex-wrap gap-1.5" data-testid="run-artifacts">
+                          {m.artifacts.map(a => (
+                            <button
+                              key={a.name}
+                              class="px-2.5 min-h-[32px] rounded-lg border border-white/10 bg-black/20 text-xs font-mono text-accent hover:bg-white/5"
+                              onClick={() => { setArtifactScope('session'); setArtifactView(null); setShowArtifacts(true); void loadArtifacts('session'); void openArtifact(a, 'session') }}
+                            >
+                              {a.name}
+                            </button>
+                          ))}
+                        </div>
+                      )}
                     </div>
                   ))}
                   {liveHere && activity && (
@@ -4358,6 +4521,20 @@ export default function App() {
                   </div>
                 )}
               </div>
+              {hasPodman && (
+                <label class="flex items-start gap-2.5 p-2.5 rounded-xl border border-white/10 bg-black/20 cursor-pointer" data-testid="podman-offer">
+                  <input
+                    type="checkbox"
+                    class="mt-0.5 accent-[var(--accent,#7c6cff)]"
+                    checked={newProjectPodman}
+                    onChange={(e) => setNewProjectPodman((e.target as HTMLInputElement).checked)}
+                  />
+                  <span class="text-sm text-[#e8e8ea]">
+                    {t('Podman was found on this machine. Use it to run this project?')}
+                    <span class="block text-xs text-[#7a7a8c] mt-0.5">{t(!podmanReady ? 'podman is installed but did not answer (podman info failed), so it may not work until it is set up.' : hasPodmanCompose ? 'The project will be started in containers with podman.' : 'The project will be started in containers with podman. podman compose was not found, so compose files will not work until it is installed.')}</span>
+                  </span>
+                </label>
+              )}
             </div>
 
             {/* Clone status — shown while cloning. */}
@@ -5269,6 +5446,97 @@ export default function App() {
                   </button>
                 </div>
               </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {showArtifacts && (
+        <div
+          class="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4"
+          onClick={() => setShowArtifacts(false)}
+        >
+          <div
+            class="frosted rounded-2xl border border-white/10 w-full max-w-2xl p-5 shadow-2xl max-h-[85vh] flex flex-col"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div class="flex items-center gap-2 mb-4">
+              <h2 class="text-base font-semibold">{t('Artifacts')}</h2>
+              <button class="ml-auto p-1.5 rounded-lg hover:bg-white/5" onClick={() => setShowArtifacts(false)} aria-label={t('Close')}>
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" />
+                </svg>
+              </button>
+            </div>
+            {!artifactView && (
+              <div class="flex items-center gap-2 mb-3">
+                {selectedSession?.project_id && (
+                  <div class="flex rounded-lg border border-white/10 overflow-hidden text-xs" role="tablist">
+                    {(['session', 'project'] as const).map(sc => (
+                      <button
+                        key={sc}
+                        role="tab"
+                        aria-selected={artifactScope === sc}
+                        class={`px-3 min-h-[30px] ${artifactScope === sc ? 'bg-accent text-white' : 'text-[#c8c8d2] hover:bg-white/5'}`}
+                        onClick={() => { setArtifactScope(sc); void loadArtifacts(sc) }}
+                      >
+                        {t(sc === 'session' ? 'This session' : 'Whole project')}
+                      </button>
+                    ))}
+                  </div>
+                )}
+                <label class="ml-auto px-3 min-h-[30px] inline-flex items-center rounded-lg border border-white/10 text-xs text-[#c8c8d2] hover:bg-white/5 cursor-pointer">
+                  {t('Upload a file')}
+                  <input
+                    type="file"
+                    class="hidden"
+                    data-testid="artifact-upload"
+                    onChange={(e) => {
+                      const input = e.target as HTMLInputElement
+                      const f = input.files && input.files[0]
+                      input.value = ''
+                      if (f) void uploadArtifact(f)
+                    }}
+                  />
+                </label>
+              </div>
+            )}
+            {artifactView ? (
+              <div class="flex flex-col min-h-0 flex-1">
+                <button class="self-start text-sm text-accent underline underline-offset-2 mb-2" onClick={() => setArtifactView(null)}>{t('Back to the list')}</button>
+                <div class="text-sm font-mono text-[#c8c8d2] mb-2 truncate">{artifactView.name}</div>
+                {artifactView.url && artifactView.type.startsWith('application/pdf') ? (
+                  <iframe src={artifactView.url} title={artifactView.name} class="w-full flex-1 min-h-[60vh] rounded-lg bg-white" />
+                ) : artifactView.url ? (
+                  <img src={artifactView.url} alt={artifactView.name} class="max-w-full max-h-[60vh] object-contain rounded-lg" />
+                ) : artifactView.type.startsWith('text/markdown') ? (
+                  <div class="overflow-auto flex-1 p-3 rounded-lg bg-black/30"><Markdown content={artifactView.body || ''} /></div>
+                ) : artifactView.type.startsWith('text/html') ? (
+                  <iframe sandbox="" srcDoc={artifactView.body} title={artifactView.name} class="w-full flex-1 min-h-[50vh] rounded-lg bg-white" />
+                ) : (
+                  <pre class="overflow-auto flex-1 text-xs font-mono p-3 rounded-lg bg-black/30 whitespace-pre-wrap">{artifactView.body}</pre>
+                )}
+              </div>
+            ) : artifacts.length === 0 ? (
+              <p class="text-sm text-[#9a9aaa]">{t('Nothing saved in this session yet. Ask for a report, a page or a diagram and it will show up here.')}</p>
+            ) : (
+              <ul class="overflow-auto space-y-1.5">
+                {artifacts.map(a => (
+                  <li key={a.name} class="flex items-center gap-2 p-2.5 rounded-xl border border-white/10 bg-black/20">
+                    <button class="flex-1 min-w-0 text-left" onClick={() => void openArtifact(a)}>
+                      <div class="truncate text-sm text-[#e8e8ea] font-mono">{a.name}</div>
+                      <div class="text-xs text-[#7a7a8c]">{a.type} · {Math.max(1, Math.round(a.size / 1024))} KB</div>
+                      {a.pinned ? (
+                        <div class="text-xs text-accent">{t('Pinned: it will not be deleted')}</div>
+                      ) : a.expires_at && daysUntil(a.expires_at) <= 7 ? (
+                        <div class="text-xs text-[#f0a040]" data-testid="artifact-expiry">{tf('Deleted in {n} days unless pinned', { n: String(Math.max(0, daysUntil(a.expires_at))) })}</div>
+                      ) : null}
+                    </button>
+                    <button class="flex-none px-2 min-h-[32px] rounded-lg text-xs text-[#c8c8d2] hover:bg-white/5" aria-pressed={!!a.pinned} onClick={() => void pinArtifact(a.name, !a.pinned)}>{t(a.pinned ? 'Unpin' : 'Pin')}</button>
+                    <button class="flex-none px-2 min-h-[32px] rounded-lg text-xs text-danger hover:bg-danger/10" onClick={() => void deleteArtifact(a.name)}>{t('Delete')}</button>
+                  </li>
+                ))}
+              </ul>
             )}
           </div>
         </div>

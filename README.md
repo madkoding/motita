@@ -353,6 +353,12 @@ one you are on and naming any with a run in flight — and `/attach <id>` moves 
 one. The token is **read** from `gateway.token`, never minted, and a `-session` the
 gateway does not hold is refused at start with the list of the ones it does.
 
+`/artifacts` lists the files the agent saved in the conversation (a report, a page, a
+diagram); `/artifacts <name>` shows a text file and `/artifacts save <name>` writes it to
+the current directory, never over a file that is already there. Artifacts older than
+`gateway.artifact_days` (30 by default; `0` keeps them) are deleted, and so are the ones of
+sessions and projects that no longer exist.
+
 ### The browser interface, from the same port
 
 The gateway serves a web interface **from its own port** — no second server, no second
@@ -457,6 +463,9 @@ curl -X DELETE -H "Authorization: Bearer $TOKEN" \
 |---|---|
 | `GET /v1/health` | the only one that needs no token: liveness |
 | `GET` `POST /v1/projects` · `DELETE /v1/projects/{id}` | the repositories motita works on; adding one runs `git init` when it is not a repository yet |
+| `GET /v1/sessions/{id}/artifacts` · `GET` `PUT` `DELETE /v1/sessions/{id}/artifacts/{name}` | the files the agent saved for you under `.motita/artifacts/` (a report, a page, a diagram) or you uploaded (`PUT`, raw body), kept in `~/.motita/artifacts/` after the run ends and until the session is deleted; `?scope=project` reads what every session of the project saved; `?download=1` serves one as an attachment; `POST .../{name}/pin` (`{"pinned":true}`) exempts a file from the retention, and the list says when each unpinned one expires. A run's `done` event lists the artifacts it made. Limits: 50 files and 5 MB each per folder, 500 MB in all |
+| `GET /v1/runtimes` | which container runtimes the machine has (`{"podman": true, "podman_ready": true, "podman_compose": true}`: installed, answers `podman info`, and has `podman compose`); the New project dialog offers podman only when it is installed |
+| `PATCH /v1/projects/{id}` | change the "run with podman" answer after creation; open sessions are told, so the agent uses `podman` instead of docker |
 | `GET /v1/projects/{id}/deletion-preview` | what deleting a project would discard, before you confirm with `?force=1` |
 | `GET /v1/git/accounts` · `DELETE /v1/git/accounts/{id}` | the git hosts, who you are on each, and how each can be connected; disconnect one |
 | `POST /v1/git/connect` · `GET` `DELETE /v1/git/flows/{id}` · `POST …/paste` | log in to a host (device code, browser code, or a token); poll, cancel or finish a login in progress |

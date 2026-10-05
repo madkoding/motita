@@ -578,6 +578,21 @@ func scopeProceduresTo(svc Service, projectDir string) {
 	}
 }
 
+// runtimeOf is the container runtime a project is run with, "" for none.
+func runtimeOf(p *Project) string {
+	if p != nil && p.Podman {
+		return "podman"
+	}
+	return ""
+}
+
+// applyRuntimeTo tells a session how its project is run, when the service can take it.
+func applyRuntimeTo(svc Service, p *Project) {
+	if setter, ok := svc.(interface{ SetContainerRuntime(string) }); ok {
+		setter.SetContainerRuntime(runtimeOf(p))
+	}
+}
+
 // setProjectID records which project this conversation belongs to, the project's
 // own checkout, and the workspace the session actually runs in. The last two
 // differ for a session with its own worktree, and both are needed: the workspace
@@ -858,6 +873,7 @@ func (s *Server) handleCreateSession(w http.ResponseWriter, r *http.Request) {
 			// is anchored to: a worktree is removed when the session ends, and a
 			// procedure written into one would be lost with it.
 			scopeProceduresTo(conv.svc, project.Dir)
+			applyRuntimeTo(conv.svc, project)
 		}
 		s.saveSession(conv)
 		writeJSON(w, http.StatusCreated, conv.status())

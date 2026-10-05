@@ -67,6 +67,20 @@ func (s sessionSwitcher) Conversation(ctx context.Context) ([]tui.Turn, error) {
 	return out, nil
 }
 
+// ListArtifacts translates the gateway's list into the interface's shape. ReadArtifact is
+// PROMOTED from the client, which already returns what the interface wants.
+func (s sessionSwitcher) ListArtifacts(ctx context.Context) ([]tui.ArtifactInfo, error) {
+	all, err := s.Client.ListArtifacts(ctx)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]tui.ArtifactInfo, 0, len(all))
+	for _, a := range all {
+		out = append(out, tui.ArtifactInfo{Name: a.Name, Type: a.Type, Size: a.Size})
+	}
+	return out, nil
+}
+
 // liveRun adapts the client's run report to what the interface draws.
 //
 // A translation rather than a forwarding: internal/gateway cannot import internal/tui, so the

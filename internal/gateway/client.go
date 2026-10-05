@@ -699,6 +699,36 @@ func (c *Client) Conversation(ctx context.Context) ([]Turn, error) {
 	return out.Messages, nil
 }
 
+// ListArtifacts returns the files this conversation has saved, newest first.
+func (c *Client) ListArtifacts(ctx context.Context) ([]Artifact, error) {
+	var out struct {
+		Artifacts []Artifact `json:"artifacts"`
+	}
+	if err := c.do(ctx, http.MethodGet, c.scoped("/artifacts"), nil, &out); err != nil {
+		return nil, err
+	}
+	return out.Artifacts, nil
+}
+
+// ReadArtifact returns the content of one saved file. The gateway bounds a file's size, so
+// reading it whole is safe.
+func (c *Client) ReadArtifact(ctx context.Context, name string) ([]byte, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.baseURL+c.scoped("/artifacts/"+url.PathEscape(name)), nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Authorization", "Bearer "+c.token)
+	resp, err := c.http.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode >= http.StatusBadRequest {
+		return nil, refusalError(resp)
+	}
+	return io.ReadAll(io.LimitReader(resp.Body, maxArtifactBytes+1))
+}
+
 // Turn is one turn of a conversation, as it arrives from the gateway.
 //
 // It is a type of this package and not of the interface, so that the wire shape can be described

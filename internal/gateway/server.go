@@ -121,6 +121,11 @@ type Options struct {
 	// set, the gateway loads every session found there at startup and saves
 	// each conversation's transcript, title and config after every turn.
 	SessionDir string
+	// ArtifactDir is the directory the files an agent produced are kept in, one folder per
+	// session. Empty means artifacts are not kept.
+	ArtifactDir string
+	// ArtifactDays is how many days an artifact is kept. Zero keeps them for ever.
+	ArtifactDays int
 	// ProjectDir is the directory where projects are persisted. Empty means
 	// projects are not available.
 	ProjectDir string
@@ -191,7 +196,9 @@ type Server struct {
 	heartbeat time.Duration
 
 	sessionsMu sync.Mutex
-	sessions   map[string]*conversation
+	// artifactsMu orders a pin against the prune: see removeIfUnpinned.
+	artifactsMu sync.Mutex
+	sessions    map[string]*conversation
 
 	// store persists conversations to disk so they survive a restart. nil
 	// when no directory was configured, which means sessions are in-memory
@@ -353,6 +360,7 @@ func Start(opts Options) (*Server, error) {
 	// never opens the settings modal still sees a toast when a new release
 	// appears, without the frontend having to poll GitHub itself.
 	s.startUpdateChecker()
+	s.startArtifactPruner(artifactPruneInterval)
 	return s, nil
 }
 
@@ -499,7 +507,9 @@ func (s *Server) routes() *http.ServeMux {
 
 	s.gitRoutes(mux, plain)
 	mux.Handle("GET /v1/projects", plain(s.handleListProjects))
+	mux.Handle("GET /v1/runtimes", plain(s.handleRuntimes))
 	mux.Handle("POST /v1/projects", plain(s.handleCreateProject))
+	mux.Handle("PATCH /v1/projects/{id}", plain(s.handleUpdateProject))
 	mux.Handle("DELETE /v1/projects/{id}", plain(s.handleDeleteProject))
 	// Scheduled tasks are addressed by the PROCESS, not by a conversation, for the same
 	// reason projects are: a schedule exists whether or not anyone is talking to the
@@ -558,6 +568,11 @@ func (s *Server) routes() *http.ServeMux {
 
 	mux.Handle("GET /v1/sessions/{id}", scoped(s.handleSession))
 	mux.Handle("GET /v1/sessions/{id}/report", scoped(s.handleSessionReport))
+	mux.Handle("GET /v1/sessions/{id}/artifacts", scoped(s.handleListArtifacts))
+	mux.Handle("GET /v1/sessions/{id}/artifacts/{name}", scoped(s.handleGetArtifact))
+	mux.Handle("PUT /v1/sessions/{id}/artifacts/{name}", scoped(s.handlePutArtifact))
+	mux.Handle("POST /v1/sessions/{id}/artifacts/{name}/pin", scoped(s.handlePinArtifact))
+	mux.Handle("DELETE /v1/sessions/{id}/artifacts/{name}", scoped(s.handleDeleteArtifact))
 	mux.Handle("GET /v1/sessions/{id}/messages", scoped(s.handleMessages))
 	mux.Handle("POST /v1/sessions/{id}/reset", scoped(s.handleReset))
 	mux.Handle("GET /v1/sessions/{id}/checkpoints", scoped(s.handleCheckpoints))
@@ -956,6 +971,7 @@ func (s *Server) loadPersistedSessions() {
 		// SAME shelf it had before the restart, or the procedures it learned while
 		// working on this project would silently disappear from its answers.
 		scopeProceduresTo(svc, projectskills.ProjectDirFor(projectDir, workspace))
+		applyRuntimeTo(svc, s.projectOf(rec.ProjectID))
 		s.sessionsMu.Lock()
 		s.sessions[rec.ID] = conv
 		s.sessionsMu.Unlock()
@@ -1057,6 +1073,7 @@ func (s *Server) saveAllSessions() {
 
 // deletePersistedSession removes a conversation's file from disk.
 func (s *Server) deletePersistedSession(id string) {
+	s.removeArtifacts(id)
 	if s.store == nil {
 		return
 	}

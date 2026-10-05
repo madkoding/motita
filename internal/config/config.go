@@ -77,6 +77,10 @@ type Gateway struct {
 	// close what it opened cannot turn the agent into a memory leak, not so that an operator
 	// has to pick a number.
 	MaxSessions int `yaml:"max_sessions"`
+	// ArtifactDays is how many days a saved artifact is kept before the gateway deletes it.
+	// Zero keeps them for ever. The default is 30: artifacts are generated work product, and
+	// a store nobody ever prunes is one that fills a disk slowly enough to go unnoticed.
+	ArtifactDays int `yaml:"artifact_days"`
 	// WebUI serves the browser interface from the gateway itself, on the same port. The page
 	// and the API share an origin, so no proxy and no CORS are involved anywhere.
 	//
@@ -414,6 +418,9 @@ func Default() Config {
 			// skills directory: everything the program owns lives under one folder.
 			TokenFile: "gateway.token",
 			MaxBodyKB: 256,
+			// A month: long enough to come back to a report, short enough that the store
+			// cannot grow without anyone choosing it.
+			ArtifactDays: 30,
 			// On, because the interface arrives WITH the gateway: the page and the API share
 			// this one origin, so there is no second server to run and no CORS to negotiate.
 			// It is reachable on loopback, like the gateway itself; putting it on a network
@@ -827,6 +834,9 @@ func (c *Config) validateGateway() error {
 		// means "the built-in default" and says so, while a negative ceiling is a number nobody
 		// meant - and silently treating it as the default would hide the typo that produced it.
 		return fmt.Errorf("gateway.max_sessions is %d: it cannot be negative (0 means the built-in default)", c.Gateway.MaxSessions)
+	}
+	if c.Gateway.ArtifactDays < 0 {
+		return fmt.Errorf("gateway.artifact_days is %d: it cannot be negative (0 keeps artifacts for ever)", c.Gateway.ArtifactDays)
 	}
 	// The rules are parsed HERE, at load time, and not only where they are enforced.
 	//

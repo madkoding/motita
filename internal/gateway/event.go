@@ -85,6 +85,9 @@ type doneEvent struct {
 	// a front end that lays it out itself. Result stays the flat text every client can show; the
 	// report is omitted when the turn produced none (a chat reply, a plan, a failure).
 	Report *agent.Report `json:"report,omitempty"`
+	// Artifacts are the files this run saved or changed for the person, so a client can offer
+	// them without asking. Omitted when the run saved none.
+	Artifacts []Artifact `json:"artifacts,omitempty"`
 }
 
 // approvalDeniedEvent is a command that was asked about and refused because there was

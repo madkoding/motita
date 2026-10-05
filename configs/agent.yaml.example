@@ -255,6 +255,9 @@ gateway:
   # default. The ceiling exists so a client that forgets to close what it opened
   # cannot turn the agent into a memory leak.
   max_sessions: 0
+  # Days a saved artifact (a file the agent produced for you) is kept before it is
+  # deleted. 0 keeps them for ever.
+  artifact_days: 30
   # Serve the browser interface from this same port. The page and the API share an
   # origin, so there is no second server to run and no CORS to negotiate. The page
   # itself is served without a token - it holds no secret, and it is the only way a

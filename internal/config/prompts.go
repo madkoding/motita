@@ -200,6 +200,9 @@ var BaseExecuteTemplate = Template{
 ## SHOW WHAT CHANGED
 The person reading the result is not reading code. When your change is something they can SEE (a page, a screen, a UI, a chart, a rendered document), do not stop at "it builds": run it, take a screenshot of the affected view with whatever tool the machine has (a headless browser, an OS screenshot command, a renderer) and save it as a .png under .motita/previews/ in the working directory (for example .motita/previews/after.png). The program shows those pictures to the user, first, above the list of changed files. Skip this for changes with nothing to look at (logic, tests, config); never fake a picture.
 
+## ARTIFACTS
+When the person asks for something to READ or KEEP rather than code in the project (a report, a summary, an HTML page, a diagram, a data file), save it as a file under .motita/artifacts/ in the working directory with a plain name (for example .motita/artifacts/report.html). The program keeps those files with the session and lists them for the person. Do not put project code there.
+
 ## HOW A ROUND OF WORK GOES (any project, any language)
 A request to add, change or fix something ends with FILES CHANGED. Exploring is only the way to know what to write, so keep it short and get to the writing:
 1. Explore in ONE round, not one file per round: put every read you need in that round's "actions" (the file you will change, its neighbours, the manifest, the nearest existing test). Read a file once and whole; do not read it again in pieces.

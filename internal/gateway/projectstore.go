@@ -24,7 +24,10 @@ type Project struct {
 	Description string `json:"description,omitempty"`
 	Dir         string `json:"dir"`
 	GitURL      string `json:"git_url,omitempty"`
-	Branch      string `json:"branch,omitempty"`
+	// Podman is the user's answer, given when the project was created, to running
+	// it with podman. It is only ever true on a machine that had podman then.
+	Podman bool   `json:"podman,omitempty"`
+	Branch string `json:"branch,omitempty"`
 	// Changes is how many uncommitted changes are in the project's own
 	// checkout. It is the project's own number, NOT the sum over its sessions:
 	// a session works in its own worktree, and adding the two would report work
