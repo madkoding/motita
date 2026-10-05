@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"net"
 	"os"
@@ -730,4 +731,53 @@ func writeServiceFileFor(t *testing.T, address string) string {
 		t.Fatalf("WriteServiceFile: %v", err)
 	}
 	return path
+}
+
+// -token-only and -json print ONLY the requested data, so a script can capture the output of
+// `gateway start` without parsing prose.
+func TestStartCanPrintOnlyTheTokenOrJSONForScripts(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		flag  string
+		check func(t *testing.T, got string)
+	}{
+		{"token", "-token-only", func(t *testing.T, got string) {
+			if strings.TrimSpace(got) != testToken {
+				t.Fatalf("want only the token, got:\n%s", got)
+			}
+		}},
+		{"json", "-json", func(t *testing.T, got string) {
+			raw := map[string]any{}
+			if err := json.Unmarshal([]byte(got), &raw); err != nil {
+				t.Fatalf("not JSON: %v\n%s", err, got)
+			}
+			if raw["token"] != testToken || raw["pid"] != float64(4242) || raw["url"] == "" || raw["local_link"] == "" {
+				t.Fatalf("missing fields: %v", raw)
+			}
+		}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			out := &syncBuffer{}
+			servicePath := filepath.Join(t.TempDir(), "gateway.json")
+			_, address := fakeGatewayProcess(t, nil)
+			op := gatewayTestOptions(t, out, "", "gateway", "start", tc.flag)
+			op.ServiceFile = servicePath
+			op.SpawnGateway = func(context.Context, spawnSpec) error {
+				return gateway.WriteServiceFile(servicePath, gateway.ServiceFile{
+					Address: address, Token: testToken, PID: 4242, Owned: false,
+				})
+			}
+			if code := Run(op); code != Success {
+				t.Fatalf("exit %d (output: %s)", code, out.String())
+			}
+			tc.check(t, out.String())
+			// Already running: the same data again, not the prose.
+			out2 := &syncBuffer{}
+			op.Out, op.Err = out2, out2
+			if code := Run(op); code != Success {
+				t.Fatalf("second run exit %d", code)
+			}
+			tc.check(t, out2.String())
+		})
+	}
 }

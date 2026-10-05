@@ -2145,3 +2145,25 @@ func TestDefaultNoConfigButTaskUsesTaskMode(t *testing.T) {
 		t.Fatalf("code = %d, errs = %q", code, errs.String())
 	}
 }
+
+// -init still works but says what replaced it; `config` does not nag.
+func TestInitFlagIsDeprecatedAndConfigIsNot(t *testing.T) {
+	clearLocale(t, "en_US.UTF-8")
+	for _, tc := range []struct {
+		arg  string
+		note bool
+	}{{"-init", true}, {"config", false}} {
+		inTempDir(t, func() {
+			silence(t)
+			path := filepath.Join(t.TempDir(), "motita.yaml")
+			var out, errs bytes.Buffer
+			Run(Options{
+				Args: []string{tc.arg, "-config", path}, Out: &out, Err: &errs,
+				Stdin: strings.NewReader("openai\n\n\n1\n3\n\n"),
+			})
+			if got := strings.Contains(errs.String(), "deprecated"); got != tc.note {
+				t.Errorf("%s: deprecation note = %v, want %v (%q)", tc.arg, got, tc.note, errs.String())
+			}
+		})
+	}
+}

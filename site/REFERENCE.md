@@ -622,6 +622,8 @@ Because the two have to find each other, the gateway says where it is:
 
 ```bash
 motita gateway start    # starts the service and waits until it answers
+motita gateway start -token-only   # prints just the token, for scripts
+motita gateway start -json         # url, pid, version, token and links as JSON
 motita gateway status   # says whether one is running, where, and WHICH BUILD
 motita gateway stop     # stops the one the service file names
 ```

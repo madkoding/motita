@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net"
@@ -84,6 +85,9 @@ func (op Options) gatewayStart(ctx context.Context, fl flags) int {
 		return ConfigError
 	}
 	if ok {
+		if op.printStartForScripts(fl, found) {
+			return Success
+		}
 		fmt.Fprintf(op.Out, "a gateway is already running at %s (pid %d)\n", found.BaseURL, found.PID)
 		return Success
 	}
@@ -117,6 +121,9 @@ func (op Options) gatewayStart(ctx context.Context, fl flags) int {
 		fmt.Fprintf(op.Err, "the gateway started but cannot be found afterwards\n")
 		return ConfigError
 	}
+	if op.printStartForScripts(fl, found) {
+		return Success
+	}
 	fmt.Fprintf(op.Out, "the gateway is running at %s (pid %d, %s)\n", found.BaseURL, found.PID, found.Version)
 	// What this gateway will serve and to whom is stated HERE, in the command that brings it up,
 	// because it is the one moment the operator is looking. `gateway status` deliberately stays
@@ -133,6 +140,40 @@ func (op Options) gatewayStart(ctx context.Context, fl flags) int {
 		announceWebUI(op.Out, found)
 	}
 	return Success
+}
+
+// printStartForScripts handles -token-only and -json, reporting whether it printed anything.
+//
+// Both write ONLY the requested data to Out, so a script can capture it without parsing prose.
+// The token is the credential, which is why the human output prints it and these may too: the
+// operator asked for it by name.
+func (op Options) printStartForScripts(fl flags, found gateway.Found) bool {
+	switch {
+	case fl.tokenOnly:
+		fmt.Fprintln(op.Out, found.Token)
+		return true
+	case fl.jsonOut:
+		port := portOf(found.BaseURL)
+		links := []string{}
+		if found.Reachable {
+			for _, addr := range lanAddresses() {
+				links = append(links, fmt.Sprintf("http://%s:%s/#t=%s", addr, port, found.Token))
+			}
+		}
+		doc := struct {
+			URL     string   `json:"url"`
+			PID     int      `json:"pid"`
+			Version string   `json:"version"`
+			Token   string   `json:"token"`
+			Local   string   `json:"local_link"`
+			Network []string `json:"network_links"`
+		}{found.BaseURL, found.PID, found.Version, found.Token,
+			fmt.Sprintf("%s/#t=%s", found.BaseURL, found.Token), links}
+		out, _ := json.Marshal(doc)
+		fmt.Fprintln(op.Out, string(out))
+		return true
+	}
+	return false
 }
 
 // announceExposure says how far the gateway reaches and who it will serve.

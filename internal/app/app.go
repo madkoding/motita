@@ -195,6 +195,8 @@ Options:
   -connect string    connect to a gateway somebody else is running, as a client
                      (this process then builds no sandbox and runs no commands)
   -session string    which conversation to attach to (default "default")
+  -token-only        with gateway start: print only the access token (for scripts)
+  -json              with gateway start: print the url, pid, version, token and links as JSON
   -validate-config   validate the configuration and exit (does not call the LLM)
   -isolation         print the available sandbox isolation and exit
   -version           print the version and exit
@@ -235,8 +237,15 @@ type flags struct {
 	version        bool
 	isolation      bool
 	initConfig     bool
-	serve          bool
-	gateway        string
+	// initFlag records that the wizard was asked for with the deprecated -init, so the run can
+	// say what replaced it.
+	initFlag bool
+	// tokenOnly and jsonOut shape `gateway start` for scripts; boolean on purpose, like the
+	// curator switches, so neither swallows the word after it.
+	tokenOnly bool
+	jsonOut   bool
+	serve     bool
+	gateway   string
 	// connect is the address of a gateway somebody else is running. Non-empty means this
 	// process is a CLIENT: it builds no sandbox, opens no procedure library and creates no
 	// reasoning engine, because all three are the server's job.
@@ -310,6 +319,9 @@ func Run(op Options) int {
 	}
 
 	if fl.initConfig {
+		if fl.initFlag {
+			fmt.Fprintln(op.Err, "note: -init is deprecated and will be removed; use `motita config`")
+		}
 		code, _ := op.initConfig(fl)
 		return code
 	}
@@ -589,6 +601,11 @@ func parse(args []string) (flags, error) {
 			b.prompt = v
 		case "-init", "--init":
 			b.initConfig = true
+			b.initFlag = true
+		case "-token-only", "--token-only":
+			b.tokenOnly = true
+		case "-json", "--json":
+			b.jsonOut = true
 		case "-validate-config", "--validate-config":
 			b.validateConfig = true
 		case "-version", "--version":
