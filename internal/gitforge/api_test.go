@@ -239,7 +239,7 @@ func TestCreatePR(t *testing.T) {
 	if err != nil || pr.Number != 7 || pr.URL != "https://github.com/o/r/pull/7" || pr.Head != "feature" || !strings.Contains(h.body, `"draft":true`) {
 		t.Fatalf("%+v %v body=%s", pr, err, h.body)
 	}
-	a, h = newAPI(t, KindGitea, map[string]string{"POST /repos/o/r/pulls": `{"number":3,"html_url":"https://codeberg.org/o/r/pulls/3"}`})
+	a, h = newAPI(t, KindGitea, map[string]string{"POST /repos/o/r/pulls": `{"number":3,"html_url":"https://git.example.org/o/r/pulls/3"}`})
 	if pr, err = a.CreatePR(context.Background(), Remote{Path: "o/r"}, opt); err != nil || pr.Number != 3 || strings.Contains(h.body, "draft") {
 		t.Fatalf("%+v %v body=%s", pr, err, h.body)
 	}

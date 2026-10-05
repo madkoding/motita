@@ -3860,7 +3860,6 @@ export default function App() {
                   git={{
                     api,
                     rev: gitRev,
-                    onConnect: (service, selfHosted) => setGitConnect({ service, selfHosted }),
                     onNotice: (message, error) => setToast({ message, type: error ? 'error' : 'success' }),
                   }}
                 />

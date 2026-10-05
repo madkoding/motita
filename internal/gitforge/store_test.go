@@ -150,7 +150,7 @@ func TestStoreServicesAndAccounts(t *testing.T) {
 	for _, svc := range all {
 		ids[svc.ID]++
 	}
-	if len(all) != 5 || ids["gitlab@git.corp.io"] != 1 || ids["gitlab"] != 1 {
+	if len(all) != 4 || ids["gitlab@git.corp.io"] != 1 || ids["gitlab"] != 1 {
 		t.Fatalf("all = %v", ids)
 	}
 	if svc, ok := s.ByID("gitlab@git.corp.io"); !ok || svc.Host != "git.corp.io" {

@@ -211,9 +211,9 @@ func TestCodeFlowByBrowserAndBusyPort(t *testing.T) {
 }
 
 func TestCodeFlowFailures(t *testing.T) {
-	plain := Defaults(noEnv)[3]
+	plain := Defaults(noEnv)[2]
 	s := Store{Dir: t.TempDir(), Env: noEnv}
-	if _, err := s.StartCode(plain); err == nil || !strings.Contains(err.Error(), "MOTITA_CODEBERG_CLIENT_SECRET") {
+	if _, err := s.StartCode(plain); err == nil || !strings.Contains(err.Error(), "MOTITA_BITBUCKET_CLIENT_SECRET") {
 		t.Errorf("err = %v", err)
 	}
 	svc, s, srv := oauthHost(t, KindGitea, "")

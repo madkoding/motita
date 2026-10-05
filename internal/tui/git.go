@@ -102,7 +102,7 @@ func (t *TUI) gitHost(arg string) (gitforge.Service, error) {
 			return svc, nil
 		}
 	}
-	return gitforge.Service{}, fmt.Errorf("%s", t.trf("unknown git host %q: use github, gitlab, bitbucket, codeberg or kind:host (gitlab:git.example.com)", arg))
+	return gitforge.Service{}, fmt.Errorf("%s", t.trf("unknown git host %q: use github, gitlab, bitbucket or kind:host (gitlab:git.example.com)", arg))
 }
 
 // gitDisconnect forgets a host's login.
