@@ -151,6 +151,23 @@ func (ps *projectStore) delete(id string) error {
 	return err
 }
 
+// sameOrigin reports whether dir is a git checkout whose origin is gitURL, ignoring a
+// trailing ".git" or slash and the case of the host.
+func sameOrigin(dir, gitURL string, env []string) bool {
+	cmd := exec.Command("git", "-C", dir, "remote", "get-url", "origin")
+	cmd.Env = env
+	out, err := cmd.Output()
+	if err != nil {
+		return false
+	}
+	norm := func(u string) string {
+		u = strings.TrimSpace(u)
+		u = strings.TrimSuffix(strings.TrimSuffix(u, "/"), ".git")
+		return strings.ToLower(u)
+	}
+	return norm(string(out)) == norm(gitURL)
+}
+
 // cloneGitRepo clones a git URL into the given directory and returns the
 // combined output of the git command. It is called when a project is created
 // with a git URL instead of a local folder.
@@ -160,6 +177,15 @@ func cloneGitRepo(gitURL, destDir string, env []string) (string, error) {
 	}
 	if err := os.MkdirAll(filepath.Dir(destDir), 0o755); err != nil {
 		return "", fmt.Errorf("could not create the parent directory: %w", err)
+	}
+	// A folder left by an earlier attempt (a project that was deleted, a clone that was
+	// interrupted after the checkout) holding this same repository is the project's folder
+	// already: git refuses to clone into it, so it is reused instead of failing.
+	if entries, err := os.ReadDir(destDir); err == nil && len(entries) > 0 {
+		if sameOrigin(destDir, gitURL, env) {
+			return "reusing the existing clone in " + destDir, nil
+		}
+		return "", fmt.Errorf("the folder %q already exists and is not a clone of %q: pick another folder name or remove it", destDir, gitURL)
 	}
 	cmd := exec.Command("git", "clone", "--progress", gitURL, destDir)
 	// env carries the credential helper, so a repository of a host the user connected clones

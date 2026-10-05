@@ -203,11 +203,26 @@ function ConnectPanel({ api, account, selfHosted, onClose, onConnected }: { api:
   )
 }
 
+// navigator.clipboard only exists in secure contexts (https or localhost), and the gateway is
+// often opened over plain http on a LAN address. There the old execCommand route still works.
+async function copyText(text: string): Promise<boolean> {
+  try {
+    if (navigator.clipboard?.writeText) { await navigator.clipboard.writeText(text); return true }
+  } catch { /* fall through to the legacy route */ }
+  const ta = document.createElement('textarea')
+  ta.value = text
+  ta.setAttribute('readonly', '')
+  ta.style.cssText = 'position:fixed;top:0;left:0;opacity:0'
+  document.body.appendChild(ta)
+  ta.select()
+  try { return document.execCommand('copy') } catch { return false } finally { ta.remove() }
+}
+
 function CopyButton({ text }: { text: string }) {
   const [done, setDone] = useState(false)
   return (
     <button class={btnGhost} aria-label={t('Copy code')} onClick={async () => {
-      try { await navigator.clipboard.writeText(text); setDone(true); setTimeout(() => setDone(false), 1800) } catch { /* clipboard blocked: the code is selectable */ }
+      if (await copyText(text)) { setDone(true); setTimeout(() => setDone(false), 1800) }
     }}>{done ? t('Copied') : t('Copy')}</button>
   )
 }
