@@ -781,3 +781,28 @@ func TestStartCanPrintOnlyTheTokenOrJSONForScripts(t *testing.T) {
 		})
 	}
 }
+
+// A network-reachable gateway lists its LAN links in the JSON.
+func TestJSONListsTheNetworkLinksOfAReachableGateway(t *testing.T) {
+	original, originalAddrs := listInterfaces, interfaceAddrs
+	t.Cleanup(func() { listInterfaces, interfaceAddrs = original, originalAddrs })
+	listInterfaces = func() ([]net.Interface, error) {
+		return []net.Interface{{Name: "lan0", Flags: net.FlagUp}}, nil
+	}
+	interfaceAddrs = func(net.Interface) ([]net.Addr, error) {
+		return []net.Addr{&net.IPNet{IP: net.ParseIP("192.0.2.9"), Mask: net.CIDRMask(24, 32)}}, nil
+	}
+
+	var out strings.Builder
+	op := Options{Out: &out}
+	found := gateway.Found{BaseURL: "http://127.0.0.1:7477", Token: testToken, Reachable: true}
+	if !op.printStartForScripts(flags{jsonOut: true}, found) {
+		t.Fatal("-json printed nothing")
+	}
+	if !strings.Contains(out.String(), "http://192.0.2.9:7477/#t="+testToken) {
+		t.Fatalf("the network link is missing:\n%s", out.String())
+	}
+	if op.printStartForScripts(flags{}, found) {
+		t.Fatal("printed for scripts without being asked")
+	}
+}
