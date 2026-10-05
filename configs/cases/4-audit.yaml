@@ -1,0 +1,124 @@
+# CASE 4 — Audit agent: read-only code and security audit + report
+#
+# Flow: reads the audit request from a file -> the LLM analyses and plans -> reads the code and runs
+# the project's own checks in the sandbox -> the ANCHOR validates the REPORT (structure, severity,
+# remediation, every cited path:line really exists, no secret in clear, no tracked file modified)
+# -> if it passes, the report is published next to the code.
+#
+# The model proposes findings; it never decides that the audit is complete. The anchor does.
+#
+# Usage:
+#   export MOTITA_LLM_API_KEY=sk-...
+#   git clone <repo> workspace/audit              # the tree to audit lives in the workspace
+#   echo "Audit the repository: general quality and security." > tasks/audit.md
+#   motita-agent -config configs/cases/4-audit.yaml
+#
+# The anchor path below assumes this repository's scripts/ is two levels above the workspace;
+# change it if you keep the workspace somewhere else.
+
+task_source:
+  kind: file
+  path: ./tasks/audit.md
+
+# Layer A: the report is checked mechanically. See scripts/verify-audit-report.sh.
+anchor:
+  kind: command
+  command: sh
+  args: ["../../scripts/verify-audit-report.sh", "audit-report.md"]
+  timeout: 60s
+  expect_exit: 0
+  expect_output: "AUDIT_REPORT_OK"
+
+# Layer C: no network (an audit reads, it does not call out), bounded memory and CPU.
+sandbox:
+  kind: cgroups
+  memory_mb: 512
+  cpu_seconds: 120
+  processes: 32
+  max_file_size_mb: 16
+  isolate_network: true
+  timeout: 180s
+  max_output_kb: 256
+
+llm:
+  provider: openai
+  model: gpt-4o-mini
+  base_url: https://api.openai.com/v1
+  max_tokens: 4096
+  temperature: 0.1
+  timeout: 120s
+  max_attempts: 3
+
+prompts:
+  analyze:
+    system: |
+      You are a code auditor. The audit is READ-ONLY: you never modify the code under audit.
+      You reply only with JSON.
+    user: |
+      ## AUDIT REQUESTED
+      {{task}}
+
+      ## WHAT WILL BE RUN TO VALIDATE
+      {{rules}}
+
+      Search the procedure library for "auditing-code" and "finding-vulnerabilities" and follow
+      them. Analyse the request: the scope, the trust boundaries, what could be proven and what
+      could not.
+
+      Return JSON: {"understandable": bool, "summary": "...",
+                    "success_criteria": ["..."], "risks": ["..."],
+                    "needs_subtasks": bool}
+  plan:
+    system: |
+      You are a code auditor. You reply only with JSON.
+    user: |
+      ## TASK
+      {{task}}
+
+      ## ANALYSIS
+      {{analysis}}
+
+      Return JSON: {"plan": [{"step": 1, "action": "...", "command": "..."}],
+                    "subtasks": ["..."], "expected_result": "..."}
+      Each step is a read-only command or one section of audit-report.md.
+  execute:
+    system: |
+      You are a code auditor. You reply only with JSON. You never modify the audited code.
+    user: |
+      ## TASK
+      {{task}}
+
+      ## PLAN
+      {{plan}}
+
+      ## WORKING DIRECTORY
+      {{workspace}}
+
+      {{history}}
+
+      Write audit-report.md in the working directory with the sections Summary (including what
+      was NOT covered), Findings, Tooling run. Every finding has Severity, Category, Confidence,
+      Location as `path:line`, Exploit scenario (security), Evidence, Remediation. Cite only
+      lines you have read: a location that does not exist fails the validation.
+
+      Return JSON: {"reasoning": "...",
+                    "actions": [{"kind": "command", "description": "...",
+                                 "command": "..."}],
+                    "final_action": {"description": "publish", "command": ""}}
+
+# The report is only announced if the anchor passed; the audited tree is never touched.
+final_action:
+  kind: command
+  command: sh
+  args: ["-c", "echo \"audit report validated: $(pwd)/audit-report.md\" >> ../audit-published.log"]
+
+agent:
+  max_retries: 3
+  subtask_depth: 1
+  workspace_dir: ./workspace/audit
+  log_file: ./workspace/audit/motita.log
+  log_level: info
+  graceful_shutdown_timeout: 20s
+  on_failure:
+    kind: command
+    command: 'echo "AUDIT NOT VALIDATED: check the log" >> ./workspace/audit-escalations.log'

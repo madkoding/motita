@@ -202,7 +202,7 @@ func TestLoadRepoExample(t *testing.T) {
 func TestLoadUseCases(t *testing.T) {
 	t.Setenv("MOTITA_LLM_API_KEY", "test-key")
 
-	for _, useCase := range []string{"1-development.yaml", "2-data.yaml", "3-automation.yaml"} {
+	for _, useCase := range []string{"1-development.yaml", "2-data.yaml", "3-automation.yaml", "4-audit.yaml"} {
 		t.Run(useCase, func(t *testing.T) {
 			path := filepath.Join("..", "..", "configs", "cases", useCase)
 			if _, err := os.Stat(path); err != nil {
