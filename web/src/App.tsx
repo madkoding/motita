@@ -709,6 +709,10 @@ export default function App() {
   // An id and not a position, because the log is capped and its oldest entries fall off.
   const [termSeenId, setTermSeenId] = useState(0)
   const [approval, setApproval] = useState<PendingApproval | null>(null)
+  // The option the keyboard has highlighted in the approval panel (0 run, 1 allow all, 2 no), and
+  // the panel itself, which takes focus when a question arrives so the arrows and Enter work.
+  const [approvalSel, setApprovalSel] = useState(0)
+  const approvalRef = useRef<HTMLDivElement>(null)
   const [input, setInput] = useState('')
 
   // Session management state.
@@ -2508,6 +2512,27 @@ export default function App() {
     }
   }, [])
 
+  const approvalId = approval?.id
+  useEffect(() => {
+    if (!approvalId) return
+    setApprovalSel(0)
+    approvalRef.current?.focus()
+  }, [approvalId])
+
+  // onApprovalKey: arrows move between the options, Enter takes the highlighted one.
+  const onApprovalKey = (e: KeyboardEvent) => {
+    if (!approval) return
+    const n = 3
+    if (e.key === 'ArrowRight' || e.key === 'ArrowDown') {
+      e.preventDefault(); setApprovalSel(i => (i + 1) % n)
+    } else if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') {
+      e.preventDefault(); setApprovalSel(i => (i + n - 1) % n)
+    } else if (e.key === 'Enter') {
+      e.preventDefault()
+      answerApproval(approval.id, approvalSel !== 2, approvalSel === 1)
+    }
+  }
+
   // stopAutoApprove takes back "allow all commands": the next command is asked again.
   const stopAutoApprove = useCallback(async () => {
     const sid = sessionRef.current
@@ -2570,6 +2595,17 @@ export default function App() {
     void loadAgentsRef.current(sessionRef.current)
     // After a run finishes, refresh the session list so the auto-title shows up.
     fetchSessions()
+    // A message sent mid-run starts the next run in the gateway, not through this tab: reload
+    // the conversation and follow it. Asked twice because the gateway starts it a beat later.
+    if (handoffRef.current) {
+      handoffRef.current = false
+      const sid = sessionRef.current
+      for (const delay of [400, 1800]) {
+        setTimeout(() => {
+          if (sessionRef.current === sid && !runningRef.current) void switchSessionRef.current?.(sid, 'none')
+        }, delay)
+      }
+    }
   }, [fetchSessions, loadCheckpoints])
 
   // dispatchEvent handles one parsed SSE event.
@@ -2884,22 +2920,34 @@ export default function App() {
     }
   }, [finish, readStream, followReconnect])
 
-  // queueMessage sends a message while a run is in flight. The gateway keeps one queue per
-  // session: a busy session queues it, an idle one (another session) starts it, so a working
-  // agent never blocks writing elsewhere.
-  const queueMessage = (text: string) => {
+  // handoffRef is set when a message was sent to a run in flight (queued, or an interruption
+  // that carries one): the gateway starts the next run on its own when this one ends, and this
+  // tab never opened that stream, so finish() asks the gateway for it and follows it.
+  const handoffRef = useRef(false)
+
+  // sendWhileRunning sends a message to the session on screen while a run is in flight.
+  // `interrupt` stops the run first and puts the message at the front, so the agent reads the
+  // new context right away; without it the message waits for the end of the turn.
+  const sendWhileRunning = (text: string, interrupt: boolean) => {
     const sid = sessionRef.current
-    void api('/v1/sessions/' + encodeURIComponent(sid) + '/queue', {
+    handoffRef.current = true
+    void api('/v1/sessions/' + encodeURIComponent(sid) + (interrupt ? '/interrupt' : '/queue'), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ task: text }),
     }).then(res => {
-      if (!res.ok) setToast({ message: t('the gateway refused the turn'), type: 'error' })
-    }).catch(() => setToast({ message: t('the gateway refused the turn'), type: 'error' }))
+      if (!res.ok) {
+        handoffRef.current = false
+        setToast({ message: t('the gateway refused the turn'), type: 'error' })
+      }
+    }).catch(() => {
+      handoffRef.current = false
+      setToast({ message: t('the gateway refused the turn'), type: 'error' })
+    })
   }
 
-  // interruptRun stops the current turn of the session on screen.
-  const interruptRun = () => {
+  // stopRun stops the current turn of the session on screen, with nothing queued behind it.
+  const stopRun = () => {
     void api('/v1/sessions/' + encodeURIComponent(sessionRef.current) + '/interrupt', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -2923,7 +2971,7 @@ export default function App() {
     if (runningRef.current) {
       setInput('')
       setActiveTags([])
-      queueMessage(text)
+      sendWhileRunning(text, true)
       return
     }
     // Remove placeholder messages (.kind) before the first real turn.
@@ -2977,13 +3025,13 @@ export default function App() {
     }
     if (e.key === 'Escape' && runningRef.current) {
       e.preventDefault()
-      interruptRun()
+      stopRun()
       return
     }
     if (e.key !== 'Enter') return
     // Coarse pointer = touch device; skip Enter-to-send there.
     if (window.matchMedia('(pointer: coarse)').matches) return
-    if (e.shiftKey || e.ctrlKey || e.metaKey || e.altKey) return
+    if (e.shiftKey || e.ctrlKey || e.metaKey || (e.altKey && !runningRef.current)) return
     e.preventDefault()
     const argText = input.trim()
     // If there are active tags, send tags + argument. If no tags and no text, nothing.
@@ -2999,7 +3047,8 @@ export default function App() {
     if (runningRef.current) {
       setInput('')
       setActiveTags([])
-      queueMessage(text)
+      // Enter interrupts with the message; Alt+Enter leaves the run alone and queues it.
+      sendWhileRunning(text, !e.altKey)
       return
     }
     setMessages(prev => prev.filter(m => m.kind !== 'kind'))
@@ -3902,11 +3951,11 @@ export default function App() {
           </div>
           {sessions.find(s => s.id === sessionId)?.auto_approve && (
             <button
-              class="auto-approve-pill flex-none whitespace-nowrap text-xs px-2 sm:px-2.5 py-1 rounded-full"
+              class="auto-approve-pill flex-none whitespace-nowrap px-2 py-0.5 rounded-full"
               title={t('Every command in this session runs without asking. Click to be asked again.')}
               onClick={stopAutoApprove}
             >
-              {t('all commands allowed')} ✕
+              {t('all allowed')} ✕
             </button>
           )}
           <span
@@ -3966,7 +4015,32 @@ export default function App() {
                 <div key={g.key} class="turn">
                   {head && (
                     <div class="turn-head">
-                      <div class="msg user"><span>{head.text}</span></div>
+                      <div class="msg user" data-who={t('You')}><span>{head.text}</span></div>
+                      {liveHere && (
+                        <div class="cp-wrap">
+                          <button
+                            type="button"
+                            class="cp-btn"
+                            aria-label={t('Run menu')}
+                            aria-haspopup="menu"
+                            aria-expanded={cpMenu === -1}
+                            title={t('Run menu')}
+                            onClick={() => { setCpArmed(false); setCpMenu(m => m === -1 ? null : -1) }}
+                          >
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+                              <circle cx="12" cy="5" r="1.8" /><circle cx="12" cy="12" r="1.8" /><circle cx="12" cy="19" r="1.8" />
+                            </svg>
+                          </button>
+                          {cpMenu === -1 && (
+                            <div class="cp-menu" role="menu">
+                              <button type="button" role="menuitem" class="is-armed" onClick={() => { setCpMenu(null); stopRun() }}>
+                                {t('Stop the agent')}
+                                <small>{t('Enter sends a message that interrupts; Alt+Enter queues it')}</small>
+                              </button>
+                            </div>
+                          )}
+                        </div>
+                      )}
                       {canGoBack && (
                         <div class="cp-wrap">
                           <button
@@ -4025,7 +4099,7 @@ export default function App() {
                     </ActionTrail>
                   )}
                   {rest.map(m => (
-                    <div key={m.id} class={`msg ${m.role}${m.kind ? ' ' + m.kind : ''}`}>
+                    <div key={m.id} class={`msg ${m.role}${m.kind ? ' ' + m.kind : ''}`} data-who={m.role === 'agent' && !m.kind ? t('Agent') : undefined}>
                       {m.role === 'agent' && !m.kind && m.report ? (
                         <ReportCard report={m.report} />
                       ) : m.role === 'agent' && !m.kind ? (
@@ -4295,7 +4369,14 @@ export default function App() {
 
         {/* Approval panel — solid opaque, above the gradient. */}
         {approval && (
-          <div class="frosted flex-none px-4 sm:px-5 py-3.5 border-t-2 border-warning z-10">
+          <div
+            ref={approvalRef}
+            tabIndex={-1}
+            role="group"
+            aria-label={t('This needs your approval')}
+            onKeyDown={onApprovalKey}
+            class="approval-panel frosted flex-none px-4 sm:px-5 py-3.5 border-t-2 border-warning z-10"
+          >
             <h2 class="text-sm mb-2 text-warning">
               {approval.question ?? approval.reason ?? t('This needs your approval')}
             </h2>
@@ -4304,20 +4385,26 @@ export default function App() {
             </pre>
             <div class="flex flex-wrap gap-2">
               <button
-                class="min-h-[44px] min-w-[44px] px-5 rounded-xl bg-accent text-white font-semibold active:scale-95 transition-transform"
+                class={`min-h-[44px] min-w-[44px] px-5 rounded-xl bg-accent text-white font-semibold active:scale-95 transition-transform${approvalSel === 0 ? ' is-picked' : ''}`}
+                aria-pressed={approvalSel === 0}
+                onMouseEnter={() => setApprovalSel(0)}
                 onClick={() => answerApproval(approval.id, true)}
               >
                 {t('Run it')}
               </button>
               <button
-                class="min-h-[44px] min-w-[44px] px-4 rounded-xl border border-accent/40 text-accent font-semibold active:scale-95 transition-transform"
+                class={`min-h-[44px] min-w-[44px] px-4 rounded-xl border border-accent/40 text-accent font-semibold active:scale-95 transition-transform${approvalSel === 1 ? ' is-picked' : ''}`}
+                aria-pressed={approvalSel === 1}
+                onMouseEnter={() => setApprovalSel(1)}
                 title={t('Run this and every later command in this session without asking. Commands the policy forbids stay forbidden.')}
                 onClick={() => answerApproval(approval.id, true, true)}
               >
                 {t('Allow all this session')}
               </button>
               <button
-                class="min-h-[44px] min-w-[44px] px-5 rounded-xl border border-white/10 text-[#e8e8ea] active:scale-95 transition-transform"
+                class={`min-h-[44px] min-w-[44px] px-5 rounded-xl border border-white/10 text-[#e8e8ea] active:scale-95 transition-transform${approvalSel === 2 ? ' is-picked' : ''}`}
+                aria-pressed={approvalSel === 2}
+                onMouseEnter={() => setApprovalSel(2)}
                 onClick={() => answerApproval(approval.id, false)}
               >
                 {t('No')}
