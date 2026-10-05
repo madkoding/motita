@@ -42,6 +42,7 @@ import (
 	"github.com/madkoding/motita/internal/skills"
 	"github.com/madkoding/motita/internal/task"
 	"github.com/madkoding/motita/internal/template"
+	"github.com/madkoding/motita/internal/usage"
 )
 
 // Agent orchestrates the three layers.
@@ -86,6 +87,7 @@ type Agent struct {
 	// Same pair as the planner's, and for the same reason: a verdict has to land on specific
 	// skills, and the moment that is knowable is the read.
 	reward    *reward.Ledger
+	usage     *usage.Ledger
 	consulted map[string]int
 
 	// transcript is what has been said in this conversation, oldest first, and it is what makes
@@ -145,6 +147,23 @@ func (a *Agent) SetLibrary(lib *skills.Library) { a.library = lib }
 
 // SetReward installs the long-term value ledger.
 func (a *Agent) SetReward(l *reward.Ledger) { a.reward = l }
+
+// SetUsage installs the per-skill telemetry sidecar, so the library's "used N×" counts what
+// this run searched and read.
+func (a *Agent) SetUsage(u *usage.Ledger) { a.usage = u }
+
+// bumpUsage records a skill being loaded into context and saves it: the planner path
+// persists through the review fork, which a plain task run does not have.
+func (a *Agent) bumpUsage(name string, read bool) {
+	if a.usage == nil {
+		return
+	}
+	if read {
+		a.usage.BumpView(name)
+	}
+	a.usage.BumpUse(name)
+	_ = a.usage.Save()
+}
 
 // Consulted returns the skills this run read, and how many times each.
 //
@@ -2274,6 +2293,7 @@ func (a *Agent) searchSkills(query string) string {
 	b.WriteString("A summary above is NOT the procedure: read the one that fits with read_skill BEFORE you act.\n")
 	for _, s := range hits {
 		fmt.Fprintf(&b, "\n- %s: %s\n  %s%s", s.Name, s.Title, s.Summary, a.historySuffix(s.Name))
+		a.bumpUsage(s.Name, false)
 	}
 	for _, s := range hits {
 		b.WriteString(a.feedbackSuffix(s.Name))
@@ -2292,6 +2312,7 @@ func (a *Agent) readSkill(name string) string {
 	}
 	// The read is the moment the credit becomes knowable, and the only one.
 	a.consult(s.Name)
+	a.bumpUsage(s.Name, true)
 	var b strings.Builder
 	fmt.Fprintf(&b, "# skill: %s\n(source: %s)\n\n", s.Name, s.Path)
 	b.WriteString(s.Body)

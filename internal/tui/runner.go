@@ -649,6 +649,10 @@ func (r *AppRunner) RunPlan(ctx context.Context, prompt string, progress func(st
 	// still tells the user which procedure was in play, and that is exactly the turn they are
 	// most likely to mark.
 	r.rememberUsage(planner.Consulted(), prompt)
+	// The planner counts in memory only; written here, the numbers survive a restart.
+	if u := r.procedures().Usage; u != nil {
+		_ = u.Save()
+	}
 	// And the turn itself goes into the conversation a front end draws. This is the SAME blank
 	// screen the Task path already fixed, and it has to be done here because the two paths
 	// record separately: the session is what the model is given, the transcript is what the user
@@ -1177,6 +1181,12 @@ func (r *AppRunner) RunTask(ctx context.Context, task string, progress func(stri
 	if led := r.rewardOrNil(); led != nil {
 		if setter, ok := ag.(interface{ SetReward(*reward.Ledger) }); ok {
 			setter.SetReward(led)
+		}
+	}
+	// The same sidecar the library screen reads, so what this run consults is counted.
+	if u := r.procedures().Usage; u != nil {
+		if setter, ok := ag.(interface{ SetUsage(*usage.Ledger) }); ok {
+			setter.SetUsage(u)
 		}
 	}
 	// The conversation goes in before the run and comes back out after it. That round trip is

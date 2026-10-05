@@ -12,6 +12,7 @@ import (
 	"github.com/madkoding/motita/internal/logx"
 	"github.com/madkoding/motita/internal/reward"
 	"github.com/madkoding/motita/internal/skills"
+	"github.com/madkoding/motita/internal/usage"
 )
 
 // Task mode and Plan mode share ONE library. Task mode reaches it through its action protocol
@@ -438,5 +439,30 @@ func TestRunActionsStillRunsCommands(t *testing.T) {
 		if !strings.Contains(out, "ran") {
 			t.Errorf("kind %q: the output must be reported:\n%s", kind, out)
 		}
+	}
+}
+
+func TestReadingAndSearchingCountTowardsTheSkillUsage(t *testing.T) {
+	a := libraryAgent(t, map[string]string{"deploy": "# Deploy\nShip it.\n"})
+	path := filepath.Join(t.TempDir(), "usage.json")
+	u, err := usage.Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	a.SetUsage(u)
+
+	act(t, a, "search_skills", "deploy")
+	act(t, a, "read_skill", "deploy")
+	e := u.Get("deploy")
+	if e.UseCount != 2 || e.ViewCount != 1 {
+		t.Fatalf("use=%d view=%d, want 2 and 1", e.UseCount, e.ViewCount)
+	}
+	// It is on disk too: a reopened ledger (a restart) still shows the count.
+	again, err := usage.Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := again.Get("deploy").UseCount; got != 2 {
+		t.Errorf("persisted use count = %d, want 2", got)
 	}
 }
