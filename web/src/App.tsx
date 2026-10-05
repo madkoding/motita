@@ -490,6 +490,19 @@ interface ShellEntry {
   out: string
 }
 
+// repoNameOf is the repository's name in a clone URL: git@github.com:user/repo.git and
+// https://github.com/user/repo.git are both "repo".
+function repoNameOf(url: string): string {
+  const m = url.trim().match(/(?:\/|:)[^/]+\/([^/]+?)(?:\.git)?\/?$/)
+  return m ? m[1] : ''
+}
+
+// slugOf turns a name into a folder name the gateway accepts: a simple name with no path
+// separators and no dots.
+function slugOf(name: string): string {
+  return name.trim().toLowerCase().replace(/[^a-z0-9_-]+/g, '-').replace(/^-+|-+$/g, '')
+}
+
 // shellCommandOf reads a line the person typed as a shell command: `!ls -la` or `/shell ls -la`.
 // Anything else is a message for the agent, and null.
 function shellCommandOf(text: string): string | null {
@@ -734,12 +747,18 @@ export default function App() {
   const [renamingId, setRenamingId] = useState<string | null>(null)
   const [renameValue, setRenameValue] = useState('')
   const [showNewProject, setShowNewProject] = useState(false)
+  // How the new project starts: null is the first screen ("empty or from a repository?").
+  const [newProjectMode, setNewProjectMode] = useState<null | 'empty' | 'git'>(null)
   const [newProjectTitle, setNewProjectTitle] = useState('')
   const [newProjectDesc, setNewProjectDesc] = useState('')
   const [newProjectDir, setNewProjectDir] = useState('')
   const [newProjectGit, setNewProjectGit] = useState('')
   // The branch the new project treats as its main line: main unless the person picks master.
   const [newProjectMain, setNewProjectMain] = useState('main')
+  // The branch the remote repository's HEAD points to, once asked; and whether the person has
+  // already chosen a main branch themselves (a detected one must never overwrite that).
+  const [remoteMain, setRemoteMain] = useState('')
+  const mainChosen = useRef(false)
   // The edit-project dialog: what is being edited and the branches its selector offers.
   const [editProject, setEditProject] = useState<{ id: string; title: string; description: string; main: string; branches: string[]; current: string } | null>(null)
   const [savingProject, setSavingProject] = useState(false)
@@ -1678,16 +1697,12 @@ export default function App() {
   // the gateway clones the repo and returns the clone log, which we show in
   // the modal so the user can see what happened.
   const createProject = useCallback(async (identity?: { name: string; email: string }) => {
-    const title = newProjectTitle.trim()
-    let dir = newProjectDir.trim()
-    const gitUrl = newProjectGit.trim()
-    // Auto-derive folder name from git URL if not provided.
-    if (!dir && gitUrl) {
-      // Extract repo name from URL: git@github.com:user/repo.git -> repo
-      // https://github.com/user/repo.git -> repo
-      const match = gitUrl.match(/(?:\/|:)[^/]+\/([^/]+?)(?:\.git)?$/)
-      dir = match ? match[1] : ''
-    }
+    // An empty project ignores whatever was typed in the repository field before the person went
+    // back; a project from a repository takes its name and folder from the repository.
+    const gitUrl = newProjectMode === 'git' ? newProjectGit.trim() : ''
+    const fromUrl = gitUrl ? repoNameOf(gitUrl) : ''
+    const title = newProjectTitle.trim() || fromUrl
+    const dir = newProjectDir.trim() || slugOf(fromUrl) || slugOf(title)
     if (!title || !dir) return
     setCreatingProject(true)
     try {
@@ -1739,6 +1754,8 @@ export default function App() {
       setNewProjectDesc('')
       setNewProjectDir('')
       setNewProjectGit('')
+      setNewProjectMode(null)
+      mainChosen.current = false
       setNewProjectMain('main')
       setNewProjectPodman(false)
       setShowGitIdentity(false)
@@ -1747,7 +1764,7 @@ export default function App() {
       setState(tf('could not create the project: {err}', { err: String(e) }), true)
       setCreatingProject(false)
     }
-  }, [newProjectTitle, newProjectDesc, newProjectDir, newProjectGit, newProjectMain, newProjectPodman, hasPodman, fetchProjects])
+  }, [newProjectMode, newProjectTitle, newProjectDesc, newProjectDir, newProjectGit, newProjectMain, newProjectPodman, hasPodman, fetchProjects])
 
   createProjectRef.current = () => { void createProject() }
 
@@ -1758,6 +1775,28 @@ export default function App() {
     listAccounts(api).then(a => { if (live) setGitAccounts(a) }).catch(() => { if (live) setGitAccounts([]) })
     return () => { live = false }
   }, [showNewProject, gitRev])
+
+  // When a repository URL is typed, ask its remote which branch it uses and offer that one: a
+  // repository on develop or master should not need the person to know to change the selector.
+  // Debounced, because the field changes on every key; and silent on failure, because the
+  // selector works without the answer (the gateway settles on a branch when it clones).
+  useEffect(() => {
+    setRemoteMain('')
+    const url = newProjectGit.trim()
+    if (!showNewProject || newProjectMode !== 'git' || !repoNameOf(url)) return
+    let live = true
+    const timer = setTimeout(async () => {
+      try {
+        const res = await api('/v1/git/default-branch?url=' + encodeURIComponent(url))
+        if (!res.ok || !live) return
+        const d = await res.json()
+        if (!live || !d.branch) return
+        setRemoteMain(d.branch)
+        if (!mainChosen.current) setNewProjectMain(d.branch)
+      } catch { /* the selector keeps what it has */ }
+    }, 600)
+    return () => { live = false; clearTimeout(timer) }
+  }, [showNewProject, newProjectMode, newProjectGit])
 
   // Ask the gateway which container runtimes the machine has, so podman is only offered when it is there.
   // Read on start (the project menu needs it) and again when the dialog opens.
@@ -1914,9 +1953,9 @@ export default function App() {
   // pickRepo fills the New project form from a repository the user chose.
   const pickRepo = useCallback((r: GitRepo) => {
     const name = repoShortName(r)
+    setNewProjectMode('git')
     setNewProjectGit(r.clone_url)
     setNewProjectTitle(prev => prev.trim() ? prev : name)
-    setNewProjectDir(prev => prev.trim() ? prev : name)
     setNewProjectDesc(prev => prev.trim() ? prev : (r.description || ''))
     setShowRepoPicker(false)
   }, [])
@@ -3801,7 +3840,7 @@ export default function App() {
               />
               <button
                 class="flex items-center justify-center px-3 py-2.5 rounded-xl border border-white/10 text-[#e8e8ea] hover:bg-white/5 active:scale-95 transition-all"
-                onClick={() => setShowNewProject(true)}
+                onClick={() => { setNewProjectMode(null); mainChosen.current = false; setNewProjectMain('main'); setShowNewProject(true) }}
                 title={t('New project')}
               >
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -4767,14 +4806,29 @@ export default function App() {
           onClick={() => setShowNewProject(false)}
         >
           <div
-            class="frosted rounded-2xl border border-white/10 w-full max-w-md p-5 shadow-2xl"
+            class="frosted rounded-2xl border border-white/10 w-full max-w-md p-5 shadow-2xl max-h-[92vh] overflow-y-auto"
+            role="dialog"
+            aria-label={t('New project')}
             onClick={(e) => e.stopPropagation()}
           >
             <div class="flex items-center gap-2 mb-4">
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="text-accent">
-                <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
-              </svg>
-              <h2 class="text-base font-semibold">{t('New project')}</h2>
+              {newProjectMode && !creatingProject ? (
+                <button
+                  class="p-1.5 -ml-1.5 rounded-lg hover:bg-white/5"
+                  onClick={() => setNewProjectMode(null)}
+                  aria-label={t('Back')}
+                  data-testid="new-project-back"
+                >
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <polyline points="15 18 9 12 15 6" />
+                  </svg>
+                </button>
+              ) : (
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="text-accent">
+                  <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
+                </svg>
+              )}
+              <h2 class="text-base font-semibold">{t(newProjectMode === 'empty' ? 'Empty project' : newProjectMode === 'git' ? 'From a Git repository' : 'New project')}</h2>
               <button
                 class="ml-auto p-1.5 rounded-lg hover:bg-white/5"
                 onClick={() => setShowNewProject(false)}
@@ -4786,114 +4840,167 @@ export default function App() {
               </button>
             </div>
 
-            <div class="space-y-4">
-              <div>
-                <label class="block text-sm text-[#9a9aaa] mb-1.5">{t('Title')} <span class="text-danger">*</span></label>
-                <input
-                  class="w-full px-3 py-2.5 rounded-xl bg-black/30 border border-white/10 text-[#e8e8ea] focus:outline-none focus:border-accent"
-                  value={newProjectTitle}
-                  onInput={(e) => setNewProjectTitle((e.target as HTMLInputElement).value)}
-                  placeholder={t('My project')}
-                  autoFocus
-                />
-              </div>
-              <div>
-                <label class="block text-sm text-[#9a9aaa] mb-1.5">{t('Description (optional)')}</label>
-                <input
-                  class="w-full px-3 py-2.5 rounded-xl bg-black/30 border border-white/10 text-[#e8e8ea] focus:outline-none focus:border-accent"
-                  value={newProjectDesc}
-                  onInput={(e) => setNewProjectDesc((e.target as HTMLInputElement).value)}
-                  placeholder={t('What this project is about')}
-                />
-              </div>
-              <div>
-                <label class="block text-sm text-[#9a9aaa] mb-1.5">{t('Folder name')} <span class="text-[#7a7a8c] text-xs">{t('(auto from git URL if empty)')}</span></label>
-                <input
-                  class="w-full px-3 py-2.5 rounded-xl bg-black/30 border border-white/10 text-[#e8e8ea] focus:outline-none focus:border-accent font-mono text-sm"
-                  value={newProjectDir}
-                  onInput={(e) => setNewProjectDir((e.target as HTMLInputElement).value)}
-                  placeholder="my-project"
-                />
-                <p class="text-xs text-[#7a7a8c] mt-1">{t('A folder created under the workspace. Simple name, no paths.')}</p>
-              </div>
-              <div>
-                <label class="block text-sm text-[#9a9aaa] mb-1.5">{t('Git URL or SSH (optional — clones instead of creating a folder)')}</label>
-                <input
-                  class="w-full px-3 py-2.5 rounded-xl bg-black/30 border border-white/10 text-[#e8e8ea] focus:outline-none focus:border-accent font-mono text-sm"
-                  value={newProjectGit}
-                  onInput={(e) => setNewProjectGit((e.target as HTMLInputElement).value)}
-                  placeholder={t('https://github.com/user/repo.git  or  git@github.com:user/repo.git')}
-                />
-                <p class="text-xs text-[#7a7a8c] mt-1">{t('HTTPS or SSH. When set, the repo is cloned into the folder name above.')}</p>
-                {gitAccounts && connectedAccounts(gitAccounts).length > 0 ? (
-                  <button type="button" class="mt-2 text-sm text-accent underline underline-offset-2" onClick={() => setShowRepoPicker(true)}>{t('Choose from my repositories')}</button>
-                ) : gitAccounts && (
-                  <div class="mt-2 flex items-center gap-2 p-2.5 rounded-xl border border-white/10 bg-black/20" data-testid="git-connect-banner">
-                    <span class="flex-1 text-xs text-[#9a9aaa]">{t('Connect GitHub, GitLab or Bitbucket to pick one of your repositories')}</span>
-                    <button type="button" class="flex-none px-3 min-h-[32px] rounded-lg bg-accent text-white text-xs font-semibold" onClick={() => setGitConnect({ then: 'picker' })}>{t('Connect')}</button>
-                  </div>
-                )}
-              </div>
-              <div>
-                <label class="block text-sm text-[#9a9aaa] mb-1.5" for="new-project-main">{t('Main branch')}</label>
-                <select
-                  id="new-project-main"
-                  data-testid="new-project-main"
-                  class="w-full px-3 py-2.5 rounded-xl bg-black/30 border border-white/10 text-[#e8e8ea] focus:outline-none focus:border-accent font-mono text-sm"
-                  value={newProjectMain}
-                  onChange={(e) => setNewProjectMain((e.target as HTMLSelectElement).value)}
+            {/* First screen: the one question that decides everything else. */}
+            {!newProjectMode && (
+              <div class="space-y-2.5" data-testid="new-project-choose">
+                <p class="text-sm text-[#9a9aaa]">{t('How do you want to start?')}</p>
+                <button
+                  type="button"
+                  class="w-full flex items-center gap-3 p-3.5 rounded-xl border border-white/10 bg-black/20 hover:border-accent/50 hover:bg-white/5 text-left active:scale-[0.99] transition"
+                  data-testid="new-project-empty"
+                  onClick={() => setNewProjectMode('empty')}
                 >
-                  <option value="main">main</option>
-                  <option value="master">master</option>
-                </select>
-                <p class="text-xs text-[#7a7a8c] mt-1">{t('The project always goes back to this branch when it has no sessions. A cloned repository uses it when it has it.')}</p>
-              </div>
-              {hasPodman && (
-                <label class="flex items-start gap-2.5 p-2.5 rounded-xl border border-white/10 bg-black/20 cursor-pointer" data-testid="podman-offer">
-                  <input
-                    type="checkbox"
-                    class="mt-0.5 accent-[var(--accent,#7c6cff)]"
-                    checked={newProjectPodman}
-                    onChange={(e) => setNewProjectPodman((e.target as HTMLInputElement).checked)}
-                  />
-                  <span class="text-sm text-[#e8e8ea]">
-                    {t('Podman was found on this machine. Use it to run this project?')}
-                    <span class="block text-xs text-[#7a7a8c] mt-0.5">{t(!podmanReady ? 'podman is installed but did not answer (podman info failed), so it may not work until it is set up.' : hasPodmanCompose ? 'The project will be started in containers with podman.' : 'The project will be started in containers with podman. podman compose was not found, so compose files will not work until it is installed.')}</span>
+                  <svg class="flex-none text-accent" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                    <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" /><line x1="12" y1="11" x2="12" y2="17" /><line x1="9" y1="14" x2="15" y2="14" />
+                  </svg>
+                  <span>
+                    <span class="block text-sm font-semibold text-[#e8e8ea]">{t('Empty project')}</span>
+                    <span class="block text-xs text-[#7a7a8c] mt-0.5">{t('A new folder to start from scratch')}</span>
                   </span>
-                </label>
-              )}
-            </div>
-
-            {/* Clone status — shown while cloning. */}
-            {creatingProject && (
-              <div class="mt-4 flex items-center gap-2 text-sm text-[#9a9aaa]">
-                <svg class="animate-spin flex-none text-accent" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-                  <path d="M21 12a9 9 0 1 1-6.219-8.56" />
-                </svg>
-                <span>{t('Cloning repository…')}</span>
+                </button>
+                <button
+                  type="button"
+                  class="w-full flex items-center gap-3 p-3.5 rounded-xl border border-white/10 bg-black/20 hover:border-accent/50 hover:bg-white/5 text-left active:scale-[0.99] transition"
+                  data-testid="new-project-git"
+                  onClick={() => setNewProjectMode('git')}
+                >
+                  <svg class="flex-none text-accent" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                    <circle cx="6" cy="6" r="2.5" /><circle cx="6" cy="18" r="2.5" /><circle cx="18" cy="9" r="2.5" /><path d="M6 8.5v7" /><path d="M18 11.5c0 4-12 1-12 4" />
+                  </svg>
+                  <span>
+                    <span class="block text-sm font-semibold text-[#e8e8ea]">{t('From a Git repository')}</span>
+                    <span class="block text-xs text-[#7a7a8c] mt-0.5">{t('Clone a repository from GitHub, GitLab or any URL')}</span>
+                  </span>
+                </button>
               </div>
             )}
 
-            <div class="flex gap-2 mt-5">
-              <button
-                class="flex-1 min-h-[44px] px-5 rounded-xl bg-accent text-white font-semibold active:scale-95 transition-transform disabled:opacity-30 disabled:cursor-not-allowed disabled:saturate-0"
-                onClick={() => createProject()}
-                disabled={creatingProject || !newProjectTitle.trim() || (!newProjectDir.trim() && !newProjectGit.trim())}
-              >
+            {newProjectMode && (
+              <>
+                <div class="space-y-4">
+                  {/* Repository first: it names the project and the folder, so it comes before them. */}
+                  {newProjectMode === 'git' && (
+                    <div>
+                      <label class="block text-sm text-[#9a9aaa] mb-1.5">{t('Repository URL')} <span class="text-danger">*</span></label>
+                      <input
+                        class="w-full px-3 py-2.5 rounded-xl bg-black/30 border border-white/10 text-[#e8e8ea] focus:outline-none focus:border-accent font-mono text-sm"
+                        value={newProjectGit}
+                        onInput={(e) => setNewProjectGit((e.target as HTMLInputElement).value)}
+                        placeholder={t('https://github.com/user/repo.git  or  git@github.com:user/repo.git')}
+                        autoFocus
+                      />
+                      {gitAccounts && connectedAccounts(gitAccounts).length > 0 ? (
+                        <button type="button" class="mt-2 text-sm text-accent underline underline-offset-2" onClick={() => setShowRepoPicker(true)}>{t('Choose from my repositories')}</button>
+                      ) : gitAccounts && (
+                        <div class="mt-2 flex items-center gap-2 p-2.5 rounded-xl border border-white/10 bg-black/20" data-testid="git-connect-banner">
+                          <span class="flex-1 text-xs text-[#9a9aaa]">{t('Connect GitHub, GitLab or Bitbucket to pick one of your repositories')}</span>
+                          <button type="button" class="flex-none px-3 min-h-[32px] rounded-lg bg-accent text-white text-xs font-semibold" onClick={() => setGitConnect({ then: 'picker' })}>{t('Connect')}</button>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                  <div>
+                    <label class="block text-sm text-[#9a9aaa] mb-1.5">{t('Name')}{newProjectMode === 'empty' && <> <span class="text-danger">*</span></>}</label>
+                    <input
+                      class="w-full px-3 py-2.5 rounded-xl bg-black/30 border border-white/10 text-[#e8e8ea] focus:outline-none focus:border-accent"
+                      value={newProjectTitle}
+                      onInput={(e) => setNewProjectTitle((e.target as HTMLInputElement).value)}
+                      placeholder={newProjectMode === 'git' ? (repoNameOf(newProjectGit) || t('The repository name')) : t('My project')}
+                      autoFocus={newProjectMode === 'empty'}
+                    />
+                  </div>
+
+                <div>
+                  <label class="block text-sm text-[#9a9aaa] mb-1.5" for="new-project-main">{t('Main branch')}</label>
+                  <select
+                    id="new-project-main"
+                    data-testid="new-project-main"
+                    class="w-full px-3 py-2.5 rounded-xl bg-black/30 border border-white/10 text-[#e8e8ea] focus:outline-none focus:border-accent font-mono text-sm"
+                    value={newProjectMain}
+                    onChange={(e) => { mainChosen.current = true; setNewProjectMain((e.target as HTMLSelectElement).value) }}
+                  >
+                    {Array.from(new Set(['main', 'master', newProjectMain, ...(remoteMain ? [remoteMain] : [])])).map(b => (
+                      <option key={b} value={b}>{b}</option>
+                    ))}
+                  </select>
+                  <p class="text-xs text-[#7a7a8c] mt-1">{remoteMain ? tf('The repository uses {branch}.', { branch: remoteMain }) + ' ' : ''}{t('The project always goes back to this branch when it has no sessions. A cloned repository uses it when it has it.')}</p>
+                </div>
+
+                  {/* Everything with a sensible default lives behind one line. */}
+                  <details class="group rounded-xl border border-white/10 bg-black/15" data-testid="new-project-more">
+                    <summary class="cursor-pointer select-none px-3 py-2.5 text-sm text-[#9a9aaa] hover:text-[#e8e8ea] list-none flex items-center gap-2">
+                      <svg class="transition-transform group-open:rotate-90" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="9 18 15 12 9 6" /></svg>
+                      {t('More options')}
+                    </summary>
+                    <div class="px-3 pb-3 space-y-4">
+                      <div>
+                        <label class="block text-sm text-[#9a9aaa] mb-1.5">{t('Description (optional)')}</label>
+                        <input
+                          class="w-full px-3 py-2.5 rounded-xl bg-black/30 border border-white/10 text-[#e8e8ea] focus:outline-none focus:border-accent"
+                          value={newProjectDesc}
+                          onInput={(e) => setNewProjectDesc((e.target as HTMLInputElement).value)}
+                          placeholder={t('What this project is about')}
+                        />
+                      </div>
+                      <div>
+                        <label class="block text-sm text-[#9a9aaa] mb-1.5">{t('Folder name')}</label>
+                        <input
+                          class="w-full px-3 py-2.5 rounded-xl bg-black/30 border border-white/10 text-[#e8e8ea] focus:outline-none focus:border-accent font-mono text-sm"
+                          value={newProjectDir}
+                          onInput={(e) => setNewProjectDir((e.target as HTMLInputElement).value)}
+                          placeholder={slugOf(newProjectMode === 'git' ? repoNameOf(newProjectGit) || newProjectTitle : newProjectTitle) || 'my-project'}
+                        />
+                        <p class="text-xs text-[#7a7a8c] mt-1">{t('Made from the name when empty. A folder under the workspace, a simple name with no paths.')}</p>
+                      </div>
+                      {hasPodman && (
+                        <label class="flex items-start gap-2.5 p-2.5 rounded-xl border border-white/10 bg-black/20 cursor-pointer" data-testid="podman-offer">
+                          <input
+                            type="checkbox"
+                            class="mt-0.5 accent-[var(--accent,#7c6cff)]"
+                            checked={newProjectPodman}
+                            onChange={(e) => setNewProjectPodman((e.target as HTMLInputElement).checked)}
+                          />
+                          <span class="text-sm text-[#e8e8ea]">
+                            {t('Podman was found on this machine. Use it to run this project?')}
+                            <span class="block text-xs text-[#7a7a8c] mt-0.5">{t(!podmanReady ? 'podman is installed but did not answer (podman info failed), so it may not work until it is set up.' : hasPodmanCompose ? 'The project will be started in containers with podman.' : 'The project will be started in containers with podman. podman compose was not found, so compose files will not work until it is installed.')}</span>
+                          </span>
+                        </label>
+                      )}
+                    </div>
+                  </details>
+                </div>
+
                 {creatingProject && (
-                  <svg class="animate-spin" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="display:inline-block;vertical-align:middle;margin-right:6px">
-                    <path d="M21 12a9 9 0 1 1-6.219-8.56" />
-                  </svg>
+                  <div class="mt-4 flex items-center gap-2 text-sm text-[#9a9aaa]">
+                    <svg class="animate-spin flex-none text-accent" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                      <path d="M21 12a9 9 0 1 1-6.219-8.56" />
+                    </svg>
+                    <span>{t(newProjectMode === 'git' ? 'Cloning repository…' : 'Creating the project…')}</span>
+                  </div>
                 )}
-                {t(creatingProject ? 'Cloning…' : 'Create')}
-              </button>
-              <button
-                class="min-h-[44px] px-5 rounded-xl border border-white/10 text-[#e8e8ea] active:scale-95 transition-transform"
-                onClick={() => setShowNewProject(false)}
-              >
-                {t('Cancel')}
-              </button>
-            </div>
+
+                <div class="flex gap-2 mt-5">
+                  <button
+                    class="flex-1 min-h-[44px] px-5 rounded-xl bg-accent text-white font-semibold active:scale-95 transition-transform disabled:opacity-30 disabled:cursor-not-allowed disabled:saturate-0"
+                    onClick={() => createProject()}
+                    disabled={creatingProject || (newProjectMode === 'git' ? !newProjectGit.trim() : !newProjectTitle.trim())}
+                  >
+                    {creatingProject && (
+                      <svg class="animate-spin" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="display:inline-block;vertical-align:middle;margin-right:6px">
+                        <path d="M21 12a9 9 0 1 1-6.219-8.56" />
+                      </svg>
+                    )}
+                    {t(creatingProject ? (newProjectMode === 'git' ? 'Cloning…' : 'Creating…') : newProjectMode === 'git' ? 'Clone and create' : 'Create')}
+                  </button>
+                  <button
+                    class="min-h-[44px] px-5 rounded-xl border border-white/10 text-[#e8e8ea] active:scale-95 transition-transform"
+                    onClick={() => setShowNewProject(false)}
+                  >
+                    {t('Cancel')}
+                  </button>
+                </div>
+              </>
+            )}
           </div>
         </div>
       )}

@@ -3,8 +3,10 @@ package gateway
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
 	"os"
+	"os/exec"
 	"strconv"
 	"strings"
 	"time"
@@ -45,6 +47,7 @@ func (s *Server) gitRoutes(mux *http.ServeMux, plain func(http.HandlerFunc) http
 	mux.Handle("DELETE /v1/git/flows/{id}", plain(s.handleGitFlowCancel))
 	mux.Handle("DELETE /v1/git/accounts/{id}", plain(s.handleGitDisconnect))
 	mux.Handle("GET /v1/git/repos", plain(s.handleGitRepos))
+	mux.Handle("GET /v1/git/default-branch", plain(s.handleGitDefaultBranch))
 }
 
 // gitStore is the login store, or nil when this gateway has no directory for one.
@@ -390,4 +393,45 @@ func isGitAuthFailure(msg string) bool {
 		}
 	}
 	return false
+}
+
+// defaultBranchTimeout bounds the question to a remote: it is asked while somebody types a URL,
+// and a host that does not answer must not hold the dialog.
+const defaultBranchTimeout = 15 * time.Second
+
+// handleGitDefaultBranch answers which branch a remote repository's HEAD points to, so the
+// New project dialog can offer it as the main branch before anything is cloned. It uses the same
+// credentials a clone would, and an auth refusal is reported the way a clone's is.
+func (s *Server) handleGitDefaultBranch(w http.ResponseWriter, r *http.Request) {
+	url := strings.TrimSpace(r.URL.Query().Get("url"))
+	if url == "" {
+		writeError(w, http.StatusBadRequest, "the repository URL is empty")
+		return
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), defaultBranchTimeout)
+	defer cancel()
+	branch, err := remoteDefaultBranch(ctx, url, s.gitCommandEnv())
+	if err != nil {
+		s.writeCloneError(w, url, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"branch": branch})
+}
+
+// remoteDefaultBranch asks a remote for the branch its HEAD points to. A repository with no
+// commits has no HEAD to point anywhere, and answers "" rather than an error.
+func remoteDefaultBranch(ctx context.Context, url string, env []string) (string, error) {
+	cmd := exec.CommandContext(ctx, "git", "ls-remote", "--symref", "--", url, "HEAD")
+	cmd.Env = env
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		return "", fmt.Errorf("could not read %q: %w\n%s", url, err, out)
+	}
+	for _, line := range strings.Split(string(out), "\n") {
+		if ref, ok := strings.CutPrefix(line, "ref: refs/heads/"); ok {
+			name, _, _ := strings.Cut(ref, "\t")
+			return strings.TrimSpace(name), nil
+		}
+	}
+	return "", nil
 }
