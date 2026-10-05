@@ -510,6 +510,7 @@ func (s *Server) routes() *http.ServeMux {
 	mux.Handle("GET /v1/runtimes", plain(s.handleRuntimes))
 	mux.Handle("POST /v1/projects", plain(s.handleCreateProject))
 	mux.Handle("PATCH /v1/projects/{id}", plain(s.handleUpdateProject))
+	mux.Handle("GET /v1/projects/{id}/branches", plain(s.handleProjectBranches))
 	mux.Handle("DELETE /v1/projects/{id}", plain(s.handleDeleteProject))
 	// Scheduled tasks are addressed by the PROCESS, not by a conversation, for the same
 	// reason projects are: a schedule exists whether or not anyone is talking to the

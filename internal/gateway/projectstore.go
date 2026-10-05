@@ -26,8 +26,13 @@ type Project struct {
 	GitURL      string `json:"git_url,omitempty"`
 	// Podman is the user's answer, given when the project was created, to running
 	// it with podman. It is only ever true on a machine that had podman then.
-	Podman bool   `json:"podman,omitempty"`
+	Podman bool `json:"podman,omitempty"`
+	// Branch is the branch the project's checkout is on RIGHT NOW (read live).
 	Branch string `json:"branch,omitempty"`
+	// MainBranch is the branch the project always goes back to when it has no sessions, and the
+	// one the user chose as its main line of work. It is saved with the project; a project from
+	// before the setting existed answers with the main/master branch it has (read live).
+	MainBranch string `json:"main_branch,omitempty"`
 	// Changes is how many uncommitted changes are in the project's own
 	// checkout. It is the project's own number, NOT the sum over its sessions:
 	// a session works in its own worktree, and adding the two would report work

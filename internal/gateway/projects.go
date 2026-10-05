@@ -44,6 +44,7 @@ func (s *Server) handleListProjects(w http.ResponseWriter, _ *http.Request) {
 	for i := range all {
 		ctx := context.Background()
 		all[i].Branch = gitx.Display(ctx, all[i].Dir)
+		all[i].MainBranch = mainBranchOf(ctx, &all[i])
 		all[i].Changes, _ = gitx.WorkingTreeChanges(ctx, all[i].Dir)
 		// Worktrees counts the session checkouts, and it is asked of git rather
 		// than of the session list so that a worktree left behind by a session
@@ -147,6 +148,9 @@ func (s *Server) handleCreateProject(w http.ResponseWriter, r *http.Request) {
 		Dir         string `json:"dir"`
 		GitURL      string `json:"git_url"`
 		UsePodman   bool   `json:"use_podman"`
+		// MainBranch is the branch the project treats as its main line: "main" unless the user
+		// picked another (typically "master").
+		MainBranch string `json:"main_branch"`
 		// GitUserName and GitUserEmail answer the "git_identity_required" refusal:
 		// they are saved as the user's global git identity.
 		GitUserName  string `json:"git_user_name"`
@@ -173,6 +177,16 @@ func (s *Server) handleCreateProject(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// The default needs no check, and not asking git for it keeps a machine without git failing
+	// where it always did (initialising the repository) rather than here.
+	mainBranch := strings.TrimSpace(body.MainBranch)
+	if mainBranch == "" {
+		mainBranch = defaultMainBranch
+	} else if !gitx.ValidBranch(r.Context(), mainBranch) {
+		writeError(w, http.StatusBadRequest, "the main branch is not a valid branch name")
+		return
+	}
+
 	// Resolve the absolute directory under the workspace.
 	workspace := s.opts.WorkspaceDir
 	if workspace == "" {
@@ -191,6 +205,10 @@ func (s *Server) handleCreateProject(w http.ResponseWriter, r *http.Request) {
 			s.writeCloneError(w, gitURL, err)
 			return
 		}
+		// A clone arrives on the remote's default branch, which may not be the one asked for:
+		// the main branch becomes the requested one when the repository has it, and otherwise
+		// whichever of main/master it does have.
+		mainBranch = settleMainBranch(r.Context(), absDir, mainBranch)
 	} else {
 		// The folder is created in the workspace when it does not exist, and a
 		// folder that is new or empty becomes a git repository. A folder that
@@ -203,7 +221,7 @@ func (s *Server) handleCreateProject(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if entries, err := os.ReadDir(absDir); err == nil && len(entries) == 0 {
-			if err := gitx.Init(r.Context(), absDir); err != nil {
+			if err := gitx.InitOn(r.Context(), absDir, mainBranch); err != nil {
 				writeError(w, http.StatusInternalServerError, err.Error())
 				return
 			}
@@ -222,6 +240,7 @@ func (s *Server) handleCreateProject(w http.ResponseWriter, r *http.Request) {
 		Dir:         absDir,
 		GitURL:      gitURL,
 		Podman:      body.UsePodman && podmanInstalled(),
+		MainBranch:  mainBranch,
 		Created:     time.Now(),
 	}
 	if err := s.projects.save(p); err != nil {
@@ -235,6 +254,7 @@ func (s *Server) handleCreateProject(w http.ResponseWriter, r *http.Request) {
 		"dir":         p.Dir,
 		"git_url":     p.GitURL,
 		"podman":      p.Podman,
+		"main_branch": p.MainBranch,
 		"created":     p.Created,
 		"clone_log":   cloneLog,
 	})
@@ -289,17 +309,49 @@ func (s *Server) handleUpdateProject(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusNotFound, ErrProjectNotFound.Error())
 		return
 	}
+	// Every field is optional: a client changes what it sends and nothing else.
 	var body struct {
-		Podman bool `json:"podman"`
+		Title       *string `json:"title"`
+		Description *string `json:"description"`
+		Podman      *bool   `json:"podman"`
+		MainBranch  *string `json:"main_branch"`
 	}
 	if !s.decodeBody(w, r, &body) {
 		return
 	}
-	if body.Podman && !podmanInstalled() {
-		writeError(w, http.StatusConflict, "podman is not installed on this machine")
-		return
+	if body.Title != nil {
+		title := strings.TrimSpace(*body.Title)
+		if title == "" {
+			writeError(w, http.StatusBadRequest, "the title cannot be empty")
+			return
+		}
+		p.Title = title
 	}
-	p.Podman = body.Podman
+	if body.Description != nil {
+		p.Description = strings.TrimSpace(*body.Description)
+	}
+	if body.Podman != nil {
+		if *body.Podman && !podmanInstalled() {
+			writeError(w, http.StatusConflict, "podman is not installed on this machine")
+			return
+		}
+		p.Podman = *body.Podman
+	}
+	if body.MainBranch != nil {
+		branch := strings.TrimSpace(*body.MainBranch)
+		if !gitx.ValidBranch(r.Context(), branch) {
+			writeError(w, http.StatusBadRequest, "the main branch is not a valid branch name")
+			return
+		}
+		// In a repository the branch has to be one it has (or the one an empty repository is
+		// on): the project goes back to it, and a name git cannot check out would leave it
+		// stranded. A folder that is not a repository only remembers the name.
+		if gitx.Repo(r.Context(), p.Dir) == nil && !branchAvailable(r.Context(), p.Dir, branch) {
+			writeError(w, http.StatusBadRequest, "this project has no branch named "+branch)
+			return
+		}
+		p.MainBranch = branch
+	}
 	if err := s.projects.save(*p); err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -307,7 +359,120 @@ func (s *Server) handleUpdateProject(w http.ResponseWriter, r *http.Request) {
 	for _, c := range s.sessionsOfProject(p.ID) {
 		applyRuntimeTo(c.svc, p)
 	}
+	// With no sessions the checkout belongs on the main branch, including a main branch just chosen.
+	s.returnToMain(p)
 	writeJSON(w, http.StatusOK, p)
+}
+
+// handleProjectBranches lists what the main-branch selector can offer for a project.
+func (s *Server) handleProjectBranches(w http.ResponseWriter, r *http.Request) {
+	p := s.projectOf(r.PathValue("id"))
+	if p == nil {
+		writeError(w, http.StatusNotFound, ErrProjectNotFound.Error())
+		return
+	}
+	ctx := r.Context()
+	branches := []string{}
+	if gitx.Repo(ctx, p.Dir) == nil {
+		if list, err := gitx.Branches(ctx, p.Dir); err == nil {
+			branches = list
+		}
+	}
+	main := mainBranchOf(ctx, p)
+	// The configured branch is always offered, even before the repository has a commit on it.
+	if main != "" && !containsString(branches, main) {
+		branches = append([]string{main}, branches...)
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"branches":    branches,
+		"main_branch": main,
+		"current":     gitx.Display(ctx, p.Dir),
+	})
+}
+
+// defaultMainBranch is the main branch of a project nobody chose one for.
+const defaultMainBranch = "main"
+
+func containsString(list []string, s string) bool {
+	for _, x := range list {
+		if x == s {
+			return true
+		}
+	}
+	return false
+}
+
+// branchAvailable reports whether the repository at dir can be put on branch: it has it, locally
+// or on origin, or it is the branch an empty repository is already on.
+func branchAvailable(ctx context.Context, dir, branch string) bool {
+	if list, err := gitx.Branches(ctx, dir); err == nil && containsString(list, branch) {
+		return true
+	}
+	current, _, _ := gitx.Head(ctx, dir)
+	return current == branch
+}
+
+// settleMainBranch picks the main branch of a repository that was just cloned: the requested
+// one when it exists, else main, else master, else the branch the clone is on. The checkout is
+// moved onto it.
+func settleMainBranch(ctx context.Context, dir, want string) string {
+	current, _, _ := gitx.Head(ctx, dir)
+	list, _ := gitx.Branches(ctx, dir)
+	for _, candidate := range []string{want, "main", "master"} {
+		if containsString(list, candidate) {
+			if candidate != current {
+				if err := gitx.Checkout(ctx, dir, candidate); err != nil {
+					return current
+				}
+			}
+			return candidate
+		}
+	}
+	if current != "" {
+		return current
+	}
+	return want
+}
+
+// mainBranchOf is the project's main branch: the one saved, or - for a project from before the
+// setting - the main/master branch the repository has. "" when there is none to name.
+func mainBranchOf(ctx context.Context, p *Project) string {
+	if p.MainBranch != "" {
+		return p.MainBranch
+	}
+	if gitx.Repo(ctx, p.Dir) != nil {
+		return ""
+	}
+	list, _ := gitx.Branches(ctx, p.Dir)
+	for _, candidate := range []string{"main", "master"} {
+		if containsString(list, candidate) {
+			return candidate
+		}
+	}
+	return ""
+}
+
+// returnToMain puts a project's checkout back on its main branch when the project has no
+// sessions left. It is deliberately timid: a checkout with uncommitted changes is left alone
+// (switching would either fail or carry the work to another branch), and so is a project that
+// still has a session, whose branch the user may be looking at. A failure is logged, not
+// reported: the caller's own work (deleting a session, saving the project) already succeeded.
+func (s *Server) returnToMain(p *Project) {
+	if p == nil || len(s.sessionsOfProject(p.ID)) > 0 {
+		return
+	}
+	ctx := context.Background()
+	main := mainBranchOf(ctx, p)
+	if main == "" || gitx.Repo(ctx, p.Dir) != nil || gitx.Display(ctx, p.Dir) == main {
+		return
+	}
+	if dirty, err := gitx.Dirty(ctx, p.Dir); err != nil || dirty {
+		return
+	}
+	if err := gitx.Checkout(ctx, p.Dir, main); err != nil && s.opts.Log != nil {
+		s.opts.Log.Warn("the project could not go back to its main branch",
+			"project", p.Dir, "branch", main, "error", err.Error())
+	}
 }
 
 // handleDeleteProject removes a project. Sessions that belong to it are NOT

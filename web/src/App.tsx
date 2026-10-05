@@ -147,6 +147,8 @@ interface ProjectInfo {
   git_url?: string
   podman?: boolean
   branch?: string
+  // main_branch is the branch the project goes back to when it has no sessions.
+  main_branch?: string
   changes?: number
   created: string
 }
@@ -736,6 +738,11 @@ export default function App() {
   const [newProjectDesc, setNewProjectDesc] = useState('')
   const [newProjectDir, setNewProjectDir] = useState('')
   const [newProjectGit, setNewProjectGit] = useState('')
+  // The branch the new project treats as its main line: main unless the person picks master.
+  const [newProjectMain, setNewProjectMain] = useState('main')
+  // The edit-project dialog: what is being edited and the branches its selector offers.
+  const [editProject, setEditProject] = useState<{ id: string; title: string; description: string; main: string; branches: string[]; current: string } | null>(null)
+  const [savingProject, setSavingProject] = useState(false)
   // Podman: whether this machine has it (asked when the dialog opens) and the user's answer.
   // Artifacts: the files the agent saved for the person in the selected session, and the one
   // being looked at. `body` is the text of a text file, `url` a blob for an image.
@@ -1693,6 +1700,7 @@ export default function App() {
           dir,
           git_url: gitUrl || undefined,
           use_podman: hasPodman && newProjectPodman ? true : undefined,
+          main_branch: newProjectMain,
           git_user_name: identity?.name,
           git_user_email: identity?.email,
         })
@@ -1731,6 +1739,7 @@ export default function App() {
       setNewProjectDesc('')
       setNewProjectDir('')
       setNewProjectGit('')
+      setNewProjectMain('main')
       setNewProjectPodman(false)
       setShowGitIdentity(false)
       setCreatingProject(false)
@@ -1738,7 +1747,7 @@ export default function App() {
       setState(tf('could not create the project: {err}', { err: String(e) }), true)
       setCreatingProject(false)
     }
-  }, [newProjectTitle, newProjectDesc, newProjectDir, newProjectGit, newProjectPodman, hasPodman, fetchProjects])
+  }, [newProjectTitle, newProjectDesc, newProjectDir, newProjectGit, newProjectMain, newProjectPodman, hasPodman, fetchProjects])
 
   createProjectRef.current = () => { void createProject() }
 
@@ -1853,6 +1862,46 @@ export default function App() {
       setState('could not change the project', true)
     }
   }, [fetchProjects])
+
+  // openEditProject opens the edit dialog with the project's own values, and asks the gateway
+  // which branches the main-branch selector can offer.
+  const openEditProject = useCallback(async (p: ProjectInfo) => {
+    setEditProject({ id: p.id, title: p.title, description: p.description ?? '', main: p.main_branch ?? 'main', branches: p.main_branch ? [p.main_branch] : ['main'], current: p.branch ?? '' })
+    try {
+      const res = await api('/v1/projects/' + encodeURIComponent(p.id) + '/branches')
+      if (!res.ok) return
+      const d = await res.json()
+      setEditProject(prev => prev && prev.id === p.id
+        ? { ...prev, branches: d.branches?.length ? d.branches : prev.branches, main: d.main_branch || prev.main, current: d.current ?? prev.current }
+        : prev)
+    } catch { /* the selector keeps the branch it already knows */ }
+  }, [])
+
+  // saveEditProject sends what the dialog holds. The gateway puts the project back on its main
+  // branch when it has no sessions, so the list is read again afterwards.
+  const saveEditProject = useCallback(async () => {
+    if (!editProject || !editProject.title.trim()) return
+    setSavingProject(true)
+    try {
+      const res = await api('/v1/projects/' + encodeURIComponent(editProject.id), {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ title: editProject.title, description: editProject.description, main_branch: editProject.main }),
+      })
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}))
+        setToast({ message: t('Could not save the project'), type: 'error', detail: err.error })
+        return
+      }
+      setEditProject(null)
+      await fetchProjects()
+      setToast({ message: t('Project saved'), type: 'success' })
+    } catch {
+      setToast({ message: t('Could not save the project'), type: 'error' })
+    } finally {
+      setSavingProject(false)
+    }
+  }, [editProject, fetchProjects])
 
   const onGitConnected = useCallback((_service: string, account: string) => {
     const then = gitConnect?.then
@@ -3880,6 +3929,13 @@ export default function App() {
               style={rowMenuPos ? { top: `${rowMenuPos.top}px`, left: `${rowMenuPos.left}px` } : undefined}
                             onClick={(e) => e.stopPropagation()}
                           >
+                            <button
+                              class="row-menu-item w-full flex items-center gap-2 px-3 py-2 text-sm text-[#e8e8ea] hover:bg-white/5"
+                              data-testid="edit-project"
+                              onClick={(e) => { e.stopPropagation(); void openEditProject(p); closeRowMenu() }}
+                            >
+                              {t('Edit project')}
+                            </button>
                             {(hasPodman || p.podman) && (
                               <button
                                 class="row-menu-item w-full flex items-center gap-2 px-3 py-2 text-sm text-[#e8e8ea] hover:bg-white/5"
@@ -4622,6 +4678,88 @@ export default function App() {
         </form>
       </div>
 
+      {/* Edit project modal — title, description and the main branch. */}
+      {editProject && (
+        <div
+          class="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4"
+          onClick={() => setEditProject(null)}
+        >
+          <div
+            class="frosted rounded-2xl border border-white/10 w-full max-w-md p-5 shadow-2xl"
+            role="dialog"
+            aria-label={t('Edit project')}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div class="flex items-center gap-2 mb-4">
+              <h2 class="text-base font-semibold">{t('Edit project')}</h2>
+              <button
+                class="ml-auto p-1.5 rounded-lg hover:bg-white/5"
+                onClick={() => setEditProject(null)}
+                aria-label={t('Close')}
+              >
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" />
+                </svg>
+              </button>
+            </div>
+            <div class="space-y-4">
+              <div>
+                <label class="block text-sm text-[#9a9aaa] mb-1.5">{t('Title')} <span class="text-danger">*</span></label>
+                <input
+                  class="w-full px-3 py-2.5 rounded-xl bg-black/30 border border-white/10 text-[#e8e8ea] focus:outline-none focus:border-accent"
+                  value={editProject.title}
+                  onInput={(e) => { const v = (e.target as HTMLInputElement).value; setEditProject(p => p && { ...p, title: v }) }}
+                  autoFocus
+                />
+              </div>
+              <div>
+                <label class="block text-sm text-[#9a9aaa] mb-1.5">{t('Description (optional)')}</label>
+                <input
+                  class="w-full px-3 py-2.5 rounded-xl bg-black/30 border border-white/10 text-[#e8e8ea] focus:outline-none focus:border-accent"
+                  value={editProject.description}
+                  onInput={(e) => { const v = (e.target as HTMLInputElement).value; setEditProject(p => p && { ...p, description: v }) }}
+                />
+              </div>
+              <div>
+                <label class="block text-sm text-[#9a9aaa] mb-1.5" for="edit-project-main">{t('Main branch')}</label>
+                <select
+                  id="edit-project-main"
+                  data-testid="edit-project-main"
+                  class="w-full px-3 py-2.5 rounded-xl bg-black/30 border border-white/10 text-[#e8e8ea] focus:outline-none focus:border-accent font-mono text-sm"
+                  value={editProject.main}
+                  onChange={(e) => { const v = (e.target as HTMLSelectElement).value; setEditProject(p => p && { ...p, main: v }) }}
+                >
+                  {(editProject.branches.includes(editProject.main) ? editProject.branches : [editProject.main, ...editProject.branches]).map(b => (
+                    <option key={b} value={b}>{b}</option>
+                  ))}
+                </select>
+                <p class="text-xs text-[#7a7a8c] mt-1">
+                  {t('The project always goes back to this branch when it has no sessions.')}
+                  {editProject.current && editProject.current !== editProject.main && (
+                    <> {tf('It is on {branch} now.', { branch: editProject.current })}</>
+                  )}
+                </p>
+              </div>
+            </div>
+            <div class="flex gap-2 mt-5">
+              <button
+                class="flex-1 min-h-[44px] px-5 rounded-xl bg-accent text-white font-semibold active:scale-95 transition-transform disabled:opacity-30 disabled:cursor-not-allowed disabled:saturate-0"
+                onClick={() => void saveEditProject()}
+                disabled={savingProject || !editProject.title.trim()}
+              >
+                {t(savingProject ? 'Saving…' : 'Save')}
+              </button>
+              <button
+                class="min-h-[44px] px-5 rounded-xl border border-white/10 text-[#e8e8ea] active:scale-95 transition-transform"
+                onClick={() => setEditProject(null)}
+              >
+                {t('Cancel')}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* New project modal — title, description, folder or git URL. */}
       {showNewProject && (
         <div
@@ -4695,6 +4833,20 @@ export default function App() {
                     <button type="button" class="flex-none px-3 min-h-[32px] rounded-lg bg-accent text-white text-xs font-semibold" onClick={() => setGitConnect({ then: 'picker' })}>{t('Connect')}</button>
                   </div>
                 )}
+              </div>
+              <div>
+                <label class="block text-sm text-[#9a9aaa] mb-1.5" for="new-project-main">{t('Main branch')}</label>
+                <select
+                  id="new-project-main"
+                  data-testid="new-project-main"
+                  class="w-full px-3 py-2.5 rounded-xl bg-black/30 border border-white/10 text-[#e8e8ea] focus:outline-none focus:border-accent font-mono text-sm"
+                  value={newProjectMain}
+                  onChange={(e) => setNewProjectMain((e.target as HTMLSelectElement).value)}
+                >
+                  <option value="main">main</option>
+                  <option value="master">master</option>
+                </select>
+                <p class="text-xs text-[#7a7a8c] mt-1">{t('The project always goes back to this branch when it has no sessions. A cloned repository uses it when it has it.')}</p>
               </div>
               {hasPodman && (
                 <label class="flex items-start gap-2.5 p-2.5 rounded-xl border border-white/10 bg-black/20 cursor-pointer" data-testid="podman-offer">
