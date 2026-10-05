@@ -23,6 +23,8 @@ interface Message {
   changes?: ChangeReport
   // report is the answer as structure, when the run produced one: drawn as a card.
   report?: TaskReport
+  // artifacts are the files this run saved for the person, offered under the answer.
+  artifacts?: { name: string; type: string; size: number }[]
   // turn, on a message of the user's, is the checkpoint that input became: the number the
   // gateway knows it by. It is unset until the gateway has said which one it is.
   turn?: number
@@ -721,6 +723,7 @@ export default function App() {
   // Artifacts: the files the agent saved for the person in the selected session, and the one
   // being looked at. `body` is the text of a text file, `url` a blob for an image.
   const [showArtifacts, setShowArtifacts] = useState(false)
+  const [artifactScope, setArtifactScope] = useState<'session' | 'project'>('session')
   const [artifacts, setArtifacts] = useState<{ name: string; size: number; type: string; modified: string }[]>([])
   const [artifactView, setArtifactView] = useState<{ name: string; type: string; body?: string; url?: string } | null>(null)
   const [hasPodman, setHasPodman] = useState(false)
@@ -1740,22 +1743,28 @@ export default function App() {
     return () => { live = false }
   }, [showNewProject])
 
-  const loadArtifacts = useCallback(async () => {
+  const artifactBase = useCallback(
+    () => '/v1/sessions/' + encodeURIComponent(sessionId) + '/artifacts',
+    [sessionId])
+  const scopeQuery = (scope: 'session' | 'project') => (scope === 'project' ? '?scope=project' : '')
+
+  const loadArtifacts = useCallback(async (scope: 'session' | 'project' = artifactScope) => {
     if (!sessionId) { setArtifacts([]); return }
     try {
-      const res = await api('/v1/sessions/' + encodeURIComponent(sessionId) + '/artifacts')
+      const res = await api(artifactBase() + scopeQuery(scope))
       const d = res.ok ? await res.json() : {}
       setArtifacts(Array.isArray(d.artifacts) ? d.artifacts : [])
     } catch { setArtifacts([]) }
-  }, [sessionId])
+  }, [sessionId, artifactScope, artifactBase])
 
   // openArtifact fetches one file with the token (a plain link would not carry it) and shows it
-  // by kind: pages in a sandboxed frame, images as pictures, text as text, anything else is saved.
-  const openArtifact = useCallback(async (a: { name: string; type: string }) => {
+  // by kind: pages in a sandboxed frame, Markdown rendered, images and PDFs as themselves, text as
+  // text; anything else is saved.
+  const openArtifact = useCallback(async (a: { name: string; type: string }, scope: 'session' | 'project' = artifactScope) => {
     try {
-      const res = await api('/v1/sessions/' + encodeURIComponent(sessionId) + '/artifacts/' + encodeURIComponent(a.name))
+      const res = await api(artifactBase() + '/' + encodeURIComponent(a.name) + scopeQuery(scope))
       if (!res.ok) { setState('could not open the artifact', true); return }
-      if (a.type.startsWith('image/')) {
+      if (a.type.startsWith('image/') || a.type.startsWith('application/pdf')) {
         setArtifactView({ name: a.name, type: a.type, url: URL.createObjectURL(await res.blob()) })
       } else if (a.type.startsWith('text/') || a.type === 'application/json') {
         setArtifactView({ name: a.name, type: a.type, body: await res.text() })
@@ -1768,16 +1777,30 @@ export default function App() {
         setTimeout(() => URL.revokeObjectURL(url), 1000)
       }
     } catch { setState('could not open the artifact', true) }
-  }, [sessionId])
+  }, [artifactScope, artifactBase])
 
   const deleteArtifact = useCallback(async (name: string) => {
     try {
-      const res = await api('/v1/sessions/' + encodeURIComponent(sessionId) + '/artifacts/' + encodeURIComponent(name), { method: 'DELETE' })
+      const res = await api(artifactBase() + '/' + encodeURIComponent(name) + scopeQuery(artifactScope), { method: 'DELETE' })
       if (!res.ok && res.status !== 204) { setState('could not delete the artifact', true); return }
       setArtifactView(v => (v && v.name === name ? null : v))
       await loadArtifacts()
     } catch { setState('could not delete the artifact', true) }
-  }, [sessionId, loadArtifacts])
+  }, [artifactScope, artifactBase, loadArtifacts])
+
+  // uploadArtifact saves a file the person picks into this session, as the raw body.
+  const uploadArtifact = useCallback(async (file: File) => {
+    try {
+      const res = await api(artifactBase() + '/' + encodeURIComponent(file.name), { method: 'PUT', body: file })
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}))
+        setState(err.error || 'could not save the file', true)
+        return
+      }
+      setArtifactScope('session')
+      await loadArtifacts('session')
+    } catch { setState('could not save the file', true) }
+  }, [artifactBase, loadArtifacts])
 
   // setProjectPodman changes the answer given at creation: the gateway tells the open sessions.
   const setProjectPodman = useCallback(async (id: string, podman: boolean) => {
@@ -2641,7 +2664,7 @@ export default function App() {
     case 'done':
       setActivity(null)
       if (payload.result) {
-        setMessages(prev => [...prev, { id: nextId(), role: 'agent', text: payload.result, changes: payload.changes, report: hasReport(payload.report) ? payload.report : undefined }])
+        setMessages(prev => [...prev, { id: nextId(), role: 'agent', text: payload.result, changes: payload.changes, artifacts: Array.isArray(payload.artifacts) && payload.artifacts.length ? payload.artifacts : undefined, report: hasReport(payload.report) ? payload.report : undefined }])
       }
       finish()
       break
@@ -3779,7 +3802,7 @@ export default function App() {
                 class="w-full flex items-center gap-2 px-3 py-2.5 rounded-xl hover:bg-white/5 transition-colors text-sm text-[#e8e8ea] disabled:opacity-40"
                 data-testid="artifacts-button"
                 disabled={!sessionId}
-                onClick={() => { setArtifactView(null); setShowArtifacts(true); void loadArtifacts() }}
+                onClick={() => { setArtifactView(null); setArtifactScope('session'); setShowArtifacts(true); void loadArtifacts('session') }}
               >
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                   <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" /><polyline points="14 2 14 8 20 8" />
@@ -3989,6 +4012,19 @@ export default function App() {
                         <span>{m.kind === 'kind' ? t(m.text) : m.text}</span>
                       )}
                       {m.changes && <ChangesCard changes={m.changes} />}
+                      {m.artifacts && (
+                        <div class="mt-2 flex flex-wrap gap-1.5" data-testid="run-artifacts">
+                          {m.artifacts.map(a => (
+                            <button
+                              key={a.name}
+                              class="px-2.5 min-h-[32px] rounded-lg border border-white/10 bg-black/20 text-xs font-mono text-accent hover:bg-white/5"
+                              onClick={() => { setArtifactScope('session'); setArtifactView(null); setShowArtifacts(true); void loadArtifacts('session'); void openArtifact(a, 'session') }}
+                            >
+                              {a.name}
+                            </button>
+                          ))}
+                        </div>
+                      )}
                     </div>
                   ))}
                   {liveHere && activity && (
@@ -5410,12 +5446,49 @@ export default function App() {
                 </svg>
               </button>
             </div>
+            {!artifactView && (
+              <div class="flex items-center gap-2 mb-3">
+                {selectedSession?.project_id && (
+                  <div class="flex rounded-lg border border-white/10 overflow-hidden text-xs" role="tablist">
+                    {(['session', 'project'] as const).map(sc => (
+                      <button
+                        key={sc}
+                        role="tab"
+                        aria-selected={artifactScope === sc}
+                        class={`px-3 min-h-[30px] ${artifactScope === sc ? 'bg-accent text-white' : 'text-[#c8c8d2] hover:bg-white/5'}`}
+                        onClick={() => { setArtifactScope(sc); void loadArtifacts(sc) }}
+                      >
+                        {t(sc === 'session' ? 'This session' : 'Whole project')}
+                      </button>
+                    ))}
+                  </div>
+                )}
+                <label class="ml-auto px-3 min-h-[30px] inline-flex items-center rounded-lg border border-white/10 text-xs text-[#c8c8d2] hover:bg-white/5 cursor-pointer">
+                  {t('Upload a file')}
+                  <input
+                    type="file"
+                    class="hidden"
+                    data-testid="artifact-upload"
+                    onChange={(e) => {
+                      const input = e.target as HTMLInputElement
+                      const f = input.files && input.files[0]
+                      input.value = ''
+                      if (f) void uploadArtifact(f)
+                    }}
+                  />
+                </label>
+              </div>
+            )}
             {artifactView ? (
               <div class="flex flex-col min-h-0 flex-1">
                 <button class="self-start text-sm text-accent underline underline-offset-2 mb-2" onClick={() => setArtifactView(null)}>{t('Back to the list')}</button>
                 <div class="text-sm font-mono text-[#c8c8d2] mb-2 truncate">{artifactView.name}</div>
-                {artifactView.url ? (
+                {artifactView.url && artifactView.type.startsWith('application/pdf') ? (
+                  <iframe src={artifactView.url} title={artifactView.name} class="w-full flex-1 min-h-[60vh] rounded-lg bg-white" />
+                ) : artifactView.url ? (
                   <img src={artifactView.url} alt={artifactView.name} class="max-w-full max-h-[60vh] object-contain rounded-lg" />
+                ) : artifactView.type.startsWith('text/markdown') ? (
+                  <div class="overflow-auto flex-1 p-3 rounded-lg bg-black/30"><Markdown content={artifactView.body || ''} /></div>
                 ) : artifactView.type.startsWith('text/html') ? (
                   <iframe sandbox="" srcDoc={artifactView.body} title={artifactView.name} class="w-full flex-1 min-h-[50vh] rounded-lg bg-white" />
                 ) : (

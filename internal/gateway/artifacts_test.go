@@ -48,7 +48,8 @@ func artifactCall(srv *Server, method, path string) *httptest.ResponseRecorder {
 
 func TestArtifactsAreCollectedListedServedAndDeleted(t *testing.T) {
 	srv, c, ws, _ := artifactServer(t, map[string]string{"report.html": "<h1>hi</h1>", "data.bin": "x"})
-	srv.collectArtifacts(c.id, ws)
+	c.workspace = ws
+	srv.collectArtifacts(c)
 	base := "/v1/sessions/" + c.id + "/artifacts"
 
 	w := artifactCall(srv, http.MethodGet, base)
@@ -100,15 +101,19 @@ func TestCollectArtifactsSkipsWhatItShould(t *testing.T) {
 	_ = os.WriteFile(outside, []byte("s"), 0o644)
 	_ = os.Symlink(outside, filepath.Join(dir, "link.txt"))
 	_ = os.Mkdir(filepath.Join(dir, "sub"), 0o755)
-	srv.collectArtifacts(c.id, ws)
+	c.workspace = ws
+	srv.collectArtifacts(c)
 	got := listArtifacts(filepath.Join(root, c.id))
 	if len(got) != 1 || got[0].Name != "ok.txt" {
 		t.Fatalf("collected %+v, want only ok.txt", got)
 	}
 	// Nothing to do without a workspace, a folder to read, or a root to write to.
-	srv.collectArtifacts(c.id, "")
-	srv.collectArtifacts(c.id, t.TempDir())
-	(&Server{}).collectArtifacts(c.id, ws)
+	c.workspace = ""
+	srv.collectArtifacts(c)
+	c.workspace = t.TempDir()
+	srv.collectArtifacts(c)
+	c.workspace = ws
+	(&Server{}).collectArtifacts(c)
 	if (&Server{}).artifactDirFor(c.id) != "" || srv.artifactDirFor("../x") != "" {
 		t.Fatal("artifactDirFor must refuse without a root or with a bad id")
 	}
@@ -121,13 +126,15 @@ func TestCollectArtifactsCapsTheCount(t *testing.T) {
 	for i := 0; i < maxArtifacts+3; i++ {
 		_ = os.WriteFile(filepath.Join(dir, strings.Repeat("a", 1)+string(rune('A'+i%26))+string(rune('a'+i/26))+".txt"), []byte("x"), 0o644)
 	}
-	srv.collectArtifacts(c.id, ws)
+	c.workspace = ws
+	srv.collectArtifacts(c)
 	if n := len(listArtifacts(filepath.Join(root, c.id))); n != maxArtifacts {
 		t.Fatalf("kept %d, want %d", n, maxArtifacts)
 	}
 	// A name already kept is replaced, not counted again.
 	_ = os.WriteFile(filepath.Join(dir, "aAa.txt"), []byte("new"), 0o644)
-	srv.collectArtifacts(c.id, ws)
+	c.workspace = ws
+	srv.collectArtifacts(c)
 	if b, _ := os.ReadFile(filepath.Join(root, c.id, "aAa.txt")); string(b) != "new" {
 		t.Fatal("an existing artifact must be updated")
 	}
@@ -141,7 +148,8 @@ func TestListArtifactsWithoutAFolder(t *testing.T) {
 
 func TestDeleteArtifactFailureAndOpenFailure(t *testing.T) {
 	srv, c, ws, root := artifactServer(t, map[string]string{"a.txt": "1"})
-	srv.collectArtifacts(c.id, ws)
+	c.workspace = ws
+	srv.collectArtifacts(c)
 	if os.Geteuid() == 0 {
 		t.Skip("root ignores file permissions")
 	}
@@ -174,5 +182,181 @@ func TestArtifactFolderIsNotAChange(t *testing.T) {
 	rep := buildChangeReport(context.Background(), ws, rev)
 	if len(rep.Files) != 1 || rep.Files[0].Path != "a.txt" {
 		t.Fatalf("files = %+v, want only a.txt", rep.Files)
+	}
+}
+
+func artifactReq(srv *Server, method, path, body string) *httptest.ResponseRecorder {
+	req, _ := http.NewRequest(method, srv.BaseURL()+path, strings.NewReader(body))
+	req.Header.Set("Authorization", "Bearer "+testToken)
+	w := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(w, req)
+	return w
+}
+
+func TestOnlyNewOrChangedArtifactsAreReported(t *testing.T) {
+	srv, c, ws, _ := artifactServer(t, map[string]string{"a.md": "one"})
+	c.workspace = ws
+	if got := srv.collectArtifacts(c); len(got) != 1 || got[0].Name != "a.md" || got[0].Type != "text/markdown; charset=utf-8" {
+		t.Fatalf("first run = %+v", got)
+	}
+	if got := srv.collectArtifacts(c); len(got) != 0 {
+		t.Fatalf("an identical file is not a change: %+v", got)
+	}
+	_ = os.WriteFile(filepath.Join(ws, filepath.FromSlash(ArtifactDir), "a.md"), []byte("two"), 0o644)
+	if got := srv.collectArtifacts(c); len(got) != 1 {
+		t.Fatalf("a changed file must be reported: %+v", got)
+	}
+}
+
+func TestProjectArtifactsAreSharedAndScoped(t *testing.T) {
+	srv, c, ws, root := artifactServer(t, map[string]string{"plan.md": "# p"})
+	c.workspace = ws
+	c.setProjectID("p1", ws, ws)
+	srv.collectArtifacts(c)
+	if _, err := os.Stat(filepath.Join(root, "project-p1", "plan.md")); err != nil {
+		t.Fatalf("the project folder must get a copy: %v", err)
+	}
+	base := "/v1/sessions/" + c.id + "/artifacts"
+	if w := artifactCall(srv, http.MethodGet, base+"?scope=project"); !strings.Contains(w.Body.String(), "plan.md") {
+		t.Fatalf("project list = %s", w.Body)
+	}
+	if w := artifactCall(srv, http.MethodGet, base+"/plan.md?scope=project"); w.Body.String() != "# p" {
+		t.Fatalf("project file = %q", w.Body)
+	}
+	srv.removeProjectArtifacts("p1")
+	if _, err := os.Stat(filepath.Join(root, "project-p1")); err == nil {
+		t.Fatal("the project's folder must go with the project")
+	}
+	// A session with no project has no project scope.
+	c.setProjectID("", ws, "")
+	if w := artifactCall(srv, http.MethodGet, base+"/plan.md?scope=project"); w.Code != http.StatusNotFound {
+		t.Fatalf("no project: %d", w.Code)
+	}
+	if srv.projectArtifactDirFor("") != "" {
+		t.Fatal("no project, no folder")
+	}
+	srv.removeProjectArtifacts("")
+}
+
+func TestUploadArtifact(t *testing.T) {
+	srv, c, _, root := artifactServer(t, nil)
+	base := "/v1/sessions/" + c.id + "/artifacts/"
+	if w := artifactReq(srv, http.MethodPut, base+"notes.txt", "hello"); w.Code != http.StatusNoContent {
+		t.Fatalf("upload = %d %s", w.Code, w.Body)
+	}
+	if b, _ := os.ReadFile(filepath.Join(root, c.id, "notes.txt")); string(b) != "hello" {
+		t.Fatalf("stored %q", b)
+	}
+	if w := artifactReq(srv, http.MethodPut, base+".hidden", "x"); w.Code != http.StatusBadRequest {
+		t.Fatalf("bad name = %d", w.Code)
+	}
+	if w := artifactReq(srv, http.MethodPut, base+"big.bin", strings.Repeat("x", maxArtifactBytes+1)); w.Code != http.StatusRequestEntityTooLarge {
+		t.Fatalf("too big = %d", w.Code)
+	}
+	nokeep := newTestServer(t, &fakeService{}, func(o *Options) {
+		o.NewService = func() (Service, error) { return &fakeService{}, nil }
+	})
+	nc, _ := nokeep.createSession()
+	if w := artifactReq(nokeep, http.MethodPut, "/v1/sessions/"+nc.id+"/artifacts/a.txt", "x"); w.Code != http.StatusNotImplemented {
+		t.Fatalf("not kept = %d", w.Code)
+	}
+}
+
+func TestStoreArtifactLimits(t *testing.T) {
+	srv, _, _, root := artifactServer(t, nil)
+	dir := filepath.Join(root, "s")
+	if _, err := srv.storeArtifact("", "a.txt", nil); err == nil {
+		t.Fatal("no folder must be refused")
+	}
+	// The gateway-wide total: a store that is already full refuses a new file.
+	_ = os.MkdirAll(filepath.Join(root, "other"), 0o755)
+	fh, _ := os.Create(filepath.Join(root, "other", "huge"))
+	_ = fh.Truncate(maxArtifactTotalBytes)
+	fh.Close()
+	if _, err := srv.storeArtifact(dir, "a.txt", []byte("x")); err == nil || !strings.Contains(err.Error(), "full") {
+		t.Fatalf("full store: %v", err)
+	}
+	_ = os.Remove(filepath.Join(root, "other", "huge"))
+	// An unwritable root is a plain error, not a refusal.
+	if os.Geteuid() != 0 {
+		_ = os.Chmod(root, 0o500)
+		defer os.Chmod(root, 0o755)
+		if _, err := srv.storeArtifact(filepath.Join(root, "new"), "a.txt", []byte("x")); err == nil {
+			t.Fatal("an unwritable root must fail")
+		}
+	}
+}
+
+func TestPutArtifactReportsAnInternalFailure(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("root ignores directory permissions")
+	}
+	srv, c, _, root := artifactServer(t, nil)
+	_ = os.Chmod(root, 0o500)
+	defer os.Chmod(root, 0o755)
+	if w := artifactReq(srv, http.MethodPut, "/v1/sessions/"+c.id+"/artifacts/a.txt", "x"); w.Code != http.StatusInternalServerError {
+		t.Fatalf("got %d", w.Code)
+	}
+}
+
+func TestArtifactBytesUnderAMissingRoot(t *testing.T) {
+	if artifactBytesUnder(filepath.Join(t.TempDir(), "none")) != 0 {
+		t.Fatal("a missing root holds nothing")
+	}
+}
+
+func TestTheDoneEventCarriesTheRunsArtifacts(t *testing.T) {
+	ws := t.TempDir()
+	svc := &fakeService{task: func(_ context.Context, _ string, _ func(string, ...any)) (string, error) {
+		put(t, filepath.Join(ws, filepath.FromSlash(ArtifactDir), "report.md"), "# done")
+		return "finished", nil
+	}}
+	srv := newTestServer(t, svc, func(o *Options) { o.ArtifactDir = t.TempDir() })
+	srv.sessions[DefaultSession].workspace = ws
+	events := collect(t, srv, http.MethodPost, sessionPath(srv, DefaultSession, "/task"), `{"task":"write it"}`)
+	last := events[len(events)-1]
+	if last.Event != EventDone || !strings.Contains(last.Data, `"artifacts"`) || !strings.Contains(last.Data, "report.md") {
+		t.Fatalf("done = %s %s", last.Event, last.Data)
+	}
+}
+
+func TestStoreArtifactRefusesWhatIsTooLargeOrBadlyNamed(t *testing.T) {
+	srv, _, _, root := artifactServer(t, nil)
+	if _, err := srv.storeArtifact(root, ".x", []byte("x")); err == nil {
+		t.Fatal("a hidden name must be refused")
+	}
+	if _, err := srv.storeArtifact(root, "big", make([]byte, maxArtifactBytes+1)); err == nil {
+		t.Fatal("an oversized file must be refused")
+	}
+}
+
+func TestCollectArtifactsSkipsAFileItCannotRead(t *testing.T) {
+	srv, c, ws, root := artifactServer(t, map[string]string{"a.txt": "1"})
+	c.workspace = ws
+	old := readArtifactFile
+	readArtifactFile = func(string) ([]byte, error) { return nil, os.ErrPermission }
+	defer func() { readArtifactFile = old }()
+	if got := srv.collectArtifacts(c); len(got) != 0 {
+		t.Fatalf("collected %+v", got)
+	}
+	if len(listArtifacts(filepath.Join(root, c.id))) != 0 {
+		t.Fatal("nothing must be kept")
+	}
+}
+
+func TestListArtifactsIgnoresFoldersAndTypesFallBack(t *testing.T) {
+	dir := t.TempDir()
+	_ = os.Mkdir(filepath.Join(dir, "sub"), 0o755)
+	_ = os.WriteFile(filepath.Join(dir, "a.zzzunknown"), []byte("1"), 0o644)
+	got := listArtifacts(dir)
+	if len(got) != 1 || got[0].Type != "application/octet-stream" {
+		t.Fatalf("got %+v", got)
+	}
+}
+
+func TestDeleteAnUnknownArtifact(t *testing.T) {
+	srv, c, _, _ := artifactServer(t, nil)
+	if w := artifactCall(srv, http.MethodDelete, "/v1/sessions/"+c.id+"/artifacts/nope.txt"); w.Code != http.StatusNotFound {
+		t.Fatalf("got %d", w.Code)
 	}
 }

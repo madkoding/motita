@@ -1081,3 +1081,14 @@ func TestPodmanComposeInstalledReadsThePath(t *testing.T) {
 		t.Fatal("compose found on an empty PATH")
 	}
 }
+
+// TestWriteSyncedReportsAFailedWrite: /dev/full opens fine and refuses every write, which is
+// the failure of the three steps a test can cause for any user, root included.
+func TestWriteSyncedReportsAFailedWrite(t *testing.T) {
+	if _, err := os.Stat("/dev/full"); err != nil {
+		t.Skip("this platform has no /dev/full")
+	}
+	if err := writeSynced("/dev/full", []byte("x")); err == nil {
+		t.Fatal("a write to a full device must fail")
+	}
+}

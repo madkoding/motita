@@ -359,6 +359,7 @@ func (s *Server) handleDeleteProject(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
+	s.removeProjectArtifacts(id)
 	w.WriteHeader(http.StatusNoContent)
 }
 

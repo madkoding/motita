@@ -457,7 +457,7 @@ curl -X DELETE -H "Authorization: Bearer $TOKEN" \
 |---|---|
 | `GET /v1/health` | the only one that needs no token: liveness |
 | `GET` `POST /v1/projects` · `DELETE /v1/projects/{id}` | the repositories motita works on; adding one runs `git init` when it is not a repository yet |
-| `GET /v1/sessions/{id}/artifacts` · `GET` `DELETE /v1/sessions/{id}/artifacts/{name}` | the files the agent saved for you under `.motita/artifacts/` (a report, a page, a diagram), kept in `~/.motita/artifacts/<session>/` after the run ends and until the session is deleted; `?download=1` serves one as an attachment |
+| `GET /v1/sessions/{id}/artifacts` · `GET` `PUT` `DELETE /v1/sessions/{id}/artifacts/{name}` | the files the agent saved for you under `.motita/artifacts/` (a report, a page, a diagram) or you uploaded (`PUT`, raw body), kept in `~/.motita/artifacts/` after the run ends and until the session is deleted; `?scope=project` reads what every session of the project saved; `?download=1` serves one as an attachment. A run's `done` event lists the artifacts it made. Limits: 50 files and 5 MB each per folder, 500 MB in all |
 | `GET /v1/runtimes` | which container runtimes the machine has (`{"podman": true, "podman_compose": true}`); the New project dialog offers podman only when it is installed |
 | `PATCH /v1/projects/{id}` | change the "run with podman" answer after creation; open sessions are told, so the agent uses `podman` instead of docker |
 | `GET /v1/projects/{id}/deletion-preview` | what deleting a project would discard, before you confirm with `?force=1` |
