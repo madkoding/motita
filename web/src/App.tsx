@@ -716,6 +716,9 @@ export default function App() {
   const [newProjectDesc, setNewProjectDesc] = useState('')
   const [newProjectDir, setNewProjectDir] = useState('')
   const [newProjectGit, setNewProjectGit] = useState('')
+  // Podman: whether this machine has it (asked when the dialog opens) and the user's answer.
+  const [hasPodman, setHasPodman] = useState(false)
+  const [newProjectPodman, setNewProjectPodman] = useState(false)
   // The git identity dialog: opened when the gateway answers that git has no user, and
   // submitted together with the project it interrupted.
   const [showGitIdentity, setShowGitIdentity] = useState(false)
@@ -1660,6 +1663,7 @@ export default function App() {
           description: newProjectDesc.trim(),
           dir,
           git_url: gitUrl || undefined,
+          use_podman: hasPodman && newProjectPodman ? true : undefined,
           git_user_name: identity?.name,
           git_user_email: identity?.email,
         })
@@ -1698,13 +1702,14 @@ export default function App() {
       setNewProjectDesc('')
       setNewProjectDir('')
       setNewProjectGit('')
+      setNewProjectPodman(false)
       setShowGitIdentity(false)
       setCreatingProject(false)
     } catch (e) {
       setState(tf('could not create the project: {err}', { err: String(e) }), true)
       setCreatingProject(false)
     }
-  }, [newProjectTitle, newProjectDesc, newProjectDir, newProjectGit, fetchProjects])
+  }, [newProjectTitle, newProjectDesc, newProjectDir, newProjectGit, newProjectPodman, hasPodman, fetchProjects])
 
   createProjectRef.current = () => { void createProject() }
 
@@ -1715,6 +1720,14 @@ export default function App() {
     listAccounts(api).then(a => { if (live) setGitAccounts(a) }).catch(() => { if (live) setGitAccounts([]) })
     return () => { live = false }
   }, [showNewProject, gitRev])
+
+  // Ask the gateway which container runtimes the machine has, so podman is only offered when it is there.
+  useEffect(() => {
+    if (!showNewProject) return
+    let live = true
+    api('/v1/runtimes').then(r => r.json()).then(d => { if (live) setHasPodman(!!d.podman) }).catch(() => { if (live) setHasPodman(false) })
+    return () => { live = false }
+  }, [showNewProject])
 
   const onGitConnected = useCallback((_service: string, account: string) => {
     const then = gitConnect?.then
@@ -4358,6 +4371,20 @@ export default function App() {
                   </div>
                 )}
               </div>
+              {hasPodman && (
+                <label class="flex items-start gap-2.5 p-2.5 rounded-xl border border-white/10 bg-black/20 cursor-pointer" data-testid="podman-offer">
+                  <input
+                    type="checkbox"
+                    class="mt-0.5 accent-[var(--accent,#7c6cff)]"
+                    checked={newProjectPodman}
+                    onChange={(e) => setNewProjectPodman((e.target as HTMLInputElement).checked)}
+                  />
+                  <span class="text-sm text-[#e8e8ea]">
+                    {t('Podman was found on this machine. Use it to run this project?')}
+                    <span class="block text-xs text-[#7a7a8c] mt-0.5">{t('The project will be started in containers with podman.')}</span>
+                  </span>
+                </label>
+              )}
             </div>
 
             {/* Clone status — shown while cloning. */}

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"time"
@@ -83,6 +84,19 @@ func liveSessionIDsFor(sessions []*conversation, projectID string) map[string]bo
 	return live
 }
 
+// podmanInstalled reports whether podman is on the PATH. It is a variable so a
+// test can say what the machine has without installing anything.
+var podmanInstalled = func() bool {
+	_, err := exec.LookPath("podman")
+	return err == nil
+}
+
+// handleRuntimes tells the client which container runtimes this machine has, so
+// the New project dialog only offers the ones that can be used.
+func (s *Server) handleRuntimes(w http.ResponseWriter, _ *http.Request) {
+	writeJSON(w, http.StatusOK, map[string]bool{"podman": podmanInstalled()})
+}
+
 // handleCreateProject mints a new project, optionally cloning a git repo.
 //
 // The request body carries:
@@ -90,6 +104,8 @@ func liveSessionIDsFor(sessions []*conversation, projectID string) map[string]bo
 //   - description: optional
 //   - dir: a subfolder name under the workspace (relative, no path separators)
 //   - git_url: optional; when set, the repo is cloned into dir
+//   - use_podman: optional; the user's answer to "run this project with podman?",
+//     honoured only when podman is installed
 //
 // When git_url is set, dir is used as the destination folder name and the
 // clone happens synchronously. When git_url is empty, the folder is created
@@ -104,6 +120,7 @@ func (s *Server) handleCreateProject(w http.ResponseWriter, r *http.Request) {
 		Description string `json:"description"`
 		Dir         string `json:"dir"`
 		GitURL      string `json:"git_url"`
+		UsePodman   bool   `json:"use_podman"`
 		// GitUserName and GitUserEmail answer the "git_identity_required" refusal:
 		// they are saved as the user's global git identity.
 		GitUserName  string `json:"git_user_name"`
@@ -178,6 +195,7 @@ func (s *Server) handleCreateProject(w http.ResponseWriter, r *http.Request) {
 		Description: strings.TrimSpace(body.Description),
 		Dir:         absDir,
 		GitURL:      gitURL,
+		Podman:      body.UsePodman && podmanInstalled(),
 		Created:     time.Now(),
 	}
 	if err := s.projects.save(p); err != nil {
@@ -190,6 +208,7 @@ func (s *Server) handleCreateProject(w http.ResponseWriter, r *http.Request) {
 		"description": p.Description,
 		"dir":         p.Dir,
 		"git_url":     p.GitURL,
+		"podman":      p.Podman,
 		"created":     p.Created,
 		"clone_log":   cloneLog,
 	})

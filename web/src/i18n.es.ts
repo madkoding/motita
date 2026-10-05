@@ -379,6 +379,8 @@ const es: Record<string, string> = {
   "{n}mo ago": "hace {n} meses",
   "{n}y ago": "hace {n} años",
   "Choose from my repositories": "Elegir de mis repositorios",
+  "Podman was found on this machine. Use it to run this project?": "Se encontró Podman en esta máquina. ¿Quieres usarlo para levantar este proyecto?",
+  "The project will be started in containers with podman.": "El proyecto se levantará en contenedores con podman.",
   "Git host": "Host de git",
   "Connect another host…": "Conectar otro host…",
   "Search repositories": "Buscar repositorios",

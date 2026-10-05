@@ -499,6 +499,7 @@ func (s *Server) routes() *http.ServeMux {
 
 	s.gitRoutes(mux, plain)
 	mux.Handle("GET /v1/projects", plain(s.handleListProjects))
+	mux.Handle("GET /v1/runtimes", plain(s.handleRuntimes))
 	mux.Handle("POST /v1/projects", plain(s.handleCreateProject))
 	mux.Handle("DELETE /v1/projects/{id}", plain(s.handleDeleteProject))
 	// Scheduled tasks are addressed by the PROCESS, not by a conversation, for the same

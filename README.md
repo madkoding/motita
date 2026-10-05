@@ -457,6 +457,7 @@ curl -X DELETE -H "Authorization: Bearer $TOKEN" \
 |---|---|
 | `GET /v1/health` | the only one that needs no token: liveness |
 | `GET` `POST /v1/projects` · `DELETE /v1/projects/{id}` | the repositories motita works on; adding one runs `git init` when it is not a repository yet |
+| `GET /v1/runtimes` | which container runtimes the machine has (`{"podman": true}`); the New project dialog offers podman only when it is installed |
 | `GET /v1/projects/{id}/deletion-preview` | what deleting a project would discard, before you confirm with `?force=1` |
 | `GET /v1/git/accounts` · `DELETE /v1/git/accounts/{id}` | the git hosts, who you are on each, and how each can be connected; disconnect one |
 | `POST /v1/git/connect` · `GET` `DELETE /v1/git/flows/{id}` · `POST …/paste` | log in to a host (device code, browser code, or a token); poll, cancel or finish a login in progress |

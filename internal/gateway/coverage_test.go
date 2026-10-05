@@ -894,3 +894,70 @@ func TestProviderKeyPresentReadsLoginsAndEachProvidersVariable(t *testing.T) {
 		t.Error("a stored login must count")
 	}
 }
+
+// --- Podman offer on project creation ---
+
+func withPodman(t *testing.T, installed bool) {
+	t.Helper()
+	old := podmanInstalled
+	podmanInstalled = func() bool { return installed }
+	t.Cleanup(func() { podmanInstalled = old })
+}
+
+func createPodmanProject(t *testing.T, body string) map[string]any {
+	t.Helper()
+	srv := newTestServer(t, &fakeService{}, func(o *Options) {
+		o.ProjectDir = t.TempDir()
+		o.WorkspaceDir = t.TempDir()
+	})
+	req, _ := http.NewRequest(http.MethodPost, srv.BaseURL()+"/v1/projects", strings.NewReader(body))
+	req.Header.Set("Authorization", "Bearer "+testToken)
+	w := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(w, req)
+	if w.Code != http.StatusCreated {
+		t.Fatalf("status = %d: %s", w.Code, w.Body)
+	}
+	var out map[string]any
+	if err := json.Unmarshal(w.Body.Bytes(), &out); err != nil {
+		t.Fatal(err)
+	}
+	return out
+}
+
+func TestRuntimesReportsPodman(t *testing.T) {
+	for _, installed := range []bool{true, false} {
+		withPodman(t, installed)
+		srv := newTestServer(t, &fakeService{})
+		req, _ := http.NewRequest(http.MethodGet, srv.BaseURL()+"/v1/runtimes", nil)
+		req.Header.Set("Authorization", "Bearer "+testToken)
+		w := httptest.NewRecorder()
+		srv.Handler().ServeHTTP(w, req)
+		var out map[string]bool
+		if err := json.Unmarshal(w.Body.Bytes(), &out); err != nil || out["podman"] != installed {
+			t.Fatalf("installed=%v: got %s", installed, w.Body)
+		}
+	}
+}
+
+func TestCreateProjectKeepsThePodmanAnswer(t *testing.T) {
+	withPodman(t, true)
+	out := createPodmanProject(t, `{"title":"x","dir":"p","use_podman":true}`)
+	if out["podman"] != true {
+		t.Fatalf("podman = %v, want true", out["podman"])
+	}
+}
+
+func TestCreateProjectIgnoresPodmanWhenNotInstalled(t *testing.T) {
+	withPodman(t, false)
+	out := createPodmanProject(t, `{"title":"x","dir":"p","use_podman":true}`)
+	if out["podman"] != false {
+		t.Fatalf("podman = %v, want false", out["podman"])
+	}
+}
+
+func TestPodmanInstalledReadsThePath(t *testing.T) {
+	t.Setenv("PATH", t.TempDir())
+	if podmanInstalled() {
+		t.Fatal("podman found on an empty PATH")
+	}
+}
