@@ -70,7 +70,7 @@ func (s *Server) handlePutUI(w http.ResponseWriter, r *http.Request) {
 	}
 	if s.opts.ConfigPath == "" {
 		writeError(w, http.StatusConflict, "this gateway runs on the built-in defaults and has no configuration file "+
-			"to save the language in: run the setup (motita -init) or start it with -config")
+			"to save the language in: run the setup (motita config) or start it with -config")
 		return
 	}
 	if err := setUILanguage(s.opts.ConfigPath, lang); err != nil {

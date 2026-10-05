@@ -1,0 +1,3 @@
+#!/bin/sh
+# Runs the fast CI gates before anything leaves the machine.
+make fmt-check vet

@@ -56,6 +56,7 @@ race, the race detector will find it.
 ```bash
 make fmt         # gofmt ./...
 make fmt-check   # fails if any file is unformatted
+make hooks       # once per clone: gofmt on commit, fmt-check + vet on push
 ```
 
 ### 4. `go vet` is clean

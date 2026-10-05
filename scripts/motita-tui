@@ -85,7 +85,7 @@ fi
 
 if [ ! -f "$CONFIG" ]; then
     echo "motita-tui: configuration not found: $CONFIG" >&2
-    echo "  create it with: motita -init" >&2
+    echo "  create it with: motita config" >&2
     exit 2
 fi
 
@@ -125,7 +125,7 @@ for arg in "$@"; do
             ;;
         # The single-word modes: each produces its own output.
         -validate-config|--validate-config|-isolation|--isolation|\
-        -version|--version|-init|--init|-h|-help|--help)
+        -version|--version|-h|-help|--help)
             wants_tui=false
             ;;
         # "-flag=value" carries its value inline, so it never consumes the next word.
@@ -133,7 +133,7 @@ for arg in "$@"; do
             case ${arg%%=*} in
                 -task|--task|-task-file|--task-file|-p|--prompt|\
                 -validate-config|--validate-config|-isolation|--isolation|\
-                -version|--version|-init|--init|-h|-help|--help)
+                -version|--version|-h|-help|--help)
                     wants_tui=false
                     ;;
             esac

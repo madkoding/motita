@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net"
@@ -84,6 +85,9 @@ func (op Options) gatewayStart(ctx context.Context, fl flags) int {
 		return ConfigError
 	}
 	if ok {
+		if op.printStartForScripts(fl, found) {
+			return Success
+		}
 		fmt.Fprintf(op.Out, "a gateway is already running at %s (pid %d)\n", found.BaseURL, found.PID)
 		return Success
 	}
@@ -117,6 +121,9 @@ func (op Options) gatewayStart(ctx context.Context, fl flags) int {
 		fmt.Fprintf(op.Err, "the gateway started but cannot be found afterwards\n")
 		return ConfigError
 	}
+	if op.printStartForScripts(fl, found) {
+		return Success
+	}
 	fmt.Fprintf(op.Out, "the gateway is running at %s (pid %d, %s)\n", found.BaseURL, found.PID, found.Version)
 	// What this gateway will serve and to whom is stated HERE, in the command that brings it up,
 	// because it is the one moment the operator is looking. `gateway status` deliberately stays
@@ -133,6 +140,40 @@ func (op Options) gatewayStart(ctx context.Context, fl flags) int {
 		announceWebUI(op.Out, found)
 	}
 	return Success
+}
+
+// printStartForScripts handles -token-only and -json, reporting whether it printed anything.
+//
+// Both write ONLY the requested data to Out, so a script can capture it without parsing prose.
+// The token is the credential, which is why the human output prints it and these may too: the
+// operator asked for it by name.
+func (op Options) printStartForScripts(fl flags, found gateway.Found) bool {
+	switch {
+	case fl.tokenOnly:
+		fmt.Fprintln(op.Out, found.Token)
+		return true
+	case fl.jsonOut:
+		port := portOf(found.BaseURL)
+		links := []string{}
+		if found.Reachable {
+			for _, addr := range lanAddresses() {
+				links = append(links, fmt.Sprintf("http://%s:%s/#t=%s", addr, port, found.Token))
+			}
+		}
+		doc := struct {
+			URL     string   `json:"url"`
+			PID     int      `json:"pid"`
+			Version string   `json:"version"`
+			Token   string   `json:"token"`
+			Local   string   `json:"local_link"`
+			Network []string `json:"network_links"`
+		}{found.BaseURL, found.PID, found.Version, found.Token,
+			fmt.Sprintf("%s/#t=%s", found.BaseURL, found.Token), links}
+		out, _ := json.Marshal(doc)
+		fmt.Fprintln(op.Out, string(out))
+		return true
+	}
+	return false
 }
 
 // announceExposure says how far the gateway reaches and who it will serve.
@@ -152,19 +193,18 @@ func announceExposure(out io.Writer, found gateway.Found) {
 		// there is nothing to warn about.
 		return
 	}
-	fmt.Fprintf(out, "\nthis gateway is listening on every interface (port %s): any machine that can\n", portOf(found.BaseURL))
-	fmt.Fprintln(out, "reach this host may connect, subject to the rules below.")
+	fmt.Fprintf(out, "\nNETWORK ACCESS\n  listening on every interface (port %s): any machine that can reach this\n", portOf(found.BaseURL))
+	fmt.Fprintln(out, "  host may connect, subject to the rules below.")
 	if found.Allow == "every origin" {
 		// The documented default, and the one case that deserves to be spelled out rather than
 		// left to a rule list that says nothing: it is the same posture as a machine with a fresh,
 		// empty firewall table, and an operator who did not expect it has to find out now.
-		fmt.Fprintln(out, "no origin rules are set, so EVERY origin is accepted (gateway.allow is empty).")
-		fmt.Fprintln(out, "add a rule to gateway.allow to narrow it: \"lan\", an address, a network, or")
-		fmt.Fprintln(out, "\"!any\" for this machine only.")
+		fmt.Fprintln(out, "  rules: none set, so EVERY origin is accepted (gateway.allow is empty).")
+		fmt.Fprintln(out, "         narrow it with \"lan\", an address, a network, or \"!any\" (this machine only).")
 	} else {
-		fmt.Fprintf(out, "gateway.allow: %s\n", found.Allow)
+		fmt.Fprintf(out, "  rules: gateway.allow: %s\n", found.Allow)
 	}
-	fmt.Fprintln(out, "there is no TLS, so the token travels in clear text to every one of them.")
+	fmt.Fprintln(out, "  there is no TLS, so the token travels in clear text to every one of them.")
 }
 
 // portOf extracts the port from a base URL, for the sentence above it.
@@ -192,8 +232,12 @@ func announceWebUI(out io.Writer, found gateway.Found) {
 	if strings.TrimSpace(found.Token) == "" {
 		return
 	}
-	fmt.Fprintf(out, "\nthe interface is at %s/#t=%s\n", found.BaseURL, found.Token)
-	fmt.Fprintln(out, "open that link once: the page trades the fragment for a cookie and drops it")
+	port := portOf(found.BaseURL)
+	fmt.Fprintf(out, "\nACCESS TOKEN\n  %s\n", found.Token)
+	fmt.Fprintln(out, "  (also kept in the token file; a client asks for it when connecting)")
+	fmt.Fprintln(out, "\nINTERFACE: open a link once in a browser (the web interface trades the token for a")
+	fmt.Fprintln(out, "cookie and drops it)")
+	fmt.Fprintf(out, "  this machine       %s/#t=%s\n", found.BaseURL, found.Token)
 	if !found.Reachable {
 		// Bound to loopback: the link above IS the only way in, and offering network addresses
 		// would send the reader to an address that refuses them.
@@ -208,13 +252,13 @@ func announceWebUI(out io.Writer, found gateway.Found) {
 		// No address to offer. Saying so is better than a guess: a made-up address is an error the
 		// reader cannot tell from a broken network.
 		fmt.Fprintln(out, "\nthis host has no network address to offer, so from another machine use this")
-		fmt.Fprintln(out, "host's address on THAT machine's network: same port, same fragment.")
+		fmt.Fprintln(out, "host's address on THAT machine's network: same port, same #t=<token> ending.")
 		return
 	}
-	fmt.Fprintln(out, "\nfrom another machine, use whichever of these reaches this host - same port,")
-	fmt.Fprintln(out, "same fragment, and the link above only works on this machine:")
+	fmt.Fprintln(out, "  from another machine, use whichever reaches this host")
+	fmt.Fprintln(out, "  (the \"this machine\" link only works on this machine):")
 	for _, addr := range addresses {
-		fmt.Fprintf(out, "  http://%s:%s/#t=%s\n", addr, portOf(found.BaseURL), found.Token)
+		fmt.Fprintf(out, "  other machine      http://%s:%s/#t=%s\n", addr, port, found.Token)
 	}
 }
 

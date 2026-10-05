@@ -1456,9 +1456,9 @@ agent:
 
 // --- the first-run wizard ----------------------------------------------------
 
-// TestInitFlagRunsTheWizard: -init must write a configuration at the given path
+// TestConfigCommandRunsTheWizard: `config` must write a configuration at the given path
 // and say how to use it, without needing a key or a config to exist beforehand.
-func TestInitFlagRunsTheWizard(t *testing.T) {
+func TestConfigCommandRunsTheWizard(t *testing.T) {
 	// The wizard speaks the locale's language when nothing is configured; this test reads its
 	// English, so the locale is pinned rather than taken from the machine running it.
 	clearLocale(t, "en_US.UTF-8")
@@ -1469,7 +1469,7 @@ func TestInitFlagRunsTheWizard(t *testing.T) {
 
 		var out, errs bytes.Buffer
 		code := Run(Options{
-			Args:  []string{"-init", "-config", path},
+			Args:  []string{"config", "-config", path},
 			Out:   &out,
 			Err:   &errs,
 			Stdin: strings.NewReader("openai\n\n\n1\n3\n\n"),
@@ -1503,7 +1503,7 @@ func TestInitWithoutConfigWritesInTheMotitaHome(t *testing.T) {
 		silence(t)
 		var out, errs bytes.Buffer
 		code := Run(Options{
-			Args:  []string{"-init"},
+			Args:  []string{"config"},
 			Out:   &out,
 			Err:   &errs,
 			Stdin: strings.NewReader("openai\n\n\n1\n3\n\n"),
@@ -1530,7 +1530,7 @@ func TestInitWithoutHomeFallsBackToTheWorkingDirectory(t *testing.T) {
 		silence(t)
 		var out, errs bytes.Buffer
 		code := Run(Options{
-			Args:  []string{"-init"},
+			Args:  []string{"config"},
 			Out:   &out,
 			Err:   &errs,
 			Stdin: strings.NewReader("openai\n\n\n1\n3\n\n"),
@@ -1554,7 +1554,7 @@ func TestInitCancelledIsNotAFailure(t *testing.T) {
 
 		var out, errs bytes.Buffer
 		code := Run(Options{
-			Args:  []string{"-init", "-config", path},
+			Args:  []string{"config", "-config", path},
 			Out:   &out,
 			Err:   &errs,
 			Stdin: strings.NewReader("q\n"),
@@ -1578,7 +1578,7 @@ func TestInitReportsAWizardFailure(t *testing.T) {
 		silence(t)
 		var out, errs bytes.Buffer
 		code := Run(Options{
-			Args:  []string{"-init"},
+			Args:  []string{"config"},
 			Out:   &out,
 			Err:   &errs,
 			Stdin: strings.NewReader("not-a-provider\nbad\nworse\n"),
@@ -1603,7 +1603,7 @@ func TestInitRefusesWhenTheGeneratedFileDoesNotLoad(t *testing.T) {
 
 		var out, errs bytes.Buffer
 		code := Run(Options{
-			Args: []string{"-init", "-config", path},
+			Args: []string{"config", "-config", path},
 			Out:  &out,
 			Err:  &errs,
 			// A wizard that writes an invalid file on purpose.
@@ -1634,7 +1634,7 @@ func TestInitUsesTheInjectedWizard(t *testing.T) {
 		called := false
 		var out bytes.Buffer
 		code := Run(Options{
-			Args: []string{"-init", "-config", path},
+			Args: []string{"config", "-config", path},
 			Out:  &out,
 			Err:  &out,
 			RunOnboard: func(_ context.Context, in io.Reader, w io.Writer, gotPath string, preset onboard.Answers) (onboard.Result, error) {

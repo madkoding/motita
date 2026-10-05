@@ -181,4 +181,4 @@ case ":${PATH}:" in
 esac
 
 say ""
-say "Next: ${BIN} -init    (writes a configuration that works)"
+say "Next: ${BIN} config    (writes a configuration that works)"

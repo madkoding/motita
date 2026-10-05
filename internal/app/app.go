@@ -195,13 +195,15 @@ Options:
   -connect string    connect to a gateway somebody else is running, as a client
                      (this process then builds no sandbox and runs no commands)
   -session string    which conversation to attach to (default "default")
-  -init              first-run wizard: choose the provider, the model and the
-                     check, and write a working configuration
+  -token-only        with gateway start: print only the access token (for scripts)
+  -json              with gateway start: print the url, pid, version, token and links as JSON
   -validate-config   validate the configuration and exit (does not call the LLM)
   -isolation         print the available sandbox isolation and exit
   -version           print the version and exit
 
 Commands:
+  config             setup wizard: choose the provider, the model and the check,
+                     and write a working configuration
   gateway start      bring the gateway up as a service and leave it running
   gateway stop       stop the gateway named by the service file
   gateway status     report whether a gateway is running
@@ -235,8 +237,12 @@ type flags struct {
 	version        bool
 	isolation      bool
 	initConfig     bool
-	serve          bool
-	gateway        string
+	// tokenOnly and jsonOut shape `gateway start` for scripts; boolean on purpose, like the
+	// curator switches, so neither swallows the word after it.
+	tokenOnly bool
+	jsonOut   bool
+	serve     bool
+	gateway   string
 	// connect is the address of a gateway somebody else is running. Non-empty means this
 	// process is a CLIENT: it builds no sandbox, opens no procedure library and creates no
 	// reasoning engine, because all three are the server's job.
@@ -474,6 +480,12 @@ func parse(args []string) (flags, error) {
 					return b, fmt.Errorf("unknown gateway action %q: start, stop or status", args[i+1])
 				}
 				consumed = true
+			case "config":
+				// The setup wizard. A word and not a flag because -config already names the
+				// YAML file; `motita config` is the one place the two cannot be confused.
+				b.initConfig = true
+				args = append(append([]string{}, args[:i]...), args[i+1:]...)
+				consumed = true
 			case "curator":
 				if i+1 >= len(args) {
 					return b, fmt.Errorf("curator needs an action: %s", curatorActions)
@@ -581,8 +593,10 @@ func parse(args []string) (flags, error) {
 				return b, err
 			}
 			b.prompt = v
-		case "-init", "--init":
-			b.initConfig = true
+		case "-token-only", "--token-only":
+			b.tokenOnly = true
+		case "-json", "--json":
+			b.jsonOut = true
 		case "-validate-config", "--validate-config":
 			b.validateConfig = true
 		case "-version", "--version":

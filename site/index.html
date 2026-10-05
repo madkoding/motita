@@ -590,7 +590,7 @@
         <div>
           <h3>First run · configure</h3>
 <pre><code><span class="c"># the wizard: provider → connect → model → check → review</span>
-motita -init
+motita config
 
 <span class="c"># or just start it — with no config found, the wizard runs itself</span>
 motita</code></pre>
@@ -599,7 +599,7 @@ motita</code></pre>
             to connect (sign in with your account, or paste a key), the model, the
             <strong>check</strong> — detected from the project by default — and a review
             where nothing has been written yet. It saves <code>~/.motita/motita.yaml</code>
-            (<code>-init -config path</code> puts it elsewhere); <code>/config</code> runs it
+            (<code>-config path config</code> puts it elsewhere); <code>/config</code> runs it
             again from inside the interface and keeps what you already have.
           </p>
         </div>

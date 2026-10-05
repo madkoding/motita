@@ -1,0 +1,11 @@
+#!/bin/sh
+# Rejects a commit that stages an unformatted Go file: the same gate CI runs first.
+files="$(git diff --cached --name-only --diff-filter=ACM | grep '\.go$')"
+[ -z "$files" ] && exit 0
+# shellcheck disable=SC2086
+bad="$(gofmt -l $files)"
+if [ -n "$bad" ]; then
+	echo "Unformatted Go files (run 'make fmt'):" >&2
+	echo "$bad" >&2
+	exit 1
+fi

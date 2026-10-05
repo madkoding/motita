@@ -98,7 +98,7 @@ func New(cfg config.LLM, log *logx.Logger) (*Client, error) {
 	}
 	if cfg.APIKey == "" && login == nil && config.LLMNeedsKey(cfg) {
 		if config.SupportsLogin(cfg.Provider) {
-			return nil, fmt.Errorf("the LLM key is missing: set %s, or log in with `motita -init`", config.ProviderKeyVariable(cfg.Provider))
+			return nil, fmt.Errorf("the LLM key is missing: set %s, or log in with `motita config`", config.ProviderKeyVariable(cfg.Provider))
 		}
 		return nil, errors.New("the LLM key is missing")
 	}

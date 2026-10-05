@@ -140,7 +140,7 @@ func (s *loginState) credential(ctx context.Context, force bool) (oauth.Credenti
 	}
 	fresh, err := s.refresh(ctx, s.hc, s.cred)
 	if err != nil {
-		return oauth.Credential{}, fatalError{fmt.Errorf("the %s login could not be renewed: %w (log in again with `motita -init`)", s.provider, err)}
+		return oauth.Credential{}, fatalError{fmt.Errorf("the %s login could not be renewed: %w (log in again with `motita config`)", s.provider, err)}
 	}
 	s.cred = fresh
 	if s.dir != "" {
