@@ -961,6 +961,7 @@ func (op Options) run(fl flags) int {
 	// it has a library and gets "no procedure library is configured" for every lookup.
 	ag.SetLibrary(procs.Library)
 	ag.SetReward(procs.Ledger)
+	ag.SetUsage(procs.Usage)
 
 	// Curator: run the deterministic pass on session start if enough time has
 	// passed. Cheap (no LLM) and keeps the library tidy without a daemon.
@@ -1394,6 +1395,7 @@ func (op Options) runPlan(ctx context.Context, fl flags, cfg config.Config, engi
 	ag := agent.New(cfg, log, engine, box, nil)
 	ag.SetLibrary(procs.Library)
 	ag.SetReward(procs.Ledger)
+	ag.SetUsage(procs.Usage)
 
 	// Background self-improvement: the review fork runs on the conversation's engine.
 	//

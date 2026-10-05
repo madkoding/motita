@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useReducer, useRef, useState } from 'preact/hooks'
 import { t, tf } from './i18n'
 import { useDialog } from './useDialog'
+import { copyText } from './clipboard'
 import {
   type Api, type GitAccount, type GitMethod, type ConnectRequest, GitError,
   connect, listAccounts, flowStatus, pasteCode, cancelFlow, pollFlow, reduceFlow, primaryMethod,
@@ -207,7 +208,7 @@ function CopyButton({ text }: { text: string }) {
   const [done, setDone] = useState(false)
   return (
     <button class={btnGhost} aria-label={t('Copy code')} onClick={async () => {
-      try { await navigator.clipboard.writeText(text); setDone(true); setTimeout(() => setDone(false), 1800) } catch { /* clipboard blocked: the code is selectable */ }
+      if (await copyText(text)) { setDone(true); setTimeout(() => setDone(false), 1800) }
     }}>{done ? t('Copied') : t('Copy')}</button>
   )
 }

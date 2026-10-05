@@ -2166,8 +2166,9 @@ html[data-density="compact"] .row-menu-item { padding-top: 5px; padding-bottom: 
  * Every button carries the cut corners of the design system (the same shape as
  * the Pill, at a smaller cut). It is applied to the `button` element itself, so
  * no markup has to change and no button is left behind with the old rounded
- * style. `clip-path` also clips the button's own border along the diagonal: the
- * straight edges keep their border, the diagonal edge is the cut itself.
+ * style. `clip-path` also clips the button's own border along the diagonal, which made
+ * the cut read as a notch; two corner gradients redraw the edge along each cut, in the
+ * button's text colour at partial strength so it sits with any border colour.
  *
  * The auto-approve pill is excluded — it already draws its own, larger cut with a
  * `::before` ring, and clipping it again would shave that ring off. The terminal
@@ -2184,6 +2185,16 @@ button:not(.auto-approve-pill):not(.term-tab) {
     0 100%,
     0 var(--btn-cut)
   );
+  --btn-edge: color-mix(in srgb, currentColor 45%, transparent);
+  /* A 6px square per cut; the stripe sits on the line x + y = cut, 1.4px wide. !important
+   * because many components set the `background` shorthand, which would wipe these. */
+  background-image:
+    linear-gradient(135deg, transparent 0 2.4px, var(--btn-edge) 2.4px 3.8px, transparent 3.8px),
+    linear-gradient(315deg, transparent 0 2.4px, var(--btn-edge) 2.4px 3.8px, transparent 3.8px) !important;
+  background-size: 6px 6px, 6px 6px !important;
+  background-position: top left, bottom right !important;
+  background-repeat: no-repeat !important;
+  background-origin: border-box !important;
 }
 
 /* The spinner a button shows while it works: the "+" that creates a session in a

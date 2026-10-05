@@ -9,8 +9,8 @@ func noEnv(string) string { return "" }
 
 func TestDefaultsAndMethods(t *testing.T) {
 	all := Defaults(noEnv)
-	if len(all) != 4 {
-		t.Fatalf("want 4 services, got %d", len(all))
+	if len(all) != 3 {
+		t.Fatalf("want 3 services, got %d", len(all))
 	}
 	byID := map[string]Service{}
 	for _, s := range all {
@@ -24,7 +24,7 @@ func TestDefaultsAndMethods(t *testing.T) {
 	if !byID["github"].OAuthReady() {
 		t.Error("github must be OAuth-ready by default")
 	}
-	for _, id := range []string{"gitlab", "bitbucket", "codeberg"} {
+	for _, id := range []string{"gitlab", "bitbucket"} {
 		if m := byID[id].Methods(); len(m) != 1 || m[0] != MethodToken || byID[id].OAuthReady() {
 			t.Errorf("%s methods = %v", id, m)
 		}
@@ -37,7 +37,6 @@ func TestEnvironmentConfiguresTheOAuthApplication(t *testing.T) {
 			"MOTITA_GITLAB_CLIENT_ID":        " gl-id ",
 			"MOTITA_BITBUCKET_CLIENT_ID":     "bb-id",
 			"MOTITA_BITBUCKET_CLIENT_SECRET": "bb-secret",
-			"MOTITA_CODEBERG_CLIENT_ID":      "cb",
 			"MOTITA_GITHUB_CLIENT_ID":        "mine",
 		}[k]
 	}
@@ -53,9 +52,6 @@ func TestEnvironmentConfiguresTheOAuthApplication(t *testing.T) {
 	}
 	if byID["github"].Client.ID != "mine" {
 		t.Errorf("github id = %q", byID["github"].Client.ID)
-	}
-	if byID["codeberg"].Methods()[0] != MethodCode {
-		t.Errorf("codeberg = %v", byID["codeberg"].Methods())
 	}
 }
 
@@ -112,7 +108,7 @@ func TestParseRemote(t *testing.T) {
 		"git@github.com:madkoding/motita.git":      {"github.com", "madkoding/motita"},
 		"ssh://git@gitlab.com:22/grp/sub/repo.git": {"gitlab.com", "grp/sub/repo"},
 		"  https://bitbucket.org/ws/repo  ":        {"bitbucket.org", "ws/repo"},
-		"https://user:pw@codeberg.org/o/r":         {"codeberg.org", "o/r"},
+		"https://user:pw@gitea.example.com/o/r":    {"gitea.example.com", "o/r"},
 	}
 	for in, want := range ok {
 		got, err := ParseRemote(in)

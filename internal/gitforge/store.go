@@ -150,8 +150,15 @@ type Account struct {
 	Username  string
 }
 
+// retiredServices are providers motita no longer offers. A login saved for one is a token
+// nothing will ever use, so it is deleted rather than left on disk.
+var retiredServices = []string{"codeberg"}
+
 // Accounts lists every service and who the user is on it.
 func (s Store) Accounts() []Account {
+	for _, id := range retiredServices {
+		_ = oauth.DeleteCredential(s.Dir, credentialPrefix+id)
+	}
 	var out []Account
 	for _, svc := range s.All() {
 		a := Account{Service: svc}

@@ -42,6 +42,7 @@ import (
 	"github.com/madkoding/motita/internal/skills"
 	"github.com/madkoding/motita/internal/task"
 	"github.com/madkoding/motita/internal/template"
+	"github.com/madkoding/motita/internal/usage"
 )
 
 // Agent orchestrates the three layers.
@@ -86,6 +87,7 @@ type Agent struct {
 	// Same pair as the planner's, and for the same reason: a verdict has to land on specific
 	// skills, and the moment that is knowable is the read.
 	reward    *reward.Ledger
+	usage     *usage.Ledger
 	consulted map[string]int
 
 	// transcript is what has been said in this conversation, oldest first, and it is what makes
@@ -145,6 +147,18 @@ func (a *Agent) SetLibrary(lib *skills.Library) { a.library = lib }
 
 // SetReward installs the long-term value ledger.
 func (a *Agent) SetReward(l *reward.Ledger) { a.reward = l }
+
+// SetUsage installs the per-skill telemetry sidecar, so the library's "used N×" counts what
+// this run searched and read.
+func (a *Agent) SetUsage(u *usage.Ledger) { a.usage = u }
+
+// saveUsage writes the counts a run accumulated, once, when it ends: a plain task run has no
+// review fork to persist them, and a write per read would be a write per tool call.
+func (a *Agent) saveUsage() {
+	if a.usage != nil {
+		_ = a.usage.Save()
+	}
+}
 
 // Consulted returns the skills this run read, and how many times each.
 //
@@ -852,6 +866,7 @@ func (a *Agent) report(format string, args ...any) {
 // Run processes tasks from the source until it is exhausted (io.EOF) or the
 // context is cancelled (graceful shutdown).
 func (a *Agent) Run(ctx context.Context) error {
+	defer a.saveUsage()
 	if strings.EqualFold(a.cfg.Anchor.Kind, "none") || a.cfg.Anchor.Kind == "" {
 		// Without an anchor there is no authority to declare PASS, so every task
 		// would end up escalated after burning attempts against the LLM. Failing
@@ -2292,6 +2307,10 @@ func (a *Agent) readSkill(name string) string {
 	}
 	// The read is the moment the credit becomes knowable, and the only one.
 	a.consult(s.Name)
+	if a.usage != nil {
+		a.usage.BumpView(s.Name)
+		a.usage.BumpUse(s.Name)
+	}
 	var b strings.Builder
 	fmt.Fprintf(&b, "# skill: %s\n(source: %s)\n\n", s.Name, s.Path)
 	b.WriteString(s.Body)

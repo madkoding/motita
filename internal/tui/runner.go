@@ -1179,6 +1179,12 @@ func (r *AppRunner) RunTask(ctx context.Context, task string, progress func(stri
 			setter.SetReward(led)
 		}
 	}
+	// The same sidecar the library screen reads, so what this run consults is counted.
+	if u := r.procedures().Usage; u != nil {
+		if setter, ok := ag.(interface{ SetUsage(*usage.Ledger) }); ok {
+			setter.SetUsage(u)
+		}
+	}
 	// The conversation goes in before the run and comes back out after it. That round trip is
 	// what makes the agent conversational: the turn that asked a question recorded it, and the
 	// next turn reads it together with the user's answer, so "yes" means something.

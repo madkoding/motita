@@ -534,17 +534,17 @@ never touched while they work.
 
 ### Git hosts: connect once, and every session can push
 
-Connect motita to **GitHub, GitLab, Bitbucket, Codeberg/Gitea** (or a self-hosted GitLab,
+Connect motita to **GitHub, GitLab, Bitbucket** (or a self-hosted GitLab,
 Gitea or GitHub Enterprise) from **Settings → Git connections** in the browser, or with
 `/git connect` in the terminal. GitHub logs in with one click (a device code: open the
 page, type the code, done); the other hosts do the same as soon as you give motita an OAuth
 application of yours (`MOTITA_GITLAB_CLIENT_ID`, `MOTITA_BITBUCKET_CLIENT_ID` +
-`MOTITA_BITBUCKET_CLIENT_SECRET`, `MOTITA_CODEBERG_CLIENT_ID` + `…_SECRET`, or
+`MOTITA_BITBUCKET_CLIENT_SECRET`, or
 `MOTITA_GITHUB_CLIENT_ID` to replace the default), and a token you create by hand always
 works — it is checked against the host before it is saved.
 
 **No OAuth application? Use a token.** Only GitHub has one-click login out of the box.
-GitLab, Bitbucket and Codeberg need an OAuth application registered by whoever runs motita
+GitLab and Bitbucket need an OAuth application registered by whoever runs motita
 (there is no public one to borrow), and until that exists those hosts say so in the
 settings and offer a token instead. A token does everything the login does — clone, push,
 list your repositories in the project dialog, open pull requests, read the CI — and is checked
@@ -556,7 +556,7 @@ Settings → Git connections, or run `/git connect <host> token` in the terminal
 | GitHub | Settings → Developer settings → Personal access tokens | classic: `repo` and `workflow`; fine-grained: Contents, Pull requests (read and write), Actions and Metadata (read) |
 | GitLab | Preferences → Access tokens | `api`, `read_repository`, `write_repository` |
 | Bitbucket | Personal settings → App passwords | Repositories and Pull requests (read and write), Account (read). It also asks for your **account name**: Bitbucket sends an app password with it |
-| Codeberg / Gitea | Settings → Applications | `repository` (read and write) |
+| Gitea (self-hosted) | Settings → Applications | `repository` (read and write) |
 
 Tokens are stored in `~/.motita/auth/` (`git-<host>.json`, mode 0600), never in the
 configuration file. Disconnecting a host deletes its file.
@@ -725,7 +725,7 @@ ports — they are **two views of one conversation**.
 | `/agents` or `Ctrl+G` | open or close the panel of the run's agents: purpose, state, elapsed time, round, tokens, activity |
 | `/sessions` `/attach <id>` | the conversations the gateway holds, and move to another one |
 | `/config` | run the setup again; the new configuration applies to the session you are in |
-| `/git` `/git connect [host] [token]` `/git disconnect <host>` `/git repos [query]` | connect GitHub, GitLab, Bitbucket or Codeberg (or a self-hosted `gitlab:git.example.com`) so motita can clone, push and open pull requests: a browser login with a code when the host offers it, otherwise a token typed in without echo; `/git` alone shows who you are connected as, `/git repos` lists the repositories you can reach. motita says so on start when no host is connected |
+| `/git` `/git connect [host] [token]` `/git disconnect <host>` `/git repos [query]` | connect GitHub, GitLab or Bitbucket (or a self-hosted `gitlab:git.example.com`) so motita can clone, push and open pull requests: a browser login with a code when the host offers it, otherwise a token typed in without echo; `/git` alone shows who you are connected as, `/git repos` lists the repositories you can reach. motita says so on start when no host is connected |
 | `/language [en\|es\|auto]` | show or change the language of the interfaces; it is saved in the configuration |
 | `/update` | install the newest release (the welcome screen says when there is one; the download must match the release's `SHA256SUMS`, or nothing is installed); a `-serve` gateway restarts itself on the new binary, an interface tells you to restart it |
 | `/session` `/find` `/new` `/help` `/quit` | context, search, fresh start, help, leave |

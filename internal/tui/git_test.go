@@ -171,7 +171,7 @@ func mustContain(t *testing.T, got string, wants ...string) {
 func TestGitStatusListsHostsAndAccounts(t *testing.T) {
 	r := newGitRig(t, nil)
 	r.tu.runGit(context.Background(), "")
-	mustContain(t, r.say(), "GitHub", "GitLab", "Bitbucket", "Codeberg", "not connected", "/git connect <host>")
+	mustContain(t, r.say(), "GitHub", "GitLab", "Bitbucket", "not connected", "/git connect <host>")
 	r.connect("github", "good")
 	r.tu.messages = nil
 	r.tu.runGit(context.Background(), "status")
@@ -245,33 +245,33 @@ func TestGitDeviceRefusedTokenIsReported(t *testing.T) {
 }
 
 func TestGitCodeLoginAcceptsAPastedCode(t *testing.T) {
-	env := map[string]string{"MOTITA_CODEBERG_CLIENT_ID": "cid", "MOTITA_CODEBERG_CLIENT_SECRET": "sec"}
+	env := map[string]string{"MOTITA_BITBUCKET_CLIENT_ID": "cid", "MOTITA_BITBUCKET_CLIENT_SECRET": "sec"}
 	r := newGitRig(t, env, say("the-code")...)
-	r.tu.runGit(context.Background(), "connect codeberg")
-	mustContain(t, r.say(), "https://codeberg.org/login/oauth/authorize", "paste here", "connected as octo")
-	if len(r.opened) != 1 || !strings.HasPrefix(r.opened[0], "https://codeberg.org/login/oauth/authorize") {
+	r.tu.runGit(context.Background(), "connect bitbucket")
+	mustContain(t, r.say(), "https://bitbucket.org/site/oauth2/authorize", "paste here", "connected as octo")
+	if len(r.opened) != 1 || !strings.HasPrefix(r.opened[0], "https://bitbucket.org/site/oauth2/authorize") {
 		t.Errorf("opened %v", r.opened)
 	}
-	if !r.connected("codeberg") {
+	if !r.connected("bitbucket") {
 		t.Error("the login must be stored")
 	}
 }
 
 func TestGitCodeLoginIsCancelledAndReleasesTheListener(t *testing.T) {
-	env := map[string]string{"MOTITA_CODEBERG_CLIENT_ID": "cid", "MOTITA_CODEBERG_CLIENT_SECRET": "sec"}
+	env := map[string]string{"MOTITA_BITBUCKET_CLIENT_ID": "cid", "MOTITA_BITBUCKET_CLIENT_SECRET": "sec"}
 	r := newGitRig(t, env, scriptStep{"", false})
-	r.tu.runGit(context.Background(), "connect codeberg")
+	r.tu.runGit(context.Background(), "connect bitbucket")
 	mustContain(t, r.say(), "cancelled: nothing was stored")
-	if r.connected("codeberg") {
+	if r.connected("bitbucket") {
 		t.Error("nothing may be stored")
 	}
 }
 
 func TestGitCodeWithoutAnOAuthApplicationIsExplained(t *testing.T) {
 	r := newGitRig(t, nil)
-	svc, _ := r.tu.forge().ByID("codeberg")
+	svc, _ := r.tu.forge().ByID("bitbucket")
 	_, err := r.tu.gitCode(context.Background(), r.tu.forge(), svc)
-	if err == nil || !strings.Contains(err.Error(), "MOTITA_CODEBERG_CLIENT_ID") {
+	if err == nil || !strings.Contains(err.Error(), "MOTITA_BITBUCKET_CLIENT_ID") {
 		t.Errorf("err = %v", err)
 	}
 }
@@ -328,7 +328,7 @@ func TestGitConnectPicker(t *testing.T) {
 	r := newGitRig(t, nil, say("1")...)
 	r.http.tokenBody = `{"access_token":"tok"}`
 	r.tu.runGit(context.Background(), "connect")
-	mustContain(t, r.say(), "Connect to which git host?", "1) GitHub", "4) Codeberg", "connected as octo")
+	mustContain(t, r.say(), "Connect to which git host?", "1) GitHub", "3) Bitbucket", "connected as octo")
 
 	// A name works as well as a number, and a bad answer asks again.
 	r = newGitRig(t, nil, say("9", "nowhere", "github")...)

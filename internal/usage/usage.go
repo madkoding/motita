@@ -125,10 +125,8 @@ func (l *Ledger) BumpView(name string) {
 	l.dirty = true
 }
 
-// BumpUse records a skill being loaded into context (a search result returned
-// or a read_skill completed). Distinct from BumpView because a search returns
-// many summaries without the user reading the full procedure, and the curator
-// cares about both signals.
+// BumpUse records a skill being loaded into context: a read_skill completed. A search
+// only returns summaries nobody acted on, so it does not count.
 func (l *Ledger) BumpUse(name string) {
 	l.mu.Lock()
 	defer l.mu.Unlock()

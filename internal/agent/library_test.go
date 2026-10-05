@@ -12,6 +12,7 @@ import (
 	"github.com/madkoding/motita/internal/logx"
 	"github.com/madkoding/motita/internal/reward"
 	"github.com/madkoding/motita/internal/skills"
+	"github.com/madkoding/motita/internal/usage"
 )
 
 // Task mode and Plan mode share ONE library. Task mode reaches it through its action protocol
@@ -439,4 +440,32 @@ func TestRunActionsStillRunsCommands(t *testing.T) {
 			t.Errorf("kind %q: the output must be reported:\n%s", kind, out)
 		}
 	}
+}
+
+func TestOnlyReadingCountsAndTheRunSavesOnce(t *testing.T) {
+	a := libraryAgent(t, map[string]string{"deploy": "# Deploy\nShip it.\n"})
+	path := filepath.Join(t.TempDir(), "usage.json")
+	u, err := usage.Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	a.SetUsage(u)
+
+	act(t, a, "search_skills", "deploy")
+	act(t, a, "read_skill", "deploy")
+	if e := u.Get("deploy"); e.UseCount != 1 || e.ViewCount != 1 {
+		t.Fatalf("use=%d view=%d, want 1 and 1: a search is not a use", e.UseCount, e.ViewCount)
+	}
+	if _, err := os.Stat(path); err == nil {
+		t.Error("nothing is written until the run ends")
+	}
+	a.saveUsage()
+	again, err := usage.Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := again.Get("deploy").UseCount; got != 1 {
+		t.Errorf("persisted use count = %d, want 1", got)
+	}
+	(&Agent{}).saveUsage() // no ledger: nothing to do
 }

@@ -198,6 +198,9 @@ func (s *Server) handleCreateProject(w http.ResponseWriter, r *http.Request) {
 	gitURL := strings.TrimSpace(body.GitURL)
 	var cloneLog string
 	if gitURL != "" {
+		// A folder that holds something else is not overwritten or refused: the clone goes to
+		// the next free "<name>-2", "<name>-3"... and the project records that path.
+		absDir = freeCloneDir(absDir, gitURL, s.gitCommandEnv())
 		// Clone the repo into the directory.
 		var err error
 		cloneLog, err = cloneGitRepo(gitURL, absDir, s.gitCommandEnv())
@@ -527,6 +530,12 @@ func (s *Server) handleDeleteProject(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+	// The project's own folder goes with it, so a later project of the same name does not find
+	// the old files in the way. The deletion dialog is the confirmation.
+	var projectDir string
+	if p := s.projectOf(id); p != nil && s.ownsProjectDir(p.Dir) {
+		projectDir = p.Dir
+	}
 	// Only now that every checkout has been proven safe to give back are the
 	// sessions forgotten and the project removed. A partial deletion would leave
 	// the sessions unreachable AND their worktrees gone.
@@ -539,7 +548,24 @@ func (s *Server) handleDeleteProject(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.removeProjectArtifacts(id)
+	if projectDir != "" {
+		// Best effort: the project is already gone, and a folder that resists (a file in use)
+		// is left for the user rather than failing a deletion that has otherwise happened.
+		_ = os.RemoveAll(projectDir)
+	}
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// ownsProjectDir reports whether dir is a folder strictly inside the workspace, which is
+// where this gateway creates project folders. Anything else (the workspace itself, a path
+// registered from elsewhere) is never removed with its project.
+func (s *Server) ownsProjectDir(dir string) bool {
+	root := s.opts.WorkspaceDir
+	if root == "" || dir == "" {
+		return false
+	}
+	rel, err := filepath.Rel(root, dir)
+	return err == nil && rel != "." && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) && !filepath.IsAbs(rel)
 }
 
 // projectOf returns the project a request is about, or nil when it does not exist.

@@ -150,7 +150,7 @@ func TestStoreServicesAndAccounts(t *testing.T) {
 	for _, svc := range all {
 		ids[svc.ID]++
 	}
-	if len(all) != 5 || ids["gitlab@git.corp.io"] != 1 || ids["gitlab"] != 1 {
+	if len(all) != 4 || ids["gitlab@git.corp.io"] != 1 || ids["gitlab"] != 1 {
 		t.Fatalf("all = %v", ids)
 	}
 	if svc, ok := s.ByID("gitlab@git.corp.io"); !ok || svc.Host != "git.corp.io" {
@@ -192,5 +192,18 @@ func TestStoreForRemote(t *testing.T) {
 	}
 	if _, _, err := s.ForRemote("nonsense"); err == nil || err == ErrNoService {
 		t.Errorf("err = %v", err)
+	}
+}
+
+func TestAccountsDeletesTheLoginOfARetiredService(t *testing.T) {
+	dir := t.TempDir()
+	old := filepath.Join(dir, "git-codeberg.json")
+	if err := os.WriteFile(old, []byte(`{"access_token":"x"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	s := Store{Dir: dir, Env: noEnv}
+	s.Accounts()
+	if _, err := os.Stat(old); !os.IsNotExist(err) {
+		t.Errorf("the retired login must be removed, stat err = %v", err)
 	}
 }

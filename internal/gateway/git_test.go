@@ -93,7 +93,7 @@ func TestGitAccountsAndTokenConnection(t *testing.T) {
 	srv, _ := gitServer(t)
 	w := get(t, srv, "/v1/git/accounts", testToken)
 	accounts := decode(t, w)["accounts"].([]any)
-	if len(accounts) != 4 {
+	if len(accounts) != 3 {
 		t.Fatalf("accounts = %v", accounts)
 	}
 	byID := map[string]map[string]any{}
@@ -139,7 +139,7 @@ func TestGitConnectRefusals(t *testing.T) {
 		"rejected token": {`{"service":"github","token":"bad"}`, 400},
 		"bitbucket user": {`{"service":"bitbucket","token":"pw"}`, 400},
 		"gitlab device":  {`{"service":"gitlab","method":"device"}`, 502},
-		"codeberg code":  {`{"service":"codeberg","method":"code"}`, 502},
+		"bitbucket code": {`{"service":"bitbucket","method":"code"}`, 502},
 	} {
 		if w := postJSON(t, srv, "/v1/git/connect", testToken, tc.body); w.Code != tc.want {
 			t.Errorf("%s: status %d body %s", name, w.Code, w.Body.String())
