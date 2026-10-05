@@ -2,6 +2,7 @@ package gateway
 
 import (
 	"bytes"
+	"encoding/json"
 	"errors"
 	"io"
 	"mime"
@@ -53,6 +54,52 @@ type Artifact struct {
 	Size     int64     `json:"size"`
 	Type     string    `json:"type"`
 	Modified time.Time `json:"modified"`
+	// Pinned files are never pruned. ExpiresAt is when an unpinned file will be, and is absent
+	// when artifacts are kept for ever.
+	Pinned    bool       `json:"pinned,omitempty"`
+	ExpiresAt *time.Time `json:"expires_at,omitempty"`
+}
+
+// pinFile holds the names of the pinned artifacts of one folder. It starts with a dot, which a
+// valid artifact name cannot, so it can never be mistaken for one.
+const pinFile = ".pinned"
+
+// readPinned reads the set of pinned names of a folder. A missing or damaged file is "none":
+// a pin is a courtesy, and losing one must not break the list.
+func readPinned(dir string) map[string]bool {
+	pinned := map[string]bool{}
+	b, err := os.ReadFile(filepath.Join(dir, pinFile))
+	if err != nil {
+		return pinned
+	}
+	var names []string
+	if json.Unmarshal(b, &names) != nil {
+		return pinned
+	}
+	for _, n := range names {
+		pinned[n] = true
+	}
+	return pinned
+}
+
+// setPinned pins or unpins one name, keeping the file sorted so it does not churn.
+func setPinned(dir, name string, pin bool) error {
+	pinned := readPinned(dir)
+	if pinned[name] == pin {
+		return nil
+	}
+	if pin {
+		pinned[name] = true
+	} else {
+		delete(pinned, name)
+	}
+	names := make([]string, 0, len(pinned))
+	for n := range pinned {
+		names = append(names, n)
+	}
+	sort.Strings(names)
+	b, _ := json.Marshal(names)
+	return os.WriteFile(filepath.Join(dir, pinFile), b, 0o644)
 }
 
 // validArtifactName accepts a plain file name: no path, nothing hidden. The name comes from
@@ -192,7 +239,7 @@ func listArtifacts(dir string) []Artifact {
 	}
 	for _, e := range entries {
 		fi, err := e.Info()
-		if err != nil || !fi.Mode().IsRegular() {
+		if err != nil || !fi.Mode().IsRegular() || strings.HasPrefix(e.Name(), ".") {
 			continue
 		}
 		out = append(out, Artifact{Name: e.Name(), Size: fi.Size(), Type: artifactType(e.Name()), Modified: fi.ModTime()})
@@ -217,7 +264,36 @@ func artifactType(name string) string {
 // handleListArtifacts answers the files this session (or, with `?scope=project`, its
 // project) has saved.
 func (s *Server) handleListArtifacts(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, http.StatusOK, map[string]any{"artifacts": listArtifacts(s.scopedArtifactDir(convOf(r), r))})
+	dir := s.scopedArtifactDir(convOf(r), r)
+	list := listArtifacts(dir)
+	pinned := readPinned(dir)
+	for i := range list {
+		list[i].Pinned = pinned[list[i].Name]
+		if !list[i].Pinned && s.opts.ArtifactDays > 0 {
+			at := list[i].Modified.AddDate(0, 0, s.opts.ArtifactDays)
+			list[i].ExpiresAt = &at
+		}
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"artifacts": list})
+}
+
+// handlePinArtifact pins or unpins one file: a pinned file is exempt from the retention.
+func (s *Server) handlePinArtifact(w http.ResponseWriter, r *http.Request) {
+	path, ok := s.artifactPath(w, r)
+	if !ok {
+		return
+	}
+	var body struct {
+		Pinned bool `json:"pinned"`
+	}
+	if !s.decodeBody(w, r, &body) {
+		return
+	}
+	if err := setPinned(filepath.Dir(path), filepath.Base(path), body.Pinned); err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }
 
 // artifactPath resolves the {name} of a request to a file in the folder it is about, answering
@@ -297,6 +373,7 @@ func (s *Server) handleDeleteArtifact(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
+	_ = setPinned(filepath.Dir(path), filepath.Base(path), false)
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -366,8 +443,9 @@ func (s *Server) pruneArtifacts(now time.Time) {
 		if cutoff.IsZero() {
 			continue
 		}
+		pinned := readPinned(dir)
 		for _, a := range listArtifacts(dir) {
-			if a.Modified.Before(cutoff) {
+			if a.Modified.Before(cutoff) && !pinned[a.Name] {
 				_ = os.Remove(filepath.Join(dir, a.Name))
 			}
 		}

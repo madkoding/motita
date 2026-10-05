@@ -211,6 +211,14 @@ else
 fi
 
 step "5. coverage (gate: ${MIN_COVERAGE}% per package)"
+# Root ignores file permissions, and the tests that cause a permission error to cover a failure
+# branch skip themselves under it. A package can therefore read LOWER here than it does for a
+# normal user, which is the figure CI reports: say so before the numbers, so a gap that is only
+# an artifact of the account is not chased as a missing test.
+if [ "$(id -u)" = "0" ]; then
+  echo "  note: running as root, so tests that need a permission error skip themselves and a"
+  echo "        package may read below ${MIN_COVERAGE}% here; run as a normal user for the real figure"
+fi
 # Checked package by package: a gap must not hide behind the aggregate.
 #
 # tools/ is exempt, and the exemption is STATED rather than left to the accident of a

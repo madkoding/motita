@@ -9,6 +9,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net"
 	"net/http"
@@ -899,9 +900,10 @@ func TestProviderKeyPresentReadsLoginsAndEachProvidersVariable(t *testing.T) {
 
 func withPodman(t *testing.T, installed bool) {
 	t.Helper()
-	old := podmanInstalled
+	old, oldWorks := podmanInstalled, podmanWorks
 	podmanInstalled = func() bool { return installed }
-	t.Cleanup(func() { podmanInstalled = old })
+	podmanWorks = func() bool { return installed }
+	t.Cleanup(func() { podmanInstalled, podmanWorks = old, oldWorks })
 }
 
 func createPodmanProject(t *testing.T, body string) map[string]any {
@@ -1090,5 +1092,55 @@ func TestWriteSyncedReportsAFailedWrite(t *testing.T) {
 	}
 	if err := writeSynced("/dev/full", []byte("x")); err == nil {
 		t.Fatal("a write to a full device must fail")
+	}
+}
+
+// fakePodman puts a podman on the PATH that answers `info` and `compose version` with the exit
+// codes it is given: the real detection functions run, against a binary a test controls.
+func fakePodman(t *testing.T, infoExit, composeExit int) {
+	t.Helper()
+	dir := t.TempDir()
+	script := fmt.Sprintf("#!/bin/sh\ncase \"$1\" in\n  info) exit %d ;;\n  compose) exit %d ;;\nesac\nexit 0\n", infoExit, composeExit)
+	if err := os.WriteFile(filepath.Join(dir, "podman"), []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+}
+
+func TestPodmanDetectionAgainstAFakeBinary(t *testing.T) {
+	fakePodman(t, 0, 0)
+	if !podmanInstalled() || !podmanWorks() || !podmanComposeInstalled() {
+		t.Fatal("a podman that answers must be installed, working and have compose")
+	}
+	fakePodman(t, 1, 1)
+	if !podmanInstalled() {
+		t.Fatal("the binary is there")
+	}
+	if podmanWorks() || podmanComposeInstalled() {
+		t.Fatal("a podman whose info and compose fail is neither working nor has compose")
+	}
+}
+
+func TestPodmanWorksIsFalseWithoutABinary(t *testing.T) {
+	t.Setenv("PATH", t.TempDir())
+	if podmanWorks() {
+		t.Fatal("no binary, nothing works")
+	}
+}
+
+func TestRuntimesSeparatesInstalledFromReady(t *testing.T) {
+	oldI, oldW, oldC := podmanInstalled, podmanWorks, podmanComposeInstalled
+	defer func() { podmanInstalled, podmanWorks, podmanComposeInstalled = oldI, oldW, oldC }()
+	podmanInstalled = func() bool { return true }
+	podmanWorks = func() bool { return false }
+	podmanComposeInstalled = func() bool { t.Fatal("compose must not be asked of a podman that does not work"); return false }
+	srv := newTestServer(t, &fakeService{})
+	req, _ := http.NewRequest(http.MethodGet, srv.BaseURL()+"/v1/runtimes", nil)
+	req.Header.Set("Authorization", "Bearer "+testToken)
+	w := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(w, req)
+	var out map[string]bool
+	if err := json.Unmarshal(w.Body.Bytes(), &out); err != nil || !out["podman"] || out["podman_ready"] || out["podman_compose"] {
+		t.Fatalf("got %s", w.Body)
 	}
 }

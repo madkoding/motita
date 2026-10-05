@@ -20,6 +20,7 @@ func artifactServer(t *testing.T, files map[string]string) (*Server, *conversati
 	svc := &fakeService{}
 	srv := newTestServer(t, svc, func(o *Options) {
 		o.ArtifactDir = root
+		o.ArtifactDays = 30
 		o.NewService = func() (Service, error) { return svc, nil }
 	})
 	c, err := srv.createSession()
@@ -502,5 +503,84 @@ func TestTheClientListsAndReadsArtifacts(t *testing.T) {
 	bad := NewClientForSession("http://[::1", testToken, DefaultSession)
 	if _, err := bad.ReadArtifact(context.Background(), "r.md"); err == nil {
 		t.Fatal("a malformed address must be an error")
+	}
+}
+
+func TestPinAndExpiry(t *testing.T) {
+	srv, c, ws, root := artifactServer(t, map[string]string{"keep.md": "k", "lose.md": "l"})
+	c.workspace = ws
+	srv.collectArtifacts(c)
+	base := "/v1/sessions/" + c.id + "/artifacts"
+	list := func() map[string]Artifact {
+		var out struct{ Artifacts []Artifact }
+		_ = json.Unmarshal(artifactCall(srv, http.MethodGet, base).Body.Bytes(), &out)
+		m := map[string]Artifact{}
+		for _, a := range out.Artifacts {
+			m[a.Name] = a
+		}
+		return m
+	}
+	if a := list()["keep.md"]; a.Pinned || a.ExpiresAt == nil || time.Until(*a.ExpiresAt) < 29*24*time.Hour {
+		t.Fatalf("an unpinned file must say when it expires: %+v", a)
+	}
+	if w := artifactReq(srv, http.MethodPost, base+"/keep.md/pin", `{"pinned":true}`); w.Code != http.StatusNoContent {
+		t.Fatalf("pin = %d %s", w.Code, w.Body)
+	}
+	if a := list()["keep.md"]; !a.Pinned || a.ExpiresAt != nil {
+		t.Fatalf("a pinned file never expires: %+v", a)
+	}
+	if _, listed := list()[pinFile]; listed {
+		t.Fatal("the pin file is not an artifact")
+	}
+	// Pruning keeps the pinned file and removes the other one past the retention.
+	for _, n := range []string{"keep.md", "lose.md"} {
+		aged(t, filepath.Join(root, c.id, n), 40*24*time.Hour)
+	}
+	srv.pruneArtifacts(time.Now())
+	if _, err := os.Stat(filepath.Join(root, c.id, "keep.md")); err != nil {
+		t.Fatal("a pinned file survives the prune")
+	}
+	if _, err := os.Stat(filepath.Join(root, c.id, "lose.md")); err == nil {
+		t.Fatal("an unpinned old file goes")
+	}
+	// Unpinning, deleting and the error paths.
+	if w := artifactReq(srv, http.MethodPost, base+"/keep.md/pin", `{"pinned":false}`); w.Code != http.StatusNoContent {
+		t.Fatalf("unpin = %d", w.Code)
+	}
+	if w := artifactReq(srv, http.MethodPost, base+"/keep.md/pin", `{`); w.Code != http.StatusBadRequest {
+		t.Fatalf("bad body = %d", w.Code)
+	}
+	if w := artifactReq(srv, http.MethodPost, base+"/nope.md/pin", `{"pinned":true}`); w.Code != http.StatusNotFound {
+		t.Fatalf("unknown file = %d", w.Code)
+	}
+	_ = artifactReq(srv, http.MethodPost, base+"/keep.md/pin", `{"pinned":true}`)
+	artifactCall(srv, http.MethodDelete, base+"/keep.md")
+	if readPinned(filepath.Join(root, c.id))["keep.md"] {
+		t.Fatal("deleting a file forgets its pin")
+	}
+}
+
+func TestPinFileEdgeCases(t *testing.T) {
+	dir := t.TempDir()
+	_ = os.WriteFile(filepath.Join(dir, pinFile), []byte("not json"), 0o644)
+	if len(readPinned(dir)) != 0 {
+		t.Fatal("a damaged pin file is no pins")
+	}
+	if err := setPinned(dir, "a.md", false); err != nil {
+		t.Fatal("unpinning what is not pinned is a no-op")
+	}
+	if err := setPinned(filepath.Join(dir, "missing"), "a.md", true); err == nil {
+		t.Fatal("pinning into a folder that does not exist must fail")
+	}
+}
+
+func TestPinFailureIsReported(t *testing.T) {
+	srv, c, ws, root := artifactServer(t, map[string]string{"a.md": "a"})
+	c.workspace = ws
+	srv.collectArtifacts(c)
+	// A directory where the pin file goes makes the write fail for any user.
+	_ = os.Mkdir(filepath.Join(root, c.id, pinFile), 0o755)
+	if w := artifactReq(srv, http.MethodPost, "/v1/sessions/"+c.id+"/artifacts/a.md/pin", `{"pinned":true}`); w.Code != http.StatusInternalServerError {
+		t.Fatalf("got %d", w.Code)
 	}
 }

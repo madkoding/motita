@@ -91,6 +91,16 @@ var podmanInstalled = func() bool {
 	return err == nil
 }
 
+// podmanWorks reports whether podman actually answers, which is a different question from
+// whether the binary is there: a rootless setup that was never initialised, or a machine with no
+// user namespaces, has the binary and cannot run anything. Offering podman there would be
+// offering something that fails the first time the agent uses it.
+var podmanWorks = func() bool {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	return exec.CommandContext(ctx, "podman", "info").Run() == nil
+}
+
 // podmanComposeInstalled reports whether `podman compose` works, which needs a
 // compose provider as well as podman. Also a variable, for the same reason.
 var podmanComposeInstalled = func() bool {
@@ -102,10 +112,14 @@ var podmanComposeInstalled = func() bool {
 // handleRuntimes tells the client which container runtimes this machine has, so
 // the New project dialog only offers the ones that can be used.
 func (s *Server) handleRuntimes(w http.ResponseWriter, _ *http.Request) {
+	// Each answer is only asked when the one before it was yes: `podman info` can take seconds
+	// and there is nothing to ask a binary that is not there.
 	hasPodman := podmanInstalled()
+	ready := hasPodman && podmanWorks()
 	writeJSON(w, http.StatusOK, map[string]bool{
 		"podman":         hasPodman,
-		"podman_compose": hasPodman && podmanComposeInstalled(),
+		"podman_ready":   ready,
+		"podman_compose": ready && podmanComposeInstalled(),
 	})
 }
 

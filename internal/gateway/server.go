@@ -569,6 +569,7 @@ func (s *Server) routes() *http.ServeMux {
 	mux.Handle("GET /v1/sessions/{id}/artifacts", scoped(s.handleListArtifacts))
 	mux.Handle("GET /v1/sessions/{id}/artifacts/{name}", scoped(s.handleGetArtifact))
 	mux.Handle("PUT /v1/sessions/{id}/artifacts/{name}", scoped(s.handlePutArtifact))
+	mux.Handle("POST /v1/sessions/{id}/artifacts/{name}/pin", scoped(s.handlePinArtifact))
 	mux.Handle("DELETE /v1/sessions/{id}/artifacts/{name}", scoped(s.handleDeleteArtifact))
 	mux.Handle("GET /v1/sessions/{id}/messages", scoped(s.handleMessages))
 	mux.Handle("POST /v1/sessions/{id}/reset", scoped(s.handleReset))

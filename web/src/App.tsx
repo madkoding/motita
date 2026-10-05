@@ -151,6 +151,12 @@ interface ProjectInfo {
   created: string
 }
 
+// daysUntil is how many whole days remain until a moment, rounded up: "deleted in 1 days" is
+// shown for the last day, never "0".
+function daysUntil(iso: string): number {
+  return Math.ceil((new Date(iso).getTime() - Date.now()) / 86400000)
+}
+
 // shortID abbreviates a generated id the way git abbreviates a sha: the first
 // seven characters. A full id is 25 characters and would be the widest thing in
 // the sidebar while telling the reader nothing the first seven do not.
@@ -724,10 +730,12 @@ export default function App() {
   // being looked at. `body` is the text of a text file, `url` a blob for an image.
   const [showArtifacts, setShowArtifacts] = useState(false)
   const [artifactScope, setArtifactScope] = useState<'session' | 'project'>('session')
-  const [artifacts, setArtifacts] = useState<{ name: string; size: number; type: string; modified: string }[]>([])
+  const [artifacts, setArtifacts] = useState<{ name: string; size: number; type: string; modified: string; pinned?: boolean; expires_at?: string }[]>([])
   const [artifactView, setArtifactView] = useState<{ name: string; type: string; body?: string; url?: string } | null>(null)
   const [hasPodman, setHasPodman] = useState(false)
   const [hasPodmanCompose, setHasPodmanCompose] = useState(false)
+  // Installed is not the same as working: `podman info` can fail on a machine that has the binary.
+  const [podmanReady, setPodmanReady] = useState(false)
   const [newProjectPodman, setNewProjectPodman] = useState(false)
   // The git identity dialog: opened when the gateway answers that git has no user, and
   // submitted together with the project it interrupted.
@@ -1739,7 +1747,8 @@ export default function App() {
       if (!live) return
       setHasPodman(!!d.podman)
       setHasPodmanCompose(!!d.podman_compose)
-    }).catch(() => { if (live) { setHasPodman(false); setHasPodmanCompose(false) } })
+      setPodmanReady(!!d.podman_ready)
+    }).catch(() => { if (live) { setHasPodman(false); setHasPodmanCompose(false); setPodmanReady(false) } })
     return () => { live = false }
   }, [showNewProject])
 
@@ -1786,6 +1795,19 @@ export default function App() {
       setArtifactView(v => (v && v.name === name ? null : v))
       await loadArtifacts()
     } catch { setState('could not delete the artifact', true) }
+  }, [artifactScope, artifactBase, loadArtifacts])
+
+  // pinArtifact keeps a file out of the retention, or lets it expire again.
+  const pinArtifact = useCallback(async (name: string, pinned: boolean) => {
+    try {
+      const res = await api(artifactBase() + '/' + encodeURIComponent(name) + '/pin' + scopeQuery(artifactScope), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ pinned })
+      })
+      if (!res.ok && res.status !== 204) { setState('could not pin the artifact', true); return }
+      await loadArtifacts()
+    } catch { setState('could not pin the artifact', true) }
   }, [artifactScope, artifactBase, loadArtifacts])
 
   // uploadArtifact saves a file the person picks into this session, as the raw body.
@@ -4509,7 +4531,7 @@ export default function App() {
                   />
                   <span class="text-sm text-[#e8e8ea]">
                     {t('Podman was found on this machine. Use it to run this project?')}
-                    <span class="block text-xs text-[#7a7a8c] mt-0.5">{t(hasPodmanCompose ? 'The project will be started in containers with podman.' : 'The project will be started in containers with podman. podman compose was not found, so compose files will not work until it is installed.')}</span>
+                    <span class="block text-xs text-[#7a7a8c] mt-0.5">{t(!podmanReady ? 'podman is installed but did not answer (podman info failed), so it may not work until it is set up.' : hasPodmanCompose ? 'The project will be started in containers with podman.' : 'The project will be started in containers with podman. podman compose was not found, so compose files will not work until it is installed.')}</span>
                   </span>
                 </label>
               )}
@@ -5504,7 +5526,13 @@ export default function App() {
                     <button class="flex-1 min-w-0 text-left" onClick={() => void openArtifact(a)}>
                       <div class="truncate text-sm text-[#e8e8ea] font-mono">{a.name}</div>
                       <div class="text-xs text-[#7a7a8c]">{a.type} · {Math.max(1, Math.round(a.size / 1024))} KB</div>
+                      {a.pinned ? (
+                        <div class="text-xs text-accent">{t('Pinned: it will not be deleted')}</div>
+                      ) : a.expires_at && daysUntil(a.expires_at) <= 7 ? (
+                        <div class="text-xs text-[#f0a040]" data-testid="artifact-expiry">{tf('Deleted in {n} days unless pinned', { n: String(Math.max(0, daysUntil(a.expires_at))) })}</div>
+                      ) : null}
                     </button>
+                    <button class="flex-none px-2 min-h-[32px] rounded-lg text-xs text-[#c8c8d2] hover:bg-white/5" aria-pressed={!!a.pinned} onClick={() => void pinArtifact(a.name, !a.pinned)}>{t(a.pinned ? 'Unpin' : 'Pin')}</button>
                     <button class="flex-none px-2 min-h-[32px] rounded-lg text-xs text-danger hover:bg-danger/10" onClick={() => void deleteArtifact(a.name)}>{t('Delete')}</button>
                   </li>
                 ))}
