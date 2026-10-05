@@ -203,7 +203,7 @@ Options:
 
 Commands:
   config             setup wizard: choose the provider, the model and the check,
-                     and write a working configuration (-init still works)
+                     and write a working configuration
   gateway start      bring the gateway up as a service and leave it running
   gateway stop       stop the gateway named by the service file
   gateway status     report whether a gateway is running
@@ -237,9 +237,6 @@ type flags struct {
 	version        bool
 	isolation      bool
 	initConfig     bool
-	// initFlag records that the wizard was asked for with the deprecated -init, so the run can
-	// say what replaced it.
-	initFlag bool
 	// tokenOnly and jsonOut shape `gateway start` for scripts; boolean on purpose, like the
 	// curator switches, so neither swallows the word after it.
 	tokenOnly bool
@@ -319,9 +316,6 @@ func Run(op Options) int {
 	}
 
 	if fl.initConfig {
-		if fl.initFlag {
-			fmt.Fprintln(op.Err, "note: -init is deprecated and will be removed; use `motita config`")
-		}
 		code, _ := op.initConfig(fl)
 		return code
 	}
@@ -599,9 +593,6 @@ func parse(args []string) (flags, error) {
 				return b, err
 			}
 			b.prompt = v
-		case "-init", "--init":
-			b.initConfig = true
-			b.initFlag = true
 		case "-token-only", "--token-only":
 			b.tokenOnly = true
 		case "-json", "--json":

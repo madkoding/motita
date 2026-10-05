@@ -354,7 +354,7 @@ func (s *session) ask(ctx context.Context, prompt string) (string, error) {
 }
 
 // askLine reads one line. EOF and a lone "q" cancel the wizard; so does a cancelled
-// context, which is how Ctrl+C during -init is handled.
+// context, which is how Ctrl+C during `motita config` is handled.
 func (s *session) askLine(ctx context.Context, prompt string) (string, error) {
 	s.say("")
 	printPrompt(s.out, prompt)
