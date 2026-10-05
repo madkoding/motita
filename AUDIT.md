@@ -100,7 +100,11 @@ Los tests de `internal/gateway` crean repositorios git temporales y hacen un com
         fatal: failed to write commit object
 ```
 
-**Corrección aplicada:** `internal/gateway/git.go` sanea el entorno antes de lanzar comandos git (`withoutInlineGitConfig`), de modo que la configuración git del usuario no se filtra a los repositorios de prueba. Tras la corrección `make check` termina en 0.
+**Corrección aplicada (commit `13ec752`):**
+- `internal/gateway/git.go`: `withoutInlineGitConfig` sanea el entorno antes de lanzar comandos git, de modo que la configuración git en línea del proceso no se filtra a los repositorios de prueba.
+- `internal/gateway/main_test.go`: `TestMain` fija `GIT_CONFIG_NOSYSTEM=1` además de `GIT_CONFIG_GLOBAL`, aislando el paquete de la configuración global y de sistema (`/etc/gitconfig`) de la máquina; una máquina con `commit.gpgsign=true` en el fichero de sistema hacía que cada commit de prueba intentara firmar con una clave inexistente.
+
+Tras la corrección `make check` termina en 0.
 
 ### BAJA — `internal/review` sin pruebas (cobertura 0.0 %)
 
