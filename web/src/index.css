@@ -2239,3 +2239,10 @@ main.chat-bg.chat-bg { padding-right: 46px; }
 .auto-approve-pill {
   font-size: 10px; text-transform: none; letter-spacing: 0.02em; --cut: 5px;
 }
+
+/* The option the keyboard (arrows + Enter) has highlighted in the approval question. */
+.approval-panel { outline: none; }
+.approval-panel button.is-picked {
+  outline: 2px solid #ffcf6a; outline-offset: 2px;
+  box-shadow: 0 0 12px rgba(255, 176, 32, 0.4);
+}

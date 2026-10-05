@@ -709,6 +709,10 @@ export default function App() {
   // An id and not a position, because the log is capped and its oldest entries fall off.
   const [termSeenId, setTermSeenId] = useState(0)
   const [approval, setApproval] = useState<PendingApproval | null>(null)
+  // The option the keyboard has highlighted in the approval panel (0 run, 1 allow all, 2 no), and
+  // the panel itself, which takes focus when a question arrives so the arrows and Enter work.
+  const [approvalSel, setApprovalSel] = useState(0)
+  const approvalRef = useRef<HTMLDivElement>(null)
   const [input, setInput] = useState('')
 
   // Session management state.
@@ -2507,6 +2511,27 @@ export default function App() {
       setState('could not answer the approval', true)
     }
   }, [])
+
+  const approvalId = approval?.id
+  useEffect(() => {
+    if (!approvalId) return
+    setApprovalSel(0)
+    approvalRef.current?.focus()
+  }, [approvalId])
+
+  // onApprovalKey: arrows move between the options, Enter takes the highlighted one.
+  const onApprovalKey = (e: KeyboardEvent) => {
+    if (!approval) return
+    const n = 3
+    if (e.key === 'ArrowRight' || e.key === 'ArrowDown') {
+      e.preventDefault(); setApprovalSel(i => (i + 1) % n)
+    } else if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') {
+      e.preventDefault(); setApprovalSel(i => (i + n - 1) % n)
+    } else if (e.key === 'Enter') {
+      e.preventDefault()
+      answerApproval(approval.id, approvalSel !== 2, approvalSel === 1)
+    }
+  }
 
   // stopAutoApprove takes back "allow all commands": the next command is asked again.
   const stopAutoApprove = useCallback(async () => {
@@ -4344,7 +4369,14 @@ export default function App() {
 
         {/* Approval panel — solid opaque, above the gradient. */}
         {approval && (
-          <div class="frosted flex-none px-4 sm:px-5 py-3.5 border-t-2 border-warning z-10">
+          <div
+            ref={approvalRef}
+            tabIndex={-1}
+            role="group"
+            aria-label={t('This needs your approval')}
+            onKeyDown={onApprovalKey}
+            class="approval-panel frosted flex-none px-4 sm:px-5 py-3.5 border-t-2 border-warning z-10"
+          >
             <h2 class="text-sm mb-2 text-warning">
               {approval.question ?? approval.reason ?? t('This needs your approval')}
             </h2>
@@ -4353,20 +4385,26 @@ export default function App() {
             </pre>
             <div class="flex flex-wrap gap-2">
               <button
-                class="min-h-[44px] min-w-[44px] px-5 rounded-xl bg-accent text-white font-semibold active:scale-95 transition-transform"
+                class={`min-h-[44px] min-w-[44px] px-5 rounded-xl bg-accent text-white font-semibold active:scale-95 transition-transform${approvalSel === 0 ? ' is-picked' : ''}`}
+                aria-pressed={approvalSel === 0}
+                onMouseEnter={() => setApprovalSel(0)}
                 onClick={() => answerApproval(approval.id, true)}
               >
                 {t('Run it')}
               </button>
               <button
-                class="min-h-[44px] min-w-[44px] px-4 rounded-xl border border-accent/40 text-accent font-semibold active:scale-95 transition-transform"
+                class={`min-h-[44px] min-w-[44px] px-4 rounded-xl border border-accent/40 text-accent font-semibold active:scale-95 transition-transform${approvalSel === 1 ? ' is-picked' : ''}`}
+                aria-pressed={approvalSel === 1}
+                onMouseEnter={() => setApprovalSel(1)}
                 title={t('Run this and every later command in this session without asking. Commands the policy forbids stay forbidden.')}
                 onClick={() => answerApproval(approval.id, true, true)}
               >
                 {t('Allow all this session')}
               </button>
               <button
-                class="min-h-[44px] min-w-[44px] px-5 rounded-xl border border-white/10 text-[#e8e8ea] active:scale-95 transition-transform"
+                class={`min-h-[44px] min-w-[44px] px-5 rounded-xl border border-white/10 text-[#e8e8ea] active:scale-95 transition-transform${approvalSel === 2 ? ' is-picked' : ''}`}
+                aria-pressed={approvalSel === 2}
+                onMouseEnter={() => setApprovalSel(2)}
                 onClick={() => answerApproval(approval.id, false)}
               >
                 {t('No')}
