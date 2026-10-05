@@ -2167,8 +2167,7 @@ html[data-density="compact"] .row-menu-item { padding-top: 5px; padding-bottom: 
  * the Pill, at a smaller cut). It is applied to the `button` element itself, so
  * no markup has to change and no button is left behind with the old rounded
  * style. `clip-path` also clips the button's own border along the diagonal, which made
- * the cut read as a notch; two corner gradients redraw the edge along each cut, in the
- * button's text colour at partial strength so it sits with any border colour.
+ * the cut read as a notch; two corner gradients redraw the edge along each cut of bordered buttons only.
  *
  * The auto-approve pill is excluded — it already draws its own, larger cut with a
  * `::before` ring, and clipping it again would shave that ring off. The terminal
@@ -2185,6 +2184,14 @@ button:not(.auto-approve-pill):not(.term-tab) {
     0 100%,
     0 var(--btn-cut)
   );
+}
+
+/* The diagonal edge is only redrawn on buttons that have a border (a `border*` utility other
+ * than border-transparent, or a CSS-bordered class). The real border draws the straight sides, so
+ * together with these stripes the outline is complete. Borderless / transparent buttons get the
+ * cut with no stroke at all. */
+button[class*="border"]:not([class*="border-transparent"]):not(.auto-approve-pill):not(.term-tab),
+.cp-btn, .copy-btn, .copy-msg-btn {
   --btn-edge: color-mix(in srgb, currentColor 45%, transparent);
   /* A 6px square per cut; the stripe sits on the line x + y = cut, 1.4px wide. !important
    * because many components set the `background` shorthand, which would wipe these. */
