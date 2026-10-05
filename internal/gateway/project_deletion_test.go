@@ -227,10 +227,9 @@ func TestTheProjectPreviewNamesTheSessionsAndTheirChanges(t *testing.T) {
 	}
 }
 
-// TestTheProjectPreviewIgnoresTheProjectOwnCheckout: the project's own
-// uncommitted changes are the USER's, and deleting the project's FILE does not
-// touch its directory. Only the sessions' checkouts are at stake, and saying
-// otherwise would refuse a deletion that destroys nothing.
+// TestTheProjectPreviewIgnoresTheProjectOwnCheckout: the preview counts only the
+// sessions' checkouts, and the project's own uncommitted edits do not block the
+// deletion, which removes the project's folder along with it.
 func TestTheProjectPreviewIgnoresTheProjectOwnCheckout(t *testing.T) {
 	srv, projectID, _ := projectWithSessions(t, 1)
 	projectDir := projectDirOfProject(t, srv, projectID)
@@ -249,13 +248,13 @@ func TestTheProjectPreviewIgnoresTheProjectOwnCheckout(t *testing.T) {
 		t.Errorf("count = %d, want 0: the project's own checkout is not deleted", out.Changes)
 	}
 
-	// And the deletion goes through, leaving the user's own edit alone.
+	// And the deletion goes through and takes the project's folder with it.
 	del := send(t, srv, http.MethodDelete, "/v1/projects/"+projectID, testToken, "")
 	if del.Code != http.StatusNoContent {
 		t.Fatalf("a project's own uncommitted edits must not block its deletion, got %d: %s", del.Code, del.Body.String())
 	}
-	if _, err := os.Stat(filepath.Join(projectDir, "user-edit.md")); err != nil {
-		t.Errorf("the project's directory and its edits must survive: %v", err)
+	if _, err := os.Stat(projectDir); !os.IsNotExist(err) {
+		t.Errorf("the project's directory must be removed with it, stat err = %v", err)
 	}
 }
 

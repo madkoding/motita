@@ -168,6 +168,24 @@ func sameOrigin(dir, gitURL string, env []string) bool {
 	return norm(string(out)) == norm(gitURL)
 }
 
+// freeCloneDir returns dir when a clone of gitURL can go there (it is missing, empty, or already
+// that repository), and otherwise the first "<dir>-N" that can.
+func freeCloneDir(dir, gitURL string, env []string) string {
+	usable := func(d string) bool {
+		entries, err := os.ReadDir(d)
+		return err != nil || len(entries) == 0 || sameOrigin(d, gitURL, env)
+	}
+	if usable(dir) {
+		return dir
+	}
+	for i := 2; i < 1000; i++ {
+		if cand := fmt.Sprintf("%s-%d", dir, i); usable(cand) {
+			return cand
+		}
+	}
+	return dir
+}
+
 // cloneGitRepo clones a git URL into the given directory and returns the
 // combined output of the git command. It is called when a project is created
 // with a git URL instead of a local folder.

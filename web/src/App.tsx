@@ -7,6 +7,7 @@ import { createFollower } from './smoothscroll'
 import { useFollowEnd } from './useFollowEnd'
 import { hydrationState, hydrationLog, noteActivity } from './hydration'
 import { ActionTrail } from './ActionTrail'
+import { copyText } from './clipboard'
 import { t, tc, tf, plural, useLang, setLang, resolveLang, type LangSetting } from './i18n'
 import { SettingsModal } from './Settings'
 import { NewSessionButton } from './NewSessionButton'
@@ -3451,16 +3452,18 @@ export default function App() {
       const target = e.target as HTMLElement
       if (target.classList.contains('copy-btn')) {
         const text = target.getAttribute('data-copy-text') || ''
-        navigator.clipboard?.writeText(text).then(() => {
+        void copyText(text).then((ok) => {
+          if (!ok) return
           target.textContent = '✓'
           setTimeout(() => { target.textContent = t('copy') }, 1500)
-        }).catch(() => {})
+        })
       } else if (target.classList.contains('copy-msg-btn')) {
         const text = target.getAttribute('data-raw') || ''
-        navigator.clipboard?.writeText(text).then(() => {
+        void copyText(text).then((ok) => {
+          if (!ok) return
           target.textContent = '✓'
           setTimeout(() => { target.textContent = t('copy') }, 1500)
-        }).catch(() => {})
+        })
       }
     }
     document.addEventListener('click', handler)
@@ -4434,7 +4437,7 @@ export default function App() {
             cache_read: (acc.cache_read || 0) + (a.tokens?.cache_read || 0),
             cache_write: (acc.cache_write || 0) + (a.tokens?.cache_write || 0),
           }), { input: 0, output: 0, cache_read: 0, cache_write: 0 })
-          const canCopy = typeof navigator !== 'undefined' && !!navigator.clipboard?.writeText
+          const canCopy = typeof document !== 'undefined'
           return (
             <div class={`term-drawer is-agents${agentsOpen ? ' is-open' : ''}`}>
               <button
@@ -4496,10 +4499,11 @@ export default function App() {
                                         type="button"
                                         class="agent-copy"
                                         onClick={() => {
-                                          navigator.clipboard.writeText(merge).then(() => {
+                                          void copyText(merge).then((ok) => {
+                                            if (!ok) return
                                             setAgentCopied(a.id)
                                             setTimeout(() => setAgentCopied(c => c === a.id ? null : c), 1500)
-                                          }, () => {})
+                                          })
                                         }}
                                       >{t(agentCopied === a.id ? 'copied' : 'copy')}</button>
                                     )}
