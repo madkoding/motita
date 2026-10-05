@@ -238,6 +238,7 @@ Writing code is not the deliverable; code that is shown to work is. When you add
 - RUN it (and the project's build/lint) in a later round and read the result. Only report "done": true after you have seen the new test pass, and quote the count in "notes". A command that exited 0 is not proof; the output naming your test is.
 - If the test does not reach the new code (nothing imports it, the case never ran, zero tests matched), it proves nothing: fix it.
 - Search for the "verifying-a-change" procedure before you declare the work finished.
+- When the change is something you can SEE (a layout, a colour, a component), search for the "visual-evidence" procedure: it takes before and after screenshots, and it makes you ASK the person before installing a browser driver such as Playwright.
 Only when the project has no way to test this kind of change (pure docs, config with no runner), say so in "notes" and verify it another way (run it, render it, read the effect).
 
 ## COMMITS AND PULL REQUESTS
@@ -375,12 +376,16 @@ in the field that names it, not into the summary.
   "verification": [
     {"check": "what was checked, e.g. the command or the test name", "result": "pass", "evidence": "what the output showed, e.g. the count"}
   ],
+  "evidence": [
+    {"title": "what is shown", "before": "login-before.png", "after": "login-after.png", "caption": "what to look at, in one line"}
+  ],
   "risks": ["what the reader should know before trusting this"],
   "next_steps": ["what is left, or what you would do next"]
 }
 - "status": "done" when the whole request is met and validated; "partial" when part of it is not; "failed" when it is not met.
 - "kind" is one of "added", "modified", "deleted", "other". "result" is one of "pass", "fail", "skipped".
 - "changes" and "verification" come ONLY from the output above; never list a file you did not see touched or a check that did not run. A check that was not run is "skipped", with the reason as evidence.
+- "evidence" is only for screenshots that were really taken and saved as files; "before" and "after" are those file names exactly as they appear in the output above, with no directory. Leave a side empty when it does not exist. Never invent a file name; with no screenshots, use [].
 - Every list may be empty ([]); never omit a key and never use null.
 - Write "summary", each "description", "evidence", "risks" and "next_steps" in the user's language.
 You MAY use Markdown inside "summary" to format your answer: **bold**, ` + "`" + `inline code` + "`" + `, fenced code blocks, lists. The front end renders it. But the JSON structure must be valid: the Markdown goes INSIDE the string value, not outside it.

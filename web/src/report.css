@@ -50,3 +50,30 @@
 .rpt-risks li::before, .rpt-next li::before { content: ''; position: absolute; left: 2px; top: 0.6em; width: 5px; height: 5px; border-radius: 50%; }
 .rpt-risks li::before { background: #f0a040; }
 .rpt-next li::before { background: #4cc2ff; }
+
+/* Evidence: the before and after screenshots, side by side. Two columns while there is room, one
+ * under the other on a narrow screen; each image keeps its own proportions. */
+.rpt-evidence-set { margin: 0 0 12px; }
+.rpt-evidence-set:last-child { margin-bottom: 0; }
+.rpt-evidence-title { font-size: 0.85em; color: #e6e6f0; margin-bottom: 6px; }
+.rpt-shots { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 14rem), 1fr)); gap: 10px; }
+.rpt-shot { margin: 0; display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.rpt-shot figcaption { font-size: 0.68rem; font-weight: 700; letter-spacing: 0.09em; text-transform: uppercase; color: #8a8a9a; }
+.rpt-shot.after figcaption { color: #7ee787; }
+.rpt-shot button.rpt-shot-btn {
+  display: block; padding: 0; width: 100%; background: rgba(0, 0, 0, 0.35) !important; cursor: zoom-in;
+  border: 1px solid rgba(255, 255, 255, 0.12); overflow: hidden;
+}
+.rpt-shot-btn img { display: block; width: 100%; height: auto; max-height: 24rem; object-fit: contain; }
+.rpt-shot-empty { display: grid; place-items: center; min-height: 6rem; font-size: 0.8em; color: #8a8a9a; border: 1px dashed rgba(255, 255, 255, 0.15); }
+.rpt-evidence-caption { font-size: 0.8em; color: #a8a8b8; margin-top: 4px; }
+
+/* The full-window preview with zoom. */
+.lb { position: fixed; inset: 0; z-index: 1000; display: flex; flex-direction: column; background: rgba(5, 5, 10, 0.94); }
+.lb-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; padding: 8px 12px; border-bottom: 1px solid rgba(0, 240, 255, 0.25); color: #e6e6f0; }
+.lb-bar button { min-width: 34px; min-height: 34px; padding: 0 10px; border: 1px solid rgba(255, 255, 255, 0.2); color: #e6e6f0; cursor: pointer; }
+.lb-title { flex: 1 1 10rem; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: var(--font-mono); font-size: 0.85rem; }
+.lb-zoom { min-width: 3.5em; text-align: center; font-size: 0.8rem; color: #9a9aaa; }
+.lb-stage { flex: 1; min-height: 0; display: grid; place-items: center; overflow: hidden; cursor: grab; touch-action: none; }
+.lb-stage:active { cursor: grabbing; }
+.lb-img { max-width: 100%; max-height: 100%; object-fit: contain; user-select: none; transform-origin: center; will-change: transform; }

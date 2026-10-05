@@ -1848,6 +1848,21 @@ export default function App() {
     } catch { setState('could not open the artifact', true) }
   }, [artifactScope, artifactBase])
 
+  // loadEvidenceImage fetches a screenshot a report names, from this session's artifacts, as an
+  // object URL the card can show. The same file is fetched once, however many cards ask.
+  const evidenceUrls = useRef(new Map<string, Promise<string | null>>())
+  const loadEvidenceImage = useCallback((name: string) => {
+    const key = sessionId + '/' + name
+    let p = evidenceUrls.current.get(key)
+    if (!p) {
+      p = api(artifactBase() + '/' + encodeURIComponent(name))
+        .then(async res => (res.ok ? URL.createObjectURL(await res.blob()) : null))
+        .catch(() => null)
+      evidenceUrls.current.set(key, p)
+    }
+    return p
+  }, [sessionId, artifactBase])
+
   const deleteArtifact = useCallback(async (name: string) => {
     try {
       const res = await api(artifactBase() + '/' + encodeURIComponent(name) + scopeQuery(artifactScope), { method: 'DELETE' })
@@ -4279,7 +4294,7 @@ export default function App() {
                   {rest.map(m => (
                     <div key={m.id} class={`msg ${m.role}${m.kind ? ' ' + m.kind : ''}`} data-who={m.role === 'agent' && !m.kind ? t('Agent') : undefined}>
                       {m.role === 'agent' && !m.kind && m.report ? (
-                        <ReportCard report={m.report} />
+                        <ReportCard report={m.report} loadImage={loadEvidenceImage} />
                       ) : m.role === 'agent' && !m.kind ? (
                         <Markdown content={m.text} />
                       ) : (
