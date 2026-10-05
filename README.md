@@ -534,6 +534,24 @@ application of yours (`MOTITA_GITLAB_CLIENT_ID`, `MOTITA_BITBUCKET_CLIENT_ID` +
 `MOTITA_GITHUB_CLIENT_ID` to replace the default), and a token you create by hand always
 works — it is checked against the host before it is saved.
 
+**No OAuth application? Use a token.** Only GitHub has one-click login out of the box.
+GitLab, Bitbucket and Codeberg need an OAuth application registered by whoever runs motita
+(there is no public one to borrow), and until that exists those hosts say so in the
+settings and offer a token instead. A token does everything the login does — clone, push,
+list your repositories in the project dialog, open pull requests, read the CI — and is checked
+against the host before it is saved. Create one at the page the dialog links to, and paste it in
+Settings → Git connections, or run `/git connect <host> token` in the terminal:
+
+| Host | Create it at | What it needs |
+| --- | --- | --- |
+| GitHub | Settings → Developer settings → Personal access tokens | classic: `repo` and `workflow`; fine-grained: Contents, Pull requests (read and write), Actions and Metadata (read) |
+| GitLab | Preferences → Access tokens | `api`, `read_repository`, `write_repository` |
+| Bitbucket | Personal settings → App passwords | Repositories and Pull requests (read and write), Account (read). It also asks for your **account name**: Bitbucket sends an app password with it |
+| Codeberg / Gitea | Settings → Applications | `repository` (read and write) |
+
+Tokens are stored in `~/.motita/auth/` (`git-<host>.json`, mode 0600), never in the
+configuration file. Disconnecting a host deletes its file.
+
 - **Creating a project** offers your own repositories: pick one from a list (search,
   private repos marked) instead of typing a URL. With no host connected the dialog offers to
   connect one, and a clone refused for credentials opens the same login and retries.
