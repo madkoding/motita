@@ -279,14 +279,19 @@ func (s *Server) handleListArtifacts(w http.ResponseWriter, r *http.Request) {
 
 // handlePinArtifact pins or unpins one file: a pinned file is exempt from the retention.
 func (s *Server) handlePinArtifact(w http.ResponseWriter, r *http.Request) {
-	path, ok := s.artifactPath(w, r)
-	if !ok {
-		return
-	}
 	var body struct {
 		Pinned bool `json:"pinned"`
 	}
 	if !s.decodeBody(w, r, &body) {
+		return
+	}
+	// The file is looked up UNDER the lock the prune deletes under: a file found before the lock
+	// may be gone by the time the pin is written, and the pin would be inherited by the next
+	// file of that name.
+	s.artifactsMu.Lock()
+	defer s.artifactsMu.Unlock()
+	path, ok := s.artifactPath(w, r)
+	if !ok {
 		return
 	}
 	if err := setPinned(filepath.Dir(path), filepath.Base(path), body.Pinned); err != nil {
@@ -373,7 +378,9 @@ func (s *Server) handleDeleteArtifact(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
+	s.artifactsMu.Lock()
 	_ = setPinned(filepath.Dir(path), filepath.Base(path), false)
+	s.artifactsMu.Unlock()
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -443,12 +450,22 @@ func (s *Server) pruneArtifacts(now time.Time) {
 		if cutoff.IsZero() {
 			continue
 		}
-		pinned := readPinned(dir)
 		for _, a := range listArtifacts(dir) {
-			if a.Modified.Before(cutoff) && !pinned[a.Name] {
-				_ = os.Remove(filepath.Join(dir, a.Name))
+			if a.Modified.Before(cutoff) {
+				s.removeIfUnpinned(dir, a.Name)
 			}
 		}
+	}
+}
+
+// removeIfUnpinned deletes one file unless it is pinned, deciding and deleting under the same
+// lock a pin is written under. Without it the prune read the pins once and deleted later, and a
+// file the person pinned in between was lost: the pin was recorded and the file was gone.
+func (s *Server) removeIfUnpinned(dir, name string) {
+	s.artifactsMu.Lock()
+	defer s.artifactsMu.Unlock()
+	if !readPinned(dir)[name] {
+		_ = os.Remove(filepath.Join(dir, name))
 	}
 }
 

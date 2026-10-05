@@ -271,20 +271,22 @@ func TestUploadArtifact(t *testing.T) {
 }
 
 func TestStoreArtifactLimits(t *testing.T) {
-	srv, _, _, root := artifactServer(t, nil)
+	srv, c, _, root := artifactServer(t, nil)
 	dir := filepath.Join(root, "s")
 	if _, err := srv.storeArtifact("", "a.txt", nil); err == nil {
 		t.Fatal("no folder must be refused")
 	}
-	// The gateway-wide total: a store that is already full refuses a new file.
-	_ = os.MkdirAll(filepath.Join(root, "other"), 0o755)
-	fh, _ := os.Create(filepath.Join(root, "other", "huge"))
+	// The gateway-wide total: a store that is already full refuses a new file. The big file lives
+	// in a real session's folder, which the pruner that starts with the gateway leaves alone.
+	big := filepath.Join(root, c.id, "huge")
+	put(t, big, "")
+	fh, _ := os.OpenFile(big, os.O_WRONLY, 0o644)
 	_ = fh.Truncate(maxArtifactTotalBytes)
 	fh.Close()
 	if _, err := srv.storeArtifact(dir, "a.txt", []byte("x")); err == nil || !strings.Contains(err.Error(), "full") {
 		t.Fatalf("full store: %v", err)
 	}
-	_ = os.Remove(filepath.Join(root, "other", "huge"))
+	_ = os.Remove(big)
 	// An unwritable root is a plain error, not a refusal.
 	if os.Geteuid() != 0 {
 		_ = os.Chmod(root, 0o500)

@@ -196,7 +196,9 @@ type Server struct {
 	heartbeat time.Duration
 
 	sessionsMu sync.Mutex
-	sessions   map[string]*conversation
+	// artifactsMu orders a pin against the prune: see removeIfUnpinned.
+	artifactsMu sync.Mutex
+	sessions    map[string]*conversation
 
 	// store persists conversations to disk so they survive a restart. nil
 	// when no directory was configured, which means sessions are in-memory
