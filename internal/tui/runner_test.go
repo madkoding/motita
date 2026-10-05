@@ -542,3 +542,33 @@ func TestAppRunnerRunModelsListsWithTheProvidersOwnClient(t *testing.T) {
 		t.Errorf("%v\n%s", err, report)
 	}
 }
+
+// A command typed by the person goes through the agent's own policy and executor, and the
+// approver it is handed is the one the agent is given - not the runner's installed one.
+type shellAgent struct {
+	fakeAgent
+	approver agent.Approver
+	line     string
+}
+
+func (s *shellAgent) SetApprover(fn agent.Approver) { s.approver = fn }
+func (s *shellAgent) RunCommand(_ context.Context, line string) (string, int, error) {
+	s.line = line
+	return "printed\n", 3, nil
+}
+
+func TestRunShellRunsThroughTheAgentWithTheGivenApprover(t *testing.T) {
+	r := NewAppRunner(&bytes.Buffer{}, &bytes.Buffer{}, config.Default(), nil, &sandbox.Sandbox{}, logx.Global())
+	ag := &shellAgent{}
+	r.newAgent = func(config.Config, *logx.Logger, *llm.Client, *sandbox.Sandbox, taskpkg.Source, bool) AgentRunner {
+		return ag
+	}
+	approve := func(context.Context, agent.ApprovalRequest) (bool, error) { return true, nil }
+	out, exit, err := r.RunShell(context.Background(), "echo hi", approve)
+	if err != nil || out != "printed\n" || exit != 3 || ag.line != "echo hi" {
+		t.Errorf("RunShell = %q %d %v (line %q)", out, exit, err, ag.line)
+	}
+	if ag.approver == nil {
+		t.Error("the approver must reach the agent")
+	}
+}

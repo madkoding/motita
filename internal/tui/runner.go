@@ -263,6 +263,19 @@ func installApproverOn(ag AgentRunner, fn agent.Approver) {
 	}
 }
 
+// RunShell runs one command line a PERSON typed, under the same policy and sandbox as the
+// agent's own commands, and confirms it through the approver it is handed.
+//
+// It builds an agent only to reach its policy and its executor: no model is called, so it works
+// without a key and does not touch the conversation. The approver is a parameter and not the
+// runner's installed one, because that one belongs to whichever run is in flight and a shell
+// command typed meanwhile must not borrow its question.
+func (r *AppRunner) RunShell(ctx context.Context, command string, approver agent.Approver) (string, int, error) {
+	ag := r.newAgent(r.Config(), r.Log, r.Engine, r.Box, nil, true)
+	installApproverOn(ag, approver)
+	return ag.RunCommand(ctx, command)
+}
+
 // Config returns the current configuration.
 func (r *AppRunner) Config() config.Config {
 	r.cfgMu.Lock()
