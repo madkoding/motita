@@ -370,6 +370,22 @@ func TestGitCommandEnv(t *testing.T) {
 	}
 }
 
+func TestWithoutInlineGitConfig(t *testing.T) {
+	env := []string{
+		"PATH=/usr/bin",
+		"GIT_CONFIG_COUNT=1",
+		"GIT_CONFIG_KEY_0=credential.helper",
+		"GIT_CONFIG_VALUE_0=!/opt/motita git-credential",
+		"GIT_CONFIG_NOSYSTEM=1",
+		"HOME=/home/u",
+	}
+	got := strings.Join(withoutInlineGitConfig(env), "\n")
+	want := "PATH=/usr/bin\nGIT_CONFIG_NOSYSTEM=1\nHOME=/home/u"
+	if got != want {
+		t.Errorf("got:\n%s\nwant:\n%s", got, want)
+	}
+}
+
 func corrupt(t *testing.T, dir, name string) {
 	t.Helper()
 	if err := os.WriteFile(dir+"/"+name, []byte("{not json"), 0o600); err != nil {
