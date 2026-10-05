@@ -143,6 +143,7 @@ interface ProjectInfo {
   description?: string
   dir: string
   git_url?: string
+  podman?: boolean
   branch?: string
   changes?: number
   created: string
@@ -718,6 +719,7 @@ export default function App() {
   const [newProjectGit, setNewProjectGit] = useState('')
   // Podman: whether this machine has it (asked when the dialog opens) and the user's answer.
   const [hasPodman, setHasPodman] = useState(false)
+  const [hasPodmanCompose, setHasPodmanCompose] = useState(false)
   const [newProjectPodman, setNewProjectPodman] = useState(false)
   // The git identity dialog: opened when the gateway answers that git has no user, and
   // submitted together with the project it interrupted.
@@ -1722,12 +1724,35 @@ export default function App() {
   }, [showNewProject, gitRev])
 
   // Ask the gateway which container runtimes the machine has, so podman is only offered when it is there.
+  // Read on start (the project menu needs it) and again when the dialog opens.
   useEffect(() => {
-    if (!showNewProject) return
     let live = true
-    api('/v1/runtimes').then(r => r.json()).then(d => { if (live) setHasPodman(!!d.podman) }).catch(() => { if (live) setHasPodman(false) })
+    api('/v1/runtimes').then(r => r.json()).then(d => {
+      if (!live) return
+      setHasPodman(!!d.podman)
+      setHasPodmanCompose(!!d.podman_compose)
+    }).catch(() => { if (live) { setHasPodman(false); setHasPodmanCompose(false) } })
     return () => { live = false }
   }, [showNewProject])
+
+  // setProjectPodman changes the answer given at creation: the gateway tells the open sessions.
+  const setProjectPodman = useCallback(async (id: string, podman: boolean) => {
+    try {
+      const res = await api('/v1/projects/' + id, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ podman })
+      })
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}))
+        setState(err.error || 'could not change the project', true)
+        return
+      }
+      await fetchProjects()
+    } catch {
+      setState('could not change the project', true)
+    }
+  }, [fetchProjects])
 
   const onGitConnected = useCallback((_service: string, account: string) => {
     const then = gitConnect?.then
@@ -3590,6 +3615,9 @@ export default function App() {
                               <span class="font-mono text-accent truncate max-w-[7rem]">{shortBranch(p.branch)}</span>
                             </span>
                           )}
+                          {p.podman && (
+                            <span class="inline-flex items-center flex-none px-1 py-px rounded bg-accent/10 text-accent text-[9px] uppercase tracking-wide" title={t('This project is run with podman')}>podman</span>
+                          )}
                           {!!p.changes && (
                             <span
                               class="inline-flex items-center gap-1 flex-none px-1 py-px rounded bg-[#f0a040]/10"
@@ -3634,6 +3662,15 @@ export default function App() {
               style={rowMenuPos ? { top: `${rowMenuPos.top}px`, left: `${rowMenuPos.left}px` } : undefined}
                             onClick={(e) => e.stopPropagation()}
                           >
+                            {(hasPodman || p.podman) && (
+                              <button
+                                class="row-menu-item w-full flex items-center gap-2 px-3 py-2 text-sm text-[#e8e8ea] hover:bg-white/5"
+                                data-testid="podman-toggle"
+                                onClick={(e) => { e.stopPropagation(); void setProjectPodman(p.id, !p.podman); closeRowMenu() }}
+                              >
+                                {t(p.podman ? 'Stop using podman' : 'Run with podman')}
+                              </button>
+                            )}
                             <button
                               class="row-menu-item w-full flex items-center gap-2 px-3 py-2 text-sm text-danger hover:bg-danger/10"
                               onClick={(e) => { e.stopPropagation(); setConfirmDelete({ type: 'project', id: p.id, title: p.title }); closeRowMenu() }}
@@ -4381,7 +4418,7 @@ export default function App() {
                   />
                   <span class="text-sm text-[#e8e8ea]">
                     {t('Podman was found on this machine. Use it to run this project?')}
-                    <span class="block text-xs text-[#7a7a8c] mt-0.5">{t('The project will be started in containers with podman.')}</span>
+                    <span class="block text-xs text-[#7a7a8c] mt-0.5">{t(hasPodmanCompose ? 'The project will be started in containers with podman.' : 'The project will be started in containers with podman. podman compose was not found, so compose files will not work until it is installed.')}</span>
                   </span>
                 </label>
               )}

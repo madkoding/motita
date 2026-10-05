@@ -501,6 +501,7 @@ func (s *Server) routes() *http.ServeMux {
 	mux.Handle("GET /v1/projects", plain(s.handleListProjects))
 	mux.Handle("GET /v1/runtimes", plain(s.handleRuntimes))
 	mux.Handle("POST /v1/projects", plain(s.handleCreateProject))
+	mux.Handle("PATCH /v1/projects/{id}", plain(s.handleUpdateProject))
 	mux.Handle("DELETE /v1/projects/{id}", plain(s.handleDeleteProject))
 	// Scheduled tasks are addressed by the PROCESS, not by a conversation, for the same
 	// reason projects are: a schedule exists whether or not anyone is talking to the
@@ -957,6 +958,7 @@ func (s *Server) loadPersistedSessions() {
 		// SAME shelf it had before the restart, or the procedures it learned while
 		// working on this project would silently disappear from its answers.
 		scopeProceduresTo(svc, projectskills.ProjectDirFor(projectDir, workspace))
+		applyRuntimeTo(svc, s.projectOf(rec.ProjectID))
 		s.sessionsMu.Lock()
 		s.sessions[rec.ID] = conv
 		s.sessionsMu.Unlock()

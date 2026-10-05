@@ -740,3 +740,26 @@ func TestTitleFromReplyKeepsOnlyATitle(t *testing.T) {
 		}
 	}
 }
+
+// TestThePodmanNoteFollowsTheUsersAnswer: the sentence is in the system prompt when the
+// project runs with podman, is swapped out when the answer changes, and is set whether the
+// answer arrives before the session exists or after it.
+func TestThePodmanNoteFollowsTheUsersAnswer(t *testing.T) {
+	r := &AppRunner{Cfg: config.Default()}
+	r.Cfg.LLM.Model = "gpt-4o"
+	r.SetContainerRuntime("podman") // before any session: remembered
+	s := r.conversation(r.Cfg, nil)
+	if !strings.Contains(s.System, "run with podman") {
+		t.Fatalf("the note must be in the prompt of a new session: %q", s.System)
+	}
+	base := strings.TrimSuffix(s.System, r.runtimeNote)
+
+	r.SetContainerRuntime("podman") // again: must not stack
+	if strings.Count(s.System, "run with podman") != 1 {
+		t.Fatal("the note must not be added twice")
+	}
+	r.SetContainerRuntime("")
+	if s.System != base {
+		t.Fatalf("clearing the answer must restore the prompt, got %q", s.System)
+	}
+}

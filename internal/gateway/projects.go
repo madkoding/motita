@@ -91,10 +91,22 @@ var podmanInstalled = func() bool {
 	return err == nil
 }
 
+// podmanComposeInstalled reports whether `podman compose` works, which needs a
+// compose provider as well as podman. Also a variable, for the same reason.
+var podmanComposeInstalled = func() bool {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	return exec.CommandContext(ctx, "podman", "compose", "version").Run() == nil
+}
+
 // handleRuntimes tells the client which container runtimes this machine has, so
 // the New project dialog only offers the ones that can be used.
 func (s *Server) handleRuntimes(w http.ResponseWriter, _ *http.Request) {
-	writeJSON(w, http.StatusOK, map[string]bool{"podman": podmanInstalled()})
+	hasPodman := podmanInstalled()
+	writeJSON(w, http.StatusOK, map[string]bool{
+		"podman":         hasPodman,
+		"podman_compose": hasPodman && podmanComposeInstalled(),
+	})
 }
 
 // handleCreateProject mints a new project, optionally cloning a git repo.
@@ -252,6 +264,36 @@ func (s *Server) ensureGitIdentity(w http.ResponseWriter, r *http.Request, name,
 		return false
 	}
 	return true
+}
+
+// handleUpdateProject changes the user's podman answer after the project exists.
+// Turning it on needs podman on the machine, and the sessions already open under
+// the project are told at once, so the next turn follows the new answer.
+func (s *Server) handleUpdateProject(w http.ResponseWriter, r *http.Request) {
+	p := s.projectOf(r.PathValue("id"))
+	if p == nil {
+		writeError(w, http.StatusNotFound, ErrProjectNotFound.Error())
+		return
+	}
+	var body struct {
+		Podman bool `json:"podman"`
+	}
+	if !s.decodeBody(w, r, &body) {
+		return
+	}
+	if body.Podman && !podmanInstalled() {
+		writeError(w, http.StatusConflict, "podman is not installed on this machine")
+		return
+	}
+	p.Podman = body.Podman
+	if err := s.projects.save(*p); err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	for _, c := range s.sessionsOfProject(p.ID) {
+		applyRuntimeTo(c.svc, p)
+	}
+	writeJSON(w, http.StatusOK, p)
 }
 
 // handleDeleteProject removes a project. Sessions that belong to it are NOT
@@ -455,6 +497,7 @@ func (s *Server) handleContinueSession(w http.ResponseWriter, r *http.Request) {
 		newConv.setTitle("continue: " + c.title)
 	}
 	scopeProceduresTo(newConv.svc, projectskills.ProjectDirFor(p.Dir, dir))
+	applyRuntimeTo(newConv.svc, p)
 	s.saveSession(newConv)
 	writeJSON(w, http.StatusCreated, newConv.status())
 }
