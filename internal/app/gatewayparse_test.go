@@ -130,7 +130,7 @@ func TestTheExistingFlagsAreUntouched(t *testing.T) {
 		{[]string{"-p", "hi"}, func(f flags) bool { return f.prompt == "hi" }, "-p"},
 		{[]string{"-init"}, func(f flags) bool { return f.initConfig }, "-init"},
 		{[]string{"config"}, func(f flags) bool { return f.initConfig }, "config"},
-		{[]string{"-config", "x.yaml", "config"}, func(f flags) bool { return f.initConfig && f.config == "x.yaml" }, "config with -config path"},
+		{[]string{"-config", "x.yaml", "config"}, func(f flags) bool { return f.initConfig && f.configPath == "x.yaml" }, "config with -config path"},
 		{[]string{"-validate-config"}, func(f flags) bool { return f.validateConfig }, "-validate-config"},
 		{[]string{"-version"}, func(f flags) bool { return f.version }, "-version"},
 		{[]string{"-isolation"}, func(f flags) bool { return f.isolation }, "-isolation"},
