@@ -108,3 +108,17 @@ func TestReportEvidenceKeepsOnlyImageFileNames(t *testing.T) {
 		t.Errorf("evidence = %+v\nwant       %+v", r.Evidence, want)
 	}
 }
+
+// TestReportTextListsTheScreenshots: a terminal draws no images, so it names each comparison and
+// the files of its sides; a side that does not exist is left out.
+func TestReportTextListsTheScreenshots(t *testing.T) {
+	r := Report{Summary: "s", Evidence: []ReportEvidence{
+		{Title: "Login", Before: "a-before.png", After: "a-after.png"},
+		{Title: "New", After: "n.png"},
+		{Before: "old.png"},
+	}}
+	want := "s\n\nScreenshots:\n  Login before=a-before.png after=a-after.png\n  New after=n.png\n  before=old.png"
+	if got := r.Text(); got != want {
+		t.Errorf("Text() =\n%s\nwant\n%s", got, want)
+	}
+}
