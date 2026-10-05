@@ -607,6 +607,17 @@ case "$markdown_rc" in
      printf '%s\n' "$markdown_out" | grep -E '^  FAIL|^    FAIL' | head -8 | sed 's/^/    /' ;;
 esac
 
+step "8h. the audit-report anchor catches a fabricated or incomplete report"
+# Case 4 (configs/cases/4-audit.yaml) lets scripts/verify-audit-report.sh decide that an audit
+# is done. An anchor that accepts everything is the failure this architecture exists to prevent,
+# so the script proves its own checks bite: one good report passes, and each defect is rejected.
+if audit_out="$(sh scripts/verify-audit-report.sh --selftest 2>&1)"; then
+  ok "$(printf '%s\n' "$audit_out" | grep '^SELFTEST OK')"
+else
+  bad "the audit-report anchor failed its self-test"
+  printf '%s\n' "$audit_out" | grep 'SELFTEST FAIL' | head -5 | sed 's/^/    /'
+fi
+
 printf '\n========================================\n'
 if [ "$failures" -eq 0 ]; then
   echo "VERIFICATION PASSED: the repository is clean, tested and functional."

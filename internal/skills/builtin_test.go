@@ -35,12 +35,14 @@ const (
 	showSkill     = "diagrams-and-reports"
 	verifySkill   = "verifying-a-change"
 	prSkill       = "pull-requests-and-ci"
+	auditSkill    = "auditing-code"
+	vulnSkill     = "finding-vulnerabilities"
 )
 
 // shippedCore is what a fresh install is expected to carry, in one list: the tests that ask "does
 // a fresh install ship this" and "does the search find it" both read it, so adding a document
 // means adding it here and nowhere else.
-var shippedCore = []string{fileSkill, webSkill, commandsSkill, gitSkill, curlSkill, showSkill, verifySkill, prSkill}
+var shippedCore = []string{fileSkill, webSkill, commandsSkill, gitSkill, curlSkill, showSkill, verifySkill, prSkill, auditSkill, vulnSkill}
 
 // TestTheShippedProceduresLoad is the base case: a fresh install has something to look up. An
 // embed directive that names a folder the binary does not carry would leave the library empty
@@ -132,6 +134,21 @@ func TestTheShippedProceduresAreFoundByTheWordsOfTheJob(t *testing.T) {
 			"the ci failed on my pull request",
 			"conventional commit message",
 			"give the user the link to the pr",
+		}},
+		// The audit pair: the first is about running and reporting a review, the second about what
+		// an attacker would try. Each query must land on the right one, since both mention security.
+		{auditSkill, []string{
+			"audit this codebase",
+			"review the code for quality problems",
+			"write an audit report with findings and severity",
+			"assess a pull request for correctness",
+		}},
+		{vulnSkill, []string{
+			"find vulnerabilities in this code",
+			"can this be exploited",
+			"security review of the web server",
+			"look for path traversal and injection",
+			"check for exposed secrets and tokens",
 		}},
 		{verifySkill, []string{
 			"did it actually work",

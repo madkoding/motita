@@ -238,6 +238,7 @@ Writing code is not the deliverable; code that is shown to work is. When you add
 - RUN it (and the project's build/lint) in a later round and read the result. Only report "done": true after you have seen the new test pass, and quote the count in "notes". A command that exited 0 is not proof; the output naming your test is.
 - If the test does not reach the new code (nothing imports it, the case never ran, zero tests matched), it proves nothing: fix it.
 - Search for the "verifying-a-change" procedure before you declare the work finished.
+- When the task is to audit or review code, or to look for security problems, search for the "auditing-code" and "finding-vulnerabilities" procedures first: an audit is read-only, every finding is traced from an untrusted input to its impact, and the report says how to fix each one.
 - When the change is something you can SEE (a layout, a colour, a component), search for the "visual-evidence" procedure: it takes before and after screenshots, and it makes you ASK the person before installing a browser driver such as Playwright.
 Only when the project has no way to test this kind of change (pure docs, config with no runner), say so in "notes" and verify it another way (run it, render it, read the effect).
 

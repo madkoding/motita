@@ -1227,15 +1227,16 @@ message** whatever it does not understand: unknown keys (naming the block they
 are in), tabs in the indentation, anchors/aliases/tags and malformed lists. It
 never guesses.
 
-### The three use cases
+### The four use cases
 
 | Case | File | Flow |
 |---|---|---|
 | 1. Development | `configs/cases/1-development.yaml` | task in a file → LLM → networkless sandbox → **`go test` + `go vet` + `gofmt` as the anchor** → commit |
 | 2. Data analysis | `configs/cases/2-data.yaml` | task from an API → isolated networkless analysis → **report invariants as the anchor** → publish the result over the API |
 | 3. Automation | `configs/cases/3-automation.yaml` | file queue → bounded script (256 MB, 30 s CPU, no network) → **effect check as the anchor** → notification |
+| 4. Audit | `configs/cases/4-audit.yaml` | audit request in a file → read-only code and security review in a networkless sandbox → **report validated by `scripts/verify-audit-report.sh` as the anchor** (structure, severity, remediation, every cited `path:line` exists, no secret in clear, no tracked file modified) → published report |
 
-All three are verified by the test suite: if an example YAML stops loading, or
+All four are verified by the test suite: if an example YAML stops loading, or
 loses one of its three templates, the tests fail.
 
 ---
