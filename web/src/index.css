@@ -2191,22 +2191,24 @@ button:not(.auto-approve-pill):not(.term-tab) {
  * so they follow whatever border colour (hover, focus, utility) the button has. Together with the
  * real border this closes the outline. Only buttons with a border get it: a `border*` utility
  * other than border-transparent, `.btn-outline`, or a CSS-bordered class. Borderless and
- * transparent buttons keep the cut with no stroke. Assumes a 1px border. */
+ * transparent buttons keep the cut with no stroke. Stroke width follows --btn-bw (border-2 → 2px). */
 :where(button) { position: relative; }
+button.border-2 { --btn-bw: 2px; }
+button.border-4 { --btn-bw: 4px; }
 :is(button[class*="border"]:not([class*="border-transparent"]), button.btn-outline, .cp-btn, .copy-btn, .copy-msg-btn):not(.auto-approve-pill):not(.term-tab)::before,
 :is(button[class*="border"]:not([class*="border-transparent"]), button.btn-outline, .cp-btn, .copy-btn, .copy-msg-btn):not(.auto-approve-pill):not(.term-tab)::after {
   content: ''; position: absolute; pointer-events: none;
   width: calc((var(--btn-cut) + 0.7px) * 1.4142); height: 0;
-  border-top: 1px solid; border-top-color: inherit;
+  border-top: var(--btn-bw, 1px) solid; border-top-color: inherit;
 }
 :is(button[class*="border"]:not([class*="border-transparent"]), button.btn-outline, .cp-btn, .copy-btn, .copy-msg-btn):not(.auto-approve-pill):not(.term-tab)::before {
-  left: calc((var(--btn-cut) + 0.7px) / 2 - 1px - (var(--btn-cut) + 0.7px) * 0.7071);
-  top: calc((var(--btn-cut) + 0.7px) / 2 - 1.5px);
+  left: calc((var(--btn-cut) + 0.7px) / 2 - var(--btn-bw, 1px) - (var(--btn-cut) + 0.7px) * 0.7071);
+  top: calc((var(--btn-cut) + 0.7px) / 2 - 1.5 * var(--btn-bw, 1px));
   transform: rotate(-45deg);
 }
 :is(button[class*="border"]:not([class*="border-transparent"]), button.btn-outline, .cp-btn, .copy-btn, .copy-msg-btn):not(.auto-approve-pill):not(.term-tab)::after {
-  right: calc((var(--btn-cut) + 0.7px) / 2 - 1px - (var(--btn-cut) + 0.7px) * 0.7071);
-  bottom: calc((var(--btn-cut) + 0.7px) / 2 - 1.5px);
+  right: calc((var(--btn-cut) + 0.7px) / 2 - var(--btn-bw, 1px) - (var(--btn-cut) + 0.7px) * 0.7071);
+  bottom: calc((var(--btn-cut) + 0.7px) / 2 - 1.5 * var(--btn-bw, 1px));
   transform: rotate(-45deg);
 }
 
