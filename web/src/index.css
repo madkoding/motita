@@ -2200,3 +2200,42 @@ button:not(.auto-approve-pill):not(.term-tab) {
   animation: btnSpin 0.8s linear infinite;
 }
 @keyframes btnSpin { to { transform: rotate(360deg); } }
+
+/* ─── Full-width messages, told apart by colour ──────────────────────
+ * User and agent messages both use the whole width of the conversation, so the difference
+ * between them is no longer which side they sit on. The user's carries an accent bar and a cyan
+ * tint (and a small label); the agent's stays neutral. The conversation keeps a gutter on its
+ * right for the drawers' tabs, which stick out 34px to the left of the drawer and would
+ * otherwise sit on top of the text. */
+main.chat-bg.chat-bg { padding-right: 46px; }
+.turn-head { align-self: stretch; width: 100%; }
+.turn-head .msg.user { flex: 1 1 auto; }
+.msg.user,
+.msg.agent {
+  align-self: stretch;
+  width: auto;
+  max-width: 100%;
+}
+.msg.user {
+  background: rgba(76, 194, 255, 0.10);
+  border-color: rgba(76, 194, 255, 0.30);
+  border-left: 3px solid #4cc2ff;
+}
+.msg.agent {
+  border-left: 3px solid rgba(255, 255, 255, 0.14);
+}
+.msg[data-who]::before {
+  display: block;
+  margin-bottom: 2px;
+  font-size: 0.72em;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.msg.user[data-who]::before { content: attr(data-who); color: #4cc2ff; }
+.msg.agent[data-who]::before { content: attr(data-who); color: #8a8a9a; }
+
+/* A status chip, not a headline: small, sentence case, so it takes little of the header. */
+.auto-approve-pill {
+  font-size: 10px; text-transform: none; letter-spacing: 0.02em; --cut: 5px;
+}

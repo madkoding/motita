@@ -2570,6 +2570,17 @@ export default function App() {
     void loadAgentsRef.current(sessionRef.current)
     // After a run finishes, refresh the session list so the auto-title shows up.
     fetchSessions()
+    // A message sent mid-run starts the next run in the gateway, not through this tab: reload
+    // the conversation and follow it. Asked twice because the gateway starts it a beat later.
+    if (handoffRef.current) {
+      handoffRef.current = false
+      const sid = sessionRef.current
+      for (const delay of [400, 1800]) {
+        setTimeout(() => {
+          if (sessionRef.current === sid && !runningRef.current) void switchSessionRef.current?.(sid, 'none')
+        }, delay)
+      }
+    }
   }, [fetchSessions, loadCheckpoints])
 
   // dispatchEvent handles one parsed SSE event.
@@ -2884,22 +2895,34 @@ export default function App() {
     }
   }, [finish, readStream, followReconnect])
 
-  // queueMessage sends a message while a run is in flight. The gateway keeps one queue per
-  // session: a busy session queues it, an idle one (another session) starts it, so a working
-  // agent never blocks writing elsewhere.
-  const queueMessage = (text: string) => {
+  // handoffRef is set when a message was sent to a run in flight (queued, or an interruption
+  // that carries one): the gateway starts the next run on its own when this one ends, and this
+  // tab never opened that stream, so finish() asks the gateway for it and follows it.
+  const handoffRef = useRef(false)
+
+  // sendWhileRunning sends a message to the session on screen while a run is in flight.
+  // `interrupt` stops the run first and puts the message at the front, so the agent reads the
+  // new context right away; without it the message waits for the end of the turn.
+  const sendWhileRunning = (text: string, interrupt: boolean) => {
     const sid = sessionRef.current
-    void api('/v1/sessions/' + encodeURIComponent(sid) + '/queue', {
+    handoffRef.current = true
+    void api('/v1/sessions/' + encodeURIComponent(sid) + (interrupt ? '/interrupt' : '/queue'), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ task: text }),
     }).then(res => {
-      if (!res.ok) setToast({ message: t('the gateway refused the turn'), type: 'error' })
-    }).catch(() => setToast({ message: t('the gateway refused the turn'), type: 'error' }))
+      if (!res.ok) {
+        handoffRef.current = false
+        setToast({ message: t('the gateway refused the turn'), type: 'error' })
+      }
+    }).catch(() => {
+      handoffRef.current = false
+      setToast({ message: t('the gateway refused the turn'), type: 'error' })
+    })
   }
 
-  // interruptRun stops the current turn of the session on screen.
-  const interruptRun = () => {
+  // stopRun stops the current turn of the session on screen, with nothing queued behind it.
+  const stopRun = () => {
     void api('/v1/sessions/' + encodeURIComponent(sessionRef.current) + '/interrupt', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -2923,7 +2946,7 @@ export default function App() {
     if (runningRef.current) {
       setInput('')
       setActiveTags([])
-      queueMessage(text)
+      sendWhileRunning(text, true)
       return
     }
     // Remove placeholder messages (.kind) before the first real turn.
@@ -2977,13 +3000,13 @@ export default function App() {
     }
     if (e.key === 'Escape' && runningRef.current) {
       e.preventDefault()
-      interruptRun()
+      stopRun()
       return
     }
     if (e.key !== 'Enter') return
     // Coarse pointer = touch device; skip Enter-to-send there.
     if (window.matchMedia('(pointer: coarse)').matches) return
-    if (e.shiftKey || e.ctrlKey || e.metaKey || e.altKey) return
+    if (e.shiftKey || e.ctrlKey || e.metaKey || (e.altKey && !runningRef.current)) return
     e.preventDefault()
     const argText = input.trim()
     // If there are active tags, send tags + argument. If no tags and no text, nothing.
@@ -2999,7 +3022,8 @@ export default function App() {
     if (runningRef.current) {
       setInput('')
       setActiveTags([])
-      queueMessage(text)
+      // Enter interrupts with the message; Alt+Enter leaves the run alone and queues it.
+      sendWhileRunning(text, !e.altKey)
       return
     }
     setMessages(prev => prev.filter(m => m.kind !== 'kind'))
@@ -3902,11 +3926,11 @@ export default function App() {
           </div>
           {sessions.find(s => s.id === sessionId)?.auto_approve && (
             <button
-              class="auto-approve-pill flex-none whitespace-nowrap text-xs px-2 sm:px-2.5 py-1 rounded-full"
+              class="auto-approve-pill flex-none whitespace-nowrap px-2 py-0.5 rounded-full"
               title={t('Every command in this session runs without asking. Click to be asked again.')}
               onClick={stopAutoApprove}
             >
-              {t('all commands allowed')} ✕
+              {t('all allowed')} ✕
             </button>
           )}
           <span
@@ -3966,7 +3990,32 @@ export default function App() {
                 <div key={g.key} class="turn">
                   {head && (
                     <div class="turn-head">
-                      <div class="msg user"><span>{head.text}</span></div>
+                      <div class="msg user" data-who={t('You')}><span>{head.text}</span></div>
+                      {liveHere && (
+                        <div class="cp-wrap">
+                          <button
+                            type="button"
+                            class="cp-btn"
+                            aria-label={t('Run menu')}
+                            aria-haspopup="menu"
+                            aria-expanded={cpMenu === -1}
+                            title={t('Run menu')}
+                            onClick={() => { setCpArmed(false); setCpMenu(m => m === -1 ? null : -1) }}
+                          >
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+                              <circle cx="12" cy="5" r="1.8" /><circle cx="12" cy="12" r="1.8" /><circle cx="12" cy="19" r="1.8" />
+                            </svg>
+                          </button>
+                          {cpMenu === -1 && (
+                            <div class="cp-menu" role="menu">
+                              <button type="button" role="menuitem" class="is-armed" onClick={() => { setCpMenu(null); stopRun() }}>
+                                {t('Stop the agent')}
+                                <small>{t('Enter sends a message that interrupts; Alt+Enter queues it')}</small>
+                              </button>
+                            </div>
+                          )}
+                        </div>
+                      )}
                       {canGoBack && (
                         <div class="cp-wrap">
                           <button
@@ -4025,7 +4074,7 @@ export default function App() {
                     </ActionTrail>
                   )}
                   {rest.map(m => (
-                    <div key={m.id} class={`msg ${m.role}${m.kind ? ' ' + m.kind : ''}`}>
+                    <div key={m.id} class={`msg ${m.role}${m.kind ? ' ' + m.kind : ''}`} data-who={m.role === 'agent' && !m.kind ? t('Agent') : undefined}>
                       {m.role === 'agent' && !m.kind && m.report ? (
                         <ReportCard report={m.report} />
                       ) : m.role === 'agent' && !m.kind ? (
