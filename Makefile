@@ -24,7 +24,7 @@ PLATFORMS := linux/386 linux/amd64 linux/arm linux/arm64 \
              darwin/amd64 darwin/arm64
 
 .PHONY: help web build dist verify-dist test test-matrix vet bench fmt fmt-check check cover \
-        staticcheck run smoke e2e e2e-agent e2e-gateway clean test-release release-dry-run
+        staticcheck hooks run smoke e2e e2e-agent e2e-gateway clean test-release release-dry-run
 
 test-release: ## Check Conventional Commits map to the right version bump
 	./scripts/test-release-bump.sh
@@ -102,6 +102,9 @@ fmt: ## Format the code
 
 fmt-check: ## Fail if any file is unformatted
 	@test -z "$$(gofmt -l . )" || { echo "Unformatted:"; gofmt -l .; exit 1; }
+
+hooks: ## Enable the git hooks (gofmt on commit, fmt-check + vet on push)
+	git config core.hooksPath .githooks
 
 check: fmt-check vet staticcheck test ## Full verification (what CI runs)
 
