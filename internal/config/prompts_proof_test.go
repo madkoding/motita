@@ -14,6 +14,8 @@ func TestThePromptsDemandProofOfNewBehaviour(t *testing.T) {
 		"execute leaves a test":        {BaseExecuteTemplate.User, "LEAVE THE CHANGE PROVEN"},
 		"execute runs it before done":  {BaseExecuteTemplate.User, "Only report \"done\": true after you have seen the new test pass"},
 		"execute points at the skill":  {BaseExecuteTemplate.User, "verifying-a-change"},
+		"execute points at the audit":  {BaseExecuteTemplate.User, "auditing-code"},
+		"execute points at the vulns":  {BaseExecuteTemplate.User, "finding-vulnerabilities"},
 		"execute commits are semantic": {BaseExecuteTemplate.User, "type(scope): description"},
 		"execute links the pr":         {BaseExecuteTemplate.User, "[owner/repo#12](url)"},
 		"execute watches the ci":       {BaseExecuteTemplate.User, "motita forge pr checks --wait --logs"},

@@ -32,6 +32,7 @@ restating them (they change, a copy rots):
 
 | Procedure | Use it for |
 | --- | --- |
+| `auditing-code.md`, `finding-vulnerabilities.md` | The method, report format, severity scale and generic vulnerability checklist motita's own agent uses. They are the shared source: follow them, and treat `security-checklist.md` here as the motita-specific addendum on top. |
 | `verifying-a-change.md` | The evidence standard for every finding: a claim needs a second read that observes the effect, not "the code looks wrong". Reproduce the failure before claiming a fix; flag tests that pass for the wrong reason; quote counts with their denominator. |
 | `running-commands.md` | How to run tooling (`go vet`, `govulncheck`, `-race`, `npm audit`) and read exit codes/timeouts correctly. |
 | `git-in-a-repository.md` | Safe git use while auditing history/diffs, and when applying fixes. |
