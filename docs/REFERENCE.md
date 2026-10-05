@@ -599,6 +599,7 @@ interface is a client of it.
 | `allow` | *empty* | **Who may connect**, as an ordered list of rules. Empty means every origin — the fresh-firewall-table default. Entries: `any`, `lan`, an address (`192.168.1.10`), a network (`192.168.0.0/16`), each optionally prefixed with `!` to deny. The first rule that matches decides; an origin no rule matches is allowed. Loopback is always allowed. See the rules table above. Also read from `MOTITA_GATEWAY_ALLOW`, comma- or space-separated. |
 | `max_body_kb` | `256` | Cap on a request body. |
 | `max_sessions` | `0` | How many conversations one process holds IN MEMORY. `0` means the built-in default (64). The ceiling bounds how many transcripts are resident; conversations beyond it stay on disk and are re-materialised on demand. A negative ceiling is refused rather than read as the default, which would hide the typo that produced it. |
+| `artifact_days` | `30` | Days a saved artifact (a file the agent produced, or one you uploaded) is kept; older ones are deleted when the gateway starts and once a day. The folders of sessions and projects that no longer exist are removed too. `0` keeps artifacts for ever; a negative number is refused. Also read from `MOTITA_GATEWAY_ARTIFACT_DAYS`. |
 
 #### Running the gateway as a service
 
@@ -1325,6 +1326,10 @@ make e2e             # one-shot task end to end in a real i386 container
   container and publishes the binaries when a `v*` tag is created.
 
 ### End-to-end test
+
+The e2e targets run in a container with **docker or podman**: docker when its daemon
+answers, otherwise podman (no daemon needed). `CONTAINER_RUNTIME=podman` (or `docker`)
+forces one; see `scripts/container-runtime.sh`.
 
 `make e2e-agent` builds the agent and a simulated LLM (`tools/mockllm`) for 386
 and runs them **inside the same 32-bit container**. The simulated model gets it

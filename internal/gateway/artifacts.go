@@ -80,6 +80,17 @@ func (s *Server) projectArtifactDirFor(projectID string) string {
 	return s.artifactDirFor("project-" + projectID)
 }
 
+// projectArtifactName is the name a session's file takes in its project's shared folder: the
+// session's short id in front, so two sessions that both save "report.md" keep both instead of
+// the last one silently replacing the first. A session still replaces its OWN earlier file.
+func projectArtifactName(sessionID, name string) string {
+	short := sessionID
+	if len(short) > 8 {
+		short = short[:8]
+	}
+	return short + "-" + name
+}
+
 // scopedArtifactDir is the folder a request is about: the session's own, or the project's
 // when the request says `?scope=project` and the session belongs to one.
 func (s *Server) scopedArtifactDir(c *conversation, r *http.Request) string {
@@ -163,7 +174,7 @@ func (s *Server) collectArtifacts(c *conversation) []Artifact {
 			continue
 		}
 		if projectDst != "" {
-			_, _ = s.storeArtifact(projectDst, e.Name(), data)
+			_, _ = s.storeArtifact(projectDst, projectArtifactName(c.id, e.Name()), data)
 		}
 		if changed {
 			fresh = append(fresh, Artifact{Name: e.Name(), Size: int64(len(data)), Type: artifactType(e.Name()), Modified: time.Now()})
@@ -301,4 +312,84 @@ func (s *Server) removeProjectArtifacts(projectID string) {
 	if dir := s.projectArtifactDirFor(projectID); dir != "" {
 		_ = os.RemoveAll(dir)
 	}
+}
+
+// artifactPruneInterval is how often the store is cleaned once the gateway is up.
+const artifactPruneInterval = 24 * time.Hour
+
+// sessionIsKnown reports whether a session still exists: held in memory, or saved on disk
+// (sessions beyond the in-memory ceiling are only on disk and come back on demand).
+func (s *Server) sessionIsKnown(id string) bool {
+	s.sessionsMu.Lock()
+	_, held := s.sessions[id]
+	s.sessionsMu.Unlock()
+	if held {
+		return true
+	}
+	if s.store == nil {
+		return false
+	}
+	_, err := os.Stat(s.store.path(id))
+	return err == nil
+}
+
+// pruneArtifacts deletes what nobody can reach or wants any more: the folders of sessions and
+// projects that are gone, and files older than the retention. It only ever deletes under the
+// artifact root, and a failure to delete one thing leaves the rest to be tried next time.
+func (s *Server) pruneArtifacts(now time.Time) {
+	root := s.opts.ArtifactDir
+	if root == "" {
+		return
+	}
+	entries, err := os.ReadDir(root)
+	if err != nil {
+		return
+	}
+	var cutoff time.Time
+	if s.opts.ArtifactDays > 0 {
+		cutoff = now.AddDate(0, 0, -s.opts.ArtifactDays)
+	}
+	for _, e := range entries {
+		if !e.IsDir() {
+			continue
+		}
+		dir := filepath.Join(root, e.Name())
+		if id, isProject := strings.CutPrefix(e.Name(), "project-"); isProject {
+			if s.projects != nil && s.projectOf(id) == nil {
+				_ = os.RemoveAll(dir)
+				continue
+			}
+		} else if !s.sessionIsKnown(e.Name()) {
+			_ = os.RemoveAll(dir)
+			continue
+		}
+		if cutoff.IsZero() {
+			continue
+		}
+		for _, a := range listArtifacts(dir) {
+			if a.Modified.Before(cutoff) {
+				_ = os.Remove(filepath.Join(dir, a.Name))
+			}
+		}
+	}
+}
+
+// startArtifactPruner cleans the store now and then once a day until the gateway closes.
+func (s *Server) startArtifactPruner(interval time.Duration) {
+	if s.opts.ArtifactDir == "" {
+		return
+	}
+	go func() {
+		s.pruneArtifacts(time.Now())
+		ticker := time.NewTicker(interval)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-s.baseCtx.Done():
+				return
+			case <-ticker.C:
+				s.pruneArtifacts(time.Now())
+			}
+		}
+	}()
 }

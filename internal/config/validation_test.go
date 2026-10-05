@@ -131,6 +131,16 @@ func TestGatewayValidation(t *testing.T) {
 			"gateway.max_sessions",
 		},
 		{
+			"a zero artifact retention keeps them for ever and is valid",
+			func(c *Config) { c.Gateway.ArtifactDays = 0 },
+			"",
+		},
+		{
+			"a negative artifact retention is refused",
+			func(c *Config) { c.Gateway.ArtifactDays = -1 },
+			"gateway.artifact_days",
+		},
+		{
 			"an enabled gateway needs a token file",
 			func(c *Config) { c.Gateway.TokenFile = "" },
 			"gateway.token_file",

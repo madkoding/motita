@@ -19,6 +19,9 @@ set -euo pipefail
 
 cd "$(dirname "$0")/.."
 
+# docker or podman: see scripts/container-runtime.sh.
+. scripts/container-runtime.sh
+
 if ! command -v go >/dev/null 2>&1 && [ -x /home/madkoding/.hermes/cache/go/bin ]; then
   export PATH="/home/madkoding/.hermes/cache/go/bin:$PATH"
   export GOCACHE="${GOCACHE:-/home/madkoding/.hermes/cache/go-build}"
@@ -26,7 +29,7 @@ if ! command -v go >/dev/null 2>&1 && [ -x /home/madkoding/.hermes/cache/go/bin 
 fi
 command -v go >/dev/null 2>&1 || { echo "ERROR: go is not on the PATH"; exit 2; }
 command -v curl >/dev/null 2>&1 || { echo "ERROR: curl is not on the PATH"; exit 2; }
-command -v docker >/dev/null 2>&1 || { echo "ERROR: docker is not on the PATH"; exit 2; }
+command -v "$CTR" >/dev/null 2>&1 || { echo "ERROR: $CTR is not on the PATH (docker or podman is needed)"; exit 2; }
 
 ARCH="${1:-amd64}"
 IMAGE="${2:-}"
@@ -52,7 +55,7 @@ MOCK="dist/.e2e/mockllm-webui-linux-$ARCH"
 case "$BINARY" in dist/.e2e/*) ;; *) echo "ERROR: the test binary must live under dist/.e2e/"; exit 1;; esac
 mkdir -p dist/.e2e
 
-cleanup() { docker rm -f "$CONTAINER" >/dev/null 2>&1 || true; }
+cleanup() { "$CTR" rm -f "$CONTAINER" >/dev/null 2>&1 || true; }
 trap cleanup EXIT
 # A container left behind by an interrupted run would otherwise fail this one with docker's
 # name-conflict error, which reads as a broken test rather than as stale state.
@@ -84,7 +87,7 @@ grep -q "webui: true" .e2e/config.yaml || { echo "ERROR: the webui setting did n
 [ "$(grep -c '^gateway:' .e2e/config.yaml)" = "1" ] || { echo "ERROR: the config has two gateway blocks"; exit 1; }
 
 echo "==> Starting $IMAGE ($PLATFORM) on the host network"
-docker run -d --name "$CONTAINER" --platform "$PLATFORM" \
+"$CTR" run -d --name "$CONTAINER" --platform "$PLATFORM" \
   --network host \
   --user "$(id -u):$(id -g)" \
   -v "$PWD/dist:/dist:ro" \

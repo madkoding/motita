@@ -439,7 +439,7 @@ func TestRunHelp(t *testing.T) {
 	// line scrolls out of the visible rows — asking the screen about the content is a false
 	// negative. What has to hold here is that the help ARRIVED; what it says is asserted
 	// against helpText itself in the interaction tests.
-	if !strings.Contains(stripANSI(outputOf(tui)), "/value") {
+	if !strings.Contains(stripANSI(outputOf(tui)), "/sessions") {
 		t.Errorf("help not printed: %q", outputOf(tui))
 	}
 }

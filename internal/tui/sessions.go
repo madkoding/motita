@@ -9,6 +9,21 @@ import (
 	"time"
 )
 
+// ArtifactInfo is one file the agent saved for the person, as the interface lists it.
+type ArtifactInfo struct {
+	Name string
+	Type string
+	Size int64
+}
+
+// ArtifactBrowser is a Runner that can list the files the agent saved in the current
+// conversation and read one. It is OPTIONAL for the same reason SessionSwitcher is: only a runner
+// backed by a gateway keeps artifacts, and the others must not grow methods with nothing to say.
+type ArtifactBrowser interface {
+	ListArtifacts(ctx context.Context) ([]ArtifactInfo, error)
+	ReadArtifact(ctx context.Context, name string) ([]byte, error)
+}
+
 // SessionInfo is one conversation, as an interface needs to draw it.
 type SessionInfo struct {
 	ID string

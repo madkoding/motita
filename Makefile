@@ -4,6 +4,10 @@
 VERSION   ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 LDFLAGS   := -s -w -X main.version=$(VERSION)
 GO        ?= go
+# The container runtime for the e2e targets: docker when its daemon answers, else podman.
+# CONTAINER_RUNTIME=podman forces one. See scripts/container-runtime.sh.
+CTR ?= $(shell sh -c '. ./scripts/container-runtime.sh; echo $$CTR')
+
 DIST      := dist
 COVERPKG  := ./...
 # Packages with tests (the coverage report walks them one by one).
@@ -132,7 +136,7 @@ smoke: dist ## Run the linux binaries inside their own container
 		case "$$arch" in arm) image="arm32v7/debian:bookworm-slim"; pl="linux/arm/v7";; esac; \
 		case "$$arch" in arm64) image="arm64v8/debian:bookworm-slim";; esac; \
 		printf '  %-12s ' "$$arch"; \
-		docker run --rm --platform "$$pl" -v "$(CURDIR)/$(DIST):/t:ro" "$$image" \
+		$(CTR) run --rm --platform "$$pl" -v "$(CURDIR)/$(DIST):/t:ro" "$$image" \
 			sh -c "/t/motita-linux-$$arch -version" || exit 1; \
 	done
 

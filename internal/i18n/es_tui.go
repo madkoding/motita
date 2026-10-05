@@ -25,6 +25,18 @@ func init() {
 		"… and %d more":              "… y %d más",
 		"answer:":                    "respuesta:",
 
+		// Artifacts.
+		"files the agent saved: list, show one, or save it here":                                             "archivos que guardó el agente: lista, muestra uno o guárdalo aquí",
+		"this interface is not attached to a gateway that keeps artifacts":                                   "esta interfaz no está conectada a un gateway que guarde artefactos",
+		"usage: /artifacts [name | save name]":                                                               "uso: /artifacts [nombre | save nombre]",
+		"the gateway could not be asked for the artifacts: %w":                                               "no se pudo pedir los artefactos al gateway: %w",
+		"Nothing saved in this session yet. Ask for a report, a page or a diagram and it will show up here.": "Aún no hay nada guardado en esta sesión. Pide un informe, una página o un diagrama y aparecerá aquí.",
+		"%s is not text: /artifacts save %s writes it to the current directory":                              "%s no es texto: /artifacts save %s lo escribe en el directorio actual",
+		"… and %d more lines: /artifacts save %s writes the whole file":                                      "… y %d líneas más: /artifacts save %s escribe el archivo completo",
+		"an artifact is saved under its plain name, without a path":                                          "un artefacto se guarda con su nombre simple, sin ruta",
+		"%s already exists here: move it or rename it first":                                                 "%s ya existe aquí: muévelo o renómbralo primero",
+		"saved %s (%d bytes)": "guardado %s (%d bytes)",
+
 		// Commands.
 		"model set to %s for this session":                           "modelo cambiado a %s para esta sesión",
 		"usage: /attach <session id> — /sessions lists them.":        "uso: /attach <id de sesión> — /sessions las lista.",

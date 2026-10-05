@@ -124,6 +124,8 @@ type Options struct {
 	// ArtifactDir is the directory the files an agent produced are kept in, one folder per
 	// session. Empty means artifacts are not kept.
 	ArtifactDir string
+	// ArtifactDays is how many days an artifact is kept. Zero keeps them for ever.
+	ArtifactDays int
 	// ProjectDir is the directory where projects are persisted. Empty means
 	// projects are not available.
 	ProjectDir string
@@ -356,6 +358,7 @@ func Start(opts Options) (*Server, error) {
 	// never opens the settings modal still sees a toast when a new release
 	// appears, without the frontend having to poll GitHub itself.
 	s.startUpdateChecker()
+	s.startArtifactPruner(artifactPruneInterval)
 	return s, nil
 }
 

@@ -583,3 +583,29 @@ func TestAFailedQuestionStillPrintsItsProgressToStderr(t *testing.T) {
 		t.Errorf("progress did not reach stderr: %q", stderr.String())
 	}
 }
+
+// TestTheAdapterTranslatesTheArtifacts: the gateway's Artifact and the interface's ArtifactInfo are
+// two types in two packages that cannot import each other, so this adapter is where the list
+// crosses; a failed ask is an error and not an empty list.
+func TestTheAdapterTranslatesTheArtifacts(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("Authorization") != "Bearer "+testToken {
+			w.WriteHeader(http.StatusUnauthorized)
+			_, _ = w.Write([]byte(`{"error":"no"}`))
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"artifacts":[{"name":"report.md","size":2048,"type":"text/markdown"}]}`))
+	}))
+	defer srv.Close()
+
+	sw := sessionSwitcher{gateway.NewClientForSession(srv.URL, testToken, "default")}
+	got, err := sw.ListArtifacts(context.Background())
+	if err != nil || len(got) != 1 || got[0] != (tui.ArtifactInfo{Name: "report.md", Type: "text/markdown", Size: 2048}) {
+		t.Fatalf("got %+v, %v", got, err)
+	}
+	denied := sessionSwitcher{gateway.NewClientForSession(srv.URL, "wrong", "default")}
+	if _, err := denied.ListArtifacts(context.Background()); err == nil {
+		t.Fatal("a refused ask must be an error")
+	}
+}

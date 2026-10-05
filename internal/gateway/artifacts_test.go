@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 // artifactServer is a gateway that keeps artifacts, with one session and a workspace in which
@@ -213,14 +214,20 @@ func TestProjectArtifactsAreSharedAndScoped(t *testing.T) {
 	c.workspace = ws
 	c.setProjectID("p1", ws, ws)
 	srv.collectArtifacts(c)
-	if _, err := os.Stat(filepath.Join(root, "project-p1", "plan.md")); err != nil {
+	shared := projectArtifactName(c.id, "plan.md")
+	if _, err := os.Stat(filepath.Join(root, "project-p1", shared)); err != nil {
 		t.Fatalf("the project folder must get a copy: %v", err)
 	}
+	// Another session saving the same name must not replace it.
+	other := projectArtifactName("another-session-id", "plan.md")
+	if other == shared || projectArtifactName("short", "a") != "short-a" {
+		t.Fatalf("names must differ per session: %q %q", shared, other)
+	}
 	base := "/v1/sessions/" + c.id + "/artifacts"
-	if w := artifactCall(srv, http.MethodGet, base+"?scope=project"); !strings.Contains(w.Body.String(), "plan.md") {
+	if w := artifactCall(srv, http.MethodGet, base+"?scope=project"); !strings.Contains(w.Body.String(), shared) {
 		t.Fatalf("project list = %s", w.Body)
 	}
-	if w := artifactCall(srv, http.MethodGet, base+"/plan.md?scope=project"); w.Body.String() != "# p" {
+	if w := artifactCall(srv, http.MethodGet, base+"/"+shared+"?scope=project"); w.Body.String() != "# p" {
 		t.Fatalf("project file = %q", w.Body)
 	}
 	srv.removeProjectArtifacts("p1")
@@ -229,7 +236,7 @@ func TestProjectArtifactsAreSharedAndScoped(t *testing.T) {
 	}
 	// A session with no project has no project scope.
 	c.setProjectID("", ws, "")
-	if w := artifactCall(srv, http.MethodGet, base+"/plan.md?scope=project"); w.Code != http.StatusNotFound {
+	if w := artifactCall(srv, http.MethodGet, base+"/"+shared+"?scope=project"); w.Code != http.StatusNotFound {
 		t.Fatalf("no project: %d", w.Code)
 	}
 	if srv.projectArtifactDirFor("") != "" {
@@ -358,5 +365,142 @@ func TestDeleteAnUnknownArtifact(t *testing.T) {
 	srv, c, _, _ := artifactServer(t, nil)
 	if w := artifactCall(srv, http.MethodDelete, "/v1/sessions/"+c.id+"/artifacts/nope.txt"); w.Code != http.StatusNotFound {
 		t.Fatalf("got %d", w.Code)
+	}
+}
+
+func aged(t *testing.T, path string, age time.Duration) {
+	t.Helper()
+	when := time.Now().Add(-age)
+	if err := os.Chtimes(path, when, when); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestPruneDeletesOrphansAndOldFiles(t *testing.T) {
+	root := t.TempDir()
+	svc := &fakeService{}
+	srv := newTestServer(t, svc, func(o *Options) {
+		o.ArtifactDir = root
+		o.ArtifactDays = 30
+		o.SessionDir = t.TempDir()
+		o.ProjectDir = t.TempDir()
+		o.WorkspaceDir = t.TempDir()
+		o.NewService = func() (Service, error) { return svc, nil }
+	})
+	live, err := srv.createSession()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := srv.projects.save(Project{ID: "p1", Title: "t", Dir: t.TempDir()}); err != nil {
+		t.Fatal(err)
+	}
+	// A session that is only on disk is still a session.
+	onDisk := filepath.Join(srv.store.dir, "disk-session.json")
+	_ = os.WriteFile(onDisk, []byte("{}"), 0o644)
+
+	for _, d := range []string{live.id, "disk-session", "gone-session", "project-p1", "project-gone"} {
+		put(t, filepath.Join(root, d, "old.txt"), "o")
+		put(t, filepath.Join(root, d, "new.txt"), "n")
+		aged(t, filepath.Join(root, d, "old.txt"), 40*24*time.Hour)
+	}
+	put(t, filepath.Join(root, "stray-file"), "not a folder")
+
+	srv.pruneArtifacts(time.Now())
+
+	for _, gone := range []string{"gone-session", "project-gone"} {
+		if _, err := os.Stat(filepath.Join(root, gone)); err == nil {
+			t.Errorf("%s: an orphan folder must be removed", gone)
+		}
+	}
+	for _, kept := range []string{live.id, "disk-session", "project-p1"} {
+		if _, err := os.Stat(filepath.Join(root, kept, "new.txt")); err != nil {
+			t.Errorf("%s: a recent file must stay: %v", kept, err)
+		}
+		if _, err := os.Stat(filepath.Join(root, kept, "old.txt")); err == nil {
+			t.Errorf("%s: a file past the retention must go", kept)
+		}
+	}
+	if _, err := os.Stat(filepath.Join(root, "stray-file")); err != nil {
+		t.Error("only folders are the pruner's business")
+	}
+}
+
+func TestPruneWithZeroDaysKeepsEverythingReachable(t *testing.T) {
+	root := t.TempDir()
+	srv := newTestServer(t, &fakeService{}, func(o *Options) {
+		o.ArtifactDir = root
+		o.NewService = func() (Service, error) { return &fakeService{}, nil }
+	})
+	c, _ := srv.createSession()
+	put(t, filepath.Join(root, c.id, "old.txt"), "o")
+	aged(t, filepath.Join(root, c.id, "old.txt"), 400*24*time.Hour)
+	// Without a project store a project folder cannot be judged an orphan.
+	put(t, filepath.Join(root, "project-x", "a.txt"), "a")
+	srv.pruneArtifacts(time.Now())
+	if _, err := os.Stat(filepath.Join(root, c.id, "old.txt")); err != nil {
+		t.Fatal("0 days keeps files for ever")
+	}
+	if _, err := os.Stat(filepath.Join(root, "project-x", "a.txt")); err != nil {
+		t.Fatal("no project store, no verdict on a project folder")
+	}
+}
+
+func TestPruneWithoutARootIsANoOp(t *testing.T) {
+	(&Server{}).pruneArtifacts(time.Now())
+	(&Server{opts: Options{ArtifactDir: filepath.Join(t.TempDir(), "missing")}}).pruneArtifacts(time.Now())
+	(&Server{}).startArtifactPruner(time.Hour)
+}
+
+func TestThePrunerRunsOnAScheduleUntilTheGatewayCloses(t *testing.T) {
+	root := t.TempDir()
+	srv := newTestServer(t, &fakeService{}, func(o *Options) { o.ArtifactDir = root })
+	put(t, filepath.Join(root, "gone-session", "a.txt"), "a")
+	srv.startArtifactPruner(5 * time.Millisecond)
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		if _, err := os.Stat(filepath.Join(root, "gone-session")); err != nil {
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("the pruner never removed the orphan")
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+}
+
+func TestSessionIsKnownWithoutAStore(t *testing.T) {
+	srv := newTestServer(t, &fakeService{})
+	if srv.sessionIsKnown("nobody") {
+		t.Fatal("an unknown session with no store is unknown")
+	}
+}
+
+func TestTheClientListsAndReadsArtifacts(t *testing.T) {
+	svc := &fakeService{}
+	root := t.TempDir()
+	srv := newTestServer(t, svc, func(o *Options) { o.ArtifactDir = root })
+	put(t, filepath.Join(root, DefaultSession, "r.md"), "# report")
+	cl := NewClientForSession(srv.BaseURL(), testToken, DefaultSession)
+	got, err := cl.ListArtifacts(context.Background())
+	if err != nil || len(got) != 1 || got[0].Name != "r.md" {
+		t.Fatalf("list = %+v %v", got, err)
+	}
+	b, err := cl.ReadArtifact(context.Background(), "r.md")
+	if err != nil || string(b) != "# report" {
+		t.Fatalf("read = %q %v", b, err)
+	}
+	if _, err := cl.ReadArtifact(context.Background(), "nope.md"); err == nil {
+		t.Fatal("a missing file must be an error")
+	}
+	srv.Close(context.Background())
+	if _, err := cl.ListArtifacts(context.Background()); err == nil {
+		t.Fatal("a gateway that is gone must be an error")
+	}
+	if _, err := cl.ReadArtifact(context.Background(), "r.md"); err == nil {
+		t.Fatal("a gateway that is gone must be an error")
+	}
+	bad := NewClientForSession("http://[::1", testToken, DefaultSession)
+	if _, err := bad.ReadArtifact(context.Background(), "r.md"); err == nil {
+		t.Fatal("a malformed address must be an error")
 	}
 }

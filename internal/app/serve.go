@@ -224,7 +224,8 @@ func (op Options) startGateway(fl flags, cfg config.Config, engine *llm.Client, 
 		// Projects persist to ~/.motita/projects.
 		ProjectDir: projectDir(),
 		// What an agent produced for the person is kept in ~/.motita/artifacts.
-		ArtifactDir: artifactDir(),
+		ArtifactDir:  artifactDir(),
+		ArtifactDays: cfg.Gateway.ArtifactDays,
 		// Scheduled tasks persist to ~/.motita/schedules, and the resolution at which a
 		// due task is noticed comes from the configuration: a second default here is how
 		// the two drift.

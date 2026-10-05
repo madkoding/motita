@@ -24,6 +24,9 @@ set -euo pipefail
 
 cd "$(dirname "$0")/.."
 
+# docker or podman: see scripts/container-runtime.sh.
+. scripts/container-runtime.sh
+
 # This repository is also developed inside a container where Go is not on the
 # default PATH; the CI has it. Prefer whatever is already available.
 if ! command -v go >/dev/null 2>&1 && [ -x /opt/data/cache/go/bin ]; then
@@ -44,7 +47,7 @@ IMAGE="${2:-}"
 # fixed by design and shared by architecture.
 #
 # PORT is NOT made unique, and that is measured rather than assumed: two
-# concurrent runs both bound 8210 and both passed, because each `docker run` has
+# concurrent runs both bound 8210 and both passed, because each container run has
 # its own network namespace. Scanning the host for a free port would add a
 # dependency and a false sense of safety.
 PORT="${PORT:-8210}"
@@ -105,7 +108,7 @@ cp configs/e2e-task.txt "$WORK/task.txt"
 
 echo "==> Running in $IMAGE ($PLATFORM)"
 output="$(
-  docker run --rm --platform "$PLATFORM" \
+  "$CTR" run --rm --platform "$PLATFORM" \
     -v "$PWD/dist:/dist:ro" \
     -v "$PWD/$WORK:/e2e" \
     -w /e2e \

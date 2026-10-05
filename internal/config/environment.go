@@ -119,6 +119,7 @@ func integerBindings(c *Config) []binding[int] {
 		{"MOTITA_SKILLS_MAX_FILE_BYTES", &c.Skills.MaxFileBytes},
 		{"MOTITA_GATEWAY_MAX_BODY_KB", &c.Gateway.MaxBodyKB},
 		{"MOTITA_GATEWAY_MAX_SESSIONS", &c.Gateway.MaxSessions},
+		{"MOTITA_GATEWAY_ARTIFACT_DAYS", &c.Gateway.ArtifactDays},
 		{"MOTITA_LLM_MAX_TOKENS", &c.LLM.MaxTokens},
 		{"MOTITA_LLM_SESSION_CONTEXT_WINDOW", &c.LLM.Session.ContextWindow},
 		{"MOTITA_LLM_SESSION_RESERVE", &c.LLM.Session.Reserve},

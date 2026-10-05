@@ -48,6 +48,7 @@ var commands = []Command{
 	{Name: "/session", Aliases: []string{"/s"}, Help: "context used, and what was carried over", Group: "session"},
 	{Name: "/sessions", Help: "list the conversations the gateway holds", Group: "session"},
 	{Name: "/attach", Help: "switch to another conversation", Arg: "session id", Group: "session"},
+	{Name: "/artifacts", Help: "files the agent saved: list, show one, or save it here", Arg: "[name | save name]", Group: "session"},
 	{Name: "/agents", Help: "show or hide the run's agents: purpose, time, tokens", Group: "session"},
 	{Name: "/good", Help: "rate the last answer as good", Arg: "note", Group: "action"},
 	{Name: "/bad", Help: "rate the last answer as bad; the note says what to fix", Arg: "what was wrong", Group: "action"},
@@ -112,8 +113,9 @@ var commandActions = map[string]func(t *TUI, ctx context.Context, arg string) bo
 	},
 	// The list of conversations, and which one this interface is on. It is how a user discovers
 	// that the gateway holds more than one, and the ids the other command takes.
-	"/sessions": func(t *TUI, ctx context.Context, _ string) bool { t.printSessions(ctx); return false },
-	"/agents":   func(t *TUI, _ context.Context, _ string) bool { t.toggleAgents(); return false },
+	"/sessions":  func(t *TUI, ctx context.Context, _ string) bool { t.printSessions(ctx); return false },
+	"/agents":    func(t *TUI, _ context.Context, _ string) bool { t.toggleAgents(); return false },
+	"/artifacts": func(t *TUI, ctx context.Context, arg string) bool { t.artifactsCommand(ctx, arg); return false },
 	// Moving to another conversation, and READING it: coming back to a conversation means seeing
 	// what happened while you were away, so the announcement is made by attachTo itself - one
 	// place says what entering a session means, and a second message here would be a second

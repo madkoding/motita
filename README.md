@@ -353,6 +353,12 @@ one you are on and naming any with a run in flight — and `/attach <id>` moves 
 one. The token is **read** from `gateway.token`, never minted, and a `-session` the
 gateway does not hold is refused at start with the list of the ones it does.
 
+`/artifacts` lists the files the agent saved in the conversation (a report, a page, a
+diagram); `/artifacts <name>` shows a text file and `/artifacts save <name>` writes it to
+the current directory, never over a file that is already there. Artifacts older than
+`gateway.artifact_days` (30 by default; `0` keeps them) are deleted, and so are the ones of
+sessions and projects that no longer exist.
+
 ### The browser interface, from the same port
 
 The gateway serves a web interface **from its own port** — no second server, no second

@@ -13,6 +13,9 @@ set -euo pipefail
 
 cd "$(dirname "$0")/.."
 
+# docker or podman: see scripts/container-runtime.sh.
+. scripts/container-runtime.sh
+
 # This repository is also developed inside a container where Go is not on the
 # default PATH; the CI has it. Prefer whatever is already available.
 if ! command -v go >/dev/null 2>&1 && [ -x /opt/data/cache/go/bin ]; then
@@ -68,7 +71,7 @@ echo "    ELF class confirmed ($elf_class)"
 
 echo "==> Running inside $IMAGE ($PLATFORM)"
 output="$(
-  docker run --rm --platform "$PLATFORM" -v "$PWD/$E2E_DIST:/t:ro" "$IMAGE" sh -c "
+  "$CTR" run --rm --platform "$PLATFORM" -v "$PWD/$E2E_DIST:/t:ro" "$IMAGE" sh -c "
     set -e
     architecture=\$(dpkg --print-architecture)
     echo \"architecture: \$architecture\"
