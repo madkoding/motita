@@ -16,25 +16,28 @@ export function Lightbox({ images, start, onClose }: { images: LightboxImage[]; 
   const root = useRef<HTMLDivElement>(null)
   const img = useRef<HTMLImageElement>(null)
   const [index, setIndex] = useState(Math.min(Math.max(start, 0), images.length - 1))
-  const [zoom, setZoom] = useState(1)
-  const [pan, setPan] = useState({ x: 0, y: 0 })
+  const [view, setView] = useState({ zoom: 1, x: 0, y: 0 })
+  // `live` is the latest view, so two events before a re-render (key repeat, a fast wheel) each
+  // build on the previous one instead of on the stale value of the render they came from.
+  const live = useRef(view)
+  const apply = (v: { zoom: number; x: number; y: number }) => { live.current = v; setView(v) }
+  const { zoom, x: panX, y: panY } = view
   const drag = useRef<{ x: number; y: number; px: number; py: number } | null>(null)
   useDialog(root, onClose)
 
-  const reset = () => { setZoom(1); setPan({ x: 0, y: 0 }) }
+  const reset = () => apply({ zoom: 1, x: 0, y: 0 })
   const go = (i: number) => { setIndex((i + images.length) % images.length); reset() }
   // zoomAt keeps the point under the pointer fixed while the scale changes.
   const zoomAt = (factor: number, cx = 0, cy = 0) => {
-    const z = clamp(zoom * factor)
-    const k = z / zoom
-    setPan({ x: cx - (cx - pan.x) * k, y: cy - (cy - pan.y) * k })
-    setZoom(z)
+    const v = live.current
+    const z = clamp(v.zoom * factor)
+    const k = z / v.zoom
+    apply({ zoom: z, x: cx - (cx - v.x) * k, y: cy - (cy - v.y) * k })
   }
   const actual = () => {
     const el = img.current
     if (!el || !el.naturalWidth || !el.clientWidth) return reset()
-    setPan({ x: 0, y: 0 })
-    setZoom(clamp(el.naturalWidth / el.clientWidth))
+    apply({ zoom: clamp(el.naturalWidth / el.clientWidth), x: 0, y: 0 })
   }
 
   useEffect(() => {
@@ -78,8 +81,8 @@ export function Lightbox({ images, start, onClose }: { images: LightboxImage[]; 
         onClick={(e) => { if (e.target === e.currentTarget) onClose() }}
         onWheel={(e) => { e.preventDefault(); const c = fromCentre(e); zoomAt(e.deltaY < 0 ? 1.15 : 1 / 1.15, c.x, c.y) }}
         onDblClick={(e) => { if (zoom !== 1) reset(); else { const c = fromCentre(e); zoomAt(2.5, c.x, c.y) } }}
-        onPointerDown={(e) => { drag.current = { x: e.clientX, y: e.clientY, px: pan.x, py: pan.y }; (e.currentTarget as HTMLElement).setPointerCapture?.(e.pointerId) }}
-        onPointerMove={(e) => { const d = drag.current; if (d) setPan({ x: d.px + e.clientX - d.x, y: d.py + e.clientY - d.y }) }}
+        onPointerDown={(e) => { drag.current = { x: e.clientX, y: e.clientY, px: live.current.x, py: live.current.y }; (e.currentTarget as HTMLElement).setPointerCapture?.(e.pointerId) }}
+        onPointerMove={(e) => { const d = drag.current; if (d) apply({ zoom: live.current.zoom, x: d.px + e.clientX - d.x, y: d.py + e.clientY - d.y }) }}
         onPointerUp={() => { drag.current = null }}
         onPointerCancel={() => { drag.current = null }}
       >
@@ -89,7 +92,7 @@ export function Lightbox({ images, start, onClose }: { images: LightboxImage[]; 
           src={cur.src}
           alt={cur.label}
           draggable={false}
-          style={{ transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})` }}
+          style={{ transform: `translate(${panX}px, ${panY}px) scale(${zoom})` }}
         />
       </div>
     </div>

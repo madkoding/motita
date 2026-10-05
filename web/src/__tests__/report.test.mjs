@@ -35,3 +35,8 @@ test('the preview fills the window and has zoom, pan, fit, actual size and keybo
   for (const key of ["'+'", "'-'", "'0'", "'1'", "'ArrowRight'", "'ArrowLeft'"]) assert.ok(lightbox.includes(key), key)
   assert.ok(lightbox.includes('useDialog'), 'Escape and focus come from the shared dialog behaviour')
 })
+
+test('a picture in an answer opens the same preview, unless it is a link', () => {
+  assert.match(app, /target\.tagName === 'IMG' && target\.closest\('\.markdown-body'\) && !target\.closest\('a'\)/)
+  assert.match(app, /<Lightbox images=\{\[previewImage\]\}/)
+})

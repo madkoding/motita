@@ -5,6 +5,7 @@
 // shown in English, never as an empty string.
 
 const es: Record<string, string> = {
+  "Image": "Imagen",
   "Next image": "Imagen siguiente",
   "Previous image": "Imagen anterior",
   "Fit": "Ajustar",
