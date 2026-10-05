@@ -64,7 +64,7 @@ export function SettingsModal({ langSetting, langAvailable, onLang, onClose, git
 }
 
 const inputCls = 'min-w-0 px-2 py-1.5 rounded-lg bg-black/30 border border-white/10 text-xs text-[#e8e8ea] focus:outline-none focus:border-accent'
-const smallBtn = 'px-3 min-h-[32px] rounded-lg border border-white/10 text-xs text-[#e8e8ea] hover:bg-white/5 active:scale-95 transition-transform'
+const smallBtn = 'btn-outline px-3 min-h-[32px] rounded-lg border border-white/10 text-xs text-[#e8e8ea] hover:bg-white/5 active:scale-95 transition-transform'
 
 // GitConnections lists every git host with its state, and connects, disconnects or adds one.
 function GitConnections({ api, rev, onConnect, onNotice }: NonNullable<Props['git']>) {
