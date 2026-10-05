@@ -134,8 +134,6 @@ func TestFailureLog(t *testing.T) {
 	if err != nil || !ok || len(log) != logTail || !strings.HasSuffix(log, "THE END") || h.auth != "Bearer tok" {
 		t.Fatalf("len=%d ok=%v err=%v", len(log), ok, err)
 	}
-	log, ok, _ = a.FailureLog(context.Background(), r, Check{jobID: 12})
-	_ = log
 	// A short log is returned whole.
 	a, _ = newAPI(t, KindGitHub, map[string]string{"GET /repos/o/r/actions/jobs/12/logs": "short"})
 	if log, ok, _ = a.FailureLog(context.Background(), r, Check{jobID: 12}); log != "short" || !ok {

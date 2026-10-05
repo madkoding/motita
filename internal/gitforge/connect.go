@@ -125,7 +125,7 @@ func (s Store) ConnectToken(ctx context.Context, svc Service, token, username st
 	}
 	basicAuth := svc.Kind == KindBitbucket
 	if basicAuth && username == "" {
-		return "", errors.New("Bitbucket needs the account name that goes with the app password")
+		return "", errors.New("an account name is needed with a Bitbucket app password")
 	}
 	return s.finish(ctx, svc, oauth.Token{AccessToken: token}, username, basicAuth)
 }

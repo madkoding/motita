@@ -300,7 +300,7 @@ func TestFindPR(t *testing.T) {
 		t.Error("a host error must surface")
 	}
 
-	a, h = newAPI(t, KindBitbucket, map[string]string{"GET /repositories/o/r/pullrequests": `{"values":[{"id":8,"title":"t","links":{"html":{"href":"u8"}}}]}`})
+	a, _ = newAPI(t, KindBitbucket, map[string]string{"GET /repositories/o/r/pullrequests": `{"values":[{"id":8,"title":"t","links":{"html":{"href":"u8"}}}]}`})
 	if pr, ok, err = a.FindPR(context.Background(), r, `fea"ture`); err != nil || !ok || pr.Number != 8 {
 		t.Fatalf("%+v %v %v", pr, ok, err)
 	}

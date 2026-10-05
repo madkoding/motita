@@ -49,7 +49,7 @@ func oauthHost(t *testing.T, kind Kind, polls ...string) (Service, Store, *httpt
 		case "Bearer broken":
 			http.Error(w, "boom", 500)
 		default:
-			http.Error(w, `{"message":"Bad credentials"}`, 401)
+			http.Error(w, `{"message":"Bad credentials"}`, http.StatusUnauthorized)
 		}
 	})
 	srv := httptest.NewServer(mux)
