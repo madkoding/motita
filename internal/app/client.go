@@ -36,11 +36,19 @@ func (s sessionSwitcher) ListSessions(ctx context.Context) ([]tui.SessionInfo, e
 	current := s.Client.CurrentSession()
 	out := make([]tui.SessionInfo, 0, len(all))
 	for _, item := range all {
+		var pr tui.SessionInfo
+		if w := item.PRWatch; w != nil {
+			pr.PR, pr.PRNumber, pr.PRAttempts, pr.PRMax = w.Status, w.Number, w.Attempts, w.Max
+		}
 		out = append(out, tui.SessionInfo{
-			ID:      item.ID,
-			Running: item.Running,
-			Current: item.ID == current,
-			Branch:  item.Branch,
+			PR:         pr.PR,
+			PRNumber:   pr.PRNumber,
+			PRAttempts: pr.PRAttempts,
+			PRMax:      pr.PRMax,
+			ID:         item.ID,
+			Running:    item.Running,
+			Current:    item.ID == current,
+			Branch:     item.Branch,
 			// LastUsed travels so the list can be ordered by it: "where was I?" is answered by the
 			// most recent conversation, and a front end that dropped the time would have to guess.
 			LastUsed: item.LastUsed,

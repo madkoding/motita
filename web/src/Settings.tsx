@@ -2,7 +2,7 @@ import { useEffect, useState } from 'preact/hooks'
 import { t, tf } from './i18n'
 import { type Api, type GitAccount, listAccounts, disconnect } from './gitApi'
 import type { LangSetting } from './i18n'
-import { initSettings, saveSettings, type UISettings, type FontSize, type Density } from './settings'
+import { initSettings, saveSettings, loadNotify, saveNotify, notifyState, type UISettings, type FontSize, type Density } from './settings'
 
 initSettings()
 
@@ -24,6 +24,11 @@ interface Props {
 export function SettingsModal({ langSetting, langAvailable, onLang, onClose, git }: Props) {
   const [s, setS] = useState<UISettings>(() => initSettings())
   const update = (next: UISettings) => { setS(next); saveSettings(next) }
+  const [notifyOn, setNotifyOn] = useState(() => loadNotify())
+  // The browser's answer is read on every render: it can change in the browser's own settings while this is open.
+  const permission = typeof Notification !== 'undefined' ? Notification.permission : undefined
+  const [, bump] = useState(0)
+  const ns = notifyState(permission, notifyOn)
   const sel = 'min-w-0 px-2 py-1 rounded-lg bg-black/30 border border-white/10 text-xs text-[#e8e8ea] focus:outline-none focus:border-accent'
   return (
     <div class="fixed inset-0 z-[100] flex items-center justify-center bg-black/60" data-testid="settings-modal" onClick={onClose}>
@@ -57,6 +62,34 @@ export function SettingsModal({ langSetting, langAvailable, onLang, onClose, git
             <option value="compact">{t('Compact')}</option>
           </select>
         </label>
+        <div class="flex items-center gap-2 text-sm text-[#e8e8ea]" data-testid="notifications-setting">
+          <span class="flex-1">
+            {t('Notify me when a CI ends')}
+            <span class="block text-xs text-[#7a7a8c]">
+              {t(ns === 'unsupported' ? 'This browser cannot show notifications.'
+                : ns === 'blocked' ? 'Blocked: allow notifications for this site in the browser settings.'
+                : ns === 'ask' ? 'Only while this tab is in the background. The browser has to allow it first.'
+                : 'Only while this tab is in the background.')}
+            </span>
+          </span>
+          {ns === 'ask' && (
+            <button
+              type="button"
+              class={smallBtn}
+              onClick={() => { void Notification.requestPermission().then(() => bump(n => n + 1)) }}
+            >
+              {t('Allow')}
+            </button>
+          )}
+          {(ns === 'on' || ns === 'off') && (
+            <input
+              type="checkbox"
+              aria-label={t('Notify me when a CI ends')}
+              checked={ns === 'on'}
+              onChange={(e) => { const v = (e.target as HTMLInputElement).checked; setNotifyOn(v); saveNotify(v) }}
+            />
+          )}
+        </div>
         {git && <GitConnections {...git} />}
       </div>
     </div>

@@ -53,7 +53,11 @@ func (g *gitHost) set(k, v string) {
 	g.mu.Unlock()
 }
 
-func gitServer(t *testing.T) (*Server, *gitHost) {
+func gitServer(t *testing.T) (*Server, *gitHost) { return gitServerWith(t) }
+
+// gitServerWith is gitServer with more options, set when the server is built: they cannot be set
+// afterwards without racing the handlers that read them.
+func gitServerWith(t *testing.T, more ...func(*Options)) (*Server, *gitHost) {
 	t.Helper()
 	host := &gitHost{routes: map[string]string{
 		"GET https://api.github.com/user": `{"login":"octo"}`,
@@ -61,6 +65,9 @@ func gitServer(t *testing.T) (*Server, *gitHost) {
 	srv := newTestServer(t, &fakeService{}, func(o *Options) {
 		o.GitAuthDir = t.TempDir()
 		o.GitHTTP = host
+		for _, f := range more {
+			f(o)
+		}
 	})
 	return srv, host
 }

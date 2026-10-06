@@ -15,6 +15,8 @@ import { NewSessionButton } from './NewSessionButton'
 import { GitConnectModal, type SelfHosted } from './GitConnect'
 import { RepoPicker } from './RepoPicker'
 import { listAccounts, connectedAccounts, repoShortName, type GitAccount, type GitRepo } from './gitApi'
+import { loadNotify } from './settings'
+import { getPR, retryFix, mergePR, mergeRefused, PRError, prNotice, shouldPoll, ciSummary, shouldDesktopNotify, wantsDesktopPermission, worstToast, type PRView, type PRWatch } from './prApi'
 
 interface Message {
   id: number
@@ -55,6 +57,9 @@ interface SessionInfo {
   continuable?: boolean
   changes?: number
   worktree?: string
+  // pr_watch is what the gateway is doing about the session's pull request: following its CI,
+  // fixing it, or done. It is what the pull request toasts are drawn from.
+  pr_watch?: PRWatch
   // auto_approve is set while the user has allowed every command in this session.
   auto_approve?: boolean
   created: string
@@ -151,6 +156,14 @@ interface ProjectInfo {
   branch?: string
   // main_branch is the branch the project goes back to when it has no sessions.
   main_branch?: string
+  // merge_method is how its pull requests are merged from here: merge, squash or rebase.
+  merge_method?: string
+  // pr_max_fixes is how many times the agent is sent to fix a failing CI (0: the default).
+  pr_max_fixes?: number
+  // auto_merge merges a pull request by itself once its CI passes.
+  auto_merge?: boolean
+  // auto_continue opens a new session from the updated branch when a pull request is merged.
+  auto_continue?: boolean
   changes?: number
   created: string
 }
@@ -762,7 +775,7 @@ export default function App() {
   const [remoteMain, setRemoteMain] = useState('')
   const mainChosen = useRef(false)
   // The edit-project dialog: what is being edited and the branches its selector offers.
-  const [editProject, setEditProject] = useState<{ id: string; title: string; description: string; main: string; branches: string[]; current: string } | null>(null)
+  const [editProject, setEditProject] = useState<{ id: string; title: string; description: string; main: string; branches: string[]; current: string; mergeMethod: string; prMaxFixes: number; autoMerge: boolean; autoContinue: boolean } | null>(null)
   const [savingProject, setSavingProject] = useState(false)
   // Podman: whether this machine has it (asked when the dialog opens) and the user's answer.
   // Artifacts: the files the agent saved for the person in the selected session, and the one
@@ -1922,7 +1935,7 @@ export default function App() {
   // openEditProject opens the edit dialog with the project's own values, and asks the gateway
   // which branches the main-branch selector can offer.
   const openEditProject = useCallback(async (p: ProjectInfo) => {
-    setEditProject({ id: p.id, title: p.title, description: p.description ?? '', main: p.main_branch ?? 'main', branches: p.main_branch ? [p.main_branch] : ['main'], current: p.branch ?? '' })
+    setEditProject({ id: p.id, title: p.title, description: p.description ?? '', main: p.main_branch ?? 'main', branches: p.main_branch ? [p.main_branch] : ['main'], current: p.branch ?? '', mergeMethod: p.merge_method ?? '', prMaxFixes: p.pr_max_fixes ?? 0, autoMerge: p.auto_merge === true, autoContinue: p.auto_continue === true })
     try {
       const res = await api('/v1/projects/' + encodeURIComponent(p.id) + '/branches')
       if (!res.ok) return
@@ -1942,7 +1955,7 @@ export default function App() {
       const res = await api('/v1/projects/' + encodeURIComponent(editProject.id), {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ title: editProject.title, description: editProject.description, main_branch: editProject.main }),
+        body: JSON.stringify({ title: editProject.title, description: editProject.description, main_branch: editProject.main, merge_method: editProject.mergeMethod, pr_max_fixes: editProject.prMaxFixes, auto_merge: editProject.autoMerge, auto_continue: editProject.autoContinue }),
       })
       if (!res.ok) {
         const err = await res.json().catch(() => ({}))
@@ -3126,6 +3139,169 @@ export default function App() {
       body: '{}',
     }).catch(() => {})
   }
+
+  // ── Pull request bar ─────────────────────────────────────────────────────
+  // A session with work in it can propose it: "Create PR" has the agent commit, push and open
+  // the pull request. From then on the GATEWAY follows its CI (sending the agent to fix a failure,
+  // push after push, up to a limit) and reports it in the session list; this side draws the bar
+  // and turns each step of that into a toast, for any session and not only the one on screen.
+  const [prView, setPrView] = useState<PRView | null>(null)
+  // The reason the host cannot be asked (no remote, a host motita does not speak): the bar is
+  // not drawn rather than offering something that cannot work.
+  const [prBlocked, setPrBlocked] = useState(false)
+  const [prMergeArmed, setPrMergeArmed] = useState(false)
+  const [prBusy, setPrBusy] = useState(false)
+  const prSessionId = selectedSession?.project_id && !selectedSession.merged ? sessionId : ''
+  const prRunning = selectedSession?.running === true
+  const prWatch = selectedSession?.pr_watch
+  const prWatchKey = prWatch ? prWatch.status + ':' + prWatch.attempts : ''
+
+  const refreshPR = async (sid: string) => {
+    try {
+      const v = await getPR(api, sid)
+      if (sid !== sessionRef.current) return
+      setPrBlocked(false)
+      setPrView(v)
+    } catch (e) {
+      if (sid !== sessionRef.current) return
+      // 'pr_no_remote' and 'pr_no_host' will not change by asking again; a lost connection or a
+      // host that is down will, and the next poll tries again.
+      if (e instanceof PRError && (e.code === 'pr_no_remote' || e.code === 'pr_no_host')) setPrBlocked(true)
+    }
+  }
+
+  // The session on screen is asked when it is opened, when its run ends (the agent has just
+  // pushed or opened the pull request) and whenever the gateway's watch moves.
+  useEffect(() => {
+    setPrView(null)
+    setPrBlocked(false)
+    setPrMergeArmed(false)
+  }, [prSessionId])
+  const wasRunningRef = useRef(false)
+  useEffect(() => {
+    if (!prSessionId) return
+    const ended = wasRunningRef.current && !prRunning
+    wasRunningRef.current = prRunning
+    if (ended || prView === null) void refreshPR(prSessionId)
+  }, [prSessionId, prRunning])
+  useEffect(() => {
+    if (prSessionId && prWatchKey) void refreshPR(prSessionId)
+  }, [prSessionId, prWatchKey])
+  // While the gateway follows the CI, the bar's detail (the jobs) is refreshed every 20 seconds.
+  useEffect(() => {
+    if (!prSessionId || !shouldPoll(prWatch)) return
+    const id = setInterval(() => { void refreshPR(prSessionId) }, 20000)
+    return () => clearInterval(id)
+  }, [prSessionId, prWatch?.status])
+
+  // The toasts. The list is read for every session, so a CI that ends while another one is open
+  // is told too, with the session's name.
+  const seenWatchRef = useRef<Record<string, PRWatch | null>>({})
+  // announce shows the toast and, when the tab is in the background, a browser notification as well:
+  // the CI ending is exactly what someone looking at another window wants to hear about.
+  const announce = (n: { message: string; type: 'success' | 'error' | 'warning'; detail?: string }) => {
+    setToast(n)
+    try {
+      if (typeof Notification !== 'undefined' && shouldDesktopNotify(document.hidden, Notification.permission, loadNotify())) {
+        new Notification(n.message, { body: n.detail, tag: 'motita-pr' })
+      }
+    } catch { /* a browser that cannot notify just does not */ }
+  }
+  useEffect(() => {
+    const news: { message: string; type: 'success' | 'error' | 'warning'; detail: string }[] = []
+    for (const sess of sessions) {
+      const cur = sess.pr_watch ?? null
+      const notice = prNotice(seenWatchRef.current[sess.id], cur)
+      seenWatchRef.current[sess.id] = cur
+      if (!notice || !cur) continue
+      const where = sess.id === sessionRef.current ? '' : ' — ' + (sess.title || sess.id)
+      const pr = cur.number ? '#' + cur.number : ''
+      if (notice === 'passed') {
+        news.push({ message: t('CI passed') + where, type: 'success', detail: tf('Pull request {pr} is green: you can go and merge it.', { pr }) })
+      } else if (notice === 'fixing') {
+        news.push({ message: t('CI failed') + where, type: 'error', detail: tf('Motita is fixing it — attempt {n} of {max}.', { n: String(cur.attempts), max: String(cur.max) }) })
+      } else if (notice === 'gave_up') {
+        news.push({ message: t('Motita could not fix the CI') + where, type: 'error', detail: tf('It tried {n} times. Look at pull request {pr} and try again when you are ready.', { n: String(cur.attempts), pr }) })
+      } else if (notice === 'no_ci') {
+        news.push({ message: t('This repository has no CI') + where, type: 'warning', detail: tf('Pull request {pr} has no checks to wait for.', { pr }) })
+      } else if (notice === 'base_red') {
+        news.push({ message: t('The CI is red on the base branch too') + where, type: 'warning', detail: tf('Pull request {pr} fails the same checks as the branch it merges into: this change did not cause it.', { pr }) })
+      } else if (notice === 'closed') {
+        news.push({ message: t('Pull request closed') + where, type: 'warning', detail: tf('Pull request {pr} was closed without being merged.', { pr }) })
+      } else if (notice === 'merged') {
+        news.push({ message: t('Pull request merged') + where, type: 'success', detail: cur.next ? tf('Pull request {pr} was merged. A new session was opened from the updated branch.', { pr }) : tf('Pull request {pr} was merged. Use Continue in the bar to keep working from the updated branch.', { pr }) })
+      }
+    }
+    // One toast for what moved in one look at the list: three sessions finishing together are
+    // one thing to read, not three toasts replacing each other.
+    if (news.length === 1) announce(news[0])
+    else if (news.length > 1) {
+      announce({
+        message: tf('{n} pull requests moved', { n: String(news.length) }),
+        type: worstToast(news.map(n => n.type)),
+        detail: news.map(n => n.message).join(' · '),
+      })
+    }
+  }, [sessions])
+
+  const createPR = async () => {
+    const sid = sessionRef.current
+    // The click is the moment to ask to be allowed to say the CI ended while the tab is in the background.
+    try {
+      if (typeof Notification !== 'undefined' && wantsDesktopPermission(Notification.permission)) void Notification.requestPermission()
+    } catch { /* ignore */ }
+    // Asked before the agent is, so a host that is not connected is a dialog and not a turn spent.
+    try {
+      await getPR(api, sid)
+    } catch (e) {
+      if (e instanceof PRError && e.code === 'git_auth_required') { setGitConnect({ service: e.service || undefined }); return }
+      setToast({ message: t('Could not create the pull request'), type: 'error', detail: e instanceof Error ? e.message : String(e) })
+      return
+    }
+    await submit(t('Create PR'), '/v1/sessions/' + encodeURIComponent(sid) + '/pr')
+  }
+
+  // tryAgain is what the user does after the gateway gave up: the agent is sent again and the
+  // count starts over.
+  const tryAgain = async () => {
+    const sid = sessionRef.current
+    setPrBusy(true)
+    try {
+      const { started } = await retryFix(api, sid)
+      if (started && sid === sessionRef.current) {
+        // The run is one this tab did not start: attach to it like a reconnection does.
+        runSessionRef.current = sid
+        lastIdRef.current = 0
+        setRunningState(true)
+        setState('working')
+        void followReconnect()
+      } else {
+        handoffRef.current = true
+      }
+    } catch (e) {
+      setToast({ message: t('Could not ask Motita to fix the CI'), type: 'error', detail: e instanceof Error ? e.message : String(e) })
+    } finally {
+      setPrBusy(false)
+    }
+  }
+
+  // mergeNow asks twice: merging is the one step here that cannot be taken back.
+  const mergeNow = async () => {
+    if (!prMergeArmed) { setPrMergeArmed(true); return }
+    const sid = sessionRef.current
+    setPrMergeArmed(false)
+    setPrBusy(true)
+    try {
+      await mergePR(api, sid)
+      void refreshPR(sid)
+      void fetchSessions()
+    } catch (e) {
+      setToast({ message: t('Could not merge the pull request'), type: 'error', detail: e instanceof Error ? e.message : String(e) })
+    } finally {
+      setPrBusy(false)
+    }
+  }
+  // ── end of the pull request bar ──────────────────────────────────────────
 
   // shellMode: what is typed is a shell command (`!ls` or `/shell ls`), so the send button says so.
   const shellMode = activeTags.length === 0 && /^\s*(!|\/shell\s)/.test(input)
@@ -4619,6 +4795,129 @@ export default function App() {
           </div>
         )}
 
+        {/* ── Pull request bar ── */}
+        {(prSessionId || (selectedSession?.merged && prWatch?.status === 'merged')) && !prBlocked && (prWatch?.status === 'merged' || prView?.state === 'open' || selectedSession?.mergeable) && (
+          <div class="flex items-center gap-2 px-3 sm:px-5 py-2 border-t border-white/5 text-xs flex-none z-10 relative" role="status">
+            {prWatch?.status === 'merged' ? (
+              <span class="inline-flex items-center gap-1.5 font-semibold text-[#a78bfa]">
+                <span class="inline-block w-2 h-2 rounded-full bg-[#a78bfa]" />
+                {tf('Pull request #{n} merged', { n: String(prWatch.number ?? '') })}
+              </span>
+            ) : null}
+            {prWatch?.status === 'merged' && prWatch.next ? (
+              <button
+                type="button"
+                class="ml-auto px-3 min-h-[32px] rounded-lg bg-accent text-white font-semibold active:scale-95 transition-transform"
+                title={t('A new session was opened from the updated branch')}
+                onClick={() => { void switchSession(prWatch.next as string) }}
+              >
+                {t('Open the new session')}
+              </button>
+            ) : prWatch?.status === 'merged' && selectedSession?.merged && selectedSession.continuable ? (
+              <button
+                type="button"
+                class="ml-auto px-3 min-h-[32px] rounded-lg bg-accent text-white font-semibold active:scale-95 transition-transform"
+                title={t('Open a new session from the updated project branch')}
+                onClick={() => { void continueSession(selectedSession) }}
+              >
+                {t('Continue in a new session')}
+              </button>
+            ) : null}
+            {prWatch?.status === 'merged' ? (
+              <></>
+            ) : prView?.state === 'open' && prView.pr ? (
+              <>
+                <a
+                  href={prView.pr.url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  class="font-semibold text-accent hover:underline"
+                  title={prView.pr.title || undefined}
+                >
+                  {tf('Pull request #{n}', { n: String(prView.pr.number) })}
+                </a>
+                {prView.ci && prView.ci.state === 'pending' && (
+                  <span class="inline-flex items-center gap-1.5 text-[#f0a040]" title={t('The CI is running')}>
+                    <span class="inline-block w-2 h-2 rounded-full bg-[#f0a040] animate-pulse" />
+                    {tf('CI running {done}/{total}', { done: String(ciSummary(prView).passed), total: String(ciSummary(prView).total) })}
+                  </span>
+                )}
+                {prView.ci && prView.ci.state === 'success' && (
+                  <span class="inline-flex items-center gap-1.5 text-[#4ade80]">
+                    <span class="inline-block w-2 h-2 rounded-full bg-[#4ade80]" />
+                    {t('CI passed — ready to merge')}
+                  </span>
+                )}
+                {prView.ci && prView.ci.state === 'failure' && (
+                  <span
+                    class="inline-flex items-center gap-1.5 text-[#f87171]"
+                    title={prView.ci.checks.filter(c => c.state === 'failure').map(c => c.name).join(', ')}
+                  >
+                    <span class="inline-block w-2 h-2 rounded-full bg-[#f87171]" />
+                    {prWatch?.status === 'base_red'
+                      ? t('CI failed')
+                      : prWatch?.status === 'gave_up'
+                      ? tf('CI failed — Motita gave up after {n} attempts', { n: String(prWatch.attempts) })
+                      : prWatch?.status === 'fixing'
+                        ? tf('CI failed — Motita is fixing it ({n}/{max})', { n: String(prWatch.attempts), max: String(prWatch.max) })
+                        : t('CI failed')}
+                  </span>
+                )}
+                {prView.ci && prView.ci.state === 'failure' && prWatch?.status === 'base_red' && (
+                  <span class="text-[#8a8a9a]">{t('Also failing on the base branch — not caused by this change')}</span>
+                )}
+                {prView.ci && prView.ci.state === 'failure' && prWatch?.status === 'gave_up' && (
+                  <button
+                    type="button"
+                    class="px-3 min-h-[32px] rounded-lg border border-accent/40 text-accent font-semibold disabled:opacity-50"
+                    disabled={prBusy || prRunning}
+                    onClick={() => { void tryAgain() }}
+                  >
+                    {t('Try again')}
+                  </button>
+                )}
+                {prView.ci && prView.ci.state === 'success' && prView.merge && (mergeRefused(prView) || prView.merge.code === 'behind') && (
+                  <span class="ml-auto text-[#f0a040]">
+                    {t(prView.merge.code === 'blocked' ? 'Waiting for approvals or required checks'
+                      : prView.merge.code === 'conflict' ? 'Conflicts with the base branch'
+                      : prView.merge.code === 'draft' ? 'Still a draft'
+                      : 'Out of date with the base branch')}
+                  </span>
+                )}
+                {prView.ci && prView.ci.state === 'success' && !mergeRefused(prView) && (
+                  <button
+                    type="button"
+                    class={`ml-auto px-3 min-h-[32px] rounded-lg font-semibold disabled:opacity-50 active:scale-95 transition-transform ${prMergeArmed ? 'bg-[#4ade80] text-black' : 'border border-[#4ade80]/50 text-[#4ade80]'}`}
+                    disabled={prBusy}
+                    title={t('Merge this pull request on the host')}
+                    onBlur={() => setPrMergeArmed(false)}
+                    onClick={() => { void mergeNow() }}
+                  >
+                    {t(prMergeArmed ? 'Click again to merge' : 'Merge')}
+                  </button>
+                )}
+                {prView.ci && prView.ci.state === 'none' && (
+                  <span class="text-[#8a8a9a]">{t('No CI checks yet')}</span>
+                )}
+              </>
+            ) : (
+              <button
+                type="button"
+                class="inline-flex items-center gap-1.5 px-3 min-h-[32px] rounded-lg bg-accent text-white font-semibold disabled:opacity-50 active:scale-95 transition-transform"
+                disabled={prRunning}
+                title={t(prRunning ? 'Wait for the current turn to end' : 'Commit, push and open a pull request with this session\'s work')}
+                onClick={() => { void createPR() }}
+              >
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <circle cx="6" cy="6" r="3" /><circle cx="6" cy="18" r="3" /><circle cx="18" cy="18" r="3" /><path d="M6 9v6" /><path d="M18 15V9a3 3 0 0 0-3-3h-3" /><path d="m14 3-3 3 3 3" />
+                </svg>
+                {t('Create PR')}
+              </button>
+            )}
+          </div>
+        )}
+        {/* ── end of the pull request bar ── */}
+
         {/* Composer — solid opaque background, no decorative gradient. */}
         <form
           class="frosted flex gap-2 px-3 py-2.5 sm:px-5 sm:py-3 border-t border-white/5 flex-none z-10 relative"
@@ -4810,6 +5109,67 @@ export default function App() {
                   )}
                 </p>
               </div>
+              <div>
+                <label class="block text-sm text-[#9a9aaa] mb-1.5" for="edit-project-merge">{t('Merge method')}</label>
+                <select
+                  id="edit-project-merge"
+                  data-testid="edit-project-merge"
+                  class="w-full px-3 py-2.5 rounded-xl bg-black/30 border border-white/10 text-[#e8e8ea] focus:outline-none focus:border-accent text-sm"
+                  value={editProject.mergeMethod}
+                  onChange={(e) => { const v = (e.target as HTMLSelectElement).value; setEditProject(p => p && { ...p, mergeMethod: v }) }}
+                >
+                  <option value="">{t('Merge commit')}</option>
+                  <option value="squash">{t('Squash')}</option>
+                  <option value="rebase">{t('Rebase')}</option>
+                </select>
+                <p class="text-xs text-[#7a7a8c] mt-1">{t('How a pull request of this project is merged from the PR bar. Its branch is deleted afterwards.')}</p>
+              </div>
+              <div>
+                <label class="block text-sm text-[#9a9aaa] mb-1.5" for="edit-project-fixes">{t('Attempts to fix a failing CI')}</label>
+                <input
+                  id="edit-project-fixes"
+                  data-testid="edit-project-fixes"
+                  type="number"
+                  min="0"
+                  max="20"
+                  step="1"
+                  inputMode="numeric"
+                  class="w-full px-3 py-2.5 rounded-xl bg-black/30 border border-white/10 text-[#e8e8ea] focus:outline-none focus:border-accent text-sm"
+                  value={String(editProject.prMaxFixes)}
+                  onInput={(e) => {
+                    const n = Math.round(Number((e.target as HTMLInputElement).value))
+                    const v = Number.isFinite(n) ? Math.min(20, Math.max(0, n)) : 0
+                    setEditProject(p => p && { ...p, prMaxFixes: v })
+                  }}
+                />
+                <p class="text-xs text-[#7a7a8c] mt-1">{t('0 uses the default (5). After this many attempts Motita stops and asks you to take a look.')}</p>
+              </div>
+              <label class="flex items-start gap-2.5 text-sm text-[#e8e8ea] cursor-pointer">
+                <input
+                  type="checkbox"
+                  data-testid="edit-project-automerge"
+                  class="mt-1"
+                  checked={editProject.autoMerge}
+                  onChange={(e) => { const v = (e.target as HTMLInputElement).checked; setEditProject(p => p && { ...p, autoMerge: v }) }}
+                />
+                <span>
+                  {t('Merge automatically when the CI passes')}
+                  <span class="block text-xs text-[#7a7a8c]">{t('Only when the host accepts the merge. Off, merging is always your click.')}</span>
+                </span>
+              </label>
+              <label class="flex items-start gap-2.5 text-sm text-[#e8e8ea] cursor-pointer">
+                <input
+                  type="checkbox"
+                  data-testid="edit-project-autocontinue"
+                  class="mt-1"
+                  checked={editProject.autoContinue}
+                  onChange={(e) => { const v = (e.target as HTMLInputElement).checked; setEditProject(p => p && { ...p, autoContinue: v }) }}
+                />
+                <span>
+                  {t('Open a new session when a pull request is merged')}
+                  <span class="block text-xs text-[#7a7a8c]">{t('It starts from the updated branch, so the next piece of work has somewhere to begin.')}</span>
+                </span>
+              </label>
             </div>
             <div class="flex gap-2 mt-5">
               <button

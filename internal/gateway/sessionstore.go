@@ -71,6 +71,10 @@ type sessionRecord struct {
 	// the front end shows when the user asks "which commit did this session make".
 	MergedSHA string `json:"merged_sha,omitempty"`
 
+	// PRWatch is what the gateway was doing about the session's pull request, so a restart picks
+	// the CI up where it was and does not forget a pull request it was following.
+	PRWatch *prWatchRecord `json:"pr_watch,omitempty"`
+
 	Running  bool                 `json:"running,omitempty"`
 	LastTask string               `json:"last_task,omitempty"`
 	LastKind string               `json:"last_kind,omitempty"`
@@ -124,6 +128,9 @@ func (st *sessionStore) write(c *conversation, ended bool) error {
 		AutoApprove: c.autoApprove,
 		Merged:      c.merged,
 		MergedSHA:   c.mergedSha,
+	}
+	if c.prWatch != nil {
+		rec.PRWatch = &prWatchRecord{Status: c.prWatch.Status, Attempts: c.prWatch.Attempts, Number: c.prWatch.Number, FixedKey: c.prFixedKey}
 	}
 	c.stateMu.Unlock()
 

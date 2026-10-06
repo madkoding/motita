@@ -32,3 +32,27 @@ export function initSettings(): UISettings {
   applySettings(s)
   return s
 }
+
+// Whether the browser may be asked to show a notification when a pull request's CI ends while the tab
+// is in the background. It is the user's own switch, kept apart from the look of the chat, and on by
+// default: the browser's permission is what actually decides.
+export const NOTIFY_KEY = 'motita.ui.notifications'
+
+export function loadNotify(): boolean {
+  try { return localStorage.getItem(NOTIFY_KEY) !== 'off' } catch { return true }
+}
+
+export function saveNotify(on: boolean): void {
+  try { localStorage.setItem(NOTIFY_KEY, on ? 'on' : 'off') } catch { /* ignore */ }
+}
+
+export type NotifyState = 'unsupported' | 'blocked' | 'ask' | 'on' | 'off'
+
+// notifyState is what the settings screen says about notifications: the browser's permission and
+// the user's switch together.
+export function notifyState(permission: string | undefined, enabled: boolean): NotifyState {
+  if (permission === undefined) return 'unsupported'
+  if (permission === 'denied') return 'blocked'
+  if (permission === 'default') return 'ask'
+  return enabled ? 'on' : 'off'
+}
