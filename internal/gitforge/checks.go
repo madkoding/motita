@@ -36,6 +36,10 @@ type Check struct {
 type CIStatus struct {
 	State  string  `json:"state"`
 	Checks []Check `json:"checks"`
+	// Rev names what the checks ran on: the commit on GitHub and Gitea, the
+	// pipeline on GitLab. A caller reacting to a failure uses it to react once
+	// per push and not once per poll. Empty when the host does not say.
+	Rev string `json:"rev,omitempty"`
 }
 
 // summarize folds the jobs into one state: any failure fails the whole, and
@@ -144,7 +148,9 @@ func (a API) ciGitHubLike(ctx context.Context, r Remote, n int) (CIStatus, error
 		}
 		checks = append(checks, Check{Name: s.Context, State: mapState(state), URL: s.TargetURL, Detail: s.Description})
 	}
-	return summarize(checks), nil
+	st := summarize(checks)
+	st.Rev = sha
+	return st, nil
 }
 
 func (a API) ciGitLab(ctx context.Context, r Remote, n int) (CIStatus, error) {
@@ -176,7 +182,9 @@ func (a API) ciGitLab(ctx context.Context, r Remote, n int) (CIStatus, error) {
 		}
 		checks = append(checks, Check{Name: j.Name, State: state, URL: j.WebURL, Detail: j.FailureReason})
 	}
-	return summarize(checks), nil
+	st := summarize(checks)
+	st.Rev = strconv.FormatInt(pipelines[0].ID, 10)
+	return st, nil
 }
 
 func (a API) ciBitbucket(ctx context.Context, r Remote, n int) (CIStatus, error) {

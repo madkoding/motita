@@ -15,6 +15,7 @@ import { NewSessionButton } from './NewSessionButton'
 import { GitConnectModal, type SelfHosted } from './GitConnect'
 import { RepoPicker } from './RepoPicker'
 import { listAccounts, connectedAccounts, repoShortName, type GitAccount, type GitRepo } from './gitApi'
+import { getPR, fixCI, PRError, idleWatch, armWatch, stepWatch, shouldPoll, ciSummary, type PRView, type Watch } from './prApi'
 
 interface Message {
   id: number
@@ -3123,6 +3124,109 @@ export default function App() {
     }).catch(() => {})
   }
 
+  // ── Pull request bar ─────────────────────────────────────────────────────
+  // A session with work in it can propose it: "Create PR" has the agent commit, push and open
+  // the pull request, and from then on the bar follows its CI. The gateway answers what the host
+  // says; stepWatch (prApi.ts) decides when that is worth a toast, and a failed CI is handed back
+  // to the agent, push after push, until it passes.
+  const [prView, setPrView] = useState<PRView | null>(null)
+  // The reason the host cannot be asked (no remote, a host motita does not speak): the bar is
+  // not drawn rather than offering something that cannot work.
+  const [prBlocked, setPrBlocked] = useState(false)
+  const prViewRef = useRef<PRView | null>(null)
+  const watchRef = useRef<Record<string, Watch>>({})
+  const prSessionId = selectedSession?.project_id && !selectedSession.merged ? sessionId : ''
+  const prRunning = selectedSession?.running === true
+
+  const applyPR = (sid: string, v: PRView) => {
+    const { watch, verdict } = stepWatch(watchRef.current[sid] ?? idleWatch, v)
+    watchRef.current[sid] = watch
+    if (sid === sessionRef.current) { prViewRef.current = v; setPrView(v) }
+    const label = v.pr ? '#' + v.pr.number : ''
+    if (verdict === 'passed') {
+      setToast({ message: t('CI passed'), type: 'success', detail: tf('Pull request {pr} is green: you can go and merge it.', { pr: label }) })
+    } else if (verdict === 'no-ci') {
+      setToast({ message: t('This repository has no CI'), type: 'warning', detail: tf('Pull request {pr} has no checks to wait for.', { pr: label }) })
+    } else if (verdict === 'failed') {
+      setToast({ message: t('CI failed'), type: 'error', detail: t('Motita will try to fix it and keep at it until the CI passes.') })
+      void fixCI(api, sid).then(({ started }) => {
+        if (sid !== sessionRef.current) return
+        if (started) {
+          // The fix is a run this tab did not start: attach to it like a reconnection does.
+          runSessionRef.current = sid
+          lastIdRef.current = 0
+          setRunningState(true)
+          setState('working')
+          void followReconnect()
+        } else {
+          handoffRef.current = true
+        }
+      }).catch((e) => {
+        // The loop is not silent when it cannot go on: the next failure of the same push would
+        // not ask again, so the watch is told to try this one once more.
+        watchRef.current[sid] = { ...(watchRef.current[sid] ?? idleWatch), fixedKey: undefined }
+        setToast({ message: t('Could not ask Motita to fix the CI'), type: 'error', detail: e instanceof Error ? e.message : String(e) })
+      })
+    }
+  }
+
+  const refreshPR = async (sid: string): Promise<PRView | null> => {
+    try {
+      const v = await getPR(api, sid)
+      if (sid === sessionRef.current) setPrBlocked(false)
+      applyPR(sid, v)
+      return v
+    } catch (e) {
+      if (sid !== sessionRef.current) return null
+      // 'pr_no_remote' and 'pr_no_host' will not change by asking again; a lost connection or a
+      // host that is down will, and the next poll tries again.
+      if (e instanceof PRError && (e.code === 'pr_no_remote' || e.code === 'pr_no_host')) setPrBlocked(true)
+      return null
+    }
+  }
+
+  // The session on screen is asked once when it is opened, and again each time its run ends: the
+  // agent has just pushed, or opened the pull request.
+  useEffect(() => {
+    prViewRef.current = null
+    setPrView(null)
+    setPrBlocked(false)
+    if (prSessionId) void refreshPR(prSessionId)
+  }, [prSessionId])
+  const wasRunningRef = useRef(false)
+  useEffect(() => {
+    const was = wasRunningRef.current
+    wasRunningRef.current = prRunning
+    if (!was || prRunning || !prSessionId) return
+    void refreshPR(prSessionId).then(v => {
+      // The run ended and there is still no pull request: whatever stopped it, nothing is left to follow.
+      if (v && v.state === 'none') watchRef.current[prSessionId] = idleWatch
+    })
+  }, [prRunning])
+  // While the CI is followed or running it is asked about every 20 seconds; otherwise it is left alone.
+  useEffect(() => {
+    if (!prSessionId) return
+    const id = setInterval(() => {
+      if (shouldPoll(watchRef.current[prSessionId] ?? idleWatch, prViewRef.current)) void refreshPR(prSessionId)
+    }, 20000)
+    return () => clearInterval(id)
+  }, [prSessionId])
+
+  const createPR = async () => {
+    const sid = sessionRef.current
+    // Asked before the agent is, so a host that is not connected is a dialog and not a turn spent.
+    try {
+      await getPR(api, sid)
+    } catch (e) {
+      if (e instanceof PRError && e.code === 'git_auth_required') { setGitConnect({ service: e.service || undefined }); return }
+      setToast({ message: t('Could not create the pull request'), type: 'error', detail: e instanceof Error ? e.message : String(e) })
+      return
+    }
+    watchRef.current[sid] = armWatch(watchRef.current[sid] ?? idleWatch)
+    await submit(t('Create PR'), '/v1/sessions/' + encodeURIComponent(sid) + '/pr')
+  }
+  // ── end of the pull request bar ──────────────────────────────────────────
+
   // shellMode: what is typed is a shell command (`!ls` or `/shell ls`), so the send button says so.
   const shellMode = activeTags.length === 0 && /^\s*(!|\/shell\s)/.test(input)
 
@@ -4614,6 +4718,63 @@ export default function App() {
             </div>
           </div>
         )}
+
+        {/* ── Pull request bar ── */}
+        {prSessionId && !prBlocked && (prView?.state === 'open' || selectedSession?.mergeable) && (
+          <div class="flex items-center gap-2 px-3 sm:px-5 py-2 border-t border-white/5 text-xs flex-none z-10 relative" role="status">
+            {prView?.state === 'open' && prView.pr ? (
+              <>
+                <a
+                  href={prView.pr.url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  class="font-semibold text-accent hover:underline"
+                  title={prView.pr.title || undefined}
+                >
+                  {tf('Pull request #{n}', { n: String(prView.pr.number) })}
+                </a>
+                {prView.ci && prView.ci.state === 'pending' && (
+                  <span class="inline-flex items-center gap-1.5 text-[#f0a040]" title={t('The CI is running')}>
+                    <span class="inline-block w-2 h-2 rounded-full bg-[#f0a040] animate-pulse" />
+                    {tf('CI running {done}/{total}', { done: String(ciSummary(prView).passed), total: String(ciSummary(prView).total) })}
+                  </span>
+                )}
+                {prView.ci && prView.ci.state === 'success' && (
+                  <span class="inline-flex items-center gap-1.5 text-[#4ade80]">
+                    <span class="inline-block w-2 h-2 rounded-full bg-[#4ade80]" />
+                    {t('CI passed — ready to merge')}
+                  </span>
+                )}
+                {prView.ci && prView.ci.state === 'failure' && (
+                  <span
+                    class="inline-flex items-center gap-1.5 text-[#f87171]"
+                    title={prView.ci.checks.filter(c => c.state === 'failure').map(c => c.name).join(', ')}
+                  >
+                    <span class="inline-block w-2 h-2 rounded-full bg-[#f87171]" />
+                    {t('CI failed — Motita is fixing it')}
+                  </span>
+                )}
+                {prView.ci && prView.ci.state === 'none' && (
+                  <span class="text-[#8a8a9a]">{t('No CI checks yet')}</span>
+                )}
+              </>
+            ) : (
+              <button
+                type="button"
+                class="inline-flex items-center gap-1.5 px-3 min-h-[32px] rounded-lg bg-accent text-white font-semibold disabled:opacity-50 active:scale-95 transition-transform"
+                disabled={prRunning}
+                title={t(prRunning ? 'Wait for the current turn to end' : 'Commit, push and open a pull request with this session\'s work')}
+                onClick={() => { void createPR() }}
+              >
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <circle cx="6" cy="6" r="3" /><circle cx="6" cy="18" r="3" /><circle cx="18" cy="18" r="3" /><path d="M6 9v6" /><path d="M18 15V9a3 3 0 0 0-3-3h-3" /><path d="m14 3-3 3 3 3" />
+                </svg>
+                {t('Create PR')}
+              </button>
+            )}
+          </div>
+        )}
+        {/* ── end of the pull request bar ── */}
 
         {/* Composer — solid opaque background, no decorative gradient. */}
         <form

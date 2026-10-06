@@ -460,6 +460,23 @@ const es: Record<string, string> = {
   "Connected": "Conectado",
   "The login expired. Try again.": "El acceso expiró. Inténtalo de nuevo.",
   "The host did not authorize the login.": "El host no autorizó el acceso.",
+  "CI passed": "CI aprobado",
+  "Pull request {pr} is green: you can go and merge it.": "El pull request {pr} está en verde: ya puedes ir a mergearlo.",
+  "This repository has no CI": "Este repositorio no tiene CI",
+  "Pull request {pr} has no checks to wait for.": "El pull request {pr} no tiene checks que esperar.",
+  "CI failed": "El CI falló",
+  "Motita will try to fix it and keep at it until the CI passes.": "Motita intentará arreglarlo y seguirá hasta que el CI pase.",
+  "Could not ask Motita to fix the CI": "No se pudo pedir a Motita que arregle el CI",
+  "Could not create the pull request": "No se pudo crear el pull request",
+  "Create PR": "Crear PR",
+  "Pull request #{n}": "Pull request #{n}",
+  "The CI is running": "El CI está corriendo",
+  "CI running {done}/{total}": "CI corriendo {done}/{total}",
+  "CI passed — ready to merge": "CI aprobado — listo para mergear",
+  "CI failed — Motita is fixing it": "El CI falló — Motita lo está arreglando",
+  "No CI checks yet": "Aún no hay checks de CI",
+  "Wait for the current turn to end": "Espera a que termine el turno actual",
+  "Commit, push and open a pull request with this session's work": "Hacer commit, push y abrir un pull request con el trabajo de esta sesión",
 }
 
 export default es
