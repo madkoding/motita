@@ -2,6 +2,7 @@ package tui
 
 import (
 	"context"
+	"strconv"
 	"strings"
 
 	"github.com/madkoding/motita/internal/agent"
@@ -41,7 +42,7 @@ type Command struct {
 var commands = []Command{
 	{Name: "/task", Aliases: []string{"/t"}, Help: "Task mode: make changes and prove them with your check", Group: "mode"},
 	{Name: "/goal", Help: "Goal: decides alone, never asks", Arg: "goal", Group: "mode"},
-	{Name: "/decisions", Help: "what /goal decided for you (edit the file to overrule)", Group: "action"},
+	{Name: "/decisions", Help: "what /goal decided; undo n removes one", Arg: "[undo n]", Group: "action"},
 	{Name: "/plan", Aliases: []string{"/p"}, Help: "Plan mode: ask about the project, nothing is changed", Group: "mode"},
 	{Name: "/models", Aliases: []string{"/m"}, Help: "list the provider's models, or switch to one", Arg: "[id]", Group: "mode"},
 	{Name: "/config", Aliases: []string{"/c"}, Help: "run the setup again: provider, key, model, check", Group: "mode"},
@@ -76,12 +77,25 @@ func Commands() []Command { return append([]Command(nil), commands...) }
 // lists meant two places to add a command, and the one that was forgotten did nothing.
 var commandActions = map[string]func(t *TUI, ctx context.Context, arg string) bool{
 	"/task": func(t *TUI, _ context.Context, _ string) bool { t.setScreen(ScreenTask); return false },
-	"/decisions": func(t *TUI, _ context.Context, _ string) bool {
-		text := strings.TrimSpace(agent.ReadDecisions(t.Runner.Config().Agent.WorkspaceDir))
+	"/decisions": func(t *TUI, _ context.Context, arg string) bool {
+		ws := t.Runner.Config().Agent.WorkspaceDir
+		if f := strings.Fields(arg); len(f) == 2 && f[0] == "undo" {
+			n, err := strconv.Atoi(f[1])
+			if err != nil {
+				t.addMessage(AuthorSystem, t.tr("usage: /decisions undo <number>"))
+			} else if removed, err := agent.RemoveDecision(ws, n); err != nil {
+				t.addMessage(AuthorSystem, err.Error())
+			} else {
+				t.addMessage(AuthorSystem, t.tr("decision removed: ")+removed)
+			}
+			t.drawFrame()
+			return false
+		}
+		text := agent.NumberedDecisions(ws)
 		if text == "" {
 			text = t.tr("no decisions yet: a /goal records the ones it takes")
 		} else {
-			text += "\n\n(" + agent.DecisionsFile + ")"
+			text += "\n\n(" + agent.DecisionsFile + " · /decisions undo <number>)"
 		}
 		t.addMessage(AuthorSystem, text)
 		t.drawFrame()

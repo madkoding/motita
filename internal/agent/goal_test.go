@@ -55,3 +55,26 @@ func TestNormalizeDropsEmptyDecisions(t *testing.T) {
 		t.Fatalf("decisions = %+v", r.Decisions)
 	}
 }
+
+func TestRemoveDecision(t *testing.T) {
+	dir := t.TempDir()
+	_ = recordDecisions(dir, "a", []ReportDecision{{Decision: "one"}, {Decision: "two"}})
+	_ = recordDecisions(dir, "b", []ReportDecision{{Decision: "three"}})
+	if got := NumberedDecisions(dir); !strings.Contains(got, "2. two") || !strings.Contains(got, "3. three") {
+		t.Fatalf("numbering:\n%s", got)
+	}
+	if got, err := RemoveDecision(dir, 3); err != nil || got != "three" {
+		t.Fatalf("removed %q, %v", got, err)
+	}
+	if strings.Contains(ReadDecisions(dir), "— b") {
+		t.Errorf("the emptied section's heading must go too:\n%s", ReadDecisions(dir))
+	}
+	if _, err := RemoveDecision(dir, 9); err == nil {
+		t.Errorf("an unknown number must fail")
+	}
+	_, _ = RemoveDecision(dir, 1)
+	_, _ = RemoveDecision(dir, 1)
+	if ReadDecisions(dir) != "" {
+		t.Errorf("an empty file must be removed")
+	}
+}

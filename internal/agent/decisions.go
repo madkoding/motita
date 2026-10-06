@@ -75,3 +75,71 @@ func oneLine(s string) string {
 	}
 	return s
 }
+
+// NumberedDecisions renders the decisions file with each decision numbered, so one can be named
+// to RemoveDecision. The numbers run across the whole file, oldest first.
+func NumberedDecisions(workspace string) string {
+	text := ReadDecisions(workspace)
+	if strings.TrimSpace(text) == "" {
+		return ""
+	}
+	n := 0
+	var out []string
+	for _, line := range strings.Split(strings.TrimSpace(text), "\n") {
+		if strings.HasPrefix(line, "- ") {
+			n++
+			line = fmt.Sprintf("%d. %s", n, line[2:])
+		}
+		out = append(out, line)
+	}
+	return strings.Join(out, "\n")
+}
+
+// RemoveDecision deletes the n-th decision (1-based, as NumberedDecisions numbers them) and returns
+// its text. A dated heading left with no decisions under it goes with it.
+func RemoveDecision(workspace string, n int) (string, error) {
+	text := ReadDecisions(workspace)
+	lines := strings.Split(text, "\n")
+	idx, count := -1, 0
+	for i, l := range lines {
+		if strings.HasPrefix(l, "- ") {
+			count++
+			if count == n {
+				idx = i
+				break
+			}
+		}
+	}
+	if idx < 0 {
+		return "", fmt.Errorf("there is no decision %d (there are %d)", n, count)
+	}
+	removed := strings.TrimPrefix(lines[idx], "- ")
+	lines = append(lines[:idx], lines[idx+1:]...)
+
+	// Drop headings whose section is now empty.
+	var kept []string
+	for i, l := range lines {
+		if strings.HasPrefix(l, "## ") {
+			empty := true
+			for _, next := range lines[i+1:] {
+				if strings.HasPrefix(next, "## ") {
+					break
+				}
+				if strings.HasPrefix(next, "- ") {
+					empty = false
+					break
+				}
+			}
+			if empty {
+				continue
+			}
+		}
+		kept = append(kept, l)
+	}
+	out := strings.TrimSpace(strings.Join(kept, "\n"))
+	path := filepath.Join(workspace, DecisionsFile)
+	if out == "" {
+		return removed, os.Remove(path)
+	}
+	return removed, os.WriteFile(path, []byte("\n"+out+"\n"), 0o644)
+}
