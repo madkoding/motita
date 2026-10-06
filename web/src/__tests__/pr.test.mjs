@@ -62,6 +62,7 @@ test('a browser notification is for a hidden tab the user allowed', () => {
   assert.equal(p.shouldDesktopNotify(true, 'denied'), false)
   assert.equal(p.shouldDesktopNotify(true, 'default'), false)
   assert.equal(p.shouldDesktopNotify(true, undefined), false, 'no Notification API')
+  assert.equal(p.shouldDesktopNotify(true, 'granted', false), false, 'the user switched them off')
   assert.equal(p.wantsDesktopPermission('default'), true)
   assert.equal(p.wantsDesktopPermission('granted'), false)
   assert.equal(p.wantsDesktopPermission('denied'), false)

@@ -479,7 +479,6 @@ const es: Record<string, string> = {
   "Motita could not fix the CI": "Motita no pudo arreglar el CI",
   "It tried {n} times. Look at pull request {pr} and try again when you are ready.": "Lo intentó {n} veces. Revisa el pull request {pr} y vuelve a intentarlo cuando quieras.",
   "Pull request merged": "Pull request mergeado",
-  "Pull request {pr} was merged.": "El pull request {pr} fue mergeado.",
   "Could not merge the pull request": "No se pudo mergear el pull request",
   "CI failed — Motita gave up after {n} attempts": "El CI falló — Motita se rindió tras {n} intentos",
   "CI failed — Motita is fixing it ({n}/{max})": "El CI falló — Motita lo está arreglando ({n}/{max})",
@@ -509,6 +508,13 @@ const es: Record<string, string> = {
   "Pull request closed": "Pull request cerrado",
   "Pull request {pr} was closed without being merged.": "El pull request {pr} se cerró sin mergearse.",
   "0 uses the default (5). After this many attempts Motita stops and asks you to take a look.": "0 usa el valor por defecto (5). Tras esta cantidad de intentos Motita se detiene y te pide que le eches un vistazo.",
+  "Notify me when a CI ends": "Avisarme cuando termine un CI",
+  "This browser cannot show notifications.": "Este navegador no puede mostrar notificaciones.",
+  "Blocked: allow notifications for this site in the browser settings.": "Bloqueadas: permite las notificaciones de este sitio en los ajustes del navegador.",
+  "Only while this tab is in the background. The browser has to allow it first.": "Solo mientras esta pestaña está en segundo plano. Primero el navegador tiene que permitirlo.",
+  "Only while this tab is in the background.": "Solo mientras esta pestaña está en segundo plano.",
+  "Allow": "Permitir",
+  "Pull request {pr} was merged. Use Continue in the bar to keep working from the updated branch.": "El pull request {pr} fue mergeado. Usa Continuar en la barra para seguir desde la rama actualizada.",
 }
 
 export default es

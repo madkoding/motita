@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"strings"
@@ -1167,7 +1168,12 @@ func TestPRNoticeTextOnlyForNews(t *testing.T) {
 
 func TestALiveNoticeLeadsTheFooter(t *testing.T) {
 	tu := newFakeTUI("", &fakeRunner{})
+	var out bytes.Buffer
+	tu.Out = &out
 	tu.raiseNotice("PR #7: the CI passed, you can go and merge it")
+	if !strings.Contains(out.String(), "\a") {
+		t.Error("a notice rings the terminal's bell")
+	}
 	tu.draw.Lock()
 	bar := stripANSI(tu.bottomBar(120))
 	tu.draw.Unlock()

@@ -15,6 +15,7 @@ import { NewSessionButton } from './NewSessionButton'
 import { GitConnectModal, type SelfHosted } from './GitConnect'
 import { RepoPicker } from './RepoPicker'
 import { listAccounts, connectedAccounts, repoShortName, type GitAccount, type GitRepo } from './gitApi'
+import { loadNotify } from './settings'
 import { getPR, retryFix, mergePR, mergeRefused, PRError, prNotice, shouldPoll, ciSummary, shouldDesktopNotify, wantsDesktopPermission, type PRView, type PRWatch } from './prApi'
 
 interface Message {
@@ -3195,7 +3196,7 @@ export default function App() {
   const announce = (n: { message: string; type: 'success' | 'error' | 'warning'; detail?: string }) => {
     setToast(n)
     try {
-      if (typeof Notification !== 'undefined' && shouldDesktopNotify(document.hidden, Notification.permission)) {
+      if (typeof Notification !== 'undefined' && shouldDesktopNotify(document.hidden, Notification.permission, loadNotify())) {
         new Notification(n.message, { body: n.detail, tag: 'motita-pr' })
       }
     } catch { /* a browser that cannot notify just does not */ }
@@ -3221,7 +3222,7 @@ export default function App() {
       } else if (notice === 'closed') {
         announce({ message: t('Pull request closed') + where, type: 'warning', detail: tf('Pull request {pr} was closed without being merged.', { pr }) })
       } else if (notice === 'merged') {
-        announce({ message: t('Pull request merged') + where, type: 'success', detail: tf('Pull request {pr} was merged.', { pr }) })
+        announce({ message: t('Pull request merged') + where, type: 'success', detail: tf('Pull request {pr} was merged. Use Continue in the bar to keep working from the updated branch.', { pr }) })
       }
     }
   }, [sessions])

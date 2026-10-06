@@ -2,6 +2,7 @@ package tui
 
 import (
 	"context"
+	"fmt"
 	"time"
 )
 
@@ -103,11 +104,18 @@ func (t *TUI) notePRs(seen map[string]prSeen, all []SessionInfo) {
 
 // raiseNotice shows a line in the footer for a while. It is called from beside the input loop, so
 // the field is guarded by the painter's lock.
+//
+// It also rings the terminal's bell: a notice that arrives while the terminal is in another tab or
+// window is exactly the one nobody is looking at, and the terminal turns the bell into a mark on the
+// tab or a sound.
 func (t *TUI) raiseNotice(text string) {
 	t.draw.Lock()
 	t.liveNotice = text
 	t.draw.Unlock()
 	t.drawFrame()
+	t.draw.Lock()
+	fmt.Fprint(t.Out, "\a")
+	t.draw.Unlock()
 	time.AfterFunc(prNoticeFor, func() {
 		t.draw.Lock()
 		cleared := t.liveNotice == text

@@ -480,6 +480,7 @@ curl -X DELETE -H "Authorization: Bearer $TOKEN" \
 | `GET /v1/sessions/{id}/agents` | the run's agents: purpose, state, elapsed time, tokens, branch |
 | `GET /v1/sessions/{id}/checkpoints` · `POST …/checkpoints/{turn}/restore` | the turns you can go back to; the conversation always rewinds, the files only with `{"files":true}` |
 | `POST /v1/sessions/{id}/merge` `/continue` | the agent integrates the session's branch (the session becomes read-only), or a fresh session starts from the updated base |
+| `GET /v1/sessions/{id}/pr` · `POST …/pr` `/pr/fix` `/pr/merge` | the session's pull request and its CI (with whether the host would merge it, and what the gateway is doing about it); open it with the agent; send the agent to fix a failing CI again; merge it once the CI passed |
 | `GET /v1/sessions/{id}/messages` `/report` | the transcript, and the conversation so far |
 | `GET /v1/sessions/{id}/config` `/models` `/model-list` `/providers` `/reward` `/questions` `/skills` | the read-only views |
 | `PATCH /v1/sessions/{id}/config` · `POST …/reasoning` `/verdict` `/reset` | change the provider or the model, the thinking budget, grade a turn, start over |
@@ -575,6 +576,14 @@ configuration file. Disconnecting a host deletes its file.
   are asked first, as for a push) and tells you where it is — `[owner/repo#12](url)`, never a
   bare number. It then offers to follow the CI (`motita forge pr checks --wait --logs`): if a
   job fails it reads the log, fixes the cause, pushes, and checks again until it is green.
+- **Create PR, and the CI followed for you.** A session with work shows **Create PR**. From
+  then on the *gateway* follows the CI (not the browser tab): when it fails it sends the agent to
+  fix it, push after push, up to the project's limit (5 by default), and stops when the CI passes,
+  when the same checks also fail on the base branch, or when there is no CI. A toast (and a
+  browser or terminal notification) tells you; **Merge** appears once the host would accept it,
+  and a project can merge by itself (`auto_merge`), choose merge/squash/rebase, and set the
+  attempts. A merge done on the host's own page is noticed too. To try it end to end against a
+  real repository, see [docs/PR-CI-MANUAL-TEST.md](docs/PR-CI-MANUAL-TEST.md).
 
 ### Background agents, side by side
 

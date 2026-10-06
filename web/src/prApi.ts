@@ -115,8 +115,8 @@ export function ciSummary(v: PRView): { passed: number; total: number } {
 
 // shouldDesktopNotify: a browser notification is for when the user cannot see the toast, because the
 // tab is in the background, and only when they allowed it.
-export function shouldDesktopNotify(hidden: boolean, permission: string | undefined): boolean {
-  return hidden && permission === 'granted'
+export function shouldDesktopNotify(hidden: boolean, permission: string | undefined, enabled = true): boolean {
+  return enabled && hidden && permission === 'granted'
 }
 
 // wantsDesktopPermission: it is asked for once, from a click, and never again once answered.

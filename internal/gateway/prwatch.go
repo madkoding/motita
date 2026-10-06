@@ -77,6 +77,46 @@ type prWatchState struct {
 	noneCount int
 	errors    int
 	idle      int
+	// sig is a fingerprint of the last reading of the CI and same how many readings in a row
+	// matched it: a CI that has not moved is asked about less often.
+	sig  string
+	same int
+}
+
+const (
+	// prMaxQuiet and prMaxBackoff bound how far the pace may slow: a quiet CI is asked about at most
+	// six times less often, a host that answers with errors (or a rate limit) up to sixteen times.
+	prMaxQuiet   = 6
+	prMaxBackoff = 16
+)
+
+// wait is how long to leave the host alone before the next reading. The base pace is for a CI that
+// is moving; it slows while the readings do not change, and it backs off hard while the host fails,
+// so many sessions do not run into the host's rate limit. A pull request whose CI passed is only
+// waiting to be merged, and goes at a third of the pace.
+func (w *prWatchState) wait(every time.Duration) time.Duration {
+	switch {
+	case w.errors > 0:
+		f := 1 << min(w.errors, 4)
+		return every * time.Duration(min(f, prMaxBackoff))
+	case w.status == prPassed:
+		return every * 3
+	}
+	return every * time.Duration(min(1+w.same/2, prMaxQuiet))
+}
+
+// see records a reading of the CI and reports whether it is the same as the one before.
+func (w *prWatchState) see(ci *gitforge.CIStatus) {
+	var b strings.Builder
+	b.WriteString(ci.State + "|" + ci.Rev)
+	for _, c := range ci.Checks {
+		b.WriteString("|" + c.Name + "=" + c.State)
+	}
+	if sig := b.String(); sig == w.sig {
+		w.same++
+	} else {
+		w.sig, w.same = sig, 0
+	}
 }
 
 // ciKey identifies one run of the CI, so a failure is answered once per push and not once per
@@ -218,16 +258,11 @@ func (s *Server) startPRWatch(c *conversation, from *prWatchState) {
 			s.prMu.Unlock()
 		}()
 		for {
-			// Once the CI passed there is nothing to hurry for: the pull request is only watched
-			// for being merged or closed somewhere else, at a third of the pace.
-			wait := every
-			if w.status == prPassed {
-				wait *= 3
-			}
+			// The pace follows what the host is doing (see wait).
 			select {
 			case <-s.baseCtx.Done():
 				return
-			case <-time.After(wait):
+			case <-time.After(w.wait(every)):
 			}
 			if s.pollPR(c, w) {
 				return
@@ -269,6 +304,7 @@ func (s *Server) pollPR(c *conversation, w *prWatchState) bool {
 	if err != nil {
 		return s.prFailed(c, w)
 	}
+	w.see(&ci)
 	verdict := w.step(&ci, s.prMaxFixes(c))
 	s.publishPR(c, w, pr.Number)
 	switch verdict {

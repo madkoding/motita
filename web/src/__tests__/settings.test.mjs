@@ -17,3 +17,17 @@ test('settings are applied and persisted', () => {
   m.initSettings()
   assert.equal(document.documentElement.getAttribute('data-density'), 'compact')
 })
+
+test('notifications: on by default, the switch is kept, and the state says what to show', () => {
+  localStorage.clear()
+  assert.equal(m.loadNotify(), true)
+  m.saveNotify(false)
+  assert.equal(m.loadNotify(), false)
+  m.saveNotify(true)
+  assert.equal(m.loadNotify(), true)
+  assert.equal(m.notifyState(undefined, true), 'unsupported')
+  assert.equal(m.notifyState('denied', true), 'blocked')
+  assert.equal(m.notifyState('default', true), 'ask')
+  assert.equal(m.notifyState('granted', true), 'on')
+  assert.equal(m.notifyState('granted', false), 'off')
+})

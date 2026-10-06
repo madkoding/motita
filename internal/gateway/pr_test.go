@@ -509,3 +509,41 @@ func TestPRWatchRunsByItself(t *testing.T) {
 		t.Errorf("%+v", v)
 	}
 }
+
+func TestPRWatchPaceFollowsTheHost(t *testing.T) {
+	every := 20 * time.Second
+	w := &prWatchState{status: prFollowing}
+	if got := w.wait(every); got != every {
+		t.Fatalf("a CI that is moving is asked about at the base pace: %v", got)
+	}
+	run := ci(gitforge.StatePending, "a")
+	for i := 0; i < 4; i++ {
+		w.see(run)
+	}
+	if got := w.wait(every); got <= every || got > every*prMaxQuiet {
+		t.Fatalf("a CI that has not moved is asked about less often, within bounds: %v", got)
+	}
+	for i := 0; i < 100; i++ {
+		w.see(run)
+	}
+	if got := w.wait(every); got != every*prMaxQuiet {
+		t.Fatalf("the slowdown is capped: %v", got)
+	}
+	w.see(ci(gitforge.StateFailure, "b"))
+	if got := w.wait(every); got != every {
+		t.Fatalf("a reading that changed brings the base pace back: %v", got)
+	}
+	w.errors = 1
+	first := w.wait(every)
+	w.errors = 3
+	third := w.wait(every)
+	w.errors = 50
+	capped := w.wait(every)
+	if !(first > every && third > first && capped == every*prMaxBackoff) {
+		t.Fatalf("a failing host is backed off from, up to a cap: %v %v %v", first, third, capped)
+	}
+	w = &prWatchState{status: prPassed}
+	if got := w.wait(every); got != every*3 {
+		t.Fatalf("a pull request waiting to be merged: %v", got)
+	}
+}
