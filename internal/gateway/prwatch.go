@@ -2,6 +2,7 @@ package gateway
 
 import (
 	"net/http"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -22,6 +23,7 @@ const (
 	prGaveUp    = "gave_up"   // the agent could not fix it in the allowed attempts
 	prNoCI      = "no_ci"     // the repository has no checks to wait for
 	prMerged    = "merged"    // the user merged it from here
+	prBaseRed   = "base_red"  // the CI fails on the base branch too: not this change's fault
 )
 
 const (
@@ -40,6 +42,25 @@ type PRWatchView struct {
 	Attempts int    `json:"attempts"`
 	Max      int    `json:"max"`
 	Number   int    `json:"number,omitempty"`
+}
+
+// prWatchRecord is the part of a watch that is saved with the session.
+type prWatchRecord struct {
+	Status   string `json:"status"`
+	Attempts int    `json:"attempts"`
+	Number   int    `json:"number,omitempty"`
+	FixedKey string `json:"fixed_key,omitempty"`
+}
+
+// restorePRWatch gives a restored session the watch it had.
+func (c *conversation) restorePRWatch(r *prWatchRecord, max int) {
+	if r == nil {
+		return
+	}
+	c.stateMu.Lock()
+	c.prWatch = &PRWatchView{Status: r.Status, Attempts: r.Attempts, Max: max, Number: r.Number}
+	c.prFixedKey = r.FixedKey
+	c.stateMu.Unlock()
 }
 
 // prWatchState is the memory of one watch.
@@ -120,6 +141,15 @@ func (c *conversation) setPRWatch(v *PRWatchView) {
 	c.stateMu.Unlock()
 }
 
+func (c *conversation) prNumber() int {
+	c.stateMu.Lock()
+	defer c.stateMu.Unlock()
+	if c.prWatch == nil {
+		return 0
+	}
+	return c.prWatch.Number
+}
+
 func (c *conversation) prWatchView() *PRWatchView {
 	c.stateMu.Lock()
 	defer c.stateMu.Unlock()
@@ -130,12 +160,22 @@ func (c *conversation) prWatchView() *PRWatchView {
 	return &v
 }
 
+// publishPR makes the watch visible, and saves the session when it moved: the watch is what a
+// restart resumes from.
 func (s *Server) publishPR(c *conversation, w *prWatchState, number int) {
-	c.setPRWatch(&PRWatchView{Status: w.status, Attempts: w.attempts, Max: s.prMaxFixes(), Number: number})
+	view := &PRWatchView{Status: w.status, Attempts: w.attempts, Max: s.prMaxFixes(), Number: number}
+	c.stateMu.Lock()
+	changed := c.prWatch == nil || c.prWatch.Status != view.Status || c.prWatch.Attempts != view.Attempts || c.prWatch.Number != view.Number
+	c.prWatch, c.prFixedKey = view, w.fixedKey
+	c.stateMu.Unlock()
+	if changed {
+		s.saveSession(c)
+	}
 }
 
-// startPRWatch begins following the session's pull request. A watch already running is left alone.
-func (s *Server) startPRWatch(c *conversation) {
+// startPRWatch begins following the session's pull request, from the memory given (nil for a new
+// watch). A watch already running is left alone.
+func (s *Server) startPRWatch(c *conversation, from *prWatchState) {
 	s.prMu.Lock()
 	if s.prWatching == nil {
 		s.prWatching = map[string]bool{}
@@ -147,8 +187,11 @@ func (s *Server) startPRWatch(c *conversation) {
 	s.prWatching[c.id] = true
 	s.prMu.Unlock()
 
-	w := &prWatchState{status: prFollowing}
-	s.publishPR(c, w, 0)
+	w := from
+	if w == nil {
+		w = &prWatchState{status: prFollowing}
+	}
+	s.publishPR(c, w, c.prNumber())
 	every := s.opts.PRPollEvery
 	if every <= 0 {
 		every = defaultPRPollEvery
@@ -208,9 +251,29 @@ func (s *Server) pollPR(c *conversation, w *prWatchState) bool {
 	case prPassed, prGaveUp, prNoCI:
 		return true
 	case "fix":
+		// A failure the base branch has too is not this change's to fix: spending the attempts on
+		// it would only end in a pull request that cannot be made green from here.
+		if names := ci.FailedNames(); len(names) > 0 && pr.Base != "" {
+			if base, err := t.api.BranchCI(ctx, t.remote, pr.Base); err == nil && coversAll(base.FailedNames(), names) {
+				w.attempts--
+				w.status = prBaseRed
+				s.publishPR(c, w, pr.Number)
+				return true
+			}
+		}
 		s.sendToAgent(c, ciFixTask(t.branch, pr))
 	}
 	return false
+}
+
+// coversAll reports whether every name in want is in have.
+func coversAll(have, want []string) bool {
+	for _, w := range want {
+		if !slices.Contains(have, w) {
+			return false
+		}
+	}
+	return true
 }
 
 // prFailed counts a poll the host did not answer, and ends the watch when it keeps not answering.
@@ -258,7 +321,11 @@ func (s *Server) handleMergePR(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusConflict, "the CI of this pull request has not passed: it is "+ci.State)
 		return
 	}
-	if err := t.api.MergePR(r.Context(), t.remote, pr.Number); err != nil {
+	opts := gitforge.MergeOptions{DeleteBranch: true, Branch: t.branch}
+	if p := s.projectOf(c.projectID); p != nil {
+		opts.Method = p.MergeMethod
+	}
+	if err := t.api.MergePR(r.Context(), t.remote, pr.Number, opts); err != nil {
 		s.writePRError(w, prHostError(t.api.Service, err))
 		return
 	}

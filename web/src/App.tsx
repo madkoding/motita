@@ -155,6 +155,8 @@ interface ProjectInfo {
   branch?: string
   // main_branch is the branch the project goes back to when it has no sessions.
   main_branch?: string
+  // merge_method is how its pull requests are merged from here: merge, squash or rebase.
+  merge_method?: string
   changes?: number
   created: string
 }
@@ -766,7 +768,7 @@ export default function App() {
   const [remoteMain, setRemoteMain] = useState('')
   const mainChosen = useRef(false)
   // The edit-project dialog: what is being edited and the branches its selector offers.
-  const [editProject, setEditProject] = useState<{ id: string; title: string; description: string; main: string; branches: string[]; current: string } | null>(null)
+  const [editProject, setEditProject] = useState<{ id: string; title: string; description: string; main: string; branches: string[]; current: string; mergeMethod: string } | null>(null)
   const [savingProject, setSavingProject] = useState(false)
   // Podman: whether this machine has it (asked when the dialog opens) and the user's answer.
   // Artifacts: the files the agent saved for the person in the selected session, and the one
@@ -1926,7 +1928,7 @@ export default function App() {
   // openEditProject opens the edit dialog with the project's own values, and asks the gateway
   // which branches the main-branch selector can offer.
   const openEditProject = useCallback(async (p: ProjectInfo) => {
-    setEditProject({ id: p.id, title: p.title, description: p.description ?? '', main: p.main_branch ?? 'main', branches: p.main_branch ? [p.main_branch] : ['main'], current: p.branch ?? '' })
+    setEditProject({ id: p.id, title: p.title, description: p.description ?? '', main: p.main_branch ?? 'main', branches: p.main_branch ? [p.main_branch] : ['main'], current: p.branch ?? '', mergeMethod: p.merge_method ?? '' })
     try {
       const res = await api('/v1/projects/' + encodeURIComponent(p.id) + '/branches')
       if (!res.ok) return
@@ -1946,7 +1948,7 @@ export default function App() {
       const res = await api('/v1/projects/' + encodeURIComponent(editProject.id), {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ title: editProject.title, description: editProject.description, main_branch: editProject.main }),
+        body: JSON.stringify({ title: editProject.title, description: editProject.description, main_branch: editProject.main, merge_method: editProject.mergeMethod }),
       })
       if (!res.ok) {
         const err = await res.json().catch(() => ({}))
@@ -3200,6 +3202,8 @@ export default function App() {
         setToast({ message: t('Motita could not fix the CI') + where, type: 'error', detail: tf('It tried {n} times. Look at pull request {pr} and try again when you are ready.', { n: String(cur.attempts), pr }) })
       } else if (notice === 'no_ci') {
         setToast({ message: t('This repository has no CI') + where, type: 'warning', detail: tf('Pull request {pr} has no checks to wait for.', { pr }) })
+      } else if (notice === 'base_red') {
+        setToast({ message: t('The CI is red on the base branch too') + where, type: 'warning', detail: tf('Pull request {pr} fails the same checks as the branch it merges into: this change did not cause it.', { pr }) })
       } else if (notice === 'merged') {
         setToast({ message: t('Pull request merged') + where, type: 'success', detail: tf('Pull request {pr} was merged.', { pr }) })
       }
@@ -4790,12 +4794,17 @@ export default function App() {
                     title={prView.ci.checks.filter(c => c.state === 'failure').map(c => c.name).join(', ')}
                   >
                     <span class="inline-block w-2 h-2 rounded-full bg-[#f87171]" />
-                    {prWatch?.status === 'gave_up'
+                    {prWatch?.status === 'base_red'
+                      ? t('CI failed')
+                      : prWatch?.status === 'gave_up'
                       ? tf('CI failed — Motita gave up after {n} attempts', { n: String(prWatch.attempts) })
                       : prWatch?.status === 'fixing'
                         ? tf('CI failed — Motita is fixing it ({n}/{max})', { n: String(prWatch.attempts), max: String(prWatch.max) })
                         : t('CI failed')}
                   </span>
+                )}
+                {prView.ci && prView.ci.state === 'failure' && prWatch?.status === 'base_red' && (
+                  <span class="text-[#8a8a9a]">{t('Also failing on the base branch — not caused by this change')}</span>
                 )}
                 {prView.ci && prView.ci.state === 'failure' && prWatch?.status === 'gave_up' && (
                   <button
@@ -5031,6 +5040,21 @@ export default function App() {
                     <> {tf('It is on {branch} now.', { branch: editProject.current })}</>
                   )}
                 </p>
+              </div>
+              <div>
+                <label class="block text-sm text-[#9a9aaa] mb-1.5" for="edit-project-merge">{t('Merge method')}</label>
+                <select
+                  id="edit-project-merge"
+                  data-testid="edit-project-merge"
+                  class="w-full px-3 py-2.5 rounded-xl bg-black/30 border border-white/10 text-[#e8e8ea] focus:outline-none focus:border-accent text-sm"
+                  value={editProject.mergeMethod}
+                  onChange={(e) => { const v = (e.target as HTMLSelectElement).value; setEditProject(p => p && { ...p, mergeMethod: v }) }}
+                >
+                  <option value="">{t('Merge commit')}</option>
+                  <option value="squash">{t('Squash')}</option>
+                  <option value="rebase">{t('Rebase')}</option>
+                </select>
+                <p class="text-xs text-[#7a7a8c] mt-1">{t('How a pull request of this project is merged from the PR bar. Its branch is deleted afterwards.')}</p>
               </div>
             </div>
             <div class="flex gap-2 mt-5">

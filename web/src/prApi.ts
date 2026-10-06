@@ -72,7 +72,7 @@ export async function mergePR(api: Api, sid: string): Promise<void> {
 
 // The gateway follows the CI of a pull request by itself and reports it in the session list; this
 // side only decides what is worth a toast.
-export type WatchStatus = 'following' | 'fixing' | 'passed' | 'gave_up' | 'no_ci' | 'merged'
+export type WatchStatus = 'following' | 'fixing' | 'passed' | 'gave_up' | 'no_ci' | 'merged' | 'base_red'
 
 export interface PRWatch {
   status: WatchStatus
@@ -81,7 +81,7 @@ export interface PRWatch {
   number?: number
 }
 
-export type Notice = 'fixing' | 'passed' | 'gave_up' | 'no_ci' | 'merged' | null
+export type Notice = 'fixing' | 'passed' | 'gave_up' | 'no_ci' | 'merged' | 'base_red' | null
 
 // prNotice says what the user is to be told when the watch of a session moves from prev to cur.
 // prev is undefined the first time the session is seen: what happened before the tab looked is not

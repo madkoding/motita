@@ -8,9 +8,11 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 
+	"github.com/madkoding/motita/internal/gitforge"
 	"github.com/madkoding/motita/internal/gitx"
 	"github.com/madkoding/motita/internal/projectskills"
 	"github.com/madkoding/motita/internal/schedule"
@@ -318,9 +320,18 @@ func (s *Server) handleUpdateProject(w http.ResponseWriter, r *http.Request) {
 		Description *string `json:"description"`
 		Podman      *bool   `json:"podman"`
 		MainBranch  *string `json:"main_branch"`
+		MergeMethod *string `json:"merge_method"`
 	}
 	if !s.decodeBody(w, r, &body) {
 		return
+	}
+	if body.MergeMethod != nil {
+		m := strings.TrimSpace(*body.MergeMethod)
+		if m != "" && !slices.Contains(gitforge.MergeMethods, m) {
+			writeError(w, http.StatusBadRequest, "the merge method must be merge, squash or rebase")
+			return
+		}
+		p.MergeMethod = m
 	}
 	if body.Title != nil {
 		title := strings.TrimSpace(*body.Title)

@@ -356,7 +356,7 @@ func TestMergePR(t *testing.T) {
 	}
 	for _, c := range cases {
 		a, h := newAPI(t, c.kind, map[string]string{c.route: c.body})
-		if err := a.MergePR(context.Background(), Remote{Path: c.path}, 7); err != nil {
+		if err := a.MergePR(context.Background(), Remote{Path: c.path}, 7, MergeOptions{}); err != nil {
 			t.Errorf("%s: %v", c.kind, err)
 		}
 		if len(h.seen) != 1 || !strings.HasPrefix(h.seen[0], c.route) {
@@ -364,7 +364,60 @@ func TestMergePR(t *testing.T) {
 		}
 	}
 	a, _ := newAPI(t, KindGitHub, map[string]string{"PUT /repos/o/r/pulls/7/merge": `STATUS 405 {"message":"Pull Request is not mergeable"}`})
-	if err := a.MergePR(context.Background(), Remote{Path: "o/r"}, 7); err == nil || !strings.Contains(err.Error(), "not mergeable") {
+	if err := a.MergePR(context.Background(), Remote{Path: "o/r"}, 7, MergeOptions{}); err == nil || !strings.Contains(err.Error(), "not mergeable") {
 		t.Errorf("the host's refusal must surface: %v", err)
+	}
+}
+
+func TestMergePRMethodAndBranchDeletion(t *testing.T) {
+	opt := MergeOptions{Method: "squash", DeleteBranch: true, Branch: "motita/s1"}
+	a, h := newAPI(t, KindGitHub, map[string]string{"PUT /repos/o/r/pulls/7/merge": `{"merged":true}`, "DELETE /repos/o/r/git/refs/heads/motita/s1": ``})
+	if err := a.MergePR(context.Background(), Remote{Path: "o/r"}, 7, opt); err != nil {
+		t.Fatal(err)
+	}
+	if len(h.seen) != 2 || !strings.HasPrefix(h.seen[1], "DELETE /repos/o/r/git/refs/heads/motita/s1") {
+		t.Errorf("the branch is deleted after the merge: %v", h.seen)
+	}
+	// A branch that cannot be deleted is not a failed merge.
+	a, _ = newAPI(t, KindGitHub, map[string]string{"PUT /repos/o/r/pulls/7/merge": `{"merged":true}`})
+	if err := a.MergePR(context.Background(), Remote{Path: "o/r"}, 7, opt); err != nil {
+		t.Errorf("a refused deletion must not fail the merge: %v", err)
+	}
+	a, h = newAPI(t, KindGitea, map[string]string{"POST /repos/o/r/pulls/7/merge": ``})
+	_ = a.MergePR(context.Background(), Remote{Path: "o/r"}, 7, opt)
+	if !strings.Contains(h.body, `"Do":"squash"`) || !strings.Contains(h.body, `"delete_branch_after_merge":true`) {
+		t.Errorf("gitea body: %s", h.body)
+	}
+	a, h = newAPI(t, KindGitLab, map[string]string{"PUT /projects/o%2Fr/merge_requests/7/merge": `{}`})
+	_ = a.MergePR(context.Background(), Remote{Path: "o/r"}, 7, opt)
+	if !strings.Contains(h.body, `"squash":true`) || !strings.Contains(h.body, `"should_remove_source_branch":true`) {
+		t.Errorf("gitlab body: %s", h.body)
+	}
+	a, h = newAPI(t, KindBitbucket, map[string]string{"POST /repositories/ws/r/pullrequests/7/merge": `{}`})
+	_ = a.MergePR(context.Background(), Remote{Path: "ws/r"}, 7, MergeOptions{Method: "rebase", DeleteBranch: true})
+	if !strings.Contains(h.body, `"fast_forward"`) || !strings.Contains(h.body, `"close_source_branch":true`) {
+		t.Errorf("bitbucket body: %s", h.body)
+	}
+}
+
+func TestBranchCI(t *testing.T) {
+	a, _ := newAPI(t, KindGitHub, map[string]string{
+		"GET /repos/o/r/commits/main/check-runs": `{"check_runs":[{"id":1,"name":"test","status":"completed","conclusion":"failure"}]}`,
+		"GET /repos/o/r/commits/main/status":     `{"statuses":[]}`,
+	})
+	st, err := a.BranchCI(context.Background(), Remote{Path: "o/r"}, "main")
+	if err != nil || st.State != StateFailure || len(st.FailedNames()) != 1 || st.FailedNames()[0] != "test" {
+		t.Fatalf("%+v %v", st, err)
+	}
+	a, _ = newAPI(t, KindGitLab, map[string]string{
+		"GET /projects/o%2Fr/pipelines?":       `[{"id":5}]`,
+		"GET /projects/o%2Fr/pipelines/5/jobs": `[{"name":"lint","status":"failed"}]`,
+	})
+	if st, err = a.BranchCI(context.Background(), Remote{Path: "o/r"}, "main"); err != nil || st.State != StateFailure || st.Rev != "5" {
+		t.Fatalf("%+v %v", st, err)
+	}
+	a, _ = newAPI(t, KindBitbucket, nil)
+	if st, _ = a.BranchCI(context.Background(), Remote{Path: "o/r"}, "main"); st.State != StateNone {
+		t.Errorf("bitbucket has no branch checks: %+v", st)
 	}
 }

@@ -34,6 +34,7 @@ test('giving up, no CI and merged are told', () => {
   assert.equal(p.prNotice(w('fixing', 5), w('gave_up', 5)), 'gave_up')
   assert.equal(p.prNotice(w('following'), w('no_ci')), 'no_ci')
   assert.equal(p.prNotice(w('passed'), w('merged')), 'merged')
+  assert.equal(p.prNotice(w('following'), w('base_red')), 'base_red')
   assert.equal(p.prNotice(w('following'), null), null)
   assert.equal(p.prNotice(null, w('following')), null)
   assert.equal(p.prNotice(null, w('passed')), 'passed', 'a watch that appeared after the session was seen is news')

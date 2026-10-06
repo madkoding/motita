@@ -4,7 +4,11 @@ import (
 	"encoding/json"
 	"github.com/madkoding/motita/internal/gitforge"
 	"net/http"
+	"net/http/httptest"
+	"path/filepath"
+	"strings"
 	"testing"
+	"time"
 )
 
 // prSession is a gateway with a git host, a project, and a session in its own
@@ -210,5 +214,89 @@ func TestPRWatchEndsWhenThereIsNoPullRequestAndNoRun(t *testing.T) {
 	}
 	if c.prWatchView() != nil {
 		t.Error("nothing is left to report")
+	}
+}
+
+func TestPRWatchSurvivesARestart(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "sessions")
+	seedSessionFile(t, dir, map[string]any{
+		"id":        "s-pr",
+		"title":     "a session with a pull request",
+		"created":   time.Now().Add(-time.Hour).UTC().Format(time.RFC3339Nano),
+		"last_used": time.Now().Add(-time.Hour).UTC().Format(time.RFC3339Nano),
+		"turns":     []map[string]string{},
+		"pr_watch":  map[string]any{"status": "gave_up", "attempts": 5, "number": 7, "fixed_key": "abc"},
+	})
+	srv, _ := startServer(t, Options{
+		Token:        testToken,
+		WorkspaceDir: t.TempDir(),
+		SessionDir:   dir,
+		ProjectDir:   filepath.Join(t.TempDir(), "projects"),
+		NewService:   func() (Service, error) { return &fakeService{}, nil },
+	})
+	c, ok := srv.lookup("s-pr")
+	if !ok {
+		t.Fatal("the session must be back")
+	}
+	if v := c.status().PRWatch; v == nil || v.Status != prGaveUp || v.Attempts != 5 || v.Number != 7 {
+		t.Fatalf("the watch is restored as it was: %+v", v)
+	}
+	// And it is saved again, so the next restart finds it too.
+	if err := srv.store.save(c); err != nil {
+		t.Fatal(err)
+	}
+	recs, _ := srv.store.loadAll()
+	for _, r := range recs {
+		if r.ID == "s-pr" && (r.PRWatch == nil || r.PRWatch.FixedKey != "abc") {
+			t.Errorf("saved record: %+v", r.PRWatch)
+		}
+	}
+}
+
+func TestPRWatchStopsWhenTheBaseBranchIsRedToo(t *testing.T) {
+	srv, host, ss := prSession(t, "https://github.com/o/r.git")
+	connectGitHub(t, srv)
+	c := srv.sessions[ss.ID]
+	host.set("GET https://api.github.com/repos/o/r/pulls?state=open",
+		`[{"number":7,"html_url":"https://github.com/o/r/pull/7","title":"feat: x","head":{"ref":"`+sessionBranch(ss.ID)+`"},"base":{"ref":"main"}}]`)
+	host.set("GET https://api.github.com/repos/o/r/pulls/7", `{"head":{"sha":"abc"}}`)
+	host.set("GET https://api.github.com/repos/o/r/commits/abc/status", `{"statuses":[]}`)
+	host.set("GET https://api.github.com/repos/o/r/commits/abc/check-runs", `{"check_runs":[{"id":1,"name":"test","status":"completed","conclusion":"failure"}]}`)
+	host.set("GET https://api.github.com/repos/o/r/commits/main/status", `{"statuses":[]}`)
+
+	// Red on main for another job: this change's failure is its own.
+	host.set("GET https://api.github.com/repos/o/r/commits/main/check-runs", `{"check_runs":[{"id":2,"name":"lint","status":"completed","conclusion":"failure"}]}`)
+	w := &prWatchState{status: prFollowing}
+	if srv.pollPR(c, w) || w.status != prFixing || w.attempts != 1 {
+		t.Fatalf("a failure of its own is fixed: done=%v %s %d", false, w.status, w.attempts)
+	}
+
+	// Red on main for the SAME job: not fixable from here, and the attempt is not spent.
+	w = &prWatchState{status: prFollowing}
+	host.set("GET https://api.github.com/repos/o/r/commits/main/check-runs", `{"check_runs":[{"id":2,"name":"test","status":"completed","conclusion":"failure"}]}`)
+	if !srv.pollPR(c, w) || w.status != prBaseRed || w.attempts != 0 {
+		t.Fatalf("a failure the base has too ends the watch: %s %d", w.status, w.attempts)
+	}
+}
+
+func TestProjectMergeMethodIsValidated(t *testing.T) {
+	srv, _ := gitServer(t)
+	withProjectsAndFake(t, srv, t.TempDir())
+	pid := makeProject(t, srv, "repo")
+	patch := func(body string) int {
+		req, _ := http.NewRequest(http.MethodPatch, srv.BaseURL()+"/v1/projects/"+pid, strings.NewReader(body))
+		req.Header.Set("Authorization", "Bearer "+testToken)
+		w := httptest.NewRecorder()
+		srv.Handler().ServeHTTP(w, req)
+		return w.Code
+	}
+	if code := patch(`{"merge_method":"squash"}`); code != http.StatusOK {
+		t.Errorf("squash: %d", code)
+	}
+	if p := srv.projectOf(pid); p.MergeMethod != "squash" {
+		t.Errorf("saved: %q", p.MergeMethod)
+	}
+	if code := patch(`{"merge_method":"fast-forward-ish"}`); code != http.StatusBadRequest {
+		t.Errorf("an unknown method: %d", code)
 	}
 }

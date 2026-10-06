@@ -469,17 +469,47 @@ func (a API) FindPR(ctx context.Context, r Remote, head string) (PullRequest, bo
 	}
 }
 
+// MergeMethods are the ways a pull request can be merged. The empty method is the host's default.
+var MergeMethods = []string{"merge", "squash", "rebase"}
+
+// MergeOptions says how a pull request is merged.
+type MergeOptions struct {
+	// Method is "merge", "squash" or "rebase"; empty is a merge commit. GitLab decides rebase per
+	// project, so there it is a merge.
+	Method string
+	// DeleteBranch removes the pull request's branch from the host once it is merged.
+	DeleteBranch bool
+	// Branch is that branch, which GitHub needs by name to delete it.
+	Branch string
+}
+
 // MergePR merges pull request n. The host decides whether it may: a protected branch, a missing
-// approval or a conflict come back as the host's own refusal.
-func (a API) MergePR(ctx context.Context, r Remote, n int) error {
+// approval or a conflict come back as the host's own refusal. A branch that cannot be deleted
+// after the merge is not an error: the merge has happened.
+func (a API) MergePR(ctx context.Context, r Remote, n int, o MergeOptions) error {
+	method := o.Method
+	if method == "" {
+		method = "merge"
+	}
 	switch a.Service.Kind {
 	case KindGitLab:
-		return a.do(ctx, http.MethodPut, fmt.Sprintf("%s/projects/%s/merge_requests/%d/merge", a.Service.APIBase, url.PathEscape(r.Path), n), map[string]any{}, nil)
+		body := map[string]any{"squash": method == "squash", "should_remove_source_branch": o.DeleteBranch}
+		return a.do(ctx, http.MethodPut, fmt.Sprintf("%s/projects/%s/merge_requests/%d/merge", a.Service.APIBase, url.PathEscape(r.Path), n), body, nil)
 	case KindBitbucket:
-		return a.do(ctx, http.MethodPost, fmt.Sprintf("%s/repositories/%s/pullrequests/%d/merge", a.Service.APIBase, r.Path, n), map[string]any{}, nil)
+		strategy := map[string]string{"merge": "merge_commit", "squash": "squash", "rebase": "fast_forward"}[method]
+		body := map[string]any{"merge_strategy": strategy, "close_source_branch": o.DeleteBranch}
+		return a.do(ctx, http.MethodPost, fmt.Sprintf("%s/repositories/%s/pullrequests/%d/merge", a.Service.APIBase, r.Path, n), body, nil)
 	case KindGitea:
-		return a.do(ctx, http.MethodPost, fmt.Sprintf("%s/repos/%s/pulls/%d/merge", a.Service.APIBase, r.Path, n), map[string]any{"Do": "merge"}, nil)
+		body := map[string]any{"Do": method, "delete_branch_after_merge": o.DeleteBranch}
+		return a.do(ctx, http.MethodPost, fmt.Sprintf("%s/repos/%s/pulls/%d/merge", a.Service.APIBase, r.Path, n), body, nil)
 	default:
-		return a.do(ctx, http.MethodPut, fmt.Sprintf("%s/repos/%s/pulls/%d/merge", a.Service.APIBase, r.Path, n), map[string]any{}, nil)
+		body := map[string]any{"merge_method": method}
+		if err := a.do(ctx, http.MethodPut, fmt.Sprintf("%s/repos/%s/pulls/%d/merge", a.Service.APIBase, r.Path, n), body, nil); err != nil {
+			return err
+		}
+		if o.DeleteBranch && o.Branch != "" {
+			_ = a.do(ctx, http.MethodDelete, fmt.Sprintf("%s/repos/%s/git/refs/heads/%s", a.Service.APIBase, r.Path, o.Branch), nil, nil)
+		}
+		return nil
 	}
 }

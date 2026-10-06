@@ -1115,3 +1115,22 @@ func TestTheSessionsCommandThroughTheTable(t *testing.T) {
 		t.Errorf("the listing did not run:\n%s", drawn)
 	}
 }
+
+func TestPRStateSaysWhatTheCIIsDoing(t *testing.T) {
+	tu := &TUI{}
+	for state, want := range map[string]string{
+		"following": "[PR #7: CI running]",
+		"fixing":    "[PR #7: CI failed, being fixed]",
+		"passed":    "[PR #7: CI passed, ready to merge]",
+		"gave_up":   "[PR #7: CI failed, needs you]",
+		"base_red":  "[PR #7: CI also red on the base branch]",
+		"merged":    "[PR #7: merged]",
+	} {
+		if got := tu.prState(state, 7); got != want {
+			t.Errorf("%s: %q, want %q", state, got, want)
+		}
+	}
+	if tu.prState("unknown", 7) != "" {
+		t.Error("an unknown state says nothing")
+	}
+}

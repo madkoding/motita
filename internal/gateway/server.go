@@ -963,6 +963,7 @@ func (s *Server) loadPersistedSessions() {
 			svc.RestoreTranscript(rec.Turns)
 		}
 		conv.setCheckpoints(rec.Checkpoints)
+		conv.restorePRWatch(rec.PRWatch, s.prMaxFixes())
 		// Restore provider/model if they were persisted and differ from the
 		// defaults the factory built with.
 		if rec.Provider != "" || rec.Model != "" {
@@ -1013,6 +1014,12 @@ func (s *Server) resumeInterruptedSessions() {
 		return
 	}
 	for _, rec := range records {
+		// A pull request being followed when the gateway stopped is followed again.
+		if w := rec.PRWatch; w != nil && (w.Status == prFollowing || w.Status == prFixing) {
+			if c, ok := s.lookup(rec.ID); ok {
+				s.startPRWatch(c, &prWatchState{status: w.Status, attempts: w.Attempts, fixedKey: w.FixedKey})
+			}
+		}
 		if !rec.Running || strings.TrimSpace(rec.LastTask) == "" {
 			continue
 		}

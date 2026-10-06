@@ -132,7 +132,7 @@ func (s *Server) handleGetPR(w http.ResponseWriter, r *http.Request) {
 		view.CI = &ci
 		// A CI seen running is a CI to follow, whoever pushed: the loop does not wait to be asked.
 		if ci.State == gitforge.StatePending {
-			s.startPRWatch(c)
+			s.startPRWatch(c, nil)
 		}
 	}
 	view.Watch = c.prWatchView()
@@ -175,7 +175,7 @@ Session branch: %[1]s
 
 Then give the user the link to the pull request. Do not wait for the CI and do not merge: the gateway follows the CI and tells the user when it ends.`, t.branch, c.workspace)
 	// From here the gateway follows the pull request's CI, whether or not anyone is looking.
-	s.startPRWatch(c)
+	s.startPRWatch(c, nil)
 	s.startRunWithIntent(w, r, c, task, schedule.KindTask, "")
 }
 
@@ -212,7 +212,7 @@ func (s *Server) handleFixPR(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	c.setPRWatch(nil)
-	s.startPRWatch(c)
+	s.startPRWatch(c, nil)
 	started, pos := s.sendToAgent(c, ciFixTask(t.branch, pr))
 	if started {
 		writeJSON(w, http.StatusAccepted, map[string]any{"queued": false, "started": true})

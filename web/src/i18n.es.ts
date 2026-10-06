@@ -489,6 +489,14 @@ const es: Record<string, string> = {
   "Merge": "Mergear",
   "Merged": "Mergeado",
   "Pull request #{n} merged": "Pull request #{n} mergeado",
+  "The CI is red on the base branch too": "El CI también está en rojo en la rama base",
+  "Pull request {pr} fails the same checks as the branch it merges into: this change did not cause it.": "El pull request {pr} falla los mismos checks que la rama en la que se mergea: este cambio no lo causó.",
+  "Also failing on the base branch — not caused by this change": "También falla en la rama base — no lo causó este cambio",
+  "Merge method": "Método de merge",
+  "Merge commit": "Commit de merge",
+  "Squash": "Squash",
+  "Rebase": "Rebase",
+  "How a pull request of this project is merged from the PR bar. Its branch is deleted afterwards.": "Cómo se mergea un pull request de este proyecto desde la barra de PR. Su rama se borra después.",
 }
 
 export default es
