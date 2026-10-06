@@ -998,7 +998,25 @@ func (a *Agent) processTask(ctx context.Context, t task.Task, depth int) TaskRes
 		a.begin(t)
 		a.startFleet(t)
 	}
-	r := a.loop(ctx, t, depth)
+	run := t
+	isGoal := false
+	if depth == 0 {
+		if goal, ok := goalOf(t.Description); ok {
+			// A goal is autonomous: nobody is asked, the stated assumption is the answer.
+			a.Interactive = false
+			run.Description = goal + goalDirective
+			isGoal = true
+		}
+		if ctxText := decisionsContext(a.cfg.Agent.WorkspaceDir); ctxText != "" {
+			run.Description += ctxText
+		}
+	}
+	r := a.loop(ctx, run, depth)
+	if isGoal && r.Report != nil {
+		if err := recordDecisions(a.cfg.Agent.WorkspaceDir, t.Description, r.Report.Decisions); err != nil {
+			a.log.Warn("could not save the goal's decisions", "error", err)
+		}
+	}
 	if depth == 0 {
 		// Whatever way the loop ended, nothing it started keeps running behind it.
 		a.endFleet(r)
@@ -1031,6 +1049,25 @@ func (a *Agent) processTask(ctx context.Context, t task.Task, depth int) TaskRes
 		a.note(t, outcome, KindTask)
 	}
 	return r
+}
+
+// goalPrefix is what the user types to hand over a goal: "/goal <what they want>".
+const goalPrefix = "/goal"
+
+// goalDirective is appended to a goal's description. Spec-driven work normally stops at a real
+// decision and lets the user choose; a goal is the user saying "decide for me", so the agent picks
+// the option it would recommend, and reports every decision it made so they can be audited later.
+const goalDirective = "\n\nThis is a GOAL: the user delegated every decision. Do NOT ask questions " +
+	"and do NOT offer alternatives. Where a choice is needed, take the option you would recommend, " +
+	"and list each decision you took, with one line of why, in the final report."
+
+// goalOf reports whether a task is a goal and returns it without the prefix.
+func goalOf(description string) (string, bool) {
+	d := strings.TrimSpace(description)
+	if d == goalPrefix || !strings.HasPrefix(d, goalPrefix+" ") {
+		return description, false
+	}
+	return strings.TrimSpace(d[len(goalPrefix):]), true
 }
 
 // taskOutcome is the one line a finished task leaves in the conversation.

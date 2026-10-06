@@ -33,6 +33,15 @@ type Report struct {
 	Risks []string `json:"risks"`
 	// NextSteps is what remains, or what the agent would do next.
 	NextSteps []string `json:"next_steps"`
+	// Decisions are the choices a GOAL run took on the user's behalf, each with its reason. Empty
+	// for an ordinary task, where the user made the decisions.
+	Decisions []ReportDecision `json:"decisions"`
+}
+
+// ReportDecision is one choice taken without asking.
+type ReportDecision struct {
+	Decision string `json:"decision"`
+	Why      string `json:"why"`
 }
 
 // ReportChange is one thing that changed.
@@ -138,6 +147,14 @@ func (r *Report) normalize(pass bool) {
 	r.Evidence = evidence
 	r.Risks = cleanLines(r.Risks)
 	r.NextSteps = cleanLines(r.NextSteps)
+	decisions := make([]ReportDecision, 0, len(r.Decisions))
+	for _, d := range r.Decisions {
+		d.Decision, d.Why = strings.TrimSpace(d.Decision), strings.TrimSpace(d.Why)
+		if d.Decision != "" {
+			decisions = append(decisions, d)
+		}
+	}
+	r.Decisions = decisions
 }
 
 // cleanLines trims the entries and drops the empty ones, returning a non-nil slice.
