@@ -70,6 +70,8 @@ type conversation struct {
 	created  time.Time
 	lastUsed time.Time
 	running  bool
+	// prWatch is what the gateway is doing about the session's pull request, nil when nothing.
+	prWatch *PRWatchView
 	// lastTask is the most recent task or plan prompt submitted to this
 	// conversation. It is saved so that a session interrupted by a gateway
 	// restart (an upgrade) can be resumed automatically: the new process
@@ -341,6 +343,8 @@ type SessionStatus struct {
 	Created   time.Time `json:"created"`
 	LastUsed  time.Time `json:"last_used"`
 	Running   bool      `json:"running"`
+	// PRWatch is the state of the session's pull request while the gateway follows its CI.
+	PRWatch *PRWatchView `json:"pr_watch,omitempty"`
 	// Mergeable reports whether the session has work that can be integrated
 	// back into the project's base branch. It is true when the session belongs
 	// to a project, the session's branch (motita/<id>) exists, and it has
@@ -418,6 +422,10 @@ func (c *conversation) status() SessionStatus {
 	st := SessionStatus{ID: c.id, Title: c.title, ProjectID: c.projectID, Created: c.created, LastUsed: c.lastUsed,
 		Running: c.running, AutoApprove: c.autoApprove, AgentsRunning: runningSubagents(c.agents)}
 	st.Workspace = c.workspace
+	if c.prWatch != nil {
+		w := *c.prWatch
+		st.PRWatch = &w
+	}
 	if c.workspace != "" {
 		ctx := context.Background()
 		st.Branch = gitx.Display(ctx, c.workspace)

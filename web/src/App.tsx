@@ -15,7 +15,7 @@ import { NewSessionButton } from './NewSessionButton'
 import { GitConnectModal, type SelfHosted } from './GitConnect'
 import { RepoPicker } from './RepoPicker'
 import { listAccounts, connectedAccounts, repoShortName, type GitAccount, type GitRepo } from './gitApi'
-import { getPR, fixCI, PRError, idleWatch, armWatch, stepWatch, shouldPoll, ciSummary, type PRView, type Watch } from './prApi'
+import { getPR, retryFix, mergePR, PRError, prNotice, shouldPoll, ciSummary, type PRView, type PRWatch } from './prApi'
 
 interface Message {
   id: number
@@ -56,6 +56,9 @@ interface SessionInfo {
   continuable?: boolean
   changes?: number
   worktree?: string
+  // pr_watch is what the gateway is doing about the session's pull request: following its CI,
+  // fixing it, or done. It is what the pull request toasts are drawn from.
+  pr_watch?: PRWatch
   // auto_approve is set while the user has allowed every command in this session.
   auto_approve?: boolean
   created: string
@@ -3126,91 +3129,82 @@ export default function App() {
 
   // ── Pull request bar ─────────────────────────────────────────────────────
   // A session with work in it can propose it: "Create PR" has the agent commit, push and open
-  // the pull request, and from then on the bar follows its CI. The gateway answers what the host
-  // says; stepWatch (prApi.ts) decides when that is worth a toast, and a failed CI is handed back
-  // to the agent, push after push, until it passes.
+  // the pull request. From then on the GATEWAY follows its CI (sending the agent to fix a failure,
+  // push after push, up to a limit) and reports it in the session list; this side draws the bar
+  // and turns each step of that into a toast, for any session and not only the one on screen.
   const [prView, setPrView] = useState<PRView | null>(null)
   // The reason the host cannot be asked (no remote, a host motita does not speak): the bar is
   // not drawn rather than offering something that cannot work.
   const [prBlocked, setPrBlocked] = useState(false)
-  const prViewRef = useRef<PRView | null>(null)
-  const watchRef = useRef<Record<string, Watch>>({})
+  const [prMergeArmed, setPrMergeArmed] = useState(false)
+  const [prBusy, setPrBusy] = useState(false)
   const prSessionId = selectedSession?.project_id && !selectedSession.merged ? sessionId : ''
   const prRunning = selectedSession?.running === true
+  const prWatch = selectedSession?.pr_watch
+  const prWatchKey = prWatch ? prWatch.status + ':' + prWatch.attempts : ''
 
-  const applyPR = (sid: string, v: PRView) => {
-    const { watch, verdict } = stepWatch(watchRef.current[sid] ?? idleWatch, v)
-    watchRef.current[sid] = watch
-    if (sid === sessionRef.current) { prViewRef.current = v; setPrView(v) }
-    const label = v.pr ? '#' + v.pr.number : ''
-    if (verdict === 'passed') {
-      setToast({ message: t('CI passed'), type: 'success', detail: tf('Pull request {pr} is green: you can go and merge it.', { pr: label }) })
-    } else if (verdict === 'no-ci') {
-      setToast({ message: t('This repository has no CI'), type: 'warning', detail: tf('Pull request {pr} has no checks to wait for.', { pr: label }) })
-    } else if (verdict === 'failed') {
-      setToast({ message: t('CI failed'), type: 'error', detail: t('Motita will try to fix it and keep at it until the CI passes.') })
-      void fixCI(api, sid).then(({ started }) => {
-        if (sid !== sessionRef.current) return
-        if (started) {
-          // The fix is a run this tab did not start: attach to it like a reconnection does.
-          runSessionRef.current = sid
-          lastIdRef.current = 0
-          setRunningState(true)
-          setState('working')
-          void followReconnect()
-        } else {
-          handoffRef.current = true
-        }
-      }).catch((e) => {
-        // The loop is not silent when it cannot go on: the next failure of the same push would
-        // not ask again, so the watch is told to try this one once more.
-        watchRef.current[sid] = { ...(watchRef.current[sid] ?? idleWatch), fixedKey: undefined }
-        setToast({ message: t('Could not ask Motita to fix the CI'), type: 'error', detail: e instanceof Error ? e.message : String(e) })
-      })
-    }
-  }
-
-  const refreshPR = async (sid: string): Promise<PRView | null> => {
+  const refreshPR = async (sid: string) => {
     try {
       const v = await getPR(api, sid)
-      if (sid === sessionRef.current) setPrBlocked(false)
-      applyPR(sid, v)
-      return v
+      if (sid !== sessionRef.current) return
+      setPrBlocked(false)
+      setPrView(v)
     } catch (e) {
-      if (sid !== sessionRef.current) return null
+      if (sid !== sessionRef.current) return
       // 'pr_no_remote' and 'pr_no_host' will not change by asking again; a lost connection or a
       // host that is down will, and the next poll tries again.
       if (e instanceof PRError && (e.code === 'pr_no_remote' || e.code === 'pr_no_host')) setPrBlocked(true)
-      return null
     }
   }
 
-  // The session on screen is asked once when it is opened, and again each time its run ends: the
-  // agent has just pushed, or opened the pull request.
+  // The session on screen is asked when it is opened, when its run ends (the agent has just
+  // pushed or opened the pull request) and whenever the gateway's watch moves.
   useEffect(() => {
-    prViewRef.current = null
     setPrView(null)
     setPrBlocked(false)
-    if (prSessionId) void refreshPR(prSessionId)
+    setPrMergeArmed(false)
   }, [prSessionId])
   const wasRunningRef = useRef(false)
   useEffect(() => {
-    const was = wasRunningRef.current
-    wasRunningRef.current = prRunning
-    if (!was || prRunning || !prSessionId) return
-    void refreshPR(prSessionId).then(v => {
-      // The run ended and there is still no pull request: whatever stopped it, nothing is left to follow.
-      if (v && v.state === 'none') watchRef.current[prSessionId] = idleWatch
-    })
-  }, [prRunning])
-  // While the CI is followed or running it is asked about every 20 seconds; otherwise it is left alone.
-  useEffect(() => {
     if (!prSessionId) return
-    const id = setInterval(() => {
-      if (shouldPoll(watchRef.current[prSessionId] ?? idleWatch, prViewRef.current)) void refreshPR(prSessionId)
-    }, 20000)
+    const ended = wasRunningRef.current && !prRunning
+    wasRunningRef.current = prRunning
+    if (ended || prView === null) void refreshPR(prSessionId)
+  }, [prSessionId, prRunning])
+  useEffect(() => {
+    if (prSessionId && prWatchKey) void refreshPR(prSessionId)
+  }, [prSessionId, prWatchKey])
+  // While the gateway follows the CI, the bar's detail (the jobs) is refreshed every 20 seconds.
+  useEffect(() => {
+    if (!prSessionId || !shouldPoll(prWatch)) return
+    const id = setInterval(() => { void refreshPR(prSessionId) }, 20000)
     return () => clearInterval(id)
-  }, [prSessionId])
+  }, [prSessionId, prWatch?.status])
+
+  // The toasts. The list is read for every session, so a CI that ends while another one is open
+  // is told too, with the session's name.
+  const seenWatchRef = useRef<Record<string, PRWatch | null>>({})
+  useEffect(() => {
+    for (const sess of sessions) {
+      const cur = sess.pr_watch ?? null
+      const notice = prNotice(seenWatchRef.current[sess.id], cur)
+      seenWatchRef.current[sess.id] = cur
+      if (!notice || !cur) continue
+      const where = sess.id === sessionRef.current ? '' : ' — ' + (sess.title || sess.id)
+      const pr = cur.number ? '#' + cur.number : ''
+      if (notice === 'passed') {
+        setToast({ message: t('CI passed') + where, type: 'success', detail: tf('Pull request {pr} is green: you can go and merge it.', { pr }) })
+      } else if (notice === 'fixing') {
+        setToast({ message: t('CI failed') + where, type: 'error', detail: tf('Motita is fixing it — attempt {n} of {max}.', { n: String(cur.attempts), max: String(cur.max) }) })
+      } else if (notice === 'gave_up') {
+        setToast({ message: t('Motita could not fix the CI') + where, type: 'error', detail: tf('It tried {n} times. Look at pull request {pr} and try again when you are ready.', { n: String(cur.attempts), pr }) })
+      } else if (notice === 'no_ci') {
+        setToast({ message: t('This repository has no CI') + where, type: 'warning', detail: tf('Pull request {pr} has no checks to wait for.', { pr }) })
+      } else if (notice === 'merged') {
+        setToast({ message: t('Pull request merged') + where, type: 'success', detail: tf('Pull request {pr} was merged.', { pr }) })
+      }
+    }
+  }, [sessions])
 
   const createPR = async () => {
     const sid = sessionRef.current
@@ -3222,8 +3216,48 @@ export default function App() {
       setToast({ message: t('Could not create the pull request'), type: 'error', detail: e instanceof Error ? e.message : String(e) })
       return
     }
-    watchRef.current[sid] = armWatch(watchRef.current[sid] ?? idleWatch)
     await submit(t('Create PR'), '/v1/sessions/' + encodeURIComponent(sid) + '/pr')
+  }
+
+  // tryAgain is what the user does after the gateway gave up: the agent is sent again and the
+  // count starts over.
+  const tryAgain = async () => {
+    const sid = sessionRef.current
+    setPrBusy(true)
+    try {
+      const { started } = await retryFix(api, sid)
+      if (started && sid === sessionRef.current) {
+        // The run is one this tab did not start: attach to it like a reconnection does.
+        runSessionRef.current = sid
+        lastIdRef.current = 0
+        setRunningState(true)
+        setState('working')
+        void followReconnect()
+      } else {
+        handoffRef.current = true
+      }
+    } catch (e) {
+      setToast({ message: t('Could not ask Motita to fix the CI'), type: 'error', detail: e instanceof Error ? e.message : String(e) })
+    } finally {
+      setPrBusy(false)
+    }
+  }
+
+  // mergeNow asks twice: merging is the one step here that cannot be taken back.
+  const mergeNow = async () => {
+    if (!prMergeArmed) { setPrMergeArmed(true); return }
+    const sid = sessionRef.current
+    setPrMergeArmed(false)
+    setPrBusy(true)
+    try {
+      await mergePR(api, sid)
+      void refreshPR(sid)
+      void fetchSessions()
+    } catch (e) {
+      setToast({ message: t('Could not merge the pull request'), type: 'error', detail: e instanceof Error ? e.message : String(e) })
+    } finally {
+      setPrBusy(false)
+    }
   }
   // ── end of the pull request bar ──────────────────────────────────────────
 
@@ -4720,9 +4754,14 @@ export default function App() {
         )}
 
         {/* ── Pull request bar ── */}
-        {prSessionId && !prBlocked && (prView?.state === 'open' || selectedSession?.mergeable) && (
+        {prSessionId && !prBlocked && (prWatch?.status === 'merged' || prView?.state === 'open' || selectedSession?.mergeable) && (
           <div class="flex items-center gap-2 px-3 sm:px-5 py-2 border-t border-white/5 text-xs flex-none z-10 relative" role="status">
-            {prView?.state === 'open' && prView.pr ? (
+            {prWatch?.status === 'merged' ? (
+              <span class="inline-flex items-center gap-1.5 font-semibold text-[#a78bfa]">
+                <span class="inline-block w-2 h-2 rounded-full bg-[#a78bfa]" />
+                {tf('Pull request #{n} merged', { n: String(prWatch.number ?? '') })}
+              </span>
+            ) : prView?.state === 'open' && prView.pr ? (
               <>
                 <a
                   href={prView.pr.url}
@@ -4751,8 +4790,34 @@ export default function App() {
                     title={prView.ci.checks.filter(c => c.state === 'failure').map(c => c.name).join(', ')}
                   >
                     <span class="inline-block w-2 h-2 rounded-full bg-[#f87171]" />
-                    {t('CI failed — Motita is fixing it')}
+                    {prWatch?.status === 'gave_up'
+                      ? tf('CI failed — Motita gave up after {n} attempts', { n: String(prWatch.attempts) })
+                      : prWatch?.status === 'fixing'
+                        ? tf('CI failed — Motita is fixing it ({n}/{max})', { n: String(prWatch.attempts), max: String(prWatch.max) })
+                        : t('CI failed')}
                   </span>
+                )}
+                {prView.ci && prView.ci.state === 'failure' && prWatch?.status === 'gave_up' && (
+                  <button
+                    type="button"
+                    class="px-3 min-h-[32px] rounded-lg border border-accent/40 text-accent font-semibold disabled:opacity-50"
+                    disabled={prBusy || prRunning}
+                    onClick={() => { void tryAgain() }}
+                  >
+                    {t('Try again')}
+                  </button>
+                )}
+                {prView.ci && prView.ci.state === 'success' && (
+                  <button
+                    type="button"
+                    class={`ml-auto px-3 min-h-[32px] rounded-lg font-semibold disabled:opacity-50 active:scale-95 transition-transform ${prMergeArmed ? 'bg-[#4ade80] text-black' : 'border border-[#4ade80]/50 text-[#4ade80]'}`}
+                    disabled={prBusy}
+                    title={t('Merge this pull request on the host')}
+                    onBlur={() => setPrMergeArmed(false)}
+                    onClick={() => { void mergeNow() }}
+                  >
+                    {t(prMergeArmed ? 'Click again to merge' : 'Merge')}
+                  </button>
                 )}
                 {prView.ci && prView.ci.state === 'none' && (
                   <span class="text-[#8a8a9a]">{t('No CI checks yet')}</span>

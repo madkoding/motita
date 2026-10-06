@@ -70,6 +70,11 @@ type Options struct {
 	// GitHTTP is the transport of the git hosts' APIs and OAuth servers. Nil means the default
 	// client; a test injects a fake.
 	GitHTTP oauth.HTTPClient
+	// PRPollEvery is how often the gateway asks a host for the CI of a pull request it is
+	// following; zero means 20 seconds. PRMaxFixes is how many times it sends the agent to fix a
+	// failing CI before giving up and telling the user; zero means 5.
+	PRPollEvery time.Duration
+	PRMaxFixes  int
 	// Restart is how this process starts running the binary the updater just installed. It is
 	// called once the new binary is in place and the sessions are saved, and it is expected to
 	// stop this process and bring up its replacement.
@@ -221,6 +226,9 @@ type Server struct {
 	// gitFlows are the logins to a git host that are waiting for the user's browser. See git.go.
 	gitMu    sync.Mutex
 	gitFlows map[string]*gitFlow
+	// prWatching holds the sessions whose pull request is being followed. See prwatch.go.
+	prMu       sync.Mutex
+	prWatching map[string]bool
 }
 
 // Start binds the listener and returns a Server that is ready to Serve.
@@ -596,6 +604,7 @@ func (s *Server) routes() *http.ServeMux {
 	mux.Handle("GET /v1/sessions/{id}/pr", scoped(s.handleGetPR))
 	mux.Handle("POST /v1/sessions/{id}/pr", scoped(s.handleCreatePR))
 	mux.Handle("POST /v1/sessions/{id}/pr/fix", scoped(s.handleFixPR))
+	mux.Handle("POST /v1/sessions/{id}/pr/merge", scoped(s.handleMergePR))
 	mux.Handle("GET /v1/sessions/{id}/run", scoped(s.handleRunStatus))
 	mux.Handle("GET /v1/sessions/{id}/agents", scoped(s.handleAgents))
 	mux.Handle("GET /v1/sessions/{id}/events", scoped(s.handleAttach))

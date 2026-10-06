@@ -11,84 +11,57 @@ const here = dirname(fileURLToPath(import.meta.url))
 const p = await import('../prApi.ts')
 const es = (await import('../i18n.es.ts')).default
 
-const view = (state, rev, checks = []) => ({
-  state: 'open', branch: 'motita/s1', pr: { number: 7, url: 'https://x/7' }, ci: { state, rev, checks },
+const w = (status, attempts = 0) => ({ status, attempts, max: 5, number: 7 })
+
+test('nothing seen before is news: a session met for the first time is quiet', () => {
+  assert.equal(p.prNotice(undefined, w('passed')), null)
+  assert.equal(p.prNotice(undefined, w('fixing', 1)), null)
 })
 
-test('a CI that passes after being followed says so once', () => {
-  let w = p.armWatch(p.idleWatch)
-  let r = p.stepWatch(w, view('pending', 'a'))
-  assert.equal(r.verdict, null)
-  r = p.stepWatch(r.watch, view('success', 'a'))
-  assert.equal(r.verdict, 'passed')
-  assert.equal(r.watch.watching, false)
-  assert.equal(p.stepWatch(r.watch, view('success', 'a')).verdict, null, 'the next poll is quiet')
+test('the CI passing is told once', () => {
+  assert.equal(p.prNotice(w('following'), w('passed')), 'passed')
+  assert.equal(p.prNotice(w('passed'), w('passed')), null)
 })
 
-test('a failure is answered once per push and the watch stays on', () => {
-  let w = p.armWatch(p.idleWatch)
-  let r = p.stepWatch(w, view('failure', 'a'))
-  assert.equal(r.verdict, 'failed')
-  assert.equal(r.watch.watching, true)
-  r = p.stepWatch(r.watch, view('failure', 'a'))
-  assert.equal(r.verdict, null, 'same push, already handed to the agent')
-  r = p.stepWatch(r.watch, view('pending', 'b'))
-  r = p.stepWatch(r.watch, view('failure', 'b'))
-  assert.equal(r.verdict, 'failed', 'a new push that fails again goes round again')
-  r = p.stepWatch(r.watch, view('success', 'c'))
-  assert.equal(r.verdict, 'passed')
+test('each attempt to fix the CI is told, the same one is not', () => {
+  assert.equal(p.prNotice(w('following'), w('fixing', 1)), 'fixing')
+  assert.equal(p.prNotice(w('fixing', 1), w('fixing', 1)), null)
+  assert.equal(p.prNotice(w('following', 1), w('fixing', 2)), 'fixing')
+  assert.equal(p.prNotice(w('fixing', 1), w('fixing', 2)), 'fixing')
 })
 
-test('a session nobody is following is never touched', () => {
-  assert.equal(p.stepWatch(p.idleWatch, view('failure', 'a')).verdict, null)
-  assert.equal(p.stepWatch(p.idleWatch, view('success', 'a')).verdict, null)
-  assert.equal(p.stepWatch(p.armWatch(p.idleWatch), { state: 'none', branch: 'b' }).verdict, null)
+test('giving up, no CI and merged are told', () => {
+  assert.equal(p.prNotice(w('fixing', 5), w('gave_up', 5)), 'gave_up')
+  assert.equal(p.prNotice(w('following'), w('no_ci')), 'no_ci')
+  assert.equal(p.prNotice(w('passed'), w('merged')), 'merged')
+  assert.equal(p.prNotice(w('following'), null), null)
+  assert.equal(p.prNotice(null, w('following')), null)
+  assert.equal(p.prNotice(null, w('passed')), 'passed', 'a watch that appeared after the session was seen is news')
 })
 
-test('a running CI turns the watch on by itself', () => {
-  const r = p.stepWatch(p.idleWatch, view('pending', 'a'))
-  assert.equal(r.watch.watching, true)
-  assert.equal(p.stepWatch(r.watch, view('failure', 'a')).verdict, 'failed')
-})
-
-test('no CI at all gives up after a few polls instead of waiting for ever', () => {
-  let r = { watch: p.armWatch(p.idleWatch), verdict: null }
-  for (let i = 1; i < p.NONE_LIMIT; i++) {
-    r = p.stepWatch(r.watch, view('none', ''))
-    assert.equal(r.verdict, null)
-  }
-  r = p.stepWatch(r.watch, view('none', ''))
-  assert.equal(r.verdict, 'no-ci')
-  assert.equal(r.watch.watching, false)
-})
-
-test('without a revision a failure is told apart by its jobs', () => {
-  const a = view('failure', '', [{ name: 'test', state: 'failure' }, { name: 'lint', state: 'success' }])
-  const b = view('failure', '', [{ name: 'lint', state: 'failure' }])
-  assert.notEqual(p.ciKey(a), p.ciKey(b))
-})
-
-test('polling goes on while the CI is followed or running, not otherwise', () => {
-  assert.equal(p.shouldPoll(p.idleWatch, null), false)
-  assert.equal(p.shouldPoll(p.armWatch(p.idleWatch), null), true)
-  assert.equal(p.shouldPoll(p.idleWatch, view('pending', 'a')), true)
-  assert.equal(p.shouldPoll(p.idleWatch, view('success', 'a')), false)
+test('the bar asks the gateway only while it is following the CI', () => {
+  assert.equal(p.shouldPoll(w('following')), true)
+  assert.equal(p.shouldPoll(w('fixing')), true)
+  assert.equal(p.shouldPoll(w('passed')), false)
+  assert.equal(p.shouldPoll(undefined), false)
 })
 
 test('ciSummary counts the jobs that passed', () => {
-  const v = view('pending', 'a', [{ name: 'a', state: 'success' }, { name: 'b', state: 'pending' }])
+  const v = { state: 'open', branch: 'b', ci: { state: 'pending', checks: [{ name: 'a', state: 'success' }, { name: 'b', state: 'pending' }] } }
   assert.deepEqual(p.ciSummary(v), { passed: 1, total: 2 })
 })
 
-test('fixCI and getPR speak to the gateway and carry its refusals', async () => {
+test('retryFix, mergePR and getPR speak to the gateway and carry its refusals', async () => {
   const calls = []
   const api = async (path, init) => {
     calls.push([path, init?.method])
     if (path.endsWith('/fix')) return { ok: true, json: async () => ({ started: false, queued: true }) }
     return { ok: false, status: 409, json: async () => ({ error: 'not connected', code: 'git_auth_required', service: 'github' }) }
   }
-  assert.deepEqual(await p.fixCI(api, 's 1'), { started: false })
+  assert.deepEqual(await p.retryFix(api, 's 1'), { started: false })
   assert.deepEqual(calls[0], ['/v1/sessions/s%201/pr/fix', 'POST'])
+  await p.mergePR(async (path, init) => { calls.push([path, init?.method]); return { ok: true, json: async () => ({}) } }, 's1')
+  assert.deepEqual(calls[1], ['/v1/sessions/s1/pr/merge', 'POST'])
   await assert.rejects(p.getPR(api, 's1'), e => e.status === 409 && e.code === 'git_auth_required' && e.service === 'github')
 })
 

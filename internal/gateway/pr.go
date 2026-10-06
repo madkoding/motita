@@ -33,6 +33,8 @@ type prView struct {
 	Branch string                `json:"branch"`
 	PR     *gitforge.PullRequest `json:"pr,omitempty"`
 	CI     *gitforge.CIStatus    `json:"ci,omitempty"`
+	// Watch is what the gateway is doing about the pull request, absent when nothing.
+	Watch *PRWatchView `json:"watch,omitempty"`
 }
 
 // prTarget is the repository a session's pull request lives in.
@@ -128,7 +130,12 @@ func (s *Server) handleGetPR(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		view.CI = &ci
+		// A CI seen running is a CI to follow, whoever pushed: the loop does not wait to be asked.
+		if ci.State == gitforge.StatePending {
+			s.startPRWatch(c)
+		}
 	}
+	view.Watch = c.prWatchView()
 	writeJSON(w, http.StatusOK, view)
 }
 
@@ -166,7 +173,9 @@ Follow the pull-requests-and-ci skill. Commit any pending changes on the session
 Session worktree: %[2]s
 Session branch: %[1]s
 
-Then give the user the link to the pull request. Do not wait for the CI and do not merge: the interface follows the CI and tells the user when it ends.`, t.branch, c.workspace)
+Then give the user the link to the pull request. Do not wait for the CI and do not merge: the gateway follows the CI and tells the user when it ends.`, t.branch, c.workspace)
+	// From here the gateway follows the pull request's CI, whether or not anyone is looking.
+	s.startPRWatch(c)
 	s.startRunWithIntent(w, r, c, task, schedule.KindTask, "")
 }
 
@@ -177,12 +186,11 @@ func ciFixTask(branch string, pr gitforge.PullRequest) string {
 
 Follow the pull-requests-and-ci skill: run "motita forge pr checks --logs" to read the failing jobs, reproduce the failure locally with the project's own check before changing anything, fix the cause in code this pull request touches, commit with a semantic message and push to %[1]s. Never skip, disable or delete a test to get green. If the failure is not caused by this change, say so with the evidence instead of widening the pull request.
 
-Do not merge the pull request. After pushing, stop: the interface watches the new run of the CI and sends you back here if it fails again.`, branch, pr.URL, pr.Number)
+Do not merge the pull request. After pushing, stop: the gateway watches the new run of the CI and sends you back here if it fails again.`, branch, pr.URL, pr.Number)
 }
 
-// handleFixPR hands the failure of the pull request's CI to the agent. It answers
-// 202 whether the turn started or was queued behind the one in flight, exactly as
-// /queue does, because the failure can be noticed while the agent is still busy.
+// handleFixPR sends the agent to fix the CI of the pull request now and follows it again from
+// the start: it is what "Try again" does after the gateway gave up.
 func (s *Server) handleFixPR(w http.ResponseWriter, r *http.Request) {
 	c := convOf(r)
 	if c.merged {
@@ -203,11 +211,12 @@ func (s *Server) handleFixPR(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusConflict, "this session has no open pull request whose CI could be fixed")
 		return
 	}
-	task := ciFixTask(t.branch, pr)
-	if _, started := s.startDetachedRun(c, task, schedule.KindTask, "", s.approverFactory(c)); started {
+	c.setPRWatch(nil)
+	s.startPRWatch(c)
+	started, pos := s.sendToAgent(c, ciFixTask(t.branch, pr))
+	if started {
 		writeJSON(w, http.StatusAccepted, map[string]any{"queued": false, "started": true})
 		return
 	}
-	pos := c.pushQueue(task, false)
 	writeJSON(w, http.StatusAccepted, map[string]any{"queued": true, "started": false, "position": pos})
 }

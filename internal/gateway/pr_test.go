@@ -2,6 +2,7 @@ package gateway
 
 import (
 	"encoding/json"
+	"github.com/madkoding/motita/internal/gitforge"
 	"net/http"
 	"testing"
 )
@@ -105,5 +106,109 @@ func TestPRRefusesASessionWithNoWork(t *testing.T) {
 	host.set("GET https://api.github.com/repos/o/r/pulls?state=open", `[]`)
 	if w := postJSON(t, srv, sessionPath(srv, ss.ID, "/pr"), testToken, `{}`); w.Code != http.StatusConflict {
 		t.Fatalf("nothing to propose: %d %s", w.Code, w.Body.String())
+	}
+}
+
+func ci(state, rev string, failed ...string) *gitforge.CIStatus {
+	st := &gitforge.CIStatus{State: state, Rev: rev}
+	for _, n := range failed {
+		st.Checks = append(st.Checks, gitforge.Check{Name: n, State: gitforge.StateFailure})
+	}
+	return st
+}
+
+func TestPRWatchStepsThroughTheCI(t *testing.T) {
+	w := &prWatchState{status: prFollowing}
+	if got := w.step(ci(gitforge.StatePending, "a"), 2); got != "" || w.status != prFollowing {
+		t.Fatalf("pending: %q %s", got, w.status)
+	}
+	if got := w.step(ci(gitforge.StateFailure, "a"), 2); got != "fix" || w.attempts != 1 || w.status != prFixing {
+		t.Fatalf("first failure: %q %d %s", got, w.attempts, w.status)
+	}
+	if got := w.step(ci(gitforge.StateFailure, "a"), 2); got != "" {
+		t.Fatalf("the same push is answered once: %q", got)
+	}
+	w.step(ci(gitforge.StatePending, "b"), 2)
+	if got := w.step(ci(gitforge.StateFailure, "b"), 2); got != "fix" || w.attempts != 2 {
+		t.Fatalf("a new push that fails goes round again: %q %d", got, w.attempts)
+	}
+	if got := w.step(ci(gitforge.StateFailure, "c"), 2); got != prGaveUp || w.status != prGaveUp {
+		t.Fatalf("past the allowed attempts it gives up: %q %s", got, w.status)
+	}
+
+	w = &prWatchState{status: prFollowing}
+	if got := w.step(ci(gitforge.StateSuccess, "d"), 2); got != prPassed {
+		t.Fatalf("success: %q", got)
+	}
+
+	w = &prWatchState{status: prFollowing}
+	got := ""
+	for i := 0; i < prNoneLimit; i++ {
+		got = w.step(ci(gitforge.StateNone, ""), 2)
+	}
+	if got != prNoCI {
+		t.Fatalf("no CI at all gives up after a few polls: %q", got)
+	}
+	if k1, k2 := ciKey(ci("failure", "", "test")), ciKey(ci("failure", "", "lint")); k1 == k2 {
+		t.Error("without a revision a failure is told apart by its jobs")
+	}
+}
+
+func TestPRWatchFollowsAFailureToAPass(t *testing.T) {
+	srv, host, ss := prSession(t, "https://github.com/o/r.git")
+	connectGitHub(t, srv)
+	c := srv.sessions[ss.ID]
+	host.set("GET https://api.github.com/repos/o/r/pulls?state=open",
+		`[{"number":7,"html_url":"https://github.com/o/r/pull/7","title":"feat: x","head":{"ref":"`+sessionBranch(ss.ID)+`"},"base":{"ref":"main"}}]`)
+	host.set("GET https://api.github.com/repos/o/r/pulls/7", `{"head":{"sha":"abc"}}`)
+	host.set("GET https://api.github.com/repos/o/r/commits/abc/status", `{"statuses":[]}`)
+	host.set("GET https://api.github.com/repos/o/r/commits/abc/check-runs", `{"check_runs":[{"id":1,"name":"test","status":"completed","conclusion":"failure"}]}`)
+
+	w := &prWatchState{status: prFollowing}
+	if srv.pollPR(c, w) {
+		t.Fatal("a failure is not the end of the watch")
+	}
+	if v := c.prWatchView(); v == nil || v.Status != prFixing || v.Attempts != 1 || v.Number != 7 {
+		t.Fatalf("the failure is reported: %+v", v)
+	}
+	// The session list carries it, so a tab that is looking at another session can say so.
+	if st := c.status(); st.PRWatch == nil || st.PRWatch.Status != prFixing {
+		t.Errorf("the list must say what the watch is doing: %+v", st.PRWatch)
+	}
+
+	host.set("GET https://api.github.com/repos/o/r/commits/abc/check-runs", `{"check_runs":[{"id":1,"name":"test","status":"completed","conclusion":"success"}]}`)
+	if !srv.pollPR(c, w) {
+		t.Fatal("a pass ends the watch")
+	}
+	if v := c.prWatchView(); v.Status != prPassed {
+		t.Fatalf("passed: %+v", v)
+	}
+
+	// Merging is refused until the CI has passed, and goes through once it has.
+	path := sessionPath(srv, ss.ID, "/pr/merge")
+	host.set("GET https://api.github.com/repos/o/r/commits/abc/check-runs", `{"check_runs":[{"id":1,"name":"test","status":"in_progress"}]}`)
+	if w := postJSON(t, srv, path, testToken, `{}`); w.Code != http.StatusConflict {
+		t.Fatalf("merging a running CI: %d %s", w.Code, w.Body.String())
+	}
+	host.set("GET https://api.github.com/repos/o/r/commits/abc/check-runs", `{"check_runs":[{"id":1,"name":"test","status":"completed","conclusion":"success"}]}`)
+	host.set("PUT https://api.github.com/repos/o/r/pulls/7/merge", `{"merged":true}`)
+	if w := postJSON(t, srv, path, testToken, `{}`); w.Code != http.StatusOK {
+		t.Fatalf("merge: %d %s", w.Code, w.Body.String())
+	}
+	if v := c.prWatchView(); v.Status != prMerged {
+		t.Errorf("merged: %+v", v)
+	}
+}
+
+func TestPRWatchEndsWhenThereIsNoPullRequestAndNoRun(t *testing.T) {
+	srv, host, ss := prSession(t, "https://github.com/o/r.git")
+	connectGitHub(t, srv)
+	c := srv.sessions[ss.ID]
+	host.set("GET https://api.github.com/repos/o/r/pulls?state=open", `[]`)
+	if !srv.pollPR(c, &prWatchState{status: prFollowing}) {
+		t.Fatal("with nothing to follow and nobody opening one, the watch is over")
+	}
+	if c.prWatchView() != nil {
+		t.Error("nothing is left to report")
 	}
 }

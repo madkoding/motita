@@ -341,3 +341,30 @@ func TestAnAnswerCutShortIsAnError(t *testing.T) {
 		t.Error("err = nil")
 	}
 }
+
+func TestMergePR(t *testing.T) {
+	cases := []struct {
+		kind  Kind
+		path  string
+		route string
+		body  string
+	}{
+		{KindGitHub, "o/r", "PUT /repos/o/r/pulls/7/merge", `{"merged":true}`},
+		{KindGitea, "o/r", "POST /repos/o/r/pulls/7/merge", ``}, // Gitea answers with no body
+		{KindGitLab, "grp/r", "PUT /projects/grp%2Fr/merge_requests/7/merge", `{"state":"merged"}`},
+		{KindBitbucket, "ws/r", "POST /repositories/ws/r/pullrequests/7/merge", `{"state":"MERGED"}`},
+	}
+	for _, c := range cases {
+		a, h := newAPI(t, c.kind, map[string]string{c.route: c.body})
+		if err := a.MergePR(context.Background(), Remote{Path: c.path}, 7); err != nil {
+			t.Errorf("%s: %v", c.kind, err)
+		}
+		if len(h.seen) != 1 || !strings.HasPrefix(h.seen[0], c.route) {
+			t.Errorf("%s: asked %v, want %s", c.kind, h.seen, c.route)
+		}
+	}
+	a, _ := newAPI(t, KindGitHub, map[string]string{"PUT /repos/o/r/pulls/7/merge": `STATUS 405 {"message":"Pull Request is not mergeable"}`})
+	if err := a.MergePR(context.Background(), Remote{Path: "o/r"}, 7); err == nil || !strings.Contains(err.Error(), "not mergeable") {
+		t.Errorf("the host's refusal must surface: %v", err)
+	}
+}

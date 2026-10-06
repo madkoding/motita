@@ -19,6 +19,8 @@ export interface PRView {
   branch: string
   pr?: { number: number; url: string; title?: string }
   ci?: { state: CIState; checks: CICheck[]; rev?: string }
+  // What the gateway is doing about the CI; absent when nothing.
+  watch?: PRWatch
 }
 
 // PRError carries the HTTP status and the machine code of a refusal (git_auth_required,
@@ -50,74 +52,52 @@ export async function getPR(api: Api, sid: string): Promise<PRView> {
   return res.json()
 }
 
-// fixCI hands the failing CI to the agent. started is false when the agent was busy and the
+// retryFix sends the agent to fix the CI now and has the gateway follow it again from the start:
+// what "Try again" does once the gateway gave up. started is false when the agent was busy and the
 // message was queued behind its turn.
-export async function fixCI(api: Api, sid: string): Promise<{ started: boolean }> {
+export async function retryFix(api: Api, sid: string): Promise<{ started: boolean }> {
   const res = await api(base(sid) + '/fix', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' })
   if (!res.ok) throw await failure(res)
   const body = await res.json().catch(() => ({} as any))
   return { started: body.started === true }
 }
 
-// ── The watch ───────────────────────────────────────────────────────────────
-
-// A pull request on a host that reports its checks late answers "none" for a moment after it is
-// opened; a repository with no CI answers "none" for ever. This many polls in a row say which.
-export const NONE_LIMIT = 6
-
-export interface Watch {
-  // watching is on from the moment the user opens the pull request (or a poll sees the CI
-  // running) until the CI passes: a session opened on a red CI from last week is not touched.
-  watching: boolean
-  noneCount: number
-  passedKey?: string
-  fixedKey?: string
+// mergePR merges the pull request. The gateway refuses unless its CI has passed.
+export async function mergePR(api: Api, sid: string): Promise<void> {
+  const res = await api(base(sid) + '/merge', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' })
+  if (!res.ok) throw await failure(res)
 }
 
-export const idleWatch: Watch = { watching: false, noneCount: 0 }
+// ── What the gateway is doing about the CI ──────────────────────────────────
 
-// armWatch is what opening a pull request does: from now on its CI is followed.
-export const armWatch = (w: Watch): Watch => ({ ...w, watching: true, noneCount: 0 })
+// The gateway follows the CI of a pull request by itself and reports it in the session list; this
+// side only decides what is worth a toast.
+export type WatchStatus = 'following' | 'fixing' | 'passed' | 'gave_up' | 'no_ci' | 'merged'
 
-export type Verdict = 'passed' | 'failed' | 'no-ci' | null
-
-// ciKey identifies one run of the CI, so a failure is answered once per push and not once per
-// poll. A host that gives no revision is told apart by which jobs failed.
-export function ciKey(v: PRView): string {
-  const ci = v.ci
-  if (!ci) return ''
-  if (ci.rev) return ci.rev
-  return ci.checks.filter(c => c.state === 'failure').map(c => c.name).sort().join(',')
+export interface PRWatch {
+  status: WatchStatus
+  attempts: number
+  max: number
+  number?: number
 }
 
-// stepWatch folds one answer of the gateway into the watch and says what, if anything, the user
-// must be told: the CI passed (they can merge), failed (the agent is sent to fix it), or there is
-// no CI to wait for.
-export function stepWatch(w: Watch, v: PRView): { watch: Watch; verdict: Verdict } {
-  if (v.state !== 'open' || !v.ci) return { watch: w, verdict: null }
-  const key = ciKey(v)
-  switch (v.ci.state) {
-    case 'pending':
-      return { watch: { ...w, watching: true, noneCount: 0 }, verdict: null }
-    case 'success':
-      if (!w.watching || w.passedKey === key) return { watch: w, verdict: null }
-      return { watch: { ...w, watching: false, noneCount: 0, passedKey: key }, verdict: 'passed' }
-    case 'failure':
-      if (!w.watching || w.fixedKey === key) return { watch: w, verdict: null }
-      return { watch: { ...w, noneCount: 0, fixedKey: key }, verdict: 'failed' }
-    default: {
-      if (!w.watching) return { watch: w, verdict: null }
-      const noneCount = w.noneCount + 1
-      if (noneCount >= NONE_LIMIT) return { watch: { ...w, watching: false, noneCount: 0 }, verdict: 'no-ci' }
-      return { watch: { ...w, noneCount }, verdict: null }
-    }
+export type Notice = 'fixing' | 'passed' | 'gave_up' | 'no_ci' | 'merged' | null
+
+// prNotice says what the user is to be told when the watch of a session moves from prev to cur.
+// prev is undefined the first time the session is seen: what happened before the tab looked is not
+// news, and a toast for it would be noise.
+export function prNotice(prev: PRWatch | null | undefined, cur: PRWatch | null | undefined): Notice {
+  if (prev === undefined || !cur) return null
+  if (cur.status === 'fixing') {
+    return prev?.status !== 'fixing' || cur.attempts > prev.attempts ? 'fixing' : null
   }
+  if (cur.status === 'following') return null
+  return prev?.status === cur.status ? null : cur.status
 }
 
-// shouldPoll: the CI is worth asking about while it is being followed or is still running.
-export function shouldPoll(w: Watch, v: PRView | null): boolean {
-  if (w.watching) return true
-  return v?.state === 'open' && v.ci?.state === 'pending'
+// shouldPoll: the bar asks the gateway about the CI only while the gateway is following it.
+export function shouldPoll(w: PRWatch | null | undefined): boolean {
+  return w?.status === 'following' || w?.status === 'fixing'
 }
 
 export function ciSummary(v: PRView): { passed: number; total: number } {

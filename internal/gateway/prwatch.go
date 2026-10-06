@@ -1,0 +1,267 @@
+package gateway
+
+import (
+	"net/http"
+	"sort"
+	"strings"
+	"time"
+
+	"github.com/madkoding/motita/internal/gitforge"
+	"github.com/madkoding/motita/internal/schedule"
+)
+
+// The gateway follows the CI of a session's pull request on its own, so the loop does not depend
+// on a browser tab staying open: when the CI fails it sends the agent to fix it, push after push,
+// and it stops when the CI passes, when it has tried too many times, or when there is no CI.
+
+// What the gateway is doing about a pull request.
+const (
+	prFollowing = "following" // waiting for the CI
+	prFixing    = "fixing"    // the CI failed and the agent has been sent to fix it
+	prPassed    = "passed"    // the CI passed: ready to merge
+	prGaveUp    = "gave_up"   // the agent could not fix it in the allowed attempts
+	prNoCI      = "no_ci"     // the repository has no checks to wait for
+	prMerged    = "merged"    // the user merged it from here
+)
+
+const (
+	defaultPRPollEvery = 20 * time.Second
+	defaultPRMaxFixes  = 5
+	// prNoneLimit is how many polls in a row may find no checks. A host reports them late for a
+	// moment after a pull request opens; a repository with no CI reports none for ever.
+	prNoneLimit = 6
+	// prErrorLimit is how many polls in a row may fail before the host is given up on.
+	prErrorLimit = 10
+)
+
+// PRWatchView is what the session list and the pull request endpoint say about the watch.
+type PRWatchView struct {
+	Status   string `json:"status"`
+	Attempts int    `json:"attempts"`
+	Max      int    `json:"max"`
+	Number   int    `json:"number,omitempty"`
+}
+
+// prWatchState is the memory of one watch.
+type prWatchState struct {
+	status    string
+	attempts  int
+	fixedKey  string
+	noneCount int
+	errors    int
+}
+
+// ciKey identifies one run of the CI, so a failure is answered once per push and not once per
+// poll. A host that gives no revision is told apart by which jobs failed.
+func ciKey(ci *gitforge.CIStatus) string {
+	if ci == nil {
+		return ""
+	}
+	if ci.Rev != "" {
+		return ci.Rev
+	}
+	var failed []string
+	for _, c := range ci.Checks {
+		if c.State == gitforge.StateFailure {
+			failed = append(failed, c.Name)
+		}
+	}
+	sort.Strings(failed)
+	return strings.Join(failed, ",")
+}
+
+// step folds one reading of the CI into the watch. It returns what happened that ends the watch
+// (prPassed, prGaveUp, prNoCI), "fix" when the agent is to be sent, and "" otherwise.
+func (w *prWatchState) step(ci *gitforge.CIStatus, max int) string {
+	if ci == nil {
+		return ""
+	}
+	switch ci.State {
+	case gitforge.StatePending:
+		w.noneCount = 0
+		w.status = prFollowing
+	case gitforge.StateSuccess:
+		w.status = prPassed
+		return prPassed
+	case gitforge.StateFailure:
+		w.noneCount = 0
+		key := ciKey(ci)
+		if key == w.fixedKey {
+			return "" // this push was already handed to the agent
+		}
+		w.fixedKey = key
+		if w.attempts >= max {
+			w.status = prGaveUp
+			return prGaveUp
+		}
+		w.attempts++
+		w.status = prFixing
+		return "fix"
+	default:
+		w.noneCount++
+		if w.noneCount >= prNoneLimit {
+			w.status = prNoCI
+			return prNoCI
+		}
+	}
+	return ""
+}
+
+func (s *Server) prMaxFixes() int {
+	if s.opts.PRMaxFixes > 0 {
+		return s.opts.PRMaxFixes
+	}
+	return defaultPRMaxFixes
+}
+
+func (c *conversation) setPRWatch(v *PRWatchView) {
+	c.stateMu.Lock()
+	c.prWatch = v
+	c.stateMu.Unlock()
+}
+
+func (c *conversation) prWatchView() *PRWatchView {
+	c.stateMu.Lock()
+	defer c.stateMu.Unlock()
+	if c.prWatch == nil {
+		return nil
+	}
+	v := *c.prWatch
+	return &v
+}
+
+func (s *Server) publishPR(c *conversation, w *prWatchState, number int) {
+	c.setPRWatch(&PRWatchView{Status: w.status, Attempts: w.attempts, Max: s.prMaxFixes(), Number: number})
+}
+
+// startPRWatch begins following the session's pull request. A watch already running is left alone.
+func (s *Server) startPRWatch(c *conversation) {
+	s.prMu.Lock()
+	if s.prWatching == nil {
+		s.prWatching = map[string]bool{}
+	}
+	if s.prWatching[c.id] {
+		s.prMu.Unlock()
+		return
+	}
+	s.prWatching[c.id] = true
+	s.prMu.Unlock()
+
+	w := &prWatchState{status: prFollowing}
+	s.publishPR(c, w, 0)
+	every := s.opts.PRPollEvery
+	if every <= 0 {
+		every = defaultPRPollEvery
+	}
+	go func() {
+		defer func() {
+			s.prMu.Lock()
+			delete(s.prWatching, c.id)
+			s.prMu.Unlock()
+		}()
+		tick := time.NewTicker(every)
+		defer tick.Stop()
+		for {
+			select {
+			case <-s.baseCtx.Done():
+				return
+			case <-tick.C:
+			}
+			if s.pollPR(c, w) {
+				return
+			}
+		}
+	}()
+}
+
+// pollPR asks the host once and acts on the answer. It reports whether the watch is over.
+func (s *Server) pollPR(c *conversation, w *prWatchState) bool {
+	if c.merged {
+		c.setPRWatch(nil)
+		return true
+	}
+	ctx := s.baseCtx
+	t, perr := s.prTargetOf(ctx, c)
+	if perr != nil {
+		return s.prFailed(c, w)
+	}
+	pr, found, err := t.api.FindPR(ctx, t.remote, t.branch)
+	if err != nil {
+		return s.prFailed(c, w)
+	}
+	w.errors = 0
+	if !found {
+		// The agent is still opening it; when it has stopped and there is none, nothing is left to follow.
+		if !c.isRunning() {
+			c.setPRWatch(nil)
+			return true
+		}
+		return false
+	}
+	ci, err := t.api.CI(ctx, t.remote, pr.Number)
+	if err != nil {
+		return s.prFailed(c, w)
+	}
+	verdict := w.step(&ci, s.prMaxFixes())
+	s.publishPR(c, w, pr.Number)
+	switch verdict {
+	case prPassed, prGaveUp, prNoCI:
+		return true
+	case "fix":
+		s.sendToAgent(c, ciFixTask(t.branch, pr))
+	}
+	return false
+}
+
+// prFailed counts a poll the host did not answer, and ends the watch when it keeps not answering.
+func (s *Server) prFailed(c *conversation, w *prWatchState) bool {
+	w.errors++
+	if w.errors < prErrorLimit {
+		return false
+	}
+	c.setPRWatch(nil)
+	return true
+}
+
+// sendToAgent gives the agent a task: it starts a run, or queues behind the one in flight.
+func (s *Server) sendToAgent(c *conversation, task string) (started bool, position int) {
+	if _, ok := s.startDetachedRun(c, task, schedule.KindTask, "", s.approverFactory(c)); ok {
+		return true, 0
+	}
+	return false, c.pushQueue(task, false)
+}
+
+// handleMergePR merges the session's pull request once its CI has passed. It is the user's click:
+// the agent never merges.
+func (s *Server) handleMergePR(w http.ResponseWriter, r *http.Request) {
+	c := convOf(r)
+	t, perr := s.prTargetOf(r.Context(), c)
+	if perr != nil {
+		s.writePRError(w, perr)
+		return
+	}
+	pr, found, err := t.api.FindPR(r.Context(), t.remote, t.branch)
+	if err != nil {
+		s.writePRError(w, prHostError(t.api.Service, err))
+		return
+	}
+	if !found {
+		writeError(w, http.StatusConflict, "this session has no open pull request to merge")
+		return
+	}
+	ci, err := t.api.CI(r.Context(), t.remote, pr.Number)
+	if err != nil {
+		s.writePRError(w, prHostError(t.api.Service, err))
+		return
+	}
+	if ci.State == gitforge.StateFailure || ci.State == gitforge.StatePending {
+		writeError(w, http.StatusConflict, "the CI of this pull request has not passed: it is "+ci.State)
+		return
+	}
+	if err := t.api.MergePR(r.Context(), t.remote, pr.Number); err != nil {
+		s.writePRError(w, prHostError(t.api.Service, err))
+		return
+	}
+	c.setPRWatch(&PRWatchView{Status: prMerged, Max: s.prMaxFixes(), Number: pr.Number})
+	writeJSON(w, http.StatusOK, map[string]any{"merged": true, "pr": pr})
+}

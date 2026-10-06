@@ -96,6 +96,10 @@ func (a API) do(ctx context.Context, method, target string, body, out any) error
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		return &HTTPError{Status: resp.StatusCode, Message: apiMessage(data)}
 	}
+	// Some hosts answer a success with no body (Gitea's merge).
+	if out == nil || len(bytes.TrimSpace(data)) == 0 {
+		return nil
+	}
 	if err := json.Unmarshal(data, out); err != nil {
 		return fmt.Errorf("could not read the answer of %s: %w", a.Service.Name, err)
 	}
@@ -462,5 +466,20 @@ func (a API) FindPR(ctx context.Context, r Remote, head string) (PullRequest, bo
 			}
 		}
 		return PullRequest{}, false, nil
+	}
+}
+
+// MergePR merges pull request n. The host decides whether it may: a protected branch, a missing
+// approval or a conflict come back as the host's own refusal.
+func (a API) MergePR(ctx context.Context, r Remote, n int) error {
+	switch a.Service.Kind {
+	case KindGitLab:
+		return a.do(ctx, http.MethodPut, fmt.Sprintf("%s/projects/%s/merge_requests/%d/merge", a.Service.APIBase, url.PathEscape(r.Path), n), map[string]any{}, nil)
+	case KindBitbucket:
+		return a.do(ctx, http.MethodPost, fmt.Sprintf("%s/repositories/%s/pullrequests/%d/merge", a.Service.APIBase, r.Path, n), map[string]any{}, nil)
+	case KindGitea:
+		return a.do(ctx, http.MethodPost, fmt.Sprintf("%s/repos/%s/pulls/%d/merge", a.Service.APIBase, r.Path, n), map[string]any{"Do": "merge"}, nil)
+	default:
+		return a.do(ctx, http.MethodPut, fmt.Sprintf("%s/repos/%s/pulls/%d/merge", a.Service.APIBase, r.Path, n), map[string]any{}, nil)
 	}
 }
