@@ -718,6 +718,7 @@ ports — they are **two views of one conversation**.
 | Command | What it does |
 |---|---|
 | `/task` `/plan` | switch between doing work and read-only exploration |
+| `/goal <text>` | autonomous task: never asks, takes the recommended option and reports each decision |
 | `/models` `/models <id>` | your provider, your key status and the models it really publishes; with an id, switch to that model for this session |
 | `/reasoning` | cycle the thinking budget |
 | `/good` `/bad` | tell the agent how a turn went |

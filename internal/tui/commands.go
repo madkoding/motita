@@ -38,6 +38,7 @@ type Command struct {
 // change mode first, then the ones that act, then the ones about the session, then leaving.
 var commands = []Command{
 	{Name: "/task", Aliases: []string{"/t"}, Help: "Task mode: make changes and prove them with your check", Group: "mode"},
+	{Name: "/goal", Help: "Goal: decides alone, never asks", Arg: "goal", Group: "mode"},
 	{Name: "/plan", Aliases: []string{"/p"}, Help: "Plan mode: ask about the project, nothing is changed", Group: "mode"},
 	{Name: "/models", Aliases: []string{"/m"}, Help: "list the provider's models, or switch to one", Arg: "[id]", Group: "mode"},
 	{Name: "/config", Aliases: []string{"/c"}, Help: "run the setup again: provider, key, model, check", Group: "mode"},
@@ -73,6 +74,18 @@ func Commands() []Command { return append([]Command(nil), commands...) }
 var commandActions = map[string]func(t *TUI, ctx context.Context, arg string) bool{
 	"/task": func(t *TUI, _ context.Context, _ string) bool { t.setScreen(ScreenTask); return false },
 	"/plan": func(t *TUI, _ context.Context, _ string) bool { t.setScreen(ScreenPlan); return false },
+	// A goal is a task the agent runs without asking. The prefix travels with the text, so the
+	// gateway and the agent need no new field to know the run is autonomous.
+	"/goal": func(t *TUI, ctx context.Context, arg string) bool {
+		if strings.TrimSpace(arg) == "" {
+			t.addMessage(AuthorSystem, t.tr("usage: /goal <what you want>"))
+			t.drawFrame()
+			return false
+		}
+		t.setScreen(ScreenTask)
+		t.runTask(ctx, "/goal "+strings.TrimSpace(arg))
+		return false
+	},
 	"/models": func(t *TUI, ctx context.Context, arg string) bool {
 		// With an id it picks the model for this session, the way /reasoning picks the level:
 		// in memory, from the next turn on.
