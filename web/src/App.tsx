@@ -2077,30 +2077,34 @@ export default function App() {
   // initial load, 'none' when the URL already changed (back/forward).
   const followRef = useRef<() => void>(() => {})
   const loadAgentsRef = useRef<(id: string) => Promise<void>>(async () => {})
-  const switchSessionRef = useRef<((id: string, urlMode?: 'push' | 'replace' | 'none') => Promise<void>) | null>(null)
-  const switchSession = useCallback(async (id: string, urlMode: 'push' | 'replace' | 'none' = 'push') => {
+  const switchSessionRef = useRef<((id: string, urlMode?: 'push' | 'replace' | 'none', soft?: boolean) => Promise<void>) | null>(null)
+  // `soft` re-reads the conversation already on screen (the handoff to a run this tab did not
+  // start): nothing is blanked and no loading modal opens, the new messages just replace the old.
+  const switchSession = useCallback(async (id: string, urlMode: 'push' | 'replace' | 'none' = 'push', soft = false) => {
     setSessionId(id)
     sessionRef.current = id
     try { localStorage.setItem(STORAGE_KEY, id) } catch { /* ignore */ }
     if (urlMode !== 'none') writeSessionUrl(id, urlMode)
-    setMessages([])
-    setActivity(null)
-    setStepsByTurn({})
-    setCpInfo({})
-    liveTurnRef.current = null
-    setShellLog([])
-    setTermSeenId(0)
-    setLiveThought(null)
-    setApproval(null)
-    setAgents([])
-    setAgentOpenId(null)
+    if (!soft) {
+      setMessages([])
+      setActivity(null)
+      setStepsByTurn({})
+      setCpInfo({})
+      liveTurnRef.current = null
+      setShellLog([])
+      setTermSeenId(0)
+      setLiveThought(null)
+      setApproval(null)
+      setAgents([])
+      setAgentOpenId(null)
+    }
     void loadAgentsRef.current(id)
     lastIdRef.current = 0
     // The transcript is being fetched: the message area is empty until it arrives, and an
     // empty area is not the same message as "this conversation has nothing in it yet". The
     // spinner covers the fetch AND the deferred rendering that follows, and is cleared below
     // once the messages are on screen and their formulas and diagrams are built.
-    requestModal(true)
+    if (!soft) requestModal(true)
     // This tab's run belongs to ONE conversation, and it keeps running while
     // the user looks elsewhere. Carry its flag into the row it belongs to, so
     // coming back to that conversation shows the spinner its own turn earned -
@@ -2770,7 +2774,7 @@ export default function App() {
       const sid = sessionRef.current
       for (const delay of [400, 1800]) {
         setTimeout(() => {
-          if (sessionRef.current === sid && !runningRef.current) void switchSessionRef.current?.(sid, 'none')
+          if (sessionRef.current === sid && !runningRef.current) void switchSessionRef.current?.(sid, 'none', true)
         }, delay)
       }
     }
