@@ -16,9 +16,9 @@ import (
 
 // prSession is a gateway with a git host, a project, and a session in its own
 // worktree. origin, when not empty, is added to the worktree's repository.
-func prSession(t *testing.T, origin string) (*Server, *gitHost, SessionStatus) {
+func prSession(t *testing.T, origin string, opts ...func(*Options)) (*Server, *gitHost, SessionStatus) {
 	t.Helper()
-	srv, host := gitServer(t)
+	srv, host := gitServerWith(t, opts...)
 	withProjectsAndFake(t, srv, t.TempDir())
 	pid := makeProject(t, srv, "repo")
 	w := post(t, srv, "/v1/sessions", `{"project_id":"`+pid+`"}`, testToken)

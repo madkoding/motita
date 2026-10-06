@@ -125,9 +125,6 @@ func (w *prWatchState) see(ci *gitforge.CIStatus) {
 // ciKey identifies one run of the CI, so a failure is answered once per push and not once per
 // poll. A host that gives no revision is told apart by which jobs failed.
 func ciKey(ci *gitforge.CIStatus) string {
-	if ci == nil {
-		return ""
-	}
 	if ci.Rev != "" {
 		return ci.Rev
 	}
@@ -144,9 +141,6 @@ func ciKey(ci *gitforge.CIStatus) string {
 // step folds one reading of the CI into the watch. It returns what happened that ends the watch
 // (prPassed, prGaveUp, prNoCI), "fix" when the agent is to be sent, and "" otherwise.
 func (w *prWatchState) step(ci *gitforge.CIStatus, max int) string {
-	if ci == nil {
-		return ""
-	}
 	switch ci.State {
 	case gitforge.StatePending:
 		w.noneCount = 0
@@ -421,7 +415,7 @@ func (s *Server) handleMergePR(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if state, err := t.api.MergeState(r.Context(), t.remote, pr.Number); err == nil && state.Refuses() {
-		writeJSON(w, http.StatusConflict, map[string]string{"error": "the host would not merge this pull request now: " + mergeRefusal(state.Code), "code": "pr_" + state.Code})
+		writeJSON(w, http.StatusConflict, map[string]string{"error": "the host would not merge this pull request now: " + mergeRefusals[state.Code], "code": "pr_" + state.Code})
 		return
 	}
 	if err := s.doMerge(r.Context(), c, t, pr); err != nil {
@@ -431,17 +425,11 @@ func (s *Server) handleMergePR(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"merged": true, "pr": pr})
 }
 
-// mergeRefusal says in words why the host would turn a merge down.
-func mergeRefusal(code string) string {
-	switch code {
-	case gitforge.MergeBlocked:
-		return "it is missing an approval, a resolved discussion or a required check"
-	case gitforge.MergeConflict:
-		return "it conflicts with the branch it merges into"
-	case gitforge.MergeDraft:
-		return "it is still a draft"
-	}
-	return code
+// mergeRefusals say in words why the host would turn a merge down; the keys are the states that refuse.
+var mergeRefusals = map[string]string{
+	gitforge.MergeBlocked:  "it is missing an approval, a resolved discussion or a required check",
+	gitforge.MergeConflict: "it conflicts with the branch it merges into",
+	gitforge.MergeDraft:    "it is still a draft",
 }
 
 // doMerge merges the pull request the way the project asks, and from then on the session is the

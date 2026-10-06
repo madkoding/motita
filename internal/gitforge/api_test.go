@@ -540,3 +540,76 @@ func TestReadsAreConditional(t *testing.T) {
 		t.Error("no cache, no conditional request")
 	}
 }
+
+func TestMergeStateOfEveryHostAndItsFailures(t *testing.T) {
+	ctx := context.Background()
+	state := func(kind Kind, route, body string) string {
+		t.Helper()
+		a, _ := newAPI(t, kind, map[string]string{route: body})
+		m, err := a.MergeState(ctx, Remote{Path: "o/r"}, 7)
+		if err != nil {
+			t.Fatalf("%s %s: %v", kind, body, err)
+		}
+		return m.Code
+	}
+	gl := "GET /projects/o%2Fr/merge_requests/7"
+	for body, want := range map[string]string{
+		`{"detailed_merge_status":"mergeable"}`:    MergeOK,
+		`{"detailed_merge_status":"conflict"}`:     MergeConflict,
+		`{"detailed_merge_status":"need_rebase"}`:  MergeConflict,
+		`{"detailed_merge_status":"draft_status"}`: MergeDraft,
+		`{"detailed_merge_status":"checking"}`:     MergeUnknown,
+	} {
+		if got := state(KindGitLab, gl, body); got != want {
+			t.Errorf("gitlab %s: %s, want %s", body, got, want)
+		}
+	}
+	if got := state(KindGitea, "GET /repos/o/r/pulls/7", `{"mergeable":true}`); got != MergeOK {
+		t.Errorf("gitea: %s", got)
+	}
+	// A host that cannot be read is an error, not a guess.
+	for _, kind := range []Kind{KindGitHub, KindGitea, KindGitLab} {
+		a, _ := newAPI(t, kind, nil)
+		if _, err := a.MergeState(ctx, Remote{Path: "o/r"}, 7); err == nil {
+			t.Errorf("%s: a refusal must surface", kind)
+		}
+	}
+}
+
+func TestPRStateOfEveryHostAndItsFailures(t *testing.T) {
+	ctx := context.Background()
+	for _, c := range []struct {
+		kind  Kind
+		route string
+		body  string
+		want  string
+	}{
+		{KindGitLab, "GET /projects/o%2Fr/merge_requests/7", `{"state":"opened"}`, PROpen},
+		{KindBitbucket, "GET /repositories/o/r/pullrequests/7", `{"state":"OPEN"}`, PROpen},
+	} {
+		a, _ := newAPI(t, c.kind, map[string]string{c.route: c.body})
+		if st, err := a.PRState(ctx, Remote{Path: "o/r"}, 7); err != nil || st.State != c.want {
+			t.Errorf("%s %s: %+v %v", c.kind, c.body, st, err)
+		}
+	}
+	for _, kind := range []Kind{KindGitHub, KindGitLab, KindBitbucket} {
+		a, _ := newAPI(t, kind, nil)
+		if _, err := a.PRState(ctx, Remote{Path: "o/r"}, 7); err == nil {
+			t.Errorf("%s: a refusal must surface", kind)
+		}
+	}
+}
+
+func TestBranchCIFailuresAndEmptyPipelines(t *testing.T) {
+	ctx := context.Background()
+	for _, kind := range []Kind{KindGitHub, KindGitLab} {
+		a, _ := newAPI(t, kind, nil)
+		if _, err := a.BranchCI(ctx, Remote{Path: "o/r"}, "main"); err == nil {
+			t.Errorf("%s: a refusal must surface", kind)
+		}
+	}
+	a, _ := newAPI(t, KindGitLab, map[string]string{"GET /projects/o%2Fr/pipelines?": `[]`})
+	if st, err := a.BranchCI(ctx, Remote{Path: "o/r"}, "main"); err != nil || st.State != StateNone {
+		t.Errorf("a branch that never ran a pipeline has no CI: %+v %v", st, err)
+	}
+}

@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os/exec"
 	"strings"
+	"time"
 
 	"github.com/madkoding/motita/internal/gitforge"
 	"github.com/madkoding/motita/internal/gitx"
@@ -53,8 +54,6 @@ type prError struct {
 	service string
 	msg     string
 }
-
-func (e *prError) Error() string { return e.msg }
 
 func (s *Server) writePRError(w http.ResponseWriter, e *prError) {
 	body := map[string]string{"error": e.msg}
@@ -229,6 +228,9 @@ func (s *Server) handleFixPR(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusAccepted, map[string]any{"queued": true, "started": false, "position": pos})
 }
 
+// syncTimeout bounds the fetch that follows a merge: it is a courtesy, and must not hold anything.
+const syncTimeout = 2 * time.Minute
+
 // syncProject brings the project's own checkout up to date with what was just merged, when that
 // is safe: the checkout is on the branch that was merged into and has nothing uncommitted. It is
 // best effort, because the merge has happened either way; the next session pulls again.
@@ -246,6 +248,8 @@ func (s *Server) syncProject(ctx context.Context, c *conversation, base string) 
 	if n, err := gitx.WorkingTreeChanges(ctx, p.Dir); err != nil || n > 0 {
 		return
 	}
+	ctx, cancel := context.WithTimeout(ctx, syncTimeout)
+	defer cancel()
 	for _, args := range [][]string{{"fetch", "origin", base}, {"merge", "--ff-only", "origin/" + base}} {
 		cmd := exec.CommandContext(ctx, "git", append([]string{"-C", p.Dir}, args...)...)
 		cmd.Env = s.gitCommandEnv()
