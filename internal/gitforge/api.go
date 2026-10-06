@@ -3,7 +3,9 @@ package gitforge
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -13,6 +15,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/madkoding/motita/internal/oauth"
@@ -24,6 +27,52 @@ type API struct {
 	Cred    oauth.Credential
 	// HTTP is the transport; nil means a client with a 30 second timeout.
 	HTTP oauth.HTTPClient
+	// Cache, when set, makes reads conditional: a host answers "not modified" to a request whose
+	// ETag it recognises, and GitHub does not count that answer against the rate limit. Following
+	// the CI of many pull requests is the same questions asked again and again, so this is what
+	// keeps it cheap.
+	Cache *ETagCache
+}
+
+// ETagCache remembers the last answer of each read together with the ETag the host gave it. It is
+// safe for concurrent use and bounded: it forgets everything when it fills, which only costs the
+// next reads their savings.
+type ETagCache struct {
+	mu sync.Mutex
+	m  map[string]etagEntry
+}
+
+type etagEntry struct {
+	etag string
+	body []byte
+}
+
+const (
+	etagCacheEntries = 512
+	etagBodyMax      = 256 << 10
+)
+
+// key keeps one account's answers from being served to another: what a token may read is the
+// token's own.
+func (a API) etagKey(target string) string {
+	sum := sha256.Sum256([]byte(a.authHeader()))
+	return hex.EncodeToString(sum[:8]) + " " + target
+}
+
+func (c *ETagCache) get(key string) (etagEntry, bool) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	e, ok := c.m[key]
+	return e, ok
+}
+
+func (c *ETagCache) put(key string, e etagEntry) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.m == nil || len(c.m) >= etagCacheEntries {
+		c.m = map[string]etagEntry{}
+	}
+	c.m[key] = e
 }
 
 // Open returns the API of a connected service, renewing its token if needed.
@@ -80,6 +129,14 @@ func (a API) do(ctx context.Context, method, target string, body, out any) error
 	if body != nil {
 		req.Header.Set("Content-Type", "application/json")
 	}
+	cacheKey, cached := "", etagEntry{}
+	if a.Cache != nil && method == http.MethodGet && body == nil {
+		cacheKey = a.etagKey(target)
+		if e, ok := a.Cache.get(cacheKey); ok {
+			cached = e
+			req.Header.Set("If-None-Match", e.etag)
+		}
+	}
 	hc := a.HTTP
 	if hc == nil {
 		hc = &http.Client{Timeout: 30 * time.Second}
@@ -93,8 +150,19 @@ func (a API) do(ctx context.Context, method, target string, body, out any) error
 	if err != nil {
 		return err
 	}
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+	if resp.StatusCode == http.StatusNotModified && cached.etag != "" {
+		// Nothing changed since the answer that is kept.
+		data = cached.body
+	} else if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		return &HTTPError{Status: resp.StatusCode, Message: apiMessage(data)}
+	} else if cacheKey != "" {
+		if et := resp.Header.Get("ETag"); et != "" && len(data) <= etagBodyMax {
+			a.Cache.put(cacheKey, etagEntry{etag: et, body: data})
+		}
+	}
+	// Some hosts answer a success with no body (Gitea's merge).
+	if out == nil || len(bytes.TrimSpace(data)) == 0 {
+		return nil
 	}
 	if err := json.Unmarshal(data, out); err != nil {
 		return fmt.Errorf("could not read the answer of %s: %w", a.Service.Name, err)
@@ -462,5 +530,203 @@ func (a API) FindPR(ctx context.Context, r Remote, head string) (PullRequest, bo
 			}
 		}
 		return PullRequest{}, false, nil
+	}
+}
+
+// MergeMethods are the ways a pull request can be merged. The empty method is the host's default.
+var MergeMethods = []string{"merge", "squash", "rebase"}
+
+// MergeOptions says how a pull request is merged.
+type MergeOptions struct {
+	// Method is "merge", "squash" or "rebase"; empty is a merge commit. GitLab decides rebase per
+	// project, so there it is a merge.
+	Method string
+	// DeleteBranch removes the pull request's branch from the host once it is merged.
+	DeleteBranch bool
+	// Branch is that branch, which GitHub needs by name to delete it.
+	Branch string
+}
+
+// MergePR merges pull request n and returns the merge commit when the host says which it is. The
+// host decides whether it may: a protected branch, a missing approval or a conflict come back as
+// the host's own refusal. A branch that cannot be deleted after the merge is not an error: the
+// merge has happened.
+func (a API) MergePR(ctx context.Context, r Remote, n int, o MergeOptions) (sha string, err error) {
+	method := o.Method
+	if method == "" {
+		method = "merge"
+	}
+	var out struct {
+		SHA            string `json:"sha"`
+		MergeCommitSHA string `json:"merge_commit_sha"`
+	}
+	switch a.Service.Kind {
+	case KindGitLab:
+		body := map[string]any{"squash": method == "squash", "should_remove_source_branch": o.DeleteBranch}
+		err = a.do(ctx, http.MethodPut, fmt.Sprintf("%s/projects/%s/merge_requests/%d/merge", a.Service.APIBase, url.PathEscape(r.Path), n), body, &out)
+	case KindBitbucket:
+		strategy := map[string]string{"merge": "merge_commit", "squash": "squash", "rebase": "fast_forward"}[method]
+		body := map[string]any{"merge_strategy": strategy, "close_source_branch": o.DeleteBranch}
+		err = a.do(ctx, http.MethodPost, fmt.Sprintf("%s/repositories/%s/pullrequests/%d/merge", a.Service.APIBase, r.Path, n), body, nil)
+	case KindGitea:
+		body := map[string]any{"Do": method, "delete_branch_after_merge": o.DeleteBranch}
+		err = a.do(ctx, http.MethodPost, fmt.Sprintf("%s/repos/%s/pulls/%d/merge", a.Service.APIBase, r.Path, n), body, nil)
+	default:
+		body := map[string]any{"merge_method": method}
+		if err = a.do(ctx, http.MethodPut, fmt.Sprintf("%s/repos/%s/pulls/%d/merge", a.Service.APIBase, r.Path, n), body, &out); err == nil && o.DeleteBranch && o.Branch != "" {
+			_ = a.do(ctx, http.MethodDelete, fmt.Sprintf("%s/repos/%s/git/refs/heads/%s", a.Service.APIBase, r.Path, o.Branch), nil, nil)
+		}
+	}
+	if err != nil {
+		return "", err
+	}
+	if out.SHA != "" {
+		return out.SHA, nil
+	}
+	return out.MergeCommitSHA, nil
+}
+
+// Why a pull request cannot be merged yet, whatever the CI says.
+const (
+	MergeOK       = "ok"
+	MergeBlocked  = "blocked"  // an approval, a resolved discussion or a required check is missing
+	MergeConflict = "conflict" // the branch conflicts with the base
+	MergeDraft    = "draft"    // it is still a draft
+	MergeBehind   = "behind"   // the base moved on: mergeable, but the branch is out of date
+	MergeUnknown  = "unknown"  // the host cannot say (yet)
+)
+
+// MergeState is whether the host would accept a merge now.
+type MergeState struct {
+	Code string `json:"code"`
+}
+
+// Refuses reports whether the host would turn a merge down for a reason the user can see and fix.
+func (m MergeState) Refuses() bool {
+	return m.Code == MergeBlocked || m.Code == MergeConflict || m.Code == MergeDraft
+}
+
+// MergeState reads whether pull request n can be merged: approvals, conflicts and drafts are
+// invisible in its CI and are what a merge button would otherwise find out by failing. Bitbucket
+// does not say, and answers "unknown".
+func (a API) MergeState(ctx context.Context, r Remote, n int) (MergeState, error) {
+	switch a.Service.Kind {
+	case KindGitLab:
+		var mr struct {
+			Status string `json:"detailed_merge_status"`
+		}
+		if err := a.do(ctx, http.MethodGet, fmt.Sprintf("%s/projects/%s/merge_requests/%d", a.Service.APIBase, url.PathEscape(r.Path), n), nil, &mr); err != nil {
+			return MergeState{}, err
+		}
+		switch mr.Status {
+		case "mergeable":
+			return MergeState{MergeOK}, nil
+		case "not_approved", "discussions_not_resolved", "blocked_status", "requested_changes", "approvals_syncing", "external_status_checks":
+			return MergeState{MergeBlocked}, nil
+		case "conflict", "need_rebase":
+			return MergeState{MergeConflict}, nil
+		case "draft_status":
+			return MergeState{MergeDraft}, nil
+		}
+		return MergeState{MergeUnknown}, nil
+	case KindBitbucket:
+		return MergeState{MergeUnknown}, nil
+	case KindGitea:
+		var pr struct {
+			Mergeable bool `json:"mergeable"`
+		}
+		if err := a.do(ctx, http.MethodGet, fmt.Sprintf("%s/repos/%s/pulls/%d", a.Service.APIBase, r.Path, n), nil, &pr); err != nil {
+			return MergeState{}, err
+		}
+		if !pr.Mergeable {
+			return MergeState{MergeConflict}, nil
+		}
+		return MergeState{MergeOK}, nil
+	default:
+		var pr struct {
+			Draft bool   `json:"draft"`
+			State string `json:"mergeable_state"`
+		}
+		if err := a.do(ctx, http.MethodGet, fmt.Sprintf("%s/repos/%s/pulls/%d", a.Service.APIBase, r.Path, n), nil, &pr); err != nil {
+			return MergeState{}, err
+		}
+		switch {
+		case pr.Draft || pr.State == "draft":
+			return MergeState{MergeDraft}, nil
+		case pr.State == "dirty":
+			return MergeState{MergeConflict}, nil
+		case pr.State == "blocked":
+			return MergeState{MergeBlocked}, nil
+		case pr.State == "behind":
+			return MergeState{MergeBehind}, nil
+		case pr.State == "clean" || pr.State == "unstable" || pr.State == "has_hooks":
+			return MergeState{MergeOK}, nil
+		}
+		return MergeState{MergeUnknown}, nil
+	}
+}
+
+// Where a pull request stands on the host.
+const (
+	PROpen   = "open"
+	PRMerged = "merged"
+	PRClosed = "closed" // closed without being merged
+)
+
+// PRState is a pull request's fate: still open, merged (and by which commit, when the host says), or
+// closed without a merge. It is how a merge done somewhere else is noticed.
+type PRState struct {
+	State string `json:"state"`
+	SHA   string `json:"sha,omitempty"`
+}
+
+// PRState reads pull request n by number, whatever its state.
+func (a API) PRState(ctx context.Context, r Remote, n int) (PRState, error) {
+	switch a.Service.Kind {
+	case KindGitLab:
+		var mr struct {
+			State string `json:"state"`
+			SHA   string `json:"merge_commit_sha"`
+		}
+		if err := a.do(ctx, http.MethodGet, fmt.Sprintf("%s/projects/%s/merge_requests/%d", a.Service.APIBase, url.PathEscape(r.Path), n), nil, &mr); err != nil {
+			return PRState{}, err
+		}
+		switch mr.State {
+		case "merged":
+			return PRState{PRMerged, mr.SHA}, nil
+		case "closed", "locked":
+			return PRState{State: PRClosed}, nil
+		}
+		return PRState{State: PROpen}, nil
+	case KindBitbucket:
+		var pr struct {
+			State string `json:"state"`
+		}
+		if err := a.do(ctx, http.MethodGet, fmt.Sprintf("%s/repositories/%s/pullrequests/%d", a.Service.APIBase, r.Path, n), nil, &pr); err != nil {
+			return PRState{}, err
+		}
+		switch strings.ToUpper(pr.State) {
+		case "MERGED":
+			return PRState{State: PRMerged}, nil
+		case "DECLINED", "SUPERSEDED":
+			return PRState{State: PRClosed}, nil
+		}
+		return PRState{State: PROpen}, nil
+	default:
+		var pr struct {
+			State          string `json:"state"`
+			Merged         bool   `json:"merged"`
+			MergeCommitSHA string `json:"merge_commit_sha"`
+		}
+		if err := a.do(ctx, http.MethodGet, fmt.Sprintf("%s/repos/%s/pulls/%d", a.Service.APIBase, r.Path, n), nil, &pr); err != nil {
+			return PRState{}, err
+		}
+		switch {
+		case pr.Merged:
+			return PRState{PRMerged, pr.MergeCommitSHA}, nil
+		case pr.State == "closed":
+			return PRState{State: PRClosed}, nil
+		}
+		return PRState{State: PROpen}, nil
 	}
 }

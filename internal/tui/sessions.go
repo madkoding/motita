@@ -37,6 +37,13 @@ type SessionInfo struct {
 	// id so a user can tell two sessions in one project apart by where each
 	// one is working.
 	Branch string
+	// PR is the state of the session's pull request while the gateway follows its CI
+	// ("following", "fixing", "passed", "gave_up", "no_ci", "base_red", "merged"), and PRNumber its
+	// number. Empty when there is no pull request being followed.
+	PR         string
+	PRNumber   int
+	PRAttempts int
+	PRMax      int
 	// LastUsed is when the conversation was last touched, and it is what the list is ORDERED by:
 	// someone opening it is asking "where was I?", and the answer is the most recent one.
 	//
@@ -417,10 +424,43 @@ func (t *TUI) sessionsText(ctx context.Context) (string, error) {
 		if s.Branch != "" {
 			detail += "  [" + s.Branch + "]"
 		}
+		if s.PR != "" {
+			detail += "  " + t.prState(s.PR, s.PRNumber)
+		}
 		fmt.Fprintf(&b, "%s%s%s\n", marker, s.ID, detail)
 	}
 	b.WriteString("\n" + t.tr("/attach <id> to go back to one."))
 	return b.String(), nil
+}
+
+// prState says in a few words what the gateway is doing about a session's pull request, the one
+// thing in the list that changes while nobody is looking at it: the CI passing is the cue to merge.
+func (t *TUI) prState(state string, number int) string {
+	var word string
+	switch state {
+	case "following":
+		word = t.tr("CI running")
+	case "fixing":
+		word = t.tr("CI failed, being fixed")
+	case "passed":
+		word = t.tr("CI passed, ready to merge")
+	case "gave_up":
+		word = t.tr("CI failed, needs you")
+	case "no_ci":
+		word = t.tr("no CI")
+	case "base_red":
+		word = t.tr("CI also red on the base branch")
+	case "merged":
+		word = t.tr("merged")
+	case "closed":
+		word = t.tr("closed")
+	default:
+		return ""
+	}
+	if number > 0 {
+		return fmt.Sprintf("[PR #%d: %s]", number, word)
+	}
+	return "[PR: " + word + "]"
 }
 
 // humanSince describes an age in the words a person uses for one.

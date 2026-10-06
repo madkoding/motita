@@ -76,7 +76,9 @@ func (s *Server) gitCommandEnv() []string {
 	if s.opts.ExePath != "" || s.opts.GitAuthDir != "" {
 		env = gitforge.CloneEnv(s.opts.ExePath, s.opts.GitAuthDir)
 	}
-	return append(env, "LC_ALL=C")
+	// GIT_TERMINAL_PROMPT=0: the gateway has no terminal, and a prompt for a password nobody can type
+	// would hold the command for ever.
+	return append(env, "LC_ALL=C", "GIT_TERMINAL_PROMPT=0")
 }
 
 // withoutInlineGitConfig drops the inline git configuration (GIT_CONFIG_COUNT and

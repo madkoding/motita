@@ -341,3 +341,275 @@ func TestAnAnswerCutShortIsAnError(t *testing.T) {
 		t.Error("err = nil")
 	}
 }
+
+func TestMergePR(t *testing.T) {
+	cases := []struct {
+		kind  Kind
+		path  string
+		route string
+		body  string
+	}{
+		{KindGitHub, "o/r", "PUT /repos/o/r/pulls/7/merge", `{"merged":true}`},
+		{KindGitea, "o/r", "POST /repos/o/r/pulls/7/merge", ``}, // Gitea answers with no body
+		{KindGitLab, "grp/r", "PUT /projects/grp%2Fr/merge_requests/7/merge", `{"state":"merged"}`},
+		{KindBitbucket, "ws/r", "POST /repositories/ws/r/pullrequests/7/merge", `{"state":"MERGED"}`},
+	}
+	for _, c := range cases {
+		a, h := newAPI(t, c.kind, map[string]string{c.route: c.body})
+		if _, err := a.MergePR(context.Background(), Remote{Path: c.path}, 7, MergeOptions{}); err != nil {
+			t.Errorf("%s: %v", c.kind, err)
+		}
+		if len(h.seen) != 1 || !strings.HasPrefix(h.seen[0], c.route) {
+			t.Errorf("%s: asked %v, want %s", c.kind, h.seen, c.route)
+		}
+	}
+	a, _ := newAPI(t, KindGitHub, map[string]string{"PUT /repos/o/r/pulls/7/merge": `STATUS 405 {"message":"Pull Request is not mergeable"}`})
+	if _, err := a.MergePR(context.Background(), Remote{Path: "o/r"}, 7, MergeOptions{}); err == nil || !strings.Contains(err.Error(), "not mergeable") {
+		t.Errorf("the host's refusal must surface: %v", err)
+	}
+}
+
+func TestMergePRMethodAndBranchDeletion(t *testing.T) {
+	opt := MergeOptions{Method: "squash", DeleteBranch: true, Branch: "motita/s1"}
+	a, h := newAPI(t, KindGitHub, map[string]string{"PUT /repos/o/r/pulls/7/merge": `{"merged":true}`, "DELETE /repos/o/r/git/refs/heads/motita/s1": ``})
+	if _, err := a.MergePR(context.Background(), Remote{Path: "o/r"}, 7, opt); err != nil {
+		t.Fatal(err)
+	}
+	if len(h.seen) != 2 || !strings.HasPrefix(h.seen[1], "DELETE /repos/o/r/git/refs/heads/motita/s1") {
+		t.Errorf("the branch is deleted after the merge: %v", h.seen)
+	}
+	// A branch that cannot be deleted is not a failed merge.
+	a, _ = newAPI(t, KindGitHub, map[string]string{"PUT /repos/o/r/pulls/7/merge": `{"merged":true}`})
+	if _, err := a.MergePR(context.Background(), Remote{Path: "o/r"}, 7, opt); err != nil {
+		t.Errorf("a refused deletion must not fail the merge: %v", err)
+	}
+	a, h = newAPI(t, KindGitea, map[string]string{"POST /repos/o/r/pulls/7/merge": ``})
+	_, _ = a.MergePR(context.Background(), Remote{Path: "o/r"}, 7, opt)
+	if !strings.Contains(h.body, `"Do":"squash"`) || !strings.Contains(h.body, `"delete_branch_after_merge":true`) {
+		t.Errorf("gitea body: %s", h.body)
+	}
+	a, h = newAPI(t, KindGitLab, map[string]string{"PUT /projects/o%2Fr/merge_requests/7/merge": `{}`})
+	_, _ = a.MergePR(context.Background(), Remote{Path: "o/r"}, 7, opt)
+	if !strings.Contains(h.body, `"squash":true`) || !strings.Contains(h.body, `"should_remove_source_branch":true`) {
+		t.Errorf("gitlab body: %s", h.body)
+	}
+	a, h = newAPI(t, KindBitbucket, map[string]string{"POST /repositories/ws/r/pullrequests/7/merge": `{}`})
+	_, _ = a.MergePR(context.Background(), Remote{Path: "ws/r"}, 7, MergeOptions{Method: "rebase", DeleteBranch: true})
+	if !strings.Contains(h.body, `"fast_forward"`) || !strings.Contains(h.body, `"close_source_branch":true`) {
+		t.Errorf("bitbucket body: %s", h.body)
+	}
+}
+
+func TestBranchCI(t *testing.T) {
+	a, _ := newAPI(t, KindGitHub, map[string]string{
+		"GET /repos/o/r/commits/main/check-runs": `{"check_runs":[{"id":1,"name":"test","status":"completed","conclusion":"failure"}]}`,
+		"GET /repos/o/r/commits/main/status":     `{"statuses":[]}`,
+	})
+	st, err := a.BranchCI(context.Background(), Remote{Path: "o/r"}, "main")
+	if err != nil || st.State != StateFailure || len(st.FailedNames()) != 1 || st.FailedNames()[0] != "test" {
+		t.Fatalf("%+v %v", st, err)
+	}
+	a, _ = newAPI(t, KindGitLab, map[string]string{
+		"GET /projects/o%2Fr/pipelines?":       `[{"id":5}]`,
+		"GET /projects/o%2Fr/pipelines/5/jobs": `[{"name":"lint","status":"failed"}]`,
+	})
+	if st, err = a.BranchCI(context.Background(), Remote{Path: "o/r"}, "main"); err != nil || st.State != StateFailure || st.Rev != "5" {
+		t.Fatalf("%+v %v", st, err)
+	}
+	a, _ = newAPI(t, KindBitbucket, nil)
+	if st, _ = a.BranchCI(context.Background(), Remote{Path: "o/r"}, "main"); st.State != StateNone {
+		t.Errorf("bitbucket has no branch checks: %+v", st)
+	}
+}
+
+func TestMergePRReturnsTheCommit(t *testing.T) {
+	a, _ := newAPI(t, KindGitHub, map[string]string{"PUT /repos/o/r/pulls/7/merge": `{"merged":true,"sha":"deadbeef"}`})
+	if sha, err := a.MergePR(context.Background(), Remote{Path: "o/r"}, 7, MergeOptions{}); err != nil || sha != "deadbeef" {
+		t.Errorf("%q %v", sha, err)
+	}
+	a, _ = newAPI(t, KindGitLab, map[string]string{"PUT /projects/o%2Fr/merge_requests/7/merge": `{"merge_commit_sha":"c0ffee"}`})
+	if sha, _ := a.MergePR(context.Background(), Remote{Path: "o/r"}, 7, MergeOptions{}); sha != "c0ffee" {
+		t.Errorf("gitlab: %q", sha)
+	}
+}
+
+func TestMergeState(t *testing.T) {
+	gh := func(body string) MergeState {
+		a, _ := newAPI(t, KindGitHub, map[string]string{"GET /repos/o/r/pulls/7": body})
+		m, err := a.MergeState(context.Background(), Remote{Path: "o/r"}, 7)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return m
+	}
+	for body, want := range map[string]string{
+		`{"mergeable_state":"clean"}`:    MergeOK,
+		`{"mergeable_state":"unstable"}`: MergeOK,
+		`{"mergeable_state":"blocked"}`:  MergeBlocked,
+		`{"mergeable_state":"dirty"}`:    MergeConflict,
+		`{"mergeable_state":"behind"}`:   MergeBehind,
+		`{"draft":true}`:                 MergeDraft,
+		`{"mergeable_state":"unknown"}`:  MergeUnknown,
+	} {
+		if got := gh(body); got.Code != want {
+			t.Errorf("github %s: %s, want %s", body, got.Code, want)
+		}
+	}
+	if !(MergeState{MergeBlocked}).Refuses() || (MergeState{MergeBehind}).Refuses() || (MergeState{MergeUnknown}).Refuses() {
+		t.Error("only a blocked, conflicting or draft pull request refuses a merge")
+	}
+	a, _ := newAPI(t, KindGitLab, map[string]string{"GET /projects/o%2Fr/merge_requests/7": `{"detailed_merge_status":"not_approved"}`})
+	if m, _ := a.MergeState(context.Background(), Remote{Path: "o/r"}, 7); m.Code != MergeBlocked {
+		t.Errorf("gitlab: %v", m)
+	}
+	a, _ = newAPI(t, KindGitea, map[string]string{"GET /repos/o/r/pulls/7": `{"mergeable":false}`})
+	if m, _ := a.MergeState(context.Background(), Remote{Path: "o/r"}, 7); m.Code != MergeConflict {
+		t.Errorf("gitea: %v", m)
+	}
+	a, _ = newAPI(t, KindBitbucket, nil)
+	if m, _ := a.MergeState(context.Background(), Remote{Path: "ws/r"}, 7); m.Code != MergeUnknown {
+		t.Errorf("bitbucket: %v", m)
+	}
+}
+
+func TestPRStateTellsMergedFromClosed(t *testing.T) {
+	ctx := context.Background()
+	check := func(kind Kind, route, body, want, sha string) {
+		t.Helper()
+		a, _ := newAPI(t, kind, map[string]string{route: body})
+		path := "o/r"
+		st, err := a.PRState(ctx, Remote{Path: path}, 7)
+		if err != nil || st.State != want || st.SHA != sha {
+			t.Errorf("%s %s: %+v %v, want %s %s", kind, body, st, err, want, sha)
+		}
+	}
+	check(KindGitHub, "GET /repos/o/r/pulls/7", `{"state":"closed","merged":true,"merge_commit_sha":"abc"}`, PRMerged, "abc")
+	check(KindGitHub, "GET /repos/o/r/pulls/7", `{"state":"closed","merged":false}`, PRClosed, "")
+	check(KindGitHub, "GET /repos/o/r/pulls/7", `{"state":"open"}`, PROpen, "")
+	check(KindGitea, "GET /repos/o/r/pulls/7", `{"state":"closed","merged":true}`, PRMerged, "")
+	check(KindGitLab, "GET /projects/o%2Fr/merge_requests/7", `{"state":"merged","merge_commit_sha":"c0"}`, PRMerged, "c0")
+	check(KindGitLab, "GET /projects/o%2Fr/merge_requests/7", `{"state":"closed"}`, PRClosed, "")
+	check(KindBitbucket, "GET /repositories/o/r/pullrequests/7", `{"state":"MERGED"}`, PRMerged, "")
+	check(KindBitbucket, "GET /repositories/o/r/pullrequests/7", `{"state":"DECLINED"}`, PRClosed, "")
+}
+
+// etagHost answers like GitHub: a read carries an ETag, and a read that presents it gets 304.
+type etagHost struct {
+	full, notModified int
+	body              string
+}
+
+func (h *etagHost) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	if r.Header.Get("If-None-Match") == `"v1"` {
+		h.notModified++
+		w.WriteHeader(http.StatusNotModified)
+		return
+	}
+	h.full++
+	w.Header().Set("ETag", `"v1"`)
+	_, _ = w.Write([]byte(h.body))
+}
+
+func TestReadsAreConditional(t *testing.T) {
+	h := &etagHost{body: `[{"number":7,"html_url":"https://x/7","title":"t","head":{"ref":"b"},"base":{"ref":"main"}}]`}
+	srv := httptest.NewServer(h)
+	defer srv.Close()
+	svc := Service{ID: "github", Kind: KindGitHub, APIBase: srv.URL}
+	a := API{Service: svc, Cred: oauth.Credential{AccessToken: "tok"}, Cache: &ETagCache{}}
+	for i := 0; i < 3; i++ {
+		pr, found, err := a.FindPR(context.Background(), Remote{Path: "o/r"}, "b")
+		if err != nil || !found || pr.Number != 7 {
+			t.Fatalf("read %d: %+v %v %v", i, pr, found, err)
+		}
+	}
+	if h.full != 1 || h.notModified != 2 {
+		t.Errorf("one full answer and two 'not modified': %d %d", h.full, h.notModified)
+	}
+
+	// Another account does not get the first one's answers.
+	b := API{Service: svc, Cred: oauth.Credential{AccessToken: "other"}, Cache: a.Cache}
+	if _, _, err := b.FindPR(context.Background(), Remote{Path: "o/r"}, "b"); err != nil || h.full != 2 {
+		t.Errorf("a different token is a different reader: %v full=%d", err, h.full)
+	}
+
+	// Without a cache nothing is conditional.
+	c := API{Service: svc, Cred: oauth.Credential{AccessToken: "tok"}}
+	before := h.notModified
+	_, _, _ = c.FindPR(context.Background(), Remote{Path: "o/r"}, "b")
+	if h.notModified != before {
+		t.Error("no cache, no conditional request")
+	}
+}
+
+func TestMergeStateOfEveryHostAndItsFailures(t *testing.T) {
+	ctx := context.Background()
+	state := func(kind Kind, route, body string) string {
+		t.Helper()
+		a, _ := newAPI(t, kind, map[string]string{route: body})
+		m, err := a.MergeState(ctx, Remote{Path: "o/r"}, 7)
+		if err != nil {
+			t.Fatalf("%s %s: %v", kind, body, err)
+		}
+		return m.Code
+	}
+	gl := "GET /projects/o%2Fr/merge_requests/7"
+	for body, want := range map[string]string{
+		`{"detailed_merge_status":"mergeable"}`:    MergeOK,
+		`{"detailed_merge_status":"conflict"}`:     MergeConflict,
+		`{"detailed_merge_status":"need_rebase"}`:  MergeConflict,
+		`{"detailed_merge_status":"draft_status"}`: MergeDraft,
+		`{"detailed_merge_status":"checking"}`:     MergeUnknown,
+	} {
+		if got := state(KindGitLab, gl, body); got != want {
+			t.Errorf("gitlab %s: %s, want %s", body, got, want)
+		}
+	}
+	if got := state(KindGitea, "GET /repos/o/r/pulls/7", `{"mergeable":true}`); got != MergeOK {
+		t.Errorf("gitea: %s", got)
+	}
+	// A host that cannot be read is an error, not a guess.
+	for _, kind := range []Kind{KindGitHub, KindGitea, KindGitLab} {
+		a, _ := newAPI(t, kind, nil)
+		if _, err := a.MergeState(ctx, Remote{Path: "o/r"}, 7); err == nil {
+			t.Errorf("%s: a refusal must surface", kind)
+		}
+	}
+}
+
+func TestPRStateOfEveryHostAndItsFailures(t *testing.T) {
+	ctx := context.Background()
+	for _, c := range []struct {
+		kind  Kind
+		route string
+		body  string
+		want  string
+	}{
+		{KindGitLab, "GET /projects/o%2Fr/merge_requests/7", `{"state":"opened"}`, PROpen},
+		{KindBitbucket, "GET /repositories/o/r/pullrequests/7", `{"state":"OPEN"}`, PROpen},
+	} {
+		a, _ := newAPI(t, c.kind, map[string]string{c.route: c.body})
+		if st, err := a.PRState(ctx, Remote{Path: "o/r"}, 7); err != nil || st.State != c.want {
+			t.Errorf("%s %s: %+v %v", c.kind, c.body, st, err)
+		}
+	}
+	for _, kind := range []Kind{KindGitHub, KindGitLab, KindBitbucket} {
+		a, _ := newAPI(t, kind, nil)
+		if _, err := a.PRState(ctx, Remote{Path: "o/r"}, 7); err == nil {
+			t.Errorf("%s: a refusal must surface", kind)
+		}
+	}
+}
+
+func TestBranchCIFailuresAndEmptyPipelines(t *testing.T) {
+	ctx := context.Background()
+	for _, kind := range []Kind{KindGitHub, KindGitLab} {
+		a, _ := newAPI(t, kind, nil)
+		if _, err := a.BranchCI(ctx, Remote{Path: "o/r"}, "main"); err == nil {
+			t.Errorf("%s: a refusal must surface", kind)
+		}
+	}
+	a, _ := newAPI(t, KindGitLab, map[string]string{"GET /projects/o%2Fr/pipelines?": `[]`})
+	if st, err := a.BranchCI(ctx, Remote{Path: "o/r"}, "main"); err != nil || st.State != StateNone {
+		t.Errorf("a branch that never ran a pipeline has no CI: %+v %v", st, err)
+	}
+}

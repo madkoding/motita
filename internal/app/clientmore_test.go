@@ -175,7 +175,8 @@ func TestTheAdapterTranslatesTheListing(t *testing.T) {
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte(`{"sessions":[
 			{"id":"default","running":true,"last_used":"2026-09-22T10:00:00Z"},
-			{"id":"sother","running":false,"last_used":"2026-09-23T00:30:00Z"}
+			{"id":"sother","running":false,"last_used":"2026-09-23T00:30:00Z",
+			 "pr_watch":{"status":"fixing","attempts":2,"max":5,"number":7}}
 		]}`))
 	}))
 	defer srv.Close()
@@ -204,6 +205,14 @@ func TestTheAdapterTranslatesTheListing(t *testing.T) {
 	}
 	if all[0].Current {
 		t.Errorf("a conversation the client is NOT on is marked current: %+v", all[0])
+	}
+	// What the gateway is doing about a pull request travels with the session, attempts included:
+	// the terminal says "attempt 2 of 5" from it.
+	if g := all[1]; g.PR != "fixing" || g.PRNumber != 7 || g.PRAttempts != 2 || g.PRMax != 5 {
+		t.Errorf("the pull request's state was lost in the translation: %+v", g)
+	}
+	if all[0].PR != "" {
+		t.Errorf("a session with no pull request says nothing about one: %+v", all[0])
 	}
 }
 

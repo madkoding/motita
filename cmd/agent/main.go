@@ -12,7 +12,7 @@
 //	         optional chroot).
 //
 // Everything is configurable without recompiling: see configs/agent.yaml.example
-// and configs/cases/*.yaml for three complete use cases.
+// and configs/cases/*.yaml for four complete use cases.
 //
 // Usage:
 //

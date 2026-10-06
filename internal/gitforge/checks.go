@@ -36,6 +36,10 @@ type Check struct {
 type CIStatus struct {
 	State  string  `json:"state"`
 	Checks []Check `json:"checks"`
+	// Rev names what the checks ran on: the commit on GitHub and Gitea, the
+	// pipeline on GitLab. A caller reacting to a failure uses it to react once
+	// per push and not once per poll. Empty when the host does not say.
+	Rev string `json:"rev,omitempty"`
 }
 
 // summarize folds the jobs into one state: any failure fails the whole, and
@@ -70,6 +74,41 @@ func (a API) CI(ctx context.Context, r Remote, n int) (CIStatus, error) {
 	}
 }
 
+// BranchCI reads the checks of the latest commit of a branch: what the CI says about the code a
+// pull request would be merged into. Bitbucket reports checks per pull request only, and answers
+// "none".
+func (a API) BranchCI(ctx context.Context, r Remote, branch string) (CIStatus, error) {
+	switch a.Service.Kind {
+	case KindGitLab:
+		var pipelines []struct {
+			ID int64 `json:"id"`
+		}
+		q := url.Values{"ref": {branch}, "per_page": {"1"}}
+		if err := a.do(ctx, http.MethodGet, fmt.Sprintf("%s/projects/%s/pipelines?%s", a.Service.APIBase, url.PathEscape(r.Path), q.Encode()), nil, &pipelines); err != nil {
+			return CIStatus{}, err
+		}
+		if len(pipelines) == 0 {
+			return summarize(nil), nil
+		}
+		return a.gitLabJobs(ctx, url.PathEscape(r.Path), pipelines[0].ID)
+	case KindBitbucket:
+		return summarize(nil), nil
+	default:
+		return a.ciGitHubLikeAt(ctx, r, url.PathEscape(branch))
+	}
+}
+
+// FailedNames are the names of the checks that failed, sorted as the host gave them.
+func (c CIStatus) FailedNames() []string {
+	var out []string
+	for _, ch := range c.Checks {
+		if ch.State == StateFailure {
+			out = append(out, ch.Name)
+		}
+	}
+	return out
+}
+
 func (a API) headSHA(ctx context.Context, r Remote, n int) (string, error) {
 	var pr struct {
 		Head struct {
@@ -90,6 +129,11 @@ func (a API) ciGitHubLike(ctx context.Context, r Remote, n int) (CIStatus, error
 	if err != nil {
 		return CIStatus{}, err
 	}
+	return a.ciGitHubLikeAt(ctx, r, sha)
+}
+
+// ciGitHubLikeAt reads the checks of a commit; the hosts also accept a branch name where a commit goes.
+func (a API) ciGitHubLikeAt(ctx context.Context, r Remote, sha string) (CIStatus, error) {
 	var checks []Check
 	if a.Service.Kind == KindGitHub {
 		var runs struct {
@@ -144,7 +188,9 @@ func (a API) ciGitHubLike(ctx context.Context, r Remote, n int) (CIStatus, error
 		}
 		checks = append(checks, Check{Name: s.Context, State: mapState(state), URL: s.TargetURL, Detail: s.Description})
 	}
-	return summarize(checks), nil
+	st := summarize(checks)
+	st.Rev = sha
+	return st, nil
 }
 
 func (a API) ciGitLab(ctx context.Context, r Remote, n int) (CIStatus, error) {
@@ -158,6 +204,11 @@ func (a API) ciGitLab(ctx context.Context, r Remote, n int) (CIStatus, error) {
 	if len(pipelines) == 0 {
 		return summarize(nil), nil
 	}
+	return a.gitLabJobs(ctx, project, pipelines[0].ID)
+}
+
+// gitLabJobs is the CI of one pipeline, job by job.
+func (a API) gitLabJobs(ctx context.Context, project string, pipeline int64) (CIStatus, error) {
 	var jobs []struct {
 		Name          string `json:"name"`
 		Status        string `json:"status"`
@@ -165,7 +216,7 @@ func (a API) ciGitLab(ctx context.Context, r Remote, n int) (CIStatus, error) {
 		FailureReason string `json:"failure_reason"`
 		AllowFailure  bool   `json:"allow_failure"`
 	}
-	if err := a.do(ctx, http.MethodGet, fmt.Sprintf("%s/projects/%s/pipelines/%d/jobs?per_page=100", a.Service.APIBase, project, pipelines[0].ID), nil, &jobs); err != nil {
+	if err := a.do(ctx, http.MethodGet, fmt.Sprintf("%s/projects/%s/pipelines/%d/jobs?per_page=100", a.Service.APIBase, project, pipeline), nil, &jobs); err != nil {
 		return CIStatus{}, err
 	}
 	checks := make([]Check, 0, len(jobs))
@@ -176,7 +227,9 @@ func (a API) ciGitLab(ctx context.Context, r Remote, n int) (CIStatus, error) {
 		}
 		checks = append(checks, Check{Name: j.Name, State: state, URL: j.WebURL, Detail: j.FailureReason})
 	}
-	return summarize(checks), nil
+	st := summarize(checks)
+	st.Rev = strconv.FormatInt(pipeline, 10)
+	return st, nil
 }
 
 func (a API) ciBitbucket(ctx context.Context, r Remote, n int) (CIStatus, error) {

@@ -12,6 +12,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/madkoding/motita/internal/gitforge"
 	"github.com/madkoding/motita/internal/logx"
 	"github.com/madkoding/motita/internal/netrules"
 	"github.com/madkoding/motita/internal/oauth"
@@ -70,6 +71,11 @@ type Options struct {
 	// GitHTTP is the transport of the git hosts' APIs and OAuth servers. Nil means the default
 	// client; a test injects a fake.
 	GitHTTP oauth.HTTPClient
+	// PRPollEvery is how often the gateway asks a host for the CI of a pull request it is
+	// following; zero means 20 seconds. PRMaxFixes is how many times it sends the agent to fix a
+	// failing CI before giving up and telling the user; zero means 5.
+	PRPollEvery time.Duration
+	PRMaxFixes  int
 	// Restart is how this process starts running the binary the updater just installed. It is
 	// called once the new binary is in place and the sessions are saved, and it is expected to
 	// stop this process and bring up its replacement.
@@ -221,6 +227,12 @@ type Server struct {
 	// gitFlows are the logins to a git host that are waiting for the user's browser. See git.go.
 	gitMu    sync.Mutex
 	gitFlows map[string]*gitFlow
+	// prWatching holds the sessions whose pull request is being followed. See prwatch.go.
+	prMu       sync.Mutex
+	prWatching map[string]bool
+	baseCI     map[string]baseCIEntry
+	// etags makes the reads of the git hosts conditional; see gitforge.ETagCache.
+	etags gitforge.ETagCache
 }
 
 // Start binds the listener and returns a Server that is ready to Serve.
@@ -593,6 +605,10 @@ func (s *Server) routes() *http.ServeMux {
 	mux.Handle("POST /v1/sessions/{id}/plan", scoped(s.handlePlan))
 	mux.Handle("POST /v1/sessions/{id}/merge", scoped(s.handleMergeSession))
 	mux.Handle("POST /v1/sessions/{id}/continue", scoped(s.handleContinueSession))
+	mux.Handle("GET /v1/sessions/{id}/pr", scoped(s.handleGetPR))
+	mux.Handle("POST /v1/sessions/{id}/pr", scoped(s.handleCreatePR))
+	mux.Handle("POST /v1/sessions/{id}/pr/fix", scoped(s.handleFixPR))
+	mux.Handle("POST /v1/sessions/{id}/pr/merge", scoped(s.handleMergePR))
 	mux.Handle("GET /v1/sessions/{id}/run", scoped(s.handleRunStatus))
 	mux.Handle("GET /v1/sessions/{id}/agents", scoped(s.handleAgents))
 	mux.Handle("GET /v1/sessions/{id}/events", scoped(s.handleAttach))
@@ -951,6 +967,7 @@ func (s *Server) loadPersistedSessions() {
 			svc.RestoreTranscript(rec.Turns)
 		}
 		conv.setCheckpoints(rec.Checkpoints)
+		conv.restorePRWatch(rec.PRWatch, s.prMaxFixes(conv))
 		// Restore provider/model if they were persisted and differ from the
 		// defaults the factory built with.
 		if rec.Provider != "" || rec.Model != "" {
@@ -1001,6 +1018,12 @@ func (s *Server) resumeInterruptedSessions() {
 		return
 	}
 	for _, rec := range records {
+		// A pull request being followed when the gateway stopped is followed again.
+		if w := rec.PRWatch; w != nil && (w.Status == prFollowing || w.Status == prFixing || w.Status == prPassed) {
+			if c, ok := s.lookup(rec.ID); ok {
+				s.startPRWatch(c, &prWatchState{status: w.Status, attempts: w.Attempts, fixedKey: w.FixedKey})
+			}
+		}
 		if !rec.Running || strings.TrimSpace(rec.LastTask) == "" {
 			continue
 		}

@@ -8,9 +8,11 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 
+	"github.com/madkoding/motita/internal/gitforge"
 	"github.com/madkoding/motita/internal/gitx"
 	"github.com/madkoding/motita/internal/projectskills"
 	"github.com/madkoding/motita/internal/schedule"
@@ -314,13 +316,38 @@ func (s *Server) handleUpdateProject(w http.ResponseWriter, r *http.Request) {
 	}
 	// Every field is optional: a client changes what it sends and nothing else.
 	var body struct {
-		Title       *string `json:"title"`
-		Description *string `json:"description"`
-		Podman      *bool   `json:"podman"`
-		MainBranch  *string `json:"main_branch"`
+		Title        *string `json:"title"`
+		Description  *string `json:"description"`
+		Podman       *bool   `json:"podman"`
+		MainBranch   *string `json:"main_branch"`
+		MergeMethod  *string `json:"merge_method"`
+		PRMaxFixes   *int    `json:"pr_max_fixes"`
+		AutoMerge    *bool   `json:"auto_merge"`
+		AutoContinue *bool   `json:"auto_continue"`
 	}
 	if !s.decodeBody(w, r, &body) {
 		return
+	}
+	if body.MergeMethod != nil {
+		m := strings.TrimSpace(*body.MergeMethod)
+		if m != "" && !slices.Contains(gitforge.MergeMethods, m) {
+			writeError(w, http.StatusBadRequest, "the merge method must be merge, squash or rebase")
+			return
+		}
+		p.MergeMethod = m
+	}
+	if body.PRMaxFixes != nil {
+		if *body.PRMaxFixes < 0 || *body.PRMaxFixes > maxPRFixesLimit {
+			writeError(w, http.StatusBadRequest, fmt.Sprintf("the attempts to fix a CI must be between 0 (the default) and %d", maxPRFixesLimit))
+			return
+		}
+		p.PRMaxFixes = *body.PRMaxFixes
+	}
+	if body.AutoMerge != nil {
+		p.AutoMerge = *body.AutoMerge
+	}
+	if body.AutoContinue != nil {
+		p.AutoContinue = *body.AutoContinue
 	}
 	if body.Title != nil {
 		title := strings.TrimSpace(*body.Title)
@@ -652,43 +679,46 @@ Report the merge commit SHA and the files changed. If there is a conflict, abort
 // project's base branch and gives the new session its own worktree, so work can
 // keep going without rewriting history that is already part of the project.
 func (s *Server) handleContinueSession(w http.ResponseWriter, r *http.Request) {
-	c := convOf(r)
-	if !c.merged {
-		writeError(w, http.StatusConflict, "this session has not been integrated yet; merge it first")
+	next, status, err := s.continueFrom(r.Context(), convOf(r))
+	if err != nil {
+		writeError(w, status, err.Error())
 		return
 	}
+	writeJSON(w, http.StatusCreated, next.status())
+}
+
+// continueFrom opens a new session from a merged one, in a worktree of the project's updated base
+// branch. The status is what to answer when it cannot.
+func (s *Server) continueFrom(ctx context.Context, c *conversation) (*conversation, int, error) {
+	if !c.merged {
+		return nil, http.StatusConflict, errors.New("this session has not been integrated yet; merge it first")
+	}
 	if c.workspace == "" {
-		writeError(w, http.StatusConflict, "this session does not belong to a project, so there is nothing to continue from")
-		return
+		return nil, http.StatusConflict, errors.New("this session does not belong to a project, so there is nothing to continue from")
 	}
 	p := s.projectOf(c.projectID)
 	if p == nil {
-		writeError(w, http.StatusNotFound, ErrProjectNotFound.Error())
-		return
+		return nil, http.StatusNotFound, ErrProjectNotFound
 	}
-	base := gitx.Display(r.Context(), p.Dir)
+	base := gitx.Display(ctx, p.Dir)
 	if base == "" {
-		writeError(w, http.StatusConflict, "the project has no base branch to pull into")
-		return
+		return nil, http.StatusConflict, errors.New("the project has no base branch to pull into")
 	}
 	// Bring the project's checkout up to date before branching from it. A session
 	// that continues from stale code would build on top of a state the project has
 	// already left behind, and the merge later would be harder for no reason.
-	if err := gitx.PullFastForward(r.Context(), p.Dir, base); err != nil {
-		writeError(w, http.StatusConflict, err.Error())
-		return
+	if err := gitx.PullFastForward(ctx, p.Dir, base); err != nil {
+		return nil, http.StatusConflict, err
 	}
 	newConv, err := s.createSession()
 	if err != nil {
 		if errors.Is(err, ErrCeilingReached) {
-			writeError(w, http.StatusConflict, err.Error())
-			return
+			return nil, http.StatusConflict, err
 		}
-		writeError(w, http.StatusNotImplemented, err.Error())
-		return
+		return nil, http.StatusNotImplemented, err
 	}
 	dir := p.Dir
-	if wt, wtErr := s.sessionWorktree(r.Context(), p.Dir, newConv.id); wtErr != nil {
+	if wt, wtErr := s.sessionWorktree(ctx, p.Dir, newConv.id); wtErr != nil {
 		if s.opts.Log != nil {
 			s.opts.Log.Warn("the continued session will run in the project directory: its own worktree could not be created",
 				"id", newConv.id, "project", p.Dir, "error", wtErr.Error())
@@ -705,7 +735,7 @@ func (s *Server) handleContinueSession(w http.ResponseWriter, r *http.Request) {
 	scopeProceduresTo(newConv.svc, projectskills.ProjectDirFor(p.Dir, dir))
 	applyRuntimeTo(newConv.svc, p)
 	s.saveSession(newConv)
-	writeJSON(w, http.StatusCreated, newConv.status())
+	return newConv, http.StatusCreated, nil
 }
 
 // sessionBranch is the branch a session works on. The prefix is what makes the
