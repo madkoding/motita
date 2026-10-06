@@ -1193,12 +1193,21 @@ func (t *TUI) statusLines(w int) []string {
 // for a run, searching - because a list of every key is a manual, and a list of the three that work
 // at this moment is an instruction.
 func (t *TUI) bottomBar(w int) string {
-	left := t.keyHints()
+	// What leads the footer, most urgent first: a notice that just came in, then the scroll offset.
+	// It is rebuilt each time the hints are shed, so a narrow terminal loses keys and not the news.
+	lead := func(hints string) string {
+		left := hints
+		if t.scroll > 0 {
+			left = t.color(colWarning, 0, t.trf("%s %d lines up", glyphDot, t.scroll)) + t.muted("  "+glyphMid+"  ") + left
+		}
+		if t.liveNotice != "" {
+			left = t.color(colSuccess, 0, glyphDot+" "+t.liveNotice) + t.muted("  "+glyphMid+"  ") + left
+		}
+		return left
+	}
+	left := lead(t.keyHints())
 	// The agents segment goes before the context gauge: it is what changes while a run works.
 	right := t.muted(strings.Join(nonEmpty(t.agentsLabel(), t.contextLabel()), "  "+glyphMid+"  "))
-	if t.scroll > 0 {
-		left = t.color(colWarning, 0, t.trf("%s %d lines up", glyphDot, t.scroll)) + t.muted("  "+glyphMid+"  ") + left
-	}
 
 	// The available columns are the frame minus the ONE margin plainLine will add: the right
 	// edge is the last usable column, and nothing is reserved twice.
@@ -1208,10 +1217,7 @@ func (t *TUI) bottomBar(w int) string {
 	hints := t.hintList()
 	for visibleLen(left)+1+visibleLen(right) > room && len(hints) > 1 {
 		hints = hints[:len(hints)-1]
-		left = t.formatHints(hints)
-		if t.scroll > 0 {
-			left = t.color(colWarning, 0, t.trf("%s %d lines up", glyphDot, t.scroll)) + t.muted("  "+glyphMid+"  ") + left
-		}
+		left = lead(t.formatHints(hints))
 	}
 	gap := room - visibleLen(left) - visibleLen(right)
 	if gap < 1 {

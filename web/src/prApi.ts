@@ -19,8 +19,16 @@ export interface PRView {
   branch: string
   pr?: { number: number; url: string; title?: string }
   ci?: { state: CIState; checks: CICheck[]; rev?: string }
+  // Whether the host would accept a merge now; asked once the CI has passed.
+  merge?: { code: 'ok' | 'blocked' | 'conflict' | 'draft' | 'behind' | 'unknown' }
   // What the gateway is doing about the CI; absent when nothing.
   watch?: PRWatch
+}
+
+// mergeRefused: the host would turn a merge down for a reason the user can see and fix.
+export function mergeRefused(v: PRView | null | undefined): boolean {
+  const c = v?.merge?.code
+  return c === 'blocked' || c === 'conflict' || c === 'draft'
 }
 
 // PRError carries the HTTP status and the machine code of a refusal (git_auth_required,

@@ -483,33 +483,121 @@ type MergeOptions struct {
 	Branch string
 }
 
-// MergePR merges pull request n. The host decides whether it may: a protected branch, a missing
-// approval or a conflict come back as the host's own refusal. A branch that cannot be deleted
-// after the merge is not an error: the merge has happened.
-func (a API) MergePR(ctx context.Context, r Remote, n int, o MergeOptions) error {
+// MergePR merges pull request n and returns the merge commit when the host says which it is. The
+// host decides whether it may: a protected branch, a missing approval or a conflict come back as
+// the host's own refusal. A branch that cannot be deleted after the merge is not an error: the
+// merge has happened.
+func (a API) MergePR(ctx context.Context, r Remote, n int, o MergeOptions) (sha string, err error) {
 	method := o.Method
 	if method == "" {
 		method = "merge"
 	}
+	var out struct {
+		SHA            string `json:"sha"`
+		MergeCommitSHA string `json:"merge_commit_sha"`
+	}
 	switch a.Service.Kind {
 	case KindGitLab:
 		body := map[string]any{"squash": method == "squash", "should_remove_source_branch": o.DeleteBranch}
-		return a.do(ctx, http.MethodPut, fmt.Sprintf("%s/projects/%s/merge_requests/%d/merge", a.Service.APIBase, url.PathEscape(r.Path), n), body, nil)
+		err = a.do(ctx, http.MethodPut, fmt.Sprintf("%s/projects/%s/merge_requests/%d/merge", a.Service.APIBase, url.PathEscape(r.Path), n), body, &out)
 	case KindBitbucket:
 		strategy := map[string]string{"merge": "merge_commit", "squash": "squash", "rebase": "fast_forward"}[method]
 		body := map[string]any{"merge_strategy": strategy, "close_source_branch": o.DeleteBranch}
-		return a.do(ctx, http.MethodPost, fmt.Sprintf("%s/repositories/%s/pullrequests/%d/merge", a.Service.APIBase, r.Path, n), body, nil)
+		err = a.do(ctx, http.MethodPost, fmt.Sprintf("%s/repositories/%s/pullrequests/%d/merge", a.Service.APIBase, r.Path, n), body, nil)
 	case KindGitea:
 		body := map[string]any{"Do": method, "delete_branch_after_merge": o.DeleteBranch}
-		return a.do(ctx, http.MethodPost, fmt.Sprintf("%s/repos/%s/pulls/%d/merge", a.Service.APIBase, r.Path, n), body, nil)
+		err = a.do(ctx, http.MethodPost, fmt.Sprintf("%s/repos/%s/pulls/%d/merge", a.Service.APIBase, r.Path, n), body, nil)
 	default:
 		body := map[string]any{"merge_method": method}
-		if err := a.do(ctx, http.MethodPut, fmt.Sprintf("%s/repos/%s/pulls/%d/merge", a.Service.APIBase, r.Path, n), body, nil); err != nil {
-			return err
-		}
-		if o.DeleteBranch && o.Branch != "" {
+		if err = a.do(ctx, http.MethodPut, fmt.Sprintf("%s/repos/%s/pulls/%d/merge", a.Service.APIBase, r.Path, n), body, &out); err == nil && o.DeleteBranch && o.Branch != "" {
 			_ = a.do(ctx, http.MethodDelete, fmt.Sprintf("%s/repos/%s/git/refs/heads/%s", a.Service.APIBase, r.Path, o.Branch), nil, nil)
 		}
-		return nil
+	}
+	if err != nil {
+		return "", err
+	}
+	if out.SHA != "" {
+		return out.SHA, nil
+	}
+	return out.MergeCommitSHA, nil
+}
+
+// Why a pull request cannot be merged yet, whatever the CI says.
+const (
+	MergeOK       = "ok"
+	MergeBlocked  = "blocked"  // an approval, a resolved discussion or a required check is missing
+	MergeConflict = "conflict" // the branch conflicts with the base
+	MergeDraft    = "draft"    // it is still a draft
+	MergeBehind   = "behind"   // the base moved on: mergeable, but the branch is out of date
+	MergeUnknown  = "unknown"  // the host cannot say (yet)
+)
+
+// MergeState is whether the host would accept a merge now.
+type MergeState struct {
+	Code string `json:"code"`
+}
+
+// Refuses reports whether the host would turn a merge down for a reason the user can see and fix.
+func (m MergeState) Refuses() bool {
+	return m.Code == MergeBlocked || m.Code == MergeConflict || m.Code == MergeDraft
+}
+
+// MergeState reads whether pull request n can be merged: approvals, conflicts and drafts are
+// invisible in its CI and are what a merge button would otherwise find out by failing. Bitbucket
+// does not say, and answers "unknown".
+func (a API) MergeState(ctx context.Context, r Remote, n int) (MergeState, error) {
+	switch a.Service.Kind {
+	case KindGitLab:
+		var mr struct {
+			Status string `json:"detailed_merge_status"`
+		}
+		if err := a.do(ctx, http.MethodGet, fmt.Sprintf("%s/projects/%s/merge_requests/%d", a.Service.APIBase, url.PathEscape(r.Path), n), nil, &mr); err != nil {
+			return MergeState{}, err
+		}
+		switch mr.Status {
+		case "mergeable":
+			return MergeState{MergeOK}, nil
+		case "not_approved", "discussions_not_resolved", "blocked_status", "requested_changes", "approvals_syncing", "external_status_checks":
+			return MergeState{MergeBlocked}, nil
+		case "conflict", "need_rebase":
+			return MergeState{MergeConflict}, nil
+		case "draft_status":
+			return MergeState{MergeDraft}, nil
+		}
+		return MergeState{MergeUnknown}, nil
+	case KindBitbucket:
+		return MergeState{MergeUnknown}, nil
+	case KindGitea:
+		var pr struct {
+			Mergeable bool `json:"mergeable"`
+		}
+		if err := a.do(ctx, http.MethodGet, fmt.Sprintf("%s/repos/%s/pulls/%d", a.Service.APIBase, r.Path, n), nil, &pr); err != nil {
+			return MergeState{}, err
+		}
+		if !pr.Mergeable {
+			return MergeState{MergeConflict}, nil
+		}
+		return MergeState{MergeOK}, nil
+	default:
+		var pr struct {
+			Draft bool   `json:"draft"`
+			State string `json:"mergeable_state"`
+		}
+		if err := a.do(ctx, http.MethodGet, fmt.Sprintf("%s/repos/%s/pulls/%d", a.Service.APIBase, r.Path, n), nil, &pr); err != nil {
+			return MergeState{}, err
+		}
+		switch {
+		case pr.Draft || pr.State == "draft":
+			return MergeState{MergeDraft}, nil
+		case pr.State == "dirty":
+			return MergeState{MergeConflict}, nil
+		case pr.State == "blocked":
+			return MergeState{MergeBlocked}, nil
+		case pr.State == "behind":
+			return MergeState{MergeBehind}, nil
+		case pr.State == "clean" || pr.State == "unstable" || pr.State == "has_hooks":
+			return MergeState{MergeOK}, nil
+		}
+		return MergeState{MergeUnknown}, nil
 	}
 }

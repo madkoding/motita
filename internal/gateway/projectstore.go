@@ -36,6 +36,12 @@ type Project struct {
 	// MergeMethod is how a pull request of this project is merged from motita: "merge", "squash"
 	// or "rebase". Empty is a merge commit.
 	MergeMethod string `json:"merge_method,omitempty"`
+	// PRMaxFixes is how many times the agent is sent to fix a failing CI of this project's pull
+	// requests before the gateway gives up; zero is the gateway's default.
+	PRMaxFixes int `json:"pr_max_fixes,omitempty"`
+	// AutoMerge merges a pull request of this project by itself when its CI passes and the host
+	// accepts the merge. Off, merging is always the user's click.
+	AutoMerge bool `json:"auto_merge,omitempty"`
 	// Changes is how many uncommitted changes are in the project's own
 	// checkout. It is the project's own number, NOT the sum over its sessions:
 	// a session works in its own worktree, and adding the two would report work

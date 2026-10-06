@@ -1,6 +1,8 @@
 package gateway
 
 import (
+	"context"
+	"fmt"
 	"net/http"
 	"slices"
 	"sort"
@@ -128,7 +130,15 @@ func (w *prWatchState) step(ci *gitforge.CIStatus, max int) string {
 	return ""
 }
 
-func (s *Server) prMaxFixes() int {
+// maxPRFixesLimit is the most attempts a project may ask for: past it the agent is not fixing, it is looping.
+const maxPRFixesLimit = 20
+
+// prMaxFixes is how many times the agent is sent to fix this session's CI: the project's own
+// setting, else the gateway's, else the default.
+func (s *Server) prMaxFixes(c *conversation) int {
+	if p := s.projectOf(c.projectID); p != nil && p.PRMaxFixes > 0 {
+		return p.PRMaxFixes
+	}
 	if s.opts.PRMaxFixes > 0 {
 		return s.opts.PRMaxFixes
 	}
@@ -163,7 +173,7 @@ func (c *conversation) prWatchView() *PRWatchView {
 // publishPR makes the watch visible, and saves the session when it moved: the watch is what a
 // restart resumes from.
 func (s *Server) publishPR(c *conversation, w *prWatchState, number int) {
-	view := &PRWatchView{Status: w.status, Attempts: w.attempts, Max: s.prMaxFixes(), Number: number}
+	view := &PRWatchView{Status: w.status, Attempts: w.attempts, Max: s.prMaxFixes(c), Number: number}
 	c.stateMu.Lock()
 	changed := c.prWatch == nil || c.prWatch.Status != view.Status || c.prWatch.Attempts != view.Attempts || c.prWatch.Number != view.Number
 	c.prWatch, c.prFixedKey = view, w.fixedKey
@@ -220,7 +230,9 @@ func (s *Server) startPRWatch(c *conversation, from *prWatchState) {
 // pollPR asks the host once and acts on the answer. It reports whether the watch is over.
 func (s *Server) pollPR(c *conversation, w *prWatchState) bool {
 	if c.merged {
-		c.setPRWatch(nil)
+		if v := c.prWatchView(); v == nil || v.Status != prMerged {
+			c.setPRWatch(nil)
+		}
 		return true
 	}
 	ctx := s.baseCtx
@@ -245,10 +257,13 @@ func (s *Server) pollPR(c *conversation, w *prWatchState) bool {
 	if err != nil {
 		return s.prFailed(c, w)
 	}
-	verdict := w.step(&ci, s.prMaxFixes())
+	verdict := w.step(&ci, s.prMaxFixes(c))
 	s.publishPR(c, w, pr.Number)
 	switch verdict {
-	case prPassed, prGaveUp, prNoCI:
+	case prPassed:
+		s.autoMerge(c, t, pr)
+		return true
+	case prGaveUp, prNoCI:
 		return true
 	case "fix":
 		// A failure the base branch has too is not this change's to fix: spending the attempts on
@@ -321,14 +336,62 @@ func (s *Server) handleMergePR(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusConflict, "the CI of this pull request has not passed: it is "+ci.State)
 		return
 	}
+	if state, err := t.api.MergeState(r.Context(), t.remote, pr.Number); err == nil && state.Refuses() {
+		writeJSON(w, http.StatusConflict, map[string]string{"error": "the host would not merge this pull request now: " + mergeRefusal(state.Code), "code": "pr_" + state.Code})
+		return
+	}
+	if err := s.doMerge(r.Context(), c, t, pr); err != nil {
+		s.writePRError(w, prHostError(t.api.Service, err))
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"merged": true, "pr": pr})
+}
+
+// mergeRefusal says in words why the host would turn a merge down.
+func mergeRefusal(code string) string {
+	switch code {
+	case gitforge.MergeBlocked:
+		return "it is missing an approval, a resolved discussion or a required check"
+	case gitforge.MergeConflict:
+		return "it conflicts with the branch it merges into"
+	case gitforge.MergeDraft:
+		return "it is still a draft"
+	}
+	return code
+}
+
+// doMerge merges the pull request the way the project asks, and from then on the session is the
+// integrated one: read-only, and continuable from the updated base branch.
+func (s *Server) doMerge(ctx context.Context, c *conversation, t prTarget, pr gitforge.PullRequest) error {
 	opts := gitforge.MergeOptions{DeleteBranch: true, Branch: t.branch}
 	if p := s.projectOf(c.projectID); p != nil {
 		opts.Method = p.MergeMethod
 	}
-	if err := t.api.MergePR(r.Context(), t.remote, pr.Number, opts); err != nil {
-		s.writePRError(w, prHostError(t.api.Service, err))
+	sha, err := t.api.MergePR(ctx, t.remote, pr.Number, opts)
+	if err != nil {
+		return err
+	}
+	if sha == "" {
+		sha = fmt.Sprintf("pr-%d", pr.Number)
+	}
+	c.setPRWatch(&PRWatchView{Status: prMerged, Max: s.prMaxFixes(c), Number: pr.Number})
+	c.setMerged(sha)
+	s.saveSession(c)
+	return nil
+}
+
+// autoMerge merges a pull request whose CI just passed, when the project asks for that and the host
+// accepts the merge. Anything else is left to the user: the watch ends at "passed" and the toast and
+// the Merge button say so.
+func (s *Server) autoMerge(c *conversation, t prTarget, pr gitforge.PullRequest) {
+	p := s.projectOf(c.projectID)
+	if p == nil || !p.AutoMerge {
 		return
 	}
-	c.setPRWatch(&PRWatchView{Status: prMerged, Max: s.prMaxFixes(), Number: pr.Number})
-	writeJSON(w, http.StatusOK, map[string]any{"merged": true, "pr": pr})
+	if state, err := t.api.MergeState(s.baseCtx, t.remote, pr.Number); err != nil || state.Refuses() {
+		return
+	}
+	if err := s.doMerge(s.baseCtx, c, t, pr); err != nil && s.opts.Log != nil {
+		s.opts.Log.Warn("could not merge a pull request automatically", "session", c.id, "pr", pr.Number, "error", err.Error())
+	}
 }

@@ -47,6 +47,14 @@ test('the bar asks the gateway only while it is following the CI', () => {
   assert.equal(p.shouldPoll(undefined), false)
 })
 
+test('a merge the host would refuse is not offered', () => {
+  const v = (code) => ({ state: 'open', branch: 'b', merge: { code } })
+  for (const c of ['blocked', 'conflict', 'draft']) assert.equal(p.mergeRefused(v(c)), true, c)
+  for (const c of ['ok', 'behind', 'unknown']) assert.equal(p.mergeRefused(v(c)), false, c)
+  assert.equal(p.mergeRefused(null), false)
+  assert.equal(p.mergeRefused({ state: 'open', branch: 'b' }), false)
+})
+
 test('ciSummary counts the jobs that passed', () => {
   const v = { state: 'open', branch: 'b', ci: { state: 'pending', checks: [{ name: 'a', state: 'success' }, { name: 'b', state: 'pending' }] } }
   assert.deepEqual(p.ciSummary(v), { passed: 1, total: 2 })

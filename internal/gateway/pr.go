@@ -33,6 +33,8 @@ type prView struct {
 	Branch string                `json:"branch"`
 	PR     *gitforge.PullRequest `json:"pr,omitempty"`
 	CI     *gitforge.CIStatus    `json:"ci,omitempty"`
+	// Merge says whether the host would accept a merge now; it is asked once the CI has passed.
+	Merge *gitforge.MergeState `json:"merge,omitempty"`
 	// Watch is what the gateway is doing about the pull request, absent when nothing.
 	Watch *PRWatchView `json:"watch,omitempty"`
 }
@@ -130,6 +132,11 @@ func (s *Server) handleGetPR(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		view.CI = &ci
+		if ci.State == gitforge.StateSuccess {
+			if m, err := t.api.MergeState(r.Context(), t.remote, pr.Number); err == nil {
+				view.Merge = &m
+			}
+		}
 		// A CI seen running is a CI to follow, whoever pushed: the loop does not wait to be asked.
 		if ci.State == gitforge.StatePending {
 			s.startPRWatch(c, nil)

@@ -300,3 +300,95 @@ func TestProjectMergeMethodIsValidated(t *testing.T) {
 		t.Errorf("an unknown method: %d", code)
 	}
 }
+
+// prHost arms the fake host with an open pull request #7 whose CI is `conclusion`.
+func prHost(host *gitHost, branch, conclusion, mergeState string) {
+	host.set("GET https://api.github.com/repos/o/r/pulls?state=open",
+		`[{"number":7,"html_url":"https://github.com/o/r/pull/7","title":"feat: x","head":{"ref":"`+branch+`"},"base":{"ref":"main"}}]`)
+	host.set("GET https://api.github.com/repos/o/r/pulls/7", `{"head":{"sha":"abc"},"mergeable_state":"`+mergeState+`"}`)
+	host.set("GET https://api.github.com/repos/o/r/commits/abc/status", `{"statuses":[]}`)
+	host.set("GET https://api.github.com/repos/o/r/commits/abc/check-runs", `{"check_runs":[{"id":1,"name":"test","status":"completed","conclusion":"`+conclusion+`"}]}`)
+	host.set("PUT https://api.github.com/repos/o/r/pulls/7/merge", `{"merged":true,"sha":"cafe01"}`)
+}
+
+func patchProjectCode(t *testing.T, srv *Server, pid, body string) int {
+	t.Helper()
+	req, _ := http.NewRequest(http.MethodPatch, srv.BaseURL()+"/v1/projects/"+pid, strings.NewReader(body))
+	req.Header.Set("Authorization", "Bearer "+testToken)
+	w := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(w, req)
+	return w.Code
+}
+
+func TestPRMergeIsRefusedWhenTheHostWouldRefuseIt(t *testing.T) {
+	srv, host, ss := prSession(t, "https://github.com/o/r.git")
+	connectGitHub(t, srv)
+	prHost(host, sessionBranch(ss.ID), "success", "blocked")
+	if m := decode(t, get(t, srv, sessionPath(srv, ss.ID, "/pr"), testToken)); m["merge"].(map[string]any)["code"] != "blocked" {
+		t.Fatalf("the view says why it cannot be merged: %v", m)
+	}
+	w := postJSON(t, srv, sessionPath(srv, ss.ID, "/pr/merge"), testToken, `{}`)
+	if m := decode(t, w); w.Code != http.StatusConflict || m["code"] != "pr_blocked" {
+		t.Fatalf("a blocked merge: %d %s", w.Code, w.Body.String())
+	}
+	if c := srv.sessions[ss.ID]; c.merged {
+		t.Error("nothing was merged")
+	}
+}
+
+func TestPRMergeMakesTheSessionIntegrated(t *testing.T) {
+	srv, host, ss := prSession(t, "https://github.com/o/r.git")
+	connectGitHub(t, srv)
+	prHost(host, sessionBranch(ss.ID), "success", "clean")
+	if w := postJSON(t, srv, sessionPath(srv, ss.ID, "/pr/merge"), testToken, `{}`); w.Code != http.StatusOK {
+		t.Fatalf("merge: %d %s", w.Code, w.Body.String())
+	}
+	st := srv.sessions[ss.ID].status()
+	if !st.Merged || st.MergedSHA != "cafe01" {
+		t.Errorf("the session is the integrated one, with the host's commit: %+v", st)
+	}
+}
+
+func TestPRAutoMergeIsAProjectChoice(t *testing.T) {
+	srv, host, ss := prSession(t, "https://github.com/o/r.git")
+	connectGitHub(t, srv)
+	c := srv.sessions[ss.ID]
+	prHost(host, sessionBranch(ss.ID), "success", "clean")
+
+	if !srv.pollPR(c, &prWatchState{status: prFollowing}) || c.merged {
+		t.Fatal("without the setting a pass ends the watch and nothing is merged")
+	}
+	if patchProjectCode(t, srv, ss.ProjectID, `{"auto_merge":true}`) != http.StatusOK {
+		t.Fatal("setting auto_merge")
+	}
+	prHost(host, sessionBranch(ss.ID), "success", "blocked")
+	if !srv.pollPR(c, &prWatchState{status: prFollowing}) || c.merged {
+		t.Fatal("a host that would refuse is left to the user")
+	}
+	prHost(host, sessionBranch(ss.ID), "success", "clean")
+	if !srv.pollPR(c, &prWatchState{status: prFollowing}) || !c.merged {
+		t.Fatal("with the setting and a mergeable pull request, it is merged")
+	}
+	if v := c.prWatchView(); v.Status != prMerged {
+		t.Errorf("merged is what the watch ends on: %+v", v)
+	}
+}
+
+func TestPRAttemptsAreAProjectChoice(t *testing.T) {
+	srv, _, ss := prSession(t, "https://github.com/o/r.git")
+	c := srv.sessions[ss.ID]
+	if got := srv.prMaxFixes(c); got != defaultPRMaxFixes {
+		t.Fatalf("default: %d", got)
+	}
+	if patchProjectCode(t, srv, ss.ProjectID, `{"pr_max_fixes":2}`) != http.StatusOK || srv.prMaxFixes(c) != 2 {
+		t.Fatalf("the project's own limit: %d", srv.prMaxFixes(c))
+	}
+	for _, bad := range []string{`{"pr_max_fixes":-1}`, `{"pr_max_fixes":21}`} {
+		if code := patchProjectCode(t, srv, ss.ProjectID, bad); code != http.StatusBadRequest {
+			t.Errorf("%s: %d", bad, code)
+		}
+	}
+	if patchProjectCode(t, srv, ss.ProjectID, `{"pr_max_fixes":0}`) != http.StatusOK || srv.prMaxFixes(c) != defaultPRMaxFixes {
+		t.Error("zero goes back to the default")
+	}
+}

@@ -140,6 +140,10 @@ type TUI struct {
 	// before the interface opened, such as a setup that was completed. Empty shows nothing.
 	Notice string
 
+	// liveNotice is a line raised while the interface runs (a pull request's CI ended): shown in the
+	// footer for a while. It is guarded by draw, like everything the painter reads.
+	liveNotice string
+
 	// Width and Height override the drawing area. Zero means "ask the
 	// environment": tests set them to make the layout deterministic, and an
 	// embedder can pin them to a fixed size.
@@ -372,6 +376,21 @@ func (t *TUI) Run(ctx context.Context) int {
 		defer func() {
 			stopCheck()
 			checking.Wait()
+		}()
+	}
+
+	// The CI of a session's pull request is followed by the gateway; the notices are raised here.
+	if _, ok := t.Runner.(SessionSwitcher); ok {
+		prCtx, stopPRs := context.WithCancel(ctx)
+		var watching sync.WaitGroup
+		watching.Add(1)
+		go func() {
+			defer watching.Done()
+			t.watchPRs(prCtx)
+		}()
+		defer func() {
+			stopPRs()
+			watching.Wait()
 		}()
 	}
 

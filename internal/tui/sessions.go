@@ -40,8 +40,10 @@ type SessionInfo struct {
 	// PR is the state of the session's pull request while the gateway follows its CI
 	// ("following", "fixing", "passed", "gave_up", "no_ci", "base_red", "merged"), and PRNumber its
 	// number. Empty when there is no pull request being followed.
-	PR       string
-	PRNumber int
+	PR         string
+	PRNumber   int
+	PRAttempts int
+	PRMax      int
 	// LastUsed is when the conversation was last touched, and it is what the list is ORDERED by:
 	// someone opening it is asking "where was I?", and the answer is the most recent one.
 	//

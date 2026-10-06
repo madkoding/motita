@@ -963,7 +963,7 @@ func (s *Server) loadPersistedSessions() {
 			svc.RestoreTranscript(rec.Turns)
 		}
 		conv.setCheckpoints(rec.Checkpoints)
-		conv.restorePRWatch(rec.PRWatch, s.prMaxFixes())
+		conv.restorePRWatch(rec.PRWatch, s.prMaxFixes(conv))
 		// Restore provider/model if they were persisted and differ from the
 		// defaults the factory built with.
 		if rec.Provider != "" || rec.Model != "" {

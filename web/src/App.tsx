@@ -15,7 +15,7 @@ import { NewSessionButton } from './NewSessionButton'
 import { GitConnectModal, type SelfHosted } from './GitConnect'
 import { RepoPicker } from './RepoPicker'
 import { listAccounts, connectedAccounts, repoShortName, type GitAccount, type GitRepo } from './gitApi'
-import { getPR, retryFix, mergePR, PRError, prNotice, shouldPoll, ciSummary, type PRView, type PRWatch } from './prApi'
+import { getPR, retryFix, mergePR, mergeRefused, PRError, prNotice, shouldPoll, ciSummary, type PRView, type PRWatch } from './prApi'
 
 interface Message {
   id: number
@@ -157,6 +157,10 @@ interface ProjectInfo {
   main_branch?: string
   // merge_method is how its pull requests are merged from here: merge, squash or rebase.
   merge_method?: string
+  // pr_max_fixes is how many times the agent is sent to fix a failing CI (0: the default).
+  pr_max_fixes?: number
+  // auto_merge merges a pull request by itself once its CI passes.
+  auto_merge?: boolean
   changes?: number
   created: string
 }
@@ -768,7 +772,7 @@ export default function App() {
   const [remoteMain, setRemoteMain] = useState('')
   const mainChosen = useRef(false)
   // The edit-project dialog: what is being edited and the branches its selector offers.
-  const [editProject, setEditProject] = useState<{ id: string; title: string; description: string; main: string; branches: string[]; current: string; mergeMethod: string } | null>(null)
+  const [editProject, setEditProject] = useState<{ id: string; title: string; description: string; main: string; branches: string[]; current: string; mergeMethod: string; prMaxFixes: number; autoMerge: boolean } | null>(null)
   const [savingProject, setSavingProject] = useState(false)
   // Podman: whether this machine has it (asked when the dialog opens) and the user's answer.
   // Artifacts: the files the agent saved for the person in the selected session, and the one
@@ -1928,7 +1932,7 @@ export default function App() {
   // openEditProject opens the edit dialog with the project's own values, and asks the gateway
   // which branches the main-branch selector can offer.
   const openEditProject = useCallback(async (p: ProjectInfo) => {
-    setEditProject({ id: p.id, title: p.title, description: p.description ?? '', main: p.main_branch ?? 'main', branches: p.main_branch ? [p.main_branch] : ['main'], current: p.branch ?? '', mergeMethod: p.merge_method ?? '' })
+    setEditProject({ id: p.id, title: p.title, description: p.description ?? '', main: p.main_branch ?? 'main', branches: p.main_branch ? [p.main_branch] : ['main'], current: p.branch ?? '', mergeMethod: p.merge_method ?? '', prMaxFixes: p.pr_max_fixes ?? 0, autoMerge: p.auto_merge === true })
     try {
       const res = await api('/v1/projects/' + encodeURIComponent(p.id) + '/branches')
       if (!res.ok) return
@@ -1948,7 +1952,7 @@ export default function App() {
       const res = await api('/v1/projects/' + encodeURIComponent(editProject.id), {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ title: editProject.title, description: editProject.description, main_branch: editProject.main, merge_method: editProject.mergeMethod }),
+        body: JSON.stringify({ title: editProject.title, description: editProject.description, main_branch: editProject.main, merge_method: editProject.mergeMethod, pr_max_fixes: editProject.prMaxFixes, auto_merge: editProject.autoMerge }),
       })
       if (!res.ok) {
         const err = await res.json().catch(() => ({}))
@@ -4758,13 +4762,26 @@ export default function App() {
         )}
 
         {/* ── Pull request bar ── */}
-        {prSessionId && !prBlocked && (prWatch?.status === 'merged' || prView?.state === 'open' || selectedSession?.mergeable) && (
+        {(prSessionId || (selectedSession?.merged && prWatch?.status === 'merged')) && !prBlocked && (prWatch?.status === 'merged' || prView?.state === 'open' || selectedSession?.mergeable) && (
           <div class="flex items-center gap-2 px-3 sm:px-5 py-2 border-t border-white/5 text-xs flex-none z-10 relative" role="status">
             {prWatch?.status === 'merged' ? (
               <span class="inline-flex items-center gap-1.5 font-semibold text-[#a78bfa]">
                 <span class="inline-block w-2 h-2 rounded-full bg-[#a78bfa]" />
                 {tf('Pull request #{n} merged', { n: String(prWatch.number ?? '') })}
               </span>
+            ) : null}
+            {prWatch?.status === 'merged' && selectedSession?.merged && selectedSession.continuable ? (
+              <button
+                type="button"
+                class="ml-auto px-3 min-h-[32px] rounded-lg bg-accent text-white font-semibold active:scale-95 transition-transform"
+                title={t('Open a new session from the updated project branch')}
+                onClick={() => { void continueSession(selectedSession) }}
+              >
+                {t('Continue in a new session')}
+              </button>
+            ) : null}
+            {prWatch?.status === 'merged' ? (
+              <></>
             ) : prView?.state === 'open' && prView.pr ? (
               <>
                 <a
@@ -4816,7 +4833,15 @@ export default function App() {
                     {t('Try again')}
                   </button>
                 )}
-                {prView.ci && prView.ci.state === 'success' && (
+                {prView.ci && prView.ci.state === 'success' && prView.merge && (mergeRefused(prView) || prView.merge.code === 'behind') && (
+                  <span class="ml-auto text-[#f0a040]">
+                    {t(prView.merge.code === 'blocked' ? 'Waiting for approvals or required checks'
+                      : prView.merge.code === 'conflict' ? 'Conflicts with the base branch'
+                      : prView.merge.code === 'draft' ? 'Still a draft'
+                      : 'Out of date with the base branch')}
+                  </span>
+                )}
+                {prView.ci && prView.ci.state === 'success' && !mergeRefused(prView) && (
                   <button
                     type="button"
                     class={`ml-auto px-3 min-h-[32px] rounded-lg font-semibold disabled:opacity-50 active:scale-95 transition-transform ${prMergeArmed ? 'bg-[#4ade80] text-black' : 'border border-[#4ade80]/50 text-[#4ade80]'}`}
@@ -5056,6 +5081,33 @@ export default function App() {
                 </select>
                 <p class="text-xs text-[#7a7a8c] mt-1">{t('How a pull request of this project is merged from the PR bar. Its branch is deleted afterwards.')}</p>
               </div>
+              <div>
+                <label class="block text-sm text-[#9a9aaa] mb-1.5" for="edit-project-fixes">{t('Attempts to fix a failing CI')}</label>
+                <select
+                  id="edit-project-fixes"
+                  data-testid="edit-project-fixes"
+                  class="w-full px-3 py-2.5 rounded-xl bg-black/30 border border-white/10 text-[#e8e8ea] focus:outline-none focus:border-accent text-sm"
+                  value={String(editProject.prMaxFixes)}
+                  onChange={(e) => { const v = Number((e.target as HTMLSelectElement).value); setEditProject(p => p && { ...p, prMaxFixes: v }) }}
+                >
+                  <option value="0">{t('Default (5)')}</option>
+                  {[1, 2, 3, 8, 10, 20].map(n => <option key={n} value={String(n)}>{String(n)}</option>)}
+                </select>
+                <p class="text-xs text-[#7a7a8c] mt-1">{t('After this many attempts Motita stops and asks you to take a look.')}</p>
+              </div>
+              <label class="flex items-start gap-2.5 text-sm text-[#e8e8ea] cursor-pointer">
+                <input
+                  type="checkbox"
+                  data-testid="edit-project-automerge"
+                  class="mt-1"
+                  checked={editProject.autoMerge}
+                  onChange={(e) => { const v = (e.target as HTMLInputElement).checked; setEditProject(p => p && { ...p, autoMerge: v }) }}
+                />
+                <span>
+                  {t('Merge automatically when the CI passes')}
+                  <span class="block text-xs text-[#7a7a8c]">{t('Only when the host accepts the merge. Off, merging is always your click.')}</span>
+                </span>
+              </label>
             </div>
             <div class="flex gap-2 mt-5">
               <button

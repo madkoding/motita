@@ -1134,3 +1134,48 @@ func TestPRStateSaysWhatTheCIIsDoing(t *testing.T) {
 		t.Error("an unknown state says nothing")
 	}
 }
+
+func TestPRNoticeTextOnlyForNews(t *testing.T) {
+	seen := func(state string, attempts int) *prSeen { return &prSeen{state: state, attempts: attempts} }
+	cur := func(state string, attempts int) SessionInfo {
+		return SessionInfo{ID: "s", PR: state, PRNumber: 7, PRAttempts: attempts, PRMax: 5}
+	}
+	if f, _ := prNoticeText(nil, cur("passed", 0)); f != "" {
+		t.Error("a session met for the first time is quiet")
+	}
+	if f, _ := prNoticeText(seen("following", 0), cur("passed", 0)); f == "" {
+		t.Error("the CI passing is news")
+	}
+	if f, _ := prNoticeText(seen("passed", 0), cur("passed", 0)); f != "" {
+		t.Error("the same state again is not")
+	}
+	if f, _ := prNoticeText(seen("fixing", 1), cur("fixing", 1)); f != "" {
+		t.Error("the same attempt is not news")
+	}
+	if f, a := prNoticeText(seen("following", 1), cur("fixing", 2)); f == "" || a[1] != 2 {
+		t.Errorf("a new attempt is news: %q %v", f, a)
+	}
+	for _, st := range []string{"gave_up", "base_red", "no_ci", "merged"} {
+		if f, _ := prNoticeText(seen("following", 0), cur(st, 0)); f == "" {
+			t.Errorf("%s is news", st)
+		}
+	}
+	if f, _ := prNoticeText(seen("following", 0), cur("following", 0)); f != "" {
+		t.Error("following is not news")
+	}
+}
+
+func TestALiveNoticeLeadsTheFooter(t *testing.T) {
+	tu := newFakeTUI("", &fakeRunner{})
+	tu.raiseNotice("PR #7: the CI passed, you can go and merge it")
+	tu.draw.Lock()
+	bar := stripANSI(tu.bottomBar(120))
+	tu.draw.Unlock()
+	if !strings.Contains(bar, "PR #7: the CI passed") {
+		t.Errorf("the footer must say it: %q", bar)
+	}
+	narrow := stripANSI(tu.bottomBar(60))
+	if !strings.Contains(narrow, "PR #7") {
+		t.Errorf("a narrow terminal loses keys, not the news: %q", narrow)
+	}
+}

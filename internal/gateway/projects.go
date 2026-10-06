@@ -321,6 +321,8 @@ func (s *Server) handleUpdateProject(w http.ResponseWriter, r *http.Request) {
 		Podman      *bool   `json:"podman"`
 		MainBranch  *string `json:"main_branch"`
 		MergeMethod *string `json:"merge_method"`
+		PRMaxFixes  *int    `json:"pr_max_fixes"`
+		AutoMerge   *bool   `json:"auto_merge"`
 	}
 	if !s.decodeBody(w, r, &body) {
 		return
@@ -332,6 +334,16 @@ func (s *Server) handleUpdateProject(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		p.MergeMethod = m
+	}
+	if body.PRMaxFixes != nil {
+		if *body.PRMaxFixes < 0 || *body.PRMaxFixes > maxPRFixesLimit {
+			writeError(w, http.StatusBadRequest, fmt.Sprintf("the attempts to fix a CI must be between 0 (the default) and %d", maxPRFixesLimit))
+			return
+		}
+		p.PRMaxFixes = *body.PRMaxFixes
+	}
+	if body.AutoMerge != nil {
+		p.AutoMerge = *body.AutoMerge
 	}
 	if body.Title != nil {
 		title := strings.TrimSpace(*body.Title)
