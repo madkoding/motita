@@ -42,6 +42,9 @@ type Project struct {
 	// AutoMerge merges a pull request of this project by itself when its CI passes and the host
 	// accepts the merge. Off, merging is always the user's click.
 	AutoMerge bool `json:"auto_merge,omitempty"`
+	// AutoContinue opens a fresh session from the updated branch by itself when a pull request of
+	// this project is merged, so the next piece of work has somewhere to start.
+	AutoContinue bool `json:"auto_continue,omitempty"`
 	// Changes is how many uncommitted changes are in the project's own
 	// checkout. It is the project's own number, NOT the sum over its sessions:
 	// a session works in its own worktree, and adding the two would report work

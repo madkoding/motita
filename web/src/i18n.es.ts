@@ -515,6 +515,12 @@ const es: Record<string, string> = {
   "Only while this tab is in the background.": "Solo mientras esta pestaña está en segundo plano.",
   "Allow": "Permitir",
   "Pull request {pr} was merged. Use Continue in the bar to keep working from the updated branch.": "El pull request {pr} fue mergeado. Usa Continuar en la barra para seguir desde la rama actualizada.",
+  "{n} pull requests moved": "{n} pull requests cambiaron",
+  "Open a new session when a pull request is merged": "Abrir una sesión nueva cuando se mergee un pull request",
+  "It starts from the updated branch, so the next piece of work has somewhere to begin.": "Parte de la rama actualizada, para que el siguiente trabajo tenga dónde empezar.",
+  "A new session was opened from the updated branch": "Se abrió una sesión nueva desde la rama actualizada",
+  "Open the new session": "Abrir la sesión nueva",
+  "Pull request {pr} was merged. A new session was opened from the updated branch.": "El pull request {pr} fue mergeado. Se abrió una sesión nueva desde la rama actualizada.",
 }
 
 export default es

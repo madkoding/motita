@@ -16,7 +16,7 @@ import { GitConnectModal, type SelfHosted } from './GitConnect'
 import { RepoPicker } from './RepoPicker'
 import { listAccounts, connectedAccounts, repoShortName, type GitAccount, type GitRepo } from './gitApi'
 import { loadNotify } from './settings'
-import { getPR, retryFix, mergePR, mergeRefused, PRError, prNotice, shouldPoll, ciSummary, shouldDesktopNotify, wantsDesktopPermission, type PRView, type PRWatch } from './prApi'
+import { getPR, retryFix, mergePR, mergeRefused, PRError, prNotice, shouldPoll, ciSummary, shouldDesktopNotify, wantsDesktopPermission, worstToast, type PRView, type PRWatch } from './prApi'
 
 interface Message {
   id: number
@@ -162,6 +162,8 @@ interface ProjectInfo {
   pr_max_fixes?: number
   // auto_merge merges a pull request by itself once its CI passes.
   auto_merge?: boolean
+  // auto_continue opens a new session from the updated branch when a pull request is merged.
+  auto_continue?: boolean
   changes?: number
   created: string
 }
@@ -773,7 +775,7 @@ export default function App() {
   const [remoteMain, setRemoteMain] = useState('')
   const mainChosen = useRef(false)
   // The edit-project dialog: what is being edited and the branches its selector offers.
-  const [editProject, setEditProject] = useState<{ id: string; title: string; description: string; main: string; branches: string[]; current: string; mergeMethod: string; prMaxFixes: number; autoMerge: boolean } | null>(null)
+  const [editProject, setEditProject] = useState<{ id: string; title: string; description: string; main: string; branches: string[]; current: string; mergeMethod: string; prMaxFixes: number; autoMerge: boolean; autoContinue: boolean } | null>(null)
   const [savingProject, setSavingProject] = useState(false)
   // Podman: whether this machine has it (asked when the dialog opens) and the user's answer.
   // Artifacts: the files the agent saved for the person in the selected session, and the one
@@ -1933,7 +1935,7 @@ export default function App() {
   // openEditProject opens the edit dialog with the project's own values, and asks the gateway
   // which branches the main-branch selector can offer.
   const openEditProject = useCallback(async (p: ProjectInfo) => {
-    setEditProject({ id: p.id, title: p.title, description: p.description ?? '', main: p.main_branch ?? 'main', branches: p.main_branch ? [p.main_branch] : ['main'], current: p.branch ?? '', mergeMethod: p.merge_method ?? '', prMaxFixes: p.pr_max_fixes ?? 0, autoMerge: p.auto_merge === true })
+    setEditProject({ id: p.id, title: p.title, description: p.description ?? '', main: p.main_branch ?? 'main', branches: p.main_branch ? [p.main_branch] : ['main'], current: p.branch ?? '', mergeMethod: p.merge_method ?? '', prMaxFixes: p.pr_max_fixes ?? 0, autoMerge: p.auto_merge === true, autoContinue: p.auto_continue === true })
     try {
       const res = await api('/v1/projects/' + encodeURIComponent(p.id) + '/branches')
       if (!res.ok) return
@@ -1953,7 +1955,7 @@ export default function App() {
       const res = await api('/v1/projects/' + encodeURIComponent(editProject.id), {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ title: editProject.title, description: editProject.description, main_branch: editProject.main, merge_method: editProject.mergeMethod, pr_max_fixes: editProject.prMaxFixes, auto_merge: editProject.autoMerge }),
+        body: JSON.stringify({ title: editProject.title, description: editProject.description, main_branch: editProject.main, merge_method: editProject.mergeMethod, pr_max_fixes: editProject.prMaxFixes, auto_merge: editProject.autoMerge, auto_continue: editProject.autoContinue }),
       })
       if (!res.ok) {
         const err = await res.json().catch(() => ({}))
@@ -3202,6 +3204,7 @@ export default function App() {
     } catch { /* a browser that cannot notify just does not */ }
   }
   useEffect(() => {
+    const news: { message: string; type: 'success' | 'error' | 'warning'; detail: string }[] = []
     for (const sess of sessions) {
       const cur = sess.pr_watch ?? null
       const notice = prNotice(seenWatchRef.current[sess.id], cur)
@@ -3210,20 +3213,30 @@ export default function App() {
       const where = sess.id === sessionRef.current ? '' : ' — ' + (sess.title || sess.id)
       const pr = cur.number ? '#' + cur.number : ''
       if (notice === 'passed') {
-        announce({ message: t('CI passed') + where, type: 'success', detail: tf('Pull request {pr} is green: you can go and merge it.', { pr }) })
+        news.push({ message: t('CI passed') + where, type: 'success', detail: tf('Pull request {pr} is green: you can go and merge it.', { pr }) })
       } else if (notice === 'fixing') {
-        announce({ message: t('CI failed') + where, type: 'error', detail: tf('Motita is fixing it — attempt {n} of {max}.', { n: String(cur.attempts), max: String(cur.max) }) })
+        news.push({ message: t('CI failed') + where, type: 'error', detail: tf('Motita is fixing it — attempt {n} of {max}.', { n: String(cur.attempts), max: String(cur.max) }) })
       } else if (notice === 'gave_up') {
-        announce({ message: t('Motita could not fix the CI') + where, type: 'error', detail: tf('It tried {n} times. Look at pull request {pr} and try again when you are ready.', { n: String(cur.attempts), pr }) })
+        news.push({ message: t('Motita could not fix the CI') + where, type: 'error', detail: tf('It tried {n} times. Look at pull request {pr} and try again when you are ready.', { n: String(cur.attempts), pr }) })
       } else if (notice === 'no_ci') {
-        announce({ message: t('This repository has no CI') + where, type: 'warning', detail: tf('Pull request {pr} has no checks to wait for.', { pr }) })
+        news.push({ message: t('This repository has no CI') + where, type: 'warning', detail: tf('Pull request {pr} has no checks to wait for.', { pr }) })
       } else if (notice === 'base_red') {
-        announce({ message: t('The CI is red on the base branch too') + where, type: 'warning', detail: tf('Pull request {pr} fails the same checks as the branch it merges into: this change did not cause it.', { pr }) })
+        news.push({ message: t('The CI is red on the base branch too') + where, type: 'warning', detail: tf('Pull request {pr} fails the same checks as the branch it merges into: this change did not cause it.', { pr }) })
       } else if (notice === 'closed') {
-        announce({ message: t('Pull request closed') + where, type: 'warning', detail: tf('Pull request {pr} was closed without being merged.', { pr }) })
+        news.push({ message: t('Pull request closed') + where, type: 'warning', detail: tf('Pull request {pr} was closed without being merged.', { pr }) })
       } else if (notice === 'merged') {
-        announce({ message: t('Pull request merged') + where, type: 'success', detail: tf('Pull request {pr} was merged. Use Continue in the bar to keep working from the updated branch.', { pr }) })
+        news.push({ message: t('Pull request merged') + where, type: 'success', detail: cur.next ? tf('Pull request {pr} was merged. A new session was opened from the updated branch.', { pr }) : tf('Pull request {pr} was merged. Use Continue in the bar to keep working from the updated branch.', { pr }) })
       }
+    }
+    // One toast for what moved in one look at the list: three sessions finishing together are
+    // one thing to read, not three toasts replacing each other.
+    if (news.length === 1) announce(news[0])
+    else if (news.length > 1) {
+      announce({
+        message: tf('{n} pull requests moved', { n: String(news.length) }),
+        type: worstToast(news.map(n => n.type)),
+        detail: news.map(n => n.message).join(' · '),
+      })
     }
   }, [sessions])
 
@@ -4787,7 +4800,16 @@ export default function App() {
                 {tf('Pull request #{n} merged', { n: String(prWatch.number ?? '') })}
               </span>
             ) : null}
-            {prWatch?.status === 'merged' && selectedSession?.merged && selectedSession.continuable ? (
+            {prWatch?.status === 'merged' && prWatch.next ? (
+              <button
+                type="button"
+                class="ml-auto px-3 min-h-[32px] rounded-lg bg-accent text-white font-semibold active:scale-95 transition-transform"
+                title={t('A new session was opened from the updated branch')}
+                onClick={() => { void switchSession(prWatch.next as string) }}
+              >
+                {t('Open the new session')}
+              </button>
+            ) : prWatch?.status === 'merged' && selectedSession?.merged && selectedSession.continuable ? (
               <button
                 type="button"
                 class="ml-auto px-3 min-h-[32px] rounded-lg bg-accent text-white font-semibold active:scale-95 transition-transform"
@@ -5129,6 +5151,19 @@ export default function App() {
                 <span>
                   {t('Merge automatically when the CI passes')}
                   <span class="block text-xs text-[#7a7a8c]">{t('Only when the host accepts the merge. Off, merging is always your click.')}</span>
+                </span>
+              </label>
+              <label class="flex items-start gap-2.5 text-sm text-[#e8e8ea] cursor-pointer">
+                <input
+                  type="checkbox"
+                  data-testid="edit-project-autocontinue"
+                  class="mt-1"
+                  checked={editProject.autoContinue}
+                  onChange={(e) => { const v = (e.target as HTMLInputElement).checked; setEditProject(p => p && { ...p, autoContinue: v }) }}
+                />
+                <span>
+                  {t('Open a new session when a pull request is merged')}
+                  <span class="block text-xs text-[#7a7a8c]">{t('It starts from the updated branch, so the next piece of work has somewhere to begin.')}</span>
                 </span>
               </label>
             </div>

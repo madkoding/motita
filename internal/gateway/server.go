@@ -12,6 +12,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/madkoding/motita/internal/gitforge"
 	"github.com/madkoding/motita/internal/logx"
 	"github.com/madkoding/motita/internal/netrules"
 	"github.com/madkoding/motita/internal/oauth"
@@ -229,6 +230,9 @@ type Server struct {
 	// prWatching holds the sessions whose pull request is being followed. See prwatch.go.
 	prMu       sync.Mutex
 	prWatching map[string]bool
+	baseCI     map[string]baseCIEntry
+	// etags makes the reads of the git hosts conditional; see gitforge.ETagCache.
+	etags gitforge.ETagCache
 }
 
 // Start binds the listener and returns a Server that is ready to Serve.

@@ -492,3 +492,51 @@ func TestPRStateTellsMergedFromClosed(t *testing.T) {
 	check(KindBitbucket, "GET /repositories/o/r/pullrequests/7", `{"state":"MERGED"}`, PRMerged, "")
 	check(KindBitbucket, "GET /repositories/o/r/pullrequests/7", `{"state":"DECLINED"}`, PRClosed, "")
 }
+
+// etagHost answers like GitHub: a read carries an ETag, and a read that presents it gets 304.
+type etagHost struct {
+	full, notModified int
+	body              string
+}
+
+func (h *etagHost) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	if r.Header.Get("If-None-Match") == `"v1"` {
+		h.notModified++
+		w.WriteHeader(http.StatusNotModified)
+		return
+	}
+	h.full++
+	w.Header().Set("ETag", `"v1"`)
+	_, _ = w.Write([]byte(h.body))
+}
+
+func TestReadsAreConditional(t *testing.T) {
+	h := &etagHost{body: `[{"number":7,"html_url":"https://x/7","title":"t","head":{"ref":"b"},"base":{"ref":"main"}}]`}
+	srv := httptest.NewServer(h)
+	defer srv.Close()
+	svc := Service{ID: "github", Kind: KindGitHub, APIBase: srv.URL}
+	a := API{Service: svc, Cred: oauth.Credential{AccessToken: "tok"}, Cache: &ETagCache{}}
+	for i := 0; i < 3; i++ {
+		pr, found, err := a.FindPR(context.Background(), Remote{Path: "o/r"}, "b")
+		if err != nil || !found || pr.Number != 7 {
+			t.Fatalf("read %d: %+v %v %v", i, pr, found, err)
+		}
+	}
+	if h.full != 1 || h.notModified != 2 {
+		t.Errorf("one full answer and two 'not modified': %d %d", h.full, h.notModified)
+	}
+
+	// Another account does not get the first one's answers.
+	b := API{Service: svc, Cred: oauth.Credential{AccessToken: "other"}, Cache: a.Cache}
+	if _, _, err := b.FindPR(context.Background(), Remote{Path: "o/r"}, "b"); err != nil || h.full != 2 {
+		t.Errorf("a different token is a different reader: %v full=%d", err, h.full)
+	}
+
+	// Without a cache nothing is conditional.
+	c := API{Service: svc, Cred: oauth.Credential{AccessToken: "tok"}}
+	before := h.notModified
+	_, _, _ = c.FindPR(context.Background(), Remote{Path: "o/r"}, "b")
+	if h.notModified != before {
+		t.Error("no cache, no conditional request")
+	}
+}

@@ -97,6 +97,7 @@ func (s *Server) prTargetOf(ctx context.Context, c *conversation) (prTarget, *pr
 	if err != nil {
 		return prTarget{}, &prError{status: http.StatusInternalServerError, msg: err.Error()}
 	}
+	api.Cache = &s.etags
 	return prTarget{api: api, remote: remote, branch: sessionBranch(c.id)}, nil
 }
 

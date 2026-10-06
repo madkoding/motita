@@ -87,6 +87,8 @@ export interface PRWatch {
   attempts: number
   max: number
   number?: number
+  // The session opened by itself when the pull request was merged (the project's auto_continue).
+  next?: string
 }
 
 export type Notice = 'fixing' | 'passed' | 'gave_up' | 'no_ci' | 'merged' | 'base_red' | 'closed' | null
@@ -122,4 +124,14 @@ export function shouldDesktopNotify(hidden: boolean, permission: string | undefi
 // wantsDesktopPermission: it is asked for once, from a click, and never again once answered.
 export function wantsDesktopPermission(permission: string | undefined): boolean {
   return permission === 'default'
+}
+
+export type ToastType = 'success' | 'error' | 'warning'
+
+// worstToast is the most serious of several toasts: when a handful of pull requests move at once the
+// one toast that stands for them is as loud as the loudest.
+export function worstToast(types: ToastType[]): ToastType {
+  if (types.includes('error')) return 'error'
+  if (types.includes('warning')) return 'warning'
+  return 'success'
 }

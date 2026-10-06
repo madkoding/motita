@@ -226,6 +226,7 @@ func init() {
 		"PR #%d: the CI also fails on the base branch, not caused by this change": "PR #%d: el CI también falla en la rama base, no lo causó este cambio",
 		"PR #%d: this repository has no CI to wait for":                           "PR #%d: este repositorio no tiene CI que esperar",
 		"PR #%d was closed without being merged":                                  "PR #%d se cerró sin mergearse",
+		"%d pull requests moved: %s":                                              "%d pull requests cambiaron: %s",
 		"PR #%d was merged":                                                       "PR #%d fue mergeado",
 		"CI running":                                                              "CI corriendo",
 		"CI failed, being fixed":                                                  "CI falló, se está arreglando",

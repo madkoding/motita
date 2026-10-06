@@ -3,7 +3,9 @@ package gitforge
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -13,6 +15,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/madkoding/motita/internal/oauth"
@@ -24,6 +27,52 @@ type API struct {
 	Cred    oauth.Credential
 	// HTTP is the transport; nil means a client with a 30 second timeout.
 	HTTP oauth.HTTPClient
+	// Cache, when set, makes reads conditional: a host answers "not modified" to a request whose
+	// ETag it recognises, and GitHub does not count that answer against the rate limit. Following
+	// the CI of many pull requests is the same questions asked again and again, so this is what
+	// keeps it cheap.
+	Cache *ETagCache
+}
+
+// ETagCache remembers the last answer of each read together with the ETag the host gave it. It is
+// safe for concurrent use and bounded: it forgets everything when it fills, which only costs the
+// next reads their savings.
+type ETagCache struct {
+	mu sync.Mutex
+	m  map[string]etagEntry
+}
+
+type etagEntry struct {
+	etag string
+	body []byte
+}
+
+const (
+	etagCacheEntries = 512
+	etagBodyMax      = 256 << 10
+)
+
+// key keeps one account's answers from being served to another: what a token may read is the
+// token's own.
+func (a API) etagKey(target string) string {
+	sum := sha256.Sum256([]byte(a.authHeader()))
+	return hex.EncodeToString(sum[:8]) + " " + target
+}
+
+func (c *ETagCache) get(key string) (etagEntry, bool) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	e, ok := c.m[key]
+	return e, ok
+}
+
+func (c *ETagCache) put(key string, e etagEntry) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.m == nil || len(c.m) >= etagCacheEntries {
+		c.m = map[string]etagEntry{}
+	}
+	c.m[key] = e
 }
 
 // Open returns the API of a connected service, renewing its token if needed.
@@ -80,6 +129,14 @@ func (a API) do(ctx context.Context, method, target string, body, out any) error
 	if body != nil {
 		req.Header.Set("Content-Type", "application/json")
 	}
+	cacheKey, cached := "", etagEntry{}
+	if a.Cache != nil && method == http.MethodGet && body == nil {
+		cacheKey = a.etagKey(target)
+		if e, ok := a.Cache.get(cacheKey); ok {
+			cached = e
+			req.Header.Set("If-None-Match", e.etag)
+		}
+	}
 	hc := a.HTTP
 	if hc == nil {
 		hc = &http.Client{Timeout: 30 * time.Second}
@@ -93,8 +150,15 @@ func (a API) do(ctx context.Context, method, target string, body, out any) error
 	if err != nil {
 		return err
 	}
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+	if resp.StatusCode == http.StatusNotModified && cached.etag != "" {
+		// Nothing changed since the answer that is kept.
+		data = cached.body
+	} else if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		return &HTTPError{Status: resp.StatusCode, Message: apiMessage(data)}
+	} else if cacheKey != "" {
+		if et := resp.Header.Get("ETag"); et != "" && len(data) <= etagBodyMax {
+			a.Cache.put(cacheKey, etagEntry{etag: et, body: data})
+		}
 	}
 	// Some hosts answer a success with no body (Gitea's merge).
 	if out == nil || len(bytes.TrimSpace(data)) == 0 {

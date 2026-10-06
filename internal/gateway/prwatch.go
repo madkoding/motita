@@ -48,6 +48,9 @@ type PRWatchView struct {
 	Attempts int    `json:"attempts"`
 	Max      int    `json:"max"`
 	Number   int    `json:"number,omitempty"`
+	// Next is the session opened by itself when the pull request was merged (the project's
+	// auto_continue); empty otherwise. It is not kept across a restart.
+	Next string `json:"next,omitempty"`
 }
 
 // prWatchRecord is the part of a watch that is saved with the session.
@@ -318,7 +321,7 @@ func (s *Server) pollPR(c *conversation, w *prWatchState) bool {
 		// A failure the base branch has too is not this change's to fix: spending the attempts on
 		// it would only end in a pull request that cannot be made green from here.
 		if names := ci.FailedNames(); len(names) > 0 && pr.Base != "" {
-			if base, err := t.api.BranchCI(ctx, t.remote, pr.Base); err == nil && coversAll(base.FailedNames(), names) {
+			if base, err := s.branchCI(ctx, t, pr.Base); err == nil && coversAll(base.FailedNames(), names) {
 				w.attempts--
 				w.status = prBaseRed
 				s.publishPR(c, w, pr.Number)
@@ -467,6 +470,23 @@ func (s *Server) finishMerge(ctx context.Context, c *conversation, number int, s
 	c.setMerged(sha)
 	s.saveSession(c)
 	s.syncProject(ctx, c, base)
+	s.autoContinue(ctx, c, number)
+}
+
+// autoContinue opens the next session when the project asks for that.
+func (s *Server) autoContinue(ctx context.Context, c *conversation, number int) {
+	p := s.projectOf(c.projectID)
+	if p == nil || !p.AutoContinue {
+		return
+	}
+	next, _, err := s.continueFrom(ctx, c)
+	if err != nil {
+		if s.opts.Log != nil {
+			s.opts.Log.Warn("could not continue a merged session by itself", "session", c.id, "error", err.Error())
+		}
+		return
+	}
+	c.setPRWatch(&PRWatchView{Status: prMerged, Max: s.prMaxFixes(c), Number: number, Next: next.id})
 }
 
 // autoMerge merges a pull request whose CI just passed, when the project asks for that and the host
@@ -483,4 +503,35 @@ func (s *Server) autoMerge(c *conversation, t prTarget, pr gitforge.PullRequest)
 	if err := s.doMerge(s.baseCtx, c, t, pr); err != nil && s.opts.Log != nil {
 		s.opts.Log.Warn("could not merge a pull request automatically", "session", c.id, "pr", pr.Number, "error", err.Error())
 	}
+}
+
+// baseCITTL is how long the CI of a base branch is remembered: every session of a repository asks
+// the same question about the same branch, and its answer does not move by the minute.
+const baseCITTL = time.Minute
+
+type baseCIEntry struct {
+	at time.Time
+	ci gitforge.CIStatus
+}
+
+// branchCI is BranchCI shared between the sessions that follow pull requests into the same branch.
+func (s *Server) branchCI(ctx context.Context, t prTarget, branch string) (gitforge.CIStatus, error) {
+	key := t.api.Service.ID + " " + t.remote.Path + "@" + branch
+	s.prMu.Lock()
+	if e, ok := s.baseCI[key]; ok && time.Since(e.at) < baseCITTL {
+		s.prMu.Unlock()
+		return e.ci, nil
+	}
+	s.prMu.Unlock()
+	ci, err := t.api.BranchCI(ctx, t.remote, branch)
+	if err != nil {
+		return ci, err
+	}
+	s.prMu.Lock()
+	if s.baseCI == nil || len(s.baseCI) > 256 {
+		s.baseCI = map[string]baseCIEntry{}
+	}
+	s.baseCI[key] = baseCIEntry{at: time.Now(), ci: ci}
+	s.prMu.Unlock()
+	return ci, nil
 }

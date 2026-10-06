@@ -274,7 +274,11 @@ func TestPRWatchStopsWhenTheBaseBranchIsRedToo(t *testing.T) {
 		t.Fatalf("a failure of its own is fixed: done=%v %s %d", false, w.status, w.attempts)
 	}
 
-	// Red on main for the SAME job: not fixable from here, and the attempt is not spent.
+	// Red on main for the SAME job: not fixable from here, and the attempt is not spent. (What was
+	// learned about main a moment ago is forgotten, as it would be a minute later.)
+	srv.prMu.Lock()
+	srv.baseCI = nil
+	srv.prMu.Unlock()
 	w = &prWatchState{status: prFollowing}
 	host.set("GET https://api.github.com/repos/o/r/commits/main/check-runs", `{"check_runs":[{"id":2,"name":"test","status":"completed","conclusion":"failure"}]}`)
 	if !srv.pollPR(c, w) || w.status != prBaseRed || w.attempts != 0 {
@@ -545,5 +549,62 @@ func TestPRWatchPaceFollowsTheHost(t *testing.T) {
 	w = &prWatchState{status: prPassed}
 	if got := w.wait(every); got != every*3 {
 		t.Fatalf("a pull request waiting to be merged: %v", got)
+	}
+}
+
+func TestAMergedPRCanOpenTheNextSessionByItself(t *testing.T) {
+	srv, _, ss := prSession(t, "")
+	c := srv.sessions[ss.ID]
+	p := srv.projectOf(ss.ProjectID)
+	base := gitx.Display(context.Background(), p.Dir)
+	bare := t.TempDir()
+	mustRun(t, "git", "init", "-q", "--bare", bare)
+	mustRun(t, "git", "-C", p.Dir, "remote", "add", "origin", bare)
+	mustRun(t, "git", "-C", p.Dir, "push", "-q", "origin", base)
+
+	before := srv.sessionCount()
+	srv.finishMerge(context.Background(), c, 7, "x", base)
+	if srv.sessionCount() != before {
+		t.Fatal("without the setting nothing is opened")
+	}
+
+	if patchProjectCode(t, srv, ss.ProjectID, `{"auto_continue":true}`) != http.StatusOK {
+		t.Fatal("setting auto_continue")
+	}
+	srv.finishMerge(context.Background(), c, 7, "x", base)
+	v := c.prWatchView()
+	if v == nil || v.Next == "" || srv.sessionCount() != before+1 {
+		t.Fatalf("the next session is opened and named: %+v", v)
+	}
+	if _, ok := srv.lookup(v.Next); !ok {
+		t.Error("the session it names exists")
+	}
+}
+
+func TestTheBaseBranchCIIsAskedOncePerMinute(t *testing.T) {
+	srv, host, ss := prSession(t, "https://github.com/o/r.git")
+	connectGitHub(t, srv)
+	c := srv.sessions[ss.ID]
+	tg, perr := srv.prTargetOf(context.Background(), c)
+	if perr != nil {
+		t.Fatal(perr)
+	}
+	host.set("GET https://api.github.com/repos/o/r/commits/main/status", `{"statuses":[]}`)
+	host.set("GET https://api.github.com/repos/o/r/commits/main/check-runs", `{"check_runs":[]}`)
+	for i := 0; i < 3; i++ {
+		if _, err := srv.branchCI(context.Background(), tg, "main"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	n := 0
+	host.mu.Lock()
+	for _, k := range host.seen {
+		if strings.Contains(k, "/commits/main/check-runs") {
+			n++
+		}
+	}
+	host.mu.Unlock()
+	if n != 1 {
+		t.Errorf("three sessions asking, one question to the host: %d", n)
 	}
 }

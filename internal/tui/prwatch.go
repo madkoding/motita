@@ -3,6 +3,7 @@ package tui
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 )
 
@@ -90,6 +91,7 @@ func (t *TUI) watchPRs(ctx context.Context) {
 
 // notePRs folds one list of sessions into what was seen and raises the notices it earns.
 func (t *TUI) notePRs(seen map[string]prSeen, all []SessionInfo) {
+	var news []string
 	for _, s := range all {
 		var prev *prSeen
 		if p, ok := seen[s.ID]; ok {
@@ -97,8 +99,17 @@ func (t *TUI) notePRs(seen map[string]prSeen, all []SessionInfo) {
 		}
 		seen[s.ID] = prSeen{state: s.PR, attempts: s.PRAttempts}
 		if format, args := prNoticeText(prev, s); format != "" {
-			t.raiseNotice(t.trf(format, args...))
+			news = append(news, t.trf(format, args...))
 		}
+	}
+	// What moved in one look is one notice: several sessions ending together would otherwise
+	// replace each other in the footer and ring the bell as many times.
+	switch len(news) {
+	case 0:
+	case 1:
+		t.raiseNotice(news[0])
+	default:
+		t.raiseNotice(t.trf("%d pull requests moved: %s", len(news), strings.Join(news, " · ")))
 	}
 }
 

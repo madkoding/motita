@@ -1185,3 +1185,23 @@ func TestALiveNoticeLeadsTheFooter(t *testing.T) {
 		t.Errorf("a narrow terminal loses keys, not the news: %q", narrow)
 	}
 }
+
+func TestSeveralPRNoticesAreOneNoticeAndOneBell(t *testing.T) {
+	tu := newFakeTUI("", &fakeRunner{})
+	var out bytes.Buffer
+	tu.Out = &out
+	seen := map[string]prSeen{"a": {state: "following"}, "b": {state: "following"}}
+	tu.notePRs(seen, []SessionInfo{
+		{ID: "a", PR: "passed", PRNumber: 1},
+		{ID: "b", PR: "gave_up", PRNumber: 2, PRAttempts: 5},
+	})
+	tu.draw.Lock()
+	notice := tu.liveNotice
+	tu.draw.Unlock()
+	if !strings.Contains(notice, "2 pull requests moved") || !strings.Contains(notice, "PR #1") || !strings.Contains(notice, "PR #2") {
+		t.Errorf("one notice for both: %q", notice)
+	}
+	if n := strings.Count(out.String(), "\a"); n != 1 {
+		t.Errorf("one bell, got %d", n)
+	}
+}

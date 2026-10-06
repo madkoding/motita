@@ -54,6 +54,8 @@ changing `internal/gateway/pr*.go`, `internal/gitforge/` or the PR bar in `web/s
 - **Closed**: close the PR on the host instead → *Pull request closed*.
 - **Needs approval**: turn on a branch protection rule requiring one review → the bar says *Waiting for approvals or required checks* and **Merge** is hidden.
 - **Auto-merge**: turn it on in the project → the PR merges itself the moment the CI passes (and not while a review is missing).
+- **Auto-continue**: turn it on in the project → when the PR merges a new session `continue: …` appears by itself, and the bar of the old one offers **Open the new session**.
+- **Several at once**: run two sessions of the same repository to the end together → one toast (and one terminal notice) says both moved.
 - **Restart**: restart the gateway while the CI runs → the watch resumes and the toasts still come.
 - **Terminal**: attach a terminal to the gateway during the run → a notice (and the bell) in the footer at each step; `/sessions` shows `[PR #N: …]`.
 

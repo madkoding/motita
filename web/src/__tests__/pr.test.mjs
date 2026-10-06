@@ -68,6 +68,13 @@ test('a browser notification is for a hidden tab the user allowed', () => {
   assert.equal(p.wantsDesktopPermission('denied'), false)
 })
 
+test('several pull requests moving at once become one toast, as loud as the loudest', () => {
+  assert.equal(p.worstToast(['success', 'success']), 'success')
+  assert.equal(p.worstToast(['success', 'warning']), 'warning')
+  assert.equal(p.worstToast(['warning', 'error', 'success']), 'error')
+  assert.equal(p.worstToast([]), 'success')
+})
+
 test('ciSummary counts the jobs that passed', () => {
   const v = { state: 'open', branch: 'b', ci: { state: 'pending', checks: [{ name: 'a', state: 'success' }, { name: 'b', state: 'pending' }] } }
   assert.deepEqual(p.ciSummary(v), { passed: 1, total: 2 })
