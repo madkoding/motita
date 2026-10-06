@@ -227,3 +227,32 @@ func (s *Server) handleFixPR(w http.ResponseWriter, r *http.Request) {
 	}
 	writeJSON(w, http.StatusAccepted, map[string]any{"queued": true, "started": false, "position": pos})
 }
+
+// syncProject brings the project's own checkout up to date with what was just merged, when that
+// is safe: the checkout is on the branch that was merged into and has nothing uncommitted. It is
+// best effort, because the merge has happened either way; the next session pulls again.
+func (s *Server) syncProject(ctx context.Context, c *conversation, base string) {
+	p := s.projectOf(c.projectID)
+	if p == nil {
+		return
+	}
+	if base == "" {
+		base = p.MainBranch
+	}
+	if base == "" || gitx.Display(ctx, p.Dir) != base {
+		return
+	}
+	if n, err := gitx.WorkingTreeChanges(ctx, p.Dir); err != nil || n > 0 {
+		return
+	}
+	for _, args := range [][]string{{"fetch", "origin", base}, {"merge", "--ff-only", "origin/" + base}} {
+		cmd := exec.CommandContext(ctx, "git", append([]string{"-C", p.Dir}, args...)...)
+		cmd.Env = s.gitCommandEnv()
+		if out, err := cmd.CombinedOutput(); err != nil {
+			if s.opts.Log != nil {
+				s.opts.Log.Warn("could not bring the project up to date after a merge", "project", p.Dir, "step", args[0], "error", strings.TrimSpace(string(out)))
+			}
+			return
+		}
+	}
+}

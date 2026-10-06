@@ -471,3 +471,24 @@ func TestMergeState(t *testing.T) {
 		t.Errorf("bitbucket: %v", m)
 	}
 }
+
+func TestPRStateTellsMergedFromClosed(t *testing.T) {
+	ctx := context.Background()
+	check := func(kind Kind, route, body, want, sha string) {
+		t.Helper()
+		a, _ := newAPI(t, kind, map[string]string{route: body})
+		path := "o/r"
+		st, err := a.PRState(ctx, Remote{Path: path}, 7)
+		if err != nil || st.State != want || st.SHA != sha {
+			t.Errorf("%s %s: %+v %v, want %s %s", kind, body, st, err, want, sha)
+		}
+	}
+	check(KindGitHub, "GET /repos/o/r/pulls/7", `{"state":"closed","merged":true,"merge_commit_sha":"abc"}`, PRMerged, "abc")
+	check(KindGitHub, "GET /repos/o/r/pulls/7", `{"state":"closed","merged":false}`, PRClosed, "")
+	check(KindGitHub, "GET /repos/o/r/pulls/7", `{"state":"open"}`, PROpen, "")
+	check(KindGitea, "GET /repos/o/r/pulls/7", `{"state":"closed","merged":true}`, PRMerged, "")
+	check(KindGitLab, "GET /projects/o%2Fr/merge_requests/7", `{"state":"merged","merge_commit_sha":"c0"}`, PRMerged, "c0")
+	check(KindGitLab, "GET /projects/o%2Fr/merge_requests/7", `{"state":"closed"}`, PRClosed, "")
+	check(KindBitbucket, "GET /repositories/o/r/pullrequests/7", `{"state":"MERGED"}`, PRMerged, "")
+	check(KindBitbucket, "GET /repositories/o/r/pullrequests/7", `{"state":"DECLINED"}`, PRClosed, "")
+}

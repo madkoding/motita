@@ -452,6 +452,8 @@ func (t *TUI) prState(state string, number int) string {
 		word = t.tr("CI also red on the base branch")
 	case "merged":
 		word = t.tr("merged")
+	case "closed":
+		word = t.tr("closed")
 	default:
 		return ""
 	}

@@ -1,10 +1,13 @@
 package gateway
 
 import (
+	"context"
 	"encoding/json"
 	"github.com/madkoding/motita/internal/gitforge"
+	"github.com/madkoding/motita/internal/gitx"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -181,8 +184,8 @@ func TestPRWatchFollowsAFailureToAPass(t *testing.T) {
 	}
 
 	host.set("GET https://api.github.com/repos/o/r/commits/abc/check-runs", `{"check_runs":[{"id":1,"name":"test","status":"completed","conclusion":"success"}]}`)
-	if !srv.pollPR(c, w) {
-		t.Fatal("a pass ends the watch")
+	if srv.pollPR(c, w) {
+		t.Fatal("a pass is not the end: the pull request is watched until it is merged or closed")
 	}
 	if v := c.prWatchView(); v.Status != prPassed {
 		t.Fatalf("passed: %+v", v)
@@ -355,14 +358,14 @@ func TestPRAutoMergeIsAProjectChoice(t *testing.T) {
 	c := srv.sessions[ss.ID]
 	prHost(host, sessionBranch(ss.ID), "success", "clean")
 
-	if !srv.pollPR(c, &prWatchState{status: prFollowing}) || c.merged {
-		t.Fatal("without the setting a pass ends the watch and nothing is merged")
+	if srv.pollPR(c, &prWatchState{status: prFollowing}) || c.merged {
+		t.Fatal("without the setting a pass merges nothing and the watch goes on")
 	}
 	if patchProjectCode(t, srv, ss.ProjectID, `{"auto_merge":true}`) != http.StatusOK {
 		t.Fatal("setting auto_merge")
 	}
 	prHost(host, sessionBranch(ss.ID), "success", "blocked")
-	if !srv.pollPR(c, &prWatchState{status: prFollowing}) || c.merged {
+	if srv.pollPR(c, &prWatchState{status: prFollowing}) || c.merged {
 		t.Fatal("a host that would refuse is left to the user")
 	}
 	prHost(host, sessionBranch(ss.ID), "success", "clean")
@@ -390,5 +393,119 @@ func TestPRAttemptsAreAProjectChoice(t *testing.T) {
 	}
 	if patchProjectCode(t, srv, ss.ProjectID, `{"pr_max_fixes":0}`) != http.StatusOK || srv.prMaxFixes(c) != defaultPRMaxFixes {
 		t.Error("zero goes back to the default")
+	}
+}
+
+func TestPRMergedSomewhereElseIsNoticed(t *testing.T) {
+	srv, host, ss := prSession(t, "https://github.com/o/r.git")
+	connectGitHub(t, srv)
+	c := srv.sessions[ss.ID]
+	prHost(host, sessionBranch(ss.ID), "success", "clean")
+	w := &prWatchState{status: prFollowing}
+	if srv.pollPR(c, w) || w.status != prPassed {
+		t.Fatalf("passed, and still watched: %s", w.status)
+	}
+
+	// Still open: nothing to say.
+	if srv.pollPR(c, w) {
+		t.Fatal("an open pull request is watched")
+	}
+
+	// Gone from the open ones, and the host says it was merged.
+	host.set("GET https://api.github.com/repos/o/r/pulls?state=open", `[]`)
+	host.set("GET https://api.github.com/repos/o/r/pulls/7", `{"state":"closed","merged":true,"merge_commit_sha":"feed42"}`)
+	if !srv.pollPR(c, w) {
+		t.Fatal("a merged pull request ends the watch")
+	}
+	if st := c.status(); !st.Merged || st.MergedSHA != "feed42" || st.PRWatch.Status != prMerged {
+		t.Fatalf("merged elsewhere is merged here: %+v", st)
+	}
+}
+
+func TestPRClosedWithoutMergeIsNoticed(t *testing.T) {
+	srv, host, ss := prSession(t, "https://github.com/o/r.git")
+	connectGitHub(t, srv)
+	c := srv.sessions[ss.ID]
+	prHost(host, sessionBranch(ss.ID), "success", "clean")
+	w := &prWatchState{status: prFollowing}
+	srv.pollPR(c, w)
+	host.set("GET https://api.github.com/repos/o/r/pulls?state=open", `[]`)
+	host.set("GET https://api.github.com/repos/o/r/pulls/7", `{"state":"closed","merged":false}`)
+	if !srv.pollPR(c, w) || c.merged || c.prWatchView().Status != prClosed {
+		t.Fatalf("closed: merged=%v %+v", c.merged, c.prWatchView())
+	}
+}
+
+func TestMergeBringsTheProjectUpToDate(t *testing.T) {
+	srv, _, ss := prSession(t, "")
+	c := srv.sessions[ss.ID]
+	p := srv.projectOf(ss.ProjectID)
+	base := gitx.Display(context.Background(), p.Dir)
+
+	bare := t.TempDir()
+	mustRun(t, "git", "init", "-q", "--bare", bare)
+	mustRun(t, "git", "-C", p.Dir, "remote", "add", "origin", bare)
+	mustRun(t, "git", "-C", p.Dir, "push", "-q", "origin", base)
+
+	// Somebody merges something on the host.
+	other := t.TempDir()
+	mustRun(t, "git", "clone", "-q", "-b", base, bare, other)
+	if err := os.WriteFile(filepath.Join(other, "merged.txt"), []byte("from the host\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	mustRun(t, "git", "-C", other, "add", ".")
+	mustRun(t, "git", "-C", other, "-c", "user.email=a@b.c", "-c", "user.name=a", "commit", "-qm", "merged on the host")
+	mustRun(t, "git", "-C", other, "push", "-q", "origin", "HEAD:"+base)
+
+	// Uncommitted work in the project is never touched.
+	if err := os.WriteFile(filepath.Join(p.Dir, "wip.txt"), []byte("wip\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	srv.finishMerge(context.Background(), c, 7, "x", base)
+	if _, err := os.Stat(filepath.Join(p.Dir, "merged.txt")); err == nil {
+		t.Fatal("a checkout with uncommitted changes is left alone")
+	}
+
+	if err := os.Remove(filepath.Join(p.Dir, "wip.txt")); err != nil {
+		t.Fatal(err)
+	}
+	srv.syncProject(context.Background(), c, base)
+	if _, err := os.Stat(filepath.Join(p.Dir, "merged.txt")); err != nil {
+		t.Errorf("a clean checkout on the merged branch is brought up to date: %v", err)
+	}
+}
+
+// The whole loop through the real goroutine: the CI fails, the agent is sent, the CI passes, and
+// somebody merges the pull request elsewhere.
+func TestPRWatchRunsByItself(t *testing.T) {
+	srv, host, ss := prSession(t, "https://github.com/o/r.git")
+	srv.opts.PRPollEvery = 10 * time.Millisecond
+	connectGitHub(t, srv)
+	c := srv.sessions[ss.ID]
+	prHost(host, sessionBranch(ss.ID), "failure", "clean")
+
+	if w := postJSON(t, srv, sessionPath(srv, ss.ID, "/pr/fix"), testToken, `{}`); w.Code != http.StatusAccepted {
+		t.Fatalf("starting: %d %s", w.Code, w.Body.String())
+	}
+	waitFor := func(what string, ok func() bool) {
+		t.Helper()
+		for i := 0; i < 400; i++ {
+			if ok() {
+				return
+			}
+			time.Sleep(10 * time.Millisecond)
+		}
+		t.Fatalf("timed out waiting for %s: %+v", what, c.prWatchView())
+	}
+	waitFor("the failure to be answered", func() bool { v := c.prWatchView(); return v != nil && v.Status == prFixing && v.Attempts == 1 })
+
+	prHost(host, sessionBranch(ss.ID), "success", "clean")
+	waitFor("the pass", func() bool { v := c.prWatchView(); return v != nil && v.Status == prPassed })
+
+	host.set("GET https://api.github.com/repos/o/r/pulls?state=open", `[]`)
+	host.set("GET https://api.github.com/repos/o/r/pulls/7", `{"state":"closed","merged":true,"merge_commit_sha":"beef"}`)
+	waitFor("the merge to be noticed", func() bool { return c.status().Merged })
+	if v := c.prWatchView(); v.Status != prMerged {
+		t.Errorf("%+v", v)
 	}
 }

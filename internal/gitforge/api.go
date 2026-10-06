@@ -601,3 +601,68 @@ func (a API) MergeState(ctx context.Context, r Remote, n int) (MergeState, error
 		return MergeState{MergeUnknown}, nil
 	}
 }
+
+// Where a pull request stands on the host.
+const (
+	PROpen   = "open"
+	PRMerged = "merged"
+	PRClosed = "closed" // closed without being merged
+)
+
+// PRState is a pull request's fate: still open, merged (and by which commit, when the host says), or
+// closed without a merge. It is how a merge done somewhere else is noticed.
+type PRState struct {
+	State string `json:"state"`
+	SHA   string `json:"sha,omitempty"`
+}
+
+// PRState reads pull request n by number, whatever its state.
+func (a API) PRState(ctx context.Context, r Remote, n int) (PRState, error) {
+	switch a.Service.Kind {
+	case KindGitLab:
+		var mr struct {
+			State string `json:"state"`
+			SHA   string `json:"merge_commit_sha"`
+		}
+		if err := a.do(ctx, http.MethodGet, fmt.Sprintf("%s/projects/%s/merge_requests/%d", a.Service.APIBase, url.PathEscape(r.Path), n), nil, &mr); err != nil {
+			return PRState{}, err
+		}
+		switch mr.State {
+		case "merged":
+			return PRState{PRMerged, mr.SHA}, nil
+		case "closed", "locked":
+			return PRState{State: PRClosed}, nil
+		}
+		return PRState{State: PROpen}, nil
+	case KindBitbucket:
+		var pr struct {
+			State string `json:"state"`
+		}
+		if err := a.do(ctx, http.MethodGet, fmt.Sprintf("%s/repositories/%s/pullrequests/%d", a.Service.APIBase, r.Path, n), nil, &pr); err != nil {
+			return PRState{}, err
+		}
+		switch strings.ToUpper(pr.State) {
+		case "MERGED":
+			return PRState{State: PRMerged}, nil
+		case "DECLINED", "SUPERSEDED":
+			return PRState{State: PRClosed}, nil
+		}
+		return PRState{State: PROpen}, nil
+	default:
+		var pr struct {
+			State          string `json:"state"`
+			Merged         bool   `json:"merged"`
+			MergeCommitSHA string `json:"merge_commit_sha"`
+		}
+		if err := a.do(ctx, http.MethodGet, fmt.Sprintf("%s/repos/%s/pulls/%d", a.Service.APIBase, r.Path, n), nil, &pr); err != nil {
+			return PRState{}, err
+		}
+		switch {
+		case pr.Merged:
+			return PRState{PRMerged, pr.MergeCommitSHA}, nil
+		case pr.State == "closed":
+			return PRState{State: PRClosed}, nil
+		}
+		return PRState{State: PROpen}, nil
+	}
+}

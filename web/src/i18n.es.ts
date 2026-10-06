@@ -498,8 +498,6 @@ const es: Record<string, string> = {
   "Rebase": "Rebase",
   "How a pull request of this project is merged from the PR bar. Its branch is deleted afterwards.": "Cómo se mergea un pull request de este proyecto desde la barra de PR. Su rama se borra después.",
   "Attempts to fix a failing CI": "Intentos para arreglar un CI que falla",
-  "Default (5)": "Predeterminado (5)",
-  "After this many attempts Motita stops and asks you to take a look.": "Tras esta cantidad de intentos Motita se detiene y te pide que le eches un vistazo.",
   "Merge automatically when the CI passes": "Mergear automáticamente cuando el CI pase",
   "Only when the host accepts the merge. Off, merging is always your click.": "Solo cuando el host acepta el merge. Apagado, mergear siempre es tu clic.",
   "Open a new session from the updated project branch": "Abrir una sesión nueva desde la rama actualizada del proyecto",
@@ -508,6 +506,9 @@ const es: Record<string, string> = {
   "Conflicts with the base branch": "Tiene conflictos con la rama base",
   "Still a draft": "Sigue en borrador",
   "Out of date with the base branch": "Desactualizado respecto a la rama base",
+  "Pull request closed": "Pull request cerrado",
+  "Pull request {pr} was closed without being merged.": "El pull request {pr} se cerró sin mergearse.",
+  "0 uses the default (5). After this many attempts Motita stops and asks you to take a look.": "0 usa el valor por defecto (5). Tras esta cantidad de intentos Motita se detiene y te pide que le eches un vistazo.",
 }
 
 export default es

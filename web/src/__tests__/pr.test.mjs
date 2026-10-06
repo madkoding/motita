@@ -35,6 +35,7 @@ test('giving up, no CI and merged are told', () => {
   assert.equal(p.prNotice(w('following'), w('no_ci')), 'no_ci')
   assert.equal(p.prNotice(w('passed'), w('merged')), 'merged')
   assert.equal(p.prNotice(w('following'), w('base_red')), 'base_red')
+  assert.equal(p.prNotice(w('passed'), w('closed')), 'closed')
   assert.equal(p.prNotice(w('following'), null), null)
   assert.equal(p.prNotice(null, w('following')), null)
   assert.equal(p.prNotice(null, w('passed')), 'passed', 'a watch that appeared after the session was seen is news')
@@ -53,6 +54,17 @@ test('a merge the host would refuse is not offered', () => {
   for (const c of ['ok', 'behind', 'unknown']) assert.equal(p.mergeRefused(v(c)), false, c)
   assert.equal(p.mergeRefused(null), false)
   assert.equal(p.mergeRefused({ state: 'open', branch: 'b' }), false)
+})
+
+test('a browser notification is for a hidden tab the user allowed', () => {
+  assert.equal(p.shouldDesktopNotify(true, 'granted'), true)
+  assert.equal(p.shouldDesktopNotify(false, 'granted'), false, 'the toast is already in front of them')
+  assert.equal(p.shouldDesktopNotify(true, 'denied'), false)
+  assert.equal(p.shouldDesktopNotify(true, 'default'), false)
+  assert.equal(p.shouldDesktopNotify(true, undefined), false, 'no Notification API')
+  assert.equal(p.wantsDesktopPermission('default'), true)
+  assert.equal(p.wantsDesktopPermission('granted'), false)
+  assert.equal(p.wantsDesktopPermission('denied'), false)
 })
 
 test('ciSummary counts the jobs that passed', () => {

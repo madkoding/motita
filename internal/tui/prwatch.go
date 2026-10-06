@@ -57,6 +57,10 @@ func prNoticeText(prev *prSeen, cur SessionInfo) (format string, args []any) {
 		if !same {
 			return "PR #%d was merged", []any{cur.PRNumber}
 		}
+	case "closed":
+		if !same {
+			return "PR #%d was closed without being merged", []any{cur.PRNumber}
+		}
 	}
 	return "", nil
 }

@@ -26,6 +26,7 @@ const (
 	prNoCI      = "no_ci"     // the repository has no checks to wait for
 	prMerged    = "merged"    // the user merged it from here
 	prBaseRed   = "base_red"  // the CI fails on the base branch too: not this change's fault
+	prClosed    = "closed"    // it was closed on the host without being merged
 )
 
 const (
@@ -34,6 +35,9 @@ const (
 	// prNoneLimit is how many polls in a row may find no checks. A host reports them late for a
 	// moment after a pull request opens; a repository with no CI reports none for ever.
 	prNoneLimit = 6
+	// prIdleLimit is how many polls a pull request whose CI passed is kept an eye on, waiting for
+	// it to be merged or closed somewhere else: a day at the slow pace.
+	prIdleLimit = 1440
 	// prErrorLimit is how many polls in a row may fail before the host is given up on.
 	prErrorLimit = 10
 )
@@ -72,6 +76,7 @@ type prWatchState struct {
 	fixedKey  string
 	noneCount int
 	errors    int
+	idle      int
 }
 
 // ciKey identifies one run of the CI, so a failure is answered once per push and not once per
@@ -212,13 +217,17 @@ func (s *Server) startPRWatch(c *conversation, from *prWatchState) {
 			delete(s.prWatching, c.id)
 			s.prMu.Unlock()
 		}()
-		tick := time.NewTicker(every)
-		defer tick.Stop()
 		for {
+			// Once the CI passed there is nothing to hurry for: the pull request is only watched
+			// for being merged or closed somewhere else, at a third of the pace.
+			wait := every
+			if w.status == prPassed {
+				wait *= 3
+			}
 			select {
 			case <-s.baseCtx.Done():
 				return
-			case <-tick.C:
+			case <-time.After(wait):
 			}
 			if s.pollPR(c, w) {
 				return
@@ -239,6 +248,9 @@ func (s *Server) pollPR(c *conversation, w *prWatchState) bool {
 	t, perr := s.prTargetOf(ctx, c)
 	if perr != nil {
 		return s.prFailed(c, w)
+	}
+	if w.status == prPassed {
+		return s.pollPassed(c, w, t)
 	}
 	pr, found, err := t.api.FindPR(ctx, t.remote, t.branch)
 	if err != nil {
@@ -261,8 +273,9 @@ func (s *Server) pollPR(c *conversation, w *prWatchState) bool {
 	s.publishPR(c, w, pr.Number)
 	switch verdict {
 	case prPassed:
+		// Not over: unless the project merged it, the pull request is watched until it is merged or closed.
 		s.autoMerge(c, t, pr)
-		return true
+		return c.merged
 	case prGaveUp, prNoCI:
 		return true
 	case "fix":
@@ -277,6 +290,38 @@ func (s *Server) pollPR(c *conversation, w *prWatchState) bool {
 			}
 		}
 		s.sendToAgent(c, ciFixTask(t.branch, pr))
+	}
+	return false
+}
+
+// pollPassed is the watch of a pull request whose CI passed: it waits for the pull request to be
+// merged or closed, by the user in the host's own page or by anyone else, and says so when it is.
+func (s *Server) pollPassed(c *conversation, w *prWatchState, t prTarget) bool {
+	ctx := s.baseCtx
+	if _, found, err := t.api.FindPR(ctx, t.remote, t.branch); err != nil {
+		return s.prFailed(c, w)
+	} else if found {
+		w.errors = 0
+		w.idle++
+		return w.idle >= prIdleLimit
+	}
+	number := c.prNumber()
+	if number == 0 {
+		c.setPRWatch(nil)
+		return true
+	}
+	st, err := t.api.PRState(ctx, t.remote, number)
+	if err != nil {
+		return s.prFailed(c, w)
+	}
+	switch st.State {
+	case gitforge.PRMerged:
+		s.finishMerge(ctx, c, number, st.SHA, "")
+		return true
+	case gitforge.PRClosed:
+		w.status = prClosed
+		s.publishPR(c, w, number)
+		return true
 	}
 	return false
 }
@@ -371,13 +416,21 @@ func (s *Server) doMerge(ctx context.Context, c *conversation, t prTarget, pr gi
 	if err != nil {
 		return err
 	}
+	s.finishMerge(ctx, c, pr.Number, sha, pr.Base)
+	return nil
+}
+
+// finishMerge is what a merged pull request leaves behind, whoever merged it: the session is the
+// integrated one (read-only, continuable), the watch says merged, and the project's checkout is
+// brought up to date so the next session starts from what was merged.
+func (s *Server) finishMerge(ctx context.Context, c *conversation, number int, sha, base string) {
 	if sha == "" {
-		sha = fmt.Sprintf("pr-%d", pr.Number)
+		sha = fmt.Sprintf("pr-%d", number)
 	}
-	c.setPRWatch(&PRWatchView{Status: prMerged, Max: s.prMaxFixes(c), Number: pr.Number})
+	c.setPRWatch(&PRWatchView{Status: prMerged, Max: s.prMaxFixes(c), Number: number})
 	c.setMerged(sha)
 	s.saveSession(c)
-	return nil
+	s.syncProject(ctx, c, base)
 }
 
 // autoMerge merges a pull request whose CI just passed, when the project asks for that and the host

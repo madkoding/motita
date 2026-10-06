@@ -1155,7 +1155,7 @@ func TestPRNoticeTextOnlyForNews(t *testing.T) {
 	if f, a := prNoticeText(seen("following", 1), cur("fixing", 2)); f == "" || a[1] != 2 {
 		t.Errorf("a new attempt is news: %q %v", f, a)
 	}
-	for _, st := range []string{"gave_up", "base_red", "no_ci", "merged"} {
+	for _, st := range []string{"gave_up", "base_red", "no_ci", "merged", "closed"} {
 		if f, _ := prNoticeText(seen("following", 0), cur(st, 0)); f == "" {
 			t.Errorf("%s is news", st)
 		}

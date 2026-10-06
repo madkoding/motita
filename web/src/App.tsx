@@ -15,7 +15,7 @@ import { NewSessionButton } from './NewSessionButton'
 import { GitConnectModal, type SelfHosted } from './GitConnect'
 import { RepoPicker } from './RepoPicker'
 import { listAccounts, connectedAccounts, repoShortName, type GitAccount, type GitRepo } from './gitApi'
-import { getPR, retryFix, mergePR, mergeRefused, PRError, prNotice, shouldPoll, ciSummary, type PRView, type PRWatch } from './prApi'
+import { getPR, retryFix, mergePR, mergeRefused, PRError, prNotice, shouldPoll, ciSummary, shouldDesktopNotify, wantsDesktopPermission, type PRView, type PRWatch } from './prApi'
 
 interface Message {
   id: number
@@ -3190,6 +3190,16 @@ export default function App() {
   // The toasts. The list is read for every session, so a CI that ends while another one is open
   // is told too, with the session's name.
   const seenWatchRef = useRef<Record<string, PRWatch | null>>({})
+  // announce shows the toast and, when the tab is in the background, a browser notification as well:
+  // the CI ending is exactly what someone looking at another window wants to hear about.
+  const announce = (n: { message: string; type: 'success' | 'error' | 'warning'; detail?: string }) => {
+    setToast(n)
+    try {
+      if (typeof Notification !== 'undefined' && shouldDesktopNotify(document.hidden, Notification.permission)) {
+        new Notification(n.message, { body: n.detail, tag: 'motita-pr' })
+      }
+    } catch { /* a browser that cannot notify just does not */ }
+  }
   useEffect(() => {
     for (const sess of sessions) {
       const cur = sess.pr_watch ?? null
@@ -3199,23 +3209,29 @@ export default function App() {
       const where = sess.id === sessionRef.current ? '' : ' — ' + (sess.title || sess.id)
       const pr = cur.number ? '#' + cur.number : ''
       if (notice === 'passed') {
-        setToast({ message: t('CI passed') + where, type: 'success', detail: tf('Pull request {pr} is green: you can go and merge it.', { pr }) })
+        announce({ message: t('CI passed') + where, type: 'success', detail: tf('Pull request {pr} is green: you can go and merge it.', { pr }) })
       } else if (notice === 'fixing') {
-        setToast({ message: t('CI failed') + where, type: 'error', detail: tf('Motita is fixing it — attempt {n} of {max}.', { n: String(cur.attempts), max: String(cur.max) }) })
+        announce({ message: t('CI failed') + where, type: 'error', detail: tf('Motita is fixing it — attempt {n} of {max}.', { n: String(cur.attempts), max: String(cur.max) }) })
       } else if (notice === 'gave_up') {
-        setToast({ message: t('Motita could not fix the CI') + where, type: 'error', detail: tf('It tried {n} times. Look at pull request {pr} and try again when you are ready.', { n: String(cur.attempts), pr }) })
+        announce({ message: t('Motita could not fix the CI') + where, type: 'error', detail: tf('It tried {n} times. Look at pull request {pr} and try again when you are ready.', { n: String(cur.attempts), pr }) })
       } else if (notice === 'no_ci') {
-        setToast({ message: t('This repository has no CI') + where, type: 'warning', detail: tf('Pull request {pr} has no checks to wait for.', { pr }) })
+        announce({ message: t('This repository has no CI') + where, type: 'warning', detail: tf('Pull request {pr} has no checks to wait for.', { pr }) })
       } else if (notice === 'base_red') {
-        setToast({ message: t('The CI is red on the base branch too') + where, type: 'warning', detail: tf('Pull request {pr} fails the same checks as the branch it merges into: this change did not cause it.', { pr }) })
+        announce({ message: t('The CI is red on the base branch too') + where, type: 'warning', detail: tf('Pull request {pr} fails the same checks as the branch it merges into: this change did not cause it.', { pr }) })
+      } else if (notice === 'closed') {
+        announce({ message: t('Pull request closed') + where, type: 'warning', detail: tf('Pull request {pr} was closed without being merged.', { pr }) })
       } else if (notice === 'merged') {
-        setToast({ message: t('Pull request merged') + where, type: 'success', detail: tf('Pull request {pr} was merged.', { pr }) })
+        announce({ message: t('Pull request merged') + where, type: 'success', detail: tf('Pull request {pr} was merged.', { pr }) })
       }
     }
   }, [sessions])
 
   const createPR = async () => {
     const sid = sessionRef.current
+    // The click is the moment to ask to be allowed to say the CI ended while the tab is in the background.
+    try {
+      if (typeof Notification !== 'undefined' && wantsDesktopPermission(Notification.permission)) void Notification.requestPermission()
+    } catch { /* ignore */ }
     // Asked before the agent is, so a host that is not connected is a dialog and not a turn spent.
     try {
       await getPR(api, sid)
@@ -5083,17 +5099,23 @@ export default function App() {
               </div>
               <div>
                 <label class="block text-sm text-[#9a9aaa] mb-1.5" for="edit-project-fixes">{t('Attempts to fix a failing CI')}</label>
-                <select
+                <input
                   id="edit-project-fixes"
                   data-testid="edit-project-fixes"
+                  type="number"
+                  min="0"
+                  max="20"
+                  step="1"
+                  inputMode="numeric"
                   class="w-full px-3 py-2.5 rounded-xl bg-black/30 border border-white/10 text-[#e8e8ea] focus:outline-none focus:border-accent text-sm"
                   value={String(editProject.prMaxFixes)}
-                  onChange={(e) => { const v = Number((e.target as HTMLSelectElement).value); setEditProject(p => p && { ...p, prMaxFixes: v }) }}
-                >
-                  <option value="0">{t('Default (5)')}</option>
-                  {[1, 2, 3, 8, 10, 20].map(n => <option key={n} value={String(n)}>{String(n)}</option>)}
-                </select>
-                <p class="text-xs text-[#7a7a8c] mt-1">{t('After this many attempts Motita stops and asks you to take a look.')}</p>
+                  onInput={(e) => {
+                    const n = Math.round(Number((e.target as HTMLInputElement).value))
+                    const v = Number.isFinite(n) ? Math.min(20, Math.max(0, n)) : 0
+                    setEditProject(p => p && { ...p, prMaxFixes: v })
+                  }}
+                />
+                <p class="text-xs text-[#7a7a8c] mt-1">{t('0 uses the default (5). After this many attempts Motita stops and asks you to take a look.')}</p>
               </div>
               <label class="flex items-start gap-2.5 text-sm text-[#e8e8ea] cursor-pointer">
                 <input

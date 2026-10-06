@@ -80,7 +80,7 @@ export async function mergePR(api: Api, sid: string): Promise<void> {
 
 // The gateway follows the CI of a pull request by itself and reports it in the session list; this
 // side only decides what is worth a toast.
-export type WatchStatus = 'following' | 'fixing' | 'passed' | 'gave_up' | 'no_ci' | 'merged' | 'base_red'
+export type WatchStatus = 'following' | 'fixing' | 'passed' | 'gave_up' | 'no_ci' | 'merged' | 'base_red' | 'closed'
 
 export interface PRWatch {
   status: WatchStatus
@@ -89,7 +89,7 @@ export interface PRWatch {
   number?: number
 }
 
-export type Notice = 'fixing' | 'passed' | 'gave_up' | 'no_ci' | 'merged' | 'base_red' | null
+export type Notice = 'fixing' | 'passed' | 'gave_up' | 'no_ci' | 'merged' | 'base_red' | 'closed' | null
 
 // prNotice says what the user is to be told when the watch of a session moves from prev to cur.
 // prev is undefined the first time the session is seen: what happened before the tab looked is not
@@ -111,4 +111,15 @@ export function shouldPoll(w: PRWatch | null | undefined): boolean {
 export function ciSummary(v: PRView): { passed: number; total: number } {
   const checks = v.ci?.checks ?? []
   return { passed: checks.filter(c => c.state === 'success').length, total: checks.length }
+}
+
+// shouldDesktopNotify: a browser notification is for when the user cannot see the toast, because the
+// tab is in the background, and only when they allowed it.
+export function shouldDesktopNotify(hidden: boolean, permission: string | undefined): boolean {
+  return hidden && permission === 'granted'
+}
+
+// wantsDesktopPermission: it is asked for once, from a click, and never again once answered.
+export function wantsDesktopPermission(permission: string | undefined): boolean {
+  return permission === 'default'
 }

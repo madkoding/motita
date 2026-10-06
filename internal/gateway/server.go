@@ -1015,7 +1015,7 @@ func (s *Server) resumeInterruptedSessions() {
 	}
 	for _, rec := range records {
 		// A pull request being followed when the gateway stopped is followed again.
-		if w := rec.PRWatch; w != nil && (w.Status == prFollowing || w.Status == prFixing) {
+		if w := rec.PRWatch; w != nil && (w.Status == prFollowing || w.Status == prFixing || w.Status == prPassed) {
 			if c, ok := s.lookup(rec.ID); ok {
 				s.startPRWatch(c, &prWatchState{status: w.Status, attempts: w.Attempts, fixedKey: w.FixedKey})
 			}
