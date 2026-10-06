@@ -1,0 +1,27 @@
+name: pr-title
+
+# Squash merges use the PR title as the commit subject, and semantic-release
+# reads that subject to decide the next version. A title that is not a
+# conventional commit silently produces no release.
+on:
+  pull_request:
+    types: [opened, edited, reopened, synchronize]
+
+permissions:
+  pull-requests: read
+
+jobs:
+  conventional-title:
+    name: conventional PR title
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check the title
+        env:
+          TITLE: ${{ github.event.pull_request.title }}
+        run: |
+          re='^(feat|fix|perf|refactor|docs|test|build|ci|chore|revert|style)(\([a-z0-9._/-]+\))?!?: .+'
+          if ! printf '%s' "$TITLE" | grep -Eq "$re"; then
+            echo "PR title must be a conventional commit, e.g. 'fix(web): ...'"
+            echo "Got: $TITLE"
+            exit 1
+          fi
