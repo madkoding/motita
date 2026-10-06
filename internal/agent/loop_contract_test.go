@@ -46,6 +46,8 @@ type scriptServer struct {
 	executes []string
 	analyses []string
 	synth    []string
+	// synthReply overrides the final answer when set.
+	synthReply string
 	// sse answers a streamed request as a real provider does: the reasoning tokens first,
 	// then the reply in fragments.
 	sse bool
@@ -81,6 +83,9 @@ func (s *scriptServer) handler(t *testing.T) http.HandlerFunc {
 		case strings.Contains(text, "## FINAL ANSWER"):
 			s.synth = append(s.synth, text)
 			content = `{"summary":"all done"}`
+			if s.synthReply != "" {
+				content = s.synthReply
+			}
 		case strings.Contains(text, "## ACTION"):
 			s.executes = append(s.executes, text)
 			content = s.execute(len(s.executes), text)

@@ -106,10 +106,15 @@ gap, not to report it. Read CHARITABLY first: work out the most plausible thing 
 fill in what a competent engineer would assume. A request that is thin is not a request that is
 broken.
 
-Ask ONLY when guessing would risk doing the WRONG thing — when two readings lead to materially
-different actions, when a destructive step depends on which one is intended, or when the object
-of the work is genuinely unknowable from here. Everything else: assume, act, and say what you
-assumed.
+This work is SPEC-DRIVEN: the user owns the decisions that shape the result. Fill in the small
+things yourself, and say what you assumed. But STOP and ask at a real decision point: when
+reasonable approaches lead to materially different results (architecture, scope, a public
+interface, a data format, a trade-off between cost and risk), when a destructive step depends on
+which reading is intended, or when the object of the work is unknowable from here. Do not make a
+decision of that size silently and present it as done.
+
+When you ask about a decision, put the option you RECOMMEND first in "options" and write the
+one-line reason for it in "assumption", so the user can confirm with a word.
 
 When you must ask:
 - set "kind": "ask"
@@ -142,9 +147,8 @@ When you must ask:
   to that sentence, in whatever language the interface is speaking.
 - leave "summary" and "success_criteria" empty
 
-A question is the last resort, never the first response. If you can state a reasonable assumption
-and act on it, do that instead: a question costs the user a turn, and an unnecessary one is worse
-than a stated assumption they can correct.
+Do not ask about what a tool call or a reasonable default settles: a question about a detail costs
+the user a turn. A question about a decision is what they are here for.
 
 Do not set "kind": "ask" to report that you lack tools or permissions — that is a finding to act
 on, not a question for the user.`,
@@ -381,12 +385,16 @@ in the field that names it, not into the summary.
     {"title": "what is shown", "before": "login-before.png", "after": "login-after.png", "caption": "what to look at, in one line"}
   ],
   "risks": ["what the reader should know before trusting this"],
-  "next_steps": ["what is left, or what you would do next"]
+  "next_steps": ["what is left, or what you would do next"],
+  "decisions": [
+    {"decision": "the choice that was taken", "why": "the reason, in one line"}
+  ]
 }
 - "status": "done" when the whole request is met and validated; "partial" when part of it is not; "failed" when it is not met.
 - "kind" is one of "added", "modified", "deleted", "other". "result" is one of "pass", "fail", "skipped".
 - "changes" and "verification" come ONLY from the output above; never list a file you did not see touched or a check that did not run. A check that was not run is "skipped", with the reason as evidence.
 - "evidence" is only for screenshots that were really taken and saved as files; "before" and "after" are those file names exactly as they appear in the output above, with no directory. Leave a side empty when it does not exist. Never invent a file name; with no screenshots, use [].
+- "decisions" is only for a task that says it is a GOAL: every choice taken in place of the user (scope, approach, interface, trade-off). For any other task use [].
 - Every list may be empty ([]); never omit a key and never use null.
 - Write "summary", each "description", "evidence", "risks" and "next_steps" in the user's language.
 You MAY use Markdown inside "summary" to format your answer: **bold**, ` + "`" + `inline code` + "`" + `, fenced code blocks, lists. The front end renders it. But the JSON structure must be valid: the Markdown goes INSIDE the string value, not outside it.
