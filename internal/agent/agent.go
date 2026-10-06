@@ -999,14 +999,24 @@ func (a *Agent) processTask(ctx context.Context, t task.Task, depth int) TaskRes
 		a.startFleet(t)
 	}
 	run := t
+	isGoal := false
 	if depth == 0 {
 		if goal, ok := goalOf(t.Description); ok {
 			// A goal is autonomous: nobody is asked, the stated assumption is the answer.
 			a.Interactive = false
 			run.Description = goal + goalDirective
+			isGoal = true
+		}
+		if ctxText := decisionsContext(a.cfg.Agent.WorkspaceDir); ctxText != "" {
+			run.Description += ctxText
 		}
 	}
 	r := a.loop(ctx, run, depth)
+	if isGoal && r.Report != nil {
+		if err := recordDecisions(a.cfg.Agent.WorkspaceDir, t.Description, r.Report.Decisions); err != nil {
+			a.log.Warn("could not save the goal's decisions", "error", err)
+		}
+	}
 	if depth == 0 {
 		// Whatever way the loop ended, nothing it started keeps running behind it.
 		a.endFleet(r)

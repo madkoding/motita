@@ -3,6 +3,8 @@ package tui
 import (
 	"context"
 	"strings"
+
+	"github.com/madkoding/motita/internal/agent"
 )
 
 // Command is one slash command: what it is typed as, and what it means.
@@ -39,6 +41,7 @@ type Command struct {
 var commands = []Command{
 	{Name: "/task", Aliases: []string{"/t"}, Help: "Task mode: make changes and prove them with your check", Group: "mode"},
 	{Name: "/goal", Help: "Goal: decides alone, never asks", Arg: "goal", Group: "mode"},
+	{Name: "/decisions", Help: "what /goal decided for you (edit the file to overrule)", Group: "action"},
 	{Name: "/plan", Aliases: []string{"/p"}, Help: "Plan mode: ask about the project, nothing is changed", Group: "mode"},
 	{Name: "/models", Aliases: []string{"/m"}, Help: "list the provider's models, or switch to one", Arg: "[id]", Group: "mode"},
 	{Name: "/config", Aliases: []string{"/c"}, Help: "run the setup again: provider, key, model, check", Group: "mode"},
@@ -73,6 +76,17 @@ func Commands() []Command { return append([]Command(nil), commands...) }
 // lists meant two places to add a command, and the one that was forgotten did nothing.
 var commandActions = map[string]func(t *TUI, ctx context.Context, arg string) bool{
 	"/task": func(t *TUI, _ context.Context, _ string) bool { t.setScreen(ScreenTask); return false },
+	"/decisions": func(t *TUI, _ context.Context, _ string) bool {
+		text := strings.TrimSpace(agent.ReadDecisions(t.Runner.Config().Agent.WorkspaceDir))
+		if text == "" {
+			text = t.tr("no decisions yet: a /goal records the ones it takes")
+		} else {
+			text += "\n\n(" + agent.DecisionsFile + ")"
+		}
+		t.addMessage(AuthorSystem, text)
+		t.drawFrame()
+		return false
+	},
 	"/plan": func(t *TUI, _ context.Context, _ string) bool { t.setScreen(ScreenPlan); return false },
 	// A goal is a task the agent runs without asking. The prefix travels with the text, so the
 	// gateway and the agent need no new field to know the run is autonomous.

@@ -719,6 +719,7 @@ ports — they are **two views of one conversation**.
 |---|---|
 | `/task` `/plan` | switch between doing work and read-only exploration |
 | `/goal <text>` | autonomous task: never asks, takes the recommended option and reports each decision |
+| `/decisions` | what `/goal` decided; kept in `.motita/decisions.md` (edit a line to overrule it) and respected by later runs |
 | `/models` `/models <id>` | your provider, your key status and the models it really publishes; with an id, switch to that model for this session |
 | `/reasoning` | cycle the thinking budget |
 | `/good` `/bad` | tell the agent how a turn went |

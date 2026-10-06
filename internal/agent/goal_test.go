@@ -1,6 +1,9 @@
 package agent
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 func TestGoalOf(t *testing.T) {
 	cases := []struct {
@@ -19,5 +22,36 @@ func TestGoalOf(t *testing.T) {
 		if got != c.want || ok != c.ok {
 			t.Errorf("goalOf(%q) = %q, %v; want %q, %v", c.in, got, ok, c.want, c.ok)
 		}
+	}
+}
+
+func TestDecisionsAreRecordedAndReturned(t *testing.T) {
+	dir := t.TempDir()
+	if err := recordDecisions(dir, "add login", nil); err != nil || ReadDecisions(dir) != "" {
+		t.Fatalf("nothing decided must write nothing")
+	}
+	ds := []ReportDecision{{Decision: "use sessions", Why: "simplest"}, {Decision: "no OAuth"}}
+	if err := recordDecisions(dir, "add login", ds); err != nil {
+		t.Fatal(err)
+	}
+	got := ReadDecisions(dir)
+	for _, want := range []string{"add login", "- use sessions — simplest", "- no OAuth"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("decisions file missing %q:\n%s", want, got)
+		}
+	}
+	if !strings.Contains(decisionsContext(dir), "use sessions") {
+		t.Errorf("the next run must see the standing decisions")
+	}
+	if decisionsContext(t.TempDir()) != "" {
+		t.Errorf("no file, no context")
+	}
+}
+
+func TestNormalizeDropsEmptyDecisions(t *testing.T) {
+	r := Report{Decisions: []ReportDecision{{Decision: " "}, {Decision: " x ", Why: " y "}}}
+	r.normalize(true)
+	if len(r.Decisions) != 1 || r.Decisions[0].Decision != "x" || r.Decisions[0].Why != "y" {
+		t.Fatalf("decisions = %+v", r.Decisions)
 	}
 }

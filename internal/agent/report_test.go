@@ -21,7 +21,7 @@ func TestSynthesizePhaseDecodesTheStructuredReport(t *testing.T) {
 	want := Report{Version: ReportVersion, Status: "done", Summary: "added Foo",
 		Changes:      []ReportChange{{Path: "a.go", Kind: "added", Description: "Foo"}},
 		Verification: []ReportCheck{{Check: "go test ./...", Result: "pass", Evidence: "12 passed"}},
-		Evidence:     []ReportEvidence{}, Risks: []string{"none known"}, NextSteps: []string{"wire it up"}}
+		Evidence:     []ReportEvidence{}, Risks: []string{"none known"}, NextSteps: []string{"wire it up"}, Decisions: []ReportDecision{}}
 	if !reflect.DeepEqual(*rep, want) {
 		t.Errorf("report = %+v\nwant     %+v", *rep, want)
 	}
