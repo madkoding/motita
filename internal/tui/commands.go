@@ -2,7 +2,10 @@ package tui
 
 import (
 	"context"
+	"strconv"
 	"strings"
+
+	"github.com/madkoding/motita/internal/agent"
 )
 
 // Command is one slash command: what it is typed as, and what it means.
@@ -38,6 +41,8 @@ type Command struct {
 // change mode first, then the ones that act, then the ones about the session, then leaving.
 var commands = []Command{
 	{Name: "/task", Aliases: []string{"/t"}, Help: "Task mode: make changes and prove them with your check", Group: "mode"},
+	{Name: "/goal", Help: "Goal: decides alone, never asks", Arg: "goal", Group: "mode"},
+	{Name: "/decisions", Help: "what /goal decided; undo n removes one", Arg: "[undo n]", Group: "action"},
 	{Name: "/plan", Aliases: []string{"/p"}, Help: "Plan mode: ask about the project, nothing is changed", Group: "mode"},
 	{Name: "/models", Aliases: []string{"/m"}, Help: "list the provider's models, or switch to one", Arg: "[id]", Group: "mode"},
 	{Name: "/config", Aliases: []string{"/c"}, Help: "run the setup again: provider, key, model, check", Group: "mode"},
@@ -72,7 +77,43 @@ func Commands() []Command { return append([]Command(nil), commands...) }
 // lists meant two places to add a command, and the one that was forgotten did nothing.
 var commandActions = map[string]func(t *TUI, ctx context.Context, arg string) bool{
 	"/task": func(t *TUI, _ context.Context, _ string) bool { t.setScreen(ScreenTask); return false },
+	"/decisions": func(t *TUI, _ context.Context, arg string) bool {
+		ws := t.Runner.Config().Agent.WorkspaceDir
+		if f := strings.Fields(arg); len(f) == 2 && f[0] == "undo" {
+			n, err := strconv.Atoi(f[1])
+			if err != nil {
+				t.addMessage(AuthorSystem, t.tr("usage: /decisions undo <number>"))
+			} else if removed, err := agent.RemoveDecision(ws, n); err != nil {
+				t.addMessage(AuthorSystem, err.Error())
+			} else {
+				t.addMessage(AuthorSystem, t.tr("decision removed: ")+removed)
+			}
+			t.drawFrame()
+			return false
+		}
+		text := agent.NumberedDecisions(ws)
+		if text == "" {
+			text = t.tr("no decisions yet: a /goal records the ones it takes")
+		} else {
+			text += "\n\n(" + agent.DecisionsFile + " · /decisions undo <number>)"
+		}
+		t.addMessage(AuthorSystem, text)
+		t.drawFrame()
+		return false
+	},
 	"/plan": func(t *TUI, _ context.Context, _ string) bool { t.setScreen(ScreenPlan); return false },
+	// A goal is a task the agent runs without asking. The prefix travels with the text, so the
+	// gateway and the agent need no new field to know the run is autonomous.
+	"/goal": func(t *TUI, ctx context.Context, arg string) bool {
+		if strings.TrimSpace(arg) == "" {
+			t.addMessage(AuthorSystem, t.tr("usage: /goal <what you want>"))
+			t.drawFrame()
+			return false
+		}
+		t.setScreen(ScreenTask)
+		t.runTask(ctx, "/goal "+strings.TrimSpace(arg))
+		return false
+	},
 	"/models": func(t *TUI, ctx context.Context, arg string) bool {
 		// With an id it picks the model for this session, the way /reasoning picks the level:
 		// in memory, from the next turn on.
