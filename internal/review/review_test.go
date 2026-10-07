@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"os"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -227,6 +228,8 @@ func TestRunSavesTheUsageLedger(t *testing.T) {
 	if err != nil {
 		t.Fatalf("usage.Open: %v", err)
 	}
+	// A clean ledger makes Save a no-op: mark it dirty so the write happens.
+	led.BumpUse("x")
 	procs := &procedures.Store{Usage: led}
 	fr := &fakeRunner{result: "Nothing to save."}
 	r := New(config.Review{Enabled: true, Interval: 1, Timeout: time.Second},
@@ -238,6 +241,9 @@ func TestRunSavesTheUsageLedger(t *testing.T) {
 	if fr.callCount() != 1 {
 		t.Fatalf("runner called %d times, want 1", fr.callCount())
 	}
+	if _, err := os.Stat(filepath.Join(dir, "usage.json")); err != nil {
+		t.Fatalf("the usage ledger was not saved: %v", err)
+	}
 }
 
 func TestRunLogsAUsageSaveFailure(t *testing.T) {
@@ -247,7 +253,9 @@ func TestRunLogsAUsageSaveFailure(t *testing.T) {
 		t.Fatalf("usage.Open: %v", err)
 	}
 	// Point the ledger at a directory: Save cannot write it, so the fork must
-	// log the failure instead of panicking.
+	// log the failure instead of panicking. The ledger must be dirty, or Save
+	// returns before touching the disk.
+	led.BumpUse("x")
 	led.Path = dir
 	procs := &procedures.Store{Usage: led}
 	fr := &fakeRunner{result: "Nothing to save."}
