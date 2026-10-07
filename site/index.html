@@ -3,9 +3,13 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Motita — the AI agent that has to prove it finished</title>
-<meta name="description" content="An AI agent that has to prove it finished: a real check, not the model, declares a task done. Runs on your Claude, ChatGPT or Copilot subscription or any API, works in git worktrees, runs background agents in parallel. One static binary, zero dependencies.">
+<title>Motita — the AI agent that proves it's done</title>
+<meta name="description" content="Hand it a task in plain words: motita writes the change, runs your real tests, reads the failures, fixes them, and only says done when the check passes. Runs on your Claude, ChatGPT or Copilot subscription or any API. One static binary, zero dependencies.">
 <meta name="color-scheme" content="dark">
+<meta property="og:title" content="Motita — the AI agent that proves it's done">
+<meta property="og:description" content="A real check, not the model, decides when a task is finished. One binary, any model, your terminal, your browser or your phone.">
+<meta property="og:image" content="https://madkoding.github.io/motita/shots/webui-report.webp">
+<meta name="theme-color" content="#0a0a0f">
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><g stroke='%234cc2ff' stroke-width='2' fill='none' stroke-linecap='round' stroke-linejoin='round'><path d='M8 24 Q4 18 6 12 L4 6 L12 11 Q16 8 20 11 L28 6 L26 12 Q28 18 24 24 Z'/><circle cx='13' cy='16' r='1.5' fill='%234cc2ff' stroke='none'/><circle cx='21' cy='16' r='1.5' fill='%234cc2ff' stroke='none'/><path d='M16 20 L18 22 L20 20'/><path d='M24 24 Q28 22 30 18'/></g></svg>">
 <!-- Preload the two faces the first paint needs, so the headline is not
      re-laid-out after the illustration has already shown. -->
@@ -24,41 +28,15 @@
    * fakes by synthesis, which is a different letterform, not a heavier one.
    *
    * The icon face (JetBrainsMonoNerdFont-Icons.woff2, 932 KB of PUA glyphs)
-   * is deliberately NOT copied: no page here prints a Nerd Font icon, and
-   * fetching 932 KB to never draw a glyph is the waste the app's own
-   * unicode-range exists to prevent. */
-  @font-face {
-    font-family: 'Sansation'; font-weight: 300; font-style: normal;
-    src: url(fonts/Sansation-Light.woff2) format('woff2'); font-display: swap;
-  }
-  @font-face {
-    font-family: 'Sansation'; font-weight: 300; font-style: italic;
-    src: url(fonts/Sansation-LightItalic.woff2) format('woff2'); font-display: swap;
-  }
-  @font-face {
-    font-family: 'Sansation'; font-weight: 400; font-style: normal;
-    src: url(fonts/Sansation-Regular.woff2) format('woff2'); font-display: swap;
-  }
-  @font-face {
-    font-family: 'Sansation'; font-weight: 400; font-style: italic;
-    src: url(fonts/Sansation-Italic.woff2) format('woff2'); font-display: swap;
-  }
-  @font-face {
-    font-family: 'Sansation'; font-weight: 700; font-style: normal;
-    src: url(fonts/Sansation-Bold.woff2) format('woff2'); font-display: swap;
-  }
-  @font-face {
-    font-family: 'Sansation'; font-weight: 700; font-style: italic;
-    src: url(fonts/Sansation-BoldItalic.woff2) format('woff2'); font-display: swap;
-  }
-  @font-face {
-    font-family: 'JetBrainsMonoNF'; font-weight: 400; font-style: normal;
-    src: url(fonts/JetBrainsMonoNerdFont-Regular.woff2) format('woff2'); font-display: swap;
-  }
-  @font-face {
-    font-family: 'JetBrainsMonoNF'; font-weight: 700; font-style: normal;
-    src: url(fonts/JetBrainsMonoNerdFont-Bold.woff2) format('woff2'); font-display: swap;
-  }
+   * is deliberately NOT copied: no page here prints a Nerd Font icon. */
+  @font-face { font-family: 'Sansation'; font-weight: 300; font-style: normal; src: url(fonts/Sansation-Light.woff2) format('woff2'); font-display: swap; }
+  @font-face { font-family: 'Sansation'; font-weight: 300; font-style: italic; src: url(fonts/Sansation-LightItalic.woff2) format('woff2'); font-display: swap; }
+  @font-face { font-family: 'Sansation'; font-weight: 400; font-style: normal; src: url(fonts/Sansation-Regular.woff2) format('woff2'); font-display: swap; }
+  @font-face { font-family: 'Sansation'; font-weight: 400; font-style: italic; src: url(fonts/Sansation-Italic.woff2) format('woff2'); font-display: swap; }
+  @font-face { font-family: 'Sansation'; font-weight: 700; font-style: normal; src: url(fonts/Sansation-Bold.woff2) format('woff2'); font-display: swap; }
+  @font-face { font-family: 'Sansation'; font-weight: 700; font-style: italic; src: url(fonts/Sansation-BoldItalic.woff2) format('woff2'); font-display: swap; }
+  @font-face { font-family: 'JetBrainsMonoNF'; font-weight: 400; font-style: normal; src: url(fonts/JetBrainsMonoNerdFont-Regular.woff2) format('woff2'); font-display: swap; }
+  @font-face { font-family: 'JetBrainsMonoNF'; font-weight: 700; font-style: normal; src: url(fonts/JetBrainsMonoNerdFont-Bold.woff2) format('woff2'); font-display: swap; }
 
   /* ─── Design system: motita's own ────────────────────────────────
    * Every token below is read off the running product, not invented:
@@ -67,12 +45,11 @@
    *   surface         rgba(10,10,16,.78) — .frosted, over the illustration
    *   fg              #e8e8ea  — the app's primary text
    *   muted-fg        #9a9aaa  — the app's secondary text
-   *   faint           #7a7a8c  — the app's labels and section headings (4.7:1 on base)
    *   warning         #f0a040  — the app's warning (App.tsx)
    *   danger          #ff6b6b  — the app's danger (tailwind.config.js)
-   * The page kept a green (#22C55E) that appears nowhere in the product,
-   * which meant the site and the thing it describes were two different
-   * designs. Tokens first, so every surface reads from one place. */
+   *   neon cyan / magenta / yellow — the app's neon accents
+   * The screenshots on this page are the real interface, captured from a
+   * real run, so page and product are the same design by construction. */
   :root {
     color-scheme: dark;
     --bg: #0a0a0f;
@@ -91,51 +68,31 @@
     --on-accent: #0a0a0f;
     --amber: #f0a040;
     --rose: #ff6b6b;
-    --cyan: #6dd5ff;
-    --violet: #a0a0f0;
+    --green: #5ee08a;
     --ring: #4cc2ff;
     --mono: 'JetBrainsMonoNF', ui-monospace, SFMono-Regular, Menlo, monospace;
     --sans: 'Sansation', system-ui, -apple-system, 'Segoe UI', sans-serif;
     --neon-cyan: #00f0ff;
     --neon-magenta: #ff2bd6;
     --neon-yellow: #fcee0a;
-    --glow-cyan: 0 0 12px rgba(0, 240, 255, 0.55);
     --radius: 2px;
-    --radius-lg: 2px;
     --blur: blur(20px) saturate(1.3);
+    --ease-out: cubic-bezier(.16, 1, .3, 1);
     --space-1: 4px;  --space-2: 8px;  --space-3: 12px; --space-4: 16px;
     --space-5: 24px; --space-6: 32px; --space-7: 48px; --space-8: 64px; --space-9: 96px;
   }
 
-  /* The frosted panel: the app's .frosted, and the reason the illustration
-     can sit behind the whole page instead of only at the top. */
-  .frosted {
-    background: var(--card);
-    backdrop-filter: var(--blur);
-    -webkit-backdrop-filter: var(--blur);
-  }
-
   *, *::before, *::after { box-sizing: border-box; }
-
-  html { scroll-behavior: smooth; }
-  @media (prefers-reduced-motion: reduce) {
-    html { scroll-behavior: auto; }
-    *, *::before, *::after { animation-duration: .01ms !important; transition-duration: .01ms !important; }
-  }
+  /* Smooth scrolling is applied to in-page link clicks only (see the script), not
+     to the whole document: a global `scroll-behavior: smooth` also animates every
+     programmatic scroll, and the contrast probe scrolls each element into view and
+     measures it 250 ms later - mid-animation, on the wrong pixels. */
+  html { scroll-padding-top: 72px; }
 
   /* ─── The illustration, exactly as the app ships it ──────────────
-   * site/chat-bg.webp is a byte copy of web/public/chat-bg.webp, the same
-   * picture the browser interface paints behind its own panels. Fixed and
-   * cover, so it reads as one continuous scene under a scrolling page
-   * instead of a repeating texture.
-   *
-   * The dark base colour is painted UNDER the image and is what the
-   * frosted panels are measured against: on a phone the illustration is
-   * narrow, and an unloaded image would otherwise leave text on white.
-   *
-   * It is decorative and it is NOT the content: `prefers-reduced-data`
-   * drops it, and so does a reader who cannot load it. Everything the
-   * page claims stands on its own without it. */
+   * site/chat-bg.webp is a byte copy of web/public/chat-bg.webp. The scrim
+   * values come from measuring rendered pixels (scripts/cdp_site_contrast.py):
+   * with brightness alone the muted text measured 2.05:1 on the bright window. */
   body {
     margin: 0;
     background-color: var(--bg);
@@ -148,23 +105,7 @@
   }
   body::before {
     content: "";
-    position: fixed;
-    inset: 0;
-    z-index: -1;
-    /* The scrim is layered ON TOP of the illustration rather than only dimming
-       it with `filter`. Both are needed and they do different things: the
-       gradient compresses the whole image uniformly, so the lit window on the
-       left stops being a light source under the text, while `brightness` keeps
-       the picture's own colour.
-
-       The numbers come from measuring the rendered pixels, not from taste. With
-       `brightness(0.42)` alone the brightest pixel under the hero was sRGB ~102,
-       and the muted text (#9a9aaa) over it measured 2.05-3.13:1 against a 4.5:1
-       requirement - a page that looks atmospheric in a screenshot and is
-       genuinely hard to read on a bright panel. The first ancestor-walking
-       contrast check cannot catch this: it stops at body's #0a0a0f, a colour the
-       illustration paints over, and reports a comfortable pass on pixels nobody
-       sees. scripts/measure-site-contrast.js re-measures it against the image. */
+    position: fixed; inset: 0; z-index: -2;
     background-image:
       linear-gradient(rgba(10, 10, 15, 0.62), rgba(10, 10, 15, 0.62)),
       url(chat-bg.webp);
@@ -173,158 +114,228 @@
     background-repeat: no-repeat, no-repeat;
     filter: brightness(0.5) saturate(0.9);
   }
-  @media (prefers-reduced-data: reduce) {
-    body::before { background-image: none; }
+  /* A slow neon aurora over the scene: two soft blobs in the product's own
+     cyan and magenta, drifting. Purely decorative, and gone for reduced motion. */
+  body::after {
+    content: ""; position: fixed; inset: -20%; z-index: -1; pointer-events: none;
+    background:
+      radial-gradient(40% 35% at 20% 25%, rgba(0, 240, 255, 0.10), transparent 70%),
+      radial-gradient(35% 30% at 80% 70%, rgba(255, 43, 214, 0.08), transparent 70%);
+    animation: aurora 26s ease-in-out infinite alternate;
   }
+  @keyframes aurora {
+    from { transform: translate3d(-3%, -2%, 0) rotate(0deg); }
+    to   { transform: translate3d(3%, 2%, 0) rotate(6deg); }
+  }
+  @media (prefers-reduced-data: reduce) { body::before { background-image: none; } }
 
-  .wrap { max-width: 1120px; margin: 0 auto; padding: 0 var(--space-5); position: relative; z-index: 1; }
+  .wrap { max-width: 1160px; margin: 0 auto; padding: 0 var(--space-5); position: relative; z-index: 1; }
+  @media (max-width: 560px) { .wrap { padding-left: var(--space-4); padding-right: var(--space-4); } }
 
   a { color: var(--accent); text-decoration: none; }
   a:hover { text-decoration: underline; text-underline-offset: 3px; }
-
-  /* Visible focus on EVERY interactive control, including in the header. */
-  a:focus-visible, button:focus-visible {
-    outline: 2px solid var(--ring);
-    outline-offset: 3px;
-    border-radius: 6px;
+  a:focus-visible, button:focus-visible, [tabindex]:focus-visible {
+    outline: 2px solid var(--ring); outline-offset: 3px; border-radius: 6px;
   }
-
   code, kbd, .mono { font-family: var(--mono); }
   code {
-    background: var(--muted);
-    border: 1px solid var(--border);
-    border-radius: 6px;
-    padding: 1px 6px;
-    font-size: .875em;
-    color: var(--fg);
+    background: var(--muted); border: 1px solid var(--border); border-radius: 6px;
+    padding: 1px 6px; font-size: .875em; color: var(--fg);
   }
+  img { max-width: 100%; height: auto; display: block; }
 
-  /* ---------- skip link ---------- */
   .skip {
     position: absolute; left: -9999px; top: 0;
     background: var(--accent); color: var(--on-accent);
-    padding: var(--space-3) var(--space-4); border-radius: 0 0 var(--radius) 0;
-    font-weight: 700; z-index: 100;
+    padding: var(--space-3) var(--space-4); font-weight: 700; z-index: 100;
   }
   .skip:focus { left: 0; }
 
   /* ---------- header ---------- */
-  /* Same frosted panel the app's own header uses, so the illustration runs
-     the full height of the page and the bar reads as glass over it. */
   header {
     position: sticky; top: 0; z-index: 50;
     background: rgba(10, 10, 16, 0.82);
-    backdrop-filter: var(--blur);
-    -webkit-backdrop-filter: var(--blur);
+    backdrop-filter: var(--blur); -webkit-backdrop-filter: var(--blur);
     border-bottom: 1px solid var(--border);
+  }
+  /* The scroll meter: a 2px neon line that fills as the page is read. */
+  .meter {
+    position: absolute; left: 0; bottom: -1px; height: 2px; width: 100%;
+    background: linear-gradient(90deg, var(--neon-cyan), var(--neon-magenta));
+    transform-origin: 0 50%; transform: scaleX(var(--read, 0));
+    box-shadow: 0 0 10px rgba(0, 240, 255, .6);
   }
   .bar { display: flex; align-items: center; gap: var(--space-5); height: 62px; }
   .brand {
     font-family: var(--mono); font-weight: 700; font-size: 1.05rem;
-    color: var(--fg); display: flex; align-items: center; gap: var(--space-2);
-    white-space: nowrap;
+    color: var(--fg); display: flex; align-items: center; gap: var(--space-2); white-space: nowrap;
   }
-  .brand span, .brand svg { color: var(--accent); }
-  nav { margin-left: auto; display: flex; align-items: center; gap: var(--space-5); }
-  /* inline-flex + min-height, so the links keep the same visual line they had
-     while the tappable box reaches 44px. A text-only link measures ~23px tall,
-     and a short label like "Run it" only 36px wide - both are misses on a phone
-     and invisible in a screenshot. The horizontal padding is what carries the
-     short labels: it is 4px a side, so the row looks unchanged. */
+  .brand svg { color: var(--accent); }
+  .brand:hover { text-decoration: none; }
+  nav { margin-left: auto; display: flex; align-items: center; gap: var(--space-4); }
   nav a {
-    color: var(--muted-fg); font-size: .9rem; font-weight: 400; white-space: nowrap;
+    color: var(--muted-fg); font-size: .9rem; white-space: nowrap;
     display: inline-flex; align-items: center; justify-content: center;
-    min-height: 44px; padding: 0 var(--space-1);
+    min-height: 44px; padding: 0 var(--space-1); position: relative;
+  }
+  nav a:not(.gh)::after {
+    content: ""; position: absolute; left: 4px; right: 4px; bottom: 10px; height: 1px;
+    background: var(--accent); transform: scaleX(0); transform-origin: left;
+    transition: transform .3s var(--ease-out);
   }
   nav a:hover { color: var(--fg); text-decoration: none; }
-  .gh {
-    display: inline-flex; align-items: center; gap: var(--space-2);
-    border: 1px solid var(--border-strong); border-radius: 8px;
-    padding: 10px 14px; color: var(--fg); font-size: .875rem; font-weight: 700;
-    font-family: var(--mono); min-height: 44px;
-  }
-  .gh:hover { border-color: var(--accent); text-decoration: none; background: var(--accent-glow); }
+  nav a:hover::after, nav a[aria-current="true"]::after { transform: scaleX(1); }
+  nav a[aria-current="true"] { color: var(--fg); }
+  @media (max-width: 920px) { nav a:not(.gh) { display: none; } }
 
   /* Cut-corner shape (design system Pill/Button): top-left and bottom-right are 45deg
      cuts. ::after is the fill, ::before the 1px edge that follows the cut; the glow is a
-     drop-shadow so it follows the shape. Only these two corners, only on pill and button. */
-  .pill, .gh {
+     drop-shadow so it follows the shape. */
+  .pill, .gh, .btn {
     --cut: 8px; --edge: var(--neon-cyan); --fill: rgba(0, 240, 255, 0.08);
     --glow: rgba(0, 240, 255, 0.55);
     position: relative; isolation: isolate; border: 0; border-radius: 0; background: none;
-    box-shadow: none; filter: drop-shadow(0 0 6px var(--glow));
+    filter: drop-shadow(0 0 6px var(--glow));
   }
-  .pill::before, .pill::after, .gh::before, .gh::after {
+  .pill::before, .pill::after, .gh::before, .gh::after, .btn::before, .btn::after {
     content: ""; position: absolute; inset: 0; z-index: -1; pointer-events: none;
   }
-  .pill::after, .gh::after {
+  .pill::after, .gh::after, .btn::after {
     background: var(--fill);
     clip-path: polygon(var(--cut) 0, 100% 0, 100% calc(100% - var(--cut)), calc(100% - var(--cut)) 100%, 0 100%, 0 var(--cut));
+    transition: background .2s ease;
   }
-  .pill::before, .gh::before {
+  .pill::before, .gh::before, .btn::before {
     --in: calc(var(--cut) + .41px); background: var(--edge);
     clip-path: polygon(evenodd, var(--cut) 0, 100% 0, 100% calc(100% - var(--cut)), calc(100% - var(--cut)) 100%, 0 100%, 0 var(--cut), var(--cut) 0,
       var(--in) 1px, calc(100% - 1px) 1px, calc(100% - 1px) calc(100% - var(--in)), calc(100% - var(--in)) calc(100% - 1px), 1px calc(100% - 1px), 1px var(--in), var(--in) 1px);
   }
-  .gh { --cut: 10px; --edge: var(--neon-cyan); color: var(--neon-cyan); text-transform: uppercase; letter-spacing: .1em; }
-  .gh:hover { --fill: rgba(0, 240, 255, 0.18); background: none; }
-  .gh:focus-visible { outline: 2px solid var(--fg); outline-offset: 3px; }
-  @media (max-width: 860px) { nav a:not(.gh) { display: none; } }
+  .gh, .btn {
+    display: inline-flex; align-items: center; gap: var(--space-2);
+    font-family: var(--mono); font-weight: 700; font-size: .85rem;
+    text-transform: uppercase; letter-spacing: .1em;
+    color: var(--neon-cyan); min-height: 44px; padding: 10px 16px; cursor: pointer;
+  }
+  .gh { --cut: 10px; }
+  .gh:hover, .btn:hover { --fill: rgba(0, 240, 255, 0.18); text-decoration: none; }
+  .btn.primary { --fill: var(--accent); --edge: var(--accent); color: var(--on-accent); }
+  .btn.primary:hover { --fill: #7fd5ff; }
+  .btn { --cut: 10px; padding: 14px 22px; font-size: .88rem; }
+  .btn svg { transition: transform .3s var(--ease-out); }
+  .btn:hover svg { transform: translateX(3px); }
 
   /* ---------- hero ---------- */
-  .hero { padding: var(--space-9) 0 var(--space-7); text-align: center; }
+  .hero { padding-top: var(--space-8); padding-bottom: var(--space-7); }
+  .hero-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.12fr); gap: var(--space-7); align-items: center; }
+  @media (max-width: 980px) { .hero-grid { grid-template-columns: 1fr; gap: var(--space-6); } }
   .pill {
     display: inline-flex; align-items: center; gap: var(--space-2);
-    font-family: var(--mono); font-size: .78rem; font-weight: 400;
-    color: var(--accent); background: var(--accent-glow);
+    font-family: var(--mono); font-size: .76rem; color: var(--accent);
     text-transform: uppercase; letter-spacing: .1em;
     padding: 6px 14px; margin-bottom: var(--space-5);
+    background: var(--accent-glow);
   }
-  .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--accent); }
+  .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 0 0 var(--accent); animation: ping 2.2s infinite; }
+  @keyframes ping { 0% { box-shadow: 0 0 0 0 rgba(76,194,255,.7); } 70%,100% { box-shadow: 0 0 0 8px rgba(76,194,255,0); } }
 
+  .hero-title {
+    font-family: var(--mono); font-weight: 700; color: var(--accent);
+    display: flex; align-items: center; gap: var(--space-3);
+    font-size: 1.4rem; margin: 0 0 var(--space-4);
+  }
+  .hero-title svg { flex-shrink: 0; }
   h1 {
     font-family: var(--mono); font-weight: 700;
-    font-size: clamp(2rem, 5.2vw, 3.35rem);
-    line-height: 1.12; letter-spacing: -.02em;
-    margin: 0 0 var(--space-5); max-width: 20ch; margin-inline: auto;
+    font-size: clamp(2.1rem, 5vw, 3.6rem); line-height: 1.06; letter-spacing: -.025em;
+    margin: 0 0 var(--space-5);
   }
-  h1 em { font-style: normal; color: var(--neon-magenta); text-shadow: 0 0 14px rgba(255, 43, 214, 0.55); }
-  .hero-title { color: var(--accent); display: flex; align-items: center; justify-content: center; gap: var(--space-3); }
-  .hero-title svg { color: var(--accent); flex-shrink: 0; }
-  .lede {
-    font-size: clamp(1rem, 2vw, 1.16rem); color: var(--muted-fg);
-    max-width: 62ch; margin: 0 auto var(--space-7);
+  h1 .w { display: inline-block; opacity: 0; transform: translateY(.5em); filter: blur(6px); animation: word .9s var(--ease-out) forwards; }
+  @keyframes word { to { opacity: 1; transform: none; filter: none; } }
+  h1 em {
+    font-style: normal; color: var(--neon-magenta);
+    text-shadow: 0 0 18px rgba(255, 43, 214, 0.55);
+    position: relative;
   }
+  /* The underline is drawn, not shown: it is the "check" that closes the sentence. */
+  h1 em::after {
+    content: ""; position: absolute; left: 0; right: 0; bottom: -.08em; height: .09em;
+    background: var(--neon-magenta); box-shadow: 0 0 12px var(--neon-magenta);
+    transform: scaleX(0); transform-origin: left; animation: draw .8s 1.3s var(--ease-out) forwards;
+  }
+  @keyframes draw { to { transform: scaleX(1); } }
+  .lede { font-size: clamp(1.02rem, 1.7vw, 1.2rem); color: var(--muted-fg); max-width: 54ch; margin: 0 0 var(--space-6); }
+  .lede strong { color: var(--fg); }
+  .ctas { display: flex; flex-wrap: wrap; gap: var(--space-3); margin-bottom: var(--space-6); }
+
+  .perks { display: flex; flex-wrap: wrap; gap: var(--space-2) var(--space-4); margin: 0; padding: 0; list-style: none; }
+  .perks li {
+    display: inline-flex; align-items: center; gap: var(--space-2);
+    font-size: .86rem; color: var(--fg);
+    background: var(--card); border: 1px solid var(--border); padding: 6px 12px;
+    backdrop-filter: var(--blur); -webkit-backdrop-filter: var(--blur);
+  }
+  .perks svg { color: var(--accent); flex: none; }
+
+  /* The product shot: a browser frame with the REAL interface in it, tilted a little
+     toward the pointer, with the run's three moments floating over it. */
+  .stage { position: relative; perspective: 1400px; }
+  .frame {
+    position: relative; border: 1px solid rgba(0, 240, 255, 0.35); background: var(--card-solid);
+    box-shadow: 0 0 0 1px rgba(0,0,0,.4), 0 30px 80px -20px rgba(0, 0, 0, .8), 0 0 40px rgba(0, 240, 255, .14);
+    transform: rotateY(var(--ry, -6deg)) rotateX(var(--rx, 3deg));
+    transform-style: preserve-3d; transition: transform .6s var(--ease-out);
+    animation: rise 1.1s .25s var(--ease-out) backwards;
+  }
+  @keyframes rise { from { opacity: 0; transform: translateY(40px) rotateY(-14deg) rotateX(8deg); } }
+  .chrome {
+    display: flex; align-items: center; gap: 6px; height: 30px; padding: 0 12px;
+    border-bottom: 1px solid var(--border); background: rgba(255,255,255,.03);
+    font-family: var(--mono); font-size: .7rem; color: var(--muted-fg);
+  }
+  .chrome i { width: 9px; height: 9px; border-radius: 50%; background: rgba(255,255,255,.14); }
+  .chrome span { margin-left: 10px; padding: 2px 10px; background: rgba(0,0,0,.35); border: 1px solid var(--border); }
+  .frame img { width: 100%; }
+  .float {
+    position: absolute; display: flex; align-items: center; gap: var(--space-2);
+    font-family: var(--mono); font-size: .76rem; white-space: nowrap;
+    background: rgba(10, 10, 16, 0.9); border: 1px solid var(--border-strong);
+    padding: 8px 12px; box-shadow: 0 12px 30px rgba(0,0,0,.55);
+    backdrop-filter: var(--blur); -webkit-backdrop-filter: var(--blur);
+    opacity: 0; animation: pop .7s var(--ease-out) forwards, bob 6s ease-in-out infinite;
+  }
+  .float b { font-weight: 700; }
+  .float.f1 { left: -18px; top: 22%; border-color: rgba(255,107,107,.6); animation-delay: 1.4s, 2.1s; }
+  .float.f1 b { color: var(--rose); }
+  .float.f2 { right: -14px; top: 48%; border-color: rgba(94,224,138,.6); animation-delay: 2.2s, 2.9s; }
+  .float.f2 b { color: var(--green); }
+  .float.f3 { left: 12%; bottom: -18px; border-color: rgba(0,240,255,.6); animation-delay: 3s, 3.7s; }
+  .float.f3 b { color: var(--neon-cyan); }
+  @keyframes pop { from { opacity: 0; transform: translateY(14px) scale(.92); } to { opacity: 1; transform: none; } }
+  @keyframes bob { 50% { translate: 0 -6px; } }
+  @media (max-width: 560px) { .float { font-size: .68rem; padding: 6px 9px; } .float.f1 { left: -6px; } .float.f2 { right: -6px; } }
 
   /* ---------- install ---------- */
-  .install { max-width: 960px; margin: 0 auto var(--space-5); }
+  .install { margin-top: var(--space-6); }
   .cmd {
     display: flex; align-items: center; gap: var(--space-4);
     background: rgba(0, 0, 0, 0.42); border: 1px solid var(--border);
-    border-radius: var(--radius); padding: var(--space-4) var(--space-5);
+    padding: var(--space-3) var(--space-3) var(--space-3) var(--space-5);
     font-family: var(--mono); font-size: .8rem; text-align: left;
-    backdrop-filter: var(--blur);
-    -webkit-backdrop-filter: var(--blur);
+    backdrop-filter: var(--blur); -webkit-backdrop-filter: var(--blur);
+    transition: border-color .2s ease, box-shadow .2s ease;
   }
+  .cmd:hover { border-color: rgba(0,240,255,.45); box-shadow: 0 0 20px rgba(0,240,255,.12); }
   .cmd .prompt { color: var(--accent); user-select: none; flex: none; }
-  .cmd code {
-    background: none; border: 0; padding: 0; flex: 1;
-    overflow-x: auto; white-space: nowrap; color: var(--fg); font-size: .8rem;
-  }
+  .cmd code { background: none; border: 0; padding: 0; flex: 1; overflow-x: auto; white-space: nowrap; color: var(--fg); font-size: .8rem; }
   .copy {
     flex: none; background: var(--muted); color: var(--fg);
     border: 1px solid var(--border-strong); border-radius: 7px;
-    padding: 11px 14px; font-family: var(--mono); font-size: .78rem;
-    font-weight: 700; cursor: pointer; min-height: 44px;
-    transition: background .15s ease, border-color .15s ease;
+    padding: 11px 14px; font-family: var(--mono); font-size: .78rem; font-weight: 700;
+    cursor: pointer; min-height: 44px; transition: background .15s ease, border-color .15s ease;
   }
   .copy:hover { background: var(--border); border-color: var(--accent); }
-  .hero-note { font-size: .82rem; color: var(--muted-fg); margin: 0; }
-
-  /* Two installers, one for each kind of machine. The tabs reuse the page's own tokens
-     (--muted-fg at rest, --fg when selected) rather than introducing a colour pair: a new
-     combination would also be a new contrast question, and scripts/cdp_site_contrast.py
-     already measures these two against the background. */
+  .copy.done { border-color: var(--green); color: var(--green); }
+  .hero-note { font-size: .84rem; color: var(--muted-fg); margin: var(--space-3) 0 0; }
   .tabs { display: flex; gap: var(--space-2); margin-bottom: var(--space-3); }
   .tab {
     background: none; border: 1px solid var(--border); border-radius: 2px;
@@ -336,64 +347,191 @@
   .tab[aria-selected="true"] { color: var(--fg); border-color: var(--accent); }
   .panel[hidden] { display: none; }
 
-  /* ---------- run: launch commands ---------- */
-  /* The four blocks are a grid, and a grid child defaults to min-width:auto —
-     meaning the longest command inside a <pre> stretches the column instead of
-     scrolling inside it. min-width:0 is what keeps the page from going wide on a
-     phone; the code block scrolls, the layout does not. */
-  .run { display: grid; gap: var(--space-6); margin-top: var(--space-6); }
-  .run > div { min-width: 0; }
-  .run h3 { margin-top: 0; }
-  .run pre { margin-top: var(--space-3); }
-  .run .hint {
-    color: var(--muted-fg); font-size: .88rem; margin: var(--space-3) 0 0;
-  }
+  /* ---------- logo strip ---------- */
+  .strip { padding: var(--space-5) 0; border-top: 1px solid var(--border); }
+  .strip p { text-align: center; color: var(--muted-fg); font-size: .82rem; margin: 0 0 var(--space-3); font-family: var(--mono); text-transform: uppercase; letter-spacing: .12em; }
+  .marquee { overflow: hidden; mask-image: linear-gradient(90deg, transparent, #000 12%, #000 88%, transparent); }
+  .marquee ul { display: flex; gap: var(--space-6); width: max-content; margin: 0; padding: 0; list-style: none; animation: slide 38s linear infinite; }
+  .marquee li { font-family: var(--mono); font-size: 1rem; color: var(--fg); opacity: .85; white-space: nowrap; display: flex; align-items: center; gap: var(--space-2); }
+  .marquee li::before { content: "◆"; color: var(--neon-cyan); font-size: .6rem; }
+  .marquee:hover ul { animation-play-state: paused; }
+  @keyframes slide { to { transform: translateX(-50%); } }
 
   /* ---------- sections ---------- */
-  section { padding: var(--space-9) 0; border-top: 1px solid var(--border); }
+  section { padding: var(--space-9) 0; border-top: 1px solid var(--border); position: relative; }
+  /* A scrim behind the text column: the illustration's lamp and monitor sit
+     where a section's subtitle runs, and the subtitle has to stay 4.5:1 over
+     the brightest pixel under it (scripts/cdp_site_contrast.py measures that). */
+  section::before {
+    content: ""; position: absolute; inset: 0; z-index: 0; pointer-events: none;
+    background: linear-gradient(90deg, rgba(10, 10, 15, .62) 0%, rgba(10, 10, 15, .42) 55%, rgba(10, 10, 15, .18) 100%);
+  }
+  .final::before { background: radial-gradient(60% 70% at 50% 50%, rgba(10, 10, 15, .62), rgba(10, 10, 15, .25)); }
   .eyebrow {
     font-family: var(--mono); font-size: .78rem; font-weight: 700;
     color: var(--accent); letter-spacing: .09em; text-transform: uppercase;
-    margin: 0 0 var(--space-3);
+    margin: 0 0 var(--space-3); display: inline-flex; align-items: center; gap: var(--space-2);
   }
+  .eyebrow::before { content: ""; width: 18px; height: 1px; background: var(--accent); box-shadow: 0 0 8px var(--accent); }
   h2 {
-    font-family: var(--mono); font-size: clamp(1.4rem, 3.2vw, 2rem);
-    font-weight: 700; letter-spacing: -.01em; line-height: 1.2;
-    margin: 0 0 var(--space-4); max-width: 26ch;
+    font-family: var(--mono); font-size: clamp(1.5rem, 3.4vw, 2.3rem);
+    font-weight: 700; letter-spacing: -.015em; line-height: 1.15;
+    margin: 0 0 var(--space-4); max-width: 24ch;
   }
+  h2 em { font-style: normal; color: var(--neon-cyan); text-shadow: 0 0 14px rgba(0, 240, 255, .45); }
   h3 { font-family: var(--mono); font-size: 1rem; font-weight: 700; margin: 0 0 var(--space-2); }
   .sub { color: var(--muted-fg); max-width: 68ch; margin: 0 0 var(--space-6); }
   .sub strong { color: var(--fg); font-weight: 700; }
+  .center { text-align: center; }
+  .center h2, .center .sub { margin-left: auto; margin-right: auto; }
 
-  /* Cards are frosted panels now, not opaque blocks: the illustration
-     shows through every one of them the same way it does in the app. */
-  .cards {
-    display: grid; gap: var(--space-4);
-    grid-template-columns: repeat(auto-fit, minmax(min(100%, 280px), 1fr));
+  /* Scroll reveal: each [data-reveal] rises in once, staggered by --d. The
+     class is added by script only, so without JavaScript everything is visible. */
+  .js [data-reveal] { opacity: 0; transform: translateY(26px); transition: opacity .8s var(--ease-out), transform .8s var(--ease-out); transition-delay: var(--d, 0s); }
+  .js [data-reveal].in { opacity: 1; transform: none; }
+
+  /* ---------- the live replay ---------- */
+  .replay { display: grid; grid-template-columns: 280px minmax(0, 1fr); gap: var(--space-5); align-items: stretch; }
+  @media (max-width: 860px) { .replay { grid-template-columns: 1fr; } .rail { display: none; } }
+  .rail { list-style: none; margin: 0; padding: 0; counter-reset: s; position: relative; }
+  .rail::before { content: ""; position: absolute; left: 13px; top: 14px; bottom: 14px; width: 1px; background: var(--border-strong); }
+  .rail li {
+    counter-increment: s; position: relative; padding: 8px 0 8px 42px; color: var(--muted-fg);
+    font-size: .92rem; transition: color .3s ease;
   }
+  .rail li::before {
+    content: counter(s); position: absolute; left: 0; top: 6px; width: 27px; height: 27px;
+    display: grid; place-items: center; font-family: var(--mono); font-size: .72rem;
+    background: var(--card-solid); border: 1px solid var(--border-strong); color: var(--muted-fg);
+    transition: all .3s ease;
+  }
+  .rail li b { display: block; color: var(--fg); font-family: var(--mono); font-size: .84rem; }
+  .rail li.on { color: var(--fg); }
+  .rail li.on::before { border-color: var(--neon-cyan); color: var(--neon-cyan); box-shadow: 0 0 12px rgba(0,240,255,.5); }
+  .rail li.on.bad::before { border-color: var(--rose); color: var(--rose); box-shadow: 0 0 12px rgba(255,107,107,.5); }
+  .rail li.on.good::before { border-color: var(--green); color: var(--green); box-shadow: 0 0 12px rgba(94,224,138,.5); }
+
+  .term {
+    background: rgba(5, 8, 10, 0.88); border: 1px solid rgba(0, 240, 255, .3);
+    box-shadow: 0 0 30px rgba(0, 240, 255, .1), inset 0 0 60px rgba(0,0,0,.4);
+    display: flex; flex-direction: column; min-height: 470px; position: relative; overflow: hidden;
+  }
+  /* CRT scanlines: faint, and they are the only texture on the panel. */
+  .term::after {
+    content: ""; position: absolute; inset: 0; pointer-events: none;
+    background: repeating-linear-gradient(0deg, rgba(255,255,255,.025) 0 1px, transparent 1px 3px);
+  }
+  .term-bar {
+    display: flex; align-items: center; gap: var(--space-3); padding: 8px 14px;
+    border-bottom: 1px solid var(--border); font-family: var(--mono); font-size: .74rem; color: var(--muted-fg);
+  }
+  .term-bar .live { margin-left: auto; display: inline-flex; align-items: center; gap: 6px; color: var(--green); }
+  .term-bar .live i { width: 7px; height: 7px; border-radius: 50%; background: currentColor; animation: blink 1.2s steps(2) infinite; }
+  @keyframes blink { 50% { opacity: .2; } }
+  .replay-btn {
+    background: none; border: 1px solid var(--border-strong); color: var(--fg);
+    font-family: var(--mono); font-size: .72rem; padding: 4px 10px; min-height: 30px; cursor: pointer;
+  }
+  .replay-btn:hover { border-color: var(--accent); color: var(--accent); }
+  .term-body {
+    flex: 1; padding: var(--space-4) var(--space-5); font-family: var(--mono); font-size: .8rem;
+    line-height: 1.7; white-space: pre-wrap; word-break: break-word; color: var(--fg); overflow: hidden;
+  }
+  .term-body .ln { display: block; animation: lnIn .25s ease-out; }
+  @keyframes lnIn { from { opacity: 0; transform: translateX(-6px); } }
+  .t-you { color: var(--accent); }
+  .t-dim { color: var(--muted-fg); }
+  .t-cmd { color: var(--fg); }
+  .t-cmd::before { content: "$ "; color: var(--green); }
+  .t-file { color: var(--neon-yellow); }
+  .t-bad { color: var(--rose); font-weight: 700; }
+  .t-good { color: var(--green); font-weight: 700; }
+  .t-think { color: var(--amber); }
+  .cursor { display: inline-block; width: .6em; height: 1.1em; vertical-align: -.2em; background: var(--neon-cyan); animation: blink 1s steps(2) infinite; }
+  .replay-note { font-size: .82rem; color: var(--muted-fg); margin: var(--space-3) 0 0; }
+
+  /* ---------- the loop diagram ---------- */
+  .loop-wrap { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: var(--space-7); align-items: center; }
+  @media (max-width: 900px) { .loop-wrap { grid-template-columns: 1fr; } }
+  .loop svg { width: 100%; height: auto; overflow: visible; }
+  .loop .node rect { fill: rgba(10,10,16,.92); stroke: var(--border-strong); }
+  .loop .node text { font-family: var(--mono); font-size: 14px; fill: var(--fg); }
+  .loop .node .s { font-size: 11px; fill: var(--muted-fg); }
+  .loop .node.anchor rect { stroke: var(--neon-cyan); filter: drop-shadow(0 0 8px rgba(0,240,255,.55)); }
+  .loop .path { fill: none; stroke: var(--border-strong); stroke-width: 1.5; }
+  .loop .flow { fill: none; stroke: var(--neon-cyan); stroke-width: 2; stroke-dasharray: 6 10; animation: dash 1.4s linear infinite; }
+  .loop .flow.fail { stroke: var(--rose); }
+  .loop .flow.pass { stroke: var(--green); }
+  .loop .lbl { font-family: var(--mono); font-size: 11px; fill: var(--muted-fg); }
+  .loop .lbl.r { fill: var(--rose); } .loop .lbl.g { fill: var(--green); }
+  @keyframes dash { to { stroke-dashoffset: -32; } }
+
+  /* ---------- cards ---------- */
+  .cards { display: grid; gap: var(--space-4); grid-template-columns: repeat(auto-fit, minmax(min(100%, 260px), 1fr)); }
   .card {
-    background: var(--card); border: 1px solid rgba(0, 240, 255, 0.35);
-    border-radius: var(--radius); padding: var(--space-5);
-    box-shadow: 0 0 12px rgba(0, 240, 255, 0.15);
-    backdrop-filter: var(--blur);
-    -webkit-backdrop-filter: var(--blur);
+    background: var(--card); border: 1px solid rgba(0, 240, 255, 0.22);
+    padding: var(--space-5); position: relative; overflow: hidden;
+    backdrop-filter: var(--blur); -webkit-backdrop-filter: var(--blur);
+    transition: border-color .3s ease, transform .4s var(--ease-out), box-shadow .3s ease;
   }
+  /* A light that follows the pointer across the card. */
+  .card::before {
+    content: ""; position: absolute; inset: 0; pointer-events: none; opacity: 0; transition: opacity .3s ease;
+    background: radial-gradient(300px circle at var(--mx, 50%) var(--my, 50%), rgba(0, 240, 255, .12), transparent 60%);
+  }
+  .card:hover { border-color: rgba(0, 240, 255, .55); transform: translateY(-3px); box-shadow: 0 14px 40px rgba(0,0,0,.45), 0 0 18px rgba(0,240,255,.12); }
+  .card:hover::before { opacity: 1; }
   .card p { margin: 0; color: var(--muted-fg); font-size: .93rem; }
   .card .k {
     font-family: var(--mono); font-size: .74rem; font-weight: 700;
     color: var(--accent); letter-spacing: .07em; text-transform: uppercase;
     display: block; margin-bottom: var(--space-3);
   }
+  .card .ic {
+    width: 40px; height: 40px; display: grid; place-items: center; margin-bottom: var(--space-4);
+    color: var(--neon-cyan); border: 1px solid rgba(0,240,255,.35); background: rgba(0,240,255,.06);
+  }
+  .card .ex { display: block; margin-top: var(--space-3); font-family: var(--mono); font-size: .76rem; color: var(--fg); opacity: .85; }
+  .card .ex::before { content: "› "; color: var(--accent); }
 
   ul.plain { list-style: none; padding: 0; margin: 0; }
-  ul.plain li {
-    position: relative; padding-left: var(--space-5);
-    color: var(--muted-fg); font-size: .93rem; margin-bottom: var(--space-3);
-  }
-  ul.plain li::before {
-    content: "▸"; position: absolute; left: 0; color: var(--accent);
-  }
+  ul.plain li { position: relative; padding-left: var(--space-5); color: var(--muted-fg); font-size: .93rem; margin-bottom: var(--space-3); }
+  ul.plain li::before { content: "▸"; position: absolute; left: 0; color: var(--accent); }
   ul.plain li strong { color: var(--fg); }
+
+  /* ---------- the tour ---------- */
+  .tour { display: grid; grid-template-columns: 300px minmax(0, 1fr); gap: var(--space-6); align-items: start; }
+  @media (max-width: 900px) { .tour { grid-template-columns: 1fr; } }
+  .tour-list { display: flex; flex-direction: column; gap: var(--space-2); }
+  @media (max-width: 900px) { .tour-list { flex-direction: row; overflow-x: auto; padding-bottom: var(--space-2); scrollbar-width: thin; } }
+  .tour-tab {
+    text-align: left; background: var(--card); border: 1px solid var(--border);
+    color: var(--muted-fg); padding: var(--space-3) var(--space-4); cursor: pointer;
+    font-family: var(--sans); font-size: .9rem; position: relative; overflow: hidden;
+    min-height: 44px; flex: none; transition: border-color .2s ease, color .2s ease;
+    backdrop-filter: var(--blur); -webkit-backdrop-filter: var(--blur);
+  }
+  .tour-tab b { display: block; font-family: var(--mono); font-size: .86rem; color: var(--fg); }
+  @media (max-width: 900px) { .tour-tab span { display: none; } }
+  .tour-tab:hover { border-color: rgba(0,240,255,.4); }
+  .tour-tab[aria-selected="true"] { border-color: var(--neon-cyan); color: var(--fg); box-shadow: 0 0 14px rgba(0,240,255,.15); }
+  .tour-tab[aria-selected="true"] b { color: var(--neon-cyan); }
+  /* The progress of the auto-advance, as a line along the bottom of the active tab. */
+  .tour-tab .prog { position: absolute; left: 0; bottom: 0; height: 2px; width: 100%; background: var(--neon-cyan); transform: scaleX(0); transform-origin: left; }
+  .tour-tab[aria-selected="true"] .prog.run { animation: prog var(--dur, 7s) linear forwards; }
+  @keyframes prog { to { transform: scaleX(1); } }
+  .tour-view { position: relative; }
+  .tour-pane[hidden] { display: none; }
+  .tour-pane figure { margin: 0; }
+  .tour-pane .frame { transform: none; animation: none; cursor: zoom-in; }
+  .tour-pane.enter .frame { animation: swap .6s var(--ease-out); }
+  @keyframes swap { from { opacity: 0; transform: translateY(14px) scale(.985); filter: blur(4px); } }
+  .tour-pane figcaption { margin-top: var(--space-4); color: var(--muted-fg); font-size: .92rem; max-width: 70ch; }
+  .tour-pane figcaption strong { color: var(--fg); }
+  .duo { display: grid; grid-template-columns: minmax(0, 1fr) 230px; gap: var(--space-5); align-items: end; }
+  @media (max-width: 640px) { .duo { grid-template-columns: 1fr; } .duo .phone { max-width: 260px; margin: 0 auto; } }
+  .phone { border: 1px solid rgba(0,240,255,.35); border-radius: 28px; padding: 8px; background: #050507; box-shadow: 0 20px 60px rgba(0,0,0,.7), 0 0 30px rgba(0,240,255,.12); cursor: zoom-in; }
+  .phone img { border-radius: 21px; }
 
   /* ---------- verdict table ---------- */
   .verdicts { display: grid; gap: var(--space-3); }
@@ -401,84 +539,85 @@
     display: grid; grid-template-columns: 96px 1fr; gap: var(--space-4);
     align-items: baseline; background: var(--card);
     border: 1px solid var(--border); border-left-width: 3px;
-    border-radius: var(--radius); padding: var(--space-4) var(--space-5);
-    backdrop-filter: var(--blur);
-    -webkit-backdrop-filter: var(--blur);
+    padding: var(--space-4) var(--space-5);
+    backdrop-filter: var(--blur); -webkit-backdrop-filter: var(--blur);
   }
   .v.allow { border-left-color: var(--accent); }
   .v.ask   { border-left-color: var(--amber); }
   .v.deny  { border-left-color: var(--rose); }
   .v b { font-family: var(--mono); font-size: .82rem; letter-spacing: .04em; }
-  .v.allow b { color: var(--accent); }
-  .v.ask b { color: var(--amber); }
-  .v.deny b { color: var(--rose); }
+  .v.allow b { color: var(--accent); } .v.ask b { color: var(--amber); } .v.deny b { color: var(--rose); }
   .v span { color: var(--muted-fg); font-size: .92rem; }
-  .v span code { font-size: .85em; }
   @media (max-width: 560px) { .v { grid-template-columns: 1fr; gap: var(--space-2); } }
+  .guard { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: var(--space-6); align-items: start; }
+  @media (max-width: 900px) { .guard { grid-template-columns: 1fr; } }
+  .guard .frame { transform: none; animation: none; cursor: zoom-in; }
 
   /* ---------- stats ---------- */
-  /* The 1px gap is the border colour showing through, so the seams match
-     the panels. Each cell is frosted like every other surface. */
   .stats {
-    display: grid; gap: 1px; background: var(--border);
-    border: 1px solid var(--border); border-radius: var(--radius);
-    grid-template-columns: repeat(auto-fit, minmax(min(100%, 168px), 1fr));
-    overflow: hidden;
+    display: grid; gap: 1px; background: var(--border); border: 1px solid var(--border);
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, 200px), 1fr)); overflow: hidden;
   }
   .stat { background: var(--card); padding: var(--space-5); backdrop-filter: var(--blur); -webkit-backdrop-filter: var(--blur); }
-  .stat .n {
-    font-family: var(--mono); font-size: 1.6rem; font-weight: 700;
-    color: var(--accent); line-height: 1.1; display: block;
-  }
-  .stat .l { font-size: .82rem; color: var(--muted-fg); margin-top: var(--space-2); }
+  .stat .n { font-family: var(--mono); font-size: 1.7rem; font-weight: 700; color: var(--accent); line-height: 1.1; display: block; text-shadow: 0 0 16px rgba(76,194,255,.35); }
+  .stat .l { font-size: .82rem; color: var(--muted-fg); margin-top: var(--space-2); display: block; }
 
   /* ---------- diagram ---------- */
-  .diagram {
-    background: var(--card); border: 1px solid var(--border);
-    border-radius: var(--radius); overflow: hidden; margin-top: var(--space-6);
-    backdrop-filter: var(--blur);
-    -webkit-backdrop-filter: var(--blur);
-  }
-  .diagram iframe {
-    width: 100%; height: 680px; border: 0; display: block; background: #0a0a0f;
-  }
-  .diagram .foot {
-    display: flex; align-items: center; gap: var(--space-3); flex-wrap: wrap;
-    padding: var(--space-4) var(--space-5); border-top: 1px solid var(--border);
-    font-size: .85rem; color: var(--muted-fg);
-  }
-
-  /* ---------- code block ---------- */
-  /* --bg-deep is a translucent black over the illustration rather than an
-     opaque navy: the page is one continuous scene, and a solid slab in the
-     middle of it reads as a hole. */
-  pre {
-    background: var(--bg-deep); border: 1px solid var(--border);
-    border-radius: var(--radius); padding: var(--space-5);
-    overflow-x: auto; font-size: .85rem; line-height: 1.65; margin: 0;
-    backdrop-filter: var(--blur);
-    -webkit-backdrop-filter: var(--blur);
-  }
-  pre .c { color: var(--muted-fg); }
-  pre .g { color: var(--accent); }
-  pre .y { color: var(--amber); }
-
-  /* ---------- footer ---------- */
-  footer {
-    border-top: 1px solid var(--border); padding: var(--space-7) 0;
-    color: var(--muted-fg); font-size: .875rem;
-  }
-  .frow { display: flex; gap: var(--space-5); flex-wrap: wrap; align-items: center; }
-  .frow .sep { flex: 1; }
-  footer a {
-    color: var(--muted-fg); display: inline-flex; align-items: center;
-    min-height: 44px; padding: 0 var(--space-1);
-  }
-  footer a:hover { color: var(--accent); }
-  /* The inline "open full screen" link gets the same touch area as the rest. */
+  .diagram { background: var(--card); border: 1px solid var(--border); overflow: hidden; margin-top: var(--space-6); backdrop-filter: var(--blur); -webkit-backdrop-filter: var(--blur); }
+  .diagram iframe { width: 100%; height: 680px; border: 0; display: block; background: #0a0a0f; }
+  .diagram .foot { display: flex; align-items: center; gap: var(--space-3); flex-wrap: wrap; padding: var(--space-4) var(--space-5); border-top: 1px solid var(--border); font-size: .85rem; color: var(--muted-fg); }
   .diagram .foot a { display: inline-flex; align-items: center; min-height: 44px; }
 
+  /* ---------- code block ---------- */
+  pre {
+    background: var(--bg-deep); border: 1px solid var(--border); padding: var(--space-5);
+    overflow-x: auto; font-size: .85rem; line-height: 1.65; margin: 0;
+    backdrop-filter: var(--blur); -webkit-backdrop-filter: var(--blur);
+  }
+  pre .c { color: var(--muted-fg); } pre .g { color: var(--accent); } pre .y { color: var(--amber); }
+  .run { display: grid; gap: var(--space-5); grid-template-columns: repeat(auto-fit, minmax(min(100%, 460px), 1fr)); }
+  .run > div { min-width: 0; }
+  .run pre { margin-top: var(--space-3); }
+  .run .hint { color: var(--muted-fg); font-size: .88rem; margin: var(--space-3) 0 0; }
+  details.more { margin-top: var(--space-6); }
+  details.more > summary {
+    cursor: pointer; list-style: none; font-family: var(--mono); font-size: .86rem; color: var(--accent);
+    display: inline-flex; align-items: center; gap: var(--space-2); min-height: 44px;
+  }
+  details.more > summary::-webkit-details-marker { display: none; }
+  details.more > summary::before { content: "+"; display: inline-grid; place-items: center; width: 22px; height: 22px; border: 1px solid var(--accent); transition: transform .3s var(--ease-out); }
+  details.more[open] > summary::before { transform: rotate(45deg); }
+
+  /* ---------- final call ---------- */
+  .final { text-align: center; padding: var(--space-9) 0; }
+  .final .cmd { max-width: 760px; margin: 0 auto; }
+  .final .sub { margin-left: auto; margin-right: auto; }
+  .final h2 { margin-left: auto; margin-right: auto; font-size: clamp(1.8rem, 4.5vw, 3rem); }
+
+  /* ---------- lightbox ---------- */
+  dialog.lb { padding: 0; border: 1px solid rgba(0,240,255,.4); background: #050507; max-width: min(96vw, 1600px); max-height: 94vh; box-shadow: 0 0 60px rgba(0,240,255,.2); }
+  dialog.lb::backdrop { background: rgba(0,0,0,.82); backdrop-filter: blur(6px); }
+  dialog.lb img { max-height: 90vh; width: auto; margin: 0 auto; }
+  dialog.lb button { position: absolute; top: 8px; right: 8px; background: rgba(0,0,0,.7); color: var(--fg); border: 1px solid var(--border-strong); font-family: var(--mono); min-height: 40px; min-width: 40px; cursor: pointer; }
+
+  /* ---------- footer ---------- */
+  footer { border-top: 1px solid var(--border); padding: var(--space-7) 0; color: var(--muted-fg); font-size: .875rem; }
+  .frow { display: flex; gap: var(--space-5); flex-wrap: wrap; align-items: center; }
+  .frow .sep { flex: 1; }
+  footer a { color: var(--muted-fg); display: inline-flex; align-items: center; min-height: 44px; padding: 0 var(--space-1); }
+  footer a:hover { color: var(--accent); }
+
   .sr { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
+
+  @media (max-width: 560px) { .hero .pill { font-size: .66rem; letter-spacing: .05em; padding: 6px 10px; } }
+
+  /* Reduced motion: every animation and transition is cut to nothing, the
+     replay shows its final frame, and the tour does not advance by itself. */
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after { animation-duration: .01ms !important; animation-delay: 0s !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; }
+    .frame { transform: none !important; }
+    .marquee ul { animation: none; }
+  }
 </style>
 </head>
 <body>
@@ -486,15 +625,15 @@
 
 <header>
   <div class="wrap bar">
-    <span class="brand"><svg viewBox="0 0 32 32" width="20" height="20" style="vertical-align:middle;margin-right:6px"><g stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M8 24 Q4 18 6 12 L4 6 L12 11 Q16 8 20 11 L28 6 L26 12 Q28 18 24 24 Z"/><circle cx="13" cy="16" r="1.5" fill="currentColor" stroke="none"/><circle cx="21" cy="16" r="1.5" fill="currentColor" stroke="none"/><path d="M16 20 L18 22 L20 20"/><path d="M24 24 Q28 22 30 18"/></g></svg>Motita</span>
-    <nav>
-      <a href="#run">Run it</a>
+    <a class="brand" href="#top" aria-label="Motita, back to the top"><svg viewBox="0 0 32 32" width="20" height="20" aria-hidden="true"><g stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M8 24 Q4 18 6 12 L4 6 L12 11 Q16 8 20 11 L28 6 L26 12 Q28 18 24 24 Z"/><circle cx="13" cy="16" r="1.5" fill="currentColor" stroke="none"/><circle cx="21" cy="16" r="1.5" fill="currentColor" stroke="none"/><path d="M16 20 L18 22 L20 20"/><path d="M24 24 Q28 22 30 18"/></g></svg>Motita</a>
+    <nav aria-label="Sections">
+      <a href="#demo">See it work</a>
+      <a href="#tour">Tour</a>
+      <a href="#uses">What it does</a>
       <a href="#how">How it works</a>
-      <a href="#providers">Providers</a>
-      <a href="#sessions">Sessions</a>
-      <a href="#agents">Agents</a>
-      <a href="#guardrails">Guardrails</a>
-      <a href="#numbers">Numbers</a>
+      <a href="#providers">Models</a>
+      <a href="#guardrails">Safety</a>
+      <a href="#run">Run it</a>
       <a href="REFERENCE.md">Reference</a>
       <a class="gh" href="https://github.com/madkoding/motita">
         <svg width="15" height="15" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27s1.36.09 2 .27c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8Z"/></svg>
@@ -502,39 +641,62 @@
       </a>
     </nav>
   </div>
+  <span class="meter" aria-hidden="true"></span>
 </header>
 
 <main id="main">
 
-  <div class="wrap hero">
-    <!-- The version is NOT written here by hand: the pages workflow replaces
-         the marker below with the tag being published, so this line cannot
-         drift from what was actually released. It is deliberately a v0.0.0
-         fallback so an unfilled marker is obvious in a local render instead of
-         silently showing a plausible old number. -->
-    <span class="pill"><span class="dot" aria-hidden="true"></span> <span data-motita-version>v0.0.0</span> · GPL-3.0-or-later · zero dependencies</span>
-    <h1 class="hero-title"><svg viewBox="0 0 32 32" width="48" height="48" style="vertical-align:middle;margin-right:12px"><g stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M8 24 Q4 18 6 12 L4 6 L12 11 Q16 8 20 11 L28 6 L26 12 Q28 18 24 24 Z"/><circle cx="13" cy="16" r="1.5" fill="currentColor" stroke="none"/><circle cx="21" cy="16" r="1.5" fill="currentColor" stroke="none"/><path d="M16 20 L18 22 L20 20"/><path d="M24 24 Q28 22 30 18"/></g></svg>Motita</h1>
-    <p class="lede">
-      Every other agent asks you to trust it. motita runs a real check, and only
-      the check can declare the task done. If it fails, the agent gets the real
-      error back and tries again. If it can't pass, it says so and stops.
-    </p>
+  <div class="wrap hero" id="top">
+    <div class="hero-grid">
+      <div>
+        <!-- The version is NOT written here by hand: the pages workflow replaces
+             the marker below with the tag being published, so this line cannot
+             drift from what was actually released. It is deliberately a v0.0.0
+             fallback so an unfilled marker is obvious in a local render. -->
+        <span class="pill"><span class="dot" aria-hidden="true"></span> <span data-motita-version>v0.0.0</span> · free &amp; open source · zero dependencies</span>
+        <p class="hero-title"><svg viewBox="0 0 32 32" width="34" height="34" aria-hidden="true"><g stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M8 24 Q4 18 6 12 L4 6 L12 11 Q16 8 20 11 L28 6 L26 12 Q28 18 24 24 Z"/><circle cx="13" cy="16" r="1.5" fill="currentColor" stroke="none"/><circle cx="21" cy="16" r="1.5" fill="currentColor" stroke="none"/><path d="M16 20 L18 22 L20 20"/><path d="M24 24 Q28 22 30 18"/></g></svg>Motita</p>
+        <h1 aria-label="The AI agent that proves it's done."><span class="w" style="animation-delay:.05s">The</span> <span class="w" style="animation-delay:.12s">AI</span> <span class="w" style="animation-delay:.19s">agent</span> <span class="w" style="animation-delay:.26s">that</span> <span class="w" style="animation-delay:.4s"><em>proves</em></span> <span class="w" style="animation-delay:.52s">it's</span> <span class="w" style="animation-delay:.6s">done.</span></h1>
+        <p class="lede">
+          Tell it what you need in plain words. motita writes the change, <strong>runs your real
+          tests</strong>, reads the failures, fixes them — and only says “done” when the check
+          passes. No more “it worked on my end” from a chatbot.
+        </p>
+        <div class="ctas">
+          <a class="btn primary" href="#install">Install in one line
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M3 8h10M9 4l4 4-4 4"/></svg></a>
+          <a class="btn" href="#demo">Watch it work
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M4 2.5v11l9-5.5z"/></svg></a>
+        </div>
+        <ul class="perks">
+          <li><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M2 8.5l4 4 8-9"/></svg>Uses the AI plan you already pay for</li>
+          <li><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M2 8.5l4 4 8-9"/></svg>One file, nothing else to install</li>
+          <li><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M2 8.5l4 4 8-9"/></svg>Asks before anything risky</li>
+        </ul>
+      </div>
 
-    <div class="install">
+      <div class="stage" id="stage">
+        <div class="frame">
+          <div class="chrome" aria-hidden="true"><i></i><i></i><i></i><span>127.0.0.1:7477</span></div>
+          <img src="shots/webui-report.webp" width="1600" height="1000" fetchpriority="high"
+               alt="The motita browser interface after a real task: a DONE badge, 3 of 3 checks passed, the two files it changed, how each change was verified, a risk worth knowing and the next steps.">
+        </div>
+        <div class="float f1" aria-hidden="true"><b>✕ attempt 1</b> go test: undefined: json</div>
+        <div class="float f2" aria-hidden="true"><b>✓ attempt 2</b> go test ./... ok</div>
+        <div class="float f3" aria-hidden="true"><b>◆ DONE</b> 3/3 checks · 2 files</div>
+      </div>
+    </div>
+
+    <div class="install" id="install">
       <!-- Two tabs. The `hidden` on the Windows panel is in the MARKUP rather than being set
            by the script, so that with JavaScript there is no flash of both commands before
-           the script runs. That choice costs a reader with JavaScript BLOCKED the Windows
-           command - the panel stays closed and no script is there to open it - so the
-           <noscript> below gives them both commands instead. Measured: with
-           --disable-javascript the panel really is closed and the noscript block is what
-           carries the command. -->
+           the script runs. The <noscript> below gives a reader with JavaScript blocked the
+           Windows command instead. -->
       <div class="tabs" role="tablist" aria-label="Install command by platform">
         <button class="tab" type="button" role="tab" id="tab-unix"
                 aria-selected="true" aria-controls="panel-unix">Linux &middot; macOS</button>
         <button class="tab" type="button" role="tab" id="tab-windows"
                 aria-selected="false" aria-controls="panel-windows" tabindex="-1">Windows</button>
       </div>
-
       <div class="panel" id="panel-unix" role="tabpanel" aria-labelledby="tab-unix">
         <div class="cmd">
           <span class="prompt" aria-hidden="true">$</span>
@@ -542,7 +704,6 @@
           <button class="copy" type="button" data-copy="install-cmd">Copy</button>
         </div>
       </div>
-
       <div class="panel" id="panel-windows" role="tabpanel" aria-labelledby="tab-windows" hidden>
         <div class="cmd">
           <span class="prompt" aria-hidden="true">&gt;</span>
@@ -550,14 +711,6 @@
           <button class="copy" type="button" data-copy="install-cmd-windows">Copy</button>
         </div>
       </div>
-
-      <!-- No JavaScript: the tabs cannot switch, so show the command they would have
-           revealed and take the dead controls away. The Unix command is NOT repeated here -
-           panel-unix is already visible on its own - which is what an earlier draft of this
-           block got wrong, and only measuring it (scripting disabled, 3 visible rows with
-           the Unix command twice) showed it.
-           A <style> inside <noscript> is parsed only when scripting is off, which is exactly
-           the condition it is for. -->
       <noscript>
         <style>.tabs { display: none; }</style>
         <div class="cmd">
@@ -565,146 +718,203 @@
           <code>irm https://madkoding.github.io/motita/install.ps1 | iex</code>
         </div>
       </noscript>
-
-      <!-- ONE status region for both buttons: it lived inside the single command row
-           before, and with two panels it would have had to be duplicated. -->
       <span class="sr" role="status" id="copy-status"></span>
-      <p class="hero-note">One static binary. No Docker, no runtime, no dependency tree. It runs on a 2008 netbook with 484 MB of RAM.</p>
+      <p class="hero-note">Then type <code>motita</code>. A one-minute wizard connects your AI and finds your project's tests. One static binary — no Docker, no runtime. It even runs on a 2008 netbook with 484 MB of RAM.</p>
     </div>
-
   </div>
 
-  <section id="run">
+  <div class="strip" aria-label="Works with">
+    <p>Works with the AI you already have</p>
+    <div class="marquee">
+      <ul>
+        <li>Claude Pro / Max</li><li>ChatGPT Plus / Pro</li><li>GitHub Copilot</li><li>OpenAI API</li><li>Anthropic API</li><li>Google Gemini</li><li>Qwen</li><li>Ollama — local &amp; free</li><li>Groq</li><li>OpenRouter</li><li>DeepSeek</li>
+        <li aria-hidden="true">Claude Pro / Max</li><li aria-hidden="true">ChatGPT Plus / Pro</li><li aria-hidden="true">GitHub Copilot</li><li aria-hidden="true">OpenAI API</li><li aria-hidden="true">Anthropic API</li><li aria-hidden="true">Google Gemini</li><li aria-hidden="true">Qwen</li><li aria-hidden="true">Ollama — local &amp; free</li><li aria-hidden="true">Groq</li><li aria-hidden="true">OpenRouter</li><li aria-hidden="true">DeepSeek</li>
+      </ul>
+    </div>
+  </div>
+
+  <section id="demo">
     <div class="wrap">
-      <p class="eyebrow">Running it</p>
-      <h2>One binary: configure it, run it, serve it, script it.</h2>
+      <p class="eyebrow" data-reveal>See it work</p>
+      <h2 data-reveal>It gets it wrong. Then it <em>proves</em> it got it right.</h2>
       <p class="sub">
-        After the installer, the binary is the whole program: the terminal interface,
-        the gateway and the browser page are the same file. With no configuration on
-        the machine, the first run launches the wizard — and the step no other agent
-        makes you answer is the <strong>anchor</strong>: the command that proves a task
-        is really done.
+        Every agent makes mistakes. The difference is who notices. Here motita adds a
+        <code>--json</code> flag to a small CLI — its first try doesn't compile, <strong>the
+        real check catches it</strong>, the exact error goes back, and the second try passes.
+        Nobody had to read a line of code to know.
       </p>
 
-      <div class="run">
-        <div>
-          <h3>First run · configure</h3>
-<pre><code><span class="c"># the wizard: provider → connect → model → check → review</span>
-motita config
+      <div class="replay" data-reveal>
+        <ol class="rail" id="rail">
+          <li data-step="0"><b>You ask</b>in plain words</li>
+          <li data-step="1"><b>It plans</b>and writes down what “done” means</li>
+          <li data-step="2"><b>It reads, then edits</b>real files, exactly</li>
+          <li data-step="3" class="bad"><b>The check fails</b>and the real error goes back</li>
+          <li data-step="4"><b>It fixes the cause</b>not the symptom</li>
+          <li data-step="5" class="good"><b>The check passes</b>— only now is it done</li>
+          <li data-step="6"><b>You get a report</b>what changed, how it was proven</li>
+        </ol>
+        <div class="term" role="img" aria-label="A replay of a real motita run: the task, the plan, the edits, a failing check, the fix, the passing check and the report.">
+          <div class="term-bar"><span>motita · notes</span><span>openai / gpt-5.1-codex</span><span class="live" id="live"><i></i>live</span><button class="replay-btn" type="button" id="replay">↻ replay</button></div>
+          <div class="term-body" id="term" aria-hidden="true"></div>
+        </div>
+      </div>
+      <p class="replay-note">Replayed from a real run — the commands, the error and the report are the ones in the screenshots below.</p>
+    </div>
+  </section>
 
-<span class="c"># or just start it — with no config found, the wizard runs itself</span>
-motita</code></pre>
-          <p class="hint">
-            Five steps, <code>↑</code> <code>↓</code> through every list: the provider, how
-            to connect (sign in with your account, or paste a key), the model, the
-            <strong>check</strong> — detected from the project by default — and a review
-            where nothing has been written yet. It saves <code>~/.motita/motita.yaml</code>
-            (<code>-config path config</code> puts it elsewhere); <code>/config</code> runs it
-            again from inside the interface and keeps what you already have.
-          </p>
+  <section id="tour">
+    <div class="wrap">
+      <p class="eyebrow" data-reveal>A tour of the real thing</p>
+      <h2 data-reveal>Nothing here is a mock-up. It's the app.</h2>
+      <p class="sub">
+        The same binary gives you a browser app, a phone app and a terminal app. Every screen
+        below was captured from motita running that task.
+      </p>
+
+      <div class="tour" data-reveal>
+        <div class="tour-list" role="tablist" aria-label="Screens">
+          <button class="tour-tab" role="tab" type="button" id="tt-report" aria-controls="tp-report" aria-selected="true"><b>The report</b><span>Evidence, not adjectives</span><i class="prog" aria-hidden="true"></i></button>
+          <button class="tour-tab" role="tab" type="button" id="tt-think" aria-controls="tp-think" aria-selected="false" tabindex="-1"><b>Its thinking</b><span>Watch the plan form</span><i class="prog" aria-hidden="true"></i></button>
+          <button class="tour-tab" role="tab" type="button" id="tt-tty" aria-controls="tp-tty" aria-selected="false" tabindex="-1"><b>Every command</b><span>Nothing happens in secret</span><i class="prog" aria-hidden="true"></i></button>
+          <button class="tour-tab" role="tab" type="button" id="tt-ask" aria-controls="tp-ask" aria-selected="false" tabindex="-1"><b>It asks first</b><span>When it matters</span><i class="prog" aria-hidden="true"></i></button>
+          <button class="tour-tab" role="tab" type="button" id="tt-tui" aria-controls="tp-tui" aria-selected="false" tabindex="-1"><b>In your terminal</b><span>Same agent, keyboard-first</span><i class="prog" aria-hidden="true"></i></button>
+          <button class="tour-tab" role="tab" type="button" id="tt-setup" aria-controls="tp-setup" aria-selected="false" tabindex="-1"><b>One-minute setup</b><span>Five questions, done</span><i class="prog" aria-hidden="true"></i></button>
         </div>
 
-        <div>
-          <h3>The terminal interface</h3>
-<pre><code><span class="c"># no arguments: a gateway is started for this interface, in-process</span>
-motita
-
-<span class="c"># a gateway someone else runs — this process runs no commands</span>
-motita -connect 127.0.0.1:7477 -tui
-
-<span class="c"># one-shot, scriptable: exit 0 when the check passed, 1 when not</span>
-motita -task "fix the failing test in internal/policy"
-motita -p "how many files are there?"</code></pre>
-          <p class="hint">
-            Inside the interface: <code>/task</code> and <code>/plan</code> switch between
-            doing work and read-only exploration; <code>/models</code>, <code>/reasoning</code>,
-            <code>/config</code>; <code>/sessions</code> and <code>/attach</code> move between
-            conversations; <code>/agents</code> (or <code>Ctrl+G</code>) shows the background
-            agents; <code>/good</code> <code>/bad</code> <code>/value</code>; <code>/update</code>
-            installs the newest release after checking it against its <code>SHA256SUMS</code>;
-            <code>/help</code> for the rest.
-          </p>
+        <div class="tour-view">
+          <div class="tour-pane" id="tp-report" role="tabpanel" aria-labelledby="tt-report">
+            <figure>
+              <div class="frame" data-zoom="shots/webui-report.webp"><div class="chrome" aria-hidden="true"><i></i><i></i><i></i><span>motita · Add JSON output to notes</span></div>
+                <img src="shots/webui-report.webp" width="1600" height="1000" loading="lazy" alt="The finished task: a DONE badge, 3 of 3 checks passed, the files changed, the checks with their evidence, a risk and the next steps."></div>
+              <figcaption><strong>A finished task answers like a good colleague would:</strong> what changed, how each change was verified and with what result, what to watch out for, and what to do next. The verdict comes from the check, not from the model's mood.</figcaption>
+            </figure>
+          </div>
+          <div class="tour-pane" id="tp-think" role="tabpanel" aria-labelledby="tt-think" hidden>
+            <figure>
+              <div class="frame" data-zoom="shots/webui-think.webp"><div class="chrome" aria-hidden="true"><i></i><i></i><i></i><span>motita · thinking</span></div>
+                <img src="shots/webui-think.webp" width="1600" height="1000" loading="lazy" alt="The THINK drawer while the task runs: what done means, the four-step plan and the first decision."></div>
+              <figcaption><strong>Open the THINK drawer and read along.</strong> Before touching a file it writes down what “done” means and the plan to get there — streamed live as the model writes it.</figcaption>
+            </figure>
+          </div>
+          <div class="tour-pane" id="tp-tty" role="tabpanel" aria-labelledby="tt-tty" hidden>
+            <figure>
+              <div class="frame" data-zoom="shots/webui-tty.webp"><div class="chrome" aria-hidden="true"><i></i><i></i><i></i><span>motita · terminal</span></div>
+                <img src="shots/webui-tty.webp" width="1600" height="1000" loading="lazy" alt="The TTY drawer: every command the agent ran with its real output, ending with go test passing and the JSON the new flag prints."></div>
+              <figcaption><strong>Every command, with its real output.</strong> The TTY drawer is the agent's shell, scrolled for you: the file it read, the edits it made, the tests it ran and what they said.</figcaption>
+            </figure>
+          </div>
+          <div class="tour-pane" id="tp-ask" role="tabpanel" aria-labelledby="tt-ask" hidden>
+            <figure class="duo">
+              <div class="frame" data-zoom="shots/webui-ask.webp"><div class="chrome" aria-hidden="true"><i></i><i></i><i></i><span>motita · approval</span></div>
+                <img src="shots/webui-ask.webp" width="1600" height="1000" loading="lazy" alt="An approval request: git push can reach outside this machine, with the buttons Run it, Allow all this session and No."></div>
+              <div class="phone" data-zoom="shots/webui-phone.webp"><img src="shots/webui-phone.webp" width="600" height="1298" loading="lazy" alt="The same approval on a phone, where the interface installs as an app."></div>
+              <figcaption style="grid-column: 1 / -1"><strong>Building and testing just runs. Reaching the outside world asks first.</strong> “Push it” is a request to publish, so you see the exact command and decide — from your desk or from your phone, where the interface installs as an app.</figcaption>
+            </figure>
+          </div>
+          <div class="tour-pane" id="tp-tui" role="tabpanel" aria-labelledby="tt-tui" hidden>
+            <figure>
+              <div class="frame" data-zoom="shots/tui-welcome.webp" style="background:#141218"><div class="chrome" aria-hidden="true"><i></i><i></i><i></i><span>~/projects/app — motita</span></div>
+                <img src="shots/tui-welcome.webp" width="987" height="659" loading="lazy" alt="The terminal interface right after setup: suggestions for a first task, Plan mode on Tab, and the commands /models, /config and ?."></div>
+              <figcaption><strong>Prefer the keyboard?</strong> Type <code>motita</code> and you get a full terminal interface — Tab switches to Plan mode for read-only questions, <code>/</code> opens every command. It is the same binary, not a wrapper.</figcaption>
+            </figure>
+          </div>
+          <div class="tour-pane" id="tp-setup" role="tabpanel" aria-labelledby="tt-setup" hidden>
+            <figure>
+              <div class="frame" data-zoom="shots/wizard-onboard.webp" style="background:#141218;max-width:640px"><div class="chrome" aria-hidden="true"><i></i><i></i><i></i><span>motita config</span></div>
+                <img src="shots/wizard-onboard.webp" width="958" height="1039" loading="lazy" alt="The first-run wizard: pick a provider from eight, how to connect, and which model to use."></div>
+              <figcaption><strong>Five steps, about a minute:</strong> pick your provider, sign in or paste a key, choose a model, confirm the check it found in your project, review. Nothing is written until the last step.</figcaption>
+            </figure>
+          </div>
         </div>
+      </div>
+    </div>
+  </section>
 
-        <div>
-          <h3>The gateway</h3>
-<pre><code><span class="c"># in the background, outliving the shell that started it</span>
-motita gateway start
-motita gateway status
-motita gateway stop
-
-<span class="c"># foreground, gateway only: no interface, for remote clients</span>
-motita -serve -gateway 127.0.0.1:7477</code></pre>
-          <p class="hint">
-            <code>gateway start</code> prints the interface link —
-            <code>http://127.0.0.1:7477/#t=&lt;token&gt;</code> — which a browser opens
-            once to trade the fragment for a cookie. The same port serves the page and
-            its <code>/v1/...</code> API, so there is no CORS and no second server.
-            <code>gateway.allow</code> in the YAML says who may reach it. An update applied
-            to a <code>-serve</code> gateway restarts it on the new binary, with the same
-            flags.
-          </p>
-        </div>
-
-        <div>
-          <h3>Configuration</h3>
-<pre><code><span class="c"># -config names a file; without it: ~/.motita/motita.yaml,</span>
-<span class="c"># then ./motita.yaml, then the built-in defaults</span>
-motita -config configs/agent.yaml.example
-
-<span class="c"># check a file without running anything (no model call, writes nothing)</span>
-motita -validate-config
-
-<span class="c"># the sandbox limits this machine can apply — and what it cannot</span>
-motita -isolation</code></pre>
-          <p class="hint">
-            Every setting also takes a <code>MOTITA_*</code> environment override, for
-            containers and secrets. A pasted key goes to <code>~/.motita/motita.env</code>
-            and a login to <code>~/.motita/auth/&lt;provider&gt;.json</code>, both
-            <code>0600</code>, never into the config — so the config can be committed and
-            shared.
-          </p>
-        </div>
+  <section id="uses">
+    <div class="wrap">
+      <p class="eyebrow" data-reveal>What you can hand it</p>
+      <h2 data-reveal>From a one-line fix to a whole <em>afternoon</em> of work.</h2>
+      <p class="sub">Describe the outcome. motita works out the steps, runs them, and keeps going until your project's own check agrees.</p>
+      <div class="cards">
+        <div class="card" data-reveal style="--d:.0s"><span class="ic"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M14.7 6.3a4 4 0 0 0-5.4 5.4L3 18l3 3 6.3-6.3a4 4 0 0 0 5.4-5.4l-2.6 2.6-2.4-.6-.6-2.4z"/></svg></span><h3>Fix what's broken</h3><p>Point it at a failing test or a bug report. It reproduces it, fixes the cause, and proves the test is green.</p><span class="ex">fix the failing test in the parser</span></div>
+        <div class="card" data-reveal style="--d:.06s"><span class="ic"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg></span><h3>Build a feature, with its test</h3><p>New flags, endpoints, screens. It writes the change and the test that pins it down.</p><span class="ex">add a --verbose flag and a test for it</span></div>
+        <div class="card" data-reveal style="--d:.12s"><span class="ic"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><circle cx="11" cy="11" r="6"/><path d="M20 20l-4.5-4.5"/></svg></span><h3>Ask before you change</h3><p>Plan mode is read-only by construction: explore a codebase, ask how something works — nothing on disk can change.</p><span class="ex">Tab → where is the session token renewed?</span></div>
+        <div class="card" data-reveal style="--d:.18s"><span class="ic"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M13 2L4 14h7l-1 8 9-12h-7z"/></svg></span><h3>Autopilot with a paper trail</h3><p><code>/goal</code> never stops to ask: it takes the recommended option and writes each decision down, so you can review — or undo — any of them later.</p><span class="ex">/goal migrate the config loader to YAML</span></div>
+        <div class="card" data-reveal style="--d:.0s"><span class="ic"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><circle cx="6" cy="6" r="2.5"/><circle cx="6" cy="18" r="2.5"/><circle cx="18" cy="12" r="2.5"/><path d="M6 8.5v7M8.3 7l7.4 4M8.3 17l7.4-4"/></svg></span><h3>Split big jobs in parallel</h3><p>It can start its own helpers for independent pieces — tests, docs, an investigation — each on its own git branch, while it keeps going.</p><span class="ex">3 agents · 48.2k tokens · live</span></div>
+        <div class="card" data-reveal style="--d:.06s"><span class="ic"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><circle cx="6" cy="6" r="2.5"/><circle cx="18" cy="18" r="2.5"/><path d="M6 8.5V18a2 2 0 0 0 2 2h7.5M13 4h3a2 2 0 0 1 2 2v9.5"/></svg></span><h3>Ship it: push, PR, CI</h3><p>Connect GitHub, GitLab or Bitbucket once. It commits with semantic messages, opens the pull request, reads the CI — and goes back to fix it if CI fails.</p><span class="ex">open a PR and keep CI green</span></div>
+        <div class="card" data-reveal style="--d:.12s"><span class="ic"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><circle cx="12" cy="12" r="8.5"/><path d="M12 7v5l3 2"/></svg></span><h3>Work while you sleep</h3><p>Tasks that fire on their own, every <code>30m</code> or <code>24h</code>, into a conversation you can open later and read like any other.</p><span class="ex">every 24h: update deps and run the suite</span></div>
+        <div class="card" data-reveal style="--d:.18s"><span class="ic"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><rect x="7" y="2.5" width="10" height="19" rx="2"/><path d="M11 18h2"/></svg></span><h3>From anywhere</h3><p>Terminal, browser, phone, an HTTP API or a WebSocket — all the same conversation. Start on the laptop, approve from the couch.</p><span class="ex">motita gateway start</span></div>
       </div>
     </div>
   </section>
 
   <section id="how">
     <div class="wrap">
-      <p class="eyebrow">The architecture</p>
-      <h2>The model proposes. Your code disposes.</h2>
-      <p class="sub">
-        motita splits every task in three, and the model only ever gets to
-        <strong>propose</strong>. The one rule that makes it work: the model can propose a
-        <code>PASS</code>, but only layer A can declare one. Without a real check, nothing is
-        ever declared done — there is no "trust me" mode. The wizard's default,
-        <code>anchor.kind: auto</code>, finds the check the project already has.
-      </p>
-
-      <div class="diagram">
-        <iframe src="architecture.html?theme=dark" title="Interactive motita architecture diagram" loading="lazy"></iframe>
-        <div class="foot">
-          <span>Interactive: switch theme, trace a relationship, export SVG or PNG.</span>
-          <span class="sep"></span>
-          <a href="architecture.html" target="_blank" rel="noopener">Open full screen ↗</a>
+      <div class="loop-wrap">
+        <div>
+          <p class="eyebrow" data-reveal>Why you can trust “done”</p>
+          <h2 data-reveal>The model proposes. <em>Your code</em> disposes.</h2>
+          <p class="sub">
+            Other agents grade their own homework, and a language model will always produce a
+            sentence that <em>sounds</em> like success. motita splits every task in three, and
+            the model only ever gets to <strong>propose</strong>. A real check — your tests, your
+            linter, your build — is the only thing that can declare a task done. If it fails,
+            the agent gets the real error and tries again. If it can't pass, it says so and stops.
+          </p>
+          <p class="sub" style="margin-bottom:0">
+            You don't have to configure the check: the wizard's default, <code>anchor.kind: auto</code>,
+            finds the one your project already has.
+          </p>
+        </div>
+        <div class="loop" data-reveal style="--d:.15s">
+          <svg viewBox="0 0 460 380" role="img" aria-labelledby="loop-t">
+            <title id="loop-t">The loop: the model proposes an action, the sandbox runs it, the anchor checks the result. A failure goes back to the model with the real error; a pass ends the task.</title>
+            <path id="p-act" class="path" d="M120 80 H340"/>
+            <path class="flow" d="M120 80 H340"/>
+            <path class="path" d="M380 110 V250"/>
+            <path class="flow" d="M380 110 V250"/>
+            <path class="path" d="M330 290 Q230 340 130 290"/>
+            <path class="flow pass" d="M330 290 Q230 340 130 290"/>
+            <path class="path" d="M80 250 V110"/>
+            <path class="flow fail" d="M80 250 V110"/>
+            <text class="lbl" x="200" y="68">proposes</text>
+            <text class="lbl" x="392" y="185">runs</text>
+            <text class="lbl r" x="90" y="185">✕ real error</text>
+            <text class="lbl g" x="196" y="338">✓ pass → done</text>
+            <g class="node"><rect x="20" y="50" width="120" height="60"/><text x="36" y="76">Layer B</text><text class="s" x="36" y="96">the model</text></g>
+            <g class="node"><rect x="320" y="50" width="120" height="60"/><text x="336" y="76">Layer C</text><text class="s" x="336" y="96">the sandbox</text></g>
+            <g class="node anchor"><rect x="300" y="250" width="140" height="60"/><text x="316" y="276">Layer A</text><text class="s" x="316" y="296">the check · anchor</text></g>
+            <g class="node"><rect x="20" y="250" width="120" height="60"/><text x="36" y="276">Report</text><text class="s" x="36" y="296">with evidence</text></g>
+            <circle r="5" fill="#00f0ff" style="filter:drop-shadow(0 0 6px #00f0ff)"><animateMotion dur="6s" repeatCount="indefinite" path="M80 80 H380 V280 Q230 340 80 280 V80"/></circle>
+          </svg>
         </div>
       </div>
 
-      <div class="cards" style="margin-top: var(--space-6)">
-        <div class="card">
+      <div class="cards" style="margin-top: var(--space-7)">
+        <div class="card" data-reveal>
           <span class="k">Layer A · the anchor</span>
           <h3>Deterministic code, not AI</h3>
-          <p>By default it runs the gate the project declares: <code>.motita/anchor</code>, a Makefile's <code>check</code>/<code>test</code>, <code>go test</code>, a <code>package.json</code>'s lint/typecheck/test, <code>cargo test</code>, <code>pytest</code>. Or your own command, exit code and output pattern. When the project's gate was already red before the task, only a failure that is <em>new</em> blocks it — and the verdict names the checks that were red. It cannot be talked into a different answer.</p>
+          <p>By default it runs the gate the project declares: <code>.motita/anchor</code>, a Makefile's <code>check</code>/<code>test</code>, <code>go test</code>, a <code>package.json</code>'s lint/typecheck/test, <code>cargo test</code>, <code>pytest</code>. Or your own command, exit code and output pattern. When the gate was already red before the task, only a <em>new</em> failure blocks it. It cannot be talked into a different answer.</p>
         </div>
-        <div class="card">
+        <div class="card" data-reveal style="--d:.08s">
           <span class="k">Layer B · reasoning</span>
           <h3>Any provider, one client</h3>
-          <p>A hand-written client for OpenAI (chat and Responses), Anthropic, Gemini, Copilot, Qwen and Ollama — and your Claude subscription through the official Claude Code CLI. Replies are held to a schema where the provider can enforce one, and the tokens every call reports are counted per agent.</p>
+          <p>A hand-written client for OpenAI (chat and Responses), Anthropic, Gemini, Copilot, Qwen and Ollama — and your Claude subscription through the official Claude Code CLI. Replies are held to a schema where the provider can enforce one, and every token is counted per agent.</p>
         </div>
-        <div class="card">
+        <div class="card" data-reveal style="--d:.16s">
           <span class="k">Layer C · the sandbox</span>
           <h3>Honest about its limits</h3>
-          <p>Runs the action under real limits — and tells you what it could <em>not</em> apply, instead of pretending the isolation is stronger than it is. HOME and temporary files live outside your repository, and a toolchain the agent installs once stays on its <code>PATH</code> for every session after.</p>
+          <p>Runs the action under real limits — and tells you what it could <em>not</em> apply, instead of pretending the isolation is stronger than it is. A toolchain the agent installs once stays on its <code>PATH</code> for every session after.</p>
+        </div>
+      </div>
+
+      <div class="diagram" data-reveal>
+        <iframe src="architecture.html?theme=dark" title="Interactive motita architecture diagram" loading="lazy"></iframe>
+        <div class="foot">
+          <span>The whole architecture, interactive: switch theme, trace a relationship, export SVG or PNG.</span>
+          <span class="sep"></span>
+          <a href="architecture.html" target="_blank" rel="noopener">Open full screen ↗</a>
         </div>
       </div>
     </div>
@@ -712,260 +922,208 @@ motita -isolation</code></pre>
 
   <section id="providers">
     <div class="wrap">
-      <p class="eyebrow">Providers</p>
-      <h2>Your subscription, or any API.</h2>
+      <p class="eyebrow" data-reveal>Bring your own AI</p>
+      <h2 data-reveal>Your subscription, or any API. <em>Your</em> choice.</h2>
       <p class="sub">
-        Sign in with the account you already pay for, or paste a key. Logins are renewed
-        before they expire, and an API key always wins over a stored login. Nothing else in
-        the agent knows which provider is behind it.
+        Sign in with the account you already pay for, or paste a key. Logins renew themselves
+        before they expire, and keys are stored <code>0600</code>, never in the config. Switch
+        any time with <code>/models</code> — nothing else in the agent cares which one is behind it.
       </p>
       <div class="cards">
-        <div class="card"><span class="k">claude-code</span><p>Your Claude Pro or Max plan, through Anthropic's own <code>claude</code> CLI after <code>claude auth login</code>. motita never reads those credentials.</p></div>
-        <div class="card"><span class="k">codex</span><p><strong>Sign in with ChatGPT</strong> (Plus, Pro, Business) or an OpenAI key, over the Responses API.</p></div>
-        <div class="card"><span class="k">copilot</span><p>A GitHub device-code login with an active Copilot subscription; the session token is renewed on its own.</p></div>
-        <div class="card"><span class="k">openai</span><p>An API key, against OpenAI or any OpenAI-compatible host: Groq, OpenRouter, DeepSeek, your own box.</p></div>
-        <div class="card"><span class="k">ollama</span><p>A local server needs nothing at all; Ollama Cloud takes a key. The wizard lists the models your server really has.</p></div>
-        <div class="card"><span class="k">anthropic</span><p>An Anthropic API key, over the Messages API.</p></div>
-        <div class="card"><span class="k">gemini</span><p>A key, a Google login with your own OAuth client, or gcloud's application-default credentials.</p></div>
-        <div class="card"><span class="k">qwen</span><p>A qwen.ai device-code login, or a DashScope key.</p></div>
+        <div class="card" data-reveal><span class="k">claude-code</span><p>Your <strong>Claude Pro or Max</strong> plan, through Anthropic's own <code>claude</code> CLI after <code>claude auth login</code>. motita never reads those credentials.</p></div>
+        <div class="card" data-reveal style="--d:.05s"><span class="k">codex</span><p><strong>Sign in with ChatGPT</strong> (Plus, Pro, Business) or an OpenAI key, over the Responses API.</p></div>
+        <div class="card" data-reveal style="--d:.1s"><span class="k">copilot</span><p>A GitHub device-code login with an active <strong>Copilot</strong> subscription; the session token is renewed on its own.</p></div>
+        <div class="card" data-reveal style="--d:.15s"><span class="k">ollama</span><p><strong>Free and private:</strong> a local server needs nothing at all; Ollama Cloud takes a key. The wizard lists the models your server really has.</p></div>
+        <div class="card" data-reveal><span class="k">openai</span><p>An API key, against OpenAI or any OpenAI-compatible host: Groq, OpenRouter, DeepSeek, your own box.</p></div>
+        <div class="card" data-reveal style="--d:.05s"><span class="k">anthropic</span><p>An Anthropic API key, over the Messages API.</p></div>
+        <div class="card" data-reveal style="--d:.1s"><span class="k">gemini</span><p>A key, a Google login with your own OAuth client, or gcloud's application-default credentials.</p></div>
+        <div class="card" data-reveal style="--d:.15s"><span class="k">qwen</span><p>A qwen.ai device-code login, or a DashScope key.</p></div>
       </div>
-    </div>
-  </section>
-
-  <section>
-    <div class="wrap">
-      <p class="eyebrow">Why it holds up</p>
-      <h2>Retries that learn something.</h2>
-      <p class="sub">
-        When a check fails, the agent gets the failing command, its real output and the
-        structured verdict back. It fixes the actual problem instead of re-rolling the dice.
-      </p>
-
-      <pre><code><span class="c"># The end-to-end test asserts the result on the FILESYSTEM, not in what the agent says.</span>
-<span class="c"># Its simulated model gets it wrong on purpose, then corrects itself — every commit.</span>
-attempt 1  <span class="y">FAIL</span>  anchor: exit 1 — "expected output.txt to exist"
-           <span class="c">the real error goes back to the model</span>
-attempt 2  <span class="g">PASS</span>  anchor: exit 0 — output.txt present and matching
-
-<span class="c"># Your exit code means something:</span>
-<span class="g">0</span>  every task passed its check
-<span class="y">1</span>  a task failed — with the reason in the message itself
-<span class="y">2</span>  bad configuration</code></pre>
-    </div>
-  </section>
-
-  <section>
-    <div class="wrap">
-      <p class="eyebrow">Long tasks</p>
-      <h2>Rounds spent on the work, not on the plumbing.</h2>
-      <p class="sub">
-        A real task takes dozens of rounds. Every one the agent spends fighting its own
-        tools is one it does not spend on yours, so the loop is built to waste none.
-      </p>
-      <ul class="plain">
-        <li><strong>Replies that cannot come back in the wrong shape.</strong> The next action is a JSON object held to a schema where the provider enforces one; elsewhere, a reply in another shape is read rather than thrown away.</li>
-        <li><strong>Files written as they are.</strong> <code>write_file</code> and <code>edit_file</code> put content on disk exactly — tabs and quotes included — with no heredoc or script to escape it, and an edit that does not match says so.</li>
-        <li><strong>A check it ran itself and saw fail</strong> is not walked away from: a claim of done over it is sent back, even when <code>| tail</code> hid the exit status.</li>
-        <li><strong>Toolchains installed once.</strong> Go, Node or <code>make</code> unpacked into the tools directory are on <code>PATH</code> in every later round and every later session — and the check sees them too. Long gates get <code>sandbox.check_timeout</code>, 15 minutes by default.</li>
-      </ul>
     </div>
   </section>
 
   <section id="sessions">
     <div class="wrap">
-      <p class="eyebrow">Projects &amp; sessions</p>
-      <h2>Every conversation on its own branch.</h2>
+      <p class="eyebrow" data-reveal>Your repository stays yours</p>
+      <h2 data-reveal>Every conversation on its own <em>branch</em>.</h2>
       <p class="sub">
-        Point motita at a repository and each session works in a <strong>git worktree</strong>
-        of its own, on branch <code>motita/&lt;session&gt;</code>. Your checkout is never the one
-        being edited, and two sessions never step on each other.
+        Point motita at a repository and each session works in a <strong>git worktree</strong> of its
+        own, on branch <code>motita/&lt;session&gt;</code>. Your checkout is never the one being edited,
+        and two sessions never step on each other.
       </p>
       <div class="cards">
-        <div class="card"><span class="k">Checkpoints</span><h3>Go back a turn</h3><p>Every turn is a checkpoint. Going back rewinds the conversation, and the files too when you ask — after the current state is saved, so going back is itself reversible.</p></div>
-        <div class="card"><span class="k">Integrate</span><h3>The agent merges its own work</h3><p>It commits the session's work and merges it into the project's branch. The session then becomes read-only, and <em>continue</em> opens a fresh one from the updated base.</p></div>
-        <div class="card"><span class="k">A report you can check</span><h3>Evidence, not adjectives</h3><p>A finished task answers with what changed, how it was verified and with what result, the risks and the next steps — the changed files listed, and screenshots first when the change is something you can see.</p></div>
-        <div class="card"><span class="k">Delete</span><h3>Asked first, with the list</h3><p>Deleting a session or a project names the files that would be lost before anything goes, and gives the worktrees back.</p></div>
+        <div class="card" data-reveal><span class="k">Checkpoints</span><h3>Go back a turn</h3><p>Every turn is a checkpoint. Going back rewinds the conversation, and the files too when you ask — after the current state is saved, so going back is itself reversible.</p></div>
+        <div class="card" data-reveal style="--d:.06s"><span class="k">Integrate</span><h3>It merges its own work</h3><p>It commits the session's work and merges it into the project's branch. The session then becomes read-only, and <em>continue</em> opens a fresh one from the updated base.</p></div>
+        <div class="card" data-reveal style="--d:.12s"><span class="k">Background agents</span><h3>Hand off a piece</h3><p>Each helper works in its own worktree from a snapshot of the tree — uncommitted work included — and reports back with the one command that brings its branch in.</p></div>
+        <div class="card" data-reveal style="--d:.18s"><span class="k">Delete</span><h3>Asked first, with the list</h3><p>Deleting a session or a project names the files that would be lost before anything goes, and gives the worktrees back.</p></div>
       </div>
-    </div>
-  </section>
-
-  <section id="agents">
-    <div class="wrap">
-      <p class="eyebrow">Background agents</p>
-      <h2>Hand off a piece. Keep working.</h2>
-      <p class="sub">
-        The agent can start agents of its own for independent pieces of a task — a test
-        suite, the docs, an investigation — and keep going while they run. Each one works
-        in its own worktree, on its own branch, from a snapshot of the tree as it was,
-        uncommitted work included.
-      </p>
-<pre><code><span class="c"># Ctrl+G or /agents in the terminal; the AGENTS drawer in the browser</span>
+<pre data-reveal style="margin-top: var(--space-6)"><code><span class="c"># Ctrl+G or /agents in the terminal; the AGENTS drawer in the browser</span>
 Agents  1 running · 48.2k tok
  /  main · fix the session export     2m14s   31.0k tok  r12
  /  write the export tests             1m02s   11.9k tok  r6   running: go test ./internal/export
  <span class="g">√</span>  update the reference               0m48s    5.3k tok  r4   motita/sub/…-a2 · 1 file changed</code></pre>
-      <ul class="plain" style="margin-top: var(--space-6)">
-        <li><strong><code>spawn_agent</code> and <code>wait_agents</code>.</strong> A finished agent reports on its own: what it did, the files it changed, and the one command that brings its branch in.</li>
-        <li><strong>Held to the project's own gate</strong>, not to a check that states the whole task — the main agent's check judges the merged result.</li>
-        <li><strong>Bounded</strong> by <code>agent.max_parallel</code>, 3 by default. A claim of done with agents still running is sent back once; insisting cancels them.</li>
-        <li><strong>Nobody is interrupted</strong> by a background agent: "allow all commands for this session" covers it, and anything else is refused instead of asked.</li>
-        <li><strong>Real tokens</strong>, as each provider reports them — input, output and cache — per agent and in total.</li>
-      </ul>
-    </div>
-  </section>
-
-  <section>
-    <div class="wrap">
-      <p class="eyebrow">The browser interface</p>
-      <h2>Same port, same conversation, any screen.</h2>
-      <p class="sub">
-        The gateway serves a web interface from its own port — no second server, no CORS.
-        The token rides in the URL fragment, which a browser never sends, and is traded for
-        a cookie holding an <strong>HMAC</strong> of it, so a lifted cookie is not a reusable
-        credential. On a phone it installs as an app.
-      </p>
-      <div class="cards">
-        <div class="card"><span class="k">The conversation</span><p>Answers rendered as Markdown, streamed live and resumed after a dropped connection. The commands of a turn collapse into a counter you open when you want them.</p></div>
-        <div class="card"><span class="k">Drawers</span><p>The model's reasoning as it writes it, a terminal with every command and its output, and the agents with their purpose, time and tokens.</p></div>
-        <div class="card"><span class="k">Projects</span><p>Sessions grouped by project in the sidebar, checkpoints to go back, the report with its screenshots, and an approval shown with the command whole.</p></div>
-        <div class="card"><span class="k">Windows</span><p>The skill library, the tasks that fire on their own, and failures reported where you will see them.</p></div>
-      </div>
-    </div>
-  </section>
-
-  <section>
-    <div class="wrap">
-      <p class="eyebrow">It learns</p>
-      <h2>From you, not from a retraining pipeline.</h2>
-      <p class="sub">
-        A library of procedures: how a kind of work is done, the commands that work, the
-        pitfalls someone already paid for. Eight ship inside the binary, the agent writes
-        new ones when it learns something, and a project can keep its own. They are files —
-        read them, fix them, version them.
-      </p>
-      <ul class="plain">
-        <li><strong><code>/good</code> and <code>/bad</code></strong> land on the procedures a turn actually used, and the library is searched by what has worked before. No fine-tuning, no extra bill.</li>
-        <li><strong>A curator keeps the shelf tidy</strong> without a model: unused procedures are marked stale, then archived — never deleted — and a pinned one is never touched.</li>
-        <li><strong>You can see the shelf</strong> — every document, how often it was used, a switch to turn one off — in the browser, or through <code>/v1/skills</code>.</li>
-      </ul>
     </div>
   </section>
 
   <section id="guardrails">
     <div class="wrap">
-      <p class="eyebrow">The guardrails</p>
-      <h2>Two layers, and only one of them is yours.</h2>
+      <p class="eyebrow" data-reveal>Safety</p>
+      <h2 data-reveal>Fast where it's safe. <em>Asks</em> where it isn't.</h2>
       <p class="sub">
-        The <strong>floor</strong> is a small, deliberately un-configurable set of commands that are
-        refused no matter what. The <strong>confirmation layer</strong> is where you decide what
-        interrupts you — and the subtle middle row below is the whole design.
+        A guardrail that interrupts you for <code>make</code> gets switched off within a week. So
+        motita runs the everyday work silently, stops for anything that reaches past your project,
+        and has a floor of commands it refuses no matter what — with <strong>no flag, key or
+        variable that relaxes it</strong>.
       </p>
+      <div class="guard">
+        <div class="verdicts">
+          <div class="v allow" data-reveal>
+            <b>ALLOW</b>
+            <span>It changes nothing, or only the workspace you pointed it at. <code>make</code>, <code>go build</code>, <code>npm test</code> and your own <code>./scripts/*</code> run <strong>silently</strong>.</span>
+          </div>
+          <div class="v ask" data-reveal style="--d:.08s">
+            <b>ASK</b>
+            <span>It reaches the network or the system, writes outside the workspace, or can't be classified. <strong>You are asked</strong> before anything runs — once, or for the whole session.</span>
+          </div>
+          <div class="v deny" data-reveal style="--d:.16s">
+            <b>DENY</b>
+            <span>The floor, always: <code>mkfs</code>, partition editors, <code>dd</code> with an output, the power verbs, and <code>rm</code>/<code>mv</code>/<code>cp</code>/<code>ln</code> aimed at <code>/</code>, <code>~</code>, a system path, or the tree that <em>contains</em> your workspace.</span>
+          </div>
+        </div>
+        <div class="frame" data-reveal style="--d:.2s" data-zoom="shots/webui-ask.webp"><div class="chrome" aria-hidden="true"><i></i><i></i><i></i><span>an ASK, live</span></div>
+          <img src="shots/webui-ask.webp" width="1600" height="1000" loading="lazy" alt="motita asking before git push -u origin HEAD, with Run it, Allow all this session and No."></div>
+      </div>
+      <p class="sub" style="margin-top: var(--space-6); margin-bottom: 0">
+        <strong>Plan mode is structurally read-only.</strong> It calls tools through a path that never
+        invokes a shell, so pipes, redirections and metacharacters aren't blocked — they're
+        <em>syntactically unreachable</em>. And the browser link carries its token in the URL fragment,
+        traded once for a cookie holding an <strong>HMAC</strong> of it.
+      </p>
+    </div>
+  </section>
 
-      <div class="verdicts">
-        <div class="v allow">
-          <b>ALLOW</b>
-          <span>It changes nothing, or it changes the workspace you pointed the agent at. <code>make</code>, <code>go build</code>, <code>npm test</code>, <code>python3 build.py</code> and your own <code>./scripts/*</code> run <strong>silently</strong>.</span>
+  <section id="learns">
+    <div class="wrap">
+      <p class="eyebrow" data-reveal>It gets better with you</p>
+      <h2 data-reveal>It learns from you, not from a <em>retraining</em> pipeline.</h2>
+      <p class="sub">
+        A library of procedures: how a kind of work is done, the commands that work, the pitfalls
+        someone already paid for. Eight ship inside the binary, the agent writes new ones when it
+        learns something, and a project can keep its own. They are files — read them, fix them,
+        version them.
+      </p>
+      <ul class="plain" data-reveal>
+        <li><strong><code>/good</code> and <code>/bad</code></strong> land on the procedures a turn actually used, and the library is searched by what has worked before. No fine-tuning, no extra bill.</li>
+        <li><strong>A curator keeps the shelf tidy</strong> without a model: unused procedures are marked stale, then archived — never deleted — and a pinned one is never touched.</li>
+        <li><strong>Retries that learn something:</strong> a failed check sends back the command, its real output and a structured verdict, so the next attempt fixes the actual problem instead of re-rolling the dice.</li>
+        <li><strong>Long tasks without wasted rounds:</strong> files are written exactly as they are, replies are held to a schema, and a toolchain installed once is on <code>PATH</code> in every later session.</li>
+      </ul>
+    </div>
+  </section>
+
+  <section id="run">
+    <div class="wrap">
+      <p class="eyebrow" data-reveal>Running it</p>
+      <h2 data-reveal>One binary: configure it, run it, serve it, <em>script</em> it.</h2>
+      <p class="sub">
+        After the installer, the binary is the whole program: the terminal interface, the gateway
+        and the browser page are the same file. With no configuration on the machine, the first
+        run launches the wizard — and the step no other agent makes you answer is the
+        <strong>anchor</strong>: the command that proves a task is really done.
+      </p>
+      <div class="run">
+        <div data-reveal>
+          <h3>First run · configure</h3>
+<pre><code><span class="c"># the wizard: provider → connect → model → check → review</span>
+motita config
+
+<span class="c"># or just start it — with no config found, the wizard runs itself</span>
+motita</code></pre>
+          <p class="hint">It saves <code>~/.motita/motita.yaml</code>; <code>/config</code> runs it again from inside the interface and keeps what you already have.</p>
         </div>
-        <div class="v ask">
-          <b>ASK</b>
-          <span>It reaches the network or the system, writes outside the workspace, or is something nobody can classify. <strong>You are asked</strong> before anything runs.</span>
-        </div>
-        <div class="v deny">
-          <b>DENY</b>
-          <span>Strict mode: what cannot be classified is refused instead of asked about. And the floor, always — <code>mkfs</code>, the partition editors, <code>dd</code> with an output, the power verbs, and <code>rm</code>/<code>mv</code>/<code>cp</code>/<code>ln</code> aimed at <code>/</code>, <code>~</code>, a system path, or the tree that <em>contains</em> your workspace.</span>
+        <div data-reveal style="--d:.08s">
+          <h3>The terminal interface</h3>
+<pre><code><span class="c"># no arguments: a gateway is started for this interface, in-process</span>
+motita
+
+<span class="c"># one-shot, scriptable: exit 0 when the check passed, 1 when not</span>
+motita -task "fix the failing test in internal/policy"
+motita -p "how many files are there?"</code></pre>
+          <p class="hint"><code>/task</code> and <code>/plan</code>, <code>/models</code>, <code>/goal</code>, <code>/agents</code> (or <code>Ctrl+G</code>), <code>/git</code>, <code>/update</code> — <code>?</code> lists every command and key.</p>
         </div>
       </div>
+      <details class="more" data-reveal>
+        <summary>The gateway, configuration and exit codes</summary>
+        <div class="run" style="margin-top: var(--space-4)">
+          <div>
+            <h3>The gateway</h3>
+<pre><code><span class="c"># in the background, outliving the shell that started it</span>
+motita gateway start
+motita gateway status
+motita gateway stop
 
-      <p class="sub" style="margin-top: var(--space-6)">
-        Rule 2 is the one that keeps the layer alive: a policy that asked about
-        <code>make</code> would be switched off within a week, and then it would protect
-        nothing. There is no YAML key, no environment variable and no flag that relaxes
-        the floor — <strong>that's the point</strong>. A guardrail an operator can switch off is a
-        guardrail that will be switched off, during the incident it was meant for.
-        What you <em>can</em> say is "allow all commands for this session": one answer for
-        the rest of that conversation, remembered across a restart, and announced every
-        time it is used.
-      </p>
+<span class="c"># foreground, gateway only: no interface, for remote clients</span>
+motita -serve -gateway 127.0.0.1:7477</code></pre>
+            <p class="hint"><code>gateway start</code> prints the interface link — <code>http://127.0.0.1:7477/#t=&lt;token&gt;</code>. The same port serves the page and its <code>/v1/...</code> API, so there is no CORS and no second server. <code>gateway.allow</code> says who may reach it.</p>
+          </div>
+          <div>
+            <h3>Configuration</h3>
+<pre><code><span class="c"># -config names a file; without it: ~/.motita/motita.yaml,</span>
+<span class="c"># then ./motita.yaml, then the built-in defaults</span>
+motita -config configs/agent.yaml.example
+
+<span class="c"># check a file without running anything</span>
+motita -validate-config
+
+<span class="c"># the sandbox limits this machine can apply</span>
+motita -isolation</code></pre>
+            <p class="hint">Every setting also takes a <code>MOTITA_*</code> environment override. A pasted key goes to <code>~/.motita/motita.env</code> and a login to <code>~/.motita/auth/&lt;provider&gt;.json</code>, both <code>0600</code> — so the config can be committed and shared.</p>
+          </div>
+          <div>
+            <h3>Your exit code means something</h3>
+<pre><code><span class="g">0</span>  every task passed its check
+<span class="y">1</span>  a task failed — with the reason in the message itself
+<span class="y">2</span>  bad configuration</code></pre>
+          </div>
+        </div>
+      </details>
     </div>
   </section>
 
   <section id="numbers">
     <div class="wrap">
-      <p class="eyebrow">The numbers</p>
-      <h2>Tested the way you'd test something you were about to bet on.</h2>
+      <p class="eyebrow" data-reveal>Built like it matters</p>
+      <h2 data-reveal>Tested the way you'd test something you were about to <em>bet on</em>.</h2>
       <p class="sub">
-        These are measured, not asserted — and the documentation's claims are anchored to
-        the code by tests, so the page cannot drift away from the behaviour.
+        These are measured, not asserted — and the documentation's claims are anchored to the code
+        by tests, so this page cannot drift away from the behaviour.
       </p>
-
-      <div class="stats">
+      <div class="stats" data-reveal>
         <div class="stat"><span class="n">100%</span><span class="l">statement coverage in every package that ships — 34 of 34 (<code>./internal/... ./cmd/...</code>), checked one by one so a gap can't hide behind an average; the CI harnesses in <code>tools/</code> are counted separately</span></div>
         <div class="stat"><span class="n">0</span><span class="l">external dependencies — <code>go.mod</code> has no <code>require</code> line, and there is no <code>go.sum</code></span></div>
-        <div class="stat"><span class="n">9</span><span class="l">platforms CI builds, with <code>386</code> as a first-class target — each one runs its container on Linux, and gets a header and size check on Windows and macOS</span></div>
+        <div class="stat"><span class="n">9</span><span class="l">platforms, one static binary each: Linux <code>386 · amd64 · arm · arm64</code>, Windows <code>386 · amd64 · arm64</code>, macOS <code>amd64 · arm64</code></span></div>
         <div class="stat"><span class="n">17.8–18.9&nbsp;MiB</span><span class="l">per published static binary, measured across all 9 targets — copy it over <code>scp</code> and walk away</span></div>
       </div>
-
-      <p class="sub" style="margin-top: var(--space-6)">
-        That coverage number isn't a badge. It's the mechanism that found the bugs now
-        documented in the reference: the <code>RLIMIT_CPU</code> that never fired, the process
-        group that kept a 1-second deadline waiting for five, the sandbox directory that got
-        deleted before the validator could look inside it. Every one of them is a test now.
-      </p>
-
-      <p class="sub" style="margin-bottom: 0">
-        CI reads the <strong>ELF header</strong> to prove the i386 binary really is 32-bit, and runs the
-        end-to-end tests inside a real 32-bit container before publishing anything. It also runs
-        <code>staticcheck</code> and <code>govulncheck</code> — the standard library ships <em>inside</em> the
-        binary, so a toolchain that has aged out of support hands its known vulnerabilities to whoever
-        downloads it.
-      </p>
-
-      <p class="sub" style="margin-bottom: 0">
-        That is not left to discipline. The build fails the day <code>go.mod</code>'s Go version is no
-        longer one the Go project still patches — asked directly of
-        <code>go.dev/dl?mode=json</code> rather than kept as a note with a date somebody has to remember.
-        Every claim on this page is checked the same way: the "no dependencies" line, and these
-        documents matching their sources.
-      </p>
-    </div>
-  </section>
-
-  <section>
-    <div class="wrap">
-      <p class="eyebrow">Where it runs</p>
-      <h2>Pure Go, standard library only.</h2>
-      <p class="sub">Nine targets, one static binary each. No cgo, nothing to vendor, nothing to patch.</p>
-      <div class="cards">
-        <div class="card"><span class="k">Linux</span><p class="mono">386 · amd64 · arm (ARMv7) · arm64</p></div>
-        <div class="card"><span class="k">Windows</span><p class="mono">386 · amd64 · arm64</p></div>
-        <div class="card"><span class="k">macOS</span><p class="mono">amd64 · arm64</p></div>
-      </div>
-    </div>
-  </section>
-
-  <section>
-    <div class="wrap">
-      <p class="eyebrow">The interface</p>
-      <h2>A terminal interface you'll actually want to use.</h2>
-      <p class="sub">
-        Run it with no arguments and you get a full TUI — written against the standard
-        library alone, so it's the same binary, not a wrapper around something else.
-      </p>
-      <div class="cards">
-        <div class="card"><span class="k">/task &nbsp; /plan</span><p>Switch between doing work and read-only exploration.</p></div>
-        <div class="card"><span class="k">/models</span><p>Your provider, your key status, and the models it really publishes.</p></div>
-        <div class="card"><span class="k">/good &nbsp; /bad</span><p>Tell the agent how a turn went. It lands on the procedures that turn used.</p></div>
-        <div class="card"><span class="k">/value</span><p>See what it has learned from those verdicts — no fine-tuning, no extra bill.</p></div>
-        <div class="card"><span class="k">/sessions &nbsp; /attach</span><p>The conversations the gateway holds, which one has a run in flight, and a move to another.</p></div>
-        <div class="card"><span class="k">/agents &nbsp; Ctrl+G</span><p>The background agents: purpose, elapsed time, tokens, what each is doing. The footer keeps the count and the total.</p></div>
-        <div class="card"><span class="k">/config &nbsp; /update</span><p>The setup again, applied at once; the newest release, verified before it is installed.</p></div>
-        <div class="card"><span class="k">Quiet by default</span><p>The commands a turn runs are a counter, not a wall of lines; <code>gateway.show_actions: true</code> lists every one.</p></div>
-      </div>
       <p class="sub" style="margin-top: var(--space-6); margin-bottom: 0">
-        <strong>Plan mode is structurally read-only.</strong> It calls tools through a path that never
-        invokes a shell, so pipes, redirections and metacharacters aren't blocked —
-        they're <em>syntactically unreachable</em>.
+        CI reads the <strong>ELF header</strong> to prove the i386 binary really is 32-bit, runs the
+        end-to-end tests inside a real 32-bit container, and runs <code>staticcheck</code> and
+        <code>govulncheck</code> before publishing anything. Pure Go, standard library only: no cgo,
+        nothing to vendor, nothing to patch.
       </p>
+    </div>
+  </section>
+
+  <section class="final">
+    <div class="wrap">
+      <p class="eyebrow" data-reveal>Your turn</p>
+      <h2 data-reveal>Give it a task <em>tonight</em>.<br>Read the proof tomorrow.</h2>
+      <p class="sub">Free, open source, and one line away.</p>
+      <div class="cmd" data-reveal>
+        <span class="prompt" aria-hidden="true">$</span>
+        <code id="install-cmd-final">curl -fsSL https://madkoding.github.io/motita/install.sh | sh</code>
+        <button class="copy" type="button" data-copy="install-cmd-final">Copy</button>
+      </div>
+      <p class="hero-note">On Windows: <code>irm https://madkoding.github.io/motita/install.ps1 | iex</code> · <a href="REFERENCE.md">Read the reference</a> · <a href="https://github.com/madkoding/motita">Star it on GitHub</a></p>
     </div>
   </section>
 
@@ -982,13 +1140,21 @@ Agents  1 running · 48.2k tok
   </div>
 </footer>
 
-<script>
-  // Two behaviours, and the page works without either: the Windows panel carries `hidden`
-  // in the MARKUP (not set by this script), so a reader with JavaScript blocked still sees
-  // the Windows command rather than an empty box.
-  (function () {
-    var tabs = Array.prototype.slice.call(document.querySelectorAll('.tab'));
+<dialog class="lb" id="lb" aria-label="Screenshot, full size">
+  <button type="button" id="lb-close" aria-label="Close">✕</button>
+  <img id="lb-img" src="shots/webui-report.webp" alt="">
+</dialog>
 
+<script>
+  // Everything below is progressive: the page reads and works without it. The `js`
+  // class is what arms the scroll reveal, so with scripting off nothing starts hidden.
+  (function () {
+    var root = document.documentElement;
+    root.classList.add('js');
+    var still = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+    // ── Install tabs ────────────────────────────────────────────────
+    var tabs = Array.prototype.slice.call(document.querySelectorAll('.tab'));
     function select(tab) {
       tabs.forEach(function (other) {
         var panel = document.getElementById(other.getAttribute('aria-controls'));
@@ -998,35 +1164,213 @@ Agents  1 running · 48.2k tok
         panel.hidden = !on;
       });
     }
-
     tabs.forEach(function (tab, index) {
       tab.addEventListener('click', function () { select(tab); });
       tab.addEventListener('keydown', function (event) {
-        // Left/Right move between the tabs, which is what a tablist is expected to do.
         var step = event.key === 'ArrowRight' ? 1 : event.key === 'ArrowLeft' ? -1 : 0;
         if (!step) { return; }
         event.preventDefault();
         var next = tabs[(index + step + tabs.length) % tabs.length];
-        select(next);
-        next.focus();
+        select(next); next.focus();
       });
     });
+    // Windows readers get their own command first.
+    if (/Win/.test(navigator.platform || '') && tabs[1]) { select(tabs[1]); }
 
-    // Copy button: it degrades to a plain command the reader can select by hand.
+    // ── Copy buttons ────────────────────────────────────────────────
     document.querySelectorAll('.copy').forEach(function (btn) {
       btn.addEventListener('click', async function () {
         var target = document.getElementById(btn.dataset.copy);
         var status = document.getElementById('copy-status');
         try {
           await navigator.clipboard.writeText(target.textContent.trim());
-          btn.textContent = 'Copied';
+          btn.textContent = 'Copied ✓'; btn.classList.add('done');
           status.textContent = 'Install command copied to clipboard.';
         } catch (e) {
           status.textContent = 'Copy failed — select the command and copy it manually.';
         }
-        setTimeout(function () { btn.textContent = 'Copy'; }, 1800);
+        setTimeout(function () { btn.textContent = 'Copy'; btn.classList.remove('done'); }, 1800);
       });
     });
+
+    // ── In-page links glide to their section (instantly for reduced motion) ──
+    document.querySelectorAll('a[href^="#"]').forEach(function (a) {
+      a.addEventListener('click', function (e) {
+        var target = document.querySelector(a.getAttribute('href'));
+        if (!target) { return; }
+        e.preventDefault();
+        target.scrollIntoView({ behavior: still ? 'auto' : 'smooth' });
+        history.pushState(null, '', a.getAttribute('href'));
+      });
+    });
+
+    // ── Scroll: reading meter and the current section in the nav ────
+    var meter = document.querySelector('.meter');
+    var links = Array.prototype.slice.call(document.querySelectorAll('nav a[href^="#"]'));
+    function onScroll() {
+      var max = document.documentElement.scrollHeight - innerHeight;
+      meter.style.setProperty('--read', max > 0 ? Math.min(1, scrollY / max) : 0);
+      var current = null;
+      links.forEach(function (a) {
+        var s = document.querySelector(a.getAttribute('href'));
+        if (s && s.getBoundingClientRect().top < innerHeight * 0.4) { current = a; }
+      });
+      links.forEach(function (a) {
+        if (a === current) { a.setAttribute('aria-current', 'true'); } else { a.removeAttribute('aria-current'); }
+      });
+    }
+    addEventListener('scroll', onScroll, { passive: true }); onScroll();
+
+    // ── Reveal on scroll ────────────────────────────────────────────
+    var seen = new IntersectionObserver(function (entries) {
+      entries.forEach(function (e) { if (e.isIntersecting) { e.target.classList.add('in'); seen.unobserve(e.target); } });
+    }, { rootMargin: '0px 0px -8% 0px' });
+    document.querySelectorAll('[data-reveal]').forEach(function (el) { seen.observe(el); });
+
+    // ── The hero frame leans toward the pointer ─────────────────────
+    var stage = document.getElementById('stage');
+    if (stage && !still && matchMedia('(hover: hover)').matches) {
+      var frame = stage.querySelector('.frame');
+      stage.addEventListener('pointermove', function (e) {
+        var r = stage.getBoundingClientRect();
+        var x = (e.clientX - r.left) / r.width - .5, y = (e.clientY - r.top) / r.height - .5;
+        frame.style.setProperty('--ry', (x * 10 - 3).toFixed(2) + 'deg');
+        frame.style.setProperty('--rx', (-y * 8 + 1).toFixed(2) + 'deg');
+      });
+      stage.addEventListener('pointerleave', function () { frame.style.removeProperty('--ry'); frame.style.removeProperty('--rx'); });
+    }
+
+    // ── Cards: a light that follows the pointer ─────────────────────
+    document.querySelectorAll('.card').forEach(function (c) {
+      c.addEventListener('pointermove', function (e) {
+        var r = c.getBoundingClientRect();
+        c.style.setProperty('--mx', (e.clientX - r.left) + 'px');
+        c.style.setProperty('--my', (e.clientY - r.top) + 'px');
+      });
+    });
+
+    // ── The replay: the real run, line by line ──────────────────────
+    // [step, class, text, delay before the line in ms]
+    var SCRIPT = [
+      [0, 't-you', '› Add a --json flag to `notes` that prints the list as JSON, with a test for it.', 300],
+      [1, 't-think', '◇ done means: notes --json prints a valid JSON array · the plain output is unchanged · go test ./... passes', 900],
+      [1, 't-dim', '  plan: read main.go → add --json and listJSON() → add a round-trip test → run the check', 700],
+      [2, 't-cmd', 'sed -n 1,60p main.go', 700],
+      [2, 't-dim', '  [ok] 38 lines · type Note, var store, func list', 400],
+      [2, 't-cmd', 'go test ./...', 500],
+      [2, 't-dim', '  ok   example.com/notes   0.006s   (baseline: green before the change)', 500],
+      [2, 't-file', '✎ edit_file  main.go       + --json flag, listJSON()', 700],
+      [2, 't-file', '✚ write_file json_test.go  + TestListJSONRoundTrips', 500],
+      [3, 't-dim', '◆ validating with anchor: go test ./...', 800],
+      [3, 't-bad', '✕ attempt 1 FAIL  ./main.go:37:9: undefined: json', 700],
+      [3, 't-dim', '  the failing command and its real output go back to the model', 600],
+      [4, 't-think', '◇ the import is missing — add encoding/json and run the gate again', 900],
+      [4, 't-file', '✎ edit_file  main.go       + import "encoding/json"', 600],
+      [4, 't-cmd', 'go test ./... && go run . --json', 500],
+      [4, 't-dim', '  ok   example.com/notes   0.004s\n  [ { "id": 1, "title": "Buy coffee beans", "done": false }, … ]', 600],
+      [5, 't-dim', '◆ validating with anchor: go test ./...', 700],
+      [5, 't-good', '✓ attempt 2 PASS  the check passed — the task is done', 700],
+      [6, 't-you', '■ DONE · 3/3 checks passed · 2 changes', 800],
+      [6, 't-dim', '  main.go (edited) · json_test.go (new)\n  worth knowing: the JSON field names are now a public contract for scripts', 400]
+    ];
+    var term = document.getElementById('term');
+    var rail = Array.prototype.slice.call(document.querySelectorAll('#rail li'));
+    var live = document.getElementById('live');
+    var timer = null, run = 0;
+    function mark(step) { rail.forEach(function (li) { li.classList.toggle('on', +li.dataset.step <= step); }); }
+    function line(row) {
+      var s = document.createElement('span');
+      s.className = 'ln ' + row[1];
+      s.textContent = row[2];
+      return s;
+    }
+    function finish() {
+      term.textContent = '';
+      SCRIPT.forEach(function (r) { term.appendChild(line(r)); });
+      mark(6); live.style.visibility = 'hidden';
+    }
+    function play() {
+      var my = ++run;
+      clearTimeout(timer);
+      term.textContent = ''; live.style.visibility = '';
+      var cursor = document.createElement('span'); cursor.className = 'cursor';
+      var i = 0;
+      (function next() {
+        if (my !== run) { return; }
+        if (i >= SCRIPT.length) { term.appendChild(cursor); live.style.visibility = 'hidden'; return; }
+        var row = SCRIPT[i++];
+        timer = setTimeout(function () {
+          if (my !== run) { return; }
+          if (cursor.parentNode) { cursor.remove(); }
+          term.appendChild(line(row));
+          term.appendChild(cursor);
+          mark(row[0]);
+          // Keep the newest lines in view inside the fixed-height panel.
+          while (term.scrollHeight > term.clientHeight + 4 && term.firstChild !== cursor) { term.removeChild(term.firstChild); }
+          next();
+        }, row[3]);
+      })();
+    }
+    document.getElementById('replay').addEventListener('click', function () { still ? finish() : play(); });
+    if (still) { finish(); }
+    else {
+      var started = false;
+      new IntersectionObserver(function (entries, obs) {
+        if (entries[0].isIntersecting && !started) { started = true; play(); obs.disconnect(); }
+      }, { threshold: 0.35 }).observe(term);
+    }
+
+    // ── The tour: tabs that advance on their own until touched ──────
+    var ttabs = Array.prototype.slice.call(document.querySelectorAll('.tour-tab'));
+    var auto = !still, tick = null, DUR = 7000;
+    function show(t, user) {
+      ttabs.forEach(function (o) {
+        var on = o === t, pane = document.getElementById(o.getAttribute('aria-controls'));
+        o.setAttribute('aria-selected', on ? 'true' : 'false'); o.tabIndex = on ? 0 : -1;
+        pane.hidden = !on;
+        if (on) { pane.classList.remove('enter'); void pane.offsetWidth; pane.classList.add('enter'); }
+        var p = o.querySelector('.prog'); p.classList.remove('run');
+      });
+      if (user) { auto = false; }
+      clearTimeout(tick);
+      if (auto) {
+        var p = t.querySelector('.prog'); void p.offsetWidth; p.style.setProperty('--dur', DUR + 'ms'); p.classList.add('run');
+        tick = setTimeout(function () { show(ttabs[(ttabs.indexOf(t) + 1) % ttabs.length]); }, DUR);
+      }
+    }
+    ttabs.forEach(function (t, i) {
+      t.addEventListener('click', function () { show(t, true); });
+      t.addEventListener('keydown', function (e) {
+        var k = e.key, step = (k === 'ArrowDown' || k === 'ArrowRight') ? 1 : (k === 'ArrowUp' || k === 'ArrowLeft') ? -1 : 0;
+        if (!step) { return; }
+        e.preventDefault();
+        var n = ttabs[(i + step + ttabs.length) % ttabs.length]; show(n, true); n.focus();
+      });
+    });
+    var tour = document.querySelector('.tour');
+    tour.addEventListener('pointerenter', function () { if (auto) { clearTimeout(tick); ttabs.forEach(function (o) { o.querySelector('.prog').classList.remove('run'); }); } });
+    tour.addEventListener('pointerleave', function () { if (auto) { show(ttabs.filter(function (o) { return o.getAttribute('aria-selected') === 'true'; })[0]); } });
+    if (auto) {
+      new IntersectionObserver(function (entries, obs) {
+        if (entries[0].isIntersecting) { show(ttabs[0]); obs.disconnect(); }
+      }, { threshold: 0.3 }).observe(tour);
+    }
+
+    // ── Lightbox: any screenshot opens full size ────────────────────
+    var lb = document.getElementById('lb'), lbImg = document.getElementById('lb-img');
+    document.querySelectorAll('[data-zoom]').forEach(function (el) {
+      el.setAttribute('tabindex', '0'); el.setAttribute('role', 'button');
+      el.setAttribute('aria-label', 'Open this screenshot full size');
+      function open() {
+        if (!lb.showModal) { location.href = el.dataset.zoom; return; }
+        lbImg.src = el.dataset.zoom; lbImg.alt = (el.querySelector('img') || {}).alt || '';
+        lb.showModal();
+      }
+      el.addEventListener('click', open);
+      el.addEventListener('keydown', function (e) { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); open(); } });
+    });
+    document.getElementById('lb-close').addEventListener('click', function () { lb.close(); });
+    lb.addEventListener('click', function (e) { if (e.target === lb) { lb.close(); } });
   })();
 </script>
 </body>
