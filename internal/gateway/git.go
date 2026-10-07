@@ -72,13 +72,31 @@ func (s *Server) gitStoreOr(w http.ResponseWriter) (gitforge.Store, bool) {
 // process's own plus the credential helper, and git's messages in English, because
 // a refusal for credentials is recognised by what git says (see isGitAuthFailure).
 func (s *Server) gitCommandEnv() []string {
-	env := os.Environ()
+	env := withoutInlineGitConfig(os.Environ())
 	if s.opts.ExePath != "" || s.opts.GitAuthDir != "" {
 		env = gitforge.CloneEnv(s.opts.ExePath, s.opts.GitAuthDir)
 	}
 	// GIT_TERMINAL_PROMPT=0: the gateway has no terminal, and a prompt for a password nobody can type
 	// would hold the command for ever.
 	return append(env, "LC_ALL=C", "GIT_TERMINAL_PROMPT=0")
+}
+
+// withoutInlineGitConfig drops the inline git configuration (GIT_CONFIG_COUNT and
+// its GIT_CONFIG_KEY_n / GIT_CONFIG_VALUE_n pairs) the process may have inherited.
+// motita exports one to point git at its own credential helper, and a gateway that
+// runs git itself must not pick up a helper it did not ask for: with no logins
+// configured it runs git with no credentials at all.
+func withoutInlineGitConfig(env []string) []string {
+	out := make([]string, 0, len(env))
+	for _, kv := range env {
+		if strings.HasPrefix(kv, "GIT_CONFIG_COUNT=") ||
+			strings.HasPrefix(kv, "GIT_CONFIG_KEY_") ||
+			strings.HasPrefix(kv, "GIT_CONFIG_VALUE_") {
+			continue
+		}
+		out = append(out, kv)
+	}
+	return out
 }
 
 // gitAccountView is one host as the settings screen and the project dialog draw it.
