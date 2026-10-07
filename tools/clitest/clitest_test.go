@@ -140,3 +140,91 @@ func TestReservePortKeepsThePreferredOneWhenItIsFree(t *testing.T) {
 			preferred, got)
 	}
 }
+
+// fakeT is a *testing.T stand-in that records what the contract reports instead of
+// aborting the test binary. The failure branches are the ones that matter most —
+// they are the messages a mock's author reads when their program misbehaves — and
+// with a real *testing.T they can only be reached by making the mock actually
+// fail, which a test of the contract cannot do.
+type fakeT struct {
+	fatals   []string
+	errors   []string
+	cleanups []func()
+}
+
+func (f *fakeT) Helper()                          {}
+func (f *fakeT) Skip(args ...any)                 {}
+func (f *fakeT) Skipf(format string, args ...any) {}
+func (f *fakeT) Fatal(args ...any)                { f.fatals = append(f.fatals, fmt.Sprint(args...)) }
+func (f *fakeT) Fatalf(format string, args ...any) {
+	f.fatals = append(f.fatals, fmt.Sprintf(format, args...))
+}
+func (f *fakeT) Error(args ...any) { f.errors = append(f.errors, fmt.Sprint(args...)) }
+func (f *fakeT) Errorf(format string, args ...any) {
+	f.errors = append(f.errors, fmt.Sprintf(format, args...))
+}
+func (f *fakeT) Cleanup(fn func()) { f.cleanups = append(f.cleanups, fn) }
+
+// TestBootstrapReportsAFailureWhenTheProgramDoesNotExit: a bootstrap that returns
+// without asking for an exit is the bug the contract exists to catch — the process
+// would carry on as if the server had started.
+func TestBootstrapReportsAFailureWhenTheProgramDoesNotExit(t *testing.T) {
+	f := &fakeT{}
+	tool := selfTool()
+	tool.MainBody = func(port int, host string, exit func(int)) {} // returns without exiting
+	testBootstrapReportsAFailure(f, tool)
+	if len(f.fatals) != 0 {
+		t.Errorf("the failure must be reported, not fatal: %v", f.fatals)
+	}
+	if len(f.errors) == 0 {
+		t.Fatal("a bootstrap that never exits must be reported")
+	}
+}
+
+// TestBootstrapStartsAndStopsChecksTheWiring: the success path asserts the handler
+// answers and a read-header timeout is set. A tool that wires neither must be caught.
+func TestBootstrapStartsAndStopsChecksTheWiring(t *testing.T) {
+	f := &fakeT{}
+	tool := selfTool()
+	tool.Handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = io.WriteString(w, "not ok")
+	})
+	tool.MainBody = func(port int, host string, exit func(int)) {
+		srv := &http.Server{Addr: "127.0.0.1:0", Handler: tool.Handler}
+		_ = (*tool.ListenAndServe)(srv) // the swapped hook inspects it
+	}
+	testBootstrapStartsAndStops(f, tool)
+	if len(f.errors) < 2 {
+		t.Fatalf("both the handler and the read-header timeout must be checked: %v", f.errors)
+	}
+}
+
+// TestBootstrapStartsAndStopsReportsAnUnexpectedExit: the success path must not ask
+// for an exit. A bootstrap that does is the failure the contract reports.
+func TestBootstrapStartsAndStopsReportsAnUnexpectedExit(t *testing.T) {
+	f := &fakeT{}
+	tool := selfTool()
+	tool.MainBody = func(port int, host string, exit func(int)) { exit(0) }
+	testBootstrapStartsAndStops(f, tool)
+	if len(f.errors) == 0 {
+		t.Fatal("an exit on the success path must be reported")
+	}
+}
+
+// TestSwapRestoresTheHook: swap must put the original hook back, or the next test
+// in the package would run against a replaced one.
+func TestSwapRestoresTheHook(t *testing.T) {
+	f := &fakeT{}
+	tool := selfTool()
+	original := fmt.Sprintf("%p", *tool.ListenAndServe)
+	swap(f, tool, func(*http.Server) error { return nil })
+	if fmt.Sprintf("%p", *tool.ListenAndServe) == original {
+		t.Fatal("swap must install the replacement")
+	}
+	for _, fn := range f.cleanups {
+		fn()
+	}
+	if got := fmt.Sprintf("%p", *tool.ListenAndServe); got != original {
+		t.Errorf("swap must restore the original hook on cleanup: got %s, want %s", got, original)
+	}
+}

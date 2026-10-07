@@ -45,6 +45,22 @@ type Tool struct {
 	MainBody func(port int, host string, exit func(int))
 }
 
+// contractT is the slice of *testing.T the contract uses. Narrowing the helpers to
+// an interface is what makes their failure branches reachable: a fake can record a
+// failure instead of aborting the test binary, so the messages a mock's author
+// reads when their program misbehaves are exercised too. *testing.T satisfies it,
+// so Run keeps taking the real one.
+type contractT interface {
+	Helper()
+	Skip(args ...any)
+	Skipf(format string, args ...any)
+	Fatal(args ...any)
+	Fatalf(format string, args ...any)
+	Error(args ...any)
+	Errorf(format string, args ...any)
+	Cleanup(func())
+}
+
 // Run executes the whole shared contract.
 func Run(t *testing.T, tool Tool) {
 	t.Helper()
@@ -72,7 +88,7 @@ func Run(t *testing.T, tool Tool) {
 // the e2e scripts may already know by that number, falling back to a random one would make the
 // two disagree; asking the kernel first is enough, and it is a `net.Listen` that is closed
 // again, so the window is microseconds.
-func reservePort(t *testing.T, preferred int) int {
+func reservePort(t contractT, preferred int) int {
 	t.Helper()
 	if l, err := net.Listen("tcp", "127.0.0.1:"+strconv.Itoa(preferred)); err == nil {
 		_ = l.Close()
@@ -89,7 +105,7 @@ func reservePort(t *testing.T, preferred int) int {
 
 // testAnswersHealthz starts the program for real and checks it answers. It is the
 // only way to cover the flag parsing and the server bootstrap.
-func testAnswersHealthz(t *testing.T, tool Tool) {
+func testAnswersHealthz(t contractT, tool Tool) {
 	t.Helper()
 	binary, err := os.Executable()
 	if err != nil {
@@ -133,7 +149,7 @@ func testAnswersHealthz(t *testing.T, tool Tool) {
 // The failure is forced through the tool's own variable rather than by taking a
 // privileged port: port 1 is bindable when the suite runs as root, so relying on it
 // would make the test pass locally and fail in a container, or the other way round.
-func testReportsAListenFailure(t *testing.T, tool Tool) {
+func testReportsAListenFailure(t contractT, tool Tool) {
 	t.Helper()
 	binary, err := os.Executable()
 	if err != nil {
@@ -154,7 +170,7 @@ func testReportsAListenFailure(t *testing.T, tool Tool) {
 
 // testBootstrapReportsAFailure: the bootstrap must ask for a non-zero exit when the
 // server cannot start, instead of returning as if all were well.
-func testBootstrapReportsAFailure(t *testing.T, tool Tool) {
+func testBootstrapReportsAFailure(t contractT, tool Tool) {
 	t.Helper()
 	swap(t, tool, func(*http.Server) error { return errors.New("port already in use") })
 
@@ -169,7 +185,7 @@ func testBootstrapReportsAFailure(t *testing.T, tool Tool) {
 // testBootstrapStartsAndStops: on success the bootstrap returns without asking for
 // an exit, and the server must be wired with a read-header timeout — without one, a
 // client that never finishes its request line holds the connection open.
-func testBootstrapStartsAndStops(t *testing.T, tool Tool) {
+func testBootstrapStartsAndStops(t contractT, tool Tool) {
 	t.Helper()
 	swap(t, tool, func(srv *http.Server) error {
 		rec := httptest.NewRecorder()
@@ -196,7 +212,7 @@ func testBootstrapStartsAndStops(t *testing.T, tool Tool) {
 //
 // It binds for real, so it reserves too — `Port+1` is just as shared as `Port`, and this
 // test holding a number nobody checked is the same failure one field over.
-func testRealServerBindsAndServes(t *testing.T, tool Tool) {
+func testRealServerBindsAndServes(t contractT, tool Tool) {
 	t.Helper()
 	addr := "127.0.0.1:" + strconv.Itoa(reservePort(t, tool.Port+1))
 	srv := &http.Server{
@@ -225,7 +241,7 @@ func testRealServerBindsAndServes(t *testing.T, tool Tool) {
 // swap replaces the listen hook for the duration of the test. Replacing it is what
 // makes the bootstrap's two exits reachable: the real hook blocks until the server
 // is stopped, which a test cannot observe.
-func swap(t *testing.T, tool Tool, fn func(*http.Server) error) {
+func swap(t contractT, tool Tool, fn func(*http.Server) error) {
 	t.Helper()
 	original := *tool.ListenAndServe
 	t.Cleanup(func() { *tool.ListenAndServe = original })
