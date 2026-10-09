@@ -182,6 +182,21 @@ var argumentRules = map[string]func([]string) (string, bool){
 		}
 		return "", false
 	},
+	// --- the system-state readers whose arguments change the system -----------
+	//
+	// Each of these is listed for its reading form, and each has a form that sets the clock,
+	// the hostname, a route or an address, or deletes logs. The rules live in system.go.
+	"journalctl":  journalctlRule,
+	"dmesg":       dmesgRule,
+	"date":        dateRule,
+	"hostname":    hostnameRule,
+	"hostnamectl": hostnamectlRule,
+	"timedatectl": timedatectlRule,
+	"ip":          ipRule,
+	"route":       routeRule,
+	"ifconfig":    ifconfigRule,
+	"arp":         arpRule,
+	"ag":          agRule,
 }
 
 // writesTo reports the first flag that names an output file, in either the separate form
@@ -288,7 +303,10 @@ var readers = map[string]bool{
 	"ps": true, "top": true, "free": true, "uptime": true, "vmstat": true,
 	"iostat": true, "mpstat": true, "lsof": true, "pstree": true, "pidof": true,
 	"uname": true, "hostname": true, "hostnamectl": true, "arch": true,
-	"nproc": true, "getconf": true, "ldd": true,
+	// `ldd` is NOT here: on glibc it runs the binary it inspects (with LD_TRACE_LOADED_OBJECTS
+	// set), and a crafted binary runs its own code. Reading a binary's dependencies is
+	// `objdump -p` or `readelf -d`, which only read.
+	"nproc": true, "getconf": true,
 	"df": true, "du": true, "lsblk": true, "blkid": true, "findmnt": true,
 	"id": true, "whoami": true, "groups": true, "users": true, "who": true,
 	"w": true, "last": true, "lastlog": true,
