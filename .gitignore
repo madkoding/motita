@@ -68,3 +68,6 @@ workspace/
 __pycache__/
 *.pyc
 node_modules/
+
+# Worktrees Claude Code agents create while working on this repository.
+/.claude/worktrees/
