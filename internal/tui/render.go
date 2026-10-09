@@ -643,6 +643,9 @@ func providerName(p string) string {
 // body on a rail. The rail is what makes a long conversation easy to follow and
 // it costs a single column.
 func (t *TUI) messageLines(m Message, inner int) []string {
+	// Every message's text came from somewhere the interface does not control - the user's typing,
+	// the model, a tool's output - so its control characters are shown, never obeyed.
+	m.Text = escapeControls(m.Text)
 	switch m.Author {
 	case AuthorUser:
 		head := t.color(colAccent, 0, glyphUser+" ") + t.muted(t.tr("you"))
@@ -1083,6 +1086,45 @@ func visibleLen(s string) int {
 		}
 	})
 	return n
+}
+
+// escapeControls makes the control characters of UNTRUSTED text visible instead of handing them
+// to the terminal: the model's words, a tool's output, a command waiting for approval. A raw ESC
+// in any of them is an instruction to the terminal, not text - it can hide part of a command in
+// the approval window, rewrite rows already drawn, or set the clipboard (OSC 52). Every C0 byte
+// but newline and tab is shown in caret form (ESC is ^[), DEL as ^?, and a C1 control as \u0080
+// to \u009f. A carriage return right before a newline is dropped: that is a CRLF line ending,
+// not an instruction. An invalid UTF-8 byte becomes U+FFFD.
+func escapeControls(s string) string {
+	clean := true
+	for _, r := range s {
+		if (r < 0x20 && r != '\n' && r != '\t') || (r >= 0x7f && r < 0xa0) || r == utf8.RuneError {
+			clean = false
+			break
+		}
+	}
+	if clean {
+		return s
+	}
+	var b strings.Builder
+	b.Grow(len(s) + 8)
+	for i, r := range s {
+		switch {
+		case r == '\r' && strings.HasPrefix(s[i+1:], "\n"):
+		case r == '\n' || r == '\t':
+			b.WriteRune(r)
+		case r < 0x20:
+			b.WriteByte('^')
+			b.WriteByte(byte(r) + '@')
+		case r == 0x7f:
+			b.WriteString("^?")
+		case r >= 0x80 && r < 0xa0:
+			fmt.Fprintf(&b, `\u%04x`, r)
+		default:
+			b.WriteRune(r)
+		}
+	}
+	return b.String()
 }
 
 // stripANSI removes every escape sequence, for no-colour mode.

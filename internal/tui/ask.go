@@ -84,9 +84,10 @@ func (t *TUI) askLines(max int) []string {
 		out = append(out, t.askLine(t.muted(t.trf("question %d of %d", a.cur+1, n)), width))
 	}
 	it := a.items[a.cur]
-	out = append(out, t.askLine(t.color(colAccent, colBase, it.Text), width))
+	// The question and its options are the model's text: their control characters are shown.
+	out = append(out, t.askLine(t.color(colAccent, colBase, escapeControls(it.Text)), width))
 	if it.Assumption != "" {
-		out = append(out, t.askLine(t.muted(t.trf("(if you do not answer: %s)", it.Assumption)), width))
+		out = append(out, t.askLine(t.muted(t.trf("(if you do not answer: %s)", escapeControls(it.Assumption))), width))
 	}
 
 	// One row per option, numbered by the key that picks it. The numbers are the interface's,
@@ -96,7 +97,7 @@ func (t *TUI) askLines(max int) []string {
 		if a.answers[a.cur] == opt {
 			mark = "*"
 		}
-		out = append(out, t.askLine(fmt.Sprintf("%s %d) %s", mark, i+1, opt), width))
+		out = append(out, t.askLine(fmt.Sprintf("%s %d) %s", mark, i+1, escapeControls(opt)), width))
 	}
 
 	// The answer line is ALWAYS drawn, even with no options: it is where a free answer goes, and
@@ -127,7 +128,7 @@ func (t *TUI) askLines(max int) []string {
 // It is drawn from the answer the window holds, so a typed answer and a picked option are the
 // same thing by the time it is confirmed, and the user can see exactly what will be sent.
 func (t *TUI) askAnswerLine(width int) string {
-	return t.askLine(t.muted(t.tr("answer:")+" ")+t.ask.answers[t.ask.cur], width)
+	return t.askLine(t.muted(t.tr("answer:")+" ")+escapeControls(t.ask.answers[t.ask.cur]), width)
 }
 
 // askLine draws one window row with the interface margin and the window's colour.
