@@ -59,3 +59,25 @@ func TestRepositoryConfigRunsNoCode(t *testing.T) {
 		t.Errorf("repository config ran code: %s", read(t, marker))
 	}
 }
+
+// TestBranchNamesAreNeverOptions: a branch name reaches git as an argument, and one that starts
+// with "-" would be read as a flag: --output writes a file, --upload-pack runs a command.
+func TestBranchNamesAreNeverOptions(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("the planted command is a shell command")
+	}
+	ctx := context.Background()
+	repo := newRepo(t)
+	pushToOrigin(t, repo)
+	marker := filepath.Join(t.TempDir(), "ran")
+
+	if _, _, err := CommitsBetween(ctx, repo, "--output="+marker, "main"); err == nil {
+		t.Error("CommitsBetween with a flag for a branch reported success")
+	}
+	if err := PullFastForward(ctx, repo, "--upload-pack=touch "+marker+";"); err == nil {
+		t.Error("PullFastForward with a flag for a branch reported success")
+	}
+	if exists(marker) {
+		t.Error("a branch name was read as an option")
+	}
+}

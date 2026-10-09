@@ -368,11 +368,11 @@ func parseCommits(out string) []Commit {
 // when the session began: the base branch may have moved since, and a recorded
 // number would then be a number that used to be true.
 func CommitsBetween(ctx context.Context, dir, baseBranch, branch string) (ahead, behind []Commit, err error) {
-	out, err := noGitOr(ctx, "could not read the branch's commits", dir, "log", "--format=%h\t%s", baseBranch+".."+branch)
+	out, err := noGitOr(ctx, "could not read the branch's commits", dir, "log", "--format=%h\t%s", "--end-of-options", baseBranch+".."+branch)
 	if err != nil {
 		return nil, nil, err
 	}
-	behindOut, err := noGitOr(ctx, "could not read the base branch's commits", dir, "log", "--format=%h\t%s", branch+".."+baseBranch)
+	behindOut, err := noGitOr(ctx, "could not read the base branch's commits", dir, "log", "--format=%h\t%s", "--end-of-options", branch+".."+baseBranch)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -601,7 +601,7 @@ func MergeInto(ctx context.Context, repoDir, baseBranch, branch, message string)
 // remote because pulling and merging blindly would change history the user did
 // not ask to merge.
 func PullFastForward(ctx context.Context, dir, branch string) error {
-	if _, err := noGitOr(ctx, "could not fetch the latest changes", dir, "fetch", "origin", branch); err != nil {
+	if _, err := noGitOr(ctx, "could not fetch the latest changes", dir, "fetch", "--", "origin", branch); err != nil {
 		return err
 	}
 	// A fetch is not a merge. The local branch must be able to move forward only.
