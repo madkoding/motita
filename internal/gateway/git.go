@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/madkoding/motita/internal/gitforge"
+	"github.com/madkoding/motita/internal/gitx"
 )
 
 // The git endpoints are what lets a user connect motita to GitHub, GitLab,
@@ -428,6 +429,10 @@ func (s *Server) handleGitDefaultBranch(w http.ResponseWriter, r *http.Request) 
 		writeError(w, http.StatusBadRequest, "the repository URL is empty")
 		return
 	}
+	if !cloneableURL(url) {
+		writeError(w, http.StatusBadRequest, "not a repository URL: use https://, ssh://, user@host:path or an absolute path")
+		return
+	}
 	ctx, cancel := context.WithTimeout(r.Context(), defaultBranchTimeout)
 	defer cancel()
 	branch, err := remoteDefaultBranch(ctx, url, s.gitCommandEnv())
@@ -441,7 +446,7 @@ func (s *Server) handleGitDefaultBranch(w http.ResponseWriter, r *http.Request) 
 // remoteDefaultBranch asks a remote for the branch its HEAD points to. A repository with no
 // commits has no HEAD to point anywhere, and answers "" rather than an error.
 func remoteDefaultBranch(ctx context.Context, url string, env []string) (string, error) {
-	cmd := exec.CommandContext(ctx, "git", "ls-remote", "--symref", "--", url, "HEAD")
+	cmd := exec.CommandContext(ctx, "git", append(gitx.Hardening(), "ls-remote", "--symref", "--", url, "HEAD")...)
 	cmd.Env = env
 	out, err := cmd.CombinedOutput()
 	if err != nil {

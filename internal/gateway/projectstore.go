@@ -10,6 +10,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/madkoding/motita/internal/gitx"
 )
 
 // Project is a named group of sessions that share a workspace directory.
@@ -166,7 +168,7 @@ func (ps *projectStore) delete(id string) error {
 // sameOrigin reports whether dir is a git checkout whose origin is gitURL, ignoring a
 // trailing ".git" or slash and the case of the host.
 func sameOrigin(dir, gitURL string, env []string) bool {
-	cmd := exec.Command("git", "-C", dir, "remote", "get-url", "origin")
+	cmd := exec.Command("git", append(append([]string{"-C", dir}, gitx.Hardening()...), "remote", "get-url", "origin")...)
 	cmd.Env = env
 	out, err := cmd.Output()
 	if err != nil {
@@ -238,7 +240,7 @@ func cloneGitRepo(gitURL, destDir string, env []string) (string, error) {
 		return "", fmt.Errorf("%q is not a repository URL: use https://, ssh://, user@host:path or an absolute path", gitURL)
 	}
 	// "--" ends the options: the URL and the folder are never read as flags.
-	cmd := exec.Command("git", "clone", "--progress", "--", gitURL, destDir)
+	cmd := exec.Command("git", append(gitx.Hardening(), "clone", "--progress", "--", gitURL, destDir)...)
 	// env carries the credential helper, so a repository of a host the user connected clones
 	// without a prompt nobody can answer. Nil keeps the process environment.
 	cmd.Env = env

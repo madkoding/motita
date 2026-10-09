@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"testing"
 )
 
@@ -79,5 +80,17 @@ func TestBranchNamesAreNeverOptions(t *testing.T) {
 	}
 	if exists(marker) {
 		t.Error("a branch name was read as an option")
+	}
+}
+
+// Hardening hands out a copy: a caller that appends to it cannot change what this package runs.
+func TestHardeningIsACopy(t *testing.T) {
+	h := Hardening()
+	if strings.Join(h, " ") != "-c core.hooksPath=/dev/null -c core.fsmonitor=false" {
+		t.Fatalf("hardening: %q", h)
+	}
+	h[1] = "core.hooksPath=hooks"
+	if Hardening()[1] != "core.hooksPath=/dev/null" {
+		t.Error("the package's hardening changed through a copy")
 	}
 }

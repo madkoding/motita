@@ -84,6 +84,12 @@ var removeTimeoutFor = removeTimeout
 // cannot bring code into a git this program starts.
 var hardening = []string{"-c", "core.hooksPath=/dev/null", "-c", "core.fsmonitor=false"}
 
+// Hardening is a copy of the -c options every git of this package runs with, for the few
+// callers outside it that start git themselves: put them before the subcommand.
+func Hardening() []string {
+	return append([]string(nil), hardening...)
+}
+
 // gitArgs is the argument list of one git run in dir: the hardening, then the command.
 func gitArgs(dir string, args ...string) []string {
 	full := append([]string{"-C", dir}, hardening...)
