@@ -151,7 +151,8 @@ jobs:
           sonar-scanner "${ARGS[@]}" || exit 0
           TASK_URL="$(sed -n 's/^ceTaskUrl=//p' "$KV/scannerwork/report-task.txt")"
           for i in $(seq 1 120); do
-            st="$(curl -s -u "$SONAR_TOKEN:" "$TASK_URL" | python3 -c 'import json,sys;print(json.load(sys.stdin)["task"]["status"])' 2>/dev/null || echo ERR)"
+            curl -s -u "$SONAR_TOKEN:" -o "$KV/ce.json" "$TASK_URL" || true
+            st="$(python3 -c 'import json,sys;print(json.load(open(sys.argv[1]))["task"]["status"])' "$KV/ce.json" 2>/dev/null || echo ERR)"
             case "$st" in SUCCESS) break ;; FAILED|CANCELED) echo "Tarea de SonarQube: $st"; exit 0 ;; esac
             sleep 10
           done
