@@ -4,10 +4,8 @@ on:
   push:
     branches: [main]
 
-permissions:
-  contents: write
-  issues: write
-  pull-requests: write
+# Nothing at the workflow level: the one job below asks for what it uses.
+permissions: {}
 
 concurrency:
   group: release-version
@@ -17,6 +15,12 @@ jobs:
   version:
     name: semantic release
     runs-on: ubuntu-latest
+    # semantic-release pushes the tag and the GitHub release (contents), and the
+    # github plugin comments on the issues and pull requests a release closes.
+    permissions:
+      contents: write
+      issues: write
+      pull-requests: write
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -27,11 +31,19 @@ jobs:
         with:
           node-version: 22
 
-      - run: npm ci
+      # --ignore-scripts: no install script in the release tree ever runs, and
+      # none is needed (the lockfile has no package with one). This job holds the
+      # release token, so a compromised dependency must not get to execute at
+      # install time.
+      - run: npm ci --ignore-scripts
 
       - name: Compute the version from Conventional Commits, tag and publish
         # A tag pushed with GITHUB_TOKEN does not trigger the tag workflows (ci
-        # binaries, pages). Set the RELEASE_TOKEN secret (a PAT) to make them run.
+        # binaries, pages). Set the RELEASE_TOKEN secret to make them run, and make
+        # it a FINE-GRAINED token scoped to this repository only, with Contents,
+        # Issues and Pull requests read/write and nothing else - every package in
+        # the semantic-release tree runs with it in its environment. A classic PAT
+        # would hand them every repository the owner can write to.
         run: npx semantic-release
         env:
           GITHUB_TOKEN: ${{ secrets.RELEASE_TOKEN || secrets.GITHUB_TOKEN }}
