@@ -404,6 +404,12 @@ func (s *Sandbox) writeRoots(workDir, tempDir string) []string {
 	return roots
 }
 
+// HiddenPaths is a copy of the paths this sandbox was given to hide, so a sandbox rebuilt for
+// another directory hides the same files: the configuration a run was loaded from among them.
+func (s *Sandbox) HiddenPaths() []string {
+	return append([]string(nil), s.op.HiddenPaths...)
+}
+
 // hiddenPaths are the paths a confined command may not read: the ones it was given, and the
 // user's git credential stores, which hold the same kind of token as motita's logins. Left out is
 // any that holds a directory the command writes, which would leave it writing where it cannot

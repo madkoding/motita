@@ -389,6 +389,10 @@ func (r *AppRunner) SetWorkspace(dir string) {
 		HiddenPaths:   config.SecretFiles(""),
 		Log:           r.Log,
 	}
+	if r.Box != nil {
+		// The sandbox this one replaces may hide more: the file the run was configured from.
+		op.HiddenPaths = r.Box.HiddenPaths()
+	}
 	switch r.Cfg.Sandbox.Kind {
 	case "none":
 		op.Limits = sandbox.Limits{}
