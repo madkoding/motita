@@ -125,6 +125,65 @@ func TestFileActionsStayInsideTheWorkspace(t *testing.T) {
 	}
 }
 
+// TestFileActionsDoNotFollowSymlinksOut: a symlink inside the workspace that points outside it
+// (a cloned repository's `notes -> ~/.bashrc`) must not carry a write or an edit out, whether it
+// is the file itself, a directory on the way, or a dangling link. A link that stays inside is fine.
+func TestFileActionsDoNotFollowSymlinksOut(t *testing.T) {
+	e := fileAgent(t)
+	outDir := t.TempDir()
+	victim := filepath.Join(outDir, "bashrc")
+	if err := os.WriteFile(victim, []byte("a\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	for link, target := range map[string]string{
+		"notes":    victim,
+		"outdir":   outDir,
+		"dangling": filepath.Join(outDir, "not-yet"),
+	} {
+		if err := os.Symlink(target, filepath.Join(e.dir, link)); err != nil {
+			t.Skipf("symlinks unavailable: %v", err)
+		}
+	}
+	for _, c := range []Command{
+		{Kind: "write_file", Command: "notes\npwned"},
+		{Kind: "edit_file", Command: "notes\n<<<<<<< SEARCH\na\n=======\npwned\n>>>>>>> REPLACE"},
+		{Kind: "write_file", Command: "outdir/bashrc\npwned"},
+		{Kind: "write_file", Command: "outdir/new/file\npwned"},
+		{Kind: "write_file", Command: "dangling\npwned"},
+	} {
+		out, err := e.agent.runActions(context.Background(), []Command{c}, "")
+		if err == nil || !strings.Contains(out, "resolves outside") {
+			t.Errorf("%q must be refused: %q %v", c.Command, out, err)
+		}
+	}
+	if readBack(t, victim) != "a\n" {
+		t.Fatal("a write followed a symlink out of the workspace")
+	}
+	for _, p := range []string{"new", "not-yet"} {
+		if _, err := os.Stat(filepath.Join(outDir, p)); err == nil {
+			t.Fatalf("%s was created outside the workspace", p)
+		}
+	}
+	// A link that stays inside the workspace is written through.
+	if err := os.Mkdir(filepath.Join(e.dir, "real"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink("real", filepath.Join(e.dir, "alias")); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := e.agent.runActions(context.Background(), []Command{{Kind: "write_file", Command: "alias/f\nok"}}, ""); err != nil {
+		t.Fatal(err)
+	}
+	if readBack(t, filepath.Join(e.dir, "real", "f")) != "ok" {
+		t.Error("a symlink inside the workspace must be written through")
+	}
+	// A workspace that cannot be resolved (a dangling symlink) is an error, not a pass.
+	e.agent.cfg.Agent.WorkspaceDir = filepath.Join(e.dir, "dangling")
+	if _, err := e.agent.workspacePath("x"); err == nil {
+		t.Error("a workspace that cannot be resolved must be an error")
+	}
+}
+
 // TestFileActionFailuresOnDisk: a directory that cannot be made, and a file that cannot be
 // written, are reported to the model - they are facts about the disk, not refusals.
 func TestFileActionFailuresOnDisk(t *testing.T) {
