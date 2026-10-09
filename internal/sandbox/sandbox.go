@@ -83,10 +83,10 @@ type Options struct {
 	// toolchains, its HOME and its temporary directories live. Empty keeps the old
 	// layout (HOME and TMPDIR inside the working directory). See tools.go.
 	ToolsDir string
-	// ConfineWrites restricts what a command can WRITE to the working directory, the tools
-	// directory, its own temporary directory and the git directories a worktree needs, whatever
-	// the command does (Linux, Landlock). A request marked Unconfined, one the user approved, is
-	// exempt. Reads are never restricted.
+	// ConfineWrites restricts what a command can WRITE to the working directory, the HOME in the
+	// tools directory, its own temporary directory and the git directories a worktree needs,
+	// whatever the command does (Linux, Landlock). A request marked Unconfined, one the user
+	// approved, is exempt. Reads are restricted only for HiddenPaths.
 	ConfineWrites bool
 	// GitAuthDir is the directory of the git logins and GitHome the user's real home. They
 	// give the git the agent runs what the user's terminal has: the user's own git
@@ -373,13 +373,18 @@ func (s *Sandbox) Run(ctx context.Context, p execx.Request) (string, bool, int, 
 	return s.launch(ctx, command, args, workDir, timeout, maxOutput)
 }
 
-// writeRoots are the directories a confined command may write: where it works, where the sandbox
-// keeps its tools and home, its own temporary directory, the git directories a worktree writes
-// into, and /dev for `> /dev/null`.
+// writeRoots are the directories a confined command may write: where it works, the home the
+// sandbox keeps for it, its own temporary directory, the git directories a worktree writes into,
+// and /dev for `> /dev/null`.
+//
+// The tools directory's bin/ and tools/ are not among them. They come first on the PATH of every
+// session of every project, so a command one project's agent ran unasked could otherwise plant a
+// `git` or a `make` there for all the others. Installing a toolchain is a command the user
+// approves, and an approved command is not confined.
 func (s *Sandbox) writeRoots(workDir, tempDir string) []string {
 	roots := []string{s.base, workDir, tempDir, "/dev"}
 	if tools := s.toolsDir(); tools != "" {
-		roots = append(roots, tools)
+		roots = append(roots, filepath.Join(tools, "home"))
 	}
 	roots = append(roots, s.gitRoots...)
 	if workDir != s.base {

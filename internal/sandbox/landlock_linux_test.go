@@ -327,11 +327,49 @@ func TestTheRootsIncludeTheToolsAndAnotherWorkingDirectory(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	roots := strings.Join(s.writeRoots(other, "/tmp/x"), " ")
-	for _, want := range []string{tools, other, base, "/tmp/x", "/dev", own, otherOwn} {
+	got := s.writeRoots(other, "/tmp/x")
+	roots := strings.Join(got, " ")
+	for _, want := range []string{filepath.Join(tools, "home"), other, base, "/tmp/x", "/dev", own, otherOwn} {
 		if !strings.Contains(roots, want) {
 			t.Errorf("%s is missing from %s", want, roots)
 		}
+	}
+	for _, root := range got {
+		if root == tools {
+			t.Errorf("the whole tools directory must not be writable: %v", got)
+		}
+	}
+}
+
+// The tools directory's bin/ comes first on every project's PATH: a confined command cannot plant
+// a program there, only in its HOME, and installing is what the user approves.
+func TestAConfinedCommandCannotPlantASharedTool(t *testing.T) {
+	needLandlock(t)
+	tools := t.TempDir()
+	os.MkdirAll(filepath.Join(tools, "bin"), 0o755)
+	os.MkdirAll(filepath.Join(tools, "tools"), 0o755)
+	s, err := New(Options{Dir: t.TempDir(), ToolsDir: tools, ConfineWrites: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	script := "echo x > " + filepath.Join(tools, "bin", "git") + "; mkdir " + filepath.Join(tools, "tools", "evil") +
+		"; echo h > \"$HOME/.cache-file\" && echo home-writable"
+	out, _, _, err := s.Run(context.Background(), execx.Request{Command: "/bin/sh", Args: []string{"-c", script}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, planted := range []string{filepath.Join(tools, "bin", "git"), filepath.Join(tools, "tools", "evil")} {
+		if _, statErr := os.Stat(planted); statErr == nil {
+			t.Errorf("%s was planted by a confined command", planted)
+		}
+	}
+	if !strings.Contains(out, "home-writable") {
+		t.Errorf("the sandbox's HOME must stay writable: %q", out)
+	}
+	_, _, _, err = s.Run(context.Background(), execx.Request{Command: "/bin/sh",
+		Args: []string{"-c", "mkdir -p " + filepath.Join(tools, "tools", "go", "bin")}, Unconfined: true})
+	if _, statErr := os.Stat(filepath.Join(tools, "tools", "go", "bin")); err != nil || statErr != nil {
+		t.Errorf("an approved install must still work: %v %v", err, statErr)
 	}
 }
 
