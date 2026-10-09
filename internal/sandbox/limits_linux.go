@@ -5,6 +5,7 @@ package sandbox
 import (
 	"fmt"
 	"os"
+	"os/exec"
 	"runtime"
 	"runtime/debug"
 	"sort"
@@ -62,36 +63,68 @@ func wrapWithUlimit(l Limits, command string, args []string) (string, []string) 
 //
 // `ulimit` errors do not abort the script on purpose: on some systems
 // (containers, LSMs) a resource may not be modifiable, and in that case it is
-// better to run the command without that limit — it is recorded by the parent —
-// than to prevent the work. The `2>/dev/null` also stops a shell message from
-// contaminating the output the model reads.
+// better to run the command without that limit than to prevent the work. But it
+// is not silent: the shell's own message is dropped, and one line naming the
+// limit takes its place, so whoever reads the output knows the command ran
+// without it. The parent also lists it as not applied (see unappliedLimits).
 func ulimitCommands(l Limits) []string {
-	var orders []string
+	return ulimitLines(l, func(name string) string {
+		return fmt.Sprintf("echo 'motita: the sandbox could not apply its %s limit' >&2", name)
+	})
+}
+
+// ulimitLines is one line per limit: the ways of setting it, each tried when the
+// one before failed, and then onFailure's command for the limit's name.
+func ulimitLines(l Limits, onFailure func(name string) string) []string {
+	var lines []string
+	add := func(name string, tries ...string) {
+		for i, try := range tries {
+			tries[i] = try + " 2>/dev/null"
+		}
+		lines = append(lines, strings.Join(tries, " || ")+" || "+onFailure(name))
+	}
 
 	if l.CPUSeconds > 0 {
-		orders = append(orders, fmt.Sprintf("ulimit -t %d 2>/dev/null", l.CPUSeconds))
+		add("cpu_seconds", fmt.Sprintf("ulimit -t %d", l.CPUSeconds))
 	}
 	if l.MemoryMB > 0 {
 		// -v (RLIMIT_AS) exists in dash and in bash; it is the one that matters
 		// most here.
-		orders = append(orders, fmt.Sprintf("ulimit -v %d 2>/dev/null", l.MemoryMB<<10))
+		add("memory_mb", fmt.Sprintf("ulimit -v %d", l.MemoryMB<<10))
 	}
 	if l.Processes > 0 {
-		// -u (RLIMIT_NPROC) does not exist in dash; it is attempted without
-		// aborting.
-		orders = append(orders, fmt.Sprintf("ulimit -u %d 2>/dev/null", l.Processes))
+		// RLIMIT_NPROC is -u in bash and busybox but -p in dash, Debian's /bin/sh,
+		// which refuses -u: with -u alone the limit was never applied there.
+		add("processes", fmt.Sprintf("ulimit -u %d", l.Processes), fmt.Sprintf("ulimit -p %d", l.Processes))
 	}
 	if l.OpenFiles > 0 {
-		orders = append(orders, fmt.Sprintf("ulimit -n %d 2>/dev/null", l.OpenFiles))
+		add("open_files", fmt.Sprintf("ulimit -n %d", l.OpenFiles))
 	}
 	if l.MaxFileSizeMB > 0 {
 		// -f is in 512-byte blocks.
-		blocks := l.MaxFileSizeMB << 11
-		orders = append(orders, fmt.Sprintf("ulimit -f %d 2>/dev/null", blocks))
+		add("max_file_size_mb", fmt.Sprintf("ulimit -f %d", l.MaxFileSizeMB<<11))
 	}
 
-	sort.Strings(orders)
-	return orders
+	sort.Strings(lines)
+	return lines
+}
+
+// probeShell is the shell unappliedLimits asks, a variable so a test can make it missing.
+var probeShell = "/bin/sh"
+
+// unappliedLimits are the limits the shell cannot apply on this machine, found by
+// trying each one once in a throwaway shell. A run would otherwise only say so in
+// its own output; this is what lets the sandbox list them as not applied.
+func unappliedLimits(l Limits) ([]string, error) {
+	lines := ulimitLines(l, func(name string) string { return "echo " + name })
+	if len(lines) == 0 {
+		return nil, nil
+	}
+	out, err := exec.Command(probeShell, "-c", strings.Join(lines, "; ")).Output()
+	if err != nil {
+		return nil, err
+	}
+	return strings.Fields(string(out)), nil
 }
 
 // minimumMemoryMB returns the address space the command should be able to use at

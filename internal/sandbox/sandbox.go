@@ -203,6 +203,17 @@ func New(op Options) (*Sandbox, error) {
 		}
 	}
 
+	// A limit the shell refuses used to be dropped in silence, the command running
+	// as if it were bounded.
+	unapplied, err := unappliedLimits(s.op.Limits)
+	if err != nil {
+		s.notApplied = append(s.notApplied, "limits: could not check that the shell applies them: "+err.Error())
+	}
+	for _, name := range unapplied {
+		s.notApplied = append(s.notApplied, name+": the shell cannot apply this limit here, so commands run without it")
+		s.log.Warn("a sandbox limit cannot be applied", "limit", name)
+	}
+
 	s.log.Info("sandbox ready",
 		"directory", s.base,
 		"chroot", s.op.UseChroot,
@@ -443,6 +454,10 @@ func (s *Sandbox) launch(ctx context.Context, command string, args []string, dir
 
 	start := time.Now()
 	err := cmd.Run()
+	// What the command left running in the background (`cmd &`) goes with it, not
+	// only on a timeout: it would otherwise outlive the run and its limits' purpose,
+	// and keep its temporary directory busy after it is deleted.
+	_ = killGroup(cmd)
 	duration := time.Since(start)
 	text := out.buf.String()
 
