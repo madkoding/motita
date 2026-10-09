@@ -67,8 +67,14 @@ func wrapWithUlimit(l Limits, command string, args []string) (string, []string) 
 // is not silent: the shell's own message is dropped, and one line naming the
 // limit takes its place, so whoever reads the output knows the command ran
 // without it. The parent also lists it as not applied (see unappliedLimits).
+//
+// The process limit is the exception: dash, Debian's /bin/sh, never takes it, so
+// the line would ride on every command there. It is reported once, by the parent.
 func ulimitCommands(l Limits) []string {
 	return ulimitLines(l, func(name string) string {
+		if name == "processes" {
+			return ":"
+		}
 		return fmt.Sprintf("echo 'motita: the sandbox could not apply its %s limit' >&2", name)
 	})
 }
@@ -93,9 +99,12 @@ func ulimitLines(l Limits, onFailure func(name string) string) []string {
 		add("memory_mb", fmt.Sprintf("ulimit -v %d", l.MemoryMB<<10))
 	}
 	if l.Processes > 0 {
-		// RLIMIT_NPROC is -u in bash and busybox but -p in dash, Debian's /bin/sh,
-		// which refuses -u: with -u alone the limit was never applied there.
-		add("processes", fmt.Sprintf("ulimit -u %d", l.Processes), fmt.Sprintf("ulimit -p %d", l.Processes))
+		// RLIMIT_NPROC counts every process the USER owns, not the sandbox's, so on a
+		// desktop or a CI runner a small value stops the command from forking at all.
+		// dash (Debian's /bin/sh) refuses -u, and its -p is deliberately not tried:
+		// there the limit is reported as not applied, and the cgroup pids controller
+		// is what bounds the sandbox's own processes.
+		add("processes", fmt.Sprintf("ulimit -u %d", l.Processes))
 	}
 	if l.OpenFiles > 0 {
 		add("open_files", fmt.Sprintf("ulimit -n %d", l.OpenFiles))

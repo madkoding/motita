@@ -36,11 +36,12 @@ func TestALimitTheShellRefusesIsReported(t *testing.T) {
 	}
 }
 
-// Debian's /bin/sh (dash) has no `ulimit -u`: the process limit was never applied there.
-func TestTheProcessLimitIsAppliedByEveryShell(t *testing.T) {
-	// RLIMIT_NPROC counts every process the user owns, not just the sandbox's, so a small value
-	// stops a non-root user's shell from forking at all. Use one high enough not to bite and
-	// unusual enough to recognise, within the hard limit a non-root user cannot raise.
+// RLIMIT_NPROC is applied where the shell takes `ulimit -u`, and reported as not applied where it
+// does not (dash): never silently dropped, and never set through dash's -p, which would count
+// every process the user owns and leave the command unable to fork.
+func TestTheProcessLimitIsAppliedOrReported(t *testing.T) {
+	// A value high enough not to bite a non-root user, and unusual enough to recognise, within
+	// the hard limit a non-root user cannot raise.
 	limit := uint64(54321)
 	var rl syscall.Rlimit
 	if err := syscall.Getrlimit(rlimitNproc, &rl); err == nil && rl.Max < limit {
@@ -50,13 +51,16 @@ func TestTheProcessLimitIsAppliedByEveryShell(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(s.NotApplied()) != 0 {
-		t.Errorf("the process limit must be applicable: %v", s.NotApplied())
-	}
 	out, _, _, err := s.Run(context.Background(), execx.Request{Command: "/bin/sh",
 		Args: []string{"-c", "grep 'Max processes' /proc/self/limits"}})
-	if want := " " + strconv.FormatUint(limit, 10) + " "; err != nil || !strings.Contains(out, want) {
-		t.Errorf("RLIMIT_NPROC must be %d: %v %q", limit, err, out)
+	if err != nil {
+		t.Fatal(err)
+	}
+	applied := strings.Contains(out, " "+strconv.FormatUint(limit, 10)+" ")
+	reported := strings.Contains(strings.Join(s.NotApplied(), " "), "processes: the shell cannot apply")
+	if applied == reported {
+		t.Errorf("the process limit must be either applied or reported, not %s: applied=%v %q notApplied=%v",
+			map[bool]string{true: "both", false: "neither"}[applied], applied, out, s.NotApplied())
 	}
 }
 
