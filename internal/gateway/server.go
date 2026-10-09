@@ -9,6 +9,7 @@ import (
 	"net"
 	"net/http"
 	"net/netip"
+	"os"
 	"strings"
 	"sync"
 	"time"
@@ -59,6 +60,9 @@ type Options struct {
 	// discovered request by request, where its only symptom is an origin being refused for a
 	// reason nobody can see.
 	Allow *netrules.Policy
+	// Hosts are extra host names a request's Host header may carry (gateway.hosts). See
+	// hostPolicy for the names that are always accepted.
+	Hosts []string
 	// MaxBodyKB caps a request body. Zero means defaultMaxBodyKB.
 	MaxBodyKB int
 	// Version is reported by /v1/health, so a client can tell which build answered.
@@ -234,6 +238,9 @@ type Server struct {
 	baseCI     map[string]baseCIEntry
 	// etags makes the reads of the git hosts conditional; see gitforge.ETagCache.
 	etags gitforge.ETagCache
+	// hosts are the host names, lower-cased, a request's Host header may carry besides an IP
+	// address and localhost. See hostPolicy.
+	hosts map[string]bool
 }
 
 // Start binds the listener and returns a Server that is ready to Serve.
@@ -358,7 +365,8 @@ func Start(opts Options) (*Server, error) {
 	//
 	// The policy is enforced BEFORE the token check, so a refused origin does not even learn
 	// whether its credential was good.
-	s.mux = s.originPolicy(securityHeaders(s.routes()))
+	s.hosts = knownHosts(opts.Listen, opts.Hosts)
+	s.mux = s.originPolicy(s.hostPolicy(securityHeaders(s.routes())))
 	s.server = &http.Server{
 		Handler: s.mux,
 		// No WriteTimeout. It is a deadline on the WHOLE response, and half of these responses
@@ -773,6 +781,64 @@ func securityHeaders(next http.Handler) http.Handler {
 		h.Set("Content-Security-Policy", pageCSP)
 		h.Set("X-Content-Type-Options", "nosniff")
 		h.Set("Referrer-Policy", "no-referrer")
+		next.ServeHTTP(w, r)
+	})
+}
+
+// osHostname is this machine's name, a variable so a test can make it fail.
+var osHostname = os.Hostname
+
+// knownHosts is the set of host NAMES this gateway answers to besides an IP address and
+// localhost: the host in the listen address, this machine's own name (bare and as its mDNS
+// .local name), and the names the operator listed in gateway.hosts.
+func knownHosts(listen string, extra []string) map[string]bool {
+	set := map[string]bool{}
+	add := func(h string) {
+		if h = normalHost(h); h != "" {
+			set[h] = true
+		}
+	}
+	if h, _, err := net.SplitHostPort(strings.TrimSpace(listen)); err == nil {
+		add(h)
+	}
+	if name, err := osHostname(); err == nil && name != "" {
+		add(name)
+		add(strings.SplitN(name, ".", 2)[0] + ".local")
+	}
+	for _, h := range extra {
+		add(h)
+	}
+	return set
+}
+
+// normalHost lower-cases a host name and drops IPv6 brackets and a trailing root dot, so the
+// spellings a browser may send compare equal.
+func normalHost(h string) string {
+	return strings.TrimSuffix(strings.ToLower(strings.Trim(strings.TrimSpace(h), "[]")), ".")
+}
+
+// hostPolicy refuses a request whose Host header names a host this gateway does not know.
+//
+// It is the defence against DNS rebinding: a page on attacker.example re-points its own name at
+// 127.0.0.1, and the browser then treats this gateway as that page's origin and sends
+// "Host: attacker.example". Every name such a page can use is a NAME, so an IP address in the
+// Host header is always accepted (that is how a LAN client and a tunnel reach the gateway), as
+// are localhost and the names knownHosts collects. A request with no Host at all (HTTP/1.0)
+// cannot come from a browser and is left alone.
+func (s *Server) hostPolicy(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		host := r.Host
+		if h, _, err := net.SplitHostPort(host); err == nil {
+			host = h
+		}
+		host = normalHost(host)
+		_, ipErr := netip.ParseAddr(host)
+		known := host == "" || ipErr == nil || host == "localhost" || strings.HasSuffix(host, ".localhost") || s.hosts[host]
+		if !known {
+			writeError(w, http.StatusMisdirectedRequest, fmt.Sprintf(
+				"this gateway does not answer to the host name %q: add it to gateway.hosts if it is yours", host))
+			return
+		}
 		next.ServeHTTP(w, r)
 	})
 }

@@ -2,8 +2,10 @@ package gateway
 
 import (
 	"crypto/tls"
+	"errors"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strings"
 	"testing"
 )
@@ -147,5 +149,52 @@ func TestEveryResponseCarriesTheSecurityHeaders(t *testing.T) {
 		if got := w.Header().Get("Referrer-Policy"); got != "no-referrer" {
 			t.Errorf("%s: Referrer-Policy = %q", path, got)
 		}
+	}
+}
+
+// A DNS-rebinding page reaches the gateway under ITS OWN name, and that name is refused - on the
+// public routes too, the page and /v1/health. IP addresses, localhost, this machine's name, the
+// listen host and the names in gateway.hosts are all accepted.
+func TestTheHostHeaderMustNameThisGateway(t *testing.T) {
+	osHostname = func() (string, error) { return "MyBox.lan", nil }
+	t.Cleanup(func() { osHostname = os.Hostname })
+	srv := newTestServer(t, &fakeService{}, func(o *Options) {
+		o.WebUI = true
+		o.Listen = "127.0.0.1:0"
+		o.Hosts = []string{"Motita.Example.ORG."}
+	})
+	for host, want := range map[string]int{
+		"attacker.example:8321":  http.StatusMisdirectedRequest,
+		"evil.localhost.example": http.StatusMisdirectedRequest,
+		"127.0.0.1:7477":         http.StatusOK,
+		"[::1]:7477":             http.StatusOK,
+		"192.168.1.20:7477":      http.StatusOK,
+		"localhost:7477":         http.StatusOK,
+		"app.localhost":          http.StatusOK,
+		"mybox.lan":              http.StatusOK,
+		"mybox.local:7477":       http.StatusOK,
+		"motita.example.org":     http.StatusOK,
+		"":                       http.StatusOK,
+	} {
+		for _, path := range []string{"/", "/v1/health"} {
+			req := httptest.NewRequest(http.MethodGet, path, nil)
+			req.Host = host
+			if w := serve(srv, req); w.Code != want {
+				t.Errorf("Host %q %s answered %d, want %d", host, path, w.Code, want)
+			}
+		}
+	}
+}
+
+// A machine whose name cannot be read still knows its listen host and gateway.hosts.
+func TestKnownHostsWithoutAMachineName(t *testing.T) {
+	osHostname = func() (string, error) { return "", errors.New("no name") }
+	t.Cleanup(func() { osHostname = os.Hostname })
+	got := knownHosts("gw.internal:7477", []string{"proxy.example", " "})
+	if len(got) != 2 || !got["gw.internal"] || !got["proxy.example"] {
+		t.Errorf("knownHosts = %v", got)
+	}
+	if len(knownHosts("not-host-port", nil)) != 0 {
+		t.Error("an unsplittable listen added a host")
 	}
 }

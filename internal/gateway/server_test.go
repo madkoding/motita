@@ -152,6 +152,9 @@ func newTestServer(t *testing.T, svc Service, mutators ...func(*Options)) *Serve
 		Token:     testToken,
 		Version:   "test",
 		MaxBodyKB: defaultMaxBodyKB,
+		// The host httptest.NewRequest addresses, so the Host check lets the hand-built
+		// requests of the tests through as it would a configured name.
+		Hosts: []string{"example.com"},
 	}
 	for _, m := range mutators {
 		m(&opts)

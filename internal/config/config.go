@@ -68,7 +68,12 @@ type Gateway struct {
 	// and any of them prefixed with "!" DENIES instead of allows. The FIRST RULE THAT MATCHES
 	// decides; an origin no rule matches is allowed, because the default policy is accept. So
 	// `["!any"]` means "this machine only" and `["lan", "!any"]` means "the local network".
-	Allow     []string `yaml:"allow"`
+	Allow []string `yaml:"allow"`
+	// Hosts are extra host NAMES the gateway answers to, for a reverse proxy or a DNS name in
+	// front of it. Without them it answers to an IP address, to localhost, to this machine's
+	// own host name and to the host in Listen; any other name in a request's Host header is
+	// refused, which is what stops a DNS-rebinding page from talking to it under its own name.
+	Hosts     []string `yaml:"hosts"`
 	MaxBodyKB int      `yaml:"max_body_kb"`
 	// MaxSessions caps how many conversations one process holds. Zero means the built-in
 	// default, which is what most setups want: the ceiling exists so a client that forgets to
