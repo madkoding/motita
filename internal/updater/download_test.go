@@ -60,7 +60,7 @@ func TestDownloadFileStopsWhenTheContextEndsBetweenReads(t *testing.T) {
 	body := &cancelOnFirstRead{cancel: cancel, payload: []byte("data")}
 	u := &Updater{HTTPClient: &http.Client{Transport: &bodyTransport{body: body, length: 4}}}
 
-	err := u.downloadFile(ctx, "http://example.invalid/bin", filepath.Join(dir, "out"), func(ProgressEvent) {})
+	err := u.downloadFile(ctx, "http://example.invalid/bin", maxBinarySize, filepath.Join(dir, "out"), func(ProgressEvent) {})
 	if err == nil {
 		t.Fatal("a download whose context ended must be reported as failed, not completed")
 	}
@@ -81,7 +81,7 @@ func TestDownloadFileReportsAFailedWrite(t *testing.T) {
 	body := &cancelOnFirstRead{cancel: func() {}, payload: []byte("data")}
 	u := &Updater{HTTPClient: &http.Client{Transport: &bodyTransport{body: body, length: 4}}}
 
-	err := u.downloadFile(context.Background(), "http://example.invalid/bin", dest, func(ProgressEvent) {})
+	err := u.downloadFile(context.Background(), "http://example.invalid/bin", maxBinarySize, dest, func(ProgressEvent) {})
 	if err == nil {
 		t.Fatal("a destination that cannot be written must be reported")
 	}

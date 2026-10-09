@@ -412,7 +412,7 @@ func TestTheUpgradeStreamRefusesAMismatchedChecksum(t *testing.T) {
 	// wrong binary and the verification must fail.
 	assetName := assetNameForThisPlatform()
 	var base string
-	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	ts := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch {
 		case strings.HasSuffix(r.URL.Path, "/release"):
 			w.Header().Set("Content-Type", "application/json")
@@ -433,6 +433,7 @@ func TestTheUpgradeStreamRefusesAMismatchedChecksum(t *testing.T) {
 
 	srv.updater = updater.New("v1.0.0", filepath.Join(t.TempDir(), "motita"))
 	srv.updater.APIURL = func() string { return ts.URL + "/release" }
+	trustTestRelease(srv.updater, ts)
 
 	w := httptest.NewRecorder()
 	srv.handleUpdateRun(w, httptest.NewRequest(http.MethodPost, "/v1/update/run", nil))
@@ -458,7 +459,7 @@ func TestTheUpgradeStreamReportsWhenThereIsNowhereToInstall(t *testing.T) {
 	sum := sha256.Sum256(payload)
 	assetName := assetNameForThisPlatform()
 	var base string
-	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	ts := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/release":
 			w.Header().Set("Content-Type", "application/json")
@@ -477,6 +478,7 @@ func TestTheUpgradeStreamReportsWhenThereIsNowhereToInstall(t *testing.T) {
 	base = ts.URL
 	srv.updater = updater.New("v1.0.0", "")
 	srv.updater.APIURL = func() string { return ts.URL + "/release" }
+	trustTestRelease(srv.updater, ts)
 
 	w := httptest.NewRecorder()
 	srv.handleUpdateRun(w, httptest.NewRequest(http.MethodPost, "/v1/update/run", nil))

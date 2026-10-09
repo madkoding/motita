@@ -186,12 +186,12 @@ func TestFindAsset(t *testing.T) {
 			{Name: "SHA256SUMS", BrowserDownloadURL: "http://x/sums"},
 		},
 	}
-	url, err := u.findAsset(release)
+	asset, err := u.findAsset(release)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if url != "http://x/amd64" {
-		t.Errorf("got %q, want http://x/amd64", url)
+	if asset.BrowserDownloadURL != "http://x/amd64" {
+		t.Errorf("got %q, want http://x/amd64", asset.BrowserDownloadURL)
 	}
 }
 
@@ -227,7 +227,7 @@ func TestVerifyChecksum(t *testing.T) {
 	defer srv.Close()
 
 	u := &Updater{Goos: "linux", Goarch: "amd64", HTTPClient: srv.Client()}
-	if err := u.verifyChecksum(context.Background(), srv.URL, binPath); err != nil {
+	if err := u.verifyChecksum(context.Background(), srv.URL, "", binPath); err != nil {
 		t.Fatalf("verifyChecksum failed: %v", err)
 	}
 }
@@ -246,7 +246,7 @@ func TestVerifyChecksumMismatch(t *testing.T) {
 	defer srv.Close()
 
 	u := &Updater{Goos: "linux", Goarch: "amd64", HTTPClient: srv.Client()}
-	err := u.verifyChecksum(context.Background(), srv.URL, binPath)
+	err := u.verifyChecksum(context.Background(), srv.URL, "", binPath)
 	if err == nil {
 		t.Error("expected checksum mismatch error")
 	}
@@ -266,7 +266,7 @@ func sha256hex(data []byte) string {
 
 // ---------------------------------------------------------------------------
 // Coverage tests for New, LatestRelease, findChecksumsURL, DownloadAndInstall,
-// downloadFile, install, and copyFile.
+// downloadFile and install.
 // ---------------------------------------------------------------------------
 
 func TestNew(t *testing.T) {
@@ -401,7 +401,7 @@ func TestDownloadFile(t *testing.T) {
 	dir := t.TempDir()
 	dest := filepath.Join(dir, "downloaded")
 	u := &Updater{HTTPClient: srv.Client()}
-	err := u.downloadFile(context.Background(), srv.URL, dest, func(ProgressEvent) {})
+	err := u.downloadFile(context.Background(), srv.URL, maxBinarySize, dest, func(ProgressEvent) {})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -419,7 +419,7 @@ func TestDownloadFileNonOK(t *testing.T) {
 
 	dir := t.TempDir()
 	u := &Updater{HTTPClient: srv.Client()}
-	err := u.downloadFile(context.Background(), srv.URL, filepath.Join(dir, "x"), func(ProgressEvent) {})
+	err := u.downloadFile(context.Background(), srv.URL, maxBinarySize, filepath.Join(dir, "x"), func(ProgressEvent) {})
 	if err == nil {
 		t.Error("expected error for 500")
 	}
@@ -433,7 +433,7 @@ func TestDownloadFileBadDest(t *testing.T) {
 
 	u := &Updater{HTTPClient: srv.Client()}
 	// dest in a non-existent directory
-	err := u.downloadFile(context.Background(), srv.URL, "/nonexistent-dir-xyz/sub/file", func(ProgressEvent) {})
+	err := u.downloadFile(context.Background(), srv.URL, maxBinarySize, "/nonexistent-dir-xyz/sub/file", func(ProgressEvent) {})
 	if err == nil {
 		t.Error("expected error for unwritable dest")
 	}
@@ -441,7 +441,7 @@ func TestDownloadFileBadDest(t *testing.T) {
 
 func TestDownloadFileBadURL(t *testing.T) {
 	u := &Updater{HTTPClient: &http.Client{}}
-	err := u.downloadFile(context.Background(), "http://\x7f.invalid", filepath.Join(t.TempDir(), "x"), func(ProgressEvent) {})
+	err := u.downloadFile(context.Background(), "http://\x7f.invalid", maxBinarySize, filepath.Join(t.TempDir(), "x"), func(ProgressEvent) {})
 	if err == nil {
 		t.Error("expected error from bad URL")
 	}
@@ -458,7 +458,7 @@ func TestDownloadFileContextCanceled(t *testing.T) {
 	cancel()
 
 	u := &Updater{HTTPClient: srv.Client()}
-	err := u.downloadFile(ctx, srv.URL, filepath.Join(t.TempDir(), "x"), func(ProgressEvent) {})
+	err := u.downloadFile(ctx, srv.URL, maxBinarySize, filepath.Join(t.TempDir(), "x"), func(ProgressEvent) {})
 	if err == nil {
 		t.Error("expected error from canceled context")
 	}
@@ -482,7 +482,7 @@ func TestDownloadFileMidStreamCancel(t *testing.T) {
 
 	dir := t.TempDir()
 	u := &Updater{HTTPClient: &http.Client{Timeout: 30 * time.Second}}
-	err := u.downloadFile(ctx, srv.URL, filepath.Join(dir, "x"), func(ProgressEvent) {})
+	err := u.downloadFile(ctx, srv.URL, maxBinarySize, filepath.Join(dir, "x"), func(ProgressEvent) {})
 	if err == nil {
 		t.Error("expected error from context deadline")
 	}
@@ -504,7 +504,7 @@ func TestDownloadFileReadError(t *testing.T) {
 
 	dir := t.TempDir()
 	u := &Updater{HTTPClient: srv.Client()}
-	err := u.downloadFile(context.Background(), srv.URL, filepath.Join(dir, "x"), func(ProgressEvent) {})
+	err := u.downloadFile(context.Background(), srv.URL, maxBinarySize, filepath.Join(dir, "x"), func(ProgressEvent) {})
 	if err == nil {
 		t.Error("expected read error")
 	}
@@ -543,49 +543,6 @@ func TestInstallSuccess(t *testing.T) {
 	}
 }
 
-// ---- copyFile tests ----
-
-func TestCopyFile(t *testing.T) {
-	dir := t.TempDir()
-	src := filepath.Join(dir, "src")
-	dst := filepath.Join(dir, "dst")
-	content := []byte("copy me")
-	if err := os.WriteFile(src, content, 0o644); err != nil {
-		t.Fatal(err)
-	}
-	if err := copyFile(src, dst); err != nil {
-		t.Fatal(err)
-	}
-	got, _ := os.ReadFile(dst)
-	if string(got) != string(content) {
-		t.Errorf("copied = %q, want %q", got, content)
-	}
-	// Check permissions.
-	info, _ := os.Stat(dst)
-	if info.Mode().Perm() != 0o755 {
-		t.Errorf("perm = %v, want 0o755", info.Mode().Perm())
-	}
-}
-
-func TestCopyFileSrcMissing(t *testing.T) {
-	err := copyFile("/nonexistent-src-xyz", filepath.Join(t.TempDir(), "dst"))
-	if err == nil {
-		t.Error("expected error for missing src")
-	}
-}
-
-func TestCopyFileBadDst(t *testing.T) {
-	dir := t.TempDir()
-	src := filepath.Join(dir, "src")
-	if err := os.WriteFile(src, []byte("x"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	err := copyFile(src, "/nonexistent-dir-xyz/sub/dst")
-	if err == nil {
-		t.Error("expected error for unwritable dst")
-	}
-}
-
 // ---- DownloadAndInstall end-to-end ----
 
 // newUpdateServer creates a test server that serves a binary download and a
@@ -602,7 +559,7 @@ func newUpdateServer(t *testing.T, goos, goarch string) (*httptest.Server, Relea
 	sums := fmt.Sprintf("%s  %s\n", hash, name)
 
 	mux := http.NewServeMux()
-	srv := httptest.NewServer(mux)
+	srv := httptest.NewTLSServer(mux)
 	mux.HandleFunc("/"+name, func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Length", fmt.Sprintf("%d", len(binContent)))
 		_, _ = w.Write(binContent)
@@ -637,6 +594,7 @@ func TestDownloadAndInstallSuccess(t *testing.T) {
 		Goarch:     "amd64",
 		ExePath:    target,
 		HTTPClient: srv.Client(),
+		AssetHosts: testHosts,
 	}
 
 	var events []ProgressEvent
@@ -662,7 +620,7 @@ func TestDownloadAndInstallRefusesAReleaseWithoutChecksums(t *testing.T) {
 	downloaded := false
 
 	mux := http.NewServeMux()
-	srv := httptest.NewServer(mux)
+	srv := httptest.NewTLSServer(mux)
 	defer srv.Close()
 	mux.HandleFunc("/"+name, func(w http.ResponseWriter, r *http.Request) {
 		downloaded = true
@@ -680,7 +638,7 @@ func TestDownloadAndInstallRefusesAReleaseWithoutChecksums(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	u := &Updater{Goos: "linux", Goarch: "amd64", ExePath: target, HTTPClient: srv.Client()}
+	u := &Updater{Goos: "linux", Goarch: "amd64", ExePath: target, HTTPClient: srv.Client(), AssetHosts: testHosts}
 
 	err := u.DownloadAndInstall(context.Background(), &release, func(ProgressEvent) {})
 	if err == nil || !strings.Contains(err.Error(), "SHA256SUMS") {
@@ -695,7 +653,7 @@ func TestDownloadAndInstallRefusesAReleaseWithoutChecksums(t *testing.T) {
 }
 
 func TestDownloadAndInstallAssetMissing(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
 	defer srv.Close()
 
 	release := Release{
@@ -710,6 +668,7 @@ func TestDownloadAndInstallAssetMissing(t *testing.T) {
 		Goarch:     "amd64",
 		ExePath:    "/tmp/x",
 		HTTPClient: srv.Client(),
+		AssetHosts: testHosts,
 	}
 
 	err := u.DownloadAndInstall(context.Background(), &release, func(ProgressEvent) {})
@@ -726,7 +685,7 @@ func TestDownloadAndInstallBadChecksum(t *testing.T) {
 	sums := "0000000000000000000000000000000000000000000000000000000000000000  motita-linux-amd64\n"
 
 	mux := http.NewServeMux()
-	srv := httptest.NewServer(mux)
+	srv := httptest.NewTLSServer(mux)
 	defer srv.Close()
 	mux.HandleFunc("/"+name, func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Length", fmt.Sprintf("%d", len(binContent)))
@@ -755,6 +714,7 @@ func TestDownloadAndInstallBadChecksum(t *testing.T) {
 		Goarch:     "amd64",
 		ExePath:    target,
 		HTTPClient: srv.Client(),
+		AssetHosts: testHosts,
 	}
 
 	err := u.DownloadAndInstall(context.Background(), &release, func(ProgressEvent) {})
@@ -764,7 +724,7 @@ func TestDownloadAndInstallBadChecksum(t *testing.T) {
 }
 
 func TestDownloadAndInstallDownloadFails(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "oops", http.StatusInternalServerError)
 	}))
 	defer srv.Close()
@@ -782,6 +742,7 @@ func TestDownloadAndInstallDownloadFails(t *testing.T) {
 		Goarch:     "amd64",
 		ExePath:    filepath.Join(t.TempDir(), "motita"),
 		HTTPClient: srv.Client(),
+		AssetHosts: testHosts,
 	}
 
 	err := u.DownloadAndInstall(context.Background(), &release, func(ProgressEvent) {})
@@ -799,7 +760,7 @@ func TestVerifyChecksumHTTPError(t *testing.T) {
 	defer srv.Close()
 
 	u := &Updater{Goos: "linux", Goarch: "amd64", HTTPClient: srv.Client()}
-	err := u.verifyChecksum(context.Background(), srv.URL, filepath.Join(t.TempDir(), "x"))
+	err := u.verifyChecksum(context.Background(), srv.URL, "", filepath.Join(t.TempDir(), "x"))
 	if err == nil {
 		t.Error("expected error for non-200")
 	}
@@ -807,7 +768,7 @@ func TestVerifyChecksumHTTPError(t *testing.T) {
 
 func TestVerifyChecksumBadURL(t *testing.T) {
 	u := &Updater{Goos: "linux", Goarch: "amd64", HTTPClient: &http.Client{}}
-	err := u.verifyChecksum(context.Background(), "http://\x7f.invalid", filepath.Join(t.TempDir(), "x"))
+	err := u.verifyChecksum(context.Background(), "http://\x7f.invalid", "", filepath.Join(t.TempDir(), "x"))
 	if err == nil {
 		t.Error("expected error for bad URL")
 	}
@@ -826,7 +787,7 @@ func TestVerifyChecksumNoEntry(t *testing.T) {
 	}
 
 	u := &Updater{Goos: "linux", Goarch: "amd64", HTTPClient: srv.Client()}
-	err := u.verifyChecksum(context.Background(), srv.URL, binPath)
+	err := u.verifyChecksum(context.Background(), srv.URL, "", binPath)
 	if err == nil {
 		t.Error("expected error for no matching entry")
 	}
@@ -839,7 +800,7 @@ func TestVerifyChecksumFileMissing(t *testing.T) {
 	defer srv.Close()
 
 	u := &Updater{Goos: "linux", Goarch: "amd64", HTTPClient: srv.Client()}
-	err := u.verifyChecksum(context.Background(), srv.URL, "/nonexistent-file-xyz")
+	err := u.verifyChecksum(context.Background(), srv.URL, "", "/nonexistent-file-xyz")
 	if err == nil {
 		t.Error("expected error for missing binary file")
 	}
@@ -862,7 +823,7 @@ func TestVerifyChecksumEmptyLines(t *testing.T) {
 	defer srv.Close()
 
 	u := &Updater{Goos: "linux", Goarch: "amd64", HTTPClient: srv.Client()}
-	if err := u.verifyChecksum(context.Background(), srv.URL, binPath); err != nil {
+	if err := u.verifyChecksum(context.Background(), srv.URL, "", binPath); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -879,7 +840,7 @@ func TestVerifyChecksumBodyReadError(t *testing.T) {
 	defer srv.Close()
 
 	u := &Updater{Goos: "linux", Goarch: "amd64", HTTPClient: srv.Client()}
-	err := u.verifyChecksum(context.Background(), srv.URL, filepath.Join(t.TempDir(), "x"))
+	err := u.verifyChecksum(context.Background(), srv.URL, "", filepath.Join(t.TempDir(), "x"))
 	if err == nil {
 		t.Error("expected body read error")
 	}
@@ -927,7 +888,7 @@ func TestDownloadFileProgressReporting(t *testing.T) {
 
 	var maxPct int
 	u := &Updater{HTTPClient: &http.Client{Timeout: 30 * time.Second}}
-	err := u.downloadFile(context.Background(), srv.URL, dest, func(e ProgressEvent) {
+	err := u.downloadFile(context.Background(), srv.URL, maxBinarySize, dest, func(e ProgressEvent) {
 		if e.Percent > maxPct {
 			maxPct = e.Percent
 		}
@@ -958,7 +919,7 @@ func TestDownloadFileWriteError(t *testing.T) {
 	}
 
 	u := &Updater{HTTPClient: srv.Client()}
-	err := u.downloadFile(context.Background(), srv.URL, dest, func(ProgressEvent) {})
+	err := u.downloadFile(context.Background(), srv.URL, maxBinarySize, dest, func(ProgressEvent) {})
 	if err == nil {
 		t.Error("expected error because dest is a directory")
 	}
@@ -986,6 +947,7 @@ func TestDownloadAndInstallInstallFails(t *testing.T) {
 		Goarch:     "amd64",
 		ExePath:    target,
 		HTTPClient: srv.Client(),
+		AssetHosts: testHosts,
 	}
 	err := u.DownloadAndInstall(context.Background(), &release, func(ProgressEvent) {})
 	if err == nil || !strings.Contains(err.Error(), "could not install") {
@@ -1023,7 +985,7 @@ func TestDownloadFileSelectContextCanceled(t *testing.T) {
 
 	dir := t.TempDir()
 	u := &Updater{HTTPClient: &http.Client{Timeout: 30 * time.Second}}
-	err := u.downloadFile(ctx, srv.URL, filepath.Join(dir, "x"), func(ProgressEvent) {})
+	err := u.downloadFile(ctx, srv.URL, maxBinarySize, filepath.Join(dir, "x"), func(ProgressEvent) {})
 	if err == nil {
 		t.Error("expected context cancellation error")
 	}
@@ -1058,7 +1020,7 @@ func TestDownloadFileSelectContextCanceled(t *testing.T) {
 // at connection time.
 func TestVerifyChecksumBadURL2(t *testing.T) {
 	u := &Updater{Goos: "linux", Goarch: "amd64", HTTPClient: &http.Client{Timeout: 2 * time.Second}}
-	err := u.verifyChecksum(context.Background(), "http://127.0.0.1:1/nope", filepath.Join(t.TempDir(), "x"))
+	err := u.verifyChecksum(context.Background(), "http://127.0.0.1:1/nope", "", filepath.Join(t.TempDir(), "x"))
 	if err == nil {
 		t.Error("expected error from unreachable checksums URL")
 	}
@@ -1117,23 +1079,6 @@ func TestInstallChmodFails(t *testing.T) {
 	}
 }
 
-// TestCopyFileIOCopyFails: io.Copy fails because the destination is
-// /dev/full (returns ENOSPC on write), covering line 399-400.
-func TestCopyFileIOCopyFails(t *testing.T) {
-	if _, err := os.Stat("/dev/full"); err != nil {
-		t.Skip("/dev/full not available")
-	}
-	dir := t.TempDir()
-	src := filepath.Join(dir, "src")
-	if err := os.WriteFile(src, []byte("data that will fail to write"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	err := copyFile(src, "/dev/full")
-	if err == nil {
-		t.Error("expected io.Copy error writing to /dev/full")
-	}
-}
-
 // TestVerifyChecksumIOCopyFails: io.Copy in verifyChecksum (line 337-338)
 // fails because the binary path is /proc/self/mem which returns I/O error
 // on read.
@@ -1147,7 +1092,7 @@ func TestVerifyChecksumIOCopyFails(t *testing.T) {
 	defer srv.Close()
 
 	u := &Updater{Goos: "linux", Goarch: "amd64", HTTPClient: srv.Client()}
-	err := u.verifyChecksum(context.Background(), srv.URL, "/proc/self/mem")
+	err := u.verifyChecksum(context.Background(), srv.URL, "", "/proc/self/mem")
 	if err == nil {
 		t.Error("expected io.Copy error reading /proc/self/mem")
 	}
@@ -1166,7 +1111,7 @@ func TestDownloadFileWriteErrorMidStream(t *testing.T) {
 	defer srv.Close()
 
 	u := &Updater{HTTPClient: srv.Client()}
-	err := u.downloadFile(context.Background(), srv.URL, "/dev/full", func(ProgressEvent) {})
+	err := u.downloadFile(context.Background(), srv.URL, maxBinarySize, "/dev/full", func(ProgressEvent) {})
 	if err == nil {
 		t.Error("expected write error to /dev/full")
 	}
@@ -1178,7 +1123,7 @@ func TestDownloadAndInstallMkdirTempFails(t *testing.T) {
 	// Create the temp dir and server BEFORE setting TMPDIR, since t.TempDir()
 	// and httptest both use the temp directory.
 	dir := t.TempDir()
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_, _ = w.Write([]byte("x"))
 	}))
 	defer srv.Close()
@@ -1195,6 +1140,7 @@ func TestDownloadAndInstallMkdirTempFails(t *testing.T) {
 		Goarch:     "amd64",
 		ExePath:    filepath.Join(dir, "gone", "motita"),
 		HTTPClient: srv.Client(),
+		AssetHosts: testHosts,
 	}
 	err := u.DownloadAndInstall(context.Background(), &release, func(ProgressEvent) {})
 	if err == nil || !strings.Contains(err.Error(), "temp directory") {
@@ -1215,7 +1161,7 @@ func TestTheDownloadIsStagedBesideTheExecutable(t *testing.T) {
 		t.Fatal(err)
 	}
 	staged := false
-	u := &Updater{Goos: "linux", Goarch: "amd64", ExePath: target, HTTPClient: srv.Client()}
+	u := &Updater{Goos: "linux", Goarch: "amd64", ExePath: target, HTTPClient: srv.Client(), AssetHosts: testHosts}
 	err := u.DownloadAndInstall(context.Background(), &release, func(e ProgressEvent) {
 		if e.Stage != "verifying" {
 			return
