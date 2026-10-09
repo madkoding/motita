@@ -99,6 +99,7 @@ about what could not be applied**:
 | Ephemeral temp directory | its own `TMPDIR` per attempt, deleted at the end | none |
 | `ulimit` limits | CPU, memory (address space), processes, file descriptors, max file size | none |
 | cgroups v1 | a real cap on memory and PIDs (`RLIMIT_AS` is only an approximation) | kernel with cgroups v1 and write permission |
+| cgroup v2 per run | every process a command started is killed when it ends, one that left the process group with `setsid` too | a writable cgroup v2 tree (root, or a delegated user slice) and `clone3`; without it, the process group alone |
 | chroot + privilege drop | restricted filesystem root and an unprivileged user | being root |
 | `CLONE_NEWNET` | no network inside the command | `CAP_SYS_ADMIN` |
 
@@ -143,6 +144,9 @@ Details that took real work and are solved in the code:
   return. With its own process group plus `SIGKILL` to the group it cuts at the
   exact deadline (measured: infinite loop with `cpu_seconds: 2` → cut at
   **2.002 s**).
+  A process that called `setsid` leaves that group: where motita can make a cgroup v2
+  group, each run's child starts inside one (`CLONE_INTO_CGROUP`) and `cgroup.kill`
+  ends whatever is left in it when the run ends.
 - **The command does not inherit the agent's secrets**: the environment is built
   from scratch, with no `OPENAI_API_KEY` or `MOTITA_LLM_API_KEY` inside the
   command.

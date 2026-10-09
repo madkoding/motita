@@ -32,6 +32,8 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
+	"syscall"
 	"time"
 
 	"github.com/madkoding/motita/internal/execx"
@@ -113,6 +115,10 @@ type Sandbox struct {
 	// before any command could rewrite its `.git` file.
 	gitRoots []string
 }
+
+// noRunGroups is set once a child could not be started inside a run's cgroup. What refused it
+// is the kernel or the machine's permissions, the same for every sandbox of this process.
+var noRunGroups atomic.Bool
 
 // New prepares the sandbox and detects which isolation is really available.
 func New(op Options) (*Sandbox, error) {
@@ -451,31 +457,36 @@ func (s *Sandbox) launch(ctx context.Context, command string, args []string, dir
 	childCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
-	cmd := launchCommand(childCtx, command, args...)
-	cmd.Dir = dir
-	cmd.Env = s.environment()
-
 	attr, warnings := childAttributes(s.op.Limits, false, 0, 0)
-	if attr != nil {
-		cmd.SysProcAttr = attr
-	}
 	// The platform's warnings (the isolation it could not apply) are recorded
 	// like the rest. On Linux childAttributes has none; on the platforms where
 	// it has, this keeps them.
 	s.notApplied = append(s.notApplied, warnings...)
-	cmd.Cancel = func() error { return killGroup(cmd) }
-	cmd.WaitDelay = 2 * time.Second
-
 	out := &limitedBuffer{max: maxOutput}
-	cmd.Stdout = out
-	cmd.Stderr = out
 
 	start := time.Now()
-	err := cmd.Run()
-	// What the command left running in the background (`cmd &`) goes with it, not
-	// only on a timeout: it would otherwise outlive the run and its limits' purpose,
+	group := s.newRunGroup()
+	cmd := s.childCommand(childCtx, command, args, dir, group.attach(attr), group, out)
+	err := cmd.Start()
+	if err != nil && group != nil {
+		// The kernel would not start the child inside the group (no clone3, or no right to move
+		// a process there). It runs without one, and later runs do not try again.
+		noRunGroups.Store(true)
+		s.log.Debug("runs are not contained by a cgroup", "error", err)
+		_ = group.remove()
+		group = nil
+		cmd = s.childCommand(childCtx, command, args, dir, attr, nil, out)
+		err = cmd.Start()
+	}
+	if err == nil {
+		err = cmd.Wait()
+	}
+	// What the command left running in the background (`cmd &`, or detached with setsid) goes
+	// with it, not only on a timeout: it would otherwise outlive the run and its limits' purpose,
 	// and keep its temporary directory busy after it is deleted.
 	_ = killGroup(cmd)
+	group.kill()
+	_ = group.remove()
 	duration := time.Since(start)
 	text := out.buf.String()
 
@@ -500,6 +511,34 @@ func (s *Sandbox) launch(ctx context.Context, command string, args []string, dir
 	}
 	s.log.Debug("sandbox run finished", "exit", exit, "duration_ms", duration.Milliseconds(), "truncated", out.truncated)
 	return text, out.truncated, exit, nil
+}
+
+// childCommand is the isolation child of one run, writing to out, started in group when it is
+// not nil (attr then carries it).
+func (s *Sandbox) childCommand(ctx context.Context, command string, args []string, dir string, attr *syscall.SysProcAttr, group *runGroup, out *limitedBuffer) *exec.Cmd {
+	cmd := launchCommand(ctx, command, args...)
+	cmd.Dir = dir
+	cmd.Env = s.environment()
+	if attr != nil {
+		cmd.SysProcAttr = attr
+	}
+	cmd.Cancel = func() error {
+		group.kill()
+		return killGroup(cmd)
+	}
+	cmd.WaitDelay = 2 * time.Second
+	cmd.Stdout = out
+	cmd.Stderr = out
+	return cmd
+}
+
+// newRunGroup is the cgroup the next run starts in, or nil: none can be made here, or starting
+// a child in one already failed.
+func (s *Sandbox) newRunGroup() *runGroup {
+	if noRunGroups.Load() {
+		return nil
+	}
+	return newRunGroup()
 }
 
 // environmentWithTmp returns the child's environment: bounded, without the
