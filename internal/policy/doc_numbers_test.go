@@ -10,10 +10,10 @@ import (
 	"testing"
 )
 
-// The landing page and the README both quote numbers at a reader who is deciding
-// whether to trust the project: how many packages ship, how many tests there are,
-// how big the binary is. Every one of those is produced by a command, and a table
-// edited by hand drifts the moment the code moves.
+// The landing page and docs/GUIDE.md (the README's long form) both quote numbers at
+// a reader who is deciding whether to trust the project: how many packages ship, how
+// many tests there are, how big the binary is. Every one of those is produced by a
+// command, and a table edited by hand drifts the moment the code moves.
 //
 // Measured on this repository: the README spent several releases claiming
 // "20 of 20" packages when 30 ship, "1,763 test functions across 110 files" when
@@ -84,11 +84,11 @@ func TestTheDocumentsQuoteTheNumbersTheTreeActuallyHas(t *testing.T) {
 		t.Fatal("nothing was measured, so this check would pass by accident")
 	}
 
-	readme := readDoc(t, filepath.Join(root, "README.md"))
-	checkPackageClaim(t, readme, "README.md", len(dirs), withTests)
-	checkTestFuncClaim(t, readme, "README.md", testFuncs, testFiles)
-	checkLineCountClaims(t, readme, "README.md", srcLines, testLines)
-	checkBinarySizeClaim(t, readme, "README.md")
+	guide := readDoc(t, filepath.Join(root, "docs", "GUIDE.md"))
+	checkPackageClaim(t, guide, "docs/GUIDE.md", len(dirs), withTests)
+	checkTestFuncClaim(t, guide, "docs/GUIDE.md", testFuncs, testFiles)
+	checkLineCountClaims(t, guide, "docs/GUIDE.md", srcLines, testLines)
+	checkBinarySizeClaim(t, guide, "docs/GUIDE.md")
 
 	site := readDoc(t, filepath.Join(root, "site/index.html"))
 	checkPackageClaim(t, site, "site/index.html", len(dirs), withTests)
