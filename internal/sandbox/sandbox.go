@@ -404,15 +404,27 @@ func (s *Sandbox) writeRoots(workDir, tempDir string) []string {
 	return roots
 }
 
-// hiddenPaths are the paths a confined command may not read, less any that holds a directory it
-// writes: hiding that one would leave the command writing where it cannot read.
+// hiddenPaths are the paths a confined command may not read: the ones it was given, and the
+// user's git credential stores, which hold the same kind of token as motita's logins. Left out is
+// any that holds a directory the command writes, which would leave it writing where it cannot
+// read, and any inside one: the command could move it to a readable name, and a file in the
+// workspace is the project's own.
 func (s *Sandbox) hiddenPaths(roots []string) []string {
+	candidates := append([]string(nil), s.op.HiddenPaths...)
+	if s.op.GitHome != "" {
+		candidates = append(candidates, filepath.Join(s.op.GitHome, ".git-credentials"),
+			filepath.Join(s.op.GitHome, ".config", "git", "credentials"))
+	}
+	if xdg := os.Getenv("XDG_CONFIG_HOME"); xdg != "" {
+		candidates = append(candidates, filepath.Join(xdg, "git", "credentials"))
+	}
 	var hidden []string
-	for _, h := range s.op.HiddenPaths {
+	for _, h := range candidates {
 		h = filepath.Clean(h)
 		skip := !filepath.IsAbs(h)
 		for _, root := range roots {
-			skip = skip || strings.HasPrefix(filepath.Clean(root)+"/", h+"/")
+			root = filepath.Clean(root)
+			skip = skip || strings.HasPrefix(root+"/", h+"/") || strings.HasPrefix(h, root+"/")
 		}
 		if !skip {
 			hidden = append(hidden, h)

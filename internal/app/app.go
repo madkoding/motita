@@ -879,7 +879,10 @@ func (op Options) run(fl flags) int {
 	}
 
 	// Layer C: the sandbox.
-	box, err := op.newSandbox(SandboxOptions(cfg, log))
+	sandboxOptions := SandboxOptions(cfg, log)
+	// The file this run was configured from holds its key too, wherever it is.
+	sandboxOptions.HiddenPaths = config.SecretFiles(resolvedConfigPath(fl))
+	box, err := op.newSandbox(sandboxOptions)
 	if err != nil {
 		log.Error("could not prepare the sandbox", "error", err)
 		fmt.Fprintf(op.Err, "❌ could not prepare the sandbox: %v\n", err)
@@ -1113,7 +1116,7 @@ func SandboxOptions(cfg config.Config, log *logx.Logger) sandbox.Options {
 		ConfineWrites: cfg.Sandbox.ConfineWrites,
 		GitAuthDir:    config.AuthDir(),
 		GitHome:       config.HomeDir(),
-		HiddenPaths:   []string{config.AuthDir(), config.CredentialsPath(config.File())},
+		HiddenPaths:   config.SecretFiles(""),
 		Log:           log,
 	}
 

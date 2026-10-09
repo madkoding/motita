@@ -95,10 +95,36 @@ func TestResolveExistingKeepsWhatIsNotThereYet(t *testing.T) {
 }
 
 func TestAHiddenPathThatHoldsARootIsNotHidden(t *testing.T) {
-	s := &Sandbox{op: Options{HiddenPaths: []string{"/home/u/.motita/auth", "/home/u", "relative", "/home/u/.motita/motita.env"}}}
+	t.Setenv("XDG_CONFIG_HOME", "")
+	s := &Sandbox{op: Options{HiddenPaths: []string{"/home/u/.motita/auth", "/home/u", "relative",
+		"/home/u/.motita/motita.env", "/home/u/project/motita.yaml"}}}
 	got := s.hiddenPaths([]string{"/home/u/project", "/dev"})
 	if strings.Join(got, " ") != "/home/u/.motita/auth /home/u/.motita/motita.env" {
-		t.Errorf("hiding a directory a command writes in would break it: %v", got)
+		t.Errorf("hiding a directory a command writes in, or a file it could move, is no hiding: %v", got)
+	}
+}
+
+// The user's git credential stores hold the same kind of token as motita's logins.
+func TestTheGitCredentialStoresAreHidden(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", "/xdg")
+	s := &Sandbox{op: Options{GitHome: "/home/u"}}
+	got := strings.Join(s.hiddenPaths([]string{"/work"}), " ")
+	if got != "/home/u/.git-credentials /home/u/.config/git/credentials /xdg/git/credentials" {
+		t.Errorf("got %s", got)
+	}
+}
+
+func TestAConfinedCommandCannotReadTheGitCredentialStore(t *testing.T) {
+	needLandlock(t)
+	home := t.TempDir()
+	os.WriteFile(filepath.Join(home, ".git-credentials"), []byte("https://u:TOKEN@host\n"), 0o600)
+	s, err := New(Options{Dir: t.TempDir(), ConfineWrites: true, GitHome: home})
+	if err != nil {
+		t.Fatal(err)
+	}
+	out, _, _, _ := s.Run(context.Background(), execx.Request{Command: "/bin/cat", Args: []string{filepath.Join(home, ".git-credentials")}})
+	if strings.Contains(out, "TOKEN") {
+		t.Errorf("a confined command read the git credential store: %q", out)
 	}
 }
 
