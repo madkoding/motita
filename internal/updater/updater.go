@@ -55,7 +55,7 @@ var DefaultAssetHosts = []string{
 	"release-assets.githubusercontent.com",
 }
 
-// Download ceilings. A release binary is held under 20 MB by CI, so the binary cap is generous; the
+// Download ceilings. A release binary is held under 24 MB by CI, so the binary cap is generous; the
 // checksum file is a few lines; a signature is exactly ed25519.SignatureSize bytes.
 const (
 	maxBinarySize    = 100 << 20

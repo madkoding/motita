@@ -40,7 +40,7 @@ restating them (they change, a copy rots):
 | `files-and-directories.md`, `calling-an-http-api.md`, `installing-a-toolchain.md` | Only when the audited area touches them (path handling, HTTP clients, toolchain install) — compare the code against what they prescribe. |
 
 Also read `CONTRIBUTING.md` (the 8 CI rules: 100% coverage, `-race`, fmt, vet, no Spanish in code,
-cross-platform build, <20 MB binary, staticcheck+govulncheck). **Any violation of a procedure or rule
+cross-platform build, <24 MB binary, staticcheck+govulncheck). **Any violation of a procedure or rule
 is a general-quality finding that cites the rule**. Conversely, code that bypasses a guard these
 procedures prescribe (e.g. a non-semantic-commit refusal, a "fake PASS") is a security-relevant finding.
 

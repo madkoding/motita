@@ -451,7 +451,7 @@ build flags (`-trimpath -ldflags "-s -w"`, no cgo):
 
 The whole range is 6.88 – 7.66 MB as measured when the interface was a text one; the web
 interface, the WebSocket transport and scheduled tasks have since added to that. The
-requirement CI enforces is under 20 MB per binary. The sizes move with the Go release, so
+requirement CI enforces is under 24 MB per binary. The sizes move with the Go release, so
 treat them as measurements rather than specifications: the gate is the limit, not these
 numbers, and it is there to catch runaway growth rather than to bound a feature.
 
