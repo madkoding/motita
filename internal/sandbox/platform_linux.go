@@ -109,4 +109,20 @@ func dropPrivileges(uid, gid int) error {
 	return nil
 }
 
+// prSetDumpable is prctl's PR_SET_DUMPABLE; prctl is a variable so a test can make it fail.
+const prSetDumpable = 4
+
+var prctl = syscall.RawSyscall
+
+// hideFromChildren makes this process non-dumpable, which closes its /proc/<pid>/environ and
+// /proc/<pid>/mem, and ptrace, to every process of the same user that is not root. A command the
+// sandbox runs could otherwise read the API keys in motita's own environment there. The commands
+// themselves are not affected: an exec makes a process dumpable again.
+func hideFromChildren() error {
+	if _, _, errno := prctl(syscall.SYS_PRCTL, prSetDumpable, 0, 0); errno != 0 {
+		return errno
+	}
+	return nil
+}
+
 var _ = exec.Command

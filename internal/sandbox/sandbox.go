@@ -94,7 +94,11 @@ type Options struct {
 	// sandbox's HOME. Both empty leaves the environment as it was.
 	GitAuthDir string
 	GitHome    string
-	Log        *logx.Logger
+	// HiddenPaths are files and directories a confined command may not read: motita's logins and
+	// stored keys, which no command needs. Like the write confinement, it spares what the user
+	// approved, which also keeps motita's logins for git.
+	HiddenPaths []string
+	Log         *logx.Logger
 }
 
 // Sandbox runs commands in a controlled environment.
@@ -137,6 +141,10 @@ func New(op Options) (*Sandbox, error) {
 	}
 
 	s := &Sandbox{op: op, log: op.Log, base: abs, executable: selfExecutable, gitRoots: gitDirs(abs)}
+
+	if err := hideFromChildren(); err != nil {
+		s.notApplied = append(s.notApplied, "process hiding: a command can read motita's environment in /proc: "+err.Error())
+	}
 
 	if op.UseChroot {
 		switch {
@@ -317,16 +325,18 @@ func (s *Sandbox) Run(ctx context.Context, p execx.Request) (string, bool, int, 
 		}()
 	}
 
+	confine := s.op.ConfineWrites && !s.op.UseChroot && !p.Unconfined
 	spec := Spec{
 		Command:     p.Command,
 		Args:        append([]string(nil), p.Args...),
 		Dir:         workDir,
 		Limits:      s.op.Limits,
-		Environment: s.environmentWithTmp(tempDir),
+		Environment: s.environmentWithTmp(tempDir, !confine),
 	}
 
-	if s.op.ConfineWrites && !s.op.UseChroot && !p.Unconfined {
+	if confine {
 		spec.WriteRoots = s.writeRoots(workDir, tempDir)
+		spec.HiddenPaths = s.hiddenPaths(spec.WriteRoots)
 	}
 
 	command := s.executable
@@ -376,6 +386,23 @@ func (s *Sandbox) writeRoots(workDir, tempDir string) []string {
 		roots = append(roots, gitDirs(workDir)...)
 	}
 	return roots
+}
+
+// hiddenPaths are the paths a confined command may not read, less any that holds a directory it
+// writes: hiding that one would leave the command writing where it cannot read.
+func (s *Sandbox) hiddenPaths(roots []string) []string {
+	var hidden []string
+	for _, h := range s.op.HiddenPaths {
+		h = filepath.Clean(h)
+		skip := !filepath.IsAbs(h)
+		for _, root := range roots {
+			skip = skip || strings.HasPrefix(filepath.Clean(root)+"/", h+"/")
+		}
+		if !skip {
+			hidden = append(hidden, h)
+		}
+	}
+	return hidden
 }
 
 // launchCommand builds the command that the isolation child will run. It is a
@@ -440,7 +467,12 @@ func (s *Sandbox) launch(ctx context.Context, command string, args []string, dir
 // environmentWithTmp returns the child's environment: bounded, without the
 // agent's secrets and with TMPDIR pointing at the ephemeral temporary directory
 // of this run.
-func (s *Sandbox) environmentWithTmp(tempDir string) []string {
+//
+// logins says whether git is given motita's logins (its credential helper and
+// where they live). Only a command the user approved, or one that is not
+// confined at all, gets them: the helper hands a token to whoever asks, and a
+// confined command is one nobody looked at.
+func (s *Sandbox) environmentWithTmp(tempDir string, logins bool) []string {
 	path, home := systemPath, s.base
 	if tools := s.toolsDir(); tools != "" {
 		path, home = ToolPath(tools, systemPath), filepath.Join(tools, "home")
@@ -457,15 +489,19 @@ func (s *Sandbox) environmentWithTmp(tempDir string) []string {
 		}
 	}
 	if s.op.GitAuthDir != "" || s.op.GitHome != "" {
-		base = append(base, gitforge.GitEnv(s.executable, s.op.GitAuthDir, s.op.GitHome)...)
+		exe, auth := s.executable, s.op.GitAuthDir
+		if !logins {
+			exe, auth = "", ""
+		}
+		base = append(base, gitforge.GitEnv(exe, auth, s.op.GitHome)...)
 	}
 	return base
 }
 
 // environment is the environment without a temporary directory of its own (for
-// the isolation process, which does not need TMPDIR).
+// the isolation process, which does not need TMPDIR nor git's logins).
 func (s *Sandbox) environment() []string {
-	return s.environmentWithTmp(s.base)
+	return s.environmentWithTmp(s.base, false)
 }
 
 // limitedBuffer accumulates up to max bytes and flags whether there was a cut.

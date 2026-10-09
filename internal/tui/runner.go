@@ -386,6 +386,7 @@ func (r *AppRunner) SetWorkspace(dir string) {
 		ConfineWrites: r.Cfg.Sandbox.ConfineWrites,
 		GitAuthDir:    config.AuthDir(),
 		GitHome:       config.HomeDir(),
+		HiddenPaths:   []string{config.AuthDir(), config.CredentialsPath(config.File())},
 		Log:           r.Log,
 	}
 	switch r.Cfg.Sandbox.Kind {

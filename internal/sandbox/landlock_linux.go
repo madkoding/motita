@@ -4,10 +4,13 @@ package sandbox
 
 import (
 	"encoding/binary"
+	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"runtime"
+	"sort"
 	"strings"
 	"syscall"
 	"unsafe"
@@ -22,7 +25,8 @@ import (
 // dependency, only three system calls that are the same on every architecture.
 //
 // Reads are not restricted: a build has to read the toolchain, the system and the home directory.
-// Only what changes the filesystem is.
+// Only what changes the filesystem is - and motita's own logins and keys, which no command needs
+// and a prompt-injected script would send away.
 const (
 	sysLandlockCreateRuleset = 444
 	sysLandlockAddRule       = 445
@@ -37,6 +41,7 @@ const (
 // The write-side access rights, with the Landlock ABI that introduced each.
 const (
 	accessWriteFile  = 1 << 1
+	accessReadFile   = 1 << 2 // handled only when something is hidden from reads
 	accessRemoveDir  = 1 << 4
 	accessRemoveFile = 1 << 5
 	accessMakeChar   = 1 << 6
@@ -82,7 +87,11 @@ func writeAccess(abi int) uint64 {
 // confineWrites restricts the calling thread, and so everything it starts, to writing under roots.
 // A root that does not exist is skipped: there is nothing there to grant. It must run on the
 // thread that will exec the command, which is why it pins the goroutine to it.
-func confineWrites(roots []string) error {
+//
+// The paths in hidden, motita's own logins and keys, are also made unreadable. Landlock only
+// grants, so that is done by granting reads on everything around them (see readableAround); when
+// that cannot be worked out, reads are left as they were rather than breaking every command.
+func confineWrites(roots, hidden []string) error {
 	abi := landlockABI()
 	if abi == 0 {
 		return fmt.Errorf("landlock is not available on this kernel")
@@ -90,6 +99,10 @@ func confineWrites(roots []string) error {
 	runtime.LockOSThread()
 
 	handled := writeAccess(abi)
+	readable := readableAround(hidden)
+	if readable != nil {
+		handled |= accessReadFile
+	}
 	attr := make([]byte, 8)
 	binary.NativeEndian.PutUint64(attr, handled)
 	fd, _, errno := landlockSyscall(sysLandlockCreateRuleset, uintptr(unsafe.Pointer(&attr[0])), uintptr(len(attr)), 0)
@@ -100,7 +113,12 @@ func confineWrites(roots []string) error {
 	defer syscall.Close(ruleset)
 
 	for _, root := range roots {
-		if err := allowWrites(ruleset, root, handled); err != nil {
+		if err := allowWrites(ruleset, root, handled&^accessReadFile); err != nil {
+			return err
+		}
+	}
+	for _, path := range readable {
+		if err := allowWrites(ruleset, path, accessReadFile); err != nil {
 			return err
 		}
 	}
@@ -113,8 +131,9 @@ func confineWrites(roots []string) error {
 	return nil
 }
 
-// allowWrites grants the write rights to root and everything beneath it. /dev is granted only the
-// right to write to the files that exist (`> /dev/null`), not to create nodes there.
+// allowWrites grants the write rights to root and everything beneath it (or, for what stays
+// readable around a hidden path, the right to read). /dev is granted only the right to read and
+// write the files that exist (`> /dev/null`), not to create nodes there.
 func allowWrites(ruleset int, root string, handled uint64) error {
 	resolved, err := filepath.EvalSymlinks(root)
 	if err != nil {
@@ -128,7 +147,7 @@ func allowWrites(ruleset int, root string, handled uint64) error {
 
 	allowed := handled
 	if resolved == "/dev" {
-		allowed &= accessWriteFile | accessTruncate
+		allowed &= accessReadFile | accessWriteFile | accessTruncate
 	}
 	// struct landlock_path_beneath_attr is packed: u64 allowed_access, s32 parent_fd.
 	rule := make([]byte, 12)
@@ -212,4 +231,79 @@ func isFile(p string) bool {
 func isRealDir(p string) bool {
 	info, err := os.Lstat(p)
 	return err == nil && info.IsDir()
+}
+
+// readDir lists a directory, a variable so a test can make a listing fail.
+var readDir = os.ReadDir
+
+// readableAround is what stays readable when the paths in hidden must not be: every entry of every
+// directory on the way down to a hidden path, except the entries on that way. A grant covers what
+// is beneath it, so a grant on any of those directories themselves would cover the hidden path too.
+//
+// An entry that is a link is granted where it points, and skipped when that is a hidden path or a
+// directory on the way to one. It returns nil, hiding nothing, when there is nothing to hide or a
+// directory on the way cannot be listed: what it holds could not be granted, and denying it every
+// read would break the commands that only read there.
+func readableAround(hidden []string) []string {
+	var targets []string
+	onTheWay := map[string]bool{}
+	for _, h := range hidden {
+		if !filepath.IsAbs(h) {
+			continue
+		}
+		target := resolveExisting(filepath.Clean(h))
+		targets = append(targets, target)
+		for p := target; !onTheWay[p]; p = filepath.Dir(p) {
+			onTheWay[p] = true
+		}
+	}
+	isHidden := func(p string) bool {
+		for _, t := range targets {
+			if p == t || strings.HasPrefix(p, t+"/") {
+				return true
+			}
+		}
+		return false
+	}
+	var dirs []string
+	for p := range onTheWay {
+		if !isHidden(p) {
+			dirs = append(dirs, p)
+		}
+	}
+	if len(dirs) == 0 {
+		return nil
+	}
+	sort.Strings(dirs)
+	readable := []string{}
+	for _, dir := range dirs {
+		entries, err := readDir(dir)
+		if errors.Is(err, fs.ErrNotExist) {
+			continue // a directory that is not there yet holds nothing to grant
+		}
+		if err != nil {
+			return nil
+		}
+		for _, entry := range entries {
+			resolved, err := filepath.EvalSymlinks(filepath.Join(dir, entry.Name()))
+			if err != nil || onTheWay[resolved] || isHidden(resolved) {
+				continue
+			}
+			readable = append(readable, resolved)
+		}
+	}
+	return readable
+}
+
+// resolveExisting is p with the links of the part of it that exists resolved: a hidden path that
+// is not there yet is still hidden when it appears.
+func resolveExisting(p string) string {
+	var rest []string
+	for {
+		if resolved, err := filepath.EvalSymlinks(p); err == nil {
+			return filepath.Join(append([]string{resolved}, rest...)...)
+		}
+		rest = append([]string{filepath.Base(p)}, rest...)
+		p = filepath.Dir(p)
+	}
 }

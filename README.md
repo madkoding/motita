@@ -570,6 +570,8 @@ configuration file. Disconnecting a host deletes its file.
   is passed through and motita acts as a credential helper (`motita git-credential`) for the
   hosts you connected, so `git clone`, `git pull` and `git push` work inside a session's
   worktree. Prompts for a password are turned off: a missing login fails fast and says so.
+  The logins go only to a command you approved (a pull or a push asks first): a command
+  that runs confined, unasked, gets neither the helper nor a way to read the login files.
 - **Commits and pull requests are semantic.** A `git commit -m` whose subject is not
   `type(scope): description` is refused before it is made, and so is a pull request title.
 - **Pull requests, with the link.** The agent opens one with `motita forge pr create` (you

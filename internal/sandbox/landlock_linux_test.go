@@ -251,7 +251,7 @@ func TestConfineWritesReportsEachFailingStep(t *testing.T) {
 			}
 			return 0, 0, 0
 		}
-		err := confineWrites([]string{t.TempDir(), "/dev", "/does/not/exist"})
+		err := confineWrites([]string{t.TempDir(), "/dev", "/does/not/exist"}, nil)
 		if (err == nil) != (name == "none") {
 			t.Errorf("%s: a failing step must fail the confinement, and only a failing step: %v", name, err)
 		}
@@ -259,7 +259,7 @@ func TestConfineWritesReportsEachFailingStep(t *testing.T) {
 	landlockSyscall = func(uintptr, uintptr, uintptr, uintptr) (uintptr, uintptr, syscall.Errno) {
 		return 0, 0, syscall.ENOSYS
 	}
-	if landlockABI() != 0 || confineWrites(nil) == nil {
+	if landlockABI() != 0 || confineWrites(nil, nil) == nil {
 		t.Error("with no Landlock the ABI is 0 and confining fails")
 	}
 }
@@ -294,7 +294,7 @@ func TestWithoutLandlockTheSandboxSaysSoAndDoesNotConfine(t *testing.T) {
 func TestAConfinementThatFailsInTheChildStopsTheCommand(t *testing.T) {
 	real := confineWritesHook
 	t.Cleanup(func() { confineWritesHook = real })
-	confineWritesHook = func([]string) error { return syscall.EPERM }
+	confineWritesHook = func([]string, []string) error { return syscall.EPERM }
 	err := RunAsChild([]string{ChildMarker, `{"command":"/bin/true","write_roots":["/tmp"]}`})
 	if err == nil || !strings.Contains(err.Error(), "could not confine writes") {
 		t.Fatalf("got %v", err)

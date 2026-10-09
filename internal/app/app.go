@@ -1113,6 +1113,7 @@ func SandboxOptions(cfg config.Config, log *logx.Logger) sandbox.Options {
 		ConfineWrites: cfg.Sandbox.ConfineWrites,
 		GitAuthDir:    config.AuthDir(),
 		GitHome:       config.HomeDir(),
+		HiddenPaths:   []string{config.AuthDir(), config.CredentialsPath(config.File())},
 		Log:           log,
 	}
 
