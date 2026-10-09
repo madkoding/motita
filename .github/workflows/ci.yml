@@ -310,16 +310,22 @@ jobs:
         # SHA256SUMS.sig is a raw ed25519 signature over SHA256SUMS, made with the
         # RELEASE_SIGNING_KEY secret (a PEM private key; `make release-key` creates
         # the pair). The updater and the installers verify it against the public key
-        # embedded in them, so a release cannot be published unsigned: a missing
-        # secret fails here instead of shipping something users would refuse.
+        # embedded in them. Once a public key is embedded a missing secret fails
+        # here instead of shipping something users would refuse; until then the
+        # step only warns, so releases keep shipping while the key is set up.
         working-directory: dist
         env:
           RELEASE_SIGNING_KEY: ${{ secrets.RELEASE_SIGNING_KEY }}
         run: |
           set -eu
+          pub="$(sed -n 's/^const ReleasePublicKey = "\(.*\)"$/\1/p' ../internal/updater/updater.go)"
           if [ -z "${RELEASE_SIGNING_KEY:-}" ]; then
-            echo "::error::the RELEASE_SIGNING_KEY secret is not set; run 'make release-key' and store the private key as that secret"
-            exit 1
+            if [ -n "$pub" ]; then
+              echo "::error::the RELEASE_SIGNING_KEY secret is not set; run 'make release-key' and store the private key as that secret"
+              exit 1
+            fi
+            echo "::warning::RELEASE_SIGNING_KEY is not set and no public key is embedded yet; this release is not signed"
+            exit 0
           fi
           umask 077
           key="$RUNNER_TEMP/release-signing-key.pem"
@@ -328,7 +334,6 @@ jobs:
           openssl pkeyutl -sign -inkey "$key" -rawin -in SHA256SUMS -out SHA256SUMS.sig
           # Check it against the key the binaries embed, when one is embedded: a
           # secret that does not match would publish a release every client refuses.
-          pub="$(sed -n 's/^const ReleasePublicKey = "\(.*\)"$/\1/p' ../internal/updater/updater.go)"
           if [ -n "$pub" ]; then
             printf -- '-----BEGIN PUBLIC KEY-----\n%s\n-----END PUBLIC KEY-----\n' "$pub" > "$RUNNER_TEMP/release.pub"
             openssl pkeyutl -verify -pubin -inkey "$RUNNER_TEMP/release.pub" -rawin -in SHA256SUMS -sigfile SHA256SUMS.sig
