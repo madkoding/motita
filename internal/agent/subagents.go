@@ -300,6 +300,9 @@ func (a *Agent) newChild(place childPlace) *Agent {
 	child.library = a.library
 	child.isChild = true
 	child.research = place.branch == ""
+	// The gate the main agent's task started with: a background agent cannot pass a gate it or
+	// the main agent rewrote any more than the main agent can.
+	child.gate = a.gate
 	child.fleet = a.fleet
 	child.Progress = func(format string, args ...any) { child.noteActivity(fmt.Sprintf(format, args...)) }
 	return child
@@ -508,5 +511,51 @@ func (a *Agent) validateClaim(ctx context.Context, before *runBaseline) anchor.R
 		return anchor.Result{Pass: true, Checks: []anchor.CheckLog{},
 			Reason: "no project gate in the background agent's tree: its branch is validated by the main agent's anchor once merged"}
 	}
-	return before.judge(ctx, v)
+	return a.guardGate(ctx, before.judge(ctx, v))
+}
+
+// gateFingerprint is the project's gate as it is defined now (empty unless anchor kind is auto).
+func (a *Agent) gateFingerprint() string {
+	return anchor.New(a.cfg.Anchor, a.cfg.Agent.WorkspaceDir, nil).GateFingerprint()
+}
+
+// guardGate refuses a PASS from a gate that changed during the task.
+//
+// With kind auto the gate is read from files the model can write: a run that rewrote its
+// Makefile's check target, its package.json test script, or wrote a .motita/anchor of its own
+// would otherwise be judged by the check it chose. Such a PASS is put to the user; with nobody to
+// ask, or a no, it is a FAIL that says why. Once approved, the new gate is the one the task is
+// held to, so the question is not asked again for the same gate.
+func (a *Agent) guardGate(ctx context.Context, v anchor.Result) anchor.Result {
+	if !v.Pass || a.gate == "" {
+		return v
+	}
+	now := a.gateFingerprint()
+	if now == a.gate {
+		return v
+	}
+	var lines []string
+	for _, c := range anchor.New(a.cfg.Anchor, a.cfg.Agent.WorkspaceDir, nil).Planned() {
+		lines = append(lines, strings.TrimSpace(c.Command+" "+strings.Join(c.Args, " ")))
+	}
+	gate := strings.Join(lines, " && ")
+	approved, err := a.approve(ctx, RequestPlan{
+		Reason: "the project's gate (.motita/anchor, Makefile or package.json scripts) changed during this run, " +
+			"and it passed; accept a PASS from the changed gate?",
+		Rule: "anchor-gate-changed",
+	}, "accept PASS from the changed gate: "+gate)
+	if err == nil && approved {
+		a.gate = now
+		return v
+	}
+	why := "the user did not approve it"
+	if err != nil {
+		why = err.Error()
+	}
+	v.Pass = false
+	v.Reason = "the project's gate changed during this run (.motita/anchor, the Makefile or package.json scripts), " +
+		"and a PASS from a gate the run itself rewrote is not accepted: " + why +
+		". Restore the gate as it was, or have the user approve the new one"
+	a.log.Warn("a PASS from a changed gate was refused", "gate", gate, "reason", why)
+	return v
 }

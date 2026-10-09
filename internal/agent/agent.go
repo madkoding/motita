@@ -128,6 +128,10 @@ type Agent struct {
 	subs     *subagents
 	isChild  bool
 	research bool
+
+	// gate is the fingerprint of the project's gate (anchor kind auto) as the task found it; a
+	// background agent inherits its main agent's. See guardGate.
+	gate string
 }
 
 // SetObserver allows external callers (such as the TUI) to register a callback
@@ -1355,6 +1359,11 @@ func (a *Agent) loop(ctx context.Context, t task.Task, depth int) TaskResult {
 	// it to tell a failure the run caused from one that was already there. See baseline.go.
 	before := a.startBaseline(ctx)
 	defer before.close(ctx)
+	// The project's gate as the task found it: a PASS from a gate the run itself rewrote is not
+	// taken without the user's word. A background agent keeps the one its main agent started with.
+	if !a.isChild || a.gate == "" {
+		a.gate = a.gateFingerprint()
+	}
 	readOnlyRounds := 0
 	unbackedDone := 0
 	verifyChallenges := 0
@@ -2226,7 +2235,8 @@ func (a *Agent) describeAutoRules() string {
 		sb.WriteString("- This project declares NO gate yet (looked for .motita/anchor, a Makefile with check or test, " +
 			"go.mod, package.json lint/typecheck/test, Cargo.toml, pyproject.toml), so a claim of done will be REFUSED.\n" +
 			"- Declare it: find how the project checks itself (README, CI workflow, package.json scripts, Makefile) " +
-			"and write those commands, one per line, in .motita/anchor. Run them yourself before claiming done.\n")
+			"and write those commands, one per line, in .motita/anchor. Run them yourself before claiming done.\n" +
+			"- A gate declared during the run is put to the user before its PASS is accepted.\n")
 		return sb.String()
 	}
 	sb.WriteString("- The project's own gate runs after you claim done, in the project directory. Each of these must pass:\n")
@@ -2234,7 +2244,9 @@ func (a *Agent) describeAutoRules() string {
 		fmt.Fprintf(&sb, "  - %s %s (must exit %d)\n", c.Command, strings.Join(c.Args, " "), c.ExpectExit)
 	}
 	sb.WriteString("- Run these same commands yourself BEFORE claiming done and fix what they report: a claim the gate " +
-		"refuses costs one of your limited attempts, and running them first costs nothing.\n")
+		"refuses costs one of your limited attempts, and running them first costs nothing.\n" +
+		"- Do not change the gate itself (.motita/anchor, the Makefile, package.json scripts): a PASS from a changed " +
+		"gate is not accepted without the user's approval.\n")
 	return sb.String()
 }
 
