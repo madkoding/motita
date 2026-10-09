@@ -128,6 +128,16 @@ func TestWsReadFrameRefusesAnOversizedPayload(t *testing.T) {
 	}
 }
 
+// A 64-bit length with the high bit set is refused as oversized. Converted to int before the
+// comparison, it went negative, passed the cap and reached make() with a negative size.
+func TestWsReadFrameRefusesAHighBitLength(t *testing.T) {
+	hdr := []byte{0x81, 0x80 | 127, 0x80, 0, 0, 0, 0, 0, 0, 1}
+	_, _, _, _, err := wsReadFrame(bytes.NewReader(hdr))
+	if err == nil || !strings.Contains(err.Error(), "exceeds") {
+		t.Fatalf("a length with the high bit set must be refused as oversized, got %v", err)
+	}
+}
+
 // An empty payload is legal (a close frame with no code) and must not be mistaken for end-of-stream
 // or for a frame that was skipped.
 func TestWsReadFrameHandlesAnEmptyPayload(t *testing.T) {
