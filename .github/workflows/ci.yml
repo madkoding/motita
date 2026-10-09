@@ -20,9 +20,9 @@ jobs:
     name: fmt · vet · test
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - uses: actions/setup-go@v7
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go.mod
           cache: false
@@ -151,9 +151,9 @@ jobs:
       EXT: ${{ matrix.goos == 'windows' && '.exe' || '' }}
       BINARY: dist/motita-${{ matrix.goos }}-${{ matrix.goarch }}${{ matrix.goos == 'windows' && '.exe' || '' }}
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - uses: actions/setup-go@v7
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go.mod
           cache: false
@@ -207,11 +207,16 @@ jobs:
           done
 
       - name: Register qemu (only needed outside the native architectures)
+        # Without this the arm containers cannot execute anything on an amd64
+        # runner and the failure reads as a broken binary ("exec format error").
+        # The action runs its binfmt image --privileged, in the job that builds the
+        # release binaries, so the image is pinned by digest as well as the action
+        # by commit: a moved tag cannot change what runs with that privilege.
         if: matrix.goos == 'linux' && (matrix.goarch == 'arm' || matrix.goarch == 'arm64')
-        run: |
-          # Without this the arm containers cannot execute anything on an amd64
-          # runner and the failure reads as a broken binary ("exec format error").
-          docker run --rm --privileged multiarch/qemu-user-static --reset -p yes
+        uses: docker/setup-qemu-action@99012661954931238ded8c8b007157a8430204e1 # v4.4.0
+        with:
+          image: tonistiigi/binfmt:qemu-v10.2.3-68@sha256:400a4873b838d1b89194d982c45e5fb3cda4593fbfd7e08a02e76b03b21166f0
+          platforms: arm,arm64
 
       - name: Run the binaries in their own container (smoke test)
         if: matrix.goos == 'linux'
@@ -236,7 +241,7 @@ jobs:
           ./scripts/e2e-agent.sh "${{ matrix.goarch }}"
           ./scripts/e2e.sh "${{ matrix.goarch }}"
 
-      - uses: actions/upload-artifact@v7
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: motita-${{ matrix.goos }}-${{ matrix.goarch }}
           path: |
@@ -248,9 +253,9 @@ jobs:
     needs: verify
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - uses: actions/setup-go@v7
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go.mod
           cache: false
@@ -285,11 +290,11 @@ jobs:
       id-token: write
       attestations: write
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
 
-      - uses: actions/download-artifact@v8
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           path: dist
           merge-multiple: true
@@ -333,11 +338,11 @@ jobs:
 
       - name: Build provenance for the binaries
         # Verifiable with: gh attestation verify <binary> --repo madkoding/motita
-        uses: actions/attest-build-provenance@v4.2.2
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
         with:
           subject-path: dist/motita-*
 
-      - uses: softprops/action-gh-release@v3
+      - uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3.0.3
         with:
           files: |
             dist/*
