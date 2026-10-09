@@ -1,7 +1,6 @@
 import { defineConfig } from 'vite'
 import preact from '@preact/preset-vite'
-import tailwindcss from 'tailwindcss'
-import autoprefixer from 'autoprefixer'
+import tailwindcss from '@tailwindcss/postcss'
 import { VitePWA } from 'vite-plugin-pwa'
 
 // The build output goes directly into the Go embed directory.
@@ -48,7 +47,7 @@ export default defineConfig({
   ],
   css: {
     postcss: {
-      plugins: [tailwindcss(), autoprefixer()]
+      plugins: [tailwindcss()]
     }
   },
   build: {

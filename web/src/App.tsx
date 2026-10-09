@@ -3798,7 +3798,7 @@ export default function App() {
       {renamingId === s.id ? (
         <>
           <input
-            class="flex-1 min-w-0 bg-black/30 border border-accent/30 rounded px-2 py-1 text-sm text-[#e8e8ea] focus:outline-none focus:border-accent"
+            class="flex-1 min-w-0 bg-black/30 border border-accent/30 rounded-sm px-2 py-1 text-sm text-[#e8e8ea] focus:outline-hidden focus:border-accent"
             value={renameValue}
             autoFocus
             onInput={(e) => setRenameValue((e.target as HTMLInputElement).value)}
@@ -3809,7 +3809,7 @@ export default function App() {
             onClick={(e) => e.stopPropagation()}
           />
           <button
-            class="p-1 rounded hover:bg-accent/20 text-accent flex-none"
+            class="p-1 rounded-sm hover:bg-accent/20 text-accent flex-none"
             title={t('Confirm')}
             onClick={(e) => { e.stopPropagation(); renameSession(s.id, renameValue); setRenamingId(null) }}
           >
@@ -3818,7 +3818,7 @@ export default function App() {
             </svg>
           </button>
           <button
-            class="p-1 rounded hover:bg-white/10 text-[#9a9aaa] flex-none"
+            class="p-1 rounded-sm hover:bg-white/10 text-[#9a9aaa] flex-none"
             title={t('Cancel')}
             onClick={(e) => { e.stopPropagation(); setRenamingId(null) }}
           >
@@ -3862,25 +3862,25 @@ export default function App() {
             <div class="flex items-center gap-x-1.5 gap-y-1 flex-wrap mt-1 text-[10px]">
               {s.branch && (
                 <span
-                  class="inline-flex items-center gap-1 flex-none px-1 py-px rounded bg-accent/10"
+                  class="inline-flex items-center gap-1 flex-none px-1 py-px rounded-sm bg-accent/10"
                   title={tf('Branch: {branch}', { branch: s.branch })}
                 >
                   <span class="text-accent/50 uppercase tracking-wide text-[9px]">{t('branch')}</span>
-                  <span class="font-mono text-accent truncate max-w-[7rem]">{shortBranch(s.branch)}</span>
+                  <span class="font-mono text-accent truncate max-w-28">{shortBranch(s.branch)}</span>
                 </span>
               )}
               {sessionWorktreeChip(s) && (
                 <span
-                  class="inline-flex items-center gap-1 flex-none px-1 py-px rounded bg-[#a0a0f0]/10"
+                  class="inline-flex items-center gap-1 flex-none px-1 py-px rounded-sm bg-[#a0a0f0]/10"
                   title={tf('Worktree: {worktree}', { worktree: s.worktree || '' })}
                 >
                   <span class="text-[#a0a0f0]/50 uppercase tracking-wide text-[9px]">{t('worktree')}</span>
-                  <span class="font-mono text-[#a0a0f0] truncate max-w-[6rem]">{sessionWorktreeChip(s)}</span>
+                  <span class="font-mono text-[#a0a0f0] truncate max-w-24">{sessionWorktreeChip(s)}</span>
                 </span>
               )}
               {!!s.changes && (
                 <span
-                  class="inline-flex items-center gap-1 flex-none px-1 py-px rounded bg-[#f0a040]/10"
+                  class="inline-flex items-center gap-1 flex-none px-1 py-px rounded-sm bg-[#f0a040]/10"
                   title={changesTitle(s.changes)}
                 >
                   <span class="text-[#f0a040]/50 uppercase tracking-wide text-[9px]">
@@ -3896,7 +3896,7 @@ export default function App() {
       {renamingId !== s.id && (
         <div class={`row-actions relative flex-none${rowMenu?.id === s.id ? ' row-actions-open' : ''}`}>
           <button
-            class="p-1 rounded hover:bg-white/10"
+            class="p-1 rounded-sm hover:bg-white/10"
             title={t('More actions')}
             data-row-menu-trigger
             onClick={(e) => {
@@ -3986,12 +3986,12 @@ export default function App() {
   }
 
   return (
-    <div class="app-bg flex h-[100dvh] text-[#e8e8ea] overflow-hidden">
+    <div class="app-bg flex h-dvh text-[#e8e8ea] overflow-hidden">
       {/* Blocking auth modal — shown when the browser has no valid credential.
           It covers the entire screen and cannot be dismissed without a token. */}
       {authState !== 'ok' && (
         <div
-          class="fixed inset-0 z-[100] bg-black/80 backdrop-blur-sm flex items-center justify-center p-4"
+          class="fixed inset-0 z-100 bg-black/80 backdrop-blur-xs flex items-center justify-center p-4"
           onClick={(e) => e.stopPropagation()}
         >
           <div
@@ -4026,7 +4026,7 @@ export default function App() {
                 <input
                   id="auth-token"
                   type="password"
-                  class="w-full px-3 py-2.5 rounded-xl bg-black/30 border border-white/10 text-[#e8e8ea] focus:outline-none focus:border-accent font-mono text-sm"
+                  class="w-full px-3 py-2.5 rounded-xl bg-black/30 border border-white/10 text-[#e8e8ea] focus:outline-hidden focus:border-accent font-mono text-sm"
                   value={authInput}
                   onInput={(e) => setAuthInput((e.target as HTMLInputElement).value)}
                   placeholder={t('Paste the gateway token…')}
@@ -4044,7 +4044,7 @@ export default function App() {
                   </p>
                 )}
                 <p class="text-xs text-[#7a7a8c] mt-3 leading-relaxed">
-                  {t('Run')} <code class="font-mono text-accent bg-accent/10 px-1 rounded">motita gateway start</code> {t('in a terminal to print the link, or paste the token here.')}
+                  {t('Run')} <code class="font-mono text-accent bg-accent/10 px-1 rounded-sm">motita gateway start</code> {t('in a terminal to print the link, or paste the token here.')}
                 </p>
                 <button
                   type="submit"
@@ -4132,10 +4132,10 @@ export default function App() {
                 // backgrounds off the rounded corners. It was purely cosmetic and
                 // it broke the menu.
                 return (
-                  <div key={p.id} class="mt-1.5 rounded-xl bg-white/[0.02] border border-white/[0.06]">
+                  <div key={p.id} class="mt-1.5 rounded-xl bg-white/2 border border-white/6">
                     {/* Header: click toggles collapse. */}
                     <div
-                      class="project-header group flex items-center gap-1.5 px-2.5 py-2 cursor-pointer select-none hover:bg-white/[0.04] transition-colors"
+                      class="project-header group flex items-center gap-1.5 px-2.5 py-2 cursor-pointer select-none hover:bg-white/4 transition-colors"
                       onClick={() => toggleProject(p.id)}
                       onTouchStart={(e) => startLongPress('project', p.id, p.title, e as unknown as Event)}
                       onTouchMove={cancelLongPress}
@@ -4176,19 +4176,19 @@ export default function App() {
                         <div class="flex items-center gap-x-1.5 gap-y-1 flex-wrap mt-1 text-[10px]">
                           {p.branch && (
                             <span
-                              class="inline-flex items-center gap-1 flex-none px-1 py-px rounded bg-accent/10"
+                              class="inline-flex items-center gap-1 flex-none px-1 py-px rounded-sm bg-accent/10"
                               title={tf('Project checkout is on branch: {branch}', { branch: p.branch })}
                             >
                               <span class="text-accent/50 uppercase tracking-wide text-[9px]">{t('project')}</span>
-                              <span class="font-mono text-accent truncate max-w-[7rem]">{shortBranch(p.branch)}</span>
+                              <span class="font-mono text-accent truncate max-w-28">{shortBranch(p.branch)}</span>
                             </span>
                           )}
                           {p.podman && (
-                            <span class="inline-flex items-center flex-none px-1 py-px rounded bg-accent/10 text-accent text-[9px] uppercase tracking-wide" title={t('This project is run with podman')}>podman</span>
+                            <span class="inline-flex items-center flex-none px-1 py-px rounded-sm bg-accent/10 text-accent text-[9px] uppercase tracking-wide" title={t('This project is run with podman')}>podman</span>
                           )}
                           {!!p.changes && (
                             <span
-                              class="inline-flex items-center gap-1 flex-none px-1 py-px rounded bg-[#f0a040]/10"
+                              class="inline-flex items-center gap-1 flex-none px-1 py-px rounded-sm bg-[#f0a040]/10"
                               title={tf('The project checkout has {what}', { what: changesTitle(p.changes) })}
                             >
                               <span class="text-[#f0a040]/50 uppercase tracking-wide text-[9px]">
@@ -4208,7 +4208,7 @@ export default function App() {
                       />
                       <div class={`row-actions relative flex-none${rowMenu?.id === p.id ? ' row-actions-open' : ''}`}>
                         <button
-                          class="p-0.5 rounded hover:bg-white/10"
+                          class="p-0.5 rounded-sm hover:bg-white/10"
                           title={t('More actions')}
                           data-row-menu-trigger
                           onClick={(e) => {
@@ -4360,7 +4360,7 @@ export default function App() {
       {/* `relative` is what anchors the chat spinner (below) to THIS column: without it the
           spinner would be positioned against the nearest positioned ancestor, or the window,
           and would cover the sidebar too. */}
-      <div class="flex flex-col flex-1 min-w-0 h-[100dvh] relative">
+      <div class="flex flex-col flex-1 min-w-0 h-dvh relative">
         {/* Header — frosted glass over the background image.
             A phone is where this row runs out of room: title, status pill and
             provider/model pill all want width, and the two pills cannot shrink.
@@ -5018,7 +5018,7 @@ export default function App() {
         )}
 
           <label htmlFor="task" class="sr-only">{t('Task')}</label>
-          <div class="flex-1 flex flex-wrap items-center gap-1.5 min-h-[44px] max-h-[120px] p-2 rounded-2xl bg-black/30 border border-white/5 focus-within:border-accent backdrop-blur-sm overflow-y-auto">
+          <div class="flex-1 flex flex-wrap items-center gap-1.5 min-h-[44px] max-h-[120px] p-2 rounded-2xl bg-black/30 border border-white/5 focus-within:border-accent backdrop-blur-xs overflow-y-auto">
             {activeTags.map((tag, ti) => (
               <span
                 key={ti}
@@ -5080,7 +5080,7 @@ export default function App() {
             }}
             onKeyDown={handleKeydown}
             placeholder={t(isMerged ? 'This session is read-only after integration' : activeTags.length > 0 ? 'argument…' : 'Ask for something…')}
-            class="flex-1 min-h-[28px] max-h-[100px] px-1 py-1 bg-transparent border-0 outline-none ring-0 text-[#e8e8ea] resize-none focus:outline-none focus:ring-0 focus:border-0 font-sans text-[14px] leading-relaxed disabled:opacity-50 disabled:cursor-not-allowed"
+            class="flex-1 min-h-[28px] max-h-[100px] px-1 py-1 bg-transparent border-0 outline-hidden ring-0 text-[#e8e8ea] resize-none focus:outline-hidden focus:ring-0 focus:border-0 font-sans text-[14px] leading-relaxed disabled:opacity-50 disabled:cursor-not-allowed"
           />
           </div>
           <button
@@ -5106,7 +5106,7 @@ export default function App() {
       {/* Edit project modal — title, description and the main branch. */}
       {editProject && (
         <div
-          class="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4"
+          class="fixed inset-0 bg-black/60 backdrop-blur-xs z-50 flex items-center justify-center p-4"
           onClick={() => setEditProject(null)}
         >
           <div
@@ -5131,7 +5131,7 @@ export default function App() {
               <div>
                 <label class="block text-sm text-[#9a9aaa] mb-1.5">{t('Title')} <span class="text-danger">*</span></label>
                 <input
-                  class="w-full px-3 py-2.5 rounded-xl bg-black/30 border border-white/10 text-[#e8e8ea] focus:outline-none focus:border-accent"
+                  class="w-full px-3 py-2.5 rounded-xl bg-black/30 border border-white/10 text-[#e8e8ea] focus:outline-hidden focus:border-accent"
                   value={editProject.title}
                   onInput={(e) => { const v = (e.target as HTMLInputElement).value; setEditProject(p => p && { ...p, title: v }) }}
                   autoFocus
@@ -5140,7 +5140,7 @@ export default function App() {
               <div>
                 <label class="block text-sm text-[#9a9aaa] mb-1.5">{t('Description (optional)')}</label>
                 <input
-                  class="w-full px-3 py-2.5 rounded-xl bg-black/30 border border-white/10 text-[#e8e8ea] focus:outline-none focus:border-accent"
+                  class="w-full px-3 py-2.5 rounded-xl bg-black/30 border border-white/10 text-[#e8e8ea] focus:outline-hidden focus:border-accent"
                   value={editProject.description}
                   onInput={(e) => { const v = (e.target as HTMLInputElement).value; setEditProject(p => p && { ...p, description: v }) }}
                 />
@@ -5150,7 +5150,7 @@ export default function App() {
                 <select
                   id="edit-project-main"
                   data-testid="edit-project-main"
-                  class="w-full px-3 py-2.5 rounded-xl bg-black/30 border border-white/10 text-[#e8e8ea] focus:outline-none focus:border-accent font-mono text-sm"
+                  class="w-full px-3 py-2.5 rounded-xl bg-black/30 border border-white/10 text-[#e8e8ea] focus:outline-hidden focus:border-accent font-mono text-sm"
                   value={editProject.main}
                   onChange={(e) => { const v = (e.target as HTMLSelectElement).value; setEditProject(p => p && { ...p, main: v }) }}
                 >
@@ -5170,7 +5170,7 @@ export default function App() {
                 <select
                   id="edit-project-merge"
                   data-testid="edit-project-merge"
-                  class="w-full px-3 py-2.5 rounded-xl bg-black/30 border border-white/10 text-[#e8e8ea] focus:outline-none focus:border-accent text-sm"
+                  class="w-full px-3 py-2.5 rounded-xl bg-black/30 border border-white/10 text-[#e8e8ea] focus:outline-hidden focus:border-accent text-sm"
                   value={editProject.mergeMethod}
                   onChange={(e) => { const v = (e.target as HTMLSelectElement).value; setEditProject(p => p && { ...p, mergeMethod: v }) }}
                 >
@@ -5190,7 +5190,7 @@ export default function App() {
                   max="20"
                   step="1"
                   inputMode="numeric"
-                  class="w-full px-3 py-2.5 rounded-xl bg-black/30 border border-white/10 text-[#e8e8ea] focus:outline-none focus:border-accent text-sm"
+                  class="w-full px-3 py-2.5 rounded-xl bg-black/30 border border-white/10 text-[#e8e8ea] focus:outline-hidden focus:border-accent text-sm"
                   value={String(editProject.prMaxFixes)}
                   onInput={(e) => {
                     const n = Math.round(Number((e.target as HTMLInputElement).value))
@@ -5249,7 +5249,7 @@ export default function App() {
       {/* New project modal — title, description, folder or git URL. */}
       {showNewProject && (
         <div
-          class="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4"
+          class="fixed inset-0 bg-black/60 backdrop-blur-xs z-50 flex items-center justify-center p-4"
           onClick={() => setShowNewProject(false)}
         >
           <div
@@ -5330,7 +5330,7 @@ export default function App() {
                     <div>
                       <label class="block text-sm text-[#9a9aaa] mb-1.5">{t('Repository URL')} <span class="text-danger">*</span></label>
                       <input
-                        class="w-full px-3 py-2.5 rounded-xl bg-black/30 border border-white/10 text-[#e8e8ea] focus:outline-none focus:border-accent font-mono text-sm"
+                        class="w-full px-3 py-2.5 rounded-xl bg-black/30 border border-white/10 text-[#e8e8ea] focus:outline-hidden focus:border-accent font-mono text-sm"
                         value={newProjectGit}
                         onInput={(e) => setNewProjectGit((e.target as HTMLInputElement).value)}
                         placeholder={t('https://github.com/user/repo.git  or  git@github.com:user/repo.git')}
@@ -5349,7 +5349,7 @@ export default function App() {
                   <div>
                     <label class="block text-sm text-[#9a9aaa] mb-1.5">{t('Name')}{newProjectMode === 'empty' && <> <span class="text-danger">*</span></>}</label>
                     <input
-                      class="w-full px-3 py-2.5 rounded-xl bg-black/30 border border-white/10 text-[#e8e8ea] focus:outline-none focus:border-accent"
+                      class="w-full px-3 py-2.5 rounded-xl bg-black/30 border border-white/10 text-[#e8e8ea] focus:outline-hidden focus:border-accent"
                       value={newProjectTitle}
                       onInput={(e) => setNewProjectTitle((e.target as HTMLInputElement).value)}
                       placeholder={newProjectMode === 'git' ? (repoNameOf(newProjectGit) || t('The repository name')) : t('My project')}
@@ -5362,7 +5362,7 @@ export default function App() {
                   <select
                     id="new-project-main"
                     data-testid="new-project-main"
-                    class="w-full px-3 py-2.5 rounded-xl bg-black/30 border border-white/10 text-[#e8e8ea] focus:outline-none focus:border-accent font-mono text-sm"
+                    class="w-full px-3 py-2.5 rounded-xl bg-black/30 border border-white/10 text-[#e8e8ea] focus:outline-hidden focus:border-accent font-mono text-sm"
                     value={newProjectMain}
                     onChange={(e) => { mainChosen.current = true; setNewProjectMain((e.target as HTMLSelectElement).value) }}
                   >
@@ -5383,7 +5383,7 @@ export default function App() {
                       <div>
                         <label class="block text-sm text-[#9a9aaa] mb-1.5">{t('Description (optional)')}</label>
                         <input
-                          class="w-full px-3 py-2.5 rounded-xl bg-black/30 border border-white/10 text-[#e8e8ea] focus:outline-none focus:border-accent"
+                          class="w-full px-3 py-2.5 rounded-xl bg-black/30 border border-white/10 text-[#e8e8ea] focus:outline-hidden focus:border-accent"
                           value={newProjectDesc}
                           onInput={(e) => setNewProjectDesc((e.target as HTMLInputElement).value)}
                           placeholder={t('What this project is about')}
@@ -5392,7 +5392,7 @@ export default function App() {
                       <div>
                         <label class="block text-sm text-[#9a9aaa] mb-1.5">{t('Folder name')}</label>
                         <input
-                          class="w-full px-3 py-2.5 rounded-xl bg-black/30 border border-white/10 text-[#e8e8ea] focus:outline-none focus:border-accent font-mono text-sm"
+                          class="w-full px-3 py-2.5 rounded-xl bg-black/30 border border-white/10 text-[#e8e8ea] focus:outline-hidden focus:border-accent font-mono text-sm"
                           value={newProjectDir}
                           onInput={(e) => setNewProjectDir((e.target as HTMLInputElement).value)}
                           placeholder={slugOf(newProjectMode === 'git' ? repoNameOf(newProjectGit) || newProjectTitle : newProjectTitle) || 'my-project'}
@@ -5403,7 +5403,7 @@ export default function App() {
                         <label class="flex items-start gap-2.5 p-2.5 rounded-xl border border-white/10 bg-black/20 cursor-pointer" data-testid="podman-offer">
                           <input
                             type="checkbox"
-                            class="mt-0.5 accent-[var(--accent,#7c6cff)]"
+                            class="mt-0.5 accent-(--accent,#7c6cff)"
                             checked={newProjectPodman}
                             onChange={(e) => setNewProjectPodman((e.target as HTMLInputElement).checked)}
                           />
@@ -5455,7 +5455,7 @@ export default function App() {
       {/* Git identity modal — asked when git has no user and a repository has to be created. */}
       {showGitIdentity && (
         <div
-          class="fixed inset-0 bg-black/60 backdrop-blur-sm z-[60] flex items-center justify-center p-4"
+          class="fixed inset-0 bg-black/60 backdrop-blur-xs z-60 flex items-center justify-center p-4"
           onClick={() => setShowGitIdentity(false)}
         >
           <form
@@ -5474,7 +5474,7 @@ export default function App() {
               <div>
                 <label class="block text-sm text-[#9a9aaa] mb-1.5">{t('Name')} <span class="text-danger">*</span></label>
                 <input
-                  class="w-full px-3 py-2.5 rounded-xl bg-black/30 border border-white/10 text-[#e8e8ea] focus:outline-none focus:border-accent"
+                  class="w-full px-3 py-2.5 rounded-xl bg-black/30 border border-white/10 text-[#e8e8ea] focus:outline-hidden focus:border-accent"
                   value={gitUserName}
                   onInput={(e) => setGitUserName((e.target as HTMLInputElement).value)}
                   placeholder="Ada Lovelace"
@@ -5485,7 +5485,7 @@ export default function App() {
                 <label class="block text-sm text-[#9a9aaa] mb-1.5">{t('Email')} <span class="text-danger">*</span></label>
                 <input
                   type="email"
-                  class="w-full px-3 py-2.5 rounded-xl bg-black/30 border border-white/10 text-[#e8e8ea] focus:outline-none focus:border-accent"
+                  class="w-full px-3 py-2.5 rounded-xl bg-black/30 border border-white/10 text-[#e8e8ea] focus:outline-hidden focus:border-accent"
                   value={gitUserEmail}
                   onInput={(e) => setGitUserEmail((e.target as HTMLInputElement).value)}
                   placeholder="ada@example.com"
@@ -5536,7 +5536,7 @@ export default function App() {
       {/* Model Switcher modal — provider and model selection. */}
       {showModelSwitcher && (
         <div
-          class="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4"
+          class="fixed inset-0 bg-black/60 backdrop-blur-xs z-50 flex items-center justify-center p-4"
           onClick={closeModelSwitcher}
         >
           <div
@@ -5563,7 +5563,7 @@ export default function App() {
               <div>
                 <label class="block text-sm text-[#9a9aaa] mb-1.5">{t('Provider')}</label>
                 <select
-                  class="w-full px-3 py-2.5 rounded-xl bg-black/30 border border-white/10 text-[#e8e8ea] focus:outline-none focus:border-accent"
+                  class="w-full px-3 py-2.5 rounded-xl bg-black/30 border border-white/10 text-[#e8e8ea] focus:outline-hidden focus:border-accent"
                   value={draftProvider}
                   onChange={(e) => {
                     const newProvider = (e.target as HTMLSelectElement).value
@@ -5594,7 +5594,7 @@ export default function App() {
                   </div>
                 ) : (
                   <select
-                    class="w-full px-3 py-2.5 rounded-xl bg-black/30 border border-white/10 text-[#e8e8ea] focus:outline-none focus:border-accent font-mono text-sm"
+                    class="w-full px-3 py-2.5 rounded-xl bg-black/30 border border-white/10 text-[#e8e8ea] focus:outline-hidden focus:border-accent font-mono text-sm"
                     value={draftModel}
                     onChange={(e) => setDraftModel((e.target as HTMLSelectElement).value)}
                   >
@@ -5651,7 +5651,7 @@ export default function App() {
       {/* Confirm-delete modal — asks before deleting a session or project. */}
       {confirmDelete && (
         <div
-          class="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4"
+          class="fixed inset-0 bg-black/60 backdrop-blur-xs z-50 flex items-center justify-center p-4"
           onClick={() => setConfirmDelete(null)}
         >
           <div
@@ -5691,7 +5691,7 @@ export default function App() {
                   <p class="text-xs text-[#e8e8ea] font-semibold mb-1">
                     {t("This session's checkout could not be inspected")}
                   </p>
-                  <p class="text-xs text-[#9a9aaa] break-words">{deletionPreview.error}</p>
+                  <p class="text-xs text-[#9a9aaa] wrap-break-word">{deletionPreview.error}</p>
                   <p class="text-xs text-[#9a9aaa] mt-2">
                     {t('Its contents cannot be shown. Deleting discards whatever it holds, uncommitted work included.')}
                   </p>
@@ -5705,7 +5705,7 @@ export default function App() {
                   <ul class="space-y-1 max-h-40 overflow-y-auto">
                     {deletionPreview.changes.map((c) => (
                       <li class="flex items-start gap-2 text-xs">
-                        <span class="text-[#9a9aaa] font-mono flex-none w-[4.5rem]">{c.kind}</span>
+                        <span class="text-[#9a9aaa] font-mono flex-none w-18">{c.kind}</span>
                         <span class="text-[#e8e8ea] font-mono break-all">
                           {c.from ? c.from + ' → ' + c.path : c.path}
                         </span>
@@ -5733,7 +5733,7 @@ export default function App() {
                   <p class="text-xs text-[#e8e8ea] font-semibold mb-1">
                     {t("A session's checkout could not be inspected")}
                   </p>
-                  <p class="text-xs text-[#9a9aaa] break-words">{deletionPreview.error}</p>
+                  <p class="text-xs text-[#9a9aaa] wrap-break-word">{deletionPreview.error}</p>
                   <p class="text-xs text-[#9a9aaa] mt-2">
                     {t('Its contents cannot be shown. Deleting discards whatever it holds, uncommitted work included.')}
                   </p>
@@ -5752,7 +5752,7 @@ export default function App() {
                           <ul class="space-y-1 mt-1">
                             {s.changes.map((c) => (
                               <li class="flex items-start gap-2 text-xs pl-2">
-                                <span class="text-[#9a9aaa] font-mono flex-none w-[4.5rem]">{c.kind}</span>
+                                <span class="text-[#9a9aaa] font-mono flex-none w-18">{c.kind}</span>
                                 <span class="text-[#e8e8ea] font-mono break-all">
                                   {c.from ? c.from + ' → ' + c.path : c.path}
                                 </span>
@@ -5881,7 +5881,7 @@ export default function App() {
           needs. When the toast mentions a new version, clicking it opens the
           upgrade modal. */}
       {toast && (
-        <div class="fixed bottom-6 inset-x-0 z-[60] flex justify-center px-4 pointer-events-none">
+        <div class="fixed bottom-6 inset-x-0 z-60 flex justify-center px-4 pointer-events-none">
           <div
             class="frosted rounded-xl border px-4 py-3 flex items-start gap-3 max-w-md w-full pointer-events-auto"
             style={`animation: slideUp 0.3s ease-out; box-shadow: 0 20px 45px -10px rgba(0,0,0,0.75); border-color: ${toast.type === 'error' ? 'rgba(239,68,68,0.35)' : toast.type === 'warning' ? 'rgba(237,181,88,0.35)' : 'rgba(76,194,255,0.35)'}`}
@@ -5911,7 +5911,7 @@ export default function App() {
               {toast.message}
             </p>
             {toast.detail && (
-              <p class="text-xs text-[#9a9aaa] mt-1 leading-relaxed break-words">
+              <p class="text-xs text-[#9a9aaa] mt-1 leading-relaxed wrap-break-word">
                 {toast.detail}
               </p>
             )}
@@ -5924,7 +5924,7 @@ export default function App() {
                   {t(toastDetailsOpen ? 'Hide details' : 'Details')}
                 </button>
                 {toastDetailsOpen && (
-                  <pre class="mt-1.5 text-[11px] text-[#8a8a9a] font-mono bg-black/30 rounded-lg p-2 overflow-x-auto whitespace-pre-wrap break-words max-h-32 overflow-y-auto">
+                  <pre class="mt-1.5 text-[11px] text-[#8a8a9a] font-mono bg-black/30 rounded-lg p-2 overflow-x-auto whitespace-pre-wrap wrap-break-word max-h-32 overflow-y-auto">
                     {toast.technical}
                   </pre>
                 )}
@@ -5966,7 +5966,7 @@ export default function App() {
           modal becomes non-dismissable. */}
       {showUpgrade && (
         <div
-          class="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4"
+          class="fixed inset-0 bg-black/60 backdrop-blur-xs z-50 flex items-center justify-center p-4"
           onClick={() => { if (!upgradeBusy) setShowUpgrade(false) }}
         >
           <div
@@ -6172,7 +6172,7 @@ export default function App() {
 
       {showSkillLibrary && (
         <div
-          class="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4"
+          class="fixed inset-0 bg-black/60 backdrop-blur-xs z-50 flex items-center justify-center p-4"
           onClick={() => setShowSkillLibrary(false)}
         >
           <div
@@ -6256,7 +6256,7 @@ export default function App() {
                   value={skillQuery}
                   onInput={(e) => setSkillQuery((e.target as HTMLInputElement).value)}
                   placeholder={t('Filter by name, title or what it is for')}
-                  class="w-full mb-3 px-3 py-2.5 rounded-xl bg-black/30 border border-white/10 text-sm text-[#e8e8ea] placeholder:text-[#5a5a68] focus:outline-none focus:border-accent/50"
+                  class="w-full mb-3 px-3 py-2.5 rounded-xl bg-black/30 border border-white/10 text-sm text-[#e8e8ea] placeholder:text-[#5a5a68] focus:outline-hidden focus:border-accent/50"
                 />
 
                 {skillsBusy ? (
@@ -6272,7 +6272,7 @@ export default function App() {
                     {filteredSkills.map((s) => (
                       <li key={s.name} class="flex items-center gap-1">
                         <button
-                          class="flex-1 min-w-0 text-left px-3 py-2.5 rounded-xl border border-white/5 hover:border-white/15 hover:bg-white/[0.03] active:scale-[0.99] transition-all"
+                          class="flex-1 min-w-0 text-left px-3 py-2.5 rounded-xl border border-white/5 hover:border-white/15 hover:bg-white/3 active:scale-[0.99] transition-all"
                           onClick={() => openSkill(s)}
                         >
                           <div class="flex items-center gap-2">
@@ -6374,7 +6374,7 @@ export default function App() {
       {previewImage && <Lightbox images={[previewImage]} start={0} onClose={() => setPreviewImage(null)} />}
       {showArtifacts && (
         <div
-          class="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4"
+          class="fixed inset-0 bg-black/60 backdrop-blur-xs z-50 flex items-center justify-center p-4"
           onClick={() => setShowArtifacts(false)}
         >
           <div
@@ -6465,7 +6465,7 @@ export default function App() {
 
       {showScheduledTasks && (
         <div
-          class="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4"
+          class="fixed inset-0 bg-black/60 backdrop-blur-xs z-50 flex items-center justify-center p-4"
           onClick={() => setShowScheduledTasks(false)}
         >
           <div
@@ -6533,7 +6533,7 @@ export default function App() {
                           </p>
                         )}
                         {task.last_outcome && (
-                          <p class="text-xs text-[#7a7a8c] mt-1 break-words">{task.last_outcome}</p>
+                          <p class="text-xs text-[#7a7a8c] mt-1 wrap-break-word">{task.last_outcome}</p>
                         )}
                         <div class="flex gap-2 mt-2">
                           <button
