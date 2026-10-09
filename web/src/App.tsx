@@ -419,7 +419,7 @@ async function authGate(): Promise<boolean> {
 // local storage the app keeps, so nothing survives a rejected token.
 async function clearCredential(): Promise<void> {
   try {
-    await fetch('/v1/webui/session', { method: 'DELETE', credentials: 'same-origin' })
+    await fetch('/v1/webui/session', { method: 'DELETE', credentials: 'same-origin', headers: { 'X-Motita': '1' } })
   } catch { /* ignore */ }
   try { localStorage.removeItem(STORAGE_KEY) } catch { /* ignore */ }
 }
@@ -440,12 +440,16 @@ async function submitToken(token: string): Promise<boolean> {
 }
 
 // api is the one place a request is built. The cookie is sent automatically
-// by the browser: nothing here sets a header.
+// by the browser; the X-Motita header is what tells the gateway a request was
+// built by this page and not by another page on the same host (the cookie is
+// not isolated by port), so every request carries it.
 //
 // On 401, the credential is stale: the cookie is cleared and an event is
 // dispatched so the blocking auth modal reappears.
 async function api(path: string, options?: RequestInit): Promise<Response> {
-  const res = await fetch(path, { credentials: 'same-origin', ...options })
+  const headers = new Headers(options?.headers)
+  headers.set('X-Motita', '1')
+  const res = await fetch(path, { credentials: 'same-origin', ...options, headers })
   if (res.status === 401) {
     await clearCredential()
     window.dispatchEvent(new CustomEvent('motita:auth-needed'))

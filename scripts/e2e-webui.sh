@@ -259,12 +259,20 @@ cors_header="$(curl -s -D - -o /dev/null -H "Origin: https://an-evil-page.exampl
 
 echo
 echo "==> A real turn, driven the way the page drives it"
-# Start the run with the COOKIE, which is what the browser has.
+# Without the page's X-Motita header the cookie changes nothing: another page on this host is
+# same-site, so its browser attaches the cookie too, and the header is what it cannot add.
+forged_code="$(curl -s -o /dev/null -w '%{http_code}' -X POST \
+  -H "Cookie: motita_webui=$COOKIE" -H 'Content-Type: text/plain' \
+  -d '{"task":"forged"}' "$BASE/v1/sessions/default/task")"
+[ "$forged_code" = "403" ] && ok "a cookie request without the page's header is refused" \
+  || bad "a cookie request without X-Motita answered $forged_code, want 403"
+
+# Start the run with the COOKIE, which is what the browser has, and the header the page sends.
 start_code="$(curl -s -o .e2e/turn.sse -w '%{http_code}' -N -X POST \
-  -H "Cookie: motita_webui=$COOKIE" -H 'Content-Type: application/json' \
+  -H "Cookie: motita_webui=$COOKIE" -H 'Content-Type: application/json' -H 'X-Motita: 1' \
   -d '{"task":"leave the report with the requested content"}' \
   "$BASE/v1/sessions/default/task")"
-[ "$start_code" = "200" ] && ok "a turn started with the cookie alone" \
+[ "$start_code" = "200" ] && ok "a turn started with the cookie and the page's header" \
   || bad "the turn answered $start_code, want 200"
 
 case "$(cat .e2e/turn.sse)" in

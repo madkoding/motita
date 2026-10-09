@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"mime"
 	"net"
 	"net/http"
 	"net/netip"
@@ -669,8 +670,9 @@ func (s *Server) page(mux *http.ServeMux, pattern, name string) {
 // The token arrives as a bearer header, which the page's script took from the URL FRAGMENT: a
 // fragment is never sent to the server and never appears in a log or a Referer, which is the
 // only way to put a secret in a URL without it travelling. From here on the browser holds a
-// DERIVED value, not the token (see cookieValue), so what a browser stores is not a credential
-// that could be replayed against the API.
+// DERIVED value, not the token (see cookieValue). It is NOT harmless: it authorises the whole
+// API from this browser. What it cannot do is serve as the bearer token or mint another cookie,
+// and a state-changing request it authorises must also pass crossSiteRefusal.
 func (s *Server) handleWebUISession(w http.ResponseWriter, _ *http.Request) {
 	http.SetCookie(w, &http.Cookie{
 		Name:  webuiCookie,
@@ -678,8 +680,10 @@ func (s *Server) handleWebUISession(w http.ResponseWriter, _ *http.Request) {
 		Path:  "/",
 		// A script cannot read it, so an injected script cannot exfiltrate it.
 		HttpOnly: true,
-		// Another origin never sends it. Together with this server sending no CORS header at
-		// all, a hostile page can neither send this credential nor read a response.
+		// Another SITE never sends it. Another port of this same host is the same site, though,
+		// and cookies are not isolated by port: that page's browser DOES attach it, which is
+		// what crossSiteRefusal (the X-Motita header, the Origin and the JSON content type)
+		// is for. This server sends no CORS header, so no other origin can read a response.
 		SameSite: http.SameSiteStrictMode,
 		// Long-lived because it is derived, not stored: it stays valid until the token rotates,
 		// and rotating the token invalidates it with nothing to clean up.
@@ -1134,7 +1138,18 @@ func writeError(w http.ResponseWriter, status int, msg string) {
 
 // decodeBody reads a bounded JSON body and reports a failure the client can act on. It returns
 // false when it has already written the refusal, and the caller then returns.
+//
+// A request the browser cookie authorised must also SAY it is JSON. A cross-origin form or a
+// text/plain fetch is a "simple" request a browser sends without asking; application/json is not,
+// so requiring it is a second wall behind the X-Motita header (see crossSiteRefusal). A bearer
+// client is not held to it: no page can attach the token.
 func (s *Server) decodeBody(w http.ResponseWriter, r *http.Request, dst any) bool {
+	if !bearerMatches(s.opts.Token, r.Header.Get("Authorization")) {
+		if mt, _, _ := mime.ParseMediaType(r.Header.Get("Content-Type")); mt != "application/json" {
+			writeError(w, http.StatusUnsupportedMediaType, "the request body must be sent as application/json")
+			return false
+		}
+	}
 	r.Body = http.MaxBytesReader(w, r.Body, int64(s.opts.MaxBodyKB)<<10)
 	if err := json.NewDecoder(r.Body).Decode(dst); err != nil {
 		// MaxBytesReader makes the read fail, so an oversized body lands here too and is

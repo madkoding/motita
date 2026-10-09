@@ -759,6 +759,7 @@ func TestDecodeBodyAcceptsTheExpectedJSON(t *testing.T) {
 	srv := newTestServer(t, &fakeService{})
 	w := httptest.NewRecorder()
 	r := httptest.NewRequest(http.MethodPost, "/v1/anything", strings.NewReader(`{"level":"high"}`))
+	r.Header.Set("Content-Type", "application/json")
 	var got struct {
 		Level string `json:"level"`
 	}
@@ -775,6 +776,7 @@ func TestDecodeBodyRefusesWhatIsNotJSON(t *testing.T) {
 	for _, body := range []string{"not json", `{"level":`, ""} {
 		w := httptest.NewRecorder()
 		r := httptest.NewRequest(http.MethodPost, "/v1/anything", strings.NewReader(body))
+		r.Header.Set("Content-Type", "application/json")
 		if srv.decodeBody(w, r, &struct{}{}) {
 			t.Errorf("the body %q was accepted", body)
 		}
@@ -795,6 +797,7 @@ func TestDecodeBodyRefusesAnOversizedBody(t *testing.T) {
 	w := httptest.NewRecorder()
 	big := `{"task":"` + strings.Repeat("x", 4096) + `"}`
 	r := httptest.NewRequest(http.MethodPost, "/v1/anything", strings.NewReader(big))
+	r.Header.Set("Content-Type", "application/json")
 	if srv.decodeBody(w, r, &struct{}{}) {
 		t.Fatal("a body over the cap was accepted")
 	}
