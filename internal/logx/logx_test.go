@@ -3,8 +3,10 @@ package logx
 import (
 	"bufio"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -192,6 +194,77 @@ func TestUnwritablePath(t *testing.T) {
 	}
 	if _, err := New(Options{Path: "/proc/1/you-cannot/log.log", Level: Info}); err == nil {
 		t.Fatal("an error was expected when opening an impossible path")
+	}
+}
+
+// TestLogIsPrivate: the log records whole commands and their output, so the
+// file and the directory created for it are readable by the owner only, and a
+// world-readable log left by an older version is tightened on open.
+func TestLogIsPrivate(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("POSIX permission bits do not apply on Windows")
+	}
+	dir := filepath.Join(t.TempDir(), "logs")
+	path := filepath.Join(dir, "agent.log")
+	l, err := New(Options{Path: path, Level: Info})
+	if err != nil {
+		t.Fatal(err)
+	}
+	l.Close()
+	for p, want := range map[string]os.FileMode{dir: 0o700, path: 0o600} {
+		info, err := os.Stat(p)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := info.Mode().Perm(); got != want {
+			t.Errorf("%s has mode %v, want %v", p, got, want)
+		}
+	}
+
+	old := filepath.Join(t.TempDir(), "old.log")
+	if err := os.WriteFile(old, nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	l, err = New(Options{Path: old, Level: Info})
+	if err != nil {
+		t.Fatal(err)
+	}
+	l.Close()
+	info, err := os.Stat(old)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := info.Mode().Perm(); got != 0o600 {
+		t.Errorf("an existing log keeps mode %v, want 0600", got)
+	}
+}
+
+// TestLogRedactsSecrets: a token in the message, a text field, a list of
+// arguments or an error never reaches the log file.
+func TestLogRedactsSecrets(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "agent.log")
+	l, err := New(Options{Path: path, Level: Info})
+	if err != nil {
+		t.Fatal(err)
+	}
+	l.Info("running curl -H 'Authorization: Bearer abcdefgh12345678'",
+		"command", "git clone https://user:hunter2@example.com/r.git",
+		"args", []string{"--token", "ghp_abcdefghijklmnopqrstuvwxyz0123"},
+		"error", errors.New("GET https://api.example.com/?api_key=s3cr3t failed"),
+		"attempt", 1)
+	l.Close()
+
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, leak := range []string{"abcdefgh12345678", "hunter2", "ghp_", "s3cr3t"} {
+		if strings.Contains(string(data), leak) {
+			t.Errorf("the log leaks %q: %s", leak, data)
+		}
+	}
+	if !strings.Contains(string(data), `"attempt":1`) {
+		t.Errorf("a non-text field was lost: %s", data)
 	}
 }
 
