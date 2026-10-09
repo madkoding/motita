@@ -37,7 +37,9 @@ type Decision struct {
 // operator deciding whether to extend the list.
 func Check(command string, args []string) Decision {
 	kind, reason := Classify(command, args)
-	name := strings.ToLower(filepath.Base(strings.TrimSpace(command)))
+	// The name the messages quote is the program that would run, not the wrapper in front of it.
+	inner, _, _ := Unwrap(command, args)
+	name := strings.ToLower(filepath.Base(strings.TrimSpace(inner)))
 
 	switch kind {
 	case KindReader:

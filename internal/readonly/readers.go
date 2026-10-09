@@ -462,6 +462,8 @@ var readers = map[string]bool{
 	"id": true, "whoami": true, "groups": true, "users": true, "who": true,
 	"w": true, "last": true, "lastlog": true,
 	"date": true, "cal": true, "locale": true, "timedatectl": true,
+	// `env` and `command` are readers only in the forms that run nothing (bare `env`,
+	// `command -v x`): with a program after them, Unwrap hands Classify that program instead.
 	"env": true, "printenv": true, "echo": true, "printf": true,
 	"which": true, "type": true, "whereis": true, "command": true,
 	"true": true, "false": true, "test": true, "[": true,
