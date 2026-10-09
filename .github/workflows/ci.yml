@@ -278,9 +278,17 @@ jobs:
     if: startsWith(github.ref, 'refs/tags/v')
     needs: build
     runs-on: ubuntu-latest
+    # id-token and attestations are granted here only: they are what the provenance
+    # attestation below needs, and no other job signs anything.
     permissions:
       contents: write
+      id-token: write
+      attestations: write
     steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
       - uses: actions/download-artifact@v8
         with:
           path: dist
@@ -292,6 +300,42 @@ jobs:
           # Deterministic order and only the binaries, so the file is stable.
           sha256sum * | sort -k2 > SHA256SUMS
           cat SHA256SUMS
+
+      - name: Sign the checksums
+        # SHA256SUMS.sig is a raw ed25519 signature over SHA256SUMS, made with the
+        # RELEASE_SIGNING_KEY secret (a PEM private key; `make release-key` creates
+        # the pair). The updater and the installers verify it against the public key
+        # embedded in them, so a release cannot be published unsigned: a missing
+        # secret fails here instead of shipping something users would refuse.
+        working-directory: dist
+        env:
+          RELEASE_SIGNING_KEY: ${{ secrets.RELEASE_SIGNING_KEY }}
+        run: |
+          set -eu
+          if [ -z "${RELEASE_SIGNING_KEY:-}" ]; then
+            echo "::error::the RELEASE_SIGNING_KEY secret is not set; run 'make release-key' and store the private key as that secret"
+            exit 1
+          fi
+          umask 077
+          key="$RUNNER_TEMP/release-signing-key.pem"
+          trap 'rm -f "$key"' EXIT
+          printf '%s\n' "$RELEASE_SIGNING_KEY" > "$key"
+          openssl pkeyutl -sign -inkey "$key" -rawin -in SHA256SUMS -out SHA256SUMS.sig
+          # Check it against the key the binaries embed, when one is embedded: a
+          # secret that does not match would publish a release every client refuses.
+          pub="$(sed -n 's/^const ReleasePublicKey = "\(.*\)"$/\1/p' ../internal/updater/updater.go)"
+          if [ -n "$pub" ]; then
+            printf -- '-----BEGIN PUBLIC KEY-----\n%s\n-----END PUBLIC KEY-----\n' "$pub" > "$RUNNER_TEMP/release.pub"
+            openssl pkeyutl -verify -pubin -inkey "$RUNNER_TEMP/release.pub" -rawin -in SHA256SUMS -sigfile SHA256SUMS.sig
+          else
+            echo "::warning::ReleasePublicKey is still the empty placeholder; clients will not check this signature yet"
+          fi
+
+      - name: Build provenance for the binaries
+        # Verifiable with: gh attestation verify <binary> --repo madkoding/motita
+        uses: actions/attest-build-provenance@v4.2.2
+        with:
+          subject-path: dist/motita-*
 
       - uses: softprops/action-gh-release@v3
         with:
