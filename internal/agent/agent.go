@@ -36,6 +36,7 @@ import (
 	"github.com/madkoding/motita/internal/llm"
 	"github.com/madkoding/motita/internal/logx"
 	"github.com/madkoding/motita/internal/policy"
+	"github.com/madkoding/motita/internal/redact"
 	"github.com/madkoding/motita/internal/reward"
 	"github.com/madkoding/motita/internal/sandbox"
 	"github.com/madkoding/motita/internal/semantic"
@@ -234,11 +235,16 @@ func New(cfg config.Config, log *logx.Logger, engine *llm.Client, box *sandbox.S
 
 // exec runs a command with the agent's executor (the sandbox by default). It
 // returns a clear error when none is configured.
+//
+// Every command's output reaches the model provider's prompt and the saved
+// transcript from here, so this is the one place where the secrets it printed (a
+// token in `git remote -v`, a key in `cat .env`) are masked.
 func (a *Agent) exec(ctx context.Context, p execx.Request) (string, bool, int, error) {
 	if a.ExecCommand == nil {
 		return "", false, -1, errors.New("the agent has no command executor configured")
 	}
-	return a.ExecCommand(ctx, p)
+	output, truncated, exit, err := a.ExecCommand(ctx, p)
+	return redact.String(output), truncated, exit, err
 }
 
 // RunCommand executes a single command line under the agent's policy and sandbox.

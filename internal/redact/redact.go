@@ -20,8 +20,12 @@ type rule struct {
 var rules = []rule{
 	// PEM private key blocks, whole.
 	{regexp.MustCompile(`-----BEGIN[A-Z0-9 ]*PRIVATE KEY-----[\s\S]*?-----END[A-Z0-9 ]*PRIVATE KEY-----`), Mask},
-	// Authorization headers: "Authorization: Bearer x", "Authorization: Basic x".
-	{regexp.MustCompile(`(?i)(\bauthorization["']?\s*[:=]\s*["']?(?:(?:bearer|basic|token|bot)\s+)?)[^\s"'\\,;]+`), "${1}" + Mask},
+	// Authorization headers: "Authorization: Bearer x", "Authorization: Basic x", and a
+	// long bare value. A value made of "$", "{" or "(" is a placeholder (${TOKEN},
+	// {{.Key}}, $(cat file)), not a secret, so the value classes stop there: masking it
+	// would only make the source the model reads differ from the file on disk.
+	{regexp.MustCompile(`(?i)(\bauthorization["']?\s*[:=]\s*["']?(?:bearer|basic|token|bot)\s+)[^\s"'\\,;$(){}<>` + "`" + `]+`), "${1}" + Mask},
+	{regexp.MustCompile(`(?i)(\bauthorization["']?\s*[:=]\s*["']?)[^\s"'\\,;$(){}<>` + "`" + `[]{16,}`), "${1}" + Mask},
 	// A bearer token outside a header ("Bearer x" in a command or a message).
 	{regexp.MustCompile(`(?i)(\bbearer\s+)[A-Za-z0-9._~+/=-]{8,}`), "${1}" + Mask},
 	// Anthropic, OpenAI and similar keys: sk-..., sk-ant-..., sk-proj-...
@@ -37,7 +41,7 @@ var rules = []rule{
 	// Credentials in a URL: scheme://user:password@host.
 	{regexp.MustCompile(`([A-Za-z][A-Za-z0-9+.-]*://)[^/\s:@"'\\]+:[^/\s@"'\\]+@`), "${1}" + Mask + "@"},
 	// Secret query parameters: ?token=, &access_token=, &api_key=, &secret=, &password=...
-	{regexp.MustCompile(`(?i)((?:^|[?&;])(?:[a-z0-9_.-]*[_-])?(?:token|key|apikey|secret|password|passwd)=)[^&;\s"'\\#<>]+`), "${1}" + Mask},
+	{regexp.MustCompile(`(?i)((?:^|[?&;])(?:[a-z0-9_.-]*[_-])?(?:token|key|apikey|secret|password|passwd)=)[^&;\s"'\\#<>$(){}` + "`" + `]+`), "${1}" + Mask},
 }
 
 // String returns s with every recognized secret replaced by Mask.

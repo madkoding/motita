@@ -11,7 +11,7 @@ func TestStringMasksSecrets(t *testing.T) {
 	}{
 		{"authorization bearer header", `curl -H "Authorization: Bearer abc.def-123"`, `curl -H "Authorization: Bearer [REDACTED]"`},
 		{"authorization basic header", "Authorization: Basic dXNlcjpwYXNz", "Authorization: Basic [REDACTED]"},
-		{"authorization raw value", "authorization=s3cr3tvalue", "authorization=[REDACTED]"},
+		{"authorization raw value", "authorization=s3cr3tvalue0123456789", "authorization=[REDACTED]"},
 		{"bearer outside a header", "token is Bearer eyJhbGciOiJIUzI1NiJ9.x", "token is Bearer [REDACTED]"},
 		{"openai key", "OPENAI_API_KEY=sk-proj-abcdefghijklmnop1234", "OPENAI_API_KEY=[REDACTED]"},
 		{"anthropic key", "key sk-ant-api03-abcdefghijklmnopqrst done", "key [REDACTED] done"},
@@ -48,6 +48,8 @@ func TestStringKeepsOrdinaryText(t *testing.T) {
 		"basic usage of the bearer",
 		"https://github.com/madkoding/motita",
 		"-----BEGIN PUBLIC KEY-----\nMIIB\n-----END PUBLIC KEY-----",
+		`curl -H "Authorization: Bearer ${TOKEN}" "https://x/?token=$(cat t)&key={{.Key}}"`,
+		"Authorization: short",
 	} {
 		if got := String(in); got != in {
 			t.Errorf("String(%q) = %q, want it unchanged", in, got)
