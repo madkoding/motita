@@ -61,6 +61,7 @@ func TestAFullUpgradeReplacesTheBinaryAndRestarts(t *testing.T) {
 	srv.opts.Version = "v1.0.0"
 	srv.updater = updater.New("v1.0.0", exe)
 	srv.updater.APIURL = func() string { return ts.URL + "/release" }
+	srv.updater.PublicKey = nil // the mock release is unsigned; internal/updater tests the signature
 	trustTestRelease(srv.updater, ts)
 	restarted := make(chan struct{})
 	srv.opts.Restart = func() { close(restarted) }
@@ -126,6 +127,7 @@ func TestAnUpgradeWithoutARestartHookLeavesTheGatewayRunning(t *testing.T) {
 	srv := newTestServer(t, &fakeService{})
 	srv.updater = updater.New("v1.0.0", exe)
 	srv.updater.APIURL = func() string { return ts.URL + "/release" }
+	srv.updater.PublicKey = nil // the mock release is unsigned; internal/updater tests the signature
 	trustTestRelease(srv.updater, ts)
 	srv.opts.Restart = nil
 
