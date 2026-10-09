@@ -74,7 +74,9 @@ A hand-written client (no SDK) for three API families: **OpenAI-compatible**
 (`:generateContent`). The OpenAI-compatible implementation accepts any `base_url`,
 so it works with OpenAI, Ollama Cloud, Groq, OpenRouter, DeepSeek, and similar
 hosts. All providers are normalised to the same message structure, so the rest of
-the agent does not know which one is behind it.
+the agent does not know which one is behind it. A key is never sent in clear text:
+a plain `http://` `base_url` is refused when `api_key` is set unless it points at
+this machine or a private network address.
 
 - Reads the context: task, plan, attempt number and **the records of previous
   failures**.
@@ -144,6 +146,13 @@ Details that took real work and are solved in the code:
 - **The command does not inherit the agent's secrets**: the environment is built
   from scratch, with no `OPENAI_API_KEY` or `MOTITA_LLM_API_KEY` inside the
   command.
+- **What a command prints is sent to the model provider.** Its output goes into
+  the next prompt and into the transcript, so motita masks the secrets it
+  recognises first (`Authorization` headers, `sk-…`, `ghp_…`/`github_pat_…`,
+  `AKIA…`, `AIza…`, `xox?-…`, private key blocks, `user:password@` in URLs,
+  `token=`/`key=`/`secret=`/`password=` parameters) as `[REDACTED]`. It is a
+  pattern scrubber, not a guarantee: a secret of another shape still reaches
+  the provider, so keep real credentials out of the workspace.
 
 ---
 
@@ -1299,6 +1308,8 @@ jq -r 'select(.msg=="task completed") | .task' workspace/motita.log
 ```
 
 `log_max_mb` and `log_backups` control the rotation (`motita.log.1`, `.2`, …).
+The log records whole commands, so it is created readable by its owner only
+(`0600`, in a `0700` directory) and the same secret patterns are masked in it.
 
 ---
 
