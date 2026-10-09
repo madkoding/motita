@@ -358,7 +358,7 @@ func Start(opts Options) (*Server, error) {
 	//
 	// The policy is enforced BEFORE the token check, so a refused origin does not even learn
 	// whether its credential was good.
-	s.mux = s.originPolicy(s.routes())
+	s.mux = s.originPolicy(securityHeaders(s.routes()))
 	s.server = &http.Server{
 		Handler: s.mux,
 		// No WriteTimeout. It is a deadline on the WHOLE response, and half of these responses
@@ -750,6 +750,29 @@ func (s *Server) originPolicy(next http.Handler) http.Handler {
 				addrPort.Addr()))
 			return
 		}
+		next.ServeHTTP(w, r)
+	})
+}
+
+// pageCSP is the content policy of everything this server answers. The page and every script it
+// loads are served from here and nothing is inline, so scripts need no 'unsafe-inline' and no
+// 'unsafe-eval'. Styles do need 'unsafe-inline': mermaid and KaTeX lay their output out with style
+// attributes and <style> elements. Images are this server's, or data:/blob: (the previews arrive
+// inline), so an answer cannot make the browser fetch an address of the model's choosing.
+const pageCSP = "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; " +
+	"img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self'; worker-src 'self'; " +
+	"object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'"
+
+// securityHeaders sets the headers every response carries: the page must not be framed by another
+// site (a frame is how a fake approval dialog gets laid over a real button), the browser must not
+// guess a type, and no URL of this gateway leaks to another site through a Referer. A handler that
+// needs a different policy for its own content (an artifact) replaces the CSP itself.
+func securityHeaders(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		h := w.Header()
+		h.Set("Content-Security-Policy", pageCSP)
+		h.Set("X-Content-Type-Options", "nosniff")
+		h.Set("Referrer-Policy", "no-referrer")
 		next.ServeHTTP(w, r)
 	})
 }

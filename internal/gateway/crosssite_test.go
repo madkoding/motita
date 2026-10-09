@@ -125,3 +125,27 @@ func TestRequestOriginFollowsTheScheme(t *testing.T) {
 		t.Errorf("TLS origin = %q", got)
 	}
 }
+
+// The page and the API both carry the security headers: no framing by another site, no type
+// sniffing, no Referer, and a script policy with neither inline code nor eval.
+func TestEveryResponseCarriesTheSecurityHeaders(t *testing.T) {
+	srv := newTestServer(t, &fakeService{}, func(o *Options) { o.WebUI = true })
+	for _, path := range []string{"/", "/v1/health", "/v1/sessions"} {
+		w := serve(srv, httptest.NewRequest(http.MethodGet, path, nil))
+		csp := w.Header().Get("Content-Security-Policy")
+		for _, want := range []string{"frame-ancestors 'none'", "script-src 'self';", "object-src 'none'"} {
+			if !strings.Contains(csp, want) {
+				t.Errorf("%s: the CSP %q lacks %q", path, csp, want)
+			}
+		}
+		if strings.Contains(csp, "unsafe-eval") {
+			t.Errorf("%s: the CSP allows eval: %q", path, csp)
+		}
+		if got := w.Header().Get("X-Content-Type-Options"); got != "nosniff" {
+			t.Errorf("%s: X-Content-Type-Options = %q", path, got)
+		}
+		if got := w.Header().Get("Referrer-Policy"); got != "no-referrer" {
+			t.Errorf("%s: Referrer-Policy = %q", path, got)
+		}
+	}
+}

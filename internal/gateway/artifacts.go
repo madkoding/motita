@@ -361,7 +361,9 @@ func (s *Server) handleGetArtifact(w http.ResponseWriter, r *http.Request) {
 	h := w.Header()
 	h.Set("Content-Type", artifactType(path))
 	h.Set("X-Content-Type-Options", "nosniff")
-	h.Set("Content-Security-Policy", "sandbox; default-src 'none'; img-src data:; style-src 'unsafe-inline'")
+	// frame-ancestors 'self': the interface shows an artifact in a frame of its own page, and
+	// no other site may frame it.
+	h.Set("Content-Security-Policy", "sandbox; default-src 'none'; img-src data:; style-src 'unsafe-inline'; frame-ancestors 'self'")
 	if r.URL.Query().Get("download") == "1" {
 		h.Set("Content-Disposition", mime.FormatMediaType("attachment", map[string]string{"filename": filepath.Base(path)}))
 	}
