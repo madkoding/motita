@@ -36,7 +36,7 @@ $BinName = 'motita'
 # It is the same value as ReleasePublicKey in internal/updater, and
 # scripts/release-signing-key.sh prints it. Empty is the placeholder: no key has been
 # configured yet, and the signature is not checked.
-$ReleasePublicKey = ''
+$ReleasePublicKey = 'MCowBQYDK2VwAyEASjFxVSWdJ8wOLF06ooBU3hDEWtR+aRwNbRAog83ZW1c='
 
 function Say { param([string]$Message) Write-Host $Message }
 function Warn { param([string]$Message) Write-Host "warning: $Message" -ForegroundColor Yellow }

@@ -41,10 +41,9 @@ const Repo = "madkoding/motita"
 // END markers). scripts/release-signing-key.sh (`make release-key`) generates the pair, prints this
 // value, and says where the private half goes (the RELEASE_SIGNING_KEY secret, never the repo).
 //
-// PLACEHOLDER: while it is empty the updater keeps the checksum-only behaviour and logs a warning,
-// so the releases published before a key existed can still be installed. Once it is set, a release
-// without a valid SHA256SUMS.sig is refused. The installers carry the same value.
-const ReleasePublicKey = ""
+// With it set, a release without a valid SHA256SUMS.sig is refused (an empty value would fall back
+// to the checksum-only behaviour with a warning). The installers carry the same value.
+const ReleasePublicKey = "MCowBQYDK2VwAyEASjFxVSWdJ8wOLF06ooBU3hDEWtR+aRwNbRAog83ZW1c="
 
 // DefaultAssetHosts are the hosts release files may be fetched from, always over https: the
 // download URL itself and the CDN hosts GitHub redirects it to.

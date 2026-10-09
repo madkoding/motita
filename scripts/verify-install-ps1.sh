@@ -87,11 +87,17 @@ curl -sf -o /dev/null "http://127.0.0.1:$PORT/SHA256SUMS" || {
 }
 
 # --- 2. the installer, with only its release base redirected -----------------
-# The ONLY edit is the base URL. Everything else - the asset name it builds, the checksum
+# The ONLY edits are the base URL and the embedded release key, blanked because the mock
+# release cannot be signed by it. Everything else - the asset name it builds, the checksum
 # it compares, the directory it writes - is the script that ships.
 sed "s#https://github.com/\$Repo/releases/latest/download#http://127.0.0.1:$PORT#; \
-     s#https://github.com/\$Repo/releases/download/\$Version#http://127.0.0.1:$PORT#" \
+     s#https://github.com/\$Repo/releases/download/\$Version#http://127.0.0.1:$PORT#; \
+     s#^\$ReleasePublicKey = '.*'#\$ReleasePublicKey = ''#" \
   "$REPO/scripts/install.ps1" > "$WORK/install-mock.ps1"
+if ! grep -q "^\$ReleasePublicKey = ''" "$WORK/install-mock.ps1"; then
+  echo "error: the embedded release key was not blanked; this check is not testing what it says"
+  exit 1
+fi
 if [ "$(grep -c "http://127.0.0.1:$PORT" "$WORK/install-mock.ps1")" -ne 2 ]; then
   echo "error: the release base was not redirected; this check is not testing what it says"
   exit 1

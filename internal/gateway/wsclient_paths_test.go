@@ -478,6 +478,7 @@ func TestTheUpgradeStreamReportsWhenThereIsNowhereToInstall(t *testing.T) {
 	base = ts.URL
 	srv.updater = updater.New("v1.0.0", "")
 	srv.updater.APIURL = func() string { return ts.URL + "/release" }
+	srv.updater.PublicKey = nil // the mock release is unsigned; internal/updater tests the signature
 	trustTestRelease(srv.updater, ts)
 
 	w := httptest.NewRecorder()
