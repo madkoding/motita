@@ -307,15 +307,19 @@ alone — it's the same binary, not a wrapper around something else.
 
 ![A failed turn with its hint](docs/screenshots/tui-error-hint.png)
 
-**The same process is also a gateway.** It listens on **every interface** and enforces
-**no origin rules** — the same posture as a machine with a fresh, empty firewall table:
-everything is accepted until you add a rule. The terminal you are looking at is one of
-its **clients**, so a web page or a phone can join the same conversation, with the same
-procedure library and the same reward ledger. Narrow it by adding rules to
+**The same process is also a gateway.** It listens on **loopback** (`127.0.0.1:7477`) by
+default, so only this machine reaches it. The terminal you are looking at is one of its
+**clients**, so a web page or a phone can join the same conversation, with the same
+procedure library and the same reward ledger. The supported way to reach it from another
+machine is a tunnel: `ssh -N -L 7477:127.0.0.1:7477 the-host`. To expose it on the network
+instead, set `gateway.listen` to a LAN address or `0.0.0.0:7477` — it speaks **plain HTTP**
+(there is **no TLS** in this version, and the gateway warns about it when it opens), so the
+token travels unencrypted. Once exposed it enforces **no origin rules** until you add them to
 `gateway.allow`:
 
 ```yaml
 gateway:
+  listen: "0.0.0.0:7477"    # explicit: every interface, plain HTTP
   allow: ["lan"]            # only the local network; everything else still gets in
   allow: ["lan", "!any"]    # the local network ONLY — usually what you want
   allow: ["!any"]           # this machine only
@@ -326,9 +330,7 @@ gateway:
 Rules are an ordered list, the first one that matches decides, and loopback is always
 allowed — so a rule set can never lock you out of the machine you configured it on. The
 token is what stands between the network and an agent that runs commands here; the rules
-say where that token may come from. The supported way to reach a remote gateway without
-exposing it at all is still a tunnel: `ssh -N -L 7477:127.0.0.1:7477 the-host`. There is
-**no TLS** in this version, and the gateway says so at open time.
+say where that token may come from.
 
 **The two halves come apart.** `-serve` runs the gateway and no interface; `-connect` runs the
 interface and no gateway:
@@ -364,6 +366,8 @@ sessions and projects that no longer exist.
 The gateway serves a web interface **from its own port** — no second server, no second
 address, and no CORS, because the page and the API share an origin. It comes up with the
 gateway (`gateway.webui: false` turns it off):
+
+With `gateway.listen: "0.0.0.0:7477"` it reports both how far it reaches and the link:
 
 ```
 $ motita gateway start

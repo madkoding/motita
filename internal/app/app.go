@@ -214,9 +214,10 @@ Commands:
   curator restore    bring an archived skill back
   curator list-archived  everything in the skills archive
 
-The gateway listens on every interface by default and enforces no origin rules: it is
-reachable the way a machine with a fresh, empty firewall table is. Narrow it by adding
-rules to gateway.allow - "lan", an address, a network, or "!any" for this machine only.
+The gateway listens on loopback by default, so only this machine reaches it.
+To reach it from another machine, prefer an SSH tunnel; or set gateway.listen to a LAN
+address or 0.0.0.0:7477 - it speaks plain HTTP, so the token travels unencrypted - and
+narrow who may connect with gateway.allow: "lan", an address, a network, or "!any".
 
 Environment variables: MOTITA_* (see README.md; also accepts OPENAI_API_KEY).
 `, config.Default().GatewayListen())

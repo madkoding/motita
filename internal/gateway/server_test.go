@@ -316,6 +316,27 @@ func TestANonLoopbackAddressNeedsNoOtherSetting(t *testing.T) {
 	}
 }
 
+// A gateway bound beyond loopback says, in its log, that the traffic is plain HTTP - in every
+// mode, not only when `gateway start` announces it - and a loopback one does not.
+func TestANetworkBindWarnsThatTrafficIsPlainHTTP(t *testing.T) {
+	for listen, want := range map[string]bool{"0.0.0.0:0": true, "127.0.0.1:0": false} {
+		sink := newLogSink(t)
+		newTestServer(t, &fakeService{}, func(o *Options) { o.Listen = listen; o.Log = sink.log })
+		deadline := time.Now().Add(5 * time.Second)
+		var logged string
+		for time.Now().Before(deadline) {
+			logged = strings.Join(sink.lines(t), "\n")
+			if strings.Contains(logged, "the gateway is listening") && (!want || strings.Contains(logged, "plain HTTP")) {
+				break
+			}
+			time.Sleep(10 * time.Millisecond)
+		}
+		if got := strings.Contains(logged, "plain HTTP"); got != want {
+			t.Errorf("listen %s: plain-HTTP warning logged = %v, want %v\n%s", listen, got, want, logged)
+		}
+	}
+}
+
 // The origin rules are applied to EVERY request, and the refusal names the rule set.
 //
 // The request is driven through a real socket so that RemoteAddr is a real client address rather

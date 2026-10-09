@@ -603,7 +603,7 @@ interface is a client of it.
 | Setting | Default | Effect |
 |---|---|---|
 | `enabled` | `true` | The HTTP face. Off is one deliberate act, for a machine that must not listen at all. |
-| `listen` | *empty* | `host:port`, and **empty means "resolve it"**: the wildcard `0.0.0.0:7477`, which is what the program binds unless you name something else. A **fixed** port, because the gateway can outlive the process that started it and a later process has to find it. Port `0` still works and asks the kernel for a free one, but the address then exists only in that process' memory, so nothing else can reach it. The address says where the **socket** is open and nothing about who may connect, which is `allow`. |
+| `listen` | *empty* | `host:port`, and **empty means "resolve it"**: loopback `127.0.0.1:7477`, so only this machine reaches it unless you name something else. Naming a LAN address or `0.0.0.0:7477` exposes it on the network over **plain HTTP** (the token travels unencrypted, and the gateway warns about it when it opens); an SSH tunnel to the loopback default avoids that. A **fixed** port, because the gateway can outlive the process that started it and a later process has to find it. Port `0` still works and asks the kernel for a free one, but the address then exists only in that process' memory, so nothing else can reach it. The address says where the **socket** is open and nothing about who may connect, which is `allow`. |
 | `token_file` | `gateway.token` | Where the bearer token lives, under the motita home. Generated on first use with 32 random bytes, mode `0600`. |
 | `allow` | *empty* | **Who may connect**, as an ordered list of rules. Empty means every origin — the fresh-firewall-table default. Entries: `any`, `lan`, an address (`192.168.1.10`), a network (`192.168.0.0/16`), each optionally prefixed with `!` to deny. The first rule that matches decides; an origin no rule matches is allowed. Loopback is always allowed. See the rules table above. Also read from `MOTITA_GATEWAY_ALLOW`, comma- or space-separated. |
 | `max_body_kb` | `256` | Cap on a request body. |
@@ -710,8 +710,9 @@ a pipeline gets the answer and nothing else. It is the mode a script uses, and t
 a client is useful on a machine with no terminal. `-serve` and `-connect` together are
 refused: one makes this process the gateway, the other a client of one.
 
-Exposing the gateway is **the posture of a fresh firewall table**: it comes up bound to
-the wildcard, and **nothing is restricted until you add a rule**. Rules live in
+The gateway comes up bound to **loopback**; exposing it is one explicit act, a
+non-loopback `gateway.listen`. Once exposed it takes **the posture of a fresh firewall
+table**: **nothing is restricted until you add a rule**. Rules live in
 `gateway.allow` (or `MOTITA_GATEWAY_ALLOW`, comma- or space-separated) and are
 **ordered** — the first one that matches decides:
 

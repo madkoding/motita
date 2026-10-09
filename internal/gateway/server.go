@@ -449,6 +449,13 @@ func (s *Server) Handler() http.Handler { return s.mux }
 func (s *Server) Serve() error {
 	if s.opts.Log != nil {
 		s.opts.Log.Info("the gateway is listening", "address", s.Addr())
+		if s.ReachableFromNetwork() {
+			// Said in EVERY mode, not only by `gateway start`: an interface with an embedded
+			// gateway on a LAN address exposes exactly the same plain-HTTP socket.
+			s.opts.Log.Warn("the gateway is reachable from the network over plain HTTP: the token and "+
+				"every request travel unencrypted; an SSH tunnel to a loopback listen avoids this",
+				"address", s.listener.Addr().String())
+		}
 	}
 	if err := s.server.Serve(s.listener); err != nil && !errors.Is(err, http.ErrServerClosed) {
 		return err

@@ -403,11 +403,11 @@ func TestTheGatewayListensOnAFixedPortByDefault(t *testing.T) {
 	// that the resolution has one place to live, and the question a user's client depends on is
 	// where the gateway actually binds.
 	//
-	// The WILDCARD and not loopback, and that is asserted here too: it is the documented posture -
-	// the gateway comes up reachable and gateway.allow is what narrows it - so a change back to a
-	// loopback default has to break this test and be a decision.
-	if got := Default().GatewayListen(); got != "0.0.0.0:7477" {
-		t.Fatalf("the default gateway listen resolves to %q, want the wildcard on the fixed port 0.0.0.0:7477", got)
+	// LOOPBACK and not the wildcard, and that is asserted here too: the gateway speaks plain HTTP,
+	// so exposing it to the network is an explicit listen, and a change back to a wildcard
+	// default has to break this test and be a decision.
+	if got := Default().GatewayListen(); got != "127.0.0.1:7477" {
+		t.Fatalf("the default gateway listen resolves to %q, want loopback on the fixed port 127.0.0.1:7477", got)
 	}
 	if strings.HasSuffix(defaultGatewayListen, ":0") {
 		t.Fatal("an ephemeral default cannot be found by a process started later")
