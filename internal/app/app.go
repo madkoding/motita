@@ -213,6 +213,8 @@ Commands:
   curator pin|unpin  exempt a skill from every automatic transition, or stop
   curator restore    bring an archived skill back
   curator list-archived  everything in the skills archive
+  curator list-proposed  skills the background review proposed, waiting for you
+  curator show-proposed|accept|reject  read one, put it in the library, or delete it
 
 The gateway listens on loopback by default, so only this machine reaches it.
 To reach it from another machine, prefer an SSH tunnel; or set gateway.listen to a LAN
@@ -493,10 +495,10 @@ func parse(args []string) (flags, error) {
 				}
 				action := strings.ToLower(strings.TrimSpace(args[i+1]))
 				switch action {
-				case "status", "run", "list-archived":
+				case "status", "run", "list-archived", "list-proposed":
 					b.curatorAction = action
 					args = append(append([]string{}, args[:i]...), args[i+2:]...)
-				case "pin", "unpin", "restore":
+				case "pin", "unpin", "restore", "show-proposed", "accept", "reject":
 					if i+2 >= len(args) {
 						return b, fmt.Errorf("curator %s needs a skill name", action)
 					}

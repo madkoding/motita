@@ -894,6 +894,24 @@ func (r *AppRunner) DeleteSkill(name string) error {
 // ArchivedSkills lists what the archive holds.
 func (r *AppRunner) ArchivedSkills() ([]string, error) { return r.library().Archived() }
 
+// ProposedSkills lists the skills the background review proposed, waiting for the user.
+func (r *AppRunner) ProposedSkills() ([]string, error) { return r.library().Proposed() }
+
+// ProposedSkill reads one proposal.
+func (r *AppRunner) ProposedSkill(name string) (skills.Skill, error) {
+	return r.library().Proposal(name)
+}
+
+// AcceptProposedSkill puts a proposal in the shared library.
+func (r *AppRunner) AcceptProposedSkill(name string) error {
+	return r.library().AcceptProposal(name)
+}
+
+// RejectProposedSkill deletes a proposal.
+func (r *AppRunner) RejectProposedSkill(name string) error {
+	return r.library().RejectProposal(name)
+}
+
 // truncateLine bounds a string for a one-line report, on a rune boundary.
 func truncateLine(s string, n int) string {
 	s = strings.Join(strings.Fields(s), " ")

@@ -1081,6 +1081,10 @@ curator:
 | `DELETE /v1/skills/{name}` | delete one for good, telemetry included; a shipped procedure is refused with `409` |
 | `GET /v1/skills/archived` | the names of everything in the archive |
 | `POST /v1/skills/{name}/restore` | bring an archived document back |
+| `GET /v1/skills/proposed` | the skills the background review proposed, waiting for you |
+| `GET /v1/skills/proposed/{name}` | one proposal, **with its body**, to read before deciding |
+| `POST /v1/skills/proposed/{name}/accept` | put a proposal in the library, replacing a skill of the same name |
+| `DELETE /v1/skills/proposed/{name}` | reject a proposal: it is deleted |
 | `GET /v1/curator` | the thresholds, the last pass, and the lifecycle counts |
 | `POST /v1/curator/run` | run one pass now: `consolidate`, `dry_run` |
 
@@ -1112,9 +1116,18 @@ motita curator pin build-firmware
 motita curator unpin build-firmware
 motita curator list-archived
 motita curator restore build-firmware
+motita curator list-proposed           # what the background review proposed
+motita curator show-proposed deploy    # read one before deciding
+motita curator accept deploy           # into the library: sessions use it from now on
+motita curator reject deploy           # deleted
 ```
 
-**`curator status`, `pin`, `unpin`, `restore` and `list-archived` never need an API
+**What the background review saves is a proposal.** It replays a transcript that holds
+tool output, files and web pages, any of which can be written to steer a model, so its
+saves land in `.proposed/` inside the library and no session reads them until you accept
+one: here, or in the web interface's skills window.
+
+**`curator status`, `pin`, `unpin`, `restore`, `list-archived` and the proposal actions never need an API
 key**, and each one still reads a configuration that names no key — tidying a shelf
 is filesystem work, and requiring a model to sort files is requiring a model to do
 something that does not use one. `--consolidate` is the exception, deliberately: that

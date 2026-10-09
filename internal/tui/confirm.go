@@ -59,11 +59,11 @@ func (t *TUI) confirmLines(max int) []string {
 	//
 	// Its control characters are drawn VISIBLY (ESC as ^[): obeyed, they could hide part of the
 	// command or redraw it as something else, and the user would approve text they never saw.
-	for _, l := range wrapVisible(escapeControls(t.confirm.req.Command), width-4) {
+	for _, l := range wrapVisible(EscapeControls(t.confirm.req.Command), width-4) {
 		out = append(out, t.confirmLine("  "+l, width))
 	}
 	if t.confirm.req.Reason != "" {
-		for _, l := range wrapVisible(escapeControls(t.confirm.req.Reason), width-4) {
+		for _, l := range wrapVisible(EscapeControls(t.confirm.req.Reason), width-4) {
 			out = append(out, t.confirmLine("  "+t.muted(l), width))
 		}
 	}

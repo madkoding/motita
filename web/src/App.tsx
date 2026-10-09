@@ -839,6 +839,9 @@ export default function App() {
   // network on a filter that runs locally.
   const [skills, setSkills] = useState<SkillInfo[]>([])
   const [archivedSkills, setArchivedSkills] = useState<string[]>([])
+  // Skills the background review proposed: no session reads one until the user accepts it.
+  const [proposedSkills, setProposedSkills] = useState<string[]>([])
+  const [proposalOpen, setProposalOpen] = useState<{ name: string; body: string } | null>(null)
   const [skillQuery, setSkillQuery] = useState('')
   const [skillOpen, setSkillOpen] = useState<SkillInfo | null>(null)
   const [skillBody, setSkillBody] = useState('')
@@ -1600,7 +1603,11 @@ export default function App() {
     setSkillsBusy(true)
     const indexUrl = sessionId ? `/v1/sessions/${encodeURIComponent(sessionId)}/skills` : '/v1/skills'
     try {
-      const [res, arch] = await Promise.all([api(indexUrl), api('/v1/skills/archived')])
+      const [res, arch, prop] = await Promise.all([
+        api(indexUrl),
+        api('/v1/skills/archived'),
+        api('/v1/skills/proposed')
+      ])
       if (!res.ok) {
         setState('could not load the skill library', true)
         setSkillsBusy(false)
@@ -1611,6 +1618,10 @@ export default function App() {
       if (arch.ok) {
         const a = await arch.json()
         setArchivedSkills(a.skills || [])
+      }
+      if (prop.ok) {
+        const p = await prop.json()
+        setProposedSkills(p.skills || [])
       }
     } catch {
       setState('could not load the skill library', true)
@@ -1656,6 +1667,47 @@ export default function App() {
       setState('could not change the pin', true)
     }
   }, [])
+
+  // openProposal shows a proposed skill, or hides it when it is the one already shown: the user
+  // reads what the review wrote before deciding.
+  const openProposal = useCallback(async (name: string) => {
+    if (proposalOpen?.name === name) {
+      setProposalOpen(null)
+      return
+    }
+    try {
+      const res = await api('/v1/skills/proposed/' + encodeURIComponent(name))
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}))
+        setState(err.error || 'could not open the proposed skill', true)
+        return
+      }
+      const data = await res.json()
+      setProposalOpen({ name, body: data.body || '' })
+    } catch {
+      setState('could not open the proposed skill', true)
+    }
+  }, [proposalOpen])
+
+  // decideProposal accepts a proposed skill into the library or rejects it, then RELOADS the
+  // lists: a file moved or left, and the browser must not keep a guess about it.
+  const decideProposal = useCallback(async (name: string, accept: boolean) => {
+    const what = accept ? 'could not accept the skill' : 'could not reject the skill'
+    try {
+      const res = accept
+        ? await api('/v1/skills/proposed/' + encodeURIComponent(name) + '/accept', { method: 'POST' })
+        : await api('/v1/skills/proposed/' + encodeURIComponent(name), { method: 'DELETE' })
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}))
+        setState(err.error || what, true)
+        return
+      }
+      setProposalOpen(prev => (prev && prev.name === name ? null : prev))
+      await fetchSkills()
+    } catch {
+      setState(what, true)
+    }
+  }, [fetchSkills])
 
   // restoreSkill brings an archived document back, and then RELOADS both lists: what moved
   // is a file, and the browser must not keep a guess about a directory it cannot see.
@@ -6245,6 +6297,45 @@ export default function App() {
                       </li>
                     ))}
                   </ul>
+                )}
+
+                {proposedSkills.length > 0 && (
+                  <div class="mt-5 pt-4 border-t border-white/5">
+                    <h3 class="text-xs uppercase tracking-wide text-[#7a7a8c] mb-1">{t('Proposed by the review')}</h3>
+                    <p class="text-xs text-[#9a9aaa] mb-2">{t('No session uses these until you accept them. Read each one first.')}</p>
+                    <ul class="space-y-1.5">
+                      {proposedSkills.map((name) => (
+                        <li key={name} class="rounded-xl border border-white/5">
+                          <div class="flex items-center gap-2 px-3 py-2">
+                            <button
+                              class="min-w-0 text-left text-sm text-[#e8e8ea] truncate font-mono hover:underline"
+                              onClick={() => openProposal(name)}
+                              aria-expanded={proposalOpen?.name === name}
+                            >
+                              {name}
+                            </button>
+                            <button
+                              class="ml-auto px-2.5 py-1 rounded-lg border border-white/10 text-xs text-[#e8e8ea] hover:border-accent/40 active:scale-95 transition-transform shrink-0"
+                              onClick={() => decideProposal(name, true)}
+                            >
+                              {t('Accept')}
+                            </button>
+                            <button
+                              class="px-2.5 py-1 rounded-lg border border-danger/30 text-xs text-danger hover:border-danger/60 active:scale-95 transition-transform shrink-0"
+                              onClick={() => decideProposal(name, false)}
+                            >
+                              {t('Reject')}
+                            </button>
+                          </div>
+                          {proposalOpen?.name === name && (
+                            <div class="skill-body border-t border-white/5 p-3">
+                              <Markdown content={proposalOpen.body} />
+                            </div>
+                          )}
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
                 )}
 
                 {archivedSkills.length > 0 && (

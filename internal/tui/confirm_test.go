@@ -142,8 +142,8 @@ func TestEscapeControls(t *testing.T) {
 		"bad\xffbyte":         "bad�byte",
 		"ünïcode":             "ünïcode", // multi-byte text passes through
 	} {
-		if got := escapeControls(in); got != want {
-			t.Errorf("escapeControls(%q) = %q, want %q", in, got, want)
+		if got := EscapeControls(in); got != want {
+			t.Errorf("EscapeControls(%q) = %q, want %q", in, got, want)
 		}
 	}
 }

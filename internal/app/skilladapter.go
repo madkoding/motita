@@ -36,6 +36,12 @@ func (a skillAdapter) ArchiveSkill(n string) error {
 }
 func (a skillAdapter) RestoreSkill(n string) error       { return a.runner.RestoreSkill(n) }
 func (a skillAdapter) ArchivedSkills() ([]string, error) { return a.runner.ArchivedSkills() }
+func (a skillAdapter) ProposedSkills() ([]string, error) { return a.runner.ProposedSkills() }
+func (a skillAdapter) ProposedSkill(n string) (skills.Skill, error) {
+	return a.runner.ProposedSkill(n)
+}
+func (a skillAdapter) AcceptProposedSkill(n string) error { return a.runner.AcceptProposedSkill(n) }
+func (a skillAdapter) RejectProposedSkill(n string) error { return a.runner.RejectProposedSkill(n) }
 
 // curatorAdapter exposes the maintenance pass. The pass needs the runner builder, which
 // lives in THIS package, so the curator is built here and the gateway only sees the two
@@ -62,6 +68,7 @@ func (a curatorAdapter) CuratorRun(ctx context.Context, consolidate, dryRun bool
 // Compile-time proof that the gateway can accept both: a struct that stops satisfying an
 // interface must break the build, not the first request against a live gateway.
 var (
-	_ gateway.SkillService   = skillAdapter{}
-	_ gateway.CuratorService = curatorAdapter{}
+	_ gateway.SkillService    = skillAdapter{}
+	_ gateway.ProposalService = skillAdapter{}
+	_ gateway.CuratorService  = curatorAdapter{}
 )

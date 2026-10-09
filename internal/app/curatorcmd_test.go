@@ -533,3 +533,68 @@ func TestCuratorConfigReportsABadEnvironmentVariable(t *testing.T) {
 		t.Errorf("the failure was not reported:\n%s", out.String())
 	}
 }
+
+// proposeSkill leaves a proposal where the background review saves one.
+func proposeSkill(t *testing.T, home, name, body string) {
+	t.Helper()
+	dir := filepath.Join(home, ".motita", "skills", ".proposed")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, name+".md"), []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// A skill the background review proposed is listed, read, and reaches the library only when
+// the user accepts it; a rejected one is gone.
+func TestCuratorReviewsProposedSkillsThroughTheCommandLine(t *testing.T) {
+	silence(t)
+	home := curatorHome(t)
+	run := func(want int, args ...string) string {
+		t.Helper()
+		out := &syncBuffer{}
+		if code := Run(curatorOptions(t, out, args...)); code != want {
+			t.Fatalf("%v: exit %d, want %d:\n%s", args, code, want, out.String())
+		}
+		return out.String()
+	}
+
+	if got := run(Success, "curator", "list-proposed"); !strings.Contains(got, "no skill is waiting") {
+		t.Errorf("nothing proposed: %q", got)
+	}
+	proposeSkill(t, home, "deploy", "# Deploy\n\x1b]52;c;aGk=\x07run make deploy\n")
+	proposeSkill(t, home, "junk", "# Junk\n")
+	if got := run(Success, "curator", "list-proposed"); strings.TrimSpace(got) != "deploy\njunk" {
+		t.Errorf("the listing is %q", got)
+	}
+	// Shown with its control characters visible: the text came from a model that read
+	// untrusted output.
+	if got := run(Success, "curator", "show-proposed", "deploy"); !strings.Contains(got, "^[]52;c;aGk=^Grun make deploy") {
+		t.Errorf("show: %q", got)
+	}
+	if got := run(Success, "curator", "accept", "deploy"); !strings.Contains(got, "accepted: deploy") {
+		t.Errorf("accept: %q", got)
+	}
+	if _, err := os.Stat(filepath.Join(home, ".motita", "skills", "deploy.md")); err != nil {
+		t.Errorf("not in the library: %v", err)
+	}
+	if got := run(Success, "curator", "reject", "junk"); !strings.Contains(got, "rejected: junk") {
+		t.Errorf("reject: %q", got)
+	}
+	if got := run(Success, "curator", "list-proposed"); !strings.Contains(got, "no skill is waiting") {
+		t.Errorf("left waiting: %q", got)
+	}
+
+	run(RunError, "curator", "show-proposed", "nope")
+	run(RunError, "curator", "accept", "nope")
+
+	// A proposals directory that cannot be read is said, not taken for an empty one.
+	if err := os.RemoveAll(filepath.Join(home, ".motita", "skills", ".proposed")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(home, ".motita", "skills", ".proposed"), []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	run(RunError, "curator", "list-proposed")
+}

@@ -491,7 +491,7 @@ curl -X DELETE -H "Authorization: Bearer $TOKEN" \
 | `POST /v1/sessions/{id}/config/reload` | apply the configuration file as it is now (what `/config` calls after the setup) |
 | `GET /v1/sessions/{id}/ws` | **WebSocket**: bidirectional, flag-based message protocol (see below) |
 | `GET` `POST /v1/schedules` · `PATCH` `DELETE /v1/schedules/{id}` · `POST …/run` | tasks that fire on their own: list, add, pause, retarget, remove, run now |
-| `GET` `POST /v1/skills` · `GET` `DELETE /v1/skills/{name}` · `GET /v1/skills/archived` | the procedure library: index, write, read, delete (a shipped one is refused with `409`), the archive |
+| `GET` `POST /v1/skills` · `GET` `DELETE /v1/skills/{name}` · `GET /v1/skills/archived` · `/v1/skills/proposed` | the procedure library: index, write, read, delete (a shipped one is refused with `409`), the archive, and the background review's proposals to accept or reject |
 | `POST /v1/skills/{name}/pin` `/restore` `/disable` | exempt one from curation, bring it back, or turn it off |
 | `GET /v1/curator` `POST /v1/curator/run` | the maintenance pass: report it, or run one |
 | `GET /v1/update/check` `POST /v1/update/run` | is there a newer release, and install it (verified against `SHA256SUMS`) |

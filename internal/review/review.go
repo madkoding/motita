@@ -124,8 +124,8 @@ func (r *Review) run(ctx context.Context, transcript []llm.Message) {
 
 // ProposedDir is where the fork's saves land, inside the library directory. It is a dot-name,
 // so the library's index never offers a document in it: a proposal reaches the agent only when
-// the user moves it into the library.
-const ProposedDir = ".proposed"
+// the user accepts it (`motita curator accept`, or the web UI's skills panel).
+const ProposedDir = skills.ProposedDir
 
 // proposalStore is the store the fork works on: the same library to read, but every save lands
 // in ProposedDir instead of on the shelf.
