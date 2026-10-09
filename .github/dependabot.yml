@@ -1,0 +1,42 @@
+# Weekly dependency updates, one grouped pull request per ecosystem.
+#
+# The Go module has no external dependencies today, so the gomod entry mostly
+# watches the toolchain directive; it is here so a dependency added later is not
+# forgotten. Actions are pinned by commit SHA (see the workflows), and Dependabot
+# updates the SHA and its version comment together.
+version: 2
+updates:
+  - package-ecosystem: gomod
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      go:
+        patterns: ["*"]
+
+  # Release tooling only (semantic-release).
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      release-tooling:
+        patterns: ["*"]
+
+  # The web UI, embedded in the binary.
+  - package-ecosystem: npm
+    directory: /web
+    schedule:
+      interval: weekly
+    groups:
+      web:
+        patterns: ["*"]
+        update-types: [minor, patch]
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      actions:
+        patterns: ["*"]
