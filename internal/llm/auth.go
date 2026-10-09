@@ -198,10 +198,8 @@ func (c *Client) target(ctx context.Context, force bool) (target, error) {
 	case "qwen":
 		// A qwen.ai token is valid on the host its login named, never on the
 		// DashScope endpoint a key would use, so base_url does not apply here.
-		t.base = oauth.QwenDefaultBaseURL
-		if cred.BaseURL != "" {
-			t.base = strings.TrimRight(cred.BaseURL, "/")
-		}
+		// A host stored by an older version as "http://" is upgraded to https.
+		t.base = oauth.QwenBaseURL(cred.BaseURL)
 		t.headers["Authorization"] = "Bearer " + cred.AccessToken
 	case "gemini":
 		t.headers["Authorization"] = "Bearer " + cred.AccessToken

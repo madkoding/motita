@@ -334,6 +334,9 @@ func TestQwenBaseURLAndRefresh(t *testing.T) {
 		"":                           QwenDefaultBaseURL,
 		"portal.qwen.ai":             "https://portal.qwen.ai/v1",
 		"https://portal.qwen.ai/v1/": "https://portal.qwen.ai/v1",
+		// The token is never sent in clear text, whatever the server answered.
+		"http://portal.qwen.ai": "https://portal.qwen.ai/v1",
+		"HTTP://portal.qwen.ai": "https://portal.qwen.ai/v1",
 	}
 	for in, want := range cases {
 		if got := QwenBaseURL(in); got != want {

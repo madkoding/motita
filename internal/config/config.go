@@ -971,6 +971,9 @@ func (c *Config) validateLLM(requireKey bool) error {
 		}
 		return fmt.Errorf("the LLM key is missing: set llm.api_key in the YAML or %s", ProviderKeyVariable(c.LLM.Provider))
 	}
+	if c.LLM.APIKey != "" && IsClearTextToRemote(c.LLM.BaseURL) {
+		return fmt.Errorf("llm.base_url %q is plain http to a host outside this machine and its network: the key would travel in clear text, use https", c.LLM.BaseURL)
+	}
 	if c.LLM.MaxAttempts < 1 {
 		return fmt.Errorf("llm.max_attempts must be >= 1")
 	}

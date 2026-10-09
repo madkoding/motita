@@ -497,10 +497,27 @@ func IsSelfHostedOllama(l LLM) bool {
 	if err != nil || u.Host == "" {
 		return false
 	}
-	host := strings.ToLower(u.Hostname())
 	if u.Port() == "11434" {
 		return true // Ollama's own port
 	}
+	return isLocalHost(u.Hostname())
+}
+
+// IsClearTextToRemote reports whether rawURL is plain http to a host outside this
+// machine and its network, where a key sent with each request could be read on
+// the way.
+func IsClearTextToRemote(rawURL string) bool {
+	u, err := url.Parse(strings.TrimSpace(rawURL))
+	if err != nil || !strings.EqualFold(u.Scheme, "http") || u.Host == "" {
+		return false
+	}
+	return !isLocalHost(u.Hostname())
+}
+
+// isLocalHost reports whether host is this machine or the user's own network: a
+// loopback or private address, or a LAN name.
+func isLocalHost(host string) bool {
+	host = strings.ToLower(host)
 	if host == "localhost" || !strings.Contains(host, ".") ||
 		strings.HasSuffix(host, ".local") || strings.HasSuffix(host, ".lan") || strings.HasSuffix(host, ".internal") {
 		return true

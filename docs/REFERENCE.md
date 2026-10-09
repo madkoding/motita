@@ -74,7 +74,9 @@ A hand-written client (no SDK) for three API families: **OpenAI-compatible**
 (`:generateContent`). The OpenAI-compatible implementation accepts any `base_url`,
 so it works with OpenAI, Ollama Cloud, Groq, OpenRouter, DeepSeek, and similar
 hosts. All providers are normalised to the same message structure, so the rest of
-the agent does not know which one is behind it.
+the agent does not know which one is behind it. A key is never sent in clear text:
+a plain `http://` `base_url` is refused when `api_key` is set unless it points at
+this machine or a private network address.
 
 - Reads the context: task, plan, attempt number and **the records of previous
   failures**.
