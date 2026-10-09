@@ -95,6 +95,33 @@ func TestACheckThatFailedBeforeTheRunDoesNotBlockIt(t *testing.T) {
 	}
 }
 
+// TestAnAlreadyFailingGateDoesNotHideANewFailure: the gate was red before the run for a reason
+// that is not the run's, and the run then breaks a test inside the SAME check. The name alone
+// matches the baseline; the failure does not, so the claim is refused until the new failure is
+// gone, and only then accepted with the caveat.
+func TestAnAlreadyFailingGateDoesNotHideANewFailure(t *testing.T) {
+	s := &scriptServer{execute: func(round int, _ string) string {
+		if round == 1 {
+			return step(true, "touch broken.flag")
+		}
+		return step(true, "rm broken.flag")
+	}}
+	_, result, err := runScript(t, s, "unused", projectGate(t,
+		"echo 'FAIL: needs a tool this machine lacks'; test -f broken.flag && echo '--- FAIL: TestBroken'; exit 1"))
+	if err != nil || !result.Pass {
+		t.Fatalf("err=%v reason=%s", err, result.Reason)
+	}
+	if len(s.executes) != 2 {
+		t.Fatalf("the claim with a new failure must be refused: rounds = %d, want 2", len(s.executes))
+	}
+	if !strings.Contains(s.executes[1], "differently now: declared") {
+		t.Errorf("the rejection must say the check fails differently:\n%s", s.executes[1])
+	}
+	if !strings.Contains(result.Reason, "ALREADY FAILING BEFORE THIS CHANGE") {
+		t.Errorf("the final verdict must keep the caveat: %s", result.Reason)
+	}
+}
+
 // TestACheckTheRunBrokeIsNamedAsSuch: the gate passed before the run, the run broke it. The claim
 // is refused as usual, the rejection says the check passed before, and a second claim over the
 // same failure is judged from what was already measured.
