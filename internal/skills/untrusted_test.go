@@ -47,8 +47,8 @@ func TestUntrustedDocumentsAreMarked(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, s := range all {
-		if s.Untrusted != (s.Name == "build") {
-			t.Errorf("%s: Untrusted = %v", s.Name, s.Untrusted)
+		if s.Untrusted != (s.Name == "build") || (s.Tag() != "") != s.Untrusted {
+			t.Errorf("%s: Untrusted = %v, Tag = %q", s.Name, s.Untrusted, s.Tag())
 		}
 	}
 	if s, err := l.Save("learned", "# Learned\n\nx\n"); err != nil || !s.Untrusted {
