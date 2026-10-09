@@ -19,7 +19,7 @@ func TestReadersAreAllowed(t *testing.T) {
 		{"ps", []string{"aux"}},
 		{"journalctl", []string{"-u", "nginx", "-n", "50"}},
 		{"uname", []string{"-a"}},
-		{"go", []string{"test", "./..."}},
+		{"go", []string{"vet", "./..."}},
 		{"go", []string{"version"}},
 		{"git", []string{"status"}},
 		{"git", []string{"log", "--oneline", "-5"}},
@@ -159,12 +159,13 @@ func TestSystemctlDependsOnItsSubcommand(t *testing.T) {
 	}
 }
 
-// TestGoDependsOnItsSubcommand: `go test` is the check this project is built around,
-// so it must be allowed; writing a binary out is not.
+// TestGoDependsOnItsSubcommand: the go subcommands that only look are allowed; `go test` runs
+// the package's own code and `go fmt` rewrites files, so read-only mode refuses both, and so are
+// the options that hand go a program to run or a file to write.
 func TestGoDependsOnItsSubcommand(t *testing.T) {
 	for _, args := range [][]string{
-		{"test", "./..."}, {"test", "-run", "TestX", "./..."}, {"version"},
-		{"env", "GOPATH"}, {"list", "./..."}, {"doc", "fmt"},
+		{"vet", "./..."}, {"version"}, {"env", "GOPATH"}, {"list", "./..."}, {"doc", "fmt"},
+		{"list", "-mod=readonly", "./..."}, {"list", "-mod", "readonly", "./..."},
 	} {
 		if d := Check("go", args); !d.Allowed {
 			t.Errorf("go %v must be allowed: %s", args, d.Reason)
@@ -172,7 +173,13 @@ func TestGoDependsOnItsSubcommand(t *testing.T) {
 	}
 	for _, args := range [][]string{
 		{"install", "x"}, {"get", "x"}, {"mod", "tidy"}, {"generate"},
-		{"run", "."}, {"build"}, {"test", "-c"}, {"fmt", "-w"},
+		{"run", "."}, {"build"}, {"test", "./..."}, {"test", "-run", "TestX", "./..."},
+		{"test", "-c"}, {"fmt", "./..."}, {"fmt", "-w"},
+		{"vet", "-vettool=./x", "./..."}, {"vet", "-vettool", "./x"}, {"vet", "--vettool=./x"},
+		{"list", "-toolexec", "./x", "./..."}, {"vet", "-exec=./x"},
+		{"env", "-w", "GOFLAGS=-toolexec=./x"}, {"env", "-u", "GOFLAGS"},
+		{"list", "-mod=mod", "./..."}, {"list", "-mod", "mod"}, {"list", "-modfile=x.mod"},
+		{"vet", "-o", "x"},
 	} {
 		if d := Check("go", args); d.Allowed {
 			t.Errorf("go %v must be refused", args)
@@ -180,13 +187,31 @@ func TestGoDependsOnItsSubcommand(t *testing.T) {
 	}
 }
 
-// TestTheCommandIsTakenFromItsBaseName: /usr/bin/grep is grep.
-func TestTheCommandIsTakenFromItsBaseName(t *testing.T) {
-	if d := Check("/usr/bin/grep", []string{"x", "f"}); !d.Allowed {
-		t.Errorf("an absolute path to a reader must be allowed: %s", d.Reason)
+// TestAProgramNamedByAPathIsRefused is the regression for A4's first bypass: `./evil/cat` was
+// classified by its base name, `cat`, and ran whatever the repository had put there.
+func TestAProgramNamedByAPathIsRefused(t *testing.T) {
+	for _, tc := range []struct {
+		command string
+		args    []string
+	}{
+		{"./evil/cat", []string{"x"}},
+		{"/usr/bin/grep", []string{"x", "f"}},
+		{`bin\cat`, []string{"x"}},
+		{"/bin/rm", []string{"-rf", "/"}},
+		{"env", []string{"./evil/cat", "x"}},
+		{"env", []string{"./evil/nice", "cat", "x"}},
+		{"/usr/bin/env", []string{"cat", "x"}},
+	} {
+		d := Check(tc.command, tc.args)
+		if d.Allowed {
+			t.Errorf("%s %v names a path and must be refused", tc.command, tc.args)
+		}
 	}
-	if d := Check("/bin/rm", []string{"-rf", "/"}); d.Allowed {
-		t.Error("an absolute path to a writer must be refused")
+	if d := Check("/usr/bin/grep", []string{"x", "f"}); !strings.Contains(d.Reason, "bare name") {
+		t.Errorf("the refusal must say how to run it instead, got %q", d.Reason)
+	}
+	if d := Check("env", []string{"LC_ALL=C", "cat", "x"}); !d.Allowed {
+		t.Errorf("a bare reader behind a wrapper is still a reader: %s", d.Reason)
 	}
 }
 

@@ -28,21 +28,31 @@ import (
 // they stay writers by name.
 func Unwrap(command string, args []string) (string, []string, string) {
 	for {
-		name := strings.ToLower(filepath.Base(strings.TrimSpace(command)))
-		skip, ok := wrapperOptions[name]
-		if !ok {
-			return command, args, ""
+		inner, innerArgs, reason, more := unwrapOnce(command, args)
+		if !more {
+			return command, args, reason
 		}
-		i, reason := skip(args)
-		if reason != "" {
-			return command, args, fmt.Sprintf("%s %s", name, reason)
-		}
-		if i >= len(args) {
-			// Nothing to run: the wrapper is the whole command.
-			return command, args, ""
-		}
-		command, args = args[i], args[i+1:]
+		command, args = inner, innerArgs
 	}
+}
+
+// unwrapOnce takes ONE wrapper off a command. more reports that it did, and that the result
+// may be a wrapper again.
+func unwrapOnce(command string, args []string) (string, []string, string, bool) {
+	name := strings.ToLower(filepath.Base(strings.TrimSpace(command)))
+	skip, ok := wrapperOptions[name]
+	if !ok {
+		return command, args, "", false
+	}
+	i, reason := skip(args)
+	if reason != "" {
+		return command, args, fmt.Sprintf("%s %s", name, reason), false
+	}
+	if i >= len(args) {
+		// Nothing to run: the wrapper is the whole command.
+		return command, args, "", false
+	}
+	return args[i], args[i+1:], "", true
 }
 
 // wrapperOptions maps each wrapper to the function that finds where its program starts. It

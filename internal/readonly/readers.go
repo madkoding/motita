@@ -57,113 +57,40 @@ var writers = map[string]bool{
 //     takes a value, so a separate value counts as an operand. That biases toward seeing a
 //     write, which is the safe direction, and it is why `optionValues` exists: without an
 //     entry, `xxd -l 16 f` would be refused as a two-operand write.
-//   - A rule that SCANS FLAGS (`sed`, `awk`, `yq`, `xmllint`, `base64`, `sort`) treats a flag
-//     it does not know as a READ, because the reading form is the common case and refusing
-//     every unrecognised flag would interrupt the ordinary work of looking at a file. The
-//     flags it does know are the writing ones, and the tests name each of them.
-//
-// Neither shape guesses about the program's TEXT: `sed 'w out' f` and `awk '{print > out}'`
-// write and are not refused, because no lexical rule can tell them from a read. Those are
-// recorded as gaps in the tests, not closed by a rule that would refuse real work.
+//   - A rule that SCANS FLAGS (`yq`, `xmllint`, `base64`) treats a flag it does not know as a
+//     READ, because the reading form is the common case and refusing every unrecognised flag
+//     would interrupt the ordinary work of looking at a file. The flags it does know are the
+//     writing ones, and the tests name each of them.
+//   - A rule for a program that can RUN something (`sed`, `awk`, `go`, `git branch`) is an
+//     ALLOWLIST of options, and it reads the program text where there is one (scripts.go):
+//     a list of the bad options misses the abbreviation, the cluster and the one nobody
+//     thought of, and in read-only mode a missed one runs code.
 var argumentRules = map[string]func([]string) (string, bool){
 	// --- the line editors ---------------------------------------------------
 	//
 	// `sed` is the program a coding agent reaches for to look at a file — measured on real
 	// sessions, `sed -n '1,300p' file` was typed 197 times — and it was in the writers
-	// table, so every one of those reads stopped to ask. Its writing form is `-i`, and the
-	// honest rule is therefore about `-i` rather than about the name.
-	//
-	// This is a rule about FLAGS, not about the script, and that is the right shape here:
-	// the script's effect is only realised by an `-i` that writes it back. `sed 's/a/b/' f`
-	// prints to stdout and is a read. A `w` command inside a script writes a file with or
-	// without `-i`, and closing that would mean parsing sed; it is not closed, and it is
-	// recorded as such rather than pretended away.
-	"sed": func(args []string) (string, bool) {
-		for _, a := range args {
-			switch {
-			case a == "--in-place":
-				return "sed --in-place rewrites the files", true
-			case strings.HasPrefix(a, "--in-place="):
-				return "sed --in-place rewrites the files", true
-			case strings.HasPrefix(a, "-") && !strings.HasPrefix(a, "--") &&
-				strings.ContainsRune(a, 'i'):
-				// `-i`, `-i.bak`, `-ni` (a cluster, which GNU sed really does accept), and
-				// `-e`-less forms with the flag glued to its suffix.
-				return fmt.Sprintf("sed %s rewrites the files", a), true
-			}
-		}
-		return "", false
-	},
-	// `awk`'s own options cannot write, so the writing form is the PROGRAM: `print > "f"`
-	// redirects, `system()` runs anything, and the GNU in-place extension writes. There is
-	// no flag to look for, so the script is read — the opposite shape from the rule above,
-	// which is why they are two rules and not one.
+	// table, so every one of those reads stopped to ask. Its writing forms are `-i` and the
+	// script commands that write, read or run (`w`, `r`, `e`), and the rule reads both.
+	"sed": sedRule,
+	// `awk`'s writing form is the PROGRAM: `print > "f"` redirects, `system()` runs anything,
+	// `"cmd" | getline` runs a command, and the GNU in-place extension writes.
 	"awk": awkRule,
 	"find": func(args []string) (string, bool) {
 		for _, a := range args {
-			// -delete/-exec/-execdir/-ok/-fprint* turn find into a writer.
+			// -delete/-exec/-execdir/-ok/-fprint*/-fls turn find into a writer.
 			switch {
 			case a == "-delete":
 				return `find -delete removes files`, true
 			case a == "-exec" || a == "-execdir" || a == "-ok" || a == "-okdir":
 				return `find -exec runs an arbitrary command`, true
-			case strings.HasPrefix(a, "-fprint"):
-				return `find -fprint writes a file`, true
+			case strings.HasPrefix(a, "-fprint") || a == "-fls":
+				return fmt.Sprintf("find %s writes a file", a), true
 			}
 		}
 		return "", false
 	},
-	"git": func(args []string) (string, bool) {
-		// Read-only git: inspecting a repository. Anything that writes the index,
-		// the working tree or the remote is refused.
-		reading := map[string]bool{
-			"status": true, "log": true, "diff": true, "show": true, "branch": true,
-			"remote": true, "tag": true, "describe": true, "rev-parse": true,
-			"blame": true, "shortlog": true, "ls-files": true, "cat-file": true,
-			"config": true, "grep": true, "whatchanged": true, "reflog": true,
-			"show-ref": true, "for-each-ref": true, "count-objects": true,
-		}
-		sub := firstNonFlag(args)
-		if sub == "" {
-			return "", false
-		}
-		if !reading[sub] {
-			return fmt.Sprintf("git %s can change the repository", sub), true
-		}
-		// `git config` reads with no value and writes with one:
-		//   git config user.name           -> reads
-		//   git config user.name "Someone" -> writes
-		// A test found the plain writing form slipping through, which is why the
-		// positional arguments are counted instead of only looking at the flags.
-		if sub == "config" {
-			for _, a := range args {
-				switch {
-				case a == "--add", a == "--unset", a == "--unset-all", a == "--edit",
-					a == "--replace-all", a == "--rename-section", a == "--remove-section":
-					return fmt.Sprintf("git config %s writes the configuration", a), true
-				}
-			}
-			// Count the positionals after "config": one is a read, two are a write.
-			positional := 0
-			seenConfig := false
-			for _, a := range args {
-				if strings.HasPrefix(a, "-") {
-					continue
-				}
-				if !seenConfig {
-					if a == "config" {
-						seenConfig = true
-					}
-					continue
-				}
-				positional++
-			}
-			if positional >= 2 {
-				return "git config with a value writes the configuration", true
-			}
-		}
-		return "", false
-	},
+	"git": gitRule,
 	"systemctl": func(args []string) (string, bool) {
 		sub := firstNonFlag(args)
 		switch sub {
@@ -177,38 +104,7 @@ var argumentRules = map[string]func([]string) (string, bool){
 		}
 		return fmt.Sprintf("systemctl %s can change the system", sub), true
 	},
-	"go": func(args []string) (string, bool) {
-		sub := firstNonFlag(args)
-		switch sub {
-		case "version", "env", "list", "doc", "vet", "fmt":
-			// `go vet` and `go fmt` are special: vet compiles into a cache and fmt
-			// rewrites files. Both are refused below by the caller's rule on -w.
-			if sub == "fmt" {
-				for _, a := range args {
-					if a == "-w" {
-						return "go fmt -w rewrites the files", true
-					}
-				}
-			}
-			return "", false
-		case "test":
-			// Compiling into the build cache is not "changing the system": it is
-			// what the check does, and refusing it would make plan mode useless for
-			// the case this project is about. Writing a test binary out is refused.
-			for _, a := range args {
-				if a == "-c" || a == "-o" {
-					return fmt.Sprintf("go test %s writes a binary", a), true
-				}
-			}
-			return "", false
-		case "build":
-			return "go build writes a binary", true
-		}
-		if sub == "" {
-			return "", false
-		}
-		return fmt.Sprintf("go %s can write to the module cache or the tree", sub), true
-	},
+	"go": goRule,
 	// --- the readers whose OPERANDS can write -------------------------------
 	//
 	// This block is the sweep that the `sed` defect made necessary: for each of these the
@@ -216,9 +112,25 @@ var argumentRules = map[string]func([]string) (string, bool){
 	// answer was not in the table. `sort -o out.txt in.txt` and `uniq in.txt out.txt` were
 	// reported as "only reads" and ran in SILENCE while writing a file — the same defect as
 	// `sed`, in the direction that has no question to catch it.
-	"sort": func(args []string) (string, bool) {
-		if a, ok := writesTo(args, "-o", "--output"); ok {
-			return fmt.Sprintf("sort %s writes a file", a), true
+	"sort": sortRule,
+	// `rg --pre CMD` runs CMD on every file it searches, and `--hostname-bin` runs a program to
+	// name the host: both are a reader handing a program to run.
+	"rg": func(args []string) (string, bool) {
+		for _, a := range args {
+			name, _, _ := strings.Cut(a, "=")
+			if name == "--pre" || name == "--pre-glob" || name == "--hostname-bin" {
+				return fmt.Sprintf("rg %s runs a program on what it searches", name), true
+			}
+		}
+		return "", false
+	},
+	// `tree -o FILE` writes its output to a file, and `-R` (with -H) writes an index file into
+	// every directory it lists. Both are single letters that cluster with the reading ones.
+	"tree": func(args []string) (string, bool) {
+		for _, a := range args {
+			if strings.HasPrefix(a, "-") && !strings.HasPrefix(a, "--") && strings.ContainsAny(a, "oR") {
+				return fmt.Sprintf("tree %s writes files", a), true
+			}
 		}
 		return "", false
 	},
@@ -270,35 +182,6 @@ var argumentRules = map[string]func([]string) (string, bool){
 		}
 		return "", false
 	},
-}
-
-// awkRule is the rule for `awk`, `gawk` and `mawk` — one program under three names.
-//
-// Its own options cannot write, so the writing form is the PROGRAM: `print > "f"` redirects,
-// `system()` runs anything, and the GNU in-place extension rewrites its input. There is no
-// flag to look for in the common case, which is why this rule reads the script — the
-// opposite shape from the `sed` rule above.
-func awkRule(args []string) (string, bool) {
-	for i, a := range args {
-		// `-i inplace` (gawk) and the glued `-iinplace`.
-		if a == "-i" && i+1 < len(args) && args[i+1] == "inplace" {
-			return "awk -i inplace rewrites the files", true
-		}
-		if strings.HasPrefix(a, "-i") && strings.Contains(a, "inplace") {
-			return "awk -i inplace rewrites the files", true
-		}
-		if strings.Contains(a, "system(") {
-			return "awk with system() runs an arbitrary command", true
-		}
-	}
-	// What writes inside the program is a redirection to a QUOTED target: `print > "out"`,
-	// `printf ... >> "out"`, `print | "sort"`. The quote is what makes this narrow enough to
-	// be worth having — `awk '$1 > 5'` and `awk 'a || b'` are ordinary comparisons, and a
-	// rule that fired on the bare operator would refuse most real awk programs.
-	if prog, ok := awkProgram(args); ok && awkRedirects(prog) {
-		return "awk writes a file (a redirection in its program)", true
-	}
-	return "", false
 }
 
 // writesTo reports the first flag that names an output file, in either the separate form
@@ -375,58 +258,6 @@ func positionals(name string, args []string) []string {
 		}
 	}
 	return out
-}
-
-// awkRedirects reports whether an awk program redirects output to a quoted target, which is
-// the shape awk uses to write a file from inside a script.
-//
-// The quote is deliberate: awk's print redirection and its comparisons share the `>` token,
-// so the only thing that separates `print > "out"` from `$1 > 5` is what follows it. A bare
-// operator is left alone, and so is a redirection to an unquoted name, which no lexical rule
-// can tell from a comparison. Both are known gaps; they are in the tests as gaps, because a
-// rule that guesses here would refuse the awk programs a person actually writes.
-func awkRedirects(prog string) bool {
-	for i := 0; i < len(prog); i++ {
-		switch prog[i] {
-		case '>', '|':
-			j := i + 1
-			if j < len(prog) && prog[j] == '>' {
-				j++
-			}
-			for j < len(prog) && prog[j] == ' ' {
-				j++
-			}
-			if j < len(prog) && (prog[j] == '"' || prog[j] == '\'') {
-				return true
-			}
-		}
-	}
-	return false
-}
-
-// awkProgram returns the awk program text, which is the first non-option argument that is
-// not the value of an option.
-func awkProgram(args []string) (string, bool) {
-	// The options that take a VALUE, so the token after them is not the program.
-	valueOptions := map[string]bool{"-f": true, "--file": true, "-v": true, "-F": true, "--field-separator": true}
-	for i := 0; i < len(args); i++ {
-		a := args[i]
-		if valueOptions[a] {
-			i++
-			continue
-		}
-		if a == "--" {
-			if i+1 < len(args) {
-				return args[i+1], true
-			}
-			return "", false
-		}
-		if strings.HasPrefix(a, "-") {
-			continue
-		}
-		return a, true
-	}
-	return "", false
 }
 
 // readers are programs that only read, ONCE their arguments have been through the rule
