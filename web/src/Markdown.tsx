@@ -186,7 +186,9 @@ md.renderer.rules.fence = (tokens: Token[], idx: number): string => {
   return (
     '<pre class="code-block" data-code-lang="' +
     escapeAttr(info) +
-    '"><button class="copy-btn">' + md.utils.escapeHtml(t('copy')) + '</button><code' +
+    // The copy button is added by sanitizeMessage AFTER the sanitizer: a message may not
+    // carry a button of its own.
+    '"><code' +
     (info ? ' class="' + escapeAttr('lang-' + info) + ' hljs"' : ' class="hljs"') +
     '>' +
     md.utils.escapeHtml(raw) +
@@ -267,6 +269,14 @@ md.renderer.rules.text = (
 // `<noscript><p title="</noscript><img src=x onerror=alert(1)>">` through with its
 // handler intact. The payloads are text and the attributes are restored afterwards for
 // exactly this reason.
+//
+// The widening is for the RENDERERS' output only (a KaTeX formula, a mermaid SVG), which
+// is what `sanitize` is for. The message itself — HTML the model wrote — goes through
+// `sanitizeMessage`, which takes `style` away (a `position:fixed` block can lay a fake
+// approval dialog over the real one) and every form control with it: nothing in an
+// answer should look like, or be, something to click and type into.
+const FORM_TAGS = ['form', 'button', 'textarea', 'select', 'option', 'optgroup', 'input']
+
 const PURIFY_CONFIG: PurifyConfig = {
   USE_PROFILES: { html: true, svg: true, svgFilters: true, mathMl: true },
   ADD_ATTR: ['style'],
@@ -274,11 +284,59 @@ const PURIFY_CONFIG: PurifyConfig = {
   // The diagram's node labels live in an XHTML island inside the SVG.
   ADD_TAGS: ['foreignObject'],
   HTML_INTEGRATION_POINTS: { foreignobject: true },
+  FORBID_TAGS: FORM_TAGS,
 }
 
-/** Sanitizes rendered HTML, keeping math and diagrams intact. */
+/** Sanitizes what a renderer produced (math, diagrams), keeping its inline styles. */
 export function sanitize(html: string): string {
   return DOMPurify.sanitize(html, PURIFY_CONFIG)
+}
+
+// A separate instance, because DOMPurify's hooks belong to an instance and these two must
+// not touch the renderers' output.
+const messagePurify = DOMPurify(window)
+
+// The one style a message keeps: a table column's alignment, which markdown-it itself
+// writes as `style="text-align:..."`.
+const ALIGN_ONLY = /^\s*text-align:\s*(left|right|center)\s*;?\s*$/i
+messagePurify.addHook('uponSanitizeAttribute', (_node, data) => {
+  if (data.attrName === 'style' && !ALIGN_ONLY.test(data.attrValue)) data.keepAttr = false
+})
+
+// The one input a message keeps: a task list's checkbox, which markdown-it-task-lists
+// renders disabled. It is a picture of a tick, not a control.
+messagePurify.addHook('uponSanitizeElement', (node, data) => {
+  if (data.tagName !== 'input') return
+  const el = node as Element
+  if (el.getAttribute('type') === 'checkbox' && el.hasAttribute('disabled')) {
+    data.allowedTags.input = true
+  } else {
+    data.allowedTags.input = false
+  }
+})
+
+const MESSAGE_CONFIG: PurifyConfig = {
+  USE_PROFILES: { html: true, svg: true, svgFilters: true, mathMl: true },
+  ADD_ATTR: ['style'],
+  ALLOW_DATA_ATTR: true,
+  FORBID_TAGS: FORM_TAGS.filter((tag) => tag !== 'input'),
+}
+
+/**
+ * Sanitizes the HTML of a message: no free-form styles and no form controls. Each code
+ * block then gets the interface's own copy button, which only copies the block.
+ */
+export function sanitizeMessage(html: string): string {
+  const frag = messagePurify.sanitize(html, { ...MESSAGE_CONFIG, RETURN_DOM_FRAGMENT: true })
+  for (const pre of Array.from(frag.querySelectorAll('pre.code-block'))) {
+    const button = document.createElement('button')
+    button.className = 'copy-btn'
+    button.textContent = t('copy')
+    pre.insertBefore(button, pre.firstChild)
+  }
+  const box = document.createElement('div')
+  box.appendChild(frag)
+  return box.innerHTML
 }
 
 // --- The deferred half --------------------------------------------------------
@@ -419,8 +477,11 @@ function fail(el: HTMLElement, what: string, err: unknown): void {
  * is set by the component below, after this string is sanitized.
  */
 export function renderMessage(source: string): string {
-  return sanitize(
-    '<div class="markdown-body">' + '<button class="copy-msg-btn">' + md.utils.escapeHtml(t('copy')) + '</button>' + md.render(source) + '</div>',
+  // The copy button is the interface's own, built here around the sanitized message: the
+  // message itself may not contain a button.
+  return (
+    '<div class="markdown-body">' + '<button class="copy-msg-btn">' + md.utils.escapeHtml(t('copy')) + '</button>' +
+    sanitizeMessage(md.render(source)) + '</div>'
   )
 }
 
