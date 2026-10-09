@@ -105,6 +105,9 @@ type Sandbox struct {
 	base       string
 	executable string
 	notApplied []string
+	// gitRoots are the git directories the base worktree writes outside it, read once here,
+	// before any command could rewrite its `.git` file.
+	gitRoots []string
 }
 
 // New prepares the sandbox and detects which isolation is really available.
@@ -133,7 +136,7 @@ func New(op Options) (*Sandbox, error) {
 		return nil, fmt.Errorf("could not locate this very executable (needed for the isolation): %w", err)
 	}
 
-	s := &Sandbox{op: op, log: op.Log, base: abs, executable: selfExecutable}
+	s := &Sandbox{op: op, log: op.Log, base: abs, executable: selfExecutable, gitRoots: gitDirs(abs)}
 
 	if op.UseChroot {
 		switch {
@@ -368,9 +371,9 @@ func (s *Sandbox) writeRoots(workDir, tempDir string) []string {
 	if tools := s.toolsDir(); tools != "" {
 		roots = append(roots, tools)
 	}
-	roots = append(roots, gitDirs(workDir)...)
+	roots = append(roots, s.gitRoots...)
 	if workDir != s.base {
-		roots = append(roots, gitDirs(s.base)...)
+		roots = append(roots, gitDirs(workDir)...)
 	}
 	return roots
 }

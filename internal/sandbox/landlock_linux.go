@@ -144,6 +144,13 @@ func allowWrites(ruleset int, root string, handled uint64) error {
 // gitDirs are the directories a `git` command in dir writes outside it: for a worktree, `.git` is
 // a file naming its own directory under the main repository's `.git`, and a commit writes objects
 // and refs into the main one. Without them confining a session worktree would break `git commit`.
+//
+// That `.git` file is the agent's to rewrite, so nothing it names is taken on trust: pointing it at
+// the home directory used to make the home directory writable. The directory it names must be a
+// real `<repository>/worktrees/<id>` whose own `gitdir` file names dir back, its `commondir` must
+// be that repository, and the repository must hold a HEAD and objects. Of the repository only what
+// a commit writes is granted - objects, refs and logs - never its config, hooks or info, which a
+// git run later outside the sandbox would obey.
 func gitDirs(dir string) []string {
 	data, err := os.ReadFile(filepath.Join(dir, ".git"))
 	if err != nil {
@@ -153,17 +160,56 @@ func gitDirs(dir string) []string {
 	if !ok {
 		return nil
 	}
-	own := strings.TrimSpace(rest)
-	if !filepath.IsAbs(own) {
-		own = filepath.Join(dir, own)
+	own, ok := realPath(dir, strings.TrimSpace(rest))
+	if !ok || filepath.Base(filepath.Dir(own)) != "worktrees" || !isFile(filepath.Join(own, "HEAD")) {
+		return nil
+	}
+	common := filepath.Dir(filepath.Dir(own))
+	// The registration names its worktree back, and the agent cannot write another repository's.
+	back, err := os.ReadFile(filepath.Join(own, "gitdir"))
+	if err != nil {
+		return nil
+	}
+	named, ok := realPath(own, strings.TrimSpace(string(back)))
+	self, _ := realPath(dir, ".git")
+	if !ok || named != self {
+		return nil
+	}
+	pointer, err := os.ReadFile(filepath.Join(own, "commondir"))
+	if err != nil {
+		return nil
+	}
+	if target, _ := realPath(own, strings.TrimSpace(string(pointer))); target != common ||
+		!isFile(filepath.Join(common, "HEAD")) || !isRealDir(filepath.Join(common, "objects")) {
+		return nil
 	}
 	dirs := []string{own}
-	if common, err := os.ReadFile(filepath.Join(own, "commondir")); err == nil {
-		target := strings.TrimSpace(string(common))
-		if !filepath.IsAbs(target) {
-			target = filepath.Join(own, target)
+	for _, name := range []string{"objects", "refs", "logs"} {
+		if sub := filepath.Join(common, name); isRealDir(sub) {
+			dirs = append(dirs, sub)
 		}
-		dirs = append(dirs, filepath.Clean(target))
 	}
 	return dirs
+}
+
+// realPath is p, taken against base when relative, with every symbolic link resolved; "" and false
+// when it does not exist.
+func realPath(base, p string) (string, bool) {
+	if !filepath.IsAbs(p) {
+		p = filepath.Join(base, p)
+	}
+	resolved, err := filepath.EvalSymlinks(p)
+	return resolved, err == nil
+}
+
+func isFile(p string) bool {
+	info, err := os.Lstat(p)
+	return err == nil && info.Mode().IsRegular()
+}
+
+// isRealDir reports a directory that is not a symbolic link: a link named `objects` in a repository
+// the agent built inside its workspace would grant whatever it points at.
+func isRealDir(p string) bool {
+	info, err := os.Lstat(p)
+	return err == nil && info.IsDir()
 }
