@@ -45,9 +45,13 @@ for _ in $(seq 1 40); do
 done
 curl -sf -o /dev/null "http://127.0.0.1:$PORT/SHA256SUMS" || fail "the mock release is not being served on $PORT"
 
-sed "s#https://github.com/\${REPO}/releases/latest/download#http://127.0.0.1:$PORT#" \
+# The embedded release key is blanked: the mock release cannot be signed by it, so the
+# unsigned cases run keyless and case 5 installs a throwaway test key of its own.
+sed "s#https://github.com/\${REPO}/releases/latest/download#http://127.0.0.1:$PORT#; \
+     s#^RELEASE_PUBLIC_KEY=\".*\"#RELEASE_PUBLIC_KEY=\"\"#" \
   "$REPO/scripts/install.sh" > "$WORK/install.sh"
 grep -q "http://127.0.0.1:$PORT" "$WORK/install.sh" || fail "the release base was not redirected"
+grep -q '^RELEASE_PUBLIC_KEY=""' "$WORK/install.sh" || fail "the embedded release key was not blanked"
 
 export MOTITA_INSTALL_DIR="$WORK/dest"
 unset MOTITA_VERSION MOTITA_INSECURE_SKIP_VERIFY || true
