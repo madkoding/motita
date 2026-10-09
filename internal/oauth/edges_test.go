@@ -67,7 +67,7 @@ func TestLoopbackEdges(t *testing.T) {
 	if _, err := StartLoopback(net.JoinHostPort("127.0.0.1", port), "127.0.0.1", "/cb"); err == nil {
 		t.Error("a busy port must be an error")
 	}
-	for _, q := range []string{"?error=access_denied&error_description=nope", "?state=s"} {
+	for _, q := range []string{"?error=access_denied&error_description=nope&state=s", "?state=s"} {
 		resp, err := http.Get(lb.RedirectURI + q)
 		if err != nil {
 			t.Fatal(err)

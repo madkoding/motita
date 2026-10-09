@@ -122,7 +122,10 @@ func TestParseAuthCode(t *testing.T) {
 		{"http://localhost:1455/auth/callback?code=abc&state=other", "s1", "", true},
 		{"http://localhost/?error=access_denied", "s1", "", true},
 		{"code=abc&state=s1", "s1", "abc", false},
-		{"?code=abc", "s1", "abc", false},
+		{"?code=abc", "s1", "", true},
+		{"http://localhost:1455/auth/callback?code=abc", "s1", "", true},
+		{"abc#", "s1", "", true},
+		{"?code=abc", "", "abc", false},
 		{"abc#s1", "s1", "abc", false},
 		{"  rawcode \n", "s1", "rawcode", false},
 		{"", "s1", "", true},
@@ -163,15 +166,45 @@ func TestLoopbackRefusesAForeignStateAndAcceptsAPaste(t *testing.T) {
 	if !strings.HasPrefix(lb.RedirectURI, "http://localhost:") {
 		t.Errorf("redirect = %q", lb.RedirectURI)
 	}
-	go func() {
-		resp, err := http.Get(strings.Replace(lb.RedirectURI, "localhost", "127.0.0.1", 1) + "?code=xyz&state=evil")
-		if err == nil {
-			resp.Body.Close()
-		}
-	}()
-	if _, _, err := lb.Wait(context.Background(), "st", nil); err == nil {
-		t.Error("a callback with another state must be refused")
+	// A callback with another state, before and while the login waits, is refused
+	// with a 400 and does not end the wait: the real redirect still logs in.
+	callback := strings.Replace(lb.RedirectURI, "localhost", "127.0.0.1", 1)
+	if resp, err := http.Get(callback + "?code=early&state=evil"); err == nil {
+		resp.Body.Close()
 	}
+	got := make(chan string, 1)
+	go func() {
+		code, _, err := lb.Wait(context.Background(), "st", nil)
+		if err != nil {
+			code = err.Error()
+		}
+		got <- code
+	}()
+	for {
+		resp, err := http.Get(callback + "?error=access_denied&state=evil")
+		if err != nil {
+			t.Fatal(err)
+		}
+		resp.Body.Close()
+		if resp.StatusCode != http.StatusBadRequest {
+			t.Fatalf("a foreign callback got status %d", resp.StatusCode)
+		}
+		if _, ok := lb.want.Load().(string); ok {
+			break
+		}
+	}
+	select {
+	case code := <-got:
+		t.Fatalf("a foreign callback ended the wait: %q", code)
+	case <-time.After(50 * time.Millisecond):
+	}
+	if resp, err := http.Get(callback + "?code=xyz&state=st"); err == nil {
+		resp.Body.Close()
+	}
+	if code := <-got; code != "xyz" {
+		t.Errorf("the real callback must log in after foreign ones, got %q", code)
+	}
+
 	paste := make(chan string, 1)
 	paste <- lb.RedirectURI + "?code=pasted&state=st"
 	code, pasted, err := lb.Wait(context.Background(), "st", paste)

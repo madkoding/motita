@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"sync/atomic"
 	"time"
 )
 
@@ -23,6 +24,10 @@ type Loopback struct {
 	srv         *http.Server
 	ln          net.Listener
 	results     chan callbackResult
+	// want is the state Wait expects, once it is waiting: a callback carrying
+	// another one is answered 400 and never queued, so it cannot take the place
+	// of the real redirect.
+	want atomic.Value
 }
 
 type callbackResult struct {
@@ -52,6 +57,11 @@ func StartLoopback(addr, redirectHost, path string) (*Loopback, error) {
 			res.err += ": " + d
 		}
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		if want, ok := l.want.Load().(string); ok && res.state != want {
+			w.WriteHeader(http.StatusBadRequest)
+			fmt.Fprint(w, "<!doctype html><title>motita</title><p>This callback does not belong to the login in progress.</p>")
+			return
+		}
 		if res.err != "" || res.code == "" {
 			w.WriteHeader(http.StatusBadRequest)
 			fmt.Fprint(w, "<!doctype html><title>motita</title><p>The login did not complete. You can close this tab and look at the terminal.</p>")
@@ -79,14 +89,17 @@ func (l *Loopback) Close() {
 }
 
 // Wait returns the authorisation code from whichever arrives first: the browser
-// redirect, or a line pasted on paste. The state must match: a code that comes
-// back with another state answers a request this process did not make.
+// redirect, or a line pasted on paste. The state must match: a callback that comes
+// back with another state answers a request this process did not make, so it is
+// ignored and the wait goes on — otherwise any page could abort the login by
+// hitting the loopback first.
 //
 // pasted reports whether the answer came from paste, so a caller knows whether
 // the reader feeding it is still waiting for a line.
 func (l *Loopback) Wait(ctx context.Context, wantState string, paste <-chan string) (code string, pasted bool, err error) {
 	var browser <-chan callbackResult
 	if l != nil {
+		l.want.Store(wantState)
 		browser = l.results
 	}
 	for {
@@ -94,11 +107,12 @@ func (l *Loopback) Wait(ctx context.Context, wantState string, paste <-chan stri
 		case <-ctx.Done():
 			return "", false, ctx.Err()
 		case res := <-browser:
+			// Queued before Wait started, when the handler could not yet tell.
+			if res.state != wantState {
+				continue
+			}
 			if res.err != "" {
 				return "", false, fmt.Errorf("the provider refused the login: %s", res.err)
-			}
-			if res.state != wantState {
-				return "", false, errors.New("the login callback carried a state this login did not issue")
 			}
 			return res.code, false, nil
 		case line, ok := <-paste:
@@ -116,14 +130,15 @@ func (l *Loopback) Wait(ctx context.Context, wantState string, paste <-chan stri
 }
 
 // ParseAuthCode reads what a user pasted after a login: the whole redirect URL,
-// its query string, a "code#state" pair, or the bare code. When a state is
-// present it must be wantState.
+// its query string, a "code#state" pair, or the bare code. Every form but the
+// bare code must carry wantState.
 func ParseAuthCode(input, wantState string) (string, error) {
 	s := strings.TrimSpace(input)
 	if s == "" {
 		return "", errors.New("no code was given")
 	}
 	var code, state string
+	carriesState := true
 	switch {
 	case strings.Contains(s, "://"):
 		u, err := url.Parse(s)
@@ -144,12 +159,15 @@ func ParseAuthCode(input, wantState string) (string, error) {
 	case strings.Contains(s, "#"):
 		code, state, _ = strings.Cut(s, "#")
 	default:
-		code = s
+		code, carriesState = s, false
 	}
 	if code == "" {
 		return "", errors.New("the pasted text carries no code")
 	}
-	if state != "" && wantState != "" && state != wantState {
+	// A URL, a query string or a "code#state" pair carries the state, so it must
+	// be this login's even when it was left out: only a bare code, which has no
+	// place for one, is taken on the user's word.
+	if carriesState && wantState != "" && state != wantState {
 		return "", errors.New("the pasted code belongs to another login (the state does not match)")
 	}
 	return code, nil
