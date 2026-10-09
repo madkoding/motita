@@ -7,11 +7,15 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 
 	"github.com/madkoding/motita/internal/execx"
 )
+
+// rlimitNproc is RLIMIT_NPROC, which package syscall does not name.
+const rlimitNproc = 6
 
 // A limit the shell refuses used to vanish behind `2>/dev/null`: the command ran unbounded and
 // nothing said so. Now the sandbox lists it as not applied and the run's output names it.
@@ -34,7 +38,15 @@ func TestALimitTheShellRefusesIsReported(t *testing.T) {
 
 // Debian's /bin/sh (dash) has no `ulimit -u`: the process limit was never applied there.
 func TestTheProcessLimitIsAppliedByEveryShell(t *testing.T) {
-	s, err := New(Options{Dir: t.TempDir(), Limits: Limits{Processes: 77}})
+	// RLIMIT_NPROC counts every process the user owns, not just the sandbox's, so a small value
+	// stops a non-root user's shell from forking at all. Use one high enough not to bite and
+	// unusual enough to recognise, within the hard limit a non-root user cannot raise.
+	limit := uint64(54321)
+	var rl syscall.Rlimit
+	if err := syscall.Getrlimit(rlimitNproc, &rl); err == nil && rl.Max < limit {
+		limit = rl.Max
+	}
+	s, err := New(Options{Dir: t.TempDir(), Limits: Limits{Processes: int(limit)}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -43,8 +55,8 @@ func TestTheProcessLimitIsAppliedByEveryShell(t *testing.T) {
 	}
 	out, _, _, err := s.Run(context.Background(), execx.Request{Command: "/bin/sh",
 		Args: []string{"-c", "grep 'Max processes' /proc/self/limits"}})
-	if err != nil || !strings.Contains(out, " 77 ") {
-		t.Errorf("RLIMIT_NPROC must be 77: %v %q", err, out)
+	if want := " " + strconv.FormatUint(limit, 10) + " "; err != nil || !strings.Contains(out, want) {
+		t.Errorf("RLIMIT_NPROC must be %d: %v %q", limit, err, out)
 	}
 }
 
