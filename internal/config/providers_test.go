@@ -133,6 +133,43 @@ func TestIsSelfHostedOllamaEdges(t *testing.T) {
 	}
 }
 
+// TestAKeyIsNeverSentInClearTextToARemoteHost: a key goes with every request, so
+// plain http is accepted only to this machine or the user's own network.
+func TestAKeyIsNeverSentInClearTextToARemoteHost(t *testing.T) {
+	cases := map[string]bool{
+		"http://api.example.com/v1":      true,
+		"HTTP://203.0.113.7:8080/v1":     true,
+		"https://api.example.com/v1":     false,
+		"http://localhost:1234/v1":       false,
+		"http://127.0.0.1:8080/v1":       false,
+		"http://192.168.1.20:8000/v1":    false,
+		"http://gpu-box/v1":              false,
+		"http:///no-host":                false,
+		"://bad":                         false,
+		"":                               false,
+		"api.example.com/without/scheme": false,
+	}
+	for base, want := range cases {
+		if got := IsClearTextToRemote(base); got != want {
+			t.Errorf("IsClearTextToRemote(%q) = %v, want %v", base, got, want)
+		}
+	}
+
+	c := Default()
+	c.LLM.Provider, c.LLM.APIKey, c.LLM.BaseURL = "openai", "sk-key", "http://api.example.com/v1"
+	if err := c.validateLLM(true); err == nil || !strings.Contains(err.Error(), "clear text") {
+		t.Errorf("a key over http to a remote host must be refused: %v", err)
+	}
+	c.LLM.APIKey = ""
+	if err := c.validateLLM(false); err != nil {
+		t.Errorf("with no key nothing is exposed, it must be accepted: %v", err)
+	}
+	c.LLM.APIKey, c.LLM.BaseURL = "sk-key", "http://localhost:8080/v1"
+	if err := c.validateLLM(true); err != nil {
+		t.Errorf("a key over http to this machine must be accepted: %v", err)
+	}
+}
+
 func TestMissingKeyForALoginProviderSuggestsTheLogin(t *testing.T) {
 	t.Setenv("MOTITA_AUTH_DIR", t.TempDir())
 	c := Default()

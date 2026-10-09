@@ -3,8 +3,9 @@
 // restarts the gateway.
 //
 // The release source is the GitHub API for madkoding/motita. The binary is
-// downloaded to a temporary file, checked against the release's SHA256SUMS,
-// and renamed over the running executable — which works on Linux/macOS even
+// downloaded to a temporary file, checked against the release's SHA256SUMS
+// (itself verified against an ed25519 signature, SHA256SUMS.sig, once a release
+// key is embedded in ReleasePublicKey), and renamed over the running executable — which works on Linux/macOS even
 // while the process is running (the kernel keeps the old inode alive until
 // the process exits). On Windows, the rename is done after the process exits,
 // which is why the restart sequence is download → rename → spawn-new → exit.
@@ -12,21 +13,54 @@ package updater
 
 import (
 	"context"
+	"crypto/ed25519"
 	"crypto/sha256"
+	"crypto/x509"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"runtime"
 	"strings"
 	"time"
+
+	"github.com/madkoding/motita/internal/logx"
 )
 
 // Repo is the GitHub repository releases are published to.
 const Repo = "madkoding/motita"
+
+// ReleasePublicKey is the ed25519 key every release's SHA256SUMS is signed with, written as the
+// base64 body of its PEM public key (the line `openssl pkey -pubout` prints between the BEGIN and
+// END markers). scripts/release-signing-key.sh (`make release-key`) generates the pair, prints this
+// value, and says where the private half goes (the RELEASE_SIGNING_KEY secret, never the repo).
+//
+// PLACEHOLDER: while it is empty the updater keeps the checksum-only behaviour and logs a warning,
+// so the releases published before a key existed can still be installed. Once it is set, a release
+// without a valid SHA256SUMS.sig is refused. The installers carry the same value.
+const ReleasePublicKey = ""
+
+// DefaultAssetHosts are the hosts release files may be fetched from, always over https: the
+// download URL itself and the CDN hosts GitHub redirects it to.
+var DefaultAssetHosts = []string{
+	"github.com",
+	"api.github.com",
+	"objects.githubusercontent.com",
+	"release-assets.githubusercontent.com",
+}
+
+// Download ceilings. A release binary is held under 24 MB by CI, so the binary cap is generous; the
+// checksum file is a few lines; a signature is exactly ed25519.SignatureSize bytes.
+const (
+	maxBinarySize    = 100 << 20
+	maxChecksumsSize = 64 << 10
+)
 
 // Release is the information about the latest release that matters to us.
 type Release struct {
@@ -75,6 +109,12 @@ type Updater struct {
 	HTTPClient *http.Client
 	// APIURL returns the GitHub releases API endpoint. Injectable for tests.
 	APIURL func() string
+	// PublicKey verifies SHA256SUMS.sig. Nil means no release key is configured: the checksum
+	// alone is checked, and a warning says so.
+	PublicKey ed25519.PublicKey
+	// AssetHosts are the hosts release files may come from (https only). Nil means
+	// DefaultAssetHosts. Injectable for tests.
+	AssetHosts []string
 }
 
 // apiURLFor returns the real GitHub API URL for the latest release.
@@ -84,16 +124,77 @@ func apiURLFor() string {
 
 // New returns an Updater for the current process.
 func New(version, exePath string) *Updater {
-	return &Updater{
+	u := &Updater{
 		CurrentVersion: version,
 		Goos:           runtime.GOOS,
 		Goarch:         runtime.GOARCH,
 		ExePath:        exePath,
-		HTTPClient: &http.Client{
-			Timeout: 30 * time.Second,
-		},
-		APIURL: apiURLFor,
+		APIURL:         apiURLFor,
+		PublicKey:      mustPublicKey(ReleasePublicKey),
 	}
+	u.HTTPClient = &http.Client{
+		Timeout: 30 * time.Second,
+		// A redirect is held to the same rule as the URL it came from: https, to a GitHub host.
+		CheckRedirect: func(req *http.Request, via []*http.Request) error {
+			if len(via) >= 10 {
+				return errors.New("stopped after 10 redirects")
+			}
+			return u.checkURL(req.URL.String())
+		},
+	}
+	return u
+}
+
+// parsePublicKey decodes a ReleasePublicKey-shaped value. An empty value is no key at all.
+func parsePublicKey(s string) (ed25519.PublicKey, error) {
+	if s == "" {
+		return nil, nil
+	}
+	der, err := base64.StdEncoding.DecodeString(s)
+	if err != nil {
+		return nil, fmt.Errorf("the release public key is not base64: %w", err)
+	}
+	key, err := x509.ParsePKIXPublicKey(der)
+	if err != nil {
+		return nil, fmt.Errorf("the release public key does not parse: %w", err)
+	}
+	pub, ok := key.(ed25519.PublicKey)
+	if !ok {
+		return nil, fmt.Errorf("the release public key is a %T, not ed25519", key)
+	}
+	return pub, nil
+}
+
+// mustPublicKey is parsePublicKey for the embedded constant: a malformed constant is a build
+// mistake, and failing loudly beats silently falling back to checksum-only updates.
+func mustPublicKey(s string) ed25519.PublicKey {
+	pub, err := parsePublicKey(s)
+	if err != nil {
+		panic(err)
+	}
+	return pub
+}
+
+// checkURL refuses a release file URL that is not https or not on an allowed host. The release
+// JSON is what names these URLs, so they are checked rather than trusted.
+func (u *Updater) checkURL(raw string) error {
+	parsed, err := url.Parse(raw)
+	if err != nil {
+		return fmt.Errorf("the release URL does not parse: %w", err)
+	}
+	if parsed.Scheme != "https" {
+		return fmt.Errorf("refusing %s: release files are only fetched over https", raw)
+	}
+	hosts := u.AssetHosts
+	if hosts == nil {
+		hosts = DefaultAssetHosts
+	}
+	for _, h := range hosts {
+		if strings.EqualFold(parsed.Hostname(), h) {
+			return nil
+		}
+	}
+	return fmt.Errorf("refusing %s: %s is not a GitHub release host", raw, parsed.Hostname())
 }
 
 // assetName returns the expected asset name for this OS/arch.
@@ -161,34 +262,46 @@ func (u *Updater) fetchLatestRelease(ctx context.Context) (*Release, error) {
 	return &release, nil
 }
 
-// findAsset returns the download URL for the binary matching this OS/arch.
-func (u *Updater) findAsset(release *Release) (string, error) {
+// findAsset returns the binary asset matching this OS/arch.
+func (u *Updater) findAsset(release *Release) (Asset, error) {
 	want := u.assetName()
 	for _, a := range release.Assets {
 		if a.Name == want {
-			return a.BrowserDownloadURL, nil
+			return a, nil
 		}
 	}
-	return "", fmt.Errorf("the release %s has no asset for %s/%s", release.TagName, u.Goos, u.Goarch)
+	return Asset{}, fmt.Errorf("the release %s has no asset for %s/%s", release.TagName, u.Goos, u.Goarch)
 }
 
-// findChecksumsURL looks for a SHA256SUMS asset in the release.
-func (u *Updater) findChecksumsURL(release *Release) string {
+// findURL returns the download URL of the release asset with this name, or "".
+func findURL(release *Release, name string) string {
 	for _, a := range release.Assets {
-		if a.Name == "SHA256SUMS" {
+		if a.Name == name {
 			return a.BrowserDownloadURL
 		}
 	}
 	return ""
 }
 
+// findChecksumsURL looks for a SHA256SUMS asset in the release.
+func (u *Updater) findChecksumsURL(release *Release) string {
+	return findURL(release, "SHA256SUMS")
+}
+
 // DownloadAndInstall downloads the binary, verifies it, and replaces the
 // running executable. The progress callback is called with stage/percent
 // updates so the caller can stream them to the frontend.
 func (u *Updater) DownloadAndInstall(ctx context.Context, release *Release, progress func(ProgressEvent)) error {
-	assetURL, err := u.findAsset(release)
+	asset, err := u.findAsset(release)
 	if err != nil {
 		return err
+	}
+
+	// The release is re-checked here, not only in Check: the gateway fetches it a second time
+	// before installing, and that answer is the one that gets installed. An older or equal tag is
+	// refused, so a stale or replayed release cannot downgrade the binary.
+	if !isNewer(u.CurrentVersion, release.TagName) {
+		return fmt.Errorf("the release %s is not newer than %s; refusing to downgrade", release.TagName, u.CurrentVersion)
 	}
 
 	// The checksums are REQUIRED, and are looked for before anything is downloaded. A release
@@ -200,6 +313,38 @@ func (u *Updater) DownloadAndInstall(ctx context.Context, release *Release, prog
 		return fmt.Errorf("the release %s publishes no SHA256SUMS, so the download cannot be verified and will not be installed", release.TagName)
 	}
 
+	// With a release key embedded, the checksums only count when they are signed by it: a
+	// checksum file published beside the binary vouches for nothing if both were uploaded by
+	// whoever compromised the release. Without a key (the placeholder) the old behaviour stays,
+	// so updates keep working until a key is configured.
+	sigURL := ""
+	if u.PublicKey != nil {
+		sigURL = findURL(release, "SHA256SUMS.sig")
+		if sigURL == "" {
+			return fmt.Errorf("the release %s publishes no SHA256SUMS.sig, so its checksums cannot be trusted and nothing will be installed", release.TagName)
+		}
+	} else {
+		logx.Global().Warn("no release signing key is embedded; verifying the update by checksum only", "release", release.TagName)
+	}
+	for _, raw := range []string{asset.BrowserDownloadURL, checksumsURL, sigURL} {
+		if raw == "" {
+			continue
+		}
+		if err := u.checkURL(raw); err != nil {
+			return err
+		}
+	}
+
+	// The download is capped at the size the release declares, so a server cannot stream an
+	// endless body into the staging directory.
+	limit := asset.Size
+	if limit > maxBinarySize {
+		return fmt.Errorf("the release asset %s declares %d bytes, more than the %d allowed", asset.Name, asset.Size, maxBinarySize)
+	}
+	if limit <= 0 {
+		limit = maxBinarySize
+	}
+
 	// Stage 1: download
 	progress(ProgressEvent{Stage: "downloading", Percent: 0, Message: "Downloading " + release.TagName})
 	tmpDir, err := os.MkdirTemp(u.stagingDir(), ".motita-update-*")
@@ -209,13 +354,13 @@ func (u *Updater) DownloadAndInstall(ctx context.Context, release *Release, prog
 	defer func() { _ = os.RemoveAll(tmpDir) }()
 
 	tmpBin := filepath.Join(tmpDir, u.assetName())
-	if err := u.downloadFile(ctx, assetURL, tmpBin, progress); err != nil {
+	if err := u.downloadFile(ctx, asset.BrowserDownloadURL, limit, tmpBin, progress); err != nil {
 		return fmt.Errorf("download failed: %w", err)
 	}
 
 	// Stage 2: verify checksum
 	progress(ProgressEvent{Stage: "verifying", Percent: 100, Message: "Verifying checksum"})
-	if err := u.verifyChecksum(ctx, checksumsURL, tmpBin); err != nil {
+	if err := u.verifyChecksum(ctx, checksumsURL, sigURL, tmpBin); err != nil {
 		return fmt.Errorf("checksum verification failed: %w", err)
 	}
 
@@ -244,8 +389,9 @@ func (u *Updater) stagingDir() string {
 	return filepath.Dir(u.ExePath)
 }
 
-// downloadFile downloads a URL to a local path, reporting progress.
-func (u *Updater) downloadFile(ctx context.Context, url, dest string, progress func(ProgressEvent)) error {
+// downloadFile downloads a URL to a local path, reporting progress. More than limit bytes is an
+// error rather than a bigger file.
+func (u *Updater) downloadFile(ctx context.Context, url string, limit int64, dest string, progress func(ProgressEvent)) error {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return err
@@ -270,6 +416,7 @@ func (u *Updater) downloadFile(ctx context.Context, url, dest string, progress f
 	// Make it executable before renaming.
 	_ = os.Chmod(dest, 0o755)
 
+	body := io.LimitReader(resp.Body, limit+1)
 	buf := make([]byte, 32*1024)
 	var written int64
 	lastReport := time.Now()
@@ -279,7 +426,10 @@ func (u *Updater) downloadFile(ctx context.Context, url, dest string, progress f
 			return ctx.Err()
 		default:
 		}
-		n, readErr := resp.Body.Read(buf)
+		n, readErr := body.Read(buf)
+		if written+int64(n) > limit {
+			return fmt.Errorf("the download is larger than the %d bytes expected", limit)
+		}
 		if n > 0 {
 			if _, werr := out.Write(buf[:n]); werr != nil {
 				return werr
@@ -306,26 +456,47 @@ func (u *Updater) downloadFile(ctx context.Context, url, dest string, progress f
 	return nil
 }
 
-// verifyChecksum downloads SHA256SUMS, finds the entry for our asset, and
-// compares it with the downloaded file's SHA-256.
-func (u *Updater) verifyChecksum(ctx context.Context, checksumsURL, binPath string) error {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, checksumsURL, nil)
+// fetchSmall downloads a small release file whole, refusing one longer than max bytes.
+func (u *Updater) fetchSmall(ctx context.Context, url, name string, max int64) ([]byte, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	resp, err := u.HTTPClient.Do(req)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("SHA256SUMS answered %d", resp.StatusCode)
+		return nil, fmt.Errorf("%s answered %d", name, resp.StatusCode)
 	}
 
-	body, err := io.ReadAll(resp.Body)
+	body, err := io.ReadAll(io.LimitReader(resp.Body, max+1))
+	if err != nil {
+		return nil, err
+	}
+	if int64(len(body)) > max {
+		return nil, fmt.Errorf("%s is larger than %d bytes", name, max)
+	}
+	return body, nil
+}
+
+// verifyChecksum downloads SHA256SUMS, checks its signature when a release key is configured,
+// finds the entry for our asset, and compares it with the downloaded file's SHA-256.
+func (u *Updater) verifyChecksum(ctx context.Context, checksumsURL, sigURL, binPath string) error {
+	body, err := u.fetchSmall(ctx, checksumsURL, "SHA256SUMS", maxChecksumsSize)
 	if err != nil {
 		return err
+	}
+	if u.PublicKey != nil {
+		sig, err := u.fetchSmall(ctx, sigURL, "SHA256SUMS.sig", ed25519.SignatureSize)
+		if err != nil {
+			return err
+		}
+		if !ed25519.Verify(u.PublicKey, body, sig) {
+			return errors.New("SHA256SUMS.sig is not a valid signature by the release key")
+		}
 	}
 
 	want := u.assetName()
@@ -371,7 +542,8 @@ func (u *Updater) verifyChecksum(ctx context.Context, checksumsURL, binPath stri
 // old inode alive until the process exits, and the new file takes the name.
 // On Windows, the running binary is locked, so we rename the old one aside
 // and then rename the new one into place; the old file is cleaned up on the
-// next restart.
+// next upgrade. If either rename fails the upgrade fails: copying over the
+// target in place is not atomic and can leave a truncated executable behind.
 func (u *Updater) install(tempPath string) error {
 	target := u.ExePath
 	if target == "" {
@@ -385,10 +557,15 @@ func (u *Updater) install(tempPath string) error {
 		old := target + ".old"
 		_ = os.Remove(old) // clean up a previous upgrade's leftover
 		if err := os.Rename(target, old); err != nil {
-			// If the rename failed, try a direct copy.
-			return copyFile(tempPath, target)
+			return fmt.Errorf("could not move the current binary aside: %w", err)
 		}
-		return os.Rename(tempPath, target)
+		if err := os.Rename(tempPath, target); err != nil {
+			// Put the previous binary back so there is still one to start; if even that fails,
+			// it is left at <target>.old for the user to recover.
+			_ = os.Rename(old, target)
+			return err
+		}
+		return nil
 	}
 
 	// Linux/macOS: atomic rename over the running binary.
@@ -396,26 +573,6 @@ func (u *Updater) install(tempPath string) error {
 		return err
 	}
 	return os.Rename(tempPath, target)
-}
-
-// copyFile is the fallback for Windows when rename fails.
-func copyFile(src, dst string) error {
-	in, err := os.Open(src)
-	if err != nil {
-		return err
-	}
-	defer func() { _ = in.Close() }()
-
-	out, err := os.Create(dst)
-	if err != nil {
-		return err
-	}
-	defer func() { _ = out.Close() }()
-
-	if _, err := io.Copy(out, in); err != nil {
-		return err
-	}
-	return os.Chmod(dst, 0o755)
 }
 
 // isNewer compares two semver-ish version strings. Both may carry a leading

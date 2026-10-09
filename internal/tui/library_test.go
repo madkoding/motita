@@ -237,3 +237,34 @@ func TestDeletingWithoutALedgerStillRemovesTheDocument(t *testing.T) {
 		t.Errorf("the document survived: %v", err)
 	}
 }
+
+// The skills the background review proposed are reviewed through the runner too.
+func TestTheRunnerReviewsProposedSkills(t *testing.T) {
+	dir := t.TempDir()
+	r := NewAppRunner(io.Discard, io.Discard, config.Default(), nil, nil, nil)
+	r.UseStore(&procedures.Store{Library: skills.New(dir)})
+	proposed := filepath.Join(dir, skills.ProposedDir)
+	if err := os.MkdirAll(proposed, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for _, n := range []string{"keep", "drop"} {
+		if err := os.WriteFile(filepath.Join(proposed, n+".md"), []byte("# "+n+"\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if names, err := r.ProposedSkills(); err != nil || strings.Join(names, ",") != "drop,keep" {
+		t.Fatalf("ProposedSkills = %v, %v", names, err)
+	}
+	if s, err := r.ProposedSkill("keep"); err != nil || s.Title != "keep" {
+		t.Fatalf("ProposedSkill = %+v, %v", s, err)
+	}
+	if err := r.AcceptProposedSkill("keep"); err != nil {
+		t.Fatal(err)
+	}
+	if err := r.RejectProposedSkill("drop"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := r.Skill("keep"); err != nil {
+		t.Errorf("accepted, not in the library: %v", err)
+	}
+}

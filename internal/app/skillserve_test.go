@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"io"
 	"net/http"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -491,5 +492,36 @@ func TestTheAdapterRefusesToDeleteAShippedProcedure(t *testing.T) {
 	}
 	if err := getJSONInto(t, client, base+"/v1/skills/files-and-directories", token, &doc); err != nil {
 		t.Fatalf("the shipped procedure must survive the refusal: %v", err)
+	}
+}
+
+// The adapter forwards the review of proposed skills to the runner's library.
+func TestTheSkillAdapterReviewsProposals(t *testing.T) {
+	dir := t.TempDir()
+	runner := tui.NewAppRunner(io.Discard, io.Discard, config.Default(), nil, nil, nil)
+	runner.UseStore(&procedures.Store{Library: skills.New(dir)})
+	a := skillAdapter{runner: runner}
+	if err := os.MkdirAll(filepath.Join(dir, skills.ProposedDir), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for _, n := range []string{"keep", "drop"} {
+		if err := os.WriteFile(filepath.Join(dir, skills.ProposedDir, n+".md"), []byte("# "+n+"\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if names, err := a.ProposedSkills(); err != nil || len(names) != 2 {
+		t.Fatalf("ProposedSkills = %v, %v", names, err)
+	}
+	if s, err := a.ProposedSkill("keep"); err != nil || s.Title != "keep" {
+		t.Fatalf("ProposedSkill = %+v, %v", s, err)
+	}
+	if err := a.AcceptProposedSkill("keep"); err != nil {
+		t.Fatal(err)
+	}
+	if err := a.RejectProposedSkill("drop"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := a.Skill("keep"); err != nil {
+		t.Errorf("accepted, not in the library: %v", err)
 	}
 }

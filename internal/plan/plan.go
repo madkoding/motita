@@ -1013,7 +1013,7 @@ func (p *Planner) toolListSkills() string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "%d skill(s) in the library. Use read_skill for the full procedure.\n", len(all))
 	for _, s := range all {
-		fmt.Fprintf(&b, "\n- %s: %s\n  %s%s", s.Name, s.Title, s.Summary, p.historySuffix(s.Name))
+		fmt.Fprintf(&b, "\n- %s: %s%s\n  %s%s", s.Name, s.Title, s.Tag(), s.Summary, p.historySuffix(s.Name))
 	}
 	return b.String()
 }
@@ -1055,7 +1055,7 @@ func (p *Planner) toolSearchSkills(args json.RawMessage) string {
 	// the procedure, and reading one is stated as the next step rather than as a possibility.
 	b.WriteString("A summary above is NOT the procedure: it is a title and one line, and acting on it is how the wrong thing gets done. Read the one that fits with read_skill BEFORE you act — the full text carries the steps and the pitfalls that the summary cannot.\n")
 	for _, s := range hits {
-		fmt.Fprintf(&b, "\n- %s: %s\n  %s%s", s.Name, s.Title, s.Summary, p.historySuffix(s.Name))
+		fmt.Fprintf(&b, "\n- %s: %s%s\n  %s%s", s.Name, s.Title, s.Tag(), s.Summary, p.historySuffix(s.Name))
 	}
 	// The outstanding complaints are appended after the list, so they cannot be missed by a
 	// model that only skims the summaries: a skill the user reported as broken is the reason
@@ -1095,7 +1095,11 @@ func (p *Planner) toolReadSkill(args json.RawMessage) string {
 	}
 
 	var b strings.Builder
-	fmt.Fprintf(&b, "# skill: %s\n(source: %s)\n\n", s.Name, s.Path)
+	fmt.Fprintf(&b, "# skill: %s\n(source: %s)\n", s.Name, s.Path)
+	if s.Untrusted {
+		b.WriteString(skills.UntrustedNote)
+	}
+	b.WriteString("\n")
 	b.WriteString(s.Body)
 	return b.String()
 }

@@ -264,5 +264,26 @@ func ParseRemote(raw string) (Remote, error) {
 	if host == "" || !strings.Contains(path, "/") {
 		return Remote{}, fmt.Errorf("%q does not name an owner and a repository", raw)
 	}
+	// The path goes into API URLs as it is, so each element must be a plain name: a ".." or a
+	// "?" would point a request carrying the user's token at another endpoint.
+	for _, seg := range strings.Split(path, "/") {
+		if !plainSegment(seg) {
+			return Remote{}, fmt.Errorf("%q does not name an owner and a repository", raw)
+		}
+	}
 	return Remote{Host: strings.ToLower(host), Path: path}, nil
+}
+
+// plainSegment reports whether s is a name every host allows in an owner or a repository:
+// letters, digits, '.', '-' and '_', and not "." or "..".
+func plainSegment(s string) bool {
+	if s == "" || s == "." || s == ".." {
+		return false
+	}
+	for _, c := range s {
+		if !(c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9' || c == '.' || c == '-' || c == '_') {
+			return false
+		}
+	}
+	return true
 }

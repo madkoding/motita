@@ -20,9 +20,9 @@ jobs:
     name: fmt · vet · test
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - uses: actions/setup-go@v7
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go.mod
           cache: false
@@ -44,6 +44,9 @@ jobs:
 
       - name: go test (with race detector)
         run: go test -count=1 -race ./...
+
+      - name: The POSIX installer works end to end
+        run: ./scripts/verify-install-sh.sh
 
       - name: The Windows installer works end to end
         # The ubuntu runner already ships PowerShell 7.6.6 (actions/runner-images), so the
@@ -148,9 +151,9 @@ jobs:
       EXT: ${{ matrix.goos == 'windows' && '.exe' || '' }}
       BINARY: dist/motita-${{ matrix.goos }}-${{ matrix.goarch }}${{ matrix.goos == 'windows' && '.exe' || '' }}
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - uses: actions/setup-go@v7
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go.mod
           cache: false
@@ -193,22 +196,27 @@ jobs:
                 ;;
             esac
             file "$binary" || true
-            # Quality requirement: the final binary must weigh under 20 MB. The ceiling
+            # Quality requirement: the final binary must weigh under 24 MB. The ceiling
             # was 10 MB while the project was a single CLI; features keep landing in this
             # same binary (the web interface, the gateway's WebSocket transport, scheduled
             # tasks), so the ceiling is a guard against RUNAWAY growth - a dependency that
             # drags a framework in - and not a budget any single feature has to argue with.
             bytes="$(stat -c%s "$binary")"
-            [ "$bytes" -lt 20971520 ] || { echo "::error::$binary weighs $bytes bytes (limit: 20 MB)"; exit 1; }
-            echo "$binary: $bytes bytes (< 20 MB)"
+            [ "$bytes" -lt 25165824 ] || { echo "::error::$binary weighs $bytes bytes (limit: 24 MB)"; exit 1; }
+            echo "$binary: $bytes bytes (< 24 MB)"
           done
 
       - name: Register qemu (only needed outside the native architectures)
+        # Without this the arm containers cannot execute anything on an amd64
+        # runner and the failure reads as a broken binary ("exec format error").
+        # The action runs its binfmt image --privileged, in the job that builds the
+        # release binaries, so the image is pinned by digest as well as the action
+        # by commit: a moved tag cannot change what runs with that privilege.
         if: matrix.goos == 'linux' && (matrix.goarch == 'arm' || matrix.goarch == 'arm64')
-        run: |
-          # Without this the arm containers cannot execute anything on an amd64
-          # runner and the failure reads as a broken binary ("exec format error").
-          docker run --rm --privileged multiarch/qemu-user-static --reset -p yes
+        uses: docker/setup-qemu-action@99012661954931238ded8c8b007157a8430204e1 # v4.4.0
+        with:
+          image: tonistiigi/binfmt:qemu-v10.2.3-68@sha256:400a4873b838d1b89194d982c45e5fb3cda4593fbfd7e08a02e76b03b21166f0
+          platforms: arm,arm64
 
       - name: Run the binaries in their own container (smoke test)
         if: matrix.goos == 'linux'
@@ -233,7 +241,7 @@ jobs:
           ./scripts/e2e-agent.sh "${{ matrix.goarch }}"
           ./scripts/e2e.sh "${{ matrix.goarch }}"
 
-      - uses: actions/upload-artifact@v7
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: motita-${{ matrix.goos }}-${{ matrix.goarch }}
           path: |
@@ -245,9 +253,9 @@ jobs:
     needs: verify
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - uses: actions/setup-go@v7
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go.mod
           cache: false
@@ -268,17 +276,25 @@ jobs:
         run: |
           bytes="$(stat -c%s dist/.e2e/motita-gateway-linux-amd64)"
           echo "the gateway build weighs $bytes bytes"
-          [ "$bytes" -lt 20971520 ] || { echo "::error::the binary weighs $bytes bytes (limit: 20 MB)"; exit 1; }
+          [ "$bytes" -lt 25165824 ] || { echo "::error::the binary weighs $bytes bytes (limit: 24 MB)"; exit 1; }
 
   release:
     name: publish release
     if: startsWith(github.ref, 'refs/tags/v')
     needs: build
     runs-on: ubuntu-latest
+    # id-token and attestations are granted here only: they are what the provenance
+    # attestation below needs, and no other job signs anything.
     permissions:
       contents: write
+      id-token: write
+      attestations: write
     steps:
-      - uses: actions/download-artifact@v8
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           path: dist
           merge-multiple: true
@@ -290,7 +306,48 @@ jobs:
           sha256sum * | sort -k2 > SHA256SUMS
           cat SHA256SUMS
 
-      - uses: softprops/action-gh-release@v3
+      - name: Sign the checksums
+        # SHA256SUMS.sig is a raw ed25519 signature over SHA256SUMS, made with the
+        # RELEASE_SIGNING_KEY secret (a PEM private key; `make release-key` creates
+        # the pair). The updater and the installers verify it against the public key
+        # embedded in them. Once a public key is embedded a missing secret fails
+        # here instead of shipping something users would refuse; until then the
+        # step only warns, so releases keep shipping while the key is set up.
+        working-directory: dist
+        env:
+          RELEASE_SIGNING_KEY: ${{ secrets.RELEASE_SIGNING_KEY }}
+        run: |
+          set -eu
+          pub="$(sed -n 's/^const ReleasePublicKey = "\(.*\)"$/\1/p' ../internal/updater/updater.go)"
+          if [ -z "${RELEASE_SIGNING_KEY:-}" ]; then
+            if [ -n "$pub" ]; then
+              echo "::error::the RELEASE_SIGNING_KEY secret is not set; run 'make release-key' and store the private key as that secret"
+              exit 1
+            fi
+            echo "::warning::RELEASE_SIGNING_KEY is not set and no public key is embedded yet; this release is not signed"
+            exit 0
+          fi
+          umask 077
+          key="$RUNNER_TEMP/release-signing-key.pem"
+          trap 'rm -f "$key"' EXIT
+          printf '%s\n' "$RELEASE_SIGNING_KEY" > "$key"
+          openssl pkeyutl -sign -inkey "$key" -rawin -in SHA256SUMS -out SHA256SUMS.sig
+          # Check it against the key the binaries embed, when one is embedded: a
+          # secret that does not match would publish a release every client refuses.
+          if [ -n "$pub" ]; then
+            printf -- '-----BEGIN PUBLIC KEY-----\n%s\n-----END PUBLIC KEY-----\n' "$pub" > "$RUNNER_TEMP/release.pub"
+            openssl pkeyutl -verify -pubin -inkey "$RUNNER_TEMP/release.pub" -rawin -in SHA256SUMS -sigfile SHA256SUMS.sig
+          else
+            echo "::warning::ReleasePublicKey is still the empty placeholder; clients will not check this signature yet"
+          fi
+
+      - name: Build provenance for the binaries
+        # Verifiable with: gh attestation verify <binary> --repo madkoding/motita
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: dist/motita-*
+
+      - uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3.0.3
         with:
           files: |
             dist/*

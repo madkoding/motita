@@ -10,7 +10,7 @@ import {
 const btn = 'min-h-[44px] px-4 rounded-xl font-semibold active:scale-95 transition-transform disabled:opacity-40 disabled:cursor-not-allowed'
 const btnPrimary = btn + ' bg-accent text-white'
 const btnGhost = 'min-h-[44px] px-4 rounded-xl border border-white/10 text-[#e8e8ea] active:scale-95 transition-transform'
-const input = 'w-full px-3 py-2.5 rounded-xl bg-black/30 border border-white/10 text-[#e8e8ea] focus:outline-none focus:border-accent'
+const input = 'w-full px-3 py-2.5 rounded-xl bg-black/30 border border-white/10 text-[#e8e8ea] focus:outline-hidden focus:border-accent'
 const linkBtn = 'text-sm text-accent underline underline-offset-2 hover:opacity-80'
 
 export function Spinner({ size = 16 }: { size?: number }) {
@@ -68,7 +68,7 @@ export function GitConnectModal({ api, service, selfHosted, onClose, onConnected
   const title = account ? tf('Connect {host}', { host: account.name }) : t('Connect a git host')
 
   return (
-    <div class="fixed inset-0 z-[120] flex items-center justify-center bg-black/70 backdrop-blur-sm p-4" data-testid="git-connect-modal" onClick={onClose}>
+    <div class="fixed inset-0 z-120 flex items-center justify-center bg-black/70 backdrop-blur-xs p-4" data-testid="git-connect-modal" onClick={onClose}>
       <div ref={ref} data-dialog-root class="frosted rounded-2xl border border-white/10 w-full max-w-md max-h-[90vh] overflow-y-auto p-5 shadow-2xl" role="dialog" aria-modal="true" aria-label={title} onClick={(e) => e.stopPropagation()}>
         <div class="flex items-center gap-2 mb-4">
           <h2 class="flex-1 text-base font-semibold text-[#e8e8ea]">{title}</h2>

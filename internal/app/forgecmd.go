@@ -13,6 +13,7 @@ import (
 
 	"github.com/madkoding/motita/internal/config"
 	"github.com/madkoding/motita/internal/gitforge"
+	"github.com/madkoding/motita/internal/gitx"
 	"github.com/madkoding/motita/internal/oauth"
 	"github.com/madkoding/motita/internal/semantic"
 )
@@ -57,7 +58,7 @@ Run it inside the repository. Exit status of "pr checks": 0 the CI passed, 1 it 
 var (
 	// forgeGit runs git in dir and returns its trimmed output.
 	forgeGit = func(ctx context.Context, dir string, args ...string) (string, error) {
-		cmd := exec.CommandContext(ctx, "git", append([]string{"-C", dir}, args...)...)
+		cmd := exec.CommandContext(ctx, "git", append(append([]string{"-C", dir}, gitx.Hardening()...), args...)...)
 		out, err := cmd.Output()
 		return strings.TrimSpace(string(out)), err
 	}

@@ -307,15 +307,19 @@ alone — it's the same binary, not a wrapper around something else.
 
 ![A failed turn with its hint](docs/screenshots/tui-error-hint.png)
 
-**The same process is also a gateway.** It listens on **every interface** and enforces
-**no origin rules** — the same posture as a machine with a fresh, empty firewall table:
-everything is accepted until you add a rule. The terminal you are looking at is one of
-its **clients**, so a web page or a phone can join the same conversation, with the same
-procedure library and the same reward ledger. Narrow it by adding rules to
+**The same process is also a gateway.** It listens on **loopback** (`127.0.0.1:7477`) by
+default, so only this machine reaches it. The terminal you are looking at is one of its
+**clients**, so a web page or a phone can join the same conversation, with the same
+procedure library and the same reward ledger. The supported way to reach it from another
+machine is a tunnel: `ssh -N -L 7477:127.0.0.1:7477 the-host`. To expose it on the network
+instead, set `gateway.listen` to a LAN address or `0.0.0.0:7477` — it speaks **plain HTTP**
+(there is **no TLS** in this version, and the gateway warns about it when it opens), so the
+token travels unencrypted. Once exposed it enforces **no origin rules** until you add them to
 `gateway.allow`:
 
 ```yaml
 gateway:
+  listen: "0.0.0.0:7477"    # explicit: every interface, plain HTTP
   allow: ["lan"]            # only the local network; everything else still gets in
   allow: ["lan", "!any"]    # the local network ONLY — usually what you want
   allow: ["!any"]           # this machine only
@@ -326,9 +330,7 @@ gateway:
 Rules are an ordered list, the first one that matches decides, and loopback is always
 allowed — so a rule set can never lock you out of the machine you configured it on. The
 token is what stands between the network and an agent that runs commands here; the rules
-say where that token may come from. The supported way to reach a remote gateway without
-exposing it at all is still a tunnel: `ssh -N -L 7477:127.0.0.1:7477 the-host`. There is
-**no TLS** in this version, and the gateway says so at open time.
+say where that token may come from.
 
 **The two halves come apart.** `-serve` runs the gateway and no interface; `-connect` runs the
 interface and no gateway:
@@ -364,6 +366,8 @@ sessions and projects that no longer exist.
 The gateway serves a web interface **from its own port** — no second server, no second
 address, and no CORS, because the page and the API share an origin. It comes up with the
 gateway (`gateway.webui: false` turns it off):
+
+With `gateway.listen: "0.0.0.0:7477"` it reports both how far it reaches and the link:
 
 ```
 $ motita gateway start
@@ -487,7 +491,7 @@ curl -X DELETE -H "Authorization: Bearer $TOKEN" \
 | `POST /v1/sessions/{id}/config/reload` | apply the configuration file as it is now (what `/config` calls after the setup) |
 | `GET /v1/sessions/{id}/ws` | **WebSocket**: bidirectional, flag-based message protocol (see below) |
 | `GET` `POST /v1/schedules` · `PATCH` `DELETE /v1/schedules/{id}` · `POST …/run` | tasks that fire on their own: list, add, pause, retarget, remove, run now |
-| `GET` `POST /v1/skills` · `GET` `DELETE /v1/skills/{name}` · `GET /v1/skills/archived` | the procedure library: index, write, read, delete (a shipped one is refused with `409`), the archive |
+| `GET` `POST /v1/skills` · `GET` `DELETE /v1/skills/{name}` · `GET /v1/skills/archived` · `/v1/skills/proposed` | the procedure library: index, write, read, delete (a shipped one is refused with `409`), the archive, and the background review's proposals to accept or reject |
 | `POST /v1/skills/{name}/pin` `/restore` `/disable` | exempt one from curation, bring it back, or turn it off |
 | `GET /v1/curator` `POST /v1/curator/run` | the maintenance pass: report it, or run one |
 | `GET /v1/update/check` `POST /v1/update/run` | is there a newer release, and install it (verified against `SHA256SUMS`) |
@@ -570,6 +574,9 @@ configuration file. Disconnecting a host deletes its file.
   is passed through and motita acts as a credential helper (`motita git-credential`) for the
   hosts you connected, so `git clone`, `git pull` and `git push` work inside a session's
   worktree. Prompts for a password are turned off: a missing login fails fast and says so.
+  The logins go only to a command you approved (a pull or a push asks first): a command
+  that runs confined, unasked, gets neither the helper nor a way to read the login files,
+  the configuration with its key, or your `~/.git-credentials`.
 - **Commits and pull requests are semantic.** A `git commit -m` whose subject is not
   `type(scope): description` is refused before it is made, and so is a pull request title.
 - **Pull requests, with the link.** The agent opens one with `motita forge pr create` (you
@@ -899,9 +906,9 @@ This is tested the way you'd test something you were about to bet on.
 
 | | |
 |---|---|
-| **Statement coverage** | **100% in every package that ships** — 34 of 34 (`./internal/... ./cmd/...`), checked package by package so a gap can't hide behind an average. `tools/` holds the CI harnesses and is counted separately |
-| **Test functions** | 3,735 across 291 files |
-| **Code vs tests** | 47,237 lines of Go · 96,959 lines of test |
+| **Statement coverage** | **100% in every package that ships** — 35 of 35 (`./internal/... ./cmd/...`), checked package by package so a gap can't hide behind an average. `tools/` holds the CI harnesses and is counted separately |
+| **Test functions** | 4,169 across 343 files |
+| **Code vs tests** | 57,596 lines of Go · 108,527 lines of test |
 | **External dependencies** | 0 |
 | **Platforms CI builds** | 9 — every one gets `-version` run in its own container on Linux, and a PE/Mach-O header + size check on Windows and macOS |
 

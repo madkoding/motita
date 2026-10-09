@@ -95,6 +95,59 @@ func TestConfirmationWindowShowsTheExactCommand(t *testing.T) {
 	}
 }
 
+// TestUntrustedControlCharactersAreShownNotObeyed: a command, a model's answer, a question or a
+// background agent's activity can carry escape sequences. Obeyed, they hide part of a command in
+// the approval window (the user approves text they never saw), redraw the screen, or set the
+// clipboard (OSC 52). Every place that draws such text shows them in caret form instead.
+func TestUntrustedControlCharactersAreShownNotObeyed(t *testing.T) {
+	const evil = "\x1b]52;c;ZXZpbA==\x07"
+	raw := func(s string) bool { return strings.Contains(s, "\x1b]52") || strings.Contains(s, "\x1b[2K") }
+
+	tui, _, _ := confirmTUI(t, "", "x")
+	tui.confirm = &confirmState{req: agent.ApprovalRequest{
+		Command: "echo safe\x1b[2K\rrm -rf ~" + evil,
+		Reason:  "why" + evil,
+	}, reply: make(chan bool, 1)}
+	window := strings.Join(tui.confirmLines(0), "\n")
+	if raw(window) || !strings.Contains(stripANSI(window), `echo safe^[[2K^Mrm -rf ~^[]52;c;ZXZpbA==^G`) {
+		t.Errorf("the approval window must show the command's control characters:\n%q", window)
+	}
+
+	msg := strings.Join(tui.messageLines(Message{Author: AuthorAgent, Text: "done" + evil}, 80), "\n")
+	if raw(msg) || !strings.Contains(stripANSI(msg), "done^[]52") {
+		t.Errorf("a message must show its control characters:\n%q", msg)
+	}
+
+	ask := newAskTUI(t, []agent.AskItem{{Text: "q" + evil, Assumption: "a" + evil, Options: []string{"o" + evil}}}, "x")
+	ask.ask.answers[0] = "o" + evil
+	if q := strings.Join(ask.askLines(0), "\n"); raw(q) || strings.Count(stripANSI(q), "^[]52") != 4 {
+		t.Errorf("a question must show its control characters:\n%q", q)
+	}
+
+	panel := agentsTUI([]agent.AgentInfo{{ID: "a", Purpose: "p" + evil, Activity: "act" + evil,
+		State: agent.AgentPassed, Branch: "b", Summary: "s" + evil, Started: agentsT0}})
+	if p := strings.Join(panel.agentsLines(120), "\n"); raw(p) || !strings.Contains(stripANSI(p), "p^[]52") {
+		t.Errorf("the agents panel must show control characters:\n%q", p)
+	}
+}
+
+// TestEscapeControls: each class of control character, and what passes untouched.
+func TestEscapeControls(t *testing.T) {
+	for in, want := range map[string]string{
+		"plain\ttext\nnext":   "plain\ttext\nnext",
+		"crlf\r\nline":        "crlf\nline",
+		"bare\rcr":            "bare^Mcr",
+		"\x1b[31mred\x00\x7f": "^[[31mred^@^?",
+		"c1\u009b31m":         `c1\u009b31m`,
+		"bad\xffbyte":         "bad�byte",
+		"ünïcode":             "ünïcode", // multi-byte text passes through
+	} {
+		if got := EscapeControls(in); got != want {
+			t.Errorf("EscapeControls(%q) = %q, want %q", in, got, want)
+		}
+	}
+}
+
 // TestConfirmationWindowWrapsALongCommand: a long line is exactly the one worth reading to the
 // end, so it is wrapped rather than clipped.
 func TestConfirmationWindowWrapsALongCommand(t *testing.T) {

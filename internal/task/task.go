@@ -23,6 +23,7 @@ import (
 
 	"github.com/madkoding/motita/internal/config"
 	"github.com/madkoding/motita/internal/logx"
+	"github.com/madkoding/motita/internal/redact"
 )
 
 // Task is one unit of work.
@@ -261,7 +262,9 @@ func newAPISource(cfg config.TaskSource, log *logx.Logger) (*apiSource, error) {
 	}, nil
 }
 
-func (f *apiSource) Describe() string { return "api:" + f.cfg.URL }
+// Describe names the source without the credentials its URL may carry
+// (user:token@host, ?token=): it is printed and logged at startup.
+func (f *apiSource) Describe() string { return "api:" + redact.String(f.cfg.URL) }
 func (f *apiSource) Close() error     { return nil }
 
 func (f *apiSource) Next(ctx context.Context) (Task, error) {
@@ -273,7 +276,7 @@ func (f *apiSource) Next(ctx context.Context) (Task, error) {
 		if errors.Is(err, io.EOF) {
 			return Task{}, io.EOF
 		}
-		f.log.Warn("API poll failed", "url", f.cfg.URL, "error", err)
+		f.log.Warn("API poll failed", "url", redact.String(f.cfg.URL), "error", redact.String(err.Error()))
 
 		wait := f.cfg.Interval
 		if wait <= 0 {

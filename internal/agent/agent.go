@@ -36,6 +36,7 @@ import (
 	"github.com/madkoding/motita/internal/llm"
 	"github.com/madkoding/motita/internal/logx"
 	"github.com/madkoding/motita/internal/policy"
+	"github.com/madkoding/motita/internal/redact"
 	"github.com/madkoding/motita/internal/reward"
 	"github.com/madkoding/motita/internal/sandbox"
 	"github.com/madkoding/motita/internal/semantic"
@@ -128,6 +129,10 @@ type Agent struct {
 	subs     *subagents
 	isChild  bool
 	research bool
+
+	// gate is the fingerprint of the project's gate (anchor kind auto) as the task found it; a
+	// background agent inherits its main agent's. See guardGate.
+	gate string
 }
 
 // SetObserver allows external callers (such as the TUI) to register a callback
@@ -230,11 +235,16 @@ func New(cfg config.Config, log *logx.Logger, engine *llm.Client, box *sandbox.S
 
 // exec runs a command with the agent's executor (the sandbox by default). It
 // returns a clear error when none is configured.
+//
+// Every command's output reaches the model provider's prompt and the saved
+// transcript from here, so this is the one place where the secrets it printed (a
+// token in `git remote -v`, a key in `cat .env`) are masked.
 func (a *Agent) exec(ctx context.Context, p execx.Request) (string, bool, int, error) {
 	if a.ExecCommand == nil {
 		return "", false, -1, errors.New("the agent has no command executor configured")
 	}
-	return a.ExecCommand(ctx, p)
+	output, truncated, exit, err := a.ExecCommand(ctx, p)
+	return redact.String(output), truncated, exit, err
 }
 
 // RunCommand executes a single command line under the agent's policy and sandbox.
@@ -1355,6 +1365,11 @@ func (a *Agent) loop(ctx context.Context, t task.Task, depth int) TaskResult {
 	// it to tell a failure the run caused from one that was already there. See baseline.go.
 	before := a.startBaseline(ctx)
 	defer before.close(ctx)
+	// The project's gate as the task found it: a PASS from a gate the run itself rewrote is not
+	// taken without the user's word. A background agent keeps the one its main agent started with.
+	if !a.isChild || a.gate == "" {
+		a.gate = a.gateFingerprint()
+	}
 	readOnlyRounds := 0
 	unbackedDone := 0
 	verifyChallenges := 0
@@ -2226,7 +2241,8 @@ func (a *Agent) describeAutoRules() string {
 		sb.WriteString("- This project declares NO gate yet (looked for .motita/anchor, a Makefile with check or test, " +
 			"go.mod, package.json lint/typecheck/test, Cargo.toml, pyproject.toml), so a claim of done will be REFUSED.\n" +
 			"- Declare it: find how the project checks itself (README, CI workflow, package.json scripts, Makefile) " +
-			"and write those commands, one per line, in .motita/anchor. Run them yourself before claiming done.\n")
+			"and write those commands, one per line, in .motita/anchor. Run them yourself before claiming done.\n" +
+			"- A gate declared during the run is put to the user before its PASS is accepted.\n")
 		return sb.String()
 	}
 	sb.WriteString("- The project's own gate runs after you claim done, in the project directory. Each of these must pass:\n")
@@ -2234,7 +2250,9 @@ func (a *Agent) describeAutoRules() string {
 		fmt.Fprintf(&sb, "  - %s %s (must exit %d)\n", c.Command, strings.Join(c.Args, " "), c.ExpectExit)
 	}
 	sb.WriteString("- Run these same commands yourself BEFORE claiming done and fix what they report: a claim the gate " +
-		"refuses costs one of your limited attempts, and running them first costs nothing.\n")
+		"refuses costs one of your limited attempts, and running them first costs nothing.\n" +
+		"- Do not change the gate itself (.motita/anchor, the Makefile, package.json scripts): a PASS from a changed " +
+		"gate is not accepted without the user's approval.\n")
 	return sb.String()
 }
 
@@ -2299,7 +2317,7 @@ func (a *Agent) listSkills() string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "%d skill(s). Use read_skill with a name to read one in full.\n", len(all))
 	for _, s := range all {
-		fmt.Fprintf(&b, "\n- %s: %s\n  %s%s%s", s.Name, s.Title, s.Summary,
+		fmt.Fprintf(&b, "\n- %s: %s%s\n  %s%s%s", s.Name, s.Title, s.Tag(), s.Summary,
 			a.historySuffix(s.Name), a.feedbackSuffix(s.Name))
 	}
 	return b.String()
@@ -2325,7 +2343,7 @@ func (a *Agent) searchSkills(query string) string {
 	// in internal/plan/plan.go for the numbers that made this wording.
 	b.WriteString("A summary above is NOT the procedure: read the one that fits with read_skill BEFORE you act.\n")
 	for _, s := range hits {
-		fmt.Fprintf(&b, "\n- %s: %s\n  %s%s", s.Name, s.Title, s.Summary, a.historySuffix(s.Name))
+		fmt.Fprintf(&b, "\n- %s: %s%s\n  %s%s", s.Name, s.Title, s.Tag(), s.Summary, a.historySuffix(s.Name))
 	}
 	for _, s := range hits {
 		b.WriteString(a.feedbackSuffix(s.Name))
@@ -2349,7 +2367,11 @@ func (a *Agent) readSkill(name string) string {
 		a.usage.BumpUse(s.Name)
 	}
 	var b strings.Builder
-	fmt.Fprintf(&b, "# skill: %s\n(source: %s)\n\n", s.Name, s.Path)
+	fmt.Fprintf(&b, "# skill: %s\n(source: %s)\n", s.Name, s.Path)
+	if s.Untrusted {
+		b.WriteString(skills.UntrustedNote)
+	}
+	b.WriteString("\n")
 	b.WriteString(s.Body)
 	b.WriteString(a.feedbackSuffix(s.Name))
 	return b.String()
@@ -2722,7 +2744,21 @@ func (a *Agent) runConfigured(ctx context.Context, req execx.Request, line strin
 // model supplies the text, the thing being checked is that text. The mandatory floor is what
 // makes the difference moot for anything unrecoverable, and it is applied to the composed
 // line so that a payload of `rm -rf /` is caught where it actually lives — inside the quotes.
+//
+// The operator's exemption from asking does NOT carry over: the operator did not write this
+// text, and a prompt-injected `git push --force` or `curl … | sh` would otherwise run after the
+// PASS with nobody asked. A line the policy would ask about goes through the same approval as
+// any other action the model proposes, and with nobody to ask it does not run.
 func (a *Agent) runModelLine(ctx context.Context, line string) (string, int, error) {
+	if plan := a.planRequest(line); plan.Verdict == policy.Ask {
+		approved, err := a.approve(ctx, plan, line)
+		if err != nil {
+			return "", 1, fmt.Errorf("the final action %q was not run: %w", line, err)
+		}
+		if !approved {
+			return "", 1, fmt.Errorf("the final action %q was not approved", line)
+		}
+	}
 	return a.runConfigured(ctx,
 		execx.Request{Command: shellFor(a.cfg), Args: []string{"-c", line}}, line)
 }

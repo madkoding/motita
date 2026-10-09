@@ -185,11 +185,11 @@ func checkLineCountClaims(t *testing.T, doc, name string, srcLines, testLines in
 // The binary size is the one number a document CANNOT derive from the tree, and the
 // one most likely to rot: it moves with the toolchain and with what is embedded. It
 // is bounded rather than asserted, and the bound is what catches the defects found
-// here: a "MB" where the gate measures bytes (20 MB is not 20 MiB), and a range that
+// here: a "MB" where the gate measures bytes (24 MB is not 24 MiB), and a range that
 // starts BELOW the embedded web interface every binary already carries.
 var sizeClaimRe = regexp.MustCompile(`([\d.]+)\s*[–-]\s*([\d.]+)\s*(?:&nbsp;)?(MiB|MB)`)
 
-const sizeCeilingMiB = 20.0
+const sizeCeilingMiB = 24.0
 
 func checkBinarySizeClaim(t *testing.T, doc, name string) {
 	t.Helper()

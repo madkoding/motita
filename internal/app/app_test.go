@@ -309,6 +309,31 @@ func TestFailedSandboxReturns1(t *testing.T) {
 	}
 }
 
+// The configuration a run was loaded from holds its key, wherever it lives, so the sandbox hides
+// it and the key file beside it from confined commands.
+func TestTheLoadedConfigurationIsHiddenFromTheSandbox(t *testing.T) {
+	silence(t)
+	t.Setenv("MOTITA_LLM_API_KEY", "x")
+	path := filepath.Join(t.TempDir(), "custom.yaml")
+	mustWrite(t, path, "llm:\n  api_key: x\n")
+
+	var hidden []string
+	Run(Options{
+		Args: []string{"-config", path},
+		Err:  io.Discard,
+		NewSandbox: func(o sandbox.Options) (*sandbox.Sandbox, error) {
+			hidden = o.HiddenPaths
+			return nil, fmt.Errorf("stop here")
+		},
+	})
+	joined := strings.Join(hidden, "\n")
+	for _, want := range []string{path, strings.TrimSuffix(path, ".yaml") + ".env", config.AuthDir()} {
+		if !strings.Contains(joined, want) {
+			t.Errorf("%s is not hidden: %v", want, hidden)
+		}
+	}
+}
+
 func TestFailedEngineReturns2(t *testing.T) {
 	inTempDir(t, func() {
 		silence(t)
@@ -745,6 +770,10 @@ func TestSandboxOptionsTranslatesEverything(t *testing.T) {
 	}
 	if !op.DropPrivs || op.Uid != 1000 || op.Gid != 1001 {
 		t.Errorf("user not translated: %+v", op)
+	}
+	// A confined command must not read motita's logins nor its stored keys.
+	if strings.Join(op.HiddenPaths, " ") != strings.Join(config.SecretFiles(""), " ") || len(op.HiddenPaths) != 3 {
+		t.Errorf("motita's secrets are not hidden from the sandbox: %v", op.HiddenPaths)
 	}
 }
 

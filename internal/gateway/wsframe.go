@@ -132,7 +132,7 @@ func wsReadFrame(r io.Reader) (opcode byte, payload []byte, final bool, masked b
 	opcode = hdr[0] & 0x0f
 	final = hdr[0]&0x80 != 0
 	masked = hdr[1]&0x80 != 0
-	length := int(hdr[1] & 0x7f)
+	length := uint64(hdr[1] & 0x7f)
 
 	switch {
 	case length == 126:
@@ -140,15 +140,17 @@ func wsReadFrame(r io.Reader) (opcode byte, payload []byte, final bool, masked b
 		if _, e := io.ReadFull(r, ext[:]); e != nil {
 			return 0, nil, false, false, e
 		}
-		length = int(binary.BigEndian.Uint16(ext[:]))
+		length = uint64(binary.BigEndian.Uint16(ext[:]))
 	case length == 127:
 		var ext [8]byte
 		if _, e := io.ReadFull(r, ext[:]); e != nil {
 			return 0, nil, false, false, e
 		}
-		length = int(binary.BigEndian.Uint64(ext[:]))
+		length = binary.BigEndian.Uint64(ext[:])
 	}
 
+	// Compared as uint64, never converted first: a 64-bit length with the high bit set (which
+	// RFC 6455 §5.2 forbids) turns negative as an int and would slip under this cap.
 	if length > wsMaxPayload {
 		return 0, nil, false, false, fmt.Errorf("frame payload of %d bytes exceeds the %d limit", length, wsMaxPayload)
 	}

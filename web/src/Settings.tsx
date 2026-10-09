@@ -29,10 +29,10 @@ export function SettingsModal({ langSetting, langAvailable, onLang, onClose, git
   const permission = typeof Notification !== 'undefined' ? Notification.permission : undefined
   const [, bump] = useState(0)
   const ns = notifyState(permission, notifyOn)
-  const sel = 'min-w-0 px-2 py-1 rounded-lg bg-black/30 border border-white/10 text-xs text-[#e8e8ea] focus:outline-none focus:border-accent'
+  const sel = 'min-w-0 px-2 py-1 rounded-lg bg-black/30 border border-white/10 text-xs text-[#e8e8ea] focus:outline-hidden focus:border-accent'
   return (
-    <div class="fixed inset-0 z-[100] flex items-center justify-center bg-black/60" data-testid="settings-modal" onClick={onClose}>
-      <div class="w-[90%] max-w-md max-h-[90vh] overflow-y-auto rounded-2xl border border-white/10 bg-[#16161e] p-4 space-y-3" role="dialog" aria-label={t('Settings')} onClick={(e) => e.stopPropagation()}>
+    <div class="fixed inset-0 z-100 flex items-center justify-center bg-black/60" data-testid="settings-modal" onClick={onClose}>
+      <div class="w-[90%] max-w-md max-h-[90vh] overflow-y-auto rounded-2xl border border-white/10 bg-surface-solid p-4 space-y-3" role="dialog" aria-label={t('Settings')} onClick={(e) => e.stopPropagation()}>
         <div class="flex items-center">
           <h2 class="flex-1 text-sm font-semibold text-[#e8e8ea]">{t('Settings')}</h2>
           <button class="text-[#9a9aaa] px-2" aria-label={t('Close')} onClick={onClose}>×</button>
@@ -96,7 +96,7 @@ export function SettingsModal({ langSetting, langAvailable, onLang, onClose, git
   )
 }
 
-const inputCls = 'min-w-0 px-2 py-1.5 rounded-lg bg-black/30 border border-white/10 text-xs text-[#e8e8ea] focus:outline-none focus:border-accent'
+const inputCls = 'min-w-0 px-2 py-1.5 rounded-lg bg-black/30 border border-white/10 text-xs text-[#e8e8ea] focus:outline-hidden focus:border-accent'
 const smallBtn = 'btn-outline px-3 min-h-[32px] rounded-lg border border-white/10 text-xs text-[#e8e8ea] hover:bg-white/5 active:scale-95 transition-transform'
 
 // GitConnections lists every git host with its state, and connects, disconnects or adds one.
@@ -136,7 +136,7 @@ function GitConnections({ api, rev, onConnect, onNotice }: NonNullable<Props['gi
       <ul class="space-y-1.5">
         {accounts?.map(a => (
           <li key={a.id} class="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm text-[#e8e8ea]">
-            <div class="flex-1 min-w-[9rem]">
+            <div class="flex-1 min-w-36">
               <div>{a.name} <span class="text-xs text-[#7a7a8c]">{a.host}</span></div>
               <div class={'text-xs ' + (a.connected ? 'text-[#5fd08a]' : 'text-[#7a7a8c]')}>
                 {a.connected ? tf('Connected as {user}', { user: a.username || '…' }) : t('Not connected')}

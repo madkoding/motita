@@ -907,3 +907,13 @@ func TestEnterChrootMissingRootIsReported(t *testing.T) {
 		t.Errorf("the error must name the operation: %v", err)
 	}
 }
+
+// HiddenPaths hands out a copy of what the sandbox was given: changing it hides nothing less.
+func TestHiddenPathsIsACopy(t *testing.T) {
+	s := &Sandbox{op: Options{HiddenPaths: []string{"/a"}}}
+	got := s.HiddenPaths()
+	got[0] = "/b"
+	if s.HiddenPaths()[0] != "/a" {
+		t.Error("the sandbox's hidden paths changed through a copy")
+	}
+}

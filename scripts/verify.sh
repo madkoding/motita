@@ -375,6 +375,15 @@ else
   sh -n scripts/install.sh && ok "parses as sh" || bad "scripts/install.sh does not parse"
 fi
 
+step "7a. the POSIX installer works end to end"
+# Runs install.sh against a simulated release: it must refuse an unverifiable or
+# forged release, honour the explicit override, and run nothing when truncated.
+if sh_out="$(./scripts/verify-install-sh.sh 2>&1)"; then
+  ok "$(printf '%s\n' "$sh_out" | tail -1)"
+else
+  bad "$(printf '%s\n' "$sh_out" | grep -E '^error' | head -3)"
+fi
+
 step "7b. the Windows installer works end to end"
 # A different question from step 7: that one asks whether install.sh PARSES as POSIX sh,
 # and this one RUNS install.ps1 against a simulated release and checks what it installed.

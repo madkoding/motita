@@ -5,9 +5,11 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"mime"
 	"net"
 	"net/http"
 	"net/netip"
+	"os"
 	"strings"
 	"sync"
 	"time"
@@ -58,6 +60,9 @@ type Options struct {
 	// discovered request by request, where its only symptom is an origin being refused for a
 	// reason nobody can see.
 	Allow *netrules.Policy
+	// Hosts are extra host names a request's Host header may carry (gateway.hosts). See
+	// hostPolicy for the names that are always accepted.
+	Hosts []string
 	// MaxBodyKB caps a request body. Zero means defaultMaxBodyKB.
 	MaxBodyKB int
 	// Version is reported by /v1/health, so a client can tell which build answered.
@@ -233,6 +238,9 @@ type Server struct {
 	baseCI     map[string]baseCIEntry
 	// etags makes the reads of the git hosts conditional; see gitforge.ETagCache.
 	etags gitforge.ETagCache
+	// hosts are the host names, lower-cased, a request's Host header may carry besides an IP
+	// address and localhost. See hostPolicy.
+	hosts map[string]bool
 }
 
 // Start binds the listener and returns a Server that is ready to Serve.
@@ -357,7 +365,8 @@ func Start(opts Options) (*Server, error) {
 	//
 	// The policy is enforced BEFORE the token check, so a refused origin does not even learn
 	// whether its credential was good.
-	s.mux = s.originPolicy(s.routes())
+	s.hosts = knownHosts(opts.Listen, opts.Hosts)
+	s.mux = s.originPolicy(s.hostPolicy(securityHeaders(s.routes())))
 	s.server = &http.Server{
 		Handler: s.mux,
 		// No WriteTimeout. It is a deadline on the WHOLE response, and half of these responses
@@ -449,6 +458,13 @@ func (s *Server) Handler() http.Handler { return s.mux }
 func (s *Server) Serve() error {
 	if s.opts.Log != nil {
 		s.opts.Log.Info("the gateway is listening", "address", s.Addr())
+		if s.ReachableFromNetwork() {
+			// Said in EVERY mode, not only by `gateway start`: an interface with an embedded
+			// gateway on a LAN address exposes exactly the same plain-HTTP socket.
+			s.opts.Log.Warn("the gateway is reachable from the network over plain HTTP: the token and "+
+				"every request travel unencrypted; an SSH tunnel to a loopback listen avoids this",
+				"address", s.listener.Addr().String())
+		}
 	}
 	if err := s.server.Serve(s.listener); err != nil && !errors.Is(err, http.ErrServerClosed) {
 		return err
@@ -554,6 +570,10 @@ func (s *Server) routes() *http.ServeMux {
 	mux.Handle("GET /v1/skills", plain(s.handleSkills))
 	mux.Handle("POST /v1/skills", plain(s.handleSaveSkill))
 	mux.Handle("GET /v1/skills/archived", plain(s.handleArchivedSkills))
+	mux.Handle("GET /v1/skills/proposed", plain(s.handleProposedSkills))
+	mux.Handle("GET /v1/skills/proposed/{name}", plain(s.handleProposedSkill))
+	mux.Handle("POST /v1/skills/proposed/{name}/accept", plain(s.handleAcceptProposedSkill))
+	mux.Handle("DELETE /v1/skills/proposed/{name}", plain(s.handleRejectProposedSkill))
 	mux.Handle("GET /v1/skills/{name}", plain(s.handleSkill))
 	mux.Handle("POST /v1/skills/{name}/pin", plain(s.handlePinSkill))
 	mux.Handle("POST /v1/skills/{name}/disable", plain(s.handleDisableSkill))
@@ -662,8 +682,9 @@ func (s *Server) page(mux *http.ServeMux, pattern, name string) {
 // The token arrives as a bearer header, which the page's script took from the URL FRAGMENT: a
 // fragment is never sent to the server and never appears in a log or a Referer, which is the
 // only way to put a secret in a URL without it travelling. From here on the browser holds a
-// DERIVED value, not the token (see cookieValue), so what a browser stores is not a credential
-// that could be replayed against the API.
+// DERIVED value, not the token (see cookieValue). It is NOT harmless: it authorises the whole
+// API from this browser. What it cannot do is serve as the bearer token or mint another cookie,
+// and a state-changing request it authorises must also pass crossSiteRefusal.
 func (s *Server) handleWebUISession(w http.ResponseWriter, _ *http.Request) {
 	http.SetCookie(w, &http.Cookie{
 		Name:  webuiCookie,
@@ -671,8 +692,10 @@ func (s *Server) handleWebUISession(w http.ResponseWriter, _ *http.Request) {
 		Path:  "/",
 		// A script cannot read it, so an injected script cannot exfiltrate it.
 		HttpOnly: true,
-		// Another origin never sends it. Together with this server sending no CORS header at
-		// all, a hostile page can neither send this credential nor read a response.
+		// Another SITE never sends it. Another port of this same host is the same site, though,
+		// and cookies are not isolated by port: that page's browser DOES attach it, which is
+		// what crossSiteRefusal (the X-Motita header, the Origin and the JSON content type)
+		// is for. This server sends no CORS header, so no other origin can read a response.
 		SameSite: http.SameSiteStrictMode,
 		// Long-lived because it is derived, not stored: it stays valid until the token rotates,
 		// and rotating the token invalidates it with nothing to clean up.
@@ -726,12 +749,98 @@ func (s *Server) originPolicy(next http.Handler) http.Handler {
 			return
 		}
 		if !s.opts.Allow.Allows(addrPort.Addr()) {
-			// The message names the RULE SET, not the client's address alone: an operator reading
-			// this from the other machine has to be able to tell "your rules do not cover me" from
-			// "something is broken", and the rules are what they will go and edit.
+			// The message names the SETTING, so an operator reading this from the other machine
+			// can tell "the rules do not cover me" from "something is broken". The rules
+			// themselves go to the log only: describing them to a client that is not allowed in
+			// would hand a stranger the map of who is.
+			if s.opts.Log != nil {
+				s.opts.Log.Warn("refused a request from an origin outside gateway.allow",
+					"origin", addrPort.Addr().String(), "allow", s.opts.Allow.Describe())
+			}
 			writeError(w, http.StatusForbidden, fmt.Sprintf(
-				"this gateway does not serve requests from %s: gateway.allow is %s",
-				addrPort.Addr(), s.opts.Allow.Describe()))
+				"this gateway does not serve requests from %s: its gateway.allow rules do not include this address",
+				addrPort.Addr()))
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
+// pageCSP is the content policy of everything this server answers. The page and every script it
+// loads are served from here and nothing is inline, so scripts need no 'unsafe-inline' and no
+// 'unsafe-eval'. Styles do need 'unsafe-inline': mermaid and KaTeX lay their output out with style
+// attributes and <style> elements. Images are this server's, or data:/blob: (the previews arrive
+// inline), so an answer cannot make the browser fetch an address of the model's choosing.
+const pageCSP = "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; " +
+	"img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self'; worker-src 'self'; " +
+	"object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'"
+
+// securityHeaders sets the headers every response carries: the page must not be framed by another
+// site (a frame is how a fake approval dialog gets laid over a real button), the browser must not
+// guess a type, and no URL of this gateway leaks to another site through a Referer. A handler that
+// needs a different policy for its own content (an artifact) replaces the CSP itself.
+func securityHeaders(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		h := w.Header()
+		h.Set("Content-Security-Policy", pageCSP)
+		h.Set("X-Content-Type-Options", "nosniff")
+		h.Set("Referrer-Policy", "no-referrer")
+		next.ServeHTTP(w, r)
+	})
+}
+
+// osHostname is this machine's name, a variable so a test can make it fail.
+var osHostname = os.Hostname
+
+// knownHosts is the set of host NAMES this gateway answers to besides an IP address and
+// localhost: the host in the listen address, this machine's own name (bare and as its mDNS
+// .local name), and the names the operator listed in gateway.hosts.
+func knownHosts(listen string, extra []string) map[string]bool {
+	set := map[string]bool{}
+	add := func(h string) {
+		if h = normalHost(h); h != "" {
+			set[h] = true
+		}
+	}
+	if h, _, err := net.SplitHostPort(strings.TrimSpace(listen)); err == nil {
+		add(h)
+	}
+	if name, err := osHostname(); err == nil && name != "" {
+		add(name)
+		add(strings.SplitN(name, ".", 2)[0] + ".local")
+	}
+	for _, h := range extra {
+		add(h)
+	}
+	return set
+}
+
+// normalHost lower-cases a host name and drops IPv6 brackets and a trailing root dot, so the
+// spellings a browser may send compare equal.
+func normalHost(h string) string {
+	return strings.TrimSuffix(strings.ToLower(strings.Trim(strings.TrimSpace(h), "[]")), ".")
+}
+
+// hostPolicy refuses a request whose Host header names a host this gateway does not know.
+//
+// It is the defence against DNS rebinding: a page on attacker.example re-points its own name at
+// 127.0.0.1, and the browser then treats this gateway as that page's origin and sends
+// "Host: attacker.example". Every name such a page can use is a NAME, so an IP address in the
+// Host header is always accepted (that is how a LAN client and a tunnel reach the gateway), as
+// are localhost and the names knownHosts collects. A request with no Host at all (HTTP/1.0)
+// cannot come from a browser and is left alone.
+func (s *Server) hostPolicy(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		host := r.Host
+		if h, _, err := net.SplitHostPort(host); err == nil {
+			host = h
+		}
+		host = normalHost(host)
+		_, ipErr := netip.ParseAddr(host)
+		known := host == "" || ipErr == nil || host == "localhost" || strings.HasSuffix(host, ".localhost") || s.hosts[host]
+		if !known {
+			writeError(w, http.StatusMisdirectedRequest, fmt.Sprintf(
+				"this gateway does not answer to the host name %q: add it to gateway.hosts if it is yours", host))
 			return
 		}
 		next.ServeHTTP(w, r)
@@ -1122,7 +1231,18 @@ func writeError(w http.ResponseWriter, status int, msg string) {
 
 // decodeBody reads a bounded JSON body and reports a failure the client can act on. It returns
 // false when it has already written the refusal, and the caller then returns.
+//
+// A request the browser cookie authorised must also SAY it is JSON. A cross-origin form or a
+// text/plain fetch is a "simple" request a browser sends without asking; application/json is not,
+// so requiring it is a second wall behind the X-Motita header (see crossSiteRefusal). A bearer
+// client is not held to it: no page can attach the token.
 func (s *Server) decodeBody(w http.ResponseWriter, r *http.Request, dst any) bool {
+	if !bearerMatches(s.opts.Token, r.Header.Get("Authorization")) {
+		if mt, _, _ := mime.ParseMediaType(r.Header.Get("Content-Type")); mt != "application/json" {
+			writeError(w, http.StatusUnsupportedMediaType, "the request body must be sent as application/json")
+			return false
+		}
+	}
 	r.Body = http.MaxBytesReader(w, r.Body, int64(s.opts.MaxBodyKB)<<10)
 	if err := json.NewDecoder(r.Body).Decode(dst); err != nil {
 		// MaxBytesReader makes the read fail, so an oversized body lands here too and is

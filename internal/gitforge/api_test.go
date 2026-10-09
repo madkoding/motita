@@ -369,6 +369,27 @@ func TestMergePR(t *testing.T) {
 	}
 }
 
+// TestMergePREscapesTheBranch: the branch goes into the path of a DELETE carrying the user's
+// token, so a '?' stays part of its name and a ".." never reaches the host.
+func TestMergePREscapesTheBranch(t *testing.T) {
+	opt := MergeOptions{DeleteBranch: true, Branch: "motita/a?b"}
+	a, h := newAPI(t, KindGitHub, map[string]string{"PUT /repos/o/r/pulls/7/merge": `{"merged":true}`})
+	if _, err := a.MergePR(context.Background(), Remote{Path: "o/r"}, 7, opt); err != nil {
+		t.Fatal(err)
+	}
+	if len(h.seen) != 2 || h.seen[1] != "DELETE /repos/o/r/git/refs/heads/motita/a%3Fb" {
+		t.Errorf("the branch must be escaped: %v", h.seen)
+	}
+	opt.Branch = "x/../../../../user/repos"
+	a, h = newAPI(t, KindGitHub, map[string]string{"PUT /repos/o/r/pulls/7/merge": `{"merged":true}`})
+	if _, err := a.MergePR(context.Background(), Remote{Path: "o/r"}, 7, opt); err != nil {
+		t.Fatal(err)
+	}
+	if len(h.seen) != 1 {
+		t.Errorf("a branch with \"..\" must not be deleted: %v", h.seen)
+	}
+}
+
 func TestMergePRMethodAndBranchDeletion(t *testing.T) {
 	opt := MergeOptions{Method: "squash", DeleteBranch: true, Branch: "motita/s1"}
 	a, h := newAPI(t, KindGitHub, map[string]string{"PUT /repos/o/r/pulls/7/merge": `{"merged":true}`, "DELETE /repos/o/r/git/refs/heads/motita/s1": ``})

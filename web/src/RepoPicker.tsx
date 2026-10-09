@@ -82,14 +82,14 @@ export function RepoPicker({ api, accounts, initialService, onPick, onConnectAno
 
   const current = accounts.find(a => a.id === service)
   return (
-    <div class="fixed inset-0 z-[110] flex items-center justify-center bg-black/70 backdrop-blur-sm p-4" data-testid="repo-picker" onClick={onClose}>
+    <div class="fixed inset-0 z-110 flex items-center justify-center bg-black/70 backdrop-blur-xs p-4" data-testid="repo-picker" onClick={onClose}>
       <div ref={ref} data-dialog-root class="frosted rounded-2xl border border-white/10 w-full max-w-lg max-h-[85vh] flex flex-col p-5 shadow-2xl" role="dialog" aria-modal="true" aria-label={t('Choose from my repositories')} onClick={(e) => e.stopPropagation()}>
         <div class="flex items-center gap-2 mb-3">
           <h2 class="flex-1 text-base font-semibold text-[#e8e8ea]">{t('Choose from my repositories')}</h2>
           <button class="p-1.5 rounded-lg hover:bg-white/5 text-[#9a9aaa]" aria-label={t('Close')} onClick={onClose}>×</button>
         </div>
         <div class="flex gap-2 mb-3">
-          <select class="min-w-0 px-2 py-2 rounded-xl bg-black/30 border border-white/10 text-sm text-[#e8e8ea] focus:outline-none focus:border-accent" aria-label={t('Git host')} value={service}
+          <select class="min-w-0 px-2 py-2 rounded-xl bg-black/30 border border-white/10 text-sm text-[#e8e8ea] focus:outline-hidden focus:border-accent" aria-label={t('Git host')} value={service}
             onChange={(e) => {
               const v = (e.target as HTMLSelectElement).value
               if (v === '__connect') { (e.target as HTMLSelectElement).value = service; onConnectAnother(); return }
@@ -98,7 +98,7 @@ export function RepoPicker({ api, accounts, initialService, onPick, onConnectAno
             {accounts.map(a => <option key={a.id} value={a.id}>{a.name}{a.username ? ' (' + a.username + ')' : ''}</option>)}
             <option value="__connect">{t('Connect another host…')}</option>
           </select>
-          <input class="flex-1 min-w-0 px-3 py-2 rounded-xl bg-black/30 border border-white/10 text-[#e8e8ea] focus:outline-none focus:border-accent" type="search" value={q} data-autofocus
+          <input class="flex-1 min-w-0 px-3 py-2 rounded-xl bg-black/30 border border-white/10 text-[#e8e8ea] focus:outline-hidden focus:border-accent" type="search" value={q} data-autofocus
             onInput={(e) => setQ((e.target as HTMLInputElement).value)} onKeyDown={onKey}
             placeholder={t('Search repositories')} aria-label={t('Search repositories')}
             role="combobox" aria-expanded="true" aria-controls="repo-list" aria-activedescendant={repos[active] ? 'repo-opt-' + active : undefined} />

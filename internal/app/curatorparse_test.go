@@ -21,6 +21,10 @@ func TestTheCuratorSubcommandIsRecognised(t *testing.T) {
 		{[]string{"curator", "pin", "build-firmware"}, "pin", "build-firmware"},
 		{[]string{"curator", "unpin", "one"}, "unpin", "one"},
 		{[]string{"curator", "restore", "one"}, "restore", "one"},
+		{[]string{"curator", "list-proposed"}, "list-proposed", ""},
+		{[]string{"curator", "show-proposed", "one"}, "show-proposed", "one"},
+		{[]string{"curator", "accept", "one"}, "accept", "one"},
+		{[]string{"curator", "reject", "one"}, "reject", "one"},
 		// Recorded lower-cased for the actions themselves, which is how the switch reads
 		// them, and the skill name exactly as typed: a name is data.
 		{[]string{"curator", "RUN"}, "run", ""},
@@ -160,7 +164,7 @@ func TestTheCuratorSwitchesTakeBothSpellings(t *testing.T) {
 // The help text names every action the parser accepts, so the two cannot drift.
 func TestTheCuratorHelpListsEveryAction(t *testing.T) {
 	for _, want := range []string{"status", "run", "pin", "unpin", "restore", "list-archived",
-		"--consolidate", "--dry-run", "Usage: motita curator <action>"} {
+		"list-proposed", "show-proposed", "accept", "reject", "--consolidate", "--dry-run", "Usage: motita curator <action>"} {
 		if !strings.Contains(curatorCommandHelp, want) {
 			t.Errorf("the help does not mention %q:\n%s", want, curatorCommandHelp)
 		}

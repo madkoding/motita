@@ -39,7 +39,7 @@ func TestAFullUpgradeReplacesTheBinaryAndRestarts(t *testing.T) {
 	assetName := assetNameForThisPlatform()
 
 	var base string
-	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	ts := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch {
 		case strings.HasSuffix(r.URL.Path, "/release"):
 			w.Header().Set("Content-Type", "application/json")
@@ -61,6 +61,7 @@ func TestAFullUpgradeReplacesTheBinaryAndRestarts(t *testing.T) {
 	srv.opts.Version = "v1.0.0"
 	srv.updater = updater.New("v1.0.0", exe)
 	srv.updater.APIURL = func() string { return ts.URL + "/release" }
+	trustTestRelease(srv.updater, ts)
 	restarted := make(chan struct{})
 	srv.opts.Restart = func() { close(restarted) }
 
@@ -107,7 +108,7 @@ func TestAnUpgradeWithoutARestartHookLeavesTheGatewayRunning(t *testing.T) {
 	sum := sha256.Sum256(newBinary)
 	assetName := assetNameForThisPlatform()
 	var base string
-	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	ts := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/release":
 			_, _ = io.WriteString(w, `{"tag_name":"v9.9.9","assets":[
@@ -125,6 +126,7 @@ func TestAnUpgradeWithoutARestartHookLeavesTheGatewayRunning(t *testing.T) {
 	srv := newTestServer(t, &fakeService{})
 	srv.updater = updater.New("v1.0.0", exe)
 	srv.updater.APIURL = func() string { return ts.URL + "/release" }
+	trustTestRelease(srv.updater, ts)
 	srv.opts.Restart = nil
 
 	w := httptest.NewRecorder()
@@ -303,4 +305,11 @@ func TestCloneGitRepoClonesALocalRepository(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(dest, "f.txt")); err != nil {
 		t.Errorf("the clone must contain the source's files: %v", err)
 	}
+}
+
+// trustTestRelease lets a TLS test server stand in for GitHub: the updater only fetches release
+// files over https from an allowed host, so the server's certificate and 127.0.0.1 are trusted.
+func trustTestRelease(u *updater.Updater, ts *httptest.Server) {
+	u.HTTPClient.Transport = ts.Client().Transport
+	u.AssetHosts = []string{"127.0.0.1"}
 }

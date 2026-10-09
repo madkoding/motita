@@ -47,6 +47,9 @@ type CheckLog struct {
 	PreExisting bool `json:"pre_existing,omitempty"`
 	// PassedBefore marks a failing check that PASSED on the baseline: the run broke it.
 	PassedBefore bool `json:"passed_before,omitempty"`
+	// Failures is what the check's WHOLE output said failed, normalised (see failureSignature). It
+	// is how the baseline tells "fails the same way" from "fails, and now also for a new reason".
+	Failures []string `json:"-"`
 }
 
 // Anchor validates results according to the configuration.
@@ -172,54 +175,108 @@ func (r Result) Failing() []string {
 	return names
 }
 
-// Rerun runs only the named checks and reports, for each one that ran, whether it passed.
+// Rerun runs only the named checks and reports, for each one that ran, its record.
 //
 // It is how the baseline is measured: the anchor is built over a clean checkout of the commit the
 // run started from, and only the checks that failed on the claim are run there. Running the whole
 // gate again would double the cost of every red claim for checks that are already green.
-func (a *Anchor) Rerun(ctx context.Context, names []string) map[string]bool {
+func (a *Anchor) Rerun(ctx context.Context, names []string) map[string]CheckLog {
 	want := map[string]bool{}
 	for _, n := range names {
 		want[n] = true
 	}
-	passed := map[string]bool{}
+	ran := map[string]CheckLog{}
 	for _, c := range a.checks() {
 		name := c.Name
 		if name == "" {
 			name = "check"
 		}
 		if want[name] {
-			passed[name] = a.runCheck(ctx, c).Pass
+			ran[name] = a.runCheck(ctx, c)
 		}
 	}
-	return passed
+	return ran
+}
+
+// failureLine is a line of a check's output that reports a failure: a test runner's FAIL, a
+// compiler's or linter's error, a panic.
+var failureLine = regexp.MustCompile(`(?i)\b(fail(s|ed|ure|ures)?|errors?|panic(s|ked)?)\b`)
+
+// digitRun is normalised away in a failure line: durations, line numbers, counts, temporary names.
+var digitRun = regexp.MustCompile(`[0-9]+`)
+
+// failureSignature is the set of failure lines in a check's output, with the directory the check
+// ran in and every number normalised, so the same failure reads the same on the baseline's
+// checkout and in the workspace. It is a heuristic and errs one way only: a line that differs
+// makes the failure "new", which keeps the result failed.
+func failureSignature(output, dir string) []string {
+	seen := map[string]bool{}
+	var out []string
+	for _, line := range strings.Split(output, "\n") {
+		if !failureLine.MatchString(line) {
+			continue
+		}
+		if dir != "" {
+			line = strings.ReplaceAll(line, dir, "<dir>")
+		}
+		line = strings.TrimSpace(digitRun.ReplaceAllString(line, "#"))
+		if !seen[line] {
+			seen[line] = true
+			out = append(out, line)
+		}
+	}
+	return out
+}
+
+// sameFailure reports whether a check that fails now fails the way it failed on the baseline:
+// the same exit code, and nothing in its failure lines that the baseline did not also report.
+// Fewer failures than before is the same failure (the run fixed some of them).
+func sameFailure(before, now CheckLog) bool {
+	if before.Exit != now.Exit {
+		return false
+	}
+	known := map[string]bool{}
+	for _, l := range before.Failures {
+		known[l] = true
+	}
+	for _, l := range now.Failures {
+		if !known[l] {
+			return false
+		}
+	}
+	return true
 }
 
 // WithBaseline judges a failed result against how the same checks did on the baseline (before:
-// check name -> passed there).
+// check name -> its record there).
 //
-// Every failing check that also failed before the run is marked PreExisting; when that is ALL of
-// them, the result passes WITH A CAVEAT, and the reason names those checks so neither the user nor
-// the summary can read it as a clean pass. A failing check that passed before, or that the
-// baseline could not run, keeps the result failed: the first is a breakage the run caused (marked
-// PassedBefore, so the rejection can say so), the second is unproven either way, and unproven
-// is not a pass.
-func WithBaseline(res Result, before map[string]bool) Result {
+// A failing check that also failed before the run, IN THE SAME WAY (see sameFailure), is marked
+// PreExisting; when that is ALL of them, the result passes WITH A CAVEAT, and the reason names
+// those checks so neither the user nor the summary can read it as a clean pass. Comparing the
+// name alone was not enough: a gate that was already red accepted any later failure of it, a test
+// the run broke included. A failing check that passed before, that fails differently now, or that
+// the baseline could not run, keeps the result failed: the first is a breakage the run caused
+// (marked PassedBefore, so the rejection can say so), the second has a new failure in it, and the
+// third is unproven either way, and unproven is not a pass.
+func WithBaseline(res Result, before map[string]CheckLog) Result {
 	if res.Pass {
 		return res
 	}
 	allOld := true
-	var old, broken []string
+	var old, broken, changed []string
 	for i := range res.Checks {
 		c := &res.Checks[i]
 		if c.Pass {
 			continue
 		}
-		passedThere, ran := before[c.Name]
+		there, ran := before[c.Name]
 		switch {
-		case ran && !passedThere:
+		case ran && !there.Pass && sameFailure(there, *c):
 			c.PreExisting = true
 			old = append(old, c.Name)
+		case ran && !there.Pass:
+			changed = append(changed, c.Name)
+			allOld = false
 		case ran:
 			c.PassedBefore = true
 			broken = append(broken, c.Name)
@@ -229,14 +286,13 @@ func WithBaseline(res Result, before map[string]bool) Result {
 		}
 	}
 	res.PreExisting = old
-	if len(old) == 0 {
-		if len(broken) > 0 {
-			res.Reason += "; passed before this change: " + strings.Join(broken, ", ")
+	if !allOld || len(old) == 0 {
+		if len(old) > 0 {
+			res.Reason += "; already failing before this change: " + strings.Join(old, ", ")
 		}
-		return res
-	}
-	if !allOld {
-		res.Reason += "; already failing before this change: " + strings.Join(old, ", ")
+		if len(changed) > 0 {
+			res.Reason += "; failing before this change, but differently now: " + strings.Join(changed, ", ")
+		}
 		if len(broken) > 0 {
 			res.Reason += "; passed before this change: " + strings.Join(broken, ", ")
 		}
@@ -315,6 +371,7 @@ func (a *Anchor) runCheck(ctx context.Context, c config.Check) CheckLog {
 	record.DurationMS = time.Since(start).Milliseconds()
 	record.Exit = exit
 	record.Output = truncate(output, 4000)
+	record.Failures = failureSignature(output, a.dir)
 	record.Truncated = truncated
 
 	if runErr != nil {

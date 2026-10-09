@@ -17,6 +17,9 @@ Installing is a ONE-TIME cost: done right, the next round and the next session f
 - Unpack a toolchain to `<tools dir>/tools/<name>/`, so its binaries end up in
   `<tools dir>/tools/<name>/bin/`. That directory is on PATH from the next command on.
 - A single binary goes in `<tools dir>/bin/`.
+- Every project's sessions share those directories, so only a command the user approved can
+  write there; the same command run unasked is refused by the sandbox. Put the unpacking and
+  the linking in that approved command, not in a script that runs later.
 - Never into the repository, never into `/usr/local` or another system directory, never with
   `sudo`. Do not `export PATH=...` in your commands: the PATH is already set for you.
 - HOME is outside the repository too, so caches (`~/go`, `~/.npm`, `~/.cache`) never land in a

@@ -979,6 +979,7 @@ func TestReadFileReadError(t *testing.T) {
 		t.Skip("no /proc")
 	}
 	a, _ := makeAgent(t, true)
+	makeDumpable(t)
 	srv := llmServer(t, []replyStep{
 		{finishReason: "tool_calls", calls: []map[string]any{toolCall("read_file", "c1", map[string]string{"path": path})}},
 		{content: "handled"},
