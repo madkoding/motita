@@ -2722,7 +2722,21 @@ func (a *Agent) runConfigured(ctx context.Context, req execx.Request, line strin
 // model supplies the text, the thing being checked is that text. The mandatory floor is what
 // makes the difference moot for anything unrecoverable, and it is applied to the composed
 // line so that a payload of `rm -rf /` is caught where it actually lives — inside the quotes.
+//
+// The operator's exemption from asking does NOT carry over: the operator did not write this
+// text, and a prompt-injected `git push --force` or `curl … | sh` would otherwise run after the
+// PASS with nobody asked. A line the policy would ask about goes through the same approval as
+// any other action the model proposes, and with nobody to ask it does not run.
 func (a *Agent) runModelLine(ctx context.Context, line string) (string, int, error) {
+	if plan := a.planRequest(line); plan.Verdict == policy.Ask {
+		approved, err := a.approve(ctx, plan, line)
+		if err != nil {
+			return "", 1, fmt.Errorf("the final action %q was not run: %w", line, err)
+		}
+		if !approved {
+			return "", 1, fmt.Errorf("the final action %q was not approved", line)
+		}
+	}
 	return a.runConfigured(ctx,
 		execx.Request{Command: shellFor(a.cfg), Args: []string{"-c", line}}, line)
 }
