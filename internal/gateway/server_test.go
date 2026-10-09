@@ -365,6 +365,32 @@ func TestAnOriginOutsideTheRulesIsRefused(t *testing.T) {
 	}
 }
 
+// The refusal does NOT describe the rules to the client it refuses: that would tell a stranger
+// which addresses ARE let in. The description goes to the operator's log instead.
+func TestARefusedOriginIsNotToldTheRules(t *testing.T) {
+	policy, err := netrules.Parse([]string{"ip:10.9.8.7", "!any"})
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	sink := newLogSink(t)
+	srv := newTestServer(t, &fakeService{}, func(o *Options) { o.Allow = policy; o.Log = sink.log })
+
+	req := httptest.NewRequest(http.MethodGet, "/v1/health", nil)
+	req.RemoteAddr = "192.168.100.90:41234"
+	w := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(w, req)
+
+	if w.Code != http.StatusForbidden {
+		t.Fatalf("a refused origin answered %d, want 403", w.Code)
+	}
+	if strings.Contains(w.Body.String(), "10.9.8.7") {
+		t.Errorf("the refusal leaks the allowed addresses: %s", w.Body.String())
+	}
+	if logged := strings.Join(sink.lines(t), "\n"); !strings.Contains(logged, "10.9.8.7") {
+		t.Errorf("the rules were not logged for the operator: %s", logged)
+	}
+}
+
 // A refused origin does not learn whether its credential was good.
 //
 // The policy runs BEFORE the token check, and that order is the point: a gateway restricted to one

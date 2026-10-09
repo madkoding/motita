@@ -726,12 +726,17 @@ func (s *Server) originPolicy(next http.Handler) http.Handler {
 			return
 		}
 		if !s.opts.Allow.Allows(addrPort.Addr()) {
-			// The message names the RULE SET, not the client's address alone: an operator reading
-			// this from the other machine has to be able to tell "your rules do not cover me" from
-			// "something is broken", and the rules are what they will go and edit.
+			// The message names the SETTING, so an operator reading this from the other machine
+			// can tell "the rules do not cover me" from "something is broken". The rules
+			// themselves go to the log only: describing them to a client that is not allowed in
+			// would hand a stranger the map of who is.
+			if s.opts.Log != nil {
+				s.opts.Log.Warn("refused a request from an origin outside gateway.allow",
+					"origin", addrPort.Addr().String(), "allow", s.opts.Allow.Describe())
+			}
 			writeError(w, http.StatusForbidden, fmt.Sprintf(
-				"this gateway does not serve requests from %s: gateway.allow is %s",
-				addrPort.Addr(), s.opts.Allow.Describe()))
+				"this gateway does not serve requests from %s: its gateway.allow rules do not include this address",
+				addrPort.Addr()))
 			return
 		}
 		next.ServeHTTP(w, r)
