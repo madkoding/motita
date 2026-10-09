@@ -547,6 +547,20 @@ type MergeOptions struct {
 	Branch string
 }
 
+// refPath is a branch name as the path of a URL: each element escaped, so a '?' or a '#' in it
+// stays part of the name, and refused when an element is empty, "." or "..", which git never
+// allows in a branch and which would move the request to another endpoint.
+func refPath(branch string) (string, bool) {
+	segs := strings.Split(branch, "/")
+	for i, s := range segs {
+		if s == "" || s == "." || s == ".." {
+			return "", false
+		}
+		segs[i] = url.PathEscape(s)
+	}
+	return strings.Join(segs, "/"), true
+}
+
 // MergePR merges pull request n and returns the merge commit when the host says which it is. The
 // host decides whether it may: a protected branch, a missing approval or a conflict come back as
 // the host's own refusal. A branch that cannot be deleted after the merge is not an error: the
@@ -573,8 +587,9 @@ func (a API) MergePR(ctx context.Context, r Remote, n int, o MergeOptions) (sha 
 		err = a.do(ctx, http.MethodPost, fmt.Sprintf("%s/repos/%s/pulls/%d/merge", a.Service.APIBase, r.Path, n), body, nil)
 	default:
 		body := map[string]any{"merge_method": method}
-		if err = a.do(ctx, http.MethodPut, fmt.Sprintf("%s/repos/%s/pulls/%d/merge", a.Service.APIBase, r.Path, n), body, &out); err == nil && o.DeleteBranch && o.Branch != "" {
-			_ = a.do(ctx, http.MethodDelete, fmt.Sprintf("%s/repos/%s/git/refs/heads/%s", a.Service.APIBase, r.Path, o.Branch), nil, nil)
+		ref, refOK := refPath(o.Branch)
+		if err = a.do(ctx, http.MethodPut, fmt.Sprintf("%s/repos/%s/pulls/%d/merge", a.Service.APIBase, r.Path, n), body, &out); err == nil && o.DeleteBranch && refOK {
+			_ = a.do(ctx, http.MethodDelete, fmt.Sprintf("%s/repos/%s/git/refs/heads/%s", a.Service.APIBase, r.Path, ref), nil, nil)
 		}
 	}
 	if err != nil {
