@@ -9,6 +9,10 @@
 # Overrides:
 #   $env:MOTITA_VERSION      install a specific release instead of the latest
 #   $env:MOTITA_INSTALL_DIR  install somewhere else
+#   $env:MOTITA_INSECURE_SKIP_VERIFY = '1'
+#                            install even when the release cannot be verified (no
+#                            SHA256SUMS, or no entry for this platform). A checksum
+#                            MISMATCH is refused regardless.
 #
 # On failure this THROWS rather than exiting, and the difference is not cosmetic: this
 # script is normally run through `irm ... | iex`, and `exit` inside Invoke-Expression ends
@@ -28,12 +32,45 @@ $ErrorActionPreference = 'Stop'
 $Repo = 'madkoding/motita'
 $BinName = 'motita'
 
+# The ed25519 key releases sign SHA256SUMS with, as the base64 body of its PEM public key.
+# It is the same value as ReleasePublicKey in internal/updater, and
+# scripts/release-signing-key.sh prints it. Empty is the placeholder: no key has been
+# configured yet, and the signature is not checked.
+$ReleasePublicKey = ''
+
 function Say { param([string]$Message) Write-Host $Message }
 function Warn { param([string]$Message) Write-Host "warning: $Message" -ForegroundColor Yellow }
 function Fail {
     param([string]$Message)
     Write-Host "error: $Message" -ForegroundColor Red
     throw $Message
+}
+
+# A release that cannot be verified is refused unless the user opted out. This used to be
+# a warning, and an install that went ahead anyway.
+function Unverified {
+    param([string]$Message)
+    if ($env:MOTITA_INSECURE_SKIP_VERIFY -eq '1') {
+        Warn "$Message; installing UNVERIFIED because MOTITA_INSECURE_SKIP_VERIFY=1"
+    } else {
+        Fail "$Message, so the download cannot be verified. Nothing was installed.`n  To install anyway (not recommended): `$env:MOTITA_INSECURE_SKIP_VERIFY = '1'"
+    }
+}
+
+# OpenSSL writes to stderr, and under 'Stop' Windows PowerShell 5.1 turns a redirected stderr
+# line from a native command into a terminating error. The exit code is the answer here, so
+# the preference is relaxed for the call only.
+function Invoke-OpenSsl {
+    param([string]$Path, [string[]]$Arguments)
+    $Saved = $ErrorActionPreference
+    $ErrorActionPreference = 'Continue'
+    try {
+        $Output = & $Path @Arguments 2>&1 | Out-String
+        $Code = $LASTEXITCODE
+    } finally {
+        $ErrorActionPreference = $Saved
+    }
+    return @{ Code = $Code; Output = $Output }
 }
 
 # --- 1. which system is this? -------------------------------------------------
@@ -89,10 +126,11 @@ try {
     }
 
     # --- 4. verify against the release's own checksums ------------------------
-    # The checksum comes from the same release as the binary, so this catches a corrupted
-    # or truncated download (a proxy, a flaky connection). It is not a defence against a
-    # compromised release: both files share one origin.
+    # The checksum comes from the same release as the binary, so on its own it catches a
+    # corrupted or truncated download (a proxy, a flaky connection). The signature over
+    # SHA256SUMS is what makes it a defence against a compromised release.
     $Verified = $false
+    $Signed = $false
     $SumsAvailable = $true
     try {
         Invoke-WebRequest -Uri "$Base/SHA256SUMS" -OutFile $SumsPath -UseBasicParsing
@@ -101,10 +139,39 @@ try {
     }
 
     if ($SumsAvailable -and (Test-Path $SumsPath)) {
+        # Windows ships no ed25519 verifier, so the signature is checked with OpenSSL 3 when
+        # one is on the PATH (Git for Windows carries it), and skipped otherwise.
+        $OpenSsl = Get-Command openssl -ErrorAction SilentlyContinue
+        if (-not $ReleasePublicKey) {
+            Say '  signature: not checked (this installer carries no release key yet)'
+        } elseif (-not $OpenSsl -or -not ((Invoke-OpenSsl $OpenSsl.Source @('pkeyutl', '-help')).Output -match '-rawin')) {
+            Say '  signature: not checked (needs OpenSSL 3 with ed25519 on the PATH)'
+        } else {
+            $SigPath = Join-Path $Tmp 'SHA256SUMS.sig'
+            $SigAvailable = $true
+            try {
+                Invoke-WebRequest -Uri "$Base/SHA256SUMS.sig" -OutFile $SigPath -UseBasicParsing
+            } catch {
+                $SigAvailable = $false
+            }
+            if (-not $SigAvailable) {
+                Unverified 'SHA256SUMS.sig is not available in this release'
+            } else {
+                $PubPath = Join-Path $Tmp 'release.pub'
+                Set-Content -Path $PubPath -Encoding ascii -Value @('-----BEGIN PUBLIC KEY-----', $ReleasePublicKey, '-----END PUBLIC KEY-----')
+                $Check = Invoke-OpenSsl $OpenSsl.Source @('pkeyutl', '-verify', '-pubin', '-inkey', $PubPath, '-rawin', '-in', $SumsPath, '-sigfile', $SigPath)
+                if ($Check.Code -ne 0) {
+                    Fail "SHA256SUMS.sig does not verify against the release key.`n  The release may have been tampered with. Nothing was installed."
+                }
+                Say '  signature: ok'
+                $Signed = $true
+            }
+        }
+
         $Line = Select-String -Path $SumsPath -Pattern ([regex]::Escape($Asset) + '$') |
                 Select-Object -First 1
         if (-not $Line) {
-            Warn "SHA256SUMS has no entry for $Asset; the download could not be verified"
+            Unverified "SHA256SUMS has no entry for $Asset"
         } else {
             $Expected = ($Line.Line -split '\s+')[0].ToLower()
             $Actual = (Get-FileHash -Path $AssetPath -Algorithm SHA256).Hash.ToLower()
@@ -115,7 +182,7 @@ try {
             $Verified = $true
         }
     } else {
-        Warn 'SHA256SUMS is not available in this release; the download could not be verified'
+        Unverified 'SHA256SUMS is not available in this release'
     }
 
     # --- 5. install it somewhere on the PATH --------------------------------
@@ -180,6 +247,11 @@ if ($OnPath) {
     [Environment]::SetEnvironmentVariable('Path', $NewPath, 'User')
     $env:Path = "$env:Path;$Dir"
     Say "  path:      added $Dir to your PATH (open a new terminal to pick it up)"
+}
+
+if (-not $Signed) {
+    Say '  provenance: check where this binary was built with'
+    Say "    gh attestation verify `"$Target`" --repo $Repo"
 }
 
 Say ''

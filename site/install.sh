@@ -9,8 +9,16 @@
 # Overrides:
 #   MOTITA_VERSION=v0.4.0      install a specific release instead of the latest
 #   MOTITA_INSTALL_DIR=~/bin   install somewhere else
+#   MOTITA_INSECURE_SKIP_VERIFY=1
+#                              install even when the release cannot be verified
+#                              (no SHA256SUMS, or no entry for this platform).
+#                              A checksum MISMATCH is refused regardless.
 #
 # Exit codes: 0 installed · 1 failed (nothing is left half-installed).
+#
+# Everything runs from main(), called on the last line: if the download of this
+# script is cut off halfway, sh sees an unfinished function and runs nothing,
+# instead of executing whatever prefix arrived.
 #
 # This file is published TWICE: here, and as site/install.sh, which is the URL
 # above — GitHub Pages uploads site/ on its own and cannot see scripts/. The two
@@ -21,6 +29,12 @@ set -eu
 REPO="madkoding/motita"
 BIN="motita"
 VERSION="${MOTITA_VERSION:-latest}"
+
+# The ed25519 key releases sign SHA256SUMS with, as the base64 body of its PEM
+# public key. It is the same value as ReleasePublicKey in internal/updater, and
+# scripts/release-signing-key.sh prints it. Empty is the placeholder: no key has
+# been configured yet, and the signature is not checked.
+RELEASE_PUBLIC_KEY=""
 
 say()  { printf '%s\n' "$*"; }
 die()  { printf 'error: %s\n' "$*" >&2; exit 1; }
@@ -51,16 +65,18 @@ detect_arch() {
 }
 
 # --- 2. a downloader and a checksum tool must exist ---------------------------
-FETCH="" ; CHECK=""
-for c in curl wget; do
-	command -v "$c" >/dev/null 2>&1 && { FETCH="$c"; break; }
-done
-[ -n "$FETCH" ] || die "neither curl nor wget is installed"
+find_tools() {
+	FETCH="" ; CHECK=""
+	for c in curl wget; do
+		command -v "$c" >/dev/null 2>&1 && { FETCH="$c"; break; }
+	done
+	[ -n "$FETCH" ] || die "neither curl nor wget is installed"
 
-for c in sha256sum shasum; do
-	command -v "$c" >/dev/null 2>&1 && { CHECK="$c"; break; }
-done
-[ -n "$CHECK" ] || die "neither sha256sum nor shasum is installed"
+	for c in sha256sum shasum; do
+		command -v "$c" >/dev/null 2>&1 && { CHECK="$c"; break; }
+	done
+	[ -n "$CHECK" ] || die "neither sha256sum nor shasum is installed"
+}
 
 # One function, so the two tools cannot drift apart in how they fetch.
 download() {
@@ -80,6 +96,51 @@ sha256_of() {
 		shasum -a 256 "$1" | awk '{print $1}'
 	fi
 }
+
+# A release that cannot be verified is refused unless the user opted out. This
+# used to be a warning, and an install that went ahead anyway.
+unverified() {
+	if [ "${MOTITA_INSECURE_SKIP_VERIFY:-}" = 1 ]; then
+		warn "$1; installing UNVERIFIED because MOTITA_INSECURE_SKIP_VERIFY=1"
+	else
+		die "$1, so the download cannot be verified. Nothing was installed.
+  To install anyway (not recommended): MOTITA_INSECURE_SKIP_VERIFY=1"
+	fi
+}
+
+# --- 5a. the signature over SHA256SUMS ----------------------------------------
+#
+# A checksum published beside the binary only proves the download is intact;
+# whoever could replace the binary could replace SHA256SUMS too. The signature
+# is what ties the checksums to the release key. It needs OpenSSL 3 (ed25519 and
+# -rawin); without it, or before a key is configured, it is skipped and the
+# installer says how to check the build provenance instead.
+verify_signature() {
+	SIGNED=0
+	if [ -z "$RELEASE_PUBLIC_KEY" ]; then
+		say "  signature: not checked (this installer carries no release key yet)"
+		return 0
+	fi
+	if ! command -v openssl >/dev/null 2>&1 || ! openssl pkeyutl -help 2>&1 | grep -q -- -rawin; then
+		say "  signature: not checked (needs OpenSSL 3 with ed25519)"
+		return 0
+	fi
+	if ! download "${BASE}/SHA256SUMS.sig" "${TMP}/SHA256SUMS.sig" 2>/dev/null || [ ! -s "${TMP}/SHA256SUMS.sig" ]; then
+		unverified "SHA256SUMS.sig is not available in this release"
+		return 0
+	fi
+	printf -- '-----BEGIN PUBLIC KEY-----\n%s\n-----END PUBLIC KEY-----\n' "$RELEASE_PUBLIC_KEY" > "${TMP}/release.pub"
+	if ! openssl pkeyutl -verify -pubin -inkey "${TMP}/release.pub" -rawin \
+		-in "${TMP}/SHA256SUMS" -sigfile "${TMP}/SHA256SUMS.sig" >/dev/null 2>&1; then
+		die "SHA256SUMS.sig does not verify against the release key.
+  The release may have been tampered with. Nothing was installed."
+	fi
+	SIGNED=1
+	say "  signature: ok"
+}
+
+main() {
+find_tools
 
 # --- 3. resolve the release ---------------------------------------------------
 OS="$(detect_os)"
@@ -121,13 +182,15 @@ fi
 
 # --- 5. verify against the release's own checksums ----------------------------
 #
-# The checksum comes from the same release as the binary, so this catches a
-# corrupted or truncated download (a proxy, a flaky connection). It is not a
-# defence against a compromised release: both files share one origin.
+# The checksum comes from the same release as the binary, so on its own it
+# catches a corrupted or truncated download (a proxy, a flaky connection). The
+# signature (5a) is what makes it a defence against a compromised release.
+SIGNED=0
 if download "${BASE}/SHA256SUMS" "${TMP}/SHA256SUMS" 2>/dev/null && [ -s "${TMP}/SHA256SUMS" ]; then
+	verify_signature
 	expected="$(grep " ${ASSET}\$" "${TMP}/SHA256SUMS" | awk '{print $1}' | head -1)"
 	if [ -z "$expected" ]; then
-		warn "SHA256SUMS has no entry for ${ASSET}; the download could not be verified"
+		unverified "SHA256SUMS has no entry for ${ASSET}"
 	else
 		actual="$(sha256_of "${TMP}/${ASSET}")"
 		if [ "$expected" != "$actual" ]; then
@@ -140,7 +203,7 @@ if download "${BASE}/SHA256SUMS" "${TMP}/SHA256SUMS" 2>/dev/null && [ -s "${TMP}
 		say "  checksum: ok"
 	fi
 else
-	warn "SHA256SUMS is not available in this release; the download could not be verified"
+	unverified "SHA256SUMS is not available in this release"
 fi
 
 # --- 6. install it somewhere on the PATH --------------------------------------
@@ -180,5 +243,13 @@ case ":${PATH}:" in
     export PATH=\"${DIR}:\$PATH\"" ;;
 esac
 
+if [ "$SIGNED" != 1 ]; then
+	say "  provenance: check where this binary was built with"
+	say "    gh attestation verify ${DIR}/${BIN} --repo ${REPO}"
+fi
+
 say ""
 say "Next: ${BIN} config    (writes a configuration that works)"
+}
+
+main "$@"

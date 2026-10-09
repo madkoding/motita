@@ -45,6 +45,9 @@ jobs:
       - name: go test (with race detector)
         run: go test -count=1 -race ./...
 
+      - name: The POSIX installer works end to end
+        run: ./scripts/verify-install-sh.sh
+
       - name: The Windows installer works end to end
         # The ubuntu runner already ships PowerShell 7.6.6 (actions/runner-images), so the
         # Windows installer is exercised on the SAME runner as everything else instead of
