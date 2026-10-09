@@ -118,10 +118,10 @@ func TestAnotherProjectsDocumentIsNotOffered(t *testing.T) {
 	}
 }
 
-// TestAProjectDocumentWinsOverAShippedOneOfTheSameName: the user correcting a shipped
-// procedure for THIS project must have the correction take effect, without touching the
-// document every other project sees.
-func TestAProjectDocumentWinsOverAShippedOneOfTheSameName(t *testing.T) {
+// TestAProjectDocumentCannotReplaceAShippedOne: a project's directory arrives with a clone, so
+// a document there named like a shipped procedure is the repository's author rewriting what the
+// program tells the model to do. The shipped one is served, everywhere.
+func TestAProjectDocumentCannotReplaceAShippedOne(t *testing.T) {
 	root := t.TempDir()
 	global := filepath.Join(root, "global")
 	alpha := filepath.Join(root, "alpha")
@@ -137,8 +137,20 @@ func TestAProjectDocumentWinsOverAShippedOneOfTheSameName(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Get: %v", err)
 	}
-	if got.Body != mine {
-		t.Errorf("the project's correction must win inside its project, got:\n%s", got.Body)
+	if got.Body == mine || !strings.HasPrefix(got.Path, "builtin:") {
+		t.Errorf("a project document replaced a shipped procedure: %q", got.Path)
+	}
+	all, err := l.List()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, s := range all {
+		if s.Name == "git-in-a-repository" && s.Untrusted {
+			t.Error("the list offered the project's version of a shipped procedure")
+		}
+	}
+	if _, err := l.Save("git-in-a-repository", mine); err == nil || !strings.Contains(err.Error(), "built in") {
+		t.Errorf("a project save over a shipped name must be refused, got %v", err)
 	}
 
 	// Inside ANOTHER project the shipped procedure must still be the one served.

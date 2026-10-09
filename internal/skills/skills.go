@@ -60,6 +60,9 @@ type Skill struct {
 	// a caller can tell a project's own procedure from the shared one, which is information
 	// the interface shows and the curator must not lose.
 	Origin string
+	// Untrusted is set on a document from an untrusted layer (see Overlay.Base): text that
+	// came with a repository, which the model must read as data and not as instructions.
+	Untrusted bool
 }
 
 // Overlay is a SECOND directory layered over the one a library was rooted at.
@@ -86,6 +89,68 @@ type Overlay struct {
 	Primary string
 	// Secondary is the directory the library was rooted at, consulted after Primary.
 	Secondary string
+	// Base, when set, marks Primary as UNTRUSTED: a directory inside a project checkout, which
+	// arrives with a clone and holds whatever the repository's author put there. Primary must
+	// then be reached from Base through real directories (a symlinked .motita could point a
+	// read at ~/.ssh or a write anywhere), a document in it must be a regular file, it cannot
+	// shadow a shipped procedure, and what it serves is marked Untrusted.
+	Base string
+}
+
+// guarded reports whether the front layer is untrusted.
+func (l *Library) guarded() bool { return l.Overlay != nil && l.Overlay.Base != "" }
+
+// inFront reports whether path is in (or is) the untrusted front layer.
+func (l *Library) inFront(path string) bool {
+	if !l.guarded() {
+		return false
+	}
+	rel, err := filepath.Rel(filepath.Clean(l.Overlay.Primary), filepath.Clean(path))
+	return err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator))
+}
+
+// realDirs reports whether every directory from the overlay's Base down to dir that exists is a
+// real directory and not a symbolic link. A missing one ends the walk: it is created by a write,
+// and nothing below it can be read.
+func (l *Library) realDirs(dir string) bool {
+	rel, err := filepath.Rel(l.Overlay.Base, dir)
+	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return false
+	}
+	cur := l.Overlay.Base
+	for _, part := range strings.Split(rel, string(filepath.Separator)) {
+		cur = filepath.Join(cur, part)
+		fi, err := os.Lstat(cur)
+		if os.IsNotExist(err) {
+			return true
+		}
+		if err != nil || !fi.IsDir() {
+			return false
+		}
+	}
+	return true
+}
+
+// writable refuses a write into the untrusted front layer through a symbolic link.
+func (l *Library) writable(dir string) error {
+	if l.inFront(dir) && !l.realDirs(dir) {
+		return fmt.Errorf("the project's skills directory %s is reached through a symbolic link: refusing to write there", dir)
+	}
+	return nil
+}
+
+// frontServes reports whether the untrusted front layer may serve the document at path under
+// name: the layer is reached without a link, the document is a regular file, and its name is
+// not a shipped procedure's. A layer that is not guarded serves everything.
+func (l *Library) frontServes(name, path string) bool {
+	if !l.inFront(path) {
+		return true
+	}
+	if _, builtin, _ := l.builtin(name); builtin || !l.realDirs(filepath.Dir(path)) {
+		return false
+	}
+	fi, err := os.Lstat(path)
+	return err == nil && fi.Mode().IsRegular()
 }
 
 // Root returns the directory the library writes to when it is not scoped, which is also the
@@ -265,7 +330,7 @@ func (l *Library) writePath(name string) string {
 func (l *Library) lookup(name string) (string, bool) {
 	primary, secondary, layered := l.readDirs()
 	p := filepath.Join(primary, name+".md")
-	if _, err := os.Stat(p); err == nil {
+	if _, err := os.Stat(p); err == nil && l.frontServes(name, p) {
 		return p, true
 	}
 	if layered {
@@ -480,6 +545,7 @@ func (l *Library) Get(name string) (Skill, error) {
 	s := parse(n, p, body)
 	s.Body = body
 	s.Origin = l.originOf(p)
+	s.Untrusted = l.inFront(p)
 	return s, nil
 }
 
@@ -505,6 +571,13 @@ func (l *Library) Save(name, body string) (Skill, error) {
 	// The write lands in the FRONT layer when the library is scoped, which is what makes a
 	// document created inside a project born scoped: it cannot reach the shared shelf.
 	dir := l.writeDir()
+	if err := l.writable(dir); err != nil {
+		return Skill{}, err
+	}
+	// A document an untrusted layer could not serve would be written and then never read.
+	if _, builtin, _ := l.builtin(n); builtin && l.inFront(dir) {
+		return Skill{}, fmt.Errorf("the skill %q is built in, and a project's document cannot replace it: save it under another name", n)
+	}
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return Skill{}, fmt.Errorf("could not create the skills directory %s: %w", dir, err)
 	}
@@ -532,6 +605,7 @@ func (l *Library) Save(name, body string) (Skill, error) {
 	s := parse(n, target, body)
 	s.Body = body
 	s.Origin = l.originOf(target)
+	s.Untrusted = l.inFront(target)
 	return s, nil
 }
 
@@ -550,6 +624,9 @@ func (l *Library) Archive(name string) error {
 	// shared document out from under every other project.
 	p := l.path(n)
 	dir := filepath.Join(filepath.Dir(p), archiveDir)
+	if err := l.writable(dir); err != nil {
+		return err
+	}
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return fmt.Errorf("could not create the archive directory %s: %w", dir, err)
 	}
@@ -585,6 +662,9 @@ func (l *Library) Restore(name string) error {
 	}
 	var lastErr error
 	for _, d := range dirs {
+		if err := l.writable(filepath.Join(d, archiveDir)); err != nil {
+			return err
+		}
 		if err := os.MkdirAll(d, 0o755); err != nil {
 			return fmt.Errorf("could not create the skills directory %s: %w", d, err)
 		}
@@ -760,12 +840,16 @@ func (l *Library) index(offer bool) ([]Skill, error) {
 				continue
 			}
 			p := filepath.Join(dir, e.Name())
+			if !l.frontServes(name, p) {
+				continue
+			}
 			body, err := l.read(p)
 			if err != nil {
 				continue
 			}
 			s := parse(name, p, body)
 			s.Origin = l.originOf(p)
+			s.Untrusted = l.inFront(p)
 			out = append(out, s)
 			seen[name] = true
 		}

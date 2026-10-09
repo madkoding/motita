@@ -116,6 +116,25 @@ func TestReadSkillReturnsTheProcedure(t *testing.T) {
 	}
 }
 
+// TestAProjectRepositorysSkillIsMarkedUntrusted: a document from the project's .motita/skills
+// came with a clone, and the model must be told so wherever it sees it.
+func TestAProjectRepositorysSkillIsMarkedUntrusted(t *testing.T) {
+	project := t.TempDir()
+	a := libraryAgent(t, map[string]string{"mine": "# Mine\nThe user's.\n"})
+	a.library.Overlay = &skills.Overlay{Primary: filepath.Join(project, ".motita", "skills"), Secondary: a.library.Dir, Base: project}
+	if _, err := a.library.Save("repo-build", "# Repo build\nRun make.\n"); err != nil {
+		t.Fatal(err)
+	}
+	for kind, arg := range map[string]string{"read_skill": "repo-build", "list_skills": "", "search_skills": "repo build"} {
+		if out := act(t, a, kind, arg); !strings.Contains(out, "repository") {
+			t.Errorf("%s must mark the project's document:\n%s", kind, out)
+		}
+	}
+	if out := act(t, a, "read_skill", "mine"); strings.Contains(out, "repository") {
+		t.Errorf("the user's own document is not marked:\n%s", out)
+	}
+}
+
 func TestReadingAMissingSkillIsReportedNotSilent(t *testing.T) {
 	a := libraryAgent(t, map[string]string{"real": "# Real\nBody.\n"})
 	out := act(t, a, "read_skill", "imaginary")
