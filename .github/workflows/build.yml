@@ -1,0 +1,46 @@
+name: Build
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+
+permissions:
+  contents: read
+
+env:
+  GOFLAGS: -mod=mod
+
+jobs:
+  build:
+    name: Build and analyze
+    runs-on: ubuntu-latest
+    
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0  # Shallow clones should be disabled for a better relevancy of analysis
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: Build web UI (go:embed needs the assets)
+        run: cd web && npm ci && npm run build
+      - name: Coverage report for SonarQube
+        # The test gate lives in ci.yml; here the profile is only input for the scan, so a
+        # failing package is printed (not hidden) but does not stop the analysis.
+        run: |
+          go test -count=1 -coverpkg=./... -coverprofile=coverage.out -covermode=atomic ./... 2>&1 \
+            | grep -Ev '^(ok|\?) ' || true
+          test -s coverage.out
+      - uses: SonarSource/sonarqube-scan-action@7006c4492b2e0ee0f816d36501671557c97f5995 # v8.1.0
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+          SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}
+      # If you wish to fail your job when the Quality Gate is red, uncomment the
+      # following lines. This would typically be used to fail a deployment.
+      # - uses: SonarSource/sonarqube-quality-gate-action@cf038b0e0cdecfa9e56c198bbb7d21d751d62c3b # v1.2.0
+      #   timeout-minutes: 5
+      #   env:
+      #     SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
