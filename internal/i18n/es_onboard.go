@@ -3,6 +3,10 @@ package i18n
 // The setup wizard (internal/onboard) in Spanish. Keys are the English text exactly as the wizard
 // writes it, fmt verbs included; a translation keeps the same verbs in the same order, and a
 // prompt keeps its "[1" (the keyboard path rewrites it as the highlight moves).
+
+// agenticCodingES opens the description of every Claude model tuned for agentic coding.
+const agenticCodingES = "programación agéntica, "
+
 var esOnboard = map[string]string{
 	// The banner and the steps.
 	"%sWelcome! Let's connect motita to an AI model. It takes about a minute.\n": "%s¡Hola! Vamos a conectar motita a " +
@@ -160,11 +164,11 @@ var esOnboard = map[string]string{
 		"razonamiento, respeta la temperatura",
 	"previous generation, cheapest": "generación anterior, " +
 		"el más barato",
-	"agentic coding, strongest": "programación agéntica, " +
+	"agentic coding, strongest": agenticCodingES +
 		"el más potente",
-	"agentic coding, previous gen": "programación agéntica, " +
+	"agentic coding, previous gen": agenticCodingES +
 		"generación anterior",
-	"agentic coding, first gen": "programación agéntica, " +
+	"agentic coding, first gen": agenticCodingES +
 		"primera generación",
 	"included in every plan": "incluido en " +
 		"todos los planes",
