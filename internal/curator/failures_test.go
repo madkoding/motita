@@ -545,6 +545,8 @@ func TestTheCandidateListSkipsSkillsThatAreNotTheCurators(t *testing.T) {
 		t.Errorf("the candidate list offers a user-authored skill:\n%s", got)
 	} else if !strings.Contains(got, "### mine") {
 		t.Errorf("the candidate list is missing the curator's own skill:\n%s", got)
+	} else {
+		// the expected outcome: nothing more to check
 	}
 }
 
