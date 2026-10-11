@@ -2,6 +2,11 @@
 # Sonar Community no hace análisis de taint (SQLi, XSS, path traversal...): lo hacen
 # Semgrep OSS y CodeQL, y su SARIF se importa a Sonar.
 # Secrets: SONAR_TOKEN y SONAR_HOST_URL.
+#
+# En un pull request se analiza solo el código nuevo: Semgrep contra el commit base y CodeQL
+# con sus consultas limitadas al diff, y cualquier hallazgo hace fallar el job. Sonar Community
+# tiene una sola rama y cada análisis reemplaza el anterior, así que el análisis completo (con
+# cobertura y quality gate) corre solo en main y a mano (workflow_dispatch).
 name: sonar
 
 on:
@@ -22,15 +27,22 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          fetch-depth: 0 # --baseline-commit necesita el historial del PR
       - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
         with:
           python-version: '3.12'
       - name: Semgrep OSS
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
         run: |
           pip install semgrep
+          # En un PR: solo los hallazgos que el PR introduce, y --error hace fallar el job.
+          pr_args=()
+          if [ -n "$BASE_SHA" ]; then pr_args=(--baseline-commit "$BASE_SHA" --error); fi
           semgrep scan --config p/owasp-top-ten --config p/security-audit --config p/golang \
             --exclude node_modules --exclude vendor --exclude target --exclude dist \
-            --sarif --output semgrep.sarif --metrics=off
+            --sarif --output semgrep.sarif --metrics=off "${pr_args[@]}"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: sarif-semgrep
@@ -51,16 +63,22 @@ jobs:
         with:
           output: codeql-sarif
       - run: cp codeql-sarif/*.sarif codeql.sarif
+      # En un PR CodeQL ya limita los resultados a las líneas cambiadas: cualquiera es nuevo.
+      - name: No new CodeQL findings
+        if: github.event_name == 'pull_request'
+        run: |
+          jq -r '.runs[].results[] | "::error file=\(.locations[0].physicalLocation.artifactLocation.uri),line=\(.locations[0].physicalLocation.region.startLine)::\(.ruleId): \(.message.text)"' codeql.sarif
+          test "$(jq '[.runs[].results[]] | length' codeql.sarif)" -eq 0
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: sarif-codeql
           path: codeql.sarif
 
   sonar:
+    # Análisis completo solo fuera de los PR (ver la cabecera).
+    if: github.event_name != 'pull_request'
     permissions:
       contents: read
-      checks: write
-      pull-requests: write
     needs: [semgrep, codeql]
     runs-on: ubuntu-latest
     steps:
