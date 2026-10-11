@@ -57,7 +57,8 @@ func TestCommitMessagesMustBeSemantic(t *testing.T) {
 
 func TestForgeCommands(t *testing.T) {
 	m := Mode{Enforce: true}
-	if d := m.Decide("motita", []string{"forge", "pr", "create", "--title", "feat: x"}, "/work"); d.Verdict != Ask || d.Rule != "external-effect" {
+	if d := m.Decide("motita", []string{"forge", "pr", "create", "--title", "feat: x"}, "/work"); d.Verdict != Ask ||
+		d.Rule != "external-effect" {
 		t.Errorf("pr create: %+v", d)
 	}
 	for _, args := range [][]string{

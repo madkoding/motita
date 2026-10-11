@@ -228,7 +228,8 @@ func TestReadTokenDoesNotCreateOne(t *testing.T) {
 // not a reason to fail.
 func TestReadTokenAcceptsAUsableFile(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "gateway.token")
-	if err := os.WriteFile(path, []byte("abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789\n"), 0o600); err != nil {
+	if err := os.WriteFile(path, []byte("abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789\n"),
+		0o600); err != nil {
 		t.Fatalf("write: %v", err)
 	}
 	got, err := ReadToken(path)

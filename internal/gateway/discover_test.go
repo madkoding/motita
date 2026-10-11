@@ -81,7 +81,8 @@ func TestDiscoveryCarriesTheVersionTheGatewayReported(t *testing.T) {
 	defer srv.Close()
 
 	path := filepath.Join(t.TempDir(), "gateway.json")
-	if err := WriteServiceFile(path, ServiceFile{Address: strings.TrimPrefix(srv.URL, "http://"), Token: "tok", PID: 7}); err != nil {
+	if err := WriteServiceFile(path, ServiceFile{Address: strings.TrimPrefix(srv.URL, "http://"), Token: "tok",
+		PID: 7}); err != nil {
 		t.Fatalf("WriteServiceFile: %v", err)
 	}
 
@@ -106,7 +107,8 @@ func TestADevelopmentBuildIsStillAGateway(t *testing.T) {
 			_, _ = w.Write([]byte(`{"ok":true,"version":"` + version + `"}`))
 		}))
 		path := filepath.Join(t.TempDir(), "gateway.json")
-		if err := WriteServiceFile(path, ServiceFile{Address: strings.TrimPrefix(srv.URL, "http://"), Token: "t"}); err != nil {
+		if err := WriteServiceFile(path, ServiceFile{Address: strings.TrimPrefix(srv.URL, "http://"),
+			Token: "t"}); err != nil {
 			t.Fatalf("WriteServiceFile: %v", err)
 		}
 		if _, ok, err := Discover(context.Background(), path, nil); err != nil || !ok {
@@ -127,7 +129,8 @@ func TestSomethingElseOnThePortIsNotOurGateway(t *testing.T) {
 	defer stranger.Close()
 
 	path := filepath.Join(t.TempDir(), "gateway.json")
-	if err := WriteServiceFile(path, ServiceFile{Address: strings.TrimPrefix(stranger.URL, "http://"), Token: "t"}); err != nil {
+	if err := WriteServiceFile(path, ServiceFile{Address: strings.TrimPrefix(stranger.URL, "http://"),
+		Token: "t"}); err != nil {
 		t.Fatalf("WriteServiceFile: %v", err)
 	}
 
@@ -145,7 +148,8 @@ func TestA200ThatIsNotJSONIsNotOurGateway(t *testing.T) {
 	defer stranger.Close()
 
 	path := filepath.Join(t.TempDir(), "gateway.json")
-	if err := WriteServiceFile(path, ServiceFile{Address: strings.TrimPrefix(stranger.URL, "http://"), Token: "t"}); err != nil {
+	if err := WriteServiceFile(path, ServiceFile{Address: strings.TrimPrefix(stranger.URL, "http://"),
+		Token: "t"}); err != nil {
 		t.Fatalf("WriteServiceFile: %v", err)
 	}
 
@@ -164,7 +168,8 @@ func TestAHealthThatIsNotOKIsNotAGateway(t *testing.T) {
 	defer srv.Close()
 
 	path := filepath.Join(t.TempDir(), "gateway.json")
-	if err := WriteServiceFile(path, ServiceFile{Address: strings.TrimPrefix(srv.URL, "http://"), Token: "t"}); err != nil {
+	if err := WriteServiceFile(path, ServiceFile{Address: strings.TrimPrefix(srv.URL, "http://"),
+		Token: "t"}); err != nil {
 		t.Fatalf("WriteServiceFile: %v", err)
 	}
 

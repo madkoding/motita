@@ -427,16 +427,7 @@ func TestSegmentationOfQuotesAndEscapes(t *testing.T) {
 // rule answers it without a file to judge.
 func TestARedirectWithNoTarget(t *testing.T) {
 	segs := lineSegments("a >")
-	redirects := 0
-	for _, s := range segs {
-		if s.redirect {
-			redirects++
-			if len(s.words) != 1 || s.words[0] != "" {
-				t.Errorf("the target is empty, got %#v", s.words)
-			}
-		}
-	}
-	if redirects != 1 {
+	if _, redirects := countEmptyRedirects(t, segs); redirects != 1 {
 		t.Fatalf("one redirect expected, got %#v", segs)
 	}
 
@@ -449,10 +440,18 @@ func TestARedirectWithNoTarget(t *testing.T) {
 	// close it. The redirection is still closed with an empty target, and the command after
 	// the separator is still read as a command.
 	segs = lineSegments("echo x >; ls")
-	var commands, empties int
+	if commands, empties := countEmptyRedirects(t, segs); commands != 2 || empties != 1 {
+		t.Errorf("lineSegments(\"echo x >; ls\") = %d commands, %d redirects, want 2 and 1 (%#v)",
+			commands, empties, segs)
+	}
+}
+
+// countEmptyRedirects counts the commands and the redirects of a split line, each redirect
+// being checked to have an empty target.
+func countEmptyRedirects(t *testing.T, segs []lineSegment) (commands, redirects int) {
 	for _, s := range segs {
 		if s.redirect {
-			empties++
+			redirects++
 			if len(s.words) != 1 || s.words[0] != "" {
 				t.Errorf("the target is empty, got %#v", s.words)
 			}
@@ -460,10 +459,7 @@ func TestARedirectWithNoTarget(t *testing.T) {
 		}
 		commands++
 	}
-	if commands != 2 || empties != 1 {
-		t.Errorf("lineSegments(\"echo x >; ls\") = %d commands, %d redirects, want 2 and 1 (%#v)",
-			commands, empties, segs)
-	}
+	return commands, redirects
 }
 
 // TestWritingFormWithNoTargetsIsUnclassified: the branch where the arguments do not locate
@@ -524,8 +520,10 @@ func TestTheSubcommandTablesDecideBothWays(t *testing.T) {
 	}{
 		{"hg", []string{"status", "log", "diff"}, []string{"push", "commit"}},
 		{"svn", []string{"status", "log", "diff"}, []string{"commit", "update"}},
-		{"go", []string{"test", "build", "vet", "fmt", "list", "doc", "version", "env", "run", "generate"}, []string{"get", "install"}},
-		{"npm", []string{"test", "run", "run-script", "exec", "ls", "list", "view", "outdated", "audit"}, []string{"publish", "install"}},
+		{"go", []string{"test", "build", "vet", "fmt", "list", "doc", "version", "env", "run", "generate"},
+			[]string{"get", "install"}},
+		{"npm", []string{"test", "run", "run-script", "exec", "ls", "list", "view", "outdated", "audit"},
+			[]string{"publish", "install"}},
 		{"cargo", []string{"test", "build", "check", "clippy", "fmt", "run", "doc", "tree"}, []string{"publish", "install"}},
 		{"pip", []string{"list", "show", "freeze"}, []string{"install"}},
 		{"pip3", []string{"list", "show", "freeze"}, []string{"install"}},

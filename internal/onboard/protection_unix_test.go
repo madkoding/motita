@@ -34,7 +34,8 @@ func TestCredentialsAreReallyPrivateOnThisPlatform(t *testing.T) {
 // credentials and the log, so other users cannot list or read it.
 func TestConfigDirectoryIsPrivate(t *testing.T) {
 	dir := filepath.Join(t.TempDir(), ".motita")
-	if _, _, err := run(context.Background(), t, dir, []string{"openai", "", "sk-a-key", "1", "3", ""}, Answers{}); err != nil {
+	if _, _, err := run(context.Background(), t, dir, []string{"openai", "", "sk-a-key", "1", "3", ""},
+		Answers{}); err != nil {
 		t.Fatalf("Run: %v", err)
 	}
 	info, err := os.Stat(dir)

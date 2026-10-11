@@ -40,6 +40,8 @@ func TestSystemReadersRefuseTheFormsThatChangeTheSystem(t *testing.T) {
 			t.Errorf("%q changes the system and must be refused, got allowed: %s", c, d.Reason)
 		} else if d.Reason == "" {
 			t.Errorf("%q: a refusal must explain itself", c)
+		} else {
+			// the expected outcome: nothing more to check
 		}
 	}
 }
@@ -50,7 +52,8 @@ func TestSystemReadersStillRead(t *testing.T) {
 		{"journalctl", "--disk-usage"},
 		{"dmesg"}, {"dmesg", "-T"}, {"dmesg", "--level=err"}, {"dmesg", "-l", "err"}, {"dmesg", "--human"},
 		{"date"}, {"date", "+%s"}, {"date", "-u", "+%F"}, {"date", "-d", "yesterday"}, {"date", "-dnow"},
-		{"date", "--date", "now", "+%s"}, {"date", "--date=now"}, {"date", "-r", "file"}, {"date", "-Iseconds"}, {"date", "-I", "+%s"},
+		{"date", "--date", "now", "+%s"}, {"date", "--date=now"}, {"date", "-r", "file"}, {"date", "-Iseconds"},
+		{"date", "-I", "+%s"},
 		{"date", "--rfc-3339=s"}, {"date", "-f", "dates"},
 		{"hostname"}, {"hostname", "-f"}, {"hostname", "-I"}, {"hostname", "--fqdn"},
 		{"hostnamectl"}, {"hostnamectl", "status"}, {"hostnamectl", "hostname"}, {"hostnamectl", "--static", "hostname"},

@@ -49,7 +49,8 @@ func TestSessionWorktreeSurvivesTheSessionMovingToAnotherBranch(t *testing.T) {
 		t.Fatalf("sessionWorktree after the session moved branch: %v", err)
 	}
 	if got != ss.Workspace {
-		t.Fatalf("workspace = %q, want the session's own worktree %q: a session moved to a feature branch must keep its worktree, not fall back to the project's checkout", got, ss.Workspace)
+		t.Fatalf("workspace = %q, want the session's own worktree %q: a session moved to a feature branch "+
+			"must keep its worktree, not fall back to the project's checkout", got, ss.Workspace)
 	}
 	if branch := gitx.Display(ctx, got); branch != "feature" {
 		t.Errorf("the worktree must be left where the session put it, got %q", branch)

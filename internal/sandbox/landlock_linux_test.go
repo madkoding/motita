@@ -56,7 +56,8 @@ func TestTheWorkspaceItsTempAndDevStayWritable(t *testing.T) {
 	needLandlock(t)
 	base := t.TempDir()
 	s := confined(t, base)
-	script := `echo a > a.txt && mkdir d && echo b > d/b.txt && mv a.txt d/ && echo "$TMPDIR" && echo t > "$TMPDIR/t" && echo ok > /dev/null && echo fine`
+	script := `echo a > a.txt && mkdir d && echo b > d/b.txt && mv a.txt d/ && echo "$TMPDIR" && echo t > "$TMPDIR/t" ` +
+		`&& echo ok > /dev/null && echo fine`
 	out, _, exit, err := s.Run(context.Background(), execx.Request{Command: "/bin/sh", Args: []string{"-c", script}})
 	if err != nil || exit != 0 || !strings.Contains(out, "fine") {
 		t.Fatalf("exit=%d err=%v out=%q", exit, err, out)
@@ -119,8 +120,10 @@ func TestAWorktreeCanWriteItsGitDirectories(t *testing.T) {
 	common, own, work := fakeWorktree(t)
 	s := confined(t, work)
 	_, _, _, err := s.Run(context.Background(), execx.Request{Command: "/bin/sh",
-		Args: []string{"-c", "echo x > " + filepath.Join(common, "objects", "marker") + "; echo y > " + filepath.Join(own, "HEAD") +
-			"; echo z > " + filepath.Join(common, "config") + "; echo h > " + filepath.Join(common, "hooks", "pre-commit")}})
+		Args: []string{"-c", "echo x > " + filepath.Join(common, "objects", "marker") +
+			"; echo y > " + filepath.Join(own, "HEAD") +
+			"; echo z > " + filepath.Join(common, "config") +
+			"; echo h > " + filepath.Join(common, "hooks", "pre-commit")}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -383,7 +386,8 @@ func TestAGitCommitInAConfinedWorktreeWorks(t *testing.T) {
 	root := t.TempDir()
 	main, work := filepath.Join(root, "main"), filepath.Join(root, "work")
 	git := func(dir string, args ...string) {
-		cmd := exec.Command("git", append([]string{"-c", "commit.gpgsign=false", "-c", "user.name=t", "-c", "user.email=t@t"}, args...)...)
+		cmd := exec.Command("git",
+			append([]string{"-c", "commit.gpgsign=false", "-c", "user.name=t", "-c", "user.email=t@t"}, args...)...)
 		cmd.Dir = dir
 		cmd.Env = append(os.Environ(), "GIT_CONFIG_NOSYSTEM=1", "GIT_CONFIG_GLOBAL=/dev/null")
 		if out, err := cmd.CombinedOutput(); err != nil {
@@ -396,7 +400,8 @@ func TestAGitCommitInAConfinedWorktreeWorks(t *testing.T) {
 	git(main, "worktree", "add", "-q", work, "-b", "feature")
 	s := confined(t, work)
 	out, _, exit, err := s.Run(context.Background(), execx.Request{Command: "/bin/sh", Args: []string{"-c",
-		"echo x > f.txt && git add f.txt && git -c commit.gpgsign=false -c user.name=t -c user.email=t@t commit -q -m work && git log --oneline | head -1"},
+		"echo x > f.txt && git add f.txt && git -c commit.gpgsign=false -c user.name=t -c user.email=t@t commit -q -m work " +
+			"&& git log --oneline | head -1"},
 		Environment: nil})
 	if err != nil || exit != 0 || !strings.Contains(out, "work") {
 		t.Fatalf("exit=%d err=%v out=%q", exit, err, out)

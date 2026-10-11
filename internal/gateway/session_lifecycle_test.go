@@ -32,7 +32,13 @@ func addOrigin(t *testing.T, dir, branch string) {
 // callHandler drives one of the session handlers directly against a conversation,
 // bypassing the router so a test can put the conversation in exactly the state it
 // is testing.
-func callHandler(t *testing.T, srv *Server, c *conversation, fn func(http.ResponseWriter, *http.Request), path string) *httptest.ResponseRecorder {
+func callHandler(
+	t *testing.T,
+	srv *Server,
+	c *conversation,
+	fn func(http.ResponseWriter, *http.Request),
+	path string,
+) *httptest.ResponseRecorder {
 	t.Helper()
 	req := httptest.NewRequest(http.MethodPost, path, nil)
 	req = req.WithContext(context.WithValue(req.Context(), conversationKey, c))

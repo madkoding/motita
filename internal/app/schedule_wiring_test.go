@@ -102,7 +102,10 @@ func TestTheGatewayIsWiredWithoutAScheduleDirectoryWhenSchedulingIsOff(t *testin
 			BaseCtx: context.Background(),
 			NewGateway: func(opts gateway.Options, _ config.Config) (*gateway.Server, error) {
 				if opts.ScheduleDir != "" {
-					t.Errorf("ScheduleDir = %q with schedule.enabled=false, want empty: a store opened with a watcher running IS scheduling", opts.ScheduleDir)
+					t.Errorf(
+						"ScheduleDir = %q with schedule.enabled=false, want empty: a store opened with a watcher running IS scheduling",
+						opts.ScheduleDir,
+					)
 				}
 				return nil, errors.New("stop here: the wiring is what is under test")
 			},

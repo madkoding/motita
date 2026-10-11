@@ -63,11 +63,16 @@ func TestElapsedText(t *testing.T) {
 		a    agent.AgentInfo
 		want string
 	}{
-		{agent.AgentInfo{State: agent.AgentRunning, Started: agentsT0}, "2m00s"},                                          // live clock
-		{agent.AgentInfo{State: agent.AgentPassed, Started: agentsT0, Finished: agentsT0.Add(83 * time.Second)}, "1m23s"}, // fixed at its end
-		{agent.AgentInfo{State: agent.AgentCancelled, ElapsedMS: 5400}, "5s"},                                             // only the snapshot's figure
-		{agent.AgentInfo{State: agent.AgentRunning, Started: now.Add(time.Minute)}, "0s"},                                 // a clock behind the agent's
-		{agent.AgentInfo{State: agent.AgentPassed, Started: agentsT0, Finished: agentsT0.Add(2*time.Hour + 5*time.Minute)}, "2h05m"},
+		// live clock
+		{agent.AgentInfo{State: agent.AgentRunning, Started: agentsT0}, "2m00s"},
+		// fixed at its end
+		{agent.AgentInfo{State: agent.AgentPassed, Started: agentsT0, Finished: agentsT0.Add(83 * time.Second)}, "1m23s"},
+		// only the snapshot's figure
+		{agent.AgentInfo{State: agent.AgentCancelled, ElapsedMS: 5400}, "5s"},
+		// a clock behind the agent's
+		{agent.AgentInfo{State: agent.AgentRunning, Started: now.Add(time.Minute)}, "0s"},
+		{agent.AgentInfo{State: agent.AgentPassed, Started: agentsT0, Finished: agentsT0.Add(2*time.Hour + 5*time.Minute)},
+			"2h05m"},
 	}
 	for _, c := range cases {
 		if got := elapsedText(c.a, now); got != c.want {

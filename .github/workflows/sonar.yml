@@ -1,12 +1,12 @@
-# Análisis de seguridad y calidad -> SonarQube (sonar.kodingvibes.com).
-# Sonar Community no hace análisis de taint (SQLi, XSS, path traversal...): lo hacen
-# Semgrep OSS y CodeQL, y su SARIF se importa a Sonar.
-# Secrets: SONAR_TOKEN y SONAR_HOST_URL.
+# Security and quality analysis -> SonarQube (sonar.kodingvibes.com).
+# Sonar Community does no taint analysis (SQLi, XSS, path traversal...): Semgrep OSS and
+# CodeQL do, and their SARIF is imported into Sonar.
+# Secrets: SONAR_TOKEN and SONAR_HOST_URL.
 #
-# En un pull request se analiza solo el código nuevo: Semgrep contra el commit base y CodeQL
-# con sus consultas limitadas al diff, y cualquier hallazgo hace fallar el job. Sonar Community
-# tiene una sola rama y cada análisis reemplaza el anterior, así que el análisis completo (con
-# cobertura y quality gate) corre solo en main y a mano (workflow_dispatch).
+# A pull request analyses only new code: Semgrep against the base commit and CodeQL with its
+# queries limited to the diff, and any finding fails the job. Sonar Community has a single
+# branch and every analysis replaces the previous one, so the full analysis (with coverage and
+# the quality gate) runs only on main and by hand (workflow_dispatch).
 name: sonar
 
 on:
@@ -37,7 +37,7 @@ jobs:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
         run: |
           pip install semgrep
-          # En un PR: solo los hallazgos que el PR introduce, y --error hace fallar el job.
+          # On a PR: only the findings the PR introduces, and --error fails the job.
           pr_args=()
           if [ -n "$BASE_SHA" ]; then pr_args=(--baseline-commit "$BASE_SHA" --error); fi
           semgrep scan --config p/owasp-top-ten --config p/security-audit --config p/golang \
@@ -63,7 +63,7 @@ jobs:
         with:
           output: codeql-sarif
       - run: cp codeql-sarif/*.sarif codeql.sarif
-      # En un PR CodeQL ya limita los resultados a las líneas cambiadas: cualquiera es nuevo.
+      # On a PR CodeQL already limits results to the changed lines: any result is new.
       - name: No new CodeQL findings
         if: github.event_name == 'pull_request'
         run: |
@@ -75,7 +75,7 @@ jobs:
           path: codeql.sarif
 
   sonar:
-    # Análisis completo solo fuera de los PR (ver la cabecera).
+    # Full analysis only outside PRs (see the header).
     if: github.event_name != 'pull_request'
     permissions:
       contents: read
@@ -98,8 +98,8 @@ jobs:
           cache: false
       - name: Build web UI (go:embed needs the assets)
         run: cd web && npm ci && npm run build
-      # Única fuente de cobertura del proyecto: el gate de tests vive en ci.yml; aquí el perfil
-      # solo alimenta el análisis, así que un paquete que falla se imprime pero no lo detiene.
+      # The project's only coverage source: the test gate lives in ci.yml; here the profile only
+      # feeds the analysis, so a failing package is printed but does not stop it.
       - name: Coverage report for SonarQube
         env:
           GOFLAGS: -mod=mod
@@ -114,14 +114,14 @@ jobs:
         env:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
           SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}
-      # El quality gate (seguridad, fiabilidad, mantenibilidad A y duplicación <= 3 %) bloquea el CI.
+      # The quality gate (security, reliability, maintainability A and duplication <= 3 %) blocks CI.
       - uses: SonarSource/sonarqube-quality-gate-action@7a5fffe8e523c40e0c740b6bc2712ab503e52efa # v1
         timeout-minutes: 5
         env:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
           SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}
-      # Deja el estado del gate, las métricas y los hallazgos abiertos en el resumen del job,
-      # para revisarlos sin entrar al servidor de Sonar.
+      # Leaves the gate status, the measures and the open findings in the job summary, so they
+      # can be read without opening the Sonar server.
       - name: Sonar report
         if: always() && steps.scan.outcome == 'success'
         env:

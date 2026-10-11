@@ -118,7 +118,10 @@ func TestASecondPassRefusesToOverlapTheFirst(t *testing.T) {
 		Every: Duration(time.Hour), Enabled: true, Created: now.Add(-2 * time.Hour)})
 
 	done := make(chan struct{})
-	go func() { defer close(done); w.FireDue(context.Background()) }()
+	go func() {
+		defer close(done)
+		w.FireDue(context.Background())
+	}()
 
 	// Wait until the first firing is inside the firer.
 	deadline := time.Now().Add(2 * time.Second)
@@ -145,7 +148,10 @@ func TestTheWatchLoopStopsWithItsContext(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 
 	stopped := make(chan struct{})
-	go func() { defer close(stopped); w.Run(ctx) }()
+	go func() {
+		defer close(stopped)
+		w.Run(ctx)
+	}()
 	time.Sleep(10 * time.Millisecond)
 	cancel()
 
@@ -188,7 +194,10 @@ func TestSetTickIsHonouredByTheLoop(t *testing.T) {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	stopped := make(chan struct{})
-	go func() { defer close(stopped); w.Run(ctx) }()
+	go func() {
+		defer close(stopped)
+		w.Run(ctx)
+	}()
 
 	deadline := time.Now().Add(2 * time.Second)
 	for time.Now().Before(deadline) && len(f.ids()) == 0 {

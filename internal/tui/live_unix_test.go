@@ -19,7 +19,10 @@ import (
 func TestRestoringIsIdempotent(t *testing.T) {
 	var calls int
 	old := runSttyMode
-	runSttyMode = func(f *os.File, args ...string) error { calls++; return nil }
+	runSttyMode = func(f *os.File, args ...string) error {
+		calls++
+		return nil
+	}
 	defer func() { runSttyMode = old }()
 
 	f, err := os.CreateTemp(t.TempDir(), "tty")
@@ -56,7 +59,10 @@ func TestEnteringTheModeAsksTheDriverForCBreakWithoutEcho(t *testing.T) {
 	oldRun, oldOpen, oldStat := runSttyMode, openTTYMode, statTTY
 	defer func() { runSttyMode, openTTYMode, statTTY = oldRun, oldOpen, oldStat }()
 
-	runSttyMode = func(f *os.File, args ...string) error { got = args; return nil }
+	runSttyMode = func(f *os.File, args ...string) error {
+		got = args
+		return nil
+	}
 	openTTYMode = func(name string, flag int, perm os.FileMode) (*os.File, error) {
 		return os.CreateTemp(t.TempDir(), "tty")
 	}

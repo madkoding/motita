@@ -102,13 +102,20 @@ func TestTheLoggerIsSilencedExactlyWhenTheInterfaceRuns(t *testing.T) {
 				t.Errorf("the predicate answered %v then %v for %+v", first, second, fl)
 			}
 			// And that the answer is the documented one for this combination.
-			want := fl.tui || (fl.configPath == "" && fl.task == "" && fl.taskFile == "" &&
-				!fl.validateConfig && !fl.isolation && !fl.version && !fl.initConfig && len(args) == 0)
+			want := documentedWillRunTUI(fl, args)
 			if first != want {
 				t.Errorf("willRunTUI(%+v, args=%v) = %v, want %v", fl, args, first, want)
 			}
 		}
 	}
+}
+
+// documentedWillRunTUI is the documented answer: the interface runs when asked for, or when
+// nothing else was asked for at all.
+func documentedWillRunTUI(fl flags, args []string) bool {
+	noTaskSource := fl.configPath == "" && fl.task == "" && fl.taskFile == ""
+	noOtherMode := !fl.validateConfig && !fl.isolation && !fl.version && !fl.initConfig
+	return fl.tui || (noTaskSource && noOtherMode && len(args) == 0)
 }
 
 // TestTheSilencedLoggerKeepsWritingToTheFile: turning the console log off must not turn the

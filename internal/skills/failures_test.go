@@ -173,6 +173,8 @@ func TestGetOverAnUnreadableFile(t *testing.T) {
 		t.Error("an unreadable document must be reported")
 	} else if errors.Is(err, ErrNotFound) {
 		t.Error("unreadable is not the same as missing")
+	} else {
+		// the expected outcome: nothing more to check
 	}
 }
 
@@ -257,7 +259,10 @@ func TestSaveReportsACloseFailure(t *testing.T) {
 	boom := errors.New("flush failed")
 
 	old := closeTemp
-	closeTemp = func(f *os.File) error { f.Close(); return boom }
+	closeTemp = func(f *os.File) error {
+		f.Close()
+		return boom
+	}
 	defer func() { closeTemp = old }()
 
 	if _, err := l.Save("x", "# X\n\nbody\n"); !errors.Is(err, boom) {
@@ -286,7 +291,8 @@ func TestSearchRanksABodyMatchLast(t *testing.T) {
 	if _, err := l.Save("about-it", "# About it\n\nThis one is about widgets.\n"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := l.Save("mentions-it", "# Other thing\n\nA procedure about something else.\n\nLater on it happens to mention widgets once.\n"); err != nil {
+	if _, err := l.Save("mentions-it",
+		"# Other thing\n\nA procedure about something else.\n\nLater on it happens to mention widgets once.\n"); err != nil {
 		t.Fatal(err)
 	}
 
@@ -311,7 +317,8 @@ func TestSearchRanksABodyMatchLast(t *testing.T) {
 // nothing, which tells the model the library is empty when it holds the procedure it needs.
 func TestSearchMatchesWordsNotTheLiteralPhrase(t *testing.T) {
 	l := newLib(t)
-	if _, err := l.Save("nrf", "# NRF firmware\n\nUse west and the SDK to produce a UF2 image for the board.\n"); err != nil {
+	if _, err := l.Save("nrf",
+		"# NRF firmware\n\nUse west and the SDK to produce a UF2 image for the board.\n"); err != nil {
 		t.Fatal(err)
 	}
 
@@ -360,7 +367,8 @@ func TestSearchPrefersTheTitleOverTheBody(t *testing.T) {
 	if _, err := l.Save("guide-one", "# Widget handling\n\nHow to handle them.\n"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := l.Save("other", "# Something else\n\nA long procedure about nothing much.\n\n## Aside\n\nOne day we saw widgets.\n"); err != nil {
+	if _, err := l.Save("other",
+		"# Something else\n\nA long procedure about nothing much.\n\n## Aside\n\nOne day we saw widgets.\n"); err != nil {
 		t.Fatal(err)
 	}
 
@@ -595,13 +603,15 @@ func TestArchivedIsSorted(t *testing.T) {
 func TestSearchUnderstandsAccentedWords(t *testing.T) {
 	dir := t.TempDir()
 	lib := New(dir)
-	if _, err := lib.Save("deploy-notes", "# Notas de despliegue\nPasos de configuración del servidor."); err != nil { // spanish-fixture: a Spanish skill
+	if _, err := lib.Save("deploy-notes",
+		"# Notas de despliegue\nPasos de configuración del servidor."); err != nil { // spanish-fixture: a Spanish skill
 		t.Fatal(err)
 	}
 	if _, err := lib.Save("other", "# Other\nNothing about servers."); err != nil {
 		t.Fatal(err)
 	}
-	if got := queryWords("configuración búsqueda"); len(got) != 2 || got[0] != "configuración" || got[1] != "búsqueda" { // spanish-fixture: a Spanish query
+	if got := queryWords("configuración búsqueda"); len(got) != 2 || // spanish-fixture: a Spanish query
+		got[0] != "configuración" || got[1] != "búsqueda" { // spanish-fixture: a Spanish query
 		t.Errorf("queryWords = %q, want the two whole words", got)
 	}
 	hits, err := lib.Search("configuración", 5) // spanish-fixture: a Spanish query
@@ -613,7 +623,8 @@ func TestSearchUnderstandsAccentedWords(t *testing.T) {
 // TestSearchIgnoresStopWords: a query written as a sentence does not match the whole library
 // on "the", "with" or "para".
 func TestSearchIgnoresStopWords(t *testing.T) {
-	if got := queryWords("how to deploy the app with docker para el servidor"); strings.Join(got, " ") != "deploy app docker servidor" {
+	got := queryWords("how to deploy the app with docker para el servidor")
+	if strings.Join(got, " ") != "deploy app docker servidor" {
 		t.Errorf("queryWords = %q", got)
 	}
 }

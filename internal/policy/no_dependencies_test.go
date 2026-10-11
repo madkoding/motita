@@ -27,6 +27,8 @@ func TestTheREADMEsNoDependenciesClaimHolds(t *testing.T) {
 		t.Error("README says there is no go.sum, and one exists: something was pulled in")
 	} else if !os.IsNotExist(err) {
 		t.Fatalf("cannot tell whether go.sum exists: %v", err)
+	} else {
+		// no go.sum, as the README says: nothing more to check
 	}
 
 	t.Logf("holds: %d require directives, no go.sum — the claim is still true", len(requires))
@@ -103,6 +105,8 @@ func requiredModules(mod string) []string {
 			inBlock = true
 		case strings.HasPrefix(line, "require "):
 			out = append(out, strings.TrimSpace(strings.TrimPrefix(line, "require ")))
+		default:
+			// any other line of go.mod names no dependency
 		}
 	}
 	return out

@@ -40,24 +40,39 @@ func TestProposedSkillsAreReviewedOverHTTP(t *testing.T) {
 	lib := &fakeProposals{}
 	srv := withSkills(t, lib)
 
-	if w := get(t, srv, "/v1/skills/proposed", testToken); w.Code != http.StatusOK || strings.TrimSpace(w.Body.String()) != `{"skills":[]}` {
+	if w := get(t, srv, "/v1/skills/proposed", testToken); w.Code != http.StatusOK ||
+		strings.TrimSpace(w.Body.String()) != `{"skills":[]}` {
 		t.Errorf("none: %d %s", w.Code, w.Body.String())
 	}
 	lib.proposed = []string{"deploy"}
-	if w := get(t, srv, "/v1/skills/proposed", testToken); w.Code != http.StatusOK || !strings.Contains(w.Body.String(), `"deploy"`) {
+	if w := get(t, srv, "/v1/skills/proposed", testToken); w.Code != http.StatusOK ||
+		!strings.Contains(w.Body.String(), `"deploy"`) {
 		t.Errorf("one: %d %s", w.Code, w.Body.String())
 	}
-	if w := get(t, srv, "/v1/skills/proposed/deploy", testToken); w.Code != http.StatusOK || !strings.Contains(w.Body.String(), `"body":"B"`) {
+	if w := get(t, srv, "/v1/skills/proposed/deploy", testToken); w.Code != http.StatusOK ||
+		!strings.Contains(w.Body.String(), `"body":"B"`) {
 		t.Errorf("read: %d %s", w.Code, w.Body.String())
 	}
-	if w := send(t, srv, http.MethodPost, "/v1/skills/proposed/deploy/accept", testToken, ""); w.Code != http.StatusNoContent || fmt.Sprint(lib.accepted) != "[deploy]" {
-		t.Errorf("accept: %d %v", w.Code, lib.accepted)
+	accept := send(t, srv, http.MethodPost, "/v1/skills/proposed/deploy/accept", testToken, "")
+	if accept.Code != http.StatusNoContent || fmt.Sprint(lib.accepted) != "[deploy]" {
+		t.Errorf("accept: %d %v", accept.Code, lib.accepted)
 	}
-	if w := del(t, srv, "/v1/skills/proposed/junk", testToken); w.Code != http.StatusNoContent || fmt.Sprint(lib.rejected) != "[junk]" {
+	if w := del(t, srv, "/v1/skills/proposed/junk", testToken); w.Code != http.StatusNoContent ||
+		fmt.Sprint(lib.rejected) != "[junk]" {
 		t.Errorf("reject: %d %v", w.Code, lib.rejected)
 	}
 
-	// No such proposal: 404. A disk that refused: 500.
+	checkProposalFailures(t, srv, lib)
+	lib.listErr = errors.New("unreadable")
+	if w := get(t, srv, "/v1/skills/proposed", testToken); w.Code != http.StatusInternalServerError {
+		t.Errorf("an unreadable list: %d", w.Code)
+	}
+}
+
+// checkProposalFailures makes the library fail every read, accept and reject of a proposal and
+// checks each one's status. No such proposal: 404. A disk that refused: 500.
+func checkProposalFailures(t *testing.T, srv *Server, lib *fakeProposals) {
+	t.Helper()
 	for err, want := range map[error]int{
 		fmt.Errorf("%w: nope", skills.ErrNotFound): http.StatusNotFound,
 		errors.New("disk"):                         http.StatusInternalServerError,
@@ -72,10 +87,6 @@ func TestProposedSkillsAreReviewedOverHTTP(t *testing.T) {
 				t.Errorf("%v: %d, want %d", err, w, want)
 			}
 		}
-	}
-	lib.listErr = errors.New("unreadable")
-	if w := get(t, srv, "/v1/skills/proposed", testToken); w.Code != http.StatusInternalServerError {
-		t.Errorf("an unreadable list: %d", w.Code)
 	}
 }
 

@@ -37,7 +37,8 @@ func TestAConfinedCommandCannotReadMotitasSecrets(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	script := "cat " + filepath.Join(auth, "git-github.json") + " " + keys + "; ln -s " + auth + " link; cat link/git-github.json; " +
+	script := "cat " + filepath.Join(auth, "git-github.json") + " " + keys +
+		"; ln -s " + auth + " link; cat link/git-github.json; " +
 		"cat " + filepath.Join(home, "notes.txt") + " mine.txt; head -c1 /etc/passwd >/dev/null && echo system-readable"
 	out, _, _, err := s.Run(context.Background(), execx.Request{Command: "/bin/sh", Args: []string{"-c", script}})
 	if err != nil {
@@ -52,14 +53,16 @@ func TestAConfinedCommandCannotReadMotitasSecrets(t *testing.T) {
 		}
 	}
 
-	out, _, _, err = s.Run(context.Background(), execx.Request{Command: "/bin/cat", Args: []string{keys}, Unconfined: true})
+	out, _, _, err = s.Run(context.Background(),
+		execx.Request{Command: "/bin/cat", Args: []string{keys}, Unconfined: true})
 	if err != nil || !strings.Contains(out, "KEY-IN-ENV") {
 		t.Errorf("what the user approved is not confined: %v %q", err, out)
 	}
 }
 
 func TestReadableAroundGrantsEverythingButTheWay(t *testing.T) {
-	if readableAround(nil) != nil || readableAround([]string{"relative/path"}) != nil || readableAround([]string{"/"}) != nil {
+	if readableAround(nil) != nil || readableAround([]string{"relative/path"}) != nil ||
+		readableAround([]string{"/"}) != nil {
 		t.Error("with nothing to hide nothing is restricted")
 	}
 	home, auth, keys := motitaHome(t)
@@ -122,7 +125,8 @@ func TestAConfinedCommandCannotReadTheGitCredentialStore(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	out, _, _, _ := s.Run(context.Background(), execx.Request{Command: "/bin/cat", Args: []string{filepath.Join(home, ".git-credentials")}})
+	out, _, _, _ := s.Run(context.Background(),
+		execx.Request{Command: "/bin/cat", Args: []string{filepath.Join(home, ".git-credentials")}})
 	if strings.Contains(out, "TOKEN") {
 		t.Errorf("a confined command read the git credential store: %q", out)
 	}
@@ -148,6 +152,8 @@ func TestConfineWritesHandlesReadsWhenSomethingIsHidden(t *testing.T) {
 				if failing {
 					return 0, 0, syscall.EINVAL
 				}
+			default:
+				// any other call succeeds
 			}
 			return 0, 0, 0
 		}

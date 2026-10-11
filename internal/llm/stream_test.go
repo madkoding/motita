@@ -96,6 +96,8 @@ func TestCompleteToolsStreamYieldsTextThenDone(t *testing.T) {
 			if ch.Reply.Content != "hello world" {
 				t.Errorf("the final reply must carry the accumulated text, got %q", ch.Reply.Content)
 			}
+		default:
+			// Other events do not matter here.
 		}
 	}
 	if text.String() != "hello world" {
@@ -109,8 +111,13 @@ func TestCompleteToolsStreamYieldsTextThenDone(t *testing.T) {
 // TestCompleteToolsStreamAnnouncesToolCalls: the TUI turns these chunks into the
 // "using <tool>" lines, so a tool call must arrive as its own event.
 func TestCompleteToolsStreamAnnouncesToolCalls(t *testing.T) {
-	srv := sseServer(t, "data: {\"choices\":[{\"delta\":{\"tool_calls\":[{\"id\":\"c1\",\"type\":\"function\",\"function\":{\"name\":\"execute_command\",\"arguments\":\"{\\\"command\\\":\\\"ls\\\"}\"}}]}}]}\n\n"+
-		"data: [DONE]\n\n", http.StatusOK)
+	srv := sseServer(
+		t,
+		"data: {\"choices\":[{\"delta\":{\"tool_calls\":[{\"id\":\"c1\",\"type\":\"function\","+
+			"\"function\":{\"name\":\"execute_command\",\"arguments\":\"{\\\"command\\\":\\\"ls\\\"}\"}}]}}]}\n\n"+
+			"data: [DONE]\n\n",
+		http.StatusOK,
+	)
 	c := streamClient(t, srv.URL)
 
 	chunks := collect(c.CompleteToolsStream(context.Background(), []Message{{Role: "user", Content: "hi"}}, nil))
@@ -124,6 +131,8 @@ func TestCompleteToolsStreamAnnouncesToolCalls(t *testing.T) {
 			}
 		case StreamDone:
 			final = ch.Reply
+		default:
+			// Other events do not matter here.
 		}
 	}
 	if len(names) == 0 || names[0] != "execute_command" {
@@ -188,6 +197,7 @@ func TestCompleteToolsStreamStopsOnAClosedBody(t *testing.T) {
 	go func() {
 		defer close(done)
 		for range c.CompleteToolsStream(context.Background(), []Message{{Role: "user", Content: "hi"}}, nil) {
+			// Drain the stream: only what the request did is checked.
 		}
 	}()
 	select {
@@ -202,9 +212,22 @@ func TestCompleteToolsStreamStopsOnAClosedBody(t *testing.T) {
 // a new one for every delta.
 func TestStreamResultAccumulatesToolCallUpdates(t *testing.T) {
 	var acc StreamResult
-	acc.Handle(StreamChunk{Event: StreamToolCall, Call: &ToolCall{ID: "c1", Function: FunctionCall{Name: "execute_command", Arguments: json.RawMessage(`{"cmd":`)}}})
+	acc.Handle(
+		StreamChunk{
+			Event: StreamToolCall,
+			Call:  &ToolCall{ID: "c1", Function: FunctionCall{Name: "execute_command", Arguments: json.RawMessage(`{"cmd":`)}},
+		},
+	)
 	acc.Handle(StreamChunk{Event: StreamText, Text: "hello"})
-	acc.Handle(StreamChunk{Event: StreamToolCall, Call: &ToolCall{ID: "c1", Function: FunctionCall{Name: "execute_command", Arguments: json.RawMessage(`{"cmd":"ls"}`)}}})
+	acc.Handle(
+		StreamChunk{
+			Event: StreamToolCall,
+			Call: &ToolCall{
+				ID:       "c1",
+				Function: FunctionCall{Name: "execute_command", Arguments: json.RawMessage(`{"cmd":"ls"}`)},
+			},
+		},
+	)
 	acc.Handle(StreamChunk{Event: StreamToolCall, Call: &ToolCall{ID: "c2", Function: FunctionCall{Name: "read_file"}}})
 
 	reply := acc.FinalReply()
@@ -283,6 +306,8 @@ func TestCompleteToolsStreamRetriesThenSucceeds(t *testing.T) {
 			text.WriteString(ch.Text)
 		case StreamError:
 			sawError = true
+		default:
+			// Other events do not matter here.
 		}
 	}
 	if sawError {
@@ -365,6 +390,7 @@ func TestCompleteToolsStreamHonoursCancellationWhileWaitingToRetry(t *testing.T)
 	go func() {
 		defer close(done)
 		for range c.CompleteToolsStream(ctx, []Message{{Role: "user", Content: "hi"}}, nil) {
+			// Drain the stream: only what the request did is checked.
 		}
 	}()
 	select {
@@ -398,6 +424,7 @@ func TestCompleteToolsStreamReportsANonRetryableFailure(t *testing.T) {
 	}
 
 	for range c.CompleteToolsStream(context.Background(), []Message{{Role: "user", Content: "hi"}}, nil) {
+		// Drain the stream: only what the request did is checked.
 	}
 	if calls != 1 {
 		t.Errorf("a 401 must not be retried, the server was called %d times", calls)

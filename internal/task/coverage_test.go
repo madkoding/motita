@@ -319,7 +319,9 @@ func TestAPISourceKeepsItsURLCredentialsOutOfTheLog(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	f, err := New(config.TaskSource{Kind: "api", URL: "http://user:hunter2@127.0.0.1:1/tasks?token=s3cr3t", Interval: 10 * time.Millisecond}, log)
+	f, err := New(
+		config.TaskSource{Kind: "api", URL: "http://user:hunter2@127.0.0.1:1/tasks?token=s3cr3t",
+			Interval: 10 * time.Millisecond}, log)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -344,7 +346,8 @@ func TestAPISourceKeepsItsURLCredentialsOutOfTheLog(t *testing.T) {
 
 // TestAPISourceNetworkError: an unreachable URL does not abort, it retries.
 func TestAPISourceNetworkError(t *testing.T) {
-	f, err := New(config.TaskSource{Kind: "api", URL: "http://127.0.0.1:1/tasks", Interval: 10 * time.Millisecond}, logx.Global())
+	f, err := New(config.TaskSource{Kind: "api", URL: "http://127.0.0.1:1/tasks", Interval: 10 * time.Millisecond},
+		logx.Global())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -362,7 +365,8 @@ func TestAPISourceUnsupportedList(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	f, _ := New(config.TaskSource{Kind: "api", URL: srv.URL, Field: "task", Interval: 10 * time.Millisecond}, logx.Global())
+	f, _ := New(config.TaskSource{Kind: "api", URL: srv.URL, Field: "task", Interval: 10 * time.Millisecond},
+		logx.Global())
 	ctx, cancel := context.WithTimeout(context.Background(), 150*time.Millisecond)
 	defer cancel()
 	if _, err := f.Next(ctx); err != io.EOF {
@@ -377,7 +381,8 @@ func TestAPISourceEmptyField(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	f, _ := New(config.TaskSource{Kind: "api", URL: srv.URL, Field: "task", Interval: 10 * time.Millisecond}, logx.Global())
+	f, _ := New(config.TaskSource{Kind: "api", URL: srv.URL, Field: "task", Interval: 10 * time.Millisecond},
+		logx.Global())
 	ctx, cancel := context.WithTimeout(context.Background(), 150*time.Millisecond)
 	defer cancel()
 	if _, err := f.Next(ctx); err != io.EOF {
@@ -523,7 +528,8 @@ func TestAPISourceJSONWithoutField(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	f, _ := New(config.TaskSource{Kind: "api", URL: srv.URL, Field: "task", Interval: 10 * time.Millisecond}, logx.Global())
+	f, _ := New(config.TaskSource{Kind: "api", URL: srv.URL, Field: "task", Interval: 10 * time.Millisecond},
+		logx.Global())
 	ctx, cancel := context.WithTimeout(context.Background(), 150*time.Millisecond)
 	defer cancel()
 	_, err := f.Next(ctx)

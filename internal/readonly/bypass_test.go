@@ -28,7 +28,8 @@ func TestReadOnlyModeRefusesEveryKnownBypass(t *testing.T) {
 		{"sed", "/x/w out", "f"}, {"sed", `\%x%w out`, "f"}, {"sed", "1,/x/w out", "f"},
 		{"sed", "$!w out", "f"}, {"sed", "1{w out\n}", "f"}, {"sed", "1a\\\nfoo\nw out", "f"},
 		{"sed", "y/ab/cd/;w out", "f"}, {"sed", "--", "w out", "f"}, {"sed", "p;e", "f"},
-		{"sed", "s/[/]/x/w out", "f"}, {"sed", "y/[/]/;w out", "f"}, {"sed", "s/[[:alpha:]/]/x/w out", "f"}, {"sed", "'w out'", "f"},
+		{"sed", "s/[/]/x/w out", "f"}, {"sed", "y/[/]/;w out", "f"}, {"sed", "s/[[:alpha:]/]/x/w out", "f"},
+		{"sed", "'w out'", "f"},
 		// sed: scripts that cannot be read are refused rather than guessed at.
 		{"sed", "s/a/b", "f"}, {"sed", "s/[a/b/", "f"}, {"sed", "y/a", "f"}, {"sed", "s", "f"},
 		{"sed", "y", "f"}, {"sed", "1", "f"}, {"sed", "1,", "f"}, {"sed", "/a", "f"}, {"sed", `\`, "f"},
@@ -86,6 +87,8 @@ func TestReadOnlyModeRefusesEveryKnownBypass(t *testing.T) {
 			t.Errorf("%q must be refused in read-only mode, got allowed: %s", c, d.Reason)
 		} else if d.Reason == "" {
 			t.Errorf("%q: a refusal must explain itself", c)
+		} else {
+			// the expected outcome: nothing more to check
 		}
 	}
 }

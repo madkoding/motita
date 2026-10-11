@@ -22,6 +22,8 @@ func TestLoadWithoutKeyDoesNotReplaceTheFile(t *testing.T) {
 		t.Fatal("an unknown source kind must fail even when the key is not required")
 	} else if !strings.Contains(err.Error(), "telepathy") {
 		t.Errorf("the error must say which value is invalid: %v", err)
+	} else {
+		// the expected outcome: nothing more to check
 	}
 
 	if _, err := Load(path); err == nil {
@@ -170,6 +172,8 @@ func TestGatewayValidation(t *testing.T) {
 				t.Fatalf("an error naming %q was expected", tc.wantErr)
 			case tc.wantErr != "" && !strings.Contains(err.Error(), tc.wantErr):
 				t.Fatalf("error = %v, it must name %q", err, tc.wantErr)
+			default:
+				// the error, or its absence, is the expected one
 			}
 		})
 	}

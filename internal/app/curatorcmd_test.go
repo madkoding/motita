@@ -256,10 +256,9 @@ func TestCuratorPinIsRefusedWhenTheLedgerCannotBeWritten(t *testing.T) {
 	out := &syncBuffer{}
 	op := curatorOptions(t, out, "curator", "pin", "anything")
 	// Whatever the store did, the command must not report success for a pin it could not
-	// record: either it failed, or the ledger existed and the pin landed.
-	if code := Run(op); code == Success {
-		return // a ledger that could be written is a working pin, also fine
-	} else if code != RunError {
+	// record: either it failed, or the ledger existed and the pin landed (a ledger that could be
+	// written is a working pin, also fine).
+	if code := Run(op); code != Success && code != RunError {
 		t.Fatalf("exit %d, want %d or %d:\n%s", code, RunError, Success, out.String())
 	}
 }

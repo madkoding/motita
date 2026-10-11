@@ -129,7 +129,9 @@ func TestCompletionsMatchPrefixes(t *testing.T) {
 		{"/n", []string{"/new"}},
 		{"/a", []string{"/attach", "/artifacts", "/agents"}},
 		{"/se", []string{"/session", "/sessions"}},
-		{"/", []string{"/task", "/goal", "/decisions", "/plan", "/models", "/config", "/git", "/reasoning", "/language", "/find", "/session", "/sessions", "/attach", "/artifacts", "/agents", "/good", "/bad", "/value", "/new", "/update", "/help", "/quit"}},
+		{"/", []string{"/task", "/goal", "/decisions", "/plan", "/models", "/config", "/git", "/reasoning", "/language",
+			"/find", "/session", "/sessions", "/attach", "/artifacts", "/agents", "/good", "/bad", "/value", "/new", "/update",
+			"/help", "/quit"}},
 	} {
 		got := completions(tc.typed)
 		var names []string
@@ -200,17 +202,8 @@ func TestThePopupAlignsItsColumns(t *testing.T) {
 
 	var starts []int
 	for _, l := range lines {
-		plain := stripANSI(l)
-		// The description is the first word after the command column.
-		for _, c := range commands {
-			if strings.HasPrefix(strings.TrimLeft(plain, " "), c.Name+" ") ||
-				strings.HasPrefix(strings.TrimLeft(plain, " "), c.Name+"  ") {
-				idx := strings.Index(strings.TrimLeft(plain, " "), c.Help)
-				if idx >= 0 {
-					starts = append(starts, idx)
-				}
-				break
-			}
+		if idx, ok := descriptionColumn(stripANSI(l)); ok {
+			starts = append(starts, idx)
 		}
 	}
 	if len(starts) < 2 {
@@ -222,6 +215,19 @@ func TestThePopupAlignsItsColumns(t *testing.T) {
 			break
 		}
 	}
+}
+
+// descriptionColumn is where the description starts in a popup row naming a command: the
+// description is the first word after the command column.
+func descriptionColumn(plain string) (int, bool) {
+	row := strings.TrimLeft(plain, " ")
+	for _, c := range commands {
+		if strings.HasPrefix(row, c.Name+" ") || strings.HasPrefix(row, c.Name+"  ") {
+			idx := strings.Index(row, c.Help)
+			return idx, idx >= 0
+		}
+	}
+	return 0, false
 }
 
 // TestThePopupExplainsHowToAccept: a list of candidates with no instruction is a puzzle. The

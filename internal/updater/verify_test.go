@@ -273,13 +273,16 @@ func TestNewRefusesARedirectOffTheAllowlist(t *testing.T) {
 	u.HTTPClient.Transport = srv.Client().Transport
 	u.AssetHosts = testHosts
 	dest := filepath.Join(t.TempDir(), "x")
-	if err := u.downloadFile(context.Background(), srv.URL+"/ok", maxBinarySize, dest, func(ProgressEvent) {}); err != nil {
+	if err := u.downloadFile(context.Background(), srv.URL+"/ok", maxBinarySize, dest,
+		func(ProgressEvent) {}); err != nil {
 		t.Fatalf("an https redirect to an allowed host must be followed: %v", err)
 	}
-	if err := u.downloadFile(context.Background(), srv.URL+"/to-http", maxBinarySize, dest, func(ProgressEvent) {}); err == nil || !strings.Contains(err.Error(), "https") {
+	if err := u.downloadFile(context.Background(), srv.URL+"/to-http", maxBinarySize, dest,
+		func(ProgressEvent) {}); err == nil || !strings.Contains(err.Error(), "https") {
 		t.Errorf("a redirect to http must be refused, got %v", err)
 	}
-	if err := u.downloadFile(context.Background(), srv.URL+"/loop", maxBinarySize, dest, func(ProgressEvent) {}); err == nil || !strings.Contains(err.Error(), "redirects") {
+	if err := u.downloadFile(context.Background(), srv.URL+"/loop", maxBinarySize, dest,
+		func(ProgressEvent) {}); err == nil || !strings.Contains(err.Error(), "redirects") {
 		t.Errorf("a redirect loop must stop, got %v", err)
 	}
 }

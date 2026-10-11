@@ -48,7 +48,8 @@ func (f *fakeForgeHTTP) Do(req *http.Request) (*http.Response, error) {
 		if f.deviceFail {
 			status, body = 500, "down"
 		} else {
-			body = `{"device_code":"dc","user_code":"AB-12","verification_uri":"https://github.com/login/device","expires_in":600,"interval":1}`
+			body = `{"device_code":"dc","user_code":"AB-12","verification_uri":"https://github.com/login/device",` +
+				`"expires_in":600,"interval":1}`
 		}
 	case strings.HasSuffix(path, "/access_token"), strings.HasSuffix(path, "/oauth/token"):
 		body = f.tokenBody
@@ -56,29 +57,39 @@ func (f *fakeForgeHTTP) Do(req *http.Request) (*http.Response, error) {
 			body = `{"access_token":"tok"}`
 		}
 	case strings.HasSuffix(path, "/user/repos"):
-		if f.reposFail {
-			status, body = 500, `{"message":"boom"}`
-			break
-		}
-		var list []map[string]any
-		for i := 0; i < f.repos; i++ {
-			list = append(list, map[string]any{"full_name": fmt.Sprintf("octo/r%d", i+1), "private": i == 0})
-		}
-		data, _ := json.Marshal(list)
-		body = string(data)
+		status, body = f.reposReply()
 	case strings.HasSuffix(path, "/user"):
-		auth := req.Header.Get("Authorization")
-		okBasic := auth == "Basic "+base64.StdEncoding.EncodeToString([]byte("me:good"))
-		switch {
-		case f.whoFail != 0:
-			status, body = f.whoFail, `{"message":"nope"}`
-		case auth == "Bearer tok", auth == "token tok", strings.HasSuffix(auth, " good"), okBasic:
-			body = `{"login":"octo","username":"octo"}`
-		default:
-			status, body = 401, `{"message":"Bad credentials"}`
-		}
+		status, body = f.userReply(req.Header.Get("Authorization"))
+	default:
+		// any other endpoint answers an empty object
 	}
 	return &http.Response{StatusCode: status, Body: io.NopCloser(strings.NewReader(body)), Header: http.Header{}}, nil
+}
+
+// reposReply is the repository listing: f.repos of them, the first one private.
+func (f *fakeForgeHTTP) reposReply() (int, string) {
+	if f.reposFail {
+		return 500, `{"message":"boom"}`
+	}
+	var list []map[string]any
+	for i := 0; i < f.repos; i++ {
+		list = append(list, map[string]any{"full_name": fmt.Sprintf("octo/r%d", i+1), "private": i == 0})
+	}
+	data, _ := json.Marshal(list)
+	return 200, string(data)
+}
+
+// userReply is who the credential in auth belongs to, or the host's refusal.
+func (f *fakeForgeHTTP) userReply(auth string) (int, string) {
+	okBasic := auth == "Basic "+base64.StdEncoding.EncodeToString([]byte("me:good"))
+	switch {
+	case f.whoFail != 0:
+		return f.whoFail, `{"message":"nope"}`
+	case auth == "Bearer tok", auth == "token tok", strings.HasSuffix(auth, " good"), okBasic:
+		return 200, `{"login":"octo","username":"octo"}`
+	default:
+		return 401, `{"message":"Bad credentials"}`
+	}
 }
 
 // lineScript is the user's side of a login: the lines typed, in order, then silence until the
@@ -134,7 +145,10 @@ func newGitRig(t *testing.T, env map[string]string, steps ...scriptStep) *gitRig
 	r.tu.gitStore = func() gitforge.Store {
 		return gitforge.Store{Dir: r.dir, HTTP: r.http, Env: func(k string) string { return env[k] }}
 	}
-	r.tu.openURL = func(u string) error { r.opened = append(r.opened, u); return nil }
+	r.tu.openURL = func(u string) error {
+		r.opened = append(r.opened, u)
+		return nil
+	}
 	r.tu.gitLine = r.script.read
 	return r
 }
@@ -306,7 +320,8 @@ func TestGitTokenCancelled(t *testing.T) {
 func TestGitBitbucketAsksForTheAccountThenTheAppPassword(t *testing.T) {
 	r := newGitRig(t, nil, say("me", "good")...)
 	r.tu.runGit(context.Background(), "connect bitbucket")
-	mustContain(t, r.say(), "One-click login for Bitbucket needs MOTITA_BITBUCKET_CLIENT_ID", "Your Bitbucket account name", "connected as me")
+	mustContain(t, r.say(), "One-click login for Bitbucket needs MOTITA_BITBUCKET_CLIENT_ID",
+		"Your Bitbucket account name", "connected as me")
 	if got := r.script.secrets; len(got) != 2 || got[0] || !got[1] {
 		t.Errorf("the account is plain and the password secret: %v", got)
 	}
@@ -351,7 +366,8 @@ func TestGitConnectPicker(t *testing.T) {
 func TestGitSelfHostedHost(t *testing.T) {
 	r := newGitRig(t, nil, say("good", "good")...)
 	r.tu.runGit(context.Background(), "connect gitlab:git.corp.io")
-	mustContain(t, r.say(), "https://git.corp.io/", "One-click login for GitLab (git.corp.io) needs MOTITA_GITLAB_CLIENT_ID", "connected as octo")
+	mustContain(t, r.say(), "https://git.corp.io/",
+		"One-click login for GitLab (git.corp.io) needs MOTITA_GITLAB_CLIENT_ID", "connected as octo")
 	r.tu.messages = nil
 	r.tu.runGit(context.Background(), "connect forgejo:code.example.org")
 	mustContain(t, r.say(), "Gitea (code.example.org)")
@@ -424,7 +440,8 @@ func TestGitReposTruncatesALongList(t *testing.T) {
 	r.http.repos = gitReposPageLimit + 5
 	r.connect("github", "good")
 	r.tu.runGit(context.Background(), "repos r")
-	mustContain(t, r.say(), strconv.Itoa(gitReposPageLimit)+". octo/r"+strconv.Itoa(gitReposPageLimit), "narrow the list with /git repos <query>")
+	mustContain(t, r.say(), strconv.Itoa(gitReposPageLimit)+". octo/r"+strconv.Itoa(gitReposPageLimit),
+		"narrow the list with /git repos <query>")
 	if strings.Contains(r.say(), "octo/r"+strconv.Itoa(gitReposPageLimit+1)+"\n") {
 		t.Error("the list is capped")
 	}
@@ -445,7 +462,8 @@ func TestGitNudge(t *testing.T) {
 	r := newGitRig(t, nil)
 	r.tu.announceGit()
 	r.tu.announceGit()
-	if got := r.say(); strings.Count(got, "No git host is connected.") != 1 || !strings.Contains(got, "/git connects GitHub, GitLab or Bitbucket") {
+	if got := r.say(); strings.Count(got, "No git host is connected.") != 1 ||
+		!strings.Contains(got, "/git connects GitHub, GitLab or Bitbucket") {
 		t.Errorf("the nudge is said once:\n%s", got)
 	}
 
@@ -556,7 +574,8 @@ func TestShownDraftAndCompletionWhilePrompting(t *testing.T) {
 }
 
 func TestOpenBrowserUsesTheOperatingSystemsOpener(t *testing.T) {
-	for goos, want := range map[string]string{"linux": "xdg-open", "darwin": "open", "windows": "rundll32", "android": "termux-open-url", "freebsd": "xdg-open"} {
+	for goos, want := range map[string]string{"linux": "xdg-open", "darwin": "open", "windows": "rundll32",
+		"android": "termux-open-url", "freebsd": "xdg-open"} {
 		name, args := openCommand(goos, "http://x")
 		if name != want || args[len(args)-1] != "http://x" {
 			t.Errorf("%s: %s %v", goos, name, args)
@@ -608,7 +627,8 @@ func TestGitAuthFailuresGetAHint(t *testing.T) {
 		mustContain(t, got, "error: "+msg, "hint: git could not sign in", "/git connect")
 	}
 	tu.Lang = i18n.ES
-	mustContain(t, tu.errorText(errors.New("Authentication failed")), "pista: git no pudo iniciar sesión") // spanish-fixture: the Spanish hint
+	mustContain(t, tu.errorText(errors.New("Authentication failed")),
+		"pista: git no pudo iniciar sesión") // spanish-fixture: the Spanish hint
 }
 
 // stringConstant is the value of a string literal, or of literals joined with +, as a long
@@ -630,6 +650,19 @@ func stringConstant(e ast.Expr) (string, bool) {
 	}
 }
 
+// trKey is the string a call to tr or trf translates, when n is such a call with a constant.
+func trKey(n ast.Node) (string, bool) {
+	call, ok := n.(*ast.CallExpr)
+	if !ok {
+		return "", false
+	}
+	sel, ok := call.Fun.(*ast.SelectorExpr)
+	if !ok || (sel.Sel.Name != "tr" && sel.Sel.Name != "trf") || len(call.Args) == 0 {
+		return "", false
+	}
+	return stringConstant(call.Args[0])
+}
+
 // TestEveryGitStringHasASpanishTranslation reads git.go and checks that every string passed to
 // tr or trf, and the catalogue entries of /git, are in the Spanish catalogue: a string added
 // without its translation would show English to a Spanish user, and nothing else would notice.
@@ -642,15 +675,7 @@ func TestEveryGitStringHasASpanishTranslation(t *testing.T) {
 	}
 	keys := map[string]bool{gitNudgeText: true}
 	ast.Inspect(file, func(n ast.Node) bool {
-		call, ok := n.(*ast.CallExpr)
-		if !ok {
-			return true
-		}
-		sel, ok := call.Fun.(*ast.SelectorExpr)
-		if !ok || (sel.Sel.Name != "tr" && sel.Sel.Name != "trf") || len(call.Args) == 0 {
-			return true
-		}
-		if s, ok := stringConstant(call.Args[0]); ok {
+		if s, ok := trKey(n); ok {
 			keys[s] = true
 		}
 		return true

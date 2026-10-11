@@ -96,7 +96,10 @@ func TestATextCallWithToolCallsAndNoTextIsNotReportedAsEmpty(t *testing.T) {
 	}
 	// The message must be TRUE about what arrived. "no usable content" is the shape that
 	// sent a real run into three retries; the calls were there and the parser dropped them.
-	if strings.Contains(err.Error(), "1 tool call(s) and 0 byte(s) of text: the provider reported calls that did not arrive") {
+	if strings.Contains(
+		err.Error(),
+		"1 tool call(s) and 0 byte(s) of text: the provider reported calls that did not arrive",
+	) {
 		t.Errorf("the reply carried a call; the message must not claim the calls did not arrive: %v", err)
 	}
 	if !strings.Contains(err.Error(), "lookup") && !strings.Contains(err.Error(), "tool call") {

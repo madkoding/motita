@@ -46,7 +46,10 @@ func TestTheInterfaceLanguageIsReadAndSavedInTheConfiguration(t *testing.T) {
 	if err := os.WriteFile(cfg, []byte("# mine\nllm:\n  provider: openai\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	srv := newTestServer(t, &fakeService{}, func(o *Options) { o.ConfigPath = cfg; o.UILanguage = " AUTO " })
+	srv := newTestServer(t, &fakeService{}, func(o *Options) {
+		o.ConfigPath = cfg
+		o.UILanguage = " AUTO "
+	})
 
 	w := get(t, srv, "/v1/ui", testToken)
 	if w.Code != http.StatusOK || decodeUI(t, w) != (uiView{Language: "auto", Resolved: "es"}) {
@@ -99,7 +102,8 @@ func TestPutUIRefusals(t *testing.T) {
 	if v := decodeUI(t, get(t, bare, "/v1/ui", testToken)); v.Language != "auto" {
 		t.Errorf("an invalid starting value reads as auto: %+v", v)
 	}
-	if w := putUI(t, bare, `{"language":"es"}`, testToken); w.Code != http.StatusConflict || !strings.Contains(w.Body.String(), "configuration file") {
+	if w := putUI(t, bare, `{"language":"es"}`, testToken); w.Code != http.StatusConflict ||
+		!strings.Contains(w.Body.String(), "configuration file") {
 		t.Errorf("no configuration file = %d %s, want 409", w.Code, w.Body.String())
 	}
 }

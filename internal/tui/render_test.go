@@ -196,7 +196,8 @@ func TestAnInterfaceWithNoVersionDrawsNothingExtra(t *testing.T) {
 	if strings.Contains(stripANSI(lastFrame(t, anon)), "v1.2.3-abc") {
 		t.Fatalf("a version appeared with none set: %q", stripANSI(lastFrame(t, anon)))
 	}
-	if n, a := strings.Count(stripANSI(lastFrame(t, named)), "\n"), strings.Count(stripANSI(lastFrame(t, anon)), "\n"); n != a {
+	if n, a := strings.Count(stripANSI(lastFrame(t, named)), "\n"),
+		strings.Count(stripANSI(lastFrame(t, anon)), "\n"); n != a {
 		t.Fatalf("setting a version changed the frame height: %d rows named, %d anonymous", n, a)
 	}
 }
@@ -388,7 +389,8 @@ func TestSizeIsClamped(t *testing.T) {
 // repaint. The frame must be measured against the terminal before it is written,
 // and it must shed content in a defined order when there is not enough room.
 func TestFrameFitsTheTerminalHeight(t *testing.T) {
-	runner := &fakeRunner{planAnswer: "a long reply that takes up a lot of screen space and forces the frame to be clipped"}
+	runner := &fakeRunner{
+		planAnswer: "a long reply that takes up a lot of screen space and forces the frame to be clipped"}
 	for _, h := range []int{12, 16, 20, 24, 30, 40, 60} {
 		tui := newFakeTUI("/p\na prompt with enough text to fill the conversation\n\nq\n", runner)
 		tui.Width, tui.Height = 80, h

@@ -87,15 +87,7 @@ func TestWorktreesReportsADetachedAndAPrunableCheckout(t *testing.T) {
 	for _, w := range all {
 		if samePath(w.Path, detached) {
 			sawDetached = true
-			if !w.Detached {
-				t.Errorf("the detached worktree must be reported detached: %+v", w)
-			}
-			if w.Branch != "" {
-				t.Errorf("a detached worktree has no branch, got %q", w.Branch)
-			}
-			if w.Prunable {
-				t.Error("a detached worktree is not prunable: its directory is there")
-			}
+			checkDetachedWorktree(t, w)
 		}
 		if samePath(w.Path, gone) {
 			sawPrunable = true
@@ -109,6 +101,20 @@ func TestWorktreesReportsADetachedAndAPrunableCheckout(t *testing.T) {
 	}
 	if !sawPrunable {
 		t.Errorf("the prunable registration must appear in the listing: %+v", all)
+	}
+}
+
+// checkDetachedWorktree: a detached checkout is reported detached, with no branch, and is
+// not prunable since its directory is there.
+func checkDetachedWorktree(t *testing.T, w Worktree) {
+	if !w.Detached {
+		t.Errorf("the detached worktree must be reported detached: %+v", w)
+	}
+	if w.Branch != "" {
+		t.Errorf("a detached worktree has no branch, got %q", w.Branch)
+	}
+	if w.Prunable {
+		t.Error("a detached worktree is not prunable: its directory is there")
 	}
 }
 
@@ -266,6 +272,8 @@ func TestLiveWorktreeAtIsFalseForAGoneDirectory(t *testing.T) {
 		t.Fatalf("LiveWorktreeAt: %v", err)
 	} else if ok {
 		t.Error("a worktree whose directory is gone is not live")
+	} else {
+		// the expected outcome: nothing more to check
 	}
 }
 

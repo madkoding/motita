@@ -12,8 +12,12 @@ import (
 // TestSynthesizePhaseDecodesTheStructuredReport: the model's JSON arrives as fields, each in the
 // place a front end will read it from, and the version is stamped by the program, not the model.
 func TestSynthesizePhaseDecodesTheStructuredReport(t *testing.T) {
-	a := synthesisAgent(t, `{"status":"done","summary":"added Foo","changes":[{"path":"a.go","kind":"added","description":"Foo"}],
-	"verification":[{"check":"go test ./...","result":"pass","evidence":"12 passed"}],"risks":["none known"],"next_steps":["wire it up"]}`)
+	a := synthesisAgent(
+		t,
+		`{"status":"done","summary":"added Foo","changes":[{"path":"a.go","kind":"added","description":"Foo"}],
+	"verification":[{"check":"go test ./...","result":"pass","evidence":"12 passed"}],`+
+			`"risks":["none known"],"next_steps":["wire it up"]}`,
+	)
 	rep := a.synthesizePhase(context.Background(), synthesisTask(t), "out", anchor.Result{Pass: true})
 	if rep == nil {
 		t.Fatal("a well-formed report must decode")
@@ -21,7 +25,8 @@ func TestSynthesizePhaseDecodesTheStructuredReport(t *testing.T) {
 	want := Report{Version: ReportVersion, Status: "done", Summary: "added Foo",
 		Changes:      []ReportChange{{Path: "a.go", Kind: "added", Description: "Foo"}},
 		Verification: []ReportCheck{{Check: "go test ./...", Result: "pass", Evidence: "12 passed"}},
-		Evidence:     []ReportEvidence{}, Risks: []string{"none known"}, NextSteps: []string{"wire it up"}, Decisions: []ReportDecision{}}
+		Evidence:     []ReportEvidence{}, Risks: []string{"none known"}, NextSteps: []string{"wire it up"},
+		Decisions: []ReportDecision{}}
 	if !reflect.DeepEqual(*rep, want) {
 		t.Errorf("report = %+v\nwant     %+v", *rep, want)
 	}
@@ -77,10 +82,18 @@ func TestReportNormalizeRepairsWhatItCannotTrust(t *testing.T) {
 // something in them, and a report that is just a summary adds nothing to it.
 func TestReportTextIsThePlainViewForTheTerminal(t *testing.T) {
 	r := Report{Summary: "added Foo",
-		Changes:      []ReportChange{{Path: "a.go", Kind: "added", Description: "Foo"}, {Kind: "other", Description: "config"}},
-		Verification: []ReportCheck{{Check: "go test", Result: "pass", Evidence: "3 passed"}, {Check: "lint", Result: "fail"}, {Check: "shot", Result: "skipped"}},
-		Risks:        []string{"r"}, NextSteps: []string{"n"}}
-	want := "added Foo\n\nChanged:\n  [added] a.go - Foo\n  [other] - config\n\nChecked:\n  ok   go test - 3 passed\n  FAIL lint\n  skip shot\n\nWorth knowing:\n  r\n\nNext:\n  n"
+		Changes: []ReportChange{
+			{Path: "a.go", Kind: "added", Description: "Foo"},
+			{Kind: "other", Description: "config"},
+		},
+		Verification: []ReportCheck{
+			{Check: "go test", Result: "pass", Evidence: "3 passed"},
+			{Check: "lint", Result: "fail"},
+			{Check: "shot", Result: "skipped"},
+		},
+		Risks: []string{"r"}, NextSteps: []string{"n"}}
+	want := "added Foo\n\nChanged:\n  [added] a.go - Foo\n  [other] - config\n\nChecked:\n  ok   go test - 3 passed\n  " +
+		"FAIL lint\n  skip shot\n\nWorth knowing:\n  r\n\nNext:\n  n"
 	if got := r.Text(); got != want {
 		t.Errorf("Text() =\n%s\nwant\n%s", got, want)
 	}

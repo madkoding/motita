@@ -286,6 +286,8 @@ func TestLANAddressesAreUsableAsWritten(t *testing.T) {
 			t.Errorf("lanAddresses returned a link-local address (%s), which needs a zone a URL cannot carry", addr)
 		case strings.Contains(addr, ":") && !strings.HasPrefix(addr, "["):
 			t.Errorf("lanAddresses returned a bare IPv6 address (%s): a URL needs it bracketed", addr)
+		default:
+			// Any other address is one a person can type as written.
 		}
 	}
 }
