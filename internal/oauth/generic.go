@@ -119,7 +119,9 @@ func AuthCodeURL(ep Endpoints, c Client, redirectURI, scope string, p PKCE) stri
 }
 
 // ExchangeAuthCode trades the code the browser came back with for a token.
-func ExchangeAuthCode(ctx context.Context, hc HTTPClient, ep Endpoints, c Client, code, redirectURI string, p PKCE) (Token, error) {
+func ExchangeAuthCode(
+	ctx context.Context, hc HTTPClient, ep Endpoints, c Client, code, redirectURI string, p PKCE,
+) (Token, error) {
 	form := url.Values{
 		"grant_type":    {"authorization_code"},
 		"code":          {code},
@@ -153,6 +155,8 @@ func tokenRequest(ctx context.Context, hc HTTPClient, ep Endpoints, c Client, fo
 		user, pass = c.ID, c.Secret
 	} else if c.Secret != "" {
 		form.Set("client_secret", c.Secret)
+	} else {
+		// A public client: no secret to send.
 	}
 	var resp genericTokenResponse
 	err := postFormAuth(ctx, hc, ep.TokenURL, form, user, pass, &resp)
@@ -193,7 +197,9 @@ func describeOAuthError(code, description string) error {
 }
 
 // postFormAuth is postForm with optional HTTP Basic credentials.
-func postFormAuth(ctx context.Context, hc HTTPClient, target string, form url.Values, user, pass string, dest any) error {
+func postFormAuth(
+	ctx context.Context, hc HTTPClient, target string, form url.Values, user, pass string, dest any,
+) error {
 	if hc == nil {
 		hc = defaultClient()
 	}
