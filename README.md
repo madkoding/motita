@@ -68,6 +68,29 @@ proves a task is done. The installer verifies the binary against `SHA256SUMS` an
 Join the same conversation from a laptop or a phone through an SSH tunnel:
 `motita -connect 127.0.0.1:7477 -tui`. English and Spanish built in (`/language es`).
 
+### 🌐 Listen on every interface (0.0.0.0)
+
+The gateway binds to `127.0.0.1` by default on purpose: it speaks plain HTTP and drives an agent
+that runs commands on this machine. To reach it from your network, pick one of these:
+
+| How | Example |
+|---|---|
+| Config file (permanent; `motita config` shows where it lives) | see the YAML below |
+| Environment variable | `MOTITA_GATEWAY_LISTEN=0.0.0.0:7477 motita gateway start` |
+| Flag, for one run | `motita -gateway 0.0.0.0:7477` |
+
+```yaml
+gateway:
+  listen: "0.0.0.0:7477"
+  allow: ["lan", "!any"]   # recommended: the local network only (loopback is always allowed)
+```
+
+Restart the gateway afterwards (`motita gateway stop`, then `motita gateway start`). It warns
+when it opens on every interface. There is no TLS: the token travels unencrypted, and without
+`allow` any origin that reaches the port gets in. Across the internet, use an SSH tunnel
+(`ssh -N -L 7477:127.0.0.1:7477 the-host`) or a TLS reverse proxy. Add the proxy's DNS name to
+`gateway.hosts`. More in the [guide](docs/GUIDE.md) and the [reference](docs/REFERENCE.md).
+
 ## 📚 Go deeper
 
 | | |
