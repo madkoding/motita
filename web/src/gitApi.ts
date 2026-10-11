@@ -76,7 +76,7 @@ const JSON_HEADERS = { 'Content-Type': 'application/json' }
 
 export async function listAccounts(api: Api): Promise<GitAccount[]> {
   const res = await api('/v1/git/accounts')
-  if (!res.ok) throw await failure(res)
+  if (!res.ok) { throw await failure(res) }
   const body = await res.json()
   return Array.isArray(body.accounts) ? body.accounts : []
 }
@@ -96,21 +96,21 @@ export type ConnectResult =
 
 export async function connect(api: Api, req: ConnectRequest): Promise<ConnectResult> {
   const res = await api('/v1/git/connect', { method: 'POST', headers: JSON_HEADERS, body: JSON.stringify(req) })
-  if (!res.ok) throw await failure(res)
+  if (!res.ok) { throw await failure(res) }
   const body = await res.json()
-  if (res.status === 202 || body.flow_id) return { type: 'flow', flow: body as FlowStart }
+  if (res.status === 202 || body.flow_id) { return { type: 'flow', flow: body as FlowStart } }
   return { type: 'connected', account: body.account || '', service: body.service || req.service || '' }
 }
 
 export async function flowStatus(api: Api, id: string): Promise<FlowStatus> {
   const res = await api('/v1/git/flows/' + encodeURIComponent(id))
-  if (!res.ok) throw await failure(res)
+  if (!res.ok) { throw await failure(res) }
   return res.json()
 }
 
 export async function pasteCode(api: Api, id: string, code: string): Promise<void> {
   const res = await api('/v1/git/flows/' + encodeURIComponent(id) + '/paste', { method: 'POST', headers: JSON_HEADERS, body: JSON.stringify({ code }) })
-  if (!res.ok) throw await failure(res)
+  if (!res.ok) { throw await failure(res) }
 }
 
 export async function cancelFlow(api: Api, id: string): Promise<void> {
@@ -119,14 +119,14 @@ export async function cancelFlow(api: Api, id: string): Promise<void> {
 
 export async function disconnect(api: Api, id: string): Promise<void> {
   const res = await api('/v1/git/accounts/' + encodeURIComponent(id), { method: 'DELETE' })
-  if (!res.ok && res.status !== 204) throw await failure(res)
+  if (!res.ok && res.status !== 204) { throw await failure(res) }
 }
 
 export async function listRepos(api: Api, service: string, q: string, page: number): Promise<ReposPage> {
   const qs = new URLSearchParams({ service, page: String(page) })
-  if (q.trim()) qs.set('q', q.trim())
+  if (q.trim()) { qs.set('q', q.trim()) }
   const res = await api('/v1/git/repos?' + qs.toString())
-  if (!res.ok) throw await failure(res)
+  if (!res.ok) { throw await failure(res) }
   const body = await res.json()
   return { repos: Array.isArray(body.repos) ? body.repos : [], more: !!body.more, account: body.account }
 }
@@ -156,9 +156,9 @@ export function reduceFlow(s: FlowState, e: FlowEvent): FlowState {
     case 'connected': return { phase: 'connected', account: e.account, service: e.service }
     case 'failed': return { phase: 'failed', error: e.error }
     case 'poll': {
-      if (s.phase !== 'pending') return s // a late answer after a terminal state changes nothing
-      if (e.status.status === 'connected') return { phase: 'connected', account: e.status.account || '', service: e.status.service || s.flow.service }
-      if (e.status.status === 'failed') return { phase: 'failed', error: e.status.error || 'The host did not authorize the login.' }
+      if (s.phase !== 'pending') { return s } // a late answer after a terminal state changes nothing
+      if (e.status.status === 'connected') { return { phase: 'connected', account: e.status.account || '', service: e.status.service || s.flow.service } }
+      if (e.status.status === 'failed') { return { phase: 'failed', error: e.status.error || 'The host did not authorize the login.' } }
       return s
     }
   }
@@ -182,11 +182,11 @@ export async function pollFlow(o: PollOptions): Promise<FlowStatus | null> {
     try {
       const st = await o.get()
       errors = 0
-      if (st.status !== 'pending') return o.cancelled() ? null : st
+      if (st.status !== 'pending') { return o.cancelled() ? null : st }
     } catch (e) {
-      if (o.cancelled()) return null
-      if (e instanceof GitError && (e.status === 404 || e.status === 410)) return { status: 'failed', error: 'The login expired. Try again.' }
-      if (++errors >= max) return { status: 'failed', error: e instanceof Error ? e.message : String(e) }
+      if (o.cancelled()) { return null }
+      if (e instanceof GitError && (e.status === 404 || e.status === 410)) { return { status: 'failed', error: 'The login expired. Try again.' } }
+      if (++errors >= max) { return { status: 'failed', error: e instanceof Error ? e.message : String(e) } }
     }
     await o.sleep(o.intervalMs ?? 2000)
   }
@@ -224,14 +224,14 @@ export function primaryMethod(a: GitAccount): GitMethod {
 export type RelTime = { unit: 'now' | 'minute' | 'hour' | 'day' | 'month' | 'year'; n: number }
 
 export function relativeTime(iso: string | undefined, now: number = Date.now()): RelTime | null {
-  if (!iso) return null
+  if (!iso) { return null }
   const then = Date.parse(iso)
-  if (isNaN(then)) return null
+  if (isNaN(then)) { return null }
   const s = Math.max(0, Math.floor((now - then) / 1000))
-  if (s < 60) return { unit: 'now', n: 0 }
-  if (s < 3600) return { unit: 'minute', n: Math.floor(s / 60) }
-  if (s < 86400) return { unit: 'hour', n: Math.floor(s / 3600) }
-  if (s < 86400 * 30) return { unit: 'day', n: Math.floor(s / 86400) }
-  if (s < 86400 * 365) return { unit: 'month', n: Math.floor(s / (86400 * 30)) }
+  if (s < 60) { return { unit: 'now', n: 0 } }
+  if (s < 3600) { return { unit: 'minute', n: Math.floor(s / 60) } }
+  if (s < 86400) { return { unit: 'hour', n: Math.floor(s / 3600) } }
+  if (s < 86400 * 30) { return { unit: 'day', n: Math.floor(s / 86400) } }
+  if (s < 86400 * 365) { return { unit: 'month', n: Math.floor(s / (86400 * 30)) } }
   return { unit: 'year', n: Math.floor(s / (86400 * 365)) }
 }

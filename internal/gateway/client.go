@@ -34,6 +34,12 @@ import (
 	"github.com/madkoding/motita/internal/session"
 )
 
+// Literals used more than once in this file.
+const (
+	errGatewayUnreachable = "the gateway could not be reached: "
+	bearerPrefix          = "Bearer "
+)
+
 // Client speaks to a gateway.
 type Client struct {
 	baseURL string
@@ -350,7 +356,7 @@ func (c *Client) ConversationReport() string {
 		Text string `json:"text"`
 	}
 	if err := c.getJSON(context.Background(), c.scoped("/report"), &out); err != nil {
-		return "the gateway could not be reached: " + err.Error()
+		return errGatewayUnreachable + err.Error()
 	}
 	return out.Text
 }
@@ -380,7 +386,7 @@ func (c *Client) RecordVerdict(good bool, note string) string {
 		Text string `json:"text"`
 	}
 	if err := c.do(context.Background(), http.MethodPost, c.scoped("/verdict"), map[string]any{"good": good, "note": note}, &out); err != nil {
-		return "the gateway could not be reached: " + err.Error()
+		return errGatewayUnreachable + err.Error()
 	}
 	return out.Text
 }
@@ -391,7 +397,7 @@ func (c *Client) RewardReport() string {
 		Text string `json:"text"`
 	}
 	if err := c.getJSON(context.Background(), c.scoped("/reward"), &out); err != nil {
-		return "the gateway could not be reached: " + err.Error()
+		return errGatewayUnreachable + err.Error()
 	}
 	return out.Text
 }
@@ -539,7 +545,7 @@ func (c *Client) streamOnce(ctx context.Context, path string, body []byte, start
 		return false, err
 	}
 	req.Header.Set("Accept", "text/event-stream")
-	req.Header.Set("Authorization", "Bearer "+c.token)
+	req.Header.Set("Authorization", bearerPrefix+c.token)
 
 	resp, err := c.http.Do(req)
 	if err != nil {
@@ -717,7 +723,7 @@ func (c *Client) ReadArtifact(ctx context.Context, name string) ([]byte, error) 
 	if err != nil {
 		return nil, err
 	}
-	req.Header.Set("Authorization", "Bearer "+c.token)
+	req.Header.Set("Authorization", bearerPrefix+c.token)
 	resp, err := c.http.Do(req)
 	if err != nil {
 		return nil, err
@@ -994,7 +1000,7 @@ func (c *Client) streamEventsAt(ctx context.Context, path string, from *uint64, 
 		return false, err
 	}
 	req.Header.Set("Accept", "text/event-stream")
-	req.Header.Set("Authorization", "Bearer "+c.token)
+	req.Header.Set("Authorization", bearerPrefix+c.token)
 
 	resp, err := c.http.Do(req)
 	if err != nil {
@@ -1037,7 +1043,7 @@ func (c *Client) do(ctx context.Context, method, path string, body, dst any) err
 	if body != nil {
 		req.Header.Set("Content-Type", "application/json")
 	}
-	req.Header.Set("Authorization", "Bearer "+c.token)
+	req.Header.Set("Authorization", bearerPrefix+c.token)
 
 	resp, err := c.http.Do(req)
 	if err != nil {

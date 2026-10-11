@@ -30,7 +30,7 @@ const sleep = ms => new Promise(r => setTimeout(r, ms))
 
   // Open the session the way a reader does: click its row in the sidebar.
   const clicked = await js(`(()=>{const rows=[...document.querySelectorAll('.session-row')];const r=rows.find(x=>x.textContent.includes('Resume check'));if(r){r.click();return true}return rows.map(x=>x.textContent.slice(0,30))})()`)
-  if (clicked !== true) console.log('FAIL open-session rows=' + JSON.stringify(clicked))
+  if (clicked !== true) { console.log('FAIL open-session rows=' + JSON.stringify(clicked)) }
   await sleep(2500)
   const text = await js('document.body.innerText')
   fs.writeFileSync(`${OUT}/page.txt`, text)

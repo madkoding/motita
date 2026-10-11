@@ -51,8 +51,8 @@ export type NotifyState = 'unsupported' | 'blocked' | 'ask' | 'on' | 'off'
 // notifyState is what the settings screen says about notifications: the browser's permission and
 // the user's switch together.
 export function notifyState(permission: string | undefined, enabled: boolean): NotifyState {
-  if (permission === undefined) return 'unsupported'
-  if (permission === 'denied') return 'blocked'
-  if (permission === 'default') return 'ask'
+  if (permission === undefined) { return 'unsupported' }
+  if (permission === 'denied') { return 'blocked' }
+  if (permission === 'default') { return 'ask' }
   return enabled ? 'on' : 'off'
 }

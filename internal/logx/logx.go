@@ -160,7 +160,7 @@ func (l *Logger) log(level Level, msg string, fields ...any) {
 		return
 	}
 
-	event := make(map[string]any, 3+len(fields)/2)
+	event := make(map[string]any)
 	event["ts"] = time.Now().Format(time.RFC3339Nano)
 	event["level"] = level.String()
 	event["msg"] = redact.String(msg)

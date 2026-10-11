@@ -28,6 +28,12 @@ import (
 	"github.com/madkoding/motita/internal/usage"
 )
 
+// Literals used more than once in this file.
+const (
+	errNoProcedureLibrary = "Error: no procedure library is configured."
+	errParsingArguments   = "Error parsing the arguments: "
+)
+
 //go:embed soul.md
 var embeddedSoul string
 
@@ -662,7 +668,7 @@ type listDirectoryArgs struct {
 func (p *Planner) toolListDirectory(raw []byte) string {
 	var args listDirectoryArgs
 	if err := decodeArgs(raw, &args); err != nil {
-		return "Error parsing the arguments: " + err.Error()
+		return errParsingArguments + err.Error()
 	}
 	path := strings.TrimSpace(args.Path)
 	if path == "" {
@@ -691,7 +697,7 @@ func (p *Planner) toolListDirectory(raw []byte) string {
 func (p *Planner) toolReadFile(raw []byte) string {
 	var args readFileArgs
 	if err := decodeArgs(raw, &args); err != nil {
-		return "Error parsing the arguments: " + err.Error()
+		return errParsingArguments + err.Error()
 	}
 	path := strings.TrimSpace(args.Path)
 	if path == "" {
@@ -735,7 +741,7 @@ type executeCommandArgs struct {
 func (p *Planner) toolExecuteCommand(ctx context.Context, raw []byte) string {
 	var args executeCommandArgs
 	if err := decodeArgs(raw, &args); err != nil {
-		return "Error parsing the arguments: " + err.Error()
+		return errParsingArguments + err.Error()
 	}
 	command := strings.TrimSpace(args.Command)
 	if command == "" {
@@ -779,7 +785,7 @@ type searchInFilesArgs struct {
 func (p *Planner) toolSearchInFiles(ctx context.Context, raw []byte) string {
 	var args searchInFilesArgs
 	if err := decodeArgs(raw, &args); err != nil {
-		return "Error parsing the arguments: " + err.Error()
+		return errParsingArguments + err.Error()
 	}
 	pattern := strings.TrimSpace(args.Pattern)
 	if pattern == "" {
@@ -1000,7 +1006,7 @@ func (p *Planner) feedbackSuffix(name string) string {
 // toolListSkills reports the index: what the library holds, without any bodies.
 func (p *Planner) toolListSkills() string {
 	if p.library == nil {
-		return "Error: no procedure library is configured."
+		return errNoProcedureLibrary
 	}
 	all, err := p.library.List()
 	if err != nil {
@@ -1021,7 +1027,7 @@ func (p *Planner) toolListSkills() string {
 // toolSearchSkills finds skills by what they are about.
 func (p *Planner) toolSearchSkills(args json.RawMessage) string {
 	if p.library == nil {
-		return "Error: no procedure library is configured."
+		return errNoProcedureLibrary
 	}
 	var in struct {
 		Query string `json:"query"`
@@ -1070,7 +1076,7 @@ func (p *Planner) toolSearchSkills(args json.RawMessage) string {
 // index is cheap, the procedure is what changes what the agent does.
 func (p *Planner) toolReadSkill(args json.RawMessage) string {
 	if p.library == nil {
-		return "Error: no procedure library is configured."
+		return errNoProcedureLibrary
 	}
 	var in struct {
 		Name string `json:"name"`
@@ -1110,7 +1116,7 @@ func (p *Planner) toolReadSkill(args json.RawMessage) string {
 // later read can be traced to it.
 func (p *Planner) toolSaveSkill(args json.RawMessage) string {
 	if p.library == nil {
-		return "Error: no procedure library is configured."
+		return errNoProcedureLibrary
 	}
 	var in struct {
 		Name string `json:"name"`

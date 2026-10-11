@@ -56,7 +56,7 @@ const base = (sid: string) => '/v1/sessions/' + encodeURIComponent(sid) + '/pr'
 
 export async function getPR(api: Api, sid: string): Promise<PRView> {
   const res = await api(base(sid))
-  if (!res.ok) throw await failure(res)
+  if (!res.ok) { throw await failure(res) }
   return res.json()
 }
 
@@ -65,7 +65,7 @@ export async function getPR(api: Api, sid: string): Promise<PRView> {
 // message was queued behind its turn.
 export async function retryFix(api: Api, sid: string): Promise<{ started: boolean }> {
   const res = await api(base(sid) + '/fix', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' })
-  if (!res.ok) throw await failure(res)
+  if (!res.ok) { throw await failure(res) }
   const body = await res.json().catch(() => ({} as any))
   return { started: body.started === true }
 }
@@ -73,7 +73,7 @@ export async function retryFix(api: Api, sid: string): Promise<{ started: boolea
 // mergePR merges the pull request. The gateway refuses unless its CI has passed.
 export async function mergePR(api: Api, sid: string): Promise<void> {
   const res = await api(base(sid) + '/merge', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' })
-  if (!res.ok) throw await failure(res)
+  if (!res.ok) { throw await failure(res) }
 }
 
 // ── What the gateway is doing about the CI ──────────────────────────────────
@@ -97,11 +97,11 @@ export type Notice = 'fixing' | 'passed' | 'gave_up' | 'no_ci' | 'merged' | 'bas
 // prev is undefined the first time the session is seen: what happened before the tab looked is not
 // news, and a toast for it would be noise.
 export function prNotice(prev: PRWatch | null | undefined, cur: PRWatch | null | undefined): Notice {
-  if (prev === undefined || !cur) return null
+  if (prev === undefined || !cur) { return null }
   if (cur.status === 'fixing') {
     return prev?.status !== 'fixing' || cur.attempts > prev.attempts ? 'fixing' : null
   }
-  if (cur.status === 'following') return null
+  if (cur.status === 'following') { return null }
   return prev?.status === cur.status ? null : cur.status
 }
 
@@ -131,7 +131,7 @@ export type ToastType = 'success' | 'error' | 'warning'
 // worstToast is the most serious of several toasts: when a handful of pull requests move at once the
 // one toast that stands for them is as loud as the loudest.
 export function worstToast(types: ToastType[]): ToastType {
-  if (types.includes('error')) return 'error'
-  if (types.includes('warning')) return 'warning'
+  if (types.includes('error')) { return 'error' }
+  if (types.includes('warning')) { return 'warning' }
   return 'success'
 }

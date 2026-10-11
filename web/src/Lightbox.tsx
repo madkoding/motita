@@ -36,21 +36,21 @@ export function Lightbox({ images, start, onClose }: { images: LightboxImage[]; 
   }
   const actual = () => {
     const el = img.current
-    if (!el || !el.naturalWidth || !el.clientWidth) return reset()
+    if (!el || !el.naturalWidth || !el.clientWidth) { return reset() }
     apply({ zoom: clamp(el.naturalWidth / el.clientWidth), x: 0, y: 0 })
   }
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const all = document.querySelectorAll('[data-dialog-root]')
-      if (all.length && all[all.length - 1] !== root.current) return
-      if (e.key === '+' || e.key === '=') zoomAt(1.25)
-      else if (e.key === '-') zoomAt(0.8)
-      else if (e.key === '0') reset()
-      else if (e.key === '1') actual()
-      else if (e.key === 'ArrowRight' && images.length > 1) go(index + 1)
-      else if (e.key === 'ArrowLeft' && images.length > 1) go(index - 1)
-      else return
+      if (all.length && all[all.length - 1] !== root.current) { return }
+      if (e.key === '+' || e.key === '=') { zoomAt(1.25) }
+      else if (e.key === '-') { zoomAt(0.8) }
+      else if (e.key === '0') { reset() }
+      else if (e.key === '1') { actual() }
+      else if (e.key === 'ArrowRight' && images.length > 1) { go(index + 1) }
+      else if (e.key === 'ArrowLeft' && images.length > 1) { go(index - 1) }
+      else { return }
       e.preventDefault()
     }
     document.addEventListener('keydown', onKey)
@@ -79,11 +79,11 @@ export function Lightbox({ images, start, onClose }: { images: LightboxImage[]; 
       <div
         class="lb-stage"
         role="presentation"
-        onClick={(e) => { if (e.target === e.currentTarget) onClose() }}
+        onClick={(e) => { if (e.target === e.currentTarget) { onClose() } }}
         onWheel={(e) => { e.preventDefault(); const c = fromCentre(e); zoomAt(e.deltaY < 0 ? 1.15 : 1 / 1.15, c.x, c.y) }}
-        onDblClick={(e) => { if (zoom !== 1) reset(); else { const c = fromCentre(e); zoomAt(2.5, c.x, c.y) } }}
+        onDblClick={(e) => { if (zoom !== 1) { reset(); } else { const c = fromCentre(e); zoomAt(2.5, c.x, c.y) } }}
         onPointerDown={(e) => { drag.current = { x: e.clientX, y: e.clientY, px: live.current.x, py: live.current.y }; (e.currentTarget as HTMLElement).setPointerCapture?.(e.pointerId) }}
-        onPointerMove={(e) => { const d = drag.current; if (d) apply({ zoom: live.current.zoom, x: d.px + e.clientX - d.x, y: d.py + e.clientY - d.y }) }}
+        onPointerMove={(e) => { const d = drag.current; if (d) { apply({ zoom: live.current.zoom, x: d.px + e.clientX - d.x, y: d.py + e.clientY - d.y }) } }}
         onPointerUp={() => { drag.current = null }}
         onPointerCancel={() => { drag.current = null }}
       >

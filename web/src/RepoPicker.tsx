@@ -7,7 +7,7 @@ import { type Api, type GitAccount, type GitRepo, GitError, listRepos, mergeRepo
 
 export function relTimeText(iso: string | undefined): string {
   const r = relativeTime(iso)
-  if (!r) return ''
+  if (!r) { return '' }
   switch (r.unit) {
     case 'now': return t('just now')
     case 'minute': return tf('{n}m ago', { n: r.n })
@@ -54,19 +54,19 @@ export function RepoPicker({ api, accounts, initialService, onPick, onConnectAno
     setLoading(true); setErr('')
     try {
       const r = await listRepos(api, service, dq, p)
-      if (my !== req.current) return
+      if (my !== req.current) { return }
       setRepos(prev => append ? mergeRepos(prev, r.repos) : r.repos)
       setMore(r.more); setPage(p)
-      if (!append) setActive(0)
+      if (!append) { setActive(0) }
     } catch (e) {
-      if (my !== req.current) return
+      if (my !== req.current) { return }
       if (e instanceof GitError && e.authRequired) { onAuthRequired(e.service || service); return }
       setErr(e instanceof Error ? e.message : String(e))
     }
     setLoading(false)
   }
 
-  useEffect(() => { if (service) void load(1, false) }, [service, dq])
+  useEffect(() => { if (service) { void load(1, false) } }, [service, dq])
   useEffect(() => () => { req.current++ }, [])
 
   const listRef = useRef<HTMLUListElement>(null)
@@ -74,7 +74,7 @@ export function RepoPicker({ api, accounts, initialService, onPick, onConnectAno
     listRef.current?.querySelector<HTMLElement>('[aria-selected="true"]')?.scrollIntoView?.({ block: 'nearest' })
   }, [active])
 
-  const pick = (r: GitRepo | undefined) => { if (r) onPick(r, service) }
+  const pick = (r: GitRepo | undefined) => { if (r) { onPick(r, service) } }
   const onKey = (e: KeyboardEvent) => {
     if (e.key === 'ArrowDown') { e.preventDefault(); setActive(i => Math.min(i + 1, repos.length - 1)) }
     else if (e.key === 'ArrowUp') { e.preventDefault(); setActive(i => Math.max(i - 1, 0)) }

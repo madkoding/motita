@@ -9,7 +9,9 @@ import (
 )
 
 // configureGroup does nothing outside Unix: there are no POSIX process groups.
-func configureGroup(cmd *exec.Cmd) {}
+func configureGroup(cmd *exec.Cmd) {
+	// Intentionally empty: see the comment above.
+}
 
 // killGroup without SysProcAttr can only kill the direct process.
 func killGroup(cmd *exec.Cmd) error {

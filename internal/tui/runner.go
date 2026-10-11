@@ -621,7 +621,9 @@ func (r *AppRunner) RunPlan(ctx context.Context, prompt string, progress func(st
 		WithStream(func(s string) {
 			progress("%s", s)
 		}).
-		WithAnswer(func(s string) {}).
+		WithAnswer(func(s string) {
+			// The answer is already streamed through progress; nothing else to print.
+		}).
 		// The conversation is owned by the RUNNER, and handed to the planner built for
 		// this turn. A planner is created per turn — that is how this interface has always
 		// worked — so a session created inside one would be a session per question, which
