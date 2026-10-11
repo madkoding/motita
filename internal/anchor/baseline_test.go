@@ -29,33 +29,17 @@ func TestRerunRunsOnlyTheNamedChecks(t *testing.T) {
 
 // TestWithBaseline: every way a failed result can compare with the code before the run.
 func TestWithBaseline(t *testing.T) {
-	failed := func(names ...string) Result {
-		r := Result{Reason: "failed checks: " + strings.Join(names, ", ")}
-		r.Checks = append(r.Checks, CheckLog{Name: "green", Pass: true})
-		for _, n := range names {
-			r.Checks = append(r.Checks, CheckLog{Name: n})
-		}
-		return r
-	}
+	failed := failedChecks
 
 	// A pass is left alone.
 	if got := WithBaseline(Result{Pass: true, Reason: "ok"}, nil); !got.Pass || got.Reason != "ok" {
 		t.Errorf("a pass must be untouched: %+v", got)
 	}
 
-	// Every failure is old: a pass WITH the caveat in words.
-	got := WithBaseline(failed("test", "lint"), map[string]CheckLog{"test": {}, "lint": {}})
-	wrong := !got.Pass || len(got.PreExisting) != 2 ||
-		!strings.Contains(got.Reason, "ALREADY FAILING BEFORE THIS CHANGE")
-	if wrong || !strings.Contains(got.Reason, "test, lint") || !strings.HasPrefix(got.Reason, "1 check(s) passed") {
-		t.Errorf("all pre-existing: %+v", got)
-	}
-	if !got.Checks[1].PreExisting {
-		t.Error("the check must be marked pre-existing")
-	}
+	checkEveryFailureIsOld(t)
 
 	// One old, one the run broke: still failed, and both are named.
-	got = WithBaseline(failed("test", "lint"), map[string]CheckLog{"test": {}, "lint": {Pass: true}})
+	got := WithBaseline(failed("test", "lint"), map[string]CheckLog{"test": {}, "lint": {Pass: true}})
 	if got.Pass || !strings.Contains(got.Reason, "already failing before this change: test") ||
 		!strings.Contains(got.Reason, "passed before this change: lint") || !got.Checks[2].PassedBefore {
 		t.Errorf("mixed: %+v", got)
@@ -78,6 +62,29 @@ func TestWithBaseline(t *testing.T) {
 	got = WithBaseline(failed("lint"), nil)
 	if got.Pass || got.Reason != "failed checks: lint" {
 		t.Errorf("no baseline: %+v", got)
+	}
+}
+
+// failedChecks is a failed result: one green check, then a failed one for each name.
+func failedChecks(names ...string) Result {
+	r := Result{Reason: "failed checks: " + strings.Join(names, ", ")}
+	r.Checks = append(r.Checks, CheckLog{Name: "green", Pass: true})
+	for _, n := range names {
+		r.Checks = append(r.Checks, CheckLog{Name: n})
+	}
+	return r
+}
+
+// checkEveryFailureIsOld: every failure is old, so the result is a pass WITH the caveat in words.
+func checkEveryFailureIsOld(t *testing.T) {
+	got := WithBaseline(failedChecks("test", "lint"), map[string]CheckLog{"test": {}, "lint": {}})
+	wrong := !got.Pass || len(got.PreExisting) != 2 ||
+		!strings.Contains(got.Reason, "ALREADY FAILING BEFORE THIS CHANGE")
+	if wrong || !strings.Contains(got.Reason, "test, lint") || !strings.HasPrefix(got.Reason, "1 check(s) passed") {
+		t.Errorf("all pre-existing: %+v", got)
+	}
+	if !got.Checks[1].PreExisting {
+		t.Error("the check must be marked pre-existing")
 	}
 }
 
