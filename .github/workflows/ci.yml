@@ -122,7 +122,12 @@ jobs:
             fi
           done
           [ "$failed" -eq 0 ] || exit 1
-          go test -coverpkg=./... -coverprofile=coverage.out -covermode=atomic ./... >/dev/null
+          # The output is kept rather than thrown away: when this run fails, the log has to name
+          # the test that failed, not just the exit code.
+          if ! go test -coverpkg=./... -coverprofile=coverage.out -covermode=atomic ./... >aggregate.log 2>&1; then
+            grep -E -B2 -A20 '^(--- FAIL|FAIL|panic:)' aggregate.log || tail -n 100 aggregate.log
+            exit 1
+          fi
           printf 'aggregate: '; go tool cover -func=coverage.out | tail -1
 
   build:
