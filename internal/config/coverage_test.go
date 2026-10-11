@@ -1225,6 +1225,8 @@ func TestEnvironmentRejectsInvalidValues(t *testing.T) {
 				t.Errorf("%s=%q must be rejected", key, value)
 			} else if !strings.Contains(err.Error(), key) {
 				t.Errorf("the error must name the variable: %v", err)
+			} else {
+				// the expected outcome: nothing more to check
 			}
 		})
 	}
@@ -1702,6 +1704,8 @@ func TestDecodeMapWithNestedBlockValue(t *testing.T) {
 		t.Logf("nested value refused: %v", err)
 	} else if w.Headers["nested"] == "" {
 		t.Error("the nested value must keep some text form")
+	} else {
+		// the expected outcome: nothing more to check
 	}
 }
 
@@ -1912,6 +1916,8 @@ func TestTheNewEnvironmentVariablesRejectBadValues(t *testing.T) {
 				t.Errorf("%s=%q must be rejected", key, value)
 			} else if !strings.Contains(err.Error(), key) {
 				t.Errorf("the error must name the variable: %v", err)
+			} else {
+				// the expected outcome: nothing more to check
 			}
 		})
 	}
