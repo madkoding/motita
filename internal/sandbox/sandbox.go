@@ -130,11 +130,8 @@ func New(op Options) (*Sandbox, error) {
 	// When there is no chroot the process keeps its own working directory and the
 	// configured path is not entered — it is only recorded as metadata.
 	if op.UseChroot {
-		if op.Dir == "" {
-			op.Dir = "."
-		}
-		if err := os.MkdirAll(op.Dir, 0o755); err != nil {
-			return nil, fmt.Errorf("could not create the working directory %q: %w", op.Dir, err)
+		if err := createWorkDir(&op); err != nil {
+			return nil, err
 		}
 	}
 	abs, err := filepath.Abs(op.Dir)
@@ -160,10 +157,8 @@ func New(op Options) (*Sandbox, error) {
 		s.joinCgroup()
 	}
 
-	if op.ConfineWrites && !s.op.UseChroot && landlockABI() == 0 {
-		s.notApplied = append(s.notApplied, "write confinement: this kernel has no Landlock, so a command can "+
-			"still write outside the working directory")
-		s.op.ConfineWrites = false
+	if op.ConfineWrites {
+		s.checkWriteConfinement()
 	}
 
 	if !hasLimits(op.Limits) {
@@ -178,16 +173,7 @@ func New(op Options) (*Sandbox, error) {
 		s.raiseMemoryLimit()
 	}
 
-	// A limit the shell refuses used to be dropped in silence, the command running
-	// as if it were bounded.
-	unapplied, err := unappliedLimits(s.op.Limits)
-	if err != nil {
-		s.notApplied = append(s.notApplied, "limits: could not check that the shell applies them: "+err.Error())
-	}
-	for _, name := range unapplied {
-		s.notApplied = append(s.notApplied, name+": the shell cannot apply this limit here, so commands run without it")
-		s.log.Warn("a sandbox limit cannot be applied", "limit", name)
-	}
+	s.recordUnappliedLimits()
 
 	s.log.Info("sandbox ready",
 		"directory", s.base,
@@ -196,6 +182,40 @@ func New(op Options) (*Sandbox, error) {
 		"limits", hasLimits(op.Limits),
 		"not_applied", strings.Join(s.notApplied, " | "))
 	return s, nil
+}
+
+// createWorkDir creates the working directory a chroot enters ("." when none is set).
+func createWorkDir(op *Options) error {
+	if op.Dir == "" {
+		op.Dir = "."
+	}
+	if err := os.MkdirAll(op.Dir, 0o755); err != nil {
+		return fmt.Errorf("could not create the working directory %q: %w", op.Dir, err)
+	}
+	return nil
+}
+
+// checkWriteConfinement drops the requested write confinement, recording why, when there is no
+// chroot to confine the writes and the kernel has no Landlock.
+func (s *Sandbox) checkWriteConfinement() {
+	if !s.op.UseChroot && landlockABI() == 0 {
+		s.notApplied = append(s.notApplied, "write confinement: this kernel has no Landlock, so a command can "+
+			"still write outside the working directory")
+		s.op.ConfineWrites = false
+	}
+}
+
+// recordUnappliedLimits records the limits the shell refuses: such a limit used to be dropped in
+// silence, the command running as if it were bounded.
+func (s *Sandbox) recordUnappliedLimits() {
+	unapplied, err := unappliedLimits(s.op.Limits)
+	if err != nil {
+		s.notApplied = append(s.notApplied, "limits: could not check that the shell applies them: "+err.Error())
+	}
+	for _, name := range unapplied {
+		s.notApplied = append(s.notApplied, name+": the shell cannot apply this limit here, so commands run without it")
+		s.log.Warn("a sandbox limit cannot be applied", "limit", name)
+	}
 }
 
 // checkChroot drops a requested chroot, recording why, when the process is not root or the
