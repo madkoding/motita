@@ -23,7 +23,8 @@ func TestEveryTranslationKeepsItsVerbs(t *testing.T) {
 		if strings.HasSuffix(key, " test") {
 			continue // the entries the package's own tests register
 		}
-		if got, want := strings.Join(verb.FindAllString(value, -1), " "), strings.Join(verb.FindAllString(key, -1), " "); got != want {
+		if got, want := strings.Join(verb.FindAllString(value, -1), " "),
+			strings.Join(verb.FindAllString(key, -1), " "); got != want {
 			t.Errorf("%q -> %q: verbs %q, want %q", key, value, got, want)
 		}
 		if strings.Contains(key, "[1") && !strings.Contains(value, "[1") {
