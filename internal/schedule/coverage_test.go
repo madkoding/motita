@@ -237,7 +237,10 @@ func TestTheWatchLoopFallsBackToTheDefaultTick(t *testing.T) {
 	cancel()
 
 	stopped := make(chan struct{})
-	go func() { defer close(stopped); w.Run(ctx) }()
+	go func() {
+		defer close(stopped)
+		w.Run(ctx)
+	}()
 	select {
 	case <-stopped:
 	case <-time.After(2 * time.Second):
