@@ -265,7 +265,8 @@ func TestAllowAllSurvivesARestart(t *testing.T) {
 	}
 
 	// Taking it back is a decision too, and must not be undone by the next restart.
-	if w := post(t, second, sessionPath(second, other, "/auto-approve"), `{"enabled":false}`, testToken); w.Code != http.StatusOK {
+	if w := post(t, second, sessionPath(second, other, "/auto-approve"), `{"enabled":false}`,
+		testToken); w.Code != http.StatusOK {
 		t.Fatalf("turning it off = %d", w.Code)
 	}
 	if rec := readRecordOnDisk(t, dir, other); rec.AutoApprove {
@@ -296,7 +297,11 @@ func TestAnAllowAllAnswerIsWrittenAtOnce(t *testing.T) {
 		o.ProjectDir = filepath.Join(t.TempDir(), "projects")
 	})
 
-	req, _ := http.NewRequest(http.MethodPost, srv.BaseURL()+sessionPath(srv, DefaultSession, "/task"), strings.NewReader(`{"task":"x"}`))
+	req, _ := http.NewRequest(
+		http.MethodPost,
+		srv.BaseURL()+sessionPath(srv, DefaultSession, "/task"),
+		strings.NewReader(`{"task":"x"}`),
+	)
 	req.Header.Set("Authorization", "Bearer "+testToken)
 	resp, err := (&http.Client{}).Do(req)
 	if err != nil {

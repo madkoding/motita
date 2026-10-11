@@ -110,7 +110,9 @@ func TestTheModelsReportIsTextual(t *testing.T) {
 // A catalogue failure is a 502 with the reason, not a 500: the agent is fine and the provider is
 // what did not answer, and a client can act on that difference.
 func TestAModelsFailureAnswersWithTheReason(t *testing.T) {
-	svc := &fakeService{models: func(context.Context) (string, error) { return "", errors.New("no route to the provider") }}
+	svc := &fakeService{
+		models: func(context.Context) (string, error) { return "", errors.New("no route to the provider") },
+	}
 	srv := newTestServer(t, svc)
 
 	w := get(t, srv, sessionPath(srv, DefaultSession, "/models"), testToken)
@@ -147,7 +149,8 @@ func TestReasoningIsSet(t *testing.T) {
 func TestReasoningPassesTheLevelThrough(t *testing.T) {
 	svc := &fakeService{}
 	srv := newTestServer(t, svc)
-	if w := post(t, srv, sessionPath(srv, DefaultSession, "/reasoning"), `{"level":""}`, testToken); w.Code != http.StatusNoContent {
+	if w := post(t, srv, sessionPath(srv, DefaultSession, "/reasoning"), `{"level":""}`,
+		testToken); w.Code != http.StatusNoContent {
 		t.Fatalf("status = %d", w.Code)
 	}
 	if svc.reasoning != "" {
@@ -173,17 +176,26 @@ func TestTheReasoningLevelSurvivesARestart(t *testing.T) {
 	first, _ := startServer(t, opts())
 	other := registerOtherSession(t, first, "s-other")
 	for _, id := range []string{DefaultSession, other} {
-		if w := post(t, first, sessionPath(first, id, "/reasoning"), `{"level":"high"}`, testToken); w.Code != http.StatusNoContent {
+		if w := post(t, first, sessionPath(first, id, "/reasoning"), `{"level":"high"}`,
+			testToken); w.Code != http.StatusNoContent {
 			t.Fatalf("setting the level for %s = %d %s", id, w.Code, w.Body.String())
 		}
 		if rec := readRecordOnDisk(t, dir, id); rec.Reasoning != "high" {
-			t.Fatalf("%s: the level was chosen but not written to disk (record: %+v): a restart would forget it", id, rec.Reasoning)
+			t.Fatalf(
+				"%s: the level was chosen but not written to disk (record: %+v): a restart would forget it",
+				id,
+				rec.Reasoning,
+			)
 		}
 		// The whole POINT of the level is that it reaches the model, and it only does when the
 		// `enabled` flag travels with it: config.normalize turns a level beside enabled=false back
 		// into the default, and the request builders then send nothing at all.
 		if cfg := lookupService(t, first, id).Config(); !cfg.LLM.Reasoning.Enabled {
-			t.Errorf("%s: reasoning is at %q with the flag off, which normalize reads as \"nobody applied this\"", id, cfg.LLM.Reasoning.Level)
+			t.Errorf(
+				"%s: reasoning is at %q with the flag off, which normalize reads as \"nobody applied this\"",
+				id,
+				cfg.LLM.Reasoning.Level,
+			)
 		}
 	}
 	_ = first.Close(context.Background())
@@ -282,7 +294,13 @@ func TestAVerdictCarriesTheNote(t *testing.T) {
 	}}
 	srv := newTestServer(t, svc)
 
-	w := post(t, srv, sessionPath(srv, DefaultSession, "/verdict"), `{"good":false,"note":"the second step was wrong"}`, testToken)
+	w := post(
+		t,
+		srv,
+		sessionPath(srv, DefaultSession, "/verdict"),
+		`{"good":false,"note":"the second step was wrong"}`,
+		testToken,
+	)
 	if w.Code != http.StatusOK {
 		t.Fatalf("status = %d (body %q)", w.Code, w.Body.String())
 	}
@@ -387,7 +405,8 @@ func TestNoQuestionsIsAnEmptyList(t *testing.T) {
 func TestABadBodyIsRejectedOnEveryEndpoointThatTakesOne(t *testing.T) {
 	srv := newTestServer(t, &fakeService{})
 	// POST endpoints with a body:
-	for _, path := range []string{sessionPath(srv, DefaultSession, "/reasoning"), sessionPath(srv, DefaultSession, "/verdict")} {
+	for _, path := range []string{sessionPath(srv, DefaultSession, "/reasoning"), sessionPath(srv, DefaultSession,
+		"/verdict")} {
 		t.Run("POST "+path, func(t *testing.T) {
 			w := post(t, srv, path, "not json", testToken)
 			if w.Code != http.StatusBadRequest {
@@ -436,7 +455,13 @@ func TestConfigPatchRefusesAnUnknownReasoningLevel(t *testing.T) {
 	svc := &fakeService{cfg: config.Default()}
 	before := svc.cfg.LLM.Model
 	srv := newTestServer(t, svc)
-	w := patchReq(t, srv, sessionPath(srv, DefaultSession, "/config"), `{"model":"haiku","reasoning":"extreme"}`, testToken)
+	w := patchReq(
+		t,
+		srv,
+		sessionPath(srv, DefaultSession, "/config"),
+		`{"model":"haiku","reasoning":"extreme"}`,
+		testToken,
+	)
 	if w.Code != http.StatusBadRequest {
 		t.Fatalf("status = %d, want 400 (body %q)", w.Code, w.Body.String())
 	}

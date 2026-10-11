@@ -482,7 +482,13 @@ func TestAnEmptyTitleIsRefused(t *testing.T) {
 func TestTheConfigCanBeUpdated(t *testing.T) {
 	svc := &fakeService{cfg: config.Default()}
 	srv := newTestServer(t, svc)
-	w := patchReq(t, srv, sessionPath(srv, DefaultSession, "/config"), `{"provider":"ollama","model":"qwen3:32b"}`, testToken)
+	w := patchReq(
+		t,
+		srv,
+		sessionPath(srv, DefaultSession, "/config"),
+		`{"provider":"ollama","model":"qwen3:32b"}`,
+		testToken,
+	)
 	if w.Code != http.StatusOK {
 		t.Fatalf("update config answered %d: %s", w.Code, w.Body.String())
 	}

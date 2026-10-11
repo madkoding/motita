@@ -182,7 +182,10 @@ func TestAPlanStreamCarriesTheSameFraming(t *testing.T) {
 	}}
 	srv := newTestServer(t, svc)
 
-	events := withoutPreamble(t, collect(t, srv, http.MethodPost, sessionPath(srv, DefaultSession, "/plan"), `{"prompt":"what is here?"}`))
+	events := withoutPreamble(
+		t,
+		collect(t, srv, http.MethodPost, sessionPath(srv, DefaultSession, "/plan"), `{"prompt":"what is here?"}`),
+	)
 	if len(events) != 2 || events[0].Event != EventProgress || events[1].Event != EventDone {
 		t.Fatalf("events = %+v", events)
 	}
@@ -244,7 +247,11 @@ func TestOnlyOneRunAtATime(t *testing.T) {
 	}}
 	srv := newTestServer(t, svc)
 
-	req, _ := http.NewRequest(http.MethodPost, srv.BaseURL()+sessionPath(srv, DefaultSession, "/task"), strings.NewReader(`{"task":"one"}`))
+	req, _ := http.NewRequest(
+		http.MethodPost,
+		srv.BaseURL()+sessionPath(srv, DefaultSession, "/task"),
+		strings.NewReader(`{"task":"one"}`),
+	)
 	req.Header.Set("Authorization", "Bearer "+testToken)
 	resp, err := (&http.Client{}).Do(req)
 	if err != nil {
@@ -282,7 +289,9 @@ func TestTheRunSlotIsReleasedAfterEveryOutcome(t *testing.T) {
 			svc := &fakeService{task: fn}
 			srv := newTestServer(t, svc)
 			for i := 0; i < 3; i++ {
-				if events := collect(t, srv, http.MethodPost, sessionPath(srv, DefaultSession, "/task"), `{"task":"x"}`); len(events) == 0 {
+				if events := collect(t, srv, http.MethodPost, sessionPath(srv, DefaultSession, "/task"), `{"task":"x"}`); len(
+					events,
+				) == 0 {
 					t.Fatalf("run %d produced no events", i)
 				}
 				// The stream ends at its terminal event, and the slot is released by a defer that
@@ -310,7 +319,11 @@ func TestTheRefusalHappensBeforeAnyHeaders(t *testing.T) {
 	}}
 	srv := newTestServer(t, svc)
 
-	req, _ := http.NewRequest(http.MethodPost, srv.BaseURL()+sessionPath(srv, DefaultSession, "/task"), strings.NewReader(`{"task":"one"}`))
+	req, _ := http.NewRequest(
+		http.MethodPost,
+		srv.BaseURL()+sessionPath(srv, DefaultSession, "/task"),
+		strings.NewReader(`{"task":"one"}`),
+	)
 	req.Header.Set("Authorization", "Bearer "+testToken)
 	resp, err := (&http.Client{}).Do(req)
 	if err != nil {
@@ -357,7 +370,11 @@ func TestAnApprovalIsAskedAndAnswered(t *testing.T) {
 	}
 	srv := newTestServer(t, svc)
 
-	req, _ := http.NewRequest(http.MethodPost, srv.BaseURL()+sessionPath(srv, DefaultSession, "/task"), strings.NewReader(`{"task":"clean"}`))
+	req, _ := http.NewRequest(
+		http.MethodPost,
+		srv.BaseURL()+sessionPath(srv, DefaultSession, "/task"),
+		strings.NewReader(`{"task":"clean"}`),
+	)
 	req.Header.Set("Authorization", "Bearer "+testToken)
 	resp, err := (&http.Client{}).Do(req)
 	if err != nil {
@@ -377,7 +394,13 @@ func TestAnApprovalIsAskedAndAnswered(t *testing.T) {
 		t.Fatal("the approval needs an id, or an answer can be replayed onto the next question")
 	}
 
-	w := post(t, srv, sessionPath(srv, DefaultSession, "/runs/approval"), fmt.Sprintf(`{"id":%q,"approve":true}`, ask.ID), testToken)
+	w := post(
+		t,
+		srv,
+		sessionPath(srv, DefaultSession, "/runs/approval"),
+		fmt.Sprintf(`{"id":%q,"approve":true}`, ask.ID),
+		testToken,
+	)
 	if w.Code != http.StatusNoContent {
 		t.Fatalf("answer status = %d, want 204 (body %q)", w.Code, w.Body.String())
 	}
@@ -414,7 +437,11 @@ func TestAnApprovalCanBeRefused(t *testing.T) {
 	}
 	srv := newTestServer(t, svc)
 
-	req, _ := http.NewRequest(http.MethodPost, srv.BaseURL()+sessionPath(srv, DefaultSession, "/task"), strings.NewReader(`{"task":"clean"}`))
+	req, _ := http.NewRequest(
+		http.MethodPost,
+		srv.BaseURL()+sessionPath(srv, DefaultSession, "/task"),
+		strings.NewReader(`{"task":"clean"}`),
+	)
 	req.Header.Set("Authorization", "Bearer "+testToken)
 	resp, err := (&http.Client{}).Do(req)
 	if err != nil {
@@ -423,7 +450,8 @@ func TestAnApprovalCanBeRefused(t *testing.T) {
 	defer resp.Body.Close()
 
 	ask := waitForApproval(t, bufio.NewReader(resp.Body))
-	if w := post(t, srv, sessionPath(srv, DefaultSession, "/runs/approval"), fmt.Sprintf(`{"id":%q,"approve":false}`, ask.ID), testToken); w.Code != http.StatusNoContent {
+	if w := post(t, srv, sessionPath(srv, DefaultSession, "/runs/approval"), fmt.Sprintf(`{"id":%q,"approve":false}`,
+		ask.ID), testToken); w.Code != http.StatusNoContent {
 		t.Fatalf("answer status = %d", w.Code)
 	}
 	select {
@@ -477,7 +505,11 @@ func TestAnApprovalWithTheWrongIDIsRefused(t *testing.T) {
 	}}
 	srv := newTestServer(t, svc)
 
-	req, _ := http.NewRequest(http.MethodPost, srv.BaseURL()+sessionPath(srv, DefaultSession, "/task"), strings.NewReader(`{"task":"x"}`))
+	req, _ := http.NewRequest(
+		http.MethodPost,
+		srv.BaseURL()+sessionPath(srv, DefaultSession, "/task"),
+		strings.NewReader(`{"task":"x"}`),
+	)
 	req.Header.Set("Authorization", "Bearer "+testToken)
 	resp, err := (&http.Client{}).Do(req)
 	if err != nil {
@@ -521,7 +553,11 @@ func TestAnAnswerForAQuestionThatWasAskedIsAcceptedEvenWhenLate(t *testing.T) {
 	svc.approverWrap = func(fn agent.Approver) { _ = fn }
 	srv := newTestServer(t, svc)
 
-	req, _ := http.NewRequest(http.MethodPost, srv.BaseURL()+sessionPath(srv, DefaultSession, "/task"), strings.NewReader(`{"task":"x"}`))
+	req, _ := http.NewRequest(
+		http.MethodPost,
+		srv.BaseURL()+sessionPath(srv, DefaultSession, "/task"),
+		strings.NewReader(`{"task":"x"}`),
+	)
 	req.Header.Set("Authorization", "Bearer "+testToken)
 	resp, err := (&http.Client{}).Do(req)
 	if err != nil {
@@ -537,7 +573,13 @@ func TestAnAnswerForAQuestionThatWasAskedIsAcceptedEvenWhenLate(t *testing.T) {
 
 	// The question is closed, so an answer is refused rather than silently accepted. This is the
 	// path that keeps a stale answer from landing on the NEXT question.
-	w := post(t, srv, sessionPath(srv, DefaultSession, "/runs/approval"), fmt.Sprintf(`{"id":%q,"approve":true}`, id), testToken)
+	w := post(
+		t,
+		srv,
+		sessionPath(srv, DefaultSession, "/runs/approval"),
+		fmt.Sprintf(`{"id":%q,"approve":true}`, id),
+		testToken,
+	)
 	if w.Code != http.StatusConflict {
 		t.Errorf("a late answer got %d, want 409", w.Code)
 	}
@@ -585,7 +627,8 @@ func TestAnAnswerNeverBlocksOnAQuestionNobodyIsWaitingFor(t *testing.T) {
 // A malformed answer is refused before the id is even looked at.
 func TestAMalformedApprovalBodyIsRefused(t *testing.T) {
 	srv := newTestServer(t, &fakeService{})
-	if w := post(t, srv, sessionPath(srv, DefaultSession, "/runs/approval"), "not json", testToken); w.Code != http.StatusBadRequest {
+	if w := post(t, srv, sessionPath(srv, DefaultSession, "/runs/approval"), "not json",
+		testToken); w.Code != http.StatusBadRequest {
 		t.Errorf("status = %d, want 400", w.Code)
 	}
 }
@@ -600,7 +643,13 @@ func TestAnAnswerWithTheWrongIDAgainstALiveQuestionIsRefused(t *testing.T) {
 	conv.setPendingApproval(p)
 	defer conv.clearPendingApproval()
 
-	w := post(t, srv, sessionPath(srv, DefaultSession, "/runs/approval"), `{"id":"a-different-id","approve":true}`, testToken)
+	w := post(
+		t,
+		srv,
+		sessionPath(srv, DefaultSession, "/runs/approval"),
+		`{"id":"a-different-id","approve":true}`,
+		testToken,
+	)
 	if w.Code != http.StatusConflict {
 		t.Fatalf("status = %d, want 409", w.Code)
 	}
@@ -628,7 +677,8 @@ func TestAnAnswerIsDroppedRatherThanBlockingOnAFullChannel(t *testing.T) {
 
 	done := make(chan int, 1)
 	go func() {
-		done <- post(t, srv, sessionPath(srv, DefaultSession, "/runs/approval"), `{"id":"the-id","approve":false}`, testToken).Code
+		done <- post(t, srv, sessionPath(srv, DefaultSession, "/runs/approval"), `{"id":"the-id","approve":false}`,
+			testToken).Code
 	}()
 	select {
 	case code := <-done:

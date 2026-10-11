@@ -436,7 +436,8 @@ func TestMergeSessionOnItsOwnBranchIsNotASilentSuccess(t *testing.T) {
 	if w.Code != http.StatusConflict {
 		t.Errorf("status = %d, want 409: %s", w.Code, w.Body.String())
 	}
-	if !strings.Contains(w.Body.String(), "nothing to integrate") && !strings.Contains(w.Body.String(), "no work to integrate") {
+	if !strings.Contains(w.Body.String(), "nothing to integrate") &&
+		!strings.Contains(w.Body.String(), "no work to integrate") {
 		t.Errorf("the refusal must say nothing was integrated, got %s", w.Body.String())
 	}
 }
@@ -475,7 +476,8 @@ func TestASessionWithUncommittedWorkCanBeIntegrated(t *testing.T) {
 	if statusOf(t, srv, ss.ID).Mergeable {
 		t.Fatal("a session that has done nothing has nothing to integrate")
 	}
-	if err := os.WriteFile(filepath.Join(ss.Workspace, "feature.txt"), []byte("the agent wrote this\n"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(ss.Workspace, "feature.txt"), []byte("the agent wrote this\n"),
+		0o644); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(filepath.Join(ss.Workspace, "f.txt"), []byte("base\nedited\n"), 0o644); err != nil {
@@ -695,7 +697,8 @@ func TestContinueSessionPullsMainAndStartsAFreshSession(t *testing.T) {
 	if got := gitOut(t, next.Workspace, "status", "--short"); got != "" {
 		t.Errorf("the new session must have no uncommitted changes:\n%s", got)
 	}
-	if n := strings.TrimSpace(gitOut(t, next.Workspace, "rev-list", "--count", "main.."+sessionBranch(next.ID))); n != "0" {
+	if n := strings.TrimSpace(gitOut(t, next.Workspace, "rev-list", "--count",
+		"main.."+sessionBranch(next.ID))); n != "0" {
 		t.Errorf("the new session must not be ahead of main: %s commits", n)
 	}
 

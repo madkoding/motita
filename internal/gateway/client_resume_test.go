@@ -95,7 +95,8 @@ func TestTheClientResumesItsRunAfterTheConnectionDrops(t *testing.T) {
 		t.Fatal("the client never reattached: it treated a dropped connection as the end of the turn")
 	}
 	if resumedFrom[0] == "" || resumedFrom[0] == "0" {
-		t.Errorf("the client reattached from %q: it must ask for what FOLLOWS the last id it saw, or it will re-read the stream and duplicate everything", resumedFrom[0])
+		t.Errorf("the client reattached from %q: it must ask for what FOLLOWS the last id it saw, "+
+			"or it will re-read the stream and duplicate everything", resumedFrom[0])
 	}
 	if resumedFrom[0] != "2" {
 		t.Errorf("the client reattached from %q, and the last id it saw was 2", resumedFrom[0])
@@ -272,7 +273,8 @@ func TestTheClientTakesAPendingQuestionFromThePreamble(t *testing.T) {
 		}
 		w.Header().Set("Content-Type", "text/event-stream")
 		w.WriteHeader(http.StatusOK)
-		writeFrame(w, 0, EventAttached, `{"run_id":"r1","pending_approval":{"id":"q1","command":"rm -rf ./build","reason":"it deletes a directory","rule":"destructive"}}`)
+		writeFrame(w, 0, EventAttached, `{"run_id":"r1","pending_approval":{"id":"q1","command":"rm -rf ./build",`+
+			`"reason":"it deletes a directory","rule":"destructive"}}`)
 		writeFrame(w, 1, EventDone, `{"result":"the command ran"}`)
 	})
 
@@ -360,7 +362,10 @@ func TestAQuestionThatArrivesTwiceIsAnsweredOnce(t *testing.T) {
 		}
 	}
 	if n != 1 {
-		t.Errorf("the client sent %d answers for one question, and the gateway refuses the second with a 409 that kills the stream", n)
+		t.Errorf(
+			"the client sent %d answers for one question, and the gateway refuses the second with a 409 that kills the stream",
+			n,
+		)
 	}
 }
 

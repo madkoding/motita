@@ -102,7 +102,8 @@ func TestPutUIRefusals(t *testing.T) {
 	if v := decodeUI(t, get(t, bare, "/v1/ui", testToken)); v.Language != "auto" {
 		t.Errorf("an invalid starting value reads as auto: %+v", v)
 	}
-	if w := putUI(t, bare, `{"language":"es"}`, testToken); w.Code != http.StatusConflict || !strings.Contains(w.Body.String(), "configuration file") {
+	if w := putUI(t, bare, `{"language":"es"}`, testToken); w.Code != http.StatusConflict ||
+		!strings.Contains(w.Body.String(), "configuration file") {
 		t.Errorf("no configuration file = %d %s, want 409", w.Code, w.Body.String())
 	}
 }

@@ -529,11 +529,22 @@ func TestADirectoryNamedLikeARecordIsSkipped(t *testing.T) {
 // The record is JSON an operator may open and read, so the field names are the contract: renaming
 // one silently would make a gateway read somebody's sessions as empty.
 func TestTheSessionRecordUsesTheNamesAnOperatorReads(t *testing.T) {
-	raw, err := json.Marshal(sessionRecord{ID: "s1", Title: "t", ProjectID: "p1", ProjectDir: "/p", Running: true, LastTask: "x", LastKind: "task"})
+	raw, err := json.Marshal(
+		sessionRecord{
+			ID:         "s1",
+			Title:      "t",
+			ProjectID:  "p1",
+			ProjectDir: "/p",
+			Running:    true,
+			LastTask:   "x",
+			LastKind:   "task",
+		},
+	)
 	if err != nil {
 		t.Fatalf("marshal: %v", err)
 	}
-	for _, field := range []string{`"id"`, `"title"`, `"project_id"`, `"project_dir"`, `"running"`, `"last_task"`, `"last_kind"`} {
+	for _, field := range []string{`"id"`, `"title"`, `"project_id"`, `"project_dir"`, `"running"`, `"last_task"`,
+		`"last_kind"`} {
 		if !strings.Contains(string(raw), field) {
 			t.Errorf("the record is missing %s: %s", field, raw)
 		}

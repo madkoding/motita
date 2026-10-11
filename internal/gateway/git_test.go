@@ -36,7 +36,11 @@ func (g *gitHost) Do(req *http.Request) (*http.Response, error) {
 		}
 	}
 	if best == "" {
-		return &http.Response{StatusCode: 404, Body: io.NopCloser(strings.NewReader(`{"message":"no route"}`)), Header: http.Header{}}, nil
+		return &http.Response{
+			StatusCode: 404,
+			Body:       io.NopCloser(strings.NewReader(`{"message":"no route"}`)),
+			Header:     http.Header{},
+		}, nil
 	}
 	status := 200
 	if rest, ok := strings.CutPrefix(body, "STATUS "); ok {
@@ -108,10 +112,12 @@ func TestGitAccountsAndTokenConnection(t *testing.T) {
 		m := a.(map[string]any)
 		byID[m["id"].(string)] = m
 	}
-	if byID["github"]["connected"] != false || byID["github"]["oauth_ready"] != true || byID["github"]["setup_hint"] != nil {
+	if byID["github"]["connected"] != false || byID["github"]["oauth_ready"] != true ||
+		byID["github"]["setup_hint"] != nil {
 		t.Errorf("github = %v", byID["github"])
 	}
-	if byID["gitlab"]["oauth_ready"] != false || !strings.Contains(byID["gitlab"]["setup_hint"].(string), "MOTITA_GITLAB_CLIENT_ID") {
+	if byID["gitlab"]["oauth_ready"] != false ||
+		!strings.Contains(byID["gitlab"]["setup_hint"].(string), "MOTITA_GITLAB_CLIENT_ID") {
 		t.Errorf("gitlab = %v", byID["gitlab"])
 	}
 
@@ -169,11 +175,14 @@ func waitFlow(t *testing.T, srv *Server, id, want string) map[string]any {
 
 func TestGitDeviceLogin(t *testing.T) {
 	srv, host := gitServer(t)
-	host.set("POST https://github.com/login/device/code", `{"device_code":"dc","user_code":"AB-12","verification_uri":"https://github.com/login/device","expires_in":900,"interval":1}`)
+	host.set("POST https://github.com/login/device/code",
+		`{"device_code":"dc","user_code":"AB-12","verification_uri":"https://github.com/login/device",`+
+			`"expires_in":900,"interval":1}`)
 	host.set("POST https://github.com/login/oauth/access_token", `{"access_token":"gho_dev","refresh_token":""}`)
 	w := postJSON(t, srv, "/v1/git/connect", testToken, `{"service":"github"}`)
 	m := decode(t, w)
-	if w.Code != http.StatusAccepted || m["method"] != "device" || m["code"] != "AB-12" || m["url"] != "https://github.com/login/device" {
+	if w.Code != http.StatusAccepted || m["method"] != "device" || m["code"] != "AB-12" ||
+		m["url"] != "https://github.com/login/device" {
 		t.Fatalf("%d %s", w.Code, w.Body.String())
 	}
 	done := waitFlow(t, srv, m["flow_id"].(string), "connected")
@@ -181,14 +190,18 @@ func TestGitDeviceLogin(t *testing.T) {
 		t.Errorf("done = %v", done)
 	}
 	// A device flow cannot be completed by pasting.
-	if w := postJSON(t, srv, "/v1/git/flows/"+m["flow_id"].(string)+"/paste", testToken, `{"code":"x"}`); w.Code != http.StatusConflict {
+	if w := postJSON(t, srv, "/v1/git/flows/"+m["flow_id"].(string)+"/paste", testToken,
+		`{"code":"x"}`); w.Code != http.StatusConflict {
 		t.Errorf("paste on a device flow: %d", w.Code)
 	}
 }
 
 func TestGitDeviceLoginFailsAndCancels(t *testing.T) {
 	srv, host := gitServer(t)
-	host.set("POST https://github.com/login/device/code", `{"device_code":"dc","user_code":"AB-12","verification_uri":"u","interval":1}`)
+	host.set(
+		"POST https://github.com/login/device/code",
+		`{"device_code":"dc","user_code":"AB-12","verification_uri":"u","interval":1}`,
+	)
 	host.set("POST https://github.com/login/oauth/access_token", `{"error":"access_denied"}`)
 	m := decode(t, postJSON(t, srv, "/v1/git/connect", testToken, `{"service":"github","method":"device"}`))
 	failed := waitFlow(t, srv, m["flow_id"].(string), "failed")
@@ -208,7 +221,8 @@ func TestGitDeviceLoginFailsAndCancels(t *testing.T) {
 	if w := get(t, srv, "/v1/git/flows/"+id, testToken); w.Code != http.StatusNotFound {
 		t.Errorf("a cancelled flow is gone: %d", w.Code)
 	}
-	for _, c := range [][2]string{{"GET", "/v1/git/flows/nope"}, {"DELETE", "/v1/git/flows/nope"}, {"POST", "/v1/git/flows/nope/paste"}} {
+	for _, c := range [][2]string{{"GET", "/v1/git/flows/nope"}, {"DELETE", "/v1/git/flows/nope"}, {"POST",
+		"/v1/git/flows/nope/paste"}} {
 		if w := send(t, srv, c[0], c[1], testToken, `{"code":"x"}`); w.Code != http.StatusNotFound {
 			t.Errorf("%v: %d", c, w.Code)
 		}
@@ -223,7 +237,9 @@ func TestGitCodeLoginByPaste(t *testing.T) {
 	host.set("GET https://forge.test/api/v1/user", `{"login":"gitea-user"}`)
 	w := postJSON(t, srv, "/v1/git/connect", testToken, `{"kind":"gitea","host":"forge.test"}`)
 	m := decode(t, w)
-	if w.Code != http.StatusAccepted || m["method"] != "code" || !strings.Contains(m["url"].(string), "https://forge.test/login/oauth/authorize?") || !strings.HasPrefix(m["redirect_uri"].(string), "http://localhost:") {
+	if w.Code != http.StatusAccepted || m["method"] != "code" ||
+		!strings.Contains(m["url"].(string), "https://forge.test/login/oauth/authorize?") ||
+		!strings.HasPrefix(m["redirect_uri"].(string), "http://localhost:") {
 		t.Fatalf("%d %s", w.Code, w.Body.String())
 	}
 	id := m["flow_id"].(string)
@@ -231,7 +247,8 @@ func TestGitCodeLoginByPaste(t *testing.T) {
 		t.Fatalf("paste: %d %s", w.Code, w.Body.String())
 	}
 	// A second code for the same login is refused.
-	if w := postJSON(t, srv, "/v1/git/flows/"+id+"/paste", testToken, `{"code":"abc"}`); w.Code != http.StatusConflict && w.Code != http.StatusAccepted {
+	if w := postJSON(t, srv, "/v1/git/flows/"+id+"/paste", testToken, `{"code":"abc"}`); w.Code != http.StatusConflict &&
+		w.Code != http.StatusAccepted {
 		t.Errorf("second paste: %d", w.Code)
 	}
 	if done := waitFlow(t, srv, id, "connected"); done["account"] != "gitea-user" {
@@ -244,7 +261,10 @@ func TestGitCodeLoginByPaste(t *testing.T) {
 
 func TestGitFlowsAreSweptWhenOld(t *testing.T) {
 	srv, host := gitServer(t)
-	host.set("POST https://github.com/login/device/code", `{"device_code":"dc","user_code":"U","verification_uri":"u","interval":1}`)
+	host.set(
+		"POST https://github.com/login/device/code",
+		`{"device_code":"dc","user_code":"U","verification_uri":"u","interval":1}`,
+	)
 	host.set("POST https://github.com/login/oauth/access_token", `{"error":"authorization_pending"}`)
 	first := decode(t, postJSON(t, srv, "/v1/git/connect", testToken, `{"service":"github"}`))["flow_id"].(string)
 	srv.gitMu.Lock()
@@ -269,7 +289,10 @@ func TestGitRepos(t *testing.T) {
 		t.Fatalf("not connected: %d %s", w.Code, w.Body.String())
 	}
 	postJSON(t, srv, "/v1/git/connect", testToken, `{"service":"github","token":"gho_x"}`)
-	host.set("GET https://api.github.com/user/repos", `[{"full_name":"octo/app","clone_url":"https://github.com/octo/app.git","private":true}]`)
+	host.set(
+		"GET https://api.github.com/user/repos",
+		`[{"full_name":"octo/app","clone_url":"https://github.com/octo/app.git","private":true}]`,
+	)
 	w = get(t, srv, "/v1/git/repos?service=github&q=app&page=2", testToken)
 	m := decode(t, w)
 	repos := m["repos"].([]any)
@@ -284,7 +307,8 @@ func TestGitRepos(t *testing.T) {
 	}
 	// The host revoked the token: the dialog is told to connect again.
 	host.set("GET https://api.github.com/user/repos", `STATUS 401 {"message":"Bad credentials"}`)
-	if w = get(t, srv, "/v1/git/repos?service=github", testToken); w.Code != http.StatusConflict || decode(t, w)["code"] != "git_auth_required" {
+	if w = get(t, srv, "/v1/git/repos?service=github", testToken); w.Code != http.StatusConflict ||
+		decode(t, w)["code"] != "git_auth_required" {
 		t.Errorf("revoked: %d %s", w.Code, w.Body.String())
 	}
 	host.set("GET https://api.github.com/user/repos", `STATUS 500 {"message":"down"}`)
@@ -321,7 +345,11 @@ func TestGitDisconnectFailure(t *testing.T) {
 func TestWriteCloneError(t *testing.T) {
 	srv, _ := gitServer(t)
 	w := httptest.NewRecorder()
-	srv.writeCloneError(w, "https://github.com/o/r.git", errors.New("fatal: Authentication failed for 'https://github.com/o/r.git/'"))
+	srv.writeCloneError(
+		w,
+		"https://github.com/o/r.git",
+		errors.New("fatal: Authentication failed for 'https://github.com/o/r.git/'"),
+	)
 	if m := decode(t, w); w.Code != http.StatusConflict || m["code"] != "git_auth_required" || m["service"] != "github" {
 		t.Errorf("%d %s", w.Code, w.Body.String())
 	}
@@ -356,7 +384,8 @@ func TestIsGitAuthFailure(t *testing.T) {
 			t.Errorf("%q must be an auth failure", yes)
 		}
 	}
-	for _, no := range []string{"", "fatal: unable to access 'x': Could not resolve host", "fatal: destination path exists"} {
+	for _, no := range []string{"", "fatal: unable to access 'x': Could not resolve host",
+		"fatal: destination path exists"} {
 		if isGitAuthFailure(no) {
 			t.Errorf("%q must not be an auth failure", no)
 		}

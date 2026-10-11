@@ -38,7 +38,10 @@ func TestFreeCloneDirPicksNextFreeName(t *testing.T) {
 	if got := freeCloneDir(dir, "https://example.com/a/b.git", nil); got != dir+"-2" {
 		t.Fatalf("got %q, want %q", got, dir+"-2")
 	}
-	if got := freeCloneDir(filepath.Join(root, "new"), "https://example.com/a/b.git", nil); got != filepath.Join(root, "new") {
+	if got := freeCloneDir(filepath.Join(root, "new"), "https://example.com/a/b.git", nil); got != filepath.Join(
+		root,
+		"new",
+	) {
 		t.Fatalf("a missing folder must be used as is, got %q", got)
 	}
 }

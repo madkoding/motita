@@ -62,13 +62,16 @@ func TestArtifactsAreCollectedListedServedAndDeleted(t *testing.T) {
 
 	w = artifactCall(srv, http.MethodGet, base+"/report.html")
 	if w.Body.String() != "<h1>hi</h1>" || !strings.HasPrefix(w.Header().Get("Content-Type"), "text/html") ||
-		w.Header().Get("X-Content-Type-Options") != "nosniff" || !strings.Contains(w.Header().Get("Content-Security-Policy"), "sandbox") {
+		w.Header().Get("X-Content-Type-Options") != "nosniff" ||
+		!strings.Contains(w.Header().Get("Content-Security-Policy"), "sandbox") {
 		t.Fatalf("serve = %d %q %v", w.Code, w.Body, w.Header())
 	}
-	if w = artifactCall(srv, http.MethodGet, base+"/report.html?download=1"); !strings.HasPrefix(w.Header().Get("Content-Disposition"), "attachment") {
+	w = artifactCall(srv, http.MethodGet, base+"/report.html?download=1")
+	if !strings.HasPrefix(w.Header().Get("Content-Disposition"), "attachment") {
 		t.Fatalf("download header = %q", w.Header().Get("Content-Disposition"))
 	}
-	if w = artifactCall(srv, http.MethodGet, base+"/data.bin"); w.Header().Get("Content-Type") != "application/octet-stream" {
+	w = artifactCall(srv, http.MethodGet, base+"/data.bin")
+	if w.Header().Get("Content-Type") != "application/octet-stream" {
 		t.Fatalf("unknown type = %q", w.Header().Get("Content-Type"))
 	}
 
@@ -97,7 +100,10 @@ func TestArtifactNamesCannotEscape(t *testing.T) {
 }
 
 func TestCollectArtifactsSkipsWhatItShould(t *testing.T) {
-	srv, c, ws, root := artifactServer(t, map[string]string{"ok.txt": "1", ".dot": "2", "big.txt": strings.Repeat("x", maxArtifactBytes+1)})
+	srv, c, ws, root := artifactServer(
+		t,
+		map[string]string{"ok.txt": "1", ".dot": "2", "big.txt": strings.Repeat("x", maxArtifactBytes+1)},
+	)
 	dir := filepath.Join(ws, filepath.FromSlash(ArtifactDir))
 	outside := filepath.Join(t.TempDir(), "secret")
 	_ = os.WriteFile(outside, []byte("s"), 0o644)
@@ -126,7 +132,11 @@ func TestCollectArtifactsCapsTheCount(t *testing.T) {
 	srv, c, ws, root := artifactServer(t, nil)
 	dir := filepath.Join(ws, filepath.FromSlash(ArtifactDir))
 	for i := 0; i < maxArtifacts+3; i++ {
-		_ = os.WriteFile(filepath.Join(dir, strings.Repeat("a", 1)+string(rune('A'+i%26))+string(rune('a'+i/26))+".txt"), []byte("x"), 0o644)
+		_ = os.WriteFile(
+			filepath.Join(dir, strings.Repeat("a", 1)+string(rune('A'+i%26))+string(rune('a'+i/26))+".txt"),
+			[]byte("x"),
+			0o644,
+		)
 	}
 	c.workspace = ws
 	srv.collectArtifacts(c)
@@ -198,7 +208,8 @@ func artifactReq(srv *Server, method, path, body string) *httptest.ResponseRecor
 func TestOnlyNewOrChangedArtifactsAreReported(t *testing.T) {
 	srv, c, ws, _ := artifactServer(t, map[string]string{"a.md": "one"})
 	c.workspace = ws
-	if got := srv.collectArtifacts(c); len(got) != 1 || got[0].Name != "a.md" || got[0].Type != "text/markdown; charset=utf-8" {
+	if got := srv.collectArtifacts(c); len(got) != 1 || got[0].Name != "a.md" ||
+		got[0].Type != "text/markdown; charset=utf-8" {
 		t.Fatalf("first run = %+v", got)
 	}
 	if got := srv.collectArtifacts(c); len(got) != 0 {
@@ -258,14 +269,16 @@ func TestUploadArtifact(t *testing.T) {
 	if w := artifactReq(srv, http.MethodPut, base+".hidden", "x"); w.Code != http.StatusBadRequest {
 		t.Fatalf("bad name = %d", w.Code)
 	}
-	if w := artifactReq(srv, http.MethodPut, base+"big.bin", strings.Repeat("x", maxArtifactBytes+1)); w.Code != http.StatusRequestEntityTooLarge {
+	if w := artifactReq(srv, http.MethodPut, base+"big.bin", strings.Repeat("x",
+		maxArtifactBytes+1)); w.Code != http.StatusRequestEntityTooLarge {
 		t.Fatalf("too big = %d", w.Code)
 	}
 	nokeep := newTestServer(t, &fakeService{}, func(o *Options) {
 		o.NewService = func() (Service, error) { return &fakeService{}, nil }
 	})
 	nc, _ := nokeep.createSession()
-	if w := artifactReq(nokeep, http.MethodPut, "/v1/sessions/"+nc.id+"/artifacts/a.txt", "x"); w.Code != http.StatusNotImplemented {
+	if w := artifactReq(nokeep, http.MethodPut, "/v1/sessions/"+nc.id+"/artifacts/a.txt",
+		"x"); w.Code != http.StatusNotImplemented {
 		t.Fatalf("not kept = %d", w.Code)
 	}
 }
@@ -304,7 +317,8 @@ func TestPutArtifactReportsAnInternalFailure(t *testing.T) {
 	srv, c, _, root := artifactServer(t, nil)
 	_ = os.Chmod(root, 0o500)
 	defer os.Chmod(root, 0o755)
-	if w := artifactReq(srv, http.MethodPut, "/v1/sessions/"+c.id+"/artifacts/a.txt", "x"); w.Code != http.StatusInternalServerError {
+	if w := artifactReq(srv, http.MethodPut, "/v1/sessions/"+c.id+"/artifacts/a.txt",
+		"x"); w.Code != http.StatusInternalServerError {
 		t.Fatalf("got %d", w.Code)
 	}
 }
@@ -325,7 +339,8 @@ func TestTheDoneEventCarriesTheRunsArtifacts(t *testing.T) {
 	srv.sessions[DefaultSession].workspace = ws
 	events := collect(t, srv, http.MethodPost, sessionPath(srv, DefaultSession, "/task"), `{"task":"write it"}`)
 	last := events[len(events)-1]
-	if last.Event != EventDone || !strings.Contains(last.Data, `"artifacts"`) || !strings.Contains(last.Data, "report.md") {
+	if last.Event != EventDone || !strings.Contains(last.Data, `"artifacts"`) ||
+		!strings.Contains(last.Data, "report.md") {
 		t.Fatalf("done = %s %s", last.Event, last.Data)
 	}
 }
@@ -366,7 +381,8 @@ func TestListArtifactsIgnoresFoldersAndTypesFallBack(t *testing.T) {
 
 func TestDeleteAnUnknownArtifact(t *testing.T) {
 	srv, c, _, _ := artifactServer(t, nil)
-	if w := artifactCall(srv, http.MethodDelete, "/v1/sessions/"+c.id+"/artifacts/nope.txt"); w.Code != http.StatusNotFound {
+	if w := artifactCall(srv, http.MethodDelete,
+		"/v1/sessions/"+c.id+"/artifacts/nope.txt"); w.Code != http.StatusNotFound {
 		t.Fatalf("got %d", w.Code)
 	}
 }
@@ -582,7 +598,8 @@ func TestPinFailureIsReported(t *testing.T) {
 	srv.collectArtifacts(c)
 	// A directory where the pin file goes makes the write fail for any user.
 	_ = os.Mkdir(filepath.Join(root, c.id, pinFile), 0o755)
-	if w := artifactReq(srv, http.MethodPost, "/v1/sessions/"+c.id+"/artifacts/a.md/pin", `{"pinned":true}`); w.Code != http.StatusInternalServerError {
+	if w := artifactReq(srv, http.MethodPost, "/v1/sessions/"+c.id+"/artifacts/a.md/pin",
+		`{"pinned":true}`); w.Code != http.StatusInternalServerError {
 		t.Fatalf("got %d", w.Code)
 	}
 }

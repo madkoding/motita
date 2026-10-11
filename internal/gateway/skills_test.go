@@ -572,7 +572,12 @@ func TestTheSkillWritesRejectAMalformedBody(t *testing.T) {
 	}
 	// And nothing reached either backing service.
 	if lib.savedName != "" || lib.pinned != nil || lib.disabled != nil {
-		t.Errorf("a malformed body reached the library: saved=%q pinned=%v disabled=%v", lib.savedName, lib.pinned, lib.disabled)
+		t.Errorf(
+			"a malformed body reached the library: saved=%q pinned=%v disabled=%v",
+			lib.savedName,
+			lib.pinned,
+			lib.disabled,
+		)
 	}
 	if cur.seen != [2]bool{false, false} {
 		t.Error("a malformed body ran the maintenance pass")
@@ -705,7 +710,10 @@ func TestDeletingASkill(t *testing.T) {
 // library's STATE — the document is the one that ships with the binary — which is the same
 // distinction the archive makes with the default session.
 func TestDeletingABuiltinIsRefused(t *testing.T) {
-	srv := withSkills(t, &fakeSkills{deleteEr: errors.New(`the skill "x" is built in: it ships inside the binary and cannot be deleted`)})
+	srv := withSkills(
+		t,
+		&fakeSkills{deleteEr: errors.New(`the skill "x" is built in: it ships inside the binary and cannot be deleted`)},
+	)
 
 	rec := call(t, srv, http.MethodDelete, "/v1/skills/x", "", testToken)
 	if rec.Code != http.StatusConflict {

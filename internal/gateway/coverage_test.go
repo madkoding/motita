@@ -297,7 +297,11 @@ func TestHandleCreateProjectPathInDir(t *testing.T) {
 		o.ProjectDir = pdir
 		o.WorkspaceDir = wsdir
 	})
-	req, _ := http.NewRequest(http.MethodPost, srv.BaseURL()+"/v1/projects", strings.NewReader(`{"title":"x","dir":"../escape"}`))
+	req, _ := http.NewRequest(
+		http.MethodPost,
+		srv.BaseURL()+"/v1/projects",
+		strings.NewReader(`{"title":"x","dir":"../escape"}`),
+	)
 	req.Header.Set("Authorization", "Bearer "+testToken)
 	w := httptest.NewRecorder()
 	srv.Handler().ServeHTTP(w, req)
@@ -329,7 +333,11 @@ func TestHandleCreateProjectWithGitURL(t *testing.T) {
 		o.WorkspaceDir = wsdir
 	})
 	// Use an invalid git URL to trigger the clone error path.
-	req, _ := http.NewRequest(http.MethodPost, srv.BaseURL()+"/v1/projects", strings.NewReader(`{"title":"x","dir":"y","git_url":"not-a-real-url"}`))
+	req, _ := http.NewRequest(
+		http.MethodPost,
+		srv.BaseURL()+"/v1/projects",
+		strings.NewReader(`{"title":"x","dir":"y","git_url":"not-a-real-url"}`),
+	)
 	req.Header.Set("Authorization", "Bearer "+testToken)
 	w := httptest.NewRecorder()
 	srv.Handler().ServeHTTP(w, req)
@@ -345,7 +353,11 @@ func createProjectIn(t *testing.T, wsdir, dir string) int {
 		o.ProjectDir = t.TempDir()
 		o.WorkspaceDir = wsdir
 	})
-	req, _ := http.NewRequest(http.MethodPost, srv.BaseURL()+"/v1/projects", strings.NewReader(`{"title":"x","dir":"`+dir+`"}`))
+	req, _ := http.NewRequest(
+		http.MethodPost,
+		srv.BaseURL()+"/v1/projects",
+		strings.NewReader(`{"title":"x","dir":"`+dir+`"}`),
+	)
 	req.Header.Set("Authorization", "Bearer "+testToken)
 	w := httptest.NewRecorder()
 	srv.Handler().ServeHTTP(w, req)
@@ -404,7 +416,11 @@ func TestCreateProjectFolderIsAFile(t *testing.T) {
 
 func TestCreateProjectWithoutGitReports500(t *testing.T) {
 	t.Setenv("PATH", t.TempDir())
-	w, _ := postProject(t, filepath.Join(t.TempDir(), "gitconfig"), `{"title":"x","dir":"p","git_user_name":"Ada","git_user_email":"ada@example.com"}`)
+	w, _ := postProject(
+		t,
+		filepath.Join(t.TempDir(), "gitconfig"),
+		`{"title":"x","dir":"p","git_user_name":"Ada","git_user_email":"ada@example.com"}`,
+	)
 	if w.Code != http.StatusInternalServerError {
 		t.Errorf("status = %d, want 500", w.Code)
 	}

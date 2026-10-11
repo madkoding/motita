@@ -233,7 +233,8 @@ func TestAnUnreadableStoreIsReported(t *testing.T) {
 	if !strings.Contains(w.Body.String(), `"schedules":[]`) {
 		t.Errorf("the list must be empty and never null, got %q", w.Body.String())
 	}
-	if w := send(t, srv, http.MethodPatch, "/v1/schedules/"+id, testToken, `{"enabled":false}`); w.Code != http.StatusInternalServerError {
+	if w := send(t, srv, http.MethodPatch, "/v1/schedules/"+id, testToken,
+		`{"enabled":false}`); w.Code != http.StatusInternalServerError {
 		t.Errorf("an unreadable store must be reported on PATCH: status = %d, body = %s", w.Code, w.Body.String())
 	}
 	if w := send(t, srv, http.MethodDelete, "/v1/schedules/"+id, testToken, ""); w.Code != http.StatusInternalServerError {
@@ -564,7 +565,8 @@ func TestTheSchedulerSkipsATaskWhoseSessionIsBusy(t *testing.T) {
 	if !ok {
 		t.Fatal("the default conversation must exist")
 	}
-	if _, started := srv.startDetachedRun(c, "someone is typing", schedule.KindTask, "", srv.unattendedApprover("other")); !started {
+	if _, started := srv.startDetachedRun(c, "someone is typing", schedule.KindTask, "",
+		srv.unattendedApprover("other")); !started {
 		t.Fatal("the occupying run did not start")
 	}
 	defer close(release)

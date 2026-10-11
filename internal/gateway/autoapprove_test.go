@@ -36,7 +36,11 @@ func TestAllowingAllCommandsAnswersTheRestOfTheSession(t *testing.T) {
 	}
 	srv := newTestServer(t, svc)
 
-	req, _ := http.NewRequest(http.MethodPost, srv.BaseURL()+sessionPath(srv, DefaultSession, "/task"), strings.NewReader(`{"task":"x"}`))
+	req, _ := http.NewRequest(
+		http.MethodPost,
+		srv.BaseURL()+sessionPath(srv, DefaultSession, "/task"),
+		strings.NewReader(`{"task":"x"}`),
+	)
 	req.Header.Set("Authorization", "Bearer "+testToken)
 	resp, err := (&http.Client{}).Do(req)
 	if err != nil {
@@ -116,7 +120,8 @@ func TestAllowAllCanBeTakenBack(t *testing.T) {
 	if !strings.Contains(w.Body.String(), `"auto_approve":true`) {
 		t.Errorf("turning it on answers the new status: %s", w.Body.String())
 	}
-	if w := post(t, srv, sessionPath(srv, DefaultSession, "/auto-approve"), `not json`, testToken); w.Code != http.StatusBadRequest {
+	if w := post(t, srv, sessionPath(srv, DefaultSession, "/auto-approve"), `not json`,
+		testToken); w.Code != http.StatusBadRequest {
 		t.Errorf("a malformed body = %d", w.Code)
 	}
 }
@@ -206,7 +211,11 @@ func TestABackgroundAgentIsAnsweredOnlyByAStandingDecision(t *testing.T) {
 	srv := newTestServer(t, svc)
 	conv = srv.sessions[DefaultSession]
 
-	req, _ := http.NewRequest(http.MethodPost, srv.BaseURL()+sessionPath(srv, DefaultSession, "/task"), strings.NewReader(`{"task":"x"}`))
+	req, _ := http.NewRequest(
+		http.MethodPost,
+		srv.BaseURL()+sessionPath(srv, DefaultSession, "/task"),
+		strings.NewReader(`{"task":"x"}`),
+	)
 	req.Header.Set("Authorization", "Bearer "+testToken)
 	resp, err := (&http.Client{}).Do(req)
 	if err != nil {
@@ -214,7 +223,8 @@ func TestABackgroundAgentIsAnsweredOnlyByAStandingDecision(t *testing.T) {
 	}
 	defer resp.Body.Close()
 	events := readEvents(t, bufio.NewReader(resp.Body))
-	if len(answers) != 2 || answers[0] || errs[0] == nil || !strings.Contains(errs[0].Error(), "background agent cannot ask") {
+	if len(answers) != 2 || answers[0] || errs[0] == nil ||
+		!strings.Contains(errs[0].Error(), "background agent cannot ask") {
 		t.Fatalf("without allow-all the question must be refused with a reason: %v %v", answers, errs)
 	}
 	if !answers[1] || errs[1] != nil {

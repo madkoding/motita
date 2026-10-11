@@ -289,7 +289,8 @@ func TestThePageSendsNoCorsHeaderEither(t *testing.T) {
 		t.Fatalf("do: %v", err)
 	}
 	defer func() { _ = resp.Body.Close() }()
-	for _, h := range []string{"Access-Control-Allow-Origin", "Access-Control-Allow-Credentials", "Access-Control-Allow-Methods", "Access-Control-Allow-Headers"} {
+	for _, h := range []string{"Access-Control-Allow-Origin", "Access-Control-Allow-Credentials",
+		"Access-Control-Allow-Methods", "Access-Control-Allow-Headers"} {
 		if got := resp.Header.Get(h); got != "" {
 			t.Fatalf("%s: %q on the page. The browser is same-origin with the API; nothing needs this", h, got)
 		}

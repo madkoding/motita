@@ -50,7 +50,8 @@ func TestReadingThePRTellsHostFailuresApart(t *testing.T) {
 		t.Errorf("a host that errors: %d %s", w.Code, w.Body.String())
 	}
 	host.set(ghPulls, `STATUS 401 {"message":"Bad credentials"}`)
-	if w := get(t, srv, path, testToken); w.Code != http.StatusConflict || decode(t, w)["code"] != errGitAuthRequired || decode(t, w)["service"] != "github" {
+	if w := get(t, srv, path, testToken); w.Code != http.StatusConflict || decode(t, w)["code"] != errGitAuthRequired ||
+		decode(t, w)["service"] != "github" {
 		t.Errorf("a login the host refuses is a login to make again: %d %s", w.Code, w.Body.String())
 	}
 
@@ -62,7 +63,10 @@ func TestReadingThePRTellsHostFailuresApart(t *testing.T) {
 
 	// A CI seen running is a CI to follow, whoever asked.
 	prHost(host, sessionBranch(ss.ID), "success", "clean")
-	host.set("GET https://api.github.com/repos/o/r/commits/abc/check-runs", `{"check_runs":[{"id":1,"name":"t","status":"in_progress"}]}`)
+	host.set(
+		"GET https://api.github.com/repos/o/r/commits/abc/check-runs",
+		`{"check_runs":[{"id":1,"name":"t","status":"in_progress"}]}`,
+	)
 	if w := get(t, srv, path, testToken); w.Code != http.StatusOK {
 		t.Fatalf("%d %s", w.Code, w.Body.String())
 	}
@@ -283,7 +287,8 @@ func TestMergingTellsWhyItCannot(t *testing.T) {
 	}
 	for state, want := range map[string]string{"dirty": "pr_conflict", "draft": "pr_draft", "blocked": "pr_blocked"} {
 		prHost(host, sessionBranch(ss.ID), "success", state)
-		if code, m := status(); code != http.StatusConflict || m["code"] != want || !strings.Contains(m["error"].(string), "host would not merge") {
+		if code, m := status(); code != http.StatusConflict || m["code"] != want ||
+			!strings.Contains(m["error"].(string), "host would not merge") {
 			t.Errorf("%s: %d %v", state, code, m)
 		}
 	}

@@ -50,7 +50,13 @@ func TestCreateScheduleStoresTheTask(t *testing.T) {
 	srv := newTestServer(t, &fakeService{})
 	withSchedules(t, srv, time.Minute)
 
-	w := postJSON(t, srv, "/v1/schedules", testToken, `{"title":"nightly audit","task":"check the logs","kind":"plan","every":"30m"}`)
+	w := postJSON(
+		t,
+		srv,
+		"/v1/schedules",
+		testToken,
+		`{"title":"nightly audit","task":"check the logs","kind":"plan","every":"30m"}`,
+	)
 	if w.Code != http.StatusCreated {
 		t.Fatalf("status = %d, want 201: body = %s", w.Code, w.Body.String())
 	}
@@ -257,7 +263,8 @@ func TestUpdateAndDeleteAnUnknownScheduleAreNotFound(t *testing.T) {
 	srv := newTestServer(t, &fakeService{})
 	withSchedules(t, srv, time.Minute)
 
-	if w := send(t, srv, http.MethodPatch, "/v1/schedules/nope", testToken, `{"enabled":false}`); w.Code != http.StatusNotFound {
+	if w := send(t, srv, http.MethodPatch, "/v1/schedules/nope", testToken,
+		`{"enabled":false}`); w.Code != http.StatusNotFound {
 		t.Errorf("PATCH of an unknown task = %d, want 404", w.Code)
 	}
 	if w := send(t, srv, http.MethodDelete, "/v1/schedules/nope", testToken, ""); w.Code != http.StatusNotFound {
@@ -350,7 +357,10 @@ func TestAScheduledRunRefusesAnApprovalInsteadOfWaiting(t *testing.T) {
 			if fn == nil {
 				return
 			}
-			ok, err := fn(context.Background(), agent.ApprovalRequest{Command: "rm -rf /", Reason: "consequential", Rule: "test"})
+			ok, err := fn(
+				context.Background(),
+				agent.ApprovalRequest{Command: "rm -rf /", Reason: "consequential", Rule: "test"},
+			)
 			asked <- err
 			if ok {
 				t.Error("the unattended approver approved a command")
@@ -365,7 +375,8 @@ func TestAScheduledRunRefusesAnApprovalInsteadOfWaiting(t *testing.T) {
 	select {
 	case err := <-asked:
 		if err == nil {
-			t.Fatal("the unattended approver returned no error: the agent would read that as a user's refusal, which says nothing about why")
+			t.Fatal("the unattended approver returned no error: the agent would read that as " +
+				"a user's refusal, which says nothing about why")
 		}
 		if !strings.Contains(err.Error(), "enforce=false") {
 			t.Errorf("the refusal must say how to run unattended, got: %v", err)

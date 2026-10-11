@@ -143,7 +143,12 @@ func startInBackground(t *testing.T, srv *Server, id, path, body string) context
 	t.Helper()
 	ctx, cancel := context.WithCancel(context.Background())
 	go func() {
-		req, _ := http.NewRequestWithContext(ctx, http.MethodPost, srv.BaseURL()+sessionPath(srv, id, path), strings.NewReader(body))
+		req, _ := http.NewRequestWithContext(
+			ctx,
+			http.MethodPost,
+			srv.BaseURL()+sessionPath(srv, id, path),
+			strings.NewReader(body),
+		)
 		req.Header.Set("Authorization", "Bearer "+testToken)
 		req.Header.Set("Accept", "text/event-stream")
 		if resp, err := http.DefaultClient.Do(req); err == nil {
@@ -163,17 +168,20 @@ func startInBackground(t *testing.T, srv *Server, id, path, body string) context
 // number and is told the rest, which is what makes a client a remote control.
 func TestARunSurvivesItsClientAndCanBeWatchedFromWhereItWas(t *testing.T) {
 	release := make(chan struct{})
-	srv := newTestServer(t, &fakeService{task: func(ctx context.Context, _ string, progress func(string, ...any)) (string, error) {
-		for i := 0; i < 3; i++ {
-			progress("line %d", i)
-		}
-		select {
-		case <-release:
-			return "late result", nil
-		case <-ctx.Done():
-			return "", ctx.Err()
-		}
-	}})
+	srv := newTestServer(
+		t,
+		&fakeService{task: func(ctx context.Context, _ string, progress func(string, ...any)) (string, error) {
+			for i := 0; i < 3; i++ {
+				progress("line %d", i)
+			}
+			select {
+			case <-release:
+				return "late result", nil
+			case <-ctx.Done():
+				return "", ctx.Err()
+			}
+		}},
+	)
 
 	cancel := startInBackground(t, srv, DefaultSession, "/task", `{"task":"x"}`)
 	waitForLog(t, srv, DefaultSession, 3)
@@ -197,7 +205,11 @@ func TestARunSurvivesItsClientAndCanBeWatchedFromWhereItWas(t *testing.T) {
 	}
 
 	if len(events) < 4 {
-		t.Fatalf("the reattached client received %d events, the preamble and the three lines must be there: %+v", len(events), events)
+		t.Fatalf(
+			"the reattached client received %d events, the preamble and the three lines must be there: %+v",
+			len(events),
+			events,
+		)
 	}
 	if events[0].Event != EventAttached {
 		t.Fatalf("the first frame is %q, a joining client must be told what it joined", events[0].Event)
@@ -227,15 +239,18 @@ func TestARunSurvivesItsClientAndCanBeWatchedFromWhereItWas(t *testing.T) {
 // what comes NEXT rather than the history again, and still sees the end.
 func TestTheReattachedClientSeesTheRunReachItsEnd(t *testing.T) {
 	release := make(chan struct{})
-	srv := newTestServer(t, &fakeService{task: func(ctx context.Context, _ string, progress func(string, ...any)) (string, error) {
-		progress("working")
-		select {
-		case <-release:
-			return "the result", nil
-		case <-ctx.Done():
-			return "", ctx.Err()
-		}
-	}})
+	srv := newTestServer(
+		t,
+		&fakeService{task: func(ctx context.Context, _ string, progress func(string, ...any)) (string, error) {
+			progress("working")
+			select {
+			case <-release:
+				return "the result", nil
+			case <-ctx.Done():
+				return "", ctx.Err()
+			}
+		}},
+	)
 
 	cancel := startInBackground(t, srv, DefaultSession, "/task", `{"task":"x"}`)
 	waitForLog(t, srv, DefaultSession, 1)
@@ -278,10 +293,13 @@ func TestTheReattachedClientSeesTheRunReachItsEnd(t *testing.T) {
 // The wire is read RAW rather than parsed: a parser that dropped the `id:` line would hide the very
 // field being checked.
 func TestEveryEventCarriesItsSequenceNumber(t *testing.T) {
-	srv := newTestServer(t, &fakeService{task: func(_ context.Context, _ string, progress func(string, ...any)) (string, error) {
-		progress("one")
-		return "done", nil
-	}})
+	srv := newTestServer(
+		t,
+		&fakeService{task: func(_ context.Context, _ string, progress func(string, ...any)) (string, error) {
+			progress("one")
+			return "done", nil
+		}},
+	)
 	raw := rawStream(t, srv, http.MethodPost, sessionPath(srv, DefaultSession, "/task"), `{"task":"x"}`)
 	// The preamble is not part of the numbering and carries 0; the run's own events start at 1, so
 	// this turn (one progress line and the done) is numbered 1 and 2.
@@ -325,18 +343,21 @@ func rawStream(t *testing.T, srv *Server, method, path, body string) string {
 // preamble is where the gateway says so.
 func TestTheReattachingClientIsToldWhatItMissed(t *testing.T) {
 	release := make(chan struct{})
-	srv := newTestServer(t, &fakeService{task: func(ctx context.Context, _ string, progress func(string, ...any)) (string, error) {
-		// Overfill the log, so there really is a gap to report.
-		for i := 0; i < maxLoggedEvents+10; i++ {
-			progress("line %d", i)
-		}
-		select {
-		case <-release:
-			return "done", nil
-		case <-ctx.Done():
-			return "", ctx.Err()
-		}
-	}})
+	srv := newTestServer(
+		t,
+		&fakeService{task: func(ctx context.Context, _ string, progress func(string, ...any)) (string, error) {
+			// Overfill the log, so there really is a gap to report.
+			for i := 0; i < maxLoggedEvents+10; i++ {
+				progress("line %d", i)
+			}
+			select {
+			case <-release:
+				return "done", nil
+			case <-ctx.Done():
+				return "", ctx.Err()
+			}
+		}},
+	)
 
 	cancel := startInBackground(t, srv, DefaultSession, "/task", `{"task":"x"}`)
 	// Wait for the EVICTION, not merely for the run: the gap is what is being reported.
@@ -485,15 +506,18 @@ func TestASequenceNumberPastTheEndReplaysNothing(t *testing.T) {
 // costs one JSON reply. Opening a stream to find out would be a stream to close immediately.
 func TestTheRunStatusReportsWhatIsRunning(t *testing.T) {
 	release := make(chan struct{})
-	srv := newTestServer(t, &fakeService{task: func(ctx context.Context, _ string, progress func(string, ...any)) (string, error) {
-		progress("working")
-		select {
-		case <-release:
-			return "done", nil
-		case <-ctx.Done():
-			return "", ctx.Err()
-		}
-	}})
+	srv := newTestServer(
+		t,
+		&fakeService{task: func(ctx context.Context, _ string, progress func(string, ...any)) (string, error) {
+			progress("working")
+			select {
+			case <-release:
+				return "done", nil
+			case <-ctx.Done():
+				return "", ctx.Err()
+			}
+		}},
+	)
 
 	cancel := startInBackground(t, srv, DefaultSession, "/task", `{"task":"x"}`)
 	defer cancel()
@@ -537,10 +561,13 @@ func TestTheStatusOfANonRunningSessionIsNotFound(t *testing.T) {
 // run may be one they walked away from and came back to. Cancelling is addressed to the
 // CONVERSATION, so it never depends on remembering a run id from an earlier connection.
 func TestAClientCanStopTheRunItIsNotWatching(t *testing.T) {
-	srv := newTestServer(t, &fakeService{task: func(ctx context.Context, _ string, _ func(string, ...any)) (string, error) {
-		<-ctx.Done()
-		return "", ctx.Err()
-	}})
+	srv := newTestServer(
+		t,
+		&fakeService{task: func(ctx context.Context, _ string, _ func(string, ...any)) (string, error) {
+			<-ctx.Done()
+			return "", ctx.Err()
+		}},
+	)
 
 	cancel := startInBackground(t, srv, DefaultSession, "/task", `{"task":"x"}`)
 	defer cancel()
@@ -575,16 +602,24 @@ func TestCancellingNothingIsReported(t *testing.T) {
 // on a socket the gateway has already finished with. And it is told it was CANCELLED rather than
 // that it failed, because cancelling is something the user asked for.
 func TestACancelledRunEndsItsStream(t *testing.T) {
-	srv := newTestServer(t, &fakeService{task: func(ctx context.Context, _ string, _ func(string, ...any)) (string, error) {
-		<-ctx.Done()
-		return "", ctx.Err()
-	}})
+	srv := newTestServer(
+		t,
+		&fakeService{task: func(ctx context.Context, _ string, _ func(string, ...any)) (string, error) {
+			<-ctx.Done()
+			return "", ctx.Err()
+		}},
+	)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	events := make(chan []event, 1)
 	go func() {
-		req, _ := http.NewRequestWithContext(ctx, http.MethodPost, srv.BaseURL()+sessionPath(srv, DefaultSession, "/task"), strings.NewReader(`{"task":"x"}`))
+		req, _ := http.NewRequestWithContext(
+			ctx,
+			http.MethodPost,
+			srv.BaseURL()+sessionPath(srv, DefaultSession, "/task"),
+			strings.NewReader(`{"task":"x"}`),
+		)
 		req.Header.Set("Authorization", "Bearer "+testToken)
 		req.Header.Set("Accept", "text/event-stream")
 		resp, err := (&http.Client{}).Do(req)

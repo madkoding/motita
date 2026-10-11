@@ -38,7 +38,8 @@ func TestWriteIfNewSkipsWhatTheReplayAlreadyCarried(t *testing.T) {
 	rc := http.NewResponseController(fw)
 
 	// At or below the replay's last: already written, so it is skipped.
-	if err := rn.writeIfNew(fw, rc, loggedEvent{Seq: 3, Event: EventProgress, Data: []byte(`{"text":"old"}`)}, 3); err != nil {
+	if err := rn.writeIfNew(fw, rc, loggedEvent{Seq: 3, Event: EventProgress, Data: []byte(`{"text":"old"}`)},
+		3); err != nil {
 		t.Fatalf("writeIfNew: %v", err)
 	}
 	if out.Len() != 0 {
@@ -46,7 +47,8 @@ func TestWriteIfNewSkipsWhatTheReplayAlreadyCarried(t *testing.T) {
 	}
 
 	// Beyond it: this is the only copy the client will get, so it must be written.
-	if err := rn.writeIfNew(fw, rc, loggedEvent{Seq: 4, Event: EventProgress, Data: []byte(`{"text":"new"}`)}, 3); err != nil {
+	if err := rn.writeIfNew(fw, rc, loggedEvent{Seq: 4, Event: EventProgress, Data: []byte(`{"text":"new"}`)},
+		3); err != nil {
 		t.Fatalf("writeIfNew: %v", err)
 	}
 	if !strings.Contains(out.String(), "new") || !strings.Contains(out.String(), "id: 4") {
@@ -62,15 +64,19 @@ func TestWriteIfNewSkipsWhatTheReplayAlreadyCarried(t *testing.T) {
 // work that was still going - so this is asserted on the wire rather than trusted.
 func TestALongStreamIsKeptAlive(t *testing.T) {
 	release := make(chan struct{})
-	srv := newTestServer(t, &fakeService{task: func(ctx context.Context, _ string, progress func(string, ...any)) (string, error) {
-		progress("working")
-		select {
-		case <-release:
-			return "the result", nil
-		case <-ctx.Done():
-			return "", ctx.Err()
-		}
-	}}, func(o *Options) { o.Heartbeat = 20 * time.Millisecond })
+	srv := newTestServer(
+		t,
+		&fakeService{task: func(ctx context.Context, _ string, progress func(string, ...any)) (string, error) {
+			progress("working")
+			select {
+			case <-release:
+				return "the result", nil
+			case <-ctx.Done():
+				return "", ctx.Err()
+			}
+		}},
+		func(o *Options) { o.Heartbeat = 20 * time.Millisecond },
+	)
 	defer close(release)
 
 	// A run has to be IN FLIGHT: /events has nothing to stream otherwise, and a stream that

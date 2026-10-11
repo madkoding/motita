@@ -218,7 +218,11 @@ func TestWriteSyncedReportsAFailedWrite(t *testing.T) {
 func fakePodman(t *testing.T, infoExit, composeExit int) {
 	t.Helper()
 	dir := t.TempDir()
-	script := fmt.Sprintf("#!/bin/sh\ncase \"$1\" in\n  info) exit %d ;;\n  compose) exit %d ;;\nesac\nexit 0\n", infoExit, composeExit)
+	script := fmt.Sprintf(
+		"#!/bin/sh\ncase \"$1\" in\n  info) exit %d ;;\n  compose) exit %d ;;\nesac\nexit 0\n",
+		infoExit,
+		composeExit,
+	)
 	if err := os.WriteFile(filepath.Join(dir, "podman"), []byte(script), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -261,7 +265,8 @@ func TestRuntimesSeparatesInstalledFromReady(t *testing.T) {
 	w := httptest.NewRecorder()
 	srv.Handler().ServeHTTP(w, req)
 	var out map[string]bool
-	if err := json.Unmarshal(w.Body.Bytes(), &out); err != nil || !out["podman"] || out["podman_ready"] || out["podman_compose"] {
+	if err := json.Unmarshal(w.Body.Bytes(), &out); err != nil || !out["podman"] || out["podman_ready"] ||
+		out["podman_compose"] {
 		t.Fatalf("got %s", w.Body)
 	}
 }
