@@ -164,17 +164,23 @@ func TestFailureLog(t *testing.T) {
 	if _, ok, err = gl.FailureLog(context.Background(), r, Check{jobID: 1}); ok || err != nil {
 		t.Errorf("%v %v", ok, err)
 	}
-	a, _ = newAPI(t, KindGitHub, nil)
-	if _, _, err = a.FailureLog(context.Background(), r, Check{jobID: 12}); err == nil {
+	checkFailureLogHosts(t, r)
+}
+
+// checkFailureLogHosts: a refused, unreachable or malformed host is an error, and the
+// default client is used when none is given.
+func checkFailureLogHosts(t *testing.T, r Remote) {
+	a, _ := newAPI(t, KindGitHub, nil)
+	if _, _, err := a.FailureLog(context.Background(), r, Check{jobID: 12}); err == nil {
 		t.Error("a refused log must be an error")
 	}
 	dead := API{Service: Service{Kind: KindGitHub, APIBase: "http://127.0.0.1:1"},
 		Cred: oauth.Credential{AccessToken: "t"}}
-	if _, _, err = dead.FailureLog(context.Background(), r, Check{jobID: 1}); err == nil {
+	if _, _, err := dead.FailureLog(context.Background(), r, Check{jobID: 1}); err == nil {
 		t.Error("an unreachable host must be an error")
 	}
 	bad := API{Service: Service{Kind: KindGitHub, APIBase: "http://bad host/%"}}
-	if _, _, err = bad.FailureLog(context.Background(), r, Check{jobID: 1}); err == nil {
+	if _, _, err := bad.FailureLog(context.Background(), r, Check{jobID: 1}); err == nil {
 		t.Error("a malformed URL must be an error")
 	}
 	// The default client is used when none is given.
@@ -182,7 +188,7 @@ func TestFailureLog(t *testing.T) {
 		http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { _, _ = w.Write([]byte("hi")) }))
 	defer srv.Close()
 	plain := API{Service: Service{Kind: KindGitHub, APIBase: srv.URL}, Cred: oauth.Credential{AccessToken: "t"}}
-	if log, ok, _ = plain.FailureLog(context.Background(), r, Check{jobID: 1}); log != "hi" || !ok {
+	if log, ok, _ := plain.FailureLog(context.Background(), r, Check{jobID: 1}); log != "hi" || !ok {
 		t.Errorf("log = %q ok=%v", log, ok)
 	}
 }

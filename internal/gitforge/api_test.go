@@ -286,14 +286,19 @@ func TestCreatePR(t *testing.T) {
 		!strings.Contains(h.body, `"destination"`) {
 		t.Fatalf("%+v %v body=%s", pr, err, h.body)
 	}
+	checkCreatePRRefusals(t, opt)
+}
+
+// checkCreatePRRefusals: a host that refuses, or answers with no pull request, is an error.
+func checkCreatePRRefusals(t *testing.T, opt PROptions) {
 	for _, kind := range []Kind{KindGitHub, KindGitLab, KindBitbucket} {
-		a, _ = newAPI(t, kind, nil)
+		a, _ := newAPI(t, kind, nil)
 		if _, err := a.CreatePR(context.Background(), Remote{Path: "o/r"}, opt); err == nil {
 			t.Errorf("%s: a refusal must surface", kind)
 		}
 	}
 	// A host that answers 200 with no number and link is not a success.
-	a, _ = newAPI(t, KindGitHub, map[string]string{"POST /repos/o/r/pulls": `{}`})
+	a, _ := newAPI(t, KindGitHub, map[string]string{"POST /repos/o/r/pulls": `{}`})
 	if _, err := a.CreatePR(context.Background(), Remote{Path: "o/r"}, opt); err == nil {
 		t.Error("an answer with no pull request must be an error")
 	}
@@ -322,12 +327,16 @@ func TestFindPR(t *testing.T) {
 	if _, _, err = a.FindPR(context.Background(), r, "feature"); err == nil {
 		t.Error("a host error must surface")
 	}
+	checkFindPROnGitLabAndBitbucket(t, r)
+}
 
-	a, _ = newAPI(t, KindGitLab,
+// checkFindPROnGitLabAndBitbucket: the same lookup on the two hosts with their own shapes.
+func checkFindPROnGitLabAndBitbucket(t *testing.T, r Remote) {
+	a, _ := newAPI(t, KindGitLab,
 		map[string]string{
 			"GET /projects/o%2Fr/merge_requests": `[{"iid":6,"web_url":"u6","title":"t","target_branch":"main"}]`})
-	if pr, ok, err = a.FindPR(context.Background(), r, "feature"); err != nil || !ok || pr.Number != 6 ||
-		pr.Base != "main" {
+	pr, ok, err := a.FindPR(context.Background(), r, "feature")
+	if err != nil || !ok || pr.Number != 6 || pr.Base != "main" {
 		t.Fatalf("%+v %v %v", pr, ok, err)
 	}
 	a, _ = newAPI(t, KindGitLab, map[string]string{"GET /projects/o%2Fr/merge_requests": `[]`})

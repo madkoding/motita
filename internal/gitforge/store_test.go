@@ -168,7 +168,12 @@ func TestStoreServicesAndAccounts(t *testing.T) {
 	if _, ok := s.ForHost("example.org"); ok {
 		t.Error("an unknown host must not be found")
 	}
+	checkStoreAccounts(t, s)
+}
 
+// checkStoreAccounts: the store of TestStoreServicesAndAccounts lists the two connected
+// accounts with their names, and a host that was never connected as not connected.
+func checkStoreAccounts(t *testing.T, s Store) {
 	accounts := map[string]Account{}
 	for _, a := range s.Accounts() {
 		accounts[a.Service.ID] = a
