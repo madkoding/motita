@@ -139,6 +139,8 @@ func TestTheReadersWhoseFlagsWrite(t *testing.T) {
 			t.Errorf("%s %v writes and must be refused, got allowed: %s", tc.command, tc.args, d.Reason)
 		case !tc.writes && !d.Allowed:
 			t.Errorf("%s %v only reads and must be allowed, got: %s", tc.command, tc.args, d.Reason)
+		default:
+			// the verdict matches what the command does
 		}
 	}
 }

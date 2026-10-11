@@ -87,6 +87,8 @@ func TestReadOnlyModeRefusesEveryKnownBypass(t *testing.T) {
 			t.Errorf("%q must be refused in read-only mode, got allowed: %s", c, d.Reason)
 		} else if d.Reason == "" {
 			t.Errorf("%q: a refusal must explain itself", c)
+		} else {
+			// the expected outcome: nothing more to check
 		}
 	}
 }
