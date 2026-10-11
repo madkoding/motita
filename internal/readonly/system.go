@@ -19,9 +19,18 @@ func journalctlRule(args []string) (string, bool) {
 			name == "--sync", name == "--relinquish-var", name == "--smart-relinquish-var",
 			name == "--setup-keys", name == "--update-catalog":
 			return fmt.Sprintf("journalctl %s changes the journal", name), true
+		default:
+			// Every other option filters or formats what is read.
 		}
 	}
 	return "", false
+}
+
+// dmesgChanging are the long dmesg options that clear the ring buffer or change what reaches
+// the console.
+var dmesgChanging = map[string]bool{
+	"--clear": true, "--read-clear": true, "--console-off": true, "--console-on": true,
+	"--console-level": true,
 }
 
 // dmesgRule refuses clearing the kernel ring buffer and changing what reaches the console.
@@ -29,11 +38,12 @@ func dmesgRule(args []string) (string, bool) {
 	for _, a := range args {
 		name, _, _ := strings.Cut(a, "=")
 		switch {
-		case name == "--clear" || name == "--read-clear" || name == "--console-off" ||
-			name == "--console-on" || name == "--console-level":
+		case dmesgChanging[name]:
 			return fmt.Sprintf("dmesg %s changes the kernel log", name), true
 		case !strings.HasPrefix(a, "--") && strings.HasPrefix(a, "-") && strings.ContainsAny(a, "cCDEn"):
 			return fmt.Sprintf("dmesg %s changes the kernel log", a), true
+		default:
+			// Every other option filters or formats what is read.
 		}
 	}
 	return "", false
@@ -53,34 +63,50 @@ func dateRule(args []string) (string, bool) {
 				i++
 			}
 		case strings.HasPrefix(a, "--"):
+			// Every other long option only formats the date.
 		case strings.HasPrefix(a, "-") && len(a) > 1:
-			for j := 1; j < len(a); j++ {
-				if a[j] == 's' {
-					return fmt.Sprintf("date %s sets the clock", a), true
-				}
-				if a[j] == 'I' {
-					// -I takes an optional value, glued only: the rest of the token is it.
-					break
-				}
-				if strings.IndexByte("dfr", a[j]) >= 0 {
-					if j == len(a)-1 {
-						i++
-					}
-					break
-				}
+			takesNext, sets := dateShort(a)
+			if sets {
+				return fmt.Sprintf("date %s sets the clock", a), true
+			}
+			if takesNext {
+				i++
 			}
 		case !strings.HasPrefix(a, "+"):
 			return fmt.Sprintf("date %s sets the clock", a), true
+		default:
+			// A +FORMAT operand.
 		}
 	}
 	return "", false
 }
 
+// dateShort reads a cluster of short date options: sets says it holds -s, and takesNext that
+// the last option's value is the next argument.
+func dateShort(a string) (takesNext, sets bool) {
+	for j := 1; j < len(a); j++ {
+		if a[j] == 's' {
+			return false, true
+		}
+		if a[j] == 'I' {
+			// -I takes an optional value, glued only: the rest of the token is it.
+			return false, false
+		}
+		if strings.IndexByte("dfr", a[j]) >= 0 {
+			return j == len(a)-1, false
+		}
+	}
+	return false, false
+}
+
+// hostnameSetting are the hostname options that set it, from a file or for the boot.
+var hostnameSetting = map[string]bool{"-F": true, flagFile: true, "-b": true, "--boot": true}
+
 // hostnameRule refuses setting the hostname: an operand, or -F/--file/-b/--boot.
 func hostnameRule(args []string) (string, bool) {
 	for _, a := range args {
 		name, _, _ := strings.Cut(a, "=")
-		if !strings.HasPrefix(a, "-") || name == "-F" || name == flagFile || name == "-b" || name == "--boot" {
+		if !strings.HasPrefix(a, "-") || hostnameSetting[name] {
 			return fmt.Sprintf("hostname %s sets the hostname", a), true
 		}
 	}
@@ -102,6 +128,8 @@ func verbRule(tool string, reading, property map[string]bool, args []string) (st
 		return "", false
 	case property[operands[0]] && len(operands) == 1:
 		return "", false
+	default:
+		// Any other verb, or a property verb with a value, changes the system.
 	}
 	return fmt.Sprintf("%s %s changes the system", tool, strings.Join(operands, " ")), true
 }
@@ -163,6 +191,8 @@ func routeRule(args []string) (string, bool) {
 			i++
 		case !strings.HasPrefix(a, "-"):
 			return fmt.Sprintf("route %s changes the routing table", a), true
+		default:
+			// Every other option formats the listing.
 		}
 	}
 	return "", false
@@ -186,6 +216,8 @@ func arpRule(args []string) (string, bool) {
 			return fmt.Sprintf("arp %s changes the ARP cache", a), true
 		case !strings.HasPrefix(a, "--") && strings.HasPrefix(a, "-") && strings.ContainsAny(a, "dsf"):
 			return fmt.Sprintf("arp %s changes the ARP cache", a), true
+		default:
+			// Every other argument filters or formats what is read.
 		}
 	}
 	return "", false
