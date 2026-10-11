@@ -310,7 +310,7 @@ body {
   flex: 0 0 auto;
   padding: 2px 8px;
   border-radius: 9999px;
-  background: rgba(76, 194, 255, 0.1);
+  background: rgba(39, 90, 119, 0.23);
   border: 1px solid rgba(76, 194, 255, 0.22);
   color: #8fd4ff;
   font-family: var(--font-mono);
@@ -326,7 +326,7 @@ body {
   flex: 0 0 auto;
   padding: 2px 7px;
   border-radius: 9999px;
-  background: rgba(255, 255, 255, 0.06);
+  background: rgba(51, 51, 55, 0.36);
   border: 1px solid rgba(255, 255, 255, 0.12);
   color: #9a9aaa;
   font-family: var(--font-mono);
@@ -338,7 +338,7 @@ body {
 /* stale: the curator has marked it unused. It is a warning, not an error: the
  * document is still there and still readable, so it is amber. */
 .skill-tag-warn {
-  background: rgba(240, 160, 64, 0.12);
+  background: rgba(91, 63, 32, 0.34);
   border-color: rgba(240, 160, 64, 0.28);
   color: #f0a040;
 }
@@ -346,7 +346,7 @@ body {
 /* pinned: the user's own decision, so it carries the accent, and it is the one
  * badge that is a promise rather than a description. */
 .skill-tag-accent {
-  background: rgba(76, 194, 255, 0.12);
+  background: rgba(38, 89, 118, 0.28);
   border-color: rgba(76, 194, 255, 0.28);
   color: #8fd4ff;
 }
@@ -509,7 +509,7 @@ body {
   color: #e8e8ea;
   border-color: rgba(76, 194, 255, 0.4);
   border-style: solid;
-  background: rgba(76, 194, 255, 0.08);
+  background: rgba(45, 108, 143, 0.15);
 }
 .msg.activity.reasoning,
 .msg.activity.synthesis {
@@ -569,7 +569,7 @@ body {
 }
 .term-cmd-text { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .msg.activity.command { display: flex; align-items: baseline; }
-.term-exit.running { color: #9a9aaa; background: rgba(154, 154, 170, 0.14); }
+.term-exit.running { color: #9a9aaa; background: rgba(51, 51, 59, 0.49); }
 .trail-step.term-out {
   position: relative;
   margin: 1px 0 4px;
@@ -589,14 +589,14 @@ body {
   border-radius: 999px;
   font-size: 0.85em;
   color: #7ee787;
-  background: rgba(126, 231, 135, 0.12);
+  background: rgba(56, 98, 63, 0.3);
 }
-.term-exit.bad { color: #ff7b72; background: rgba(255, 123, 114, 0.14); }
+.term-exit.bad { color: #ff7b72; background: rgba(88, 46, 46, 0.44); }
 
 /* The standing "allow all commands" answer, and the way to take it back. */
 .auto-approve-pill {
   color: #ffcf6a;
-  background: rgba(255, 176, 32, 0.12);
+  background: rgba(119, 84, 23, 0.27);
   border: 1px solid rgba(255, 176, 32, 0.4);
   cursor: pointer;
 }
@@ -623,35 +623,35 @@ body {
   color: #b078ff;
   padding: 6px 8px;
   border-left: 4px solid #b078ff;
-  background: linear-gradient(90deg, rgba(176,120,255,0.15), transparent 70%);
+  background: linear-gradient(90deg, rgba(53,38,77,0.58), transparent 70%);
 }
 .markdown-body h3 {
   font-size: 1.06em; font-weight: 700; margin: 2px 0 1px;
   color: #50d878;
   padding: 6px 8px;
   border-left: 4px solid #50d878;
-  background: linear-gradient(90deg, rgba(80,216,120,0.12), transparent 70%);
+  background: linear-gradient(90deg, rgba(36,87,54,0.32), transparent 70%);
 }
 .markdown-body h4 {
   font-size: 0.96em; font-weight: 600; margin: 2px 0 1px;
   color: #ffb020;
   padding: 6px 8px;
   border-left: 4px solid #ffb020;
-  background: linear-gradient(90deg, rgba(255,176,32,0.12), transparent 70%);
+  background: linear-gradient(90deg, rgba(102,72,21,0.32), transparent 70%);
 }
 .markdown-body h5 {
   font-size: 0.88em; font-weight: 600; margin: 1px 0 1px;
   color: #ff6b6b;
   padding: 6px 8px;
   border-left: 4px solid #ff6b6b;
-  background: linear-gradient(90deg, rgba(255,107,107,0.1), transparent 70%);
+  background: linear-gradient(90deg, rgba(80,38,41,0.35), transparent 70%);
 }
 .markdown-body h6 {
   font-size: 0.82em; font-weight: 500; margin: 1px 0 1px;
   color: #8a8a9a;
   padding: 6px 8px;
   border-left: 4px solid #8a8a9a;
-  background: linear-gradient(90deg, rgba(138,138,154,0.08), transparent 70%);
+  background: linear-gradient(90deg, rgba(36,36,44,0.39), transparent 70%);
 }
 
 /* Lists: tight margins, mono bullet markers, but a READABLE line height.
@@ -670,7 +670,7 @@ body {
   font-family: var(--font-mono);
   font-size: 1em;
   color: #4cc2ff;
-  background: rgba(76,194,255,0.08);
+  background: rgba(34,77,102,0.22);
   border: 1px solid rgba(76,194,255,0.2);
   padding: 1px 5px;
   border-radius: 3px;
@@ -744,7 +744,7 @@ body {
 .markdown-body .math-block math[display="block"] { display: block; margin: 4px 0; text-align: center; }
 .markdown-body .math-block { overflow-x: auto; }
 /* A formula KaTeX could not parse: shown, with the reason, rather than hidden. */
-.markdown-body .katex-error { color: #ff6b6b; background: rgba(255,107,107,0.06); padding: 1px 3px; border-radius: 3px; }
+.markdown-body .katex-error { color: #ff6b6b; background: rgba(80,38,41,0.21); padding: 1px 3px; border-radius: 3px; }
 
 /* ─── Diagrams (mermaid) ───────────────────────────────────────────
  * The block is empty until the diagram is drawn, so it reserves nothing: an empty
@@ -998,7 +998,7 @@ main[role="log"]:not(.chat-loading) > * {
 .markdown-body th {
   font-weight: 600;
   color: #4cc2ff;
-  background: rgba(76,194,255,0.08);
+  background: rgba(34,77,102,0.22);
   border-bottom: 2px solid rgba(76,194,255,0.3);
 }
 .markdown-body tr:nth-child(even) td { background: rgba(255,255,255,0.02); }
@@ -1209,7 +1209,7 @@ main[role="log"]:not(.chat-loading) > * {
  */
 .bad {
   color: #ef8a8a;
-  background: rgba(239, 68, 68, 0.12);
+  background: rgba(108, 35, 38, 0.28);
   border-color: rgba(239, 68, 68, 0.35);
 }
 /* A warning is the recoverable one: the tab is reconnecting on its own, which is
@@ -1217,7 +1217,7 @@ main[role="log"]:not(.chat-loading) > * {
  * told apart at a glance rather than by reading. */
 .state-warning {
   color: #edc06a;
-  background: rgba(237, 181, 88, 0.12);
+  background: rgba(101, 78, 44, 0.3);
   border-color: rgba(237, 181, 88, 0.35);
 }
 
@@ -1644,8 +1644,8 @@ button:disabled {
   color: #9a9aaa;
   transition: background-color 0.15s ease, color 0.15s ease;
 }
-.reasoning-level:hover { background: rgba(255, 255, 255, 0.05); color: #e8e8ea; }
-.reasoning-level.is-active { background: var(--accent, #4cc2ff); color: #fff; font-weight: 600; }
+.reasoning-level:hover { background: rgba(104, 104, 107, 0.13); color: #e8e8ea; }
+.reasoning-level.is-active { background: #007cbd; color: #fff; font-weight: 600; }
 .reasoning-level:focus-visible { outline: 2px solid var(--accent, #4cc2ff); outline-offset: 1px; }
 
 /* The reasoning level beside the model in the header pill. Dimmer when off, so a session that
@@ -1673,9 +1673,9 @@ button:disabled {
 .changes-files li { display: flex; gap: 8px; align-items: baseline; }
 .chg-path { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .chg-tag { flex: none; min-width: 3.6em; text-align: center; padding: 0 6px; border-radius: 999px; font-size: 0.85em; background: rgba(255,255,255,0.08); }
-.chg-tag.added { color: #7ee787; background: rgba(126, 231, 135, 0.12); }
-.chg-tag.deleted { color: #ff7b72; background: rgba(255, 123, 114, 0.14); }
-.chg-tag.modified { color: #a8d4ef; background: rgba(76, 194, 255, 0.12); }
+.chg-tag.added { color: #7ee787; background: rgba(56, 98, 63, 0.3); }
+.chg-tag.deleted { color: #ff7b72; background: rgba(88, 46, 46, 0.44); }
+.chg-tag.modified { color: #a8d4ef; background: rgba(39, 92, 122, 0.27); }
 .chg-add { color: #7ee787; } .chg-del { color: #ff7b72; }
 .changes-zoom {
   position: fixed; inset: 0; z-index: 1000; display: flex; align-items: center; justify-content: center;
@@ -2091,7 +2091,7 @@ button:disabled {
 .cp-menu button:hover:not(:disabled) { background: rgba(76, 194, 255, 0.12); }
 .cp-menu button small { font-size: 0.8em; color: #8a8a9a; }
 .cp-menu button:disabled { opacity: 0.4; cursor: not-allowed; }
-.cp-menu button.is-armed { background: rgba(255, 123, 114, 0.16); color: #ffb0aa; }
+.cp-menu button.is-armed { background: rgba(125, 63, 62, 0.34); color: #ffb0aa; }
 .cp-menu button.is-armed small { color: #ff9a92; }
 /* Commands of a turn are one line each: they are held to the width of the block instead of
    running past it, and the output stays in the terminal drawer. */
