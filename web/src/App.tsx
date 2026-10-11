@@ -106,6 +106,32 @@ const HTTP_UNAUTHORIZED = 401
 const HTTP_NOT_FOUND = 404
 const HTTP_CONFLICT = 409
 
+// The credentials every request of the page is sent with.
+const SAME_ORIGIN = 'same-origin'
+const SESSIONS_URL = '/v1/sessions'
+
+// The gateway's resources, as the paths the requests are built from.
+const SESSIONS_PATH = '/v1/sessions/'
+const SKILLS_PATH = '/v1/skills/'
+const PROPOSED_SKILLS_PATH = '/v1/skills/proposed/'
+const PROJECTS_PATH = '/v1/projects/'
+const SCHEDULES_PATH = '/v1/schedules/'
+
+// The DOM events the page sends itself.
+const AUTH_NEEDED_EVENT = 'motita:auth-needed'
+const CHAT_QUIET_EVENT = 'motita:chat-quiet'
+const CREATE_SESSION_EVENT = 'motita:create-session'
+
+// The title a session has until it is given one.
+const NEW_SESSION_TITLE = 'New session'
+
+// Texts used in more than one place.
+const NOT_CONNECTED = 'not connected'
+const NEEDS_APPROVAL = 'This needs your approval'
+const TURN_REFUSED = 'the gateway refused the turn'
+const NEW_PROJECT = 'New project'
+const EDIT_PROJECT = 'Edit project'
+
 // Lengths of time, in seconds and in milliseconds.
 const HOUR_S = 3600
 const DAY_S = 86400
@@ -460,7 +486,7 @@ interface UpgradeProgressEvent {
 // one, which is the actual signal we need.
 async function authGate(): Promise<boolean> {
   try {
-    const res = await fetch('/v1/sessions', { credentials: 'same-origin' })
+    const res = await fetch(SESSIONS_URL, { credentials: SAME_ORIGIN })
     return res.ok
   } catch {
     return false
@@ -471,7 +497,7 @@ async function authGate(): Promise<boolean> {
 // local storage the app keeps, so nothing survives a rejected token.
 async function clearCredential(): Promise<void> {
   try {
-    await fetch('/v1/webui/session', { method: 'DELETE', credentials: 'same-origin', headers: { 'X-Motita': '1' } })
+    await fetch('/v1/webui/session', { method: 'DELETE', credentials: SAME_ORIGIN, headers: { 'X-Motita': '1' } })
   } catch { /* ignore */ }
   try { localStorage.removeItem(STORAGE_KEY) } catch { /* ignore */ }
 }
@@ -482,7 +508,7 @@ async function submitToken(token: string): Promise<boolean> {
   try {
     const res = await fetch('/v1/webui/session', {
       method: 'POST',
-      credentials: 'same-origin',
+      credentials: SAME_ORIGIN,
       headers: { Authorization: 'Bearer ' + token }
     })
     return res.ok
@@ -501,10 +527,10 @@ async function submitToken(token: string): Promise<boolean> {
 async function api(path: string, options?: RequestInit): Promise<Response> {
   const headers = new Headers(options?.headers)
   headers.set('X-Motita', '1')
-  const res = await fetch(path, { credentials: 'same-origin', ...options, headers })
+  const res = await fetch(path, { credentials: SAME_ORIGIN, ...options, headers })
   if (res.status === HTTP_UNAUTHORIZED) {
     await clearCredential()
-    window.dispatchEvent(new CustomEvent('motita:auth-needed'))
+    window.dispatchEvent(new CustomEvent(AUTH_NEEDED_EVENT))
     throw new Error('unauthorised')
   }
   return res
@@ -690,7 +716,7 @@ function oneLine(text: string, max = 160): string {
 // named yet carries the gateway's English placeholder, which is shown in the reader's language.
 function sessionTitle(s: SessionInfo): string {
   if (!s.title) { return s.id }
-  if (s.title === 'New session') { return t('New session') }
+  if (s.title === NEW_SESSION_TITLE) { return t(NEW_SESSION_TITLE) }
   return s.title
 }
 
@@ -1452,8 +1478,8 @@ export default function App() {
         if (pinnedRef.current) { scrollToBottom() }
       })
     }
-    document.addEventListener('motita:chat-quiet', onQuiet)
-    return () => document.removeEventListener('motita:chat-quiet', onQuiet)
+    document.addEventListener(CHAT_QUIET_EVENT, onQuiet)
+    return () => document.removeEventListener(CHAT_QUIET_EVENT, onQuiet)
   }, [scrollToBottom])
 
   useEffect(() => {
@@ -1615,8 +1641,8 @@ export default function App() {
       registered: hydrationState().registered,
     })
     const onQuiet = () => requestModal(hydrationState().visiblePending)
-    document.addEventListener('motita:chat-quiet', onQuiet)
-    return () => document.removeEventListener('motita:chat-quiet', onQuiet)
+    document.addEventListener(CHAT_QUIET_EVENT, onQuiet)
+    return () => document.removeEventListener(CHAT_QUIET_EVENT, onQuiet)
   }, [requestModal])
 
   // A transcript that is replaced has to be re-read even if no message ever reports: a
@@ -1778,7 +1804,7 @@ export default function App() {
   // Those are drawn by the pill, not announced by a toast.
   const isConnectionState = (text: string) => {
     const norm = (text || '').trim().toLowerCase()
-    return norm === 'reconnecting' || norm === 'not connected' || norm === 'connecting'
+    return norm === 'reconnecting' || norm === NOT_CONNECTED || norm === 'connecting'
   }
 
   // exchange trades the URL fragment for the cookie.
@@ -1792,7 +1818,7 @@ export default function App() {
     try {
       const res = await fetch('/v1/webui/session', {
         method: 'POST',
-        credentials: 'same-origin',
+        credentials: SAME_ORIGIN,
         headers: { Authorization: 'Bearer ' + token }
       })
       // Erased whatever the answer: a token that did not work is not one to keep.
@@ -1807,7 +1833,7 @@ export default function App() {
   // fetchSessions loads the list of conversations from the gateway.
   const fetchSessions = useCallback(async (): Promise<SessionInfo[]> => {
     try {
-      const res = await api('/v1/sessions')
+      const res = await api(SESSIONS_URL)
       const data = await res.json()
       const list: SessionInfo[] = data.sessions || []
       setSessions(list)
@@ -1910,7 +1936,7 @@ export default function App() {
   // openSkill fetches one document's body. The index deliberately does not carry it.
   const openSkill = useCallback(async (skill: SkillInfo) => {
     try {
-      const res = await api('/v1/skills/' + encodeURIComponent(skill.name))
+      const res = await api(SKILLS_PATH + encodeURIComponent(skill.name))
       if (!res.ok) {
         const err = await res.json().catch(() => ({}))
         setState(err.error || 'could not open the skill', true)
@@ -1928,7 +1954,7 @@ export default function App() {
   // answer is one boolean and the list is already on screen.
   const pinSkill = useCallback(async (name: string, pinned: boolean) => {
     try {
-      const res = await api('/v1/skills/' + encodeURIComponent(name) + '/pin', {
+      const res = await api(SKILLS_PATH + encodeURIComponent(name) + '/pin', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ pinned })
@@ -1954,7 +1980,7 @@ export default function App() {
       return
     }
     try {
-      const res = await api('/v1/skills/proposed/' + encodeURIComponent(name))
+      const res = await api(PROPOSED_SKILLS_PATH + encodeURIComponent(name))
       if (!res.ok) {
         const err = await res.json().catch(() => ({}))
         setState(err.error || 'could not open the proposed skill', true)
@@ -1974,9 +2000,9 @@ export default function App() {
     try {
       let res: Response
       if (accept) {
-        res = await api('/v1/skills/proposed/' + encodeURIComponent(name) + '/accept', { method: 'POST' })
+        res = await api(PROPOSED_SKILLS_PATH + encodeURIComponent(name) + '/accept', { method: 'POST' })
       } else {
-        res = await api('/v1/skills/proposed/' + encodeURIComponent(name), { method: 'DELETE' })
+        res = await api(PROPOSED_SKILLS_PATH + encodeURIComponent(name), { method: 'DELETE' })
       }
       if (!res.ok) {
         const err = await res.json().catch(() => ({}))
@@ -1994,7 +2020,7 @@ export default function App() {
   // is a file, and the browser must not keep a guess about a directory it cannot see.
   const restoreSkill = useCallback(async (name: string) => {
     try {
-      const res = await api('/v1/skills/' + encodeURIComponent(name) + '/restore', { method: 'POST' })
+      const res = await api(SKILLS_PATH + encodeURIComponent(name) + '/restore', { method: 'POST' })
       if (!res.ok) {
         const err = await res.json().catch(() => ({}))
         setState(err.error || 'could not restore the skill', true)
@@ -2010,7 +2036,7 @@ export default function App() {
   // one boolean and the row is already on screen, exactly like the pin.
   const disableSkill = useCallback(async (name: string, disabled: boolean) => {
     try {
-      const res = await api('/v1/skills/' + encodeURIComponent(name) + '/disable', {
+      const res = await api(SKILLS_PATH + encodeURIComponent(name) + '/disable', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ disabled })
@@ -2032,7 +2058,7 @@ export default function App() {
   // confirmation is asked before this is ever reached.
   const deleteSkill = useCallback(async (name: string) => {
     try {
-      const res = await api('/v1/skills/' + encodeURIComponent(name), { method: 'DELETE' })
+      const res = await api(SKILLS_PATH + encodeURIComponent(name), { method: 'DELETE' })
       if (!res.ok) {
         const err = await res.json().catch(() => ({}))
         setState(err.error || 'could not delete the skill', true)
@@ -2095,7 +2121,7 @@ export default function App() {
       // Auto-create a session in the new project so the user lands in the chat.
       if (data.id) {
         setTimeout(() => {
-          const evt = new CustomEvent('motita:create-session', { detail: { project_id: data.id } })
+          const evt = new CustomEvent(CREATE_SESSION_EVENT, { detail: { project_id: data.id } })
           window.dispatchEvent(evt)
         }, 100)
       }
@@ -2164,7 +2190,7 @@ export default function App() {
   }, [showNewProject])
 
   const artifactBase = useCallback(
-    () => '/v1/sessions/' + encodeURIComponent(sessionId) + '/artifacts',
+    () => SESSIONS_PATH + encodeURIComponent(sessionId) + '/artifacts',
     [sessionId])
   const scopeQuery = (scope: 'session' | 'project') => (choose(scope === 'project', '?scope=project', ''))
 
@@ -2256,7 +2282,7 @@ export default function App() {
   // setProjectPodman changes the answer given at creation: the gateway tells the open sessions.
   const setProjectPodman = useCallback(async (id: string, podman: boolean) => {
     try {
-      const res = await api('/v1/projects/' + id, {
+      const res = await api(PROJECTS_PATH + id, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ podman })
@@ -2277,7 +2303,7 @@ export default function App() {
   const openEditProject = useCallback(async (p: ProjectInfo) => {
     setEditProject({ id: p.id, title: p.title, description: p.description ?? '', main: p.main_branch ?? 'main', branches: [p.main_branch || 'main'], current: p.branch ?? '', mergeMethod: p.merge_method ?? '', prMaxFixes: p.pr_max_fixes ?? 0, autoMerge: p.auto_merge === true, autoContinue: p.auto_continue === true })
     try {
-      const res = await api('/v1/projects/' + encodeURIComponent(p.id) + '/branches')
+      const res = await api(PROJECTS_PATH + encodeURIComponent(p.id) + '/branches')
       if (!res.ok) { return }
       const d = await res.json()
       setEditProject(prev => {
@@ -2293,7 +2319,7 @@ export default function App() {
     if (!editProject?.title.trim()) { return }
     setSavingProject(true)
     try {
-      const res = await api('/v1/projects/' + encodeURIComponent(editProject.id), {
+      const res = await api(PROJECTS_PATH + encodeURIComponent(editProject.id), {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ title: editProject.title, description: editProject.description, main_branch: editProject.main, merge_method: editProject.mergeMethod, pr_max_fixes: editProject.prMaxFixes, auto_merge: editProject.autoMerge, auto_continue: editProject.autoContinue }),
@@ -2336,7 +2362,7 @@ export default function App() {
   // whose sessions hold uncommitted work is refused without it.
   const deleteProject = useCallback(async (id: string, discard = false) => {
     try {
-      const res = await api('/v1/projects/' + id + (choose(discard, '?force=1', '')), { method: 'DELETE' })
+      const res = await api(PROJECTS_PATH + id + (choose(discard, '?force=1', '')), { method: 'DELETE' })
       if (!res.ok && res.status !== HTTP_NO_CONTENT) {
         const err = await res.json().catch(() => ({}))
         setState(err.error || 'could not delete the project', true)
@@ -2384,7 +2410,7 @@ export default function App() {
   }
 
   const toggleSchedule = async (task: ScheduledTask) => {
-    const res = await api('/v1/schedules/' + task.id, {
+    const res = await api(SCHEDULES_PATH + task.id, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ enabled: !task.enabled }),
@@ -2393,7 +2419,7 @@ export default function App() {
   }
 
   const runScheduleNow = async (task: ScheduledTask) => {
-    const res = await api('/v1/schedules/' + task.id + '/run', { method: 'POST' })
+    const res = await api(SCHEDULES_PATH + task.id + '/run', { method: 'POST' })
     if (res.status === HTTP_CONFLICT) {
       const body = await res.json().catch(() => ({}))
       setToast({ message: t('That task could not start'), type: 'error', detail: body.error })
@@ -2405,7 +2431,7 @@ export default function App() {
   }
 
   const deleteSchedule = async (task: ScheduledTask) => {
-    const res = await api('/v1/schedules/' + task.id, { method: 'DELETE' })
+    const res = await api(SCHEDULES_PATH + task.id, { method: 'DELETE' })
     if (res.ok) { await loadSchedules() }
   }
 
@@ -2468,7 +2494,7 @@ export default function App() {
     if (liveRun) { setRunningState(true, liveRun) }
     // Load transcript for the new session.
     try {
-      const res = await api('/v1/sessions/' + encodeURIComponent(id) + '/messages')
+      const res = await api(SESSIONS_PATH + encodeURIComponent(id) + '/messages')
       const data = await res.json()
       // The user may have clicked another conversation while this one was loading: a
       // late answer must not paint over the one now on screen.
@@ -2479,7 +2505,7 @@ export default function App() {
       // stream. Asking is what lets the reader see it and follow it.
       let live = false
       try {
-        const rs = await api('/v1/sessions/' + encodeURIComponent(id) + '/run')
+        const rs = await api(SESSIONS_PATH + encodeURIComponent(id) + '/run')
         if (rs.ok) {
           const st = await rs.json()
           live = !st.outcome
@@ -2509,7 +2535,7 @@ export default function App() {
       }
       // Load config so the header shows the current provider/model.
       try {
-        const cfgRes = await api('/v1/sessions/' + encodeURIComponent(id) + '/config')
+        const cfgRes = await api(SESSIONS_PATH + encodeURIComponent(id) + '/config')
         const cfgData: ConfigView = await cfgRes.json()
         if (sessionRef.current === id) { setConfig(cfgData) }
       } catch { /* non-fatal */ }
@@ -2543,7 +2569,7 @@ export default function App() {
     setCreatingSession(projectId ?? '')
     try {
       const body = choose(projectId, JSON.stringify({ project_id: projectId }), '{}')
-      const res = await api('/v1/sessions', {
+      const res = await api(SESSIONS_URL, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body,
@@ -2571,8 +2597,8 @@ export default function App() {
         createSession(detail.project_id)
       }
     }
-    window.addEventListener('motita:create-session', handler)
-    return () => window.removeEventListener('motita:create-session', handler)
+    window.addEventListener(CREATE_SESSION_EVENT, handler)
+    return () => window.removeEventListener(CREATE_SESSION_EVENT, handler)
   }, [createSession])
 
   // deleteSession removes a conversation from the gateway and the sidebar.
@@ -2583,7 +2609,7 @@ export default function App() {
   // is refused and the work survives.
   const deleteSession = useCallback(async (id: string, discard = false) => {
     try {
-      const res = await api('/v1/sessions/' + id + (choose(discard, '?force=1', '')), { method: 'DELETE' })
+      const res = await api(SESSIONS_PATH + id + (choose(discard, '?force=1', '')), { method: 'DELETE' })
       // 204 = deleted, 200 = default session was reset instead of removed.
       if (!res.ok && res.status !== HTTP_NO_CONTENT && res.status !== HTTP_OK) {
         const err = await res.json().catch(() => ({}))
@@ -2599,7 +2625,7 @@ export default function App() {
       if (res.status === HTTP_NO_CONTENT) {
         setSessions(prev => prev.filter(s => s.id !== id))
       } else {
-        setSessions(prev => prev.map(s => { if (s.id === id) { return { ...s, title: 'New session' } } return s }))
+        setSessions(prev => prev.map(s => { if (s.id === id) { return { ...s, title: NEW_SESSION_TITLE } } return s }))
       }
       const list = await fetchSessions()
       // If we deleted the active session, switch to the most recent remaining one.
@@ -2646,7 +2672,7 @@ export default function App() {
     }
     let cancelled = false
     setPreviewLoading(true)
-    const previewPath = choose(confirmDelete.type === 'session', '/v1/sessions/' + confirmDelete.id + '/deletion-preview', '/v1/projects/' + confirmDelete.id + '/deletion-preview')
+    const previewPath = choose(confirmDelete.type === 'session', SESSIONS_PATH + confirmDelete.id + '/deletion-preview', PROJECTS_PATH + confirmDelete.id + '/deletion-preview')
     api(previewPath)
       .then(async (res) => {
         if (!res.ok) { return null }
@@ -2666,7 +2692,7 @@ export default function App() {
     const trimmed = title.trim()
     if (!trimmed) { return }
     try {
-      const res = await api('/v1/sessions/' + id, {
+      const res = await api(SESSIONS_PATH + id, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ title: trimmed })
@@ -2688,7 +2714,7 @@ export default function App() {
   const fetchProviders = useCallback(async () => {
     if (!sessionId) { return }
     try {
-      const res = await api('/v1/sessions/' + sessionId + '/providers')
+      const res = await api(SESSIONS_PATH + sessionId + '/providers')
       const data = await res.json()
       setProviders(data.providers || [])
     } catch {
@@ -2707,7 +2733,7 @@ export default function App() {
     setFetchingModels(true)
     setModelList([])
     try {
-      const res = await api('/v1/sessions/' + sessionId + '/model-list')
+      const res = await api(SESSIONS_PATH + sessionId + '/model-list')
       if (res.ok) {
         const data = await res.json()
         setModelList(data.models || [])
@@ -2735,7 +2761,7 @@ export default function App() {
   // project's base branch first so the new work starts from the latest state.
   const continueSession = useCallback(async (s: SessionInfo) => {
     try {
-      const res = await api('/v1/sessions/' + s.id + '/continue', {
+      const res = await api(SESSIONS_PATH + s.id + '/continue', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: '{}',
@@ -2781,7 +2807,7 @@ export default function App() {
     if (!sessionId) { return }
     setSavingConfig(true)
     try {
-      const res = await api('/v1/sessions/' + sessionId + '/config', {
+      const res = await api(SESSIONS_PATH + sessionId + '/config', {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ provider: draftProvider, model: draftModel, reasoning: draftReasoning })
@@ -2898,7 +2924,7 @@ export default function App() {
   const loadCheckpoints = useCallback(async (id: string, rebuildTerm = false) => {
     let cps: { turn: number; files: boolean; steps: StepView[] }[]
     try {
-      const res = await api('/v1/sessions/' + encodeURIComponent(id) + '/checkpoints')
+      const res = await api(SESSIONS_PATH + encodeURIComponent(id) + '/checkpoints')
       if (!res.ok) { return }
       cps = (await res.json()).checkpoints ?? []
     } catch { return }
@@ -2929,7 +2955,7 @@ export default function App() {
 
   // transcript paints the conversation that already exists.
   const transcript = useCallback(async () => {
-    const res = await api('/v1/sessions/' + sessionRef.current + '/messages')
+    const res = await api(SESSIONS_PATH + sessionRef.current + '/messages')
     const data = await res.json()
     const msgs = data.messages || []
     if (msgs.length === 0) {
@@ -2958,7 +2984,7 @@ export default function App() {
     const settle = (exit: number, out: string) =>
       setShellLog(prev => prev.map(e => { if (e.id === entryId) { return { ...e, exit, out } } return e }))
     try {
-      const res = await api('/v1/sessions/' + encodeURIComponent(sid) + '/shell', {
+      const res = await api(SESSIONS_PATH + encodeURIComponent(sid) + '/shell', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ command, approved }),
@@ -2973,7 +2999,7 @@ export default function App() {
         // Nothing ran: the line leaves the terminal and waits for the person's yes.
         setShellLog(prev => prev.filter(e => e.id !== entryId))
         shellPendingRef.current = command
-        setApproval({ id: 'shell:' + entryId, question: body.reason || t('This needs your approval'), command })
+        setApproval({ id: 'shell:' + entryId, question: body.reason || t(NEEDS_APPROVAL), command })
         return
       }
       const out = [body.output, body.error].filter(Boolean).join('\n')
@@ -2997,7 +3023,7 @@ export default function App() {
       if (!approve || !command) { return }
       if (all) {
         const sid = sessionRef.current
-        const res = await api('/v1/sessions/' + sid + '/auto-approve', {
+        const res = await api(SESSIONS_PATH + sid + '/auto-approve', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ enabled: true }),
@@ -3008,7 +3034,7 @@ export default function App() {
       return
     }
     try {
-      await api('/v1/sessions/' + sessionRef.current + '/runs/approval', {
+      await api(SESSIONS_PATH + sessionRef.current + '/runs/approval', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(choose(all, { id, approve, scope: 'session' }, { id, approve }))
@@ -3049,7 +3075,7 @@ export default function App() {
   const stopAutoApprove = useCallback(async () => {
     const sid = sessionRef.current
     try {
-      const res = await api('/v1/sessions/' + sid + '/auto-approve', {
+      const res = await api(SESSIONS_PATH + sid + '/auto-approve', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ enabled: false })
@@ -3067,7 +3093,7 @@ export default function App() {
   const loadAgents = useCallback(async (id: string) => {
     if (!id) { return }
     try {
-      const res = await api('/v1/sessions/' + encodeURIComponent(id) + '/agents')
+      const res = await api(SESSIONS_PATH + encodeURIComponent(id) + '/agents')
       if (sessionRef.current !== id) { return }
       if (!res.ok) { setAgents([]); return }
       const data = await res.json()
@@ -3277,7 +3303,7 @@ export default function App() {
   const followReconnect = useCallback(async () => {
     let res: Response
     try {
-      res = await api('/v1/sessions/' + sessionRef.current + '/events?from=' + lastIdRef.current)
+      res = await api(SESSIONS_PATH + sessionRef.current + '/events?from=' + lastIdRef.current)
     } catch {
       if (runningRef.current) {
         setState('reconnecting', true)
@@ -3345,7 +3371,7 @@ export default function App() {
     if (runningRef.current) { return }
     const sid = sessionRef.current
     try {
-      const res = await api('/v1/sessions/' + encodeURIComponent(sid) + '/checkpoints/' + turn + '/restore', {
+      const res = await api(SESSIONS_PATH + encodeURIComponent(sid) + '/checkpoints/' + turn + '/restore', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ files }),
@@ -3382,18 +3408,18 @@ export default function App() {
     setState('working')
     let res: Response
     try {
-      res = await api(endpoint || '/v1/sessions/' + sessionRef.current + '/task', {
+      res = await api(endpoint || SESSIONS_PATH + sessionRef.current + '/task', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ task: text })
       })
     } catch {
-      setState('the gateway refused the turn', true)
+      setState(TURN_REFUSED, true)
       finish()
       return
     }
     if (!res.ok) {
-      let msg = 'the gateway refused the turn'
+      let msg = TURN_REFUSED
       let merged = false
       try {
         const err = await res.json()
@@ -3447,24 +3473,24 @@ export default function App() {
   const sendWhileRunning = (text: string, interrupt: boolean) => {
     const sid = sessionRef.current
     handoffRef.current = true
-    void api('/v1/sessions/' + encodeURIComponent(sid) + (choose(interrupt, '/interrupt', '/queue')), {
+    void api(SESSIONS_PATH + encodeURIComponent(sid) + (choose(interrupt, '/interrupt', '/queue')), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ task: text }),
     }).then(res => {
       if (!res.ok) {
         handoffRef.current = false
-        setToast({ message: t('the gateway refused the turn'), type: 'error' })
+        setToast({ message: t(TURN_REFUSED), type: 'error' })
       }
     }).catch(() => {
       handoffRef.current = false
-      setToast({ message: t('the gateway refused the turn'), type: 'error' })
+      setToast({ message: t(TURN_REFUSED), type: 'error' })
     })
   }
 
   // stopRun stops the current turn of the session on screen, with nothing queued behind it.
   const stopRun = () => {
-    void api('/v1/sessions/' + encodeURIComponent(sessionRef.current) + '/interrupt', {
+    void api(SESSIONS_PATH + encodeURIComponent(sessionRef.current) + '/interrupt', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: '{}',
@@ -3593,7 +3619,7 @@ export default function App() {
       setToast({ message: t('Could not create the pull request'), type: 'error', detail: errorMessage(e) })
       return
     }
-    await submit(t('Create PR'), '/v1/sessions/' + encodeURIComponent(sid) + '/pr')
+    await submit(t('Create PR'), SESSIONS_PATH + encodeURIComponent(sid) + '/pr')
   }
 
   // tryAgain is what the user does after the gateway gave up: the agent is sent again and the
@@ -3788,7 +3814,7 @@ export default function App() {
         await switchSession(target, 'replace')
         setState('ready')
       } catch {
-        setState('not connected', true)
+        setState(NOT_CONNECTED, true)
       }
     })()
     // Cleanup reconnect timer on unmount.
@@ -3807,10 +3833,10 @@ export default function App() {
       setMessages([])
       setSessions([])
       setProjects([])
-      setState('not connected', true)
+      setState(NOT_CONNECTED, true)
     }
-    window.addEventListener('motita:auth-needed', handler)
-    return () => window.removeEventListener('motita:auth-needed', handler)
+    window.addEventListener(AUTH_NEEDED_EVENT, handler)
+    return () => window.removeEventListener(AUTH_NEEDED_EVENT, handler)
   }, [])
 
   // Poll for updates: once on startup (after auth succeeds) and then every
@@ -3899,7 +3925,7 @@ export default function App() {
         await switchSession(target, 'replace')
         setState('ready')
       } catch {
-        setState('not connected', true)
+        setState(NOT_CONNECTED, true)
       }
     } else {
       setAuthError(t('That token was rejected. Try again.'))
@@ -4222,7 +4248,7 @@ export default function App() {
                     closeRowMenu()
                     // Integration is now a run of the agent: it commits, merges and reports through
                     // the same SSE channel as a normal task, so the chat shows what happened.
-                    await submit('Integrate', '/v1/sessions/' + s.id + '/merge')
+                    await submit('Integrate', SESSIONS_PATH + s.id + '/merge')
                   }}
                 >
                   <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -4387,12 +4413,12 @@ export default function App() {
               <NewSessionButton
                 loading={creatingSession === ''}
                 onClick={() => createSession()}
-                label={t('New session')}
+                label={t(NEW_SESSION_TITLE)}
               />
               <button
                 class="flex items-center justify-center px-3 py-2.5 rounded-xl border border-white/10 text-[#e8e8ea] hover:bg-white/5 active:scale-95 transition-all"
                 onClick={() => { setNewProjectMode(null); mainChosen.current = false; setNewProjectMain('main'); setShowNewProject(true) }}
-                title={t('New project')}
+                title={t(NEW_PROJECT)}
               >
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                   <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" /><line x1="12" y1="11" x2="12" y2="17" /><line x1="9" y1="14" x2="15" y2="14" />
@@ -4528,7 +4554,7 @@ export default function App() {
                               data-testid="edit-project"
                               onClick={(e) => { e.stopPropagation(); void openEditProject(p); closeRowMenu() }}
                             >
-                              {t('Edit project')}
+                              {t(EDIT_PROJECT)}
                             </button>
                             {(hasPodman || p.podman) && (
                               <button
@@ -5105,12 +5131,12 @@ export default function App() {
             ref={approvalRef}
             tabIndex={-1}
             role="group"
-            aria-label={t('This needs your approval')}
+            aria-label={t(NEEDS_APPROVAL)}
             onKeyDown={onApprovalKey}
             class="approval-panel frosted flex-none px-4 sm:px-5 py-3.5 border-t-2 border-warning z-10"
           >
             <h2 class="text-sm mb-2 text-warning">
-              {approval.question ?? approval.reason ?? t('This needs your approval')}
+              {approval.question ?? approval.reason ?? t(NEEDS_APPROVAL)}
             </h2>
             <pre class="whitespace-pre-wrap break-all max-h-[35vh] overflow-y-auto mb-2.5 p-3 bg-black/20 border border-white/5 rounded-lg font-mono text-[13px]">
               {approval.command ?? ''}
@@ -5399,10 +5425,10 @@ export default function App() {
           <div
             class="frosted rounded-2xl border border-white/10 w-full max-w-md p-5 shadow-2xl"
             role="dialog"
-            aria-label={t('Edit project')}
+            aria-label={t(EDIT_PROJECT)}
           >
             <div class="flex items-center gap-2 mb-4">
-              <h2 class="text-base font-semibold">{t('Edit project')}</h2>
+              <h2 class="text-base font-semibold">{t(EDIT_PROJECT)}</h2>
               <button
                 class="ml-auto p-1.5 rounded-lg hover:bg-white/5"
                 onClick={() => setEditProject(null)}
@@ -5542,7 +5568,7 @@ export default function App() {
           <div
             class="frosted rounded-2xl border border-white/10 w-full max-w-md p-5 shadow-2xl max-h-[92vh] overflow-y-auto"
             role="dialog"
-            aria-label={t('New project')}
+            aria-label={t(NEW_PROJECT)}
           >
             <div class="flex items-center gap-2 mb-4">
               {!!(newProjectMode && !creatingProject) && (
@@ -5562,7 +5588,7 @@ export default function App() {
                   <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
                 </svg>
               )}
-              <h2 class="text-base font-semibold">{choose(newProjectMode === 'empty', t('Empty project'), t(choose(newProjectMode === 'git', 'From a Git repository', 'New project')))}</h2>
+              <h2 class="text-base font-semibold">{choose(newProjectMode === 'empty', t('Empty project'), t(choose(newProjectMode === 'git', 'From a Git repository', NEW_PROJECT)))}</h2>
               <button
                 class="ml-auto p-1.5 rounded-lg hover:bg-white/5"
                 onClick={() => setShowNewProject(false)}
@@ -6042,7 +6068,7 @@ export default function App() {
                       .filter((s) => s.changes.length > 0)
                       .map((s) => (
                         <div>
-                          <p class="text-xs text-[#9a9aaa] truncate">{choose(s.title === 'New session', t('New session'), (s.title || s.id))}</p>
+                          <p class="text-xs text-[#9a9aaa] truncate">{choose(s.title === NEW_SESSION_TITLE, t(NEW_SESSION_TITLE), (s.title || s.id))}</p>
                           <ul class="space-y-1 mt-1">
                             {s.changes.map((c) => (
                               <li class="flex items-start gap-2 text-xs pl-2">
