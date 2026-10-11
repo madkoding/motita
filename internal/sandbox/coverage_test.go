@@ -682,7 +682,8 @@ func TestRunAsChildResolvesRelativeCommands(t *testing.T) {
 	}
 	childHooks.exit = func(int) {}
 
-	spec := Spec{Command: "sh", Args: []string{"-c", "true"}, Dir: t.TempDir(), Environment: []string{"PATH=/usr/bin:/bin"}}
+	spec := Spec{Command: "sh", Args: []string{"-c", "true"}, Dir: t.TempDir(),
+		Environment: []string{"PATH=/usr/bin:/bin"}}
 	encoded, _ := spec.Encode()
 	if err := RunAsChild([]string{ChildMarker, encoded}); err != nil {
 		t.Fatal(err)
@@ -728,7 +729,8 @@ func TestRunAsChildReportsAnUnresolvableCommand(t *testing.T) {
 	}
 	childHooks.exit = func(code int) { exits = append(exits, code) }
 
-	spec := Spec{Command: "a-command-that-does-not-exist-anywhere", Dir: t.TempDir(), Environment: []string{"PATH=/usr/bin:/bin"}}
+	spec := Spec{Command: "a-command-that-does-not-exist-anywhere", Dir: t.TempDir(),
+		Environment: []string{"PATH=/usr/bin:/bin"}}
 	encoded, _ := spec.Encode()
 	err := RunAsChild([]string{ChildMarker, encoded})
 	if err == nil {

@@ -73,7 +73,8 @@ func TestNewRunGroup(t *testing.T) {
 	}
 
 	// The name is taken: no group.
-	next := filepath.Join(mount, "self", "motita-run-"+strconv.Itoa(os.Getpid())+"-"+strconv.FormatUint(runGroupSeq.Load()+1, 10))
+	next := filepath.Join(mount, "self", "motita-run-"+strconv.Itoa(os.Getpid())+"-"+
+		strconv.FormatUint(runGroupSeq.Load()+1, 10))
 	if err := os.Mkdir(next, 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -223,7 +224,8 @@ func TestARunTakesItsDetachedProcessesWithIt(t *testing.T) {
 	pidFile := filepath.Join(work, "pid")
 	script := "setsid sh -c 'echo $$ > " + pidFile + "; exec sleep 60' </dev/null >/dev/null 2>&1 & " +
 		"while [ ! -s " + pidFile + " ]; do sleep 0.05; done"
-	if _, _, _, err := s.Run(context.Background(), execx.Request{Command: "/bin/sh", Args: []string{"-c", script}}); err != nil {
+	if _, _, _, err := s.Run(context.Background(),
+		execx.Request{Command: "/bin/sh", Args: []string{"-c", script}}); err != nil {
 		t.Fatal(err)
 	}
 	if noRunGroups.Load() {

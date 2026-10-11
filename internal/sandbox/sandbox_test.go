@@ -222,7 +222,8 @@ func TestUlimitCommands(t *testing.T) {
 	}
 	// The values must use each ulimit's units: -v in KB, -f in 512-byte blocks.
 	joined := strings.Join(got, " ")
-	for _, expected := range []string{"ulimit -t 30", "ulimit -v 262144", "ulimit -u 64", "ulimit -n 128", "ulimit -f 16384"} {
+	for _, expected := range []string{"ulimit -t 30", "ulimit -v 262144", "ulimit -u 64", "ulimit -n 128",
+		"ulimit -f 16384"} {
 		if !strings.Contains(joined, expected) {
 			t.Errorf("%q is missing from %v", expected, got)
 		}
