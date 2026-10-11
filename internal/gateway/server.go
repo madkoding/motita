@@ -24,6 +24,11 @@ import (
 	"github.com/madkoding/motita/internal/webui"
 )
 
+// Literals used more than once in this file.
+const (
+	headerContentType = "Content-Type"
+)
+
 // defaultMaxBodyKB caps a request body when nothing else is configured. A task or a prompt is a
 // sentence; 256 KB is generous for one and small enough that a client cannot make the agent
 // chew on a novel.
@@ -668,7 +673,7 @@ func (s *Server) page(mux *http.ServeMux, pattern, name string) {
 			http.NotFound(w, r)
 			return
 		}
-		w.Header().Set("Content-Type", ctype)
+		w.Header().Set(headerContentType, ctype)
 		// No caching. The page is part of the binary, so a client holding yesterday's copy
 		// after an upgrade is running code that no longer exists - and a stale page calling an
 		// API that moved is a failure nobody can explain.
@@ -908,7 +913,7 @@ func (s *Server) handleUpdateRun(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set(headerContentType, "text/event-stream")
 	w.Header().Set("Cache-Control", "no-cache")
 	w.Header().Set("Connection", "keep-alive")
 
@@ -1227,7 +1232,7 @@ func (s *Server) deletePersistedSession(id string) {
 // writeJSON is the one place a response body is produced, so the Content-Type is set in the one
 // place it could be forgotten.
 func writeJSON(w http.ResponseWriter, status int, v any) {
-	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	w.Header().Set(headerContentType, "application/json; charset=utf-8")
 	w.WriteHeader(status)
 	_ = json.NewEncoder(w).Encode(v)
 }
@@ -1246,7 +1251,7 @@ func writeError(w http.ResponseWriter, status int, msg string) {
 // client is not held to it: no page can attach the token.
 func (s *Server) decodeBody(w http.ResponseWriter, r *http.Request, dst any) bool {
 	if !bearerMatches(s.opts.Token, r.Header.Get("Authorization")) {
-		if mt, _, _ := mime.ParseMediaType(r.Header.Get("Content-Type")); mt != "application/json" {
+		if mt, _, _ := mime.ParseMediaType(r.Header.Get(headerContentType)); mt != "application/json" {
 			writeError(w, http.StatusUnsupportedMediaType, "the request body must be sent as application/json")
 			return false
 		}

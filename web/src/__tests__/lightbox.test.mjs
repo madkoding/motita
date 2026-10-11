@@ -12,7 +12,7 @@ import { build } from 'esbuild'
 
 const here = dirname(fileURLToPath(import.meta.url))
 const dom = new JSDOM('<!doctype html><html><body></body></html>', { url: 'http://localhost/' })
-for (const k of ['document', 'window', 'KeyboardEvent', 'HTMLElement', 'Node']) globalThis[k] = dom.window[k]
+for (const k of ['document', 'window', 'KeyboardEvent', 'HTMLElement', 'Node']) { globalThis[k] = dom.window[k] }
 Object.defineProperty(globalThis, 'navigator', { value: dom.window.navigator, configurable: true })
 globalThis.requestAnimationFrame = (cb) => setTimeout(() => cb(Date.now()), 0)
 globalThis.cancelAnimationFrame = (id) => clearTimeout(id)

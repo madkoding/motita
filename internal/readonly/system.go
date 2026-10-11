@@ -48,7 +48,7 @@ func dateRule(args []string) (string, bool) {
 		switch {
 		case strings.HasPrefix(name, "--se"):
 			return fmt.Sprintf("date %s sets the clock", a), true
-		case name == "--date" || name == "--file" || name == "--reference":
+		case name == "--date" || name == flagFile || name == "--reference":
 			if !glued {
 				i++
 			}
@@ -80,7 +80,7 @@ func dateRule(args []string) (string, bool) {
 func hostnameRule(args []string) (string, bool) {
 	for _, a := range args {
 		name, _, _ := strings.Cut(a, "=")
-		if !strings.HasPrefix(a, "-") || name == "-F" || name == "--file" || name == "-b" || name == "--boot" {
+		if !strings.HasPrefix(a, "-") || name == "-F" || name == flagFile || name == "-b" || name == "--boot" {
 			return fmt.Sprintf("hostname %s sets the hostname", a), true
 		}
 	}
@@ -182,7 +182,7 @@ func arpRule(args []string) (string, bool) {
 	for _, a := range args {
 		name, _, _ := strings.Cut(a, "=")
 		switch {
-		case name == "--delete" || name == "--set" || name == "--file":
+		case name == "--delete" || name == "--set" || name == flagFile:
 			return fmt.Sprintf("arp %s changes the ARP cache", a), true
 		case !strings.HasPrefix(a, "--") && strings.HasPrefix(a, "-") && strings.ContainsAny(a, "dsf"):
 			return fmt.Sprintf("arp %s changes the ARP cache", a), true

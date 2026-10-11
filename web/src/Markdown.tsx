@@ -114,7 +114,7 @@ md.block.ruler.before(
   (state, startLine, endLine, silent): boolean => {
     const start = state.bMarks[startLine] + state.tShift[startLine]
     const max = state.eMarks[startLine]
-    if (state.src.slice(start, start + 2) !== '$$') return false
+    if (state.src.slice(start, start + 2) !== '$$') { return false }
 
     const afterOpen = state.src.slice(start + 2, max)
     let content: string
@@ -137,19 +137,19 @@ md.block.ruler.before(
         const close = text.indexOf('$$')
         if (close >= 0) {
           const head = text.slice(0, close)
-          if (head.trim() !== '') lines.push(head)
+          if (head.trim() !== '') { lines.push(head) }
           closed = true
           break
         }
         lines.push(text)
       }
       // An unclosed `$$` is not a formula: it stays as the reader wrote it.
-      if (!closed) return false
+      if (!closed) { return false }
       content = lines.join('\n')
       nextLine = line + 1
     }
 
-    if (silent) return true
+    if (silent) { return true }
     const token = state.push('math_block', 'math', 0)
     token.block = true
     token.content = content.trim()
@@ -223,7 +223,7 @@ md.renderer.rules.text = (
   self,
 ): string => {
   const token = tokens[idx]
-  if (!token.content.includes('$')) return defaultText(tokens, idx, options, env, self)
+  if (!token.content.includes('$')) { return defaultText(tokens, idx, options, env, self) }
 
   // Escaped gap by gap, around the placeholders that are inserted verbatim. Walking
   // the matches explicitly is what keeps this honest: the alternative (replace, then
@@ -300,13 +300,13 @@ const messagePurify = DOMPurify(window)
 // writes as `style="text-align:..."`.
 const ALIGN_ONLY = /^\s*text-align:\s*(left|right|center)\s*;?\s*$/i
 messagePurify.addHook('uponSanitizeAttribute', (_node, data) => {
-  if (data.attrName === 'style' && !ALIGN_ONLY.test(data.attrValue)) data.keepAttr = false
+  if (data.attrName === 'style' && !ALIGN_ONLY.test(data.attrValue)) { data.keepAttr = false }
 })
 
 // The one input a message keeps: a task list's checkbox, which markdown-it-task-lists
 // renders disabled. It is a picture of a tick, not a control.
 messagePurify.addHook('uponSanitizeElement', (node, data) => {
-  if (data.tagName !== 'input') return
+  if (data.tagName !== 'input') { return }
   const el = node as Element
   if (el.getAttribute('type') === 'checkbox' && el.hasAttribute('disabled')) {
     data.allowedTags.input = true
@@ -366,11 +366,11 @@ async function hydrate(root: HTMLElement): Promise<void> {
   // Emoji is the one step that is not a placeholder: it rewrites text that is already
   // rendered, so its marker goes on the ROOT and it runs on every mount that has not had it.
   const wantsEmoji = root.getAttribute('data-emoji') !== 'ok'
-  if (math.length + code.length + diagrams.length === 0 && !wantsEmoji) return
+  if (math.length + code.length + diagrams.length === 0 && !wantsEmoji) { return }
 
   // Marked BEFORE any await: two effects can overlap while a module loads, and an
   // unmarked element would be picked up by both.
-  for (const el of [...math, ...code, ...diagrams]) el.setAttribute('data-done', 'pending')
+  for (const el of [...math, ...code, ...diagrams]) { el.setAttribute('data-done', 'pending') }
 
   if (code.length > 0) {
     // The copy payload is restored FIRST, before the highlighter replaces the code
@@ -386,7 +386,7 @@ async function hydrate(root: HTMLElement): Promise<void> {
       const { highlight } = await import('./highlight')
       for (const el of code) {
         const target = el.querySelector('code')
-        if (!target) continue
+        if (!target) { continue }
         // The highlighter does its OWN escaping, which is what keeps the code shown and
         // the code copied byte-identical: the copy payload is the pristine source
         // restored above, and the highlighted text is escaped once, from that source.
@@ -395,7 +395,7 @@ async function hydrate(root: HTMLElement): Promise<void> {
       }
     } catch (err) {
       // Uncoloured code is still correct code: nothing is shown to the reader.
-      for (const el of code) el.setAttribute('data-done', 'plain')
+      for (const el of code) { el.setAttribute('data-done', 'plain') }
       console.error('motita: syntax highlighting is unavailable:', err)
     }
   }
@@ -410,7 +410,7 @@ async function hydrate(root: HTMLElement): Promise<void> {
         el.setAttribute('data-done', 'ok')
       }
     } catch (err) {
-      for (const el of math) fail(el, t('the math renderer could not be loaded'), err)
+      for (const el of math) { fail(el, t('the math renderer could not be loaded'), err) }
     }
   }
 
@@ -428,7 +428,7 @@ async function hydrate(root: HTMLElement): Promise<void> {
         }
       }
     } catch (err) {
-      for (const el of diagrams) fail(el, t('the diagram renderer could not be loaded'), err)
+      for (const el of diagrams) { fail(el, t('the diagram renderer could not be loaded'), err) }
     }
   }
 
@@ -490,7 +490,7 @@ export function Markdown({ content }: { content: string }) {
 
   useEffect(() => {
     const el = ref.current
-    if (!el) return
+    if (!el) { return }
     // The copy button's payload, restored after the sanitizer has run: an answer
     // containing an HTML comment marker or an arrow would otherwise have had this
     // attribute dropped, and the button would copy an empty string.

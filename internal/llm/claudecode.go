@@ -30,6 +30,11 @@ import (
 	"github.com/madkoding/motita/internal/config"
 )
 
+// Literals used more than once in this file.
+const (
+	streamJSON = "stream-json"
+)
+
 // ClaudeCodeMCPCommand is the hidden subcommand claude starts as its MCP server.
 const ClaudeCodeMCPCommand = "__claude-code-mcp"
 
@@ -185,7 +190,7 @@ func claudeThinks(r config.Reasoning) bool { return r.Enabled && r.Level != "off
 func claudeArgs(cfg config.LLM, dir, system string, tools []Tool, self string, schema json.RawMessage) ([]string, map[string][]byte) {
 	files := map[string][]byte{"system.md": []byte(system)}
 	args := []string{"-p", "--model", cfg.Model,
-		"--input-format", "stream-json", "--output-format", "stream-json", "--verbose", "--include-partial-messages",
+		"--input-format", streamJSON, "--output-format", streamJSON, "--verbose", "--include-partial-messages",
 		"--tools", "", "--system-prompt-file", filepath.Join(dir, "system.md"),
 		"--setting-sources", "", "--strict-mcp-config"}
 	if len(tools) > 0 {
@@ -598,7 +603,7 @@ type ClaudeCodeModel struct {
 // ClaudeCodeModels asks the local claude CLI which models the logged-in account
 // offers. It is claude's initialize handshake only: no model is called.
 func ClaudeCodeModels(ctx context.Context) (ClaudeCodeCatalogue, error) {
-	args := []string{"-p", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose",
+	args := []string{"-p", "--input-format", streamJSON, "--output-format", streamJSON, "--verbose",
 		"--tools", "", "--setting-sources", "", "--strict-mcp-config", "--disable-slash-commands", "--no-session-persistence"}
 	// The base environment: with nonessential traffic off claude lists 5 models instead of the
 	// account's 11 (measured).

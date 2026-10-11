@@ -31,8 +31,8 @@ test('clicking a screenshot opens the preview with the pair, after loading it wi
 
 test('the preview fills the window and has zoom, pan, fit, actual size and keyboard control', () => {
   assert.match(css, /\.lb\s*\{[^}]*position:\s*fixed;\s*inset:\s*0/)
-  for (const handler of ['onWheel', 'onPointerMove', 'onDblClick']) assert.ok(lightbox.includes(handler), handler)
-  for (const key of ["'+'", "'-'", "'0'", "'1'", "'ArrowRight'", "'ArrowLeft'"]) assert.ok(lightbox.includes(key), key)
+  for (const handler of ['onWheel', 'onPointerMove', 'onDblClick']) { assert.ok(lightbox.includes(handler), handler) }
+  for (const key of ["'+'", "'-'", "'0'", "'1'", "'ArrowRight'", "'ArrowLeft'"]) { assert.ok(lightbox.includes(key), key) }
   assert.ok(lightbox.includes('useDialog'), 'Escape and focus come from the shared dialog behaviour')
 })
 

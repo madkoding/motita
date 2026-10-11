@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strings"
 	"sync"
@@ -87,20 +88,39 @@ func (ps *projectStore) path(id string) string {
 	return filepath.Join(ps.dir, id+".json")
 }
 
+// projectIDPattern is what a project id may look like: ids are generated, and one that came
+// from a URL is a file name in the store, never a path.
+var projectIDPattern = regexp.MustCompile(`^[A-Za-z0-9_-]+$`)
+
+// validProjectID reports whether id can name a project file.
+func validProjectID(id string) bool { return projectIDPattern.MatchString(id) }
+
+// file is path for reading and writing: an id that is not a plain name is refused.
+func (ps *projectStore) file(id string) (string, error) {
+	if !projectIDPattern.MatchString(id) {
+		return "", fmt.Errorf("%q is not a valid project id", id)
+	}
+	return filepath.Join(ps.dir, id+".json"), nil
+}
+
 // save writes one project to disk.
 func (ps *projectStore) save(p Project) error {
 	ps.mu.Lock()
 	defer ps.mu.Unlock()
 
+	file, err := ps.file(p.ID)
+	if err != nil {
+		return err
+	}
 	data, err := json.MarshalIndent(p, "", "  ")
 	if err != nil {
 		return fmt.Errorf("could not encode the project %q: %w", p.ID, err)
 	}
-	tmp := ps.path(p.ID) + ".tmp"
+	tmp := file + ".tmp"
 	if err := os.WriteFile(tmp, data, 0o600); err != nil {
 		return fmt.Errorf("could not write the project %q: %w", p.ID, err)
 	}
-	if err := os.Rename(tmp, ps.path(p.ID)); err != nil {
+	if err := os.Rename(tmp, file); err != nil {
 		return fmt.Errorf("could not save the project %q: %w", p.ID, err)
 	}
 	return nil
@@ -111,7 +131,11 @@ func (ps *projectStore) load(id string) (*Project, error) {
 	ps.mu.Lock()
 	defer ps.mu.Unlock()
 
-	data, err := os.ReadFile(ps.path(id))
+	file, err := ps.file(id)
+	if err != nil {
+		return nil, err
+	}
+	data, err := os.ReadFile(file)
 	if os.IsNotExist(err) {
 		return nil, nil
 	}
@@ -158,7 +182,11 @@ func (ps *projectStore) delete(id string) error {
 	ps.mu.Lock()
 	defer ps.mu.Unlock()
 
-	err := os.Remove(ps.path(id))
+	file, err := ps.file(id)
+	if err != nil {
+		return err
+	}
+	err = os.Remove(file)
 	if os.IsNotExist(err) {
 		return nil
 	}
@@ -168,7 +196,10 @@ func (ps *projectStore) delete(id string) error {
 // sameOrigin reports whether dir is a git checkout whose origin is gitURL, ignoring a
 // trailing ".git" or slash and the case of the host.
 func sameOrigin(dir, gitURL string, env []string) bool {
-	cmd := exec.Command("git", append(append([]string{"-C", dir}, gitx.Hardening()...), "remote", "get-url", "origin")...)
+	// The folder is the working directory, not a "-C" argument: nothing that came from a
+	// request ends up among git's arguments.
+	cmd := exec.Command("git", append(gitx.Hardening(), "remote", "get-url", "origin")...)
+	cmd.Dir = dir
 	cmd.Env = env
 	out, err := cmd.Output()
 	if err != nil {

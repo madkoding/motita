@@ -14,6 +14,11 @@ import (
 	"time"
 )
 
+// Literals used more than once in this file.
+const (
+	errNoArtifact = "there is no artifact with that name"
+)
+
 // ArtifactDir is where the agent leaves what it produced for the person - a report, a page,
 // a diagram, a data file - relative to its workspace. The prompt tells it to; the gateway
 // copies the folder out when a run ends, because a session's worktree is removed with the
@@ -307,12 +312,12 @@ func (s *Server) artifactPath(w http.ResponseWriter, r *http.Request) (string, b
 	name := r.PathValue("name")
 	dir := s.scopedArtifactDir(convOf(r), r)
 	if dir == "" || !validArtifactName(name) {
-		writeError(w, http.StatusNotFound, "there is no artifact with that name")
+		writeError(w, http.StatusNotFound, errNoArtifact)
 		return "", false
 	}
 	path := filepath.Join(dir, name)
 	if fi, err := os.Stat(path); err != nil || !fi.Mode().IsRegular() {
-		writeError(w, http.StatusNotFound, "there is no artifact with that name")
+		writeError(w, http.StatusNotFound, errNoArtifact)
 		return "", false
 	}
 	return path, true
@@ -354,7 +359,7 @@ func (s *Server) handleGetArtifact(w http.ResponseWriter, r *http.Request) {
 	}
 	f, err := os.Open(path)
 	if err != nil {
-		writeError(w, http.StatusNotFound, "there is no artifact with that name")
+		writeError(w, http.StatusNotFound, errNoArtifact)
 		return
 	}
 	defer f.Close()

@@ -37,7 +37,7 @@ const LANGUAGES: Record<string, Parameters<typeof hljs.registerLanguage>[1]> = {
   html: xml,
   xml,
 }
-for (const [name, lang] of Object.entries(LANGUAGES)) hljs.registerLanguage(name, lang)
+for (const [name, lang] of Object.entries(LANGUAGES)) { hljs.registerLanguage(name, lang) }
 
 /**
  * Highlights one code block, returning HTML.
@@ -52,7 +52,7 @@ for (const [name, lang] of Object.entries(LANGUAGES)) hljs.registerLanguage(name
  * only the colouring is skipped. A grammar that throws falls back the same way.
  */
 export function highlight(code: string, lang: string): string {
-  if (!lang || !hljs.getLanguage(lang)) return escapeHtml(code)
+  if (!lang || !hljs.getLanguage(lang)) { return escapeHtml(code) }
   try {
     return hljs.highlight(code, { language: lang, ignoreIllegals: true }).value
   } catch {
