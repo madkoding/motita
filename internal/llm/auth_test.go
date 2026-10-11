@@ -181,6 +181,8 @@ func drain(t *testing.T, c *Client) (text, thinking string, reply Reply, streamE
 			reply = chunk.Reply
 		case StreamError:
 			streamErr = chunk.Error
+		default:
+			// Other events carry nothing this helper collects.
 		}
 	}
 	return

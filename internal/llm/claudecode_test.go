@@ -81,6 +81,8 @@ func fakeClaude(script string) {
 					`"status":%q}]}`,
 				status,
 			)
+		default:
+			// Every other flag is accepted as is.
 		}
 	}
 	// What claude prints before any answer, plus a line that is not JSON at all.
@@ -633,10 +635,13 @@ func TestClaudeCodeFailures(t *testing.T) {
 		{name: "no claude", setup: func(t *testing.T) { t.Setenv("MOTITA_CLAUDE_BIN", filepath.Join(t.TempDir(), "claude")) },
 			want: "install Claude Code and run `claude auth login`", is: fs.ErrNotExist},
 		{
-			name:  "no claude on PATH",
-			setup: func(t *testing.T) { t.Setenv("MOTITA_CLAUDE_BIN", ""); t.Setenv("PATH", t.TempDir()) },
-			want:  "claude was not found",
-			is:    exec.ErrNotFound,
+			name: "no claude on PATH",
+			setup: func(t *testing.T) {
+				t.Setenv("MOTITA_CLAUDE_BIN", "")
+				t.Setenv("PATH", t.TempDir())
+			},
+			want: "claude was not found",
+			is:   exec.ErrNotFound,
 		},
 		{name: "claude not executable", setup: func(t *testing.T) {
 			bin := filepath.Join(t.TempDir(), "claude")
@@ -694,7 +699,10 @@ func TestClaudeCodeFailures(t *testing.T) {
 // TestClaudeCodeFatalErrorsAreNotRetried: the retry loop must give up at once on a
 // failure that retrying cannot fix.
 func TestClaudeCodeFatalErrorsAreNotRetried(t *testing.T) {
-	c, _ := claudeTestClient(t, "", func(c *config.LLM) { c.MaxAttempts = 3; c.BackoffInitial = time.Millisecond })
+	c, _ := claudeTestClient(t, "", func(c *config.LLM) {
+		c.MaxAttempts = 3
+		c.BackoffInitial = time.Millisecond
+	})
 	t.Setenv("MOTITA_CLAUDE_BIN", filepath.Join(t.TempDir(), "claude"))
 	if _, err := c.CompleteTools(context.Background(), hi, nil); err == nil ||
 		strings.Contains(err.Error(), "attempts were exhausted") {

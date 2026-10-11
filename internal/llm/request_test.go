@@ -106,6 +106,7 @@ func TestStreamingRequestAsksForEventStream(t *testing.T) {
 	c := clientFor(t, srv.URL, nil)
 
 	for range c.CompleteToolsStream(context.Background(), []Message{{Role: "user", Content: "hi"}}, nil) {
+		// Drain the stream: only what the request did is checked.
 	}
 	if got := cap.headers.Get("Accept"); got != "text/event-stream" {
 		t.Errorf("Accept = %q, want text/event-stream", got)
@@ -130,6 +131,7 @@ func TestStreamingSendsTheAuthorizationHeader(t *testing.T) {
 	c := clientFor(t, srv.URL, func(cfg *config.LLM) { cfg.APIKey = "a-secret-key" })
 
 	for range c.CompleteToolsStream(context.Background(), []Message{{Role: "user", Content: "hi"}}, nil) {
+		// Drain the stream: only what the request did is checked.
 	}
 	if got := cap.headers.Get("Authorization"); got != "Bearer a-secret-key" {
 		t.Errorf("Authorization = %q", got)
@@ -144,6 +146,7 @@ func TestStreamingRequestUsesTheChatCompletionsPath(t *testing.T) {
 	c := clientFor(t, srv.URL+"/v1", nil)
 
 	for range c.CompleteToolsStream(context.Background(), []Message{{Role: "user", Content: "hi"}}, nil) {
+		// Drain the stream: only what the request did is checked.
 	}
 	if cap.path != "/v1/chat/completions" {
 		t.Errorf("path = %q, want /v1/chat/completions", cap.path)
@@ -181,6 +184,8 @@ func TestStreamingReportsAnUnreadableBody(t *testing.T) {
 			sawText = true
 		case StreamError, StreamDone:
 			terminated = true
+		default:
+			// Other events do not matter here.
 		}
 	}
 	if !sawText {
@@ -212,6 +217,7 @@ func TestStreamingStopsAtAFinishReasonWithToolCalls(t *testing.T) {
 	go func() {
 		defer close(done)
 		for range c.CompleteToolsStream(context.Background(), []Message{{Role: "user", Content: "hi"}}, nil) {
+			// Drain the stream: only what the request did is checked.
 		}
 	}()
 	select {
@@ -320,6 +326,7 @@ func TestStreamingReasoningEffortIsSent(t *testing.T) {
 		cfg.Reasoning = config.Reasoning{Enabled: true, Level: "medium"}
 	})
 	for range c.CompleteToolsStream(context.Background(), []Message{{Role: "user", Content: "hi"}}, nil) {
+		// Drain the stream: only what the request did is checked.
 	}
 	var sent map[string]any
 	if err := json.Unmarshal(cap.body, &sent); err != nil {

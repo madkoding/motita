@@ -134,6 +134,8 @@ func TestStoredLoginIsRenewedOnceOn401(t *testing.T) {
 				return
 			}
 			fmt.Fprint(w, `{"choices":[{"message":{"content":"ok"},"finish_reason":"stop"}]}`)
+		default:
+			// Any other path gets an empty 200.
 		}
 	}))
 	defer srv.Close()

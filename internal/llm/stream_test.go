@@ -96,6 +96,8 @@ func TestCompleteToolsStreamYieldsTextThenDone(t *testing.T) {
 			if ch.Reply.Content != "hello world" {
 				t.Errorf("the final reply must carry the accumulated text, got %q", ch.Reply.Content)
 			}
+		default:
+			// Other events do not matter here.
 		}
 	}
 	if text.String() != "hello world" {
@@ -129,6 +131,8 @@ func TestCompleteToolsStreamAnnouncesToolCalls(t *testing.T) {
 			}
 		case StreamDone:
 			final = ch.Reply
+		default:
+			// Other events do not matter here.
 		}
 	}
 	if len(names) == 0 || names[0] != "execute_command" {
@@ -193,6 +197,7 @@ func TestCompleteToolsStreamStopsOnAClosedBody(t *testing.T) {
 	go func() {
 		defer close(done)
 		for range c.CompleteToolsStream(context.Background(), []Message{{Role: "user", Content: "hi"}}, nil) {
+			// Drain the stream: only what the request did is checked.
 		}
 	}()
 	select {
@@ -301,6 +306,8 @@ func TestCompleteToolsStreamRetriesThenSucceeds(t *testing.T) {
 			text.WriteString(ch.Text)
 		case StreamError:
 			sawError = true
+		default:
+			// Other events do not matter here.
 		}
 	}
 	if sawError {
@@ -383,6 +390,7 @@ func TestCompleteToolsStreamHonoursCancellationWhileWaitingToRetry(t *testing.T)
 	go func() {
 		defer close(done)
 		for range c.CompleteToolsStream(ctx, []Message{{Role: "user", Content: "hi"}}, nil) {
+			// Drain the stream: only what the request did is checked.
 		}
 	}()
 	select {
@@ -416,6 +424,7 @@ func TestCompleteToolsStreamReportsANonRetryableFailure(t *testing.T) {
 	}
 
 	for range c.CompleteToolsStream(context.Background(), []Message{{Role: "user", Content: "hi"}}, nil) {
+		// Drain the stream: only what the request did is checked.
 	}
 	if calls != 1 {
 		t.Errorf("a 401 must not be retried, the server was called %d times", calls)

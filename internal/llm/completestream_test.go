@@ -134,6 +134,8 @@ func TestAnthropicAndGeminiStreamThroughTheirOwnAPI(t *testing.T) {
 			calls++
 		case StreamDone:
 			done = true
+		default:
+			// Other events do not matter here.
 		}
 	}
 	if calls != 1 || !done {
