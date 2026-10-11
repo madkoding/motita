@@ -51,6 +51,8 @@ func firstEvents(t *testing.T, srv *Server, path string, n int) []event {
 			name = strings.TrimPrefix(line, "event: ")
 		case strings.HasPrefix(line, "data: "):
 			out = append(out, event{name, strings.TrimPrefix(line, "data: ")})
+		default:
+			// Blank separators and comment lines carry nothing to collect.
 		}
 	}
 	return out

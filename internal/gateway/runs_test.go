@@ -40,6 +40,8 @@ func readEvents(t *testing.T, r io.Reader) []event {
 			name = strings.TrimPrefix(line, "event: ")
 		case strings.HasPrefix(line, "data: "):
 			out = append(out, event{name, strings.TrimPrefix(line, "data: ")})
+		default:
+			// Blank separators and comment lines carry nothing to collect.
 		}
 	}
 	if err := sc.Err(); err != nil {

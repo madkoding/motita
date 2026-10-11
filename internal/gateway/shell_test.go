@@ -26,6 +26,8 @@ func (p *shellProbe) RunShell(ctx context.Context, command string, approver agen
 			return "[not approved]\n", 1, errors.New("declined")
 		}
 		return "ran after approval\n", 0, nil
+	default:
+		// Any other command needs no approval: it prints its own text below.
 	}
 	return "out of " + command + "\n", 0, nil
 }

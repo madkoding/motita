@@ -26,6 +26,8 @@ func updateGateway(t *testing.T, status int, check any, run string) *Client {
 		case "/v1/update/run":
 			w.Header().Set("Content-Type", "text/event-stream")
 			_, _ = fmt.Fprint(w, run)
+		default:
+			// No other route is served: the client under test never asks for one.
 		}
 	}))
 	t.Cleanup(srv.Close)

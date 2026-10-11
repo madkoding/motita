@@ -119,6 +119,8 @@ func TestAnUpgradeWithoutARestartHookLeavesTheGatewayRunning(t *testing.T) {
 			_, _ = w.Write(newBinary)
 		case "/checksums":
 			_, _ = io.WriteString(w, hex.EncodeToString(sum[:])+"  "+assetName+"\n")
+		default:
+			// Nothing else is part of the mock release: an empty 200 is enough.
 		}
 	}))
 	defer ts.Close()

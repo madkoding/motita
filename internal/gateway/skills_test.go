@@ -520,6 +520,8 @@ func call(t *testing.T, srv *Server, method, path, body, token string) *httptest
 		return get(t, srv, path, token)
 	case http.MethodDelete:
 		return del(t, srv, path, token)
+	default:
+		// Every other method is sent as a POST below.
 	}
 	return post(t, srv, path, body, token)
 }

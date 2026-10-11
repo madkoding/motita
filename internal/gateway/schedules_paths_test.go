@@ -58,6 +58,8 @@ func TestTheScheduleListCarriesEveryTaskAndItsNextRun(t *testing.T) {
 			t.Errorf("%q has no next_run: computing it here is the whole point", sc.Title)
 		} else if _, err := time.Parse(time.RFC3339, sc.NextRun); err != nil {
 			t.Errorf("%q next_run = %q, want RFC3339: %v", sc.Title, sc.NextRun, err)
+		} else {
+			// A next_run in RFC3339 is what the front end expects: nothing to report.
 		}
 	}
 }

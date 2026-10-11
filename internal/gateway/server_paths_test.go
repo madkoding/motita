@@ -942,6 +942,8 @@ func TestASessionReportsItselfMergeableWhenItHasUnmergedWork(t *testing.T) {
 		t.Error("a session with a commit the base branch lacks must report itself mergeable")
 	} else if st.Branch != sessionBranch(ss.ID) {
 		t.Errorf("Branch = %q, want the session's own branch %q", st.Branch, sessionBranch(ss.ID))
+	} else {
+		// Mergeable and on its own branch: exactly what the session should report.
 	}
 }
 
