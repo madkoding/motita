@@ -57,7 +57,9 @@ grep -q '^RELEASE_PUBLIC_KEY=""' "$WORK/install.sh" || fail "the embedded releas
 export MOTITA_INSTALL_DIR="$WORK/dest"
 # The installer writes the PATH into the shell's rc file: a home of its own keeps it
 # away from the real one of whoever runs this.
-export HOME="$WORK/home" SHELL=/bin/bash
+# XDG_CONFIG_HOME and ZDOTDIR move fish's and zsh's files, and CI runners set the first.
+export HOME="$WORK/home" SHELL=/bin/bash XDG_CONFIG_HOME="$WORK/home/.config"
+unset ZDOTDIR || true
 mkdir -p "$HOME"
 unset MOTITA_VERSION MOTITA_INSECURE_SKIP_VERIFY || true
 run() { sh "$WORK/install.sh" 2>&1; }
