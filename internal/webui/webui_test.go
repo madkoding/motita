@@ -139,7 +139,10 @@ func TestAReadFailureIsReportedAndNotPanicked(t *testing.T) {
 func TestADiscoverFailurePanics(t *testing.T) {
 	restore := discover
 	discover = func() ([]file, error) { return nil, errors.New("the embed broke") }
-	defer func() { discover = restore; files = mustDiscover() }()
+	defer func() {
+		discover = restore
+		files = mustDiscover()
+	}()
 
 	defer func() {
 		if r := recover(); r == nil {
@@ -159,7 +162,10 @@ func TestADiscoverWalkErrorIsPropagated(t *testing.T) {
 		// hit its `if err != nil { return err }` branch.
 		return fn("assets/broken", nil, errors.New("walk: permission denied"))
 	}
-	defer func() { walkDir = restore; files = mustDiscover() }()
+	defer func() {
+		walkDir = restore
+		files = mustDiscover()
+	}()
 
 	entries, err := discover()
 	if err == nil {
@@ -177,7 +183,10 @@ func TestADiscoverWalkOuterErrorIsPropagated(t *testing.T) {
 	walkDir = func(fs.FS, string, fs.WalkDirFunc) error {
 		return errors.New("walk: root does not exist")
 	}
-	defer func() { walkDir = restore; files = mustDiscover() }()
+	defer func() {
+		walkDir = restore
+		files = mustDiscover()
+	}()
 
 	_, err := discover()
 	if err == nil {
