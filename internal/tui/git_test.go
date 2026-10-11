@@ -57,29 +57,39 @@ func (f *fakeForgeHTTP) Do(req *http.Request) (*http.Response, error) {
 			body = `{"access_token":"tok"}`
 		}
 	case strings.HasSuffix(path, "/user/repos"):
-		if f.reposFail {
-			status, body = 500, `{"message":"boom"}`
-			break
-		}
-		var list []map[string]any
-		for i := 0; i < f.repos; i++ {
-			list = append(list, map[string]any{"full_name": fmt.Sprintf("octo/r%d", i+1), "private": i == 0})
-		}
-		data, _ := json.Marshal(list)
-		body = string(data)
+		status, body = f.reposReply()
 	case strings.HasSuffix(path, "/user"):
-		auth := req.Header.Get("Authorization")
-		okBasic := auth == "Basic "+base64.StdEncoding.EncodeToString([]byte("me:good"))
-		switch {
-		case f.whoFail != 0:
-			status, body = f.whoFail, `{"message":"nope"}`
-		case auth == "Bearer tok", auth == "token tok", strings.HasSuffix(auth, " good"), okBasic:
-			body = `{"login":"octo","username":"octo"}`
-		default:
-			status, body = 401, `{"message":"Bad credentials"}`
-		}
+		status, body = f.userReply(req.Header.Get("Authorization"))
+	default:
+		// any other endpoint answers an empty object
 	}
 	return &http.Response{StatusCode: status, Body: io.NopCloser(strings.NewReader(body)), Header: http.Header{}}, nil
+}
+
+// reposReply is the repository listing: f.repos of them, the first one private.
+func (f *fakeForgeHTTP) reposReply() (int, string) {
+	if f.reposFail {
+		return 500, `{"message":"boom"}`
+	}
+	var list []map[string]any
+	for i := 0; i < f.repos; i++ {
+		list = append(list, map[string]any{"full_name": fmt.Sprintf("octo/r%d", i+1), "private": i == 0})
+	}
+	data, _ := json.Marshal(list)
+	return 200, string(data)
+}
+
+// userReply is who the credential in auth belongs to, or the host's refusal.
+func (f *fakeForgeHTTP) userReply(auth string) (int, string) {
+	okBasic := auth == "Basic "+base64.StdEncoding.EncodeToString([]byte("me:good"))
+	switch {
+	case f.whoFail != 0:
+		return f.whoFail, `{"message":"nope"}`
+	case auth == "Bearer tok", auth == "token tok", strings.HasSuffix(auth, " good"), okBasic:
+		return 200, `{"login":"octo","username":"octo"}`
+	default:
+		return 401, `{"message":"Bad credentials"}`
+	}
 }
 
 // lineScript is the user's side of a login: the lines typed, in order, then silence until the
@@ -640,6 +650,19 @@ func stringConstant(e ast.Expr) (string, bool) {
 	}
 }
 
+// trKey is the string a call to tr or trf translates, when n is such a call with a constant.
+func trKey(n ast.Node) (string, bool) {
+	call, ok := n.(*ast.CallExpr)
+	if !ok {
+		return "", false
+	}
+	sel, ok := call.Fun.(*ast.SelectorExpr)
+	if !ok || (sel.Sel.Name != "tr" && sel.Sel.Name != "trf") || len(call.Args) == 0 {
+		return "", false
+	}
+	return stringConstant(call.Args[0])
+}
+
 // TestEveryGitStringHasASpanishTranslation reads git.go and checks that every string passed to
 // tr or trf, and the catalogue entries of /git, are in the Spanish catalogue: a string added
 // without its translation would show English to a Spanish user, and nothing else would notice.
@@ -652,15 +675,7 @@ func TestEveryGitStringHasASpanishTranslation(t *testing.T) {
 	}
 	keys := map[string]bool{gitNudgeText: true}
 	ast.Inspect(file, func(n ast.Node) bool {
-		call, ok := n.(*ast.CallExpr)
-		if !ok {
-			return true
-		}
-		sel, ok := call.Fun.(*ast.SelectorExpr)
-		if !ok || (sel.Sel.Name != "tr" && sel.Sel.Name != "trf") || len(call.Args) == 0 {
-			return true
-		}
-		if s, ok := stringConstant(call.Args[0]); ok {
+		if s, ok := trKey(n); ok {
 			keys[s] = true
 		}
 		return true
