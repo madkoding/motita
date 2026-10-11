@@ -22,7 +22,7 @@ let set: Set<string> | null = null
 
 /** The codepoint names in use, built once from the generated string. */
 function codepoints(): Set<string> {
-  if (!set) { set = new Set(CODEPOINTS.split(',')) }
+  set ??= new Set(CODEPOINTS.split(','))
   return set
 }
 
