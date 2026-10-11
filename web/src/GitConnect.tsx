@@ -127,7 +127,10 @@ function ConnectPanel({ api, account, selfHosted, onClose, onConnected }: { api:
     dispatch({ type: 'start' })
     try {
       const r = await connect(api, { ...base(), method })
-      if (r.type === 'connected') { return finish(r.service || account.id, r.account) }
+      if (r.type === 'connected') {
+        finish(r.service || account.id, r.account)
+        return
+      }
       flowId.current = r.flow.flow_id
       dispatch({ type: 'started', flow: r.flow })
     } catch (e) {
@@ -145,7 +148,7 @@ function ConnectPanel({ api, account, selfHosted, onClose, onConnected }: { api:
   let pendingId = ''
   if (state.phase === 'pending') { pendingId = state.flow.flow_id }
   useEffect(() => {
-    if (!pendingId) { return }
+    if (!pendingId) { return undefined }
     let stop = false
     pollFlow({
       get: () => flowStatus(api, pendingId),

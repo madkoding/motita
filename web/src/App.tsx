@@ -18,7 +18,7 @@ import { onActivate, backdropClick } from './a11y'
 import { useDialog } from './useDialog'
 import { listAccounts, connectedAccounts, repoShortName, type GitAccount, type GitRepo } from './gitApi'
 import { loadNotify } from './settings'
-import { getPR, retryFix, mergePR, mergeRefused, PRError, prNotice, shouldPoll, ciSummary, shouldDesktopNotify, wantsDesktopPermission, worstToast, type PRView, type PRWatch } from './prApi'
+import { getPR, retryFix, mergePR, mergeRefused, PRError, prNotice, shouldPoll, ciSummary, shouldDesktopNotify, wantsDesktopPermission, worstToast, type PRView, type PRWatch, type ToastType } from './prApi'
 import { choose } from './choose'
 import { errorMessage } from './errors'
 
@@ -125,6 +125,7 @@ const BRANCH_LOOKUP_DELAY_MS = 600
 // After an upgrade: when the gateway is first asked whether it is back, and when to stop asking.
 const RESTART_FIRST_POLL_MS = 2000
 const RESTART_WAIT_MS = 30000
+const HEALTH_POLL_MS = 1000
 // A message sent mid-run starts the next run a beat later: the conversation is reloaded twice.
 const HANDOFF_RELOAD_MS = [400, 1800]
 // How often the pull request bar is refreshed while the gateway follows the CI.
@@ -145,9 +146,9 @@ const COPIED_MS = 1500
 // plain line instead of an `agents` event (agent.AgentsPrefix).
 const AGENTS_PREFIX = 'agents: '
 
-function tokenTotal(t?: AgentTokens): number {
-  if (!t) { return 0 }
-  return (t.input || 0) + (t.output || 0) + (t.cache_read || 0) + (t.cache_write || 0)
+function tokenTotal(tok?: AgentTokens): number {
+  if (!tok) { return 0 }
+  return (tok.input || 0) + (tok.output || 0) + (tok.cache_read || 0) + (tok.cache_write || 0)
 }
 
 // formatTokens humanises a count the way a reader scans it: 950, 12.3k, 1.2M.
@@ -157,10 +158,10 @@ function formatTokens(n: number): string {
   return (n / 1_000_000).toFixed(1).replace(/\.0$/, '') + 'M'
 }
 
-function tokenBreakdown(t: AgentTokens): string {
-  const parts = [tf('in {n}', { n: formatTokens(t.input || 0) }), tf('out {n}', { n: formatTokens(t.output || 0) })]
-  if (t.cache_read) { parts.push(tf('cache read {n}', { n: formatTokens(t.cache_read) })) }
-  if (t.cache_write) { parts.push(tf('cache write {n}', { n: formatTokens(t.cache_write) })) }
+function tokenBreakdown(tok: AgentTokens): string {
+  const parts = [tf('in {n}', { n: formatTokens(tok.input || 0) }), tf('out {n}', { n: formatTokens(tok.output || 0) })]
+  if (tok.cache_read) { parts.push(tf('cache read {n}', { n: formatTokens(tok.cache_read) })) }
+  if (tok.cache_write) { parts.push(tf('cache write {n}', { n: formatTokens(tok.cache_write) })) }
   return parts.join(' · ')
 }
 
@@ -234,7 +235,7 @@ function shortID(id: string): string {
 // part that varies, so it is shown as `motita/<first 7>`; a branch the user
 // chose is short and is shown exactly as it is.
 function shortBranch(b: string): string {
-  const m = b.match(/^motita\/(.+)$/)
+  const m = /^motita\/(.+)$/.exec(b)
   if (m && m[1].length > SHORT_ID_LEN) { return 'motita/' + shortID(m[1]) }
   return b
 }
@@ -406,7 +407,7 @@ function durationOf(every: string): { ms: number; short: string } {
   let short = ''
   let match: RegExpExecArray | null
   while ((match = re.exec(every)) !== null) {
-    const n = parseFloat(match[1])
+    const n = Number.parseFloat(match[1])
     ms += n * DURATION_UNITS[match[2]]
     // Only whole units reach the tag: "0h" out of "24h0m0s" is noise, and the
     // unit order the parser walks is the order Go prints, h first.
@@ -425,9 +426,9 @@ const nextClockSkew = 0
 // A paused task counts down to nothing: its next_run is a projection, and a
 // ticker over a task that will not fire would be a lie with a pulse. An overdue
 // one says so, because "0s" is not the same fact as "it should have gone off".
-function taskCountdown(t: ScheduledTask, nowMs: number, skew: number) {
-  if (!t.enabled) { return null }
-  const ts = Date.parse(t.next_run)
+function taskCountdown(task: ScheduledTask, nowMs: number, skew: number) {
+  if (!task.enabled) { return null }
+  const ts = Date.parse(task.next_run)
   if (Number.isNaN(ts)) { return null }
   const c = countdown(ts - skew, nowMs)
   return { text: c.text, overdue: c.past }
@@ -510,17 +511,26 @@ async function api(path: string, options?: RequestInit): Promise<Response> {
 }
 
 // classifyProgress reads the prefix of a progress line and returns the kind.
+const PROGRESS_PREFIXES: [string, string][] = [
+  ['thinking:', 'thought'],
+  ['output (exit', 'output'],
+  ['approved (all commands', 'check'],
+  ['running:', 'command'],
+  ['action:', 'reasoning'],
+]
+const PROGRESS_PATTERNS: [RegExp, string][] = [
+  [/^(validating|validation)/, 'check'],
+  [/^(planning|plan ready|subtask)/, 'plan'],
+  [/^(analysing|understood)/, 'analysis'],
+  [/^(deciding|round \d+ done)/, 'reasoning'],
+  [/^(task complete|synthesizing)/, 'synthesis'],
+]
+
 function classifyProgress(text: string): string | null {
-  if (/^thinking:/.test(text)) { return 'thought' }
-  if (/^output \(exit/.test(text)) { return 'output' }
-  if (/^approved \(all commands/.test(text)) { return 'check' }
-  if (/^running:/.test(text)) { return 'command' }
-  if (/^action:/.test(text)) { return 'reasoning' }
-  if (/^(validating|validation)/.test(text)) { return 'check' }
-  if (/^(planning|plan ready|subtask)/.test(text)) { return 'plan' }
-  if (/^(analysing|understood)/.test(text)) { return 'analysis' }
-  if (/^(deciding|round \d+ done)/.test(text)) { return 'reasoning' }
-  if (/^(task complete|synthesizing)/.test(text)) { return 'synthesis' }
+  const byPrefix = PROGRESS_PREFIXES.find(([prefix]) => text.startsWith(prefix))
+  if (byPrefix) { return byPrefix[1] }
+  const byPattern = PROGRESS_PATTERNS.find(([re]) => re.test(text))
+  if (byPattern) { return byPattern[1] }
   return null
 }
 
@@ -563,7 +573,7 @@ interface ShellEntry {
 // repoNameOf is the repository's name in a clone URL: git@github.com:user/repo.git and
 // https://github.com/user/repo.git are both "repo".
 function repoNameOf(url: string): string {
-  const m = url.trim().match(/(?:\/|:)[^/]+\/([^/]+?)(?:\.git)?\/?$/)
+  const m = /[/:][^/]+\/([^/]+?)(?:\.git)?\/?$/.exec(url.trim())
   if (m) { return m[1] }
   return ''
 }
@@ -735,6 +745,33 @@ const SSE_ID = 'id: '
 const SSE_EVENT = 'event: '
 const SSE_DATA = 'data: '
 
+// sseData is the data line of a server-sent event frame (the last one, when it has several).
+function sseData(frame: string): string {
+  let dataLine = ''
+  for (const line of frame.split('\n')) {
+    if (line.startsWith(SSE_DATA)) { dataLine = line.slice(SSE_DATA.length) }
+  }
+  return dataLine
+}
+
+// reloadWhenBack waits for the gateway to come back from an upgrade and reloads the page to pick
+// up the new version. It gives up after a while: the page then stays as it is.
+function reloadWhenBack() {
+  setTimeout(() => {
+    // Poll health until the gateway is back.
+    const poll = setInterval(async () => {
+      try {
+        const h = await fetch('/v1/health')
+        if (h.ok) {
+          clearInterval(poll)
+          window.location.reload()
+        }
+      } catch { /* keep polling */ }
+    }, HEALTH_POLL_MS)
+    setTimeout(() => clearInterval(poll), RESTART_WAIT_MS)
+  }, RESTART_FIRST_POLL_MS)
+}
+
 function parseFrame(raw: string): { id: string | null; event: string | null; data: string | null } {
   const lines = raw.split('\n')
   let id: string | null = null
@@ -780,6 +817,12 @@ function modelOptions(draftProvider: string, draftModel: string, savedProvider: 
 // provider may not serve.
 function firstModelOf(provider: string, all: ProviderInfo[]): string {
   return all.find(p => p.id === provider)?.models?.[0] || ''
+}
+
+// GateWindow is the window with the hooks the browser gates read: the loading modal's history.
+type GateWindow = Window & {
+  __chatLoadingLog?: () => unknown
+  __modalLog?: { at: number; loading: boolean }[]
 }
 
 // statusLabel is a changed file's status as the reader sees it: translated when it is a known one.
@@ -835,8 +878,8 @@ function branchChoices(branches: string[], current: string): string[] {
 function previewKind(loading: boolean, p: { count: number; inspection_failed?: boolean } | null): string {
   if (loading) { return 'loading' }
   if (p?.inspection_failed) { return 'failed' }
-  if (p && p.count > 0) { return 'changes' }
   if (!p) { return 'none' }
+  if (p.count > 0) { return 'changes' }
   return 'clean'
 }
 
@@ -1037,7 +1080,7 @@ export default function App() {
   // a user needs in order to act, without putting git's own words in their face.
   // `update` marks the "new version" toast: it is clickable and stays longer. It is a flag and not
   // a test on the text, because the text is translated.
-  const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' | 'warning'; detail?: string; technical?: string; update?: boolean } | null>(null)
+  const [toast, setToast] = useState<{ message: string; type: ToastType; detail?: string; technical?: string; update?: boolean } | null>(null)
   const [toastDetailsOpen, setToastDetailsOpen] = useState(false)
   const [config, setConfig] = useState<ConfigView | null>(null)
   const [showModelSwitcher, setShowModelSwitcher] = useState(false)
@@ -1078,7 +1121,7 @@ export default function App() {
   const isMerged = selectedSession?.merged === true
   const [nowMs, setNowMs] = useState(() => Date.now())
   useEffect(() => {
-    if (!showScheduledTasks) { return }
+    if (!showScheduledTasks) { return undefined }
     const id = setInterval(() => setNowMs(Date.now()), 1000)
     return () => clearInterval(id)
   }, [showScheduledTasks])
@@ -1252,8 +1295,8 @@ export default function App() {
   // plan and task are mutually exclusive — if one is already an active tag,
   // the other is blocked from being added.
   const isCommandBlocked = (cmdName: string) => {
-    if (cmdName === '/plan') { return activeTags.some(t => t.name === '/task') }
-    if (cmdName === '/task') { return activeTags.some(t => t.name === '/plan') }
+    if (cmdName === '/plan') { return activeTags.some(tag => tag.name === '/task') }
+    if (cmdName === '/task') { return activeTags.some(tag => tag.name === '/plan') }
     return false
   }
 
@@ -1337,7 +1380,10 @@ export default function App() {
     if (modalExitFrame.current !== null) { cancelAnimationFrame(modalExitFrame.current) }
   }, [])
 
-  const nextId = () => ++msgIdRef.current
+  const nextId = () => {
+    msgIdRef.current += 1
+    return msgIdRef.current
+  }
 
   // Auto-scroll on new messages or activity, when the reader is following along.
   //
@@ -1412,7 +1458,7 @@ export default function App() {
 
   useEffect(() => {
     const el = scrollRef.current
-    if (!el) { return }
+    if (!el) { return undefined }
     // Only the READER'S OWN INPUT unpins them, and this is not a refinement — it is the fix for
     // the bug that kept stranding the view. Measured: the container's `scrollTop` went 4551 ->
     // 4511 on its own while the deferred work replaced a placeholder with a smaller drawing, and
@@ -1474,7 +1520,7 @@ export default function App() {
    */
   useEffect(() => {
     const el = scrollRef.current
-    if (!el) { return }
+    if (!el) { return undefined }
     let frame = 0
     const settle = () => {
       if (!pinnedRef.current) { return }
@@ -1483,7 +1529,7 @@ export default function App() {
         if (pinnedRef.current) { followEnd() }
       })
     }
-    if (typeof ResizeObserver === 'undefined') { return }
+    if (typeof ResizeObserver === 'undefined') { return undefined }
     const ro = new ResizeObserver(settle)
     const seen = new WeakSet<Element>()
     const watch = () => {
@@ -1526,7 +1572,7 @@ export default function App() {
    */
   useEffect(() => {
     const el = scrollRef.current
-    if (!el) { return }
+    if (!el) { return undefined }
     let frame = 0
     const onHydrated = () => {
       // A message finishing its own deferred work does NOT clear the modal: a conversation is
@@ -1563,7 +1609,7 @@ export default function App() {
   useEffect(() => {
     // Exposed for the gate: the flicker this replaced was invisible at any single instant, so what
     // has to be measurable is the SEQUENCE of times the modal was put up and taken down.
-    ;(window as any).__chatLoadingLog = () => ({
+    ;(window as GateWindow).__chatLoadingLog = () => ({
       transitions: hydrationLog(),
       visiblePending: hydrationState().visiblePending,
       registered: hydrationState().registered,
@@ -1584,18 +1630,18 @@ export default function App() {
   // what the gate counts: the underlying readiness can change many times without the reader seeing
   // anything, because the quiet window stands between the two.
   useEffect(() => {
-    const log = ((window as any).__modalLog = (window as any).__modalLog || [])
+    const log = ((window as GateWindow).__modalLog ||= [])
     log.push({ at: Math.round(performance.now()), loading: chatLoading })
     chatLoadingNow.current = chatLoading
     if (chatLoading) { chatFollower.current.stop() }
   }, [chatLoading])
 
   useEffect(() => {
-    if (!chatLoading) { return }
-    if (messages.length === 0) { return }
+    if (!chatLoading) { return undefined }
+    if (messages.length === 0) { return undefined }
     const id = requestAnimationFrame(() => {
       const el = scrollRef.current
-      if (el && el.querySelector('[data-hydrating]') === null) { requestModal(false) }
+      if (el?.querySelector('[data-hydrating]') === null) { requestModal(false) }
     })
     return () => cancelAnimationFrame(id)
   }, [messages, chatLoading])
@@ -1611,14 +1657,14 @@ export default function App() {
   // toast is clickable and important, so it stays longer than a plain success.
   useEffect(() => {
     setToastDetailsOpen(false)
-    if (!toast) { return }
+    if (!toast) { return undefined }
     const isUpdate = toast.update === true
     // An error needs reading, so it stays longest. A warning is between the two:
     // it says something is wrong but recovering, which is worth more than the
     // five seconds a success gets and less than an error.
     const ms = toastTone(toast.type, TOAST_ERROR_MS, TOAST_WARNING_MS, choose(isUpdate, TOAST_UPDATE_MS, TOAST_MS))
-    const t = setTimeout(() => setToast(null), ms)
-    return () => clearTimeout(t)
+    const timer = setTimeout(() => setToast(null), ms)
+    return () => clearTimeout(timer)
   }, [toast])
 
   // runSessionRef is the conversation the run in flight was started in. A run
@@ -1731,8 +1777,8 @@ export default function App() {
   // tab is in - the websocket dropped, or the gateway is not answering at all.
   // Those are drawn by the pill, not announced by a toast.
   const isConnectionState = (text: string) => {
-    const t = (text || '').trim().toLowerCase()
-    return t === 'reconnecting' || t === 'not connected' || t === 'connecting'
+    const norm = (text || '').trim().toLowerCase()
+    return norm === 'reconnecting' || norm === 'not connected' || norm === 'connecting'
   }
 
   // exchange trades the URL fragment for the cookie.
@@ -1804,7 +1850,7 @@ export default function App() {
   //     by then released.
   const anyRunning = sessions.some(s => s.running)
   useEffect(() => {
-    if (!running && !anyRunning) { return }
+    if (!running && !anyRunning) { return undefined }
     const interval = setInterval(() => fetchSessions(), SESSIONS_POLL_MS)
     return () => clearInterval(interval)
   }, [running, anyRunning, fetchSessions])
@@ -1937,7 +1983,7 @@ export default function App() {
         setState(err.error || what, true)
         return
       }
-      setProposalOpen(prev => choose(prev && prev.name === name, null, prev))
+      setProposalOpen(prev => choose(prev?.name === name, null, prev))
       await fetchSkills()
     } catch {
       setState(what, true)
@@ -2076,7 +2122,7 @@ export default function App() {
 
   // The hosts that are connected, for the New project dialog. Read when it opens and after a connect.
   useEffect(() => {
-    if (!showNewProject) { return }
+    if (!showNewProject) { return undefined }
     let live = true
     listAccounts(api).then(a => { if (live) { setGitAccounts(a) } }).catch(() => { if (live) { setGitAccounts([]) } })
     return () => { live = false }
@@ -2089,7 +2135,7 @@ export default function App() {
   useEffect(() => {
     setRemoteMain('')
     const url = newProjectGit.trim()
-    if (!showNewProject || newProjectMode !== 'git' || !repoNameOf(url)) { return }
+    if (!showNewProject || newProjectMode !== 'git' || !repoNameOf(url)) { return undefined }
     let live = true
     const timer = setTimeout(async () => {
       try {
@@ -2175,7 +2221,7 @@ export default function App() {
     try {
       const res = await api(artifactBase() + '/' + encodeURIComponent(name) + scopeQuery(artifactScope), { method: 'DELETE' })
       if (!res.ok && res.status !== HTTP_NO_CONTENT) { setState('could not delete the artifact', true); return }
-      setArtifactView(v => (choose(v && v.name === name, null, v)))
+      setArtifactView(v => choose(v?.name === name, null, v))
       await loadArtifacts()
     } catch { setState('could not delete the artifact', true) }
   }, [artifactScope, artifactBase, loadArtifacts])
@@ -2235,7 +2281,7 @@ export default function App() {
       if (!res.ok) { return }
       const d = await res.json()
       setEditProject(prev => {
-        if (!prev || prev.id !== p.id) { return prev }
+        if (prev?.id !== p.id) { return prev }
         return { ...prev, branches: choose(d.branches?.length, d.branches, prev.branches), main: d.main_branch || prev.main, current: d.current ?? prev.current }
       })
     } catch { /* the selector keeps the branch it already knows */ }
@@ -2244,7 +2290,7 @@ export default function App() {
   // saveEditProject sends what the dialog holds. The gateway puts the project back on its main
   // branch when it has no sessions, so the list is read again afterwards.
   const saveEditProject = useCallback(async () => {
-    if (!editProject || !editProject.title.trim()) { return }
+    if (!editProject?.title.trim()) { return }
     setSavingProject(true)
     try {
       const res = await api('/v1/projects/' + encodeURIComponent(editProject.id), {
@@ -2337,11 +2383,11 @@ export default function App() {
     } finally { setScheduledBusy(false) }
   }
 
-  const toggleSchedule = async (t: ScheduledTask) => {
-    const res = await api('/v1/schedules/' + t.id, {
+  const toggleSchedule = async (task: ScheduledTask) => {
+    const res = await api('/v1/schedules/' + task.id, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ enabled: !t.enabled }),
+      body: JSON.stringify({ enabled: !task.enabled }),
     })
     if (res.ok) { await loadSchedules() }
   }
@@ -2358,8 +2404,8 @@ export default function App() {
     }
   }
 
-  const deleteSchedule = async (t: ScheduledTask) => {
-    const res = await api('/v1/schedules/' + t.id, { method: 'DELETE' })
+  const deleteSchedule = async (task: ScheduledTask) => {
+    const res = await api('/v1/schedules/' + task.id, { method: 'DELETE' })
     if (res.ok) { await loadSchedules() }
   }
 
@@ -2372,10 +2418,10 @@ export default function App() {
   // this way there is no second render.
   const clockSkew = useMemo(() => {
     let min = nextClockSkew
-    for (const t of scheduledTasks) {
-      const ts = Date.parse(t.next_run)
+    for (const task of scheduledTasks) {
+      const ts = Date.parse(task.next_run)
       if (Number.isNaN(ts)) { continue }
-      min = Math.min(min, Date.now() - (ts - durationOf(t.every).ms))
+      min = Math.min(min, Date.now() - (ts - durationOf(task.every).ms))
     }
     return min
   }, [scheduledTasks])
@@ -2521,7 +2567,7 @@ export default function App() {
   useEffect(() => {
     const handler = (e: Event) => {
       const detail = (e as CustomEvent).detail
-      if (detail && detail.project_id) {
+      if (detail?.project_id) {
         createSession(detail.project_id)
       }
     }
@@ -2589,14 +2635,14 @@ export default function App() {
       // Reset with the modal: a fresh confirmation must start unlocked, whatever
       // the previous one left behind.
       setDeleting(false)
-      return
+      return undefined
     }
     // Both kinds ask the same question of their own endpoint: a session names its own
     // checkout's changes, a project names each of its sessions' changes. A skill has no
     // checkout, so there is nothing to ask.
     if (confirmDelete.type === 'skill') {
       setDeletionPreview(null)
-      return
+      return undefined
     }
     let cancelled = false
     setPreviewLoading(true)
@@ -2795,6 +2841,25 @@ export default function App() {
         setUpgradeBusy(false)
         return
       }
+      const onFrame = (frame: string) => {
+        const dataLine = sseData(frame)
+        if (!dataLine) { return }
+        try {
+          const evt: UpgradeProgressEvent = JSON.parse(dataLine)
+          setUpgradeProgress(evt)
+          if (evt.stage === 'error') {
+            setUpgradeError(evt.message || t('upgrade failed'))
+            setUpgradeBusy(false)
+          } else if (evt.stage === 'done') {
+            setUpgradeBusy(false)
+            // The gateway is restarting. Show a message and wait for it
+            // to come back, then reload the page.
+            reloadWhenBack()
+          } else {
+            // A stage on the way: the progress bar above already shows it.
+          }
+        } catch { /* ignore parse error */ }
+      }
       const reader = res.body!.getReader()
       const decoder = new TextDecoder()
       let buffer = ''
@@ -2806,40 +2871,7 @@ export default function App() {
         while ((idx = buffer.indexOf('\n\n')) !== -1) {
           const frame = buffer.slice(0, idx)
           buffer = buffer.slice(idx + 2)
-          // Parse SSE: find data: line
-          let dataLine = ''
-          for (const line of frame.split('\n')) {
-            if (line.startsWith(SSE_DATA)) { dataLine = line.slice(SSE_DATA.length) }
-          }
-          if (dataLine) {
-            try {
-              const evt: UpgradeProgressEvent = JSON.parse(dataLine)
-              setUpgradeProgress(evt)
-              if (evt.stage === 'error') {
-                setUpgradeError(evt.message || t('upgrade failed'))
-                setUpgradeBusy(false)
-              } else if (evt.stage === 'done') {
-                setUpgradeBusy(false)
-                // The gateway is restarting. Show a message and wait for it
-                // to come back, then reload the page.
-                setTimeout(() => {
-                  // Poll health until the gateway is back.
-                  const poll = setInterval(async () => {
-                    try {
-                      const h = await fetch('/v1/health')
-                      if (h.ok) {
-                        clearInterval(poll)
-                        // Reload to pick up the new version.
-                        window.location.reload()
-                      }
-                    } catch { /* keep polling */ }
-                  }, 1000)
-                  // Give up after 30 seconds.
-                  setTimeout(() => clearInterval(poll), RESTART_WAIT_MS)
-                }, RESTART_FIRST_POLL_MS)
-              }
-            } catch { /* ignore parse error */ }
-          }
+          onFrame(frame)
         }
       }
     } catch (e) {
@@ -3008,6 +3040,8 @@ export default function App() {
     } else if (e.key === 'Enter') {
       e.preventDefault()
       answerApproval(approval.id, approvalSel !== 2, approvalSel === 1)
+    } else {
+      // Any other key is not the approval's: the browser handles it.
     }
   }
 
@@ -3020,7 +3054,7 @@ export default function App() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ enabled: false })
       })
-      if (!res.ok) { throw new Error() }
+      if (!res.ok) { throw new Error('HTTP ' + res.status) }
       setSessions(prev => prev.map(s => { if (s.id === sid) { return { ...s, auto_approve: false } } return s }))
     } catch {
       setState('could not stop allowing all commands', true)
@@ -3046,10 +3080,10 @@ export default function App() {
   // A running agent's clock ticks while the drawer shows it, and only then.
   const agentsTicking = agentsOpen && agents.some(a => a.state === 'running')
   useEffect(() => {
-    if (!agentsTicking) { return }
+    if (!agentsTicking) { return undefined }
     setAgentNow(Date.now())
-    const t = setInterval(() => setAgentNow(Date.now()), 1000)
-    return () => clearInterval(t)
+    const timer = setInterval(() => setAgentNow(Date.now()), 1000)
+    return () => clearInterval(timer)
   }, [agentsTicking])
 
   // finish marks the run as done.
@@ -3088,7 +3122,7 @@ export default function App() {
 
   // dispatchEvent handles one parsed SSE event.
   const dispatchEvent = useCallback((name: string, data: string | null, id: string | null) => {
-    if (id) { lastIdRef.current = parseInt(id, 10) || lastIdRef.current }
+    if (id) { lastIdRef.current = Number.parseInt(id, 10) || lastIdRef.current }
     if (data === null) { return }
     let payload: any
     try {
@@ -3102,20 +3136,20 @@ export default function App() {
       // Which checkpoint this run is. A run that is replayed from the start rebuilds its steps
       // from that replay, so what was loaded for it is dropped first: it would be doubled.
       if (typeof payload.turn === 'number') {
-        const t: number = payload.turn
-        liveTurnRef.current = t
+        const turn: number = payload.turn
+        liveTurnRef.current = turn
         setMessages(prev => {
           for (let i = prev.length - 1; i >= 0; i--) {
             if (prev[i].role === 'user') {
               if (prev[i].turn != null) { break }
               const next = prev.slice()
-              next[i] = { ...prev[i], turn: t }
+              next[i] = { ...prev[i], turn: turn }
               return next
             }
           }
           return prev
         })
-        if (lastIdRef.current === 0) { setStepsByTurn(prev => ({ ...prev, [t]: [] })) }
+        if (lastIdRef.current === 0) { setStepsByTurn(prev => ({ ...prev, [turn]: [] })) }
       }
       if (payload.dropped > 0) {
         setMessages(prev => [...prev, {
@@ -3144,15 +3178,15 @@ export default function App() {
         // command and whether it worked, and the terminal drawer keeps what it printed.
         // The result lands on the command it belongs to.
         const { exit, body } = splitOutput(text)
-        const t = liveTurnRef.current
-        if (t != null) {
+        const turn = liveTurnRef.current
+        if (turn != null) {
           setStepsByTurn(prev => {
-            const steps = prev[t] ?? []
+            const steps = prev[turn] ?? []
             for (let i = steps.length - 1; i >= 0; i--) {
               if (steps[i].kind === 'command' && steps[i].exit == null) {
                 const next = steps.slice()
                 next[i] = { ...steps[i], exit: exit ?? 0, out: body }
-                return { ...prev, [t]: next }
+                return { ...prev, [turn]: next }
               }
             }
             return prev
@@ -3211,7 +3245,9 @@ export default function App() {
       }
       finish()
       break
-    // Unknown events are ignored: a future server may add one.
+    default:
+      // Unknown events are ignored: a future server may add one.
+      break
     }
   }, [finish])
 
@@ -3294,11 +3330,11 @@ export default function App() {
   const [cpMenu, setCpMenu] = useState<number | null>(null)
   const [cpArmed, setCpArmed] = useState(false)
   useEffect(() => {
-    if (cpMenu == null) { return }
+    if (cpMenu == null) { return undefined }
     const close = () => { setCpMenu(null); setCpArmed(false) }
     // Deferred one tick: the click that opened the menu must not be the one that closes it.
-    const t = setTimeout(() => document.addEventListener('click', close), 0)
-    return () => { clearTimeout(t); document.removeEventListener('click', close) }
+    const timer = setTimeout(() => document.addEventListener('click', close), 0)
+    return () => { clearTimeout(timer); document.removeEventListener('click', close) }
   }, [cpMenu])
 
   // restoreCheckpoint takes the conversation back to before an input; with `files` it also puts
@@ -3362,7 +3398,7 @@ export default function App() {
       try {
         const err = await res.json()
         if (err.error) { msg = err.error }
-        merged = err.error && err.error.includes('already been integrated')
+        merged = err.error?.includes('already been integrated')
       } catch { /* keep generic */ }
       if (merged) {
         const s = sessions.find(x => x.id === sessionRef.current)
@@ -3484,7 +3520,7 @@ export default function App() {
   }, [prSessionId, prWatchKey])
   // While the gateway follows the CI, the bar's detail (the jobs) is refreshed every 20 seconds.
   useEffect(() => {
-    if (!prSessionId || !shouldPoll(prWatch)) { return }
+    if (!prSessionId || !shouldPoll(prWatch)) { return undefined }
     const id = setInterval(() => { void refreshPR(prSessionId) }, PR_POLL_MS)
     return () => clearInterval(id)
   }, [prSessionId, prWatch?.status])
@@ -3494,7 +3530,7 @@ export default function App() {
   const seenWatchRef = useRef<Record<string, PRWatch | null>>({})
   // announce shows the toast and, when the tab is in the background, a browser notification as well:
   // the CI ending is exactly what someone looking at another window wants to hear about.
-  const announce = (n: { message: string; type: 'success' | 'error' | 'warning'; detail?: string }) => {
+  const announce = (n: { message: string; type: ToastType; detail?: string }) => {
     setToast(n)
     try {
       if (typeof Notification !== 'undefined' && shouldDesktopNotify(document.hidden, Notification.permission, loadNotify())) {
@@ -3503,7 +3539,7 @@ export default function App() {
     } catch { /* a browser that cannot notify just does not */ }
   }
   useEffect(() => {
-    const news: { message: string; type: 'success' | 'error' | 'warning'; detail: string }[] = []
+    const news: { message: string; type: ToastType; detail: string }[] = []
     for (const sess of sessions) {
       const cur = sess.pr_watch ?? null
       const notice = prNotice(seenWatchRef.current[sess.id], cur)
@@ -3525,6 +3561,8 @@ export default function App() {
         news.push({ message: t('Pull request closed') + where, type: 'warning', detail: tf('Pull request {pr} was closed without being merged.', { pr }) })
       } else if (notice === 'merged') {
         news.push({ message: t('Pull request merged') + where, type: 'success', detail: choose(cur.next, tf('Pull request {pr} was merged. A new session was opened from the updated branch.', { pr }), tf('Pull request {pr} was merged. Use Continue in the bar to keep working from the updated branch.', { pr })) })
+      } else {
+        // Nothing worth a toast for this session.
       }
     }
     // One toast for what moved in one look at the list: three sessions finishing together are
@@ -3536,6 +3574,8 @@ export default function App() {
         type: worstToast(news.map(n => n.type)),
         detail: news.map(n => n.message).join(' · '),
       })
+    } else {
+      // No pull request moved.
     }
   }, [sessions])
 
@@ -3605,7 +3645,7 @@ export default function App() {
   const handleSubmit = (e: Event) => {
     e.preventDefault()
     const argText = input.trim()
-    const tagText = activeTags.map(t => t.name).join(' ')
+    const tagText = activeTags.map(tag => tag.name).join(' ')
     const text = choose(activeTags.length > 0, (choose(argText, tagText + ' ' + argText, tagText)), argText)
     if (text === '/agents') {
       setAgentsOpen(true); setTermOpen(false); setThinkOpen(false)
@@ -3688,7 +3728,7 @@ export default function App() {
     e.preventDefault()
     const argText = input.trim()
     // If there are active tags, send tags + argument. If no tags and no text, nothing.
-    const tagText = activeTags.map(t => t.name).join(' ')
+    const tagText = activeTags.map(tag => tag.name).join(' ')
     const text = choose(activeTags.length > 0, (choose(argText, tagText + ' ' + argText, tagText)), argText)
     if (text === '/agents') {
       setAgentsOpen(true); setTermOpen(false); setThinkOpen(false)
@@ -3777,7 +3817,7 @@ export default function App() {
   // 10 minutes. The backend's own hourly check is what populates the cache,
   // so this poll is cheap (it reads the cache, not GitHub).
   useEffect(() => {
-    if (authState !== 'ok') { return }
+    if (authState !== 'ok') { return undefined }
     checkForUpdates()
     const interval = setInterval(checkForUpdates, 10 * 60 * 1000)
     return () => clearInterval(interval)
@@ -3790,7 +3830,7 @@ export default function App() {
   // Then the gateway's ui.language, which applies to all of motita: this page, the terminal, every
   // browser. `auto` still means "the browser's language" here, not the gateway machine's locale.
   useEffect(() => {
-    if (authState !== 'ok') { return }
+    if (authState !== 'ok') { return undefined }
     let cancelled = false
     ;(async () => {
       try {
@@ -3877,10 +3917,10 @@ export default function App() {
   // treating it as an outside click would flip the state twice (closed here,
   // then reopened by the button's own handler) and the button would seem dead.
   useEffect(() => {
-    if (!rowMenu) { return }
+    if (!rowMenu) { return undefined }
     const onDown = (e: Event) => {
-      const t = e.target as HTMLElement | null
-      if (t && (t.closest('.row-menu') || t.closest('button[data-row-menu-trigger]'))) { return }
+      const target = e.target as HTMLElement | null
+      if (target && (target.closest('.row-menu') || target.closest('button[data-row-menu-trigger]'))) { return }
       closeRowMenu()
     }
     const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') { closeRowMenu() } }
@@ -3902,10 +3942,10 @@ export default function App() {
   // The listener is attached only while a menu is open, which is what keeps it off the hot path
   // of ordinary scrolling.
   useEffect(() => {
-    if (!rowMenu) { return }
+    if (!rowMenu) { return undefined }
     const reposition = () => {
       const anchor = rowMenuAnchor.current
-      if (anchor && anchor.isConnected) { placeRowMenu(anchor) }
+      if (anchor?.isConnected) { placeRowMenu(anchor) }
       else { closeRowMenu() } // the row was removed from under the menu
     }
     window.addEventListener('scroll', reposition, true)
@@ -3944,19 +3984,21 @@ export default function App() {
         const img = target as HTMLImageElement
         if (img.currentSrc || img.src) { setPreviewImage({ src: img.currentSrc || img.src, label: img.alt || t('Image') }) }
       } else if (target.classList.contains('copy-btn')) {
-        const text = target.getAttribute('data-copy-text') || ''
+        const text = target.dataset.copyText || ''
         void copyText(text).then((ok) => {
           if (!ok) { return }
           target.textContent = '✓'
           setTimeout(() => { target.textContent = t('copy') }, COPIED_MS)
         })
       } else if (target.classList.contains('copy-msg-btn')) {
-        const text = target.getAttribute('data-raw') || ''
+        const text = target.dataset.raw || ''
         void copyText(text).then((ok) => {
           if (!ok) { return }
           target.textContent = '✓'
           setTimeout(() => { target.textContent = t('copy') }, COPIED_MS)
         })
+      } else {
+        // Any other click is not a copy or a picture to preview.
       }
     }
     document.addEventListener('click', handler)
@@ -4889,9 +4931,9 @@ export default function App() {
             afterwards. Its tab sits above the terminal's; opening one closes the other. */}
         {(() => {
           const thoughts: { key: string; text: string; live?: boolean }[] = []
-          for (const t of Object.keys(stepsByTurn).map(Number).sort((a, b) => a - b)) {
-            stepsByTurn[t].forEach((st, i) => {
-              if (st.kind === 'thought') { thoughts.push({ key: t + ':' + i, text: st.text.replace(/^thinking:\s*/, '') }) }
+          for (const turn of Object.keys(stepsByTurn).map(Number).sort((a, b) => a - b)) {
+            stepsByTurn[turn].forEach((st, i) => {
+              if (st.kind === 'thought') { thoughts.push({ key: turn + ':' + i, text: st.text.replace(/^thinking:\s*/, '') }) }
             })
           }
           if (running && liveThought) { thoughts.push({ key: 'live', text: liveThought, live: true }) }
@@ -4916,9 +4958,9 @@ export default function App() {
                 <div class="term-viewport">
                   <div class="term-screen" ref={think.ref} {...think.handlers}>
                     {thoughts.length === 0 && <div class="term-empty">{t('no thoughts yet')}<span class="term-caret" /></div>}
-                    {thoughts.map(t => (
-                      <div key={t.key} class={`think-entry${choose(t.live, ' is-live', '')}`}>
-                        <pre class="think-text">{t.text}</pre>
+                    {thoughts.map(th => (
+                      <div key={th.key} class={`think-entry${choose(th.live, ' is-live', '')}`}>
+                        <pre class="think-text">{th.text}</pre>
                       </div>
                     ))}
                   </div>
@@ -5143,19 +5185,19 @@ export default function App() {
                 >
                   {tf('Pull request #{n}', { n: String(prView.pr.number) })}
                 </a>
-                {prView.ci && prView.ci.state === 'pending' && (
+                {prView.ci?.state === 'pending' && (
                   <span class="inline-flex items-center gap-1.5 text-[#f0a040]" title={t('The CI is running')}>
                     <span class="inline-block w-2 h-2 rounded-full bg-[#f0a040] animate-pulse" />
                     {tf('CI running {done}/{total}', { done: String(ciSummary(prView).passed), total: String(ciSummary(prView).total) })}
                   </span>
                 )}
-                {prView.ci && prView.ci.state === 'success' && (
+                {prView.ci?.state === 'success' && (
                   <span class="inline-flex items-center gap-1.5 text-[#4ade80]">
                     <span class="inline-block w-2 h-2 rounded-full bg-[#4ade80]" />
                     {t('CI passed — ready to merge')}
                   </span>
                 )}
-                {prView.ci && prView.ci.state === 'failure' && (
+                {prView.ci?.state === 'failure' && (
                   <span
                     class="inline-flex items-center gap-1.5 text-[#f87171]"
                     title={prView.ci.checks.filter(c => c.state === 'failure').map(c => c.name).join(', ')}
@@ -5164,10 +5206,10 @@ export default function App() {
                     {ciFailedLabel(prWatch)}
                   </span>
                 )}
-                {prView.ci && prView.ci.state === 'failure' && prWatch?.status === 'base_red' && (
+                {prView.ci?.state === 'failure' && prWatch?.status === 'base_red' && (
                   <span class="text-[#8a8a9a]">{t('Also failing on the base branch — not caused by this change')}</span>
                 )}
-                {prView.ci && prView.ci.state === 'failure' && prWatch?.status === 'gave_up' && (
+                {prView.ci?.state === 'failure' && prWatch?.status === 'gave_up' && (
                   <button
                     type="button"
                     class="px-3 min-h-[32px] rounded-lg border border-accent/40 text-accent font-semibold disabled:opacity-50"
@@ -5177,12 +5219,12 @@ export default function App() {
                     {t('Try again')}
                   </button>
                 )}
-                {prView.ci && prView.ci.state === 'success' && prView.merge && (mergeRefused(prView) || prView.merge.code === 'behind') && (
+                {prView.ci?.state === 'success' && prView.merge && (mergeRefused(prView) || prView.merge.code === 'behind') && (
                   <span class="ml-auto text-[#f0a040]">
                     {choose(prView.merge.code === 'blocked', t('Waiting for approvals or required checks'), t(choose(prView.merge.code === 'conflict', 'Conflicts with the base branch', choose(prView.merge.code === 'draft', 'Still a draft', 'Out of date with the base branch'))))}
                   </span>
                 )}
-                {prView.ci && prView.ci.state === 'success' && !mergeRefused(prView) && (
+                {prView.ci?.state === 'success' && !mergeRefused(prView) && (
                   <button
                     type="button"
                     class={`ml-auto px-3 min-h-[32px] rounded-lg font-semibold disabled:opacity-50 active:scale-95 transition-transform ${choose(prMergeArmed, 'bg-[#4ade80] text-black', 'border border-[#4ade80]/50 text-[#4ade80]')}`}
@@ -5194,7 +5236,7 @@ export default function App() {
                     {choose(prMergeArmed, t('Click again to merge'), t('Merge'))}
                   </button>
                 )}
-                {prView.ci && prView.ci.state === 'none' && (
+                {prView.ci?.state === 'none' && (
                   <span class="text-[#8a8a9a]">{t('No CI checks yet')}</span>
                 )}
               </>
@@ -5255,7 +5297,7 @@ export default function App() {
                   onMouseEnter={() => setSlashPopup({ ...slashPopup, index: i })}
                 >
                   <span class={`font-mono text-sm font-semibold flex-none w-20 ${groupColor[c.group] || 'text-[#e8e8ea]'}`}>{c.name}</span>
-                  {c.aliases && c.aliases.length > 0 && <span class="text-xs text-[#7a7a8c] flex-none">{c.aliases.join(', ')}</span>}
+                  {!!c.aliases?.length && <span class="text-xs text-[#7a7a8c] flex-none">{c.aliases.join(', ')}</span>}
                   <span class="flex-1 min-w-0 truncate text-xs text-[#9a9aaa]">{t(c.help)}</span>
                 </div>
               )
@@ -6664,9 +6706,9 @@ export default function App() {
                     class="hidden"
                     data-testid="artifact-upload"
                     onChange={(e) => {
-                      const input = e.target as HTMLInputElement
-                      const f = input.files && input.files[0]
-                      input.value = ''
+                      const field = e.target as HTMLInputElement
+                      const f = field.files?.[0]
+                      field.value = ''
                       if (f) { void uploadArtifact(f) }
                     }}
                   />

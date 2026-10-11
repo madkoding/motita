@@ -40,7 +40,7 @@ function useImage(name: string | undefined, load?: LoadImage) {
   useEffect(() => {
     let live = true
     setSrc(undefined)
-    if (!name || !load) { setSrc(null); return }
+    if (!name || !load) { setSrc(null); return undefined }
     load(name).then(u => { if (live) { setSrc(u) } }).catch(() => { if (live) { setSrc(null) } })
     return () => { live = false }
   }, [name, load])

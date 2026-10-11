@@ -492,7 +492,7 @@ export function Markdown({ content }: { content: string }) {
 
   useEffect(() => {
     const el = ref.current
-    if (!el) { return }
+    if (!el) { return undefined }
     // The copy button's payload, restored after the sanitizer has run: an answer
     // containing an HTML comment marker or an arrow would otherwise have had this
     // attribute dropped, and the button would copy an empty string.

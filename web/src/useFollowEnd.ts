@@ -43,7 +43,7 @@ export function useFollowEnd(open: boolean, tau = 110) {
 
   useEffect(() => {
     const el = ref.current
-    if (!el || typeof MutationObserver === 'undefined') { return }
+    if (!el || typeof MutationObserver === 'undefined') { return undefined }
     const mo = new MutationObserver(() => stick())
     mo.observe(el, { childList: true, subtree: true, characterData: true })
     return () => mo.disconnect()

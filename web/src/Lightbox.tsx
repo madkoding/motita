@@ -40,7 +40,10 @@ export function Lightbox({ images, start, onClose }: { images: LightboxImage[]; 
   }
   const actual = () => {
     const el = img.current
-    if (!el || !el.naturalWidth || !el.clientWidth) { return reset() }
+    if (!el?.naturalWidth || !el.clientWidth) {
+      reset()
+      return
+    }
     apply({ zoom: clamp(el.naturalWidth / el.clientWidth), x: 0, y: 0 })
   }
 

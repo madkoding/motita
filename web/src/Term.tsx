@@ -66,8 +66,8 @@ export function colorizeOutput(text: string): string {
 // merely begins with a bracket ("[ok] built") must not be sent to a grammar that would
 // colour it as nonsense.
 function looksLikeJSON(text: string): boolean {
-  const t = text.trim()
-  return (t.startsWith('{') && t.endsWith('}')) || (t.startsWith('[') && t.endsWith(']') && t.includes('"'))
+  const trimmed = text.trim()
+  return (trimmed.startsWith('{') && trimmed.endsWith('}')) || (trimmed.startsWith('[') && trimmed.endsWith(']') && trimmed.includes('"'))
 }
 
 // ── The typewriter ────────────────────────────────────────────────────────────
@@ -156,7 +156,7 @@ export function Typed({ html, as = 'span', class: cls, cps, onTick, onDone, inst
 
   useLayoutEffect(() => {
     const el = ref.current
-    if (!el) { return }
+    if (!el) { return undefined }
     if (!mounted.current || mounted.current.html !== html) { mounted.current = { html, ...collect(el) } }
     const { slices, total } = mounted.current
     const finish = () => {
@@ -171,14 +171,14 @@ export function Typed({ html, as = 'span', class: cls, cps, onTick, onDone, inst
       shown.current = total
       cb.current.onTick?.()
       finish()
-      return
+      return undefined
     }
     if (shown.current < total) { finished.current = false }
     reveal(slices, shown.current)
     cb.current.onTick?.()
     if (shown.current >= total) {
       finish()
-      return
+      return undefined
     }
     el.classList.add('is-typing')
     const rate = (cps ?? Math.min(TYPE_MAX_CPS, Math.max(TYPE_MIN_CPS, total / TYPE_TARGET_S))) * boost
