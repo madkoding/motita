@@ -192,16 +192,21 @@ func Custom(kind Kind, host string, env Lookup) (Service, error) {
 		s.Scope = "api read_repository write_repository"
 		s.TokenURL = base + "/-/user_settings/personal_access_tokens"
 	case KindGitea:
-		s.Name = "Gitea (" + host + ")"
-		s.APIBase = base + "/api/v1"
-		s.Endpoints = oauth.Endpoints{
-			AuthorizeURL: base + "/login/oauth/authorize", TokenURL: base + "/login/oauth/access_token",
-		}
-		s.TokenURL = base + "/user/settings/applications"
+		setGiteaEndpoints(&s, base, host)
 	default:
 		return Service{}, fmt.Errorf("a self-hosted %s is not supported: use github, gitlab or gitea", kind)
 	}
 	return configure(s, env), nil
+}
+
+// setGiteaEndpoints fills in the name, API and OAuth endpoints of a self-hosted Gitea at base.
+func setGiteaEndpoints(s *Service, base, host string) {
+	s.Name = "Gitea (" + host + ")"
+	s.APIBase = base + "/api/v1"
+	s.Endpoints = oauth.Endpoints{
+		AuthorizeURL: base + "/login/oauth/authorize", TokenURL: base + "/login/oauth/access_token",
+	}
+	s.TokenURL = base + "/user/settings/applications"
 }
 
 // validHost accepts a bare DNS name or IPv4: nothing that could smuggle a path, a

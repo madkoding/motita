@@ -12,6 +12,7 @@ import pathlib
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
+    from cdp_http import JSON
     from cdp_markdown import CDP
 
 # What a run concluded, printed as it goes and summed up at the end.
@@ -38,7 +39,7 @@ def note(msg: str) -> None:
     print(f"  note  {msg}")
 
 
-async def save_json(path: str, data: Any, ensure_ascii: bool = False) -> None:
+async def save_json(path: str, data: JSON, ensure_ascii: bool = False) -> None:
     """Write data as indented JSON next to the screenshots."""
     await asyncio.to_thread(pathlib.Path(path).write_text,
                             json.dumps(data, indent=2, ensure_ascii=ensure_ascii))

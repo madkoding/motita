@@ -90,7 +90,8 @@ func main() {
 	if _, _, errno := syscall.RawSyscall(syscall.SYS_PRCTL, prSetNoNewPrivs, 1, 0); errno != 0 {
 		fail("PR_SET_NO_NEW_PRIVS: %v", errno)
 	}
-	if _, _, errno := syscall.RawSyscall(syscall.SYS_PRCTL, prSetSeccomp, seccompModeFilter, kernelBuffer(fprog)); errno != 0 {
+	_, _, errno := syscall.RawSyscall(syscall.SYS_PRCTL, prSetSeccomp, seccompModeFilter, kernelBuffer(fprog))
+	if errno != 0 {
 		fail("PR_SET_SECCOMP: %v", errno)
 	}
 	if err := syscall.Exec(os.Args[1], os.Args[1:], os.Environ()); err != nil {

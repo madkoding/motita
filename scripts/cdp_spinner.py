@@ -21,7 +21,7 @@ Usage: GATEWAY_URL=... GATEWAY_STATE=<token file> ./cdp_spinner.py
 import asyncio, base64, json, os, pathlib, subprocess, sys, tempfile, time
 from typing import Any
 
-from cdp_http import fetch_json, chrome_env, LAUNCHER
+from cdp_http import JSON, AsyncSocket, fetch_json, chrome_env, LAUNCHER
 
 PORT = int(os.environ.get("CDP_PORT", "9355"))
 CHROME = os.environ.get("CHROME", os.path.expanduser(
@@ -39,7 +39,7 @@ class CDP:
     way to write that bug.
     """
 
-    def __init__(self, ws: Any) -> None:
+    def __init__(self, ws: AsyncSocket) -> None:
         self.ws = ws
         self.i = 0
 
@@ -54,7 +54,7 @@ class CDP:
                     raise RuntimeError(f"{method}: {msg['error']}")
                 return msg.get("result", {})
 
-    async def js(self, expr: str) -> Any:
+    async def js(self, expr: str) -> JSON:
         r = await self.call("Runtime.evaluate", expression=expr, returnByValue=True, awaitPromise=True)
         if r.get("exceptionDetails"):
             raise RuntimeError(str(r["exceptionDetails"]))

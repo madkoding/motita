@@ -97,7 +97,8 @@ func platform(e Env) Check {
 	c := Check{Name: "platform", Detail: fmt.Sprintf("motita %s (%s/%s)", e.Version, e.Goos, e.Goarch)}
 	if e.Goos == "linux" && onAndroid(e) {
 		c.Status = Fail
-		c.Detail += ": a linux build on Android dies with SIGSYS. Reinstall: curl -fsSL https://madkoding.github.io/motita/install.sh | sh"
+		c.Detail += ": a linux build on Android dies with SIGSYS. " +
+			"Reinstall: curl -fsSL https://madkoding.github.io/motita/install.sh | sh"
 	}
 	return c
 }
@@ -111,6 +112,8 @@ func shell(e Env) Check {
 	// Windows has no execute bit: a file it can stat is one it can run.
 	case e.Goos != "windows" && info.Mode()&0o111 == 0:
 		c.Status, c.Detail = Fail, e.Shell+" is not executable: commands cannot run"
+	default:
+		// The shell is there and can run: the check passes as built.
 	}
 	return c
 }
@@ -135,7 +138,9 @@ func onPath(e Env) Check {
 			return Check{Name: "path", Detail: dir + " is on the PATH"}
 		}
 	}
-	return Check{Name: "path", Status: Warn, Detail: fmt.Sprintf("%s is not on the PATH: export PATH=\"%s:$PATH\"", dir, dir)}
+	return Check{
+		Name: "path", Status: Warn, Detail: fmt.Sprintf("%s is not on the PATH: export PATH=\"%s:$PATH\"", dir, dir),
+	}
 }
 
 func program(e Env, name, why string) Check {

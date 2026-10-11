@@ -47,7 +47,9 @@ func (op Options) doctorConfig(fl flags) []doctor.Check {
 	opts.HiddenPaths = config.SecretFiles(path)
 	box, err := op.newSandbox(opts)
 	if err != nil {
-		return append(checks, doctor.Check{Name: "sandbox", Status: doctor.Fail, Detail: "could not prepare the sandbox: " + err.Error()})
+		return append(checks, doctor.Check{
+			Name: "sandbox", Status: doctor.Fail, Detail: "could not prepare the sandbox: " + err.Error(),
+		})
 	}
 	defer box.Close()
 	checks = append(checks, doctor.Check{Name: "sandbox", Detail: fmt.Sprintf("isolation %v", box.Isolation())})

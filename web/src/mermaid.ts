@@ -46,10 +46,11 @@ let ready: Promise<void> | null = null
  *
  * It has to be ON, too. With it off the label group comes back holding an empty `<rect>`
  * where the text should be, and the cause is in mermaid's own source, where the
- * markdown-text path has an explicitly empty branch:
+ * markdown-text path has an explicitly empty branch, whose comment (an open to-do upstream)
+ * says that disabling `markdownAutoWrap` is currently broken for `htmlLabels: false`:
  *
- *     if (markdownAutoWrap === false) {   // TODO: Disabling `markdownAutoWrap` is
- *     }                                   // currently broken for `htmlLabels: false`
+ *     if (markdownAutoWrap === false) {
+ *     }
  *
  * `markdownAutoWrap` defaults to true, so that path drops the label before the DOM ever
  * sees it. ON routes the label through `foreignObject` instead, which draws it — and

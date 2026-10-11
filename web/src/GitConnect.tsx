@@ -1,12 +1,13 @@
-import { useEffect, useMemo, useReducer, useRef, useState } from 'preact/hooks'
-import { backdropClick } from './a11y'
+import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'preact/hooks'
+import { useBackdropClose } from './useBackdropClose'
+import './dialog.css'
 import { t, tf } from './i18n'
 import { useDialog } from './useDialog'
 import { copyText } from './clipboard'
 import { choose } from './choose'
 import { errorMessage } from './errors'
 import {
-  type Api, type GitAccount, type GitMethod, type ConnectRequest, GitError,
+  type Api, type GitAccount, type GitMethod, type ConnectRequest, type FlowStart, GitError,
   connect, listAccounts, flowStatus, pasteCode, cancelFlow, pollFlow, reduceFlow, primaryMethod,
 } from './gitApi'
 
@@ -53,8 +54,10 @@ function errorText(e: unknown): string {
 // GitConnectModal is the connect flow for one git host: one-click login (device code or browser
 // redirect) when the gateway can do it, a pasted token always.
 export function GitConnectModal({ api, service, selfHosted, onClose, onConnected }: Props) {
-  const ref = useRef<HTMLDivElement>(null)
+  const ref = useRef<HTMLDialogElement>(null)
+  const backdrop = useRef<HTMLDivElement>(null)
   useDialog(ref, onClose)
+  useBackdropClose(backdrop, onClose)
   const [accounts, setAccounts] = useState<GitAccount[] | null>(null)
   const [loadErr, setLoadErr] = useState('')
   const [picked, setPicked] = useState<string | undefined>(service)
@@ -77,35 +80,44 @@ export function GitConnectModal({ api, service, selfHosted, onClose, onConnected
   if (account) { title = tf('Connect {host}', { host: account.name }) }
 
   return (
-    <div class="fixed inset-0 z-120 flex items-center justify-center bg-black/70 backdrop-blur-xs p-4" data-testid="git-connect-modal" role="presentation" onClick={backdropClick(onClose)}>
-      <div ref={ref} data-dialog-root class="frosted rounded-2xl border border-white/10 w-full max-w-md max-h-[90vh] overflow-y-auto p-5 shadow-2xl" role="dialog" aria-modal="true" aria-label={title}>
+    <div ref={backdrop} class="fixed inset-0 z-120 flex items-center justify-center bg-black/70 backdrop-blur-xs p-4" data-testid="git-connect-modal">
+      <dialog open ref={ref} data-dialog-root class="modal-dialog frosted rounded-2xl border border-white/10 w-full max-w-md max-h-[90vh] overflow-y-auto p-5 shadow-2xl" aria-modal="true" aria-label={title}>
         <div class="flex items-center gap-2 mb-4">
           <h2 class="flex-1 text-base font-semibold text-[#e8e8ea]">{title}</h2>
           <button class="p-1.5 rounded-lg hover:bg-white/5 text-[#9a9aaa]" aria-label={t('Close')} onClick={onClose}>×</button>
         </div>
         {accounts === null && <div class="flex items-center gap-2 text-sm text-[#9a9aaa]"><Spinner /> {t('Loading…')}</div>}
         {accounts !== null && !account && (
-          <div class="space-y-2" role="list">
+          <div class="space-y-2">
             {loadErr && <p class="text-sm text-danger" role="alert">{loadErr}</p>}
             <p class="text-sm text-[#9a9aaa]">{t('Which git host do you want to connect?')}</p>
-            {accounts.map(a => (
-              <button key={a.id} role="listitem" class="w-full flex items-center gap-2 px-3 py-2.5 rounded-xl border border-white/10 hover:bg-white/5 text-sm text-[#e8e8ea] text-left" onClick={() => setPicked(a.id)}>
-                <span class="flex-1 min-w-0 truncate">{a.name} <span class="text-[#7a7a8c]">{a.host}</span></span>
-                {a.connected && <span class="text-xs text-[#5fd08a]">{tf('Connected as {user}', { user: a.username || '' })}</span>}
-              </button>
-            ))}
+            <ul class="space-y-2">
+              {accounts.map(a => (
+                <li key={a.id}>
+                  <button class="w-full flex items-center gap-2 px-3 py-2.5 rounded-xl border border-white/10 hover:bg-white/5 text-sm text-[#e8e8ea] text-left" onClick={() => setPicked(a.id)}>
+                    <span class="flex-1 min-w-0 truncate">{a.name} <span class="text-[#7a7a8c]">{a.host}</span></span>
+                    {a.connected && <span class="text-xs text-[#5fd08a]">{tf('Connected as {user}', { user: a.username || '' })}</span>}
+                  </button>
+                </li>
+              ))}
+            </ul>
           </div>
         )}
         {account && <ConnectPanel api={api} account={account} selfHosted={selfHosted} onClose={onClose} onConnected={onConnected} />}
-      </div>
+      </dialog>
     </div>
   )
 }
 
-function ConnectPanel({ api, account, selfHosted, onClose, onConnected }: { api: Api; account: GitAccount; selfHosted?: SelfHosted; onClose: () => void; onConnected: (service: string, account: string) => void }) {
+type ConnectedFn = (service: string, account: string) => void
+type Mode = 'oauth' | 'token'
+
+// useConnectFlow runs one login: it starts it, polls it while it is pending, and cancels a pending
+// login when the modal goes away.
+function useConnectFlow(api: Api, account: GitAccount, onConnected: ConnectedFn, onClose: () => void) {
   const [state, dispatch] = useReducer(reduceFlow, { phase: 'idle' } as ReturnType<typeof reduceFlow>)
   const primary = primaryMethod(account)
-  const [mode, setMode] = useState<'oauth' | 'token'>(choose(primary === 'token', 'token', 'oauth'))
+  const [mode, setMode] = useState<Mode>(choose(primary === 'token', 'token', 'oauth'))
   const [note, setNote] = useState('')
   const flowId = useRef('')
   const doneRef = useRef(false)
@@ -115,12 +127,12 @@ function ConnectPanel({ api, account, selfHosted, onClose, onConnected }: { api:
   // Cancel a pending login when the modal goes away.
   useEffect(() => () => { if (flowId.current && !doneRef.current) { void cancelFlow(api, flowId.current) } }, [])
 
-  const finish = (service: string, acct: string) => {
+  const finish = useCallback((service: string, acct: string) => {
     doneRef.current = true
     flowId.current = ''
     onConnected(service, acct)
     onClose()
-  }
+  }, [onConnected, onClose])
 
   const start = async (method: GitMethod) => {
     setNote('')
@@ -163,57 +175,90 @@ function ConnectPanel({ api, account, selfHosted, onClose, onConnected }: { api:
     return () => { stop = true }
   }, [pendingId])
 
-  const retry = () => { flowId.current = ''; doneRef.current = false; dispatch({ type: 'reset' }) }
+  const retry = useCallback(() => { flowId.current = ''; doneRef.current = false; dispatch({ type: 'reset' }) }, [])
+  const retryWithToken = useCallback(() => { retry(); setMode('token') }, [retry])
+  const cancel = useCallback((id: string) => { void cancelFlow(api, id); flowId.current = ''; dispatch({ type: 'reset' }) }, [api])
 
+  return { state, mode, setMode, note, base, start, finish, retry, retryWithToken, cancel }
+}
+
+function ConnectPanel({ api, account, selfHosted, onClose, onConnected }: { api: Api; account: GitAccount; selfHosted?: SelfHosted; onClose: () => void; onConnected: ConnectedFn }) {
+  const flow = useConnectFlow(api, account, onConnected, onClose)
+  const { state } = flow
   if (state.phase === 'starting') {
-    return <div class="flex items-center gap-2 text-sm text-[#9a9aaa]" role="status"><Spinner /> {tf('Contacting {host}…', { host: account.name })}</div>
+    return <output class="flex items-center gap-2 text-sm text-[#9a9aaa]"><Spinner /> {tf('Contacting {host}…', { host: account.name })}</output>
   }
   if (state.phase === 'failed') {
-    return (
-      <div class="space-y-3">
-        <p class="text-sm text-danger" role="alert">{t(state.error)}</p>
-        <div class="flex flex-wrap gap-2 items-center">
-          <button class={btnPrimary} onClick={retry}>{t('Retry')}</button>
-          <button class={linkBtn} onClick={() => { retry(); setMode('token') }}>{t('Use a token instead')}</button>
-        </div>
-      </div>
-    )
+    return <FailedPanel error={state.error} onRetry={flow.retry} onToken={flow.retryWithToken} />
   }
   if (state.phase === 'pending') {
-    const f = state.flow
-    return (
-      <div class="space-y-4">
-        {f.method === 'device' && <DevicePending flow={f} account={account} />}
-        {f.method !== 'device' && <CodePending api={api} flow={f} account={account} />}
-        <div class="flex items-center gap-2 text-sm text-[#9a9aaa]" role="status" aria-live="polite">
-          <Spinner /> {tf('Waiting for you to approve in {host}…', { host: account.name })}
-        </div>
-        <div class="flex gap-2">
-          <button class={btnGhost} onClick={() => { void cancelFlow(api, f.flow_id); flowId.current = ''; dispatch({ type: 'reset' }) }}>{t('Cancel')}</button>
-        </div>
-      </div>
-    )
+    return <PendingPanel api={api} flow={state.flow} account={account} onCancel={flow.cancel} />
   }
-
   // idle: the method the user picks.
-  const oauthMethod = account.methods.find(m => m === 'device' || m === 'code')
-  const canOauth = !!oauthMethod && (account.oauth_ready || !!selfHosted)
+  return <IdlePanel api={api} account={account} selfHosted={selfHosted} mode={flow.mode} note={flow.note} base={flow.base()} onStart={flow.start} onMode={flow.setMode} onDone={flow.finish} />
+}
+
+function FailedPanel({ error, onRetry, onToken }: { error: string; onRetry: () => void; onToken: () => void }) {
+  return (
+    <div class="space-y-3">
+      <p class="text-sm text-danger" role="alert">{t(error)}</p>
+      <div class="flex flex-wrap gap-2 items-center">
+        <button class={btnPrimary} onClick={onRetry}>{t('Retry')}</button>
+        <button class={linkBtn} onClick={onToken}>{t('Use a token instead')}</button>
+      </div>
+    </div>
+  )
+}
+
+function PendingPanel({ api, flow, account, onCancel }: { api: Api; flow: FlowStart; account: GitAccount; onCancel: (id: string) => void }) {
   return (
     <div class="space-y-4">
-      {note && <p class="text-sm text-warning" role="status">{note}</p>}
+      {flow.method === 'device' && <DevicePending flow={flow} account={account} />}
+      {flow.method !== 'device' && <CodePending api={api} flow={flow} account={account} />}
+      <output class="flex items-center gap-2 text-sm text-[#9a9aaa]" aria-live="polite">
+        <Spinner /> {tf('Waiting for you to approve in {host}…', { host: account.name })}
+      </output>
+      <div class="flex gap-2">
+        <button class={btnGhost} onClick={() => onCancel(flow.flow_id)}>{t('Cancel')}</button>
+      </div>
+    </div>
+  )
+}
+
+interface IdleProps {
+  api: Api
+  account: GitAccount
+  selfHosted?: SelfHosted
+  mode: Mode
+  note: string
+  base: ConnectRequest
+  onStart: (method: GitMethod) => void
+  onMode: (mode: Mode) => void
+  onDone: ConnectedFn
+}
+
+// IdlePanel is the method the user picks: the one-click login when the host has one, a token always.
+function IdlePanel({ api, account, selfHosted, mode, note, base, onStart, onMode, onDone }: IdleProps) {
+  const oauthMethod = account.methods.find(m => m === 'device' || m === 'code')
+  const canOauth = !!oauthMethod && (account.oauth_ready || !!selfHosted)
+  // The one-click login is shown while it is the chosen mode and the host has one.
+  const oauthNow = choose(mode === 'oauth', oauthMethod, undefined)
+  return (
+    <div class="space-y-4">
+      {note && <output class="block text-sm text-warning">{note}</output>}
       {account.setup_hint && !account.oauth_ready && <p class="text-xs text-[#7a7a8c]">{account.setup_hint}</p>}
-      {!!(mode === 'oauth' && oauthMethod) && (
+      {oauthNow && (
         <div class="space-y-3">
           <p class="text-sm text-[#9a9aaa]">{tf('Sign in with {host} to let motita clone your repositories. It only asks for repository access.', { host: account.name })}</p>
-          <button class={btnPrimary + ' w-full'} data-autofocus onClick={() => start(oauthMethod)}>{tf('Connect {host}', { host: account.name })}</button>
-          <button class={linkBtn} onClick={() => setMode('token')}>{t('Use a token instead')}</button>
+          <button class={btnPrimary + ' w-full'} data-autofocus onClick={() => onStart(oauthNow)}>{tf('Connect {host}', { host: account.name })}</button>
+          <button class={linkBtn} onClick={() => onMode('token')}>{t('Use a token instead')}</button>
         </div>
       )}
-      {!(mode === 'oauth' && oauthMethod) && (
-        <TokenForm api={api} account={account} base={base()} onDone={finish} />
+      {!oauthNow && (
+        <TokenForm api={api} account={account} base={base} onDone={onDone} />
       )}
-      {mode === 'token' && canOauth && oauthMethod && (
-        <button class={linkBtn} onClick={() => setMode('oauth')}>{t('Sign in with the browser instead')}</button>
+      {mode === 'token' && canOauth && (
+        <button class={linkBtn} onClick={() => onMode('oauth')}>{t('Sign in with the browser instead')}</button>
       )}
     </div>
   )
@@ -261,7 +306,7 @@ function CodePending({ api, flow, account }: { api: Api; flow: { flow_id: string
         <div class="mt-2 space-y-2">
           <textarea class={input + ' font-mono text-xs'} rows={3} value={text} onInput={(e) => setText((e.target as HTMLTextAreaElement).value)} aria-label={t('Authorization code or URL')} placeholder="…/callback?code=…" />
           {err && <p class="text-sm text-danger" role="alert">{err}</p>}
-          {sent && <p class="text-sm text-[#5fd08a]" role="status">{t('Code sent. Finishing the login…')}</p>}
+          {sent && <output class="block text-sm text-[#5fd08a]">{t('Code sent. Finishing the login…')}</output>}
           <button class={btnGhost} disabled={busy || !text.trim()} onClick={send}>{t('Send code')}</button>
         </div>
       </details>

@@ -46,7 +46,7 @@ import subprocess
 import time
 from typing import Any
 
-from cdp_http import fetch_json
+from cdp_http import JSON, AsyncSocket, fetch_json
 
 import websockets
 
@@ -226,7 +226,7 @@ MEASURE_JS = r"""
 class Page:
     """CDP calls over one websocket, read by exactly one coroutine at a time."""
 
-    def __init__(self, ws: Any) -> None:
+    def __init__(self, ws: AsyncSocket) -> None:
         self.ws = ws
         self.counter = 0
 
@@ -242,7 +242,7 @@ class Page:
                     raise RuntimeError(f"{method}: {msg['error']}")
                 return msg.get("result", {})
 
-    async def js(self, expr: str) -> Any:
+    async def js(self, expr: str) -> JSON:
         """Evaluate expr in the page (awaiting a promise) and return its value."""
         res = await self.call(
             "Runtime.evaluate", expression=expr, returnByValue=True, awaitPromise=True

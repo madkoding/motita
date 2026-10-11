@@ -50,7 +50,8 @@ func TestDoctorWithoutAConfigurationWarns(t *testing.T) {
 		if code != Success {
 			t.Fatalf("code = %d:\n%s", code, out.String())
 		}
-		for _, want := range []string{"motita v9 (linux/amd64)", "no configuration file yet: run motita config", "worth a look"} {
+		wants := []string{"motita v9 (linux/amd64)", "no configuration file yet: run motita config", "worth a look"}
+		for _, want := range wants {
 			if !strings.Contains(out.String(), want) {
 				t.Errorf("missing %q:\n%s", want, out.String())
 			}
@@ -98,12 +99,17 @@ func TestDoctorFailsOnABrokenMachineOrConfiguration(t *testing.T) {
 		op   Options
 		want string
 	}{
-		{"dns", Options{Args: []string{"doctor", "-config", good}, DoctorEnv: fakeMachine(errors.New("no servers"))}, "does not resolve: no servers"},
+		{"dns", Options{Args: []string{"doctor", "-config", good}, DoctorEnv: fakeMachine(errors.New("no servers"))},
+			"does not resolve: no servers"},
 		{"config", Options{Args: []string{"doctor", "-config", bad}, DoctorEnv: fakeMachine(nil)}, "❌ config"},
 		{"logger", Options{Args: []string{"doctor", "-config", good}, DoctorEnv: fakeMachine(nil),
-			NewLogger: func(config.Agent) (*logx.Logger, error) { return nil, fmt.Errorf("simulated logger failure") }}, "simulated logger failure"},
+			NewLogger: func(config.Agent) (*logx.Logger, error) { return nil, fmt.Errorf("simulated logger failure") }},
+			"simulated logger failure"},
 		{"sandbox", Options{Args: []string{"doctor", "-config", good}, DoctorEnv: fakeMachine(nil),
-			NewSandbox: func(sandbox.Options) (*sandbox.Sandbox, error) { return nil, fmt.Errorf("simulated sandbox failure") }}, "could not prepare the sandbox: simulated sandbox failure"},
+			NewSandbox: func(sandbox.Options) (*sandbox.Sandbox, error) {
+				return nil, fmt.Errorf("simulated sandbox failure")
+			}},
+			"could not prepare the sandbox: simulated sandbox failure"},
 	}
 	for _, c := range cases {
 		var out bytes.Buffer

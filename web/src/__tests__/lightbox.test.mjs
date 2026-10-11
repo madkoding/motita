@@ -23,44 +23,52 @@ await build({
 })
 const { Lightbox } = await import(pathToFileURL(join(out, 'lb.mjs')).href)
 const { h, render } = await import('preact')
+const { act } = await import('preact/test-utils')
 rmSync(out, { recursive: true })
 
-const tick = () => new Promise(r => setTimeout(r, 5))
+// act() flushes Preact's pending renders AND effects before it resolves. A fixed timer was not
+// enough: under load the effect that attaches the key listener could still be pending when the next
+// key was sent, so the key was lost and the test failed now and then.
 const key = (k) => document.dispatchEvent(new dom.window.KeyboardEvent('keydown', { key: k, bubbles: true }))
 
 test('zoom, fit, pair navigation and close work', async () => {
   const root = document.createElement('div')
   document.body.appendChild(root)
   let closed = 0
-  render(h(Lightbox, { images: [{ src: 'a.png', label: 'A' }, { src: 'b.png', label: 'B' }], start: 0, onClose: () => { closed++ } }), root)
-  await tick()
+  await act(() => {
+    render(h(Lightbox, { images: [{ src: 'a.png', label: 'A' }, { src: 'b.png', label: 'B' }], start: 0, onClose: () => { closed++ } }), root)
+  })
   const zoom = () => root.querySelector('[data-testid=lightbox-zoom]').textContent
   const img = () => root.querySelector('.lb-img').getAttribute('src')
   assert.equal(zoom(), '100%')
   assert.equal(img(), 'a.png')
 
-  key('+'); await tick()
+  await act(() => key('+'))
   assert.equal(zoom(), '125%')
-  key('-'); key('-'); await tick()
+  await act(() => {
+    key('-')
+    key('-')
+  })
   assert.equal(zoom(), '80%')
-  key('0'); await tick()
+  await act(() => key('0'))
   assert.equal(zoom(), '100%')
 
-  key('ArrowRight'); await tick()
+  await act(() => key('ArrowRight'))
   assert.equal(img(), 'b.png')
   assert.match(root.querySelector('.lb-title').textContent, /B \(2\/2\)/)
-  key('ArrowRight'); await tick()
+  await act(() => key('ArrowRight'))
   assert.equal(img(), 'a.png', 'the set wraps around')
 
-  key('Escape'); await tick()
+  await act(() => key('Escape'))
   assert.equal(closed, 1)
 })
 
 test('a single image has no navigation', async () => {
   const root = document.createElement('div')
   document.body.appendChild(root)
-  render(h(Lightbox, { images: [{ src: 'a.png', label: 'A' }], start: 0, onClose: () => {} }), root)
-  await tick()
+  await act(() => {
+    render(h(Lightbox, { images: [{ src: 'a.png', label: 'A' }], start: 0, onClose: () => {} }), root)
+  })
   assert.equal(root.querySelector('[aria-label="Next image"]'), null)
   assert.doesNotMatch(root.querySelector('.lb-title').textContent, /\(/)
 })

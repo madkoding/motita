@@ -32,7 +32,7 @@ import sys
 import time
 from typing import Any
 
-from cdp_http import fetch_json, chrome_env, LAUNCHER
+from cdp_http import JSON, AsyncSocket, fetch_json, chrome_env, LAUNCHER
 
 import websockets
 
@@ -60,7 +60,7 @@ def token() -> str:
 class CDP:
     """A minimal Chrome DevTools Protocol client over one websocket."""
 
-    def __init__(self, ws: Any) -> None:
+    def __init__(self, ws: AsyncSocket) -> None:
         self.ws = ws
         self.i = 0
 
@@ -75,7 +75,7 @@ class CDP:
                     raise RuntimeError(f"{method}: {msg['error']}")
                 return msg.get("result", {})
 
-    async def js(self, expr: str) -> Any:
+    async def js(self, expr: str) -> JSON:
         r = await self.call("Runtime.evaluate", expression=expr, returnByValue=True, awaitPromise=True)
         if r.get("exceptionDetails"):
             raise RuntimeError(str(r["exceptionDetails"]))

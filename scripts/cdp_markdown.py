@@ -141,6 +141,7 @@ graph LR
 # put on the path first because verify-markdown.sh loads this file by path to seed the
 # session from EXAMPLE.
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from cdp_http import JSON, AsyncSocket  # noqa: E402
 from cdp_markdown_js import LOAD_LOG, MEASURE, RECORDER  # noqa: E402
 from cdp_markdown_checks import (  # noqa: E402
     bad, check_alerts, check_blocks, check_code, check_diagrams, check_emoji, check_loading,
@@ -157,7 +158,7 @@ class CDP:
     that bug.
     """
 
-    def __init__(self, ws: Any) -> None:
+    def __init__(self, ws: AsyncSocket) -> None:
         self.ws = ws
         self.i = 0
 
@@ -173,7 +174,7 @@ class CDP:
                     raise RuntimeError(f"{method}: {msg['error']}")
                 return msg.get("result", {})
 
-    async def js(self, expr: str) -> Any:
+    async def js(self, expr: str) -> JSON:
         """Evaluate expr in the page (awaiting a promise) and return its value."""
         r = await self.call(
             "Runtime.evaluate", expression=expr, returnByValue=True, awaitPromise=True

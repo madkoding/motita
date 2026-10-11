@@ -12,10 +12,9 @@ the workspace's files:
     the file in the workspace is what it was before that input.
 """
 import asyncio, json, os, pathlib, sys, tempfile
-from typing import Any
 
 sys.path.insert(0, os.path.dirname(__file__))
-from cdp_http import fetch_json  # noqa: E402
+from cdp_http import JSON, fetch_json  # noqa: E402
 from cdp_spinner import CDP, start_browser, PORT  # noqa: E402
 
 BASE = os.environ["GATEWAY_URL"]
@@ -38,7 +37,7 @@ def ok(msg: str) -> None:
     print("  ok   " + msg)
 
 
-def api(path: str, body: Any = None) -> Any:
+def api(path: str, body: JSON = None) -> JSON:
     """Call the gateway's JSON API with the session token."""
     return fetch_json(BASE + path, body, timeout=10,
                       headers={"Authorization": "Bearer " + TOKEN, "Content-Type": "application/json"})

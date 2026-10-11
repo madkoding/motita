@@ -740,12 +740,17 @@ func (s *session) liveModels(ctx context.Context, p Provider, listURL, apiKey st
 		return p.Models
 	default:
 		printInfo(s.out, "These are the models available at %s.", url)
-		models := make([]Model, 0, len(fetched))
-		for _, id := range fetched {
-			models = append(models, Model{ID: id, Label: id})
-		}
-		return models
+		return modelsFromIDs(fetched)
 	}
+}
+
+// modelsFromIDs lists the fetched model ids as models labelled by their own id.
+func modelsFromIDs(ids []string) []Model {
+	models := make([]Model, 0, len(ids))
+	for _, id := range ids {
+		models = append(models, Model{ID: id, Label: id})
+	}
+	return models
 }
 
 // unreachable says why a catalogue could not be read in the words a user acts on. A server that

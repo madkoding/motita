@@ -8,11 +8,34 @@ import http.client
 import json
 import os
 import urllib.parse
-from typing import Any
+from typing import Protocol, TypeAlias
+
+# A decoded JSON value: what the gateway's API answers and what a page evaluation returns.
+JSON: TypeAlias = dict[str, "JSON"] | list["JSON"] | str | int | float | bool | None
 
 
-def fetch_json(url: str, body: Any = None, headers: dict[str, str] | None = None,
-               timeout: float = 10) -> Any:
+class AsyncSocket(Protocol):
+    """The two calls the CDP helpers make on an asyncio websocket connection."""
+
+    async def send(self, message: str) -> None:
+        """Send one text frame."""
+
+    async def recv(self) -> str | bytes:
+        """Wait for the next frame."""
+
+
+class SyncSocket(Protocol):
+    """The two calls the CDP helpers make on a synchronous websocket connection."""
+
+    def send(self, message: str) -> None:
+        """Send one text frame."""
+
+    def recv(self) -> str | bytes:
+        """Wait for the next frame."""
+
+
+def fetch_json(url: str, body: JSON = None, headers: dict[str, str] | None = None,
+               timeout: float = 10) -> JSON:
     """GET url (or POST body as JSON when body is not None) and return the decoded JSON answer."""
     parts = urllib.parse.urlsplit(url)
     if parts.scheme not in ("http", "https") or not parts.hostname:

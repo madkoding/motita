@@ -24,6 +24,8 @@ from typing import Any
 import websockets
 from PIL import Image
 
+from cdp_http import JSON, AsyncSocket
+
 PORT = int(os.environ.get("CDP_PORT", "9334"))
 BASE = os.environ.get("GATEWAY_URL", "http://127.0.0.1:7477")
 SHOTS = os.environ.get("SHOTS_DIR") or tempfile.mkdtemp(prefix="motita-modal-blur-")
@@ -35,7 +37,7 @@ Box = tuple[int, int, int, int]
 class CDP:
     """A minimal Chrome DevTools Protocol client over one websocket."""
 
-    def __init__(self, ws: Any) -> None:
+    def __init__(self, ws: AsyncSocket) -> None:
         self.ws = ws
         self.i = 0
 
@@ -50,7 +52,7 @@ class CDP:
                     raise RuntimeError(f"{method}: {msg['error']}")
                 return msg.get("result", {})
 
-    async def js(self, expr: str) -> Any:
+    async def js(self, expr: str) -> JSON:
         r = await self.call("Runtime.evaluate", expression=expr, returnByValue=True)
         if r.get("exceptionDetails"):
             raise RuntimeError(str(r["exceptionDetails"]))
