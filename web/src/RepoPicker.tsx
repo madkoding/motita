@@ -20,6 +20,9 @@ export function relTimeText(iso: string | undefined): string {
   }
 }
 
+// How long the search box has to stay still before the host is asked.
+const SEARCH_DEBOUNCE_MS = 300
+
 // pickService is the host the picker opens on: the one asked for when it is connected, the first
 // connected one otherwise.
 function pickService(accounts: GitAccount[], initial: string | undefined): string {
@@ -54,7 +57,7 @@ export function RepoPicker({ api, accounts, initialService, onPick, onConnectAno
 
   // Debounce the search box.
   useEffect(() => {
-    const id = setTimeout(() => setDq(q), 300)
+    const id = setTimeout(() => setDq(q), SEARCH_DEBOUNCE_MS)
     return () => clearTimeout(id)
   }, [q])
 

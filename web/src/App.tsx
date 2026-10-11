@@ -99,6 +99,48 @@ interface AgentInfo {
   summary?: string
 }
 
+// HTTP statuses the gateway answers with that the client tells apart.
+const HTTP_OK = 200
+const HTTP_NO_CONTENT = 204
+const HTTP_UNAUTHORIZED = 401
+const HTTP_NOT_FOUND = 404
+const HTTP_CONFLICT = 409
+
+// Lengths of time, in seconds and in milliseconds.
+const HOUR_S = 3600
+const DAY_S = 86400
+const DAY_MS = 86_400_000
+
+// How many characters of a generated id are shown, the way git abbreviates a sha.
+const SHORT_ID_LEN = 7
+
+// How long the row menu takes to leave: its closing animation in index.css.
+const ROW_MENU_EXIT_MS = 140
+// How long a session that just answered is still counted as answered by this tab.
+const ANSWERED_HOLD_MS = 30000
+// How often the session list is read again while something runs.
+const SESSIONS_POLL_MS = 3000
+// How long the repository field has to stay still before its default branch is asked for.
+const BRANCH_LOOKUP_DELAY_MS = 600
+// After an upgrade: when the gateway is first asked whether it is back, and when to stop asking.
+const RESTART_FIRST_POLL_MS = 2000
+const RESTART_WAIT_MS = 30000
+// A message sent mid-run starts the next run a beat later: the conversation is reloaded twice.
+const HANDOFF_RELOAD_MS = [400, 1800]
+// How often the pull request bar is refreshed while the gateway follows the CI.
+const PR_POLL_MS = 20000
+// How long a touch has to be held to open a row's menu.
+const LONG_PRESS_MS = 500
+
+// How long a toast stays up: an error longest, then a warning, an update notice and a success.
+const TOAST_ERROR_MS = 12000
+const TOAST_WARNING_MS = 9000
+const TOAST_UPDATE_MS = 8000
+const TOAST_MS = 5000
+
+// How long the copy buttons say "copied" before they go back to "copy".
+const COPIED_MS = 1500
+
 // The prefix of a progress line that carries the agent list, for a gateway that forwards it as a
 // plain line instead of an `agents` event (agent.AgentsPrefix).
 const AGENTS_PREFIX = 'agents: '
@@ -176,14 +218,14 @@ interface ProjectInfo {
 // daysUntil is how many whole days remain until a moment, rounded up: "deleted in 1 days" is
 // shown for the last day, never "0".
 function daysUntil(iso: string): number {
-  return Math.ceil((new Date(iso).getTime() - Date.now()) / 86400000)
+  return Math.ceil((new Date(iso).getTime() - Date.now()) / DAY_MS)
 }
 
 // shortID abbreviates a generated id the way git abbreviates a sha: the first
 // seven characters. A full id is 25 characters and would be the widest thing in
 // the sidebar while telling the reader nothing the first seven do not.
 function shortID(id: string): string {
-  if (id.length > 7) { return id.slice(0, 7) }
+  if (id.length > SHORT_ID_LEN) { return id.slice(0, SHORT_ID_LEN) }
   return id
 }
 
@@ -193,7 +235,7 @@ function shortID(id: string): string {
 // chose is short and is shown exactly as it is.
 function shortBranch(b: string): string {
   const m = b.match(/^motita\/(.+)$/)
-  if (m && m[1].length > 7) { return 'motita/' + shortID(m[1]) }
+  if (m && m[1].length > SHORT_ID_LEN) { return 'motita/' + shortID(m[1]) }
   return b
 }
 
@@ -340,9 +382,9 @@ function countdown(fromMs: number, nowMs: number): { text: string; past: boolean
   const past = delta < 0
   const s = Math.abs(delta)
   let text: string
-  if (s < 3600) { text = Math.floor(s / 60) + ':' + pad(s % 60) }
-  else if (s < 86400) { text = Math.floor(s / 3600) + ':' + pad(Math.floor((s % 3600) / 60)) + ':' + pad(s % 60) }
-  else { text = Math.floor(s / 86400) + 'd ' + Math.floor((s % 86400) / 3600) + 'h' }
+  if (s < HOUR_S) { text = Math.floor(s / 60) + ':' + pad(s % 60) }
+  else if (s < DAY_S) { text = Math.floor(s / HOUR_S) + ':' + pad(Math.floor((s % HOUR_S) / 60)) + ':' + pad(s % 60) }
+  else { text = Math.floor(s / DAY_S) + 'd ' + Math.floor((s % DAY_S) / HOUR_S) + 'h' }
   return { text, past }
 }
 
@@ -459,7 +501,7 @@ async function api(path: string, options?: RequestInit): Promise<Response> {
   const headers = new Headers(options?.headers)
   headers.set('X-Motita', '1')
   const res = await fetch(path, { credentials: 'same-origin', ...options, headers })
-  if (res.status === 401) {
+  if (res.status === HTTP_UNAUTHORIZED) {
     await clearCredential()
     window.dispatchEvent(new CustomEvent('motita:auth-needed'))
     throw new Error('unauthorised')
@@ -688,15 +730,21 @@ function upgradeMessage(message?: string): string {
 }
 
 // parseFrame reads one SSE frame (text between two blank lines).
+// The fields of a server-sent event this client reads.
+const SSE_ID = 'id: '
+const SSE_EVENT = 'event: '
+const SSE_DATA = 'data: '
+
 function parseFrame(raw: string): { id: string | null; event: string | null; data: string | null } {
   const lines = raw.split('\n')
   let id: string | null = null
   let event: string | null = null
   let data: string | null = null
   for (const line of lines) {
-    if (line.startsWith('id: ')) { id = line.slice(4).trim() }
-    else if (line.startsWith('event: ')) { event = line.slice(7).trim() }
-    else if (line.startsWith('data: ')) { data = line.slice(6) }
+    if (line.startsWith(SSE_ID)) { id = line.slice(SSE_ID.length).trim() }
+    else if (line.startsWith(SSE_EVENT)) { event = line.slice(SSE_EVENT.length).trim() }
+    else if (line.startsWith(SSE_DATA)) { data = line.slice(SSE_DATA.length) }
+    else { /* a comment or a field this client does not use */ }
   }
   return { id, event, data }
 }
@@ -1115,7 +1163,7 @@ export default function App() {
       setRowMenuClosing(false)
       rowMenuClosingRef.current = false
       rowMenuTimer.current = null
-    }, 140)
+    }, ROW_MENU_EXIT_MS)
   }, [])
 
   // openRowMenu opens the menu, cancelling a close that is mid-flight so
@@ -1568,7 +1616,7 @@ export default function App() {
     // An error needs reading, so it stays longest. A warning is between the two:
     // it says something is wrong but recovering, which is worth more than the
     // five seconds a success gets and less than an error.
-    const ms = toastTone(toast.type, 12000, 9000, choose(isUpdate, 8000, 5000))
+    const ms = toastTone(toast.type, TOAST_ERROR_MS, TOAST_WARNING_MS, choose(isUpdate, TOAST_UPDATE_MS, TOAST_MS))
     const t = setTimeout(() => setToast(null), ms)
     return () => clearTimeout(t)
   }, [toast])
@@ -1637,7 +1685,7 @@ export default function App() {
       answeredUntil.current = 0
     } else {
       answeredRef.current = sessionFor
-      answeredUntil.current = Date.now() + 30000
+      answeredUntil.current = Date.now() + ANSWERED_HOLD_MS
     }
   }
 
@@ -1757,7 +1805,7 @@ export default function App() {
   const anyRunning = sessions.some(s => s.running)
   useEffect(() => {
     if (!running && !anyRunning) { return }
-    const interval = setInterval(() => fetchSessions(), 3000)
+    const interval = setInterval(() => fetchSessions(), SESSIONS_POLL_MS)
     return () => clearInterval(interval)
   }, [running, anyRunning, fetchSessions])
 
@@ -1980,13 +2028,13 @@ export default function App() {
       })
       if (!res.ok) {
         const err = await res.json().catch(() => ({}))
-        if (res.status === 409 && err.code === 'git_auth_required') {
+        if (res.status === HTTP_CONFLICT && err.code === 'git_auth_required') {
           // The clone was refused for credentials: connect that host, then send the same request again.
           setCreatingProject(false)
           setGitConnect({ service: err.service || undefined, after: 'create' })
           return
         }
-        if (res.status === 409 && err.code === 'git_identity_required') {
+        if (res.status === HTTP_CONFLICT && err.code === 'git_identity_required') {
           // Nothing was created: ask for the user and send the same request again.
           setShowGitIdentity(true)
           setCreatingProject(false)
@@ -2052,7 +2100,7 @@ export default function App() {
         setRemoteMain(d.branch)
         if (!mainChosen.current) { setNewProjectMain(d.branch) }
       } catch { /* the selector keeps what it has */ }
-    }, 600)
+    }, BRANCH_LOOKUP_DELAY_MS)
     return () => { live = false; clearTimeout(timer) }
   }, [showNewProject, newProjectMode, newProjectGit])
 
@@ -2126,7 +2174,7 @@ export default function App() {
   const deleteArtifact = useCallback(async (name: string) => {
     try {
       const res = await api(artifactBase() + '/' + encodeURIComponent(name) + scopeQuery(artifactScope), { method: 'DELETE' })
-      if (!res.ok && res.status !== 204) { setState('could not delete the artifact', true); return }
+      if (!res.ok && res.status !== HTTP_NO_CONTENT) { setState('could not delete the artifact', true); return }
       setArtifactView(v => (choose(v && v.name === name, null, v)))
       await loadArtifacts()
     } catch { setState('could not delete the artifact', true) }
@@ -2140,7 +2188,7 @@ export default function App() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ pinned })
       })
-      if (!res.ok && res.status !== 204) { setState('could not pin the artifact', true); return }
+      if (!res.ok && res.status !== HTTP_NO_CONTENT) { setState('could not pin the artifact', true); return }
       await loadArtifacts()
     } catch { setState('could not pin the artifact', true) }
   }, [artifactScope, artifactBase, loadArtifacts])
@@ -2243,7 +2291,7 @@ export default function App() {
   const deleteProject = useCallback(async (id: string, discard = false) => {
     try {
       const res = await api('/v1/projects/' + id + (choose(discard, '?force=1', '')), { method: 'DELETE' })
-      if (!res.ok && res.status !== 204) {
+      if (!res.ok && res.status !== HTTP_NO_CONTENT) {
         const err = await res.json().catch(() => ({}))
         setState(err.error || 'could not delete the project', true)
         return
@@ -2300,7 +2348,7 @@ export default function App() {
 
   const runScheduleNow = async (task: ScheduledTask) => {
     const res = await api('/v1/schedules/' + task.id + '/run', { method: 'POST' })
-    if (res.status === 409) {
+    if (res.status === HTTP_CONFLICT) {
       const body = await res.json().catch(() => ({}))
       setToast({ message: t('That task could not start'), type: 'error', detail: body.error })
       return
@@ -2491,7 +2539,7 @@ export default function App() {
     try {
       const res = await api('/v1/sessions/' + id + (choose(discard, '?force=1', '')), { method: 'DELETE' })
       // 204 = deleted, 200 = default session was reset instead of removed.
-      if (!res.ok && res.status !== 204 && res.status !== 200) {
+      if (!res.ok && res.status !== HTTP_NO_CONTENT && res.status !== HTTP_OK) {
         const err = await res.json().catch(() => ({}))
         setState(err.error || 'could not delete the session', true)
         return
@@ -2502,7 +2550,7 @@ export default function App() {
       // the DELETE and fetchSessions, making the session flicker back into
       // the sidebar. For 200 (default reset) we keep the row but clear its
       // title locally so the placeholder shows without waiting for the refetch.
-      if (res.status === 204) {
+      if (res.status === HTTP_NO_CONTENT) {
         setSessions(prev => prev.filter(s => s.id !== id))
       } else {
         setSessions(prev => prev.map(s => { if (s.id === id) { return { ...s, title: 'New session' } } return s }))
@@ -2510,7 +2558,7 @@ export default function App() {
       const list = await fetchSessions()
       // If we deleted the active session, switch to the most recent remaining one.
       if (id === sessionRef.current) {
-        if (res.status === 200) {
+        if (res.status === HTTP_OK) {
           // Default session was reset — reload its now-empty transcript.
           await switchSession('default')
         } else {
@@ -2761,7 +2809,7 @@ export default function App() {
           // Parse SSE: find data: line
           let dataLine = ''
           for (const line of frame.split('\n')) {
-            if (line.startsWith('data: ')) { dataLine = line.slice(6) }
+            if (line.startsWith(SSE_DATA)) { dataLine = line.slice(SSE_DATA.length) }
           }
           if (dataLine) {
             try {
@@ -2787,8 +2835,8 @@ export default function App() {
                     } catch { /* keep polling */ }
                   }, 1000)
                   // Give up after 30 seconds.
-                  setTimeout(() => clearInterval(poll), 30000)
-                }, 2000)
+                  setTimeout(() => clearInterval(poll), RESTART_WAIT_MS)
+                }, RESTART_FIRST_POLL_MS)
               }
             } catch { /* ignore parse error */ }
           }
@@ -3030,7 +3078,7 @@ export default function App() {
     if (handoffRef.current) {
       handoffRef.current = false
       const sid = sessionRef.current
-      for (const delay of [400, 1800]) {
+      for (const delay of HANDOFF_RELOAD_MS) {
         setTimeout(() => {
           if (sessionRef.current === sid && !runningRef.current) { void switchSessionRef.current?.(sid, 'none', true) }
         }, delay)
@@ -3201,7 +3249,7 @@ export default function App() {
       }
       return
     }
-    if (res.status === 404) {
+    if (res.status === HTTP_NOT_FOUND) {
       if (runningRef.current) {
         finish()
         await transcript()
@@ -3235,10 +3283,12 @@ export default function App() {
   // (see termBoost), and never by drawing an entry whole - that read as "everything at once".
   // The only cut is a sanity cap: a history this far behind is not being watched.
   const TERM_CAP = 30
+  // What is left to type once the cap is hit: the last few entries.
+  const TERM_KEEP = 6
   useEffect(() => {
     if (!termOpen) { return }
     const pending = shellLog.filter(e => e.id > termSeenId)
-    if (pending.length > TERM_CAP) { setTermSeenId(pending[pending.length - 6].id) }
+    if (pending.length > TERM_CAP) { setTermSeenId(pending[pending.length - TERM_KEEP].id) }
   }, [termOpen, shellLog, termSeenId])
   // The checkpoint whose ⋯ menu is open, and whether the destructive item was armed.
   const [cpMenu, setCpMenu] = useState<number | null>(null)
@@ -3435,7 +3485,7 @@ export default function App() {
   // While the gateway follows the CI, the bar's detail (the jobs) is refreshed every 20 seconds.
   useEffect(() => {
     if (!prSessionId || !shouldPoll(prWatch)) { return }
-    const id = setInterval(() => { void refreshPR(prSessionId) }, 20000)
+    const id = setInterval(() => { void refreshPR(prSessionId) }, PR_POLL_MS)
     return () => clearInterval(id)
   }, [prSessionId, prWatch?.status])
 
@@ -3898,14 +3948,14 @@ export default function App() {
         void copyText(text).then((ok) => {
           if (!ok) { return }
           target.textContent = '✓'
-          setTimeout(() => { target.textContent = t('copy') }, 1500)
+          setTimeout(() => { target.textContent = t('copy') }, COPIED_MS)
         })
       } else if (target.classList.contains('copy-msg-btn')) {
         const text = target.getAttribute('data-raw') || ''
         void copyText(text).then((ok) => {
           if (!ok) { return }
           target.textContent = '✓'
-          setTimeout(() => { target.textContent = t('copy') }, 1500)
+          setTimeout(() => { target.textContent = t('copy') }, COPIED_MS)
         })
       }
     }
@@ -3935,7 +3985,7 @@ export default function App() {
       setContextMenu({ type, id, title, x, y })
       // Prevent the subsequent click from firing.
       if (longPressTimer.current) { longPressTimer.current = null }
-    }, 500)
+    }, LONG_PRESS_MS)
   }
 
   const cancelLongPress = () => {
@@ -4963,7 +5013,7 @@ export default function App() {
                                           void copyText(merge).then((ok) => {
                                             if (!ok) { return }
                                             setAgentCopied(a.id)
-                                            setTimeout(() => setAgentCopied(c => choose(c === a.id, null, c)), 1500)
+                                            setTimeout(() => setAgentCopied(c => choose(c === a.id, null, c)), COPIED_MS)
                                           })
                                         }}
                                       >{choose(agentCopied === a.id, t('copied'), t('copy'))}</button>

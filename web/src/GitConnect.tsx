@@ -37,9 +37,14 @@ interface Props {
   onConnected: (service: string, account: string) => void
 }
 
+// The gateway answers 501 when it cannot sign in to git hosts at all, and 502 when the host
+// refused or failed the request it passed on.
+const HTTP_NOT_IMPLEMENTED = 501
+const HTTP_BAD_GATEWAY = 502
+
 function errorText(e: unknown): string {
   if (e instanceof GitError) {
-    if (e.status === 501) { return t('This server cannot sign in to git hosts. Ask whoever runs it to enable login.') }
+    if (e.status === HTTP_NOT_IMPLEMENTED) { return t('This server cannot sign in to git hosts. Ask whoever runs it to enable login.') }
     return e.message
   }
   return errorMessage(e)
@@ -126,7 +131,7 @@ function ConnectPanel({ api, account, selfHosted, onClose, onConnected }: { api:
       flowId.current = r.flow.flow_id
       dispatch({ type: 'started', flow: r.flow })
     } catch (e) {
-      if (e instanceof GitError && e.status === 502) {
+      if (e instanceof GitError && e.status === HTTP_BAD_GATEWAY) {
         dispatch({ type: 'reset' })
         setMode('token')
         setNote(tf('{host} could not start the login: {err}. You can connect with a token instead.', { host: account.name, err: e.message }))

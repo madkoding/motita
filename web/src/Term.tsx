@@ -93,6 +93,10 @@ function collect(root: HTMLElement): { slices: Slice[]; total: number } {
   return { slices, total }
 }
 
+// The UTF-16 range of the first half of a surrogate pair.
+const HIGH_SURROGATE_MIN = 0xd800
+const HIGH_SURROGATE_MAX = 0xdbff
+
 // reveal shows the first `n` characters of the whole text and hides the rest.
 function reveal(slices: Slice[], n: number) {
   for (const s of slices) {
@@ -100,7 +104,7 @@ function reveal(slices: Slice[], n: number) {
     // Never cut between the two halves of a surrogate pair: that draws a broken glyph.
     if (k > 0 && k < s.full.length) {
       const c = s.full.charCodeAt(k - 1)
-      if (c >= 0xd800 && c <= 0xdbff) { k-- }
+      if (c >= HIGH_SURROGATE_MIN && c <= HIGH_SURROGATE_MAX) { k-- }
     }
     if (s.node.data.length !== k) { s.node.data = s.full.slice(0, k) }
   }
@@ -133,6 +137,11 @@ interface TypedProps {
  * The speed is chosen so a short line is unhurried and a long output never takes more than
  * about a second and a quarter: 70 to 900 characters per second.
  */
+// The typing speed's bounds, in characters per second, and the time a long text is typed in.
+const TYPE_MIN_CPS = 70
+const TYPE_MAX_CPS = 900
+const TYPE_TARGET_S = 1.2
+
 export function Typed({ html, as = 'span', class: cls, cps, onTick, onDone, instant, boost = 1 }: TypedProps) {
   const ref = useRef<HTMLElement>(null)
   const shown = useRef(0)
@@ -172,7 +181,7 @@ export function Typed({ html, as = 'span', class: cls, cps, onTick, onDone, inst
       return
     }
     el.classList.add('is-typing')
-    const rate = (cps ?? Math.min(900, Math.max(70, total / 1.2))) * boost
+    const rate = (cps ?? Math.min(TYPE_MAX_CPS, Math.max(TYPE_MIN_CPS, total / TYPE_TARGET_S))) * boost
     const base = shown.current
     const t0 = performance.now()
     let raf = 0
