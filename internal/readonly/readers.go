@@ -86,6 +86,8 @@ var argumentRules = map[string]func([]string) (string, bool){
 				return `find -exec runs an arbitrary command`, true
 			case strings.HasPrefix(a, "-fprint") || a == "-fls":
 				return fmt.Sprintf("find %s writes a file", a), true
+			default:
+				// Every other argument is a path, a test or a reading action.
 			}
 		}
 		return "", false
@@ -96,13 +98,11 @@ var argumentRules = map[string]func([]string) (string, bool){
 		switch sub {
 		case "status", "show", "list-units", "list-unit-files", "is-active",
 			"is-enabled", "is-failed", "cat", "list-timers", "list-sockets",
-			"get-default":
+			"get-default", "":
 			return "", false
+		default:
+			return fmt.Sprintf("systemctl %s can change the system", sub), true
 		}
-		if sub == "" {
-			return "", false
-		}
-		return fmt.Sprintf("systemctl %s can change the system", sub), true
 	},
 	"go": goRule,
 	// --- the readers whose OPERANDS can write -------------------------------
@@ -212,6 +212,8 @@ func writesTo(args []string, names ...string) (string, bool) {
 			case len(flag) == 2 && len(a) > 2 && strings.HasPrefix(a, flag):
 				// -ofile
 				return a, true
+			default:
+				// Not this flag: the next one is tried.
 			}
 		}
 	}

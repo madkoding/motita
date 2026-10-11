@@ -171,60 +171,75 @@ func (sr *StreamResult) Handle(chunk StreamChunk) bool {
 	case StreamText:
 		sr.Content.WriteString(chunk.Text)
 	case StreamToolCall:
-		if chunk.Call == nil {
-			return false
+		if chunk.Call != nil {
+			sr.handleCall(chunk.Call)
 		}
-		c := chunk.Call
-		// A call is announced by an ID we have not seen yet. A repeated ID is the same call
-		// restated (a gateway that sends the id on every fragment), and an absent ID is by
-		// definition a continuation.
-		startsCall := c.ID != "" && (sr.LastCall == nil || sr.LastCall.ID != c.ID)
-		if startsCall || sr.LastCall == nil {
-			sr.Calls = append(sr.Calls, *c)
-			// LastCall must point at the copy that is now in the slice. Pointing it at the
-			// incoming chunk (which the caller may reuse) made the later fragments of the same
-			// call land outside the slice, so the arguments kept only their first piece.
-			sr.LastCall = &sr.Calls[len(sr.Calls)-1]
-			return false
-		}
-		// A continuation: it contributes the pieces it carries and must not erase what the
-		// announcing fragment already said. Overwriting the whole struct dropped the ID and the
-		// NAME of the call on the first continuation, which left the caller with a call it could
-		// not dispatch.
-		//
-		// `arguments` is the one field whose treatment depends on WHICH provider is speaking,
-		// and the difference was measured against each rather than assumed:
-		//
-		//   - OpenAI (and the specification) streams the arguments as PIECES of one JSON
-		//     document: the first fragment ends mid-string and the next continues it, so they
-		//     must be JOINED. This is the id-less case, and joining is the only reading that
-		//     produces parseable JSON.
-		//   - Other gateways RESTATE the whole call on a fragment that repeats the id, which is
-		//     the case the "last one wins" rule was written for: joining there would produce two
-		//     JSON documents back to back.
-		//
-		// So a fragment that repeats the id REPLACES the arguments, and one without an id
-		// APPENDS to them.
-		if c.ID != "" {
-			sr.LastCall.ID = c.ID
-		}
-		if c.Type != "" {
-			sr.LastCall.Type = c.Type
-		}
-		if c.Function.Name != "" {
-			sr.LastCall.Function.Name = c.Function.Name
-		}
-		if len(c.Function.Arguments) > 0 {
-			if c.ID != "" {
-				// A restated call: the fragment carries the arguments whole.
-				sr.LastCall.Function.Arguments = c.Function.Arguments
-			} else {
-				// A piece of the arguments: it continues the document in progress.
-				sr.LastCall.Function.Arguments = append(sr.LastCall.Function.Arguments, c.Function.Arguments...)
-			}
-		}
+	default:
+		// Thinking is shown, never accumulated into the reply.
 	}
 	return false
+}
+
+// handleCall adds one tool-call fragment to the reply: a new call, or a piece of the one in
+// progress.
+func (sr *StreamResult) handleCall(c *ToolCall) {
+	// A call is announced by an ID we have not seen yet. A repeated ID is the same call
+	// restated (a gateway that sends the id on every fragment), and an absent ID is by
+	// definition a continuation.
+	startsCall := c.ID != "" && (sr.LastCall == nil || sr.LastCall.ID != c.ID)
+	if startsCall || sr.LastCall == nil {
+		sr.Calls = append(sr.Calls, *c)
+		// LastCall must point at the copy that is now in the slice. Pointing it at the
+		// incoming chunk (which the caller may reuse) made the later fragments of the same
+		// call land outside the slice, so the arguments kept only their first piece.
+		sr.LastCall = &sr.Calls[len(sr.Calls)-1]
+		return
+	}
+	sr.continueCall(c)
+}
+
+// continueCall merges a continuation fragment into the call in progress.
+func (sr *StreamResult) continueCall(c *ToolCall) {
+	// A continuation: it contributes the pieces it carries and must not erase what the
+	// announcing fragment already said. Overwriting the whole struct dropped the ID and the
+	// NAME of the call on the first continuation, which left the caller with a call it could
+	// not dispatch.
+	//
+	// `arguments` is the one field whose treatment depends on WHICH provider is speaking,
+	// and the difference was measured against each rather than assumed:
+	//
+	//   - OpenAI (and the specification) streams the arguments as PIECES of one JSON
+	//     document: the first fragment ends mid-string and the next continues it, so they
+	//     must be JOINED. This is the id-less case, and joining is the only reading that
+	//     produces parseable JSON.
+	//   - Other gateways RESTATE the whole call on a fragment that repeats the id, which is
+	//     the case the "last one wins" rule was written for: joining there would produce two
+	//     JSON documents back to back.
+	//
+	// So a fragment that repeats the id REPLACES the arguments, and one without an id
+	// APPENDS to them.
+	if c.ID != "" {
+		sr.LastCall.ID = c.ID
+	}
+	if c.Type != "" {
+		sr.LastCall.Type = c.Type
+	}
+	if c.Function.Name != "" {
+		sr.LastCall.Function.Name = c.Function.Name
+	}
+	if len(c.Function.Arguments) > 0 {
+		sr.LastCall.Function.Arguments = mergedArguments(sr.LastCall.Function.Arguments, c)
+	}
+}
+
+// mergedArguments are the arguments of the call in progress once fragment c is applied.
+func mergedArguments(sofar json.RawMessage, c *ToolCall) json.RawMessage {
+	if c.ID != "" {
+		// A restated call: the fragment carries the arguments whole.
+		return c.Function.Arguments
+	}
+	// A piece of the arguments: it continues the document in progress.
+	return append(sofar, c.Function.Arguments...)
 }
 
 // FinalReply builds the accumulated Reply from the stream.
@@ -243,10 +258,9 @@ func (sc StreamChunk) String() string {
 		return "[tool call]"
 	case StreamError:
 		return fmt.Sprintf("[error: %v]", sc.Error)
-	case StreamDone:
+	default:
 		return ""
 	}
-	return ""
 }
 
 // NewTool is a small helper for building the tool list.

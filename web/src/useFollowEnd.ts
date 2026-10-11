@@ -10,6 +10,9 @@
 import { useCallback, useEffect, useRef } from 'preact/hooks'
 import { createFollower } from './smoothscroll'
 
+// How long after the reader's own wheel, touch or drag a scroll is still taken as theirs.
+const USER_SCROLL_MS = 800
+
 export function useFollowEnd(open: boolean, tau = 110) {
   const ref = useRef<HTMLDivElement>(null)
   const pinned = useRef(true)
@@ -23,11 +26,15 @@ export function useFollowEnd(open: boolean, tau = 110) {
     const el = ref.current
     if (!el) { return }
     const gap = el.scrollHeight - el.scrollTop - el.clientHeight
-    if (dragging.current || performance.now() - userAt.current < 800) {
+    if (dragging.current || performance.now() - userAt.current < USER_SCROLL_MS) {
       pinned.current = gap < 24
       // The reader has taken the scroll: whatever glide is under way stops with it.
       if (!pinned.current) { follower.current.stop() }
-    } else if (gap < 2) { pinned.current = true }
+    } else if (gap < 2) {
+      pinned.current = true
+    } else {
+      // The box grew under a reader who is away from the end: it stays where it is.
+    }
   }, [])
   const onPointerDown = useCallback(() => { dragging.current = true; markUser() }, [markUser])
 
@@ -40,7 +47,7 @@ export function useFollowEnd(open: boolean, tau = 110) {
 
   useEffect(() => {
     const el = ref.current
-    if (!el || typeof MutationObserver === 'undefined') { return }
+    if (!el || typeof MutationObserver === 'undefined') { return undefined }
     const mo = new MutationObserver(() => stick())
     mo.observe(el, { childList: true, subtree: true, characterData: true })
     return () => mo.disconnect()

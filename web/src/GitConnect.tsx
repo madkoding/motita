@@ -3,6 +3,8 @@ import { backdropClick } from './a11y'
 import { t, tf } from './i18n'
 import { useDialog } from './useDialog'
 import { copyText } from './clipboard'
+import { choose } from './choose'
+import { errorMessage } from './errors'
 import {
   type Api, type GitAccount, type GitMethod, type ConnectRequest, GitError,
   connect, listAccounts, flowStatus, pasteCode, cancelFlow, pollFlow, reduceFlow, primaryMethod,
@@ -35,12 +37,17 @@ interface Props {
   onConnected: (service: string, account: string) => void
 }
 
+// The gateway answers 501 when it cannot sign in to git hosts at all, and 502 when the host
+// refused or failed the request it passed on.
+const HTTP_NOT_IMPLEMENTED = 501
+const HTTP_BAD_GATEWAY = 502
+
 function errorText(e: unknown): string {
   if (e instanceof GitError) {
-    if (e.status === 501) { return t('This server cannot sign in to git hosts. Ask whoever runs it to enable login.') }
+    if (e.status === HTTP_NOT_IMPLEMENTED) { return t('This server cannot sign in to git hosts. Ask whoever runs it to enable login.') }
     return e.message
   }
-  return e instanceof Error ? e.message : String(e)
+  return errorMessage(e)
 }
 
 // GitConnectModal is the connect flow for one git host: one-click login (device code or browser
@@ -66,7 +73,8 @@ export function GitConnectModal({ api, service, selfHosted, onClose, onConnected
     return accounts?.find(a => a.id === picked) || null
   }, [accounts, picked, selfHosted])
 
-  const title = account ? tf('Connect {host}', { host: account.name }) : t('Connect a git host')
+  let title = t('Connect a git host')
+  if (account) { title = tf('Connect {host}', { host: account.name }) }
 
   return (
     <div class="fixed inset-0 z-120 flex items-center justify-center bg-black/70 backdrop-blur-xs p-4" data-testid="git-connect-modal" role="presentation" onClick={backdropClick(onClose)}>
@@ -97,12 +105,12 @@ export function GitConnectModal({ api, service, selfHosted, onClose, onConnected
 function ConnectPanel({ api, account, selfHosted, onClose, onConnected }: { api: Api; account: GitAccount; selfHosted?: SelfHosted; onClose: () => void; onConnected: (service: string, account: string) => void }) {
   const [state, dispatch] = useReducer(reduceFlow, { phase: 'idle' } as ReturnType<typeof reduceFlow>)
   const primary = primaryMethod(account)
-  const [mode, setMode] = useState<'oauth' | 'token'>(primary === 'token' ? 'token' : 'oauth')
+  const [mode, setMode] = useState<'oauth' | 'token'>(choose(primary === 'token', 'token', 'oauth'))
   const [note, setNote] = useState('')
   const flowId = useRef('')
   const doneRef = useRef(false)
 
-  const base = (): ConnectRequest => (account.id ? { service: account.id } : { kind: account.kind, host: account.host })
+  const base = (): ConnectRequest => choose(account.id, { service: account.id }, { kind: account.kind, host: account.host })
 
   // Cancel a pending login when the modal goes away.
   useEffect(() => () => { if (flowId.current && !doneRef.current) { void cancelFlow(api, flowId.current) } }, [])
@@ -119,11 +127,14 @@ function ConnectPanel({ api, account, selfHosted, onClose, onConnected }: { api:
     dispatch({ type: 'start' })
     try {
       const r = await connect(api, { ...base(), method })
-      if (r.type === 'connected') { return finish(r.service || account.id, r.account) }
+      if (r.type === 'connected') {
+        finish(r.service || account.id, r.account)
+        return
+      }
       flowId.current = r.flow.flow_id
       dispatch({ type: 'started', flow: r.flow })
     } catch (e) {
-      if (e instanceof GitError && e.status === 502) {
+      if (e instanceof GitError && e.status === HTTP_BAD_GATEWAY) {
         dispatch({ type: 'reset' })
         setMode('token')
         setNote(tf('{host} could not start the login: {err}. You can connect with a token instead.', { host: account.name, err: e.message }))
@@ -134,9 +145,10 @@ function ConnectPanel({ api, account, selfHosted, onClose, onConnected }: { api:
   }
 
   // Poll while a login is pending.
-  const pendingId = state.phase === 'pending' ? state.flow.flow_id : ''
+  let pendingId = ''
+  if (state.phase === 'pending') { pendingId = state.flow.flow_id }
   useEffect(() => {
-    if (!pendingId) { return }
+    if (!pendingId) { return undefined }
     let stop = false
     pollFlow({
       get: () => flowStatus(api, pendingId),
@@ -171,7 +183,8 @@ function ConnectPanel({ api, account, selfHosted, onClose, onConnected }: { api:
     const f = state.flow
     return (
       <div class="space-y-4">
-        {f.method === 'device' ? <DevicePending flow={f} account={account} /> : <CodePending api={api} flow={f} account={account} />}
+        {f.method === 'device' && <DevicePending flow={f} account={account} />}
+        {f.method !== 'device' && <CodePending api={api} flow={f} account={account} />}
         <div class="flex items-center gap-2 text-sm text-[#9a9aaa]" role="status" aria-live="polite">
           <Spinner /> {tf('Waiting for you to approve in {host}…', { host: account.name })}
         </div>
@@ -189,13 +202,14 @@ function ConnectPanel({ api, account, selfHosted, onClose, onConnected }: { api:
     <div class="space-y-4">
       {note && <p class="text-sm text-warning" role="status">{note}</p>}
       {account.setup_hint && !account.oauth_ready && <p class="text-xs text-[#7a7a8c]">{account.setup_hint}</p>}
-      {mode === 'oauth' && oauthMethod ? (
+      {!!(mode === 'oauth' && oauthMethod) && (
         <div class="space-y-3">
           <p class="text-sm text-[#9a9aaa]">{tf('Sign in with {host} to let motita clone your repositories. It only asks for repository access.', { host: account.name })}</p>
           <button class={btnPrimary + ' w-full'} data-autofocus onClick={() => start(oauthMethod)}>{tf('Connect {host}', { host: account.name })}</button>
           <button class={linkBtn} onClick={() => setMode('token')}>{t('Use a token instead')}</button>
         </div>
-      ) : (
+      )}
+      {!(mode === 'oauth' && oauthMethod) && (
         <TokenForm api={api} account={account} base={base()} onDone={finish} />
       )}
       {mode === 'token' && canOauth && oauthMethod && (
@@ -210,7 +224,7 @@ function CopyButton({ text }: { text: string }) {
   return (
     <button class={btnGhost} aria-label={t('Copy code')} onClick={async () => {
       if (await copyText(text)) { setDone(true); setTimeout(() => setDone(false), 1800) }
-    }}>{done ? t('Copied') : t('Copy')}</button>
+    }}>{choose(done, t('Copied'), t('Copy'))}</button>
   )
 }
 
@@ -267,16 +281,16 @@ function TokenForm({ api, account, base, onDone }: { api: Api; account: GitAccou
     if (!ok || busy) { return }
     setBusy(true); setErr('')
     try {
-      const r = await connect(api, { ...base, method: 'token', token: token.trim(), username: bb ? user.trim() : undefined })
+      const r = await connect(api, { ...base, method: 'token', token: token.trim(), username: choose(bb, user.trim(), undefined) })
       if (r.type === 'connected') { onDone(r.service || account.id, r.account); return }
       setErr(t('Unexpected answer from the server.'))
-    } catch (e2) { setErr(errorText(e2)) }
+    } catch (error_) { setErr(errorText(error_)) }
     setBusy(false)
   }
   return (
     <form class="space-y-3" onSubmit={submit}>
       <p class="text-sm text-[#9a9aaa]">
-        {bb ? t('Bitbucket needs an app password, not your account password. Give it read access to repositories.') : t('Create a personal access token with permission to read your repositories (the "repo" or "read_repository" scope), then paste it here.')}
+        {choose(bb, t('Bitbucket needs an app password, not your account password. Give it read access to repositories.'), t('Create a personal access token with permission to read your repositories (the "repo" or "read_repository" scope), then paste it here.'))}
       </p>
       {account.token_url && <a class={linkBtn} href={account.token_url} target="_blank" rel="noopener noreferrer">{t('Create a token')} ↗</a>}
       {bb && (
@@ -286,12 +300,12 @@ function TokenForm({ api, account, base, onDone }: { api: Api; account: GitAccou
         </label>
       )}
       <label class="block">
-        <span class="block text-sm text-[#9a9aaa] mb-1.5">{bb ? t('App password') : t('Token')}</span>
+        <span class="block text-sm text-[#9a9aaa] mb-1.5">{choose(bb, t('App password'), t('Token'))}</span>
         <input class={input + ' font-mono text-sm'} type="password" value={token} onInput={(e) => setToken((e.target as HTMLInputElement).value)} autocomplete="off" spellcheck={false} data-autofocus />
       </label>
       <p class="text-xs text-[#7a7a8c]">{t('The token is stored on this machine and used only to clone and list repositories.')}</p>
       {err && <p class="text-sm text-danger" role="alert">{err}</p>}
-      <button type="submit" class={btnPrimary + ' w-full'} disabled={!ok || busy}>{busy ? t('Checking…') : t('Connect')}</button>
+      <button type="submit" class={btnPrimary + ' w-full'} disabled={!ok || busy}>{choose(busy, t('Checking…'), t('Connect'))}</button>
     </form>
   )
 }

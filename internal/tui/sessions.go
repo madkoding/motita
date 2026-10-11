@@ -219,6 +219,8 @@ func (t *TUI) followRunIfAny(ctx context.Context) {
 		t.addMessage(AuthorSystem, t.trf("the gateway could not be asked whether a turn is in flight: %s", err.Error()))
 	case running:
 		go t.followLiveRun(ctx, rc, live)
+	default:
+		// No turn in flight: there is nothing to follow.
 	}
 }
 
@@ -420,6 +422,8 @@ func (t *TUI) sessionsText(ctx context.Context) (string, error) {
 			detail = "  " + t.tr("(a run is in flight)")
 		case !s.LastUsed.IsZero():
 			detail = "  " + t.trf("(last used %s)", t.humanSince(now.Sub(s.LastUsed)))
+		default:
+			// Never used and not running: there is nothing to say about when.
 		}
 		if s.Branch != "" {
 			detail += "  [" + s.Branch + "]"

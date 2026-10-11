@@ -57,6 +57,8 @@ func summarize(checks []Check) CIStatus {
 			return st
 		case StatePending:
 			st.State = StatePending
+		default:
+			// A success leaves the summary as it is.
 		}
 	}
 	return st
@@ -80,22 +82,27 @@ func (a API) CI(ctx context.Context, r Remote, n int) (CIStatus, error) {
 func (a API) BranchCI(ctx context.Context, r Remote, branch string) (CIStatus, error) {
 	switch a.Service.Kind {
 	case KindGitLab:
-		var pipelines []struct {
-			ID int64 `json:"id"`
-		}
-		q := url.Values{"ref": {branch}, "per_page": {"1"}}
-		if err := a.do(ctx, http.MethodGet, fmt.Sprintf("%s/projects/%s/pipelines?%s", a.Service.APIBase, url.PathEscape(r.Path), q.Encode()), nil, &pipelines); err != nil {
-			return CIStatus{}, err
-		}
-		if len(pipelines) == 0 {
-			return summarize(nil), nil
-		}
-		return a.gitLabJobs(ctx, url.PathEscape(r.Path), pipelines[0].ID)
+		return a.gitLabBranchCI(ctx, r, branch)
 	case KindBitbucket:
 		return summarize(nil), nil
 	default:
 		return a.ciGitHubLikeAt(ctx, r, url.PathEscape(branch))
 	}
+}
+
+// gitLabBranchCI reads the jobs of the latest pipeline of a branch on GitLab.
+func (a API) gitLabBranchCI(ctx context.Context, r Remote, branch string) (CIStatus, error) {
+	var pipelines []struct {
+		ID int64 `json:"id"`
+	}
+	q := url.Values{"ref": {branch}, "per_page": {"1"}}
+	if err := a.do(ctx, http.MethodGet, a.gitLabProject(r)+"/pipelines?"+q.Encode(), nil, &pipelines); err != nil {
+		return CIStatus{}, err
+	}
+	if len(pipelines) == 0 {
+		return summarize(nil), nil
+	}
+	return a.gitLabJobs(ctx, url.PathEscape(r.Path), pipelines[0].ID)
 }
 
 // FailedNames are the names of the checks that failed, sorted as the host gave them.
@@ -115,7 +122,7 @@ func (a API) headSHA(ctx context.Context, r Remote, n int) (string, error) {
 			SHA string `json:"sha"`
 		} `json:"head"`
 	}
-	if err := a.do(ctx, http.MethodGet, fmt.Sprintf("%s/repos/%s/pulls/%d", a.Service.APIBase, r.Path, n), nil, &pr); err != nil {
+	if err := a.do(ctx, http.MethodGet, a.pullsPath(r, n), nil, &pr); err != nil {
 		return "", err
 	}
 	if pr.Head.SHA == "" {
@@ -136,38 +143,11 @@ func (a API) ciGitHubLike(ctx context.Context, r Remote, n int) (CIStatus, error
 func (a API) ciGitHubLikeAt(ctx context.Context, r Remote, sha string) (CIStatus, error) {
 	var checks []Check
 	if a.Service.Kind == KindGitHub {
-		var runs struct {
-			CheckRuns []struct {
-				ID         int64  `json:"id"`
-				Name       string `json:"name"`
-				Status     string `json:"status"`
-				Conclusion string `json:"conclusion"`
-				HTMLURL    string `json:"html_url"`
-				Output     struct {
-					Title   string `json:"title"`
-					Summary string `json:"summary"`
-				} `json:"output"`
-			} `json:"check_runs"`
-		}
-		if err := a.do(ctx, http.MethodGet, fmt.Sprintf("%s/repos/%s/commits/%s/check-runs?per_page=100", a.Service.APIBase, r.Path, sha), nil, &runs); err != nil {
+		runs, err := a.gitHubCheckRuns(ctx, r, sha)
+		if err != nil {
 			return CIStatus{}, err
 		}
-		for _, c := range runs.CheckRuns {
-			state := StatePending
-			if c.Status == "completed" {
-				switch c.Conclusion {
-				case "success", "neutral", "skipped":
-					state = StateSuccess
-				default:
-					state = StateFailure
-				}
-			}
-			detail := strings.TrimSpace(c.Output.Title)
-			if detail == "" {
-				detail = strings.TrimSpace(c.Output.Summary)
-			}
-			checks = append(checks, Check{Name: c.Name, State: state, URL: c.HTMLURL, Detail: firstLineOf(detail), jobID: c.ID})
-		}
+		checks = runs
 	}
 	var statuses struct {
 		Statuses []struct {
@@ -178,7 +158,8 @@ func (a API) ciGitHubLikeAt(ctx context.Context, r Remote, sha string) (CIStatus
 			Description string `json:"description"`
 		} `json:"statuses"`
 	}
-	if err := a.do(ctx, http.MethodGet, fmt.Sprintf("%s/repos/%s/commits/%s/status", a.Service.APIBase, r.Path, sha), nil, &statuses); err != nil {
+	endpoint := fmt.Sprintf("%s/repos/%s/commits/%s/status", a.Service.APIBase, r.Path, sha)
+	if err := a.do(ctx, http.MethodGet, endpoint, nil, &statuses); err != nil {
 		return CIStatus{}, err
 	}
 	for _, s := range statuses.Statuses {
@@ -193,12 +174,58 @@ func (a API) ciGitHubLikeAt(ctx context.Context, r Remote, sha string) (CIStatus
 	return st, nil
 }
 
+// gitHubCheckRuns reads the GitHub check runs of a commit.
+func (a API) gitHubCheckRuns(ctx context.Context, r Remote, sha string) ([]Check, error) {
+	var runs struct {
+		CheckRuns []struct {
+			ID         int64  `json:"id"`
+			Name       string `json:"name"`
+			Status     string `json:"status"`
+			Conclusion string `json:"conclusion"`
+			HTMLURL    string `json:"html_url"`
+			Output     struct {
+				Title   string `json:"title"`
+				Summary string `json:"summary"`
+			} `json:"output"`
+		} `json:"check_runs"`
+	}
+	endpoint := fmt.Sprintf("%s/repos/%s/commits/%s/check-runs?per_page=100", a.Service.APIBase, r.Path, sha)
+	if err := a.do(ctx, http.MethodGet, endpoint, nil, &runs); err != nil {
+		return nil, err
+	}
+	var checks []Check
+	for _, c := range runs.CheckRuns {
+		detail := strings.TrimSpace(c.Output.Title)
+		if detail == "" {
+			detail = strings.TrimSpace(c.Output.Summary)
+		}
+		checks = append(checks, Check{Name: c.Name, State: checkRunState(c.Status, c.Conclusion), URL: c.HTMLURL,
+			Detail: firstLineOf(detail), jobID: c.ID})
+	}
+	return checks, nil
+}
+
+// checkRunState folds a GitHub check run's status and conclusion into one state: pending until it
+// completes, then a success or a failure.
+func checkRunState(status, conclusion string) string {
+	if status != "completed" {
+		return StatePending
+	}
+	switch conclusion {
+	case "success", "neutral", "skipped":
+		return StateSuccess
+	default:
+		return StateFailure
+	}
+}
+
 func (a API) ciGitLab(ctx context.Context, r Remote, n int) (CIStatus, error) {
 	project := url.PathEscape(r.Path)
 	var pipelines []struct {
 		ID int64 `json:"id"`
 	}
-	if err := a.do(ctx, http.MethodGet, fmt.Sprintf("%s/projects/%s/merge_requests/%d/pipelines", a.Service.APIBase, project, n), nil, &pipelines); err != nil {
+	endpoint := fmt.Sprintf("%s/projects/%s/merge_requests/%d/pipelines", a.Service.APIBase, project, n)
+	if err := a.do(ctx, http.MethodGet, endpoint, nil, &pipelines); err != nil {
 		return CIStatus{}, err
 	}
 	if len(pipelines) == 0 {
@@ -216,7 +243,8 @@ func (a API) gitLabJobs(ctx context.Context, project string, pipeline int64) (CI
 		FailureReason string `json:"failure_reason"`
 		AllowFailure  bool   `json:"allow_failure"`
 	}
-	if err := a.do(ctx, http.MethodGet, fmt.Sprintf("%s/projects/%s/pipelines/%d/jobs?per_page=100", a.Service.APIBase, project, pipeline), nil, &jobs); err != nil {
+	endpoint := fmt.Sprintf("%s/projects/%s/pipelines/%d/jobs?per_page=100", a.Service.APIBase, project, pipeline)
+	if err := a.do(ctx, http.MethodGet, endpoint, nil, &jobs); err != nil {
 		return CIStatus{}, err
 	}
 	checks := make([]Check, 0, len(jobs))
@@ -241,7 +269,7 @@ func (a API) ciBitbucket(ctx context.Context, r Remote, n int) (CIStatus, error)
 			Description string `json:"description"`
 		} `json:"values"`
 	}
-	if err := a.do(ctx, http.MethodGet, fmt.Sprintf("%s/repositories/%s/pullrequests/%d/statuses", a.Service.APIBase, r.Path, n), nil, &out); err != nil {
+	if err := a.do(ctx, http.MethodGet, a.bitbucketPRPath(r, n)+"/statuses", nil, &out); err != nil {
 		return CIStatus{}, err
 	}
 	checks := make([]Check, 0, len(out.Values))
@@ -281,7 +309,8 @@ func (a API) FailureLog(ctx context.Context, r Remote, c Check) (log string, ok 
 	if a.Service.Kind != KindGitHub || c.jobID == 0 {
 		return "", false, nil
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, a.Service.APIBase+"/repos/"+r.Path+"/actions/jobs/"+strconv.FormatInt(c.jobID, 10)+"/logs", nil)
+	endpoint := a.Service.APIBase + "/repos/" + r.Path + "/actions/jobs/" + strconv.FormatInt(c.jobID, 10) + "/logs"
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
 	if err != nil {
 		return "", false, err
 	}

@@ -40,13 +40,16 @@ type DeviceFlow struct {
 // StartDevice asks the host for a device code.
 func (s Store) StartDevice(ctx context.Context, svc Service) (*DeviceFlow, error) {
 	if !contains(svc.Methods(), MethodDevice) {
-		return nil, fmt.Errorf("%s has no device login configured: connect with a token, or set %s_CLIENT_ID", svc.Name, svc.EnvPrefix)
+		return nil, fmt.Errorf("%s has no device login configured: connect with a token, or set %s_CLIENT_ID",
+			svc.Name, svc.EnvPrefix)
 	}
 	dc, err := oauth.DeviceStart(ctx, s.HTTP, svc.Endpoints, svc.Client, svc.Scope)
 	if err != nil {
 		return nil, fmt.Errorf("could not start the %s login: %w", svc.Name, err)
 	}
-	return &DeviceFlow{Service: svc, URL: dc.VerificationURL, Code: dc.UserCode, ExpiresIn: dc.ExpiresIn, store: s, dc: dc}, nil
+	return &DeviceFlow{
+		Service: svc, URL: dc.VerificationURL, Code: dc.UserCode, ExpiresIn: dc.ExpiresIn, store: s, dc: dc,
+	}, nil
 }
 
 // Wait polls until the user approves (or refuses, or the code expires), then
@@ -74,7 +77,9 @@ type CodeFlow struct {
 // StartCode opens the loopback listener and builds the URL to send the browser to.
 func (s Store) StartCode(svc Service) (*CodeFlow, error) {
 	if !contains(svc.Methods(), MethodCode) {
-		return nil, fmt.Errorf("%s has no browser login configured: connect with a token, or set %s_CLIENT_ID and %s_CLIENT_SECRET", svc.Name, svc.EnvPrefix, svc.EnvPrefix)
+		return nil, fmt.Errorf(
+			"%s has no browser login configured: connect with a token, or set %s_CLIENT_ID and %s_CLIENT_SECRET",
+			svc.Name, svc.EnvPrefix, svc.EnvPrefix)
 	}
 	pkce, err := oauth.NewPKCE()
 	if err != nil {
@@ -104,7 +109,8 @@ func (f *CodeFlow) Wait(ctx context.Context, paste <-chan string) (string, error
 	if err != nil {
 		return "", err
 	}
-	tok, err := oauth.ExchangeAuthCode(ctx, f.store.HTTP, f.Service.Endpoints, f.Service.Client, code, f.lb.RedirectURI, f.pkce)
+	tok, err := oauth.ExchangeAuthCode(ctx, f.store.HTTP, f.Service.Endpoints, f.Service.Client,
+		code, f.lb.RedirectURI, f.pkce)
 	if err != nil {
 		return "", fmt.Errorf("could not complete the %s login: %w", f.Service.Name, err)
 	}
@@ -132,8 +138,12 @@ func (s Store) ConnectToken(ctx context.Context, svc Service, token, username st
 
 // finish verifies a token by asking the host who it is, then stores it. The login
 // is only stored when the host accepts it.
-func (s Store) finish(ctx context.Context, svc Service, tok oauth.Token, username string, basicAuth bool) (string, error) {
-	api := API{Service: svc, HTTP: s.HTTP, Cred: oauth.Credential{AccessToken: tok.AccessToken, Username: username, Basic: basicAuth}}
+func (s Store) finish(
+	ctx context.Context, svc Service, tok oauth.Token, username string, basicAuth bool,
+) (string, error) {
+	api := API{Service: svc, HTTP: s.HTTP, Cred: oauth.Credential{
+		AccessToken: tok.AccessToken, Username: username, Basic: basicAuth,
+	}}
 	who, err := api.Whoami(ctx)
 	if err != nil {
 		var he *HTTPError

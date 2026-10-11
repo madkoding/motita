@@ -4,6 +4,8 @@ import { t, tf } from './i18n'
 import { type Api, type GitAccount, listAccounts, disconnect } from './gitApi'
 import type { LangSetting } from './i18n'
 import { initSettings, saveSettings, loadNotify, saveNotify, notifyState, type UISettings, type FontSize, type Density } from './settings'
+import { choose } from './choose'
+import { errorMessage } from './errors'
 
 initSettings()
 
@@ -22,12 +24,21 @@ interface Props {
   }
 }
 
+// notifyHint explains the desktop-notification switch for the state the browser is in.
+function notifyHint(ns: string): string {
+  if (ns === 'unsupported') { return t('This browser cannot show notifications.') }
+  if (ns === 'blocked') { return t('Blocked: allow notifications for this site in the browser settings.') }
+  if (ns === 'ask') { return t('Only while this tab is in the background. The browser has to allow it first.') }
+  return t('Only while this tab is in the background.')
+}
+
 export function SettingsModal({ langSetting, langAvailable, onLang, onClose, git }: Props) {
   const [s, setS] = useState<UISettings>(() => initSettings())
   const update = (next: UISettings) => { setS(next); saveSettings(next) }
   const [notifyOn, setNotifyOn] = useState(() => loadNotify())
   // The browser's answer is read on every render: it can change in the browser's own settings while this is open.
-  const permission = typeof Notification !== 'undefined' ? Notification.permission : undefined
+  let permission: NotificationPermission | undefined
+  if (typeof Notification !== 'undefined') { permission = Notification.permission }
   const [, bump] = useState(0)
   const ns = notifyState(permission, notifyOn)
   const sel = 'min-w-0 px-2 py-1 rounded-lg bg-black/30 border border-white/10 text-xs text-[#e8e8ea] focus:outline-hidden focus:border-accent'
@@ -67,10 +78,7 @@ export function SettingsModal({ langSetting, langAvailable, onLang, onClose, git
           <span class="flex-1">
             {t('Notify me when a CI ends')}
             <span class="block text-xs text-[#7a7a8c]">
-              {t(ns === 'unsupported' ? 'This browser cannot show notifications.'
-                : ns === 'blocked' ? 'Blocked: allow notifications for this site in the browser settings.'
-                : ns === 'ask' ? 'Only while this tab is in the background. The browser has to allow it first.'
-                : 'Only while this tab is in the background.')}
+              {notifyHint(ns)}
             </span>
           </span>
           {ns === 'ask' && (
@@ -112,7 +120,7 @@ function GitConnections({ api, rev, onConnect, onNotice }: NonNullable<Props['gi
 
   useEffect(() => {
     let live = true
-    listAccounts(api).then(a => { if (live) { setAccounts(a); setErr('') } }).catch(e => { if (live) { setErr(e instanceof Error ? e.message : String(e)); setAccounts([]) } })
+    listAccounts(api).then(a => { if (live) { setAccounts(a); setErr('') } }).catch(e => { if (live) { setErr(errorMessage(e)); setAccounts([]) } })
     return () => { live = false }
   }, [rev, reload])
 
@@ -121,7 +129,7 @@ function GitConnections({ api, rev, onConnect, onNotice }: NonNullable<Props['gi
       await disconnect(api, a.id)
       onNotice(tf('Disconnected from {host}', { host: a.name }))
     } catch (e) {
-      onNotice(e instanceof Error ? e.message : String(e), true)
+      onNotice(errorMessage(e), true)
     }
     setConfirm('')
     setReload(n => n + 1)
@@ -139,27 +147,29 @@ function GitConnections({ api, rev, onConnect, onNotice }: NonNullable<Props['gi
           <li key={a.id} class="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm text-[#e8e8ea]">
             <div class="flex-1 min-w-36">
               <div>{a.name} <span class="text-xs text-[#7a7a8c]">{a.host}</span></div>
-              <div class={'text-xs ' + (a.connected ? 'text-[#5fd08a]' : 'text-[#7a7a8c]')}>
-                {a.connected ? tf('Connected as {user}', { user: a.username || '…' }) : t('Not connected')}
+              <div class={'text-xs ' + choose(a.connected, 'text-[#5fd08a]', 'text-[#7a7a8c]')}>
+                {choose(a.connected, tf('Connected as {user}', { user: a.username || '…' }), t('Not connected'))}
               </div>
             </div>
-            {confirm === a.id ? (
+            {confirm === a.id && (
               <>
                 <button class={smallBtn + ' text-danger'} onClick={() => doDisconnect(a)}>{t('Confirm')}</button>
                 <button class={smallBtn} onClick={() => setConfirm('')}>{t('Cancel')}</button>
               </>
-            ) : a.connected ? (
+            )}
+            {confirm !== a.id && a.connected && (
               <>
                 <button class={smallBtn} aria-label={tf('Reconnect {host}', { host: a.name })} onClick={() => onConnect(a.id)}>{t('Reconnect')}</button>
                 <button class={smallBtn} aria-label={tf('Disconnect {host}', { host: a.name })} onClick={() => setConfirm(a.id)}>{t('Disconnect')}</button>
               </>
-            ) : (
+            )}
+            {confirm !== a.id && !a.connected && (
               <button class={smallBtn + ' bg-accent text-white border-transparent'} aria-label={tf('Connect {host}', { host: a.name })} onClick={() => onConnect(a.id)}>{t('Connect')}</button>
             )}
           </li>
         ))}
       </ul>
-      {adding ? (
+      {adding && (
         <form class="space-y-2" onSubmit={(e) => { e.preventDefault(); if (cleanHost) { onConnect(undefined, { kind, host: cleanHost }); setAdding(false); setHost('') } }}>
           <div class="flex gap-2">
             <select class={inputCls} value={kind} aria-label={t('Server type')} onChange={(e) => setKind((e.target as HTMLSelectElement).value)}>
@@ -174,7 +184,8 @@ function GitConnections({ api, rev, onConnect, onNotice }: NonNullable<Props['gi
             <button type="button" class={smallBtn} onClick={() => setAdding(false)}>{t('Cancel')}</button>
           </div>
         </form>
-      ) : (
+      )}
+      {!adding && (
         <button class={smallBtn} onClick={() => setAdding(true)}>{t('Add self-hosted server')}</button>
       )}
     </section>

@@ -95,7 +95,9 @@ func raiseBudget(body map[string]any, learnedCap int) bool {
 //
 // An answer that is empty because the token budget ran out is asked again with a larger
 // budget (see raiseBudget) before it is reported as a failure.
-func (c *Client) openAIChoice(ctx context.Context, messages []Message, tools []Tool) (openAIChoice, *openAIUsage, error) {
+func (c *Client) openAIChoice(
+	ctx context.Context, messages []Message, tools []Tool,
+) (openAIChoice, *openAIUsage, error) {
 	body := c.openAIBody(messages, tools)
 	for {
 		data, err := c.post(ctx, "/chat/completions", body)

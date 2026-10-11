@@ -18,7 +18,9 @@ import { onActivate, backdropClick } from './a11y'
 import { useDialog } from './useDialog'
 import { listAccounts, connectedAccounts, repoShortName, type GitAccount, type GitRepo } from './gitApi'
 import { loadNotify } from './settings'
-import { getPR, retryFix, mergePR, mergeRefused, PRError, prNotice, shouldPoll, ciSummary, shouldDesktopNotify, wantsDesktopPermission, worstToast, type PRView, type PRWatch } from './prApi'
+import { getPR, retryFix, mergePR, mergeRefused, PRError, prNotice, shouldPoll, ciSummary, shouldDesktopNotify, wantsDesktopPermission, worstToast, type PRView, type PRWatch, type ToastType } from './prApi'
+import { choose } from './choose'
+import { errorMessage } from './errors'
 
 interface Message {
   id: number
@@ -97,26 +99,95 @@ interface AgentInfo {
   summary?: string
 }
 
+// HTTP statuses the gateway answers with that the client tells apart.
+const HTTP_OK = 200
+const HTTP_NO_CONTENT = 204
+const HTTP_UNAUTHORIZED = 401
+const HTTP_NOT_FOUND = 404
+const HTTP_CONFLICT = 409
+
+// The credentials every request of the page is sent with.
+const SAME_ORIGIN = 'same-origin'
+const SESSIONS_URL = '/v1/sessions'
+
+// The gateway's resources, as the paths the requests are built from.
+const SESSIONS_PATH = '/v1/sessions/'
+const SKILLS_PATH = '/v1/skills/'
+const PROPOSED_SKILLS_PATH = '/v1/skills/proposed/'
+const PROJECTS_PATH = '/v1/projects/'
+const SCHEDULES_PATH = '/v1/schedules/'
+
+// The DOM events the page sends itself.
+const AUTH_NEEDED_EVENT = 'motita:auth-needed'
+const CHAT_QUIET_EVENT = 'motita:chat-quiet'
+const CREATE_SESSION_EVENT = 'motita:create-session'
+
+// The title a session has until it is given one.
+const NEW_SESSION_TITLE = 'New session'
+
+// Texts used in more than one place.
+const NOT_CONNECTED = 'not connected'
+const NEEDS_APPROVAL = 'This needs your approval'
+const TURN_REFUSED = 'the gateway refused the turn'
+const NEW_PROJECT = 'New project'
+const EDIT_PROJECT = 'Edit project'
+
+// Lengths of time, in seconds and in milliseconds.
+const HOUR_S = 3600
+const DAY_S = 86400
+const DAY_MS = 86_400_000
+
+// How many characters of a generated id are shown, the way git abbreviates a sha.
+const SHORT_ID_LEN = 7
+
+// How long the row menu takes to leave: its closing animation in index.css.
+const ROW_MENU_EXIT_MS = 140
+// How long a session that just answered is still counted as answered by this tab.
+const ANSWERED_HOLD_MS = 30000
+// How often the session list is read again while something runs.
+const SESSIONS_POLL_MS = 3000
+// How long the repository field has to stay still before its default branch is asked for.
+const BRANCH_LOOKUP_DELAY_MS = 600
+// After an upgrade: when the gateway is first asked whether it is back, and when to stop asking.
+const RESTART_FIRST_POLL_MS = 2000
+const RESTART_WAIT_MS = 30000
+const HEALTH_POLL_MS = 1000
+// A message sent mid-run starts the next run a beat later: the conversation is reloaded twice.
+const HANDOFF_RELOAD_MS = [400, 1800]
+// How often the pull request bar is refreshed while the gateway follows the CI.
+const PR_POLL_MS = 20000
+// How long a touch has to be held to open a row's menu.
+const LONG_PRESS_MS = 500
+
+// How long a toast stays up: an error longest, then a warning, an update notice and a success.
+const TOAST_ERROR_MS = 12000
+const TOAST_WARNING_MS = 9000
+const TOAST_UPDATE_MS = 8000
+const TOAST_MS = 5000
+
+// How long the copy buttons say "copied" before they go back to "copy".
+const COPIED_MS = 1500
+
 // The prefix of a progress line that carries the agent list, for a gateway that forwards it as a
 // plain line instead of an `agents` event (agent.AgentsPrefix).
 const AGENTS_PREFIX = 'agents: '
 
-function tokenTotal(t?: AgentTokens): number {
-  if (!t) { return 0 }
-  return (t.input || 0) + (t.output || 0) + (t.cache_read || 0) + (t.cache_write || 0)
+function tokenTotal(tok?: AgentTokens): number {
+  if (!tok) { return 0 }
+  return (tok.input || 0) + (tok.output || 0) + (tok.cache_read || 0) + (tok.cache_write || 0)
 }
 
 // formatTokens humanises a count the way a reader scans it: 950, 12.3k, 1.2M.
 function formatTokens(n: number): string {
   if (n < 1000) { return String(n) }
-  if (n < 1_000_000) { return (n / 1000).toFixed(n < 10_000 ? 1 : 0).replace(/\.0$/, '') + 'k' }
+  if (n < 1_000_000) { return (n / 1000).toFixed(choose(n < 10_000, 1, 0)).replace(/\.0$/, '') + 'k' }
   return (n / 1_000_000).toFixed(1).replace(/\.0$/, '') + 'M'
 }
 
-function tokenBreakdown(t: AgentTokens): string {
-  const parts = [tf('in {n}', { n: formatTokens(t.input || 0) }), tf('out {n}', { n: formatTokens(t.output || 0) })]
-  if (t.cache_read) { parts.push(tf('cache read {n}', { n: formatTokens(t.cache_read) })) }
-  if (t.cache_write) { parts.push(tf('cache write {n}', { n: formatTokens(t.cache_write) })) }
+function tokenBreakdown(tok: AgentTokens): string {
+  const parts = [tf('in {n}', { n: formatTokens(tok.input || 0) }), tf('out {n}', { n: formatTokens(tok.output || 0) })]
+  if (tok.cache_read) { parts.push(tf('cache read {n}', { n: formatTokens(tok.cache_read) })) }
+  if (tok.cache_write) { parts.push(tf('cache write {n}', { n: formatTokens(tok.cache_write) })) }
   return parts.join(' · ')
 }
 
@@ -135,15 +206,16 @@ function agentElapsed(a: AgentInfo, now: number): number {
   const start = Date.parse(a.started)
   if (Number.isNaN(start)) { return a.elapsed_ms || 0 }
   if (a.state === 'running') { return Math.max(a.elapsed_ms || 0, now - start) }
-  const end = a.finished ? Date.parse(a.finished) : NaN
-  return Number.isNaN(end) ? a.elapsed_ms || 0 : end - start
+  const end = Date.parse(a.finished || '')
+  if (Number.isNaN(end)) { return a.elapsed_ms || 0 }
+  return end - start
 }
 
 // sortAgents puts the main agent first, then the background agents in the order they started.
 function sortAgents(list: unknown): AgentInfo[] {
   if (!Array.isArray(list)) { return [] }
   return (list as AgentInfo[]).filter(a => a && typeof a.id === 'string').slice().sort((a, b) => {
-    if (!!a.parent !== !!b.parent) { return a.parent ? 1 : -1 }
+    if (!!a.parent !== !!b.parent) { return choose(a.parent, 1, -1) }
     return (Date.parse(a.started) || 0) - (Date.parse(b.started) || 0)
   })
 }
@@ -173,14 +245,15 @@ interface ProjectInfo {
 // daysUntil is how many whole days remain until a moment, rounded up: "deleted in 1 days" is
 // shown for the last day, never "0".
 function daysUntil(iso: string): number {
-  return Math.ceil((new Date(iso).getTime() - Date.now()) / 86400000)
+  return Math.ceil((new Date(iso).getTime() - Date.now()) / DAY_MS)
 }
 
 // shortID abbreviates a generated id the way git abbreviates a sha: the first
 // seven characters. A full id is 25 characters and would be the widest thing in
 // the sidebar while telling the reader nothing the first seven do not.
 function shortID(id: string): string {
-  return id.length > 7 ? id.slice(0, 7) : id
+  if (id.length > SHORT_ID_LEN) { return id.slice(0, SHORT_ID_LEN) }
+  return id
 }
 
 // shortBranch keeps a branch name readable when it is one this program
@@ -188,8 +261,8 @@ function shortID(id: string): string {
 // part that varies, so it is shown as `motita/<first 7>`; a branch the user
 // chose is short and is shown exactly as it is.
 function shortBranch(b: string): string {
-  const m = b.match(/^motita\/(.+)$/)
-  if (m && m[1].length > 7) { return 'motita/' + shortID(m[1]) }
+  const m = /^motita\/(.+)$/.exec(b)
+  if (m && m[1].length > SHORT_ID_LEN) { return 'motita/' + shortID(m[1]) }
   return b
 }
 
@@ -202,7 +275,8 @@ function shortBranch(b: string): string {
 // the branch belongs to.
 function sessionWorktreeChip(s: SessionInfo): string {
   if (!s.worktree || !s.branch) { return '' }
-  return s.branch === 'motita/' + s.worktree ? '' : shortID(s.worktree)
+  if (s.branch === 'motita/' + s.worktree) { return '' }
+  return shortID(s.worktree)
 }
 
 // formatUpdated renders when a session was last used, as dd/mm/yyyy :: HH:mm:ss.
@@ -226,7 +300,8 @@ function formatUpdated(iso?: string): string {
 function fullUpdated(iso?: string): string {
   if (!iso) { return '' }
   const d = new Date(iso)
-  return Number.isNaN(d.getTime()) ? '' : d.toLocaleString()
+  if (Number.isNaN(d.getTime())) { return '' }
+  return d.toLocaleString()
 }
 
 // changesTitle is what a change count means, spelled out: a bare number in a
@@ -325,7 +400,8 @@ const MODAL_EXIT_MS = 220
 // the seconds are dropped because they would be noise, and the panel re-renders
 // on the same interval either way.
 function pad(n: number): string {
-  return n < 10 ? '0' + n : String(n)
+  if (n < 10) { return '0' + n }
+  return String(n)
 }
 
 function countdown(fromMs: number, nowMs: number): { text: string; past: boolean } {
@@ -333,9 +409,9 @@ function countdown(fromMs: number, nowMs: number): { text: string; past: boolean
   const past = delta < 0
   const s = Math.abs(delta)
   let text: string
-  if (s < 3600) { text = Math.floor(s / 60) + ':' + pad(s % 60) }
-  else if (s < 86400) { text = Math.floor(s / 3600) + ':' + pad(Math.floor((s % 3600) / 60)) + ':' + pad(s % 60) }
-  else { text = Math.floor(s / 86400) + 'd ' + Math.floor((s % 86400) / 3600) + 'h' }
+  if (s < HOUR_S) { text = Math.floor(s / 60) + ':' + pad(s % 60) }
+  else if (s < DAY_S) { text = Math.floor(s / HOUR_S) + ':' + pad(Math.floor((s % HOUR_S) / 60)) + ':' + pad(s % 60) }
+  else { text = Math.floor(s / DAY_S) + 'd ' + Math.floor((s % DAY_S) / HOUR_S) + 'h' }
   return { text, past }
 }
 
@@ -357,7 +433,7 @@ function durationOf(every: string): { ms: number; short: string } {
   let short = ''
   let match: RegExpExecArray | null
   while ((match = re.exec(every)) !== null) {
-    const n = parseFloat(match[1])
+    const n = Number.parseFloat(match[1])
     ms += n * DURATION_UNITS[match[2]]
     // Only whole units reach the tag: "0h" out of "24h0m0s" is noise, and the
     // unit order the parser walks is the order Go prints, h first.
@@ -376,9 +452,9 @@ const nextClockSkew = 0
 // A paused task counts down to nothing: its next_run is a projection, and a
 // ticker over a task that will not fire would be a lie with a pulse. An overdue
 // one says so, because "0s" is not the same fact as "it should have gone off".
-function taskCountdown(t: ScheduledTask, nowMs: number, skew: number) {
-  if (!t.enabled) { return null }
-  const ts = Date.parse(t.next_run)
+function taskCountdown(task: ScheduledTask, nowMs: number, skew: number) {
+  if (!task.enabled) { return null }
+  const ts = Date.parse(task.next_run)
   if (Number.isNaN(ts)) { return null }
   const c = countdown(ts - skew, nowMs)
   return { text: c.text, overdue: c.past }
@@ -410,7 +486,7 @@ interface UpgradeProgressEvent {
 // one, which is the actual signal we need.
 async function authGate(): Promise<boolean> {
   try {
-    const res = await fetch('/v1/sessions', { credentials: 'same-origin' })
+    const res = await fetch(SESSIONS_URL, { credentials: SAME_ORIGIN })
     return res.ok
   } catch {
     return false
@@ -421,7 +497,7 @@ async function authGate(): Promise<boolean> {
 // local storage the app keeps, so nothing survives a rejected token.
 async function clearCredential(): Promise<void> {
   try {
-    await fetch('/v1/webui/session', { method: 'DELETE', credentials: 'same-origin', headers: { 'X-Motita': '1' } })
+    await fetch('/v1/webui/session', { method: 'DELETE', credentials: SAME_ORIGIN, headers: { 'X-Motita': '1' } })
   } catch { /* ignore */ }
   try { localStorage.removeItem(STORAGE_KEY) } catch { /* ignore */ }
 }
@@ -432,7 +508,7 @@ async function submitToken(token: string): Promise<boolean> {
   try {
     const res = await fetch('/v1/webui/session', {
       method: 'POST',
-      credentials: 'same-origin',
+      credentials: SAME_ORIGIN,
       headers: { Authorization: 'Bearer ' + token }
     })
     return res.ok
@@ -451,27 +527,36 @@ async function submitToken(token: string): Promise<boolean> {
 async function api(path: string, options?: RequestInit): Promise<Response> {
   const headers = new Headers(options?.headers)
   headers.set('X-Motita', '1')
-  const res = await fetch(path, { credentials: 'same-origin', ...options, headers })
-  if (res.status === 401) {
+  const res = await fetch(path, { credentials: SAME_ORIGIN, ...options, headers })
+  if (res.status === HTTP_UNAUTHORIZED) {
     await clearCredential()
-    window.dispatchEvent(new CustomEvent('motita:auth-needed'))
+    window.dispatchEvent(new CustomEvent(AUTH_NEEDED_EVENT))
     throw new Error('unauthorised')
   }
   return res
 }
 
 // classifyProgress reads the prefix of a progress line and returns the kind.
+const PROGRESS_PREFIXES: [string, string][] = [
+  ['thinking:', 'thought'],
+  ['output (exit', 'output'],
+  ['approved (all commands', 'check'],
+  ['running:', 'command'],
+  ['action:', 'reasoning'],
+]
+const PROGRESS_PATTERNS: [RegExp, string][] = [
+  [/^(validating|validation)/, 'check'],
+  [/^(planning|plan ready|subtask)/, 'plan'],
+  [/^(analysing|understood)/, 'analysis'],
+  [/^(deciding|round \d+ done)/, 'reasoning'],
+  [/^(task complete|synthesizing)/, 'synthesis'],
+]
+
 function classifyProgress(text: string): string | null {
-  if (/^thinking:/.test(text)) { return 'thought' }
-  if (/^output \(exit/.test(text)) { return 'output' }
-  if (/^approved \(all commands/.test(text)) { return 'check' }
-  if (/^running:/.test(text)) { return 'command' }
-  if (/^action:/.test(text)) { return 'reasoning' }
-  if (/^(validating|validation)/.test(text)) { return 'check' }
-  if (/^(planning|plan ready|subtask)/.test(text)) { return 'plan' }
-  if (/^(analysing|understood)/.test(text)) { return 'analysis' }
-  if (/^(deciding|round \d+ done)/.test(text)) { return 'reasoning' }
-  if (/^(task complete|synthesizing)/.test(text)) { return 'synthesis' }
+  const byPrefix = PROGRESS_PREFIXES.find(([prefix]) => text.startsWith(prefix))
+  if (byPrefix) { return byPrefix[1] }
+  const byPattern = PROGRESS_PATTERNS.find(([re]) => re.test(text))
+  if (byPattern) { return byPattern[1] }
   return null
 }
 
@@ -514,8 +599,9 @@ interface ShellEntry {
 // repoNameOf is the repository's name in a clone URL: git@github.com:user/repo.git and
 // https://github.com/user/repo.git are both "repo".
 function repoNameOf(url: string): string {
-  const m = url.trim().match(/(?:\/|:)[^/]+\/([^/]+?)(?:\.git)?\/?$/)
-  return m ? m[1] : ''
+  const m = /[/:][^/]+\/([^/]+?)(?:\.git)?\/?$/.exec(url.trim())
+  if (m) { return m[1] }
+  return ''
 }
 
 // slugOf turns a name into a folder name the gateway accepts: a simple name with no path
@@ -528,7 +614,8 @@ function slugOf(name: string): string {
 // Anything else is a message for the agent, and null.
 function shellCommandOf(text: string): string | null {
   const m = /^(?:!|\/shell\s)\s*(\S[\s\S]*)$/.exec(text.trim())
-  return m ? m[1].trim() : null
+  if (m) { return m[1].trim() }
+  return null
 }
 
 // REASONING_LEVELS are the levels the gateway accepts, in the order they are offered.
@@ -538,7 +625,8 @@ const REASONING_LEVELS = ['off', 'low', 'medium', 'high']
 // whatever level string is stored beside it.
 function reasoningOf(c: ConfigView | null): string {
   if (!c) { return 'medium' }
-  return c.reasoning_enabled ? (c.reasoning || 'medium') : 'off'
+  if (c.reasoning_enabled) { return (c.reasoning || 'medium') }
+  return 'off'
 }
 
 // splitOutput reads a command's output line ("output (exit N):\n<body>") into the
@@ -546,7 +634,8 @@ function reasoningOf(c: ConfigView | null): string {
 // raw progress text. A line that does not match is returned whole with no code.
 function splitOutput(text: string): { exit: number | null; body: string } {
   const m = /^output \(exit (-?\d+)\):\n?([\s\S]*)$/.exec(text)
-  return m ? { exit: Number(m[1]), body: m[2] } : { exit: null, body: text }
+  if (m) { return { exit: Number(m[1]), body: m[2] } }
+  return { exit: null, body: text }
 }
 
 const STATUS_LABEL: Record<string, string> = { added: 'new', modified: 'edited', deleted: 'removed', renamed: 'moved' }
@@ -591,7 +680,7 @@ function ChangesCard({ changes }: { changes: ChangeReport }) {
           <ul>
             {files.map(f => (
               <li key={f.path}>
-                <span class={`chg-tag ${f.status}`}>{STATUS_LABEL[f.status] ? t(STATUS_LABEL[f.status]) : f.status}</span>
+                <span class={`chg-tag ${f.status}`}>{statusLabel(f.status)}</span>
                 <span class="chg-path">{f.path}</span>
                 {(f.added > 0 || f.deleted > 0) && <span class="chg-nums"><span class="chg-add">+{f.added}</span> <span class="chg-del">−{f.deleted}</span></span>}
               </li>
@@ -612,21 +701,23 @@ function ShellStatus({ exit, settled = false }: { exit: number | null | undefine
   // A command of a turn that has ended and never reported a result was cut off or refused.
   if (exit == null && settled) { return <span class="term-exit">{t('no result')}</span> }
   if (exit == null) { return <span class="term-exit running">{t('running')}</span> }
-  return <span class={`term-exit${exit ? ' bad' : ''}`}>{exit ? tf('failed · exit {code}', { code: exit }) : 'ok'}</span>
+  return <span class={`term-exit${choose(exit, ' bad', '')}`}>{choose(exit, tf('failed · exit {code}', { code: exit }), 'ok')}</span>
 }
 
 // oneLine folds a progress line into one short row for the trail: a synthesized
 // summary is reported as progress too, and it can be a whole Markdown document.
 function oneLine(text: string, max = 160): string {
   const flat = text.replace(/\s+/g, ' ').trim()
-  return flat.length > max ? flat.slice(0, max - 1) + '…' : flat
+  if (flat.length > max) { return flat.slice(0, max - 1) + '…' }
+  return flat
 }
 
 // sessionTitle is what a session row and the header call a conversation. A session nobody has
 // named yet carries the gateway's English placeholder, which is shown in the reader's language.
 function sessionTitle(s: SessionInfo): string {
   if (!s.title) { return s.id }
-  return s.title === 'New session' ? t('New session') : s.title
+  if (s.title === NEW_SESSION_TITLE) { return t(NEW_SESSION_TITLE) }
+  return s.title
 }
 
 // PROGRESS_FORMS are the agent's own phase lines (agent.report in Go), in English on the wire, and
@@ -675,15 +766,48 @@ function upgradeMessage(message?: string): string {
 }
 
 // parseFrame reads one SSE frame (text between two blank lines).
+// The fields of a server-sent event this client reads.
+const SSE_ID = 'id: '
+const SSE_EVENT = 'event: '
+const SSE_DATA = 'data: '
+
+// sseData is the data line of a server-sent event frame (the last one, when it has several).
+function sseData(frame: string): string {
+  let dataLine = ''
+  for (const line of frame.split('\n')) {
+    if (line.startsWith(SSE_DATA)) { dataLine = line.slice(SSE_DATA.length) }
+  }
+  return dataLine
+}
+
+// reloadWhenBack waits for the gateway to come back from an upgrade and reloads the page to pick
+// up the new version. It gives up after a while: the page then stays as it is.
+function reloadWhenBack() {
+  setTimeout(() => {
+    // Poll health until the gateway is back.
+    const poll = setInterval(async () => {
+      try {
+        const h = await fetch('/v1/health')
+        if (h.ok) {
+          clearInterval(poll)
+          window.location.reload()
+        }
+      } catch { /* keep polling */ }
+    }, HEALTH_POLL_MS)
+    setTimeout(() => clearInterval(poll), RESTART_WAIT_MS)
+  }, RESTART_FIRST_POLL_MS)
+}
+
 function parseFrame(raw: string): { id: string | null; event: string | null; data: string | null } {
   const lines = raw.split('\n')
   let id: string | null = null
   let event: string | null = null
   let data: string | null = null
   for (const line of lines) {
-    if (line.startsWith('id: ')) { id = line.slice(4).trim() }
-    else if (line.startsWith('event: ')) { event = line.slice(7).trim() }
-    else if (line.startsWith('data: ')) { data = line.slice(6) }
+    if (line.startsWith(SSE_ID)) { id = line.slice(SSE_ID.length).trim() }
+    else if (line.startsWith(SSE_EVENT)) { event = line.slice(SSE_EVENT.length).trim() }
+    else if (line.startsWith(SSE_DATA)) { data = line.slice(SSE_DATA.length) }
+    else { /* a comment or a field this client does not use */ }
   }
   return { id, event, data }
 }
@@ -719,6 +843,163 @@ function modelOptions(draftProvider: string, draftModel: string, savedProvider: 
 // provider may not serve.
 function firstModelOf(provider: string, all: ProviderInfo[]): string {
   return all.find(p => p.id === provider)?.models?.[0] || ''
+}
+
+// GateWindow is the window with the hooks the browser gates read: the loading modal's history.
+type GateWindow = Window & {
+  __chatLoadingLog?: () => unknown
+  __modalLog?: { at: number; loading: boolean }[]
+}
+
+// statusLabel is a changed file's status as the reader sees it: translated when it is a known one.
+function statusLabel(status: string): string {
+  if (STATUS_LABEL[status]) { return t(STATUS_LABEL[status]) }
+  return status
+}
+
+// patchNamed returns the item with the patch applied when it carries that name, the item itself
+// otherwise.
+function patchNamed<T extends { name: string }>(item: T, name: string, patch: Partial<T>): T {
+  if (item.name !== name) { return item }
+  return { ...item, ...patch }
+}
+
+// filterSkills keeps the skills whose name, title or summary contain the (already lowercased)
+// query; an empty query keeps them all.
+function filterSkills(skills: SkillInfo[], q: string): SkillInfo[] {
+  if (q === '') { return skills }
+  return skills.filter(s =>
+    s.name.toLowerCase().includes(q) ||
+    s.title.toLowerCase().includes(q) ||
+    s.summary.toLowerCase().includes(q))
+}
+
+// jsonOrEmpty reads a response's JSON body, or an empty object when the request failed.
+async function jsonOrEmpty(res: Response) {
+  if (!res.ok) { return {} }
+  return res.json()
+}
+
+// chatTitle is the header of the chat: the open session's title, or the app's name.
+function chatTitle(s: SessionInfo | null | undefined): string {
+  if (!s) { return 'Motita' }
+  return sessionTitle(s)
+}
+
+// lastExit is the exit of a turn's last step, which the live command line shows.
+function lastExit(steps: StepView[]): number | null | undefined {
+  if (!steps.length) { return null }
+  return steps[steps.length - 1].exit
+}
+
+// branchChoices is the list a branch selector offers: the known branches, with the current one
+// first when it is not among them.
+function branchChoices(branches: string[], current: string): string[] {
+  if (branches.includes(current)) { return branches }
+  return [current, ...branches]
+}
+
+// previewKind says which answer of the deletion preview to draw: still loading, a checkout that
+// could not be inspected, the changes that would be lost, a clean checkout, or nothing yet.
+function previewKind(loading: boolean, p: { count: number; inspection_failed?: boolean } | null): string {
+  if (loading) { return 'loading' }
+  if (p?.inspection_failed) { return 'failed' }
+  if (!p) { return 'none' }
+  if (p.count > 0) { return 'changes' }
+  return 'clean'
+}
+
+// mergedOffer is what the pull request bar offers once the pull request merged: the session that
+// was opened from the updated branch, a new session to continue in, or nothing.
+function mergedOffer(w: PRWatch | undefined, s: SessionInfo | undefined): string {
+  if (w?.status !== 'merged') { return '' }
+  if (w.next) { return 'open' }
+  if (s?.merged && s.continuable) { return 'continue' }
+  return ''
+}
+
+// toastIcon is the icon a toast carries: its type's, a download for an update, a check otherwise.
+function toastIcon(type: string, update: boolean | undefined, info: { update_available?: boolean } | null): string {
+  if (type === 'error' || type === 'warning') { return type }
+  if (info?.update_available && update) { return 'update' }
+  return 'done'
+}
+
+// artifactShape is how the artifact viewer draws a file: a PDF or an image from its URL, or its
+// body as Markdown, as a sandboxed page or as plain text.
+function artifactShape(v: { type: string; url?: string }): string {
+  if (v.url && v.type.startsWith('application/pdf')) { return 'pdf' }
+  if (v.url) { return 'image' }
+  if (v.type.startsWith('text/markdown')) { return 'markdown' }
+  if (v.type.startsWith('text/html')) { return 'html' }
+  return 'text'
+}
+
+// tagGroupClass is the colour of a slash-command tag, by the group it belongs to.
+function tagGroupClass(group: string): string {
+  if (group === 'mode') { return 'bg-accent/20 text-accent' }
+  if (group === 'action') { return 'bg-[#f0a040]/20 text-[#f0a040]' }
+  if (group === 'session') { return 'bg-[#40f0a0]/20 text-[#40f0a0]' }
+  return 'bg-[#a0a0f0]/20 text-[#a0a0f0]'
+}
+
+// podmanNote says what running a new project with podman will do, given what the host has.
+function podmanNote(ready: boolean, compose: boolean): string {
+  if (!ready) {
+    return t('podman is installed but did not answer (podman info failed), so it may not work until it is set up.')
+  }
+  if (compose) { return t('The project will be started in containers with podman.') }
+  return t('The project will be started in containers with podman. podman compose was not found, so compose files will not work until it is installed.')
+}
+
+// deleteWarning is what the delete confirmation says will be lost, for a session (the default
+// one is only cleared), a skill or a project.
+function deleteWarning(type: string, id: string): string {
+  if (type === 'session') {
+    if (id === 'default') {
+      return t('This is the default session. Deleting it will clear its history and reset its title, but the session itself will remain.')
+    }
+    return t('This conversation will be permanently deleted. This cannot be undone.')
+  }
+  if (type === 'skill') {
+    return t('This skill will be permanently deleted, with its usage history. This cannot be undone. A built-in procedure cannot be deleted.')
+  }
+  return t('This project, all its sessions and its folder will be permanently deleted. This cannot be undone.')
+}
+
+// toastTone picks the value that goes with a toast's type: one for an error, one for a
+// warning and one for anything else.
+function toastTone<T>(type: string, error: T, warning: T, other: T): T {
+  if (type === 'error') { return error }
+  if (type === 'warning') { return warning }
+  return other
+}
+
+// rowMenuStyle places a row's action menu at its viewport position, when it has one.
+function rowMenuStyle(pos: { top: number; left: number } | null): { top: string; left: string } | undefined {
+  if (!pos) { return undefined }
+  return { top: `${pos.top}px`, left: `${pos.left}px` }
+}
+
+// skillHeading is the skill library's title: the open skill's, or the library's own.
+function skillHeading(skill: SkillInfo | null): string {
+  if (!skill) { return t('Skill library') }
+  return skill.title || skill.name
+}
+
+// prWatchKeyOf is what changes when the pull request watch moves on: its status and attempts.
+function prWatchKeyOf(w: PRWatch | undefined): string {
+  if (!w) { return '' }
+  return w.status + ':' + w.attempts
+}
+
+// ciFailedLabel is the pull request bar's text for a red CI, saying what Motita does about it.
+function ciFailedLabel(w: PRWatch | undefined): string {
+  if (w?.status === 'gave_up') { return tf('CI failed — Motita gave up after {n} attempts', { n: String(w.attempts) }) }
+  if (w?.status === 'fixing') {
+    return tf('CI failed — Motita is fixing it ({n}/{max})', { n: String(w.attempts), max: String(w.max) })
+  }
+  return t('CI failed')
 }
 
 export default function App() {
@@ -825,7 +1106,7 @@ export default function App() {
   // a user needs in order to act, without putting git's own words in their face.
   // `update` marks the "new version" toast: it is clickable and stays longer. It is a flag and not
   // a test on the text, because the text is translated.
-  const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' | 'warning'; detail?: string; technical?: string; update?: boolean } | null>(null)
+  const [toast, setToast] = useState<{ message: string; type: ToastType; detail?: string; technical?: string; update?: boolean } | null>(null)
   const [toastDetailsOpen, setToastDetailsOpen] = useState(false)
   const [config, setConfig] = useState<ConfigView | null>(null)
   const [showModelSwitcher, setShowModelSwitcher] = useState(false)
@@ -866,7 +1147,7 @@ export default function App() {
   const isMerged = selectedSession?.merged === true
   const [nowMs, setNowMs] = useState(() => Date.now())
   useEffect(() => {
-    if (!showScheduledTasks) { return }
+    if (!showScheduledTasks) { return undefined }
     const id = setInterval(() => setNowMs(Date.now()), 1000)
     return () => clearInterval(id)
   }, [showScheduledTasks])
@@ -951,7 +1232,7 @@ export default function App() {
       setRowMenuClosing(false)
       rowMenuClosingRef.current = false
       rowMenuTimer.current = null
-    }, 140)
+    }, ROW_MENU_EXIT_MS)
   }, [])
 
   // openRowMenu opens the menu, cancelling a close that is mid-flight so
@@ -983,7 +1264,7 @@ export default function App() {
     const r = trigger.getBoundingClientRect()
     const below = r.bottom + 4
     const fitsBelow = below + MENU_H <= window.innerHeight
-    const top = fitsBelow ? below : Math.max(4, r.top - 4 - MENU_H)
+    const top = choose(fitsBelow, below, Math.max(4, r.top - 4 - MENU_H))
     const left = Math.min(Math.max(4, r.right - MENU_W), Math.max(4, window.innerWidth - MENU_W - 4))
     setRowMenuAbove(!fitsBelow)
     setRowMenuPos({ top, left })
@@ -1040,8 +1321,8 @@ export default function App() {
   // plan and task are mutually exclusive — if one is already an active tag,
   // the other is blocked from being added.
   const isCommandBlocked = (cmdName: string) => {
-    if (cmdName === '/plan') { return activeTags.some(t => t.name === '/task') }
-    if (cmdName === '/task') { return activeTags.some(t => t.name === '/plan') }
+    if (cmdName === '/plan') { return activeTags.some(tag => tag.name === '/task') }
+    if (cmdName === '/task') { return activeTags.some(tag => tag.name === '/plan') }
     return false
   }
 
@@ -1125,7 +1406,10 @@ export default function App() {
     if (modalExitFrame.current !== null) { cancelAnimationFrame(modalExitFrame.current) }
   }, [])
 
-  const nextId = () => ++msgIdRef.current
+  const nextId = () => {
+    msgIdRef.current += 1
+    return msgIdRef.current
+  }
 
   // Auto-scroll on new messages or activity, when the reader is following along.
   //
@@ -1194,13 +1478,13 @@ export default function App() {
         if (pinnedRef.current) { scrollToBottom() }
       })
     }
-    document.addEventListener('motita:chat-quiet', onQuiet)
-    return () => document.removeEventListener('motita:chat-quiet', onQuiet)
+    document.addEventListener(CHAT_QUIET_EVENT, onQuiet)
+    return () => document.removeEventListener(CHAT_QUIET_EVENT, onQuiet)
   }, [scrollToBottom])
 
   useEffect(() => {
     const el = scrollRef.current
-    if (!el) { return }
+    if (!el) { return undefined }
     // Only the READER'S OWN INPUT unpins them, and this is not a refinement — it is the fix for
     // the bug that kept stranding the view. Measured: the container's `scrollTop` went 4551 ->
     // 4511 on its own while the deferred work replaced a placeholder with a smaller drawing, and
@@ -1262,7 +1546,7 @@ export default function App() {
    */
   useEffect(() => {
     const el = scrollRef.current
-    if (!el) { return }
+    if (!el) { return undefined }
     let frame = 0
     const settle = () => {
       if (!pinnedRef.current) { return }
@@ -1271,7 +1555,7 @@ export default function App() {
         if (pinnedRef.current) { followEnd() }
       })
     }
-    if (typeof ResizeObserver === 'undefined') { return }
+    if (typeof ResizeObserver === 'undefined') { return undefined }
     const ro = new ResizeObserver(settle)
     const seen = new WeakSet<Element>()
     const watch = () => {
@@ -1314,7 +1598,7 @@ export default function App() {
    */
   useEffect(() => {
     const el = scrollRef.current
-    if (!el) { return }
+    if (!el) { return undefined }
     let frame = 0
     const onHydrated = () => {
       // A message finishing its own deferred work does NOT clear the modal: a conversation is
@@ -1351,14 +1635,14 @@ export default function App() {
   useEffect(() => {
     // Exposed for the gate: the flicker this replaced was invisible at any single instant, so what
     // has to be measurable is the SEQUENCE of times the modal was put up and taken down.
-    ;(window as any).__chatLoadingLog = () => ({
+    ;(window as GateWindow).__chatLoadingLog = () => ({
       transitions: hydrationLog(),
       visiblePending: hydrationState().visiblePending,
       registered: hydrationState().registered,
     })
     const onQuiet = () => requestModal(hydrationState().visiblePending)
-    document.addEventListener('motita:chat-quiet', onQuiet)
-    return () => document.removeEventListener('motita:chat-quiet', onQuiet)
+    document.addEventListener(CHAT_QUIET_EVENT, onQuiet)
+    return () => document.removeEventListener(CHAT_QUIET_EVENT, onQuiet)
   }, [requestModal])
 
   // A transcript that is replaced has to be re-read even if no message ever reports: a
@@ -1372,18 +1656,18 @@ export default function App() {
   // what the gate counts: the underlying readiness can change many times without the reader seeing
   // anything, because the quiet window stands between the two.
   useEffect(() => {
-    const log = ((window as any).__modalLog = (window as any).__modalLog || [])
+    const log = ((window as GateWindow).__modalLog ||= [])
     log.push({ at: Math.round(performance.now()), loading: chatLoading })
     chatLoadingNow.current = chatLoading
     if (chatLoading) { chatFollower.current.stop() }
   }, [chatLoading])
 
   useEffect(() => {
-    if (!chatLoading) { return }
-    if (messages.length === 0) { return }
+    if (!chatLoading) { return undefined }
+    if (messages.length === 0) { return undefined }
     const id = requestAnimationFrame(() => {
       const el = scrollRef.current
-      if (el && el.querySelector('[data-hydrating]') === null) { requestModal(false) }
+      if (el?.querySelector('[data-hydrating]') === null) { requestModal(false) }
     })
     return () => cancelAnimationFrame(id)
   }, [messages, chatLoading])
@@ -1399,14 +1683,14 @@ export default function App() {
   // toast is clickable and important, so it stays longer than a plain success.
   useEffect(() => {
     setToastDetailsOpen(false)
-    if (!toast) { return }
+    if (!toast) { return undefined }
     const isUpdate = toast.update === true
     // An error needs reading, so it stays longest. A warning is between the two:
     // it says something is wrong but recovering, which is worth more than the
     // five seconds a success gets and less than an error.
-    const ms = toast.type === 'error' ? 12000 : toast.type === 'warning' ? 9000 : isUpdate ? 8000 : 5000
-    const t = setTimeout(() => setToast(null), ms)
-    return () => clearTimeout(t)
+    const ms = toastTone(toast.type, TOAST_ERROR_MS, TOAST_WARNING_MS, choose(isUpdate, TOAST_UPDATE_MS, TOAST_MS))
+    const timer = setTimeout(() => setToast(null), ms)
+    return () => clearTimeout(timer)
   }, [toast])
 
   // runSessionRef is the conversation the run in flight was started in. A run
@@ -1467,13 +1751,13 @@ export default function App() {
     // setSessions is used and not fetchSessions: the local answer is
     // authoritative in both directions, and a request issued here would be the
     // stale one it exists to correct.
-    setSessions(prev => prev.map(s => s.id === sessionFor ? { ...s, running: r } : s))
+    setSessions(prev => prev.map(s => { if (s.id === sessionFor) { return { ...s, running: r } } return s }))
     if (r) {
       answeredRef.current = ''
       answeredUntil.current = 0
     } else {
       answeredRef.current = sessionFor
-      answeredUntil.current = Date.now() + 30000
+      answeredUntil.current = Date.now() + ANSWERED_HOLD_MS
     }
   }
 
@@ -1507,7 +1791,7 @@ export default function App() {
       // own, so the pill warns. Everything else - not connected, a request that
       // failed - is an error.
       const warning = connection && text.trim().toLowerCase() === 'reconnecting'
-      setStateText(warning ? 'warning' : 'error')
+      setStateText(choose(warning, 'warning', 'error'))
       setStateBad(true)
       return
     }
@@ -1519,8 +1803,8 @@ export default function App() {
   // tab is in - the websocket dropped, or the gateway is not answering at all.
   // Those are drawn by the pill, not announced by a toast.
   const isConnectionState = (text: string) => {
-    const t = (text || '').trim().toLowerCase()
-    return t === 'reconnecting' || t === 'not connected' || t === 'connecting'
+    const norm = (text || '').trim().toLowerCase()
+    return norm === 'reconnecting' || norm === NOT_CONNECTED || norm === 'connecting'
   }
 
   // exchange trades the URL fragment for the cookie.
@@ -1534,7 +1818,7 @@ export default function App() {
     try {
       const res = await fetch('/v1/webui/session', {
         method: 'POST',
-        credentials: 'same-origin',
+        credentials: SAME_ORIGIN,
         headers: { Authorization: 'Bearer ' + token }
       })
       // Erased whatever the answer: a token that did not work is not one to keep.
@@ -1549,7 +1833,7 @@ export default function App() {
   // fetchSessions loads the list of conversations from the gateway.
   const fetchSessions = useCallback(async (): Promise<SessionInfo[]> => {
     try {
-      const res = await api('/v1/sessions')
+      const res = await api(SESSIONS_URL)
       const data = await res.json()
       const list: SessionInfo[] = data.sessions || []
       setSessions(list)
@@ -1592,8 +1876,8 @@ export default function App() {
   //     by then released.
   const anyRunning = sessions.some(s => s.running)
   useEffect(() => {
-    if (!running && !anyRunning) { return }
-    const interval = setInterval(() => fetchSessions(), 3000)
+    if (!running && !anyRunning) { return undefined }
+    const interval = setInterval(() => fetchSessions(), SESSIONS_POLL_MS)
     return () => clearInterval(interval)
   }, [running, anyRunning, fetchSessions])
 
@@ -1621,7 +1905,7 @@ export default function App() {
   // been opened yet, which is the state the window starts in.
   const fetchSkills = useCallback(async () => {
     setSkillsBusy(true)
-    const indexUrl = sessionId ? `/v1/sessions/${encodeURIComponent(sessionId)}/skills` : '/v1/skills'
+    const indexUrl = choose(sessionId, `/v1/sessions/${encodeURIComponent(sessionId)}/skills`, '/v1/skills')
     try {
       const [res, arch, prop] = await Promise.all([
         api(indexUrl),
@@ -1652,7 +1936,7 @@ export default function App() {
   // openSkill fetches one document's body. The index deliberately does not carry it.
   const openSkill = useCallback(async (skill: SkillInfo) => {
     try {
-      const res = await api('/v1/skills/' + encodeURIComponent(skill.name))
+      const res = await api(SKILLS_PATH + encodeURIComponent(skill.name))
       if (!res.ok) {
         const err = await res.json().catch(() => ({}))
         setState(err.error || 'could not open the skill', true)
@@ -1670,7 +1954,7 @@ export default function App() {
   // answer is one boolean and the list is already on screen.
   const pinSkill = useCallback(async (name: string, pinned: boolean) => {
     try {
-      const res = await api('/v1/skills/' + encodeURIComponent(name) + '/pin', {
+      const res = await api(SKILLS_PATH + encodeURIComponent(name) + '/pin', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ pinned })
@@ -1679,10 +1963,10 @@ export default function App() {
         setState('could not change the pin', true)
         return
       }
-      setSkills(prev => prev.map(s => (s.name === name ? { ...s, pinned } : s)))
+      setSkills(prev => prev.map(s => patchNamed(s, name, { pinned })))
       // The open document's own copy has to follow, or the button would flip the pin and
       // keep painting the state it had when the document was opened.
-      setSkillOpen(prev => (prev && prev.name === name ? { ...prev, pinned } : prev))
+      setSkillOpen(prev => prev && patchNamed(prev, name, { pinned }))
     } catch {
       setState('could not change the pin', true)
     }
@@ -1696,7 +1980,7 @@ export default function App() {
       return
     }
     try {
-      const res = await api('/v1/skills/proposed/' + encodeURIComponent(name))
+      const res = await api(PROPOSED_SKILLS_PATH + encodeURIComponent(name))
       if (!res.ok) {
         const err = await res.json().catch(() => ({}))
         setState(err.error || 'could not open the proposed skill', true)
@@ -1712,17 +1996,20 @@ export default function App() {
   // decideProposal accepts a proposed skill into the library or rejects it, then RELOADS the
   // lists: a file moved or left, and the browser must not keep a guess about it.
   const decideProposal = useCallback(async (name: string, accept: boolean) => {
-    const what = accept ? 'could not accept the skill' : 'could not reject the skill'
+    const what = choose(accept, 'could not accept the skill', 'could not reject the skill')
     try {
-      const res = accept
-        ? await api('/v1/skills/proposed/' + encodeURIComponent(name) + '/accept', { method: 'POST' })
-        : await api('/v1/skills/proposed/' + encodeURIComponent(name), { method: 'DELETE' })
+      let res: Response
+      if (accept) {
+        res = await api(PROPOSED_SKILLS_PATH + encodeURIComponent(name) + '/accept', { method: 'POST' })
+      } else {
+        res = await api(PROPOSED_SKILLS_PATH + encodeURIComponent(name), { method: 'DELETE' })
+      }
       if (!res.ok) {
         const err = await res.json().catch(() => ({}))
         setState(err.error || what, true)
         return
       }
-      setProposalOpen(prev => (prev && prev.name === name ? null : prev))
+      setProposalOpen(prev => choose(prev?.name === name, null, prev))
       await fetchSkills()
     } catch {
       setState(what, true)
@@ -1733,7 +2020,7 @@ export default function App() {
   // is a file, and the browser must not keep a guess about a directory it cannot see.
   const restoreSkill = useCallback(async (name: string) => {
     try {
-      const res = await api('/v1/skills/' + encodeURIComponent(name) + '/restore', { method: 'POST' })
+      const res = await api(SKILLS_PATH + encodeURIComponent(name) + '/restore', { method: 'POST' })
       if (!res.ok) {
         const err = await res.json().catch(() => ({}))
         setState(err.error || 'could not restore the skill', true)
@@ -1749,7 +2036,7 @@ export default function App() {
   // one boolean and the row is already on screen, exactly like the pin.
   const disableSkill = useCallback(async (name: string, disabled: boolean) => {
     try {
-      const res = await api('/v1/skills/' + encodeURIComponent(name) + '/disable', {
+      const res = await api(SKILLS_PATH + encodeURIComponent(name) + '/disable', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ disabled })
@@ -1759,8 +2046,8 @@ export default function App() {
         setState(err.error || 'could not change the skill', true)
         return
       }
-      setSkills(prev => prev.map(s => (s.name === name ? { ...s, disabled } : s)))
-      setSkillOpen(prev => (prev && prev.name === name ? { ...prev, disabled } : prev))
+      setSkills(prev => prev.map(s => patchNamed(s, name, { disabled })))
+      setSkillOpen(prev => prev && patchNamed(prev, name, { disabled }))
     } catch {
       setState('could not change the skill', true)
     }
@@ -1771,7 +2058,7 @@ export default function App() {
   // confirmation is asked before this is ever reached.
   const deleteSkill = useCallback(async (name: string) => {
     try {
-      const res = await api('/v1/skills/' + encodeURIComponent(name), { method: 'DELETE' })
+      const res = await api(SKILLS_PATH + encodeURIComponent(name), { method: 'DELETE' })
       if (!res.ok) {
         const err = await res.json().catch(() => ({}))
         setState(err.error || 'could not delete the skill', true)
@@ -1790,8 +2077,8 @@ export default function App() {
   const createProject = useCallback(async (identity?: { name: string; email: string }) => {
     // An empty project ignores whatever was typed in the repository field before the person went
     // back; a project from a repository takes its name and folder from the repository.
-    const gitUrl = newProjectMode === 'git' ? newProjectGit.trim() : ''
-    const fromUrl = gitUrl ? repoNameOf(gitUrl) : ''
+    const gitUrl = choose(newProjectMode === 'git', newProjectGit.trim(), '')
+    const fromUrl = choose(gitUrl, repoNameOf(gitUrl), '')
     const title = newProjectTitle.trim() || fromUrl
     const dir = newProjectDir.trim() || slugOf(fromUrl) || slugOf(title)
     if (!title || !dir) { return }
@@ -1805,7 +2092,7 @@ export default function App() {
           description: newProjectDesc.trim(),
           dir,
           git_url: gitUrl || undefined,
-          use_podman: hasPodman && newProjectPodman ? true : undefined,
+          use_podman: choose(hasPodman && newProjectPodman, true, undefined),
           main_branch: newProjectMain,
           git_user_name: identity?.name,
           git_user_email: identity?.email,
@@ -1813,13 +2100,13 @@ export default function App() {
       })
       if (!res.ok) {
         const err = await res.json().catch(() => ({}))
-        if (res.status === 409 && err.code === 'git_auth_required') {
+        if (res.status === HTTP_CONFLICT && err.code === 'git_auth_required') {
           // The clone was refused for credentials: connect that host, then send the same request again.
           setCreatingProject(false)
           setGitConnect({ service: err.service || undefined, after: 'create' })
           return
         }
-        if (res.status === 409 && err.code === 'git_identity_required') {
+        if (res.status === HTTP_CONFLICT && err.code === 'git_identity_required') {
           // Nothing was created: ask for the user and send the same request again.
           setShowGitIdentity(true)
           setCreatingProject(false)
@@ -1834,12 +2121,12 @@ export default function App() {
       // Auto-create a session in the new project so the user lands in the chat.
       if (data.id) {
         setTimeout(() => {
-          const evt = new CustomEvent('motita:create-session', { detail: { project_id: data.id } })
+          const evt = new CustomEvent(CREATE_SESSION_EVENT, { detail: { project_id: data.id } })
           window.dispatchEvent(evt)
         }, 100)
       }
       // Show a toast and close the modal.
-      setToast({ message: tf(data.clone_log ? 'Project "{title}" created and repo cloned' : 'Project "{title}" created', { title }), type: 'success' })
+      setToast({ message: tf(choose(data.clone_log, 'Project "{title}" created and repo cloned', 'Project "{title}" created'), { title }), type: 'success' })
       setShowNewProject(false)
       setNewProjectTitle('')
       setNewProjectDesc('')
@@ -1861,7 +2148,7 @@ export default function App() {
 
   // The hosts that are connected, for the New project dialog. Read when it opens and after a connect.
   useEffect(() => {
-    if (!showNewProject) { return }
+    if (!showNewProject) { return undefined }
     let live = true
     listAccounts(api).then(a => { if (live) { setGitAccounts(a) } }).catch(() => { if (live) { setGitAccounts([]) } })
     return () => { live = false }
@@ -1874,7 +2161,7 @@ export default function App() {
   useEffect(() => {
     setRemoteMain('')
     const url = newProjectGit.trim()
-    if (!showNewProject || newProjectMode !== 'git' || !repoNameOf(url)) { return }
+    if (!showNewProject || newProjectMode !== 'git' || !repoNameOf(url)) { return undefined }
     let live = true
     const timer = setTimeout(async () => {
       try {
@@ -1885,7 +2172,7 @@ export default function App() {
         setRemoteMain(d.branch)
         if (!mainChosen.current) { setNewProjectMain(d.branch) }
       } catch { /* the selector keeps what it has */ }
-    }, 600)
+    }, BRANCH_LOOKUP_DELAY_MS)
     return () => { live = false; clearTimeout(timer) }
   }, [showNewProject, newProjectMode, newProjectGit])
 
@@ -1903,16 +2190,16 @@ export default function App() {
   }, [showNewProject])
 
   const artifactBase = useCallback(
-    () => '/v1/sessions/' + encodeURIComponent(sessionId) + '/artifacts',
+    () => SESSIONS_PATH + encodeURIComponent(sessionId) + '/artifacts',
     [sessionId])
-  const scopeQuery = (scope: 'session' | 'project') => (scope === 'project' ? '?scope=project' : '')
+  const scopeQuery = (scope: 'session' | 'project') => (choose(scope === 'project', '?scope=project', ''))
 
   const loadArtifacts = useCallback(async (scope: 'session' | 'project' = artifactScope) => {
     if (!sessionId) { setArtifacts([]); return }
     try {
       const res = await api(artifactBase() + scopeQuery(scope))
-      const d = res.ok ? await res.json() : {}
-      setArtifacts(Array.isArray(d.artifacts) ? d.artifacts : [])
+      const d = await jsonOrEmpty(res)
+      setArtifacts(choose(Array.isArray(d.artifacts), d.artifacts, []))
     } catch { setArtifacts([]) }
   }, [sessionId, artifactScope, artifactBase])
 
@@ -1946,7 +2233,10 @@ export default function App() {
     let p = evidenceUrls.current.get(key)
     if (!p) {
       p = api(artifactBase() + '/' + encodeURIComponent(name))
-        .then(async res => (res.ok ? URL.createObjectURL(await res.blob()) : null))
+        .then(async res => {
+          if (!res.ok) { return null }
+          return URL.createObjectURL(await res.blob())
+        })
         .catch(() => null)
       evidenceUrls.current.set(key, p)
     }
@@ -1956,8 +2246,8 @@ export default function App() {
   const deleteArtifact = useCallback(async (name: string) => {
     try {
       const res = await api(artifactBase() + '/' + encodeURIComponent(name) + scopeQuery(artifactScope), { method: 'DELETE' })
-      if (!res.ok && res.status !== 204) { setState('could not delete the artifact', true); return }
-      setArtifactView(v => (v && v.name === name ? null : v))
+      if (!res.ok && res.status !== HTTP_NO_CONTENT) { setState('could not delete the artifact', true); return }
+      setArtifactView(v => choose(v?.name === name, null, v))
       await loadArtifacts()
     } catch { setState('could not delete the artifact', true) }
   }, [artifactScope, artifactBase, loadArtifacts])
@@ -1970,7 +2260,7 @@ export default function App() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ pinned })
       })
-      if (!res.ok && res.status !== 204) { setState('could not pin the artifact', true); return }
+      if (!res.ok && res.status !== HTTP_NO_CONTENT) { setState('could not pin the artifact', true); return }
       await loadArtifacts()
     } catch { setState('could not pin the artifact', true) }
   }, [artifactScope, artifactBase, loadArtifacts])
@@ -1992,7 +2282,7 @@ export default function App() {
   // setProjectPodman changes the answer given at creation: the gateway tells the open sessions.
   const setProjectPodman = useCallback(async (id: string, podman: boolean) => {
     try {
-      const res = await api('/v1/projects/' + id, {
+      const res = await api(PROJECTS_PATH + id, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ podman })
@@ -2011,24 +2301,25 @@ export default function App() {
   // openEditProject opens the edit dialog with the project's own values, and asks the gateway
   // which branches the main-branch selector can offer.
   const openEditProject = useCallback(async (p: ProjectInfo) => {
-    setEditProject({ id: p.id, title: p.title, description: p.description ?? '', main: p.main_branch ?? 'main', branches: p.main_branch ? [p.main_branch] : ['main'], current: p.branch ?? '', mergeMethod: p.merge_method ?? '', prMaxFixes: p.pr_max_fixes ?? 0, autoMerge: p.auto_merge === true, autoContinue: p.auto_continue === true })
+    setEditProject({ id: p.id, title: p.title, description: p.description ?? '', main: p.main_branch ?? 'main', branches: [p.main_branch || 'main'], current: p.branch ?? '', mergeMethod: p.merge_method ?? '', prMaxFixes: p.pr_max_fixes ?? 0, autoMerge: p.auto_merge === true, autoContinue: p.auto_continue === true })
     try {
-      const res = await api('/v1/projects/' + encodeURIComponent(p.id) + '/branches')
+      const res = await api(PROJECTS_PATH + encodeURIComponent(p.id) + '/branches')
       if (!res.ok) { return }
       const d = await res.json()
-      setEditProject(prev => prev && prev.id === p.id
-        ? { ...prev, branches: d.branches?.length ? d.branches : prev.branches, main: d.main_branch || prev.main, current: d.current ?? prev.current }
-        : prev)
+      setEditProject(prev => {
+        if (prev?.id !== p.id) { return prev }
+        return { ...prev, branches: choose(d.branches?.length, d.branches, prev.branches), main: d.main_branch || prev.main, current: d.current ?? prev.current }
+      })
     } catch { /* the selector keeps the branch it already knows */ }
   }, [])
 
   // saveEditProject sends what the dialog holds. The gateway puts the project back on its main
   // branch when it has no sessions, so the list is read again afterwards.
   const saveEditProject = useCallback(async () => {
-    if (!editProject || !editProject.title.trim()) { return }
+    if (!editProject?.title.trim()) { return }
     setSavingProject(true)
     try {
-      const res = await api('/v1/projects/' + encodeURIComponent(editProject.id), {
+      const res = await api(PROJECTS_PATH + encodeURIComponent(editProject.id), {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ title: editProject.title, description: editProject.description, main_branch: editProject.main, merge_method: editProject.mergeMethod, pr_max_fixes: editProject.prMaxFixes, auto_merge: editProject.autoMerge, auto_continue: editProject.autoContinue }),
@@ -2051,7 +2342,7 @@ export default function App() {
   const onGitConnected = useCallback((_service: string, account: string) => {
     const after = gitConnect?.after
     setGitRev(n => n + 1)
-    setToast({ message: account ? tf('Connected as {user}', { user: account }) : t('Connected'), type: 'success' })
+    setToast({ message: choose(account, tf('Connected as {user}', { user: account }), t('Connected')), type: 'success' })
     if (after === 'picker') { setShowRepoPicker(true) }
     if (after === 'create') { setTimeout(() => createProjectRef.current(), 0) }
   }, [gitConnect])
@@ -2061,8 +2352,8 @@ export default function App() {
     const name = repoShortName(r)
     setNewProjectMode('git')
     setNewProjectGit(r.clone_url)
-    setNewProjectTitle(prev => prev.trim() ? prev : name)
-    setNewProjectDesc(prev => prev.trim() ? prev : (r.description || ''))
+    setNewProjectTitle(prev => choose(prev.trim(), prev, name))
+    setNewProjectDesc(prev => choose(prev.trim(), prev, (r.description || '')))
     setShowRepoPicker(false)
   }, [])
 
@@ -2071,8 +2362,8 @@ export default function App() {
   // whose sessions hold uncommitted work is refused without it.
   const deleteProject = useCallback(async (id: string, discard = false) => {
     try {
-      const res = await api('/v1/projects/' + id + (discard ? '?force=1' : ''), { method: 'DELETE' })
-      if (!res.ok && res.status !== 204) {
+      const res = await api(PROJECTS_PATH + id + (choose(discard, '?force=1', '')), { method: 'DELETE' })
+      if (!res.ok && res.status !== HTTP_NO_CONTENT) {
         const err = await res.json().catch(() => ({}))
         setState(err.error || 'could not delete the project', true)
         return
@@ -2090,7 +2381,7 @@ export default function App() {
       const res = await api('/v1/schedules')
       if (!res.ok) { return }
       const data = await res.json()
-      setScheduledTasks(Array.isArray(data.schedules) ? data.schedules : [])
+      setScheduledTasks(choose(Array.isArray(data.schedules), data.schedules, []))
     } catch { /* the toast on a real failure is the caller's job */ }
   }, [])
 
@@ -2118,18 +2409,18 @@ export default function App() {
     } finally { setScheduledBusy(false) }
   }
 
-  const toggleSchedule = async (t: ScheduledTask) => {
-    const res = await api('/v1/schedules/' + t.id, {
+  const toggleSchedule = async (task: ScheduledTask) => {
+    const res = await api(SCHEDULES_PATH + task.id, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ enabled: !t.enabled }),
+      body: JSON.stringify({ enabled: !task.enabled }),
     })
     if (res.ok) { await loadSchedules() }
   }
 
   const runScheduleNow = async (task: ScheduledTask) => {
-    const res = await api('/v1/schedules/' + task.id + '/run', { method: 'POST' })
-    if (res.status === 409) {
+    const res = await api(SCHEDULES_PATH + task.id + '/run', { method: 'POST' })
+    if (res.status === HTTP_CONFLICT) {
       const body = await res.json().catch(() => ({}))
       setToast({ message: t('That task could not start'), type: 'error', detail: body.error })
       return
@@ -2139,8 +2430,8 @@ export default function App() {
     }
   }
 
-  const deleteSchedule = async (t: ScheduledTask) => {
-    const res = await api('/v1/schedules/' + t.id, { method: 'DELETE' })
+  const deleteSchedule = async (task: ScheduledTask) => {
+    const res = await api(SCHEDULES_PATH + task.id, { method: 'DELETE' })
     if (res.ok) { await loadSchedules() }
   }
 
@@ -2153,10 +2444,10 @@ export default function App() {
   // this way there is no second render.
   const clockSkew = useMemo(() => {
     let min = nextClockSkew
-    for (const t of scheduledTasks) {
-      const ts = Date.parse(t.next_run)
+    for (const task of scheduledTasks) {
+      const ts = Date.parse(task.next_run)
       if (Number.isNaN(ts)) { continue }
-      min = Math.min(min, Date.now() - (ts - durationOf(t.every).ms))
+      min = Math.min(min, Date.now() - (ts - durationOf(task.every).ms))
     }
     return min
   }, [scheduledTasks])
@@ -2203,7 +2494,7 @@ export default function App() {
     if (liveRun) { setRunningState(true, liveRun) }
     // Load transcript for the new session.
     try {
-      const res = await api('/v1/sessions/' + encodeURIComponent(id) + '/messages')
+      const res = await api(SESSIONS_PATH + encodeURIComponent(id) + '/messages')
       const data = await res.json()
       // The user may have clicked another conversation while this one was loading: a
       // late answer must not paint over the one now on screen.
@@ -2214,7 +2505,7 @@ export default function App() {
       // stream. Asking is what lets the reader see it and follow it.
       let live = false
       try {
-        const rs = await api('/v1/sessions/' + encodeURIComponent(id) + '/run')
+        const rs = await api(SESSIONS_PATH + encodeURIComponent(id) + '/run')
         if (rs.ok) {
           const st = await rs.json()
           live = !st.outcome
@@ -2244,7 +2535,7 @@ export default function App() {
       }
       // Load config so the header shows the current provider/model.
       try {
-        const cfgRes = await api('/v1/sessions/' + encodeURIComponent(id) + '/config')
+        const cfgRes = await api(SESSIONS_PATH + encodeURIComponent(id) + '/config')
         const cfgData: ConfigView = await cfgRes.json()
         if (sessionRef.current === id) { setConfig(cfgData) }
       } catch { /* non-fatal */ }
@@ -2277,8 +2568,8 @@ export default function App() {
   const createSession = useCallback(async (projectId?: string) => {
     setCreatingSession(projectId ?? '')
     try {
-      const body = projectId ? JSON.stringify({ project_id: projectId }) : '{}'
-      const res = await api('/v1/sessions', {
+      const body = choose(projectId, JSON.stringify({ project_id: projectId }), '{}')
+      const res = await api(SESSIONS_URL, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body,
@@ -2302,12 +2593,12 @@ export default function App() {
   useEffect(() => {
     const handler = (e: Event) => {
       const detail = (e as CustomEvent).detail
-      if (detail && detail.project_id) {
+      if (detail?.project_id) {
         createSession(detail.project_id)
       }
     }
-    window.addEventListener('motita:create-session', handler)
-    return () => window.removeEventListener('motita:create-session', handler)
+    window.addEventListener(CREATE_SESSION_EVENT, handler)
+    return () => window.removeEventListener(CREATE_SESSION_EVENT, handler)
   }, [createSession])
 
   // deleteSession removes a conversation from the gateway and the sidebar.
@@ -2318,9 +2609,9 @@ export default function App() {
   // is refused and the work survives.
   const deleteSession = useCallback(async (id: string, discard = false) => {
     try {
-      const res = await api('/v1/sessions/' + id + (discard ? '?force=1' : ''), { method: 'DELETE' })
+      const res = await api(SESSIONS_PATH + id + (choose(discard, '?force=1', '')), { method: 'DELETE' })
       // 204 = deleted, 200 = default session was reset instead of removed.
-      if (!res.ok && res.status !== 204 && res.status !== 200) {
+      if (!res.ok && res.status !== HTTP_NO_CONTENT && res.status !== HTTP_OK) {
         const err = await res.json().catch(() => ({}))
         setState(err.error || 'could not delete the session', true)
         return
@@ -2331,15 +2622,15 @@ export default function App() {
       // the DELETE and fetchSessions, making the session flicker back into
       // the sidebar. For 200 (default reset) we keep the row but clear its
       // title locally so the placeholder shows without waiting for the refetch.
-      if (res.status === 204) {
+      if (res.status === HTTP_NO_CONTENT) {
         setSessions(prev => prev.filter(s => s.id !== id))
       } else {
-        setSessions(prev => prev.map(s => s.id === id ? { ...s, title: 'New session' } : s))
+        setSessions(prev => prev.map(s => { if (s.id === id) { return { ...s, title: NEW_SESSION_TITLE } } return s }))
       }
       const list = await fetchSessions()
       // If we deleted the active session, switch to the most recent remaining one.
       if (id === sessionRef.current) {
-        if (res.status === 200) {
+        if (res.status === HTTP_OK) {
           // Default session was reset — reload its now-empty transcript.
           await switchSession('default')
         } else {
@@ -2370,20 +2661,18 @@ export default function App() {
       // Reset with the modal: a fresh confirmation must start unlocked, whatever
       // the previous one left behind.
       setDeleting(false)
-      return
+      return undefined
     }
     // Both kinds ask the same question of their own endpoint: a session names its own
     // checkout's changes, a project names each of its sessions' changes. A skill has no
     // checkout, so there is nothing to ask.
     if (confirmDelete.type === 'skill') {
       setDeletionPreview(null)
-      return
+      return undefined
     }
     let cancelled = false
     setPreviewLoading(true)
-    const previewPath = confirmDelete.type === 'session'
-      ? '/v1/sessions/' + confirmDelete.id + '/deletion-preview'
-      : '/v1/projects/' + confirmDelete.id + '/deletion-preview'
+    const previewPath = choose(confirmDelete.type === 'session', SESSIONS_PATH + confirmDelete.id + '/deletion-preview', PROJECTS_PATH + confirmDelete.id + '/deletion-preview')
     api(previewPath)
       .then(async (res) => {
         if (!res.ok) { return null }
@@ -2391,7 +2680,7 @@ export default function App() {
       })
       .then((data) => {
         if (cancelled) { return }
-        setDeletionPreview(data && typeof data === 'object' ? data : null)
+        setDeletionPreview(choose(data && typeof data === 'object', data, null))
       })
       .catch(() => { if (!cancelled) { setDeletionPreview(null) } })
       .finally(() => { if (!cancelled) { setPreviewLoading(false) } })
@@ -2403,7 +2692,7 @@ export default function App() {
     const trimmed = title.trim()
     if (!trimmed) { return }
     try {
-      const res = await api('/v1/sessions/' + id, {
+      const res = await api(SESSIONS_PATH + id, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ title: trimmed })
@@ -2414,7 +2703,7 @@ export default function App() {
         return
       }
       const updated: SessionInfo = await res.json()
-      setSessions(prev => prev.map(s => s.id === updated.id ? updated : s))
+      setSessions(prev => prev.map(s => choose(s.id === updated.id, updated, s)))
     } catch {
       setState('could not rename the session', true)
     }
@@ -2425,7 +2714,7 @@ export default function App() {
   const fetchProviders = useCallback(async () => {
     if (!sessionId) { return }
     try {
-      const res = await api('/v1/sessions/' + sessionId + '/providers')
+      const res = await api(SESSIONS_PATH + sessionId + '/providers')
       const data = await res.json()
       setProviders(data.providers || [])
     } catch {
@@ -2444,7 +2733,7 @@ export default function App() {
     setFetchingModels(true)
     setModelList([])
     try {
-      const res = await api('/v1/sessions/' + sessionId + '/model-list')
+      const res = await api(SESSIONS_PATH + sessionId + '/model-list')
       if (res.ok) {
         const data = await res.json()
         setModelList(data.models || [])
@@ -2472,7 +2761,7 @@ export default function App() {
   // project's base branch first so the new work starts from the latest state.
   const continueSession = useCallback(async (s: SessionInfo) => {
     try {
-      const res = await api('/v1/sessions/' + s.id + '/continue', {
+      const res = await api(SESSIONS_PATH + s.id + '/continue', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: '{}',
@@ -2518,7 +2807,7 @@ export default function App() {
     if (!sessionId) { return }
     setSavingConfig(true)
     try {
-      const res = await api('/v1/sessions/' + sessionId + '/config', {
+      const res = await api(SESSIONS_PATH + sessionId + '/config', {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ provider: draftProvider, model: draftModel, reasoning: draftReasoning })
@@ -2578,6 +2867,25 @@ export default function App() {
         setUpgradeBusy(false)
         return
       }
+      const onFrame = (frame: string) => {
+        const dataLine = sseData(frame)
+        if (!dataLine) { return }
+        try {
+          const evt: UpgradeProgressEvent = JSON.parse(dataLine)
+          setUpgradeProgress(evt)
+          if (evt.stage === 'error') {
+            setUpgradeError(evt.message || t('upgrade failed'))
+            setUpgradeBusy(false)
+          } else if (evt.stage === 'done') {
+            setUpgradeBusy(false)
+            // The gateway is restarting. Show a message and wait for it
+            // to come back, then reload the page.
+            reloadWhenBack()
+          } else {
+            // A stage on the way: the progress bar above already shows it.
+          }
+        } catch { /* ignore parse error */ }
+      }
       const reader = res.body!.getReader()
       const decoder = new TextDecoder()
       let buffer = ''
@@ -2589,40 +2897,7 @@ export default function App() {
         while ((idx = buffer.indexOf('\n\n')) !== -1) {
           const frame = buffer.slice(0, idx)
           buffer = buffer.slice(idx + 2)
-          // Parse SSE: find data: line
-          let dataLine = ''
-          for (const line of frame.split('\n')) {
-            if (line.startsWith('data: ')) { dataLine = line.slice(6) }
-          }
-          if (dataLine) {
-            try {
-              const evt: UpgradeProgressEvent = JSON.parse(dataLine)
-              setUpgradeProgress(evt)
-              if (evt.stage === 'error') {
-                setUpgradeError(evt.message || t('upgrade failed'))
-                setUpgradeBusy(false)
-              } else if (evt.stage === 'done') {
-                setUpgradeBusy(false)
-                // The gateway is restarting. Show a message and wait for it
-                // to come back, then reload the page.
-                setTimeout(() => {
-                  // Poll health until the gateway is back.
-                  const poll = setInterval(async () => {
-                    try {
-                      const h = await fetch('/v1/health')
-                      if (h.ok) {
-                        clearInterval(poll)
-                        // Reload to pick up the new version.
-                        window.location.reload()
-                      }
-                    } catch { /* keep polling */ }
-                  }, 1000)
-                  // Give up after 30 seconds.
-                  setTimeout(() => clearInterval(poll), 30000)
-                }, 2000)
-              }
-            } catch { /* ignore parse error */ }
-          }
+          onFrame(frame)
         }
       }
     } catch (e) {
@@ -2649,7 +2924,7 @@ export default function App() {
   const loadCheckpoints = useCallback(async (id: string, rebuildTerm = false) => {
     let cps: { turn: number; files: boolean; steps: StepView[] }[]
     try {
-      const res = await api('/v1/sessions/' + encodeURIComponent(id) + '/checkpoints')
+      const res = await api(SESSIONS_PATH + encodeURIComponent(id) + '/checkpoints')
       if (!res.ok) { return }
       cps = (await res.json()).checkpoints ?? []
     } catch { return }
@@ -2657,7 +2932,7 @@ export default function App() {
     if (sessionRef.current !== id) { return }
     const live = liveTurnRef.current
     setStepsByTurn(prev => {
-      const next: Record<number, StepView[]> = rebuildTerm ? {} : { ...prev }
+      const next: Record<number, StepView[]> = choose(rebuildTerm, {}, { ...prev })
       for (const cp of cps) { if (cp.turn !== live) { next[cp.turn] = cp.steps ?? [] } }
       if (live != null && prev[live]) { next[live] = prev[live] }
       return next
@@ -2674,13 +2949,13 @@ export default function App() {
       const kept = entries.slice(-SHELL_LOG_MAX)
       setShellLog(kept)
       // What was already there is drawn whole, not typed again.
-      setTermSeenId(kept.length ? kept[kept.length - 1].id : 0)
+      setTermSeenId(kept[kept.length - 1]?.id ?? 0)
     }
   }, [])
 
   // transcript paints the conversation that already exists.
   const transcript = useCallback(async () => {
-    const res = await api('/v1/sessions/' + sessionRef.current + '/messages')
+    const res = await api(SESSIONS_PATH + sessionRef.current + '/messages')
     const data = await res.json()
     const msgs = data.messages || []
     if (msgs.length === 0) {
@@ -2707,9 +2982,9 @@ export default function App() {
     setShellLog(prev => [...prev, { id: entryId, cmd: command, exit: null, out: '' }].slice(-SHELL_LOG_MAX))
     setTermOpen(true); setAgentsOpen(false); setThinkOpen(false)
     const settle = (exit: number, out: string) =>
-      setShellLog(prev => prev.map(e => e.id === entryId ? { ...e, exit, out } : e))
+      setShellLog(prev => prev.map(e => { if (e.id === entryId) { return { ...e, exit, out } } return e }))
     try {
-      const res = await api('/v1/sessions/' + encodeURIComponent(sid) + '/shell', {
+      const res = await api(SESSIONS_PATH + encodeURIComponent(sid) + '/shell', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ command, approved }),
@@ -2724,11 +2999,11 @@ export default function App() {
         // Nothing ran: the line leaves the terminal and waits for the person's yes.
         setShellLog(prev => prev.filter(e => e.id !== entryId))
         shellPendingRef.current = command
-        setApproval({ id: 'shell:' + entryId, question: body.reason || t('This needs your approval'), command })
+        setApproval({ id: 'shell:' + entryId, question: body.reason || t(NEEDS_APPROVAL), command })
         return
       }
       const out = [body.output, body.error].filter(Boolean).join('\n')
-      settle(body.error && !body.output ? NO_RESULT : (body.exit ?? 0), out)
+      settle(choose(body.error && !body.output, NO_RESULT, (body.exit ?? 0)), out)
     } catch {
       settle(NO_RESULT, '')
       setToast({ message: t('The command could not be run'), type: 'error' })
@@ -2748,25 +3023,25 @@ export default function App() {
       if (!approve || !command) { return }
       if (all) {
         const sid = sessionRef.current
-        const res = await api('/v1/sessions/' + sid + '/auto-approve', {
+        const res = await api(SESSIONS_PATH + sid + '/auto-approve', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ enabled: true }),
         }).catch(() => null)
-        if (res?.ok) { setSessions(prev => prev.map(s => s.id === sid ? { ...s, auto_approve: true } : s)) }
+        if (res?.ok) { setSessions(prev => prev.map(s => { if (s.id === sid) { return { ...s, auto_approve: true } } return s })) }
       }
       void runShellLine(command, true)
       return
     }
     try {
-      await api('/v1/sessions/' + sessionRef.current + '/runs/approval', {
+      await api(SESSIONS_PATH + sessionRef.current + '/runs/approval', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(all ? { id, approve, scope: 'session' } : { id, approve })
+        body: JSON.stringify(choose(all, { id, approve, scope: 'session' }, { id, approve }))
       })
       if (all) {
         const sid = sessionRef.current
-        setSessions(prev => prev.map(s => s.id === sid ? { ...s, auto_approve: true } : s))
+        setSessions(prev => prev.map(s => { if (s.id === sid) { return { ...s, auto_approve: true } } return s }))
       }
     } catch {
       setState('could not answer the approval', true)
@@ -2791,6 +3066,8 @@ export default function App() {
     } else if (e.key === 'Enter') {
       e.preventDefault()
       answerApproval(approval.id, approvalSel !== 2, approvalSel === 1)
+    } else {
+      // Any other key is not the approval's: the browser handles it.
     }
   }
 
@@ -2798,13 +3075,13 @@ export default function App() {
   const stopAutoApprove = useCallback(async () => {
     const sid = sessionRef.current
     try {
-      const res = await api('/v1/sessions/' + sid + '/auto-approve', {
+      const res = await api(SESSIONS_PATH + sid + '/auto-approve', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ enabled: false })
       })
-      if (!res.ok) { throw new Error() }
-      setSessions(prev => prev.map(s => s.id === sid ? { ...s, auto_approve: false } : s))
+      if (!res.ok) { throw new Error('HTTP ' + res.status) }
+      setSessions(prev => prev.map(s => { if (s.id === sid) { return { ...s, auto_approve: false } } return s }))
     } catch {
       setState('could not stop allowing all commands', true)
     }
@@ -2816,7 +3093,7 @@ export default function App() {
   const loadAgents = useCallback(async (id: string) => {
     if (!id) { return }
     try {
-      const res = await api('/v1/sessions/' + encodeURIComponent(id) + '/agents')
+      const res = await api(SESSIONS_PATH + encodeURIComponent(id) + '/agents')
       if (sessionRef.current !== id) { return }
       if (!res.ok) { setAgents([]); return }
       const data = await res.json()
@@ -2829,10 +3106,10 @@ export default function App() {
   // A running agent's clock ticks while the drawer shows it, and only then.
   const agentsTicking = agentsOpen && agents.some(a => a.state === 'running')
   useEffect(() => {
-    if (!agentsTicking) { return }
+    if (!agentsTicking) { return undefined }
     setAgentNow(Date.now())
-    const t = setInterval(() => setAgentNow(Date.now()), 1000)
-    return () => clearInterval(t)
+    const timer = setInterval(() => setAgentNow(Date.now()), 1000)
+    return () => clearInterval(timer)
   }, [agentsTicking])
 
   // finish marks the run as done.
@@ -2849,7 +3126,7 @@ export default function App() {
     void loadCheckpoints(sessionRef.current)
     // A command that never reported a result (refused, declined, or cut off by a cancel)
     // must not read "running" for ever: it is closed as "no result".
-    setShellLog(prev => prev.some(e => e.exit == null) ? prev.map(e => e.exit == null ? { ...e, exit: NO_RESULT } : e) : prev)
+    setShellLog(prev => { if (prev.some(e => e.exit == null)) { return prev.map(e => { if (e.exit == null) { return { ...e, exit: NO_RESULT } } return e }) } return prev })
     setLiveThought(null)
     setState('ready')
     // The agents' final states and costs, as the gateway has them now that the run is over.
@@ -2861,7 +3138,7 @@ export default function App() {
     if (handoffRef.current) {
       handoffRef.current = false
       const sid = sessionRef.current
-      for (const delay of [400, 1800]) {
+      for (const delay of HANDOFF_RELOAD_MS) {
         setTimeout(() => {
           if (sessionRef.current === sid && !runningRef.current) { void switchSessionRef.current?.(sid, 'none', true) }
         }, delay)
@@ -2871,7 +3148,7 @@ export default function App() {
 
   // dispatchEvent handles one parsed SSE event.
   const dispatchEvent = useCallback((name: string, data: string | null, id: string | null) => {
-    if (id) { lastIdRef.current = parseInt(id, 10) || lastIdRef.current }
+    if (id) { lastIdRef.current = Number.parseInt(id, 10) || lastIdRef.current }
     if (data === null) { return }
     let payload: any
     try {
@@ -2885,20 +3162,20 @@ export default function App() {
       // Which checkpoint this run is. A run that is replayed from the start rebuilds its steps
       // from that replay, so what was loaded for it is dropped first: it would be doubled.
       if (typeof payload.turn === 'number') {
-        const t: number = payload.turn
-        liveTurnRef.current = t
+        const turn: number = payload.turn
+        liveTurnRef.current = turn
         setMessages(prev => {
           for (let i = prev.length - 1; i >= 0; i--) {
             if (prev[i].role === 'user') {
               if (prev[i].turn != null) { break }
               const next = prev.slice()
-              next[i] = { ...prev[i], turn: t }
+              next[i] = { ...prev[i], turn: turn }
               return next
             }
           }
           return prev
         })
-        if (lastIdRef.current === 0) { setStepsByTurn(prev => ({ ...prev, [t]: [] })) }
+        if (lastIdRef.current === 0) { setStepsByTurn(prev => ({ ...prev, [turn]: [] })) }
       }
       if (payload.dropped > 0) {
         setMessages(prev => [...prev, {
@@ -2927,15 +3204,15 @@ export default function App() {
         // command and whether it worked, and the terminal drawer keeps what it printed.
         // The result lands on the command it belongs to.
         const { exit, body } = splitOutput(text)
-        const t = liveTurnRef.current
-        if (t != null) {
+        const turn = liveTurnRef.current
+        if (turn != null) {
           setStepsByTurn(prev => {
-            const steps = prev[t] ?? []
+            const steps = prev[turn] ?? []
             for (let i = steps.length - 1; i >= 0; i--) {
               if (steps[i].kind === 'command' && steps[i].exit == null) {
                 const next = steps.slice()
                 next[i] = { ...steps[i], exit: exit ?? 0, out: body }
-                return { ...prev, [t]: next }
+                return { ...prev, [turn]: next }
               }
             }
             return prev
@@ -2962,7 +3239,7 @@ export default function App() {
       }
       const turn = liveTurnRef.current
       if (text && turn != null) {
-        const step: StepView = { kind: kind === 'command' ? 'command' : kind === 'thought' ? 'thought' : 'step', text, ...(kind === 'command' ? { exit: null } : {}) }
+        const step: StepView = { kind: choose(kind === 'command', 'command', choose(kind === 'thought', 'thought', 'step')), text, ...(choose(kind === 'command', { exit: null }, {})) }
         setStepsByTurn(prev => ({ ...prev, [turn]: [...(prev[turn] ?? []), step].slice(-STEPS_MAX) }))
       }
       if (kind === 'command') {
@@ -2983,7 +3260,7 @@ export default function App() {
     case 'done':
       setActivity(null)
       if (payload.result) {
-        setMessages(prev => [...prev, { id: nextId(), role: 'agent', text: payload.result, changes: payload.changes, artifacts: Array.isArray(payload.artifacts) && payload.artifacts.length ? payload.artifacts : undefined, report: hasReport(payload.report) ? payload.report : undefined }])
+        setMessages(prev => [...prev, { id: nextId(), role: 'agent', text: payload.result, changes: payload.changes, artifacts: choose(Array.isArray(payload.artifacts) && payload.artifacts.length, payload.artifacts, undefined), report: choose(hasReport(payload.report), payload.report, undefined) }])
       }
       finish()
       break
@@ -2994,7 +3271,9 @@ export default function App() {
       }
       finish()
       break
-    // Unknown events are ignored: a future server may add one.
+    default:
+      // Unknown events are ignored: a future server may add one.
+      break
     }
   }, [finish])
 
@@ -3024,7 +3303,7 @@ export default function App() {
   const followReconnect = useCallback(async () => {
     let res: Response
     try {
-      res = await api('/v1/sessions/' + sessionRef.current + '/events?from=' + lastIdRef.current)
+      res = await api(SESSIONS_PATH + sessionRef.current + '/events?from=' + lastIdRef.current)
     } catch {
       if (runningRef.current) {
         setState('reconnecting', true)
@@ -3032,7 +3311,7 @@ export default function App() {
       }
       return
     }
-    if (res.status === 404) {
+    if (res.status === HTTP_NOT_FOUND) {
       if (runningRef.current) {
         finish()
         await transcript()
@@ -3066,20 +3345,22 @@ export default function App() {
   // (see termBoost), and never by drawing an entry whole - that read as "everything at once".
   // The only cut is a sanity cap: a history this far behind is not being watched.
   const TERM_CAP = 30
+  // What is left to type once the cap is hit: the last few entries.
+  const TERM_KEEP = 6
   useEffect(() => {
     if (!termOpen) { return }
     const pending = shellLog.filter(e => e.id > termSeenId)
-    if (pending.length > TERM_CAP) { setTermSeenId(pending[pending.length - 6].id) }
+    if (pending.length > TERM_CAP) { setTermSeenId(pending[pending.length - TERM_KEEP].id) }
   }, [termOpen, shellLog, termSeenId])
   // The checkpoint whose ⋯ menu is open, and whether the destructive item was armed.
   const [cpMenu, setCpMenu] = useState<number | null>(null)
   const [cpArmed, setCpArmed] = useState(false)
   useEffect(() => {
-    if (cpMenu == null) { return }
+    if (cpMenu == null) { return undefined }
     const close = () => { setCpMenu(null); setCpArmed(false) }
     // Deferred one tick: the click that opened the menu must not be the one that closes it.
-    const t = setTimeout(() => document.addEventListener('click', close), 0)
-    return () => { clearTimeout(t); document.removeEventListener('click', close) }
+    const timer = setTimeout(() => document.addEventListener('click', close), 0)
+    return () => { clearTimeout(timer); document.removeEventListener('click', close) }
   }, [cpMenu])
 
   // restoreCheckpoint takes the conversation back to before an input; with `files` it also puts
@@ -3090,7 +3371,7 @@ export default function App() {
     if (runningRef.current) { return }
     const sid = sessionRef.current
     try {
-      const res = await api('/v1/sessions/' + encodeURIComponent(sid) + '/checkpoints/' + turn + '/restore', {
+      const res = await api(SESSIONS_PATH + encodeURIComponent(sid) + '/checkpoints/' + turn + '/restore', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ files }),
@@ -3104,9 +3385,9 @@ export default function App() {
       setInput(body.task ?? '')
       await switchSessionRef.current?.(sid, 'none')
       setToast({
-        message: t(body.files_restored ? 'Back at the checkpoint — conversation and files' : 'Back at the checkpoint — conversation only'),
+        message: choose(body.files_restored, t('Back at the checkpoint — conversation and files'), t('Back at the checkpoint — conversation only')),
         type: 'success',
-        detail: body.files_restored && body.undo_kept ? tf('What the files were before is kept in git as {ref}', { ref: 'refs/motita/undo/' + sid }) : undefined,
+        detail: choose(body.files_restored && body.undo_kept, tf('What the files were before is kept in git as {ref}', { ref: 'refs/motita/undo/' + sid }), undefined),
       })
     } catch {
       setToast({ message: t('Could not go back to that checkpoint'), type: 'error' })
@@ -3127,23 +3408,23 @@ export default function App() {
     setState('working')
     let res: Response
     try {
-      res = await api(endpoint || '/v1/sessions/' + sessionRef.current + '/task', {
+      res = await api(endpoint || SESSIONS_PATH + sessionRef.current + '/task', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ task: text })
       })
     } catch {
-      setState('the gateway refused the turn', true)
+      setState(TURN_REFUSED, true)
       finish()
       return
     }
     if (!res.ok) {
-      let msg = 'the gateway refused the turn'
+      let msg = TURN_REFUSED
       let merged = false
       try {
         const err = await res.json()
         if (err.error) { msg = err.error }
-        merged = err.error && err.error.includes('already been integrated')
+        merged = err.error?.includes('already been integrated')
       } catch { /* keep generic */ }
       if (merged) {
         const s = sessions.find(x => x.id === sessionRef.current)
@@ -3192,24 +3473,24 @@ export default function App() {
   const sendWhileRunning = (text: string, interrupt: boolean) => {
     const sid = sessionRef.current
     handoffRef.current = true
-    void api('/v1/sessions/' + encodeURIComponent(sid) + (interrupt ? '/interrupt' : '/queue'), {
+    void api(SESSIONS_PATH + encodeURIComponent(sid) + (choose(interrupt, '/interrupt', '/queue')), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ task: text }),
     }).then(res => {
       if (!res.ok) {
         handoffRef.current = false
-        setToast({ message: t('the gateway refused the turn'), type: 'error' })
+        setToast({ message: t(TURN_REFUSED), type: 'error' })
       }
     }).catch(() => {
       handoffRef.current = false
-      setToast({ message: t('the gateway refused the turn'), type: 'error' })
+      setToast({ message: t(TURN_REFUSED), type: 'error' })
     })
   }
 
   // stopRun stops the current turn of the session on screen, with nothing queued behind it.
   const stopRun = () => {
-    void api('/v1/sessions/' + encodeURIComponent(sessionRef.current) + '/interrupt', {
+    void api(SESSIONS_PATH + encodeURIComponent(sessionRef.current) + '/interrupt', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: '{}',
@@ -3227,10 +3508,10 @@ export default function App() {
   const [prBlocked, setPrBlocked] = useState(false)
   const [prMergeArmed, setPrMergeArmed] = useState(false)
   const [prBusy, setPrBusy] = useState(false)
-  const prSessionId = selectedSession?.project_id && !selectedSession.merged ? sessionId : ''
+  const prSessionId = choose(selectedSession?.project_id && !selectedSession.merged, sessionId, '')
   const prRunning = selectedSession?.running === true
   const prWatch = selectedSession?.pr_watch
-  const prWatchKey = prWatch ? prWatch.status + ':' + prWatch.attempts : ''
+  const prWatchKey = prWatchKeyOf(prWatch)
 
   const refreshPR = async (sid: string) => {
     try {
@@ -3265,8 +3546,8 @@ export default function App() {
   }, [prSessionId, prWatchKey])
   // While the gateway follows the CI, the bar's detail (the jobs) is refreshed every 20 seconds.
   useEffect(() => {
-    if (!prSessionId || !shouldPoll(prWatch)) { return }
-    const id = setInterval(() => { void refreshPR(prSessionId) }, 20000)
+    if (!prSessionId || !shouldPoll(prWatch)) { return undefined }
+    const id = setInterval(() => { void refreshPR(prSessionId) }, PR_POLL_MS)
     return () => clearInterval(id)
   }, [prSessionId, prWatch?.status])
 
@@ -3275,7 +3556,7 @@ export default function App() {
   const seenWatchRef = useRef<Record<string, PRWatch | null>>({})
   // announce shows the toast and, when the tab is in the background, a browser notification as well:
   // the CI ending is exactly what someone looking at another window wants to hear about.
-  const announce = (n: { message: string; type: 'success' | 'error' | 'warning'; detail?: string }) => {
+  const announce = (n: { message: string; type: ToastType; detail?: string }) => {
     setToast(n)
     try {
       if (typeof Notification !== 'undefined' && shouldDesktopNotify(document.hidden, Notification.permission, loadNotify())) {
@@ -3284,14 +3565,14 @@ export default function App() {
     } catch { /* a browser that cannot notify just does not */ }
   }
   useEffect(() => {
-    const news: { message: string; type: 'success' | 'error' | 'warning'; detail: string }[] = []
+    const news: { message: string; type: ToastType; detail: string }[] = []
     for (const sess of sessions) {
       const cur = sess.pr_watch ?? null
       const notice = prNotice(seenWatchRef.current[sess.id], cur)
       seenWatchRef.current[sess.id] = cur
       if (!notice || !cur) { continue }
-      const where = sess.id === sessionRef.current ? '' : ' — ' + (sess.title || sess.id)
-      const pr = cur.number ? '#' + cur.number : ''
+      const where = choose(sess.id === sessionRef.current, '', ' — ' + (sess.title || sess.id))
+      const pr = choose(cur.number, '#' + cur.number, '')
       if (notice === 'passed') {
         news.push({ message: t('CI passed') + where, type: 'success', detail: tf('Pull request {pr} is green: you can go and merge it.', { pr }) })
       } else if (notice === 'fixing') {
@@ -3305,7 +3586,9 @@ export default function App() {
       } else if (notice === 'closed') {
         news.push({ message: t('Pull request closed') + where, type: 'warning', detail: tf('Pull request {pr} was closed without being merged.', { pr }) })
       } else if (notice === 'merged') {
-        news.push({ message: t('Pull request merged') + where, type: 'success', detail: cur.next ? tf('Pull request {pr} was merged. A new session was opened from the updated branch.', { pr }) : tf('Pull request {pr} was merged. Use Continue in the bar to keep working from the updated branch.', { pr }) })
+        news.push({ message: t('Pull request merged') + where, type: 'success', detail: choose(cur.next, tf('Pull request {pr} was merged. A new session was opened from the updated branch.', { pr }), tf('Pull request {pr} was merged. Use Continue in the bar to keep working from the updated branch.', { pr })) })
+      } else {
+        // Nothing worth a toast for this session.
       }
     }
     // One toast for what moved in one look at the list: three sessions finishing together are
@@ -3317,6 +3600,8 @@ export default function App() {
         type: worstToast(news.map(n => n.type)),
         detail: news.map(n => n.message).join(' · '),
       })
+    } else {
+      // No pull request moved.
     }
   }, [sessions])
 
@@ -3331,10 +3616,10 @@ export default function App() {
       await getPR(api, sid)
     } catch (e) {
       if (e instanceof PRError && e.code === 'git_auth_required') { setGitConnect({ service: e.service || undefined }); return }
-      setToast({ message: t('Could not create the pull request'), type: 'error', detail: e instanceof Error ? e.message : String(e) })
+      setToast({ message: t('Could not create the pull request'), type: 'error', detail: errorMessage(e) })
       return
     }
-    await submit(t('Create PR'), '/v1/sessions/' + encodeURIComponent(sid) + '/pr')
+    await submit(t('Create PR'), SESSIONS_PATH + encodeURIComponent(sid) + '/pr')
   }
 
   // tryAgain is what the user does after the gateway gave up: the agent is sent again and the
@@ -3355,7 +3640,7 @@ export default function App() {
         handoffRef.current = true
       }
     } catch (e) {
-      setToast({ message: t('Could not ask Motita to fix the CI'), type: 'error', detail: e instanceof Error ? e.message : String(e) })
+      setToast({ message: t('Could not ask Motita to fix the CI'), type: 'error', detail: errorMessage(e) })
     } finally {
       setPrBusy(false)
     }
@@ -3372,7 +3657,7 @@ export default function App() {
       void refreshPR(sid)
       void fetchSessions()
     } catch (e) {
-      setToast({ message: t('Could not merge the pull request'), type: 'error', detail: e instanceof Error ? e.message : String(e) })
+      setToast({ message: t('Could not merge the pull request'), type: 'error', detail: errorMessage(e) })
     } finally {
       setPrBusy(false)
     }
@@ -3386,8 +3671,8 @@ export default function App() {
   const handleSubmit = (e: Event) => {
     e.preventDefault()
     const argText = input.trim()
-    const tagText = activeTags.map(t => t.name).join(' ')
-    const text = activeTags.length > 0 ? (argText ? tagText + ' ' + argText : tagText) : argText
+    const tagText = activeTags.map(tag => tag.name).join(' ')
+    const text = choose(activeTags.length > 0, (choose(argText, tagText + ' ' + argText, tagText)), argText)
     if (text === '/agents') {
       setAgentsOpen(true); setTermOpen(false); setThinkOpen(false)
       setInput('')
@@ -3469,8 +3754,8 @@ export default function App() {
     e.preventDefault()
     const argText = input.trim()
     // If there are active tags, send tags + argument. If no tags and no text, nothing.
-    const tagText = activeTags.map(t => t.name).join(' ')
-    const text = activeTags.length > 0 ? (argText ? tagText + ' ' + argText : tagText) : argText
+    const tagText = activeTags.map(tag => tag.name).join(' ')
+    const text = choose(activeTags.length > 0, (choose(argText, tagText + ' ' + argText, tagText)), argText)
     if (text === '/agents') {
       setAgentsOpen(true); setTermOpen(false); setThinkOpen(false)
       setInput('')
@@ -3525,11 +3810,11 @@ export default function App() {
         const fromUrl = sessionFromUrl()
         if (fromUrl && list.some(s => s.id === fromUrl)) { lastId = fromUrl }
         const exists = list.some(s => s.id === lastId)
-        const target = exists ? lastId : 'default'
+        const target = choose(exists, lastId, 'default')
         await switchSession(target, 'replace')
         setState('ready')
       } catch {
-        setState('not connected', true)
+        setState(NOT_CONNECTED, true)
       }
     })()
     // Cleanup reconnect timer on unmount.
@@ -3548,17 +3833,17 @@ export default function App() {
       setMessages([])
       setSessions([])
       setProjects([])
-      setState('not connected', true)
+      setState(NOT_CONNECTED, true)
     }
-    window.addEventListener('motita:auth-needed', handler)
-    return () => window.removeEventListener('motita:auth-needed', handler)
+    window.addEventListener(AUTH_NEEDED_EVENT, handler)
+    return () => window.removeEventListener(AUTH_NEEDED_EVENT, handler)
   }, [])
 
   // Poll for updates: once on startup (after auth succeeds) and then every
   // 10 minutes. The backend's own hourly check is what populates the cache,
   // so this poll is cheap (it reads the cache, not GitHub).
   useEffect(() => {
-    if (authState !== 'ok') { return }
+    if (authState !== 'ok') { return undefined }
     checkForUpdates()
     const interval = setInterval(checkForUpdates, 10 * 60 * 1000)
     return () => clearInterval(interval)
@@ -3571,14 +3856,14 @@ export default function App() {
   // Then the gateway's ui.language, which applies to all of motita: this page, the terminal, every
   // browser. `auto` still means "the browser's language" here, not the gateway machine's locale.
   useEffect(() => {
-    if (authState !== 'ok') { return }
+    if (authState !== 'ok') { return undefined }
     let cancelled = false
     ;(async () => {
       try {
         const res = await api('/v1/ui')
         if (!res.ok || cancelled) { return }
         const data = await res.json()
-        const setting: LangSetting = data.language === 'en' || data.language === 'es' ? data.language : 'auto'
+        const setting: LangSetting = choose(data.language === 'en' || data.language === 'es', data.language, 'auto')
         setUiLangSetting(setting)
         setUiLangAvailable(true)
         await setLang(resolveLang(setting))
@@ -3636,11 +3921,11 @@ export default function App() {
         const fromUrl = sessionFromUrl()
         if (fromUrl && list.some(s => s.id === fromUrl)) { lastId = fromUrl }
         const exists = list.some(s => s.id === lastId)
-        const target = exists ? lastId : 'default'
+        const target = choose(exists, lastId, 'default')
         await switchSession(target, 'replace')
         setState('ready')
       } catch {
-        setState('not connected', true)
+        setState(NOT_CONNECTED, true)
       }
     } else {
       setAuthError(t('That token was rejected. Try again.'))
@@ -3658,10 +3943,10 @@ export default function App() {
   // treating it as an outside click would flip the state twice (closed here,
   // then reopened by the button's own handler) and the button would seem dead.
   useEffect(() => {
-    if (!rowMenu) { return }
+    if (!rowMenu) { return undefined }
     const onDown = (e: Event) => {
-      const t = e.target as HTMLElement | null
-      if (t && (t.closest('.row-menu') || t.closest('button[data-row-menu-trigger]'))) { return }
+      const target = e.target as HTMLElement | null
+      if (target && (target.closest('.row-menu') || target.closest('button[data-row-menu-trigger]'))) { return }
       closeRowMenu()
     }
     const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') { closeRowMenu() } }
@@ -3683,10 +3968,10 @@ export default function App() {
   // The listener is attached only while a menu is open, which is what keeps it off the hot path
   // of ordinary scrolling.
   useEffect(() => {
-    if (!rowMenu) { return }
+    if (!rowMenu) { return undefined }
     const reposition = () => {
       const anchor = rowMenuAnchor.current
-      if (anchor && anchor.isConnected) { placeRowMenu(anchor) }
+      if (anchor?.isConnected) { placeRowMenu(anchor) }
       else { closeRowMenu() } // the row was removed from under the menu
     }
     window.addEventListener('scroll', reposition, true)
@@ -3711,12 +3996,7 @@ export default function App() {
   // memory, over the index already fetched. It is computed here and not in the JSX because
   // nothing in a render should be doing work the reader has to trace.
   const skillQueryNorm = skillQuery.trim().toLowerCase()
-  const filteredSkills = skillQueryNorm === ''
-    ? skills
-    : skills.filter(s =>
-        s.name.toLowerCase().includes(skillQueryNorm) ||
-        s.title.toLowerCase().includes(skillQueryNorm) ||
-        s.summary.toLowerCase().includes(skillQueryNorm))
+  const filteredSkills = filterSkills(skills, skillQueryNorm)
 
   // A picture inside an answer opens in the full-window preview (zoom, pan). A picture that is
   // also a link keeps being a link.
@@ -3730,19 +4010,21 @@ export default function App() {
         const img = target as HTMLImageElement
         if (img.currentSrc || img.src) { setPreviewImage({ src: img.currentSrc || img.src, label: img.alt || t('Image') }) }
       } else if (target.classList.contains('copy-btn')) {
-        const text = target.getAttribute('data-copy-text') || ''
+        const text = target.dataset.copyText || ''
         void copyText(text).then((ok) => {
           if (!ok) { return }
           target.textContent = '✓'
-          setTimeout(() => { target.textContent = t('copy') }, 1500)
+          setTimeout(() => { target.textContent = t('copy') }, COPIED_MS)
         })
       } else if (target.classList.contains('copy-msg-btn')) {
-        const text = target.getAttribute('data-raw') || ''
+        const text = target.dataset.raw || ''
         void copyText(text).then((ok) => {
           if (!ok) { return }
           target.textContent = '✓'
-          setTimeout(() => { target.textContent = t('copy') }, 1500)
+          setTimeout(() => { target.textContent = t('copy') }, COPIED_MS)
         })
+      } else {
+        // Any other click is not a copy or a picture to preview.
       }
     }
     document.addEventListener('click', handler)
@@ -3752,9 +4034,11 @@ export default function App() {
   // The pill's class. `stateBad` is set for both severities, so the TEXT decides
   // which of the two it is drawn as: the code sets "warning" for the recoverable
   // case and "error" for the rest.
-  const stateClass = stateBad
-    ? (stateText === 'warning' ? 'state-warning bad' : 'bad')
-    : (stateText === 'working' || stateText === 'reconnecting') ? 'state-working' : ''
+  const stateClass = choose(
+    stateBad,
+    choose(stateText === 'warning', 'state-warning bad', 'bad'),
+    choose(stateText === 'working' || stateText === 'reconnecting', 'state-working', ''),
+  )
 
   // longPressTimer ref for session/project long-press detection.
   const longPressTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -3769,7 +4053,7 @@ export default function App() {
       setContextMenu({ type, id, title, x, y })
       // Prevent the subsequent click from firing.
       if (longPressTimer.current) { longPressTimer.current = null }
-    }, 500)
+    }, LONG_PRESS_MS)
   }
 
   const cancelLongPress = () => {
@@ -3800,7 +4084,7 @@ export default function App() {
     <div
       key={s.id}
       class={`session-row group flex items-center gap-2 px-3 py-2 rounded-lg cursor-pointer transition-colors mb-0.5 ${
-        s.id === sessionId ? 'bg-accent/10 border border-accent/20' : 'hover:bg-white/5 border border-transparent'
+        choose(s.id === sessionId, 'bg-accent/10 border border-accent/20', 'hover:bg-white/5 border border-transparent')
       }`}
       role="button"
       tabIndex={0}
@@ -3817,8 +4101,8 @@ export default function App() {
           a run lasted. The class carries the state; the transition and the
           rotation are plain CSS, because this build disables Tailwind's
           `animation` plugin and an `animate-spin` icon never turned at all. */}
-      <span class={`session-spinner${busy ? ' is-running' : ''}`} aria-hidden="true" />
-      {renamingId === s.id ? (
+      <span class={`session-spinner${choose(busy, ' is-running', '')}`} aria-hidden="true" />
+      {renamingId === s.id && (
         <>
           <input
             class="flex-1 min-w-0 bg-black/30 border border-accent/30 rounded-sm px-2 py-1 text-sm text-[#e8e8ea] focus:outline-hidden focus:border-accent"
@@ -3851,13 +4135,14 @@ export default function App() {
             </svg>
           </button>
         </>
-      ) : (
+      )}
+      {renamingId !== s.id && (
         <>
           {/* Two lines, so the title keeps the full width and the facts sit
               under it instead of competing for the same row: at a narrow
               sidebar the branch used to squeeze the title away. */}
           <div class="flex-1 min-w-0">
-            <div class={`truncate text-sm leading-tight ${busy ? 'text-accent' : 'text-[#e8e8ea]'}`}>
+            <div class={`truncate text-sm leading-tight ${choose(busy, 'text-accent', 'text-[#e8e8ea]')}`}>
               {sessionTitle(s)}
             </div>
             {/* When it was last used, on its own line. It was sharing the row
@@ -3867,7 +4152,7 @@ export default function App() {
                 each gets its own line. */}
             <div
               class="mt-0.5 text-[10px] tabular-nums text-muted-foreground opacity-70"
-              title={s.last_used ? tf('Last used {when}', { when: fullUpdated(s.last_used) }) : undefined}
+              title={choose(s.last_used, tf('Last used {when}', { when: fullUpdated(s.last_used) }), undefined)}
             >
               {formatUpdated(s.last_used)}
               {!!s.agents_running && s.agents_running > 0 && (
@@ -3908,7 +4193,7 @@ export default function App() {
                   title={changesTitle(s.changes)}
                 >
                   <span class="text-[#f0a040]/50 uppercase tracking-wide text-[9px]">
-                    {t(s.changes === 1 ? 'change' : 'changes')}
+                    {choose(s.changes === 1, t('change'), t('changes'))}
                   </span>
                   <span class="tabular-nums text-[#f0a040]">{s.changes}</span>
                 </span>
@@ -3918,7 +4203,7 @@ export default function App() {
         </>
       )}
       {renamingId !== s.id && (
-        <div class={`row-actions relative flex-none${rowMenu?.id === s.id ? ' row-actions-open' : ''}`}>
+        <div class={`row-actions relative flex-none${choose(rowMenu?.id === s.id, ' row-actions-open', '')}`}>
           <button
             class="p-1 rounded-sm hover:bg-white/10"
             title={t('More actions')}
@@ -3938,8 +4223,8 @@ export default function App() {
           </button>
           {rowMenu?.id === s.id && (
             <div
-              class={`row-menu fixed z-50 frosted rounded-xl border border-white/10 py-1 min-w-[140px]${rowMenuAbove ? ' row-menu-above' : ''}${rowMenuClosing ? ' row-menu-closing' : ''}`}
-              style={rowMenuPos ? { top: `${rowMenuPos.top}px`, left: `${rowMenuPos.left}px` } : undefined}
+              class={`row-menu fixed z-50 frosted rounded-xl border border-white/10 py-1 min-w-[140px]${choose(rowMenuAbove, ' row-menu-above', '')}${choose(rowMenuClosing, ' row-menu-closing', '')}`}
+              style={rowMenuStyle(rowMenuPos)}
               role="presentation"
               onClick={(e) => e.stopPropagation()}
             >
@@ -3954,16 +4239,16 @@ export default function App() {
               </button>
               {s.project_id && !s.merged && (
                 <button
-                  class={`row-menu-item w-full flex items-center gap-2 px-3 py-2 text-sm ${s.mergeable ? 'text-accent hover:bg-accent/10' : 'text-[#8a8a9a]'}`}
+                  class={`row-menu-item w-full flex items-center gap-2 px-3 py-2 text-sm ${choose(s.mergeable, 'text-accent hover:bg-accent/10', 'text-[#8a8a9a]')}`}
                   disabled={!s.mergeable}
-                  title={t(s.mergeable ? 'Integrate this session\'s work back into the project' : 'Nothing to integrate yet')}
+                  title={choose(s.mergeable, t('Integrate this session\'s work back into the project'), t('Nothing to integrate yet'))}
                   onClick={async (e) => {
                     if (!s.mergeable) { e.stopPropagation(); return }
                     e.stopPropagation()
                     closeRowMenu()
                     // Integration is now a run of the agent: it commits, merges and reports through
                     // the same SSE channel as a normal task, so the chat shows what happened.
-                    await submit('Integrate', '/v1/sessions/' + s.id + '/merge')
+                    await submit('Integrate', SESSIONS_PATH + s.id + '/merge')
                   }}
                 >
                   <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -4038,14 +4323,15 @@ export default function App() {
               </div>
             </div>
 
-            {authState === 'checking' ? (
+            {authState === 'checking' && (
               <div class="flex items-center justify-center gap-2 py-6 text-sm text-[#9a9aaa]">
                 <svg class="animate-spin text-accent" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
                   <path d="M21 12a9 9 0 1 1-6.219-8.56" />
                 </svg>
                 <span>{t('Checking credentials…')}</span>
               </div>
-            ) : (
+            )}
+            {authState !== 'checking' && (
               <form
                 onSubmit={(e) => { e.preventDefault(); submitAuth() }}
               >
@@ -4078,14 +4364,15 @@ export default function App() {
                   disabled={authBusy || !authInput.trim()}
                   class="w-full min-h-[44px] mt-4 rounded-xl bg-accent text-white font-semibold disabled:opacity-30 disabled:cursor-not-allowed active:scale-95 transition-transform flex items-center justify-center gap-2"
                 >
-                  {authBusy ? (
+                  {authBusy && (
                     <>
                       <svg class="animate-spin" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
                         <path d="M21 12a9 9 0 1 1-6.219-8.56" />
                       </svg>
                       {t('Connecting…')}
                     </>
-                  ) : t('Connect')}
+                  )}
+                  {!authBusy && t('Connect')}
                 </button>
               </form>
             )}
@@ -4126,12 +4413,12 @@ export default function App() {
               <NewSessionButton
                 loading={creatingSession === ''}
                 onClick={() => createSession()}
-                label={t('New session')}
+                label={t(NEW_SESSION_TITLE)}
               />
               <button
                 class="flex items-center justify-center px-3 py-2.5 rounded-xl border border-white/10 text-[#e8e8ea] hover:bg-white/5 active:scale-95 transition-all"
                 onClick={() => { setNewProjectMode(null); mainChosen.current = false; setNewProjectMain('main'); setShowNewProject(true) }}
-                title={t('New project')}
+                title={t(NEW_PROJECT)}
               >
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                   <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" /><line x1="12" y1="11" x2="12" y2="17" /><line x1="9" y1="14" x2="15" y2="14" />
@@ -4181,7 +4468,7 @@ export default function App() {
                           a declaration the browser drops. */}
                       <svg
                         width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"
-                        class={`project-chevron flex-none text-[#8a8a9a]${isCollapsed ? ' is-collapsed' : ''}`}
+                        class={`project-chevron flex-none text-[#8a8a9a]${choose(isCollapsed, ' is-collapsed', '')}`}
                       >
                         <polyline points="6 9 12 15 18 9" />
                       </svg>
@@ -4223,7 +4510,7 @@ export default function App() {
                               title={tf('The project checkout has {what}', { what: changesTitle(p.changes) })}
                             >
                               <span class="text-[#f0a040]/50 uppercase tracking-wide text-[9px]">
-                                {t(p.changes === 1 ? 'change' : 'changes')}
+                                {choose(p.changes === 1, t('change'), t('changes'))}
                               </span>
                               <span class="tabular-nums text-[#f0a040]">{p.changes}</span>
                             </span>
@@ -4237,7 +4524,7 @@ export default function App() {
                         onClick={(e) => { e.stopPropagation(); createSession(p.id) }}
                         title={t('New session in project')}
                       />
-                      <div class={`row-actions relative flex-none${rowMenu?.id === p.id ? ' row-actions-open' : ''}`}>
+                      <div class={`row-actions relative flex-none${choose(rowMenu?.id === p.id, ' row-actions-open', '')}`}>
                         <button
                           class="p-0.5 rounded-sm hover:bg-white/10"
                           title={t('More actions')}
@@ -4257,8 +4544,8 @@ export default function App() {
                         </button>
                         {rowMenu?.id === p.id && (
                           <div
-                            class={`row-menu fixed z-50 frosted rounded-xl border border-white/10 py-1 min-w-[140px]${rowMenuAbove ? ' row-menu-above' : ''}${rowMenuClosing ? ' row-menu-closing' : ''}`}
-              style={rowMenuPos ? { top: `${rowMenuPos.top}px`, left: `${rowMenuPos.left}px` } : undefined}
+                            class={`row-menu fixed z-50 frosted rounded-xl border border-white/10 py-1 min-w-[140px]${choose(rowMenuAbove, ' row-menu-above', '')}${choose(rowMenuClosing, ' row-menu-closing', '')}`}
+              style={rowMenuStyle(rowMenuPos)}
                             role="presentation"
                             onClick={(e) => e.stopPropagation()}
                           >
@@ -4267,7 +4554,7 @@ export default function App() {
                               data-testid="edit-project"
                               onClick={(e) => { e.stopPropagation(); void openEditProject(p); closeRowMenu() }}
                             >
-                              {t('Edit project')}
+                              {t(EDIT_PROJECT)}
                             </button>
                             {(hasPodman || p.podman) && (
                               <button
@@ -4275,7 +4562,7 @@ export default function App() {
                                 data-testid="podman-toggle"
                                 onClick={(e) => { e.stopPropagation(); void setProjectPodman(p.id, !p.podman); closeRowMenu() }}
                               >
-                                {t(p.podman ? 'Stop using podman' : 'Run with podman')}
+                                {choose(p.podman, t('Stop using podman'), t('Run with podman'))}
                               </button>
                             )}
                             <button
@@ -4296,7 +4583,7 @@ export default function App() {
                         which is exactly what was reported. The wrapper
                         collapses to `0fr` and `visibility` takes the rows out
                         of the tab order and the hit-testing once it has. */}
-                    <div class={`project-sessions${isCollapsed ? ' is-collapsed' : ''}`}>
+                    <div class={`project-sessions${choose(isCollapsed, ' is-collapsed', '')}`}>
                       <div class="project-sessions-inner">
                         <div class="px-1.5 pb-1.5 space-y-0.5">
                           {projectSessions.map(s => renderSessionRow(s))}
@@ -4379,7 +4666,7 @@ export default function App() {
                     api,
                     rev: gitRev,
                     onConnect: (service, selfHosted) => setGitConnect({ service, selfHosted }),
-                    onNotice: (message, error) => setToast({ message, type: error ? 'error' : 'success' }),
+                    onNotice: (message, error) => setToast({ message, type: choose(error, 'error', 'success') }),
                   }}
                 />
               )}
@@ -4415,7 +4702,7 @@ export default function App() {
           <div class="flex items-center gap-1.5 sm:gap-2 min-w-0 flex-1">
             <span class="text-accent text-base sm:text-lg flex-none">🐱</span>
             <h1 class="text-sm sm:text-base font-semibold tracking-wide truncate min-w-0">
-              {selectedSession ? sessionTitle(selectedSession) : 'Motita'}
+              {chatTitle(selectedSession)}
             </h1>
           </div>
           {sessions.find(s => s.id === sessionId)?.auto_approve && (
@@ -4457,8 +4744,8 @@ export default function App() {
           aria-live="polite"
           aria-label={t('conversation')}
           class={`chat-bg flex-1 overflow-y-auto px-3 py-4 sm:px-5 sm:py-5 flex flex-col gap-2.5${
-            chatLoading ? ' chat-loading' : ''}`}
-          data-chat-loading={chatLoading ? '1' : '0'}
+            choose(chatLoading, ' chat-loading', '')}`}
+          data-chat-loading={choose(chatLoading, '1', '0')}
         >
           {(() => {
             // One group per input: the input, the steps it caused, and the answer. The input is
@@ -4471,14 +4758,14 @@ export default function App() {
             }
             return groups.map((g, gi) => {
               const isLast = gi === groups.length - 1
-              const head = g.items[0].role === 'user' ? g.items[0] : null
-              const rest = head ? g.items.slice(1) : g.items
-              const steps = (g.turn != null ? stepsByTurn[g.turn] : undefined) ?? []
+              const head = choose(g.items[0].role === 'user', g.items[0], null)
+              const rest = choose(head, g.items.slice(1), g.items)
+              const steps = (g.turn != null && stepsByTurn[g.turn]) || []
               // Thoughts live in the thinking drawer; the chat keeps steps and actions.
               const shown = steps.filter(st => st.kind !== 'thought')
               const liveHere = running && isLast
               // The step in progress is the activity line below, so it is not drawn twice.
-              const trail = liveHere && activity ? shown.slice(0, -1) : shown
+              const trail = choose(liveHere && activity, shown.slice(0, -1), shown)
               const canGoBack = head != null && g.turn != null && cpInfo[g.turn] !== undefined && !running
               return (
                 <div key={g.key} class="turn">
@@ -4494,7 +4781,7 @@ export default function App() {
                             aria-haspopup="menu"
                             aria-expanded={cpMenu === -1}
                             title={t('Run menu')}
-                            onClick={() => { setCpArmed(false); setCpMenu(m => m === -1 ? null : -1) }}
+                            onClick={() => { setCpArmed(false); setCpMenu(m => choose(m === -1, null, -1)) }}
                           >
                             <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
                               <circle cx="12" cy="5" r="1.8" /><circle cx="12" cy="12" r="1.8" /><circle cx="12" cy="19" r="1.8" />
@@ -4519,7 +4806,7 @@ export default function App() {
                             aria-haspopup="menu"
                             aria-expanded={cpMenu === g.turn}
                             title={t('Checkpoint')}
-                            onClick={() => { setCpArmed(false); setCpMenu(m => m === g.turn ? null : g.turn!) }}
+                            onClick={() => { setCpArmed(false); setCpMenu(m => { if (m === g.turn) { return null } return g.turn! }) }}
                           >
                             <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
                               <circle cx="12" cy="5" r="1.8" /><circle cx="12" cy="12" r="1.8" /><circle cx="12" cy="19" r="1.8" />
@@ -4534,15 +4821,15 @@ export default function App() {
                               <button
                                 type="button"
                                 role="menuitem"
-                                class={cpArmed ? 'is-armed' : ''}
+                                class={choose(cpArmed, 'is-armed', '')}
                                 disabled={!cpInfo[g.turn!]?.files}
-                                title={cpInfo[g.turn!]?.files ? '' : t('This checkpoint did not keep the files')}
+                                title={choose(cpInfo[g.turn!]?.files, '', t('This checkpoint did not keep the files'))}
                                 onClick={(e) => {
                                   if (!cpArmed) { e.stopPropagation(); setCpArmed(true); return }
                                   restoreCheckpoint(g.turn!, true)
                                 }}
                               >
-                                {t(cpArmed ? 'Click again: discard changes since' : 'Go back and restore the changes')}
+                                {choose(cpArmed, t('Click again: discard changes since'), t('Go back and restore the changes'))}
                                 <small>{t('conversation and files')}</small>
                               </button>
                             </div>
@@ -4568,13 +4855,15 @@ export default function App() {
                     </ActionTrail>
                   )}
                   {rest.map(m => (
-                    <div key={m.id} class={`msg ${m.role}${m.kind ? ' ' + m.kind : ''}`} data-who={m.role === 'agent' && !m.kind ? t('Agent') : undefined}>
-                      {m.role === 'agent' && !m.kind && m.report ? (
+                    <div key={m.id} class={`msg ${m.role}${choose(m.kind, ' ' + m.kind, '')}`} data-who={choose(m.role === 'agent' && !m.kind, t('Agent'), undefined)}>
+                      {m.role === 'agent' && !m.kind && !!m.report && (
                         <ReportCard report={m.report} loadImage={loadEvidenceImage} />
-                      ) : m.role === 'agent' && !m.kind ? (
+                      )}
+                      {m.role === 'agent' && !m.kind && !m.report && (
                         <Markdown content={m.text} />
-                      ) : (
-                        <span>{m.kind === 'kind' ? t(m.text) : m.text}</span>
+                      )}
+                      {!(m.role === 'agent' && !m.kind) && (
+                        <span>{choose(m.kind === 'kind', t(m.text), m.text)}</span>
                       )}
                       {m.changes && <ChangesCard changes={m.changes} />}
                       {m.artifacts && (
@@ -4595,9 +4884,8 @@ export default function App() {
                   {liveHere && activity && (
                     <div class={`msg activity ${activityKind}`} style={{ whiteSpace: 'pre-wrap' }}>
                       <span class={`spin-${activityKind || 'default'}`}></span>
-                      {activityKind === 'command'
-                        ? <><span class="term-cmd-text">{oneLine(activity.replace(/^running:\s*/, ''))}</span><ShellStatus exit={shown.length ? shown[shown.length - 1].exit : null} /></>
-                        : progressText(activity)}
+                      {activityKind === 'command' && <><span class="term-cmd-text">{oneLine(activity.replace(/^running:\s*/, ''))}</span><ShellStatus exit={lastExit(shown)} /></>}
+                      {activityKind !== 'command' && progressText(activity)}
                     </div>
                   )}
                 </div>
@@ -4610,13 +4898,13 @@ export default function App() {
             output, as a retro screen. The tab sits on the right edge and the drawer opens
             to the LEFT from it. It is a sibling of the scroll container for the reason the
             session modal is: it must stay put while the conversation scrolls. */}
-        <div class={`term-drawer${termOpen ? ' is-open' : ''}`}>
+        <div class={`term-drawer${choose(termOpen, ' is-open', '')}`}>
           <button
             type="button"
             class="term-tab"
             aria-expanded={termOpen}
             aria-controls="term-panel"
-            title={t(termOpen ? 'Close the terminal' : 'Open the terminal history')}
+            title={choose(termOpen, t('Close the terminal'), t('Open the terminal history'))}
             onClick={() => { setTermOpen(o => !o); setThinkOpen(false); setAgentsOpen(false) }}
           >
             <span class="term-tab-label">TTY</span>
@@ -4625,7 +4913,7 @@ export default function App() {
           <div class="term-panel" id="term-panel" role="region" aria-label={t('terminal history')} aria-hidden={!termOpen}>
             <div class="term-titlebar">
               <span>motita@shell — {plural(shellLog.length, '1 command', '{n} commands')}</span>
-              <button type="button" class="term-close" onClick={() => setTermOpen(false)} aria-label={t('Close the terminal')} tabIndex={termOpen ? 0 : -1}>×</button>
+              <button type="button" class="term-close" onClick={() => setTermOpen(false)} aria-label={t('Close the terminal')} tabIndex={choose(termOpen, 0, -1)}>×</button>
             </div>
             <div class="term-viewport">
             <div
@@ -4646,11 +4934,9 @@ export default function App() {
                     out={e.out}
                     onTick={stickTerm}
                     boost={termBoost}
-                    phase={e.id <= termSeenId ? 'done' : termOpen && e === firstPending ? 'live' : 'wait'}
+                    phase={choose(e.id <= termSeenId, 'done', choose(termOpen && e === firstPending, 'live', 'wait'))}
                     onFinished={() => setTermSeenId(n => Math.max(n, e.id))}
-                    status={e.exit == null
-                      ? { label: t('running…'), kind: 'running' }
-                      : { label: e.exit === NO_RESULT ? t('[no result]') : e.exit ? `[exit ${e.exit}]` : '[ok]', kind: e.exit && e.exit !== NO_RESULT ? 'bad' : '' }}
+                    status={choose(e.exit == null, { label: t('running…'), kind: 'running' }, { label: choose(e.exit === NO_RESULT, t('[no result]'), choose(e.exit, `[exit ${e.exit}]`, '[ok]')), kind: choose(e.exit && e.exit !== NO_RESULT, 'bad', '') })}
                   />
                 ))
               })()}
@@ -4671,20 +4957,20 @@ export default function App() {
             afterwards. Its tab sits above the terminal's; opening one closes the other. */}
         {(() => {
           const thoughts: { key: string; text: string; live?: boolean }[] = []
-          for (const t of Object.keys(stepsByTurn).map(Number).sort((a, b) => a - b)) {
-            stepsByTurn[t].forEach((st, i) => {
-              if (st.kind === 'thought') { thoughts.push({ key: t + ':' + i, text: st.text.replace(/^thinking:\s*/, '') }) }
+          for (const turn of Object.keys(stepsByTurn).map(Number).sort((a, b) => a - b)) {
+            stepsByTurn[turn].forEach((st, i) => {
+              if (st.kind === 'thought') { thoughts.push({ key: turn + ':' + i, text: st.text.replace(/^thinking:\s*/, '') }) }
             })
           }
           if (running && liveThought) { thoughts.push({ key: 'live', text: liveThought, live: true }) }
           return (
-            <div class={`term-drawer is-think${thinkOpen ? ' is-open' : ''}`}>
+            <div class={`term-drawer is-think${choose(thinkOpen, ' is-open', '')}`}>
               <button
                 type="button"
-                class={`term-tab${running && liveThought ? ' is-live' : ''}`}
+                class={`term-tab${choose(running && liveThought, ' is-live', '')}`}
                 aria-expanded={thinkOpen}
                 aria-controls="think-panel"
-                title={t(thinkOpen ? 'Close the thinking' : 'Open the thinking')}
+                title={choose(thinkOpen, t('Close the thinking'), t('Open the thinking'))}
                 onClick={() => { setThinkOpen(o => !o); setTermOpen(false); setAgentsOpen(false) }}
               >
                 <span class="term-tab-label">THINK</span>
@@ -4693,14 +4979,14 @@ export default function App() {
               <div class="term-panel" id="think-panel" role="region" aria-label={t('thinking')} aria-hidden={!thinkOpen}>
                 <div class="term-titlebar">
                   <span>motita@mind — {plural(thoughts.length, '1 thought', '{n} thoughts')}</span>
-                  <button type="button" class="term-close" onClick={() => setThinkOpen(false)} aria-label={t('Close the thinking')} tabIndex={thinkOpen ? 0 : -1}>×</button>
+                  <button type="button" class="term-close" onClick={() => setThinkOpen(false)} aria-label={t('Close the thinking')} tabIndex={choose(thinkOpen, 0, -1)}>×</button>
                 </div>
                 <div class="term-viewport">
                   <div class="term-screen" ref={think.ref} {...think.handlers}>
                     {thoughts.length === 0 && <div class="term-empty">{t('no thoughts yet')}<span class="term-caret" /></div>}
-                    {thoughts.map(t => (
-                      <div key={t.key} class={`think-entry${t.live ? ' is-live' : ''}`}>
-                        <pre class="think-text">{t.text}</pre>
+                    {thoughts.map(th => (
+                      <div key={th.key} class={`think-entry${choose(th.live, ' is-live', '')}`}>
+                        <pre class="think-text">{th.text}</pre>
                       </div>
                     ))}
                   </div>
@@ -4730,13 +5016,13 @@ export default function App() {
           }), { input: 0, output: 0, cache_read: 0, cache_write: 0 })
           const canCopy = typeof document !== 'undefined'
           return (
-            <div class={`term-drawer is-agents${agentsOpen ? ' is-open' : ''}`}>
+            <div class={`term-drawer is-agents${choose(agentsOpen, ' is-open', '')}`}>
               <button
                 type="button"
-                class={`term-tab${runningSubs > 0 ? ' is-live' : ''}`}
+                class={`term-tab${choose(runningSubs > 0, ' is-live', '')}`}
                 aria-expanded={agentsOpen}
                 aria-controls="agents-panel"
-                title={t(agentsOpen ? 'Close the agents' : 'Open the agents')}
+                title={choose(agentsOpen, t('Close the agents'), t('Open the agents'))}
                 onClick={() => { setAgentsOpen(o => !o); setTermOpen(false); setThinkOpen(false) }}
               >
                 <span class="term-tab-label">AGENTS</span>
@@ -4747,24 +5033,24 @@ export default function App() {
                   <span title={tokenBreakdown(total)}>
                     motita@fleet — {plural(agents.length, '1 agent', '{n} agents')} · {formatTokens(tokenTotal(total))} tok
                   </span>
-                  <button type="button" class="term-close" onClick={() => setAgentsOpen(false)} aria-label={t('Close the agents')} tabIndex={agentsOpen ? 0 : -1}>×</button>
+                  <button type="button" class="term-close" onClick={() => setAgentsOpen(false)} aria-label={t('Close the agents')} tabIndex={choose(agentsOpen, 0, -1)}>×</button>
                 </div>
                 <div class="term-viewport">
                   <div class="term-screen">
                     {agents.map(a => {
                       const done = a.state !== 'running'
                       const open = done && agentOpenId === a.id
-                      const mark = a.state === 'running' ? null : a.state === 'passed' ? '✓' : a.state === 'failed' ? '✗' : '⊘'
-                      const merge = a.branch ? 'git merge --no-edit ' + a.branch : ''
+                      const mark = choose(a.state === 'running', null, choose(a.state === 'passed', '✓', choose(a.state === 'failed', '✗', '⊘')))
+                      const merge = choose(a.branch, 'git merge --no-edit ' + a.branch, '')
                       return (
                         <div
                           key={a.id}
-                          class={`agent-row is-${a.state}${done ? ' is-done' : ''}`}
-                          role={done ? 'button' : undefined}
-                          tabIndex={done ? 0 : undefined}
-                          onClick={() => { if (done) { setAgentOpenId(id => id === a.id ? null : a.id) } }}
-                          onKeyDown={onActivate(() => { if (done) { setAgentOpenId(id => id === a.id ? null : a.id) } })}
-                          aria-expanded={done ? open : undefined}
+                          class={`agent-row is-${a.state}${choose(done, ' is-done', '')}`}
+                          role={choose(done, 'button', undefined)}
+                          tabIndex={choose(done, 0, undefined)}
+                          onClick={() => { if (done) { setAgentOpenId(id => choose(id === a.id, null, a.id)) } }}
+                          onKeyDown={onActivate(() => { if (done) { setAgentOpenId(id => choose(id === a.id, null, a.id)) } })}
+                          aria-expanded={choose(done, open, undefined)}
                         >
                           <span class="agent-state" aria-label={t(a.state)}>
                             {mark ?? <span class="agent-spin" aria-hidden="true" />}
@@ -4776,15 +5062,14 @@ export default function App() {
                                 {a.purpose || a.id}
                               </span>
                               <span class="agent-meta" title={tokenBreakdown(a.tokens || { input: 0, output: 0 })}>
-                                {formatElapsed(agentElapsed(a, agentNow))} · {formatTokens(tokenTotal(a.tokens))} tok{a.round ? ' · r' + a.round : ''}
+                                {formatElapsed(agentElapsed(a, agentNow))} · {formatTokens(tokenTotal(a.tokens))} tok{choose(a.round, ' · r' + a.round, '')}
                               </span>
                             </div>
                             {a.activity && !open && <div class="agent-activity" title={a.activity}>{a.activity}</div>}
                             {open && (
                               <div class="agent-detail" role="presentation" onClick={e => e.stopPropagation()}>
-                                {a.summary
-                                  ? <pre class="agent-summary">{a.summary}</pre>
-                                  : <div class="agent-activity">{t('no summary')}</div>}
+                                {!!a.summary && <pre class="agent-summary">{a.summary}</pre>}
+                                {!a.summary && <div class="agent-activity">{t('no summary')}</div>}
                                 {a.branch && (
                                   <div class="agent-branch">
                                     <code>{merge}</code>
@@ -4796,10 +5081,10 @@ export default function App() {
                                           void copyText(merge).then((ok) => {
                                             if (!ok) { return }
                                             setAgentCopied(a.id)
-                                            setTimeout(() => setAgentCopied(c => c === a.id ? null : c), 1500)
+                                            setTimeout(() => setAgentCopied(c => choose(c === a.id, null, c)), COPIED_MS)
                                           })
                                         }}
-                                      >{t(agentCopied === a.id ? 'copied' : 'copy')}</button>
+                                      >{choose(agentCopied === a.id, t('copied'), t('copy'))}</button>
                                     )}
                                   </div>
                                 )}
@@ -4825,7 +5110,7 @@ export default function App() {
             child of a scrolling box scrolls away with the content — and this has to stay put
             while the page underneath changes height. */}
         {chatLoading && (
-          <div class={`chat-modal-scrim${modalLeaving ? ' chat-modal-leaving' : ''}`}>
+          <div class={`chat-modal-scrim${choose(modalLeaving, ' chat-modal-leaving', '')}`}>
             <div class="chat-modal" role="status" aria-live="polite">
               <span class="chat-spinner" aria-hidden="true">
                 <svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" focusable="false">
@@ -4846,19 +5131,19 @@ export default function App() {
             ref={approvalRef}
             tabIndex={-1}
             role="group"
-            aria-label={t('This needs your approval')}
+            aria-label={t(NEEDS_APPROVAL)}
             onKeyDown={onApprovalKey}
             class="approval-panel frosted flex-none px-4 sm:px-5 py-3.5 border-t-2 border-warning z-10"
           >
             <h2 class="text-sm mb-2 text-warning">
-              {approval.question ?? approval.reason ?? t('This needs your approval')}
+              {approval.question ?? approval.reason ?? t(NEEDS_APPROVAL)}
             </h2>
             <pre class="whitespace-pre-wrap break-all max-h-[35vh] overflow-y-auto mb-2.5 p-3 bg-black/20 border border-white/5 rounded-lg font-mono text-[13px]">
               {approval.command ?? ''}
             </pre>
             <div class="flex flex-wrap gap-2">
               <button
-                class={`min-h-[44px] min-w-[44px] px-5 rounded-xl bg-accent text-white font-semibold active:scale-95 transition-transform${approvalSel === 0 ? ' is-picked' : ''}`}
+                class={`min-h-[44px] min-w-[44px] px-5 rounded-xl bg-accent text-white font-semibold active:scale-95 transition-transform${choose(approvalSel === 0, ' is-picked', '')}`}
                 aria-pressed={approvalSel === 0}
                 onMouseEnter={() => setApprovalSel(0)}
                 onClick={() => answerApproval(approval.id, true)}
@@ -4866,7 +5151,7 @@ export default function App() {
                 {t('Run it')}
               </button>
               <button
-                class={`min-h-[44px] min-w-[44px] px-4 rounded-xl border border-accent/40 text-accent font-semibold active:scale-95 transition-transform${approvalSel === 1 ? ' is-picked' : ''}`}
+                class={`min-h-[44px] min-w-[44px] px-4 rounded-xl border border-accent/40 text-accent font-semibold active:scale-95 transition-transform${choose(approvalSel === 1, ' is-picked', '')}`}
                 aria-pressed={approvalSel === 1}
                 onMouseEnter={() => setApprovalSel(1)}
                 title={t('Run this and every later command in this session without asking. Commands the policy forbids stay forbidden.')}
@@ -4875,7 +5160,7 @@ export default function App() {
                 {t('Allow all this session')}
               </button>
               <button
-                class={`min-h-[44px] min-w-[44px] px-5 rounded-xl border border-white/10 text-[#e8e8ea] active:scale-95 transition-transform${approvalSel === 2 ? ' is-picked' : ''}`}
+                class={`min-h-[44px] min-w-[44px] px-5 rounded-xl border border-white/10 text-[#e8e8ea] active:scale-95 transition-transform${choose(approvalSel === 2, ' is-picked', '')}`}
                 aria-pressed={approvalSel === 2}
                 onMouseEnter={() => setApprovalSel(2)}
                 onClick={() => answerApproval(approval.id, false)}
@@ -4889,13 +5174,13 @@ export default function App() {
         {/* ── Pull request bar ── */}
         {(prSessionId || (selectedSession?.merged && prWatch?.status === 'merged')) && !prBlocked && (prWatch?.status === 'merged' || prView?.state === 'open' || selectedSession?.mergeable) && (
           <div class="flex items-center gap-2 px-3 sm:px-5 py-2 border-t border-white/5 text-xs flex-none z-10 relative" role="status">
-            {prWatch?.status === 'merged' ? (
+            {prWatch?.status === 'merged' && (
               <span class="inline-flex items-center gap-1.5 font-semibold text-[#a78bfa]">
                 <span class="inline-block w-2 h-2 rounded-full bg-[#a78bfa]" />
                 {tf('Pull request #{n} merged', { n: String(prWatch.number ?? '') })}
               </span>
-            ) : null}
-            {prWatch?.status === 'merged' && prWatch.next ? (
+            )}
+            {prWatch?.status === 'merged' && mergedOffer(prWatch, selectedSession) === 'open' && (
               <button
                 type="button"
                 class="ml-auto px-3 min-h-[32px] rounded-lg bg-accent text-white font-semibold active:scale-95 transition-transform"
@@ -4904,7 +5189,8 @@ export default function App() {
               >
                 {t('Open the new session')}
               </button>
-            ) : prWatch?.status === 'merged' && selectedSession?.merged && selectedSession.continuable ? (
+            )}
+            {!!selectedSession && mergedOffer(prWatch, selectedSession) === 'continue' && (
               <button
                 type="button"
                 class="ml-auto px-3 min-h-[32px] rounded-lg bg-accent text-white font-semibold active:scale-95 transition-transform"
@@ -4913,10 +5199,8 @@ export default function App() {
               >
                 {t('Continue in a new session')}
               </button>
-            ) : null}
-            {prWatch?.status === 'merged' ? (
-              <></>
-            ) : prView?.state === 'open' && prView.pr ? (
+            )}
+            {prWatch?.status !== 'merged' && !!(prView?.state === 'open' && prView.pr) && (
               <>
                 <a
                   href={prView.pr.url}
@@ -4927,37 +5211,31 @@ export default function App() {
                 >
                   {tf('Pull request #{n}', { n: String(prView.pr.number) })}
                 </a>
-                {prView.ci && prView.ci.state === 'pending' && (
+                {prView.ci?.state === 'pending' && (
                   <span class="inline-flex items-center gap-1.5 text-[#f0a040]" title={t('The CI is running')}>
                     <span class="inline-block w-2 h-2 rounded-full bg-[#f0a040] animate-pulse" />
                     {tf('CI running {done}/{total}', { done: String(ciSummary(prView).passed), total: String(ciSummary(prView).total) })}
                   </span>
                 )}
-                {prView.ci && prView.ci.state === 'success' && (
+                {prView.ci?.state === 'success' && (
                   <span class="inline-flex items-center gap-1.5 text-[#4ade80]">
                     <span class="inline-block w-2 h-2 rounded-full bg-[#4ade80]" />
                     {t('CI passed — ready to merge')}
                   </span>
                 )}
-                {prView.ci && prView.ci.state === 'failure' && (
+                {prView.ci?.state === 'failure' && (
                   <span
                     class="inline-flex items-center gap-1.5 text-[#f87171]"
                     title={prView.ci.checks.filter(c => c.state === 'failure').map(c => c.name).join(', ')}
                   >
                     <span class="inline-block w-2 h-2 rounded-full bg-[#f87171]" />
-                    {prWatch?.status === 'base_red'
-                      ? t('CI failed')
-                      : prWatch?.status === 'gave_up'
-                      ? tf('CI failed — Motita gave up after {n} attempts', { n: String(prWatch.attempts) })
-                      : prWatch?.status === 'fixing'
-                        ? tf('CI failed — Motita is fixing it ({n}/{max})', { n: String(prWatch.attempts), max: String(prWatch.max) })
-                        : t('CI failed')}
+                    {ciFailedLabel(prWatch)}
                   </span>
                 )}
-                {prView.ci && prView.ci.state === 'failure' && prWatch?.status === 'base_red' && (
+                {prView.ci?.state === 'failure' && prWatch?.status === 'base_red' && (
                   <span class="text-[#8a8a9a]">{t('Also failing on the base branch — not caused by this change')}</span>
                 )}
-                {prView.ci && prView.ci.state === 'failure' && prWatch?.status === 'gave_up' && (
+                {prView.ci?.state === 'failure' && prWatch?.status === 'gave_up' && (
                   <button
                     type="button"
                     class="px-3 min-h-[32px] rounded-lg border border-accent/40 text-accent font-semibold disabled:opacity-50"
@@ -4967,36 +5245,34 @@ export default function App() {
                     {t('Try again')}
                   </button>
                 )}
-                {prView.ci && prView.ci.state === 'success' && prView.merge && (mergeRefused(prView) || prView.merge.code === 'behind') && (
+                {prView.ci?.state === 'success' && prView.merge && (mergeRefused(prView) || prView.merge.code === 'behind') && (
                   <span class="ml-auto text-[#f0a040]">
-                    {t(prView.merge.code === 'blocked' ? 'Waiting for approvals or required checks'
-                      : prView.merge.code === 'conflict' ? 'Conflicts with the base branch'
-                      : prView.merge.code === 'draft' ? 'Still a draft'
-                      : 'Out of date with the base branch')}
+                    {choose(prView.merge.code === 'blocked', t('Waiting for approvals or required checks'), t(choose(prView.merge.code === 'conflict', 'Conflicts with the base branch', choose(prView.merge.code === 'draft', 'Still a draft', 'Out of date with the base branch'))))}
                   </span>
                 )}
-                {prView.ci && prView.ci.state === 'success' && !mergeRefused(prView) && (
+                {prView.ci?.state === 'success' && !mergeRefused(prView) && (
                   <button
                     type="button"
-                    class={`ml-auto px-3 min-h-[32px] rounded-lg font-semibold disabled:opacity-50 active:scale-95 transition-transform ${prMergeArmed ? 'bg-[#4ade80] text-black' : 'border border-[#4ade80]/50 text-[#4ade80]'}`}
+                    class={`ml-auto px-3 min-h-[32px] rounded-lg font-semibold disabled:opacity-50 active:scale-95 transition-transform ${choose(prMergeArmed, 'bg-[#4ade80] text-black', 'border border-[#4ade80]/50 text-[#4ade80]')}`}
                     disabled={prBusy}
                     title={t('Merge this pull request on the host')}
                     onBlur={() => setPrMergeArmed(false)}
                     onClick={() => { void mergeNow() }}
                   >
-                    {t(prMergeArmed ? 'Click again to merge' : 'Merge')}
+                    {choose(prMergeArmed, t('Click again to merge'), t('Merge'))}
                   </button>
                 )}
-                {prView.ci && prView.ci.state === 'none' && (
+                {prView.ci?.state === 'none' && (
                   <span class="text-[#8a8a9a]">{t('No CI checks yet')}</span>
                 )}
               </>
-            ) : (
+            )}
+            {prWatch?.status !== 'merged' && !(prView?.state === 'open' && prView.pr) && (
               <button
                 type="button"
                 class="inline-flex items-center gap-1.5 px-3 min-h-[32px] rounded-lg bg-accent text-white font-semibold disabled:opacity-50 active:scale-95 transition-transform"
                 disabled={prRunning}
-                title={t(prRunning ? 'Wait for the current turn to end' : 'Commit, push and open a pull request with this session\'s work')}
+                title={choose(prRunning, t('Wait for the current turn to end'), t('Commit, push and open a pull request with this session\'s work'))}
                 onClick={() => { void createPR() }}
               >
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -5039,7 +5315,7 @@ export default function App() {
               return (
                 <div
                   key={c.name}
-                  class={`flex items-center gap-2 px-3 py-2 cursor-pointer transition-colors ${i === slashPopup.index ? 'bg-white/10' : ''}`}
+                  class={`flex items-center gap-2 px-3 py-2 cursor-pointer transition-colors ${choose(i === slashPopup.index, 'bg-white/10', '')}`}
                   role="button"
                   tabIndex={-1}
                   onClick={() => pickSlash(c)}
@@ -5047,7 +5323,7 @@ export default function App() {
                   onMouseEnter={() => setSlashPopup({ ...slashPopup, index: i })}
                 >
                   <span class={`font-mono text-sm font-semibold flex-none w-20 ${groupColor[c.group] || 'text-[#e8e8ea]'}`}>{c.name}</span>
-                  {c.aliases && c.aliases.length > 0 && <span class="text-xs text-[#7a7a8c] flex-none">{c.aliases.join(', ')}</span>}
+                  {!!c.aliases?.length && <span class="text-xs text-[#7a7a8c] flex-none">{c.aliases.join(', ')}</span>}
                   <span class="flex-1 min-w-0 truncate text-xs text-[#9a9aaa]">{t(c.help)}</span>
                 </div>
               )
@@ -5061,10 +5337,7 @@ export default function App() {
               <span
                 key={ti}
                 class={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-xs font-mono font-semibold flex-none ${
-                  tag.group === 'mode' ? 'bg-accent/20 text-accent' :
-                  tag.group === 'action' ? 'bg-[#f0a040]/20 text-[#f0a040]' :
-                  tag.group === 'session' ? 'bg-[#40f0a0]/20 text-[#40f0a0]' :
-                  'bg-[#a0a0f0]/20 text-[#a0a0f0]'
+                  tagGroupClass(tag.group)
                 }`}
               >
                 {tag.name}
@@ -5097,7 +5370,7 @@ export default function App() {
                   (c.name.toLowerCase().startsWith(query) ||
                   (c.aliases || []).some(a => a.toLowerCase().startsWith(query)))
                 )
-                setSlashPopup(matches.length > 0 ? { items: matches.slice(0, 8), index: 0 } : null)
+                setSlashPopup(choose(matches.length > 0, { items: matches.slice(0, 8), index: 0 }, null))
               } else if (val.startsWith('/') && val.includes(' ')) {
                 // Check if the first word is a valid command.
                 const firstWord = val.split(' ')[0].toLowerCase()
@@ -5117,22 +5390,23 @@ export default function App() {
               }
             }}
             onKeyDown={handleKeydown}
-            placeholder={t(isMerged ? 'This session is read-only after integration' : activeTags.length > 0 ? 'argument…' : 'Ask for something…')}
+            placeholder={choose(isMerged, t('This session is read-only after integration'), t(choose(activeTags.length > 0, 'argument…', 'Ask for something…')))}
             class="flex-1 min-h-[28px] max-h-[100px] px-1 py-1 bg-transparent border-0 outline-hidden ring-0 text-[#e8e8ea] resize-none focus:outline-hidden focus:ring-0 focus:border-0 font-sans text-[14px] leading-relaxed disabled:opacity-50 disabled:cursor-not-allowed"
           />
           </div>
           <button
             type="submit"
             disabled={running || isMerged}
-            title={shellMode ? t('Run in the shell') : undefined}
-            aria-label={shellMode ? t('Run in the shell') : t('Send')}
-            class={`min-h-[44px] min-w-[44px] px-5 sm:px-6 rounded-2xl text-white font-semibold disabled:opacity-40 active:scale-95 transition-transform flex items-center justify-center ${shellMode ? 'send-shell' : 'bg-accent'}`}
+            title={choose(shellMode, t('Run in the shell'), undefined)}
+            aria-label={choose(shellMode, t('Run in the shell'), t('Send'))}
+            class={`min-h-[44px] min-w-[44px] px-5 sm:px-6 rounded-2xl text-white font-semibold disabled:opacity-40 active:scale-95 transition-transform flex items-center justify-center ${choose(shellMode, 'send-shell', 'bg-accent')}`}
           >
-            {shellMode ? (
+            {shellMode && (
               <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
                 <polyline points="4 17 10 11 4 5" /><line x1="12" y1="19" x2="20" y2="19" />
               </svg>
-            ) : (
+            )}
+            {!shellMode && (
               <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
                 <line x1="22" y1="2" x2="11" y2="13" /><polygon points="22 2 15 22 11 13 2 9 22 2" />
               </svg>
@@ -5151,10 +5425,10 @@ export default function App() {
           <div
             class="frosted rounded-2xl border border-white/10 w-full max-w-md p-5 shadow-2xl"
             role="dialog"
-            aria-label={t('Edit project')}
+            aria-label={t(EDIT_PROJECT)}
           >
             <div class="flex items-center gap-2 mb-4">
-              <h2 class="text-base font-semibold">{t('Edit project')}</h2>
+              <h2 class="text-base font-semibold">{t(EDIT_PROJECT)}</h2>
               <button
                 class="ml-auto p-1.5 rounded-lg hover:bg-white/5"
                 onClick={() => setEditProject(null)}
@@ -5192,7 +5466,7 @@ export default function App() {
                   value={editProject.main}
                   onChange={(e) => { const v = (e.target as HTMLSelectElement).value; setEditProject(p => p && { ...p, main: v }) }}
                 >
-                  {(editProject.branches.includes(editProject.main) ? editProject.branches : [editProject.main, ...editProject.branches]).map(b => (
+                  {branchChoices(editProject.branches, editProject.main).map(b => (
                     <option key={b} value={b}>{b}</option>
                   ))}
                 </select>
@@ -5232,7 +5506,7 @@ export default function App() {
                   value={String(editProject.prMaxFixes)}
                   onInput={(e) => {
                     const n = Math.round(Number((e.target as HTMLInputElement).value))
-                    const v = Number.isFinite(n) ? Math.min(20, Math.max(0, n)) : 0
+                    const v = choose(Number.isFinite(n), Math.min(20, Math.max(0, n)), 0)
                     setEditProject(p => p && { ...p, prMaxFixes: v })
                   }}
                 />
@@ -5271,7 +5545,7 @@ export default function App() {
                 onClick={() => void saveEditProject()}
                 disabled={savingProject || !editProject.title.trim()}
               >
-                {t(savingProject ? 'Saving…' : 'Save')}
+                {choose(savingProject, t('Saving…'), t('Save'))}
               </button>
               <button
                 class="min-h-[44px] px-5 rounded-xl border border-white/10 text-[#e8e8ea] active:scale-95 transition-transform"
@@ -5294,10 +5568,10 @@ export default function App() {
           <div
             class="frosted rounded-2xl border border-white/10 w-full max-w-md p-5 shadow-2xl max-h-[92vh] overflow-y-auto"
             role="dialog"
-            aria-label={t('New project')}
+            aria-label={t(NEW_PROJECT)}
           >
             <div class="flex items-center gap-2 mb-4">
-              {newProjectMode && !creatingProject ? (
+              {!!(newProjectMode && !creatingProject) && (
                 <button
                   class="p-1.5 -ml-1.5 rounded-lg hover:bg-white/5"
                   onClick={() => setNewProjectMode(null)}
@@ -5308,12 +5582,13 @@ export default function App() {
                     <polyline points="15 18 9 12 15 6" />
                   </svg>
                 </button>
-              ) : (
+              )}
+              {!(newProjectMode && !creatingProject) && (
                 <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="text-accent">
                   <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
                 </svg>
               )}
-              <h2 class="text-base font-semibold">{t(newProjectMode === 'empty' ? 'Empty project' : newProjectMode === 'git' ? 'From a Git repository' : 'New project')}</h2>
+              <h2 class="text-base font-semibold">{choose(newProjectMode === 'empty', t('Empty project'), t(choose(newProjectMode === 'git', 'From a Git repository', NEW_PROJECT)))}</h2>
               <button
                 class="ml-auto p-1.5 rounded-lg hover:bg-white/5"
                 onClick={() => setShowNewProject(false)}
@@ -5374,14 +5649,15 @@ export default function App() {
                         placeholder={t('https://github.com/user/repo.git  or  git@github.com:user/repo.git')}
                         autoFocus
                       />
-                      {gitAccounts && connectedAccounts(gitAccounts).length > 0 ? (
+                      {!!(gitAccounts && connectedAccounts(gitAccounts).length > 0) && (
                         <button type="button" class="mt-2 text-sm text-accent underline underline-offset-2" onClick={() => setShowRepoPicker(true)}>{t('Choose from my repositories')}</button>
-                      ) : gitAccounts && (
+                      )}
+                      {!(gitAccounts && connectedAccounts(gitAccounts).length > 0) && (gitAccounts && (
                         <div class="mt-2 flex items-center gap-2 p-2.5 rounded-xl border border-white/10 bg-black/20" data-testid="git-connect-banner">
                           <span class="flex-1 text-xs text-[#9a9aaa]">{t('Connect GitHub, GitLab or Bitbucket to pick one of your repositories')}</span>
                           <button type="button" class="flex-none px-3 min-h-[32px] rounded-lg bg-accent text-white text-xs font-semibold" onClick={() => setGitConnect({ after: 'picker' })}>{t('Connect')}</button>
                         </div>
-                      )}
+                      ))}
                     </div>
                   )}
                   <div>
@@ -5390,7 +5666,7 @@ export default function App() {
                       class="w-full px-3 py-2.5 rounded-xl bg-black/30 border border-white/10 text-[#e8e8ea] focus:outline-hidden focus:border-accent"
                       value={newProjectTitle}
                       onInput={(e) => setNewProjectTitle((e.target as HTMLInputElement).value)}
-                      placeholder={newProjectMode === 'git' ? (repoNameOf(newProjectGit) || t('The repository name')) : t('My project')}
+                      placeholder={choose(newProjectMode === 'git', repoNameOf(newProjectGit) || t('The repository name'), t('My project'))}
                       autoFocus={newProjectMode === 'empty'}
                     />
                   </div>
@@ -5404,11 +5680,11 @@ export default function App() {
                     value={newProjectMain}
                     onChange={(e) => { mainChosen.current = true; setNewProjectMain((e.target as HTMLSelectElement).value) }}
                   >
-                    {Array.from(new Set(['main', 'master', newProjectMain, ...(remoteMain ? [remoteMain] : [])])).map(b => (
+                    {Array.from(new Set(['main', 'master', newProjectMain, ...(choose(remoteMain, [remoteMain], []))])).map(b => (
                       <option key={b} value={b}>{b}</option>
                     ))}
                   </select>
-                  <p class="text-xs text-[#7a7a8c] mt-1">{remoteMain ? tf('The repository uses {branch}.', { branch: remoteMain }) + ' ' : ''}{t('The project always goes back to this branch when it has no sessions. A cloned repository uses it when it has it.')}</p>
+                  <p class="text-xs text-[#7a7a8c] mt-1">{choose(remoteMain, tf('The repository uses {branch}.', { branch: remoteMain }) + ' ', '')}{t('The project always goes back to this branch when it has no sessions. A cloned repository uses it when it has it.')}</p>
                 </div>
 
                   {/* Everything with a sensible default lives behind one line. */}
@@ -5433,7 +5709,7 @@ export default function App() {
                           class="w-full px-3 py-2.5 rounded-xl bg-black/30 border border-white/10 text-[#e8e8ea] focus:outline-hidden focus:border-accent font-mono text-sm"
                           value={newProjectDir}
                           onInput={(e) => setNewProjectDir((e.target as HTMLInputElement).value)}
-                          placeholder={slugOf(newProjectMode === 'git' ? repoNameOf(newProjectGit) || newProjectTitle : newProjectTitle) || 'my-project'}
+                          placeholder={slugOf(choose(newProjectMode === 'git', repoNameOf(newProjectGit) || newProjectTitle, newProjectTitle)) || 'my-project'}
                         />
                         <p class="text-xs text-[#7a7a8c] mt-1">{t('Made from the name when empty. A folder under the workspace, a simple name with no paths.')}</p>
                       </div>
@@ -5447,7 +5723,7 @@ export default function App() {
                           />
                           <span class="text-sm text-[#e8e8ea]">
                             {t('Podman was found on this machine. Use it to run this project?')}
-                            <span class="block text-xs text-[#7a7a8c] mt-0.5">{t(!podmanReady ? 'podman is installed but did not answer (podman info failed), so it may not work until it is set up.' : hasPodmanCompose ? 'The project will be started in containers with podman.' : 'The project will be started in containers with podman. podman compose was not found, so compose files will not work until it is installed.')}</span>
+                            <span class="block text-xs text-[#7a7a8c] mt-0.5">{podmanNote(podmanReady, hasPodmanCompose)}</span>
                           </span>
                         </label>
                       )}
@@ -5460,7 +5736,7 @@ export default function App() {
                     <svg class="animate-spin flex-none text-accent" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
                       <path d="M21 12a9 9 0 1 1-6.219-8.56" />
                     </svg>
-                    <span>{t(newProjectMode === 'git' ? 'Cloning repository…' : 'Creating the project…')}</span>
+                    <span>{choose(newProjectMode === 'git', t('Cloning repository…'), t('Creating the project…'))}</span>
                   </div>
                 )}
 
@@ -5468,14 +5744,14 @@ export default function App() {
                   <button
                     class="flex-1 min-h-[44px] px-5 rounded-xl bg-accent text-white font-semibold active:scale-95 transition-transform disabled:opacity-30 disabled:cursor-not-allowed disabled:saturate-0"
                     onClick={() => createProject()}
-                    disabled={creatingProject || (newProjectMode === 'git' ? !newProjectGit.trim() : !newProjectTitle.trim())}
+                    disabled={creatingProject || choose(newProjectMode === 'git', !newProjectGit.trim(), !newProjectTitle.trim())}
                   >
                     {creatingProject && (
                       <svg class="animate-spin" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="display:inline-block;vertical-align:middle;margin-right:6px">
                         <path d="M21 12a9 9 0 1 1-6.219-8.56" />
                       </svg>
                     )}
-                    {t(creatingProject ? (newProjectMode === 'git' ? 'Cloning…' : 'Creating…') : newProjectMode === 'git' ? 'Clone and create' : 'Create')}
+                    {choose(creatingProject, t(choose(newProjectMode === 'git', 'Cloning…', 'Creating…')), t(choose(newProjectMode === 'git', 'Clone and create', 'Create')))}
                   </button>
                   <button
                     class="min-h-[44px] px-5 rounded-xl border border-white/10 text-[#e8e8ea] active:scale-95 transition-transform"
@@ -5538,7 +5814,7 @@ export default function App() {
                 class="flex-1 min-h-[44px] px-5 rounded-xl bg-accent text-white font-semibold active:scale-95 transition-transform disabled:opacity-30 disabled:cursor-not-allowed disabled:saturate-0"
                 disabled={creatingProject || !gitUserName.trim() || !gitUserEmail.includes('@')}
               >
-                {t(creatingProject ? 'Saving…' : 'Save and create')}
+                {choose(creatingProject, t('Saving…'), t('Save and create'))}
               </button>
               <button
                 type="button"
@@ -5614,12 +5890,12 @@ export default function App() {
                     // to the provider being left, and the new one may not serve it.
                     // Going back to the saved provider restores the saved model, so
                     // a provider round-trip leaves the draft exactly as it was.
-                    setDraftModel(newProvider === (config?.provider || '') ? (config?.model || '') : firstModelOf(newProvider, providers))
+                    setDraftModel(choose(newProvider === (config?.provider || ''), config?.model || '', firstModelOf(newProvider, providers)))
                   }}
                 >
                   {providers.map(p => (
                     <option key={p.id} value={p.id}>
-                      {p.name}{p.is_current ? ' ' + t('(active)') : ''}{p.key_present ? '' : ' — ' + t('no key needed')}
+                      {p.name}{choose(p.is_current, ' ' + t('(active)'), '')}{choose(p.key_present, '', ' — ' + t('no key needed'))}
                     </option>
                   ))}
                 </select>
@@ -5627,14 +5903,15 @@ export default function App() {
 
               <div>
                 <label class="block text-sm text-[#9a9aaa] mb-1.5">{t('Model')}</label>
-                {fetchingModels && draftProvider === (config?.provider || '') ? (
+                {fetchingModels && draftProvider === (config?.provider || '') && (
                   <div class="flex items-center gap-2 px-3 py-2.5 text-sm text-[#9a9aaa]">
                     <svg class="animate-spin text-accent" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
                       <path d="M21 12a9 9 0 1 1-6.219-8.56" />
                     </svg>
                     <span>{t('Loading models...')}</span>
                   </div>
-                ) : (
+                )}
+                {!(fetchingModels && draftProvider === (config?.provider || '')) && (
                   <select
                     class="w-full px-3 py-2.5 rounded-xl bg-black/30 border border-white/10 text-[#e8e8ea] focus:outline-hidden focus:border-accent font-mono text-sm"
                     value={draftModel}
@@ -5656,7 +5933,7 @@ export default function App() {
                       type="button"
                       role="radio"
                       aria-checked={draftReasoning === level}
-                      class={`reasoning-level${draftReasoning === level ? ' is-active' : ''}`}
+                      class={`reasoning-level${choose(draftReasoning === level, ' is-active', '')}`}
                       onClick={() => setDraftReasoning(level)}
                     >
                       {t(level)}
@@ -5667,7 +5944,7 @@ export default function App() {
 
               {config && (
                 <div class="text-xs text-[#7a7a8c] space-y-1 pt-2 border-t border-white/5">
-                  <div>{t('API key')}: {config.api_key_present ? '✓ ' + t('set') : '✗ ' + t('missing')}</div>
+                  <div>{t('API key')}: {choose(config.api_key_present, '✓ ' + t('set'), '✗ ' + t('missing'))}</div>
                 </div>
               )}
             </div>
@@ -5709,28 +5986,23 @@ export default function App() {
                 </svg>
               </div>
               <div class="flex-1 min-w-0">
-                <h2 class="text-base font-semibold">{t(confirmDelete.type === 'session' ? 'Delete session' : confirmDelete.type === 'project' ? 'Delete project' : 'Delete skill')}</h2>
+                <h2 class="text-base font-semibold">{choose(confirmDelete.type === 'session', t('Delete session'), t(choose(confirmDelete.type === 'project', 'Delete project', 'Delete skill')))}</h2>
                 <p class="text-sm text-[#9a9aaa] truncate">{confirmDelete.title}</p>
               </div>
             </div>
             <p class="text-sm text-[#9a9aaa] mb-5">
-              {t(confirmDelete.type === 'session'
-                ? confirmDelete.id === 'default'
-                  ? 'This is the default session. Deleting it will clear its history and reset its title, but the session itself will remain.'
-                  : 'This conversation will be permanently deleted. This cannot be undone.'
-                : confirmDelete.type === 'skill'
-                  ? 'This skill will be permanently deleted, with its usage history. This cannot be undone. A built-in procedure cannot be deleted.'
-                  : 'This project, all its sessions and its folder will be permanently deleted. This cannot be undone.')}
+              {deleteWarning(confirmDelete.type, confirmDelete.id)}
             </p>
 
             {/* What the deletion would DISCARD. The gateway is asked when the modal opens,
                 and its answer is shown here: a count warns, but only the list lets someone
                 decide. A checkout whose changes could not be read says so, because an empty
                 list would read as "nothing to lose". */}
-            {confirmDelete.type === 'session' && confirmDelete.id !== 'default' && (
-              previewLoading ? (
+            {confirmDelete.type === 'session' && confirmDelete.id !== 'default' && (<>
+              {previewLoading && (
                 <p class="text-xs text-[#9a9aaa] mb-5">{t('Checking what this session is holding…')}</p>
-              ) : deletionPreview?.inspection_failed ? (
+              )}
+              {!!deletionPreview && previewKind(previewLoading, deletionPreview) === 'failed' && (
                 <div class="mb-5 rounded-xl border border-danger/40 bg-danger/10 p-3">
                   <p class="text-xs text-[#e8e8ea] font-semibold mb-1">
                     {t("This session's checkout could not be inspected")}
@@ -5740,18 +6012,19 @@ export default function App() {
                     {t('Its contents cannot be shown. Deleting discards whatever it holds, uncommitted work included.')}
                   </p>
                 </div>
-              ) : deletionPreview && deletionPreview.count > 0 ? (
+              )}
+              {!!deletionPreview && previewKind(previewLoading, deletionPreview) === 'changes' && (
                 <div class="mb-5 rounded-xl border border-danger/40 bg-danger/10 p-3">
                   <p class="text-xs text-[#e8e8ea] font-semibold mb-2">
                     {plural(deletionPreview.count, '1 uncommitted change will be discarded', '{n} uncommitted changes will be discarded')}
-                    {deletionPreview.branch ? ' ' + tf('in {branch}', { branch: deletionPreview.branch }) : ''}
+                    {!!deletionPreview.branch && ' ' + tf('in {branch}', { branch: deletionPreview.branch })}
                   </p>
                   <ul class="space-y-1 max-h-40 overflow-y-auto">
                     {deletionPreview.changes.map((c) => (
                       <li class="flex items-start gap-2 text-xs">
                         <span class="text-[#9a9aaa] font-mono flex-none w-18">{c.kind}</span>
                         <span class="text-[#e8e8ea] font-mono break-all">
-                          {c.from ? c.from + ' → ' + c.path : c.path}
+                          {choose(c.from, c.from + ' → ' + c.path, c.path)}
                         </span>
                       </li>
                     ))}
@@ -5760,19 +6033,21 @@ export default function App() {
                     {t('These files are not committed anywhere. Deleting the session discards them for good.')}
                   </p>
                 </div>
-              ) : deletionPreview?.worktree ? (
+              )}
+              {!!deletionPreview?.worktree && previewKind(previewLoading, deletionPreview) === 'clean' && (
                 <p class="text-xs text-[#9a9aaa] mb-5">
                   {t("The session's checkout is clean, so nothing uncommitted is lost.")}
                 </p>
-              ) : null
-            )}
+              )}
+            </>)}
 
             {/* A project's sessions each hold their own checkout, so the list is grouped
                 by session. This is what "and all its sessions" actually costs. */}
-            {confirmDelete.type === 'project' && (
-              previewLoading ? (
+            {confirmDelete.type === 'project' && (<>
+              {previewLoading && (
                 <p class="text-xs text-[#9a9aaa] mb-5">{t("Checking what this project's sessions are holding…")}</p>
-              ) : deletionPreview?.inspection_failed ? (
+              )}
+              {!!deletionPreview && previewKind(previewLoading, deletionPreview) === 'failed' && (
                 <div class="mb-5 rounded-xl border border-danger/40 bg-danger/10 p-3">
                   <p class="text-xs text-[#e8e8ea] font-semibold mb-1">
                     {t("A session's checkout could not be inspected")}
@@ -5782,7 +6057,8 @@ export default function App() {
                     {t('Its contents cannot be shown. Deleting discards whatever it holds, uncommitted work included.')}
                   </p>
                 </div>
-              ) : deletionPreview && deletionPreview.count > 0 ? (
+              )}
+              {!!deletionPreview && previewKind(previewLoading, deletionPreview) === 'changes' && (
                 <div class="mb-5 rounded-xl border border-danger/40 bg-danger/10 p-3">
                   <p class="text-xs text-[#e8e8ea] font-semibold mb-2">
                     {plural(deletionPreview.count, '1 uncommitted change will be discarded', '{n} uncommitted changes will be discarded')}
@@ -5792,13 +6068,13 @@ export default function App() {
                       .filter((s) => s.changes.length > 0)
                       .map((s) => (
                         <div>
-                          <p class="text-xs text-[#9a9aaa] truncate">{s.title === 'New session' ? t('New session') : (s.title || s.id)}</p>
+                          <p class="text-xs text-[#9a9aaa] truncate">{choose(s.title === NEW_SESSION_TITLE, t(NEW_SESSION_TITLE), (s.title || s.id))}</p>
                           <ul class="space-y-1 mt-1">
                             {s.changes.map((c) => (
                               <li class="flex items-start gap-2 text-xs pl-2">
                                 <span class="text-[#9a9aaa] font-mono flex-none w-18">{c.kind}</span>
                                 <span class="text-[#e8e8ea] font-mono break-all">
-                                  {c.from ? c.from + ' → ' + c.path : c.path}
+                                  {choose(c.from, c.from + ' → ' + c.path, c.path)}
                                 </span>
                               </li>
                             ))}
@@ -5810,12 +6086,13 @@ export default function App() {
                     {t('These files are not committed anywhere. Deleting the project discards them for good.')}
                   </p>
                 </div>
-              ) : deletionPreview ? (
+              )}
+              {previewKind(previewLoading, deletionPreview) === 'clean' && (
                 <p class="text-xs text-[#9a9aaa] mb-5">
                   {t("No session holds uncommitted changes, so nothing uncommitted is lost. The project's own checkout is not touched.")}
                 </p>
-              ) : null
-            )}
+              )}
+            </>)}
 
             <div class="flex gap-2">
               <button
@@ -5851,11 +6128,7 @@ export default function App() {
                   // being idle.
                   <span class="state-working inline-block" aria-hidden="true" />
                 )}
-                {t(deleting
-                  ? 'Deleting…'
-                  : deletionPreview && (deletionPreview.count > 0 || deletionPreview.inspection_failed)
-                    ? 'Discard and delete'
-                    : 'Delete')}
+                {choose(deleting, t('Deleting…'), t(choose(deletionPreview && (deletionPreview.count > 0 || deletionPreview.inspection_failed), 'Discard and delete', 'Delete')))}
               </button>
               <button
                 class="min-h-[44px] px-5 rounded-xl border border-white/10 text-[#e8e8ea] active:scale-95 transition-transform disabled:opacity-50 disabled:cursor-not-allowed"
@@ -5930,30 +6203,33 @@ export default function App() {
         <div class="fixed bottom-6 inset-x-0 z-60 flex justify-center px-4 pointer-events-none">
           <div
             class="frosted rounded-xl border px-4 py-3 flex items-start gap-3 max-w-md w-full pointer-events-auto"
-            style={`animation: slideUp 0.3s ease-out; box-shadow: 0 20px 45px -10px rgba(0,0,0,0.75); border-color: ${toast.type === 'error' ? 'rgba(239,68,68,0.35)' : toast.type === 'warning' ? 'rgba(237,181,88,0.35)' : 'rgba(76,194,255,0.35)'}`}
+            style={`animation: slideUp 0.3s ease-out; box-shadow: 0 20px 45px -10px rgba(0,0,0,0.75); border-color: ${toastTone(toast.type, 'rgba(239,68,68,0.35)', 'rgba(237,181,88,0.35)', 'rgba(76,194,255,0.35)')}`}
           >
-          {toast.type === 'error' ? (
+          {toastIcon(toast.type, toast.update, updateInfo) === 'error' && (
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="text-danger flex-none mt-0.5">
               <circle cx="12" cy="12" r="10" /><line x1="12" y1="8" x2="12" y2="12" /><line x1="12" y1="16" x2="12.01" y2="16" />
             </svg>
-          ) : toast.type === 'warning' ? (
+          )}
+          {toastIcon(toast.type, toast.update, updateInfo) === 'warning' && (
             // A triangle, not the error's circle: the two are different answers
             // ("something is wrong but recovering" vs "this failed"), and a shared
             // icon would make the reader parse the sentence to tell them apart.
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="text-[#edc06a] flex-none mt-0.5">
               <path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" /><line x1="12" y1="9" x2="12" y2="13" /><line x1="12" y1="17" x2="12.01" y2="17" />
             </svg>
-          ) : updateInfo?.update_available && toast.update ? (
+          )}
+          {toastIcon(toast.type, toast.update, updateInfo) === 'update' && (
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="text-accent flex-none mt-0.5 animate-pulse">
               <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" /><polyline points="7 10 12 15 17 10" /><line x1="12" y1="15" x2="12" y2="3" />
             </svg>
-          ) : (
+          )}
+          {toastIcon(toast.type, toast.update, updateInfo) === 'done' && (
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" class="text-accent flex-none mt-0.5">
               <polyline points="20 6 9 17 4 12" />
             </svg>
           )}
           <div class="flex-1 min-w-0">
-            <p class={`text-sm font-semibold ${toast.type === 'error' ? 'text-danger' : toast.type === 'warning' ? 'text-[#edc06a]' : 'text-[#e8e8ea]'}`}>
+            <p class={`text-sm font-semibold ${toastTone(toast.type, 'text-danger', 'text-[#edc06a]', 'text-[#e8e8ea]')}`}>
               {toast.message}
             </p>
             {toast.detail && (
@@ -5967,7 +6243,7 @@ export default function App() {
                   class="text-[11px] text-[#7a7a8c] hover:text-[#9a9aaa] underline decoration-dotted"
                   onClick={(e) => { e.stopPropagation(); setToastDetailsOpen(v => !v) }}
                 >
-                  {t(toastDetailsOpen ? 'Hide details' : 'Details')}
+                  {choose(toastDetailsOpen, t('Hide details'), t('Details'))}
                 </button>
                 {toastDetailsOpen && (
                   <pre class="mt-1.5 text-[11px] text-[#8a8a9a] font-mono bg-black/30 rounded-lg p-2 overflow-x-auto whitespace-pre-wrap wrap-break-word max-h-32 overflow-y-auto">
@@ -6031,7 +6307,7 @@ export default function App() {
                 onClick={() => { if (!upgradeBusy) { setShowUpgrade(false) } }}
                 disabled={upgradeBusy}
                 aria-label={t('Close')}
-                style={upgradeBusy ? 'opacity:0.3;cursor:not-allowed' : ''}
+                style={choose(upgradeBusy, 'opacity:0.3;cursor:not-allowed', '')}
               >
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                   <line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" />
@@ -6105,24 +6381,15 @@ export default function App() {
                         class="h-full rounded-full transition-all duration-300 ease-out"
                         style={{
                           width: `${upgradeProgress.percent || 0}%`,
-                          background: upgradeProgress.stage === 'error'
-                            ? 'linear-gradient(90deg, #ff6b6b, #ff8a8a)'
-                            : 'linear-gradient(90deg, #4cc2ff, #6dd5ff)',
-                          boxShadow: upgradeProgress.stage === 'downloading' || upgradeProgress.stage === 'installing'
-                            ? '0 0 12px rgba(76,194,255,0.4)' : 'none',
+                          background: choose(upgradeProgress.stage === 'error', 'linear-gradient(90deg, #ff6b6b, #ff8a8a)', 'linear-gradient(90deg, #4cc2ff, #6dd5ff)'),
+                          boxShadow: choose(upgradeProgress.stage === 'downloading' || upgradeProgress.stage === 'installing', '0 0 12px rgba(76,194,255,0.4)', 'none'),
                         }}
                       />
                     </div>
                     {/* Percentage label */}
                     <div class="flex justify-between mt-1.5">
                       <span class="text-xs text-[#9a9aaa]">
-                        {upgradeProgress.stage === 'restarting'
-                          ? t('Restarting…')
-                          : upgradeProgress.stage === 'done'
-                          ? t('Complete')
-                          : upgradeProgress.stage === 'error'
-                          ? t('Failed')
-                          : `${upgradeProgress.percent || 0}%`}
+                        {choose(upgradeProgress.stage === 'restarting', t('Restarting…'), choose(upgradeProgress.stage === 'done', t('Complete'), choose(upgradeProgress.stage === 'error', t('Failed'), `${upgradeProgress.percent || 0}%`)))}
                       </span>
                       <span class="text-xs font-mono text-[#7a7a8c]">
                         {upgradeProgress.version && `→ ${upgradeProgress.version}`}
@@ -6147,7 +6414,7 @@ export default function App() {
                         <circle cx="12" cy="12" r="10" /><line x1="12" y1="8" x2="12" y2="12" /><line x1="12" y1="16" x2="12.01" y2="16" />
                       </svg>
                     )}
-                    <span class={upgradeProgress.stage === 'error' ? 'text-danger' : 'text-[#e8e8ea]'}>
+                    <span class={choose(upgradeProgress.stage === 'error', 'text-danger', 'text-[#e8e8ea]')}>
                       {upgradeMessage(upgradeProgress.message)}
                     </span>
                   </div>
@@ -6171,7 +6438,7 @@ export default function App() {
                             class="text-xs text-[#7a7a8c] hover:text-[#9a9aaa] mt-1.5 underline underline-offset-2"
                             onClick={() => setShowUpgradeError(v => !v)}
                           >
-                            {t(showUpgradeError ? 'Hide details' : 'Details')}
+                            {choose(showUpgradeError, t('Hide details'), t('Details'))}
                           </button>
                           {showUpgradeError && (
                             <pre class="text-xs text-danger whitespace-pre-wrap font-mono mt-2 p-2 rounded-lg bg-black/40">{upgradeError}</pre>
@@ -6206,7 +6473,7 @@ export default function App() {
                         setShowUpgradeError(false)
                       }}
                     >
-                      {t(upgradeProgress.stage === 'error' ? 'Close' : 'Done')}
+                      {choose(upgradeProgress.stage === 'error', t('Close'), t('Done'))}
                     </button>
                   </div>
                 )}
@@ -6231,23 +6498,23 @@ export default function App() {
               <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="text-accent">
                 <path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z" /><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z" />
               </svg>
-              <h2 class="text-base font-semibold">{skillOpen ? (skillOpen.title || skillOpen.name) : t('Skill library')}</h2>
+              <h2 class="text-base font-semibold">{skillHeading(skillOpen)}</h2>
               {skillOpen && (
                 <button
                   class="ml-1 px-2.5 py-1 rounded-lg border border-white/10 text-xs text-[#9a9aaa] hover:text-[#e8e8ea] active:scale-95 transition-transform"
                   onClick={() => pinSkill(skillOpen.name, !skillOpen.pinned)}
-                  title={t(skillOpen.pinned ? 'The curator will leave this alone' : 'Exempt this from every automatic transition')}
+                  title={choose(skillOpen.pinned, t('The curator will leave this alone'), t('Exempt this from every automatic transition'))}
                 >
-                  {t(skillOpen.pinned ? 'Unpin' : 'Pin')}
+                  {choose(skillOpen.pinned, t('Unpin'), t('Pin'))}
                 </button>
               )}
               {skillOpen && (
                 <button
                   class="ml-1 px-2.5 py-1 rounded-lg border border-white/10 text-xs text-[#9a9aaa] hover:text-[#e8e8ea] active:scale-95 transition-transform"
                   onClick={() => disableSkill(skillOpen.name, !skillOpen.disabled)}
-                  title={t(skillOpen.disabled ? 'The agent will see this again' : 'The agent stops seeing this in its index and its search')}
+                  title={choose(skillOpen.disabled, t('The agent will see this again'), t('The agent stops seeing this in its index and its search'))}
                 >
-                  {t(skillOpen.disabled ? 'Turn on' : 'Turn off')}
+                  {choose(skillOpen.disabled, t('Turn on'), t('Turn off'))}
                 </button>
               )}
               {skillOpen && (
@@ -6269,7 +6536,7 @@ export default function App() {
               </button>
             </div>
 
-            {skillOpen ? (
+            {!!skillOpen && (
               <div>
                 <div class="flex items-center gap-2 mb-3 text-xs text-[#7a7a8c]">
                   <span class="font-mono">{skillOpen.name}</span>
@@ -6297,7 +6564,8 @@ export default function App() {
                   </button>
                 </div>
               </div>
-            ) : (
+            )}
+            {!skillOpen && (
               <div>
                 <input
                   type="text"
@@ -6307,15 +6575,16 @@ export default function App() {
                   class="w-full mb-3 px-3 py-2.5 rounded-xl bg-black/30 border border-white/10 text-sm text-[#e8e8ea] placeholder:text-[#5a5a68] focus:outline-hidden focus:border-accent/50"
                 />
 
-                {skillsBusy ? (
+                {skillsBusy && (
                   <p class="text-sm text-[#9a9aaa] py-8 text-center">{t('Loading the library…')}</p>
-                ) : filteredSkills.length === 0 ? (
+                )}
+                {!skillsBusy && filteredSkills.length === 0 && (
                   <p class="text-sm text-[#9a9aaa] py-8 text-center">
-                    {skillQueryNorm !== ''
-                      ? tf('Nothing matches “{q}”.', { q: skillQuery.trim() })
-                      : t('No skills yet. The agent writes one when it works something out.')}
+                    {skillQueryNorm !== '' && tf('Nothing matches “{q}”.', { q: skillQuery.trim() })}
+                    {!(skillQueryNorm !== '') && t('No skills yet. The agent writes one when it works something out.')}
                   </p>
-                ) : (
+                )}
+                {!skillsBusy && filteredSkills.length !== 0 && (
                   <ul class="space-y-1.5">
                     {filteredSkills.map((s) => (
                       <li key={s.name} class="flex items-center gap-1">
@@ -6338,9 +6607,9 @@ export default function App() {
                         <button
                           class="px-2.5 py-1 rounded-lg border border-white/10 text-xs text-[#9a9aaa] hover:text-[#e8e8ea] shrink-0"
                           onClick={() => disableSkill(s.name, !s.disabled)}
-                          title={t(s.disabled ? 'The agent will see this again' : 'The agent stops seeing this in its index and its search')}
+                          title={choose(s.disabled, t('The agent will see this again'), t('The agent stops seeing this in its index and its search'))}
                         >
-                          {tc('skill-toggle', s.disabled ? 'on' : 'off')}
+                          {choose(s.disabled, tc('skill-toggle', 'on'), tc('skill-toggle', 'off'))}
                         </button>
                       </li>
                     ))}
@@ -6448,10 +6717,10 @@ export default function App() {
                         key={sc}
                         role="tab"
                         aria-selected={artifactScope === sc}
-                        class={`px-3 min-h-[30px] ${artifactScope === sc ? 'bg-accent text-white' : 'text-[#c8c8d2] hover:bg-white/5'}`}
+                        class={`px-3 min-h-[30px] ${choose(artifactScope === sc, 'bg-accent text-white', 'text-[#c8c8d2] hover:bg-white/5')}`}
                         onClick={() => { setArtifactScope(sc); void loadArtifacts(sc) }}
                       >
-                        {t(sc === 'session' ? 'This session' : 'Whole project')}
+                        {choose(sc === 'session', t('This session'), t('Whole project'))}
                       </button>
                     ))}
                   </div>
@@ -6463,47 +6732,54 @@ export default function App() {
                     class="hidden"
                     data-testid="artifact-upload"
                     onChange={(e) => {
-                      const input = e.target as HTMLInputElement
-                      const f = input.files && input.files[0]
-                      input.value = ''
+                      const field = e.target as HTMLInputElement
+                      const f = field.files?.[0]
+                      field.value = ''
                       if (f) { void uploadArtifact(f) }
                     }}
                   />
                 </label>
               </div>
             )}
-            {artifactView ? (
+            {!!artifactView && (
               <div class="flex flex-col min-h-0 flex-1">
                 <button class="self-start text-sm text-accent underline underline-offset-2 mb-2" onClick={() => setArtifactView(null)}>{t('Back to the list')}</button>
                 <div class="text-sm font-mono text-[#c8c8d2] mb-2 truncate">{artifactView.name}</div>
-                {artifactView.url && artifactView.type.startsWith('application/pdf') ? (
+                {artifactShape(artifactView) === 'pdf' && (
                   <iframe src={artifactView.url} title={artifactView.name} class="w-full flex-1 min-h-[60vh] rounded-lg bg-white" />
-                ) : artifactView.url ? (
+                )}
+                {artifactShape(artifactView) === 'image' && (
                   <img src={artifactView.url} alt={artifactView.name} class="max-w-full max-h-[60vh] object-contain rounded-lg" />
-                ) : artifactView.type.startsWith('text/markdown') ? (
+                )}
+                {artifactShape(artifactView) === 'markdown' && (
                   <div class="overflow-auto flex-1 p-3 rounded-lg bg-black/30"><Markdown content={artifactView.body || ''} /></div>
-                ) : artifactView.type.startsWith('text/html') ? (
+                )}
+                {artifactShape(artifactView) === 'html' && (
                   <iframe sandbox="" srcDoc={artifactView.body} title={artifactView.name} class="w-full flex-1 min-h-[50vh] rounded-lg bg-white" />
-                ) : (
+                )}
+                {artifactShape(artifactView) === 'text' && (
                   <pre class="overflow-auto flex-1 text-xs font-mono p-3 rounded-lg bg-black/30 whitespace-pre-wrap">{artifactView.body}</pre>
                 )}
               </div>
-            ) : artifacts.length === 0 ? (
+            )}
+            {!artifactView && artifacts.length === 0 && (
               <p class="text-sm text-[#9a9aaa]">{t('Nothing saved in this session yet. Ask for a report, a page or a diagram and it will show up here.')}</p>
-            ) : (
+            )}
+            {!artifactView && artifacts.length !== 0 && (
               <ul class="overflow-auto space-y-1.5">
                 {artifacts.map(a => (
                   <li key={a.name} class="flex items-center gap-2 p-2.5 rounded-xl border border-white/10 bg-black/20">
                     <button class="flex-1 min-w-0 text-left" onClick={() => void openArtifact(a)}>
                       <div class="truncate text-sm text-[#e8e8ea] font-mono">{a.name}</div>
                       <div class="text-xs text-[#7a7a8c]">{a.type} · {Math.max(1, Math.round(a.size / 1024))} KB</div>
-                      {a.pinned ? (
+                      {!!a.pinned && (
                         <div class="text-xs text-accent">{t('Pinned: it will not be deleted')}</div>
-                      ) : a.expires_at && daysUntil(a.expires_at) <= 7 ? (
+                      )}
+                      {!a.pinned && !!(a.expires_at && daysUntil(a.expires_at) <= 7) && (
                         <div class="text-xs text-[#f0a040]" data-testid="artifact-expiry">{tf('Deleted in {n} days unless pinned', { n: String(Math.max(0, daysUntil(a.expires_at))) })}</div>
-                      ) : null}
+                      )}
                     </button>
-                    <button class="flex-none px-2 min-h-[32px] rounded-lg text-xs text-[#c8c8d2] hover:bg-white/5" aria-pressed={!!a.pinned} onClick={() => void pinArtifact(a.name, !a.pinned)}>{t(a.pinned ? 'Unpin' : 'Pin')}</button>
+                    <button class="flex-none px-2 min-h-[32px] rounded-lg text-xs text-[#c8c8d2] hover:bg-white/5" aria-pressed={!!a.pinned} onClick={() => void pinArtifact(a.name, !a.pinned)}>{choose(a.pinned, t('Unpin'), t('Pin'))}</button>
                     <button class="flex-none px-2 min-h-[32px] rounded-lg text-xs text-danger hover:bg-danger/10" onClick={() => void deleteArtifact(a.name)}>{t('Delete')}</button>
                   </li>
                 ))}
@@ -6575,7 +6851,7 @@ export default function App() {
                             task that will not fire would be a lie with a pulse. */}
                         {cd && (
                           <p class="text-xs text-[#9a9aaa] mt-1.5">
-                            {cd.overdue ? t('due now') : t('fires in') + ' '}
+                            {choose(cd.overdue, t('due now'), t('fires in') + ' ')}
                             {!cd.overdue && <span class="task-countdown">{cd.text}</span>}
                           </p>
                         )}
@@ -6598,7 +6874,7 @@ export default function App() {
                             class="min-h-[44px] px-3 rounded-lg border border-white/10 text-xs text-[#e8e8ea] active:scale-95 transition-transform"
                             onClick={() => void toggleSchedule(task)}
                           >
-                            {t(task.enabled ? 'Pause' : 'Resume')}
+                            {choose(task.enabled, t('Pause'), t('Resume'))}
                           </button>
                           <button
                             class="min-h-[44px] px-3 rounded-lg border border-danger/30 text-xs text-danger active:scale-95 transition-transform ml-auto"
@@ -6658,7 +6934,7 @@ export default function App() {
                   disabled={scheduledBusy || !newTaskTitle.trim() || !newTaskText.trim()}
                   onClick={() => void createSchedule()}
                 >
-                  {t(scheduledBusy ? 'Creating…' : 'Create')}
+                  {choose(scheduledBusy, t('Creating…'), t('Create'))}
                 </button>
               </div>
             </div>

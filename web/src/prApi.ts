@@ -13,6 +13,9 @@ export interface CICheck {
   detail?: string
 }
 
+// What the host says about a merge: possible now, refused for a reason, or not known.
+export type MergeCode = 'ok' | 'blocked' | 'conflict' | 'draft' | 'behind' | 'unknown'
+
 export interface PRView {
   // 'none' while the branch has no open pull request, 'open' once it has.
   state: 'none' | 'open'
@@ -20,7 +23,7 @@ export interface PRView {
   pr?: { number: number; url: string; title?: string }
   ci?: { state: CIState; checks: CICheck[]; rev?: string }
   // Whether the host would accept a merge now; asked once the CI has passed.
-  merge?: { code: 'ok' | 'blocked' | 'conflict' | 'draft' | 'behind' | 'unknown' }
+  merge?: { code: MergeCode }
   // What the gateway is doing about the CI; absent when nothing.
   watch?: PRWatch
 }
@@ -31,14 +34,17 @@ export function mergeRefused(v: PRView | null | undefined): boolean {
   return c === 'blocked' || c === 'conflict' || c === 'draft'
 }
 
+// PRRef is the pull request a view points at.
+export type PRRef = NonNullable<PRView['pr']>
+
 // PRError carries the HTTP status and the machine code of a refusal (git_auth_required,
 // pr_no_remote, pr_no_host, pr_exists).
 export class PRError extends Error {
   status: number
   code?: string
   service?: string
-  pr?: PRView['pr']
-  constructor(message: string, status: number, code?: string, service?: string, pr?: PRView['pr']) {
+  pr?: PRRef
+  constructor(message: string, status: number, code?: string, service?: string, pr?: PRRef) {
     super(message)
     this.status = status
     this.code = code
@@ -48,7 +54,7 @@ export class PRError extends Error {
 }
 
 async function failure(res: Response): Promise<PRError> {
-  const body = await res.json().catch(() => ({} as any))
+  const body = await res.json().catch(() => ({}))
   return new PRError(body.error || 'HTTP ' + res.status, res.status, body.code, body.service, body.pr)
 }
 
@@ -66,7 +72,7 @@ export async function getPR(api: Api, sid: string): Promise<PRView> {
 export async function retryFix(api: Api, sid: string): Promise<{ started: boolean }> {
   const res = await api(base(sid) + '/fix', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' })
   if (!res.ok) { throw await failure(res) }
-  const body = await res.json().catch(() => ({} as any))
+  const body = await res.json().catch(() => ({}))
   return { started: body.started === true }
 }
 
@@ -99,10 +105,12 @@ export type Notice = 'fixing' | 'passed' | 'gave_up' | 'no_ci' | 'merged' | 'bas
 export function prNotice(prev: PRWatch | null | undefined, cur: PRWatch | null | undefined): Notice {
   if (prev === undefined || !cur) { return null }
   if (cur.status === 'fixing') {
-    return prev?.status !== 'fixing' || cur.attempts > prev.attempts ? 'fixing' : null
+    if (prev?.status !== 'fixing' || cur.attempts > prev.attempts) { return 'fixing' }
+    return null
   }
   if (cur.status === 'following') { return null }
-  return prev?.status === cur.status ? null : cur.status
+  if (prev?.status === cur.status) { return null }
+  return cur.status
 }
 
 // shouldPoll: the bar asks the gateway about the CI only while the gateway is following it.

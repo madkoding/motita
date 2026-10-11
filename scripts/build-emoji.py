@@ -23,6 +23,7 @@ import shutil
 import subprocess
 import sys
 from pathlib import Path
+from typing import Any
 
 if len(sys.argv) < 2:
     sys.exit("usage: build-emoji.py <assets-dir> [out-dir] [style] [size]")
@@ -33,7 +34,7 @@ SIZE = int(sys.argv[4] if len(sys.argv) > 4 else 64)
 QUALITY = int(sys.argv[5] if len(sys.argv) > 5 else 85)
 
 
-def codepoint(meta: dict) -> str | None:
+def codepoint(meta: dict[str, Any]) -> str | None:
     """The emoji's filename, derived from its own codepoint(s).
 
     FluentUI records `unicode` as lowercase hex, and the separator is a SPACE, not a dash:
@@ -58,10 +59,19 @@ def codepoint(meta: dict) -> str | None:
     return "-".join(format(int(p, 16), "x") for p in parts)
 
 
-def main() -> int:
-    OUT.mkdir(parents=True, exist_ok=True)
-    emoji = {}
+def find_svg(base: Path, name: str) -> Path | None:
+    """The asset's SVG in the chosen style, or None when that style has none."""
+    svg = base / STYLE / f"{name.lower().replace(' ', '_')}_{STYLE.lower()}.svg"
+    if svg.exists():
+        return svg
+    # A handful of assets use the display name rather than the cldr name.
+    cands = list((base / STYLE).glob("*.svg")) if (base / STYLE).is_dir() else []
+    return cands[0] if cands else None
 
+
+def collect_emoji() -> dict[str, dict[str, str]]:
+    """Every emoji with an asset in the chosen style, keyed by its codepoint filename."""
+    emoji = {}
     for d in sorted(os.listdir(SRC)):
         base = SRC / d
         if not base.is_dir():
@@ -70,21 +80,19 @@ def main() -> int:
         if not meta_path.exists():
             continue
         meta = json.loads(meta_path.read_text(encoding="utf8"))
-        svg = base / STYLE / f"{d.lower().replace(' ', '_')}_{STYLE.lower()}.svg"
-        if not svg.exists():
-            # A handful of assets use the display name rather than the cldr name.
-            cands = list((base / STYLE).glob("*.svg")) if (base / STYLE).is_dir() else []
-            if not cands:
-                continue
-            svg = cands[0]
+        svg = find_svg(base, d)
+        if svg is None:
+            continue
         cp = codepoint(meta)
         if not cp:
             continue
         emoji[cp] = {"glyph": meta.get("glyph", ""), "name": meta.get("cldr", d),
                      "group": meta.get("group", ""), "src": str(svg)}
+    return emoji
 
-    print(f"emoji with a {STYLE} asset: {len(emoji)}")
 
+def convert_all(emoji: dict[str, dict[str, str]]) -> tuple[int, int, list[tuple[str, str]]]:
+    """Render each SVG to WebP; returns (written, total bytes, failures as (codepoint, error))."""
     ok = 0
     failed = []
     total = 0
@@ -101,6 +109,17 @@ def main() -> int:
             continue
         ok += 1
         total += dst.stat().st_size
+    return ok, total, failed
+
+
+def main() -> int:
+    """Build the WebP set and the codepoints.json manifest the web bundle reads."""
+    OUT.mkdir(parents=True, exist_ok=True)
+    emoji = collect_emoji()
+
+    print(f"emoji with a {STYLE} asset: {len(emoji)}")
+
+    ok, total, failed = convert_all(emoji)
 
     print(f"wrote {ok} webp to {OUT} ({total/1e6:.2f} MB, {total//max(ok,1)} B each)")
     if failed:

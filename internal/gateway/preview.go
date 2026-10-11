@@ -51,22 +51,14 @@ func buildChangeReport(ctx context.Context, workspace, rev string) changeReport 
 	// A git failure leaves the list empty (ChangesSince returns nil with its error): the
 	// screenshots below are still worth showing, and the summary is a courtesy, not the result.
 	files, _ := gitx.ChangesSince(ctx, workspace, rev)
-	var pics []string
-	if entries, err := os.ReadDir(filepath.Join(workspace, filepath.FromSlash(PreviewDir))); err == nil {
-		for _, e := range entries {
-			if !e.IsDir() && previewExts[strings.ToLower(filepath.Ext(e.Name()))] {
-				pics = append(pics, filepath.Join(workspace, filepath.FromSlash(PreviewDir), e.Name()))
-			}
-		}
-		sort.Strings(pics)
-	}
+	pics := screenshotsIn(workspace)
 	for _, f := range files {
 		// The screenshots are evidence, not a change the user asked for.
-		if strings.HasPrefix(f.Path, PreviewDir+"/") || strings.HasPrefix(f.Path, ArtifactDir+"/") {
+		if isEvidencePath(f.Path) {
 			continue
 		}
 		rep.Files = append(rep.Files, f)
-		if f.Status != "deleted" && previewExts[strings.ToLower(filepath.Ext(f.Path))] {
+		if f.Status != "deleted" && isPreviewFile(f.Path) {
 			pics = append(pics, filepath.Join(workspace, filepath.FromSlash(f.Path)))
 		}
 	}
@@ -79,6 +71,33 @@ func buildChangeReport(ctx context.Context, workspace, rev string) changeReport 
 		}
 	}
 	return rep
+}
+
+// screenshotsIn lists the pictures the agent left in the workspace's PreviewDir, sorted.
+func screenshotsIn(workspace string) []string {
+	dir := filepath.Join(workspace, filepath.FromSlash(PreviewDir))
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return nil
+	}
+	var pics []string
+	for _, e := range entries {
+		if !e.IsDir() && isPreviewFile(e.Name()) {
+			pics = append(pics, filepath.Join(dir, e.Name()))
+		}
+	}
+	sort.Strings(pics)
+	return pics
+}
+
+// isPreviewFile reports whether name has the extension of a picture the report shows.
+func isPreviewFile(name string) bool {
+	return previewExts[strings.ToLower(filepath.Ext(name))]
+}
+
+// isEvidencePath reports whether a changed path is one of the run's screenshots or artifacts.
+func isEvidencePath(path string) bool {
+	return strings.HasPrefix(path, PreviewDir+"/") || strings.HasPrefix(path, ArtifactDir+"/")
 }
 
 // readPreview loads one picture as a data: URL, or reports that it is not usable (missing,

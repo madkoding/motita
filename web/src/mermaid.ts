@@ -67,22 +67,20 @@ let ready: Promise<void> | null = null
  * which is the box the reader should see.
  */
 function ensureReady(): Promise<void> {
-  if (!ready) {
-    ready = (async () => {
-      mermaid.initialize({
-        startOnLoad: false,
-        // A parse failure must arrive here as an exception, not as mermaid's own error icon.
-        suppressErrorRendering: true,
-        // A model-authored label must never become a live click target or a script.
-        securityLevel: 'strict',
-        theme: 'dark',
-        // The page's own type scale; mermaid's default is sized for a full-page doc.
-        fontFamily: 'inherit',
-        htmlLabels: true,
-        flowchart: { useMaxWidth: true },
-      })
-    })()
-  }
+  ready ??= (async () => {
+    mermaid.initialize({
+      startOnLoad: false,
+      // A parse failure must arrive here as an exception, not as mermaid's own error icon.
+      suppressErrorRendering: true,
+      // A model-authored label must never become a live click target or a script.
+      securityLevel: 'strict',
+      theme: 'dark',
+      // The page's own type scale; mermaid's default is sized for a full-page doc.
+      fontFamily: 'inherit',
+      htmlLabels: true,
+      flowchart: { useMaxWidth: true },
+    })
+  })()
   return ready
 }
 

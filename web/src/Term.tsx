@@ -16,6 +16,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'preact/hooks'
 import DOMPurify from 'dompurify'
 import { t } from './i18n'
+import { choose } from './choose'
 
 function esc(s: string): string {
   return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
@@ -30,9 +31,15 @@ const FAIL = /^\s*(--- FAIL|FAIL\b|panic:|fatal:|error\b|Error\b|ERROR\b|E\d{3,}
 const PASS = /^\s*(ok\b|--- PASS|PASS\b|OK\b|success\b)/
 const WARN = /^\s*(warn(ing)?\b|WARN\b|deprecated\b)/i
 
+// diffHeadClass is the colour of a diff's file header: red when it reports a failure.
+function diffHeadClass(line: string): string {
+  if (line.startsWith('---') && FAIL.test(line)) { return 'to-err' }
+  return 'to-diffhead'
+}
+
 // lineClass names the colour a whole output line takes, or '' for the plain one.
 function lineClass(line: string): string {
-  if (line.startsWith('+++') || line.startsWith('---')) { return line.startsWith('---') && FAIL.test(line) ? 'to-err' : 'to-diffhead' }
+  if (line.startsWith('+++') || line.startsWith('---')) { return diffHeadClass(line) }
   if (line.startsWith('@@')) { return 'to-hunk' }
   if (line.startsWith('+')) { return 'to-add' }
   if (line.startsWith('-')) { return 'to-del' }
@@ -49,7 +56,8 @@ export function colorizeOutput(text: string): string {
     .map(line => {
       const cls = lineClass(line)
       const html = esc(line).replace(LOCATION, '<span class="to-loc">$1</span>')
-      return cls ? '<span class="' + cls + '">' + html + '</span>' : html
+      if (cls) { return '<span class="' + cls + '">' + html + '</span>' }
+      return html
     })
     .join('\n')
 }
@@ -58,8 +66,9 @@ export function colorizeOutput(text: string): string {
 // merely begins with a bracket ("[ok] built") must not be sent to a grammar that would
 // colour it as nonsense.
 function looksLikeJSON(text: string): boolean {
-  const t = text.trim()
-  return (t.startsWith('{') && t.endsWith('}')) || (t.startsWith('[') && t.endsWith(']') && t.includes('"'))
+  const trimmed = text.trim()
+  if (trimmed.startsWith('{') && trimmed.endsWith('}')) { return true }
+  return trimmed.startsWith('[') && trimmed.endsWith(']') && trimmed.includes('"')
 }
 
 // ── The typewriter ────────────────────────────────────────────────────────────
@@ -85,6 +94,10 @@ function collect(root: HTMLElement): { slices: Slice[]; total: number } {
   return { slices, total }
 }
 
+// The UTF-16 range of the first half of a surrogate pair.
+const HIGH_SURROGATE_MIN = 0xd800
+const HIGH_SURROGATE_MAX = 0xdbff
+
 // reveal shows the first `n` characters of the whole text and hides the rest.
 function reveal(slices: Slice[], n: number) {
   for (const s of slices) {
@@ -92,7 +105,7 @@ function reveal(slices: Slice[], n: number) {
     // Never cut between the two halves of a surrogate pair: that draws a broken glyph.
     if (k > 0 && k < s.full.length) {
       const c = s.full.charCodeAt(k - 1)
-      if (c >= 0xd800 && c <= 0xdbff) { k-- }
+      if (c >= HIGH_SURROGATE_MIN && c <= HIGH_SURROGATE_MAX) { k-- }
     }
     if (s.node.data.length !== k) { s.node.data = s.full.slice(0, k) }
   }
@@ -125,6 +138,11 @@ interface TypedProps {
  * The speed is chosen so a short line is unhurried and a long output never takes more than
  * about a second and a quarter: 70 to 900 characters per second.
  */
+// The typing speed's bounds, in characters per second, and the time a long text is typed in.
+const TYPE_MIN_CPS = 70
+const TYPE_MAX_CPS = 900
+const TYPE_TARGET_S = 1.2
+
 export function Typed({ html, as = 'span', class: cls, cps, onTick, onDone, instant, boost = 1 }: TypedProps) {
   const ref = useRef<HTMLElement>(null)
   const shown = useRef(0)
@@ -139,7 +157,7 @@ export function Typed({ html, as = 'span', class: cls, cps, onTick, onDone, inst
 
   useLayoutEffect(() => {
     const el = ref.current
-    if (!el) { return }
+    if (!el) { return undefined }
     if (!mounted.current || mounted.current.html !== html) { mounted.current = { html, ...collect(el) } }
     const { slices, total } = mounted.current
     const finish = () => {
@@ -154,17 +172,17 @@ export function Typed({ html, as = 'span', class: cls, cps, onTick, onDone, inst
       shown.current = total
       cb.current.onTick?.()
       finish()
-      return
+      return undefined
     }
     if (shown.current < total) { finished.current = false }
     reveal(slices, shown.current)
     cb.current.onTick?.()
     if (shown.current >= total) {
       finish()
-      return
+      return undefined
     }
     el.classList.add('is-typing')
-    const rate = (cps ?? Math.min(900, Math.max(70, total / 1.2))) * boost
+    const rate = (cps ?? Math.min(TYPE_MAX_CPS, Math.max(TYPE_MIN_CPS, total / TYPE_TARGET_S))) * boost
     const base = shown.current
     const t0 = performance.now()
     let raf = 0
@@ -268,7 +286,7 @@ export function TermEntry({ cmd, out, status, phase, boost, onTick, onFinished }
       <TermCommand cmd={cmd} instant={instant} boost={boost} onTick={onTick} onDone={() => setCmdDone(true)} />
       {showOut && <TermOutput text={out} instant={instant} boost={boost} onTick={onTick} onDone={() => setOutDone(true)} />}
       {showStatus && (
-        <div class={`term-status${status.kind ? ' ' + status.kind : ''}`}>
+        <div class={`term-status${choose(status.kind, ' ' + status.kind, '')}`}>
           <Typed
             key={status.label}
             html={esc(status.label)}

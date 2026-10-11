@@ -61,7 +61,9 @@ type Health struct {
 // A missing service file returns found=false with no error: nothing running is the normal state,
 // not a failure. A corrupt one returns an error, because the alternative is starting a second
 // gateway beside a live one.
-func Discover(ctx context.Context, path string, probe func(context.Context, string) (Health, error)) (Found, bool, error) {
+func Discover(
+	ctx context.Context, path string, probe func(context.Context, string) (Health, error),
+) (Found, bool, error) {
 	svc, err := ReadServiceFile(path)
 	if err != nil {
 		return Found{}, false, err

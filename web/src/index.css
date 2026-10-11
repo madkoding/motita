@@ -431,7 +431,7 @@ body {
  * backdrop-filter support. */
 .msg {
   white-space: pre-wrap;
-  word-break: break-word;
+  word-break: normal; overflow-wrap: anywhere;
   padding: 8px 12px;
   border-radius: 12px;
   background: rgba(10, 10, 16, 0.82);
@@ -567,7 +567,7 @@ body {
   color: #c9d1d9;
 }
 .trail-step.term-out.failed { border-left-color: rgba(255, 123, 114, 0.8); }
-.term-body { margin: 0; font: inherit; white-space: pre-wrap; word-break: break-word; }
+.term-body { margin: 0; font: inherit; white-space: pre-wrap; word-break: normal; overflow-wrap: anywhere; }
 .term-exit {
   flex: none;
   margin: 0;
@@ -1703,7 +1703,7 @@ button:disabled {
 @keyframes thinkPulse { 50% { opacity: 0.35; } }
 .think-entry { margin-bottom: 12px; }
 .think-entry + .think-entry { padding-top: 10px; border-top: 1px dashed rgba(var(--tx-rgb), 0.2); }
-.think-text { margin: 0; font: inherit; color: #ffdcb0; white-space: pre-wrap; word-break: break-word; }
+.think-text { margin: 0; font: inherit; color: #ffdcb0; white-space: pre-wrap; word-break: normal; overflow-wrap: anywhere; }
 .think-entry.is-live .think-text::after {
   content: ''; display: inline-block; width: 7px; height: 12px; margin-left: 3px;
   vertical-align: -2px; background: var(--tx-main); animation: termBlink 1s steps(2, start) infinite;
@@ -1767,7 +1767,7 @@ button:disabled {
   text-overflow: ellipsis;
 }
 .agent-detail { margin-top: 4px; cursor: auto; }
-.agent-summary { margin: 0; font: inherit; color: #b9dcff; white-space: pre-wrap; word-break: break-word; }
+.agent-summary { margin: 0; font: inherit; color: #b9dcff; white-space: pre-wrap; word-break: normal; overflow-wrap: anywhere; }
 .agent-branch { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 6px; font-size: 10px; }
 .agent-branch code { color: var(--tx-main); overflow-wrap: anywhere; }
 .agent-copy {
@@ -1962,7 +1962,7 @@ button:disabled {
   font: inherit;
   color: #b9ecc0;
   white-space: pre-wrap;
-  word-break: break-word;
+  word-break: normal; overflow-wrap: anywhere;
 }
 .term-status { color: var(--tx-dim); font-size: 10px; }
 .term-status.bad { color: #ff7b72; text-shadow: 0 0 6px rgba(255, 123, 114, 0.45); }

@@ -15,7 +15,7 @@ LISTEN, UPSTREAM, LOG = int(sys.argv[1]), int(sys.argv[2]), sys.argv[3]
 LOOPBACK = "127.0.0.1"
 
 
-def forward(path, body, ctype):
+def forward(path: str, body: bytes, ctype: str) -> tuple[bytes, int, str]:
     """One POST to the upstream; returns (data, status, content-type). Any failure is a 502."""
     try:
         conn = http.client.HTTPConnection(LOOPBACK, UPSTREAM, timeout=60)
@@ -34,12 +34,14 @@ def forward(path, body, ctype):
         return str(e).encode(), 502, "text/plain"
 
 
-def append_log(body):
+def append_log(body: bytes) -> None:
+    """Append one request body, newline-terminated, to the log file."""
     with open(LOG, "ab") as f:
         f.write(body + b"\n")
 
 
-async def handle(reader, writer):
+async def handle(reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
+    """Read one HTTP request, log its body, relay it upstream and write back the answer."""
     try:
         head = await reader.readuntil(b"\r\n\r\n")
         lines = head.decode("latin-1").split("\r\n")
@@ -64,7 +66,8 @@ async def handle(reader, writer):
         writer.close()
 
 
-async def main():
+async def main() -> None:
+    """Serve on the listen port until killed."""
     server = await asyncio.start_server(handle, LOOPBACK, LISTEN)
     async with server:
         await server.serve_forever()

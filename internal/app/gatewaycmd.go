@@ -153,27 +153,34 @@ func (op Options) printStartForScripts(fl flags, found gateway.Found) bool {
 		fmt.Fprintln(op.Out, found.Token)
 		return true
 	case fl.jsonOut:
-		port := portOf(found.BaseURL)
-		links := []string{}
-		if found.Reachable {
-			for _, addr := range lanAddresses() {
-				links = append(links, fmt.Sprintf("http://%s:%s/#t=%s", addr, port, found.Token))
-			}
-		}
-		doc := struct {
-			URL     string   `json:"url"`
-			PID     int      `json:"pid"`
-			Version string   `json:"version"`
-			Token   string   `json:"token"`
-			Local   string   `json:"local_link"`
-			Network []string `json:"network_links"`
-		}{found.BaseURL, found.PID, found.Version, found.Token,
-			fmt.Sprintf("%s/#t=%s", found.BaseURL, found.Token), links}
-		out, _ := json.Marshal(doc)
-		fmt.Fprintln(op.Out, string(out))
+		op.printStartJSON(found)
 		return true
+	default:
+		return false
 	}
-	return false
+}
+
+// printStartJSON prints the running gateway as one JSON document: its address, process, version,
+// token and the links that open it.
+func (op Options) printStartJSON(found gateway.Found) {
+	port := portOf(found.BaseURL)
+	links := []string{}
+	if found.Reachable {
+		for _, addr := range lanAddresses() {
+			links = append(links, fmt.Sprintf("http://%s:%s/#t=%s", addr, port, found.Token))
+		}
+	}
+	doc := struct {
+		URL     string   `json:"url"`
+		PID     int      `json:"pid"`
+		Version string   `json:"version"`
+		Token   string   `json:"token"`
+		Local   string   `json:"local_link"`
+		Network []string `json:"network_links"`
+	}{found.BaseURL, found.PID, found.Version, found.Token,
+		fmt.Sprintf("%s/#t=%s", found.BaseURL, found.Token), links}
+	out, _ := json.Marshal(doc)
+	fmt.Fprintln(op.Out, string(out))
 }
 
 // announceExposure says how far the gateway reaches and who it will serve.
@@ -193,7 +200,8 @@ func announceExposure(out io.Writer, found gateway.Found) {
 		// there is nothing to warn about.
 		return
 	}
-	fmt.Fprintf(out, "\nNETWORK ACCESS\n  listening on every interface (port %s): any machine that can reach this\n", portOf(found.BaseURL))
+	fmt.Fprintf(out, "\nNETWORK ACCESS\n  listening on every interface (port %s): any machine that can reach this\n",
+		portOf(found.BaseURL))
 	fmt.Fprintln(out, "  host may connect, subject to the rules below.")
 	if found.Allow == "every origin" {
 		// The documented default, and the one case that deserves to be spelled out rather than

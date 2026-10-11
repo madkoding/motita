@@ -130,11 +130,8 @@ func New(op Options) (*Sandbox, error) {
 	// When there is no chroot the process keeps its own working directory and the
 	// configured path is not entered — it is only recorded as metadata.
 	if op.UseChroot {
-		if op.Dir == "" {
-			op.Dir = "."
-		}
-		if err := os.MkdirAll(op.Dir, 0o755); err != nil {
-			return nil, fmt.Errorf("could not create the working directory %q: %w", op.Dir, err)
+		if err := createWorkDir(&op); err != nil {
+			return nil, err
 		}
 	}
 	abs, err := filepath.Abs(op.Dir)
@@ -153,41 +150,15 @@ func New(op Options) (*Sandbox, error) {
 	}
 
 	if op.UseChroot {
-		switch {
-		case osHooks.euid() != 0:
-			s.notApplied = append(s.notApplied, "chroot: it was requested but the process is not root")
-			s.op.UseChroot = false
-		default:
-			if _, err := os.Stat(op.Root); err != nil {
-				s.notApplied = append(s.notApplied, fmt.Sprintf("chroot: the root %q is not accessible: %v", op.Root, err))
-				s.op.UseChroot = false
-			}
-		}
+		s.checkChroot()
 	}
 
 	if op.UseCgroups {
-		cg, err := newCgroup(op.CgroupRoot, op.Limits)
-		if err != nil {
-			s.notApplied = append(s.notApplied, "cgroups v1: "+err.Error())
-			s.log.Warn("cgroups v1 not available: only POSIX limits are applied", "error", err)
-		} else {
-			s.cg = cg
-		}
+		s.joinCgroup()
 	}
 
-	// The main process joins the cgroup so that its children inherit the
-	// membership even if the re-exec does not do it explicitly.
-	if s.cg != nil {
-		if err := s.cg.addProcess(os.Getpid()); err != nil {
-			s.notApplied = append(s.notApplied, "cgroups v1: could not add the process to the group: "+err.Error())
-			s.log.Warn("could not add the process to the cgroup", "error", err)
-		}
-	}
-
-	if op.ConfineWrites && !s.op.UseChroot && landlockABI() == 0 {
-		s.notApplied = append(s.notApplied, "write confinement: this kernel has no Landlock, so a command can "+
-			"still write outside the working directory")
-		s.op.ConfineWrites = false
+	if op.ConfineWrites {
+		s.checkWriteConfinement()
 	}
 
 	if !hasLimits(op.Limits) {
@@ -199,26 +170,10 @@ func New(op Options) (*Sandbox, error) {
 	// memory). It is adjusted here, in the parent, and it is logged: the child
 	// cannot warn without contaminating the command's output.
 	if s.op.Limits.MemoryMB > 0 {
-		if minimum := minimumMemoryMB(); minimum > 0 && s.op.Limits.MemoryMB < minimum {
-			s.notApplied = append(s.notApplied, fmt.Sprintf(
-				"memory_mb: applying %d MB instead of %d because the process launching the sandbox already uses that address space",
-				minimum, s.op.Limits.MemoryMB))
-			s.log.Warn("raising the sandbox memory limit",
-				"requested_mb", s.op.Limits.MemoryMB, "applied_mb", minimum)
-			s.op.Limits.MemoryMB = minimum
-		}
+		s.raiseMemoryLimit()
 	}
 
-	// A limit the shell refuses used to be dropped in silence, the command running
-	// as if it were bounded.
-	unapplied, err := unappliedLimits(s.op.Limits)
-	if err != nil {
-		s.notApplied = append(s.notApplied, "limits: could not check that the shell applies them: "+err.Error())
-	}
-	for _, name := range unapplied {
-		s.notApplied = append(s.notApplied, name+": the shell cannot apply this limit here, so commands run without it")
-		s.log.Warn("a sandbox limit cannot be applied", "limit", name)
-	}
+	s.recordUnappliedLimits()
 
 	s.log.Info("sandbox ready",
 		"directory", s.base,
@@ -227,6 +182,85 @@ func New(op Options) (*Sandbox, error) {
 		"limits", hasLimits(op.Limits),
 		"not_applied", strings.Join(s.notApplied, " | "))
 	return s, nil
+}
+
+// createWorkDir creates the working directory a chroot enters ("." when none is set).
+func createWorkDir(op *Options) error {
+	if op.Dir == "" {
+		op.Dir = "."
+	}
+	if err := os.MkdirAll(op.Dir, 0o755); err != nil {
+		return fmt.Errorf("could not create the working directory %q: %w", op.Dir, err)
+	}
+	return nil
+}
+
+// checkWriteConfinement drops the requested write confinement, recording why, when there is no
+// chroot to confine the writes and the kernel has no Landlock.
+func (s *Sandbox) checkWriteConfinement() {
+	if !s.op.UseChroot && landlockABI() == 0 {
+		s.notApplied = append(s.notApplied, "write confinement: this kernel has no Landlock, so a command can "+
+			"still write outside the working directory")
+		s.op.ConfineWrites = false
+	}
+}
+
+// recordUnappliedLimits records the limits the shell refuses: such a limit used to be dropped in
+// silence, the command running as if it were bounded.
+func (s *Sandbox) recordUnappliedLimits() {
+	unapplied, err := unappliedLimits(s.op.Limits)
+	if err != nil {
+		s.notApplied = append(s.notApplied, "limits: could not check that the shell applies them: "+err.Error())
+	}
+	for _, name := range unapplied {
+		s.notApplied = append(s.notApplied, name+": the shell cannot apply this limit here, so commands run without it")
+		s.log.Warn("a sandbox limit cannot be applied", "limit", name)
+	}
+}
+
+// checkChroot drops a requested chroot, recording why, when the process is not root or the
+// root directory is not there.
+func (s *Sandbox) checkChroot() {
+	if osHooks.euid() != 0 {
+		s.notApplied = append(s.notApplied, "chroot: it was requested but the process is not root")
+		s.op.UseChroot = false
+		return
+	}
+	if _, err := os.Stat(s.op.Root); err != nil {
+		s.notApplied = append(s.notApplied, fmt.Sprintf("chroot: the root %q is not accessible: %v", s.op.Root, err))
+		s.op.UseChroot = false
+	}
+}
+
+// joinCgroup creates the cgroup and adds the main process to it, so that its children inherit
+// the membership even if the re-exec does not do it explicitly. A failure is recorded and the
+// sandbox goes on with the POSIX limits only.
+func (s *Sandbox) joinCgroup() {
+	cg, err := newCgroup(s.op.CgroupRoot, s.op.Limits)
+	if err != nil {
+		s.notApplied = append(s.notApplied, "cgroups v1: "+err.Error())
+		s.log.Warn("cgroups v1 not available: only POSIX limits are applied", "error", err)
+		return
+	}
+	s.cg = cg
+	if err := s.cg.addProcess(os.Getpid()); err != nil {
+		s.notApplied = append(s.notApplied, "cgroups v1: could not add the process to the group: "+err.Error())
+		s.log.Warn("could not add the process to the cgroup", "error", err)
+	}
+}
+
+// raiseMemoryLimit lifts a memory limit below the address space the isolation process already
+// uses, and records it.
+func (s *Sandbox) raiseMemoryLimit() {
+	if minimum := minimumMemoryMB(); minimum > 0 && s.op.Limits.MemoryMB < minimum {
+		s.notApplied = append(s.notApplied, fmt.Sprintf(
+			"memory_mb: applying %d MB instead of %d because the process launching the sandbox "+
+				"already uses that address space",
+			minimum, s.op.Limits.MemoryMB))
+		s.log.Warn("raising the sandbox memory limit",
+			"requested_mb", s.op.Limits.MemoryMB, "applied_mb", minimum)
+		s.op.Limits.MemoryMB = minimum
+	}
 }
 
 // Close releases the cgroup group if it was created.
@@ -453,7 +487,8 @@ var launchCommand = func(ctx context.Context, command string, args ...string) *e
 }
 
 // launch starts the isolation child and collects its output.
-func (s *Sandbox) launch(ctx context.Context, command string, args []string, dir string, timeout time.Duration, maxOutput int64) (string, bool, int, error) {
+func (s *Sandbox) launch(ctx context.Context, command string, args []string, dir string, timeout time.Duration,
+	maxOutput int64) (string, bool, int, error) {
 	childCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
@@ -503,7 +538,8 @@ func (s *Sandbox) launch(ctx context.Context, command string, args []string, dir
 				return text, out.truncated, exit, fmt.Errorf("the command could not be run inside the sandbox (code 127)")
 			}
 			if exit < 0 {
-				return text, out.truncated, exit, fmt.Errorf("the process was killed by a signal (exit=%d): check the sandbox memory and CPU limits", exit)
+				return text, out.truncated, exit, fmt.Errorf(
+					"the process was killed by a signal (exit=%d): check the sandbox memory and CPU limits", exit)
 			}
 			return text, out.truncated, exit, nil
 		}
@@ -515,7 +551,8 @@ func (s *Sandbox) launch(ctx context.Context, command string, args []string, dir
 
 // childCommand is the isolation child of one run, writing to out, started in group when it is
 // not nil (attr then carries it).
-func (s *Sandbox) childCommand(ctx context.Context, command string, args []string, dir string, attr *syscall.SysProcAttr, group *runGroup, out *limitedBuffer) *exec.Cmd {
+func (s *Sandbox) childCommand(ctx context.Context, command string, args []string, dir string,
+	attr *syscall.SysProcAttr, group *runGroup, out *limitedBuffer) *exec.Cmd {
 	cmd := launchCommand(ctx, command, args...)
 	cmd.Dir = dir
 	cmd.Env = s.environment()

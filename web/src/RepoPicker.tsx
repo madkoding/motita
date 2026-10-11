@@ -4,6 +4,8 @@ import { t, tf } from './i18n'
 import { useDialog } from './useDialog'
 import { Spinner } from './GitConnect'
 import { type Api, type GitAccount, type GitRepo, GitError, listRepos, mergeRepos, relativeTime } from './gitApi'
+import { choose } from './choose'
+import { errorMessage } from './errors'
 
 export function relTimeText(iso: string | undefined): string {
   const r = relativeTime(iso)
@@ -16,6 +18,16 @@ export function relTimeText(iso: string | undefined): string {
     case 'month': return tf('{n}mo ago', { n: r.n })
     default: return tf('{n}y ago', { n: r.n })
   }
+}
+
+// How long the search box has to stay still before the host is asked.
+const SEARCH_DEBOUNCE_MS = 300
+
+// pickService is the host the picker opens on: the one asked for when it is connected, the first
+// connected one otherwise.
+function pickService(accounts: GitAccount[], initial: string | undefined): string {
+  if (initial && accounts.some(a => a.id === initial)) { return initial }
+  return accounts[0]?.id || ''
 }
 
 interface Props {
@@ -32,7 +44,7 @@ interface Props {
 export function RepoPicker({ api, accounts, initialService, onPick, onConnectAnother, onAuthRequired, onClose }: Props) {
   const ref = useRef<HTMLDivElement>(null)
   useDialog(ref, onClose)
-  const [service, setService] = useState(initialService && accounts.some(a => a.id === initialService) ? initialService : accounts[0]?.id || '')
+  const [service, setService] = useState(pickService(accounts, initialService))
   const [q, setQ] = useState('')
   const [dq, setDq] = useState('')
   const [repos, setRepos] = useState<GitRepo[]>([])
@@ -45,23 +57,24 @@ export function RepoPicker({ api, accounts, initialService, onPick, onConnectAno
 
   // Debounce the search box.
   useEffect(() => {
-    const id = setTimeout(() => setDq(q), 300)
+    const id = setTimeout(() => setDq(q), SEARCH_DEBOUNCE_MS)
     return () => clearTimeout(id)
   }, [q])
 
   const load = async (p: number, append: boolean) => {
-    const my = ++req.current
+    req.current += 1
+    const my = req.current
     setLoading(true); setErr('')
     try {
       const r = await listRepos(api, service, dq, p)
       if (my !== req.current) { return }
-      setRepos(prev => append ? mergeRepos(prev, r.repos) : r.repos)
+      setRepos(prev => { if (append) { return mergeRepos(prev, r.repos) } return r.repos })
       setMore(r.more); setPage(p)
       if (!append) { setActive(0) }
     } catch (e) {
       if (my !== req.current) { return }
       if (e instanceof GitError && e.authRequired) { onAuthRequired(e.service || service); return }
-      setErr(e instanceof Error ? e.message : String(e))
+      setErr(errorMessage(e))
     }
     setLoading(false)
   }
@@ -79,6 +92,7 @@ export function RepoPicker({ api, accounts, initialService, onPick, onConnectAno
     if (e.key === 'ArrowDown') { e.preventDefault(); setActive(i => Math.min(i + 1, repos.length - 1)) }
     else if (e.key === 'ArrowUp') { e.preventDefault(); setActive(i => Math.max(i - 1, 0)) }
     else if (e.key === 'Enter') { e.preventDefault(); pick(repos[active]) }
+    else { /* typing goes to the search box */ }
   }
 
   const current = accounts.find(a => a.id === service)
@@ -96,13 +110,13 @@ export function RepoPicker({ api, accounts, initialService, onPick, onConnectAno
               if (v === '__connect') { (e.target as HTMLSelectElement).value = service; onConnectAnother(); return }
               setService(v); setRepos([])
             }}>
-            {accounts.map(a => <option key={a.id} value={a.id}>{a.name}{a.username ? ' (' + a.username + ')' : ''}</option>)}
+            {accounts.map(a => <option key={a.id} value={a.id}>{a.name}{choose(a.username, ' (' + a.username + ')', '')}</option>)}
             <option value="__connect">{t('Connect another host…')}</option>
           </select>
           <input class="flex-1 min-w-0 px-3 py-2 rounded-xl bg-black/30 border border-white/10 text-[#e8e8ea] focus:outline-hidden focus:border-accent" type="search" value={q} data-autofocus
             onInput={(e) => setQ((e.target as HTMLInputElement).value)} onKeyDown={onKey}
             placeholder={t('Search repositories')} aria-label={t('Search repositories')}
-            role="combobox" aria-expanded="true" aria-controls="repo-list" aria-activedescendant={repos[active] ? 'repo-opt-' + active : undefined} />
+            role="combobox" aria-expanded="true" aria-controls="repo-list" aria-activedescendant={choose(repos[active], 'repo-opt-' + active, undefined)} />
         </div>
         <div class="flex-1 min-h-[160px] overflow-y-auto -mx-1 px-1" aria-busy={loading}>
           {err && (
@@ -112,12 +126,16 @@ export function RepoPicker({ api, accounts, initialService, onPick, onConnectAno
             </div>
           )}
           {!err && !loading && repos.length === 0 && (
-            <p class="py-8 text-center text-sm text-[#7a7a8c]">{dq.trim() ? tf('No repositories match "{q}".', { q: dq.trim() }) : tf('No repositories found in {host}.', { host: current?.name || '' })}</p>
+            <p class="py-8 text-center text-sm text-[#7a7a8c]">{choose(
+              dq.trim(),
+              tf('No repositories match "{q}".', { q: dq.trim() }),
+              tf('No repositories found in {host}.', { host: current?.name || '' }),
+            )}</p>
           )}
           <ul id="repo-list" ref={listRef} role="listbox" aria-label={t('Repositories')} class="space-y-1">
             {repos.map((r, i) => (
               <li key={r.clone_url} id={'repo-opt-' + i} role="option" aria-selected={i === active}
-                class={'px-3 py-2 rounded-xl cursor-pointer ' + (i === active ? 'bg-white/10' : 'hover:bg-white/5')}
+                class={'px-3 py-2 rounded-xl cursor-pointer ' + choose(i === active, 'bg-white/10', 'hover:bg-white/5')}
                 onMouseEnter={() => setActive(i)} onClick={() => pick(r)} onKeyDown={onActivate(() => pick(r))}>
                 <div class="flex items-center gap-2 text-sm text-[#e8e8ea]">
                   <span class="flex-1 min-w-0 truncate font-medium">{r.full_name}</span>

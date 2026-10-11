@@ -5,7 +5,6 @@ import (
 	"os"
 	"strconv"
 	"strings"
-	"unicode/utf8"
 
 	"github.com/madkoding/motita/internal/config"
 )
@@ -162,12 +161,7 @@ func (t *TUI) layout(w, h int) ([]string, string) {
 	// hint included. Capping against a reservation instead of against the drawn rows is how the
 	// frame came out one row too tall.
 	if popup > 0 {
-		if spare := h - permanentRows - minChatLines; popup > spare {
-			popup = spare
-			if popup < 1 {
-				popup = 1
-			}
-		}
+		popup = capPopup(popup, h)
 	}
 
 	// 2. The conversation takes the remainder, and the total is exactly h. `room` is a RESIDUE,
@@ -176,36 +170,7 @@ func (t *TUI) layout(w, h int) ([]string, string) {
 	// subtracting the capped popup can only bring it down to that floor.
 	room := h - permanentRows - popup
 
-	// 3. Anchor the window to the newest line unless the user lifted it. The offset is applied
-	// before trimming, so paging walks one row at a time instead of jumping by whatever the
-	// current window happens to hold.
-	if t.scroll > 0 {
-		end := len(body) - t.scroll
-		if end < 0 {
-			end = 0
-		}
-		body = body[:end]
-	}
-
-	// 4. Trim to the room, then PAD back up to it. The padding is what puts the composer on the
-	// last rows of the window instead of letting it float in the middle of a short conversation:
-	// the input belongs at the foot of the screen.
-	//
-	// A conversation loses its OLDEST rows, because the newest are what the user is following.
-	// The welcome screen is the opposite: it is read from the top, and losing its greeting to
-	// keep its last tip would be cutting the wrong end.
-	if len(body) > room {
-		if len(t.messages) == 0 {
-			body = body[:room]
-		} else {
-			hidden := len(body) - room + 1
-			body = append([]string{t.plainLine(t.muted(t.trf("... %d earlier lines", hidden)))},
-				body[len(body)-room+1:]...)
-		}
-	}
-	for len(body) < room {
-		body = append(body, "")
-	}
+	body = t.fitBody(body, room)
 
 	lines := make([]string, 0, permanentRows+popup+len(body))
 	lines = append(lines, top...)
@@ -224,6 +189,54 @@ func (t *TUI) layout(w, h int) ([]string, string) {
 	// the popup instead of in the box the user is typing into.
 	rowsBelow := belowComposer + inputRows - 1
 	return lines, t.composerPrompt(rowsBelow)
+}
+
+// capPopup limits the popup to what a frame of height h leaves after the permanent rows and a
+// conversation floor, keeping at least one row.
+func capPopup(popup, h int) int {
+	if spare := h - permanentRows - minChatLines; popup > spare {
+		popup = spare
+		if popup < 1 {
+			popup = 1
+		}
+	}
+	return popup
+}
+
+// fitBody fits the conversation's rows to the room it has.
+//
+// 3. It anchors the window to the newest line unless the user lifted it. The offset is applied
+// before trimming, so paging walks one row at a time instead of jumping by whatever the
+// current window happens to hold.
+//
+// 4. It trims to the room, then PADS back up to it. The padding is what puts the composer on the
+// last rows of the window instead of letting it float in the middle of a short conversation:
+// the input belongs at the foot of the screen.
+//
+// A conversation loses its OLDEST rows, because the newest are what the user is following.
+// The welcome screen is the opposite: it is read from the top, and losing its greeting to
+// keep its last tip would be cutting the wrong end.
+func (t *TUI) fitBody(body []string, room int) []string {
+	if t.scroll > 0 {
+		end := len(body) - t.scroll
+		if end < 0 {
+			end = 0
+		}
+		body = body[:end]
+	}
+	if len(body) > room {
+		if len(t.messages) == 0 {
+			body = body[:room]
+		} else {
+			hidden := len(body) - room + 1
+			body = append([]string{t.plainLine(t.muted(t.trf("... %d earlier lines", hidden)))},
+				body[len(body)-room+1:]...)
+		}
+	}
+	for len(body) < room {
+		body = append(body, "")
+	}
+	return body
 }
 
 // rowsBelowComposer is how many rows sit under the input field: the box's bottom border and the
@@ -522,115 +535,6 @@ func (t *TUI) chatLines(inner int) []string {
 	return lines
 }
 
-// noMatches is the filtered-to-empty state: what was searched, and the two keys that
-// get the user back. It is deliberately not the same screen as "nothing asked yet" —
-// one means "start", the other means "widen your search".
-func (t *TUI) noMatches(inner int) []string {
-	lines := []string{t.cell("", inner)}
-	for _, l := range []string{
-		t.trf("No line matches %q", t.query),
-		"",
-		t.tr("Ctrl+F  search again"),
-		t.tr("Esc     show the whole conversation"),
-	} {
-		lines = append(lines, t.cell(t.muted(l), inner))
-	}
-	return append(lines, t.cell("", inner))
-}
-
-// emptyState is a designed first screen, not a blank one: what the view is for, what to type,
-// how the two modes differ, the handful of commands a newcomer needs, and - when the setup is not
-// usable yet - exactly how to fix it.
-//
-// Each block is short and wrapped to the width, so the screen reads the same on a netbook console
-// as on a wide terminal. On a short terminal the layout keeps its TOP, which is why the most
-// useful lines come first.
-func (t *TUI) emptyState(inner int) []string {
-	width := inner - leftMargin
-	lines := []string{t.cell("", inner)}
-	// The static texts below are translated here, once; a line built from parts is translated
-	// where it is built, as one format, so the catalog never holds a fragment.
-	text := func(s string, col int) {
-		for _, l := range wordWrap(t.tr(s), width) {
-			lines = append(lines, t.cell(t.color(col, 0, l), inner))
-		}
-	}
-	gap := func() { lines = append(lines, t.cell("", inner)) }
-	// pairs draws a short key/description table, with the keys in the accent colour and their
-	// descriptions aligned. A row that does not fit drops its description rather than wrapping
-	// in the middle of the table.
-	pairs := func(rows [][2]string) {
-		kw := 0
-		for _, r := range rows {
-			if n := visibleLen(r[0]); n > kw {
-				kw = n
-			}
-		}
-		for _, r := range rows {
-			row := "  " + t.color(colAccent, 0, r[0]) + strings.Repeat(" ", kw-visibleLen(r[0])) + "  " + t.muted(t.tr(r[1]))
-			if !t.fits(row, width) {
-				row = "  " + t.color(colAccent, 0, r[0])
-			}
-			lines = append(lines, t.cell(row, inner))
-		}
-	}
-
-	// examples draws what the user could type, after the mark their messages carry once sent.
-	examples := func(ex ...string) {
-		for _, e := range ex {
-			for _, l := range wordWrap(t.tr(e), width-4) {
-				lines = append(lines, t.cell("  "+t.color(colAccent, 0, glyphUser)+" "+l, inner))
-			}
-		}
-	}
-
-	if t.Notice != "" {
-		text(t.Notice, colSuccess)
-		gap()
-	}
-
-	switch t.screen {
-	case ScreenPlan:
-		text("Plan mode: ask anything about your project.", colBase)
-		text("motita reads files and runs read-only commands to answer. Nothing is changed.", colMuted)
-		gap()
-		text("Try something like", colMuted)
-		examples("how is the configuration loaded?", "what would it take to add a --json flag?")
-		gap()
-		pairs([][2]string{{"Tab", "back to Task mode, to make changes"}})
-	case ScreenModels:
-		text("Press Enter to ask the provider which models it offers.", colBase)
-		text("It also checks that the endpoint and the key in your setup really work.", colMuted)
-		gap()
-		pairs([][2]string{{"/models <id>", "switch to that model for this session"}})
-	case ScreenConfig:
-		text("Press Enter to run the setup again: provider, sign-in, model and check.", colBase)
-		text("Your current settings are kept as a backup, and the new ones apply right away.", colMuted)
-	default:
-		text("What should motita do? Describe the task and press Enter.", colBase)
-		text("It makes the change, then runs your check to prove it worked before calling it done.", colMuted)
-		gap()
-		text("Try something like", colMuted)
-		examples("add a --verbose flag and a test for it", "fix the failing test in the parser")
-		gap()
-		pairs([][2]string{
-			{"Tab", "Plan mode: ask questions, nothing is changed"},
-			{"/models", "choose another model"},
-			{"/config", "change provider, key or check"},
-			{"?", "every command and key"},
-		})
-	}
-
-	// A setup that cannot answer is said HERE, on the screen the user is looking at, with the
-	// fix. A red dot in a corner is not an explanation.
-	if llmCfg := t.Runner.Config().LLM; llmCfg.APIKey == "" && config.LLMNeedsKey(llmCfg) {
-		gap()
-		text(t.trf("%s No API key for %s yet: type /config to add one,", glyphMissing, providerName(llmCfg.Provider)), colWarning)
-		text(t.trf("  or export %s before starting motita.", config.ProviderKeyVariable(llmCfg.Provider)), colWarning)
-	}
-	return append(lines, t.cell("", inner))
-}
-
 // providerName is the provider as the top bar shows it, with the default spelled out.
 func providerName(p string) string {
 	if p == "" {
@@ -650,72 +554,57 @@ func (t *TUI) messageLines(m Message, inner int) []string {
 	case AuthorUser:
 		head := t.color(colAccent, 0, glyphUser+" ") + t.muted(t.tr("you"))
 		return append([]string{t.cell(head, inner)}, t.railLines(m.Text, inner, colBase, colMuted)...)
-
 	case AuthorAgent:
-		// A frozen line holds a label that was already formatted (a tool
-		// announcement), so it is shown as an event and never as answer text.
-		if m.Frozen {
-			return []string{t.cell(t.muted("  "+glyphAgent+" ")+t.color(colAccent, 0, t.eventLabel(m.Text)), inner)}
-		}
-		if label, ok := toolLabel(m.Text); ok {
-			return []string{t.cell(t.muted("  "+glyphAgent+" ")+t.color(colAccent, 0, t.eventLabel(label)), inner)}
-		}
-		head := t.color(colSuccess, 0, glyphAgent+" motita")
-		body := colBase
-		if m.Pending {
-			head += "  " + t.color(colWarning, 0, spinner[t.spin%len(spinner)]+" "+t.tr("working"))
-			body = colWarning
-		}
-		if m.Preformatted {
-			lines := []string{t.cell(head, inner)}
-			for _, l := range strings.Split(m.Text, "\n") {
-				lines = append(lines, t.cell(t.color(body, 0, clipLine(l, inner-leftMargin)), inner))
-			}
-			return lines
-		}
-		return append([]string{t.cell(head, inner)}, t.railLines(m.Text, inner, body, colMuted)...)
-
+		return t.agentMessageLines(m, inner)
 	default:
-		var lines []string
-		// Preformatted text is placed line by line and clipped, never rewrapped:
-		// the alignment between a key and its description is the whole point of the
-		// help screen, and word wrapping collapses the runs of spaces that produce
-		// it. Clipping loses a long description rather than mangling it.
-		if m.Preformatted {
-			for _, l := range strings.Split(strings.TrimRight(m.Text, "\n"), "\n") {
-				lines = append(lines, t.cell(t.muted(clipLine(l, inner-leftMargin)), inner))
-			}
-			return lines
-		}
-		for _, l := range wordWrap(m.Text, inner-leftMargin) {
-			lines = append(lines, t.cell(t.muted(l), inner))
-		}
-		return lines
+		return t.systemMessageLines(m, inner)
 	}
 }
 
-// clipLine truncates a PLAIN line (no escape sequences) to the given number of
-// columns, marking the cut with an ellipsis. It is for text whose own layout must
-// survive, which is why it clips instead of folding the line.
-//
-// No "does the rune count fit" guard is written below: it would be unreachable. For
-// a string without escapes visibleLen is exactly the rune count, so once the first
-// check has established that the measurement exceeds the width, the rune count does
-// too. A guard there would only look like a safety net.
-func clipLine(s string, width int) string {
-	// No room at all means no text, not all of it. The earlier version returned the whole
-	// string when the width was zero or negative, which is the opposite of clipping: on a
-	// terminal too narrow for even the margins, every row would draw at full length and the
-	// frame would break out of the window it was measured for.
-	if width <= 0 {
-		return ""
+// agentMessageLines renders a message of the agent: a tool announcement as an event, anything
+// else as an answer under the agent's header.
+func (t *TUI) agentMessageLines(m Message, inner int) []string {
+	// A frozen line holds a label that was already formatted (a tool
+	// announcement), so it is shown as an event and never as answer text.
+	if m.Frozen {
+		return []string{t.cell(t.muted("  "+glyphAgent+" ")+t.color(colAccent, 0, t.eventLabel(m.Text)), inner)}
 	}
-	if visibleLen(s) <= width {
-		return s
+	if label, ok := toolLabel(m.Text); ok {
+		return []string{t.cell(t.muted("  "+glyphAgent+" ")+t.color(colAccent, 0, t.eventLabel(label)), inner)}
 	}
-	// One column is spent on the ellipsis, so the result still fits.
-	runes := []rune(s)
-	return strings.TrimRight(string(runes[:width-1]), " ") + "\u2026"
+	head := t.color(colSuccess, 0, glyphAgent+" motita")
+	body := colBase
+	if m.Pending {
+		head += "  " + t.color(colWarning, 0, spinner[t.spin%len(spinner)]+" "+t.tr("working"))
+		body = colWarning
+	}
+	if m.Preformatted {
+		lines := []string{t.cell(head, inner)}
+		for _, l := range strings.Split(m.Text, "\n") {
+			lines = append(lines, t.cell(t.color(body, 0, clipLine(l, inner-leftMargin)), inner))
+		}
+		return lines
+	}
+	return append([]string{t.cell(head, inner)}, t.railLines(m.Text, inner, body, colMuted)...)
+}
+
+// systemMessageLines renders a message of the interface itself, muted.
+func (t *TUI) systemMessageLines(m Message, inner int) []string {
+	var lines []string
+	// Preformatted text is placed line by line and clipped, never rewrapped:
+	// the alignment between a key and its description is the whole point of the
+	// help screen, and word wrapping collapses the runs of spaces that produce
+	// it. Clipping loses a long description rather than mangling it.
+	if m.Preformatted {
+		for _, l := range strings.Split(strings.TrimRight(m.Text, "\n"), "\n") {
+			lines = append(lines, t.cell(t.muted(clipLine(l, inner-leftMargin)), inner))
+		}
+		return lines
+	}
+	for _, l := range wordWrap(m.Text, inner-leftMargin) {
+		lines = append(lines, t.cell(t.muted(l), inner))
+	}
+	return lines
 }
 
 // toolLabel recognises the progress line that announces a tool call and turns it
@@ -865,286 +754,6 @@ func paletteCode(base, c int) int {
 	return base + c
 }
 
-// wordWrap breaks text into lines of at most `width` COLUMNS.
-//
-// The width is measured with visibleLen, so an escape sequence costs nothing and a multi-byte
-// rune costs one column — which is what keeps an accented or emoji line from being counted as
-// several columns too wide.
-//
-// Two things are done in one pass here, and both matter on the hot path (this runs for every
-// conversation block on every keystroke):
-//
-//   - the running width is kept as a NUMBER instead of being recovered with
-//     visibleLen(cur.String()) once per word. The old form re-scanned everything accumulated so
-//     far for every word added, which is O(n^2) in the length of a paragraph.
-//   - a word that does not fit is hard split, whether or not the line is still empty. Hard
-//     splitting only when `cur` was empty meant a long word AFTER a short one was emitted whole
-//     and broke the promise this function makes: `wordWrap("one accents", 4)` returned a
-//     7-column line for a 4-column width.
-//
-// The caller then hands that line to cell(), which clips it to the panel and marks the cut with
-// an ellipsis. So the visible damage is SILENT TRUNCATION: a path or a URL in a conversation
-// block loses its tail and the reader has no way to know something is missing — they see a
-// plausible-looking shorter path. The width invariant is therefore asserted directly in
-// TestWordWrapWidthIsMeasuredInVisibleColumns, which is the regression test for this bug.
-func wordWrap(s string, width int) []string {
-	if width <= 0 {
-		return []string{s}
-	}
-	var lines []string
-	for _, para := range strings.Split(s, "\n") {
-		// A blank line between paragraphs is kept, once: it is what separates the steps of an
-		// answer, and dropping it ran a list and the sentence after it together. Runs of blank
-		// lines are collapsed, and the ones at either end are trimmed below.
-		if strings.TrimSpace(para) == "" {
-			if len(lines) > 0 && lines[len(lines)-1] != "" {
-				lines = append(lines, "")
-			}
-			continue
-		}
-		var cur strings.Builder
-		curWidth := 0
-
-		flush := func() {
-			if cur.Len() > 0 {
-				lines = append(lines, strings.TrimSpace(cur.String()))
-				cur.Reset()
-				curWidth = 0
-			}
-		}
-
-		for _, word := range strings.Fields(para) {
-			w := visibleLen(word)
-			// The separator costs a column when something is already on the line.
-			need := w
-			if curWidth > 0 {
-				need++
-			}
-			if curWidth+need <= width {
-				if curWidth > 0 {
-					cur.WriteByte(' ')
-					curWidth++
-				}
-				cur.WriteString(word)
-				curWidth += w
-				continue
-			}
-			// The word does not fit on the current line.
-			flush()
-			if w <= width {
-				cur.WriteString(word)
-				curWidth = w
-				continue
-			}
-			// Wider than a whole line: hard split it into width-sized pieces, keeping the
-			// remainder on the current line so the next word can share it.
-			for w > width {
-				cut, piece := splitAtWidth(word, width)
-				lines = append(lines, piece)
-				word = word[cut:]
-				w = visibleLen(word)
-			}
-			if w > 0 {
-				cur.WriteString(word)
-				curWidth = w
-			}
-		}
-		flush()
-	}
-	if n := len(lines); n > 0 && lines[n-1] == "" {
-		lines = lines[:n-1]
-	}
-	if len(lines) == 0 {
-		lines = append(lines, "")
-	}
-	return lines
-}
-
-// splitAtWidth cuts s after the first `width` COLUMNS and returns the byte offset of the cut
-// together with the piece before it.
-//
-// It walks runes rather than taking s[:width]: a rune that is not ASCII occupies one column but
-// several bytes, so cutting by byte offset would slice an encoding in half, and the halves of a
-// broken UTF-8 sequence are not text — the terminal draws them as replacement characters.
-//
-// The offset returned is always > 0 for a non-empty s — a rune is at least one byte, and an
-// invalid byte is decoded as a one-byte rune — which is what makes the caller's split loop
-// terminate instead of spinning on a zero-length piece.
-//
-// Callers pass uncoloured text: wordWrap runs BEFORE t.color, so there are no escape sequences
-// here to step over. If that ever changes, this needs the same state machine scanEscapes uses.
-func splitAtWidth(s string, width int) (int, string) {
-	cols := 0
-	for i := 0; i < len(s); {
-		if cols == width {
-			return i, s[:i]
-		}
-		_, size := utf8.DecodeRuneInString(s[i:])
-		i += size
-		cols++
-	}
-	return len(s), s
-}
-
-// Escapes are parsed with a state machine instead of "skip until a byte in
-// 0x40..0x7E": in a CSI sequence the introducer itself, '[' (0x5b), already falls
-// inside that range, so the naive rule stops one byte early and counts the whole
-// colour sequence as text.
-//
-// Four shapes are recognised, which is what a terminal can be sent:
-//
-//	CSI  ESC [ params final            colours, cursor movement, erase
-//	OSC  ESC ] … BEL or ESC \          window title, hyperlinks
-//	ESC  ESC intermediate* final       charset selection: ESC ( B, ESC # 8
-//	ESC  ESC <other single byte>       two-byte escapes such as ESC =
-//
-// The general ANSI rule is what the last two encode: after the ESC, bytes in
-// 0x20..0x2F are intermediates and the first byte at or above 0x30 ends the
-// sequence. Treating ESC ( B as "ESC then two visible characters" is what made
-// the measured width of a decorated line wrong.
-const (
-	escNone = iota
-	escSeen // the ESC itself was just read
-	escCSI  // ESC [ … : parameters, then a final byte
-	escOSC  // ESC ] … : a string, ended by BEL or by ESC \
-	escOSCEsc
-	escInter // ESC followed by intermediates, waiting for the final byte
-)
-
-// scanEscapes walks a string and reports, for every rune, whether it is part of
-// an escape sequence. It is the single place that knows how escapes look, so the
-// width measurement and the stripper can never disagree.
-func scanEscapes(s string, visit func(r rune, isEscape bool)) {
-	state := escNone
-	for _, r := range s {
-		switch state {
-		case escSeen:
-			visit(r, true)
-			switch {
-			case r == '[':
-				state = escCSI
-			case r == ']':
-				state = escOSC
-			case r >= 0x20 && r <= 0x2f:
-				// An intermediate byte: the sequence continues.
-				state = escInter
-			default:
-				state = escNone
-			}
-		case escInter:
-			visit(r, true)
-			switch {
-			case r == 0x1b:
-				// A new escape interrupts the one being read. Treating it as an
-				// intermediate kept the parser in this state, and the following
-				// "[31m" was then counted as four columns of text.
-				state = escSeen
-			case r >= 0x30:
-				state = escNone
-			}
-		case escCSI:
-			visit(r, true)
-			if r >= 0x40 && r <= 0x7e {
-				state = escNone
-			}
-		case escOSC:
-			visit(r, true)
-			switch r {
-			case 0x07: // BEL ends it
-				state = escNone
-			case 0x1b: // ESC \ also ends it
-				state = escOSCEsc
-			}
-		case escOSCEsc:
-			visit(r, true)
-			state = escNone
-		default:
-			if r == 0x1b {
-				state = escSeen
-				visit(r, true)
-				continue
-			}
-			visit(r, false)
-		}
-	}
-}
-
-// visibleLen returns how many COLUMNS a line occupies, escapes excluded.
-//
-// No ESC byte means every rune is text, so the count is taken directly and the closure-per-rune
-// state machine is skipped. That is the common case — this function is called per word while
-// wrapping and per line while fitting the frame — and the machine was 36% of the per-keystroke
-// profile even when there was nothing to unescape.
-func visibleLen(s string) int {
-	if strings.IndexByte(s, 0x1b) < 0 {
-		return utf8.RuneCountInString(s)
-	}
-	n := 0
-	scanEscapes(s, func(_ rune, isEscape bool) {
-		if !isEscape {
-			n++
-		}
-	})
-	return n
-}
-
-// EscapeControls makes the control characters of UNTRUSTED text visible instead of handing them
-// to the terminal: the model's words, a tool's output, a command waiting for approval. A raw ESC
-// in any of them is an instruction to the terminal, not text - it can hide part of a command in
-// the approval window, rewrite rows already drawn, or set the clipboard (OSC 52). Every C0 byte
-// but newline and tab is shown in caret form (ESC is ^[), DEL as ^?, and a C1 control as \u0080
-// to \u009f. A carriage return right before a newline is dropped: that is a CRLF line ending,
-// not an instruction. An invalid UTF-8 byte becomes U+FFFD.
-func EscapeControls(s string) string {
-	clean := true
-	for _, r := range s {
-		if (r < 0x20 && r != '\n' && r != '\t') || (r >= 0x7f && r < 0xa0) || r == utf8.RuneError {
-			clean = false
-			break
-		}
-	}
-	if clean {
-		return s
-	}
-	var b strings.Builder
-	b.Grow(len(s) + 8)
-	for i, r := range s {
-		switch {
-		case r == '\r' && strings.HasPrefix(s[i+1:], "\n"):
-		case r == '\n' || r == '\t':
-			b.WriteRune(r)
-		case r < 0x20:
-			b.WriteByte('^')
-			b.WriteByte(byte(r) + '@')
-		case r == 0x7f:
-			b.WriteString("^?")
-		case r >= 0x80 && r < 0xa0:
-			fmt.Fprintf(&b, `\u%04x`, r)
-		default:
-			b.WriteRune(r)
-		}
-	}
-	return b.String()
-}
-
-// stripANSI removes every escape sequence, for no-colour mode.
-//
-// A line with no ESC byte is already stripped, so it is returned as-is instead of being copied
-// rune by rune through the state machine.
-func stripANSI(s string) string {
-	if strings.IndexByte(s, 0x1b) < 0 {
-		return s
-	}
-	var b strings.Builder
-	b.Grow(len(s))
-	scanEscapes(s, func(r rune, isEscape bool) {
-		if !isEscape {
-			b.WriteRune(r)
-		}
-	})
-	return b.String()
-}
-
 // rule is a horizontal divider across the drawing area.
 //
 // It is what carries the structure now that the conversation is not boxed: one above the
@@ -1203,7 +812,8 @@ func (t *TUI) statusLines(w int) []string {
 		left += "  " + t.muted(v)
 	}
 
-	parts := []string{t.stateGlyph() + " " + t.color(colBase, 0, providerName(cfg.LLM.Provider)) + t.muted(" "+glyphMid+" ") + t.color(colBase, 0, model)}
+	parts := []string{t.stateGlyph() + " " + t.color(colBase, 0, providerName(cfg.LLM.Provider)) +
+		t.muted(" "+glyphMid+" ") + t.color(colBase, 0, model)}
 	// A missing key is said in words, beside the model it is missing for, and it is kept longer
 	// than the reasoning level when the line is shed: it is the reason nothing will work.
 	if cfg.LLM.APIKey == "" && config.LLMNeedsKey(cfg.LLM) {
@@ -1299,12 +909,13 @@ func (t *TUI) hintList() [][2]string {
 		return [][2]string{{"PgUp/PgDn", "scroll"}, {"End", "newest"}}
 	case t.query != "":
 		return [][2]string{{"Esc", "show everything"}, {"^F", "search again"}}
+	default:
+		other := "Plan mode"
+		if t.screen == ScreenPlan {
+			other = "Task mode"
+		}
+		return [][2]string{{"Enter", "send"}, {"Tab", other}, {"/", "commands"}, {"?", "help"}, {"^C", "quit"}}
 	}
-	other := "Plan mode"
-	if t.screen == ScreenPlan {
-		other = "Task mode"
-	}
-	return [][2]string{{"Enter", "send"}, {"Tab", other}, {"/", "commands"}, {"?", "help"}, {"^C", "quit"}}
 }
 
 // keyHints is the hint list formatted for the footer.
@@ -1316,411 +927,6 @@ func (t *TUI) formatHints(hints [][2]string) string {
 		parts = append(parts, t.color(colAccent, 0, h[0])+" "+t.muted(t.tr(h[1])))
 	}
 	return strings.Join(parts, t.muted("  "+glyphMid+"  "))
-}
-
-// composerLines is the input row.
-//
-// It is one line, always present, always the same height: a composer that changes size
-// makes the whole screen jump as the user types. The prompt is written by the caller as the
-// LAST thing on the frame, which is what parks the cursor at the end of it.
-func (t *TUI) composerLines() []string {
-	return t.composerLinesCapped(0)
-}
-
-// composerLinesCapped draws the popup and the input row, with the popup limited to `popupCap`
-// rows (zero meaning no limit).
-//
-// The cap comes from the layout, which is the only place that knows how tall the terminal is.
-// Passing it in rather than recomputing it here is what keeps the measured height and the drawn
-// height the same: a popup that drew more rows than the layout reserved would overflow the
-// window and scroll the interface on a keypress.
-func (t *TUI) composerLinesCapped(popupCap int) []string {
-	var lines []string
-	// The confirmation window draws in the popup's place, and it takes precedence over the
-	// completion popup: it is answered during a run, when nothing is being typed, and it asks
-	// about the one thing that must not be missed.
-	//
-	// The questions window draws there too. The input box below is NOT hidden for either of
-	// them: the answer field and the free-answer row are the same thing, so the user can see
-	// exactly what will be sent while picking an option or typing one.
-	if t.answeringConfirm() {
-		lines = append(lines, t.confirmLines(popupCap)...)
-	} else if t.asking() {
-		lines = append(lines, t.askLines(popupCap)...)
-	} else if t.showingAgents() {
-		lines = append(lines, t.agentsLinesCapped(popupCap)...)
-	} else {
-		lines = append(lines, t.completionLinesCapped(t.bodyWidth(), popupCap)...)
-	}
-	// The input area is a FIXED few rows: a box the user types into, with its own divider above
-	// it. Three rows is the size the user asked for — enough to see a sentence or two of what
-	// has been typed without the box dominating the window — and it is fixed, so the frame
-	// never changes height while typing.
-	//
-	// The text is wrapped into the box rather than scrolled: at this size there is nothing to
-	// scroll, and a box that never moves is easier to read than one that shifts.
-	lines = append(lines, t.inputBoxLines()...)
-	return lines
-}
-
-// inputBoxLines draws the input box: a top border that names the mode (what Enter will do), the
-// field with what has been typed, and a bottom border.
-//
-// The box is what makes the input findable at a glance: a prompt on a bare line looks like one
-// more line of the conversation. It is a FIXED height, so the frame never changes shape while the
-// user types, and the text is wrapped inside it rather than scrolled.
-func (t *TUI) inputBoxLines() []string {
-	w, _ := t.size()
-	outer := w - leftMargin - 1 // the same span as the rule above the conversation
-	inner := t.inputWidth()
-
-	text := t.composerLabel() + t.shownDraft()
-	wrapped := wrapVisible(text, inner)
-	if len(wrapped) > inputRows {
-		// Keep the END: the user is typing there, and the tail is what matters.
-		wrapped = wrapped[len(wrapped)-inputRows:]
-	}
-
-	side := t.muted(glyphRail)
-	out := make([]string, 0, inputRows+2)
-	out = append(out, t.plainLine(t.boxTop(outer)))
-	for i := 0; i < inputRows; i++ {
-		row := ""
-		if i < len(wrapped) {
-			row = wrapped[i]
-		}
-		out = append(out, t.plainLine(side+" "+row+strings.Repeat(" ", inner-visibleLen(row))+" "+side))
-	}
-	out = append(out, t.plainLine(t.muted(glyphBotLeft+strings.Repeat(glyphRule, outer-2)+glyphBotRight)))
-	return out
-}
-
-// inputWidth is the number of columns inside the input box: the box spans the drawing area, and
-// its two sides and the space beside each take four.
-func (t *TUI) inputWidth() int {
-	w, _ := t.size()
-	return w - leftMargin - 1 - 4
-}
-
-// boxTop is the input box's top border, with the mode as its title: what the line will be used
-// for, and - while a turn runs - that it is running and how to stop it.
-//
-// The title is shortened from its tail when the terminal is narrow. The mode's NAME is never the
-// part dropped: it is the one word that says what Enter does.
-func (t *TUI) boxTop(outer int) string {
-	name, about := t.modeTitle()
-	name, about = t.tr(name), t.tr(about)
-	head := t.color(colAccent, 0, name)
-	desc := t.muted(" " + glyphMid + " " + about)
-	working := ""
-	if t.busy {
-		working = "  " + t.color(colWarning, 0, spinner[t.spin%len(spinner)]+" "+t.tr("working")) + t.muted(t.tr(", Esc stops"))
-	}
-	// The longest title that fits wins: everything; the name and the running notice; the name and
-	// what the mode does; the name and a bare "working"; the name alone.
-	candidates := []string{head + desc + working, head + working, head + desc}
-	if t.busy {
-		candidates = append(candidates, head+" "+t.color(colWarning, 0, spinner[t.spin%len(spinner)]+" "+t.tr("working")))
-	}
-	// ┌─ title ─...─┐ : the corners, the first rule and the two spaces cost five columns.
-	room := outer - 5
-	title := head
-	for _, c := range candidates {
-		if visibleLen(c) <= room {
-			title = c
-			break
-		}
-	}
-	// No floor on the fill: the narrowest frame the size gate accepts leaves room for the longest
-	// mode name, so the last candidate - the name alone - always fits.
-	fill := room - visibleLen(title)
-	return t.muted(glyphTopLeft+glyphRule+" ") + title + t.muted(" "+strings.Repeat(glyphRule, fill)+glyphTopRight)
-}
-
-// modeTitle is what the input box is for right now, and a few words on what that means.
-func (t *TUI) modeTitle() (string, string) {
-	switch {
-	case t.answeringConfirm():
-		return "Approve", "the agent is waiting for your answer"
-	case t.asking():
-		return "Answer", "type an answer, or pick an option above"
-	case t.searching:
-		return "Search", "filter the conversation"
-	}
-	switch t.screen {
-	case ScreenPlan:
-		return "Plan", "read-only: explores and explains"
-	case ScreenModels:
-		return "Models", "Enter lists them, /models <id> switches"
-	case ScreenConfig:
-		return "Setup", "Enter runs the setup again"
-	}
-	return "Task", "makes changes, then proves them with your check"
-}
-
-// wrapVisible wraps a decorated string to a column width, carrying escape sequences along with
-// the text they style.
-//
-// It breaks mid-word: the input can receive a long path or a URL with no space in it, and
-// refusing to break would push the text out of its box. Escape sequences cost no columns, so
-// only visible runes are counted.
-func wrapVisible(s string, width int) []string {
-	if width < 1 {
-		width = 1
-	}
-	if visibleLen(s) <= width {
-		return []string{s}
-	}
-
-	var out []string
-	var cur strings.Builder
-	curVis := 0
-	for _, r := range s {
-		// An escape sequence is copied whole and costs no columns. It is never split: a
-		// truncated escape would leak colour into the rest of the frame.
-		if r == 0x1b {
-			cur.WriteRune(r)
-			continue
-		}
-		if curVis >= width {
-			out = append(out, cur.String())
-			cur.Reset()
-			curVis = 0
-		}
-		cur.WriteRune(r)
-		curVis++
-	}
-	// The final line always exists, even when it is empty: the loop above writes every rune it
-	// is given, so the only way to reach here with nothing is an empty input — which is a row of
-	// no width, not an absent row. A guard for "no output" would be unreachable.
-	if cur.Len() > 0 {
-		out = append(out, cur.String())
-	}
-	return out
-}
-
-// composerLabel is the visible part of the input row: an indicator that says what the line
-// will be interpreted as. While a slash command is being typed it becomes the command
-// name, and while the search is open it says so, because a search that looks like a chat
-// prompt invites a task to be typed into it.
-func (t *TUI) composerLabel() string {
-	// The prompt carries NO mode name. The status bar already reports it, and printing it here
-	// as well put the same word on two rows of every single frame — the input said "Task >"
-	// directly above a bar that said "Task". One fact, one place.
-	//
-	// The search is the exception: while the box is open the line being typed is a query, not a
-	// task, and that is something the user has to be able to see at the point of typing.
-	find := t.color(colAccent, 0, t.tr("find")) + t.muted(" > ")
-	if t.searching {
-		return find
-	}
-	if t.query != "" {
-		// An applied filter has to be visible at all times, count included: without it the
-		// user is looking at a short history and has no way to tell why, and the count is
-		// what makes the number of rows on screen agree with what they are being shown.
-		label := t.muted(t.trf("filter %s", strconv.Quote(t.query))+"  ") +
-			t.color(colAccent, 0, t.trf("%d lines", len(t.matchingMessages())))
-		return label + t.muted("  ") + find
-	}
-	return t.color(colAccent, 0, glyphPrompt) + t.muted(" ")
-}
-
-// composerPrompt is what moves the cursor back to the point of typing.
-//
-// It is not written after the frame: the composer sits a couple of rows ABOVE the bottom (the
-// rule and the status bar are under it), so appending the prompt to the end of the frame would
-// park the cursor on the last row — outside the frame it belongs to. What is returned here is
-// the escape that walks the cursor up to the composer's row and along to the end of the draft,
-// which is what the caller needs to leave the terminal's own cursor where the user types.
-//
-// The number of rows to walk up is how many rows follow the composer in the frame: in the
-// padded layout that is the rule and the status bar, so two. It is passed in rather than
-// assumed, because the un-trimmed path (a terminal that did not report its height) draws the
-// frame without the two rules and must not walk off the top.
-func (t *TUI) composerPrompt(rowsBelow int) string {
-	// Where the cursor goes: the row and column of the LAST character of the input.
-	//
-	// The input is a box of inputRows rows and the text wraps inside it, so the position of the
-	// cursor is not "the first row, at the total length". Once the text passes the width its tail
-	// is on a later row, and computing the column from the whole string put the cursor past the
-	// right edge — where the terminal moves it to the next row on its own, or refuses to move it
-	// at all. The user sees a cursor that is not where they are typing.
-	//
-	// It is derived from the same wrap the box draws with, so the two cannot disagree.
-	wrapped := wrapVisible(t.composerLabel()+t.shownDraft(), t.inputWidth())
-	row := len(wrapped) - 1
-	// The text starts after the margin, the box's side and the space beside it.
-	col := leftMargin + 2 + visibleLen(wrapped[row])
-	if row >= inputRows {
-		// The box shows only the last inputRows rows, so the cursor is on the last visible one.
-		row = inputRows - 1
-	}
-	// rowsBelow counts the rows AFTER the cursor's row: everything the caller listed below the
-	// input, plus the box's own rows that come after it.
-	// rowsBelow is never negative: the caller counts at least the rule and the status bar below
-	// the input, and `row` only ever subtracts rows that are inside the box. A floor here would be
-	// unreachable.
-	rowsBelow -= row
-
-	// The cursor is moved with CSI sequences ONLY — never with a bare carriage return.
-	//
-	// A "\r" looks harmless and is not: the interface runs the terminal in cbreak with echo
-	// off, and in that mode the driver's output translation is not what one assumes. Measured
-	// on the target machine, the "\r" came out of the pty as "\n", which moves the cursor DOWN
-	// a row — off the bottom of a frame that fills the window — and the terminal scrolls. That
-	// is the extra line the user saw being pushed upward on every Tab.
-	//
-	// CSI G (cursor to column) and CSI A (cursor up) move without depending on any translation.
-	return cursorMoveSeq(rowsBelow, col+1) // columns are 1-based
-}
-
-// cursorMoveSeq is the sequence that takes the cursor from the last written row to a given row
-// above it and a given column.
-//
-// A count of ZERO is NOT "move zero rows": in a CSI sequence an omitted OR zero parameter takes
-// its DEFAULT, which for CSI A is one row. So "\x1b[0A" walks the cursor up exactly like
-// "\x1b[1A" — and that is what the user saw as "the cursor moves up while I type": the cursor
-// was already on the input's first row, the layout computed a walk-up of zero from the wrap, and
-// the zero was emitted as a sequence the terminal executed as a move of one. The cursor left the
-// text and sat on the blank row above the box.
-//
-// Zero rows up is therefore expressed by NOT writing the CSI A at all, which leaves the column
-// move as the whole sequence. The column is always >= 1 (it carries the left margin plus the
-// prompt glyph), so it is never the parameter that needs this treatment.
-func cursorMoveSeq(up, col int) string {
-	if up <= 0 {
-		return fmt.Sprintf("\x1b[%dG", col)
-	}
-	return fmt.Sprintf("\x1b[%dA\x1b[%dG", up, col)
-}
-
-// cursorMove turns the layout's cursor move into one that is correct for the rows actually
-// written.
-//
-// layout() returns a move that walks up from the END of the frame, and that count is the distance
-// from the frame's last row to the CARET's row — the row the wrap put the caret on, not simply the
-// input box's first row. An incremental repaint stops at the LAST row it wrote, so from there the
-// caret's row is a known distance in one of two directions, and only the direction that reaches it
-// may be used.
-//
-// Passing the layout's walk-up through unchanged had two faults, and both left the cursor somewhere
-// other than the text:
-//
-//   - a correction that came out at ZERO was still written as a sequence, and "\x1b[0A" is not
-//     "move zero rows": a CSI parameter of zero takes its default, so it walks the cursor one row
-//     UP. Measured on a real terminal: once a character had been typed the cursor left the input
-//     and sat on the blank row above the box, on every keystroke.
-//   - when the last written row was ABOVE the caret's row, the count was applied as a walk-up
-//     again: from row 20, "up 25" is not "down 5", and the cursor landed on row 0 — the top of the
-//     screen — instead of in the input.
-//
-// Both shapes are now one expression with no sign to get wrong, and a walk-up of zero is expressed
-// by not writing the row move at all.
-func (t *TUI) cursorMove(prompt string, lastWritten, total int) string {
-	if lastWritten < 0 {
-		// Nothing was written: the terminal's cursor has not moved. Returning the layout's
-		// walk-up here would still execute it, and a mouse event that arrives in an idle
-		// chat would then jump the cursor up to wherever the layout decided, which is
-		// exactly what shows up as the input moving while the user only moved the pointer.
-		// The only thing that has to change is the visibility flag, drawn separately.
-		return ""
-	}
-	// The walk-up is the distance from the end of the frame to the caret's row; the column is the
-	// part the layout computed from the wrap, and re-deriving either here would be a second
-	// implementation of the same calculation. A prompt that does not parse is passed through
-	// unchanged rather than dropped.
-	up, col, ok := parseCursorMove(prompt)
-	if !ok {
-		return prompt
-	}
-
-	// Where the caret's row is, counted from the last row written: positive DOWN, negative UP.
-	target := total - 1 - up
-	delta := lastWritten - target
-
-	switch {
-	case delta > 0:
-		return cursorMoveSeq(delta, col)
-	case delta < 0:
-		// The caret's row is BELOW the last one written, which happens when a repaint above the
-		// input was all that changed: the user pressed a key whose only visible effect was
-		// earlier in the conversation. CSI B goes down without a count measured from the wrong
-		// end.
-		return cursorDownSeq(-delta, col)
-	default:
-		// The last written row IS the caret's row, which is the ordinary case while typing.
-		return cursorMoveSeq(0, col)
-	}
-}
-
-// cursorDownSeq is the descending counterpart of cursorMoveSeq, with the same rule about zero:
-// "\x1b[0B" is one row DOWN, not none, so a count of zero is expressed by the column move alone.
-func cursorDownSeq(down, col int) string {
-	if down <= 0 {
-		return fmt.Sprintf("\x1b[%dG", col)
-	}
-	return fmt.Sprintf("\x1b[%dB\x1b[%dG", down, col)
-}
-
-// parseCursorMove reads the row/column out of a cursor move built by composerPrompt.
-//
-// It accepts both shapes the layout produces: the walk-up plus a column, and a bare column when
-// nothing had to be walked up.
-func parseCursorMove(prompt string) (up, col int, ok bool) {
-	body := prompt
-	if strings.HasPrefix(body, "\x1b[") {
-		body = body[2:]
-	} else {
-		return 0, 0, false
-	}
-	if i := strings.IndexByte(body, 'A'); i >= 0 {
-		n, err := strconv.Atoi(body[:i])
-		if err != nil {
-			return 0, 0, false
-		}
-		up = n
-		body = body[i+1:]
-		if !strings.HasPrefix(body, "\x1b[") {
-			return 0, 0, false
-		}
-		body = body[2:]
-	}
-	i := strings.IndexByte(body, 'G')
-	if i < 0 {
-		return 0, 0, false
-	}
-	n, err := strconv.Atoi(body[:i])
-	if err != nil {
-		return 0, 0, false
-	}
-	return up, n, true
-}
-
-// completionRowsNeeded is how many extra rows the completion popup asks for right now: zero when
-// there is nothing to suggest, and one row per candidate plus the hint otherwise.
-//
-// It is a method rather than a field so the two places that need it — the size gate and the
-// budgeting — cannot disagree about how big the popup is.
-func (t *TUI) popupRows() int {
-	// The confirmation window takes the reservation first. It is open during a run, when the
-	// completion popup cannot be (nothing is being typed), so the two never compete.
-	if t.answeringConfirm() {
-		return t.confirmRows()
-	}
-	// The questions window takes the reservation the completion popup would use. The two cannot
-	// be open together: the window CAPTURES the keys, so nothing is being typed into the input
-	// for a completion to react to — and if both drew, the frame would be taller than the layout
-	// measured and the interface would scroll on a keypress.
-	if t.asking() {
-		return t.askRows()
-	}
-	if t.showingAgents() {
-		return t.agentsRows()
-	}
-	if !t.completing() {
-		return 0
-	}
-	return len(completions(t.draft))
 }
 
 // clearOnExit wipes the screen and parks the cursor at the origin.

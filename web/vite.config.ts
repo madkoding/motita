@@ -3,6 +3,10 @@ import preact from '@preact/preset-vite'
 import tailwindcss from '@tailwindcss/postcss'
 import { VitePWA } from 'vite-plugin-pwa'
 
+// The largest file the service worker precaches, in megabytes.
+const MB = 1024 * 1024
+const PRECACHE_MAX_MB = 3
+
 // The build output goes directly into the Go embed directory.
 // go:embed in internal/webui picks up everything under assets/.
 export default defineConfig({
@@ -29,7 +33,7 @@ export default defineConfig({
         // whole install on that single 404 and no new worker ever activated. Measured against a
         // running gateway: 84 entries, `index.html` the only 404, and the cache left empty.
         globIgnores: ['emoji/**', 'index.html'],
-        maximumFileSizeToCacheInBytes: 3 * 1024 * 1024,
+        maximumFileSizeToCacheInBytes: PRECACHE_MAX_MB * MB,
       },
       manifest: {
         name: 'Motita',

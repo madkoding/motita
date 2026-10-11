@@ -187,6 +187,8 @@ func (c *conversation) recordStep(turn int, text string) {
 		step.Kind = stepCommand
 	case strings.HasPrefix(text, "thinking:"):
 		step.Kind = stepThought
+	default:
+		// Any other line stays a plain step.
 	}
 	cp.Steps = append(cp.Steps, step)
 	if len(cp.Steps) > maxStepsPerTurn {
@@ -313,6 +315,31 @@ func (s *Server) handleCheckpoints(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"checkpoints": convOf(r).checkpointViews()})
 }
 
+// restoreCheckpointFiles takes the session's files back to the checkpoint found, after keeping the
+// state it replaces under the undo reference; undone says whether that was kept. It answers the
+// request itself, and returns false, when the files cannot go back.
+func restoreCheckpointFiles(
+	w http.ResponseWriter, r *http.Request, c *conversation, found checkpoint,
+) (undone, ok bool) {
+	if found.Snap == "" {
+		writeError(w, http.StatusConflict, "that checkpoint did not keep the files: only the conversation can go back")
+		return false, false
+	}
+	dir := c.gitDir()
+	if _, snap, serr := gitx.Snapshot(r.Context(), dir, undoRef(c.id)); serr == nil && snap != "" {
+		undone = true
+	}
+	if err := gitx.Restore(r.Context(), dir, found.Head, found.Snap); err != nil {
+		status := http.StatusInternalServerError
+		if errors.Is(err, gitx.ErrNoCheckpoint) {
+			status = http.StatusConflict
+		}
+		writeError(w, status, err.Error())
+		return undone, false
+	}
+	return undone, true
+}
+
 // handleRestoreCheckpoint takes the conversation back to before one input.
 //
 // The conversation always goes back: that input and everything after it leave the transcript,
@@ -353,20 +380,8 @@ func (s *Server) handleRestoreCheckpoint(w http.ResponseWriter, r *http.Request)
 
 	filesBack, undone := false, false
 	if body.Files {
-		if found.Snap == "" {
-			writeError(w, http.StatusConflict, "that checkpoint did not keep the files: only the conversation can go back")
-			return
-		}
-		dir := c.gitDir()
-		if _, snap, serr := gitx.Snapshot(r.Context(), dir, undoRef(c.id)); serr == nil && snap != "" {
-			undone = true
-		}
-		if err := gitx.Restore(r.Context(), dir, found.Head, found.Snap); err != nil {
-			status := http.StatusInternalServerError
-			if errors.Is(err, gitx.ErrNoCheckpoint) {
-				status = http.StatusConflict
-			}
-			writeError(w, status, err.Error())
+		var ok bool
+		if undone, ok = restoreCheckpointFiles(w, r, c, found); !ok {
 			return
 		}
 		filesBack = true

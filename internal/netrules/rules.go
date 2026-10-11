@@ -119,12 +119,14 @@ func Parse(specs []string) (*Policy, error) {
 			// A blank entry is refused rather than skipped. A list in YAML where one line lost
 			// its value is a real editing accident, and silently dropping it would apply a rule
 			// set the operator never wrote.
-			return nil, fmt.Errorf("an origin rule is empty: write one of any, lan, an address like 192.168.1.10, or a network like 192.168.0.0/16")
+			return nil, fmt.Errorf("an origin rule is empty: write one of any, lan, " +
+				"an address like 192.168.1.10, or a network like 192.168.0.0/16")
 		}
 		deny := strings.HasPrefix(text, "!")
 		body := strings.TrimSpace(strings.TrimPrefix(text, "!"))
 		if body == "" {
-			return nil, fmt.Errorf("the origin rule %q has nothing after the \"!\": write !any, !lan, !192.168.1.10 or !192.168.0.0/16", text)
+			return nil, fmt.Errorf("the origin rule %q has nothing after the \"!\": "+
+				"write !any, !lan, !192.168.1.10 or !192.168.0.0/16", text)
 		}
 		rule, err := parseOne(deny, body)
 		if err != nil {
@@ -144,6 +146,8 @@ func parseOne(deny bool, body string) (Rule, error) {
 		return Rule{Deny: deny, Kind: KindAny, Text: "any"}, nil
 	case "lan", "local_network":
 		return Rule{Deny: deny, Kind: KindLAN, Text: "lan"}, nil
+	default:
+		// Not a keyword: the body is a network or an address, parsed below.
 	}
 
 	// A network, when the spec carries a slash: a prefix is unambiguous and needs no keyword.

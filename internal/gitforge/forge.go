@@ -125,8 +125,9 @@ func Defaults(env Lookup) []Service {
 				DeviceURL: "https://gitlab.com/oauth/authorize_device",
 				TokenURL:  "https://gitlab.com/oauth/token",
 			},
-			Scope:     "api read_repository write_repository",
-			TokenURL:  "https://gitlab.com/-/user_settings/personal_access_tokens?name=motita&scopes=api,read_repository,write_repository",
+			Scope: "api read_repository write_repository",
+			TokenURL: "https://gitlab.com/-/user_settings/personal_access_tokens" +
+				"?name=motita&scopes=api,read_repository,write_repository",
 			EnvPrefix: "MOTITA_GITLAB",
 		}, env),
 		configure(Service{
@@ -193,7 +194,9 @@ func Custom(kind Kind, host string, env Lookup) (Service, error) {
 	case KindGitea:
 		s.Name = "Gitea (" + host + ")"
 		s.APIBase = base + "/api/v1"
-		s.Endpoints = oauth.Endpoints{AuthorizeURL: base + "/login/oauth/authorize", TokenURL: base + "/login/oauth/access_token"}
+		s.Endpoints = oauth.Endpoints{
+			AuthorizeURL: base + "/login/oauth/authorize", TokenURL: base + "/login/oauth/access_token",
+		}
 		s.TokenURL = base + "/user/settings/applications"
 	default:
 		return Service{}, fmt.Errorf("a self-hosted %s is not supported: use github, gitlab or gitea", kind)
@@ -209,7 +212,7 @@ func validHost(h string) bool {
 		return false
 	}
 	for _, r := range h {
-		ok := r >= 'a' && r <= 'z' || r >= '0' && r <= '9' || r == '.' || r == '-'
+		ok := isLowerASCII(r) || isDigitASCII(r) || r == '.' || r == '-'
 		if !ok {
 			return false
 		}
@@ -281,9 +284,21 @@ func plainSegment(s string) bool {
 		return false
 	}
 	for _, c := range s {
-		if !(c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9' || c == '.' || c == '-' || c == '_') {
+		if !(isLowerASCII(c) || isUpperASCII(c) || isDigitASCII(c) || isNameMark(c)) {
 			return false
 		}
 	}
 	return true
 }
+
+// isLowerASCII reports whether c is an ASCII lowercase letter.
+func isLowerASCII(c rune) bool { return c >= 'a' && c <= 'z' }
+
+// isUpperASCII reports whether c is an ASCII uppercase letter.
+func isUpperASCII(c rune) bool { return c >= 'A' && c <= 'Z' }
+
+// isDigitASCII reports whether c is an ASCII digit.
+func isDigitASCII(c rune) bool { return c >= '0' && c <= '9' }
+
+// isNameMark reports whether c is one of the marks a plain segment allows besides letters and digits.
+func isNameMark(c rune) bool { return c == '.' || c == '-' || c == '_' }

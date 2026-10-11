@@ -128,7 +128,8 @@ func (s *Server) parseEvery(text string) (schedule.Duration, error) {
 		return 0, fmt.Errorf("could not read 'every' as a duration (use \"30m\", \"1h\", \"1d\" is NOT valid): %w", err)
 	}
 	if d < s.minEvery() {
-		return 0, fmt.Errorf("'every' is %s, which is below the minimum of %s: a tighter cadence starts a task faster than an agent turn can finish", d, s.minEvery())
+		return 0, fmt.Errorf("'every' is %s, which is below the minimum of %s: "+
+			"a tighter cadence starts a task faster than an agent turn can finish", d, s.minEvery())
 	}
 	return schedule.Duration(d), nil
 }
@@ -159,7 +160,8 @@ func (s *Server) handleCreateSchedule(w http.ResponseWriter, r *http.Request) {
 		kind = schedule.KindTask
 	case schedule.KindTask, schedule.KindPlan:
 	default:
-		writeError(w, http.StatusBadRequest, fmt.Sprintf("unknown 'kind': %q (use %q or %q)", kind, schedule.KindTask, schedule.KindPlan))
+		writeError(w, http.StatusBadRequest,
+			fmt.Sprintf("unknown 'kind': %q (use %q or %q)", kind, schedule.KindTask, schedule.KindPlan))
 		return
 	}
 	every, err := s.parseEvery(body.Every)
@@ -213,11 +215,25 @@ func (s *Server) handleUpdateSchedule(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if !applyScheduleWork(w, rec, body) || !s.applyScheduleTiming(w, rec, body) {
+		return
+	}
+
+	if err := s.schedules.Save(*rec); err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"schedule": viewOfSchedule(*rec, time.Now())})
+}
+
+// applyScheduleWork applies what a scheduled task does: its title, task and kind. It answers the
+// request itself, and returns false, when one is not valid.
+func applyScheduleWork(w http.ResponseWriter, rec *schedule.Schedule, body scheduleRequest) bool {
 	if body.Title != "" {
 		title := strings.TrimSpace(body.Title)
 		if title == "" {
 			writeError(w, http.StatusBadRequest, "the title cannot be blank")
-			return
+			return false
 		}
 		rec.Title = title
 	}
@@ -225,7 +241,7 @@ func (s *Server) handleUpdateSchedule(w http.ResponseWriter, r *http.Request) {
 		task := strings.TrimSpace(body.Task)
 		if task == "" {
 			writeError(w, http.StatusBadRequest, "the task cannot be blank")
-			return
+			return false
 		}
 		rec.Task = task
 	}
@@ -234,34 +250,36 @@ func (s *Server) handleUpdateSchedule(w http.ResponseWriter, r *http.Request) {
 		case schedule.KindTask, schedule.KindPlan:
 			rec.Kind = body.Kind
 		default:
-			writeError(w, http.StatusBadRequest, fmt.Sprintf("unknown 'kind': %q (use %q or %q)", body.Kind, schedule.KindTask, schedule.KindPlan))
-			return
+			writeError(w, http.StatusBadRequest,
+				fmt.Sprintf("unknown 'kind': %q (use %q or %q)", body.Kind, schedule.KindTask, schedule.KindPlan))
+			return false
 		}
 	}
+	return true
+}
+
+// applyScheduleTiming applies when and where a scheduled task fires: its cadence, its session and
+// whether it is enabled. It answers the request itself, and returns false, when one is not valid.
+func (s *Server) applyScheduleTiming(w http.ResponseWriter, rec *schedule.Schedule, body scheduleRequest) bool {
 	if body.Every != "" {
 		every, err := s.parseEvery(body.Every)
 		if err != nil {
 			writeError(w, http.StatusBadRequest, err.Error())
-			return
+			return false
 		}
 		rec.Every = every
 	}
 	if body.SessionID != "" {
 		if _, ok := s.lookup(body.SessionID); !ok {
 			writeError(w, http.StatusNotFound, fmt.Sprintf("there is no session %q to fire into", body.SessionID))
-			return
+			return false
 		}
 		rec.SessionID = body.SessionID
 	}
 	if body.Enabled != nil {
 		rec.Enabled = *body.Enabled
 	}
-
-	if err := s.schedules.Save(*rec); err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
-		return
-	}
-	writeJSON(w, http.StatusOK, map[string]any{"schedule": viewOfSchedule(*rec, time.Now())})
+	return true
 }
 
 // scheduleOf resolves the {id} in the path, answering for a missing one HERE so no

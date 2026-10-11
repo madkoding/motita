@@ -6,6 +6,7 @@ Usage: render_terminal.py <input.txt> <output.png> [--title TITLE]
 import sys
 from PIL import Image, ImageDraw, ImageFont
 import re
+from collections.abc import Iterator
 
 # Terminal palette (ANSI 30-37 foreground, 40-47 background)
 PALETTE = {
@@ -39,15 +40,20 @@ LINE_HEIGHT = 20
 
 ESC = re.compile(r'\x1b\[(\d+(?:;\d+)*)m')
 
-def _dim(c):
+Colour = tuple[int, int, int]
+# What the SGR codes seen so far have set: foreground, background (None for the
+# terminal's own), and whether the text is dimmed.
+State = tuple[Colour, Colour | None, bool]
+
+
+def _dim(c: Colour) -> Colour:
+    """c blended 40% towards the background, which is how a terminal draws faint text."""
     return tuple(int(v * 0.6 + b * 0.4) for v, b in zip(c, BG))
 
-def _xterm256(n):
+def _xterm256(n: int) -> Colour:
     """The colour of an xterm 256-colour index, which is what tmux writes for some colours."""
-    if n < 8:
-        return PALETTE[n]
     if n < 16:
-        return BRIGHT[n - 8]
+        return PALETTE[n] if n < 8 else BRIGHT[n - 8]
     if n < 232:
         n -= 16
         steps = [0, 95, 135, 175, 215, 255]
@@ -55,50 +61,61 @@ def _xterm256(n):
     v = 8 + (n - 232) * 10
     return (v, v, v)
 
-def parse_ansi(text):
+def _apply_basic(c: int, fg: Colour, bg: Colour | None, dim: bool) -> State:
+    """Apply one SGR code that takes no arguments; unknown codes change nothing."""
+    if c == 0:
+        fg, bg, dim = FG, None, False
+    elif c == 2:
+        dim = True
+    elif c == 22:
+        dim = False
+    elif c == 39:
+        fg = FG
+    elif c == 49:
+        bg = None
+    elif 30 <= c <= 37:
+        fg = PALETTE[c - 30]
+    elif 40 <= c <= 47:
+        bg = PALETTE[c - 40]
+    elif 90 <= c <= 97:
+        fg = BRIGHT[c - 90]
+    elif 100 <= c <= 107:
+        bg = BRIGHT[c - 100]
+    return fg, bg, dim
+
+def _apply_sgr(codes: list[int], fg: Colour, bg: Colour | None, dim: bool) -> State:
+    """Apply the codes of one ESC[...m sequence, including 38;5;n and 48;5;n."""
+    i = 0
+    while i < len(codes):
+        c = codes[i]
+        if c in (38, 48) and i + 2 < len(codes) and codes[i + 1] == 5:
+            col = _xterm256(codes[i + 2])
+            if c == 38:
+                fg = col
+            else:
+                bg = col
+            i += 2
+        else:
+            fg, bg, dim = _apply_basic(c, fg, bg, dim)
+        i += 1
+    return fg, bg, dim
+
+def parse_ansi(text: str) -> Iterator[tuple[str, Colour, Colour | None]]:
     """Yield (char, fg, bg) tuples."""
     fg, bg, dim = FG, None, False
     pos = 0
     for m in ESC.finditer(text):
         start, end = m.span()
-        if start > pos:
-            for ch in text[pos:start]:
-                yield ch, (_dim(fg) if dim else fg), bg
+        for ch in text[pos:start]:
+            yield ch, (_dim(fg) if dim else fg), bg
         codes = [int(c) for c in m.group(1).split(';') if c]
-        i = 0
-        while i < len(codes):
-            c = codes[i]
-            if c == 0:
-                fg, bg, dim = FG, None, False
-            elif c == 2:
-                dim = True
-            elif c == 22:
-                dim = False
-            elif c == 39:
-                fg = FG
-            elif c == 49:
-                bg = None
-            elif 30 <= c <= 37:
-                fg = PALETTE[c - 30]
-            elif 40 <= c <= 47:
-                bg = PALETTE[c - 40]
-            elif 90 <= c <= 97:
-                fg = BRIGHT[c - 90]
-            elif 100 <= c <= 107:
-                bg = BRIGHT[c - 100]
-            elif c in (38, 48) and i + 2 < len(codes) and codes[i + 1] == 5:
-                col = _xterm256(codes[i + 2])
-                if c == 38:
-                    fg = col
-                else:
-                    bg = col
-                i += 2
-            i += 1
+        fg, bg, dim = _apply_sgr(codes, fg, bg, dim)
         pos = end
     for ch in text[pos:]:
         yield ch, (_dim(fg) if dim else fg), bg
 
-def render(text, out_path, title=None):
+def render(text: str, out_path: str, title: str | None = None) -> None:
+    """Draw text, ANSI colours included, on a terminal-coloured canvas and save it as a PNG."""
     lines = text.splitlines()
     # Use default monospace font
     try:

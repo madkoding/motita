@@ -69,23 +69,7 @@ func yamlFields(v reflect.Value) map[string]reflect.Value {
 func assign(value any, field reflect.Value, path string) error {
 	// A nested block arrives as a map.
 	if m, ok := value.(map[string]any); ok {
-		switch field.Kind() {
-		case reflect.Struct:
-			return decodeMap(m, field, path)
-		case reflect.Map:
-			// map[string]string exactly as it arrives from the YAML: {key: value}.
-			if field.Type().Key().Kind() != reflect.String || field.Type().Elem().Kind() != reflect.String {
-				return fmt.Errorf("%s: only text-to-text maps are supported", path)
-			}
-			fresh := reflect.MakeMap(field.Type())
-			for k, v := range m {
-				fresh.SetMapIndex(reflect.ValueOf(k), reflect.ValueOf(toText(v)))
-			}
-			field.Set(fresh)
-			return nil
-		default:
-			return fmt.Errorf("%s: expected a simple value and found a nested block", path)
-		}
+		return assignBlock(m, field, path)
 	}
 
 	if value == nil {
@@ -93,16 +77,80 @@ func assign(value any, field reflect.Value, path string) error {
 		return nil
 	}
 
-	switch field.Type() {
-	case durationType:
-		d, err := toDuration(value, path)
-		if err != nil {
+	if field.Type() == durationType {
+		return assignDuration(value, field, path)
+	}
+	return assignValue(value, field, path)
+}
+
+// assignBlock fills a field from a nested block.
+func assignBlock(m map[string]any, field reflect.Value, path string) error {
+	switch field.Kind() {
+	case reflect.Struct:
+		return decodeMap(m, field, path)
+	case reflect.Map:
+		return assignTextMap(m, field, path)
+	default:
+		return fmt.Errorf("%s: expected a simple value and found a nested block", path)
+	}
+}
+
+// assignTextMap fills a map[string]string exactly as it arrives from the YAML: {key: value}.
+func assignTextMap(m map[string]any, field reflect.Value, path string) error {
+	if field.Type().Key().Kind() != reflect.String || field.Type().Elem().Kind() != reflect.String {
+		return fmt.Errorf("%s: only text-to-text maps are supported", path)
+	}
+	fresh := reflect.MakeMap(field.Type())
+	for k, v := range m {
+		fresh.SetMapIndex(reflect.ValueOf(k), reflect.ValueOf(toText(v)))
+	}
+	field.Set(fresh)
+	return nil
+}
+
+// assignDuration fills a time.Duration field.
+func assignDuration(value any, field reflect.Value, path string) error {
+	d, err := toDuration(value, path)
+	if err != nil {
+		return err
+	}
+	field.SetInt(int64(d))
+	return nil
+}
+
+// assignInt fills a field of one of the integer kinds, refusing a value it cannot hold.
+func assignInt(value any, field reflect.Value, path string) error {
+	n, err := toInteger(value)
+	if err != nil {
+		return fmt.Errorf("%s: %v", path, err)
+	}
+	if field.OverflowInt(n) {
+		return fmt.Errorf("%s: the value %d does not fit in %s", path, n, field.Kind())
+	}
+	field.SetInt(n)
+	return nil
+}
+
+// assignSlice fills a list field, item by item.
+func assignSlice(value any, field reflect.Value, path string) error {
+	items, ok := value.([]any)
+	if !ok {
+		return fmt.Errorf("%s: expected a list and found %v", path, value)
+	}
+	fresh := reflect.MakeSlice(field.Type(), 0, len(items))
+	for i, item := range items {
+		element := reflect.New(field.Type().Elem()).Elem()
+		if err := assign(item, element, fmt.Sprintf("%s[%d]", path, i)); err != nil {
 			return err
 		}
-		field.SetInt(int64(d))
-		return nil
+		fresh = reflect.Append(fresh, element)
 	}
+	field.Set(fresh)
+	return nil
+}
 
+// assignValue fills a field from a simple value or a list.
+func assignValue(value any, field reflect.Value, path string) error {
 	switch field.Kind() {
 	case reflect.String:
 		// A list where text is expected is REJECTED. It used to be formatted as
@@ -125,14 +173,7 @@ func assign(value any, field reflect.Value, path string) error {
 		field.SetBool(b)
 
 	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
-		n, err := toInteger(value)
-		if err != nil {
-			return fmt.Errorf("%s: %v", path, err)
-		}
-		if field.OverflowInt(n) {
-			return fmt.Errorf("%s: the value %d does not fit in %s", path, n, field.Kind())
-		}
-		field.SetInt(n)
+		return assignInt(value, field, path)
 
 	case reflect.Float32, reflect.Float64:
 		f, err := toFloat(value)
@@ -142,19 +183,7 @@ func assign(value any, field reflect.Value, path string) error {
 		field.SetFloat(f)
 
 	case reflect.Slice:
-		items, ok := value.([]any)
-		if !ok {
-			return fmt.Errorf("%s: expected a list and found %v", path, value)
-		}
-		fresh := reflect.MakeSlice(field.Type(), 0, len(items))
-		for i, item := range items {
-			element := reflect.New(field.Type().Elem()).Elem()
-			if err := assign(item, element, fmt.Sprintf("%s[%d]", path, i)); err != nil {
-				return err
-			}
-			fresh = reflect.Append(fresh, element)
-		}
-		field.Set(fresh)
+		return assignSlice(value, field, path)
 
 	case reflect.Map:
 		// A block value (map[string]any) is turned into the map at the top of
@@ -181,23 +210,28 @@ func toDuration(value any, path string) (time.Duration, error) {
 	case float64:
 		return time.Duration(v * float64(time.Second)), nil
 	case string:
-		text := strings.TrimSpace(v)
-		if text == "" {
-			return 0, fmt.Errorf("%s: empty duration", path)
-		}
-		d, err := time.ParseDuration(text)
-		if err != nil {
-			// Without a suffix it is interpreted as seconds, which is what
-			// anyone writing "timeout: 30" expects.
-			if seconds, errSec := strconv.Atoi(text); errSec == nil {
-				return time.Duration(seconds) * time.Second, nil
-			}
-			return 0, fmt.Errorf("%s: invalid duration %q (use 30, \"30s\", \"5m\", \"1h\")", path, text)
-		}
-		return d, nil
+		return parseDurationText(v, path)
 	default:
 		return 0, fmt.Errorf("%s: expected a duration and found %v", path, value)
 	}
+}
+
+// parseDurationText reads a duration written as text: "30s", "5m", "1h30m", or bare seconds.
+func parseDurationText(v, path string) (time.Duration, error) {
+	text := strings.TrimSpace(v)
+	if text == "" {
+		return 0, fmt.Errorf("%s: empty duration", path)
+	}
+	d, err := time.ParseDuration(text)
+	if err != nil {
+		// Without a suffix it is interpreted as seconds, which is what
+		// anyone writing "timeout: 30" expects.
+		if seconds, errSec := strconv.Atoi(text); errSec == nil {
+			return time.Duration(seconds) * time.Second, nil
+		}
+		return 0, fmt.Errorf("%s: invalid duration %q (use 30, \"30s\", \"5m\", \"1h\")", path, text)
+	}
+	return d, nil
 }
 
 func toInteger(value any) (int64, error) {
@@ -215,15 +249,19 @@ func toInteger(value any) (int64, error) {
 		}
 		return 0, nil
 	case string:
-		text := strings.TrimSpace(v)
-		n, err := strconv.ParseInt(text, 10, 64)
-		if err != nil {
-			return 0, fmt.Errorf("expected an integer and found %q", v)
-		}
-		return n, nil
+		return parseIntegerText(v)
 	default:
 		return 0, fmt.Errorf("expected an integer and found %v", value)
 	}
+}
+
+// parseIntegerText reads an integer written as text.
+func parseIntegerText(v string) (int64, error) {
+	n, err := strconv.ParseInt(strings.TrimSpace(v), 10, 64)
+	if err != nil {
+		return 0, fmt.Errorf("expected an integer and found %q", v)
+	}
+	return n, nil
 }
 
 func toFloat(value any) (float64, error) {

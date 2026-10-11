@@ -275,7 +275,8 @@ func (s *Session) Compact(ctx context.Context) error {
 		// Nothing to summarise yet: the window is smaller than the tail that must stay
 		// verbatim, which no amount of summarising can fix. Reporting it is better than
 		// looping.
-		return fmt.Errorf("the context is full but only %d messages are held, fewer than the %d kept verbatim", len(s.messages), keep)
+		return fmt.Errorf("the context is full but only %d messages are held, fewer than the %d kept verbatim",
+			len(s.messages), keep)
 	}
 
 	cut := len(s.messages) - keep

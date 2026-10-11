@@ -116,8 +116,9 @@ func validReasoning(level string) bool {
 	switch level {
 	case "off", "low", "medium", "high":
 		return true
+	default:
+		return false
 	}
-	return false
 }
 
 // handleUpdateConfig changes the provider and/or model for a conversation.
@@ -170,7 +171,8 @@ func (s *Server) handleReloadConfig(w http.ResponseWriter, r *http.Request) {
 	c := convOf(r)
 	rl, ok := c.svc.(configReloader)
 	if !ok {
-		writeError(w, http.StatusNotImplemented, "this gateway cannot reload its configuration: restart it to apply the new setup")
+		writeError(w, http.StatusNotImplemented,
+			"this gateway cannot reload its configuration: restart it to apply the new setup")
 		return
 	}
 	if err := rl.ReloadConfig(r.Context()); err != nil {

@@ -428,75 +428,93 @@ func (c *conversation) status() SessionStatus {
 		st.PRWatch = &w
 	}
 	if c.workspace != "" {
-		ctx := context.Background()
-		st.Branch = gitx.Display(ctx, c.workspace)
-		// The worktree is a session's OWN directory, and naming it here is what
-		// tells two sessions of one project apart: they share a project, a
-		// branch prefix and a title format, and the only thing that differs is
-		// the directory each one runs in.
-		//
-		// Asked of git rather than compared with the project directory: a
-		// session that fell back to the project's checkout has no worktree of
-		// its own, and calling that directory one would be inventing a
-		// distinction the filesystem does not make. The listing also settles
-		// the symlinked and relative spellings of the same path, which a string
-		// comparison does not.
-		//
-		// The project's own checkout IS a listed worktree of its repository, so
-		// "git knows this path" is not the question - the question is whether
-		// this path is somewhere OTHER than the project. Without that second
-		// test a session that fell back to the project's checkout reports the
-		// project's directory as its worktree, which is the one thing it is not.
-		if c.projectDir != "" && !gitx.SamePath(c.workspace, c.projectDir) {
-			if _, ok, err := gitx.LiveWorktreeAt(ctx, c.projectDir, c.workspace); err == nil && ok {
-				st.Worktree = filepath.Base(c.workspace)
-			}
-		}
-		// Changes is read from the session's own tree, so the count is the work
-		// this session has done. An unreadable tree reports 0 rather than an
-		// error: the count decorates a badge, and a badge that cannot be
-		// computed should be absent rather than break the sidebar.
-		if n, err := gitx.WorkingTreeChanges(ctx, c.workspace); err == nil {
-			st.Changes = n
-		}
-		// Mergeable compares the session's branch against the PROJECT's branch,
-		// not against whatever the session's own checkout is on. A session with
-		// its own worktree reports its own branch (motita/<id>), so comparing
-		// the two would always say "nothing ahead" - the one answer that is
-		// never useful here.
-		base := st.Branch
-		if c.projectDir != "" {
-			base = gitx.Display(ctx, c.projectDir)
-		}
-		if c.merged {
-			st.Merged = true
-			st.MergedSHA = c.mergedSha
-			st.Continuable = c.projectDir != "" && c.projectID != ""
-			return st
-		}
-		// Integrate: the session's branch exists and has commits the base
-		// branch does not. A session that never ran in a worktree has no
-		// branch, and one whose work was already merged has none ahead.
-		branch := sessionBranch(c.id)
-		mergeable := false
-		if gitx.BranchExists(ctx, c.workspace, branch) {
-			if ahead, _, err := gitx.CommitsBetween(ctx, c.workspace, base, branch); err == nil && len(ahead) > 0 {
-				mergeable = true
-			}
-		}
-		// Work the agent WROTE is integrable before anything has committed it. Nothing commits
-		// what an agent writes (the default final action is none), so a session's branch sits
-		// exactly where it branched and a rule that asks only for commits ahead left the button
-		// disabled for every session that had done its job. Integrating commits the work first
-		// (see handleMergeSession); this is what lets the user reach that action.
-		if st.Worktree != "" && st.Changes > 0 {
-			mergeable = true
-		}
-		// Expose mergeable through the renamed status fields so the front end still has a
-		// single word to draw the menu item with. Merged sessions do not reach here.
-		st.Mergeable = mergeable
+		c.workspaceStatus(&st)
 	}
 	return st
+}
+
+// workspaceStatus fills in what a session's checkout says about it: its branch, its own worktree,
+// its uncommitted changes and whether it has work to integrate. Called with stateMu held.
+func (c *conversation) workspaceStatus(st *SessionStatus) {
+	ctx := context.Background()
+	st.Branch = gitx.Display(ctx, c.workspace)
+	// The worktree is a session's OWN directory, and naming it here is what
+	// tells two sessions of one project apart: they share a project, a
+	// branch prefix and a title format, and the only thing that differs is
+	// the directory each one runs in.
+	//
+	// Asked of git rather than compared with the project directory: a
+	// session that fell back to the project's checkout has no worktree of
+	// its own, and calling that directory one would be inventing a
+	// distinction the filesystem does not make. The listing also settles
+	// the symlinked and relative spellings of the same path, which a string
+	// comparison does not.
+	//
+	// The project's own checkout IS a listed worktree of its repository, so
+	// "git knows this path" is not the question - the question is whether
+	// this path is somewhere OTHER than the project. Without that second
+	// test a session that fell back to the project's checkout reports the
+	// project's directory as its worktree, which is the one thing it is not.
+	st.Worktree = c.ownWorktreeName(ctx)
+	// Changes is read from the session's own tree, so the count is the work
+	// this session has done. An unreadable tree reports 0 rather than an
+	// error: the count decorates a badge, and a badge that cannot be
+	// computed should be absent rather than break the sidebar.
+	if n, err := gitx.WorkingTreeChanges(ctx, c.workspace); err == nil {
+		st.Changes = n
+	}
+	// Mergeable compares the session's branch against the PROJECT's branch,
+	// not against whatever the session's own checkout is on. A session with
+	// its own worktree reports its own branch (motita/<id>), so comparing
+	// the two would always say "nothing ahead" - the one answer that is
+	// never useful here.
+	base := st.Branch
+	if c.projectDir != "" {
+		base = gitx.Display(ctx, c.projectDir)
+	}
+	if c.merged {
+		st.Merged = true
+		st.MergedSHA = c.mergedSha
+		st.Continuable = c.projectDir != "" && c.projectID != ""
+		return
+	}
+	// Integrate: the session's branch exists and has commits the base
+	// branch does not. A session that never ran in a worktree has no
+	// branch, and one whose work was already merged has none ahead.
+	mergeable := c.branchAhead(ctx, base)
+	// Work the agent WROTE is integrable before anything has committed it. Nothing commits
+	// what an agent writes (the default final action is none), so a session's branch sits
+	// exactly where it branched and a rule that asks only for commits ahead left the button
+	// disabled for every session that had done its job. Integrating commits the work first
+	// (see handleMergeSession); this is what lets the user reach that action.
+	if st.Worktree != "" && st.Changes > 0 {
+		mergeable = true
+	}
+	// Expose mergeable through the renamed status fields so the front end still has a
+	// single word to draw the menu item with. Merged sessions do not reach here.
+	st.Mergeable = mergeable
+}
+
+// ownWorktreeName is the name of the session's own worktree, or "" when it runs in the project's
+// checkout or in a folder git does not list as a worktree of the project.
+func (c *conversation) ownWorktreeName(ctx context.Context) string {
+	if c.projectDir == "" || gitx.SamePath(c.workspace, c.projectDir) {
+		return ""
+	}
+	if _, ok, err := gitx.LiveWorktreeAt(ctx, c.projectDir, c.workspace); err == nil && ok {
+		return filepath.Base(c.workspace)
+	}
+	return ""
+}
+
+// branchAhead reports whether the session's branch exists and has commits base does not.
+func (c *conversation) branchAhead(ctx context.Context, base string) bool {
+	branch := sessionBranch(c.id)
+	if !gitx.BranchExists(ctx, c.workspace, branch) {
+		return false
+	}
+	ahead, _, err := gitx.CommitsBetween(ctx, c.workspace, base, branch)
+	return err == nil && len(ahead) > 0
 }
 
 // sessionWorktree gives a session its own checkout of a project, so two
@@ -846,13 +864,8 @@ func (s *Server) handleCreateSession(w http.ResponseWriter, r *http.Request) {
 	// whatever the checkout held when it was last touched. A project with no origin has
 	// nothing to bring in; any other failure (offline, diverged) is reported rather than
 	// silently starting the session on stale code.
-	if project != nil {
-		if base := gitx.Display(r.Context(), project.Dir); base != "" && gitx.HasRemote(r.Context(), project.Dir) {
-			if err := gitx.PullFastForward(r.Context(), project.Dir, base); err != nil {
-				writeError(w, http.StatusConflict, err.Error())
-				return
-			}
-		}
+	if project != nil && !pullProjectBase(w, r, project) {
+		return
 	}
 
 	conv, err := s.createSession()
@@ -863,30 +876,47 @@ func (s *Server) handleCreateSession(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusNotImplemented, err.Error())
 	default:
 		if project != nil {
-			// The worktree is made BEFORE the session is saved, so a session
-			// that is registered is one that can actually run. A failure to
-			// branch falls back to the project's own directory.
-			dir := project.Dir
-			if wt, wtErr := s.sessionWorktree(context.Background(), project.Dir, conv.id); wtErr != nil {
-				if s.opts.Log != nil {
-					s.opts.Log.Warn("the session will run in the project directory: its own worktree could not be created",
-						"id", conv.id, "project", project.Dir, "error", wtErr.Error())
-				}
-			} else {
-				dir = wt
-			}
-			conv.setProjectID(body.ProjectID, dir, project.Dir)
-			conv.svc.SetWorkspace(dir)
-			// The procedures learned here belong to THIS project. A session inside a
-			// project runs its worktree, but the project's checkout is what the scope
-			// is anchored to: a worktree is removed when the session ends, and a
-			// procedure written into one would be lost with it.
-			scopeProceduresTo(conv.svc, project.Dir)
-			applyRuntimeTo(conv.svc, project)
+			s.placeInProject(conv, body.ProjectID, project)
 		}
 		s.saveSession(conv)
 		writeJSON(w, http.StatusCreated, conv.status())
 	}
+}
+
+// pullProjectBase brings in the latest changes of the project's base branch, so a new session's
+// worktree branches from current code. A project with no origin has nothing to bring in. It
+// answers the request itself, and returns false, when the pull fails.
+func pullProjectBase(w http.ResponseWriter, r *http.Request, project *Project) bool {
+	base := gitx.Display(r.Context(), project.Dir)
+	if base == "" || !gitx.HasRemote(r.Context(), project.Dir) {
+		return true
+	}
+	if err := gitx.PullFastForward(r.Context(), project.Dir, base); err != nil {
+		writeError(w, http.StatusConflict, err.Error())
+		return false
+	}
+	return true
+}
+
+// placeInProject makes a new session run in the project: in a worktree of its own, made BEFORE the
+// session is saved so a session that is registered is one that can actually run. A failure to
+// branch falls back to the project's own directory.
+func (s *Server) placeInProject(conv *conversation, projectID string, project *Project) {
+	dir := project.Dir
+	if wt, wtErr := s.sessionWorktree(context.Background(), project.Dir, conv.id); wtErr != nil {
+		s.warn("the session will run in the project directory: its own worktree could not be created",
+			"id", conv.id, "project", project.Dir, "error", wtErr.Error())
+	} else {
+		dir = wt
+	}
+	conv.setProjectID(projectID, dir, project.Dir)
+	conv.svc.SetWorkspace(dir)
+	// The procedures learned here belong to THIS project. A session inside a
+	// project runs its worktree, but the project's checkout is what the scope
+	// is anchored to: a worktree is removed when the session ends, and a
+	// procedure written into one would be lost with it.
+	scopeProceduresTo(conv.svc, project.Dir)
+	applyRuntimeTo(conv.svc, project)
 }
 
 // handleListSessions answers what this gateway is holding.
@@ -1124,8 +1154,7 @@ var worktreePrune = gitx.PruneWorktrees
 func (s *Server) forceRemoveCheckout(projectDir, workspace string) error {
 	root := filepath.Join(s.opts.WorkspaceDir, "worktrees")
 	rel, err := filepath.Rel(root, workspace)
-	if strings.TrimSpace(s.opts.WorkspaceDir) == "" || err != nil || rel == "." ||
-		rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+	if strings.TrimSpace(s.opts.WorkspaceDir) == "" || err != nil || relLeavesRoot(rel) {
 		return fmt.Errorf("%s is not inside this gateway's worktrees directory", workspace)
 	}
 	if err := os.RemoveAll(workspace); err != nil {
@@ -1221,17 +1250,10 @@ func (s *Server) releaseWorktree(c *conversation, discard bool) error {
 	// remove` refuses a dirty checkout by itself, but by then the user has lost the session
 	// that named it and has no way to find out what was in it - so the check is made here,
 	// where the message can say which session and which files.
-	if release.InspectErr != nil && !discard {
-		// The count could not be read, so the checkout cannot be proven clean. Refusing
-		// is the answer that cannot lose work - unless the user already said to discard
-		// whatever is there, which is an answer that does not depend on the count.
-		return fmt.Errorf("the session's checkout at %s could not be inspected (%v), so the session was not deleted: "+
-			"check it by hand and remove it with `git worktree remove %s`", workspace, release.InspectErr, workspace)
-	}
-	if len(release.Changes) > 0 && !discard {
-		return fmt.Errorf("the session has %d uncommitted change(s) in %s, so deleting it would destroy them: "+
-			"commit them, or confirm the discard and remove the checkout with `git worktree remove --force %s`",
-			len(release.Changes), workspace, workspace)
+	if !discard {
+		if err := refuseUnsafeRelease(release); err != nil {
+			return err
+		}
 	}
 	if len(release.Changes) > 0 && s.opts.Log != nil {
 		// A discard is a deletion of work. It is logged with the files, so the act is
@@ -1244,20 +1266,7 @@ func (s *Server) releaseWorktree(c *conversation, discard bool) error {
 	// the refusal would otherwise arrive after the user had already said yes.
 	err := worktreeRemove(context.Background(), release.ProjectDir, workspace, discard)
 	if err != nil && discard {
-		// The user confirmed the discard and git STILL refused: a checkout holding a
-		// submodule, a registration git no longer reads. Reported from real use as "I
-		// accept deleting it and it throws a git error" - the one answer the user had
-		// already given was overruled by a tool. With the discard confirmed, the checkout
-		// is removed as a directory and its registration pruned.
-		if ferr := s.forceRemoveCheckout(release.ProjectDir, workspace); ferr == nil {
-			if s.opts.Log != nil {
-				s.opts.Log.Warn("git refused to remove the session's worktree; it was removed as a directory",
-					"id", c.id, "worktree", workspace, "git_error", err.Error())
-			}
-			err = nil
-		} else {
-			err = fmt.Errorf("%v; removing it as a directory failed too: %v", err, ferr)
-		}
+		err = s.forceRelease(c, release.ProjectDir, workspace, err)
 	}
 	if err != nil {
 		// git refused a checkout that was proven clean. That is reported rather than
@@ -1275,6 +1284,41 @@ func (s *Server) releaseWorktree(c *conversation, discard bool) error {
 		s.opts.Log.Info("the session's worktree was released with it",
 			"id", c.id, "worktree", workspace, "branch", sessionBranch(c.id))
 	}
+	return nil
+}
+
+// refuseUnsafeRelease is why a checkout cannot be released without the user's word: its
+// uncommitted changes, or a count of them that could not be read. Uncommitted work stops it:
+// `git worktree remove` refuses a dirty checkout by itself, but by then the user has lost the
+// session that named it and has no way to find out what was in it - so the check is made here,
+// where the message can say which session and which files.
+func refuseUnsafeRelease(release worktreeRelease) error {
+	workspace := release.Workspace
+	if release.InspectErr != nil {
+		// The count could not be read, so the checkout cannot be proven clean. Refusing
+		// is the answer that cannot lose work.
+		return fmt.Errorf("the session's checkout at %s could not be inspected (%v), so the session was not deleted: "+
+			"check it by hand and remove it with `git worktree remove %s`", workspace, release.InspectErr, workspace)
+	}
+	if len(release.Changes) > 0 {
+		return fmt.Errorf("the session has %d uncommitted change(s) in %s, so deleting it would destroy them: "+
+			"commit them, or confirm the discard and remove the checkout with `git worktree remove --force %s`",
+			len(release.Changes), workspace, workspace)
+	}
+	return nil
+}
+
+// forceRelease removes a checkout git refused to remove although the user confirmed the discard:
+// a checkout holding a submodule, a registration git no longer reads. Reported from real use as "I
+// accept deleting it and it throws a git error" - the one answer the user had already given was
+// overruled by a tool. With the discard confirmed, the checkout is removed as a directory and its
+// registration pruned. It returns nil once the checkout is gone.
+func (s *Server) forceRelease(c *conversation, projectDir, workspace string, gitErr error) error {
+	if ferr := s.forceRemoveCheckout(projectDir, workspace); ferr != nil {
+		return fmt.Errorf("%v; removing it as a directory failed too: %v", gitErr, ferr)
+	}
+	s.warn("git refused to remove the session's worktree; it was removed as a directory",
+		"id", c.id, "worktree", workspace, "git_error", gitErr.Error())
 	return nil
 }
 

@@ -83,6 +83,23 @@ var childHooks = struct {
 // confineWritesHook is the platform's write confinement, replaceable so a test can make it fail.
 var confineWritesHook = confineWrites
 
+// enterWorkDir moves the child where the command runs: into the chroot, or to the directory.
+// The chroot comes before the final chdir: after the chroot the path is interpreted inside the
+// new root.
+func enterWorkDir(spec Spec) error {
+	if spec.Chroot != "" {
+		// enterChroot already does the chdir inside the new root.
+		return enterChroot(spec.Chroot, spec.ChrootDir)
+	}
+	if spec.Dir != "" {
+		if err := os.Chdir(spec.Dir); err != nil {
+			return fmt.Errorf("chdir(%q): %w", spec.Dir, err)
+		}
+	}
+	// No root and no directory: the command runs where the child already is.
+	return nil
+}
+
 // RunAsChild is the entry point of the child mode. It never returns if all goes
 // well: it replaces the current process with the requested command.
 func RunAsChild(args []string) error {
@@ -106,17 +123,8 @@ func RunAsChild(args []string) error {
 	// that depends on the number of cores). This really happened: it worked on
 	// one machine and failed on a runner with more cores.
 
-	// chroot before the final chdir: after the chroot the path is interpreted
-	// inside the new root.
-	if spec.Chroot != "" {
-		// enterChroot already does the chdir inside the new root.
-		if err := enterChroot(spec.Chroot, spec.ChrootDir); err != nil {
-			return err
-		}
-	} else if spec.Dir != "" {
-		if err := os.Chdir(spec.Dir); err != nil {
-			return fmt.Errorf("chdir(%q): %w", spec.Dir, err)
-		}
+	if err := enterWorkDir(spec); err != nil {
+		return err
 	}
 
 	if spec.DropPrivileges {

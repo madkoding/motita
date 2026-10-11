@@ -1,12 +1,16 @@
 import { useEffect, useRef, useState } from 'preact/hooks'
 import { useDialog } from './useDialog'
 import { t } from './i18n'
+import { choose } from './choose'
 
 export interface LightboxImage { src: string; label: string }
 
 const MIN = 0.1
 const MAX = 16
 const clamp = (z: number) => Math.min(MAX, Math.max(MIN, z))
+// One step of the zoom buttons and keys, and one notch of the wheel.
+const ZOOM_STEP = 1.25
+const WHEEL_STEP = 1.15
 
 // Lightbox is the full-window preview of an image: wheel or +/- to zoom around the pointer, drag
 // to pan, 0 to fit, 1 for actual size, and the arrow keys to move between the images of a set
@@ -36,7 +40,10 @@ export function Lightbox({ images, start, onClose }: { images: LightboxImage[]; 
   }
   const actual = () => {
     const el = img.current
-    if (!el || !el.naturalWidth || !el.clientWidth) { return reset() }
+    if (!el?.naturalWidth || !el.clientWidth) {
+      reset()
+      return
+    }
     apply({ zoom: clamp(el.naturalWidth / el.clientWidth), x: 0, y: 0 })
   }
 
@@ -44,8 +51,8 @@ export function Lightbox({ images, start, onClose }: { images: LightboxImage[]; 
     const onKey = (e: KeyboardEvent) => {
       const all = document.querySelectorAll('[data-dialog-root]')
       if (all.length && all[all.length - 1] !== root.current) { return }
-      if (e.key === '+' || e.key === '=') { zoomAt(1.25) }
-      else if (e.key === '-') { zoomAt(0.8) }
+      if (e.key === '+' || e.key === '=') { zoomAt(ZOOM_STEP) }
+      else if (e.key === '-') { zoomAt(1 / ZOOM_STEP) }
       else if (e.key === '0') { reset() }
       else if (e.key === '1') { actual() }
       else if (e.key === 'ArrowRight' && images.length > 1) { go(index + 1) }
@@ -66,10 +73,10 @@ export function Lightbox({ images, start, onClose }: { images: LightboxImage[]; 
   return (
     <div ref={root} class="lb" data-dialog-root role="dialog" aria-modal="true" aria-label={cur.label} data-testid="lightbox">
       <div class="lb-bar" role="presentation" onClick={(e) => e.stopPropagation()}>
-        <span class="lb-title">{cur.label}{images.length > 1 ? ` (${index + 1}/${images.length})` : ''}</span>
-        <button type="button" class="btn-outline" aria-label={t('Zoom out')} onClick={() => zoomAt(0.8)}>−</button>
+        <span class="lb-title">{cur.label}{choose(images.length > 1, ` (${index + 1}/${images.length})`, '')}</span>
+        <button type="button" class="btn-outline" aria-label={t('Zoom out')} onClick={() => zoomAt(1 / ZOOM_STEP)}>−</button>
         <span class="lb-zoom" data-testid="lightbox-zoom">{Math.round(zoom * 100)}%</span>
-        <button type="button" class="btn-outline" aria-label={t('Zoom in')} onClick={() => zoomAt(1.25)}>+</button>
+        <button type="button" class="btn-outline" aria-label={t('Zoom in')} onClick={() => zoomAt(ZOOM_STEP)}>+</button>
         <button type="button" class="btn-outline" onClick={reset}>{t('Fit')}</button>
         <button type="button" class="btn-outline" onClick={actual}>1:1</button>
         {images.length > 1 && <button type="button" class="btn-outline" aria-label={t('Previous image')} onClick={() => go(index - 1)}>‹</button>}
@@ -80,7 +87,7 @@ export function Lightbox({ images, start, onClose }: { images: LightboxImage[]; 
         class="lb-stage"
         role="presentation"
         onClick={(e) => { if (e.target === e.currentTarget) { onClose() } }}
-        onWheel={(e) => { e.preventDefault(); const c = fromCentre(e); zoomAt(e.deltaY < 0 ? 1.15 : 1 / 1.15, c.x, c.y) }}
+        onWheel={(e) => { e.preventDefault(); const c = fromCentre(e); zoomAt(choose(e.deltaY < 0, WHEEL_STEP, 1 / WHEEL_STEP), c.x, c.y) }}
         onDblClick={(e) => { if (zoom !== 1) { reset(); } else { const c = fromCentre(e); zoomAt(2.5, c.x, c.y) } }}
         onPointerDown={(e) => { drag.current = { x: e.clientX, y: e.clientY, px: live.current.x, py: live.current.y }; (e.currentTarget as HTMLElement).setPointerCapture?.(e.pointerId) }}
         onPointerMove={(e) => { const d = drag.current; if (d) { apply({ zoom: live.current.zoom, x: d.px + e.clientX - d.x, y: d.py + e.clientY - d.y }) } }}

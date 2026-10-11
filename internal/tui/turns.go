@@ -180,7 +180,8 @@ func (t *TUI) refuseWhileBusy(name string) bool {
 	if t.current == nil || !busyCommands[name] {
 		return false
 	}
-	t.addMessage(AuthorSystem, t.trf("%s has to wait: motita is still working. Press Esc to stop it first.", strings.TrimPrefix(name, "/")))
+	t.addMessage(AuthorSystem, t.trf("%s has to wait: motita is still working. Press Esc to stop it first.",
+		strings.TrimPrefix(name, "/")))
 	return true
 }
 

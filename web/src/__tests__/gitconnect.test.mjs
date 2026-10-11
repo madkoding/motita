@@ -38,7 +38,7 @@ test('flow state machine: failure and reset', () => {
 test('pollFlow stops on a terminal state', async () => {
   const answers = [{ status: 'pending' }, { status: 'pending' }, { status: 'connected', account: 'octo' }]
   let calls = 0
-  const r = await g.pollFlow({ get: async () => answers[calls++], sleep: async () => {}, cancelled: () => false })
+  const r = await g.pollFlow({ get: async () => { const a = answers[calls]; calls++; return a }, sleep: async () => {}, cancelled: () => false })
   assert.equal(r.status, 'connected')
   assert.equal(calls, 3)
 })
@@ -48,7 +48,7 @@ test('pollFlow stops when cancelled and survives a few errors', async () => {
   const r = await g.pollFlow({ get: async () => { n++; if (n === 2) { stop = true; } return { status: 'pending' } }, sleep: async () => {}, cancelled: () => stop })
   assert.equal(r, null)
   let k = 0
-  const ok = await g.pollFlow({ get: async () => { if (k++ < 2) { throw new Error('net'); } return { status: 'failed', error: 'no' } }, sleep: async () => {}, cancelled: () => false })
+  const ok = await g.pollFlow({ get: async () => { k++; if (k <= 2) { throw new Error('net'); } return { status: 'failed', error: 'no' } }, sleep: async () => {}, cancelled: () => false })
   assert.equal(ok.error, 'no')
 })
 
@@ -117,7 +117,7 @@ test('api calls hit the documented endpoints', async () => {
 test('every string in the git screens has a Spanish translation', () => {
   const keys = new Set()
   for (const f of ['GitConnect.tsx', 'RepoPicker.tsx', 'Settings.tsx']) {
-    for (const m of src(f).matchAll(/\bt[fc]?\(\s*'((?:[^'\\]|\\.)*)'/g)) { keys.add(m[1].replace(/\\'/g, "'")) }
+    for (const m of src(f).matchAll(/\bt[fc]?\(\s*'((?:[^'\\]|\\.)*)'/g)) { keys.add(m[1].replaceAll("\\'", "'")) }
   }
   for (const k of ['Choose from my repositories', 'Connect GitHub, GitLab or Bitbucket to pick one of your repositories', 'The login expired. Try again.', 'The host did not authorize the login.']) { keys.add(k) }
   assert.ok(keys.size > 40)

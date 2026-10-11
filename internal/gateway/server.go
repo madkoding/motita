@@ -262,10 +262,7 @@ func Start(opts Options) (*Server, error) {
 		return nil, errors.New("the gateway needs a token: an unauthenticated agent is a remote shell")
 	}
 
-	addr := strings.TrimSpace(opts.Listen)
-	if addr == "" {
-		addr = "127.0.0.1:0"
-	}
+	addr := listenAddr(opts.Listen)
 	if _, _, err := net.SplitHostPort(addr); err != nil {
 		return nil, fmt.Errorf("the listen address %q is not host:port: %w", addr, err)
 	}
@@ -287,20 +284,10 @@ func Start(opts Options) (*Server, error) {
 	}
 	first := newConversation(DefaultSession, opts.Service)
 	baseCtx, baseCancel := context.WithCancel(context.Background())
-	// Resolved here so the stream loop never has to reason about zero and negative: a zero means
-	// the default and a negative means off, and both are decided once, at construction.
-	heartbeat := opts.Heartbeat
-	if heartbeat == 0 {
-		heartbeat = defaultHeartbeat
-	}
-	if heartbeat < 0 {
-		heartbeat = 0
-	}
-
 	s := &Server{
 		opts: opts, listener: ln, sessions: map[string]*conversation{DefaultSession: first},
 		baseCtx: baseCtx, baseCancel: baseCancel,
-		heartbeat: heartbeat,
+		heartbeat: resolveHeartbeat(opts.Heartbeat),
 	}
 	// The self-update checker is built here, once. ExePath may be empty when
 	// running from a test or a non-standard install, which is fine: the
@@ -310,56 +297,9 @@ func Start(opts Options) (*Server, error) {
 		s.updater = updater.New(opts.Version, opts.ExePath)
 	}
 
-	// When a session directory is configured, open the store and load every
-	// persisted conversation from it. A failure to open the store is NOT fatal:
-	// the gateway still works in-memory, and the operator can fix the directory
-	// without losing the running server. A failure to LOAD a session is skipped:
-	// one corrupt file must not block the rest.
-	if dir := strings.TrimSpace(opts.SessionDir); dir != "" {
-		if st, err := newSessionStore(dir); err != nil {
-			if opts.Log != nil {
-				opts.Log.Warn("could not open the session store; sessions will not persist", "error", err.Error())
-			}
-		} else {
-			s.store = st
-			s.loadPersistedSessions()
-			// Resume any sessions that were mid-run when the previous
-			// gateway shut down (e.g. for an upgrade). This must happen
-			// AFTER loadPersistedSessions has registered every
-			// conversation and wired its service, because starting a run
-			// needs a fully constructed conversation.
-			s.resumeInterruptedSessions()
-		}
-	}
-
-	// Open the project store when a directory is configured.
-	if pdir := strings.TrimSpace(opts.ProjectDir); pdir != "" {
-		if ps, err := newProjectStore(pdir); err != nil {
-			if opts.Log != nil {
-				opts.Log.Warn("could not open the project store; projects will not be available", "error", err.Error())
-			}
-		} else {
-			s.projects = ps
-		}
-	}
-
-	// Open the schedule store when a directory is configured, and start the watcher.
-	// A failure to open it is NOT fatal: the gateway serves, and the endpoints report
-	// an empty list, which is the same answer a deployment without scheduling gives.
-	if sdir := strings.TrimSpace(opts.ScheduleDir); sdir != "" {
-		if st, err := schedule.Open(sdir); err != nil {
-			if opts.Log != nil {
-				opts.Log.Warn("could not open the schedule store; scheduled tasks will not run", "error", err.Error())
-			}
-		} else {
-			s.schedules = st
-			// The watcher is started HERE and not in a caller, so that a gateway with a
-			// schedule directory always has one: without this line every scheduled task
-			// passes its tests and never fires in production, because nothing ever looks
-			// at the clock.
-			s.startScheduler()
-		}
-	}
+	s.openSessionStore()
+	s.openProjectStore()
+	s.openScheduleStore()
 	// The origin policy wraps the ENTIRE routing table, including the page and /v1/health.
 	//
 	// Everything rather than only the API, and that is a decision: a rule set that still served the
@@ -388,6 +328,90 @@ func Start(opts Options) (*Server, error) {
 	s.startUpdateChecker()
 	s.startArtifactPruner(artifactPruneInterval)
 	return s, nil
+}
+
+// listenAddr is the address the gateway binds: the configured one, or a free loopback port.
+func listenAddr(listen string) string {
+	addr := strings.TrimSpace(listen)
+	if addr == "" {
+		addr = "127.0.0.1:0"
+	}
+	return addr
+}
+
+// resolveHeartbeat is the heartbeat the stream loop uses. Resolved at construction so the loop
+// never has to reason about zero and negative: a zero means the default and a negative means off.
+func resolveHeartbeat(heartbeat time.Duration) time.Duration {
+	if heartbeat == 0 {
+		heartbeat = defaultHeartbeat
+	}
+	if heartbeat < 0 {
+		heartbeat = 0
+	}
+	return heartbeat
+}
+
+// warn logs a warning when the gateway has a logger.
+func (s *Server) warn(msg string, args ...any) {
+	if s.opts.Log != nil {
+		s.opts.Log.Warn(msg, args...)
+	}
+}
+
+// openSessionStore opens the session store when a directory is configured, and loads every
+// persisted conversation from it. A failure to open the store is NOT fatal: the gateway still
+// works in-memory, and the operator can fix the directory without losing the running server. A
+// failure to LOAD a session is skipped: one corrupt file must not block the rest.
+func (s *Server) openSessionStore() {
+	dir := strings.TrimSpace(s.opts.SessionDir)
+	if dir == "" {
+		return
+	}
+	st, err := newSessionStore(dir)
+	if err != nil {
+		s.warn("could not open the session store; sessions will not persist", "error", err.Error())
+		return
+	}
+	s.store = st
+	s.loadPersistedSessions()
+	// Resume any sessions that were mid-run when the previous gateway shut down (e.g. for an
+	// upgrade). This must happen AFTER loadPersistedSessions has registered every conversation
+	// and wired its service, because starting a run needs a fully constructed conversation.
+	s.resumeInterruptedSessions()
+}
+
+// openProjectStore opens the project store when a directory is configured.
+func (s *Server) openProjectStore() {
+	pdir := strings.TrimSpace(s.opts.ProjectDir)
+	if pdir == "" {
+		return
+	}
+	ps, err := newProjectStore(pdir)
+	if err != nil {
+		s.warn("could not open the project store; projects will not be available", "error", err.Error())
+		return
+	}
+	s.projects = ps
+}
+
+// openScheduleStore opens the schedule store when a directory is configured, and starts the
+// watcher. A failure to open it is NOT fatal: the gateway serves, and the endpoints report an
+// empty list, which is the same answer a deployment without scheduling gives.
+func (s *Server) openScheduleStore() {
+	sdir := strings.TrimSpace(s.opts.ScheduleDir)
+	if sdir == "" {
+		return
+	}
+	st, err := schedule.Open(sdir)
+	if err != nil {
+		s.warn("could not open the schedule store; scheduled tasks will not run", "error", err.Error())
+		return
+	}
+	s.schedules = st
+	// The watcher is started HERE and not in a caller, so that a gateway with a schedule
+	// directory always has one: without this line every scheduled task passes its tests and
+	// never fires in production, because nothing ever looks at the clock.
+	s.startScheduler()
 }
 
 // Addr is the address a CLIENT should call, with the real port when 0 was asked for.
@@ -723,7 +747,8 @@ func setSessionCookie(w http.ResponseWriter, r *http.Request, value string, maxA
 	if maxAge < 0 {
 		maxAge = 0
 	}
-	w.Header().Add("Set-Cookie", fmt.Sprintf("%s=%s; Path=/; Max-Age=%d; HttpOnly; SameSite=Strict", webuiCookie, value, maxAge))
+	w.Header().Add("Set-Cookie",
+		fmt.Sprintf("%s=%s; Path=/; Max-Age=%d; HttpOnly; SameSite=Strict", webuiCookie, value, maxAge))
 }
 
 // handleWebUILogout clears the browser's cookie so the blocking auth modal
@@ -758,7 +783,8 @@ func (s *Server) originPolicy(next http.Handler) http.Handler {
 		// every listener Go supports.
 		addrPort, err := netip.ParseAddrPort(r.RemoteAddr)
 		if err != nil {
-			writeError(w, http.StatusForbidden, "this gateway could not determine the origin of the request, so it will not serve it")
+			writeError(w, http.StatusForbidden,
+				"this gateway could not determine the origin of the request, so it will not serve it")
 			return
 		}
 		if !s.opts.Allow.Allows(addrPort.Addr()) {
@@ -849,9 +875,7 @@ func (s *Server) hostPolicy(next http.Handler) http.Handler {
 			host = h
 		}
 		host = normalHost(host)
-		_, ipErr := netip.ParseAddr(host)
-		known := host == "" || ipErr == nil || host == "localhost" || strings.HasSuffix(host, ".localhost") || s.hosts[host]
-		if !known {
+		if !isLocalHostName(host) && !s.hosts[host] {
 			writeError(w, http.StatusMisdirectedRequest, fmt.Sprintf(
 				"this gateway does not answer to the host name %q: add it to gateway.hosts if it is yours", host))
 			return
@@ -957,12 +981,15 @@ func (s *Server) handleUpdateRun(w http.ResponseWriter, r *http.Request) {
 	// A process that cannot replace itself has done all it can: the binary is in place, and the
 	// next start runs it. It stays up, because stopping it would leave nothing serving.
 	if s.opts.Restart == nil {
-		sse(updater.ProgressEvent{Stage: "done", Percent: 100, Message: "Upgrade installed. This gateway does not restart itself: start motita again to run " + release.TagName, Version: release.TagName})
+		sse(updater.ProgressEvent{Stage: "done", Percent: 100, Version: release.TagName,
+			Message: "Upgrade installed. This gateway does not restart itself: start motita again to run " + release.TagName})
 		return
 	}
 
 	// Signal the frontend that the restart is coming.
-	sse(updater.ProgressEvent{Stage: "restarting", Percent: 100, Message: "Restarting the gateway", Version: release.TagName})
+	sse(updater.ProgressEvent{
+		Stage: "restarting", Percent: 100, Message: "Restarting the gateway", Version: release.TagName,
+	})
 
 	// Persist every session — including ones that are mid-run — so the new
 	// process can resume them. This is the whole point of the running/lastTask
@@ -979,12 +1006,21 @@ func (s *Server) handleUpdateRun(w http.ResponseWriter, r *http.Request) {
 	}()
 
 	// Send a final done event.
-	sse(updater.ProgressEvent{Stage: "done", Percent: 100, Message: "Upgrade complete. The gateway is restarting.", Version: release.TagName})
+	sse(updater.ProgressEvent{
+		Stage: "done", Percent: 100, Message: "Upgrade complete. The gateway is restarting.", Version: release.TagName,
+	})
 }
 
 func (s *Server) handleConfig(w http.ResponseWriter, r *http.Request) {
 	// viewOf, never the configuration itself: see view.go.
 	writeJSON(w, http.StatusOK, viewOf(convOf(r).svc.Config()))
+}
+
+// isLocalHostName reports whether host needs no listing in gateway.hosts: no name at all, an IP
+// address, or localhost and its subdomains.
+func isLocalHostName(host string) bool {
+	_, ipErr := netip.ParseAddr(host)
+	return host == "" || ipErr == nil || host == "localhost" || strings.HasSuffix(host, ".localhost")
 }
 
 // loadPersistedSessions reads every conversation the store has on disk and
@@ -997,9 +1033,7 @@ func (s *Server) loadPersistedSessions() {
 	}
 	records, err := s.store.loadAll()
 	if err != nil {
-		if s.opts.Log != nil {
-			s.opts.Log.Warn("could not load persisted sessions", "error", err.Error())
-		}
+		s.warn("could not load persisted sessions", "error", err.Error())
 		return
 	}
 	// The ceiling applies to RESTORE the same way it applies to creation: a gateway
@@ -1014,20 +1048,7 @@ func (s *Server) loadPersistedSessions() {
 	restored := 0
 	for _, rec := range records {
 		if rec.ID == DefaultSession {
-			// Restore the transcript into the default session's existing service.
-			if len(rec.Turns) > 0 {
-				s.sessions[DefaultSession].svc.RestoreTranscript(rec.Turns)
-			}
-			s.sessions[DefaultSession].setCheckpoints(rec.Checkpoints)
-			if rec.Title != "" {
-				s.sessions[DefaultSession].setTitle(rec.Title)
-			}
-			s.sessions[DefaultSession].setAutoApprove(rec.AutoApprove)
-			// The level this conversation was running comes back with it, or the interface would
-			// paint a level the session is not actually using.
-			if rec.Reasoning != "" {
-				s.sessions[DefaultSession].svc.SetReasoning(rec.Reasoning)
-			}
+			s.restoreDefaultSession(rec)
 			continue
 		}
 		// A non-default session needs a new service built for it. Without a
@@ -1049,75 +1070,106 @@ func (s *Server) loadPersistedSessions() {
 			}
 			break
 		}
-		svc, err := s.opts.NewService()
-		if err != nil {
-			if s.opts.Log != nil {
-				s.opts.Log.Warn("could not build a service for a persisted session", "id", rec.ID, "error", err.Error())
-			}
-			continue
+		if s.restoreSession(rec) {
+			restored++
 		}
-		conv := newConversation(rec.ID, svc)
-		conv.created = rec.Created
-		conv.lastUsed = rec.LastUsed
-		conv.setTitle(rec.Title)
-		conv.setAutoApprove(rec.AutoApprove)
-		conv.setMerged(rec.MergedSHA)
-		// A session in a project gets its worktree back. The branch outlives the
-		// worktree, so re-attaching it restores the session's own work rather
-		// than starting over; a failure falls back to the project's directory,
-		// exactly as creation does.
-		workspace := rec.Workspace
-		projectDir := rec.ProjectDir
-		if projectDir != "" {
-			if wt, wtErr := s.sessionWorktree(s.baseCtx, projectDir, rec.ID); wtErr == nil {
-				workspace = wt
-			} else if s.opts.Log != nil {
-				s.opts.Log.Warn("the restored session will run in the project directory: its worktree could not be re-created",
-					"id", rec.ID, "project", projectDir, "error", wtErr.Error())
-			}
-		}
-		conv.setProjectID(rec.ProjectID, workspace, projectDir)
-		// Restore the last task/kind so the session knows what it was doing
-		// before the restart. The running flag is restored separately by
-		// resumeInterruptedSessions, which needs the service to be fully
-		// wired before it can start a run.
-		conv.stateMu.Lock()
-		conv.lastTask = rec.LastTask
-		conv.lastKind = rec.LastKind
-		conv.stateMu.Unlock()
-		if len(rec.Turns) > 0 {
-			svc.RestoreTranscript(rec.Turns)
-		}
-		conv.setCheckpoints(rec.Checkpoints)
-		conv.restorePRWatch(rec.PRWatch, s.prMaxFixes(conv))
-		// Restore provider/model if they were persisted and differ from the
-		// defaults the factory built with.
-		if rec.Provider != "" || rec.Model != "" {
-			svc.SetLLM(rec.Provider, rec.Model)
-		}
-		// Restore the reasoning level this session was running. It is restored AFTER SetLLM
-		// because a service is free to reset the level with the provider (a level one provider
-		// does not honour is not a reason to keep showing it), and the session's own choice is
-		// what has to win.
-		if rec.Reasoning != "" {
-			svc.SetReasoning(rec.Reasoning)
-		}
-		// Restore the workspace directory for project sessions. It is the
-		// worktree when there is one, so the resumed session writes where its
-		// work already is.
-		if workspace != "" {
-			svc.SetWorkspace(workspace)
-		}
-		// The scope comes back with the project. A restored session must serve the
-		// SAME shelf it had before the restart, or the procedures it learned while
-		// working on this project would silently disappear from its answers.
-		scopeProceduresTo(svc, projectskills.ProjectDirFor(projectDir, workspace))
-		applyRuntimeTo(svc, s.projectOf(rec.ProjectID))
-		s.sessionsMu.Lock()
-		s.sessions[rec.ID] = conv
-		s.sessionsMu.Unlock()
-		restored++
 	}
+}
+
+// restoreDefaultSession restores a record of the default session into its existing service.
+func (s *Server) restoreDefaultSession(rec sessionRecord) {
+	def := s.sessions[DefaultSession]
+	if len(rec.Turns) > 0 {
+		def.svc.RestoreTranscript(rec.Turns)
+	}
+	def.setCheckpoints(rec.Checkpoints)
+	if rec.Title != "" {
+		def.setTitle(rec.Title)
+	}
+	def.setAutoApprove(rec.AutoApprove)
+	// The level this conversation was running comes back with it, or the interface would
+	// paint a level the session is not actually using.
+	if rec.Reasoning != "" {
+		def.svc.SetReasoning(rec.Reasoning)
+	}
+}
+
+// restoreSession registers a persisted non-default session with a service built for it, and
+// reports whether it did.
+func (s *Server) restoreSession(rec sessionRecord) bool {
+	svc, err := s.opts.NewService()
+	if err != nil {
+		s.warn("could not build a service for a persisted session", "id", rec.ID, "error", err.Error())
+		return false
+	}
+	conv := newConversation(rec.ID, svc)
+	conv.created = rec.Created
+	conv.lastUsed = rec.LastUsed
+	conv.setTitle(rec.Title)
+	conv.setAutoApprove(rec.AutoApprove)
+	conv.setMerged(rec.MergedSHA)
+	// A session in a project gets its worktree back. The branch outlives the
+	// worktree, so re-attaching it restores the session's own work rather
+	// than starting over; a failure falls back to the project's directory,
+	// exactly as creation does.
+	workspace := s.restoredWorkspace(rec)
+	projectDir := rec.ProjectDir
+	conv.setProjectID(rec.ProjectID, workspace, projectDir)
+	// Restore the last task/kind so the session knows what it was doing
+	// before the restart. The running flag is restored separately by
+	// resumeInterruptedSessions, which needs the service to be fully
+	// wired before it can start a run.
+	conv.stateMu.Lock()
+	conv.lastTask = rec.LastTask
+	conv.lastKind = rec.LastKind
+	conv.stateMu.Unlock()
+	if len(rec.Turns) > 0 {
+		svc.RestoreTranscript(rec.Turns)
+	}
+	conv.setCheckpoints(rec.Checkpoints)
+	conv.restorePRWatch(rec.PRWatch, s.prMaxFixes(conv))
+	// Restore provider/model if they were persisted and differ from the
+	// defaults the factory built with.
+	if rec.Provider != "" || rec.Model != "" {
+		svc.SetLLM(rec.Provider, rec.Model)
+	}
+	// Restore the reasoning level this session was running. It is restored AFTER SetLLM
+	// because a service is free to reset the level with the provider (a level one provider
+	// does not honour is not a reason to keep showing it), and the session's own choice is
+	// what has to win.
+	if rec.Reasoning != "" {
+		svc.SetReasoning(rec.Reasoning)
+	}
+	// Restore the workspace directory for project sessions. It is the
+	// worktree when there is one, so the resumed session writes where its
+	// work already is.
+	if workspace != "" {
+		svc.SetWorkspace(workspace)
+	}
+	// The scope comes back with the project. A restored session must serve the
+	// SAME shelf it had before the restart, or the procedures it learned while
+	// working on this project would silently disappear from its answers.
+	scopeProceduresTo(svc, projectskills.ProjectDirFor(projectDir, workspace))
+	applyRuntimeTo(svc, s.projectOf(rec.ProjectID))
+	s.sessionsMu.Lock()
+	s.sessions[rec.ID] = conv
+	s.sessionsMu.Unlock()
+	return true
+}
+
+// restoredWorkspace is the directory a restored session runs in: its worktree, re-attached to the
+// session's branch, or the project's directory when it cannot be re-created.
+func (s *Server) restoredWorkspace(rec sessionRecord) string {
+	if rec.ProjectDir == "" {
+		return rec.Workspace
+	}
+	wt, err := s.sessionWorktree(s.baseCtx, rec.ProjectDir, rec.ID)
+	if err != nil {
+		s.warn("the restored session will run in the project directory: its worktree could not be re-created",
+			"id", rec.ID, "project", rec.ProjectDir, "error", err.Error())
+		return rec.Workspace
+	}
+	return wt
 }
 
 // resumeInterruptedSessions re-submits the task or plan for every session
@@ -1134,40 +1186,48 @@ func (s *Server) resumeInterruptedSessions() {
 	}
 	records, err := s.store.loadAll()
 	if err != nil {
-		if s.opts.Log != nil {
-			s.opts.Log.Warn("could not load sessions for resume", "error", err.Error())
-		}
+		s.warn("could not load sessions for resume", "error", err.Error())
 		return
 	}
 	for _, rec := range records {
-		// A pull request being followed when the gateway stopped is followed again.
-		if w := rec.PRWatch; w != nil && (w.Status == prFollowing || w.Status == prFixing || w.Status == prPassed) {
-			if c, ok := s.lookup(rec.ID); ok {
-				s.startPRWatch(c, &prWatchState{status: w.Status, attempts: w.Attempts, fixedKey: w.FixedKey})
-			}
-		}
+		s.resumePRWatch(rec)
 		if !rec.Running || strings.TrimSpace(rec.LastTask) == "" {
 			continue
 		}
-		c, ok := s.lookup(rec.ID)
-		if !ok {
-			continue
+		if c, ok := s.lookup(rec.ID); ok {
+			s.resumeRun(c, rec)
 		}
-		// Log the resume so the operator can see it happened.
-		if s.opts.Log != nil {
-			s.opts.Log.Info("resuming interrupted session", "id", rec.ID, "kind", rec.LastKind, "task", rec.LastTask)
-		}
-		task := rec.LastTask
-		kind := rec.LastKind
-		// The run is started through the SAME path the scheduler and the HTTP handlers
-		// use, so the slot guard, the completion classification and the persistence are
-		// one implementation and cannot drift. Nothing waits for it: the resumption is a
-		// side effect of starting the gateway.
-		if _, ok := s.startDetachedRun(c, task, kind, "", s.approverFactory(c)); !ok {
-			if s.opts.Log != nil {
-				s.opts.Log.Warn("could not resume the interrupted session: its conversation is already running", "id", rec.ID)
-			}
-		}
+	}
+}
+
+// resumePRWatch follows again a pull request that was being followed when the gateway stopped.
+func (s *Server) resumePRWatch(rec sessionRecord) {
+	w := rec.PRWatch
+	if w == nil || !isWatchedPRStatus(w.Status) {
+		return
+	}
+	if c, ok := s.lookup(rec.ID); ok {
+		s.startPRWatch(c, &prWatchState{status: w.Status, attempts: w.Attempts, fixedKey: w.FixedKey})
+	}
+}
+
+// isWatchedPRStatus reports whether a pull request in this state is still being followed.
+func isWatchedPRStatus(status string) bool {
+	return status == prFollowing || status == prFixing || status == prPassed
+}
+
+// resumeRun starts again the task a session was running when the gateway stopped.
+func (s *Server) resumeRun(c *conversation, rec sessionRecord) {
+	// Log the resume so the operator can see it happened.
+	if s.opts.Log != nil {
+		s.opts.Log.Info("resuming interrupted session", "id", rec.ID, "kind", rec.LastKind, "task", rec.LastTask)
+	}
+	// The run is started through the SAME path the scheduler and the HTTP handlers
+	// use, so the slot guard, the completion classification and the persistence are
+	// one implementation and cannot drift. Nothing waits for it: the resumption is a
+	// side effect of starting the gateway.
+	if _, ok := s.startDetachedRun(c, rec.LastTask, rec.LastKind, "", s.approverFactory(c)); !ok {
+		s.warn("could not resume the interrupted session: its conversation is already running", "id", rec.ID)
 	}
 }
 
