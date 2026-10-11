@@ -284,7 +284,7 @@ function TokenForm({ api, account, base, onDone }: { api: Api; account: GitAccou
       const r = await connect(api, { ...base, method: 'token', token: token.trim(), username: choose(bb, user.trim(), undefined) })
       if (r.type === 'connected') { onDone(r.service || account.id, r.account); return }
       setErr(t('Unexpected answer from the server.'))
-    } catch (e2) { setErr(errorText(e2)) }
+    } catch (error_) { setErr(errorText(error_)) }
     setBusy(false)
   }
   return (

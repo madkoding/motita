@@ -30,7 +30,11 @@ export function useFollowEnd(open: boolean, tau = 110) {
       pinned.current = gap < 24
       // The reader has taken the scroll: whatever glide is under way stops with it.
       if (!pinned.current) { follower.current.stop() }
-    } else if (gap < 2) { pinned.current = true }
+    } else if (gap < 2) {
+      pinned.current = true
+    } else {
+      // The box grew under a reader who is away from the end: it stays where it is.
+    }
   }, [])
   const onPointerDown = useCallback(() => { dragging.current = true; markUser() }, [markUser])
 

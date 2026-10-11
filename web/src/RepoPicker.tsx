@@ -62,7 +62,8 @@ export function RepoPicker({ api, accounts, initialService, onPick, onConnectAno
   }, [q])
 
   const load = async (p: number, append: boolean) => {
-    const my = ++req.current
+    req.current += 1
+    const my = req.current
     setLoading(true); setErr('')
     try {
       const r = await listRepos(api, service, dq, p)
@@ -91,6 +92,7 @@ export function RepoPicker({ api, accounts, initialService, onPick, onConnectAno
     if (e.key === 'ArrowDown') { e.preventDefault(); setActive(i => Math.min(i + 1, repos.length - 1)) }
     else if (e.key === 'ArrowUp') { e.preventDefault(); setActive(i => Math.max(i - 1, 0)) }
     else if (e.key === 'Enter') { e.preventDefault(); pick(repos[active]) }
+    else { /* typing goes to the search box */ }
   }
 
   const current = accounts.find(a => a.id === service)

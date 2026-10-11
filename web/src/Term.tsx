@@ -67,7 +67,8 @@ export function colorizeOutput(text: string): string {
 // colour it as nonsense.
 function looksLikeJSON(text: string): boolean {
   const trimmed = text.trim()
-  return (trimmed.startsWith('{') && trimmed.endsWith('}')) || (trimmed.startsWith('[') && trimmed.endsWith(']') && trimmed.includes('"'))
+  if (trimmed.startsWith('{') && trimmed.endsWith('}')) { return true }
+  return trimmed.startsWith('[') && trimmed.endsWith(']') && trimmed.includes('"')
 }
 
 // ── The typewriter ────────────────────────────────────────────────────────────

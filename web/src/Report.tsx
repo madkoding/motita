@@ -25,7 +25,9 @@ const RESULT_MARK: Record<string, string> = { pass: '✓', fail: '✕', skipped:
 // hasReport says whether there is anything beyond the summary worth a card. A report that is only
 // a sentence is drawn as the plain message it always was.
 export function hasReport(r?: TaskReport | null): r is TaskReport {
-  return !!r && !!(r.changes?.length || r.verification?.length || r.evidence?.length || r.risks?.length || r.next_steps?.length)
+  if (!r) { return false }
+  const counts = [r.changes?.length, r.verification?.length, r.evidence?.length, r.risks?.length, r.next_steps?.length]
+  return counts.some(n => !!n)
 }
 
 // ReportCard lays the report out: the verdict first, then the answer, then the proof. The proof
