@@ -398,8 +398,7 @@ func aged(t *testing.T, path string, age time.Duration) {
 func TestPruneDeletesOrphansAndOldFiles(t *testing.T) {
 	root := t.TempDir()
 	svc := &fakeService{}
-	srv := newTestServer(t, svc, func(o *Options) {
-		o.ArtifactDir = root
+	srv := newServerWithoutStartupPrune(t, svc, root, func(o *Options) {
 		o.ArtifactDays = 30
 		o.SessionDir = t.TempDir()
 		o.ProjectDir = t.TempDir()
@@ -470,21 +469,54 @@ func TestPruneWithoutARootIsANoOp(t *testing.T) {
 	(&Server{}).startArtifactPruner(time.Hour)
 }
 
-func TestThePrunerRunsOnAScheduleUntilTheGatewayCloses(t *testing.T) {
-	root := t.TempDir()
-	srv := newTestServer(t, &fakeService{}, func(o *Options) { o.ArtifactDir = root })
-	put(t, filepath.Join(root, "gone-session", "a.txt"), "a")
-	srv.startArtifactPruner(5 * time.Millisecond)
+// newServerWithoutStartupPrune starts a test gateway whose artifact root is root, without the
+// prune Start launches in the background. That prune races the test: it can remove an orphan
+// folder between the MkdirAll and the WriteFile of put, which failed the write about one run
+// in three hundred. Start only reads ArtifactDir to decide whether to prune, so setting it
+// after Start gives a server identical in every other respect.
+func newServerWithoutStartupPrune(t *testing.T, svc Service, root string, mutators ...func(*Options)) *Server {
+	t.Helper()
+	srv := newTestServer(t, svc, mutators...)
+	srv.opts.ArtifactDir = root
+	return srv
+}
+
+// putOrphan creates the folder of a session that does not exist, with one file in it, in a
+// single rename: a pruner running meanwhile sees the whole folder or nothing, never an empty
+// folder it removes under the write.
+func putOrphan(t *testing.T, root, name string) {
+	t.Helper()
+	staging := filepath.Join(t.TempDir(), name)
+	put(t, filepath.Join(staging, "a.txt"), "a")
+	if err := os.Rename(staging, filepath.Join(root, name)); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// waitForRemoval fails the test unless path disappears within a few seconds.
+func waitForRemoval(t *testing.T, path, what string) {
+	t.Helper()
 	deadline := time.Now().Add(5 * time.Second)
 	for {
-		if _, err := os.Stat(filepath.Join(root, "gone-session")); err != nil {
+		if _, err := os.Stat(path); err != nil {
 			return
 		}
 		if time.Now().After(deadline) {
-			t.Fatal("the pruner never removed the orphan")
+			t.Fatalf("the pruner never removed %s", what)
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
+}
+
+func TestThePrunerRunsOnAScheduleUntilTheGatewayCloses(t *testing.T) {
+	root := t.TempDir()
+	srv := newServerWithoutStartupPrune(t, &fakeService{}, root)
+	putOrphan(t, root, "gone-session")
+	srv.startArtifactPruner(5 * time.Millisecond)
+	waitForRemoval(t, filepath.Join(root, "gone-session"), "the orphan on its first pass")
+	// An orphan that appears after the first pass is only removed by a later, scheduled one.
+	putOrphan(t, root, "later-session")
+	waitForRemoval(t, filepath.Join(root, "later-session"), "an orphan on a scheduled pass")
 }
 
 func TestSessionIsKnownWithoutAStore(t *testing.T) {
