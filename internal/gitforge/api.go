@@ -623,6 +623,9 @@ func (a API) findPullsPR(ctx context.Context, r Remote, head string) (PullReques
 // MergeMethods are the ways a pull request can be merged. The empty method is the host's default.
 var MergeMethods = []string{"merge", "squash", "rebase"}
 
+// mergePath is the suffix of a pull request's API path that merges it.
+const mergePath = "/merge"
+
 // MergeOptions says how a pull request is merged.
 type MergeOptions struct {
 	// Method is "merge", "squash" or "rebase"; empty is a merge commit. GitLab decides rebase per
@@ -668,10 +671,10 @@ func (a API) MergePR(ctx context.Context, r Remote, n int, o MergeOptions) (sha 
 	case KindBitbucket:
 		strategy := map[string]string{"merge": "merge_commit", "squash": "squash", "rebase": "fast_forward"}[method]
 		body := map[string]any{"merge_strategy": strategy, "close_source_branch": o.DeleteBranch}
-		err = a.do(ctx, http.MethodPost, a.bitbucketPRPath(r, n)+"/merge", body, nil)
+		err = a.do(ctx, http.MethodPost, a.bitbucketPRPath(r, n)+mergePath, body, nil)
 	case KindGitea:
 		body := map[string]any{"Do": method, "delete_branch_after_merge": o.DeleteBranch}
-		err = a.do(ctx, http.MethodPost, a.pullsPath(r, n)+"/merge", body, nil)
+		err = a.do(ctx, http.MethodPost, a.pullsPath(r, n)+mergePath, body, nil)
 	default:
 		err = a.mergeGitHubPR(ctx, r, n, method, o, &out)
 	}
@@ -699,7 +702,7 @@ func (a API) bitbucketPRPath(r Remote, n int) string {
 func (a API) mergeGitHubPR(ctx context.Context, r Remote, n int, method string, o MergeOptions, out any) error {
 	body := map[string]any{"merge_method": method}
 	ref, refOK := refPath(o.Branch)
-	err := a.do(ctx, http.MethodPut, a.pullsPath(r, n)+"/merge", body, out)
+	err := a.do(ctx, http.MethodPut, a.pullsPath(r, n)+mergePath, body, out)
 	if err == nil && o.DeleteBranch && refOK {
 		_ = a.do(ctx, http.MethodDelete,
 			fmt.Sprintf("%s/repos/%s/git/refs/heads/%s", a.Service.APIBase, r.Path, ref), nil, nil)
