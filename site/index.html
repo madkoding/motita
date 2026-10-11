@@ -435,7 +435,7 @@
   .replay-btn:hover { border-color: var(--accent); color: var(--accent); }
   .term-body {
     flex: 1; padding: var(--space-4) var(--space-5); font-family: var(--mono); font-size: .8rem;
-    line-height: 1.7; white-space: pre-wrap; word-break: break-word; color: var(--fg); overflow: hidden;
+    line-height: 1.7; white-space: pre-wrap; word-break: normal; overflow-wrap: anywhere; color: var(--fg); overflow: hidden;
   }
   .term-body .ln { display: block; animation: lnIn .25s ease-out; }
   @keyframes lnIn { from { opacity: 0; transform: translateX(-6px); } }
@@ -718,7 +718,7 @@
           <code>irm https://madkoding.github.io/motita/install.ps1 | iex</code>
         </div>
       </noscript>
-      <span class="sr" role="status" id="copy-status"></span>
+      <output class="sr" id="copy-status"></output>
       <p class="hero-note">Then type <code>motita</code>. A one-minute wizard connects your AI and finds your project's tests. One static binary — no Docker, no runtime. It even runs on a 2008 netbook with 484 MB of RAM.</p>
     </div>
   </div>
@@ -1152,6 +1152,33 @@ motita -isolation</code></pre>
     var root = document.documentElement;
     root.classList.add('js');
     var still = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    var ARIA_SELECTED = 'aria-selected';
+    // How long a copy button says it copied.
+    var COPIED_MS = 1800;
+    // How far down the window a section's top has to be to count as the one being read.
+    var READING_LINE = 0.4;
+    // How far the hero frame leans toward the pointer, in degrees, and where it rests.
+    var LEAN_Y = 10, LEAN_Y_REST = 3, LEAN_X = 8;
+    // The replay's last step, and where each line's delay is in a row of the script.
+    var LAST_STEP = 6, DELAY_AT = 3;
+    // How far the newest line may run past the panel before the oldest one goes.
+    var OVERFLOW_SLACK = 4;
+    var glide = 'smooth';
+    if (still) { glide = 'auto'; }
+
+    // selectTab marks one tab of a tab list as the selected one; only it can be reached with Tab.
+    function selectTab(tab, on) {
+      var index = -1;
+      if (on) { index = 0; }
+      tab.setAttribute(ARIA_SELECTED, String(on));
+      tab.tabIndex = index;
+    }
+    // arrowStep is where an arrow key moves in a tab list: forward, back, or nowhere.
+    function arrowStep(key, forward, back) {
+      if (forward.indexOf(key) >= 0) { return 1; }
+      if (back.indexOf(key) >= 0) { return -1; }
+      return 0;
+    }
 
     // ── Install tabs ────────────────────────────────────────────────
     var tabs = Array.prototype.slice.call(document.querySelectorAll('.tab'));
@@ -1159,15 +1186,14 @@ motita -isolation</code></pre>
       tabs.forEach(function (other) {
         var panel = document.getElementById(other.getAttribute('aria-controls'));
         var on = other === tab;
-        other.setAttribute('aria-selected', on ? 'true' : 'false');
-        other.tabIndex = on ? 0 : -1;
+        selectTab(other, on);
         panel.hidden = !on;
       });
     }
     tabs.forEach(function (tab, index) {
       tab.addEventListener('click', function () { select(tab); });
       tab.addEventListener('keydown', function (event) {
-        var step = event.key === 'ArrowRight' ? 1 : event.key === 'ArrowLeft' ? -1 : 0;
+        var step = arrowStep(event.key, ['ArrowRight'], ['ArrowLeft']);
         if (!step) { return; }
         event.preventDefault();
         var next = tabs[(index + step + tabs.length) % tabs.length];
@@ -1187,9 +1213,11 @@ motita -isolation</code></pre>
           btn.textContent = 'Copied ✓'; btn.classList.add('done');
           status.textContent = 'Install command copied to clipboard.';
         } catch (e) {
+          // The browser refused the clipboard (no permission, or not a secure page): the reader
+          // is told to copy it by hand, which is all there is to do about it.
           status.textContent = 'Copy failed — select the command and copy it manually.';
         }
-        setTimeout(function () { btn.textContent = 'Copy'; btn.classList.remove('done'); }, 1800);
+        setTimeout(function () { btn.textContent = 'Copy'; btn.classList.remove('done'); }, COPIED_MS);
       });
     });
 
@@ -1199,7 +1227,7 @@ motita -isolation</code></pre>
         var target = document.querySelector(a.getAttribute('href'));
         if (!target) { return; }
         e.preventDefault();
-        target.scrollIntoView({ behavior: still ? 'auto' : 'smooth' });
+        target.scrollIntoView({ behavior: glide });
         history.pushState(null, '', a.getAttribute('href'));
       });
     });
@@ -1209,11 +1237,13 @@ motita -isolation</code></pre>
     var links = Array.prototype.slice.call(document.querySelectorAll('nav a[href^="#"]'));
     function onScroll() {
       var max = document.documentElement.scrollHeight - innerHeight;
-      meter.style.setProperty('--read', max > 0 ? Math.min(1, scrollY / max) : 0);
+      var read = 0;
+      if (max > 0) { read = Math.min(1, scrollY / max); }
+      meter.style.setProperty('--read', read);
       var current = null;
       links.forEach(function (a) {
         var s = document.querySelector(a.getAttribute('href'));
-        if (s && s.getBoundingClientRect().top < innerHeight * 0.4) { current = a; }
+        if (s && s.getBoundingClientRect().top < innerHeight * READING_LINE) { current = a; }
       });
       links.forEach(function (a) {
         if (a === current) { a.setAttribute('aria-current', 'true'); } else { a.removeAttribute('aria-current'); }
@@ -1234,8 +1264,8 @@ motita -isolation</code></pre>
       stage.addEventListener('pointermove', function (e) {
         var r = stage.getBoundingClientRect();
         var x = (e.clientX - r.left) / r.width - .5, y = (e.clientY - r.top) / r.height - .5;
-        frame.style.setProperty('--ry', (x * 10 - 3).toFixed(2) + 'deg');
-        frame.style.setProperty('--rx', (-y * 8 + 1).toFixed(2) + 'deg');
+        frame.style.setProperty('--ry', (x * LEAN_Y - LEAN_Y_REST).toFixed(2) + 'deg');
+        frame.style.setProperty('--rx', (-y * LEAN_X + 1).toFixed(2) + 'deg');
       });
       stage.addEventListener('pointerleave', function () { frame.style.removeProperty('--ry'); frame.style.removeProperty('--rx'); });
     }
@@ -1287,10 +1317,11 @@ motita -isolation</code></pre>
     function finish() {
       term.textContent = '';
       SCRIPT.forEach(function (r) { term.appendChild(line(r)); });
-      mark(6); live.style.visibility = 'hidden';
+      mark(LAST_STEP); live.style.visibility = 'hidden';
     }
     function play() {
-      var my = ++run;
+      run++;
+      var my = run;
       clearTimeout(timer);
       term.textContent = ''; live.style.visibility = '';
       var cursor = document.createElement('span'); cursor.className = 'cursor';
@@ -1298,7 +1329,8 @@ motita -isolation</code></pre>
       (function next() {
         if (my !== run) { return; }
         if (i >= SCRIPT.length) { term.appendChild(cursor); live.style.visibility = 'hidden'; return; }
-        var row = SCRIPT[i++];
+        var row = SCRIPT[i];
+        i++;
         timer = setTimeout(function () {
           if (my !== run) { return; }
           if (cursor.parentNode) { cursor.remove(); }
@@ -1306,12 +1338,14 @@ motita -isolation</code></pre>
           term.appendChild(cursor);
           mark(row[0]);
           // Keep the newest lines in view inside the fixed-height panel.
-          while (term.scrollHeight > term.clientHeight + 4 && term.firstChild !== cursor) { term.removeChild(term.firstChild); }
+          while (term.scrollHeight > term.clientHeight + OVERFLOW_SLACK && term.firstChild !== cursor) { term.firstChild.remove(); }
           next();
-        }, row[3]);
+        }, row[DELAY_AT]);
       })();
     }
-    document.getElementById('replay').addEventListener('click', function () { still ? finish() : play(); });
+    document.getElementById('replay').addEventListener('click', function () {
+      if (still) { finish(); } else { play(); }
+    });
     if (still) { finish(); }
     else {
       var started = false;
@@ -1326,10 +1360,10 @@ motita -isolation</code></pre>
     function show(t, user) {
       ttabs.forEach(function (o) {
         var on = o === t, pane = document.getElementById(o.getAttribute('aria-controls'));
-        o.setAttribute('aria-selected', on ? 'true' : 'false'); o.tabIndex = on ? 0 : -1;
+        selectTab(o, on);
         pane.hidden = !on;
         if (on) { pane.classList.remove('enter'); void pane.offsetWidth; pane.classList.add('enter'); }
-        var p = o.querySelector('.prog'); p.classList.remove('run');
+        o.querySelector('.prog').classList.remove('run');
       });
       if (user) { auto = false; }
       clearTimeout(tick);
@@ -1341,7 +1375,7 @@ motita -isolation</code></pre>
     ttabs.forEach(function (t, i) {
       t.addEventListener('click', function () { show(t, true); });
       t.addEventListener('keydown', function (e) {
-        var k = e.key, step = (k === 'ArrowDown' || k === 'ArrowRight') ? 1 : (k === 'ArrowUp' || k === 'ArrowLeft') ? -1 : 0;
+        var step = arrowStep(e.key, ['ArrowDown', 'ArrowRight'], ['ArrowUp', 'ArrowLeft']);
         if (!step) { return; }
         e.preventDefault();
         var n = ttabs[(i + step + ttabs.length) % ttabs.length]; show(n, true); n.focus();
@@ -1349,7 +1383,7 @@ motita -isolation</code></pre>
     });
     var tour = document.querySelector('.tour');
     tour.addEventListener('pointerenter', function () { if (auto) { clearTimeout(tick); ttabs.forEach(function (o) { o.querySelector('.prog').classList.remove('run'); }); } });
-    tour.addEventListener('pointerleave', function () { if (auto) { show(ttabs.filter(function (o) { return o.getAttribute('aria-selected') === 'true'; })[0]); } });
+    tour.addEventListener('pointerleave', function () { if (auto) { show(ttabs.find(function (o) { return o.getAttribute(ARIA_SELECTED) === 'true'; })); } });
     if (auto) {
       new IntersectionObserver(function (entries, obs) {
         if (entries[0].isIntersecting) { show(ttabs[0]); obs.disconnect(); }
