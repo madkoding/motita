@@ -115,25 +115,8 @@ func localRefs(html string) []string {
 	seen := map[string]bool{}
 
 	for _, attr := range []string{`href="`, `src="`} {
-		for rest := html; ; {
-			i := strings.Index(rest, attr)
-			if i < 0 {
-				break
-			}
-			rest = rest[i+len(attr):]
-			end := strings.Index(rest, `"`)
-			if end < 0 {
-				break
-			}
-			val := rest[:end]
-			rest = rest[end:]
-
-			if path, _, _ := strings.Cut(val, "#"); path != "" {
-				val = path
-			}
-			if path, _, _ := strings.Cut(val, "?"); path != "" {
-				val = path
-			}
+		for _, val := range attrValues(html, attr) {
+			val = refPath(val)
 			if val == "" || seen[val] || isExternalRef(val) {
 				continue
 			}
@@ -142,6 +125,35 @@ func localRefs(html string) []string {
 		}
 	}
 	return refs
+}
+
+// attrValues returns every quoted value of one attribute (`href="` or `src="`), in order.
+func attrValues(html, attr string) []string {
+	var vals []string
+	for rest := html; ; {
+		i := strings.Index(rest, attr)
+		if i < 0 {
+			return vals
+		}
+		rest = rest[i+len(attr):]
+		end := strings.Index(rest, `"`)
+		if end < 0 {
+			return vals
+		}
+		vals = append(vals, rest[:end])
+		rest = rest[end:]
+	}
+}
+
+// refPath is a reference without its fragment and query, neither being part of the path.
+func refPath(val string) string {
+	if path, _, _ := strings.Cut(val, "#"); path != "" {
+		val = path
+	}
+	if path, _, _ := strings.Cut(val, "?"); path != "" {
+		val = path
+	}
+	return val
 }
 
 func isExternalRef(ref string) bool {
