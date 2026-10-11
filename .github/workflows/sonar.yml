@@ -80,10 +80,8 @@ jobs:
         env:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
           SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}
-      # Informativo al principio: en un proyecto nuevo todo cuenta como "código nuevo".
-      # Quita continue-on-error para que el quality gate bloquee el CI.
+      # El quality gate (seguridad, fiabilidad, mantenibilidad A y duplicación <= 3 %) bloquea el CI.
       - uses: SonarSource/sonarqube-quality-gate-action@7a5fffe8e523c40e0c740b6bc2712ab503e52efa # v1
-        continue-on-error: true
         timeout-minutes: 5
         env:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
