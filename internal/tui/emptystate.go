@@ -108,13 +108,7 @@ func (p *emptyPage) examples(ex ...string) {
 func (p *emptyPage) screenIntro(screen Screen) {
 	switch screen {
 	case ScreenPlan:
-		p.text("Plan mode: ask anything about your project.", colBase)
-		p.text("motita reads files and runs read-only commands to answer. Nothing is changed.", colMuted)
-		p.gap()
-		p.text("Try something like", colMuted)
-		p.examples("how is the configuration loaded?", "what would it take to add a --json flag?")
-		p.gap()
-		p.pairs([][2]string{{"Tab", "back to Task mode, to make changes"}})
+		p.planIntro()
 	case ScreenModels:
 		p.text("Press Enter to ask the provider which models it offers.", colBase)
 		p.text("It also checks that the endpoint and the key in your setup really work.", colMuted)
@@ -126,6 +120,17 @@ func (p *emptyPage) screenIntro(screen Screen) {
 	default:
 		p.taskIntro()
 	}
+}
+
+// planIntro is the first screen of Plan mode.
+func (p *emptyPage) planIntro() {
+	p.text("Plan mode: ask anything about your project.", colBase)
+	p.text("motita reads files and runs read-only commands to answer. Nothing is changed.", colMuted)
+	p.gap()
+	p.text("Try something like", colMuted)
+	p.examples("how is the configuration loaded?", "what would it take to add a --json flag?")
+	p.gap()
+	p.pairs([][2]string{{"Tab", "back to Task mode, to make changes"}})
 }
 
 // taskIntro is the first screen of Task mode.

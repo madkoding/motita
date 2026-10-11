@@ -310,7 +310,12 @@ func visibleLen(s string) int {
 // needsEscaping reports whether r is shown escaped by EscapeControls: a C0 control but newline
 // and tab, DEL, a C1 control, or an invalid byte.
 func needsEscaping(r rune) bool {
-	return (r < 0x20 && r != '\n' && r != '\t') || (r >= 0x7f && r < 0xa0) || r == utf8.RuneError
+	return isC0Control(r) || (r >= 0x7f && r < 0xa0) || r == utf8.RuneError
+}
+
+// isC0Control reports whether r is a C0 control character other than newline and tab.
+func isC0Control(r rune) bool {
+	return r < 0x20 && r != '\n' && r != '\t'
 }
 
 // EscapeControls makes the control characters of UNTRUSTED text visible instead of handing them
