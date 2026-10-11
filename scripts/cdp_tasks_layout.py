@@ -305,11 +305,20 @@ def check_desktop(d: dict[str, Any]) -> None:
         bad(f"desktop: the panel is taller than the viewport ({d['panel']['h']:.0f} > {d['viewport']['h']})")
 
 
-# The Go form of a duration, e.g. "24h0m0s". The lookbehind starts a match only at the first
-# digit of a run, and the possessive runs never give digits back (the letter after them is not a
-# digit, so giving one back could not help), which keeps the search linear without changing
-# what it finds. Possessive quantifiers need Python 3.11.
-GO_DURATION = re.compile(r"(?<!\d)\d++[hms]\d++[hms]0")
+# The Go form of a duration, e.g. "24h0m0s": a digit run, a unit, a digit run, a unit, then "0".
+# Read by splitting on digit runs rather than with one regex, so the scan is linear by construction.
+DURATION_UNITS = frozenset("hms")
+
+
+def has_go_duration(text: str) -> bool:
+    """Whether text holds <digits><h|m|s><digits><h|m|s>0 anywhere."""
+    # re.split with a group alternates text and digit runs: parts[1], parts[3]... are the runs.
+    parts = re.split(r"(\d+)", text)
+    for i in range(1, len(parts) - 3, 2):
+        unit_a, unit_b, last = parts[i + 1], parts[i + 3], parts[i + 4] if i + 4 < len(parts) else ""
+        if unit_a in DURATION_UNITS and unit_b in DURATION_UNITS and last.startswith("0"):
+            return True
+    return False
 
 
 def check_rows(label: str, m: dict[str, Any]) -> None:
@@ -327,7 +336,7 @@ def check_rows(label: str, m: dict[str, Any]) -> None:
         bad(f"{label}: a row has no cadence tag ({m['rows']})")
     # The gateway sends the normalised Go form ("24h0m0s" for "24h"): a tag
     # that prints it is showing the machine's spelling of the user's choice.
-    raw = [t for t in tags if GO_DURATION.search(t)]
+    raw = [t for t in tags if has_go_duration(t)]
     if tags and not raw:
         ok(f"{label}: the tag is written as the user typed it ({tags})")
     else:
