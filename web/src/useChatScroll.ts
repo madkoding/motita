@@ -13,7 +13,7 @@ type GateWindow = Window & {
 }
 
 // The keys that move the view up: pressing one is the reader leaving the end.
-const UP_KEYS = ['ArrowUp', 'PageUp', 'Home']
+const UP_KEYS = new Set(['ArrowUp', 'PageUp', 'Home'])
 
 // gapToEnd is how far the box is from the end of what it holds.
 function gapToEnd(el: HTMLElement): number {
@@ -144,7 +144,7 @@ function useReaderIntent(scrollRef: { current: HTMLDivElement | null }, pinnedRe
       if (e.deltaY < 0) { unpin() }
     }
     const onKey = (e: KeyboardEvent) => {
-      if (UP_KEYS.includes(e.key)) { unpin() }
+      if (UP_KEYS.has(e.key)) { unpin() }
     }
     const onScroll = () => {
       // Being at the end always re-pins: the reader has arrived at the last line, so following
