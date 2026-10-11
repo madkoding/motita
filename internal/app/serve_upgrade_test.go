@@ -123,7 +123,10 @@ func TestAPlainStopStartsNothing(t *testing.T) {
 	opts.Signals = nil
 	opts.NewEngine = mockEngine(srv)
 	spawned := false
-	opts.SpawnGateway = func(context.Context, spawnSpec) error { spawned = true; return nil }
+	opts.SpawnGateway = func(context.Context, spawnSpec) error {
+		spawned = true
+		return nil
+	}
 	done := make(chan int, 1)
 	go func() { done <- Run(opts) }()
 	waitForAddress(t, logPath)

@@ -93,6 +93,8 @@ func newForge(t *testing.T, connected bool) *forgeFixture {
 				return "", errors.New("not set")
 			}
 			return f.head, nil
+		default:
+			// Any other git call is unexpected and fails below.
 		}
 		t.Fatalf("unexpected git %v", args)
 		return "", nil

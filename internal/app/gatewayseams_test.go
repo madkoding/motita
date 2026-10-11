@@ -424,7 +424,10 @@ func TestStartingRefusesOnACorruptServiceFile(t *testing.T) {
 	spawned := false
 	op := gatewayTestOptions(t, out, "", "gateway", "start")
 	op.ServiceFile = servicePath
-	op.SpawnGateway = func(context.Context, spawnSpec) error { spawned = true; return nil }
+	op.SpawnGateway = func(context.Context, spawnSpec) error {
+		spawned = true
+		return nil
+	}
 
 	if code := Run(op); code != ConfigError {
 		t.Fatalf("exit %d, want %d for a corrupt service file", code, ConfigError)
