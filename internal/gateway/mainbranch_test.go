@@ -320,6 +320,12 @@ func TestDefaultBranchOfARemote(t *testing.T) {
 	if code, _ := ask(""); code != http.StatusBadRequest {
 		t.Errorf("no URL: %d", code)
 	}
+	// What a clone would refuse is not asked either: a transport helper runs a command.
+	for _, url := range []string{"ext::sh%20-c%20touch%20x", "--upload-pack=touch%20x"} {
+		if code, _ := ask(url); code != http.StatusBadRequest {
+			t.Errorf("%s: %d", url, code)
+		}
+	}
 	if code, _ := ask(filepath.Join(t.TempDir(), "nothing-here")); code != http.StatusBadGateway {
 		t.Errorf("a remote that cannot be read: %d", code)
 	}

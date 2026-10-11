@@ -78,7 +78,7 @@ func WorkingTreeChangeList(ctx context.Context, dir string) ([]Change, error) {
 func executeRaw(ctx context.Context, dir string, args ...string) ([]byte, error) {
 	c, cancel := context.WithTimeout(ctx, gitTimeout)
 	defer cancel()
-	return execCommand(c, "git", append([]string{"-C", dir}, args...)...)
+	return execCommand(c, "git", gitArgs(dir, args...)...)
 }
 
 // parseChangeList reads `git status --porcelain -uall -z`.

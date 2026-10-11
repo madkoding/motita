@@ -7,6 +7,8 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"path/filepath"
+	"slices"
 	"strings"
 	"syscall"
 	"testing"
@@ -498,5 +500,22 @@ func TestGenerateTitleIgnoresAReplyThatIsNotATitle(t *testing.T) {
 	r.Engine = engine
 	if title := r.GenerateTitle(context.Background(), "write the report"); title != "write the report" {
 		t.Errorf("GenerateTitle = %q, want the first message", title)
+	}
+}
+
+// TestSetWorkspaceKeepsTheHiddenFiles: the sandbox rebuilt for a project's directory hides what
+// the one it replaces hid, the configuration a run was loaded from with `-config` among them.
+func TestSetWorkspaceKeepsTheHiddenFiles(t *testing.T) {
+	cfg := config.Default()
+	cfg.Sandbox.Kind = "none"
+	custom := filepath.Join(t.TempDir(), "custom.yaml")
+	box, err := sandbox.New(sandbox.Options{Dir: t.TempDir(), HiddenPaths: []string{custom}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	r := NewAppRunner(&bytes.Buffer{}, &bytes.Buffer{}, cfg, &llm.Client{}, box, logx.Global())
+	r.SetWorkspace(t.TempDir())
+	if r.Box == box || !slices.Contains(r.Box.HiddenPaths(), custom) {
+		t.Errorf("the rebuilt sandbox does not hide %s: %v", custom, r.Box.HiddenPaths())
 	}
 }

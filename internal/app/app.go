@@ -213,10 +213,13 @@ Commands:
   curator pin|unpin  exempt a skill from every automatic transition, or stop
   curator restore    bring an archived skill back
   curator list-archived  everything in the skills archive
+  curator list-proposed  skills the background review proposed, waiting for you
+  curator show-proposed|accept|reject  read one, put it in the library, or delete it
 
-The gateway listens on every interface by default and enforces no origin rules: it is
-reachable the way a machine with a fresh, empty firewall table is. Narrow it by adding
-rules to gateway.allow - "lan", an address, a network, or "!any" for this machine only.
+The gateway listens on loopback by default, so only this machine reaches it.
+To reach it from another machine, prefer an SSH tunnel; or set gateway.listen to a LAN
+address or 0.0.0.0:7477 - it speaks plain HTTP, so the token travels unencrypted - and
+narrow who may connect with gateway.allow: "lan", an address, a network, or "!any".
 
 Environment variables: MOTITA_* (see README.md; also accepts OPENAI_API_KEY).
 `, config.Default().GatewayListen())
@@ -492,10 +495,10 @@ func parse(args []string) (flags, error) {
 				}
 				action := strings.ToLower(strings.TrimSpace(args[i+1]))
 				switch action {
-				case "status", "run", "list-archived":
+				case "status", "run", "list-archived", "list-proposed":
 					b.curatorAction = action
 					args = append(append([]string{}, args[:i]...), args[i+2:]...)
-				case "pin", "unpin", "restore":
+				case "pin", "unpin", "restore", "show-proposed", "accept", "reject":
 					if i+2 >= len(args) {
 						return b, fmt.Errorf("curator %s needs a skill name", action)
 					}
@@ -879,7 +882,10 @@ func (op Options) run(fl flags) int {
 	}
 
 	// Layer C: the sandbox.
-	box, err := op.newSandbox(SandboxOptions(cfg, log))
+	sandboxOptions := SandboxOptions(cfg, log)
+	// The file this run was configured from holds its key too, wherever it is.
+	sandboxOptions.HiddenPaths = config.SecretFiles(resolvedConfigPath(fl))
+	box, err := op.newSandbox(sandboxOptions)
 	if err != nil {
 		log.Error("could not prepare the sandbox", "error", err)
 		fmt.Fprintf(op.Err, "❌ could not prepare the sandbox: %v\n", err)
@@ -1113,6 +1119,7 @@ func SandboxOptions(cfg config.Config, log *logx.Logger) sandbox.Options {
 		ConfineWrites: cfg.Sandbox.ConfineWrites,
 		GitAuthDir:    config.AuthDir(),
 		GitHome:       config.HomeDir(),
+		HiddenPaths:   config.SecretFiles(""),
 		Log:           log,
 	}
 

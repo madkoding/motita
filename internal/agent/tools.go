@@ -23,7 +23,7 @@ func describeTools(sb config.Sandbox) string {
 ## TOOLS AND HOME
 - HOME is %s, outside the repository. Tools you install persist across rounds AND sessions in %s.
 - Before installing anything, check it is not already there: command -v <tool>, ls %s.
-- To install a toolchain, unpack it to %s/<name>/ (its bin/ is on PATH automatically from the next command on), or put single binaries in %s. Never install into the repository or system directories, never use sudo, and do not re-export PATH: it is already set.
+- To install a toolchain, unpack it to %s/<name>/ (its bin/ is on PATH automatically from the next command on), or put single binaries in %s; the user approves that command, an unapproved one cannot write there. Never install into the repository or system directories, never use sudo, and do not re-export PATH: it is already set.
 - Read the "installing-a-toolchain" procedure before installing one.
 `, filepath.Join(tools, "home"), tools, filepath.Join(tools, "tools"), filepath.Join(tools, "tools"), filepath.Join(tools, "bin"))
 }

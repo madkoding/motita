@@ -40,6 +40,8 @@ type Spec struct {
 	Environment    []string `json:"environment,omitempty"`
 	// WriteRoots, when set, are the only directories the command may write (see landlock_linux.go).
 	WriteRoots []string `json:"write_roots,omitempty"`
+	// HiddenPaths, with WriteRoots, are files and directories the command may not even read.
+	HiddenPaths []string `json:"hidden_paths,omitempty"`
 }
 
 // jsonMarshal is the serialiser used for the sandbox spec and for the isolation
@@ -129,7 +131,7 @@ func RunAsChild(args []string) error {
 	// parent only asks for it when the kernel offers it, so a failure here is a real one and the
 	// command must not run unconfined by accident.
 	if len(spec.WriteRoots) > 0 {
-		if err := confineWritesHook(spec.WriteRoots); err != nil {
+		if err := confineWritesHook(spec.WriteRoots, spec.HiddenPaths); err != nil {
 			return fmt.Errorf("could not confine writes: %w", err)
 		}
 	}

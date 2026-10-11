@@ -116,6 +116,20 @@ func unquoteShell(s string) string {
 	return b.String()
 }
 
+// SecretFiles are the files and directories of motita's that hold secrets, for the sandbox to
+// keep from the commands it confines: the logins, and the configuration with the key file beside
+// it, both the motita home's and, when another one was loaded, that one. A configuration can hold
+// llm.api_key and the gateway's tokens, so it counts as one. A path that cannot be made absolute
+// comes back empty and is ignored by the sandbox.
+func SecretFiles(loaded string) []string {
+	files := []string{AuthDir(), File(), CredentialsPath(File())}
+	if loaded != "" {
+		abs, _ := filepath.Abs(loaded)
+		files = append(files, abs, CredentialsPath(abs))
+	}
+	return files
+}
+
 // StoredCredentials is every variable the credentials file beside a configuration holds, for the
 // wizard: a user who runs it again to change the model should not have to paste their key again,
 // and the wizard can only offer to keep a key it can see.

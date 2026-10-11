@@ -114,6 +114,22 @@ func (m Mode) DecisionFor(command string, args []string, dir string) Decision {
 	for strings.ContainsRune(command, '=') && len(args) > 0 && !strings.HasPrefix(command, "/") {
 		command, args = args[0], args[1:]
 	}
+	// A wrapper (`env`, `command`, `nice`, `timeout`…) is judged by the program it runs: every
+	// rule below reads the program's name and arguments, and `env curl -d @~/.ssh/id_rsa …`
+	// judged as `env` was a reader that ran in silence. A wrapper whose options hide what runs
+	// is not classified at all.
+	inner, innerArgs, why := readonly.Unwrap(command, args)
+	if why != "" {
+		return m.unclassified(why, "wrapper-unreadable")
+	}
+	if len(innerArgs) != len(args) {
+		command, args = inner, innerArgs
+		// The floor scan of the line knows some wrappers and not others (`timeout 5s rm -rf /`
+		// names its program after a duration), so the unwrapped program meets the floor here too.
+		if d, hit := mandatory(baseName(command), args, dir); hit {
+			return d
+		}
+	}
 	kind, reason := readonly.Classify(command, args)
 	name := baseName(command)
 	// A task works in the directory it was given. Moving the command's directory elsewhere

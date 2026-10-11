@@ -37,7 +37,21 @@ type Decision struct {
 // operator deciding whether to extend the list.
 func Check(command string, args []string) Decision {
 	kind, reason := Classify(command, args)
-	name := strings.ToLower(filepath.Base(strings.TrimSpace(command)))
+	// The name the messages quote is the program that would run, not the wrapper in front of it.
+	inner, _, _ := Unwrap(command, args)
+	name := strings.ToLower(filepath.Base(strings.TrimSpace(inner)))
+
+	// A program named by a PATH is not the reader its base name is: `./evil/cat` is whatever
+	// the repository put there. Read-only mode runs programs by bare name, found through the
+	// system's PATH — and that holds for the program behind each wrapper as well.
+	if kind != KindMissing {
+		for c, a, more := command, args, true; more; c, a, _, more = unwrapOnce(c, a) {
+			if strings.ContainsAny(c, `/\`) {
+				return Decision{false, fmt.Sprintf("%q names a path, and read-only mode only runs "+
+					"programs by their bare name from the system PATH (for example `%s`)", c, name)}
+			}
+		}
+	}
 
 	switch kind {
 	case KindReader:

@@ -18,12 +18,14 @@ one is MEASURED rather than read off the markup:
 
 Usage: GATEWAY_URL=... GATEWAY_STATE=<token file> ./cdp_spinner.py
 """
-import asyncio, base64, json, os, subprocess, sys, time, urllib.request
+import asyncio, base64, json, os, pathlib, subprocess, sys, tempfile, time
+
+from cdp_http import fetch_json, chrome_env, LAUNCHER
 
 PORT = int(os.environ.get("CDP_PORT", "9355"))
 CHROME = os.environ.get("CHROME", os.path.expanduser(
     "~/.hermes/cache/chrome/chrome-headless-shell-linux64/chrome-headless-shell"))
-SHOTS = os.environ.get("SHOTS_DIR", os.path.join(os.environ.get("TMPDIR", "/tmp"), "motita-spinner"))
+SHOTS = os.environ.get("SHOTS_DIR") or tempfile.mkdtemp(prefix="motita-spinner-")
 
 
 class CDP:
@@ -57,8 +59,7 @@ class CDP:
 
     async def shot(self, path):
         r = await self.call("Page.captureScreenshot", format="png")
-        with open(path, "wb") as f:
-            f.write(base64.b64decode(r["data"]))
+        await asyncio.to_thread(pathlib.Path(path).write_bytes, base64.b64decode(r["data"]))
         return path
 
 
@@ -120,7 +121,7 @@ def gateway_says_running(base, token):
 async def main(ws_url):
     os.makedirs(SHOTS, exist_ok=True)
     base = os.environ["GATEWAY_URL"]
-    token = open(os.environ["GATEWAY_STATE"]).read().strip()
+    token = (await asyncio.to_thread(pathlib.Path(os.environ["GATEWAY_STATE"]).read_text)).strip()
     failures = 0
 
     import websockets
@@ -289,8 +290,7 @@ async def main(ws_url):
         await c.shot(f"{SHOTS}/spinner-done.png")
 
         samples = await c.js("clearInterval(window.__sampler); window.__samples")
-        with open(f"{SHOTS}/samples.json", "w") as f:
-            json.dump(samples, f)
+        await asyncio.to_thread(pathlib.Path(f"{SHOTS}/samples.json").write_text, json.dumps(samples))
 
         # The transition, from the page's own samples: each direction must pass
         # through a value strictly between 0 and 1.
@@ -393,8 +393,8 @@ def start_browser():
         return
     os.makedirs(SHOTS, exist_ok=True)
     subprocess.Popen(
-        [CHROME, "--headless", f"--remote-debugging-port={PORT}",
-         f"--user-data-dir={SHOTS}/cdp-profile", "--no-sandbox", "--disable-gpu", "about:blank"],
+        ["sh", LAUNCHER, "--headless", "--no-sandbox", "--disable-gpu", "about:blank"],
+        env=chrome_env(CHROME, PORT, profile=os.path.join(SHOTS, "cdp-profile")),
         stdout=open(f"{SHOTS}/chrome.log", "w"), stderr=subprocess.STDOUT, start_new_session=True)
     for _ in range(60):
         if subprocess.run(["curl", "-sf", "-o", "/dev/null",
@@ -408,8 +408,7 @@ if __name__ == "__main__":
     ws_url = None
     for _ in range(60):
         try:
-            with urllib.request.urlopen(f"http://127.0.0.1:{PORT}/json/list", timeout=1) as r:
-                pages = [t for t in json.load(r) if t.get("type") == "page"]
+            pages = [t for t in fetch_json(f"http://127.0.0.1:{PORT}/json/list", timeout=1) if t.get("type") == "page"]
             if pages:
                 ws_url = pages[0]["webSocketDebuggerUrl"]
                 break

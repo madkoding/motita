@@ -42,14 +42,12 @@ type Config struct {
 // Gateway is the HTTP face of the agent: what other front ends - a web page, a phone, a
 // desktop window - reach it through.
 //
-// It listens on the WILDCARD by default, and that is a deliberate change of posture: the gateway
-// comes up on every interface the way a machine with a fresh, empty firewall table accepts
-// everything, and what restricts it is the ordered rule list in Allow. The reasoning is that the
-// default nobody can use is not a safe default, it is a broken one - and an operator who binds
-// loopback and then discovers their phone cannot reach the agent has to learn about listen
-// addresses to fix it. The token is what stands between the network and an agent that runs
-// commands on this machine; the rules are how the operator narrows WHO that token may come from,
-// one rule at a time, which is the model a firewall taught everyone.
+// It listens on LOOPBACK by default. The gateway speaks plain HTTP and runs commands on this
+// machine, so exposing it to the network is an explicit act: setting Listen to a LAN address or
+// the wildcard, which the gateway then announces with a warning that the traffic (the token
+// included) is not encrypted. Once exposed, the ordered rule list in Allow narrows WHO may
+// connect, one rule at a time, which is the model a firewall taught everyone; the token is what
+// stands between the network and the agent.
 //
 // Loopback is always allowed regardless of the rules: the local interface and the local browser
 // reach the gateway that way, so a rule set that locked it out would leave the operator unable to
@@ -70,7 +68,12 @@ type Gateway struct {
 	// and any of them prefixed with "!" DENIES instead of allows. The FIRST RULE THAT MATCHES
 	// decides; an origin no rule matches is allowed, because the default policy is accept. So
 	// `["!any"]` means "this machine only" and `["lan", "!any"]` means "the local network".
-	Allow     []string `yaml:"allow"`
+	Allow []string `yaml:"allow"`
+	// Hosts are extra host NAMES the gateway answers to, for a reverse proxy or a DNS name in
+	// front of it. Without them it answers to an IP address, to localhost, to this machine's
+	// own host name and to the host in Listen; any other name in a request's Host header is
+	// refused, which is what stops a DNS-rebinding page from talking to it under its own name.
+	Hosts     []string `yaml:"hosts"`
 	MaxBodyKB int      `yaml:"max_body_kb"`
 	// MaxSessions caps how many conversations one process holds. Zero means the built-in
 	// default, which is what most setups want: the ceiling exists so a client that forgets to
@@ -404,7 +407,7 @@ func Default() Config {
 			// A collision with something else is reported at startup, naming the setting, and can
 			// be changed with gateway.listen or -gateway.
 			//
-			// Empty on purpose: it means "resolve the default", and the default is the wildcard
+			// Empty on purpose: it means "resolve the default", and the default is loopback
 			// on this fixed port. An address written here would be an EXPLICIT listen, which is
 			// for an operator who wants the socket somewhere specific - not for expressing who
 			// may connect, which is what Allow is for.
@@ -576,16 +579,17 @@ func expandHome(p string) string {
 
 // defaultGatewayListen is where the gateway listens when nothing else is configured.
 //
-// It is the WILDCARD on the fixed port, and both halves have a reason. The wildcard because the
-// gateway comes up reachable and an operator restricts it by ADDING a rule to gateway.allow - the
-// shape of a fresh firewall table - rather than by first learning about listen addresses. The
-// fixed port because the gateway can outlive the process that started it, and a later process has
+// It is LOOPBACK on the fixed port, and both halves have a reason. Loopback because the gateway
+// speaks plain HTTP and drives an agent that runs commands here: reaching it from another machine
+// is something the operator asks for by naming a LAN address or the wildcard in gateway.listen,
+// not something every install does silently (an SSH tunnel reaches a loopback gateway without
+// exposing it at all). The fixed port because the gateway can outlive the process that started it, and a later process has
 // to be able to find it: an ephemeral port is chosen at bind time, so an address that exists only
 // in the memory of one process is an address no other process can reach.
 //
 // 7477 is unassigned in the IANA registry (7475-7477 is "Unassigned"), absent from /etc/services,
 // and below the default ephemeral range on Linux, so it does not compete with outgoing connections.
-const defaultGatewayListen = "0.0.0.0:7477"
+const defaultGatewayListen = "127.0.0.1:7477"
 
 // defaultListenFor resolves the address the gateway will actually bind.
 //
@@ -597,11 +601,9 @@ const defaultGatewayListen = "0.0.0.0:7477"
 // An explicit listen wins, always: an operator who wrote an address meant that address, and a
 // setting that silently replaces what someone typed is indistinguishable from ignoring it.
 //
-// Otherwise the wildcard above is the answer. There is no second act and no flag that opens the
-// gateway, because the gateway is no longer CLOSED by default: what says who may reach it is the
-// rule list, and that is applied to the requests rather than to the socket. A bind address is a
-// socket's business; who may connect is a policy's, and conflating the two is what produced a
-// setting whose absence silently left the agent unreachable from the phone it was configured for.
+// Otherwise the loopback address above is the answer. Opening the gateway to the network is ONE
+// act - writing a non-loopback listen - with no second flag behind it; once open, who may connect
+// is the rule list, applied to the requests rather than to the socket.
 func defaultListenFor(g Gateway) string {
 	if listen := strings.TrimSpace(g.Listen); listen != "" {
 		return listen
@@ -970,6 +972,9 @@ func (c *Config) validateLLM(requireKey bool) error {
 			return fmt.Errorf("the LLM key is missing: set llm.api_key in the YAML or %s, or log in with `motita config`", ProviderKeyVariable(c.LLM.Provider))
 		}
 		return fmt.Errorf("the LLM key is missing: set llm.api_key in the YAML or %s", ProviderKeyVariable(c.LLM.Provider))
+	}
+	if c.LLM.APIKey != "" && IsClearTextToRemote(c.LLM.BaseURL) {
+		return fmt.Errorf("llm.base_url %q is plain http to a host outside this machine and its network: the key would travel in clear text, use https", c.LLM.BaseURL)
 	}
 	if c.LLM.MaxAttempts < 1 {
 		return fmt.Errorf("llm.max_attempts must be >= 1")

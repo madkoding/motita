@@ -17,7 +17,14 @@ agent_i386
 
 # Environment and secrets
 .env
+*.env
+.env.*
+!.env.example
+!*.env.example
 *.local
+*.pem
+*.key
+gateway.token
 
 # Editors
 .idea/
@@ -61,3 +68,6 @@ workspace/
 __pycache__/
 *.pyc
 node_modules/
+
+# Worktrees Claude Code agents create while working on this repository.
+/.claude/worktrees/

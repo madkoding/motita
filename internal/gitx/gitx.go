@@ -13,9 +13,10 @@
 //
 // It runs git as a subprocess and parses the result, which is deliberate. There
 // is no pure-Go git here and there must not be one: the repository being asked
-// is the user's, with the user's config, hooks and worktree registrations, and
-// only the user's git gives an answer that matches what a terminal in front of
-// that machine would show.
+// is the user's, with the user's config and worktree registrations, and only
+// the user's git gives an answer that matches what a terminal in front of that
+// machine would show. What it does NOT run is code the repository's config
+// names (hooks, an fsmonitor): see hardening.
 //
 // Every command is read-only except three: AddWorktree, RemoveWorktree and
 // MergeInto. Those are the mutations this package exists to perform, and each
@@ -76,11 +77,30 @@ const removeTimeout = 5 * time.Minute
 // removeTimeoutFor is removeTimeout as a variable, so a test can reach the expiry.
 var removeTimeoutFor = removeTimeout
 
+// hardening is passed to EVERY git this package runs. Those commands run as the user, outside
+// any sandbox, in a repository whose .git/config an agent (or a cloned project) may have
+// written: a core.fsmonitor command runs on `status`, and a hook runs on `commit`, `merge` and
+// `checkout`. A -c on the command line wins over every config file, so repository config
+// cannot bring code into a git this program starts.
+var hardening = []string{"-c", "core.hooksPath=/dev/null", "-c", "core.fsmonitor=false"}
+
+// Hardening is a copy of the -c options every git of this package runs with, for the few
+// callers outside it that start git themselves: put them before the subcommand.
+func Hardening() []string {
+	return append([]string(nil), hardening...)
+}
+
+// gitArgs is the argument list of one git run in dir: the hardening, then the command.
+func gitArgs(dir string, args ...string) []string {
+	full := append([]string{"-C", dir}, hardening...)
+	return append(full, args...)
+}
+
 // executeWithin runs git once in dir, killed after limit.
 func executeWithin(ctx context.Context, limit time.Duration, dir string, args ...string) (string, error) {
 	c, cancel := context.WithTimeout(ctx, limit)
 	defer cancel()
-	out, err := execCommand(c, "git", append([]string{"-C", dir}, args...)...)
+	out, err := execCommand(c, "git", gitArgs(dir, args...)...)
 	if err != nil && errors.Is(err, exec.ErrNotFound) {
 		return "", ErrNoGit
 	}
@@ -354,11 +374,11 @@ func parseCommits(out string) []Commit {
 // when the session began: the base branch may have moved since, and a recorded
 // number would then be a number that used to be true.
 func CommitsBetween(ctx context.Context, dir, baseBranch, branch string) (ahead, behind []Commit, err error) {
-	out, err := noGitOr(ctx, "could not read the branch's commits", dir, "log", "--format=%h\t%s", baseBranch+".."+branch)
+	out, err := noGitOr(ctx, "could not read the branch's commits", dir, "log", "--format=%h\t%s", "--end-of-options", baseBranch+".."+branch)
 	if err != nil {
 		return nil, nil, err
 	}
-	behindOut, err := noGitOr(ctx, "could not read the base branch's commits", dir, "log", "--format=%h\t%s", branch+".."+baseBranch)
+	behindOut, err := noGitOr(ctx, "could not read the base branch's commits", dir, "log", "--format=%h\t%s", "--end-of-options", branch+".."+baseBranch)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -559,7 +579,7 @@ func MergeInto(ctx context.Context, repoDir, baseBranch, branch, message string)
 	}
 	name, email := Identity(ctx, repoDir)
 	out, err := execute(ctx, repoDir, "-c", "user.name="+name, "-c", "user.email="+email,
-		"merge", "--no-ff", "--autostash", "-m", message, branch)
+		"merge", "--no-ff", "--no-verify", "--autostash", "-m", message, branch)
 	if err == nil {
 		sha, _ := execute(ctx, repoDir, "rev-parse", "--short", "HEAD")
 		return MergeResult{SHA: sha, Subject: message}, nil
@@ -587,7 +607,7 @@ func MergeInto(ctx context.Context, repoDir, baseBranch, branch, message string)
 // remote because pulling and merging blindly would change history the user did
 // not ask to merge.
 func PullFastForward(ctx context.Context, dir, branch string) error {
-	if _, err := noGitOr(ctx, "could not fetch the latest changes", dir, "fetch", "origin", branch); err != nil {
+	if _, err := noGitOr(ctx, "could not fetch the latest changes", dir, "fetch", "--", "origin", branch); err != nil {
 		return err
 	}
 	// A fetch is not a merge. The local branch must be able to move forward only.

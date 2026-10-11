@@ -39,6 +39,12 @@ const (
 // The returned reason is written for a person to read and, when the caller is relaying it
 // to a model, to act on.
 func Classify(command string, args []string) (Kind, string) {
+	// A wrapper is judged by the program it runs: `env curl …` is `curl …`. A wrapper whose
+	// options hide what runs cannot be judged at all, and is not the reader its name is.
+	command, args, why := Unwrap(command, args)
+	if why != "" {
+		return KindUnknown, why
+	}
 	trimmed := strings.TrimSpace(command)
 	if trimmed == "" || trimmed == "." || trimmed == "/" {
 		return KindMissing, "there is no command to run"

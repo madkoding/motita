@@ -40,15 +40,18 @@ import asyncio
 import base64
 import json
 import os
+import pathlib
+import tempfile
 import subprocess
 import time
-import urllib.request
+
+from cdp_http import fetch_json
 
 import websockets
 
 BASE = os.environ.get("GATEWAY_URL", "http://127.0.0.1:7477")
 CDP_PORT = int(os.environ.get("CDP_PORT", "9444"))
-SHOTS_DIR = os.environ.get("SHOTS_DIR", os.path.join(os.environ.get("TMPDIR", "/tmp"), "motita-row-menu-shots"))
+SHOTS_DIR = os.environ.get("SHOTS_DIR") or tempfile.mkdtemp(prefix="motita-row-menu-shots-")
 CHROME = os.path.expanduser(
     "~/.hermes/cache/chrome/chrome-headless-shell-linux64/chrome-headless-shell"
 )
@@ -218,8 +221,8 @@ MEASURE_JS = r"""
 
 
 async def run_measure(shot_path: str | None) -> dict:
-    proc = subprocess.Popen(
-        [
+    proc = await asyncio.create_subprocess_exec(
+        *[
             CHROME,
             f"--remote-debugging-port={CDP_PORT}",
             "--headless",
@@ -235,17 +238,14 @@ async def run_measure(shot_path: str | None) -> dict:
         ws_url = None
         for _ in range(80):
             try:
-                with urllib.request.urlopen(
-                    f"http://127.0.0.1:{CDP_PORT}/json/list", timeout=1
-                ) as resp:
-                    targets = json.load(resp)
+                targets = fetch_json(f"http://127.0.0.1:{CDP_PORT}/json/list", timeout=1)
                 pages = [t for t in targets if t.get("type") == "page"]
                 if pages:
                     ws_url = pages[0]["webSocketDebuggerUrl"]
                     break
             except Exception:
                 pass
-            time.sleep(0.25)
+            await asyncio.sleep(0.25)
         if not ws_url:
             raise RuntimeError("could not attach to Chrome")
 
@@ -296,11 +296,11 @@ async def run_measure(shot_path: str | None) -> dict:
             data = await js(MEASURE_JS)
             if shot_path:
                 res = await call("Page.captureScreenshot", format="png")
-                with open(shot_path, "wb") as fh:
-                    fh.write(base64.b64decode(res["data"]))
+                await asyncio.to_thread(pathlib.Path(shot_path).write_bytes, base64.b64decode(res["data"]))
             return data
     finally:
         proc.terminate()
+        await proc.wait()
 
 
 def main() -> int:

@@ -251,7 +251,7 @@ func (s *Server) syncProject(ctx context.Context, c *conversation, base string) 
 	ctx, cancel := context.WithTimeout(ctx, syncTimeout)
 	defer cancel()
 	for _, args := range [][]string{{"fetch", "origin", base}, {"merge", "--ff-only", "origin/" + base}} {
-		cmd := exec.CommandContext(ctx, "git", append([]string{"-C", p.Dir}, args...)...)
+		cmd := exec.CommandContext(ctx, "git", append(append([]string{"-C", p.Dir}, gitx.Hardening()...), args...)...)
 		cmd.Env = s.gitCommandEnv()
 		if out, err := cmd.CombinedOutput(); err != nil {
 			if s.opts.Log != nil {

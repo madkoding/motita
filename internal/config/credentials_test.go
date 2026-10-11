@@ -3,6 +3,7 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -28,6 +29,21 @@ func TestCredentialsPathIsBesideTheConfiguration(t *testing.T) {
 	}
 	if got := CredentialsPath("conf"); got != "conf.env" {
 		t.Fatalf("CredentialsPath without an extension = %q", got)
+	}
+}
+
+// The sandbox hides these from the commands it confines: the logins, the home's configuration and
+// key file, and the loaded configuration and its key file, made absolute.
+func TestSecretFilesNameTheLoginsTheConfigurationAndItsKeys(t *testing.T) {
+	t.Setenv("MOTITA_AUTH_DIR", "/auth")
+	home := File()
+	if got := strings.Join(SecretFiles(""), " "); got != "/auth "+home+" "+CredentialsPath(home) {
+		t.Errorf("without a loaded file: %s", got)
+	}
+	wd, _ := os.Getwd()
+	got := SecretFiles("conf/x.yaml")
+	if len(got) != 5 || got[3] != filepath.Join(wd, "conf/x.yaml") || got[4] != filepath.Join(wd, "conf/x.env") {
+		t.Errorf("a loaded file is made absolute and its key file named: %v", got)
 	}
 }
 

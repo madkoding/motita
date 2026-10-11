@@ -901,7 +901,8 @@ var writeFileAtomicFn = writeFileAtomic
 // so the destination is never half-written, and creates the directory if needed.
 func writeFileAtomic(path string, content []byte) error {
 	dir := filepath.Dir(path)
-	if err := os.MkdirAll(dir, 0o755); err != nil {
+	// The directory holds the credentials and the log: owner only.
+	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return fmt.Errorf("could not create %s: %w", dir, err)
 	}
 	tmp, err := createTemp(dir, ".motita-*.tmp")

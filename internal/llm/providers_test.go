@@ -27,6 +27,7 @@ func (rt rewriteTransport) RoundTrip(r *http.Request) (*http.Response, error) {
 	r2 := r.Clone(r.Context())
 	r2.URL.Scheme, r2.URL.Host = rt.target.Scheme, rt.target.Host
 	r2.Header.Set("X-Original-Host", r.URL.Host)
+	r2.Header.Set("X-Original-Scheme", r.URL.Scheme)
 	return http.DefaultTransport.RoundTrip(r2)
 }
 
@@ -294,6 +295,29 @@ func TestQwenKeyGoesToDashScopeAndLoginToItsResourceHost(t *testing.T) {
 	}
 	if host != "portal.qwen.ai" || auth != "Bearer qa" {
 		t.Errorf("login: host=%q auth=%q", host, auth)
+	}
+}
+
+// TestQwenLoginNeverSendsItsTokenInClearText: a resource host stored as "http://"
+// (by an older version, or because the server answered that) is reached over https.
+func TestQwenLoginNeverSendsItsTokenInClearText(t *testing.T) {
+	withLogin(t, oauth.Credential{Provider: "qwen", AccessToken: "qa", RefreshToken: "qr", BaseURL: "http://portal.qwen.ai/v1", ExpiresAt: time.Now().Add(time.Hour)})
+	var scheme, host string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		scheme, host = r.Header.Get("X-Original-Scheme"), r.Header.Get("X-Original-Host")
+		fmt.Fprint(w, `{"choices":[{"message":{"content":"ok"},"finish_reason":"stop"}]}`)
+	}))
+	defer srv.Close()
+	c, err := New(config.LLM{Provider: "qwen", Model: "qwen3-coder-plus", MaxAttempts: 1}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	reroute(t, c, srv)
+	if _, err := c.Complete(context.Background(), []Message{{Role: "user", Content: "x"}}); err != nil {
+		t.Fatal(err)
+	}
+	if scheme != "https" || host != "portal.qwen.ai" {
+		t.Errorf("the login token went to %s://%s, want https://portal.qwen.ai", scheme, host)
 	}
 }
 

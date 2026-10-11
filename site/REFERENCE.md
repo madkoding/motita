@@ -74,7 +74,9 @@ A hand-written client (no SDK) for three API families: **OpenAI-compatible**
 (`:generateContent`). The OpenAI-compatible implementation accepts any `base_url`,
 so it works with OpenAI, Ollama Cloud, Groq, OpenRouter, DeepSeek, and similar
 hosts. All providers are normalised to the same message structure, so the rest of
-the agent does not know which one is behind it.
+the agent does not know which one is behind it. A key is never sent in clear text:
+a plain `http://` `base_url` is refused when `api_key` is set unless it points at
+this machine or a private network address.
 
 - Reads the context: task, plan, attempt number and **the records of previous
   failures**.
@@ -97,6 +99,7 @@ about what could not be applied**:
 | Ephemeral temp directory | its own `TMPDIR` per attempt, deleted at the end | none |
 | `ulimit` limits | CPU, memory (address space), processes, file descriptors, max file size | none |
 | cgroups v1 | a real cap on memory and PIDs (`RLIMIT_AS` is only an approximation) | kernel with cgroups v1 and write permission |
+| cgroup v2 per run | every process a command started is killed when it ends, one that left the process group with `setsid` too | a writable cgroup v2 tree (root, or a delegated user slice) and `clone3`; without it, the process group alone |
 | chroot + privilege drop | restricted filesystem root and an unprivileged user | being root |
 | `CLONE_NEWNET` | no network inside the command | `CAP_SYS_ADMIN` |
 
@@ -141,9 +144,19 @@ Details that took real work and are solved in the code:
   return. With its own process group plus `SIGKILL` to the group it cuts at the
   exact deadline (measured: infinite loop with `cpu_seconds: 2` → cut at
   **2.002 s**).
+  A process that called `setsid` leaves that group: where motita can make a cgroup v2
+  group, each run's child starts inside one (`CLONE_INTO_CGROUP`) and `cgroup.kill`
+  ends whatever is left in it when the run ends.
 - **The command does not inherit the agent's secrets**: the environment is built
   from scratch, with no `OPENAI_API_KEY` or `MOTITA_LLM_API_KEY` inside the
   command.
+- **What a command prints is sent to the model provider.** Its output goes into
+  the next prompt and into the transcript, so motita masks the secrets it
+  recognises first (`Authorization` headers, `sk-…`, `ghp_…`/`github_pat_…`,
+  `AKIA…`, `AIza…`, `xox?-…`, private key blocks, `user:password@` in URLs,
+  `token=`/`key=`/`secret=`/`password=` parameters) as `[REDACTED]`. It is a
+  pattern scrubber, not a guarantee: a secret of another shape still reaches
+  the provider, so keep real credentials out of the workspace.
 
 ---
 
@@ -438,7 +451,7 @@ build flags (`-trimpath -ldflags "-s -w"`, no cgo):
 
 The whole range is 6.88 – 7.66 MB as measured when the interface was a text one; the web
 interface, the WebSocket transport and scheduled tasks have since added to that. The
-requirement CI enforces is under 20 MB per binary. The sizes move with the Go release, so
+requirement CI enforces is under 24 MB per binary. The sizes move with the Go release, so
 treat them as measurements rather than specifications: the gate is the limit, not these
 numbers, and it is there to catch runaway growth rather than to bound a feature.
 
@@ -483,13 +496,13 @@ honoured. The documented one wins when both are set.
 |---|---|
 | `task_source` | `kind` (`stdin`/`file`/`api`/`queue`), `path`, `dir`, `url`, `method`, `field`, `interval`, `headers`, `body` |
 | `anchor` | `kind` (`auto`/`command`/`none`), `command`, `args`, `timeout`, `expect_exit`, `expect_output` (regex), `baseline` (bool, default `true`, `kind: auto` only: a check that fails on a claim of done is run again on a clean checkout of the starting commit, and one that failed there too is reported as already failing instead of blocking), `checks[]` |
-| `sandbox` | `kind` (`none`/`chroot`/`cgroups`), `root`, `user`, `memory_mb`, `cpu_seconds`, `processes`, `open_files`, `max_file_size_mb`, `isolate_network`, `cgroups`, `cgroup_root`, `timeout`, `check_timeout`, `keep_ephemeral`, `max_output_kb`, `tools_dir`, `confine_writes` (default `true`: on Linux a command can write only under the working directory, the tools directory and its own temp directory, even from a script that changes directory; a command you approve is exempt) |
+| `sandbox` | `kind` (`none`/`chroot`/`cgroups`), `root`, `user`, `memory_mb`, `cpu_seconds`, `processes`, `open_files`, `max_file_size_mb`, `isolate_network`, `cgroups`, `cgroup_root`, `timeout`, `check_timeout`, `keep_ephemeral`, `max_output_kb`, `tools_dir`, `confine_writes` (default `true`: on Linux a command can write only under the working directory, the HOME in the tools directory (not its `bin/` or `tools/`) and its own temp directory, even from a script that changes directory, and cannot read motita's logins, its configuration and `motita.env`, or your git credential store; a command you approve is exempt) |
 | `llm` | `provider` (`openai`/`codex`/`copilot`/`ollama`/`anthropic`/`claude-code`/`gemini`/`qwen`), `model`, `api_key`, `base_url`, `max_tokens` (output ceiling; the client learns a model's own limit from the provider's refusal and stays within it, and an answer cut off before any text is asked again with a larger budget; reasoning models spend it on hidden thinking, so give them up to `65536`), `temperature`, `timeout`, `max_attempts`, `backoff_initial`, `backoff_max`, `reasoning{enabled,level}`, `session{context_window,reserve,compact_at,keep_recent}` |
 | `prompts` | `analyze`, `plan`, `execute`, `synthesize`, each with `system` and `user` |
 | `final_action` | `kind` (`none`/`command`/`api`/`git_commit`), `command`, `args`, `url`, `method`, `commit_message` |
 | `agent` | `max_retries`, `max_steps`, `subtask_depth`, `max_parallel` (background agents started with `spawn_agent` running at once, default `3`; `0` turns it off), `max_tasks`, `workspace_dir`, `log_file`, `log_level`, `log_console`, `log_max_mb`, `log_backups`, `graceful_shutdown_timeout`, `read_only`, `shell`, `policy{enforce,strict}`, `on_failure` |
 | `skills` | `dir`, `max_file_bytes` |
-| `gateway` | `enabled`, `listen`, `token_file`, `allow`, `max_body_kb`, `webui`, `show_actions` (bool, default `false`: the chat shows a counter of the commands and actions a turn ran instead of each one; the web UI's counter expands on click) |
+| `gateway` | `enabled`, `listen`, `token_file`, `allow`, `hosts`, `max_body_kb`, `webui`, `show_actions` (bool, default `false`: the chat shows a counter of the commands and actions a turn ran instead of each one; the web UI's counter expands on click) |
 | `schedule` | `enabled`, `tick`, `min_every`, `max_runs_kept` |
 | `ui` | `language` (`auto`/`en`/`es`, default `auto`: the language of the terminal, the browser and the setup wizard; `auto` follows the locale and the browser) |
 
@@ -594,9 +607,10 @@ interface is a client of it.
 | Setting | Default | Effect |
 |---|---|---|
 | `enabled` | `true` | The HTTP face. Off is one deliberate act, for a machine that must not listen at all. |
-| `listen` | *empty* | `host:port`, and **empty means "resolve it"**: the wildcard `0.0.0.0:7477`, which is what the program binds unless you name something else. A **fixed** port, because the gateway can outlive the process that started it and a later process has to find it. Port `0` still works and asks the kernel for a free one, but the address then exists only in that process' memory, so nothing else can reach it. The address says where the **socket** is open and nothing about who may connect, which is `allow`. |
+| `listen` | *empty* | `host:port`, and **empty means "resolve it"**: loopback `127.0.0.1:7477`, so only this machine reaches it unless you name something else. Naming a LAN address or `0.0.0.0:7477` exposes it on the network over **plain HTTP** (the token travels unencrypted, and the gateway warns about it when it opens); an SSH tunnel to the loopback default avoids that. A **fixed** port, because the gateway can outlive the process that started it and a later process has to find it. Port `0` still works and asks the kernel for a free one, but the address then exists only in that process' memory, so nothing else can reach it. The address says where the **socket** is open and nothing about who may connect, which is `allow`. |
 | `token_file` | `gateway.token` | Where the bearer token lives, under the motita home. Generated on first use with 32 random bytes, mode `0600`. |
 | `allow` | *empty* | **Who may connect**, as an ordered list of rules. Empty means every origin — the fresh-firewall-table default. Entries: `any`, `lan`, an address (`192.168.1.10`), a network (`192.168.0.0/16`), each optionally prefixed with `!` to deny. The first rule that matches decides; an origin no rule matches is allowed. Loopback is always allowed. See the rules table above. Also read from `MOTITA_GATEWAY_ALLOW`, comma- or space-separated. |
+| `hosts` | *empty* | Extra host **names** the gateway answers to, for a reverse proxy or a DNS name in front of it. An IP address, `localhost`, this machine's host name (and its `.local` name) and the host in `listen` are always accepted; a request whose `Host` header names anything else is refused with `421`, which is what stops a DNS-rebinding page from reaching the gateway under its own name. |
 | `max_body_kb` | `256` | Cap on a request body. |
 | `max_sessions` | `0` | How many conversations one process holds IN MEMORY. `0` means the built-in default (64). The ceiling bounds how many transcripts are resident; conversations beyond it stay on disk and are re-materialised on demand. A negative ceiling is refused rather than read as the default, which would hide the typo that produced it. |
 | `artifact_days` | `30` | Days a saved artifact (a file the agent produced, or one you uploaded) is kept; older ones are deleted when the gateway starts and once a day. The folders of sessions and projects that no longer exist are removed too. `0` keeps artifacts for ever; a negative number is refused. Also read from `MOTITA_GATEWAY_ARTIFACT_DAYS`. |
@@ -701,8 +715,9 @@ a pipeline gets the answer and nothing else. It is the mode a script uses, and t
 a client is useful on a machine with no terminal. `-serve` and `-connect` together are
 refused: one makes this process the gateway, the other a client of one.
 
-Exposing the gateway is **the posture of a fresh firewall table**: it comes up bound to
-the wildcard, and **nothing is restricted until you add a rule**. Rules live in
+The gateway comes up bound to **loopback**; exposing it is one explicit act, a
+non-loopback `gateway.listen`. Once exposed it takes **the posture of a fresh firewall
+table**: **nothing is restricted until you add a rule**. Rules live in
 `gateway.allow` (or `MOTITA_GATEWAY_ALLOW`, comma- or space-separated) and are
 **ordered** — the first one that matches decides:
 
@@ -1066,6 +1081,10 @@ curator:
 | `DELETE /v1/skills/{name}` | delete one for good, telemetry included; a shipped procedure is refused with `409` |
 | `GET /v1/skills/archived` | the names of everything in the archive |
 | `POST /v1/skills/{name}/restore` | bring an archived document back |
+| `GET /v1/skills/proposed` | the skills the background review proposed, waiting for you |
+| `GET /v1/skills/proposed/{name}` | one proposal, **with its body**, to read before deciding |
+| `POST /v1/skills/proposed/{name}/accept` | put a proposal in the library, replacing a skill of the same name |
+| `DELETE /v1/skills/proposed/{name}` | reject a proposal: it is deleted |
 | `GET /v1/curator` | the thresholds, the last pass, and the lifecycle counts |
 | `POST /v1/curator/run` | run one pass now: `consolidate`, `dry_run` |
 
@@ -1097,9 +1116,18 @@ motita curator pin build-firmware
 motita curator unpin build-firmware
 motita curator list-archived
 motita curator restore build-firmware
+motita curator list-proposed           # what the background review proposed
+motita curator show-proposed deploy    # read one before deciding
+motita curator accept deploy           # into the library: sessions use it from now on
+motita curator reject deploy           # deleted
 ```
 
-**`curator status`, `pin`, `unpin`, `restore` and `list-archived` never need an API
+**What the background review saves is a proposal.** It replays a transcript that holds
+tool output, files and web pages, any of which can be written to steer a model, so its
+saves land in `.proposed/` inside the library and no session reads them until you accept
+one: here, or in the web interface's skills window.
+
+**`curator status`, `pin`, `unpin`, `restore`, `list-archived` and the proposal actions never need an API
 key**, and each one still reads a configuration that names no key — tidying a shelf
 is filesystem work, and requiring a model to sort files is requiring a model to do
 something that does not use one. `--consolidate` is the exception, deliberately: that
@@ -1299,6 +1327,8 @@ jq -r 'select(.msg=="task completed") | .task' workspace/motita.log
 ```
 
 `log_max_mb` and `log_backups` control the rotation (`motita.log.1`, `.2`, …).
+The log records whole commands, so it is created readable by its owner only
+(`0600`, in a `0700` directory) and the same secret patterns are masked in it.
 
 ---
 

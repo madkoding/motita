@@ -9,11 +9,12 @@ import (
 	"github.com/madkoding/motita/internal/curator"
 	"github.com/madkoding/motita/internal/llm"
 	"github.com/madkoding/motita/internal/procedures"
+	"github.com/madkoding/motita/internal/tui"
 )
 
 // curatorActions is the list every rejection prints. It is ONE constant so the parser's
 // message and the help below cannot drift into disagreeing about what exists.
-const curatorActions = "status, run, pin, unpin, restore or list-archived"
+const curatorActions = "status, run, pin, unpin, restore, list-archived, list-proposed, show-proposed, accept or reject"
 
 const curatorCommandHelp = `Usage: motita curator <action>
 
@@ -26,6 +27,10 @@ Actions:
   unpin <skill>          remove that exemption
   restore <skill>        bring an archived skill back
   list-archived          everything in the skills archive
+  list-proposed          skills the background review proposed, waiting for you
+  show-proposed <skill>  read a proposed skill before deciding
+  accept <skill>         put a proposed skill in the library, where sessions use it
+  reject <skill>         delete a proposed skill
 `
 
 // runCuratorCommand dispatches `motita curator <action>`.
@@ -99,6 +104,33 @@ func (op Options) runCuratorCommand(ctx context.Context, fl flags) int {
 			fmt.Fprintln(op.Out, n)
 		}
 		return Success
+	case "list-proposed":
+		names, err := procs.Library.Proposed()
+		if err != nil {
+			fmt.Fprintf(op.Err, "❌ %v\n", err)
+			return RunError
+		}
+		if len(names) == 0 {
+			fmt.Fprintln(op.Out, "no skill is waiting for review.")
+			return Success
+		}
+		for _, n := range names {
+			fmt.Fprintln(op.Out, n)
+		}
+		return Success
+	case "show-proposed":
+		sk, err := procs.Library.Proposal(fl.curatorSkill)
+		if err != nil {
+			fmt.Fprintf(op.Err, "❌ %v\n", err)
+			return RunError
+		}
+		// The body was written by a model that read untrusted text: shown, not obeyed.
+		fmt.Fprint(op.Out, tui.EscapeControls(sk.Body))
+		return Success
+	case "accept":
+		return op.reportSkillAction(procs.Library.AcceptProposal(fl.curatorSkill), fl.curatorSkill, "accepted")
+	case "reject":
+		return op.reportSkillAction(procs.Library.RejectProposal(fl.curatorSkill), fl.curatorSkill, "rejected")
 	default:
 		// Unreachable through the command line, and kept because this function must not
 		// DEPEND on parse having validated it: a second caller that forgot would fall off

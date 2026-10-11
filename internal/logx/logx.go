@@ -15,6 +15,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/madkoding/motita/internal/redact"
 )
 
 // Level of severity.
@@ -100,13 +102,17 @@ func New(op Options) (*Logger, error) {
 	}
 
 	if op.Path != "" {
-		if err := os.MkdirAll(filepath.Dir(op.Path), 0o755); err != nil {
+		// The log records whole commands and their output: only the owner may
+		// read it.
+		if err := os.MkdirAll(filepath.Dir(op.Path), 0o700); err != nil {
 			return nil, fmt.Errorf("could not create the log directory %q: %w", filepath.Dir(op.Path), err)
 		}
-		f, err := os.OpenFile(op.Path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
+		f, err := os.OpenFile(op.Path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
 		if err != nil {
 			return nil, fmt.Errorf("could not open the log %q: %w", op.Path, err)
 		}
+		// A log created by an older version may still be world-readable.
+		_ = f.Chmod(0o600)
 		l.file = f
 		l.path = op.Path
 		if info, err := f.Stat(); err == nil {
@@ -157,7 +163,7 @@ func (l *Logger) log(level Level, msg string, fields ...any) {
 	event := make(map[string]any, 3+len(fields)/2)
 	event["ts"] = time.Now().Format(time.RFC3339Nano)
 	event["level"] = level.String()
-	event["msg"] = msg
+	event["msg"] = redact.String(msg)
 	for i := 0; i+1 < len(fields); i += 2 {
 		key, ok := fields[i].(string)
 		if !ok {
@@ -214,7 +220,7 @@ func (l *Logger) rotateIfNeeded() {
 		os.Remove(l.path)
 	}
 
-	f, err := os.OpenFile(l.path, os.O_CREATE|os.O_WRONLY|os.O_APPEND|os.O_TRUNC, 0o644)
+	f, err := os.OpenFile(l.path, os.O_CREATE|os.O_WRONLY|os.O_APPEND|os.O_TRUNC, 0o600)
 	if err != nil {
 		// Without a file we carry on with the console: the agent must not die
 		// because of the log.
@@ -241,11 +247,20 @@ func (l *Logger) RotatedFiles() []string {
 	return out
 }
 
-// jsonValue converts types that are not directly serializable (errors).
+// jsonValue converts types that are not directly serializable (errors) and
+// masks secrets in text, so a token in a command or a URL never reaches the log.
 func jsonValue(v any) any {
 	switch t := v.(type) {
+	case string:
+		return redact.String(t)
+	case []string:
+		out := make([]string, len(t))
+		for i, s := range t {
+			out[i] = redact.String(s)
+		}
+		return out
 	case error:
-		return t.Error()
+		return redact.String(t.Error())
 	case time.Duration:
 		return t.String()
 	default:

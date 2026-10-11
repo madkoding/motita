@@ -11,8 +11,10 @@
 //
 //   - A session with NO project sees the shared shelf and the shipped procedures.
 //   - A session INSIDE a project sees its own documents, plus the shared shelf, plus the
-//     shipped procedures — with its own document winning over a shared or shipped one of the
-//     same name.
+//     shipped procedures — with its own document winning over a shared one of the same name.
+//     A project's documents can come with a clone, so they are UNTRUSTED: they never replace
+//     a shipped procedure, they are never read or written through a symbolic link, and they
+//     are marked so the model reads them as data.
 //   - Nothing written inside a project is visible to another project, or to a session with no
 //     project at all.
 //
@@ -37,6 +39,7 @@
 package projectskills
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -72,7 +75,9 @@ func Scope(l *skills.Library, projectDir string) {
 		return
 	}
 	shared := l.Root()
-	l.Overlay = &skills.Overlay{Secondary: shared, Primary: filepath.Join(projectDir, SharedDirName)}
+	// The project's directory arrives with a clone, so it is the untrusted layer: no symlinks
+	// on the way into it, no replacing a shipped procedure, and every document marked.
+	l.Overlay = &skills.Overlay{Secondary: shared, Primary: filepath.Join(projectDir, SharedDirName), Base: projectDir}
 }
 
 // Prepare creates the project's procedure directory. It is separated from Scope because
@@ -86,6 +91,15 @@ func Scope(l *skills.Library, projectDir string) {
 func Prepare(projectDir string) error {
 	if strings.TrimSpace(projectDir) == "" {
 		return nil
+	}
+	// A repository can ship .motita, or .motita/skills, as a symbolic link: MkdirAll would then
+	// create directories wherever it points.
+	cur := projectDir
+	for _, part := range strings.Split(SharedDirName, "/") {
+		cur = filepath.Join(cur, part)
+		if fi, err := os.Lstat(cur); err == nil && fi.Mode()&os.ModeSymlink != 0 {
+			return fmt.Errorf("%s is a symbolic link: the project's skills are not written through it", cur)
+		}
 	}
 	return os.MkdirAll(filepath.Join(projectDir, SharedDirName), 0o755)
 }

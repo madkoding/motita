@@ -74,7 +74,7 @@ func buildChangeReport(ctx context.Context, workspace, rev string) changeReport 
 		if len(rep.Previews) == maxPreviews {
 			break
 		}
-		if ev, ok := readPreview(p); ok {
+		if ev, ok := readPreview(workspace, p); ok {
 			rep.Previews = append(rep.Previews, ev)
 		}
 	}
@@ -82,10 +82,17 @@ func buildChangeReport(ctx context.Context, workspace, rev string) changeReport 
 }
 
 // readPreview loads one picture as a data: URL, or reports that it is not usable (missing,
-// too large).
-func readPreview(path string) (previewEvent, bool) {
-	fi, err := os.Stat(path)
-	if err != nil || fi.IsDir() || fi.Size() == 0 || fi.Size() > maxPreviewBytes {
+// too large, not a regular file, or outside workspace).
+//
+// The workspace is written by the agent, so a "screenshot" can be a symlink to any file this
+// process can read. Lstat refuses a symlinked file, and the folder it sits in must resolve inside
+// the workspace, which refuses a symlinked PreviewDir as well.
+func readPreview(workspace, path string) (previewEvent, bool) {
+	fi, err := os.Lstat(path)
+	if err != nil || !fi.Mode().IsRegular() || fi.Size() == 0 || fi.Size() > maxPreviewBytes {
+		return previewEvent{}, false
+	}
+	if !insideWorkspace(workspace, filepath.Dir(path)) {
 		return previewEvent{}, false
 	}
 	b, err := os.ReadFile(path)
@@ -100,6 +107,17 @@ func readPreview(path string) (previewEvent, bool) {
 		Name: filepath.Base(path),
 		URL:  "data:" + typ + ";base64," + base64.StdEncoding.EncodeToString(b),
 	}, true
+}
+
+// insideWorkspace reports whether dir, with every symlink resolved, is workspace or below it.
+func insideWorkspace(workspace, dir string) bool {
+	root, errRoot := filepath.EvalSymlinks(workspace)
+	real, errReal := filepath.EvalSymlinks(dir)
+	if errRoot != nil || errReal != nil {
+		return false
+	}
+	rel, err := filepath.Rel(root, real)
+	return err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator))
 }
 
 // clearPreviews empties the screenshot folder before a run. A missing folder is the normal case.

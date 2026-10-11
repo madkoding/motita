@@ -140,6 +140,27 @@ func TestReadSkillReturnsTheProcedure(t *testing.T) {
 	}
 }
 
+// TestAProjectRepositorysSkillIsMarkedUntrusted: plan mode reads the same scoped library, and a
+// document that came with a clone is marked wherever the model sees it.
+func TestAProjectRepositorysSkillIsMarkedUntrusted(t *testing.T) {
+	lib := libOf(t, nil)
+	project := t.TempDir()
+	lib.Overlay = &skills.Overlay{Primary: filepath.Join(project, ".motita", "skills"), Secondary: lib.Dir, Base: project}
+	if _, err := lib.Save("repo-build", "# Repo build\n\nRun make.\n"); err != nil {
+		t.Fatal(err)
+	}
+	p := (&Planner{}).WithLibrary(lib)
+	for name, got := range map[string]string{
+		"read":   p.toolReadSkill(raw(`{"name":"repo-build"}`)),
+		"list":   p.toolListSkills(),
+		"search": p.toolSearchSkills(raw(`{"query":"repo build"}`)),
+	} {
+		if !strings.Contains(got, "repository") {
+			t.Errorf("%s must mark the project's document:\n%s", name, got)
+		}
+	}
+}
+
 // TestReadSkillSaysWhenThereIsNoSuchSkill: the model has to be able to recover by listing what
 // there is, so the answer points at the index rather than reporting an I/O failure.
 func TestReadSkillSaysWhenThereIsNoSuchSkill(t *testing.T) {

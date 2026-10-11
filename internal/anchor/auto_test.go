@@ -371,3 +371,43 @@ func TestPlannedNamesTheGateWithoutRunningIt(t *testing.T) {
 		t.Error("planning must not run anything")
 	}
 }
+
+// TestGateFingerprint: the fingerprint changes with what defines the gate - a new .motita/anchor,
+// a Makefile's recipe, package.json's scripts - and with nothing else: not a dependency added to
+// package.json, not the directory the same tree is in. A configured anchor has none.
+func TestGateFingerprint(t *testing.T) {
+	dir := t.TempDir()
+	fp := func() string { return autoAnchor(dir).GateFingerprint() }
+	writeFile(t, dir, "Makefile", "check:\n\tgo test ./...\n")
+	writeFile(t, dir, "package.json", `{"scripts":{"test":"jest"},"dependencies":{"a":"1"}}`)
+	start := fp()
+	if start == "" || fp() != start {
+		t.Fatalf("the fingerprint must be stable: %q", start)
+	}
+	other := t.TempDir()
+	writeFile(t, other, "Makefile", "check:\n\tgo test ./...\n")
+	writeFile(t, other, "package.json", `{"scripts":{"test":"jest"},"dependencies":{"a":"1"}}`)
+	if autoAnchor(other).GateFingerprint() != start {
+		t.Error("the same tree in another directory must read the same")
+	}
+
+	writeFile(t, dir, "package.json", `{"scripts":{"test":"jest"},"dependencies":{"a":"2","b":"1"}}`)
+	if fp() != start {
+		t.Error("a dependency change is not a gate change")
+	}
+	for _, change := range []struct{ name, body string }{
+		{"package.json", `{"scripts":{"test":"exit 0"}}`},
+		{"package.json", `not json`},
+		{"Makefile", "check:\n\ttrue\n"},
+		{".motita/anchor", "true\n"},
+	} {
+		before := fp()
+		writeFile(t, dir, change.name, change.body)
+		if fp() == before {
+			t.Errorf("%s = %q must change the fingerprint", change.name, change.body)
+		}
+	}
+	if New(config.Anchor{Kind: "command", Command: "true"}, dir, nil).GateFingerprint() != "" {
+		t.Error("a configured anchor has no fingerprint")
+	}
+}

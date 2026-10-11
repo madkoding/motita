@@ -1,6 +1,7 @@
 package gateway
 
 import (
+	"crypto/tls"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -292,5 +293,41 @@ func TestThePageSendsNoCorsHeaderEither(t *testing.T) {
 		if got := resp.Header.Get(h); got != "" {
 			t.Fatalf("%s: %q on the page. The browser is same-origin with the API; nothing needs this", h, got)
 		}
+	}
+}
+
+// Secure follows the connection: set when the browser came in over TLS (directly or through a
+// proxy that terminates it), absent over plain http where a browser would refuse to send it. Every
+// other protection is on either way.
+func TestTheCookieIsSecureOnlyOverTLS(t *testing.T) {
+	plain := httptest.NewRequest(http.MethodPost, "/v1/webui/session", nil)
+	proxied := httptest.NewRequest(http.MethodPost, "/v1/webui/session", nil)
+	proxied.Header.Set("X-Forwarded-Proto", "https")
+	direct := httptest.NewRequest(http.MethodPost, "/v1/webui/session", nil)
+	direct.TLS = &tls.ConnectionState{}
+	for name, tc := range map[string]struct {
+		r    *http.Request
+		want bool
+	}{"plain http": {plain, false}, "behind a TLS proxy": {proxied, true}, "direct TLS": {direct, true}} {
+		for _, maxAge := range []int{3600, -1} {
+			w := httptest.NewRecorder()
+			setSessionCookie(w, tc.r, "v", maxAge)
+			cs := w.Result().Cookies()
+			if len(cs) != 1 {
+				t.Fatalf("%s: %d cookies", name, len(cs))
+			}
+			c := cs[0]
+			if c.Secure != tc.want || !c.HttpOnly || c.SameSite != http.SameSiteStrictMode || c.Path != "/" || c.Name != webuiCookie || c.Value != "v" {
+				t.Errorf("%s: %+v", name, c)
+			}
+			if (maxAge < 0) != (c.MaxAge < 0) || (maxAge > 0 && c.MaxAge != maxAge) {
+				t.Errorf("%s: MaxAge %d for %d", name, c.MaxAge, maxAge)
+			}
+		}
+	}
+	w := httptest.NewRecorder()
+	(&Server{}).handleWebUILogout(w, proxied)
+	if cs := w.Result().Cookies(); len(cs) != 1 || !cs[0].Secure || cs[0].MaxAge >= 0 {
+		t.Errorf("the logout cookie must expire the session with the same attributes: %+v", cs)
 	}
 }

@@ -32,6 +32,8 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
+	"syscall"
 	"time"
 
 	"github.com/madkoding/motita/internal/execx"
@@ -83,10 +85,10 @@ type Options struct {
 	// toolchains, its HOME and its temporary directories live. Empty keeps the old
 	// layout (HOME and TMPDIR inside the working directory). See tools.go.
 	ToolsDir string
-	// ConfineWrites restricts what a command can WRITE to the working directory, the tools
-	// directory, its own temporary directory and the git directories a worktree needs, whatever
-	// the command does (Linux, Landlock). A request marked Unconfined, one the user approved, is
-	// exempt. Reads are never restricted.
+	// ConfineWrites restricts what a command can WRITE to the working directory, the HOME in the
+	// tools directory, its own temporary directory and the git directories a worktree needs,
+	// whatever the command does (Linux, Landlock). A request marked Unconfined, one the user
+	// approved, is exempt. Reads are restricted only for HiddenPaths.
 	ConfineWrites bool
 	// GitAuthDir is the directory of the git logins and GitHome the user's real home. They
 	// give the git the agent runs what the user's terminal has: the user's own git
@@ -94,7 +96,11 @@ type Options struct {
 	// sandbox's HOME. Both empty leaves the environment as it was.
 	GitAuthDir string
 	GitHome    string
-	Log        *logx.Logger
+	// HiddenPaths are files and directories a confined command may not read: motita's logins and
+	// stored keys, which no command needs. Like the write confinement, it spares what the user
+	// approved, which also keeps motita's logins for git.
+	HiddenPaths []string
+	Log         *logx.Logger
 }
 
 // Sandbox runs commands in a controlled environment.
@@ -105,7 +111,14 @@ type Sandbox struct {
 	base       string
 	executable string
 	notApplied []string
+	// gitRoots are the git directories the base worktree writes outside it, read once here,
+	// before any command could rewrite its `.git` file.
+	gitRoots []string
 }
+
+// noRunGroups is set once a child could not be started inside a run's cgroup. What refused it
+// is the kernel or the machine's permissions, the same for every sandbox of this process.
+var noRunGroups atomic.Bool
 
 // New prepares the sandbox and detects which isolation is really available.
 func New(op Options) (*Sandbox, error) {
@@ -133,7 +146,11 @@ func New(op Options) (*Sandbox, error) {
 		return nil, fmt.Errorf("could not locate this very executable (needed for the isolation): %w", err)
 	}
 
-	s := &Sandbox{op: op, log: op.Log, base: abs, executable: selfExecutable}
+	s := &Sandbox{op: op, log: op.Log, base: abs, executable: selfExecutable, gitRoots: gitDirs(abs)}
+
+	if err := hideFromChildren(); err != nil {
+		s.notApplied = append(s.notApplied, "process hiding: a command can read motita's environment in /proc: "+err.Error())
+	}
 
 	if op.UseChroot {
 		switch {
@@ -190,6 +207,17 @@ func New(op Options) (*Sandbox, error) {
 				"requested_mb", s.op.Limits.MemoryMB, "applied_mb", minimum)
 			s.op.Limits.MemoryMB = minimum
 		}
+	}
+
+	// A limit the shell refuses used to be dropped in silence, the command running
+	// as if it were bounded.
+	unapplied, err := unappliedLimits(s.op.Limits)
+	if err != nil {
+		s.notApplied = append(s.notApplied, "limits: could not check that the shell applies them: "+err.Error())
+	}
+	for _, name := range unapplied {
+		s.notApplied = append(s.notApplied, name+": the shell cannot apply this limit here, so commands run without it")
+		s.log.Warn("a sandbox limit cannot be applied", "limit", name)
 	}
 
 	s.log.Info("sandbox ready",
@@ -314,16 +342,18 @@ func (s *Sandbox) Run(ctx context.Context, p execx.Request) (string, bool, int, 
 		}()
 	}
 
+	confine := s.op.ConfineWrites && !s.op.UseChroot && !p.Unconfined
 	spec := Spec{
 		Command:     p.Command,
 		Args:        append([]string(nil), p.Args...),
 		Dir:         workDir,
 		Limits:      s.op.Limits,
-		Environment: s.environmentWithTmp(tempDir),
+		Environment: s.environmentWithTmp(tempDir, !confine),
 	}
 
-	if s.op.ConfineWrites && !s.op.UseChroot && !p.Unconfined {
+	if confine {
 		spec.WriteRoots = s.writeRoots(workDir, tempDir)
+		spec.HiddenPaths = s.hiddenPaths(spec.WriteRoots)
 	}
 
 	command := s.executable
@@ -360,19 +390,59 @@ func (s *Sandbox) Run(ctx context.Context, p execx.Request) (string, bool, int, 
 	return s.launch(ctx, command, args, workDir, timeout, maxOutput)
 }
 
-// writeRoots are the directories a confined command may write: where it works, where the sandbox
-// keeps its tools and home, its own temporary directory, the git directories a worktree writes
-// into, and /dev for `> /dev/null`.
+// writeRoots are the directories a confined command may write: where it works, the home the
+// sandbox keeps for it, its own temporary directory, the git directories a worktree writes into,
+// and /dev for `> /dev/null`.
+//
+// The tools directory's bin/ and tools/ are not among them. They come first on the PATH of every
+// session of every project, so a command one project's agent ran unasked could otherwise plant a
+// `git` or a `make` there for all the others. Installing a toolchain is a command the user
+// approves, and an approved command is not confined.
 func (s *Sandbox) writeRoots(workDir, tempDir string) []string {
 	roots := []string{s.base, workDir, tempDir, "/dev"}
 	if tools := s.toolsDir(); tools != "" {
-		roots = append(roots, tools)
+		roots = append(roots, filepath.Join(tools, "home"))
 	}
-	roots = append(roots, gitDirs(workDir)...)
+	roots = append(roots, s.gitRoots...)
 	if workDir != s.base {
-		roots = append(roots, gitDirs(s.base)...)
+		roots = append(roots, gitDirs(workDir)...)
 	}
 	return roots
+}
+
+// HiddenPaths is a copy of the paths this sandbox was given to hide, so a sandbox rebuilt for
+// another directory hides the same files: the configuration a run was loaded from among them.
+func (s *Sandbox) HiddenPaths() []string {
+	return append([]string(nil), s.op.HiddenPaths...)
+}
+
+// hiddenPaths are the paths a confined command may not read: the ones it was given, and the
+// user's git credential stores, which hold the same kind of token as motita's logins. Left out is
+// any that holds a directory the command writes, which would leave it writing where it cannot
+// read, and any inside one: the command could move it to a readable name, and a file in the
+// workspace is the project's own.
+func (s *Sandbox) hiddenPaths(roots []string) []string {
+	candidates := append([]string(nil), s.op.HiddenPaths...)
+	if s.op.GitHome != "" {
+		candidates = append(candidates, filepath.Join(s.op.GitHome, ".git-credentials"),
+			filepath.Join(s.op.GitHome, ".config", "git", "credentials"))
+	}
+	if xdg := os.Getenv("XDG_CONFIG_HOME"); xdg != "" {
+		candidates = append(candidates, filepath.Join(xdg, "git", "credentials"))
+	}
+	var hidden []string
+	for _, h := range candidates {
+		h = filepath.Clean(h)
+		skip := !filepath.IsAbs(h)
+		for _, root := range roots {
+			root = filepath.Clean(root)
+			skip = skip || strings.HasPrefix(root+"/", h+"/") || strings.HasPrefix(h, root+"/")
+		}
+		if !skip {
+			hidden = append(hidden, h)
+		}
+	}
+	return hidden
 }
 
 // launchCommand builds the command that the isolation child will run. It is a
@@ -387,27 +457,36 @@ func (s *Sandbox) launch(ctx context.Context, command string, args []string, dir
 	childCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
-	cmd := launchCommand(childCtx, command, args...)
-	cmd.Dir = dir
-	cmd.Env = s.environment()
-
 	attr, warnings := childAttributes(s.op.Limits, false, 0, 0)
-	if attr != nil {
-		cmd.SysProcAttr = attr
-	}
 	// The platform's warnings (the isolation it could not apply) are recorded
 	// like the rest. On Linux childAttributes has none; on the platforms where
 	// it has, this keeps them.
 	s.notApplied = append(s.notApplied, warnings...)
-	cmd.Cancel = func() error { return killGroup(cmd) }
-	cmd.WaitDelay = 2 * time.Second
-
 	out := &limitedBuffer{max: maxOutput}
-	cmd.Stdout = out
-	cmd.Stderr = out
 
 	start := time.Now()
-	err := cmd.Run()
+	group := s.newRunGroup()
+	cmd := s.childCommand(childCtx, command, args, dir, group.attach(attr), group, out)
+	err := cmd.Start()
+	if err != nil && group != nil {
+		// The kernel would not start the child inside the group (no clone3, or no right to move
+		// a process there). It runs without one, and later runs do not try again.
+		noRunGroups.Store(true)
+		s.log.Debug("runs are not contained by a cgroup", "error", err)
+		_ = group.remove()
+		group = nil
+		cmd = s.childCommand(childCtx, command, args, dir, attr, nil, out)
+		err = cmd.Start()
+	}
+	if err == nil {
+		err = cmd.Wait()
+	}
+	// What the command left running in the background (`cmd &`, or detached with setsid) goes
+	// with it, not only on a timeout: it would otherwise outlive the run and its limits' purpose,
+	// and keep its temporary directory busy after it is deleted.
+	_ = killGroup(cmd)
+	group.kill()
+	_ = group.remove()
 	duration := time.Since(start)
 	text := out.buf.String()
 
@@ -434,10 +513,43 @@ func (s *Sandbox) launch(ctx context.Context, command string, args []string, dir
 	return text, out.truncated, exit, nil
 }
 
+// childCommand is the isolation child of one run, writing to out, started in group when it is
+// not nil (attr then carries it).
+func (s *Sandbox) childCommand(ctx context.Context, command string, args []string, dir string, attr *syscall.SysProcAttr, group *runGroup, out *limitedBuffer) *exec.Cmd {
+	cmd := launchCommand(ctx, command, args...)
+	cmd.Dir = dir
+	cmd.Env = s.environment()
+	if attr != nil {
+		cmd.SysProcAttr = attr
+	}
+	cmd.Cancel = func() error {
+		group.kill()
+		return killGroup(cmd)
+	}
+	cmd.WaitDelay = 2 * time.Second
+	cmd.Stdout = out
+	cmd.Stderr = out
+	return cmd
+}
+
+// newRunGroup is the cgroup the next run starts in, or nil: none can be made here, or starting
+// a child in one already failed.
+func (s *Sandbox) newRunGroup() *runGroup {
+	if noRunGroups.Load() {
+		return nil
+	}
+	return newRunGroup()
+}
+
 // environmentWithTmp returns the child's environment: bounded, without the
 // agent's secrets and with TMPDIR pointing at the ephemeral temporary directory
 // of this run.
-func (s *Sandbox) environmentWithTmp(tempDir string) []string {
+//
+// logins says whether git is given motita's logins (its credential helper and
+// where they live). Only a command the user approved, or one that is not
+// confined at all, gets them: the helper hands a token to whoever asks, and a
+// confined command is one nobody looked at.
+func (s *Sandbox) environmentWithTmp(tempDir string, logins bool) []string {
 	path, home := systemPath, s.base
 	if tools := s.toolsDir(); tools != "" {
 		path, home = ToolPath(tools, systemPath), filepath.Join(tools, "home")
@@ -454,15 +566,19 @@ func (s *Sandbox) environmentWithTmp(tempDir string) []string {
 		}
 	}
 	if s.op.GitAuthDir != "" || s.op.GitHome != "" {
-		base = append(base, gitforge.GitEnv(s.executable, s.op.GitAuthDir, s.op.GitHome)...)
+		exe, auth := s.executable, s.op.GitAuthDir
+		if !logins {
+			exe, auth = "", ""
+		}
+		base = append(base, gitforge.GitEnv(exe, auth, s.op.GitHome)...)
 	}
 	return base
 }
 
 // environment is the environment without a temporary directory of its own (for
-// the isolation process, which does not need TMPDIR).
+// the isolation process, which does not need TMPDIR nor git's logins).
 func (s *Sandbox) environment() []string {
-	return s.environmentWithTmp(s.base)
+	return s.environmentWithTmp(s.base, false)
 }
 
 // limitedBuffer accumulates up to max bytes and flags whether there was a cut.

@@ -79,6 +79,36 @@ func TestPrepareCreatesTheProjectsDirectory(t *testing.T) {
 	}
 }
 
+// TestScopedDocumentsAreUntrustedAndNeverReachedThroughALink: a project's .motita comes with a
+// clone, so its documents are marked, and a repository that ships .motita (or .motita/skills)
+// as a symbolic link gets neither a read nor a write through it.
+func TestScopedDocumentsAreUntrustedAndNeverReachedThroughALink(t *testing.T) {
+	project := filepath.Join(t.TempDir(), "alpha")
+	l := skills.New(t.TempDir())
+	Scope(l, project)
+	if s, err := l.Save("doc", "# Doc\n\nx\n"); err != nil || !s.Untrusted {
+		t.Fatalf("Save = %+v %v, want an untrusted document", s, err)
+	}
+
+	for _, link := range []string{".motita", ".motita/skills"} {
+		project := filepath.Join(t.TempDir(), "beta")
+		if err := os.MkdirAll(filepath.Dir(filepath.Join(project, link)), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Symlink(t.TempDir(), filepath.Join(project, link)); err != nil {
+			t.Skipf("symlinks unavailable: %v", err)
+		}
+		if err := Prepare(project); err == nil {
+			t.Errorf("Prepare through a symlinked %s must be refused", link)
+		}
+		l := skills.New(t.TempDir())
+		Scope(l, project)
+		if _, err := l.Save("doc", "# Doc\n\nx\n"); err == nil {
+			t.Errorf("a save through a symlinked %s must be refused", link)
+		}
+	}
+}
+
 // TestScopingTwiceKeepsTheSameSharedShelf: the overlay captures the library's ROOT as the layer
 // behind it. If a second call took the CURRENT directory instead, the shared shelf would become
 // the project's own directory and the two would collapse into one — every project seeing every

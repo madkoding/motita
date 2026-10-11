@@ -18,8 +18,60 @@ func requireToken(token string, next http.Handler) http.Handler {
 			http.Error(w, "a valid bearer token is required", http.StatusUnauthorized)
 			return
 		}
+		// A request the COOKIE authorised may have been sent by another page: see crossSiteRefusal.
+		// The bearer token cannot be attached by a page that does not know it, so a bearer client
+		// (the CLI, a script) is not asked for anything more.
+		if !bearerMatches(token, r.Header.Get("Authorization")) {
+			if msg := crossSiteRefusal(r); msg != "" {
+				writeError(w, http.StatusForbidden, msg)
+				return
+			}
+		}
 		next.ServeHTTP(w, r)
 	})
+}
+
+// browserHeader is the header the web interface sends on every request. A page on another origin
+// cannot add a custom header to a cross-origin request without a CORS preflight, and this server
+// answers no preflight, so its presence proves the request was built by a same-origin script.
+const browserHeader = "X-Motita"
+
+// crossSiteRefusal says why a cookie-authorised request is refused, or "" when it may proceed.
+//
+// The cookie is SameSite=Strict, but "site" ignores the port: a page served from any other port of
+// this host (a dev server in a cloned repository, say) is same-site, and its browser attaches the
+// cookie. A plain form or a text/plain fetch from there needs no preflight, so without this check
+// it could drive every state-changing endpoint, approvals included.
+//
+// Reads (GET, HEAD) are left alone - another origin cannot read the answer - except a WebSocket
+// upgrade, which is not subject to CORS at all and is checked by its Origin.
+func crossSiteRefusal(r *http.Request) string {
+	switch r.Method {
+	case http.MethodGet, http.MethodHead, http.MethodOptions:
+		if !strings.EqualFold(r.Header.Get("Upgrade"), "websocket") {
+			return ""
+		}
+	default:
+		if r.Header.Get(browserHeader) != "1" {
+			return "a request authorised by the browser cookie must carry the " + browserHeader + " header"
+		}
+	}
+	// A browser always names the origin of a cross-origin request; when it is present it must be
+	// this server's own.
+	if origin := r.Header.Get("Origin"); origin != "" && !strings.EqualFold(origin, requestOrigin(r)) {
+		return "this request was sent by another origin (" + origin + ") and is refused"
+	}
+	return ""
+}
+
+// requestOrigin is the scheme://host the request was addressed to, as a browser would write it in
+// an Origin header for a page served by this server.
+func requestOrigin(r *http.Request) string {
+	scheme := "http"
+	if r.TLS != nil {
+		scheme = "https"
+	}
+	return scheme + "://" + r.Host
 }
 
 // authorized accepts either of two credentials, and nothing else.
@@ -29,9 +81,9 @@ func requireToken(token string, next http.Handler) http.Handler {
 // agent that runs commands on this machine.
 //
 // The second credential is the browser's cookie, whose value is derived from the token rather
-// than being it (see webui.go). Accepting it does not open anything: a request with no
-// credential, or with a cookie that was not derived from the CURRENT token, is refused exactly
-// as it was before the cookie existed.
+// than being it (see webui.go). It authorises the whole API just as the token does, which is why
+// a request it authorises also passes crossSiteRefusal. A request with no credential, or with a
+// cookie that was not derived from the CURRENT token, is refused.
 func authorized(token string, r *http.Request) bool {
 	if token == "" {
 		// Not "no authentication needed": a gateway that was started without a token serves

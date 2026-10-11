@@ -32,4 +32,7 @@ func dropPrivileges(uid, gid int) error {
 	return fmt.Errorf("dropping privileges is only implemented on Linux")
 }
 
+// hideFromChildren has nothing to do outside Linux: there is no /proc/<pid>/environ to close.
+func hideFromChildren() error { return nil }
+
 var _ = exec.Command

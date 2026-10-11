@@ -14,6 +14,8 @@ import { SettingsModal } from './Settings'
 import { NewSessionButton } from './NewSessionButton'
 import { GitConnectModal, type SelfHosted } from './GitConnect'
 import { RepoPicker } from './RepoPicker'
+import { onActivate, backdropClick } from './a11y'
+import { useDialog } from './useDialog'
 import { listAccounts, connectedAccounts, repoShortName, type GitAccount, type GitRepo } from './gitApi'
 import { loadNotify } from './settings'
 import { getPR, retryFix, mergePR, mergeRefused, PRError, prNotice, shouldPoll, ciSummary, shouldDesktopNotify, wantsDesktopPermission, worstToast, type PRView, type PRWatch } from './prApi'
@@ -141,7 +143,7 @@ function agentElapsed(a: AgentInfo, now: number): number {
 function sortAgents(list: unknown): AgentInfo[] {
   if (!Array.isArray(list)) return []
   return (list as AgentInfo[]).filter(a => a && typeof a.id === 'string').slice().sort((a, b) => {
-    if (!a.parent !== !b.parent) return a.parent ? 1 : -1
+    if (!!a.parent !== !!b.parent) return a.parent ? 1 : -1
     return (Date.parse(a.started) || 0) - (Date.parse(b.started) || 0)
   })
 }
@@ -419,7 +421,7 @@ async function authGate(): Promise<boolean> {
 // local storage the app keeps, so nothing survives a rejected token.
 async function clearCredential(): Promise<void> {
   try {
-    await fetch('/v1/webui/session', { method: 'DELETE', credentials: 'same-origin' })
+    await fetch('/v1/webui/session', { method: 'DELETE', credentials: 'same-origin', headers: { 'X-Motita': '1' } })
   } catch { /* ignore */ }
   try { localStorage.removeItem(STORAGE_KEY) } catch { /* ignore */ }
 }
@@ -440,12 +442,16 @@ async function submitToken(token: string): Promise<boolean> {
 }
 
 // api is the one place a request is built. The cookie is sent automatically
-// by the browser: nothing here sets a header.
+// by the browser; the X-Motita header is what tells the gateway a request was
+// built by this page and not by another page on the same host (the cookie is
+// not isolated by port), so every request carries it.
 //
 // On 401, the credential is stale: the cookie is cleared and an event is
 // dispatched so the blocking auth modal reappears.
 async function api(path: string, options?: RequestInit): Promise<Response> {
-  const res = await fetch(path, { credentials: 'same-origin', ...options })
+  const headers = new Headers(options?.headers)
+  headers.set('X-Motita', '1')
+  const res = await fetch(path, { credentials: 'same-origin', ...options, headers })
   if (res.status === 401) {
     await clearCredential()
     window.dispatchEvent(new CustomEvent('motita:auth-needed'))
@@ -545,6 +551,17 @@ function splitOutput(text: string): { exit: number | null; body: string } {
 
 const STATUS_LABEL: Record<string, string> = { added: 'new', modified: 'edited', deleted: 'removed', renamed: 'moved' }
 
+// ChangesZoom is the full-size view of one preview: a click, Enter, Space or Escape closes it.
+function ChangesZoom({ url, onClose }: { url: string; onClose: () => void }) {
+  const ref = useRef<HTMLDivElement>(null)
+  useDialog(ref, onClose)
+  return (
+    <div ref={ref} data-dialog-root class="changes-zoom" role="dialog" aria-modal="true" aria-label={t('preview')} tabIndex={-1} onClick={onClose} onKeyDown={onActivate(onClose)}>
+      <img src={url} alt={t('preview')} />
+    </div>
+  )
+}
+
 // ChangesCard is what a finished run shows the user about its work: the pictures first, since
 // that is what a person can judge, then the files as a folded summary. The code stays in the diff.
 function ChangesCard({ changes }: { changes: ChangeReport }) {
@@ -558,7 +575,7 @@ function ChangesCard({ changes }: { changes: ChangeReport }) {
       {pics.length > 0 && (
         <div class="changes-previews">
           {pics.map(p => (
-            <figure key={p.name} class="changes-shot" onClick={() => setZoom(p.url)}>
+            <figure key={p.name} class="changes-shot" role="button" tabIndex={0} aria-label={p.name} onClick={() => setZoom(p.url)} onKeyDown={onActivate(() => setZoom(p.url))}>
               <img src={p.url} alt={p.name} loading="lazy" />
               <figcaption>{p.name}</figcaption>
             </figure>
@@ -583,9 +600,7 @@ function ChangesCard({ changes }: { changes: ChangeReport }) {
         </details>
       )}
       {zoom && (
-        <div class="changes-zoom" onClick={() => setZoom(null)} role="dialog" aria-label={t('preview')}>
-          <img src={zoom} alt={t('preview')} />
-        </div>
+        <ChangesZoom url={zoom} onClose={() => setZoom(null)} />
       )}
     </div>
   )
@@ -795,7 +810,7 @@ export default function App() {
   // Git host connections: the connect modal (from Settings, the New project dialog or a refused
   // clone), the repository picker, and the hosts that are connected right now.
   // `then` says what to do once the host is connected: pick a repository, or send the create again.
-  const [gitConnect, setGitConnect] = useState<{ service?: string; selfHosted?: SelfHosted; then?: 'picker' | 'create' } | null>(null)
+  const [gitConnect, setGitConnect] = useState<{ service?: string; selfHosted?: SelfHosted; after?: 'picker' | 'create' } | null>(null)
   const [showRepoPicker, setShowRepoPicker] = useState(false)
   const [gitAccounts, setGitAccounts] = useState<GitAccount[] | null>(null)
   const [gitRev, setGitRev] = useState(0)
@@ -835,6 +850,9 @@ export default function App() {
   // network on a filter that runs locally.
   const [skills, setSkills] = useState<SkillInfo[]>([])
   const [archivedSkills, setArchivedSkills] = useState<string[]>([])
+  // Skills the background review proposed: no session reads one until the user accepts it.
+  const [proposedSkills, setProposedSkills] = useState<string[]>([])
+  const [proposalOpen, setProposalOpen] = useState<{ name: string; body: string } | null>(null)
   const [skillQuery, setSkillQuery] = useState('')
   const [skillOpen, setSkillOpen] = useState<SkillInfo | null>(null)
   const [skillBody, setSkillBody] = useState('')
@@ -1025,6 +1043,15 @@ export default function App() {
     if (cmdName === '/plan') return activeTags.some(t => t.name === '/task')
     if (cmdName === '/task') return activeTags.some(t => t.name === '/plan')
     return false
+  }
+
+  // Choosing a slash command from the popup (by click, or Enter/Space on the row) adds it as a tag.
+  const pickSlash = (c: { name: string; group: string }) => {
+    if (isCommandBlocked(c.name)) return
+    setActiveTags(prev => [...prev, { name: c.name, group: c.group }])
+    setInput('')
+    setSlashPopup(null)
+    document.getElementById('task')?.focus()
   }
 
   const lastIdRef = useRef(0)
@@ -1596,7 +1623,11 @@ export default function App() {
     setSkillsBusy(true)
     const indexUrl = sessionId ? `/v1/sessions/${encodeURIComponent(sessionId)}/skills` : '/v1/skills'
     try {
-      const [res, arch] = await Promise.all([api(indexUrl), api('/v1/skills/archived')])
+      const [res, arch, prop] = await Promise.all([
+        api(indexUrl),
+        api('/v1/skills/archived'),
+        api('/v1/skills/proposed')
+      ])
       if (!res.ok) {
         setState('could not load the skill library', true)
         setSkillsBusy(false)
@@ -1607,6 +1638,10 @@ export default function App() {
       if (arch.ok) {
         const a = await arch.json()
         setArchivedSkills(a.skills || [])
+      }
+      if (prop.ok) {
+        const p = await prop.json()
+        setProposedSkills(p.skills || [])
       }
     } catch {
       setState('could not load the skill library', true)
@@ -1652,6 +1687,47 @@ export default function App() {
       setState('could not change the pin', true)
     }
   }, [])
+
+  // openProposal shows a proposed skill, or hides it when it is the one already shown: the user
+  // reads what the review wrote before deciding.
+  const openProposal = useCallback(async (name: string) => {
+    if (proposalOpen?.name === name) {
+      setProposalOpen(null)
+      return
+    }
+    try {
+      const res = await api('/v1/skills/proposed/' + encodeURIComponent(name))
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}))
+        setState(err.error || 'could not open the proposed skill', true)
+        return
+      }
+      const data = await res.json()
+      setProposalOpen({ name, body: data.body || '' })
+    } catch {
+      setState('could not open the proposed skill', true)
+    }
+  }, [proposalOpen])
+
+  // decideProposal accepts a proposed skill into the library or rejects it, then RELOADS the
+  // lists: a file moved or left, and the browser must not keep a guess about it.
+  const decideProposal = useCallback(async (name: string, accept: boolean) => {
+    const what = accept ? 'could not accept the skill' : 'could not reject the skill'
+    try {
+      const res = accept
+        ? await api('/v1/skills/proposed/' + encodeURIComponent(name) + '/accept', { method: 'POST' })
+        : await api('/v1/skills/proposed/' + encodeURIComponent(name), { method: 'DELETE' })
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}))
+        setState(err.error || what, true)
+        return
+      }
+      setProposalOpen(prev => (prev && prev.name === name ? null : prev))
+      await fetchSkills()
+    } catch {
+      setState(what, true)
+    }
+  }, [fetchSkills])
 
   // restoreSkill brings an archived document back, and then RELOADS both lists: what moved
   // is a file, and the browser must not keep a guess about a directory it cannot see.
@@ -1740,7 +1816,7 @@ export default function App() {
         if (res.status === 409 && err.code === 'git_auth_required') {
           // The clone was refused for credentials: connect that host, then send the same request again.
           setCreatingProject(false)
-          setGitConnect({ service: err.service || undefined, then: 'create' })
+          setGitConnect({ service: err.service || undefined, after: 'create' })
           return
         }
         if (res.status === 409 && err.code === 'git_identity_required') {
@@ -1973,11 +2049,11 @@ export default function App() {
   }, [editProject, fetchProjects])
 
   const onGitConnected = useCallback((_service: string, account: string) => {
-    const then = gitConnect?.then
+    const after = gitConnect?.after
     setGitRev(n => n + 1)
     setToast({ message: account ? tf('Connected as {user}', { user: account }) : t('Connected'), type: 'success' })
-    if (then === 'picker') setShowRepoPicker(true)
-    if (then === 'create') setTimeout(() => createProjectRef.current(), 0)
+    if (after === 'picker') setShowRepoPicker(true)
+    if (after === 'create') setTimeout(() => createProjectRef.current(), 0)
   }, [gitConnect])
 
   // pickRepo fills the New project form from a repository the user chose.
@@ -2088,7 +2164,7 @@ export default function App() {
   // switchSession loads the transcript for a given session id and adopts it.
   // `urlMode` says how the address bar follows: 'push' for a click, 'replace' for the
   // initial load, 'none' when the URL already changed (back/forward).
-  const followRef = useRef<() => void>(() => {})
+  const followRef = useRef<() => void | Promise<void>>(() => {})
   const loadAgentsRef = useRef<(id: string) => Promise<void>>(async () => {})
   const switchSessionRef = useRef<((id: string, urlMode?: 'push' | 'replace' | 'none', soft?: boolean) => Promise<void>) | null>(null)
   // `soft` re-reads the conversation already on screen (the handoff to a run this tab did not
@@ -3726,7 +3802,10 @@ export default function App() {
       class={`session-row group flex items-center gap-2 px-3 py-2 rounded-lg cursor-pointer transition-colors mb-0.5 ${
         s.id === sessionId ? 'bg-accent/10 border border-accent/20' : 'hover:bg-white/5 border border-transparent'
       }`}
+      role="button"
+      tabIndex={0}
       onClick={() => { if (renamingId !== s.id) switchSession(s.id) }}
+      onKeyDown={onActivate(() => { if (renamingId !== s.id) switchSession(s.id) })}
       onTouchStart={(e) => startLongPress('session', s.id, s.title || s.id, e)}
       onTouchMove={cancelLongPress}
       onTouchEnd={cancelLongPress}
@@ -3742,7 +3821,7 @@ export default function App() {
       {renamingId === s.id ? (
         <>
           <input
-            class="flex-1 min-w-0 bg-black/30 border border-accent/30 rounded px-2 py-1 text-sm text-[#e8e8ea] focus:outline-none focus:border-accent"
+            class="flex-1 min-w-0 bg-black/30 border border-accent/30 rounded-sm px-2 py-1 text-sm text-[#e8e8ea] focus:outline-hidden focus:border-accent"
             value={renameValue}
             autoFocus
             onInput={(e) => setRenameValue((e.target as HTMLInputElement).value)}
@@ -3750,10 +3829,11 @@ export default function App() {
               if (e.key === 'Enter') { renameSession(s.id, renameValue); setRenamingId(null) }
               if (e.key === 'Escape') setRenamingId(null)
             }}
+            role="presentation"
             onClick={(e) => e.stopPropagation()}
           />
           <button
-            class="p-1 rounded hover:bg-accent/20 text-accent flex-none"
+            class="p-1 rounded-sm hover:bg-accent/20 text-accent flex-none"
             title={t('Confirm')}
             onClick={(e) => { e.stopPropagation(); renameSession(s.id, renameValue); setRenamingId(null) }}
           >
@@ -3762,7 +3842,7 @@ export default function App() {
             </svg>
           </button>
           <button
-            class="p-1 rounded hover:bg-white/10 text-[#9a9aaa] flex-none"
+            class="p-1 rounded-sm hover:bg-white/10 text-[#9a9aaa] flex-none"
             title={t('Cancel')}
             onClick={(e) => { e.stopPropagation(); setRenamingId(null) }}
           >
@@ -3806,25 +3886,25 @@ export default function App() {
             <div class="flex items-center gap-x-1.5 gap-y-1 flex-wrap mt-1 text-[10px]">
               {s.branch && (
                 <span
-                  class="inline-flex items-center gap-1 flex-none px-1 py-px rounded bg-accent/10"
+                  class="inline-flex items-center gap-1 flex-none px-1 py-px rounded-sm bg-accent/10"
                   title={tf('Branch: {branch}', { branch: s.branch })}
                 >
                   <span class="text-accent/50 uppercase tracking-wide text-[9px]">{t('branch')}</span>
-                  <span class="font-mono text-accent truncate max-w-[7rem]">{shortBranch(s.branch)}</span>
+                  <span class="font-mono text-accent truncate max-w-28">{shortBranch(s.branch)}</span>
                 </span>
               )}
               {sessionWorktreeChip(s) && (
                 <span
-                  class="inline-flex items-center gap-1 flex-none px-1 py-px rounded bg-[#a0a0f0]/10"
+                  class="inline-flex items-center gap-1 flex-none px-1 py-px rounded-sm bg-[#a0a0f0]/10"
                   title={tf('Worktree: {worktree}', { worktree: s.worktree || '' })}
                 >
                   <span class="text-[#a0a0f0]/50 uppercase tracking-wide text-[9px]">{t('worktree')}</span>
-                  <span class="font-mono text-[#a0a0f0] truncate max-w-[6rem]">{sessionWorktreeChip(s)}</span>
+                  <span class="font-mono text-[#a0a0f0] truncate max-w-24">{sessionWorktreeChip(s)}</span>
                 </span>
               )}
               {!!s.changes && (
                 <span
-                  class="inline-flex items-center gap-1 flex-none px-1 py-px rounded bg-[#f0a040]/10"
+                  class="inline-flex items-center gap-1 flex-none px-1 py-px rounded-sm bg-[#f0a040]/10"
                   title={changesTitle(s.changes)}
                 >
                   <span class="text-[#f0a040]/50 uppercase tracking-wide text-[9px]">
@@ -3840,7 +3920,7 @@ export default function App() {
       {renamingId !== s.id && (
         <div class={`row-actions relative flex-none${rowMenu?.id === s.id ? ' row-actions-open' : ''}`}>
           <button
-            class="p-1 rounded hover:bg-white/10"
+            class="p-1 rounded-sm hover:bg-white/10"
             title={t('More actions')}
             data-row-menu-trigger
             onClick={(e) => {
@@ -3860,6 +3940,7 @@ export default function App() {
             <div
               class={`row-menu fixed z-50 frosted rounded-xl border border-white/10 py-1 min-w-[140px]${rowMenuAbove ? ' row-menu-above' : ''}${rowMenuClosing ? ' row-menu-closing' : ''}`}
               style={rowMenuPos ? { top: `${rowMenuPos.top}px`, left: `${rowMenuPos.left}px` } : undefined}
+              role="presentation"
               onClick={(e) => e.stopPropagation()}
             >
               <button
@@ -3930,16 +4011,18 @@ export default function App() {
   }
 
   return (
-    <div class="app-bg flex h-[100dvh] text-[#e8e8ea] overflow-hidden">
+    <div class="app-bg flex h-dvh text-[#e8e8ea] overflow-hidden">
       {/* Blocking auth modal — shown when the browser has no valid credential.
           It covers the entire screen and cannot be dismissed without a token. */}
       {authState !== 'ok' && (
         <div
-          class="fixed inset-0 z-[100] bg-black/80 backdrop-blur-sm flex items-center justify-center p-4"
+          class="fixed inset-0 z-100 bg-black/80 backdrop-blur-xs flex items-center justify-center p-4"
+          role="presentation"
           onClick={(e) => e.stopPropagation()}
         >
           <div
             class="frosted rounded-2xl border border-accent/20 w-full max-w-sm p-6 shadow-2xl"
+            role="presentation"
             onClick={(e) => e.stopPropagation()}
           >
             <div class="flex items-center gap-3 mb-4">
@@ -3970,7 +4053,7 @@ export default function App() {
                 <input
                   id="auth-token"
                   type="password"
-                  class="w-full px-3 py-2.5 rounded-xl bg-black/30 border border-white/10 text-[#e8e8ea] focus:outline-none focus:border-accent font-mono text-sm"
+                  class="w-full px-3 py-2.5 rounded-xl bg-black/30 border border-white/10 text-[#e8e8ea] focus:outline-hidden focus:border-accent font-mono text-sm"
                   value={authInput}
                   onInput={(e) => setAuthInput((e.target as HTMLInputElement).value)}
                   placeholder={t('Paste the gateway token…')}
@@ -3988,7 +4071,7 @@ export default function App() {
                   </p>
                 )}
                 <p class="text-xs text-[#7a7a8c] mt-3 leading-relaxed">
-                  {t('Run')} <code class="font-mono text-accent bg-accent/10 px-1 rounded">motita gateway start</code> {t('in a terminal to print the link, or paste the token here.')}
+                  {t('Run')} <code class="font-mono text-accent bg-accent/10 px-1 rounded-sm">motita gateway start</code> {t('in a terminal to print the link, or paste the token here.')}
                 </p>
                 <button
                   type="submit"
@@ -4016,6 +4099,7 @@ export default function App() {
           {/* Mobile overlay: click to close the sidebar. */}
           <div
             class="fixed inset-0 bg-black/50 z-20 md:hidden"
+            role="presentation"
             onClick={() => setSidebarOpen(false)}
           />
           <aside class="sidebar frosted fixed md:relative inset-y-0 left-0 w-72 z-30 flex flex-col border-r border-white/5">
@@ -4076,11 +4160,14 @@ export default function App() {
                 // backgrounds off the rounded corners. It was purely cosmetic and
                 // it broke the menu.
                 return (
-                  <div key={p.id} class="mt-1.5 rounded-xl bg-white/[0.02] border border-white/[0.06]">
+                  <div key={p.id} class="mt-1.5 rounded-xl bg-white/2 border border-white/6">
                     {/* Header: click toggles collapse. */}
                     <div
-                      class="project-header group flex items-center gap-1.5 px-2.5 py-2 cursor-pointer select-none hover:bg-white/[0.04] transition-colors"
+                      class="project-header group flex items-center gap-1.5 px-2.5 py-2 cursor-pointer select-none hover:bg-white/4 transition-colors"
+                      role="button"
+                      tabIndex={0}
                       onClick={() => toggleProject(p.id)}
+                      onKeyDown={onActivate(() => toggleProject(p.id))}
                       onTouchStart={(e) => startLongPress('project', p.id, p.title, e as unknown as Event)}
                       onTouchMove={cancelLongPress}
                       onTouchEnd={cancelLongPress}
@@ -4120,19 +4207,19 @@ export default function App() {
                         <div class="flex items-center gap-x-1.5 gap-y-1 flex-wrap mt-1 text-[10px]">
                           {p.branch && (
                             <span
-                              class="inline-flex items-center gap-1 flex-none px-1 py-px rounded bg-accent/10"
+                              class="inline-flex items-center gap-1 flex-none px-1 py-px rounded-sm bg-accent/10"
                               title={tf('Project checkout is on branch: {branch}', { branch: p.branch })}
                             >
                               <span class="text-accent/50 uppercase tracking-wide text-[9px]">{t('project')}</span>
-                              <span class="font-mono text-accent truncate max-w-[7rem]">{shortBranch(p.branch)}</span>
+                              <span class="font-mono text-accent truncate max-w-28">{shortBranch(p.branch)}</span>
                             </span>
                           )}
                           {p.podman && (
-                            <span class="inline-flex items-center flex-none px-1 py-px rounded bg-accent/10 text-accent text-[9px] uppercase tracking-wide" title={t('This project is run with podman')}>podman</span>
+                            <span class="inline-flex items-center flex-none px-1 py-px rounded-sm bg-accent/10 text-accent text-[9px] uppercase tracking-wide" title={t('This project is run with podman')}>podman</span>
                           )}
                           {!!p.changes && (
                             <span
-                              class="inline-flex items-center gap-1 flex-none px-1 py-px rounded bg-[#f0a040]/10"
+                              class="inline-flex items-center gap-1 flex-none px-1 py-px rounded-sm bg-[#f0a040]/10"
                               title={tf('The project checkout has {what}', { what: changesTitle(p.changes) })}
                             >
                               <span class="text-[#f0a040]/50 uppercase tracking-wide text-[9px]">
@@ -4152,7 +4239,7 @@ export default function App() {
                       />
                       <div class={`row-actions relative flex-none${rowMenu?.id === p.id ? ' row-actions-open' : ''}`}>
                         <button
-                          class="p-0.5 rounded hover:bg-white/10"
+                          class="p-0.5 rounded-sm hover:bg-white/10"
                           title={t('More actions')}
                           data-row-menu-trigger
                           onClick={(e) => {
@@ -4172,6 +4259,7 @@ export default function App() {
                           <div
                             class={`row-menu fixed z-50 frosted rounded-xl border border-white/10 py-1 min-w-[140px]${rowMenuAbove ? ' row-menu-above' : ''}${rowMenuClosing ? ' row-menu-closing' : ''}`}
               style={rowMenuPos ? { top: `${rowMenuPos.top}px`, left: `${rowMenuPos.left}px` } : undefined}
+                            role="presentation"
                             onClick={(e) => e.stopPropagation()}
                           >
                             <button
@@ -4304,7 +4392,7 @@ export default function App() {
       {/* `relative` is what anchors the chat spinner (below) to THIS column: without it the
           spinner would be positioned against the nearest positioned ancestor, or the window,
           and would cover the sidebar too. */}
-      <div class="flex flex-col flex-1 min-w-0 h-[100dvh] relative">
+      <div class="flex flex-col flex-1 min-w-0 h-dvh relative">
         {/* Header — frosted glass over the background image.
             A phone is where this row runs out of room: title, status pill and
             provider/model pill all want width, and the two pills cannot shrink.
@@ -4672,7 +4760,10 @@ export default function App() {
                         <div
                           key={a.id}
                           class={`agent-row is-${a.state}${done ? ' is-done' : ''}`}
+                          role={done ? 'button' : undefined}
+                          tabIndex={done ? 0 : undefined}
                           onClick={() => { if (done) setAgentOpenId(id => id === a.id ? null : a.id) }}
+                          onKeyDown={onActivate(() => { if (done) setAgentOpenId(id => id === a.id ? null : a.id) })}
                           aria-expanded={done ? open : undefined}
                         >
                           <span class="agent-state" aria-label={t(a.state)}>
@@ -4690,7 +4781,7 @@ export default function App() {
                             </div>
                             {a.activity && !open && <div class="agent-activity" title={a.activity}>{a.activity}</div>}
                             {open && (
-                              <div class="agent-detail" onClick={e => e.stopPropagation()}>
+                              <div class="agent-detail" role="presentation" onClick={e => e.stopPropagation()}>
                                 {a.summary
                                   ? <pre class="agent-summary">{a.summary}</pre>
                                   : <div class="agent-activity">{t('no summary')}</div>}
@@ -4949,7 +5040,10 @@ export default function App() {
                 <div
                   key={c.name}
                   class={`flex items-center gap-2 px-3 py-2 cursor-pointer transition-colors ${i === slashPopup.index ? 'bg-white/10' : ''}`}
-                  onClick={() => { if (!isCommandBlocked(c.name)) { setActiveTags(prev => [...prev, { name: c.name, group: c.group }]); setInput(''); setSlashPopup(null); document.getElementById('task')?.focus() } }}
+                  role="button"
+                  tabIndex={-1}
+                  onClick={() => pickSlash(c)}
+                  onKeyDown={onActivate(() => pickSlash(c))}
                   onMouseEnter={() => setSlashPopup({ ...slashPopup, index: i })}
                 >
                   <span class={`font-mono text-sm font-semibold flex-none w-20 ${groupColor[c.group] || 'text-[#e8e8ea]'}`}>{c.name}</span>
@@ -4962,7 +5056,7 @@ export default function App() {
         )}
 
           <label htmlFor="task" class="sr-only">{t('Task')}</label>
-          <div class="flex-1 flex flex-wrap items-center gap-1.5 min-h-[44px] max-h-[120px] p-2 rounded-2xl bg-black/30 border border-white/5 focus-within:border-accent backdrop-blur-sm overflow-y-auto">
+          <div class="flex-1 flex flex-wrap items-center gap-1.5 min-h-[44px] max-h-[120px] p-2 rounded-2xl bg-black/30 border border-white/5 focus-within:border-accent backdrop-blur-xs overflow-y-auto">
             {activeTags.map((tag, ti) => (
               <span
                 key={ti}
@@ -5024,7 +5118,7 @@ export default function App() {
             }}
             onKeyDown={handleKeydown}
             placeholder={t(isMerged ? 'This session is read-only after integration' : activeTags.length > 0 ? 'argument…' : 'Ask for something…')}
-            class="flex-1 min-h-[28px] max-h-[100px] px-1 py-1 bg-transparent border-0 outline-none ring-0 text-[#e8e8ea] resize-none focus:outline-none focus:ring-0 focus:border-0 font-sans text-[14px] leading-relaxed disabled:opacity-50 disabled:cursor-not-allowed"
+            class="flex-1 min-h-[28px] max-h-[100px] px-1 py-1 bg-transparent border-0 outline-hidden ring-0 text-[#e8e8ea] resize-none focus:outline-hidden focus:ring-0 focus:border-0 font-sans text-[14px] leading-relaxed disabled:opacity-50 disabled:cursor-not-allowed"
           />
           </div>
           <button
@@ -5050,14 +5144,14 @@ export default function App() {
       {/* Edit project modal — title, description and the main branch. */}
       {editProject && (
         <div
-          class="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4"
-          onClick={() => setEditProject(null)}
+          class="fixed inset-0 bg-black/60 backdrop-blur-xs z-50 flex items-center justify-center p-4"
+          role="presentation"
+          onClick={backdropClick(()=> setEditProject(null))}
         >
           <div
             class="frosted rounded-2xl border border-white/10 w-full max-w-md p-5 shadow-2xl"
             role="dialog"
             aria-label={t('Edit project')}
-            onClick={(e) => e.stopPropagation()}
           >
             <div class="flex items-center gap-2 mb-4">
               <h2 class="text-base font-semibold">{t('Edit project')}</h2>
@@ -5075,7 +5169,7 @@ export default function App() {
               <div>
                 <label class="block text-sm text-[#9a9aaa] mb-1.5">{t('Title')} <span class="text-danger">*</span></label>
                 <input
-                  class="w-full px-3 py-2.5 rounded-xl bg-black/30 border border-white/10 text-[#e8e8ea] focus:outline-none focus:border-accent"
+                  class="w-full px-3 py-2.5 rounded-xl bg-black/30 border border-white/10 text-[#e8e8ea] focus:outline-hidden focus:border-accent"
                   value={editProject.title}
                   onInput={(e) => { const v = (e.target as HTMLInputElement).value; setEditProject(p => p && { ...p, title: v }) }}
                   autoFocus
@@ -5084,7 +5178,7 @@ export default function App() {
               <div>
                 <label class="block text-sm text-[#9a9aaa] mb-1.5">{t('Description (optional)')}</label>
                 <input
-                  class="w-full px-3 py-2.5 rounded-xl bg-black/30 border border-white/10 text-[#e8e8ea] focus:outline-none focus:border-accent"
+                  class="w-full px-3 py-2.5 rounded-xl bg-black/30 border border-white/10 text-[#e8e8ea] focus:outline-hidden focus:border-accent"
                   value={editProject.description}
                   onInput={(e) => { const v = (e.target as HTMLInputElement).value; setEditProject(p => p && { ...p, description: v }) }}
                 />
@@ -5094,7 +5188,7 @@ export default function App() {
                 <select
                   id="edit-project-main"
                   data-testid="edit-project-main"
-                  class="w-full px-3 py-2.5 rounded-xl bg-black/30 border border-white/10 text-[#e8e8ea] focus:outline-none focus:border-accent font-mono text-sm"
+                  class="w-full px-3 py-2.5 rounded-xl bg-black/30 border border-white/10 text-[#e8e8ea] focus:outline-hidden focus:border-accent font-mono text-sm"
                   value={editProject.main}
                   onChange={(e) => { const v = (e.target as HTMLSelectElement).value; setEditProject(p => p && { ...p, main: v }) }}
                 >
@@ -5114,7 +5208,7 @@ export default function App() {
                 <select
                   id="edit-project-merge"
                   data-testid="edit-project-merge"
-                  class="w-full px-3 py-2.5 rounded-xl bg-black/30 border border-white/10 text-[#e8e8ea] focus:outline-none focus:border-accent text-sm"
+                  class="w-full px-3 py-2.5 rounded-xl bg-black/30 border border-white/10 text-[#e8e8ea] focus:outline-hidden focus:border-accent text-sm"
                   value={editProject.mergeMethod}
                   onChange={(e) => { const v = (e.target as HTMLSelectElement).value; setEditProject(p => p && { ...p, mergeMethod: v }) }}
                 >
@@ -5134,7 +5228,7 @@ export default function App() {
                   max="20"
                   step="1"
                   inputMode="numeric"
-                  class="w-full px-3 py-2.5 rounded-xl bg-black/30 border border-white/10 text-[#e8e8ea] focus:outline-none focus:border-accent text-sm"
+                  class="w-full px-3 py-2.5 rounded-xl bg-black/30 border border-white/10 text-[#e8e8ea] focus:outline-hidden focus:border-accent text-sm"
                   value={String(editProject.prMaxFixes)}
                   onInput={(e) => {
                     const n = Math.round(Number((e.target as HTMLInputElement).value))
@@ -5193,14 +5287,14 @@ export default function App() {
       {/* New project modal — title, description, folder or git URL. */}
       {showNewProject && (
         <div
-          class="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4"
-          onClick={() => setShowNewProject(false)}
+          class="fixed inset-0 bg-black/60 backdrop-blur-xs z-50 flex items-center justify-center p-4"
+          role="presentation"
+          onClick={backdropClick(()=> setShowNewProject(false))}
         >
           <div
             class="frosted rounded-2xl border border-white/10 w-full max-w-md p-5 shadow-2xl max-h-[92vh] overflow-y-auto"
             role="dialog"
             aria-label={t('New project')}
-            onClick={(e) => e.stopPropagation()}
           >
             <div class="flex items-center gap-2 mb-4">
               {newProjectMode && !creatingProject ? (
@@ -5274,7 +5368,7 @@ export default function App() {
                     <div>
                       <label class="block text-sm text-[#9a9aaa] mb-1.5">{t('Repository URL')} <span class="text-danger">*</span></label>
                       <input
-                        class="w-full px-3 py-2.5 rounded-xl bg-black/30 border border-white/10 text-[#e8e8ea] focus:outline-none focus:border-accent font-mono text-sm"
+                        class="w-full px-3 py-2.5 rounded-xl bg-black/30 border border-white/10 text-[#e8e8ea] focus:outline-hidden focus:border-accent font-mono text-sm"
                         value={newProjectGit}
                         onInput={(e) => setNewProjectGit((e.target as HTMLInputElement).value)}
                         placeholder={t('https://github.com/user/repo.git  or  git@github.com:user/repo.git')}
@@ -5285,7 +5379,7 @@ export default function App() {
                       ) : gitAccounts && (
                         <div class="mt-2 flex items-center gap-2 p-2.5 rounded-xl border border-white/10 bg-black/20" data-testid="git-connect-banner">
                           <span class="flex-1 text-xs text-[#9a9aaa]">{t('Connect GitHub, GitLab or Bitbucket to pick one of your repositories')}</span>
-                          <button type="button" class="flex-none px-3 min-h-[32px] rounded-lg bg-accent text-white text-xs font-semibold" onClick={() => setGitConnect({ then: 'picker' })}>{t('Connect')}</button>
+                          <button type="button" class="flex-none px-3 min-h-[32px] rounded-lg bg-accent text-white text-xs font-semibold" onClick={() => setGitConnect({ after: 'picker' })}>{t('Connect')}</button>
                         </div>
                       )}
                     </div>
@@ -5293,7 +5387,7 @@ export default function App() {
                   <div>
                     <label class="block text-sm text-[#9a9aaa] mb-1.5">{t('Name')}{newProjectMode === 'empty' && <> <span class="text-danger">*</span></>}</label>
                     <input
-                      class="w-full px-3 py-2.5 rounded-xl bg-black/30 border border-white/10 text-[#e8e8ea] focus:outline-none focus:border-accent"
+                      class="w-full px-3 py-2.5 rounded-xl bg-black/30 border border-white/10 text-[#e8e8ea] focus:outline-hidden focus:border-accent"
                       value={newProjectTitle}
                       onInput={(e) => setNewProjectTitle((e.target as HTMLInputElement).value)}
                       placeholder={newProjectMode === 'git' ? (repoNameOf(newProjectGit) || t('The repository name')) : t('My project')}
@@ -5306,7 +5400,7 @@ export default function App() {
                   <select
                     id="new-project-main"
                     data-testid="new-project-main"
-                    class="w-full px-3 py-2.5 rounded-xl bg-black/30 border border-white/10 text-[#e8e8ea] focus:outline-none focus:border-accent font-mono text-sm"
+                    class="w-full px-3 py-2.5 rounded-xl bg-black/30 border border-white/10 text-[#e8e8ea] focus:outline-hidden focus:border-accent font-mono text-sm"
                     value={newProjectMain}
                     onChange={(e) => { mainChosen.current = true; setNewProjectMain((e.target as HTMLSelectElement).value) }}
                   >
@@ -5327,7 +5421,7 @@ export default function App() {
                       <div>
                         <label class="block text-sm text-[#9a9aaa] mb-1.5">{t('Description (optional)')}</label>
                         <input
-                          class="w-full px-3 py-2.5 rounded-xl bg-black/30 border border-white/10 text-[#e8e8ea] focus:outline-none focus:border-accent"
+                          class="w-full px-3 py-2.5 rounded-xl bg-black/30 border border-white/10 text-[#e8e8ea] focus:outline-hidden focus:border-accent"
                           value={newProjectDesc}
                           onInput={(e) => setNewProjectDesc((e.target as HTMLInputElement).value)}
                           placeholder={t('What this project is about')}
@@ -5336,7 +5430,7 @@ export default function App() {
                       <div>
                         <label class="block text-sm text-[#9a9aaa] mb-1.5">{t('Folder name')}</label>
                         <input
-                          class="w-full px-3 py-2.5 rounded-xl bg-black/30 border border-white/10 text-[#e8e8ea] focus:outline-none focus:border-accent font-mono text-sm"
+                          class="w-full px-3 py-2.5 rounded-xl bg-black/30 border border-white/10 text-[#e8e8ea] focus:outline-hidden focus:border-accent font-mono text-sm"
                           value={newProjectDir}
                           onInput={(e) => setNewProjectDir((e.target as HTMLInputElement).value)}
                           placeholder={slugOf(newProjectMode === 'git' ? repoNameOf(newProjectGit) || newProjectTitle : newProjectTitle) || 'my-project'}
@@ -5347,7 +5441,7 @@ export default function App() {
                         <label class="flex items-start gap-2.5 p-2.5 rounded-xl border border-white/10 bg-black/20 cursor-pointer" data-testid="podman-offer">
                           <input
                             type="checkbox"
-                            class="mt-0.5 accent-[var(--accent,#7c6cff)]"
+                            class="mt-0.5 accent-(--accent,#7c6cff)"
                             checked={newProjectPodman}
                             onChange={(e) => setNewProjectPodman((e.target as HTMLInputElement).checked)}
                           />
@@ -5399,11 +5493,13 @@ export default function App() {
       {/* Git identity modal — asked when git has no user and a repository has to be created. */}
       {showGitIdentity && (
         <div
-          class="fixed inset-0 bg-black/60 backdrop-blur-sm z-[60] flex items-center justify-center p-4"
+          class="fixed inset-0 bg-black/60 backdrop-blur-xs z-60 flex items-center justify-center p-4"
+          role="presentation"
           onClick={() => setShowGitIdentity(false)}
         >
           <form
             class="frosted rounded-2xl border border-white/10 w-full max-w-md p-5 shadow-2xl"
+            role="presentation"
             onClick={(e) => e.stopPropagation()}
             onSubmit={(e) => {
               e.preventDefault()
@@ -5418,7 +5514,7 @@ export default function App() {
               <div>
                 <label class="block text-sm text-[#9a9aaa] mb-1.5">{t('Name')} <span class="text-danger">*</span></label>
                 <input
-                  class="w-full px-3 py-2.5 rounded-xl bg-black/30 border border-white/10 text-[#e8e8ea] focus:outline-none focus:border-accent"
+                  class="w-full px-3 py-2.5 rounded-xl bg-black/30 border border-white/10 text-[#e8e8ea] focus:outline-hidden focus:border-accent"
                   value={gitUserName}
                   onInput={(e) => setGitUserName((e.target as HTMLInputElement).value)}
                   placeholder="Ada Lovelace"
@@ -5429,7 +5525,7 @@ export default function App() {
                 <label class="block text-sm text-[#9a9aaa] mb-1.5">{t('Email')} <span class="text-danger">*</span></label>
                 <input
                   type="email"
-                  class="w-full px-3 py-2.5 rounded-xl bg-black/30 border border-white/10 text-[#e8e8ea] focus:outline-none focus:border-accent"
+                  class="w-full px-3 py-2.5 rounded-xl bg-black/30 border border-white/10 text-[#e8e8ea] focus:outline-hidden focus:border-accent"
                   value={gitUserEmail}
                   onInput={(e) => setGitUserEmail((e.target as HTMLInputElement).value)}
                   placeholder="ada@example.com"
@@ -5463,8 +5559,8 @@ export default function App() {
           accounts={connectedAccounts(gitAccounts)}
           onPick={pickRepo}
           onClose={() => setShowRepoPicker(false)}
-          onConnectAnother={() => setGitConnect({ then: 'picker' })}
-          onAuthRequired={(service) => { setShowRepoPicker(false); setGitConnect({ service, then: 'picker' }) }}
+          onConnectAnother={() => setGitConnect({ after: 'picker' })}
+          onAuthRequired={(service) => { setShowRepoPicker(false); setGitConnect({ service, after: 'picker' }) }}
         />
       )}
       {gitConnect && (
@@ -5480,11 +5576,13 @@ export default function App() {
       {/* Model Switcher modal — provider and model selection. */}
       {showModelSwitcher && (
         <div
-          class="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4"
+          class="fixed inset-0 bg-black/60 backdrop-blur-xs z-50 flex items-center justify-center p-4"
+          role="presentation"
           onClick={closeModelSwitcher}
         >
           <div
             class="frosted rounded-2xl border border-white/10 w-full max-w-md p-5 shadow-2xl"
+            role="presentation"
             onClick={(e) => e.stopPropagation()}
           >
             <div class="flex items-center gap-2 mb-4">
@@ -5507,7 +5605,7 @@ export default function App() {
               <div>
                 <label class="block text-sm text-[#9a9aaa] mb-1.5">{t('Provider')}</label>
                 <select
-                  class="w-full px-3 py-2.5 rounded-xl bg-black/30 border border-white/10 text-[#e8e8ea] focus:outline-none focus:border-accent"
+                  class="w-full px-3 py-2.5 rounded-xl bg-black/30 border border-white/10 text-[#e8e8ea] focus:outline-hidden focus:border-accent"
                   value={draftProvider}
                   onChange={(e) => {
                     const newProvider = (e.target as HTMLSelectElement).value
@@ -5538,7 +5636,7 @@ export default function App() {
                   </div>
                 ) : (
                   <select
-                    class="w-full px-3 py-2.5 rounded-xl bg-black/30 border border-white/10 text-[#e8e8ea] focus:outline-none focus:border-accent font-mono text-sm"
+                    class="w-full px-3 py-2.5 rounded-xl bg-black/30 border border-white/10 text-[#e8e8ea] focus:outline-hidden focus:border-accent font-mono text-sm"
                     value={draftModel}
                     onChange={(e) => setDraftModel((e.target as HTMLSelectElement).value)}
                   >
@@ -5595,11 +5693,13 @@ export default function App() {
       {/* Confirm-delete modal — asks before deleting a session or project. */}
       {confirmDelete && (
         <div
-          class="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4"
+          class="fixed inset-0 bg-black/60 backdrop-blur-xs z-50 flex items-center justify-center p-4"
+          role="presentation"
           onClick={() => setConfirmDelete(null)}
         >
           <div
             class="frosted rounded-2xl border border-white/10 w-full max-w-sm p-5 shadow-2xl"
+            role="presentation"
             onClick={(e) => e.stopPropagation()}
           >
             <div class="flex items-center gap-2 mb-3">
@@ -5635,7 +5735,7 @@ export default function App() {
                   <p class="text-xs text-[#e8e8ea] font-semibold mb-1">
                     {t("This session's checkout could not be inspected")}
                   </p>
-                  <p class="text-xs text-[#9a9aaa] break-words">{deletionPreview.error}</p>
+                  <p class="text-xs text-[#9a9aaa] wrap-break-word">{deletionPreview.error}</p>
                   <p class="text-xs text-[#9a9aaa] mt-2">
                     {t('Its contents cannot be shown. Deleting discards whatever it holds, uncommitted work included.')}
                   </p>
@@ -5649,7 +5749,7 @@ export default function App() {
                   <ul class="space-y-1 max-h-40 overflow-y-auto">
                     {deletionPreview.changes.map((c) => (
                       <li class="flex items-start gap-2 text-xs">
-                        <span class="text-[#9a9aaa] font-mono flex-none w-[4.5rem]">{c.kind}</span>
+                        <span class="text-[#9a9aaa] font-mono flex-none w-18">{c.kind}</span>
                         <span class="text-[#e8e8ea] font-mono break-all">
                           {c.from ? c.from + ' → ' + c.path : c.path}
                         </span>
@@ -5677,7 +5777,7 @@ export default function App() {
                   <p class="text-xs text-[#e8e8ea] font-semibold mb-1">
                     {t("A session's checkout could not be inspected")}
                   </p>
-                  <p class="text-xs text-[#9a9aaa] break-words">{deletionPreview.error}</p>
+                  <p class="text-xs text-[#9a9aaa] wrap-break-word">{deletionPreview.error}</p>
                   <p class="text-xs text-[#9a9aaa] mt-2">
                     {t('Its contents cannot be shown. Deleting discards whatever it holds, uncommitted work included.')}
                   </p>
@@ -5696,7 +5796,7 @@ export default function App() {
                           <ul class="space-y-1 mt-1">
                             {s.changes.map((c) => (
                               <li class="flex items-start gap-2 text-xs pl-2">
-                                <span class="text-[#9a9aaa] font-mono flex-none w-[4.5rem]">{c.kind}</span>
+                                <span class="text-[#9a9aaa] font-mono flex-none w-18">{c.kind}</span>
                                 <span class="text-[#e8e8ea] font-mono break-all">
                                   {c.from ? c.from + ' → ' + c.path : c.path}
                                 </span>
@@ -5773,6 +5873,7 @@ export default function App() {
       {contextMenu && (
         <div
           class="fixed inset-0 z-50"
+          role="presentation"
           onClick={() => setContextMenu(null)}
         >
           <div
@@ -5782,6 +5883,7 @@ export default function App() {
               left: `${Math.min(contextMenu.x, window.innerWidth - 180)}px`,
               top: `${Math.min(contextMenu.y, window.innerHeight - 120)}px`,
             }}
+            role="presentation"
             onClick={(e) => e.stopPropagation()}
           >
             <button
@@ -5825,7 +5927,7 @@ export default function App() {
           needs. When the toast mentions a new version, clicking it opens the
           upgrade modal. */}
       {toast && (
-        <div class="fixed bottom-6 inset-x-0 z-[60] flex justify-center px-4 pointer-events-none">
+        <div class="fixed bottom-6 inset-x-0 z-60 flex justify-center px-4 pointer-events-none">
           <div
             class="frosted rounded-xl border px-4 py-3 flex items-start gap-3 max-w-md w-full pointer-events-auto"
             style={`animation: slideUp 0.3s ease-out; box-shadow: 0 20px 45px -10px rgba(0,0,0,0.75); border-color: ${toast.type === 'error' ? 'rgba(239,68,68,0.35)' : toast.type === 'warning' ? 'rgba(237,181,88,0.35)' : 'rgba(76,194,255,0.35)'}`}
@@ -5855,7 +5957,7 @@ export default function App() {
               {toast.message}
             </p>
             {toast.detail && (
-              <p class="text-xs text-[#9a9aaa] mt-1 leading-relaxed break-words">
+              <p class="text-xs text-[#9a9aaa] mt-1 leading-relaxed wrap-break-word">
                 {toast.detail}
               </p>
             )}
@@ -5868,7 +5970,7 @@ export default function App() {
                   {t(toastDetailsOpen ? 'Hide details' : 'Details')}
                 </button>
                 {toastDetailsOpen && (
-                  <pre class="mt-1.5 text-[11px] text-[#8a8a9a] font-mono bg-black/30 rounded-lg p-2 overflow-x-auto whitespace-pre-wrap break-words max-h-32 overflow-y-auto">
+                  <pre class="mt-1.5 text-[11px] text-[#8a8a9a] font-mono bg-black/30 rounded-lg p-2 overflow-x-auto whitespace-pre-wrap wrap-break-word max-h-32 overflow-y-auto">
                     {toast.technical}
                   </pre>
                 )}
@@ -5910,11 +6012,13 @@ export default function App() {
           modal becomes non-dismissable. */}
       {showUpgrade && (
         <div
-          class="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4"
+          class="fixed inset-0 bg-black/60 backdrop-blur-xs z-50 flex items-center justify-center p-4"
+          role="presentation"
           onClick={() => { if (!upgradeBusy) setShowUpgrade(false) }}
         >
           <div
             class="frosted rounded-2xl border border-white/10 w-full max-w-md p-5 shadow-2xl"
+            role="presentation"
             onClick={(e) => e.stopPropagation()}
           >
             <div class="flex items-center gap-2 mb-4">
@@ -6003,8 +6107,6 @@ export default function App() {
                           width: `${upgradeProgress.percent || 0}%`,
                           background: upgradeProgress.stage === 'error'
                             ? 'linear-gradient(90deg, #ff6b6b, #ff8a8a)'
-                            : upgradeProgress.stage === 'done'
-                            ? 'linear-gradient(90deg, #4cc2ff, #6dd5ff)'
                             : 'linear-gradient(90deg, #4cc2ff, #6dd5ff)',
                           boxShadow: upgradeProgress.stage === 'downloading' || upgradeProgress.stage === 'installing'
                             ? '0 0 12px rgba(76,194,255,0.4)' : 'none',
@@ -6116,11 +6218,13 @@ export default function App() {
 
       {showSkillLibrary && (
         <div
-          class="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4"
+          class="fixed inset-0 bg-black/60 backdrop-blur-xs z-50 flex items-center justify-center p-4"
+          role="presentation"
           onClick={() => setShowSkillLibrary(false)}
         >
           <div
             class="frosted rounded-2xl border border-white/10 w-full max-w-2xl max-h-[80vh] overflow-y-auto p-5 shadow-2xl"
+            role="presentation"
             onClick={(e) => e.stopPropagation()}
           >
             <div class="flex items-center gap-2 mb-4">
@@ -6200,7 +6304,7 @@ export default function App() {
                   value={skillQuery}
                   onInput={(e) => setSkillQuery((e.target as HTMLInputElement).value)}
                   placeholder={t('Filter by name, title or what it is for')}
-                  class="w-full mb-3 px-3 py-2.5 rounded-xl bg-black/30 border border-white/10 text-sm text-[#e8e8ea] placeholder:text-[#5a5a68] focus:outline-none focus:border-accent/50"
+                  class="w-full mb-3 px-3 py-2.5 rounded-xl bg-black/30 border border-white/10 text-sm text-[#e8e8ea] placeholder:text-[#5a5a68] focus:outline-hidden focus:border-accent/50"
                 />
 
                 {skillsBusy ? (
@@ -6216,7 +6320,7 @@ export default function App() {
                     {filteredSkills.map((s) => (
                       <li key={s.name} class="flex items-center gap-1">
                         <button
-                          class="flex-1 min-w-0 text-left px-3 py-2.5 rounded-xl border border-white/5 hover:border-white/15 hover:bg-white/[0.03] active:scale-[0.99] transition-all"
+                          class="flex-1 min-w-0 text-left px-3 py-2.5 rounded-xl border border-white/5 hover:border-white/15 hover:bg-white/3 active:scale-[0.99] transition-all"
                           onClick={() => openSkill(s)}
                         >
                           <div class="flex items-center gap-2">
@@ -6241,6 +6345,45 @@ export default function App() {
                       </li>
                     ))}
                   </ul>
+                )}
+
+                {proposedSkills.length > 0 && (
+                  <div class="mt-5 pt-4 border-t border-white/5">
+                    <h3 class="text-xs uppercase tracking-wide text-[#7a7a8c] mb-1">{t('Proposed by the review')}</h3>
+                    <p class="text-xs text-[#9a9aaa] mb-2">{t('No session uses these until you accept them. Read each one first.')}</p>
+                    <ul class="space-y-1.5">
+                      {proposedSkills.map((name) => (
+                        <li key={name} class="rounded-xl border border-white/5">
+                          <div class="flex items-center gap-2 px-3 py-2">
+                            <button
+                              class="min-w-0 text-left text-sm text-[#e8e8ea] truncate font-mono hover:underline"
+                              onClick={() => openProposal(name)}
+                              aria-expanded={proposalOpen?.name === name}
+                            >
+                              {name}
+                            </button>
+                            <button
+                              class="ml-auto px-2.5 py-1 rounded-lg border border-white/10 text-xs text-[#e8e8ea] hover:border-accent/40 active:scale-95 transition-transform shrink-0"
+                              onClick={() => decideProposal(name, true)}
+                            >
+                              {t('Accept')}
+                            </button>
+                            <button
+                              class="px-2.5 py-1 rounded-lg border border-danger/30 text-xs text-danger hover:border-danger/60 active:scale-95 transition-transform shrink-0"
+                              onClick={() => decideProposal(name, false)}
+                            >
+                              {t('Reject')}
+                            </button>
+                          </div>
+                          {proposalOpen?.name === name && (
+                            <div class="skill-body border-t border-white/5 p-3">
+                              <Markdown content={proposalOpen.body} />
+                            </div>
+                          )}
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
                 )}
 
                 {archivedSkills.length > 0 && (
@@ -6279,11 +6422,13 @@ export default function App() {
       {previewImage && <Lightbox images={[previewImage]} start={0} onClose={() => setPreviewImage(null)} />}
       {showArtifacts && (
         <div
-          class="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4"
+          class="fixed inset-0 bg-black/60 backdrop-blur-xs z-50 flex items-center justify-center p-4"
+          role="presentation"
           onClick={() => setShowArtifacts(false)}
         >
           <div
             class="frosted rounded-2xl border border-white/10 w-full max-w-2xl p-5 shadow-2xl max-h-[85vh] flex flex-col"
+            role="presentation"
             onClick={(e) => e.stopPropagation()}
           >
             <div class="flex items-center gap-2 mb-4">
@@ -6370,11 +6515,13 @@ export default function App() {
 
       {showScheduledTasks && (
         <div
-          class="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4"
+          class="fixed inset-0 bg-black/60 backdrop-blur-xs z-50 flex items-center justify-center p-4"
+          role="presentation"
           onClick={() => setShowScheduledTasks(false)}
         >
           <div
             class="tasks-panel frosted rounded-2xl border border-white/10 w-full max-w-md p-5 shadow-2xl"
+            role="presentation"
             onClick={(e) => e.stopPropagation()}
           >
             <div class="tasks-head flex items-center gap-2 mb-4">
@@ -6438,7 +6585,7 @@ export default function App() {
                           </p>
                         )}
                         {task.last_outcome && (
-                          <p class="text-xs text-[#7a7a8c] mt-1 break-words">{task.last_outcome}</p>
+                          <p class="text-xs text-[#7a7a8c] mt-1 wrap-break-word">{task.last_outcome}</p>
                         )}
                         <div class="flex gap-2 mt-2">
                           <button

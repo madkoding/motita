@@ -19,6 +19,7 @@ import (
 	"github.com/madkoding/motita/internal/config"
 	"github.com/madkoding/motita/internal/execx"
 	"github.com/madkoding/motita/internal/logx"
+	"github.com/madkoding/motita/internal/policy"
 	"github.com/madkoding/motita/internal/task"
 )
 
@@ -386,13 +387,13 @@ func TestFinalActionCommandWithoutCommand(t *testing.T) {
 	}
 }
 
-// TestFinalActionWithTheModelCommand: the LLM may propose the final command.
+// TestFinalActionWithTheModelCommand: the LLM may propose the final command. A write inside the
+// workspace is one the policy allows, so it runs without asking.
 func TestFinalActionWithTheModelCommand(t *testing.T) {
-	dir := t.TempDir()
-	marker := filepath.Join(dir, "model.txt")
 	e := mount(t, httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {})), config.Anchor{Kind: "command", Command: "true", Timeout: 5 * time.Second}, func(c *config.Config) {
 		c.FinalAction = config.FinalAction{Kind: "command", Command: "sh"}
 	})
+	marker := filepath.Join(e.dir, "model.txt")
 
 	description, err := e.agent.runFinalAction(context.Background(),
 		Command{Kind: "command", Command: "echo done > " + marker}, "")
@@ -404,6 +405,55 @@ func TestFinalActionWithTheModelCommand(t *testing.T) {
 	}
 	if !strings.Contains(description, "exit=0") {
 		t.Errorf("description = %q", description)
+	}
+}
+
+// TestTheModelsFinalActionIsApprovedLikeAnyAction: a final command the MODEL wrote is not the
+// operator's configuration, so a line the policy would ask about is asked about, and with
+// nobody to ask (or a no) it does not run. The operator's own configured command keeps running.
+func TestTheModelsFinalActionIsApprovedLikeAnyAction(t *testing.T) {
+	var commands []string
+	e := mount(t, httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {})), config.Anchor{Kind: "command", Command: "true", Timeout: 5 * time.Second}, func(c *config.Config) {
+		c.FinalAction = config.FinalAction{Kind: "command", Command: "sh"}
+		c.Agent.Policy.Enforce = true
+	})
+	e.agent.ExecCommand = fakeExecutor(&commands, nil)
+	line := "git push --force origin main"
+	if p := e.agent.planRequest(line); p.Verdict != policy.Ask {
+		t.Fatalf("the test needs a line the policy asks about, got %s", p.Verdict)
+	}
+
+	// Nobody to ask: refused, nothing runs.
+	if _, err := e.agent.runFinalAction(context.Background(), Command{Command: line}, ""); err == nil ||
+		!strings.Contains(err.Error(), "nobody to ask") {
+		t.Errorf("with no approver the model's final action must be refused: %v", err)
+	}
+	// A no: refused, nothing runs.
+	var asked []string
+	e.agent.SetApprover(func(_ context.Context, req ApprovalRequest) (bool, error) {
+		asked = append(asked, req.Command)
+		return len(asked) > 1, nil
+	})
+	if _, err := e.agent.runFinalAction(context.Background(), Command{Command: line}, ""); err == nil ||
+		!strings.Contains(err.Error(), "not approved") {
+		t.Errorf("a refused final action must not run: %v", err)
+	}
+	if len(commands) != 0 {
+		t.Fatalf("an unapproved final action ran: %v", commands)
+	}
+	// A yes: it runs.
+	if _, err := e.agent.runFinalAction(context.Background(), Command{Command: line}, ""); err != nil {
+		t.Fatal(err)
+	}
+	if len(asked) != 2 || asked[0] != line || len(commands) != 1 || !strings.Contains(commands[0], line) {
+		t.Errorf("asked %v, ran %v", asked, commands)
+	}
+
+	// The operator's configured command is not asked about.
+	e.agent.cfg.FinalAction = config.FinalAction{Kind: "command", Command: "git", Args: []string{"push", "--force"}}
+	e.agent.SetApprover(nil)
+	if _, err := e.agent.runFinalAction(context.Background(), Command{}, ""); err != nil {
+		t.Errorf("the operator's final action must keep running without a prompt: %v", err)
 	}
 }
 

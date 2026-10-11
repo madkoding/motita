@@ -35,7 +35,6 @@ func TestTheLineEditorsReadInTheirPrintingForm(t *testing.T) {
 		{"sed", []string{"-n", "1,20p", "a", "b"}},
 		{"sed", []string{"'s/a/b/'", "f"}},
 		{"sed", []string{"-e", "s/a/b/", "f"}},
-		{"/usr/bin/sed", []string{"-n", "1,5p", "f"}},
 		{"awk", []string{"'/CREATE TABLE/,/^\\);/'", "schema.sql"}},
 		{"awk", []string{"'{print $1}'", "f"}},
 		{"awk", []string{"-F:", "'{print $1}'", "/etc/passwd"}},
@@ -197,30 +196,27 @@ func TestEveryReaderWithAWritingFormHasARule(t *testing.T) {
 	}
 }
 
-// TestTheKnownGapsAreRecorded: two forms write and are NOT refused, and they are here as
-// failures waiting to be written rather than as surprises. Both need a parser to see, and a
-// rule that guessed would refuse the programs people actually write — see the notes on the
-// awk and sed rules.
-func TestTheKnownGapsAreRecorded(t *testing.T) {
-	// `awk '{print > out}'` — an UNQUOTED redirection target, which is lexically
-	// indistinguishable from the comparison `awk '$1 > out'`.
-	if d := Check("awk", []string{"'{print > out}'", "f"}); !d.Allowed {
-		t.Errorf("this gap has been closed: an unquoted awk redirection is now refused (%s). "+
-			"Update this test, it is here to record the gap rather than to defend it", d.Reason)
+// TestTheFormerGapsAreClosed: these two forms write and used to be recorded as gaps, because
+// a lexical rule could not tell them from a read. The programs are now read (scripts.go).
+func TestTheFormerGapsAreClosed(t *testing.T) {
+	// `awk '{print > out}'` — an UNQUOTED redirection target: inside a print statement and
+	// outside its parentheses, `>` is a redirection by the grammar.
+	if d := Check("awk", []string{"'{print > out}'", "f"}); d.Allowed {
+		t.Error("an unquoted awk redirection must be refused")
 	}
 	// `sed 'w out' f` — a `w` command inside the script writes a file with no `-i` at all.
-	if d := Check("sed", []string{"-n", "'1w out'", "f"}); !d.Allowed {
-		t.Errorf("this gap has been closed: a sed w command is now refused (%s). "+
-			"Update this test, it is here to record the gap rather than to defend it", d.Reason)
+	if d := Check("sed", []string{"-n", "'1w out'", "f"}); d.Allowed {
+		t.Error("a sed w command must be refused")
 	}
 }
 
-// TestTheDirectionEachRuleLeans: the two shapes of rule fail in opposite directions, and
-// both directions are asserted so that "fixing" one by flipping it is caught here.
+// TestTheDirectionEachRuleLeans: the shapes of rule fail in different directions, and each
+// direction is asserted so that "fixing" one by flipping it is caught here.
 //
-// A flag-scanning rule must treat an unrecognised flag as a READ: refusing `sed --unbuffered`
-// or `sort --random-source=f` would break the ordinary work of looking at a file, and the
-// writing flags are the ones it names. An operand-counting rule must treat a separate value
+// A flag-scanning rule must treat an unrecognised flag as a READ: refusing `sort
+// --random-source=f` would break the ordinary work of looking at a file, and the writing flags
+// are the ones it names. The rules for programs that can RUN something (sed, awk) are
+// allowlists instead: their reading flags are listed, and an unknown one is refused. An operand-counting rule must treat a separate value
 // as an OPERAND, because it cannot know better — which is why those rules carry the options
 // that take a value, and why the false alarm on `xxd -l 16` was a real defect and not a
 // preference.
@@ -239,6 +235,12 @@ func TestTheDirectionEachRuleLeans(t *testing.T) {
 		if d := Check(tc.command, tc.args); !d.Allowed {
 			t.Errorf("%s %v: an unrecognised flag is a read for a flag-scanning rule, got: %s",
 				tc.command, tc.args, d.Reason)
+		}
+	}
+	// Allowlist: an option sed or awk does not list is refused, because it may run something.
+	for _, tc := range [][]string{{"sed", "--follow-symlinks-x", "p", "f"}, {"awk", "-W", "exec", "f"}} {
+		if d := Check(tc[0], tc[1:]); d.Allowed {
+			t.Errorf("%v: an unlisted option of a program that can run code must be refused", tc)
 		}
 	}
 	// Operand counting: a separate value is an operand, so the option table is what keeps the
@@ -308,43 +310,12 @@ func TestTheHelpersBehindTheRules(t *testing.T) {
 		t.Errorf("after -- everything is an operand: %v", got)
 	}
 
-	if prog, ok := awkProgram([]string{"-F:", "'{print $1}'", "f"}); !ok || prog != "'{print $1}'" {
-		t.Errorf("the program is the first non-option argument: %q ok=%v", prog, ok)
+	for _, prog := range []string{"{print}", "$1 > out", "$1>5"} {
+		if reason, bad := awkProgramWrites(prog); bad {
+			t.Errorf("%q is not a redirection, and refusing it would break real awk: %s", prog, reason)
+		}
 	}
-	if prog, ok := awkProgram([]string{"-v", "n=1", "'{print}'"}); !ok || prog != "'{print}'" {
-		t.Errorf("an option's VALUE is not the program: %q ok=%v", prog, ok)
-	}
-	if prog, ok := awkProgram([]string{"-f", "prog.awk", "f"}); !ok || prog != "f" {
-		t.Errorf("-f names the program's file, so the next operand is the input: %q ok=%v", prog, ok)
-	}
-	// `--` ends the options, and the token right after it is the program even when it starts
-	// with a dash. Without a token after it there is no program to read.
-	if prog, ok := awkProgram([]string{"--", "-weird"}); !ok || prog != "-weird" {
-		t.Errorf("after -- the next token is the program: %q ok=%v", prog, ok)
-	}
-	if _, ok := awkProgram([]string{"--"}); ok {
-		t.Error("-- with nothing after it names no program")
-	}
-	if _, ok := awkProgram([]string{"-F:"}); ok {
-		t.Error("a program composed only of options has no program text")
-	}
-
-	if awkRedirects("'{print}'") {
-		t.Error("a program with no redirection must not be reported as one")
-	}
-	if !awkRedirects("'{print > \"out\"}'") {
+	if _, bad := awkProgramWrites(`{print > "out"}`); !bad {
 		t.Error("a quoted redirection must be found")
-	}
-	if !awkRedirects("'{print >> \"out\"}'") {
-		t.Error("an appending redirection must be found")
-	}
-	if !awkRedirects("'{print | \"sort\"}'") {
-		t.Error("a pipe to a quoted command must be found")
-	}
-	if awkRedirects("'$1 > out'") {
-		t.Error("a comparison of two fields is not a redirection, and refusing it would break real awk")
-	}
-	if awkRedirects("'$1>5'") {
-		t.Error("a comparison of a field and a number is not a redirection")
 	}
 }

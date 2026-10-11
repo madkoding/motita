@@ -10,6 +10,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/madkoding/motita/internal/gitx"
 )
 
 // Project is a named group of sessions that share a workspace directory.
@@ -166,7 +168,7 @@ func (ps *projectStore) delete(id string) error {
 // sameOrigin reports whether dir is a git checkout whose origin is gitURL, ignoring a
 // trailing ".git" or slash and the case of the host.
 func sameOrigin(dir, gitURL string, env []string) bool {
-	cmd := exec.Command("git", "-C", dir, "remote", "get-url", "origin")
+	cmd := exec.Command("git", append(append([]string{"-C", dir}, gitx.Hardening()...), "remote", "get-url", "origin")...)
 	cmd.Env = env
 	out, err := cmd.Output()
 	if err != nil {
@@ -197,6 +199,24 @@ func freeCloneDir(dir, gitURL string, env []string) string {
 	}
 }
 
+// cloneableURL reports whether gitURL names a repository the way a person gives one: an
+// http(s) or ssh URL, the scp form user@host:path, or an absolute local path. Everything else
+// is refused before git sees it - a leading "-" is a flag to git, and the "transport::address"
+// form (ext::, fd::) asks git to run a command.
+func cloneableURL(gitURL string) bool {
+	switch {
+	case strings.HasPrefix(gitURL, "-"), strings.Contains(gitURL, "::"):
+		return false
+	case strings.HasPrefix(gitURL, "https://"), strings.HasPrefix(gitURL, "http://"), strings.HasPrefix(gitURL, "ssh://"):
+		return true
+	case filepath.IsAbs(gitURL):
+		return true
+	}
+	// scp form: a host (with an optional user) before the first ':', and no '/' in it.
+	host, path, ok := strings.Cut(gitURL, ":")
+	return ok && host != "" && path != "" && !strings.ContainsAny(host, "/\\ ")
+}
+
 // cloneGitRepo clones a git URL into the given directory and returns the
 // combined output of the git command. It is called when a project is created
 // with a git URL instead of a local folder.
@@ -216,7 +236,11 @@ func cloneGitRepo(gitURL, destDir string, env []string) (string, error) {
 		}
 		return "", fmt.Errorf("the folder %q already exists and is not a clone of %q: pick another folder name or remove it", destDir, gitURL)
 	}
-	cmd := exec.Command("git", "clone", "--progress", gitURL, destDir)
+	if !cloneableURL(gitURL) {
+		return "", fmt.Errorf("%q is not a repository URL: use https://, ssh://, user@host:path or an absolute path", gitURL)
+	}
+	// "--" ends the options: the URL and the folder are never read as flags.
+	cmd := exec.Command("git", append(gitx.Hardening(), "clone", "--progress", "--", gitURL, destDir)...)
 	// env carries the credential helper, so a repository of a host the user connected clones
 	// without a prompt nobody can answer. Nil keeps the process environment.
 	cmd.Env = env

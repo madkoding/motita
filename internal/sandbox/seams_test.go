@@ -1202,14 +1202,9 @@ func TestTheChildNeverReceivesARelativeWorkingDirectory(t *testing.T) {
 			}
 			defer box.Close()
 
-			r := execx.Request{Command: "true"}
-			if tc.dir == "." || tc.dir == ".." {
-				// These must be resolved against the sandbox's base, not the
-				// process, so give a base and let the request be relative to it.
-				r.Dir = tc.dir
-			} else {
-				r.Dir = tc.dir
-			}
+			// "." and ".." must be resolved against the sandbox's base, not the
+			// process, so the request carries the directory exactly as spelled.
+			r := execx.Request{Command: "true", Dir: tc.dir}
 			// Run may fail for a directory that cannot be created; what matters is
 			// that whatever reached the child was absolute.
 			_, _, _, _ = box.Run(context.Background(), r)

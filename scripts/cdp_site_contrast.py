@@ -32,14 +32,17 @@ Exit codes: 0 every element meets its ratio · 1 a ratio is below the bar ·
 import base64
 import json
 import os
+import tempfile
 import subprocess
 import sys
 import time
 
+from cdp_http import LAUNCHER, chrome_env
+
 CDP_PORT = os.environ.get("CDP_PORT", "9356")
 CHROME = os.environ.get("CHROME", "")
 PAGE = os.environ.get("SITE_URL", "")
-SHOTS = os.environ.get("SHOTS_DIR", os.path.join(os.environ.get("TMPDIR", "/tmp"), "motita-site-contrast"))
+SHOTS = os.environ.get("SHOTS_DIR") or tempfile.mkdtemp(prefix="motita-site-contrast-")
 WIDTH = int(os.environ.get("SITE_WIDTH", "1440"))
 HEIGHT = int(os.environ.get("SITE_HEIGHT", "900"))
 
@@ -97,16 +100,9 @@ def main():
     os.makedirs(SHOTS, exist_ok=True)
 
     chrome = subprocess.Popen(
-        [
-            CHROME,
-            "--headless=new",
-            f"--remote-debugging-port={CDP_PORT}",
-            f"--user-data-dir={SHOTS}/cdp-profile",
-            "--no-sandbox",
-            "--disable-gpu",
-            f"--window-size={WIDTH},{HEIGHT}",
-            "about:blank",
-        ],
+        ["sh", LAUNCHER, "--headless=new", "--no-sandbox", "--disable-gpu", "about:blank"],
+        env=chrome_env(CHROME, CDP_PORT, profile=os.path.join(SHOTS, "cdp-profile"),
+                       window=f"{WIDTH},{HEIGHT}"),
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
     )

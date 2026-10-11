@@ -123,7 +123,7 @@ func (t *TUI) agentsLines(width int) []string {
 		if a.Round > 0 {
 			figures += "  r" + strconv.Itoa(a.Round)
 		}
-		purpose := a.Purpose
+		purpose := EscapeControls(a.Purpose)
 		if a.Parent == "" {
 			purpose = t.tr("main") + " " + glyphMid + " " + purpose
 		}
@@ -131,7 +131,7 @@ func (t *TUI) agentsLines(width int) []string {
 		// left, and the activity only what is left after that.
 		room := width - 4 - visibleLen(figures)
 		left := clipLine(purpose, room)
-		if act := strings.TrimSpace(a.Activity); act != "" && room-visibleLen(left) > 6 {
+		if act := strings.TrimSpace(EscapeControls(a.Activity)); act != "" && room-visibleLen(left) > 6 {
 			left += t.muted(" " + glyphMid + " " + clipLine(act, room-visibleLen(left)-3))
 		}
 		gap := room - visibleLen(left)
@@ -140,7 +140,7 @@ func (t *TUI) agentsLines(width int) []string {
 		}
 		lines = append(lines, t.plainLine(clipLine(t.agentGlyph(a)+" "+left+strings.Repeat(" ", gap)+" "+t.muted(figures), width)))
 		if a.State != agent.AgentRunning {
-			detail := strings.TrimSpace(strings.Join(nonEmpty(a.Branch, firstLine(a.Summary)), " "+glyphMid+" "))
+			detail := EscapeControls(strings.TrimSpace(strings.Join(nonEmpty(a.Branch, firstLine(a.Summary)), " "+glyphMid+" ")))
 			if detail != "" {
 				lines = append(lines, t.plainLine(t.muted(clipLine("  "+detail, width))))
 			}

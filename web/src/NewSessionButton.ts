@@ -40,7 +40,7 @@ export function NewSessionButton({ loading, onClick, compact, title, label }: {
   if (compact) {
     return h('button', {
       type: 'button',
-      class: 'p-0.5 rounded hover:bg-white/10 opacity-0 group-hover:opacity-100 transition-opacity flex-none disabled:opacity-60',
+      class: 'p-0.5 rounded-sm hover:bg-white/10 opacity-0 group-hover:opacity-100 transition-opacity flex-none disabled:opacity-60',
       title,
       onClick,
       disabled: loading,
