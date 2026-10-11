@@ -173,6 +173,8 @@ func TestGetOverAnUnreadableFile(t *testing.T) {
 		t.Error("an unreadable document must be reported")
 	} else if errors.Is(err, ErrNotFound) {
 		t.Error("unreadable is not the same as missing")
+	} else {
+		// the expected outcome: nothing more to check
 	}
 }
 
