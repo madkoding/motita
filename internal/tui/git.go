@@ -400,6 +400,9 @@ func openCommand(goos, url string) (string, []string) {
 		return "open", []string{url}
 	case "windows":
 		return "rundll32", []string{"url.dll,FileProtocolHandler", url}
+	case "android":
+		// Termux has no xdg-open; its own opener hands the URL to the Android browser.
+		return "termux-open-url", []string{url}
 	}
 	return "xdg-open", []string{url}
 }

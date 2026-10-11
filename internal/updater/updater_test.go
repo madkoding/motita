@@ -1195,3 +1195,26 @@ func TestStagingWithoutAnExecutablePathUsesTheTempDir(t *testing.T) {
 		t.Errorf("stagingDir = %q", got)
 	}
 }
+
+func TestReleaseGoosMovesALinuxBuildOnAndroidToTheAndroidBuild(t *testing.T) {
+	env := func(vars map[string]string) func(string) string {
+		return func(k string) string { return vars[k] }
+	}
+	cases := []struct {
+		goos, goarch string
+		vars         map[string]string
+		want         string
+	}{
+		{"linux", "arm64", map[string]string{"TERMUX_VERSION": "0.118.0"}, "android"},
+		{"linux", "arm64", map[string]string{"ANDROID_ROOT": "/system"}, "android"},
+		{"linux", "arm64", nil, "linux"},
+		{"linux", "amd64", map[string]string{"ANDROID_ROOT": "/system"}, "linux"},
+		{"android", "arm64", nil, "android"},
+		{"darwin", "arm64", map[string]string{"TERMUX_VERSION": "x"}, "darwin"},
+	}
+	for _, c := range cases {
+		if got := releaseGoos(c.goos, c.goarch, env(c.vars)); got != c.want {
+			t.Errorf("releaseGoos(%s, %s, %v) = %s, want %s", c.goos, c.goarch, c.vars, got, c.want)
+		}
+	}
+}

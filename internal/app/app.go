@@ -24,6 +24,7 @@ import (
 	"github.com/madkoding/motita/internal/agent"
 	"github.com/madkoding/motita/internal/config"
 	"github.com/madkoding/motita/internal/curator"
+	"github.com/madkoding/motita/internal/doctor"
 	"github.com/madkoding/motita/internal/gateway"
 	"github.com/madkoding/motita/internal/gitforge"
 	"github.com/madkoding/motita/internal/i18n"
@@ -74,6 +75,9 @@ type Options struct {
 	// example by a Ctrl+C handler in main), interactive modes return
 	// immediately. If nil, context.Background() is used.
 	BaseCtx context.Context
+
+	// DoctorEnv is the machine `motita doctor` checks. Nil means this process's (doctor.System).
+	DoctorEnv *doctor.Env
 
 	// Construction hooks, to replace the layers in tests.
 	NewLogger  func(config.Agent) (*logx.Logger, error)
@@ -204,6 +208,8 @@ Options:
 Commands:
   config             setup wizard: choose the provider, the model and the check,
                      and write a working configuration
+  doctor             check this machine: platform, shell, DNS, PATH, the
+                     configuration and the sandbox
   gateway start      bring the gateway up as a service and leave it running
   gateway stop       stop the gateway named by the service file
   gateway status     report whether a gateway is running
@@ -240,6 +246,7 @@ type flags struct {
 	version        bool
 	isolation      bool
 	initConfig     bool
+	doctor         bool
 	// tokenOnly and jsonOut shape `gateway start` for scripts; boolean on purpose, like the
 	// curator switches, so neither swallows the word after it.
 	tokenOnly bool
@@ -321,6 +328,10 @@ func Run(op Options) int {
 	if fl.initConfig {
 		code, _ := op.initConfig(fl)
 		return code
+	}
+
+	if fl.doctor {
+		return op.runDoctor(fl)
 	}
 
 	// A subcommand is dispatched here, before the main path, because it pays for neither the
@@ -487,6 +498,11 @@ func parse(args []string) (flags, error) {
 				// The setup wizard. A word and not a flag because -config already names the
 				// YAML file; `motita config` is the one place the two cannot be confused.
 				b.initConfig = true
+				args = append(append([]string{}, args[:i]...), args[i+1:]...)
+				consumed = true
+			case "doctor":
+				// A word like `config`: a report on the machine, read before any file is.
+				b.doctor = true
 				args = append(append([]string{}, args[:i]...), args[i+1:]...)
 				consumed = true
 			case "curator":
@@ -734,7 +750,7 @@ func loadPreferringKey(path string, fl flags) (config.Config, error) {
 
 // diagnosticNeedsNoKey reports whether this invocation can be served without an LLM key.
 func diagnosticNeedsNoKey(fl flags) bool {
-	if fl.validateConfig || fl.isolation {
+	if fl.validateConfig || fl.isolation || fl.doctor {
 		return true
 	}
 	// A curator command, unless it is the consolidation pass.
