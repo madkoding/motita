@@ -88,9 +88,10 @@ func TestTheOfferDoesNotPaintWhileATurnRuns(t *testing.T) {
 // upgrade all leave the welcome screen as it was.
 func TestNothingIsSaidWhenThereIsNothingToSay(t *testing.T) {
 	for name, tu := range map[string]*TUI{
-		"up to date":   updateTUI(&updatingRunner{fakeRunner: &fakeRunner{}, current: "v1", latest: "v1"}),
-		"check failed": updateTUI(&updatingRunner{fakeRunner: &fakeRunner{}, checkErr: errors.New("offline"), available: true}),
-		"no gateway":   newFakeTUI("", &fakeRunner{}),
+		"up to date": updateTUI(&updatingRunner{fakeRunner: &fakeRunner{}, current: "v1", latest: "v1"}),
+		"check failed": updateTUI(
+			&updatingRunner{fakeRunner: &fakeRunner{}, checkErr: errors.New("offline"), available: true}),
+		"no gateway": newFakeTUI("", &fakeRunner{}),
 	} {
 		tu.announceUpdate(context.Background())
 		if tu.Notice != "" {
@@ -121,7 +122,8 @@ func TestUpdateInstallsAndTellsTheUserWhatToDoNext(t *testing.T) {
 	tu.Notice = "motita v1.1.0 is available"
 	tu.runUpdate(context.Background())
 	out := messagesOf(tu)
-	for _, want := range []string{"installing v1.1.0", "Downloading v1.1.0", "Verifying checksum", "v1.1.0 is installed", "/quit"} {
+	for _, want := range []string{"installing v1.1.0", "Downloading v1.1.0", "Verifying checksum", "v1.1.0 is installed",
+		"/quit"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("the conversation lacks %q:\n%s", want, out)
 		}
@@ -132,7 +134,8 @@ func TestUpdateInstallsAndTellsTheUserWhatToDoNext(t *testing.T) {
 }
 
 func TestUpdateFailureIsReportedAsFailure(t *testing.T) {
-	r := &updatingRunner{fakeRunner: &fakeRunner{}, current: "v1", latest: "v2", available: true, runErr: errors.New("checksum mismatch")}
+	r := &updatingRunner{fakeRunner: &fakeRunner{}, current: "v1", latest: "v2", available: true,
+		runErr: errors.New("checksum mismatch")}
 	tu := updateTUI(r)
 	tu.runUpdate(context.Background())
 	out := messagesOf(tu)

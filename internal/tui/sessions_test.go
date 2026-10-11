@@ -669,7 +669,8 @@ func TestAFollowedRunThatCouldNotBeFollowedIsReported(t *testing.T) {
 	r := &switcherRunner{
 		sessions: []SessionInfo{{ID: "sabc", Running: true}},
 		current:  "default",
-		liveRun:  &liveRun{progress: []string{"working"}, err: errors.New("the stream ended"), release: make(chan struct{}, 1)},
+		liveRun: &liveRun{progress: []string{"working"}, err: errors.New("the stream ended"),
+			release: make(chan struct{}, 1)},
 	}
 	ui := switcher(r)
 
@@ -1198,7 +1199,8 @@ func TestSeveralPRNoticesAreOneNoticeAndOneBell(t *testing.T) {
 	tu.draw.Lock()
 	notice := tu.liveNotice
 	tu.draw.Unlock()
-	if !strings.Contains(notice, "2 pull requests moved") || !strings.Contains(notice, "PR #1") || !strings.Contains(notice, "PR #2") {
+	if !strings.Contains(notice, "2 pull requests moved") || !strings.Contains(notice, "PR #1") ||
+		!strings.Contains(notice, "PR #2") {
 		t.Errorf("one notice for both: %q", notice)
 	}
 	if n := strings.Count(out.String(), "\a"); n != 1 {

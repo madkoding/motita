@@ -538,7 +538,8 @@ func TestFullCycle(t *testing.T) {
 		t.Fatalf("two answered questions, got %d", len(res))
 	}
 	reply := composeAnswers("review the project", res)
-	for _, want := range []string{"review the project", "which folder?", "/tmp", "and what do you want to achieve?", "a report"} {
+	for _, want := range []string{"review the project", "which folder?", "/tmp", "and what do you want to achieve?",
+		"a report"} {
 		if !strings.Contains(reply, want) {
 			t.Fatalf("the reply should carry %q, got:\n%s", want, reply)
 		}

@@ -159,7 +159,8 @@ func TestEveryStateOfAPullRequestHasWords(t *testing.T) {
 }
 
 func TestTheSessionListSaysWhatTheCIIsDoing(t *testing.T) {
-	r := &switcherRunner{sessions: []SessionInfo{{ID: "default", Current: true, PR: "passed", PRNumber: 7}}, current: "default"}
+	r := &switcherRunner{sessions: []SessionInfo{{ID: "default", Current: true, PR: "passed", PRNumber: 7}},
+		current: "default"}
 	out, err := switcher(r).sessionsText(context.Background())
 	if err != nil || !strings.Contains(out, "[PR #7: CI passed, ready to merge]") {
 		t.Errorf("%q %v", out, err)

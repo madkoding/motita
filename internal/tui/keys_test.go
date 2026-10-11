@@ -822,7 +822,8 @@ func TestTheHelpKeepsItsColumns(t *testing.T) {
 
 	// Every documented line must survive with its indentation, not re-flowed into a
 	// paragraph.
-	for _, want := range []string{"  Tab             switch between Task and Plan", "  g / G           oldest / newest", "  Ctrl+F          search the conversation (or /find)"} {
+	for _, want := range []string{"  Tab             switch between Task and Plan", "  g / G           oldest / newest",
+		"  Ctrl+F          search the conversation (or /find)"} {
 		if !strings.Contains(frame, want) {
 			t.Errorf("the help lost its alignment; %q is missing from:\n%s", want, frame)
 		}

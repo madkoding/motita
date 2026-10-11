@@ -48,7 +48,8 @@ func (f *fakeForgeHTTP) Do(req *http.Request) (*http.Response, error) {
 		if f.deviceFail {
 			status, body = 500, "down"
 		} else {
-			body = `{"device_code":"dc","user_code":"AB-12","verification_uri":"https://github.com/login/device","expires_in":600,"interval":1}`
+			body = `{"device_code":"dc","user_code":"AB-12","verification_uri":"https://github.com/login/device",` +
+				`"expires_in":600,"interval":1}`
 		}
 	case strings.HasSuffix(path, "/access_token"), strings.HasSuffix(path, "/oauth/token"):
 		body = f.tokenBody
@@ -306,7 +307,8 @@ func TestGitTokenCancelled(t *testing.T) {
 func TestGitBitbucketAsksForTheAccountThenTheAppPassword(t *testing.T) {
 	r := newGitRig(t, nil, say("me", "good")...)
 	r.tu.runGit(context.Background(), "connect bitbucket")
-	mustContain(t, r.say(), "One-click login for Bitbucket needs MOTITA_BITBUCKET_CLIENT_ID", "Your Bitbucket account name", "connected as me")
+	mustContain(t, r.say(), "One-click login for Bitbucket needs MOTITA_BITBUCKET_CLIENT_ID",
+		"Your Bitbucket account name", "connected as me")
 	if got := r.script.secrets; len(got) != 2 || got[0] || !got[1] {
 		t.Errorf("the account is plain and the password secret: %v", got)
 	}
@@ -351,7 +353,8 @@ func TestGitConnectPicker(t *testing.T) {
 func TestGitSelfHostedHost(t *testing.T) {
 	r := newGitRig(t, nil, say("good", "good")...)
 	r.tu.runGit(context.Background(), "connect gitlab:git.corp.io")
-	mustContain(t, r.say(), "https://git.corp.io/", "One-click login for GitLab (git.corp.io) needs MOTITA_GITLAB_CLIENT_ID", "connected as octo")
+	mustContain(t, r.say(), "https://git.corp.io/",
+		"One-click login for GitLab (git.corp.io) needs MOTITA_GITLAB_CLIENT_ID", "connected as octo")
 	r.tu.messages = nil
 	r.tu.runGit(context.Background(), "connect forgejo:code.example.org")
 	mustContain(t, r.say(), "Gitea (code.example.org)")
@@ -424,7 +427,8 @@ func TestGitReposTruncatesALongList(t *testing.T) {
 	r.http.repos = gitReposPageLimit + 5
 	r.connect("github", "good")
 	r.tu.runGit(context.Background(), "repos r")
-	mustContain(t, r.say(), strconv.Itoa(gitReposPageLimit)+". octo/r"+strconv.Itoa(gitReposPageLimit), "narrow the list with /git repos <query>")
+	mustContain(t, r.say(), strconv.Itoa(gitReposPageLimit)+". octo/r"+strconv.Itoa(gitReposPageLimit),
+		"narrow the list with /git repos <query>")
 	if strings.Contains(r.say(), "octo/r"+strconv.Itoa(gitReposPageLimit+1)+"\n") {
 		t.Error("the list is capped")
 	}
@@ -445,7 +449,8 @@ func TestGitNudge(t *testing.T) {
 	r := newGitRig(t, nil)
 	r.tu.announceGit()
 	r.tu.announceGit()
-	if got := r.say(); strings.Count(got, "No git host is connected.") != 1 || !strings.Contains(got, "/git connects GitHub, GitLab or Bitbucket") {
+	if got := r.say(); strings.Count(got, "No git host is connected.") != 1 ||
+		!strings.Contains(got, "/git connects GitHub, GitLab or Bitbucket") {
 		t.Errorf("the nudge is said once:\n%s", got)
 	}
 
@@ -556,7 +561,8 @@ func TestShownDraftAndCompletionWhilePrompting(t *testing.T) {
 }
 
 func TestOpenBrowserUsesTheOperatingSystemsOpener(t *testing.T) {
-	for goos, want := range map[string]string{"linux": "xdg-open", "darwin": "open", "windows": "rundll32", "android": "termux-open-url", "freebsd": "xdg-open"} {
+	for goos, want := range map[string]string{"linux": "xdg-open", "darwin": "open", "windows": "rundll32",
+		"android": "termux-open-url", "freebsd": "xdg-open"} {
 		name, args := openCommand(goos, "http://x")
 		if name != want || args[len(args)-1] != "http://x" {
 			t.Errorf("%s: %s %v", goos, name, args)
@@ -608,7 +614,8 @@ func TestGitAuthFailuresGetAHint(t *testing.T) {
 		mustContain(t, got, "error: "+msg, "hint: git could not sign in", "/git connect")
 	}
 	tu.Lang = i18n.ES
-	mustContain(t, tu.errorText(errors.New("Authentication failed")), "pista: git no pudo iniciar sesión") // spanish-fixture: the Spanish hint
+	mustContain(t, tu.errorText(errors.New("Authentication failed")),
+		"pista: git no pudo iniciar sesión") // spanish-fixture: the Spanish hint
 }
 
 // stringConstant is the value of a string literal, or of literals joined with +, as a long
