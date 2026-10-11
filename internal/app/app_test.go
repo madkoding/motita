@@ -766,8 +766,9 @@ func TestSandboxOptionsTranslatesEverything(t *testing.T) {
 
 	op := SandboxOptions(cfg, logx.Global())
 
-	if op.Dir != "/tmp/w" || op.Limits.MemoryMB != 300 || op.Limits.CPUSeconds != 40 ||
-		op.Limits.Processes != 33 || op.Limits.OpenFiles != 77 || op.Limits.MaxFileSizeMB != 5 {
+	limitsMatch := op.Limits.MemoryMB == 300 && op.Limits.CPUSeconds == 40 &&
+		op.Limits.Processes == 33 && op.Limits.OpenFiles == 77
+	if op.Dir != "/tmp/w" || !limitsMatch || op.Limits.MaxFileSizeMB != 5 {
 		t.Errorf("options = %+v", op)
 	}
 	if op.Timeout != 42*time.Second || op.MaxOutputKB != 99 || !op.Keep {
@@ -1689,8 +1690,7 @@ func TestInitUsesTheInjectedWizard(t *testing.T) {
 				if gotPath != path {
 					t.Errorf("the wizard got %q, want %q", gotPath, path)
 				}
-				if preset.Provider != "" || preset.Model != "" || preset.APIKey != "" ||
-					preset.AnchorCommand != "" || len(preset.AnchorArgs) != 0 {
+				if !presetAsksEverything(preset) {
 					t.Errorf("the wizard must be asked everything: %+v", preset)
 				}
 				fmt.Fprint(w, "dialogue")
@@ -1715,6 +1715,12 @@ func TestInitUsesTheInjectedWizard(t *testing.T) {
 			t.Errorf("the wizard writes to the same output: %q", out.String())
 		}
 	})
+}
+
+// presetAsksEverything reports whether the wizard was given no answer in advance.
+func presetAsksEverything(preset onboard.Answers) bool {
+	noLLMPreset := preset.Provider == "" && preset.Model == "" && preset.APIKey == ""
+	return noLLMPreset && preset.AnchorCommand == "" && len(preset.AnchorArgs) == 0
 }
 
 // --- Auto-trigger onboarding ------------------------------------------------
