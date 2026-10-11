@@ -72,6 +72,18 @@ func TestTheOfferKeepsTheNoticeThatWasAlreadyThere(t *testing.T) {
 	}
 }
 
+// TestTheOfferDoesNotPaintWhileATurnRuns: the turn's goroutine repaints after each step, so the
+// announcement only records the notice and leaves the screen to it.
+func TestTheOfferDoesNotPaintWhileATurnRuns(t *testing.T) {
+	r := &updatingRunner{fakeRunner: &fakeRunner{}, current: "v1", latest: "v2", available: true}
+	tu := updateTUI(r)
+	tu.beginTurn()
+	tu.announceUpdate(context.Background())
+	if !strings.Contains(tu.Notice, "v2") {
+		t.Errorf("the notice must still be recorded: %q", tu.Notice)
+	}
+}
+
 // TestNothingIsSaidWhenThereIsNothingToSay: up to date, a failed check, and a runner that cannot
 // upgrade all leave the welcome screen as it was.
 func TestNothingIsSaidWhenThereIsNothingToSay(t *testing.T) {

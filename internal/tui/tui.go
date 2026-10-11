@@ -1372,8 +1372,10 @@ func (t *TUI) addPreformatted(author Author, text string) {
 // see its output, so the window follows the newest line again even if the user was
 // reading history a moment ago.
 func (t *TUI) beginTurn() {
+	t.draw.Lock()
 	t.busy = true
 	t.spin++
+	t.draw.Unlock()
 	t.scroll = 0
 }
 
@@ -1421,9 +1423,13 @@ func (t *TUI) currentCancel() context.CancelFunc {
 // is — the reader keeps the line they were on while the answer grows below. Only
 // an explicit jump (a new turn, g/G, End) returns to the bottom.
 func (t *TUI) advance() {
+	// The spinner frame is read by drawFrame under t.draw (the progress loop and the
+	// run goroutine paint concurrently), so it is advanced under the same lock.
+	t.draw.Lock()
 	if t.busy {
 		t.spin++
 	}
+	t.draw.Unlock()
 	t.drawFrame()
 }
 
