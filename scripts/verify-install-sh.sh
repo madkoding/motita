@@ -55,6 +55,10 @@ grep -q "http://127.0.0.1:$PORT" "$WORK/install.sh" || fail "the release base wa
 grep -q '^RELEASE_PUBLIC_KEY=""' "$WORK/install.sh" || fail "the embedded release key was not blanked"
 
 export MOTITA_INSTALL_DIR="$WORK/dest"
+# The installer writes the PATH into the shell's rc file: a home of its own keeps it
+# away from the real one of whoever runs this.
+export HOME="$WORK/home" SHELL=/bin/bash
+mkdir -p "$HOME"
 unset MOTITA_VERSION MOTITA_INSECURE_SKIP_VERIFY || true
 run() { sh "$WORK/install.sh" 2>&1; }
 
@@ -64,6 +68,23 @@ printf '%s\n' "$out" | grep -q 'checksum: ok' || fail "no verified checksum repo
 printf '%s\n' "$out" | grep -q 'gh attestation verify' || fail "no provenance hint for an unsigned install: $out"
 [ -x "$WORK/dest/motita" ] || fail "nothing was installed"
 echo "the installer verifies and installs a good release"
+
+# --- 2a. a directory off the PATH is added to the shell's rc, once ----------
+printf '%s\n' "$out" | grep -q "added $WORK/dest to the PATH in $HOME/.bashrc" || fail "the PATH was not added to .bashrc: $out"
+printf '%s\n' "$out" | grep -q "Next: $WORK/dest/motita config" || fail "the last line does not name the full path: $out"
+grep -qxF "export PATH=\"$WORK/dest:\$PATH\"" "$HOME/.bashrc" || fail ".bashrc does not export the directory: $(cat "$HOME/.bashrc")"
+run >/dev/null || fail "a second install failed"
+[ "$(grep -c 'added by the motita installer' "$HOME/.bashrc")" = 1 ] || fail "a second install wrote the PATH again: $(cat "$HOME/.bashrc")"
+( . "$HOME/.bashrc" && command -v motita >/dev/null ) || fail "a shell that reads .bashrc does not find motita"
+out="$(SHELL=/usr/bin/zsh run)" || fail "the installer failed for zsh: $out"
+grep -qF 'added by the motita installer' "$HOME/.zshrc" || fail "zsh's rc was not written: $out"
+out="$(SHELL=/usr/bin/fish run)" || fail "the installer failed for fish: $out"
+grep -qxF "fish_add_path -g \"$WORK/dest\"" "$HOME/.config/fish/conf.d/motita.fish" || fail "fish's config was not written: $out"
+rm -f "$HOME/.profile"
+out="$(SHELL=/bin/dash MOTITA_NO_MODIFY_PATH=1 run)" || fail "the installer failed with MOTITA_NO_MODIFY_PATH: $out"
+[ ! -e "$HOME/.profile" ] || fail "MOTITA_NO_MODIFY_PATH=1 still wrote $HOME/.profile"
+printf '%s\n' "$out" | grep -q 'is not on your PATH' || fail "with MOTITA_NO_MODIFY_PATH the user is not told to add it: $out"
+echo "a directory off the PATH is added to the shell's rc once, and only when allowed"
 
 # --- 3. fail closed without SHA256SUMS, unless overridden --------------------
 rm -rf "$WORK/dest"

@@ -238,7 +238,12 @@ MOTITA_INSTALL_DIR="$HOME/bin" curl -fsSL .../install.sh | sh
 ```
 
 The installer prefers `/usr/local/bin` when it is writable and falls back to
-`~/.local/bin`, so it never needs root. It downloads into a temporary directory
+`~/.local/bin` (`$PREFIX/bin` on Termux), so it never needs root. When that
+directory is not on the `PATH`, it adds one marked `export` line to your shell's
+startup file (`~/.bashrc`, `~/.zshrc`, fish's `conf.d`, or `~/.profile`), once,
+so every new terminal finds `motita`; `MOTITA_NO_MODIFY_PATH=1` leaves the files
+alone. A piped installer cannot change the shell you typed it into, so the
+terminal you are in gets the `export` line to paste and the full path to run. It downloads into a temporary directory
 and moves the binary into place **only after** the checksum matches: a failed or
 corrupted download leaves the system as it was. Finally it runs the binary once,
 because reporting success without executing it would miss the one failure that

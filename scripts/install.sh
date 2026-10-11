@@ -13,6 +13,8 @@
 #                              install even when the release cannot be verified
 #                              (no SHA256SUMS, or no entry for this platform).
 #                              A checksum MISMATCH is refused regardless.
+#   MOTITA_NO_MODIFY_PATH=1    do not add the install directory to the shell's
+#                              rc file when it is not on the PATH
 #
 # Exit codes: 0 installed · 1 failed (nothing is left half-installed).
 #
@@ -149,6 +151,43 @@ verify_signature() {
 	say "  signature: ok"
 }
 
+# --- 6a. put the directory on the PATH for the next shells ----------------------
+#
+# A piped installer runs in a CHILD shell: an export here dies with it, so the
+# shell the user typed into cannot be changed from here. What can be changed is
+# the file that shell reads when it starts, so the next terminal finds motita.
+# One block, marked, written once: running the installer again adds nothing.
+# MOTITA_NO_MODIFY_PATH=1 leaves every file alone.
+PATH_MARK="# added by the motita installer"
+
+shell_rc() {
+	case "$(basename "${SHELL:-sh}")" in
+		zsh)  echo "${ZDOTDIR:-$HOME}/.zshrc" ;;
+		bash)
+			# macOS opens login shells, which read .bash_profile and not .bashrc.
+			if [ "$(uname -s)" = Darwin ]; then echo "${HOME}/.bash_profile"; else echo "${HOME}/.bashrc"; fi ;;
+		fish) echo "${XDG_CONFIG_HOME:-$HOME/.config}/fish/conf.d/motita.fish" ;;
+		*)    echo "${HOME}/.profile" ;;
+	esac
+}
+
+add_to_path() {
+	# add_to_path <dir>: prints the file it wrote to, or nothing when it left them alone.
+	[ "${MOTITA_NO_MODIFY_PATH:-}" = 1 ] && return 0
+	rc="$(shell_rc)"
+	if [ -f "$rc" ] && grep -qF "$PATH_MARK" "$rc" 2>/dev/null; then
+		echo "$rc"
+		return 0
+	fi
+	mkdir -p "$(dirname "$rc")" 2>/dev/null || return 0
+	case "$rc" in
+		*.fish) line="fish_add_path -g \"$1\"" ;;
+		*)      line="export PATH=\"$1:\$PATH\"" ;;
+	esac
+	printf '\n%s\n%s\n' "$PATH_MARK" "$line" >> "$rc" 2>/dev/null || return 0
+	echo "$rc"
+}
+
 main() {
 find_tools
 
@@ -252,10 +291,22 @@ else
 	warn "${DIR}/${BIN} was installed but does not run on this system"
 fi
 
+RUN="$BIN"
 case ":${PATH}:" in
 	*":${DIR}:"*) ;;
-	*) warn "${DIR} is not on your PATH. Add it:
-    export PATH=\"${DIR}:\$PATH\"" ;;
+	*)
+		# Until a new shell starts, the full path is what works, so that is what
+		# the last line tells the user to type.
+		RUN="${DIR}/${BIN}"
+		rc="$(add_to_path "$DIR")"
+		if [ -n "$rc" ]; then
+			say "  path:      added ${DIR} to the PATH in ${rc}"
+			say "             open a new terminal, or run in this one:"
+		else
+			warn "${DIR} is not on your PATH. Add it:"
+		fi
+		say "    export PATH=\"${DIR}:\$PATH\""
+		;;
 esac
 
 if [ "$SIGNED" != 1 ]; then
@@ -264,7 +315,7 @@ if [ "$SIGNED" != 1 ]; then
 fi
 
 say ""
-say "Next: ${BIN} config    (writes a configuration that works)"
+say "Next: ${RUN} config    (writes a configuration that works)"
 }
 
 main "$@"
