@@ -55,8 +55,9 @@ func (a Author) String() string {
 		return "motita"
 	case AuthorSystem:
 		return "system"
+	default:
+		return "?"
 	}
-	return "?"
 }
 
 // Screen is one of the main views.
@@ -79,8 +80,9 @@ func (s Screen) String() string {
 		return "Models"
 	case ScreenConfig:
 		return "Config"
+	default:
+		return "?"
 	}
-	return "?"
 }
 
 var screenOrder = []Screen{ScreenTask, ScreenPlan, ScreenModels, ScreenConfig}
@@ -366,47 +368,15 @@ func (t *TUI) Run(ctx context.Context) int {
 	// network, and the interface must open without it. It is waited for on the way out, before
 	// the screen is wiped, for the reason the painter below is.
 	if _, ok := t.Runner.(updater); ok {
-		checkCtx, stopCheck := context.WithCancel(ctx)
-		var checking sync.WaitGroup
-		checking.Add(1)
-		go func() {
-			defer checking.Done()
-			t.announceUpdate(checkCtx)
-		}()
-		defer func() {
-			stopCheck()
-			checking.Wait()
-		}()
+		defer beside(ctx, t.announceUpdate)()
 	}
 
 	// The CI of a session's pull request is followed by the gateway; the notices are raised here.
 	if _, ok := t.Runner.(SessionSwitcher); ok {
-		prCtx, stopPRs := context.WithCancel(ctx)
-		var watching sync.WaitGroup
-		watching.Add(1)
-		go func() {
-			defer watching.Done()
-			t.watchPRs(prCtx)
-		}()
-		defer func() {
-			stopPRs()
-			watching.Wait()
-		}()
+		defer beside(ctx, t.watchPRs)()
 	}
 
-	resized, stopWatch := watchResize()
-	var painting sync.WaitGroup
-	painting.Add(1)
-	go func() {
-		defer painting.Done()
-		for range resized {
-			t.drawFrame()
-		}
-	}()
-	defer func() {
-		stopWatch()
-		painting.Wait()
-	}()
+	defer t.paintOnResize()()
 
 	for {
 		line, ok := t.readLine(ctx)
@@ -420,54 +390,100 @@ func (t *TUI) Run(ctx context.Context) int {
 			}
 			return ExitSuccess
 		}
-
-		// While a command waits for approval the keys answer it. This is only reached in
-		// character mode: without it the window is answered where the turn is awaited.
-		if t.answeringConfirm() {
-			t.handleConfirmLine(line)
-			continue
+		if t.dispatchLine(ctx, line) {
+			return ExitSuccess
 		}
+	}
+}
 
-		// While the search is open the input belongs to it: a line typed there is a
-		// query, not a task, and running it would be a surprise nobody asked for.
-		if t.searching {
-			t.applyQuery(line)
-			continue
-		}
+// beside runs work in a goroutine, with a context of its own under ctx, and returns the function
+// that cancels it and waits for it to end.
+func beside(ctx context.Context, work func(context.Context)) func() {
+	workCtx, stop := context.WithCancel(ctx)
+	var running sync.WaitGroup
+	running.Add(1)
+	go func() {
+		defer running.Done()
+		work(workCtx)
+	}()
+	return func() {
+		stop()
+		running.Wait()
+	}
+}
 
-		// While the agent's questions are open the input belongs to THEM, and it is checked
-		// before the shortcuts for the same reason the search is: a digit or an arrow typed
-		// here is an answer, not a task to run.
-		if t.asking() && t.handleAskKey(ctx, line) {
-			continue
+// paintOnResize repaints the frame each time the terminal changes size, and returns the function
+// that stops watching and waits for the painter.
+func (t *TUI) paintOnResize() func() {
+	resized, stopWatch := watchResize()
+	var painting sync.WaitGroup
+	painting.Add(1)
+	go func() {
+		defer painting.Done()
+		for range resized {
+			t.drawFrame()
 		}
+	}()
+	return func() {
+		stopWatch()
+		painting.Wait()
+	}
+}
 
-		// Global shortcuts are checked before interpreting the line as chat.
-		if handled, quit := t.handleShortcut(ctx, line); handled {
-			if quit {
-				t.leaveTurn(ctx)
-				return ExitSuccess
-			}
-			continue
-		}
+// dispatchLine hands a line read from the input to whatever owns the input right now. It reports
+// whether the user asked to quit.
+func (t *TUI) dispatchLine(ctx context.Context, line string) bool {
+	// While a command waits for approval the keys answer it. This is only reached in
+	// character mode: without it the window is answered where the turn is awaited.
+	if t.answeringConfirm() {
+		t.handleConfirmLine(line)
+		return false
+	}
 
-		// A message typed while the agent works waits for it, instead of being lost or starting a
-		// second turn over the first.
-		if t.current != nil && strings.TrimSpace(line) != "" {
-			t.queue(line)
-			continue
-		}
+	// While the search is open the input belongs to it: a line typed there is a
+	// query, not a task, and running it would be a surprise nobody asked for.
+	if t.searching {
+		t.applyQuery(line)
+		return false
+	}
 
-		// On the Models and Setup screens an empty line runs the screen's action (refresh the
-		// catalogue, run the setup), and anything typed is a task: see submit.
-		switch {
-		case t.screen == ScreenModels && strings.TrimSpace(line) == "":
-			t.runModels(ctx)
-		case t.screen == ScreenConfig && strings.TrimSpace(line) == "":
-			t.runConfig(ctx)
-		default:
-			t.submit(ctx, line)
+	// While the agent's questions are open the input belongs to THEM, and it is checked
+	// before the shortcuts for the same reason the search is: a digit or an arrow typed
+	// here is an answer, not a task to run.
+	if t.asking() && t.handleAskKey(ctx, line) {
+		return false
+	}
+
+	// Global shortcuts are checked before interpreting the line as chat.
+	if handled, quit := t.handleShortcut(ctx, line); handled {
+		if quit {
+			t.leaveTurn(ctx)
 		}
+		return quit
+	}
+
+	// A message typed while the agent works waits for it, instead of being lost or starting a
+	// second turn over the first.
+	if t.current != nil && strings.TrimSpace(line) != "" {
+		t.queue(line)
+		return false
+	}
+
+	t.runLine(ctx, line)
+	return false
+}
+
+// runLine runs what was typed on the current screen. On the Models and Setup screens an empty
+// line runs the screen's action (refresh the catalogue, run the setup), and anything typed is a
+// task: see submit.
+func (t *TUI) runLine(ctx context.Context, line string) {
+	switch {
+	case t.screen == ScreenModels && strings.TrimSpace(line) == "":
+		t.runModels(ctx)
+	case t.screen == ScreenConfig && strings.TrimSpace(line) == "":
+		t.runConfig(ctx)
+	default:
+		t.submit(ctx, line)
 	}
 }
 
@@ -486,6 +502,20 @@ func (t *TUI) handleShortcut(ctx context.Context, line string) (bool, bool) {
 	return t.handleTypedCommand(ctx, line)
 }
 
+// pressEscape is the universal way out, and it leaves in the reverse order of how the interface
+// was entered: the search first, then a run, then the scroll.
+func (t *TUI) pressEscape() {
+	if t.searching || t.query != "" {
+		t.closeSearch()
+		return
+	}
+	if cancel := t.currentCancel(); cancel != nil {
+		cancel()
+		return
+	}
+	t.scrollToBottom()
+}
+
 // handleRawKey answers the keys the terminal reports as bytes: control characters,
 // escape sequences and mouse reports. None of them is something a user typed as
 // text, so a key the interface does not use is CONSUMED rather than passed on —
@@ -498,17 +528,7 @@ func (t *TUI) handleRawKey(line string) (bool, bool) {
 		t.nextScreen()
 		return true, false
 	case keyEsc:
-		// Escape is the universal way out, and it leaves in the reverse order of how
-		// the interface was entered: the search first, then a run, then the scroll.
-		if t.searching || t.query != "" {
-			t.closeSearch()
-			return true, false
-		}
-		if cancel := t.currentCancel(); cancel != nil {
-			cancel()
-			return true, false
-		}
-		t.scrollToBottom()
+		t.pressEscape()
 		return true, false
 	case keyUp:
 		t.scrollBy(+1)
@@ -537,6 +557,8 @@ func (t *TUI) handleRawKey(line string) (bool, bool) {
 	case keyFind:
 		t.openSearch()
 		return true, false
+	default:
+		// Not a named key: the control bytes and the mouse are checked below.
 	}
 
 	// The remaining control bytes are not text and must not be sent. This is the belt to the
@@ -913,7 +935,8 @@ func drainProgress(ch <-chan string, handle func(string)) {
 // cancellation error in the other — and when both channels were ready the choice
 // was a coin toss. That is not a test-timing problem: it is the same event
 // producing two different messages.
-func (t *TUI) awaitRun(ctx context.Context, progress <-chan string, done <-chan runOutcome, onProgress func(string)) runOutcome {
+func (t *TUI) awaitRun(ctx context.Context, progress <-chan string, done <-chan runOutcome,
+	onProgress func(string)) runOutcome {
 	// The channel the agent reaches this loop through is created BEFORE the select, not inside a
 	// case: a channel created in a case arm is created every time the select re-evaluates, which
 	// works only because the second call happens to return the same one. Making it explicit is
@@ -1223,7 +1246,8 @@ func (t *TUI) runModels(ctx context.Context) {
 		// the indentation that marks the model in use. It ends with how to act on it.
 		t.messages[pendingIdx].Author = AuthorAgent
 		t.messages[pendingIdx].Preformatted = true
-		t.messages[pendingIdx].Text = strings.TrimRight(report, "\n") + "\n\n" + t.tr("/models <id> switches to one of them for this session.")
+		t.messages[pendingIdx].Text = strings.TrimRight(report, "\n") + "\n\n" +
+			t.tr("/models <id> switches to one of them for this session.")
 	}
 	t.messages[pendingIdx].Pending = false
 	t.endTurn()
@@ -1588,29 +1612,39 @@ func stripKeySequences(s string) string {
 			i++
 			continue
 		}
-		// Skip the whole sequence. CSI (ESC [) runs to its final byte in 0x40..0x7e; SS3
-		// (ESC O) is the three-byte form the function keys use; a bare ESC is just itself.
-		j := i + 1
-		switch {
-		case j < len(runes) && runes[j] == '[':
-			j++
-			for j < len(runes) && !(runes[j] >= 0x40 && runes[j] <= 0x7e) {
-				j++
-			}
-			if j < len(runes) {
-				j++ // consume the final byte too
-			}
-		case j < len(runes) && runes[j] == 'O':
-			j++
-			if j < len(runes) {
-				j++
-			}
-		default:
-			j = i + 1 // a bare ESC: nothing follows it
-		}
-		i = j
+		i = sequenceEnd(runes, i)
 	}
 	return b.String()
+}
+
+// csiEnd returns the index after the final byte of the CSI sequence whose parameters start at j.
+func csiEnd(runes []rune, j int) int {
+	for j < len(runes) && !(runes[j] >= 0x40 && runes[j] <= 0x7e) {
+		j++
+	}
+	if j < len(runes) {
+		j++ // consume the final byte too
+	}
+	return j
+}
+
+// sequenceEnd returns the index after the key sequence whose ESC is at i. CSI (ESC [) runs to its
+// final byte in 0x40..0x7e; SS3 (ESC O) is the three-byte form the function keys use; a bare ESC
+// is just itself.
+func sequenceEnd(runes []rune, i int) int {
+	j := i + 1
+	switch {
+	case j < len(runes) && runes[j] == '[':
+		j = csiEnd(runes, j+1)
+	case j < len(runes) && runes[j] == 'O':
+		j++
+		if j < len(runes) {
+			j++
+		}
+	default:
+		j = i + 1 // a bare ESC: nothing follows it
+	}
+	return j
 }
 
 // readEscape completes a key that starts with ESC.
@@ -1942,6 +1976,8 @@ func (t *TUI) handleLiveKey(b byte) (line string, dispatch, handled bool) {
 		// "accept forward" everywhere else, and a key nothing here had claimed.
 		t.draft = ""
 		return "\t", true, true
+	default:
+		// Any other byte is text, or a control key refused below.
 	}
 
 	// A CONTROL byte is captured, never typed.
@@ -2066,6 +2102,8 @@ func (t *TUI) handleEscapeLive() (seq string, dispatch bool) {
 			t.completingIdx = (t.completingIdx + 1) % len(cands)
 			t.drawFrame()
 			return "", false
+		default:
+			// Not a key that moves the highlight.
 		}
 	}
 
@@ -2156,32 +2194,10 @@ func (t *TUI) readRuneFrom(first byte) (string, bool) {
 // sends the whole CSI sequence in one write, and the bytes already buffered are what tells
 // them apart.
 func (t *TUI) readEscapeLive() string {
-	if t.input().Buffered() == 0 {
-		return keyEsc
-	}
-	peek, err := t.input().Peek(1)
-	if err != nil || len(peek) == 0 || peek[0] != '[' {
-		return keyEsc
-	}
-	seq := []byte{0x1b, '['}
-	t.input().Discard(1)
-	for {
-		c, err := t.input().ReadByte()
-		if err != nil {
-			return keyEsc
-		}
-		seq = append(seq, c)
-		if c >= 0x40 && c <= 0x7e {
-			break
-		}
-		// The same bound as readEscape, and for the same reason: a mouse report is the longest
-		// sequence the interface asks for, and cutting it short leaves its tail in the buffer to
-		// be read as typed text.
-		if len(seq) > 64 {
-			return keyEsc
-		}
-	}
-	return string(seq)
+	// The very same reading as readEscape, with the same bound on the length: a mouse report is
+	// the longest sequence the interface asks for, and cutting it short leaves its tail in the
+	// buffer to be read as typed text.
+	return t.readEscape()
 }
 
 // completeDraft replaces what has been typed with the candidate the popup is highlighting.
