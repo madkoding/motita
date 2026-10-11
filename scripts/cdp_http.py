@@ -8,10 +8,10 @@ import http.client
 import json
 import os
 import urllib.parse
-from typing import Protocol, TypeAlias
+from typing import Protocol
 
 # A decoded JSON value: what the gateway's API answers and what a page evaluation returns.
-JSON: TypeAlias = dict[str, "JSON"] | list["JSON"] | str | int | float | bool | None
+type JSON = dict[str, JSON] | list[JSON] | str | int | float | bool | None
 
 
 class AsyncSocket(Protocol):

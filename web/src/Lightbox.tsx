@@ -12,6 +12,8 @@ const clamp = (z: number) => Math.min(MAX, Math.max(MIN, z))
 // One step of the zoom buttons and keys, and one notch of the wheel.
 const ZOOM_STEP = 1.25
 const WHEEL_STEP = 1.15
+// A double click on a fitted image zooms straight to this scale around the pointer.
+const DOUBLE_CLICK_ZOOM = 2.5
 
 type Listeners = { [E in keyof HTMLElementEventMap]?: (e: HTMLElementEventMap[E]) => void }
 
@@ -110,7 +112,7 @@ export function Lightbox({ images, start, onClose }: { images: LightboxImage[]; 
   // Escape through useDialog). A click in the bar stays in the bar.
   const onClick = (e: MouseEvent) => { if (e.target === e.currentTarget) { onClose() } }
   const onWheel = (e: WheelEvent) => { e.preventDefault(); const c = fromCentre(e); zoomAt(choose(e.deltaY < 0, WHEEL_STEP, 1 / WHEEL_STEP), c.x, c.y) }
-  const onDblClick = (e: MouseEvent) => { if (zoom !== 1) { reset(); } else { const c = fromCentre(e); zoomAt(2.5, c.x, c.y) } }
+  const onDblClick = (e: MouseEvent) => { if (zoom !== 1) { reset(); } else { const c = fromCentre(e); zoomAt(DOUBLE_CLICK_ZOOM, c.x, c.y) } }
   const onPointerDown = (e: PointerEvent) => { drag.current = { x: e.clientX, y: e.clientY, px: live.current.x, py: live.current.y }; (e.currentTarget as HTMLElement).setPointerCapture?.(e.pointerId) }
   const onPointerMove = (e: PointerEvent) => { const d = drag.current; if (d) { apply({ zoom: live.current.zoom, x: d.px + e.clientX - d.x, y: d.py + e.clientY - d.y }) } }
   const onPointerEnd = () => { drag.current = null }
