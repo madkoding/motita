@@ -67,52 +67,64 @@ func (s *scriptServer) handler(t *testing.T) http.HandlerFunc {
 			text += m.Content
 		}
 		s.mu.Lock()
-		var content string
-		switch {
-		case strings.Contains(text, "## ANALYSIS OF THE TASK"):
-			s.analyses = append(s.analyses, text)
-			content = `{"kind":"task","understandable":true,"summary":"the work","success_criteria":["it is done"]}`
-			if s.analyze != nil {
-				content = s.analyze(text)
-			}
-		case strings.Contains(text, "## ACTION PLAN"):
-			content = `{"plan":[{"step":1,"action":"do it","command":""}],"subtasks":[]}`
-			if s.plan != nil {
-				content = s.plan(text)
-			}
-		case strings.Contains(text, "## FINAL ANSWER"):
-			s.synth = append(s.synth, text)
-			content = `{"summary":"all done"}`
-			if s.synthReply != "" {
-				content = s.synthReply
-			}
-		case strings.Contains(text, "## ACTION"):
-			s.executes = append(s.executes, text)
-			content = s.execute(len(s.executes), text)
-		default:
-			t.Errorf("unrecognisable prompt: %q", truncate(text, 200))
-			content = "{}"
-		}
+		content := s.reply(t, text)
 		s.mu.Unlock()
 		if s.sse && req.Stream {
-			w.Header().Set("Content-Type", "text/event-stream")
-			frame := func(delta map[string]string) {
-				data, _ := json.Marshal(map[string]any{"choices": []any{map[string]any{"delta": delta}}})
-				fmt.Fprintf(w, "data: %s\n\n", data)
-			}
-			frame(map[string]string{"reasoning_content": "weighing the options"})
-			for len(content) > 0 {
-				n := min(7, len(content))
-				frame(map[string]string{"content": content[:n]})
-				content = content[n:]
-			}
-			fmt.Fprint(w, "data: [DONE]\n\n")
+			writeScriptSSE(w, content)
 			return
 		}
 		json.NewEncoder(w).Encode(map[string]any{
 			"choices": []any{map[string]any{"message": map[string]string{"content": content}}},
 		})
 	}
+}
+
+// reply is the scripted content for the phase the prompt's markers name. The caller holds s.mu.
+func (s *scriptServer) reply(t *testing.T, text string) string {
+	var content string
+	switch {
+	case strings.Contains(text, "## ANALYSIS OF THE TASK"):
+		s.analyses = append(s.analyses, text)
+		content = `{"kind":"task","understandable":true,"summary":"the work","success_criteria":["it is done"]}`
+		if s.analyze != nil {
+			content = s.analyze(text)
+		}
+	case strings.Contains(text, "## ACTION PLAN"):
+		content = `{"plan":[{"step":1,"action":"do it","command":""}],"subtasks":[]}`
+		if s.plan != nil {
+			content = s.plan(text)
+		}
+	case strings.Contains(text, "## FINAL ANSWER"):
+		s.synth = append(s.synth, text)
+		content = `{"summary":"all done"}`
+		if s.synthReply != "" {
+			content = s.synthReply
+		}
+	case strings.Contains(text, "## ACTION"):
+		s.executes = append(s.executes, text)
+		content = s.execute(len(s.executes), text)
+	default:
+		t.Errorf("unrecognisable prompt: %q", truncate(text, 200))
+		content = "{}"
+	}
+	return content
+}
+
+// writeScriptSSE answers as a streaming provider does: the reasoning tokens first, then the
+// reply in fragments.
+func writeScriptSSE(w http.ResponseWriter, content string) {
+	w.Header().Set("Content-Type", "text/event-stream")
+	frame := func(delta map[string]string) {
+		data, _ := json.Marshal(map[string]any{"choices": []any{map[string]any{"delta": delta}}})
+		fmt.Fprintf(w, "data: %s\n\n", data)
+	}
+	frame(map[string]string{"reasoning_content": "weighing the options"})
+	for len(content) > 0 {
+		n := min(7, len(content))
+		frame(map[string]string{"content": content[:n]})
+		content = content[n:]
+	}
+	fmt.Fprint(w, "data: [DONE]\n\n")
 }
 
 // step is one execute-phase reply.
@@ -418,33 +430,36 @@ func TestASubtaskCannotChatOrAsk(t *testing.T) {
 		{"chat", `{"kind":"chat","reply":"sure, sounds good"}`},
 		{"ask", `{"kind":"ask","understandable":false,"question":"which folder?","assumption":"the current folder"}`},
 	} {
-		t.Run(tc.name, func(t *testing.T) {
-			s := &scriptServer{
-				analyze: func(prompt string) string {
-					if strings.Contains(prompt, "This is subtask") {
-						return tc.analysis
-					}
-					return `{"kind":"task","understandable":true,"summary":"split it"}`
-				},
-				plan:    splitPlan("the only subtask"),
-				execute: func(int, string) string { return step(true, "echo did-it > did.txt") },
+		t.Run(tc.name, func(t *testing.T) { checkSubtaskCannotChatOrAsk(t, tc.analysis) })
+	}
+}
+
+// checkSubtaskCannotChatOrAsk runs a split task whose only subtask's analysis is the given one.
+func checkSubtaskCannotChatOrAsk(t *testing.T, analysis string) {
+	s := &scriptServer{
+		analyze: func(prompt string) string {
+			if strings.Contains(prompt, "This is subtask") {
+				return analysis
 			}
-			e, result, err := runScript(t, s, "test -s did.txt", func(c *config.Config) { c.Agent.SubtaskDepth = 1 })
-			if err != nil || !result.Pass {
-				t.Fatalf("a subtask must do its work: err=%v reason=%s", err, result.Reason)
-			}
-			if len(s.executes) == 0 {
-				t.Fatal("the subtask never reached the execute phase")
-			}
-			if result.NeedsInput {
-				t.Error("a subtask's question must not surface as the parent waiting for input")
-			}
-			for _, turn := range e.agent.Transcript() {
-				if strings.Contains(turn.User, "This is subtask") {
-					t.Errorf("a subtask leaked into the conversation: %+v", turn)
-				}
-			}
-		})
+			return `{"kind":"task","understandable":true,"summary":"split it"}`
+		},
+		plan:    splitPlan("the only subtask"),
+		execute: func(int, string) string { return step(true, "echo did-it > did.txt") },
+	}
+	e, result, err := runScript(t, s, "test -s did.txt", func(c *config.Config) { c.Agent.SubtaskDepth = 1 })
+	if err != nil || !result.Pass {
+		t.Fatalf("a subtask must do its work: err=%v reason=%s", err, result.Reason)
+	}
+	if len(s.executes) == 0 {
+		t.Fatal("the subtask never reached the execute phase")
+	}
+	if result.NeedsInput {
+		t.Error("a subtask's question must not surface as the parent waiting for input")
+	}
+	for _, turn := range e.agent.Transcript() {
+		if strings.Contains(turn.User, "This is subtask") {
+			t.Errorf("a subtask leaked into the conversation: %+v", turn)
+		}
 	}
 }
 

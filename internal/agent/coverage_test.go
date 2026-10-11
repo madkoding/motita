@@ -62,16 +62,7 @@ func (s phaseServer) handler(t *testing.T) http.HandlerFunc {
 		if s.calls != nil {
 			*s.calls++
 		}
-		var req struct {
-			Messages []struct {
-				Content string `json:"content"`
-			} `json:"messages"`
-		}
-		json.NewDecoder(r.Body).Decode(&req)
-		var text string
-		for _, m := range req.Messages {
-			text += m.Content
-		}
+		text := fakeRequestText(r)
 
 		if s.httpError {
 			w.WriteHeader(http.StatusInternalServerError)
@@ -82,29 +73,7 @@ func (s phaseServer) handler(t *testing.T) http.HandlerFunc {
 		var content string
 		switch {
 		case strings.Contains(text, "## ANALYSIS OF THE TASK"):
-			switch {
-			case s.analysisError:
-				content = "this is not JSON"
-			case s.analysisUnclear:
-				content = `{"understandable": false, "summary": "", "success_criteria": [],
-					"risks": ["two readings are possible"], "needs_subtasks": false,
-					"question": "Do you want me to check the disk or the logs?",
-					"assumption": "I assume you want the state of the disk"}`
-			case s.analysisAssumptionOnly:
-				content = `{"understandable": false, "summary": "", "success_criteria": [],
-					"risks": ["ambiguo"], "needs_subtasks": false,
-					"question": "", "assumption": "I assume you want to check the disk"}`
-			case s.analysisUnclearNoSummary:
-				content = `{"understandable": false, "summary": "", "success_criteria": [],
-					"risks": ["ambiguo"], "needs_subtasks": false,
-					"question": "what do you want?", "assumption": "I assume the state of the disk"}`
-			case s.analysisUnclearNoAssumption:
-				content = `{"understandable": false, "summary": "", "success_criteria": [],
-					"risks": ["nothing to go on"], "needs_subtasks": false,
-					"question": "What do you want me to do?", "assumption": ""}`
-			default:
-				content = s.analysis
-			}
+			content = s.analysisContent()
 		case strings.Contains(text, "## ACTION PLAN"):
 			if s.planError {
 				content = "not this either"
@@ -121,6 +90,33 @@ func (s phaseServer) handler(t *testing.T) http.HandlerFunc {
 		json.NewEncoder(w).Encode(map[string]any{
 			"choices": []any{map[string]any{"message": map[string]string{"content": content}}},
 		})
+	}
+}
+
+// analysisContent is the analysis-phase answer the server was configured to give.
+func (s phaseServer) analysisContent() string {
+	switch {
+	case s.analysisError:
+		return "this is not JSON"
+	case s.analysisUnclear:
+		return `{"understandable": false, "summary": "", "success_criteria": [],
+					"risks": ["two readings are possible"], "needs_subtasks": false,
+					"question": "Do you want me to check the disk or the logs?",
+					"assumption": "I assume you want the state of the disk"}`
+	case s.analysisAssumptionOnly:
+		return `{"understandable": false, "summary": "", "success_criteria": [],
+					"risks": ["ambiguo"], "needs_subtasks": false,
+					"question": "", "assumption": "I assume you want to check the disk"}`
+	case s.analysisUnclearNoSummary:
+		return `{"understandable": false, "summary": "", "success_criteria": [],
+					"risks": ["ambiguo"], "needs_subtasks": false,
+					"question": "what do you want?", "assumption": "I assume the state of the disk"}`
+	case s.analysisUnclearNoAssumption:
+		return `{"understandable": false, "summary": "", "success_criteria": [],
+					"risks": ["nothing to go on"], "needs_subtasks": false,
+					"question": "What do you want me to do?", "assumption": ""}`
+	default:
+		return s.analysis
 	}
 }
 

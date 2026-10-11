@@ -47,18 +47,7 @@ type fakeLLMServer struct {
 func (s *fakeLLMServer) handler(t *testing.T) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		atomic.AddInt32(&s.calls, 1)
-
-		var request struct {
-			Messages []struct {
-				Content string `json:"content"`
-			} `json:"messages"`
-		}
-		json.NewDecoder(r.Body).Decode(&request)
-
-		var text string
-		for _, m := range request.Messages {
-			text += m.Content
-		}
+		text := fakeRequestText(r)
 
 		// The phase is decided by the prompt's markers (so what is really tested
 		// is which template was used, not just the call order).
@@ -97,51 +86,72 @@ func (s *fakeLLMServer) handler(t *testing.T) http.HandlerFunc {
 		case strings.Contains(text, "## ACTION"):
 			s.phases = append(s.phases, "execute")
 			s.prompts = append(s.prompts, text)
-			n := 0
-			for _, f := range s.phases {
-				if f == "execute" {
-					n++
-				}
-			}
-			idx := n - 1
-			var commands []string
-			if idx < len(s.actionsPerAttempt) {
-				commands = s.actionsPerAttempt[idx]
-			}
-			if len(commands) == 0 {
-				commands = []string{"true"}
-			}
-			actions := make([]map[string]string, 0, len(commands))
-			for _, c := range commands {
-				actions = append(actions, map[string]string{"kind": "command", "description": "test", "command": c})
-			}
-			response := map[string]any{
-				"reasoning":    "automated test",
-				"actions":      actions,
-				"final_action": map[string]string{"description": "none", "command": ""},
-			}
-			// The "done" field is only sent when the test set it, so a nil slice keeps
-			// testing the older shape a custom prompt would send.
-			if len(s.donePerAttempt) > 0 {
-				round := idx
-				if round >= len(s.donePerAttempt) {
-					round = len(s.donePerAttempt) - 1
-				}
-				response["done"] = s.donePerAttempt[round]
-			}
-			// The response envelope is built with the content already serialised.
-			data, _ := json.Marshal(map[string]any{
-				"choices": []any{map[string]any{
-					"message": map[string]string{"content": mustJSON(response)},
-				}},
-			})
-			w.Write(data)
+			w.Write(s.executeReply())
 
 		default:
 			t.Errorf("request with an unrecognisable prompt: %q", truncate(text, 200))
 			fmt.Fprint(w, `{"choices":[{"message":{"content":"{}"}}]}`)
 		}
 	}
+}
+
+// fakeRequestText joins the content of every message of a chat request.
+func fakeRequestText(r *http.Request) string {
+	var request struct {
+		Messages []struct {
+			Content string `json:"content"`
+		} `json:"messages"`
+	}
+	json.NewDecoder(r.Body).Decode(&request)
+
+	var text string
+	for _, m := range request.Messages {
+		text += m.Content
+	}
+	return text
+}
+
+// executeReply builds the execute-phase answer for the attempt just recorded in s.phases.
+func (s *fakeLLMServer) executeReply() []byte {
+	n := 0
+	for _, f := range s.phases {
+		if f == "execute" {
+			n++
+		}
+	}
+	idx := n - 1
+	var commands []string
+	if idx < len(s.actionsPerAttempt) {
+		commands = s.actionsPerAttempt[idx]
+	}
+	if len(commands) == 0 {
+		commands = []string{"true"}
+	}
+	actions := make([]map[string]string, 0, len(commands))
+	for _, c := range commands {
+		actions = append(actions, map[string]string{"kind": "command", "description": "test", "command": c})
+	}
+	response := map[string]any{
+		"reasoning":    "automated test",
+		"actions":      actions,
+		"final_action": map[string]string{"description": "none", "command": ""},
+	}
+	// The "done" field is only sent when the test set it, so a nil slice keeps
+	// testing the older shape a custom prompt would send.
+	if len(s.donePerAttempt) > 0 {
+		round := idx
+		if round >= len(s.donePerAttempt) {
+			round = len(s.donePerAttempt) - 1
+		}
+		response["done"] = s.donePerAttempt[round]
+	}
+	// The response envelope is built with the content already serialised.
+	data, _ := json.Marshal(map[string]any{
+		"choices": []any{map[string]any{
+			"message": map[string]string{"content": mustJSON(response)},
+		}},
+	})
+	return data
 }
 
 // mustJSON returns the JSON string the "model" would put in content.

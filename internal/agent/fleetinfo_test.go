@@ -24,8 +24,10 @@ func TestAgentsLineRoundTrips(t *testing.T) {
 		t.Fatalf("an unfinished agent must not carry a zero finish time: %s", line)
 	}
 	out, ok := ParseAgentsLine(line)
-	if !ok || len(out) != 2 || out[1].Branch != "motita/sub/a1" || out[0].Tokens.Input != 10 ||
-		!out[1].Finished.Equal(in[1].Finished) {
+	if !ok || len(out) != 2 {
+		t.Fatalf("ok=%v out=%+v", ok, out)
+	}
+	if out[1].Branch != "motita/sub/a1" || out[0].Tokens.Input != 10 || !out[1].Finished.Equal(in[1].Finished) {
 		t.Fatalf("ok=%v out=%+v", ok, out)
 	}
 }

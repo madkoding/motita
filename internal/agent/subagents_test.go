@@ -106,22 +106,7 @@ func (s *scriptServer) split() (main, child []string) {
 // piece, waits, reads the report, merges the branch - and the file the background agent wrote is in
 // the main checkout. Its worktree is gone, its branch stays, and the fleet saw it finish.
 func TestABackgroundAgentWorksOnItsOwnBranchAndReports(t *testing.T) {
-	mainRound := 0
-	s := &scriptServer{execute: func(_ int, prompt string) string {
-		if isChildPrompt(prompt) {
-			return step(true, "echo hello > docs.txt")
-		}
-		mainRound++
-		switch mainRound {
-		case 1:
-			return acts(false, kindAct{"spawn_agent", "write the docs\nCreate docs.txt saying hello."})
-		case 2:
-			return acts(false, kindAct{"wait_agents", ""})
-		default:
-			// The model merges the branch its report named, as a real one would.
-			return step(true, "git merge --no-edit "+mergeTarget.FindString(prompt))
-		}
-	}}
+	s := docsAgentScript()
 	var tools string
 	e, result, sink := fleetRun(t, s, func(c *config.Config) {
 		inRepo(t)(c)
@@ -148,9 +133,7 @@ func TestABackgroundAgentWorksOnItsOwnBranchAndReports(t *testing.T) {
 		}
 	}
 	agents := sink.lastAgents(t)
-	if len(agents) != 2 || agents[0].ID != "main" || agents[0].State != AgentPassed ||
-		agents[1].ID != "a1" || agents[1].Parent != "main" || agents[1].State != AgentPassed ||
-		agents[1].Purpose != "write the docs" {
+	if !isDocsFleetSnapshot(agents) {
 		t.Fatalf("final snapshot = %+v", agents)
 	}
 	entries, _ := os.ReadDir(filepath.Join(tools, "worktrees"))
@@ -161,6 +144,39 @@ func TestABackgroundAgentWorksOnItsOwnBranchAndReports(t *testing.T) {
 	if !strings.Contains(string(out), "motita/sub/") {
 		t.Error("the branch is the work: it must outlive the worktree")
 	}
+}
+
+// docsAgentScript is a main agent that starts one background agent to write the docs, waits
+// for it and merges its branch.
+func docsAgentScript() *scriptServer {
+	mainRound := 0
+	return &scriptServer{execute: func(_ int, prompt string) string {
+		if isChildPrompt(prompt) {
+			return step(true, "echo hello > docs.txt")
+		}
+		mainRound++
+		switch mainRound {
+		case 1:
+			return acts(false, kindAct{"spawn_agent", "write the docs\nCreate docs.txt saying hello."})
+		case 2:
+			return acts(false, kindAct{"wait_agents", ""})
+		default:
+			// The model merges the branch its report named, as a real one would.
+			return step(true, "git merge --no-edit "+mergeTarget.FindString(prompt))
+		}
+	}}
+}
+
+// isDocsFleetSnapshot reports whether the snapshot is the main agent and a1, both passed,
+// with a1 the one that wrote the docs.
+func isDocsFleetSnapshot(agents []AgentInfo) bool {
+	if len(agents) != 2 {
+		return false
+	}
+	mainPassed := agents[0].ID == "main" && agents[0].State == AgentPassed
+	childOfMain := agents[1].ID == "a1" && agents[1].Parent == "main"
+	childPassed := agents[1].State == AgentPassed && agents[1].Purpose == "write the docs"
+	return mainPassed && childOfMain && childPassed
 }
 
 // The main agent does not have to ask: a background agent that finished reports in the round after,

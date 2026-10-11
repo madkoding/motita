@@ -162,7 +162,8 @@ func TestFileReadRecognisesPlainReads(t *testing.T) {
 	}
 	for _, c := range cases {
 		path, from, to, ok := fileRead(c.cmd)
-		if ok != c.ok || path != c.path || (ok && (from != c.from || to != c.to)) {
+		rangeMatches := !ok || (from == c.from && to == c.to)
+		if ok != c.ok || path != c.path || !rangeMatches {
 			t.Errorf("fileRead(%q) = %q %d %d %v, want %q %d %d %v", c.cmd, path, from, to, ok, c.path, c.from, c.to, c.ok)
 		}
 	}
