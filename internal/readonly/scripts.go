@@ -64,67 +64,129 @@ var sedLongOptions = []string{
 // ALLOWLIST: GNU sed accepts abbreviations and clusters, and a list of the bad ones misses
 // `--in-pl` and `-ni`.
 func sedRule(args []string) (string, bool) {
-	var scripts, operands []string
-	explicit := false
-	for i := 0; i < len(args); i++ {
-		a := args[i]
-		switch {
-		case a == "--":
-			operands = append(operands, args[i+1:]...)
-			i = len(args)
-		case strings.HasPrefix(a, "--"):
-			name, value, glued := strings.Cut(a, "=")
-			switch resolveLong(name, sedLongOptions) {
-			case "--in-place":
-				return "sed --in-place rewrites the files", true
-			case flagFile:
-				return fmt.Sprintf("sed %s reads its script from a file this policy cannot see", a), true
-			case "--expression":
-				if !glued && i+1 < len(args) {
-					i++
-					value = args[i]
-				}
-				scripts, explicit = append(scripts, value), true
-			case "--line-length":
-				if !glued {
-					i++
-				}
-			case "":
-				return fmt.Sprintf("sed %s is not an option read-only mode knows", a), true
-			}
-		case strings.HasPrefix(a, "-") && a != "-":
-			for j := 1; j < len(a); j++ {
-				switch a[j] {
-				case 'n', 'r', 'E', 's', 'u', 'z', 'b':
-				case 'i':
-					// `-i`, `-i.bak`, and `-ni` (a cluster, which GNU sed really accepts).
-					return fmt.Sprintf("sed %s rewrites the files", a), true
-				case 'f':
-					return fmt.Sprintf("sed %s reads its script from a file this policy cannot see", a), true
-				case 'e', 'l':
-					value := a[j+1:]
-					if value == "" && i+1 < len(args) {
-						i++
-						value = args[i]
-					}
-					if a[j] == 'e' {
-						scripts, explicit = append(scripts, value), true
-					}
-					j = len(a)
-				default:
-					return fmt.Sprintf("sed %s is not an option read-only mode knows", a), true
-				}
-			}
-		default:
-			operands = append(operands, a)
+	o := &optionScan{args: args}
+	for ; o.i < len(args); o.i++ {
+		if reason, bad := o.sedArgument(); bad {
+			return reason, true
 		}
 	}
-	if !explicit && len(operands) > 0 {
-		scripts = append(scripts, operands[0])
-	}
-	for _, s := range scripts {
+	for _, s := range o.programs() {
 		if reason, bad := sedScript(unquote(s)); bad {
 			return reason, true
+		}
+	}
+	return "", false
+}
+
+// optionScan walks the arguments of sed or awk, collecting the programs given with an option
+// and the operands, the first of which is the program when no option gave one.
+type optionScan struct {
+	args     []string
+	i        int // the argument being read
+	scripts  []string
+	operands []string
+	explicit bool // a program came with an option
+}
+
+// endOfOptions takes every argument after `--` as an operand.
+func (o *optionScan) endOfOptions() {
+	o.operands = append(o.operands, o.args[o.i+1:]...)
+	o.i = len(o.args)
+}
+
+// addProgram records a program given with an option.
+func (o *optionScan) addProgram(p string) {
+	o.scripts, o.explicit = append(o.scripts, p), true
+}
+
+// shortValue is an option's value: the rest of its argument, or the next argument (consumed)
+// when the rest is empty.
+func (o *optionScan) shortValue(rest string) string {
+	if rest == "" && o.i+1 < len(o.args) {
+		o.i++
+		return o.args[o.i]
+	}
+	return rest
+}
+
+// longValue is a long option's value: the one glued with `=`, or the next argument (consumed).
+func (o *optionScan) longValue(value string, glued bool) string {
+	if glued {
+		return value
+	}
+	return o.shortValue("")
+}
+
+// programs are the programs to read: the ones given with an option, or else the first operand.
+func (o *optionScan) programs() []string {
+	if !o.explicit && len(o.operands) > 0 {
+		return append(o.scripts, o.operands[0])
+	}
+	return o.scripts
+}
+
+// isShortOption reports whether a is a short option or a cluster of them (`-` alone is stdin).
+func isShortOption(a string) bool {
+	return strings.HasPrefix(a, "-") && a != "-"
+}
+
+// sedArgument reads the argument at o.i.
+func (o *optionScan) sedArgument() (string, bool) {
+	a := o.args[o.i]
+	switch {
+	case a == "--":
+		o.endOfOptions()
+	case strings.HasPrefix(a, "--"):
+		return o.sedLong(a)
+	case isShortOption(a):
+		return o.sedShort(a)
+	default:
+		o.operands = append(o.operands, a)
+	}
+	return "", false
+}
+
+// sedLong reads a long sed option.
+func (o *optionScan) sedLong(a string) (string, bool) {
+	name, value, glued := strings.Cut(a, "=")
+	switch resolveLong(name, sedLongOptions) {
+	case "--in-place":
+		return "sed --in-place rewrites the files", true
+	case flagFile:
+		return fmt.Sprintf("sed %s reads its script from a file this policy cannot see", a), true
+	case "--expression":
+		o.addProgram(o.longValue(value, glued))
+	case "--line-length":
+		if !glued {
+			o.i++
+		}
+	case "":
+		return fmt.Sprintf("sed %s is not an option read-only mode knows", a), true
+	default:
+		// Every other known option changes only how the input is read or the output written.
+	}
+	return "", false
+}
+
+// sedShort reads a short sed option or a cluster of them.
+func (o *optionScan) sedShort(a string) (string, bool) {
+	for j := 1; j < len(a); j++ {
+		switch a[j] {
+		case 'n', 'r', 'E', 's', 'u', 'z', 'b':
+			// Flags that change only how the input is read or the output written.
+		case 'i':
+			// `-i`, `-i.bak`, and `-ni` (a cluster, which GNU sed really accepts).
+			return fmt.Sprintf("sed %s rewrites the files", a), true
+		case 'f':
+			return fmt.Sprintf("sed %s reads its script from a file this policy cannot see", a), true
+		case 'e', 'l':
+			// The rest of the cluster, or the next argument, is the option's value.
+			if value := o.shortValue(a[j+1:]); a[j] == 'e' {
+				o.addProgram(value)
+			}
+			return "", false
+		default:
+			return fmt.Sprintf("sed %s is not an option read-only mode knows", a), true
 		}
 	}
 	return "", false
@@ -134,91 +196,143 @@ func sedRule(args []string) (string, bool) {
 // but the output: `w`/`W` write a file, `r`/`R` read one into the output, `e` runs a command,
 // and the `s` command's `w` and `e` flags do the same. A script it cannot read is refused.
 func sedScript(s string) (string, bool) {
-	unreadable := func(at int) (string, bool) {
-		return fmt.Sprintf("the sed script %q cannot be read past position %d, so what it does "+
-			"cannot be checked", s, at), true
-	}
-	i := 0
-	for i < len(s) {
-		switch s[i] {
-		case ' ', '\t', '\n', ';', '}':
-			i++
-			continue
-		case '#':
-			i = skipLine(s, i)
-			continue
-		}
-		// One or two addresses, then any number of `!`.
-		var ok bool
-		if i, ok = sedAddress(s, i); !ok {
-			return unreadable(i)
-		}
-		i = skipBlanks(s, i)
-		if i < len(s) && s[i] == ',' {
-			if i, ok = sedAddress(s, skipBlanks(s, i+1)); !ok {
-				return unreadable(i)
-			}
-		}
-		for i = skipBlanks(s, i); i < len(s) && s[i] == '!'; i = skipBlanks(s, i+1) {
-			// Skip any '!' negations before the command.
-		}
-		if i >= len(s) {
-			return unreadable(i)
-		}
-		cmd := s[i]
-		i++
-		switch cmd {
-		case '{', '=', 'd', 'D', 'g', 'G', 'h', 'H', 'n', 'N', 'p', 'P', 'x', 'z', 'F':
-		case 'q', 'Q', 'l', 'L':
-			for i = skipBlanks(s, i); i < len(s) && s[i] >= '0' && s[i] <= '9'; i++ {
-				// Skip the optional exit code.
-			}
-		case ':', 'b', 't', 'T', 'v':
-			// A label, up to the end of the command.
-			for i < len(s) && s[i] != ';' && s[i] != '\n' {
-				i++
-			}
-		case 'a', 'i', 'c':
-			// The text runs to the end of the line; a backslash continues it on the next.
-			for i < len(s) && s[i] != '\n' {
-				if s[i] == '\\' {
-					i++
-				}
-				i++
-			}
-		case 'y':
-			if i >= len(s) {
-				return unreadable(i)
-			}
-			// y's two parts are character lists, not regular expressions: no brackets.
-			if i, ok = sedDelimited(s, i+1, s[i], 2, false); !ok {
-				return unreadable(i)
-			}
-		case 's':
-			if i >= len(s) {
-				return unreadable(i)
-			}
-			if i, ok = sedDelimited(s, i+1, s[i], 2, true); !ok {
-				return unreadable(i)
-			}
-			// The flags: g, p, a number, i/I, m/M. `w FILE` writes and `e` runs the pattern
-			// space as a command, so neither is in the list.
-			for ; i < len(s) && strings.IndexByte(" \t\n;}", s[i]) < 0; i++ {
-				switch c := s[i]; {
-				case strings.IndexByte("gpiImM0123456789", c) >= 0:
-				case c == 'w' || c == 'e':
-					return fmt.Sprintf("the sed s command's %c flag %s", c, sedEffect(c)), true
-				default:
-					return unreadable(i)
-				}
-			}
-		case 'w', 'W', 'r', 'R', 'e':
-			return fmt.Sprintf("the sed %c command %s", cmd, sedEffect(cmd)), true
-		default:
-			return unreadable(i - 1)
+	r := &sedReader{s: s}
+	for r.i < len(s) {
+		if reason, bad := r.command(); bad {
+			return reason, true
 		}
 	}
 	return "", false
+}
+
+// sedReader reads a sed script; i is the position being read.
+type sedReader struct {
+	s string
+	i int
+}
+
+// unreadable is the refusal of a script that cannot be read past at.
+func (r *sedReader) unreadable(at int) (string, bool) {
+	return fmt.Sprintf("the sed script %q cannot be read past position %d, so what it does "+
+		"cannot be checked", r.s, at), true
+}
+
+// command reads one command, with its addresses, or a separator or comment between commands.
+func (r *sedReader) command() (string, bool) {
+	switch r.s[r.i] {
+	case ' ', '\t', '\n', ';', '}':
+		r.i++
+		return "", false
+	case '#':
+		r.i = skipLine(r.s, r.i)
+		return "", false
+	default:
+		// The start of a command: its addresses come first.
+	}
+	if !r.addresses() || r.i >= len(r.s) {
+		return r.unreadable(r.i)
+	}
+	cmd := r.s[r.i]
+	r.i++
+	return r.commandBody(cmd)
+}
+
+// addresses reads one or two addresses, then any number of `!`.
+func (r *sedReader) addresses() bool {
+	var ok bool
+	if r.i, ok = sedAddress(r.s, r.i); !ok {
+		return false
+	}
+	r.i = skipBlanks(r.s, r.i)
+	if r.i < len(r.s) && r.s[r.i] == ',' {
+		if r.i, ok = sedAddress(r.s, skipBlanks(r.s, r.i+1)); !ok {
+			return false
+		}
+	}
+	for r.i = skipBlanks(r.s, r.i); r.i < len(r.s) && r.s[r.i] == '!'; r.i = skipBlanks(r.s, r.i+1) {
+		// Skip any '!' negations before the command.
+	}
+	return true
+}
+
+// commandBody reads what follows the command letter cmd.
+func (r *sedReader) commandBody(cmd byte) (string, bool) {
+	switch cmd {
+	case '{', '=', 'd', 'D', 'g', 'G', 'h', 'H', 'n', 'N', 'p', 'P', 'x', 'z', 'F':
+		// No argument.
+	case 'q', 'Q', 'l', 'L':
+		for r.i = skipBlanks(r.s, r.i); r.i < len(r.s) && isDigit(r.s[r.i]); r.i++ {
+			// Skip the optional exit code.
+		}
+	case ':', 'b', 't', 'T', 'v':
+		// A label, up to the end of the command.
+		for r.i < len(r.s) && r.s[r.i] != ';' && r.s[r.i] != '\n' {
+			r.i++
+		}
+	case 'a', 'i', 'c':
+		r.skipText()
+	case 'y':
+		// y's two parts are character lists, not regular expressions: no brackets.
+		return r.delimited(false)
+	case 's':
+		return r.substitute()
+	case 'w', 'W', 'r', 'R', 'e':
+		return fmt.Sprintf("the sed %c command %s", cmd, sedEffect(cmd)), true
+	default:
+		return r.unreadable(r.i - 1)
+	}
+	return "", false
+}
+
+// skipText skips the text of `a`, `i` and `c`, which runs to the end of the line; a backslash
+// continues it on the next.
+func (r *sedReader) skipText() {
+	for r.i < len(r.s) && r.s[r.i] != '\n' {
+		if r.s[r.i] == '\\' {
+			r.i++
+		}
+		r.i++
+	}
+}
+
+// delimited reads the two delimited parts of `y` or `s`, the delimiter being the character at
+// r.i; regex says the first part is a regular expression.
+func (r *sedReader) delimited(regex bool) (string, bool) {
+	if r.i >= len(r.s) {
+		return r.unreadable(r.i)
+	}
+	var ok bool
+	if r.i, ok = sedDelimited(r.s, r.i+1, r.s[r.i], 2, regex); !ok {
+		return r.unreadable(r.i)
+	}
+	return "", false
+}
+
+// substitute reads the `s` command: its two parts, then its flags. The flags: g, p, a number,
+// i/I, m/M. `w FILE` writes and `e` runs the pattern space as a command, so neither is in the
+// list.
+func (r *sedReader) substitute() (string, bool) {
+	if reason, bad := r.delimited(true); bad {
+		return reason, true
+	}
+	for ; r.i < len(r.s) && strings.IndexByte(" \t\n;}", r.s[r.i]) < 0; r.i++ {
+		if reason, bad := r.substituteFlag(r.s[r.i]); bad {
+			return reason, true
+		}
+	}
+	return "", false
+}
+
+// substituteFlag checks one flag of the `s` command.
+func (r *sedReader) substituteFlag(c byte) (string, bool) {
+	switch {
+	case strings.IndexByte("gpiImM0123456789", c) >= 0:
+		return "", false
+	case c == 'w' || c == 'e':
+		return fmt.Sprintf("the sed s command's %c flag %s", c, sedEffect(c)), true
+	default:
+		return r.unreadable(r.i)
+	}
 }
 
 // sedEffect says what a refused sed command does, for the refusal.
@@ -228,8 +342,14 @@ func sedEffect(c byte) string {
 		return "writes a file"
 	case 'e':
 		return "runs a command"
+	default:
+		return "reads another file into the output"
 	}
-	return "reads another file into the output"
+}
+
+// isDigit reports whether c is an ASCII digit.
+func isDigit(c byte) bool {
+	return c >= '0' && c <= '9'
 }
 
 // sedAddress reads one address, if there is one: a line number (with GNU's `~step` and `+N`),
@@ -241,25 +361,32 @@ func sedAddress(s string, i int) (int, bool) {
 	switch c := s[i]; {
 	case c == '$':
 		return i + 1, true
-	case c >= '0' && c <= '9', c == '+', c == '~':
-		for i++; i < len(s) && (s[i] >= '0' && s[i] <= '9' || s[i] == '~'); i++ {
+	case isDigit(c), c == '+', c == '~':
+		for i++; i < len(s) && (isDigit(s[i]) || s[i] == '~'); i++ {
 			// Skip the rest of the line number or step.
 		}
 		return i, true
 	case c == '/' || c == '\\':
-		if c == '\\' {
-			i++
-			if i >= len(s) {
-				return i, false
-			}
-		}
-		j, ok := sedDelimited(s, i+1, s[i], 1, true)
-		for ok && j < len(s) && (s[j] == 'I' || s[j] == 'M') {
-			j++
-		}
-		return j, ok
+		return sedRegexAddress(s, i)
+	default:
+		return i, true
 	}
-	return i, true
+}
+
+// sedRegexAddress reads a regular expression address, `/.../` or `\c...c`, that opens at i,
+// with its I and M flags.
+func sedRegexAddress(s string, i int) (int, bool) {
+	if s[i] == '\\' {
+		i++
+		if i >= len(s) {
+			return i, false
+		}
+	}
+	j, ok := sedDelimited(s, i+1, s[i], 1, true)
+	for ok && j < len(s) && (s[j] == 'I' || s[j] == 'M') {
+		j++
+	}
+	return j, ok
 }
 
 // sedDelimited skips n delimited parts that start at i (the delimiter itself already read),
@@ -269,31 +396,34 @@ func sedAddress(s string, i int) (int, bool) {
 // returns the index after the last delimiter.
 func sedDelimited(s string, i int, delim byte, n int, regex bool) (int, bool) {
 	for part := 0; part < n; part++ {
-		for {
-			if i >= len(s) || s[i] == '\n' {
-				return i, false
-			}
-			switch {
-			case s[i] == '\\':
-				i += 2
-				continue
-			case s[i] == delim:
-			case s[i] == '[' && regex && part == 0 && delim != '[':
-				end, ok := bracketEnd(s, i)
-				if !ok {
-					return i, false
-				}
-				i = end
-				continue
-			default:
-				i++
-				continue
-			}
-			break
+		var ok bool
+		if i, ok = sedPartEnd(s, i, delim, regex && part == 0 && delim != '['); !ok {
+			return i, false
 		}
-		i++
 	}
 	return i, true
+}
+
+// sedPartEnd returns the index after the delimiter that ends the part starting at i; brackets
+// says a bracket expression is read whole, the delimiter inside it an ordinary character.
+func sedPartEnd(s string, i int, delim byte, brackets bool) (int, bool) {
+	for i < len(s) && s[i] != '\n' {
+		switch {
+		case s[i] == '\\':
+			i += 2
+		case s[i] == delim:
+			return i + 1, true
+		case s[i] == '[' && brackets:
+			end, ok := bracketEnd(s, i)
+			if !ok {
+				return i, false
+			}
+			i = end
+		default:
+			i++
+		}
+	}
+	return i, false
 }
 
 // bracketEnd returns the index after the bracket expression that opens at i, with the POSIX
@@ -351,68 +481,85 @@ var awkLongOptions = []string{
 // Its options are an allowlist (`-f`, `-i`, `-l`, `-E` and mawk's `-W` load or run something
 // this policy cannot see), and its program is read by awkProgramWrites.
 func awkRule(args []string) (string, bool) {
-	var programs, operands []string
-	explicit := false
-	for i := 0; i < len(args); i++ {
-		a := args[i]
-		switch {
-		case a == "--":
-			operands = append(operands, args[i+1:]...)
-			i = len(args)
-		case strings.HasPrefix(a, "--"):
-			name, value, glued := strings.Cut(a, "=")
-			switch resolveLong(name, awkLongOptions) {
-			case "--field-separator", "--assign":
-				if !glued {
-					i++
-				}
-			case "--source":
-				if !glued && i+1 < len(args) {
-					i++
-					value = args[i]
-				}
-				programs, explicit = append(programs, value), true
-			case flagPosix, "--traditional", "--re-interval", "--characters-as-bytes",
-				flagSandbox, "--use-lc-numeric", flagHelp, flagVersion:
-			default:
-				return fmt.Sprintf("awk %s loads a program or an option read-only mode cannot check", a), true
-			}
-		case strings.HasPrefix(a, "-") && a != "-":
-			rest := a[2:]
-			switch a[1] {
-			case 'F', 'v':
-				if rest == "" {
-					i++
-				}
-			case 'e':
-				if rest == "" && i+1 < len(args) {
-					i++
-					rest = args[i]
-				}
-				programs, explicit = append(programs, rest), true
-			case 'i':
-				if rest == "inplace" || (rest == "" && i+1 < len(args) && args[i+1] == "inplace") {
-					return "awk -i inplace rewrites the files", true
-				}
-				return fmt.Sprintf("awk %s loads a program read-only mode cannot see", a), true
-			default:
-				if strings.Trim(a[1:], "Pbcr") != "" {
-					return fmt.Sprintf("awk %s loads a program or an option read-only mode cannot check", a), true
-				}
-			}
-		default:
-			operands = append(operands, a)
+	o := &optionScan{args: args}
+	for ; o.i < len(args); o.i++ {
+		if reason, bad := o.awkArgument(); bad {
+			return reason, true
 		}
 	}
-	if !explicit && len(operands) > 0 {
-		programs = append(programs, operands[0])
-	}
-	for _, p := range programs {
+	for _, p := range o.programs() {
 		if reason, bad := awkProgramWrites(unquote(p)); bad {
 			return reason, true
 		}
 	}
 	return "", false
+}
+
+// awkArgument reads the argument at o.i.
+func (o *optionScan) awkArgument() (string, bool) {
+	a := o.args[o.i]
+	switch {
+	case a == "--":
+		o.endOfOptions()
+	case strings.HasPrefix(a, "--"):
+		return o.awkLong(a)
+	case isShortOption(a):
+		return o.awkShort(a)
+	default:
+		o.operands = append(o.operands, a)
+	}
+	return "", false
+}
+
+// awkLong reads a long awk option.
+func (o *optionScan) awkLong(a string) (string, bool) {
+	name, value, glued := strings.Cut(a, "=")
+	switch resolveLong(name, awkLongOptions) {
+	case "--field-separator", "--assign":
+		if !glued {
+			o.i++
+		}
+	case "--source":
+		o.addProgram(o.longValue(value, glued))
+	case flagPosix, "--traditional", "--re-interval", "--characters-as-bytes",
+		flagSandbox, "--use-lc-numeric", flagHelp, flagVersion:
+		// Options that change only how the program is read or run.
+	default:
+		return fmt.Sprintf("awk %s loads a program or an option read-only mode cannot check", a), true
+	}
+	return "", false
+}
+
+// awkShort reads a short awk option.
+func (o *optionScan) awkShort(a string) (string, bool) {
+	rest := a[2:]
+	switch a[1] {
+	case 'F', 'v':
+		if rest == "" {
+			o.i++
+		}
+	case 'e':
+		o.addProgram(o.shortValue(rest))
+	case 'i':
+		if o.valueIs(rest, "inplace") {
+			return "awk -i inplace rewrites the files", true
+		}
+		return fmt.Sprintf("awk %s loads a program read-only mode cannot see", a), true
+	default:
+		if strings.Trim(a[1:], "Pbcr") != "" {
+			return fmt.Sprintf("awk %s loads a program or an option read-only mode cannot check", a), true
+		}
+	}
+	return "", false
+}
+
+// valueIs reports whether a short option's value is want: the rest of its argument or, when
+// that is empty, the next argument (not consumed).
+func (o *optionScan) valueIs(rest, want string) bool {
+	if rest == "" {
+		return o.i+1 < len(o.args) && o.args[o.i+1] == want
+	}
+	return rest == want
 }
 
 // awkProgramWrites reads an awk program for what reaches outside its output: `system()`,
@@ -423,97 +570,173 @@ func awkRule(args []string) (string, bool) {
 // a redirection. A `>` is a redirection only inside a print statement and outside its
 // parentheses — which is the grammar, and is what separates `print > out` from `$1 > 5`.
 func awkProgramWrites(p string) (string, bool) {
-	var (
-		inPrint   bool // inside a print or printf statement
-		depth     int  // parentheses opened inside that statement
-		operand   bool // the last token ends an operand, so a `/` divides rather than opening a regex
-		continues bool
-	)
-	for i := 0; i < len(p); {
-		c := p[i]
-		switch {
-		case c == ' ' || c == '\t':
-			i++
+	r := &awkReader{p: p}
+	for r.i < len(p) {
+		c := p[r.i]
+		if r.skip(c) {
 			continue
-		case c == '\\':
-			i += 2
-			continue
-		case c == '\n' && continues:
-			i++
-			continue
-		case c == '"':
-			end, ok := awkStringEnd(p, i)
-			if !ok {
-				return fmt.Sprintf("the awk program has an unterminated string at %d, so it cannot be checked", i), true
-			}
-			i, operand = end, true
-		case c == '/' && !operand:
-			end, ok := awkRegexEnd(p, i)
-			if !ok {
-				return fmt.Sprintf("the awk program has an unterminated regular expression at %d, so it cannot be checked", i), true
-			}
-			i, operand = end, true
-		case c == '#':
-			i = skipLine(p, i)
-		case c == '_' || c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z':
-			j := i
-			for j < len(p) && (p[j] == '_' || p[j] >= 'a' && p[j] <= 'z' || p[j] >= 'A' && p[j] <= 'Z' || p[j] >= '0' && p[j] <= '9') {
-				j++
-			}
-			switch word := p[i:j]; word {
-			case "system":
-				return "awk with system() runs an arbitrary command", true
-			case "getline":
-				return "awk getline reads a file or the output of a command", true
-			case "print", "printf":
-				inPrint, depth = true, 0
-			}
-			i, operand = j, true
-		case c >= '0' && c <= '9' || c == '.':
-			for i++; i < len(p) && (p[i] >= '0' && p[i] <= '9' || p[i] == '.' || p[i] == 'e' || p[i] == 'E'); i++ {
-				// Skip the rest of the number.
-			}
-			operand = true
-		case c == '@':
-			return "awk @ directives and indirect calls load or run code read-only mode cannot see", true
-		case c == '|':
-			if i+1 < len(p) && p[i+1] == '|' {
-				i, operand = i+2, false
-				break
-			}
-			return "awk writes a file (a pipe in its program)", true
-		case c == '>':
-			if inPrint && depth == 0 {
-				return "awk writes a file (a redirection in its program)", true
-			}
-			i, operand = i+1, false
-		case c == '(' || c == '[':
-			if inPrint {
-				depth++
-			}
-			i, operand = i+1, false
-		case c == ')' || c == ']':
-			if inPrint && depth > 0 {
-				depth--
-			}
-			i, operand = i+1, true
-		case c == '+' || c == '-':
-			// `x++ / 2` divides: an increment ends an operand.
-			if i+1 < len(p) && p[i+1] == c {
-				i, operand = i+2, true
-				break
-			}
-			i, operand = i+1, false
-		case c == ';' || c == '\n' || c == '{' || c == '}':
-			inPrint = false
-			i, operand = i+1, false
-		default:
-			i, operand = i+1, false
+		}
+		if reason, bad := r.token(c); bad {
+			return reason, true
 		}
 		// A newline after a comma, `&&` or `||` continues the statement, and so a print.
-		continues = c == ',' || c == '&' || c == '|'
+		r.continues = c == ',' || c == '&' || c == '|'
 	}
 	return "", false
+}
+
+// awkReader reads an awk program; i is the position being read.
+type awkReader struct {
+	p         string
+	i         int
+	inPrint   bool // inside a print or printf statement
+	depth     int  // parentheses opened inside that statement
+	operand   bool // the last token ends an operand, so a `/` divides rather than opening a regex
+	continues bool // the last token continues the statement on the next line
+}
+
+// skip steps over a blank, an escaped character or a continued line, and reports whether it did.
+func (r *awkReader) skip(c byte) bool {
+	switch {
+	case c == ' ' || c == '\t' || c == '\n' && r.continues:
+		r.i++
+	case c == '\\':
+		r.i += 2
+	default:
+		return false
+	}
+	return true
+}
+
+// advance moves past n bytes; operand says whether they end an operand.
+func (r *awkReader) advance(n int, operand bool) {
+	r.i, r.operand = r.i+n, operand
+}
+
+// next reports whether the byte after the current one is c.
+func (r *awkReader) next(c byte) bool {
+	return r.i+1 < len(r.p) && r.p[r.i+1] == c
+}
+
+// token reads the token that starts with c.
+func (r *awkReader) token(c byte) (string, bool) {
+	switch {
+	case c == '"':
+		return r.literal(awkStringEnd, "string")
+	case c == '/' && !r.operand:
+		return r.literal(awkRegexEnd, "regular expression")
+	case c == '#':
+		r.i = skipLine(r.p, r.i)
+	case isAwkNameStart(c):
+		return r.name()
+	case isDigit(c) || c == '.':
+		for r.i++; r.i < len(r.p) && isAwkNumberByte(r.p[r.i]); r.i++ {
+			// Skip the rest of the number.
+		}
+		r.operand = true
+	default:
+		return r.punctuation(c)
+	}
+	return "", false
+}
+
+// literal skips a string or a regular expression literal, which end finds the end of.
+func (r *awkReader) literal(end func(string, int) (int, bool), what string) (string, bool) {
+	after, ok := end(r.p, r.i)
+	if !ok {
+		return fmt.Sprintf("the awk program has an unterminated %s at %d, so it cannot be checked", what, r.i), true
+	}
+	r.i, r.operand = after, true
+	return "", false
+}
+
+// name reads a name: system and getline are refused, and print and printf open a statement in
+// which a `>` redirects.
+func (r *awkReader) name() (string, bool) {
+	j := r.i
+	for j < len(r.p) && isAwkNameByte(r.p[j]) {
+		j++
+	}
+	switch r.p[r.i:j] {
+	case "system":
+		return "awk with system() runs an arbitrary command", true
+	case "getline":
+		return "awk getline reads a file or the output of a command", true
+	case "print", "printf":
+		r.inPrint, r.depth = true, 0
+	default:
+		// Any other name is an operand.
+	}
+	r.i, r.operand = j, true
+	return "", false
+}
+
+// punctuation reads an operator or a separator.
+func (r *awkReader) punctuation(c byte) (string, bool) {
+	switch c {
+	case '@':
+		return "awk @ directives and indirect calls load or run code read-only mode cannot see", true
+	case '|':
+		if !r.next('|') {
+			return "awk writes a file (a pipe in its program)", true
+		}
+		r.advance(2, false)
+	case '>':
+		if r.inPrint && r.depth == 0 {
+			return "awk writes a file (a redirection in its program)", true
+		}
+		r.advance(1, false)
+	case '(', '[', ')', ']':
+		r.bracket(c)
+	case '+', '-':
+		// `x++ / 2` divides: an increment ends an operand.
+		if r.next(c) {
+			r.advance(2, true)
+		} else {
+			r.advance(1, false)
+		}
+	case ';', '\n', '{', '}':
+		r.inPrint = false
+		r.advance(1, false)
+	default:
+		r.advance(1, false)
+	}
+	return "", false
+}
+
+// bracket counts the parentheses and brackets opened inside a print statement.
+func (r *awkReader) bracket(c byte) {
+	if c == '(' || c == '[' {
+		if r.inPrint {
+			r.depth++
+		}
+		r.advance(1, false)
+		return
+	}
+	if r.inPrint && r.depth > 0 {
+		r.depth--
+	}
+	r.advance(1, true)
+}
+
+// isAwkNameStart reports whether c can start a name.
+func isAwkNameStart(c byte) bool {
+	return c == '_' || isLetter(c)
+}
+
+// isLetter reports whether c is an ASCII letter.
+func isLetter(c byte) bool {
+	return c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z'
+}
+
+// isAwkNameByte reports whether c can continue a name.
+func isAwkNameByte(c byte) bool {
+	return isAwkNameStart(c) || isDigit(c)
+}
+
+// isAwkNumberByte reports whether c can continue a number.
+func isAwkNumberByte(c byte) bool {
+	return isDigit(c) || c == '.' || c == 'e' || c == 'E'
 }
 
 // awkStringEnd returns the index after the string literal that opens at i.
@@ -524,6 +747,8 @@ func awkStringEnd(p string, i int) (int, bool) {
 			j++
 		case '"':
 			return j + 1, true
+		default:
+			// Any other character is part of the string.
 		}
 	}
 	return len(p), false
