@@ -233,9 +233,17 @@ function isExpired(e: unknown): boolean {
 
 // ── Pure helpers ────────────────────────────────────────────────────────────
 
+// trimTrailingSlashes drops every `/` at the end of a string. A loop rather than /\/+$/, which
+// backtracks over each run of slashes that is not at the end.
+export function trimTrailingSlashes(s: string): string {
+  let end = s.length
+  while (end > 0 && s[end - 1] === '/') { end-- }
+  return s.slice(0, end)
+}
+
 // repoNameFromUrl: https://host/o/repo.git, git@host:o/repo.git, https://host/group/sub/repo -> repo
 export function repoNameFromUrl(url: string): string {
-  const m = /[/:]([^/:]+?)(?:\.git)?$/.exec(url.trim().replace(/\/+$/, ''))
+  const m = /[/:]([^/:]+?)(?:\.git)?$/.exec(trimTrailingSlashes(url.trim()))
   if (m) { return m[1] }
   return ''
 }

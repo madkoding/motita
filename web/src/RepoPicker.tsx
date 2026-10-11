@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState } from 'preact/hooks'
-import { backdropClick, onActivate } from './a11y'
+import { onActivate } from './a11y'
+import { useBackdropClose } from './useBackdropClose'
+import './dialog.css'
 import { t, tf } from './i18n'
 import { useDialog } from './useDialog'
 import { Spinner } from './GitConnect'
@@ -42,8 +44,10 @@ interface Props {
 }
 
 export function RepoPicker({ api, accounts, initialService, onPick, onConnectAnother, onAuthRequired, onClose }: Props) {
-  const ref = useRef<HTMLDivElement>(null)
+  const ref = useRef<HTMLDialogElement>(null)
+  const backdrop = useRef<HTMLDivElement>(null)
   useDialog(ref, onClose)
+  useBackdropClose(backdrop, onClose)
   const [service, setService] = useState(pickService(accounts, initialService))
   const [q, setQ] = useState('')
   const [dq, setDq] = useState('')
@@ -97,8 +101,8 @@ export function RepoPicker({ api, accounts, initialService, onPick, onConnectAno
 
   const current = accounts.find(a => a.id === service)
   return (
-    <div class="fixed inset-0 z-110 flex items-center justify-center bg-black/70 backdrop-blur-xs p-4" data-testid="repo-picker" role="presentation" onClick={backdropClick(onClose)}>
-      <div ref={ref} data-dialog-root class="frosted rounded-2xl border border-white/10 w-full max-w-lg max-h-[85vh] flex flex-col p-5 shadow-2xl" role="dialog" aria-modal="true" aria-label={t('Choose from my repositories')}>
+    <div ref={backdrop} class="fixed inset-0 z-110 flex items-center justify-center bg-black/70 backdrop-blur-xs p-4" data-testid="repo-picker">
+      <dialog open ref={ref} data-dialog-root class="modal-dialog frosted rounded-2xl border border-white/10 w-full max-w-lg max-h-[85vh] flex flex-col p-5 shadow-2xl" aria-modal="true" aria-label={t('Choose from my repositories')}>
         <div class="flex items-center gap-2 mb-3">
           <h2 class="flex-1 text-base font-semibold text-[#e8e8ea]">{t('Choose from my repositories')}</h2>
           <button class="p-1.5 rounded-lg hover:bg-white/5 text-[#9a9aaa]" aria-label={t('Close')} onClick={onClose}>×</button>
@@ -150,12 +154,12 @@ export function RepoPicker({ api, accounts, initialService, onPick, onConnectAno
               </li>
             ))}
           </ul>
-          {loading && <div class="flex items-center justify-center gap-2 py-4 text-sm text-[#9a9aaa]" role="status"><Spinner /> {t('Loading repositories…')}</div>}
+          {loading && <output class="flex items-center justify-center gap-2 py-4 text-sm text-[#9a9aaa]"><Spinner /> {t('Loading repositories…')}</output>}
           {!loading && more && !err && (
             <button class="w-full mt-2 min-h-[40px] rounded-xl border border-white/10 text-sm text-[#e8e8ea] hover:bg-white/5" onClick={() => load(page + 1, true)}>{t('Load more')}</button>
           )}
         </div>
-      </div>
+      </dialog>
     </div>
   )
 }

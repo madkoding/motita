@@ -1,7 +1,8 @@
-import { useEffect, useState } from 'preact/hooks'
-import { backdropClick } from './a11y'
+import { useEffect, useRef, useState } from 'preact/hooks'
+import { useBackdropClose } from './useBackdropClose'
+import './dialog.css'
 import { t, tf } from './i18n'
-import { type Api, type GitAccount, listAccounts, disconnect } from './gitApi'
+import { type Api, type GitAccount, listAccounts, disconnect, trimTrailingSlashes } from './gitApi'
 import type { LangSetting } from './i18n'
 import { initSettings, saveSettings, loadNotify, saveNotify, notifyState, type UISettings, type FontSize, type Density } from './settings'
 import { choose } from './choose'
@@ -42,9 +43,11 @@ export function SettingsModal({ langSetting, langAvailable, onLang, onClose, git
   const [, bump] = useState(0)
   const ns = notifyState(permission, notifyOn)
   const sel = 'min-w-0 px-2 py-1 rounded-lg bg-black/30 border border-white/10 text-xs text-[#e8e8ea] focus:outline-hidden focus:border-accent'
+  const backdrop = useRef<HTMLDivElement>(null)
+  useBackdropClose(backdrop, onClose)
   return (
-    <div class="fixed inset-0 z-100 flex items-center justify-center bg-black/60" data-testid="settings-modal" role="presentation" onClick={backdropClick(onClose)}>
-      <div class="w-[90%] max-w-md max-h-[90vh] overflow-y-auto rounded-2xl border border-white/10 bg-surface-solid p-4 space-y-3" role="dialog" aria-label={t('Settings')}>
+    <div ref={backdrop} class="fixed inset-0 z-100 flex items-center justify-center bg-black/60" data-testid="settings-modal">
+      <dialog open class="modal-dialog w-[90%] max-w-md max-h-[90vh] overflow-y-auto rounded-2xl border border-white/10 bg-surface-solid p-4 space-y-3" aria-label={t('Settings')}>
         <div class="flex items-center">
           <h2 class="flex-1 text-sm font-semibold text-[#e8e8ea]">{t('Settings')}</h2>
           <button class="text-[#9a9aaa] px-2" aria-label={t('Close')} onClick={onClose}>×</button>
@@ -100,7 +103,7 @@ export function SettingsModal({ langSetting, langAvailable, onLang, onClose, git
           )}
         </div>
         {git && <GitConnections {...git} />}
-      </div>
+      </dialog>
     </div>
   )
 }
@@ -135,12 +138,12 @@ function GitConnections({ api, rev, onConnect, onNotice }: NonNullable<Props['gi
     setReload(n => n + 1)
   }
 
-  const cleanHost = host.trim().replace(/^https?:\/\//, '').replace(/\/+$/, '')
+  const cleanHost = trimTrailingSlashes(host.trim().replace(/^https?:\/\//, ''))
   return (
     <section class="pt-2 border-t border-white/10 space-y-2" aria-labelledby="git-conn-h" data-testid="git-connections">
       <h3 id="git-conn-h" class="text-sm font-semibold text-[#e8e8ea]">{t('Git connections')}</h3>
       <p class="text-xs text-[#7a7a8c]">{t('Connect a git host to pick your repositories and clone private ones.')}</p>
-      {accounts === null && <p class="text-xs text-[#9a9aaa]" role="status">{t('Loading…')}</p>}
+      {accounts === null && <output class="block text-xs text-[#9a9aaa]">{t('Loading…')}</output>}
       {err && <p class="text-xs text-danger" role="alert">{err}</p>}
       <ul class="space-y-1.5">
         {accounts?.map(a => (

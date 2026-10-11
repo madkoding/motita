@@ -1,0 +1,20 @@
+/* A modal's <dialog>, drawn exactly like the <div> it replaced. The browser's own dialog box
+ * (absolutely placed, shrink-wrapped, with the Canvas colours and a border) is undone here, in the
+ * base layer, so the Tailwind classes on the element (the utilities layer) still decide its size,
+ * padding, border and colours. */
+@layer base {
+  dialog.modal-dialog {
+    position: static;
+    inset: auto;
+    width: auto;
+    height: auto;
+    max-width: none;
+    max-height: none;
+    margin: 0;
+    padding: 0;
+    border-width: 0;
+    border-style: solid;
+    color: inherit;
+    background-color: transparent;
+  }
+}
