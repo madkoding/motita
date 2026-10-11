@@ -210,6 +210,8 @@ func TestDropPrivilegesReportsSetgidAndSetuidFailures(t *testing.T) {
 		t.Error("a failing setgid must be an error")
 	} else if !strings.Contains(err.Error(), "setgid") || !errors.Is(err, syscall.EPERM) {
 		t.Errorf("the error must name setgid and keep the cause: %v", err)
+	} else {
+		// the expected outcome: nothing more to check
 	}
 	// With setgid working it is setuid's turn.
 	privilegeHooks.setgid = func(int) error { return nil }
@@ -218,6 +220,8 @@ func TestDropPrivilegesReportsSetgidAndSetuidFailures(t *testing.T) {
 		t.Error("a failing setuid must be an error")
 	} else if !strings.Contains(err.Error(), "setuid") || !errors.Is(err, syscall.EPERM) {
 		t.Errorf("the error must name setuid and keep the cause: %v", err)
+	} else {
+		// the expected outcome: nothing more to check
 	}
 }
 

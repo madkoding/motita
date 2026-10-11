@@ -152,6 +152,8 @@ func TestConfineWritesHandlesReadsWhenSomethingIsHidden(t *testing.T) {
 				if failing {
 					return 0, 0, syscall.EINVAL
 				}
+			default:
+				// any other call succeeds
 			}
 			return 0, 0, 0
 		}
