@@ -31,7 +31,8 @@ func TestLintSubject(t *testing.T) {
 			t.Errorf("%q must be refused", s)
 			continue
 		}
-		if !strings.Contains(err.Error(), "feat") && !strings.Contains(err.Error(), "one line") && !strings.Contains(err.Error(), "characters") {
+		if !strings.Contains(err.Error(), "feat") && !strings.Contains(err.Error(), "one line") &&
+			!strings.Contains(err.Error(), "characters") {
 			t.Errorf("%q: the error does not say how to fix it: %v", s, err)
 		}
 	}
