@@ -28,7 +28,7 @@ export function browserLang(): Lang {
   try {
     const list = (navigator.languages && navigator.languages.length ? navigator.languages : [navigator.language]) || []
     for (const l of list) {
-      if (!l) continue
+      if (!l) { continue }
       return /^es(\b|[-_])/i.test(l) ? 'es' : 'en'
     }
   } catch { /* no navigator: English */ }
@@ -37,7 +37,7 @@ export function browserLang(): Lang {
 
 // resolveLang turns the setting into a language.
 export function resolveLang(setting: string | null | undefined): Lang {
-  if (setting === 'en' || setting === 'es') return setting
+  if (setting === 'en' || setting === 'es') { return setting }
   return browserLang()
 }
 
@@ -66,7 +66,7 @@ export async function setLang(next: Lang): Promise<void> {
 export function t(text: string): string {
   if (current === 'es' && spanish) {
     const v = spanish[text]
-    if (v) return v
+    if (v) { return v }
   }
   return text
 }
@@ -77,7 +77,7 @@ export function t(text: string): string {
 export function tc(context: string, text: string): string {
   if (current === 'es' && spanish) {
     const v = spanish[context + '|' + text]
-    if (v) return v
+    if (v) { return v }
   }
   return t(text)
 }

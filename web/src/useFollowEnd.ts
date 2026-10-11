@@ -21,13 +21,13 @@ export function useFollowEnd(open: boolean, tau = 110) {
   const markUser = useCallback(() => { userAt.current = performance.now() }, [])
   const onScroll = useCallback(() => {
     const el = ref.current
-    if (!el) return
+    if (!el) { return }
     const gap = el.scrollHeight - el.scrollTop - el.clientHeight
     if (dragging.current || performance.now() - userAt.current < 800) {
       pinned.current = gap < 24
       // The reader has taken the scroll: whatever glide is under way stops with it.
-      if (!pinned.current) follower.current.stop()
-    } else if (gap < 2) pinned.current = true
+      if (!pinned.current) { follower.current.stop() }
+    } else if (gap < 2) { pinned.current = true }
   }, [])
   const onPointerDown = useCallback(() => { dragging.current = true; markUser() }, [markUser])
 
@@ -40,14 +40,14 @@ export function useFollowEnd(open: boolean, tau = 110) {
 
   useEffect(() => {
     const el = ref.current
-    if (!el || typeof MutationObserver === 'undefined') return
+    if (!el || typeof MutationObserver === 'undefined') { return }
     const mo = new MutationObserver(() => stick())
     mo.observe(el, { childList: true, subtree: true, characterData: true })
     return () => mo.disconnect()
   }, [stick])
 
   useEffect(() => {
-    if (!open) return
+    if (!open) { return }
     pinned.current = true
     follower.current.jump()
   }, [open])
