@@ -565,6 +565,8 @@ func destructiveArgs(name string) []string {
 	case "mv", "cp", "ln", "install":
 		// The floor of these verbs is their DESTINATION, which is the last operand.
 		return []string{"x", "/"}
+	default:
+		// any other floor program: the generic operand below
 	}
 	return []string{"x"}
 }
