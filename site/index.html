@@ -414,7 +414,7 @@
   .term {
     background: rgba(5, 8, 10, 0.88); border: 1px solid rgba(0, 240, 255, .3);
     box-shadow: 0 0 30px rgba(0, 240, 255, .1), inset 0 0 60px rgba(0,0,0,.4);
-    display: flex; flex-direction: column; min-height: 470px; position: relative; overflow: hidden;
+    display: flex; flex-direction: column; min-height: 470px; position: relative; overflow: hidden; margin: 0;
   }
   /* CRT scanlines: faint, and they are the only texture on the panel. */
   .term::after {
@@ -754,10 +754,10 @@
           <li data-step="5" class="good"><b>The check passes</b>— only now is it done</li>
           <li data-step="6"><b>You get a report</b>what changed, how it was proven</li>
         </ol>
-        <div class="term" role="img" aria-label="A replay of a real motita run: the task, the plan, the edits, a failing check, the fix, the passing check and the report.">
+        <figure class="term" aria-label="A replay of a real motita run: the task, the plan, the edits, a failing check, the fix, the passing check and the report.">
           <div class="term-bar"><span>motita · notes</span><span>openai / gpt-5.1-codex</span><span class="live" id="live"><i></i>live</span><button class="replay-btn" type="button" id="replay">↻ replay</button></div>
           <div class="term-body" id="term" aria-hidden="true"></div>
-        </div>
+        </figure>
       </div>
       <p class="replay-note">Replayed from a real run — the commands, the error and the report are the ones in the screenshots below.</p>
     </div>
@@ -1145,6 +1145,32 @@ motita -isolation</code></pre>
   <img id="lb-img" src="shots/webui-report.webp" alt="">
 </dialog>
 
+<!-- The replay, line by line: [step, class, text, delay before the line in ms]. Data, read by the
+     script below; the step is the rail entry the line belongs to. -->
+<script type="application/json" id="replay-script">
+[
+  [0,"t-you","› Add a --json flag to `notes` that prints the list as JSON, with a test for it.",300],
+  [1,"t-think","◇ done means: notes --json prints a valid JSON array · the plain output is unchanged · go test ./... passes",900],
+  [1,"t-dim","  plan: read main.go → add --json and listJSON() → add a round-trip test → run the check",700],
+  [2,"t-cmd","sed -n 1,60p main.go",700],
+  [2,"t-dim","  [ok] 38 lines · type Note, var store, func list",400],
+  [2,"t-cmd","go test ./...",500],
+  [2,"t-dim","  ok   example.com/notes   0.006s   (baseline: green before the change)",500],
+  [2,"t-file","✎ edit_file  main.go       + --json flag, listJSON()",700],
+  [2,"t-file","✚ write_file json_test.go  + TestListJSONRoundTrips",500],
+  [3,"t-dim","◆ validating with anchor: go test ./...",800],
+  [3,"t-bad","✕ attempt 1 FAIL  ./main.go:37:9: undefined: json",700],
+  [3,"t-dim","  the failing command and its real output go back to the model",600],
+  [4,"t-think","◇ the import is missing — add encoding/json and run the gate again",900],
+  [4,"t-file","✎ edit_file  main.go       + import \"encoding/json\"",600],
+  [4,"t-cmd","go test ./... && go run . --json",500],
+  [4,"t-dim","  ok   example.com/notes   0.004s\n  [ { \"id\": 1, \"title\": \"Buy coffee beans\", \"done\": false }, … ]",600],
+  [5,"t-dim","◆ validating with anchor: go test ./...",700],
+  [5,"t-good","✓ attempt 2 PASS  the check passed — the task is done",700],
+  [6,"t-you","■ DONE · 3/3 checks passed · 2 changes",800],
+  [6,"t-dim","  main.go (edited) · json_test.go (new)\n  worth knowing: the JSON field names are now a public contract for scripts",400]
+]
+</script>
 <script>
   // Everything below is progressive: the page reads and works without it. The `js`
   // class is what arms the scroll reveal, so with scripting off nothing starts hidden.
@@ -1175,8 +1201,8 @@ motita -isolation</code></pre>
     }
     // arrowStep is where an arrow key moves in a tab list: forward, back, or nowhere.
     function arrowStep(key, forward, back) {
-      if (forward.indexOf(key) >= 0) { return 1; }
-      if (back.indexOf(key) >= 0) { return -1; }
+      if (forward.includes(key)) { return 1; }
+      if (back.includes(key)) { return -1; }
       return 0;
     }
 
@@ -1212,7 +1238,7 @@ motita -isolation</code></pre>
           await navigator.clipboard.writeText(target.textContent.trim());
           btn.textContent = 'Copied ✓'; btn.classList.add('done');
           status.textContent = 'Install command copied to clipboard.';
-        } catch (e) {
+        } catch {
           // The browser refused the clipboard (no permission, or not a secure page): the reader
           // is told to copy it by hand, which is all there is to do about it.
           status.textContent = 'Copy failed — select the command and copy it manually.';
@@ -1281,28 +1307,7 @@ motita -isolation</code></pre>
 
     // ── The replay: the real run, line by line ──────────────────────
     // [step, class, text, delay before the line in ms]
-    var SCRIPT = [
-      [0, 't-you', '› Add a --json flag to `notes` that prints the list as JSON, with a test for it.', 300],
-      [1, 't-think', '◇ done means: notes --json prints a valid JSON array · the plain output is unchanged · go test ./... passes', 900],
-      [1, 't-dim', '  plan: read main.go → add --json and listJSON() → add a round-trip test → run the check', 700],
-      [2, 't-cmd', 'sed -n 1,60p main.go', 700],
-      [2, 't-dim', '  [ok] 38 lines · type Note, var store, func list', 400],
-      [2, 't-cmd', 'go test ./...', 500],
-      [2, 't-dim', '  ok   example.com/notes   0.006s   (baseline: green before the change)', 500],
-      [2, 't-file', '✎ edit_file  main.go       + --json flag, listJSON()', 700],
-      [2, 't-file', '✚ write_file json_test.go  + TestListJSONRoundTrips', 500],
-      [3, 't-dim', '◆ validating with anchor: go test ./...', 800],
-      [3, 't-bad', '✕ attempt 1 FAIL  ./main.go:37:9: undefined: json', 700],
-      [3, 't-dim', '  the failing command and its real output go back to the model', 600],
-      [4, 't-think', '◇ the import is missing — add encoding/json and run the gate again', 900],
-      [4, 't-file', '✎ edit_file  main.go       + import "encoding/json"', 600],
-      [4, 't-cmd', 'go test ./... && go run . --json', 500],
-      [4, 't-dim', '  ok   example.com/notes   0.004s\n  [ { "id": 1, "title": "Buy coffee beans", "done": false }, … ]', 600],
-      [5, 't-dim', '◆ validating with anchor: go test ./...', 700],
-      [5, 't-good', '✓ attempt 2 PASS  the check passed — the task is done', 700],
-      [6, 't-you', '■ DONE · 3/3 checks passed · 2 changes', 800],
-      [6, 't-dim', '  main.go (edited) · json_test.go (new)\n  worth knowing: the JSON field names are now a public contract for scripts', 400]
-    ];
+    var SCRIPT = JSON.parse(document.getElementById('replay-script').textContent);
     var term = document.getElementById('term');
     var rail = Array.prototype.slice.call(document.querySelectorAll('#rail li'));
     var live = document.getElementById('live');
@@ -1357,18 +1362,21 @@ motita -isolation</code></pre>
     // ── The tour: tabs that advance on their own until touched ──────
     var ttabs = Array.prototype.slice.call(document.querySelectorAll('.tour-tab'));
     var auto = !still, tick = null, DUR = 7000;
+    // reflow makes the browser lay the element out now, by reading its width. Between removing a
+    // class and adding it back, that is what restarts the class's animation from its start.
+    function reflow(el) { return el.offsetWidth; }
     function show(t, user) {
       ttabs.forEach(function (o) {
         var on = o === t, pane = document.getElementById(o.getAttribute('aria-controls'));
         selectTab(o, on);
         pane.hidden = !on;
-        if (on) { pane.classList.remove('enter'); void pane.offsetWidth; pane.classList.add('enter'); }
+        if (on) { pane.classList.remove('enter'); reflow(pane); pane.classList.add('enter'); }
         o.querySelector('.prog').classList.remove('run');
       });
       if (user) { auto = false; }
       clearTimeout(tick);
       if (auto) {
-        var p = t.querySelector('.prog'); void p.offsetWidth; p.style.setProperty('--dur', DUR + 'ms'); p.classList.add('run');
+        var p = t.querySelector('.prog'); reflow(p); p.style.setProperty('--dur', DUR + 'ms'); p.classList.add('run');
         tick = setTimeout(function () { show(ttabs[(ttabs.indexOf(t) + 1) % ttabs.length]); }, DUR);
       }
     }
