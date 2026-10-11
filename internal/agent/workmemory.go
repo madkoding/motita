@@ -210,6 +210,47 @@ func (m *workMemory) render() string {
 	return b.String()
 }
 
+// plainSegments cuts a shell line into its commands at `;`, `&`, `|` and newlines outside quotes.
+// It reports false for a line with a redirection or a command substitution, which no segment
+// can vouch for.
+func plainSegments(line string) ([]string, bool) {
+	var quote rune
+	var seg strings.Builder
+	var segs []string
+	flush := func() {
+		segs = append(segs, seg.String())
+		seg.Reset()
+	}
+	rs := []rune(line)
+	for i, r := range rs {
+		switch {
+		case quote == '"' && opensSubshell(rs, i):
+			return nil, false
+		case quote != 0:
+			if r == quote {
+				quote = 0
+			}
+			seg.WriteRune(r)
+		case r == '\'' || r == '"':
+			quote = r
+			seg.WriteRune(r)
+		case r == '>' || r == '<' || opensSubshell(rs, i):
+			return nil, false
+		case r == ';' || r == '&' || r == '|' || r == '\n':
+			flush()
+		default:
+			seg.WriteRune(r)
+		}
+	}
+	flush()
+	return segs, true
+}
+
+// opensSubshell reports whether rs[i] starts a command substitution: a backquote or `$(`.
+func opensSubshell(rs []rune, i int) bool {
+	return rs[i] == '`' || (rs[i] == '$' && i+1 < len(rs) && rs[i+1] == '(')
+}
+
 // readsOnly reports whether a shell line cannot change anything. It is conservative on
 // purpose: a line it cannot vouch for is treated as a write, which costs one extra
 // execution and never a stale answer.
@@ -221,42 +262,10 @@ func (m *workMemory) render() string {
 // rounds where the model was not asked about it, not even remembered. readonly.Classify is
 // now the single answer.
 func readsOnly(line string) bool {
-	line = strings.NewReplacer("2>/dev/null", " ", "2>&1", " ").Replace(line)
-	var quote rune
-	var seg strings.Builder
-	var segs []string
-	flush := func() {
-		segs = append(segs, seg.String())
-		seg.Reset()
+	segs, ok := plainSegments(strings.NewReplacer("2>/dev/null", " ", "2>&1", " ").Replace(line))
+	if !ok {
+		return false
 	}
-	rs := []rune(line)
-	for i, r := range rs {
-		switch {
-		case quote == '\'':
-			if r == '\'' {
-				quote = 0
-			}
-			seg.WriteRune(r)
-		case quote == '"':
-			if r == '"' {
-				quote = 0
-			}
-			if r == '`' || (r == '$' && i+1 < len(rs) && rs[i+1] == '(') {
-				return false
-			}
-			seg.WriteRune(r)
-		case r == '\'' || r == '"':
-			quote = r
-			seg.WriteRune(r)
-		case r == '>' || r == '<' || r == '`' || (r == '$' && i+1 < len(rs) && rs[i+1] == '('):
-			return false
-		case r == ';' || r == '&' || r == '|' || r == '\n':
-			flush()
-		default:
-			seg.WriteRune(r)
-		}
-	}
-	flush()
 	seen := false
 	for _, s := range segs {
 		f := strings.Fields(s)
@@ -310,61 +319,88 @@ func fileRead(command string) (path string, from, to int, ok bool) {
 	if len(f) < 2 {
 		return "", 0, 0, false
 	}
-	unq := func(s string) string { return strings.Trim(s, "'\"") }
 	switch f[0] {
 	case "cat":
-		args := f[1:]
-		if args[0] == "-n" {
-			args = args[1:]
-		}
-		if len(args) != 1 || strings.HasPrefix(args[0], "-") {
-			return "", 0, 0, false
-		}
-		return cleanPath(unq(args[0])), 1, wholeFile, true
+		return catRead(f[1:])
 	case "head":
-		args := f[1:]
-		n := 10
-		switch {
-		case len(args) == 3 && args[0] == "-n":
-			v, err := strconv.Atoi(args[1])
-			if err != nil || v < 1 {
-				return "", 0, 0, false
-			}
-			n, args = v, args[2:]
-		case len(args) == 2 && len(args[0]) > 1 && args[0][0] == '-':
-			v, err := strconv.Atoi(args[0][1:])
-			if err != nil || v < 1 {
-				return "", 0, 0, false
-			}
-			n, args = v, args[1:]
-		}
-		if len(args) != 1 || strings.HasPrefix(args[0], "-") {
-			return "", 0, 0, false
-		}
-		return cleanPath(unq(args[0])), 1, n, true
+		return headRead(f[1:])
 	case "sed":
-		if len(f) != 4 || f[1] != "-n" {
-			return "", 0, 0, false
-		}
-		script := unq(f[2])
-		if !strings.HasSuffix(script, "p") {
-			return "", 0, 0, false
-		}
-		span := strings.TrimSuffix(script, "p")
-		lo, hi, found := strings.Cut(span, ",")
-		a, err := strconv.Atoi(lo)
-		if err != nil || a < 1 {
-			return "", 0, 0, false
-		}
-		b := a
-		if found {
-			if b, err = strconv.Atoi(hi); err != nil || b < a {
-				return "", 0, 0, false
-			}
-		}
-		return cleanPath(unq(f[3])), a, b, true
+		return sedRead(f)
+	default:
+		return "", 0, 0, false
 	}
-	return "", 0, 0, false
+}
+
+// unquoteWord drops the quotes around a word.
+func unquoteWord(s string) string { return strings.Trim(s, "'\"") }
+
+// catRead is fileRead for `cat f` and `cat -n f`.
+func catRead(args []string) (path string, from, to int, ok bool) {
+	if args[0] == "-n" {
+		args = args[1:]
+	}
+	if len(args) != 1 || strings.HasPrefix(args[0], "-") {
+		return "", 0, 0, false
+	}
+	return cleanPath(unquoteWord(args[0])), 1, wholeFile, true
+}
+
+// headRead is fileRead for `head f`, `head -n N f` and `head -N f`.
+func headRead(args []string) (path string, from, to int, ok bool) {
+	n, args, ok := headCount(args)
+	if !ok {
+		return "", 0, 0, false
+	}
+	if len(args) != 1 || strings.HasPrefix(args[0], "-") {
+		return "", 0, 0, false
+	}
+	return cleanPath(unquoteWord(args[0])), 1, n, true
+}
+
+// headCount reads the line count of a head command: the count and the arguments after it, and
+// false for a count that is not a positive number.
+func headCount(args []string) (int, []string, bool) {
+	switch {
+	case len(args) == 3 && args[0] == "-n":
+		return headLines(args[1], args[2:])
+	case len(args) == 2 && len(args[0]) > 1 && args[0][0] == '-':
+		return headLines(args[0][1:], args[1:])
+	default:
+		return 10, args, true
+	}
+}
+
+// headLines parses the count of a head command, followed by rest.
+func headLines(text string, rest []string) (int, []string, bool) {
+	v, err := strconv.Atoi(text)
+	if err != nil || v < 1 {
+		return 0, nil, false
+	}
+	return v, rest, true
+}
+
+// sedRead is fileRead for `sed -n 'A,Bp' f` and `sed -n 'Ap' f`.
+func sedRead(f []string) (path string, from, to int, ok bool) {
+	if len(f) != 4 || f[1] != "-n" {
+		return "", 0, 0, false
+	}
+	script := unquoteWord(f[2])
+	if !strings.HasSuffix(script, "p") {
+		return "", 0, 0, false
+	}
+	span := strings.TrimSuffix(script, "p")
+	lo, hi, found := strings.Cut(span, ",")
+	a, err := strconv.Atoi(lo)
+	if err != nil || a < 1 {
+		return "", 0, 0, false
+	}
+	b := a
+	if found {
+		if b, err = strconv.Atoi(hi); err != nil || b < a {
+			return "", 0, 0, false
+		}
+	}
+	return cleanPath(unquoteWord(f[3])), a, b, true
 }
 
 func cleanPath(p string) string { return filepath.Clean(p) }

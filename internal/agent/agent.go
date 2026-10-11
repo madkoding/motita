@@ -526,6 +526,33 @@ func buildQuestions(a Analysis) []AskItem {
 //	spanish-fixture: "Si no me dices otra cosa, asumiré: reviso el proyecto"
 //	spanish-fixture: becomes "asumiré: reviso el proyecto" after the clause goes,
 //	spanish-fixture: and still needs the announcement removed.
+//
+// stripAnnouncement drops a verb that only announces the assumption. It is a small, closed set
+// of phrasings, which is why this one can be a list where the clause of stripConditionalClause
+// cannot.
+func stripAnnouncement(s string) string {
+	for _, verb := range assumptionAnnouncements {
+		if rest, ok := cutPrefixFold(s, verb); ok {
+			if r := collapse(rest); r != "" {
+				s = r
+			}
+			break
+		}
+	}
+	return s
+}
+
+// stripConditionalClause drops a leading conditional clause, up to its first comma, when
+// something follows it.
+func stripConditionalClause(s string) string {
+	if isConditionalClause(s) {
+		if c := strings.Index(s, ","); c > 0 && strings.TrimSpace(s[c+1:]) != "" {
+			s = collapse(s[c+1:])
+		}
+	}
+	return s
+}
+
 func cleanAssumption(in string) string {
 	s := collapse(in)
 	if s == "" {
@@ -534,24 +561,7 @@ func cleanAssumption(in string) string {
 	for {
 		before := s
 
-		// A verb that only announces the assumption. It is a small, closed set of phrasings,
-		// which is why this one can be a list where the clause below cannot.
-		for _, verb := range assumptionAnnouncements {
-			if rest, ok := cutPrefixFold(s, verb); ok {
-				if r := collapse(rest); r != "" {
-					s = r
-				}
-				break
-			}
-		}
-
-		// A leading conditional clause, up to its first comma, when something follows it.
-		if isConditionalClause(s) {
-			if c := strings.Index(s, ","); c > 0 && strings.TrimSpace(s[c+1:]) != "" {
-				s = collapse(s[c+1:])
-			}
-		}
-
+		s = stripConditionalClause(stripAnnouncement(s))
 		if s == before {
 			break
 		}
@@ -568,7 +578,8 @@ func cleanAssumption(in string) string {
 // to the user, which is the bug this list prevents.
 var assumptionAnnouncements = []string{
 	// spanish-fixture: the phrasings the real runs emitted.
-	"asumiré:", "asumiré", "asumiendo:", "asumo que", "supongo que", "supondré:", // spanish-fixture: stripped from the model's output
+	"asumiré:", "asumiré", "asumiendo:", // spanish-fixture: stripped from the model's output
+	"asumo que", "supongo que", "supondré:", // spanish-fixture: stripped from the model's output
 	"i will assume:", "i'll assume:", "i will assume", "i'll assume",
 	"assuming that", "assuming:", "i am assuming:", "i'm assuming:",
 	"vou assumir:", "assumindo:", "suponho que", // spanish-fixture: stripped from the model's output
@@ -906,104 +917,143 @@ func (a *Agent) Run(ctx context.Context) error {
 
 	defer a.source.Close()
 
-	total := 0
-	failed := 0
+	var n runTally
+	for {
+		stop, err := a.runStep(ctx, &n)
+		if stop == stopNow {
+			return err
+		}
+		if stop == stopAndReport {
+			break
+		}
+	}
+
+	a.log.Info("agent finished", "tasks", n.total, "failed", n.failed, "awaiting_input", n.awaiting)
+	if n.failed > 0 {
+		// The reason of every failure is included: whoever reads the error (or
+		// cron's output) must be able to act without digging through the log.
+		return fmt.Errorf("%d of %d tasks failed: %s", n.failed, n.total, strings.Join(n.reasons, " | "))
+	}
+	return nil
+}
+
+// maxConsecutive is how many source failures in a row make Run give up.
+const maxConsecutive = 5
+
+// runTally is what Run counts across the tasks it takes.
+type runTally struct {
+	total  int
+	failed int
 	// awaiting counts the tasks that stopped to ask a question.
-	awaiting := 0
-	reasons := []string{}
+	awaiting int
+	reasons  []string
 	// Consecutive source failures are counted separately: a source that fails
 	// forever (a directory that disappeared, an unreachable API) must not spin
 	// the loop at full speed burning CPU and log. After a few in a row the agent
 	// gives up with a clear error instead of hanging silently.
-	consecutive := 0
-	sourceFailures := 0
-	const maxConsecutive = 5
+	consecutive    int
+	sourceFailures int
+}
 
-	for {
-		select {
-		case <-ctx.Done():
-			a.log.Info("shutdown requested, finishing", "tasks_processed", total)
-			return nil
-		default:
-		}
+// runStop is what one step of Run says about the steps after it.
+type runStop int
 
-		if a.cfg.Agent.MaxTasks > 0 && total >= a.cfg.Agent.MaxTasks {
-			a.log.Info("agent.max_tasks reached", "tasks", total)
-			break
-		}
+const (
+	// keepRunning takes the next task.
+	keepRunning runStop = iota
+	// stopAndReport ends the run with its summary.
+	stopAndReport
+	// stopNow ends the run at once, with the error given.
+	stopNow
+)
 
-		t, err := a.source.Next(ctx)
-		if errors.Is(err, io.EOF) {
-			a.log.Info("no more tasks", "tasks_processed", total)
-			break
-		}
-		if err != nil {
-			if ctx.Err() != nil {
-				return nil
-			}
-			// A source failure is NOT a failed task: no task was taken. Counting
-			// it as one produced nonsense totals such as "2 of 1 tasks failed".
-			// It is tracked on its own and surfaced through the error below.
-			sourceFailures++
-			consecutive++
-			a.log.Error("could not obtain the task", "error", err,
-				"consecutive", consecutive, "source_failures", sourceFailures)
-
-			if consecutive >= maxConsecutive {
-				// The source is broken, not just momentarily empty. Returning
-				// makes the failure visible and actionable (cron/systemd see a
-				// non-zero exit) instead of looping forever.
-				return fmt.Errorf("the task source failed %d times in a row, giving up: %w", consecutive, err)
-			}
-			continue
-		}
-		consecutive = 0
-		if strings.TrimSpace(t.Description) == "" {
-			continue
-		}
-
-		total++
-		result := a.processTask(ctx, t, 0)
-
-		// A task that ended in a QUESTION is not a task that failed.
-		//
-		// It did not run, and nothing went wrong: the agent could not read the request well
-		// enough and is asking. Counting it as a failure is what turned a perfectly good question
-		// into "1 of 1 tasks failed" in the interface, which tells the user they did something
-		// wrong at the exact moment the agent is asking for their help.
-		//
-		// It is reported as a non-failure so the interface can show the question, and it does not
-		// make the run exit non-zero: the run is WAITING, not broken.
-		if result.NeedsInput {
-			awaiting++
-			a.log.Info("task is waiting for the user", "task", truncate(t.Description, 120),
-				"question", truncate(result.Question, 200))
-			continue
-		}
-
-		if result.Pass {
-			a.log.Info("task completed",
-				"task", truncate(t.Description, 120),
-				"attempts", result.Attempts,
-				"duration_ms", result.DurationMS,
-				"final_action", result.FinalAction)
-		} else {
-			failed++
-			reasons = append(reasons, fmt.Sprintf("%q: %s", truncate(t.Description, 80), result.Reason))
-			a.log.Error("task failed",
-				"task", truncate(t.Description, 120),
-				"attempts", result.Attempts,
-				"reason", result.Reason)
-		}
+// runStep takes one task from the source and processes it.
+func (a *Agent) runStep(ctx context.Context, n *runTally) (runStop, error) {
+	select {
+	case <-ctx.Done():
+		a.log.Info("shutdown requested, finishing", "tasks_processed", n.total)
+		return stopNow, nil
+	default:
+		// Not cancelled: go on.
 	}
 
-	a.log.Info("agent finished", "tasks", total, "failed", failed, "awaiting_input", awaiting)
-	if failed > 0 {
-		// The reason of every failure is included: whoever reads the error (or
-		// cron's output) must be able to act without digging through the log.
-		return fmt.Errorf("%d of %d tasks failed: %s", failed, total, strings.Join(reasons, " | "))
+	if a.cfg.Agent.MaxTasks > 0 && n.total >= a.cfg.Agent.MaxTasks {
+		a.log.Info("agent.max_tasks reached", "tasks", n.total)
+		return stopAndReport, nil
 	}
-	return nil
+
+	t, err := a.source.Next(ctx)
+	if errors.Is(err, io.EOF) {
+		a.log.Info("no more tasks", "tasks_processed", n.total)
+		return stopAndReport, nil
+	}
+	if err != nil {
+		return a.sourceFailed(ctx, n, err)
+	}
+	n.consecutive = 0
+	if strings.TrimSpace(t.Description) == "" {
+		return keepRunning, nil
+	}
+
+	n.total++
+	a.tally(n, t, a.processTask(ctx, t, 0))
+	return keepRunning, nil
+}
+
+// sourceFailed handles a failure of the task source.
+func (a *Agent) sourceFailed(ctx context.Context, n *runTally, err error) (runStop, error) {
+	if ctx.Err() != nil {
+		return stopNow, nil
+	}
+	// A source failure is NOT a failed task: no task was taken. Counting
+	// it as one produced nonsense totals such as "2 of 1 tasks failed".
+	// It is tracked on its own and surfaced through the error below.
+	n.sourceFailures++
+	n.consecutive++
+	a.log.Error("could not obtain the task", "error", err,
+		"consecutive", n.consecutive, "source_failures", n.sourceFailures)
+
+	if n.consecutive >= maxConsecutive {
+		// The source is broken, not just momentarily empty. Returning
+		// makes the failure visible and actionable (cron/systemd see a
+		// non-zero exit) instead of looping forever.
+		return stopNow, fmt.Errorf("the task source failed %d times in a row, giving up: %w", n.consecutive, err)
+	}
+	return keepRunning, nil
+}
+
+// tally counts the result of one task.
+func (a *Agent) tally(n *runTally, t task.Task, result TaskResult) {
+	// A task that ended in a QUESTION is not a task that failed.
+	//
+	// It did not run, and nothing went wrong: the agent could not read the request well
+	// enough and is asking. Counting it as a failure is what turned a perfectly good question
+	// into "1 of 1 tasks failed" in the interface, which tells the user they did something
+	// wrong at the exact moment the agent is asking for their help.
+	//
+	// It is reported as a non-failure so the interface can show the question, and it does not
+	// make the run exit non-zero: the run is WAITING, not broken.
+	if result.NeedsInput {
+		n.awaiting++
+		a.log.Info("task is waiting for the user", "task", truncate(t.Description, 120),
+			"question", truncate(result.Question, 200))
+		return
+	}
+
+	if result.Pass {
+		a.log.Info("task completed",
+			"task", truncate(t.Description, 120),
+			"attempts", result.Attempts,
+			"duration_ms", result.DurationMS,
+			"final_action", result.FinalAction)
+		return
+	}
+	n.failed++
+	n.reasons = append(n.reasons, fmt.Sprintf("%q: %s", truncate(t.Description, 80), result.Reason))
+	a.log.Error("task failed",
+		"task", truncate(t.Description, 120),
+		"attempts", result.Attempts,
+		"reason", result.Reason)
 }
 
 // processTask runs the 9-step loop for one task and notifies the observer of the
@@ -1016,21 +1066,11 @@ func (a *Agent) processTask(ctx context.Context, t task.Task, depth int) TaskRes
 	run := t
 	isGoal := false
 	if depth == 0 {
-		if goal, ok := goalOf(t.Description); ok {
-			// A goal is autonomous: nobody is asked, the stated assumption is the answer.
-			a.Interactive = false
-			run.Description = goal + goalDirective
-			isGoal = true
-		}
-		if ctxText := decisionsContext(a.cfg.Agent.WorkspaceDir); ctxText != "" {
-			run.Description += ctxText
-		}
+		run, isGoal = a.prepareGoal(t)
 	}
 	r := a.loop(ctx, run, depth)
 	if isGoal && r.Report != nil {
-		if err := recordDecisions(a.cfg.Agent.WorkspaceDir, t.Description, r.Report.Decisions); err != nil {
-			a.log.Warn("could not save the goal's decisions", "error", err)
-		}
+		a.saveGoalDecisions(t, r.Report)
 	}
 	if depth == 0 {
 		// Whatever way the loop ended, nothing it started keeps running behind it.
@@ -1052,18 +1092,48 @@ func (a *Agent) processTask(ctx context.Context, t task.Task, depth int) TaskRes
 	// question are written where they are decided, because what they said is known only there. What
 	// this adds is the outcome of work that was actually done.
 	if depth == 0 && r.Kind != KindChat && !r.NeedsInput {
-		outcome := taskOutcome(r)
-		// A run that did not finish keeps what it had done: the result alone ("cancelled",
-		// "stalled") would erase the only record of the work, and the next turn - or a
-		// person reading the conversation - starts from nothing.
-		if !r.Pass {
-			if work := a.workSoFar(t); work != "" {
-				outcome += "\nWork done before it stopped:\n" + work
-			}
-		}
-		a.note(t, outcome, KindTask)
+		a.noteOutcome(t, r)
 	}
 	return r
+}
+
+// prepareGoal is the task as the outermost run works on it: a goal becomes autonomous, and the
+// decisions taken in earlier goals of this workspace are added to it. It reports whether the task
+// is a goal.
+func (a *Agent) prepareGoal(t task.Task) (task.Task, bool) {
+	run := t
+	isGoal := false
+	if goal, ok := goalOf(t.Description); ok {
+		// A goal is autonomous: nobody is asked, the stated assumption is the answer.
+		a.Interactive = false
+		run.Description = goal + goalDirective
+		isGoal = true
+	}
+	if ctxText := decisionsContext(a.cfg.Agent.WorkspaceDir); ctxText != "" {
+		run.Description += ctxText
+	}
+	return run, isGoal
+}
+
+// saveGoalDecisions keeps the decisions a goal's run reported, for the goals after it.
+func (a *Agent) saveGoalDecisions(t task.Task, report *Report) {
+	if err := recordDecisions(a.cfg.Agent.WorkspaceDir, t.Description, report.Decisions); err != nil {
+		a.log.Warn("could not save the goal's decisions", "error", err)
+	}
+}
+
+// noteOutcome records the outcome of a task that ran in the conversation.
+func (a *Agent) noteOutcome(t task.Task, r TaskResult) {
+	outcome := taskOutcome(r)
+	// A run that did not finish keeps what it had done: the result alone ("cancelled",
+	// "stalled") would erase the only record of the work, and the next turn - or a
+	// person reading the conversation - starts from nothing.
+	if !r.Pass {
+		if work := a.workSoFar(t); work != "" {
+			outcome += "\nWork done before it stopped:\n" + work
+		}
+	}
+	a.note(t, outcome, KindTask)
 }
 
 // goalPrefix is what the user types to hand over a goal: "/goal <what they want>".
@@ -1308,7 +1378,8 @@ func (a *Agent) runSubtasks(ctx context.Context, t task.Task, analysis Analysis,
 			res.Reason = fmt.Sprintf("subtask %d of %d did not pass (%s): %s", i+1, len(subs),
 				truncate(sub, 120), subResult.Reason)
 			if skipped > 0 {
-				res.Reason += fmt.Sprintf("; the %d after it were not started, because later subtasks build on earlier ones", skipped)
+				res.Reason += fmt.Sprintf("; the %d after it were not started, "+
+					"because later subtasks build on earlier ones", skipped)
 			}
 			res.Summary = subtaskSummary(subs, outcomes)
 			res.DurationMS = time.Since(start).Milliseconds()
@@ -1613,21 +1684,28 @@ func (a *Agent) baseVariables(t task.Task) map[string]string {
 func (a *Agent) describeRules() string {
 	switch strings.ToLower(a.cfg.Anchor.Kind) {
 	case "command":
-		var sb strings.Builder
-		fmt.Fprintf(&sb, "- It will run: %s %s\n", a.cfg.Anchor.Command, strings.Join(a.cfg.Anchor.Args, " "))
-		fmt.Fprintf(&sb, "- It must finish with exit code %d.\n", a.cfg.Anchor.ExpectExit)
-		if a.cfg.Anchor.ExpectOutput != "" {
-			fmt.Fprintf(&sb, "- Its output must match the regular expression: %s\n", a.cfg.Anchor.ExpectOutput)
-		}
-		for _, c := range a.cfg.Anchor.Checks {
-			fmt.Fprintf(&sb, "- In addition: %s %s (expected exit code %d)\n", c.Command, strings.Join(c.Args, " "), c.ExpectExit)
-		}
-		return sb.String()
+		return a.describeCommandRules()
 	case "auto":
 		return a.describeAutoRules()
 	default:
-		return "- No deterministic validation is configured (anchor.kind=none). The agent will not declare PASS on its own: review the configuration."
+		return "- No deterministic validation is configured (anchor.kind=none). " +
+			"The agent will not declare PASS on its own: review the configuration."
 	}
+}
+
+// describeCommandRules names the command, and the checks, that kind=command runs.
+func (a *Agent) describeCommandRules() string {
+	var sb strings.Builder
+	fmt.Fprintf(&sb, "- It will run: %s %s\n", a.cfg.Anchor.Command, strings.Join(a.cfg.Anchor.Args, " "))
+	fmt.Fprintf(&sb, "- It must finish with exit code %d.\n", a.cfg.Anchor.ExpectExit)
+	if a.cfg.Anchor.ExpectOutput != "" {
+		fmt.Fprintf(&sb, "- Its output must match the regular expression: %s\n", a.cfg.Anchor.ExpectOutput)
+	}
+	for _, c := range a.cfg.Anchor.Checks {
+		fmt.Fprintf(&sb, "- In addition: %s %s (expected exit code %d)\n",
+			c.Command, strings.Join(c.Args, " "), c.ExpectExit)
+	}
+	return sb.String()
 }
 
 // describeAutoRules names the gate the PROJECT declares, which is what kind=auto runs. The model
@@ -1644,7 +1722,8 @@ func (a *Agent) describeAutoRules() string {
 			"- A gate declared during the run is put to the user before its PASS is accepted.\n")
 		return sb.String()
 	}
-	sb.WriteString("- The project's own gate runs after you claim done, in the project directory. Each of these must pass:\n")
+	sb.WriteString("- The project's own gate runs after you claim done, in the project directory. " +
+		"Each of these must pass:\n")
 	for _, c := range checks {
 		fmt.Fprintf(&sb, "  - %s %s (must exit %d)\n", c.Command, strings.Join(c.Args, " "), c.ExpectExit)
 	}
@@ -1733,7 +1812,8 @@ func (a *Agent) searchSkills(query string) string {
 		return fmt.Sprintf("Error: could not search the library: %v", err)
 	}
 	if len(hits) == 0 {
-		return fmt.Sprintf("No skill matches %q. Work from your own knowledge, and save a skill afterwards if what you work out is worth keeping.", query)
+		return fmt.Sprintf("No skill matches %q. Work from your own knowledge, "+
+			"and save a skill afterwards if what you work out is worth keeping.", query)
 	}
 	var b strings.Builder
 	fmt.Fprintf(&b, "%d skill(s) match %q.\n", len(hits), query)
@@ -1841,189 +1921,6 @@ func (a *Agent) feedbackSuffix(name string) string {
 	return b.String()
 }
 
-func (a *Agent) runActions(ctx context.Context, actions []Command, prefix string) (string, error) {
-	return a.runRound(ctx, actions, prefix, nil, 0)
-}
-
-// runRound is runActions with the run's working memory. A read the run already holds, and
-// that nothing has invalidated, is answered from memory instead of being executed; a read
-// that ran is kept; a write forgets every kept read. mem == nil is the plain behaviour.
-func (a *Agent) runRound(ctx context.Context, actions []Command, prefix string, mem *workMemory, round int) (string, error) {
-	var sb strings.Builder
-	var lastErr error
-	// The tree as this round finds it. Anything that changed it since the last look (the
-	// anchor ran a build, a test wrote a file) makes the kept reads untrustworthy.
-	if mem != nil {
-		mem.sync(a.cfg.Agent.WorkspaceDir)
-	}
-
-	for i, action := range actions {
-		// A library action is not a shell command: it is answered from the procedure library and
-		// its result goes back to the model as the output of this step. It is dispatched by
-		// kind, because that is how this mode names things — the same four operations the
-		// planner exposes as tools, reachable from here too.
-		if kind := strings.ToLower(strings.TrimSpace(action.Kind)); kind != "" && kind != "command" {
-			// A background agent started or waited for (see subagents.go).
-			if handled, out, refusal := a.runAgentAction(ctx, kind, action); handled {
-				fmt.Fprintf(&sb, "[%s] %s\n%s\n", kind, action.Description, out)
-				a.report("running: %s %s", kind, firstLineOf(action.Command))
-				a.log.Info(prefix+"agent action", "kind", kind, "command", truncate(firstLineOf(action.Command), 120))
-				if refusal != nil {
-					lastErr = fmt.Errorf("action %d (%s) was refused: %w", i+1, kind, refusal)
-				}
-				continue
-			}
-			// A file written by the program itself (see fileactions.go). It is a write, so the
-			// kept reads are checked against the tree exactly as after a shell write.
-			if handled, out, refusal := a.runFileAction(kind, action); handled {
-				fmt.Fprintf(&sb, "[%s] %s\n%s\n", kind, action.Description, out)
-				a.report("running: %s %s", kind, firstLineOf(action.Command))
-				a.log.Info(prefix+"file action", "kind", kind, "path", firstLineOf(action.Command), "result", out)
-				if refusal != nil {
-					lastErr = fmt.Errorf("action %d (%s) was refused: %w", i+1, kind, refusal)
-				}
-				if mem != nil {
-					mem.executed++
-					mem.sync(a.cfg.Agent.WorkspaceDir)
-				}
-				continue
-			}
-			if handled, out := a.runLibraryAction(kind, action); handled {
-				fmt.Fprintf(&sb, "[%s] %s\n%s\n", kind, action.Description, out)
-				a.log.Info(prefix+"library action", "kind", kind, "description",
-					truncate(action.Description, 80))
-				continue
-			}
-			// A kind this mode does not know, carrying text the model meant as ARGUMENTS.
-			//
-			// Falling through to the command path treats that text as a program name and runs
-			// it: a model that asks for plan mode's `read_file` arrives here with a path, and
-			// the path is executed as a shell command — `/etc/hostname: Permission denied` is
-			// the shape of it. It is refused by name instead, because guessing which part is a
-			// program and which is an argument is exactly the mistake: the model named an
-			// operation that does not exist, and saying so is what lets it choose one that does.
-			//
-			// The refusal is not an error of the run: the turn continues, the model reads this
-			// and answers with a kind that exists.
-			if strings.TrimSpace(action.Command) != "" || strings.TrimSpace(action.Description) != "" {
-				fmt.Fprintf(&sb, "[%s] %s\n[refused: %q is not an action this mode has. "+
-					"Available: command, write_file, edit_file, spawn_agent, wait_agents, list_skills, search_skills, read_skill, save_skill. "+
-					"To run a shell command, use kind \"command\".]\n",
-					kind, action.Description, kind)
-				a.log.Warn(prefix+"action with an unknown kind",
-					"kind", kind, "command", truncate(action.Command, 80))
-				lastErr = fmt.Errorf("action %d names the unknown kind %q", i+1, kind)
-				continue
-			}
-		}
-		if strings.TrimSpace(action.Command) == "" {
-			a.log.Debug(prefix+"action with no command (descriptive)", "description", action.Description)
-			continue
-		}
-		if mem != nil && isRead(action) {
-			if rec, ok := mem.recall(action.Command); ok {
-				fmt.Fprintf(&sb, "$ %s\n[not run again: the same read was made in round %d and nothing has "+
-					"changed since. Its full output is under \"WHAT YOU HAVE ALREADY READ\" in this prompt]\n",
-					action.Command, rec.round)
-				a.log.Info(prefix+"read answered from memory", "command", truncate(action.Command, 120),
-					"round", rec.round)
-				mem.recalled++
-				continue
-			}
-		}
-		a.report("running: %s", action.Command)
-		a.log.Info(prefix+"running in sandbox", "n", i+1, "command", action.Command, "description", truncate(action.Description, 120))
-
-		// How the action is executed depends on the mode, and it is the difference
-		// between a request and a guarantee:
-		//
-		//  - read-only (plan mode): the line is split into program and arguments, the
-		//    policy checks the program, and NO shell runs. Without a shell there is no
-		//    `>`, `>>`, `;`, `&&` or `$(...)`: redirection cannot happen because
-		//    nothing interprets it.
-		//  - otherwise: the line goes to the shell, because that is what lets the
-		//    model use pipes, redirections and globs to do real work — but only once the
-		//    policy has had its say. A consequential action is put in front of the user
-		//    here, mid-run, because this is the moment it is about to happen.
-		plan := a.planRequest(action.Command)
-		if plan.Verdict == policy.Deny {
-			fmt.Fprintf(&sb, "$ %s\n[refused: %s]\n", action.Command, plan.Reason)
-			a.log.Warn(prefix+"action refused by the policy",
-				"command", action.Command, "rule", plan.Rule, "mandatory", plan.Mandatory, "reason", plan.Reason)
-			lastErr = fmt.Errorf("action %d (%s) was refused: %s", i+1, action.Command, plan.Reason)
-			continue
-		}
-		if plan.Verdict == policy.Ask {
-			a.report("asking you to approve: %s", action.Command)
-			approved, err := a.approve(ctx, plan, action.Command)
-			if err != nil {
-				// There is nobody to ask. This is not a failure of the command, it is the
-				// absence of the only thing that could authorise it, and the output says
-				// so in those words so the model does not retry the same line.
-				fmt.Fprintf(&sb, "$ %s\n[not approved: %s]\n", action.Command, err)
-				a.log.Warn(prefix+"action needs approval and there is nobody to ask",
-					"command", action.Command, "rule", plan.Rule)
-				lastErr = fmt.Errorf("action %d (%s) needs approval and there is nobody to ask: %w",
-					i+1, action.Command, err)
-				continue
-			}
-			if !approved {
-				fmt.Fprintf(&sb, "$ %s\n[not approved: the user declined this command]\n", action.Command)
-				a.log.Info(prefix+"action declined by the user",
-					"command", action.Command, "rule", plan.Rule)
-				lastErr = fmt.Errorf("action %d (%s) was declined by the user", i+1, action.Command)
-				continue
-			}
-			a.log.Info(prefix+"action approved by the user", "command", action.Command)
-			plan.Request.Unconfined = true
-		}
-
-		output, truncated, exit, err := a.exec(ctx, plan.Request)
-		// What the command printed, so the user sees what the agent is looking at, not only
-		// that it ran something.
-		//
-		// It is reported even when the command printed nothing: the exit code is what tells
-		// the reader whether it worked, and a silent success (`printf > file`) would
-		// otherwise never be marked as finished.
-		// What the reader and the terminal see is what the command actually printed, up to a cap
-		// that is generous on purpose: a `grep` of a large tree is exactly the output a person
-		// asks for, and cutting it to a handful of lines made the terminal useless as a record.
-		// What is kept is the whole result of a normal command; only an enormous one is cut, and
-		// then the cut says so, with how much was left out.
-		a.report("output (exit %d):\n%s", exit,
-			truncateMiddle(strings.TrimSpace(output), terminalOutputChars))
-
-		fmt.Fprintf(&sb, "$ %s\n", action.Command)
-		if output != "" {
-			sb.WriteString(output)
-			if !strings.HasSuffix(output, "\n") {
-				sb.WriteString("\n")
-			}
-		}
-		if truncated {
-			sb.WriteString("[output truncated by the sandbox limit]\n")
-		}
-		fmt.Fprintf(&sb, "[exit=%d]\n", exit)
-
-		if mem != nil {
-			mem.executed++
-			mem.noteVerification(action.Command, round, exit, err, output)
-			switch {
-			case isWrite(action):
-				// It looks like it could write; whether it DID is a question about the files.
-				mem.sync(a.cfg.Agent.WorkspaceDir)
-			case isRead(action) && err == nil && exit == 0 && !truncated:
-				mem.remember(action.Command, round, output)
-			}
-		}
-
-		if err != nil {
-			lastErr = fmt.Errorf("action %d (%s) could not run: %w", i+1, action.Command, err)
-		}
-	}
-	return sb.String(), lastErr
-}
-
 // summariseFailure builds the block handed to the LLM on the next attempt.
 func (a *Agent) summariseFailure(action Action, execution string, validation anchor.Result, runErr error) string {
 	var sb strings.Builder
@@ -2126,6 +2023,8 @@ func (a *Agent) runConfigured(ctx context.Context, req execx.Request, line strin
 	case policy.Ask:
 		a.log.Info("a configured action runs without confirming: the operator wrote it",
 			"command", line, "rule", plan.Rule, "reason", plan.Reason)
+	default:
+		// Allowed: it runs as configured.
 	}
 	// The request the operator configured is used as written — program and arguments — so
 	// an interpreter with its own flags (`sh -c …`) keeps working. The policy was applied to
@@ -2171,96 +2070,113 @@ func (a *Agent) runFinalAction(ctx context.Context, c Command, prefix string) (s
 	switch strings.ToLower(final.Kind) {
 	case "", "none":
 		return "none", nil
-
 	case "command":
-		var output string
-		var exit int
-		var err error
-		if strings.TrimSpace(c.Command) != "" {
-			// The model proposed the concrete final command: the operator's configuration
-			// supplied the slot, and the text in it is the model's.
-			a.log.Info(prefix+"running the final action the model proposed", "command", c.Command)
-			output, exit, err = a.runModelLine(ctx, c.Command)
-		} else {
-			if strings.TrimSpace(final.Command) == "" {
-				a.log.Warn(prefix + "final_action.kind=command with no command: nothing is done")
-				return "none", nil
-			}
-			a.log.Info(prefix+"running the final action", "command", final.Command)
-			output, exit, err = a.runConfigured(ctx,
-				execx.Request{Command: final.Command, Args: final.Args}, final.Command)
-		}
-		description := fmt.Sprintf("command exit=%d output=%s", exit, truncate(output, 300))
-		if err != nil {
-			a.log.Error(prefix+"the final action failed", "error", err, "output", truncate(output, 500))
-			return description, fmt.Errorf("the final action could not run: %w", err)
-		}
-		if exit != 0 {
-			return description, fmt.Errorf("the final action finished with exit code %d", exit)
-		}
-		return description, nil
-
+		return a.finalCommand(ctx, c, prefix)
 	case "api":
-		body := map[string]any{
-			"task":    c.Description,
-			"command": c.Command,
-			"status":  "pass",
-		}
-		data, _ := json.Marshal(body)
-		method := final.Method
-		if method == "" {
-			method = http.MethodPost
-		}
-		req, err := http.NewRequestWithContext(ctx, method, final.URL, bytes.NewReader(data))
-		if err != nil {
-			a.log.Error(prefix+"invalid final request", "error", err)
-			return "error: " + err.Error(), fmt.Errorf("the final action (API) has an invalid URL: %w", err)
-		}
-		req.Header.Set("Content-Type", "application/json")
-		resp, err := a.http.Do(req)
-		if err != nil {
-			a.log.Error(prefix+"the final notification failed", "error", err)
-			return "error: " + err.Error(), fmt.Errorf("the final action (API) failed: %w", err)
-		}
-		defer resp.Body.Close()
-		io.Copy(io.Discard, io.LimitReader(resp.Body, 64<<10))
-		description := fmt.Sprintf("api %s %s -> HTTP %d", method, final.URL, resp.StatusCode)
-		if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-			return description, fmt.Errorf("the final action (API) returned HTTP %d", resp.StatusCode)
-		}
-		return description, nil
-
+		return a.finalAPI(ctx, c, prefix)
 	case "git_commit":
-		message, _ := template.Render(final.CommitMessage, map[string]string{"task": c.Description})
-		// A commit made by the agent is a semantic one like every other: the configured
-		// message is kept when it already is, and is given the chore(agent) prefix when not.
-		message = semantic.Coerce(message, "agent")
-		// The staging line is a fixed command of this program, and it is checked like any
-		// other so that a workspace pointed at a strange place cannot turn it into
-		// something else. Nothing here is configurable as a command: the operator chooses
-		// that a commit happens, not how.
-		sequence := []string{
-			"git add -A",
-			fmt.Sprintf("git commit -m %s", shellQuote(message)),
-		}
-		var outputs []string
-		for _, cmd := range sequence {
-			output, exit, err := a.runConfigured(ctx,
-				execx.Request{Command: shellFor(a.cfg), Args: []string{"-c", cmd}}, cmd)
-			outputs = append(outputs, fmt.Sprintf("%s -> exit=%d %s", cmd, exit, truncate(output, 200)))
-			if err != nil {
-				a.log.Error(prefix+"git_commit failed", "command", cmd, "error", err)
-				return gitCommitPrefix + strings.Join(outputs, " | "), fmt.Errorf("git_commit: %s failed: %w", cmd, err)
-			}
-			if exit != 0 {
-				return gitCommitPrefix + strings.Join(outputs, " | "), fmt.Errorf("git_commit: %s finished with exit code %d", cmd, exit)
-			}
-		}
-		return gitCommitPrefix + strings.Join(outputs, " | "), nil
-
+		return a.finalGitCommit(ctx, c, prefix)
 	default:
 		return "none", fmt.Errorf("unknown final_action.kind: %q", final.Kind)
 	}
+}
+
+// finalCommand runs a final action of kind command: the one the model proposed, or else the one
+// configured.
+func (a *Agent) finalCommand(ctx context.Context, c Command, prefix string) (string, error) {
+	final := a.cfg.FinalAction
+	var output string
+	var exit int
+	var err error
+	if strings.TrimSpace(c.Command) != "" {
+		// The model proposed the concrete final command: the operator's configuration
+		// supplied the slot, and the text in it is the model's.
+		a.log.Info(prefix+"running the final action the model proposed", "command", c.Command)
+		output, exit, err = a.runModelLine(ctx, c.Command)
+	} else {
+		if strings.TrimSpace(final.Command) == "" {
+			a.log.Warn(prefix + "final_action.kind=command with no command: nothing is done")
+			return "none", nil
+		}
+		a.log.Info(prefix+"running the final action", "command", final.Command)
+		output, exit, err = a.runConfigured(ctx,
+			execx.Request{Command: final.Command, Args: final.Args}, final.Command)
+	}
+	description := fmt.Sprintf("command exit=%d output=%s", exit, truncate(output, 300))
+	if err != nil {
+		a.log.Error(prefix+"the final action failed", "error", err, "output", truncate(output, 500))
+		return description, fmt.Errorf("the final action could not run: %w", err)
+	}
+	if exit != 0 {
+		return description, fmt.Errorf("the final action finished with exit code %d", exit)
+	}
+	return description, nil
+}
+
+// finalAPI runs a final action of kind api: the result is posted to the configured URL.
+func (a *Agent) finalAPI(ctx context.Context, c Command, prefix string) (string, error) {
+	final := a.cfg.FinalAction
+	body := map[string]any{
+		"task":    c.Description,
+		"command": c.Command,
+		"status":  "pass",
+	}
+	data, _ := json.Marshal(body)
+	method := final.Method
+	if method == "" {
+		method = http.MethodPost
+	}
+	req, err := http.NewRequestWithContext(ctx, method, final.URL, bytes.NewReader(data))
+	if err != nil {
+		a.log.Error(prefix+"invalid final request", "error", err)
+		return "error: " + err.Error(), fmt.Errorf("the final action (API) has an invalid URL: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := a.http.Do(req)
+	if err != nil {
+		a.log.Error(prefix+"the final notification failed", "error", err)
+		return "error: " + err.Error(), fmt.Errorf("the final action (API) failed: %w", err)
+	}
+	defer resp.Body.Close()
+	io.Copy(io.Discard, io.LimitReader(resp.Body, 64<<10))
+	description := fmt.Sprintf("api %s %s -> HTTP %d", method, final.URL, resp.StatusCode)
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return description, fmt.Errorf("the final action (API) returned HTTP %d", resp.StatusCode)
+	}
+	return description, nil
+}
+
+// finalGitCommit runs a final action of kind git_commit: everything is staged and committed.
+func (a *Agent) finalGitCommit(ctx context.Context, c Command, prefix string) (string, error) {
+	final := a.cfg.FinalAction
+	message, _ := template.Render(final.CommitMessage, map[string]string{"task": c.Description})
+	// A commit made by the agent is a semantic one like every other: the configured
+	// message is kept when it already is, and is given the chore(agent) prefix when not.
+	message = semantic.Coerce(message, "agent")
+	// The staging line is a fixed command of this program, and it is checked like any
+	// other so that a workspace pointed at a strange place cannot turn it into
+	// something else. Nothing here is configurable as a command: the operator chooses
+	// that a commit happens, not how.
+	sequence := []string{
+		"git add -A",
+		fmt.Sprintf("git commit -m %s", shellQuote(message)),
+	}
+	var outputs []string
+	for _, cmd := range sequence {
+		output, exit, err := a.runConfigured(ctx,
+			execx.Request{Command: shellFor(a.cfg), Args: []string{"-c", cmd}}, cmd)
+		outputs = append(outputs, fmt.Sprintf("%s -> exit=%d %s", cmd, exit, truncate(output, 200)))
+		if err != nil {
+			a.log.Error(prefix+"git_commit failed", "command", cmd, "error", err)
+			return gitCommitPrefix + strings.Join(outputs, " | "),
+				fmt.Errorf("git_commit: %s failed: %w", cmd, err)
+		}
+		if exit != 0 {
+			return gitCommitPrefix + strings.Join(outputs, " | "),
+				fmt.Errorf("git_commit: %s finished with exit code %d", cmd, exit)
+		}
+	}
+	return gitCommitPrefix + strings.Join(outputs, " | "), nil
 }
 
 // escalate fires the configured escalation action when the task does not pass.
@@ -2366,16 +2282,11 @@ func partialStrings(text, name string) []string {
 		}
 		j := i + at + len(key)
 		i = j
-		for j < len(text) && (text[j] == ' ' || text[j] == '\t' || text[j] == '\n' || text[j] == '\r') {
-			j++
-		}
+		j = skipJSONSpace(text, j)
 		if j >= len(text) || text[j] != ':' {
 			continue
 		}
-		j++
-		for j < len(text) && (text[j] == ' ' || text[j] == '\t' || text[j] == '\n' || text[j] == '\r') {
-			j++
-		}
+		j = skipJSONSpace(text, j+1)
 		if j >= len(text) || text[j] != '"' {
 			continue
 		}
@@ -2388,6 +2299,14 @@ func partialStrings(text, name string) []string {
 // decodePartial decodes a JSON string body up to its closing quote or the end of the text,
 // and returns the value and how many bytes it consumed. An escape cut off at the end stops the
 // value there rather than guessing.
+// skipJSONSpace is the first index at or after j that is not JSON whitespace.
+func skipJSONSpace(text string, j int) int {
+	for j < len(text) && strings.IndexByte(" \t\n\r", text[j]) >= 0 {
+		j++
+	}
+	return j
+}
+
 func decodePartial(s string) (string, int) {
 	var b strings.Builder
 	for i := 0; i < len(s); i++ {
@@ -2400,28 +2319,43 @@ func decodePartial(s string) (string, int) {
 		case i+1 >= len(s):
 			return b.String(), len(s)
 		default:
-			i++
-			switch s[i] {
-			case 'n':
-				b.WriteByte('\n')
-			case 't':
-				b.WriteByte('\t')
-			case 'r':
-			case 'u':
-				if i+4 >= len(s) {
-					return b.String(), len(s)
-				}
-				var r rune
-				if _, err := fmt.Sscanf(s[i+1:i+5], "%04x", &r); err == nil {
-					b.WriteRune(r)
-				}
-				i += 4
-			default:
-				b.WriteByte(s[i])
+			var ok bool
+			if i, ok = decodeEscape(s, i+1, &b); !ok {
+				return b.String(), len(s)
 			}
 		}
 	}
 	return b.String(), len(s)
+}
+
+// decodeEscape writes the character escaped at s[i], the one after a backslash, and returns the
+// index of the last byte it consumed; false when the escape is cut short.
+func decodeEscape(s string, i int, b *strings.Builder) (int, bool) {
+	switch s[i] {
+	case 'n':
+		b.WriteByte('\n')
+	case 't':
+		b.WriteByte('\t')
+	case 'r':
+		// A carriage return is dropped.
+	case 'u':
+		return decodeUnicode(s, i, b)
+	default:
+		b.WriteByte(s[i])
+	}
+	return i, true
+}
+
+// decodeUnicode writes the \uXXXX escape whose u is at s[i].
+func decodeUnicode(s string, i int, b *strings.Builder) (int, bool) {
+	if i+4 >= len(s) {
+		return i, false
+	}
+	var r rune
+	if _, err := fmt.Sscanf(s[i+1:i+5], "%04x", &r); err == nil {
+		b.WriteRune(r)
+	}
+	return i + 4, true
 }
 
 // shellQuote quotes text for passing to sh -c.
@@ -2476,5 +2410,6 @@ func truncateMiddle(s string, max int) string {
 	for start < len(s) && !utf8.RuneStart(s[start]) {
 		start++
 	}
-	return truncate(s, head) + fmt.Sprintf("\n[... %d of %d bytes omitted ...]\n", len(s)-head-(len(s)-start), len(s)) + s[start:]
+	omitted := len(s) - head - (len(s) - start)
+	return truncate(s, head) + fmt.Sprintf("\n[... %d of %d bytes omitted ...]\n", omitted, len(s)) + s[start:]
 }

@@ -145,8 +145,9 @@ func (a *Agent) runAgentAction(ctx context.Context, kind string, action Command)
 		return true, out, err
 	case "wait_agents":
 		return true, a.waitAgents(ctx, action.Command), nil
+	default:
+		return false, "", nil
 	}
-	return false, "", nil
 }
 
 // refused is a refusal shown to the model and returned as the action's error.
@@ -338,6 +339,8 @@ func (a *Agent) finishChild(c *subagent, child *Agent, place childPlace, r TaskR
 		state = AgentCancelled
 	case r.Pass:
 		state = AgentPassed
+	default:
+		// It ended without passing: AgentFailed stands.
 	}
 	summary := strings.TrimSpace(r.Summary)
 	if summary == "" {
@@ -509,7 +512,8 @@ func (a *Agent) validateClaim(ctx context.Context, before *runBaseline) anchor.R
 	// branch is measured when the main agent merges it and claims done.
 	if a.isChild && !v.Pass && len(v.Checks) == 0 {
 		return anchor.Result{Pass: true, Checks: []anchor.CheckLog{},
-			Reason: "no project gate in the background agent's tree: its branch is validated by the main agent's anchor once merged"}
+			Reason: "no project gate in the background agent's tree: " +
+				"its branch is validated by the main agent's anchor once merged"}
 	}
 	return a.guardGate(ctx, before.judge(ctx, v))
 }

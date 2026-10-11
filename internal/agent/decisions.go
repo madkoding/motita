@@ -95,11 +95,9 @@ func NumberedDecisions(workspace string) string {
 	return strings.Join(out, "\n")
 }
 
-// RemoveDecision deletes the n-th decision (1-based, as NumberedDecisions numbers them) and returns
-// its text. A dated heading left with no decisions under it goes with it.
-func RemoveDecision(workspace string, n int) (string, error) {
-	text := ReadDecisions(workspace)
-	lines := strings.Split(text, "\n")
+// decisionLine is the index of the n-th decision among lines, or -1, and how many decisions it
+// counted on the way.
+func decisionLine(lines []string, n int) (int, int) {
 	idx, count := -1, 0
 	for i, l := range lines {
 		if strings.HasPrefix(l, "- ") {
@@ -110,6 +108,31 @@ func RemoveDecision(workspace string, n int) (string, error) {
 			}
 		}
 	}
+	return idx, count
+}
+
+// sectionEmpty reports whether the section that starts after a heading, lines being what follows
+// the heading, has no decision before the next heading.
+func sectionEmpty(lines []string) bool {
+	empty := true
+	for _, next := range lines {
+		if strings.HasPrefix(next, "## ") {
+			break
+		}
+		if strings.HasPrefix(next, "- ") {
+			empty = false
+			break
+		}
+	}
+	return empty
+}
+
+// RemoveDecision deletes the n-th decision (1-based, as NumberedDecisions numbers them) and returns
+// its text. A dated heading left with no decisions under it goes with it.
+func RemoveDecision(workspace string, n int) (string, error) {
+	text := ReadDecisions(workspace)
+	lines := strings.Split(text, "\n")
+	idx, count := decisionLine(lines, n)
 	if idx < 0 {
 		return "", fmt.Errorf("there is no decision %d (there are %d)", n, count)
 	}
@@ -119,20 +142,8 @@ func RemoveDecision(workspace string, n int) (string, error) {
 	// Drop headings whose section is now empty.
 	var kept []string
 	for i, l := range lines {
-		if strings.HasPrefix(l, "## ") {
-			empty := true
-			for _, next := range lines[i+1:] {
-				if strings.HasPrefix(next, "## ") {
-					break
-				}
-				if strings.HasPrefix(next, "- ") {
-					empty = false
-					break
-				}
-			}
-			if empty {
-				continue
-			}
+		if strings.HasPrefix(l, "## ") && sectionEmpty(lines[i+1:]) {
+			continue
 		}
 		kept = append(kept, l)
 	}

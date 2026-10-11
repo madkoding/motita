@@ -84,6 +84,8 @@ func artifactImageName(s string) string {
 			return ""
 		}
 		return s
+	default:
+		// Not an image.
 	}
 	return ""
 }
@@ -105,8 +107,18 @@ func (r *Report) normalize(pass bool) {
 			r.Status = "done"
 		}
 	}
-	changes := make([]ReportChange, 0, len(r.Changes))
-	for _, c := range r.Changes {
+	r.Changes = normalizeChanges(r.Changes)
+	r.Verification = normalizeChecks(r.Verification)
+	r.Evidence = normalizeEvidence(r.Evidence)
+	r.Risks = cleanLines(r.Risks)
+	r.NextSteps = cleanLines(r.NextSteps)
+	r.Decisions = normalizeDecisions(r.Decisions)
+}
+
+// normalizeChanges drops the empty changes and folds an unknown kind into "other".
+func normalizeChanges(in []ReportChange) []ReportChange {
+	changes := make([]ReportChange, 0, len(in))
+	for _, c := range in {
 		c.Path, c.Description = strings.TrimSpace(c.Path), strings.TrimSpace(c.Description)
 		if c.Path == "" && c.Description == "" {
 			continue
@@ -119,9 +131,13 @@ func (r *Report) normalize(pass bool) {
 		}
 		changes = append(changes, c)
 	}
-	r.Changes = changes
-	checks := make([]ReportCheck, 0, len(r.Verification))
-	for _, v := range r.Verification {
+	return changes
+}
+
+// normalizeChecks drops the checks with no name and folds an unknown result into "skipped".
+func normalizeChecks(in []ReportCheck) []ReportCheck {
+	checks := make([]ReportCheck, 0, len(in))
+	for _, v := range in {
 		v.Check, v.Evidence = strings.TrimSpace(v.Check), strings.TrimSpace(v.Evidence)
 		if v.Check == "" {
 			continue
@@ -134,9 +150,13 @@ func (r *Report) normalize(pass bool) {
 		}
 		checks = append(checks, v)
 	}
-	r.Verification = checks
-	evidence := make([]ReportEvidence, 0, len(r.Evidence))
-	for _, e := range r.Evidence {
+	return checks
+}
+
+// normalizeEvidence keeps the comparisons that name at least one image.
+func normalizeEvidence(in []ReportEvidence) []ReportEvidence {
+	evidence := make([]ReportEvidence, 0, len(in))
+	for _, e := range in {
 		e.Before, e.After = artifactImageName(e.Before), artifactImageName(e.After)
 		e.Title, e.Caption = strings.TrimSpace(e.Title), strings.TrimSpace(e.Caption)
 		if e.Before == "" && e.After == "" {
@@ -144,17 +164,19 @@ func (r *Report) normalize(pass bool) {
 		}
 		evidence = append(evidence, e)
 	}
-	r.Evidence = evidence
-	r.Risks = cleanLines(r.Risks)
-	r.NextSteps = cleanLines(r.NextSteps)
-	decisions := make([]ReportDecision, 0, len(r.Decisions))
-	for _, d := range r.Decisions {
+	return evidence
+}
+
+// normalizeDecisions keeps the decisions that say something.
+func normalizeDecisions(in []ReportDecision) []ReportDecision {
+	decisions := make([]ReportDecision, 0, len(in))
+	for _, d := range in {
 		d.Decision, d.Why = strings.TrimSpace(d.Decision), strings.TrimSpace(d.Why)
 		if d.Decision != "" {
 			decisions = append(decisions, d)
 		}
 	}
-	r.Decisions = decisions
+	return decisions
 }
 
 // cleanLines trims the entries and drops the empty ones, returning a non-nil slice.
