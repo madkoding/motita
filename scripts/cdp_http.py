@@ -8,9 +8,11 @@ import http.client
 import json
 import os
 import urllib.parse
+from typing import Any
 
 
-def fetch_json(url, body=None, headers=None, timeout=10):
+def fetch_json(url: str, body: Any = None, headers: dict[str, str] | None = None,
+               timeout: float = 10) -> Any:
     """GET url (or POST body as JSON when body is not None) and return the decoded JSON answer."""
     parts = urllib.parse.urlsplit(url)
     if parts.scheme not in ("http", "https") or not parts.hostname:
@@ -35,7 +37,7 @@ def fetch_json(url, body=None, headers=None, timeout=10):
 LAUNCHER = os.path.join(os.path.dirname(os.path.abspath(__file__)), "launch-chrome.sh")
 
 
-def chrome_env(chrome, port, profile="", window=""):
+def chrome_env(chrome: str, port: int | str, profile: str = "", window: str = "") -> dict[str, str]:
     """The environment launch-chrome.sh reads, on top of the caller's own."""
     return {**os.environ, "CHROME": chrome, "CDP_PORT": str(port),
             "CHROME_PROFILE": profile, "CHROME_WINDOW": window}
