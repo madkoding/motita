@@ -19,6 +19,7 @@ import { useDialog } from './useDialog'
 import { listAccounts, connectedAccounts, repoShortName, type GitAccount, type GitRepo } from './gitApi'
 import { loadNotify } from './settings'
 import { getPR, retryFix, mergePR, mergeRefused, PRError, prNotice, shouldPoll, ciSummary, shouldDesktopNotify, wantsDesktopPermission, worstToast, type PRView, type PRWatch } from './prApi'
+import { choose } from './choose'
 
 interface Message {
   id: number
@@ -109,7 +110,7 @@ function tokenTotal(t?: AgentTokens): number {
 // formatTokens humanises a count the way a reader scans it: 950, 12.3k, 1.2M.
 function formatTokens(n: number): string {
   if (n < 1000) { return String(n) }
-  if (n < 1_000_000) { return (n / 1000).toFixed(n < 10_000 ? 1 : 0).replace(/\.0$/, '') + 'k' }
+  if (n < 1_000_000) { return (n / 1000).toFixed(choose(n < 10_000, 1, 0)).replace(/\.0$/, '') + 'k' }
   return (n / 1_000_000).toFixed(1).replace(/\.0$/, '') + 'M'
 }
 
@@ -135,15 +136,16 @@ function agentElapsed(a: AgentInfo, now: number): number {
   const start = Date.parse(a.started)
   if (Number.isNaN(start)) { return a.elapsed_ms || 0 }
   if (a.state === 'running') { return Math.max(a.elapsed_ms || 0, now - start) }
-  const end = a.finished ? Date.parse(a.finished) : NaN
-  return Number.isNaN(end) ? a.elapsed_ms || 0 : end - start
+  const end = Date.parse(a.finished || '')
+  if (Number.isNaN(end)) { return a.elapsed_ms || 0 }
+  return end - start
 }
 
 // sortAgents puts the main agent first, then the background agents in the order they started.
 function sortAgents(list: unknown): AgentInfo[] {
   if (!Array.isArray(list)) { return [] }
   return (list as AgentInfo[]).filter(a => a && typeof a.id === 'string').slice().sort((a, b) => {
-    if (!!a.parent !== !!b.parent) { return a.parent ? 1 : -1 }
+    if (!!a.parent !== !!b.parent) { return choose(a.parent, 1, -1) }
     return (Date.parse(a.started) || 0) - (Date.parse(b.started) || 0)
   })
 }
@@ -180,7 +182,8 @@ function daysUntil(iso: string): number {
 // seven characters. A full id is 25 characters and would be the widest thing in
 // the sidebar while telling the reader nothing the first seven do not.
 function shortID(id: string): string {
-  return id.length > 7 ? id.slice(0, 7) : id
+  if (id.length > 7) { return id.slice(0, 7) }
+  return id
 }
 
 // shortBranch keeps a branch name readable when it is one this program
@@ -202,7 +205,8 @@ function shortBranch(b: string): string {
 // the branch belongs to.
 function sessionWorktreeChip(s: SessionInfo): string {
   if (!s.worktree || !s.branch) { return '' }
-  return s.branch === 'motita/' + s.worktree ? '' : shortID(s.worktree)
+  if (s.branch === 'motita/' + s.worktree) { return '' }
+  return shortID(s.worktree)
 }
 
 // formatUpdated renders when a session was last used, as dd/mm/yyyy :: HH:mm:ss.
@@ -226,7 +230,8 @@ function formatUpdated(iso?: string): string {
 function fullUpdated(iso?: string): string {
   if (!iso) { return '' }
   const d = new Date(iso)
-  return Number.isNaN(d.getTime()) ? '' : d.toLocaleString()
+  if (Number.isNaN(d.getTime())) { return '' }
+  return d.toLocaleString()
 }
 
 // changesTitle is what a change count means, spelled out: a bare number in a
@@ -325,7 +330,8 @@ const MODAL_EXIT_MS = 220
 // the seconds are dropped because they would be noise, and the panel re-renders
 // on the same interval either way.
 function pad(n: number): string {
-  return n < 10 ? '0' + n : String(n)
+  if (n < 10) { return '0' + n }
+  return String(n)
 }
 
 function countdown(fromMs: number, nowMs: number): { text: string; past: boolean } {
@@ -515,7 +521,8 @@ interface ShellEntry {
 // https://github.com/user/repo.git are both "repo".
 function repoNameOf(url: string): string {
   const m = url.trim().match(/(?:\/|:)[^/]+\/([^/]+?)(?:\.git)?\/?$/)
-  return m ? m[1] : ''
+  if (m) { return m[1] }
+  return ''
 }
 
 // slugOf turns a name into a folder name the gateway accepts: a simple name with no path
@@ -528,7 +535,8 @@ function slugOf(name: string): string {
 // Anything else is a message for the agent, and null.
 function shellCommandOf(text: string): string | null {
   const m = /^(?:!|\/shell\s)\s*(\S[\s\S]*)$/.exec(text.trim())
-  return m ? m[1].trim() : null
+  if (m) { return m[1].trim() }
+  return null
 }
 
 // REASONING_LEVELS are the levels the gateway accepts, in the order they are offered.
@@ -538,7 +546,8 @@ const REASONING_LEVELS = ['off', 'low', 'medium', 'high']
 // whatever level string is stored beside it.
 function reasoningOf(c: ConfigView | null): string {
   if (!c) { return 'medium' }
-  return c.reasoning_enabled ? (c.reasoning || 'medium') : 'off'
+  if (c.reasoning_enabled) { return (c.reasoning || 'medium') }
+  return 'off'
 }
 
 // splitOutput reads a command's output line ("output (exit N):\n<body>") into the
@@ -546,7 +555,8 @@ function reasoningOf(c: ConfigView | null): string {
 // raw progress text. A line that does not match is returned whole with no code.
 function splitOutput(text: string): { exit: number | null; body: string } {
   const m = /^output \(exit (-?\d+)\):\n?([\s\S]*)$/.exec(text)
-  return m ? { exit: Number(m[1]), body: m[2] } : { exit: null, body: text }
+  if (m) { return { exit: Number(m[1]), body: m[2] } }
+  return { exit: null, body: text }
 }
 
 const STATUS_LABEL: Record<string, string> = { added: 'new', modified: 'edited', deleted: 'removed', renamed: 'moved' }
@@ -591,7 +601,7 @@ function ChangesCard({ changes }: { changes: ChangeReport }) {
           <ul>
             {files.map(f => (
               <li key={f.path}>
-                <span class={`chg-tag ${f.status}`}>{STATUS_LABEL[f.status] ? t(STATUS_LABEL[f.status]) : f.status}</span>
+                <span class={`chg-tag ${f.status}`}>{statusLabel(f.status)}</span>
                 <span class="chg-path">{f.path}</span>
                 {(f.added > 0 || f.deleted > 0) && <span class="chg-nums"><span class="chg-add">+{f.added}</span> <span class="chg-del">−{f.deleted}</span></span>}
               </li>
@@ -612,21 +622,23 @@ function ShellStatus({ exit, settled = false }: { exit: number | null | undefine
   // A command of a turn that has ended and never reported a result was cut off or refused.
   if (exit == null && settled) { return <span class="term-exit">{t('no result')}</span> }
   if (exit == null) { return <span class="term-exit running">{t('running')}</span> }
-  return <span class={`term-exit${exit ? ' bad' : ''}`}>{exit ? tf('failed · exit {code}', { code: exit }) : 'ok'}</span>
+  return <span class={`term-exit${choose(exit, ' bad', '')}`}>{choose(exit, tf('failed · exit {code}', { code: exit }), 'ok')}</span>
 }
 
 // oneLine folds a progress line into one short row for the trail: a synthesized
 // summary is reported as progress too, and it can be a whole Markdown document.
 function oneLine(text: string, max = 160): string {
   const flat = text.replace(/\s+/g, ' ').trim()
-  return flat.length > max ? flat.slice(0, max - 1) + '…' : flat
+  if (flat.length > max) { return flat.slice(0, max - 1) + '…' }
+  return flat
 }
 
 // sessionTitle is what a session row and the header call a conversation. A session nobody has
 // named yet carries the gateway's English placeholder, which is shown in the reader's language.
 function sessionTitle(s: SessionInfo): string {
   if (!s.title) { return s.id }
-  return s.title === 'New session' ? t('New session') : s.title
+  if (s.title === 'New session') { return t('New session') }
+  return s.title
 }
 
 // PROGRESS_FORMS are the agent's own phase lines (agent.report in Go), in English on the wire, and
@@ -719,6 +731,163 @@ function modelOptions(draftProvider: string, draftModel: string, savedProvider: 
 // provider may not serve.
 function firstModelOf(provider: string, all: ProviderInfo[]): string {
   return all.find(p => p.id === provider)?.models?.[0] || ''
+}
+
+// statusLabel is a changed file's status as the reader sees it: translated when it is a known one.
+function statusLabel(status: string): string {
+  if (STATUS_LABEL[status]) { return t(STATUS_LABEL[status]) }
+  return status
+}
+
+// patchNamed returns the item with the patch applied when it carries that name, the item itself
+// otherwise.
+function patchNamed<T extends { name: string }>(item: T, name: string, patch: Partial<T>): T {
+  if (item.name !== name) { return item }
+  return { ...item, ...patch }
+}
+
+// filterSkills keeps the skills whose name, title or summary contain the (already lowercased)
+// query; an empty query keeps them all.
+function filterSkills(skills: SkillInfo[], q: string): SkillInfo[] {
+  if (q === '') { return skills }
+  return skills.filter(s =>
+    s.name.toLowerCase().includes(q) ||
+    s.title.toLowerCase().includes(q) ||
+    s.summary.toLowerCase().includes(q))
+}
+
+// jsonOrEmpty reads a response's JSON body, or an empty object when the request failed.
+async function jsonOrEmpty(res: Response) {
+  if (!res.ok) { return {} }
+  return res.json()
+}
+
+// chatTitle is the header of the chat: the open session's title, or the app's name.
+function chatTitle(s: SessionInfo | null | undefined): string {
+  if (!s) { return 'Motita' }
+  return sessionTitle(s)
+}
+
+// lastExit is the exit of a turn's last step, which the live command line shows.
+function lastExit(steps: StepView[]): number | null | undefined {
+  if (!steps.length) { return null }
+  return steps[steps.length - 1].exit
+}
+
+// branchChoices is the list a branch selector offers: the known branches, with the current one
+// first when it is not among them.
+function branchChoices(branches: string[], current: string): string[] {
+  if (branches.includes(current)) { return branches }
+  return [current, ...branches]
+}
+
+// previewKind says which answer of the deletion preview to draw: still loading, a checkout that
+// could not be inspected, the changes that would be lost, a clean checkout, or nothing yet.
+function previewKind(loading: boolean, p: { count: number; inspection_failed?: boolean } | null): string {
+  if (loading) { return 'loading' }
+  if (p?.inspection_failed) { return 'failed' }
+  if (p && p.count > 0) { return 'changes' }
+  if (!p) { return 'none' }
+  return 'clean'
+}
+
+// mergedOffer is what the pull request bar offers once the pull request merged: the session that
+// was opened from the updated branch, a new session to continue in, or nothing.
+function mergedOffer(w: PRWatch | undefined, s: SessionInfo | undefined): string {
+  if (w?.status !== 'merged') { return '' }
+  if (w.next) { return 'open' }
+  if (s?.merged && s.continuable) { return 'continue' }
+  return ''
+}
+
+// toastIcon is the icon a toast carries: its type's, a download for an update, a check otherwise.
+function toastIcon(type: string, update: boolean | undefined, info: { update_available?: boolean } | null): string {
+  if (type === 'error' || type === 'warning') { return type }
+  if (info?.update_available && update) { return 'update' }
+  return 'done'
+}
+
+// artifactShape is how the artifact viewer draws a file: a PDF or an image from its URL, or its
+// body as Markdown, as a sandboxed page or as plain text.
+function artifactShape(v: { type: string; url?: string }): string {
+  if (v.url && v.type.startsWith('application/pdf')) { return 'pdf' }
+  if (v.url) { return 'image' }
+  if (v.type.startsWith('text/markdown')) { return 'markdown' }
+  if (v.type.startsWith('text/html')) { return 'html' }
+  return 'text'
+}
+
+// tagGroupClass is the colour of a slash-command tag, by the group it belongs to.
+function tagGroupClass(group: string): string {
+  if (group === 'mode') { return 'bg-accent/20 text-accent' }
+  if (group === 'action') { return 'bg-[#f0a040]/20 text-[#f0a040]' }
+  if (group === 'session') { return 'bg-[#40f0a0]/20 text-[#40f0a0]' }
+  return 'bg-[#a0a0f0]/20 text-[#a0a0f0]'
+}
+
+// podmanNote says what running a new project with podman will do, given what the host has.
+function podmanNote(ready: boolean, compose: boolean): string {
+  if (!ready) {
+    return t('podman is installed but did not answer (podman info failed), so it may not work until it is set up.')
+  }
+  if (compose) { return t('The project will be started in containers with podman.') }
+  return t('The project will be started in containers with podman. podman compose was not found, so compose files will not work until it is installed.')
+}
+
+// deleteWarning is what the delete confirmation says will be lost, for a session (the default
+// one is only cleared), a skill or a project.
+function deleteWarning(type: string, id: string): string {
+  if (type === 'session') {
+    if (id === 'default') {
+      return t('This is the default session. Deleting it will clear its history and reset its title, but the session itself will remain.')
+    }
+    return t('This conversation will be permanently deleted. This cannot be undone.')
+  }
+  if (type === 'skill') {
+    return t('This skill will be permanently deleted, with its usage history. This cannot be undone. A built-in procedure cannot be deleted.')
+  }
+  return t('This project, all its sessions and its folder will be permanently deleted. This cannot be undone.')
+}
+
+// toastTone picks the value that goes with a toast's type: one for an error, one for a
+// warning and one for anything else.
+function toastTone<T>(type: string, error: T, warning: T, other: T): T {
+  if (type === 'error') { return error }
+  if (type === 'warning') { return warning }
+  return other
+}
+
+// errorMessage is the text a toast shows for a failure: an Error's message, anything else as text.
+function errorMessage(e: unknown): string {
+  if (e instanceof Error) { return e.message }
+  return String(e)
+}
+
+// rowMenuStyle places a row's action menu at its viewport position, when it has one.
+function rowMenuStyle(pos: { top: number; left: number } | null): { top: string; left: string } | undefined {
+  if (!pos) { return undefined }
+  return { top: `${pos.top}px`, left: `${pos.left}px` }
+}
+
+// skillHeading is the skill library's title: the open skill's, or the library's own.
+function skillHeading(skill: SkillInfo | null): string {
+  if (!skill) { return t('Skill library') }
+  return skill.title || skill.name
+}
+
+// prWatchKeyOf is what changes when the pull request watch moves on: its status and attempts.
+function prWatchKeyOf(w: PRWatch | undefined): string {
+  if (!w) { return '' }
+  return w.status + ':' + w.attempts
+}
+
+// ciFailedLabel is the pull request bar's text for a red CI, saying what Motita does about it.
+function ciFailedLabel(w: PRWatch | undefined): string {
+  if (w?.status === 'gave_up') { return tf('CI failed — Motita gave up after {n} attempts', { n: String(w.attempts) }) }
+  if (w?.status === 'fixing') {
+    return tf('CI failed — Motita is fixing it ({n}/{max})', { n: String(w.attempts), max: String(w.max) })
+  }
+  return t('CI failed')
 }
 
 export default function App() {
@@ -983,7 +1152,7 @@ export default function App() {
     const r = trigger.getBoundingClientRect()
     const below = r.bottom + 4
     const fitsBelow = below + MENU_H <= window.innerHeight
-    const top = fitsBelow ? below : Math.max(4, r.top - 4 - MENU_H)
+    const top = choose(fitsBelow, below, Math.max(4, r.top - 4 - MENU_H))
     const left = Math.min(Math.max(4, r.right - MENU_W), Math.max(4, window.innerWidth - MENU_W - 4))
     setRowMenuAbove(!fitsBelow)
     setRowMenuPos({ top, left })
@@ -1404,7 +1573,7 @@ export default function App() {
     // An error needs reading, so it stays longest. A warning is between the two:
     // it says something is wrong but recovering, which is worth more than the
     // five seconds a success gets and less than an error.
-    const ms = toast.type === 'error' ? 12000 : toast.type === 'warning' ? 9000 : isUpdate ? 8000 : 5000
+    const ms = toastTone(toast.type, 12000, 9000, choose(isUpdate, 8000, 5000))
     const t = setTimeout(() => setToast(null), ms)
     return () => clearTimeout(t)
   }, [toast])
@@ -1467,7 +1636,7 @@ export default function App() {
     // setSessions is used and not fetchSessions: the local answer is
     // authoritative in both directions, and a request issued here would be the
     // stale one it exists to correct.
-    setSessions(prev => prev.map(s => s.id === sessionFor ? { ...s, running: r } : s))
+    setSessions(prev => prev.map(s => { if (s.id === sessionFor) { return { ...s, running: r } } return s }))
     if (r) {
       answeredRef.current = ''
       answeredUntil.current = 0
@@ -1507,7 +1676,7 @@ export default function App() {
       // own, so the pill warns. Everything else - not connected, a request that
       // failed - is an error.
       const warning = connection && text.trim().toLowerCase() === 'reconnecting'
-      setStateText(warning ? 'warning' : 'error')
+      setStateText(choose(warning, 'warning', 'error'))
       setStateBad(true)
       return
     }
@@ -1621,7 +1790,7 @@ export default function App() {
   // been opened yet, which is the state the window starts in.
   const fetchSkills = useCallback(async () => {
     setSkillsBusy(true)
-    const indexUrl = sessionId ? `/v1/sessions/${encodeURIComponent(sessionId)}/skills` : '/v1/skills'
+    const indexUrl = choose(sessionId, `/v1/sessions/${encodeURIComponent(sessionId)}/skills`, '/v1/skills')
     try {
       const [res, arch, prop] = await Promise.all([
         api(indexUrl),
@@ -1679,10 +1848,10 @@ export default function App() {
         setState('could not change the pin', true)
         return
       }
-      setSkills(prev => prev.map(s => (s.name === name ? { ...s, pinned } : s)))
+      setSkills(prev => prev.map(s => patchNamed(s, name, { pinned })))
       // The open document's own copy has to follow, or the button would flip the pin and
       // keep painting the state it had when the document was opened.
-      setSkillOpen(prev => (prev && prev.name === name ? { ...prev, pinned } : prev))
+      setSkillOpen(prev => prev && patchNamed(prev, name, { pinned }))
     } catch {
       setState('could not change the pin', true)
     }
@@ -1712,17 +1881,20 @@ export default function App() {
   // decideProposal accepts a proposed skill into the library or rejects it, then RELOADS the
   // lists: a file moved or left, and the browser must not keep a guess about it.
   const decideProposal = useCallback(async (name: string, accept: boolean) => {
-    const what = accept ? 'could not accept the skill' : 'could not reject the skill'
+    const what = choose(accept, 'could not accept the skill', 'could not reject the skill')
     try {
-      const res = accept
-        ? await api('/v1/skills/proposed/' + encodeURIComponent(name) + '/accept', { method: 'POST' })
-        : await api('/v1/skills/proposed/' + encodeURIComponent(name), { method: 'DELETE' })
+      let res: Response
+      if (accept) {
+        res = await api('/v1/skills/proposed/' + encodeURIComponent(name) + '/accept', { method: 'POST' })
+      } else {
+        res = await api('/v1/skills/proposed/' + encodeURIComponent(name), { method: 'DELETE' })
+      }
       if (!res.ok) {
         const err = await res.json().catch(() => ({}))
         setState(err.error || what, true)
         return
       }
-      setProposalOpen(prev => (prev && prev.name === name ? null : prev))
+      setProposalOpen(prev => choose(prev && prev.name === name, null, prev))
       await fetchSkills()
     } catch {
       setState(what, true)
@@ -1759,8 +1931,8 @@ export default function App() {
         setState(err.error || 'could not change the skill', true)
         return
       }
-      setSkills(prev => prev.map(s => (s.name === name ? { ...s, disabled } : s)))
-      setSkillOpen(prev => (prev && prev.name === name ? { ...prev, disabled } : prev))
+      setSkills(prev => prev.map(s => patchNamed(s, name, { disabled })))
+      setSkillOpen(prev => prev && patchNamed(prev, name, { disabled }))
     } catch {
       setState('could not change the skill', true)
     }
@@ -1790,8 +1962,8 @@ export default function App() {
   const createProject = useCallback(async (identity?: { name: string; email: string }) => {
     // An empty project ignores whatever was typed in the repository field before the person went
     // back; a project from a repository takes its name and folder from the repository.
-    const gitUrl = newProjectMode === 'git' ? newProjectGit.trim() : ''
-    const fromUrl = gitUrl ? repoNameOf(gitUrl) : ''
+    const gitUrl = choose(newProjectMode === 'git', newProjectGit.trim(), '')
+    const fromUrl = choose(gitUrl, repoNameOf(gitUrl), '')
     const title = newProjectTitle.trim() || fromUrl
     const dir = newProjectDir.trim() || slugOf(fromUrl) || slugOf(title)
     if (!title || !dir) { return }
@@ -1805,7 +1977,7 @@ export default function App() {
           description: newProjectDesc.trim(),
           dir,
           git_url: gitUrl || undefined,
-          use_podman: hasPodman && newProjectPodman ? true : undefined,
+          use_podman: choose(hasPodman && newProjectPodman, true, undefined),
           main_branch: newProjectMain,
           git_user_name: identity?.name,
           git_user_email: identity?.email,
@@ -1839,7 +2011,7 @@ export default function App() {
         }, 100)
       }
       // Show a toast and close the modal.
-      setToast({ message: tf(data.clone_log ? 'Project "{title}" created and repo cloned' : 'Project "{title}" created', { title }), type: 'success' })
+      setToast({ message: tf(choose(data.clone_log, 'Project "{title}" created and repo cloned', 'Project "{title}" created'), { title }), type: 'success' })
       setShowNewProject(false)
       setNewProjectTitle('')
       setNewProjectDesc('')
@@ -1905,14 +2077,14 @@ export default function App() {
   const artifactBase = useCallback(
     () => '/v1/sessions/' + encodeURIComponent(sessionId) + '/artifacts',
     [sessionId])
-  const scopeQuery = (scope: 'session' | 'project') => (scope === 'project' ? '?scope=project' : '')
+  const scopeQuery = (scope: 'session' | 'project') => (choose(scope === 'project', '?scope=project', ''))
 
   const loadArtifacts = useCallback(async (scope: 'session' | 'project' = artifactScope) => {
     if (!sessionId) { setArtifacts([]); return }
     try {
       const res = await api(artifactBase() + scopeQuery(scope))
-      const d = res.ok ? await res.json() : {}
-      setArtifacts(Array.isArray(d.artifacts) ? d.artifacts : [])
+      const d = await jsonOrEmpty(res)
+      setArtifacts(choose(Array.isArray(d.artifacts), d.artifacts, []))
     } catch { setArtifacts([]) }
   }, [sessionId, artifactScope, artifactBase])
 
@@ -1946,7 +2118,10 @@ export default function App() {
     let p = evidenceUrls.current.get(key)
     if (!p) {
       p = api(artifactBase() + '/' + encodeURIComponent(name))
-        .then(async res => (res.ok ? URL.createObjectURL(await res.blob()) : null))
+        .then(async res => {
+          if (!res.ok) { return null }
+          return URL.createObjectURL(await res.blob())
+        })
         .catch(() => null)
       evidenceUrls.current.set(key, p)
     }
@@ -1957,7 +2132,7 @@ export default function App() {
     try {
       const res = await api(artifactBase() + '/' + encodeURIComponent(name) + scopeQuery(artifactScope), { method: 'DELETE' })
       if (!res.ok && res.status !== 204) { setState('could not delete the artifact', true); return }
-      setArtifactView(v => (v && v.name === name ? null : v))
+      setArtifactView(v => (choose(v && v.name === name, null, v)))
       await loadArtifacts()
     } catch { setState('could not delete the artifact', true) }
   }, [artifactScope, artifactBase, loadArtifacts])
@@ -2011,14 +2186,15 @@ export default function App() {
   // openEditProject opens the edit dialog with the project's own values, and asks the gateway
   // which branches the main-branch selector can offer.
   const openEditProject = useCallback(async (p: ProjectInfo) => {
-    setEditProject({ id: p.id, title: p.title, description: p.description ?? '', main: p.main_branch ?? 'main', branches: p.main_branch ? [p.main_branch] : ['main'], current: p.branch ?? '', mergeMethod: p.merge_method ?? '', prMaxFixes: p.pr_max_fixes ?? 0, autoMerge: p.auto_merge === true, autoContinue: p.auto_continue === true })
+    setEditProject({ id: p.id, title: p.title, description: p.description ?? '', main: p.main_branch ?? 'main', branches: [p.main_branch || 'main'], current: p.branch ?? '', mergeMethod: p.merge_method ?? '', prMaxFixes: p.pr_max_fixes ?? 0, autoMerge: p.auto_merge === true, autoContinue: p.auto_continue === true })
     try {
       const res = await api('/v1/projects/' + encodeURIComponent(p.id) + '/branches')
       if (!res.ok) { return }
       const d = await res.json()
-      setEditProject(prev => prev && prev.id === p.id
-        ? { ...prev, branches: d.branches?.length ? d.branches : prev.branches, main: d.main_branch || prev.main, current: d.current ?? prev.current }
-        : prev)
+      setEditProject(prev => {
+        if (!prev || prev.id !== p.id) { return prev }
+        return { ...prev, branches: choose(d.branches?.length, d.branches, prev.branches), main: d.main_branch || prev.main, current: d.current ?? prev.current }
+      })
     } catch { /* the selector keeps the branch it already knows */ }
   }, [])
 
@@ -2051,7 +2227,7 @@ export default function App() {
   const onGitConnected = useCallback((_service: string, account: string) => {
     const after = gitConnect?.after
     setGitRev(n => n + 1)
-    setToast({ message: account ? tf('Connected as {user}', { user: account }) : t('Connected'), type: 'success' })
+    setToast({ message: choose(account, tf('Connected as {user}', { user: account }), t('Connected')), type: 'success' })
     if (after === 'picker') { setShowRepoPicker(true) }
     if (after === 'create') { setTimeout(() => createProjectRef.current(), 0) }
   }, [gitConnect])
@@ -2061,8 +2237,8 @@ export default function App() {
     const name = repoShortName(r)
     setNewProjectMode('git')
     setNewProjectGit(r.clone_url)
-    setNewProjectTitle(prev => prev.trim() ? prev : name)
-    setNewProjectDesc(prev => prev.trim() ? prev : (r.description || ''))
+    setNewProjectTitle(prev => choose(prev.trim(), prev, name))
+    setNewProjectDesc(prev => choose(prev.trim(), prev, (r.description || '')))
     setShowRepoPicker(false)
   }, [])
 
@@ -2071,7 +2247,7 @@ export default function App() {
   // whose sessions hold uncommitted work is refused without it.
   const deleteProject = useCallback(async (id: string, discard = false) => {
     try {
-      const res = await api('/v1/projects/' + id + (discard ? '?force=1' : ''), { method: 'DELETE' })
+      const res = await api('/v1/projects/' + id + (choose(discard, '?force=1', '')), { method: 'DELETE' })
       if (!res.ok && res.status !== 204) {
         const err = await res.json().catch(() => ({}))
         setState(err.error || 'could not delete the project', true)
@@ -2090,7 +2266,7 @@ export default function App() {
       const res = await api('/v1/schedules')
       if (!res.ok) { return }
       const data = await res.json()
-      setScheduledTasks(Array.isArray(data.schedules) ? data.schedules : [])
+      setScheduledTasks(choose(Array.isArray(data.schedules), data.schedules, []))
     } catch { /* the toast on a real failure is the caller's job */ }
   }, [])
 
@@ -2277,7 +2453,7 @@ export default function App() {
   const createSession = useCallback(async (projectId?: string) => {
     setCreatingSession(projectId ?? '')
     try {
-      const body = projectId ? JSON.stringify({ project_id: projectId }) : '{}'
+      const body = choose(projectId, JSON.stringify({ project_id: projectId }), '{}')
       const res = await api('/v1/sessions', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -2318,7 +2494,7 @@ export default function App() {
   // is refused and the work survives.
   const deleteSession = useCallback(async (id: string, discard = false) => {
     try {
-      const res = await api('/v1/sessions/' + id + (discard ? '?force=1' : ''), { method: 'DELETE' })
+      const res = await api('/v1/sessions/' + id + (choose(discard, '?force=1', '')), { method: 'DELETE' })
       // 204 = deleted, 200 = default session was reset instead of removed.
       if (!res.ok && res.status !== 204 && res.status !== 200) {
         const err = await res.json().catch(() => ({}))
@@ -2334,7 +2510,7 @@ export default function App() {
       if (res.status === 204) {
         setSessions(prev => prev.filter(s => s.id !== id))
       } else {
-        setSessions(prev => prev.map(s => s.id === id ? { ...s, title: 'New session' } : s))
+        setSessions(prev => prev.map(s => { if (s.id === id) { return { ...s, title: 'New session' } } return s }))
       }
       const list = await fetchSessions()
       // If we deleted the active session, switch to the most recent remaining one.
@@ -2381,9 +2557,7 @@ export default function App() {
     }
     let cancelled = false
     setPreviewLoading(true)
-    const previewPath = confirmDelete.type === 'session'
-      ? '/v1/sessions/' + confirmDelete.id + '/deletion-preview'
-      : '/v1/projects/' + confirmDelete.id + '/deletion-preview'
+    const previewPath = choose(confirmDelete.type === 'session', '/v1/sessions/' + confirmDelete.id + '/deletion-preview', '/v1/projects/' + confirmDelete.id + '/deletion-preview')
     api(previewPath)
       .then(async (res) => {
         if (!res.ok) { return null }
@@ -2391,7 +2565,7 @@ export default function App() {
       })
       .then((data) => {
         if (cancelled) { return }
-        setDeletionPreview(data && typeof data === 'object' ? data : null)
+        setDeletionPreview(choose(data && typeof data === 'object', data, null))
       })
       .catch(() => { if (!cancelled) { setDeletionPreview(null) } })
       .finally(() => { if (!cancelled) { setPreviewLoading(false) } })
@@ -2414,7 +2588,7 @@ export default function App() {
         return
       }
       const updated: SessionInfo = await res.json()
-      setSessions(prev => prev.map(s => s.id === updated.id ? updated : s))
+      setSessions(prev => prev.map(s => choose(s.id === updated.id, updated, s)))
     } catch {
       setState('could not rename the session', true)
     }
@@ -2657,7 +2831,7 @@ export default function App() {
     if (sessionRef.current !== id) { return }
     const live = liveTurnRef.current
     setStepsByTurn(prev => {
-      const next: Record<number, StepView[]> = rebuildTerm ? {} : { ...prev }
+      const next: Record<number, StepView[]> = choose(rebuildTerm, {}, { ...prev })
       for (const cp of cps) { if (cp.turn !== live) { next[cp.turn] = cp.steps ?? [] } }
       if (live != null && prev[live]) { next[live] = prev[live] }
       return next
@@ -2674,7 +2848,7 @@ export default function App() {
       const kept = entries.slice(-SHELL_LOG_MAX)
       setShellLog(kept)
       // What was already there is drawn whole, not typed again.
-      setTermSeenId(kept.length ? kept[kept.length - 1].id : 0)
+      setTermSeenId(kept[kept.length - 1]?.id ?? 0)
     }
   }, [])
 
@@ -2707,7 +2881,7 @@ export default function App() {
     setShellLog(prev => [...prev, { id: entryId, cmd: command, exit: null, out: '' }].slice(-SHELL_LOG_MAX))
     setTermOpen(true); setAgentsOpen(false); setThinkOpen(false)
     const settle = (exit: number, out: string) =>
-      setShellLog(prev => prev.map(e => e.id === entryId ? { ...e, exit, out } : e))
+      setShellLog(prev => prev.map(e => { if (e.id === entryId) { return { ...e, exit, out } } return e }))
     try {
       const res = await api('/v1/sessions/' + encodeURIComponent(sid) + '/shell', {
         method: 'POST',
@@ -2728,7 +2902,7 @@ export default function App() {
         return
       }
       const out = [body.output, body.error].filter(Boolean).join('\n')
-      settle(body.error && !body.output ? NO_RESULT : (body.exit ?? 0), out)
+      settle(choose(body.error && !body.output, NO_RESULT, (body.exit ?? 0)), out)
     } catch {
       settle(NO_RESULT, '')
       setToast({ message: t('The command could not be run'), type: 'error' })
@@ -2753,7 +2927,7 @@ export default function App() {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ enabled: true }),
         }).catch(() => null)
-        if (res?.ok) { setSessions(prev => prev.map(s => s.id === sid ? { ...s, auto_approve: true } : s)) }
+        if (res?.ok) { setSessions(prev => prev.map(s => { if (s.id === sid) { return { ...s, auto_approve: true } } return s })) }
       }
       void runShellLine(command, true)
       return
@@ -2762,11 +2936,11 @@ export default function App() {
       await api('/v1/sessions/' + sessionRef.current + '/runs/approval', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(all ? { id, approve, scope: 'session' } : { id, approve })
+        body: JSON.stringify(choose(all, { id, approve, scope: 'session' }, { id, approve }))
       })
       if (all) {
         const sid = sessionRef.current
-        setSessions(prev => prev.map(s => s.id === sid ? { ...s, auto_approve: true } : s))
+        setSessions(prev => prev.map(s => { if (s.id === sid) { return { ...s, auto_approve: true } } return s }))
       }
     } catch {
       setState('could not answer the approval', true)
@@ -2804,7 +2978,7 @@ export default function App() {
         body: JSON.stringify({ enabled: false })
       })
       if (!res.ok) { throw new Error() }
-      setSessions(prev => prev.map(s => s.id === sid ? { ...s, auto_approve: false } : s))
+      setSessions(prev => prev.map(s => { if (s.id === sid) { return { ...s, auto_approve: false } } return s }))
     } catch {
       setState('could not stop allowing all commands', true)
     }
@@ -2849,7 +3023,7 @@ export default function App() {
     void loadCheckpoints(sessionRef.current)
     // A command that never reported a result (refused, declined, or cut off by a cancel)
     // must not read "running" for ever: it is closed as "no result".
-    setShellLog(prev => prev.some(e => e.exit == null) ? prev.map(e => e.exit == null ? { ...e, exit: NO_RESULT } : e) : prev)
+    setShellLog(prev => { if (prev.some(e => e.exit == null)) { return prev.map(e => { if (e.exit == null) { return { ...e, exit: NO_RESULT } } return e }) } return prev })
     setLiveThought(null)
     setState('ready')
     // The agents' final states and costs, as the gateway has them now that the run is over.
@@ -2962,7 +3136,7 @@ export default function App() {
       }
       const turn = liveTurnRef.current
       if (text && turn != null) {
-        const step: StepView = { kind: kind === 'command' ? 'command' : kind === 'thought' ? 'thought' : 'step', text, ...(kind === 'command' ? { exit: null } : {}) }
+        const step: StepView = { kind: choose(kind === 'command', 'command', choose(kind === 'thought', 'thought', 'step')), text, ...(choose(kind === 'command', { exit: null }, {})) }
         setStepsByTurn(prev => ({ ...prev, [turn]: [...(prev[turn] ?? []), step].slice(-STEPS_MAX) }))
       }
       if (kind === 'command') {
@@ -2983,7 +3157,7 @@ export default function App() {
     case 'done':
       setActivity(null)
       if (payload.result) {
-        setMessages(prev => [...prev, { id: nextId(), role: 'agent', text: payload.result, changes: payload.changes, artifacts: Array.isArray(payload.artifacts) && payload.artifacts.length ? payload.artifacts : undefined, report: hasReport(payload.report) ? payload.report : undefined }])
+        setMessages(prev => [...prev, { id: nextId(), role: 'agent', text: payload.result, changes: payload.changes, artifacts: choose(Array.isArray(payload.artifacts) && payload.artifacts.length, payload.artifacts, undefined), report: choose(hasReport(payload.report), payload.report, undefined) }])
       }
       finish()
       break
@@ -3104,9 +3278,9 @@ export default function App() {
       setInput(body.task ?? '')
       await switchSessionRef.current?.(sid, 'none')
       setToast({
-        message: t(body.files_restored ? 'Back at the checkpoint — conversation and files' : 'Back at the checkpoint — conversation only'),
+        message: choose(body.files_restored, t('Back at the checkpoint — conversation and files'), t('Back at the checkpoint — conversation only')),
         type: 'success',
-        detail: body.files_restored && body.undo_kept ? tf('What the files were before is kept in git as {ref}', { ref: 'refs/motita/undo/' + sid }) : undefined,
+        detail: choose(body.files_restored && body.undo_kept, tf('What the files were before is kept in git as {ref}', { ref: 'refs/motita/undo/' + sid }), undefined),
       })
     } catch {
       setToast({ message: t('Could not go back to that checkpoint'), type: 'error' })
@@ -3192,7 +3366,7 @@ export default function App() {
   const sendWhileRunning = (text: string, interrupt: boolean) => {
     const sid = sessionRef.current
     handoffRef.current = true
-    void api('/v1/sessions/' + encodeURIComponent(sid) + (interrupt ? '/interrupt' : '/queue'), {
+    void api('/v1/sessions/' + encodeURIComponent(sid) + (choose(interrupt, '/interrupt', '/queue')), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ task: text }),
@@ -3227,10 +3401,10 @@ export default function App() {
   const [prBlocked, setPrBlocked] = useState(false)
   const [prMergeArmed, setPrMergeArmed] = useState(false)
   const [prBusy, setPrBusy] = useState(false)
-  const prSessionId = selectedSession?.project_id && !selectedSession.merged ? sessionId : ''
+  const prSessionId = choose(selectedSession?.project_id && !selectedSession.merged, sessionId, '')
   const prRunning = selectedSession?.running === true
   const prWatch = selectedSession?.pr_watch
-  const prWatchKey = prWatch ? prWatch.status + ':' + prWatch.attempts : ''
+  const prWatchKey = prWatchKeyOf(prWatch)
 
   const refreshPR = async (sid: string) => {
     try {
@@ -3290,8 +3464,8 @@ export default function App() {
       const notice = prNotice(seenWatchRef.current[sess.id], cur)
       seenWatchRef.current[sess.id] = cur
       if (!notice || !cur) { continue }
-      const where = sess.id === sessionRef.current ? '' : ' — ' + (sess.title || sess.id)
-      const pr = cur.number ? '#' + cur.number : ''
+      const where = choose(sess.id === sessionRef.current, '', ' — ' + (sess.title || sess.id))
+      const pr = choose(cur.number, '#' + cur.number, '')
       if (notice === 'passed') {
         news.push({ message: t('CI passed') + where, type: 'success', detail: tf('Pull request {pr} is green: you can go and merge it.', { pr }) })
       } else if (notice === 'fixing') {
@@ -3305,7 +3479,7 @@ export default function App() {
       } else if (notice === 'closed') {
         news.push({ message: t('Pull request closed') + where, type: 'warning', detail: tf('Pull request {pr} was closed without being merged.', { pr }) })
       } else if (notice === 'merged') {
-        news.push({ message: t('Pull request merged') + where, type: 'success', detail: cur.next ? tf('Pull request {pr} was merged. A new session was opened from the updated branch.', { pr }) : tf('Pull request {pr} was merged. Use Continue in the bar to keep working from the updated branch.', { pr }) })
+        news.push({ message: t('Pull request merged') + where, type: 'success', detail: choose(cur.next, tf('Pull request {pr} was merged. A new session was opened from the updated branch.', { pr }), tf('Pull request {pr} was merged. Use Continue in the bar to keep working from the updated branch.', { pr })) })
       }
     }
     // One toast for what moved in one look at the list: three sessions finishing together are
@@ -3331,7 +3505,7 @@ export default function App() {
       await getPR(api, sid)
     } catch (e) {
       if (e instanceof PRError && e.code === 'git_auth_required') { setGitConnect({ service: e.service || undefined }); return }
-      setToast({ message: t('Could not create the pull request'), type: 'error', detail: e instanceof Error ? e.message : String(e) })
+      setToast({ message: t('Could not create the pull request'), type: 'error', detail: errorMessage(e) })
       return
     }
     await submit(t('Create PR'), '/v1/sessions/' + encodeURIComponent(sid) + '/pr')
@@ -3355,7 +3529,7 @@ export default function App() {
         handoffRef.current = true
       }
     } catch (e) {
-      setToast({ message: t('Could not ask Motita to fix the CI'), type: 'error', detail: e instanceof Error ? e.message : String(e) })
+      setToast({ message: t('Could not ask Motita to fix the CI'), type: 'error', detail: errorMessage(e) })
     } finally {
       setPrBusy(false)
     }
@@ -3372,7 +3546,7 @@ export default function App() {
       void refreshPR(sid)
       void fetchSessions()
     } catch (e) {
-      setToast({ message: t('Could not merge the pull request'), type: 'error', detail: e instanceof Error ? e.message : String(e) })
+      setToast({ message: t('Could not merge the pull request'), type: 'error', detail: errorMessage(e) })
     } finally {
       setPrBusy(false)
     }
@@ -3387,7 +3561,7 @@ export default function App() {
     e.preventDefault()
     const argText = input.trim()
     const tagText = activeTags.map(t => t.name).join(' ')
-    const text = activeTags.length > 0 ? (argText ? tagText + ' ' + argText : tagText) : argText
+    const text = choose(activeTags.length > 0, (choose(argText, tagText + ' ' + argText, tagText)), argText)
     if (text === '/agents') {
       setAgentsOpen(true); setTermOpen(false); setThinkOpen(false)
       setInput('')
@@ -3470,7 +3644,7 @@ export default function App() {
     const argText = input.trim()
     // If there are active tags, send tags + argument. If no tags and no text, nothing.
     const tagText = activeTags.map(t => t.name).join(' ')
-    const text = activeTags.length > 0 ? (argText ? tagText + ' ' + argText : tagText) : argText
+    const text = choose(activeTags.length > 0, (choose(argText, tagText + ' ' + argText, tagText)), argText)
     if (text === '/agents') {
       setAgentsOpen(true); setTermOpen(false); setThinkOpen(false)
       setInput('')
@@ -3525,7 +3699,7 @@ export default function App() {
         const fromUrl = sessionFromUrl()
         if (fromUrl && list.some(s => s.id === fromUrl)) { lastId = fromUrl }
         const exists = list.some(s => s.id === lastId)
-        const target = exists ? lastId : 'default'
+        const target = choose(exists, lastId, 'default')
         await switchSession(target, 'replace')
         setState('ready')
       } catch {
@@ -3578,7 +3752,7 @@ export default function App() {
         const res = await api('/v1/ui')
         if (!res.ok || cancelled) { return }
         const data = await res.json()
-        const setting: LangSetting = data.language === 'en' || data.language === 'es' ? data.language : 'auto'
+        const setting: LangSetting = choose(data.language === 'en' || data.language === 'es', data.language, 'auto')
         setUiLangSetting(setting)
         setUiLangAvailable(true)
         await setLang(resolveLang(setting))
@@ -3636,7 +3810,7 @@ export default function App() {
         const fromUrl = sessionFromUrl()
         if (fromUrl && list.some(s => s.id === fromUrl)) { lastId = fromUrl }
         const exists = list.some(s => s.id === lastId)
-        const target = exists ? lastId : 'default'
+        const target = choose(exists, lastId, 'default')
         await switchSession(target, 'replace')
         setState('ready')
       } catch {
@@ -3711,12 +3885,7 @@ export default function App() {
   // memory, over the index already fetched. It is computed here and not in the JSX because
   // nothing in a render should be doing work the reader has to trace.
   const skillQueryNorm = skillQuery.trim().toLowerCase()
-  const filteredSkills = skillQueryNorm === ''
-    ? skills
-    : skills.filter(s =>
-        s.name.toLowerCase().includes(skillQueryNorm) ||
-        s.title.toLowerCase().includes(skillQueryNorm) ||
-        s.summary.toLowerCase().includes(skillQueryNorm))
+  const filteredSkills = filterSkills(skills, skillQueryNorm)
 
   // A picture inside an answer opens in the full-window preview (zoom, pan). A picture that is
   // also a link keeps being a link.
@@ -3752,9 +3921,11 @@ export default function App() {
   // The pill's class. `stateBad` is set for both severities, so the TEXT decides
   // which of the two it is drawn as: the code sets "warning" for the recoverable
   // case and "error" for the rest.
-  const stateClass = stateBad
-    ? (stateText === 'warning' ? 'state-warning bad' : 'bad')
-    : (stateText === 'working' || stateText === 'reconnecting') ? 'state-working' : ''
+  const stateClass = choose(
+    stateBad,
+    choose(stateText === 'warning', 'state-warning bad', 'bad'),
+    choose(stateText === 'working' || stateText === 'reconnecting', 'state-working', ''),
+  )
 
   // longPressTimer ref for session/project long-press detection.
   const longPressTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -3800,7 +3971,7 @@ export default function App() {
     <div
       key={s.id}
       class={`session-row group flex items-center gap-2 px-3 py-2 rounded-lg cursor-pointer transition-colors mb-0.5 ${
-        s.id === sessionId ? 'bg-accent/10 border border-accent/20' : 'hover:bg-white/5 border border-transparent'
+        choose(s.id === sessionId, 'bg-accent/10 border border-accent/20', 'hover:bg-white/5 border border-transparent')
       }`}
       role="button"
       tabIndex={0}
@@ -3817,8 +3988,8 @@ export default function App() {
           a run lasted. The class carries the state; the transition and the
           rotation are plain CSS, because this build disables Tailwind's
           `animation` plugin and an `animate-spin` icon never turned at all. */}
-      <span class={`session-spinner${busy ? ' is-running' : ''}`} aria-hidden="true" />
-      {renamingId === s.id ? (
+      <span class={`session-spinner${choose(busy, ' is-running', '')}`} aria-hidden="true" />
+      {renamingId === s.id && (
         <>
           <input
             class="flex-1 min-w-0 bg-black/30 border border-accent/30 rounded-sm px-2 py-1 text-sm text-[#e8e8ea] focus:outline-hidden focus:border-accent"
@@ -3851,13 +4022,14 @@ export default function App() {
             </svg>
           </button>
         </>
-      ) : (
+      )}
+      {renamingId !== s.id && (
         <>
           {/* Two lines, so the title keeps the full width and the facts sit
               under it instead of competing for the same row: at a narrow
               sidebar the branch used to squeeze the title away. */}
           <div class="flex-1 min-w-0">
-            <div class={`truncate text-sm leading-tight ${busy ? 'text-accent' : 'text-[#e8e8ea]'}`}>
+            <div class={`truncate text-sm leading-tight ${choose(busy, 'text-accent', 'text-[#e8e8ea]')}`}>
               {sessionTitle(s)}
             </div>
             {/* When it was last used, on its own line. It was sharing the row
@@ -3867,7 +4039,7 @@ export default function App() {
                 each gets its own line. */}
             <div
               class="mt-0.5 text-[10px] tabular-nums text-muted-foreground opacity-70"
-              title={s.last_used ? tf('Last used {when}', { when: fullUpdated(s.last_used) }) : undefined}
+              title={choose(s.last_used, tf('Last used {when}', { when: fullUpdated(s.last_used) }), undefined)}
             >
               {formatUpdated(s.last_used)}
               {!!s.agents_running && s.agents_running > 0 && (
@@ -3908,7 +4080,7 @@ export default function App() {
                   title={changesTitle(s.changes)}
                 >
                   <span class="text-[#f0a040]/50 uppercase tracking-wide text-[9px]">
-                    {t(s.changes === 1 ? 'change' : 'changes')}
+                    {choose(s.changes === 1, t('change'), t('changes'))}
                   </span>
                   <span class="tabular-nums text-[#f0a040]">{s.changes}</span>
                 </span>
@@ -3918,7 +4090,7 @@ export default function App() {
         </>
       )}
       {renamingId !== s.id && (
-        <div class={`row-actions relative flex-none${rowMenu?.id === s.id ? ' row-actions-open' : ''}`}>
+        <div class={`row-actions relative flex-none${choose(rowMenu?.id === s.id, ' row-actions-open', '')}`}>
           <button
             class="p-1 rounded-sm hover:bg-white/10"
             title={t('More actions')}
@@ -3938,8 +4110,8 @@ export default function App() {
           </button>
           {rowMenu?.id === s.id && (
             <div
-              class={`row-menu fixed z-50 frosted rounded-xl border border-white/10 py-1 min-w-[140px]${rowMenuAbove ? ' row-menu-above' : ''}${rowMenuClosing ? ' row-menu-closing' : ''}`}
-              style={rowMenuPos ? { top: `${rowMenuPos.top}px`, left: `${rowMenuPos.left}px` } : undefined}
+              class={`row-menu fixed z-50 frosted rounded-xl border border-white/10 py-1 min-w-[140px]${choose(rowMenuAbove, ' row-menu-above', '')}${choose(rowMenuClosing, ' row-menu-closing', '')}`}
+              style={rowMenuStyle(rowMenuPos)}
               role="presentation"
               onClick={(e) => e.stopPropagation()}
             >
@@ -3954,9 +4126,9 @@ export default function App() {
               </button>
               {s.project_id && !s.merged && (
                 <button
-                  class={`row-menu-item w-full flex items-center gap-2 px-3 py-2 text-sm ${s.mergeable ? 'text-accent hover:bg-accent/10' : 'text-[#8a8a9a]'}`}
+                  class={`row-menu-item w-full flex items-center gap-2 px-3 py-2 text-sm ${choose(s.mergeable, 'text-accent hover:bg-accent/10', 'text-[#8a8a9a]')}`}
                   disabled={!s.mergeable}
-                  title={t(s.mergeable ? 'Integrate this session\'s work back into the project' : 'Nothing to integrate yet')}
+                  title={choose(s.mergeable, t('Integrate this session\'s work back into the project'), t('Nothing to integrate yet'))}
                   onClick={async (e) => {
                     if (!s.mergeable) { e.stopPropagation(); return }
                     e.stopPropagation()
@@ -4038,14 +4210,15 @@ export default function App() {
               </div>
             </div>
 
-            {authState === 'checking' ? (
+            {authState === 'checking' && (
               <div class="flex items-center justify-center gap-2 py-6 text-sm text-[#9a9aaa]">
                 <svg class="animate-spin text-accent" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
                   <path d="M21 12a9 9 0 1 1-6.219-8.56" />
                 </svg>
                 <span>{t('Checking credentials…')}</span>
               </div>
-            ) : (
+            )}
+            {authState !== 'checking' && (
               <form
                 onSubmit={(e) => { e.preventDefault(); submitAuth() }}
               >
@@ -4078,14 +4251,15 @@ export default function App() {
                   disabled={authBusy || !authInput.trim()}
                   class="w-full min-h-[44px] mt-4 rounded-xl bg-accent text-white font-semibold disabled:opacity-30 disabled:cursor-not-allowed active:scale-95 transition-transform flex items-center justify-center gap-2"
                 >
-                  {authBusy ? (
+                  {authBusy && (
                     <>
                       <svg class="animate-spin" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
                         <path d="M21 12a9 9 0 1 1-6.219-8.56" />
                       </svg>
                       {t('Connecting…')}
                     </>
-                  ) : t('Connect')}
+                  )}
+                  {!authBusy && t('Connect')}
                 </button>
               </form>
             )}
@@ -4181,7 +4355,7 @@ export default function App() {
                           a declaration the browser drops. */}
                       <svg
                         width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"
-                        class={`project-chevron flex-none text-[#8a8a9a]${isCollapsed ? ' is-collapsed' : ''}`}
+                        class={`project-chevron flex-none text-[#8a8a9a]${choose(isCollapsed, ' is-collapsed', '')}`}
                       >
                         <polyline points="6 9 12 15 18 9" />
                       </svg>
@@ -4223,7 +4397,7 @@ export default function App() {
                               title={tf('The project checkout has {what}', { what: changesTitle(p.changes) })}
                             >
                               <span class="text-[#f0a040]/50 uppercase tracking-wide text-[9px]">
-                                {t(p.changes === 1 ? 'change' : 'changes')}
+                                {choose(p.changes === 1, t('change'), t('changes'))}
                               </span>
                               <span class="tabular-nums text-[#f0a040]">{p.changes}</span>
                             </span>
@@ -4237,7 +4411,7 @@ export default function App() {
                         onClick={(e) => { e.stopPropagation(); createSession(p.id) }}
                         title={t('New session in project')}
                       />
-                      <div class={`row-actions relative flex-none${rowMenu?.id === p.id ? ' row-actions-open' : ''}`}>
+                      <div class={`row-actions relative flex-none${choose(rowMenu?.id === p.id, ' row-actions-open', '')}`}>
                         <button
                           class="p-0.5 rounded-sm hover:bg-white/10"
                           title={t('More actions')}
@@ -4257,8 +4431,8 @@ export default function App() {
                         </button>
                         {rowMenu?.id === p.id && (
                           <div
-                            class={`row-menu fixed z-50 frosted rounded-xl border border-white/10 py-1 min-w-[140px]${rowMenuAbove ? ' row-menu-above' : ''}${rowMenuClosing ? ' row-menu-closing' : ''}`}
-              style={rowMenuPos ? { top: `${rowMenuPos.top}px`, left: `${rowMenuPos.left}px` } : undefined}
+                            class={`row-menu fixed z-50 frosted rounded-xl border border-white/10 py-1 min-w-[140px]${choose(rowMenuAbove, ' row-menu-above', '')}${choose(rowMenuClosing, ' row-menu-closing', '')}`}
+              style={rowMenuStyle(rowMenuPos)}
                             role="presentation"
                             onClick={(e) => e.stopPropagation()}
                           >
@@ -4275,7 +4449,7 @@ export default function App() {
                                 data-testid="podman-toggle"
                                 onClick={(e) => { e.stopPropagation(); void setProjectPodman(p.id, !p.podman); closeRowMenu() }}
                               >
-                                {t(p.podman ? 'Stop using podman' : 'Run with podman')}
+                                {choose(p.podman, t('Stop using podman'), t('Run with podman'))}
                               </button>
                             )}
                             <button
@@ -4296,7 +4470,7 @@ export default function App() {
                         which is exactly what was reported. The wrapper
                         collapses to `0fr` and `visibility` takes the rows out
                         of the tab order and the hit-testing once it has. */}
-                    <div class={`project-sessions${isCollapsed ? ' is-collapsed' : ''}`}>
+                    <div class={`project-sessions${choose(isCollapsed, ' is-collapsed', '')}`}>
                       <div class="project-sessions-inner">
                         <div class="px-1.5 pb-1.5 space-y-0.5">
                           {projectSessions.map(s => renderSessionRow(s))}
@@ -4379,7 +4553,7 @@ export default function App() {
                     api,
                     rev: gitRev,
                     onConnect: (service, selfHosted) => setGitConnect({ service, selfHosted }),
-                    onNotice: (message, error) => setToast({ message, type: error ? 'error' : 'success' }),
+                    onNotice: (message, error) => setToast({ message, type: choose(error, 'error', 'success') }),
                   }}
                 />
               )}
@@ -4415,7 +4589,7 @@ export default function App() {
           <div class="flex items-center gap-1.5 sm:gap-2 min-w-0 flex-1">
             <span class="text-accent text-base sm:text-lg flex-none">🐱</span>
             <h1 class="text-sm sm:text-base font-semibold tracking-wide truncate min-w-0">
-              {selectedSession ? sessionTitle(selectedSession) : 'Motita'}
+              {chatTitle(selectedSession)}
             </h1>
           </div>
           {sessions.find(s => s.id === sessionId)?.auto_approve && (
@@ -4457,8 +4631,8 @@ export default function App() {
           aria-live="polite"
           aria-label={t('conversation')}
           class={`chat-bg flex-1 overflow-y-auto px-3 py-4 sm:px-5 sm:py-5 flex flex-col gap-2.5${
-            chatLoading ? ' chat-loading' : ''}`}
-          data-chat-loading={chatLoading ? '1' : '0'}
+            choose(chatLoading, ' chat-loading', '')}`}
+          data-chat-loading={choose(chatLoading, '1', '0')}
         >
           {(() => {
             // One group per input: the input, the steps it caused, and the answer. The input is
@@ -4471,14 +4645,14 @@ export default function App() {
             }
             return groups.map((g, gi) => {
               const isLast = gi === groups.length - 1
-              const head = g.items[0].role === 'user' ? g.items[0] : null
-              const rest = head ? g.items.slice(1) : g.items
-              const steps = (g.turn != null ? stepsByTurn[g.turn] : undefined) ?? []
+              const head = choose(g.items[0].role === 'user', g.items[0], null)
+              const rest = choose(head, g.items.slice(1), g.items)
+              const steps = (g.turn != null && stepsByTurn[g.turn]) || []
               // Thoughts live in the thinking drawer; the chat keeps steps and actions.
               const shown = steps.filter(st => st.kind !== 'thought')
               const liveHere = running && isLast
               // The step in progress is the activity line below, so it is not drawn twice.
-              const trail = liveHere && activity ? shown.slice(0, -1) : shown
+              const trail = choose(liveHere && activity, shown.slice(0, -1), shown)
               const canGoBack = head != null && g.turn != null && cpInfo[g.turn] !== undefined && !running
               return (
                 <div key={g.key} class="turn">
@@ -4494,7 +4668,7 @@ export default function App() {
                             aria-haspopup="menu"
                             aria-expanded={cpMenu === -1}
                             title={t('Run menu')}
-                            onClick={() => { setCpArmed(false); setCpMenu(m => m === -1 ? null : -1) }}
+                            onClick={() => { setCpArmed(false); setCpMenu(m => choose(m === -1, null, -1)) }}
                           >
                             <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
                               <circle cx="12" cy="5" r="1.8" /><circle cx="12" cy="12" r="1.8" /><circle cx="12" cy="19" r="1.8" />
@@ -4519,7 +4693,7 @@ export default function App() {
                             aria-haspopup="menu"
                             aria-expanded={cpMenu === g.turn}
                             title={t('Checkpoint')}
-                            onClick={() => { setCpArmed(false); setCpMenu(m => m === g.turn ? null : g.turn!) }}
+                            onClick={() => { setCpArmed(false); setCpMenu(m => { if (m === g.turn) { return null } return g.turn! }) }}
                           >
                             <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
                               <circle cx="12" cy="5" r="1.8" /><circle cx="12" cy="12" r="1.8" /><circle cx="12" cy="19" r="1.8" />
@@ -4534,15 +4708,15 @@ export default function App() {
                               <button
                                 type="button"
                                 role="menuitem"
-                                class={cpArmed ? 'is-armed' : ''}
+                                class={choose(cpArmed, 'is-armed', '')}
                                 disabled={!cpInfo[g.turn!]?.files}
-                                title={cpInfo[g.turn!]?.files ? '' : t('This checkpoint did not keep the files')}
+                                title={choose(cpInfo[g.turn!]?.files, '', t('This checkpoint did not keep the files'))}
                                 onClick={(e) => {
                                   if (!cpArmed) { e.stopPropagation(); setCpArmed(true); return }
                                   restoreCheckpoint(g.turn!, true)
                                 }}
                               >
-                                {t(cpArmed ? 'Click again: discard changes since' : 'Go back and restore the changes')}
+                                {choose(cpArmed, t('Click again: discard changes since'), t('Go back and restore the changes'))}
                                 <small>{t('conversation and files')}</small>
                               </button>
                             </div>
@@ -4568,13 +4742,15 @@ export default function App() {
                     </ActionTrail>
                   )}
                   {rest.map(m => (
-                    <div key={m.id} class={`msg ${m.role}${m.kind ? ' ' + m.kind : ''}`} data-who={m.role === 'agent' && !m.kind ? t('Agent') : undefined}>
-                      {m.role === 'agent' && !m.kind && m.report ? (
+                    <div key={m.id} class={`msg ${m.role}${choose(m.kind, ' ' + m.kind, '')}`} data-who={choose(m.role === 'agent' && !m.kind, t('Agent'), undefined)}>
+                      {m.role === 'agent' && !m.kind && !!m.report && (
                         <ReportCard report={m.report} loadImage={loadEvidenceImage} />
-                      ) : m.role === 'agent' && !m.kind ? (
+                      )}
+                      {m.role === 'agent' && !m.kind && !m.report && (
                         <Markdown content={m.text} />
-                      ) : (
-                        <span>{m.kind === 'kind' ? t(m.text) : m.text}</span>
+                      )}
+                      {!(m.role === 'agent' && !m.kind) && (
+                        <span>{choose(m.kind === 'kind', t(m.text), m.text)}</span>
                       )}
                       {m.changes && <ChangesCard changes={m.changes} />}
                       {m.artifacts && (
@@ -4595,9 +4771,8 @@ export default function App() {
                   {liveHere && activity && (
                     <div class={`msg activity ${activityKind}`} style={{ whiteSpace: 'pre-wrap' }}>
                       <span class={`spin-${activityKind || 'default'}`}></span>
-                      {activityKind === 'command'
-                        ? <><span class="term-cmd-text">{oneLine(activity.replace(/^running:\s*/, ''))}</span><ShellStatus exit={shown.length ? shown[shown.length - 1].exit : null} /></>
-                        : progressText(activity)}
+                      {activityKind === 'command' && <><span class="term-cmd-text">{oneLine(activity.replace(/^running:\s*/, ''))}</span><ShellStatus exit={lastExit(shown)} /></>}
+                      {activityKind !== 'command' && progressText(activity)}
                     </div>
                   )}
                 </div>
@@ -4610,13 +4785,13 @@ export default function App() {
             output, as a retro screen. The tab sits on the right edge and the drawer opens
             to the LEFT from it. It is a sibling of the scroll container for the reason the
             session modal is: it must stay put while the conversation scrolls. */}
-        <div class={`term-drawer${termOpen ? ' is-open' : ''}`}>
+        <div class={`term-drawer${choose(termOpen, ' is-open', '')}`}>
           <button
             type="button"
             class="term-tab"
             aria-expanded={termOpen}
             aria-controls="term-panel"
-            title={t(termOpen ? 'Close the terminal' : 'Open the terminal history')}
+            title={choose(termOpen, t('Close the terminal'), t('Open the terminal history'))}
             onClick={() => { setTermOpen(o => !o); setThinkOpen(false); setAgentsOpen(false) }}
           >
             <span class="term-tab-label">TTY</span>
@@ -4625,7 +4800,7 @@ export default function App() {
           <div class="term-panel" id="term-panel" role="region" aria-label={t('terminal history')} aria-hidden={!termOpen}>
             <div class="term-titlebar">
               <span>motita@shell — {plural(shellLog.length, '1 command', '{n} commands')}</span>
-              <button type="button" class="term-close" onClick={() => setTermOpen(false)} aria-label={t('Close the terminal')} tabIndex={termOpen ? 0 : -1}>×</button>
+              <button type="button" class="term-close" onClick={() => setTermOpen(false)} aria-label={t('Close the terminal')} tabIndex={choose(termOpen, 0, -1)}>×</button>
             </div>
             <div class="term-viewport">
             <div
@@ -4646,11 +4821,9 @@ export default function App() {
                     out={e.out}
                     onTick={stickTerm}
                     boost={termBoost}
-                    phase={e.id <= termSeenId ? 'done' : termOpen && e === firstPending ? 'live' : 'wait'}
+                    phase={choose(e.id <= termSeenId, 'done', choose(termOpen && e === firstPending, 'live', 'wait'))}
                     onFinished={() => setTermSeenId(n => Math.max(n, e.id))}
-                    status={e.exit == null
-                      ? { label: t('running…'), kind: 'running' }
-                      : { label: e.exit === NO_RESULT ? t('[no result]') : e.exit ? `[exit ${e.exit}]` : '[ok]', kind: e.exit && e.exit !== NO_RESULT ? 'bad' : '' }}
+                    status={choose(e.exit == null, { label: t('running…'), kind: 'running' }, { label: choose(e.exit === NO_RESULT, t('[no result]'), choose(e.exit, `[exit ${e.exit}]`, '[ok]')), kind: choose(e.exit && e.exit !== NO_RESULT, 'bad', '') })}
                   />
                 ))
               })()}
@@ -4678,13 +4851,13 @@ export default function App() {
           }
           if (running && liveThought) { thoughts.push({ key: 'live', text: liveThought, live: true }) }
           return (
-            <div class={`term-drawer is-think${thinkOpen ? ' is-open' : ''}`}>
+            <div class={`term-drawer is-think${choose(thinkOpen, ' is-open', '')}`}>
               <button
                 type="button"
-                class={`term-tab${running && liveThought ? ' is-live' : ''}`}
+                class={`term-tab${choose(running && liveThought, ' is-live', '')}`}
                 aria-expanded={thinkOpen}
                 aria-controls="think-panel"
-                title={t(thinkOpen ? 'Close the thinking' : 'Open the thinking')}
+                title={choose(thinkOpen, t('Close the thinking'), t('Open the thinking'))}
                 onClick={() => { setThinkOpen(o => !o); setTermOpen(false); setAgentsOpen(false) }}
               >
                 <span class="term-tab-label">THINK</span>
@@ -4693,13 +4866,13 @@ export default function App() {
               <div class="term-panel" id="think-panel" role="region" aria-label={t('thinking')} aria-hidden={!thinkOpen}>
                 <div class="term-titlebar">
                   <span>motita@mind — {plural(thoughts.length, '1 thought', '{n} thoughts')}</span>
-                  <button type="button" class="term-close" onClick={() => setThinkOpen(false)} aria-label={t('Close the thinking')} tabIndex={thinkOpen ? 0 : -1}>×</button>
+                  <button type="button" class="term-close" onClick={() => setThinkOpen(false)} aria-label={t('Close the thinking')} tabIndex={choose(thinkOpen, 0, -1)}>×</button>
                 </div>
                 <div class="term-viewport">
                   <div class="term-screen" ref={think.ref} {...think.handlers}>
                     {thoughts.length === 0 && <div class="term-empty">{t('no thoughts yet')}<span class="term-caret" /></div>}
                     {thoughts.map(t => (
-                      <div key={t.key} class={`think-entry${t.live ? ' is-live' : ''}`}>
+                      <div key={t.key} class={`think-entry${choose(t.live, ' is-live', '')}`}>
                         <pre class="think-text">{t.text}</pre>
                       </div>
                     ))}
@@ -4730,13 +4903,13 @@ export default function App() {
           }), { input: 0, output: 0, cache_read: 0, cache_write: 0 })
           const canCopy = typeof document !== 'undefined'
           return (
-            <div class={`term-drawer is-agents${agentsOpen ? ' is-open' : ''}`}>
+            <div class={`term-drawer is-agents${choose(agentsOpen, ' is-open', '')}`}>
               <button
                 type="button"
-                class={`term-tab${runningSubs > 0 ? ' is-live' : ''}`}
+                class={`term-tab${choose(runningSubs > 0, ' is-live', '')}`}
                 aria-expanded={agentsOpen}
                 aria-controls="agents-panel"
-                title={t(agentsOpen ? 'Close the agents' : 'Open the agents')}
+                title={choose(agentsOpen, t('Close the agents'), t('Open the agents'))}
                 onClick={() => { setAgentsOpen(o => !o); setTermOpen(false); setThinkOpen(false) }}
               >
                 <span class="term-tab-label">AGENTS</span>
@@ -4747,24 +4920,24 @@ export default function App() {
                   <span title={tokenBreakdown(total)}>
                     motita@fleet — {plural(agents.length, '1 agent', '{n} agents')} · {formatTokens(tokenTotal(total))} tok
                   </span>
-                  <button type="button" class="term-close" onClick={() => setAgentsOpen(false)} aria-label={t('Close the agents')} tabIndex={agentsOpen ? 0 : -1}>×</button>
+                  <button type="button" class="term-close" onClick={() => setAgentsOpen(false)} aria-label={t('Close the agents')} tabIndex={choose(agentsOpen, 0, -1)}>×</button>
                 </div>
                 <div class="term-viewport">
                   <div class="term-screen">
                     {agents.map(a => {
                       const done = a.state !== 'running'
                       const open = done && agentOpenId === a.id
-                      const mark = a.state === 'running' ? null : a.state === 'passed' ? '✓' : a.state === 'failed' ? '✗' : '⊘'
-                      const merge = a.branch ? 'git merge --no-edit ' + a.branch : ''
+                      const mark = choose(a.state === 'running', null, choose(a.state === 'passed', '✓', choose(a.state === 'failed', '✗', '⊘')))
+                      const merge = choose(a.branch, 'git merge --no-edit ' + a.branch, '')
                       return (
                         <div
                           key={a.id}
-                          class={`agent-row is-${a.state}${done ? ' is-done' : ''}`}
-                          role={done ? 'button' : undefined}
-                          tabIndex={done ? 0 : undefined}
-                          onClick={() => { if (done) { setAgentOpenId(id => id === a.id ? null : a.id) } }}
-                          onKeyDown={onActivate(() => { if (done) { setAgentOpenId(id => id === a.id ? null : a.id) } })}
-                          aria-expanded={done ? open : undefined}
+                          class={`agent-row is-${a.state}${choose(done, ' is-done', '')}`}
+                          role={choose(done, 'button', undefined)}
+                          tabIndex={choose(done, 0, undefined)}
+                          onClick={() => { if (done) { setAgentOpenId(id => choose(id === a.id, null, a.id)) } }}
+                          onKeyDown={onActivate(() => { if (done) { setAgentOpenId(id => choose(id === a.id, null, a.id)) } })}
+                          aria-expanded={choose(done, open, undefined)}
                         >
                           <span class="agent-state" aria-label={t(a.state)}>
                             {mark ?? <span class="agent-spin" aria-hidden="true" />}
@@ -4776,15 +4949,14 @@ export default function App() {
                                 {a.purpose || a.id}
                               </span>
                               <span class="agent-meta" title={tokenBreakdown(a.tokens || { input: 0, output: 0 })}>
-                                {formatElapsed(agentElapsed(a, agentNow))} · {formatTokens(tokenTotal(a.tokens))} tok{a.round ? ' · r' + a.round : ''}
+                                {formatElapsed(agentElapsed(a, agentNow))} · {formatTokens(tokenTotal(a.tokens))} tok{choose(a.round, ' · r' + a.round, '')}
                               </span>
                             </div>
                             {a.activity && !open && <div class="agent-activity" title={a.activity}>{a.activity}</div>}
                             {open && (
                               <div class="agent-detail" role="presentation" onClick={e => e.stopPropagation()}>
-                                {a.summary
-                                  ? <pre class="agent-summary">{a.summary}</pre>
-                                  : <div class="agent-activity">{t('no summary')}</div>}
+                                {!!a.summary && <pre class="agent-summary">{a.summary}</pre>}
+                                {!a.summary && <div class="agent-activity">{t('no summary')}</div>}
                                 {a.branch && (
                                   <div class="agent-branch">
                                     <code>{merge}</code>
@@ -4796,10 +4968,10 @@ export default function App() {
                                           void copyText(merge).then((ok) => {
                                             if (!ok) { return }
                                             setAgentCopied(a.id)
-                                            setTimeout(() => setAgentCopied(c => c === a.id ? null : c), 1500)
+                                            setTimeout(() => setAgentCopied(c => choose(c === a.id, null, c)), 1500)
                                           })
                                         }}
-                                      >{t(agentCopied === a.id ? 'copied' : 'copy')}</button>
+                                      >{choose(agentCopied === a.id, t('copied'), t('copy'))}</button>
                                     )}
                                   </div>
                                 )}
@@ -4825,7 +4997,7 @@ export default function App() {
             child of a scrolling box scrolls away with the content — and this has to stay put
             while the page underneath changes height. */}
         {chatLoading && (
-          <div class={`chat-modal-scrim${modalLeaving ? ' chat-modal-leaving' : ''}`}>
+          <div class={`chat-modal-scrim${choose(modalLeaving, ' chat-modal-leaving', '')}`}>
             <div class="chat-modal" role="status" aria-live="polite">
               <span class="chat-spinner" aria-hidden="true">
                 <svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" focusable="false">
@@ -4858,7 +5030,7 @@ export default function App() {
             </pre>
             <div class="flex flex-wrap gap-2">
               <button
-                class={`min-h-[44px] min-w-[44px] px-5 rounded-xl bg-accent text-white font-semibold active:scale-95 transition-transform${approvalSel === 0 ? ' is-picked' : ''}`}
+                class={`min-h-[44px] min-w-[44px] px-5 rounded-xl bg-accent text-white font-semibold active:scale-95 transition-transform${choose(approvalSel === 0, ' is-picked', '')}`}
                 aria-pressed={approvalSel === 0}
                 onMouseEnter={() => setApprovalSel(0)}
                 onClick={() => answerApproval(approval.id, true)}
@@ -4866,7 +5038,7 @@ export default function App() {
                 {t('Run it')}
               </button>
               <button
-                class={`min-h-[44px] min-w-[44px] px-4 rounded-xl border border-accent/40 text-accent font-semibold active:scale-95 transition-transform${approvalSel === 1 ? ' is-picked' : ''}`}
+                class={`min-h-[44px] min-w-[44px] px-4 rounded-xl border border-accent/40 text-accent font-semibold active:scale-95 transition-transform${choose(approvalSel === 1, ' is-picked', '')}`}
                 aria-pressed={approvalSel === 1}
                 onMouseEnter={() => setApprovalSel(1)}
                 title={t('Run this and every later command in this session without asking. Commands the policy forbids stay forbidden.')}
@@ -4875,7 +5047,7 @@ export default function App() {
                 {t('Allow all this session')}
               </button>
               <button
-                class={`min-h-[44px] min-w-[44px] px-5 rounded-xl border border-white/10 text-[#e8e8ea] active:scale-95 transition-transform${approvalSel === 2 ? ' is-picked' : ''}`}
+                class={`min-h-[44px] min-w-[44px] px-5 rounded-xl border border-white/10 text-[#e8e8ea] active:scale-95 transition-transform${choose(approvalSel === 2, ' is-picked', '')}`}
                 aria-pressed={approvalSel === 2}
                 onMouseEnter={() => setApprovalSel(2)}
                 onClick={() => answerApproval(approval.id, false)}
@@ -4889,13 +5061,13 @@ export default function App() {
         {/* ── Pull request bar ── */}
         {(prSessionId || (selectedSession?.merged && prWatch?.status === 'merged')) && !prBlocked && (prWatch?.status === 'merged' || prView?.state === 'open' || selectedSession?.mergeable) && (
           <div class="flex items-center gap-2 px-3 sm:px-5 py-2 border-t border-white/5 text-xs flex-none z-10 relative" role="status">
-            {prWatch?.status === 'merged' ? (
+            {prWatch?.status === 'merged' && (
               <span class="inline-flex items-center gap-1.5 font-semibold text-[#a78bfa]">
                 <span class="inline-block w-2 h-2 rounded-full bg-[#a78bfa]" />
                 {tf('Pull request #{n} merged', { n: String(prWatch.number ?? '') })}
               </span>
-            ) : null}
-            {prWatch?.status === 'merged' && prWatch.next ? (
+            )}
+            {prWatch?.status === 'merged' && mergedOffer(prWatch, selectedSession) === 'open' && (
               <button
                 type="button"
                 class="ml-auto px-3 min-h-[32px] rounded-lg bg-accent text-white font-semibold active:scale-95 transition-transform"
@@ -4904,7 +5076,8 @@ export default function App() {
               >
                 {t('Open the new session')}
               </button>
-            ) : prWatch?.status === 'merged' && selectedSession?.merged && selectedSession.continuable ? (
+            )}
+            {!!selectedSession && mergedOffer(prWatch, selectedSession) === 'continue' && (
               <button
                 type="button"
                 class="ml-auto px-3 min-h-[32px] rounded-lg bg-accent text-white font-semibold active:scale-95 transition-transform"
@@ -4913,10 +5086,8 @@ export default function App() {
               >
                 {t('Continue in a new session')}
               </button>
-            ) : null}
-            {prWatch?.status === 'merged' ? (
-              <></>
-            ) : prView?.state === 'open' && prView.pr ? (
+            )}
+            {prWatch?.status !== 'merged' && !!(prView?.state === 'open' && prView.pr) && (
               <>
                 <a
                   href={prView.pr.url}
@@ -4945,13 +5116,7 @@ export default function App() {
                     title={prView.ci.checks.filter(c => c.state === 'failure').map(c => c.name).join(', ')}
                   >
                     <span class="inline-block w-2 h-2 rounded-full bg-[#f87171]" />
-                    {prWatch?.status === 'base_red'
-                      ? t('CI failed')
-                      : prWatch?.status === 'gave_up'
-                      ? tf('CI failed — Motita gave up after {n} attempts', { n: String(prWatch.attempts) })
-                      : prWatch?.status === 'fixing'
-                        ? tf('CI failed — Motita is fixing it ({n}/{max})', { n: String(prWatch.attempts), max: String(prWatch.max) })
-                        : t('CI failed')}
+                    {ciFailedLabel(prWatch)}
                   </span>
                 )}
                 {prView.ci && prView.ci.state === 'failure' && prWatch?.status === 'base_red' && (
@@ -4969,34 +5134,32 @@ export default function App() {
                 )}
                 {prView.ci && prView.ci.state === 'success' && prView.merge && (mergeRefused(prView) || prView.merge.code === 'behind') && (
                   <span class="ml-auto text-[#f0a040]">
-                    {t(prView.merge.code === 'blocked' ? 'Waiting for approvals or required checks'
-                      : prView.merge.code === 'conflict' ? 'Conflicts with the base branch'
-                      : prView.merge.code === 'draft' ? 'Still a draft'
-                      : 'Out of date with the base branch')}
+                    {choose(prView.merge.code === 'blocked', t('Waiting for approvals or required checks'), t(choose(prView.merge.code === 'conflict', 'Conflicts with the base branch', choose(prView.merge.code === 'draft', 'Still a draft', 'Out of date with the base branch'))))}
                   </span>
                 )}
                 {prView.ci && prView.ci.state === 'success' && !mergeRefused(prView) && (
                   <button
                     type="button"
-                    class={`ml-auto px-3 min-h-[32px] rounded-lg font-semibold disabled:opacity-50 active:scale-95 transition-transform ${prMergeArmed ? 'bg-[#4ade80] text-black' : 'border border-[#4ade80]/50 text-[#4ade80]'}`}
+                    class={`ml-auto px-3 min-h-[32px] rounded-lg font-semibold disabled:opacity-50 active:scale-95 transition-transform ${choose(prMergeArmed, 'bg-[#4ade80] text-black', 'border border-[#4ade80]/50 text-[#4ade80]')}`}
                     disabled={prBusy}
                     title={t('Merge this pull request on the host')}
                     onBlur={() => setPrMergeArmed(false)}
                     onClick={() => { void mergeNow() }}
                   >
-                    {t(prMergeArmed ? 'Click again to merge' : 'Merge')}
+                    {choose(prMergeArmed, t('Click again to merge'), t('Merge'))}
                   </button>
                 )}
                 {prView.ci && prView.ci.state === 'none' && (
                   <span class="text-[#8a8a9a]">{t('No CI checks yet')}</span>
                 )}
               </>
-            ) : (
+            )}
+            {prWatch?.status !== 'merged' && !(prView?.state === 'open' && prView.pr) && (
               <button
                 type="button"
                 class="inline-flex items-center gap-1.5 px-3 min-h-[32px] rounded-lg bg-accent text-white font-semibold disabled:opacity-50 active:scale-95 transition-transform"
                 disabled={prRunning}
-                title={t(prRunning ? 'Wait for the current turn to end' : 'Commit, push and open a pull request with this session\'s work')}
+                title={choose(prRunning, t('Wait for the current turn to end'), t('Commit, push and open a pull request with this session\'s work'))}
                 onClick={() => { void createPR() }}
               >
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -5039,7 +5202,7 @@ export default function App() {
               return (
                 <div
                   key={c.name}
-                  class={`flex items-center gap-2 px-3 py-2 cursor-pointer transition-colors ${i === slashPopup.index ? 'bg-white/10' : ''}`}
+                  class={`flex items-center gap-2 px-3 py-2 cursor-pointer transition-colors ${choose(i === slashPopup.index, 'bg-white/10', '')}`}
                   role="button"
                   tabIndex={-1}
                   onClick={() => pickSlash(c)}
@@ -5061,10 +5224,7 @@ export default function App() {
               <span
                 key={ti}
                 class={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-xs font-mono font-semibold flex-none ${
-                  tag.group === 'mode' ? 'bg-accent/20 text-accent' :
-                  tag.group === 'action' ? 'bg-[#f0a040]/20 text-[#f0a040]' :
-                  tag.group === 'session' ? 'bg-[#40f0a0]/20 text-[#40f0a0]' :
-                  'bg-[#a0a0f0]/20 text-[#a0a0f0]'
+                  tagGroupClass(tag.group)
                 }`}
               >
                 {tag.name}
@@ -5097,7 +5257,7 @@ export default function App() {
                   (c.name.toLowerCase().startsWith(query) ||
                   (c.aliases || []).some(a => a.toLowerCase().startsWith(query)))
                 )
-                setSlashPopup(matches.length > 0 ? { items: matches.slice(0, 8), index: 0 } : null)
+                setSlashPopup(choose(matches.length > 0, { items: matches.slice(0, 8), index: 0 }, null))
               } else if (val.startsWith('/') && val.includes(' ')) {
                 // Check if the first word is a valid command.
                 const firstWord = val.split(' ')[0].toLowerCase()
@@ -5117,22 +5277,23 @@ export default function App() {
               }
             }}
             onKeyDown={handleKeydown}
-            placeholder={t(isMerged ? 'This session is read-only after integration' : activeTags.length > 0 ? 'argument…' : 'Ask for something…')}
+            placeholder={choose(isMerged, t('This session is read-only after integration'), t(choose(activeTags.length > 0, 'argument…', 'Ask for something…')))}
             class="flex-1 min-h-[28px] max-h-[100px] px-1 py-1 bg-transparent border-0 outline-hidden ring-0 text-[#e8e8ea] resize-none focus:outline-hidden focus:ring-0 focus:border-0 font-sans text-[14px] leading-relaxed disabled:opacity-50 disabled:cursor-not-allowed"
           />
           </div>
           <button
             type="submit"
             disabled={running || isMerged}
-            title={shellMode ? t('Run in the shell') : undefined}
-            aria-label={shellMode ? t('Run in the shell') : t('Send')}
-            class={`min-h-[44px] min-w-[44px] px-5 sm:px-6 rounded-2xl text-white font-semibold disabled:opacity-40 active:scale-95 transition-transform flex items-center justify-center ${shellMode ? 'send-shell' : 'bg-accent'}`}
+            title={choose(shellMode, t('Run in the shell'), undefined)}
+            aria-label={choose(shellMode, t('Run in the shell'), t('Send'))}
+            class={`min-h-[44px] min-w-[44px] px-5 sm:px-6 rounded-2xl text-white font-semibold disabled:opacity-40 active:scale-95 transition-transform flex items-center justify-center ${choose(shellMode, 'send-shell', 'bg-accent')}`}
           >
-            {shellMode ? (
+            {shellMode && (
               <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
                 <polyline points="4 17 10 11 4 5" /><line x1="12" y1="19" x2="20" y2="19" />
               </svg>
-            ) : (
+            )}
+            {!shellMode && (
               <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
                 <line x1="22" y1="2" x2="11" y2="13" /><polygon points="22 2 15 22 11 13 2 9 22 2" />
               </svg>
@@ -5192,7 +5353,7 @@ export default function App() {
                   value={editProject.main}
                   onChange={(e) => { const v = (e.target as HTMLSelectElement).value; setEditProject(p => p && { ...p, main: v }) }}
                 >
-                  {(editProject.branches.includes(editProject.main) ? editProject.branches : [editProject.main, ...editProject.branches]).map(b => (
+                  {branchChoices(editProject.branches, editProject.main).map(b => (
                     <option key={b} value={b}>{b}</option>
                   ))}
                 </select>
@@ -5232,7 +5393,7 @@ export default function App() {
                   value={String(editProject.prMaxFixes)}
                   onInput={(e) => {
                     const n = Math.round(Number((e.target as HTMLInputElement).value))
-                    const v = Number.isFinite(n) ? Math.min(20, Math.max(0, n)) : 0
+                    const v = choose(Number.isFinite(n), Math.min(20, Math.max(0, n)), 0)
                     setEditProject(p => p && { ...p, prMaxFixes: v })
                   }}
                 />
@@ -5271,7 +5432,7 @@ export default function App() {
                 onClick={() => void saveEditProject()}
                 disabled={savingProject || !editProject.title.trim()}
               >
-                {t(savingProject ? 'Saving…' : 'Save')}
+                {choose(savingProject, t('Saving…'), t('Save'))}
               </button>
               <button
                 class="min-h-[44px] px-5 rounded-xl border border-white/10 text-[#e8e8ea] active:scale-95 transition-transform"
@@ -5297,7 +5458,7 @@ export default function App() {
             aria-label={t('New project')}
           >
             <div class="flex items-center gap-2 mb-4">
-              {newProjectMode && !creatingProject ? (
+              {!!(newProjectMode && !creatingProject) && (
                 <button
                   class="p-1.5 -ml-1.5 rounded-lg hover:bg-white/5"
                   onClick={() => setNewProjectMode(null)}
@@ -5308,12 +5469,13 @@ export default function App() {
                     <polyline points="15 18 9 12 15 6" />
                   </svg>
                 </button>
-              ) : (
+              )}
+              {!(newProjectMode && !creatingProject) && (
                 <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="text-accent">
                   <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
                 </svg>
               )}
-              <h2 class="text-base font-semibold">{t(newProjectMode === 'empty' ? 'Empty project' : newProjectMode === 'git' ? 'From a Git repository' : 'New project')}</h2>
+              <h2 class="text-base font-semibold">{choose(newProjectMode === 'empty', t('Empty project'), t(choose(newProjectMode === 'git', 'From a Git repository', 'New project')))}</h2>
               <button
                 class="ml-auto p-1.5 rounded-lg hover:bg-white/5"
                 onClick={() => setShowNewProject(false)}
@@ -5374,14 +5536,15 @@ export default function App() {
                         placeholder={t('https://github.com/user/repo.git  or  git@github.com:user/repo.git')}
                         autoFocus
                       />
-                      {gitAccounts && connectedAccounts(gitAccounts).length > 0 ? (
+                      {!!(gitAccounts && connectedAccounts(gitAccounts).length > 0) && (
                         <button type="button" class="mt-2 text-sm text-accent underline underline-offset-2" onClick={() => setShowRepoPicker(true)}>{t('Choose from my repositories')}</button>
-                      ) : gitAccounts && (
+                      )}
+                      {!(gitAccounts && connectedAccounts(gitAccounts).length > 0) && (gitAccounts && (
                         <div class="mt-2 flex items-center gap-2 p-2.5 rounded-xl border border-white/10 bg-black/20" data-testid="git-connect-banner">
                           <span class="flex-1 text-xs text-[#9a9aaa]">{t('Connect GitHub, GitLab or Bitbucket to pick one of your repositories')}</span>
                           <button type="button" class="flex-none px-3 min-h-[32px] rounded-lg bg-accent text-white text-xs font-semibold" onClick={() => setGitConnect({ after: 'picker' })}>{t('Connect')}</button>
                         </div>
-                      )}
+                      ))}
                     </div>
                   )}
                   <div>
@@ -5390,7 +5553,7 @@ export default function App() {
                       class="w-full px-3 py-2.5 rounded-xl bg-black/30 border border-white/10 text-[#e8e8ea] focus:outline-hidden focus:border-accent"
                       value={newProjectTitle}
                       onInput={(e) => setNewProjectTitle((e.target as HTMLInputElement).value)}
-                      placeholder={newProjectMode === 'git' ? (repoNameOf(newProjectGit) || t('The repository name')) : t('My project')}
+                      placeholder={choose(newProjectMode === 'git', repoNameOf(newProjectGit) || t('The repository name'), t('My project'))}
                       autoFocus={newProjectMode === 'empty'}
                     />
                   </div>
@@ -5404,11 +5567,11 @@ export default function App() {
                     value={newProjectMain}
                     onChange={(e) => { mainChosen.current = true; setNewProjectMain((e.target as HTMLSelectElement).value) }}
                   >
-                    {Array.from(new Set(['main', 'master', newProjectMain, ...(remoteMain ? [remoteMain] : [])])).map(b => (
+                    {Array.from(new Set(['main', 'master', newProjectMain, ...(choose(remoteMain, [remoteMain], []))])).map(b => (
                       <option key={b} value={b}>{b}</option>
                     ))}
                   </select>
-                  <p class="text-xs text-[#7a7a8c] mt-1">{remoteMain ? tf('The repository uses {branch}.', { branch: remoteMain }) + ' ' : ''}{t('The project always goes back to this branch when it has no sessions. A cloned repository uses it when it has it.')}</p>
+                  <p class="text-xs text-[#7a7a8c] mt-1">{choose(remoteMain, tf('The repository uses {branch}.', { branch: remoteMain }) + ' ', '')}{t('The project always goes back to this branch when it has no sessions. A cloned repository uses it when it has it.')}</p>
                 </div>
 
                   {/* Everything with a sensible default lives behind one line. */}
@@ -5433,7 +5596,7 @@ export default function App() {
                           class="w-full px-3 py-2.5 rounded-xl bg-black/30 border border-white/10 text-[#e8e8ea] focus:outline-hidden focus:border-accent font-mono text-sm"
                           value={newProjectDir}
                           onInput={(e) => setNewProjectDir((e.target as HTMLInputElement).value)}
-                          placeholder={slugOf(newProjectMode === 'git' ? repoNameOf(newProjectGit) || newProjectTitle : newProjectTitle) || 'my-project'}
+                          placeholder={slugOf(choose(newProjectMode === 'git', repoNameOf(newProjectGit) || newProjectTitle, newProjectTitle)) || 'my-project'}
                         />
                         <p class="text-xs text-[#7a7a8c] mt-1">{t('Made from the name when empty. A folder under the workspace, a simple name with no paths.')}</p>
                       </div>
@@ -5447,7 +5610,7 @@ export default function App() {
                           />
                           <span class="text-sm text-[#e8e8ea]">
                             {t('Podman was found on this machine. Use it to run this project?')}
-                            <span class="block text-xs text-[#7a7a8c] mt-0.5">{t(!podmanReady ? 'podman is installed but did not answer (podman info failed), so it may not work until it is set up.' : hasPodmanCompose ? 'The project will be started in containers with podman.' : 'The project will be started in containers with podman. podman compose was not found, so compose files will not work until it is installed.')}</span>
+                            <span class="block text-xs text-[#7a7a8c] mt-0.5">{podmanNote(podmanReady, hasPodmanCompose)}</span>
                           </span>
                         </label>
                       )}
@@ -5460,7 +5623,7 @@ export default function App() {
                     <svg class="animate-spin flex-none text-accent" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
                       <path d="M21 12a9 9 0 1 1-6.219-8.56" />
                     </svg>
-                    <span>{t(newProjectMode === 'git' ? 'Cloning repository…' : 'Creating the project…')}</span>
+                    <span>{choose(newProjectMode === 'git', t('Cloning repository…'), t('Creating the project…'))}</span>
                   </div>
                 )}
 
@@ -5468,14 +5631,14 @@ export default function App() {
                   <button
                     class="flex-1 min-h-[44px] px-5 rounded-xl bg-accent text-white font-semibold active:scale-95 transition-transform disabled:opacity-30 disabled:cursor-not-allowed disabled:saturate-0"
                     onClick={() => createProject()}
-                    disabled={creatingProject || (newProjectMode === 'git' ? !newProjectGit.trim() : !newProjectTitle.trim())}
+                    disabled={creatingProject || choose(newProjectMode === 'git', !newProjectGit.trim(), !newProjectTitle.trim())}
                   >
                     {creatingProject && (
                       <svg class="animate-spin" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="display:inline-block;vertical-align:middle;margin-right:6px">
                         <path d="M21 12a9 9 0 1 1-6.219-8.56" />
                       </svg>
                     )}
-                    {t(creatingProject ? (newProjectMode === 'git' ? 'Cloning…' : 'Creating…') : newProjectMode === 'git' ? 'Clone and create' : 'Create')}
+                    {choose(creatingProject, t(choose(newProjectMode === 'git', 'Cloning…', 'Creating…')), t(choose(newProjectMode === 'git', 'Clone and create', 'Create')))}
                   </button>
                   <button
                     class="min-h-[44px] px-5 rounded-xl border border-white/10 text-[#e8e8ea] active:scale-95 transition-transform"
@@ -5538,7 +5701,7 @@ export default function App() {
                 class="flex-1 min-h-[44px] px-5 rounded-xl bg-accent text-white font-semibold active:scale-95 transition-transform disabled:opacity-30 disabled:cursor-not-allowed disabled:saturate-0"
                 disabled={creatingProject || !gitUserName.trim() || !gitUserEmail.includes('@')}
               >
-                {t(creatingProject ? 'Saving…' : 'Save and create')}
+                {choose(creatingProject, t('Saving…'), t('Save and create'))}
               </button>
               <button
                 type="button"
@@ -5614,12 +5777,12 @@ export default function App() {
                     // to the provider being left, and the new one may not serve it.
                     // Going back to the saved provider restores the saved model, so
                     // a provider round-trip leaves the draft exactly as it was.
-                    setDraftModel(newProvider === (config?.provider || '') ? (config?.model || '') : firstModelOf(newProvider, providers))
+                    setDraftModel(choose(newProvider === (config?.provider || ''), config?.model || '', firstModelOf(newProvider, providers)))
                   }}
                 >
                   {providers.map(p => (
                     <option key={p.id} value={p.id}>
-                      {p.name}{p.is_current ? ' ' + t('(active)') : ''}{p.key_present ? '' : ' — ' + t('no key needed')}
+                      {p.name}{choose(p.is_current, ' ' + t('(active)'), '')}{choose(p.key_present, '', ' — ' + t('no key needed'))}
                     </option>
                   ))}
                 </select>
@@ -5627,14 +5790,15 @@ export default function App() {
 
               <div>
                 <label class="block text-sm text-[#9a9aaa] mb-1.5">{t('Model')}</label>
-                {fetchingModels && draftProvider === (config?.provider || '') ? (
+                {fetchingModels && draftProvider === (config?.provider || '') && (
                   <div class="flex items-center gap-2 px-3 py-2.5 text-sm text-[#9a9aaa]">
                     <svg class="animate-spin text-accent" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
                       <path d="M21 12a9 9 0 1 1-6.219-8.56" />
                     </svg>
                     <span>{t('Loading models...')}</span>
                   </div>
-                ) : (
+                )}
+                {!(fetchingModels && draftProvider === (config?.provider || '')) && (
                   <select
                     class="w-full px-3 py-2.5 rounded-xl bg-black/30 border border-white/10 text-[#e8e8ea] focus:outline-hidden focus:border-accent font-mono text-sm"
                     value={draftModel}
@@ -5656,7 +5820,7 @@ export default function App() {
                       type="button"
                       role="radio"
                       aria-checked={draftReasoning === level}
-                      class={`reasoning-level${draftReasoning === level ? ' is-active' : ''}`}
+                      class={`reasoning-level${choose(draftReasoning === level, ' is-active', '')}`}
                       onClick={() => setDraftReasoning(level)}
                     >
                       {t(level)}
@@ -5667,7 +5831,7 @@ export default function App() {
 
               {config && (
                 <div class="text-xs text-[#7a7a8c] space-y-1 pt-2 border-t border-white/5">
-                  <div>{t('API key')}: {config.api_key_present ? '✓ ' + t('set') : '✗ ' + t('missing')}</div>
+                  <div>{t('API key')}: {choose(config.api_key_present, '✓ ' + t('set'), '✗ ' + t('missing'))}</div>
                 </div>
               )}
             </div>
@@ -5709,28 +5873,23 @@ export default function App() {
                 </svg>
               </div>
               <div class="flex-1 min-w-0">
-                <h2 class="text-base font-semibold">{t(confirmDelete.type === 'session' ? 'Delete session' : confirmDelete.type === 'project' ? 'Delete project' : 'Delete skill')}</h2>
+                <h2 class="text-base font-semibold">{choose(confirmDelete.type === 'session', t('Delete session'), t(choose(confirmDelete.type === 'project', 'Delete project', 'Delete skill')))}</h2>
                 <p class="text-sm text-[#9a9aaa] truncate">{confirmDelete.title}</p>
               </div>
             </div>
             <p class="text-sm text-[#9a9aaa] mb-5">
-              {t(confirmDelete.type === 'session'
-                ? confirmDelete.id === 'default'
-                  ? 'This is the default session. Deleting it will clear its history and reset its title, but the session itself will remain.'
-                  : 'This conversation will be permanently deleted. This cannot be undone.'
-                : confirmDelete.type === 'skill'
-                  ? 'This skill will be permanently deleted, with its usage history. This cannot be undone. A built-in procedure cannot be deleted.'
-                  : 'This project, all its sessions and its folder will be permanently deleted. This cannot be undone.')}
+              {deleteWarning(confirmDelete.type, confirmDelete.id)}
             </p>
 
             {/* What the deletion would DISCARD. The gateway is asked when the modal opens,
                 and its answer is shown here: a count warns, but only the list lets someone
                 decide. A checkout whose changes could not be read says so, because an empty
                 list would read as "nothing to lose". */}
-            {confirmDelete.type === 'session' && confirmDelete.id !== 'default' && (
-              previewLoading ? (
+            {confirmDelete.type === 'session' && confirmDelete.id !== 'default' && (<>
+              {previewLoading && (
                 <p class="text-xs text-[#9a9aaa] mb-5">{t('Checking what this session is holding…')}</p>
-              ) : deletionPreview?.inspection_failed ? (
+              )}
+              {!!deletionPreview && previewKind(previewLoading, deletionPreview) === 'failed' && (
                 <div class="mb-5 rounded-xl border border-danger/40 bg-danger/10 p-3">
                   <p class="text-xs text-[#e8e8ea] font-semibold mb-1">
                     {t("This session's checkout could not be inspected")}
@@ -5740,18 +5899,19 @@ export default function App() {
                     {t('Its contents cannot be shown. Deleting discards whatever it holds, uncommitted work included.')}
                   </p>
                 </div>
-              ) : deletionPreview && deletionPreview.count > 0 ? (
+              )}
+              {!!deletionPreview && previewKind(previewLoading, deletionPreview) === 'changes' && (
                 <div class="mb-5 rounded-xl border border-danger/40 bg-danger/10 p-3">
                   <p class="text-xs text-[#e8e8ea] font-semibold mb-2">
                     {plural(deletionPreview.count, '1 uncommitted change will be discarded', '{n} uncommitted changes will be discarded')}
-                    {deletionPreview.branch ? ' ' + tf('in {branch}', { branch: deletionPreview.branch }) : ''}
+                    {!!deletionPreview.branch && ' ' + tf('in {branch}', { branch: deletionPreview.branch })}
                   </p>
                   <ul class="space-y-1 max-h-40 overflow-y-auto">
                     {deletionPreview.changes.map((c) => (
                       <li class="flex items-start gap-2 text-xs">
                         <span class="text-[#9a9aaa] font-mono flex-none w-18">{c.kind}</span>
                         <span class="text-[#e8e8ea] font-mono break-all">
-                          {c.from ? c.from + ' → ' + c.path : c.path}
+                          {choose(c.from, c.from + ' → ' + c.path, c.path)}
                         </span>
                       </li>
                     ))}
@@ -5760,19 +5920,21 @@ export default function App() {
                     {t('These files are not committed anywhere. Deleting the session discards them for good.')}
                   </p>
                 </div>
-              ) : deletionPreview?.worktree ? (
+              )}
+              {!!deletionPreview?.worktree && previewKind(previewLoading, deletionPreview) === 'clean' && (
                 <p class="text-xs text-[#9a9aaa] mb-5">
                   {t("The session's checkout is clean, so nothing uncommitted is lost.")}
                 </p>
-              ) : null
-            )}
+              )}
+            </>)}
 
             {/* A project's sessions each hold their own checkout, so the list is grouped
                 by session. This is what "and all its sessions" actually costs. */}
-            {confirmDelete.type === 'project' && (
-              previewLoading ? (
+            {confirmDelete.type === 'project' && (<>
+              {previewLoading && (
                 <p class="text-xs text-[#9a9aaa] mb-5">{t("Checking what this project's sessions are holding…")}</p>
-              ) : deletionPreview?.inspection_failed ? (
+              )}
+              {!!deletionPreview && previewKind(previewLoading, deletionPreview) === 'failed' && (
                 <div class="mb-5 rounded-xl border border-danger/40 bg-danger/10 p-3">
                   <p class="text-xs text-[#e8e8ea] font-semibold mb-1">
                     {t("A session's checkout could not be inspected")}
@@ -5782,7 +5944,8 @@ export default function App() {
                     {t('Its contents cannot be shown. Deleting discards whatever it holds, uncommitted work included.')}
                   </p>
                 </div>
-              ) : deletionPreview && deletionPreview.count > 0 ? (
+              )}
+              {!!deletionPreview && previewKind(previewLoading, deletionPreview) === 'changes' && (
                 <div class="mb-5 rounded-xl border border-danger/40 bg-danger/10 p-3">
                   <p class="text-xs text-[#e8e8ea] font-semibold mb-2">
                     {plural(deletionPreview.count, '1 uncommitted change will be discarded', '{n} uncommitted changes will be discarded')}
@@ -5792,13 +5955,13 @@ export default function App() {
                       .filter((s) => s.changes.length > 0)
                       .map((s) => (
                         <div>
-                          <p class="text-xs text-[#9a9aaa] truncate">{s.title === 'New session' ? t('New session') : (s.title || s.id)}</p>
+                          <p class="text-xs text-[#9a9aaa] truncate">{choose(s.title === 'New session', t('New session'), (s.title || s.id))}</p>
                           <ul class="space-y-1 mt-1">
                             {s.changes.map((c) => (
                               <li class="flex items-start gap-2 text-xs pl-2">
                                 <span class="text-[#9a9aaa] font-mono flex-none w-18">{c.kind}</span>
                                 <span class="text-[#e8e8ea] font-mono break-all">
-                                  {c.from ? c.from + ' → ' + c.path : c.path}
+                                  {choose(c.from, c.from + ' → ' + c.path, c.path)}
                                 </span>
                               </li>
                             ))}
@@ -5810,12 +5973,13 @@ export default function App() {
                     {t('These files are not committed anywhere. Deleting the project discards them for good.')}
                   </p>
                 </div>
-              ) : deletionPreview ? (
+              )}
+              {previewKind(previewLoading, deletionPreview) === 'clean' && (
                 <p class="text-xs text-[#9a9aaa] mb-5">
                   {t("No session holds uncommitted changes, so nothing uncommitted is lost. The project's own checkout is not touched.")}
                 </p>
-              ) : null
-            )}
+              )}
+            </>)}
 
             <div class="flex gap-2">
               <button
@@ -5851,11 +6015,7 @@ export default function App() {
                   // being idle.
                   <span class="state-working inline-block" aria-hidden="true" />
                 )}
-                {t(deleting
-                  ? 'Deleting…'
-                  : deletionPreview && (deletionPreview.count > 0 || deletionPreview.inspection_failed)
-                    ? 'Discard and delete'
-                    : 'Delete')}
+                {choose(deleting, t('Deleting…'), t(choose(deletionPreview && (deletionPreview.count > 0 || deletionPreview.inspection_failed), 'Discard and delete', 'Delete')))}
               </button>
               <button
                 class="min-h-[44px] px-5 rounded-xl border border-white/10 text-[#e8e8ea] active:scale-95 transition-transform disabled:opacity-50 disabled:cursor-not-allowed"
@@ -5930,30 +6090,33 @@ export default function App() {
         <div class="fixed bottom-6 inset-x-0 z-60 flex justify-center px-4 pointer-events-none">
           <div
             class="frosted rounded-xl border px-4 py-3 flex items-start gap-3 max-w-md w-full pointer-events-auto"
-            style={`animation: slideUp 0.3s ease-out; box-shadow: 0 20px 45px -10px rgba(0,0,0,0.75); border-color: ${toast.type === 'error' ? 'rgba(239,68,68,0.35)' : toast.type === 'warning' ? 'rgba(237,181,88,0.35)' : 'rgba(76,194,255,0.35)'}`}
+            style={`animation: slideUp 0.3s ease-out; box-shadow: 0 20px 45px -10px rgba(0,0,0,0.75); border-color: ${toastTone(toast.type, 'rgba(239,68,68,0.35)', 'rgba(237,181,88,0.35)', 'rgba(76,194,255,0.35)')}`}
           >
-          {toast.type === 'error' ? (
+          {toastIcon(toast.type, toast.update, updateInfo) === 'error' && (
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="text-danger flex-none mt-0.5">
               <circle cx="12" cy="12" r="10" /><line x1="12" y1="8" x2="12" y2="12" /><line x1="12" y1="16" x2="12.01" y2="16" />
             </svg>
-          ) : toast.type === 'warning' ? (
+          )}
+          {toastIcon(toast.type, toast.update, updateInfo) === 'warning' && (
             // A triangle, not the error's circle: the two are different answers
             // ("something is wrong but recovering" vs "this failed"), and a shared
             // icon would make the reader parse the sentence to tell them apart.
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="text-[#edc06a] flex-none mt-0.5">
               <path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" /><line x1="12" y1="9" x2="12" y2="13" /><line x1="12" y1="17" x2="12.01" y2="17" />
             </svg>
-          ) : updateInfo?.update_available && toast.update ? (
+          )}
+          {toastIcon(toast.type, toast.update, updateInfo) === 'update' && (
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="text-accent flex-none mt-0.5 animate-pulse">
               <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" /><polyline points="7 10 12 15 17 10" /><line x1="12" y1="15" x2="12" y2="3" />
             </svg>
-          ) : (
+          )}
+          {toastIcon(toast.type, toast.update, updateInfo) === 'done' && (
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" class="text-accent flex-none mt-0.5">
               <polyline points="20 6 9 17 4 12" />
             </svg>
           )}
           <div class="flex-1 min-w-0">
-            <p class={`text-sm font-semibold ${toast.type === 'error' ? 'text-danger' : toast.type === 'warning' ? 'text-[#edc06a]' : 'text-[#e8e8ea]'}`}>
+            <p class={`text-sm font-semibold ${toastTone(toast.type, 'text-danger', 'text-[#edc06a]', 'text-[#e8e8ea]')}`}>
               {toast.message}
             </p>
             {toast.detail && (
@@ -5967,7 +6130,7 @@ export default function App() {
                   class="text-[11px] text-[#7a7a8c] hover:text-[#9a9aaa] underline decoration-dotted"
                   onClick={(e) => { e.stopPropagation(); setToastDetailsOpen(v => !v) }}
                 >
-                  {t(toastDetailsOpen ? 'Hide details' : 'Details')}
+                  {choose(toastDetailsOpen, t('Hide details'), t('Details'))}
                 </button>
                 {toastDetailsOpen && (
                   <pre class="mt-1.5 text-[11px] text-[#8a8a9a] font-mono bg-black/30 rounded-lg p-2 overflow-x-auto whitespace-pre-wrap wrap-break-word max-h-32 overflow-y-auto">
@@ -6031,7 +6194,7 @@ export default function App() {
                 onClick={() => { if (!upgradeBusy) { setShowUpgrade(false) } }}
                 disabled={upgradeBusy}
                 aria-label={t('Close')}
-                style={upgradeBusy ? 'opacity:0.3;cursor:not-allowed' : ''}
+                style={choose(upgradeBusy, 'opacity:0.3;cursor:not-allowed', '')}
               >
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                   <line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" />
@@ -6105,24 +6268,15 @@ export default function App() {
                         class="h-full rounded-full transition-all duration-300 ease-out"
                         style={{
                           width: `${upgradeProgress.percent || 0}%`,
-                          background: upgradeProgress.stage === 'error'
-                            ? 'linear-gradient(90deg, #ff6b6b, #ff8a8a)'
-                            : 'linear-gradient(90deg, #4cc2ff, #6dd5ff)',
-                          boxShadow: upgradeProgress.stage === 'downloading' || upgradeProgress.stage === 'installing'
-                            ? '0 0 12px rgba(76,194,255,0.4)' : 'none',
+                          background: choose(upgradeProgress.stage === 'error', 'linear-gradient(90deg, #ff6b6b, #ff8a8a)', 'linear-gradient(90deg, #4cc2ff, #6dd5ff)'),
+                          boxShadow: choose(upgradeProgress.stage === 'downloading' || upgradeProgress.stage === 'installing', '0 0 12px rgba(76,194,255,0.4)', 'none'),
                         }}
                       />
                     </div>
                     {/* Percentage label */}
                     <div class="flex justify-between mt-1.5">
                       <span class="text-xs text-[#9a9aaa]">
-                        {upgradeProgress.stage === 'restarting'
-                          ? t('Restarting…')
-                          : upgradeProgress.stage === 'done'
-                          ? t('Complete')
-                          : upgradeProgress.stage === 'error'
-                          ? t('Failed')
-                          : `${upgradeProgress.percent || 0}%`}
+                        {choose(upgradeProgress.stage === 'restarting', t('Restarting…'), choose(upgradeProgress.stage === 'done', t('Complete'), choose(upgradeProgress.stage === 'error', t('Failed'), `${upgradeProgress.percent || 0}%`)))}
                       </span>
                       <span class="text-xs font-mono text-[#7a7a8c]">
                         {upgradeProgress.version && `→ ${upgradeProgress.version}`}
@@ -6147,7 +6301,7 @@ export default function App() {
                         <circle cx="12" cy="12" r="10" /><line x1="12" y1="8" x2="12" y2="12" /><line x1="12" y1="16" x2="12.01" y2="16" />
                       </svg>
                     )}
-                    <span class={upgradeProgress.stage === 'error' ? 'text-danger' : 'text-[#e8e8ea]'}>
+                    <span class={choose(upgradeProgress.stage === 'error', 'text-danger', 'text-[#e8e8ea]')}>
                       {upgradeMessage(upgradeProgress.message)}
                     </span>
                   </div>
@@ -6171,7 +6325,7 @@ export default function App() {
                             class="text-xs text-[#7a7a8c] hover:text-[#9a9aaa] mt-1.5 underline underline-offset-2"
                             onClick={() => setShowUpgradeError(v => !v)}
                           >
-                            {t(showUpgradeError ? 'Hide details' : 'Details')}
+                            {choose(showUpgradeError, t('Hide details'), t('Details'))}
                           </button>
                           {showUpgradeError && (
                             <pre class="text-xs text-danger whitespace-pre-wrap font-mono mt-2 p-2 rounded-lg bg-black/40">{upgradeError}</pre>
@@ -6206,7 +6360,7 @@ export default function App() {
                         setShowUpgradeError(false)
                       }}
                     >
-                      {t(upgradeProgress.stage === 'error' ? 'Close' : 'Done')}
+                      {choose(upgradeProgress.stage === 'error', t('Close'), t('Done'))}
                     </button>
                   </div>
                 )}
@@ -6231,23 +6385,23 @@ export default function App() {
               <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="text-accent">
                 <path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z" /><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z" />
               </svg>
-              <h2 class="text-base font-semibold">{skillOpen ? (skillOpen.title || skillOpen.name) : t('Skill library')}</h2>
+              <h2 class="text-base font-semibold">{skillHeading(skillOpen)}</h2>
               {skillOpen && (
                 <button
                   class="ml-1 px-2.5 py-1 rounded-lg border border-white/10 text-xs text-[#9a9aaa] hover:text-[#e8e8ea] active:scale-95 transition-transform"
                   onClick={() => pinSkill(skillOpen.name, !skillOpen.pinned)}
-                  title={t(skillOpen.pinned ? 'The curator will leave this alone' : 'Exempt this from every automatic transition')}
+                  title={choose(skillOpen.pinned, t('The curator will leave this alone'), t('Exempt this from every automatic transition'))}
                 >
-                  {t(skillOpen.pinned ? 'Unpin' : 'Pin')}
+                  {choose(skillOpen.pinned, t('Unpin'), t('Pin'))}
                 </button>
               )}
               {skillOpen && (
                 <button
                   class="ml-1 px-2.5 py-1 rounded-lg border border-white/10 text-xs text-[#9a9aaa] hover:text-[#e8e8ea] active:scale-95 transition-transform"
                   onClick={() => disableSkill(skillOpen.name, !skillOpen.disabled)}
-                  title={t(skillOpen.disabled ? 'The agent will see this again' : 'The agent stops seeing this in its index and its search')}
+                  title={choose(skillOpen.disabled, t('The agent will see this again'), t('The agent stops seeing this in its index and its search'))}
                 >
-                  {t(skillOpen.disabled ? 'Turn on' : 'Turn off')}
+                  {choose(skillOpen.disabled, t('Turn on'), t('Turn off'))}
                 </button>
               )}
               {skillOpen && (
@@ -6269,7 +6423,7 @@ export default function App() {
               </button>
             </div>
 
-            {skillOpen ? (
+            {!!skillOpen && (
               <div>
                 <div class="flex items-center gap-2 mb-3 text-xs text-[#7a7a8c]">
                   <span class="font-mono">{skillOpen.name}</span>
@@ -6297,7 +6451,8 @@ export default function App() {
                   </button>
                 </div>
               </div>
-            ) : (
+            )}
+            {!skillOpen && (
               <div>
                 <input
                   type="text"
@@ -6307,15 +6462,16 @@ export default function App() {
                   class="w-full mb-3 px-3 py-2.5 rounded-xl bg-black/30 border border-white/10 text-sm text-[#e8e8ea] placeholder:text-[#5a5a68] focus:outline-hidden focus:border-accent/50"
                 />
 
-                {skillsBusy ? (
+                {skillsBusy && (
                   <p class="text-sm text-[#9a9aaa] py-8 text-center">{t('Loading the library…')}</p>
-                ) : filteredSkills.length === 0 ? (
+                )}
+                {!skillsBusy && filteredSkills.length === 0 && (
                   <p class="text-sm text-[#9a9aaa] py-8 text-center">
-                    {skillQueryNorm !== ''
-                      ? tf('Nothing matches “{q}”.', { q: skillQuery.trim() })
-                      : t('No skills yet. The agent writes one when it works something out.')}
+                    {skillQueryNorm !== '' && tf('Nothing matches “{q}”.', { q: skillQuery.trim() })}
+                    {!(skillQueryNorm !== '') && t('No skills yet. The agent writes one when it works something out.')}
                   </p>
-                ) : (
+                )}
+                {!skillsBusy && filteredSkills.length !== 0 && (
                   <ul class="space-y-1.5">
                     {filteredSkills.map((s) => (
                       <li key={s.name} class="flex items-center gap-1">
@@ -6338,9 +6494,9 @@ export default function App() {
                         <button
                           class="px-2.5 py-1 rounded-lg border border-white/10 text-xs text-[#9a9aaa] hover:text-[#e8e8ea] shrink-0"
                           onClick={() => disableSkill(s.name, !s.disabled)}
-                          title={t(s.disabled ? 'The agent will see this again' : 'The agent stops seeing this in its index and its search')}
+                          title={choose(s.disabled, t('The agent will see this again'), t('The agent stops seeing this in its index and its search'))}
                         >
-                          {tc('skill-toggle', s.disabled ? 'on' : 'off')}
+                          {choose(s.disabled, tc('skill-toggle', 'on'), tc('skill-toggle', 'off'))}
                         </button>
                       </li>
                     ))}
@@ -6448,10 +6604,10 @@ export default function App() {
                         key={sc}
                         role="tab"
                         aria-selected={artifactScope === sc}
-                        class={`px-3 min-h-[30px] ${artifactScope === sc ? 'bg-accent text-white' : 'text-[#c8c8d2] hover:bg-white/5'}`}
+                        class={`px-3 min-h-[30px] ${choose(artifactScope === sc, 'bg-accent text-white', 'text-[#c8c8d2] hover:bg-white/5')}`}
                         onClick={() => { setArtifactScope(sc); void loadArtifacts(sc) }}
                       >
-                        {t(sc === 'session' ? 'This session' : 'Whole project')}
+                        {choose(sc === 'session', t('This session'), t('Whole project'))}
                       </button>
                     ))}
                   </div>
@@ -6472,38 +6628,45 @@ export default function App() {
                 </label>
               </div>
             )}
-            {artifactView ? (
+            {!!artifactView && (
               <div class="flex flex-col min-h-0 flex-1">
                 <button class="self-start text-sm text-accent underline underline-offset-2 mb-2" onClick={() => setArtifactView(null)}>{t('Back to the list')}</button>
                 <div class="text-sm font-mono text-[#c8c8d2] mb-2 truncate">{artifactView.name}</div>
-                {artifactView.url && artifactView.type.startsWith('application/pdf') ? (
+                {artifactShape(artifactView) === 'pdf' && (
                   <iframe src={artifactView.url} title={artifactView.name} class="w-full flex-1 min-h-[60vh] rounded-lg bg-white" />
-                ) : artifactView.url ? (
+                )}
+                {artifactShape(artifactView) === 'image' && (
                   <img src={artifactView.url} alt={artifactView.name} class="max-w-full max-h-[60vh] object-contain rounded-lg" />
-                ) : artifactView.type.startsWith('text/markdown') ? (
+                )}
+                {artifactShape(artifactView) === 'markdown' && (
                   <div class="overflow-auto flex-1 p-3 rounded-lg bg-black/30"><Markdown content={artifactView.body || ''} /></div>
-                ) : artifactView.type.startsWith('text/html') ? (
+                )}
+                {artifactShape(artifactView) === 'html' && (
                   <iframe sandbox="" srcDoc={artifactView.body} title={artifactView.name} class="w-full flex-1 min-h-[50vh] rounded-lg bg-white" />
-                ) : (
+                )}
+                {artifactShape(artifactView) === 'text' && (
                   <pre class="overflow-auto flex-1 text-xs font-mono p-3 rounded-lg bg-black/30 whitespace-pre-wrap">{artifactView.body}</pre>
                 )}
               </div>
-            ) : artifacts.length === 0 ? (
+            )}
+            {!artifactView && artifacts.length === 0 && (
               <p class="text-sm text-[#9a9aaa]">{t('Nothing saved in this session yet. Ask for a report, a page or a diagram and it will show up here.')}</p>
-            ) : (
+            )}
+            {!artifactView && artifacts.length !== 0 && (
               <ul class="overflow-auto space-y-1.5">
                 {artifacts.map(a => (
                   <li key={a.name} class="flex items-center gap-2 p-2.5 rounded-xl border border-white/10 bg-black/20">
                     <button class="flex-1 min-w-0 text-left" onClick={() => void openArtifact(a)}>
                       <div class="truncate text-sm text-[#e8e8ea] font-mono">{a.name}</div>
                       <div class="text-xs text-[#7a7a8c]">{a.type} · {Math.max(1, Math.round(a.size / 1024))} KB</div>
-                      {a.pinned ? (
+                      {!!a.pinned && (
                         <div class="text-xs text-accent">{t('Pinned: it will not be deleted')}</div>
-                      ) : a.expires_at && daysUntil(a.expires_at) <= 7 ? (
+                      )}
+                      {!a.pinned && !!(a.expires_at && daysUntil(a.expires_at) <= 7) && (
                         <div class="text-xs text-[#f0a040]" data-testid="artifact-expiry">{tf('Deleted in {n} days unless pinned', { n: String(Math.max(0, daysUntil(a.expires_at))) })}</div>
-                      ) : null}
+                      )}
                     </button>
-                    <button class="flex-none px-2 min-h-[32px] rounded-lg text-xs text-[#c8c8d2] hover:bg-white/5" aria-pressed={!!a.pinned} onClick={() => void pinArtifact(a.name, !a.pinned)}>{t(a.pinned ? 'Unpin' : 'Pin')}</button>
+                    <button class="flex-none px-2 min-h-[32px] rounded-lg text-xs text-[#c8c8d2] hover:bg-white/5" aria-pressed={!!a.pinned} onClick={() => void pinArtifact(a.name, !a.pinned)}>{choose(a.pinned, t('Unpin'), t('Pin'))}</button>
                     <button class="flex-none px-2 min-h-[32px] rounded-lg text-xs text-danger hover:bg-danger/10" onClick={() => void deleteArtifact(a.name)}>{t('Delete')}</button>
                   </li>
                 ))}
@@ -6575,7 +6738,7 @@ export default function App() {
                             task that will not fire would be a lie with a pulse. */}
                         {cd && (
                           <p class="text-xs text-[#9a9aaa] mt-1.5">
-                            {cd.overdue ? t('due now') : t('fires in') + ' '}
+                            {choose(cd.overdue, t('due now'), t('fires in') + ' ')}
                             {!cd.overdue && <span class="task-countdown">{cd.text}</span>}
                           </p>
                         )}
@@ -6598,7 +6761,7 @@ export default function App() {
                             class="min-h-[44px] px-3 rounded-lg border border-white/10 text-xs text-[#e8e8ea] active:scale-95 transition-transform"
                             onClick={() => void toggleSchedule(task)}
                           >
-                            {t(task.enabled ? 'Pause' : 'Resume')}
+                            {choose(task.enabled, t('Pause'), t('Resume'))}
                           </button>
                           <button
                             class="min-h-[44px] px-3 rounded-lg border border-danger/30 text-xs text-danger active:scale-95 transition-transform ml-auto"
@@ -6658,7 +6821,7 @@ export default function App() {
                   disabled={scheduledBusy || !newTaskTitle.trim() || !newTaskText.trim()}
                   onClick={() => void createSchedule()}
                 >
-                  {t(scheduledBusy ? 'Creating…' : 'Create')}
+                  {choose(scheduledBusy, t('Creating…'), t('Create'))}
                 </button>
               </div>
             </div>
