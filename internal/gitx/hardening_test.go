@@ -22,7 +22,8 @@ func TestRepositoryConfigRunsNoCode(t *testing.T) {
 	marker := filepath.Join(t.TempDir(), "ran")
 	script := "#!/bin/sh\necho \"$0\" >> " + marker + "\n"
 	hooks := filepath.Join(repo, ".git", "hooks")
-	for _, hook := range []string{"pre-commit", "commit-msg", "post-commit", "pre-merge-commit", "post-merge", "post-checkout"} {
+	for _, hook := range []string{"pre-commit", "commit-msg", "post-commit", "pre-merge-commit", "post-merge",
+		"post-checkout"} {
 		write(t, filepath.Join(hooks, hook), script)
 		if err := os.Chmod(filepath.Join(hooks, hook), 0o755); err != nil {
 			t.Fatal(err)
