@@ -38,6 +38,20 @@
   [role='button']:not(:disabled) {
     cursor: pointer;
   }
+
+  /* A dialog that is drawn open inside the page's own backdrop is laid out like the box it
+     replaced: the browser's dialog placement, size limits and colours are put back to a plain
+     block, and the utilities on it decide the rest. */
+  .app-dialog {
+    position: static;
+    inset: auto;
+    width: auto;
+    height: auto;
+    max-width: none;
+    max-height: none;
+    background: transparent;
+    color: inherit;
+  }
 }
 
 /* ─── Sansation font (embedded, self-contained) ─────────────────── */
@@ -1334,7 +1348,7 @@ section.frosted, .frosted.border-t-2 {
 }
 
 /* Modals: scale-in with backdrop fade. */
-[class*="bg-black\\/60"] > div {
+[class*="bg-black\\/60"] > :is(div, dialog) {
   animation: modalIn 0.25s cubic-bezier(0.4, 0, 0.2, 1);
 }
 @keyframes modalIn {
@@ -1579,7 +1593,7 @@ button:disabled {
   .row-menu-closing { opacity: 0; }
   .msg, .session-row, .project-header, .sidebar,
   header.frosted, form.frosted, .msg.activity, .trail-step,
-  [class*="bg-black\\/60"] > div, [class*="bg-black\\/60"],
+  [class*="bg-black\\/60"] > :is(div, dialog), [class*="bg-black\\/60"],
   [class*="bg-black\\/50"],
   .msg.agent .markdown-body, .msg.agent > span, .msg.user > span,
   .markdown-body h1, .markdown-body h2, .markdown-body h3,
@@ -2306,3 +2320,40 @@ main.chat-bg.chat-bg { padding-right: 46px; }
 /* The send button while the line is a shell command: terminal green, like the drawer's prompt. */
 .send-shell { background: #1f8a4c; box-shadow: 0 0 10px rgba(126, 231, 135, 0.35); }
 .send-shell:hover:not(:disabled) { background: #26a259; }
+
+/* ─── Native controls in place of the old clickable boxes ───────────
+ * A row, a header or a picture that reacts to a click carries a transparent button over its
+ * whole box (.row-hit). It takes the box's own cursor, does not move or clip like the other
+ * buttons, and the controls of the box are positioned, so they are drawn above it. */
+.project-header, .agent-row, .agent-detail, .changes-shot { position: relative; }
+.row-hit {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  padding: 0;
+  border: 0;
+  border-radius: inherit;
+  background: transparent;
+  cursor: inherit;
+  transition: none;
+}
+button.row-hit:not(:disabled):hover,
+button.row-hit:not(:disabled):active { transform: none; }
+button.row-hit:not(.auto-approve-pill):not(.term-tab) { clip-path: none; }
+
+/* A list item that is a button (the slash commands): a full-width row with its text where the
+ * row puts it, and only the colour transition it had. */
+.plain-btn {
+  width: 100%;
+  text-align: inherit;
+  transition-property: color, background-color, border-color, outline-color, text-decoration-color, fill, stroke;
+  transition-duration: 0.15s;
+  transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
+}
+button.plain-btn:not(:disabled):hover,
+button.plain-btn:not(:disabled):active { transform: none; }
+button.plain-btn:not(.auto-approve-pill):not(.term-tab) { clip-path: none; }
+
+/* A fieldset is as narrow as its box allows, like the block it replaced. */
+fieldset.approval-panel { min-inline-size: 0; }
