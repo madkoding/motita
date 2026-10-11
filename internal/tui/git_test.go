@@ -611,6 +611,25 @@ func TestGitAuthFailuresGetAHint(t *testing.T) {
 	mustContain(t, tu.errorText(errors.New("Authentication failed")), "pista: git no pudo iniciar sesión") // spanish-fixture: the Spanish hint
 }
 
+// stringConstant is the value of a string literal, or of literals joined with +, as a long
+// message is written across lines.
+func stringConstant(e ast.Expr) (string, bool) {
+	switch e := e.(type) {
+	case *ast.BasicLit:
+		if e.Kind != token.STRING {
+			return "", false
+		}
+		s, err := strconv.Unquote(e.Value)
+		return s, err == nil
+	case *ast.BinaryExpr:
+		x, okX := stringConstant(e.X)
+		y, okY := stringConstant(e.Y)
+		return x + y, okX && okY && e.Op == token.ADD
+	default:
+		return "", false
+	}
+}
+
 // TestEveryGitStringHasASpanishTranslation reads git.go and checks that every string passed to
 // tr or trf, and the catalogue entries of /git, are in the Spanish catalogue: a string added
 // without its translation would show English to a Spanish user, and nothing else would notice.
@@ -631,8 +650,7 @@ func TestEveryGitStringHasASpanishTranslation(t *testing.T) {
 		if !ok || (sel.Sel.Name != "tr" && sel.Sel.Name != "trf") || len(call.Args) == 0 {
 			return true
 		}
-		if lit, ok := call.Args[0].(*ast.BasicLit); ok && lit.Kind == token.STRING {
-			s, _ := strconv.Unquote(lit.Value)
+		if s, ok := stringConstant(call.Args[0]); ok {
 			keys[s] = true
 		}
 		return true

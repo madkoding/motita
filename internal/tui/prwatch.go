@@ -33,38 +33,34 @@ func prNoticeText(prev *prSeen, cur SessionInfo) (format string, args []any) {
 	if prev == nil || cur.PR == "" {
 		return "", nil
 	}
-	same := prev.state == cur.PR
-	switch cur.PR {
-	case "passed":
-		if !same {
-			return "PR #%d: the CI passed, you can go and merge it", []any{cur.PRNumber}
-		}
-	case "fixing":
-		if !same || cur.PRAttempts > prev.attempts {
-			return "PR #%d: the CI failed, fixing it (attempt %d of %d)", []any{cur.PRNumber, cur.PRAttempts, cur.PRMax}
-		}
-	case "gave_up":
-		if !same {
-			return "PR #%d: the CI is still failing after %d attempts, it needs you", []any{cur.PRNumber, cur.PRAttempts}
-		}
-	case "base_red":
-		if !same {
-			return "PR #%d: the CI also fails on the base branch, not caused by this change", []any{cur.PRNumber}
-		}
-	case "no_ci":
-		if !same {
-			return "PR #%d: this repository has no CI to wait for", []any{cur.PRNumber}
-		}
-	case "merged":
-		if !same {
-			return "PR #%d was merged", []any{cur.PRNumber}
-		}
-	case "closed":
-		if !same {
-			return "PR #%d was closed without being merged", []any{cur.PRNumber}
-		}
+	changed := prev.state != cur.PR
+	// A fix in progress is news again at every new attempt, not only when the state changes.
+	if cur.PR == "fixing" && (changed || cur.PRAttempts > prev.attempts) {
+		return "PR #%d: the CI failed, fixing it (attempt %d of %d)", []any{cur.PRNumber, cur.PRAttempts, cur.PRMax}
 	}
-	return "", nil
+	if !changed {
+		return "", nil
+	}
+	return prStateNotice(cur)
+}
+
+// prStateNotices are the notices for the states that are news when a pull request reaches them,
+// each a format of the pull request's number.
+var prStateNotices = map[string]string{
+	"passed":   "PR #%d: the CI passed, you can go and merge it",
+	"base_red": "PR #%d: the CI also fails on the base branch, not caused by this change",
+	"no_ci":    "PR #%d: this repository has no CI to wait for",
+	"merged":   "PR #%d was merged",
+	"closed":   "PR #%d was closed without being merged",
+}
+
+// prStateNotice is the notice for a pull request that has just reached its state; the format is
+// "" for a state that is not news.
+func prStateNotice(cur SessionInfo) (format string, args []any) {
+	if cur.PR == "gave_up" {
+		return "PR #%d: the CI is still failing after %d attempts, it needs you", []any{cur.PRNumber, cur.PRAttempts}
+	}
+	return prStateNotices[cur.PR], []any{cur.PRNumber}
 }
 
 // watchPRs asks the gateway for the sessions until ctx ends and raises a notice for each pull
