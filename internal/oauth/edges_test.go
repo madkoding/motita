@@ -110,7 +110,10 @@ func TestTokenEndpointFailures(t *testing.T) {
 	errBody := tokenServer(`{"error":"invalid_grant","error_description":"expired"}`, 200)
 	noToken := tokenServer(`{}`, 200)
 	for name, fn := range map[string]func(*http.Client) error{
-		"codex exchange": func(c *http.Client) error { _, err := CodexExchangeCode(ctx, c, "c", "", p); return err },
+		"codex exchange": func(c *http.Client) error {
+			_, err := CodexExchangeCode(ctx, c, "c", "", p)
+			return err
+		},
 		"gemini exchange": func(c *http.Client) error {
 			_, err := GeminiExchangeCode(ctx, c, GeminiClient{ID: "id"}, "c", "r", p, "proj")
 			return err
@@ -123,8 +126,14 @@ func TestTokenEndpointFailures(t *testing.T) {
 			_, err := QwenRefresh(ctx, c, Credential{RefreshToken: "r"})
 			return err
 		},
-		"qwen poll":   func(c *http.Client) error { _, err := QwenPollToken(ctx, c, DeviceCode{}, p); return err },
-		"qwen device": func(c *http.Client) error { _, err := QwenRequestDeviceCode(ctx, c, p); return err },
+		"qwen poll": func(c *http.Client) error {
+			_, err := QwenPollToken(ctx, c, DeviceCode{}, p)
+			return err
+		},
+		"qwen device": func(c *http.Client) error {
+			_, err := QwenRequestDeviceCode(ctx, c, p)
+			return err
+		},
 	} {
 		for kind, c := range map[string]*http.Client{"refused": refused, "error body": errBody, "no token": noToken} {
 			if err := fn(c); err == nil {

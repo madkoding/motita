@@ -323,7 +323,11 @@ func TestQwenDeviceFlow(t *testing.T) {
 	if err != nil || dc.VerificationURL != "https://chat.qwen.ai/authorize?user_code=UC" {
 		t.Fatalf("dc=%+v err=%v", dc, err)
 	}
-	instant := func(time.Duration) <-chan time.Time { ch := make(chan time.Time, 1); ch <- time.Now(); return ch }
+	instant := func(time.Duration) <-chan time.Time {
+		ch := make(chan time.Time, 1)
+		ch <- time.Now()
+		return ch
+	}
 	cred, err := PollDevice(context.Background(), dc.Interval, instant, func() (Credential, error) {
 		return QwenPollToken(context.Background(), client, dc, p)
 	})
@@ -368,7 +372,11 @@ func TestQwenBaseURLAndRefresh(t *testing.T) {
 }
 
 func TestPollDeviceStopsOnDenialAndCancellation(t *testing.T) {
-	instant := func(time.Duration) <-chan time.Time { ch := make(chan time.Time, 1); ch <- time.Now(); return ch }
+	instant := func(time.Duration) <-chan time.Time {
+		ch := make(chan time.Time, 1)
+		ch <- time.Now()
+		return ch
+	}
 	if _, err := PollDevice(context.Background(), 0, instant,
 		func() (int, error) { return 0, ErrAccessDenied }); err != ErrAccessDenied {
 		t.Errorf("err = %v", err)
