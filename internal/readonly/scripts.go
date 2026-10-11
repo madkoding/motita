@@ -151,6 +151,7 @@ func sedScript(s string) (string, bool) {
 			}
 		}
 		for i = skipBlanks(s, i); i < len(s) && s[i] == '!'; i = skipBlanks(s, i+1) {
+			// Skip any '!' negations before the command.
 		}
 		if i >= len(s) {
 			return unreadable(i)
@@ -161,6 +162,7 @@ func sedScript(s string) (string, bool) {
 		case '{', '=', 'd', 'D', 'g', 'G', 'h', 'H', 'n', 'N', 'p', 'P', 'x', 'z', 'F':
 		case 'q', 'Q', 'l', 'L':
 			for i = skipBlanks(s, i); i < len(s) && s[i] >= '0' && s[i] <= '9'; i++ {
+				// Skip the optional exit code.
 			}
 		case ':', 'b', 't', 'T', 'v':
 			// A label, up to the end of the command.
@@ -232,6 +234,7 @@ func sedAddress(s string, i int) (int, bool) {
 		return i + 1, true
 	case c >= '0' && c <= '9', c == '+', c == '~':
 		for i++; i < len(s) && (s[i] >= '0' && s[i] <= '9' || s[i] == '~'); i++ {
+			// Skip the rest of the line number or step.
 		}
 		return i, true
 	case c == '/' || c == '\\':
@@ -459,6 +462,7 @@ func awkProgramWrites(p string) (string, bool) {
 			i, operand = j, true
 		case c >= '0' && c <= '9' || c == '.':
 			for i++; i < len(p) && (p[i] >= '0' && p[i] <= '9' || p[i] == '.' || p[i] == 'e' || p[i] == 'E'); i++ {
+				// Skip the rest of the number.
 			}
 			operand = true
 		case c == '@':
