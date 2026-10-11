@@ -225,6 +225,8 @@ func TestAutoRunsTheDetectedGateForReal(t *testing.T) {
 		t.Fatalf("a declared gate that exits 0 must PASS, reason: %s", res.Reason)
 	} else if len(res.Checks) != 1 || !strings.Contains(res.Checks[0].Output, "the-gate-ran") {
 		t.Errorf("the declared gate did not run: %+v", res.Checks)
+	} else {
+		// the expected outcome: nothing more to check
 	}
 
 	fail := t.TempDir()

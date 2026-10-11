@@ -45,8 +45,9 @@ func TestWithBaseline(t *testing.T) {
 
 	// Every failure is old: a pass WITH the caveat in words.
 	got := WithBaseline(failed("test", "lint"), map[string]CheckLog{"test": {}, "lint": {}})
-	if !got.Pass || len(got.PreExisting) != 2 || !strings.Contains(got.Reason, "ALREADY FAILING BEFORE THIS CHANGE") ||
-		!strings.Contains(got.Reason, "test, lint") || !strings.HasPrefix(got.Reason, "1 check(s) passed") {
+	wrong := !got.Pass || len(got.PreExisting) != 2 ||
+		!strings.Contains(got.Reason, "ALREADY FAILING BEFORE THIS CHANGE")
+	if wrong || !strings.Contains(got.Reason, "test, lint") || !strings.HasPrefix(got.Reason, "1 check(s) passed") {
 		t.Errorf("all pre-existing: %+v", got)
 	}
 	if !got.Checks[1].PreExisting {
