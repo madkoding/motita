@@ -2406,46 +2406,53 @@ func TestEveryScalarSettingHasAnEnvironmentVariable(t *testing.T) {
 		implemented[m[1]] = true
 	}
 
+	// Skip the collections and whatever has its own reader.
+	exempt := func(variable string) bool {
+		return collections[variable] || nested[variable] || otherReaders[variable]
+	}
 	c := reflect.TypeOf(Config{})
 	for i := 0; i < c.NumField(); i++ {
-		block := c.Field(i).Tag.Get("yaml")
-		bt := c.Field(i).Type
-		for j := 0; j < bt.NumField(); j++ {
-			field := bt.Field(j)
-			name := field.Tag.Get("yaml")
-			variable := "MOTITA_" + strings.ToUpper(block+"_"+name)
+		checkBlockVariables(t, c.Field(i), implemented, exempt)
+	}
+}
 
-			// Skip the collections and whatever has its own reader.
-			if collections[variable] || nested[variable] || otherReaders[variable] {
-				continue
-			}
-			// Sub-structs (like on_failure) hold their own fields.
-			if field.Type.Kind() == reflect.Struct && field.Type.Name() != "Duration" {
-				continue
-			}
-			// A slice or a map cannot be expressed as one value.
-			if k := field.Type.Kind(); k == reflect.Slice || k == reflect.Map {
-				continue
-			}
-			if !implemented[variable] {
-				// The field may have a differently named variable on purpose:
-				// the documented compatibility case is listed above.
-				t.Errorf("the setting %s.%s has no environment variable (%s)", block, name, variable)
-			}
+// checkBlockVariables reports each scalar setting of one configuration block that
+// environment.go has no variable for.
+func checkBlockVariables(t *testing.T, blockField reflect.StructField, implemented map[string]bool,
+	exempt func(string) bool) {
+	block := blockField.Tag.Get("yaml")
+	bt := blockField.Type
+	for j := 0; j < bt.NumField(); j++ {
+		field := bt.Field(j)
+		name := field.Tag.Get("yaml")
+		variable := "MOTITA_" + strings.ToUpper(block+"_"+name)
+
+		if exempt(variable) || !isScalarSetting(field) {
+			continue
+		}
+		if !implemented[variable] {
+			// The field may have a differently named variable on purpose:
+			// the documented compatibility case is listed above.
+			t.Errorf("the setting %s.%s has no environment variable (%s)", block, name, variable)
 		}
 	}
+}
+
+// isScalarSetting reports whether a setting is one value an environment variable can hold.
+func isScalarSetting(field reflect.StructField) bool {
+	// Sub-structs (like on_failure) hold their own fields.
+	if field.Type.Kind() == reflect.Struct && field.Type.Name() != "Duration" {
+		return false
+	}
+	// A slice or a map cannot be expressed as one value.
+	k := field.Type.Kind()
+	return k != reflect.Slice && k != reflect.Map
 }
 
 // TestReadOnlyAndShellComeFromTheEnvironment: the two settings that make plan mode
 // configurable, including the case that must be reported rather than ignored.
 func TestReadOnlyAndShellComeFromTheEnvironment(t *testing.T) {
-	cases := []struct {
-		name    string
-		env     map[string]string
-		wantRO  bool
-		wantSh  string
-		wantErr bool
-	}{
+	cases := []readOnlyShellCase{
 		{"neither set", nil, false, "", false},
 		{"read_only true", map[string]string{"MOTITA_AGENT_READ_ONLY": "true"}, true, "", false},
 		{"read_only on", map[string]string{"MOTITA_AGENT_READ_ONLY": "on"}, true, "", false},
@@ -2456,31 +2463,43 @@ func TestReadOnlyAndShellComeFromTheEnvironment(t *testing.T) {
 			map[string]string{"MOTITA_AGENT_READ_ONLY": "maybe"}, false, "", true},
 	}
 	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			for _, k := range []string{"MOTITA_AGENT_READ_ONLY", "MOTITA_AGENT_SHELL"} {
-				t.Setenv(k, "")
-			}
-			for k, v := range tc.env {
-				t.Setenv(k, v)
-			}
-			cfg := Default()
-			err := ApplyEnvironment(&cfg)
-			if tc.wantErr {
-				if err == nil {
-					t.Fatal("a malformed boolean must be reported, not ignored")
-				}
-				return
-			}
-			if err != nil {
-				t.Fatalf("ApplyEnvironment: %v", err)
-			}
-			if cfg.Agent.ReadOnly != tc.wantRO {
-				t.Errorf("ReadOnly = %v, want %v", cfg.Agent.ReadOnly, tc.wantRO)
-			}
-			if cfg.Agent.Shell != tc.wantSh {
-				t.Errorf("Shell = %q, want %q", cfg.Agent.Shell, tc.wantSh)
-			}
-		})
+		t.Run(tc.name, func(t *testing.T) { checkReadOnlyAndShell(t, tc) })
+	}
+}
+
+// readOnlyShellCase is one environment for TestReadOnlyAndShellComeFromTheEnvironment.
+type readOnlyShellCase struct {
+	name    string
+	env     map[string]string
+	wantRO  bool
+	wantSh  string
+	wantErr bool
+}
+
+// checkReadOnlyAndShell applies one case's environment and checks what it set.
+func checkReadOnlyAndShell(t *testing.T, tc readOnlyShellCase) {
+	for _, k := range []string{"MOTITA_AGENT_READ_ONLY", "MOTITA_AGENT_SHELL"} {
+		t.Setenv(k, "")
+	}
+	for k, v := range tc.env {
+		t.Setenv(k, v)
+	}
+	cfg := Default()
+	err := ApplyEnvironment(&cfg)
+	if tc.wantErr {
+		if err == nil {
+			t.Fatal("a malformed boolean must be reported, not ignored")
+		}
+		return
+	}
+	if err != nil {
+		t.Fatalf("ApplyEnvironment: %v", err)
+	}
+	if cfg.Agent.ReadOnly != tc.wantRO {
+		t.Errorf("ReadOnly = %v, want %v", cfg.Agent.ReadOnly, tc.wantRO)
+	}
+	if cfg.Agent.Shell != tc.wantSh {
+		t.Errorf("Shell = %q, want %q", cfg.Agent.Shell, tc.wantSh)
 	}
 }
 
