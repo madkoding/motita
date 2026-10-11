@@ -43,3 +43,15 @@ echo '```'
 api "hotspots/search?projectKey=${key}&status=TO_REVIEW&ps=500" | jq -r '
   .hotspots[] | "\(.vulnerabilityProbability)\t\(.ruleKey)\t\(.component | sub("^[^:]*:"; "")):\(.line // 0)\t\(.message)"'
 echo '```'
+
+echo
+echo "### Parameters of the active rules that have open issues"
+echo
+echo '```'
+profiles="$(api "qualityprofiles/search?project=${key}" | jq -r '.profiles[].key')"
+for qp in $profiles; do
+  api "rules/search?qprofile=${qp}&activation=true&f=name&actives=true&ps=500" | jq -r '
+    .actives as $a | .rules[] | select(($a[.key][0].params // []) | length > 0)
+    | "\(.key)\t\(.name)\t\([$a[.key][0].params[] | "\(.key)=\(.value)"] | join(" "))"'
+done
+echo '```'
