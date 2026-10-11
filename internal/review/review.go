@@ -57,7 +57,9 @@ type Review struct {
 // New creates a background review fork. The engine may be a separate, cheaper
 // client; if nil, the caller must pass the main engine. buildRunner is the
 // factory that creates a SkillRunner (plan.Planner) for the fork.
-func New(cfg config.Review, engine *llm.Client, procs *procedures.Store, log *logx.Logger, buildRunner RunnerBuilder) *Review {
+func New(
+	cfg config.Review, engine *llm.Client, procs *procedures.Store, log *logx.Logger, buildRunner RunnerBuilder,
+) *Review {
 	return &Review{cfg: cfg, engine: engine, procs: procs, log: log, buildRunner: buildRunner}
 }
 
