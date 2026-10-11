@@ -266,6 +266,8 @@ func TestLiveWorktreeAtIsFalseForAGoneDirectory(t *testing.T) {
 		t.Fatalf("LiveWorktreeAt: %v", err)
 	} else if ok {
 		t.Error("a worktree whose directory is gone is not live")
+	} else {
+		// the expected outcome: nothing more to check
 	}
 }
 
