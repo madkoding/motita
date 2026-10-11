@@ -321,7 +321,8 @@ func (u *Updater) DownloadAndInstall(ctx context.Context, release *Release, prog
 	// is going to be thrown away.
 	checksumsURL := u.findChecksumsURL(release)
 	if checksumsURL == "" {
-		return fmt.Errorf("the release %s publishes no SHA256SUMS, so the download cannot be verified and will not be installed", release.TagName)
+		return fmt.Errorf("the release %s publishes no SHA256SUMS, "+
+			"so the download cannot be verified and will not be installed", release.TagName)
 	}
 
 	// With a release key embedded, the checksums only count when they are signed by it: a
@@ -332,10 +333,12 @@ func (u *Updater) DownloadAndInstall(ctx context.Context, release *Release, prog
 	if u.PublicKey != nil {
 		sigURL = findURL(release, "SHA256SUMS.sig")
 		if sigURL == "" {
-			return fmt.Errorf("the release %s publishes no SHA256SUMS.sig, so its checksums cannot be trusted and nothing will be installed", release.TagName)
+			return fmt.Errorf("the release %s publishes no SHA256SUMS.sig, "+
+				"so its checksums cannot be trusted and nothing will be installed", release.TagName)
 		}
 	} else {
-		logx.Global().Warn("no release signing key is embedded; verifying the update by checksum only", "release", release.TagName)
+		logx.Global().Warn("no release signing key is embedded; verifying the update by checksum only",
+			"release", release.TagName)
 	}
 	for _, raw := range []string{asset.BrowserDownloadURL, checksumsURL, sigURL} {
 		if raw == "" {
@@ -350,7 +353,8 @@ func (u *Updater) DownloadAndInstall(ctx context.Context, release *Release, prog
 	// endless body into the staging directory.
 	limit := asset.Size
 	if limit > maxBinarySize {
-		return fmt.Errorf("the release asset %s declares %d bytes, more than the %d allowed", asset.Name, asset.Size, maxBinarySize)
+		return fmt.Errorf("the release asset %s declares %d bytes, more than the %d allowed",
+			asset.Name, asset.Size, maxBinarySize)
 	}
 	if limit <= 0 {
 		limit = maxBinarySize
@@ -402,7 +406,9 @@ func (u *Updater) stagingDir() string {
 
 // downloadFile downloads a URL to a local path, reporting progress. More than limit bytes is an
 // error rather than a bigger file.
-func (u *Updater) downloadFile(ctx context.Context, url string, limit int64, dest string, progress func(ProgressEvent)) error {
+func (u *Updater) downloadFile(
+	ctx context.Context, url string, limit int64, dest string, progress func(ProgressEvent),
+) error {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return err
