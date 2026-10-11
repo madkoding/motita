@@ -44,7 +44,8 @@ import pathlib
 import tempfile
 import subprocess
 import time
-import urllib.request
+
+from cdp_http import fetch_json
 
 import websockets
 
@@ -237,10 +238,7 @@ async def run_measure(shot_path: str | None) -> dict:
         ws_url = None
         for _ in range(80):
             try:
-                with urllib.request.urlopen(
-                    f"http://127.0.0.1:{CDP_PORT}/json/list", timeout=1
-                ) as resp:
-                    targets = json.load(resp)
+                targets = fetch_json(f"http://127.0.0.1:{CDP_PORT}/json/list", timeout=1)
                 pages = [t for t in targets if t.get("type") == "page"]
                 if pages:
                     ws_url = pages[0]["webSocketDebuggerUrl"]

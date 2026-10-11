@@ -129,10 +129,9 @@ async def main(ws_url):
 
 
 if __name__ == "__main__":
-    import urllib.request
+    from cdp_http import fetch_json
     from cdp_spinner import start_browser, PORT
     os.makedirs(SHOTS, exist_ok=True)
     start_browser()
-    with urllib.request.urlopen(f"http://127.0.0.1:{PORT}/json/list", timeout=5) as r:
-        page = [t for t in json.load(r) if t.get("type") == "page"][0]
+    page = [t for t in fetch_json(f"http://127.0.0.1:{PORT}/json/list", timeout=5) if t.get("type") == "page"][0]
     asyncio.run(main(page["webSocketDebuggerUrl"]))

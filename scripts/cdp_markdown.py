@@ -356,10 +356,9 @@ def main():
 
     # The gateway URL is resolved to a live WebSocket, so this probe never starts a
     # browser of its own: the caller owns that, the same way verify-spinner.sh does.
-    import urllib.request
+    from cdp_http import fetch_json
 
-    with urllib.request.urlopen(f"http://127.0.0.1:{cdp_port}/json/list", timeout=5) as r:
-        targets = json.load(r)
+    targets = fetch_json(f"http://127.0.0.1:{cdp_port}/json/list", timeout=5)
     page = next((t for t in targets if t.get("type") == "page"), None)
     if not page:
         print("no page target in the browser")

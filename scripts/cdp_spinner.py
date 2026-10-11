@@ -18,7 +18,9 @@ one is MEASURED rather than read off the markup:
 
 Usage: GATEWAY_URL=... GATEWAY_STATE=<token file> ./cdp_spinner.py
 """
-import asyncio, base64, json, os, pathlib, subprocess, sys, tempfile, time, urllib.request
+import asyncio, base64, json, os, pathlib, subprocess, sys, tempfile, time
+
+from cdp_http import fetch_json, chrome_env, LAUNCHER
 
 PORT = int(os.environ.get("CDP_PORT", "9355"))
 CHROME = os.environ.get("CHROME", os.path.expanduser(
@@ -391,8 +393,8 @@ def start_browser():
         return
     os.makedirs(SHOTS, exist_ok=True)
     subprocess.Popen(
-        [CHROME, "--headless", f"--remote-debugging-port={PORT}",
-         f"--user-data-dir={SHOTS}/cdp-profile", "--no-sandbox", "--disable-gpu", "about:blank"],
+        ["sh", LAUNCHER, "--headless", "--no-sandbox", "--disable-gpu", "about:blank"],
+        env=chrome_env(CHROME, PORT, profile=os.path.join(SHOTS, "cdp-profile")),
         stdout=open(f"{SHOTS}/chrome.log", "w"), stderr=subprocess.STDOUT, start_new_session=True)
     for _ in range(60):
         if subprocess.run(["curl", "-sf", "-o", "/dev/null",
@@ -406,8 +408,7 @@ if __name__ == "__main__":
     ws_url = None
     for _ in range(60):
         try:
-            with urllib.request.urlopen(f"http://127.0.0.1:{PORT}/json/list", timeout=1) as r:
-                pages = [t for t in json.load(r) if t.get("type") == "page"]
+            pages = [t for t in fetch_json(f"http://127.0.0.1:{PORT}/json/list", timeout=1) if t.get("type") == "page"]
             if pages:
                 ws_url = pages[0]["webSocketDebuggerUrl"]
                 break

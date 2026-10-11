@@ -30,7 +30,8 @@ import re
 import subprocess
 import sys
 import time
-import urllib.request
+
+from cdp_http import fetch_json, chrome_env, LAUNCHER
 
 import websockets
 
@@ -198,8 +199,8 @@ def main():
     os.makedirs(SHOTS, exist_ok=True)
     failures = 0
     proc = subprocess.Popen(
-        [CHROME, f"--remote-debugging-port={PORT}", "--headless", "--no-sandbox",
-         "--disable-gpu", "--hide-scrollbars", "about:blank"],
+        ["sh", LAUNCHER, "--headless", "--no-sandbox", "--disable-gpu", "--hide-scrollbars", "about:blank"],
+        env=chrome_env(CHROME, PORT),
         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
     )
     try:
@@ -209,8 +210,7 @@ def main():
         ws_url = None
         for _ in range(60):
             try:
-                with urllib.request.urlopen(f"http://127.0.0.1:{PORT}/json/list", timeout=1) as r:
-                    targets = json.load(r)
+                targets = fetch_json(f"http://127.0.0.1:{PORT}/json/list", timeout=1)
                 pages = [t for t in targets if t.get("type") == "page"]
                 if pages:
                     ws_url = pages[0]["webSocketDebuggerUrl"]

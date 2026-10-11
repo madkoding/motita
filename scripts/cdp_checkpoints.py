@@ -11,9 +11,10 @@ the workspace's files:
   * CHECKPOINT: the ⋯ menu goes back (conversation only, then conversation and files), and
     the file in the workspace is what it was before that input.
 """
-import asyncio, json, os, pathlib, sys, tempfile, urllib.request
+import asyncio, json, os, pathlib, sys, tempfile
 
 sys.path.insert(0, os.path.dirname(__file__))
+from cdp_http import fetch_json  # noqa: E402
 from cdp_spinner import CDP, start_browser, PORT  # noqa: E402
 
 BASE = os.environ["GATEWAY_URL"]
@@ -34,11 +35,8 @@ def ok(msg):
 
 
 def api(path, body=None):
-    req = urllib.request.Request(BASE + path, method="POST" if body is not None else "GET",
-                                 data=json.dumps(body).encode() if body is not None else None,
-                                 headers={"Authorization": "Bearer " + TOKEN, "Content-Type": "application/json"})
-    with urllib.request.urlopen(req, timeout=10) as r:
-        return json.load(r)
+    return fetch_json(BASE + path, body, timeout=10,
+                      headers={"Authorization": "Bearer " + TOKEN, "Content-Type": "application/json"})
 
 
 def report():
@@ -222,6 +220,5 @@ async def main(ws_url):
 if __name__ == "__main__":
     os.makedirs(SHOTS, exist_ok=True)
     start_browser()
-    with urllib.request.urlopen(f"http://127.0.0.1:{PORT}/json/list", timeout=5) as r:
-        page = [t for t in json.load(r) if t.get("type") == "page"][0]
+    page = [t for t in fetch_json(f"http://127.0.0.1:{PORT}/json/list", timeout=5) if t.get("type") == "page"][0]
     sys.exit(asyncio.run(main(page["webSocketDebuggerUrl"])))
