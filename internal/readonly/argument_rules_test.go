@@ -261,6 +261,13 @@ func TestTheDirectionEachRuleLeans(t *testing.T) {
 // TestTheHelpersBehindTheRules: the flag and operand extraction the rules are built on, so
 // that a change in the extraction cannot silently change what the rules refuse.
 func TestTheHelpersBehindTheRules(t *testing.T) {
+	checkWritesToHelper(t)
+	checkPositionalsHelper(t)
+	checkAwkProgramWritesHelper(t)
+}
+
+// checkWritesToHelper: the output flags writesTo recognises, in each of their forms.
+func checkWritesToHelper(t *testing.T) {
 	if _, ok := writesTo([]string{"-n", "in"}, "-o", "--output"); ok {
 		t.Error("a flag that is not an output flag must not be reported as one")
 	}
@@ -281,7 +288,10 @@ func TestTheHelpersBehindTheRules(t *testing.T) {
 	if got, _ := writesTo([]string{"-o", "out"}, "-o"); got != "-o" {
 		t.Errorf("the separate form must report the flag itself, got %q", got)
 	}
+}
 
+// checkPositionalsHelper: the operands positionals finds, with the per-program option table.
+func checkPositionalsHelper(t *testing.T) {
 	if got := positionals("xxd", []string{"-p", "in", "out"}); len(got) != 2 {
 		t.Errorf("positionals must skip options: %v", got)
 	}
@@ -311,7 +321,10 @@ func TestTheHelpersBehindTheRules(t *testing.T) {
 	if got := positionals("xxd", []string{"--", "-weird"}); len(got) != 1 || got[0] != "-weird" {
 		t.Errorf("after -- everything is an operand: %v", got)
 	}
+}
 
+// checkAwkProgramWritesHelper: only a real redirection inside an awk program is a write.
+func checkAwkProgramWritesHelper(t *testing.T) {
 	for _, prog := range []string{"{print}", "$1 > out", "$1>5"} {
 		if reason, bad := awkProgramWrites(prog); bad {
 			t.Errorf("%q is not a redirection, and refusing it would break real awk: %s", prog, reason)
