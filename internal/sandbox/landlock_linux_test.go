@@ -402,3 +402,17 @@ func TestAGitCommitInAConfinedWorktreeWorks(t *testing.T) {
 		t.Fatalf("exit=%d err=%v out=%q", exit, err, out)
 	}
 }
+
+// A mapping that cannot be made fails the step that needed it, instead of passing the kernel a bad address.
+func TestConfinementFailsWhenTheKernelBufferCannotBeMapped(t *testing.T) {
+	needLandlock(t)
+	real := mmapAnon
+	t.Cleanup(func() { mmapAnon = real })
+	mmapAnon = func(int, int64, int, int, int) ([]byte, error) { return nil, syscall.ENOMEM }
+	if err := confineWrites([]string{t.TempDir()}, nil); err == nil || !strings.Contains(err.Error(), "create_ruleset") {
+		t.Errorf("the ruleset buffer: %v", err)
+	}
+	if err := allowWrites(3, t.TempDir(), accessReadFile); err == nil || !strings.Contains(err.Error(), "add_rule") {
+		t.Errorf("the rule buffer: %v", err)
+	}
+}

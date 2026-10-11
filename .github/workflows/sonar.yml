@@ -1,0 +1,88 @@
+# Análisis de seguridad y calidad -> SonarQube (sonar.kodingvibes.com).
+# Sonar Community no hace análisis de taint (SQLi, XSS, path traversal...): lo hacen
+# Semgrep OSS y CodeQL, y su SARIF se importa a Sonar.
+# Secrets: SONAR_TOKEN y SONAR_HOST_URL.
+name: sonar
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: sonar-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  semgrep:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: '3.12'
+      - name: Semgrep OSS
+        run: |
+          pip install semgrep
+          semgrep scan --config p/owasp-top-ten --config p/security-audit --config p/golang \
+            --exclude node_modules --exclude vendor --exclude target --exclude dist \
+            --sarif --output semgrep.sarif --metrics=off
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: sarif-semgrep
+          path: semgrep.sarif
+
+  codeql:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - uses: github/codeql-action/init@9f759ee644a3e7c15c1390abf49868036c00067b # v3
+        with:
+          languages: go
+          queries: security-extended
+      - uses: github/codeql-action/analyze@9f759ee644a3e7c15c1390abf49868036c00067b # v3
+        with:
+          output: codeql-sarif
+      - run: cp codeql-sarif/*.sarif codeql.sarif
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: sarif-codeql
+          path: codeql.sarif
+
+  sonar:
+    permissions:
+      contents: read
+      checks: write
+      pull-requests: write
+    needs: [semgrep, codeql]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          fetch-depth: 0
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          pattern: sarif-*
+          path: sarif
+          merge-multiple: true
+      - id: sarif
+        run: echo "paths=$(ls sarif/*.sarif | paste -sd, -)" >> "$GITHUB_OUTPUT"
+      - uses: SonarSource/sonarqube-scan-action@fd88b7d7ccbaefd23d8f36f73b59db7a3d246602 # v6
+        with:
+          args: -Dsonar.sarifReportPaths=${{ steps.sarif.outputs.paths }}
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+          SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}
+      # El quality gate (seguridad, fiabilidad, mantenibilidad A y duplicación <= 3 %) bloquea el CI.
+      - uses: SonarSource/sonarqube-quality-gate-action@7a5fffe8e523c40e0c740b6bc2712ab503e52efa # v1
+        timeout-minutes: 5
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+          SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}

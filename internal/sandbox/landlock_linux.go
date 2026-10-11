@@ -9,11 +9,11 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"reflect"
 	"runtime"
 	"sort"
 	"strings"
 	"syscall"
-	"unsafe"
 )
 
 // WRITE CONFINEMENT with Landlock.
@@ -57,6 +57,25 @@ const (
 
 // landlockSyscall is the raw system call, a variable only so a test can make each call fail.
 var landlockSyscall = syscall.Syscall
+
+// mmapAnon is the anonymous mapping kernelBuffer uses, a variable only so a test can make it fail.
+var mmapAnon = syscall.Mmap
+
+// kernelBuffer copies src into memory the kernel can be pointed at, and returns its address.
+//
+// A system call takes the ADDRESS of a struct as a plain integer. Taking it from a Go slice needs
+// the unsafe package, and from a heap or stack slice it would not be stable (a stack can move
+// between taking the address and the call). An anonymous mapping lives outside the Go heap, so its
+// address cannot change and the garbage collector never sees it: no unsafe is needed to hold it.
+// release unmaps it once the call has returned.
+func kernelBuffer(src []byte) (addr uintptr, release func(), err error) {
+	buf, err := mmapAnon(-1, 0, len(src), syscall.PROT_READ|syscall.PROT_WRITE, syscall.MAP_ANON|syscall.MAP_PRIVATE)
+	if err != nil {
+		return 0, nil, err
+	}
+	copy(buf, src)
+	return reflect.ValueOf(&buf[0]).Pointer(), func() { _ = syscall.Munmap(buf) }, nil
+}
 
 // openPath opens a directory to name it in a rule, a variable so a test can make it fail.
 var openPath = syscall.Open
@@ -105,7 +124,12 @@ func confineWrites(roots, hidden []string) error {
 	}
 	attr := make([]byte, 8)
 	binary.NativeEndian.PutUint64(attr, handled)
-	fd, _, errno := landlockSyscall(sysLandlockCreateRuleset, uintptr(unsafe.Pointer(&attr[0])), uintptr(len(attr)), 0)
+	attrAddr, releaseAttr, err := kernelBuffer(attr)
+	if err != nil {
+		return fmt.Errorf("landlock_create_ruleset: %w", err)
+	}
+	fd, _, errno := landlockSyscall(sysLandlockCreateRuleset, attrAddr, uintptr(len(attr)), 0)
+	releaseAttr()
 	if errno != 0 {
 		return fmt.Errorf("landlock_create_ruleset: %w", errno)
 	}
@@ -153,8 +177,13 @@ func allowWrites(ruleset int, root string, handled uint64) error {
 	rule := make([]byte, 12)
 	binary.NativeEndian.PutUint64(rule, allowed)
 	binary.NativeEndian.PutUint32(rule[8:], uint32(fd))
-	if _, _, errno := landlockSyscall(sysLandlockAddRule, uintptr(ruleset), landlockRulePathBeneath,
-		uintptr(unsafe.Pointer(&rule[0]))); errno != 0 {
+	ruleAddr, releaseRule, err := kernelBuffer(rule)
+	if err != nil {
+		return fmt.Errorf("landlock_add_rule(%q): %w", resolved, err)
+	}
+	_, _, errno := landlockSyscall(sysLandlockAddRule, uintptr(ruleset), landlockRulePathBeneath, ruleAddr)
+	releaseRule()
+	if errno != 0 {
 		return fmt.Errorf("landlock_add_rule(%q): %w", resolved, errno)
 	}
 	return nil

@@ -50,7 +50,14 @@ func (t *TUI) announceUpdate(ctx context.Context) {
 	// Held because this runs beside the input loop, which reads the notice to paint.
 	t.draw.Lock()
 	t.Notice = offer
+	busy := t.busy
 	t.draw.Unlock()
+	// While a turn runs, the turn's goroutine is mutating the conversation and repaints after
+	// every step: the notice rides on the next of those frames. Painting from here as well would
+	// read the conversation while it is written.
+	if busy {
+		return
+	}
 	t.drawFrame()
 }
 

@@ -10,6 +10,10 @@ updates:
     directory: /
     schedule:
       interval: weekly
+    # A release is only proposed once it has been out for a few days, so a malicious or broken
+    # one is usually yanked before a pull request offers it.
+    cooldown:
+      default-days: 7
     groups:
       go:
         patterns: ["*"]
@@ -19,6 +23,10 @@ updates:
     directory: /
     schedule:
       interval: weekly
+    # A release is only proposed once it has been out for a few days, so a malicious or broken
+    # one is usually yanked before a pull request offers it.
+    cooldown:
+      default-days: 7
     groups:
       release-tooling:
         patterns: ["*"]
@@ -28,6 +36,10 @@ updates:
     directory: /web
     schedule:
       interval: weekly
+    # A release is only proposed once it has been out for a few days, so a malicious or broken
+    # one is usually yanked before a pull request offers it.
+    cooldown:
+      default-days: 7
     groups:
       web:
         patterns: ["*"]
@@ -37,6 +49,10 @@ updates:
     directory: /
     schedule:
       interval: weekly
+    # A release is only proposed once it has been out for a few days, so a malicious or broken
+    # one is usually yanked before a pull request offers it.
+    cooldown:
+      default-days: 7
     groups:
       actions:
         patterns: ["*"]

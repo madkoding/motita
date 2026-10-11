@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'preact/hooks'
+import { backdropClick, onActivate } from './a11y'
 import { t, tf } from './i18n'
 import { useDialog } from './useDialog'
 import { Spinner } from './GitConnect'
@@ -82,8 +83,8 @@ export function RepoPicker({ api, accounts, initialService, onPick, onConnectAno
 
   const current = accounts.find(a => a.id === service)
   return (
-    <div class="fixed inset-0 z-110 flex items-center justify-center bg-black/70 backdrop-blur-xs p-4" data-testid="repo-picker" onClick={onClose}>
-      <div ref={ref} data-dialog-root class="frosted rounded-2xl border border-white/10 w-full max-w-lg max-h-[85vh] flex flex-col p-5 shadow-2xl" role="dialog" aria-modal="true" aria-label={t('Choose from my repositories')} onClick={(e) => e.stopPropagation()}>
+    <div class="fixed inset-0 z-110 flex items-center justify-center bg-black/70 backdrop-blur-xs p-4" data-testid="repo-picker" role="presentation" onClick={backdropClick(onClose)}>
+      <div ref={ref} data-dialog-root class="frosted rounded-2xl border border-white/10 w-full max-w-lg max-h-[85vh] flex flex-col p-5 shadow-2xl" role="dialog" aria-modal="true" aria-label={t('Choose from my repositories')}>
         <div class="flex items-center gap-2 mb-3">
           <h2 class="flex-1 text-base font-semibold text-[#e8e8ea]">{t('Choose from my repositories')}</h2>
           <button class="p-1.5 rounded-lg hover:bg-white/5 text-[#9a9aaa]" aria-label={t('Close')} onClick={onClose}>×</button>
@@ -117,7 +118,7 @@ export function RepoPicker({ api, accounts, initialService, onPick, onConnectAno
             {repos.map((r, i) => (
               <li key={r.clone_url} id={'repo-opt-' + i} role="option" aria-selected={i === active}
                 class={'px-3 py-2 rounded-xl cursor-pointer ' + (i === active ? 'bg-white/10' : 'hover:bg-white/5')}
-                onMouseEnter={() => setActive(i)} onClick={() => pick(r)}>
+                onMouseEnter={() => setActive(i)} onClick={() => pick(r)} onKeyDown={onActivate(() => pick(r))}>
                 <div class="flex items-center gap-2 text-sm text-[#e8e8ea]">
                   <span class="flex-1 min-w-0 truncate font-medium">{r.full_name}</span>
                   {r.private && (

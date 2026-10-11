@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'preact/hooks'
+import { backdropClick } from './a11y'
 import { t, tf } from './i18n'
 import { type Api, type GitAccount, listAccounts, disconnect } from './gitApi'
 import type { LangSetting } from './i18n'
@@ -31,8 +32,8 @@ export function SettingsModal({ langSetting, langAvailable, onLang, onClose, git
   const ns = notifyState(permission, notifyOn)
   const sel = 'min-w-0 px-2 py-1 rounded-lg bg-black/30 border border-white/10 text-xs text-[#e8e8ea] focus:outline-hidden focus:border-accent'
   return (
-    <div class="fixed inset-0 z-100 flex items-center justify-center bg-black/60" data-testid="settings-modal" onClick={onClose}>
-      <div class="w-[90%] max-w-md max-h-[90vh] overflow-y-auto rounded-2xl border border-white/10 bg-surface-solid p-4 space-y-3" role="dialog" aria-label={t('Settings')} onClick={(e) => e.stopPropagation()}>
+    <div class="fixed inset-0 z-100 flex items-center justify-center bg-black/60" data-testid="settings-modal" role="presentation" onClick={backdropClick(onClose)}>
+      <div class="w-[90%] max-w-md max-h-[90vh] overflow-y-auto rounded-2xl border border-white/10 bg-surface-solid p-4 space-y-3" role="dialog" aria-label={t('Settings')}>
         <div class="flex items-center">
           <h2 class="flex-1 text-sm font-semibold text-[#e8e8ea]">{t('Settings')}</h2>
           <button class="text-[#9a9aaa] px-2" aria-label={t('Close')} onClick={onClose}>×</button>

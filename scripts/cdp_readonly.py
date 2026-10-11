@@ -12,14 +12,15 @@ sidebar, then look at the composer - and measures:
 
 Usage: GATEWAY_URL=... GATEWAY_STATE=<token file> ./cdp_readonly.py
 """
-import asyncio, base64, json, os, sys
+import asyncio, base64, json, os, sys, tempfile
 
 sys.path.insert(0, os.path.dirname(__file__))
+from cdp_http import fetch_json  # noqa: E402
 from cdp_spinner import CDP  # noqa: E402
 
 BASE = os.environ["GATEWAY_URL"]
 TOKEN = open(os.environ["GATEWAY_STATE"]).read().strip()
-SHOTS = os.environ.get("SHOTS_DIR", "/tmp/motita-readonly")
+SHOTS = os.environ.get("SHOTS_DIR") or tempfile.mkdtemp(prefix="motita-readonly-")
 failures = 0
 
 
@@ -33,11 +34,7 @@ def check(cond, msg):
 
 
 def find_merged_session():
-    import urllib.request
-    req = urllib.request.Request(BASE + "/v1/sessions",
-                                 headers={"Authorization": "Bearer " + TOKEN})
-    with urllib.request.urlopen(req, timeout=5) as r:
-        data = json.load(r)
+    data = fetch_json(BASE + "/v1/sessions", headers={"Authorization": "Bearer " + TOKEN}, timeout=5)
     for s in data.get("sessions", []):
         if s.get("merged"):
             return s
