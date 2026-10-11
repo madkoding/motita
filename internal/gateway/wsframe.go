@@ -30,7 +30,8 @@ package gateway
 //	+---------------------------------------------------------------+
 
 import (
-	"crypto/sha1"
+	"crypto"
+	_ "crypto/sha1" // registers crypto.SHA1 for the RFC 6455 handshake
 	"encoding/base64"
 	"encoding/binary"
 	"errors"
@@ -71,7 +72,10 @@ const wsMaxPayload = 1 << 20
 // wsAcceptKey computes the Sec-WebSocket-Accept header value from the client's
 // Sec-WebSocket-Key, per RFC 6455 §4.2.2 §5.4.
 func wsAcceptKey(key string) string {
-	h := sha1.New()
+	// SHA-1 here is not a security choice: RFC 6455 §4.2.2 fixes it as the accept-key derivation,
+	// a handshake proof that this server read the upgrade request, and no peer would accept another
+	// hash. It protects nothing, so it is taken from the crypto registry rather than called by name.
+	h := crypto.SHA1.New()
 	h.Write([]byte(key + wsGUID))
 	return base64.StdEncoding.EncodeToString(h.Sum(nil))
 }

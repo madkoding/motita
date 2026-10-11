@@ -685,8 +685,8 @@ func (s *Server) page(mux *http.ServeMux, pattern, name string) {
 // DERIVED value, not the token (see cookieValue). It is NOT harmless: it authorises the whole
 // API from this browser. What it cannot do is serve as the bearer token or mint another cookie,
 // and a state-changing request it authorises must also pass crossSiteRefusal.
-func (s *Server) handleWebUISession(w http.ResponseWriter, _ *http.Request) {
-	http.SetCookie(w, &http.Cookie{
+func (s *Server) handleWebUISession(w http.ResponseWriter, r *http.Request) {
+	c := &http.Cookie{
 		Name:  webuiCookie,
 		Value: cookieValue(s.opts.Token),
 		Path:  "/",
@@ -700,25 +700,38 @@ func (s *Server) handleWebUISession(w http.ResponseWriter, _ *http.Request) {
 		// Long-lived because it is derived, not stored: it stays valid until the token rotates,
 		// and rotating the token invalidates it with nothing to clean up.
 		MaxAge: 30 * 24 * 3600,
-		// NOT Secure, deliberately: this gateway speaks plain http (there is no TLS, and the
-		// supported remote path is an SSH tunnel). A Secure cookie is one a browser refuses to
-		// send over http, so setting it would look more careful and silently break the
-		// interface - the browser would never stay connected, with nothing in any log to say why.
-	})
+	}
+	markSecure(c, r)
+	http.SetCookie(w, c)
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// markSecure sets Secure on the cookie whenever the browser reached the gateway over TLS, directly
+// or through a proxy that terminates it (X-Forwarded-Proto). It is NOT set over plain http,
+// deliberately: the gateway has no TLS of its own (the supported remote path is an SSH tunnel), and a
+// Secure cookie is one a browser refuses to send over http, so setting it there would silently break
+// the interface - the browser would never stay connected, with nothing in any log to say why.
+func markSecure(c *http.Cookie, r *http.Request) {
+	if r.TLS != nil || strings.EqualFold(r.Header.Get("X-Forwarded-Proto"), "https") {
+		c.Secure = true
+	}
 }
 
 // handleWebUILogout clears the browser's cookie so the blocking auth modal
 // reappears. It is the complement to handleWebUISession: one mints a cookie,
 // the other removes it. No credential is required because the caller is, by
 // definition, a browser that holds a credential that no longer works.
-func (s *Server) handleWebUILogout(w http.ResponseWriter, _ *http.Request) {
-	http.SetCookie(w, &http.Cookie{
-		Name:   webuiCookie,
-		Value:  "",
-		Path:   "/",
-		MaxAge: -1, // delete immediately
-	})
+func (s *Server) handleWebUILogout(w http.ResponseWriter, r *http.Request) {
+	c := &http.Cookie{
+		Name:     webuiCookie,
+		Value:    "",
+		Path:     "/",
+		HttpOnly: true,
+		SameSite: http.SameSiteStrictMode,
+		MaxAge:   -1, // delete immediately
+	}
+	markSecure(c, r)
+	http.SetCookie(w, c)
 	w.WriteHeader(http.StatusNoContent)
 }
 
