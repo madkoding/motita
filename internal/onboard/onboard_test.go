@@ -97,12 +97,14 @@ func TestClaudeCodeAsksForNoKey(t *testing.T) {
 			t.Errorf("the wizard asked for %q", asked)
 		}
 	}
-	if !strings.Contains(plain, "$ claude auth login") || !strings.Contains(plain, "https://code.claude.com/docs/en/setup") {
+	if !strings.Contains(plain, "$ claude auth login") ||
+		!strings.Contains(plain, "https://code.claude.com/docs/en/setup") {
 		t.Errorf("the summary must say how to log in:\n%s", plain)
 	}
 	content, _ := os.ReadFile(res.ConfigPath)
 	text := string(content)
-	for _, want := range []string{"provider: claude-code", "model: sonnet", `base_url: ""`, "No key is needed", "`claude auth login`"} {
+	for _, want := range []string{"provider: claude-code", "model: sonnet", `base_url: ""`, "No key is needed",
+		"`claude auth login`"} {
 		if !strings.Contains(text, want) {
 			t.Errorf("the configuration lacks %q:\n%s", want, text)
 		}
@@ -129,7 +131,8 @@ func TestNothingIsWrittenWhenTheUserCancels(t *testing.T) {
 
 	// EOF (a pipe with no input) is a cancellation too.
 	var out bytes.Buffer
-	if _, err := Run(context.Background(), strings.NewReader(""), &out, path, Answers{}, fixedTime()); err != ErrCancelled {
+	if _, err := Run(context.Background(), strings.NewReader(""), &out, path, Answers{},
+		fixedTime()); err != ErrCancelled {
 		t.Errorf("EOF = %v, want ErrCancelled", err)
 	}
 	if _, statErr := os.Stat(path); !os.IsNotExist(statErr) {
@@ -246,7 +249,8 @@ func TestChooseProviderTakesTheDefault(t *testing.T) {
 // and a number outside the list is refused.
 func TestChooseProviderRejectsGarbage(t *testing.T) {
 	dir := t.TempDir()
-	out, res, err := run(context.Background(), t, dir, []string{"nonsense", "9", "openai", "", "", "1", "3", ""}, Answers{})
+	out, res, err := run(context.Background(), t, dir, []string{"nonsense", "9", "openai", "", "", "1", "3", ""},
+		Answers{})
 	if err != nil {
 		t.Fatalf("Run: %v", err)
 	}
@@ -305,7 +309,8 @@ func TestOllamaKeyPromptError(t *testing.T) {
 		time.Sleep(20 * time.Millisecond)
 		cancel()
 	}()
-	_, err := Run(ctx, strings.NewReader("ollama\n"), io.Discard, filepath.Join(dir, "config.yaml"), Answers{}, fixedTime())
+	_, err := Run(ctx, strings.NewReader("ollama\n"), io.Discard, filepath.Join(dir, "config.yaml"), Answers{},
+		fixedTime())
 	if !errors.Is(err, ErrCancelled) {
 		t.Fatalf("err = %v, want ErrCancelled", err)
 	}
@@ -423,7 +428,8 @@ func ownModel(p Provider, id string) bool {
 // models appear faster than any list can follow.
 func TestChooseModelAcceptsAFreeTextID(t *testing.T) {
 	dir := t.TempDir()
-	_, res, err := run(context.Background(), t, dir, []string{"openai", "", "", "gpt-5.2-turbo-experimental", "3", ""}, Answers{})
+	_, res, err := run(context.Background(), t, dir, []string{"openai", "", "", "gpt-5.2-turbo-experimental", "3", ""},
+		Answers{})
 	if err != nil {
 		t.Fatalf("Run: %v", err)
 	}
@@ -517,7 +523,8 @@ func TestOllamaWizardFallsBackToBuiltInListWhenEmpty(t *testing.T) {
 func TestOllamaWizardAcceptsPresetBaseURL(t *testing.T) {
 	dir := t.TempDir()
 	stubOllamaModels(t, []string{"llama3.3"})
-	_, res, err := run(context.Background(), t, dir, []string{"", "3", ""}, Answers{Provider: "ollama", APIKey: "preset-key", BaseURL: "http://localhost:11434/v1"})
+	_, res, err := run(context.Background(), t, dir, []string{"", "3", ""},
+		Answers{Provider: "ollama", APIKey: "preset-key", BaseURL: "http://localhost:11434/v1"})
 	if err != nil {
 		t.Fatalf("Run: %v", err)
 	}
@@ -552,7 +559,8 @@ func TestListOllamaModelsWrapperUsesTheAPI(t *testing.T) {
 	defer func() { modelLister = old }()
 
 	dir := t.TempDir()
-	_, res, err := run(context.Background(), t, dir, []string{"ollama", "", "3", ""}, Answers{BaseURL: srv.URL + "/v1", APIKey: "test-key"})
+	_, res, err := run(context.Background(), t, dir, []string{"ollama", "", "3", ""},
+		Answers{BaseURL: srv.URL + "/v1", APIKey: "test-key"})
 	if err != nil {
 		t.Fatalf("Run: %v", err)
 	}
@@ -566,7 +574,8 @@ func TestListOllamaModelsWrapperUsesTheAPI(t *testing.T) {
 func TestOllamaWizardUsesPresetKey(t *testing.T) {
 	stubOllamaModels(t, []string{"llama3.3", "qwen2.5"})
 	dir := t.TempDir()
-	out, res, err := run(context.Background(), t, dir, []string{"2", "", "3", ""}, Answers{Provider: "ollama", APIKey: "preset-key"})
+	out, res, err := run(context.Background(), t, dir, []string{"2", "", "3", ""},
+		Answers{Provider: "ollama", APIKey: "preset-key"})
 	if err != nil {
 		t.Fatalf("Run: %v", err)
 	}
@@ -1154,7 +1163,8 @@ func TestChooseBaseURLUsesTheDefault(t *testing.T) {
 // TestChooseBaseURLAcceptsACustomEndpoint: any OpenAI-compatible URL works.
 func TestChooseBaseURLAcceptsACustomEndpoint(t *testing.T) {
 	dir := t.TempDir()
-	_, res, err := run(context.Background(), t, dir, []string{"openai", "https://ollama.com/v1", "", "1", "3", ""}, Answers{})
+	_, res, err := run(context.Background(), t, dir, []string{"openai", "https://ollama.com/v1", "", "1", "3", ""},
+		Answers{})
 	if err != nil {
 		t.Fatalf("Run: %v", err)
 	}
@@ -1167,7 +1177,8 @@ func TestChooseBaseURLAcceptsACustomEndpoint(t *testing.T) {
 // TestChooseBaseURLRejectsGarbage: a URL without scheme is explained and asked again.
 func TestChooseBaseURLRejectsGarbage(t *testing.T) {
 	dir := t.TempDir()
-	out, res, err := run(context.Background(), t, dir, []string{"openai", "not-a-url", "https://ollama.com/v1", "", "1", "3", ""}, Answers{})
+	out, res, err := run(context.Background(), t, dir,
+		[]string{"openai", "not-a-url", "https://ollama.com/v1", "", "1", "3", ""}, Answers{})
 	if err != nil {
 		t.Fatalf("Run: %v", err)
 	}
@@ -1275,7 +1286,8 @@ func TestOllamaLocalAsksForNoKey(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Run: %v", err)
 	}
-	if gotURL != "http://localhost:11434/v1" || gotKey != "" || res.Model != "llama3.3" || !res.Keyless || res.CredentialsPath != "" {
+	if gotURL != "http://localhost:11434/v1" || gotKey != "" || res.Model != "llama3.3" || !res.Keyless ||
+		res.CredentialsPath != "" {
 		t.Errorf("url=%q key=%q res=%+v", gotURL, gotKey, res)
 	}
 	if strings.Contains(stripANSI(out), "Paste the key") {
@@ -1307,7 +1319,8 @@ func TestALoginIsNotWrittenAsAKey(t *testing.T) {
 func TestChooseOllamaHostChoices(t *testing.T) {
 	stubOllamaModels(t, []string{"m"})
 	dir := t.TempDir()
-	_, res, err := run(context.Background(), t, dir, []string{"ollama", "9", "3", "not-a-url", "3", "http://gpu-box:11434/v1/", "", "3", ""}, Answers{})
+	_, res, err := run(context.Background(), t, dir,
+		[]string{"ollama", "9", "3", "not-a-url", "3", "http://gpu-box:11434/v1/", "", "3", ""}, Answers{})
 	if err != nil {
 		t.Fatalf("Run: %v", err)
 	}
@@ -1328,7 +1341,8 @@ func TestChooseOllamaHostChoices(t *testing.T) {
 
 func TestPresetBaseURLForAnOpenAIHost(t *testing.T) {
 	dir := t.TempDir()
-	_, res, err := run(context.Background(), t, dir, []string{"k", "", "3"}, Answers{Provider: "openai", BaseURL: "https://api.groq.com/openai/v1"})
+	_, res, err := run(context.Background(), t, dir, []string{"k", "", "3"},
+		Answers{Provider: "openai", BaseURL: "https://api.groq.com/openai/v1"})
 	if err != nil {
 		t.Fatal(err)
 	}

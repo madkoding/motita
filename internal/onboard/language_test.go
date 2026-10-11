@@ -95,14 +95,18 @@ func TestTheLanguageSettingIsWrittenBack(t *testing.T) {
 			t.Errorf("setting %q: want %q in:\n%s", setting, want, got)
 		}
 	}
-	if got := string(renderConfig(configValues{provider: "openai", model: "m"})); !strings.Contains(got, "ui:\n") || !strings.Contains(got, "language: auto") {
+	if got := string(renderConfig(configValues{provider: "openai", model: "m"})); !strings.Contains(got, "ui:\n") ||
+		!strings.Contains(got, "language: auto") {
 		t.Errorf("a configuration rendered with no language records auto:\n%s", got)
 	}
 }
 
 // TestLanguageAnswers: the names a user types for each language, in either of them.
 func TestLanguageAnswers(t *testing.T) {
-	for answer, want := range map[string]i18n.Lang{"es": i18n.ES, "Español": i18n.ES, "spanish": i18n.ES, "EN": i18n.EN, "inglés": i18n.EN, "English": i18n.EN} { // spanish-fixture: typed answers
+	for answer, want := range map[string]i18n.Lang{
+		"es": i18n.ES, "Español": i18n.ES, "spanish": i18n.ES, // spanish-fixture: typed answers
+		"EN": i18n.EN, "inglés": i18n.EN, "English": i18n.EN, // spanish-fixture: typed answers
+	} {
 		if got, ok := languageAnswer(answer); !ok || got != want {
 			t.Errorf("languageAnswer(%q) = %q, %v", answer, got, ok)
 		}
