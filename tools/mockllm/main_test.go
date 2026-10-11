@@ -346,8 +346,8 @@ func TestTheSynthesisReplyIsAFullStructuredReport(t *testing.T) {
 	if err := json.Unmarshal([]byte(contentJSON("synthesize", 1)), &rep); err != nil {
 		t.Fatalf("the synthesis reply is not JSON: %v", err)
 	}
-	if rep.Status != "done" || rep.Summary == "" || len(rep.Changes) == 0 || len(rep.Verification) < 2 ||
-		len(rep.Risks) == 0 || len(rep.NextSteps) == 0 {
+	missing := rep.Status != "done" || rep.Summary == "" || len(rep.Changes) == 0
+	if missing || len(rep.Verification) < 2 || len(rep.Risks) == 0 || len(rep.NextSteps) == 0 {
 		t.Errorf("the report is missing a section: %+v", rep)
 	}
 }
