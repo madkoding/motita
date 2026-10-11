@@ -102,7 +102,7 @@ test('every string of the pull request bar has a Spanish translation', () => {
     block += app.slice(at, app.indexOf('── end of the pull request bar', at))
   }
   assert.ok(block.length > 1000, 'the bar is delimited in App.tsx')
-  const keys = [...block.matchAll(/\bt[f]?\('((?:[^'\\]|\\.)*)'/g)].map(m => m[1].replace(/\\'/g, "'"))
+  const keys = [...block.matchAll(/\btf?\('((?:[^'\\]|\\.)*)'/g)].map(m => m[1].replaceAll("\\'", "'"))
   assert.ok(keys.length > 5)
   for (const k of keys) { assert.ok(es[k], `missing Spanish for: ${k}`) }
 })

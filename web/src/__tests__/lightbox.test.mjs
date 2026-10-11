@@ -6,7 +6,6 @@ import assert from 'node:assert/strict'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { dirname, join } from 'node:path'
 import { mkdtempSync, rmSync } from 'node:fs'
-import { tmpdir } from 'node:os'
 import { JSDOM } from 'jsdom'
 import { build } from 'esbuild'
 
@@ -33,7 +32,7 @@ test('zoom, fit, pair navigation and close work', async () => {
   const root = document.createElement('div')
   document.body.appendChild(root)
   let closed = 0
-  render(h(Lightbox, { images: [{ src: 'a.png', label: 'A' }, { src: 'b.png', label: 'B' }], start: 0, onClose: () => closed++ }), root)
+  render(h(Lightbox, { images: [{ src: 'a.png', label: 'A' }, { src: 'b.png', label: 'B' }], start: 0, onClose: () => { closed++ } }), root)
   await tick()
   const zoom = () => root.querySelector('[data-testid=lightbox-zoom]').textContent
   const img = () => root.querySelector('.lb-img').getAttribute('src')
