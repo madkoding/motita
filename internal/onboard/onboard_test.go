@@ -354,29 +354,7 @@ func TestChooseModelIsLimitedToTheProvider(t *testing.T) {
 	stubDirectAuth(t, "stub-token")
 	for _, p := range Providers() {
 		dir := t.TempDir()
-		// Ollama asks for the key before the model and fetches the live catalogue.
-		// Providers with SupportsDirectAuth ask an extra question (how to
-		// authenticate) before the key prompt.
-		var answers []string
-		switch {
-		case p.FetchModels:
-			stubOllamaModels(t, []string{"llama3.3", "qwen2.5"})
-			// provider, host (cloud), key, model, anchor, save
-			answers = []string{p.ID, "2", "dummy-key", "", "3", ""}
-		case p.SupportsDirectAuth:
-			// provider, auth (direct), model, anchor (no check), save
-			answers = []string{p.ID, "1", "", "3", ""}
-		case p.Login != "":
-			// provider, model, anchor, save: a login of its own needs nothing else
-			answers = []string{p.ID, "", "3", ""}
-		case p.AskBaseURL:
-			// provider, endpoint, key, model, anchor, save
-			answers = []string{p.ID, "", "", "", "3", ""}
-		default:
-			// provider, key, model, anchor, save
-			answers = []string{p.ID, "", "", "3", ""}
-		}
-		out, res, err := run(context.Background(), t, dir, answers, Answers{})
+		out, res, err := run(context.Background(), t, dir, modelAnswers(t, p), Answers{})
 		if err != nil {
 			t.Fatalf("%s: Run: %v", p.ID, err)
 		}
@@ -393,22 +371,51 @@ func TestChooseModelIsLimitedToTheProvider(t *testing.T) {
 		if !menuEntryPresent(out, wantModel) {
 			t.Errorf("%s: the menu does not list its own first model %q:\n%s", p.ID, wantModel, stripANSI(out))
 		}
-		// No model of any other provider may appear in the menu. Model IDs and
-		// even label substrings can legitimately overlap across providers (gpt-4o
-		// is offered by both openai and copilot), so the check looks for the
-		// label as a MENU ENTRY — the exact "  N. Label" pattern — rather than as
-		// a bare substring, which would match inside another provider's label.
-		for _, other := range Providers() {
-			if other.ID == p.ID {
-				continue
+		checkNoForeignModels(t, p, out)
+	}
+}
+
+// modelAnswers is what a user types to reach the model menu of a provider and save.
+// Ollama asks for the key before the model and fetches the live catalogue.
+// Providers with SupportsDirectAuth ask an extra question (how to
+// authenticate) before the key prompt.
+func modelAnswers(t *testing.T, p Provider) []string {
+	switch {
+	case p.FetchModels:
+		stubOllamaModels(t, []string{"llama3.3", "qwen2.5"})
+		// provider, host (cloud), key, model, anchor, save
+		return []string{p.ID, "2", "dummy-key", "", "3", ""}
+	case p.SupportsDirectAuth:
+		// provider, auth (direct), model, anchor (no check), save
+		return []string{p.ID, "1", "", "3", ""}
+	case p.Login != "":
+		// provider, model, anchor, save: a login of its own needs nothing else
+		return []string{p.ID, "", "3", ""}
+	case p.AskBaseURL:
+		// provider, endpoint, key, model, anchor, save
+		return []string{p.ID, "", "", "", "3", ""}
+	default:
+		// provider, key, model, anchor, save
+		return []string{p.ID, "", "", "3", ""}
+	}
+}
+
+// checkNoForeignModels: no model of any other provider may appear in the menu. Model IDs and
+// even label substrings can legitimately overlap across providers (gpt-4o
+// is offered by both openai and copilot), so the check looks for the
+// label as a MENU ENTRY — the exact "  N. Label" pattern — rather than as
+// a bare substring, which would match inside another provider's label.
+func checkNoForeignModels(t *testing.T, p Provider, out string) {
+	for _, other := range Providers() {
+		if other.ID == p.ID {
+			continue
+		}
+		for _, m := range other.Models {
+			if ownModel(p, m.ID) {
+				continue // the same id offered by both (gpt-4.1 by OpenAI and Copilot)
 			}
-			for _, m := range other.Models {
-				if ownModel(p, m.ID) {
-					continue // the same id offered by both (gpt-4.1 by OpenAI and Copilot)
-				}
-				if menuEntryPresent(out, m.ID) {
-					t.Errorf("%s: the menu offers %s, from %s", p.ID, m.Label, other.ID)
-				}
+			if menuEntryPresent(out, m.ID) {
+				t.Errorf("%s: the menu offers %s, from %s", p.ID, m.Label, other.ID)
 			}
 		}
 	}
@@ -1209,20 +1216,7 @@ func TestWriteFileAtomicReportsEveryFilesystemFailure(t *testing.T) {
 	dir := t.TempDir()
 	target := filepath.Join(dir, "config.yaml")
 
-	t.Run("create", func(t *testing.T) {
-		saved := createTemp
-		defer func() { createTemp = saved }()
-		createTemp = func(string, string) (*os.File, error) {
-			return nil, errors.New("no space left on device")
-		}
-		if err := writeFileAtomic(target, []byte("x")); err == nil {
-			t.Error("a failed create must be reported")
-		} else if !strings.Contains(err.Error(), "no space left") {
-			t.Errorf("err = %v", err)
-		} else {
-			// the expected outcome: nothing more to check
-		}
-	})
+	t.Run("create", func(t *testing.T) { checkAtomicWriteCreateFailure(t, target) })
 
 	t.Run("chmod", func(t *testing.T) {
 		saved := chmodFile
@@ -1271,6 +1265,23 @@ func TestWriteFileAtomicReportsEveryFilesystemFailure(t *testing.T) {
 			t.Error("a failed write must be reported")
 		}
 	})
+}
+
+// checkAtomicWriteCreateFailure: a temporary file that cannot be created is reported with
+// its cause.
+func checkAtomicWriteCreateFailure(t *testing.T, target string) {
+	saved := createTemp
+	defer func() { createTemp = saved }()
+	createTemp = func(string, string) (*os.File, error) {
+		return nil, errors.New("no space left on device")
+	}
+	if err := writeFileAtomic(target, []byte("x")); err == nil {
+		t.Error("a failed create must be reported")
+	} else if !strings.Contains(err.Error(), "no space left") {
+		t.Errorf("err = %v", err)
+	} else {
+		// the expected outcome: nothing more to check
+	}
 }
 
 // TestOllamaLocalAsksForNoKey: a local Ollama takes no key, and the wizard used to
