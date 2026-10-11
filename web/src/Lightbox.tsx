@@ -55,7 +55,9 @@ export function Lightbox({ images, start, onClose }: { images: LightboxImage[]; 
   useDialog(root, onClose)
 
   const reset = () => apply({ zoom: 1, x: 0, y: 0 })
-  const go = (i: number) => { setIndex((i + images.length) % images.length); reset() }
+  // step moves from the CURRENT index (a functional update), so two key presses that land before
+  // the next render still move twice instead of reading the same stale index.
+  const step = (by: number) => { setIndex(i => (i + by + images.length) % images.length); reset() }
   // zoomAt keeps the point under the pointer fixed while the scale changes.
   const zoomAt = (factor: number, cx = 0, cy = 0) => {
     const v = live.current
@@ -82,8 +84,8 @@ export function Lightbox({ images, start, onClose }: { images: LightboxImage[]; 
       ['1', actual],
     ])
     if (images.length > 1) {
-      keys.set('ArrowRight', () => go(index + 1))
-      keys.set('ArrowLeft', () => go(index - 1))
+      keys.set('ArrowRight', () => step(1))
+      keys.set('ArrowLeft', () => step(-1))
     }
     const onKey = (e: KeyboardEvent) => {
       const all = document.querySelectorAll('[data-dialog-root]')
@@ -125,8 +127,8 @@ export function Lightbox({ images, start, onClose }: { images: LightboxImage[]; 
         <button type="button" class="btn-outline" aria-label={t('Zoom in')} onClick={() => zoomAt(ZOOM_STEP)}>+</button>
         <button type="button" class="btn-outline" onClick={reset}>{t('Fit')}</button>
         <button type="button" class="btn-outline" onClick={actual}>1:1</button>
-        {images.length > 1 && <button type="button" class="btn-outline" aria-label={t('Previous image')} onClick={() => go(index - 1)}>‹</button>}
-        {images.length > 1 && <button type="button" class="btn-outline" aria-label={t('Next image')} onClick={() => go(index + 1)}>›</button>}
+        {images.length > 1 && <button type="button" class="btn-outline" aria-label={t('Previous image')} onClick={() => step(-1)}>‹</button>}
+        {images.length > 1 && <button type="button" class="btn-outline" aria-label={t('Next image')} onClick={() => step(1)}>›</button>}
         <button type="button" class="btn-outline" data-autofocus aria-label={t('Close')} onClick={onClose}>✕</button>
       </div>
       <div ref={stage} class="lb-stage">
