@@ -98,7 +98,8 @@ func TestAnOldFailingCheckMustFailTheSameWay(t *testing.T) {
 	// A new failure line, or a different exit code: not pre-existing.
 	for _, r := range []Result{now(1, "FAIL: lint missing", "--- FAIL: TestNew"), now(2, "FAIL: lint missing")} {
 		got := WithBaseline(r, before)
-		if got.Pass || got.Checks[0].PreExisting || !strings.HasSuffix(got.Reason, "; failing before this change, but differently now: test") {
+		if got.Pass || got.Checks[0].PreExisting ||
+			!strings.HasSuffix(got.Reason, "; failing before this change, but differently now: test") {
 			t.Errorf("a different failure must keep the result failed: %+v", got)
 		}
 	}
@@ -107,7 +108,8 @@ func TestAnOldFailingCheckMustFailTheSameWay(t *testing.T) {
 // TestFailureSignature: the failure lines of an output, with the run's directory and the numbers
 // normalised so the baseline's checkout and the workspace read the same.
 func TestFailureSignature(t *testing.T) {
-	out := "ok  \tpkg/a\t0.10s\n--- FAIL: TestX (0.31s)\n/work/tree/x.go:12: error: boom\n--- FAIL: TestX (0.02s)\n--- PASS: TestErrorHandling\n"
+	out := "ok  \tpkg/a\t0.10s\n--- FAIL: TestX (0.31s)\n/work/tree/x.go:12: error: boom\n--- FAIL: TestX (0.02s)\n--- " +
+		"PASS: TestErrorHandling\n"
 	got := failureSignature(out, "/work/tree")
 	want := []string{"--- FAIL: TestX (#.#s)", "<dir>/x.go:#: error: boom"}
 	if strings.Join(got, "|") != strings.Join(want, "|") {

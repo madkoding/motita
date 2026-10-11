@@ -364,7 +364,8 @@ func TestPlannedNamesTheGateWithoutRunningIt(t *testing.T) {
 	}
 	writeFile(t, dir, "package.json", `{"scripts":{"lint":"eslint .","test":"vitest run"}}`)
 	got := autoAnchor(dir).Planned()
-	if len(got) != 2 || got[0].Command != "npm" || strings.Join(got[0].Args, " ") != "run lint" || got[1].Name != "npm test" {
+	if len(got) != 2 || got[0].Command != "npm" || strings.Join(got[0].Args, " ") != "run lint" ||
+		got[1].Name != "npm test" {
 		t.Fatalf("planned = %+v", got)
 	}
 	if _, err := os.Stat(filepath.Join(dir, "node_modules")); err == nil {
