@@ -271,12 +271,8 @@ func sortRule(args []string) (string, bool) {
 				return reason, true
 			}
 		case strings.HasPrefix(a, "-"):
-			takesNext, reason, bad := sortShort(a)
-			if bad {
+			if reason, bad := sortShort(a, &i); bad {
 				return reason, true
-			}
-			if takesNext {
-				i++
 			}
 		default:
 			// An operand: a file sort reads.
@@ -298,17 +294,20 @@ func sortLong(a string) (string, bool) {
 	}
 }
 
-// sortShort reads a cluster of short sort options: `-o` is refused, and takesNext says the
-// last option's value is the next argument.
-func sortShort(a string) (takesNext bool, reason string, bad bool) {
+// sortShort reads a cluster of short sort options: `-o` is refused, and *i moves past the next
+// argument when it is the last option's value.
+func sortShort(a string, i *int) (string, bool) {
 	for j := 1; j < len(a); j++ {
 		if a[j] == 'o' {
-			return false, fmt.Sprintf("sort %s writes a file", a), true
+			return fmt.Sprintf("sort %s writes a file", a), true
 		}
 		if strings.IndexByte("ktST", a[j]) >= 0 {
 			// The rest of the token, or the next one, is this option's value.
-			return j == len(a)-1, "", false
+			if j == len(a)-1 {
+				*i++
+			}
+			return "", false
 		}
 	}
-	return false, "", false
+	return "", false
 }

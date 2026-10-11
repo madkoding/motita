@@ -65,12 +65,8 @@ func dateRule(args []string) (string, bool) {
 		case strings.HasPrefix(a, "--"):
 			// Every other long option only formats the date.
 		case strings.HasPrefix(a, "-") && len(a) > 1:
-			takesNext, sets := dateShort(a)
-			if sets {
+			if dateShort(a, &i) {
 				return fmt.Sprintf("date %s sets the clock", a), true
-			}
-			if takesNext {
-				i++
 			}
 		case !strings.HasPrefix(a, "+"):
 			return fmt.Sprintf("date %s sets the clock", a), true
@@ -81,22 +77,25 @@ func dateRule(args []string) (string, bool) {
 	return "", false
 }
 
-// dateShort reads a cluster of short date options: sets says it holds -s, and takesNext that
-// the last option's value is the next argument.
-func dateShort(a string) (takesNext, sets bool) {
+// dateShort reads a cluster of short date options and reports whether it holds -s. *i moves past
+// the next argument when it is the last option's value.
+func dateShort(a string, i *int) bool {
 	for j := 1; j < len(a); j++ {
 		if a[j] == 's' {
-			return false, true
+			return true
 		}
 		if a[j] == 'I' {
 			// -I takes an optional value, glued only: the rest of the token is it.
-			return false, false
+			return false
 		}
 		if strings.IndexByte("dfr", a[j]) >= 0 {
-			return j == len(a)-1, false
+			if j == len(a)-1 {
+				*i++
+			}
+			return false
 		}
 	}
-	return false, false
+	return false
 }
 
 // hostnameSetting are the hostname options that set it, from a file or for the boot.
