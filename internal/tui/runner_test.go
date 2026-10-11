@@ -114,7 +114,10 @@ func TestAppRunnerRunConfig(t *testing.T) {
 		oldStdin := os.Stdin
 		r2, w2, _ := os.Pipe()
 		os.Stdin = r2
-		defer func() { os.Stdin = oldStdin; r2.Close() }()
+		defer func() {
+			os.Stdin = oldStdin
+			r2.Close()
+		}()
 		go func() {
 			defer w2.Close()
 			w2.WriteString("openai\n\n\n1\n3\n\n")
@@ -433,7 +436,10 @@ func TestRunConfigWithoutHomeUsesTheWorkingDirectory(t *testing.T) {
 		oldStdin := os.Stdin
 		r2, w2, _ := os.Pipe()
 		os.Stdin = r2
-		defer func() { os.Stdin = oldStdin; r2.Close() }()
+		defer func() {
+			os.Stdin = oldStdin
+			r2.Close()
+		}()
 		go func() {
 			defer w2.Close()
 			w2.WriteString("openai\n\n\n1\n3\n\n")

@@ -134,7 +134,10 @@ func TestTheSetupFieldIsTheWizardThatRuns(t *testing.T) {
 	runner := &fakeRunner{}
 	tu := newFakeTUI("/config\nq\n", runner)
 	ran := false
-	tu.Setup = func(context.Context) error { ran = true; return nil }
+	tu.Setup = func(context.Context) error {
+		ran = true
+		return nil
+	}
 	tu.Run(context.Background())
 	if !ran || runner.configCalled {
 		t.Errorf("the Setup field must run instead of the runner's wizard (setup=%v runner=%v)", ran, runner.configCalled)

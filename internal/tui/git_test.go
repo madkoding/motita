@@ -135,7 +135,10 @@ func newGitRig(t *testing.T, env map[string]string, steps ...scriptStep) *gitRig
 	r.tu.gitStore = func() gitforge.Store {
 		return gitforge.Store{Dir: r.dir, HTTP: r.http, Env: func(k string) string { return env[k] }}
 	}
-	r.tu.openURL = func(u string) error { r.opened = append(r.opened, u); return nil }
+	r.tu.openURL = func(u string) error {
+		r.opened = append(r.opened, u)
+		return nil
+	}
 	r.tu.gitLine = r.script.read
 	return r
 }
