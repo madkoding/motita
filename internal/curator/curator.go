@@ -47,7 +47,9 @@ type Curator struct {
 // New creates a curator. The engine is used only for the opt-in LLM
 // consolidation pass; the deterministic pass needs no LLM. buildRunner is the
 // factory for the consolidation fork's SkillRunner (same as the review fork's).
-func New(cfg config.Curator, procs *procedures.Store, engine *llm.Client, log *logx.Logger, buildRunner review.RunnerBuilder) *Curator {
+func New(
+	cfg config.Curator, procs *procedures.Store, engine *llm.Client, log *logx.Logger, buildRunner review.RunnerBuilder,
+) *Curator {
 	return &Curator{
 		cfg:         cfg,
 		procs:       procs,
@@ -115,6 +117,8 @@ func (c *Curator) RunWith(ctx context.Context, opts RunOptions) (*PassReport, er
 				c.log.Warn("curator consolidation failed", "error", err)
 			}
 		}
+	default:
+		// Consolidation is off and was not asked for: the deterministic pass is the whole run.
 	}
 
 	return report, c.saveState(report)
@@ -165,43 +169,49 @@ func (c *Curator) decide() []action {
 
 	var out []action
 	for name, entry := range entries {
-		if entry.CreatedBy != usage.ByAgent {
+		if !c.judged(entry, staleAfter) {
 			continue
 		}
-		// A skill the user turned off is not the curator's to age. "Disabled" is a
-		// decision about USING it, and archiving it would turn that decision into a
-		// disappearance from the list the user asked to keep it in.
-		if entry.Disabled {
-			continue
-		}
-		if entry.Pinned {
-			continue
-		}
-
-		// Never archive a never-used skill younger than stale_after_days.
-		age := c.now().Sub(entry.CreatedAt)
-		if entry.UseCount == 0 && age < staleAfter {
-			continue
-		}
-
-		lastActivity := entry.LastUsedAt
-		if entry.LastPatchedAt.After(lastActivity) {
-			lastActivity = entry.LastPatchedAt
-		}
-		if lastActivity.IsZero() {
-			lastActivity = entry.CreatedAt
-		}
-		idle := c.now().Sub(lastActivity)
+		idle := c.now().Sub(lastActivity(entry))
 
 		switch {
 		case idle >= archiveAfter && entry.State != usage.StateArchived:
 			out = append(out, action{name: name, archive: true})
 		case idle >= staleAfter && entry.State == usage.StateActive:
 			out = append(out, action{name: name})
+		default:
+			// Not idle long enough, or already in the state its idleness calls for.
 		}
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].name < out[j].name })
 	return out
+}
+
+// judged reports whether the deterministic pass may age a skill at all.
+func (c *Curator) judged(entry usage.Entry, staleAfter time.Duration) bool {
+	// Only the agent's own skills. A skill the user turned off is not the curator's to age
+	// either: "Disabled" is a decision about USING it, and archiving it would turn that
+	// decision into a disappearance from the list the user asked to keep it in. Pinned skills
+	// are exempt at any age.
+	if entry.CreatedBy != usage.ByAgent || entry.Disabled || entry.Pinned {
+		return false
+	}
+	// Never archive a never-used skill younger than stale_after_days.
+	age := c.now().Sub(entry.CreatedAt)
+	return entry.UseCount != 0 || age >= staleAfter
+}
+
+// lastActivity is when a skill was last touched: its last use or its last patch, whichever is
+// later, and its creation when it has neither.
+func lastActivity(entry usage.Entry) time.Time {
+	last := entry.LastUsedAt
+	if entry.LastPatchedAt.After(last) {
+		last = entry.LastPatchedAt
+	}
+	if last.IsZero() {
+		last = entry.CreatedAt
+	}
+	return last
 }
 
 // apply performs the actions and counts them.
@@ -316,6 +326,8 @@ func (c *Curator) Status() string {
 					stale++
 				case usage.StateArchived:
 					archived++
+				default:
+					// Any other state is counted in the total only.
 				}
 			}
 		}
@@ -341,10 +353,12 @@ var jsonMarshalIndent = func(v any, prefix, indent string) ([]byte, error) {
 }
 
 func (c *Curator) saveState(report *PassReport) error {
+	summary := fmt.Sprintf("auto: %d stale, %d archived; llm: %s",
+		report.Stale, report.Archived, boolLabel(c.cfg.Consolidate, "ran", "skipped"))
 	state := curatorState{
 		LastRunAt:   report.RunAt,
 		RunCount:    c.runCount(),
-		LastSummary: fmt.Sprintf("auto: %d stale, %d archived; llm: %s", report.Stale, report.Archived, boolLabel(c.cfg.Consolidate, "ran", "skipped")),
+		LastSummary: summary,
 	}
 	if c.cfg.StateFile == "" {
 		return nil
