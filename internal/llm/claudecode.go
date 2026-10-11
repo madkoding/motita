@@ -143,32 +143,13 @@ func claudeFrames(messages []Message) (string, []claudeFrame, error) {
 			continue
 		case "assistant":
 			role = "assistant"
-			if m.Content != "" {
-				blocks = append(blocks, claudeBlock{Type: "text", Text: m.Content})
-			}
-			for _, tc := range m.ToolCalls {
-				var input map[string]any
-				_ = tc.Function.DecodeArguments(&input)
-				if input == nil {
-					input = map[string]any{}
-				}
-				raw, _ := json.Marshal(input)
-				blocks = append(blocks, claudeBlock{Type: "tool_use", ID: tc.ID, Name: claudeToolPrefix + tc.Function.Name, Input: raw})
-			}
-			if len(blocks) == 0 {
+			if blocks = assistantBlocks(m); len(blocks) == 0 {
 				continue
 			}
 		case "tool":
 			blocks = []claudeBlock{{Type: "tool_result", ToolUseID: m.ToolCallID, Content: m.Content}}
 		default:
-			text := m.Content
-			if strings.HasPrefix(text, "/") {
-				// claude -p runs a leading "/name" as its own command even with
-				// --disable-slash-commands ("/diff ..." never reached the model, measured);
-				// with a leading space it does, and it means the same.
-				text = " " + text
-			}
-			blocks = []claudeBlock{{Type: "text", Text: text}}
+			blocks = []claudeBlock{{Type: "text", Text: claudeUserText(m.Content)}}
 		}
 		if n := len(frames); n > 0 && role == "user" && frames[n-1].Type == "user" {
 			frames[n-1].Message.Content = append(frames[n-1].Message.Content, blocks...)
@@ -182,12 +163,44 @@ func claudeFrames(messages []Message) (string, []claudeFrame, error) {
 	return strings.Join(system, "\n\n"), frames, nil
 }
 
+// assistantBlocks are the content blocks of an assistant turn: its text, then one tool_use per call.
+func assistantBlocks(m Message) []claudeBlock {
+	var blocks []claudeBlock
+	if m.Content != "" {
+		blocks = append(blocks, claudeBlock{Type: "text", Text: m.Content})
+	}
+	for _, tc := range m.ToolCalls {
+		var input map[string]any
+		_ = tc.Function.DecodeArguments(&input)
+		if input == nil {
+			input = map[string]any{}
+		}
+		raw, _ := json.Marshal(input)
+		blocks = append(blocks, claudeBlock{
+			Type: "tool_use", ID: tc.ID, Name: claudeToolPrefix + tc.Function.Name, Input: raw,
+		})
+	}
+	return blocks
+}
+
+// claudeUserText is a user turn's text as claude is given it. claude -p runs a leading "/name" as
+// its own command even with --disable-slash-commands ("/diff ..." never reached the model,
+// measured); with a leading space it does, and it means the same.
+func claudeUserText(text string) string {
+	if strings.HasPrefix(text, "/") {
+		return " " + text
+	}
+	return text
+}
+
 // claudeThinks reports whether the reasoning setting asks for thinking at all.
 func claudeThinks(r config.Reasoning) bool { return r.Enabled && r.Level != "off" }
 
 // claudeArgs is claude's command line for one turn, and the files it names, which
 // go in dir. self is this program, which claude starts as the tool server.
-func claudeArgs(cfg config.LLM, dir, system string, tools []Tool, self string, schema json.RawMessage) ([]string, map[string][]byte) {
+func claudeArgs(
+	cfg config.LLM, dir, system string, tools []Tool, self string, schema json.RawMessage,
+) ([]string, map[string][]byte) {
 	files := map[string][]byte{"system.md": []byte(system)}
 	args := []string{"-p", "--model", cfg.Model,
 		"--input-format", streamJSON, "--output-format", streamJSON, "--verbose", "--include-partial-messages",
@@ -196,7 +209,9 @@ func claudeArgs(cfg config.LLM, dir, system string, tools []Tool, self string, s
 	if len(tools) > 0 {
 		manifest := make([]claudeTool, 0, len(tools))
 		for _, t := range tools {
-			manifest = append(manifest, claudeTool{Name: t.Function.Name, Description: t.Function.Description, InputSchema: t.Function.Parameters})
+			manifest = append(manifest, claudeTool{
+				Name: t.Function.Name, Description: t.Function.Description, InputSchema: t.Function.Parameters,
+			})
 		}
 		files["tools.json"], _ = json.Marshal(manifest)
 		mcp, _ := json.Marshal(claudeMCPConfig{MCPServers: map[string]claudeMCPServer{
@@ -209,11 +224,14 @@ func claudeArgs(cfg config.LLM, dir, system string, tools []Tool, self string, s
 		// cost real runs whole rounds (prose, a pseudo tool call, a tab inside a string)
 		// can come back. It only applies without tools: a tool turn answers with calls.
 		args = append(args, "--json-schema", string(schema))
+	} else {
+		// A plain text turn: nothing to serve and nothing to enforce.
 	}
 	if claudeThinks(cfg.Reasoning) {
 		args = append(args, "--effort", cfg.Reasoning.Level)
 	}
-	return append(args, "--disable-slash-commands", "--max-turns", "1", "--permission-mode", "dontAsk", "--no-session-persistence"), files
+	return append(args, "--disable-slash-commands", "--max-turns", "1", "--permission-mode", "dontAsk",
+		"--no-session-persistence"), files
 }
 
 // claudeBaseEnv is this process' environment without anything that would point
@@ -223,7 +241,8 @@ func claudeBaseEnv() []string {
 	env := []string{} // never nil: a nil Env would hand claude this whole environment
 	for _, kv := range os.Environ() {
 		name, _, _ := strings.Cut(kv, "=")
-		if strings.HasPrefix(name, "ANTHROPIC_") || strings.HasPrefix(name, "CLAUDE_CODE_USE_") || name == "CLAUDE_EFFORT" {
+		if strings.HasPrefix(name, "ANTHROPIC_") || strings.HasPrefix(name, "CLAUDE_CODE_USE_") ||
+			name == "CLAUDE_EFFORT" {
 			continue
 		}
 		env = append(env, kv)
@@ -322,13 +341,7 @@ func (p *claudeProcess) event() (claudeEvent, error) {
 			continue
 		}
 		if p.mcp && ev.Type == "system" && ev.Subtype == "init" {
-			status := "missing"
-			for _, s := range ev.MCPServers {
-				if s.Name == "motita" {
-					status = s.Status
-				}
-			}
-			if status != "connected" {
+			if status := motitaMCPStatus(ev); status != "connected" {
 				// Without it claude answers with no tools at all, which reads as a model that
 				// will not look at anything. A managed MCP policy is one way to get here.
 				return ev, fatalError{fmt.Errorf("claude could not use motita's tool server (MCP status %q)", status)}
@@ -337,6 +350,18 @@ func (p *claudeProcess) event() (claudeEvent, error) {
 		return ev, nil
 	}
 	return claudeEvent{}, p.exited()
+}
+
+// motitaMCPStatus is the status claude's init event reports for motita's tool server, "missing"
+// when it does not name it.
+func motitaMCPStatus(ev claudeEvent) string {
+	status := "missing"
+	for _, s := range ev.MCPServers {
+		if s.Name == "motita" {
+			status = s.Status
+		}
+	}
+	return status
 }
 
 // exited explains an output that ended before the answer did.
@@ -392,27 +417,7 @@ func (p *claudeProcess) replay(frames []claudeFrame) error {
 // a stream it is about to retry. Only a stop with a final reason and something to
 // show ends the turn.
 func (p *claudeProcess) readTurn(onText func(string)) (Reply, error) {
-	var reply, msg Reply // what the turn has, and what the current message adds
-	stop := ""
-	// A turn usually ends at a message_stop, before claude prints its result, so what it
-	// consumed is added up message by message; the result's totals replace the sum when they
-	// do arrive, because they also count what no message_delta reported.
-	var msgUsage Usage
-	keep := func() {
-		reply.Content += msg.Content
-		reply.Calls = append(reply.Calls, msg.Calls...)
-		msg = Reply{}
-	}
-	finish := func() (Reply, error) {
-		keep()
-		reply.FinishReason = "stop"
-		if len(reply.Calls) > 0 {
-			reply.FinishReason = "tool_calls"
-		} else if stop == "max_tokens" {
-			reply.FinishReason = "length"
-		}
-		return reply, nil
-	}
+	t := &claudeTurn{onText: onText}
 	for {
 		ev, err := p.event()
 		if err != nil {
@@ -420,68 +425,150 @@ func (p *claudeProcess) readTurn(onText func(string)) (Reply, error) {
 		}
 		switch ev.Type {
 		case "stream_event":
-			switch ev.Event.Type {
-			case "message_start":
-				msg, stop, msgUsage = Reply{}, "", Usage{}
-			case "content_block_delta":
-				if ev.Event.Delta.Type == "text_delta" && onText != nil {
-					onText(ev.Event.Delta.Text)
-				}
-			case "message_delta":
-				stop = ev.Event.Delta.StopReason
-				msgUsage = ev.Event.Usage.usage()
-			case "message_stop":
-				reply.Usage, msgUsage = reply.Usage.Add(msgUsage), Usage{}
-				final := stop == "end_turn" || stop == "tool_use" || stop == "stop_sequence"
-				if final && (msg.Content != "" || len(msg.Calls) > 0) {
-					// ponytail: claude may start another upstream request after message_stop
-					// (it tries to run the denied tool); stop() ends it. A loopback admission
-					// relay like Hermes' admission.py is the upgrade path if that shows in usage.
-					return finish()
-				}
-				if stop == "max_tokens" {
-					keep() // claude continues the answer in the next message
-				}
-				// ponytail: a retried stream's text already went to onText and is sent again;
-				// buffer per message if that shows up in the stream path.
-				msg = Reply{}
+			if t.streamEvent(ev) {
+				return t.finish(), nil
 			}
 		case "assistant":
 			if ev.Error != "" {
 				return Reply{}, assistantError(ev)
 			}
-			for _, b := range ev.Message.Content {
-				switch b.Type {
-				case "text":
-					msg.Content += b.Text
-				case "tool_use":
-					// With --json-schema claude delivers the answer as a call to its own
-					// StructuredOutput tool. It is the reply, not a tool motita should run.
-					if b.Name == claudeStructuredTool {
-						msg.Content += string(b.Input)
-						continue
-					}
-					msg.Calls = append(msg.Calls, ToolCall{ID: b.ID, Type: "function", Function: FunctionCall{
-						Name: strings.TrimPrefix(b.Name, claudeToolPrefix), Arguments: b.Input,
-					}})
-				}
-			}
+			t.assistant(ev)
 		case "result":
-			keep()
-			if u := ev.Usage.usage(); u.Total() > 0 {
-				reply.Usage = u
-			}
-			if reply.Content == "" && len(reply.Calls) == 0 && len(ev.StructuredOutput) > 0 && string(ev.StructuredOutput) != "null" {
-				reply.Content = string(ev.StructuredOutput)
-			}
-			// error_max_turns after tool calls is claude trying to run a denied tool once
-			// the answer was complete: the answer stands.
-			if ev.IsError && (ev.Subtype != "error_max_turns" || len(reply.Calls) == 0) {
-				return Reply{}, fmt.Errorf("claude failed (%s): %s", ev.Subtype, strings.TrimSpace(ev.Result+" "+string(ev.Errors)))
-			}
-			return finish()
+			return t.result(ev)
+		default:
+			// system and other events carry nothing of the answer.
 		}
 	}
+}
+
+// claudeTurn is the answer readTurn is putting together.
+type claudeTurn struct {
+	onText func(string)
+	// reply is what the turn has, and msg what the current message adds.
+	reply, msg Reply
+	stop       string
+	// A turn usually ends at a message_stop, before claude prints its result, so what it
+	// consumed is added up message by message; the result's totals replace the sum when they
+	// do arrive, because they also count what no message_delta reported.
+	msgUsage Usage
+}
+
+// keep adds the current message to the turn.
+func (t *claudeTurn) keep() {
+	t.reply.Content += t.msg.Content
+	t.reply.Calls = append(t.reply.Calls, t.msg.Calls...)
+	t.msg = Reply{}
+}
+
+// finish ends the turn: the reply, with the reason it stopped.
+func (t *claudeTurn) finish() Reply {
+	t.keep()
+	t.reply.FinishReason = "stop"
+	if len(t.reply.Calls) > 0 {
+		t.reply.FinishReason = "tool_calls"
+	} else if t.stop == "max_tokens" {
+		t.reply.FinishReason = "length"
+	} else {
+		// A plain stop.
+	}
+	return t.reply
+}
+
+// streamEvent reads one stream event, and reports whether it ended the turn.
+func (t *claudeTurn) streamEvent(ev claudeEvent) bool {
+	switch ev.Event.Type {
+	case "message_start":
+		t.msg, t.stop, t.msgUsage = Reply{}, "", Usage{}
+	case "content_block_delta":
+		if ev.Event.Delta.Type == "text_delta" && t.onText != nil {
+			t.onText(ev.Event.Delta.Text)
+		}
+	case "message_delta":
+		t.stop = ev.Event.Delta.StopReason
+		t.msgUsage = ev.Event.Usage.usage()
+	case "message_stop":
+		return t.messageStop()
+	default:
+		// Other stream events carry nothing the turn keeps.
+	}
+	return false
+}
+
+// messageStop ends the current message, and reports whether it also ended the turn.
+func (t *claudeTurn) messageStop() bool {
+	t.reply.Usage, t.msgUsage = t.reply.Usage.Add(t.msgUsage), Usage{}
+	if isFinalStop(t.stop) && replyHasAnswer(t.msg) {
+		// ponytail: claude may start another upstream request after message_stop
+		// (it tries to run the denied tool); stop() ends it. A loopback admission
+		// relay like Hermes' admission.py is the upgrade path if that shows in usage.
+		return true
+	}
+	if t.stop == "max_tokens" {
+		t.keep() // claude continues the answer in the next message
+	}
+	// ponytail: a retried stream's text already went to onText and is sent again;
+	// buffer per message if that shows up in the stream path.
+	t.msg = Reply{}
+	return false
+}
+
+// isFinalStop reports whether a message's stop reason can end the turn.
+func isFinalStop(stop string) bool {
+	return stop == "end_turn" || stop == "tool_use" || stop == "stop_sequence"
+}
+
+// replyHasAnswer reports whether r has anything to show: text or a tool call.
+func replyHasAnswer(r Reply) bool {
+	return r.Content != "" || len(r.Calls) > 0
+}
+
+// assistant adds an assistant message's blocks to the current message.
+func (t *claudeTurn) assistant(ev claudeEvent) {
+	for _, b := range ev.Message.Content {
+		switch b.Type {
+		case "text":
+			t.msg.Content += b.Text
+		case "tool_use":
+			t.toolUse(b)
+		default:
+			// Thinking and other blocks are not part of the reply.
+		}
+	}
+}
+
+// toolUse adds a tool_use block to the current message. With --json-schema claude delivers the
+// answer as a call to its own StructuredOutput tool: it is the reply, not a tool motita should run.
+func (t *claudeTurn) toolUse(b claudeBlock) {
+	if b.Name == claudeStructuredTool {
+		t.msg.Content += string(b.Input)
+		return
+	}
+	t.msg.Calls = append(t.msg.Calls, ToolCall{ID: b.ID, Type: "function", Function: FunctionCall{
+		Name: strings.TrimPrefix(b.Name, claudeToolPrefix), Arguments: b.Input,
+	}})
+}
+
+// result reads claude's result event, which ends the turn.
+func (t *claudeTurn) result(ev claudeEvent) (Reply, error) {
+	t.keep()
+	if u := ev.Usage.usage(); u.Total() > 0 {
+		t.reply.Usage = u
+	}
+	if !replyHasAnswer(t.reply) && hasStructuredOutput(ev) {
+		t.reply.Content = string(ev.StructuredOutput)
+	}
+	// error_max_turns after tool calls is claude trying to run a denied tool once
+	// the answer was complete: the answer stands.
+	if ev.IsError && (ev.Subtype != "error_max_turns" || len(t.reply.Calls) == 0) {
+		return Reply{}, fmt.Errorf("claude failed (%s): %s",
+			ev.Subtype, strings.TrimSpace(ev.Result+" "+string(ev.Errors)))
+	}
+	return t.finish(), nil
+}
+
+// hasStructuredOutput reports whether a result event repeats a --json-schema answer.
+func hasStructuredOutput(ev claudeEvent) bool {
+	return len(ev.StructuredOutput) > 0 && string(ev.StructuredOutput) != "null"
 }
 
 // assistantError is claude's report of a request that failed upstream. It is
@@ -495,13 +582,16 @@ func assistantError(ev claudeEvent) error {
 	switch ev.Error {
 	case "rate_limit", "overloaded", "server_error", "unknown":
 		return err
+	default:
+		return fatalError{err}
 	}
-	return fatalError{err}
 }
 
 // callClaudeCode asks the local claude CLI for the next assistant turn. onText,
 // when not nil, receives the text as it streams.
-func (c *Client) callClaudeCode(ctx context.Context, messages []Message, tools []Tool, onText func(string)) (Reply, error) {
+func (c *Client) callClaudeCode(
+	ctx context.Context, messages []Message, tools []Tool, onText func(string),
+) (Reply, error) {
 	system, frames, err := claudeFrames(messages)
 	if err != nil {
 		return Reply{}, fatalError{err}
@@ -558,7 +648,9 @@ func (c *Client) callClaudeCodeText(ctx context.Context, messages []Message) (st
 
 // callClaudeCodeStream adapts callClaudeCode to the streaming interface: the text
 // as it arrives, then one chunk per tool call, then the reply.
-func (c *Client) callClaudeCodeStream(ctx context.Context, messages []Message, tools []Tool) (<-chan StreamChunk, error) {
+func (c *Client) callClaudeCodeStream(
+	ctx context.Context, messages []Message, tools []Tool,
+) (<-chan StreamChunk, error) {
 	out := make(chan StreamChunk, 8)
 	go func() {
 		defer close(out)
@@ -604,7 +696,8 @@ type ClaudeCodeModel struct {
 // offers. It is claude's initialize handshake only: no model is called.
 func ClaudeCodeModels(ctx context.Context) (ClaudeCodeCatalogue, error) {
 	args := []string{"-p", "--input-format", streamJSON, "--output-format", streamJSON, "--verbose",
-		"--tools", "", "--setting-sources", "", "--strict-mcp-config", "--disable-slash-commands", "--no-session-persistence"}
+		"--tools", "", "--setting-sources", "", "--strict-mcp-config", "--disable-slash-commands",
+		"--no-session-persistence"}
 	// The base environment: with nonessential traffic off claude lists 5 models instead of the
 	// account's 11 (measured).
 	p, err := startClaude(ctx, 30*time.Second, args, claudeBaseEnv())
@@ -612,7 +705,8 @@ func ClaudeCodeModels(ctx context.Context) (ClaudeCodeCatalogue, error) {
 		return ClaudeCodeCatalogue{}, err
 	}
 	defer p.stop()
-	_, _ = io.WriteString(p.stdin, `{"type":"control_request","request_id":"models","request":{"subtype":"initialize"}}`+"\n")
+	_, _ = io.WriteString(p.stdin,
+		`{"type":"control_request","request_id":"models","request":{"subtype":"initialize"}}`+"\n")
 	_ = p.stdin.Close()
 	for {
 		ev, err := p.event()
@@ -668,11 +762,19 @@ func ServeClaudeCodeMCP(in io.Reader, out io.Writer, manifestPath string) error 
 		case "initialize":
 			// serverInfo.version is required: without it claude marks the server failed
 			// and the turn runs with no tools (measured).
-			result = map[string]any{"protocolVersion": "2024-11-05", "capabilities": map[string]any{"tools": map[string]any{}}, "serverInfo": map[string]any{"name": "motita", "version": "1"}}
+			result = map[string]any{
+				"protocolVersion": "2024-11-05",
+				"capabilities":    map[string]any{"tools": map[string]any{}},
+				"serverInfo":      map[string]any{"name": "motita", "version": "1"},
+			}
 		case "tools/list":
 			result = map[string]any{"tools": tools}
 		case "tools/call":
-			result = map[string]any{"isError": true, "content": []any{map[string]any{"type": "text", "text": "denied: motita executes tools itself"}}}
+			result = map[string]any{"isError": true, "content": []any{
+				map[string]any{"type": "text", "text": "denied: motita executes tools itself"},
+			}}
+		default:
+			// Any other method is answered with an empty result.
 		}
 		if err := enc.Encode(map[string]any{"jsonrpc": "2.0", "id": req.ID, "result": result}); err != nil {
 			return err
