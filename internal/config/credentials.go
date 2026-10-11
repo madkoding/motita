@@ -89,31 +89,51 @@ func unquoteShell(s string) string {
 	for i := 0; i < len(s); i++ {
 		switch c := s[i]; c {
 		case '\'':
-			j := strings.IndexByte(s[i+1:], '\'')
-			if j < 0 {
-				b.WriteString(s[i+1:])
-				return b.String()
-			}
-			b.WriteString(s[i+1 : i+1+j])
-			i += j + 1
+			i = unquoteSingle(&b, s, i)
 		case '"':
-			i++
-			for ; i < len(s) && s[i] != '"'; i++ {
-				if s[i] == '\\' && i+1 < len(s) && (s[i+1] == '"' || s[i+1] == '\\') {
-					i++
-				}
-				b.WriteByte(s[i])
-			}
+			i = unquoteDouble(&b, s, i)
 		case '\\':
-			if i+1 < len(s) {
-				i++
-				b.WriteByte(s[i])
-			}
+			i = unquoteEscape(&b, s, i)
 		default:
 			b.WriteByte(c)
 		}
 	}
 	return b.String()
+}
+
+// unquoteSingle copies the single-quoted run that opens at s[i], literally, and returns the index
+// of its closing quote. An unterminated run takes the rest of s.
+func unquoteSingle(b *strings.Builder, s string, i int) int {
+	j := strings.IndexByte(s[i+1:], '\'')
+	if j < 0 {
+		b.WriteString(s[i+1:])
+		return len(s)
+	}
+	b.WriteString(s[i+1 : i+1+j])
+	return i + j + 1
+}
+
+// unquoteDouble copies the double-quoted run that opens at s[i], honouring \" and \\, and returns
+// the index of its closing quote (len(s) when it is unterminated).
+func unquoteDouble(b *strings.Builder, s string, i int) int {
+	i++
+	for ; i < len(s) && s[i] != '"'; i++ {
+		if s[i] == '\\' && i+1 < len(s) && (s[i+1] == '"' || s[i+1] == '\\') {
+			i++
+		}
+		b.WriteByte(s[i])
+	}
+	return i
+}
+
+// unquoteEscape copies the character a backslash at s[i] escapes, and returns its index. A
+// trailing backslash escapes nothing and is dropped.
+func unquoteEscape(b *strings.Builder, s string, i int) int {
+	if i+1 < len(s) {
+		i++
+		b.WriteByte(s[i])
+	}
+	return i
 }
 
 // SecretFiles are the files and directories of motita's that hold secrets, for the sandbox to
