@@ -117,6 +117,8 @@ func RunAsChild(args []string) error {
 		if err := os.Chdir(spec.Dir); err != nil {
 			return fmt.Errorf("chdir(%q): %w", spec.Dir, err)
 		}
+	} else {
+		// No root and no directory: the command runs where the child already is.
 	}
 
 	if spec.DropPrivileges {
