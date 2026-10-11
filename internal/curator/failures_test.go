@@ -121,7 +121,11 @@ func TestPreviewAndRunAgree(t *testing.T) {
 		"gone-one":  agentEntry(now.Add(-40 * 24 * time.Hour)),
 		"gone-two":  agentEntry(now.Add(-60 * 24 * time.Hour)),
 		"fresh":     agentEntry(now.Add(-time.Hour)),
-		"pinned":    func() usage.Entry { e := agentEntry(now.Add(-99 * 24 * time.Hour)); e.Pinned = true; return e }(),
+		"pinned": func() usage.Entry {
+			e := agentEntry(now.Add(-99 * 24 * time.Hour))
+			e.Pinned = true
+			return e
+		}(),
 	}
 	previewCurator, _, _, _ := testCurator(t, config.Curator{}, entries)
 	preview, err := previewCurator.RunWith(context.Background(), RunOptions{DryRun: true})

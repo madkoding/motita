@@ -317,10 +317,14 @@ func TestRunWritesTheStateFile(t *testing.T) {
 func TestStatusReportsTheThresholdsAndTheCounts(t *testing.T) {
 	now := time.Now()
 	c, _, _, _ := testCurator(t, config.Curator{}, map[string]usage.Entry{
-		"active":  agentEntry(now),
-		"stale":   agentEntry(now.Add(-20 * 24 * time.Hour)),
-		"gone":    agentEntry(now.Add(-40 * 24 * time.Hour)),
-		"private": func() usage.Entry { e := agentEntry(now); e.CreatedBy = usage.ByForeground; return e }(),
+		"active": agentEntry(now),
+		"stale":  agentEntry(now.Add(-20 * 24 * time.Hour)),
+		"gone":   agentEntry(now.Add(-40 * 24 * time.Hour)),
+		"private": func() usage.Entry {
+			e := agentEntry(now)
+			e.CreatedBy = usage.ByForeground
+			return e
+		}(),
 	})
 	if _, err := c.RunWith(context.Background(), RunOptions{}); err != nil {
 		t.Fatalf("RunWith: %v", err)
