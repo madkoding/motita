@@ -193,3 +193,23 @@ func TestRemainingTokenBranches(t *testing.T) {
 		t.Errorf("c=%+v err=%v", c, err)
 	}
 }
+
+// A provider name that is a path is refused instead of reading, writing or deleting a file
+// outside the credential directory.
+func TestCredentialRefusesPathProviderNames(t *testing.T) {
+	dir := t.TempDir()
+	for _, p := range []string{"../escape", "a/b", `a\b`, "..", ""} {
+		if err := SaveCredential(dir, Credential{Provider: p, AccessToken: "x"}); err == nil && p != "" {
+			t.Errorf("SaveCredential(%q) was accepted", p)
+		}
+		if _, err := LoadCredential(dir, p); err == nil {
+			t.Errorf("LoadCredential(%q) was accepted", p)
+		}
+		if err := DeleteCredential(dir, p); err == nil {
+			t.Errorf("DeleteCredential(%q) was accepted", p)
+		}
+	}
+	if _, err := os.Stat(filepath.Join(filepath.Dir(dir), "escape.json")); !os.IsNotExist(err) {
+		t.Fatalf("a credential was written outside the directory: %v", err)
+	}
+}

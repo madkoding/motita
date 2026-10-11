@@ -7,6 +7,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"time"
 )
@@ -69,6 +70,19 @@ func CredentialPath(dir, provider string) string {
 	return filepath.Join(dir, strings.ToLower(strings.TrimSpace(provider))+".json")
 }
 
+// providerName is what a provider may be called on disk: a file name, never a path.
+var providerName = regexp.MustCompile(`^[a-z0-9][a-z0-9@._-]*$`)
+
+// credentialFile is CredentialPath for reading and writing: a provider whose name is not a
+// plain file name (a separator, a "..") is refused instead of naming a file outside dir.
+func credentialFile(dir, provider string) (string, error) {
+	name := strings.ToLower(strings.TrimSpace(provider))
+	if !providerName.MatchString(name) || strings.Contains(name, "..") {
+		return "", fmt.Errorf("%q is not a valid provider name", provider)
+	}
+	return filepath.Join(dir, name+".json"), nil
+}
+
 // HasCredential reports whether a usable credential is stored for provider.
 func HasCredential(dir, provider string) bool {
 	c, err := LoadCredential(dir, provider)
@@ -80,7 +94,11 @@ func LoadCredential(dir, provider string) (Credential, error) {
 	if dir == "" {
 		return Credential{}, ErrNoCredential
 	}
-	data, err := os.ReadFile(CredentialPath(dir, provider))
+	file, err := credentialFile(dir, provider)
+	if err != nil {
+		return Credential{}, err
+	}
+	data, err := os.ReadFile(file)
 	if errors.Is(err, fs.ErrNotExist) {
 		return Credential{}, ErrNoCredential
 	}
@@ -106,6 +124,10 @@ func SaveCredential(dir string, c Credential) error {
 	if c.Provider == "" {
 		return errors.New("a credential must name its provider")
 	}
+	file, err := credentialFile(dir, c.Provider)
+	if err != nil {
+		return err
+	}
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return fmt.Errorf("could not create %s: %w", dir, err)
 	}
@@ -113,11 +135,11 @@ func SaveCredential(dir string, c Credential) error {
 	data, _ := json.MarshalIndent(c, "", "  ") // a struct of strings and times always encodes
 	// The temporary name carries the pid, so two processes renewing at once do not
 	// write into each other's file before the rename.
-	tmp := filepath.Join(dir, fmt.Sprintf(".%s-%d.tmp", strings.ToLower(c.Provider), os.Getpid()))
+	tmp := filepath.Join(dir, fmt.Sprintf(".%s-%d.tmp", strings.TrimSuffix(filepath.Base(file), ".json"), os.Getpid()))
 	if err := os.WriteFile(tmp, data, 0o600); err != nil {
 		return fmt.Errorf("could not write the login: %w", err)
 	}
-	if err := os.Rename(tmp, CredentialPath(dir, c.Provider)); err != nil {
+	if err := os.Rename(tmp, file); err != nil {
 		os.Remove(tmp)
 		return fmt.Errorf("could not store the login: %w", err)
 	}
@@ -126,7 +148,11 @@ func SaveCredential(dir string, c Credential) error {
 
 // DeleteCredential removes a stored login. A missing file is not an error.
 func DeleteCredential(dir, provider string) error {
-	err := os.Remove(CredentialPath(dir, provider))
+	file, err := credentialFile(dir, provider)
+	if err != nil {
+		return err
+	}
+	err = os.Remove(file)
 	if errors.Is(err, fs.ErrNotExist) {
 		return nil
 	}

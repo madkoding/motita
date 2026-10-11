@@ -45,10 +45,10 @@ test('pollFlow stops on a terminal state', async () => {
 
 test('pollFlow stops when cancelled and survives a few errors', async () => {
   let stop = false, n = 0
-  const r = await g.pollFlow({ get: async () => { n++; if (n === 2) stop = true; return { status: 'pending' } }, sleep: async () => {}, cancelled: () => stop })
+  const r = await g.pollFlow({ get: async () => { n++; if (n === 2) { stop = true; } return { status: 'pending' } }, sleep: async () => {}, cancelled: () => stop })
   assert.equal(r, null)
   let k = 0
-  const ok = await g.pollFlow({ get: async () => { if (k++ < 2) throw new Error('net'); return { status: 'failed', error: 'no' } }, sleep: async () => {}, cancelled: () => false })
+  const ok = await g.pollFlow({ get: async () => { if (k++ < 2) { throw new Error('net'); } return { status: 'failed', error: 'no' } }, sleep: async () => {}, cancelled: () => false })
   assert.equal(ok.error, 'no')
 })
 
@@ -100,8 +100,8 @@ test('api calls hit the documented endpoints', async () => {
   const seen = []
   const api = async (path, init) => {
     seen.push([init?.method || 'GET', path, init?.body])
-    if (path.startsWith('/v1/git/connect')) return new Response(JSON.stringify(flow), { status: 202 })
-    if (path.startsWith('/v1/git/repos')) return new Response(JSON.stringify({ code: 'git_auth_required', service: 'github' }), { status: 409 })
+    if (path.startsWith('/v1/git/connect')) { return new Response(JSON.stringify(flow), { status: 202 }) }
+    if (path.startsWith('/v1/git/repos')) { return new Response(JSON.stringify({ code: 'git_auth_required', service: 'github' }), { status: 409 }) }
     return new Response(null, { status: 204 })
   }
   const r = await g.connect(api, { service: 'github', method: 'device' })
@@ -117,9 +117,9 @@ test('api calls hit the documented endpoints', async () => {
 test('every string in the git screens has a Spanish translation', () => {
   const keys = new Set()
   for (const f of ['GitConnect.tsx', 'RepoPicker.tsx', 'Settings.tsx']) {
-    for (const m of src(f).matchAll(/\bt[fc]?\(\s*'((?:[^'\\]|\\.)*)'/g)) keys.add(m[1].replace(/\\'/g, "'"))
+    for (const m of src(f).matchAll(/\bt[fc]?\(\s*'((?:[^'\\]|\\.)*)'/g)) { keys.add(m[1].replace(/\\'/g, "'")) }
   }
-  for (const k of ['Choose from my repositories', 'Connect GitHub, GitLab or Bitbucket to pick one of your repositories', 'The login expired. Try again.', 'The host did not authorize the login.']) keys.add(k)
+  for (const k of ['Choose from my repositories', 'Connect GitHub, GitLab or Bitbucket to pick one of your repositories', 'The login expired. Try again.', 'The host did not authorize the login.']) { keys.add(k) }
   assert.ok(keys.size > 40)
   const missing = [...keys].filter(k => !es[k])
   assert.deepEqual(missing, [])

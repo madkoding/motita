@@ -36,6 +36,11 @@ import (
 	"github.com/madkoding/motita/internal/logx"
 )
 
+// Literals used more than once in this file.
+const (
+	providerClaudeCode = "claude-code"
+)
+
 // Message is one turn of the conversation.
 type Message struct {
 	Role       string     // system | user | assistant | tool
@@ -120,7 +125,7 @@ func (c *Client) openStreamOr() func(context.Context, []Message, []Tool) (<-chan
 		return c.openStream
 	}
 	switch strings.ToLower(c.cfg.Provider) {
-	case "claude-code":
+	case providerClaudeCode:
 		return c.callClaudeCodeStream
 	case "codex":
 		return c.callResponsesStream
@@ -388,7 +393,7 @@ func (c *Client) call(ctx context.Context, messages []Message) (string, error) {
 		return c.callAnthropic(ctx, messages)
 	case "gemini":
 		return c.callGemini(ctx, messages)
-	case "claude-code":
+	case providerClaudeCode:
 		return c.callClaudeCodeText(ctx, messages)
 	case "codex":
 		reply, err := c.callResponses(ctx, messages, nil)
@@ -412,7 +417,7 @@ func (c *Client) callTools(ctx context.Context, messages []Message, tools []Tool
 		return c.callAnthropicTools(ctx, messages, tools)
 	case "gemini":
 		return c.callGeminiTools(ctx, messages, tools)
-	case "claude-code":
+	case providerClaudeCode:
 		return c.callClaudeCode(ctx, messages, tools, nil)
 	case "codex":
 		return c.callResponses(ctx, messages, tools)

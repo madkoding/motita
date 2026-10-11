@@ -102,30 +102,30 @@ interface AgentInfo {
 const AGENTS_PREFIX = 'agents: '
 
 function tokenTotal(t?: AgentTokens): number {
-  if (!t) return 0
+  if (!t) { return 0 }
   return (t.input || 0) + (t.output || 0) + (t.cache_read || 0) + (t.cache_write || 0)
 }
 
 // formatTokens humanises a count the way a reader scans it: 950, 12.3k, 1.2M.
 function formatTokens(n: number): string {
-  if (n < 1000) return String(n)
-  if (n < 1_000_000) return (n / 1000).toFixed(n < 10_000 ? 1 : 0).replace(/\.0$/, '') + 'k'
+  if (n < 1000) { return String(n) }
+  if (n < 1_000_000) { return (n / 1000).toFixed(n < 10_000 ? 1 : 0).replace(/\.0$/, '') + 'k' }
   return (n / 1_000_000).toFixed(1).replace(/\.0$/, '') + 'M'
 }
 
 function tokenBreakdown(t: AgentTokens): string {
   const parts = [tf('in {n}', { n: formatTokens(t.input || 0) }), tf('out {n}', { n: formatTokens(t.output || 0) })]
-  if (t.cache_read) parts.push(tf('cache read {n}', { n: formatTokens(t.cache_read) }))
-  if (t.cache_write) parts.push(tf('cache write {n}', { n: formatTokens(t.cache_write) }))
+  if (t.cache_read) { parts.push(tf('cache read {n}', { n: formatTokens(t.cache_read) })) }
+  if (t.cache_write) { parts.push(tf('cache write {n}', { n: formatTokens(t.cache_write) })) }
   return parts.join(' · ')
 }
 
 // formatElapsed: 8s, 3m 05s, 1h 02m.
 function formatElapsed(ms: number): string {
   const s = Math.max(0, Math.floor(ms / 1000))
-  if (s < 60) return s + 's'
+  if (s < 60) { return s + 's' }
   const m = Math.floor(s / 60)
-  if (m < 60) return m + 'm ' + String(s % 60).padStart(2, '0') + 's'
+  if (m < 60) { return m + 'm ' + String(s % 60).padStart(2, '0') + 's' }
   return Math.floor(m / 60) + 'h ' + String(m % 60).padStart(2, '0') + 'm'
 }
 
@@ -133,17 +133,17 @@ function formatElapsed(ms: number): string {
 // finished one is the span it ran, or what the gateway measured when that is all there is.
 function agentElapsed(a: AgentInfo, now: number): number {
   const start = Date.parse(a.started)
-  if (Number.isNaN(start)) return a.elapsed_ms || 0
-  if (a.state === 'running') return Math.max(a.elapsed_ms || 0, now - start)
+  if (Number.isNaN(start)) { return a.elapsed_ms || 0 }
+  if (a.state === 'running') { return Math.max(a.elapsed_ms || 0, now - start) }
   const end = a.finished ? Date.parse(a.finished) : NaN
   return Number.isNaN(end) ? a.elapsed_ms || 0 : end - start
 }
 
 // sortAgents puts the main agent first, then the background agents in the order they started.
 function sortAgents(list: unknown): AgentInfo[] {
-  if (!Array.isArray(list)) return []
+  if (!Array.isArray(list)) { return [] }
   return (list as AgentInfo[]).filter(a => a && typeof a.id === 'string').slice().sort((a, b) => {
-    if (!!a.parent !== !!b.parent) return a.parent ? 1 : -1
+    if (!!a.parent !== !!b.parent) { return a.parent ? 1 : -1 }
     return (Date.parse(a.started) || 0) - (Date.parse(b.started) || 0)
   })
 }
@@ -189,7 +189,7 @@ function shortID(id: string): string {
 // chose is short and is shown exactly as it is.
 function shortBranch(b: string): string {
   const m = b.match(/^motita\/(.+)$/)
-  if (m && m[1].length > 7) return 'motita/' + shortID(m[1])
+  if (m && m[1].length > 7) { return 'motita/' + shortID(m[1]) }
   return b
 }
 
@@ -201,7 +201,7 @@ function shortBranch(b: string): string {
 // and that is the case where the worktree is the only way to tell which session
 // the branch belongs to.
 function sessionWorktreeChip(s: SessionInfo): string {
-  if (!s.worktree || !s.branch) return ''
+  if (!s.worktree || !s.branch) { return '' }
   return s.branch === 'motita/' + s.worktree ? '' : shortID(s.worktree)
 }
 
@@ -213,9 +213,9 @@ function sessionWorktreeChip(s: SessionInfo): string {
 // seconds, and the year is what keeps a session restored from a backup from
 // reading as if it were touched today.
 function formatUpdated(iso?: string): string {
-  if (!iso) return ''
+  if (!iso) { return '' }
   const d = new Date(iso)
-  if (Number.isNaN(d.getTime())) return ''
+  if (Number.isNaN(d.getTime())) { return '' }
   const p = (n: number) => String(n).padStart(2, '0')
   return `${p(d.getDate())}/${p(d.getMonth() + 1)}/${d.getFullYear()} :: ${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`
 }
@@ -224,7 +224,7 @@ function formatUpdated(iso?: string): string {
 // form because that is what fits; hovering is how a user asks "when, exactly",
 // and the answer must not be the truncated one they can already see.
 function fullUpdated(iso?: string): string {
-  if (!iso) return ''
+  if (!iso) { return '' }
   const d = new Date(iso)
   return Number.isNaN(d.getTime()) ? '' : d.toLocaleString()
 }
@@ -295,11 +295,11 @@ function sessionFromUrl(): string {
 function writeSessionUrl(id: string, mode: 'push' | 'replace') {
   try {
     const u = new URL(window.location.href)
-    if (u.searchParams.get('session') === id) return
+    if (u.searchParams.get('session') === id) { return }
     u.searchParams.set('session', id)
     const url = u.pathname + u.search + u.hash
-    if (mode === 'push') history.pushState(null, '', url)
-    else history.replaceState(null, '', url)
+    if (mode === 'push') { history.pushState(null, '', url) }
+    else { history.replaceState(null, '', url) }
   } catch { /* ignore */ }
 }
 const SIDEBAR_KEY = 'motita:sidebar-open'
@@ -333,9 +333,9 @@ function countdown(fromMs: number, nowMs: number): { text: string; past: boolean
   const past = delta < 0
   const s = Math.abs(delta)
   let text: string
-  if (s < 3600) text = Math.floor(s / 60) + ':' + pad(s % 60)
-  else if (s < 86400) text = Math.floor(s / 3600) + ':' + pad(Math.floor((s % 3600) / 60)) + ':' + pad(s % 60)
-  else text = Math.floor(s / 86400) + 'd ' + Math.floor((s % 86400) / 3600) + 'h'
+  if (s < 3600) { text = Math.floor(s / 60) + ':' + pad(s % 60) }
+  else if (s < 86400) { text = Math.floor(s / 3600) + ':' + pad(Math.floor((s % 3600) / 60)) + ':' + pad(s % 60) }
+  else { text = Math.floor(s / 86400) + 'd ' + Math.floor((s % 86400) / 3600) + 'h' }
   return { text, past }
 }
 
@@ -361,7 +361,7 @@ function durationOf(every: string): { ms: number; short: string } {
     ms += n * DURATION_UNITS[match[2]]
     // Only whole units reach the tag: "0h" out of "24h0m0s" is noise, and the
     // unit order the parser walks is the order Go prints, h first.
-    if (n > 0) short += match[1] + match[2]
+    if (n > 0) { short += match[1] + match[2] }
   }
   return { ms, short: short || every }
 }
@@ -377,9 +377,9 @@ const nextClockSkew = 0
 // ticker over a task that will not fire would be a lie with a pulse. An overdue
 // one says so, because "0s" is not the same fact as "it should have gone off".
 function taskCountdown(t: ScheduledTask, nowMs: number, skew: number) {
-  if (!t.enabled) return null
+  if (!t.enabled) { return null }
   const ts = Date.parse(t.next_run)
-  if (Number.isNaN(ts)) return null
+  if (Number.isNaN(ts)) { return null }
   const c = countdown(ts - skew, nowMs)
   return { text: c.text, overdue: c.past }
 }
@@ -462,16 +462,16 @@ async function api(path: string, options?: RequestInit): Promise<Response> {
 
 // classifyProgress reads the prefix of a progress line and returns the kind.
 function classifyProgress(text: string): string | null {
-  if (/^thinking:/.test(text)) return 'thought'
-  if (/^output \(exit/.test(text)) return 'output'
-  if (/^approved \(all commands/.test(text)) return 'check'
-  if (/^running:/.test(text)) return 'command'
-  if (/^action:/.test(text)) return 'reasoning'
-  if (/^(validating|validation)/.test(text)) return 'check'
-  if (/^(planning|plan ready|subtask)/.test(text)) return 'plan'
-  if (/^(analysing|understood)/.test(text)) return 'analysis'
-  if (/^(deciding|round \d+ done)/.test(text)) return 'reasoning'
-  if (/^(task complete|synthesizing)/.test(text)) return 'synthesis'
+  if (/^thinking:/.test(text)) { return 'thought' }
+  if (/^output \(exit/.test(text)) { return 'output' }
+  if (/^approved \(all commands/.test(text)) { return 'check' }
+  if (/^running:/.test(text)) { return 'command' }
+  if (/^action:/.test(text)) { return 'reasoning' }
+  if (/^(validating|validation)/.test(text)) { return 'check' }
+  if (/^(planning|plan ready|subtask)/.test(text)) { return 'plan' }
+  if (/^(analysing|understood)/.test(text)) { return 'analysis' }
+  if (/^(deciding|round \d+ done)/.test(text)) { return 'reasoning' }
+  if (/^(task complete|synthesizing)/.test(text)) { return 'synthesis' }
   return null
 }
 
@@ -537,7 +537,7 @@ const REASONING_LEVELS = ['off', 'low', 'medium', 'high']
 // reasoningOf is the level a configuration is running: "off" when reasoning is disabled,
 // whatever level string is stored beside it.
 function reasoningOf(c: ConfigView | null): string {
-  if (!c) return 'medium'
+  if (!c) { return 'medium' }
   return c.reasoning_enabled ? (c.reasoning || 'medium') : 'off'
 }
 
@@ -610,8 +610,8 @@ function ChangesCard({ changes }: { changes: ChangeReport }) {
 // or failed with which code. What it printed is in the terminal drawer.
 function ShellStatus({ exit, settled = false }: { exit: number | null | undefined; settled?: boolean }) {
   // A command of a turn that has ended and never reported a result was cut off or refused.
-  if (exit == null && settled) return <span class="term-exit">{t('no result')}</span>
-  if (exit == null) return <span class="term-exit running">{t('running')}</span>
+  if (exit == null && settled) { return <span class="term-exit">{t('no result')}</span> }
+  if (exit == null) { return <span class="term-exit running">{t('running')}</span> }
   return <span class={`term-exit${exit ? ' bad' : ''}`}>{exit ? tf('failed · exit {code}', { code: exit }) : 'ok'}</span>
 }
 
@@ -625,7 +625,7 @@ function oneLine(text: string, max = 160): string {
 // sessionTitle is what a session row and the header call a conversation. A session nobody has
 // named yet carries the gateway's English placeholder, which is shown in the reader's language.
 function sessionTitle(s: SessionInfo): string {
-  if (!s.title) return s.id
+  if (!s.title) { return s.id }
   return s.title === 'New session' ? t('New session') : s.title
 }
 
@@ -653,7 +653,7 @@ const PROGRESS_FORMS: [RegExp, string, string[]][] = [
 function progressText(text: string): string {
   for (const [re, format, names] of PROGRESS_FORMS) {
     const m = re.exec(text)
-    if (!m) continue
+    if (!m) { continue }
     const args: Record<string, string> = {}
     names.forEach((n, i) => { args[n] = m[i + 1] })
     return tf(format, args)
@@ -666,11 +666,11 @@ function progressText(text: string): string {
 function upgradeMessage(message?: string): string {
   const m = message || ''
   let x = /^Downloaded (\d+)%$/.exec(m)
-  if (x) return tf('Downloaded {p}%', { p: x[1] })
+  if (x) { return tf('Downloaded {p}%', { p: x[1] }) }
   x = /^Downloading (.+)$/.exec(m)
-  if (x) return tf('Downloading {v}', { v: x[1] })
+  if (x) { return tf('Downloading {v}', { v: x[1] }) }
   x = /^Installed (.+)$/.exec(m)
-  if (x) return tf('Installed {v}', { v: x[1] })
+  if (x) { return tf('Installed {v}', { v: x[1] }) }
   return t(m)
 }
 
@@ -681,9 +681,9 @@ function parseFrame(raw: string): { id: string | null; event: string | null; dat
   let event: string | null = null
   let data: string | null = null
   for (const line of lines) {
-    if (line.startsWith('id: ')) id = line.slice(4).trim()
-    else if (line.startsWith('event: ')) event = line.slice(7).trim()
-    else if (line.startsWith('data: ')) data = line.slice(6)
+    if (line.startsWith('id: ')) { id = line.slice(4).trim() }
+    else if (line.startsWith('event: ')) { event = line.slice(7).trim() }
+    else if (line.startsWith('data: ')) { data = line.slice(6) }
   }
   return { id, event, data }
 }
@@ -703,11 +703,11 @@ function modelOptions(draftProvider: string, draftModel: string, savedProvider: 
   const out: string[] = []
   const seen = new Set<string>()
   const add = (m: string) => {
-    if (!m || seen.has(m)) return
+    if (!m || seen.has(m)) { return }
     seen.add(m)
     out.push(m)
   }
-  if (draftProvider === savedProvider) live.forEach(add)
+  if (draftProvider === savedProvider) { live.forEach(add) }
   ;(all.find(p => p.id === draftProvider)?.models || []).forEach(add)
   add(draftModel)
   return out
@@ -866,7 +866,7 @@ export default function App() {
   const isMerged = selectedSession?.merged === true
   const [nowMs, setNowMs] = useState(() => Date.now())
   useEffect(() => {
-    if (!showScheduledTasks) return
+    if (!showScheduledTasks) { return }
     const id = setInterval(() => setNowMs(Date.now()), 1000)
     return () => clearInterval(id)
   }, [showScheduledTasks])
@@ -942,10 +942,10 @@ export default function App() {
   // second call while the timer runs would otherwise stack timers, and the
   // last one to fire would reset the state under a menu already reopened.
   const closeRowMenu = useCallback(() => {
-    if (rowMenuClosingRef.current) return
+    if (rowMenuClosingRef.current) { return }
     rowMenuClosingRef.current = true
     setRowMenuClosing(true)
-    if (rowMenuTimer.current) clearTimeout(rowMenuTimer.current)
+    if (rowMenuTimer.current) { clearTimeout(rowMenuTimer.current) }
     rowMenuTimer.current = setTimeout(() => {
       setRowMenu(null)
       setRowMenuClosing(false)
@@ -994,15 +994,15 @@ export default function App() {
   const [collapsedProjects, setCollapsedProjects] = useState<Set<string>>(() => {
     try {
       const raw = localStorage.getItem(PROJECT_COLLAPSE_KEY)
-      if (raw) return new Set(JSON.parse(raw) as string[])
+      if (raw) { return new Set(JSON.parse(raw) as string[]) }
     } catch { /* ignore */ }
     return new Set()
   })
   const toggleProject = (pid: string) => {
     setCollapsedProjects(prev => {
       const next = new Set(prev)
-      if (next.has(pid)) next.delete(pid)
-      else next.add(pid)
+      if (next.has(pid)) { next.delete(pid) }
+      else { next.add(pid) }
       try { localStorage.setItem(PROJECT_COLLAPSE_KEY, JSON.stringify([...next])) } catch { /* ignore */ }
       return next
     })
@@ -1040,14 +1040,14 @@ export default function App() {
   // plan and task are mutually exclusive — if one is already an active tag,
   // the other is blocked from being added.
   const isCommandBlocked = (cmdName: string) => {
-    if (cmdName === '/plan') return activeTags.some(t => t.name === '/task')
-    if (cmdName === '/task') return activeTags.some(t => t.name === '/plan')
+    if (cmdName === '/plan') { return activeTags.some(t => t.name === '/task') }
+    if (cmdName === '/task') { return activeTags.some(t => t.name === '/plan') }
     return false
   }
 
   // Choosing a slash command from the popup (by click, or Enter/Space on the row) adds it as a tag.
   const pickSlash = (c: { name: string; group: string }) => {
-    if (isCommandBlocked(c.name)) return
+    if (isCommandBlocked(c.name)) { return }
     setActiveTags(prev => [...prev, { name: c.name, group: c.group }])
     setInput('')
     setSlashPopup(null)
@@ -1101,9 +1101,9 @@ export default function App() {
       setChatLoading(true)
       return
     }
-    if (!modalOpen) return
+    if (!modalOpen) { return }
     modalOpen = false
-    if (modalExitFrame.current !== null) cancelAnimationFrame(modalExitFrame.current)
+    if (modalExitFrame.current !== null) { cancelAnimationFrame(modalExitFrame.current) }
     // Two frames, and both are needed. The FIRST mounts the scrim with no exit class, so the
     // browser has a real starting opacity; the SECOND adds `.chat-modal-leaving`, which is what
     // animates. This also handles the case that bit me: React batches, so setting both in one
@@ -1121,8 +1121,8 @@ export default function App() {
     }, MODAL_EXIT_MS)
   }, [])
   useEffect(() => () => {
-    if (modalTimerRef.current) clearTimeout(modalTimerRef.current)
-    if (modalExitFrame.current !== null) cancelAnimationFrame(modalExitFrame.current)
+    if (modalTimerRef.current) { clearTimeout(modalTimerRef.current) }
+    if (modalExitFrame.current !== null) { cancelAnimationFrame(modalExitFrame.current) }
   }, [])
 
   const nextId = () => ++msgIdRef.current
@@ -1159,13 +1159,13 @@ export default function App() {
   // anchoring keep the exact, instant jump: there the height is still changing under a modal.
   const chatFollower = useRef(createFollower(() => scrollRef.current, () => pinnedRef.current))
   const followEnd = useCallback(() => {
-    if (chatLoadingNow.current) chatFollower.current.jump()
-    else chatFollower.current.kick()
+    if (chatLoadingNow.current) { chatFollower.current.jump() }
+    else { chatFollower.current.kick() }
   }, [])
 
   const scrollToBottom = useCallback(() => {
     const el = scrollRef.current
-    if (!el) return
+    if (!el) { return }
     // `behavior: 'instant'` and not 'auto'. 'auto' defers to the CSS `scroll-behavior`, and this
     // container carries Tailwind's `scroll-smooth` — so "instant" was in fact an animation,
     // hundreds of milliseconds long, which the next 200px of formulas would land on top of. That
@@ -1187,11 +1187,11 @@ export default function App() {
    */
   useEffect(() => {
     const onQuiet = () => {
-      if (pinnedRef.current) scrollToBottom()
+      if (pinnedRef.current) { scrollToBottom() }
       // The height has settled, so this one lands. A second pass on the next frame costs nothing
       // and covers a layout that the browser had not committed when the first was measured.
       requestAnimationFrame(() => {
-        if (pinnedRef.current) scrollToBottom()
+        if (pinnedRef.current) { scrollToBottom() }
       })
     }
     document.addEventListener('motita:chat-quiet', onQuiet)
@@ -1200,7 +1200,7 @@ export default function App() {
 
   useEffect(() => {
     const el = scrollRef.current
-    if (!el) return
+    if (!el) { return }
     // Only the READER'S OWN INPUT unpins them, and this is not a refinement — it is the fix for
     // the bug that kept stranding the view. Measured: the container's `scrollTop` went 4551 ->
     // 4511 on its own while the deferred work replaced a placeholder with a smaller drawing, and
@@ -1208,18 +1208,18 @@ export default function App() {
     // on the anchor stopped following and the conversation ended 181px short, every single run.
     // Scroll events also fire when CONTENT changes, so they cannot carry intent at all.
     const unpin = () => {
-      if (el.scrollHeight - el.scrollTop - el.clientHeight > BOTTOM_SLACK) pinnedRef.current = false
+      if (el.scrollHeight - el.scrollTop - el.clientHeight > BOTTOM_SLACK) { pinnedRef.current = false }
     }
     const onWheel = (e: WheelEvent) => {
-      if (e.deltaY < 0) unpin()
+      if (e.deltaY < 0) { unpin() }
     }
     const onKey = (e: KeyboardEvent) => {
-      if (['ArrowUp', 'PageUp', 'Home'].includes(e.key)) unpin()
+      if (['ArrowUp', 'PageUp', 'Home'].includes(e.key)) { unpin() }
     }
     const onScroll = () => {
       // Being at the end always re-pins: the reader has arrived at the last line, so following
       // the growth is what they want again.
-      if (el.scrollHeight - el.scrollTop - el.clientHeight <= BOTTOM_SLACK) pinnedRef.current = true
+      if (el.scrollHeight - el.scrollTop - el.clientHeight <= BOTTOM_SLACK) { pinnedRef.current = true }
     }
     onScroll()
     el.addEventListener('wheel', onWheel, { passive: true })
@@ -1237,7 +1237,7 @@ export default function App() {
   useEffect(() => {
     // Following along only if the reader was at the end before this message arrived. Scrolling on
     // every change would drag someone who deliberately went back up to an earlier answer.
-    if (!pinnedRef.current) return
+    if (!pinnedRef.current) { return }
     followEnd()
   }, [messages, activity, liveThought, stepsByTurn, followEnd])
 
@@ -1262,21 +1262,21 @@ export default function App() {
    */
   useEffect(() => {
     const el = scrollRef.current
-    if (!el) return
+    if (!el) { return }
     let frame = 0
     const settle = () => {
-      if (!pinnedRef.current) return
+      if (!pinnedRef.current) { return }
       cancelAnimationFrame(frame)
       frame = requestAnimationFrame(() => {
-        if (pinnedRef.current) followEnd()
+        if (pinnedRef.current) { followEnd() }
       })
     }
-    if (typeof ResizeObserver === 'undefined') return
+    if (typeof ResizeObserver === 'undefined') { return }
     const ro = new ResizeObserver(settle)
     const seen = new WeakSet<Element>()
     const watch = () => {
       for (const child of Array.from(el.children)) {
-        if (seen.has(child)) continue
+        if (seen.has(child)) { continue }
         seen.add(child)
         ro.observe(child)
       }
@@ -1314,13 +1314,13 @@ export default function App() {
    */
   useEffect(() => {
     const el = scrollRef.current
-    if (!el) return
+    if (!el) { return }
     let frame = 0
     const onHydrated = () => {
       // A message finishing its own deferred work does NOT clear the modal: a conversation is
       // ready when nothing visible is still pending, which the modal effect reads from
       // `hydrationState` on a settle. This listener is only about keeping the view at the end.
-      if (!pinnedRef.current) return
+      if (!pinnedRef.current) { return }
       scrollToBottom()
       cancelAnimationFrame(frame)
       frame = requestAnimationFrame(() => scrollToBottom())
@@ -1375,15 +1375,15 @@ export default function App() {
     const log = ((window as any).__modalLog = (window as any).__modalLog || [])
     log.push({ at: Math.round(performance.now()), loading: chatLoading })
     chatLoadingNow.current = chatLoading
-    if (chatLoading) chatFollower.current.stop()
+    if (chatLoading) { chatFollower.current.stop() }
   }, [chatLoading])
 
   useEffect(() => {
-    if (!chatLoading) return
-    if (messages.length === 0) return
+    if (!chatLoading) { return }
+    if (messages.length === 0) { return }
     const id = requestAnimationFrame(() => {
       const el = scrollRef.current
-      if (el && el.querySelector('[data-hydrating]') === null) requestModal(false)
+      if (el && el.querySelector('[data-hydrating]') === null) { requestModal(false) }
     })
     return () => cancelAnimationFrame(id)
   }, [messages, chatLoading])
@@ -1399,7 +1399,7 @@ export default function App() {
   // toast is clickable and important, so it stays longer than a plain success.
   useEffect(() => {
     setToastDetailsOpen(false)
-    if (!toast) return
+    if (!toast) { return }
     const isUpdate = toast.update === true
     // An error needs reading, so it stays longest. A warning is between the two:
     // it says something is wrong but recovering, which is worth more than the
@@ -1528,9 +1528,9 @@ export default function App() {
   const exchange = useCallback(async (): Promise<boolean> => {
     const hash = window.location.hash || ''
     const marker = hash.indexOf('t=')
-    if (marker === -1) return false
+    if (marker === -1) { return false }
     const token = hash.slice(marker + 2)
-    if (!token) return false
+    if (!token) { return false }
     try {
       const res = await fetch('/v1/webui/session', {
         method: 'POST',
@@ -1592,7 +1592,7 @@ export default function App() {
   //     by then released.
   const anyRunning = sessions.some(s => s.running)
   useEffect(() => {
-    if (!running && !anyRunning) return
+    if (!running && !anyRunning) { return }
     const interval = setInterval(() => fetchSessions(), 3000)
     return () => clearInterval(interval)
   }, [running, anyRunning, fetchSessions])
@@ -1794,7 +1794,7 @@ export default function App() {
     const fromUrl = gitUrl ? repoNameOf(gitUrl) : ''
     const title = newProjectTitle.trim() || fromUrl
     const dir = newProjectDir.trim() || slugOf(fromUrl) || slugOf(title)
-    if (!title || !dir) return
+    if (!title || !dir) { return }
     setCreatingProject(true)
     try {
       const res = await api('/v1/projects', {
@@ -1861,9 +1861,9 @@ export default function App() {
 
   // The hosts that are connected, for the New project dialog. Read when it opens and after a connect.
   useEffect(() => {
-    if (!showNewProject) return
+    if (!showNewProject) { return }
     let live = true
-    listAccounts(api).then(a => { if (live) setGitAccounts(a) }).catch(() => { if (live) setGitAccounts([]) })
+    listAccounts(api).then(a => { if (live) { setGitAccounts(a) } }).catch(() => { if (live) { setGitAccounts([]) } })
     return () => { live = false }
   }, [showNewProject, gitRev])
 
@@ -1874,16 +1874,16 @@ export default function App() {
   useEffect(() => {
     setRemoteMain('')
     const url = newProjectGit.trim()
-    if (!showNewProject || newProjectMode !== 'git' || !repoNameOf(url)) return
+    if (!showNewProject || newProjectMode !== 'git' || !repoNameOf(url)) { return }
     let live = true
     const timer = setTimeout(async () => {
       try {
         const res = await api('/v1/git/default-branch?url=' + encodeURIComponent(url))
-        if (!res.ok || !live) return
+        if (!res.ok || !live) { return }
         const d = await res.json()
-        if (!live || !d.branch) return
+        if (!live || !d.branch) { return }
         setRemoteMain(d.branch)
-        if (!mainChosen.current) setNewProjectMain(d.branch)
+        if (!mainChosen.current) { setNewProjectMain(d.branch) }
       } catch { /* the selector keeps what it has */ }
     }, 600)
     return () => { live = false; clearTimeout(timer) }
@@ -1894,7 +1894,7 @@ export default function App() {
   useEffect(() => {
     let live = true
     api('/v1/runtimes').then(r => r.json()).then(d => {
-      if (!live) return
+      if (!live) { return }
       setHasPodman(!!d.podman)
       setHasPodmanCompose(!!d.podman_compose)
       setPodmanReady(!!d.podman_ready)
@@ -2014,7 +2014,7 @@ export default function App() {
     setEditProject({ id: p.id, title: p.title, description: p.description ?? '', main: p.main_branch ?? 'main', branches: p.main_branch ? [p.main_branch] : ['main'], current: p.branch ?? '', mergeMethod: p.merge_method ?? '', prMaxFixes: p.pr_max_fixes ?? 0, autoMerge: p.auto_merge === true, autoContinue: p.auto_continue === true })
     try {
       const res = await api('/v1/projects/' + encodeURIComponent(p.id) + '/branches')
-      if (!res.ok) return
+      if (!res.ok) { return }
       const d = await res.json()
       setEditProject(prev => prev && prev.id === p.id
         ? { ...prev, branches: d.branches?.length ? d.branches : prev.branches, main: d.main_branch || prev.main, current: d.current ?? prev.current }
@@ -2025,7 +2025,7 @@ export default function App() {
   // saveEditProject sends what the dialog holds. The gateway puts the project back on its main
   // branch when it has no sessions, so the list is read again afterwards.
   const saveEditProject = useCallback(async () => {
-    if (!editProject || !editProject.title.trim()) return
+    if (!editProject || !editProject.title.trim()) { return }
     setSavingProject(true)
     try {
       const res = await api('/v1/projects/' + encodeURIComponent(editProject.id), {
@@ -2052,8 +2052,8 @@ export default function App() {
     const after = gitConnect?.after
     setGitRev(n => n + 1)
     setToast({ message: account ? tf('Connected as {user}', { user: account }) : t('Connected'), type: 'success' })
-    if (after === 'picker') setShowRepoPicker(true)
-    if (after === 'create') setTimeout(() => createProjectRef.current(), 0)
+    if (after === 'picker') { setShowRepoPicker(true) }
+    if (after === 'create') { setTimeout(() => createProjectRef.current(), 0) }
   }, [gitConnect])
 
   // pickRepo fills the New project form from a repository the user chose.
@@ -2088,14 +2088,14 @@ export default function App() {
   const loadSchedules = useCallback(async () => {
     try {
       const res = await api('/v1/schedules')
-      if (!res.ok) return
+      if (!res.ok) { return }
       const data = await res.json()
       setScheduledTasks(Array.isArray(data.schedules) ? data.schedules : [])
     } catch { /* the toast on a real failure is the caller's job */ }
   }, [])
 
   const createSchedule = async () => {
-    if (!newTaskTitle.trim() || !newTaskText.trim()) return
+    if (!newTaskTitle.trim() || !newTaskText.trim()) { return }
     setScheduledBusy(true)
     try {
       const res = await api('/v1/schedules', {
@@ -2124,7 +2124,7 @@ export default function App() {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ enabled: !t.enabled }),
     })
-    if (res.ok) await loadSchedules()
+    if (res.ok) { await loadSchedules() }
   }
 
   const runScheduleNow = async (task: ScheduledTask) => {
@@ -2141,7 +2141,7 @@ export default function App() {
 
   const deleteSchedule = async (t: ScheduledTask) => {
     const res = await api('/v1/schedules/' + t.id, { method: 'DELETE' })
-    if (res.ok) await loadSchedules()
+    if (res.ok) { await loadSchedules() }
   }
 
   // The countdown is drawn between the BROWSER's clock and next_run, which the
@@ -2155,7 +2155,7 @@ export default function App() {
     let min = nextClockSkew
     for (const t of scheduledTasks) {
       const ts = Date.parse(t.next_run)
-      if (Number.isNaN(ts)) continue
+      if (Number.isNaN(ts)) { continue }
       min = Math.min(min, Date.now() - (ts - durationOf(t.every).ms))
     }
     return min
@@ -2173,7 +2173,7 @@ export default function App() {
     setSessionId(id)
     sessionRef.current = id
     try { localStorage.setItem(STORAGE_KEY, id) } catch { /* ignore */ }
-    if (urlMode !== 'none') writeSessionUrl(id, urlMode)
+    if (urlMode !== 'none') { writeSessionUrl(id, urlMode) }
     if (!soft) {
       setMessages([])
       setActivity(null)
@@ -2193,21 +2193,21 @@ export default function App() {
     // empty area is not the same message as "this conversation has nothing in it yet". The
     // spinner covers the fetch AND the deferred rendering that follows, and is cleared below
     // once the messages are on screen and their formulas and diagrams are built.
-    if (!soft) requestModal(true)
+    if (!soft) { requestModal(true) }
     // This tab's run belongs to ONE conversation, and it keeps running while
     // the user looks elsewhere. Carry its flag into the row it belongs to, so
     // coming back to that conversation shows the spinner its own turn earned -
     // the gateway does not know about this tab's view of the list, and the
     // next fetchSessions would otherwise paint the row idle for a tick.
     const liveRun = runSessionRef.current
-    if (liveRun) setRunningState(true, liveRun)
+    if (liveRun) { setRunningState(true, liveRun) }
     // Load transcript for the new session.
     try {
       const res = await api('/v1/sessions/' + encodeURIComponent(id) + '/messages')
       const data = await res.json()
       // The user may have clicked another conversation while this one was loading: a
       // late answer must not paint over the one now on screen.
-      if (sessionRef.current !== id) return
+      if (sessionRef.current !== id) { return }
       const msgs = data.messages || []
       // Is a run in flight in this conversation? The gateway relaunches an interrupted run on
       // its own after a restart, and this tab knows nothing of it: it never started the
@@ -2220,14 +2220,14 @@ export default function App() {
           live = !st.outcome
         }
       } catch { /* no run to follow */ }
-      if (sessionRef.current !== id) return
+      if (sessionRef.current !== id) { return }
       const out: Message[] = []
       for (const [i, m] of msgs.entries()) {
-        if (m.User) out.push({ id: nextId(), role: 'user', text: m.User, turn: i })
+        if (m.User) { out.push({ id: nextId(), role: 'user', text: m.User, turn: i }) }
         // A turn still open carries what the run had done before it was cut. The stream only
         // brings what happens FROM NOW ON, so this is the one place the reader can see where
         // it got to - it is drawn whether or not the run is live.
-        if (m.Agent) out.push({ id: nextId(), role: 'agent', text: m.Agent })
+        if (m.Agent) { out.push({ id: nextId(), role: 'agent', text: m.Agent }) }
       }
       if (out.length === 0) {
         out.push({ id: nextId(), role: 'agent', text: 'Nothing yet. Ask for something below.', kind: 'kind' })
@@ -2246,7 +2246,7 @@ export default function App() {
       try {
         const cfgRes = await api('/v1/sessions/' + encodeURIComponent(id) + '/config')
         const cfgData: ConfigView = await cfgRes.json()
-        if (sessionRef.current === id) setConfig(cfgData)
+        if (sessionRef.current === id) { setConfig(cfgData) }
       } catch { /* non-fatal */ }
     } catch {
       setState('could not load the conversation', true)
@@ -2261,7 +2261,7 @@ export default function App() {
   useEffect(() => {
     const onPop = () => {
       const id = sessionFromUrl()
-      if (id && id !== sessionRef.current) switchSession(id, 'none')
+      if (id && id !== sessionRef.current) { switchSession(id, 'none') }
     }
     window.addEventListener('popstate', onPop)
     return () => window.removeEventListener('popstate', onPop)
@@ -2386,22 +2386,22 @@ export default function App() {
       : '/v1/projects/' + confirmDelete.id + '/deletion-preview'
     api(previewPath)
       .then(async (res) => {
-        if (!res.ok) return null
+        if (!res.ok) { return null }
         return res.json().catch(() => null)
       })
       .then((data) => {
-        if (cancelled) return
+        if (cancelled) { return }
         setDeletionPreview(data && typeof data === 'object' ? data : null)
       })
-      .catch(() => { if (!cancelled) setDeletionPreview(null) })
-      .finally(() => { if (!cancelled) setPreviewLoading(false) })
+      .catch(() => { if (!cancelled) { setDeletionPreview(null) } })
+      .finally(() => { if (!cancelled) { setPreviewLoading(false) } })
     return () => { cancelled = true }
   }, [confirmDelete])
 
   // renameSession changes the title of a conversation.
   const renameSession = useCallback(async (id: string, title: string) => {
     const trimmed = title.trim()
-    if (!trimmed) return
+    if (!trimmed) { return }
     try {
       const res = await api('/v1/sessions/' + id, {
         method: 'PATCH',
@@ -2423,7 +2423,7 @@ export default function App() {
 
   // fetchProviders loads the available providers for the current session.
   const fetchProviders = useCallback(async () => {
-    if (!sessionId) return
+    if (!sessionId) { return }
     try {
       const res = await api('/v1/sessions/' + sessionId + '/providers')
       const data = await res.json()
@@ -2440,7 +2440,7 @@ export default function App() {
   // is why the modal only shows this list while the draft still points at the saved
   // provider, and falls back to the catalogue otherwise.
   const fetchModelList = useCallback(async () => {
-    if (!sessionId) return
+    if (!sessionId) { return }
     setFetchingModels(true)
     setModelList([])
     try {
@@ -2515,7 +2515,7 @@ export default function App() {
   // "leave unchanged", so a provider switch sent alone would keep a model that the
   // new provider may not serve.
   const applyProviderModel = useCallback(async () => {
-    if (!sessionId) return
+    if (!sessionId) { return }
     setSavingConfig(true)
     try {
       const res = await api('/v1/sessions/' + sessionId + '/config', {
@@ -2549,7 +2549,7 @@ export default function App() {
   const checkForUpdates = useCallback(async () => {
     try {
       const res = await api('/v1/update/check')
-      if (!res.ok) return
+      if (!res.ok) { return }
       const data: UpdateInfo = await res.json()
       setUpdateInfo(data)
       if (data.update_available && data.latest_version) {
@@ -2583,7 +2583,7 @@ export default function App() {
       let buffer = ''
       for (;;) {
         const { done, value } = await reader.read()
-        if (done) break
+        if (done) { break }
         buffer += decoder.decode(value, { stream: true })
         let idx: number
         while ((idx = buffer.indexOf('\n\n')) !== -1) {
@@ -2592,7 +2592,7 @@ export default function App() {
           // Parse SSE: find data: line
           let dataLine = ''
           for (const line of frame.split('\n')) {
-            if (line.startsWith('data: ')) dataLine = line.slice(6)
+            if (line.startsWith('data: ')) { dataLine = line.slice(6) }
           }
           if (dataLine) {
             try {
@@ -2650,16 +2650,16 @@ export default function App() {
     let cps: { turn: number; files: boolean; steps: StepView[] }[]
     try {
       const res = await api('/v1/sessions/' + encodeURIComponent(id) + '/checkpoints')
-      if (!res.ok) return
+      if (!res.ok) { return }
       cps = (await res.json()).checkpoints ?? []
     } catch { return }
     // A late answer must not paint over the conversation now on screen.
-    if (sessionRef.current !== id) return
+    if (sessionRef.current !== id) { return }
     const live = liveTurnRef.current
     setStepsByTurn(prev => {
       const next: Record<number, StepView[]> = rebuildTerm ? {} : { ...prev }
-      for (const cp of cps) if (cp.turn !== live) next[cp.turn] = cp.steps ?? []
-      if (live != null && prev[live]) next[live] = prev[live]
+      for (const cp of cps) { if (cp.turn !== live) { next[cp.turn] = cp.steps ?? [] } }
+      if (live != null && prev[live]) { next[live] = prev[live] }
       return next
     })
     setCpInfo(Object.fromEntries(cps.map(cp => [cp.turn, { files: cp.files }])))
@@ -2667,7 +2667,7 @@ export default function App() {
       const entries: ShellEntry[] = []
       for (const cp of cps) {
         for (const st of cp.steps ?? []) {
-          if (st.kind !== 'command') continue
+          if (st.kind !== 'command') { continue }
           entries.push({ id: nextId(), cmd: st.text.replace(/^running:\s*/, ''), exit: st.exit ?? NO_RESULT, out: st.out ?? '' })
         }
       }
@@ -2689,8 +2689,8 @@ export default function App() {
     }
     const out: Message[] = []
     msgs.forEach((m: { User?: string; Agent?: string }, i: number) => {
-      if (m.User) out.push({ id: nextId(), role: 'user', text: m.User, turn: i })
-      if (m.Agent) out.push({ id: nextId(), role: 'agent', text: m.Agent })
+      if (m.User) { out.push({ id: nextId(), role: 'user', text: m.User, turn: i }) }
+      if (m.Agent) { out.push({ id: nextId(), role: 'agent', text: m.Agent }) }
     })
     setMessages(out)
     void loadCheckpoints(sessionRef.current, true)
@@ -2745,7 +2745,7 @@ export default function App() {
       // A typed command's question has no run to answer: it is asked again with the yes in hand.
       const command = shellPendingRef.current
       shellPendingRef.current = null
-      if (!approve || !command) return
+      if (!approve || !command) { return }
       if (all) {
         const sid = sessionRef.current
         const res = await api('/v1/sessions/' + sid + '/auto-approve', {
@@ -2753,7 +2753,7 @@ export default function App() {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ enabled: true }),
         }).catch(() => null)
-        if (res?.ok) setSessions(prev => prev.map(s => s.id === sid ? { ...s, auto_approve: true } : s))
+        if (res?.ok) { setSessions(prev => prev.map(s => s.id === sid ? { ...s, auto_approve: true } : s)) }
       }
       void runShellLine(command, true)
       return
@@ -2775,14 +2775,14 @@ export default function App() {
 
   const approvalId = approval?.id
   useEffect(() => {
-    if (!approvalId) return
+    if (!approvalId) { return }
     setApprovalSel(0)
     approvalRef.current?.focus()
   }, [approvalId])
 
   // onApprovalKey: arrows move between the options, Enter takes the highlighted one.
   const onApprovalKey = (e: KeyboardEvent) => {
-    if (!approval) return
+    if (!approval) { return }
     const n = 3
     if (e.key === 'ArrowRight' || e.key === 'ArrowDown') {
       e.preventDefault(); setApprovalSel(i => (i + 1) % n)
@@ -2803,7 +2803,7 @@ export default function App() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ enabled: false })
       })
-      if (!res.ok) throw new Error()
+      if (!res.ok) { throw new Error() }
       setSessions(prev => prev.map(s => s.id === sid ? { ...s, auto_approve: false } : s))
     } catch {
       setState('could not stop allowing all commands', true)
@@ -2814,13 +2814,13 @@ export default function App() {
   // answers 404, read as "no agents". It is kept in a ref so switchSession, defined earlier, can
   // call it.
   const loadAgents = useCallback(async (id: string) => {
-    if (!id) return
+    if (!id) { return }
     try {
       const res = await api('/v1/sessions/' + encodeURIComponent(id) + '/agents')
-      if (sessionRef.current !== id) return
+      if (sessionRef.current !== id) { return }
       if (!res.ok) { setAgents([]); return }
       const data = await res.json()
-      if (sessionRef.current !== id) return
+      if (sessionRef.current !== id) { return }
       setAgents(sortAgents(data.agents))
     } catch { /* no agents to show */ }
   }, [])
@@ -2829,7 +2829,7 @@ export default function App() {
   // A running agent's clock ticks while the drawer shows it, and only then.
   const agentsTicking = agentsOpen && agents.some(a => a.state === 'running')
   useEffect(() => {
-    if (!agentsTicking) return
+    if (!agentsTicking) { return }
     setAgentNow(Date.now())
     const t = setInterval(() => setAgentNow(Date.now()), 1000)
     return () => clearInterval(t)
@@ -2863,7 +2863,7 @@ export default function App() {
       const sid = sessionRef.current
       for (const delay of [400, 1800]) {
         setTimeout(() => {
-          if (sessionRef.current === sid && !runningRef.current) void switchSessionRef.current?.(sid, 'none', true)
+          if (sessionRef.current === sid && !runningRef.current) { void switchSessionRef.current?.(sid, 'none', true) }
         }, delay)
       }
     }
@@ -2871,8 +2871,8 @@ export default function App() {
 
   // dispatchEvent handles one parsed SSE event.
   const dispatchEvent = useCallback((name: string, data: string | null, id: string | null) => {
-    if (id) lastIdRef.current = parseInt(id, 10) || lastIdRef.current
-    if (data === null) return
+    if (id) { lastIdRef.current = parseInt(id, 10) || lastIdRef.current }
+    if (data === null) { return }
     let payload: any
     try {
       payload = JSON.parse(data)
@@ -2890,7 +2890,7 @@ export default function App() {
         setMessages(prev => {
           for (let i = prev.length - 1; i >= 0; i--) {
             if (prev[i].role === 'user') {
-              if (prev[i].turn != null) break
+              if (prev[i].turn != null) { break }
               const next = prev.slice()
               next[i] = { ...prev[i], turn: t }
               return next
@@ -2898,7 +2898,7 @@ export default function App() {
           }
           return prev
         })
-        if (lastIdRef.current === 0) setStepsByTurn(prev => ({ ...prev, [t]: [] }))
+        if (lastIdRef.current === 0) { setStepsByTurn(prev => ({ ...prev, [t]: [] })) }
       }
       if (payload.dropped > 0) {
         setMessages(prev => [...prev, {
@@ -2906,8 +2906,8 @@ export default function App() {
           text: tf('({n} event(s) were not kept while nothing was listening)', { n: payload.dropped })
         }])
       }
-      if (payload.pending_approval) setApproval(payload.pending_approval)
-      if (Array.isArray(payload.agents)) setAgents(sortAgents(payload.agents))
+      if (payload.pending_approval) { setApproval(payload.pending_approval) }
+      if (Array.isArray(payload.agents)) { setAgents(sortAgents(payload.agents)) }
       break
     }
     case 'agents':
@@ -3005,18 +3005,18 @@ export default function App() {
     let buffer = ''
     for (;;) {
       const { done, value } = await reader.read()
-      if (done) break
+      if (done) { break }
       buffer += decoder.decode(value, { stream: true })
       let idx: number
       while ((idx = buffer.indexOf('\n\n')) !== -1) {
         const frame = parseFrame(buffer.slice(0, idx))
         buffer = buffer.slice(idx + 2)
-        if (frame.data !== null) dispatchEvent(frame.event || 'message', frame.data, frame.id)
+        if (frame.data !== null) { dispatchEvent(frame.event || 'message', frame.data, frame.id) }
       }
     }
     if (buffer.trim()) {
       const frame = parseFrame(buffer)
-      if (frame.data !== null) dispatchEvent(frame.event || 'message', frame.data, frame.id)
+      if (frame.data !== null) { dispatchEvent(frame.event || 'message', frame.data, frame.id) }
     }
   }, [dispatchEvent])
 
@@ -3067,15 +3067,15 @@ export default function App() {
   // The only cut is a sanity cap: a history this far behind is not being watched.
   const TERM_CAP = 30
   useEffect(() => {
-    if (!termOpen) return
+    if (!termOpen) { return }
     const pending = shellLog.filter(e => e.id > termSeenId)
-    if (pending.length > TERM_CAP) setTermSeenId(pending[pending.length - 6].id)
+    if (pending.length > TERM_CAP) { setTermSeenId(pending[pending.length - 6].id) }
   }, [termOpen, shellLog, termSeenId])
   // The checkpoint whose ⋯ menu is open, and whether the destructive item was armed.
   const [cpMenu, setCpMenu] = useState<number | null>(null)
   const [cpArmed, setCpArmed] = useState(false)
   useEffect(() => {
-    if (cpMenu == null) return
+    if (cpMenu == null) { return }
     const close = () => { setCpMenu(null); setCpArmed(false) }
     // Deferred one tick: the click that opened the menu must not be the one that closes it.
     const t = setTimeout(() => document.addEventListener('click', close), 0)
@@ -3087,7 +3087,7 @@ export default function App() {
   const restoreCheckpoint = useCallback(async (turn: number, files: boolean) => {
     setCpMenu(null)
     setCpArmed(false)
-    if (runningRef.current) return
+    if (runningRef.current) { return }
     const sid = sessionRef.current
     try {
       const res = await api('/v1/sessions/' + encodeURIComponent(sid) + '/checkpoints/' + turn + '/restore', {
@@ -3100,7 +3100,7 @@ export default function App() {
         setToast({ message: t('Could not go back to that checkpoint'), type: 'error', detail: body.error })
         return
       }
-      if (sessionRef.current !== sid) return
+      if (sessionRef.current !== sid) { return }
       setInput(body.task ?? '')
       await switchSessionRef.current?.(sid, 'none')
       setToast({
@@ -3142,7 +3142,7 @@ export default function App() {
       let merged = false
       try {
         const err = await res.json()
-        if (err.error) msg = err.error
+        if (err.error) { msg = err.error }
         merged = err.error && err.error.includes('already been integrated')
       } catch { /* keep generic */ }
       if (merged) {
@@ -3235,14 +3235,14 @@ export default function App() {
   const refreshPR = async (sid: string) => {
     try {
       const v = await getPR(api, sid)
-      if (sid !== sessionRef.current) return
+      if (sid !== sessionRef.current) { return }
       setPrBlocked(false)
       setPrView(v)
     } catch (e) {
-      if (sid !== sessionRef.current) return
+      if (sid !== sessionRef.current) { return }
       // 'pr_no_remote' and 'pr_no_host' will not change by asking again; a lost connection or a
       // host that is down will, and the next poll tries again.
-      if (e instanceof PRError && (e.code === 'pr_no_remote' || e.code === 'pr_no_host')) setPrBlocked(true)
+      if (e instanceof PRError && (e.code === 'pr_no_remote' || e.code === 'pr_no_host')) { setPrBlocked(true) }
     }
   }
 
@@ -3255,17 +3255,17 @@ export default function App() {
   }, [prSessionId])
   const wasRunningRef = useRef(false)
   useEffect(() => {
-    if (!prSessionId) return
+    if (!prSessionId) { return }
     const ended = wasRunningRef.current && !prRunning
     wasRunningRef.current = prRunning
-    if (ended || prView === null) void refreshPR(prSessionId)
+    if (ended || prView === null) { void refreshPR(prSessionId) }
   }, [prSessionId, prRunning])
   useEffect(() => {
-    if (prSessionId && prWatchKey) void refreshPR(prSessionId)
+    if (prSessionId && prWatchKey) { void refreshPR(prSessionId) }
   }, [prSessionId, prWatchKey])
   // While the gateway follows the CI, the bar's detail (the jobs) is refreshed every 20 seconds.
   useEffect(() => {
-    if (!prSessionId || !shouldPoll(prWatch)) return
+    if (!prSessionId || !shouldPoll(prWatch)) { return }
     const id = setInterval(() => { void refreshPR(prSessionId) }, 20000)
     return () => clearInterval(id)
   }, [prSessionId, prWatch?.status])
@@ -3289,7 +3289,7 @@ export default function App() {
       const cur = sess.pr_watch ?? null
       const notice = prNotice(seenWatchRef.current[sess.id], cur)
       seenWatchRef.current[sess.id] = cur
-      if (!notice || !cur) continue
+      if (!notice || !cur) { continue }
       const where = sess.id === sessionRef.current ? '' : ' — ' + (sess.title || sess.id)
       const pr = cur.number ? '#' + cur.number : ''
       if (notice === 'passed') {
@@ -3310,7 +3310,7 @@ export default function App() {
     }
     // One toast for what moved in one look at the list: three sessions finishing together are
     // one thing to read, not three toasts replacing each other.
-    if (news.length === 1) announce(news[0])
+    if (news.length === 1) { announce(news[0]) }
     else if (news.length > 1) {
       announce({
         message: tf('{n} pull requests moved', { n: String(news.length) }),
@@ -3324,7 +3324,7 @@ export default function App() {
     const sid = sessionRef.current
     // The click is the moment to ask to be allowed to say the CI ended while the tab is in the background.
     try {
-      if (typeof Notification !== 'undefined' && wantsDesktopPermission(Notification.permission)) void Notification.requestPermission()
+      if (typeof Notification !== 'undefined' && wantsDesktopPermission(Notification.permission)) { void Notification.requestPermission() }
     } catch { /* ignore */ }
     // Asked before the agent is, so a host that is not connected is a dialog and not a turn spent.
     try {
@@ -3394,7 +3394,7 @@ export default function App() {
       setActiveTags([])
       return
     }
-    if (!text) return
+    if (!text) { return }
     const shellLine = shellCommandOf(text)
     if (shellLine) {
       setInput('')
@@ -3462,10 +3462,10 @@ export default function App() {
       stopRun()
       return
     }
-    if (e.key !== 'Enter') return
+    if (e.key !== 'Enter') { return }
     // Coarse pointer = touch device; skip Enter-to-send there.
-    if (window.matchMedia('(pointer: coarse)').matches) return
-    if (e.shiftKey || e.ctrlKey || e.metaKey || (e.altKey && !runningRef.current)) return
+    if (window.matchMedia('(pointer: coarse)').matches) { return }
+    if (e.shiftKey || e.ctrlKey || e.metaKey || (e.altKey && !runningRef.current)) { return }
     e.preventDefault()
     const argText = input.trim()
     // If there are active tags, send tags + argument. If no tags and no text, nothing.
@@ -3477,7 +3477,7 @@ export default function App() {
       setActiveTags([])
       return
     }
-    if (!text) return
+    if (!text) { return }
     const shellLine = shellCommandOf(text)
     if (shellLine) {
       setInput('')
@@ -3523,7 +3523,7 @@ export default function App() {
         let lastId = ''
         try { lastId = localStorage.getItem(STORAGE_KEY) || '' } catch { /* ignore */ }
         const fromUrl = sessionFromUrl()
-        if (fromUrl && list.some(s => s.id === fromUrl)) lastId = fromUrl
+        if (fromUrl && list.some(s => s.id === fromUrl)) { lastId = fromUrl }
         const exists = list.some(s => s.id === lastId)
         const target = exists ? lastId : 'default'
         await switchSession(target, 'replace')
@@ -3534,7 +3534,7 @@ export default function App() {
     })()
     // Cleanup reconnect timer on unmount.
     return () => {
-      if (reconnectTimer.current) clearTimeout(reconnectTimer.current)
+      if (reconnectTimer.current) { clearTimeout(reconnectTimer.current) }
     }
   }, [exchange, fetchProjects, fetchSessions, switchSession])
 
@@ -3558,7 +3558,7 @@ export default function App() {
   // 10 minutes. The backend's own hourly check is what populates the cache,
   // so this poll is cheap (it reads the cache, not GitHub).
   useEffect(() => {
-    if (authState !== 'ok') return
+    if (authState !== 'ok') { return }
     checkForUpdates()
     const interval = setInterval(checkForUpdates, 10 * 60 * 1000)
     return () => clearInterval(interval)
@@ -3571,12 +3571,12 @@ export default function App() {
   // Then the gateway's ui.language, which applies to all of motita: this page, the terminal, every
   // browser. `auto` still means "the browser's language" here, not the gateway machine's locale.
   useEffect(() => {
-    if (authState !== 'ok') return
+    if (authState !== 'ok') { return }
     let cancelled = false
     ;(async () => {
       try {
         const res = await api('/v1/ui')
-        if (!res.ok || cancelled) return
+        if (!res.ok || cancelled) { return }
         const data = await res.json()
         const setting: LangSetting = data.language === 'en' || data.language === 'es' ? data.language : 'auto'
         setUiLangSetting(setting)
@@ -3612,7 +3612,7 @@ export default function App() {
   // submitAuth is called when the user enters a token in the blocking modal.
   const submitAuth = useCallback(async () => {
     const token = authInput.trim()
-    if (!token || authBusy) return
+    if (!token || authBusy) { return }
     setAuthBusy(true)
     setAuthError('')
     const ok = await submitToken(token)
@@ -3634,7 +3634,7 @@ export default function App() {
         let lastId = ''
         try { lastId = localStorage.getItem(STORAGE_KEY) || '' } catch { /* ignore */ }
         const fromUrl = sessionFromUrl()
-        if (fromUrl && list.some(s => s.id === fromUrl)) lastId = fromUrl
+        if (fromUrl && list.some(s => s.id === fromUrl)) { lastId = fromUrl }
         const exists = list.some(s => s.id === lastId)
         const target = exists ? lastId : 'default'
         await switchSession(target, 'replace')
@@ -3658,13 +3658,13 @@ export default function App() {
   // treating it as an outside click would flip the state twice (closed here,
   // then reopened by the button's own handler) and the button would seem dead.
   useEffect(() => {
-    if (!rowMenu) return
+    if (!rowMenu) { return }
     const onDown = (e: Event) => {
       const t = e.target as HTMLElement | null
-      if (t && (t.closest('.row-menu') || t.closest('button[data-row-menu-trigger]'))) return
+      if (t && (t.closest('.row-menu') || t.closest('button[data-row-menu-trigger]'))) { return }
       closeRowMenu()
     }
-    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') closeRowMenu() }
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') { closeRowMenu() } }
     document.addEventListener('mousedown', onDown, true)
     document.addEventListener('touchstart', onDown, true)
     document.addEventListener('keydown', onKey)
@@ -3683,11 +3683,11 @@ export default function App() {
   // The listener is attached only while a menu is open, which is what keeps it off the hot path
   // of ordinary scrolling.
   useEffect(() => {
-    if (!rowMenu) return
+    if (!rowMenu) { return }
     const reposition = () => {
       const anchor = rowMenuAnchor.current
-      if (anchor && anchor.isConnected) placeRowMenu(anchor)
-      else closeRowMenu() // the row was removed from under the menu
+      if (anchor && anchor.isConnected) { placeRowMenu(anchor) }
+      else { closeRowMenu() } // the row was removed from under the menu
     }
     window.addEventListener('scroll', reposition, true)
     window.addEventListener('resize', reposition)
@@ -3700,7 +3700,7 @@ export default function App() {
   // The library is fetched when the modal OPENS, and the draft state is reset with it so a
   // reopened modal never shows the previous document or the previous filter.
   useEffect(() => {
-    if (!showSkillLibrary) return
+    if (!showSkillLibrary) { return }
     setSkillQuery('')
     setSkillOpen(null)
     setSkillBody('')
@@ -3728,18 +3728,18 @@ export default function App() {
       const target = e.target as HTMLElement
       if (target.tagName === 'IMG' && target.closest('.markdown-body') && !target.closest('a')) {
         const img = target as HTMLImageElement
-        if (img.currentSrc || img.src) setPreviewImage({ src: img.currentSrc || img.src, label: img.alt || t('Image') })
+        if (img.currentSrc || img.src) { setPreviewImage({ src: img.currentSrc || img.src, label: img.alt || t('Image') }) }
       } else if (target.classList.contains('copy-btn')) {
         const text = target.getAttribute('data-copy-text') || ''
         void copyText(text).then((ok) => {
-          if (!ok) return
+          if (!ok) { return }
           target.textContent = '✓'
           setTimeout(() => { target.textContent = t('copy') }, 1500)
         })
       } else if (target.classList.contains('copy-msg-btn')) {
         const text = target.getAttribute('data-raw') || ''
         void copyText(text).then((ok) => {
-          if (!ok) return
+          if (!ok) { return }
           target.textContent = '✓'
           setTimeout(() => { target.textContent = t('copy') }, 1500)
         })
@@ -3804,8 +3804,8 @@ export default function App() {
       }`}
       role="button"
       tabIndex={0}
-      onClick={() => { if (renamingId !== s.id) switchSession(s.id) }}
-      onKeyDown={onActivate(() => { if (renamingId !== s.id) switchSession(s.id) })}
+      onClick={() => { if (renamingId !== s.id) { switchSession(s.id) } }}
+      onKeyDown={onActivate(() => { if (renamingId !== s.id) { switchSession(s.id) } })}
       onTouchStart={(e) => startLongPress('session', s.id, s.title || s.id, e)}
       onTouchMove={cancelLongPress}
       onTouchEnd={cancelLongPress}
@@ -3827,7 +3827,7 @@ export default function App() {
             onInput={(e) => setRenameValue((e.target as HTMLInputElement).value)}
             onKeyDown={(e) => {
               if (e.key === 'Enter') { renameSession(s.id, renameValue); setRenamingId(null) }
-              if (e.key === 'Escape') setRenamingId(null)
+              if (e.key === 'Escape') { setRenamingId(null) }
             }}
             role="presentation"
             onClick={(e) => e.stopPropagation()}
@@ -4466,8 +4466,8 @@ export default function App() {
             // hands over to the previous one when the reader scrolls back up past it.
             const groups: { key: number; turn?: number; items: Message[] }[] = []
             for (const m of messages) {
-              if (m.role === 'user' || groups.length === 0) groups.push({ key: m.id, turn: m.turn, items: [m] })
-              else groups[groups.length - 1].items.push(m)
+              if (m.role === 'user' || groups.length === 0) { groups.push({ key: m.id, turn: m.turn, items: [m] }) }
+              else { groups[groups.length - 1].items.push(m) }
             }
             return groups.map((g, gi) => {
               const isLast = gi === groups.length - 1
@@ -4673,10 +4673,10 @@ export default function App() {
           const thoughts: { key: string; text: string; live?: boolean }[] = []
           for (const t of Object.keys(stepsByTurn).map(Number).sort((a, b) => a - b)) {
             stepsByTurn[t].forEach((st, i) => {
-              if (st.kind === 'thought') thoughts.push({ key: t + ':' + i, text: st.text.replace(/^thinking:\s*/, '') })
+              if (st.kind === 'thought') { thoughts.push({ key: t + ':' + i, text: st.text.replace(/^thinking:\s*/, '') }) }
             })
           }
-          if (running && liveThought) thoughts.push({ key: 'live', text: liveThought, live: true })
+          if (running && liveThought) { thoughts.push({ key: 'live', text: liveThought, live: true }) }
           return (
             <div class={`term-drawer is-think${thinkOpen ? ' is-open' : ''}`}>
               <button
@@ -4721,7 +4721,7 @@ export default function App() {
         {(() => {
           const subagents = agents.filter(a => a.parent)
           const runningSubs = subagents.filter(a => a.state === 'running').length
-          if (subagents.length === 0 && !agents.some(a => tokenTotal(a.tokens) > 0)) return null
+          if (subagents.length === 0 && !agents.some(a => tokenTotal(a.tokens) > 0)) { return null }
           const total = agents.reduce<AgentTokens>((acc, a) => ({
             input: acc.input + (a.tokens?.input || 0),
             output: acc.output + (a.tokens?.output || 0),
@@ -4762,8 +4762,8 @@ export default function App() {
                           class={`agent-row is-${a.state}${done ? ' is-done' : ''}`}
                           role={done ? 'button' : undefined}
                           tabIndex={done ? 0 : undefined}
-                          onClick={() => { if (done) setAgentOpenId(id => id === a.id ? null : a.id) }}
-                          onKeyDown={onActivate(() => { if (done) setAgentOpenId(id => id === a.id ? null : a.id) })}
+                          onClick={() => { if (done) { setAgentOpenId(id => id === a.id ? null : a.id) } }}
+                          onKeyDown={onActivate(() => { if (done) { setAgentOpenId(id => id === a.id ? null : a.id) } })}
                           aria-expanded={done ? open : undefined}
                         >
                           <span class="agent-state" aria-label={t(a.state)}>
@@ -4794,7 +4794,7 @@ export default function App() {
                                         class="agent-copy"
                                         onClick={() => {
                                           void copyText(merge).then((ok) => {
-                                            if (!ok) return
+                                            if (!ok) { return }
                                             setAgentCopied(a.id)
                                             setTimeout(() => setAgentCopied(c => c === a.id ? null : c), 1500)
                                           })
@@ -6014,7 +6014,7 @@ export default function App() {
         <div
           class="fixed inset-0 bg-black/60 backdrop-blur-xs z-50 flex items-center justify-center p-4"
           role="presentation"
-          onClick={() => { if (!upgradeBusy) setShowUpgrade(false) }}
+          onClick={() => { if (!upgradeBusy) { setShowUpgrade(false) } }}
         >
           <div
             class="frosted rounded-2xl border border-white/10 w-full max-w-md p-5 shadow-2xl"
@@ -6028,7 +6028,7 @@ export default function App() {
               <h2 class="text-base font-semibold">{t('Upgrade Motita')}</h2>
               <button
                 class="ml-auto p-1.5 rounded-lg hover:bg-white/5"
-                onClick={() => { if (!upgradeBusy) setShowUpgrade(false) }}
+                onClick={() => { if (!upgradeBusy) { setShowUpgrade(false) } }}
                 disabled={upgradeBusy}
                 aria-label={t('Close')}
                 style={upgradeBusy ? 'opacity:0.3;cursor:not-allowed' : ''}
@@ -6466,7 +6466,7 @@ export default function App() {
                       const input = e.target as HTMLInputElement
                       const f = input.files && input.files[0]
                       input.value = ''
-                      if (f) void uploadArtifact(f)
+                      if (f) { void uploadArtifact(f) }
                     }}
                   />
                 </label>

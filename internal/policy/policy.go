@@ -31,6 +31,13 @@ import (
 	"github.com/madkoding/motita/internal/semantic"
 )
 
+// Literals used more than once in this file.
+const (
+	categoryExternalEffect = "external-effect"
+	worksInFormat          = "works in (%s)"
+	tsNode                 = "ts-node"
+)
+
 // Verdict is what may be done with one command.
 type Verdict int
 
@@ -172,7 +179,7 @@ func (m Mode) DecisionFor(command string, args []string, dir string) Decision {
 		if reachesOutside(name, args) {
 			return Decision{Ask, fmt.Sprintf("%q can reach outside this machine or change the system "+
 				"as a whole, which is not something a task should do unannounced", baseName(command)),
-				"external-effect", false}
+				categoryExternalEffect, false}
 		}
 		if d, hit := writingForm(command, args, dir); hit {
 			return d
@@ -188,7 +195,7 @@ func (m Mode) DecisionFor(command string, args []string, dir string) Decision {
 	default:
 		if reachesOutside(name, args) {
 			return Decision{Ask, fmt.Sprintf("%q reaches outside this machine, and what it does there "+
-				"cannot be checked from the command line", baseName(command)), "external-effect", false}
+				"cannot be checked from the command line", baseName(command)), categoryExternalEffect, false}
 		}
 		// The same for the unknown branch: a binary whose name we do not know a verdict for
 		// may still be a build tool the project needs.
@@ -253,7 +260,7 @@ func forgeDecision(name string, args []string) (Decision, bool) {
 		return Decision{}, false
 	}
 	if len(args) >= 3 && args[1] == "pr" && args[2] == "create" {
-		return Decision{Ask, "this opens a pull request on the git host, under the user's account", "external-effect", false}, true
+		return Decision{Ask, "this opens a pull request on the git host, under the user's account", categoryExternalEffect, false}, true
 	}
 	return Decision{Allow, "this only reads from the git host", "reader", false}, true
 }
@@ -313,7 +320,7 @@ func leavesWorkspace(name string, args []string, dir string) (Decision, bool) {
 		return Decision{}, false
 	}
 	return Decision{Ask, fmt.Sprintf("%q moves to %q, which is outside the directory this task "+
-		"works in (%s)", name, target, dir), "leaves-workspace", false}, true
+		worksInFormat, name, target, dir), "leaves-workspace", false}, true
 }
 
 // projectLocalDecision allows a program that lives inside the workspace and is passed explicit
@@ -331,7 +338,7 @@ func projectLocalDecision(command string, args []string, dir string) (Decision, 
 	targets := rmTargets(args)
 	if outside := firstOutside(targets, dir); outside != "" {
 		return Decision{Ask, fmt.Sprintf("%q takes %q, which is outside the directory this task "+
-			"works in (%s)", baseName(command), outside, dir), "project-script-arg-outside", false}, true
+			worksInFormat, baseName(command), outside, dir), "project-script-arg-outside", false}, true
 	}
 	if !isInsideWorkspace(command, dir) {
 		return Decision{}, false
@@ -383,7 +390,7 @@ var localTools = map[string]bool{
 	"gofmt": true, "golangci-lint": true, "shfmt": true, "shellcheck": true,
 	// interpreters: the script's own location is checked below
 	"python": true, "python3": true, "node": true, "ruby": true, "perl": true, "php": true,
-	"deno": true, "bun": true, "java": true, "ts-node": true,
+	"deno": true, "bun": true, "java": true, tsNode: true,
 	// project tooling
 	"west": true, "platformio": true, "idf.py": true, "poetry": true, "uv": true,
 	// The tools that are also in externalPrograms, whose LOCAL VERBS are ordinary work.
@@ -400,7 +407,7 @@ var localTools = map[string]bool{
 // program. That file is what the policy can look at, which is why these get the extra check.
 var interpreters = map[string]bool{
 	"python": true, "python3": true, "node": true, "ruby": true, "perl": true, "php": true,
-	"deno": true, "bun": true, "ts-node": true,
+	"deno": true, "bun": true, tsNode: true,
 }
 
 // inlineProgramFlags names, PER INTERPRETER, the flags that carry the PROGRAM ITSELF in the
@@ -422,7 +429,7 @@ var inlineProgramFlags = map[string]map[string]bool{
 	"perl":    {"-e": true, "-E": true, "-pe": true, "-ne": true, "-ple": true},
 	"ruby":    {"-e": true},
 	"php":     {"-r": true},
-	"ts-node": {"-e": true},
+	tsNode:    {"-e": true},
 }
 
 // localToolDecision answers the programs whose ordinary use is local work.
@@ -1589,7 +1596,7 @@ func writingForm(command string, args []string, dir string) (Decision, bool) {
 	}
 	if outside := firstOutside(targets, dir); outside != "" {
 		return Decision{Ask, fmt.Sprintf("%q writes to %q, which is outside the directory this task "+
-			"works in (%s)", name, outside, dir), "write-outside-workspace", false}, true
+			worksInFormat, name, outside, dir), "write-outside-workspace", false}, true
 	}
 	return Decision{Allow, fmt.Sprintf("%q writes inside the workspace (%s)", name, dir), "write-inside-workspace", false}, true
 }
@@ -1903,7 +1910,7 @@ func (m Mode) heredocVerdict(main string, docs []heredoc) (Decision, bool) {
 // OTHER package `npx` would fetch is unreviewed code from the network, and is still asked about.
 var devTools = map[string]bool{
 	"vitest": true, "jest": true, "tsc": true, "eslint": true, "prettier": true, "next": true,
-	"vite": true, "tsx": true, "ts-node": true, "mocha": true, "playwright": true, "cypress": true,
+	"vite": true, "tsx": true, tsNode: true, "mocha": true, "playwright": true, "cypress": true,
 	"biome": true, "stylelint": true, "turbo": true, "nx": true, "webpack": true, "rollup": true,
 	"esbuild": true, "svelte-check": true, "vue-tsc": true, "astro": true, "nuxt": true, "c8": true,
 	"nyc": true, "ava": true, "tap": true, "knip": true, "depcheck": true, "prisma": true,

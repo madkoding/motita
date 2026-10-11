@@ -35,7 +35,7 @@ const (
 	landlockCreateRulesetVersion = 1 << 0
 	landlockRulePathBeneath      = 1
 	prSetNoNewPrivs              = 38
-	oPath                        = 0o10000000 // O_PATH: open only to name the directory
+	oPath                        = 0x200000 // O_PATH: open only to name the directory
 )
 
 // The write-side access rights, with the Landlock ABI that introduced each.

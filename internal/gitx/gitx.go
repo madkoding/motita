@@ -34,6 +34,16 @@ import (
 	"time"
 )
 
+// Literals used more than once in this file.
+const (
+	gitRevParse  = "rev-parse"
+	gitGlobal    = "--global"
+	gitUserName  = "user.name"
+	gitUserEmail = "user.email"
+	gitShort     = "--short"
+	gitVerify    = "--verify"
+)
+
 // ErrNoGit is returned when git itself cannot be executed. It is a sentinel so
 // a caller can tell "this machine has no git" from "this directory is not a
 // repository": the first is a missing program, the second is a missing
@@ -178,7 +188,7 @@ func Repo(ctx context.Context, dir string) error {
 	if strings.TrimSpace(dir) == "" {
 		return ErrNotARepo
 	}
-	out, err := execute(ctx, dir, "rev-parse", "--is-inside-work-tree")
+	out, err := execute(ctx, dir, gitRevParse, "--is-inside-work-tree")
 	switch {
 	case isNoGit(err):
 		return ErrNoGit
@@ -254,8 +264,8 @@ func Checkout(ctx context.Context, dir, branch string) error {
 // which is where a repository made by Init gets the identity of its commits.
 // Either is empty when it is not set.
 func GlobalIdentity(ctx context.Context) (name, email string) {
-	name, _ = execute(ctx, ".", "config", "--global", "user.name")
-	email, _ = execute(ctx, ".", "config", "--global", "user.email")
+	name, _ = execute(ctx, ".", "config", gitGlobal, gitUserName)
+	email, _ = execute(ctx, ".", "config", gitGlobal, gitUserEmail)
 	return strings.TrimSpace(name), strings.TrimSpace(email)
 }
 
@@ -263,10 +273,10 @@ func GlobalIdentity(ctx context.Context) (name, email string) {
 // configuration, so that every repository - this one and the ones already on
 // the machine - commits under them.
 func SetGlobalIdentity(ctx context.Context, name, email string) error {
-	if _, err := noGitOr(ctx, "could not save the git name", ".", "config", "--global", "user.name", name); err != nil {
+	if _, err := noGitOr(ctx, "could not save the git name", ".", "config", gitGlobal, gitUserName, name); err != nil {
 		return err
 	}
-	_, err := noGitOr(ctx, "could not save the git email", ".", "config", "--global", "user.email", email)
+	_, err := noGitOr(ctx, "could not save the git email", ".", "config", gitGlobal, gitUserEmail, email)
 	return err
 }
 
@@ -288,14 +298,14 @@ func Head(ctx context.Context, dir string) (branch string, detached string, err 
 	if err := Repo(ctx, dir); err != nil {
 		return "", "", err
 	}
-	if name, nameErr := execute(ctx, dir, "rev-parse", "--abbrev-ref", "HEAD"); nameErr == nil && name != "" && name != "HEAD" {
+	if name, nameErr := execute(ctx, dir, gitRevParse, "--abbrev-ref", "HEAD"); nameErr == nil && name != "" && name != "HEAD" {
 		return name, "", nil
 	}
-	if sha, shaErr := execute(ctx, dir, "rev-parse", "--short", "HEAD"); shaErr == nil && sha != "" {
+	if sha, shaErr := execute(ctx, dir, gitRevParse, gitShort, "HEAD"); shaErr == nil && sha != "" {
 		return "", sha, nil
 	}
 	// No commits yet: the branch is still known, as a symbolic ref.
-	out, err := execute(ctx, dir, "symbolic-ref", "--short", "HEAD")
+	out, err := execute(ctx, dir, "symbolic-ref", gitShort, "HEAD")
 	if err != nil {
 		return "", "", describe("could not read the branch this checkout is on", out, err)
 	}
@@ -322,7 +332,7 @@ func Display(ctx context.Context, dir string) string {
 
 // Root reports the repository's top-level directory.
 func Root(ctx context.Context, dir string) (string, error) {
-	out, err := execute(ctx, dir, "rev-parse", "--show-toplevel")
+	out, err := execute(ctx, dir, gitRevParse, "--show-toplevel")
 	switch {
 	case isNoGit(err):
 		return "", ErrNoGit
@@ -337,13 +347,13 @@ func Root(ctx context.Context, dir string) (string, error) {
 // A repository with no commits cannot be branched from: `worktree add -b` fails
 // with a message that names neither the cause nor the fix.
 func HasCommits(ctx context.Context, dir string) bool {
-	out, err := execute(ctx, dir, "rev-parse", "--verify", "HEAD")
+	out, err := execute(ctx, dir, gitRevParse, gitVerify, "HEAD")
 	return err == nil && out != ""
 }
 
 // BranchExists reports whether a local branch of that name exists.
 func BranchExists(ctx context.Context, dir, branch string) bool {
-	out, err := execute(ctx, dir, "rev-parse", "--verify", "refs/heads/"+branch)
+	out, err := execute(ctx, dir, gitRevParse, gitVerify, "refs/heads/"+branch)
 	return err == nil && out != ""
 }
 
@@ -528,8 +538,8 @@ const (
 // A name without an email, or an email without a name, is treated as no
 // identity at all: git needs both, so half of one is not half a solution.
 func Identity(ctx context.Context, dir string) (name, email string) {
-	name, _ = execute(ctx, dir, "config", "user.name")
-	email, _ = execute(ctx, dir, "config", "user.email")
+	name, _ = execute(ctx, dir, "config", gitUserName)
+	email, _ = execute(ctx, dir, "config", gitUserEmail)
 	if strings.TrimSpace(name) == "" || strings.TrimSpace(email) == "" {
 		return FallbackName, FallbackEmail
 	}
@@ -581,7 +591,7 @@ func MergeInto(ctx context.Context, repoDir, baseBranch, branch, message string)
 	out, err := execute(ctx, repoDir, "-c", "user.name="+name, "-c", "user.email="+email,
 		"merge", "--no-ff", "--no-verify", "--autostash", "-m", message, branch)
 	if err == nil {
-		sha, _ := execute(ctx, repoDir, "rev-parse", "--short", "HEAD")
+		sha, _ := execute(ctx, repoDir, gitRevParse, gitShort, "HEAD")
 		return MergeResult{SHA: sha, Subject: message}, nil
 	}
 	if isNoGit(err) {
@@ -593,7 +603,7 @@ func MergeInto(ctx context.Context, repoDir, baseBranch, branch, message string)
 	// rollback it did not perform. Measured both ways: the conflict case leaves
 	// MERGE_HEAD and aborts cleanly, and the refusal case has no MERGE_HEAD to
 	// abort.
-	if _, mhErr := execute(ctx, repoDir, "rev-parse", "-q", "--verify", "MERGE_HEAD"); mhErr != nil {
+	if _, mhErr := execute(ctx, repoDir, gitRevParse, "-q", gitVerify, "MERGE_HEAD"); mhErr != nil {
 		return MergeResult{}, fmt.Errorf("the merge did not happen: %s", firstLine(out))
 	}
 	if _, abErr := noGitOr(ctx, "the merge conflicted and could not be rolled back", repoDir, "merge", "--abort"); abErr != nil {

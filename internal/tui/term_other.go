@@ -20,4 +20,6 @@ type terminalMode struct {
 
 func enterRaw() *terminalMode { return &terminalMode{} }
 
-func (m *terminalMode) restore() {}
+func (m *terminalMode) restore() {
+	// enterRaw changed nothing on this platform, so there is nothing to restore.
+}

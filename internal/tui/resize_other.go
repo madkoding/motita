@@ -11,5 +11,7 @@ package tui
 func watchResize() (<-chan struct{}, func()) {
 	ch := make(chan struct{})
 	close(ch)
-	return ch, func() {}
+	return ch, func() {
+		// The channel is already closed: there is nothing to stop.
+	}
 }

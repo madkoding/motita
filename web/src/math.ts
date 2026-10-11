@@ -44,6 +44,6 @@ export function renderMath(tex: string, displayMode: boolean): string {
   // Parsed as a document fragment so the removal is by ELEMENT, not by string surgery.
   const tpl = document.createElement('template')
   tpl.innerHTML = html
-  for (const a of Array.from(tpl.content.querySelectorAll('annotation'))) a.remove()
+  for (const a of Array.from(tpl.content.querySelectorAll('annotation'))) { a.remove() }
   return tpl.innerHTML
 }

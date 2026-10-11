@@ -14,6 +14,15 @@ import (
 	"strings"
 )
 
+// Literals used more than once in this file.
+const (
+	flagFile    = "--file"
+	flagPosix   = "--posix"
+	flagSandbox = "--sandbox"
+	flagHelp    = "--help"
+	flagVersion = "--version"
+)
+
 // unquote removes ONE layer of matching quotes around a program. The line splitter that feeds
 // plan mode has already removed them, but other callers split on spaces and hand the quotes
 // through (`'1,300p'`), and a reader that took the quote for a command would refuse every one.
@@ -46,8 +55,8 @@ func resolveLong(name string, known []string) string {
 
 var sedLongOptions = []string{
 	"--quiet", "--silent", "--regexp-extended", "--separate", "--unbuffered", "--null-data",
-	"--zero-terminated", "--posix", "--debug", "--sandbox", "--binary", "--follow-symlinks",
-	"--help", "--version", "--line-length", "--expression", "--file", "--in-place",
+	"--zero-terminated", flagPosix, "--debug", flagSandbox, "--binary", "--follow-symlinks",
+	flagHelp, flagVersion, "--line-length", "--expression", flagFile, "--in-place",
 }
 
 // sedRule refuses `-i`, a script this policy cannot see (`-f`), an option it does not know,
@@ -68,7 +77,7 @@ func sedRule(args []string) (string, bool) {
 			switch resolveLong(name, sedLongOptions) {
 			case "--in-place":
 				return "sed --in-place rewrites the files", true
-			case "--file":
+			case flagFile:
 				return fmt.Sprintf("sed %s reads its script from a file this policy cannot see", a), true
 			case "--expression":
 				if !glued && i+1 < len(args) {
@@ -151,6 +160,7 @@ func sedScript(s string) (string, bool) {
 			}
 		}
 		for i = skipBlanks(s, i); i < len(s) && s[i] == '!'; i = skipBlanks(s, i+1) {
+			// Skip any '!' negations before the command.
 		}
 		if i >= len(s) {
 			return unreadable(i)
@@ -161,6 +171,7 @@ func sedScript(s string) (string, bool) {
 		case '{', '=', 'd', 'D', 'g', 'G', 'h', 'H', 'n', 'N', 'p', 'P', 'x', 'z', 'F':
 		case 'q', 'Q', 'l', 'L':
 			for i = skipBlanks(s, i); i < len(s) && s[i] >= '0' && s[i] <= '9'; i++ {
+				// Skip the optional exit code.
 			}
 		case ':', 'b', 't', 'T', 'v':
 			// A label, up to the end of the command.
@@ -232,6 +243,7 @@ func sedAddress(s string, i int) (int, bool) {
 		return i + 1, true
 	case c >= '0' && c <= '9', c == '+', c == '~':
 		for i++; i < len(s) && (s[i] >= '0' && s[i] <= '9' || s[i] == '~'); i++ {
+			// Skip the rest of the line number or step.
 		}
 		return i, true
 	case c == '/' || c == '\\':
@@ -329,9 +341,9 @@ func skipLine(s string, i int) int {
 // --- awk ---------------------------------------------------------------------
 
 var awkLongOptions = []string{
-	"--field-separator", "--assign", "--source", "--posix", "--traditional", "--re-interval",
-	"--characters-as-bytes", "--sandbox", "--use-lc-numeric", "--help", "--version",
-	"--file", "--include", "--load", "--exec",
+	"--field-separator", "--assign", "--source", flagPosix, "--traditional", "--re-interval",
+	"--characters-as-bytes", flagSandbox, "--use-lc-numeric", flagHelp, flagVersion,
+	flagFile, "--include", "--load", "--exec",
 }
 
 // awkRule is the rule for `awk`, `gawk` and `mawk` — one program under three names.
@@ -360,8 +372,8 @@ func awkRule(args []string) (string, bool) {
 					value = args[i]
 				}
 				programs, explicit = append(programs, value), true
-			case "--posix", "--traditional", "--re-interval", "--characters-as-bytes",
-				"--sandbox", "--use-lc-numeric", "--help", "--version":
+			case flagPosix, "--traditional", "--re-interval", "--characters-as-bytes",
+				flagSandbox, "--use-lc-numeric", flagHelp, flagVersion:
 			default:
 				return fmt.Sprintf("awk %s loads a program or an option read-only mode cannot check", a), true
 			}
@@ -459,6 +471,7 @@ func awkProgramWrites(p string) (string, bool) {
 			i, operand = j, true
 		case c >= '0' && c <= '9' || c == '.':
 			for i++; i < len(p) && (p[i] >= '0' && p[i] <= '9' || p[i] == '.' || p[i] == 'e' || p[i] == 'E'); i++ {
+				// Skip the rest of the number.
 			}
 			operand = true
 		case c == '@':

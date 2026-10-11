@@ -32,6 +32,11 @@ import (
 	"time"
 )
 
+// Literals used more than once in this file.
+const (
+	mimeJSON = "application/json"
+)
+
 // Token is what every flow returns: the credential the LLM client sends, when
 // it expires, and a refresh token when the provider issues one.
 type Token struct {
@@ -100,7 +105,7 @@ func postForm(ctx context.Context, client HTTPClient, url string, form url.Value
 		return err
 	}
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	req.Header.Set("Accept", "application/json")
+	req.Header.Set("Accept", mimeJSON)
 	return doJSON(client, req, dest)
 }
 
@@ -117,8 +122,8 @@ func postJSON(ctx context.Context, client HTTPClient, url string, body any, head
 	if err != nil {
 		return err
 	}
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Accept", "application/json")
+	req.Header.Set("Content-Type", mimeJSON)
+	req.Header.Set("Accept", mimeJSON)
 	for k, v := range headers {
 		req.Header.Set(k, v)
 	}
@@ -134,7 +139,7 @@ func getJSON(ctx context.Context, client HTTPClient, url string, headers map[str
 	if err != nil {
 		return err
 	}
-	req.Header.Set("Accept", "application/json")
+	req.Header.Set("Accept", mimeJSON)
 	for k, v := range headers {
 		req.Header.Set(k, v)
 	}
