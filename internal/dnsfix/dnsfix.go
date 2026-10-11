@@ -33,22 +33,35 @@ var (
 // Install replaces net.DefaultResolver on Android, and does nothing elsewhere or when the
 // system does have an /etc/resolv.conf. It must run before the first network call.
 func Install() {
-	if goos != "android" {
-		return
+	if servers, _ := plan(); servers != nil {
+		net.DefaultResolver = Resolver(servers)
 	}
+}
+
+// Describe says where name servers come from on this system, for `motita doctor`.
+func Describe() string {
+	_, source := plan()
+	return source
+}
+
+// plan decides which servers Install points the resolver at, and says why. Nil servers mean
+// the system resolver is left as it is.
+func plan() ([]string, string) {
 	if _, err := readFile("/etc/resolv.conf"); err == nil {
-		return
+		return nil, "/etc/resolv.conf"
 	}
-	var servers []string
+	if goos != "android" {
+		return nil, "no /etc/resolv.conf: Go falls back to 127.0.0.1:53"
+	}
 	if prefix := getenv("PREFIX"); prefix != "" {
-		if data, err := readFile(prefix + "/etc/resolv.conf"); err == nil {
-			servers = Nameservers(data)
+		path := prefix + "/etc/resolv.conf"
+		if data, err := readFile(path); err == nil {
+			if servers := Nameservers(data); len(servers) > 0 {
+				return servers, path + " (" + strings.Join(servers, ", ") + ")"
+			}
 		}
 	}
-	if len(servers) == 0 {
-		servers = Fallback
-	}
-	net.DefaultResolver = Resolver(servers)
+	return Fallback, "public resolvers (" + strings.Join(Fallback, ", ") + "): Termux has no resolv.conf"
 }
 
 // Nameservers returns the "nameserver" entries of a resolv.conf as host:port addresses.

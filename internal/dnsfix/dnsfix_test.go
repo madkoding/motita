@@ -106,3 +106,35 @@ func TestInstallFallsBackToPublicResolvers(t *testing.T) {
 		}
 	}
 }
+
+func TestDescribeNamesTheSourceOfTheNameServers(t *testing.T) {
+	oldGoos, oldRead, oldEnv := goos, readFile, getenv
+	t.Cleanup(func() { goos, readFile, getenv = oldGoos, oldRead, oldEnv })
+	files := map[string]string{}
+	readFile = func(name string) ([]byte, error) {
+		if s, ok := files[name]; ok {
+			return []byte(s), nil
+		}
+		return nil, os.ErrNotExist
+	}
+	getenv = func(string) string { return "/p" }
+
+	goos = "linux"
+	if got := Describe(); got != "no /etc/resolv.conf: Go falls back to 127.0.0.1:53" {
+		t.Errorf("linux without resolv.conf: %q", got)
+	}
+	files["/etc/resolv.conf"] = "nameserver 9.9.9.9\n"
+	if got := Describe(); got != "/etc/resolv.conf" {
+		t.Errorf("with /etc/resolv.conf: %q", got)
+	}
+	delete(files, "/etc/resolv.conf")
+	goos = "android"
+	files["/p/etc/resolv.conf"] = "nameserver 9.9.9.9\n"
+	if got := Describe(); got != "/p/etc/resolv.conf (9.9.9.9:53)" {
+		t.Errorf("termux: %q", got)
+	}
+	files["/p/etc/resolv.conf"] = "# empty\n"
+	if got := Describe(); got != "public resolvers (8.8.8.8:53, 1.1.1.1:53): Termux has no resolv.conf" {
+		t.Errorf("fallback: %q", got)
+	}
+}

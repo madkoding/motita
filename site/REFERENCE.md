@@ -329,6 +329,21 @@ curl -fsSLO https://github.com/madkoding/motita/releases/latest/download/SHA256S
 sha256sum -c SHA256SUMS --ignore-missing
 ```
 
+## Checking the machine: `motita doctor`
+
+`motita doctor` checks what motita needs before anything runs, one line per check:
+the build against the system (a `linux` build on Android is flagged), the shell
+commands go through, where name servers come from and whether `api.github.com`
+resolves, whether the binary is on the `PATH`, `stty` and `git`, and then the
+configuration a run would read and the sandbox it would build from it, with every limit
+that could not be applied. It needs no key and calls no model. ❌ is something motita
+needs that does not work, and makes it exit with 1; ⚠️ is worth a look.
+
+```bash
+motita doctor                    # the configuration a run would find
+motita doctor -config my.yaml    # a specific one
+```
+
 ## First run: the setup
 
 The binary needs a configuration that names a provider, a model and — most
