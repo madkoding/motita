@@ -273,7 +273,8 @@ func TestGitRepos(t *testing.T) {
 	w = get(t, srv, "/v1/git/repos?service=github&q=app&page=2", testToken)
 	m := decode(t, w)
 	repos := m["repos"].([]any)
-	if w.Code != http.StatusOK || len(repos) != 1 || repos[0].(map[string]any)["full_name"] != "octo/app" || m["account"] != "octo" || m["more"] != false {
+	oneRepo := len(repos) == 1 && repos[0].(map[string]any)["full_name"] == "octo/app"
+	if w.Code != http.StatusOK || !oneRepo || m["account"] != "octo" || m["more"] != false {
 		t.Fatalf("%d %s", w.Code, w.Body.String())
 	}
 	// An empty account answers an empty list, not null.

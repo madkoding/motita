@@ -153,28 +153,35 @@ func TestUpdateScheduleRefusesEachBadField(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			srv := newTestServer(t, &fakeService{})
-			withSchedules(t, srv, time.Minute)
-			id := createSchedule(t, srv, `{"title":"t","task":"x","every":"30m"}`)
-			if rec, err := srv.schedules.Load(id); err != nil || rec == nil {
-				t.Fatalf("the fixture must be readable first: (%v, %v)", rec, err)
-			}
-
-			w := send(t, srv, http.MethodPatch, "/v1/schedules/"+id, testToken, tc.body)
-			if w.Code != http.StatusBadRequest {
-				t.Fatalf("status = %d, want 400: body = %s", w.Code, w.Body.String())
-			}
-
-			// The second half of the PATCH contract: it either applied the field or refused the whole
-			// request, and it never half-applied one. The body is the only thing that changed it.
-			rec, err := srv.schedules.Load(id)
-			if err != nil || rec == nil {
-				t.Fatalf("the task must survive a refused PATCH: (%v, %v)", rec, err)
-			}
-			if rec.Title != "t" || rec.Task != "x" {
-				t.Errorf("a refused PATCH changed the record: Title = %q, Task = %q", rec.Title, rec.Task)
-			}
+			checkAPatchIsRefused(t, tc.body)
 		})
+	}
+}
+
+// checkAPatchIsRefused creates a task, sends body as a PATCH of it and checks that the PATCH is
+// refused with a 400 and leaves the task exactly as it was.
+func checkAPatchIsRefused(t *testing.T, body string) {
+	t.Helper()
+	srv := newTestServer(t, &fakeService{})
+	withSchedules(t, srv, time.Minute)
+	id := createSchedule(t, srv, `{"title":"t","task":"x","every":"30m"}`)
+	if rec, err := srv.schedules.Load(id); err != nil || rec == nil {
+		t.Fatalf("the fixture must be readable first: (%v, %v)", rec, err)
+	}
+
+	w := send(t, srv, http.MethodPatch, "/v1/schedules/"+id, testToken, body)
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400: body = %s", w.Code, w.Body.String())
+	}
+
+	// The second half of the PATCH contract: it either applied the field or refused the whole
+	// request, and it never half-applied one. The body is the only thing that changed it.
+	rec, err := srv.schedules.Load(id)
+	if err != nil || rec == nil {
+		t.Fatalf("the task must survive a refused PATCH: (%v, %v)", rec, err)
+	}
+	if rec.Title != "t" || rec.Task != "x" {
+		t.Errorf("a refused PATCH changed the record: Title = %q, Task = %q", rec.Title, rec.Task)
 	}
 }
 
@@ -393,20 +400,27 @@ func TestTheSchedulerFiresADueTaskAndRecordsTheOutcome(t *testing.T) {
 	for time.Now().Before(deadline) {
 		got, err := st.Load(id)
 		if err == nil && got != nil && got.RunCount > 0 {
-			if !strings.Contains(got.LastOutcome, "the audit finished") {
-				t.Errorf("LastOutcome = %q, want the run's first line", got.LastOutcome)
-			}
-			if strings.Contains(got.LastOutcome, "second line") {
-				t.Errorf("LastOutcome = %q, want ONE line: firstLine exists for this", got.LastOutcome)
-			}
-			if got.LastRun.IsZero() {
-				t.Error("a firing must record when it ran: it is what stops it firing again")
-			}
+			checkTheFiringRecorded(t, got)
 			return
 		}
 		time.Sleep(5 * time.Millisecond)
 	}
 	t.Fatal("the scheduler never fired the due task")
+}
+
+// checkTheFiringRecorded checks what a firing of the audit task left on its record: the run's
+// first line, and only that line, as the outcome, and when it ran.
+func checkTheFiringRecorded(t *testing.T, got *schedule.Schedule) {
+	t.Helper()
+	if !strings.Contains(got.LastOutcome, "the audit finished") {
+		t.Errorf("LastOutcome = %q, want the run's first line", got.LastOutcome)
+	}
+	if strings.Contains(got.LastOutcome, "second line") {
+		t.Errorf("LastOutcome = %q, want ONE line: firstLine exists for this", got.LastOutcome)
+	}
+	if got.LastRun.IsZero() {
+		t.Error("a firing must record when it ran: it is what stops it firing again")
+	}
 }
 
 // A task whose session was deleted is recorded as failed rather than repaired: creating a

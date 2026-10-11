@@ -428,7 +428,8 @@ func TestRunStatusAsksTheGatewayWhatIsRunning(t *testing.T) {
 	if err != nil {
 		t.Fatalf("RunStatus: %v", err)
 	}
-	if info.RunID != "r1" || info.FirstSeq != 3 || info.LastSeq != 9 || info.Dropped != 2 || info.Subscribers != 1 {
+	seqOK := info.FirstSeq == 3 && info.LastSeq == 9
+	if info.RunID != "r1" || !seqOK || info.Dropped != 2 || info.Subscribers != 1 {
 		t.Errorf("RunInfo = %+v", info)
 	}
 	mu.Lock()

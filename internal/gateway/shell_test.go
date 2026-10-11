@@ -48,7 +48,8 @@ func TestShellRunsATypedCommandAndReportsIt(t *testing.T) {
 	a := newSessionFor(t, srv)
 
 	code, res := runShell(t, srv, a.ID, `{"command":"  ls  "}`)
-	if code != http.StatusOK || res.Output != "out of ls\n" || res.Exit != 0 || res.Error != "" || res.Command != "ls" {
+	ranClean := res.Output == "out of ls\n" && res.Exit == 0 && res.Error == "" && res.Command == "ls"
+	if code != http.StatusOK || !ranClean {
 		t.Fatalf("a plain command: %d %+v", code, res)
 	}
 

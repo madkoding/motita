@@ -296,6 +296,32 @@ func TestThePageSendsNoCorsHeaderEither(t *testing.T) {
 	}
 }
 
+// checkSessionCookie sets the session cookie for r with maxAge and checks the one cookie that
+// comes out: Secure as wanted, every other protection on, and the lifetime as asked.
+func checkSessionCookie(t *testing.T, name string, r *http.Request, secure bool, maxAge int) {
+	t.Helper()
+	w := httptest.NewRecorder()
+	setSessionCookie(w, r, "v", maxAge)
+	cs := w.Result().Cookies()
+	if len(cs) != 1 {
+		t.Fatalf("%s: %d cookies", name, len(cs))
+	}
+	c := cs[0]
+	if c.Secure != secure || !sessionCookieHardened(c) {
+		t.Errorf("%s: %+v", name, c)
+	}
+	if (maxAge < 0) != (c.MaxAge < 0) || (maxAge > 0 && c.MaxAge != maxAge) {
+		t.Errorf("%s: MaxAge %d for %d", name, c.MaxAge, maxAge)
+	}
+}
+
+// sessionCookieHardened reports whether c carries every protection that does not depend on TLS,
+// under the session cookie's name and the value the tests set.
+func sessionCookieHardened(c *http.Cookie) bool {
+	flagsOn := c.HttpOnly && c.SameSite == http.SameSiteStrictMode
+	return flagsOn && c.Path == "/" && c.Name == webuiCookie && c.Value == "v"
+}
+
 // Secure follows the connection: set when the browser came in over TLS (directly or through a
 // proxy that terminates it), absent over plain http where a browser would refuse to send it. Every
 // other protection is on either way.
@@ -310,19 +336,7 @@ func TestTheCookieIsSecureOnlyOverTLS(t *testing.T) {
 		want bool
 	}{"plain http": {plain, false}, "behind a TLS proxy": {proxied, true}, "direct TLS": {direct, true}} {
 		for _, maxAge := range []int{3600, -1} {
-			w := httptest.NewRecorder()
-			setSessionCookie(w, tc.r, "v", maxAge)
-			cs := w.Result().Cookies()
-			if len(cs) != 1 {
-				t.Fatalf("%s: %d cookies", name, len(cs))
-			}
-			c := cs[0]
-			if c.Secure != tc.want || !c.HttpOnly || c.SameSite != http.SameSiteStrictMode || c.Path != "/" || c.Name != webuiCookie || c.Value != "v" {
-				t.Errorf("%s: %+v", name, c)
-			}
-			if (maxAge < 0) != (c.MaxAge < 0) || (maxAge > 0 && c.MaxAge != maxAge) {
-				t.Errorf("%s: MaxAge %d for %d", name, c.MaxAge, maxAge)
-			}
+			checkSessionCookie(t, name, tc.r, tc.want, maxAge)
 		}
 	}
 	w := httptest.NewRecorder()

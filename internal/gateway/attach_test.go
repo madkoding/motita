@@ -619,14 +619,10 @@ func TestACancelledRunEndsItsStream(t *testing.T) {
 
 // --- the question nobody was there to answer -----------------------------------------------------
 
-// TestAQuestionAskedWhileAwayIsAnsweredAgainOnReattach is the case that makes reconnection more than
-// a nicety.
-//
-// The approval BLOCKS the run, so a client that reconnects and is not told about it sits forever
-// watching a run that is waiting for the answer it will never give.
-func TestAQuestionAskedWhileAwayIsAnsweredAgainOnReattach(t *testing.T) {
-	svc := &fakeService{}
-	svc.task = func(ctx context.Context, _ string, progress func(string, ...any)) (string, error) {
+// askBeforeCleaning is the run of the reattach test: it logs a line and then blocks on the
+// approval of a destructive command.
+func askBeforeCleaning(svc *fakeService) func(context.Context, string, func(string, ...any)) (string, error) {
+	return func(ctx context.Context, _ string, progress func(string, ...any)) (string, error) {
 		// A turn does something before it asks, so the log has real history behind the question -
 		// which is what a client that reconnects actually finds waiting for it.
 		progress("about to clean the tree")
@@ -644,6 +640,43 @@ func TestAQuestionAskedWhileAwayIsAnsweredAgainOnReattach(t *testing.T) {
 		}
 		return "the command ran", nil
 	}
+}
+
+// pendingPreamble decodes the attach preamble at the head of events and checks that it carries
+// the open question whole: its command, its reason and rule, and the id that answers it.
+func pendingPreamble(t *testing.T, events []event) attachedEvent {
+	t.Helper()
+	if events[0].Event != EventAttached {
+		t.Fatalf("no preamble: %+v", events)
+	}
+	var preamble attachedEvent
+	if err := json.Unmarshal([]byte(events[0].Data), &preamble); err != nil {
+		t.Fatalf("the preamble is not JSON: %v", err)
+	}
+	if preamble.PendingApproval == nil {
+		t.Fatal("the preamble does not carry the pending question, " +
+			"so the reattached client waits forever for an answer it is never asked for")
+	}
+	if preamble.PendingApproval.Command != "rm -rf ./build" {
+		t.Errorf("the pending question lost its command: %+v", preamble.PendingApproval)
+	}
+	if preamble.PendingApproval.Reason != "it deletes a directory" || preamble.PendingApproval.Rule != "destructive" {
+		t.Errorf("the pending question lost its reason or rule: %+v", preamble.PendingApproval)
+	}
+	if preamble.PendingApproval.ID == "" {
+		t.Fatal("the pending question has no id, so it cannot be answered")
+	}
+	return preamble
+}
+
+// TestAQuestionAskedWhileAwayIsAnsweredAgainOnReattach is the case that makes reconnection more than
+// a nicety.
+//
+// The approval BLOCKS the run, so a client that reconnects and is not told about it sits forever
+// watching a run that is waiting for the answer it will never give.
+func TestAQuestionAskedWhileAwayIsAnsweredAgainOnReattach(t *testing.T) {
+	svc := &fakeService{}
+	svc.task = askBeforeCleaning(svc)
 	srv := newTestServer(t, svc)
 	conv := srv.sessions[DefaultSession]
 
@@ -667,25 +700,7 @@ func TestAQuestionAskedWhileAwayIsAnsweredAgainOnReattach(t *testing.T) {
 	if len(events) < 2 {
 		t.Fatalf("events = %+v", events)
 	}
-	if events[0].Event != EventAttached {
-		t.Fatalf("no preamble: %+v", events)
-	}
-	var preamble attachedEvent
-	if err := json.Unmarshal([]byte(events[0].Data), &preamble); err != nil {
-		t.Fatalf("the preamble is not JSON: %v", err)
-	}
-	if preamble.PendingApproval == nil {
-		t.Fatal("the preamble does not carry the pending question, so the reattached client waits forever for an answer it is never asked for")
-	}
-	if preamble.PendingApproval.Command != "rm -rf ./build" {
-		t.Errorf("the pending question lost its command: %+v", preamble.PendingApproval)
-	}
-	if preamble.PendingApproval.Reason != "it deletes a directory" || preamble.PendingApproval.Rule != "destructive" {
-		t.Errorf("the pending question lost its reason or rule: %+v", preamble.PendingApproval)
-	}
-	if preamble.PendingApproval.ID == "" {
-		t.Fatal("the pending question has no id, so it cannot be answered")
-	}
+	preamble := pendingPreamble(t, events)
 	// The line emitted before the question is replayed too, so the client sees what led to it.
 	if !strings.Contains(events[1].Data, "about to clean") {
 		t.Errorf("the replay does not carry the line before the question: %+v", events)

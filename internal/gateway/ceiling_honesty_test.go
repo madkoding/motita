@@ -123,8 +123,13 @@ func TestRestoreRespectsTheCeiling(t *testing.T) {
 // contains is a local helper because the test package does not import strings
 // in every file.
 func contains(s, sub string) bool {
-	return len(s) >= len(sub) && (s == sub || len(sub) == 0 ||
-		(len(s) > 0 && len(sub) > 0 && indexOf(s, sub) >= 0))
+	if len(s) < len(sub) {
+		return false
+	}
+	if s == sub || len(sub) == 0 {
+		return true
+	}
+	return len(s) > 0 && len(sub) > 0 && indexOf(s, sub) >= 0
 }
 
 func indexOf(s, sub string) int {

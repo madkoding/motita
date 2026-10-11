@@ -50,7 +50,19 @@ func TestAllowingAllCommandsAnswersTheRestOfTheSession(t *testing.T) {
 	if w.Code != http.StatusNoContent {
 		t.Fatalf("answer = %d %s", w.Code, w.Body.String())
 	}
-	events := readEvents(t, br)
+	checkRanOnTheStandingAnswer(t, readEvents(t, br))
+	if len(answers) != 2 || !answers[0] || !answers[1] {
+		t.Errorf("answers = %v", answers)
+	}
+	if !srv.sessions[DefaultSession].status().AutoApprove {
+		t.Error("the session status must report the standing answer")
+	}
+}
+
+// checkRanOnTheStandingAnswer checks the rest of an allow-all run: no further question is asked,
+// and the run says which command ran on the standing answer.
+func checkRanOnTheStandingAnswer(t *testing.T, events []event) {
+	t.Helper()
 	var said bool
 	for _, e := range events {
 		if e.Event == EventApproval {
@@ -63,12 +75,6 @@ func TestAllowingAllCommandsAnswersTheRestOfTheSession(t *testing.T) {
 	}
 	if !said {
 		t.Errorf("the run must say which command ran on the standing answer: %+v", events)
-	}
-	if len(answers) != 2 || !answers[0] || !answers[1] {
-		t.Errorf("answers = %v", answers)
-	}
-	if !srv.sessions[DefaultSession].status().AutoApprove {
-		t.Error("the session status must report the standing answer")
 	}
 }
 

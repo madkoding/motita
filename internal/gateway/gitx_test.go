@@ -19,7 +19,9 @@ import (
 // the git work the agent would do. Tests use it because the transport test suite
 // runs a fake service, but integration is now a task: without this helper the run
 // would finish with no result and the project's HEAD would never move.
-func mergeIntegrationTask(t *testing.T, srv *Server, ss SessionStatus, p *Project) func(context.Context, string, func(string, ...any)) (string, error) {
+func mergeIntegrationTask(
+	t *testing.T, srv *Server, ss SessionStatus, p *Project,
+) func(context.Context, string, func(string, ...any)) (string, error) {
 	return func(_ context.Context, task string, _ func(string, ...any)) (string, error) {
 		if !strings.Contains(task, "Integrate this session's work") {
 			return "", nil
@@ -27,51 +29,66 @@ func mergeIntegrationTask(t *testing.T, srv *Server, ss SessionStatus, p *Projec
 		branch := sessionBranch(ss.ID)
 		base := gitOut(t, p.Dir, "branch", "--show-current")
 
-		// Read the conversation's CURRENT workspace: a test may move the session onto the
-		// project's own checkout to verify that such a session is not integrated.
-		c, _ := srv.lookup(ss.ID)
-		wt := ""
-		if c != nil {
-			wt = c.workspace
-		}
-		if wt == "" {
-			wt = ss.Workspace
-		}
+		wt := integrationWorkspace(srv, ss)
 
 		// A session that has no own worktree is working on the user's branch. The agent must not
 		// commit there, so the integration fails cleanly.
 		if wt == "" || gitx.SamePath(wt, p.Dir) {
-			return "", fmt.Errorf("the session has no dedicated worktree, so its work cannot be isolated from the project branch")
+			return "", fmt.Errorf("the session has no dedicated worktree, " +
+				"so its work cannot be isolated from the project branch")
 		}
 
-		// Commit pending work on the session branch, skipping tool caches the same way the agent's
-		// change report does. The subject mirrors what the gateway used to commit with.
-		if out := gitOut(t, wt, "status", "-z"); out != "" {
-			// -z separates entries with NUL and uses no quoting, so paths are exact and there is no
-			// ambiguity with renames. Each entry is two status letters followed by the path.
-			for _, entry := range strings.Split(out, "\x00") {
-				entry = strings.TrimSpace(entry)
-				if len(entry) < 3 {
-					continue
-				}
-				path := strings.TrimSpace(entry[2:])
-				if gitx.IsToolHome(path) {
-					continue
-				}
-				mustRun(t, "git", "-C", wt, "add", "--", path)
-			}
-			if out := gitOut(t, wt, "status", "--short"); out != "" {
-				mustRun(t, "git", "-C", wt, "commit", "-qm", "session work")
-			}
-		}
+		commitSessionWork(t, wt)
 
 		// Merge into the project's base branch.
-		if err := exec.Command("git", "-C", p.Dir, "merge", "--no-ff", "-m", "chore(motita): integrate session "+ss.ID, branch).Run(); err != nil {
+		merge := exec.Command("git", "-C", p.Dir, "merge", "--no-ff",
+			"-m", "chore(motita): integrate session "+ss.ID, branch)
+		if err := merge.Run(); err != nil {
 			_ = exec.Command("git", "-C", p.Dir, "merge", "--abort").Run()
 			return "", fmt.Errorf("merge failed: %w", err)
 		}
 		sha := gitOut(t, p.Dir, "rev-parse", "--short", "HEAD")
 		return fmt.Sprintf("Integrated session %s into %s as commit %s", ss.ID, base, sha), nil
+	}
+}
+
+// integrationWorkspace reads the conversation's CURRENT workspace: a test may move the session
+// onto the project's own checkout to verify that such a session is not integrated. It falls back
+// to the workspace the session reported.
+func integrationWorkspace(srv *Server, ss SessionStatus) string {
+	c, _ := srv.lookup(ss.ID)
+	wt := ""
+	if c != nil {
+		wt = c.workspace
+	}
+	if wt == "" {
+		wt = ss.Workspace
+	}
+	return wt
+}
+
+// commitSessionWork commits pending work on the session branch, skipping tool caches the same
+// way the agent's change report does. The subject mirrors what the gateway used to commit with.
+func commitSessionWork(t *testing.T, wt string) {
+	out := gitOut(t, wt, "status", "-z")
+	if out == "" {
+		return
+	}
+	// -z separates entries with NUL and uses no quoting, so paths are exact and there is no
+	// ambiguity with renames. Each entry is two status letters followed by the path.
+	for _, entry := range strings.Split(out, "\x00") {
+		entry = strings.TrimSpace(entry)
+		if len(entry) < 3 {
+			continue
+		}
+		path := strings.TrimSpace(entry[2:])
+		if gitx.IsToolHome(path) {
+			continue
+		}
+		mustRun(t, "git", "-C", wt, "add", "--", path)
+	}
+	if out := gitOut(t, wt, "status", "--short"); out != "" {
+		mustRun(t, "git", "-C", wt, "commit", "-qm", "session work")
 	}
 }
 
