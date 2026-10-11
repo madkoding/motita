@@ -11,7 +11,7 @@ the workspace's files:
   * CHECKPOINT: the ⋯ menu goes back (conversation only, then conversation and files), and
     the file in the workspace is what it was before that input.
 """
-import asyncio, json, os, sys, urllib.request
+import asyncio, json, os, pathlib, sys, tempfile, urllib.request
 
 sys.path.insert(0, os.path.dirname(__file__))
 from cdp_spinner import CDP, start_browser, PORT  # noqa: E402
@@ -19,7 +19,7 @@ from cdp_spinner import CDP, start_browser, PORT  # noqa: E402
 BASE = os.environ["GATEWAY_URL"]
 TOKEN = open(os.environ["GATEWAY_STATE"]).read().strip()
 WORK = os.environ["WORKSPACE"]
-SHOTS = os.environ.get("SHOTS_DIR", "/tmp/motita-checkpoints")
+SHOTS = os.environ.get("SHOTS_DIR") or tempfile.mkdtemp(prefix="motita-checkpoints-")
 failures = 0
 
 
@@ -118,8 +118,7 @@ async def main(ws_url):
 
         print("== 2. a second input, then a reload: nothing is lost ==")
         # Change the file by hand, so going back with files must undo it.
-        with open(os.path.join(WORK, "report.txt"), "w") as f:
-            f.write("edited between the two inputs")
+        await asyncio.to_thread(pathlib.Path(WORK, "report.txt").write_text, "edited between the two inputs")
         before_two = report()
         await send(c, "write the report again")
         await until(c, "document.querySelectorAll('.msg.agent').length >= 2 && !document.querySelector('.msg.activity')", 120)

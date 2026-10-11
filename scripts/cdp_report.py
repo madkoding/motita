@@ -8,7 +8,7 @@ has every section, so what is asserted here is MEASURED on the rendered page:
   * nothing overflows the message, on a desktop width and on a 390px phone;
   * the card fits inside the chat column (no horizontal scroll).
 """
-import asyncio, json, os, sys
+import asyncio, json, os, sys, tempfile
 
 sys.path.insert(0, os.path.dirname(__file__))
 from cdp_spinner import CDP  # noqa: E402
@@ -16,7 +16,7 @@ from cdp_checkpoints import send, until  # noqa: E402  (its module-level env is 
 
 BASE = os.environ["GATEWAY_URL"]
 TOKEN = open(os.environ["GATEWAY_STATE"]).read().strip()
-SHOTS = os.environ.get("SHOTS_DIR", "/tmp/motita-report")
+SHOTS = os.environ.get("SHOTS_DIR") or tempfile.mkdtemp(prefix="motita-report-")
 failures = 0
 
 

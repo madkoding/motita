@@ -24,6 +24,8 @@ import asyncio
 import base64
 import json
 import os
+import pathlib
+import tempfile
 import re
 import subprocess
 import sys
@@ -34,7 +36,7 @@ import websockets
 
 PORT = int(os.environ.get("CDP_PORT", "9341"))
 BASE = os.environ.get("GATEWAY_URL", "http://127.0.0.1:7477")
-SHOTS = os.environ.get("SHOTS_DIR", os.path.join(os.environ.get("TMPDIR", "/tmp"), "motita-sidebar-shots"))
+SHOTS = os.environ.get("SHOTS_DIR") or tempfile.mkdtemp(prefix="motita-sidebar-shots-")
 # A throwaway gateway runs under an isolated HOME, so the token and the browser
 # are looked up through the environment rather than assumed to be in the real
 # home: expanduser would otherwise reach the wrong tree (or the wrong file).
@@ -76,8 +78,7 @@ class CDP:
 
     async def shot(self, path):
         r = await self.call("Page.captureScreenshot", format="png")
-        with open(path, "wb") as f:
-            f.write(base64.b64decode(r["data"]))
+        await asyncio.to_thread(pathlib.Path(path).write_bytes, base64.b64decode(r["data"]))
         return path
 
 

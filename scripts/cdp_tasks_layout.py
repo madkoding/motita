@@ -19,6 +19,8 @@ import asyncio
 import base64
 import json
 import os
+import pathlib
+import tempfile
 import re
 import subprocess
 import sys
@@ -27,7 +29,7 @@ import websockets
 
 PORT = int(os.environ.get("CDP_PORT", "9344"))
 BASE = os.environ.get("GATEWAY_URL", "http://127.0.0.1:7479")
-SHOTS = os.environ.get("SHOTS_DIR", os.path.join(os.environ.get("TMPDIR", "/tmp"), "motita-tasks-layout"))
+SHOTS = os.environ.get("SHOTS_DIR") or tempfile.mkdtemp(prefix="motita-tasks-layout-")
 
 fail = 0
 
@@ -66,8 +68,7 @@ class CDP:
 
     async def shot(self, path):
         r = await self.call("Page.captureScreenshot", format="png")
-        with open(path, "wb") as f:
-            f.write(base64.b64decode(r["data"]))
+        await asyncio.to_thread(pathlib.Path(path).write_bytes, base64.b64decode(r["data"]))
         return path
 
 
@@ -169,17 +170,17 @@ async def main():
     token = ""
     gw = os.environ.get("GATEWAY_STATE", "")
     if gw and os.path.exists(gw):
-        token = json.load(open(gw))["token"]
+        token = json.loads(await asyncio.to_thread(pathlib.Path(gw).read_text))["token"]
     if not token:
         print("NO_TOKEN")
         return 1
 
-    subprocess.run(["curl", "-s", "-X", "PUT", f"http://127.0.0.1:{PORT}/json/new?about:blank"],
-                   capture_output=True)
+    await asyncio.to_thread(subprocess.run, ["curl", "-s", "-X", "PUT", f"http://127.0.0.1:{PORT}/json/new?about:blank"],
+                            capture_output=True)
     target = None
     for _ in range(60):
-        out = subprocess.run(["curl", "-s", f"http://127.0.0.1:{PORT}/json/list"],
-                             capture_output=True, text=True).stdout
+        out = (await asyncio.to_thread(subprocess.run, ["curl", "-s", f"http://127.0.0.1:{PORT}/json/list"],
+                                       capture_output=True, text=True)).stdout
         pages = [t for t in json.loads(out or "[]") if t.get("type") == "page"]
         target = pages[-1] if pages else None
         if target:

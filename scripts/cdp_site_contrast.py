@@ -32,6 +32,7 @@ Exit codes: 0 every element meets its ratio · 1 a ratio is below the bar ·
 import base64
 import json
 import os
+import tempfile
 import subprocess
 import sys
 import time
@@ -39,7 +40,7 @@ import time
 CDP_PORT = os.environ.get("CDP_PORT", "9356")
 CHROME = os.environ.get("CHROME", "")
 PAGE = os.environ.get("SITE_URL", "")
-SHOTS = os.environ.get("SHOTS_DIR", os.path.join(os.environ.get("TMPDIR", "/tmp"), "motita-site-contrast"))
+SHOTS = os.environ.get("SHOTS_DIR") or tempfile.mkdtemp(prefix="motita-site-contrast-")
 WIDTH = int(os.environ.get("SITE_WIDTH", "1440"))
 HEIGHT = int(os.environ.get("SITE_HEIGHT", "900"))
 

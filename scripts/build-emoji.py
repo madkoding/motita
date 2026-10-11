@@ -24,7 +24,9 @@ import subprocess
 import sys
 from pathlib import Path
 
-SRC = Path(sys.argv[1] if len(sys.argv) > 1 else "/tmp/mdm/fu/assets")
+if len(sys.argv) < 2:
+    sys.exit("usage: build-emoji.py <assets-dir> [out-dir] [style] [size]")
+SRC = Path(sys.argv[1])
 OUT = Path(sys.argv[2] if len(sys.argv) > 2 else "web/public/emoji")
 STYLE = sys.argv[3] if len(sys.argv) > 3 else "Color"
 SIZE = int(sys.argv[4] if len(sys.argv) > 4 else 64)

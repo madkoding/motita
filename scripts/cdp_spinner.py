@@ -18,12 +18,12 @@ one is MEASURED rather than read off the markup:
 
 Usage: GATEWAY_URL=... GATEWAY_STATE=<token file> ./cdp_spinner.py
 """
-import asyncio, base64, json, os, subprocess, sys, time, urllib.request
+import asyncio, base64, json, os, pathlib, subprocess, sys, tempfile, time, urllib.request
 
 PORT = int(os.environ.get("CDP_PORT", "9355"))
 CHROME = os.environ.get("CHROME", os.path.expanduser(
     "~/.hermes/cache/chrome/chrome-headless-shell-linux64/chrome-headless-shell"))
-SHOTS = os.environ.get("SHOTS_DIR", os.path.join(os.environ.get("TMPDIR", "/tmp"), "motita-spinner"))
+SHOTS = os.environ.get("SHOTS_DIR") or tempfile.mkdtemp(prefix="motita-spinner-")
 
 
 class CDP:
@@ -57,8 +57,7 @@ class CDP:
 
     async def shot(self, path):
         r = await self.call("Page.captureScreenshot", format="png")
-        with open(path, "wb") as f:
-            f.write(base64.b64decode(r["data"]))
+        await asyncio.to_thread(pathlib.Path(path).write_bytes, base64.b64decode(r["data"]))
         return path
 
 
@@ -120,7 +119,7 @@ def gateway_says_running(base, token):
 async def main(ws_url):
     os.makedirs(SHOTS, exist_ok=True)
     base = os.environ["GATEWAY_URL"]
-    token = open(os.environ["GATEWAY_STATE"]).read().strip()
+    token = (await asyncio.to_thread(pathlib.Path(os.environ["GATEWAY_STATE"]).read_text)).strip()
     failures = 0
 
     import websockets
@@ -289,8 +288,7 @@ async def main(ws_url):
         await c.shot(f"{SHOTS}/spinner-done.png")
 
         samples = await c.js("clearInterval(window.__sampler); window.__samples")
-        with open(f"{SHOTS}/samples.json", "w") as f:
-            json.dump(samples, f)
+        await asyncio.to_thread(pathlib.Path(f"{SHOTS}/samples.json").write_text, json.dumps(samples))
 
         # The transition, from the page's own samples: each direction must pass
         # through a value strictly between 0 and 1.
