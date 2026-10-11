@@ -110,7 +110,11 @@ func TestAnthropicAndGeminiStreamThroughTheirOwnAPI(t *testing.T) {
 		b := make([]byte, r.ContentLength)
 		r.Body.Read(b)
 		if strings.Contains(string(b), `"tools"`) {
-			fmt.Fprint(w, `{"content":[{"type":"text","text":"calling"},{"type":"tool_use","id":"t1","name":"read_file","input":{"path":"a"}}],"stop_reason":"tool_use"}`)
+			fmt.Fprint(
+				w,
+				`{"content":[{"type":"text","text":"calling"},{"type":"tool_use","id":"t1","name":"read_file",`+
+					`"input":{"path":"a"}}],"stop_reason":"tool_use"}`,
+			)
 			return
 		}
 		fmt.Fprint(w, `{"content":[{"type":"text","text":"anthropic says hi"}]}`)

@@ -42,20 +42,27 @@ func TestALoginThatCannotBeRenewedFailsWithoutRetrying(t *testing.T) {
 	}))
 	defer srv.Close()
 	for _, provider := range []string{"copilot", "codex", "qwen", "gemini"} {
-		withLogin(t, oauth.Credential{Provider: provider, AccessToken: "old", RefreshToken: "r", ExpiresAt: time.Now().Add(-time.Hour)})
+		withLogin(
+			t,
+			oauth.Credential{Provider: provider, AccessToken: "old", RefreshToken: "r", ExpiresAt: time.Now().Add(-time.Hour)},
+		)
 		c, err := New(config.LLM{Provider: provider, Model: "m", MaxAttempts: 3}, nil)
 		if err != nil {
 			t.Fatal(err)
 		}
 		reroute(t, c, srv)
-		if _, err := c.Complete(context.Background(), []Message{{Role: "user", Content: "x"}}); err == nil || !strings.Contains(err.Error(), "could not be renewed") {
+		if _, err := c.Complete(context.Background(), []Message{{Role: "user", Content: "x"}}); err == nil ||
+			!strings.Contains(err.Error(), "could not be renewed") {
 			t.Errorf("%s: Complete err = %v", provider, err)
 		}
 		if _, err := c.ListModels(context.Background()); err == nil {
 			t.Errorf("%s: ListModels must fail", provider)
 		}
 	}
-	withLogin(t, oauth.Credential{Provider: "codex", AccessToken: "old", RefreshToken: "r", ExpiresAt: time.Now().Add(-time.Hour)})
+	withLogin(
+		t,
+		oauth.Credential{Provider: "codex", AccessToken: "old", RefreshToken: "r", ExpiresAt: time.Now().Add(-time.Hour)},
+	)
 	c, _ := New(config.LLM{Provider: "codex", Model: "m", MaxAttempts: 1}, nil)
 	reroute(t, c, srv)
 	if _, err := c.callResponsesStream(context.Background(), []Message{{Role: "user", Content: "x"}}, nil); err == nil {
@@ -65,7 +72,10 @@ func TestALoginThatCannotBeRenewedFailsWithoutRetrying(t *testing.T) {
 
 func TestCredentialPrefersALoginAnotherProcessRenewed(t *testing.T) {
 	dir := t.TempDir()
-	_ = oauth.SaveCredential(dir, oauth.Credential{Provider: "qwen", AccessToken: "fresh", ExpiresAt: time.Now().Add(time.Hour)})
+	_ = oauth.SaveCredential(
+		dir,
+		oauth.Credential{Provider: "qwen", AccessToken: "fresh", ExpiresAt: time.Now().Add(time.Hour)},
+	)
 	refreshed := false
 	s := &loginState{provider: "qwen", dir: dir, now: time.Now,
 		cred: oauth.Credential{Provider: "qwen", AccessToken: "stale", ExpiresAt: time.Now().Add(-time.Hour)},
@@ -86,7 +96,8 @@ func TestCredentialReportsARenewalItCannotSave(t *testing.T) {
 		refresh: func(context.Context, oauth.HTTPClient, oauth.Credential) (oauth.Credential, error) {
 			return oauth.Credential{Provider: "qwen", AccessToken: "new"}, nil
 		}}
-	if _, err := s.credential(context.Background(), true); err == nil || !strings.Contains(err.Error(), "could not be saved") {
+	if _, err := s.credential(context.Background(), true); err == nil ||
+		!strings.Contains(err.Error(), "could not be saved") {
 		t.Errorf("err = %v", err)
 	}
 }
@@ -124,7 +135,10 @@ func TestListModelsEdges(t *testing.T) {
 	if _, err := c.ListModels(context.Background()); err == nil {
 		t.Error("an unreachable host must be an error")
 	}
-	withLogin(t, oauth.Credential{Provider: "codex", AccessToken: "a", AccountID: "x", ExpiresAt: time.Now().Add(time.Hour)})
+	withLogin(
+		t,
+		oauth.Credential{Provider: "codex", AccessToken: "a", AccountID: "x", ExpiresAt: time.Now().Add(time.Hour)},
+	)
 	c, _ = New(config.LLM{Provider: "codex", Model: "m"}, nil)
 	if _, err := c.ListModels(context.Background()); err == nil {
 		t.Error("a ChatGPT login has no catalogue")
@@ -198,8 +212,19 @@ func TestResponsesStreamEndings(t *testing.T) {
 		wantErr    string
 		wantText   string
 	}{
-		{"incomplete with text", `data: {"type":"response.output_text.delta","delta":"part"}` + "\n" + `data: {"type":"response.incomplete","response":{"incomplete_details":{"reason":"max_output_tokens"}}}` + "\n", "", "part"},
-		{"incomplete empty", `data: {"type":"response.incomplete","response":{"incomplete_details":{"reason":"max_output_tokens"}}}` + "\n", "max_output_tokens", ""},
+		{
+			"incomplete with text",
+			`data: {"type":"response.output_text.delta","delta":"part"}` + "\n" + `data: ` +
+				`{"type":"response.incomplete","response":{"incomplete_details":{"reason":"max_output_tokens"}}}` + "\n",
+			"",
+			"part",
+		},
+		{
+			"incomplete empty",
+			`data: {"type":"response.incomplete","response":{"incomplete_details":{"reason":"max_output_tokens"}}}` + "\n",
+			"max_output_tokens",
+			"",
+		},
 		{"incomplete no reason", `data: {"type":"response.incomplete","response":{}}` + "\n", "unknown", ""},
 		{"failed", `data: {"type":"response.failed","response":{"error":{"message":"overloaded"}}}` + "\n", "overloaded", ""},
 		{"failed bare", `data: {"type":"response.failed","response":{}}` + "\n", "the response failed", ""},
@@ -218,30 +243,44 @@ func TestResponsesStreamEndings(t *testing.T) {
 		}
 	}
 	// A body cut short by the transport is an error, not an end.
-	_, _, _, err := drain(t, codexStream(t, `data: {"type":"response.output_text.delta","delta":"a"}`+"\n", func(w http.ResponseWriter) {
-		w.Header().Set("Content-Length", "1000")
-	}))
+	_, _, _, err := drain(
+		t,
+		codexStream(t, `data: {"type":"response.output_text.delta","delta":"a"}`+"\n", func(w http.ResponseWriter) {
+			w.Header().Set("Content-Length", "1000")
+		}),
+	)
 	if err == nil {
 		t.Error("a truncated body must be an error")
 	}
 }
 
 func TestCodexTextPath(t *testing.T) {
-	onlyCall := `data: {"type":"response.output_item.done","item":{"type":"function_call","call_id":"c","name":"f","arguments":"{}"}}` + "\n" +
+	onlyCall := `data: {"type":"response.output_item.done","item":{"type":"function_call","call_id":"c","name":"f",` +
+		`"arguments":"{}"}}` + "\n" +
 		`data: {"type":"response.completed"}` + "\n"
-	if _, err := codexStream(t, onlyCall, nil).Complete(context.Background(), []Message{{Role: "user", Content: "x"}}); err == nil {
+	if _, err := codexStream(t, onlyCall, nil).Complete(
+		context.Background(), []Message{{Role: "user", Content: "x"}},
+	); err == nil {
 		t.Error("a text phase answered with a call must be an error")
 	}
 	failed := `data: {"type":"error","message":"bad"}` + "\n"
-	if _, err := codexStream(t, failed, nil).Complete(context.Background(), []Message{{Role: "user", Content: "x"}}); err == nil {
+	if _, err := codexStream(t, failed, nil).Complete(
+		context.Background(), []Message{{Role: "user", Content: "x"}},
+	); err == nil {
 		t.Error("a failed stream must be an error")
 	}
 	empty := `data: {"type":"response.completed"}` + "\n"
-	if _, err := codexStream(t, empty, nil).CompleteTools(context.Background(), []Message{{Role: "user", Content: "x"}}, nil); err == nil {
+	if _, err := codexStream(t, empty, nil).CompleteTools(
+		context.Background(), []Message{{Role: "user", Content: "x"}}, nil,
+	); err == nil {
 		t.Error("a reply with nothing must be an error")
 	}
 	var got []string
-	c := codexStream(t, `data: {"type":"response.output_text.delta","delta":"hi"}`+"\n"+`data: {"type":"response.completed"}`+"\n", nil)
+	c := codexStream(
+		t,
+		`data: {"type":"response.output_text.delta","delta":"hi"}`+"\n"+`data: {"type":"response.completed"}`+"\n",
+		nil,
+	)
 	for chunk := range c.CompleteToolsStream(context.Background(), []Message{{Role: "user", Content: "x"}}, nil) {
 		got = append(got, chunk.Text)
 	}
@@ -264,7 +303,9 @@ func TestResponsesBodyReplaysTheConversation(t *testing.T) {
 	if input[0]["role"] != "assistant" || body["reasoning"] == nil {
 		t.Errorf("body = %v", body)
 	}
-	for raw, want := range map[string]string{"": "{}", `"{\"a\":1}"`: `{"a":1}`, `{"a":1}`: `{"a":1}`, `"unterminated`: `"unterminated`} {
+	for raw, want := range map[string]string{
+		"": "{}", `"{\"a\":1}"`: `{"a":1}`, `{"a":1}`: `{"a":1}`, `"unterminated`: `"unterminated`,
+	} {
 		if got := argumentsString(json.RawMessage(raw)); got != want {
 			t.Errorf("argumentsString(%s) = %s", raw, got)
 		}
@@ -284,7 +325,9 @@ func TestToolSchemaShapes(t *testing.T) {
 }
 
 func TestIsReasoningModel(t *testing.T) {
-	for model, want := range map[string]bool{"openai/gpt-5": true, "o3-mini": true, "gpt-5.2": true, "gpt-4o": false, "o1": true, "gpt-50": false} {
+	for model, want := range map[string]bool{
+		"openai/gpt-5": true, "o3-mini": true, "gpt-5.2": true, "gpt-4o": false, "o1": true, "gpt-50": false,
+	} {
 		if got := isReasoningModel(model); got != want {
 			t.Errorf("%s: %v", model, got)
 		}
@@ -298,8 +341,13 @@ func TestGeminiCallWithoutArgumentsGetsAnObject(t *testing.T) {
 	}))
 	defer srv.Close()
 	c, _ := New(config.LLM{Provider: "gemini", Model: "m", APIKey: "k", BaseURL: srv.URL, MaxAttempts: 1}, nil)
-	reply, err := c.CompleteTools(context.Background(), []Message{{Role: "user", Content: "x"}}, []Tool{NewTool("list_skills", "l", ObjectSchema(map[string]any{}))})
-	if err != nil || len(reply.Calls) != 1 || reply.Calls[0].ID != "g1" || string(reply.Calls[0].Function.Arguments) != "{}" {
+	reply, err := c.CompleteTools(
+		context.Background(),
+		[]Message{{Role: "user", Content: "x"}},
+		[]Tool{NewTool("list_skills", "l", ObjectSchema(map[string]any{}))},
+	)
+	if err != nil || len(reply.Calls) != 1 || reply.Calls[0].ID != "g1" ||
+		string(reply.Calls[0].Function.Arguments) != "{}" {
 		t.Errorf("reply=%+v err=%v", reply, err)
 	}
 }

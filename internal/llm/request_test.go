@@ -195,7 +195,8 @@ func TestStreamingReportsAnUnreadableBody(t *testing.T) {
 // finish_reason=tool_calls and then keeps the connection open must not leave the
 // caller hanging: the accumulated reply is complete at that point.
 func TestStreamingStopsAtAFinishReasonWithToolCalls(t *testing.T) {
-	payload := "data: {\"choices\":[{\"delta\":{\"tool_calls\":[{\"id\":\"c1\",\"function\":{\"name\":\"execute_command\",\"arguments\":\"{}\"}}]},\"finish_reason\":\"tool_calls\"}]}\n\n"
+	payload := "data: {\"choices\":[{\"delta\":{\"tool_calls\":[{\"id\":\"c1\"," +
+		"\"function\":{\"name\":\"execute_command\",\"arguments\":\"{}\"}}]},\"finish_reason\":\"tool_calls\"}]}\n\n"
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/event-stream")
 		f := w.(http.Flusher)

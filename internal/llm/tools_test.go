@@ -184,7 +184,11 @@ func TestCompleteToolsOpenAI(t *testing.T) {
 	var received map[string]any
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		json.NewDecoder(r.Body).Decode(&received)
-		fmt.Fprint(w, `{"choices":[{"message":{"content":"ok","tool_calls":[{"id":"call_1","type":"function","function":{"name":"add","arguments":"{\"a\":1}"}}]},"finish_reason":"tool_calls"}]}`)
+		fmt.Fprint(
+			w,
+			`{"choices":[{"message":{"content":"ok","tool_calls":[{"id":"call_1","type":"function","function":{"name":"add",`+
+				`"arguments":"{\"a\":1}"}}]},"finish_reason":"tool_calls"}]}`,
+		)
 	}))
 	defer srv.Close()
 
@@ -229,7 +233,10 @@ func TestCompleteToolsAnthropic(t *testing.T) {
 	var received map[string]any
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		json.NewDecoder(r.Body).Decode(&received)
-		fmt.Fprint(w, `{"content":[{"type":"text","text":"hello"},{"type":"tool_use","id":"call_1","name":"add","input":{"a":2}}]}`)
+		fmt.Fprint(
+			w,
+			`{"content":[{"type":"text","text":"hello"},{"type":"tool_use","id":"call_1","name":"add","input":{"a":2}}]}`,
+		)
 	}))
 	defer srv.Close()
 
@@ -266,7 +273,11 @@ func TestCompleteToolsGemini(t *testing.T) {
 	var received map[string]any
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		json.NewDecoder(r.Body).Decode(&received)
-		fmt.Fprint(w, `{"candidates":[{"content":{"parts":[{"text":"hi"},{"functionCall":{"name":"add","args":{"a":3}}}]},"finishReason":"STOP"}]}`)
+		fmt.Fprint(
+			w,
+			`{"candidates":[{"content":{"parts":[{"text":"hi"},{"functionCall":{"name":"add","args":{"a":3}}}]},`+
+				`"finishReason":"STOP"}]}`,
+		)
 	}))
 	defer srv.Close()
 
@@ -347,7 +358,8 @@ func TestCompleteToolsOpenAIUnreadableAndErrorInBody(t *testing.T) {
 	defer srv2.Close()
 
 	c2 := newTestClient(t, srv2.URL)
-	if _, err := c2.CompleteTools(context.Background(), []Message{{Role: "user", Content: "hi"}}, nil); err == nil || !strings.Contains(err.Error(), "bad") {
+	if _, err := c2.CompleteTools(context.Background(), []Message{{Role: "user", Content: "hi"}}, nil); err == nil ||
+		!strings.Contains(err.Error(), "bad") {
 		t.Errorf("err = %v", err)
 	}
 }
@@ -364,7 +376,10 @@ func TestCompleteToolsAnthropicToolAndEmptyBlocks(t *testing.T) {
 		{Role: "system", Content: "first"},
 		{Role: "system", Content: "second"},
 		{Role: "user", Content: "hi"},
-		{Role: "assistant", ToolCalls: []ToolCall{{ID: "tc1", Function: FunctionCall{Name: "add", Arguments: []byte(`{"a":1}`)}}}},
+		{
+			Role:      "assistant",
+			ToolCalls: []ToolCall{{ID: "tc1", Function: FunctionCall{Name: "add", Arguments: []byte(`{"a":1}`)}}},
+		},
 		{Role: "tool", ToolCallID: "tc1", Content: "done"},
 		{Role: "empty", Content: ""},
 	}, []Tool{NewTool("add", "add", ObjectSchema(map[string]any{"a": IntegerProperty("a")}))})
@@ -416,7 +431,8 @@ func TestCompleteToolsAnthropicUnreadableAndErrorInBody(t *testing.T) {
 
 	c2, _ := New(config.LLM{Provider: "anthropic", APIKey: "key", BaseURL: srv2.URL}, logx.Global())
 	c2.sleep = func(time.Duration) {}
-	if _, err := c2.CompleteTools(context.Background(), []Message{{Role: "user", Content: "hi"}}, nil); err == nil || !strings.Contains(err.Error(), "overloaded") {
+	if _, err := c2.CompleteTools(context.Background(), []Message{{Role: "user", Content: "hi"}}, nil); err == nil ||
+		!strings.Contains(err.Error(), "overloaded") {
 		t.Errorf("err = %v", err)
 	}
 }
@@ -440,7 +456,8 @@ func TestCompleteToolsGeminiUnreadableAndErrorInBody(t *testing.T) {
 
 	c2, _ := New(config.LLM{Provider: "gemini", APIKey: "key", BaseURL: srv2.URL, Model: "gemini-pro"}, logx.Global())
 	c2.sleep = func(time.Duration) {}
-	if _, err := c2.CompleteTools(context.Background(), []Message{{Role: "user", Content: "hi"}}, nil); err == nil || !strings.Contains(err.Error(), "quota exhausted") {
+	if _, err := c2.CompleteTools(context.Background(), []Message{{Role: "user", Content: "hi"}}, nil); err == nil ||
+		!strings.Contains(err.Error(), "quota exhausted") {
 		t.Errorf("err = %v", err)
 	}
 }

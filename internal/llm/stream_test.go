@@ -109,8 +109,13 @@ func TestCompleteToolsStreamYieldsTextThenDone(t *testing.T) {
 // TestCompleteToolsStreamAnnouncesToolCalls: the TUI turns these chunks into the
 // "using <tool>" lines, so a tool call must arrive as its own event.
 func TestCompleteToolsStreamAnnouncesToolCalls(t *testing.T) {
-	srv := sseServer(t, "data: {\"choices\":[{\"delta\":{\"tool_calls\":[{\"id\":\"c1\",\"type\":\"function\",\"function\":{\"name\":\"execute_command\",\"arguments\":\"{\\\"command\\\":\\\"ls\\\"}\"}}]}}]}\n\n"+
-		"data: [DONE]\n\n", http.StatusOK)
+	srv := sseServer(
+		t,
+		"data: {\"choices\":[{\"delta\":{\"tool_calls\":[{\"id\":\"c1\",\"type\":\"function\","+
+			"\"function\":{\"name\":\"execute_command\",\"arguments\":\"{\\\"command\\\":\\\"ls\\\"}\"}}]}}]}\n\n"+
+			"data: [DONE]\n\n",
+		http.StatusOK,
+	)
 	c := streamClient(t, srv.URL)
 
 	chunks := collect(c.CompleteToolsStream(context.Background(), []Message{{Role: "user", Content: "hi"}}, nil))
@@ -202,9 +207,22 @@ func TestCompleteToolsStreamStopsOnAClosedBody(t *testing.T) {
 // a new one for every delta.
 func TestStreamResultAccumulatesToolCallUpdates(t *testing.T) {
 	var acc StreamResult
-	acc.Handle(StreamChunk{Event: StreamToolCall, Call: &ToolCall{ID: "c1", Function: FunctionCall{Name: "execute_command", Arguments: json.RawMessage(`{"cmd":`)}}})
+	acc.Handle(
+		StreamChunk{
+			Event: StreamToolCall,
+			Call:  &ToolCall{ID: "c1", Function: FunctionCall{Name: "execute_command", Arguments: json.RawMessage(`{"cmd":`)}},
+		},
+	)
 	acc.Handle(StreamChunk{Event: StreamText, Text: "hello"})
-	acc.Handle(StreamChunk{Event: StreamToolCall, Call: &ToolCall{ID: "c1", Function: FunctionCall{Name: "execute_command", Arguments: json.RawMessage(`{"cmd":"ls"}`)}}})
+	acc.Handle(
+		StreamChunk{
+			Event: StreamToolCall,
+			Call: &ToolCall{
+				ID:       "c1",
+				Function: FunctionCall{Name: "execute_command", Arguments: json.RawMessage(`{"cmd":"ls"}`)},
+			},
+		},
+	)
 	acc.Handle(StreamChunk{Event: StreamToolCall, Call: &ToolCall{ID: "c2", Function: FunctionCall{Name: "read_file"}}})
 
 	reply := acc.FinalReply()
