@@ -7,6 +7,7 @@ It exists so a browser check can assert on what the gateway actually SENT to the
 """
 import http.client
 import http.server
+import socketserver
 import sys
 
 LISTEN, UPSTREAM, LOG = int(sys.argv[1]), int(sys.argv[2]), sys.argv[3]
@@ -42,4 +43,10 @@ class Proxy(http.server.BaseHTTPRequestHandler):
         pass
 
 
-http.server.ThreadingHTTPServer(("127.0.0.1", LISTEN), Proxy).serve_forever()
+class Server(socketserver.ThreadingTCPServer):
+    # What http.server.ThreadingHTTPServer sets, spelled out: the handler above is the HTTP part.
+    allow_reuse_address = True
+    daemon_threads = True
+
+
+Server(("127.0.0.1", LISTEN), Proxy).serve_forever()
