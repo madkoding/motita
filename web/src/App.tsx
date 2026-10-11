@@ -20,6 +20,7 @@ import { listAccounts, connectedAccounts, repoShortName, type GitAccount, type G
 import { loadNotify } from './settings'
 import { getPR, retryFix, mergePR, mergeRefused, PRError, prNotice, shouldPoll, ciSummary, shouldDesktopNotify, wantsDesktopPermission, worstToast, type PRView, type PRWatch } from './prApi'
 import { choose } from './choose'
+import { errorMessage } from './errors'
 
 interface Message {
   id: number
@@ -855,12 +856,6 @@ function toastTone<T>(type: string, error: T, warning: T, other: T): T {
   if (type === 'error') { return error }
   if (type === 'warning') { return warning }
   return other
-}
-
-// errorMessage is the text a toast shows for a failure: an Error's message, anything else as text.
-function errorMessage(e: unknown): string {
-  if (e instanceof Error) { return e.message }
-  return String(e)
 }
 
 // rowMenuStyle places a row's action menu at its viewport position, when it has one.

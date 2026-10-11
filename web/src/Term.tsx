@@ -16,6 +16,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'preact/hooks'
 import DOMPurify from 'dompurify'
 import { t } from './i18n'
+import { choose } from './choose'
 
 function esc(s: string): string {
   return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
@@ -30,9 +31,15 @@ const FAIL = /^\s*(--- FAIL|FAIL\b|panic:|fatal:|error\b|Error\b|ERROR\b|E\d{3,}
 const PASS = /^\s*(ok\b|--- PASS|PASS\b|OK\b|success\b)/
 const WARN = /^\s*(warn(ing)?\b|WARN\b|deprecated\b)/i
 
+// diffHeadClass is the colour of a diff's file header: red when it reports a failure.
+function diffHeadClass(line: string): string {
+  if (line.startsWith('---') && FAIL.test(line)) { return 'to-err' }
+  return 'to-diffhead'
+}
+
 // lineClass names the colour a whole output line takes, or '' for the plain one.
 function lineClass(line: string): string {
-  if (line.startsWith('+++') || line.startsWith('---')) { return line.startsWith('---') && FAIL.test(line) ? 'to-err' : 'to-diffhead' }
+  if (line.startsWith('+++') || line.startsWith('---')) { return diffHeadClass(line) }
   if (line.startsWith('@@')) { return 'to-hunk' }
   if (line.startsWith('+')) { return 'to-add' }
   if (line.startsWith('-')) { return 'to-del' }
@@ -49,7 +56,8 @@ export function colorizeOutput(text: string): string {
     .map(line => {
       const cls = lineClass(line)
       const html = esc(line).replace(LOCATION, '<span class="to-loc">$1</span>')
-      return cls ? '<span class="' + cls + '">' + html + '</span>' : html
+      if (cls) { return '<span class="' + cls + '">' + html + '</span>' }
+      return html
     })
     .join('\n')
 }
@@ -268,7 +276,7 @@ export function TermEntry({ cmd, out, status, phase, boost, onTick, onFinished }
       <TermCommand cmd={cmd} instant={instant} boost={boost} onTick={onTick} onDone={() => setCmdDone(true)} />
       {showOut && <TermOutput text={out} instant={instant} boost={boost} onTick={onTick} onDone={() => setOutDone(true)} />}
       {showStatus && (
-        <div class={`term-status${status.kind ? ' ' + status.kind : ''}`}>
+        <div class={`term-status${choose(status.kind, ' ' + status.kind, '')}`}>
           <Typed
             key={status.label}
             html={esc(status.label)}

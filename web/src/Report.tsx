@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'preact/hooks'
 import { Markdown } from './Markdown'
 import { Lightbox } from './Lightbox'
 import { t, tf, plural } from './i18n'
+import { choose } from './choose'
 
 // The structured account of a finished task, as the gateway sends it in the `done` event
 // (agent.Report in Go). Every field is optional here on purpose: a report from a build that
@@ -48,16 +49,17 @@ function useImage(name: string | undefined, load?: LoadImage) {
 
 function Shot({ kind, name, label, load, onOpen }: { kind: 'before' | 'after'; name?: string; label: string; load?: LoadImage; onOpen: (src: string, label: string) => void }) {
   const src = useImage(name, load)
-  const cap = t(kind === 'before' ? 'Before' : 'After')
+  const cap = choose(kind === 'before', t('Before'), t('After'))
   return (
     <figure class={`rpt-shot ${kind}`}>
       <figcaption>{cap}</figcaption>
-      {src ? (
+      {!!src && (
         <button type="button" class="rpt-shot-btn" title={t('Click to enlarge')} onClick={() => onOpen(src, `${label} — ${cap}`)}>
           <img src={src} alt={`${label} — ${cap}`} loading="lazy" />
         </button>
-      ) : (
-        <div class="rpt-shot-empty">{!name ? t('No image') : src === undefined ? t('Loading…') : t('Image not available')}</div>
+      )}
+      {!src && (
+        <div class="rpt-shot-empty">{choose(!name, t('No image'), choose(src === undefined, t('Loading…'), t('Image not available')))}</div>
       )}
     </figure>
   )
@@ -74,7 +76,7 @@ export function ReportCard({ report, loadImage }: { report: TaskReport; loadImag
     if (u) { urls.current.set(name, u) }
     return u
   }, [loadImage])
-  const status = STATUS_TEXT[report.status ?? ''] ? (report.status as string) : 'done'
+  const status = choose(STATUS_TEXT[report.status ?? ''], report.status as string, 'done')
   const checks = report.verification ?? []
   const changes = report.changes ?? []
   const risks = report.risks ?? []
@@ -86,7 +88,7 @@ export function ReportCard({ report, loadImage }: { report: TaskReport; loadImag
       <div class="rpt-head">
         <span class="rpt-badge">{t(STATUS_TEXT[status])}</span>
         {checks.length > 0 && (
-          <span class={`rpt-tally${failed ? ' bad' : ''}`} title={t('checks that passed')}>
+          <span class={`rpt-tally${choose(failed, ' bad', '')}`} title={t('checks that passed')}>
             {tf('{passed}/{total} checks passed', { passed, total: checks.length })}
           </span>
         )}
@@ -138,13 +140,21 @@ export function ReportCard({ report, loadImage }: { report: TaskReport; loadImag
             // The preview walks the pair: the other half is one arrow away. A half that has not
             // loaded yet is simply not in the set.
             const open = (kind: 'before' | 'after') => (src: string, lbl: string) => {
-              const other = kind === 'before' ? e.after : e.before
-              const otherSrc = other ? urls.current.get(other) : undefined
+              const other = choose(kind === 'before', e.after, e.before)
+              let otherSrc: string | undefined
+              if (other) { otherSrc = urls.current.get(other) }
               const mine = { src, label: lbl }
-              const pair = otherSrc
-                ? (kind === 'before' ? [mine, { src: otherSrc, label: `${label} — ${t('After')}` }] : [{ src: otherSrc, label: `${label} — ${t('Before')}` }, mine])
-                : [mine]
-              setZoom({ images: pair, start: kind === 'after' && otherSrc ? 1 : 0 })
+              let pair = [mine]
+              let start = 0
+              if (otherSrc && kind === 'before') {
+                pair = [mine, { src: otherSrc, label: `${label} — ${t('After')}` }]
+              } else if (otherSrc) {
+                pair = [{ src: otherSrc, label: `${label} — ${t('Before')}` }, mine]
+                start = 1
+              } else {
+                // Only this half has loaded: the preview shows it alone.
+              }
+              setZoom({ images: pair, start })
             }
             return (
               <div class="rpt-evidence-set" key={i}>

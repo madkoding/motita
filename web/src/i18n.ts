@@ -12,6 +12,7 @@
 // {placeholders}, never by one rendered instance of it.
 
 import { useEffect, useState } from 'preact/hooks'
+import { choose } from './choose'
 
 export type Lang = 'en' | 'es'
 
@@ -26,10 +27,11 @@ const listeners = new Set<() => void>()
 // set names it (es, es-CL, ...), English otherwise.
 export function browserLang(): Lang {
   try {
-    const list = (navigator.languages && navigator.languages.length ? navigator.languages : [navigator.language]) || []
+    const list = choose(navigator.languages?.length, navigator.languages, [navigator.language]) || []
     for (const l of list) {
       if (!l) { continue }
-      return /^es(\b|[-_])/i.test(l) ? 'es' : 'en'
+      if (/^es(\b|[-_])/i.test(l)) { return 'es' }
+      return 'en'
     }
   } catch { /* no navigator: English */ }
   return 'en'
@@ -84,12 +86,12 @@ export function tc(context: string, text: string): string {
 
 // tf is t for a format with {name} placeholders: the format is translated, then filled in.
 export function tf(format: string, args: Record<string, string | number>): string {
-  return t(format).replace(/\{(\w+)\}/g, (m, k) => (k in args ? String(args[k]) : m))
+  return t(format).replace(/\{(\w+)\}/g, (m, k) => choose(k in args, String(args[k]), m))
 }
 
 // plural picks the singular or the plural format by n, then fills {n} (and any other args) in.
 export function plural(n: number, one: string, many: string, args: Record<string, string | number> = {}): string {
-  return tf(n === 1 ? one : many, { n, ...args })
+  return tf(choose(n === 1, one, many), { n, ...args })
 }
 
 // useLang subscribes a component to language changes and returns the current language.

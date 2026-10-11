@@ -1,3 +1,4 @@
+import { choose } from './choose'
 // When an answer's expensive parts get built, and when the conversation counts as READY.
 //
 // An answer is rendered in two stages. The first is cheap and happens for every message: the
@@ -147,7 +148,7 @@ function ensureObserver(): IntersectionObserver | null {
         // nodes a hydrated message holds (a mermaid SVG is hundreds of elements), not one
         // IntersectionObserver registration; this is the cheap half.
         entry.inView = rec.isIntersecting
-        ;(rec.target as HTMLElement).setAttribute('data-inview', rec.isIntersecting ? '1' : '0')
+        ;(rec.target as HTMLElement).setAttribute('data-inview', choose(rec.isIntersecting, '1', '0'))
         if (rec.isIntersecting && !entry.started) {
           entry.started = true
           entry.task()

@@ -70,6 +70,8 @@ import footnote from 'markdown-it-footnote'
 import deflist from 'markdown-it-deflist'
 import taskLists from 'markdown-it-task-lists'
 import alerts from 'markdown-it-github-alerts'
+import { choose } from './choose'
+import { errorMessage } from './errors'
 
 /** Escapes a string for use inside a double-quoted attribute. */
 function escapeAttr(s: string): string {
@@ -127,7 +129,7 @@ md.block.ruler.before(
       nextLine = startLine + 1
     } else {
       // The opening `$$` may have the formula on it, or nothing at all.
-      const lines: string[] = afterOpen.trim() === '' ? [] : [afterOpen]
+      const lines: string[] = choose(afterOpen.trim() === '', [], [afterOpen])
       let closed = false
       let line = startLine + 1
       for (; line < endLine; line++) {
@@ -189,7 +191,7 @@ md.renderer.rules.fence = (tokens: Token[], idx: number): string => {
     // The copy button is added by sanitizeMessage AFTER the sanitizer: a message may not
     // carry a button of its own.
     '"><code' +
-    (info ? ' class="' + escapeAttr('lang-' + info) + ' hljs"' : ' class="hljs"') +
+    choose(info, ' class="' + escapeAttr('lang-' + info) + ' hljs"', ' class="hljs"') +
     '>' +
     md.utils.escapeHtml(raw) +
     '</code></pre>\n'
@@ -464,7 +466,7 @@ function fail(el: HTMLElement, what: string, err: unknown): void {
     '.</p><pre>' +
     escapeAttr(source) +
     '</pre><p class="render-error-reason">' +
-    escapeAttr(err instanceof Error ? err.message : String(err)) +
+    escapeAttr(errorMessage(err)) +
     '</p>'
 }
 

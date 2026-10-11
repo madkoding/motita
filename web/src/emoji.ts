@@ -46,7 +46,8 @@ function codepoints(): Set<string> {
 function assetFor(part: string): string | null {
   const key = partsOf(part)
   if (!key) { return null }
-  return codepoints().has(key) ? key : null
+  if (codepoints().has(key)) { return key }
+  return null
 }
 
 /**
@@ -79,7 +80,8 @@ function partsOf(part: string): string | null {
   // `fe0f` only ever modifies the character before it; on its own it names nothing. The
   // generator drops it for the same reason, so this has to as well.
   const cleaned = out.filter((p, i) => !(p === 'fe0f' && i > 0))
-  return cleaned.length > 0 ? cleaned.join('-') : null
+  if (cleaned.length > 0) { return cleaned.join('-') }
+  return null
 }
 
 // Ranges that are emoji, kept wide on purpose: the codepoint set is what decides whether an
@@ -149,7 +151,8 @@ function replaceInNode(root: HTMLElement): number {
         return NodeFilter.FILTER_REJECT
       }
       const t = node as Text
-      return EMOJI.test(t.data) ? NodeFilter.FILTER_ACCEPT : NodeFilter.FILTER_REJECT
+      if (EMOJI.test(t.data)) { return NodeFilter.FILTER_ACCEPT }
+      return NodeFilter.FILTER_REJECT
     },
   })
 
