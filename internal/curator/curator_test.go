@@ -63,7 +63,8 @@ func agentEntry(when time.Time) usage.Entry {
 
 // testCurator builds a curator over a real directory and a clock the test owns, plus a
 // reopen that re-reads the sidecar after the scenario has been written.
-func testCurator(t *testing.T, cfg config.Curator, entries map[string]usage.Entry) (*Curator, *procedures.Store, string, func(time.Time)) {
+func testCurator(t *testing.T, cfg config.Curator, entries map[string]usage.Entry) (*Curator, *procedures.Store, string,
+	func(time.Time)) {
 	t.Helper()
 	dir := t.TempDir()
 	cfg.Enabled = true
