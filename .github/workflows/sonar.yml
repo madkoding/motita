@@ -21,8 +21,8 @@ jobs:
   semgrep:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
-      - uses: actions/setup-python@v6
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
         with:
           python-version: '3.12'
       - name: Semgrep OSS
@@ -31,7 +31,7 @@ jobs:
           semgrep scan --config p/owasp-top-ten --config p/security-audit --config p/golang \
             --exclude node_modules --exclude vendor --exclude target --exclude dist \
             --sarif --output semgrep.sarif --metrics=off
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: sarif-semgrep
           path: semgrep.sarif
@@ -42,16 +42,16 @@ jobs:
       contents: read
       security-events: write
     steps:
-      - uses: actions/checkout@v5
-      - uses: github/codeql-action/init@v3
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - uses: github/codeql-action/init@9f759ee644a3e7c15c1390abf49868036c00067b # v3
         with:
           languages: go
           queries: security-extended
-      - uses: github/codeql-action/analyze@v3
+      - uses: github/codeql-action/analyze@9f759ee644a3e7c15c1390abf49868036c00067b # v3
         with:
           output: codeql-sarif
       - run: cp codeql-sarif/*.sarif codeql.sarif
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: sarif-codeql
           path: codeql.sarif
@@ -64,17 +64,17 @@ jobs:
     needs: [semgrep, codeql]
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
           fetch-depth: 0
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           pattern: sarif-*
           path: sarif
           merge-multiple: true
       - id: sarif
         run: echo "paths=$(ls sarif/*.sarif | paste -sd, -)" >> "$GITHUB_OUTPUT"
-      - uses: SonarSource/sonarqube-scan-action@v6
+      - uses: SonarSource/sonarqube-scan-action@fd88b7d7ccbaefd23d8f36f73b59db7a3d246602 # v6
         with:
           args: -Dsonar.sarifReportPaths=${{ steps.sarif.outputs.paths }}
         env:
@@ -82,7 +82,7 @@ jobs:
           SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}
       # Informativo al principio: en un proyecto nuevo todo cuenta como "código nuevo".
       # Quita continue-on-error para que el quality gate bloquee el CI.
-      - uses: SonarSource/sonarqube-quality-gate-action@v1
+      - uses: SonarSource/sonarqube-quality-gate-action@7a5fffe8e523c40e0c740b6bc2712ab503e52efa # v1
         continue-on-error: true
         timeout-minutes: 5
         env:
