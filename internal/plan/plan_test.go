@@ -124,12 +124,14 @@ func llmServer(t *testing.T, replies []replyStep) *httptest.Server {
 			w.Header().Set("Content-Type", "text/event-stream")
 			w.WriteHeader(http.StatusOK)
 			if step.content != "" {
-				chunk, _ := json.Marshal(map[string]any{"choices": []any{map[string]any{"delta": map[string]any{"content": step.content}}}})
+				chunk, _ := json.Marshal(
+					map[string]any{"choices": []any{map[string]any{"delta": map[string]any{"content": step.content}}}})
 				fmt.Fprintf(w, "data: %s\n\n", chunk)
 			}
 			if len(step.calls) > 0 {
 				delta := map[string]any{"tool_calls": step.calls}
-				chunk, _ := json.Marshal(map[string]any{"choices": []any{map[string]any{"delta": delta, "finish_reason": step.finishReason}}})
+				chunk, _ := json.Marshal(
+					map[string]any{"choices": []any{map[string]any{"delta": delta, "finish_reason": step.finishReason}}})
 				fmt.Fprintf(w, "data: %s\n\n", chunk)
 			}
 			fmt.Fprint(w, "data: [DONE]\n\n")
@@ -229,7 +231,8 @@ func TestListDirectory(t *testing.T) {
 	os.Mkdir(filepath.Join(dir, "sub"), 0o755)
 
 	srv := llmServer(t, []replyStep{
-		{finishReason: "tool_calls", calls: []map[string]any{toolCall("list_directory", "c1", map[string]string{"path": dir})}},
+		{finishReason: "tool_calls",
+			calls: []map[string]any{toolCall("list_directory", "c1", map[string]string{"path": dir})}},
 		{content: "listed"},
 	})
 	defer srv.Close()
@@ -249,7 +252,9 @@ func TestSearchInFiles(t *testing.T) {
 	os.WriteFile(filepath.Join(dir, "one.txt"), []byte("hello world\n"), 0o644)
 
 	srv := llmServer(t, []replyStep{
-		{finishReason: "tool_calls", calls: []map[string]any{toolCall("search_in_files", "c1", map[string]string{"pattern": "hello", "path": dir, "literal": "true"})}},
+		{finishReason: "tool_calls",
+			calls: []map[string]any{
+				toolCall("search_in_files", "c1", map[string]string{"pattern": "hello", "path": dir, "literal": "true"})}},
 		{content: "found"},
 	})
 	defer srv.Close()
@@ -300,7 +305,8 @@ func TestListDirectoryEmpty(t *testing.T) {
 	a, _ := makeAgent(t, true)
 	dir := t.TempDir()
 	srv := llmServer(t, []replyStep{
-		{finishReason: "tool_calls", calls: []map[string]any{toolCall("list_directory", "c1", map[string]string{"path": dir})}},
+		{finishReason: "tool_calls",
+			calls: []map[string]any{toolCall("list_directory", "c1", map[string]string{"path": dir})}},
 		{content: "empty handled"},
 	})
 	defer srv.Close()
@@ -314,7 +320,8 @@ func TestListDirectoryEmpty(t *testing.T) {
 func TestListDirectoryError(t *testing.T) {
 	a, _ := makeAgent(t, true)
 	srv := llmServer(t, []replyStep{
-		{finishReason: "tool_calls", calls: []map[string]any{toolCall("list_directory", "c1", map[string]string{"path": "/nonexistent/zzzz"})}},
+		{finishReason: "tool_calls",
+			calls: []map[string]any{toolCall("list_directory", "c1", map[string]string{"path": "/nonexistent/zzzz"})}},
 		{content: "error handled"},
 	})
 	defer srv.Close()
@@ -343,7 +350,8 @@ func TestRunOneToolCallThenAnswer(t *testing.T) {
 	a, fake := makeAgent(t, true)
 	fake.defaultOutput = "hello\n"
 	srv := llmServer(t, []replyStep{
-		{finishReason: "tool_calls", calls: []map[string]any{toolCall("execute_command", "c1", map[string]string{"command": "echo hello"})}},
+		{finishReason: "tool_calls",
+			calls: []map[string]any{toolCall("execute_command", "c1", map[string]string{"command": "echo hello"})}},
 		{content: "say hello back"},
 	})
 	defer srv.Close()
@@ -468,7 +476,8 @@ func TestExecuteCommandRefusedInReadOnlyMode(t *testing.T) {
 	a, fake := makeAgent(t, true)
 	// The real agent.RunCommand applies the read-only policy and refuses destructive commands before the executor.
 	srv := llmServer(t, []replyStep{
-		{finishReason: "tool_calls", calls: []map[string]any{toolCall("execute_command", "c1", map[string]string{"command": "rm -rf /tmp/x"})}},
+		{finishReason: "tool_calls",
+			calls: []map[string]any{toolCall("execute_command", "c1", map[string]string{"command": "rm -rf /tmp/x"})}},
 		{content: "refused and noted"},
 	})
 	defer srv.Close()
@@ -694,8 +703,10 @@ func TestMaxLoopsExhaustion(t *testing.T) {
 	a, fake := makeAgent(t, true)
 	fake.defaultOutput = "ok\n"
 	srv := llmServer(t, []replyStep{
-		{finishReason: "tool_calls", calls: []map[string]any{toolCall("execute_command", "c1", map[string]string{"command": "true"})}},
-		{finishReason: "tool_calls", calls: []map[string]any{toolCall("execute_command", "c2", map[string]string{"command": "true"})}},
+		{finishReason: "tool_calls",
+			calls: []map[string]any{toolCall("execute_command", "c1", map[string]string{"command": "true"})}},
+		{finishReason: "tool_calls",
+			calls: []map[string]any{toolCall("execute_command", "c2", map[string]string{"command": "true"})}},
 		{content: "final"},
 	})
 	defer srv.Close()
@@ -886,7 +897,8 @@ func TestExecuteCommandTimeoutDefault(t *testing.T) {
 	a, fake := makeAgent(t, true)
 	fake.defaultOutput = "ok\n"
 	srv := llmServer(t, []replyStep{
-		{finishReason: "tool_calls", calls: []map[string]any{toolCall("execute_command", "c1", map[string]string{"command": "echo hi"})}},
+		{finishReason: "tool_calls",
+			calls: []map[string]any{toolCall("execute_command", "c1", map[string]string{"command": "echo hi"})}},
 		{content: "done"},
 	})
 	defer srv.Close()
@@ -910,7 +922,8 @@ func TestExecuteCommandRunCommandError(t *testing.T) {
 		return "boom", false, 1, fmt.Errorf("refused by policy")
 	}
 	srv := llmServer(t, []replyStep{
-		{finishReason: "tool_calls", calls: []map[string]any{toolCall("execute_command", "c1", map[string]string{"command": "ls"})}},
+		{finishReason: "tool_calls",
+			calls: []map[string]any{toolCall("execute_command", "c1", map[string]string{"command": "ls"})}},
 		{content: "error handled"},
 	})
 	defer srv.Close()
@@ -927,7 +940,8 @@ func TestExecuteCommandRunCommandError(t *testing.T) {
 func TestExecuteCommandEmpty(t *testing.T) {
 	a, _ := makeAgent(t, true)
 	srv := llmServer(t, []replyStep{
-		{finishReason: "tool_calls", calls: []map[string]any{toolCall("execute_command", "c1", map[string]string{"command": ""})}},
+		{finishReason: "tool_calls",
+			calls: []map[string]any{toolCall("execute_command", "c1", map[string]string{"command": ""})}},
 		{content: "handled"},
 	})
 	defer srv.Close()
@@ -953,12 +967,15 @@ func TestForcedFinalEngineError(t *testing.T) {
 				w.Header().Set("Content-Type", "text/event-stream")
 				calls := []map[string]any{toolCall("execute_command", "c1", map[string]string{"command": "true"})}
 				delta := map[string]any{"tool_calls": calls}
-				chunk, _ := json.Marshal(map[string]any{"choices": []any{map[string]any{"delta": delta, "finish_reason": "tool_calls"}}})
+				chunk, _ := json.Marshal(
+					map[string]any{"choices": []any{map[string]any{"delta": delta, "finish_reason": "tool_calls"}}})
 				fmt.Fprintf(w, "data: %s\n\n", chunk)
 				fmt.Fprint(w, "data: [DONE]\n\n")
 				return
 			}
-			fmt.Fprint(w, `{"choices":[{"finish_reason":"tool_calls","message":{"role":"assistant","tool_calls":[{"id":"c1","type":"function","function":{"name":"execute_command","arguments":"{\"command\":\"true\"}"}}]}}]}`)
+			fmt.Fprint(w,
+				`{"choices":[{"finish_reason":"tool_calls","message":{"role":"assistant","tool_calls":[{"id":"c1",`+
+					`"type":"function","function":{"name":"execute_command","arguments":"{\"command\":\"true\"}"}}]}}]}`)
 			return
 		}
 		w.WriteHeader(http.StatusInternalServerError)
@@ -993,8 +1010,10 @@ func TestExecuteCommandArgsTimeout(t *testing.T) {
 	a, fake := makeAgent(t, true)
 	fake.defaultOutput = "ok\n"
 	srv := llmServer(t, []replyStep{
-		{finishReason: "tool_calls", calls: []map[string]any{toolCallRaw("execute_command", "c1", `{"command":"sleep 1","timeout_seconds":1}`)}},
-		{finishReason: "tool_calls", calls: []map[string]any{toolCall("execute_command", "c2", map[string]string{"command": "true"})}},
+		{finishReason: "tool_calls",
+			calls: []map[string]any{toolCallRaw("execute_command", "c1", `{"command":"sleep 1","timeout_seconds":1}`)}},
+		{finishReason: "tool_calls",
+			calls: []map[string]any{toolCall("execute_command", "c2", map[string]string{"command": "true"})}},
 		{content: "done"},
 	})
 	defer srv.Close()
@@ -1019,7 +1038,8 @@ func TestEmptyAnswerAfterRun(t *testing.T) {
 	a, fake := makeAgent(t, true)
 	fake.defaultOutput = "ok\n"
 	srv := llmServer(t, []replyStep{
-		{finishReason: "tool_calls", calls: []map[string]any{toolCall("execute_command", "c1", map[string]string{"command": "true"})}},
+		{finishReason: "tool_calls",
+			calls: []map[string]any{toolCall("execute_command", "c1", map[string]string{"command": "true"})}},
 		{finishReason: "stop", content: "   "},
 	})
 	defer srv.Close()
@@ -1061,11 +1081,14 @@ func TestTheContextIsCompactedBetweenToolRounds(t *testing.T) {
 	// summariser is the same engine, so its calls are interleaved with the loop's — and the
 	// server answers every request from the same queue, in order.
 	srv := llmServer(t, []replyStep{
-		{finishReason: "tool_calls", calls: []map[string]any{toolCall("execute_command", "c1", map[string]string{"command": "true"})}},
+		{finishReason: "tool_calls",
+			calls: []map[string]any{toolCall("execute_command", "c1", map[string]string{"command": "true"})}},
 		{content: "account of the first round"},
-		{finishReason: "tool_calls", calls: []map[string]any{toolCall("execute_command", "c2", map[string]string{"command": "true"})}},
+		{finishReason: "tool_calls",
+			calls: []map[string]any{toolCall("execute_command", "c2", map[string]string{"command": "true"})}},
 		{content: "account of the second round"},
-		{finishReason: "tool_calls", calls: []map[string]any{toolCall("execute_command", "c3", map[string]string{"command": "true"})}},
+		{finishReason: "tool_calls",
+			calls: []map[string]any{toolCall("execute_command", "c3", map[string]string{"command": "true"})}},
 		{content: "account of the third round"},
 		{content: "the final answer"},
 	})
@@ -1219,7 +1242,8 @@ func TestTheForcedAnswerIsKeptInTheSession(t *testing.T) {
 			w.Header().Set("Content-Type", "text/event-stream")
 			calls := []map[string]any{toolCall("execute_command", "c1", map[string]string{"command": "true"})}
 			delta := map[string]any{"tool_calls": calls}
-			chunk, _ := json.Marshal(map[string]any{"choices": []any{map[string]any{"delta": delta, "finish_reason": "tool_calls"}}})
+			chunk, _ := json.Marshal(
+				map[string]any{"choices": []any{map[string]any{"delta": delta, "finish_reason": "tool_calls"}}})
 			fmt.Fprintf(w, "data: %s\n\n", chunk)
 			fmt.Fprint(w, "data: [DONE]\n\n")
 			return

@@ -214,7 +214,8 @@ func TestSaveSkillReportsWhatItRefused(t *testing.T) {
 	lib.MaxFileBytes = 32
 	p := (&Planner{}).WithLibrary(lib)
 
-	if got := p.toolSaveSkill(raw(`{"name":"x","body":"` + strings.Repeat("a", 200) + `"}`)); !strings.Contains(got, "Error") {
+	oversized := raw(`{"name":"x","body":"` + strings.Repeat("a", 200) + `"}`)
+	if got := p.toolSaveSkill(oversized); !strings.Contains(got, "Error") {
 		t.Errorf("an oversized skill must be refused:\n%s", got)
 	}
 	if got := p.toolSaveSkill(raw(`{"name":"x","body":"   "}`)); !strings.Contains(got, "Error") {
@@ -590,7 +591,8 @@ func TestRunTriggersReviewAfterFinalAnswer(t *testing.T) {
 // safety-net Complete call that forces the final answer.
 func TestRunTriggersReviewAfterForcedAnswer(t *testing.T) {
 	a, _ := makeAgent(t, true)
-	call := llm.ToolCall{ID: "c1", Function: llm.FunctionCall{Name: "list_directory", Arguments: json.RawMessage(`{"path":"."}`)}}
+	call := llm.ToolCall{ID: "c1",
+		Function: llm.FunctionCall{Name: "list_directory", Arguments: json.RawMessage(`{"path":"."}`)}}
 	engine := &fakeEngine{
 		chunks: []llm.StreamChunk{{Event: llm.StreamToolCall, Call: &call}},
 	}
