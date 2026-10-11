@@ -141,8 +141,10 @@ jobs:
           - { goos: linux,   goarch: arm64,   container: arm64v8/debian:bookworm-slim, platform: linux/arm64, e2e: "true" }
           # Termux. Android kills a GOOS=linux binary with SIGSYS (its seccomp policy
           # blocks faccessat2, which the linux runtime calls), so it needs its own build.
-          # arm64 is the one android target Go links without cgo.
-          - { goos: android, goarch: arm64 }
+          # arm64 is the one android target Go links without cgo. termux-docker is a real
+          # Android userland (bionic, /system/bin/sh), so the smoke test proves the build
+          # loads and runs there.
+          - { goos: android, goarch: arm64,   container: termux/termux-docker:aarch64, platform: linux/arm64 }
           - { goos: windows, goarch: "386" }
           - { goos: windows, goarch: amd64 }
           - { goos: windows, goarch: arm64 }
@@ -216,14 +218,14 @@ jobs:
         # The action runs its binfmt image --privileged, in the job that builds the
         # release binaries, so the image is pinned by digest as well as the action
         # by commit: a moved tag cannot change what runs with that privilege.
-        if: matrix.goos == 'linux' && (matrix.goarch == 'arm' || matrix.goarch == 'arm64')
+        if: matrix.platform == 'linux/arm/v7' || matrix.platform == 'linux/arm64'
         uses: docker/setup-qemu-action@99012661954931238ded8c8b007157a8430204e1 # v4.4.0
         with:
           image: tonistiigi/binfmt:qemu-v10.2.3-68@sha256:400a4873b838d1b89194d982c45e5fb3cda4593fbfd7e08a02e76b03b21166f0
           platforms: arm,arm64
 
       - name: Run the binaries in their own container (smoke test)
-        if: matrix.goos == 'linux'
+        if: matrix.container != ''
         run: |
           chmod +x dist/*
           # The real artifact name is used (BINARY includes goos-goarch), never a
@@ -232,7 +234,7 @@ jobs:
             "${{ matrix.container }}" sh -c "/t/$(basename "$BINARY") -version"
 
       - name: Configuration validation (without calling the LLM)
-        if: matrix.goos == 'linux'
+        if: matrix.container != ''
         run: |
           docker run --rm -v "$PWD/dist:/t:ro" -v "$PWD/configs:/c:ro" --platform "${{ matrix.platform }}" \
             "${{ matrix.container }}" sh -c \
