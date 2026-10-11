@@ -1,4 +1,5 @@
 import { analyzeCommits } from "@semantic-release/commit-analyzer";
+import { format } from "node:util";
 
 const run = (msgs) =>
   analyzeCommits(
@@ -22,10 +23,10 @@ let bad = 0;
 for (const [msgs, want] of cases) {
   const got = await run(msgs);
   if (got !== want) {
-    console.error("FAIL", JSON.stringify(msgs), got, want);
+    process.stderr.write(format("FAIL", JSON.stringify(msgs), got, want) + "\n");
     bad++;
   } else {
-    console.log("ok", JSON.stringify(msgs), "->", got);
+    process.stdout.write(format("ok", JSON.stringify(msgs), "->", got) + "\n");
   }
 }
-process.exit(bad ? 1 : 0);
+process.exit(Number(bad > 0));
