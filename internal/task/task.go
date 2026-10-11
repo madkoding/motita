@@ -162,7 +162,8 @@ func (f *fileSource) Next(ctx context.Context) (Task, error) {
 	// first one would hide the rest of the work.
 	var list []Task
 	if json.Unmarshal(data, &list) == nil && len(list) > 0 {
-		return Task{}, fmt.Errorf("the file %q holds %d tasks; use task_source.kind=queue or one task per file", f.path, len(list))
+		return Task{}, fmt.Errorf("the file %q holds %d tasks; use task_source.kind=queue or one task per file",
+			f.path, len(list))
 	}
 	return Task{Description: text, Origin: "file:" + f.path}, nil
 }
@@ -329,29 +330,7 @@ func (f *apiSource) poll(ctx context.Context) (Task, error) {
 	// Three shapes are accepted: {"task": "..."}, {"task": {...}} or plain text.
 	var generic map[string]any
 	if json.Unmarshal(data, &generic) == nil {
-		value, ok := generic[field]
-		if !ok {
-			return Task{}, fmt.Errorf("the response does not carry the field %q", field)
-		}
-		switch v := value.(type) {
-		case string:
-			if strings.TrimSpace(v) == "" {
-				return Task{}, errors.New("the task field is empty")
-			}
-			return Task{Description: v, Origin: f.cfg.URL}, nil
-		case map[string]any:
-			// {"task": {"description": "...", "context": {...}}}
-			var t Task
-			raw, _ := json.Marshal(v)
-			if err := json.Unmarshal(raw, &t); err == nil {
-				if t.Description == "" {
-					t.Description = strings.TrimSpace(string(raw))
-				}
-				t.Origin = f.cfg.URL
-				return t, nil
-			}
-		}
-		return Task{}, fmt.Errorf("the field %q has an unsupported type", field)
+		return f.taskFromField(generic, field)
 	}
 
 	text := strings.TrimSpace(string(data))
@@ -359,6 +338,42 @@ func (f *apiSource) poll(ctx context.Context) (Task, error) {
 		return Task{}, errors.New("the API returned an empty body")
 	}
 	return Task{Description: text, Origin: f.cfg.URL}, nil
+}
+
+// taskFromField reads the task out of a JSON object response: field holds either the
+// description as a string or a whole task object.
+func (f *apiSource) taskFromField(generic map[string]any, field string) (Task, error) {
+	value, ok := generic[field]
+	if !ok {
+		return Task{}, fmt.Errorf("the response does not carry the field %q", field)
+	}
+	switch v := value.(type) {
+	case string:
+		if strings.TrimSpace(v) == "" {
+			return Task{}, errors.New("the task field is empty")
+		}
+		return Task{Description: v, Origin: f.cfg.URL}, nil
+	case map[string]any:
+		if t, ok := f.taskFromObject(v); ok {
+			return t, nil
+		}
+	default:
+		// Numbers, lists, booleans and null are not a task: refused below.
+	}
+	return Task{}, fmt.Errorf("the field %q has an unsupported type", field)
+}
+
+// taskFromObject decodes {"task": {"description": "...", "context": {...}}}; ok is false when
+// the object does not fit a Task.
+func (f *apiSource) taskFromObject(v map[string]any) (Task, bool) {
+	var t Task
+	raw, _ := json.Marshal(v)
+	err := json.Unmarshal(raw, &t)
+	if t.Description == "" {
+		t.Description = strings.TrimSpace(string(raw))
+	}
+	t.Origin = f.cfg.URL
+	return t, err == nil
 }
 
 // --- Helper constructors (used by the command line) -------------------------
