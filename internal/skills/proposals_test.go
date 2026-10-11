@@ -107,7 +107,10 @@ func TestProposedSkipsWhatIsNotAProposal(t *testing.T) {
 func TestProposalFailures(t *testing.T) {
 	l := New(t.TempDir())
 	for _, err := range []error{
-		func() error { _, err := l.Proposal(" "); return err }(),
+		func() error {
+			_, err := l.Proposal(" ")
+			return err
+		}(),
 		l.AcceptProposal(""),
 		l.RejectProposal("..."),
 	} {
@@ -116,7 +119,10 @@ func TestProposalFailures(t *testing.T) {
 		}
 	}
 	for _, err := range []error{
-		func() error { _, err := l.Proposal("missing"); return err }(),
+		func() error {
+			_, err := l.Proposal("missing")
+			return err
+		}(),
 		l.AcceptProposal("missing"),
 		l.RejectProposal("missing"),
 	} {

@@ -257,7 +257,10 @@ func TestSaveReportsACloseFailure(t *testing.T) {
 	boom := errors.New("flush failed")
 
 	old := closeTemp
-	closeTemp = func(f *os.File) error { f.Close(); return boom }
+	closeTemp = func(f *os.File) error {
+		f.Close()
+		return boom
+	}
 	defer func() { closeTemp = old }()
 
 	if _, err := l.Save("x", "# X\n\nbody\n"); !errors.Is(err, boom) {
