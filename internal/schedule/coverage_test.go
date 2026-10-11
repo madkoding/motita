@@ -150,6 +150,8 @@ func TestSaveRefusesAScheduleItCannotEncode(t *testing.T) {
 		t.Fatal("Save reported success on a schedule it could not encode")
 	} else if !contains(err.Error(), "could not encode the schedule") {
 		t.Errorf("the error must name what could not be encoded, got: %v", err)
+	} else {
+		// the expected outcome: nothing more to check
 	}
 }
 
