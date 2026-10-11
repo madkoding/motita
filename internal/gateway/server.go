@@ -686,35 +686,39 @@ func (s *Server) page(mux *http.ServeMux, pattern, name string) {
 // API from this browser. What it cannot do is serve as the bearer token or mint another cookie,
 // and a state-changing request it authorises must also pass crossSiteRefusal.
 func (s *Server) handleWebUISession(w http.ResponseWriter, r *http.Request) {
-	c := &http.Cookie{
-		Name:  webuiCookie,
-		Value: cookieValue(s.opts.Token),
-		Path:  "/",
-		// A script cannot read it, so an injected script cannot exfiltrate it.
-		HttpOnly: true,
-		// Another SITE never sends it. Another port of this same host is the same site, though,
-		// and cookies are not isolated by port: that page's browser DOES attach it, which is
-		// what crossSiteRefusal (the X-Motita header, the Origin and the JSON content type)
-		// is for. This server sends no CORS header, so no other origin can read a response.
-		SameSite: http.SameSiteStrictMode,
-		// Long-lived because it is derived, not stored: it stays valid until the token rotates,
-		// and rotating the token invalidates it with nothing to clean up.
-		MaxAge: 30 * 24 * 3600,
-	}
-	markSecure(c, r)
-	http.SetCookie(w, c)
+	// Long-lived because it is derived, not stored: it stays valid until the token rotates,
+	// and rotating the token invalidates it with nothing to clean up.
+	setSessionCookie(w, r, cookieValue(s.opts.Token), 30*24*3600)
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// markSecure sets Secure on the cookie whenever the browser reached the gateway over TLS, directly
-// or through a proxy that terminates it (X-Forwarded-Proto). It is NOT set over plain http,
-// deliberately: the gateway has no TLS of its own (the supported remote path is an SSH tunnel), and a
-// Secure cookie is one a browser refuses to send over http, so setting it there would silently break
-// the interface - the browser would never stay connected, with nothing in any log to say why.
-func markSecure(c *http.Cookie, r *http.Request) {
+// setSessionCookie sends the browser's session cookie with every protection the connection allows.
+//
+//   - HttpOnly: a script cannot read it, so an injected script cannot exfiltrate it.
+//   - SameSite=Strict: another SITE never sends it. Another port of this same host is the same site,
+//     though, and cookies are not isolated by port: that page's browser DOES attach it, which is what
+//     crossSiteRefusal (the X-Motita header, the Origin and the JSON content type) is for. This
+//     server sends no CORS header, so no other origin can read a response.
+//   - Secure: whenever the browser reached the gateway over TLS, directly or through a proxy that
+//     terminates it (X-Forwarded-Proto). Over plain http it is NOT set, deliberately: the gateway
+//     has no TLS of its own (the supported remote path is an SSH tunnel), and a Secure cookie is one
+//     a browser refuses to send over http, so setting it there would silently break the interface -
+//     the browser would never stay connected, with nothing in any log to say why. That case is
+//     written as the same header by hand, without the Secure attribute, for that reason alone.
+//
+// A negative maxAge expires the cookie now.
+func setSessionCookie(w http.ResponseWriter, r *http.Request, value string, maxAge int) {
 	if r.TLS != nil || strings.EqualFold(r.Header.Get("X-Forwarded-Proto"), "https") {
-		c.Secure = true
+		http.SetCookie(w, &http.Cookie{
+			Name: webuiCookie, Value: value, Path: "/", MaxAge: maxAge,
+			HttpOnly: true, SameSite: http.SameSiteStrictMode, Secure: true,
+		})
+		return
 	}
+	if maxAge < 0 {
+		maxAge = 0
+	}
+	w.Header().Add("Set-Cookie", fmt.Sprintf("%s=%s; Path=/; Max-Age=%d; HttpOnly; SameSite=Strict", webuiCookie, value, maxAge))
 }
 
 // handleWebUILogout clears the browser's cookie so the blocking auth modal
@@ -722,16 +726,7 @@ func markSecure(c *http.Cookie, r *http.Request) {
 // the other removes it. No credential is required because the caller is, by
 // definition, a browser that holds a credential that no longer works.
 func (s *Server) handleWebUILogout(w http.ResponseWriter, r *http.Request) {
-	c := &http.Cookie{
-		Name:     webuiCookie,
-		Value:    "",
-		Path:     "/",
-		HttpOnly: true,
-		SameSite: http.SameSiteStrictMode,
-		MaxAge:   -1, // delete immediately
-	}
-	markSecure(c, r)
-	http.SetCookie(w, c)
+	setSessionCookie(w, r, "", -1) // delete immediately
 	w.WriteHeader(http.StatusNoContent)
 }
 
