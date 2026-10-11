@@ -14,6 +14,7 @@
 // text nodes leaves every <span class="hljs-..."> in place, so the colours are there from the
 // first letter and nothing has to be re-highlighted per keystroke.
 import { useEffect, useLayoutEffect, useRef, useState } from 'preact/hooks'
+import DOMPurify from 'dompurify'
 import { t } from './i18n'
 
 function esc(s: string): string {
@@ -97,6 +98,9 @@ function reveal(slices: Slice[], n: number) {
   }
 }
 
+// What the colouring emits: spans with a class, nothing else.
+const TERM_PURIFY = { ALLOWED_TAGS: ['span'], ALLOWED_ATTR: ['class'] }
+
 interface TypedProps {
   html: string
   as?: 'span' | 'pre' | 'div'
@@ -179,7 +183,9 @@ export function Typed({ html, as = 'span', class: cls, cps, onTick, onDone, inst
   }, [html, cps, instant, boost])
 
   const Tag = as as 'span'
-  return <Tag ref={ref as never} class={cls} dangerouslySetInnerHTML={{ __html: html }} />
+  // The markup is ours (escaped text and highlight.js output), and goes through DOMPurify anyway:
+  // only span/class survive, which is all the colouring uses.
+  return <Tag ref={ref as never} class={cls} dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(html, TERM_PURIFY) }} />
 }
 
 // ── Pieces ────────────────────────────────────────────────────────────────────
