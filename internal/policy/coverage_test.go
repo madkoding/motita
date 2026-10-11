@@ -524,8 +524,10 @@ func TestTheSubcommandTablesDecideBothWays(t *testing.T) {
 	}{
 		{"hg", []string{"status", "log", "diff"}, []string{"push", "commit"}},
 		{"svn", []string{"status", "log", "diff"}, []string{"commit", "update"}},
-		{"go", []string{"test", "build", "vet", "fmt", "list", "doc", "version", "env", "run", "generate"}, []string{"get", "install"}},
-		{"npm", []string{"test", "run", "run-script", "exec", "ls", "list", "view", "outdated", "audit"}, []string{"publish", "install"}},
+		{"go", []string{"test", "build", "vet", "fmt", "list", "doc", "version", "env", "run", "generate"},
+			[]string{"get", "install"}},
+		{"npm", []string{"test", "run", "run-script", "exec", "ls", "list", "view", "outdated", "audit"},
+			[]string{"publish", "install"}},
 		{"cargo", []string{"test", "build", "check", "clippy", "fmt", "run", "doc", "tree"}, []string{"publish", "install"}},
 		{"pip", []string{"list", "show", "freeze"}, []string{"install"}},
 		{"pip3", []string{"list", "show", "freeze"}, []string{"install"}},

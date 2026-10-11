@@ -28,18 +28,21 @@ func TestThePublishedDocCopiesMatchTheirSource(t *testing.T) {
 		why    string
 	}{
 		{"docs/REFERENCE.md", "site/REFERENCE.md", `linked from site/index.html as href="REFERENCE.md"`},
-		{"docs/TUI-DESIGN-REVIEW.md", "site/TUI-DESIGN-REVIEW.md", `linked from site/index.html as href="TUI-DESIGN-REVIEW.md"`},
+		{"docs/TUI-DESIGN-REVIEW.md", "site/TUI-DESIGN-REVIEW.md",
+			`linked from site/index.html as href="TUI-DESIGN-REVIEW.md"`},
 		// Not linked by a page: this one IS the URL. Pages uploads site/ alone,
 		// so the installer script has to live there to be served at
 		// https://madkoding.github.io/motita/install.sh — and the moment there
 		// are two copies, one of them is the one nobody edits.
-		{"scripts/install.sh", "site/install.sh", "published as the install URL, https://madkoding.github.io/motita/install.sh"},
+		{"scripts/install.sh", "site/install.sh",
+			"published as the install URL, https://madkoding.github.io/motita/install.sh"},
 		// Same reasoning, on the platform that has no shell: published at
 		// https://madkoding.github.io/motita/install.ps1, and fetched by
 		// `irm ... | iex` rather than linked. Measured on real Pages sites: a
 		// .ps1 is served as application/octet-stream, which Invoke-RestMethod
 		// decodes to a string regardless — the content type does not matter.
-		{"scripts/install.ps1", "site/install.ps1", "published as the install URL, https://madkoding.github.io/motita/install.ps1"},
+		{"scripts/install.ps1", "site/install.ps1",
+			"published as the install URL, https://madkoding.github.io/motita/install.ps1"},
 	}
 
 	for _, p := range pairs {

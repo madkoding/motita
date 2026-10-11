@@ -37,7 +37,8 @@ func TestTheREADMEsClaimsAboutTheFloorHold(t *testing.T) {
 		// The README says dd is refused whenever it names an OUTPUT, so both of these are
 		// refused and the read-only form is not. This is the claim an operator is most
 		// likely to disbelieve, which is why it is written down.
-		{"dd if=/dev/zero of=local.img bs=1M count=1", true, "README: dd of=local.img is refused even though it is a local file"},
+		{"dd if=/dev/zero of=local.img bs=1M count=1", true,
+			"README: dd of=local.img is refused even though it is a local file"},
 		{"dd if=image.img", false, "README: a dd that only READS is untouched"},
 		// And the README says fdisk -l, which only lists, is refused with its family.
 		{"fdisk -l", true, "README: fdisk -l is refused along with the rest of its family"},
