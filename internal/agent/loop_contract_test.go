@@ -128,7 +128,12 @@ func step(done bool, commands ...string) string {
 }
 
 // runScript mounts the agent on a script and runs one task to its result.
-func runScript(t *testing.T, s *scriptServer, anchorScript string, cfg func(*config.Config)) (*fixture, TaskResult, error) {
+func runScript(
+	t *testing.T,
+	s *scriptServer,
+	anchorScript string,
+	cfg func(*config.Config),
+) (*fixture, TaskResult, error) {
 	t.Helper()
 	srv := httptest.NewServer(s.handler(t))
 	t.Cleanup(srv.Close)
@@ -521,7 +526,8 @@ func TestTheJournalCompactsOldRounds(t *testing.T) {
 	if strings.Contains(got, "DETAIL-1\n") || !strings.Contains(got, "- Round 1 (rejected): cmd-1") {
 		t.Errorf("the oldest round must be one line:\n%s", got)
 	}
-	if !strings.Contains(got, "- Round 2 (unusable reply): cmd-2") || !strings.Contains(got, "- Round 3 (progress): cmd-3") {
+	if !strings.Contains(got, "- Round 2 (unusable reply): cmd-2") ||
+		!strings.Contains(got, "- Round 3 (progress): cmd-3") {
 		t.Errorf("every kind has a one-line label:\n%s", got)
 	}
 	if !strings.Contains(got, fmt.Sprintf("DETAIL-%d", keepRoundsInFull+3)) {
@@ -541,10 +547,12 @@ func TestTheNewestRoundsKeepTheirWholeOutput(t *testing.T) {
 	got := renderRounds(rounds)
 	sections := strings.Split(got, "\n### Round ")
 	newest, older := sections[len(sections)-1], sections[1]
-	if !strings.Contains(newest, "HEAD-MARK") || !strings.Contains(newest, "TAIL-MARK") || strings.Contains(newest, "omitted") {
+	if !strings.Contains(newest, "HEAD-MARK") || !strings.Contains(newest, "TAIL-MARK") ||
+		strings.Contains(newest, "omitted") {
 		t.Errorf("the newest round must be whole:\n%.300s", newest)
 	}
-	if !strings.Contains(older, "HEAD-MARK") || !strings.Contains(older, "TAIL-MARK") || !strings.Contains(older, "omitted") {
+	if !strings.Contains(older, "HEAD-MARK") || !strings.Contains(older, "TAIL-MARK") ||
+		!strings.Contains(older, "omitted") {
 		t.Errorf("an older round must keep its head and tail around a cut:\n%.300s", older)
 	}
 	if len(older) > roundDetailOlder+200 {
@@ -573,7 +581,10 @@ func TestTruncationNeverSplitsACharacter(t *testing.T) {
 		t.Errorf("both ends must survive: %q", got)
 	}
 	// A cut that does not say how much is missing reads as the whole answer.
-	if !strings.Contains(got, fmt.Sprintf("%d of %d bytes omitted", 1004-len(got)+len("[...  of  bytes omitted ...]")-0, len(long))) &&
+	if !strings.Contains(
+		got,
+		fmt.Sprintf("%d of %d bytes omitted", 1004-len(got)+len("[...  of  bytes omitted ...]")-0, len(long)),
+	) &&
 		!strings.Contains(got, "bytes omitted") {
 		t.Errorf("the marker must say how much was dropped: %q", got)
 	}

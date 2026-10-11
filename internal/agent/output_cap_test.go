@@ -22,7 +22,10 @@ func TestACommandsOutputIsReportedWhole(t *testing.T) {
 	// comfortably inside the cap (and inside the sandbox's own 64 KB limit in this fixture), so
 	// nothing but the report's own cap could cut it.
 	const lines = 700
-	want := "first-line-marker\n" + strings.Repeat("a line of grepped output with some length\n", lines) + "last-line-marker\n"
+	want := "first-line-marker\n" + strings.Repeat(
+		"a line of grepped output with some length\n",
+		lines,
+	) + "last-line-marker\n"
 	if len(want)*1 >= terminalOutputChars {
 		t.Fatalf("the fixture must fit under the cap: %d >= %d", len(want), terminalOutputChars)
 	}

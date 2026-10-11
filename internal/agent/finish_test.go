@@ -169,7 +169,9 @@ func TestFileReadRecognisesPlainReads(t *testing.T) {
 func TestADifferentSpellingOfAHeldReadIsAnsweredFromMemory(t *testing.T) {
 	var m workMemory
 	m.remember("cat -n src/app.tsx", 2, "1\ta\n2\tb\n3\tc\n")
-	for _, cmd := range []string{"cat src/app.tsx", "sed -n '2,3p' src/app.tsx", "head -2 ./src/app.tsx", "cat  -n   src/app.tsx"} {
+	for _, cmd := range []string{
+		"cat src/app.tsx", "sed -n '2,3p' src/app.tsx", "head -2 ./src/app.tsx", "cat  -n   src/app.tsx",
+	} {
 		if _, ok := m.recall(cmd); !ok {
 			t.Errorf("%q asks for what is already held and must be answered from memory", cmd)
 		}
@@ -360,7 +362,12 @@ func TestAMissingToolIsNotChargedToTheRetries(t *testing.T) {
 // TestAMissingToolThatNeverInstallsStillEnds: the exemption is bounded.
 func TestAMissingToolThatNeverInstallsStillEnds(t *testing.T) {
 	s := &scriptServer{execute: func(int, string) string { return step(true, "true") }}
-	_, result, err := runScript(t, s, `echo "x: command not found"; exit 127`, func(c *config.Config) { c.Agent.MaxRetries = 1 })
+	_, result, err := runScript(
+		t,
+		s,
+		`echo "x: command not found"; exit 127`,
+		func(c *config.Config) { c.Agent.MaxRetries = 1 },
+	)
 	if err == nil || result.Pass {
 		t.Fatalf("a tool that never appears must still end the run: err=%v pass=%v", err, result.Pass)
 	}
@@ -412,16 +419,24 @@ func TestARequestIsFinishedWithThePolicyOnAndNobodyToAsk(t *testing.T) {
 		case 1:
 			return step(false, "ls -la && for f in src/*.txt; do echo \"=== $f ===\"; head -20 \"$f\"; done")
 		case 2:
-			return step(false, "mkdir -p lib && cat > lib/feature.txt << 'EOF'\nexport const feature = 1\nline with $HOME and `ticks`\nEOF\n"+
-				"cat > lib/feature.check.txt << 'EOF'\nfeature check\nEOF")
+			return step(
+				false,
+				"mkdir -p lib && cat > lib/feature.txt << 'EOF'\nexport const feature = 1\nline with $HOME and `ticks`\nEOF\n"+
+					"cat > lib/feature.check.txt << 'EOF'\nfeature check\nEOF",
+			)
 		case 3:
 			return step(false, "(npm ci 2>&1 || npm install 2>&1) | tail -5; test -f lib/feature.txt && echo present")
 		}
 		return step(true)
 	}}
-	fx, result, err := runScript(t, s, "test -f lib/feature.txt && grep -q 'export const feature' lib/feature.txt", func(c *config.Config) {
-		c.Agent.Policy = config.Policy{Enforce: true}
-	})
+	fx, result, err := runScript(
+		t,
+		s,
+		"test -f lib/feature.txt && grep -q 'export const feature' lib/feature.txt",
+		func(c *config.Config) {
+			c.Agent.Policy = config.Policy{Enforce: true}
+		},
+	)
 	if err != nil || !result.Pass {
 		t.Fatalf("err=%v pass=%v reason=%s", err, result.Pass, result.Reason)
 	}

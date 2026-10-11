@@ -121,7 +121,8 @@ func TestAGoalDecidesAndRecordsWhatItDecided(t *testing.T) {
 	if !result.Pass || e.agent.Interactive {
 		t.Fatalf("pass=%v interactive=%v", result.Pass, e.agent.Interactive)
 	}
-	if len(s.analyses) == 0 || !strings.Contains(s.analyses[0], "This is a GOAL") || !strings.Contains(s.analyses[0], "add login") {
+	if len(s.analyses) == 0 || !strings.Contains(s.analyses[0], "This is a GOAL") ||
+		!strings.Contains(s.analyses[0], "add login") {
 		t.Errorf("the model must be told it is a goal:\n%v", s.analyses)
 	}
 	if got := ReadDecisions(e.dir); !strings.Contains(got, "use sessions — simplest") {
@@ -130,7 +131,12 @@ func TestAGoalDecidesAndRecordsWhatItDecided(t *testing.T) {
 
 	// The next ordinary task receives it as a standing decision.
 	s2 := &scriptServer{execute: func(int, string) string { return step(true, "true") }}
-	goalRun(t, s2, "do more", func(dir string) { _ = recordDecisions(dir, "x", []ReportDecision{{Decision: "keep sessions"}}) })
+	goalRun(
+		t,
+		s2,
+		"do more",
+		func(dir string) { _ = recordDecisions(dir, "x", []ReportDecision{{Decision: "keep sessions"}}) },
+	)
 	if len(s2.analyses) == 0 || !strings.Contains(s2.analyses[0], "keep sessions") {
 		t.Errorf("a later run must see the standing decisions:\n%v", s2.analyses)
 	}

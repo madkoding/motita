@@ -70,11 +70,19 @@ func (s *fakeLLMServer) handler(t *testing.T) http.HandlerFunc {
 				fmt.Fprint(w, `{"error":{"message":"simulated failure in the analysis"}}`)
 				return
 			}
-			fmt.Fprint(w, `{"choices":[{"message":{"content":"{\"understandable\":true,\"summary\":\"test task\",\"success_criteria\":[\"the file exists\"],\"risks\":[],\"needs_subtasks\":false}"}}]}`)
+			fmt.Fprint(
+				w,
+				`{"choices":[{"message":{"content":"{\"understandable\":true,\"summary\":\"test `+
+					`task\",\"success_criteria\":[\"the file exists\"],\"risks\":[],\"needs_subtasks\":false}"}}]}`,
+			)
 
 		case strings.Contains(text, "## ACTION PLAN"):
 			s.phases = append(s.phases, "plan")
-			fmt.Fprint(w, `{"choices":[{"message":{"content":"{\"plan\":[{\"step\":1,\"action\":\"create file\",\"command\":\"create.txt\"}],\"subtasks\":[],\"expected_result\":\"file created\"}"}}]}`)
+			fmt.Fprint(
+				w,
+				`{"choices":[{"message":{"content":"{\"plan\":[{\"step\":1,\"action\":\"create `+
+					`file\",\"command\":\"create.txt\"}],\"subtasks\":[],\"expected_result\":\"file created\"}"}}]}`,
+			)
 
 		case strings.Contains(text, "## FINAL ANSWER"):
 			s.phases = append(s.phases, "synthesize")
@@ -362,7 +370,10 @@ func TestAnalysisNotUnderstandable(t *testing.T) {
 			text += m.Content
 		}
 		if strings.Contains(text, "## ANALYSIS OF THE TASK") {
-			fmt.Fprint(w, `{"choices":[{"message":{"content":"{\"understandable\":false,\"risks\":[\"input data is missing\"]}"}}]}`)
+			fmt.Fprint(
+				w,
+				`{"choices":[{"message":{"content":"{\"understandable\":false,\"risks\":[\"input data is missing\"]}"}}]}`,
+			)
 			return
 		}
 		t.Errorf("no other phase should be reached")
@@ -447,14 +458,27 @@ func TestSubtasks(t *testing.T) {
 		case strings.Contains(text, "## ANALYSIS OF THE TASK"):
 			calls++
 			if calls == 1 {
-				fmt.Fprint(w, `{"choices":[{"message":{"content":"{\"understandable\":true,\"summary\":\"split\",\"success_criteria\":[],\"risks\":[],\"needs_subtasks\":true}"}}]}`)
+				fmt.Fprint(
+					w,
+					`{"choices":[{"message":{"content":"{\"understandable\":true,\"summary\":\"split\",\"success_criteria\":[],`+
+						`\"risks\":[],\"needs_subtasks\":true}"}}]}`,
+				)
 			} else {
-				fmt.Fprint(w, `{"choices":[{"message":{"content":"{\"understandable\":true,\"summary\":\"sub\",\"success_criteria\":[],\"risks\":[],\"needs_subtasks\":false}"}}]}`)
+				fmt.Fprint(w, `{"choices":[{"message":{"content":"{\"understandable\":true,\"summary\":\"sub\",`+
+					`\"success_criteria\":[],\"risks\":[],\"needs_subtasks\":false}"}}]}`)
 			}
 		case strings.Contains(text, "## ACTION PLAN"):
-			fmt.Fprint(w, `{"choices":[{"message":{"content":"{\"plan\":[],\"subtasks\":[\"subtask A\",\"subtask B\"],\"expected_result\":\"x\"}"}}]}`)
+			fmt.Fprint(
+				w,
+				`{"choices":[{"message":{"content":"{\"plan\":[],\"subtasks\":[\"subtask A\",\"subtask `+
+					`B\"],\"expected_result\":\"x\"}"}}]}`,
+			)
 		default:
-			fmt.Fprint(w, `{"choices":[{"message":{"content":"{\"reasoning\":\"r\",\"actions\":[{\"kind\":\"command\",\"command\":\"echo sub > sub.txt\"}],\"final_action\":{\"command\":\"\"}}"}}]}`)
+			fmt.Fprint(
+				w,
+				`{"choices":[{"message":{"content":"{\"reasoning\":\"r\",\"actions\":[{\"kind\":\"command\",\"command\":\"echo `+
+					`sub > sub.txt\"}],\"final_action\":{\"command\":\"\"}}"}}]}`,
+			)
 		}
 	}))
 	defer srv.Close()
@@ -493,9 +517,15 @@ func TestSubtaskLimit(t *testing.T) {
 		switch {
 		case strings.Contains(text, "## ANALYSIS OF THE TASK"):
 			// It always asks to split: with no limit this would never finish.
-			fmt.Fprint(w, `{"choices":[{"message":{"content":"{\"understandable\":true,\"summary\":\"x\",\"needs_subtasks\":true}"}}]}`)
+			fmt.Fprint(
+				w,
+				`{"choices":[{"message":{"content":"{\"understandable\":true,\"summary\":\"x\",\"needs_subtasks\":true}"}}]}`,
+			)
 		case strings.Contains(text, "## ACTION PLAN"):
-			fmt.Fprint(w, `{"choices":[{"message":{"content":"{\"plan\":[],\"subtasks\":[\"another\"],\"expected_result\":\"x\"}"}}]}`)
+			fmt.Fprint(
+				w,
+				`{"choices":[{"message":{"content":"{\"plan\":[],\"subtasks\":[\"another\"],\"expected_result\":\"x\"}"}}]}`,
+			)
 		default:
 			fmt.Fprint(w, `{"choices":[{"message":{"content":"{\"reasoning\":\"r\",\"actions\":[{\"command\":\"true\"}]}"}}]}`)
 		}

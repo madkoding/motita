@@ -154,7 +154,11 @@ func TestAskingIsReportedAsAsking(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		body, _ := io.ReadAll(r.Body)
 		if strings.Contains(string(body), "## ANALYSIS OF THE TASK") {
-			fmt.Fprint(w, `{"choices":[{"message":{"content":"{\"kind\":\"ask\",\"understandable\":true,\"question\":\"About which folder?\",\"assumption\":\"reviso la actual\"}"}}]}`)
+			fmt.Fprint(
+				w,
+				`{"choices":[{"message":{"content":"{\"kind\":\"ask\",\"understandable\":true,\"question\":\"About which `+
+					`folder?\",\"assumption\":\"reviso la actual\"}"}}]}`,
+			)
 			return
 		}
 		fmt.Fprint(w, `{"choices":[{"message":{"content":"{\"plan\":[]}"}}]}`)

@@ -360,10 +360,15 @@ func TestFinalActionAPIUnreachable(t *testing.T) {
 
 // TestUnknownFinalAction: an invalid final action kind is reported.
 func TestUnknownFinalAction(t *testing.T) {
-	e := mount(t, httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {})), config.Anchor{Kind: "command", Command: "true", Timeout: 5 * time.Second}, func(c *config.Config) {
-		// Assigned directly (config validation would reject it earlier).
-		c.FinalAction = config.FinalAction{Kind: "telepathy"}
-	})
+	e := mount(
+		t,
+		httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {})),
+		config.Anchor{Kind: "command", Command: "true", Timeout: 5 * time.Second},
+		func(c *config.Config) {
+			// Assigned directly (config validation would reject it earlier).
+			c.FinalAction = config.FinalAction{Kind: "telepathy"}
+		},
+	)
 
 	description, err := e.agent.runFinalAction(context.Background(), Command{}, "")
 	if err == nil {
@@ -374,9 +379,14 @@ func TestUnknownFinalAction(t *testing.T) {
 // TestFinalActionCommandWithoutCommand: there is nothing to run and it is not an
 // error.
 func TestFinalActionCommandWithoutCommand(t *testing.T) {
-	e := mount(t, httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {})), config.Anchor{Kind: "command", Command: "true", Timeout: 5 * time.Second}, func(c *config.Config) {
-		c.FinalAction = config.FinalAction{Kind: "command", Command: "", Args: nil}
-	})
+	e := mount(
+		t,
+		httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {})),
+		config.Anchor{Kind: "command", Command: "true", Timeout: 5 * time.Second},
+		func(c *config.Config) {
+			c.FinalAction = config.FinalAction{Kind: "command", Command: "", Args: nil}
+		},
+	)
 
 	description, err := e.agent.runFinalAction(context.Background(), Command{Command: ""}, "")
 	if err != nil {
@@ -390,9 +400,14 @@ func TestFinalActionCommandWithoutCommand(t *testing.T) {
 // TestFinalActionWithTheModelCommand: the LLM may propose the final command. A write inside the
 // workspace is one the policy allows, so it runs without asking.
 func TestFinalActionWithTheModelCommand(t *testing.T) {
-	e := mount(t, httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {})), config.Anchor{Kind: "command", Command: "true", Timeout: 5 * time.Second}, func(c *config.Config) {
-		c.FinalAction = config.FinalAction{Kind: "command", Command: "sh"}
-	})
+	e := mount(
+		t,
+		httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {})),
+		config.Anchor{Kind: "command", Command: "true", Timeout: 5 * time.Second},
+		func(c *config.Config) {
+			c.FinalAction = config.FinalAction{Kind: "command", Command: "sh"}
+		},
+	)
 	marker := filepath.Join(e.dir, "model.txt")
 
 	description, err := e.agent.runFinalAction(context.Background(),
@@ -413,10 +428,15 @@ func TestFinalActionWithTheModelCommand(t *testing.T) {
 // nobody to ask (or a no) it does not run. The operator's own configured command keeps running.
 func TestTheModelsFinalActionIsApprovedLikeAnyAction(t *testing.T) {
 	var commands []string
-	e := mount(t, httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {})), config.Anchor{Kind: "command", Command: "true", Timeout: 5 * time.Second}, func(c *config.Config) {
-		c.FinalAction = config.FinalAction{Kind: "command", Command: "sh"}
-		c.Agent.Policy.Enforce = true
-	})
+	e := mount(
+		t,
+		httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {})),
+		config.Anchor{Kind: "command", Command: "true", Timeout: 5 * time.Second},
+		func(c *config.Config) {
+			c.FinalAction = config.FinalAction{Kind: "command", Command: "sh"}
+			c.Agent.Policy.Enforce = true
+		},
+	)
 	e.agent.ExecCommand = fakeExecutor(&commands, nil)
 	line := "git push --force origin main"
 	if p := e.agent.planRequest(line); p.Verdict != policy.Ask {
@@ -479,9 +499,14 @@ func fakeExecutor(log *[]string, codes map[string]int) func(context.Context, exe
 // launched and that the commit message carries the substituted task.
 func TestFinalActionGitCommitRunsAddAndCommit(t *testing.T) {
 	var commands []string
-	e := mount(t, httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {})), config.Anchor{Kind: "command", Command: "true", Timeout: 5 * time.Second}, func(c *config.Config) {
-		c.FinalAction = config.FinalAction{Kind: "git_commit", CommitMessage: "chore(agent): {{task}}"}
-	})
+	e := mount(
+		t,
+		httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {})),
+		config.Anchor{Kind: "command", Command: "true", Timeout: 5 * time.Second},
+		func(c *config.Config) {
+			c.FinalAction = config.FinalAction{Kind: "git_commit", CommitMessage: "chore(agent): {{task}}"}
+		},
+	)
 	e.agent.ExecCommand = fakeExecutor(&commands, nil)
 
 	description, err := e.agent.runFinalAction(context.Background(), Command{Description: "fix the parser"}, "")
@@ -506,9 +531,14 @@ func TestFinalActionGitCommitRunsAddAndCommit(t *testing.T) {
 // NOT be taken as completed and the sequence stops.
 func TestFinalActionGitCommitWithFailure(t *testing.T) {
 	var commands []string
-	e := mount(t, httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {})), config.Anchor{Kind: "command", Command: "true", Timeout: 5 * time.Second}, func(c *config.Config) {
-		c.FinalAction = config.FinalAction{Kind: "git_commit", CommitMessage: "x"}
-	})
+	e := mount(
+		t,
+		httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {})),
+		config.Anchor{Kind: "command", Command: "true", Timeout: 5 * time.Second},
+		func(c *config.Config) {
+			c.FinalAction = config.FinalAction{Kind: "git_commit", CommitMessage: "x"}
+		},
+	)
 	e.agent.ExecCommand = fakeExecutor(&commands, map[string]int{"git add": 128})
 
 	_, err := e.agent.runFinalAction(context.Background(), Command{}, "")
@@ -526,9 +556,14 @@ func TestFinalActionGitCommitWithFailure(t *testing.T) {
 // TestFinalActionWithoutExecutor: with no executor configured it reports instead
 // of panicking.
 func TestFinalActionWithoutExecutor(t *testing.T) {
-	e := mount(t, httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {})), config.Anchor{Kind: "command", Command: "true", Timeout: 5 * time.Second}, func(c *config.Config) {
-		c.FinalAction = config.FinalAction{Kind: "command", Command: "true"}
-	})
+	e := mount(
+		t,
+		httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {})),
+		config.Anchor{Kind: "command", Command: "true", Timeout: 5 * time.Second},
+		func(c *config.Config) {
+			c.FinalAction = config.FinalAction{Kind: "command", Command: "true"}
+		},
+	)
 	e.agent.ExecCommand = nil
 
 	if _, err := e.agent.runFinalAction(context.Background(), Command{}, ""); err == nil {
@@ -541,9 +576,14 @@ func TestFinalActionWithoutExecutor(t *testing.T) {
 
 // TestEmptyFinalAction: kind none does nothing and is not an error.
 func TestEmptyFinalAction(t *testing.T) {
-	e := mount(t, httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {})), config.Anchor{Kind: "command", Command: "true", Timeout: 5 * time.Second}, func(c *config.Config) {
-		c.FinalAction = config.FinalAction{Kind: ""}
-	})
+	e := mount(
+		t,
+		httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {})),
+		config.Anchor{Kind: "command", Command: "true", Timeout: 5 * time.Second},
+		func(c *config.Config) {
+			c.FinalAction = config.FinalAction{Kind: ""}
+		},
+	)
 	description, err := e.agent.runFinalAction(context.Background(), Command{}, "")
 	if err != nil || description != "none" {
 		t.Errorf("description=%q err=%v", description, err)
@@ -554,18 +594,28 @@ func TestEmptyFinalAction(t *testing.T) {
 
 // TestEscalateWithoutCommandDoesNothing.
 func TestEscalateWithoutCommandDoesNothing(t *testing.T) {
-	e := mount(t, httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {})), config.Anchor{Kind: "command", Command: "true", Timeout: 5 * time.Second}, func(c *config.Config) {
-		c.Agent.OnFailure = config.OnFailure{Kind: "command", Command: "  "}
-	})
+	e := mount(
+		t,
+		httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {})),
+		config.Anchor{Kind: "command", Command: "true", Timeout: 5 * time.Second},
+		func(c *config.Config) {
+			c.Agent.OnFailure = config.OnFailure{Kind: "command", Command: "  "}
+		},
+	)
 	// It must not panic nor run anything.
 	e.agent.escalate(context.Background(), "")
 }
 
 // TestEscalateFailedCommand: an escalation that cannot run does not break.
 func TestEscalateFailedCommand(t *testing.T) {
-	e := mount(t, httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {})), config.Anchor{Kind: "command", Command: "true", Timeout: 5 * time.Second}, func(c *config.Config) {
-		c.Agent.OnFailure = config.OnFailure{Kind: "command", Command: "this-command-does-not-exist-ever"}
-	})
+	e := mount(
+		t,
+		httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {})),
+		config.Anchor{Kind: "command", Command: "true", Timeout: 5 * time.Second},
+		func(c *config.Config) {
+			c.Agent.OnFailure = config.OnFailure{Kind: "command", Command: "this-command-does-not-exist-ever"}
+		},
+	)
 	e.agent.escalate(context.Background(), "")
 }
 
@@ -573,9 +623,14 @@ func TestEscalateFailedCommand(t *testing.T) {
 func TestEscalateRunsTheCommand(t *testing.T) {
 	dir := t.TempDir()
 	marker := filepath.Join(dir, "escalated.txt")
-	e := mount(t, httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {})), config.Anchor{Kind: "command", Command: "true", Timeout: 5 * time.Second}, func(c *config.Config) {
-		c.Agent.OnFailure = config.OnFailure{Kind: "command", Command: "echo escalated > " + marker}
-	})
+	e := mount(
+		t,
+		httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {})),
+		config.Anchor{Kind: "command", Command: "true", Timeout: 5 * time.Second},
+		func(c *config.Config) {
+			c.Agent.OnFailure = config.OnFailure{Kind: "command", Command: "echo escalated > " + marker}
+		},
+	)
 
 	e.agent.escalate(context.Background(), "")
 	if _, err := os.Stat(marker); err != nil {
@@ -634,7 +689,12 @@ func TestDescribeRulesWithEveryField(t *testing.T) {
 // TestDescribeRulesWithoutAnchor: with no anchor it explains there will be no
 // PASS.
 func TestDescribeRulesWithoutAnchor(t *testing.T) {
-	e := mount(t, httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {})), config.Anchor{Kind: "none"}, nil)
+	e := mount(
+		t,
+		httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {})),
+		config.Anchor{Kind: "none"},
+		nil,
+	)
 	text := e.agent.describeRules()
 	if !strings.Contains(text, "anchor.kind=none") {
 		t.Errorf("text = %q", text)
@@ -643,7 +703,12 @@ func TestDescribeRulesWithoutAnchor(t *testing.T) {
 
 // TestBaseVariablesWithContext: the task's context is exposed as variables.
 func TestBaseVariablesWithContext(t *testing.T) {
-	e := mount(t, httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {})), config.Anchor{Kind: "command", Command: "true", Timeout: 5 * time.Second}, nil)
+	e := mount(
+		t,
+		httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {})),
+		config.Anchor{Kind: "command", Command: "true", Timeout: 5 * time.Second},
+		nil,
+	)
 
 	vars := e.agent.baseVariables(task.Task{
 		Description: "do something",
@@ -703,7 +768,12 @@ func TestTemplateWithUnfilledVariable(t *testing.T) {
 
 // TestRunActionsWithEmptyCommand: a descriptive action runs nothing.
 func TestRunActionsWithEmptyCommand(t *testing.T) {
-	e := mount(t, httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {})), config.Anchor{Kind: "command", Command: "true", Timeout: 5 * time.Second}, nil)
+	e := mount(
+		t,
+		httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {})),
+		config.Anchor{Kind: "command", Command: "true", Timeout: 5 * time.Second},
+		nil,
+	)
 
 	output, err := e.agent.runActions(context.Background(), []Command{
 		{Kind: "command", Description: "just describing", Command: "   "},
@@ -718,7 +788,12 @@ func TestRunActionsWithEmptyCommand(t *testing.T) {
 
 // TestRunActionsWithFailure: a command that cannot run is reported.
 func TestRunActionsWithFailure(t *testing.T) {
-	e := mount(t, httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {})), config.Anchor{Kind: "command", Command: "true", Timeout: 5 * time.Second}, nil)
+	e := mount(
+		t,
+		httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {})),
+		config.Anchor{Kind: "command", Command: "true", Timeout: 5 * time.Second},
+		nil,
+	)
 
 	// The failure this test is about is the one runActions REPORTS as an error: an action that
 	// cannot run at all. A non-zero exit is not one — the agent records `[exit=N]` and hands
@@ -740,7 +815,12 @@ func TestRunActionsWithFailure(t *testing.T) {
 // never be confused. A command that runs and fails is NOT an error of the run — its exit code
 // travels back to the model, which is what lets the model fix the actual problem.
 func TestARealCommandRecordsItsExitCode(t *testing.T) {
-	e := mount(t, httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {})), config.Anchor{Kind: "command", Command: "true", Timeout: 5 * time.Second}, nil)
+	e := mount(
+		t,
+		httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {})),
+		config.Anchor{Kind: "command", Command: "true", Timeout: 5 * time.Second},
+		nil,
+	)
 
 	output, err := e.agent.runActions(context.Background(), []Command{{Command: "false"}}, "")
 	if err != nil {
@@ -758,7 +838,12 @@ func TestARealCommandRecordsItsExitCode(t *testing.T) {
 // means it does NOT run, and the output says why. The assertion that matters is the marker
 // file: if the program ran, it exists.
 func TestAnUnknownProgramIsNotRunWithoutApproval(t *testing.T) {
-	e := mount(t, httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {})), config.Anchor{Kind: "command", Command: "true", Timeout: 5 * time.Second}, nil)
+	e := mount(
+		t,
+		httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {})),
+		config.Anchor{Kind: "command", Command: "true", Timeout: 5 * time.Second},
+		nil,
+	)
 
 	dir := t.TempDir()
 	marker := filepath.Join(dir, "RAN")
@@ -789,7 +874,12 @@ func TestAnUnknownProgramIsNotRunWithoutApproval(t *testing.T) {
 // Both halves are asserted: the argument is not executed, and the model is told which kinds do
 // exist, because a refusal it cannot act on just spends the turn.
 func TestAnUnknownActionKindIsRefusedRatherThanExecuted(t *testing.T) {
-	e := mount(t, httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {})), config.Anchor{Kind: "command", Command: "true", Timeout: 5 * time.Second}, nil)
+	e := mount(
+		t,
+		httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {})),
+		config.Anchor{Kind: "command", Command: "true", Timeout: 5 * time.Second},
+		nil,
+	)
 
 	// A program that leaves a mark if it is executed, named like the tool the skill advertises.
 	dir := t.TempDir()
@@ -824,7 +914,12 @@ func TestAnUnknownActionKindIsRefusedRatherThanExecuted(t *testing.T) {
 // descriptive step the command path already ignores, and inventing an error for it would fail a
 // turn over nothing.
 func TestAnUnknownKindWithNothingToRunIsIgnored(t *testing.T) {
-	e := mount(t, httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {})), config.Anchor{Kind: "command", Command: "true", Timeout: 5 * time.Second}, nil)
+	e := mount(
+		t,
+		httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {})),
+		config.Anchor{Kind: "command", Command: "true", Timeout: 5 * time.Second},
+		nil,
+	)
 
 	output, err := e.agent.runActions(context.Background(), []Command{{Kind: "teleport"}}, "")
 	if err != nil {
@@ -837,7 +932,12 @@ func TestAnUnknownKindWithNothingToRunIsIgnored(t *testing.T) {
 
 // TestSummariseFailureWithError: the summary includes the execution error.
 func TestSummariseFailureWithError(t *testing.T) {
-	e := mount(t, httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {})), config.Anchor{Kind: "command", Command: "true", Timeout: 5 * time.Second}, nil)
+	e := mount(
+		t,
+		httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {})),
+		config.Anchor{Kind: "command", Command: "true", Timeout: 5 * time.Second},
+		nil,
+	)
 
 	text := e.agent.summariseFailure(
 		Action{Actions: []Command{{Command: "ls"}}},
@@ -871,7 +971,12 @@ func TestNewAgentWithoutLogger(t *testing.T) {
 // now gives up after a few consecutive failures and returns an error, which is
 // what cron or systemd need in order to notice.
 func TestSourceThatAlwaysFailsGivesUp(t *testing.T) {
-	e := mount(t, httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {})), config.Anchor{Kind: "command", Command: "true", Timeout: 5 * time.Second}, nil)
+	e := mount(
+		t,
+		httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {})),
+		config.Anchor{Kind: "command", Command: "true", Timeout: 5 * time.Second},
+		nil,
+	)
 
 	source := &failingSource{}
 	e.agent.source = source
@@ -1070,7 +1175,12 @@ func TestSplitReachesTheLimit(t *testing.T) {
 // TestRunActionsWithTruncatedOutput: the sandbox signals truncation and the agent
 // must report it, because the model reads that output.
 func TestRunActionsWithTruncatedOutput(t *testing.T) {
-	e := mount(t, httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {})), config.Anchor{Kind: "command", Command: "true", Timeout: 5 * time.Second}, nil)
+	e := mount(
+		t,
+		httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {})),
+		config.Anchor{Kind: "command", Command: "true", Timeout: 5 * time.Second},
+		nil,
+	)
 
 	e.agent.ExecCommand = func(context.Context, execx.Request) (string, bool, int, error) {
 		return "partial output", true, 0, nil
@@ -1124,9 +1234,14 @@ func TestCancellationDuringSubtasks(t *testing.T) {
 // TestRunFinalActionWithFailedCommand: a failing final command returns the
 // description AND the error, so the reason is visible.
 func TestRunFinalActionWithFailedCommand(t *testing.T) {
-	e := mount(t, httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {})), config.Anchor{Kind: "command", Command: "true", Timeout: 5 * time.Second}, func(c *config.Config) {
-		c.FinalAction = config.FinalAction{Kind: "command", Command: "sh", Args: []string{"-c", "exit 5"}}
-	})
+	e := mount(
+		t,
+		httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {})),
+		config.Anchor{Kind: "command", Command: "true", Timeout: 5 * time.Second},
+		func(c *config.Config) {
+			c.FinalAction = config.FinalAction{Kind: "command", Command: "sh", Args: []string{"-c", "exit 5"}}
+		},
+	)
 
 	description, err := e.agent.runFinalAction(context.Background(), Command{}, "")
 	if err == nil {
@@ -1143,9 +1258,14 @@ func TestRunFinalActionWithFailedCommand(t *testing.T) {
 // TestFinalActionCommandWithNothingToRun: final_action.kind=command with no
 // configured command and nothing proposed by the model does nothing.
 func TestFinalActionCommandWithNothingToRun(t *testing.T) {
-	e := mount(t, httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {})), config.Anchor{Kind: "command", Command: "true", Timeout: 5 * time.Second}, func(c *config.Config) {
-		c.FinalAction = config.FinalAction{Kind: "command", Command: ""}
-	})
+	e := mount(
+		t,
+		httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {})),
+		config.Anchor{Kind: "command", Command: "true", Timeout: 5 * time.Second},
+		func(c *config.Config) {
+			c.FinalAction = config.FinalAction{Kind: "command", Command: ""}
+		},
+	)
 
 	description, err := e.agent.runFinalAction(context.Background(), Command{Command: "   "}, "")
 	if err != nil {
@@ -1167,7 +1287,12 @@ var _ = execxRequest
 // arrives at the same moment as a source error must end the run cleanly, not as
 // a failure.
 func TestRunStopsWhenTheContextIsCancelledDuringASourceFailure(t *testing.T) {
-	e := mount(t, httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {})), config.Anchor{Kind: "command", Command: "true", Timeout: 5 * time.Second}, nil)
+	e := mount(
+		t,
+		httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {})),
+		config.Anchor{Kind: "command", Command: "true", Timeout: 5 * time.Second},
+		nil,
+	)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	// The source fails only after the context has been cancelled.
@@ -1364,10 +1489,15 @@ func TestPlanPhaseReportsATransportFailure(t *testing.T) {
 // TestFinalActionWithAnInvalidMethod: a final action (API) with a method that
 // http.NewRequest rejects must be reported as an invalid request.
 func TestFinalActionWithAnInvalidMethod(t *testing.T) {
-	e := mount(t, httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {})), config.Anchor{Kind: "command", Command: "true", Timeout: 5 * time.Second}, func(c *config.Config) {
-		// A control character in the method makes the request invalid.
-		c.FinalAction = config.FinalAction{Kind: "api", URL: "http://127.0.0.1:1/done", Method: "BAD\nMETHOD"}
-	})
+	e := mount(
+		t,
+		httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {})),
+		config.Anchor{Kind: "command", Command: "true", Timeout: 5 * time.Second},
+		func(c *config.Config) {
+			// A control character in the method makes the request invalid.
+			c.FinalAction = config.FinalAction{Kind: "api", URL: "http://127.0.0.1:1/done", Method: "BAD\nMETHOD"}
+		},
+	)
 
 	description, err := e.agent.runFinalAction(context.Background(), Command{}, "")
 	if err == nil {
@@ -1382,9 +1512,14 @@ func TestFinalActionWithAnInvalidMethod(t *testing.T) {
 // produce `git commit -m ”`.
 func TestGitCommitWithNoMessageFallsBackToADefault(t *testing.T) {
 	var commands []string
-	e := mount(t, httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {})), config.Anchor{Kind: "command", Command: "true", Timeout: 5 * time.Second}, func(c *config.Config) {
-		c.FinalAction = config.FinalAction{Kind: "git_commit", CommitMessage: "   "}
-	})
+	e := mount(
+		t,
+		httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {})),
+		config.Anchor{Kind: "command", Command: "true", Timeout: 5 * time.Second},
+		func(c *config.Config) {
+			c.FinalAction = config.FinalAction{Kind: "git_commit", CommitMessage: "   "}
+		},
+	)
 	e.agent.ExecCommand = fakeExecutor(&commands, nil)
 
 	if _, err := e.agent.runFinalAction(context.Background(), Command{}, ""); err != nil {
@@ -1402,9 +1537,14 @@ func TestGitCommitWithNoMessageFallsBackToADefault(t *testing.T) {
 // reports no execution error) must stop the sequence.
 func TestGitCommitStopsOnANonZeroExitWithoutAnError(t *testing.T) {
 	var commands []string
-	e := mount(t, httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {})), config.Anchor{Kind: "command", Command: "true", Timeout: 5 * time.Second}, func(c *config.Config) {
-		c.FinalAction = config.FinalAction{Kind: "git_commit", CommitMessage: "x"}
-	})
+	e := mount(
+		t,
+		httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {})),
+		config.Anchor{Kind: "command", Command: "true", Timeout: 5 * time.Second},
+		func(c *config.Config) {
+			c.FinalAction = config.FinalAction{Kind: "git_commit", CommitMessage: "x"}
+		},
+	)
 	// exit 1 with no error: the executor reports success but a non-zero code.
 	e.agent.ExecCommand = func(_ context.Context, p execx.Request) (string, bool, int, error) {
 		line := p.Command + " " + strings.Join(p.Args, " ")
@@ -1465,10 +1605,20 @@ func TestSubtaskThatFailsIsReportedInTheReason(t *testing.T) {
 	srv := httptest.NewServer(server.handler(t))
 	defer srv.Close()
 
-	e := mount(t, srv, config.Anchor{Kind: "command", Command: "sh", Args: []string{"-c", "test -s never-created.txt"}, Timeout: 5 * time.Second}, func(c *config.Config) {
-		c.Agent.SubtaskDepth = 1
-		c.Agent.MaxRetries = 0
-	})
+	e := mount(
+		t,
+		srv,
+		config.Anchor{
+			Kind:    "command",
+			Command: "sh",
+			Args:    []string{"-c", "test -s never-created.txt"},
+			Timeout: 5 * time.Second,
+		},
+		func(c *config.Config) {
+			c.Agent.SubtaskDepth = 1
+			c.Agent.MaxRetries = 0
+		},
+	)
 
 	var results []TaskResult
 	e.agent.Observer = func(r TaskResult) { results = append(results, r) }
@@ -1508,7 +1658,8 @@ func TestPlanWithSuccessCriteriaAndRisks(t *testing.T) {
 		var content string
 		switch {
 		case strings.Contains(text, "## ANALYSIS OF THE TASK"):
-			content = `{"understandable":true,"summary":"the summary","success_criteria":["criterion-one"],"risks":["risk-one"],"needs_subtasks":false}`
+			content = `{"understandable":true,"summary":"the summary","success_criteria":["criterion-one"],` +
+				`"risks":["risk-one"],"needs_subtasks":false}`
 		case strings.Contains(text, "## ACTION PLAN"):
 			planPrompt = text
 			content = `{"plan":[]}`
@@ -1587,9 +1738,14 @@ func TestExecutePromptCarriesTheAttemptNumber(t *testing.T) {
 // TestGitCommitReportsAnExecutionError: when the executor itself fails, the error
 // must be reported with the accumulated output.
 func TestGitCommitReportsAnExecutionError(t *testing.T) {
-	e := mount(t, httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {})), config.Anchor{Kind: "command", Command: "true", Timeout: 5 * time.Second}, func(c *config.Config) {
-		c.FinalAction = config.FinalAction{Kind: "git_commit", CommitMessage: "x"}
-	})
+	e := mount(
+		t,
+		httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {})),
+		config.Anchor{Kind: "command", Command: "true", Timeout: 5 * time.Second},
+		func(c *config.Config) {
+			c.FinalAction = config.FinalAction{Kind: "git_commit", CommitMessage: "x"}
+		},
+	)
 	calls := 0
 	e.agent.ExecCommand = func(context.Context, execx.Request) (string, bool, int, error) {
 		calls++
