@@ -216,10 +216,10 @@ func TestTheFormerGapsAreClosed(t *testing.T) {
 // A flag-scanning rule must treat an unrecognised flag as a READ: refusing `sort
 // --random-source=f` would break the ordinary work of looking at a file, and the writing flags
 // are the ones it names. The rules for programs that can RUN something (sed, awk) are
-// allowlists instead: their reading flags are listed, and an unknown one is refused. An operand-counting rule must treat a separate value
-// as an OPERAND, because it cannot know better — which is why those rules carry the options
-// that take a value, and why the false alarm on `xxd -l 16` was a real defect and not a
-// preference.
+// allowlists instead: their reading flags are listed, and an unknown one is refused. An
+// operand-counting rule must treat a separate value as an OPERAND, because it cannot know
+// better — which is why those rules carry the options that take a value, and why the false
+// alarm on `xxd -l 16` was a real defect and not a preference.
 func TestTheDirectionEachRuleLeans(t *testing.T) {
 	// Flag scanning: an unknown flag reads.
 	for _, tc := range []struct {
