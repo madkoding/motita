@@ -248,6 +248,8 @@ func TestAFileActionCountsAsAWriteInTheLoop(t *testing.T) {
 					"command": "f.txt\n<<<<<<< SEARCH\nv1\n=======\nv2\n>>>>>>> REPLACE"}}})
 		case 3:
 			return step(false, "cat f.txt")
+		default:
+			// Later rounds fall through to the claim below.
 		}
 		return step(true)
 	}}

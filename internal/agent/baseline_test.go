@@ -133,6 +133,8 @@ func TestACheckTheRunBrokeIsNamedAsSuch(t *testing.T) {
 			return step(true, "touch broken.flag")
 		case 2:
 			return step(true, "true")
+		default:
+			// Later rounds fall through to the fix below.
 		}
 		return step(true, "rm broken.flag")
 	}}

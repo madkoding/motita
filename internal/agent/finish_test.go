@@ -40,6 +40,8 @@ func TestDoneAfterOnlyReadingIsQuestionedOnce(t *testing.T) {
 			return step(true) // claims done having written nothing
 		case round == 5:
 			return step(false, "printf 'export const x = 1\\n' > feature.ts")
+		default:
+			// Later rounds fall through to the claim below.
 		}
 		return step(true)
 	}}
@@ -111,6 +113,8 @@ func TestAWriteResetsTheReadingStreak(t *testing.T) {
 			return step(false, "printf x > src.ts")
 		case round <= readOnlyWarnAt+2:
 			return step(false, fmt.Sprintf("echo r%d", round))
+		default:
+			// Later rounds fall through to the claim below.
 		}
 		return step(true)
 	}}
@@ -426,6 +430,8 @@ func TestARequestIsFinishedWithThePolicyOnAndNobodyToAsk(t *testing.T) {
 			)
 		case 3:
 			return step(false, "(npm ci 2>&1 || npm install 2>&1) | tail -5; test -f lib/feature.txt && echo present")
+		default:
+			// Later rounds fall through to the claim below.
 		}
 		return step(true)
 	}}

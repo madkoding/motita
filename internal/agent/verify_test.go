@@ -203,6 +203,8 @@ func TestDoneOverAFailingCheckIsSentBackToIt(t *testing.T) {
 			return step(true) // claims again without doing anything about it
 		case 5:
 			return step(false, "echo fixed > fixed.flag", run)
+		default:
+			// Later rounds fall through to the claim below.
 		}
 		return step(true)
 	}}

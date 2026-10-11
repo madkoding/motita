@@ -445,6 +445,8 @@ func TestABackgroundAgentIsHeldToTheProjectsGate(t *testing.T) {
 			return acts(false, kindAct{"spawn_agent", "the gate\nMake the project's gate pass."})
 		case 2:
 			return acts(false, kindAct{"wait_agents", ""})
+		default:
+			// Later rounds fall through to the claim below.
 		}
 		return step(true, "true")
 	}}
@@ -549,6 +551,8 @@ func TestABackgroundAgentAsksThroughTheMainApproverMarked(t *testing.T) {
 			return acts(false, kindAct{"spawn_agent", "tidy\nRemove the old folder."})
 		case 2:
 			return acts(false, kindAct{"wait_agents", ""})
+		default:
+			// Later rounds fall through to the claim below.
 		}
 		return step(true, "true")
 	}}
