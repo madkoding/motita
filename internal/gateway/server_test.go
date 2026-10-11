@@ -324,7 +324,10 @@ func TestANonLoopbackAddressNeedsNoOtherSetting(t *testing.T) {
 func TestANetworkBindWarnsThatTrafficIsPlainHTTP(t *testing.T) {
 	for listen, want := range map[string]bool{"0.0.0.0:0": true, "127.0.0.1:0": false} {
 		sink := newLogSink(t)
-		newTestServer(t, &fakeService{}, func(o *Options) { o.Listen = listen; o.Log = sink.log })
+		newTestServer(t, &fakeService{}, func(o *Options) {
+			o.Listen = listen
+			o.Log = sink.log
+		})
 		deadline := time.Now().Add(5 * time.Second)
 		var logged string
 		for time.Now().Before(deadline) {
@@ -397,7 +400,10 @@ func TestARefusedOriginIsNotToldTheRules(t *testing.T) {
 		t.Fatalf("Parse: %v", err)
 	}
 	sink := newLogSink(t)
-	srv := newTestServer(t, &fakeService{}, func(o *Options) { o.Allow = policy; o.Log = sink.log })
+	srv := newTestServer(t, &fakeService{}, func(o *Options) {
+		o.Allow = policy
+		o.Log = sink.log
+	})
 
 	req := httptest.NewRequest(http.MethodGet, "/v1/health", nil)
 	req.RemoteAddr = "192.168.100.90:41234"

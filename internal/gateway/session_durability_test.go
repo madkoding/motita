@@ -96,7 +96,10 @@ func TestAShutdownMidRunIsStillResumed(t *testing.T) {
 			return "late", nil
 		}},
 	})
-	t.Cleanup(func() { close(release); waitForNoRun(t, srv) })
+	t.Cleanup(func() {
+		close(release)
+		waitForNoRun(t, srv)
+	})
 	c, _ := srv.lookup(DefaultSession)
 	if _, ok := srv.startDetachedRun(c, "long job", "task", "", srv.approverFactory(c)); !ok {
 		t.Fatal("the run did not start")

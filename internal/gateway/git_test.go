@@ -368,7 +368,10 @@ func TestGitCommandEnv(t *testing.T) {
 	if !strings.Contains(env, "LC_ALL=C") || strings.Contains(env, "credential.helper") {
 		t.Errorf("a gateway with no logins only forces English: %s", env)
 	}
-	srv := newTestServer(t, &fakeService{}, func(o *Options) { o.ExePath = "/opt/motita"; o.GitAuthDir = "/auth" })
+	srv := newTestServer(t, &fakeService{}, func(o *Options) {
+		o.ExePath = "/opt/motita"
+		o.GitAuthDir = "/auth"
+	})
 	env = strings.Join(srv.gitCommandEnv(), "\n")
 	for _, want := range []string{"LC_ALL=C", "MOTITA_AUTH_DIR=/auth", "'/opt/motita' git-credential"} {
 		if !strings.Contains(env, want) {

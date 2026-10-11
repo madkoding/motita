@@ -1133,7 +1133,10 @@ func TestRuntimesSeparatesInstalledFromReady(t *testing.T) {
 	defer func() { podmanInstalled, podmanWorks, podmanComposeInstalled = oldI, oldW, oldC }()
 	podmanInstalled = func() bool { return true }
 	podmanWorks = func() bool { return false }
-	podmanComposeInstalled = func() bool { t.Fatal("compose must not be asked of a podman that does not work"); return false }
+	podmanComposeInstalled = func() bool {
+		t.Fatal("compose must not be asked of a podman that does not work")
+		return false
+	}
 	srv := newTestServer(t, &fakeService{})
 	req, _ := http.NewRequest(http.MethodGet, srv.BaseURL()+"/v1/runtimes", nil)
 	req.Header.Set("Authorization", "Bearer "+testToken)

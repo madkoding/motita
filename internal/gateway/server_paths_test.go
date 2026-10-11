@@ -245,7 +245,10 @@ func TestSessionsAreRestoredAtStartup(t *testing.T) {
 		WorkspaceDir: t.TempDir(),
 		SessionDir:   dir,
 		ProjectDir:   filepath.Join(t.TempDir(), "projects"),
-		NewService:   func() (Service, error) { factoryCalls++; return &fakeService{}, nil },
+		NewService: func() (Service, error) {
+			factoryCalls++
+			return &fakeService{}, nil
+		},
 	})
 
 	if factoryCalls == 0 {

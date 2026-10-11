@@ -46,7 +46,10 @@ func TestTheInterfaceLanguageIsReadAndSavedInTheConfiguration(t *testing.T) {
 	if err := os.WriteFile(cfg, []byte("# mine\nllm:\n  provider: openai\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	srv := newTestServer(t, &fakeService{}, func(o *Options) { o.ConfigPath = cfg; o.UILanguage = " AUTO " })
+	srv := newTestServer(t, &fakeService{}, func(o *Options) {
+		o.ConfigPath = cfg
+		o.UILanguage = " AUTO "
+	})
 
 	w := get(t, srv, "/v1/ui", testToken)
 	if w.Code != http.StatusOK || decodeUI(t, w) != (uiView{Language: "auto", Resolved: "es"}) {

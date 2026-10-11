@@ -26,7 +26,10 @@ import (
 func wsPair(t *testing.T, svc Service, token string) (*wsClient, net.Conn, chan struct{}) {
 	t.Helper()
 	server, client := net.Pipe()
-	t.Cleanup(func() { _ = server.Close(); _ = client.Close() })
+	t.Cleanup(func() {
+		_ = server.Close()
+		_ = client.Close()
+	})
 	cl := &wsClient{conn: server, svc: svc, token: token, heartbeat: -1}
 	return cl, client, make(chan struct{}, 1)
 }
@@ -104,7 +107,10 @@ func TestWSAReadLoopRefusesAnIncompleteEnvelope(t *testing.T) {
 func TestWSAReadLoopClosesOnAnUnmaskedFrame(t *testing.T) {
 	cl, client, ackCh := wsPair(t, &fakeService{}, "the-token")
 	done := make(chan struct{})
-	go func() { cl.readLoop(context.Background(), ackCh); close(done) }()
+	go func() {
+		cl.readLoop(context.Background(), ackCh)
+		close(done)
+	}()
 	// The frame goes out on a goroutine and the read below starts immediately: a pipe with no
 	// buffer blocks the writer until a reader appears, so writing first and reading after would
 	// deadlock. The read is what unblocks it.
@@ -177,7 +183,10 @@ func TestWSAReadLoopAnswersAPing(t *testing.T) {
 func TestWSAReadLoopEndsOnAClientClose(t *testing.T) {
 	cl, client, ackCh := wsPair(t, &fakeService{}, "the-token")
 	done := make(chan struct{})
-	go func() { cl.readLoop(context.Background(), ackCh); close(done) }()
+	go func() {
+		cl.readLoop(context.Background(), ackCh)
+		close(done)
+	}()
 	// The server's close frame must be READ or the pipe blocks: a pipe has no buffer, so the write
 	// on the other side cannot return until someone takes the bytes.
 	go func() {
@@ -442,7 +451,10 @@ func TestWSHeartbeatClosesWhenTheAckNeverComes(t *testing.T) {
 	defer cancel()
 
 	done := make(chan struct{})
-	go func() { cl.heartbeatLoop(ctx, ackCh); close(done) }()
+	go func() {
+		cl.heartbeatLoop(ctx, ackCh)
+		close(done)
+	}()
 
 	// The heartbeat frame arrives, and then - because nothing acks - the close frame.
 	_ = client.SetReadDeadline(time.Now().Add(15 * time.Second))
@@ -474,7 +486,10 @@ func TestWSHeartbeatKeepsGoingWhenAcked(t *testing.T) {
 	cl.heartbeat = 5 * time.Millisecond
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})
-	go func() { cl.heartbeatLoop(ctx, ackCh); close(done) }()
+	go func() {
+		cl.heartbeatLoop(ctx, ackCh)
+		close(done)
+	}()
 
 	// Ack every heartbeat for a while, then stop the loop from here.
 	for i := 0; i < 3; i++ {
@@ -505,7 +520,10 @@ func TestWSHeartbeatStopsWhenTheWriteFails(t *testing.T) {
 	t.Cleanup(func() { _ = server.Close() })
 
 	done := make(chan struct{})
-	go func() { cl.heartbeatLoop(context.Background(), make(chan struct{}, 1)); close(done) }()
+	go func() {
+		cl.heartbeatLoop(context.Background(), make(chan struct{}, 1))
+		close(done)
+	}()
 	select {
 	case <-done:
 	case <-time.After(5 * time.Second):
@@ -586,7 +604,10 @@ func TestWSAReadLoopClosesWhenTheDeadlineCannotBeSet(t *testing.T) {
 	t.Cleanup(func() { _ = client.Close() })
 
 	done := make(chan struct{})
-	go func() { cl.readLoop(context.Background(), make(chan struct{}, 1)); close(done) }()
+	go func() {
+		cl.readLoop(context.Background(), make(chan struct{}, 1))
+		close(done)
+	}()
 	select {
 	case <-done:
 	case <-time.After(2 * time.Second):

@@ -501,10 +501,16 @@ func TestPRWatchRunsByItself(t *testing.T) {
 		}
 		t.Fatalf("timed out waiting for %s: %+v", what, c.prWatchView())
 	}
-	waitFor("the failure to be answered", func() bool { v := c.prWatchView(); return v != nil && v.Status == prFixing && v.Attempts == 1 })
+	waitFor("the failure to be answered", func() bool {
+		v := c.prWatchView()
+		return v != nil && v.Status == prFixing && v.Attempts == 1
+	})
 
 	prHost(host, sessionBranch(ss.ID), "success", "clean")
-	waitFor("the pass", func() bool { v := c.prWatchView(); return v != nil && v.Status == prPassed })
+	waitFor("the pass", func() bool {
+		v := c.prWatchView()
+		return v != nil && v.Status == prPassed
+	})
 
 	host.set("GET https://api.github.com/repos/o/r/pulls?state=open", `[]`)
 	host.set("GET https://api.github.com/repos/o/r/pulls/7", `{"state":"closed","merged":true,"merge_commit_sha":"beef"}`)

@@ -307,7 +307,10 @@ func TestAVerdictCarriesTheNote(t *testing.T) {
 // being refused.
 func TestAVerdictWithoutTheFlagMeansGood(t *testing.T) {
 	var gotGood bool
-	svc := &fakeService{verdict: func(good bool, _ string) string { gotGood = good; return "ok" }}
+	svc := &fakeService{verdict: func(good bool, _ string) string {
+		gotGood = good
+		return "ok"
+	}}
 	srv := newTestServer(t, svc)
 	if w := post(t, srv, sessionPath(srv, DefaultSession, "/verdict"), `{}`, testToken); w.Code != http.StatusOK {
 		t.Fatalf("status = %d", w.Code)
