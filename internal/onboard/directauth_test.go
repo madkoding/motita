@@ -58,7 +58,10 @@ func instantSleep(t *testing.T) {
 	}
 	oldPoll := oauth.PollSleep
 	oauth.PollSleep = sleepFor
-	t.Cleanup(func() { sleepFor = old; oauth.PollSleep = oldPoll })
+	t.Cleanup(func() {
+		sleepFor = old
+		oauth.PollSleep = oldPoll
+	})
 }
 
 func withTransport(t *testing.T, rt http.RoundTripper) {
