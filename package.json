@@ -3,7 +3,7 @@
   "private": true,
   "description": "Release tooling only (semantic-release); the product is Go.",
   "devDependencies": {
-    "conventional-changelog-conventionalcommits": "^9.3.1",
+    "conventional-changelog-conventionalcommits": "^10.4.0",
     "semantic-release": "^25.0.9"
   },
   "overrides": {
