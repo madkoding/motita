@@ -310,7 +310,11 @@ curl -fsSLO https://github.com/madkoding/motita/releases/latest/download/motita-
 binary with `SIGSYS: bad system call` (it blocks `faccessat2`, which the Go linux
 runtime uses), so Android gets its own build. The installer picks it on its own, and
 a `linux/arm64` binary already installed on Android moves to it on its next update.
-Commands run through `/system/bin/sh`, since Android has no `/bin`.
+Commands run through `/system/bin/sh`, since Android has no `/bin`. That shell is
+mksh, which has no `ulimit -u`, so `limits.processes` is reported as not applied on
+Termux, the same as under dash. motita deliberately does not fall back to `-p`:
+RLIMIT_NPROC counts every process the Termux user owns, so a small limit would stop the
+command from forking at all. The other limits (CPU, memory, files) apply as usual.
 
 `linux/arm` is **ARMv7** (the Go default, `GOARM=7`): it runs on a Raspberry Pi 2
 or newer, and on the ARMv8 boards running a 32-bit userland. A Raspberry Pi 1 or
