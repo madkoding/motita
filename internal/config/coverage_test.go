@@ -561,7 +561,10 @@ func TestValidateErrorPaths(t *testing.T) {
 		{"empty model", func(c *Config) { c.LLM.Model = "" }, "llm.model cannot be empty"},
 		{"zero max attempts", func(c *Config) { c.LLM.MaxAttempts = 0 }, "llm.max_attempts"},
 		{"zero initial backoff", func(c *Config) { c.LLM.BackoffInitial = 0 }, "llm.backoff_initial"},
-		{"smaller max backoff", func(c *Config) { c.LLM.BackoffMax = time.Millisecond; c.LLM.BackoffInitial = time.Second },
+		{"smaller max backoff", func(c *Config) {
+			c.LLM.BackoffMax = time.Millisecond
+			c.LLM.BackoffInitial = time.Second
+		},
 			"llm.backoff_max"},
 		{"unknown final", func(c *Config) { c.FinalAction.Kind = "telepathy" }, "unknown final_action.kind"},
 		{"negative retries", func(c *Config) { c.Agent.MaxRetries = -1 }, "max_retries"},
