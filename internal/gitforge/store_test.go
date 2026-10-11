@@ -64,7 +64,8 @@ func TestStoreCredentialRefreshes(t *testing.T) {
 	now := time.Now()
 	s := Store{Dir: t.TempDir(), Env: noEnv, Now: func() time.Time { return now }}
 	exp := now.Add(-time.Minute)
-	if err := s.Save(gl, oauth.Token{AccessToken: "stale", RefreshToken: "old-r", ExpiresAt: exp}, "me", false); err != nil {
+	if err := s.Save(gl, oauth.Token{AccessToken: "stale", RefreshToken: "old-r", ExpiresAt: exp}, "me",
+		false); err != nil {
 		t.Fatal(err)
 	}
 	cred, err := s.Credential(context.Background(), gl)
@@ -85,7 +86,8 @@ func TestStoreCredentialKeepsAnUnrenewableLogin(t *testing.T) {
 	gl := Defaults(noEnv)[1]
 	gl.Endpoints.TokenURL = srv.URL
 	s := Store{Dir: t.TempDir(), Env: noEnv}
-	_ = s.Save(gl, oauth.Token{AccessToken: "stale", RefreshToken: "r", ExpiresAt: time.Now().Add(-time.Hour)}, "me", false)
+	_ = s.Save(gl, oauth.Token{AccessToken: "stale", RefreshToken: "r", ExpiresAt: time.Now().Add(-time.Hour)}, "me",
+		false)
 	cred, err := s.Credential(context.Background(), gl)
 	if err != nil || cred.AccessToken != "stale" {
 		t.Fatalf("cred=%+v err=%v", cred, err)
@@ -117,7 +119,8 @@ func TestStoreCredentialSurvivesAFailedWriteBack(t *testing.T) {
 	gl.Endpoints.TokenURL = srv.URL
 	dir := t.TempDir()
 	s := Store{Dir: dir, Env: noEnv}
-	_ = s.Save(gl, oauth.Token{AccessToken: "stale", RefreshToken: "r", ExpiresAt: time.Now().Add(-time.Hour)}, "me", false)
+	_ = s.Save(gl, oauth.Token{AccessToken: "stale", RefreshToken: "r", ExpiresAt: time.Now().Add(-time.Hour)}, "me",
+		false)
 	// Make the directory unwritable: the renewed token cannot be saved, and the
 	// caller must still get it.
 	if err := os.Chmod(dir, 0o500); err != nil {
