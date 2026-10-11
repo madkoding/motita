@@ -46,6 +46,11 @@ import (
 	"github.com/madkoding/motita/internal/usage"
 )
 
+// Literals used more than once in this file.
+const (
+	gitCommitPrefix = "git_commit: "
+)
+
 // Agent orchestrates the three layers.
 type Agent struct {
 	cfg     config.Config
@@ -2851,13 +2856,13 @@ func (a *Agent) runFinalAction(ctx context.Context, c Command, prefix string) (s
 			outputs = append(outputs, fmt.Sprintf("%s -> exit=%d %s", cmd, exit, truncate(output, 200)))
 			if err != nil {
 				a.log.Error(prefix+"git_commit failed", "command", cmd, "error", err)
-				return "git_commit: " + strings.Join(outputs, " | "), fmt.Errorf("git_commit: %s failed: %w", cmd, err)
+				return gitCommitPrefix + strings.Join(outputs, " | "), fmt.Errorf("git_commit: %s failed: %w", cmd, err)
 			}
 			if exit != 0 {
-				return "git_commit: " + strings.Join(outputs, " | "), fmt.Errorf("git_commit: %s finished with exit code %d", cmd, exit)
+				return gitCommitPrefix + strings.Join(outputs, " | "), fmt.Errorf("git_commit: %s finished with exit code %d", cmd, exit)
 			}
 		}
-		return "git_commit: " + strings.Join(outputs, " | "), nil
+		return gitCommitPrefix + strings.Join(outputs, " | "), nil
 
 	default:
 		return "none", fmt.Errorf("unknown final_action.kind: %q", final.Kind)
