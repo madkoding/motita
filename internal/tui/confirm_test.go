@@ -139,7 +139,7 @@ func TestEscapeControls(t *testing.T) {
 		"bare\rcr":            "bare^Mcr",
 		"\x1b[31mred\x00\x7f": "^[[31mred^@^?",
 		"c1\u009b31m":         `c1\u009b31m`,
-		"bad\xffbyte":         "bad�byte",
+		"bad\xffbyte":         "bad\uFFFDbyte",
 		"ünïcode":             "ünïcode", // multi-byte text passes through
 	} {
 		if got := EscapeControls(in); got != want {
