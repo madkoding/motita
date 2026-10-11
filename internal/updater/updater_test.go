@@ -69,7 +69,8 @@ func TestCompareSemver(t *testing.T) {
 	}
 	for _, tt := range tests {
 		got := compareSemver(tt.a, tt.b)
-		if (tt.want > 0 && got <= 0) || (tt.want < 0 && got >= 0) || (tt.want == 0 && got != 0) {
+		wrongSign := (tt.want > 0 && got <= 0) || (tt.want < 0 && got >= 0)
+		if wrongSign || (tt.want == 0 && got != 0) {
 			t.Errorf("compareSemver(%q, %q) = %d, want sign %d", tt.a, tt.b, got, tt.want)
 		}
 	}
