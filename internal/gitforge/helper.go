@@ -83,6 +83,8 @@ func GitEnv(exe, authDir, realHome string) []string {
 			env = append(env, "GIT_CONFIG_GLOBAL="+cfg)
 		} else if xdg := filepath.Join(realHome, ".config", "git", "config"); fileExists(xdg) {
 			env = append(env, "GIT_CONFIG_GLOBAL="+xdg)
+		} else {
+			// No global git configuration: git runs with none.
 		}
 	}
 	if exe != "" {
