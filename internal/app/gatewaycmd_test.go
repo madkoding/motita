@@ -68,7 +68,10 @@ func TestStartingAGatewayAsAServiceSaysWhereItIs(t *testing.T) {
 	// the file exactly as the child's -serve would. That is the behaviour under test: what the
 	// parent reports and what it writes.
 	op.SpawnGateway = func(context.Context, spawnSpec) error {
-		return gateway.WriteServiceFile(servicePath, gateway.ServiceFile{Address: address, Token: "t", PID: 4242, Owned: false})
+		return gateway.WriteServiceFile(
+			servicePath,
+			gateway.ServiceFile{Address: address, Token: "t", PID: 4242, Owned: false},
+		)
 	}
 
 	if code := Run(op); code != Success {
@@ -98,7 +101,9 @@ func TestStartingWhenOneIsAlreadyRunningSaysSo(t *testing.T) {
 	servicePath := filepath.Join(t.TempDir(), "gateway.json")
 
 	_, address := fakeGatewayProcess(t, nil)
-	if err := gateway.WriteServiceFile(servicePath, gateway.ServiceFile{Address: address, Token: "t", PID: 777, Owned: false}); err != nil {
+	if err := gateway.WriteServiceFile(
+		servicePath, gateway.ServiceFile{Address: address, Token: "t", PID: 777, Owned: false},
+	); err != nil {
 		t.Fatalf("WriteServiceFile: %v", err)
 	}
 
@@ -218,7 +223,9 @@ func TestStatusNamesTheVersionItFound(t *testing.T) {
 	out := &syncBuffer{}
 	_, address := fakeGatewayProcess(t, nil)
 	servicePath := filepath.Join(t.TempDir(), "gateway.json")
-	if err := gateway.WriteServiceFile(servicePath, gateway.ServiceFile{Address: address, Token: "t", PID: 4242, Owned: false}); err != nil {
+	if err := gateway.WriteServiceFile(
+		servicePath, gateway.ServiceFile{Address: address, Token: "t", PID: 4242, Owned: false},
+	); err != nil {
 		t.Fatalf("WriteServiceFile: %v", err)
 	}
 
@@ -259,7 +266,9 @@ func TestStoppingRefusesToSignalWhenNothingAnswers(t *testing.T) {
 	address := strings.TrimPrefix(dead.URL, "http://")
 	dead.Close()
 
-	if err := gateway.WriteServiceFile(servicePath, gateway.ServiceFile{Address: address, Token: "t", PID: 999}); err != nil {
+	if err := gateway.WriteServiceFile(
+		servicePath, gateway.ServiceFile{Address: address, Token: "t", PID: 999},
+	); err != nil {
 		t.Fatalf("WriteServiceFile: %v", err)
 	}
 
@@ -285,7 +294,9 @@ func TestStoppingAGatewayThatDoesNotStopFails(t *testing.T) {
 	servicePath := filepath.Join(t.TempDir(), "gateway.json")
 
 	_, address := fakeGatewayProcess(t, nil)
-	if err := gateway.WriteServiceFile(servicePath, gateway.ServiceFile{Address: address, Token: "t", PID: 1234}); err != nil {
+	if err := gateway.WriteServiceFile(
+		servicePath, gateway.ServiceFile{Address: address, Token: "t", PID: 1234},
+	); err != nil {
 		t.Fatalf("WriteServiceFile: %v", err)
 	}
 
@@ -309,7 +320,9 @@ func TestAStopThatCannotSignalIsReported(t *testing.T) {
 	servicePath := filepath.Join(t.TempDir(), "gateway.json")
 
 	_, address := fakeGatewayProcess(t, nil)
-	if err := gateway.WriteServiceFile(servicePath, gateway.ServiceFile{Address: address, Token: "t", PID: 4321}); err != nil {
+	if err := gateway.WriteServiceFile(
+		servicePath, gateway.ServiceFile{Address: address, Token: "t", PID: 4321},
+	); err != nil {
 		t.Fatalf("WriteServiceFile: %v", err)
 	}
 
@@ -364,7 +377,9 @@ func TestStatusReportsARunningGateway(t *testing.T) {
 	servicePath := filepath.Join(t.TempDir(), "gateway.json")
 
 	_, address := fakeGatewayProcess(t, nil)
-	if err := gateway.WriteServiceFile(servicePath, gateway.ServiceFile{Address: address, Token: "t", PID: 55, Owned: true}); err != nil {
+	if err := gateway.WriteServiceFile(
+		servicePath, gateway.ServiceFile{Address: address, Token: "t", PID: 55, Owned: true},
+	); err != nil {
 		t.Fatalf("WriteServiceFile: %v", err)
 	}
 

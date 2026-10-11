@@ -236,7 +236,11 @@ func TestTheAdapterForwardsEveryWriteToTheLibrary(t *testing.T) {
 		t.Fatal("the saved skill is not in the index: the write did not reach the library")
 	}
 	if got.CreatedBy != "foreground" {
-		t.Errorf("a save through the interface has provenance %q, want \"foreground\": the curator would be free to archive a person's own skill", got.CreatedBy)
+		t.Errorf(
+			"a save through the interface has provenance %q, want \"foreground\": the curator would be free to archive a "+
+				"person's own skill",
+			got.CreatedBy,
+		)
 	}
 
 	// PIN, both directions: the pin is the user's veto over every automatic transition.
@@ -267,7 +271,8 @@ func TestTheAdapterForwardsEveryWriteToTheLibrary(t *testing.T) {
 	} else {
 		resp.Body.Close()
 		if code != http.StatusNotFound {
-			t.Errorf("archiving from the interface answered %d: that endpoint was deliberately out of scope, so either it was added (update this test and the docs) or it failed for another reason", code)
+			t.Errorf("archiving from the interface answered %d: that endpoint was deliberately out of scope, so either it was "+
+				"added (update this test and the docs) or it failed for another reason", code)
 		}
 	}
 

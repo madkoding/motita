@@ -90,7 +90,12 @@ func TestParseFlags(t *testing.T) {
 		{"validate", []string{"-validate-config"}, flags{validateConfig: true}, false},
 		{"version", []string{"-version"}, flags{version: true}, false},
 		{"isolation", []string{"-isolation"}, flags{isolation: true}, false},
-		{"all together", []string{"-config", "c.yaml", "-validate-config", "-version"}, flags{configPath: "c.yaml", validateConfig: true, version: true}, false},
+		{
+			"all together",
+			[]string{"-config", "c.yaml", "-validate-config", "-version"},
+			flags{configPath: "c.yaml", validateConfig: true, version: true},
+			false,
+		},
 		{"long form", []string{"--config", "d.yaml", "--isolation"}, flags{configPath: "d.yaml", isolation: true}, false},
 		{"unknown flag", []string{"-nonsense"}, flags{}, true},
 		{"missing value", []string{"-config"}, flags{}, true},
@@ -399,11 +404,14 @@ func TestFullRunInMemory(t *testing.T) {
 		var content string
 		switch {
 		case strings.Contains(text, "## ANALYSIS OF THE TASK"):
-			content = `{"understandable":true,"summary":"create the file","success_criteria":[],"risks":[],"needs_subtasks":false}`
+			content = `{"understandable":true,"summary":"create the file","success_criteria":[],"risks":[],` +
+				`"needs_subtasks":false}`
 		case strings.Contains(text, "## ACTION PLAN"):
-			content = `{"plan":[{"step":1,"action":"create","command":"echo x > done.txt"}],"subtasks":[],"expected_result":"file"}`
+			content = `{"plan":[{"step":1,"action":"create","command":"echo x > done.txt"}],"subtasks":[],` +
+				`"expected_result":"file"}`
 		default:
-			content = `{"reasoning":"create the file","actions":[{"kind":"command","command":"echo ready > done.txt"}],"final_action":{"command":""}}`
+			content = `{"reasoning":"create the file","actions":[{"kind":"command","command":"echo ready > ` +
+				`done.txt"}],"final_action":{"command":""}}`
 		}
 		json.NewEncoder(w).Encode(map[string]any{
 			"choices": []any{map[string]any{"message": map[string]string{"content": content}}},
@@ -1388,7 +1396,11 @@ func TestSourceBuildFailureIsReported(t *testing.T) {
 	t.Setenv("MOTITA_LLM_API_KEY", "k")
 	dir := t.TempDir()
 	path := filepath.Join(dir, "config.yaml")
-	mustWrite(t, path, "llm:\n  api_key: k\nanchor:\n  kind: command\n  command: \"true\"\nagent:\n  workspace_dir: "+dir+"\n")
+	mustWrite(
+		t,
+		path,
+		"llm:\n  api_key: k\nanchor:\n  kind: command\n  command: \"true\"\nagent:\n  workspace_dir: "+dir+"\n",
+	)
 
 	var errs bytes.Buffer
 	// A blank task text is refused when the source is built.
@@ -1408,7 +1420,11 @@ func TestInjectedLoggerIsUsed(t *testing.T) {
 	t.Setenv("MOTITA_LLM_API_KEY", "k")
 	dir := t.TempDir()
 	path := filepath.Join(dir, "config.yaml")
-	mustWrite(t, path, "llm:\n  api_key: k\nanchor:\n  kind: command\n  command: \"true\"\nagent:\n  workspace_dir: "+dir+"\n")
+	mustWrite(
+		t,
+		path,
+		"llm:\n  api_key: k\nanchor:\n  kind: command\n  command: \"true\"\nagent:\n  workspace_dir: "+dir+"\n",
+	)
 
 	called := false
 	code := Run(Options{
@@ -1666,7 +1682,9 @@ func TestInitUsesTheInjectedWizard(t *testing.T) {
 			Args: []string{"config", "-config", path},
 			Out:  &out,
 			Err:  &out,
-			RunOnboard: func(_ context.Context, in io.Reader, w io.Writer, gotPath string, preset onboard.Answers) (onboard.Result, error) {
+			RunOnboard: func(
+				_ context.Context, in io.Reader, w io.Writer, gotPath string, preset onboard.Answers,
+			) (onboard.Result, error) {
 				called = true
 				if gotPath != path {
 					t.Errorf("the wizard got %q, want %q", gotPath, path)
@@ -1718,13 +1736,16 @@ func TestAutoOnboardingWhenTUILaunchesWithoutConfig(t *testing.T) {
 			Out:   &out,
 			Err:   &errs,
 			Stdin: strings.NewReader("openai\n\n\n1\n3\n\n"),
-			RunOnboard: func(_ context.Context, in io.Reader, w io.Writer, gotPath string, preset onboard.Answers) (onboard.Result, error) {
+			RunOnboard: func(
+				_ context.Context, in io.Reader, w io.Writer, gotPath string, preset onboard.Answers,
+			) (onboard.Result, error) {
 				wizardRan = true
 				// Write a valid config so the rest of the run can proceed.
 				if err := os.MkdirAll(filepath.Dir(gotPath), 0o755); err != nil {
 					t.Fatal(err)
 				}
-				if err := os.WriteFile(gotPath, []byte("anchor:\n  kind: command\n  command: true\nllm:\n  provider: openai\n  api_key: test\n  model: gpt-4o-mini\nagent:\n  log_level: error\n  log_console: false\n"), 0o600); err != nil {
+				if err := os.WriteFile(gotPath, []byte("anchor:\n  kind: command\n  command: true\nllm:\n  provider: openai\n  "+
+					"api_key: test\n  model: gpt-4o-mini\nagent:\n  log_level: error\n  log_console: false\n"), 0o600); err != nil {
 					t.Fatal(err)
 				}
 				return onboard.Result{ConfigPath: gotPath, Provider: onboard.Providers()[0], Model: "gpt-4o-mini"}, nil
@@ -1756,7 +1777,12 @@ func TestAutoOnboardingDoesNotTriggerWhenConfigExists(t *testing.T) {
 		if err := os.MkdirAll(filepath.Dir(homeFile), 0o755); err != nil {
 			t.Fatal(err)
 		}
-		mustWrite(t, homeFile, "anchor:\n  kind: command\n  command: true\nllm:\n  provider: openai\n  api_key: test\n  model: gpt-4o-mini\nagent:\n  log_level: error\n  log_console: false\n")
+		mustWrite(
+			t,
+			homeFile,
+			"anchor:\n  kind: command\n  command: true\nllm:\n  provider: openai\n  api_key: test\n  model: "+
+				"gpt-4o-mini\nagent:\n  log_level: error\n  log_console: false\n",
+		)
 
 		wizardRan := false
 		var out, errs bytes.Buffer
@@ -1864,7 +1890,9 @@ func planServer(t *testing.T, answers []string) *httptest.Server {
 		}
 		if req.Stream {
 			w.Header().Set("Content-Type", "text/event-stream")
-			chunk, _ := json.Marshal(map[string]any{"choices": []any{map[string]any{"delta": map[string]any{"content": content}}}})
+			chunk, _ := json.Marshal(
+				map[string]any{"choices": []any{map[string]any{"delta": map[string]any{"content": content}}}},
+			)
 			fmt.Fprintf(w, "data: %s\n\n", chunk)
 			fmt.Fprint(w, "data: [DONE]\n\n")
 			return
