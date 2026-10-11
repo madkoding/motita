@@ -298,8 +298,7 @@ func TestClaudeCodeToolCallRoundTrip(t *testing.T) {
 	if reply.Content != "Reading go.mod." || streamed.String() != "Reading go.mod." || reply.FinishReason != "tool_calls" {
 		t.Errorf("reply = %+v, streamed %q", reply, streamed.String())
 	}
-	if len(reply.Calls) != 1 || reply.Calls[0].ID != "toolu_1" || reply.Calls[0].Type != "function" ||
-		reply.Calls[0].Function.Name != "read_file" || string(reply.Calls[0].Function.Arguments) != `{"path":"go.mod"}` {
+	if len(reply.Calls) != 1 || !isReadGoModCall(reply.Calls[0]) {
 		t.Errorf("calls = %+v", reply.Calls)
 	}
 	if _, err := os.Stat(record + ".term"); err != nil && runtime.GOOS != "windows" {
@@ -307,6 +306,21 @@ func TestClaudeCodeToolCallRoundTrip(t *testing.T) {
 	}
 
 	rec := readRecord(t, record)
+	checkRoundTripArgv(t, rec)
+	checkRoundTripEnv(t, rec, record)
+	checkRoundTripMCP(t, rec)
+	checkRoundTripFrames(t, rec)
+}
+
+// isReadGoModCall reports whether call is the read_file of go.mod the tool script answers with.
+func isReadGoModCall(call ToolCall) bool {
+	return call.ID == "toolu_1" && call.Type == "function" &&
+		call.Function.Name == "read_file" && string(call.Function.Arguments) == `{"path":"go.mod"}`
+}
+
+// checkRoundTripArgv: the flags claude was started with.
+func checkRoundTripArgv(t *testing.T, rec claudeRecord) {
+	t.Helper()
 	want := []string{"-p", "--model", "sonnet", "--input-format", "stream-json", "--output-format", "stream-json",
 		"--verbose", "--include-partial-messages", "--tools", "", "--system-prompt-file"}
 	if !slices.Equal(rec.Args[:len(want)], want) {
@@ -324,6 +338,11 @@ func TestClaudeCodeToolCallRoundTrip(t *testing.T) {
 	if rec.System != "You are motita." {
 		t.Errorf("system prompt = %q", rec.System)
 	}
+}
+
+// checkRoundTripEnv: claude runs on the user's own login, never on a key motita inherited.
+func checkRoundTripEnv(t *testing.T, rec claudeRecord, record string) {
+	t.Helper()
 	for _, kv := range rec.Env {
 		if strings.HasSuffix(kv, "=leak") {
 			t.Errorf("%s reached claude: it must use the user's own login", kv)
@@ -342,7 +361,11 @@ func TestClaudeCodeToolCallRoundTrip(t *testing.T) {
 			t.Errorf("claude's %s = %q, want %q", k, env[k], v)
 		}
 	}
+}
 
+// checkRoundTripMCP: the MCP config points back at this binary and its per-call directory is gone.
+func checkRoundTripMCP(t *testing.T, rec claudeRecord) {
+	t.Helper()
 	var mcp claudeMCPConfig
 	if err := json.Unmarshal([]byte(rec.MCP), &mcp); err != nil {
 		t.Fatal(err)
@@ -360,7 +383,11 @@ func TestClaudeCodeToolCallRoundTrip(t *testing.T) {
 	if rec.Manifest != wantManifest {
 		t.Errorf("manifest = %s", rec.Manifest)
 	}
+}
 
+// checkRoundTripFrames: the conversation reaches claude as stream-json frames.
+func checkRoundTripFrames(t *testing.T, rec claudeRecord) {
+	t.Helper()
 	wantFrames := []string{
 		`{"type":"user","message":{"role":"user","content":[{"type":"text","text":"what module is ` +
 			`this?"}]},"shouldQuery":false}`,
@@ -585,6 +612,20 @@ func TestClaudeCodeStreamReportsAnError(t *testing.T) {
 
 // TestClaudeCodeFailures: every way the call can fail, and whether retrying it
 // could help.
+// claudeFailureCase is one way a claude call can fail, and how the failure must read.
+type claudeFailureCase struct {
+	name     string
+	script   string
+	setup    func(t *testing.T)
+	tweak    func(*config.LLM)
+	ctx      context.Context
+	messages []Message
+	tools    []Tool
+	want     string
+	is       error
+	retry    bool
+}
+
 func TestClaudeCodeFailures(t *testing.T) {
 	history := []Message{
 		{Role: "user", Content: "hi"},
@@ -598,18 +639,7 @@ func TestClaudeCodeFailures(t *testing.T) {
 	assistantError := func(kind, text string) string {
 		return fmt.Sprintf(`{"type":"assistant","error":%q,"message":{"content":[{"type":"text","text":%q}]}}`, kind, text)
 	}
-	cases := []struct {
-		name     string
-		script   string
-		setup    func(t *testing.T)
-		tweak    func(*config.LLM)
-		ctx      context.Context
-		messages []Message
-		tools    []Tool
-		want     string
-		is       error
-		retry    bool
-	}{
+	cases := []claudeFailureCase{
 		{name: "logged out", script: assistantError("authentication_failed", "Please run /login"),
 			want: "authentication_failed: Please run /login"},
 		{name: "no such model", script: assistantError("model_not_found", "There's an issue with the selected model (sonet)"),
@@ -671,28 +701,31 @@ func TestClaudeCodeFailures(t *testing.T) {
 		}, want: "disk full", retry: true},
 	}
 	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			c, _ := claudeTestClient(t, tc.script, tc.tweak)
-			if tc.setup != nil {
-				tc.setup(t)
-			}
-			if tc.messages == nil {
-				tc.messages = hi
-			}
-			if tc.ctx == nil {
-				tc.ctx = context.Background()
-			}
-			_, err := c.callClaudeCode(tc.ctx, tc.messages, tc.tools, nil)
-			if err == nil || !strings.Contains(err.Error(), tc.want) {
-				t.Fatalf("err = %v, want it to contain %q", err, tc.want)
-			}
-			if tc.is != nil && !errors.Is(err, tc.is) {
-				t.Errorf("err = %v, want it to wrap %v", err, tc.is)
-			}
-			if retryable(err) != tc.retry {
-				t.Errorf("retryable = %v, want %v", retryable(err), tc.retry)
-			}
-		})
+		t.Run(tc.name, func(t *testing.T) { runClaudeFailureCase(t, tc) })
+	}
+}
+
+// runClaudeFailureCase makes the call tc describes and checks the error it ends in.
+func runClaudeFailureCase(t *testing.T, tc claudeFailureCase) {
+	c, _ := claudeTestClient(t, tc.script, tc.tweak)
+	if tc.setup != nil {
+		tc.setup(t)
+	}
+	if tc.messages == nil {
+		tc.messages = hi
+	}
+	if tc.ctx == nil {
+		tc.ctx = context.Background()
+	}
+	_, err := c.callClaudeCode(tc.ctx, tc.messages, tc.tools, nil)
+	if err == nil || !strings.Contains(err.Error(), tc.want) {
+		t.Fatalf("err = %v, want it to contain %q", err, tc.want)
+	}
+	if tc.is != nil && !errors.Is(err, tc.is) {
+		t.Errorf("err = %v, want it to wrap %v", err, tc.is)
+	}
+	if retryable(err) != tc.retry {
+		t.Errorf("retryable = %v, want %v", retryable(err), tc.retry)
 	}
 }
 

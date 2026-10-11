@@ -102,8 +102,10 @@ func TestCompleteStreamStopsWhenCancelled(t *testing.T) {
 }
 
 // TestAnthropicAndGeminiStreamThroughTheirOwnAPI: both used to be sent to /chat/completions.
-func TestAnthropicAndGeminiStreamThroughTheirOwnAPI(t *testing.T) {
-	anthropic := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+// fakeAnthropicHandler answers on Anthropic's own API: a tool call when tools are offered,
+// a plain text otherwise.
+func fakeAnthropicHandler(t *testing.T) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
 		if strings.Contains(r.URL.Path, "chat/completions") {
 			t.Errorf("anthropic was sent to %s", r.URL.Path)
 		}
@@ -118,7 +120,11 @@ func TestAnthropicAndGeminiStreamThroughTheirOwnAPI(t *testing.T) {
 			return
 		}
 		fmt.Fprint(w, `{"content":[{"type":"text","text":"anthropic says hi"}]}`)
-	}))
+	}
+}
+
+func TestAnthropicAndGeminiStreamThroughTheirOwnAPI(t *testing.T) {
+	anthropic := httptest.NewServer(fakeAnthropicHandler(t))
 	defer anthropic.Close()
 	c := testClient(t, "anthropic", anthropic.URL, nil)
 	got, err := c.CompleteStream(context.Background(), []Message{{Role: "user", Content: "hi"}}, func(string, bool) {})
