@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# Prints the Sonar quality gate, key measures, open issues and hotspots as Markdown.
+# Prints the Sonar quality gate, key measures, hotspots, rule parameters and open issues as
+# Markdown; the long issue list goes last.
 # Needs SONAR_HOST_URL and SONAR_TOKEN; the project key comes from sonar-project.properties.
 set -euo pipefail
 
@@ -23,6 +24,28 @@ api "measures/component?component=${key}&metricKeys=${metrics}" | jq -r '
   (.component.measures | sort_by(.metric)[] | "| \(.metric) | \(.value) |")'
 
 echo
+echo "### Security hotspots to review"
+echo
+echo '```'
+{ api "hotspots/search?project=${key}&status=TO_REVIEW&ps=500" | jq -r '
+  .hotspots[] | "\(.vulnerabilityProbability)\t\(.ruleKey)\t\(.component | sub("^[^:]*:"; "")):\(.line // 0)\t\(.message)"'; } \
+  || echo "(the token cannot list hotspots)"
+echo '```'
+
+echo
+echo "### Parameters of the active rules"
+echo
+echo '```'
+profiles="$(api "qualityprofiles/search?project=${key}" | jq -r '.profiles[].key')" || profiles=""
+for qp in $profiles; do
+  api "rules/search?qprofile=${qp}&activation=true&f=name&actives=true&ps=500" | jq -r '
+    .actives as $a | .rules[] | select(($a[.key][0].params // []) | length > 0)
+    | "\(.key)\t\(.name)\t\([$a[.key][0].params[] | "\(.key)=\(.value)"] | join(" "))"' \
+    || echo "(the token cannot read the profile ${qp})"
+done
+echo '```'
+
+echo
 echo "### Open issues"
 echo
 echo '```'
@@ -33,25 +56,5 @@ while :; do
   total="$(jq '.paging.total' <<<"$body")"
   (( page * 500 < total && page < 20 )) || break
   page=$((page + 1))
-done
-echo '```'
-
-echo
-echo "### Security hotspots to review"
-echo
-echo '```'
-api "hotspots/search?projectKey=${key}&status=TO_REVIEW&ps=500" | jq -r '
-  .hotspots[] | "\(.vulnerabilityProbability)\t\(.ruleKey)\t\(.component | sub("^[^:]*:"; "")):\(.line // 0)\t\(.message)"'
-echo '```'
-
-echo
-echo "### Parameters of the active rules that have open issues"
-echo
-echo '```'
-profiles="$(api "qualityprofiles/search?project=${key}" | jq -r '.profiles[].key')"
-for qp in $profiles; do
-  api "rules/search?qprofile=${qp}&activation=true&f=name&actives=true&ps=500" | jq -r '
-    .actives as $a | .rules[] | select(($a[.key][0].params // []) | length > 0)
-    | "\(.key)\t\(.name)\t\([$a[.key][0].params[] | "\(.key)=\(.value)"] | join(" "))"'
 done
 echo '```'
