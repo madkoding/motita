@@ -46,9 +46,19 @@ warn() { printf 'warning: %s\n' "$*" >&2; }
 # reports the chip it is running on (armv6l, armv7l, armv8l) rather than the
 # architecture the binary is built for. All of them run the arm build, which is
 # ARMv7, so they all map to `arm`.
+# Android (Termux) reports Linux in `uname -s`, but a GOOS=linux binary dies there
+# with SIGSYS: Android's seccomp policy kills the process on syscalls such as
+# faccessat2, which the Go linux runtime calls and the android one avoids. So
+# Android is told apart by `uname -o` (or Termux's own variable) and gets the
+# android build.
+is_android() {
+	[ -n "${TERMUX_VERSION:-}" ] && return 0
+	[ "$(uname -o 2>/dev/null)" = Android ]
+}
+
 detect_os() {
 	case "$(uname -s)" in
-		Linux)  echo linux ;;
+		Linux)  if is_android; then echo android; else echo linux; fi ;;
 		Darwin) echo darwin ;;
 		*)      die "unsupported system: $(uname -s). Only Linux and macOS are supported; on Windows use the .exe asset from the release page." ;;
 	esac
@@ -146,11 +156,13 @@ find_tools
 OS="$(detect_os)"
 ARCH="$(detect_arch)"
 
-case "$OS" in
-	linux)  EXT="" ;;
-	darwin) EXT="" ;;
-esac
-[ "$OS" = windows ] && EXT=".exe"
+# Only arm64 is published for Android: it is the one android target Go links
+# without cgo, and every phone Termux still supports is 64-bit ARM.
+if [ "$OS" = android ] && [ "$ARCH" != arm64 ]; then
+	die "unsupported Android architecture: ${ARCH}. Only android/arm64 is published."
+fi
+
+EXT=""
 
 ASSET="${BIN}-${OS}-${ARCH}${EXT}"
 
@@ -176,8 +188,8 @@ if ! download "${BASE}/${ASSET}" "${TMP}/${ASSET}"; then
 	rm -rf "$TMP"
 	die "could not download ${ASSET} from ${VERSION}.
   The release may not publish this platform (linux/386, linux/amd64, linux/arm,
-  linux/arm64, windows/386, windows/amd64, windows/arm64, darwin/amd64,
-  darwin/arm64). Check ${BASE}/${ASSET}"
+  linux/arm64, android/arm64, windows/386, windows/amd64, windows/arm64,
+  darwin/amd64, darwin/arm64). Check ${BASE}/${ASSET}"
 fi
 
 # --- 5. verify against the release's own checksums ----------------------------
@@ -211,9 +223,12 @@ fi
 # A user-writable directory is preferred over /usr/local/bin: it keeps the
 # installer from needing root, which is what lets it run from a pipe. If the
 # chosen directory is not on the PATH, say so instead of failing: the install
-# worked, and the user only needs to add it.
+# worked, and the user only needs to add it. Termux has no /usr/local/bin; its
+# own $PREFIX/bin is user-writable and already on the PATH.
 if [ -n "${MOTITA_INSTALL_DIR:-}" ]; then
 	DIR="$MOTITA_INSTALL_DIR"
+elif [ "$OS" = android ] && [ -n "${PREFIX:-}" ] && [ -w "${PREFIX}/bin" ]; then
+	DIR="${PREFIX}/bin"
 elif [ -w /usr/local/bin ] 2>/dev/null; then
 	DIR=/usr/local/bin
 else

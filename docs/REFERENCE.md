@@ -302,8 +302,13 @@ curl -fsSLO https://github.com/madkoding/motita/releases/latest/download/motita-
 | System | Architectures | Asset suffix |
 |---|---|---|
 | Linux | `386`, `amd64`, `arm`, `arm64` | `-linux-<arch>` |
+| Android (Termux) | `arm64` | `-android-<arch>` |
 | Windows | `386`, `amd64`, `arm64` | `-windows-<arch>.exe` |
 | macOS | `amd64`, `arm64` (Apple silicon) | `-darwin-<arch>` |
+
+`android/arm64` is for **Termux**: Android's seccomp policy kills a `linux/arm64`
+binary with `SIGSYS: bad system call` (it blocks `faccessat2`, which the Go linux
+runtime uses), so Android gets its own build. The installer picks it on its own.
 
 `linux/arm` is **ARMv7** (the Go default, `GOARM=7`): it runs on a Raspberry Pi 2
 or newer, and on the ARMv8 boards running a 32-bit userland. A Raspberry Pi 1 or

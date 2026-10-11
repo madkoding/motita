@@ -33,6 +33,7 @@ for os in linux darwin; do
     printf '#!/bin/sh\necho motita %s %s\n' "$os" "$arch" > "$WORK/rel/motita-$os-$arch"
   done
 done
+printf '#!/bin/sh\necho motita android arm64\n' > "$WORK/rel/motita-android-arm64"
 sums() { (cd "$WORK/rel" && sha256sum motita-* | sort -k2 > SHA256SUMS); }
 sums
 
@@ -118,5 +119,29 @@ out="$(sh "$WORK/truncated.sh" 2>&1)" || true
 [ ! -e "$WORK/dest/motita" ] || fail "a truncated installer installed something"
 printf '%s\n' "$out" | grep -q 'motita installer' && fail "a truncated installer started running: $out"
 echo "a truncated download of the installer runs nothing"
+
+# --- 7. Termux gets the android build, in $PREFIX/bin --------------------------
+# A linux binary dies on Android with SIGSYS, so the installer must not hand one out
+# there. uname is faked as an aarch64 Android, the way Termux reports itself.
+rm -rf "$WORK/dest" "$WORK/fakebin" "$WORK/prefix"
+mkdir -p "$WORK/fakebin" "$WORK/prefix/bin"
+cat > "$WORK/fakebin/uname" <<'UNAME'
+#!/bin/sh
+case "$1" in
+  -s) echo Linux ;;
+  -m) echo aarch64 ;;
+  -o) echo Android ;;
+  *)  echo Linux ;;
+esac
+UNAME
+chmod +x "$WORK/fakebin/uname"
+# Case 5 may have left a signature by another key behind; sign with the right one again.
+[ -f "$WORK/key.pem" ] && openssl pkeyutl -sign -inkey "$WORK/key.pem" -rawin \
+  -in "$WORK/rel/SHA256SUMS" -out "$WORK/rel/SHA256SUMS.sig"
+out="$(env -u MOTITA_INSTALL_DIR PATH="$WORK/fakebin:$PATH" PREFIX="$WORK/prefix" \
+  sh "$WORK/install.sh" 2>&1)" || fail "the installer failed on Android: $out"
+printf '%s\n' "$out" | grep -q 'asset:  motita-android-arm64' || fail "Android was not given the android build: $out"
+[ "$("$WORK/prefix/bin/motita")" = "motita android arm64" ] || fail "the android build did not land in \$PREFIX/bin: $out"
+echo "on Termux the installer picks android/arm64 and installs into \$PREFIX/bin"
 
 echo "VERDICT: the POSIX installer works end to end against a simulated release"

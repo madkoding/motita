@@ -139,6 +139,10 @@ jobs:
           - { goos: linux,   goarch: amd64,   container: debian:bookworm-slim,         platform: linux/amd64, e2e: "true" }
           - { goos: linux,   goarch: arm,     container: arm32v7/debian:bookworm-slim, platform: linux/arm/v7, e2e: "true" }
           - { goos: linux,   goarch: arm64,   container: arm64v8/debian:bookworm-slim, platform: linux/arm64, e2e: "true" }
+          # Termux. Android kills a GOOS=linux binary with SIGSYS (its seccomp policy
+          # blocks faccessat2, which the linux runtime calls), so it needs its own build.
+          # arm64 is the one android target Go links without cgo.
+          - { goos: android, goarch: arm64 }
           - { goos: windows, goarch: "386" }
           - { goos: windows, goarch: amd64 }
           - { goos: windows, goarch: arm64 }
@@ -172,7 +176,7 @@ jobs:
         run: |
           # A wrong cross-compile is invisible until the binary is run somewhere
           # else, so each container format is checked by its magic number:
-          #   ELF    (linux)   7f 45 4c 46 + class in byte 5 (01 = 32-bit, 02 = 64-bit)
+          #   ELF    (linux, android) 7f 45 4c 46 + class in byte 5 (01 = 32-bit, 02 = 64-bit)
           #   PE     (windows) 4d 5a
           #   Mach-O (darwin)  cf fa ed fe (64-bit)
           for binary in "$BINARY"; do
@@ -187,7 +191,7 @@ jobs:
                 [ "$header" = "cffaedfe" ] || { echo "::error::$binary is not a 64-bit Mach-O ($header)"; exit 1; }
                 echo "Mach-O confirmed in $binary ($header)"
                 ;;
-              linux)
+              linux|android)
                 want="7f454c4602"
                 case "${{ matrix.goarch }}" in 386|arm) want="7f454c4601" ;; esac
                 header="$(head -c 5 "$binary" | od -An -tx1 | tr -d ' \n')"

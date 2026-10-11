@@ -556,7 +556,7 @@ func TestShownDraftAndCompletionWhilePrompting(t *testing.T) {
 }
 
 func TestOpenBrowserUsesTheOperatingSystemsOpener(t *testing.T) {
-	for goos, want := range map[string]string{"linux": "xdg-open", "darwin": "open", "windows": "rundll32", "freebsd": "xdg-open"} {
+	for goos, want := range map[string]string{"linux": "xdg-open", "darwin": "open", "windows": "rundll32", "android": "termux-open-url", "freebsd": "xdg-open"} {
 		name, args := openCommand(goos, "http://x")
 		if name != want || args[len(args)-1] != "http://x" {
 			t.Errorf("%s: %s %v", goos, name, args)
