@@ -385,7 +385,8 @@ func (c *Client) RecordVerdict(good bool, note string) string {
 	var out struct {
 		Text string `json:"text"`
 	}
-	if err := c.do(context.Background(), http.MethodPost, c.scoped("/verdict"), map[string]any{"good": good, "note": note}, &out); err != nil {
+	verdict := map[string]any{"good": good, "note": note}
+	if err := c.do(context.Background(), http.MethodPost, c.scoped("/verdict"), verdict, &out); err != nil {
 		return errGatewayUnreachable + err.Error()
 	}
 	return out.Text
@@ -422,7 +423,8 @@ func (c *Client) TakePendingQuestions() ([]agent.AskItem, string) {
 // hand over, and saying so is more useful than a wizard that cannot read its answers.
 func (c *Client) RunConfig(ctx context.Context) error {
 	if c.Wizard == nil {
-		return errors.New("the configuration wizard runs on the machine hosting the gateway, in the terminal it was started from; this client has no terminal to run it in")
+		return errors.New("the configuration wizard runs on the machine hosting the gateway, " +
+			"in the terminal it was started from; this client has no terminal to run it in")
 	}
 	return c.Wizard(ctx)
 }
@@ -524,7 +526,10 @@ const runAttempts = 3
 // The first attempt POSTs the task to start the run; every later one reattaches with
 // /events?from=<last>. That difference is why `path` is only used when nothing has started yet: a
 // retry that POSTed again would start a second turn.
-func (c *Client) streamOnce(ctx context.Context, path string, body []byte, started bool, from *uint64, result *string, progress func(string, ...any)) (bool, error) {
+func (c *Client) streamOnce(
+	ctx context.Context, path string, body []byte, started bool, from *uint64, result *string,
+	progress func(string, ...any),
+) (bool, error) {
 	var req *http.Request
 	var err error
 	if !started {
@@ -590,84 +595,134 @@ func (c *Client) streamOnce(ctx context.Context, path string, body []byte, start
 //
 // `from` is the sequence number of the last event seen, updated as events arrive so a caller can
 // resume from it. `result` receives the turn's answer when a `done` arrives.
-func (c *Client) readRunStream(ctx context.Context, body io.Reader, from *uint64, result *string, progress func(string, ...any)) (bool, error) {
+func (c *Client) readRunStream(
+	ctx context.Context, body io.Reader, from *uint64, result *string, progress func(string, ...any),
+) (bool, error) {
+	rs := &runStreamReader{c: c, ctx: ctx, from: from, result: result, progress: progress}
+	err := streamEvents(ctx, body, rs.event)
+	return rs.answered, err
+}
+
+// runStreamReader is readRunStream's reading of one stream.
+type runStreamReader struct {
+	c        *Client
+	ctx      context.Context
+	from     *uint64
+	result   *string
+	progress func(string, ...any)
 	// answered records that the stream delivered a VERDICT - a done or an error - so the difference
 	// between "the gateway said how it ended" and "the socket died" survives the callback's error
 	// return. Only the second is worth resuming.
-	var answered bool
-	err := streamEvents(ctx, body, func(seq uint64, event string, data []byte) error {
-		if seq > 0 {
-			*from = seq
-		}
-		switch event {
-		case EventAttached:
-			// The preamble. It is read for the pending approval below, and arriving after a
-			// reconnection is normal - which is why anything that does not care about it ignores
-			// it rather than treating it as an unknown event.
-			var a attachedEvent
-			if err := json.Unmarshal(data, &a); err != nil {
-				return err
-			}
-			// The agents already working when this client joined. They are handed over as the same
-			// line the agent writes in local mode, so a consumer has ONE format to understand
-			// whichever way it is connected.
-			if len(a.Agents) > 0 && progress != nil {
-				progress("%s", agent.AgentsLine(a.Agents))
-			}
-			if a.PendingApproval != nil {
-				return c.answerApproval(ctx, *a.PendingApproval)
-			}
-		case EventAgents:
-			var a agentsEvent
-			if err := json.Unmarshal(data, &a); err != nil {
-				return err
-			}
-			if progress != nil {
-				progress("%s", agent.AgentsLine(a.Agents))
-			}
-		case EventProgress:
-			var p struct {
-				Text string `json:"text"`
-			}
-			if err := json.Unmarshal(data, &p); err != nil {
-				return err
-			}
-			if progress != nil {
-				progress("%s", p.Text)
-			}
-		case EventApproval:
-			var ask approvalEvent
-			if err := json.Unmarshal(data, &ask); err != nil {
-				return err
-			}
-			return c.answerApproval(ctx, ask)
-		case EventDone:
-			var d doneEvent
-			if err := json.Unmarshal(data, &d); err != nil {
-				return err
-			}
-			*result = d.Result
-			answered = true
-			// The figures that came WITH the answer replace the cache, so the status bar is right
-			// the instant the turn ends instead of one request later.
-			c.mu.Lock()
-			c.snap = d.Session
-			c.mu.Unlock()
-		case EventError:
-			var e struct {
-				Error string `json:"error"`
-			}
-			if err := json.Unmarshal(data, &e); err != nil {
-				return err
-			}
-			answered = true
-			return errors.New(e.Error)
-		}
+	answered bool
+}
+
+// event reads one event of the stream.
+func (rs *runStreamReader) event(seq uint64, event string, data []byte) error {
+	if seq > 0 {
+		*rs.from = seq
+	}
+	var err error
+	switch event {
+	case EventAttached:
+		err = rs.attached(data)
+	case EventAgents:
+		err = rs.agents(data)
+	case EventProgress:
+		err = rs.progressLine(data)
+	case EventApproval:
+		err = rs.approval(data)
+	case EventDone:
+		err = rs.done(data)
+	case EventError:
+		err = rs.failed(data)
+	default:
 		// Any other event name is ignored and the stream keeps being read: a newer gateway may add
 		// an event, and an older client must not break on it.
-		return nil
-	})
-	return answered, err
+	}
+	return err
+}
+
+// approval answers a question the run asks.
+func (rs *runStreamReader) approval(data []byte) error {
+	var ask approvalEvent
+	if err := json.Unmarshal(data, &ask); err != nil {
+		return err
+	}
+	return rs.c.answerApproval(rs.ctx, ask)
+}
+
+// attached reads the preamble. It is read for the pending approval, and arriving after a
+// reconnection is normal - which is why anything that does not care about it ignores it rather
+// than treating it as an unknown event.
+func (rs *runStreamReader) attached(data []byte) error {
+	var a attachedEvent
+	if err := json.Unmarshal(data, &a); err != nil {
+		return err
+	}
+	// The agents already working when this client joined. They are handed over as the same
+	// line the agent writes in local mode, so a consumer has ONE format to understand
+	// whichever way it is connected.
+	if len(a.Agents) > 0 && rs.progress != nil {
+		rs.progress("%s", agent.AgentsLine(a.Agents))
+	}
+	if a.PendingApproval != nil {
+		return rs.c.answerApproval(rs.ctx, *a.PendingApproval)
+	}
+	return nil
+}
+
+// agents reads the list of agents working in the run.
+func (rs *runStreamReader) agents(data []byte) error {
+	var a agentsEvent
+	if err := json.Unmarshal(data, &a); err != nil {
+		return err
+	}
+	if rs.progress != nil {
+		rs.progress("%s", agent.AgentsLine(a.Agents))
+	}
+	return nil
+}
+
+// progressLine reads one line of the run's progress.
+func (rs *runStreamReader) progressLine(data []byte) error {
+	var p struct {
+		Text string `json:"text"`
+	}
+	if err := json.Unmarshal(data, &p); err != nil {
+		return err
+	}
+	if rs.progress != nil {
+		rs.progress("%s", p.Text)
+	}
+	return nil
+}
+
+// done reads the turn's answer.
+func (rs *runStreamReader) done(data []byte) error {
+	var d doneEvent
+	if err := json.Unmarshal(data, &d); err != nil {
+		return err
+	}
+	*rs.result = d.Result
+	rs.answered = true
+	// The figures that came WITH the answer replace the cache, so the status bar is right
+	// the instant the turn ends instead of one request later.
+	rs.c.mu.Lock()
+	rs.c.snap = d.Session
+	rs.c.mu.Unlock()
+	return nil
+}
+
+// failed reads the run's error, which is its verdict.
+func (rs *runStreamReader) failed(data []byte) error {
+	var e struct {
+		Error string `json:"error"`
+	}
+	if err := json.Unmarshal(data, &e); err != nil {
+		return err
+	}
+	rs.answered = true
+	return errors.New(e.Error)
 }
 
 // RunStatus answers what is running in this client's session, without opening a stream.
@@ -719,7 +774,8 @@ func (c *Client) ListArtifacts(ctx context.Context) ([]Artifact, error) {
 // ReadArtifact returns the content of one saved file. The gateway bounds a file's size, so
 // reading it whole is safe.
 func (c *Client) ReadArtifact(ctx context.Context, name string) ([]byte, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.baseURL+c.scoped("/artifacts/"+url.PathEscape(name)), nil)
+	target := c.baseURL + c.scoped("/artifacts/"+url.PathEscape(name))
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, target, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -870,7 +926,8 @@ func (c *Client) answerApproval(ctx context.Context, ask approvalEvent) error {
 		}
 	}
 
-	if err := c.do(ctx, http.MethodPost, c.scoped("/runs/approval"), map[string]any{"id": ask.ID, "approve": approve}, nil); err != nil {
+	answer := map[string]any{"id": ask.ID, "approve": approve}
+	if err := c.do(ctx, http.MethodPost, c.scoped("/runs/approval"), answer, nil); err != nil {
 		return fmt.Errorf("the approval could not be sent back: %w", err)
 	}
 	// Recorded only AFTER it was delivered, so a verdict that never reached the gateway can be
@@ -927,6 +984,8 @@ func streamEvents(ctx context.Context, body io.Reader, fn func(seq uint64, event
 			if err := fn(seq, event, []byte(strings.TrimPrefix(line, "data: "))); err != nil {
 				return err
 			}
+		default:
+			// A blank line or a comment: nothing to read.
 		}
 	}
 	return sc.Err()
@@ -994,7 +1053,9 @@ func statusIs(err error, statuses ...int) bool {
 //
 // It is for a client that did NOT start the run: there is no body to POST, only a stream to read -
 // which is what attaching to a run already in flight is.
-func (c *Client) streamEventsAt(ctx context.Context, path string, from *uint64, result *string, progress func(string, ...any)) (bool, error) {
+func (c *Client) streamEventsAt(
+	ctx context.Context, path string, from *uint64, result *string, progress func(string, ...any),
+) (bool, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.baseURL+path, nil)
 	if err != nil {
 		return false, err

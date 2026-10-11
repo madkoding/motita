@@ -73,6 +73,8 @@ func (c *Client) RunUpdate(ctx context.Context, progress func(string)) (string, 
 			return "", errors.New(evt.Message)
 		case "done":
 			return version, nil
+		default:
+			// A stage on the way: reported below when it changes.
 		}
 		if evt.Stage != stage {
 			stage = evt.Stage

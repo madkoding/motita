@@ -40,7 +40,7 @@ func (s *Server) handleTask(w http.ResponseWriter, r *http.Request) {
 	}
 	c := convOf(r)
 	if c.merged {
-		writeError(w, http.StatusConflict, "this session has already been integrated into the project; continue in a new session to keep working")
+		writeError(w, http.StatusConflict, msgSessionIntegrated)
 		return
 	}
 	// Record the task so it can be resumed after a gateway restart.
@@ -66,7 +66,7 @@ func (s *Server) handlePlan(w http.ResponseWriter, r *http.Request) {
 	}
 	c := convOf(r)
 	if c.merged {
-		writeError(w, http.StatusConflict, "this session has already been integrated into the project; continue in a new session to keep working")
+		writeError(w, http.StatusConflict, msgSessionIntegrated)
 		return
 	}
 	// Record the prompt so it can be resumed after a gateway restart.
@@ -89,9 +89,15 @@ func (s *Server) startRun(w http.ResponseWriter, r *http.Request, c *conversatio
 	s.startRunWithIntent(w, r, c, task, kind, "")
 }
 
+// msgSessionIntegrated is the refusal of new work in a session already integrated into its project.
+const msgSessionIntegrated = "this session has already been integrated into the project; " +
+	"continue in a new session to keep working"
+
 // startRunWithIntent is the same as startRun, but it records why the turn was started so the
 // gateway can perform post-run bookkeeping (for example, marking a session as merged).
-func (s *Server) startRunWithIntent(w http.ResponseWriter, r *http.Request, c *conversation, task, kind, intent string) {
+func (s *Server) startRunWithIntent(
+	w http.ResponseWriter, r *http.Request, c *conversation, task, kind, intent string,
+) {
 	rn, started := s.startDetachedRun(c, task, kind, intent, s.approverFactory(c))
 	if !started {
 		writeError(w, http.StatusConflict,
@@ -113,7 +119,9 @@ func (s *Server) startRunWithIntent(w http.ResponseWriter, r *http.Request, c *c
 //
 // It reports false when the slot is taken, and the CALLER decides how to say so: the HTTP
 // path answers 409, the scheduler records "skipped" on the record.
-func (s *Server) startDetachedRun(c *conversation, task, kind, intent string, approverFor func(*run) agent.Approver) (*run, bool) {
+func (s *Server) startDetachedRun(
+	c *conversation, task, kind, intent string, approverFor func(*run) agent.Approver,
+) (*run, bool) {
 	if c == nil || c.svc == nil {
 		return nil, false
 	}
@@ -161,30 +169,13 @@ func (s *Server) startDetachedRun(c *conversation, task, kind, intent string, ap
 		defer s.drainQueue(c)
 		defer c.releaseRunSlot()
 		defer c.clearCurrentRun()
-		var result string
-		var err error
-		// The checkpoint is taken BEFORE the agent does anything: it is the state this input
-		// found, which is what going back has to return to.
-		if c.openCheckpoint(rn.turn, task, kind, resumed) {
-			s.takeSnapshot(c, rn.turn)
-		}
-		if kind == schedule.KindPlan {
-			result, err = c.svc.RunPlan(runCtx, task, rn.progress())
-		} else {
-			result, err = c.svc.RunTask(runCtx, task, rn.progress())
-		}
+		result, err := s.executeTurn(runCtx, c, rn, task, kind, resumed)
 
 		// A merge run that succeeded may have moved the project's HEAD. We check this AFTER
 		// the agent reported a result, because the LLM is the one that used the git skill to
 		// integrate; the gateway only records the outcome.
-		if err == nil && rn.intent == runIntentMerge && c.projectDir != "" && projectStartRev != "" {
-			projectHead := gitx.HeadRev(runCtx, c.projectDir)
-			if projectHead != "" && projectHead != projectStartRev {
-				c.setMerged(projectHead)
-				if s.baseCtx.Err() == nil {
-					s.saveSession(c)
-				}
-			}
+		if err == nil {
+			s.recordIntegration(runCtx, c, rn, projectStartRev)
 		}
 
 		// Whatever the agent left as artifacts is copied out now, success or not: a run that
@@ -204,18 +195,7 @@ func (s *Server) startDetachedRun(c *conversation, task, kind, intent string, ap
 			rn.append(EventError, map[string]string{"error": "the run finished without reporting a result"})
 			rn.finish("error", "", "the run finished without reporting a result", session.Snapshot{})
 		default:
-			snap := c.svc.ConversationSummary()
-			done := doneEvent{Result: result, Session: snap}
-			if src, ok := c.svc.(interface{ TakeReport() *agent.Report }); ok && kind != schedule.KindPlan {
-				done.Report = src.TakeReport()
-			}
-			if rep := buildChangeReport(s.baseCtx, c.workspace, startRev); len(rep.Files) > 0 || len(rep.Previews) > 0 {
-				done.Changes = &rep
-			}
-			done.Artifacts = madeArtifacts
-			rn.append(EventDone, done)
-			rn.finish("done", result, "", snap)
-			s.maybeAutoTitle(c)
+			s.reportDone(c, rn, kind, startRev, result, madeArtifacts)
 		}
 		// The record says whether this run was INTERRUPTED or ENDED, and getting that wrong
 		// is what lost sessions. The slot is still held here, so a plain save writes
@@ -231,6 +211,53 @@ func (s *Server) startDetachedRun(c *conversation, task, kind, intent string, ap
 		}
 	}()
 	return rn, true
+}
+
+// executeTurn runs the turn's task, or plan, in the conversation. The checkpoint is taken BEFORE
+// the agent does anything: it is the state this input found, which is what going back has to
+// return to.
+func (s *Server) executeTurn(
+	ctx context.Context, c *conversation, rn *run, task, kind string, resumed bool,
+) (string, error) {
+	if c.openCheckpoint(rn.turn, task, kind, resumed) {
+		s.takeSnapshot(c, rn.turn)
+	}
+	if kind == schedule.KindPlan {
+		return c.svc.RunPlan(ctx, task, rn.progress())
+	}
+	return c.svc.RunTask(ctx, task, rn.progress())
+}
+
+// recordIntegration marks the session merged when a merge run moved the project's HEAD from
+// projectStartRev.
+func (s *Server) recordIntegration(ctx context.Context, c *conversation, rn *run, projectStartRev string) {
+	if rn.intent != runIntentMerge || c.projectDir == "" || projectStartRev == "" {
+		return
+	}
+	projectHead := gitx.HeadRev(ctx, c.projectDir)
+	if projectHead != "" && projectHead != projectStartRev {
+		c.setMerged(projectHead)
+		if s.baseCtx.Err() == nil {
+			s.saveSession(c)
+		}
+	}
+}
+
+// reportDone ends a run that answered: the answer with the conversation's figures, the agent's
+// report, what the run changed and the artifacts it left.
+func (s *Server) reportDone(c *conversation, rn *run, kind, startRev, result string, made []Artifact) {
+	snap := c.svc.ConversationSummary()
+	done := doneEvent{Result: result, Session: snap}
+	if src, ok := c.svc.(interface{ TakeReport() *agent.Report }); ok && kind != schedule.KindPlan {
+		done.Report = src.TakeReport()
+	}
+	if rep := buildChangeReport(s.baseCtx, c.workspace, startRev); len(rep.Files) > 0 || len(rep.Previews) > 0 {
+		done.Changes = &rep
+	}
+	done.Artifacts = made
+	rn.append(EventDone, done)
+	rn.finish("done", result, "", snap)
+	s.maybeAutoTitle(c)
 }
 
 // approverFactory adapts approverFor to the factory startDetachedRun takes.
@@ -464,7 +491,8 @@ func (s *Server) approverFor(c *conversation, rn *run) agent.Approver {
 			if req.Background {
 				who = "background agent " + req.Agent + ": "
 			}
-			rn.append(EventProgress, progressEvent{Text: "approved (all commands allowed in this session): " + who + req.Command})
+			rn.append(EventProgress,
+				progressEvent{Text: "approved (all commands allowed in this session): " + who + req.Command})
 			return true, nil
 		}
 		if req.Background {
@@ -520,21 +548,26 @@ func (s *Server) handleApproval(w http.ResponseWriter, r *http.Request) {
 		// EARLIER run must not approve the current one, and the id is what makes that impossible.
 		writeError(w, http.StatusConflict, "that approval id does not match the command being asked about")
 	default:
-		// Set BEFORE the answer is delivered, so the run's very next question already sees it.
-		if body.Approve && body.Scope == "session" {
-			c.setAutoApprove(true)
-			// Written now: the answer is the user's decision, and a gateway that is stopped a
-			// moment later must still know it.
-			s.saveSession(c)
-		}
-		// Buffered with room for one, so this never blocks even if the run has already moved on or
-		// already been cancelled. A blocking send here would hang the answering client on a
-		// question that no longer exists.
-		select {
-		case p.ch <- body.Approve:
-		default:
-		}
+		s.deliverApproval(c, p, body.Approve, body.Scope)
 		w.WriteHeader(http.StatusNoContent)
+	}
+}
+
+// deliverApproval hands the user's answer to the run's open question.
+func (s *Server) deliverApproval(c *conversation, p *pendingApproval, approve bool, scope string) {
+	// Set BEFORE the answer is delivered, so the run's very next question already sees it.
+	if approve && scope == "session" {
+		c.setAutoApprove(true)
+		// Written now: the answer is the user's decision, and a gateway that is stopped a
+		// moment later must still know it.
+		s.saveSession(c)
+	}
+	// Buffered with room for one, so this never blocks even if the run has already moved on or
+	// already been cancelled. A blocking send here would hang the answering client on a
+	// question that no longer exists.
+	select {
+	case p.ch <- approve:
+	default:
 	}
 }
 

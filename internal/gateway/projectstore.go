@@ -238,10 +238,13 @@ func cloneableURL(gitURL string) bool {
 	switch {
 	case strings.HasPrefix(gitURL, "-"), strings.Contains(gitURL, "::"):
 		return false
-	case strings.HasPrefix(gitURL, "https://"), strings.HasPrefix(gitURL, "http://"), strings.HasPrefix(gitURL, "ssh://"):
+	case strings.HasPrefix(gitURL, "https://"), strings.HasPrefix(gitURL, "http://"),
+		strings.HasPrefix(gitURL, "ssh://"):
 		return true
 	case filepath.IsAbs(gitURL):
 		return true
+	default:
+		// Not one of the forms above: the scp form is tried below.
 	}
 	// scp form: a host (with an optional user) before the first ':', and no '/' in it.
 	host, path, ok := strings.Cut(gitURL, ":")
@@ -265,7 +268,8 @@ func cloneGitRepo(gitURL, destDir string, env []string) (string, error) {
 		if sameOrigin(destDir, gitURL, env) {
 			return "reusing the existing clone in " + destDir, nil
 		}
-		return "", fmt.Errorf("the folder %q already exists and is not a clone of %q: pick another folder name or remove it", destDir, gitURL)
+		return "", fmt.Errorf(
+			"the folder %q already exists and is not a clone of %q: pick another folder name or remove it", destDir, gitURL)
 	}
 	if !cloneableURL(gitURL) {
 		return "", fmt.Errorf("%q is not a repository URL: use https://, ssh://, user@host:path or an absolute path", gitURL)

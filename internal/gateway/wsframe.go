@@ -151,6 +151,8 @@ func wsReadFrame(r io.Reader) (opcode byte, payload []byte, final bool, masked b
 			return 0, nil, false, false, e
 		}
 		length = binary.BigEndian.Uint64(ext[:])
+	default:
+		// A length under 126 is the length itself.
 	}
 
 	// Compared as uint64, never converted first: a 64-bit length with the high bit set (which
