@@ -25,7 +25,9 @@ const { Lightbox } = await import(pathToFileURL(join(out, 'lb.mjs')).href)
 const { h, render } = await import('preact')
 rmSync(out, { recursive: true })
 
-const tick = () => new Promise(r => setTimeout(r, 5))
+// Long enough for Preact to re-render after an event.
+const TICK_MS = 5
+const tick = () => new Promise(r => setTimeout(r, TICK_MS))
 const key = (k) => document.dispatchEvent(new dom.window.KeyboardEvent('keydown', { key: k, bubbles: true }))
 
 test('zoom, fit, pair navigation and close work', async () => {
