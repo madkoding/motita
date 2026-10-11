@@ -161,8 +161,8 @@ func TestListGitHub(t *testing.T) {
 	{"full_name":"me/beta","description":"second","clone_url":"https://github.com/me/beta.git"}]`
 	a, h := newAPI(t, KindGitHub, map[string]string{"GET /user/repos": page})
 	repos, more, err := a.ListRepos(context.Background(), "", 0)
-	if err != nil || more || len(repos) != 2 || repos[0].FullName != "me/alpha" || !repos[0].Private ||
-		repos[0].DefaultBranch != "main" {
+	wrong := err != nil || more || len(repos) != 2
+	if wrong || repos[0].FullName != "me/alpha" || !repos[0].Private || repos[0].DefaultBranch != "main" {
 		t.Fatalf("%+v %v %v", repos, more, err)
 	}
 	if !strings.Contains(h.seen[0], "page=1") {
@@ -199,8 +199,8 @@ func TestListGitLab(t *testing.T) {
 				`"visibility":"private","default_branch":"main","last_activity_at":"2026-02-01"},` +
 				`{"path_with_namespace":"grp/pub","visibility":"public"}]`})
 	repos, more, err := a.ListRepos(context.Background(), "app", 2)
-	if err != nil || more || len(repos) != 2 || !repos[0].Private || repos[1].Private ||
-		repos[0].CloneURL != "https://gitlab.com/grp/app.git" {
+	wrong := err != nil || more || len(repos) != 2
+	if wrong || !repos[0].Private || repos[1].Private || repos[0].CloneURL != "https://gitlab.com/grp/app.git" {
 		t.Fatalf("%+v %v %v", repos, more, err)
 	}
 	if !strings.Contains(h.seen[0], "search=app") || !strings.Contains(h.seen[0], "page=2") {
@@ -218,8 +218,8 @@ func TestListBitbucket(t *testing.T) {
 			"GET /repositories": `{"next":"x","values":[{"full_name":"ws/repo","description":"d","is_private":true,` +
 				`"updated_on":"2026","mainbranch":{"name":"main"},"links":{"html":{"href":"https://bitbucket.org/ws/repo"}}}]}`})
 	repos, more, err := a.ListRepos(context.Background(), `re"po\`, 1)
-	if err != nil || !more || len(repos) != 1 || repos[0].CloneURL != "https://bitbucket.org/ws/repo.git" ||
-		repos[0].DefaultBranch != "main" {
+	wrong := err != nil || !more || len(repos) != 1
+	if wrong || repos[0].CloneURL != "https://bitbucket.org/ws/repo.git" || repos[0].DefaultBranch != "main" {
 		t.Fatalf("%+v %v %v", repos, more, err)
 	}
 	// Quotes and backslashes cannot break out of the query expression.
@@ -255,8 +255,8 @@ func TestCreatePR(t *testing.T) {
 	a, h := newAPI(t, KindGitHub,
 		map[string]string{"POST /repos/o/r/pulls": `{"number":7,"html_url":"https://github.com/o/r/pull/7"}`})
 	pr, err := a.CreatePR(context.Background(), Remote{Path: "o/r"}, opt)
-	if err != nil || pr.Number != 7 || pr.URL != "https://github.com/o/r/pull/7" || pr.Head != "feature" ||
-		!strings.Contains(h.body, `"draft":true`) {
+	wrong := err != nil || pr.Number != 7 || pr.URL != "https://github.com/o/r/pull/7"
+	if wrong || pr.Head != "feature" || !strings.Contains(h.body, `"draft":true`) {
 		t.Fatalf("%+v %v body=%s", pr, err, h.body)
 	}
 	a, h = newAPI(t, KindGitea,
@@ -305,7 +305,8 @@ func TestFindPR(t *testing.T) {
 		map[string]string{
 			"GET /repos/o/r/pulls": `[{"number":5,"html_url":"u5","title":"t","head":{"ref":"feature"},"base":{"ref":"main"}}]`})
 	pr, ok, err := a.FindPR(context.Background(), r, "feature")
-	if err != nil || !ok || pr.Number != 5 || pr.Base != "main" || !strings.Contains(h.seen[0], "head=o%3Afeature") {
+	wrong := err != nil || !ok || pr.Number != 5
+	if wrong || pr.Base != "main" || !strings.Contains(h.seen[0], "head=o%3Afeature") {
 		t.Fatalf("%+v %v %v %v", pr, ok, err, h.seen)
 	}
 	if _, ok, _ = a.FindPR(context.Background(), r, "other"); ok {

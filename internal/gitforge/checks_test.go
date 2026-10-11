@@ -108,8 +108,8 @@ func TestCIGitLab(t *testing.T) {
 			`"failure_reason":"script_failure"},{"name":"deploy","status":"running"}]`,
 	})
 	st, err := a.CI(context.Background(), r, 3)
-	if err != nil || st.State != StateFailure || len(st.Checks) != 4 || st.Checks[1].State != StateSuccess ||
-		st.Checks[2].Detail != "script_failure" {
+	wrong := err != nil || st.State != StateFailure || len(st.Checks) != 4
+	if wrong || st.Checks[1].State != StateSuccess || st.Checks[2].Detail != "script_failure" {
 		t.Fatalf("%+v %v", st, err)
 	}
 	a, _ = newAPI(t, KindGitLab, map[string]string{"GET /projects/g%2Fr/merge_requests/3/pipelines": `[]`})
@@ -147,7 +147,8 @@ func TestFailureLog(t *testing.T) {
 	big := strings.Repeat("x", logTail) + "THE END"
 	a, h := newAPI(t, KindGitHub, map[string]string{"GET /repos/o/r/actions/jobs/12/logs": big})
 	log, ok, err := a.FailureLog(context.Background(), r, Check{jobID: 12})
-	if err != nil || !ok || len(log) != logTail || !strings.HasSuffix(log, "THE END") || h.auth != "Bearer tok" {
+	wrong := err != nil || !ok || len(log) != logTail
+	if wrong || !strings.HasSuffix(log, "THE END") || h.auth != "Bearer tok" {
 		t.Fatalf("len=%d ok=%v err=%v", len(log), ok, err)
 	}
 	// A short log is returned whole.

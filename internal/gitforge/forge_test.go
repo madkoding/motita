@@ -83,7 +83,8 @@ func TestCustom(t *testing.T) {
 	}
 	for _, c := range cases {
 		s, err := Custom(c.kind, c.host, noEnv)
-		if err != nil || s.ID != c.id || s.APIBase != c.api || s.Kind != c.kind || s.TokenURL == "" || s.Name == "" {
+		wrong := err != nil || s.ID != c.id || s.APIBase != c.api
+		if wrong || s.Kind != c.kind || s.TokenURL == "" || s.Name == "" {
 			t.Errorf("%s: %+v %v", c.host, s, err)
 		}
 	}
