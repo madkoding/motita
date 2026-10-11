@@ -162,12 +162,7 @@ func (t *TUI) layout(w, h int) ([]string, string) {
 	// hint included. Capping against a reservation instead of against the drawn rows is how the
 	// frame came out one row too tall.
 	if popup > 0 {
-		if spare := h - permanentRows - minChatLines; popup > spare {
-			popup = spare
-			if popup < 1 {
-				popup = 1
-			}
-		}
+		popup = capPopup(popup, h)
 	}
 
 	// 2. The conversation takes the remainder, and the total is exactly h. `room` is a RESIDUE,
@@ -176,36 +171,7 @@ func (t *TUI) layout(w, h int) ([]string, string) {
 	// subtracting the capped popup can only bring it down to that floor.
 	room := h - permanentRows - popup
 
-	// 3. Anchor the window to the newest line unless the user lifted it. The offset is applied
-	// before trimming, so paging walks one row at a time instead of jumping by whatever the
-	// current window happens to hold.
-	if t.scroll > 0 {
-		end := len(body) - t.scroll
-		if end < 0 {
-			end = 0
-		}
-		body = body[:end]
-	}
-
-	// 4. Trim to the room, then PAD back up to it. The padding is what puts the composer on the
-	// last rows of the window instead of letting it float in the middle of a short conversation:
-	// the input belongs at the foot of the screen.
-	//
-	// A conversation loses its OLDEST rows, because the newest are what the user is following.
-	// The welcome screen is the opposite: it is read from the top, and losing its greeting to
-	// keep its last tip would be cutting the wrong end.
-	if len(body) > room {
-		if len(t.messages) == 0 {
-			body = body[:room]
-		} else {
-			hidden := len(body) - room + 1
-			body = append([]string{t.plainLine(t.muted(t.trf("... %d earlier lines", hidden)))},
-				body[len(body)-room+1:]...)
-		}
-	}
-	for len(body) < room {
-		body = append(body, "")
-	}
+	body = t.fitBody(body, room)
 
 	lines := make([]string, 0, permanentRows+popup+len(body))
 	lines = append(lines, top...)
@@ -224,6 +190,54 @@ func (t *TUI) layout(w, h int) ([]string, string) {
 	// the popup instead of in the box the user is typing into.
 	rowsBelow := belowComposer + inputRows - 1
 	return lines, t.composerPrompt(rowsBelow)
+}
+
+// capPopup limits the popup to what a frame of height h leaves after the permanent rows and a
+// conversation floor, keeping at least one row.
+func capPopup(popup, h int) int {
+	if spare := h - permanentRows - minChatLines; popup > spare {
+		popup = spare
+		if popup < 1 {
+			popup = 1
+		}
+	}
+	return popup
+}
+
+// fitBody fits the conversation's rows to the room it has.
+//
+// 3. It anchors the window to the newest line unless the user lifted it. The offset is applied
+// before trimming, so paging walks one row at a time instead of jumping by whatever the
+// current window happens to hold.
+//
+// 4. It trims to the room, then PADS back up to it. The padding is what puts the composer on the
+// last rows of the window instead of letting it float in the middle of a short conversation:
+// the input belongs at the foot of the screen.
+//
+// A conversation loses its OLDEST rows, because the newest are what the user is following.
+// The welcome screen is the opposite: it is read from the top, and losing its greeting to
+// keep its last tip would be cutting the wrong end.
+func (t *TUI) fitBody(body []string, room int) []string {
+	if t.scroll > 0 {
+		end := len(body) - t.scroll
+		if end < 0 {
+			end = 0
+		}
+		body = body[:end]
+	}
+	if len(body) > room {
+		if len(t.messages) == 0 {
+			body = body[:room]
+		} else {
+			hidden := len(body) - room + 1
+			body = append([]string{t.plainLine(t.muted(t.trf("... %d earlier lines", hidden)))},
+				body[len(body)-room+1:]...)
+		}
+	}
+	for len(body) < room {
+		body = append(body, "")
+	}
+	return body
 }
 
 // rowsBelowComposer is how many rows sit under the input field: the box's bottom border and the
@@ -546,89 +560,116 @@ func (t *TUI) noMatches(inner int) []string {
 // as on a wide terminal. On a short terminal the layout keeps its TOP, which is why the most
 // useful lines come first.
 func (t *TUI) emptyState(inner int) []string {
-	width := inner - leftMargin
-	lines := []string{t.cell("", inner)}
-	// The static texts below are translated here, once; a line built from parts is translated
-	// where it is built, as one format, so the catalog never holds a fragment.
-	text := func(s string, col int) {
-		for _, l := range wordWrap(t.tr(s), width) {
-			lines = append(lines, t.cell(t.color(col, 0, l), inner))
-		}
-	}
-	gap := func() { lines = append(lines, t.cell("", inner)) }
-	// pairs draws a short key/description table, with the keys in the accent colour and their
-	// descriptions aligned. A row that does not fit drops its description rather than wrapping
-	// in the middle of the table.
-	pairs := func(rows [][2]string) {
-		kw := 0
-		for _, r := range rows {
-			if n := visibleLen(r[0]); n > kw {
-				kw = n
-			}
-		}
-		for _, r := range rows {
-			row := "  " + t.color(colAccent, 0, r[0]) + strings.Repeat(" ", kw-visibleLen(r[0])) + "  " + t.muted(t.tr(r[1]))
-			if !t.fits(row, width) {
-				row = "  " + t.color(colAccent, 0, r[0])
-			}
-			lines = append(lines, t.cell(row, inner))
-		}
-	}
-
-	// examples draws what the user could type, after the mark their messages carry once sent.
-	examples := func(ex ...string) {
-		for _, e := range ex {
-			for _, l := range wordWrap(t.tr(e), width-4) {
-				lines = append(lines, t.cell("  "+t.color(colAccent, 0, glyphUser)+" "+l, inner))
-			}
-		}
-	}
+	p := &emptyPage{t: t, inner: inner, width: inner - leftMargin}
+	p.gap()
 
 	if t.Notice != "" {
-		text(t.Notice, colSuccess)
-		gap()
+		p.text(t.Notice, colSuccess)
+		p.gap()
 	}
 
-	switch t.screen {
-	case ScreenPlan:
-		text("Plan mode: ask anything about your project.", colBase)
-		text("motita reads files and runs read-only commands to answer. Nothing is changed.", colMuted)
-		gap()
-		text("Try something like", colMuted)
-		examples("how is the configuration loaded?", "what would it take to add a --json flag?")
-		gap()
-		pairs([][2]string{{"Tab", "back to Task mode, to make changes"}})
-	case ScreenModels:
-		text("Press Enter to ask the provider which models it offers.", colBase)
-		text("It also checks that the endpoint and the key in your setup really work.", colMuted)
-		gap()
-		pairs([][2]string{{"/models <id>", "switch to that model for this session"}})
-	case ScreenConfig:
-		text("Press Enter to run the setup again: provider, sign-in, model and check.", colBase)
-		text("Your current settings are kept as a backup, and the new ones apply right away.", colMuted)
-	default:
-		text("What should motita do? Describe the task and press Enter.", colBase)
-		text("It makes the change, then runs your check to prove it worked before calling it done.", colMuted)
-		gap()
-		text("Try something like", colMuted)
-		examples("add a --verbose flag and a test for it", "fix the failing test in the parser")
-		gap()
-		pairs([][2]string{
-			{"Tab", "Plan mode: ask questions, nothing is changed"},
-			{"/models", "choose another model"},
-			{"/config", "change provider, key or check"},
-			{"?", "every command and key"},
-		})
-	}
+	p.screenIntro(t.screen)
 
 	// A setup that cannot answer is said HERE, on the screen the user is looking at, with the
 	// fix. A red dot in a corner is not an explanation.
 	if llmCfg := t.Runner.Config().LLM; llmCfg.APIKey == "" && config.LLMNeedsKey(llmCfg) {
-		gap()
-		text(t.trf("%s No API key for %s yet: type /config to add one,", glyphMissing, providerName(llmCfg.Provider)), colWarning)
-		text(t.trf("  or export %s before starting motita.", config.ProviderKeyVariable(llmCfg.Provider)), colWarning)
+		p.gap()
+		p.text(t.trf("%s No API key for %s yet: type /config to add one,",
+			glyphMissing, providerName(llmCfg.Provider)), colWarning)
+		p.text(t.trf("  or export %s before starting motita.", config.ProviderKeyVariable(llmCfg.Provider)), colWarning)
 	}
-	return append(lines, t.cell("", inner))
+	p.gap()
+	return p.lines
+}
+
+// emptyPage collects the rows of the first screen, each one a cell of the given inner width
+// with its text wrapped to width.
+type emptyPage struct {
+	t     *TUI
+	inner int
+	width int
+	lines []string
+}
+
+// text adds s, wrapped, in the colour col. The static texts are translated here, once; a line
+// built from parts is translated where it is built, as one format, so the catalog never holds a
+// fragment.
+func (p *emptyPage) text(s string, col int) {
+	for _, l := range wordWrap(p.t.tr(s), p.width) {
+		p.lines = append(p.lines, p.t.cell(p.t.color(col, 0, l), p.inner))
+	}
+}
+
+// gap adds an empty row.
+func (p *emptyPage) gap() { p.lines = append(p.lines, p.t.cell("", p.inner)) }
+
+// pairs draws a short key/description table, with the keys in the accent colour and their
+// descriptions aligned. A row that does not fit drops its description rather than wrapping
+// in the middle of the table.
+func (p *emptyPage) pairs(rows [][2]string) {
+	t := p.t
+	kw := 0
+	for _, r := range rows {
+		if n := visibleLen(r[0]); n > kw {
+			kw = n
+		}
+	}
+	for _, r := range rows {
+		row := "  " + t.color(colAccent, 0, r[0]) + strings.Repeat(" ", kw-visibleLen(r[0])) + "  " + t.muted(t.tr(r[1]))
+		if !t.fits(row, p.width) {
+			row = "  " + t.color(colAccent, 0, r[0])
+		}
+		p.lines = append(p.lines, t.cell(row, p.inner))
+	}
+}
+
+// examples draws what the user could type, after the mark their messages carry once sent.
+func (p *emptyPage) examples(ex ...string) {
+	for _, e := range ex {
+		for _, l := range wordWrap(p.t.tr(e), p.width-4) {
+			p.lines = append(p.lines, p.t.cell("  "+p.t.color(colAccent, 0, glyphUser)+" "+l, p.inner))
+		}
+	}
+}
+
+// screenIntro says what the screen is for and what to type in it.
+func (p *emptyPage) screenIntro(screen Screen) {
+	switch screen {
+	case ScreenPlan:
+		p.text("Plan mode: ask anything about your project.", colBase)
+		p.text("motita reads files and runs read-only commands to answer. Nothing is changed.", colMuted)
+		p.gap()
+		p.text("Try something like", colMuted)
+		p.examples("how is the configuration loaded?", "what would it take to add a --json flag?")
+		p.gap()
+		p.pairs([][2]string{{"Tab", "back to Task mode, to make changes"}})
+	case ScreenModels:
+		p.text("Press Enter to ask the provider which models it offers.", colBase)
+		p.text("It also checks that the endpoint and the key in your setup really work.", colMuted)
+		p.gap()
+		p.pairs([][2]string{{"/models <id>", "switch to that model for this session"}})
+	case ScreenConfig:
+		p.text("Press Enter to run the setup again: provider, sign-in, model and check.", colBase)
+		p.text("Your current settings are kept as a backup, and the new ones apply right away.", colMuted)
+	default:
+		p.taskIntro()
+	}
+}
+
+// taskIntro is the first screen of Task mode.
+func (p *emptyPage) taskIntro() {
+	p.text("What should motita do? Describe the task and press Enter.", colBase)
+	p.text("It makes the change, then runs your check to prove it worked before calling it done.", colMuted)
+	p.gap()
+	p.text("Try something like", colMuted)
+	p.examples("add a --verbose flag and a test for it", "fix the failing test in the parser")
+	p.gap()
+	p.pairs([][2]string{
+		{"Tab", "Plan mode: ask questions, nothing is changed"},
+		{"/models", "choose another model"},
+		{"/config", "change provider, key or check"},
+		{"?", "every command and key"},
+	})
 }
 
 // providerName is the provider as the top bar shows it, with the default spelled out.
@@ -650,48 +691,57 @@ func (t *TUI) messageLines(m Message, inner int) []string {
 	case AuthorUser:
 		head := t.color(colAccent, 0, glyphUser+" ") + t.muted(t.tr("you"))
 		return append([]string{t.cell(head, inner)}, t.railLines(m.Text, inner, colBase, colMuted)...)
-
 	case AuthorAgent:
-		// A frozen line holds a label that was already formatted (a tool
-		// announcement), so it is shown as an event and never as answer text.
-		if m.Frozen {
-			return []string{t.cell(t.muted("  "+glyphAgent+" ")+t.color(colAccent, 0, t.eventLabel(m.Text)), inner)}
-		}
-		if label, ok := toolLabel(m.Text); ok {
-			return []string{t.cell(t.muted("  "+glyphAgent+" ")+t.color(colAccent, 0, t.eventLabel(label)), inner)}
-		}
-		head := t.color(colSuccess, 0, glyphAgent+" motita")
-		body := colBase
-		if m.Pending {
-			head += "  " + t.color(colWarning, 0, spinner[t.spin%len(spinner)]+" "+t.tr("working"))
-			body = colWarning
-		}
-		if m.Preformatted {
-			lines := []string{t.cell(head, inner)}
-			for _, l := range strings.Split(m.Text, "\n") {
-				lines = append(lines, t.cell(t.color(body, 0, clipLine(l, inner-leftMargin)), inner))
-			}
-			return lines
-		}
-		return append([]string{t.cell(head, inner)}, t.railLines(m.Text, inner, body, colMuted)...)
-
+		return t.agentMessageLines(m, inner)
 	default:
-		var lines []string
-		// Preformatted text is placed line by line and clipped, never rewrapped:
-		// the alignment between a key and its description is the whole point of the
-		// help screen, and word wrapping collapses the runs of spaces that produce
-		// it. Clipping loses a long description rather than mangling it.
-		if m.Preformatted {
-			for _, l := range strings.Split(strings.TrimRight(m.Text, "\n"), "\n") {
-				lines = append(lines, t.cell(t.muted(clipLine(l, inner-leftMargin)), inner))
-			}
-			return lines
-		}
-		for _, l := range wordWrap(m.Text, inner-leftMargin) {
-			lines = append(lines, t.cell(t.muted(l), inner))
+		return t.systemMessageLines(m, inner)
+	}
+}
+
+// agentMessageLines renders a message of the agent: a tool announcement as an event, anything
+// else as an answer under the agent's header.
+func (t *TUI) agentMessageLines(m Message, inner int) []string {
+	// A frozen line holds a label that was already formatted (a tool
+	// announcement), so it is shown as an event and never as answer text.
+	if m.Frozen {
+		return []string{t.cell(t.muted("  "+glyphAgent+" ")+t.color(colAccent, 0, t.eventLabel(m.Text)), inner)}
+	}
+	if label, ok := toolLabel(m.Text); ok {
+		return []string{t.cell(t.muted("  "+glyphAgent+" ")+t.color(colAccent, 0, t.eventLabel(label)), inner)}
+	}
+	head := t.color(colSuccess, 0, glyphAgent+" motita")
+	body := colBase
+	if m.Pending {
+		head += "  " + t.color(colWarning, 0, spinner[t.spin%len(spinner)]+" "+t.tr("working"))
+		body = colWarning
+	}
+	if m.Preformatted {
+		lines := []string{t.cell(head, inner)}
+		for _, l := range strings.Split(m.Text, "\n") {
+			lines = append(lines, t.cell(t.color(body, 0, clipLine(l, inner-leftMargin)), inner))
 		}
 		return lines
 	}
+	return append([]string{t.cell(head, inner)}, t.railLines(m.Text, inner, body, colMuted)...)
+}
+
+// systemMessageLines renders a message of the interface itself, muted.
+func (t *TUI) systemMessageLines(m Message, inner int) []string {
+	var lines []string
+	// Preformatted text is placed line by line and clipped, never rewrapped:
+	// the alignment between a key and its description is the whole point of the
+	// help screen, and word wrapping collapses the runs of spaces that produce
+	// it. Clipping loses a long description rather than mangling it.
+	if m.Preformatted {
+		for _, l := range strings.Split(strings.TrimRight(m.Text, "\n"), "\n") {
+			lines = append(lines, t.cell(t.muted(clipLine(l, inner-leftMargin)), inner))
+		}
+		return lines
+	}
+	for _, l := range wordWrap(m.Text, inner-leftMargin) {
+		lines = append(lines, t.cell(t.muted(l), inner))
+	}
+	return lines
 }
 
 // clipLine truncates a PLAIN line (no escape sequences) to the given number of
@@ -891,66 +941,21 @@ func wordWrap(s string, width int) []string {
 	if width <= 0 {
 		return []string{s}
 	}
-	var lines []string
+	wr := &wrapper{width: width}
 	for _, para := range strings.Split(s, "\n") {
 		// A blank line between paragraphs is kept, once: it is what separates the steps of an
 		// answer, and dropping it ran a list and the sentence after it together. Runs of blank
 		// lines are collapsed, and the ones at either end are trimmed below.
 		if strings.TrimSpace(para) == "" {
-			if len(lines) > 0 && lines[len(lines)-1] != "" {
-				lines = append(lines, "")
-			}
+			wr.blankLine()
 			continue
 		}
-		var cur strings.Builder
-		curWidth := 0
-
-		flush := func() {
-			if cur.Len() > 0 {
-				lines = append(lines, strings.TrimSpace(cur.String()))
-				cur.Reset()
-				curWidth = 0
-			}
-		}
-
 		for _, word := range strings.Fields(para) {
-			w := visibleLen(word)
-			// The separator costs a column when something is already on the line.
-			need := w
-			if curWidth > 0 {
-				need++
-			}
-			if curWidth+need <= width {
-				if curWidth > 0 {
-					cur.WriteByte(' ')
-					curWidth++
-				}
-				cur.WriteString(word)
-				curWidth += w
-				continue
-			}
-			// The word does not fit on the current line.
-			flush()
-			if w <= width {
-				cur.WriteString(word)
-				curWidth = w
-				continue
-			}
-			// Wider than a whole line: hard split it into width-sized pieces, keeping the
-			// remainder on the current line so the next word can share it.
-			for w > width {
-				cut, piece := splitAtWidth(word, width)
-				lines = append(lines, piece)
-				word = word[cut:]
-				w = visibleLen(word)
-			}
-			if w > 0 {
-				cur.WriteString(word)
-				curWidth = w
-			}
+			wr.add(word)
 		}
-		flush()
+		wr.flush()
 	}
+	lines := wr.lines
 	if n := len(lines); n > 0 && lines[n-1] == "" {
 		lines = lines[:n-1]
 	}
@@ -958,6 +963,74 @@ func wordWrap(s string, width int) []string {
 		lines = append(lines, "")
 	}
 	return lines
+}
+
+// wrapper holds the state of wordWrap: the lines done, and the one being filled with its width
+// in columns.
+type wrapper struct {
+	width    int
+	lines    []string
+	cur      strings.Builder
+	curWidth int
+}
+
+// blankLine keeps one blank line between paragraphs, never two in a row nor one at the top.
+func (wr *wrapper) blankLine() {
+	if len(wr.lines) > 0 && wr.lines[len(wr.lines)-1] != "" {
+		wr.lines = append(wr.lines, "")
+	}
+}
+
+// flush ends the line being filled, if it holds anything.
+func (wr *wrapper) flush() {
+	if wr.cur.Len() > 0 {
+		wr.lines = append(wr.lines, strings.TrimSpace(wr.cur.String()))
+		wr.cur.Reset()
+		wr.curWidth = 0
+	}
+}
+
+// add places one word: on the current line when it fits, else on a new one, hard split when it
+// is wider than a whole line.
+func (wr *wrapper) add(word string) {
+	w := visibleLen(word)
+	// The separator costs a column when something is already on the line.
+	need := w
+	if wr.curWidth > 0 {
+		need++
+	}
+	if wr.curWidth+need <= wr.width {
+		if wr.curWidth > 0 {
+			wr.cur.WriteByte(' ')
+			wr.curWidth++
+		}
+		wr.cur.WriteString(word)
+		wr.curWidth += w
+		return
+	}
+	// The word does not fit on the current line.
+	wr.flush()
+	if w <= wr.width {
+		wr.cur.WriteString(word)
+		wr.curWidth = w
+		return
+	}
+	wr.hardSplit(word, w)
+}
+
+// hardSplit cuts a word wider than a whole line into width-sized pieces, keeping the remainder
+// on the current line so the next word can share it.
+func (wr *wrapper) hardSplit(word string, w int) {
+	for w > wr.width {
+		cut, piece := splitAtWidth(word, wr.width)
+		wr.lines = append(wr.lines, piece)
+		word = word[cut:]
+		w = visibleLen(word)
+	}
+	if w > 0 {
+		wr.cur.WriteString(word)
+		wr.curWidth = w
+	}
 }
 
 // splitAtWidth cuts s after the first `width` COLUMNS and returns the byte offset of the cut
@@ -1017,56 +1090,84 @@ const (
 func scanEscapes(s string, visit func(r rune, isEscape bool)) {
 	state := escNone
 	for _, r := range s {
-		switch state {
-		case escSeen:
-			visit(r, true)
-			switch {
-			case r == '[':
-				state = escCSI
-			case r == ']':
-				state = escOSC
-			case r >= 0x20 && r <= 0x2f:
-				// An intermediate byte: the sequence continues.
-				state = escInter
-			default:
-				state = escNone
-			}
-		case escInter:
-			visit(r, true)
-			switch {
-			case r == 0x1b:
-				// A new escape interrupts the one being read. Treating it as an
-				// intermediate kept the parser in this state, and the following
-				// "[31m" was then counted as four columns of text.
-				state = escSeen
-			case r >= 0x30:
-				state = escNone
-			}
-		case escCSI:
-			visit(r, true)
-			if r >= 0x40 && r <= 0x7e {
-				state = escNone
-			}
-		case escOSC:
-			visit(r, true)
-			switch r {
-			case 0x07: // BEL ends it
-				state = escNone
-			case 0x1b: // ESC \ also ends it
-				state = escOSCEsc
-			}
-		case escOSCEsc:
-			visit(r, true)
-			state = escNone
-		default:
-			if r == 0x1b {
-				state = escSeen
-				visit(r, true)
-				continue
-			}
-			visit(r, false)
-		}
+		var isEscape bool
+		state, isEscape = escStep(state, r)
+		visit(r, isEscape)
 	}
+}
+
+// escStep reads r in the given state of the escape parser: it returns the next state and
+// whether r is part of an escape sequence.
+func escStep(state int, r rune) (int, bool) {
+	switch state {
+	case escSeen:
+		return afterEsc(r), true
+	case escInter:
+		return inIntermediate(r), true
+	case escCSI:
+		next := escCSI
+		if r >= 0x40 && r <= 0x7e {
+			next = escNone
+		}
+		return next, true
+	case escOSC:
+		return inOSC(r), true
+	case escOSCEsc:
+		return escNone, true
+	default:
+		if r == 0x1b {
+			return escSeen, true
+		}
+		return escNone, false
+	}
+}
+
+// afterEsc is the state after the byte that follows an ESC.
+func afterEsc(r rune) int {
+	next := escNone
+	switch {
+	case r == '[':
+		next = escCSI
+	case r == ']':
+		next = escOSC
+	case r >= 0x20 && r <= 0x2f:
+		// An intermediate byte: the sequence continues.
+		next = escInter
+	default:
+		// Any other byte is a two-byte escape such as ESC =, and ends it.
+	}
+	return next
+}
+
+// inIntermediate is the state after a byte that follows the intermediates of an escape.
+func inIntermediate(r rune) int {
+	next := escInter
+	switch {
+	case r == 0x1b:
+		// A new escape interrupts the one being read. Treating it as an
+		// intermediate kept the parser in this state, and the following
+		// "[31m" was then counted as four columns of text.
+		next = escSeen
+	case r >= 0x30:
+		next = escNone
+	default:
+		// Another intermediate byte: the sequence goes on.
+	}
+	return next
+}
+
+// inOSC is the state after a byte of an OSC string.
+func inOSC(r rune) int {
+	next := escOSC
+	switch r {
+	case 0x07: // BEL ends it
+		next = escNone
+	case 0x1b: // ESC \ also ends it
+		next = escOSCEsc
+	default:
+		// Part of the string.
+	}
+	return next
 }
 
 // visibleLen returns how many COLUMNS a line occupies, escapes excluded.
@@ -1088,6 +1189,12 @@ func visibleLen(s string) int {
 	return n
 }
 
+// needsEscaping reports whether r is shown escaped by EscapeControls: a C0 control but newline
+// and tab, DEL, a C1 control, or an invalid byte.
+func needsEscaping(r rune) bool {
+	return (r < 0x20 && r != '\n' && r != '\t') || (r >= 0x7f && r < 0xa0) || r == utf8.RuneError
+}
+
 // EscapeControls makes the control characters of UNTRUSTED text visible instead of handing them
 // to the terminal: the model's words, a tool's output, a command waiting for approval. A raw ESC
 // in any of them is an instruction to the terminal, not text - it can hide part of a command in
@@ -1098,7 +1205,7 @@ func visibleLen(s string) int {
 func EscapeControls(s string) string {
 	clean := true
 	for _, r := range s {
-		if (r < 0x20 && r != '\n' && r != '\t') || (r >= 0x7f && r < 0xa0) || r == utf8.RuneError {
+		if needsEscaping(r) {
 			clean = false
 			break
 		}
@@ -1203,7 +1310,8 @@ func (t *TUI) statusLines(w int) []string {
 		left += "  " + t.muted(v)
 	}
 
-	parts := []string{t.stateGlyph() + " " + t.color(colBase, 0, providerName(cfg.LLM.Provider)) + t.muted(" "+glyphMid+" ") + t.color(colBase, 0, model)}
+	parts := []string{t.stateGlyph() + " " + t.color(colBase, 0, providerName(cfg.LLM.Provider)) +
+		t.muted(" "+glyphMid+" ") + t.color(colBase, 0, model)}
 	// A missing key is said in words, beside the model it is missing for, and it is kept longer
 	// than the reasoning level when the line is shed: it is the reason nothing will work.
 	if cfg.LLM.APIKey == "" && config.LLMNeedsKey(cfg.LLM) {
@@ -1299,12 +1407,13 @@ func (t *TUI) hintList() [][2]string {
 		return [][2]string{{"PgUp/PgDn", "scroll"}, {"End", "newest"}}
 	case t.query != "":
 		return [][2]string{{"Esc", "show everything"}, {"^F", "search again"}}
+	default:
+		other := "Plan mode"
+		if t.screen == ScreenPlan {
+			other = "Task mode"
+		}
+		return [][2]string{{"Enter", "send"}, {"Tab", other}, {"/", "commands"}, {"?", "help"}, {"^C", "quit"}}
 	}
-	other := "Plan mode"
-	if t.screen == ScreenPlan {
-		other = "Task mode"
-	}
-	return [][2]string{{"Enter", "send"}, {"Tab", other}, {"/", "commands"}, {"?", "help"}, {"^C", "quit"}}
 }
 
 // keyHints is the hint list formatted for the footer.
@@ -1414,7 +1523,8 @@ func (t *TUI) boxTop(outer int) string {
 	desc := t.muted(" " + glyphMid + " " + about)
 	working := ""
 	if t.busy {
-		working = "  " + t.color(colWarning, 0, spinner[t.spin%len(spinner)]+" "+t.tr("working")) + t.muted(t.tr(", Esc stops"))
+		working = "  " + t.color(colWarning, 0, spinner[t.spin%len(spinner)]+" "+t.tr("working")) +
+			t.muted(t.tr(", Esc stops"))
 	}
 	// The longest title that fits wins: everything; the name and the running notice; the name and
 	// what the mode does; the name and a bare "working"; the name alone.
@@ -1446,6 +1556,8 @@ func (t *TUI) modeTitle() (string, string) {
 		return "Answer", "type an answer, or pick an option above"
 	case t.searching:
 		return "Search", "filter the conversation"
+	default:
+		// Nothing is being answered or searched: the screen decides below.
 	}
 	switch t.screen {
 	case ScreenPlan:
@@ -1454,8 +1566,9 @@ func (t *TUI) modeTitle() (string, string) {
 		return "Models", "Enter lists them, /models <id> switches"
 	case ScreenConfig:
 		return "Setup", "Enter runs the setup again"
+	default:
+		return "Task", "makes changes, then proves them with your check"
 	}
-	return "Task", "makes changes, then proves them with your check"
 }
 
 // wrapVisible wraps a decorated string to a column width, carrying escape sequences along with
