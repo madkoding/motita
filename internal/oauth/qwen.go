@@ -8,6 +8,11 @@ import (
 	"time"
 )
 
+// Literals used more than once in this file.
+const (
+	httpsScheme = "https://"
+)
+
 // Qwen: the device login of Qwen Code (chat.qwen.ai), which gives a qwen.ai
 // account access to the Qwen coding models without a DashScope key.
 //
@@ -140,12 +145,12 @@ func QwenBaseURL(resource string) string {
 		return QwenDefaultBaseURL
 	}
 	lower := strings.ToLower(r)
-	if strings.HasPrefix(lower, "https://") {
-		r = r[len("https://"):]
+	if strings.HasPrefix(lower, httpsScheme) {
+		r = r[len(httpsScheme):]
 	} else if strings.HasPrefix(lower, "http://") {
 		r = r[len("http://"):]
 	}
-	r = "https://" + r
+	r = httpsScheme + r
 	if !strings.HasSuffix(r, "/v1") {
 		r += "/v1"
 	}

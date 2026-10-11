@@ -32,13 +32,13 @@ const WARN = /^\s*(warn(ing)?\b|WARN\b|deprecated\b)/i
 
 // lineClass names the colour a whole output line takes, or '' for the plain one.
 function lineClass(line: string): string {
-  if (line.startsWith('+++') || line.startsWith('---')) return line.startsWith('---') && FAIL.test(line) ? 'to-err' : 'to-diffhead'
-  if (line.startsWith('@@')) return 'to-hunk'
-  if (line.startsWith('+')) return 'to-add'
-  if (line.startsWith('-')) return 'to-del'
-  if (FAIL.test(line)) return 'to-err'
-  if (PASS.test(line)) return 'to-ok'
-  if (WARN.test(line)) return 'to-warn'
+  if (line.startsWith('+++') || line.startsWith('---')) { return line.startsWith('---') && FAIL.test(line) ? 'to-err' : 'to-diffhead' }
+  if (line.startsWith('@@')) { return 'to-hunk' }
+  if (line.startsWith('+')) { return 'to-add' }
+  if (line.startsWith('-')) { return 'to-del' }
+  if (FAIL.test(line)) { return 'to-err' }
+  if (PASS.test(line)) { return 'to-ok' }
+  if (WARN.test(line)) { return 'to-warn' }
   return ''
 }
 
@@ -92,9 +92,9 @@ function reveal(slices: Slice[], n: number) {
     // Never cut between the two halves of a surrogate pair: that draws a broken glyph.
     if (k > 0 && k < s.full.length) {
       const c = s.full.charCodeAt(k - 1)
-      if (c >= 0xd800 && c <= 0xdbff) k--
+      if (c >= 0xd800 && c <= 0xdbff) { k-- }
     }
-    if (s.node.data.length !== k) s.node.data = s.full.slice(0, k)
+    if (s.node.data.length !== k) { s.node.data = s.full.slice(0, k) }
   }
 }
 
@@ -139,8 +139,8 @@ export function Typed({ html, as = 'span', class: cls, cps, onTick, onDone, inst
 
   useLayoutEffect(() => {
     const el = ref.current
-    if (!el) return
-    if (!mounted.current || mounted.current.html !== html) mounted.current = { html, ...collect(el) }
+    if (!el) { return }
+    if (!mounted.current || mounted.current.html !== html) { mounted.current = { html, ...collect(el) } }
     const { slices, total } = mounted.current
     const finish = () => {
       el.classList.remove('is-typing')
@@ -156,7 +156,7 @@ export function Typed({ html, as = 'span', class: cls, cps, onTick, onDone, inst
       finish()
       return
     }
-    if (shown.current < total) finished.current = false
+    if (shown.current < total) { finished.current = false }
     reveal(slices, shown.current)
     cb.current.onTick?.()
     if (shown.current >= total) {
@@ -175,8 +175,8 @@ export function Typed({ html, as = 'span', class: cls, cps, onTick, onDone, inst
         reveal(slices, n)
         cb.current.onTick?.()
       }
-      if (n >= total) finish()
-      else raf = requestAnimationFrame(step)
+      if (n >= total) { finish() }
+      else { raf = requestAnimationFrame(step) }
     }
     raf = requestAnimationFrame(step)
     return () => cancelAnimationFrame(raf)
@@ -199,7 +199,7 @@ export function TermCommand({ cmd, onTick, onDone, instant, boost }: { cmd: stri
   useEffect(() => {
     let live = true
     import('./highlight').then(
-      m => { if (live) setHtml(m.highlight(cmd, 'bash')) },
+      m => { if (live) { setHtml(m.highlight(cmd, 'bash')) } },
       () => { /* the escaped text stays: colour is a courtesy */ },
     )
     return () => { live = false }
@@ -219,7 +219,7 @@ export function TermOutput({ text, onTick, onDone, instant, boost }: { text: str
     let live = true
     if (json) {
       import('./highlight').then(
-        m => { if (live) setHtml(m.highlight(text, 'json')) },
+        m => { if (live) { setHtml(m.highlight(text, 'json')) } },
         () => { /* keep the line colouring */ },
       )
     }
@@ -258,7 +258,7 @@ export function TermEntry({ cmd, out, status, phase, boost, onTick, onFinished }
 } & Pick<PieceProps, 'onTick'>) {
   const [cmdDone, setCmdDone] = useState(false)
   const [outDone, setOutDone] = useState(false)
-  if (phase === 'wait') return null
+  if (phase === 'wait') { return null }
   const instant = phase === 'done'
   const showOut = !!out && (instant || cmdDone)
   const outPending = !!out && !instant && !outDone
@@ -275,7 +275,7 @@ export function TermEntry({ cmd, out, status, phase, boost, onTick, onFinished }
             instant={instant}
             boost={boost}
             onTick={onTick}
-            onDone={() => { if (status.kind !== 'running') onFinished?.() }}
+            onDone={() => { if (status.kind !== 'running') { onFinished?.() } }}
           />
           {status.kind === 'running' && <span class="term-caret" />}
         </div>

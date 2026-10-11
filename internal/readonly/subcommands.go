@@ -9,6 +9,11 @@ import (
 	"strings"
 )
 
+// Literals used more than once in this file.
+const (
+	flagOutput = "--output"
+)
+
 // gitReading are the git subcommands that inspect a repository. Anything else can write the
 // index, the working tree or the remote, and is refused.
 var gitReading = map[string]bool{
@@ -40,7 +45,7 @@ func gitRule(args []string) (string, bool) {
 		return fmt.Sprintf("git %s can change the repository", sub), true
 	}
 	for _, a := range rest {
-		if a == "--output" || strings.HasPrefix(a, "--output=") {
+		if a == flagOutput || strings.HasPrefix(a, "--output=") {
 			return fmt.Sprintf("git %s %s writes a file", sub, a), true
 		}
 	}
@@ -200,7 +205,7 @@ var sortLongOptions = []string{
 	"--ignore-leading-blanks", "--dictionary-order", "--ignore-case", "--general-numeric-sort",
 	"--ignore-nonprinting", "--month-sort", "--human-numeric-sort", "--numeric-sort",
 	"--random-sort", "--random-source", "--reverse", "--sort", "--version-sort", "--batch-size",
-	"--check", "--compress-program", "--debug", "--files0-from", "--key", "--merge", "--output",
+	"--check", "--compress-program", "--debug", "--files0-from", "--key", "--merge", flagOutput,
 	"--stable", "--buffer-size", "--field-separator", "--temporary-directory", "--parallel",
 	"--unique", "--zero-terminated", "--help", "--version",
 }
@@ -217,7 +222,7 @@ func sortRule(args []string) (string, bool) {
 		case strings.HasPrefix(a, "--"):
 			name, _, _ := strings.Cut(a, "=")
 			switch resolveLong(name, sortLongOptions) {
-			case "--output":
+			case flagOutput:
 				return fmt.Sprintf("sort %s writes a file", a), true
 			case "--compress-program":
 				return fmt.Sprintf("sort %s runs a program of its choosing", a), true

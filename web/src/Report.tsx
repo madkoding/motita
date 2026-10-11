@@ -40,7 +40,7 @@ function useImage(name: string | undefined, load?: LoadImage) {
     let live = true
     setSrc(undefined)
     if (!name || !load) { setSrc(null); return }
-    load(name).then(u => { if (live) setSrc(u) }).catch(() => { if (live) setSrc(null) })
+    load(name).then(u => { if (live) { setSrc(u) } }).catch(() => { if (live) { setSrc(null) } })
     return () => { live = false }
   }, [name, load])
   return src
@@ -69,9 +69,9 @@ export function ReportCard({ report, loadImage }: { report: TaskReport; loadImag
   // The object URLs of the images loaded so far, so the preview can offer the other half of a pair.
   const urls = useRef(new Map<string, string>())
   const load = useCallback<LoadImage>(async (name) => {
-    if (!loadImage) return null
+    if (!loadImage) { return null }
     const u = await loadImage(name)
-    if (u) urls.current.set(name, u)
+    if (u) { urls.current.set(name, u) }
     return u
   }, [loadImage])
   const status = STATUS_TEXT[report.status ?? ''] ? (report.status as string) : 'done'

@@ -22,7 +22,7 @@ let set: Set<string> | null = null
 
 /** The codepoint names in use, built once from the generated string. */
 function codepoints(): Set<string> {
-  if (!set) set = new Set(CODEPOINTS.split(','))
+  if (!set) { set = new Set(CODEPOINTS.split(',')) }
   return set
 }
 
@@ -45,7 +45,7 @@ function codepoints(): Set<string> {
  */
 function assetFor(part: string): string | null {
   const key = partsOf(part)
-  if (!key) return null
+  if (!key) { return null }
   return codepoints().has(key) ? key : null
 }
 
@@ -66,12 +66,12 @@ function partsOf(part: string): string | null {
   const out: string[] = []
   for (const ch of part) {
     const cp = ch.codePointAt(0)
-    if (cp === undefined) return null
+    if (cp === undefined) { return null }
     if (cp === 0xFE0F || cp === 0xFE0E || cp === 0x200D) {
       // The presentation selector is dropped: a picker-inserted character carries it and a
       // hand-typed one does not, and both name the same glyph — keeping it would give the
       // same emoji two keys and let half of real-world input miss.
-      if (cp === 0x200D) out.push('200d')
+      if (cp === 0x200D) { out.push('200d') }
       continue
     }
     out.push(hex(cp))
@@ -141,8 +141,8 @@ function replaceInNode(root: HTMLElement): number {
   const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, {
     acceptNode(node) {
       const p = node.parentElement
-      if (!p) return NodeFilter.FILTER_REJECT
-      if (SKIP.has(p.tagName)) return NodeFilter.FILTER_REJECT
+      if (!p) { return NodeFilter.FILTER_REJECT }
+      if (SKIP.has(p.tagName)) { return NodeFilter.FILTER_REJECT }
       // A diagram's SVG labels are text too, and mermaid sized its boxes for the glyph it
       // measured: swapping in an image there changes the layout of a drawing.
       if (p.closest('.mermaid-block, .math-inline, .math-block, svg')) {
@@ -154,7 +154,7 @@ function replaceInNode(root: HTMLElement): number {
   })
 
   const targets: Text[] = []
-  for (let n = walker.nextNode(); n; n = walker.nextNode()) targets.push(n as Text)
+  for (let n = walker.nextNode(); n; n = walker.nextNode()) { targets.push(n as Text) }
 
   let count = 0
   for (const node of targets) {
@@ -167,7 +167,7 @@ function replaceInNode(root: HTMLElement): number {
     let changed = false
     for (let m = re.exec(text); m; m = re.exec(text)) {
       const part = m[0]
-      if (m.index > last) frag.appendChild(document.createTextNode(text.slice(last, m.index)))
+      if (m.index > last) { frag.appendChild(document.createTextNode(text.slice(last, m.index))) }
       last = m.index + part.length
 
       const name = assetFor(part)
@@ -189,8 +189,8 @@ function replaceInNode(root: HTMLElement): number {
       changed = true
       count += 1
     }
-    if (!changed) continue
-    if (last < text.length) frag.appendChild(document.createTextNode(text.slice(last)))
+    if (!changed) { continue }
+    if (last < text.length) { frag.appendChild(document.createTextNode(text.slice(last))) }
     node.replaceWith(frag)
   }
   return count

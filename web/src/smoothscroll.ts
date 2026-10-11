@@ -34,7 +34,7 @@ export function createFollower(
   const step = (now: number) => {
     raf = 0
     const el = getEl()
-    if (!el || !active()) return
+    if (!el || !active()) { return }
     const dt = Math.min(64, Math.max(1, now - last))
     last = now
     const gap = end(el) - el.scrollTop
@@ -55,18 +55,18 @@ export function createFollower(
 
   return {
     kick() {
-      if (raf || !active()) return
+      if (raf || !active()) { return }
       last = performance.now()
       raf = requestAnimationFrame(step)
     },
     jump() {
-      if (raf) cancelAnimationFrame(raf)
+      if (raf) { cancelAnimationFrame(raf) }
       raf = 0
       const el = getEl()
-      if (el) el.scrollTop = end(el)
+      if (el) { el.scrollTop = end(el) }
     },
     stop() {
-      if (raf) cancelAnimationFrame(raf)
+      if (raf) { cancelAnimationFrame(raf) }
       raf = 0
     },
   }

@@ -16,6 +16,11 @@ import (
 	"github.com/madkoding/motita/internal/oauth"
 )
 
+// Literals used more than once in this file.
+const (
+	bearerPrefix = "Bearer "
+)
+
 // Default endpoints, one per provider. The configuration's base_url wins over
 // them, except where a login names its own host (Copilot's plan endpoint, the
 // Qwen resource host, the ChatGPT backend): a token is only valid there.
@@ -169,7 +174,7 @@ func (c *Client) target(ctx context.Context, force bool) (target, error) {
 			t.headers["x-goog-api-key"] = key
 		default:
 			if key != "" {
-				t.headers["Authorization"] = "Bearer " + key
+				t.headers["Authorization"] = bearerPrefix + key
 			}
 		}
 		return t, nil
@@ -191,7 +196,7 @@ func (c *Client) target(ctx context.Context, force bool) (target, error) {
 	case "codex":
 		t.base = oauth.CodexBackendURL
 		t.chatgpt = true
-		t.headers["Authorization"] = "Bearer " + cred.AccessToken
+		t.headers["Authorization"] = bearerPrefix + cred.AccessToken
 		t.headers["chatgpt-account-id"] = cred.AccountID
 		t.headers["OpenAI-Beta"] = "responses=experimental"
 		t.headers["originator"] = "codex_cli_rs"
@@ -200,9 +205,9 @@ func (c *Client) target(ctx context.Context, force bool) (target, error) {
 		// DashScope endpoint a key would use, so base_url does not apply here.
 		// A host stored by an older version as "http://" is upgraded to https.
 		t.base = oauth.QwenBaseURL(cred.BaseURL)
-		t.headers["Authorization"] = "Bearer " + cred.AccessToken
+		t.headers["Authorization"] = bearerPrefix + cred.AccessToken
 	case "gemini":
-		t.headers["Authorization"] = "Bearer " + cred.AccessToken
+		t.headers["Authorization"] = bearerPrefix + cred.AccessToken
 		if cred.ProjectID != "" {
 			t.headers["x-goog-user-project"] = cred.ProjectID
 		}

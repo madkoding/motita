@@ -99,7 +99,7 @@ self.addEventListener('fetch', (event: FetchEvent) => {
   // name changes whenever the bytes do.
   event.respondWith(
     caches.match(event.request).then((cached) => {
-      if (cached) return cached
+      if (cached) { return cached }
       return fetch(event.request).then((response) => {
         if (response.ok) {
           const clone = response.clone()

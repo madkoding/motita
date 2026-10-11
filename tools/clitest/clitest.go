@@ -21,6 +21,12 @@ import (
 	"time"
 )
 
+// Literals used more than once in this file.
+const (
+	loopbackHost = "127.0.0.1"
+	healthzPath  = "/healthz"
+)
+
 // Tool describes one mock server's bootstrap.
 type Tool struct {
 	// Name is the program, for the failure messages.
@@ -115,7 +121,7 @@ func testAnswersHealthz(t contractT, tool Tool) {
 	// Handing the port to a subprocess is exactly the case a hardcoded number cannot cover:
 	// the child binds it a moment later, so it has to be free NOW.
 	port := strconv.Itoa(reservePort(t, tool.Port))
-	cmd := exec.Command(binary, "-port", port, "-host", "127.0.0.1")
+	cmd := exec.Command(binary, "-port", port, "-host", loopbackHost)
 	cmd.Env = append(os.Environ(), tool.Marker+"=1")
 	var stderr strings.Builder
 	cmd.Stderr = &stderr
@@ -128,7 +134,7 @@ func testAnswersHealthz(t contractT, tool Tool) {
 		cmd.Wait()
 	}()
 
-	url := "http://127.0.0.1:" + port + "/healthz"
+	url := "http://127.0.0.1:" + port + healthzPath
 	deadline := time.Now().Add(10 * time.Second)
 	for time.Now().Before(deadline) {
 		resp, err := http.Get(url)
@@ -175,7 +181,7 @@ func testBootstrapReportsAFailure(t contractT, tool Tool) {
 	swap(t, tool, func(*http.Server) error { return errors.New("port already in use") })
 
 	var exited []int
-	tool.MainBody(tool.Port, "127.0.0.1", func(code int) { exited = append(exited, code) })
+	tool.MainBody(tool.Port, loopbackHost, func(code int) { exited = append(exited, code) })
 
 	if len(exited) != 1 || exited[0] != 1 {
 		t.Errorf("the bootstrap must ask for exit 1: %v", exited)
@@ -189,7 +195,7 @@ func testBootstrapStartsAndStops(t contractT, tool Tool) {
 	t.Helper()
 	swap(t, tool, func(srv *http.Server) error {
 		rec := httptest.NewRecorder()
-		srv.Handler.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/healthz", nil))
+		srv.Handler.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, healthzPath, nil))
 		if rec.Body.String() != "ok" {
 			t.Errorf("the handler is not wired: %q", rec.Body.String())
 		}
@@ -200,7 +206,7 @@ func testBootstrapStartsAndStops(t contractT, tool Tool) {
 	})
 
 	var exited []int
-	tool.MainBody(tool.Port, "127.0.0.1", func(code int) { exited = append(exited, code) })
+	tool.MainBody(tool.Port, loopbackHost, func(code int) { exited = append(exited, code) })
 
 	if len(exited) != 0 {
 		t.Errorf("a successful start must not exit: %v", exited)
@@ -223,7 +229,7 @@ func testRealServerBindsAndServes(t contractT, tool Tool) {
 	go func() { _ = (*tool.ListenAndServe)(srv) }()
 	defer srv.Close()
 
-	url := "http://" + addr + "/healthz"
+	url := "http://" + addr + healthzPath
 	deadline := time.Now().Add(8 * time.Second)
 	for time.Now().Before(deadline) {
 		resp, err := http.Get(url)

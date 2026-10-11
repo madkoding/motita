@@ -50,8 +50,8 @@ test('the bar asks the gateway only while it is following the CI', () => {
 
 test('a merge the host would refuse is not offered', () => {
   const v = (code) => ({ state: 'open', branch: 'b', merge: { code } })
-  for (const c of ['blocked', 'conflict', 'draft']) assert.equal(p.mergeRefused(v(c)), true, c)
-  for (const c of ['ok', 'behind', 'unknown']) assert.equal(p.mergeRefused(v(c)), false, c)
+  for (const c of ['blocked', 'conflict', 'draft']) { assert.equal(p.mergeRefused(v(c)), true, c) }
+  for (const c of ['ok', 'behind', 'unknown']) { assert.equal(p.mergeRefused(v(c)), false, c) }
   assert.equal(p.mergeRefused(null), false)
   assert.equal(p.mergeRefused({ state: 'open', branch: 'b' }), false)
 })
@@ -84,7 +84,7 @@ test('retryFix, mergePR and getPR speak to the gateway and carry its refusals', 
   const calls = []
   const api = async (path, init) => {
     calls.push([path, init?.method])
-    if (path.endsWith('/fix')) return { ok: true, json: async () => ({ started: false, queued: true }) }
+    if (path.endsWith('/fix')) { return { ok: true, json: async () => ({ started: false, queued: true }) } }
     return { ok: false, status: 409, json: async () => ({ error: 'not connected', code: 'git_auth_required', service: 'github' }) }
   }
   assert.deepEqual(await p.retryFix(api, 's 1'), { started: false })
@@ -104,5 +104,5 @@ test('every string of the pull request bar has a Spanish translation', () => {
   assert.ok(block.length > 1000, 'the bar is delimited in App.tsx')
   const keys = [...block.matchAll(/\bt[f]?\('((?:[^'\\]|\\.)*)'/g)].map(m => m[1].replace(/\\'/g, "'"))
   assert.ok(keys.length > 5)
-  for (const k of keys) assert.ok(es[k], `missing Spanish for: ${k}`)
+  for (const k of keys) { assert.ok(es[k], `missing Spanish for: ${k}`) }
 })

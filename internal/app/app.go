@@ -1347,7 +1347,9 @@ func (op Options) attachGateway(ctx context.Context, fl flags, cfg config.Config
 	// runGatewayLoop is what STARTS the server - it serves in a goroutine and hands back the
 	// shutdown. Starting the gateway without it would leave a bound socket that nobody answers on:
 	// every client would connect and then wait forever, which is exactly how this was found.
-	shutdown := func() {}
+	shutdown := func() {
+		// No gateway was started, so there is nothing to shut down.
+	}
 	if srv != nil {
 		shutdown = op.runGatewayLoop(ctx, srv, log)
 	}

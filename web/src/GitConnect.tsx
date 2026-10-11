@@ -37,7 +37,7 @@ interface Props {
 
 function errorText(e: unknown): string {
   if (e instanceof GitError) {
-    if (e.status === 501) return t('This server cannot sign in to git hosts. Ask whoever runs it to enable login.')
+    if (e.status === 501) { return t('This server cannot sign in to git hosts. Ask whoever runs it to enable login.') }
     return e.message
   }
   return e instanceof Error ? e.message : String(e)
@@ -54,7 +54,7 @@ export function GitConnectModal({ api, service, selfHosted, onClose, onConnected
 
   useEffect(() => {
     let live = true
-    listAccounts(api).then(a => { if (live) setAccounts(a) }).catch(e => { if (live) { setLoadErr(errorText(e)); setAccounts([]) } })
+    listAccounts(api).then(a => { if (live) { setAccounts(a) } }).catch(e => { if (live) { setLoadErr(errorText(e)); setAccounts([]) } })
     return () => { live = false }
   }, [])
 
@@ -105,7 +105,7 @@ function ConnectPanel({ api, account, selfHosted, onClose, onConnected }: { api:
   const base = (): ConnectRequest => (account.id ? { service: account.id } : { kind: account.kind, host: account.host })
 
   // Cancel a pending login when the modal goes away.
-  useEffect(() => () => { if (flowId.current && !doneRef.current) void cancelFlow(api, flowId.current) }, [])
+  useEffect(() => () => { if (flowId.current && !doneRef.current) { void cancelFlow(api, flowId.current) } }, [])
 
   const finish = (service: string, acct: string) => {
     doneRef.current = true
@@ -119,7 +119,7 @@ function ConnectPanel({ api, account, selfHosted, onClose, onConnected }: { api:
     dispatch({ type: 'start' })
     try {
       const r = await connect(api, { ...base(), method })
-      if (r.type === 'connected') return finish(r.service || account.id, r.account)
+      if (r.type === 'connected') { return finish(r.service || account.id, r.account) }
       flowId.current = r.flow.flow_id
       dispatch({ type: 'started', flow: r.flow })
     } catch (e) {
@@ -136,17 +136,17 @@ function ConnectPanel({ api, account, selfHosted, onClose, onConnected }: { api:
   // Poll while a login is pending.
   const pendingId = state.phase === 'pending' ? state.flow.flow_id : ''
   useEffect(() => {
-    if (!pendingId) return
+    if (!pendingId) { return }
     let stop = false
     pollFlow({
       get: () => flowStatus(api, pendingId),
       sleep: (ms) => new Promise(r => setTimeout(r, ms)),
       cancelled: () => stop,
     }).then(st => {
-      if (!st || stop) return
+      if (!st || stop) { return }
       dispatch({ type: 'poll', status: st })
       if (st.status === 'connected') { doneRef.current = true; finish(st.service || account.id, st.account || '') }
-      else doneRef.current = true
+      else { doneRef.current = true }
     })
     return () => { stop = true }
   }, [pendingId])
@@ -264,7 +264,7 @@ function TokenForm({ api, account, base, onDone }: { api: Api; account: GitAccou
   const ok = token.trim() && (!bb || user.trim())
   const submit = async (e: Event) => {
     e.preventDefault()
-    if (!ok || busy) return
+    if (!ok || busy) { return }
     setBusy(true); setErr('')
     try {
       const r = await connect(api, { ...base, method: 'token', token: token.trim(), username: bb ? user.trim() : undefined })
