@@ -84,6 +84,8 @@ func TestDevicePollAndRefresh(t *testing.T) {
 			switch f.Get("grant_type") {
 			case "refresh_token":
 				return jsonResp(map[string]any{"access_token": "new"}), nil
+			default:
+				// a device-code poll: answered by the step below
 			}
 			step++
 			switch step {
@@ -101,10 +103,12 @@ func TestDevicePollAndRefresh(t *testing.T) {
 				return errResp(500, "boom"), nil
 			case 7:
 				return jsonResp(map[string]any{}), nil
+			default:
+				// past the scripted failures: the token below
 			}
-			return jsonResp(
-				map[string]any{"access_token": "tok", "refresh_token": "r", "token_type": "bearer", "scope": "repo",
-					"expires_in": 3600}), nil
+			return jsonResp(map[string]any{
+				"access_token": "tok", "refresh_token": "r", "token_type": "bearer", "scope": "repo", "expires_in": 3600,
+			}), nil
 		},
 	})
 	dc := DeviceCode{DeviceCode: "d"}
@@ -121,8 +125,8 @@ func TestDevicePollAndRefresh(t *testing.T) {
 		}
 	}
 	tok, err := DevicePoll(context.Background(), hc, ep, Client{ID: "c"}, dc)
-	if err != nil || tok.AccessToken != "tok" || tok.RefreshToken != "r" || tok.ExpiresAt.IsZero() ||
-		tok.Scopes != "repo" {
+	wrong := err != nil || tok.AccessToken != "tok" || tok.RefreshToken != "r"
+	if wrong || tok.ExpiresAt.IsZero() || tok.Scopes != "repo" {
 		t.Fatalf("tok=%+v err=%v", tok, err)
 	}
 	// A refresh that returns no new refresh token keeps the old one.

@@ -236,9 +236,10 @@ func TestCodexAuthorizeURLAndExchange(t *testing.T) {
 	p, _ := NewPKCE()
 	u, _ := url.Parse(CodexAuthorizeURL(p, ""))
 	q := u.Query()
-	if u.Host != "auth.openai.com" || q.Get("client_id") != CodexClientID || q.Get("redirect_uri") != CodexRedirectURI ||
-		q.Get("code_challenge") != p.Challenge || q.Get("state") != p.State ||
-		!strings.Contains(q.Get("scope"), "offline_access") {
+	wrong := u.Host != "auth.openai.com" || q.Get("client_id") != CodexClientID ||
+		q.Get("redirect_uri") != CodexRedirectURI
+	wrong = wrong || q.Get("code_challenge") != p.Challenge || q.Get("state") != p.State
+	if wrong || !strings.Contains(q.Get("scope"), "offline_access") {
 		t.Errorf("authorize URL = %s", u)
 	}
 	id := fakeJWT(
@@ -395,8 +396,8 @@ func TestGeminiAuthorizeURLAskForARefreshToken(t *testing.T) {
 	p, _ := NewPKCE()
 	u, _ := url.Parse(GeminiAuthorizeURL(GeminiClient{ID: "cid"}, p, "http://127.0.0.1:5555/"))
 	q := u.Query()
-	if q.Get("access_type") != "offline" || q.Get("prompt") != "consent" || q.Get("client_id") != "cid" ||
-		!strings.Contains(q.Get("scope"), "generative-language") || q.Get("code_challenge") != p.Challenge {
+	wrong := q.Get("access_type") != "offline" || q.Get("prompt") != "consent" || q.Get("client_id") != "cid"
+	if wrong || !strings.Contains(q.Get("scope"), "generative-language") || q.Get("code_challenge") != p.Challenge {
 		t.Errorf("URL = %s", u)
 	}
 }
