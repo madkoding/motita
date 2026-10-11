@@ -19,7 +19,7 @@ const PLUS_FULL = { size: 16, stroke: 2 }
 const PLUS_COMPACT = { size: 12, stroke: 2.5 }
 
 // buttonIcon is the spinner while the session is being created, the plus otherwise.
-function buttonIcon(loading: boolean, compact?: boolean) {
+function buttonIcon(loading: boolean, compact = false) {
   if (loading) { return h('span', { class: 'btn-spinner', 'aria-hidden': 'true' }) }
   let plus = PLUS_FULL
   if (compact) { plus = PLUS_COMPACT }

@@ -309,7 +309,7 @@ const messagePurify = DOMPurify(window)
 
 // The one style a message keeps: a table column's alignment, which markdown-it itself
 // writes as `style="text-align:..."`.
-const ALIGN_ONLY = /^\s*text-align:\s*(left|right|center)\s*;?\s*$/i
+const ALIGN_ONLY = /^\s*text-align:\s*(left|right|center)\s*(?:;\s*)?$/i
 messagePurify.addHook('uponSanitizeAttribute', (_node, data) => {
   if (data.attrName === 'style' && !ALIGN_ONLY.test(data.attrValue)) { data.keepAttr = false }
 })
@@ -416,7 +416,7 @@ async function hydrateCode(code: HTMLElement[]): Promise<void> {
   } catch (err) {
     // Uncoloured code is still correct code: nothing is shown to the reader.
     for (const el of code) { el.dataset.done = 'plain' }
-    console.error('motita: syntax highlighting is unavailable:', err)
+    console.info('motita: syntax highlighting is unavailable:', err)
   }
 }
 
@@ -467,7 +467,7 @@ async function hydrateEmoji(root: HTMLElement): Promise<void> {
   } catch (err) {
     // An emoji that stays a character is exactly as readable as before this existed.
     root.dataset.emoji = 'plain'
-    console.error('motita: the emoji images are unavailable:', err)
+    console.info('motita: the emoji images are unavailable:', err)
   }
 }
 
