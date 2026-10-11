@@ -146,7 +146,8 @@ func (l *Library) realDirs(dir string) bool {
 // writable refuses a write into the untrusted front layer through a symbolic link.
 func (l *Library) writable(dir string) error {
 	if l.inFront(dir) && !l.realDirs(dir) {
-		return fmt.Errorf("the project's skills directory %s is reached through a symbolic link: refusing to write there", dir)
+		return fmt.Errorf("the project's skills directory %s is reached through a symbolic link: "+
+			"refusing to write there", dir)
 	}
 	return nil
 }
@@ -303,6 +304,8 @@ func Name(raw string) string {
 		case r == ' ' || r == '.' || r == '/':
 			// A space, a dot or a slash becomes a separator, never a path element.
 			b.WriteRune('-')
+		default:
+			// Anything else is dropped: it cannot be part of a file name.
 		}
 	}
 	out := strings.Trim(b.String(), "-")
@@ -423,6 +426,65 @@ func (l *Library) builtin(name string) (Skill, bool, error) {
 	return s, ok, nil
 }
 
+// scoredSkill is one search hit with what ranks it.
+type scoredSkill struct {
+	skill   Skill
+	tier    int // which field matched: 0 name, 1 title, 2 summary, 3 body
+	first   int // index of the earliest query word that matched, for an intra-tier tie
+	matched int // how many of the query's words appear in the document
+	// value is the long-term verdict on this skill, and it is the LAST tie-break.
+	value   float64
+	hasHist bool
+}
+
+// before reports whether hit a ranks ahead of hit b.
+func (a scoredSkill) before(b scoredSkill) bool {
+	if a.tier != b.tier {
+		return a.tier < b.tier
+	}
+	// Within a field, the document that covered more of the query is the one being asked
+	// for; an earlier matching word is a weaker signal and only breaks a remaining tie.
+	if a.matched != b.matched {
+		return a.matched > b.matched
+	}
+	if a.first != b.first {
+		return a.first < b.first
+	}
+	// Only now does the accumulated value matter, and only between skills that are
+	// otherwise equal.
+	//
+	// Relevance comes first on purpose: a skill that has always worked is still the wrong
+	// answer to a question it is not about, and letting the score outrank the text would
+	// make the search return whatever has been used most — the failure mode of every
+	// popularity ranking. The score is a tie-break, which is exactly the case where the
+	// words cannot tell two candidates apart and experience can.
+	if a.value != b.value {
+		return a.value > b.value
+	}
+	return a.skill.Name < b.skill.Name
+}
+
+// noMatch is the tier of a document no word of the query appears in.
+const noMatch = 4
+
+// matchTier reports which field of a document (its Body already loaded) the query matched
+// first — 0 name, 1 title, 2 summary, 3 body, noMatch for none — and the index of the
+// earliest query word that matched there.
+func matchTier(s Skill, words []string) (tier, first int) {
+	switch {
+	case anyWordMatches(s.Name, words):
+		return 0, fieldMatch(s.Name, words)
+	case anyWordMatches(s.Title, words):
+		return 1, fieldMatch(s.Title, words)
+	case anyWordMatches(s.Summary, words):
+		return 2, fieldMatch(s.Summary, words)
+	case anyWordMatches(s.Body, words):
+		return 3, fieldMatch(s.Body, words)
+	default:
+		return noMatch, 0
+	}
+}
+
 // Search finds the skills whose name, title, summary or body match a query, best first.
 //
 // Matching the BODY as well as the headings is deliberate: a user asking "how do I handle a
@@ -453,16 +515,7 @@ func (l *Library) Search(query string, limit int) ([]Skill, error) {
 		return nil, err
 	}
 
-	type scored struct {
-		skill   Skill
-		tier    int // which field matched: 0 name, 1 title, 2 summary, 3 body
-		first   int // index of the earliest query word that matched, for an intra-tier tie
-		matched int // how many of the query's words appear in the document
-		// value is the long-term verdict on this skill, and it is the LAST tie-break.
-		value   float64
-		hasHist bool
-	}
-	var hits []scored
+	var hits []scoredSkill
 	for _, s := range all {
 		body, err := l.body(s)
 		if err != nil {
@@ -475,53 +528,19 @@ func (l *Library) Search(query string, limit int) ([]Skill, error) {
 		// Two numbers decide the order, and both are small integers so the comparison is
 		// obvious: which field matched (a name beats a title beats a summary beats the body),
 		// and how much of the query the document covers.
-		tier, first := 4, 0
-		switch {
-		case anyWordMatches(s.Name, words):
-			tier, first = 0, fieldMatch(s.Name, words)
-		case anyWordMatches(s.Title, words):
-			tier, first = 1, fieldMatch(s.Title, words)
-		case anyWordMatches(s.Summary, words):
-			tier, first = 2, fieldMatch(s.Summary, words)
-		case anyWordMatches(body, words):
-			tier, first = 3, fieldMatch(body, words)
-		}
-		if tier == 4 {
+		tier, first := matchTier(s, words)
+		if tier == noMatch {
 			// No word of the query appears anywhere: not a match.
 			continue
 		}
-		h := scored{skill: s, tier: tier, first: first, matched: countMatches(s, words)}
+		h := scoredSkill{skill: s, tier: tier, first: first, matched: countMatches(s, words)}
 		if l.Scorer != nil {
 			h.value, h.hasHist = l.Scorer.Value(s.Name)
 		}
 		hits = append(hits, h)
 	}
 
-	sort.SliceStable(hits, func(i, j int) bool {
-		if hits[i].tier != hits[j].tier {
-			return hits[i].tier < hits[j].tier
-		}
-		// Within a field, the document that covered more of the query is the one being asked
-		// for; an earlier matching word is a weaker signal and only breaks a remaining tie.
-		if hits[i].matched != hits[j].matched {
-			return hits[i].matched > hits[j].matched
-		}
-		if hits[i].first != hits[j].first {
-			return hits[i].first < hits[j].first
-		}
-		// Only now does the accumulated value matter, and only between skills that are
-		// otherwise equal.
-		//
-		// Relevance comes first on purpose: a skill that has always worked is still the wrong
-		// answer to a question it is not about, and letting the score outrank the text would
-		// make the search return whatever has been used most — the failure mode of every
-		// popularity ranking. The score is a tie-break, which is exactly the case where the
-		// words cannot tell two candidates apart and experience can.
-		if hits[i].value != hits[j].value {
-			return hits[i].value > hits[j].value
-		}
-		return hits[i].skill.Name < hits[j].skill.Name
-	})
+	sort.SliceStable(hits, func(i, j int) bool { return hits[i].before(hits[j]) })
 
 	if len(hits) > limit {
 		hits = hits[:limit]
@@ -575,7 +594,8 @@ func (l *Library) Save(name, body string) (Skill, error) {
 		return Skill{}, errors.New("the skill body is empty")
 	}
 	if l.MaxFileBytes > 0 && len(body) > l.MaxFileBytes {
-		return Skill{}, fmt.Errorf("the skill is %d bytes and the limit is %d: a procedure this size belongs in a data file, or it needs splitting", len(body), l.MaxFileBytes)
+		return Skill{}, fmt.Errorf("the skill is %d bytes and the limit is %d: "+
+			"a procedure this size belongs in a data file, or it needs splitting", len(body), l.MaxFileBytes)
 	}
 	if !utf8.ValidString(body) {
 		return Skill{}, errors.New("the skill body is not valid UTF-8")
@@ -588,7 +608,8 @@ func (l *Library) Save(name, body string) (Skill, error) {
 	}
 	// A document an untrusted layer could not serve would be written and then never read.
 	if _, builtin, _ := l.builtin(n); builtin && l.inFront(dir) {
-		return Skill{}, fmt.Errorf("the skill %q is built in, and a project's document cannot replace it: save it under another name", n)
+		return Skill{}, fmt.Errorf("the skill %q is built in, and a project's document cannot replace it: "+
+			"save it under another name", n)
 	}
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return Skill{}, fmt.Errorf("could not create the skills directory %s: %w", dir, err)
@@ -816,77 +837,108 @@ func (l *Library) index(offer bool) ([]Skill, error) {
 	seen := make(map[string]bool)
 
 	for _, dir := range l.layers() {
-		entries, err := os.ReadDir(dir)
-		// A directory that is not there yet is not an empty library when the binary SHIPS
-		// procedures: it is a fresh install, which is exactly the case the shipped ones exist
-		// for. Returning early here made the first run report "the library is empty" with the
-		// shipped documents sitting in the executable unused — the model asks, is told there
-		// is nothing, and stops asking.
-		//
-		// Anything else that fails (a directory that exists but cannot be read) is still
-		// reported: the distinction between absent and unreadable is real, and the caller acts
-		// differently on each.
+		found, err := l.indexLayer(dir, offer, seen)
 		if err != nil {
-			if os.IsNotExist(err) {
-				continue
-			}
-			return nil, fmt.Errorf("could not read the skills directory %s: %w", dir, err)
+			return nil, err
 		}
-		for _, e := range entries {
-			if e.IsDir() || !strings.HasSuffix(e.Name(), ".md") {
-				continue
-			}
-			name := strings.TrimSuffix(e.Name(), ".md")
-			// A temporary file from an interrupted write is not a skill.
-			if strings.HasPrefix(name, ".") {
-				continue
-			}
-			// A document in an earlier layer wins: the front layer is the scope, and the
-			// library was already rooted at the layer behind it.
-			if seen[name] {
-				continue
-			}
-			// A document the user turned off is not offered to the model: it keeps its
-			// place on disk and in the interface, and it leaves this list.
-			if offer && l.hidden(name) {
-				continue
-			}
-			p := filepath.Join(dir, e.Name())
-			if !l.frontServes(name, p) {
-				continue
-			}
-			body, err := l.read(p)
-			if err != nil {
-				continue
-			}
-			s := parse(name, p, body)
-			s.Origin = l.originOf(p)
-			s.Untrusted = l.inFront(p)
-			out = append(out, s)
-			seen[name] = true
-		}
+		out = append(out, found...)
 	}
 
 	// The embedded procedures come last, minus the ones a document here already named. The
 	// document wins: a user who wrote their own is correcting the shipped one, and a library
 	// that listed both would offer the model two answers of unequal quality under one name.
 	if l.Builtins {
-		built, err := builtinSkills()
+		built, err := l.unshadowedBuiltins(offer, seen)
 		if err != nil {
 			return nil, err
 		}
-		for name, s := range built {
-			if seen[name] {
-				continue
-			}
-			if offer && l.hidden(name) {
-				continue
-			}
-			out = append(out, s)
-		}
+		out = append(out, built...)
 	}
 
 	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
+	return out, nil
+}
+
+// indexLayer reads the documents of one layer that are still to be offered, marking each one
+// it returns as seen.
+func (l *Library) indexLayer(dir string, offer bool, seen map[string]bool) ([]Skill, error) {
+	entries, err := os.ReadDir(dir)
+	// A directory that is not there yet is not an empty library when the binary SHIPS
+	// procedures: it is a fresh install, which is exactly the case the shipped ones exist
+	// for. Returning early here made the first run report "the library is empty" with the
+	// shipped documents sitting in the executable unused — the model asks, is told there
+	// is nothing, and stops asking.
+	//
+	// Anything else that fails (a directory that exists but cannot be read) is still
+	// reported: the distinction between absent and unreadable is real, and the caller acts
+	// differently on each.
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("could not read the skills directory %s: %w", dir, err)
+	}
+	var out []Skill
+	for _, e := range entries {
+		name, ok := l.layerCandidate(e, offer, seen)
+		if !ok {
+			continue
+		}
+		p := filepath.Join(dir, e.Name())
+		if !l.frontServes(name, p) {
+			continue
+		}
+		body, err := l.read(p)
+		if err != nil {
+			continue
+		}
+		s := parse(name, p, body)
+		s.Origin = l.originOf(p)
+		s.Untrusted = l.inFront(p)
+		out = append(out, s)
+		seen[name] = true
+	}
+	return out, nil
+}
+
+// layerCandidate reports the skill name a directory entry would be offered under, and whether
+// it is a candidate at all.
+func (l *Library) layerCandidate(e os.DirEntry, offer bool, seen map[string]bool) (string, bool) {
+	if e.IsDir() || !strings.HasSuffix(e.Name(), ".md") {
+		return "", false
+	}
+	name := strings.TrimSuffix(e.Name(), ".md")
+	// A temporary file from an interrupted write is not a skill.
+	if strings.HasPrefix(name, ".") {
+		return "", false
+	}
+	// A document in an earlier layer wins: the front layer is the scope, and the library was
+	// already rooted at the layer behind it.
+	return name, l.offered(name, offer, seen)
+}
+
+// offered reports whether a document not yet seen in a nearer layer is to be listed. A document
+// the user turned off is not offered to the model: it keeps its place on disk and in the
+// interface, and it leaves the model's list.
+func (l *Library) offered(name string, offer bool, seen map[string]bool) bool {
+	if seen[name] {
+		return false
+	}
+	return !offer || !l.hidden(name)
+}
+
+// unshadowedBuiltins are the embedded procedures no document in a layer already named.
+func (l *Library) unshadowedBuiltins(offer bool, seen map[string]bool) ([]Skill, error) {
+	built, err := builtinSkills()
+	if err != nil {
+		return nil, err
+	}
+	var out []Skill
+	for name, s := range built {
+		if l.offered(name, offer, seen) {
+			out = append(out, s)
+		}
+	}
 	return out, nil
 }
 
@@ -1007,8 +1059,9 @@ func forms(w string) []string {
 		return []string{w, w[:len(w)-2]}
 	case strings.HasSuffix(w, "s") && len(w) > 3:
 		return []string{w, w[:len(w)-1]}
+	default:
+		return []string{w}
 	}
-	return []string{w}
 }
 
 // containsWord reports whether a lowered field contains the word in any of its forms.
