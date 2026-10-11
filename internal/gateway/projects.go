@@ -174,7 +174,7 @@ func (s *Server) handleCreateProject(w http.ResponseWriter, r *http.Request) {
 	// The folder must be a simple name, not a path: a session inside a project
 	// works in that folder, and a relative path with separators would let the
 	// agent escape the workspace.
-	if strings.ContainsAny(dirName, "/\\..") {
+	if strings.ContainsAny(dirName, "/\\..") || !filepath.IsLocal(dirName) {
 		writeError(w, http.StatusBadRequest, "the folder name must be a simple name, not a path")
 		return
 	}
@@ -521,6 +521,10 @@ func (s *Server) handleDeleteProject(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	id := r.PathValue("id")
+	if !validProjectID(id) {
+		writeError(w, http.StatusNotFound, "there is no project with that id")
+		return
+	}
 	// Stop every run that belongs to this project BEFORE its file is removed,
 	// for the same reason a session deletion stops its own: the run's goroutine
 	// still unwinds and saves. It also means a client that was watching one of
