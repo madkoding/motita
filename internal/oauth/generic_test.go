@@ -75,6 +75,32 @@ func TestDeviceStartFailures(t *testing.T) {
 	}
 }
 
+// devicePollReply is the token host's answer to the n-th device-code poll: seven scripted
+// failures, then the token.
+func devicePollReply(n int) *http.Response {
+	switch n {
+	case 1:
+		return jsonResp(map[string]any{"error": "authorization_pending"})
+	case 2:
+		return errResp(400, `{"error":"slow_down"}`)
+	case 3:
+		return jsonResp(map[string]any{"error": "access_denied"})
+	case 4:
+		return jsonResp(map[string]any{"error": "expired_token"})
+	case 5:
+		return jsonResp(map[string]any{"error": "weird", "error_description": "why"})
+	case 6:
+		return errResp(500, "boom")
+	case 7:
+		return jsonResp(map[string]any{})
+	default:
+		// past the scripted failures: the token below
+	}
+	return jsonResp(map[string]any{
+		"access_token": "tok", "refresh_token": "r", "token_type": "bearer", "scope": "repo", "expires_in": 3600,
+	})
+}
+
 func TestDevicePollAndRefresh(t *testing.T) {
 	ep := Endpoints{TokenURL: "https://h.test/token"}
 	step := 0
@@ -88,27 +114,7 @@ func TestDevicePollAndRefresh(t *testing.T) {
 				// a device-code poll: answered by the step below
 			}
 			step++
-			switch step {
-			case 1:
-				return jsonResp(map[string]any{"error": "authorization_pending"}), nil
-			case 2:
-				return errResp(400, `{"error":"slow_down"}`), nil
-			case 3:
-				return jsonResp(map[string]any{"error": "access_denied"}), nil
-			case 4:
-				return jsonResp(map[string]any{"error": "expired_token"}), nil
-			case 5:
-				return jsonResp(map[string]any{"error": "weird", "error_description": "why"}), nil
-			case 6:
-				return errResp(500, "boom"), nil
-			case 7:
-				return jsonResp(map[string]any{}), nil
-			default:
-				// past the scripted failures: the token below
-			}
-			return jsonResp(map[string]any{
-				"access_token": "tok", "refresh_token": "r", "token_type": "bearer", "scope": "repo", "expires_in": 3600,
-			}), nil
+			return devicePollReply(step), nil
 		},
 	})
 	dc := DeviceCode{DeviceCode: "d"}
