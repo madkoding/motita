@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -50,8 +51,9 @@ func DefaultBaseURL(provider string) string {
 		return copilotBaseURL
 	case "qwen":
 		return qwenKeyBaseURL
+	default:
+		return ""
 	}
-	return ""
 }
 
 // target is where one request goes and what proves who sends it.
@@ -89,8 +91,9 @@ func refresherFor(provider string) func(context.Context, oauth.HTTPClient, oauth
 		return oauth.QwenRefresh
 	case "gemini":
 		return oauth.GeminiRefresh
+	default:
+		return nil
 	}
-	return nil
 }
 
 // newLoginState prepares the login a client uses, or nil when it uses a key.
@@ -145,7 +148,8 @@ func (s *loginState) credential(ctx context.Context, force bool) (oauth.Credenti
 	}
 	fresh, err := s.refresh(ctx, s.hc, s.cred)
 	if err != nil {
-		return oauth.Credential{}, fatalError{fmt.Errorf("the %s login could not be renewed: %w (log in again with `motita config`)", s.provider, err)}
+		return oauth.Credential{}, fatalError{fmt.Errorf(
+			"the %s login could not be renewed: %w (log in again with `motita config`)", s.provider, err)}
 	}
 	s.cred = fresh
 	if s.dir != "" {
@@ -187,19 +191,9 @@ func (c *Client) target(ctx context.Context, force bool) (target, error) {
 	t := target{base: base, login: true, headers: map[string]string{}}
 	switch provider {
 	case "copilot":
-		if cred.BaseURL != "" {
-			t.base = strings.TrimRight(cred.BaseURL, "/")
-		}
-		for k, v := range oauth.CopilotRequiredHeaders(cred.AccessToken) {
-			t.headers[k] = v
-		}
+		t.useCopilotLogin(cred)
 	case "codex":
-		t.base = oauth.CodexBackendURL
-		t.chatgpt = true
-		t.headers["Authorization"] = bearerPrefix + cred.AccessToken
-		t.headers["chatgpt-account-id"] = cred.AccountID
-		t.headers["OpenAI-Beta"] = "responses=experimental"
-		t.headers["originator"] = "codex_cli_rs"
+		t.useCodexLogin(cred)
 	case "qwen":
 		// A qwen.ai token is valid on the host its login named, never on the
 		// DashScope endpoint a key would use, so base_url does not apply here.
@@ -207,12 +201,41 @@ func (c *Client) target(ctx context.Context, force bool) (target, error) {
 		t.base = oauth.QwenBaseURL(cred.BaseURL)
 		t.headers["Authorization"] = bearerPrefix + cred.AccessToken
 	case "gemini":
-		t.headers["Authorization"] = bearerPrefix + cred.AccessToken
-		if cred.ProjectID != "" {
-			t.headers["x-goog-user-project"] = cred.ProjectID
-		}
+		t.useGeminiLogin(cred)
+	default:
+		// newLoginState gives a login only to the providers above.
 	}
 	return t, nil
+}
+
+// useCopilotLogin points t at the host the Copilot session token names, with the headers the
+// Copilot API requires.
+func (t *target) useCopilotLogin(cred oauth.Credential) {
+	if cred.BaseURL != "" {
+		t.base = strings.TrimRight(cred.BaseURL, "/")
+	}
+	for k, v := range oauth.CopilotRequiredHeaders(cred.AccessToken) {
+		t.headers[k] = v
+	}
+}
+
+// useCodexLogin points t at the ChatGPT backend, which a Codex request billed to a ChatGPT plan
+// goes to.
+func (t *target) useCodexLogin(cred oauth.Credential) {
+	t.base = oauth.CodexBackendURL
+	t.chatgpt = true
+	t.headers["Authorization"] = bearerPrefix + cred.AccessToken
+	t.headers["chatgpt-account-id"] = cred.AccountID
+	t.headers["OpenAI-Beta"] = "responses=experimental"
+	t.headers["originator"] = "codex_cli_rs"
+}
+
+// useGeminiLogin authenticates t with a Google login, billed to its project when it names one.
+func (t *target) useGeminiLogin(cred oauth.Credential) {
+	t.headers["Authorization"] = bearerPrefix + cred.AccessToken
+	if cred.ProjectID != "" {
+		t.headers["x-goog-user-project"] = cred.ProjectID
+	}
 }
 
 // send makes one request to path under the provider's base URL. A stored login
@@ -232,16 +255,9 @@ func (c *Client) send(ctx context.Context, path string, body any, stream bool) (
 		if err != nil {
 			return nil, t, err
 		}
-		req, err := http.NewRequestWithContext(ctx, http.MethodPost, t.base+path, bytes.NewReader(data))
+		req, err := newPostRequest(ctx, t, path, data, stream)
 		if err != nil {
-			return nil, t, fmt.Errorf("invalid request: %w", err)
-		}
-		req.Header.Set("Content-Type", "application/json")
-		if stream {
-			req.Header.Set("Accept", "text/event-stream")
-		}
-		for k, v := range t.headers {
-			req.Header.Set(k, v)
+			return nil, t, err
 		}
 		resp, err := c.http.Do(req)
 		if err != nil {
@@ -257,20 +273,45 @@ func (c *Client) send(ctx context.Context, path string, body any, stream bool) (
 		}
 		// Asked for more output than the model allows: the refusal names the limit.
 		// Ask once more within it, and keep it for the next request.
-		if resp.StatusCode == http.StatusBadRequest && !relearned {
-			if asked := requestedOutputLimit(data); asked > 0 {
-				if limit := limitFromRefusal(asked, string(b)); limit > 0 {
-					relearned = true
-					c.outputCap.Store(int64(limit))
-					c.log.Warn("the model allows less output than max_tokens asks for; using its limit",
-						"asked", asked, "limit", limit)
-					data = c.clampOutputLimit(data)
-					continue
-				}
-			}
+		if resp.StatusCode == http.StatusBadRequest && !relearned && c.relearnOutputLimit(data, b) {
+			relearned = true
+			data = c.clampOutputLimit(data)
+			continue
 		}
 		return nil, t, &HTTPError{Code: resp.StatusCode, Body: strings.TrimSpace(string(b))}
 	}
+}
+
+// newPostRequest builds the POST of data to path under t's base URL, with t's headers.
+func newPostRequest(ctx context.Context, t target, path string, data []byte, stream bool) (*http.Request, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, t.base+path, bytes.NewReader(data))
+	if err != nil {
+		return nil, fmt.Errorf("invalid request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	if stream {
+		req.Header.Set("Accept", "text/event-stream")
+	}
+	for k, v := range t.headers {
+		req.Header.Set(k, v)
+	}
+	return req, nil
+}
+
+// relearnOutputLimit keeps the output limit a refusal of data names, and reports whether it found
+// one: the request can then be asked once more within it.
+func (c *Client) relearnOutputLimit(data, refusal []byte) bool {
+	asked, limit := requestedOutputLimit(data), 0
+	if asked > 0 {
+		limit = limitFromRefusal(asked, string(refusal))
+	}
+	if limit <= 0 {
+		return false
+	}
+	c.outputCap.Store(int64(limit))
+	c.log.Warn("the model allows less output than max_tokens asks for; using its limit",
+		"asked", asked, "limit", limit)
+	return true
 }
 
 // post is send for a non-streaming request: it returns the whole body.
@@ -291,39 +332,11 @@ func (c *Client) ListModels(ctx context.Context) ([]string, error) {
 	provider := strings.ToLower(c.cfg.Provider)
 	switch provider {
 	case "anthropic":
-		return c.listJSON(ctx, "/v1/models", func(b []byte) []string {
-			var p struct {
-				Data []struct {
-					ID string `json:"id"`
-				} `json:"data"`
-			}
-			_ = json.Unmarshal(b, &p)
-			out := make([]string, 0, len(p.Data))
-			for _, m := range p.Data {
-				out = append(out, m.ID)
-			}
-			return out
-		})
+		return c.listJSON(ctx, "/v1/models", parseAnthropicModels)
 	case "gemini":
-		return c.listJSON(ctx, "/v1beta/models?pageSize=1000", func(b []byte) []string {
-			var p struct {
-				Models []struct {
-					Name    string   `json:"name"`
-					Methods []string `json:"supportedGenerationMethods"`
-				} `json:"models"`
-			}
-			_ = json.Unmarshal(b, &p)
-			out := make([]string, 0, len(p.Models))
-			for _, m := range p.Models {
-				for _, meth := range m.Methods {
-					if meth == "generateContent" {
-						out = append(out, strings.TrimPrefix(m.Name, "models/"))
-						break
-					}
-				}
-			}
-			return out
-		})
+		return c.listJSON(ctx, "/v1beta/models?pageSize=1000", parseGeminiModels)
+	default:
+		// Every other provider serves an OpenAI-style /models, read below.
 	}
 	t, err := c.target(ctx, false)
 	if err != nil {
@@ -334,6 +347,39 @@ func (c *Client) ListModels(ctx context.Context) ([]string, error) {
 		return nil, errors.New("a ChatGPT login does not publish a model list; type the model id")
 	}
 	return fetchModelList(ctx, t.base+"/models", t.headers)
+}
+
+// parseAnthropicModels reads the model ids of Anthropic's /v1/models.
+func parseAnthropicModels(b []byte) []string {
+	var p struct {
+		Data []struct {
+			ID string `json:"id"`
+		} `json:"data"`
+	}
+	_ = json.Unmarshal(b, &p)
+	out := make([]string, 0, len(p.Data))
+	for _, m := range p.Data {
+		out = append(out, m.ID)
+	}
+	return out
+}
+
+// parseGeminiModels reads the ids of the Gemini models that can generate content.
+func parseGeminiModels(b []byte) []string {
+	var p struct {
+		Models []struct {
+			Name    string   `json:"name"`
+			Methods []string `json:"supportedGenerationMethods"`
+		} `json:"models"`
+	}
+	_ = json.Unmarshal(b, &p)
+	out := make([]string, 0, len(p.Models))
+	for _, m := range p.Models {
+		if slices.Contains(m.Methods, "generateContent") {
+			out = append(out, strings.TrimPrefix(m.Name, "models/"))
+		}
+	}
+	return out
 }
 
 func (c *Client) listJSON(ctx context.Context, path string, parse func([]byte) []string) ([]string, error) {
