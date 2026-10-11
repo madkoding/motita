@@ -10,7 +10,8 @@ import (
 )
 
 func TestNameserversKeepsOnlyValidEntries(t *testing.T) {
-	conf := []byte("# comment\nnameserver 8.8.4.4\nnameserver\nnameserver not-an-ip\nsearch lan\nnameserver 2001:4860:4860::8888\n")
+	conf := []byte("# comment\nnameserver 8.8.4.4\nnameserver\nnameserver not-an-ip\nsearch lan\n" +
+		"nameserver 2001:4860:4860::8888\n")
 	got := Nameservers(conf)
 	want := []string{"8.8.4.4:53", "[2001:4860:4860::8888]:53"}
 	if !reflect.DeepEqual(got, want) {
@@ -42,11 +43,11 @@ func TestResolverDialsTheConfiguredServersInTurn(t *testing.T) {
 }
 
 // install runs Install as if on goos, with files standing in for the file system.
-func install(t *testing.T, os_ string, prefix string, files map[string]string) *net.Resolver {
+func install(t *testing.T, targetOS string, prefix string, files map[string]string) *net.Resolver {
 	t.Helper()
 	oldGoos, oldRead, oldEnv, oldDefault := goos, readFile, getenv, net.DefaultResolver
 	t.Cleanup(func() { goos, readFile, getenv, net.DefaultResolver = oldGoos, oldRead, oldEnv, oldDefault })
-	goos = os_
+	goos = targetOS
 	getenv = func(string) string { return prefix }
 	readFile = func(name string) ([]byte, error) {
 		if s, ok := files[name]; ok {
@@ -77,7 +78,8 @@ func TestInstallLeavesAnAndroidWithResolvConfAlone(t *testing.T) {
 
 func TestInstallUsesTermuxResolvConf(t *testing.T) {
 	const host = "127.0.0.1"
-	r := install(t, "android", "/data/termux/usr", map[string]string{"/data/termux/usr/etc/resolv.conf": "nameserver " + host + "\n"})
+	files := map[string]string{"/data/termux/usr/etc/resolv.conf": "nameserver " + host + "\n"}
+	r := install(t, "android", "/data/termux/usr", files)
 	if r == nil || !r.PreferGo {
 		t.Fatal("Install did not set a Go resolver on Android")
 	}

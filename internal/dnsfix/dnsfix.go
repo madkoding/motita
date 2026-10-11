@@ -44,17 +44,20 @@ func Describe() string {
 	return source
 }
 
+// resolvConf is the resolver configuration a Unix system keeps its name servers in.
+const resolvConf = "/etc/resolv.conf"
+
 // plan decides which servers Install points the resolver at, and says why. Nil servers mean
 // the system resolver is left as it is.
 func plan() ([]string, string) {
-	if _, err := readFile("/etc/resolv.conf"); err == nil {
-		return nil, "/etc/resolv.conf"
+	if _, err := readFile(resolvConf); err == nil {
+		return nil, resolvConf
 	}
 	if goos != "android" {
 		return nil, "no /etc/resolv.conf: Go falls back to 127.0.0.1:53"
 	}
 	if prefix := getenv("PREFIX"); prefix != "" {
-		path := prefix + "/etc/resolv.conf"
+		path := prefix + resolvConf
 		if data, err := readFile(path); err == nil {
 			if servers := Nameservers(data); len(servers) > 0 {
 				return servers, path + " (" + strings.Join(servers, ", ") + ")"
