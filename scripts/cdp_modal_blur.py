@@ -15,6 +15,8 @@ import asyncio
 import base64
 import json
 import os
+import pathlib
+import tempfile
 import subprocess
 import sys
 
@@ -23,7 +25,7 @@ from PIL import Image
 
 PORT = int(os.environ.get("CDP_PORT", "9334"))
 BASE = os.environ.get("GATEWAY_URL", "http://127.0.0.1:7477")
-SHOTS = os.environ.get("SHOTS_DIR", os.path.join(os.environ.get("TMPDIR", "/tmp"), "motita-modal-blur"))
+SHOTS = os.environ.get("SHOTS_DIR") or tempfile.mkdtemp(prefix="motita-modal-blur-")
 
 
 class CDP:
@@ -50,8 +52,7 @@ class CDP:
 
     async def shot(self, path):
         r = await self.call("Page.captureScreenshot", format="png")
-        with open(path, "wb") as f:
-            f.write(base64.b64decode(r["data"]))
+        await asyncio.to_thread(pathlib.Path(path).write_bytes, base64.b64decode(r["data"]))
         return path
 
 
@@ -98,12 +99,12 @@ OVERLAY_JS = (
 
 async def main():
     os.makedirs(SHOTS, exist_ok=True)
-    subprocess.run(["curl", "-s", "-X", "PUT", f"http://127.0.0.1:{PORT}/json/new?about:blank"],
-                   capture_output=True)
+    await asyncio.to_thread(subprocess.run, ["curl", "-s", "-X", "PUT", f"http://127.0.0.1:{PORT}/json/new?about:blank"],
+                            capture_output=True)
     target = None
     for _ in range(60):
-        out = subprocess.run(["curl", "-s", f"http://127.0.0.1:{PORT}/json/list"],
-                             capture_output=True, text=True).stdout
+        out = (await asyncio.to_thread(subprocess.run, ["curl", "-s", f"http://127.0.0.1:{PORT}/json/list"],
+                                       capture_output=True, text=True)).stdout
         pages = [t for t in json.loads(out or "[]") if t.get("type") == "page"]
         target = pages[-1] if pages else None
         if target:
@@ -133,8 +134,9 @@ async def main():
         await c.call("Page.navigate", url=BASE + "/")
         await asyncio.sleep(4)
 
-        print("health:", subprocess.run(["curl", "-s", f"{BASE}/v1/health"],
-                                        capture_output=True, text=True).stdout.strip())
+        health = await asyncio.to_thread(subprocess.run, ["curl", "-s", f"{BASE}/v1/health"],
+                                         capture_output=True, text=True)
+        print("health:", health.stdout.strip())
         print("auth modal present:", await c.js(
             "document.body.innerText.includes('Authentication required')"))
         print("css in use:", await c.js(

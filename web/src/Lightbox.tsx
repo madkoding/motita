@@ -65,7 +65,7 @@ export function Lightbox({ images, start, onClose }: { images: LightboxImage[]; 
   const cur = images[index]
   return (
     <div ref={root} class="lb" data-dialog-root role="dialog" aria-modal="true" aria-label={cur.label} data-testid="lightbox">
-      <div class="lb-bar" onClick={(e) => e.stopPropagation()}>
+      <div class="lb-bar" role="presentation" onClick={(e) => e.stopPropagation()}>
         <span class="lb-title">{cur.label}{images.length > 1 ? ` (${index + 1}/${images.length})` : ''}</span>
         <button type="button" class="btn-outline" aria-label={t('Zoom out')} onClick={() => zoomAt(0.8)}>−</button>
         <span class="lb-zoom" data-testid="lightbox-zoom">{Math.round(zoom * 100)}%</span>
@@ -78,6 +78,7 @@ export function Lightbox({ images, start, onClose }: { images: LightboxImage[]; 
       </div>
       <div
         class="lb-stage"
+        role="presentation"
         onClick={(e) => { if (e.target === e.currentTarget) onClose() }}
         onWheel={(e) => { e.preventDefault(); const c = fromCentre(e); zoomAt(e.deltaY < 0 ? 1.15 : 1 / 1.15, c.x, c.y) }}
         onDblClick={(e) => { if (zoom !== 1) reset(); else { const c = fromCentre(e); zoomAt(2.5, c.x, c.y) } }}

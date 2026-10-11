@@ -8,7 +8,7 @@ has every section, so what is asserted here is MEASURED on the rendered page:
   * nothing overflows the message, on a desktop width and on a 390px phone;
   * the card fits inside the chat column (no horizontal scroll).
 """
-import asyncio, json, os, sys
+import asyncio, json, os, sys, tempfile
 
 sys.path.insert(0, os.path.dirname(__file__))
 from cdp_spinner import CDP  # noqa: E402
@@ -16,7 +16,7 @@ from cdp_checkpoints import send, until  # noqa: E402  (its module-level env is 
 
 BASE = os.environ["GATEWAY_URL"]
 TOKEN = open(os.environ["GATEWAY_STATE"]).read().strip()
-SHOTS = os.environ.get("SHOTS_DIR", "/tmp/motita-report")
+SHOTS = os.environ.get("SHOTS_DIR") or tempfile.mkdtemp(prefix="motita-report-")
 failures = 0
 
 
@@ -129,10 +129,9 @@ async def main(ws_url):
 
 
 if __name__ == "__main__":
-    import urllib.request
+    from cdp_http import fetch_json
     from cdp_spinner import start_browser, PORT
     os.makedirs(SHOTS, exist_ok=True)
     start_browser()
-    with urllib.request.urlopen(f"http://127.0.0.1:{PORT}/json/list", timeout=5) as r:
-        page = [t for t in json.load(r) if t.get("type") == "page"][0]
+    page = [t for t in fetch_json(f"http://127.0.0.1:{PORT}/json/list", timeout=5) if t.get("type") == "page"][0]
     asyncio.run(main(page["webSocketDebuggerUrl"]))

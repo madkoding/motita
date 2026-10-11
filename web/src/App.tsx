@@ -14,6 +14,8 @@ import { SettingsModal } from './Settings'
 import { NewSessionButton } from './NewSessionButton'
 import { GitConnectModal, type SelfHosted } from './GitConnect'
 import { RepoPicker } from './RepoPicker'
+import { onActivate, backdropClick } from './a11y'
+import { useDialog } from './useDialog'
 import { listAccounts, connectedAccounts, repoShortName, type GitAccount, type GitRepo } from './gitApi'
 import { loadNotify } from './settings'
 import { getPR, retryFix, mergePR, mergeRefused, PRError, prNotice, shouldPoll, ciSummary, shouldDesktopNotify, wantsDesktopPermission, worstToast, type PRView, type PRWatch } from './prApi'
@@ -141,7 +143,7 @@ function agentElapsed(a: AgentInfo, now: number): number {
 function sortAgents(list: unknown): AgentInfo[] {
   if (!Array.isArray(list)) return []
   return (list as AgentInfo[]).filter(a => a && typeof a.id === 'string').slice().sort((a, b) => {
-    if (!a.parent !== !b.parent) return a.parent ? 1 : -1
+    if (!!a.parent !== !!b.parent) return a.parent ? 1 : -1
     return (Date.parse(a.started) || 0) - (Date.parse(b.started) || 0)
   })
 }
@@ -549,6 +551,17 @@ function splitOutput(text: string): { exit: number | null; body: string } {
 
 const STATUS_LABEL: Record<string, string> = { added: 'new', modified: 'edited', deleted: 'removed', renamed: 'moved' }
 
+// ChangesZoom is the full-size view of one preview: a click, Enter, Space or Escape closes it.
+function ChangesZoom({ url, onClose }: { url: string; onClose: () => void }) {
+  const ref = useRef<HTMLDivElement>(null)
+  useDialog(ref, onClose)
+  return (
+    <div ref={ref} data-dialog-root class="changes-zoom" role="dialog" aria-modal="true" aria-label={t('preview')} tabIndex={-1} onClick={onClose} onKeyDown={onActivate(onClose)}>
+      <img src={url} alt={t('preview')} />
+    </div>
+  )
+}
+
 // ChangesCard is what a finished run shows the user about its work: the pictures first, since
 // that is what a person can judge, then the files as a folded summary. The code stays in the diff.
 function ChangesCard({ changes }: { changes: ChangeReport }) {
@@ -562,7 +575,7 @@ function ChangesCard({ changes }: { changes: ChangeReport }) {
       {pics.length > 0 && (
         <div class="changes-previews">
           {pics.map(p => (
-            <figure key={p.name} class="changes-shot" onClick={() => setZoom(p.url)}>
+            <figure key={p.name} class="changes-shot" role="button" tabIndex={0} aria-label={p.name} onClick={() => setZoom(p.url)} onKeyDown={onActivate(() => setZoom(p.url))}>
               <img src={p.url} alt={p.name} loading="lazy" />
               <figcaption>{p.name}</figcaption>
             </figure>
@@ -587,9 +600,7 @@ function ChangesCard({ changes }: { changes: ChangeReport }) {
         </details>
       )}
       {zoom && (
-        <div class="changes-zoom" onClick={() => setZoom(null)} role="dialog" aria-label={t('preview')}>
-          <img src={zoom} alt={t('preview')} />
-        </div>
+        <ChangesZoom url={zoom} onClose={() => setZoom(null)} />
       )}
     </div>
   )
@@ -799,7 +810,7 @@ export default function App() {
   // Git host connections: the connect modal (from Settings, the New project dialog or a refused
   // clone), the repository picker, and the hosts that are connected right now.
   // `then` says what to do once the host is connected: pick a repository, or send the create again.
-  const [gitConnect, setGitConnect] = useState<{ service?: string; selfHosted?: SelfHosted; then?: 'picker' | 'create' } | null>(null)
+  const [gitConnect, setGitConnect] = useState<{ service?: string; selfHosted?: SelfHosted; after?: 'picker' | 'create' } | null>(null)
   const [showRepoPicker, setShowRepoPicker] = useState(false)
   const [gitAccounts, setGitAccounts] = useState<GitAccount[] | null>(null)
   const [gitRev, setGitRev] = useState(0)
@@ -1032,6 +1043,15 @@ export default function App() {
     if (cmdName === '/plan') return activeTags.some(t => t.name === '/task')
     if (cmdName === '/task') return activeTags.some(t => t.name === '/plan')
     return false
+  }
+
+  // Choosing a slash command from the popup (by click, or Enter/Space on the row) adds it as a tag.
+  const pickSlash = (c: { name: string; group: string }) => {
+    if (isCommandBlocked(c.name)) return
+    setActiveTags(prev => [...prev, { name: c.name, group: c.group }])
+    setInput('')
+    setSlashPopup(null)
+    document.getElementById('task')?.focus()
   }
 
   const lastIdRef = useRef(0)
@@ -1796,7 +1816,7 @@ export default function App() {
         if (res.status === 409 && err.code === 'git_auth_required') {
           // The clone was refused for credentials: connect that host, then send the same request again.
           setCreatingProject(false)
-          setGitConnect({ service: err.service || undefined, then: 'create' })
+          setGitConnect({ service: err.service || undefined, after: 'create' })
           return
         }
         if (res.status === 409 && err.code === 'git_identity_required') {
@@ -2029,11 +2049,11 @@ export default function App() {
   }, [editProject, fetchProjects])
 
   const onGitConnected = useCallback((_service: string, account: string) => {
-    const then = gitConnect?.then
+    const after = gitConnect?.after
     setGitRev(n => n + 1)
     setToast({ message: account ? tf('Connected as {user}', { user: account }) : t('Connected'), type: 'success' })
-    if (then === 'picker') setShowRepoPicker(true)
-    if (then === 'create') setTimeout(() => createProjectRef.current(), 0)
+    if (after === 'picker') setShowRepoPicker(true)
+    if (after === 'create') setTimeout(() => createProjectRef.current(), 0)
   }, [gitConnect])
 
   // pickRepo fills the New project form from a repository the user chose.
@@ -2144,7 +2164,7 @@ export default function App() {
   // switchSession loads the transcript for a given session id and adopts it.
   // `urlMode` says how the address bar follows: 'push' for a click, 'replace' for the
   // initial load, 'none' when the URL already changed (back/forward).
-  const followRef = useRef<() => void>(() => {})
+  const followRef = useRef<() => void | Promise<void>>(() => {})
   const loadAgentsRef = useRef<(id: string) => Promise<void>>(async () => {})
   const switchSessionRef = useRef<((id: string, urlMode?: 'push' | 'replace' | 'none', soft?: boolean) => Promise<void>) | null>(null)
   // `soft` re-reads the conversation already on screen (the handoff to a run this tab did not
@@ -3782,7 +3802,10 @@ export default function App() {
       class={`session-row group flex items-center gap-2 px-3 py-2 rounded-lg cursor-pointer transition-colors mb-0.5 ${
         s.id === sessionId ? 'bg-accent/10 border border-accent/20' : 'hover:bg-white/5 border border-transparent'
       }`}
+      role="button"
+      tabIndex={0}
       onClick={() => { if (renamingId !== s.id) switchSession(s.id) }}
+      onKeyDown={onActivate(() => { if (renamingId !== s.id) switchSession(s.id) })}
       onTouchStart={(e) => startLongPress('session', s.id, s.title || s.id, e)}
       onTouchMove={cancelLongPress}
       onTouchEnd={cancelLongPress}
@@ -3806,6 +3829,7 @@ export default function App() {
               if (e.key === 'Enter') { renameSession(s.id, renameValue); setRenamingId(null) }
               if (e.key === 'Escape') setRenamingId(null)
             }}
+            role="presentation"
             onClick={(e) => e.stopPropagation()}
           />
           <button
@@ -3916,6 +3940,7 @@ export default function App() {
             <div
               class={`row-menu fixed z-50 frosted rounded-xl border border-white/10 py-1 min-w-[140px]${rowMenuAbove ? ' row-menu-above' : ''}${rowMenuClosing ? ' row-menu-closing' : ''}`}
               style={rowMenuPos ? { top: `${rowMenuPos.top}px`, left: `${rowMenuPos.left}px` } : undefined}
+              role="presentation"
               onClick={(e) => e.stopPropagation()}
             >
               <button
@@ -3992,10 +4017,12 @@ export default function App() {
       {authState !== 'ok' && (
         <div
           class="fixed inset-0 z-100 bg-black/80 backdrop-blur-xs flex items-center justify-center p-4"
+          role="presentation"
           onClick={(e) => e.stopPropagation()}
         >
           <div
             class="frosted rounded-2xl border border-accent/20 w-full max-w-sm p-6 shadow-2xl"
+            role="presentation"
             onClick={(e) => e.stopPropagation()}
           >
             <div class="flex items-center gap-3 mb-4">
@@ -4072,6 +4099,7 @@ export default function App() {
           {/* Mobile overlay: click to close the sidebar. */}
           <div
             class="fixed inset-0 bg-black/50 z-20 md:hidden"
+            role="presentation"
             onClick={() => setSidebarOpen(false)}
           />
           <aside class="sidebar frosted fixed md:relative inset-y-0 left-0 w-72 z-30 flex flex-col border-r border-white/5">
@@ -4136,7 +4164,10 @@ export default function App() {
                     {/* Header: click toggles collapse. */}
                     <div
                       class="project-header group flex items-center gap-1.5 px-2.5 py-2 cursor-pointer select-none hover:bg-white/4 transition-colors"
+                      role="button"
+                      tabIndex={0}
                       onClick={() => toggleProject(p.id)}
+                      onKeyDown={onActivate(() => toggleProject(p.id))}
                       onTouchStart={(e) => startLongPress('project', p.id, p.title, e as unknown as Event)}
                       onTouchMove={cancelLongPress}
                       onTouchEnd={cancelLongPress}
@@ -4228,6 +4259,7 @@ export default function App() {
                           <div
                             class={`row-menu fixed z-50 frosted rounded-xl border border-white/10 py-1 min-w-[140px]${rowMenuAbove ? ' row-menu-above' : ''}${rowMenuClosing ? ' row-menu-closing' : ''}`}
               style={rowMenuPos ? { top: `${rowMenuPos.top}px`, left: `${rowMenuPos.left}px` } : undefined}
+                            role="presentation"
                             onClick={(e) => e.stopPropagation()}
                           >
                             <button
@@ -4728,7 +4760,10 @@ export default function App() {
                         <div
                           key={a.id}
                           class={`agent-row is-${a.state}${done ? ' is-done' : ''}`}
+                          role={done ? 'button' : undefined}
+                          tabIndex={done ? 0 : undefined}
                           onClick={() => { if (done) setAgentOpenId(id => id === a.id ? null : a.id) }}
+                          onKeyDown={onActivate(() => { if (done) setAgentOpenId(id => id === a.id ? null : a.id) })}
                           aria-expanded={done ? open : undefined}
                         >
                           <span class="agent-state" aria-label={t(a.state)}>
@@ -4746,7 +4781,7 @@ export default function App() {
                             </div>
                             {a.activity && !open && <div class="agent-activity" title={a.activity}>{a.activity}</div>}
                             {open && (
-                              <div class="agent-detail" onClick={e => e.stopPropagation()}>
+                              <div class="agent-detail" role="presentation" onClick={e => e.stopPropagation()}>
                                 {a.summary
                                   ? <pre class="agent-summary">{a.summary}</pre>
                                   : <div class="agent-activity">{t('no summary')}</div>}
@@ -5005,7 +5040,10 @@ export default function App() {
                 <div
                   key={c.name}
                   class={`flex items-center gap-2 px-3 py-2 cursor-pointer transition-colors ${i === slashPopup.index ? 'bg-white/10' : ''}`}
-                  onClick={() => { if (!isCommandBlocked(c.name)) { setActiveTags(prev => [...prev, { name: c.name, group: c.group }]); setInput(''); setSlashPopup(null); document.getElementById('task')?.focus() } }}
+                  role="button"
+                  tabIndex={-1}
+                  onClick={() => pickSlash(c)}
+                  onKeyDown={onActivate(() => pickSlash(c))}
                   onMouseEnter={() => setSlashPopup({ ...slashPopup, index: i })}
                 >
                   <span class={`font-mono text-sm font-semibold flex-none w-20 ${groupColor[c.group] || 'text-[#e8e8ea]'}`}>{c.name}</span>
@@ -5107,13 +5145,13 @@ export default function App() {
       {editProject && (
         <div
           class="fixed inset-0 bg-black/60 backdrop-blur-xs z-50 flex items-center justify-center p-4"
-          onClick={() => setEditProject(null)}
+          role="presentation"
+          onClick={backdropClick(()=> setEditProject(null))}
         >
           <div
             class="frosted rounded-2xl border border-white/10 w-full max-w-md p-5 shadow-2xl"
             role="dialog"
             aria-label={t('Edit project')}
-            onClick={(e) => e.stopPropagation()}
           >
             <div class="flex items-center gap-2 mb-4">
               <h2 class="text-base font-semibold">{t('Edit project')}</h2>
@@ -5250,13 +5288,13 @@ export default function App() {
       {showNewProject && (
         <div
           class="fixed inset-0 bg-black/60 backdrop-blur-xs z-50 flex items-center justify-center p-4"
-          onClick={() => setShowNewProject(false)}
+          role="presentation"
+          onClick={backdropClick(()=> setShowNewProject(false))}
         >
           <div
             class="frosted rounded-2xl border border-white/10 w-full max-w-md p-5 shadow-2xl max-h-[92vh] overflow-y-auto"
             role="dialog"
             aria-label={t('New project')}
-            onClick={(e) => e.stopPropagation()}
           >
             <div class="flex items-center gap-2 mb-4">
               {newProjectMode && !creatingProject ? (
@@ -5341,7 +5379,7 @@ export default function App() {
                       ) : gitAccounts && (
                         <div class="mt-2 flex items-center gap-2 p-2.5 rounded-xl border border-white/10 bg-black/20" data-testid="git-connect-banner">
                           <span class="flex-1 text-xs text-[#9a9aaa]">{t('Connect GitHub, GitLab or Bitbucket to pick one of your repositories')}</span>
-                          <button type="button" class="flex-none px-3 min-h-[32px] rounded-lg bg-accent text-white text-xs font-semibold" onClick={() => setGitConnect({ then: 'picker' })}>{t('Connect')}</button>
+                          <button type="button" class="flex-none px-3 min-h-[32px] rounded-lg bg-accent text-white text-xs font-semibold" onClick={() => setGitConnect({ after: 'picker' })}>{t('Connect')}</button>
                         </div>
                       )}
                     </div>
@@ -5456,10 +5494,12 @@ export default function App() {
       {showGitIdentity && (
         <div
           class="fixed inset-0 bg-black/60 backdrop-blur-xs z-60 flex items-center justify-center p-4"
+          role="presentation"
           onClick={() => setShowGitIdentity(false)}
         >
           <form
             class="frosted rounded-2xl border border-white/10 w-full max-w-md p-5 shadow-2xl"
+            role="presentation"
             onClick={(e) => e.stopPropagation()}
             onSubmit={(e) => {
               e.preventDefault()
@@ -5519,8 +5559,8 @@ export default function App() {
           accounts={connectedAccounts(gitAccounts)}
           onPick={pickRepo}
           onClose={() => setShowRepoPicker(false)}
-          onConnectAnother={() => setGitConnect({ then: 'picker' })}
-          onAuthRequired={(service) => { setShowRepoPicker(false); setGitConnect({ service, then: 'picker' }) }}
+          onConnectAnother={() => setGitConnect({ after: 'picker' })}
+          onAuthRequired={(service) => { setShowRepoPicker(false); setGitConnect({ service, after: 'picker' }) }}
         />
       )}
       {gitConnect && (
@@ -5537,10 +5577,12 @@ export default function App() {
       {showModelSwitcher && (
         <div
           class="fixed inset-0 bg-black/60 backdrop-blur-xs z-50 flex items-center justify-center p-4"
+          role="presentation"
           onClick={closeModelSwitcher}
         >
           <div
             class="frosted rounded-2xl border border-white/10 w-full max-w-md p-5 shadow-2xl"
+            role="presentation"
             onClick={(e) => e.stopPropagation()}
           >
             <div class="flex items-center gap-2 mb-4">
@@ -5652,10 +5694,12 @@ export default function App() {
       {confirmDelete && (
         <div
           class="fixed inset-0 bg-black/60 backdrop-blur-xs z-50 flex items-center justify-center p-4"
+          role="presentation"
           onClick={() => setConfirmDelete(null)}
         >
           <div
             class="frosted rounded-2xl border border-white/10 w-full max-w-sm p-5 shadow-2xl"
+            role="presentation"
             onClick={(e) => e.stopPropagation()}
           >
             <div class="flex items-center gap-2 mb-3">
@@ -5829,6 +5873,7 @@ export default function App() {
       {contextMenu && (
         <div
           class="fixed inset-0 z-50"
+          role="presentation"
           onClick={() => setContextMenu(null)}
         >
           <div
@@ -5838,6 +5883,7 @@ export default function App() {
               left: `${Math.min(contextMenu.x, window.innerWidth - 180)}px`,
               top: `${Math.min(contextMenu.y, window.innerHeight - 120)}px`,
             }}
+            role="presentation"
             onClick={(e) => e.stopPropagation()}
           >
             <button
@@ -5967,10 +6013,12 @@ export default function App() {
       {showUpgrade && (
         <div
           class="fixed inset-0 bg-black/60 backdrop-blur-xs z-50 flex items-center justify-center p-4"
+          role="presentation"
           onClick={() => { if (!upgradeBusy) setShowUpgrade(false) }}
         >
           <div
             class="frosted rounded-2xl border border-white/10 w-full max-w-md p-5 shadow-2xl"
+            role="presentation"
             onClick={(e) => e.stopPropagation()}
           >
             <div class="flex items-center gap-2 mb-4">
@@ -6059,8 +6107,6 @@ export default function App() {
                           width: `${upgradeProgress.percent || 0}%`,
                           background: upgradeProgress.stage === 'error'
                             ? 'linear-gradient(90deg, #ff6b6b, #ff8a8a)'
-                            : upgradeProgress.stage === 'done'
-                            ? 'linear-gradient(90deg, #4cc2ff, #6dd5ff)'
                             : 'linear-gradient(90deg, #4cc2ff, #6dd5ff)',
                           boxShadow: upgradeProgress.stage === 'downloading' || upgradeProgress.stage === 'installing'
                             ? '0 0 12px rgba(76,194,255,0.4)' : 'none',
@@ -6173,10 +6219,12 @@ export default function App() {
       {showSkillLibrary && (
         <div
           class="fixed inset-0 bg-black/60 backdrop-blur-xs z-50 flex items-center justify-center p-4"
+          role="presentation"
           onClick={() => setShowSkillLibrary(false)}
         >
           <div
             class="frosted rounded-2xl border border-white/10 w-full max-w-2xl max-h-[80vh] overflow-y-auto p-5 shadow-2xl"
+            role="presentation"
             onClick={(e) => e.stopPropagation()}
           >
             <div class="flex items-center gap-2 mb-4">
@@ -6375,10 +6423,12 @@ export default function App() {
       {showArtifacts && (
         <div
           class="fixed inset-0 bg-black/60 backdrop-blur-xs z-50 flex items-center justify-center p-4"
+          role="presentation"
           onClick={() => setShowArtifacts(false)}
         >
           <div
             class="frosted rounded-2xl border border-white/10 w-full max-w-2xl p-5 shadow-2xl max-h-[85vh] flex flex-col"
+            role="presentation"
             onClick={(e) => e.stopPropagation()}
           >
             <div class="flex items-center gap-2 mb-4">
@@ -6466,10 +6516,12 @@ export default function App() {
       {showScheduledTasks && (
         <div
           class="fixed inset-0 bg-black/60 backdrop-blur-xs z-50 flex items-center justify-center p-4"
+          role="presentation"
           onClick={() => setShowScheduledTasks(false)}
         >
           <div
             class="tasks-panel frosted rounded-2xl border border-white/10 w-full max-w-md p-5 shadow-2xl"
+            role="presentation"
             onClick={(e) => e.stopPropagation()}
           >
             <div class="tasks-head flex items-center gap-2 mb-4">

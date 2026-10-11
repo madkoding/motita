@@ -23,7 +23,9 @@ import asyncio
 import base64
 import json
 import os
+import pathlib
 import sys
+import tempfile
 
 # The fixture is the document this renderer is judged on, and it is deliberately the
 # hard one: every CommonMark corner case plus the extensions an answer actually uses.
@@ -166,8 +168,7 @@ class CDP:
 
     async def shot(self, path):
         r = await self.call("Page.captureScreenshot", format="png")
-        with open(path, "wb") as f:
-            f.write(base64.b64decode(r["data"]))
+        await asyncio.to_thread(pathlib.Path(path).write_bytes, base64.b64decode(r["data"]))
         return path
 
 
@@ -350,15 +351,14 @@ def main():
     base = os.environ["GATEWAY_URL"]
     token = open(os.environ["GATEWAY_STATE"]).read().strip()
     cdp_port = os.environ.get("CDP_PORT", "9355")
-    shots = os.environ.get("SHOTS_DIR", os.path.join(os.environ.get("TMPDIR", "/tmp"), "motita-markdown"))
+    shots = os.environ.get("SHOTS_DIR") or tempfile.mkdtemp(prefix="motita-markdown-")
     os.makedirs(shots, exist_ok=True)
 
     # The gateway URL is resolved to a live WebSocket, so this probe never starts a
     # browser of its own: the caller owns that, the same way verify-spinner.sh does.
-    import urllib.request
+    from cdp_http import fetch_json
 
-    with urllib.request.urlopen(f"http://127.0.0.1:{cdp_port}/json/list", timeout=5) as r:
-        targets = json.load(r)
+    targets = fetch_json(f"http://127.0.0.1:{cdp_port}/json/list", timeout=5)
     page = next((t for t in targets if t.get("type") == "page"), None)
     if not page:
         print("no page target in the browser")
@@ -667,8 +667,7 @@ async def run(ws_url, base, token, shots):
         await asyncio.sleep(1.5)
 
         m = await c.js(MEASURE)
-        with open(f"{shots}/measured.json", "w") as f:
-            json.dump(m, f, indent=2, ensure_ascii=False)
+        await asyncio.to_thread(pathlib.Path(f"{shots}/measured.json").write_text, json.dumps(m, indent=2, ensure_ascii=False))
         await c.shot(f"{shots}/rendered.png")
 
         if "error" in m:
@@ -939,8 +938,7 @@ async def run(ws_url, base, token, shots):
         # --- the loading spinner over the conversation -------------------------
         ll = await c.js("window.__loadLog")
         await c.js("window.__loadLogStop && window.__loadLogStop()")
-        with open(f"{shots}/loadlog.json", "w") as f:
-            json.dump(ll, f, indent=2, ensure_ascii=False)
+        await asyncio.to_thread(pathlib.Path(f"{shots}/loadlog.json").write_text, json.dumps(ll, indent=2, ensure_ascii=False))
         sp = (ll or {}).get("spinner") or {}
         if not ll or ll.get("seen", 0) < 1:
             bad("the chat spinner never appeared while the conversation was loading")
@@ -1021,8 +1019,7 @@ async def run(ws_url, base, token, shots):
               scrollTop: Math.round((document.querySelector('main[role="log"]') || {}).scrollTop || 0),
             };
         })()""")
-        with open(f"{shots}/observer.json", "w") as f:
-            json.dump(obs, f, indent=2, ensure_ascii=False)
+        await asyncio.to_thread(pathlib.Path(f"{shots}/observer.json").write_text, json.dumps(obs, indent=2, ensure_ascii=False))
         if not obs or obs.get("hosts", 0) < 2:
             bad(f"no messages registered for deferred work: {obs}")
         else:
@@ -1076,8 +1073,7 @@ async def run(ws_url, base, token, shots):
             await asyncio.sleep(0.5)
         vis_log = await c.js("window.__visLog || []")
         frames = await c.js("window.__frameLog || []")
-        with open(f"{shots}/visibility-log.json", "w") as f:
-            json.dump(vis_log, f, indent=2, ensure_ascii=False)
+        await asyncio.to_thread(pathlib.Path(f"{shots}/visibility-log.json").write_text, json.dumps(vis_log, indent=2, ensure_ascii=False))
         hidden = [x for x in (vis_log or []) if float(x.get("opacity", 1)) == 0]
         visible = [x for x in (vis_log or []) if float(x.get("opacity", 1)) > 0.9]
         while_loading = [x for x in (vis_log or []) if x.get("loading") == "1"]
@@ -1179,8 +1175,7 @@ async def run(ws_url, base, token, shots):
                     a, b = first.get(name), last.get(name)
                     if a and b and (a["h"] != b["h"] or a["top"] != b["top"]):
                         changed[name] = f"h {a['h']} -> {b['h']}, top {a['top']} -> {b['top']}"
-                with open(f"{shots}/resize-after-reveal.json", "w") as fh:
-                    json.dump({"first": first, "last": last, "changed": changed}, fh, indent=2)
+                await asyncio.to_thread(pathlib.Path(f"{shots}/resize-after-reveal.json").write_text, json.dumps({"first": first, "last": last, "changed": changed}, indent=2))
                 if not changed:
                     ok("nothing changes size after the chat becomes readable "
                        "(the conversation was already at its final height)")
@@ -1212,8 +1207,7 @@ async def run(ws_url, base, token, shots):
             bad("the reveal never happened in the recording, so its aftermath was not measured")
         else:
             samples = [f for f in (frames or []) if f["at"] >= reveal_at and f.get("scrollTop") is not None]
-            with open(f"{shots}/scroll-after-reveal.json", "w") as fh:
-                json.dump(samples, fh, indent=2, ensure_ascii=False)
+            await asyncio.to_thread(pathlib.Path(f"{shots}/scroll-after-reveal.json").write_text, json.dumps(samples, indent=2, ensure_ascii=False))
             positions = [x["scrollTop"] for x in samples]
             if not positions:
                 bad("no scroll position was recorded after the reveal")
@@ -1247,9 +1241,7 @@ async def run(ws_url, base, token, shots):
         chat_in = steps([x["chat"] for x in (frames or []) if x.get("chat") is not None])
         intermediate_modal = [v for v in modal_out if 0.02 < v < 0.98]
         intermediate_chat = [v for v in chat_in if 0.02 < v < 0.98]
-        with open(f"{shots}/transitions.json", "w") as f:
-            json.dump({"modal": modal_out, "chat": chat_in, "frames": frames},
-                      f, indent=2, ensure_ascii=False)
+        await asyncio.to_thread(pathlib.Path(f"{shots}/transitions.json").write_text, json.dumps({"modal": modal_out, "chat": chat_in, "frames": frames}, indent=2, ensure_ascii=False))
 
         if not frames:
             bad("no per-frame opacity samples were recorded, so nothing about the transitions "
@@ -1296,8 +1288,7 @@ async def run(ws_url, base, token, shots):
 
         ch = await c.js("window.__chatLoadingLog && window.__chatLoadingLog()")
         ml = await c.js("window.__modalLog || []")
-        with open(f"{shots}/chatloading.json", "w") as f:
-            json.dump({"state": ch, "modal": ml}, f, indent=2, ensure_ascii=False)
+        await asyncio.to_thread(pathlib.Path(f"{shots}/chatloading.json").write_text, json.dumps({"state": ch, "modal": ml}, indent=2, ensure_ascii=False))
 
         # --- the conversation is HIDDEN while it is being built ---------------------
         #
@@ -1315,8 +1306,7 @@ async def run(ws_url, base, token, shots):
                      width: Math.round(r.width), height: Math.round(r.height),
                      modal: !!document.querySelector('.chat-modal-scrim') };
         })()""")
-        with open(f"{shots}/visibility.json", "w") as f:
-            json.dump(vis, f, indent=2, ensure_ascii=False)
+        await asyncio.to_thread(pathlib.Path(f"{shots}/visibility.json").write_text, json.dumps(vis, indent=2, ensure_ascii=False))
         if not vis:
             bad("the conversation container was not found, so nothing about its visibility was measured")
         elif cleared_now:
@@ -1351,8 +1341,7 @@ async def run(ws_url, base, token, shots):
 
         # And the observer has to be the thing deciding, not a default: it must have reported.
         io = await c.js("window.__ioLog")
-        with open(f"{shots}/io.json", "w") as f:
-            json.dump(io, f, indent=2, ensure_ascii=False)
+        await asyncio.to_thread(pathlib.Path(f"{shots}/io.json").write_text, json.dumps(io, indent=2, ensure_ascii=False))
         if not io or io.get("callbacks", 0) < 1:
             bad(f"the IntersectionObserver never reported: the visibility of a message is "
                 f"whatever it was initialised to, not a measurement: {io}")

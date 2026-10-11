@@ -8,9 +8,10 @@ in the terminal drawer, which is the record of the run. Measured on the reader's
 This drives a scratch gateway with the simulated LLM and asserts, on the wire, what the report
 of the command carries.
 """
-import asyncio, json, os, sys, urllib.request
+import asyncio, json, os, sys, tempfile
 
 sys.path.insert(0, os.path.dirname(__file__))
+from cdp_http import fetch_json  # noqa: E402
 from cdp_spinner import CDP, start_browser, PORT  # noqa: E402
 
 BASE = os.environ["GATEWAY_URL"]
@@ -28,11 +29,11 @@ def ok(m):
 
 
 def api(path, body=None):
-    req = urllib.request.Request(BASE + path, method="POST" if body is not None else "GET",
-                                 data=json.dumps(body).encode() if body is not None else None,
-                                 headers={"Authorization": "Bearer " + TOKEN, "Content-Type": "application/json"})
-    with urllib.request.urlopen(req, timeout=15) as r:
-        return json.load(r)
+    return fetch_json(BASE + path, body, timeout=15,
+                      headers={"Authorization": "Bearer " + TOKEN, "Content-Type": "application/json"})
+
+
+SHOTS = os.environ.get("SHOTS_DIR") or tempfile.mkdtemp(prefix="motita-grep-output-")
 
 
 async def until(c, expr, secs=90):
@@ -119,15 +120,14 @@ async def main(ws_url):
             fail("the terminal still shows a cut")
         else:
             ok("no cut marker in the terminal")
-        await c.shot(f"{os.environ.get('SHOTS_DIR', '/tmp')}/grep-terminal.png")
+        await c.shot(os.path.join(SHOTS, "grep-terminal.png"))
 
     print("VERDICT: " + ("ok" if failures == 0 else f"FAILED ({failures})"))
     return 1 if failures else 0
 
 
 if __name__ == "__main__":
-    os.makedirs(os.environ.get("SHOTS_DIR", "/tmp"), exist_ok=True)
+    os.makedirs(SHOTS, exist_ok=True)
     start_browser()
-    with urllib.request.urlopen(f"http://127.0.0.1:{PORT}/json/list", timeout=5) as r:
-        page = [t for t in json.load(r) if t.get("type") == "page"][0]
+    page = [t for t in fetch_json(f"http://127.0.0.1:{PORT}/json/list", timeout=5) if t.get("type") == "page"][0]
     sys.exit(asyncio.run(main(page["webSocketDebuggerUrl"])))

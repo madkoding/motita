@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useReducer, useRef, useState } from 'preact/hooks'
+import { backdropClick } from './a11y'
 import { t, tf } from './i18n'
 import { useDialog } from './useDialog'
 import { copyText } from './clipboard'
@@ -68,8 +69,8 @@ export function GitConnectModal({ api, service, selfHosted, onClose, onConnected
   const title = account ? tf('Connect {host}', { host: account.name }) : t('Connect a git host')
 
   return (
-    <div class="fixed inset-0 z-120 flex items-center justify-center bg-black/70 backdrop-blur-xs p-4" data-testid="git-connect-modal" onClick={onClose}>
-      <div ref={ref} data-dialog-root class="frosted rounded-2xl border border-white/10 w-full max-w-md max-h-[90vh] overflow-y-auto p-5 shadow-2xl" role="dialog" aria-modal="true" aria-label={title} onClick={(e) => e.stopPropagation()}>
+    <div class="fixed inset-0 z-120 flex items-center justify-center bg-black/70 backdrop-blur-xs p-4" data-testid="git-connect-modal" role="presentation" onClick={backdropClick(onClose)}>
+      <div ref={ref} data-dialog-root class="frosted rounded-2xl border border-white/10 w-full max-w-md max-h-[90vh] overflow-y-auto p-5 shadow-2xl" role="dialog" aria-modal="true" aria-label={title}>
         <div class="flex items-center gap-2 mb-4">
           <h2 class="flex-1 text-base font-semibold text-[#e8e8ea]">{title}</h2>
           <button class="p-1.5 rounded-lg hover:bg-white/5 text-[#9a9aaa]" aria-label={t('Close')} onClick={onClose}>×</button>
