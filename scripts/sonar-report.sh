@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Prints the Sonar quality gate, key measures, hotspots, rule parameters and open issues as
+# Prints the Sonar quality gate, key measures, hotspots and open issues as
 # Markdown; the long issue list goes last.
 # Needs SONAR_HOST_URL and SONAR_TOKEN; the project key comes from sonar-project.properties.
 set -euo pipefail
@@ -30,19 +30,6 @@ echo '```'
 { api "hotspots/search?project=${key}&status=TO_REVIEW&ps=500" | jq -r '
   .hotspots[] | "\(.vulnerabilityProbability)\t\(.ruleKey)\t\(.component | sub("^[^:]*:"; "")):\(.line // 0)\t\(.message)"'; } \
   || echo "(the token cannot list hotspots)"
-echo '```'
-
-echo
-echo "### Parameters of the active rules"
-echo
-echo '```'
-profiles="$(api "qualityprofiles/search?project=${key}" | jq -r '.profiles[].key')" || profiles=""
-for qp in $profiles; do
-  api "rules/search?qprofile=${qp}&activation=true&f=name&actives=true&ps=500" | jq -r '
-    .actives as $a | .rules[] | select(($a[.key][0].params // []) | length > 0)
-    | "\(.key)\t\(.name)\t\([$a[.key][0].params[] | "\(.key)=\(.value)"] | join(" "))"' \
-    || echo "(the token cannot read the profile ${qp})"
-done
 echo '```'
 
 echo
