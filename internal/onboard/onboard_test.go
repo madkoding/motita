@@ -879,7 +879,8 @@ func TestCatalogueMatchesTheClientProtocols(t *testing.T) {
 			t.Errorf("the wizard offers %q, which the client does not implement", p.ID)
 		}
 		// A provider with its own login has no endpoint and no key to name.
-		if p.Name == "" || p.ConsoleURL == "" || p.Login == "" && (p.DefaultBaseURL == "" || p.EnvKey == "") {
+		noEndpoint := p.Login == "" && (p.DefaultBaseURL == "" || p.EnvKey == "")
+		if p.Name == "" || p.ConsoleURL == "" || noEndpoint {
 			t.Errorf("%q is incomplete: %+v", p.ID, p)
 		}
 		if len(p.Models) == 0 && !p.FetchModels {
@@ -1218,6 +1219,8 @@ func TestWriteFileAtomicReportsEveryFilesystemFailure(t *testing.T) {
 			t.Error("a failed create must be reported")
 		} else if !strings.Contains(err.Error(), "no space left") {
 			t.Errorf("err = %v", err)
+		} else {
+			// the expected outcome: nothing more to check
 		}
 	})
 
@@ -1286,8 +1289,8 @@ func TestOllamaLocalAsksForNoKey(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Run: %v", err)
 	}
-	if gotURL != "http://localhost:11434/v1" || gotKey != "" || res.Model != "llama3.3" || !res.Keyless ||
-		res.CredentialsPath != "" {
+	wrong := gotURL != "http://localhost:11434/v1" || gotKey != "" || res.Model != "llama3.3"
+	if wrong || !res.Keyless || res.CredentialsPath != "" {
 		t.Errorf("url=%q key=%q res=%+v", gotURL, gotKey, res)
 	}
 	if strings.Contains(stripANSI(out), "Paste the key") {
