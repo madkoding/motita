@@ -121,26 +121,31 @@ func llmServer(t *testing.T, replies []replyStep) *httptest.Server {
 			choice["message"].(map[string]any)["tool_calls"] = step.calls
 		}
 		if stream {
-			w.Header().Set("Content-Type", "text/event-stream")
-			w.WriteHeader(http.StatusOK)
-			if step.content != "" {
-				chunk, _ := json.Marshal(
-					map[string]any{"choices": []any{map[string]any{"delta": map[string]any{"content": step.content}}}})
-				fmt.Fprintf(w, "data: %s\n\n", chunk)
-			}
-			if len(step.calls) > 0 {
-				delta := map[string]any{"tool_calls": step.calls}
-				chunk, _ := json.Marshal(
-					map[string]any{"choices": []any{map[string]any{"delta": delta, "finish_reason": step.finishReason}}})
-				fmt.Fprintf(w, "data: %s\n\n", chunk)
-			}
-			fmt.Fprint(w, "data: [DONE]\n\n")
+			writeStreamReply(w, step)
 			return
 		}
 		json.NewEncoder(w).Encode(map[string]any{
 			"choices": []any{choice},
 		})
 	}))
+}
+
+// writeStreamReply emits one scripted reply as SSE chunks: its text, then its tool calls.
+func writeStreamReply(w http.ResponseWriter, step replyStep) {
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.WriteHeader(http.StatusOK)
+	if step.content != "" {
+		chunk, _ := json.Marshal(
+			map[string]any{"choices": []any{map[string]any{"delta": map[string]any{"content": step.content}}}})
+		fmt.Fprintf(w, "data: %s\n\n", chunk)
+	}
+	if len(step.calls) > 0 {
+		delta := map[string]any{"tool_calls": step.calls}
+		chunk, _ := json.Marshal(
+			map[string]any{"choices": []any{map[string]any{"delta": delta, "finish_reason": step.finishReason}}})
+		fmt.Fprintf(w, "data: %s\n\n", chunk)
+	}
+	fmt.Fprint(w, "data: [DONE]\n\n")
 }
 
 type replyStep struct {
