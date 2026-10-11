@@ -44,7 +44,11 @@ func TestAHealthyMachinePassesEveryCheck(t *testing.T) {
 	if Write(&out, Environment(healthy(t))) {
 		t.Fatalf("a healthy machine failed:\n%s", out.String())
 	}
-	for _, want := range []string{"motita v1 (linux/arm64)", shellPath(), "api.github.com resolves", "is on the PATH", "/usr/bin/stty", "Everything motita needs works."} {
+	wants := []string{
+		"motita v1 (linux/arm64)", shellPath(), "api.github.com resolves", "is on the PATH", "/usr/bin/stty",
+		"Everything motita needs works.",
+	}
+	for _, want := range wants {
 		if !strings.Contains(out.String(), want) {
 			t.Errorf("report misses %q:\n%s", want, out.String())
 		}
@@ -138,7 +142,10 @@ func TestWriteSaysWhenSomethingFailed(t *testing.T) {
 
 func TestSystemDescribesThisProcess(t *testing.T) {
 	e := System("v2", "/bin/motita")
-	if e.Version != "v2" || e.Exe != "/bin/motita" || e.Goos == "" || e.Goarch == "" || e.Timeout <= 0 {
+	if e.Version != "v2" || e.Exe != "/bin/motita" {
+		t.Fatalf("%+v", e)
+	}
+	if e.Goos == "" || e.Goarch == "" || e.Timeout <= 0 {
 		t.Fatalf("%+v", e)
 	}
 	if e.DNS() == "" || e.Getenv("PATH") != os.Getenv("PATH") {
