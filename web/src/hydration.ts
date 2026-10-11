@@ -63,7 +63,7 @@ function record(idle: boolean, reason: string): void {
   const last = transitions[transitions.length - 1]
   // Only the CHANGES are kept: the observer fires often and a log of identical rows would hide
   // the flicker inside its own noise.
-  if (last && last.idle === idle && last.pending === pending) { return }
+  if (last?.idle === idle && last.pending === pending) { return }
   transitions.push({ at: Math.round(performance.now()), idle, pending, registered: entries.size, reason })
   if (transitions.length > 60) { transitions.shift() }
 }
@@ -148,7 +148,7 @@ function ensureObserver(): IntersectionObserver | null {
         // nodes a hydrated message holds (a mermaid SVG is hundreds of elements), not one
         // IntersectionObserver registration; this is the cheap half.
         entry.inView = rec.isIntersecting
-        ;(rec.target as HTMLElement).setAttribute('data-inview', choose(rec.isIntersecting, '1', '0'))
+        ;(rec.target as HTMLElement).dataset.inview = choose(rec.isIntersecting, '1', '0')
         if (rec.isIntersecting && !entry.started) {
           entry.started = true
           entry.task()
@@ -179,8 +179,8 @@ export function watchForHydration(el: HTMLElement, task: () => void): () => void
   // visible until the first callback would make a message that is never reported look built, and
   // — worse — would make the spinner's "is anything visible still pending" question answer itself
   // with a yes that nothing ever corrects.
-  el.setAttribute('data-hydrating', '1')
-  el.setAttribute('data-inview', '0')
+  el.dataset.hydrating = '1'
+  el.dataset.inview = '0'
   record(!visiblePending(), 'register')
   // A message appearing is activity: it restarts the quiet window, so the window cannot expire
   // between two messages that are still arriving.
@@ -199,7 +199,7 @@ export function watchForHydration(el: HTMLElement, task: () => void): () => void
     const fallback = entries.get(el)!
     fallback.inView = true
     fallback.started = true
-    el.setAttribute('data-inview', '1')
+    el.dataset.inview = '1'
     fallback.task()
   }
 
@@ -221,7 +221,7 @@ export function watchForHydration(el: HTMLElement, task: () => void): () => void
 function finish(el: HTMLElement): void {
   const entry = entries.get(el)
   if (entry) { entry.finished = true }
-  el.removeAttribute('data-hydrating')
+  delete el.dataset.hydrating
   record(!visiblePending(), 'finish')
   // A message finishing is activity too, and this is the one that matters: it is what keeps the
   // window open while the conversation is still being built, and what lets it close when the
