@@ -433,7 +433,8 @@ func TestDownloadFileBadDest(t *testing.T) {
 
 	u := &Updater{HTTPClient: srv.Client()}
 	// dest in a non-existent directory
-	err := u.downloadFile(context.Background(), srv.URL, maxBinarySize, "/nonexistent-dir-xyz/sub/file", func(ProgressEvent) {})
+	err := u.downloadFile(context.Background(), srv.URL, maxBinarySize, "/nonexistent-dir-xyz/sub/file",
+		func(ProgressEvent) {})
 	if err == nil {
 		t.Error("expected error for unwritable dest")
 	}
@@ -441,7 +442,8 @@ func TestDownloadFileBadDest(t *testing.T) {
 
 func TestDownloadFileBadURL(t *testing.T) {
 	u := &Updater{HTTPClient: &http.Client{}}
-	err := u.downloadFile(context.Background(), "http://\x7f.invalid", maxBinarySize, filepath.Join(t.TempDir(), "x"), func(ProgressEvent) {})
+	err := u.downloadFile(context.Background(), "http://\x7f.invalid", maxBinarySize, filepath.Join(t.TempDir(), "x"),
+		func(ProgressEvent) {})
 	if err == nil {
 		t.Error("expected error from bad URL")
 	}
