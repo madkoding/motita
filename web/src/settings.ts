@@ -5,11 +5,23 @@ export type Density = 'comfortable' | 'compact'
 export interface UISettings { fontSize: FontSize; density: Density }
 export const DEFAULT_SETTINGS: UISettings = { fontSize: 'normal', density: 'comfortable' }
 
+// oneOf is the saved value when it is one of the allowed ones, the default otherwise.
+function oneOf<T extends string>(allowed: T[], value: unknown, fallback: T): T {
+  if ((allowed as unknown[]).includes(value)) { return value as T }
+  return fallback
+}
+
+// onOff spells a switch the way it is stored and shown.
+function onOff(on: boolean): 'on' | 'off' {
+  if (on) { return 'on' }
+  return 'off'
+}
+
 export function loadSettings(): UISettings {
   try {
     const raw = JSON.parse(localStorage.getItem(SETTINGS_KEY) || '{}')
-    const fontSize: FontSize = ['small', 'normal', 'large'].includes(raw.fontSize) ? raw.fontSize : DEFAULT_SETTINGS.fontSize
-    const density: Density = ['comfortable', 'compact'].includes(raw.density) ? raw.density : DEFAULT_SETTINGS.density
+    const fontSize = oneOf<FontSize>(['small', 'normal', 'large'], raw.fontSize, DEFAULT_SETTINGS.fontSize)
+    const density = oneOf<Density>(['comfortable', 'compact'], raw.density, DEFAULT_SETTINGS.density)
     return { fontSize, density }
   } catch {
     return { ...DEFAULT_SETTINGS }
@@ -18,8 +30,8 @@ export function loadSettings(): UISettings {
 
 export function applySettings(s: UISettings): void {
   const root = document.documentElement
-  root.setAttribute('data-font-size', s.fontSize)
-  root.setAttribute('data-density', s.density)
+  root.dataset.fontSize = s.fontSize
+  root.dataset.density = s.density
 }
 
 export function saveSettings(s: UISettings): void {
@@ -43,7 +55,7 @@ export function loadNotify(): boolean {
 }
 
 export function saveNotify(on: boolean): void {
-  try { localStorage.setItem(NOTIFY_KEY, on ? 'on' : 'off') } catch { /* ignore */ }
+  try { localStorage.setItem(NOTIFY_KEY, onOff(on)) } catch { /* ignore */ }
 }
 
 export type NotifyState = 'unsupported' | 'blocked' | 'ask' | 'on' | 'off'
@@ -54,5 +66,5 @@ export function notifyState(permission: string | undefined, enabled: boolean): N
   if (permission === undefined) { return 'unsupported' }
   if (permission === 'denied') { return 'blocked' }
   if (permission === 'default') { return 'ask' }
-  return enabled ? 'on' : 'off'
+  return onOff(enabled)
 }
