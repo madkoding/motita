@@ -105,8 +105,14 @@ func TestEnterChrootSuccessWithInjectedSyscalls(t *testing.T) {
 	defer func() { chrootHooks = original }()
 
 	var gotChroot, gotChdir string
-	chrootHooks.chroot = func(path string) error { gotChroot = path; return nil }
-	chrootHooks.chdir = func(path string) error { gotChdir = path; return nil }
+	chrootHooks.chroot = func(path string) error {
+		gotChroot = path
+		return nil
+	}
+	chrootHooks.chdir = func(path string) error {
+		gotChdir = path
+		return nil
+	}
 
 	// With a directory, that directory is the one used.
 	if err := enterChroot("/fake/root", "/fake/root/work"); err != nil {
@@ -158,9 +164,21 @@ func TestDropPrivilegesSuccessWithInjectedSyscalls(t *testing.T) {
 	var order []string
 	var groups []int
 	var uid, gid int
-	privilegeHooks.setgroups = func(g []int) error { order = append(order, "setgroups"); groups = g; return nil }
-	privilegeHooks.setgid = func(g int) error { order = append(order, "setgid"); gid = g; return nil }
-	privilegeHooks.setuid = func(u int) error { order = append(order, "setuid"); uid = u; return nil }
+	privilegeHooks.setgroups = func(g []int) error {
+		order = append(order, "setgroups")
+		groups = g
+		return nil
+	}
+	privilegeHooks.setgid = func(g int) error {
+		order = append(order, "setgid")
+		gid = g
+		return nil
+	}
+	privilegeHooks.setuid = func(u int) error {
+		order = append(order, "setuid")
+		uid = u
+		return nil
+	}
 
 	if err := dropPrivileges(1234, 5678); err != nil {
 		t.Fatalf("dropPrivileges = %v", err)
