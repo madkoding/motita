@@ -28,6 +28,8 @@ from typing import Any
 
 import websockets
 
+from cdp_http import JSON, AsyncSocket
+
 PORT = int(os.environ.get("CDP_PORT", "9344"))
 BASE = os.environ.get("GATEWAY_URL", "http://127.0.0.1:7479")
 SHOTS = os.environ.get("SHOTS_DIR") or tempfile.mkdtemp(prefix="motita-tasks-layout-")
@@ -50,7 +52,7 @@ def bad(msg: str) -> None:
 class CDP:
     """A minimal Chrome DevTools Protocol client over one websocket."""
 
-    def __init__(self, ws: Any) -> None:
+    def __init__(self, ws: AsyncSocket) -> None:
         self.ws = ws
         self.i = 0
 
@@ -65,7 +67,7 @@ class CDP:
                     raise RuntimeError(f"{method}: {msg['error']}")
                 return msg.get("result", {})
 
-    async def js(self, expr: str) -> Any:
+    async def js(self, expr: str) -> JSON:
         r = await self.call("Runtime.evaluate", expression=expr, returnByValue=True, awaitPromise=True)
         if r.get("exceptionDetails"):
             raise RuntimeError(str(r["exceptionDetails"]))
@@ -304,8 +306,10 @@ def check_desktop(d: dict[str, Any]) -> None:
 
 
 # The Go form of a duration, e.g. "24h0m0s". The lookbehind starts a match only at the first
-# digit of a run, which keeps the search linear without changing what it finds.
-GO_DURATION = re.compile(r"(?<!\d)\d+[hms]\d+[hms]0")
+# digit of a run, and the possessive runs never give digits back (the letter after them is not a
+# digit, so giving one back could not help), which keeps the search linear without changing
+# what it finds. Possessive quantifiers need Python 3.11.
+GO_DURATION = re.compile(r"(?<!\d)\d++[hms]\d++[hms]0")
 
 
 def check_rows(label: str, m: dict[str, Any]) -> None:

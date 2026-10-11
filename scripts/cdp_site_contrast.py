@@ -36,9 +36,10 @@ import tempfile
 import subprocess
 import sys
 import time
-from typing import Any, NoReturn
+from collections.abc import Iterable
+from typing import Any, NoReturn, Protocol
 
-from cdp_http import LAUNCHER, chrome_env
+from cdp_http import JSON, LAUNCHER, SyncSocket, chrome_env
 
 CDP_PORT = os.environ.get("CDP_PORT", "9356")
 CHROME = os.environ.get("CHROME", "")
@@ -79,6 +80,26 @@ checked = []
 
 RGB = tuple[int, ...]
 Box = tuple[int, int, int, int]
+
+
+class PixelImage(Protocol):
+    """The part of a PIL image this probe uses; PIL is only imported once the venv is checked."""
+
+    def convert(self, mode: str) -> "PixelImage":
+        """The image in another pixel mode."""
+
+    def crop(self, box: Box) -> "PixelImage":
+        """The part of the image inside box."""
+
+    def getdata(self) -> Iterable[RGB]:
+        """Every pixel, row by row."""
+
+
+class ImageOpener(Protocol):
+    """PIL's Image module, as far as this probe uses it."""
+
+    def open(self, fp: str) -> PixelImage:
+        """Read the image file at fp."""
 
 
 def die(code: int, message: str) -> NoReturn:
@@ -175,7 +196,7 @@ def main() -> None:
 class Browser:
     """Synchronous CDP calls over one websocket."""
 
-    def __init__(self, ws: Any) -> None:
+    def __init__(self, ws: SyncSocket) -> None:
         self.ws = ws
         self.n = 0
 
@@ -191,7 +212,7 @@ class Browser:
                     raise RuntimeError(f"{method}: {reply['error']}")
                 return reply.get("result", {})
 
-    def js(self, expr: str) -> Any:
+    def js(self, expr: str) -> JSON:
         """Evaluate expr in the page and return its value."""
         result = self.call("Runtime.evaluate", expression=expr, returnByValue=True)
         value = result.get("result", {}).get("value")
@@ -307,7 +328,7 @@ def locate(b: Browser, el: dict[str, Any]) -> dict[str, int] | None:
     )
 
 
-def measure(b: Browser, image_cls: Any, el: dict[str, Any]) -> None:
+def measure(b: Browser, image_cls: ImageOpener, el: dict[str, Any]) -> None:
     """Measure one element's text colour against the brightest pixel behind it."""
     required = REQUIREMENTS.get(el["color"])
     if required is None:
@@ -349,7 +370,7 @@ def measure(b: Browser, image_cls: Any, el: dict[str, Any]) -> None:
     )
 
 
-def run(ws: Any, image_cls: Any) -> None:
+def run(ws: SyncSocket, image_cls: ImageOpener) -> None:
     """Measure every selected element on the page behind ws and print the verdict."""
     b = Browser(ws)
     open_page(b)
@@ -394,7 +415,7 @@ def fmt_rgb(rgb: RGB) -> str:
     return "#%02x%02x%02x" % rgb
 
 
-def brightest_pixel(image: Any, box: Box) -> RGB:
+def brightest_pixel(image: PixelImage, box: Box) -> RGB:
     """The brightest pixel in the box - the one that decides legibility."""
     region = image.crop(box)
     pixels = list(region.getdata())

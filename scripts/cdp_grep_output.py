@@ -9,10 +9,9 @@ This drives a scratch gateway with the simulated LLM and asserts, on the wire, w
 of the command carries.
 """
 import asyncio, json, os, sys, tempfile
-from typing import Any
 
 sys.path.insert(0, os.path.dirname(__file__))
-from cdp_http import fetch_json  # noqa: E402
+from cdp_http import JSON, fetch_json  # noqa: E402
 from cdp_spinner import CDP, start_browser, PORT  # noqa: E402
 
 BASE = os.environ["GATEWAY_URL"]
@@ -36,7 +35,7 @@ def ok(m: str) -> None:
     print("  ok   " + m)
 
 
-def api(path: str, body: Any = None) -> Any:
+def api(path: str, body: JSON = None) -> JSON:
     """Call the gateway's JSON API with the session token."""
     return fetch_json(BASE + path, body, timeout=15,
                       headers={"Authorization": "Bearer " + TOKEN, "Content-Type": "application/json"})
