@@ -105,6 +105,9 @@ type Options struct {
 	// MaxSessions caps how many conversations this process will hold. Zero means
 	// defaultMaxSessions.
 	MaxSessions int
+	// FreeSessionGit makes a free-standing session's own directory a git repository when it is
+	// created, unless the request says otherwise. See config.Gateway.FreeSessionGit.
+	FreeSessionGit bool
 	// Log receives the one line a gateway has to say when it starts: where it is listening.
 	// That line is the only way an operator learns the port when 0 was asked for.
 	Log *logx.Logger
@@ -568,6 +571,8 @@ func (s *Server) routes() *http.ServeMux {
 	mux.Handle("PATCH /v1/projects/{id}", plain(s.handleUpdateProject))
 	mux.Handle("GET /v1/projects/{id}/branches", plain(s.handleProjectBranches))
 	mux.Handle("DELETE /v1/projects/{id}", plain(s.handleDeleteProject))
+	mux.Handle("POST /v1/projects/{id}/repos", plain(s.handleAddProjectRepo))
+	mux.Handle("DELETE /v1/projects/{id}/repos/{name}", plain(s.handleRemoveProjectRepo))
 	// Scheduled tasks are addressed by the PROCESS, not by a conversation, for the same
 	// reason projects are: a schedule exists whether or not anyone is talking to the
 	// agent, and the conversation it fires INTO is a field of the record. Everything

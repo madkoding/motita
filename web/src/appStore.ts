@@ -22,6 +22,7 @@ import { useCheckpoints } from "./useCheckpoints";
 import { useAuth, useLanguage } from "./useAuth";
 import { useUpdates } from "./useUpdates";
 import { useRowMenus } from "./useRowMenus";
+import { useFinishedElsewhere } from "./sessionWatch";
 import type { Api } from "./prApi";
 
 export function useAppStore(api: Api) {
@@ -35,7 +36,14 @@ export function useAppStore(api: Api) {
     liveThought: rs.liveThought,
     stepsByTurn: rs.stepsByTurn,
   });
-  const model = useModelSwitcher(api, rs.sessionId, setState);
+  const model = useModelSwitcher(
+    api,
+    rs.sessionId,
+    setState,
+    setToast,
+    lists.fetchSessions,
+  );
+  useFinishedElsewhere(lists.sessions, rs.sessionId, setToast);
   const skills = useSkills(api, rs.sessionId, setState);
   const projects = useProjects({ api, lists, setState, setToast });
   const artifacts = useArtifacts(api, rs.sessionId, setState);

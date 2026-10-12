@@ -389,6 +389,11 @@ type SessionStatus struct {
 	// now, not counting the main one. It is what the sidebar draws, so a session whose main agent
 	// is waiting on others does not read as stuck.
 	AgentsRunning int `json:"agents_running,omitempty"`
+	// Provider and Model are what THIS session's next turn runs with. The model belongs to the
+	// session, not to the gateway: each one keeps its own, and the list says which so two
+	// sessions on two models can be told apart without opening them.
+	Provider string `json:"provider,omitempty"`
+	Model    string `json:"model,omitempty"`
 }
 
 // setAgents keeps the latest snapshot of the run's agents.
@@ -423,6 +428,10 @@ func (c *conversation) status() SessionStatus {
 	st := SessionStatus{ID: c.id, Title: c.title, ProjectID: c.projectID, Created: c.created, LastUsed: c.lastUsed,
 		Running: c.running, AutoApprove: c.autoApprove, AgentsRunning: runningSubagents(c.agents)}
 	st.Workspace = c.workspace
+	if c.svc != nil {
+		cfg := c.svc.Config()
+		st.Provider, st.Model = cfg.LLM.Provider, cfg.LLM.Model
+	}
 	if c.prWatch != nil {
 		w := *c.prWatch
 		st.PRWatch = &w
@@ -617,6 +626,11 @@ func runtimeOf(p *Project) string {
 func applyRuntimeTo(svc Service, p *Project) {
 	if setter, ok := svc.(interface{ SetContainerRuntime(string) }); ok {
 		setter.SetContainerRuntime(runtimeOf(p))
+	}
+	// The project's other repositories, so the agent knows where they are and that each one is
+	// committed on its own.
+	if setter, ok := svc.(interface{ SetProjectNote(string) }); ok {
+		setter.SetProjectNote(projectReposNote(p))
 	}
 }
 
@@ -834,6 +848,9 @@ func newSessionID() (string, error) {
 func (s *Server) handleCreateSession(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		ProjectID string `json:"project_id"`
+		// Git asks for a free-standing session's directory to be a git repository (true) or a
+		// plain directory (false). Absent, the gateway's free_session_git setting decides.
+		Git *bool `json:"git"`
 	}
 	// The body is optional: a client that sends no body gets a free-standing session.
 	if r.ContentLength > 0 {
@@ -877,6 +894,8 @@ func (s *Server) handleCreateSession(w http.ResponseWriter, r *http.Request) {
 	default:
 		if project != nil {
 			s.placeInProject(conv, body.ProjectID, project)
+		} else {
+			s.placeFreeStanding(conv, s.wantsGit(body.Git))
 		}
 		s.saveSession(conv)
 		writeJSON(w, http.StatusCreated, conv.status())
@@ -909,6 +928,7 @@ func (s *Server) placeInProject(conv *conversation, projectID string, project *P
 	} else {
 		dir = wt
 	}
+	s.attachProjectRepos(context.Background(), project, dir, conv.id)
 	conv.setProjectID(projectID, dir, project.Dir)
 	conv.svc.SetWorkspace(dir)
 	// The procedures learned here belong to THIS project. A session inside a
@@ -917,6 +937,106 @@ func (s *Server) placeInProject(conv *conversation, projectID string, project *P
 	// procedure written into one would be lost with it.
 	scopeProceduresTo(conv.svc, project.Dir)
 	applyRuntimeTo(conv.svc, project)
+}
+
+// freeSessionDir is where a session that belongs to no project works: a directory of its own under
+// the workspace root, named after the session.
+//
+// Free-standing sessions used to share the workspace root itself, so two of them working at once
+// wrote into one directory - and the root is also where projects and worktrees live. A directory
+// per session is the same isolation a project session gets from its worktree, without needing git.
+func (s *Server) freeSessionDir(id string) string {
+	root := strings.TrimSpace(s.opts.WorkspaceDir)
+	if root == "" {
+		return ""
+	}
+	return filepath.Join(root, "sessions", id)
+}
+
+// placeFreeStanding gives a new session that belongs to no project its own directory. Without a
+// workspace root, or when the directory cannot be made, the session keeps the configured workspace,
+// which is what it always had.
+//
+// withGit makes the directory a git repository too. A failed `git init` is reported and the session
+// still runs in its plain directory: git was a convenience, not a condition.
+func (s *Server) placeFreeStanding(conv *conversation, withGit bool) {
+	dir := s.freeSessionDir(conv.id)
+	if dir == "" {
+		return
+	}
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		s.warn("the session will run in the shared workspace: its own directory could not be created",
+			"id", conv.id, "dir", dir, "error", err.Error())
+		return
+	}
+	if withGit {
+		if err := gitx.Init(context.Background(), dir); err != nil {
+			s.warn("the session's directory is not a git repository: git init failed",
+				"id", conv.id, "dir", dir, "error", err.Error())
+		}
+	}
+	conv.setProjectID("", dir, "")
+	conv.svc.SetWorkspace(dir)
+}
+
+// releaseFreeSessionDir removes a deleted free-standing session's directory when nothing is left in
+// it. A directory that still holds files is kept: they are the user's work, and nothing here can
+// tell whether they are wanted.
+func (s *Server) releaseFreeSessionDir(c *conversation) {
+	c.stateMu.Lock()
+	ws, projectDir := c.workspace, c.projectDir
+	c.stateMu.Unlock()
+	dir := s.freeSessionDir(c.id)
+	if dir == "" || projectDir != "" || !gitx.SamePath(ws, dir) {
+		return
+	}
+	removeIfUnused(dir)
+}
+
+// wantsGit is the request's answer when it gave one, and the gateway's setting otherwise.
+func (s *Server) wantsGit(asked *bool) bool {
+	if asked != nil {
+		return *asked
+	}
+	return s.opts.FreeSessionGit
+}
+
+// removeIfUnused removes a free-standing session's directory when nothing of the user's is in it:
+// an empty directory, or one holding only the repository free_session_git made and no commit was
+// ever written to. Anything else is the user's work and stays.
+func removeIfUnused(dir string) {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return
+	}
+	switch {
+	case len(entries) == 0:
+		_ = os.Remove(dir)
+	case len(entries) == 1 && entries[0].Name() == ".git" && !gitx.HasCommits(context.Background(), dir):
+		_ = os.RemoveAll(dir)
+	}
+}
+
+// pruneFreeSessionDirs removes the directories under workspace/sessions that no session owns any
+// more and that hold nothing of the user's (see removeIfUnused). They are left behind by a gateway
+// stopped before a session's deletion finished, or by sessions deleted before directories were
+// released at all. known is every session id the gateway still has a record of, loaded or not:
+// a session past the restore ceiling is on disk, and its directory is still its own.
+func (s *Server) pruneFreeSessionDirs(known map[string]bool) {
+	root := s.freeSessionDir("")
+	if root == "" {
+		return
+	}
+	entries, err := os.ReadDir(root)
+	if err != nil {
+		return
+	}
+	for _, e := range entries {
+		if !e.IsDir() || known[e.Name()] {
+			continue
+		}
+		removeIfUnused(filepath.Join(root, e.Name()))
+	}
 }
 
 // handleListSessions answers what this gateway is holding.
@@ -929,7 +1049,9 @@ func (s *Server) handleListSessions(w http.ResponseWriter, _ *http.Request) {
 		out = append(out, c.status())
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].ID < out[j].ID })
-	writeJSON(w, http.StatusOK, map[string]any{"sessions": out})
+	// max_sessions is the ceiling, so a front end can say how close to it the gateway is before a
+	// new session is refused with 409.
+	writeJSON(w, http.StatusOK, map[string]any{"sessions": out, "max_sessions": s.maxSessions()})
 }
 
 // handleDeleteSession drops one conversation.
@@ -1049,6 +1171,7 @@ func (s *Server) handleDeleteSession(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusConflict, err.Error())
 		return
 	}
+	s.releaseFreeSessionDir(c)
 	s.forgetCheckpoints(c)
 	s.forget(c.id)
 	s.deletePersistedSession(c.id)
@@ -1181,6 +1304,9 @@ type worktreeRelease struct {
 	Workspace string
 	// ProjectDir is the repository the checkout belongs to, needed by the removal.
 	ProjectDir string
+	// Repos are the worktrees of the project's other repositories inside the checkout: each
+	// repository's clone and the worktree's path.
+	Repos [][2]string
 	// Changes names what the checkout holds and has not committed.
 	Changes []gitx.Change
 	// Inspected is false when the count could not be read, which is NOT the same as a
@@ -1215,10 +1341,24 @@ func (s *Server) inspectWorktree(c *conversation) worktreeRelease {
 	}
 	release.Workspace = workspace
 	release.ProjectDir = projectDir
+	release.Repos = sessionRepoWorktrees(context.Background(), s.projectOf(c.projectID), workspace)
 	changes, err := worktreeInspectList(context.Background(), workspace)
 	if err != nil {
 		release.InspectErr = err
 		return release
+	}
+	// The worktrees of the project's other repositories are part of the session's checkout, and
+	// their work is lost with it just the same: their changes are listed, under their folder.
+	for _, wt := range release.Repos {
+		more, err := worktreeInspectList(context.Background(), wt[1])
+		if err != nil {
+			release.InspectErr = err
+			return release
+		}
+		for _, ch := range more {
+			ch.Path = filepath.Join(gitx.ReposDir, filepath.Base(wt[1]), ch.Path)
+			changes = append(changes, ch)
+		}
 	}
 	release.Changes = changes
 	release.Inspected = true
@@ -1262,6 +1402,17 @@ func (s *Server) releaseWorktree(c *conversation, discard bool) error {
 			"id", c.id, "worktree", workspace, "changes", len(release.Changes))
 	}
 
+	// The other repositories' worktrees go first, so the session's own is left with nothing
+	// nested in it. Best effort: removing the session's worktree removes their folders anyway,
+	// and the registration git keeps of one is pruned once it is gone.
+	for _, wt := range release.Repos {
+		_ = worktreeRemove(context.Background(), wt[0], wt[1], discard)
+	}
+	defer func() {
+		for _, wt := range release.Repos {
+			_ = gitx.PruneWorktrees(context.Background(), wt[0])
+		}
+	}()
 	// `force` is passed when the discard was confirmed: git refuses a dirty checkout, and
 	// the refusal would otherwise arrive after the user had already said yes.
 	err := worktreeRemove(context.Background(), release.ProjectDir, workspace, discard)

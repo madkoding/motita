@@ -201,6 +201,48 @@ function useReaderIntent(
 }
 
 /**
+ * Keeps `ro` observing exactly the children of `el`: each new one is observed as it mounts, and
+ * each removed one is UNOBSERVED as it leaves.
+ *
+ * The second half is the one that matters for memory. A ResizeObserver holds its targets
+ * strongly, so a turn that was only ever observed stays alive after it leaves the DOM — with its
+ * whole subtree, mermaid SVGs and KaTeX included. The conversation container lives for the whole
+ * session, so without this every session switch left the previous transcript's nodes behind,
+ * detached and unreachable from the page but never collected.
+ */
+export function observeChildren(
+  el: Element,
+  ro: Pick<ResizeObserver, "observe" | "unobserve">,
+): MutationObserver {
+  const seen = new WeakSet<Element>();
+  const watch = (node: Node) => {
+    if (node.nodeType !== 1 || seen.has(node as Element)) {
+      return;
+    }
+    seen.add(node as Element);
+    ro.observe(node as Element);
+  };
+  for (const child of Array.from(el.children)) {
+    watch(child);
+  }
+  // The messages arrive as Preact renders them, so the set to observe changes over time.
+  const mo = new MutationObserver((records) => {
+    for (const rec of records) {
+      rec.removedNodes.forEach((node) => {
+        if (!seen.has(node as Element)) {
+          return;
+        }
+        seen.delete(node as Element);
+        ro.unobserve(node as Element);
+      });
+      rec.addedNodes.forEach(watch);
+    }
+  });
+  mo.observe(el, { childList: true });
+  return mo;
+}
+
+/**
  * Follows the growth that NO event announces.
  *
  * Measured on a real 44-message conversation at 1400x900: the content climbed in steps
@@ -245,21 +287,8 @@ function useResizeFollow(
       return undefined;
     }
     const ro = new ResizeObserver(settle);
-    const seen = new WeakSet<Element>();
-    const watch = () => {
-      for (const child of Array.from(el.children)) {
-        if (seen.has(child)) {
-          continue;
-        }
-        seen.add(child);
-        ro.observe(child);
-      }
-    };
-    watch();
     ro.observe(el);
-    // The messages arrive as React renders them, so the set to observe changes over time.
-    const mo = new MutationObserver(watch);
-    mo.observe(el, { childList: true });
+    const mo = observeChildren(el, ro);
     return () => {
       cancelAnimationFrame(frame);
       ro.disconnect();

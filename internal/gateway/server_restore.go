@@ -19,6 +19,16 @@ func (s *Server) loadPersistedSessions() {
 		s.warn("could not load persisted sessions", "error", err.Error())
 		return
 	}
+	// The directories of free-standing sessions that no record names any more are pruned once, on
+	// the way in: nothing is running yet, so none of them can be in use.
+	known := map[string]bool{}
+	for _, rec := range records {
+		known[rec.ID] = true
+	}
+	for _, c := range s.snapshot() {
+		known[c.id] = true
+	}
+	s.pruneFreeSessionDirs(known)
 	// The ceiling applies to RESTORE the same way it applies to creation: a gateway
 	// configured to hold 8 that finds 60 on disk must NOT load all 60. The records
 	// from loadAll are sorted by last_used DESCENDING, so the first N non-default
@@ -70,6 +80,12 @@ func (s *Server) restoreDefaultSession(rec sessionRecord) {
 		def.setTitle(rec.Title)
 	}
 	def.setAutoApprove(rec.AutoApprove)
+	// The model is the session's own too. It was restored for every session but this one, so the
+	// first conversation came back from a restart on the gateway's configured model whatever it had
+	// been switched to - the one place the model still read as global.
+	if rec.Provider != "" || rec.Model != "" {
+		def.svc.SetLLM(rec.Provider, rec.Model)
+	}
 	// The level this conversation was running comes back with it, or the interface would
 	// paint a level the session is not actually using.
 	if rec.Reasoning != "" {
@@ -133,7 +149,9 @@ func (s *Server) restoreSession(rec sessionRecord) bool {
 	// SAME shelf it had before the restart, or the procedures it learned while
 	// working on this project would silently disappear from its answers.
 	scopeProceduresTo(svc, projectskills.ProjectDirFor(projectDir, workspace))
-	applyRuntimeTo(svc, s.projectOf(rec.ProjectID))
+	project := s.projectOf(rec.ProjectID)
+	s.attachProjectRepos(s.baseCtx, project, workspace, rec.ID)
+	applyRuntimeTo(svc, project)
 	s.sessionsMu.Lock()
 	s.sessions[rec.ID] = conv
 	s.sessionsMu.Unlock()

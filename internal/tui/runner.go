@@ -180,6 +180,9 @@ type AppRunner struct {
 	// swap it. Guarded by sessionMu, like the session it edits.
 	containerRuntime string
 	runtimeNote      string
+	// projectNote is what the gateway tells the agent about the project's other repositories,
+	// added after the runtime sentence and swapped with it. Guarded by sessionMu too.
+	projectNote string
 
 	// rewardMu guards the last attribution.
 	//
@@ -271,7 +274,10 @@ func installApproverOn(ag AgentRunner, fn agent.Approver) {
 // runner's installed one, because that one belongs to whichever run is in flight and a shell
 // command typed meanwhile must not borrow its question.
 func (r *AppRunner) RunShell(ctx context.Context, command string, approver agent.Approver) (string, int, error) {
-	ag := r.newAgent(r.Config(), r.Log, r.Engine, r.Box, nil, true)
+	r.cfgMu.Lock()
+	cfg, engine := r.Cfg, r.Engine
+	r.cfgMu.Unlock()
+	ag := r.newAgent(cfg, r.Log, engine, r.Box, nil, true)
 	installApproverOn(ag, approver)
 	return ag.RunCommand(ctx, command)
 }
@@ -297,7 +303,12 @@ func (r *AppRunner) Config() config.Config {
 // the model was still asked at the old one - measured on a served gateway, `POST
 // /sessions/{id}/reasoning high` left the body sent upstream at `reasoning_effort: "medium"`,
 // while the same level through PATCH /config (which calls SetLLM first) arrived as "high".
+//
+// Both setters take cfgMu: a front end calls them while a turn of the same session may be reading
+// the configuration, and a model or level written without the lock was a data race.
 func (r *AppRunner) SetReasoning(level string) {
+	r.cfgMu.Lock()
+	defer r.cfgMu.Unlock()
 	r.Cfg.LLM.Reasoning.Level = level
 	r.Cfg.LLM.Reasoning.Enabled = level != "off"
 	r.Engine = nil
@@ -309,6 +320,8 @@ func (r *AppRunner) SetReasoning(level string) {
 // changes, so a caller that reads it back does not get the one built from the old
 // settings.
 func (r *AppRunner) SetLLM(provider, model string) {
+	r.cfgMu.Lock()
+	defer r.cfgMu.Unlock()
 	if provider != "" && !strings.EqualFold(provider, r.Cfg.LLM.Provider) {
 		r.switchEndpoint(provider)
 		r.Cfg.LLM.Provider = provider
@@ -320,7 +333,7 @@ func (r *AppRunner) SetLLM(provider, model string) {
 	}
 }
 
-// switchEndpoint moves the key and the base URL along with a provider switch.
+// switchEndpoint moves the key and the base URL along with a provider switch. Called with cfgMu held.
 //
 // They used to stay behind: switching from openai to anthropic in the model picker sent the
 // next request to api.openai.com with the OpenAI key and an Anthropic model id, and switching
@@ -366,24 +379,27 @@ func (r *AppRunner) SetWorkspace(dir string) {
 	if dir == "" {
 		return
 	}
+	r.cfgMu.Lock()
 	r.Cfg.Agent.WorkspaceDir = dir
+	cfg := r.Cfg
+	r.cfgMu.Unlock()
 	// Rebuild the sandbox with the new workspace directory so commands
 	// actually execute there, not in the directory the runner was born with.
 	op := sandbox.Options{
-		Dir: r.Cfg.Agent.WorkspaceDir,
+		Dir: cfg.Agent.WorkspaceDir,
 		Limits: sandbox.Limits{
-			MemoryMB:      r.Cfg.Sandbox.MemoryMB,
-			CPUSeconds:    r.Cfg.Sandbox.CPUSeconds,
-			Processes:     r.Cfg.Sandbox.Processes,
-			OpenFiles:     r.Cfg.Sandbox.OpenFiles,
-			MaxFileSizeMB: r.Cfg.Sandbox.MaxFileSizeMB,
+			MemoryMB:      cfg.Sandbox.MemoryMB,
+			CPUSeconds:    cfg.Sandbox.CPUSeconds,
+			Processes:     cfg.Sandbox.Processes,
+			OpenFiles:     cfg.Sandbox.OpenFiles,
+			MaxFileSizeMB: cfg.Sandbox.MaxFileSizeMB,
 		},
-		CgroupRoot:    r.Cfg.Sandbox.CgroupRoot,
-		Timeout:       r.Cfg.Sandbox.Timeout,
-		MaxOutputKB:   r.Cfg.Sandbox.MaxOutputKB,
-		Keep:          r.Cfg.Sandbox.KeepEphemeral,
-		ToolsDir:      r.Cfg.Sandbox.ToolsDir,
-		ConfineWrites: r.Cfg.Sandbox.ConfineWrites,
+		CgroupRoot:    cfg.Sandbox.CgroupRoot,
+		Timeout:       cfg.Sandbox.Timeout,
+		MaxOutputKB:   cfg.Sandbox.MaxOutputKB,
+		Keep:          cfg.Sandbox.KeepEphemeral,
+		ToolsDir:      cfg.Sandbox.ToolsDir,
+		ConfineWrites: cfg.Sandbox.ConfineWrites,
 		GitAuthDir:    config.AuthDir(),
 		GitHome:       config.HomeDir(),
 		HiddenPaths:   config.SecretFiles(""),
@@ -393,23 +409,23 @@ func (r *AppRunner) SetWorkspace(dir string) {
 		// The sandbox this one replaces may hide more: the file the run was configured from.
 		op.HiddenPaths = r.Box.HiddenPaths()
 	}
-	switch r.Cfg.Sandbox.Kind {
+	switch cfg.Sandbox.Kind {
 	case "none":
 		op.Limits = sandbox.Limits{}
 		op.UseCgroups = false
 		op.UseChroot = false
 	case "chroot":
 		op.UseChroot = true
-		op.Root = r.Cfg.Sandbox.Root
+		op.Root = cfg.Sandbox.Root
 	default:
 		op.UseCgroups = false
 	}
-	if r.Cfg.Sandbox.User != "" {
-		if uid, gid, err := config.ParseUser(r.Cfg.Sandbox.User); err == nil {
+	if cfg.Sandbox.User != "" {
+		if uid, gid, err := config.ParseUser(cfg.Sandbox.User); err == nil {
 			op.Uid, op.Gid, op.DropPrivs = uid, gid, true
 		}
 	}
-	op.Limits.NoNetwork = r.Cfg.Sandbox.IsolateNetwork
+	op.Limits.NoNetwork = cfg.Sandbox.IsolateNetwork
 	if box, err := sandbox.New(op); err == nil {
 		r.Box = box
 	}
@@ -427,7 +443,18 @@ func (r *AppRunner) SetContainerRuntime(name string) {
 	}
 }
 
-// applyRuntimeNote rewrites the runtime sentence at the end of the system prompt.
+// SetProjectNote sets what the agent is told about the project it works in (its other
+// repositories), at the end of the system prompt. An empty note clears it.
+func (r *AppRunner) SetProjectNote(note string) {
+	r.sessionMu.Lock()
+	defer r.sessionMu.Unlock()
+	r.projectNote = note
+	if r.session != nil {
+		r.applyRuntimeNote()
+	}
+}
+
+// applyRuntimeNote rewrites the runtime and project sentences at the end of the system prompt.
 // The caller holds sessionMu and has a session.
 func (r *AppRunner) applyRuntimeNote() {
 	note := ""
@@ -435,6 +462,7 @@ func (r *AppRunner) applyRuntimeNote() {
 		note = "\n\nThis project is run with podman. Use `podman` (and `podman compose` when the project " +
 			"has a compose file) to build and start it, and do not use docker."
 	}
+	note += r.projectNote
 	r.session.System = strings.TrimSuffix(r.session.System, r.runtimeNote) + note
 	r.runtimeNote = note
 }
@@ -481,9 +509,11 @@ func (r *AppRunner) SetProjectScope(projectDir string) {
 // example when there is no configuration file yet) and still run plan/task when
 // the user chooses them.
 func (r *AppRunner) engine() (config.Config, *llm.Client, error) {
-	cfg := r.Cfg
-	if r.Engine != nil {
-		return cfg, r.Engine, nil
+	r.cfgMu.Lock()
+	cfg, cached := r.Cfg, r.Engine
+	r.cfgMu.Unlock()
+	if cached != nil {
+		return cfg, cached, nil
 	}
 	engine, err := llm.New(cfg.LLM, r.Log)
 	return cfg, engine, err

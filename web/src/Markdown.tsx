@@ -59,7 +59,7 @@
 // Inline HTML in an answer renders (`<kbd>`, `<sup>`, `<details>`), which the old
 // renderer escaped. That widening is only safe because every fragment — the parsed
 // message, a KaTeX render and a mermaid SVG alike — goes through DOMPurify first.
-import { useEffect, useRef } from "preact/hooks";
+import { useEffect, useMemo, useRef } from "preact/hooks";
 import type { Config as PurifyConfig } from "dompurify";
 import MarkdownIt from "markdown-it";
 import type { MarkdownItOptions, Token } from "markdown-it";
@@ -635,10 +635,10 @@ export function Markdown({ content }: { content: string }) {
     });
   }, [content]);
 
-  return (
-    <div
-      ref={ref}
-      dangerouslySetInnerHTML={{ __html: renderMessage(content) }}
-    />
-  );
+  // Parsed and sanitized once per content, not once per render. The conversation re-renders on
+  // every streamed event, and every message used to be re-parsed by markdown-it and re-sanitized
+  // by DOMPurify each time — a long transcript turned each token into a full re-parse of the whole
+  // conversation, and the strings and fragments it left behind are what the collector had to chase.
+  const html = useMemo(() => renderMessage(content), [content]);
+  return <div ref={ref} dangerouslySetInnerHTML={{ __html: html }} />;
 }

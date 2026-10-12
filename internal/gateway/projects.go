@@ -48,6 +48,7 @@ func (s *Server) handleListProjects(w http.ResponseWriter, _ *http.Request) {
 		all[i].Branch = gitx.Display(ctx, all[i].Dir)
 		all[i].MainBranch = mainBranchOf(ctx, &all[i])
 		all[i].Changes, _ = gitx.WorkingTreeChanges(ctx, all[i].Dir)
+		liveRepos(ctx, &all[i])
 		// Worktrees counts the session checkouts, and it is asked of git rather
 		// than of the session list so that a worktree left behind by a session
 		// that is gone is still counted - which is the state a user wants to
@@ -700,7 +701,7 @@ func (s *Server) handleMergeSession(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusConflict, "this session has already been integrated into the project")
 		return
 	}
-	if c.workspace == "" {
+	if c.workspace == "" || c.projectID == "" {
 		writeError(w, http.StatusConflict, "this session does not belong to a project, so there is nothing to merge")
 		return
 	}
@@ -748,7 +749,8 @@ Project directory: %s
 Project base branch: %s
 
 Report the merge commit SHA and the files changed. If there is a conflict, abort the merge `+
-		`and explain what needs to be resolved first.`, c.id, c.id, branch, c.workspace, p.Dir, base)
+		`and explain what needs to be resolved first.`, c.id, c.id, branch, c.workspace, p.Dir, base) +
+		otherReposMergeNote(p, c.workspace, branch)
 
 	s.startRunWithIntent(w, r, c, task, schedule.KindTask, runIntentMerge)
 }
@@ -771,7 +773,7 @@ func (s *Server) continueFrom(ctx context.Context, c *conversation) (*conversati
 	if !c.merged {
 		return nil, http.StatusConflict, errors.New("this session has not been integrated yet; merge it first")
 	}
-	if c.workspace == "" {
+	if c.workspace == "" || c.projectID == "" {
 		return nil, http.StatusConflict,
 			errors.New("this session does not belong to a project, so there is nothing to continue from")
 	}
@@ -805,6 +807,7 @@ func (s *Server) continueFrom(ctx context.Context, c *conversation) (*conversati
 	} else {
 		dir = wt
 	}
+	s.attachProjectRepos(ctx, p, dir, newConv.id)
 	newConv.setProjectID(c.projectID, dir, p.Dir)
 	newConv.svc.SetWorkspace(dir)
 	// The title says where it came from, but only if the old session had a real one.

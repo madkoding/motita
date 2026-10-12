@@ -50,6 +50,14 @@ type SessionInfo struct {
 	// Zero means the gateway has no record of it being used, which the list reports as no age
 	// rather than as an age computed from a zero time.
 	LastUsed time.Time
+	// Model is what the session's next turn runs with. Each session keeps its own.
+	Model string
+}
+
+// SessionCeiling is a runner that knows how many sessions its gateway can hold, so /sessions can
+// say how close to the limit it is before /new is refused.
+type SessionCeiling interface {
+	MaxSessions() int
 }
 
 // Turn is one turn of a conversation, as the interface draws it.
@@ -118,6 +126,15 @@ type RunController interface {
 	CancelRun(ctx context.Context) (bool, error)
 }
 
+// SessionCreator is a Runner that can open a conversation of its own in the gateway.
+//
+// It is what makes /new a NEW session behind a gateway. Without it /new could only reset the
+// conversation it was on - the same session id, its history wiped - which is not a second instance
+// at all, and which a run in flight in that session made impossible. Optional, like the rest.
+type SessionCreator interface {
+	NewSession(ctx context.Context) (string, error)
+}
+
 // LiveRun describes a run in flight, as the interface draws it.
 type LiveRun struct {
 	RunID string
@@ -149,9 +166,19 @@ func (t *TUI) attachTo(ctx context.Context, id string) error {
 	if !ok {
 		return errors.New(t.tr("this interface is not attached to a gateway that holds several sessions"))
 	}
+	left := sw.CurrentSession()
 	if err := sw.SwitchSession(ctx, id); err != nil {
 		return err
 	}
+	// The session left behind is where /back returns to. Entering the same session again is not a
+	// move, and must not make /back point at the session the user is already in.
+	if left != "" && left != id {
+		t.prevSession = left
+	}
+	// The run this interface was showing belongs to the session being left. It keeps going in the
+	// gateway; what ends here is this view of it, BEFORE the view is replaced, so none of its lines
+	// or its answer can land in the conversation entered next.
+	t.detachRun()
 
 	turns, err := sw.Conversation(ctx)
 	if err != nil {
@@ -182,8 +209,61 @@ func (t *TUI) attachTo(ctx context.Context, id string) error {
 	}
 
 	t.followRunIfAny(ctx)
+	t.refreshWorking(ctx, sw)
 	t.drawFrame()
 	return nil
+}
+
+// back returns to the session that was left last, which is the one a run is usually still working
+// in: /new to ask something on the side, then /back to the work.
+func (t *TUI) back(ctx context.Context) {
+	if t.prevSession == "" {
+		t.addMessage(AuthorSystem, t.tr("there is no session to go back to: /sessions lists them."))
+		return
+	}
+	if err := t.attachTo(ctx, t.prevSession); err != nil {
+		t.addMessage(AuthorSystem, err.Error())
+	}
+}
+
+// refreshWorking asks the gateway which sessions are working and keeps the count of the OTHER ones
+// for the status line. It is asked here and by the poll in watchPRs, never by the repaint: drawing
+// a frame must not wait on the network.
+func (t *TUI) refreshWorking(ctx context.Context, sw SessionSwitcher) {
+	if all, err := sw.ListSessions(ctx); err == nil {
+		t.noteWorking(all)
+	}
+}
+
+// noteWorking keeps how many sessions other than this one have a run in flight, and repaints when
+// that changed. Called from the poll beside the input loop too, so the field is under the painter's
+// lock.
+func (t *TUI) noteWorking(all []SessionInfo) {
+	n := 0
+	for _, s := range all {
+		if s.Running && !s.Current {
+			n++
+		}
+	}
+	t.draw.Lock()
+	changed := t.othersWorking != n
+	t.othersWorking = n
+	t.draw.Unlock()
+	if changed {
+		t.drawFrame()
+	}
+}
+
+// workingLabel is the status line's note that other sessions are working, "" when none are. The
+// caller holds the painter's lock.
+func (t *TUI) workingLabel() string {
+	switch n := t.othersWorking; {
+	case n == 1:
+		return t.tr("1 other session working")
+	case n > 1:
+		return t.trf("%d other sessions working", n)
+	}
+	return ""
 }
 
 // followRunIfAny watches the run in flight in the session just entered, when there is one.
@@ -234,6 +314,20 @@ func (t *TUI) followRunIfAny(ctx context.Context) {
 // elsewhere.
 func (t *TUI) followLiveRun(ctx context.Context, rc RunController, live LiveRun) {
 	runCtx, cancel := context.WithCancel(ctx)
+	// Leaving the session ends this follow WITHOUT stopping the run (see detachRun), and waits for
+	// this goroutine to be done writing before the view is handed to another conversation.
+	f := &follow{leave: cancel, done: make(chan struct{})}
+	t.draw.Lock()
+	t.following = f
+	t.draw.Unlock()
+	defer func() {
+		t.draw.Lock()
+		if t.following == f {
+			t.following = nil
+		}
+		t.draw.Unlock()
+		close(f.done)
+	}()
 
 	// Installed where Escape and Ctrl+C look for it, so the key does what it says in both cases.
 	// Without this, Escape during a followed run falls through to scrollToBottom and the turn keeps
@@ -289,6 +383,83 @@ func (t *TUI) followLiveRun(ctx context.Context, rc RunController, live LiveRun)
 	}
 	t.addMessage(AuthorAgent, text)
 	t.endTurn()
+}
+
+// follow is a run this interface joined (followLiveRun): how to stop reading it, and when its
+// goroutine has stopped writing into the view.
+type follow struct {
+	leave context.CancelFunc
+	done  chan struct{}
+}
+
+// detachWait bounds how long leaving a session waits for a followed run's goroutine to let go of
+// the view. The follow is a read that the cancellation ends at once; the bound is for a gateway that
+// does not answer, so the user is never stuck in the session they are trying to leave.
+var detachWait = 5 * time.Second
+
+// detachRun lets go of the run this interface is showing, because the user is moving to another
+// session. It does NOT stop the run: behind a gateway a run belongs to its session and keeps going
+// while nobody watches (Escape is the key that stops one). What ends is this view of it - the turn
+// the input loop was applying, or the run followed on its own goroutine - so the next conversation
+// starts idle, can take a message at once, and receives nothing from the one that was left.
+//
+// A message queued for the run that was left goes back into the input instead of being sent to the
+// new conversation, which is not where it was written.
+func (t *TUI) detachRun() {
+	if tr := t.current; tr != nil {
+		tr.leave()
+		if tr.tick != nil {
+			tr.tick.Stop()
+		}
+		t.current = nil
+		// The question belongs to the run that was left. It stays pending in the gateway, and
+		// coming back to that session asks it again; answering no here would refuse it for them.
+		t.confirm = nil
+	}
+	if t.queued != "" {
+		if t.draft == "" {
+			t.draft = t.queued
+		}
+		t.queued = ""
+	}
+	t.draw.Lock()
+	f := t.following
+	t.following = nil
+	t.draw.Unlock()
+	if f != nil {
+		f.leave()
+		select {
+		case <-f.done:
+		case <-time.After(detachWait):
+		}
+	}
+	t.clearCancel()
+	t.draw.Lock()
+	t.busy = false
+	t.draw.Unlock()
+}
+
+// gatewaySessions says whether this interface works on a gateway's sessions, where a run belongs to
+// its session and outlives the view of it. Only then can the user leave a session that is working.
+func (t *TUI) gatewaySessions() bool {
+	_, ok := t.Runner.(SessionSwitcher)
+	return ok
+}
+
+// newSession opens a conversation of its own in the gateway and enters it. A run in flight in the
+// session being left keeps going there.
+func (t *TUI) newSession(ctx context.Context, creator SessionCreator) {
+	id, err := creator.NewSession(ctx)
+	if err != nil {
+		t.addMessage(AuthorSystem, t.trf("a new conversation could not be opened: %s", err.Error()))
+		return
+	}
+	if err := t.attachTo(ctx, id); err != nil {
+		t.addMessage(AuthorSystem, err.Error())
+		return
+	}
+	t.Notice = t.tr("Started a new conversation: the next message begins fresh.")
+	t.drawFrame()
 }
 
 // stopAndCancel returns a cancel that ends the local follow AND asks the gateway to stop the run.
@@ -408,6 +579,9 @@ func (t *TUI) sessionsText(ctx context.Context) (string, error) {
 
 	var b strings.Builder
 	b.WriteString(t.tr("sessions (most recent first):") + "\n")
+	if c, ok := t.Runner.(SessionCeiling); ok && c.MaxSessions() > 0 {
+		b.WriteString(t.trf("%d of %d sessions in use", len(all), c.MaxSessions()) + "\n")
+	}
 	now := time.Now()
 	for _, s := range all {
 		marker := "  "
@@ -424,6 +598,9 @@ func (t *TUI) sessionsText(ctx context.Context) (string, error) {
 			detail = "  " + t.trf("(last used %s)", t.humanSince(now.Sub(s.LastUsed)))
 		default:
 			// Never used and not running: there is nothing to say about when.
+		}
+		if s.Model != "" {
+			detail += "  " + s.Model
 		}
 		if s.Branch != "" {
 			detail += "  [" + s.Branch + "]"
@@ -482,4 +659,25 @@ func (t *TUI) humanSince(d time.Duration) string {
 	default:
 		return t.trf("%dd ago", int(d.Hours()/24))
 	}
+}
+
+// modelSwitchWarning is what a model switch deserves to be told in THIS session. The model is the
+// session's own, so the switch is never refused; it is worth a word when the conversation already
+// has turns (the new model takes over a transcript another one wrote) or a turn is running (it
+// finishes with the old one).
+func (t *TUI) modelSwitchWarning(previous, next string) string {
+	if previous == next {
+		return ""
+	}
+	var lines []string
+	for _, m := range t.messages {
+		if m.Author == AuthorUser {
+			lines = append(lines, t.trf("⚠ this conversation was written with %s; %s takes it over from the next turn and may answer differently. /new keeps each model in its own session.", previous, next))
+			break
+		}
+	}
+	if t.busy {
+		lines = append(lines, t.tr("⚠ the turn in progress finishes with the previous model."))
+	}
+	return strings.Join(lines, "\n")
 }

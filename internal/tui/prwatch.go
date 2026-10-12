@@ -76,6 +76,7 @@ func (t *TUI) watchPRs(ctx context.Context) {
 	for {
 		if all, err := sw.ListSessions(ctx); err == nil {
 			t.notePRs(seen, all)
+			t.noteWorking(all)
 		}
 		select {
 		case <-ctx.Done():

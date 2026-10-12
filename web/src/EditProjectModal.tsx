@@ -7,6 +7,7 @@ import { branchChoices } from "./appFormat";
 import { IconClose } from "./icons";
 import type { EditProjectDraft } from "./appTypes";
 import { EDIT_PROJECT, PR_MAX_FIXES_LIMIT } from "./appConst";
+import { ReposSection } from "./ReposField";
 
 // The look of the dialog's fields.
 const FIELD =
@@ -161,6 +162,25 @@ function PullRequestFields({
   );
 }
 
+// EditRepos are the project's repositories. They change at once, not on Save.
+function EditRepos({ p }: { p: EditProjectDraft }) {
+  const { repoBusy, repoConflict, addProjectRepo, removeProjectRepo } =
+    useApp().projects;
+  return (
+    <ReposSection
+      main={p.mainRepo}
+      repos={p.repos}
+      busy={repoBusy}
+      conflict={repoConflict}
+      onRemove={(name, force) => void removeProjectRepo(name, force)}
+      onAdd={addProjectRepo}
+      hint={t(
+        "Adding or removing a repository happens right away. Open sessions get a copy of a new one; removing one deletes its folder.",
+      )}
+    />
+  );
+}
+
 export function EditProjectModal({ p }: { p: EditProjectDraft }) {
   const {
     patchEditProject: patch,
@@ -172,7 +192,7 @@ export function EditProjectModal({ p }: { p: EditProjectDraft }) {
     <ModalBackdrop onClose={closeEditProject}>
       <dialog
         open
-        class="app-dialog frosted rounded-2xl border border-white/10 w-full max-w-md p-5 shadow-2xl"
+        class="app-dialog frosted rounded-2xl border border-white/10 w-full max-w-md p-5 shadow-2xl max-h-[92vh] overflow-y-auto"
         aria-label={t(EDIT_PROJECT)}
       >
         <div class="flex items-center gap-2 mb-4">
@@ -209,6 +229,7 @@ export function EditProjectModal({ p }: { p: EditProjectDraft }) {
               }
             />
           </div>
+          <EditRepos p={p} />
           <BranchFields p={p} patch={patch} />
           <PullRequestFields p={p} patch={patch} />
         </div>

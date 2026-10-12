@@ -290,6 +290,22 @@ function SessionFacts({ s }: { s: SessionInfo }) {
           </span>
         </span>
       )}
+      {s.model && (
+        <span
+          class="inline-flex items-center gap-1 flex-none px-1 py-px rounded-sm bg-[#7ee0a0]/10"
+          title={tf("Model: {provider} / {model}", {
+            provider: s.provider || "",
+            model: s.model,
+          })}
+        >
+          <span class="text-[#7ee0a0]/50 uppercase tracking-wide text-[9px]">
+            {t("model")}
+          </span>
+          <span class="font-mono text-[#7ee0a0] truncate max-w-28">
+            {s.model}
+          </span>
+        </span>
+      )}
       {!!s.changes && (
         <span
           class="inline-flex items-center gap-1 flex-none px-1 py-px rounded-sm bg-[#f0a040]/10"

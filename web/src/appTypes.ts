@@ -53,6 +53,10 @@ export interface SessionInfo {
   // agents_running counts the background agents the session's run started that are still
   // working. Older gateways do not send it.
   agents_running?: number;
+  // provider and model are what this session's next turn runs with: each session keeps its own.
+  // Older gateways do not send them.
+  provider?: string;
+  model?: string;
 }
 
 // AgentInfo is one agent of a run, as the gateway reports it (agent.AgentInfo). The row with no
@@ -100,6 +104,18 @@ export interface ProjectInfo {
   auto_continue?: boolean;
   changes?: number;
   created: string;
+  // repos are the project's other repositories, after the main one in dir.
+  repos?: ProjectRepoInfo[];
+}
+
+// ProjectRepoInfo is one of a project's other repositories, cloned inside its folder.
+export interface ProjectRepoInfo {
+  name: string;
+  git_url: string;
+  dir: string;
+  main_branch?: string;
+  branch?: string;
+  changes?: number;
 }
 
 export interface ConfigView {
@@ -108,6 +124,10 @@ export interface ConfigView {
   reasoning: string;
   reasoning_enabled: boolean;
   api_key_present: boolean;
+  // Set only on the answer to a model change: "history" when the conversation so far was written
+  // with another model, "running" when the turn in flight finishes with the old one.
+  warnings?: string[];
+  previous_model?: string;
 }
 
 export interface ProviderInfo {
@@ -274,6 +294,9 @@ export interface EditProjectDraft {
   prMaxFixes: number;
   autoMerge: boolean;
   autoContinue: boolean;
+  // The repositories, which change at once rather than on Save: adding one clones it.
+  mainRepo: { name: string; source: string };
+  repos: ProjectRepoInfo[];
 }
 
 // GitConnectRequest opens the git host connect modal; `after` says what to do once the host is

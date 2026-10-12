@@ -1,14 +1,19 @@
 // The session's provider, model and reasoning level, and the Model Switcher that changes them.
 import { useCallback, useState } from "preact/hooks";
 import { reasoningOf } from "./appFormat";
+import { modelChangeToast } from "./sessionWatch";
 import type { Api } from "./prApi";
-import type { ConfigView, ProviderInfo, SetStatus } from "./appTypes";
+import type { ConfigView, ProviderInfo, SetStatus, SetToast } from "./appTypes";
 import { JSON_HEADERS, SESSIONS_PATH } from "./appConst";
 
+// The model belongs to the SESSION: switching it here changes this conversation and no other.
+// onSaved lets the sidebar re-read the list, which shows each session's model.
 export function useModelSwitcher(
   api: Api,
   sessionId: string,
   setState: SetStatus,
+  setToast: SetToast,
+  onSaved: () => void,
 ) {
   const [config, setConfig] = useState<ConfigView | null>(null);
   const [showModelSwitcher, setShowModelSwitcher] = useState(false);
@@ -125,6 +130,13 @@ export function useModelSwitcher(
       const updated: ConfigView = await res.json();
       setConfig(updated);
       setShowModelSwitcher(false);
+      // A switch in a conversation that already talked is allowed, and said out loud: the next
+      // turn hands a transcript written by one model to another.
+      const warning = modelChangeToast(updated);
+      if (warning) {
+        setToast(warning);
+      }
+      onSaved();
     } catch {
       setState("could not update the configuration", true);
     } finally {
@@ -133,7 +145,7 @@ export function useModelSwitcher(
       // with no way back.
       setSavingConfig(false);
     }
-  }, [sessionId, draftProvider, draftModel, draftReasoning]);
+  }, [sessionId, draftProvider, draftModel, draftReasoning, onSaved]);
 
   return {
     config,

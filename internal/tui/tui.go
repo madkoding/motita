@@ -172,6 +172,14 @@ type TUI struct {
 	reader     *bufio.Reader
 	cancelRun  context.CancelFunc
 	runningCtx context.Context
+	// prevSession is the session left last, where /back returns; "" until a session is left.
+	prevSession string
+	// othersWorking is how many OTHER sessions of the gateway have a run in flight, as last asked.
+	// Guarded by draw: the poll beside the input loop writes it and the painter reads it.
+	othersWorking int
+	// following is the run followed on its own goroutine (followLiveRun), nil when there is none.
+	// Guarded by draw, because that goroutine sets and clears it while the input loop reads it.
+	following *follow
 	// busy is true while a turn is in flight, which turns the status dot into a
 	// spinner; spin is the animation frame advanced on every repaint.
 	busy bool

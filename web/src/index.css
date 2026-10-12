@@ -2607,6 +2607,15 @@ button:disabled {
     rgba(0, 0, 0, 0.5) 100%
   );
 }
+/* A CLOSED drawer runs none of its CRT effects. `visibility: hidden` stops the painting but not
+   the animations: the interlace (every 80ms), the noise, the sweep and the flicker kept restyling
+   three off-screen panels for the whole session. The tab's own pulse lives outside the panel and
+   keeps running. */
+.term-drawer:not(.is-open) .term-panel,
+.term-drawer:not(.is-open) .term-panel *,
+.term-drawer:not(.is-open) .term-panel *::after {
+  animation: none;
+}
 @keyframes termSweep {
   from {
     transform: translateY(0);

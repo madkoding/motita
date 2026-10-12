@@ -790,7 +790,7 @@ func TestAnUnencodableBodyIsReported(t *testing.T) {
 	c := NewClient("http://127.0.0.1:1", testToken)
 	bad := map[string]any{"x": make(chan int)}
 
-	if _, err := c.run(context.Background(), c.scoped("/task"), bad, nil); err == nil {
+	if _, err := c.run(context.Background(), c.Session(), "/task", bad, nil); err == nil {
 		t.Error("a run with an unencodable body must be reported")
 	}
 	if err := c.do(context.Background(), http.MethodPost, c.scoped("/verdict"), bad, nil); err == nil {
@@ -821,5 +821,58 @@ func TestARefusalWithoutAReasonStillSaysSomething(t *testing.T) {
 	err := refusalError(resp)
 	if err == nil || !strings.Contains(err.Error(), "502") {
 		t.Errorf("err = %v, want it to name the status", err)
+	}
+}
+
+// TestARunKeepsTalkingToItsOwnSessionAfterASwitch: the interface may move the client to another
+// conversation while a run is still being read. Every request the run makes from then on - here,
+// the answer to its approval - must still go to the conversation the run belongs to. Built from the
+// client's current session, the answer went to the conversation the user moved to, and the run in
+// the first one waited for an answer that never came.
+func TestARunKeepsTalkingToItsOwnSessionAfterASwitch(t *testing.T) {
+	approved := make(chan bool, 1)
+	svc := &fakeService{}
+	svc.task = func(ctx context.Context, _ string, _ func(string, ...any)) (string, error) {
+		ok, err := svc.approver(ctx, agent.ApprovalRequest{Command: "make build", Rule: "build"})
+		if err != nil {
+			return "", err
+		}
+		approved <- ok
+		return "built", nil
+	}
+	c, srv, _ := clientFor(t, svc)
+	other, err := srv.newSession(&fakeService{})
+	if err != nil {
+		t.Fatalf("newSession: %v", err)
+	}
+
+	c.SetApprover(func(ctx context.Context, _ agent.ApprovalRequest) (bool, error) {
+		// The user opens another conversation while this run waits on them.
+		if err := c.SwitchSession(ctx, other.id); err != nil {
+			return false, err
+		}
+		return true, nil
+	})
+
+	got, err := c.RunTask(context.Background(), "build it", func(string, ...any) {})
+	if err != nil {
+		t.Fatalf("the run lost its way after the switch: %v", err)
+	}
+	if got != "built" {
+		t.Errorf("result = %q", got)
+	}
+	select {
+	case ok := <-approved:
+		if !ok {
+			t.Error("the answer arrived as a no")
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("the answer never reached the run's own session")
+	}
+	if c.Session() != other.id {
+		t.Errorf("the client is on %q, want the session it was switched to", c.Session())
+	}
+	if snap := c.ConversationSummary(); snap.Messages != 0 {
+		t.Errorf("the finished run's figures were cached for the session the client moved to: %+v", snap)
 	}
 }

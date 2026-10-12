@@ -19,6 +19,8 @@ import type {
   SetStatus,
   SetToast,
 } from "./appTypes";
+import { mainRepoOf, reposOf, type RepoDraft } from "./projectRepos";
+import type { RepoConflict } from "./ReposField";
 import {
   BRANCH_LOOKUP_DELAY_MS,
   CREATE_SESSION_EVENT,
@@ -44,7 +46,125 @@ function draftOf(p: ProjectInfo): EditProjectDraft {
     prMaxFixes: p.pr_max_fixes ?? 0,
     autoMerge: p.auto_merge === true,
     autoContinue: p.auto_continue === true,
+    mainRepo: mainRepoOf(p),
+    repos: reposOf(p),
   };
+}
+
+// errorOf reads the gateway's reason out of a refused request.
+async function errorOf(res: Response): Promise<string> {
+  const err = await res.json().catch(() => ({}));
+  return err.error || "";
+}
+
+// addRepoTo clones one more repository into a project, and answers the project as it is now, or
+// the gateway's reason when it was refused.
+async function addRepoTo(
+  api: Api,
+  id: string,
+  repo: RepoDraft,
+): Promise<{ project?: ProjectInfo; error?: string }> {
+  const res = await api(PROJECTS_PATH + encodeURIComponent(id) + "/repos", {
+    method: "POST",
+    headers: JSON_HEADERS,
+    body: JSON.stringify(repo),
+  });
+  if (!res.ok) {
+    return { error: await errorOf(res) };
+  }
+  return { project: await res.json() };
+}
+
+// useProjectRepos adds and removes the repositories of the project the edit dialog holds. Both
+// happen at once, not on Save: adding one clones it, and the sessions get a worktree of it.
+function useProjectRepos(
+  api: Api,
+  fetchProjects: () => Promise<unknown>,
+  setToast: SetToast,
+  setEditProject: (
+    f: (p: EditProjectDraft | null) => EditProjectDraft | null,
+  ) => void,
+  id: string,
+) {
+  // repoBusy is '+' while one is being added, or the name of the one being removed.
+  const [repoBusy, setRepoBusy] = useState("");
+  const [repoConflict, setRepoConflict] = useState<RepoConflict | null>(null);
+  const settle = (p: ProjectInfo) => {
+    setEditProject((prev) =>
+      prev?.id === p.id ? { ...prev, repos: reposOf(p) } : prev,
+    );
+    void fetchProjects();
+  };
+
+  const addProjectRepo = useCallback(
+    async (repo: RepoDraft) => {
+      setRepoBusy("+");
+      try {
+        const out = await addRepoTo(api, id, repo);
+        if (!out.project) {
+          setToast({
+            message: tf("Could not add {name}", { name: repo.name }),
+            type: "error",
+            detail: out.error,
+          });
+          return false;
+        }
+        settle(out.project);
+        return true;
+      } catch {
+        setToast({
+          message: tf("Could not add {name}", { name: repo.name }),
+          type: "error",
+        });
+        return false;
+      } finally {
+        setRepoBusy("");
+      }
+    },
+    [id],
+  );
+
+  // removeProjectRepo asks first without force: uncommitted work comes back as a question, and
+  // only the person's own answer sends it again with force.
+  const removeProjectRepo = useCallback(
+    async (name: string, force: boolean) => {
+      setRepoBusy(name);
+      setRepoConflict(null);
+      try {
+        const res = await api(
+          PROJECTS_PATH +
+            encodeURIComponent(id) +
+            "/repos/" +
+            encodeURIComponent(name) +
+            choose(force, "?force=1", ""),
+          { method: "DELETE" },
+        );
+        if (res.status === HTTP_CONFLICT) {
+          setRepoConflict({ name, message: await errorOf(res) });
+          return;
+        }
+        if (!res.ok) {
+          setToast({
+            message: tf("Could not remove {name}", { name }),
+            type: "error",
+            detail: await errorOf(res),
+          });
+          return;
+        }
+        settle(await res.json());
+      } catch {
+        setToast({
+          message: tf("Could not remove {name}", { name }),
+          type: "error",
+        });
+      } finally {
+        setRepoBusy("");
+      }
+    },
+    [id],
+  );
+
+  return { repoBusy, repoConflict, addProjectRepo, removeProjectRepo };
 }
 
 // withBranches puts what the gateway says about a project's branches into the edit dialog.
@@ -152,6 +272,13 @@ function useEditProject(
     setEditProject((p) => p && { ...p, ...patch });
   }, []);
   const closeEditProject = useCallback(() => setEditProject(null), []);
+  const repos = useProjectRepos(
+    api,
+    fetchProjects,
+    setToast,
+    setEditProject,
+    editProject?.id ?? "",
+  );
 
   return {
     editProject,
@@ -160,6 +287,7 @@ function useEditProject(
     savingProject,
     openEditProject,
     saveEditProject,
+    ...repos,
   };
 }
 
@@ -180,6 +308,8 @@ export function useProjects({ api, lists, setState, setToast }: Deps) {
   const [newProjectDesc, setNewProjectDesc] = useState("");
   const [newProjectDir, setNewProjectDir] = useState("");
   const [newProjectGit, setNewProjectGit] = useState("");
+  // The other repositories the new project gets once it exists, after the main one.
+  const [newProjectRepos, setNewProjectRepos] = useState<RepoDraft[]>([]);
   // The branch the new project treats as its main line: main unless the person picks master.
   const [newProjectMain, setNewProjectMain] = useState("main");
   // The branch the remote repository's HEAD points to, once asked; and whether the person has
@@ -214,6 +344,7 @@ export function useProjects({ api, lists, setState, setToast }: Deps) {
     setNewProjectDesc("");
     setNewProjectDir("");
     setNewProjectGit("");
+    setNewProjectRepos([]);
     setNewProjectMode(null);
     mainChosen.current = false;
     setNewProjectMain("main");
@@ -275,23 +406,34 @@ export function useProjects({ api, lists, setState, setToast }: Deps) {
           return;
         }
         const data = await res.json();
+        const failed = await addReposToNew(data.id);
         await fetchProjects();
         // Auto-create a session in the new project so the user lands in the chat.
         if (data.id) {
           openSessionIn(data.id);
         }
         // Show a toast and close the modal.
-        setToast({
-          message: tf(
-            choose(
-              data.clone_log,
-              'Project "{title}" created and repo cloned',
-              'Project "{title}" created',
+        if (failed.length > 0) {
+          setToast({
+            message: tf(
+              'Project "{title}" created, but some repositories could not be added: {names}',
+              { title, names: failed.join(", ") },
             ),
-            { title },
-          ),
-          type: "success",
-        });
+            type: "warning",
+          });
+        } else {
+          setToast({
+            message: tf(
+              choose(
+                data.clone_log,
+                'Project "{title}" created and repo cloned',
+                'Project "{title}" created',
+              ),
+              { title },
+            ),
+            type: "success",
+          });
+        }
         resetNewProject();
       } catch (e) {
         setState(
@@ -310,9 +452,35 @@ export function useProjects({ api, lists, setState, setToast }: Deps) {
       newProjectMain,
       newProjectPodman,
       hasPodman,
+      newProjectRepos,
       fetchProjects,
     ],
   );
+
+  // addReposToNew clones the other repositories into the project just created, one after the
+  // other, and answers the names of the ones that could not be added.
+  async function addReposToNew(id: string | undefined): Promise<string[]> {
+    const failed: string[] = [];
+    for (const repo of newProjectRepos) {
+      const out = await addRepoTo(api, id || "", repo).catch(() => ({
+        project: undefined,
+      }));
+      if (!out.project) {
+        failed.push(repo.name);
+      }
+    }
+    return failed;
+  }
+
+  // addNewProjectRepo and removeNewProjectRepo change the list of other repositories the New
+  // project dialog holds. Nothing is cloned until the project is created.
+  const addNewProjectRepo = useCallback((repo: RepoDraft) => {
+    setNewProjectRepos((list) => [...list, repo]);
+    return true;
+  }, []);
+  const removeNewProjectRepo = useCallback((name: string) => {
+    setNewProjectRepos((list) => list.filter((r) => r.name !== name));
+  }, []);
 
   createProjectRef.current = () => {
     void createProject();
@@ -528,6 +696,9 @@ export function useProjects({ api, lists, setState, setToast }: Deps) {
     newProjectMain,
     chooseMain,
     remoteMain,
+    newProjectRepos,
+    addNewProjectRepo,
+    removeNewProjectRepo,
     ...edit,
     hasPodman,
     hasPodmanCompose,
