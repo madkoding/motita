@@ -92,7 +92,8 @@ func TestAuthHeadersAndGitUser(t *testing.T) {
 }
 
 func TestWhoamiAndErrors(t *testing.T) {
-	for name, body := range map[string]string{"login": `{"login":"octo"}`, "username": `{"username":"octo"}`, "nickname": `{"nickname":"octo"}`} {
+	for name, body := range map[string]string{"login": `{"login":"octo"}`, "username": `{"username":"octo"}`,
+		"nickname": `{"nickname":"octo"}`} {
 		a, h := newAPI(t, KindGitHub, map[string]string{"GET /user": body})
 		got, err := a.Whoami(context.Background())
 		if err != nil || got != "octo" || h.auth != "Bearer tok" {
@@ -106,7 +107,8 @@ func TestWhoamiAndErrors(t *testing.T) {
 	a, _ = newAPI(t, KindGitHub, map[string]string{"GET /user": `STATUS 401 {"message":"Bad credentials"}`})
 	_, err := a.Whoami(context.Background())
 	var he *HTTPError
-	if !errors.As(err, &he) || !he.Unauthorized() || he.Message != "Bad credentials" || !strings.Contains(he.Error(), "401") {
+	if !errors.As(err, &he) || !he.Unauthorized() || he.Message != "Bad credentials" ||
+		!strings.Contains(he.Error(), "401") {
 		t.Errorf("err = %v", err)
 	}
 	a, _ = newAPI(t, KindGitHub, map[string]string{"GET /user": `not json`})
@@ -154,11 +156,13 @@ func TestOpen(t *testing.T) {
 }
 
 func TestListGitHub(t *testing.T) {
-	page := `[{"full_name":"me/alpha","description":"first","clone_url":"https://github.com/me/alpha.git","html_url":"https://github.com/me/alpha","private":true,"default_branch":"main","pushed_at":"2026-01-02"},
+	page := `[{"full_name":"me/alpha","description":"first","clone_url":"https://github.com/me/alpha.git",` +
+		`"html_url":"https://github.com/me/alpha","private":true,"default_branch":"main","pushed_at":"2026-01-02"},
 	{"full_name":"me/beta","description":"second","clone_url":"https://github.com/me/beta.git"}]`
 	a, h := newAPI(t, KindGitHub, map[string]string{"GET /user/repos": page})
 	repos, more, err := a.ListRepos(context.Background(), "", 0)
-	if err != nil || more || len(repos) != 2 || repos[0].FullName != "me/alpha" || !repos[0].Private || repos[0].DefaultBranch != "main" {
+	wrong := err != nil || more || len(repos) != 2
+	if wrong || repos[0].FullName != "me/alpha" || !repos[0].Private || repos[0].DefaultBranch != "main" {
 		t.Fatalf("%+v %v %v", repos, more, err)
 	}
 	if !strings.Contains(h.seen[0], "page=1") {
@@ -170,7 +174,8 @@ func TestListGitHub(t *testing.T) {
 		t.Errorf("filtered = %+v", repos)
 	}
 	// A full page means there is more, and a filter reads on until a short page.
-	full := "[" + strings.Repeat(`{"full_name":"me/x","clone_url":"u"},`, repoPageSize-1) + `{"full_name":"me/y","clone_url":"u"}]`
+	full := "[" + strings.Repeat(`{"full_name":"me/x","clone_url":"u"},`, repoPageSize-1) +
+		`{"full_name":"me/y","clone_url":"u"}]`
 	a, h = newAPI(t, KindGitHub, map[string]string{"GET /user/repos": full})
 	_, more, _ = a.ListRepos(context.Background(), "", 1)
 	if !more || len(h.seen) != 1 {
@@ -187,9 +192,15 @@ func TestListGitHub(t *testing.T) {
 }
 
 func TestListGitLab(t *testing.T) {
-	a, h := newAPI(t, KindGitLab, map[string]string{"GET /projects": `[{"path_with_namespace":"grp/app","description":"d","http_url_to_repo":"https://gitlab.com/grp/app.git","web_url":"https://gitlab.com/grp/app","visibility":"private","default_branch":"main","last_activity_at":"2026-02-01"},{"path_with_namespace":"grp/pub","visibility":"public"}]`})
+	a, h := newAPI(t, KindGitLab,
+		map[string]string{
+			"GET /projects": `[{"path_with_namespace":"grp/app","description":"d",` +
+				`"http_url_to_repo":"https://gitlab.com/grp/app.git","web_url":"https://gitlab.com/grp/app",` +
+				`"visibility":"private","default_branch":"main","last_activity_at":"2026-02-01"},` +
+				`{"path_with_namespace":"grp/pub","visibility":"public"}]`})
 	repos, more, err := a.ListRepos(context.Background(), "app", 2)
-	if err != nil || more || len(repos) != 2 || !repos[0].Private || repos[1].Private || repos[0].CloneURL != "https://gitlab.com/grp/app.git" {
+	wrong := err != nil || more || len(repos) != 2
+	if wrong || !repos[0].Private || repos[1].Private || repos[0].CloneURL != "https://gitlab.com/grp/app.git" {
 		t.Fatalf("%+v %v %v", repos, more, err)
 	}
 	if !strings.Contains(h.seen[0], "search=app") || !strings.Contains(h.seen[0], "page=2") {
@@ -202,9 +213,13 @@ func TestListGitLab(t *testing.T) {
 }
 
 func TestListBitbucket(t *testing.T) {
-	a, h := newAPI(t, KindBitbucket, map[string]string{"GET /repositories": `{"next":"x","values":[{"full_name":"ws/repo","description":"d","is_private":true,"updated_on":"2026","mainbranch":{"name":"main"},"links":{"html":{"href":"https://bitbucket.org/ws/repo"}}}]}`})
+	a, h := newAPI(t, KindBitbucket,
+		map[string]string{
+			"GET /repositories": `{"next":"x","values":[{"full_name":"ws/repo","description":"d","is_private":true,` +
+				`"updated_on":"2026","mainbranch":{"name":"main"},"links":{"html":{"href":"https://bitbucket.org/ws/repo"}}}]}`})
 	repos, more, err := a.ListRepos(context.Background(), `re"po\`, 1)
-	if err != nil || !more || len(repos) != 1 || repos[0].CloneURL != "https://bitbucket.org/ws/repo.git" || repos[0].DefaultBranch != "main" {
+	wrong := err != nil || !more || len(repos) != 1
+	if wrong || repos[0].CloneURL != "https://bitbucket.org/ws/repo.git" || repos[0].DefaultBranch != "main" {
 		t.Fatalf("%+v %v %v", repos, more, err)
 	}
 	// Quotes and backslashes cannot break out of the query expression.
@@ -218,7 +233,10 @@ func TestListBitbucket(t *testing.T) {
 }
 
 func TestListGitea(t *testing.T) {
-	a, h := newAPI(t, KindGitea, map[string]string{"GET /user/repos": `[{"full_name":"o/old","clone_url":"u1","updated_at":"2025"},{"full_name":"o/new","clone_url":"u2","html_url":"w","private":true,"default_branch":"main","updated_at":"2026"}]`})
+	a, h := newAPI(t, KindGitea,
+		map[string]string{
+			"GET /user/repos": `[{"full_name":"o/old","clone_url":"u1","updated_at":"2025"},{"full_name":"o/new",` +
+				`"clone_url":"u2","html_url":"w","private":true,"default_branch":"main","updated_at":"2026"}]`})
 	repos, more, err := a.ListRepos(context.Background(), "o", 1)
 	if err != nil || more || len(repos) != 2 || repos[0].FullName != "o/new" {
 		t.Fatalf("%+v %v %v", repos, more, err)
@@ -234,35 +252,53 @@ func TestListGitea(t *testing.T) {
 
 func TestCreatePR(t *testing.T) {
 	opt := PROptions{Title: "feat: x", Body: "why", Head: "feature", Base: "main", Draft: true}
-	a, h := newAPI(t, KindGitHub, map[string]string{"POST /repos/o/r/pulls": `{"number":7,"html_url":"https://github.com/o/r/pull/7"}`})
+	a, h := newAPI(t, KindGitHub,
+		map[string]string{"POST /repos/o/r/pulls": `{"number":7,"html_url":"https://github.com/o/r/pull/7"}`})
 	pr, err := a.CreatePR(context.Background(), Remote{Path: "o/r"}, opt)
-	if err != nil || pr.Number != 7 || pr.URL != "https://github.com/o/r/pull/7" || pr.Head != "feature" || !strings.Contains(h.body, `"draft":true`) {
+	wrong := err != nil || pr.Number != 7 || pr.URL != "https://github.com/o/r/pull/7"
+	if wrong || pr.Head != "feature" || !strings.Contains(h.body, `"draft":true`) {
 		t.Fatalf("%+v %v body=%s", pr, err, h.body)
 	}
-	a, h = newAPI(t, KindGitea, map[string]string{"POST /repos/o/r/pulls": `{"number":3,"html_url":"https://gitea.example.com/o/r/pulls/3"}`})
-	if pr, err = a.CreatePR(context.Background(), Remote{Path: "o/r"}, opt); err != nil || pr.Number != 3 || strings.Contains(h.body, "draft") {
+	a, h = newAPI(t, KindGitea,
+		map[string]string{"POST /repos/o/r/pulls": `{"number":3,"html_url":"https://gitea.example.com/o/r/pulls/3"}`})
+	if pr, err = a.CreatePR(context.Background(), Remote{Path: "o/r"}, opt); err != nil || pr.Number != 3 ||
+		strings.Contains(h.body, "draft") {
 		t.Fatalf("%+v %v body=%s", pr, err, h.body)
 	}
-	a, h = newAPI(t, KindGitLab, map[string]string{"POST /projects/grp%2Fsub%2Fr/merge_requests": `{"iid":9,"web_url":"https://gitlab.com/grp/sub/r/-/merge_requests/9"}`})
-	if pr, err = a.CreatePR(context.Background(), Remote{Path: "grp/sub/r"}, opt); err != nil || pr.Number != 9 || !strings.Contains(h.body, "Draft: feat: x") {
+	a, h = newAPI(t, KindGitLab,
+		map[string]string{
+			"POST /projects/grp%2Fsub%2Fr/merge_requests": `{"iid":9,` +
+				`"web_url":"https://gitlab.com/grp/sub/r/-/merge_requests/9"}`})
+	if pr, err = a.CreatePR(context.Background(), Remote{Path: "grp/sub/r"}, opt); err != nil || pr.Number != 9 ||
+		!strings.Contains(h.body, "Draft: feat: x") {
 		t.Fatalf("%+v %v body=%s", pr, err, h.body)
 	}
 	opt.Title = "Draft: feat: x"
-	if _, err = a.CreatePR(context.Background(), Remote{Path: "grp/sub/r"}, opt); err != nil || strings.Contains(h.body, "Draft: Draft") {
+	if _, err = a.CreatePR(context.Background(), Remote{Path: "grp/sub/r"}, opt); err != nil ||
+		strings.Contains(h.body, "Draft: Draft") {
 		t.Fatalf("an already-draft title must not be prefixed twice: %v %s", err, h.body)
 	}
-	a, h = newAPI(t, KindBitbucket, map[string]string{"POST /repositories/ws/r/pullrequests": `{"id":4,"links":{"html":{"href":"https://bitbucket.org/ws/r/pull-requests/4"}}}`})
-	if pr, err = a.CreatePR(context.Background(), Remote{Path: "ws/r"}, opt); err != nil || pr.Number != 4 || !strings.Contains(h.body, `"destination"`) {
+	a, h = newAPI(t, KindBitbucket,
+		map[string]string{
+			"POST /repositories/ws/r/pullrequests": `{"id":4,` +
+				`"links":{"html":{"href":"https://bitbucket.org/ws/r/pull-requests/4"}}}`})
+	if pr, err = a.CreatePR(context.Background(), Remote{Path: "ws/r"}, opt); err != nil || pr.Number != 4 ||
+		!strings.Contains(h.body, `"destination"`) {
 		t.Fatalf("%+v %v body=%s", pr, err, h.body)
 	}
+	checkCreatePRRefusals(t, opt)
+}
+
+// checkCreatePRRefusals: a host that refuses, or answers with no pull request, is an error.
+func checkCreatePRRefusals(t *testing.T, opt PROptions) {
 	for _, kind := range []Kind{KindGitHub, KindGitLab, KindBitbucket} {
-		a, _ = newAPI(t, kind, nil)
+		a, _ := newAPI(t, kind, nil)
 		if _, err := a.CreatePR(context.Background(), Remote{Path: "o/r"}, opt); err == nil {
 			t.Errorf("%s: a refusal must surface", kind)
 		}
 	}
 	// A host that answers 200 with no number and link is not a success.
-	a, _ = newAPI(t, KindGitHub, map[string]string{"POST /repos/o/r/pulls": `{}`})
+	a, _ := newAPI(t, KindGitHub, map[string]string{"POST /repos/o/r/pulls": `{}`})
 	if _, err := a.CreatePR(context.Background(), Remote{Path: "o/r"}, opt); err == nil {
 		t.Error("an answer with no pull request must be an error")
 	}
@@ -270,15 +306,20 @@ func TestCreatePR(t *testing.T) {
 
 func TestFindPR(t *testing.T) {
 	r := Remote{Path: "o/r"}
-	a, h := newAPI(t, KindGitHub, map[string]string{"GET /repos/o/r/pulls": `[{"number":5,"html_url":"u5","title":"t","head":{"ref":"feature"},"base":{"ref":"main"}}]`})
+	a, h := newAPI(t, KindGitHub,
+		map[string]string{
+			"GET /repos/o/r/pulls": `[{"number":5,"html_url":"u5","title":"t","head":{"ref":"feature"},"base":{"ref":"main"}}]`})
 	pr, ok, err := a.FindPR(context.Background(), r, "feature")
-	if err != nil || !ok || pr.Number != 5 || pr.Base != "main" || !strings.Contains(h.seen[0], "head=o%3Afeature") {
+	wrong := err != nil || !ok || pr.Number != 5
+	if wrong || pr.Base != "main" || !strings.Contains(h.seen[0], "head=o%3Afeature") {
 		t.Fatalf("%+v %v %v %v", pr, ok, err, h.seen)
 	}
 	if _, ok, _ = a.FindPR(context.Background(), r, "other"); ok {
 		t.Error("a pull request from another branch is not this one")
 	}
-	a, _ = newAPI(t, KindGitea, map[string]string{"GET /repos/o/r/pulls": `[{"number":2,"html_url":"u2","head":{"ref":"feature"},"base":{"ref":"dev"}}]`})
+	a, _ = newAPI(t, KindGitea,
+		map[string]string{
+			"GET /repos/o/r/pulls": `[{"number":2,"html_url":"u2","head":{"ref":"feature"},"base":{"ref":"dev"}}]`})
 	if pr, ok, err = a.FindPR(context.Background(), r, "feature"); err != nil || !ok || pr.Number != 2 {
 		t.Fatalf("%+v %v %v", pr, ok, err)
 	}
@@ -286,9 +327,16 @@ func TestFindPR(t *testing.T) {
 	if _, _, err = a.FindPR(context.Background(), r, "feature"); err == nil {
 		t.Error("a host error must surface")
 	}
+	checkFindPROnGitLabAndBitbucket(t, r)
+}
 
-	a, _ = newAPI(t, KindGitLab, map[string]string{"GET /projects/o%2Fr/merge_requests": `[{"iid":6,"web_url":"u6","title":"t","target_branch":"main"}]`})
-	if pr, ok, err = a.FindPR(context.Background(), r, "feature"); err != nil || !ok || pr.Number != 6 || pr.Base != "main" {
+// checkFindPROnGitLabAndBitbucket: the same lookup on the two hosts with their own shapes.
+func checkFindPROnGitLabAndBitbucket(t *testing.T, r Remote) {
+	a, _ := newAPI(t, KindGitLab,
+		map[string]string{
+			"GET /projects/o%2Fr/merge_requests": `[{"iid":6,"web_url":"u6","title":"t","target_branch":"main"}]`})
+	pr, ok, err := a.FindPR(context.Background(), r, "feature")
+	if err != nil || !ok || pr.Number != 6 || pr.Base != "main" {
 		t.Fatalf("%+v %v %v", pr, ok, err)
 	}
 	a, _ = newAPI(t, KindGitLab, map[string]string{"GET /projects/o%2Fr/merge_requests": `[]`})
@@ -300,7 +348,9 @@ func TestFindPR(t *testing.T) {
 		t.Error("a host error must surface")
 	}
 
-	a, _ = newAPI(t, KindBitbucket, map[string]string{"GET /repositories/o/r/pullrequests": `{"values":[{"id":8,"title":"t","links":{"html":{"href":"u8"}}}]}`})
+	a, _ = newAPI(t, KindBitbucket,
+		map[string]string{
+			"GET /repositories/o/r/pullrequests": `{"values":[{"id":8,"title":"t","links":{"html":{"href":"u8"}}}]}`})
 	if pr, ok, err = a.FindPR(context.Background(), r, `fea"ture`); err != nil || !ok || pr.Number != 8 {
 		t.Fatalf("%+v %v %v", pr, ok, err)
 	}
@@ -363,15 +413,40 @@ func TestMergePR(t *testing.T) {
 			t.Errorf("%s: asked %v, want %s", c.kind, h.seen, c.route)
 		}
 	}
-	a, _ := newAPI(t, KindGitHub, map[string]string{"PUT /repos/o/r/pulls/7/merge": `STATUS 405 {"message":"Pull Request is not mergeable"}`})
-	if _, err := a.MergePR(context.Background(), Remote{Path: "o/r"}, 7, MergeOptions{}); err == nil || !strings.Contains(err.Error(), "not mergeable") {
+	a, _ := newAPI(t, KindGitHub,
+		map[string]string{"PUT /repos/o/r/pulls/7/merge": `STATUS 405 {"message":"Pull Request is not mergeable"}`})
+	if _, err := a.MergePR(context.Background(), Remote{Path: "o/r"}, 7, MergeOptions{}); err == nil ||
+		!strings.Contains(err.Error(), "not mergeable") {
 		t.Errorf("the host's refusal must surface: %v", err)
+	}
+}
+
+// TestMergePREscapesTheBranch: the branch goes into the path of a DELETE carrying the user's
+// token, so a '?' stays part of its name and a ".." never reaches the host.
+func TestMergePREscapesTheBranch(t *testing.T) {
+	opt := MergeOptions{DeleteBranch: true, Branch: "motita/a?b"}
+	a, h := newAPI(t, KindGitHub, map[string]string{"PUT /repos/o/r/pulls/7/merge": `{"merged":true}`})
+	if _, err := a.MergePR(context.Background(), Remote{Path: "o/r"}, 7, opt); err != nil {
+		t.Fatal(err)
+	}
+	if len(h.seen) != 2 || h.seen[1] != "DELETE /repos/o/r/git/refs/heads/motita/a%3Fb" {
+		t.Errorf("the branch must be escaped: %v", h.seen)
+	}
+	opt.Branch = "x/../../../../user/repos"
+	a, h = newAPI(t, KindGitHub, map[string]string{"PUT /repos/o/r/pulls/7/merge": `{"merged":true}`})
+	if _, err := a.MergePR(context.Background(), Remote{Path: "o/r"}, 7, opt); err != nil {
+		t.Fatal(err)
+	}
+	if len(h.seen) != 1 {
+		t.Errorf("a branch with \"..\" must not be deleted: %v", h.seen)
 	}
 }
 
 func TestMergePRMethodAndBranchDeletion(t *testing.T) {
 	opt := MergeOptions{Method: "squash", DeleteBranch: true, Branch: "motita/s1"}
-	a, h := newAPI(t, KindGitHub, map[string]string{"PUT /repos/o/r/pulls/7/merge": `{"merged":true}`, "DELETE /repos/o/r/git/refs/heads/motita/s1": ``})
+	a, h := newAPI(t, KindGitHub,
+		map[string]string{"PUT /repos/o/r/pulls/7/merge": `{"merged":true}`,
+			"DELETE /repos/o/r/git/refs/heads/motita/s1": ``})
 	if _, err := a.MergePR(context.Background(), Remote{Path: "o/r"}, 7, opt); err != nil {
 		t.Fatal(err)
 	}
@@ -402,8 +477,9 @@ func TestMergePRMethodAndBranchDeletion(t *testing.T) {
 
 func TestBranchCI(t *testing.T) {
 	a, _ := newAPI(t, KindGitHub, map[string]string{
-		"GET /repos/o/r/commits/main/check-runs": `{"check_runs":[{"id":1,"name":"test","status":"completed","conclusion":"failure"}]}`,
-		"GET /repos/o/r/commits/main/status":     `{"statuses":[]}`,
+		"GET /repos/o/r/commits/main/check-runs": `{"check_runs":[{"id":1,"name":"test","status":"completed",` +
+			`"conclusion":"failure"}]}`,
+		"GET /repos/o/r/commits/main/status": `{"statuses":[]}`,
 	})
 	st, err := a.BranchCI(context.Background(), Remote{Path: "o/r"}, "main")
 	if err != nil || st.State != StateFailure || len(st.FailedNames()) != 1 || st.FailedNames()[0] != "test" {
@@ -413,7 +489,8 @@ func TestBranchCI(t *testing.T) {
 		"GET /projects/o%2Fr/pipelines?":       `[{"id":5}]`,
 		"GET /projects/o%2Fr/pipelines/5/jobs": `[{"name":"lint","status":"failed"}]`,
 	})
-	if st, err = a.BranchCI(context.Background(), Remote{Path: "o/r"}, "main"); err != nil || st.State != StateFailure || st.Rev != "5" {
+	if st, err = a.BranchCI(context.Background(), Remote{Path: "o/r"}, "main"); err != nil || st.State != StateFailure ||
+		st.Rev != "5" {
 		t.Fatalf("%+v %v", st, err)
 	}
 	a, _ = newAPI(t, KindBitbucket, nil)
@@ -424,10 +501,12 @@ func TestBranchCI(t *testing.T) {
 
 func TestMergePRReturnsTheCommit(t *testing.T) {
 	a, _ := newAPI(t, KindGitHub, map[string]string{"PUT /repos/o/r/pulls/7/merge": `{"merged":true,"sha":"deadbeef"}`})
-	if sha, err := a.MergePR(context.Background(), Remote{Path: "o/r"}, 7, MergeOptions{}); err != nil || sha != "deadbeef" {
+	if sha, err := a.MergePR(context.Background(), Remote{Path: "o/r"}, 7, MergeOptions{}); err != nil ||
+		sha != "deadbeef" {
 		t.Errorf("%q %v", sha, err)
 	}
-	a, _ = newAPI(t, KindGitLab, map[string]string{"PUT /projects/o%2Fr/merge_requests/7/merge": `{"merge_commit_sha":"c0ffee"}`})
+	a, _ = newAPI(t, KindGitLab,
+		map[string]string{"PUT /projects/o%2Fr/merge_requests/7/merge": `{"merge_commit_sha":"c0ffee"}`})
 	if sha, _ := a.MergePR(context.Background(), Remote{Path: "o/r"}, 7, MergeOptions{}); sha != "c0ffee" {
 		t.Errorf("gitlab: %q", sha)
 	}
@@ -455,10 +534,12 @@ func TestMergeState(t *testing.T) {
 			t.Errorf("github %s: %s, want %s", body, got.Code, want)
 		}
 	}
-	if !(MergeState{MergeBlocked}).Refuses() || (MergeState{MergeBehind}).Refuses() || (MergeState{MergeUnknown}).Refuses() {
+	if !(MergeState{MergeBlocked}).Refuses() || (MergeState{MergeBehind}).Refuses() ||
+		(MergeState{MergeUnknown}).Refuses() {
 		t.Error("only a blocked, conflicting or draft pull request refuses a merge")
 	}
-	a, _ := newAPI(t, KindGitLab, map[string]string{"GET /projects/o%2Fr/merge_requests/7": `{"detailed_merge_status":"not_approved"}`})
+	a, _ := newAPI(t, KindGitLab,
+		map[string]string{"GET /projects/o%2Fr/merge_requests/7": `{"detailed_merge_status":"not_approved"}`})
 	if m, _ := a.MergeState(context.Background(), Remote{Path: "o/r"}, 7); m.Code != MergeBlocked {
 		t.Errorf("gitlab: %v", m)
 	}
@@ -483,7 +564,8 @@ func TestPRStateTellsMergedFromClosed(t *testing.T) {
 			t.Errorf("%s %s: %+v %v, want %s %s", kind, body, st, err, want, sha)
 		}
 	}
-	check(KindGitHub, "GET /repos/o/r/pulls/7", `{"state":"closed","merged":true,"merge_commit_sha":"abc"}`, PRMerged, "abc")
+	check(KindGitHub, "GET /repos/o/r/pulls/7", `{"state":"closed","merged":true,"merge_commit_sha":"abc"}`, PRMerged,
+		"abc")
 	check(KindGitHub, "GET /repos/o/r/pulls/7", `{"state":"closed","merged":false}`, PRClosed, "")
 	check(KindGitHub, "GET /repos/o/r/pulls/7", `{"state":"open"}`, PROpen, "")
 	check(KindGitea, "GET /repos/o/r/pulls/7", `{"state":"closed","merged":true}`, PRMerged, "")

@@ -15,23 +15,33 @@ import asyncio
 import base64
 import json
 import os
+import pathlib
+import tempfile
 import subprocess
 import sys
+from typing import Any
 
 import websockets
 from PIL import Image
 
+from cdp_http import JSON, AsyncSocket
+
 PORT = int(os.environ.get("CDP_PORT", "9334"))
 BASE = os.environ.get("GATEWAY_URL", "http://127.0.0.1:7477")
-SHOTS = os.environ.get("SHOTS_DIR", os.path.join(os.environ.get("TMPDIR", "/tmp"), "motita-modal-blur"))
+SHOTS = os.environ.get("SHOTS_DIR") or tempfile.mkdtemp(prefix="motita-modal-blur-")
+
+
+Box = tuple[int, int, int, int]
 
 
 class CDP:
-    def __init__(self, ws):
+    """A minimal Chrome DevTools Protocol client over one websocket."""
+
+    def __init__(self, ws: AsyncSocket) -> None:
         self.ws = ws
         self.i = 0
 
-    async def call(self, method, **params):
+    async def call(self, method: str, **params: Any) -> dict[str, Any]:
         self.i += 1
         mid = self.i
         await self.ws.send(json.dumps({"id": mid, "method": method, "params": params}))
@@ -42,20 +52,20 @@ class CDP:
                     raise RuntimeError(f"{method}: {msg['error']}")
                 return msg.get("result", {})
 
-    async def js(self, expr):
+    async def js(self, expr: str) -> JSON:
         r = await self.call("Runtime.evaluate", expression=expr, returnByValue=True)
         if r.get("exceptionDetails"):
             raise RuntimeError(str(r["exceptionDetails"]))
         return r.get("result", {}).get("value")
 
-    async def shot(self, path):
+    async def shot(self, path: str) -> str:
         r = await self.call("Page.captureScreenshot", format="png")
-        with open(path, "wb") as f:
-            f.write(base64.b64decode(r["data"]))
+        await asyncio.to_thread(pathlib.Path(path).write_bytes, base64.b64decode(r["data"]))
         return path
 
 
-def lap_var(img, box):
+def lap_var(img: Image.Image, box: Box) -> float:
+    """Variance of the Laplacian over box: high on sharp detail, low on a blurred area."""
     g = img.convert("L").crop(box)
     px = g.load()
     w, h = g.size
@@ -67,7 +77,9 @@ def lap_var(img, box):
     return round(sum((v - m) ** 2 for v in vals) / len(vals), 2)
 
 
-def busiest_box(img, size=160, step=16, avoid=None, min_x=0):
+def busiest_box(img: Image.Image, size: int = 160, step: int = 16, avoid: Box | None = None,
+                min_x: int = 0) -> tuple[Box | None, float]:
+    """The size x size square with the most detail, skipping any that overlaps avoid."""
     g = img.convert("L")
     w, h = g.size
     best, best_box = -1, None
@@ -96,14 +108,16 @@ OVERLAY_JS = (
 )
 
 
-async def main():
+async def main() -> int:
+    """Load the auth modal and measure how blurred the page behind it is, against a no-blur control."""
     os.makedirs(SHOTS, exist_ok=True)
-    subprocess.run(["curl", "-s", "-X", "PUT", f"http://127.0.0.1:{PORT}/json/new?about:blank"],
-                   capture_output=True)
+    await asyncio.to_thread(subprocess.run,
+                            ["curl", "-s", "-X", "PUT", f"http://127.0.0.1:{PORT}/json/new?about:blank"],
+                            capture_output=True)
     target = None
     for _ in range(60):
-        out = subprocess.run(["curl", "-s", f"http://127.0.0.1:{PORT}/json/list"],
-                             capture_output=True, text=True).stdout
+        out = (await asyncio.to_thread(subprocess.run, ["curl", "-s", f"http://127.0.0.1:{PORT}/json/list"],
+                                       capture_output=True, text=True)).stdout
         pages = [t for t in json.loads(out or "[]") if t.get("type") == "page"]
         target = pages[-1] if pages else None
         if target:
@@ -133,8 +147,9 @@ async def main():
         await c.call("Page.navigate", url=BASE + "/")
         await asyncio.sleep(4)
 
-        print("health:", subprocess.run(["curl", "-s", f"{BASE}/v1/health"],
-                                        capture_output=True, text=True).stdout.strip())
+        health = await asyncio.to_thread(subprocess.run, ["curl", "-s", f"{BASE}/v1/health"],
+                                         capture_output=True, text=True)
+        print("health:", health.stdout.strip())
         print("auth modal present:", await c.js(
             "document.body.innerText.includes('Authentication required')"))
         print("css in use:", await c.js(

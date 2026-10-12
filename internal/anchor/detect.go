@@ -25,6 +25,8 @@ package anchor
 // two suites nobody asked for.
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -246,6 +248,39 @@ func (a *Anchor) pythonChecks(timeout time.Duration) []config.Check {
 		Timeout:    timeout,
 		ExpectExit: 0,
 	}}
+}
+
+// GateFingerprint identifies the gate kind=auto would run right now: the detected checks, and the
+// content of what defines what they do - .motita/anchor, the Makefile, package.json's scripts.
+// It is empty for every other kind, whose checks come from the configuration.
+//
+// Detection reads files the agent itself can edit, so a gate that is re-detected on every
+// validation is a gate the model can rewrite (`check: ; true`, `"test": "exit 0"`, a new
+// .motita/anchor) and then pass. The fingerprint is how the caller sees that the gate it is
+// about to believe is not the one the task started with. The directory is not part of it, so a
+// background agent's worktree of the same tree reads the same.
+func (a *Anchor) GateFingerprint() string {
+	if !strings.EqualFold(a.cfg.Kind, "auto") {
+		return ""
+	}
+	h := sha256.New()
+	for _, c := range a.detectChecks() {
+		fmt.Fprintf(h, "check %q %q %q %d %q\n", c.Name, c.Command, c.Args, c.ExpectExit, c.ExpectOutput)
+	}
+	for _, name := range []string{declaredGateFile, "Makefile"} {
+		body, ok := readIfPresent(a.dir, name)
+		fmt.Fprintf(h, "file %s %t %d\n%s\n", name, ok, len(body), body)
+	}
+	// Only the scripts: a dependency added to package.json changes nothing the gate runs.
+	if body, ok := readIfPresent(a.dir, "package.json"); ok {
+		var pkg struct {
+			Scripts map[string]string `json:"scripts"`
+		}
+		_ = json.Unmarshal([]byte(body), &pkg)
+		scripts, _ := json.Marshal(pkg.Scripts)
+		fmt.Fprintf(h, "scripts %s\n", scripts)
+	}
+	return hex.EncodeToString(h.Sum(nil))
 }
 
 // readIfPresent reads a file inside the anchor's directory, or reports that it is

@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/madkoding/motita/internal/gitforge"
+	"github.com/madkoding/motita/internal/gitx"
 )
 
 // The git endpoints are what lets a user connect motita to GitHub, GitLab,
@@ -118,13 +119,15 @@ type gitAccountView struct {
 func accountView(a gitforge.Account) gitAccountView {
 	v := gitAccountView{
 		ID: a.Service.ID, Name: a.Service.Name, Kind: string(a.Service.Kind), Host: a.Service.Host,
-		Connected: a.Connected, Username: a.Username, OAuthReady: a.Service.OAuthReady(), TokenURL: a.Service.TokenURL,
+		Connected: a.Connected, Username: a.Username, OAuthReady: a.Service.OAuthReady(),
+		TokenURL: a.Service.TokenURL,
 	}
 	for _, m := range a.Service.Methods() {
 		v.Methods = append(v.Methods, string(m))
 	}
 	if !v.OAuthReady {
-		v.SetupHint = "Set " + a.Service.EnvPrefix + "_CLIENT_ID (an OAuth application of yours) to log in with one click, or connect with a token."
+		v.SetupHint = "Set " + a.Service.EnvPrefix +
+			"_CLIENT_ID (an OAuth application of yours) to log in with one click, or connect with a token."
 	}
 	return v
 }
@@ -184,43 +187,66 @@ func (s *Server) handleGitConnect(w http.ResponseWriter, r *http.Request) {
 	}
 	switch method {
 	case gitforge.MethodToken:
-		who, err := st.ConnectToken(r.Context(), svc, body.Token, body.Username)
-		if err != nil {
-			writeError(w, http.StatusBadRequest, err.Error())
-			return
-		}
-		writeJSON(w, http.StatusOK, map[string]any{"status": "connected", "account": who, "service": svc.ID})
+		connectGitToken(w, r, st, svc, body.Token, body.Username)
 	case gitforge.MethodDevice:
-		flow, err := st.StartDevice(r.Context(), svc)
-		if err != nil {
-			writeError(w, http.StatusBadGateway, err.Error())
-			return
-		}
-		id := s.startGitFlow(svc.ID, nil, func(ctx context.Context, _ <-chan string) (string, error) { return flow.Wait(ctx) })
-		writeJSON(w, http.StatusAccepted, map[string]any{
-			"flow_id": id, "method": "device", "service": svc.ID,
-			"url": flow.URL, "code": flow.Code, "expires_in": flow.ExpiresIn,
-		})
+		s.startGitDevice(w, r, st, svc)
 	case gitforge.MethodCode:
-		flow, err := st.StartCode(svc)
-		if err != nil {
-			writeError(w, http.StatusBadGateway, err.Error())
-			return
-		}
-		paste := make(chan string, 1)
-		id := s.startGitFlow(svc.ID, paste, func(ctx context.Context, p <-chan string) (string, error) { return flow.Wait(ctx, p) })
-		writeJSON(w, http.StatusAccepted, map[string]any{
-			"flow_id": id, "method": "code", "service": svc.ID,
-			"url": flow.URL, "redirect_uri": flow.RedirectURI(),
-		})
+		s.startGitCode(w, st, svc)
 	default:
 		writeError(w, http.StatusBadRequest, "the method must be device, code or token")
 	}
 }
 
+// connectGitToken connects svc with a token the user pasted.
+func connectGitToken(
+	w http.ResponseWriter, r *http.Request, st gitforge.Store, svc gitforge.Service, token, user string,
+) {
+	who, err := st.ConnectToken(r.Context(), svc, token, user)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"status": "connected", "account": who, "service": svc.ID})
+}
+
+// startGitDevice starts a device login to svc and answers with the code the user types on the host.
+func (s *Server) startGitDevice(w http.ResponseWriter, r *http.Request, st gitforge.Store, svc gitforge.Service) {
+	flow, err := st.StartDevice(r.Context(), svc)
+	if err != nil {
+		writeError(w, http.StatusBadGateway, err.Error())
+		return
+	}
+	id := s.startGitFlow(svc.ID, nil, func(ctx context.Context, _ <-chan string) (string, error) {
+		return flow.Wait(ctx)
+	})
+	writeJSON(w, http.StatusAccepted, map[string]any{
+		"flow_id": id, "method": "device", "service": svc.ID,
+		"url": flow.URL, "code": flow.Code, "expires_in": flow.ExpiresIn,
+	})
+}
+
+// startGitCode starts a browser login to svc and answers with the page the user opens.
+func (s *Server) startGitCode(w http.ResponseWriter, st gitforge.Store, svc gitforge.Service) {
+	flow, err := st.StartCode(svc)
+	if err != nil {
+		writeError(w, http.StatusBadGateway, err.Error())
+		return
+	}
+	paste := make(chan string, 1)
+	id := s.startGitFlow(svc.ID, paste, func(ctx context.Context, p <-chan string) (string, error) {
+		return flow.Wait(ctx, p)
+	})
+	writeJSON(w, http.StatusAccepted, map[string]any{
+		"flow_id": id, "method": "code", "service": svc.ID,
+		"url": flow.URL, "redirect_uri": flow.RedirectURI(),
+	})
+}
+
 // startGitFlow runs a login in the background and registers it so the client can
 // poll it.
-func (s *Server) startGitFlow(service string, paste chan string, wait func(context.Context, <-chan string) (string, error)) string {
+func (s *Server) startGitFlow(
+	service string, paste chan string, wait func(context.Context, <-chan string) (string, error),
+) string {
 	ctx, cancel := context.WithTimeout(s.baseCtx, gitFlowTTL)
 	f := &gitFlow{service: service, created: time.Now(), cancel: cancel, paste: paste, status: "pending"}
 	id, _ := newSessionID()
@@ -428,6 +454,10 @@ func (s *Server) handleGitDefaultBranch(w http.ResponseWriter, r *http.Request) 
 		writeError(w, http.StatusBadRequest, "the repository URL is empty")
 		return
 	}
+	if !cloneableURL(url) {
+		writeError(w, http.StatusBadRequest, "not a repository URL: use https://, ssh://, user@host:path or an absolute path")
+		return
+	}
 	ctx, cancel := context.WithTimeout(r.Context(), defaultBranchTimeout)
 	defer cancel()
 	branch, err := remoteDefaultBranch(ctx, url, s.gitCommandEnv())
@@ -441,7 +471,7 @@ func (s *Server) handleGitDefaultBranch(w http.ResponseWriter, r *http.Request) 
 // remoteDefaultBranch asks a remote for the branch its HEAD points to. A repository with no
 // commits has no HEAD to point anywhere, and answers "" rather than an error.
 func remoteDefaultBranch(ctx context.Context, url string, env []string) (string, error) {
-	cmd := exec.CommandContext(ctx, "git", "ls-remote", "--symref", "--", url, "HEAD")
+	cmd := exec.CommandContext(ctx, "git", append(gitx.Hardening(), "ls-remote", "--symref", "--", url, "HEAD")...)
 	cmd.Env = env
 	out, err := cmd.CombinedOutput()
 	if err != nil {

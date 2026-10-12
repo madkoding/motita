@@ -72,20 +72,28 @@ func SetUILanguage(path, lang string) error {
 	return writeConfigAtomic(path, []byte(updated), info.Mode().Perm())
 }
 
-// setUILanguageText is SetUILanguage on the text alone.
-func setUILanguageText(body, lang string) (string, error) {
-	lines := strings.Split(body, "\n")
-	start := -1
+// findUIBlock returns the index of the line that opens the ui block, or -1 when there is none.
+func findUIBlock(lines []string) (int, error) {
 	for i, l := range lines {
 		if uiBlockLine.MatchString(l) {
-			start = i
-			break
+			return i, nil
 		}
 		if uiAnyBlock.MatchString(l) {
 			// `ui: {language: en}` and its kind: a flow mapping cannot be edited one line at a
 			// time, and rewriting it is exactly the re-marshalling this function exists to avoid.
-			return "", fmt.Errorf("the configuration writes ui as an inline value (%q): change ui.language by hand", strings.TrimSpace(l))
+			return -1, fmt.Errorf("the configuration writes ui as an inline value (%q): change ui.language by hand",
+				strings.TrimSpace(l))
 		}
+	}
+	return -1, nil
+}
+
+// setUILanguageText is SetUILanguage on the text alone.
+func setUILanguageText(body, lang string) (string, error) {
+	lines := strings.Split(body, "\n")
+	start, err := findUIBlock(lines)
+	if err != nil {
+		return "", err
 	}
 	if start < 0 {
 		// No block yet: one is added at the end, after the file's own last line.

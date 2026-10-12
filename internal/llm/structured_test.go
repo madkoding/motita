@@ -81,8 +81,10 @@ func TestJSONSchemaTravelsInTheContext(t *testing.T) {
 // own StructuredOutput tool, the message stops for tool_use, and the result repeats the object.
 var structuredScript = lines(
 	evStart,
-	`{"type":"assistant","message":{"content":[{"type":"tool_use","id":"toolu_9","name":"StructuredOutput","input":{"done":true,"actions":[]}}]}}`,
-	stopReason("tool_use"), evStop,
+	`{"type":"assistant","message":{"content":[{"type":"tool_use","id":"toolu_9","name":"StructuredOutput",`+
+		`"input":{"done":true,"actions":[]}}]}}`,
+	stopReason("tool_use"),
+	evStop,
 	"sleep",
 )
 
@@ -108,7 +110,11 @@ func TestClaudeCodeEnforcesTheSchema(t *testing.T) {
 	}
 
 	// Only the result carries it: the result is the answer.
-	c, _ = claudeTestClient(t, `{"type":"result","subtype":"success","num_turns":2,"structured_output":{"done":false}}`, nil)
+	c, _ = claudeTestClient(
+		t,
+		`{"type":"result","subtype":"success","num_turns":2,"structured_output":{"done":false}}`,
+		nil,
+	)
 	if text, err := c.Complete(ctx, hi); err != nil || text != `{"done":false}` {
 		t.Fatalf("Complete = %q, %v", text, err)
 	}
@@ -121,7 +127,9 @@ func TestClaudeCodeEnforcesTheSchema(t *testing.T) {
 
 	// With tools the turn answers with calls, so the schema is not passed.
 	c, record = claudeTestClient(t, toolScript, nil)
-	if _, err := c.CompleteTools(ctx, hi, []Tool{{Type: "function", Function: FunctionDef{Name: "read_file"}}}); err != nil {
+	if _, err := c.CompleteTools(
+		ctx, hi, []Tool{{Type: "function", Function: FunctionDef{Name: "read_file"}}},
+	); err != nil {
 		t.Fatal(err)
 	}
 	if rec := readRecord(t, record); slices.Contains(rec.Args, "--json-schema") {

@@ -36,7 +36,11 @@ func TestAllowingAllCommandsAnswersTheRestOfTheSession(t *testing.T) {
 	}
 	srv := newTestServer(t, svc)
 
-	req, _ := http.NewRequest(http.MethodPost, srv.BaseURL()+sessionPath(srv, DefaultSession, "/task"), strings.NewReader(`{"task":"x"}`))
+	req, _ := http.NewRequest(
+		http.MethodPost,
+		srv.BaseURL()+sessionPath(srv, DefaultSession, "/task"),
+		strings.NewReader(`{"task":"x"}`),
+	)
 	req.Header.Set("Authorization", "Bearer "+testToken)
 	resp, err := (&http.Client{}).Do(req)
 	if err != nil {
@@ -50,7 +54,19 @@ func TestAllowingAllCommandsAnswersTheRestOfTheSession(t *testing.T) {
 	if w.Code != http.StatusNoContent {
 		t.Fatalf("answer = %d %s", w.Code, w.Body.String())
 	}
-	events := readEvents(t, br)
+	checkRanOnTheStandingAnswer(t, readEvents(t, br))
+	if len(answers) != 2 || !answers[0] || !answers[1] {
+		t.Errorf("answers = %v", answers)
+	}
+	if !srv.sessions[DefaultSession].status().AutoApprove {
+		t.Error("the session status must report the standing answer")
+	}
+}
+
+// checkRanOnTheStandingAnswer checks the rest of an allow-all run: no further question is asked,
+// and the run says which command ran on the standing answer.
+func checkRanOnTheStandingAnswer(t *testing.T, events []event) {
+	t.Helper()
 	var said bool
 	for _, e := range events {
 		if e.Event == EventApproval {
@@ -63,12 +79,6 @@ func TestAllowingAllCommandsAnswersTheRestOfTheSession(t *testing.T) {
 	}
 	if !said {
 		t.Errorf("the run must say which command ran on the standing answer: %+v", events)
-	}
-	if len(answers) != 2 || !answers[0] || !answers[1] {
-		t.Errorf("answers = %v", answers)
-	}
-	if !srv.sessions[DefaultSession].status().AutoApprove {
-		t.Error("the session status must report the standing answer")
 	}
 }
 
@@ -110,7 +120,8 @@ func TestAllowAllCanBeTakenBack(t *testing.T) {
 	if !strings.Contains(w.Body.String(), `"auto_approve":true`) {
 		t.Errorf("turning it on answers the new status: %s", w.Body.String())
 	}
-	if w := post(t, srv, sessionPath(srv, DefaultSession, "/auto-approve"), `not json`, testToken); w.Code != http.StatusBadRequest {
+	if w := post(t, srv, sessionPath(srv, DefaultSession, "/auto-approve"), `not json`,
+		testToken); w.Code != http.StatusBadRequest {
 		t.Errorf("a malformed body = %d", w.Code)
 	}
 }
@@ -200,7 +211,11 @@ func TestABackgroundAgentIsAnsweredOnlyByAStandingDecision(t *testing.T) {
 	srv := newTestServer(t, svc)
 	conv = srv.sessions[DefaultSession]
 
-	req, _ := http.NewRequest(http.MethodPost, srv.BaseURL()+sessionPath(srv, DefaultSession, "/task"), strings.NewReader(`{"task":"x"}`))
+	req, _ := http.NewRequest(
+		http.MethodPost,
+		srv.BaseURL()+sessionPath(srv, DefaultSession, "/task"),
+		strings.NewReader(`{"task":"x"}`),
+	)
 	req.Header.Set("Authorization", "Bearer "+testToken)
 	resp, err := (&http.Client{}).Do(req)
 	if err != nil {
@@ -208,7 +223,8 @@ func TestABackgroundAgentIsAnsweredOnlyByAStandingDecision(t *testing.T) {
 	}
 	defer resp.Body.Close()
 	events := readEvents(t, bufio.NewReader(resp.Body))
-	if len(answers) != 2 || answers[0] || errs[0] == nil || !strings.Contains(errs[0].Error(), "background agent cannot ask") {
+	if len(answers) != 2 || answers[0] || errs[0] == nil ||
+		!strings.Contains(errs[0].Error(), "background agent cannot ask") {
 		t.Fatalf("without allow-all the question must be refused with a reason: %v %v", answers, errs)
 	}
 	if !answers[1] || errs[1] != nil {

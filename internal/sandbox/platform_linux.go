@@ -41,8 +41,12 @@ func childAttributes(l Limits, dropPrivs bool, uid, gid int) (*syscall.SysProcAt
 // hasLimits reports whether there is anything to limit (in which case the shell
 // applies the limits with ulimit before the exec).
 func hasLimits(l Limits) bool {
-	return l.MemoryMB > 0 || l.CPUSeconds > 0 || l.Processes > 0 ||
-		l.OpenFiles > 0 || l.MaxFileSizeMB > 0
+	return limitsResources(l) || l.OpenFiles > 0 || l.MaxFileSizeMB > 0
+}
+
+// limitsResources reports whether memory, CPU time or the number of processes is limited.
+func limitsResources(l Limits) bool {
+	return l.MemoryMB > 0 || l.CPUSeconds > 0 || l.Processes > 0
 }
 
 // enterChroot and dropPrivileges require root; they are kept apart here so the
@@ -105,6 +109,22 @@ func dropPrivileges(uid, gid int) error {
 	}
 	if err := privilegeHooks.setuid(uid); err != nil {
 		return fmt.Errorf("setuid(%d): %w", uid, err)
+	}
+	return nil
+}
+
+// prSetDumpable is prctl's PR_SET_DUMPABLE; prctl is a variable so a test can make it fail.
+const prSetDumpable = 4
+
+var prctl = syscall.RawSyscall
+
+// hideFromChildren makes this process non-dumpable, which closes its /proc/<pid>/environ and
+// /proc/<pid>/mem, and ptrace, to every process of the same user that is not root. A command the
+// sandbox runs could otherwise read the API keys in motita's own environment there. The commands
+// themselves are not affected: an exec makes a process dumpable again.
+func hideFromChildren() error {
+	if _, _, errno := prctl(syscall.SYS_PRCTL, prSetDumpable, 0, 0); errno != 0 {
+		return errno
 	}
 	return nil
 }

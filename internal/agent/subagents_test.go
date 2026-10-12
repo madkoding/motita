@@ -42,7 +42,12 @@ func isChildPrompt(prompt string) bool { return strings.Contains(prompt, "You ar
 
 // fleetRun mounts an agent on a script, lets prepare adjust it, runs one task and returns the
 // fixture, the outermost result and every progress line.
-func fleetRun(t *testing.T, s *scriptServer, cfg func(*config.Config), prepare func(*fixture)) (*fixture, TaskResult, *lineSink) {
+func fleetRun(
+	t *testing.T,
+	s *scriptServer,
+	cfg func(*config.Config),
+	prepare func(*fixture),
+) (*fixture, TaskResult, *lineSink) {
 	t.Helper()
 	srv := httptest.NewServer(s.handler(t))
 	t.Cleanup(srv.Close)
@@ -101,8 +106,51 @@ func (s *scriptServer) split() (main, child []string) {
 // piece, waits, reads the report, merges the branch - and the file the background agent wrote is in
 // the main checkout. Its worktree is gone, its branch stays, and the fleet saw it finish.
 func TestABackgroundAgentWorksOnItsOwnBranchAndReports(t *testing.T) {
+	s := docsAgentScript()
+	var tools string
+	e, result, sink := fleetRun(t, s, func(c *config.Config) {
+		inRepo(t)(c)
+		tools = c.Sandbox.ToolsDir
+	}, nil)
+	if !result.Pass {
+		main, _ := s.split()
+		t.Fatalf("the run must pass: %s\nlast main prompt:\n%s", result.Reason, main[len(main)-1])
+	}
+	if body, err := os.ReadFile(filepath.Join(e.dir, "docs.txt")); err != nil ||
+		strings.TrimSpace(string(body)) != "hello" {
+		t.Fatalf("the merged work must be in the checkout: %q %v", body, err)
+	}
+	main, child := s.split()
+	if len(child) == 0 || !strings.Contains(child[0], "write the docs") ||
+		!strings.Contains(child[0], "branch motita/sub/") {
+		t.Fatalf("the background agent must get its brief and its branch:\n%v", child)
+	}
+	all := strings.Join(main, "\n")
+	for _, want := range []string{"[started background agent a1: write the docs]", "[agent a1 finished: passed]",
+		"1 files changed", "To bring it in: commit your own changes first, then git merge --no-edit motita/sub/"} {
+		if !strings.Contains(all, want) {
+			t.Errorf("the main agent's prompts must show %q", want)
+		}
+	}
+	agents := sink.lastAgents(t)
+	if !isDocsFleetSnapshot(agents) {
+		t.Fatalf("final snapshot = %+v", agents)
+	}
+	entries, _ := os.ReadDir(filepath.Join(tools, "worktrees"))
+	if len(entries) != 0 {
+		t.Errorf("the background agent's worktree must be removed, found %d entries", len(entries))
+	}
+	out, _ := exec.Command("git", "-C", e.dir, "branch", "--list", "motita/sub/*").CombinedOutput()
+	if !strings.Contains(string(out), "motita/sub/") {
+		t.Error("the branch is the work: it must outlive the worktree")
+	}
+}
+
+// docsAgentScript is a main agent that starts one background agent to write the docs, waits
+// for it and merges its branch.
+func docsAgentScript() *scriptServer {
 	mainRound := 0
-	s := &scriptServer{execute: func(_ int, prompt string) string {
+	return &scriptServer{execute: func(_ int, prompt string) string {
 		if isChildPrompt(prompt) {
 			return step(true, "echo hello > docs.txt")
 		}
@@ -117,42 +165,18 @@ func TestABackgroundAgentWorksOnItsOwnBranchAndReports(t *testing.T) {
 			return step(true, "git merge --no-edit "+mergeTarget.FindString(prompt))
 		}
 	}}
-	var tools string
-	e, result, sink := fleetRun(t, s, func(c *config.Config) {
-		inRepo(t)(c)
-		tools = c.Sandbox.ToolsDir
-	}, nil)
-	if !result.Pass {
-		main, _ := s.split()
-		t.Fatalf("the run must pass: %s\nlast main prompt:\n%s", result.Reason, main[len(main)-1])
+}
+
+// isDocsFleetSnapshot reports whether the snapshot is the main agent and a1, both passed,
+// with a1 the one that wrote the docs.
+func isDocsFleetSnapshot(agents []AgentInfo) bool {
+	if len(agents) != 2 {
+		return false
 	}
-	if body, err := os.ReadFile(filepath.Join(e.dir, "docs.txt")); err != nil || strings.TrimSpace(string(body)) != "hello" {
-		t.Fatalf("the merged work must be in the checkout: %q %v", body, err)
-	}
-	main, child := s.split()
-	if len(child) == 0 || !strings.Contains(child[0], "write the docs") || !strings.Contains(child[0], "branch motita/sub/") {
-		t.Fatalf("the background agent must get its brief and its branch:\n%v", child)
-	}
-	all := strings.Join(main, "\n")
-	for _, want := range []string{"[started background agent a1: write the docs]", "[agent a1 finished: passed]",
-		"1 files changed", "To bring it in: commit your own changes first, then git merge --no-edit motita/sub/"} {
-		if !strings.Contains(all, want) {
-			t.Errorf("the main agent's prompts must show %q", want)
-		}
-	}
-	agents := sink.lastAgents(t)
-	if len(agents) != 2 || agents[0].ID != "main" || agents[0].State != AgentPassed ||
-		agents[1].ID != "a1" || agents[1].Parent != "main" || agents[1].State != AgentPassed || agents[1].Purpose != "write the docs" {
-		t.Fatalf("final snapshot = %+v", agents)
-	}
-	entries, _ := os.ReadDir(filepath.Join(tools, "worktrees"))
-	if len(entries) != 0 {
-		t.Errorf("the background agent's worktree must be removed, found %d entries", len(entries))
-	}
-	out, _ := exec.Command("git", "-C", e.dir, "branch", "--list", "motita/sub/*").CombinedOutput()
-	if !strings.Contains(string(out), "motita/sub/") {
-		t.Error("the branch is the work: it must outlive the worktree")
-	}
+	mainPassed := agents[0].ID == "main" && agents[0].State == AgentPassed
+	childOfMain := agents[1].ID == "a1" && agents[1].Parent == "main"
+	childPassed := agents[1].State == AgentPassed && agents[1].Purpose == "write the docs"
+	return mainPassed && childOfMain && childPassed
 }
 
 // The main agent does not have to ask: a background agent that finished reports in the round after,
@@ -284,7 +308,8 @@ func TestDoneWithAnAgentRunningIsSentBackOnceThenCancelsIt(t *testing.T) {
 		t.Errorf("the run waited for a cancelled agent: %v", time.Since(start))
 	}
 	main, _ := s.split()
-	if len(main) != 3 || !strings.Contains(main[2], "background agent(s) you started are still running: a1 (a long piece)") {
+	if len(main) != 3 ||
+		!strings.Contains(main[2], "background agent(s) you started are still running: a1 (a long piece)") {
 		t.Fatalf("the first claim must be sent back, naming the agent (%d rounds):\n%s", len(main), main[len(main)-1])
 	}
 	if agents := sink.lastAgents(t); agents[1].State != AgentCancelled {
@@ -389,10 +414,19 @@ func TestAWorktreeWithoutAToolsDirGoesToTheTempDir(t *testing.T) {
 func TestANewChildInheritsTheParentsRules(t *testing.T) {
 	a := bareAgent(t, func(c *config.Config) { c.Agent.ReadOnly = true })
 	ran := false
-	a.ExecCommand = func(context.Context, execx.Request) (string, bool, int, error) { ran = true; return "", false, 0, nil }
+	a.ExecCommand = func(context.Context, execx.Request) (string, bool, int, error) {
+		ran = true
+		return "", false, 0, nil
+	}
 	child := a.newChild(childPlace{dir: a.cfg.Agent.WorkspaceDir, branch: "b"})
 	if !child.cfg.Agent.ReadOnly || child.research || !child.isChild || child.cfg.FinalAction.Kind != "none" {
-		t.Fatalf("child = readonly %v research %v child %v final %q", child.cfg.Agent.ReadOnly, child.research, child.isChild, child.cfg.FinalAction.Kind)
+		t.Fatalf(
+			"child = readonly %v research %v child %v final %q",
+			child.cfg.Agent.ReadOnly,
+			child.research,
+			child.isChild,
+			child.cfg.FinalAction.Kind,
+		)
 	}
 	child.ExecCommand(context.Background(), execx.Request{})
 	if !ran {
@@ -427,6 +461,8 @@ func TestABackgroundAgentIsHeldToTheProjectsGate(t *testing.T) {
 			return acts(false, kindAct{"spawn_agent", "the gate\nMake the project's gate pass."})
 		case 2:
 			return acts(false, kindAct{"wait_agents", ""})
+		default:
+			// Later rounds fall through to the claim below.
 		}
 		return step(true, "true")
 	}}
@@ -464,11 +500,18 @@ func TestFinishChildRecordsHowItEnded(t *testing.T) {
 		return c.report
 	}
 	gone := filepath.Join(t.TempDir(), "gone")
-	if got := finish("a1", childPlace{dir: gone, branch: "motita/sub/a1"}, TaskResult{Reason: "it broke"}, false); !strings.Contains(got, "finished: failed") ||
-		!strings.Contains(got, "could not be committed: disk full") || !strings.Contains(got, "0 files changed") || !strings.Contains(got, "it broke") {
+	if got := finish(
+		"a1", childPlace{dir: gone, branch: "motita/sub/a1"}, TaskResult{Reason: "it broke"}, false,
+	); !strings.Contains(got, "finished: failed") ||
+		!strings.Contains(got, "could not be committed: disk full") ||
+		!strings.Contains(got, "0 files changed") ||
+		!strings.Contains(got, "it broke") {
 		t.Errorf("failed report = %q", got)
 	}
-	if got := finish("a2", childPlace{dir: gone}, TaskResult{Pass: true}, true); !strings.Contains(got, "finished: cancelled") {
+	if got := finish("a2", childPlace{dir: gone}, TaskResult{Pass: true}, true); !strings.Contains(
+		got,
+		"finished: cancelled",
+	) {
 		t.Errorf("cancelled report = %q", got)
 	}
 }
@@ -524,6 +567,8 @@ func TestABackgroundAgentAsksThroughTheMainApproverMarked(t *testing.T) {
 			return acts(false, kindAct{"spawn_agent", "tidy\nRemove the old folder."})
 		case 2:
 			return acts(false, kindAct{"wait_agents", ""})
+		default:
+			// Later rounds fall through to the claim below.
 		}
 		return step(true, "true")
 	}}
@@ -546,7 +591,8 @@ func TestABackgroundAgentAsksThroughTheMainApproverMarked(t *testing.T) {
 			background = append(background, r)
 		}
 	}
-	if len(background) == 0 || background[0].Agent != "a1" || !strings.Contains(background[0].Command, "outside-of-the-tree") {
+	if len(background) == 0 || background[0].Agent != "a1" ||
+		!strings.Contains(background[0].Command, "outside-of-the-tree") {
 		t.Fatalf("the child's question must reach the main approver, marked: %+v", got)
 	}
 }

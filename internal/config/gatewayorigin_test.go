@@ -5,22 +5,17 @@ import (
 	"testing"
 )
 
-// The default posture: the gateway LISTENS EVERYWHERE and RULES NOTHING OUT.
+// The default posture: the gateway LISTENS ON LOOPBACK and RULES NOTHING OUT.
 //
-// This is the test that has to break first if anyone decides otherwise, and the decision it pins is
-// deliberate rather than accidental. The gateway comes up on the wildcard the way a machine with a
-// fresh, empty firewall table accepts everything, and an operator narrows it by ADDING a rule to
-// gateway.allow - one rule at a time, which is the model a firewall taught everyone. The token is
-// what stands between the network and an agent that runs commands here; the rules say where that
-// token may come from.
-//
-// The predecessor of this test asserted the opposite (a loopback default behind a second act called
-// allow_lan), and it was replaced rather than deleted: the property worth pinning is not "which
-// address" but "what the out-of-the-box gateway does", and those are different claims.
-func TestTheDefaultGatewayListensEverywhereWithNoRules(t *testing.T) {
+// This is the test that has to break first if anyone decides otherwise. The gateway speaks plain
+// HTTP to an agent that runs commands here, so an install that never touched gateway.listen is
+// reachable from this machine only; reaching it from the network is the ONE explicit act of
+// writing a LAN address or the wildcard (no second flag), and gateway.allow then narrows who may
+// connect, one rule at a time.
+func TestTheDefaultGatewayListensOnLoopbackWithNoRules(t *testing.T) {
 	got := Default().GatewayListen()
-	if got != "0.0.0.0:7477" {
-		t.Fatalf("the default gateway listen is %q, want the wildcard on the fixed port %q", got, "0.0.0.0:7477")
+	if got != "127.0.0.1:7477" {
+		t.Fatalf("the default gateway listen is %q, want loopback on the fixed port %q", got, "127.0.0.1:7477")
 	}
 	// The rules are what restricts it, and the default restricts nothing.
 	if len(Default().Gateway.Allow) != 0 {

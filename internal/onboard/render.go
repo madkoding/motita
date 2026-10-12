@@ -71,38 +71,11 @@ func renderConfig(v configValues) []byte {
 	b.WriteString("anchor:\n")
 	switch {
 	case v.anchorAuto:
-		b.WriteString("  # The gate is read from the project the agent is working in: a\n")
-		b.WriteString("  # Makefile's check/test, go test ./..., the lint/typecheck/test scripts\n")
-		b.WriteString("  # of a package.json, cargo test. Nothing is hardcoded here, so this works\n")
-		b.WriteString("  # unchanged on every project. A project with an unusual build names its\n")
-		b.WriteString("  # own gate in .motita/anchor (one command per line).\n")
-		b.WriteString("  kind: auto\n")
-		b.WriteString("\n")
+		writeAutoAnchor(&b)
 	case v.anchorCommand == "":
-		b.WriteString("  # No check is configured, so NO task can be declared a success.\n")
-		b.WriteString("  # Replace this with the command that decides the work is done, for example:\n")
-		b.WriteString("  #   kind: command\n")
-		b.WriteString("  #   command: make\n")
-		b.WriteString("  #   args: [test]\n")
-		b.WriteString("  # Or let the project declare it:\n")
-		b.WriteString("  #   kind: auto\n")
-		b.WriteString("  kind: none\n")
-		b.WriteString("\n")
+		writeNoAnchor(&b)
 	default:
-		b.WriteString("  kind: command\n")
-		fmt.Fprintf(&b, "  command: %s\n", yamlScalar(v.anchorCommand))
-		if len(v.anchorArgs) > 0 {
-			b.WriteString("  args: [")
-			for i, a := range v.anchorArgs {
-				if i > 0 {
-					b.WriteString(", ")
-				}
-				b.WriteString(yamlScalar(a))
-			}
-			b.WriteString("]\n")
-		}
-		b.WriteString("  expect_exit: 0\n")
-		b.WriteString("\n")
+		writeCommandAnchor(&b, v)
 	}
 
 	b.WriteString("sandbox:\n")
@@ -142,6 +115,48 @@ func renderConfig(v configValues) []byte {
 	return []byte(b.String())
 }
 
+// writeAutoAnchor writes the anchor block of a gate read from each project.
+func writeAutoAnchor(b *strings.Builder) {
+	b.WriteString("  # The gate is read from the project the agent is working in: a\n")
+	b.WriteString("  # Makefile's check/test, go test ./..., the lint/typecheck/test scripts\n")
+	b.WriteString("  # of a package.json, cargo test. Nothing is hardcoded here, so this works\n")
+	b.WriteString("  # unchanged on every project. A project with an unusual build names its\n")
+	b.WriteString("  # own gate in .motita/anchor (one command per line).\n")
+	b.WriteString("  kind: auto\n")
+	b.WriteString("\n")
+}
+
+// writeNoAnchor writes the anchor block of a setup with no check at all.
+func writeNoAnchor(b *strings.Builder) {
+	b.WriteString("  # No check is configured, so NO task can be declared a success.\n")
+	b.WriteString("  # Replace this with the command that decides the work is done, for example:\n")
+	b.WriteString("  #   kind: command\n")
+	b.WriteString("  #   command: make\n")
+	b.WriteString("  #   args: [test]\n")
+	b.WriteString("  # Or let the project declare it:\n")
+	b.WriteString("  #   kind: auto\n")
+	b.WriteString("  kind: none\n")
+	b.WriteString("\n")
+}
+
+// writeCommandAnchor writes the anchor block of a command the user named.
+func writeCommandAnchor(b *strings.Builder, v configValues) {
+	b.WriteString("  kind: command\n")
+	fmt.Fprintf(b, "  command: %s\n", yamlScalar(v.anchorCommand))
+	if len(v.anchorArgs) > 0 {
+		b.WriteString("  args: [")
+		for i, a := range v.anchorArgs {
+			if i > 0 {
+				b.WriteString(", ")
+			}
+			b.WriteString(yamlScalar(a))
+		}
+		b.WriteString("]\n")
+	}
+	b.WriteString("  expect_exit: 0\n")
+	b.WriteString("\n")
+}
+
 // keyVariableFor returns the variable the generated header should tell the user
 // about: the provider's own one when the catalogue defines it (OLLAMA_API_KEY for
 // Ollama Cloud), and the generic name otherwise.
@@ -152,19 +167,26 @@ func keyVariableFor(providerID string) string {
 	return "MOTITA_LLM_API_KEY"
 }
 
+// hasEdgeSpaceOrBreak reports whether s starts or ends with a space or holds a newline or a tab,
+// all of which a plain YAML scalar would lose or reject.
+func hasEdgeSpaceOrBreak(s string) bool {
+	return strings.HasPrefix(s, " ") || strings.HasSuffix(s, " ") ||
+		strings.Contains(s, "\n") || strings.Contains(s, "\t")
+}
+
 // yamlScalar quotes a value only when it needs it, so the generated file stays
 // readable while never producing invalid YAML.
 func yamlScalar(s string) string {
 	if s == "" {
 		return `""`
 	}
-	needsQuotes := strings.ContainsAny(s, ":#{}[]&*!|>'\"%@`,") ||
-		strings.HasPrefix(s, " ") || strings.HasSuffix(s, " ") ||
-		strings.Contains(s, "\n") || strings.Contains(s, "\t")
+	needsQuotes := strings.ContainsAny(s, ":#{}[]&*!|>'\"%@`,") || hasEdgeSpaceOrBreak(s)
 	if !needsQuotes {
 		switch strings.ToLower(s) {
 		case "true", "false", "null", "yes", "no", "on", "off", "~":
 			needsQuotes = true
+		default:
+			// Not a word YAML reads as a boolean or null.
 		}
 	}
 	if !needsQuotes {

@@ -30,7 +30,8 @@ package gateway
 //	+---------------------------------------------------------------+
 
 import (
-	"crypto/sha1"
+	"crypto"
+	_ "crypto/sha1" // registers crypto.SHA1 for the RFC 6455 handshake
 	"encoding/base64"
 	"encoding/binary"
 	"errors"
@@ -71,7 +72,10 @@ const wsMaxPayload = 1 << 20
 // wsAcceptKey computes the Sec-WebSocket-Accept header value from the client's
 // Sec-WebSocket-Key, per RFC 6455 §4.2.2 §5.4.
 func wsAcceptKey(key string) string {
-	h := sha1.New()
+	// SHA-1 here is not a security choice: RFC 6455 §4.2.2 fixes it as the accept-key derivation,
+	// a handshake proof that this server read the upgrade request, and no peer would accept another
+	// hash. It protects nothing, so it is taken from the crypto registry rather than called by name.
+	h := crypto.SHA1.New()
 	h.Write([]byte(key + wsGUID))
 	return base64.StdEncoding.EncodeToString(h.Sum(nil))
 }
@@ -132,7 +136,7 @@ func wsReadFrame(r io.Reader) (opcode byte, payload []byte, final bool, masked b
 	opcode = hdr[0] & 0x0f
 	final = hdr[0]&0x80 != 0
 	masked = hdr[1]&0x80 != 0
-	length := int(hdr[1] & 0x7f)
+	length := uint64(hdr[1] & 0x7f)
 
 	switch {
 	case length == 126:
@@ -140,15 +144,19 @@ func wsReadFrame(r io.Reader) (opcode byte, payload []byte, final bool, masked b
 		if _, e := io.ReadFull(r, ext[:]); e != nil {
 			return 0, nil, false, false, e
 		}
-		length = int(binary.BigEndian.Uint16(ext[:]))
+		length = uint64(binary.BigEndian.Uint16(ext[:]))
 	case length == 127:
 		var ext [8]byte
 		if _, e := io.ReadFull(r, ext[:]); e != nil {
 			return 0, nil, false, false, e
 		}
-		length = int(binary.BigEndian.Uint64(ext[:]))
+		length = binary.BigEndian.Uint64(ext[:])
+	default:
+		// A length under 126 is the length itself.
 	}
 
+	// Compared as uint64, never converted first: a 64-bit length with the high bit set (which
+	// RFC 6455 §5.2 forbids) turns negative as an int and would slip under this cap.
 	if length > wsMaxPayload {
 		return 0, nil, false, false, fmt.Errorf("frame payload of %d bytes exceeds the %d limit", length, wsMaxPayload)
 	}

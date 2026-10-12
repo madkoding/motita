@@ -1,0 +1,130 @@
+# Security and quality analysis -> SonarQube (sonar.kodingvibes.com).
+# Sonar Community does no taint analysis (SQLi, XSS, path traversal...): Semgrep OSS and
+# CodeQL do, and their SARIF is imported into Sonar.
+# Secrets: SONAR_TOKEN and SONAR_HOST_URL.
+#
+# A pull request analyses only new code: Semgrep against the base commit and CodeQL with its
+# queries limited to the diff, and any finding fails the job. Sonar Community has a single
+# branch and every analysis replaces the previous one, so the full analysis (with coverage and
+# the quality gate) runs only on main and by hand (workflow_dispatch).
+name: sonar
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: sonar-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  semgrep:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          fetch-depth: 0 # --baseline-commit needs the PR's history
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: '3.12'
+      - name: Semgrep OSS
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          pip install semgrep
+          # On a PR: only the findings the PR introduces, and --error fails the job.
+          pr_args=()
+          if [ -n "$BASE_SHA" ]; then pr_args=(--baseline-commit "$BASE_SHA" --error); fi
+          semgrep scan --config p/owasp-top-ten --config p/security-audit --config p/golang \
+            --exclude node_modules --exclude vendor --exclude target --exclude dist \
+            --sarif --output semgrep.sarif --metrics=off "${pr_args[@]}"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: sarif-semgrep
+          path: semgrep.sarif
+
+  codeql:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - uses: github/codeql-action/init@9f759ee644a3e7c15c1390abf49868036c00067b # v3
+        with:
+          languages: go
+          queries: security-extended
+      - uses: github/codeql-action/analyze@9f759ee644a3e7c15c1390abf49868036c00067b # v3
+        with:
+          output: codeql-sarif
+      - run: cp codeql-sarif/*.sarif codeql.sarif
+      # On a PR CodeQL already limits results to the changed lines: any result is new.
+      - name: No new CodeQL findings
+        if: github.event_name == 'pull_request'
+        run: |
+          jq -r '.runs[].results[] | "::error file=\(.locations[0].physicalLocation.artifactLocation.uri),line=\(.locations[0].physicalLocation.region.startLine)::\(.ruleId): \(.message.text)"' codeql.sarif
+          test "$(jq '[.runs[].results[]] | length' codeql.sarif)" -eq 0
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: sarif-codeql
+          path: codeql.sarif
+
+  sonar:
+    # Full analysis only outside PRs (see the header).
+    if: github.event_name != 'pull_request'
+    permissions:
+      contents: read
+    needs: [semgrep, codeql]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          fetch-depth: 0
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          pattern: sarif-*
+          path: sarif
+          merge-multiple: true
+      - id: sarif
+        run: echo "paths=$(ls sarif/*.sarif | paste -sd, -)" >> "$GITHUB_OUTPUT"
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: Build web UI (go:embed needs the assets)
+        run: cd web && npm ci && npm run build
+      # The project's only coverage source: the test gate lives in ci.yml; here the profile only
+      # feeds the analysis, so a failing package is printed but does not stop it.
+      - name: Coverage report for SonarQube
+        env:
+          GOFLAGS: -mod=mod
+        run: |
+          go test -count=1 -coverpkg=./... -coverprofile=coverage.out -covermode=atomic ./... 2>&1 \
+            | grep -Ev '^(ok|\?) ' || true
+          test -s coverage.out
+      - id: scan
+        uses: SonarSource/sonarqube-scan-action@fd88b7d7ccbaefd23d8f36f73b59db7a3d246602 # v6
+        with:
+          args: -Dsonar.sarifReportPaths=${{ steps.sarif.outputs.paths }}
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+          SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}
+      # The quality gate (security, reliability, maintainability A and duplication <= 3 %) blocks CI.
+      - uses: SonarSource/sonarqube-quality-gate-action@7a5fffe8e523c40e0c740b6bc2712ab503e52efa # v1
+        timeout-minutes: 5
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+          SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}
+      # Leaves the gate status, the measures and the open findings in the job summary, so they
+      # can be read without opening the Sonar server.
+      - name: Sonar report
+        if: always() && steps.scan.outcome == 'success'
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+          SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}
+        run: ./scripts/sonar-report.sh | tee -a "$GITHUB_STEP_SUMMARY"

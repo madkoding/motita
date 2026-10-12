@@ -42,7 +42,8 @@ func (t *TUI) listArtifacts(ctx context.Context, b ArtifactBrowser) {
 		return
 	}
 	if len(all) == 0 {
-		t.addMessage(AuthorSystem, t.tr("Nothing saved in this session yet. Ask for a report, a page or a diagram and it will show up here."))
+		t.addMessage(AuthorSystem, t.tr(
+			"Nothing saved in this session yet. Ask for a report, a page or a diagram and it will show up here."))
 		return
 	}
 	var sb strings.Builder

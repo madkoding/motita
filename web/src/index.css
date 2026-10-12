@@ -1,6 +1,58 @@
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
+@import 'tailwindcss';
+
+@theme {
+  --color-accent: #4cc2ff;
+  --color-neon-cyan: #00f0ff;
+  --color-neon-magenta: #ff2bd6;
+  --color-neon-yellow: #fcee0a;
+  --color-accent-glow: rgba(76, 194, 255, 0.2);
+  --color-surface-solid: #16161e;
+  --color-surface-opaque: #1a1a22;
+  --color-danger: #ff6b6b;
+  --color-warning: #ffb020;
+
+  --font-sans:
+    Sansation, system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+  --font-mono:
+    JetBrainsMonoNF, ui-monospace, SF Mono, Menlo, Consolas, monospace;
+}
+
+/* What Tailwind v4 changed in its base styles, put back the way the interface was designed
+   under v3: borders default to gray-200 (v4: the text color), placeholders are gray-400 (v4:
+   half the text color), and a button shows the pointer (v4: the default arrow). */
+@layer base {
+  *,
+  ::after,
+  ::before,
+  ::backdrop,
+  ::file-selector-button {
+    border-color: var(--color-gray-200, currentcolor);
+  }
+
+  input::placeholder,
+  textarea::placeholder {
+    color: #9ca3af;
+  }
+
+  button:not(:disabled),
+  [role='button']:not(:disabled) {
+    cursor: pointer;
+  }
+
+  /* A dialog that is drawn open inside the page's own backdrop is laid out like the box it
+     replaced: the browser's dialog placement, size limits and colours are put back to a plain
+     block, and the utilities on it decide the rest. */
+  .app-dialog {
+    position: static;
+    inset: auto;
+    width: auto;
+    height: auto;
+    max-width: none;
+    max-height: none;
+    background: transparent;
+    color: inherit;
+  }
+}
 
 /* ─── Sansation font (embedded, self-contained) ─────────────────── */
 @font-face {
@@ -99,6 +151,13 @@
   color-scheme: dark;
   --font-sans: 'Sansation', system-ui, -apple-system, sans-serif;
   --font-mono: 'JetBrainsMonoNF', ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+  /* The Motita design system's neon tokens (see the cyberpunk layer below). */
+  --neon-cyan: #00f0ff;
+  --neon-magenta: #ff2bd6;
+  --neon-yellow: #fcee0a;
+  --radius-cut: 2px;
+  --glow-cyan: 0 0 12px rgba(0, 240, 255, 0.55);
+  --glow-magenta: 0 0 12px rgba(255, 43, 214, 0.55);
 }
 
 body {
@@ -129,28 +188,23 @@ body {
   background: transparent;
 }
 
-/* ─── Frosted glass panels ────────────────────────────────────────
- * Semi-transparent background + backdrop blur for the header, composer
- * and approval panel, so the background image is visible through them. */
-.frosted {
-  background: rgba(10, 10, 16, 0.78);
-  backdrop-filter: blur(20px) saturate(1.3);
-  -webkit-backdrop-filter: blur(20px) saturate(1.3);
-}
-
-/* ─── Sidebar ────────────────────────────────────────────────────
- * Frosted glass panel for the session sidebar, matching the header
- * and composer style. */
-.sidebar {
-  background: rgba(10, 10, 16, 0.88);
-  backdrop-filter: blur(20px) saturate(1.3);
-  -webkit-backdrop-filter: blur(20px) saturate(1.3);
-}
+/* The frosted glass panels and the sidebar are styled in the cyberpunk layer below, with their
+ * borders. */
 
 /* Session rows: the hover actions are controlled by group-hover in
- * the JSX, so nothing extra is needed here. */
+ * the JSX, so nothing extra is needed here.
+ *
+ * The row is the spinner's CONTAINING BLOCK, and that is not decoration: an
+ * absolutely positioned child resolves against the nearest POSITIONED
+ * ancestor, and without this it resolved against the sidebar itself - the ring
+ * was measured sitting at the middle of the sidebar's left edge, detached from
+ * every row, while the row it belonged to looked idle. `relative` here is what
+ * pins it to its own row. The rows slide in from the left. */
 .session-row {
   transition: background-color 0.15s, border-color 0.15s;
+  position: relative;
+  padding-left: 22px;
+  animation: rowIn 0.2s ease-out;
 }
 
 /* ─── The session row's activity spinner ─────────────────────────────
@@ -217,16 +271,6 @@ body {
      while nobody can see it is the same waste as a timer that does. */
   animation: spin 0.8s linear infinite;
 }
-/* The row is the spinner's CONTAINING BLOCK, and that is not decoration: an
-   absolutely positioned child resolves against the nearest POSITIONED
-   ancestor, and without this it resolved against the sidebar itself - the ring
-   was measured sitting at the middle of the sidebar's left edge, detached from
-   every row, while the row it belonged to looked idle. `relative` here is what
-   pins it to its own row. */
-.session-row {
-  position: relative;
-  padding-left: 22px;
-}
 
 /* ─── Scheduled tasks panel ───────────────────────────────────────
  * One form and one list, which a phone has no room to show side by side.
@@ -260,7 +304,7 @@ body {
   flex: 0 0 auto;
   padding: 2px 8px;
   border-radius: 9999px;
-  background: rgba(76, 194, 255, 0.1);
+  background: rgba(39, 90, 119, 0.23);
   border: 1px solid rgba(76, 194, 255, 0.22);
   color: #8fd4ff;
   font-family: var(--font-mono);
@@ -276,7 +320,7 @@ body {
   flex: 0 0 auto;
   padding: 2px 7px;
   border-radius: 9999px;
-  background: rgba(255, 255, 255, 0.06);
+  background: rgba(51, 51, 55, 0.36);
   border: 1px solid rgba(255, 255, 255, 0.12);
   color: #9a9aaa;
   font-family: var(--font-mono);
@@ -288,7 +332,7 @@ body {
 /* stale: the curator has marked it unused. It is a warning, not an error: the
  * document is still there and still readable, so it is amber. */
 .skill-tag-warn {
-  background: rgba(240, 160, 64, 0.12);
+  background: rgba(91, 63, 32, 0.34);
   border-color: rgba(240, 160, 64, 0.28);
   color: #f0a040;
 }
@@ -296,7 +340,7 @@ body {
 /* pinned: the user's own decision, so it carries the accent, and it is the one
  * badge that is a promise rather than a description. */
 .skill-tag-accent {
-  background: rgba(76, 194, 255, 0.12);
+  background: rgba(38, 89, 118, 0.28);
   border-color: rgba(76, 194, 255, 0.28);
   color: #8fd4ff;
 }
@@ -395,17 +439,17 @@ body {
  * backdrop-filter support. */
 .msg {
   white-space: pre-wrap;
-  word-break: break-word;
+  word-break: normal; overflow-wrap: anywhere;
   padding: 8px 12px;
   border-radius: 12px;
   background: rgba(10, 10, 16, 0.82);
   backdrop-filter: blur(14px);
-  -webkit-backdrop-filter: blur(14px);
   border: 1px solid rgba(76, 194, 255, 0.12);
   max-width: 85%;
   width: fit-content;
   min-width: 0;
-  font-size: 0.92em;
+  /* Chat typography, one step smaller than the body. */
+  font-size: 0.82em;
   animation: msgIn 0.25s ease-out;
 }
 @keyframes msgIn {
@@ -413,17 +457,10 @@ body {
   to   { opacity: 1; transform: translateY(0); }
 }
 .msg.user {
-  align-self: flex-end;
-  border-color: rgba(76, 194, 255, 0.28);
-  background: rgba(10, 10, 16, 0.78);
+  border-color: rgba(76, 194, 255, 0.30);
+  background: rgba(76, 194, 255, 0.10);
   backdrop-filter: blur(14px);
-  -webkit-backdrop-filter: blur(14px);
-  max-width: 85%;
-  width: fit-content;
-}
-.msg.agent {
-  align-self: flex-start;
-  position: relative;
+  border-left: 3px solid #4cc2ff;
 }
 .msg.kind {
   font-size: 11px;
@@ -432,7 +469,6 @@ body {
   letter-spacing: 0.06em;
   background: transparent;
   backdrop-filter: none;
-  -webkit-backdrop-filter: none;
   border: none;
 }
 .msg.error {
@@ -453,17 +489,20 @@ body {
   font-family: var(--font-mono);
   background: rgba(10, 10, 16, 0.75);
   backdrop-filter: blur(10px);
-  -webkit-backdrop-filter: blur(10px);
   border: 1px dashed rgba(76, 194, 255, 0.18);
   max-width: 90%;
   padding: 5px 10px;
   border-radius: 8px;
+  /* Slides in from the left. */
+  animation: activityIn 0.2s ease-out;
 }
 .msg.activity.command {
   color: #e8e8ea;
   border-color: rgba(76, 194, 255, 0.4);
   border-style: solid;
-  background: rgba(76, 194, 255, 0.08);
+  background: rgba(45, 108, 143, 0.15);
+  display: flex;
+  align-items: baseline;
 }
 .msg.activity.reasoning,
 .msg.activity.synthesis {
@@ -489,7 +528,6 @@ body {
      picture, and grey text straight on top of it could not be read. */
   background: rgba(10, 10, 16, 0.8);
   backdrop-filter: blur(10px);
-  -webkit-backdrop-filter: blur(10px);
   border: 1px solid rgba(255, 255, 255, 0.06);
   border-left: 2px solid rgba(76, 194, 255, 0.35);
   border-radius: 8px;
@@ -502,6 +540,7 @@ body {
   overflow: hidden;
   text-overflow: ellipsis;
   animation: activityIn 0.2s ease-out;
+  font-size: 0.8em;
 }
 .trail-step::before {
   content: '✓ ';
@@ -523,8 +562,7 @@ body {
   gap: 8px;
 }
 .term-cmd-text { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.msg.activity.command { display: flex; align-items: baseline; }
-.term-exit.running { color: #9a9aaa; background: rgba(154, 154, 170, 0.14); }
+.term-exit.running { color: #9a9aaa; background: rgba(51, 51, 59, 0.49); }
 .trail-step.term-out {
   position: relative;
   margin: 1px 0 4px;
@@ -536,7 +574,7 @@ body {
   color: #c9d1d9;
 }
 .trail-step.term-out.failed { border-left-color: rgba(255, 123, 114, 0.8); }
-.term-body { margin: 0; font: inherit; white-space: pre-wrap; word-break: break-word; }
+.term-body { margin: 0; font: inherit; white-space: pre-wrap; word-break: normal; overflow-wrap: anywhere; }
 .term-exit {
   flex: none;
   margin: 0;
@@ -544,23 +582,18 @@ body {
   border-radius: 999px;
   font-size: 0.85em;
   color: #7ee787;
-  background: rgba(126, 231, 135, 0.12);
+  background: rgba(56, 98, 63, 0.3);
 }
-.term-exit.bad { color: #ff7b72; background: rgba(255, 123, 114, 0.14); }
+.term-exit.bad { color: #ff7b72; background: rgba(88, 46, 46, 0.44); }
 
-/* The standing "allow all commands" answer, and the way to take it back. */
-.auto-approve-pill {
-  color: #ffcf6a;
-  background: rgba(255, 176, 32, 0.12);
-  border: 1px solid rgba(255, 176, 32, 0.4);
-  cursor: pointer;
-}
+/* The standing "allow all commands" answer, and the way to take it back, is styled as a Pill in
+ * the cyberpunk layer below. */
 
 /* ─── Markdown body — cyberpunk ────────────────────────────────────
  * Each tag has a distinct visual identity: neon borders, glow shadows,
  * monospace accents, hard angles. Margins are tight — no wasted space. */
 .markdown-body { line-height: 1.0; }
-.markdown-body p { margin: 0 0 1px; line-height: 1.5em; }
+.markdown-body p { margin: 0 0 1px; line-height: 1.5em; animation: textFadeIn 0.3s ease-out; }
 .markdown-body p:last-child { margin-bottom: 0; }
 
 /* Headings: cyberpunk colors, border-left accent, gradient background.
@@ -578,35 +611,35 @@ body {
   color: #b078ff;
   padding: 6px 8px;
   border-left: 4px solid #b078ff;
-  background: linear-gradient(90deg, rgba(176,120,255,0.15), transparent 70%);
+  background: linear-gradient(90deg, rgba(53,38,77,0.58), transparent 70%);
 }
 .markdown-body h3 {
   font-size: 1.06em; font-weight: 700; margin: 2px 0 1px;
   color: #50d878;
   padding: 6px 8px;
   border-left: 4px solid #50d878;
-  background: linear-gradient(90deg, rgba(80,216,120,0.12), transparent 70%);
+  background: linear-gradient(90deg, rgba(36,87,54,0.32), transparent 70%);
 }
 .markdown-body h4 {
   font-size: 0.96em; font-weight: 600; margin: 2px 0 1px;
   color: #ffb020;
   padding: 6px 8px;
   border-left: 4px solid #ffb020;
-  background: linear-gradient(90deg, rgba(255,176,32,0.12), transparent 70%);
+  background: linear-gradient(90deg, rgba(102,72,21,0.32), transparent 70%);
 }
 .markdown-body h5 {
   font-size: 0.88em; font-weight: 600; margin: 1px 0 1px;
   color: #ff6b6b;
   padding: 6px 8px;
   border-left: 4px solid #ff6b6b;
-  background: linear-gradient(90deg, rgba(255,107,107,0.1), transparent 70%);
+  background: linear-gradient(90deg, rgba(80,38,41,0.35), transparent 70%);
 }
 .markdown-body h6 {
   font-size: 0.82em; font-weight: 500; margin: 1px 0 1px;
   color: #8a8a9a;
   padding: 6px 8px;
   border-left: 4px solid #8a8a9a;
-  background: linear-gradient(90deg, rgba(138,138,154,0.08), transparent 70%);
+  background: linear-gradient(90deg, rgba(36,36,44,0.39), transparent 70%);
 }
 
 /* Lists: tight margins, mono bullet markers, but a READABLE line height.
@@ -615,7 +648,7 @@ body {
  * second line has its lines touching, which reads as a rendering fault. */
 .markdown-body ul { list-style: disc; }
 .markdown-body ol { list-style: decimal; }
-.markdown-body ul, .markdown-body ol { margin: 1px 0 2px; padding-left: 24px; }
+.markdown-body ul, .markdown-body ol { margin: 1px 0 2px; padding-left: 24px; animation: fadeIn 0.3s ease-out; }
 .markdown-body li { margin: 0; line-height: 1.5em; }
 .markdown-body ul li::marker { color: #4cc2ff; }
 .markdown-body ol li::marker { color: #b078ff; font-family: var(--font-mono); }
@@ -625,11 +658,13 @@ body {
   font-family: var(--font-mono);
   font-size: 1em;
   color: #4cc2ff;
-  background: rgba(76,194,255,0.08);
+  background: rgba(34,77,102,0.22);
   border: 1px solid rgba(76,194,255,0.2);
   padding: 1px 5px;
   border-radius: 3px;
   line-height: 1.3em;
+  animation: fadeIn 0.2s ease-out;
+  transition: box-shadow 0.2s ease-out, background-color 0.2s ease-out;
 }
 
 /* Code blocks: dark terminal, neon border, no radius. */
@@ -644,6 +679,7 @@ body {
   overflow-x: auto;
   line-height: 1.3em;
   max-width: 100%;
+  animation: fadeIn 0.3s ease-out;
 }
 .markdown-body pre code {
   font-size: 1em;
@@ -699,7 +735,7 @@ body {
 .markdown-body .math-block math[display="block"] { display: block; margin: 4px 0; text-align: center; }
 .markdown-body .math-block { overflow-x: auto; }
 /* A formula KaTeX could not parse: shown, with the reason, rather than hidden. */
-.markdown-body .katex-error { color: #ff6b6b; background: rgba(255,107,107,0.06); padding: 1px 3px; border-radius: 3px; }
+.markdown-body .katex-error { color: #ff6b6b; background: rgba(80,38,41,0.21); padding: 1px 3px; border-radius: 3px; }
 
 /* ─── Diagrams (mermaid) ───────────────────────────────────────────
  * The block is empty until the diagram is drawn, so it reserves nothing: an empty
@@ -781,7 +817,6 @@ body {
   border: 1px solid rgba(76, 194, 255, 0.25);
   background: rgba(10, 10, 16, 0.92);
   backdrop-filter: blur(14px);
-  -webkit-backdrop-filter: blur(14px);
   box-shadow: 0 12px 40px rgba(0, 0, 0, 0.5);
 }
 
@@ -937,6 +972,7 @@ main[role="log"]:not(.chat-loading) > * {
   border-left: 4px solid #b078ff;
   background: rgba(176,120,255,0.05);
   border-radius: 0;
+  animation: fadeIn 0.3s ease-out;
 }
 .markdown-body blockquote p { margin: 1px 0; }
 .markdown-body blockquote p:first-child { margin-top: 0; }
@@ -945,6 +981,7 @@ main[role="log"]:not(.chat-loading) > * {
 /* Tables: grid lines, neon header. */
 .markdown-body table {
   margin: 2px 0; border-collapse: collapse; width: 100%; font-size: 0.82em;
+  animation: fadeIn 0.3s ease-out;
 }
 .markdown-body th, .markdown-body td {
   padding: 8px 10px;
@@ -954,7 +991,7 @@ main[role="log"]:not(.chat-loading) > * {
 .markdown-body th {
   font-weight: 600;
   color: #4cc2ff;
-  background: rgba(76,194,255,0.08);
+  background: rgba(34,77,102,0.22);
   border-bottom: 2px solid rgba(76,194,255,0.3);
 }
 .markdown-body tr:nth-child(even) td { background: rgba(255,255,255,0.02); }
@@ -968,7 +1005,11 @@ main[role="log"]:not(.chat-loading) > * {
 }
 
 /* Inline elements. */
-.markdown-body a { color: #4cc2ff; text-decoration: none; border-bottom: 1px solid rgba(76,194,255,0.3); }
+.markdown-body a {
+  color: #4cc2ff; text-decoration: none; border-bottom: 1px solid rgba(76,194,255,0.3);
+  /* Links: smooth underline + glow. */
+  transition: text-shadow 0.2s ease-out, border-bottom-color 0.2s ease-out, color 0.2s ease-out;
+}
 .markdown-body a:hover { border-bottom-color: #4cc2ff; text-shadow: 0 0 4px rgba(76,194,255,0.5); }
 .markdown-body strong { font-weight: 700; color: #f0f0f4; }
 .markdown-body em { font-style: italic; color: #c8b8f0; }
@@ -1165,7 +1206,7 @@ main[role="log"]:not(.chat-loading) > * {
  */
 .bad {
   color: #ef8a8a;
-  background: rgba(239, 68, 68, 0.12);
+  background: rgba(108, 35, 38, 0.28);
   border-color: rgba(239, 68, 68, 0.35);
 }
 /* A warning is the recoverable one: the tab is reconnecting on its own, which is
@@ -1173,7 +1214,7 @@ main[role="log"]:not(.chat-loading) > * {
  * told apart at a glance rather than by reading. */
 .state-warning {
   color: #edc06a;
-  background: rgba(237, 181, 88, 0.12);
+  background: rgba(101, 78, 44, 0.3);
   border-color: rgba(237, 181, 88, 0.35);
 }
 
@@ -1184,10 +1225,7 @@ main[role="log"]:not(.chat-loading) > * {
 
 /* Smooth scrolling already set via Tailwind's scroll-smooth on main. */
 
-/* Sidebar slide-in. */
-.sidebar {
-  animation: slideInLeft 0.25s cubic-bezier(0.4, 0, 0.2, 1);
-}
+/* Sidebar slide-in (the animation is set on .sidebar in the cyberpunk layer). */
 @keyframes slideInLeft {
   from { transform: translateX(-100%); opacity: 0; }
   to   { transform: translateX(0); opacity: 1; }
@@ -1199,9 +1237,6 @@ main[role="log"]:not(.chat-loading) > * {
 }
 
 /* Session rows: slide in from the left, staggered feel. */
-.session-row {
-  animation: rowIn 0.2s ease-out;
-}
 @keyframes rowIn {
   from { opacity: 0; transform: translateX(-10px); }
   to   { opacity: 1; transform: translateX(0); }
@@ -1293,10 +1328,6 @@ section.frosted, .frosted.border-t-2 {
   to   { opacity: 1; transform: translateY(0); }
 }
 
-/* Activity lines: slide-in from left. */
-.msg.activity {
-  animation: activityIn 0.2s ease-out;
-}
 /* Opacity only: a line that slides in sideways moves the text around it. */
 @keyframes activityIn {
   from { opacity: 0; }
@@ -1304,7 +1335,7 @@ section.frosted, .frosted.border-t-2 {
 }
 
 /* Modals: scale-in with backdrop fade. */
-[class*="bg-black\\/60"] > div {
+[class*="bg-black\\/60"] > :is(div, dialog) {
   animation: modalIn 0.25s cubic-bezier(0.4, 0, 0.2, 1);
 }
 @keyframes modalIn {
@@ -1327,36 +1358,10 @@ section.frosted, .frosted.border-t-2 {
 .markdown-body h4, .markdown-body h5, .markdown-body h6 {
   animation: fadeIn 0.35s ease-out;
 }
-.markdown-body p {
-  animation: textFadeIn 0.3s ease-out;
-}
-.markdown-body pre {
-  animation: fadeIn 0.3s ease-out;
-}
-.markdown-body ul, .markdown-body ol {
-  animation: fadeIn 0.3s ease-out;
-}
-.markdown-body table {
-  animation: fadeIn 0.3s ease-out;
-}
-.markdown-body blockquote {
-  animation: fadeIn 0.3s ease-out;
-}
-.markdown-body code {
-  animation: fadeIn 0.2s ease-out;
-}
-
-/* Inline code: subtle glow on hover. */
-.markdown-body code {
-  transition: box-shadow 0.2s ease-out, background-color 0.2s ease-out;
-}
+/* The paragraphs, code blocks, lists, tables, quotes and inline code fade in from their own
+ * blocks above; inline code glows on hover. */
 .markdown-body code:hover {
   box-shadow: 0 0 6px rgba(76, 194, 255, 0.3);
-}
-
-/* Links: smooth underline + glow. */
-.markdown-body a {
-  transition: text-shadow 0.2s ease-out, border-bottom-color 0.2s ease-out, color 0.2s ease-out;
 }
 
 /* Hamburger / close icon: rotate on toggle. */
@@ -1549,7 +1554,7 @@ button:disabled {
   .row-menu-closing { opacity: 0; }
   .msg, .session-row, .project-header, .sidebar,
   header.frosted, form.frosted, .msg.activity, .trail-step,
-  [class*="bg-black\\/60"] > div, [class*="bg-black\\/60"],
+  [class*="bg-black\\/60"] > :is(div, dialog), [class*="bg-black\\/60"],
   [class*="bg-black\\/50"],
   .msg.agent .markdown-body, .msg.agent > span, .msg.user > span,
   .markdown-body h1, .markdown-body h2, .markdown-body h3,
@@ -1600,8 +1605,8 @@ button:disabled {
   color: #9a9aaa;
   transition: background-color 0.15s ease, color 0.15s ease;
 }
-.reasoning-level:hover { background: rgba(255, 255, 255, 0.05); color: #e8e8ea; }
-.reasoning-level.is-active { background: var(--accent, #4cc2ff); color: #fff; font-weight: 600; }
+.reasoning-level:hover { background: rgba(104, 104, 107, 0.13); color: #e8e8ea; }
+.reasoning-level.is-active { background: #007cbd; color: #fff; font-weight: 600; }
 .reasoning-level:focus-visible { outline: 2px solid var(--accent, #4cc2ff); outline-offset: 1px; }
 
 /* The reasoning level beside the model in the header pill. Dimmer when off, so a session that
@@ -1629,9 +1634,9 @@ button:disabled {
 .changes-files li { display: flex; gap: 8px; align-items: baseline; }
 .chg-path { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .chg-tag { flex: none; min-width: 3.6em; text-align: center; padding: 0 6px; border-radius: 999px; font-size: 0.85em; background: rgba(255,255,255,0.08); }
-.chg-tag.added { color: #7ee787; background: rgba(126, 231, 135, 0.12); }
-.chg-tag.deleted { color: #ff7b72; background: rgba(255, 123, 114, 0.14); }
-.chg-tag.modified { color: #a8d4ef; background: rgba(76, 194, 255, 0.12); }
+.chg-tag.added { color: #7ee787; background: rgba(56, 98, 63, 0.3); }
+.chg-tag.deleted { color: #ff7b72; background: rgba(88, 46, 46, 0.44); }
+.chg-tag.modified { color: #a8d4ef; background: rgba(39, 92, 122, 0.27); }
 .chg-add { color: #7ee787; } .chg-del { color: #ff7b72; }
 .changes-zoom {
   position: fixed; inset: 0; z-index: 1000; display: flex; align-items: center; justify-content: center;
@@ -1656,6 +1661,20 @@ button:disabled {
   --tx-bar: #08150c;
   --tx-tab-bg: #06120a;
   --tx-tab-hover: #0a1c10;
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: min(560px, 92%);
+  /* A CLOSED drawer sits ABOVE the open one (see .is-open below). The open panel
+     spans the full drawer width, which includes the 34px strip where the other
+     two tabs live, so at equal z-index it painted over them and they vanished
+     behind it. A closed drawer's panel is translated off-screen, so all that
+     shows of it is its tab — and that tab now stays on top. */
+  z-index: 13;
+  pointer-events: none;
+  transform: translateX(100%);
+  transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
 }
 .term-drawer.is-think {
   --tx-rgb: 255, 159, 67;
@@ -1673,7 +1692,7 @@ button:disabled {
 @keyframes thinkPulse { 50% { opacity: 0.35; } }
 .think-entry { margin-bottom: 12px; }
 .think-entry + .think-entry { padding-top: 10px; border-top: 1px dashed rgba(var(--tx-rgb), 0.2); }
-.think-text { margin: 0; font: inherit; color: #ffdcb0; white-space: pre-wrap; word-break: break-word; }
+.think-text { margin: 0; font: inherit; color: #ffdcb0; white-space: pre-wrap; word-break: normal; overflow-wrap: anywhere; }
 .think-entry.is-live .think-text::after {
   content: ''; display: inline-block; width: 7px; height: 12px; margin-left: 3px;
   vertical-align: -2px; background: var(--tx-main); animation: termBlink 1s steps(2, start) infinite;
@@ -1737,7 +1756,7 @@ button:disabled {
   text-overflow: ellipsis;
 }
 .agent-detail { margin-top: 4px; cursor: auto; }
-.agent-summary { margin: 0; font: inherit; color: #b9dcff; white-space: pre-wrap; word-break: break-word; }
+.agent-summary { margin: 0; font: inherit; color: #b9dcff; white-space: pre-wrap; word-break: normal; overflow-wrap: anywhere; }
 .agent-branch { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 6px; font-size: 10px; }
 .agent-branch code { color: var(--tx-main); overflow-wrap: anywhere; }
 .agent-copy {
@@ -1748,22 +1767,7 @@ button:disabled {
   cursor: pointer;
 }
 .agent-copy:hover { background: rgba(var(--tx-rgb), 0.1); }
-.term-drawer {
-  position: absolute;
-  top: 0;
-  right: 0;
-  bottom: 0;
-  width: min(560px, 92%);
-  /* A CLOSED drawer sits ABOVE the open one (see .is-open below). The open panel
-     spans the full drawer width, which includes the 34px strip where the other
-     two tabs live, so at equal z-index it painted over them and they vanished
-     behind it. A closed drawer's panel is translated off-screen, so all that
-     shows of it is its tab — and that tab now stays on top. */
-  z-index: 13;
-  pointer-events: none;
-  transform: translateX(100%);
-  transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-}
+/* The drawer's geometry is on .term-drawer above, with its colours. */
 .term-drawer.is-open { transform: translateX(0); z-index: 12; }
 .term-tab {
   position: absolute;
@@ -1932,7 +1936,7 @@ button:disabled {
   font: inherit;
   color: #b9ecc0;
   white-space: pre-wrap;
-  word-break: break-word;
+  word-break: normal; overflow-wrap: anywhere;
 }
 .term-status { color: var(--tx-dim); font-size: 10px; }
 .term-status.bad { color: #ff7b72; text-shadow: 0 0 6px rgba(255, 123, 114, 0.45); }
@@ -2010,7 +2014,8 @@ button:disabled {
   position: sticky;
   top: 0;
   z-index: 6;
-  align-self: flex-end;
+  align-self: stretch;
+  width: 100%;
   display: flex;
   align-items: flex-start;
   gap: 4px;
@@ -2022,6 +2027,7 @@ button:disabled {
   /* Opaque enough to sit over the text that scrolls under it. */
   background: rgba(10, 10, 16, 0.94);
   box-shadow: 0 6px 18px rgba(0, 0, 0, 0.45);
+  flex: 1 1 auto;
 }
 .cp-wrap { position: relative; flex: none; }
 .cp-btn {
@@ -2047,7 +2053,7 @@ button:disabled {
 .cp-menu button:hover:not(:disabled) { background: rgba(76, 194, 255, 0.12); }
 .cp-menu button small { font-size: 0.8em; color: #8a8a9a; }
 .cp-menu button:disabled { opacity: 0.4; cursor: not-allowed; }
-.cp-menu button.is-armed { background: rgba(255, 123, 114, 0.16); color: #ffb0aa; }
+.cp-menu button.is-armed { background: rgba(125, 63, 62, 0.34); color: #ffb0aa; }
 .cp-menu button.is-armed small { color: #ff9a92; }
 /* Commands of a turn are one line each: they are held to the width of the block instead of
    running past it, and the output stays in the terminal drawer. */
@@ -2063,10 +2069,9 @@ button:disabled {
 }
 .action-trail-toggle:hover { color: #c8c8d6; }
 
-/* Chat typography, one step smaller (centralised here). */
-.msg { font-size: 0.82em; }
+/* Chat typography, one step smaller (the messages' and the steps' own sizes are on .msg and
+ * .trail-step). */
 .msg code, .msg pre { font-size: 0.8em; }
-.trail-step { font-size: 0.8em; }
 
 /* ─── Global typography & density ─────────────────────────────────
  * The two settings in the Settings modal are applied to <html> as
@@ -2111,20 +2116,22 @@ html[data-density="compact"] .row-menu-item { padding-top: 5px; padding-bottom: 
  * complete border on every side: clip-paths only on Pill and Button corners, no grids or textures. Tailwind's
  * rounded-* utilities are overridden here, after `@tailwind utilities`, so no
  * markup changes; rounded-full (dots, avatars, spinners) is left alone. */
-:root {
-  --neon-cyan: #00f0ff;
-  --neon-magenta: #ff2bd6;
-  --neon-yellow: #fcee0a;
-  --radius-cut: 2px;
-  --glow-cyan: 0 0 12px rgba(0, 240, 255, 0.55);
-  --glow-magenta: 0 0 12px rgba(255, 43, 214, 0.55);
-}
 .rounded, .rounded-md, .rounded-lg, .rounded-xl, .rounded-2xl { border-radius: var(--radius-cut); }
+/* Frosted glass panels: a semi-transparent background and a backdrop blur for the header,
+ * composer and approval panel, so the background image is visible through them. */
 .frosted {
+  background: rgba(10, 10, 16, 0.78);
+  backdrop-filter: blur(20px) saturate(1.3);
   border: 1px solid rgba(0, 240, 255, 0.35);
   box-shadow: 0 0 12px rgba(0, 240, 255, 0.18);
 }
-.sidebar { border-right: 1px solid rgba(0, 240, 255, 0.3); }
+/* The session sidebar is a frosted panel too, a little more opaque, sliding in from the left. */
+.sidebar {
+  background: rgba(10, 10, 16, 0.88);
+  backdrop-filter: blur(20px) saturate(1.3);
+  animation: slideInLeft 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+  border-right: 1px solid rgba(0, 240, 255, 0.3);
+}
 .chat-modal, .row-menu, .cp-menu {
   border-radius: var(--radius-cut);
   border: 1px solid var(--neon-cyan);
@@ -2136,11 +2143,12 @@ html[data-density="compact"] .row-menu-item { padding-top: 5px; padding-bottom: 
   letter-spacing: 0.08em;
 }
 /* Pill: top-left and bottom-right 45deg cuts (design system Pill); the 1px edge is a
- * clip-path ring in ::before, the glow a drop-shadow so both follow the cut. */
+ * clip-path ring in ::before, the glow a drop-shadow so both follow the cut. As a status chip it
+ * is small and sentence case, so it takes little of the header. */
 .auto-approve-pill {
-  --cut: 8px; --in: calc(var(--cut) + .41px);
+  --cut: 5px; --in: calc(var(--cut) + .41px);
   position: relative; isolation: isolate; border: 0; border-radius: 0; background: none;
-  color: #ffcf6a; text-transform: uppercase; letter-spacing: 0.08em;
+  color: #ffcf6a; font-size: 10px; text-transform: none; letter-spacing: 0.02em; cursor: pointer;
   filter: drop-shadow(0 0 6px rgba(255, 176, 32, 0.45));
 }
 .auto-approve-pill::before, .auto-approve-pill::after {
@@ -2234,20 +2242,15 @@ button.border-4 { --btn-bw: 4px; }
  * right for the drawers' tabs, which stick out 34px to the left of the drawer and would
  * otherwise sit on top of the text. */
 main.chat-bg.chat-bg { padding-right: 46px; }
-.turn-head { align-self: stretch; width: 100%; }
-.turn-head .msg.user { flex: 1 1 auto; }
 .msg.user,
 .msg.agent {
   align-self: stretch;
   width: auto;
   max-width: 100%;
 }
-.msg.user {
-  background: rgba(76, 194, 255, 0.10);
-  border-color: rgba(76, 194, 255, 0.30);
-  border-left: 3px solid #4cc2ff;
-}
+/* An agent message keeps its bar after .msg.kind took the other borders away. */
 .msg.agent {
+  position: relative;
   border-left: 3px solid rgba(255, 255, 255, 0.14);
 }
 .msg[data-who]::before {
@@ -2261,10 +2264,6 @@ main.chat-bg.chat-bg { padding-right: 46px; }
 .msg.user[data-who]::before { content: attr(data-who); color: #4cc2ff; }
 .msg.agent[data-who]::before { content: attr(data-who); color: #8a8a9a; }
 
-/* A status chip, not a headline: small, sentence case, so it takes little of the header. */
-.auto-approve-pill {
-  font-size: 10px; text-transform: none; letter-spacing: 0.02em; --cut: 5px;
-}
 
 /* The option the keyboard (arrows + Enter) has highlighted in the approval question. */
 .approval-panel { outline: none; }
@@ -2276,3 +2275,40 @@ main.chat-bg.chat-bg { padding-right: 46px; }
 /* The send button while the line is a shell command: terminal green, like the drawer's prompt. */
 .send-shell { background: #1f8a4c; box-shadow: 0 0 10px rgba(126, 231, 135, 0.35); }
 .send-shell:hover:not(:disabled) { background: #26a259; }
+
+/* ─── Native controls in place of the old clickable boxes ───────────
+ * A row, a header or a picture that reacts to a click carries a transparent button over its
+ * whole box (.row-hit). It takes the box's own cursor, does not move or clip like the other
+ * buttons, and the controls of the box are positioned, so they are drawn above it. */
+.project-header, .agent-row, .agent-detail, .changes-shot { position: relative; }
+.row-hit {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  padding: 0;
+  border: 0;
+  border-radius: inherit;
+  background: transparent;
+  cursor: inherit;
+  transition: none;
+}
+button.row-hit:not(:disabled):hover,
+button.row-hit:not(:disabled):active { transform: none; }
+button.row-hit:not(.auto-approve-pill):not(.term-tab) { clip-path: none; }
+
+/* A list item that is a button (the slash commands): a full-width row with its text where the
+ * row puts it, and only the colour transition it had. */
+.plain-btn {
+  width: 100%;
+  text-align: inherit;
+  transition-property: color, background-color, border-color, outline-color, text-decoration-color, fill, stroke;
+  transition-duration: 0.15s;
+  transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
+}
+button.plain-btn:not(:disabled):hover,
+button.plain-btn:not(:disabled):active { transform: none; }
+button.plain-btn:not(.auto-approve-pill):not(.term-tab) { clip-path: none; }
+
+/* A fieldset is as narrow as its box allows, like the block it replaced. */
+fieldset.approval-panel { min-inline-size: 0; }

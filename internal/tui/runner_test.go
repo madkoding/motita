@@ -31,7 +31,8 @@ func TestAppRunnerRunPlan(t *testing.T) {
 		body, _ := io.ReadAll(r.Body)
 		if bytes.Contains(body, []byte(`"stream":true`)) {
 			w.Header().Set("Content-Type", "text/event-stream")
-			chunk, _ := json.Marshal(map[string]any{"choices": []any{map[string]any{"delta": map[string]any{"content": "the plan"}}}})
+			chunk, _ := json.Marshal(
+				map[string]any{"choices": []any{map[string]any{"delta": map[string]any{"content": "the plan"}}}})
 			fmt.Fprintf(w, "data: %s\n\n", chunk)
 			fmt.Fprint(w, "data: [DONE]\n\n")
 			return
@@ -108,11 +109,15 @@ func TestAppRunnerRunConfig(t *testing.T) {
 		// write into the HOME of whoever runs the suite.
 		home := t.TempDir()
 		t.Setenv("HOME", home)
-		r := NewAppRunner(&bytes.Buffer{}, &bytes.Buffer{}, config.Default(), &llm.Client{}, &sandbox.Sandbox{}, logx.Global())
+		r := NewAppRunner(&bytes.Buffer{}, &bytes.Buffer{}, config.Default(), &llm.Client{}, &sandbox.Sandbox{},
+			logx.Global())
 		oldStdin := os.Stdin
 		r2, w2, _ := os.Pipe()
 		os.Stdin = r2
-		defer func() { os.Stdin = oldStdin; r2.Close() }()
+		defer func() {
+			os.Stdin = oldStdin
+			r2.Close()
+		}()
 		go func() {
 			defer w2.Close()
 			w2.WriteString("openai\n\n\n1\n3\n\n")
@@ -183,7 +188,8 @@ func TestAppRunnerRunModelsForClaudeCode(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{"provider : claude-code", "plan     : Claude Max", "sonnet", "Sonnet - Sonnet 5 · Efficient for routine tasks", "* haiku", "/models <id>"} {
+	for _, want := range []string{"provider : claude-code", "plan     : Claude Max", "sonnet",
+		"Sonnet - Sonnet 5 · Efficient for routine tasks", "* haiku", "/models <id>"} {
 		if !strings.Contains(report, want) {
 			t.Errorf("the report lacks %q:\n%s", want, report)
 		}
@@ -198,7 +204,8 @@ func TestAppRunnerRunModelsForClaudeCode(t *testing.T) {
 		return llm.ClaudeCodeCatalogue{}, errors.New("claude was not found")
 	}
 	report, err = r.RunModels(context.Background())
-	if err != nil || !strings.Contains(report, "could not read the account's models: claude was not found") || !strings.Contains(report, `"haiku" will still be used`) {
+	if err != nil || !strings.Contains(report, "could not read the account's models: claude was not found") ||
+		!strings.Contains(report, `"haiku" will still be used`) {
 		t.Errorf("report = %q, err = %v", report, err)
 	}
 }
@@ -424,11 +431,15 @@ func (fakeAgent) Transcript() []agent.DialogueTurn                        { retu
 func TestRunConfigWithoutHomeUsesTheWorkingDirectory(t *testing.T) {
 	inTempDir(t, func() {
 		t.Setenv("HOME", "")
-		r := NewAppRunner(&bytes.Buffer{}, &bytes.Buffer{}, config.Default(), &llm.Client{}, &sandbox.Sandbox{}, logx.Global())
+		r := NewAppRunner(&bytes.Buffer{}, &bytes.Buffer{}, config.Default(), &llm.Client{}, &sandbox.Sandbox{},
+			logx.Global())
 		oldStdin := os.Stdin
 		r2, w2, _ := os.Pipe()
 		os.Stdin = r2
-		defer func() { os.Stdin = oldStdin; r2.Close() }()
+		defer func() {
+			os.Stdin = oldStdin
+			r2.Close()
+		}()
 		go func() {
 			defer w2.Close()
 			w2.WriteString("openai\n\n\n1\n3\n\n")

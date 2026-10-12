@@ -30,7 +30,8 @@ func (rt *onboardRT) RoundTrip(req *http.Request) (*http.Response, error) {
 		handler, ok = rt.responses[req.URL.Host+req.URL.Path]
 	}
 	if !ok {
-		return &http.Response{StatusCode: 404, Body: io.NopCloser(strings.NewReader("not found")), Header: make(http.Header)}, nil
+		return &http.Response{StatusCode: 404, Body: io.NopCloser(strings.NewReader("not found")), Header: make(http.Header)},
+			nil
 	}
 	return handler(req)
 }
@@ -57,7 +58,10 @@ func instantSleep(t *testing.T) {
 	}
 	oldPoll := oauth.PollSleep
 	oauth.PollSleep = sleepFor
-	t.Cleanup(func() { sleepFor = old; oauth.PollSleep = oldPoll })
+	t.Cleanup(func() {
+		sleepFor = old
+		oauth.PollSleep = oldPoll
+	})
 }
 
 func withTransport(t *testing.T, rt http.RoundTripper) {
@@ -88,13 +92,16 @@ func TestCopilotDirectAuthStoresARenewableLogin(t *testing.T) {
 	instantSleep(t)
 	withTransport(t, &onboardRT{responses: map[string]func(*http.Request) (*http.Response, error){
 		"/login/device/code": func(*http.Request) (*http.Response, error) {
-			return resp200(`{"device_code":"dc","user_code":"XYZ-WUV","verification_uri":"https://github.com/login/device","interval":1,"expires_in":900}`)
+			return resp200(
+				`{"device_code":"dc","user_code":"XYZ-WUV","verification_uri":"https://github.com/login/device","interval":1,` +
+					`"expires_in":900}`)
 		},
 		"/login/oauth/access_token": func(*http.Request) (*http.Response, error) {
 			return resp200(`{"access_token":"gho_tok","token_type":"bearer"}`)
 		},
 		"/copilot_internal/v2/token": func(*http.Request) (*http.Response, error) {
-			return resp200(`{"token":"tid","expires_at":9999999999,"endpoints":{"api":"https://api.individual.githubcopilot.com"}}`)
+			return resp200(
+				`{"token":"tid","expires_at":9999999999,"endpoints":{"api":"https://api.individual.githubcopilot.com"}}`)
 		},
 	}})
 	var out bytes.Buffer
@@ -119,17 +126,21 @@ func TestCopilotDirectAuthReportsAMissingSubscription(t *testing.T) {
 			return &http.Response{StatusCode: 500, Body: jsonBody(`{"error":"server_error"}`), Header: make(http.Header)}, nil
 		},
 	}})
-	if _, err := runDirectAuth(context.Background(), io.Discard, bufio.NewReader(strings.NewReader("")), Provider{ID: "copilot"}); err == nil || !strings.Contains(err.Error(), "copilot") {
+	if _, err := runDirectAuth(context.Background(), io.Discard, bufio.NewReader(strings.NewReader("")),
+		Provider{ID: "copilot"}); err == nil || !strings.Contains(err.Error(), "copilot") {
 		t.Fatalf("err = %v", err)
 	}
 	withTransport(t, &onboardRT{responses: map[string]func(*http.Request) (*http.Response, error){
-		"/login/device/code":        func(*http.Request) (*http.Response, error) { return resp200(`{"device_code":"dc","interval":1}`) },
+		"/login/device/code": func(*http.Request) (*http.Response, error) {
+			return resp200(`{"device_code":"dc","interval":1}`)
+		},
 		"/login/oauth/access_token": func(*http.Request) (*http.Response, error) { return resp200(`{"access_token":"gho"}`) },
 		"/copilot_internal/v2/token": func(*http.Request) (*http.Response, error) {
 			return resp200(`{}`)
 		},
 	}})
-	if _, err := runDirectAuth(context.Background(), io.Discard, bufio.NewReader(strings.NewReader("")), Provider{ID: "copilot"}); err == nil || !strings.Contains(err.Error(), "subscription") {
+	if _, err := runDirectAuth(context.Background(), io.Discard, bufio.NewReader(strings.NewReader("")),
+		Provider{ID: "copilot"}); err == nil || !strings.Contains(err.Error(), "subscription") {
 		t.Fatalf("err = %v", err)
 	}
 }
@@ -142,7 +153,9 @@ func TestQwenDirectAuthStoresTheResourceHost(t *testing.T) {
 	polls := 0
 	withTransport(t, &onboardRT{responses: map[string]func(*http.Request) (*http.Response, error){
 		"/api/v1/oauth2/device/code": func(*http.Request) (*http.Response, error) {
-			return resp200(`{"device_code":"dc","user_code":"QW-1","verification_uri_complete":"https://chat.qwen.ai/authorize?user_code=QW-1","expires_in":600}`)
+			return resp200(
+				`{"device_code":"dc","user_code":"QW-1",` +
+					`"verification_uri_complete":"https://chat.qwen.ai/authorize?user_code=QW-1","expires_in":600}`)
 		},
 		"/api/v1/oauth2/token": func(*http.Request) (*http.Response, error) {
 			polls++
@@ -153,7 +166,8 @@ func TestQwenDirectAuthStoresTheResourceHost(t *testing.T) {
 		},
 	}})
 	var out bytes.Buffer
-	if _, err := runDirectAuth(context.Background(), &out, bufio.NewReader(strings.NewReader("")), Provider{ID: "qwen"}); err != nil {
+	if _, err := runDirectAuth(context.Background(), &out, bufio.NewReader(strings.NewReader("")),
+		Provider{ID: "qwen"}); err != nil {
 		t.Fatal(err)
 	}
 	if !strings.Contains(out.String(), "QW-1") {
@@ -193,10 +207,12 @@ func TestCodexDirectAuthAcceptsAPastedRedirect(t *testing.T) {
 	}})
 	pasted := "http://localhost:1455/auth/callback?code=the-code&state=" + pk.State + "\n"
 	var out bytes.Buffer
-	if _, err := runDirectAuth(context.Background(), &out, bufio.NewReader(strings.NewReader(pasted)), Provider{ID: "codex"}); err != nil {
+	if _, err := runDirectAuth(context.Background(), &out, bufio.NewReader(strings.NewReader(pasted)),
+		Provider{ID: "codex"}); err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(out.String(), "auth.openai.com/oauth/authorize") || !strings.Contains(out.String(), "port 1455 is busy") {
+	if !strings.Contains(out.String(), "auth.openai.com/oauth/authorize") ||
+		!strings.Contains(out.String(), "port 1455 is busy") {
 		t.Errorf("output = %s", out.String())
 	}
 	c, _ := oauth.LoadCredential(dir, "codex")
@@ -210,7 +226,9 @@ func TestCodexDirectAuthAcceptsAPastedRedirect(t *testing.T) {
 func TestGeminiDirectAuthUsesGcloudCredentials(t *testing.T) {
 	dir := useAuthDir(t)
 	adc := filepath.Join(t.TempDir(), "adc.json")
-	_ = os.WriteFile(adc, []byte(`{"type":"authorized_user","client_id":"c","client_secret":"s","refresh_token":"r","quota_project_id":"qp"}`), 0o600)
+	_ = os.WriteFile(adc,
+		[]byte(`{"type":"authorized_user","client_id":"c","client_secret":"s","refresh_token":"r","quota_project_id":"qp"}`),
+		0o600)
 	t.Setenv("GOOGLE_APPLICATION_CREDENTIALS", adc)
 	t.Setenv("MOTITA_GEMINI_CLIENT_ID", "")
 	withTransport(t, &onboardRT{responses: map[string]func(*http.Request) (*http.Response, error){
@@ -218,7 +236,8 @@ func TestGeminiDirectAuthUsesGcloudCredentials(t *testing.T) {
 			return resp200(`{"access_token":"ya29","expires_in":3600}`)
 		},
 	}})
-	if _, err := runDirectAuth(context.Background(), io.Discard, bufio.NewReader(strings.NewReader("\n")), Provider{ID: "gemini"}); err != nil {
+	if _, err := runDirectAuth(context.Background(), io.Discard, bufio.NewReader(strings.NewReader("\n")),
+		Provider{ID: "gemini"}); err != nil {
 		t.Fatal(err)
 	}
 	c, _ := oauth.LoadCredential(dir, "gemini")
@@ -232,14 +251,17 @@ func TestGeminiDirectAuthExplainsWhatIsMissing(t *testing.T) {
 	t.Setenv("GOOGLE_APPLICATION_CREDENTIALS", filepath.Join(t.TempDir(), "none.json"))
 	t.Setenv("MOTITA_GEMINI_CLIENT_ID", "")
 	var out bytes.Buffer
-	if _, err := runDirectAuth(context.Background(), &out, bufio.NewReader(strings.NewReader("\n")), Provider{ID: "gemini"}); err == nil {
+	if _, err := runDirectAuth(context.Background(), &out, bufio.NewReader(strings.NewReader("\n")),
+		Provider{ID: "gemini"}); err == nil {
 		t.Fatal("no client and no gcloud login must be an error")
 	}
-	if !strings.Contains(out.String(), "MOTITA_GEMINI_CLIENT_ID") || !strings.Contains(out.String(), "gcloud auth application-default login") {
+	if !strings.Contains(out.String(), "MOTITA_GEMINI_CLIENT_ID") ||
+		!strings.Contains(out.String(), "gcloud auth application-default login") {
 		t.Errorf("the way out must be explained: %s", out.String())
 	}
 	t.Setenv("MOTITA_GEMINI_CLIENT_ID", "cid")
-	if _, err := runDirectAuth(context.Background(), io.Discard, bufio.NewReader(strings.NewReader("\n")), Provider{ID: "gemini"}); err == nil {
+	if _, err := runDirectAuth(context.Background(), io.Discard, bufio.NewReader(strings.NewReader("\n")),
+		Provider{ID: "gemini"}); err == nil {
 		t.Error("an own client without a project must be refused")
 	}
 }

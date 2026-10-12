@@ -144,6 +144,7 @@ func integerBindings(c *Config) []binding[int] {
 
 func boolBindings(c *Config) []binding[bool] {
 	return []binding[bool]{
+		{"MOTITA_GATEWAY_FREE_SESSION_GIT", &c.Gateway.FreeSessionGit},
 		{"MOTITA_ANCHOR_BASELINE", &c.Anchor.Baseline},
 		{"MOTITA_SANDBOX_KEEP_EPHEMERAL", &c.Sandbox.KeepEphemeral},
 		{"MOTITA_SANDBOX_ISOLATE_NETWORK", &c.Sandbox.IsolateNetwork},
@@ -316,7 +317,8 @@ func applyListEnvironment(c *Config) {
 // splitRules turns a variable's value into rule specs.
 func splitRules(v string) []string {
 	out := []string{}
-	for _, part := range strings.FieldsFunc(v, func(r rune) bool { return r == ',' || r == ' ' || r == '\t' || r == '\n' }) {
+	isSeparator := func(r rune) bool { return r == ',' || r == ' ' || r == '\t' || r == '\n' }
+	for _, part := range strings.FieldsFunc(v, isSeparator) {
 		if trimmed := strings.TrimSpace(part); trimmed != "" {
 			out = append(out, trimmed)
 		}
@@ -429,8 +431,9 @@ func speaksOpenAIKey(provider string) bool {
 	switch strings.ToLower(strings.TrimSpace(provider)) {
 	case "", "openai", "codex":
 		return true
+	default:
+		return false
 	}
-	return false
 }
 
 // ProviderKeyFromEnv returns the key the environment holds for one provider: its
@@ -439,7 +442,8 @@ func speaksOpenAIKey(provider string) bool {
 // MOTITA_LLM_API_KEY is NOT consulted: it belongs to the configured provider, and
 // handing it to another one on a switch sent one vendor's key to another vendor.
 func ProviderKeyFromEnv(provider string) string {
-	if v := strings.TrimSpace(os.Getenv(ProviderKeyVariable(provider))); v != "" && ProviderKeyVariable(provider) != "MOTITA_LLM_API_KEY" {
+	if v := strings.TrimSpace(os.Getenv(ProviderKeyVariable(provider))); v != "" &&
+		ProviderKeyVariable(provider) != "MOTITA_LLM_API_KEY" {
 		return v
 	}
 	if speaksOpenAIKey(provider) {
@@ -465,8 +469,9 @@ func SupportsLogin(provider string) bool {
 	switch strings.ToLower(strings.TrimSpace(provider)) {
 	case "copilot", "codex", "gemini", "qwen":
 		return true
+	default:
+		return false
 	}
-	return false
 }
 
 // AuthDir is where stored logins live: one 0600 file per provider.
@@ -497,16 +502,49 @@ func IsSelfHostedOllama(l LLM) bool {
 	if err != nil || u.Host == "" {
 		return false
 	}
-	host := strings.ToLower(u.Hostname())
 	if u.Port() == "11434" {
 		return true // Ollama's own port
 	}
-	if host == "localhost" || !strings.Contains(host, ".") ||
-		strings.HasSuffix(host, ".local") || strings.HasSuffix(host, ".lan") || strings.HasSuffix(host, ".internal") {
+	return isLocalHost(u.Hostname())
+}
+
+// IsClearTextToRemote reports whether rawURL is plain http to a host outside this
+// machine and its network, where a key sent with each request could be read on
+// the way.
+func IsClearTextToRemote(rawURL string) bool {
+	u, err := url.Parse(strings.TrimSpace(rawURL))
+	if err != nil || !strings.EqualFold(u.Scheme, "http") || u.Host == "" {
+		return false
+	}
+	return !isLocalHost(u.Hostname())
+}
+
+// isLocalHost reports whether host is this machine or the user's own network: a
+// loopback or private address, or a LAN name.
+func isLocalHost(host string) bool {
+	host = strings.ToLower(host)
+	if isLANName(host) {
 		return true
 	}
 	ip := net.ParseIP(host)
 	return ip != nil && (ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast())
+}
+
+// lanSuffixes are the domain suffixes that only resolve on the user's own network.
+var lanSuffixes = []string{".local", ".lan", ".internal"}
+
+// isLANName reports whether a lowered host name is this machine or a name of the user's own
+// network: localhost, a bare name with no dot, or one under a LAN-only suffix.
+func isLANName(host string) bool {
+	if host == "localhost" || !strings.Contains(host, ".") {
+		return true
+	}
+	for _, suffix := range lanSuffixes {
+		if strings.HasSuffix(host, suffix) {
+			return true
+		}
+	}
+	return false
 }
 
 // LLMNeedsKey answers "is a missing key a problem" for a whole configuration:

@@ -56,7 +56,8 @@ func TestCredentialStoreRoundTripsWithPrivatePermissions(t *testing.T) {
 	if _, err := LoadCredential(dir, "qwen"); err != ErrNoCredential {
 		t.Fatalf("err = %v", err)
 	}
-	c := Credential{Provider: "qwen", AccessToken: "a", RefreshToken: "r", BaseURL: "https://portal.qwen.ai/v1", ExpiresAt: time.Now().Add(time.Hour).UTC()}
+	c := Credential{Provider: "qwen", AccessToken: "a", RefreshToken: "r", BaseURL: "https://portal.qwen.ai/v1",
+		ExpiresAt: time.Now().Add(time.Hour).UTC()}
 	if err := SaveCredential(dir, c); err != nil {
 		t.Fatal(err)
 	}
@@ -122,7 +123,10 @@ func TestParseAuthCode(t *testing.T) {
 		{"http://localhost:1455/auth/callback?code=abc&state=other", "s1", "", true},
 		{"http://localhost/?error=access_denied", "s1", "", true},
 		{"code=abc&state=s1", "s1", "abc", false},
-		{"?code=abc", "s1", "abc", false},
+		{"?code=abc", "s1", "", true},
+		{"http://localhost:1455/auth/callback?code=abc", "s1", "", true},
+		{"abc#", "s1", "", true},
+		{"?code=abc", "", "abc", false},
 		{"abc#s1", "s1", "abc", false},
 		{"  rawcode \n", "s1", "rawcode", false},
 		{"", "s1", "", true},
@@ -163,15 +167,45 @@ func TestLoopbackRefusesAForeignStateAndAcceptsAPaste(t *testing.T) {
 	if !strings.HasPrefix(lb.RedirectURI, "http://localhost:") {
 		t.Errorf("redirect = %q", lb.RedirectURI)
 	}
-	go func() {
-		resp, err := http.Get(strings.Replace(lb.RedirectURI, "localhost", "127.0.0.1", 1) + "?code=xyz&state=evil")
-		if err == nil {
-			resp.Body.Close()
-		}
-	}()
-	if _, _, err := lb.Wait(context.Background(), "st", nil); err == nil {
-		t.Error("a callback with another state must be refused")
+	// A callback with another state, before and while the login waits, is refused
+	// with a 400 and does not end the wait: the real redirect still logs in.
+	callback := strings.Replace(lb.RedirectURI, "localhost", "127.0.0.1", 1)
+	if resp, err := http.Get(callback + "?code=early&state=evil"); err == nil {
+		resp.Body.Close()
 	}
+	got := make(chan string, 1)
+	go func() {
+		code, _, err := lb.Wait(context.Background(), "st", nil)
+		if err != nil {
+			code = err.Error()
+		}
+		got <- code
+	}()
+	for {
+		resp, err := http.Get(callback + "?error=access_denied&state=evil")
+		if err != nil {
+			t.Fatal(err)
+		}
+		resp.Body.Close()
+		if resp.StatusCode != http.StatusBadRequest {
+			t.Fatalf("a foreign callback got status %d", resp.StatusCode)
+		}
+		if _, ok := lb.want.Load().(string); ok {
+			break
+		}
+	}
+	select {
+	case code := <-got:
+		t.Fatalf("a foreign callback ended the wait: %q", code)
+	case <-time.After(50 * time.Millisecond):
+	}
+	if resp, err := http.Get(callback + "?code=xyz&state=st"); err == nil {
+		resp.Body.Close()
+	}
+	if code := <-got; code != "xyz" {
+		t.Errorf("the real callback must log in after foreign ones, got %q", code)
+	}
+
 	paste := make(chan string, 1)
 	paste <- lb.RedirectURI + "?code=pasted&state=st"
 	code, pasted, err := lb.Wait(context.Background(), "st", paste)
@@ -202,11 +236,15 @@ func TestCodexAuthorizeURLAndExchange(t *testing.T) {
 	p, _ := NewPKCE()
 	u, _ := url.Parse(CodexAuthorizeURL(p, ""))
 	q := u.Query()
-	if u.Host != "auth.openai.com" || q.Get("client_id") != CodexClientID || q.Get("redirect_uri") != CodexRedirectURI ||
-		q.Get("code_challenge") != p.Challenge || q.Get("state") != p.State || !strings.Contains(q.Get("scope"), "offline_access") {
+	wrong := u.Host != "auth.openai.com" || q.Get("client_id") != CodexClientID ||
+		q.Get("redirect_uri") != CodexRedirectURI
+	wrong = wrong || q.Get("code_challenge") != p.Challenge || q.Get("state") != p.State
+	if wrong || !strings.Contains(q.Get("scope"), "offline_access") {
 		t.Errorf("authorize URL = %s", u)
 	}
-	id := fakeJWT(map[string]any{"https://api.openai.com/auth": map[string]any{"chatgpt_account_id": "acct"}, "exp": float64(time.Now().Add(time.Hour).Unix())})
+	id := fakeJWT(
+		map[string]any{"https://api.openai.com/auth": map[string]any{"chatgpt_account_id": "acct"},
+			"exp": float64(time.Now().Add(time.Hour).Unix())})
 	var form url.Values
 	client := newFakeClient(map[string]func(*http.Request) (*http.Response, error){
 		"auth.openai.com/oauth/token": func(r *http.Request) (*http.Response, error) {
@@ -219,7 +257,8 @@ func TestCodexAuthorizeURLAndExchange(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if form.Get("code_verifier") != p.Verifier || form.Get("code") != "the-code" || form.Get("grant_type") != "authorization_code" {
+	if form.Get("code_verifier") != p.Verifier || form.Get("code") != "the-code" ||
+		form.Get("grant_type") != "authorization_code" {
 		t.Errorf("form = %v", form)
 	}
 	if c.Provider != "codex" || c.AccountID != "acct" || c.RefreshToken != "rt" {
@@ -265,7 +304,9 @@ func TestQwenDeviceFlow(t *testing.T) {
 			if f.Get("code_challenge") != p.Challenge || f.Get("client_id") != QwenClientID {
 				t.Errorf("device form = %v", f)
 			}
-			return jsonResp(map[string]any{"device_code": "dc", "user_code": "UC", "verification_uri": "https://chat.qwen.ai/authorize", "verification_uri_complete": "https://chat.qwen.ai/authorize?user_code=UC", "expires_in": 600}), nil
+			return jsonResp(
+				map[string]any{"device_code": "dc", "user_code": "UC", "verification_uri": "https://chat.qwen.ai/authorize",
+					"verification_uri_complete": "https://chat.qwen.ai/authorize?user_code=UC", "expires_in": 600}), nil
 		},
 		"oauth2/token": func(r *http.Request) (*http.Response, error) {
 			polls++
@@ -274,14 +315,20 @@ func TestQwenDeviceFlow(t *testing.T) {
 			if polls == 1 {
 				return errResp(400, `{"error":"authorization_pending"}`), nil
 			}
-			return jsonResp(map[string]any{"access_token": "qa", "refresh_token": "qr", "expires_in": 3600, "resource_url": "portal.qwen.ai"}), nil
+			return jsonResp(map[string]any{
+				"access_token": "qa", "refresh_token": "qr", "expires_in": 3600, "resource_url": "portal.qwen.ai",
+			}), nil
 		},
 	})
 	dc, err := QwenRequestDeviceCode(context.Background(), client, p)
 	if err != nil || dc.VerificationURL != "https://chat.qwen.ai/authorize?user_code=UC" {
 		t.Fatalf("dc=%+v err=%v", dc, err)
 	}
-	instant := func(time.Duration) <-chan time.Time { ch := make(chan time.Time, 1); ch <- time.Now(); return ch }
+	instant := func(time.Duration) <-chan time.Time {
+		ch := make(chan time.Time, 1)
+		ch <- time.Now()
+		return ch
+	}
 	cred, err := PollDevice(context.Background(), dc.Interval, instant, func() (Credential, error) {
 		return QwenPollToken(context.Background(), client, dc, p)
 	})
@@ -301,6 +348,9 @@ func TestQwenBaseURLAndRefresh(t *testing.T) {
 		"":                           QwenDefaultBaseURL,
 		"portal.qwen.ai":             "https://portal.qwen.ai/v1",
 		"https://portal.qwen.ai/v1/": "https://portal.qwen.ai/v1",
+		// The token is never sent in clear text, whatever the server answered.
+		"http://portal.qwen.ai": "https://portal.qwen.ai/v1",
+		"HTTP://portal.qwen.ai": "https://portal.qwen.ai/v1",
 	}
 	for in, want := range cases {
 		if got := QwenBaseURL(in); got != want {
@@ -312,7 +362,8 @@ func TestQwenBaseURLAndRefresh(t *testing.T) {
 			return jsonResp(map[string]any{"access_token": "new"}), nil
 		},
 	})
-	c, err := QwenRefresh(context.Background(), client, Credential{RefreshToken: "keep", BaseURL: "https://portal.qwen.ai/v1"})
+	c, err := QwenRefresh(context.Background(), client,
+		Credential{RefreshToken: "keep", BaseURL: "https://portal.qwen.ai/v1"})
 	if err != nil || c.AccessToken != "new" || c.RefreshToken != "keep" || c.BaseURL != "https://portal.qwen.ai/v1" {
 		t.Errorf("c=%+v err=%v", c, err)
 	}
@@ -322,8 +373,13 @@ func TestQwenBaseURLAndRefresh(t *testing.T) {
 }
 
 func TestPollDeviceStopsOnDenialAndCancellation(t *testing.T) {
-	instant := func(time.Duration) <-chan time.Time { ch := make(chan time.Time, 1); ch <- time.Now(); return ch }
-	if _, err := PollDevice(context.Background(), 0, instant, func() (int, error) { return 0, ErrAccessDenied }); err != ErrAccessDenied {
+	instant := func(time.Duration) <-chan time.Time {
+		ch := make(chan time.Time, 1)
+		ch <- time.Now()
+		return ch
+	}
+	if _, err := PollDevice(context.Background(), 0, instant,
+		func() (int, error) { return 0, ErrAccessDenied }); err != ErrAccessDenied {
 		t.Errorf("err = %v", err)
 	}
 	ctx, cancel := context.WithCancel(context.Background())
@@ -340,8 +396,8 @@ func TestGeminiAuthorizeURLAskForARefreshToken(t *testing.T) {
 	p, _ := NewPKCE()
 	u, _ := url.Parse(GeminiAuthorizeURL(GeminiClient{ID: "cid"}, p, "http://127.0.0.1:5555/"))
 	q := u.Query()
-	if q.Get("access_type") != "offline" || q.Get("prompt") != "consent" || q.Get("client_id") != "cid" ||
-		!strings.Contains(q.Get("scope"), "generative-language") || q.Get("code_challenge") != p.Challenge {
+	wrong := q.Get("access_type") != "offline" || q.Get("prompt") != "consent" || q.Get("client_id") != "cid"
+	if wrong || !strings.Contains(q.Get("scope"), "generative-language") || q.Get("code_challenge") != p.Challenge {
 		t.Errorf("URL = %s", u)
 	}
 }
@@ -357,7 +413,8 @@ func TestGeminiExchangeAndRefreshKeepTheClientAndProject(t *testing.T) {
 		},
 	})
 	p, _ := NewPKCE()
-	c, err := GeminiExchangeCode(context.Background(), client, GeminiClient{ID: "cid", Secret: "sec"}, "code", "http://127.0.0.1:1/", p, "proj")
+	c, err := GeminiExchangeCode(context.Background(), client, GeminiClient{ID: "cid", Secret: "sec"}, "code",
+		"http://127.0.0.1:1/", p, "proj")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -379,7 +436,9 @@ func TestGeminiExchangeAndRefreshKeepTheClientAndProject(t *testing.T) {
 func TestGeminiFromADC(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "adc.json")
-	_ = os.WriteFile(path, []byte(`{"type":"authorized_user","client_id":"c","client_secret":"s","refresh_token":"r","quota_project_id":"qp"}`), 0o600)
+	_ = os.WriteFile(path,
+		[]byte(`{"type":"authorized_user","client_id":"c","client_secret":"s","refresh_token":"r","quota_project_id":"qp"}`),
+		0o600)
 	c, err := GeminiFromADC(path, "")
 	if err != nil || c.ProjectID != "qp" || c.RefreshToken != "r" || c.ClientID != "c" {
 		t.Errorf("c=%+v err=%v", c, err)
@@ -425,11 +484,14 @@ func TestCopilotRefreshCredential(t *testing.T) {
 			if r.Header.Get("Authorization") != "token gho_1" {
 				t.Errorf("auth = %q", r.Header.Get("Authorization"))
 			}
-			return jsonResp(map[string]any{"token": "tid", "expires_at": time.Now().Add(time.Hour).Unix(), "endpoints": map[string]string{"api": "https://api.enterprise.githubcopilot.com/"}}), nil
+			return jsonResp(
+				map[string]any{"token": "tid", "expires_at": time.Now().Add(time.Hour).Unix(),
+					"endpoints": map[string]string{"api": "https://api.enterprise.githubcopilot.com/"}}), nil
 		},
 	})
 	c, err := CopilotRefreshCredential(context.Background(), client, Credential{RefreshToken: "gho_1"})
-	if err != nil || c.AccessToken != "tid" || c.RefreshToken != "gho_1" || c.BaseURL != "https://api.enterprise.githubcopilot.com" {
+	if err != nil || c.AccessToken != "tid" || c.RefreshToken != "gho_1" ||
+		c.BaseURL != "https://api.enterprise.githubcopilot.com" {
 		t.Errorf("c=%+v err=%v", c, err)
 	}
 	if _, err := CopilotRefreshCredential(context.Background(), client, Credential{}); err == nil {

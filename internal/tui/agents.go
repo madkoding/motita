@@ -86,8 +86,9 @@ func (t *TUI) agentsLabel() string {
 		return t.trf("%s %d running %s %s tok", glyphAgents, running, glyphMid, humanTokens(total))
 	case total > 0:
 		return humanTokens(total) + " tok"
+	default:
+		return ""
 	}
-	return ""
 }
 
 // showingAgents reports whether the panel draws. It gives way to the completion popup: the user is
@@ -119,31 +120,40 @@ func (t *TUI) agentsLines(width int) []string {
 	}
 	now := t.timeNow()
 	for _, a := range t.agents {
-		figures := elapsedText(a, now) + "  " + humanTokens(a.Tokens.Total()) + " tok"
-		if a.Round > 0 {
-			figures += "  r" + strconv.Itoa(a.Round)
-		}
-		purpose := a.Purpose
-		if a.Parent == "" {
-			purpose = t.tr("main") + " " + glyphMid + " " + purpose
-		}
-		// The figures are never cut: they are what the panel is for. The purpose takes what is
-		// left, and the activity only what is left after that.
-		room := width - 4 - visibleLen(figures)
-		left := clipLine(purpose, room)
-		if act := strings.TrimSpace(a.Activity); act != "" && room-visibleLen(left) > 6 {
-			left += t.muted(" " + glyphMid + " " + clipLine(act, room-visibleLen(left)-3))
-		}
-		gap := room - visibleLen(left)
-		if gap < 1 {
-			gap = 1
-		}
-		lines = append(lines, t.plainLine(clipLine(t.agentGlyph(a)+" "+left+strings.Repeat(" ", gap)+" "+t.muted(figures), width)))
-		if a.State != agent.AgentRunning {
-			detail := strings.TrimSpace(strings.Join(nonEmpty(a.Branch, firstLine(a.Summary)), " "+glyphMid+" "))
-			if detail != "" {
-				lines = append(lines, t.plainLine(t.muted(clipLine("  "+detail, width))))
-			}
+		lines = append(lines, t.agentLines(a, width, now)...)
+	}
+	return lines
+}
+
+// agentLines draws one agent of the panel: its row and, once it has finished, the detail row
+// that says where its work is.
+func (t *TUI) agentLines(a agent.AgentInfo, width int, now time.Time) []string {
+	figures := elapsedText(a, now) + "  " + humanTokens(a.Tokens.Total()) + " tok"
+	if a.Round > 0 {
+		figures += "  r" + strconv.Itoa(a.Round)
+	}
+	purpose := EscapeControls(a.Purpose)
+	if a.Parent == "" {
+		purpose = t.tr("main") + " " + glyphMid + " " + purpose
+	}
+	// The figures are never cut: they are what the panel is for. The purpose takes what is
+	// left, and the activity only what is left after that.
+	room := width - 4 - visibleLen(figures)
+	left := clipLine(purpose, room)
+	if act := strings.TrimSpace(EscapeControls(a.Activity)); act != "" && room-visibleLen(left) > 6 {
+		left += t.muted(" " + glyphMid + " " + clipLine(act, room-visibleLen(left)-3))
+	}
+	gap := room - visibleLen(left)
+	if gap < 1 {
+		gap = 1
+	}
+	row := t.agentGlyph(a) + " " + left + strings.Repeat(" ", gap) + " " + t.muted(figures)
+	lines := []string{t.plainLine(clipLine(row, width))}
+	if a.State != agent.AgentRunning {
+		where := nonEmpty(a.Branch, firstLine(a.Summary))
+		detail := EscapeControls(strings.TrimSpace(strings.Join(where, " "+glyphMid+" ")))
+		if detail != "" {
+			lines = append(lines, t.plainLine(t.muted(clipLine("  "+detail, width))))
 		}
 	}
 	return lines
@@ -158,8 +168,9 @@ func (t *TUI) agentGlyph(a agent.AgentInfo) string {
 		return t.color(colError, 0, glyphFailed)
 	case agent.AgentCancelled:
 		return t.muted(glyphCancelled)
+	default:
+		return t.color(colAccent, 0, spinner[t.spin%len(spinner)])
 	}
-	return t.color(colAccent, 0, spinner[t.spin%len(spinner)])
 }
 
 // elapsedText is how long an agent ran, or has been running: counted from its start while it
@@ -171,6 +182,8 @@ func elapsedText(a agent.AgentInfo, now time.Time) string {
 		d = now.Sub(a.Started)
 	case !a.Finished.IsZero() && !a.Started.IsZero():
 		d = a.Finished.Sub(a.Started)
+	default:
+		// No start time: the elapsed time the agent reported is all there is.
 	}
 	if d < 0 {
 		d = 0
@@ -192,8 +205,9 @@ func humanTokens(n int64) string {
 		return strconv.FormatInt(n, 10)
 	case n < 1_000_000:
 		return strconv.FormatFloat(float64(n)/1000, 'f', 1, 64) + "k"
+	default:
+		return strconv.FormatFloat(float64(n)/1_000_000, 'f', 1, 64) + "M"
 	}
-	return strconv.FormatFloat(float64(n)/1_000_000, 'f', 1, 64) + "M"
 }
 
 // nonEmpty keeps the strings that say something.

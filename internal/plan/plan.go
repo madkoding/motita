@@ -7,13 +7,11 @@
 package plan
 
 import (
-	"bytes"
 	"context"
 	_ "embed"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"os"
 	"path/filepath"
 	"sort"
@@ -26,6 +24,12 @@ import (
 	"github.com/madkoding/motita/internal/session"
 	"github.com/madkoding/motita/internal/skills"
 	"github.com/madkoding/motita/internal/usage"
+)
+
+// Literals used more than once in this file.
+const (
+	errNoProcedureLibrary = "Error: no procedure library is configured."
+	errParsingArguments   = "Error parsing the arguments: "
 )
 
 //go:embed soul.md
@@ -351,35 +355,51 @@ func (p *Planner) tools() []llm.Tool {
 	return []llm.Tool{
 		llm.NewTool("list_directory", "Lists the contents of a directory (files and subdirectories).",
 			llm.ObjectSchema(map[string]any{
-				"path": llm.StringProperty("Absolute or relative path of the directory to list. Defaults to the current directory."),
+				"path": llm.StringProperty(
+					"Absolute or relative path of the directory to list. Defaults to the current directory."),
 			})),
 		llm.NewTool("read_file", "Reads the contents of a text file from the local system (maximum 1 MiB).",
 			llm.ObjectSchema(map[string]any{
 				"path": llm.StringProperty("Absolute or relative path of the file to read."),
 			}, "path")),
-		llm.NewTool("execute_command", "Runs a read-only command on the local system and returns stdout and stderr combined. Destructive commands are refused by guardrails.",
+		llm.NewTool("execute_command", "Runs a read-only command on the local system and returns stdout and stderr "+
+			"combined. Destructive commands are refused by guardrails.",
 			llm.ObjectSchema(map[string]any{
-				"command":         llm.StringProperty("The command to run. Pipes, redirections, shell metacharacters and multi-command chains are not allowed in read-only mode."),
+				"command": llm.StringProperty("The command to run. Pipes, redirections, shell metacharacters and " +
+					"multi-command chains are not allowed in read-only mode."),
 				"timeout_seconds": llm.IntegerProperty("Maximum run time in seconds (defaults to 120)."),
 			}, "command")),
 		llm.NewTool("search_in_files", "Searches for a pattern inside text files under a directory using grep/ripgrep.",
 			llm.ObjectSchema(map[string]any{
 				"pattern": llm.StringProperty("The regular expression or literal string to search for."),
 				"path":    llm.StringProperty("Directory or file to search in. Defaults to the current directory."),
-				"literal": llm.StringProperty("Set to true to search for a literal string instead of a regex (default: false)."),
+				"literal": llm.StringProperty(
+					"Set to true to search for a literal string instead of a regex (default: false)."),
 			}, "pattern")),
-		llm.NewTool("list_skills", "Lists the skills in your procedure library: the name, the title and what each one is for. Read this when you are starting work that may have been done before.", llm.ObjectSchema(map[string]any{})),
-		llm.NewTool("search_skills", "Searches your procedure library by what the work is about, looking through the whole text and not only the titles. Use a plain description of what you are doing.", llm.ObjectSchema(map[string]any{
-			"query": llm.StringProperty("What the work is about, in plain words (for example \"flash a firmware image over USB\")."),
-			"limit": llm.StringProperty("Maximum number of entries to return (default 10)."),
-		}, "query")),
-		llm.NewTool("read_skill", "Reads one skill in full by name. The list and the search return the summaries; this returns the procedure.", llm.ObjectSchema(map[string]any{
-			"name": llm.StringProperty("The skill name, as returned by list_skills or search_skills."),
-		}, "name")),
-		llm.NewTool("save_skill", "Writes a skill to your procedure library, creating it or replacing it. Use it after working something out that would help next time: the commands that worked, the ones that failed and why, the order the steps go in. Write the PROCEDURE, not a report of this session.", llm.ObjectSchema(map[string]any{
-			"name": llm.StringProperty("A short name describing the work, not this session (for example \"zephyr-nrf-build\")."),
-			"body": llm.StringProperty("The whole document in markdown. Start with a heading naming the skill, then one line saying when to use it, then the procedure with its pitfalls."),
-		}, "name", "body")),
+		llm.NewTool("list_skills", "Lists the skills in your procedure library: the name, the title and what each "+
+			"one is for. Read this when you are starting work that may have been done before.",
+			llm.ObjectSchema(map[string]any{})),
+		llm.NewTool("search_skills", "Searches your procedure library by what the work is about, looking through the "+
+			"whole text and not only the titles. Use a plain description of what you are doing.",
+			llm.ObjectSchema(map[string]any{
+				"query": llm.StringProperty(
+					"What the work is about, in plain words (for example \"flash a firmware image over USB\")."),
+				"limit": llm.StringProperty("Maximum number of entries to return (default 10)."),
+			}, "query")),
+		llm.NewTool("read_skill", "Reads one skill in full by name. The list and the search return the summaries; "+
+			"this returns the procedure.",
+			llm.ObjectSchema(map[string]any{
+				"name": llm.StringProperty("The skill name, as returned by list_skills or search_skills."),
+			}, "name")),
+		llm.NewTool("save_skill", "Writes a skill to your procedure library, creating it or replacing it. Use it "+
+			"after working something out that would help next time: the commands that worked, the ones that failed "+
+			"and why, the order the steps go in. Write the PROCEDURE, not a report of this session.",
+			llm.ObjectSchema(map[string]any{
+				"name": llm.StringProperty(
+					"A short name describing the work, not this session (for example \"zephyr-nrf-build\")."),
+				"body": llm.StringProperty("The whole document in markdown. Start with a heading naming the skill, " +
+					"then one line saying when to use it, then the procedure with its pitfalls."),
+			}, "name", "body")),
 	}
 }
 
@@ -458,8 +478,9 @@ func (p *Planner) Run(ctx context.Context, input string) (string, error) {
 		// If this was the last allowed loop, add a strong instruction to produce text.
 		if i == loops {
 			sess.Append(llm.Message{
-				Role:    "user",
-				Content: "You have reached the tool-call limit. Now deliver the final answer as plain text. Do not call any more tools.",
+				Role: "user",
+				Content: "You have reached the tool-call limit. Now deliver the final answer as plain text. " +
+					"Do not call any more tools.",
 			})
 		}
 
@@ -611,6 +632,8 @@ func (p *Planner) streamTools(ctx context.Context, messages []llm.Message) (llm.
 				p.writeStream(fmt.Sprintf("[using tool: %s]", chunk.Call.Function.Name))
 			}
 			acc.Handle(chunk)
+		default:
+			// Reasoning tokens are not part of a plan's answer: nothing to accumulate.
 		}
 	}
 	// Channel closed without a done event: use what we accumulated.
@@ -648,203 +671,6 @@ func (p *Planner) runTool(ctx context.Context, tc llm.ToolCall) string {
 	}
 }
 
-// readFileArgs are the arguments for read_file.
-type readFileArgs struct {
-	Path string `json:"path"`
-}
-
-// listDirectoryArgs are the arguments for list_directory.
-type listDirectoryArgs struct {
-	Path string `json:"path"`
-}
-
-// toolListDirectory lists a directory's entries.
-func (p *Planner) toolListDirectory(raw []byte) string {
-	var args listDirectoryArgs
-	if err := decodeArgs(raw, &args); err != nil {
-		return "Error parsing the arguments: " + err.Error()
-	}
-	path := strings.TrimSpace(args.Path)
-	if path == "" {
-		path = "."
-	}
-
-	entries, err := os.ReadDir(path)
-	if err != nil {
-		return "Error listing the directory: " + err.Error()
-	}
-	if len(entries) == 0 {
-		return "(empty directory)"
-	}
-	var sb strings.Builder
-	for _, e := range entries {
-		name := e.Name()
-		if e.IsDir() {
-			name += "/"
-		}
-		fmt.Fprintln(&sb, name)
-	}
-	return strings.TrimSpace(sb.String())
-}
-
-// toolReadFile reads a text file with the 1 MiB limit.
-func (p *Planner) toolReadFile(raw []byte) string {
-	var args readFileArgs
-	if err := decodeArgs(raw, &args); err != nil {
-		return "Error parsing the arguments: " + err.Error()
-	}
-	path := strings.TrimSpace(args.Path)
-	if path == "" {
-		return "Error: the 'path' parameter is missing."
-	}
-
-	fi, err := os.Stat(path)
-	if err != nil {
-		return "Error accessing the file: " + err.Error()
-	}
-	if fi.IsDir() {
-		return fmt.Sprintf("Error: %q is a directory; list its contents with execute_command.", path)
-	}
-	if fi.Size() > maxFileBytes {
-		return fmt.Sprintf("Error: the file is %d bytes and exceeds the %d-byte limit (1 MiB).", fi.Size(), maxFileBytes)
-	}
-
-	f, err := os.Open(path)
-	if err != nil {
-		return "Error opening the file: " + err.Error()
-	}
-	defer f.Close()
-
-	data, err := io.ReadAll(io.LimitReader(f, maxFileBytes))
-	if err != nil {
-		return "Error reading the file: " + err.Error()
-	}
-	if len(data) == 0 {
-		return "(the file is empty)"
-	}
-	return string(data)
-}
-
-// executeCommandArgs are the arguments for execute_command.
-type executeCommandArgs struct {
-	Command        string `json:"command"`
-	TimeoutSeconds int    `json:"timeout_seconds,omitempty"`
-}
-
-// toolExecuteCommand runs a command through the agent's read-only executor.
-func (p *Planner) toolExecuteCommand(ctx context.Context, raw []byte) string {
-	var args executeCommandArgs
-	if err := decodeArgs(raw, &args); err != nil {
-		return "Error parsing the arguments: " + err.Error()
-	}
-	command := strings.TrimSpace(args.Command)
-	if command == "" {
-		return "Error: the 'command' parameter is missing."
-	}
-
-	timeout := p.commandTimeout
-	if args.TimeoutSeconds > 0 {
-		timeout = time.Duration(args.TimeoutSeconds) * time.Second
-	}
-
-	toolCtx, cancel := context.WithTimeout(ctx, timeout)
-	defer cancel()
-
-	output, exit, err := p.runner.RunCommand(toolCtx, command)
-	output = limitString(output, maxToolOutputBytes)
-
-	var sb strings.Builder
-	fmt.Fprintf(&sb, "$ %s\n", command)
-	if err != nil {
-		fmt.Fprintf(&sb, "Execution error: %v\n", err)
-	}
-	if output != "" {
-		sb.WriteString(output)
-		if !strings.HasSuffix(output, "\n") {
-			sb.WriteString("\n")
-		}
-	}
-	fmt.Fprintf(&sb, "[exit=%d]", exit)
-	return sb.String()
-}
-
-// searchInFilesArgs are the arguments for search_in_files.
-type searchInFilesArgs struct {
-	Pattern string `json:"pattern"`
-	Path    string `json:"path"`
-	Literal string `json:"literal"`
-}
-
-// toolSearchInFiles searches text files for a pattern.
-func (p *Planner) toolSearchInFiles(ctx context.Context, raw []byte) string {
-	var args searchInFilesArgs
-	if err := decodeArgs(raw, &args); err != nil {
-		return "Error parsing the arguments: " + err.Error()
-	}
-	pattern := strings.TrimSpace(args.Pattern)
-	if pattern == "" {
-		return "Error: the 'pattern' parameter is missing."
-	}
-	path := strings.TrimSpace(args.Path)
-	if path == "" {
-		path = "."
-	}
-
-	toolCtx, cancel := context.WithTimeout(ctx, p.commandTimeout)
-	defer cancel()
-
-	var command string
-	if strings.EqualFold(args.Literal, "true") {
-		command = fmt.Sprintf("grep -R -n -F %s %s", shellQuote(pattern), shellQuote(path))
-	} else {
-		command = fmt.Sprintf("grep -R -n -E %s %s", shellQuote(pattern), shellQuote(path))
-	}
-
-	output, exit, err := p.runner.RunCommand(toolCtx, command)
-	output = limitString(output, maxToolOutputBytes)
-
-	var sb strings.Builder
-	fmt.Fprintf(&sb, "$ %s\n", command)
-	if err != nil {
-		fmt.Fprintf(&sb, "Execution error: %v\n", err)
-	}
-	if output != "" {
-		sb.WriteString(output)
-		if !strings.HasSuffix(output, "\n") {
-			sb.WriteString("\n")
-		}
-	}
-	fmt.Fprintf(&sb, "[exit=%d]", exit)
-	return sb.String()
-}
-
-// decodeArgs normalizes provider differences (object, stringified object, empty).
-func decodeArgs(raw []byte, dst any) error {
-	trimmed := bytes.TrimSpace(raw)
-	if len(trimmed) == 0 || string(trimmed) == "null" {
-		return nil
-	}
-	if trimmed[0] == '"' {
-		var text string
-		if err := json.Unmarshal(trimmed, &text); err != nil {
-			return err
-		}
-		trimmed = []byte(strings.TrimSpace(text))
-	}
-	if len(trimmed) == 0 {
-		return nil
-	}
-	return json.Unmarshal(trimmed, dst)
-}
-
-// limitString truncates text to the given byte length and appends a notice.
-func limitString(s string, max int) string {
-	if len(s) <= max {
-		return s
-	}
-	return s[:max] + fmt.Sprintf("\n[... output truncated to %d KiB ...]", max/1024)
-}
-
 // WithSessionPolicy configures the conversation a planner keeps: the model whose window
 // it must respect, and the compaction policy from the configuration.
 //
@@ -858,278 +684,4 @@ func (p *Planner) WithSessionPolicy(model string, window, reserve int, compactAt
 	p.compactAt = compactAt
 	p.keepRecent = keepRecent
 	return p
-}
-
-// The skill tools. Their results are plain text the model reads, never JSON: a tool result
-// is the next thing in a conversation, and a JSON envelope is noise the model has to strip
-// before it can think about the content.
-//
-// The wording of an empty answer matters as much as the non-empty one. "No skill matches"
-// tells the model to proceed on its own knowledge, while an error would make it retry a
-// search that is not going to succeed.
-
-// WithLibrary gives the planner a procedure library, enabling the skill tools.
-func (p *Planner) WithLibrary(lib *skills.Library) *Planner {
-	p.library = lib
-	return p
-}
-
-// WithReward installs the long-term value ledger.
-//
-// It is optional: a planner without one behaves exactly as before, which is what an embedder
-// that does not want the feature gets. The library keeps working either way.
-func (p *Planner) WithReward(l *reward.Ledger) *Planner {
-	p.reward = l
-	return p
-}
-
-// WithUsage installs the per-skill telemetry sidecar. When set, the skill tools
-// bump view/use/patch counters on every call, and save_skill records the
-// provenance marker (agent vs foreground). Nil disables telemetry: the curator
-// and the background review fork are off, and the skill tools work as before.
-func (p *Planner) WithUsage(u *usage.Ledger) *Planner {
-	p.usage = u
-	return p
-}
-
-// saveUsage writes the accumulated skill counts; a planner without a ledger has none.
-func (p *Planner) saveUsage() {
-	if p.usage != nil {
-		_ = p.usage.Save()
-	}
-}
-
-// SetUsage is the setter for the usage ledger, used by the review fork after
-// construction. It is separate from WithUsage so a caller that builds a
-// planner with chained With* calls can inject the usage ledger later.
-func (p *Planner) SetUsage(u *usage.Ledger) { p.usage = u }
-
-// WithReview installs the background self-improvement fork. When set, Run
-// calls review.MaybeRun after the final answer is delivered. Nil disables the
-// post-turn review.
-func (p *Planner) WithReview(r *review.Review) *Planner {
-	p.review = r
-	return p
-}
-
-// Consulted returns the skills this run read, and how many times each.
-//
-// It is what the caller needs to turn the user's verdict into value: the skills are known
-// here and nowhere else, so this is the only place they can be reported from.
-func (p *Planner) Consulted() map[string]int {
-	if len(p.consulted) == 0 {
-		return nil
-	}
-	out := make(map[string]int, len(p.consulted))
-	for k, v := range p.consulted {
-		out[k] = v
-	}
-	return out
-}
-
-// ItersSinceSkill is how many tool-call rounds this run has taken since the last save_skill.
-//
-// It is read by a caller that owns the post-turn review: the counter is per-run, while the
-// budget the review fires on spans turns, so the owner of the conversation is the only place
-// that can accumulate it. A run that called save_skill reports zero, because the planner resets
-// it there — a turn that has just written a skill down does not also need reviewing.
-func (p *Planner) ItersSinceSkill() int { return p.itersSinceSkill }
-
-// consult records that a skill was read.
-func (p *Planner) consult(name string) {
-	if p.consulted == nil {
-		p.consulted = map[string]int{}
-	}
-	p.consulted[name]++
-}
-
-// historySuffix renders a skill's accumulated value, or nothing when it has no history.
-//
-// It is a NUMBER and two counts, deliberately, with no adjective attached. "used 4, value 0.7"
-// is a fact the model can weigh together with what it actually reads; "RELIABLE" or "UNPROVEN"
-// would be this program's interpretation, presented as if it were evidence, and a model told a
-// skill is good will reach for it even when the text says otherwise. The numbers also travel
-// with their counts, because 0.7 from one verdict and from forty are different claims.
-//
-// An unconsulted skill shows nothing rather than "0.0", which would read as "this failed".
-func (p *Planner) historySuffix(name string) string {
-	if p.reward == nil {
-		return ""
-	}
-	s, ok := p.reward.Get(name)
-	if !ok || s.Uses() == 0 {
-		return ""
-	}
-	return fmt.Sprintf("  [used %d, value %+.2f]", s.Uses(), s.Value)
-}
-
-// feedbackSuffix states the user's outstanding notes for a skill, quoted verbatim.
-//
-// This is the point of collecting the notes at all: a number says a skill failed, and the note
-// says what was wrong with it, which is the only form of the complaint that can be acted on.
-// It is quoted rather than summarised because it is the user's own words about their own work,
-// and every paraphrase of it loses the specific detail that makes the fix findable.
-//
-// Only notes with no fix attempted are shown: once the skill has been rewritten the complaint
-// is answered, and repeating it would send the model to re-fix what has already been fixed.
-func (p *Planner) feedbackSuffix(name string) string {
-	if p.reward == nil {
-		return ""
-	}
-	s, ok := p.reward.Get(name)
-	if !ok {
-		return ""
-	}
-	notes := s.Unaddressed()
-	if len(notes) == 0 {
-		return ""
-	}
-	var b strings.Builder
-	b.WriteString("\n  !! the user reported this skill failing, and the procedure has NOT been revised since:")
-	// Every note here is a complaint: Unaddressed filters out the notes that came with a good
-	// verdict, which are comments rather than reports of a fault. No verdict label is needed
-	// for the same reason.
-	for i, n := range notes {
-		fmt.Fprintf(&b, "\n     %d. %s", i+1, n.Text)
-	}
-	b.WriteString("\n     Read the procedure again, work out which step the report is about, and save the")
-	b.WriteString("\n     corrected version with save_skill. Fixing it is worth more than avoiding it.")
-	return b.String()
-}
-
-// toolListSkills reports the index: what the library holds, without any bodies.
-func (p *Planner) toolListSkills() string {
-	if p.library == nil {
-		return "Error: no procedure library is configured."
-	}
-	all, err := p.library.List()
-	if err != nil {
-		return fmt.Sprintf("Error: could not read the library: %v", err)
-	}
-	if len(all) == 0 {
-		return "The library is empty. Nothing has been written down yet, so work from your own knowledge and save what you learn."
-	}
-
-	var b strings.Builder
-	fmt.Fprintf(&b, "%d skill(s) in the library. Use read_skill for the full procedure.\n", len(all))
-	for _, s := range all {
-		fmt.Fprintf(&b, "\n- %s: %s\n  %s%s", s.Name, s.Title, s.Summary, p.historySuffix(s.Name))
-	}
-	return b.String()
-}
-
-// toolSearchSkills finds skills by what they are about.
-func (p *Planner) toolSearchSkills(args json.RawMessage) string {
-	if p.library == nil {
-		return "Error: no procedure library is configured."
-	}
-	var in struct {
-		Query string `json:"query"`
-		Limit int    `json:"limit"`
-	}
-	if err := decodeArgs(args, &in); err != nil {
-		return fmt.Sprintf("Error: %v", err)
-	}
-	if strings.TrimSpace(in.Query) == "" {
-		return "Error: the query is empty. Describe the work in plain words."
-	}
-
-	hits, err := p.library.Search(in.Query, in.Limit)
-	if err != nil {
-		return fmt.Sprintf("Error: could not search the library: %v", err)
-	}
-	if len(hits) == 0 {
-		return fmt.Sprintf("No skill matches %q. Work from your own knowledge, and save a skill afterwards if what you work out is worth keeping.", in.Query)
-	}
-
-	var b strings.Builder
-	fmt.Fprintf(&b, "%d skill(s) match %q.\n", len(hits), in.Query)
-	// The obligation, and the reason it is worded this strongly.
-	//
-	// Measured on a real gateway: 14 searches against 2 reads. The line used to read "Use
-	// read_skill with the name to read one in full", which describes an OPTION — and a model
-	// under an anchor that cannot fail takes the option that costs nothing. It searched, read
-	// nothing, changed nothing, and the run was reported complete.
-	//
-	// What follows is the same tool with the choice removed: the summaries are explicitly NOT
-	// the procedure, and reading one is stated as the next step rather than as a possibility.
-	b.WriteString("A summary above is NOT the procedure: it is a title and one line, and acting on it is how the wrong thing gets done. Read the one that fits with read_skill BEFORE you act — the full text carries the steps and the pitfalls that the summary cannot.\n")
-	for _, s := range hits {
-		fmt.Fprintf(&b, "\n- %s: %s\n  %s%s", s.Name, s.Title, s.Summary, p.historySuffix(s.Name))
-	}
-	// The outstanding complaints are appended after the list, so they cannot be missed by a
-	// model that only skims the summaries: a skill the user reported as broken is the reason
-	// this search happened.
-	for _, s := range hits {
-		b.WriteString(p.feedbackSuffix(s.Name))
-	}
-	return b.String()
-}
-
-// toolReadSkill returns one procedure in full, which is the whole point of the library: the
-// index is cheap, the procedure is what changes what the agent does.
-func (p *Planner) toolReadSkill(args json.RawMessage) string {
-	if p.library == nil {
-		return "Error: no procedure library is configured."
-	}
-	var in struct {
-		Name string `json:"name"`
-	}
-	if err := decodeArgs(args, &in); err != nil {
-		return fmt.Sprintf("Error: %v", err)
-	}
-
-	s, err := p.library.Get(in.Name)
-	if err != nil {
-		if errors.Is(err, skills.ErrNotFound) {
-			return fmt.Sprintf("No skill named %q. Use list_skills to see what the library holds.", in.Name)
-		}
-		return fmt.Sprintf("Error: %v", err)
-	}
-	// The procedure is being read, so it is being relied on: this is the moment the credit
-	// becomes knowable, and the only one.
-	p.consult(s.Name)
-	if p.usage != nil {
-		p.usage.BumpView(s.Name)
-		p.usage.BumpUse(s.Name)
-	}
-
-	var b strings.Builder
-	fmt.Fprintf(&b, "# skill: %s\n(source: %s)\n\n", s.Name, s.Path)
-	b.WriteString(s.Body)
-	return b.String()
-}
-
-// toolSaveSkill writes a procedure to the library.
-//
-// The result names the file it wrote, so the model can tell the user where it went and so a
-// later read can be traced to it.
-func (p *Planner) toolSaveSkill(args json.RawMessage) string {
-	if p.library == nil {
-		return "Error: no procedure library is configured."
-	}
-	var in struct {
-		Name string `json:"name"`
-		Body string `json:"body"`
-	}
-	if err := decodeArgs(args, &in); err != nil {
-		return fmt.Sprintf("Error: %v", err)
-	}
-
-	s, err := p.library.Save(in.Name, in.Body)
-	if err != nil {
-		return fmt.Sprintf("Error: %v", err)
-	}
-	if p.usage != nil {
-		by := usage.ByForeground
-		if p.IsReviewFork {
-			by = usage.ByAgent
-		}
-		p.usage.BumpPatch(s.Name, by)
-	}
-	// Reset the iteration counter: a save_skill just happened, so the
-	// background review has no reason to fire for this turn.
-	p.itersSinceSkill = 0
-	return fmt.Sprintf("Saved the skill %q to %s (%d bytes). It is available from now on, including to later sessions.",
-		s.Name, s.Path, len(s.Body))
 }

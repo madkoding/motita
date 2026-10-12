@@ -6,7 +6,8 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "test": "node --test src/__tests__/*.test.mjs"
   },
   "dependencies": {
     "dompurify": "^3.4.16",
@@ -26,7 +27,7 @@
   },
   "devDependencies": {
     "@preact/preset-vite": "^2.9.0",
-    "autoprefixer": "^10.4.0",
+    "@tailwindcss/postcss": "^4.3.3",
     "jsdom": "^30.1.1",
     "postcss": "^8.4.0",
     "tailwindcss": "^4.3.3",

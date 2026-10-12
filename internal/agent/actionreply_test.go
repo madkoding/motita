@@ -41,13 +41,18 @@ func TestDecodeActionSalvagesWhatARealRunSent(t *testing.T) {
 		t.Fatalf("a list of commands: action = %+v, %v", a, err)
 	}
 
-	a, err = decodeAction("Reading the helper first.\n<invoke name=\"bash\">\n<parameter name=\"command\">cd /w && grep -n 'func newFakeTUI' internal/tui/*_test.go</parameter>\n" +
-		"<parameter name=\"description\">Locate the helper</parameter>\n</invoke>\n<invoke name=\"bash\"><parameter name=\"command\">git status</parameter></invoke>")
+	a, err = decodeAction(
+		"Reading the helper first.\n<invoke name=\"bash\">\n<parameter name=\"command\">cd /w && grep -n 'func newFakeTUI' " +
+			"internal/tui/*_test.go</parameter>\n" +
+			"<parameter name=\"description\">Locate the helper</parameter>\n</invoke>\n<invoke name=\"bash\"><parameter " +
+			"name=\"command\">git status</parameter></invoke>",
+	)
 	if err != nil || a.isDone() || len(a.Actions) != 2 {
 		t.Fatalf("pseudo tool calls: action = %+v, %v", a, err)
 	}
 	if a.Actions[0].Kind != "command" || a.Actions[0].Description != "Locate the helper" ||
-		a.Actions[0].Command != "cd /w && grep -n 'func newFakeTUI' internal/tui/*_test.go" || a.Actions[1].Command != "git status" {
+		a.Actions[0].Command != "cd /w && grep -n 'func newFakeTUI' internal/tui/*_test.go" ||
+		a.Actions[1].Command != "git status" {
 		t.Errorf("commands = %+v", a.Actions)
 	}
 	// Each salvaged round has its own "done", so one cannot change another.

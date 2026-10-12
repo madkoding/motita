@@ -8,6 +8,11 @@ import (
 	"time"
 )
 
+// Literals used more than once in this file.
+const (
+	httpsScheme = "https://"
+)
+
 // Qwen: the device login of Qwen Code (chat.qwen.ai), which gives a qwen.ai
 // account access to the Qwen coding models without a DashScope key.
 //
@@ -131,15 +136,23 @@ func qwenCredential(resp qwenTokenResponse, old Credential) (Credential, error) 
 }
 
 // QwenBaseURL turns a resource_url ("portal.qwen.ai") into the OpenAI-compatible
-// base URL the token is valid for ("https://portal.qwen.ai/v1").
+// base URL the token is valid for ("https://portal.qwen.ai/v1"). It is always
+// https: the bearer token travels with every request, and a server that answered
+// "http://" must not get it sent in clear text.
 func QwenBaseURL(resource string) string {
 	r := strings.TrimRight(strings.TrimSpace(resource), "/")
 	if r == "" {
 		return QwenDefaultBaseURL
 	}
-	if !strings.HasPrefix(r, "http://") && !strings.HasPrefix(r, "https://") {
-		r = "https://" + r
+	lower := strings.ToLower(r)
+	if strings.HasPrefix(lower, httpsScheme) {
+		r = r[len(httpsScheme):]
+	} else if strings.HasPrefix(lower, "http://") {
+		r = r[len("http://"):]
+	} else {
+		// No scheme: the bare host gets https below.
 	}
+	r = httpsScheme + r
 	if !strings.HasSuffix(r, "/v1") {
 		r += "/v1"
 	}
@@ -149,7 +162,9 @@ func QwenBaseURL(resource string) string {
 // PollDevice polls a device flow until it ends: approved, denied, expired, or
 // cancelled. It honours the server's interval and slows down when told to.
 // sleep is injectable so a test does not wait.
-func PollDevice[T any](ctx context.Context, interval int, sleep func(time.Duration) <-chan time.Time, poll func() (T, error)) (T, error) {
+func PollDevice[T any](
+	ctx context.Context, interval int, sleep func(time.Duration) <-chan time.Time, poll func() (T, error),
+) (T, error) {
 	if interval <= 0 {
 		interval = 5
 	}

@@ -8,7 +8,11 @@
 // instead of wandering.
 package session
 
-import "github.com/madkoding/motita/internal/llm"
+import (
+	"strings"
+
+	"github.com/madkoding/motita/internal/llm"
+)
 
 // EstimateTokens is how many tokens a message list is likely to cost.
 //
@@ -37,10 +41,15 @@ func estimateMessage(m llm.Message) int {
 	n := framing + estimateText(m.Content)
 	for _, call := range m.ToolCalls {
 		// A tool call is a name plus a JSON argument object plus an id.
-		n += framing + estimateText(call.Function.Name) + estimateText(string(call.Function.Arguments)) + estimateText(call.ID)
+		n += framing + estimateText(call.Function.Name) +
+			estimateText(string(call.Function.Arguments)) + estimateText(call.ID)
 	}
 	return n
 }
+
+// denseRunes are the punctuation and whitespace that mark machine-written text: JSON
+// delimiters, path and assignment separators, newlines and tabs.
+const denseRunes = "{}[]\":,;=/\\_\n\t"
 
 // estimateText estimates a bare string: roughly four characters per token for ordinary
 // prose, three when the text looks like the machine-written material an agent mostly
@@ -65,11 +74,11 @@ func estimateText(s string) int {
 		switch {
 		case r >= '0' && r <= '9':
 			dense++
-		case r == '{' || r == '}' || r == '[' || r == ']' || r == '"' || r == ':' ||
-			r == ',' || r == ';' || r == '=' || r == '/' || r == '\\' || r == '_':
+		case strings.ContainsRune(denseRunes, r):
 			dense++
-		case r == '\n' || r == '	':
-			dense++
+		default:
+			// Letters, spaces and ordinary punctuation are prose: they do not make the
+			// text denser.
 		}
 	}
 

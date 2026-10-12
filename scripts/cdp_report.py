@@ -8,7 +8,7 @@ has every section, so what is asserted here is MEASURED on the rendered page:
   * nothing overflows the message, on a desktop width and on a 390px phone;
   * the card fits inside the chat column (no horizontal scroll).
 """
-import asyncio, json, os, sys
+import asyncio, json, os, sys, tempfile
 
 sys.path.insert(0, os.path.dirname(__file__))
 from cdp_spinner import CDP  # noqa: E402
@@ -16,21 +16,25 @@ from cdp_checkpoints import send, until  # noqa: E402  (its module-level env is 
 
 BASE = os.environ["GATEWAY_URL"]
 TOKEN = open(os.environ["GATEWAY_STATE"]).read().strip()
-SHOTS = os.environ.get("SHOTS_DIR", "/tmp/motita-report")
+SHOTS = os.environ.get("SHOTS_DIR") or tempfile.mkdtemp(prefix="motita-report-")
 failures = 0
+PAGE_NAVIGATE = "Page.navigate"
 
 
-def fail(msg):
+def fail(msg: str) -> None:
+    """Count one failure and print it."""
     global failures
     failures += 1
     print("  FAIL " + msg)
 
 
-def ok(msg):
+def ok(msg: str) -> None:
+    """Print one passed check."""
     print("  ok   " + msg)
 
 
-def check(cond, msg):
+def check(cond: object, msg: str) -> None:
+    """Report msg as passed or failed depending on cond."""
     (ok if cond else fail)(msg)
 
 
@@ -58,7 +62,7 @@ MEASURE = """(() => {
 })()"""
 
 
-async def frame_card(c):
+async def frame_card(c: CDP) -> None:
     """Put the card on screen for the picture: the sidebar drawer closed, the toast dismissed, the
     card scrolled into view. A screenshot of a card that is out of frame proves nothing."""
     await c.js("""(() => {
@@ -69,22 +73,23 @@ async def frame_card(c):
     await asyncio.sleep(0.8)
 
 
-async def main(ws_url):
+async def main(ws_url: str) -> None:
+    """Run the report-card checks in the page behind ws_url and exit with the verdict."""
     import websockets
     async with websockets.connect(ws_url, max_size=64 << 20) as ws:
         c = CDP(ws)
         await c.call("Page.enable")
         await c.call("Network.setCacheDisabled", cacheDisabled=True)
         await c.call("Emulation.setDeviceMetricsOverride", width=1280, height=760, deviceScaleFactor=1, mobile=False)
-        await c.call("Page.navigate", url="about:blank")
-        await c.call("Page.navigate", url=f"{BASE}/#t={TOKEN}")
+        await c.call(PAGE_NAVIGATE, url="about:blank")
+        await c.call(PAGE_NAVIGATE, url=f"{BASE}/#t={TOKEN}")
         await asyncio.sleep(2.5)
         await c.js("""(async () => {
           for (const r of await navigator.serviceWorker.getRegistrations()) await r.unregister();
           for (const k of await caches.keys()) await caches.delete(k);
         })()""")
-        await c.call("Page.navigate", url="about:blank")
-        await c.call("Page.navigate", url=f"{BASE}/#t={TOKEN}")
+        await c.call(PAGE_NAVIGATE, url="about:blank")
+        await c.call(PAGE_NAVIGATE, url=f"{BASE}/#t={TOKEN}")
         await until(c, "!!document.querySelector('form textarea')", 20)
 
         print("== 1. a finished task is drawn as a report card ==")
@@ -106,10 +111,12 @@ async def main(ws_url):
             check(m["evidence"][:1] == ["ANCHOR_OK"], f"the evidence is shown: {m['evidence']}")
             check(m["risks"] == ["the file is overwritten on every run"], f"risks: {m['risks']}")
             check(m["next"] == ["commit report.txt"], f"next steps: {m['next']}")
-            check(m["sections"] == ["What changed", "How it was checked", "Worth knowing", "Next"], f"sections: {m['sections']}")
+            check(m["sections"] == ["What changed", "How it was checked", "Worth knowing", "Next"],
+                  f"sections: {m['sections']}")
             check(m["passBg"] == "rgb(126, 231, 135)", f"a passed check is green: {m['passBg']}")
             check(m["badgeColor"] == "rgb(126, 231, 135)", f"the badge takes the verdict colour: {m['badgeColor']}")
-            check(not m["cardOverflowX"] and not m["msgOverflowX"] and not m["pageOverflowX"], "no horizontal overflow on desktop")
+            check(not m["cardOverflowX"] and not m["msgOverflowX"] and not m["pageOverflowX"],
+                  "no horizontal overflow on desktop")
         await frame_card(c)
         await c.shot(f"{SHOTS}/report-desktop.png")
 
@@ -119,8 +126,10 @@ async def main(ws_url):
         m = await c.js(MEASURE)
         check(bool(m), "the card is still there at 390px")
         if m:
-            check(not m["cardOverflowX"] and not m["msgOverflowX"] and not m["pageOverflowX"], "no horizontal overflow at 390px")
-            check(m["msgRight"] <= m["viewport"] + 1, f"the message stays inside the screen ({m['msgRight']:.0f} <= {m['viewport']})")
+            check(not m["cardOverflowX"] and not m["msgOverflowX"] and not m["pageOverflowX"],
+                  "no horizontal overflow at 390px")
+            check(m["msgRight"] <= m["viewport"] + 1,
+                  f"the message stays inside the screen ({m['msgRight']:.0f} <= {m['viewport']})")
         await frame_card(c)
         await c.shot(f"{SHOTS}/report-phone.png")
 
@@ -129,10 +138,9 @@ async def main(ws_url):
 
 
 if __name__ == "__main__":
-    import urllib.request
+    from cdp_http import fetch_json
     from cdp_spinner import start_browser, PORT
     os.makedirs(SHOTS, exist_ok=True)
     start_browser()
-    with urllib.request.urlopen(f"http://127.0.0.1:{PORT}/json/list", timeout=5) as r:
-        page = [t for t in json.load(r) if t.get("type") == "page"][0]
+    page = [t for t in fetch_json(f"http://127.0.0.1:{PORT}/json/list", timeout=5) if t.get("type") == "page"][0]
     asyncio.run(main(page["webSocketDebuggerUrl"]))

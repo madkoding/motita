@@ -4,8 +4,10 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"strings"
 
 	"github.com/madkoding/motita/internal/agent"
+	"github.com/madkoding/motita/internal/config"
 	"github.com/madkoding/motita/internal/llm"
 )
 
@@ -116,8 +118,9 @@ func validReasoning(level string) bool {
 	switch level {
 	case "off", "low", "medium", "high":
 		return true
+	default:
+		return false
 	}
-	return false
 }
 
 // handleUpdateConfig changes the provider and/or model for a conversation.
@@ -145,12 +148,39 @@ func (s *Server) handleUpdateConfig(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	c := convOf(r)
+	before := c.svc.Config()
 	c.svc.SetLLM(body.Provider, body.Model)
 	if body.Reasoning != "" {
 		c.svc.SetReasoning(body.Reasoning)
 	}
 	s.saveSession(c)
-	writeJSON(w, http.StatusOK, viewOf(c.svc.Config()))
+	v := viewOf(c.svc.Config())
+	v.Warnings = modelChangeWarnings(c, before, v)
+	if len(v.Warnings) > 0 {
+		v.PreviousModel = before.LLM.Model
+	}
+	writeJSON(w, http.StatusOK, v)
+}
+
+// modelChangeWarnings says what switching the model means for this session. The model belongs to
+// the SESSION, so a switch is fine in a new one and worth a warning in one that already talked:
+// the next turn hands a transcript written by one model to another, which may read it, and answer,
+// differently. Nothing is refused; the warning is what the front end shows beside the new model.
+func modelChangeWarnings(c *conversation, before config.Config, after configView) []string {
+	if strings.EqualFold(before.LLM.Provider, after.Provider) && before.LLM.Model == after.Model {
+		return nil
+	}
+	var out []string
+	if len(c.svc.Transcript()) > 0 {
+		out = append(out, "history")
+	}
+	c.stateMu.Lock()
+	running := c.running
+	c.stateMu.Unlock()
+	if running {
+		out = append(out, "running")
+	}
+	return out
 }
 
 // configReloader is a service that can re-read the configuration the setup wizard writes. It is
@@ -170,7 +200,8 @@ func (s *Server) handleReloadConfig(w http.ResponseWriter, r *http.Request) {
 	c := convOf(r)
 	rl, ok := c.svc.(configReloader)
 	if !ok {
-		writeError(w, http.StatusNotImplemented, "this gateway cannot reload its configuration: restart it to apply the new setup")
+		writeError(w, http.StatusNotImplemented,
+			"this gateway cannot reload its configuration: restart it to apply the new setup")
 		return
 	}
 	if err := rl.ReloadConfig(r.Context()); err != nil {

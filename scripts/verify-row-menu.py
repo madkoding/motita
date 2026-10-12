@@ -40,15 +40,19 @@ import asyncio
 import base64
 import json
 import os
+import pathlib
+import tempfile
 import subprocess
 import time
-import urllib.request
+from typing import Any
+
+from cdp_http import JSON, AsyncSocket, fetch_json
 
 import websockets
 
 BASE = os.environ.get("GATEWAY_URL", "http://127.0.0.1:7477")
 CDP_PORT = int(os.environ.get("CDP_PORT", "9444"))
-SHOTS_DIR = os.environ.get("SHOTS_DIR", os.path.join(os.environ.get("TMPDIR", "/tmp"), "motita-row-menu-shots"))
+SHOTS_DIR = os.environ.get("SHOTS_DIR") or tempfile.mkdtemp(prefix="motita-row-menu-shots-")
 CHROME = os.path.expanduser(
     "~/.hermes/cache/chrome/chrome-headless-shell-linux64/chrome-headless-shell"
 )
@@ -57,12 +61,14 @@ failures: list[str] = []
 
 
 def fail(msg: str) -> int:
+    """Record and print one failure; returns 1."""
     print(f"  FAIL {msg}")
     failures.append(msg)
     return 1
 
 
 def token() -> str:
+    """The gateway token: MOTITA_TOKEN, else the token file."""
     if os.environ.get("MOTITA_TOKEN"):
         return os.environ["MOTITA_TOKEN"]
     path = os.environ.get(
@@ -217,9 +223,95 @@ MEASURE_JS = r"""
 """
 
 
-async def run_measure(shot_path: str | None) -> dict:
-    proc = subprocess.Popen(
-        [
+class Page:
+    """CDP calls over one websocket, read by exactly one coroutine at a time."""
+
+    def __init__(self, ws: AsyncSocket) -> None:
+        self.ws = ws
+        self.counter = 0
+
+    async def call(self, method: str, **params: Any) -> dict[str, Any]:
+        """Send one CDP command and wait for its own reply."""
+        self.counter += 1
+        mid = self.counter
+        await self.ws.send(json.dumps({"id": mid, "method": method, "params": params}))
+        while True:
+            msg = json.loads(await self.ws.recv())
+            if msg.get("id") == mid:
+                if "error" in msg:
+                    raise RuntimeError(f"{method}: {msg['error']}")
+                return msg.get("result", {})
+
+    async def js(self, expr: str) -> JSON:
+        """Evaluate expr in the page (awaiting a promise) and return its value."""
+        res = await self.call(
+            "Runtime.evaluate", expression=expr, returnByValue=True, awaitPromise=True
+        )
+        if res.get("exceptionDetails"):
+            raise RuntimeError(f"page error: {res['exceptionDetails']}")
+        return res.get("result", {}).get("value")
+
+
+def first_page_ws() -> str | None:
+    """The websocket URL of the browser's first page target, or None (also when unreachable)."""
+    try:
+        targets = fetch_json(f"http://127.0.0.1:{CDP_PORT}/json/list", timeout=1)
+        pages = [t for t in targets if t.get("type") == "page"]
+        if pages:
+            return pages[0]["webSocketDebuggerUrl"]
+    except Exception:
+        pass
+    return None
+
+
+async def wait_page_ws() -> str:
+    """Poll the browser for ~20 s until it offers a page target."""
+    ws_url = None
+    for _ in range(80):
+        ws_url = first_page_ws()
+        if ws_url is not None:
+            break
+        await asyncio.sleep(0.25)
+    if not ws_url:
+        raise RuntimeError("could not attach to Chrome")
+    return ws_url
+
+
+async def measure(page: Page, shot_path: str | None) -> dict[str, Any]:
+    """Load the app fresh at a phone width, run MEASURE_JS and optionally keep a screenshot."""
+    await page.call("Page.enable")
+    await page.call("Runtime.enable")
+    await page.call("Network.setCacheDisabled", cacheDisabled=True)
+    await page.call(
+        "Emulation.setDeviceMetricsOverride",
+        width=390,
+        height=900,
+        deviceScaleFactor=2,
+        mobile=False,
+    )
+    url = f"{BASE}/#t={token()}"
+    # Load twice: the first pass registers the service worker, and a
+    # cached bundle would measure the PREVIOUS build.
+    for _ in range(2):
+        await page.call("Page.navigate", url="about:blank")
+        await page.call("Page.navigate", url=url)
+        await asyncio.sleep(2.5)
+        await page.js(
+            "(async()=>{for(const r of await navigator.serviceWorker.getRegistrations())"
+            "await r.unregister();for(const k of await caches.keys())await caches.delete(k);})()"
+        )
+
+    data = await page.js(MEASURE_JS)
+    if shot_path:
+        res = await page.call("Page.captureScreenshot", format="png")
+        await asyncio.to_thread(pathlib.Path(shot_path).write_bytes, base64.b64decode(res["data"]))
+    return data
+
+
+async def run_measure(shot_path: str | None) -> dict[str, Any]:
+    """Start a headless Chrome, measure the row menu in it and stop it again."""
+    proc = await asyncio.create_subprocess_exec(
+        *[
             CHROME,
             f"--remote-debugging-port={CDP_PORT}",
             "--headless",
@@ -232,125 +324,63 @@ async def run_measure(shot_path: str | None) -> dict:
         stderr=subprocess.DEVNULL,
     )
     try:
-        ws_url = None
-        for _ in range(80):
-            try:
-                with urllib.request.urlopen(
-                    f"http://127.0.0.1:{CDP_PORT}/json/list", timeout=1
-                ) as resp:
-                    targets = json.load(resp)
-                pages = [t for t in targets if t.get("type") == "page"]
-                if pages:
-                    ws_url = pages[0]["webSocketDebuggerUrl"]
-                    break
-            except Exception:
-                pass
-            time.sleep(0.25)
-        if not ws_url:
-            raise RuntimeError("could not attach to Chrome")
-
+        ws_url = await wait_page_ws()
         async with websockets.connect(ws_url, max_size=50 * 1024 * 1024) as ws:
-            counter = [0]
-
-            async def call(method: str, **params):
-                counter[0] += 1
-                mid = counter[0]
-                await ws.send(json.dumps({"id": mid, "method": method, "params": params}))
-                while True:
-                    msg = json.loads(await ws.recv())
-                    if msg.get("id") == mid:
-                        if "error" in msg:
-                            raise RuntimeError(f"{method}: {msg['error']}")
-                        return msg.get("result", {})
-
-            async def js(expr: str):
-                res = await call(
-                    "Runtime.evaluate", expression=expr, returnByValue=True, awaitPromise=True
-                )
-                if res.get("exceptionDetails"):
-                    raise RuntimeError(f"page error: {res['exceptionDetails']}")
-                return res.get("result", {}).get("value")
-
-            await call("Page.enable")
-            await call("Runtime.enable")
-            await call("Network.setCacheDisabled", cacheDisabled=True)
-            await call(
-                "Emulation.setDeviceMetricsOverride",
-                width=390,
-                height=900,
-                deviceScaleFactor=2,
-                mobile=False,
-            )
-            url = f"{BASE}/#t={token()}"
-            # Load twice: the first pass registers the service worker, and a
-            # cached bundle would measure the PREVIOUS build.
-            for _ in range(2):
-                await call("Page.navigate", url="about:blank")
-                await call("Page.navigate", url=url)
-                await asyncio.sleep(2.5)
-                await js(
-                    "(async()=>{for(const r of await navigator.serviceWorker.getRegistrations())"
-                    "await r.unregister();for(const k of await caches.keys())await caches.delete(k);})()"
-                )
-
-            data = await js(MEASURE_JS)
-            if shot_path:
-                res = await call("Page.captureScreenshot", format="png")
-                with open(shot_path, "wb") as fh:
-                    fh.write(base64.b64decode(res["data"]))
-            return data
+            return await measure(Page(ws), shot_path)
     finally:
         proc.terminate()
+        await proc.wait()
 
 
-def main() -> int:
-    os.makedirs(SHOTS_DIR, exist_ok=True)
-    print(f"=== row menu, measured against {BASE} ===")
-    data = asyncio.run(run_measure(os.path.join(SHOTS_DIR, "row-menu.png")))
-
-    if data.get("error"):
-        fail(data["error"])
-        print(f"\nROW MENU VERIFICATION FAILED: {len(failures)} check(s)")
-        return 1
-
-    op = data["open"]
+def check_open(op: dict[str, Any]) -> None:
+    """The menu animates in and casts a shadow."""
     print(f"  opening animation : {op['animation']} ({op['duration']})")
     if op["animation"] in ("none", ""):
         fail("the menu does not animate on open (animation-name is 'none')")
     if not op["shadow"]:
         fail("the menu has no shadow, so it does not separate from the list behind it")
 
+
+def check_integrate(it: dict[str, Any]) -> None:
+    """A disabled Integrate item reads as disabled: dimmed, dimmer than its neighbour, not-allowed."""
+    ig = it["integrate"]
+    print(
+        f"      Integrate disabled={ig['disabled']} opacity={ig['opacity']} cursor={ig['cursor']}"
+    )
+    if not it.get("integrateHasItemClass"):
+        fail("the Integrate item is missing the `row-menu-item` class, so it cannot be dimmed")
+    if ig["disabled"] and ig["opacity"] >= 1:
+        fail(
+            f"a DISABLED Integrate is not dimmed (computed opacity {ig['opacity']}) "
+            "— disabled and enabled look identical"
+        )
+    if ig["disabled"] and ig["cursor"] != "not-allowed":
+        fail(f"a DISABLED Integrate does not show a `not-allowed` cursor (got {ig['cursor']})")
+    if "renameOpacity" in it and ig["disabled"] and ig["opacity"] >= it["renameOpacity"]:
+        fail(
+            "the dimmed Integrate is not dimmer than an enabled item beside it "
+            f"({ig['opacity']} vs {it['renameOpacity']})"
+        )
+
+
+def check_items(items: list[dict[str, Any]]) -> None:
+    """Every row's menu opened, and each Integrate item it has is checked."""
     print("  items:")
     any_integrate = False
-    for it in data["items"]:
+    for it in items:
         if it.get("error"):
             fail(f"a row's menu did not open: {it['error']}")
             continue
         print(f"    {', '.join(it['labels'])}")
         if "integrate" in it:
             any_integrate = True
-            ig = it["integrate"]
-            print(
-                f"      Integrate disabled={ig['disabled']} opacity={ig['opacity']} cursor={ig['cursor']}"
-            )
-            if not it.get("integrateHasItemClass"):
-                fail("the Integrate item is missing the `row-menu-item` class, so it cannot be dimmed")
-            if ig["disabled"] and ig["opacity"] >= 1:
-                fail(
-                    f"a DISABLED Integrate is not dimmed (computed opacity {ig['opacity']}) "
-                    "— disabled and enabled look identical"
-                )
-            if ig["disabled"] and ig["cursor"] != "not-allowed":
-                fail(f"a DISABLED Integrate does not show a `not-allowed` cursor (got {ig['cursor']})")
-            if "renameOpacity" in it and ig["disabled"] and ig["opacity"] >= it["renameOpacity"]:
-                fail(
-                    "the dimmed Integrate is not dimmer than an enabled item beside it "
-                    f"({ig['opacity']} vs {it['renameOpacity']})"
-                )
+            check_integrate(it)
     if not any_integrate:
         print("    (no project session with an Integrate item was present to check dimming)")
 
-    o = data["outside"]
+
+def check_outside(o: dict[str, Any]) -> None:
+    """A click outside closes the open menu, with its exit animation."""
     print(f"  click outside     : closed={o['closed']} exitAnimation={o['midAnim']}")
     if not o["openBefore"]:
         fail("the menu was not open before the outside click, so the check proves nothing")
@@ -362,14 +392,19 @@ def main() -> int:
             f"(animation-name was {o['midAnim']!r})"
         )
 
-    t = data["toggle"]
+
+def check_toggle(t: dict[str, Any]) -> None:
+    """The '...' button opens the menu and closes it again."""
     print(f"  toggle button     : opens={t['opensOnFirstClick']} closes={t['closesOnSecondClick']}")
     if not t["opensOnFirstClick"]:
         fail("clicking the '...' button did not open the menu")
     if not t["closesOnSecondClick"]:
         fail("clicking the '...' button again did not close the menu (outside-click handler fighting it?)")
 
-    for c in data.get("clipping", []):
+
+def check_clipping(clipping: list[dict[str, Any]]) -> None:
+    """The menu is not clipped by its project, collapsed or expanded."""
+    for c in clipping:
         where = "collapsed project" if c["collapsed"] else "expanded project"
         if c["clip"]:
             fail(
@@ -379,13 +414,30 @@ def main() -> int:
         else:
             print(f"  clipping ({where}) : none")
 
+
+def main() -> int:
+    """Measure the row menu and print the verdict; returns the exit code."""
+    os.makedirs(SHOTS_DIR, exist_ok=True)
+    print(f"=== row menu, measured against {BASE} ===")
+    data = asyncio.run(run_measure(os.path.join(SHOTS_DIR, "row-menu.png")))
+
+    if data.get("error"):
+        fail(data["error"])
+        print(f"\nROW MENU VERIFICATION FAILED: {len(failures)} check(s)")
+        return 1
+
+    check_open(data["open"])
+    check_items(data["items"])
+    check_outside(data["outside"])
+    check_toggle(data["toggle"])
+    check_clipping(data.get("clipping", []))
+
     print()
     if failures:
         print(f"ROW MENU VERIFICATION FAILED: {len(failures)} check(s)")
         return 1
     print("ROW MENU VERIFICATION PASSED")
     return 0
-
 
 if __name__ == "__main__":
     raise SystemExit(main())

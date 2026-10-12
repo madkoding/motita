@@ -1,3 +1,4 @@
+import { choose } from './choose'
 // When an answer's expensive parts get built, and when the conversation counts as READY.
 //
 // An answer is rendered in two stages. The first is cheap and happens for every message: the
@@ -58,13 +59,13 @@ const transitions: Transition[] = []
 
 function record(idle: boolean, reason: string): void {
   let pending = 0
-  for (const e of entries.values()) if (!e.finished) pending++
+  for (const e of entries.values()) { if (!e.finished) { pending++ } }
   const last = transitions[transitions.length - 1]
   // Only the CHANGES are kept: the observer fires often and a log of identical rows would hide
   // the flicker inside its own noise.
-  if (last && last.idle === idle && last.pending === pending) return
+  if (last?.idle === idle && last.pending === pending) { return }
   transitions.push({ at: Math.round(performance.now()), idle, pending, registered: entries.size, reason })
-  if (transitions.length > 60) transitions.shift()
+  if (transitions.length > 60) { transitions.shift() }
 }
 
 /** How far ahead of the viewport a message starts building. */
@@ -79,7 +80,7 @@ const MARGIN = '600px 0px'
  */
 function visiblePending(): boolean {
   for (const e of entries.values()) {
-    if (e.inView && !e.finished) return true
+    if (e.inView && !e.finished) { return true }
   }
   return false
 }
@@ -106,7 +107,7 @@ let quietTimer: ReturnType<typeof setTimeout> | null = null
  * the window quiet rather than fixed.
  */
 export function noteActivity(): void {
-  if (quietTimer !== null) clearTimeout(quietTimer)
+  if (quietTimer !== null) { clearTimeout(quietTimer) }
   quietTimer = setTimeout(() => {
     quietTimer = null
     document.dispatchEvent(new CustomEvent('motita:chat-quiet'))
@@ -115,7 +116,7 @@ export function noteActivity(): void {
 
 /** Stop the window without announcing. For tests and teardown. */
 export function cancelQuiet(): void {
-  if (quietTimer !== null) clearTimeout(quietTimer)
+  if (quietTimer !== null) { clearTimeout(quietTimer) }
   quietTimer = null
 }
 
@@ -125,8 +126,8 @@ export function hydrationLog(): Transition[] {
 }
 
 function ensureObserver(): IntersectionObserver | null {
-  if (unsupported) return null
-  if (observer) return observer
+  if (unsupported) { return null }
+  if (observer) { return observer }
   if (typeof IntersectionObserver === 'undefined') {
     // No observer: fall back to building everything immediately. The reader gets the old
     // behaviour rather than a conversation whose diagrams never appear — a slow page is a
@@ -139,7 +140,7 @@ function ensureObserver(): IntersectionObserver | null {
       let started = false
       for (const rec of records) {
         const entry = entries.get(rec.target)
-        if (!entry) continue
+        if (!entry) { continue }
         // The visibility flag is kept CURRENT for every registered message, including ones
         // already built. Unobserving on first sight is cheaper, but it freezes this attribute at
         // its value when the work started — so it stops describing where the message is and
@@ -147,7 +148,7 @@ function ensureObserver(): IntersectionObserver | null {
         // nodes a hydrated message holds (a mermaid SVG is hundreds of elements), not one
         // IntersectionObserver registration; this is the cheap half.
         entry.inView = rec.isIntersecting
-        ;(rec.target as HTMLElement).setAttribute('data-inview', rec.isIntersecting ? '1' : '0')
+        ;(rec.target as HTMLElement).dataset.inview = choose(rec.isIntersecting, '1', '0')
         if (rec.isIntersecting && !entry.started) {
           entry.started = true
           entry.task()
@@ -157,7 +158,7 @@ function ensureObserver(): IntersectionObserver | null {
       // A message that scrolled AWAY while it was pending is no longer something the reader is
       // waiting for — but the transition is still activity, and the quiet window is what decides
       // when the page has stopped, so it is restarted here too.
-      if (started || records.some((r) => !r.isIntersecting)) noteActivity()
+      if (started || records.some((r) => !r.isIntersecting)) { noteActivity() }
     },
     { root: null, rootMargin: MARGIN, threshold: 0 },
   )
@@ -178,8 +179,8 @@ export function watchForHydration(el: HTMLElement, task: () => void): () => void
   // visible until the first callback would make a message that is never reported look built, and
   // — worse — would make the spinner's "is anything visible still pending" question answer itself
   // with a yes that nothing ever corrects.
-  el.setAttribute('data-hydrating', '1')
-  el.setAttribute('data-inview', '0')
+  el.dataset.hydrating = '1'
+  el.dataset.inview = '0'
   record(!visiblePending(), 'register')
   // A message appearing is activity: it restarts the quiet window, so the window cannot expire
   // between two messages that are still arriving.
@@ -198,7 +199,7 @@ export function watchForHydration(el: HTMLElement, task: () => void): () => void
     const fallback = entries.get(el)!
     fallback.inView = true
     fallback.started = true
-    el.setAttribute('data-inview', '1')
+    el.dataset.inview = '1'
     fallback.task()
   }
 
@@ -219,8 +220,8 @@ export function watchForHydration(el: HTMLElement, task: () => void): () => void
 /** Mark a message's deferred work as over, on either outcome. */
 function finish(el: HTMLElement): void {
   const entry = entries.get(el)
-  if (entry) entry.finished = true
-  el.removeAttribute('data-hydrating')
+  if (entry) { entry.finished = true }
+  delete el.dataset.hydrating
   record(!visiblePending(), 'finish')
   // A message finishing is activity too, and this is the one that matters: it is what keeps the
   // window open while the conversation is still being built, and what lets it close when the
@@ -231,6 +232,6 @@ function finish(el: HTMLElement): void {
 /** How many messages are registered, in view, and still unbuilt. For the gate and the log. */
 export function hydrationState(): { registered: number; pending: number; visiblePending: boolean } {
   let pending = 0
-  for (const e of entries.values()) if (!e.finished) pending++
+  for (const e of entries.values()) { if (!e.finished) { pending++ } }
   return { registered: entries.size, pending, visiblePending: visiblePending() }
 }

@@ -26,7 +26,9 @@ func oauthHost(t *testing.T, kind Kind, polls ...string) (Service, Store, *httpt
 	n := 0
 	mux := http.NewServeMux()
 	mux.HandleFunc("/device", func(w http.ResponseWriter, r *http.Request) {
-		_, _ = w.Write([]byte(`{"device_code":"dc","user_code":"AB-12","verification_uri":"https://h.test/verify","expires_in":600,"interval":1}`))
+		_, _ = w.Write(
+			[]byte(`{"device_code":"dc","user_code":"AB-12","verification_uri":"https://h.test/verify","expires_in":600,` +
+				`"interval":1}`))
 	})
 	mux.HandleFunc("/token", func(w http.ResponseWriter, r *http.Request) {
 		b, _ := io.ReadAll(r.Body)
@@ -55,15 +57,17 @@ func oauthHost(t *testing.T, kind Kind, polls ...string) (Service, Store, *httpt
 	srv := httptest.NewServer(mux)
 	t.Cleanup(srv.Close)
 	svc := Service{ID: string(kind), Name: "Host", Kind: kind, Host: "h.test", APIBase: srv.URL, EnvPrefix: "MOTITA_X",
-		Client:    oauth.Client{ID: "cid", Secret: "sec"},
-		Endpoints: oauth.Endpoints{DeviceURL: srv.URL + "/device", TokenURL: srv.URL + "/token", AuthorizeURL: srv.URL + "/authorize"}}
+		Client: oauth.Client{ID: "cid", Secret: "sec"},
+		Endpoints: oauth.Endpoints{DeviceURL: srv.URL + "/device", TokenURL: srv.URL + "/token", AuthorizeURL: srv.URL +
+			"/authorize"}}
 	return svc, Store{Dir: t.TempDir(), Env: noEnv}, srv
 }
 
 func TestDeviceFlowEndToEnd(t *testing.T) {
 	sleepFor = instant
 	defer func() { sleepFor = time.After }()
-	svc, s, _ := oauthHost(t, KindGitHub, `{"error":"authorization_pending"}`, `{"access_token":"good","refresh_token":"r"}`)
+	svc, s, _ := oauthHost(t, KindGitHub, `{"error":"authorization_pending"}`,
+		`{"access_token":"good","refresh_token":"r"}`)
 	f, err := s.StartDevice(context.Background(), svc)
 	if err != nil || f.Code != "AB-12" || f.URL != "https://h.test/verify" || f.ExpiresIn != 600 {
 		t.Fatalf("%+v %v", f, err)
@@ -84,7 +88,8 @@ func TestDeviceFlowFailures(t *testing.T) {
 	// No device login configured.
 	plain := Defaults(noEnv)[1]
 	s := Store{Dir: t.TempDir(), Env: noEnv}
-	if _, err := s.StartDevice(context.Background(), plain); err == nil || !strings.Contains(err.Error(), "MOTITA_GITLAB_CLIENT_ID") {
+	if _, err := s.StartDevice(context.Background(), plain); err == nil ||
+		!strings.Contains(err.Error(), "MOTITA_GITLAB_CLIENT_ID") {
 		t.Errorf("err = %v", err)
 	}
 	// The host refuses to start one.
@@ -119,10 +124,12 @@ func TestConnectToken(t *testing.T) {
 	if _, err := s.ConnectToken(context.Background(), svc, "", ""); err == nil {
 		t.Error("an empty token must be refused")
 	}
-	if _, err := s.ConnectToken(context.Background(), svc, "nope", ""); err == nil || !strings.Contains(err.Error(), "did not accept") {
+	if _, err := s.ConnectToken(context.Background(), svc, "nope", ""); err == nil ||
+		!strings.Contains(err.Error(), "did not accept") {
 		t.Errorf("err = %v", err)
 	}
-	if _, err := s.ConnectToken(context.Background(), svc, "broken", ""); err == nil || !strings.Contains(err.Error(), "could not confirm") {
+	if _, err := s.ConnectToken(context.Background(), svc, "broken", ""); err == nil ||
+		!strings.Contains(err.Error(), "could not confirm") {
 		t.Errorf("err = %v", err)
 	}
 	// Failing to store is reported.
@@ -132,7 +139,8 @@ func TestConnectToken(t *testing.T) {
 	}
 	// Bitbucket's app password needs the account, and is sent with Basic.
 	bb, s, _ := oauthHost(t, KindBitbucket, "")
-	if _, err := s.ConnectToken(context.Background(), bb, "pw", ""); err == nil || !strings.Contains(err.Error(), "account name") {
+	if _, err := s.ConnectToken(context.Background(), bb, "pw", ""); err == nil ||
+		!strings.Contains(err.Error(), "account name") {
 		t.Errorf("err = %v", err)
 	}
 	if who, err = s.ConnectToken(context.Background(), bb, "pw", "user"); err != nil || who != "user" {

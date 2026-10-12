@@ -80,9 +80,11 @@ func printBanner(out io.Writer, arrows bool) {
 	fmt.Fprintln(out)
 	fmt.Fprintf(out, "%s%s\n", indent, breadcrumb(out))
 	if arrows {
-		fprintf(out, "%s%sUse ↑↓ to choose and Enter to accept, or type the answer. Type q to quit at any time.%s\n", indent, colGray, colReset)
+		fprintf(out, "%s%sUse ↑↓ to choose and Enter to accept, or type the answer. Type q to quit at any time.%s\n",
+			indent, colGray, colReset)
 	} else {
-		fprintf(out, "%s%sPress Enter to accept the value in [brackets]. Type q to quit at any time.%s\n", indent, colGray, colReset)
+		fprintf(out, "%s%sPress Enter to accept the value in [brackets]. Type q to quit at any time.%s\n",
+			indent, colGray, colReset)
 	}
 	printLanguageHint(out)
 }
@@ -91,7 +93,8 @@ func printBanner(out io.Writer, arrows bool) {
 // answer to the first question, changes it (see chooseProvider). It is written in the current
 // language and names the other one in its own words, so a reader of either can find it.
 func printLanguageHint(out io.Writer) {
-	fprintf(out, "%s%sLanguage: English · type es at the first question for Español.%s\n", indent, colGray, colReset) // spanish-fixture: the other language named in its own words
+	fprintf(out, "%s%sLanguage: English · type es at the first question for Español.%s\n", // spanish-fixture: own name
+		indent, colGray, colReset)
 }
 
 // breadcrumb is the list of steps, so the user knows how far there is to go before the first
@@ -109,7 +112,8 @@ func breadcrumb(out io.Writer) string {
 func printStep(out io.Writer, n int, question string) {
 	fmt.Fprintln(out)
 	fmt.Fprintln(out)
-	fmt.Fprintf(out, "%s%s[%d/%d] %s%s%s%s\n", indent, colCyan, n, len(steps), colReset, colBold, tr(out, question), colReset)
+	fmt.Fprintf(out, "%s%s[%d/%d] %s%s%s%s\n",
+		indent, colCyan, n, len(steps), colReset, colBold, tr(out, question), colReset)
 }
 
 // printSection writes a sub-heading inside a step: the login flows use it to name the account
@@ -133,7 +137,8 @@ func optionRow(n int, label string, width int, note string, selected bool) strin
 	if selected {
 		marker = colCyan + "›" + colReset + " "
 	}
-	return fmt.Sprintf("%s%s%s%2d%s  %s%s%s%s%s", indent, marker, colYellow, n, colReset, colBold, label, colReset, pad, note)
+	return fmt.Sprintf("%s%s%s%2d%s  %s%s%s%s%s",
+		indent, marker, colYellow, n, colReset, colBold, label, colReset, pad, note)
 }
 
 // labelWidth is the widest label of a menu, which is where its description column starts.
@@ -228,7 +233,8 @@ func printSummary(out io.Writer, res Result) {
 	fmt.Fprintln(out)
 	printField(out, "Settings", res.ConfigPath)
 	if res.CredentialsPath != "" {
-		printField(out, "API key", res.CredentialsPath+colDim+"  "+fmt.Sprintf(tr(out, "(read automatically, %s)"), tr(out, credentialsProtection()))+colReset)
+		protection := fmt.Sprintf(tr(out, "(read automatically, %s)"), tr(out, credentialsProtection()))
+		printField(out, "API key", res.CredentialsPath+colDim+"  "+protection+colReset)
 	}
 	printField(out, "Model", res.Model)
 

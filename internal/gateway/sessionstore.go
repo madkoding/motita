@@ -130,7 +130,9 @@ func (st *sessionStore) write(c *conversation, ended bool) error {
 		MergedSHA:   c.mergedSha,
 	}
 	if c.prWatch != nil {
-		rec.PRWatch = &prWatchRecord{Status: c.prWatch.Status, Attempts: c.prWatch.Attempts, Number: c.prWatch.Number, FixedKey: c.prFixedKey}
+		rec.PRWatch = &prWatchRecord{
+			Status: c.prWatch.Status, Attempts: c.prWatch.Attempts, Number: c.prWatch.Number, FixedKey: c.prFixedKey,
+		}
 	}
 	c.stateMu.Unlock()
 

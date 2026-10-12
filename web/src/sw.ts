@@ -27,8 +27,8 @@ const SHELL_CACHE = 'motita-shell-v20'
 //     it made `cache.addAll` reject the WHOLE install on a 404, leaving the previous worker in
 //     place forever. Measured: of 84 precache entries the served worker listed, `index.html` was
 //     the only one that 404'd, and the cache stayed empty.
-const precacheAssets: string[] = ((self as any).__WB_MANIFEST ?? [])
-  .map((e: any) => e.url)
+const precacheAssets: string[] = ((self as ServiceWorkerGlobalScope & { __WB_MANIFEST?: { url: string }[] }).__WB_MANIFEST ?? [])
+  .map(e => e.url)
   .filter((url: string) => !isDocument(url))
 
 /** The shell document, under any of the names the build might give it. */
@@ -99,7 +99,7 @@ self.addEventListener('fetch', (event: FetchEvent) => {
   // name changes whenever the bytes do.
   event.respondWith(
     caches.match(event.request).then((cached) => {
-      if (cached) return cached
+      if (cached) { return cached }
       return fetch(event.request).then((response) => {
         if (response.ok) {
           const clone = response.clone()

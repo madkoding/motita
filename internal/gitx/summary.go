@@ -98,6 +98,8 @@ func parseChanges(nameStatus, numstat, untracked string) []FileChange {
 			st = "deleted"
 		case 'R':
 			st = "renamed"
+		default:
+			// Every other status is reported as a modification.
 		}
 		c := counts[path]
 		out = append(out, FileChange{Path: path, Status: st, Added: c[0], Deleted: c[1]})

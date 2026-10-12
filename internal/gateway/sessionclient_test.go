@@ -92,6 +92,9 @@ func TestListSessionsAnswersAnEmptyListAndNotNil(t *testing.T) {
 	if len(got) != 0 {
 		t.Errorf("ListSessions returned %d sessions from an empty answer", len(got))
 	}
+	if c.MaxSessions() != 0 {
+		t.Errorf("a gateway that sent no ceiling reported %d", c.MaxSessions())
+	}
 }
 
 // TestCreateSessionCarriesTheRefusal: a gateway at its ceiling refuses with a reason, and a client

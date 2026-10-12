@@ -152,6 +152,9 @@ func newTestServer(t *testing.T, svc Service, mutators ...func(*Options)) *Serve
 		Token:     testToken,
 		Version:   "test",
 		MaxBodyKB: defaultMaxBodyKB,
+		// The host httptest.NewRequest addresses, so the Host check lets the hand-built
+		// requests of the tests through as it would a configured name.
+		Hosts: []string{"example.com"},
 	}
 	for _, m := range mutators {
 		m(&opts)
@@ -224,7 +227,8 @@ func TestHealthAnswersWithoutAToken(t *testing.T) {
 func TestEveryOtherEndpointNeedsTheToken(t *testing.T) {
 	srv := newTestServer(t, &fakeService{})
 	paths := []string{
-		sessionPath(srv, DefaultSession, "/config"), sessionPath(srv, DefaultSession, ""), sessionPath(srv, DefaultSession, "/report"), sessionPath(srv, DefaultSession, "/models"),
+		sessionPath(srv, DefaultSession, "/config"), sessionPath(srv, DefaultSession, ""),
+		sessionPath(srv, DefaultSession, "/report"), sessionPath(srv, DefaultSession, "/models"),
 		sessionPath(srv, DefaultSession, "/reward"), sessionPath(srv, DefaultSession, "/questions"),
 	}
 	for _, path := range paths {
@@ -237,7 +241,11 @@ func TestEveryOtherEndpointNeedsTheToken(t *testing.T) {
 			}
 		})
 	}
-	for _, path := range []string{sessionPath(srv, DefaultSession, "/reset"), sessionPath(srv, DefaultSession, "/reasoning"), sessionPath(srv, DefaultSession, "/verdict"), sessionPath(srv, DefaultSession, "/task"), sessionPath(srv, DefaultSession, "/plan"), sessionPath(srv, DefaultSession, "/runs/approval")} {
+	for _, path := range []string{
+		sessionPath(srv, DefaultSession, "/reset"), sessionPath(srv, DefaultSession, "/reasoning"),
+		sessionPath(srv, DefaultSession, "/verdict"), sessionPath(srv, DefaultSession, "/task"),
+		sessionPath(srv, DefaultSession, "/plan"), sessionPath(srv, DefaultSession, "/runs/approval"),
+	} {
 		t.Run("POST "+path, func(t *testing.T) {
 			req, _ := http.NewRequest(http.MethodPost, srv.BaseURL()+path, strings.NewReader("{}"))
 			w := httptest.NewRecorder()
@@ -316,6 +324,30 @@ func TestANonLoopbackAddressNeedsNoOtherSetting(t *testing.T) {
 	}
 }
 
+// A gateway bound beyond loopback says, in its log, that the traffic is plain HTTP - in every
+// mode, not only when `gateway start` announces it - and a loopback one does not.
+func TestANetworkBindWarnsThatTrafficIsPlainHTTP(t *testing.T) {
+	for listen, want := range map[string]bool{"0.0.0.0:0": true, "127.0.0.1:0": false} {
+		sink := newLogSink(t)
+		newTestServer(t, &fakeService{}, func(o *Options) {
+			o.Listen = listen
+			o.Log = sink.log
+		})
+		deadline := time.Now().Add(5 * time.Second)
+		var logged string
+		for time.Now().Before(deadline) {
+			logged = strings.Join(sink.lines(t), "\n")
+			if strings.Contains(logged, "the gateway is listening") && (!want || strings.Contains(logged, "plain HTTP")) {
+				break
+			}
+			time.Sleep(10 * time.Millisecond)
+		}
+		if got := strings.Contains(logged, "plain HTTP"); got != want {
+			t.Errorf("listen %s: plain-HTTP warning logged = %v, want %v\n%s", listen, got, want, logged)
+		}
+	}
+}
+
 // The origin rules are applied to EVERY request, and the refusal names the rule set.
 //
 // The request is driven through a real socket so that RemoteAddr is a real client address rather
@@ -362,6 +394,35 @@ func TestAnOriginOutsideTheRulesIsRefused(t *testing.T) {
 	}
 	if !strings.Contains(body, "192.168.100.90") {
 		t.Errorf("the refusal does not name the origin it refused: %s", body)
+	}
+}
+
+// The refusal does NOT describe the rules to the client it refuses: that would tell a stranger
+// which addresses ARE let in. The description goes to the operator's log instead.
+func TestARefusedOriginIsNotToldTheRules(t *testing.T) {
+	policy, err := netrules.Parse([]string{"ip:10.9.8.7", "!any"})
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	sink := newLogSink(t)
+	srv := newTestServer(t, &fakeService{}, func(o *Options) {
+		o.Allow = policy
+		o.Log = sink.log
+	})
+
+	req := httptest.NewRequest(http.MethodGet, "/v1/health", nil)
+	req.RemoteAddr = "192.168.100.90:41234"
+	w := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(w, req)
+
+	if w.Code != http.StatusForbidden {
+		t.Fatalf("a refused origin answered %d, want 403", w.Code)
+	}
+	if strings.Contains(w.Body.String(), "10.9.8.7") {
+		t.Errorf("the refusal leaks the allowed addresses: %s", w.Body.String())
+	}
+	if logged := strings.Join(sink.lines(t), "\n"); !strings.Contains(logged, "10.9.8.7") {
+		t.Errorf("the rules were not logged for the operator: %s", logged)
 	}
 }
 
@@ -480,7 +541,11 @@ func TestTheGatewayDescribesItsOwnRules(t *testing.T) {
 	}
 	strict := newTestServer(t, &fakeService{}, func(o *Options) { o.Allow = policy })
 	if got := strict.AllowDescription(); got != policy.Describe() {
-		t.Errorf("the gateway describes its rules as %q, want %q: the description must be the policy's own", got, policy.Describe())
+		t.Errorf(
+			"the gateway describes its rules as %q, want %q: the description must be the policy's own",
+			got,
+			policy.Describe(),
+		)
 	}
 	// And the description is not the open one, which is the assertion that would catch a gateway
 	// reporting the default while enforcing something else.
@@ -712,6 +777,7 @@ func TestDecodeBodyAcceptsTheExpectedJSON(t *testing.T) {
 	srv := newTestServer(t, &fakeService{})
 	w := httptest.NewRecorder()
 	r := httptest.NewRequest(http.MethodPost, "/v1/anything", strings.NewReader(`{"level":"high"}`))
+	r.Header.Set("Content-Type", "application/json")
 	var got struct {
 		Level string `json:"level"`
 	}
@@ -728,6 +794,7 @@ func TestDecodeBodyRefusesWhatIsNotJSON(t *testing.T) {
 	for _, body := range []string{"not json", `{"level":`, ""} {
 		w := httptest.NewRecorder()
 		r := httptest.NewRequest(http.MethodPost, "/v1/anything", strings.NewReader(body))
+		r.Header.Set("Content-Type", "application/json")
 		if srv.decodeBody(w, r, &struct{}{}) {
 			t.Errorf("the body %q was accepted", body)
 		}
@@ -748,6 +815,7 @@ func TestDecodeBodyRefusesAnOversizedBody(t *testing.T) {
 	w := httptest.NewRecorder()
 	big := `{"task":"` + strings.Repeat("x", 4096) + `"}`
 	r := httptest.NewRequest(http.MethodPost, "/v1/anything", strings.NewReader(big))
+	r.Header.Set("Content-Type", "application/json")
 	if srv.decodeBody(w, r, &struct{}{}) {
 		t.Fatal("a body over the cap was accepted")
 	}
@@ -866,7 +934,8 @@ func TestTheGatewayAnswersNoCrossOriginRequest(t *testing.T) {
 		t.Fatalf("do: %v", err)
 	}
 	defer resp2.Body.Close()
-	for _, h := range []string{"Access-Control-Allow-Origin", "Access-Control-Allow-Methods", "Access-Control-Allow-Headers"} {
+	for _, h := range []string{"Access-Control-Allow-Origin", "Access-Control-Allow-Methods",
+		"Access-Control-Allow-Headers"} {
 		if got := resp2.Header.Get(h); got != "" {
 			t.Errorf("the gateway answered %s on a request carrying an Origin: %q", h, got)
 		}

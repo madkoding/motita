@@ -47,7 +47,7 @@ type runBaseline struct {
 	dir   string
 	ref   string
 	snap  string
-	known map[string]bool // check name -> passed on the baseline
+	known map[string]anchor.CheckLog // check name -> its record on the baseline
 }
 
 // startBaseline snapshots the working tree, or returns nil when there is no baseline to take:
@@ -76,7 +76,7 @@ func (a *Agent) startBaseline(ctx context.Context) *runBaseline {
 		}
 		return nil
 	}
-	return &runBaseline{a: a, dir: dir, ref: ref, snap: snap, known: map[string]bool{}}
+	return &runBaseline{a: a, dir: dir, ref: ref, snap: snap, known: map[string]anchor.CheckLog{}}
 }
 
 // close drops the reference that kept the snapshot alive.
@@ -125,9 +125,11 @@ func (b *runBaseline) measure(ctx context.Context, names []string) {
 	// .venv a JS or Python check would fail on the baseline for want of a toolchain - and that
 	// would read as "already failing" about a check the run may well have broken.
 	gitx.LinkDependencyDirs(b.dir, tree)
-	for name, passed := range anchor.New(b.a.cfg.Anchor, tree, b.a.sandbox).
+	passed := map[string]bool{}
+	for name, record := range anchor.New(b.a.cfg.Anchor, tree, b.a.sandbox).
 		WithTools(b.a.cfg.Sandbox.ToolsDir, b.a.cfg.Sandbox.CheckTimeout).Rerun(ctx, names) {
-		b.known[name] = passed
+		b.known[name] = record
+		passed[name] = record.Pass
 	}
-	b.a.log.Info("anchor baseline measured", "checks", strings.Join(names, ","), "passed_before", fmt.Sprint(b.known))
+	b.a.log.Info("anchor baseline measured", "checks", strings.Join(names, ","), "passed_before", fmt.Sprint(passed))
 }

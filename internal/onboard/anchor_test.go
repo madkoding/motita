@@ -69,7 +69,8 @@ func TestTheEscapeHatchIsAnHonestConfiguration(t *testing.T) {
 // Option 1 takes a command from the user and that command IS the validator.
 func TestARealCommandIsStillARealAnchor(t *testing.T) {
 	dir := t.TempDir()
-	if _, _, err := run(t.Context(), t, dir, []string{"openai", "", "", "1", "2", "make test", ""}, Answers{}); err != nil {
+	if _, _, err := run(t.Context(), t, dir, []string{"openai", "", "", "1", "2", "make test", ""},
+		Answers{}); err != nil {
 		t.Fatalf("run: %v", err)
 	}
 	cfg := readConfig(t, dir)
@@ -138,7 +139,8 @@ func TestTheDetectedGateConfigIsAcceptedByTheLoader(t *testing.T) {
 func TestACommandWithArgumentsIsSplitOnSpaces(t *testing.T) {
 	dir := t.TempDir()
 	// provider, endpoint, key, model, anchor=2 (a command), the command with its arguments, save.
-	if _, _, err := run(t.Context(), t, dir, []string{"openai", "", "", "1", "2", "go test ./...", ""}, Answers{}); err != nil {
+	if _, _, err := run(t.Context(), t, dir, []string{"openai", "", "", "1", "2", "go test ./...", ""},
+		Answers{}); err != nil {
 		t.Fatalf("run: %v", err)
 	}
 	cfg := readConfig(t, dir)

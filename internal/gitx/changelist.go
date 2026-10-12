@@ -78,7 +78,7 @@ func WorkingTreeChangeList(ctx context.Context, dir string) ([]Change, error) {
 func executeRaw(ctx context.Context, dir string, args ...string) ([]byte, error) {
 	c, cancel := context.WithTimeout(ctx, gitTimeout)
 	defer cancel()
-	return execCommand(c, "git", append([]string{"-C", dir}, args...)...)
+	return execCommand(c, "git", gitArgs(dir, args...)...)
 }
 
 // parseChangeList reads `git status --porcelain -uall -z`.
@@ -93,12 +93,8 @@ func parseChangeList(out string) []Change {
 	for i := 0; i < len(records); i++ {
 		rec := records[i]
 		// The trailing NUL leaves one empty record, and an empty record is not a
-		// change.
-		if rec == "" {
-			continue
-		}
-		// A record shorter than "XY p" cannot be a change. Truncated output is
-		// dropped rather than guessed at.
+		// change. A record shorter than "XY p" cannot be a change either: truncated
+		// output is dropped rather than guessed at.
 		if len(rec) < 4 {
 			continue
 		}
@@ -107,22 +103,45 @@ func parseChangeList(out string) []Change {
 		// What a tool wrote in its HOME is not the user's work. A rename names a second path in
 		// the next record, which is consumed with it.
 		if IsToolHome(path) {
-			if (code[0] == 'R' || code[0] == 'C' || code[1] == 'R' || code[1] == 'C') && i+1 < len(records) {
+			if isRenameOrCopyCode(code) && i+1 < len(records) {
 				i++
 			}
 			continue
 		}
 		c := Change{Path: path, Code: code, Kind: changeKind(code)}
 		// For a rename or a copy, the NEXT record is the original path.
-		if c.Kind == "renamed" || c.Kind == "copied" {
-			if i+1 < len(records) && records[i+1] != "" {
-				c.From = records[i+1]
-				i++
-			}
+		if isRenameOrCopyKind(c.Kind) && hasOriginalRecord(records, i) {
+			c.From = records[i+1]
+			i++
 		}
 		changes = append(changes, c)
 	}
 	return changes
+}
+
+// isRenameOrCopyCode reports whether either column of a status code is a rename or a copy.
+func isRenameOrCopyCode(code string) bool {
+	return code[0] == 'R' || code[0] == 'C' || code[1] == 'R' || code[1] == 'C'
+}
+
+// isRenameOrCopyKind reports whether a change kind names a second, original path.
+func isRenameOrCopyKind(kind string) bool {
+	return kind == "renamed" || kind == "copied"
+}
+
+// hasOriginalRecord reports whether the record after i is there to be read as an original path.
+func hasOriginalRecord(records []string, i int) bool {
+	return i+1 < len(records) && records[i+1] != ""
+}
+
+// isConflictCode reports whether a status code is one of git's unmerged states.
+func isConflictCode(index, worktree byte) bool {
+	return index == 'U' || worktree == 'U' || bothAre(index, worktree, 'A') || bothAre(index, worktree, 'D')
+}
+
+// bothAre reports whether both columns of a status code are c.
+func bothAre(index, worktree, c byte) bool {
+	return index == c && worktree == c
 }
 
 // changeKind turns git's two-column status into one word.
@@ -135,8 +154,7 @@ func changeKind(code string) string {
 	switch {
 	case index == '?' && worktree == '?':
 		return "untracked"
-	case index == 'U' || worktree == 'U' ||
-		(index == 'A' && worktree == 'A') || (index == 'D' && worktree == 'D'):
+	case isConflictCode(index, worktree):
 		return "conflicted"
 	case index == 'R' || worktree == 'R':
 		return "renamed"

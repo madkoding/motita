@@ -270,6 +270,7 @@ func TestARenameWithAMalformedBodyIsRefused(t *testing.T) {
 	c.setTitle("the original title")
 
 	req := httptest.NewRequest(http.MethodPatch, "/v1/sessions/"+DefaultSession, strings.NewReader(`{not json`))
+	req.Header.Set("Content-Type", "application/json")
 	req = req.WithContext(context.WithValue(req.Context(), conversationKey, c))
 	w := httptest.NewRecorder()
 	srv.handleRenameSession(w, req)

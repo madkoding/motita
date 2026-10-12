@@ -12,3 +12,7 @@ func wrapWithUlimit(l Limits, command string, args []string) (string, []string) 
 func minimumMemoryMB() int { return 0 }
 
 func peakVirtualMemory() uint64 { return 0 }
+
+// unappliedLimits has nothing to probe: hasLimits is false here and the platform
+// warning already says no limit applies.
+func unappliedLimits(l Limits) ([]string, error) { return nil, nil }

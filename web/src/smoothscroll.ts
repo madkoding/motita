@@ -18,6 +18,9 @@ export interface Follower {
   stop(): void
 }
 
+// The gap, in pixels, at which the ease's time constant is halved.
+const HALVING_GAP_PX = 120
+
 export function createFollower(
   getEl: () => HTMLElement | null,
   // active is asked on every frame: the moment it says no (the reader took the scroll), the
@@ -34,7 +37,7 @@ export function createFollower(
   const step = (now: number) => {
     raf = 0
     const el = getEl()
-    if (!el || !active()) return
+    if (!el || !active()) { return }
     const dt = Math.min(64, Math.max(1, now - last))
     last = now
     const gap = end(el) - el.scrollTop
@@ -46,7 +49,7 @@ export function createFollower(
     // The time constant SHORTENS with the distance: near the end the ease is soft, and when the
     // content outruns it (a burst of lines) the view catches up faster instead of leaving the
     // newest text below the fold for a second. Halved at ~120px behind, a third at ~240px.
-    const k = tau / (1 + gap / 120)
+    const k = tau / (1 + gap / HALVING_GAP_PX)
     // A floor of 1px per frame so the tail of the ease finishes instead of asymptoting.
     const move = Math.min(gap, Math.max(1, gap * (1 - Math.exp(-dt / k))))
     el.scrollTop += move
@@ -55,18 +58,18 @@ export function createFollower(
 
   return {
     kick() {
-      if (raf || !active()) return
+      if (raf || !active()) { return }
       last = performance.now()
       raf = requestAnimationFrame(step)
     },
     jump() {
-      if (raf) cancelAnimationFrame(raf)
+      if (raf) { cancelAnimationFrame(raf) }
       raf = 0
       const el = getEl()
-      if (el) el.scrollTop = end(el)
+      if (el) { el.scrollTop = end(el) }
     },
     stop() {
-      if (raf) cancelAnimationFrame(raf)
+      if (raf) { cancelAnimationFrame(raf) }
       raf = 0
     },
   }

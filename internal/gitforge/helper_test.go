@@ -94,7 +94,8 @@ func TestGitEnv(t *testing.T) {
 	// still apply inside the worktree.
 	cfg := filepath.Join(home, ".gitconfig")
 	_ = os.WriteFile(cfg, []byte("[user]\nname=x\n"), 0o600)
-	if env = strings.Join(GitEnv("m", "", home), "\n"); !strings.Contains(env, "GIT_CONFIG_GLOBAL="+cfg) || strings.Contains(env, "MOTITA_AUTH_DIR") {
+	if env = strings.Join(GitEnv("m", "", home), "\n"); !strings.Contains(env, "GIT_CONFIG_GLOBAL="+cfg) ||
+		strings.Contains(env, "MOTITA_AUTH_DIR") {
 		t.Errorf("env = %s", env)
 	}
 	// The XDG location is the fallback.

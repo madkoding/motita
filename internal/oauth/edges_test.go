@@ -67,7 +67,7 @@ func TestLoopbackEdges(t *testing.T) {
 	if _, err := StartLoopback(net.JoinHostPort("127.0.0.1", port), "127.0.0.1", "/cb"); err == nil {
 		t.Error("a busy port must be an error")
 	}
-	for _, q := range []string{"?error=access_denied&error_description=nope", "?state=s"} {
+	for _, q := range []string{"?error=access_denied&error_description=nope&state=s", "?state=s"} {
 		resp, err := http.Get(lb.RedirectURI + q)
 		if err != nil {
 			t.Fatal(err)
@@ -110,15 +110,30 @@ func TestTokenEndpointFailures(t *testing.T) {
 	errBody := tokenServer(`{"error":"invalid_grant","error_description":"expired"}`, 200)
 	noToken := tokenServer(`{}`, 200)
 	for name, fn := range map[string]func(*http.Client) error{
-		"codex exchange": func(c *http.Client) error { _, err := CodexExchangeCode(ctx, c, "c", "", p); return err },
+		"codex exchange": func(c *http.Client) error {
+			_, err := CodexExchangeCode(ctx, c, "c", "", p)
+			return err
+		},
 		"gemini exchange": func(c *http.Client) error {
 			_, err := GeminiExchangeCode(ctx, c, GeminiClient{ID: "id"}, "c", "r", p, "proj")
 			return err
 		},
-		"gemini refresh": func(c *http.Client) error { _, err := GeminiRefresh(ctx, c, Credential{RefreshToken: "r"}); return err },
-		"qwen refresh":   func(c *http.Client) error { _, err := QwenRefresh(ctx, c, Credential{RefreshToken: "r"}); return err },
-		"qwen poll":      func(c *http.Client) error { _, err := QwenPollToken(ctx, c, DeviceCode{}, p); return err },
-		"qwen device":    func(c *http.Client) error { _, err := QwenRequestDeviceCode(ctx, c, p); return err },
+		"gemini refresh": func(c *http.Client) error {
+			_, err := GeminiRefresh(ctx, c, Credential{RefreshToken: "r"})
+			return err
+		},
+		"qwen refresh": func(c *http.Client) error {
+			_, err := QwenRefresh(ctx, c, Credential{RefreshToken: "r"})
+			return err
+		},
+		"qwen poll": func(c *http.Client) error {
+			_, err := QwenPollToken(ctx, c, DeviceCode{}, p)
+			return err
+		},
+		"qwen device": func(c *http.Client) error {
+			_, err := QwenRequestDeviceCode(ctx, c, p)
+			return err
+		},
 	} {
 		for kind, c := range map[string]*http.Client{"refused": refused, "error body": errBody, "no token": noToken} {
 			if err := fn(c); err == nil {
@@ -153,7 +168,8 @@ func TestCodexExpiryFromTheToken(t *testing.T) {
 	exp := time.Now().Add(time.Hour).Unix()
 	claims := fmt.Sprintf(`{"exp":%d,"https://api.openai.com/auth":{"chatgpt_account_id":"a"}}`, exp)
 	jwt := "e30." + base64.RawURLEncoding.EncodeToString([]byte(claims)) + ".s"
-	c, err := CodexRefresh(context.Background(), tokenServer(`{"access_token":"`+jwt+`"}`, 200), Credential{RefreshToken: "r"})
+	c, err := CodexRefresh(context.Background(), tokenServer(`{"access_token":"`+jwt+`"}`, 200),
+		Credential{RefreshToken: "r"})
 	if err != nil || c.ExpiresAt.Unix() != exp {
 		t.Errorf("c=%+v err=%v", c, err)
 	}
@@ -188,8 +204,29 @@ func TestRemainingTokenBranches(t *testing.T) {
 	}
 	claims := `{"https://api.openai.com/auth":{"chatgpt_account_id":"a"}}`
 	jwt := "e30." + base64.RawURLEncoding.EncodeToString([]byte(claims)) + ".s"
-	c, err := CodexRefresh(context.Background(), tokenServer(`{"access_token":"`+jwt+`","expires_in":60}`, 200), Credential{RefreshToken: "r"})
+	c, err := CodexRefresh(context.Background(), tokenServer(`{"access_token":"`+jwt+`","expires_in":60}`, 200),
+		Credential{RefreshToken: "r"})
 	if err != nil || time.Until(c.ExpiresAt) > time.Minute+time.Second || c.RefreshToken != "r" {
 		t.Errorf("c=%+v err=%v", c, err)
+	}
+}
+
+// A provider name that is a path is refused instead of reading, writing or deleting a file
+// outside the credential directory.
+func TestCredentialRefusesPathProviderNames(t *testing.T) {
+	dir := t.TempDir()
+	for _, p := range []string{"../escape", "a/b", `a\b`, "..", ""} {
+		if err := SaveCredential(dir, Credential{Provider: p, AccessToken: "x"}); err == nil && p != "" {
+			t.Errorf("SaveCredential(%q) was accepted", p)
+		}
+		if _, err := LoadCredential(dir, p); err == nil {
+			t.Errorf("LoadCredential(%q) was accepted", p)
+		}
+		if err := DeleteCredential(dir, p); err == nil {
+			t.Errorf("DeleteCredential(%q) was accepted", p)
+		}
+	}
+	if _, err := os.Stat(filepath.Join(filepath.Dir(dir), "escape.json")); !os.IsNotExist(err) {
+		t.Fatalf("a credential was written outside the directory: %v", err)
 	}
 }

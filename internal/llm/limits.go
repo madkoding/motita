@@ -85,7 +85,10 @@ var numberInText = regexp.MustCompile(`\d[\d,]*\d|\d`)
 func limitFromRefusal(asked int, message string) int {
 	m := strings.ToLower(message)
 	about := false
-	for _, w := range []string{"max_tokens", "max_completion_tokens", "maxoutputtokens", "max_output_tokens", "completion tokens", "output tokens"} {
+	words := []string{
+		"max_tokens", "max_completion_tokens", "maxoutputtokens", "max_output_tokens", "completion tokens", "output tokens",
+	}
+	for _, w := range words {
 		about = about || strings.Contains(m, w)
 	}
 	if !about || strings.Contains(m, "context length") || strings.Contains(m, "context window") {

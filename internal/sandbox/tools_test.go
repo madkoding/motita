@@ -71,7 +71,7 @@ func TestToolsDirIsIgnoredUnderAChroot(t *testing.T) {
 	if s.toolsDir() != "" || s.tempRoot() != s.base {
 		t.Error("under a chroot the old layout is kept")
 	}
-	env := strings.Join(s.environmentWithTmp("/x"), "\n")
+	env := strings.Join(s.environmentWithTmp("/x", false), "\n")
 	if !strings.Contains(env, "HOME="+s.base) || !strings.Contains(env, "PATH="+systemPath+"\n") {
 		t.Errorf("under a chroot HOME is the base and PATH the system one: %s", env)
 	}
@@ -158,7 +158,8 @@ func TestToolEnvironment(t *testing.T) {
 	}
 	t.Setenv("MOTITA_TOOLS_PROBE", "yes")
 	inherited := strings.Join(ToolEnvironment(tools, nil), "\n")
-	if !strings.Contains(inherited, "MOTITA_TOOLS_PROBE=yes") || !strings.Contains(inherited, "PATH="+filepath.Join(tools, "bin")) {
+	if !strings.Contains(inherited, "MOTITA_TOOLS_PROBE=yes") ||
+		!strings.Contains(inherited, "PATH="+filepath.Join(tools, "bin")) {
 		t.Errorf("the process environment must be inherited with the tools on PATH: %s", inherited)
 	}
 }

@@ -271,6 +271,15 @@ func (l *Ledger) ValueOf(name string) float64 {
 	return v
 }
 
+// consulted is how many times a skill was consulted in a turn, floored at one: a skill that
+// was named took part at least once.
+func consulted(counts map[string]int, name string) int {
+	if c := counts[name]; c >= 1 {
+		return c
+	}
+	return 1
+}
+
 // Attribute records one verdict over the skills that took part in a turn.
 //
 // Credit is split in proportion to how often each skill was consulted, so a turn that read
@@ -294,11 +303,7 @@ func (l *Ledger) Attribute(names []string, counts map[string]int, good bool, not
 
 	total := 0
 	for _, n := range names {
-		c := counts[n]
-		if c < 1 {
-			c = 1 // a skill that was named took part at least once
-		}
-		total += c
+		total += consulted(counts, n)
 	}
 	// No zero-total guard is needed: every count is floored at 1, so a non-empty list always
 	// has total >= len(names) >= 1. A branch for it would be unreachable, and the floor above
@@ -311,11 +316,7 @@ func (l *Ledger) Attribute(names []string, counts map[string]int, good bool, not
 	now := l.Now()
 
 	for _, n := range names {
-		c := counts[n]
-		if c < 1 {
-			c = 1
-		}
-		share := float64(c) / float64(total)
+		share := float64(consulted(counts, n)) / float64(total)
 		s := l.Scores[n]
 		// The signal is scaled by the share, so the credit is split rather than duplicated.
 		s.Value = DECAY*s.Value + (1-DECAY)*signal*share

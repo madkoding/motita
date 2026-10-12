@@ -46,11 +46,13 @@ func createProject(t *testing.T, srv *Server, body string) (int, map[string]any)
 func TestCreateProjectUsesTheChosenMainBranch(t *testing.T) {
 	srv, ws := projectServer(t)
 	code, out := createProject(t, srv, `{"title":"a","dir":"a"}`)
-	if code != http.StatusCreated || out["main_branch"] != "main" || gitx.Display(context.Background(), filepath.Join(ws, "a")) != "main" {
+	if code != http.StatusCreated || out["main_branch"] != "main" ||
+		gitx.Display(context.Background(), filepath.Join(ws, "a")) != "main" {
 		t.Errorf("the default is main: %d %v", code, out)
 	}
 	code, out = createProject(t, srv, `{"title":"b","dir":"b","main_branch":"master"}`)
-	if code != http.StatusCreated || out["main_branch"] != "master" || gitx.Display(context.Background(), filepath.Join(ws, "b")) != "master" {
+	if code != http.StatusCreated || out["main_branch"] != "master" ||
+		gitx.Display(context.Background(), filepath.Join(ws, "b")) != "master" {
 		t.Errorf("a repository made for the project is born on the chosen branch: %d %v", code, out)
 	}
 	if code, _ = createProject(t, srv, `{"title":"c","dir":"c","main_branch":"bad name"}`); code != http.StatusBadRequest {
@@ -133,11 +135,13 @@ func TestEditingAProject(t *testing.T) {
 	}
 
 	code, out := patch(`{"title":" Renamed ","description":" about ","main_branch":"release"}`)
-	if code != http.StatusOK || out["title"] != "Renamed" || out["description"] != "about" || out["main_branch"] != "release" {
+	if code != http.StatusOK || out["title"] != "Renamed" || out["description"] != "about" ||
+		out["main_branch"] != "release" {
 		t.Fatalf("a full edit: %d %v", code, out)
 	}
 	// Only what is sent changes.
-	if code, out = patch(`{"description":""}`); code != http.StatusOK || out["title"] != "Renamed" || out["main_branch"] != "release" {
+	if code, out = patch(`{"description":""}`); code != http.StatusOK || out["title"] != "Renamed" ||
+		out["main_branch"] != "release" {
 		t.Errorf("a partial edit keeps the rest: %d %v", code, out)
 	}
 	for body, want := range map[string]int{
@@ -195,7 +199,8 @@ func TestProjectBranchesEndpoint(t *testing.T) {
 		Current  string   `json:"current"`
 	}
 	_ = json.Unmarshal(w.Body.Bytes(), &out)
-	if w.Code != http.StatusOK || strings.Join(out.Branches, ",") != "main,release" || out.Main != "main" || out.Current != "main" {
+	if w.Code != http.StatusOK || strings.Join(out.Branches, ",") != "main,release" || out.Main != "main" ||
+		out.Current != "main" {
 		t.Errorf("branches: %d %+v (session branches are not offered)", w.Code, out)
 	}
 	if w := send(t, srv, http.MethodGet, "/v1/projects/nope/branches", testToken, ""); w.Code != http.StatusNotFound {
@@ -286,7 +291,8 @@ func TestCreateProjectFromAURLSettlesOnTheChosenBranch(t *testing.T) {
 	mustGit(t, origin, "branch", "master")
 	srv, ws := projectServer(t)
 	code, out := createProject(t, srv, `{"title":"c","dir":"c","git_url":"`+origin+`","main_branch":"master"}`)
-	if code != http.StatusCreated || out["main_branch"] != "master" || gitx.Display(context.Background(), filepath.Join(ws, "c")) != "master" {
+	if code != http.StatusCreated || out["main_branch"] != "master" ||
+		gitx.Display(context.Background(), filepath.Join(ws, "c")) != "master" {
 		t.Errorf("the clone must end on the chosen branch: %d %v", code, out)
 	}
 }
@@ -319,6 +325,12 @@ func TestDefaultBranchOfARemote(t *testing.T) {
 
 	if code, _ := ask(""); code != http.StatusBadRequest {
 		t.Errorf("no URL: %d", code)
+	}
+	// What a clone would refuse is not asked either: a transport helper runs a command.
+	for _, url := range []string{"ext::sh%20-c%20touch%20x", "--upload-pack=touch%20x"} {
+		if code, _ := ask(url); code != http.StatusBadRequest {
+			t.Errorf("%s: %d", url, code)
+		}
 	}
 	if code, _ := ask(filepath.Join(t.TempDir(), "nothing-here")); code != http.StatusBadGateway {
 		t.Errorf("a remote that cannot be read: %d", code)

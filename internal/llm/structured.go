@@ -62,46 +62,78 @@ func ExtractJSON(text string) ([]byte, error) {
 	}
 	regions = append(regions, clean)
 
-	var firstBalanced, firstList []byte
-	opened := false
+	var c jsonCandidates
 	for _, region := range regions {
-		for from := 0; ; {
-			i := strings.IndexAny(region[from:], "{[")
-			if i < 0 {
-				break
-			}
-			start := from + i
-			from = start + 1
-			opened = true
-			raw, ok := balancedAt(region, start)
-			if !ok {
-				continue
-			}
-			if firstBalanced == nil {
-				firstBalanced = raw
-			}
-			if !json.Valid(raw) {
-				if raw = escapeControls(raw); !json.Valid(raw) {
-					continue
-				}
-			}
-			if raw[0] == '{' || holdsObject(raw) {
-				return raw, nil
-			}
-			if firstList == nil {
-				firstList = raw
-			}
+		if raw, ok := c.scan(region); ok {
+			return raw, nil
 		}
 	}
 	switch {
-	case firstList != nil:
-		return firstList, nil
-	case firstBalanced != nil:
-		return firstBalanced, nil
-	case !opened:
+	case c.firstList != nil:
+		return c.firstList, nil
+	case c.firstBalanced != nil:
+		return c.firstBalanced, nil
+	case !c.opened:
 		return nil, fmt.Errorf("the response contains no JSON: %q", truncate(clean, 200))
+	default:
+		return nil, fmt.Errorf("the JSON in the response is truncated: %q", truncate(clean, 200))
 	}
-	return nil, fmt.Errorf("the JSON in the response is truncated: %q", truncate(clean, 200))
+}
+
+// jsonCandidates is what ExtractJSON has seen so far: whether any bracket opened, the first
+// balanced candidate and the first valid list.
+type jsonCandidates struct {
+	firstBalanced, firstList []byte
+	opened                   bool
+}
+
+// scan looks at every bracket of region in turn, and returns the first valid object, or list that
+// holds objects, it starts.
+func (c *jsonCandidates) scan(region string) ([]byte, bool) {
+	for from := 0; ; {
+		i := strings.IndexAny(region[from:], "{[")
+		if i < 0 {
+			return nil, false
+		}
+		start := from + i
+		from = start + 1
+		c.opened = true
+		if raw, ok := c.consider(region, start); ok {
+			return raw, true
+		}
+	}
+}
+
+// consider reads the candidate at the bracket at start, and reports whether it is the answer: a
+// valid object, or a valid list that holds objects. A bare list is kept as a fallback.
+func (c *jsonCandidates) consider(region string, start int) ([]byte, bool) {
+	raw, ok := balancedAt(region, start)
+	if !ok {
+		return nil, false
+	}
+	if c.firstBalanced == nil {
+		c.firstBalanced = raw
+	}
+	if raw, ok = repairedJSON(raw); !ok {
+		return nil, false
+	}
+	if raw[0] == '{' || holdsObject(raw) {
+		return raw, true
+	}
+	if c.firstList == nil {
+		c.firstList = raw
+	}
+	return nil, false
+}
+
+// repairedJSON returns raw when it is valid JSON, or raw with the control characters inside its
+// strings escaped when that makes it valid.
+func repairedJSON(raw []byte) ([]byte, bool) {
+	if json.Valid(raw) {
+		return raw, true
+	}
+	raw = escapeControls(raw)
+	return raw, json.Valid(raw)
 }
 
 // balancedAt returns the text from the bracket at start to its balanced partner, respecting
@@ -133,6 +165,8 @@ func balancedAt(s string, start int) ([]byte, bool) {
 			if depth == 0 {
 				return []byte(s[start : i+1]), true
 			}
+		default:
+			// Any other character outside a string changes nothing.
 		}
 	}
 	return nil, false
@@ -153,21 +187,28 @@ func escapeControls(raw []byte) []byte {
 		case ch == '"':
 			inString = !inString
 		case inString && ch < 0x20:
-			switch ch {
-			case '\n':
-				out.WriteString(`\n`)
-			case '\t':
-				out.WriteString(`\t`)
-			case '\r':
-				out.WriteString(`\r`)
-			default:
-				fmt.Fprintf(&out, `\u%04x`, ch)
-			}
+			writeEscapedControl(&out, ch)
 			continue
+		default:
+			// Any other character is copied as it is.
 		}
 		out.WriteByte(ch)
 	}
 	return out.Bytes()
+}
+
+// writeEscapedControl writes the JSON escape of a control character.
+func writeEscapedControl(out *bytes.Buffer, ch byte) {
+	switch ch {
+	case '\n':
+		out.WriteString(`\n`)
+	case '\t':
+		out.WriteString(`\t`)
+	case '\r':
+		out.WriteString(`\r`)
+	default:
+		fmt.Fprintf(out, `\u%04x`, ch)
+	}
 }
 
 // holdsObject reports whether a valid JSON list has an object among its items.

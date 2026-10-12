@@ -3,15 +3,13 @@ package gateway
 // Coverage tests for the gateway package — tests that exist only to reach the
 // 100% coverage gate, covering functions that the feature tests do not
 // exercise: project store, session store, update endpoints, persistence,
-// client no-ops, and WebSocket helpers.
+// client no-ops, and WebSocket helpers. This file holds the client no-ops and
+// the stores and handlers of projects; the rest live in coverage_runtime_test.go
+// and coverage_podman_test.go.
 
 import (
 	"context"
 	"encoding/json"
-	"errors"
-	"fmt"
-	"io"
-	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -21,10 +19,7 @@ import (
 	"time"
 
 	"github.com/madkoding/motita/internal/agent"
-	"github.com/madkoding/motita/internal/config"
 	"github.com/madkoding/motita/internal/gitx"
-	"github.com/madkoding/motita/internal/oauth"
-	"github.com/madkoding/motita/internal/updater"
 )
 
 // --- Client no-ops ---
@@ -302,7 +297,11 @@ func TestHandleCreateProjectPathInDir(t *testing.T) {
 		o.ProjectDir = pdir
 		o.WorkspaceDir = wsdir
 	})
-	req, _ := http.NewRequest(http.MethodPost, srv.BaseURL()+"/v1/projects", strings.NewReader(`{"title":"x","dir":"../escape"}`))
+	req, _ := http.NewRequest(
+		http.MethodPost,
+		srv.BaseURL()+"/v1/projects",
+		strings.NewReader(`{"title":"x","dir":"../escape"}`),
+	)
 	req.Header.Set("Authorization", "Bearer "+testToken)
 	w := httptest.NewRecorder()
 	srv.Handler().ServeHTTP(w, req)
@@ -334,7 +333,11 @@ func TestHandleCreateProjectWithGitURL(t *testing.T) {
 		o.WorkspaceDir = wsdir
 	})
 	// Use an invalid git URL to trigger the clone error path.
-	req, _ := http.NewRequest(http.MethodPost, srv.BaseURL()+"/v1/projects", strings.NewReader(`{"title":"x","dir":"y","git_url":"not-a-real-url"}`))
+	req, _ := http.NewRequest(
+		http.MethodPost,
+		srv.BaseURL()+"/v1/projects",
+		strings.NewReader(`{"title":"x","dir":"y","git_url":"not-a-real-url"}`),
+	)
 	req.Header.Set("Authorization", "Bearer "+testToken)
 	w := httptest.NewRecorder()
 	srv.Handler().ServeHTTP(w, req)
@@ -350,7 +353,11 @@ func createProjectIn(t *testing.T, wsdir, dir string) int {
 		o.ProjectDir = t.TempDir()
 		o.WorkspaceDir = wsdir
 	})
-	req, _ := http.NewRequest(http.MethodPost, srv.BaseURL()+"/v1/projects", strings.NewReader(`{"title":"x","dir":"`+dir+`"}`))
+	req, _ := http.NewRequest(
+		http.MethodPost,
+		srv.BaseURL()+"/v1/projects",
+		strings.NewReader(`{"title":"x","dir":"`+dir+`"}`),
+	)
 	req.Header.Set("Authorization", "Bearer "+testToken)
 	w := httptest.NewRecorder()
 	srv.Handler().ServeHTTP(w, req)
@@ -409,7 +416,11 @@ func TestCreateProjectFolderIsAFile(t *testing.T) {
 
 func TestCreateProjectWithoutGitReports500(t *testing.T) {
 	t.Setenv("PATH", t.TempDir())
-	w, _ := postProject(t, filepath.Join(t.TempDir(), "gitconfig"), `{"title":"x","dir":"p","git_user_name":"Ada","git_user_email":"ada@example.com"}`)
+	w, _ := postProject(
+		t,
+		filepath.Join(t.TempDir(), "gitconfig"),
+		`{"title":"x","dir":"p","git_user_name":"Ada","git_user_email":"ada@example.com"}`,
+	)
 	if w.Code != http.StatusInternalServerError {
 		t.Errorf("status = %d, want 500", w.Code)
 	}
@@ -521,626 +532,5 @@ func TestHandleDeleteProjectWithStore(t *testing.T) {
 	srv.Handler().ServeHTTP(w2, req2)
 	if w2.Code != http.StatusNoContent {
 		t.Errorf("delete: status = %d, want 204", w2.Code)
-	}
-}
-
-// --- projectOf ---
-
-func TestProjectOfReturnsNilWhenNoStore(t *testing.T) {
-	srv := newTestServer(t, &fakeService{})
-	if p := srv.projectOf("anything"); p != nil {
-		t.Error("expected nil when no project store")
-	}
-}
-
-func TestProjectOfReturnsNilWhenEmptyID(t *testing.T) {
-	pdir := t.TempDir()
-	wsdir := t.TempDir()
-	srv := newTestServer(t, &fakeService{}, func(o *Options) {
-		o.ProjectDir = pdir
-		o.WorkspaceDir = wsdir
-	})
-	if p := srv.projectOf(""); p != nil {
-		t.Error("expected nil for empty id")
-	}
-}
-
-func TestProjectOfReturnsNilWhenMissing(t *testing.T) {
-	pdir := t.TempDir()
-	wsdir := t.TempDir()
-	srv := newTestServer(t, &fakeService{}, func(o *Options) {
-		o.ProjectDir = pdir
-		o.WorkspaceDir = wsdir
-	})
-	if p := srv.projectOf("nonexistent"); p != nil {
-		t.Error("expected nil for missing project")
-	}
-}
-
-func TestProjectOfReturnsProject(t *testing.T) {
-	pdir := t.TempDir()
-	wsdir := t.TempDir()
-	srv := newTestServer(t, &fakeService{}, func(o *Options) {
-		o.ProjectDir = pdir
-		o.WorkspaceDir = wsdir
-	})
-	body := strings.NewReader(`{"title":"Find Me","dir":"found"}`)
-	req, _ := http.NewRequest(http.MethodPost, srv.BaseURL()+"/v1/projects", body)
-	req.Header.Set("Authorization", "Bearer "+testToken)
-	w := httptest.NewRecorder()
-	srv.Handler().ServeHTTP(w, req)
-	var resp map[string]any
-	json.Unmarshal(w.Body.Bytes(), &resp)
-	id := resp["id"].(string)
-	p := srv.projectOf(id)
-	if p == nil || p.Title != "Find Me" {
-		t.Errorf("projectOf = %+v, want project titled 'Find Me'", p)
-	}
-}
-
-// --- sessionBranch ---
-
-func TestSessionBranch(t *testing.T) {
-	got := sessionBranch("abc123")
-	if got != "motita/abc123" {
-		t.Errorf("sessionBranch = %q, want %q", got, "motita/abc123")
-	}
-}
-
-// --- Update endpoints ---
-
-func TestHandleUpdateCheckWithoutUpdater(t *testing.T) {
-	srv := newTestServer(t, &fakeService{})
-	w := get(t, srv, "/v1/update/check", testToken)
-	if w.Code != http.StatusOK {
-		t.Fatalf("status = %d, want 200", w.Code)
-	}
-	var body updater.CheckResult
-	json.Unmarshal(w.Body.Bytes(), &body)
-	if body.Error == "" {
-		t.Error("expected an error message when no updater is configured")
-	}
-}
-
-func TestHandleUpdateRunWithoutUpdater(t *testing.T) {
-	srv := newTestServer(t, &fakeService{})
-	req, _ := http.NewRequest(http.MethodPost, srv.BaseURL()+"/v1/update/run", nil)
-	req.Header.Set("Authorization", "Bearer "+testToken)
-	w := httptest.NewRecorder()
-	srv.Handler().ServeHTTP(w, req)
-	if w.Code != http.StatusBadRequest {
-		t.Errorf("status = %d, want 400", w.Code)
-	}
-}
-
-func TestHandleUpdateCheckWithCache(t *testing.T) {
-	srv := newTestServer(t, &fakeService{})
-	srv.updater = updater.New("test", "/tmp/fake-exe")
-	srv.lastCheckMu.Lock()
-	srv.lastCheck = updater.CheckResult{LatestVersion: "v9.9.9", CurrentVersion: "test"}
-	srv.lastCheckMu.Unlock()
-	w := get(t, srv, "/v1/update/check", testToken)
-	if w.Code != http.StatusOK {
-		t.Fatalf("status = %d, want 200", w.Code)
-	}
-	var body updater.CheckResult
-	json.Unmarshal(w.Body.Bytes(), &body)
-	if body.LatestVersion != "v9.9.9" {
-		t.Errorf("LatestVersion = %q, want v9.9.9", body.LatestVersion)
-	}
-}
-
-// --- Persistence ---
-
-func TestLoadPersistedSessionsWithoutStore(t *testing.T) {
-	srv := newTestServer(t, &fakeService{})
-	srv.loadPersistedSessions()
-}
-
-func TestSaveAllSessionsWithoutStore(t *testing.T) {
-	srv := newTestServer(t, &fakeService{})
-	srv.saveAllSessions()
-}
-
-func TestSaveAllSessionsWithStore(t *testing.T) {
-	sdir := t.TempDir()
-	srv := newTestServer(t, &fakeService{}, func(o *Options) {
-		o.SessionDir = sdir
-	})
-	srv.saveAllSessions()
-	if _, err := os.Stat(filepath.Join(sdir, "default.json")); err != nil {
-		t.Errorf("expected default.json to exist: %v", err)
-	}
-}
-
-func TestDeletePersistedSessionWithoutStore(t *testing.T) {
-	srv := newTestServer(t, &fakeService{})
-	srv.deletePersistedSession("whatever")
-}
-
-func TestDeletePersistedSessionWithStore(t *testing.T) {
-	sdir := t.TempDir()
-	srv := newTestServer(t, &fakeService{}, func(o *Options) {
-		o.SessionDir = sdir
-	})
-	srv.saveAllSessions()
-	srv.deletePersistedSession("default")
-	if _, err := os.Stat(filepath.Join(sdir, "default.json")); !os.IsNotExist(err) {
-		t.Errorf("expected default.json to be deleted: %v", err)
-	}
-}
-
-func TestDeletePersistedSessionMissing(t *testing.T) {
-	sdir := t.TempDir()
-	srv := newTestServer(t, &fakeService{}, func(o *Options) {
-		o.SessionDir = sdir
-	})
-	srv.deletePersistedSession("nonexistent")
-}
-
-func TestResumeInterruptedSessionsWithoutStore(t *testing.T) {
-	srv := newTestServer(t, &fakeService{})
-	srv.resumeInterruptedSessions()
-}
-
-// TestSaveSessionSkipsForgottenConversation proves the guard in saveSession:
-// a run's goroutine holds a pointer to the conversation and its deferred
-// saveSession can fire AFTER handleDeleteSession has forgotten the session
-// and deleted its file. Without the guard, that late save would resurrect
-// the session on disk.
-func TestSaveSessionSkipsForgottenConversation(t *testing.T) {
-	sdir := t.TempDir()
-	srv := newTestServer(t, &fakeService{}, func(o *Options) {
-		o.SessionDir = sdir
-	})
-	// Register a conversation in the registry so saveSession's lookup finds it.
-	c := newConversation("s-test-forgotten", &fakeService{})
-	srv.sessionsMu.Lock()
-	srv.sessions[c.id] = c
-	srv.sessionsMu.Unlock()
-
-	srv.saveSession(c) // must write the file
-	if _, err := os.Stat(filepath.Join(sdir, "s-test-forgotten.json")); err != nil {
-		t.Fatalf("the first save should have written the file: %v", err)
-	}
-	// Delete the file and forget the session, as handleDeleteSession does.
-	srv.forget(c.id)
-	os.Remove(filepath.Join(sdir, "s-test-forgotten.json"))
-
-	srv.saveSession(c) // must NOT re-create the file
-	if _, err := os.Stat(filepath.Join(sdir, "s-test-forgotten.json")); !os.IsNotExist(err) {
-		t.Errorf("a forgotten session must not be re-saved: file exists after saveSession")
-	}
-}
-
-// --- setProjectID on conversation ---
-
-func TestConversationSetProjectID(t *testing.T) {
-	c := newConversation("test", &fakeService{})
-	c.setProjectID("proj-1", "/tmp/worktree-1", "/tmp/proj-1")
-	if c.projectID != "proj-1" {
-		t.Errorf("projectID = %q, want %q", c.projectID, "proj-1")
-	}
-	if c.workspace != "/tmp/worktree-1" {
-		t.Errorf("workspace = %q, want %q", c.workspace, "/tmp/worktree-1")
-	}
-	// The project's own checkout is tracked separately: for a session with its
-	// own worktree it is NOT the workspace, and that difference is what makes
-	// "is there work to integrate" answerable.
-	if c.projectDir != "/tmp/proj-1" {
-		t.Errorf("projectDir = %q, want %q", c.projectDir, "/tmp/proj-1")
-	}
-}
-
-// --- WebSocket helpers ---
-
-func TestIsClosedConnErr(t *testing.T) {
-	tests := []struct {
-		err  error
-		want bool
-	}{
-		{nil, false},
-		// EOF is the NORMAL end of a WebSocket connection - a browser closing its tab - and it is
-		// classified as a clean exit. It used to be classified as a failure, which logged a warning
-		// for every client that hung up.
-		{io.EOF, true},
-		{errors.New("use of closed network connection"), true},
-		{errors.New("write: broken pipe"), true},
-		{errors.New("read: connection reset by peer"), true},
-		{errors.New("some other error"), false},
-	}
-	for _, tt := range tests {
-		got := isClosedConnErr(tt.err)
-		if got != tt.want {
-			t.Errorf("isClosedConnErr(%v) = %v, want %v", tt.err, got, tt.want)
-		}
-	}
-}
-
-func TestWebSocketHeartbeatLoopCancelled(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	cancel()
-	ackCh := make(chan struct{}, 1)
-	cl := &wsClient{heartbeat: 50 * time.Millisecond}
-	cl.heartbeatLoop(ctx, ackCh)
-}
-
-func TestWsHandshakeNonHijacker(t *testing.T) {
-	w := httptest.NewRecorder()
-	r, _ := http.NewRequest("GET", "/ws", nil)
-	r.Header.Set("Sec-WebSocket-Key", "dGhlIHNhbXBsZSBub25jZQ==")
-	_, _, err := wsHandshake(w, r)
-	if err == nil {
-		t.Error("expected error from non-hijacking ResponseWriter")
-	}
-}
-
-func TestWsWriteTextViaPipe(t *testing.T) {
-	client, server := net.Pipe()
-	defer client.Close()
-	defer server.Close()
-	payload := []byte(`{"hello":"world"}`)
-	go wsWriteText(server, payload)
-	client.SetReadDeadline(time.Now().Add(2 * time.Second))
-	var hdr [2]byte
-	io.ReadFull(client, hdr[:])
-	if hdr[0]&0x0f != opText {
-		t.Errorf("opcode = %x, want text", hdr[0]&0x0f)
-	}
-	length := int(hdr[1] & 0x7f)
-	body := make([]byte, length)
-	io.ReadFull(client, body)
-	if string(body) != string(payload) {
-		t.Errorf("body = %q, want %q", body, payload)
-	}
-}
-
-func TestWsWriteCloseViaPipe(t *testing.T) {
-	client, server := net.Pipe()
-	defer client.Close()
-	defer server.Close()
-	// net.Pipe is synchronous: the write blocks until the read side consumes it,
-	// so the read must happen in a goroutine before the write.
-	type result struct {
-		payload []byte
-		err     error
-	}
-	done := make(chan result, 1)
-	go func() {
-		client.SetReadDeadline(time.Now().Add(2 * time.Second))
-		_, payload, _, _, err := wsReadFrame(client)
-		done <- result{payload, err}
-	}()
-	if err := wsWriteClose(server, CloseNormal, "bye"); err != nil {
-		t.Fatalf("write close: %v", err)
-	}
-	select {
-	case r := <-done:
-		if r.err != nil {
-			t.Fatalf("read: %v", r.err)
-		}
-		if len(r.payload) < 2 {
-			t.Fatalf("payload too short: %d bytes", len(r.payload))
-		}
-	case <-time.After(3 * time.Second):
-		t.Fatal("timed out waiting for the close frame")
-	}
-}
-
-// --- providerKeyPresent ---
-
-func TestProviderKeyPresentForKnownProviders(t *testing.T) {
-	got := providerKeyPresent(config.Default(), "openai")
-	_ = got
-}
-
-func TestProviderKeyPresentWithAPIKey(t *testing.T) {
-	cfg := config.Default()
-	cfg.LLM.APIKey = "test-key"
-	if !providerKeyPresent(cfg, "openai") {
-		t.Error("expected true when APIKey is set and provider uses MOTITA_LLM_API_KEY")
-	}
-}
-
-// --- wsWriteFrame with large payload (>65535) ---
-
-func TestWsWriteFrameLargePayload(t *testing.T) {
-	client, server := net.Pipe()
-	defer client.Close()
-	defer server.Close()
-	payload := make([]byte, 70000) // > 65535, triggers 64-bit length
-	for i := range payload {
-		payload[i] = byte(i % 256)
-	}
-	done := make(chan struct{})
-	go func() {
-		wsWriteFrame(server, opBinary, payload)
-		close(done)
-	}()
-	client.SetReadDeadline(time.Now().Add(2 * time.Second))
-	var hdr [2]byte
-	io.ReadFull(client, hdr[:])
-	if hdr[1]&0x7f != 127 {
-		t.Errorf("expected 64-bit length, got mask %d", hdr[1]&0x7f)
-	}
-	var lenBuf [8]byte
-	io.ReadFull(client, lenBuf[:])
-	// Read the rest of the payload
-	remaining := make([]byte, 70000)
-	io.ReadFull(client, remaining)
-	<-done
-}
-
-// TestProviderKeyPresentReadsLoginsAndEachProvidersVariable: a stored login counts
-// as a credential, and a key exported for one vendor does not count for another.
-func TestProviderKeyPresentReadsLoginsAndEachProvidersVariable(t *testing.T) {
-	dir := t.TempDir()
-	t.Setenv("MOTITA_AUTH_DIR", dir)
-	t.Setenv("OPENAI_API_KEY", "")
-	t.Setenv("ANTHROPIC_API_KEY", "sk-ant")
-	t.Setenv("DASHSCOPE_API_KEY", "")
-	os.Unsetenv("DASHSCOPE_API_KEY") // set-but-empty still counts as named; t.Setenv restores it
-	cfg := config.Default()
-	cfg.LLM.APIKey = ""
-	if !providerKeyPresent(cfg, "anthropic") {
-		t.Error("ANTHROPIC_API_KEY must count for anthropic")
-	}
-	if providerKeyPresent(cfg, "qwen") {
-		t.Error("nothing is configured for qwen yet")
-	}
-	if err := oauth.SaveCredential(dir, oauth.Credential{Provider: "qwen", RefreshToken: "r"}); err != nil {
-		t.Fatal(err)
-	}
-	if !providerKeyPresent(cfg, "qwen") {
-		t.Error("a stored login must count")
-	}
-}
-
-// --- Podman offer on project creation ---
-
-func withPodman(t *testing.T, installed bool) {
-	t.Helper()
-	old, oldWorks := podmanInstalled, podmanWorks
-	podmanInstalled = func() bool { return installed }
-	podmanWorks = func() bool { return installed }
-	t.Cleanup(func() { podmanInstalled, podmanWorks = old, oldWorks })
-}
-
-func createPodmanProject(t *testing.T, body string) map[string]any {
-	t.Helper()
-	srv := newTestServer(t, &fakeService{}, func(o *Options) {
-		o.ProjectDir = t.TempDir()
-		o.WorkspaceDir = t.TempDir()
-	})
-	req, _ := http.NewRequest(http.MethodPost, srv.BaseURL()+"/v1/projects", strings.NewReader(body))
-	req.Header.Set("Authorization", "Bearer "+testToken)
-	w := httptest.NewRecorder()
-	srv.Handler().ServeHTTP(w, req)
-	if w.Code != http.StatusCreated {
-		t.Fatalf("status = %d: %s", w.Code, w.Body)
-	}
-	var out map[string]any
-	if err := json.Unmarshal(w.Body.Bytes(), &out); err != nil {
-		t.Fatal(err)
-	}
-	return out
-}
-
-func TestRuntimesReportsPodman(t *testing.T) {
-	for _, installed := range []bool{true, false} {
-		withPodman(t, installed)
-		srv := newTestServer(t, &fakeService{})
-		req, _ := http.NewRequest(http.MethodGet, srv.BaseURL()+"/v1/runtimes", nil)
-		req.Header.Set("Authorization", "Bearer "+testToken)
-		w := httptest.NewRecorder()
-		srv.Handler().ServeHTTP(w, req)
-		var out map[string]bool
-		if err := json.Unmarshal(w.Body.Bytes(), &out); err != nil || out["podman"] != installed {
-			t.Fatalf("installed=%v: got %s", installed, w.Body)
-		}
-	}
-}
-
-func TestCreateProjectKeepsThePodmanAnswer(t *testing.T) {
-	withPodman(t, true)
-	out := createPodmanProject(t, `{"title":"x","dir":"p","use_podman":true}`)
-	if out["podman"] != true {
-		t.Fatalf("podman = %v, want true", out["podman"])
-	}
-}
-
-func TestCreateProjectIgnoresPodmanWhenNotInstalled(t *testing.T) {
-	withPodman(t, false)
-	out := createPodmanProject(t, `{"title":"x","dir":"p","use_podman":true}`)
-	if out["podman"] != false {
-		t.Fatalf("podman = %v, want false", out["podman"])
-	}
-}
-
-func TestPodmanInstalledReadsThePath(t *testing.T) {
-	t.Setenv("PATH", t.TempDir())
-	if podmanInstalled() {
-		t.Fatal("podman found on an empty PATH")
-	}
-}
-
-// --- Podman after creation: toggle, compose, and the sessions told about it ---
-
-type runtimeService struct {
-	*fakeService
-	runtimes []string
-}
-
-func (s *runtimeService) SetContainerRuntime(name string) { s.runtimes = append(s.runtimes, name) }
-
-func TestRuntimeOfAndApplyRuntimeTo(t *testing.T) {
-	if runtimeOf(nil) != "" || runtimeOf(&Project{}) != "" || runtimeOf(&Project{Podman: true}) != "podman" {
-		t.Fatal("runtimeOf must say podman only for a project that asked for it")
-	}
-	svc := &runtimeService{fakeService: &fakeService{}}
-	applyRuntimeTo(svc, &Project{Podman: true})
-	if len(svc.runtimes) != 1 || svc.runtimes[0] != "podman" {
-		t.Fatalf("runtime not passed: %v", svc.runtimes)
-	}
-	applyRuntimeTo(&fakeService{}, &Project{Podman: true}) // cannot take it: left alone
-}
-
-func patchProject(t *testing.T, srv *Server, id, body string) *httptest.ResponseRecorder {
-	t.Helper()
-	req, _ := http.NewRequest(http.MethodPatch, srv.BaseURL()+"/v1/projects/"+id, strings.NewReader(body))
-	req.Header.Set("Authorization", "Bearer "+testToken)
-	w := httptest.NewRecorder()
-	srv.Handler().ServeHTTP(w, req)
-	return w
-}
-
-func TestUpdateProjectPodman(t *testing.T) {
-	withPodman(t, true)
-	svc := &runtimeService{fakeService: &fakeService{}}
-	srv := newTestServer(t, svc, func(o *Options) {
-		o.ProjectDir = t.TempDir()
-		o.WorkspaceDir = t.TempDir()
-		o.NewService = func() (Service, error) { return svc, nil }
-	})
-	if w := patchProject(t, srv, "nope", `{"podman":true}`); w.Code != http.StatusNotFound {
-		t.Fatalf("unknown project: %d", w.Code)
-	}
-	if err := srv.projects.save(Project{ID: "p1", Title: "t", Dir: t.TempDir()}); err != nil {
-		t.Fatal(err)
-	}
-	c, err := srv.createSession()
-	if err != nil {
-		t.Fatal(err)
-	}
-	c.svc = svc
-	c.setProjectID("p1", "", "")
-	srv.sessionsMu.Lock()
-	srv.sessions[c.id] = c
-	srv.sessionsMu.Unlock()
-
-	if w := patchProject(t, srv, "p1", `{`); w.Code != http.StatusBadRequest {
-		t.Fatalf("bad body: %d", w.Code)
-	}
-	if w := patchProject(t, srv, "p1", `{"podman":true}`); w.Code != http.StatusOK {
-		t.Fatalf("enable: %d %s", w.Code, w.Body)
-	}
-	if p, _ := srv.projects.load("p1"); !p.Podman {
-		t.Fatal("the answer was not saved")
-	}
-	if len(svc.runtimes) == 0 || svc.runtimes[len(svc.runtimes)-1] != "podman" {
-		t.Fatalf("the open session was not told: %v", svc.runtimes)
-	}
-	withPodman(t, false)
-	if w := patchProject(t, srv, "p1", `{"podman":true}`); w.Code != http.StatusConflict {
-		t.Fatalf("podman missing: %d", w.Code)
-	}
-	if w := patchProject(t, srv, "p1", `{"podman":false}`); w.Code != http.StatusOK {
-		t.Fatalf("disable: %d", w.Code)
-	}
-}
-
-func TestUpdateProjectSaveFailure(t *testing.T) {
-	withPodman(t, true)
-	dir := t.TempDir()
-	srv := newTestServer(t, &fakeService{}, func(o *Options) {
-		o.ProjectDir = dir
-		o.WorkspaceDir = t.TempDir()
-	})
-	if err := srv.projects.save(Project{ID: "p1", Title: "t", Dir: t.TempDir()}); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.Chmod(dir, 0o500); err != nil {
-		t.Fatal(err)
-	}
-	defer os.Chmod(dir, 0o700)
-	if os.Geteuid() == 0 {
-		t.Skip("root ignores directory permissions")
-	}
-	if w := patchProject(t, srv, "p1", `{"podman":true}`); w.Code != http.StatusInternalServerError {
-		t.Fatalf("save failure: %d", w.Code)
-	}
-}
-
-func TestRuntimesReportsCompose(t *testing.T) {
-	withPodman(t, true)
-	old := podmanComposeInstalled
-	podmanComposeInstalled = func() bool { return true }
-	defer func() { podmanComposeInstalled = old }()
-	srv := newTestServer(t, &fakeService{})
-	req, _ := http.NewRequest(http.MethodGet, srv.BaseURL()+"/v1/runtimes", nil)
-	req.Header.Set("Authorization", "Bearer "+testToken)
-	w := httptest.NewRecorder()
-	srv.Handler().ServeHTTP(w, req)
-	var out map[string]bool
-	if err := json.Unmarshal(w.Body.Bytes(), &out); err != nil || !out["podman_compose"] {
-		t.Fatalf("got %s", w.Body)
-	}
-}
-
-func TestPodmanComposeInstalledReadsThePath(t *testing.T) {
-	t.Setenv("PATH", t.TempDir())
-	if podmanComposeInstalled() {
-		t.Fatal("compose found on an empty PATH")
-	}
-}
-
-// TestWriteSyncedReportsAFailedWrite: /dev/full opens fine and refuses every write, which is
-// the failure of the three steps a test can cause for any user, root included.
-func TestWriteSyncedReportsAFailedWrite(t *testing.T) {
-	if _, err := os.Stat("/dev/full"); err != nil {
-		t.Skip("this platform has no /dev/full")
-	}
-	if err := writeSynced("/dev/full", []byte("x")); err == nil {
-		t.Fatal("a write to a full device must fail")
-	}
-}
-
-// fakePodman puts a podman on the PATH that answers `info` and `compose version` with the exit
-// codes it is given: the real detection functions run, against a binary a test controls.
-func fakePodman(t *testing.T, infoExit, composeExit int) {
-	t.Helper()
-	dir := t.TempDir()
-	script := fmt.Sprintf("#!/bin/sh\ncase \"$1\" in\n  info) exit %d ;;\n  compose) exit %d ;;\nesac\nexit 0\n", infoExit, composeExit)
-	if err := os.WriteFile(filepath.Join(dir, "podman"), []byte(script), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
-}
-
-func TestPodmanDetectionAgainstAFakeBinary(t *testing.T) {
-	fakePodman(t, 0, 0)
-	if !podmanInstalled() || !podmanWorks() || !podmanComposeInstalled() {
-		t.Fatal("a podman that answers must be installed, working and have compose")
-	}
-	fakePodman(t, 1, 1)
-	if !podmanInstalled() {
-		t.Fatal("the binary is there")
-	}
-	if podmanWorks() || podmanComposeInstalled() {
-		t.Fatal("a podman whose info and compose fail is neither working nor has compose")
-	}
-}
-
-func TestPodmanWorksIsFalseWithoutABinary(t *testing.T) {
-	t.Setenv("PATH", t.TempDir())
-	if podmanWorks() {
-		t.Fatal("no binary, nothing works")
-	}
-}
-
-func TestRuntimesSeparatesInstalledFromReady(t *testing.T) {
-	oldI, oldW, oldC := podmanInstalled, podmanWorks, podmanComposeInstalled
-	defer func() { podmanInstalled, podmanWorks, podmanComposeInstalled = oldI, oldW, oldC }()
-	podmanInstalled = func() bool { return true }
-	podmanWorks = func() bool { return false }
-	podmanComposeInstalled = func() bool { t.Fatal("compose must not be asked of a podman that does not work"); return false }
-	srv := newTestServer(t, &fakeService{})
-	req, _ := http.NewRequest(http.MethodGet, srv.BaseURL()+"/v1/runtimes", nil)
-	req.Header.Set("Authorization", "Bearer "+testToken)
-	w := httptest.NewRecorder()
-	srv.Handler().ServeHTTP(w, req)
-	var out map[string]bool
-	if err := json.Unmarshal(w.Body.Bytes(), &out); err != nil || !out["podman"] || out["podman_ready"] || out["podman_compose"] {
-		t.Fatalf("got %s", w.Body)
 	}
 }

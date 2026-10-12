@@ -75,7 +75,8 @@ func TestASessionKeepsItsAgentsAndCountsTheRunningOnes(t *testing.T) {
 	}}
 	srv := newTestServer(t, svc)
 
-	if w := get(t, srv, sessionPath(srv, DefaultSession, "/agents"), testToken); w.Code != http.StatusOK || w.Body.String() != "{\"agents\":[]}\n" {
+	if w := get(t, srv, sessionPath(srv, DefaultSession, "/agents"), testToken); w.Code != http.StatusOK ||
+		w.Body.String() != "{\"agents\":[]}\n" {
 		t.Fatalf("a session that never ran agents = %d %q", w.Code, w.Body.String())
 	}
 
@@ -107,7 +108,8 @@ func TestASessionKeepsItsAgentsAndCountsTheRunningOnes(t *testing.T) {
 	waitForNoRun(t, srv)
 	w := get(t, srv, sessionPath(srv, DefaultSession, "/agents"), testToken)
 	var after agentsEvent
-	if err := json.Unmarshal(w.Body.Bytes(), &after); err != nil || len(after.Agents) != 3 || after.Agents[2].Branch != "motita/sub/a2" {
+	if err := json.Unmarshal(w.Body.Bytes(), &after); err != nil || len(after.Agents) != 3 ||
+		after.Agents[2].Branch != "motita/sub/a2" {
 		t.Fatalf("the finished run's agents must still be readable: %s", w.Body.String())
 	}
 
@@ -147,7 +149,9 @@ func TestTheClientHandsTheAgentsOnAsTheAgentsLine(t *testing.T) {
 		t.Fatalf("no callback: %v", err)
 	}
 	// A list the client cannot read ends the run with a reason, like every other payload.
-	if _, err := rawGateway(t, "event: agents\ndata: not json\n\n").RunTask(context.Background(), "x", func(string, ...any) {}); err == nil {
+	if _, err := rawGateway(t, "event: agents\ndata: not json\n\n").RunTask(context.Background(), "x", func(string,
+		...any) {
+	}); err == nil {
 		t.Fatal("a malformed agents event must end the run")
 	}
 }

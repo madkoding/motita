@@ -51,8 +51,9 @@ func TestValid(t *testing.T) {
 
 func TestTFallsBackToEnglish(t *testing.T) {
 	Register(ES, map[string]string{"Hello test": "Hola test", "Blank test": ""}) // spanish-fixture: a catalog entry
-	Register(ES, map[string]string{"Hello test": "Hola de nuevo"})               // spanish-fixture: the last registration wins
-	if got := T(ES, "Hello test"); got != "Hola de nuevo" {                      // spanish-fixture: a catalog entry
+	// spanish-fixture: the last registration wins
+	Register(ES, map[string]string{"Hello test": "Hola de nuevo"}) // spanish-fixture: a catalog entry
+	if got := T(ES, "Hello test"); got != "Hola de nuevo" {        // spanish-fixture: a catalog entry
 		t.Errorf("T = %q", got)
 	}
 	if got := T(EN, "Hello test"); got != "Hello test" {

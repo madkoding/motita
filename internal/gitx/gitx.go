@@ -13,9 +13,10 @@
 //
 // It runs git as a subprocess and parses the result, which is deliberate. There
 // is no pure-Go git here and there must not be one: the repository being asked
-// is the user's, with the user's config, hooks and worktree registrations, and
-// only the user's git gives an answer that matches what a terminal in front of
-// that machine would show.
+// is the user's, with the user's config and worktree registrations, and only
+// the user's git gives an answer that matches what a terminal in front of that
+// machine would show. What it does NOT run is code the repository's config
+// names (hooks, an fsmonitor): see hardening.
 //
 // Every command is read-only except three: AddWorktree, RemoveWorktree and
 // MergeInto. Those are the mutations this package exists to perform, and each
@@ -31,6 +32,16 @@ import (
 	"sort"
 	"strings"
 	"time"
+)
+
+// Literals used more than once in this file.
+const (
+	gitRevParse  = "rev-parse"
+	gitGlobal    = "--global"
+	gitUserName  = "user.name"
+	gitUserEmail = "user.email"
+	gitShort     = "--short"
+	gitVerify    = "--verify"
 )
 
 // ErrNoGit is returned when git itself cannot be executed. It is a sentinel so
@@ -76,11 +87,30 @@ const removeTimeout = 5 * time.Minute
 // removeTimeoutFor is removeTimeout as a variable, so a test can reach the expiry.
 var removeTimeoutFor = removeTimeout
 
+// hardening is passed to EVERY git this package runs. Those commands run as the user, outside
+// any sandbox, in a repository whose .git/config an agent (or a cloned project) may have
+// written: a core.fsmonitor command runs on `status`, and a hook runs on `commit`, `merge` and
+// `checkout`. A -c on the command line wins over every config file, so repository config
+// cannot bring code into a git this program starts.
+var hardening = []string{"-c", "core.hooksPath=/dev/null", "-c", "core.fsmonitor=false"}
+
+// Hardening is a copy of the -c options every git of this package runs with, for the few
+// callers outside it that start git themselves: put them before the subcommand.
+func Hardening() []string {
+	return append([]string(nil), hardening...)
+}
+
+// gitArgs is the argument list of one git run in dir: the hardening, then the command.
+func gitArgs(dir string, args ...string) []string {
+	full := append([]string{"-C", dir}, hardening...)
+	return append(full, args...)
+}
+
 // executeWithin runs git once in dir, killed after limit.
 func executeWithin(ctx context.Context, limit time.Duration, dir string, args ...string) (string, error) {
 	c, cancel := context.WithTimeout(ctx, limit)
 	defer cancel()
-	out, err := execCommand(c, "git", append([]string{"-C", dir}, args...)...)
+	out, err := execCommand(c, "git", gitArgs(dir, args...)...)
 	if err != nil && errors.Is(err, exec.ErrNotFound) {
 		return "", ErrNoGit
 	}
@@ -158,12 +188,14 @@ func Repo(ctx context.Context, dir string) error {
 	if strings.TrimSpace(dir) == "" {
 		return ErrNotARepo
 	}
-	out, err := execute(ctx, dir, "rev-parse", "--is-inside-work-tree")
+	out, err := execute(ctx, dir, gitRevParse, "--is-inside-work-tree")
 	switch {
 	case isNoGit(err):
 		return ErrNoGit
 	case err != nil, out != "true":
 		return ErrNotARepo
+	default:
+		// Inside a work tree.
 	}
 	return nil
 }
@@ -234,8 +266,8 @@ func Checkout(ctx context.Context, dir, branch string) error {
 // which is where a repository made by Init gets the identity of its commits.
 // Either is empty when it is not set.
 func GlobalIdentity(ctx context.Context) (name, email string) {
-	name, _ = execute(ctx, ".", "config", "--global", "user.name")
-	email, _ = execute(ctx, ".", "config", "--global", "user.email")
+	name, _ = execute(ctx, ".", "config", gitGlobal, gitUserName)
+	email, _ = execute(ctx, ".", "config", gitGlobal, gitUserEmail)
 	return strings.TrimSpace(name), strings.TrimSpace(email)
 }
 
@@ -243,10 +275,10 @@ func GlobalIdentity(ctx context.Context) (name, email string) {
 // configuration, so that every repository - this one and the ones already on
 // the machine - commits under them.
 func SetGlobalIdentity(ctx context.Context, name, email string) error {
-	if _, err := noGitOr(ctx, "could not save the git name", ".", "config", "--global", "user.name", name); err != nil {
+	if _, err := noGitOr(ctx, "could not save the git name", ".", "config", gitGlobal, gitUserName, name); err != nil {
 		return err
 	}
-	_, err := noGitOr(ctx, "could not save the git email", ".", "config", "--global", "user.email", email)
+	_, err := noGitOr(ctx, "could not save the git email", ".", "config", gitGlobal, gitUserEmail, email)
 	return err
 }
 
@@ -268,14 +300,15 @@ func Head(ctx context.Context, dir string) (branch string, detached string, err 
 	if err := Repo(ctx, dir); err != nil {
 		return "", "", err
 	}
-	if name, nameErr := execute(ctx, dir, "rev-parse", "--abbrev-ref", "HEAD"); nameErr == nil && name != "" && name != "HEAD" {
+	if name, nameErr := execute(ctx, dir, gitRevParse, "--abbrev-ref", "HEAD"); nameErr == nil &&
+		name != "" && name != "HEAD" {
 		return name, "", nil
 	}
-	if sha, shaErr := execute(ctx, dir, "rev-parse", "--short", "HEAD"); shaErr == nil && sha != "" {
+	if sha, shaErr := execute(ctx, dir, gitRevParse, gitShort, "HEAD"); shaErr == nil && sha != "" {
 		return "", sha, nil
 	}
 	// No commits yet: the branch is still known, as a symbolic ref.
-	out, err := execute(ctx, dir, "symbolic-ref", "--short", "HEAD")
+	out, err := execute(ctx, dir, "symbolic-ref", gitShort, "HEAD")
 	if err != nil {
 		return "", "", describe("could not read the branch this checkout is on", out, err)
 	}
@@ -302,12 +335,14 @@ func Display(ctx context.Context, dir string) string {
 
 // Root reports the repository's top-level directory.
 func Root(ctx context.Context, dir string) (string, error) {
-	out, err := execute(ctx, dir, "rev-parse", "--show-toplevel")
+	out, err := execute(ctx, dir, gitRevParse, "--show-toplevel")
 	switch {
 	case isNoGit(err):
 		return "", ErrNoGit
 	case err != nil, out == "":
 		return "", ErrNotARepo
+	default:
+		// The top-level directory was read.
 	}
 	return out, nil
 }
@@ -317,13 +352,13 @@ func Root(ctx context.Context, dir string) (string, error) {
 // A repository with no commits cannot be branched from: `worktree add -b` fails
 // with a message that names neither the cause nor the fix.
 func HasCommits(ctx context.Context, dir string) bool {
-	out, err := execute(ctx, dir, "rev-parse", "--verify", "HEAD")
+	out, err := execute(ctx, dir, gitRevParse, gitVerify, "HEAD")
 	return err == nil && out != ""
 }
 
 // BranchExists reports whether a local branch of that name exists.
 func BranchExists(ctx context.Context, dir, branch string) bool {
-	out, err := execute(ctx, dir, "rev-parse", "--verify", "refs/heads/"+branch)
+	out, err := execute(ctx, dir, gitRevParse, gitVerify, "refs/heads/"+branch)
 	return err == nil && out != ""
 }
 
@@ -354,11 +389,13 @@ func parseCommits(out string) []Commit {
 // when the session began: the base branch may have moved since, and a recorded
 // number would then be a number that used to be true.
 func CommitsBetween(ctx context.Context, dir, baseBranch, branch string) (ahead, behind []Commit, err error) {
-	out, err := noGitOr(ctx, "could not read the branch's commits", dir, "log", "--format=%h\t%s", baseBranch+".."+branch)
+	out, err := noGitOr(ctx, "could not read the branch's commits",
+		dir, "log", "--format=%h\t%s", "--end-of-options", baseBranch+".."+branch)
 	if err != nil {
 		return nil, nil, err
 	}
-	behindOut, err := noGitOr(ctx, "could not read the base branch's commits", dir, "log", "--format=%h\t%s", branch+".."+baseBranch)
+	behindOut, err := noGitOr(ctx, "could not read the base branch's commits",
+		dir, "log", "--format=%h\t%s", "--end-of-options", branch+".."+baseBranch)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -415,7 +452,9 @@ func AddWorktree(ctx context.Context, repoDir, path, branch string) error {
 		return err
 	}
 	if !samePath(root, repoDir) {
-		return fmt.Errorf("%q is not the root of its repository (%s): a worktree of the whole repository is not this project", repoDir, root)
+		return fmt.Errorf(
+			"%q is not the root of its repository (%s): a worktree of the whole repository is not this project",
+			repoDir, root)
 	}
 	if !HasCommits(ctx, repoDir) {
 		return errors.New("the repository has no commits to branch from")
@@ -424,7 +463,8 @@ func AddWorktree(ctx context.Context, repoDir, path, branch string) error {
 	// is cleared first. `worktree prune` only removes registrations git itself
 	// considers missing, so a live worktree is never touched by this.
 	if !dirExists(path) {
-		if _, pruneErr := noGitOr(ctx, "the stale worktree registration could not be cleared", repoDir, "worktree", "prune"); pruneErr != nil {
+		if _, pruneErr := noGitOr(ctx, "the stale worktree registration could not be cleared",
+			repoDir, "worktree", "prune"); pruneErr != nil {
 			return pruneErr
 		}
 	}
@@ -508,8 +548,8 @@ const (
 // A name without an email, or an email without a name, is treated as no
 // identity at all: git needs both, so half of one is not half a solution.
 func Identity(ctx context.Context, dir string) (name, email string) {
-	name, _ = execute(ctx, dir, "config", "user.name")
-	email, _ = execute(ctx, dir, "config", "user.email")
+	name, _ = execute(ctx, dir, "config", gitUserName)
+	email, _ = execute(ctx, dir, "config", gitUserEmail)
 	if strings.TrimSpace(name) == "" || strings.TrimSpace(email) == "" {
 		return FallbackName, FallbackEmail
 	}
@@ -552,16 +592,20 @@ func MergeInto(ctx context.Context, repoDir, baseBranch, branch, message string)
 		return MergeResult{}, err
 	}
 	if branchNow == "" {
-		return MergeResult{}, fmt.Errorf("the checkout is detached at %s, so there is no branch to merge into: check out %q first", detached, baseBranch)
+		return MergeResult{}, fmt.Errorf(
+			"the checkout is detached at %s, so there is no branch to merge into: check out %q first",
+			detached, baseBranch)
 	}
 	if branchNow != baseBranch {
-		return MergeResult{}, fmt.Errorf("the checkout is on %q, and this session branched from %q: check out %q first", branchNow, baseBranch, baseBranch)
+		return MergeResult{}, fmt.Errorf(
+			"the checkout is on %q, and this session branched from %q: check out %q first",
+			branchNow, baseBranch, baseBranch)
 	}
 	name, email := Identity(ctx, repoDir)
 	out, err := execute(ctx, repoDir, "-c", "user.name="+name, "-c", "user.email="+email,
-		"merge", "--no-ff", "--autostash", "-m", message, branch)
+		"merge", "--no-ff", "--no-verify", "--autostash", "-m", message, branch)
 	if err == nil {
-		sha, _ := execute(ctx, repoDir, "rev-parse", "--short", "HEAD")
+		sha, _ := execute(ctx, repoDir, gitRevParse, gitShort, "HEAD")
 		return MergeResult{SHA: sha, Subject: message}, nil
 	}
 	if isNoGit(err) {
@@ -573,10 +617,11 @@ func MergeInto(ctx context.Context, repoDir, baseBranch, branch, message string)
 	// rollback it did not perform. Measured both ways: the conflict case leaves
 	// MERGE_HEAD and aborts cleanly, and the refusal case has no MERGE_HEAD to
 	// abort.
-	if _, mhErr := execute(ctx, repoDir, "rev-parse", "-q", "--verify", "MERGE_HEAD"); mhErr != nil {
+	if _, mhErr := execute(ctx, repoDir, gitRevParse, "-q", gitVerify, "MERGE_HEAD"); mhErr != nil {
 		return MergeResult{}, fmt.Errorf("the merge did not happen: %s", firstLine(out))
 	}
-	if _, abErr := noGitOr(ctx, "the merge conflicted and could not be rolled back", repoDir, "merge", "--abort"); abErr != nil {
+	if _, abErr := noGitOr(ctx, "the merge conflicted and could not be rolled back",
+		repoDir, "merge", "--abort"); abErr != nil {
 		return MergeResult{}, abErr
 	}
 	return MergeResult{}, fmt.Errorf("the merge conflicted and was rolled back; nothing was changed: %s", firstLine(out))
@@ -587,7 +632,7 @@ func MergeInto(ctx context.Context, repoDir, baseBranch, branch, message string)
 // remote because pulling and merging blindly would change history the user did
 // not ask to merge.
 func PullFastForward(ctx context.Context, dir, branch string) error {
-	if _, err := noGitOr(ctx, "could not fetch the latest changes", dir, "fetch", "origin", branch); err != nil {
+	if _, err := noGitOr(ctx, "could not fetch the latest changes", dir, "fetch", "--", "origin", branch); err != nil {
 		return err
 	}
 	// A fetch is not a merge. The local branch must be able to move forward only.

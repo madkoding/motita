@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"io"
 	"net/http"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -202,40 +203,30 @@ func TestTheAdapterForwardsEveryWriteToTheLibrary(t *testing.T) {
 	}
 
 	// The index must show it marked as the USER's work.
-	type entry struct {
-		Name      string `json:"name"`
-		CreatedBy string `json:"created_by"`
-		Pinned    bool   `json:"pinned"`
-	}
-	readIndex := func() []entry {
+	readIndex := func() []adapterIndexEntry {
 		t.Helper()
 		// A FRESH destination every call. json.Unmarshal reuses the one it is given, and a
 		// field that is ABSENT from the JSON keeps whatever was there before: `pinned` is
 		// omitempty, so an unpinned skill omits it, and a second read through a shared
 		// variable would report the pin that was just removed.
 		var index struct {
-			Skills []entry `json:"skills"`
+			Skills []adapterIndexEntry `json:"skills"`
 		}
 		if err := getJSONInto(t, client, base+"/v1/skills", token, &index); err != nil {
 			t.Fatalf("reading the index: %v", err)
 		}
 		return index.Skills
 	}
-	find := func(list []entry, name string) (entry, bool) {
-		for _, e := range list {
-			if e.Name == name {
-				return e, true
-			}
-		}
-		return entry{}, false
-	}
-
-	got, ok := find(readIndex(), "adapter-check")
+	got, ok := findAdapterEntry(readIndex(), "adapter-check")
 	if !ok {
 		t.Fatal("the saved skill is not in the index: the write did not reach the library")
 	}
 	if got.CreatedBy != "foreground" {
-		t.Errorf("a save through the interface has provenance %q, want \"foreground\": the curator would be free to archive a person's own skill", got.CreatedBy)
+		t.Errorf(
+			"a save through the interface has provenance %q, want \"foreground\": the curator would be free to archive a "+
+				"person's own skill",
+			got.CreatedBy,
+		)
 	}
 
 	// PIN, both directions: the pin is the user's veto over every automatic transition.
@@ -243,14 +234,14 @@ func TestTheAdapterForwardsEveryWriteToTheLibrary(t *testing.T) {
 		`{"pinned":true}`, token, nil); err != nil {
 		t.Fatalf("pinning: %v", err)
 	}
-	if got, _ := find(readIndex(), "adapter-check"); !got.Pinned {
+	if got, _ := findAdapterEntry(readIndex(), "adapter-check"); !got.Pinned {
 		t.Error("the pin did not reach the ledger")
 	}
 	if err := postJSONInto(t, client, base+"/v1/skills/adapter-check/pin",
 		`{"pinned":false}`, token, nil); err != nil {
 		t.Fatalf("unpinning: %v", err)
 	}
-	if got, _ := find(readIndex(), "adapter-check"); got.Pinned {
+	if got, _ := findAdapterEntry(readIndex(), "adapter-check"); got.Pinned {
 		t.Errorf("the pin was not removed: %+v", got)
 	}
 
@@ -261,25 +252,47 @@ func TestTheAdapterForwardsEveryWriteToTheLibrary(t *testing.T) {
 	//
 	// It uses postRaw because it is asserting the ABSENCE of a route: a 404 is the expected
 	// answer here, and every other helper in this file treats a non-2xx as a failure.
-	if code, resp, err := postRaw(client, base+"/v1/skills/adapter-check/archive", `{}`, token); err != nil {
-		t.Fatalf("probing the archive route: %v", err)
-	} else {
-		resp.Body.Close()
-		if code != http.StatusNotFound {
-			t.Errorf("archiving from the interface answered %d: that endpoint was deliberately out of scope, so either it was added (update this test and the docs) or it failed for another reason", code)
-		}
+	archived := postStatus(t, client, base+"/v1/skills/adapter-check/archive", token, "probing the archive route")
+	if archived != http.StatusNotFound {
+		t.Errorf("archiving from the interface answered %d: that endpoint was deliberately out of scope, so either it was "+
+			"added (update this test and the docs) or it failed for another reason", archived)
 	}
 
 	// RESTORE fails loudly for a skill that is not archived: the adapter's error travels back
 	// out as a 404 rather than being swallowed into a 204.
-	if code, resp, err := postRaw(client, base+"/v1/skills/adapter-check/restore", `{}`, token); err != nil {
-		t.Fatalf("restoring: %v", err)
-	} else {
-		resp.Body.Close()
-		if code != http.StatusNotFound {
-			t.Errorf("restoring a skill that is not archived answered %d, want 404", code)
+	restored := postStatus(t, client, base+"/v1/skills/adapter-check/restore", token, "restoring")
+	if restored != http.StatusNotFound {
+		t.Errorf("restoring a skill that is not archived answered %d, want 404", restored)
+	}
+}
+
+// adapterIndexEntry is what the skills index says about one skill.
+type adapterIndexEntry struct {
+	Name      string `json:"name"`
+	CreatedBy string `json:"created_by"`
+	Pinned    bool   `json:"pinned"`
+}
+
+// findAdapterEntry returns the entry of the named skill, if the index lists it.
+func findAdapterEntry(list []adapterIndexEntry, name string) (adapterIndexEntry, bool) {
+	for _, e := range list {
+		if e.Name == name {
+			return e, true
 		}
 	}
+	return adapterIndexEntry{}, false
+}
+
+// postStatus posts an empty object with postRaw and returns only the status code, failing the
+// test as "<what>: <error>" when the request itself fails.
+func postStatus(t *testing.T, client *http.Client, url, token, what string) int {
+	t.Helper()
+	code, resp, err := postRaw(client, url, `{}`, token)
+	if err != nil {
+		t.Fatalf("%s: %v", what, err)
+	}
+	resp.Body.Close()
+	return code
 }
 
 // TestTheSkillAdapterIsTheLibraryItself covers the two adapter methods the served gateway does
@@ -491,5 +504,36 @@ func TestTheAdapterRefusesToDeleteAShippedProcedure(t *testing.T) {
 	}
 	if err := getJSONInto(t, client, base+"/v1/skills/files-and-directories", token, &doc); err != nil {
 		t.Fatalf("the shipped procedure must survive the refusal: %v", err)
+	}
+}
+
+// The adapter forwards the review of proposed skills to the runner's library.
+func TestTheSkillAdapterReviewsProposals(t *testing.T) {
+	dir := t.TempDir()
+	runner := tui.NewAppRunner(io.Discard, io.Discard, config.Default(), nil, nil, nil)
+	runner.UseStore(&procedures.Store{Library: skills.New(dir)})
+	a := skillAdapter{runner: runner}
+	if err := os.MkdirAll(filepath.Join(dir, skills.ProposedDir), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for _, n := range []string{"keep", "drop"} {
+		if err := os.WriteFile(filepath.Join(dir, skills.ProposedDir, n+".md"), []byte("# "+n+"\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if names, err := a.ProposedSkills(); err != nil || len(names) != 2 {
+		t.Fatalf("ProposedSkills = %v, %v", names, err)
+	}
+	if s, err := a.ProposedSkill("keep"); err != nil || s.Title != "keep" {
+		t.Fatalf("ProposedSkill = %+v, %v", s, err)
+	}
+	if err := a.AcceptProposedSkill("keep"); err != nil {
+		t.Fatal(err)
+	}
+	if err := a.RejectProposedSkill("drop"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := a.Skill("keep"); err != nil {
+		t.Errorf("accepted, not in the library: %v", err)
 	}
 }

@@ -18,9 +18,7 @@
 package agent
 
 import (
-	"bytes"
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -36,13 +34,17 @@ import (
 	"github.com/madkoding/motita/internal/llm"
 	"github.com/madkoding/motita/internal/logx"
 	"github.com/madkoding/motita/internal/policy"
+	"github.com/madkoding/motita/internal/redact"
 	"github.com/madkoding/motita/internal/reward"
 	"github.com/madkoding/motita/internal/sandbox"
-	"github.com/madkoding/motita/internal/semantic"
 	"github.com/madkoding/motita/internal/skills"
 	"github.com/madkoding/motita/internal/task"
-	"github.com/madkoding/motita/internal/template"
 	"github.com/madkoding/motita/internal/usage"
+)
+
+// Literals used more than once in this file.
+const (
+	gitCommitPrefix = "git_commit: "
 )
 
 // Agent orchestrates the three layers.
@@ -128,6 +130,10 @@ type Agent struct {
 	subs     *subagents
 	isChild  bool
 	research bool
+
+	// gate is the fingerprint of the project's gate (anchor kind auto) as the task found it; a
+	// background agent inherits its main agent's. See guardGate.
+	gate string
 }
 
 // SetObserver allows external callers (such as the TUI) to register a callback
@@ -230,11 +236,16 @@ func New(cfg config.Config, log *logx.Logger, engine *llm.Client, box *sandbox.S
 
 // exec runs a command with the agent's executor (the sandbox by default). It
 // returns a clear error when none is configured.
+//
+// Every command's output reaches the model provider's prompt and the saved
+// transcript from here, so this is the one place where the secrets it printed (a
+// token in `git remote -v`, a key in `cat .env`) are masked.
 func (a *Agent) exec(ctx context.Context, p execx.Request) (string, bool, int, error) {
 	if a.ExecCommand == nil {
 		return "", false, -1, errors.New("the agent has no command executor configured")
 	}
-	return a.ExecCommand(ctx, p)
+	output, truncated, exit, err := a.ExecCommand(ctx, p)
+	return redact.String(output), truncated, exit, err
 }
 
 // RunCommand executes a single command line under the agent's policy and sandbox.
@@ -261,376 +272,6 @@ func (a *Agent) RunCommand(ctx context.Context, command string) (string, int, er
 	output, _, exit, err := a.exec(ctx, p.Request)
 	return output, exit, err
 }
-
-// --- Conversation -----------------------------------------------------------
-
-// DialogueTurn is one exchange in the conversation: what the user said and what the agent
-// answered. Both are kept because the meaning lives in the pair — a user's "yes" is only
-// interpretable next to the question it answers.
-type DialogueTurn struct {
-	User string
-	// Agent is the reply, the question, or a one-line account of what was done. It is what the
-	// agent said, in the agent's own words.
-	Agent string
-	// Kind records what the turn was, so the transcript can be summarised honestly: a chat turn
-	// and a finished task are not the same thing to a reader.
-	Kind string
-	// Pending marks a turn that was written when its task STARTED and has not been closed by
-	// an outcome. It is how a run that is cut off (a restart, a crash) still leaves the
-	// request and the work done so far in the conversation, instead of nothing at all.
-	Pending bool `json:",omitempty"`
-}
-
-// pendingText is what a turn says before its task has an outcome.
-const pendingText = "(no result recorded yet: the run is still working, or it was interrupted before it finished)"
-
-// pendingLimit caps the work trail kept in a pending turn.
-const pendingLimit = 3000
-
-// begin writes the turn for a task that is starting. A pending turn for the same request
-// is reused: a run that resumes after a restart continues its own turn, it does not add a
-// second one.
-func (a *Agent) begin(t task.Task) {
-	a.transcriptMu.Lock()
-	defer a.transcriptMu.Unlock()
-	if n := len(a.transcript); n > 0 && a.transcript[n-1].Pending && a.transcript[n-1].User == t.Description {
-		return
-	}
-	a.transcript = append(a.transcript, DialogueTurn{
-		User: t.Description, Agent: pendingText, Kind: KindTask, Pending: true,
-	})
-}
-
-// trail updates the pending turn with what the run has done so far.
-func (a *Agent) trail(t task.Task, lines []string) {
-	a.transcriptMu.Lock()
-	defer a.transcriptMu.Unlock()
-	n := len(a.transcript)
-	if n == 0 || !a.transcript[n-1].Pending || a.transcript[n-1].User != t.Description {
-		return
-	}
-	text := strings.Join(lines, "\n")
-	if len(text) > pendingLimit {
-		start := len(text) - pendingLimit
-		for !utf8.RuneStart(text[start]) {
-			start++
-		}
-		text = "..." + text[start:]
-	}
-	a.transcript[n-1].Agent = pendingText + workMarker + text
-}
-
-// workSoFar is the trail of the pending turn for this request, or "" when there is none.
-func (a *Agent) workSoFar(t task.Task) string {
-	a.transcriptMu.Lock()
-	defer a.transcriptMu.Unlock()
-	n := len(a.transcript)
-	if n == 0 || !a.transcript[n-1].Pending || a.transcript[n-1].User != t.Description {
-		return ""
-	}
-	_, work, _ := strings.Cut(a.transcript[n-1].Agent, workMarker)
-	return work
-}
-
-// workMarker separates the pending text from the trail inside a pending turn.
-const workMarker = "\nWork so far:\n"
-
-// record appends a finished turn. It closes the pending turn of the same request, if there
-// is one, instead of leaving it beside its own outcome.
-func (a *Agent) record(turn DialogueTurn) {
-	if n := len(a.transcript); n > 0 && a.transcript[n-1].Pending && a.transcript[n-1].User == turn.User {
-		a.transcript[n-1] = turn
-		return
-	}
-	a.transcript = append(a.transcript, turn)
-}
-
-// SetTranscript seeds the conversation, which is how an interface hands over what the user has
-// already seen. It replaces anything held.
-func (a *Agent) SetTranscript(turns []DialogueTurn) {
-	a.transcriptMu.Lock()
-	defer a.transcriptMu.Unlock()
-	a.transcript = append([]DialogueTurn(nil), turns...)
-}
-
-// Transcript returns a copy of the conversation.
-func (a *Agent) Transcript() []DialogueTurn {
-	a.transcriptMu.Lock()
-	defer a.transcriptMu.Unlock()
-	return append([]DialogueTurn(nil), a.transcript...)
-}
-
-// converse appends the user's message and the agent's answer to the conversation.
-func (a *Agent) converse(t task.Task, reply string) {
-	a.transcriptMu.Lock()
-	defer a.transcriptMu.Unlock()
-	a.record(DialogueTurn{
-		User:  t.Description,
-		Agent: reply,
-		Kind:  KindChat,
-	})
-}
-
-// note appends what the agent did about a task, so the next turn can refer to it.
-//
-// A task that ran is part of the conversation too: "and now do the same for the other one" only
-// means something if the agent can see what it just did.
-func (a *Agent) note(t task.Task, outcome string, kind string) {
-	a.transcriptMu.Lock()
-	defer a.transcriptMu.Unlock()
-	a.record(DialogueTurn{
-		User:  t.Description,
-		Agent: outcome,
-		Kind:  kind,
-	})
-}
-
-// dialogue renders the conversation for the prompt.
-//
-// It is bounded on purpose. The transcript is fed to the analysis phase on every turn, so an
-// unbounded one would grow the prompt until it crowded out the task itself — and an old greeting
-// is not worth more than the request being made now. The most recent turns are what a short
-// answer refers to, so the tail is kept and the beginning is dropped with a note that says so.
-func (a *Agent) dialogue() string {
-	turns := a.Transcript()
-	if len(turns) == 0 {
-		return "(this is the first message: there is no earlier conversation)"
-	}
-	const keep = 12
-	dropped := 0
-	if len(turns) > keep {
-		dropped = len(turns) - keep
-		turns = turns[dropped:]
-	}
-	var b strings.Builder
-	if dropped > 0 {
-		fmt.Fprintf(&b, "(%d earlier exchanges omitted)\n", dropped)
-	}
-	for _, turn := range turns {
-		fmt.Fprintf(&b, "user: %s\n", truncate(collapse(turn.User), 500))
-		if turn.Pending {
-			// Not an outcome: the work trail would read as something the agent said.
-			b.WriteString("you: (that request was cut off before it finished)\n")
-			continue
-		}
-		said := truncate(collapse(turn.Agent), 500)
-		switch turn.Kind {
-		case KindChat:
-			fmt.Fprintf(&b, "you: %s\n", said)
-		case KindTask:
-			fmt.Fprintf(&b, "you (did it): %s\n", said)
-		default:
-			fmt.Fprintf(&b, "you: %s\n", said)
-		}
-	}
-	return b.String()
-}
-
-// collapse folds a multi-line string into one line, so one turn stays one line in the prompt.
-func collapse(s string) string {
-	return strings.Join(strings.Fields(s), " ")
-}
-
-// maxQuestions bounds how many questions are put at once. Past a few, the user is not being
-// asked to clarify a request any more; they are filling in a form, and the request should have
-// been read more generously first.
-const maxQuestions = 5
-
-// buildQuestions normalises the questions of a turn.
-//
-// The model may answer with a list (several gaps) or with the single question field (one gap).
-// Both are valid and both must work, so this folds them into one shape for the interface: the
-// list when there is one, otherwise the single question. It also drops empty questions and
-// trims the list, so the interface never has to draw a blank row.
-//
-// An EMPTY result means the agent has nothing to ask — the turn is not an ask at all — and the
-// caller must treat that as no question rather than as one empty question.
-func buildQuestions(a Analysis) []AskItem {
-	out := make([]AskItem, 0, len(a.Questions)+1)
-	for _, q := range a.Questions {
-		text := collapse(q.Text)
-		if text == "" {
-			continue
-		}
-		out = append(out, AskItem{
-			Text:       text,
-			Assumption: cleanAssumption(q.Assumption),
-			Options:    cleanOptions(q.Options),
-		})
-		if len(out) == maxQuestions {
-			break
-		}
-	}
-	// The single-question fields are still asked, so a prompt that predates the list keeps
-	// working. Only added when the list did not already carry something: a model that filled
-	// both meant the same gap twice.
-	if len(out) == 0 {
-		if text := collapse(a.Question); text != "" {
-			out = append(out, AskItem{
-				Text:       text,
-				Assumption: cleanAssumption(a.Assumption),
-				Options:    cleanOptions(a.Options),
-			})
-		}
-	}
-	return out
-}
-
-// assumptionLead is the phrase the interface puts in front of an assumption, and which the model
-// also tends to put there itself.
-//
-// cleanAssumption reduces an assumption to the ACTION it describes.
-//
-// The model reliably opens its assumption with a lead of its own: a verb announcing it, a
-// conditional clause, or both. In Spanish, which is what the runs happened to emit:
-//
-//	spanish-fixture: "asumiré: reviso el proyecto", "asumiendo: la actual"
-//	spanish-fixture: "Si no me dices otra cosa, asumiré: reviso el proyecto"
-//
-// The model is asked to write the action alone and in the user's language; this is the safety
-// net under that instruction, not the mechanism.
-//
-// Chasing each phrasing in a list does not work — the first version listed whole sentences and
-// the next run produced one that was not on it — so a clause is recognised by SHAPE: any leading
-// conditional phrase up to the first comma, when something follows it.
-//
-// That rule is deliberately blunt and it has a known cost: a real conditional ACTION, "Si borras
-// eso, pierdes datos", matches the same shape and loses its condition, leaving "pierdes datos".
-// The condition is the point of such a sentence, and it matters because the user confirms an
-// assumption in one word. Tightening it was tried and rejected: the repo's tests require
-// "Si no me dices otra cosa, reviso ./workspace" to become "reviso ./workspace", so a conditional
-// with no announcing verb is expected to lose its clause. Recognising the preamble by shape is
-// the contract; the way out is upstream, where the PROMPT tells the model to write the action
-// alone. Only the leading clause goes, and only when the comma leaves something behind, so a
-// field that is ENTIRELY a conditional is kept whole rather than emptied.
-//
-// The strip repeats because a model emits both shapes in one field and removing one exposes the
-// other. spanish-fixture, and the marker is repeated on each of these lines because the gate
-// reads them one at a time:
-//
-//	spanish-fixture: "Si no me dices otra cosa, asumiré: reviso el proyecto"
-//	spanish-fixture: becomes "asumiré: reviso el proyecto" after the clause goes,
-//	spanish-fixture: and still needs the announcement removed.
-func cleanAssumption(in string) string {
-	s := collapse(in)
-	if s == "" {
-		return s
-	}
-	for {
-		before := s
-
-		// A verb that only announces the assumption. It is a small, closed set of phrasings,
-		// which is why this one can be a list where the clause below cannot.
-		for _, verb := range assumptionAnnouncements {
-			if rest, ok := cutPrefixFold(s, verb); ok {
-				if r := collapse(rest); r != "" {
-					s = r
-				}
-				break
-			}
-		}
-
-		// A leading conditional clause, up to its first comma, when something follows it.
-		if isConditionalClause(s) {
-			if c := strings.Index(s, ","); c > 0 && strings.TrimSpace(s[c+1:]) != "" {
-				s = collapse(s[c+1:])
-			}
-		}
-
-		if s == before {
-			break
-		}
-	}
-	return s
-}
-
-// assumptionAnnouncements are the openers that only restate what the interface says anyway,
-// matched case-insensitively at the start of the field.
-//
-// Spanish is what the runs emitted; the other languages are here because the model is asked to
-// write this field in the language of the request, so a question in English produces an
-// announcement in English. A language missing from this list leaves its "I will assume:" visible
-// to the user, which is the bug this list prevents.
-var assumptionAnnouncements = []string{
-	// spanish-fixture: the phrasings the real runs emitted.
-	"asumiré:", "asumiré", "asumiendo:", "asumo que", "supongo que", "supondré:", // spanish-fixture: stripped from the model's output
-	"i will assume:", "i'll assume:", "i will assume", "i'll assume",
-	"assuming that", "assuming:", "i am assuming:", "i'm assuming:",
-	"vou assumir:", "assumindo:", "suponho que", // spanish-fixture: stripped from the model's output
-}
-
-// conditionalOpeners are how a conditional clause starts, per language. The clause is stripped
-// when a comma separates it from something that follows.
-//
-// See the note on cleanAssumption for the cost of recognising this by shape instead of by
-// meaning. The list is what makes it work in more than one language; the shape is what fails to
-// tell a preamble from a real condition, in any of them.
-var conditionalOpeners = []string{
-	// Spanish, the language the runs produced.
-	"si ", "si no ", "si quieres", "a menos que ", "salvo que ", "en caso de ",
-	// English, the language the interface and the prompts are written in.
-	"if ", "if you ", "if not ", "unless ", "in case ",
-	// Portuguese and French, other languages this interface will meet.
-	"se ", "caso ", "a menos que ", "a não ser que ",
-	"si vous ", "sauf si ", "à moins que ",
-}
-
-// isConditionalClause reports whether the text opens with a conditional marker.
-func isConditionalClause(s string) bool {
-	low := strings.ToLower(s)
-	for _, opener := range conditionalOpeners {
-		if strings.HasPrefix(low, opener) {
-			return true
-		}
-	}
-	return false
-}
-
-// cutPrefixFold removes a prefix ignoring case, and reports whether it was there.
-func cutPrefixFold(s, prefix string) (string, bool) {
-	if len(s) < len(prefix) {
-		return "", false
-	}
-	if !strings.EqualFold(s[:len(prefix)], prefix) {
-		return "", false
-	}
-	return s[len(prefix):], true
-}
-
-// maxOptions bounds how many answers are offered: past a handful the list stops being a
-// shortcut and becomes a menu to read.
-const maxOptions = 4
-
-// cleanOptions keeps the options that can actually be picked.
-//
-// The model is asked for short candidate answers; anything empty, multi-line, or absurdly long
-// is dropped rather than shown, because an option is a one-line reply the user selects, not a
-// document. Duplicates go too: two identical choices look like a bug in the interface.
-func cleanOptions(in []string) []string {
-	out := make([]string, 0, len(in))
-	seen := map[string]bool{}
-	for _, o := range in {
-		one := collapse(o)
-		if one == "" || seen[one] {
-			continue
-		}
-		if len([]rune(one)) > optionMaxRunes {
-			continue
-		}
-		seen[one] = true
-		out = append(out, one)
-		if len(out) == maxOptions {
-			break
-		}
-	}
-	if len(out) == 0 {
-		return nil
-	}
-	return out
-}
-
-// optionMaxRunes is the longest option worth showing on one row next to its key.
-const optionMaxRunes = 60
 
 // --- Result of each phase ---------------------------------------------------
 
@@ -891,104 +532,143 @@ func (a *Agent) Run(ctx context.Context) error {
 
 	defer a.source.Close()
 
-	total := 0
-	failed := 0
+	var n runTally
+	for {
+		stop, err := a.runStep(ctx, &n)
+		if stop == stopNow {
+			return err
+		}
+		if stop == stopAndReport {
+			break
+		}
+	}
+
+	a.log.Info("agent finished", "tasks", n.total, "failed", n.failed, "awaiting_input", n.awaiting)
+	if n.failed > 0 {
+		// The reason of every failure is included: whoever reads the error (or
+		// cron's output) must be able to act without digging through the log.
+		return fmt.Errorf("%d of %d tasks failed: %s", n.failed, n.total, strings.Join(n.reasons, " | "))
+	}
+	return nil
+}
+
+// maxConsecutive is how many source failures in a row make Run give up.
+const maxConsecutive = 5
+
+// runTally is what Run counts across the tasks it takes.
+type runTally struct {
+	total  int
+	failed int
 	// awaiting counts the tasks that stopped to ask a question.
-	awaiting := 0
-	reasons := []string{}
+	awaiting int
+	reasons  []string
 	// Consecutive source failures are counted separately: a source that fails
 	// forever (a directory that disappeared, an unreachable API) must not spin
 	// the loop at full speed burning CPU and log. After a few in a row the agent
 	// gives up with a clear error instead of hanging silently.
-	consecutive := 0
-	sourceFailures := 0
-	const maxConsecutive = 5
+	consecutive    int
+	sourceFailures int
+}
 
-	for {
-		select {
-		case <-ctx.Done():
-			a.log.Info("shutdown requested, finishing", "tasks_processed", total)
-			return nil
-		default:
-		}
+// runStop is what one step of Run says about the steps after it.
+type runStop int
 
-		if a.cfg.Agent.MaxTasks > 0 && total >= a.cfg.Agent.MaxTasks {
-			a.log.Info("agent.max_tasks reached", "tasks", total)
-			break
-		}
+const (
+	// keepRunning takes the next task.
+	keepRunning runStop = iota
+	// stopAndReport ends the run with its summary.
+	stopAndReport
+	// stopNow ends the run at once, with the error given.
+	stopNow
+)
 
-		t, err := a.source.Next(ctx)
-		if errors.Is(err, io.EOF) {
-			a.log.Info("no more tasks", "tasks_processed", total)
-			break
-		}
-		if err != nil {
-			if ctx.Err() != nil {
-				return nil
-			}
-			// A source failure is NOT a failed task: no task was taken. Counting
-			// it as one produced nonsense totals such as "2 of 1 tasks failed".
-			// It is tracked on its own and surfaced through the error below.
-			sourceFailures++
-			consecutive++
-			a.log.Error("could not obtain the task", "error", err,
-				"consecutive", consecutive, "source_failures", sourceFailures)
-
-			if consecutive >= maxConsecutive {
-				// The source is broken, not just momentarily empty. Returning
-				// makes the failure visible and actionable (cron/systemd see a
-				// non-zero exit) instead of looping forever.
-				return fmt.Errorf("the task source failed %d times in a row, giving up: %w", consecutive, err)
-			}
-			continue
-		}
-		consecutive = 0
-		if strings.TrimSpace(t.Description) == "" {
-			continue
-		}
-
-		total++
-		result := a.processTask(ctx, t, 0)
-
-		// A task that ended in a QUESTION is not a task that failed.
-		//
-		// It did not run, and nothing went wrong: the agent could not read the request well
-		// enough and is asking. Counting it as a failure is what turned a perfectly good question
-		// into "1 of 1 tasks failed" in the interface, which tells the user they did something
-		// wrong at the exact moment the agent is asking for their help.
-		//
-		// It is reported as a non-failure so the interface can show the question, and it does not
-		// make the run exit non-zero: the run is WAITING, not broken.
-		if result.NeedsInput {
-			awaiting++
-			a.log.Info("task is waiting for the user", "task", truncate(t.Description, 120),
-				"question", truncate(result.Question, 200))
-			continue
-		}
-
-		if result.Pass {
-			a.log.Info("task completed",
-				"task", truncate(t.Description, 120),
-				"attempts", result.Attempts,
-				"duration_ms", result.DurationMS,
-				"final_action", result.FinalAction)
-		} else {
-			failed++
-			reasons = append(reasons, fmt.Sprintf("%q: %s", truncate(t.Description, 80), result.Reason))
-			a.log.Error("task failed",
-				"task", truncate(t.Description, 120),
-				"attempts", result.Attempts,
-				"reason", result.Reason)
-		}
+// runStep takes one task from the source and processes it.
+func (a *Agent) runStep(ctx context.Context, n *runTally) (runStop, error) {
+	select {
+	case <-ctx.Done():
+		a.log.Info("shutdown requested, finishing", "tasks_processed", n.total)
+		return stopNow, nil
+	default:
+		// Not cancelled: go on.
 	}
 
-	a.log.Info("agent finished", "tasks", total, "failed", failed, "awaiting_input", awaiting)
-	if failed > 0 {
-		// The reason of every failure is included: whoever reads the error (or
-		// cron's output) must be able to act without digging through the log.
-		return fmt.Errorf("%d of %d tasks failed: %s", failed, total, strings.Join(reasons, " | "))
+	if a.cfg.Agent.MaxTasks > 0 && n.total >= a.cfg.Agent.MaxTasks {
+		a.log.Info("agent.max_tasks reached", "tasks", n.total)
+		return stopAndReport, nil
 	}
-	return nil
+
+	t, err := a.source.Next(ctx)
+	if errors.Is(err, io.EOF) {
+		a.log.Info("no more tasks", "tasks_processed", n.total)
+		return stopAndReport, nil
+	}
+	if err != nil {
+		return a.sourceFailed(ctx, n, err)
+	}
+	n.consecutive = 0
+	if strings.TrimSpace(t.Description) == "" {
+		return keepRunning, nil
+	}
+
+	n.total++
+	a.tally(n, t, a.processTask(ctx, t, 0))
+	return keepRunning, nil
+}
+
+// sourceFailed handles a failure of the task source.
+func (a *Agent) sourceFailed(ctx context.Context, n *runTally, err error) (runStop, error) {
+	if ctx.Err() != nil {
+		return stopNow, nil
+	}
+	// A source failure is NOT a failed task: no task was taken. Counting
+	// it as one produced nonsense totals such as "2 of 1 tasks failed".
+	// It is tracked on its own and surfaced through the error below.
+	n.sourceFailures++
+	n.consecutive++
+	a.log.Error("could not obtain the task", "error", err,
+		"consecutive", n.consecutive, "source_failures", n.sourceFailures)
+
+	if n.consecutive >= maxConsecutive {
+		// The source is broken, not just momentarily empty. Returning
+		// makes the failure visible and actionable (cron/systemd see a
+		// non-zero exit) instead of looping forever.
+		return stopNow, fmt.Errorf("the task source failed %d times in a row, giving up: %w", n.consecutive, err)
+	}
+	return keepRunning, nil
+}
+
+// tally counts the result of one task.
+func (a *Agent) tally(n *runTally, t task.Task, result TaskResult) {
+	// A task that ended in a QUESTION is not a task that failed.
+	//
+	// It did not run, and nothing went wrong: the agent could not read the request well
+	// enough and is asking. Counting it as a failure is what turned a perfectly good question
+	// into "1 of 1 tasks failed" in the interface, which tells the user they did something
+	// wrong at the exact moment the agent is asking for their help.
+	//
+	// It is reported as a non-failure so the interface can show the question, and it does not
+	// make the run exit non-zero: the run is WAITING, not broken.
+	if result.NeedsInput {
+		n.awaiting++
+		a.log.Info("task is waiting for the user", "task", truncate(t.Description, 120),
+			"question", truncate(result.Question, 200))
+		return
+	}
+
+	if result.Pass {
+		a.log.Info("task completed",
+			"task", truncate(t.Description, 120),
+			"attempts", result.Attempts,
+			"duration_ms", result.DurationMS,
+			"final_action", result.FinalAction)
+		return
+	}
+	n.failed++
+	n.reasons = append(n.reasons, fmt.Sprintf("%q: %s", truncate(t.Description, 80), result.Reason))
+	a.log.Error("task failed",
+		"task", truncate(t.Description, 120),
+		"attempts", result.Attempts,
+		"reason", result.Reason)
 }
 
 // processTask runs the 9-step loop for one task and notifies the observer of the
@@ -1001,21 +681,11 @@ func (a *Agent) processTask(ctx context.Context, t task.Task, depth int) TaskRes
 	run := t
 	isGoal := false
 	if depth == 0 {
-		if goal, ok := goalOf(t.Description); ok {
-			// A goal is autonomous: nobody is asked, the stated assumption is the answer.
-			a.Interactive = false
-			run.Description = goal + goalDirective
-			isGoal = true
-		}
-		if ctxText := decisionsContext(a.cfg.Agent.WorkspaceDir); ctxText != "" {
-			run.Description += ctxText
-		}
+		run, isGoal = a.prepareGoal(t)
 	}
 	r := a.loop(ctx, run, depth)
 	if isGoal && r.Report != nil {
-		if err := recordDecisions(a.cfg.Agent.WorkspaceDir, t.Description, r.Report.Decisions); err != nil {
-			a.log.Warn("could not save the goal's decisions", "error", err)
-		}
+		a.saveGoalDecisions(t, r.Report)
 	}
 	if depth == 0 {
 		// Whatever way the loop ended, nothing it started keeps running behind it.
@@ -1037,18 +707,48 @@ func (a *Agent) processTask(ctx context.Context, t task.Task, depth int) TaskRes
 	// question are written where they are decided, because what they said is known only there. What
 	// this adds is the outcome of work that was actually done.
 	if depth == 0 && r.Kind != KindChat && !r.NeedsInput {
-		outcome := taskOutcome(r)
-		// A run that did not finish keeps what it had done: the result alone ("cancelled",
-		// "stalled") would erase the only record of the work, and the next turn - or a
-		// person reading the conversation - starts from nothing.
-		if !r.Pass {
-			if work := a.workSoFar(t); work != "" {
-				outcome += "\nWork done before it stopped:\n" + work
-			}
-		}
-		a.note(t, outcome, KindTask)
+		a.noteOutcome(t, r)
 	}
 	return r
+}
+
+// prepareGoal is the task as the outermost run works on it: a goal becomes autonomous, and the
+// decisions taken in earlier goals of this workspace are added to it. It reports whether the task
+// is a goal.
+func (a *Agent) prepareGoal(t task.Task) (task.Task, bool) {
+	run := t
+	isGoal := false
+	if goal, ok := goalOf(t.Description); ok {
+		// A goal is autonomous: nobody is asked, the stated assumption is the answer.
+		a.Interactive = false
+		run.Description = goal + goalDirective
+		isGoal = true
+	}
+	if ctxText := decisionsContext(a.cfg.Agent.WorkspaceDir); ctxText != "" {
+		run.Description += ctxText
+	}
+	return run, isGoal
+}
+
+// saveGoalDecisions keeps the decisions a goal's run reported, for the goals after it.
+func (a *Agent) saveGoalDecisions(t task.Task, report *Report) {
+	if err := recordDecisions(a.cfg.Agent.WorkspaceDir, t.Description, report.Decisions); err != nil {
+		a.log.Warn("could not save the goal's decisions", "error", err)
+	}
+}
+
+// noteOutcome records the outcome of a task that ran in the conversation.
+func (a *Agent) noteOutcome(t task.Task, r TaskResult) {
+	outcome := taskOutcome(r)
+	// A run that did not finish keeps what it had done: the result alone ("cancelled",
+	// "stalled") would erase the only record of the work, and the next turn - or a
+	// person reading the conversation - starts from nothing.
+	if !r.Pass {
+		if work := a.workSoFar(t); work != "" {
+			outcome += "\nWork done before it stopped:\n" + work
+		}
+	}
+	a.note(t, outcome, KindTask)
 }
 
 // goalPrefix is what the user types to hand over a goal: "/goal <what they want>".
@@ -1090,607 +790,6 @@ func taskOutcome(r TaskResult) string {
 		return "the task completed"
 	}
 	return "the task did not complete"
-}
-
-// loop is the 9-step loop itself.
-func (a *Agent) loop(ctx context.Context, t task.Task, depth int) TaskResult {
-	start := time.Now()
-	res := TaskResult{Task: t.Description, Attempts: 0}
-
-	// proceededOnAssumption records the reading the agent adopted when it had nobody to ask, so
-	// the final report can say what it assumed instead of presenting the result as unqualified.
-	proceededOnAssumption := ""
-
-	prefix := strings.Repeat("  ", depth)
-	a.log.Info(prefix+"task received", "origin", t.Origin, "depth", depth, "description", truncate(t.Description, 200))
-
-	// [2] Extract context and success criteria: the statement of the validation
-	// rules shown to the LLM is built here, so it knows what it will be measured
-	// against.
-	rules := a.describeRules()
-
-	// [3] Analysis.
-	a.report("analysing the task...")
-	analysis := a.analysisPhase(ctx, t, rules, depth)
-
-	// A SUBTASK is work by construction: the plan that declared it already decided there is
-	// something to do. It must not be answered as chat - that counted as a PASS for work never
-	// done - and it cannot stop to ask: its question would surface as the parent's failure
-	// ("only 0 of 3 subtasks passed") with the question itself lost, because the user is
-	// talking to the PARENT turn. It proceeds on the reading the analysis stated instead.
-	if depth > 0 {
-		if analysis.resolveKind() != KindTask || !analysis.Understandable || analysis.Question != "" {
-			a.log.Info(prefix+"a subtask cannot chat or ask: proceeding as work",
-				"kind", analysis.Kind, "question", truncate(analysis.Question, 160))
-			if assumed := cleanAssumption(analysis.Assumption); assumed != "" {
-				proceededOnAssumption = assumed
-			}
-		}
-		analysis.Kind = KindTask
-		analysis.Understandable = true
-		analysis.Question = ""
-		analysis.Questions = nil
-	}
-
-	// The message is not always a task. A greeting, a question about what just happened, or
-	// thinking out loud has nothing to do, and running the loop for it would plan work nobody
-	// asked for and report a result nobody read.
-	//
-	// This is checked FIRST, before the ask/assume logic below, because it is a different
-	// question: "is there work here?" comes before "can I read the work well enough?".
-	switch analysis.resolveKind() {
-	case KindChat:
-		reply := strings.TrimSpace(analysis.Reply)
-		if reply == "" {
-			// The model classified it as chat but wrote nothing. Saying so is better than
-			// falling through to the loop: the classification is still the model's judgement,
-			// and a task plan is the one answer the user did not ask for.
-			//
-			// The line is in English because everything else the interface says is: the
-			// prompts, the help screen, the errors. One sentence in another language would
-			// be the only one of its kind, and there is no language setting to make it
-			// correct for the user reading it.
-			reply = "There is nothing to run in your message."
-		}
-		res.Kind = KindChat
-		res.Reply = reply
-		res.Pass = true
-		res.Reason = "conversational reply"
-		res.DurationMS = time.Since(start).Milliseconds()
-		a.report("%s", reply)
-		a.converse(t, reply)
-		a.log.Info(prefix+"answered as chat", "reply", truncate(reply, 200))
-		return res
-	case KindAsk:
-		// Forced into the asking path even when the model left "understandable" true: the kind
-		// is the newer signal and saying "ask" is unambiguous.
-		analysis.Understandable = false
-	}
-
-	if !analysis.Understandable || analysis.Question != "" {
-		// The request could not be read well enough to act on. ASK, do not refuse.
-		//
-		// This used to end the turn with "the task was declared not understandable", which throws
-		// away everything the user typed and makes them write it again — for a request they can
-		// usually clarify in three words. A user mistypes, abbreviates, and omits what they think
-		// is obvious; the agent's job is to close that gap, not to report it.
-		//
-		// The question goes back through the interface as a normal result, so the user sees it in
-		// the conversation and answers with their next message. The assumption travels with it:
-		// it is what the agent would do without an answer, which lets the user confirm with a
-		// single word, and it is also the honest fallback if the interface has nobody to ask.
-		res.NeedsInput = true
-		res.Question = strings.TrimSpace(analysis.Question)
-		// Cleaned here as well as in the question, because this field is the one summarise
-		// prints its own "If you do not tell me otherwise, I will assume:" in front of. Left
-		// raw it produced the stutter the window showed. spanish-fixture: the model emitted
-		// spanish-fixture: the run produced the lead twice over, and it has to come out once:
-		// spanish-fixture: "Si no me dices otra cosa, asumiré: Si no me dices otra cosa,
-		// spanish-fixture: reviso el proyecto".
-		// The two paths (the single question and
-		// the list) both need the cleaned form, and this is the one that reaches the chat.
-		res.Assumption = cleanAssumption(analysis.Assumption)
-		res.Options = cleanOptions(analysis.Options)
-		res.Questions = buildQuestions(analysis)
-		res.Reason = strings.Join(analysis.Risks, "; ")
-		res.DurationMS = time.Since(start).Milliseconds()
-
-		// A turn may report its gap in EITHER shape — the single fields or the list — and the
-		// rest of this function reads the single fields. Left alone, a turn that used the list
-		// looked like it had asked nothing: question empty, assumption empty, and the dead-end
-		// check below failed a turn that had two questions ready to show. That is what the
-		// hardware run reported as "task not understandable:" followed by "failed:", and it is
-		// the failure mode the list form makes common, because the prompt tells the model to use
-		// it whenever a request has several gaps.
-		//
-		// So the single fields are derived from the list when they are empty, rather than the
-		// list being a second, parallel path. One source of truth, and every reader below keeps
-		// working whether the model answered in one shape or the other.
-		if len(res.Questions) > 0 {
-			if res.Question == "" {
-				res.Question = res.Questions[0].Text
-			}
-			if res.Assumption == "" {
-				res.Assumption = res.Questions[0].Assumption
-			}
-		}
-
-		// Nothing to ask AND nothing to assume is a genuine dead end, and it stays a failure.
-		//
-		// The difference is worth being precise about. A QUESTION is a request the agent can
-		// name and the user can answer; an ASSUMPTION is a reading the agent can act on. With
-		// neither, there is nothing to ask and nothing to do, and inventing a generic "what did
-		// you mean?" would be asking the user to repeat what they just said — the report is
-		// clearer, and a batch run still exits non-zero for cron to notice.
-		if res.Question == "" && res.Assumption == "" {
-			res.NeedsInput = false
-			res.Question = ""
-			res.Reason = strings.Join(analysis.Risks, "; ")
-			a.report("task not understandable: %s", res.Reason)
-			return res
-		}
-		if res.Question == "" {
-			// The model named an assumption but no question. Asking is still right — the user can
-			// confirm or correct the reading in one word — so the question is derived from it.
-			res.Question = "Am I on the right track? If not, tell me exactly what you want."
-		}
-
-		// Nobody to ask: proceed on the assumption instead of stalling.
-		//
-		// A batch run has no user at the other end, so a question would wait forever. The
-		// assumption the model itself proposed is the reading to act on — and acting on a stated
-		// assumption is what an engineer does when the ticket is thin, not refusing to work.
-		if !a.Interactive && res.Assumption != "" {
-			a.log.Info("no user to ask: proceeding on the stated assumption",
-				"question", truncate(res.Question, 160), "assumption", truncate(res.Assumption, 200))
-			a.report("no user to ask; assuming: %s", res.Assumption)
-			analysis.Understandable = true
-			analysis.Question = ""
-			// No fallback for an empty summary is needed: analysisPhase already replaced it with
-			// the task description when the model left it blank, so by this point it always has
-			// something. A branch here would be unreachable.
-			//
-			// The result describes the run that is now PROCEEDING, not the question that was
-			// skipped: leaving these set would report a finished run as one that is still waiting
-			// for an answer. They are re-applied below if the run later fails.
-			res.NeedsInput = false
-			res.Question = ""
-			res.Assumption = ""
-			proceededOnAssumption = analysis.Summary
-		} else {
-			// The phase line carries the question itself, in the user's language (the model
-			// writes it), so no English label is put in front of it. spanish-fixture: putting
-			// spanish-fixture: an English label in front of the question a model emitted,
-			// spanish-fixture: "¿qué carpeta?", mixed the two languages in one line and read
-			// like a system error rather than the agent asking something.
-			// mixed two languages in one line and read like a system error rather than the
-			// agent asking something.
-			a.report("%s", res.Question)
-			a.log.Info("asking the user instead of guessing", "question", truncate(res.Question, 200),
-				"assumption", truncate(res.Assumption, 200))
-			// The question is recorded in the conversation. Their next message answers it, and
-			// without this the answer arrives with nothing to refer to — which is exactly the
-			// amnesia that makes a clarifying question useless.
-			said := res.Question
-			if res.Assumption != "" {
-				// Printed with no lead of the interface's own, for the same reason as in the
-				// TUI: the assumption is already a sentence in the user's language, and a
-				// hardcoded lead would fix the conversation's language from the program.
-				said += "\n\n" + res.Assumption
-			}
-			a.note(t, said, KindAsk)
-			return res
-		}
-	}
-	a.report("understood: %s", analysis.Summary)
-	if len(analysis.SuccessCrit) > 0 {
-		a.report("%sdone means:\n- %s", ThinkingPrefix, strings.Join(analysis.SuccessCrit, "\n- "))
-	}
-
-	// [4] Plan.
-	a.report("planning...")
-	plan := a.planPhase(ctx, t, analysis, depth)
-	a.report("plan ready: %d steps", len(plan.Steps))
-	if len(plan.Steps) > 0 {
-		a.report("%splan:\n%s", ThinkingPrefix, strings.TrimRight(describePlan(plan), "\n"))
-	}
-
-	// [5] Splitting into subtasks: each one re-enters the same flow, one level
-	// further down. The limit is respected to avoid infinite recursion.
-	//
-	// The PLAN is what decides. It used to require a second vote from the analysis phase
-	// (`analysis.NeedsSubtasks`), and when the two disagreed the plan's own subtasks were
-	// silently dropped: measured in a real run, `plan generated` reported five subtasks and
-	// the line below never executed, so five declared pieces of work were thrown away.
-	// A model that wrote down subtasks has said there are subtasks; asking it twice only
-	// adds a way to lose them.
-	//
-	// Blank entries are dropped BEFORE deciding: a plan whose subtasks are all blank has no
-	// subtasks, and it used to end as "only 0 of 0 subtasks passed validation" - a failure
-	// for a task nobody ever tried.
-	if subs := nonBlank(plan.Subtasks); len(subs) > 0 {
-		if depth >= a.cfg.Agent.SubtaskDepth {
-			a.log.Warn(prefix+"subtask splitting reached the configured limit; continuing as a single task",
-				"depth", depth, "limit", a.cfg.Agent.SubtaskDepth,
-				"subtasks", len(subs))
-		} else {
-			return a.runSubtasks(ctx, t, analysis, subs, depth, start, prefix)
-		}
-	}
-
-	// [6]-[9] Execution and validation cycle.
-	//
-	// THE LOOP CONTRACT. Every round ends in exactly one of these, and each has its own bound:
-	//
-	//  - PROGRESS: the model ran actions and reports work left ("done": false). It is work,
-	//    not a failure, so it spends only the step budget. The anchor does NOT run on these
-	//    rounds: the state halfway through a change routinely breaks the project's gate (a
-	//    renamed function before its callers are updated), and charging that to max_retries
-	//    killed multi-step tasks at the fourth intermediate round. It also cost the whole
-	//    gate - measured at ~45 s on a real project - on every round of a long task.
-	//  - CLAIM: the model reports the task done. The anchor runs, always, and it alone
-	//    decides: PASS ends the task, a refusal is a REJECTED claim, and those are what
-	//    max_retries bounds.
-	//  - UNUSABLE: the reply could not be used (malformed JSON, or nothing to run while
-	//    claiming work is left). One bad reply used to end the whole task; it is now
-	//    told to the model, and only maxUnusableReplies IN A ROW end the run.
-	//  - STALL: a progress round identical to the one before it, same actions and same
-	//    output. The model is warned, and a run that keeps repeating itself is stopped
-	//    instead of spending the rest of the budget going nowhere.
-	//
-	// Every round is recorded in the journal the next round reads, labelled with what it
-	// WAS. It used to be labelled "failed attempt" whatever happened, so a model that made
-	// progress was told it had failed and redid the work.
-	journal := []roundRecord{}
-	// mem is what the run remembers besides the journal: the whole output of every read
-	// still valid, and the model's own notes. See workmemory.go for why the journal alone
-	// made a run re-read the same files a hundred times.
-	mem := &workMemory{}
-	// The sources as the run found them. It is what a claim of "done" is measured against: a
-	// project's own checks are green on a tree nobody touched, so the anchor alone cannot tell
-	// "finished" from "never started". See tree.go.
-	baseline, baselineOK := treeFingerprint(a.cfg.Agent.WorkspaceDir, true)
-	lastSources := baseline
-	// The same tree as a commit, for the anchor: a check that fails on a claim is run again on
-	// it to tell a failure the run caused from one that was already there. See baseline.go.
-	before := a.startBaseline(ctx)
-	defer before.close(ctx)
-	readOnlyRounds := 0
-	unbackedDone := 0
-	verifyChallenges := 0
-	toolingRetries := 0
-	var trail []string
-	// A run that RESUMES after an interruption (a restart, a crash) begins with the work its
-	// earlier life recorded, instead of an empty journal. The files it changed are on disk,
-	// but the reasons and the order are not: without this the model reads the request as new,
-	// re-reads the project and rebuilds what it already built.
-	if prior := a.workSoFar(t); prior != "" {
-		trail = []string{prior}
-		journal = append(journal, roundRecord{
-			round: 0, kind: roundProgress, commands: "(before the interruption)",
-			detail: "This task was already being worked on when the run was interrupted. What " +
-				"it had done, oldest first:\n" + prior + "\nThe changes are in the working " +
-				"directory. Check it with `git status` and `git diff` FIRST, then continue " +
-				"with what is left: do not start over.",
-		})
-	}
-	// workLog is what every round ran and printed, for the final answer: the synthesis used
-	// to see only the LAST round, which on a long task is a final `git status` and nothing
-	// of the work.
-	var workLog strings.Builder
-	rejected := 0
-	unusable := 0
-	repeats := 0
-	lastSignature := ""
-	maxSteps := a.maxSteps()
-	// The budget is a CHECKPOINT, not a wall. Measured on a real request: the agent was
-	// still working when 24 rounds ran out, and the run ended with "the task is not
-	// finished" and nothing else - the user had to start over and hope the next attempt
-	// got further. The work it had done was in the checkout; the DECISION left to the
-	// user was simply never offered.
-	//
-	// So when the budget runs out with work left, the loop asks. Yes means another
-	// maxSteps rounds on the SAME run, continuing from everything already done, which
-	// is the difference between "keep going" and "start again".
-	//
-	// The number of times it may ask is not bounded here on purpose: each ask is a
-	// human answering, and a human who keeps saying yes is not a runaway loop.
-	round := 0
-	for {
-		if rounded := round / maxSteps; rounded > 0 && round%maxSteps == 0 {
-			// One full budget has been spent. Ask before spending another.
-			cont, err := a.continueBudget(ctx, round, maxSteps, prefix)
-			if err != nil || !cont {
-				res.Reason = fmt.Sprintf(
-					"the task is not finished: %d rounds were used and the model still reports work left. "+
-						"Raise agent.max_steps, or split the request into smaller tasks", round)
-				res.DurationMS = time.Since(start).Milliseconds()
-				a.report("%s", res.Reason)
-				a.log.Warn(prefix+"the step budget ran out and the user did not continue",
-					"max_steps", maxSteps, "rounds", round)
-				a.escalate(ctx, prefix)
-				return res
-			}
-			a.report("continuing with another %d rounds...", maxSteps)
-		}
-		round++
-		if round > maxSteps*maxBudgetExtensions {
-			// A ceiling on the ceiling. A gateway whose approver answers "yes" without a
-			// human (a script, a test) would otherwise loop for ever; the limit is high
-			// enough that no real session reaches it, because reaching it means 100
-			// answered questions.
-			res.Reason = fmt.Sprintf(
-				"the task is not finished after %d rounds and %d continuations, so this run stops here. "+
-					"Split the request into smaller tasks", round-1, maxBudgetExtensions-1)
-			res.DurationMS = time.Since(start).Milliseconds()
-			a.report("%s", res.Reason)
-			a.escalate(ctx, prefix)
-			return res
-		}
-		res.Attempts = round
-		a.noteRound(round)
-
-		// [6] The LLM proposes the concrete action.
-		a.report("deciding action (round %d/%d)...", round, maxSteps*(1+(round-1)/maxSteps))
-		action, err := a.actionPhase(ctx, t, analysis, plan, journal, mem, round, prefix)
-		if err == nil && len(action.Actions) == 0 && !action.isDone() {
-			// Nothing to run while claiming there is work left is not a round of work: it is
-			// a reply the loop cannot act on, and the model is told so rather than being
-			// credited with progress it did not make.
-			err = errors.New(`the reply proposed no actions but reported "done": false; ` +
-				`propose the next actions, or report "done": true if the task is complete`)
-		}
-		if err != nil {
-			if ctx.Err() != nil {
-				res.Reason = "the run was cancelled"
-				res.DurationMS = time.Since(start).Milliseconds()
-				return res
-			}
-			unusable++
-			a.log.Warn(prefix+"the action phase produced nothing usable",
-				"round", round, "in_a_row", unusable, "error", err.Error())
-			if unusable >= maxUnusableReplies {
-				// The CAUSE is carried, and it is the LLM's own message. The old prefix said
-				// "could not obtain the action from the LLM" and left the reader to guess: the
-				// action was not missing, the reply arrived shaped in a way this phase cannot
-				// use, and the message below now says which shape and which tool.
-				res.Reason = "could not obtain the action from the LLM: " + err.Error()
-				res.DurationMS = time.Since(start).Milliseconds()
-				a.report("failed to get an action: %v", err)
-				a.escalate(ctx, prefix)
-				return res
-			}
-			a.report("the reply could not be used, asking again: %s", truncate(err.Error(), 160))
-			journal = append(journal, roundRecord{
-				round: round, kind: roundUnusable, commands: "(no usable reply)",
-				detail: "The reply could not be used: " + truncate(err.Error(), 1000) +
-					"\nAnswer with the JSON object exactly as the ACTION section shows it.",
-			})
-			continue
-		}
-		unusable = 0
-		// The model's reasoning for this round, whole. It used to be cut at 120 characters,
-		// which is where the reasoning usually starts to say something.
-		if r := strings.TrimSpace(action.Reasoning); r != "" {
-			a.report("%s%s", ThinkingPrefix, r)
-		}
-
-		// [7] Run in the sandbox.
-		mem.setNotes(action.Notes)
-		mem.executed, mem.recalled = 0, 0
-		runOutput, runErr := a.runRound(ctx, action.Actions, prefix, mem, round)
-		// The background agents that finished since the last round report here, so the model reads
-		// their results without having to ask for them.
-		if reports := a.takeReports(nil); reports != "" {
-			runOutput += reports
-		}
-		if strings.TrimSpace(runOutput) != "" {
-			fmt.Fprintf(&workLog, "## Round %d\n%s\n", round, runOutput)
-		}
-
-		if !action.isDone() {
-			// PROGRESS. The anchor is not consulted - see the loop contract above - and
-			// nothing is charged to max_retries. The round is recorded so the next one
-			// continues from it instead of proposing the same first step again.
-			detail := "Actions:\n" + commandList(action) + "\nOutput:\n" + truncateMiddle(runOutput, roundDetailOutput)
-			if runErr != nil {
-				detail += "\nExecution error: " + runErr.Error()
-			}
-			signature := proposedCommands(action) + "\x00" + runOutput
-			// A round that only asked for things it already holds did nothing, whatever
-			// its commands were: it counts as a repeat even when the wording differs.
-			if signature == lastSignature || (mem.recalled > 0 && mem.executed == 0) {
-				repeats++
-			} else {
-				repeats = 0
-			}
-			lastSignature = signature
-			if repeats >= stallStopAt {
-				res.Reason = fmt.Sprintf("the run stalled: the same actions produced the same output %d rounds in a row "+
-					"without the task being reported done. Rephrase the request, or split it into smaller tasks", repeats+1)
-				res.DurationMS = time.Since(start).Milliseconds()
-				a.report("%s", res.Reason)
-				a.log.Warn(prefix+"the run stalled", "round", round, "repeats", repeats+1,
-					"commands", proposedCommands(action))
-				a.escalate(ctx, prefix)
-				return res
-			}
-			if repeats >= stallWarnAt {
-				detail += "\n!! This round repeated the previous one exactly: same actions, same output. " +
-					"Repeating it again will not change anything. Do something DIFFERENT, or report " +
-					`"done": true if the task is already complete.`
-			}
-			// Rounds that only READ. Reported from a real session: thirteen rounds of reading and no
-			// writing, each one re-reading what the last had already shown. The model is told how
-			// long it has been reading, and that what it read is in front of it.
-			if cur, ok := treeFingerprint(a.cfg.Agent.WorkspaceDir, true); ok && cur != lastSources {
-				lastSources, readOnlyRounds = cur, 0
-			} else {
-				readOnlyRounds++
-			}
-			if readOnlyRounds >= readOnlyWarnAt {
-				detail += fmt.Sprintf("\n!! %d rounds in a row have only READ; no file has changed. What you read "+
-					"is kept in full under \"WHAT YOU HAVE ALREADY READ\". Stop exploring and WRITE the change "+
-					"now: create or edit the files this request needs, in this round. If one specific thing is "+
-					"still missing, read only that, in the same round as the writing.", readOnlyRounds)
-			}
-			// A check that failed this round is the next round's starting point.
-			if failed := mem.failedInRound(round); len(failed) > 0 {
-				detail += failedCheckNote(failed)
-			}
-			journal = append(journal, roundRecord{
-				round: round, kind: roundProgress, commands: proposedCommands(action), detail: detail,
-			})
-			trail = append(trail, fmt.Sprintf("round %d: %s", round, truncate(collapse(proposedCommands(action)), 200)))
-			if depth == 0 {
-				a.trail(t, trail)
-			}
-			a.report("round %d done; the model reports more to do", round)
-			a.log.Info(prefix+"continuing: the model reports work left",
-				"round", round, "max_steps", maxSteps,
-				"reasoning", truncate(action.Reasoning, 200))
-			continue
-		}
-		repeats, lastSignature = 0, ""
-
-		// [7a] A claim of "done" while background agents are still running. Their work would be
-		// cancelled and their reports never read, so the claim is sent back ONCE; a second claim
-		// means the run does not need them, and they are cancelled.
-		if a.holdForChildren(round, proposedCommands(action), &journal) {
-			continue
-		}
-
-		// [7b] A claim of "done" over a tree that has not changed. Reported from a real session:
-		// thirteen rounds of reading, no file written, "done" - and the anchor PASSED, because the
-		// project's lint, typecheck and tests are green on code nobody touched. The run closed as
-		// complete and the answer said, truthfully, that nothing had been changed.
-		//
-		// It is told ONCE, and it is not a rejection: nothing is charged to max_retries and the
-		// anchor is not spent. A request that only needed an answer (an investigation, a question
-		// about the code) is not blocked - the model says so and claims done again, and that claim
-		// goes through. What it can no longer do is finish a change it never made without being
-		// asked whether that is what it meant.
-		if cur, ok := treeFingerprint(a.cfg.Agent.WorkspaceDir, true); ok && baselineOK && cur == baseline && unbackedDone == 0 && readOnlyRounds >= doneGuardAfter && !a.research {
-			unbackedDone++
-			a.report("done claimed but nothing has been changed yet; asking the model to confirm")
-			a.log.Warn(prefix+"done claimed over an unchanged working tree", "round", round)
-			journal = append(journal, roundRecord{
-				round: round, kind: roundProgress, commands: proposedCommands(action),
-				detail: "You reported \"done\": true, but NO FILE in the working directory has changed since " +
-					"the task began. If the request asked you to add, change, fix or remove something, " +
-					"then nothing has been done yet: you already hold what you read under \"WHAT YOU HAVE " +
-					"ALREADY READ\", so WRITE the change in this round (create or edit the files), then " +
-					"run the project's checks and a test for what you added. If the request only needed " +
-					"an answer or an investigation and no file should change, report \"done\": true again " +
-					"and say in \"notes\" that nothing had to change and why.",
-			})
-			continue
-		}
-
-		// [7c] A claim of "done" while a check the run ran ITSELF is still failing. Reported from a
-		// real session: the server's tests failed 22 of 45, the run called them pre-existing without
-		// comparing, never tested the endpoint it had written, and claimed done - with the anchor
-		// green, because the anchor only runs what the project declares. It is sent back, without
-		// charging the anchor or max_retries, up to maxVerifyChallenges times: a run that truly cannot
-		// fix a check (a service that is not here) still ends, with the gap in its report.
-		if open := mem.openFailures(); len(open) > 0 && verifyChallenges < maxVerifyChallenges {
-			verifyChallenges++
-			a.report("done claimed while a check is still failing; sending the run back to it (%d/%d)", verifyChallenges, maxVerifyChallenges)
-			a.log.Warn(prefix+"done claimed over a failing check", "round", round,
-				"check", truncate(open[0].command, 160), "challenge", verifyChallenges)
-			journal = append(journal, roundRecord{
-				round: round, kind: roundProgress, commands: proposedCommands(action),
-				detail: unresolvedCheckChallenge(open, verifyChallenges),
-			})
-			continue
-		}
-
-		// [8] The model claims the task is done: validate with the anchor, always.
-		a.report("validating with anchor...")
-		validation := a.validateClaim(ctx, before)
-		res.Validation = &validation
-
-		if validation.Pass && runErr == nil {
-			// [9] Validation PASS and the model reports the task finished: now the final action.
-			a.report("validation passed; running final action...")
-			finalAction, finalErr := a.runFinalAction(ctx, action.Final, prefix)
-			res.FinalAction = finalAction
-			if finalErr != nil {
-				detail := fmt.Sprintf("validation passed but the final action failed: %v\nOutput: %s", finalErr, finalAction)
-				journal = append(journal, roundRecord{
-					round: round, kind: roundRejected, commands: proposedCommands(action), detail: detail,
-				})
-				rejected++
-				a.report("final action failed: %v", finalErr)
-				a.log.Error(prefix+"final action failed", "round", round, "final_action", finalAction, "error", finalErr)
-				if rejected > a.cfg.Agent.MaxRetries {
-					res.Reason = detail
-					res.DurationMS = time.Since(start).Milliseconds()
-					a.escalate(ctx, prefix)
-					return res
-				}
-				continue
-			}
-			res.Pass = true
-			res.Reason = validation.Reason
-			res.DurationMS = time.Since(start).Milliseconds()
-			a.report("task complete: %s", validation.Reason)
-			if a.cfg.Prompts.Synthesize.User != "" && a.cfg.Prompts.Synthesize.System != "" {
-				a.report("synthesizing answer...")
-				if rep := a.synthesizePhase(ctx, t, workLog.String(), validation); rep != nil {
-					res.Summary, res.Report = rep.Summary, rep
-					a.report("%s", rep.Summary)
-				}
-			}
-			// When there was nobody to ask, the run proceeded on a reading the agent chose. Saying
-			// so is what makes the result honest: the answer is correct GIVEN that reading, and a
-			// user reading it later needs to know which one was taken — otherwise a reasonable
-			// assumption looks like a wrong answer.
-			if proceededOnAssumption != "" {
-				res.Assumption = proceededOnAssumption
-				a.report("(proceeded assuming: %s)", proceededOnAssumption)
-			}
-			a.log.Info(prefix+"validation passed", "round", round, "final_action", finalAction,
-				"assumed", truncate(proceededOnAssumption, 160))
-			return res
-		}
-
-		// The anchor refused a claim of "done". THAT is a correction, and max_retries is
-		// what bounds it — separately from the rounds counter above, because the two answer
-		// different questions.
-		//
-		// A gate that failed because a TOOL IS NOT INSTALLED (no node_modules, no venv) says
-		// nothing about the code, so it is not charged: the run is told to install the project's
-		// dependencies and try again. Bounded, so a machine that can never install them still ends.
-		tooling := missingTooling(validation) && toolingRetries < maxToolingRetries
-		if tooling {
-			toolingRetries++
-		} else {
-			rejected++
-		}
-		journal = append(journal, roundRecord{
-			round: round, kind: roundRejected, commands: proposedCommands(action),
-			detail: a.summariseFailure(action, runOutput, validation, runErr),
-		})
-		a.report("attempt failed: %s", validation.Reason)
-		a.log.Warn(prefix+"attempt failed",
-			"attempt", rejected, "max_attempts", a.cfg.Agent.MaxRetries+1,
-			"round", round, "max_steps", maxSteps,
-			"commands", proposedCommands(action),
-			"validation", validation.Reason)
-
-		if !tooling && rejected > a.cfg.Agent.MaxRetries {
-			// The retries ran out. This is a DIFFERENT outcome from the step budget
-			// running out, and the message has to say which one it was, or the reader
-			// goes looking for a broken check.
-			res.Reason = fmt.Sprintf("all %d attempts were exhausted without passing validation: %s",
-				a.cfg.Agent.MaxRetries+1, validation.Reason)
-			res.DurationMS = time.Since(start).Milliseconds()
-			a.report("%s", res.Reason)
-			a.escalate(ctx, prefix)
-			return res
-		}
-	}
 }
 
 // readOnlyWarnAt is how many progress rounds in a row may only read before the model is told to
@@ -1894,7 +993,8 @@ func (a *Agent) runSubtasks(ctx context.Context, t task.Task, analysis Analysis,
 			res.Reason = fmt.Sprintf("subtask %d of %d did not pass (%s): %s", i+1, len(subs),
 				truncate(sub, 120), subResult.Reason)
 			if skipped > 0 {
-				res.Reason += fmt.Sprintf("; the %d after it were not started, because later subtasks build on earlier ones", skipped)
+				res.Reason += fmt.Sprintf("; the %d after it were not started, "+
+					"because later subtasks build on earlier ones", skipped)
 			}
 			res.Summary = subtaskSummary(subs, outcomes)
 			res.DurationMS = time.Since(start).Milliseconds()
@@ -2000,609 +1100,6 @@ func (a *Agent) maxSteps() int {
 // without cutting off honest work.
 const defaultMaxSteps = 100
 
-// --- Phases -----------------------------------------------------------------
-
-func (a *Agent) analysisPhase(ctx context.Context, t task.Task, rules string, depth int) Analysis {
-	vars := a.baseVariables(t)
-	vars["rules"] = rules
-	vars["attempt"] = "1"
-	vars["max_attempts"] = fmt.Sprint(a.cfg.Agent.MaxRetries + 1)
-
-	text, err := a.ask(ctx, a.cfg.Prompts.Analyze, vars, "analyze")
-	if err != nil {
-		a.log.Error("analysis phase failed", "error", err)
-		return Analysis{Understandable: false, Risks: []string{err.Error()}}
-	}
-
-	var analysis Analysis
-	if err := llm.DecodeJSON(text, &analysis); err != nil {
-		// A malformed analysis is OUR problem, not the user's: the model failed to follow the
-		// format, and reporting the parse error to the user asks them to fix something they did
-		// not do. The honest answer is that the request could not be read, with a question that
-		// lets them proceed.
-		a.log.Error("the analysis has an unexpected format", "error", err, "response", truncate(text, 300))
-		return Analysis{
-			Understandable: false,
-			Risks:          []string{"the analysis could not be parsed: " + err.Error()},
-			Question:       "I could not read the request. Could you tell me, in one sentence, what you want done and to what?",
-		}
-	}
-	if analysis.Summary == "" {
-		analysis.Summary = truncate(t.Description, 200)
-	}
-	a.log.Info("analysis completed", "summary", truncate(analysis.Summary, 160), "criteria", len(analysis.SuccessCrit))
-	return analysis
-}
-
-func (a *Agent) planPhase(ctx context.Context, t task.Task, analysis Analysis, depth int) Plan {
-	vars := a.baseVariables(t)
-	vars["analysis"] = describeAnalysis(analysis)
-
-	text, err := a.ask(ctx, a.cfg.Prompts.Plan, vars, "plan")
-	if err != nil {
-		a.log.Error("planning phase failed", "error", err)
-		return Plan{}
-	}
-	var plan Plan
-	if err := llm.DecodeJSON(text, &plan); err != nil {
-		a.log.Error("the plan has an unexpected format", "error", err, "response", truncate(text, 300))
-		return Plan{}
-	}
-	a.log.Info("plan generated", "steps", len(plan.Steps), "subtasks", len(plan.Subtasks))
-	return plan
-}
-
-// actionPhase asks for the next round's actions.
-//
-// The analysis travels with the plan. Without it the execute phase saw only the TASK, which on a
-// turn that answers a question is the answer itself - "yes, do it" - and the success criteria the
-// work is judged by were never in front of the phase that does the work.
-//
-// An empty list of actions is NOT an error here: "done": true with nothing left to run is how a
-// finished task is reported, and it used to fail the whole task with "the LLM proposed no
-// action". The loop decides what an empty list means, because only the loop knows "done".
-func (a *Agent) actionPhase(ctx context.Context, t task.Task, analysis Analysis, plan Plan,
-	journal []roundRecord, mem *workMemory, round int, prefix string) (Action, error) {
-	vars := a.baseVariables(t)
-	vars["analysis"] = describeAnalysis(analysis)
-	vars["plan"] = describePlan(plan)
-	vars["history"] = renderRounds(journal) + mem.render()
-	vars["attempt"] = fmt.Sprint(round)
-	vars["max_attempts"] = fmt.Sprint(a.cfg.Agent.MaxRetries + 1)
-
-	text, err := a.ask(llm.WithJSONSchema(ctx, actionSchema), a.cfg.Prompts.Execute, vars, "execute")
-	if err != nil {
-		return Action{}, err
-	}
-	action, err := decodeAction(text)
-	if err != nil {
-		return Action{}, err
-	}
-	a.log.Info(prefix+"action proposed", "reasoning", truncate(action.Reasoning, 200),
-		"actions", len(action.Actions), "done", action.isDone())
-	return action, nil
-}
-
-// describeAnalysis renders the analysis for the phases after it.
-func describeAnalysis(analysis Analysis) string {
-	var sb strings.Builder
-	if analysis.Summary != "" {
-		fmt.Fprintf(&sb, "- Summary: %s\n", analysis.Summary)
-	}
-	for _, c := range analysis.SuccessCrit {
-		fmt.Fprintf(&sb, "- Success criterion: %s\n", c)
-	}
-	for _, r := range analysis.Risks {
-		fmt.Fprintf(&sb, "- Risk: %s\n", r)
-	}
-	return sb.String()
-}
-
-// synthesizePhase asks the LLM for a concise, evidence-based answer after the
-// actions have run and the anchor has validated them.
-func (a *Agent) synthesizePhase(ctx context.Context, t task.Task, output string, validation anchor.Result) *Report {
-	vars := a.baseVariables(t)
-	// The output of every round, so the head AND the tail are kept: the start says what was
-	// found, the end says where the work landed.
-	vars["output"] = truncateMiddle(output, roundOutputChars)
-	vars["validation"] = validation.Reason
-
-	text, err := a.ask(ctx, a.cfg.Prompts.Synthesize, vars, "synthesize")
-	if err != nil {
-		a.log.Warn("synthesis phase failed", "error", err)
-		return nil
-	}
-	var rep Report
-	if err := llm.DecodeJSON(text, &rep); err != nil {
-		a.log.Warn("synthesis response has an unexpected format", "error", err, "response", truncate(text, 300))
-		return nil
-	}
-	rep.normalize(validation.Pass)
-	if rep.Summary == "" {
-		return nil
-	}
-	return &rep
-}
-
-// ask renders the prompt and calls the LLM, logging any variables that were
-// missing (unfilled gaps in a user template).
-func (a *Agent) ask(ctx context.Context, p config.Template, vars map[string]string, phase string) (string, error) {
-	// Every call this agent makes is counted on its row of the fleet.
-	if a.member != nil {
-		ctx = llm.WithMeter(ctx, a.member.meter)
-	}
-	system, missingS := template.Render(p.System, vars)
-	user, missingU := template.Render(p.User, vars)
-	if len(missingS)+len(missingU) > 0 {
-		missing := append(append([]string{}, missingS...), missingU...)
-		a.log.Warn("the template has variables with no value", "phase", phase, "variables", strings.Join(missing, ","))
-	}
-
-	messages := []llm.Message{}
-	if strings.TrimSpace(system) != "" {
-		messages = append(messages, llm.Message{Role: "system", Content: system})
-	}
-	messages = append(messages, llm.Message{Role: "user", Content: user})
-
-	start := time.Now()
-	var text string
-	var err error
-	if a.streamThoughts && a.Progress != nil {
-		live := &liveView{a: a, phase: phase}
-		text, err = a.engine.CompleteStream(ctx, messages, live.add)
-	} else {
-		text, err = a.engine.Complete(ctx, messages)
-	}
-	if errors.Is(err, llm.ErrToolCallForText) && ctx.Err() == nil {
-		// Reported from real use: "I ask it for things and the agent does nothing". The model
-		// answered a phase that wants a JSON TEXT with a tool call (search_skills, ...); every
-		// round asked the same way and got the same call, so each subtask died on round 1
-		// with no work done. One retry that SAYS what went wrong is what makes it answerable
-		// - the tools it reached for are still available as actions inside the JSON.
-		a.log.Warn("the model answered with a tool call; asking once more for text", "phase", phase)
-		retry := append(append([]llm.Message{}, messages...), llm.Message{Role: "user", Content: "Your last reply was a " +
-			"tool call, and this step cannot run tool calls. Reply with ONLY the JSON object the instructions " +
-			"describe. If you wanted to use a tool, put it in the \"actions\" list of that JSON (kind and command)."})
-		text, err = a.engine.Complete(ctx, retry)
-	}
-	if err != nil {
-		return "", err
-	}
-	a.log.Debug("LLM response", "phase", phase, "ms", time.Since(start).Milliseconds(), "bytes", len(text))
-	return text, nil
-}
-
-// baseVariables are the variables available in every template.
-func (a *Agent) baseVariables(t task.Task) map[string]string {
-	vars := map[string]string{
-		"task":         t.Description,
-		"workspace":    a.cfg.Agent.WorkspaceDir,
-		"origin":       t.Origin,
-		"attempt":      "1",
-		"max_attempts": fmt.Sprint(a.cfg.Agent.MaxRetries + 1),
-		"rules":        a.describeRules(),
-		"analysis":     "",
-		"plan":         "",
-		"history":      a.dialogue(),
-		"model":        a.cfg.LLM.Model,
-		"provider":     a.cfg.LLM.Provider,
-		"tools":        describeTools(a.cfg.Sandbox),
-	}
-	for k, v := range t.Context {
-		vars["context_"+k] = v
-	}
-	return vars
-}
-
-// describeRules turns the anchor into text for the prompt: the LLM must know
-// exactly what it will be measured against.
-func (a *Agent) describeRules() string {
-	switch strings.ToLower(a.cfg.Anchor.Kind) {
-	case "command":
-		var sb strings.Builder
-		fmt.Fprintf(&sb, "- It will run: %s %s\n", a.cfg.Anchor.Command, strings.Join(a.cfg.Anchor.Args, " "))
-		fmt.Fprintf(&sb, "- It must finish with exit code %d.\n", a.cfg.Anchor.ExpectExit)
-		if a.cfg.Anchor.ExpectOutput != "" {
-			fmt.Fprintf(&sb, "- Its output must match the regular expression: %s\n", a.cfg.Anchor.ExpectOutput)
-		}
-		for _, c := range a.cfg.Anchor.Checks {
-			fmt.Fprintf(&sb, "- In addition: %s %s (expected exit code %d)\n", c.Command, strings.Join(c.Args, " "), c.ExpectExit)
-		}
-		return sb.String()
-	case "auto":
-		return a.describeAutoRules()
-	default:
-		return "- No deterministic validation is configured (anchor.kind=none). The agent will not declare PASS on its own: review the configuration."
-	}
-}
-
-// describeAutoRules names the gate the PROJECT declares, which is what kind=auto runs. The model
-// is told the exact commands, because the difference between a run that finishes and one that
-// spends its attempts is whether it ran those same commands itself before claiming done.
-func (a *Agent) describeAutoRules() string {
-	checks := anchor.New(a.cfg.Anchor, a.cfg.Agent.WorkspaceDir, nil).Planned()
-	var sb strings.Builder
-	if len(checks) == 0 {
-		sb.WriteString("- This project declares NO gate yet (looked for .motita/anchor, a Makefile with check or test, " +
-			"go.mod, package.json lint/typecheck/test, Cargo.toml, pyproject.toml), so a claim of done will be REFUSED.\n" +
-			"- Declare it: find how the project checks itself (README, CI workflow, package.json scripts, Makefile) " +
-			"and write those commands, one per line, in .motita/anchor. Run them yourself before claiming done.\n")
-		return sb.String()
-	}
-	sb.WriteString("- The project's own gate runs after you claim done, in the project directory. Each of these must pass:\n")
-	for _, c := range checks {
-		fmt.Fprintf(&sb, "  - %s %s (must exit %d)\n", c.Command, strings.Join(c.Args, " "), c.ExpectExit)
-	}
-	sb.WriteString("- Run these same commands yourself BEFORE claiming done and fix what they report: a claim the gate " +
-		"refuses costs one of your limited attempts, and running them first costs nothing.\n")
-	return sb.String()
-}
-
-func describePlan(p Plan) string {
-	if len(p.Steps) == 0 {
-		return "(no plan)"
-	}
-	var sb strings.Builder
-	for _, step := range p.Steps {
-		fmt.Fprintf(&sb, "%d. %s", step.Number, step.Action)
-		if step.Command != "" {
-			fmt.Fprintf(&sb, "  ->  %s", step.Command)
-		}
-		sb.WriteString("\n")
-	}
-	if p.ExpectedResult != "" {
-		fmt.Fprintf(&sb, "Expected result: %s\n", p.ExpectedResult)
-	}
-	return sb.String()
-}
-
-// --- Execution --------------------------------------------------------------
-
-// runActions runs every action in the sandbox and returns their combined output.
-// runLibraryAction answers one library operation, and reports whether it was one.
-//
-// An unknown kind returns handled=false so it falls through to the command path, where it is
-// reported as a command with no command — the honest outcome for a kind nothing recognises.
-func (a *Agent) runLibraryAction(kind string, action Command) (bool, string) {
-	switch kind {
-	case "read_skill", "search_skills", "list_skills", "save_skill":
-	default:
-		return false, ""
-	}
-	if a.library == nil {
-		return true, "Error: no procedure library is configured."
-	}
-	// The kind is validated above, so this switch is exhaustive over what can arrive: a final
-	// "not handled" return would be unreachable. Adding an operation means adding it to both
-	// switches, and the compiler will not let the second one fall through.
-	switch kind {
-	case "list_skills":
-		return true, a.listSkills()
-	case "search_skills":
-		return true, a.searchSkills(action.Command)
-	case "read_skill":
-		return true, a.readSkill(action.Command)
-	default: // save_skill
-		return true, a.saveSkill(action.Command)
-	}
-}
-
-// listSkills reports the index, with each skill's accumulated value when there is one.
-func (a *Agent) listSkills() string {
-	all, err := a.library.List()
-	if err != nil {
-		return fmt.Sprintf("Error: could not read the library: %v", err)
-	}
-	if len(all) == 0 {
-		return "The library is empty. Work from your own knowledge, and save what you learn."
-	}
-	var b strings.Builder
-	fmt.Fprintf(&b, "%d skill(s). Use read_skill with a name to read one in full.\n", len(all))
-	for _, s := range all {
-		fmt.Fprintf(&b, "\n- %s: %s\n  %s%s%s", s.Name, s.Title, s.Summary,
-			a.historySuffix(s.Name), a.feedbackSuffix(s.Name))
-	}
-	return b.String()
-}
-
-// searchSkills finds procedures by what the work is about.
-func (a *Agent) searchSkills(query string) string {
-	query = strings.TrimSpace(query)
-	if query == "" {
-		return "Error: search_skills needs what the work is about, in plain words."
-	}
-	hits, err := a.library.Search(query, 10)
-	if err != nil {
-		return fmt.Sprintf("Error: could not search the library: %v", err)
-	}
-	if len(hits) == 0 {
-		return fmt.Sprintf("No skill matches %q. Work from your own knowledge, and save a skill afterwards if what you work out is worth keeping.", query)
-	}
-	var b strings.Builder
-	fmt.Fprintf(&b, "%d skill(s) match %q.\n", len(hits), query)
-	// Same obligation as the planner's search, and for the same measured reason: a summary is
-	// one line, and a model that treats the list as the answer acts on a title. See the comment
-	// in internal/plan/plan.go for the numbers that made this wording.
-	b.WriteString("A summary above is NOT the procedure: read the one that fits with read_skill BEFORE you act.\n")
-	for _, s := range hits {
-		fmt.Fprintf(&b, "\n- %s: %s\n  %s%s", s.Name, s.Title, s.Summary, a.historySuffix(s.Name))
-	}
-	for _, s := range hits {
-		b.WriteString(a.feedbackSuffix(s.Name))
-	}
-	return b.String()
-}
-
-// readSkill returns one procedure in full, and records that it was relied on.
-func (a *Agent) readSkill(name string) string {
-	s, err := a.library.Get(strings.TrimSpace(name))
-	if err != nil {
-		if errors.Is(err, skills.ErrNotFound) {
-			return fmt.Sprintf("No skill named %q. Use list_skills to see what the library holds.", name)
-		}
-		return fmt.Sprintf("Error: %v", err)
-	}
-	// The read is the moment the credit becomes knowable, and the only one.
-	a.consult(s.Name)
-	if a.usage != nil {
-		a.usage.BumpView(s.Name)
-		a.usage.BumpUse(s.Name)
-	}
-	var b strings.Builder
-	fmt.Fprintf(&b, "# skill: %s\n(source: %s)\n\n", s.Name, s.Path)
-	b.WriteString(s.Body)
-	b.WriteString(a.feedbackSuffix(s.Name))
-	return b.String()
-}
-
-// saveSkill writes a procedure. The argument is "name :: body", because this mode's actions
-// carry a single string rather than structured arguments.
-func (a *Agent) saveSkill(arg string) string {
-	name, body, ok := strings.Cut(arg, "::")
-	if !ok {
-		return "Error: save_skill expects \"name :: the document in markdown\"."
-	}
-	s, err := a.library.Save(strings.TrimSpace(name), strings.TrimSpace(body))
-	if err != nil {
-		return fmt.Sprintf("Error: %v", err)
-	}
-	// A save that replaces a skill with an outstanding complaint is the fix being attempted.
-	// Marking it here is what stops the same complaint being handed out on every later turn.
-	marked := ""
-	if a.reward != nil && a.reward.Addressed(s.Name) {
-		if err := a.reward.Save(); err == nil {
-			marked = " The complaint that was recorded against this skill is now marked as addressed."
-		}
-	}
-	return fmt.Sprintf("Saved %q (%d bytes).%s", s.Name, len(body), marked)
-}
-
-// historySuffix renders a skill's accumulated value, or nothing when it has no history.
-//
-// Numbers and counts, with no adjective: "RELIABLE" would be this program's interpretation
-// presented as evidence. An unconsulted skill shows nothing rather than "0.0", which would
-// read as "this failed".
-func (a *Agent) historySuffix(name string) string {
-	if a.reward == nil {
-		return ""
-	}
-	s, ok := a.reward.Get(name)
-	if !ok || s.Uses() == 0 {
-		return ""
-	}
-	return fmt.Sprintf("  [used %d, value %+.2f]", s.Uses(), s.Value)
-}
-
-// feedbackSuffix states the user's outstanding complaints for a skill, quoted verbatim.
-//
-// The number says a skill failed; the user's own words say what was wrong with it, which is
-// the only form of the complaint a repair can be written from. Only complaints with no fix
-// attempted are shown: once it has been rewritten the complaint is answered.
-func (a *Agent) feedbackSuffix(name string) string {
-	if a.reward == nil {
-		return ""
-	}
-	s, ok := a.reward.Get(name)
-	if !ok {
-		return ""
-	}
-	notes := s.Unaddressed()
-	if len(notes) == 0 {
-		return ""
-	}
-	var b strings.Builder
-	b.WriteString("\n  !! the user reported this skill failing, and the procedure has NOT been revised since:")
-	for i, n := range notes {
-		fmt.Fprintf(&b, "\n     %d. %s", i+1, n.Text)
-	}
-	b.WriteString("\n     Read the procedure again, work out which step the report is about, and save the")
-	b.WriteString("\n     corrected version with save_skill. Fixing it is worth more than avoiding it.")
-	return b.String()
-}
-
-func (a *Agent) runActions(ctx context.Context, actions []Command, prefix string) (string, error) {
-	return a.runRound(ctx, actions, prefix, nil, 0)
-}
-
-// runRound is runActions with the run's working memory. A read the run already holds, and
-// that nothing has invalidated, is answered from memory instead of being executed; a read
-// that ran is kept; a write forgets every kept read. mem == nil is the plain behaviour.
-func (a *Agent) runRound(ctx context.Context, actions []Command, prefix string, mem *workMemory, round int) (string, error) {
-	var sb strings.Builder
-	var lastErr error
-	// The tree as this round finds it. Anything that changed it since the last look (the
-	// anchor ran a build, a test wrote a file) makes the kept reads untrustworthy.
-	if mem != nil {
-		mem.sync(a.cfg.Agent.WorkspaceDir)
-	}
-
-	for i, action := range actions {
-		// A library action is not a shell command: it is answered from the procedure library and
-		// its result goes back to the model as the output of this step. It is dispatched by
-		// kind, because that is how this mode names things — the same four operations the
-		// planner exposes as tools, reachable from here too.
-		if kind := strings.ToLower(strings.TrimSpace(action.Kind)); kind != "" && kind != "command" {
-			// A background agent started or waited for (see subagents.go).
-			if handled, out, refusal := a.runAgentAction(ctx, kind, action); handled {
-				fmt.Fprintf(&sb, "[%s] %s\n%s\n", kind, action.Description, out)
-				a.report("running: %s %s", kind, firstLineOf(action.Command))
-				a.log.Info(prefix+"agent action", "kind", kind, "command", truncate(firstLineOf(action.Command), 120))
-				if refusal != nil {
-					lastErr = fmt.Errorf("action %d (%s) was refused: %w", i+1, kind, refusal)
-				}
-				continue
-			}
-			// A file written by the program itself (see fileactions.go). It is a write, so the
-			// kept reads are checked against the tree exactly as after a shell write.
-			if handled, out, refusal := a.runFileAction(kind, action); handled {
-				fmt.Fprintf(&sb, "[%s] %s\n%s\n", kind, action.Description, out)
-				a.report("running: %s %s", kind, firstLineOf(action.Command))
-				a.log.Info(prefix+"file action", "kind", kind, "path", firstLineOf(action.Command), "result", out)
-				if refusal != nil {
-					lastErr = fmt.Errorf("action %d (%s) was refused: %w", i+1, kind, refusal)
-				}
-				if mem != nil {
-					mem.executed++
-					mem.sync(a.cfg.Agent.WorkspaceDir)
-				}
-				continue
-			}
-			if handled, out := a.runLibraryAction(kind, action); handled {
-				fmt.Fprintf(&sb, "[%s] %s\n%s\n", kind, action.Description, out)
-				a.log.Info(prefix+"library action", "kind", kind, "description",
-					truncate(action.Description, 80))
-				continue
-			}
-			// A kind this mode does not know, carrying text the model meant as ARGUMENTS.
-			//
-			// Falling through to the command path treats that text as a program name and runs
-			// it: a model that asks for plan mode's `read_file` arrives here with a path, and
-			// the path is executed as a shell command — `/etc/hostname: Permission denied` is
-			// the shape of it. It is refused by name instead, because guessing which part is a
-			// program and which is an argument is exactly the mistake: the model named an
-			// operation that does not exist, and saying so is what lets it choose one that does.
-			//
-			// The refusal is not an error of the run: the turn continues, the model reads this
-			// and answers with a kind that exists.
-			if strings.TrimSpace(action.Command) != "" || strings.TrimSpace(action.Description) != "" {
-				fmt.Fprintf(&sb, "[%s] %s\n[refused: %q is not an action this mode has. "+
-					"Available: command, write_file, edit_file, spawn_agent, wait_agents, list_skills, search_skills, read_skill, save_skill. "+
-					"To run a shell command, use kind \"command\".]\n",
-					kind, action.Description, kind)
-				a.log.Warn(prefix+"action with an unknown kind",
-					"kind", kind, "command", truncate(action.Command, 80))
-				lastErr = fmt.Errorf("action %d names the unknown kind %q", i+1, kind)
-				continue
-			}
-		}
-		if strings.TrimSpace(action.Command) == "" {
-			a.log.Debug(prefix+"action with no command (descriptive)", "description", action.Description)
-			continue
-		}
-		if mem != nil && isRead(action) {
-			if rec, ok := mem.recall(action.Command); ok {
-				fmt.Fprintf(&sb, "$ %s\n[not run again: the same read was made in round %d and nothing has "+
-					"changed since. Its full output is under \"WHAT YOU HAVE ALREADY READ\" in this prompt]\n",
-					action.Command, rec.round)
-				a.log.Info(prefix+"read answered from memory", "command", truncate(action.Command, 120),
-					"round", rec.round)
-				mem.recalled++
-				continue
-			}
-		}
-		a.report("running: %s", action.Command)
-		a.log.Info(prefix+"running in sandbox", "n", i+1, "command", action.Command, "description", truncate(action.Description, 120))
-
-		// How the action is executed depends on the mode, and it is the difference
-		// between a request and a guarantee:
-		//
-		//  - read-only (plan mode): the line is split into program and arguments, the
-		//    policy checks the program, and NO shell runs. Without a shell there is no
-		//    `>`, `>>`, `;`, `&&` or `$(...)`: redirection cannot happen because
-		//    nothing interprets it.
-		//  - otherwise: the line goes to the shell, because that is what lets the
-		//    model use pipes, redirections and globs to do real work — but only once the
-		//    policy has had its say. A consequential action is put in front of the user
-		//    here, mid-run, because this is the moment it is about to happen.
-		plan := a.planRequest(action.Command)
-		if plan.Verdict == policy.Deny {
-			fmt.Fprintf(&sb, "$ %s\n[refused: %s]\n", action.Command, plan.Reason)
-			a.log.Warn(prefix+"action refused by the policy",
-				"command", action.Command, "rule", plan.Rule, "mandatory", plan.Mandatory, "reason", plan.Reason)
-			lastErr = fmt.Errorf("action %d (%s) was refused: %s", i+1, action.Command, plan.Reason)
-			continue
-		}
-		if plan.Verdict == policy.Ask {
-			a.report("asking you to approve: %s", action.Command)
-			approved, err := a.approve(ctx, plan, action.Command)
-			if err != nil {
-				// There is nobody to ask. This is not a failure of the command, it is the
-				// absence of the only thing that could authorise it, and the output says
-				// so in those words so the model does not retry the same line.
-				fmt.Fprintf(&sb, "$ %s\n[not approved: %s]\n", action.Command, err)
-				a.log.Warn(prefix+"action needs approval and there is nobody to ask",
-					"command", action.Command, "rule", plan.Rule)
-				lastErr = fmt.Errorf("action %d (%s) needs approval and there is nobody to ask: %w",
-					i+1, action.Command, err)
-				continue
-			}
-			if !approved {
-				fmt.Fprintf(&sb, "$ %s\n[not approved: the user declined this command]\n", action.Command)
-				a.log.Info(prefix+"action declined by the user",
-					"command", action.Command, "rule", plan.Rule)
-				lastErr = fmt.Errorf("action %d (%s) was declined by the user", i+1, action.Command)
-				continue
-			}
-			a.log.Info(prefix+"action approved by the user", "command", action.Command)
-			plan.Request.Unconfined = true
-		}
-
-		output, truncated, exit, err := a.exec(ctx, plan.Request)
-		// What the command printed, so the user sees what the agent is looking at, not only
-		// that it ran something.
-		//
-		// It is reported even when the command printed nothing: the exit code is what tells
-		// the reader whether it worked, and a silent success (`printf > file`) would
-		// otherwise never be marked as finished.
-		// What the reader and the terminal see is what the command actually printed, up to a cap
-		// that is generous on purpose: a `grep` of a large tree is exactly the output a person
-		// asks for, and cutting it to a handful of lines made the terminal useless as a record.
-		// What is kept is the whole result of a normal command; only an enormous one is cut, and
-		// then the cut says so, with how much was left out.
-		a.report("output (exit %d):\n%s", exit,
-			truncateMiddle(strings.TrimSpace(output), terminalOutputChars))
-
-		fmt.Fprintf(&sb, "$ %s\n", action.Command)
-		if output != "" {
-			sb.WriteString(output)
-			if !strings.HasSuffix(output, "\n") {
-				sb.WriteString("\n")
-			}
-		}
-		if truncated {
-			sb.WriteString("[output truncated by the sandbox limit]\n")
-		}
-		fmt.Fprintf(&sb, "[exit=%d]\n", exit)
-
-		if mem != nil {
-			mem.executed++
-			mem.noteVerification(action.Command, round, exit, err, output)
-			switch {
-			case isWrite(action):
-				// It looks like it could write; whether it DID is a question about the files.
-				mem.sync(a.cfg.Agent.WorkspaceDir)
-			case isRead(action) && err == nil && exit == 0 && !truncated:
-				mem.remember(action.Command, round, output)
-			}
-		}
-
-		if err != nil {
-			lastErr = fmt.Errorf("action %d (%s) could not run: %w", i+1, action.Command, err)
-		}
-	}
-	return sb.String(), lastErr
-}
-
 // summariseFailure builds the block handed to the LLM on the next attempt.
 func (a *Agent) summariseFailure(action Action, execution string, validation anchor.Result, runErr error) string {
 	var sb strings.Builder
@@ -2676,319 +1173,6 @@ func proposedCommands(action Action) string {
 	return truncate(strings.Join(parts, " | "), 500)
 }
 
-// --- Final action and escalation --------------------------------------------
-
-// runConfigured runs a command the OPERATOR wrote: the `final_action`, the `on_failure`
-// escalation, the fixed `git add` / `git commit` sequence.
-//
-// These used to go straight to `/bin/sh -c`, which made them the hole in the policy: the
-// operator's own `final_action` ran whatever it said while the model's actions were being
-// checked, and the mandatory floor — `rm -rf /`, `mkfs`, `shutdown` — was reachable through
-// a configuration field. They are checked now.
-//
-// One difference from an action the MODEL proposed, and it is deliberate: a line that would
-// be asked about runs, because the operator is the one who wrote it. Nobody is surprised by
-// their own configuration, and a task that cannot notify, commit or escalate because a
-// prompt had no user at the keyboard would be broken by the very mechanism meant to protect
-// it. The floor still applies — an operator does not get to `mkfs` their own filesystem
-// either — and that is the line this function will not cross.
-//
-// It is one function rather than three checks because it is one decision, and three copies
-// of a check is how one of them ends up missing an approval.
-func (a *Agent) runConfigured(ctx context.Context, req execx.Request, line string) (string, int, error) {
-	plan := a.planRequest(line)
-	switch plan.Verdict {
-	case policy.Deny:
-		a.log.Error("a configured action was refused by the policy",
-			"command", line, "rule", plan.Rule, "mandatory", plan.Mandatory, "reason", plan.Reason)
-		return "", 1, fmt.Errorf("the configured command %q was refused by the policy: %s", line, plan.Reason)
-	case policy.Ask:
-		a.log.Info("a configured action runs without confirming: the operator wrote it",
-			"command", line, "rule", plan.Rule, "reason", plan.Reason)
-	}
-	// The request the operator configured is used as written — program and arguments — so
-	// an interpreter with its own flags (`sh -c …`) keeps working. The policy was applied to
-	// its LINE, which is what the checks can read.
-	req.Timeout = a.cfg.Sandbox.Timeout
-	output, _, exit, err := a.exec(ctx, req)
-	return output, exit, err
-}
-
-// runModelLine is the composition of a `final_action` whose payload the MODEL wrote.
-//
-// It is kept as its own function because the line it checks is the model's, not the
-// operator's, even though the interpreter around it is the operator's: `final_action` with
-// a command is a configuration that says "when the work is validated, do this", and when the
-// model supplies the text, the thing being checked is that text. The mandatory floor is what
-// makes the difference moot for anything unrecoverable, and it is applied to the composed
-// line so that a payload of `rm -rf /` is caught where it actually lives — inside the quotes.
-func (a *Agent) runModelLine(ctx context.Context, line string) (string, int, error) {
-	return a.runConfigured(ctx,
-		execx.Request{Command: shellFor(a.cfg), Args: []string{"-c", line}}, line)
-}
-
-// runFinalAction runs the action planned for after a PASS. It returns a readable
-// description and an error when the action could not be completed (including a
-// non-zero exit code, which is a failure even with no execution error).
-func (a *Agent) runFinalAction(ctx context.Context, c Command, prefix string) (string, error) {
-	final := a.cfg.FinalAction
-
-	switch strings.ToLower(final.Kind) {
-	case "", "none":
-		return "none", nil
-
-	case "command":
-		var output string
-		var exit int
-		var err error
-		if strings.TrimSpace(c.Command) != "" {
-			// The model proposed the concrete final command: the operator's configuration
-			// supplied the slot, and the text in it is the model's.
-			a.log.Info(prefix+"running the final action the model proposed", "command", c.Command)
-			output, exit, err = a.runModelLine(ctx, c.Command)
-		} else {
-			if strings.TrimSpace(final.Command) == "" {
-				a.log.Warn(prefix + "final_action.kind=command with no command: nothing is done")
-				return "none", nil
-			}
-			a.log.Info(prefix+"running the final action", "command", final.Command)
-			output, exit, err = a.runConfigured(ctx,
-				execx.Request{Command: final.Command, Args: final.Args}, final.Command)
-		}
-		description := fmt.Sprintf("command exit=%d output=%s", exit, truncate(output, 300))
-		if err != nil {
-			a.log.Error(prefix+"the final action failed", "error", err, "output", truncate(output, 500))
-			return description, fmt.Errorf("the final action could not run: %w", err)
-		}
-		if exit != 0 {
-			return description, fmt.Errorf("the final action finished with exit code %d", exit)
-		}
-		return description, nil
-
-	case "api":
-		body := map[string]any{
-			"task":    c.Description,
-			"command": c.Command,
-			"status":  "pass",
-		}
-		data, _ := json.Marshal(body)
-		method := final.Method
-		if method == "" {
-			method = http.MethodPost
-		}
-		req, err := http.NewRequestWithContext(ctx, method, final.URL, bytes.NewReader(data))
-		if err != nil {
-			a.log.Error(prefix+"invalid final request", "error", err)
-			return "error: " + err.Error(), fmt.Errorf("the final action (API) has an invalid URL: %w", err)
-		}
-		req.Header.Set("Content-Type", "application/json")
-		resp, err := a.http.Do(req)
-		if err != nil {
-			a.log.Error(prefix+"the final notification failed", "error", err)
-			return "error: " + err.Error(), fmt.Errorf("the final action (API) failed: %w", err)
-		}
-		defer resp.Body.Close()
-		io.Copy(io.Discard, io.LimitReader(resp.Body, 64<<10))
-		description := fmt.Sprintf("api %s %s -> HTTP %d", method, final.URL, resp.StatusCode)
-		if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-			return description, fmt.Errorf("the final action (API) returned HTTP %d", resp.StatusCode)
-		}
-		return description, nil
-
-	case "git_commit":
-		message, _ := template.Render(final.CommitMessage, map[string]string{"task": c.Description})
-		// A commit made by the agent is a semantic one like every other: the configured
-		// message is kept when it already is, and is given the chore(agent) prefix when not.
-		message = semantic.Coerce(message, "agent")
-		// The staging line is a fixed command of this program, and it is checked like any
-		// other so that a workspace pointed at a strange place cannot turn it into
-		// something else. Nothing here is configurable as a command: the operator chooses
-		// that a commit happens, not how.
-		sequence := []string{
-			"git add -A",
-			fmt.Sprintf("git commit -m %s", shellQuote(message)),
-		}
-		var outputs []string
-		for _, cmd := range sequence {
-			output, exit, err := a.runConfigured(ctx,
-				execx.Request{Command: shellFor(a.cfg), Args: []string{"-c", cmd}}, cmd)
-			outputs = append(outputs, fmt.Sprintf("%s -> exit=%d %s", cmd, exit, truncate(output, 200)))
-			if err != nil {
-				a.log.Error(prefix+"git_commit failed", "command", cmd, "error", err)
-				return "git_commit: " + strings.Join(outputs, " | "), fmt.Errorf("git_commit: %s failed: %w", cmd, err)
-			}
-			if exit != 0 {
-				return "git_commit: " + strings.Join(outputs, " | "), fmt.Errorf("git_commit: %s finished with exit code %d", cmd, exit)
-			}
-		}
-		return "git_commit: " + strings.Join(outputs, " | "), nil
-
-	default:
-		return "none", fmt.Errorf("unknown final_action.kind: %q", final.Kind)
-	}
-}
-
-// escalate fires the configured escalation action when the task does not pass.
-func (a *Agent) escalate(ctx context.Context, prefix string) {
-	if a.cfg.Agent.OnFailure.Kind != "command" || strings.TrimSpace(a.cfg.Agent.OnFailure.Command) == "" {
-		return
-	}
-	a.log.Warn(prefix+"escalating after exhausting the attempts", "command", a.cfg.Agent.OnFailure.Command)
-	output, exit, err := a.runConfigured(ctx,
-		execx.Request{Command: shellFor(a.cfg), Args: []string{"-c", a.cfg.Agent.OnFailure.Command}},
-		a.cfg.Agent.OnFailure.Command)
-	if err != nil {
-		a.log.Error(prefix+"the escalation action failed", "error", err)
-		return
-	}
-	a.log.Info(prefix+"escalation executed", "exit", exit, "output", truncate(output, 300))
-}
-
-// liveInterval is the least time between two live snapshots. A model writes dozens of
-// fragments a second; a snapshot per fragment would flood the interface and the socket for no
-// visible gain. A variable so a test can take every snapshot.
-var liveInterval = 250 * time.Millisecond
-
-// liveView turns a streamed completion into snapshots of what the model is saying.
-type liveView struct {
-	a       *Agent
-	phase   string
-	answer  strings.Builder
-	thought strings.Builder
-	last    time.Time
-	sent    string
-}
-
-// add takes one fragment and reports a snapshot when enough time has passed.
-func (l *liveView) add(fragment string, thinking bool) {
-	if thinking {
-		l.thought.WriteString(fragment)
-	} else {
-		l.answer.WriteString(fragment)
-	}
-	if time.Since(l.last) < liveInterval {
-		return
-	}
-	view := liveText(l.phase, l.thought.String(), l.answer.String())
-	if view == "" || view == l.sent {
-		return
-	}
-	l.sent, l.last = view, time.Now()
-	l.a.report("%s%s", LivePrefix, view)
-}
-
-// liveFields are, per phase, the JSON fields a person wants to read while the reply is being
-// written, and what to put in front of each. The rest of the reply is structure.
-var liveFields = map[string][]struct{ name, lead string }{
-	"analyze":    {{"summary", ""}, {"reply", ""}, {"question", ""}},
-	"plan":       {{"action", "- "}},
-	"execute":    {{"reasoning", ""}, {"command", "$ "}},
-	"synthesize": {{"summary", ""}},
-}
-
-// liveMaxRunes bounds one snapshot: the TAIL is kept, because it is what is being written.
-const liveMaxRunes = 1500
-
-// liveText is the readable part of a reply that is still being written.
-//
-// The model answers in JSON, so the text is read out of the fields it is filling in, even
-// half-written. Reasoning tokens the provider streamed apart are shown while the answer has
-// nothing readable yet, and prose - a model thinking out loud before its JSON - is shown as is.
-func liveText(phase, thought, answer string) string {
-	var parts []string
-	for _, f := range liveFields[phase] {
-		for _, v := range partialStrings(answer, f.name) {
-			if v = strings.TrimSpace(v); v != "" {
-				parts = append(parts, f.lead+v)
-			}
-		}
-	}
-	text := strings.Join(parts, "\n")
-	if text == "" {
-		trimmed := strings.TrimSpace(answer)
-		if trimmed != "" && !strings.HasPrefix(trimmed, "{") && !strings.HasPrefix(trimmed, "`") {
-			text = trimmed
-		}
-	}
-	if text == "" {
-		text = strings.TrimSpace(thought)
-	}
-	if r := []rune(text); len(r) > liveMaxRunes {
-		text = "…" + string(r[len(r)-liveMaxRunes:])
-	}
-	return text
-}
-
-// partialStrings returns every value of the string field `name` in a JSON text that may be
-// cut off anywhere: the last value is returned as far as it goes.
-func partialStrings(text, name string) []string {
-	var out []string
-	key := `"` + name + `"`
-	for i := 0; ; {
-		at := strings.Index(text[i:], key)
-		if at < 0 {
-			return out
-		}
-		j := i + at + len(key)
-		i = j
-		for j < len(text) && (text[j] == ' ' || text[j] == '\t' || text[j] == '\n' || text[j] == '\r') {
-			j++
-		}
-		if j >= len(text) || text[j] != ':' {
-			continue
-		}
-		j++
-		for j < len(text) && (text[j] == ' ' || text[j] == '\t' || text[j] == '\n' || text[j] == '\r') {
-			j++
-		}
-		if j >= len(text) || text[j] != '"' {
-			continue
-		}
-		value, end := decodePartial(text[j+1:])
-		out = append(out, value)
-		i = j + 1 + end
-	}
-}
-
-// decodePartial decodes a JSON string body up to its closing quote or the end of the text,
-// and returns the value and how many bytes it consumed. An escape cut off at the end stops the
-// value there rather than guessing.
-func decodePartial(s string) (string, int) {
-	var b strings.Builder
-	for i := 0; i < len(s); i++ {
-		c := s[i]
-		switch {
-		case c == '"':
-			return b.String(), i + 1
-		case c != '\\':
-			b.WriteByte(c)
-		case i+1 >= len(s):
-			return b.String(), len(s)
-		default:
-			i++
-			switch s[i] {
-			case 'n':
-				b.WriteByte('\n')
-			case 't':
-				b.WriteByte('\t')
-			case 'r':
-			case 'u':
-				if i+4 >= len(s) {
-					return b.String(), len(s)
-				}
-				var r rune
-				if _, err := fmt.Sscanf(s[i+1:i+5], "%04x", &r); err == nil {
-					b.WriteRune(r)
-				}
-				i += 4
-			default:
-				b.WriteByte(s[i])
-			}
-		}
-	}
-	return b.String(), len(s)
-}
-
 // shellQuote quotes text for passing to sh -c.
 func shellQuote(s string) string {
 	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
@@ -3041,5 +1225,6 @@ func truncateMiddle(s string, max int) string {
 	for start < len(s) && !utf8.RuneStart(s[start]) {
 		start++
 	}
-	return truncate(s, head) + fmt.Sprintf("\n[... %d of %d bytes omitted ...]\n", len(s)-head-(len(s)-start), len(s)) + s[start:]
+	omitted := len(s) - head - (len(s) - start)
+	return truncate(s, head) + fmt.Sprintf("\n[... %d of %d bytes omitted ...]\n", omitted, len(s)) + s[start:]
 }

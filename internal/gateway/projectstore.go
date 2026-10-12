@@ -6,10 +6,13 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/madkoding/motita/internal/gitx"
 )
 
 // Project is a named group of sessions that share a workspace directory.
@@ -85,20 +88,39 @@ func (ps *projectStore) path(id string) string {
 	return filepath.Join(ps.dir, id+".json")
 }
 
+// projectIDPattern is what a project id may look like: ids are generated, and one that came
+// from a URL is a file name in the store, never a path.
+var projectIDPattern = regexp.MustCompile(`^[A-Za-z0-9_-]+$`)
+
+// validProjectID reports whether id can name a project file.
+func validProjectID(id string) bool { return projectIDPattern.MatchString(id) }
+
+// file is path for reading and writing: an id that is not a plain name is refused.
+func (ps *projectStore) file(id string) (string, error) {
+	if !projectIDPattern.MatchString(id) {
+		return "", fmt.Errorf("%q is not a valid project id", id)
+	}
+	return filepath.Join(ps.dir, id+".json"), nil
+}
+
 // save writes one project to disk.
 func (ps *projectStore) save(p Project) error {
 	ps.mu.Lock()
 	defer ps.mu.Unlock()
 
+	file, err := ps.file(p.ID)
+	if err != nil {
+		return err
+	}
 	data, err := json.MarshalIndent(p, "", "  ")
 	if err != nil {
 		return fmt.Errorf("could not encode the project %q: %w", p.ID, err)
 	}
-	tmp := ps.path(p.ID) + ".tmp"
+	tmp := file + ".tmp"
 	if err := os.WriteFile(tmp, data, 0o600); err != nil {
 		return fmt.Errorf("could not write the project %q: %w", p.ID, err)
 	}
-	if err := os.Rename(tmp, ps.path(p.ID)); err != nil {
+	if err := os.Rename(tmp, file); err != nil {
 		return fmt.Errorf("could not save the project %q: %w", p.ID, err)
 	}
 	return nil
@@ -109,7 +131,11 @@ func (ps *projectStore) load(id string) (*Project, error) {
 	ps.mu.Lock()
 	defer ps.mu.Unlock()
 
-	data, err := os.ReadFile(ps.path(id))
+	file, err := ps.file(id)
+	if err != nil {
+		return nil, err
+	}
+	data, err := os.ReadFile(file)
 	if os.IsNotExist(err) {
 		return nil, nil
 	}
@@ -156,7 +182,11 @@ func (ps *projectStore) delete(id string) error {
 	ps.mu.Lock()
 	defer ps.mu.Unlock()
 
-	err := os.Remove(ps.path(id))
+	file, err := ps.file(id)
+	if err != nil {
+		return err
+	}
+	err = os.Remove(file)
 	if os.IsNotExist(err) {
 		return nil
 	}
@@ -166,7 +196,10 @@ func (ps *projectStore) delete(id string) error {
 // sameOrigin reports whether dir is a git checkout whose origin is gitURL, ignoring a
 // trailing ".git" or slash and the case of the host.
 func sameOrigin(dir, gitURL string, env []string) bool {
-	cmd := exec.Command("git", "-C", dir, "remote", "get-url", "origin")
+	// The folder is the working directory, not a "-C" argument: nothing that came from a
+	// request ends up among git's arguments.
+	cmd := exec.Command("git", append(gitx.Hardening(), "remote", "get-url", "origin")...)
+	cmd.Dir = dir
 	cmd.Env = env
 	out, err := cmd.Output()
 	if err != nil {
@@ -197,6 +230,27 @@ func freeCloneDir(dir, gitURL string, env []string) string {
 	}
 }
 
+// cloneableURL reports whether gitURL names a repository the way a person gives one: an
+// http(s) or ssh URL, the scp form user@host:path, or an absolute local path. Everything else
+// is refused before git sees it - a leading "-" is a flag to git, and the "transport::address"
+// form (ext::, fd::) asks git to run a command.
+func cloneableURL(gitURL string) bool {
+	switch {
+	case strings.HasPrefix(gitURL, "-"), strings.Contains(gitURL, "::"):
+		return false
+	case strings.HasPrefix(gitURL, "https://"), strings.HasPrefix(gitURL, "http://"),
+		strings.HasPrefix(gitURL, "ssh://"):
+		return true
+	case filepath.IsAbs(gitURL):
+		return true
+	default:
+		// Not one of the forms above: the scp form is tried below.
+	}
+	// scp form: a host (with an optional user) before the first ':', and no '/' in it.
+	host, path, ok := strings.Cut(gitURL, ":")
+	return ok && host != "" && path != "" && !strings.ContainsAny(host, "/\\ ")
+}
+
 // cloneGitRepo clones a git URL into the given directory and returns the
 // combined output of the git command. It is called when a project is created
 // with a git URL instead of a local folder.
@@ -214,9 +268,14 @@ func cloneGitRepo(gitURL, destDir string, env []string) (string, error) {
 		if sameOrigin(destDir, gitURL, env) {
 			return "reusing the existing clone in " + destDir, nil
 		}
-		return "", fmt.Errorf("the folder %q already exists and is not a clone of %q: pick another folder name or remove it", destDir, gitURL)
+		return "", fmt.Errorf(
+			"the folder %q already exists and is not a clone of %q: pick another folder name or remove it", destDir, gitURL)
 	}
-	cmd := exec.Command("git", "clone", "--progress", gitURL, destDir)
+	if !cloneableURL(gitURL) {
+		return "", fmt.Errorf("%q is not a repository URL: use https://, ssh://, user@host:path or an absolute path", gitURL)
+	}
+	// "--" ends the options: the URL and the folder are never read as flags.
+	cmd := exec.Command("git", append(gitx.Hardening(), "clone", "--progress", "--", gitURL, destDir)...)
 	// env carries the credential helper, so a repository of a host the user connected clones
 	// without a prompt nobody can answer. Nil keeps the process environment.
 	cmd.Env = env

@@ -76,50 +76,80 @@ func contentJSON(phaseName string, n int) string {
 	case "synthesize":
 		// The structured report the final answer is asked to be (agent.Report), with every
 		// section filled, so a front end can be driven against the whole shape.
-		return `{"status":"done","summary":"I wrote **report.txt** and checked its content.","changes":[{"path":"report.txt","kind":"added","description":"holds the requested content"}],"verification":[{"check":"anchor: content is valid","result":"pass","evidence":"ANCHOR_OK"},{"check":"browser screenshot","result":"skipped","evidence":"nothing visual to look at"}],"risks":["the file is overwritten on every run"],"next_steps":["commit report.txt"]}`
+		return synthesizeJSON
 	case "analyze":
-		return `{"understandable":true,"summary":"leave the report with the requested content","success_criteria":["report.txt holds content-valid"],"risks":[],"needs_subtasks":false}`
+		return analyzeJSON
 	case "plan":
-		return `{"plan":[{"step":1,"action":"write the report","command":"write report.txt"}],"subtasks":[],"expected_result":"report.txt with content-valid"}`
+		return planJSON
 	default:
-		// The first execution attempt gets it wrong on purpose.
-		command := `printf 'content-invalid' > report.txt`
-		if n >= 2 {
-			command = `printf 'content-valid' > report.txt`
-		}
-		response := map[string]any{
-			"reasoning": fmt.Sprintf("attempt %d", n),
-			"actions": []map[string]string{
-				{"kind": "command", "description": "write the report", "command": command},
-			},
-			"final_action": map[string]string{"description": "notify", "command": ""},
-		}
-		data, _ := json.Marshal(response)
-		return string(data)
+		return executeJSON(n)
 	}
+}
+
+// The fixed replies of the synthesize, analyze and plan phases.
+const (
+	synthesizeJSON = `{"status":"done","summary":"I wrote **report.txt** and checked its content.",` +
+		`"changes":[{"path":"report.txt","kind":"added","description":"holds the requested content"}],` +
+		`"verification":[{"check":"anchor: content is valid","result":"pass","evidence":"ANCHOR_OK"},` +
+		`{"check":"browser screenshot","result":"skipped","evidence":"nothing visual to look at"}],` +
+		`"risks":["the file is overwritten on every run"],"next_steps":["commit report.txt"]}`
+	analyzeJSON = `{"understandable":true,"summary":"leave the report with the requested content",` +
+		`"success_criteria":["report.txt holds content-valid"],"risks":[],"needs_subtasks":false}`
+	planJSON = `{"plan":[{"step":1,"action":"write the report","command":"write report.txt"}],` +
+		`"subtasks":[],"expected_result":"report.txt with content-valid"}`
+)
+
+// executeJSON is the reply of execution attempt n: the first one gets it wrong on purpose.
+func executeJSON(n int) string {
+	command := `printf 'content-invalid' > report.txt`
+	if n >= 2 {
+		command = `printf 'content-valid' > report.txt`
+	}
+	response := map[string]any{
+		"reasoning": fmt.Sprintf("attempt %d", n),
+		"actions": []map[string]string{
+			{"kind": "command", "description": "write the report", "command": command},
+		},
+		"final_action": map[string]string{"description": "notify", "command": ""},
+	}
+	data, _ := json.Marshal(response)
+	return string(data)
 }
 
 func respond(w http.ResponseWriter, dialect, content string) {
 	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(replyBody(dialect, content))
+}
+
+// replyBody wraps content in the response shape of the dialect (openai unless named).
+func replyBody(dialect, content string) map[string]any {
 	switch dialect {
 	case "anthropic":
-		json.NewEncoder(w).Encode(map[string]any{
+		return map[string]any{
 			"content": []map[string]string{{"type": "text", "text": content}},
-		})
+		}
 	case "gemini":
-		json.NewEncoder(w).Encode(map[string]any{
-			"candidates": []any{map[string]any{
-				"content":      map[string]any{"parts": []map[string]string{{"text": content}}},
-				"finishReason": "STOP",
-			}},
-		})
+		return geminiBody(content)
 	default:
-		json.NewEncoder(w).Encode(map[string]any{
-			"choices": []any{map[string]any{
-				"message":       map[string]string{"role": "assistant", "content": content},
-				"finish_reason": "stop",
-			}},
-		})
+		return openAIBody(content)
+	}
+}
+
+func geminiBody(content string) map[string]any {
+	return map[string]any{
+		"candidates": []any{map[string]any{
+			"content":      map[string]any{"parts": []map[string]string{{"text": content}}},
+			"finishReason": "STOP",
+		}},
+	}
+}
+
+func openAIBody(content string) map[string]any {
+	return map[string]any{
+		"choices": []any{map[string]any{
+			"message":       map[string]string{"role": "assistant", "content": content},
+			"finish_reason": "stop",
+		}},
 	}
 }
 
@@ -147,6 +177,8 @@ func handle(w http.ResponseWriter, r *http.Request) {
 		dialect = "anthropic"
 	case strings.Contains(r.URL.Path, "generateContent"):
 		dialect = "gemini"
+	default:
+		// Every other path speaks the OpenAI dialect.
 	}
 
 	n := int(atomic.LoadInt32(&executionAttempts))

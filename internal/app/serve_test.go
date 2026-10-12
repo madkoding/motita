@@ -647,7 +647,9 @@ func TestTheServedGatewayBuildsAReviewFork(t *testing.T) {
 	opts.BaseCtx = ctx
 	opts.Signals = nil
 	opts.NewEngine = mockEngine(srv)
-	opts.NewReview = func(cfg config.Review, engine *llm.Client, procs *procedures.Store, log *logx.Logger, build review.RunnerBuilder) *review.Review {
+	opts.NewReview = func(
+		cfg config.Review, engine *llm.Client, procs *procedures.Store, log *logx.Logger, build review.RunnerBuilder,
+	) *review.Review {
 		mu.Lock()
 		seen = true
 		gotLibrary = procs != nil && procs.Library != nil

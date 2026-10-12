@@ -20,13 +20,10 @@
 package llm
 
 import (
-	"bufio"
-	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"net/http"
 	"strings"
 	"sync/atomic"
@@ -34,6 +31,11 @@ import (
 
 	"github.com/madkoding/motita/internal/config"
 	"github.com/madkoding/motita/internal/logx"
+)
+
+// Literals used more than once in this file.
+const (
+	providerClaudeCode = "claude-code"
 )
 
 // Message is one turn of the conversation.
@@ -98,7 +100,8 @@ func New(cfg config.LLM, log *logx.Logger) (*Client, error) {
 	}
 	if cfg.APIKey == "" && login == nil && config.LLMNeedsKey(cfg) {
 		if config.SupportsLogin(cfg.Provider) {
-			return nil, fmt.Errorf("the LLM key is missing: set %s, or log in with `motita config`", config.ProviderKeyVariable(cfg.Provider))
+			return nil, fmt.Errorf("the LLM key is missing: set %s, or log in with `motita config`",
+				config.ProviderKeyVariable(cfg.Provider))
 		}
 		return nil, errors.New("the LLM key is missing")
 	}
@@ -120,7 +123,7 @@ func (c *Client) openStreamOr() func(context.Context, []Message, []Tool) (<-chan
 		return c.openStream
 	}
 	switch strings.ToLower(c.cfg.Provider) {
-	case "claude-code":
+	case providerClaudeCode:
 		return c.callClaudeCodeStream
 	case "codex":
 		return c.callResponsesStream
@@ -173,7 +176,9 @@ func (c *Client) callAsStream(ctx context.Context, messages []Message, tools []T
 //
 // A stream that fails is retried as a plain Complete: an endpoint that mishandles
 // `stream: true` must still answer, only without the live view.
-func (c *Client) CompleteStream(ctx context.Context, messages []Message, onDelta func(text string, thinking bool)) (string, error) {
+func (c *Client) CompleteStream(
+	ctx context.Context, messages []Message, onDelta func(text string, thinking bool),
+) (string, error) {
 	var text strings.Builder
 	var streamErr error
 	for chunk := range c.CompleteToolsStream(ctx, messages, nil) {
@@ -189,6 +194,8 @@ func (c *Client) CompleteStream(ctx context.Context, messages []Message, onDelta
 			if text.Len() == 0 {
 				text.WriteString(chunk.Reply.Content)
 			}
+		default:
+			// Tool calls are not part of a text completion.
 		}
 	}
 	if streamErr == nil && strings.TrimSpace(text.String()) != "" {
@@ -241,13 +248,16 @@ func (c *Client) Complete(ctx context.Context, messages []Message) (string, erro
 			return "", fmt.Errorf("cancelled while waiting to retry: %w", ctx.Err())
 		case <-time.After(wait):
 		}
-		wait *= 2
-		if wait > c.cfg.BackoffMax {
-			wait = c.cfg.BackoffMax
-		}
+		wait = c.nextWait(wait)
 	}
 
 	return "", fmt.Errorf("all %d attempts were exhausted: %w", c.cfg.MaxAttempts, last)
+}
+
+// nextWait is the wait before the attempt after one that waited wait: twice as long, up to the
+// configured maximum.
+func (c *Client) nextWait(wait time.Duration) time.Duration {
+	return min(wait*2, c.cfg.BackoffMax)
 }
 
 // CompleteTools sends the conversation with the available tools and returns whatever
@@ -269,21 +279,7 @@ func (c *Client) CompleteToolsStream(ctx context.Context, messages []Message, to
 		for attempt := 1; attempt <= c.cfg.MaxAttempts; attempt++ {
 			chunkCh, err := c.openStreamOr()(ctx, messages, tools)
 			if err == nil {
-				forwarded := false
-				for chunk := range chunkCh {
-					// A failure before anything reached the caller is a failed attempt like
-					// one that could not open: it goes through the same retry policy.
-					if !forwarded && chunk.Event == StreamError {
-						err = chunk.Error
-						break
-					}
-					forwarded = true
-					out <- chunk
-					if chunk.Event == StreamError || chunk.Event == StreamDone {
-						return
-					}
-				}
-				if err == nil {
+				if err = forwardStream(chunkCh, out); err == nil {
 					return
 				}
 			}
@@ -296,21 +292,38 @@ func (c *Client) CompleteToolsStream(ctx context.Context, messages []Message, to
 			if attempt == c.cfg.MaxAttempts {
 				break
 			}
-			c.log.Warn("retrying LLM tool stream", "attempt", attempt, "max_attempts", c.cfg.MaxAttempts, "wait", wait.String(), "error", err)
+			c.log.Warn("retrying LLM tool stream", "attempt", attempt, "max_attempts", c.cfg.MaxAttempts,
+				"wait", wait.String(), "error", err)
 			select {
 			case <-ctx.Done():
 				out <- StreamChunk{Event: StreamError, Error: fmt.Errorf("cancelled while waiting to retry: %w", ctx.Err())}
 				return
 			case <-time.After(wait):
 			}
-			wait *= 2
-			if wait > c.cfg.BackoffMax {
-				wait = c.cfg.BackoffMax
-			}
+			wait = c.nextWait(wait)
 		}
-		out <- StreamChunk{Event: StreamError, Error: fmt.Errorf("all %d attempts were exhausted: %w", c.cfg.MaxAttempts, last)}
+		out <- StreamChunk{Event: StreamError,
+			Error: fmt.Errorf("all %d attempts were exhausted: %w", c.cfg.MaxAttempts, last)}
 	}()
 	return out
+}
+
+// forwardStream forwards one opened stream to out. A failure before anything reached the caller
+// is a failed attempt like one that could not open, and is returned so it goes through the same
+// retry policy; once something was forwarded, the stream is the caller's to its end.
+func forwardStream(chunkCh <-chan StreamChunk, out chan<- StreamChunk) error {
+	forwarded := false
+	for chunk := range chunkCh {
+		if !forwarded && chunk.Event == StreamError {
+			return chunk.Error
+		}
+		forwarded = true
+		out <- chunk
+		if chunk.Event == StreamError || chunk.Event == StreamDone {
+			return nil
+		}
+	}
+	return nil
 }
 
 func (c *Client) completeWithTool(ctx context.Context, messages []Message, tools []Tool) (Reply, error) {
@@ -343,10 +356,7 @@ func (c *Client) completeWithTool(ctx context.Context, messages []Message, tools
 			return empty, fmt.Errorf("cancelled while waiting to retry: %w", ctx.Err())
 		case <-time.After(wait):
 		}
-		wait *= 2
-		if wait > c.cfg.BackoffMax {
-			wait = c.cfg.BackoffMax
-		}
+		wait = c.nextWait(wait)
 	}
 
 	return empty, fmt.Errorf("all %d attempts were exhausted: %w", c.cfg.MaxAttempts, last)
@@ -388,21 +398,26 @@ func (c *Client) call(ctx context.Context, messages []Message) (string, error) {
 		return c.callAnthropic(ctx, messages)
 	case "gemini":
 		return c.callGemini(ctx, messages)
-	case "claude-code":
+	case providerClaudeCode:
 		return c.callClaudeCodeText(ctx, messages)
 	case "codex":
-		reply, err := c.callResponses(ctx, messages, nil)
-		if err != nil {
-			return "", err
-		}
-		if strings.TrimSpace(reply.Content) == "" {
-			return "", fmt.Errorf("codex returned no text (%d tool call(s))", len(reply.Calls))
-		}
-		return reply.Content, nil
+		return c.callCodexText(ctx, messages)
 	default:
 		// openai, ollama, qwen and copilot all speak /chat/completions.
 		return c.callOpenAI(ctx, messages)
 	}
+}
+
+// callCodexText is a text-only call to /responses, which must answer with text.
+func (c *Client) callCodexText(ctx context.Context, messages []Message) (string, error) {
+	reply, err := c.callResponses(ctx, messages, nil)
+	if err != nil {
+		return "", err
+	}
+	if strings.TrimSpace(reply.Content) == "" {
+		return "", fmt.Errorf("codex returned no text (%d tool call(s))", len(reply.Calls))
+	}
+	return reply.Content, nil
 }
 
 // callTools makes a single tool-enabled request to the provider.
@@ -412,7 +427,7 @@ func (c *Client) callTools(ctx context.Context, messages []Message, tools []Tool
 		return c.callAnthropicTools(ctx, messages, tools)
 	case "gemini":
 		return c.callGeminiTools(ctx, messages, tools)
-	case "claude-code":
+	case providerClaudeCode:
 		return c.callClaudeCode(ctx, messages, tools, nil)
 	case "codex":
 		return c.callResponses(ctx, messages, tools)
@@ -543,749 +558,6 @@ func fetchModelList(ctx context.Context, url string, headers map[string]string) 
 // the same catalogue query.
 func ListOllamaModels(ctx context.Context, baseURL, apiKey string) ([]string, error) {
 	return ListModels(ctx, baseURL, apiKey)
-}
-
-// --- OpenAI ----------------------------------------------------------------
-
-type openAIMessage struct {
-	Role       string     `json:"role"`
-	Content    string     `json:"content"`
-	ToolCalls  []ToolCall `json:"tool_calls,omitempty"`
-	ToolCallID string     `json:"tool_call_id,omitempty"`
-}
-
-type openAIChoice struct {
-	Message struct {
-		Content   string     `json:"content"`
-		ToolCalls []ToolCall `json:"tool_calls"`
-	} `json:"message"`
-	FinishReason string `json:"finish_reason"`
-}
-
-type openAIResponse struct {
-	Choices []openAIChoice `json:"choices"`
-	Usage   *openAIUsage   `json:"usage"`
-	Error   *struct {
-		Message string `json:"message"`
-	} `json:"error,omitempty"`
-}
-
-// emptyReason explains WHY a reply carried nothing usable.
-//
-// It exists because the bare `finish_reason` was not enough to act on. The four causes need
-// different responses from the caller, and all four used to arrive as the same sentence:
-//
-//   - `length`  — the answer was cut off by the token budget. Retrying identically wastes a
-//     call; the budget or the prompt has to change.
-//   - `tool_calls` — the provider says it sent calls and none arrived. That is a PARSE defect
-//     on this side, not a model that refused to answer, and retrying it is pointless.
-//   - `content_filter` — the provider blocked the answer. Nothing to retry.
-//   - anything else, including "stop" — the model genuinely produced nothing.
-//
-// The `tool_calls` case is not hypothetical: it is the message that sent a real run into three
-// pointless retries while the calls it had asked for were sitting in the stream.
-func emptyReason(finishReason, content string, toolCalls int) string {
-	trimmed := strings.TrimSpace(content)
-	switch finishReason {
-	case "tool_calls":
-		return fmt.Sprintf("finish_reason=%q with %d tool call(s) and %d byte(s) of text: the provider "+
-			"reported calls that did not arrive, which is a parsing failure on this side rather than "+
-			"an empty answer — retrying cannot help", finishReason, toolCalls, len(trimmed))
-	case "length":
-		return fmt.Sprintf("finish_reason=%q: the answer was cut off by the token budget (%d byte(s) "+
-			"received); retrying unchanged will truncate again", finishReason, len(trimmed))
-	case "content_filter":
-		return fmt.Sprintf("finish_reason=%q: the provider blocked the answer", finishReason)
-	default:
-		return fmt.Sprintf("finish_reason=%q: the model produced no text and asked for no tools", finishReason)
-	}
-}
-
-// ErrToolCallForText marks a reply that answered a text-only phase with a tool call. Asking
-// again UNCHANGED returns the same thing, but asking again with the reason stated does not:
-// the caller can tell the model, which a bare failure gave it no chance to do.
-var ErrToolCallForText = errors.New("the model called a tool where text was required")
-
-func (c *Client) callOpenAI(ctx context.Context, messages []Message) (string, error) {
-	choice, _, err := c.openAIChoice(ctx, messages, nil)
-	if err != nil {
-		return "", err
-	}
-	// A reply that carried TOOL CALLS is not an empty reply, whatever the text says.
-	//
-	// This guard used to look at the text alone, so a response of `tool_calls` with no
-	// prose was reported as "no usable content ... the provider reported calls that did not
-	// arrive" and thrown away — while the calls were in the very struct being examined. The
-	// message even counted them, which is how it read as a contradiction.
-	//
-	// Measured on a real run: every phase of the agent asks for its JSON as TEXT, so a
-	// provider that answers one of those calls with a tool call lost the whole turn, and
-	// the user was told the LLM had produced nothing. The calls are now reported as what
-	// they are, so the caller decides: the agent's text phases turn them into a named error
-	// that says which call arrived (see the caller's own guard), instead of a retry of a
-	// reply that will come back the same way.
-	if strings.TrimSpace(choice.Message.Content) == "" && len(choice.Message.ToolCalls) == 0 {
-		// Nothing at all: the model hit a length limit, was blocked by a content filter, or
-		// genuinely produced nothing. Retryable on THIS path, because a text-only call that
-		// came back empty may succeed on a second attempt.
-		return "", fmt.Errorf("OpenAI returned no usable content (%s)", emptyReason(
-			choice.FinishReason, choice.Message.Content, len(choice.Message.ToolCalls)))
-	}
-	if strings.TrimSpace(choice.Message.Content) == "" {
-		// A tool call with no text. The text path cannot honour it, and saying so NAMES what
-		// arrived — the alternative was an opaque "empty answer" and three retries.
-		//
-		// It is a fatalError for the same reason the tools path uses one: the provider has
-		// ROUTED this answer through a tool, and asking again the same way returns the same
-		// thing. Measured: three identical failures and a message that blamed a parse defect
-		// — the most confusing outcome available, because the reader goes looking for a bug
-		// in the parser instead of at the prompt or the provider's routing.
-		return "", fatalError{fmt.Errorf("%w: OpenAI answered with %d tool call(s) instead of text (%s): "+
-			"this phase asks for its answer as text, so the call cannot be honoured here, and asking "+
-			"again unchanged returns the same thing", ErrToolCallForText, len(choice.Message.ToolCalls), describeCalls(choice.Message.ToolCalls))}
-	}
-	return choice.Message.Content, nil
-}
-
-// describeCalls renders the names of a reply's tool calls for an error message.
-//
-// The NAME is what makes the message actionable: it tells a reader which tool the provider
-// wanted, which is the difference between "the model refused to answer" and "the provider
-// routed this through a tool the text path does not have".
-func describeCalls(calls []ToolCall) string {
-	if len(calls) == 0 {
-		return "none"
-	}
-	names := make([]string, 0, len(calls))
-	for _, c := range calls {
-		if c.Function.Name != "" {
-			names = append(names, c.Function.Name)
-			continue
-		}
-		names = append(names, "(unnamed)")
-	}
-	return strings.Join(names, ", ")
-}
-
-func (c *Client) callOpenAITools(ctx context.Context, messages []Message, tools []Tool) (Reply, error) {
-	choice, usage, err := c.openAIChoice(ctx, messages, tools)
-	if err != nil {
-		return Reply{}, err
-	}
-	if strings.TrimSpace(choice.Message.Content) == "" && len(choice.Message.ToolCalls) == 0 {
-		// No text and no tool calls: the model produced nothing usable.
-		//
-		// The message NAMES the reason instead of only quoting finish_reason, because the
-		// bare form cost a real diagnosis. A run failed three times with
-		// `finish_reason="tool_calls"` and an empty call list, which reads as a contradiction:
-		// the provider was saying it HAD sent calls. Deciding what to do about it — retry,
-		// report a truncated answer, or fix the parser — depends on which of the four causes it
-		// was, and the old message could not tell them apart.
-		return Reply{}, fatalError{fmt.Errorf("OpenAI returned no usable content (%s)", emptyReason(
-			choice.FinishReason, choice.Message.Content, len(choice.Message.ToolCalls)))}
-	}
-	return Reply{
-		Content:      choice.Message.Content,
-		Calls:        choice.Message.ToolCalls,
-		FinishReason: choice.FinishReason,
-		Usage:        usage.usage(),
-	}, nil
-}
-
-// openAIStreamDelta is the incremental piece inside a streaming chunk.
-type openAIStreamDelta struct {
-	Content   string     `json:"content"`
-	ToolCalls []ToolCall `json:"tool_calls"`
-	// ReasoningContent and Reasoning are the model's thinking, under the two names the
-	// OpenAI-compatible servers use for it (DeepSeek and vLLM; Ollama and OpenRouter).
-	ReasoningContent string `json:"reasoning_content"`
-	Reasoning        string `json:"reasoning"`
-}
-
-// openAIStreamChunk is one SSE line from /chat/completions?stream=true.
-type openAIStreamChunk struct {
-	Choices []struct {
-		Delta        openAIStreamDelta `json:"delta"`
-		FinishReason string            `json:"finish_reason"`
-	} `json:"choices"`
-	// Usage arrives on a chunk of its own, after the one with finish_reason and with no
-	// choices, when the request asked for it (stream_options.include_usage). Some servers
-	// put it on the last chunk with choices instead; both are read.
-	Usage *openAIUsage `json:"usage"`
-}
-
-func (c *Client) callOpenAIToolsStream(ctx context.Context, messages []Message, tools []Tool) (<-chan StreamChunk, error) {
-	body := c.openAIBody(messages, tools)
-	body["stream"] = true
-	// A stream reports no usage unless asked, and only OpenAI's own API is asked. The other
-	// /chat/completions servers (Ollama, Qwen, Copilot, a local server behind the openai
-	// provider) are not known to accept the field - one that refuses an unknown field would
-	// refuse the whole request for a counter - and waiting for a usage chunk that never comes
-	// would bring back the hang the finish_reason return below exists to prevent. Those that
-	// put usage on their last chunk anyway are still read.
-	wantUsage := isOfficialOpenAI(c.baseURL(DefaultBaseURL(c.cfg.Provider)))
-	if wantUsage {
-		body["stream_options"] = map[string]any{"include_usage": true}
-	}
-	resp, _, err := c.send(ctx, "/chat/completions", body, true)
-	if err != nil {
-		return nil, err
-	}
-
-	out := make(chan StreamChunk, 8)
-	go func() {
-		defer close(out)
-		defer resp.Body.Close()
-		reader := bufio.NewReader(resp.Body)
-		var acc StreamResult
-		var usage Usage
-		finished := false
-		done := func() {
-			reply := acc.FinalReply()
-			reply.Usage = usage
-			recordUsage(ctx, usage)
-			out <- StreamChunk{Event: StreamDone, Reply: reply}
-		}
-		for {
-			line, err := reader.ReadBytes('\n')
-			if err != nil {
-				if err == io.EOF {
-					done()
-				} else {
-					out <- StreamChunk{Event: StreamError, Error: err}
-				}
-				return
-			}
-			line = bytes.TrimSpace(line)
-			if len(line) == 0 {
-				continue
-			}
-			if bytes.HasPrefix(line, []byte(":")) {
-				continue
-			}
-			const dataPrefix = "data: "
-			if !bytes.HasPrefix(line, []byte(dataPrefix)) {
-				continue
-			}
-			payload := bytes.TrimPrefix(line, []byte(dataPrefix))
-			if string(payload) == "[DONE]" {
-				done()
-				return
-			}
-			var chunk openAIStreamChunk
-			if err := json.Unmarshal(payload, &chunk); err != nil {
-				continue
-			}
-			if u := chunk.Usage.usage(); u.Total() > 0 {
-				usage = u
-				if finished {
-					// The usage chunk is the last thing a stream that asked for it sends.
-					done()
-					return
-				}
-			}
-			if len(chunk.Choices) == 0 {
-				continue
-			}
-			delta := chunk.Choices[0].Delta
-			if thought := delta.ReasoningContent + delta.Reasoning; thought != "" {
-				out <- StreamChunk{Event: StreamThinking, Text: thought}
-			}
-			if delta.Content != "" {
-				out <- StreamChunk{Event: StreamText, Text: delta.Content}
-			}
-			for i := range delta.ToolCalls {
-				out <- StreamChunk{Event: StreamToolCall, Call: &delta.ToolCalls[i]}
-			}
-			for _, tc := range delta.ToolCalls {
-				acc.Handle(StreamChunk{Event: StreamToolCall, Call: &tc})
-			}
-			if delta.Content != "" {
-				acc.Handle(StreamChunk{Event: StreamText, Text: delta.Content})
-			}
-			// finish_reason is by definition the end of the completion: the
-			// provider sets it on the last chunk that carries the answer, and
-			// [DONE] merely confirms it. Returning here — for any reason, not
-			// only tool_calls — is what keeps a provider that omits [DONE] and
-			// holds the connection open from hanging the caller until the
-			// client timeout expires.
-			//
-			// The one exception is a stream that asked OpenAI for its usage and has not had it:
-			// OpenAI sends it on the next chunk and then [DONE], so reading on cannot hang there.
-			if chunk.Choices[0].FinishReason != "" {
-				if wantUsage && usage.Total() == 0 {
-					finished = true
-					continue
-				}
-				done()
-				return
-			}
-		}
-	}()
-	return out, nil
-}
-
-func toOpenAIMessages(messages []Message) []openAIMessage {
-	out := make([]openAIMessage, 0, len(messages))
-	for _, m := range messages {
-		role := m.Role
-		if role == "" {
-			role = "user"
-		}
-		out = append(out, openAIMessage{
-			Role:       role,
-			Content:    m.Content,
-			ToolCalls:  m.ToolCalls,
-			ToolCallID: m.ToolCallID,
-		})
-	}
-	return out
-}
-
-// --- Anthropic --------------------------------------------------------------
-
-type anthropicResponse struct {
-	Content []struct {
-		Type string `json:"type"`
-		Text string `json:"text"`
-		ID   string `json:"id"`
-		Name string `json:"name"`
-		// Input is the Anthropic function arguments object.
-		Input map[string]any `json:"input"`
-	} `json:"content"`
-	Usage *anthropicUsage `json:"usage"`
-	Error *struct {
-		Message string `json:"message"`
-	} `json:"error,omitempty"`
-}
-
-func (c *Client) callAnthropic(ctx context.Context, messages []Message) (string, error) {
-	// Anthropic receives the system prompt separately and does not accept the
-	// "system" role inside the list.
-	var system string
-	conversation := make([]map[string]any, 0, len(messages))
-	for _, m := range messages {
-		if m.Role == "system" {
-			if system != "" {
-				system += "\n\n"
-			}
-			system += m.Content
-			continue
-		}
-		role := m.Role
-		if role != "assistant" {
-			role = "user"
-		}
-		conversation = append(conversation, map[string]any{
-			"role": role,
-			"content": []map[string]any{
-				{"type": "text", "text": m.Content},
-			},
-		})
-	}
-
-	body := map[string]any{
-		"model":       c.cfg.Model,
-		"messages":    conversation,
-		"max_tokens":  maxInt(c.cfg.MaxTokens, 1),
-		"temperature": c.cfg.Temperature,
-	}
-	if system != "" {
-		body["system"] = system
-	}
-
-	data, err := c.post(ctx, "/v1/messages", body)
-	if err != nil {
-		return "", err
-	}
-	var resp anthropicResponse
-	if err := json.Unmarshal(data, &resp); err != nil {
-		return "", fmt.Errorf("unreadable Anthropic response: %w", err)
-	}
-	recordUsage(ctx, resp.Usage.usage())
-	if resp.Error != nil && resp.Error.Message != "" {
-		return "", &HTTPError{Code: 400, Body: resp.Error.Message}
-	}
-	var sb strings.Builder
-	for _, part := range resp.Content {
-		if part.Type == "text" || part.Type == "" {
-			sb.WriteString(part.Text)
-		}
-	}
-	if sb.Len() == 0 {
-		return "", errors.New("anthropic returned a response with no text")
-	}
-	return sb.String(), nil
-}
-
-func (c *Client) callAnthropicTools(ctx context.Context, messages []Message, tools []Tool) (Reply, error) {
-	system, conversation := toAnthropicMessages(messages)
-
-	body := map[string]any{
-		"model":       c.cfg.Model,
-		"messages":    conversation,
-		"max_tokens":  maxInt(c.cfg.MaxTokens, 1),
-		"temperature": c.cfg.Temperature,
-		"tools":       toAnthropicTools(tools),
-	}
-	if system != "" {
-		body["system"] = system
-	}
-
-	data, err := c.post(ctx, "/v1/messages", body)
-	if err != nil {
-		return Reply{}, err
-	}
-	var resp anthropicResponse
-	if err := json.Unmarshal(data, &resp); err != nil {
-		return Reply{}, fmt.Errorf("unreadable Anthropic response: %w", err)
-	}
-	recordUsage(ctx, resp.Usage.usage())
-	if resp.Error != nil && resp.Error.Message != "" {
-		return Reply{}, &HTTPError{Code: 400, Body: resp.Error.Message}
-	}
-
-	reply := Reply{FinishReason: "stop", Usage: resp.Usage.usage()}
-	for _, part := range resp.Content {
-		switch part.Type {
-		case "text":
-			reply.Content += part.Text
-		case "tool_use":
-			args, _ := json.Marshal(part.Input)
-			reply.Calls = append(reply.Calls, ToolCall{
-				ID:   part.ID,
-				Type: "function",
-				Function: FunctionCall{
-					Name:      part.Name,
-					Arguments: args,
-				},
-			})
-		}
-	}
-	return reply, nil
-}
-
-func toAnthropicTools(tools []Tool) []map[string]any {
-	out := make([]map[string]any, 0, len(tools))
-	for _, t := range tools {
-		out = append(out, map[string]any{
-			"name":         t.Function.Name,
-			"description":  t.Function.Description,
-			"input_schema": toolSchema(t),
-		})
-	}
-	return out
-}
-
-// toAnthropicMessages converts the conversation for the Messages API with tools.
-//
-// Three rules of that API shape it, and each one used to be broken:
-//   - a tool result is a tool_result block in a USER turn, and nothing else: the
-//     result text was also sent as a text block before it, and Anthropic refuses a
-//     user turn whose text precedes its tool_result blocks;
-//   - every tool_use must be answered in the very next turn, so the results of
-//     parallel calls are merged into ONE user turn (consecutive turns of the same
-//     role are merged in general);
-//   - a tool_use input is an object, and a text block is never empty.
-func toAnthropicMessages(messages []Message) (string, []map[string]any) {
-	var system string
-	var conversation []map[string]any
-	for _, m := range messages {
-		if m.Role == "system" {
-			if system != "" {
-				system += "\n\n"
-			}
-			system += m.Content
-			continue
-		}
-		role := "user"
-		if m.Role == "assistant" {
-			role = "assistant"
-		}
-		var blocks []map[string]any
-		switch {
-		case m.Role == "tool" || m.ToolCallID != "":
-			blocks = append(blocks, map[string]any{
-				"type":        "tool_result",
-				"tool_use_id": m.ToolCallID,
-				"content":     nonEmpty(m.Content),
-			})
-		default:
-			if strings.TrimSpace(m.Content) != "" {
-				blocks = append(blocks, map[string]any{"type": "text", "text": m.Content})
-			}
-			for _, tc := range m.ToolCalls {
-				input := map[string]any{}
-				_ = tc.Function.DecodeArguments(&input)
-				blocks = append(blocks, map[string]any{
-					"type":  "tool_use",
-					"id":    tc.ID,
-					"name":  tc.Function.Name,
-					"input": input,
-				})
-			}
-		}
-		if len(blocks) == 0 {
-			blocks = append(blocks, map[string]any{"type": "text", "text": "(empty)"})
-		}
-		if n := len(conversation); n > 0 && conversation[n-1]["role"] == role {
-			prev := conversation[n-1]["content"].([]map[string]any)
-			conversation[n-1]["content"] = append(prev, blocks...)
-			continue
-		}
-		conversation = append(conversation, map[string]any{"role": role, "content": blocks})
-	}
-	return system, conversation
-}
-
-// nonEmpty keeps a block's text from being empty, which the Messages API refuses.
-func nonEmpty(s string) string {
-	if strings.TrimSpace(s) == "" {
-		return "(no output)"
-	}
-	return s
-}
-
-// --- Gemini -----------------------------------------------------------------
-
-type geminiResponse struct {
-	Candidates []struct {
-		Content struct {
-			Role  string `json:"role"`
-			Parts []struct {
-				Text             string          `json:"text"`
-				Thought          bool            `json:"thought"`
-				FunctionCall     json.RawMessage `json:"functionCall"`
-				ThoughtSignature string          `json:"thoughtSignature"`
-			} `json:"parts"`
-		} `json:"content"`
-		FinishReason string `json:"finishReason"`
-	} `json:"candidates"`
-	UsageMetadata *geminiUsage `json:"usageMetadata"`
-	Error         *struct {
-		Message string `json:"message"`
-	} `json:"error,omitempty"`
-}
-
-type geminiFunctionCall struct {
-	ID   string          `json:"id"`
-	Name string          `json:"name"`
-	Args json.RawMessage `json:"args"`
-}
-
-func (c *Client) callGemini(ctx context.Context, messages []Message) (string, error) {
-	var system string
-	var contents []map[string]any
-	for _, m := range messages {
-		if m.Role == "system" {
-			system += m.Content + "\n"
-			continue
-		}
-		role := "user"
-		if m.Role == "assistant" {
-			role = "model"
-		}
-		contents = append(contents, map[string]any{
-			"role":  role,
-			"parts": []map[string]any{{"text": m.Content}},
-		})
-	}
-
-	body := map[string]any{
-		"contents": contents,
-		"generationConfig": map[string]any{
-			"maxOutputTokens": c.cfg.MaxTokens,
-			"temperature":     c.cfg.Temperature,
-		},
-	}
-	if system != "" {
-		body["systemInstruction"] = map[string]any{
-			"parts": []map[string]any{{"text": system}},
-		}
-	}
-
-	data, err := c.post(ctx, c.geminiPath(), body)
-	if err != nil {
-		return "", err
-	}
-	var resp geminiResponse
-	if err := json.Unmarshal(data, &resp); err != nil {
-		return "", fmt.Errorf("unreadable Gemini response: %w", err)
-	}
-	recordUsage(ctx, resp.UsageMetadata.usage())
-	if resp.Error != nil && resp.Error.Message != "" {
-		return "", &HTTPError{Code: 400, Body: resp.Error.Message}
-	}
-	if len(resp.Candidates) == 0 {
-		return "", errors.New("gemini returned a response with no candidates (safety block?)")
-	}
-	var sb strings.Builder
-	for _, part := range resp.Candidates[0].Content.Parts {
-		sb.WriteString(part.Text)
-	}
-	if sb.Len() == 0 {
-		return "", fmt.Errorf("gemini returned an empty response (finishReason=%q)", resp.Candidates[0].FinishReason)
-	}
-	return sb.String(), nil
-}
-
-func (c *Client) callGeminiTools(ctx context.Context, messages []Message, tools []Tool) (Reply, error) {
-	system, contents := toGeminiContents(messages)
-
-	body := map[string]any{
-		"contents": contents,
-		"generationConfig": map[string]any{
-			"maxOutputTokens": c.cfg.MaxTokens,
-			"temperature":     c.cfg.Temperature,
-		},
-	}
-	if len(tools) > 0 {
-		body["tools"] = []map[string]any{
-			{"functionDeclarations": toGeminiToolDeclarations(tools)},
-		}
-	}
-	if system != "" {
-		body["systemInstruction"] = map[string]any{
-			"parts": []map[string]any{{"text": system}},
-		}
-	}
-
-	data, err := c.post(ctx, c.geminiPath(), body)
-	if err != nil {
-		return Reply{}, err
-	}
-	var resp geminiResponse
-	if err := json.Unmarshal(data, &resp); err != nil {
-		return Reply{}, fmt.Errorf("unreadable Gemini response: %w", err)
-	}
-	recordUsage(ctx, resp.UsageMetadata.usage())
-	if resp.Error != nil && resp.Error.Message != "" {
-		return Reply{}, &HTTPError{Code: 400, Body: resp.Error.Message}
-	}
-	if len(resp.Candidates) == 0 {
-		return Reply{}, errors.New("gemini returned a response with no candidates (safety block?)")
-	}
-
-	reply := Reply{FinishReason: resp.Candidates[0].FinishReason, Usage: resp.UsageMetadata.usage()}
-	for i, part := range resp.Candidates[0].Content.Parts {
-		if part.Text != "" && !part.Thought {
-			reply.Content += part.Text
-		}
-		if len(part.FunctionCall) > 0 {
-			var fc geminiFunctionCall
-			if err := json.Unmarshal(part.FunctionCall, &fc); err == nil {
-				// Gemini names its calls only sometimes; the agent needs an id to pair
-				// each result with its call, and the result needs the function NAME.
-				id := fc.ID
-				if id == "" {
-					id = fmt.Sprintf("gemini-%d-%s", i, fc.Name)
-				}
-				args := fc.Args
-				if len(args) == 0 || string(args) == "null" {
-					args = json.RawMessage("{}")
-				}
-				reply.Calls = append(reply.Calls, ToolCall{
-					ID:        id,
-					Type:      "function",
-					Function:  FunctionCall{Name: fc.Name, Arguments: args},
-					signature: part.ThoughtSignature,
-				})
-			}
-		}
-	}
-	if len(reply.Calls) > 0 {
-		reply.FinishReason = "tool_calls"
-	}
-	return reply, nil
-}
-
-func toGeminiToolDeclarations(tools []Tool) []map[string]any {
-	out := make([]map[string]any, 0, len(tools))
-	for _, t := range tools {
-		decl := map[string]any{
-			"name":        t.Function.Name,
-			"description": t.Function.Description,
-		}
-		// Gemini refuses an OBJECT with no properties: a tool that takes nothing is
-		// declared with no parameters at all.
-		schema := toolSchema(t)
-		if props, _ := schema["properties"].(map[string]any); len(props) > 0 {
-			decl["parameters"] = schema
-		}
-		out = append(out, decl)
-	}
-	return out
-}
-
-// geminiSkipSignature is the placeholder Google documents for a function call
-// whose thought signature is not available (a history replayed from storage or
-// from another model). Gemini 3 refuses a function call without one.
-const geminiSkipSignature = "skip_thought_signature_validator"
-
-// toGeminiContents converts the conversation for generateContent with tools.
-//
-// A tool result is a functionResponse part that names the FUNCTION (not the call
-// id, which is what used to be sent) and carries an OBJECT (a bare string is
-// refused); the results of parallel calls go in one turn, right after the turn
-// that made the calls.
-func toGeminiContents(messages []Message) (string, []map[string]any) {
-	var system string
-	var contents []map[string]any
-	names := map[string]string{} // call id -> function name
-	for _, m := range messages {
-		if m.Role == "system" {
-			system += m.Content + "\n"
-			continue
-		}
-		role := "user"
-		if m.Role == "assistant" {
-			role = "model"
-		}
-		var parts []map[string]any
-		if m.Role == "tool" || m.ToolCallID != "" {
-			name := names[m.ToolCallID]
-			if name == "" {
-				name = m.ToolCallID
-			}
-			parts = append(parts, map[string]any{
-				"functionResponse": map[string]any{
-					"name":     name,
-					"response": map[string]any{"content": m.Content},
-				},
-			})
-		} else {
-			if m.Content != "" {
-				parts = append(parts, map[string]any{"text": m.Content})
-			}
-			for i, tc := range m.ToolCalls {
-				names[tc.ID] = tc.Function.Name
-				args := map[string]any{}
-				_ = tc.Function.DecodeArguments(&args)
-				part := map[string]any{
-					"functionCall": map[string]any{"name": tc.Function.Name, "args": args},
-				}
-				// Only the first call of a turn carries the signature.
-				if i == 0 {
-					sig := tc.signature
-					if sig == "" {
-						sig = geminiSkipSignature
-					}
-					part["thoughtSignature"] = sig
-				}
-				parts = append(parts, part)
-			}
-		}
-		if len(parts) == 0 {
-			parts = append(parts, map[string]any{"text": " "})
-		}
-		if n := len(contents); n > 0 && contents[n-1]["role"] == role {
-			prev := contents[n-1]["parts"].([]map[string]any)
-			contents[n-1]["parts"] = append(prev, parts...)
-			continue
-		}
-		contents = append(contents, map[string]any{"role": role, "parts": parts})
-	}
-	return system, contents
 }
 
 // --- transport --------------------------------------------------------------

@@ -69,7 +69,8 @@ func TestTwoProjectsDoNotSeeEachOthersProcedures(t *testing.T) {
 
 	writeProjectProc(t, alpha, "alpha-deploy", "# Alpha deploy\n\nHow alpha ships.\n")
 	writeProjectProc(t, beta, "beta-deploy", "# Beta deploy\n\nHow beta ships.\n")
-	if err := os.WriteFile(filepath.Join(shared, "shared-note.md"), []byte("# Shared\n\nwritten with no project\n"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(shared, "shared-note.md"), []byte("# Shared\n\nwritten with no project\n"),
+		0o644); err != nil {
 		t.Fatal(err)
 	}
 

@@ -132,8 +132,12 @@ func TestFreeSessionHasNoWorktree(t *testing.T) {
 	if err := json.Unmarshal(w.Body.Bytes(), &ss); err != nil {
 		t.Fatal(err)
 	}
-	if ss.Workspace != "" {
-		t.Errorf("workspace = %q, want empty: a free-standing session has no worktree", ss.Workspace)
+	// It gets a plain directory of its own (see freesession_test.go), never a git worktree.
+	if ss.Workspace != "" && filepath.Base(filepath.Dir(ss.Workspace)) != "sessions" {
+		t.Errorf("workspace = %q, want its own plain directory: a free-standing session has no worktree", ss.Workspace)
+	}
+	if ss.ProjectID != "" {
+		t.Errorf("project = %q, want none", ss.ProjectID)
 	}
 }
 

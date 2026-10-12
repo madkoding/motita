@@ -51,22 +51,14 @@ func buildChangeReport(ctx context.Context, workspace, rev string) changeReport 
 	// A git failure leaves the list empty (ChangesSince returns nil with its error): the
 	// screenshots below are still worth showing, and the summary is a courtesy, not the result.
 	files, _ := gitx.ChangesSince(ctx, workspace, rev)
-	var pics []string
-	if entries, err := os.ReadDir(filepath.Join(workspace, filepath.FromSlash(PreviewDir))); err == nil {
-		for _, e := range entries {
-			if !e.IsDir() && previewExts[strings.ToLower(filepath.Ext(e.Name()))] {
-				pics = append(pics, filepath.Join(workspace, filepath.FromSlash(PreviewDir), e.Name()))
-			}
-		}
-		sort.Strings(pics)
-	}
+	pics := screenshotsIn(workspace)
 	for _, f := range files {
 		// The screenshots are evidence, not a change the user asked for.
-		if strings.HasPrefix(f.Path, PreviewDir+"/") || strings.HasPrefix(f.Path, ArtifactDir+"/") {
+		if isEvidencePath(f.Path) {
 			continue
 		}
 		rep.Files = append(rep.Files, f)
-		if f.Status != "deleted" && previewExts[strings.ToLower(filepath.Ext(f.Path))] {
+		if f.Status != "deleted" && isPreviewFile(f.Path) {
 			pics = append(pics, filepath.Join(workspace, filepath.FromSlash(f.Path)))
 		}
 	}
@@ -74,18 +66,52 @@ func buildChangeReport(ctx context.Context, workspace, rev string) changeReport 
 		if len(rep.Previews) == maxPreviews {
 			break
 		}
-		if ev, ok := readPreview(p); ok {
+		if ev, ok := readPreview(workspace, p); ok {
 			rep.Previews = append(rep.Previews, ev)
 		}
 	}
 	return rep
 }
 
+// screenshotsIn lists the pictures the agent left in the workspace's PreviewDir, sorted.
+func screenshotsIn(workspace string) []string {
+	dir := filepath.Join(workspace, filepath.FromSlash(PreviewDir))
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return nil
+	}
+	var pics []string
+	for _, e := range entries {
+		if !e.IsDir() && isPreviewFile(e.Name()) {
+			pics = append(pics, filepath.Join(dir, e.Name()))
+		}
+	}
+	sort.Strings(pics)
+	return pics
+}
+
+// isPreviewFile reports whether name has the extension of a picture the report shows.
+func isPreviewFile(name string) bool {
+	return previewExts[strings.ToLower(filepath.Ext(name))]
+}
+
+// isEvidencePath reports whether a changed path is one of the run's screenshots or artifacts.
+func isEvidencePath(path string) bool {
+	return strings.HasPrefix(path, PreviewDir+"/") || strings.HasPrefix(path, ArtifactDir+"/")
+}
+
 // readPreview loads one picture as a data: URL, or reports that it is not usable (missing,
-// too large).
-func readPreview(path string) (previewEvent, bool) {
-	fi, err := os.Stat(path)
-	if err != nil || fi.IsDir() || fi.Size() == 0 || fi.Size() > maxPreviewBytes {
+// too large, not a regular file, or outside workspace).
+//
+// The workspace is written by the agent, so a "screenshot" can be a symlink to any file this
+// process can read. Lstat refuses a symlinked file, and the folder it sits in must resolve inside
+// the workspace, which refuses a symlinked PreviewDir as well.
+func readPreview(workspace, path string) (previewEvent, bool) {
+	fi, err := os.Lstat(path)
+	if err != nil || !fi.Mode().IsRegular() || fi.Size() == 0 || fi.Size() > maxPreviewBytes {
+		return previewEvent{}, false
+	}
+	if !insideWorkspace(workspace, filepath.Dir(path)) {
 		return previewEvent{}, false
 	}
 	b, err := os.ReadFile(path)
@@ -100,6 +126,17 @@ func readPreview(path string) (previewEvent, bool) {
 		Name: filepath.Base(path),
 		URL:  "data:" + typ + ";base64," + base64.StdEncoding.EncodeToString(b),
 	}, true
+}
+
+// insideWorkspace reports whether dir, with every symlink resolved, is workspace or below it.
+func insideWorkspace(workspace, dir string) bool {
+	root, errRoot := filepath.EvalSymlinks(workspace)
+	real, errReal := filepath.EvalSymlinks(dir)
+	if errRoot != nil || errReal != nil {
+		return false
+	}
+	rel, err := filepath.Rel(root, real)
+	return err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator))
 }
 
 // clearPreviews empties the screenshot folder before a run. A missing folder is the normal case.

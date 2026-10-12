@@ -98,7 +98,8 @@ func Run(ctx context.Context, p Request) (string, bool, int, error) {
 	text := output.buf.String()
 
 	if childCtx.Err() == context.DeadlineExceeded {
-		return text, output.truncated, -1, fmt.Errorf("the command exceeded the limit of %s and was terminated (process group sent SIGKILL)", timeout)
+		return text, output.truncated, -1, fmt.Errorf(
+			"the command exceeded the limit of %s and was terminated (process group sent SIGKILL)", timeout)
 	}
 
 	exit := 0
@@ -108,7 +109,8 @@ func Run(ctx context.Context, p Request) (string, bool, int, error) {
 			exit = ee.ExitCode()
 			if exit < 0 {
 				// Terminated by a signal (e.g. SIGKILL from the sandbox).
-				return text, output.truncated, exit, fmt.Errorf("the command was terminated by a signal (exit=%d) after %s", exit, duration.Round(time.Millisecond))
+				return text, output.truncated, exit, fmt.Errorf(
+					"the command was terminated by a signal (exit=%d) after %s", exit, duration.Round(time.Millisecond))
 			}
 			return text, output.truncated, exit, nil
 		}

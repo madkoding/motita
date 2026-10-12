@@ -142,7 +142,8 @@ func handle(w http.ResponseWriter, r *http.Request) {
 	if len(req.Messages) > 0 {
 		last = req.Messages[len(req.Messages)-1].Role
 	}
-	log.Printf("request: messages=%d last_role=%s tool_choice=%q tools=%v",
+	// %q keeps a newline in a client-supplied value from forging a log line.
+	log.Printf("request: messages=%d last_role=%q tool_choice=%q tools=%q",
 		len(req.Messages), last, req.ToolChoice, names)
 
 	var out map[string]any

@@ -97,7 +97,8 @@ func CodexRefresh(ctx context.Context, client HTTPClient, old Credential) (Crede
 
 func codexCredential(resp codexTokenResponse, old Credential) (Credential, error) {
 	if resp.Error != "" {
-		return Credential{}, errors.New("the ChatGPT login failed: " + strings.TrimSpace(resp.Error+" "+resp.ErrorDescription))
+		return Credential{}, errors.New("the ChatGPT login failed: " +
+			strings.TrimSpace(resp.Error+" "+resp.ErrorDescription))
 	}
 	if resp.AccessToken == "" {
 		return Credential{}, errors.New("the ChatGPT login returned no access token")
@@ -113,6 +114,8 @@ func codexCredential(resp codexTokenResponse, old Credential) (Credential, error
 		c.ExpiresAt = time.Now().Add(time.Duration(resp.ExpiresIn) * time.Second)
 	} else if exp := jwtExpiry(resp.AccessToken); !exp.IsZero() {
 		c.ExpiresAt = exp
+	} else {
+		// Neither an expires_in nor a JWT expiry: the credential has no known expiry.
 	}
 	for _, tok := range []string{resp.IDToken, resp.AccessToken} {
 		if id := ChatGPTAccountID(tok); id != "" {

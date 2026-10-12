@@ -32,39 +32,24 @@ func SplitCommand(line string) (string, []string, error) {
 // on to analyse the line in SEGMENTS needs to know WHICH character it was: to split on it,
 // and to stop splitting on the ones that are merely syntax (`>` inside a comparison).
 func SplitCommandWithErr(line string) (string, []string, rune, error) {
-	var (
-		fields  []string
-		current strings.Builder
-		quote   rune // 0, ' or "
-		escaped bool
-		started bool
-	)
+	s := &splitter{}
 	bad := rune(0)
 
 	for _, r := range line {
 		switch {
-		case escaped:
-			current.WriteRune(r)
-			escaped = false
-			started = true
-		case r == '\\' && quote != '\'':
-			escaped = true
-			started = true
-		case quote != 0:
-			if r == quote {
-				quote = 0
-			} else {
-				current.WriteRune(r)
-			}
+		case s.escaped:
+			s.add(r)
+			s.escaped = false
+		case r == '\\' && s.quote != '\'':
+			s.escaped = true
+			s.started = true
+		case s.quote != 0:
+			s.inQuote(r)
 		case r == '\'' || r == '"':
-			quote = r
-			started = true
+			s.quote = r
+			s.started = true
 		case r == ' ' || r == '\t':
-			if started {
-				fields = append(fields, current.String())
-				current.Reset()
-				started = false
-			}
+			s.endField()
 		case strings.ContainsRune("|&;<>()`$\\", r) || r == '\n' || r == '\r':
 			// A shell metacharacter. It is refused by name so the model learns what to
 			// avoid instead of guessing.
@@ -73,21 +58,52 @@ func SplitCommandWithErr(line string) (string, []string, rune, error) {
 					"cannot be read as one program with arguments cannot be checked",
 				string(r))
 		default:
-			current.WriteRune(r)
-			started = true
+			s.add(r)
 		}
 	}
-	if escaped {
+	if s.escaped {
 		return "", nil, bad, fmt.Errorf("the command ends with a backslash")
 	}
-	if quote != 0 {
+	if s.quote != 0 {
 		return "", nil, bad, fmt.Errorf("the command has an unclosed quote")
 	}
-	if started {
-		fields = append(fields, current.String())
-	}
-	if len(fields) == 0 {
+	s.endField()
+	if len(s.fields) == 0 {
 		return "", nil, bad, fmt.Errorf("there is no command to run")
 	}
-	return fields[0], fields[1:], bad, nil
+	return s.fields[0], s.fields[1:], bad, nil
+}
+
+// splitter holds the state of SplitCommandWithErr: the fields read so far and the one being
+// read.
+type splitter struct {
+	fields  []string
+	current strings.Builder
+	quote   rune // 0, ' or "
+	escaped bool
+	started bool
+}
+
+// add appends r to the field being read.
+func (s *splitter) add(r rune) {
+	s.current.WriteRune(r)
+	s.started = true
+}
+
+// inQuote reads r inside a quote: the closing quote ends it, anything else is literal.
+func (s *splitter) inQuote(r rune) {
+	if r == s.quote {
+		s.quote = 0
+	} else {
+		s.current.WriteRune(r)
+	}
+}
+
+// endField closes the field being read, if one was started.
+func (s *splitter) endField() {
+	if s.started {
+		s.fields = append(s.fields, s.current.String())
+		s.current.Reset()
+		s.started = false
+	}
 }

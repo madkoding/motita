@@ -20,8 +20,8 @@ import (
 )
 
 // TestInstallOnWindowsRenamesTheRunningBinaryAside: Windows cannot overwrite a running binary,
-// so the old one moves to <target>.old first and the new one takes its place. If the first
-// rename fails, the direct copy is the fallback rather than a failed upgrade.
+// so the old one moves to <target>.old first and the new one takes its place. If a rename fails
+// the upgrade fails (see TestInstallOnWindowsRefusesWhenTheBinaryCannotBeMovedAside).
 func TestInstallOnWindowsRenamesTheRunningBinaryAside(t *testing.T) {
 	dir := t.TempDir()
 	target := filepath.Join(dir, "motita.exe")
@@ -78,39 +78,5 @@ func TestInstallOnWindowsCleansUpALeftoverFromAPreviousUpgrade(t *testing.T) {
 	}
 	if string(got) != "old" {
 		t.Errorf(".old holds %q, want the binary that was just replaced", string(got))
-	}
-}
-
-// TestInstallOnWindowsFallsBackToACopy: the first rename can fail - an antivirus holding the
-// file, a permission the process does not have - and the upgrade must still land. copyFile is
-// that fallback, and it is the difference between "the upgrade failed" and "the upgrade worked
-// anyway" on the platform where the running binary cannot simply be replaced.
-func TestInstallOnWindowsFallsBackToACopy(t *testing.T) {
-	dir := t.TempDir()
-	target := filepath.Join(dir, "motita.exe")
-	if err := os.WriteFile(target, []byte("old"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	newBin := filepath.Join(dir, "downloaded.exe")
-	if err := os.WriteFile(newBin, []byte("new"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-
-	// A DIRECTORY at <target>.old makes the first rename fail, which is the branch under test:
-	// renaming a file over a directory is not permitted on any platform.
-	if err := os.Mkdir(target+".old", 0o755); err != nil {
-		t.Fatal(err)
-	}
-
-	u := &Updater{Goos: "windows", Goarch: "amd64", ExePath: target}
-	if err := u.install(newBin); err != nil {
-		t.Fatalf("the copy fallback must complete the upgrade, got %v", err)
-	}
-	got, err := os.ReadFile(target)
-	if err != nil {
-		t.Fatalf("the target must exist after the fallback: %v", err)
-	}
-	if string(got) != "new" {
-		t.Errorf("the target holds %q, want the downloaded binary", string(got))
 	}
 }

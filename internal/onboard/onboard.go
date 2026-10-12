@@ -71,8 +71,17 @@ func listOllamaModels(ctx context.Context, baseURL, apiKey string) ([]string, er
 // isPresetEmpty reports whether the preset has no answers set at all, which is
 // the interactive case where the banner and the review are shown.
 func isPresetEmpty(a Answers) bool {
-	return a.Provider == "" && a.Model == "" && a.BaseURL == "" &&
-		a.AnchorCommand == "" && len(a.AnchorArgs) == 0 && a.APIKey == ""
+	return presetChoosesNoTarget(a) && presetChoosesNoCheckOrKey(a)
+}
+
+// presetChoosesNoTarget reports whether the preset names no provider, model or endpoint.
+func presetChoosesNoTarget(a Answers) bool {
+	return a.Provider == "" && a.Model == "" && a.BaseURL == ""
+}
+
+// presetChoosesNoCheckOrKey reports whether the preset names no check and no key.
+func presetChoosesNoCheckOrKey(a Answers) bool {
+	return a.AnchorCommand == "" && len(a.AnchorArgs) == 0 && a.APIKey == ""
 }
 
 // setup is everything one pass through the wizard decided, before anything is written.
@@ -103,11 +112,15 @@ type setup struct {
 // it (endpoint and sign-in), which model, what proves a task is done, and a review.
 // The sign-in comes BEFORE the model so a provider that publishes its catalogue can
 // be asked for it with the key the user just gave.
-func Run(ctx context.Context, in io.Reader, out io.Writer, configPath string, preset Answers, now time.Time) (Result, error) {
+func Run(
+	ctx context.Context, in io.Reader, out io.Writer, configPath string, preset Answers, now time.Time,
+) (Result, error) {
 	return runSetup(ctx, in, out, configPath, preset, now, nil)
 }
 
-func runSetup(ctx context.Context, in io.Reader, out io.Writer, configPath string, preset Answers, now time.Time, keys KeyMode) (Result, error) {
+func runSetup(
+	ctx context.Context, in io.Reader, out io.Writer, configPath string, preset Answers, now time.Time, keys KeyMode,
+) (Result, error) {
 	r := bufio.NewReader(in)
 	w := &session{in: r, out: out, configPath: configPath, langSetting: preset.LanguageSetting}
 
@@ -198,7 +211,9 @@ func (s *session) save(st setup, now time.Time) (Result, error) {
 		generated:     now,
 	})
 
-	res := Result{ConfigPath: s.configPath, Provider: st.provider, Model: st.model, LoggedIn: st.loggedIn, Keyless: st.keyless}
+	res := Result{
+		ConfigPath: s.configPath, Provider: st.provider, Model: st.model, LoggedIn: st.loggedIn, Keyless: st.keyless,
+	}
 
 	// The configuration being replaced is kept beside it. Running the wizard again is how a user
 	// changes the model, and a hand-tuned file (a sandbox limit, a schedule) lost to that would be
@@ -228,6 +243,8 @@ func (s *session) save(st setup, now time.Time) (Result, error) {
 		// takes the generic variable for whichever provider the file names, and a key sent to
 		// the wrong vendor is a leak. The user was offered to keep it and did not.
 		printWarning(s.out, "The key of the previous setup could not be removed from %s: %v", credPath, err)
+	} else {
+		// No previous key on disk, or it was removed: nothing to report.
 	}
 
 	printSummary(s.out, res)
@@ -261,6 +278,8 @@ func languageAnswer(answer string) (i18n.Lang, bool) {
 		return i18n.ES, true
 	case "en", "english", "inglés", "ingles": // spanish-fixture: the names a Spanish speaker types
 		return i18n.EN, true
+	default:
+		// Not a language name: the answer is for the question itself.
 	}
 	return "", false
 }
@@ -515,6 +534,8 @@ func (s *session) connect(ctx context.Context, st *setup, presetKey string) erro
 	case st.keyless:
 		printInfo(s.out, "No key is needed for an Ollama server of your own.")
 		return nil
+	default:
+		// Every other provider is reached with a key, asked for below.
 	}
 	key, loggedIn, kept, err := s.askAPIKey(ctx, p)
 	st.key, st.loggedIn, st.keptKey = key, loggedIn, kept
@@ -542,6 +563,8 @@ func (s *session) storedKey(p Provider) string {
 	switch strings.ToLower(old.LLM.Provider) {
 	case "openai", "codex":
 		return key
+	default:
+		// Another vendor's key: not offered back.
 	}
 	return ""
 }
@@ -652,26 +675,7 @@ func (s *session) chooseModel(ctx context.Context, p Provider, preset, listURL, 
 
 	models := p.Models
 	if p.FetchModels {
-		url := listURL
-		if url == "" {
-			url = p.DefaultBaseURL
-		}
-		fetched, err := modelLister(ctx, url, apiKey)
-		switch {
-		case err != nil:
-			// Never leave the user staring at an empty menu: fall back to the
-			// known catalogue and say plainly that it is a fallback.
-			printWarning(s.out, "Could not read the models available at %s: %s", url, unreachable(s.out, err))
-			printInfo(s.out, "Showing the built-in list instead; any model id can be typed by hand.")
-		case len(fetched) == 0:
-			printWarning(s.out, "The catalogue at %s is empty; showing the built-in list.", url)
-		default:
-			printInfo(s.out, "These are the models available at %s.", url)
-			models = make([]Model, 0, len(fetched))
-			for _, id := range fetched {
-				models = append(models, Model{ID: id, Label: id})
-			}
-		}
+		models = s.liveModels(ctx, p, listURL, apiKey)
 	}
 
 	s.say("")
@@ -683,11 +687,8 @@ func (s *session) chooseModel(ctx context.Context, p Provider, preset, listURL, 
 		m = s.showMenu(modelOptions(s.out, models))
 	}
 
+	prompt := modelPrompt(len(models))
 	for attempt := 0; attempt < 3; attempt++ {
-		prompt := "Model [1, or type any model id]:"
-		if len(models) == 0 {
-			prompt = "Model id:"
-		}
 		answer, err := s.choose(ctx, prompt, m)
 		if err != nil {
 			return "", err
@@ -709,6 +710,47 @@ func (s *session) chooseModel(ctx context.Context, p Provider, preset, listURL, 
 		return answer, nil // a model id typed by hand
 	}
 	return "", fmt.Errorf("no valid model after three attempts")
+}
+
+// modelPrompt is the question chooseModel asks: with a menu, a number or any id; without one,
+// only an id.
+func modelPrompt(offered int) string {
+	if offered == 0 {
+		return "Model id:"
+	}
+	return "Model [1, or type any model id]:"
+}
+
+// liveModels fetches the provider's catalogue at listURL (its default endpoint when empty). It
+// never leaves the user staring at an empty menu: when the catalogue cannot be read or is empty
+// it falls back to the known one and says plainly that it is a fallback.
+func (s *session) liveModels(ctx context.Context, p Provider, listURL, apiKey string) []Model {
+	url := listURL
+	if url == "" {
+		url = p.DefaultBaseURL
+	}
+	fetched, err := modelLister(ctx, url, apiKey)
+	switch {
+	case err != nil:
+		printWarning(s.out, "Could not read the models available at %s: %s", url, unreachable(s.out, err))
+		printInfo(s.out, "Showing the built-in list instead; any model id can be typed by hand.")
+		return p.Models
+	case len(fetched) == 0:
+		printWarning(s.out, "The catalogue at %s is empty; showing the built-in list.", url)
+		return p.Models
+	default:
+		printInfo(s.out, "These are the models available at %s.", url)
+		return modelsFromIDs(fetched)
+	}
+}
+
+// modelsFromIDs lists the fetched model ids as models labelled by their own id.
+func modelsFromIDs(ids []string) []Model {
+	models := make([]Model, 0, len(ids))
+	for _, id := range ids {
+		models = append(models, Model{ID: id, Label: id})
+	}
+	return models
 }
 
 // unreachable says why a catalogue could not be read in the words a user acts on. A server that
@@ -749,15 +791,7 @@ func (s *session) chooseAnchor(ctx context.Context, preset string, presetArgs []
 			// .motita/anchor.
 			return anchorChoice{auto: true}, nil
 		case "2":
-			cmd, err := s.ask(ctx, "Command to run as the check [make test]:")
-			if err != nil {
-				return anchorChoice{}, err
-			}
-			if cmd == "" {
-				return anchorChoice{command: "make", args: []string{"test"}}, nil
-			}
-			parts := strings.Fields(cmd)
-			return anchorChoice{command: parts[0], args: parts[1:]}, nil
+			return s.askAnchorCommand(ctx)
 		case "3":
 			// "Always pass" is recorded as NO anchor, not as a command that cannot fail.
 			// The agent then refuses to declare PASS and says why, which is the honest
@@ -769,6 +803,19 @@ func (s *session) chooseAnchor(ctx context.Context, preset string, presetArgs []
 		}
 	}
 	return anchorChoice{}, fmt.Errorf("no valid check after three attempts")
+}
+
+// askAnchorCommand asks for the command that decides PASS; an empty answer takes make test.
+func (s *session) askAnchorCommand(ctx context.Context) (anchorChoice, error) {
+	cmd, err := s.ask(ctx, "Command to run as the check [make test]:")
+	if err != nil {
+		return anchorChoice{}, err
+	}
+	if cmd == "" {
+		return anchorChoice{command: "make", args: []string{"test"}}, nil
+	}
+	parts := strings.Fields(cmd)
+	return anchorChoice{command: parts[0], args: parts[1:]}, nil
 }
 
 // anchorChoice is what the wizard decided about the validator.
@@ -815,19 +862,28 @@ func (s *session) chooseOllamaHost(ctx context.Context, p Provider) (string, err
 		case "2":
 			return "https://ollama.com/v1", nil
 		case "3":
-			u, err := s.ask(ctx, "Ollama base URL (ending in /v1):")
-			if err != nil {
-				return "", err
+			if u, ok, err := s.askOllamaURL(ctx); err != nil || ok {
+				return u, err
 			}
-			if strings.HasPrefix(u, "http://") || strings.HasPrefix(u, "https://") {
-				return strings.TrimRight(u, "/"), nil
-			}
-			s.say("    A URL must start with http:// or https://.")
 		default:
 			s.say("    Choose 1, 2 or 3.")
 		}
 	}
 	return "", fmt.Errorf("no valid Ollama host after three attempts")
+}
+
+// askOllamaURL asks for the address of an Ollama server. ok is false, with a word to the user,
+// when the answer is not an http(s) URL.
+func (s *session) askOllamaURL(ctx context.Context) (u string, ok bool, err error) {
+	u, err = s.ask(ctx, "Ollama base URL (ending in /v1):")
+	if err != nil {
+		return "", false, err
+	}
+	if strings.HasPrefix(u, "http://") || strings.HasPrefix(u, "https://") {
+		return strings.TrimRight(u, "/"), true, nil
+	}
+	s.say("    A URL must start with http:// or https://.")
+	return "", false, nil
 }
 
 // chooseBaseURL asks for the API endpoint. OpenAI-compatible providers need this
@@ -836,7 +892,8 @@ func (s *session) chooseOllamaHost(ctx context.Context, p Provider) (string, err
 func (s *session) chooseBaseURL(ctx context.Context, p Provider) (string, error) {
 	s.connectHeader(p)
 	s.say("%sPress Enter to use %s itself, or paste the address of any compatible service:", indent, p.Short)
-	for _, u := range []string{"https://api.groq.com/openai/v1", "https://openrouter.ai/api/v1", "https://api.deepseek.com/v1"} {
+	examples := []string{"https://api.groq.com/openai/v1", "https://openrouter.ai/api/v1", "https://api.deepseek.com/v1"}
+	for _, u := range examples {
 		printInfo(s.out, "  %s", u)
 	}
 
@@ -901,7 +958,8 @@ var writeFileAtomicFn = writeFileAtomic
 // so the destination is never half-written, and creates the directory if needed.
 func writeFileAtomic(path string, content []byte) error {
 	dir := filepath.Dir(path)
-	if err := os.MkdirAll(dir, 0o755); err != nil {
+	// The directory holds the credentials and the log: owner only.
+	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return fmt.Errorf("could not create %s: %w", dir, err)
 	}
 	tmp, err := createTemp(dir, ".motita-*.tmp")

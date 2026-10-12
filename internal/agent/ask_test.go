@@ -167,9 +167,9 @@ func TestOptionsReachTheResult(t *testing.T) {
 func TestAssumptionLeadIsNotRepeated(t *testing.T) {
 	cases := []struct{ in, want string }{
 		{"Si no me dices otra cosa, reviso ./workspace", "reviso ./workspace"},
-		{"si no me dices otra cosa, asumiré: usar la actual", "usar la actual"}, // spanish-fixture: the feature under test is a model emitting this lead
+		{"si no me dices otra cosa, asumiré: usar la actual", "usar la actual"}, // spanish-fixture: lead under test
 		{"Si no me dices lo contrario, lo borro", "lo borro"},
-		{"Usaré la carpeta actual", "Usaré la carpeta actual"}, // spanish-fixture: the feature under test is a model emitting this lead
+		{"Usaré la carpeta actual", "Usaré la carpeta actual"}, // spanish-fixture: lead under test
 		// The model is asked to write this field in the language of the user's request, so the
 		// lead arrives in that language too. Recognising only the Spanish one let an English
 		// "If you don't tell me otherwise, I'll assume:" through to the user intact.
@@ -189,7 +189,7 @@ func TestAssumptionLeadIsNotRepeated(t *testing.T) {
 // Only the LEAD is dropped: an assumption that mentions the phrase later is saying something,
 // and rewriting the middle of a sentence would be guessing at its meaning.
 func TestAssumptionLeadOnlyAtTheStart(t *testing.T) {
-	const in = "reviso el directorio y, si no me dices otra cosa, lo dejo como está" // spanish-fixture: the feature under test is a model emitting this lead
+	const in = "reviso el directorio y, si no me dices otra cosa, lo dejo como está" // spanish-fixture: lead under test
 	if got := cleanAssumption(in); got != in {
 		t.Fatalf("a mention in the middle must be left alone, got %q", got)
 	}
@@ -200,7 +200,7 @@ func TestAssumptionLeadOnlyAtTheStart(t *testing.T) {
 func TestAssumptionIsCleanedInTheQuestion(t *testing.T) {
 	got := buildQuestions(Analysis{
 		Question:   "which folder?",
-		Assumption: "Si no me dices otra cosa, asumiré: the current one", // spanish-fixture: the feature under test is a model emitting this lead
+		Assumption: "Si no me dices otra cosa, asumiré: the current one", // spanish-fixture: lead under test
 	})
 	if len(got) != 1 {
 		t.Fatalf("one question expected, got %d", len(got))
@@ -231,7 +231,7 @@ func TestAConditionalThatIsTheWholeAssumptionSurvives(t *testing.T) {
 }
 
 func TestResultAssumptionIsCleanedToo(t *testing.T) {
-	const raw = "Si no me dices otra cosa, asumiré: reviso el proyecto" // spanish-fixture: the feature under test is a model emitting this lead
+	const raw = "Si no me dices otra cosa, asumiré: reviso el proyecto" // spanish-fixture: lead under test
 	if got := cleanAssumption(raw); got != "reviso el proyecto" {
 		t.Fatalf("cleanAssumption(%q) = %q", raw, got)
 	}
@@ -254,10 +254,11 @@ func TestResultAssumptionIsCleanedToo(t *testing.T) {
 func TestAssumptionConditionalIsRecognisedByShape(t *testing.T) {
 	cases := []struct{ in, want string }{
 		{"Si no me dices otra cosa, reviso ./workspace", "reviso ./workspace"},
-		{"Si no me aclaras nada, ordenaré los archivos de ./workspace", "ordenaré los archivos de ./workspace"}, // spanish-fixture: the feature under test is a model emitting this lead
+		{"Si no me aclaras nada, ordenaré los archivos de ./workspace", // spanish-fixture: lead under test
+			"ordenaré los archivos de ./workspace"}, // spanish-fixture: lead under test
 		{"si no me dices lo contrario, lo borro", "lo borro"},
-		{"Si quieres, lo dejo como está", "lo dejo como está"}, // spanish-fixture: the feature under test is a model emitting this lead
-		{"asumiré: usar la actual", "usar la actual"},          // spanish-fixture: the feature under test is a model emitting this lead
+		{"Si quieres, lo dejo como está", "lo dejo como está"}, // spanish-fixture: lead under test
+		{"asumiré: usar la actual", "usar la actual"},          // spanish-fixture: lead under test
 		{"Reviso el directorio actual", "Reviso el directorio actual"},
 	}
 	for _, c := range cases {
@@ -342,7 +343,11 @@ func TestAListOnlyAskIsNotFailed(t *testing.T) {
 		}
 		if strings.Contains(text, "## ANALYSIS OF THE TASK") {
 			// Exactly the shape a list-only answer takes: no "question", no "assumption".
-			fmt.Fprint(w, `{"choices":[{"message":{"content":"{\"kind\":\"ask\",\"understandable\":false,\"questions\":[{\"text\":\"¿a dónde lo mando?\",\"assumption\":\"lo dejo listo sin enviar\"},{\"text\":\"¿qué orden uso?\",\"options\":[\"por fecha\",\"por nombre\"]}]}"}}]}`) // spanish-fixture: the feature under test is a model emitting this lead
+			fmt.Fprint(w, `{"choices":[{"message":{"content":"{\"kind\":\"ask\",\"understandable\":false,\"questions\":[`+
+				`{\"text\":\"¿a dónde lo mando?\",`+ // spanish-fixture: lead under test
+				`\"assumption\":\"lo dejo listo sin enviar\"},`+ // spanish-fixture: lead under test
+				`{\"text\":\"¿qué orden uso?\",`+ // spanish-fixture: lead under test
+				`\"options\":[\"por fecha\",\"por nombre\"]}]}"}}]}`) // spanish-fixture: lead under test
 			return
 		}
 		fmt.Fprint(w, `{"choices":[{"message":{"content":"{}"}}]}`)

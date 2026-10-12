@@ -412,7 +412,8 @@ func TestSomeCommandsWaitForTheTurn(t *testing.T) {
 		}
 	}
 	tu.messages = nil
-	if handled, _ := tu.handleTypedCommand(context.Background(), "/help"); !handled || strings.Contains(messageTexts(tu), "has to wait") {
+	if handled, _ := tu.handleTypedCommand(context.Background(), "/help"); !handled ||
+		strings.Contains(messageTexts(tu), "has to wait") {
 		t.Error("/help must work while a turn runs")
 	}
 }

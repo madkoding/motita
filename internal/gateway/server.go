@@ -5,9 +5,11 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"mime"
 	"net"
 	"net/http"
 	"net/netip"
+	"os"
 	"strings"
 	"sync"
 	"time"
@@ -16,10 +18,14 @@ import (
 	"github.com/madkoding/motita/internal/logx"
 	"github.com/madkoding/motita/internal/netrules"
 	"github.com/madkoding/motita/internal/oauth"
-	"github.com/madkoding/motita/internal/projectskills"
 	"github.com/madkoding/motita/internal/schedule"
 	"github.com/madkoding/motita/internal/updater"
 	"github.com/madkoding/motita/internal/webui"
+)
+
+// Literals used more than once in this file.
+const (
+	headerContentType = "Content-Type"
 )
 
 // defaultMaxBodyKB caps a request body when nothing else is configured. A task or a prompt is a
@@ -58,6 +64,9 @@ type Options struct {
 	// discovered request by request, where its only symptom is an origin being refused for a
 	// reason nobody can see.
 	Allow *netrules.Policy
+	// Hosts are extra host names a request's Host header may carry (gateway.hosts). See
+	// hostPolicy for the names that are always accepted.
+	Hosts []string
 	// MaxBodyKB caps a request body. Zero means defaultMaxBodyKB.
 	MaxBodyKB int
 	// Version is reported by /v1/health, so a client can tell which build answered.
@@ -96,6 +105,9 @@ type Options struct {
 	// MaxSessions caps how many conversations this process will hold. Zero means
 	// defaultMaxSessions.
 	MaxSessions int
+	// FreeSessionGit makes a free-standing session's own directory a git repository when it is
+	// created, unless the request says otherwise. See config.Gateway.FreeSessionGit.
+	FreeSessionGit bool
 	// Log receives the one line a gateway has to say when it starts: where it is listening.
 	// That line is the only way an operator learns the port when 0 was asked for.
 	Log *logx.Logger
@@ -233,6 +245,9 @@ type Server struct {
 	baseCI     map[string]baseCIEntry
 	// etags makes the reads of the git hosts conditional; see gitforge.ETagCache.
 	etags gitforge.ETagCache
+	// hosts are the host names, lower-cased, a request's Host header may carry besides an IP
+	// address and localhost. See hostPolicy.
+	hosts map[string]bool
 }
 
 // Start binds the listener and returns a Server that is ready to Serve.
@@ -249,10 +264,7 @@ func Start(opts Options) (*Server, error) {
 		return nil, errors.New("the gateway needs a token: an unauthenticated agent is a remote shell")
 	}
 
-	addr := strings.TrimSpace(opts.Listen)
-	if addr == "" {
-		addr = "127.0.0.1:0"
-	}
+	addr := listenAddr(opts.Listen)
 	if _, _, err := net.SplitHostPort(addr); err != nil {
 		return nil, fmt.Errorf("the listen address %q is not host:port: %w", addr, err)
 	}
@@ -274,20 +286,10 @@ func Start(opts Options) (*Server, error) {
 	}
 	first := newConversation(DefaultSession, opts.Service)
 	baseCtx, baseCancel := context.WithCancel(context.Background())
-	// Resolved here so the stream loop never has to reason about zero and negative: a zero means
-	// the default and a negative means off, and both are decided once, at construction.
-	heartbeat := opts.Heartbeat
-	if heartbeat == 0 {
-		heartbeat = defaultHeartbeat
-	}
-	if heartbeat < 0 {
-		heartbeat = 0
-	}
-
 	s := &Server{
 		opts: opts, listener: ln, sessions: map[string]*conversation{DefaultSession: first},
 		baseCtx: baseCtx, baseCancel: baseCancel,
-		heartbeat: heartbeat,
+		heartbeat: resolveHeartbeat(opts.Heartbeat),
 	}
 	// The self-update checker is built here, once. ExePath may be empty when
 	// running from a test or a non-standard install, which is fine: the
@@ -297,56 +299,9 @@ func Start(opts Options) (*Server, error) {
 		s.updater = updater.New(opts.Version, opts.ExePath)
 	}
 
-	// When a session directory is configured, open the store and load every
-	// persisted conversation from it. A failure to open the store is NOT fatal:
-	// the gateway still works in-memory, and the operator can fix the directory
-	// without losing the running server. A failure to LOAD a session is skipped:
-	// one corrupt file must not block the rest.
-	if dir := strings.TrimSpace(opts.SessionDir); dir != "" {
-		if st, err := newSessionStore(dir); err != nil {
-			if opts.Log != nil {
-				opts.Log.Warn("could not open the session store; sessions will not persist", "error", err.Error())
-			}
-		} else {
-			s.store = st
-			s.loadPersistedSessions()
-			// Resume any sessions that were mid-run when the previous
-			// gateway shut down (e.g. for an upgrade). This must happen
-			// AFTER loadPersistedSessions has registered every
-			// conversation and wired its service, because starting a run
-			// needs a fully constructed conversation.
-			s.resumeInterruptedSessions()
-		}
-	}
-
-	// Open the project store when a directory is configured.
-	if pdir := strings.TrimSpace(opts.ProjectDir); pdir != "" {
-		if ps, err := newProjectStore(pdir); err != nil {
-			if opts.Log != nil {
-				opts.Log.Warn("could not open the project store; projects will not be available", "error", err.Error())
-			}
-		} else {
-			s.projects = ps
-		}
-	}
-
-	// Open the schedule store when a directory is configured, and start the watcher.
-	// A failure to open it is NOT fatal: the gateway serves, and the endpoints report
-	// an empty list, which is the same answer a deployment without scheduling gives.
-	if sdir := strings.TrimSpace(opts.ScheduleDir); sdir != "" {
-		if st, err := schedule.Open(sdir); err != nil {
-			if opts.Log != nil {
-				opts.Log.Warn("could not open the schedule store; scheduled tasks will not run", "error", err.Error())
-			}
-		} else {
-			s.schedules = st
-			// The watcher is started HERE and not in a caller, so that a gateway with a
-			// schedule directory always has one: without this line every scheduled task
-			// passes its tests and never fires in production, because nothing ever looks
-			// at the clock.
-			s.startScheduler()
-		}
-	}
+	s.openSessionStore()
+	s.openProjectStore()
+	s.openScheduleStore()
 	// The origin policy wraps the ENTIRE routing table, including the page and /v1/health.
 	//
 	// Everything rather than only the API, and that is a decision: a rule set that still served the
@@ -357,7 +312,8 @@ func Start(opts Options) (*Server, error) {
 	//
 	// The policy is enforced BEFORE the token check, so a refused origin does not even learn
 	// whether its credential was good.
-	s.mux = s.originPolicy(s.routes())
+	s.hosts = knownHosts(opts.Listen, opts.Hosts)
+	s.mux = s.originPolicy(s.hostPolicy(securityHeaders(s.routes())))
 	s.server = &http.Server{
 		Handler: s.mux,
 		// No WriteTimeout. It is a deadline on the WHOLE response, and half of these responses
@@ -374,6 +330,90 @@ func Start(opts Options) (*Server, error) {
 	s.startUpdateChecker()
 	s.startArtifactPruner(artifactPruneInterval)
 	return s, nil
+}
+
+// listenAddr is the address the gateway binds: the configured one, or a free loopback port.
+func listenAddr(listen string) string {
+	addr := strings.TrimSpace(listen)
+	if addr == "" {
+		addr = "127.0.0.1:0"
+	}
+	return addr
+}
+
+// resolveHeartbeat is the heartbeat the stream loop uses. Resolved at construction so the loop
+// never has to reason about zero and negative: a zero means the default and a negative means off.
+func resolveHeartbeat(heartbeat time.Duration) time.Duration {
+	if heartbeat == 0 {
+		heartbeat = defaultHeartbeat
+	}
+	if heartbeat < 0 {
+		heartbeat = 0
+	}
+	return heartbeat
+}
+
+// warn logs a warning when the gateway has a logger.
+func (s *Server) warn(msg string, args ...any) {
+	if s.opts.Log != nil {
+		s.opts.Log.Warn(msg, args...)
+	}
+}
+
+// openSessionStore opens the session store when a directory is configured, and loads every
+// persisted conversation from it. A failure to open the store is NOT fatal: the gateway still
+// works in-memory, and the operator can fix the directory without losing the running server. A
+// failure to LOAD a session is skipped: one corrupt file must not block the rest.
+func (s *Server) openSessionStore() {
+	dir := strings.TrimSpace(s.opts.SessionDir)
+	if dir == "" {
+		return
+	}
+	st, err := newSessionStore(dir)
+	if err != nil {
+		s.warn("could not open the session store; sessions will not persist", "error", err.Error())
+		return
+	}
+	s.store = st
+	s.loadPersistedSessions()
+	// Resume any sessions that were mid-run when the previous gateway shut down (e.g. for an
+	// upgrade). This must happen AFTER loadPersistedSessions has registered every conversation
+	// and wired its service, because starting a run needs a fully constructed conversation.
+	s.resumeInterruptedSessions()
+}
+
+// openProjectStore opens the project store when a directory is configured.
+func (s *Server) openProjectStore() {
+	pdir := strings.TrimSpace(s.opts.ProjectDir)
+	if pdir == "" {
+		return
+	}
+	ps, err := newProjectStore(pdir)
+	if err != nil {
+		s.warn("could not open the project store; projects will not be available", "error", err.Error())
+		return
+	}
+	s.projects = ps
+}
+
+// openScheduleStore opens the schedule store when a directory is configured, and starts the
+// watcher. A failure to open it is NOT fatal: the gateway serves, and the endpoints report an
+// empty list, which is the same answer a deployment without scheduling gives.
+func (s *Server) openScheduleStore() {
+	sdir := strings.TrimSpace(s.opts.ScheduleDir)
+	if sdir == "" {
+		return
+	}
+	st, err := schedule.Open(sdir)
+	if err != nil {
+		s.warn("could not open the schedule store; scheduled tasks will not run", "error", err.Error())
+		return
+	}
+	s.schedules = st
+	// The watcher is started HERE and not in a caller, so that a gateway with a schedule
+	// directory always has one: without this line every scheduled task passes its tests and
+	// never fires in production, because nothing ever looks at the clock.
+	s.startScheduler()
 }
 
 // Addr is the address a CLIENT should call, with the real port when 0 was asked for.
@@ -449,6 +489,13 @@ func (s *Server) Handler() http.Handler { return s.mux }
 func (s *Server) Serve() error {
 	if s.opts.Log != nil {
 		s.opts.Log.Info("the gateway is listening", "address", s.Addr())
+		if s.ReachableFromNetwork() {
+			// Said in EVERY mode, not only by `gateway start`: an interface with an embedded
+			// gateway on a LAN address exposes exactly the same plain-HTTP socket.
+			s.opts.Log.Warn("the gateway is reachable from the network over plain HTTP: the token and "+
+				"every request travel unencrypted; an SSH tunnel to a loopback listen avoids this",
+				"address", s.listener.Addr().String())
+		}
 	}
 	if err := s.server.Serve(s.listener); err != nil && !errors.Is(err, http.ErrServerClosed) {
 		return err
@@ -554,6 +601,10 @@ func (s *Server) routes() *http.ServeMux {
 	mux.Handle("GET /v1/skills", plain(s.handleSkills))
 	mux.Handle("POST /v1/skills", plain(s.handleSaveSkill))
 	mux.Handle("GET /v1/skills/archived", plain(s.handleArchivedSkills))
+	mux.Handle("GET /v1/skills/proposed", plain(s.handleProposedSkills))
+	mux.Handle("GET /v1/skills/proposed/{name}", plain(s.handleProposedSkill))
+	mux.Handle("POST /v1/skills/proposed/{name}/accept", plain(s.handleAcceptProposedSkill))
+	mux.Handle("DELETE /v1/skills/proposed/{name}", plain(s.handleRejectProposedSkill))
 	mux.Handle("GET /v1/skills/{name}", plain(s.handleSkill))
 	mux.Handle("POST /v1/skills/{name}/pin", plain(s.handlePinSkill))
 	mux.Handle("POST /v1/skills/{name}/disable", plain(s.handleDisableSkill))
@@ -648,7 +699,7 @@ func (s *Server) page(mux *http.ServeMux, pattern, name string) {
 			http.NotFound(w, r)
 			return
 		}
-		w.Header().Set("Content-Type", ctype)
+		w.Header().Set(headerContentType, ctype)
 		// No caching. The page is part of the binary, so a client holding yesterday's copy
 		// after an upgrade is running code that no longer exists - and a stale page calling an
 		// API that moved is a failure nobody can explain.
@@ -662,40 +713,52 @@ func (s *Server) page(mux *http.ServeMux, pattern, name string) {
 // The token arrives as a bearer header, which the page's script took from the URL FRAGMENT: a
 // fragment is never sent to the server and never appears in a log or a Referer, which is the
 // only way to put a secret in a URL without it travelling. From here on the browser holds a
-// DERIVED value, not the token (see cookieValue), so what a browser stores is not a credential
-// that could be replayed against the API.
-func (s *Server) handleWebUISession(w http.ResponseWriter, _ *http.Request) {
-	http.SetCookie(w, &http.Cookie{
-		Name:  webuiCookie,
-		Value: cookieValue(s.opts.Token),
-		Path:  "/",
-		// A script cannot read it, so an injected script cannot exfiltrate it.
-		HttpOnly: true,
-		// Another origin never sends it. Together with this server sending no CORS header at
-		// all, a hostile page can neither send this credential nor read a response.
-		SameSite: http.SameSiteStrictMode,
-		// Long-lived because it is derived, not stored: it stays valid until the token rotates,
-		// and rotating the token invalidates it with nothing to clean up.
-		MaxAge: 30 * 24 * 3600,
-		// NOT Secure, deliberately: this gateway speaks plain http (there is no TLS, and the
-		// supported remote path is an SSH tunnel). A Secure cookie is one a browser refuses to
-		// send over http, so setting it would look more careful and silently break the
-		// interface - the browser would never stay connected, with nothing in any log to say why.
-	})
+// DERIVED value, not the token (see cookieValue). It is NOT harmless: it authorises the whole
+// API from this browser. What it cannot do is serve as the bearer token or mint another cookie,
+// and a state-changing request it authorises must also pass crossSiteRefusal.
+func (s *Server) handleWebUISession(w http.ResponseWriter, r *http.Request) {
+	// Long-lived because it is derived, not stored: it stays valid until the token rotates,
+	// and rotating the token invalidates it with nothing to clean up.
+	setSessionCookie(w, r, cookieValue(s.opts.Token), 30*24*3600)
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// setSessionCookie sends the browser's session cookie with every protection the connection allows.
+//
+//   - HttpOnly: a script cannot read it, so an injected script cannot exfiltrate it.
+//   - SameSite=Strict: another SITE never sends it. Another port of this same host is the same site,
+//     though, and cookies are not isolated by port: that page's browser DOES attach it, which is what
+//     crossSiteRefusal (the X-Motita header, the Origin and the JSON content type) is for. This
+//     server sends no CORS header, so no other origin can read a response.
+//   - Secure: whenever the browser reached the gateway over TLS, directly or through a proxy that
+//     terminates it (X-Forwarded-Proto). Over plain http it is NOT set, deliberately: the gateway
+//     has no TLS of its own (the supported remote path is an SSH tunnel), and a Secure cookie is one
+//     a browser refuses to send over http, so setting it there would silently break the interface -
+//     the browser would never stay connected, with nothing in any log to say why. That case is
+//     written as the same header by hand, without the Secure attribute, for that reason alone.
+//
+// A negative maxAge expires the cookie now.
+func setSessionCookie(w http.ResponseWriter, r *http.Request, value string, maxAge int) {
+	if r.TLS != nil || strings.EqualFold(r.Header.Get("X-Forwarded-Proto"), "https") {
+		http.SetCookie(w, &http.Cookie{
+			Name: webuiCookie, Value: value, Path: "/", MaxAge: maxAge,
+			HttpOnly: true, SameSite: http.SameSiteStrictMode, Secure: true,
+		})
+		return
+	}
+	if maxAge < 0 {
+		maxAge = 0
+	}
+	w.Header().Add("Set-Cookie",
+		fmt.Sprintf("%s=%s; Path=/; Max-Age=%d; HttpOnly; SameSite=Strict", webuiCookie, value, maxAge))
 }
 
 // handleWebUILogout clears the browser's cookie so the blocking auth modal
 // reappears. It is the complement to handleWebUISession: one mints a cookie,
 // the other removes it. No credential is required because the caller is, by
 // definition, a browser that holds a credential that no longer works.
-func (s *Server) handleWebUILogout(w http.ResponseWriter, _ *http.Request) {
-	http.SetCookie(w, &http.Cookie{
-		Name:   webuiCookie,
-		Value:  "",
-		Path:   "/",
-		MaxAge: -1, // delete immediately
-	})
+func (s *Server) handleWebUILogout(w http.ResponseWriter, r *http.Request) {
+	setSessionCookie(w, r, "", -1) // delete immediately
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -722,16 +785,101 @@ func (s *Server) originPolicy(next http.Handler) http.Handler {
 		// every listener Go supports.
 		addrPort, err := netip.ParseAddrPort(r.RemoteAddr)
 		if err != nil {
-			writeError(w, http.StatusForbidden, "this gateway could not determine the origin of the request, so it will not serve it")
+			writeError(w, http.StatusForbidden,
+				"this gateway could not determine the origin of the request, so it will not serve it")
 			return
 		}
 		if !s.opts.Allow.Allows(addrPort.Addr()) {
-			// The message names the RULE SET, not the client's address alone: an operator reading
-			// this from the other machine has to be able to tell "your rules do not cover me" from
-			// "something is broken", and the rules are what they will go and edit.
+			// The message names the SETTING, so an operator reading this from the other machine
+			// can tell "the rules do not cover me" from "something is broken". The rules
+			// themselves go to the log only: describing them to a client that is not allowed in
+			// would hand a stranger the map of who is.
+			if s.opts.Log != nil {
+				s.opts.Log.Warn("refused a request from an origin outside gateway.allow",
+					"origin", addrPort.Addr().String(), "allow", s.opts.Allow.Describe())
+			}
 			writeError(w, http.StatusForbidden, fmt.Sprintf(
-				"this gateway does not serve requests from %s: gateway.allow is %s",
-				addrPort.Addr(), s.opts.Allow.Describe()))
+				"this gateway does not serve requests from %s: its gateway.allow rules do not include this address",
+				addrPort.Addr()))
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
+// pageCSP is the content policy of everything this server answers. The page and every script it
+// loads are served from here and nothing is inline, so scripts need no 'unsafe-inline' and no
+// 'unsafe-eval'. Styles do need 'unsafe-inline': mermaid and KaTeX lay their output out with style
+// attributes and <style> elements. Images are this server's, or data:/blob: (the previews arrive
+// inline), so an answer cannot make the browser fetch an address of the model's choosing.
+const pageCSP = "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; " +
+	"img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self'; worker-src 'self'; " +
+	"object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'"
+
+// securityHeaders sets the headers every response carries: the page must not be framed by another
+// site (a frame is how a fake approval dialog gets laid over a real button), the browser must not
+// guess a type, and no URL of this gateway leaks to another site through a Referer. A handler that
+// needs a different policy for its own content (an artifact) replaces the CSP itself.
+func securityHeaders(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		h := w.Header()
+		h.Set("Content-Security-Policy", pageCSP)
+		h.Set("X-Content-Type-Options", "nosniff")
+		h.Set("Referrer-Policy", "no-referrer")
+		next.ServeHTTP(w, r)
+	})
+}
+
+// osHostname is this machine's name, a variable so a test can make it fail.
+var osHostname = os.Hostname
+
+// knownHosts is the set of host NAMES this gateway answers to besides an IP address and
+// localhost: the host in the listen address, this machine's own name (bare and as its mDNS
+// .local name), and the names the operator listed in gateway.hosts.
+func knownHosts(listen string, extra []string) map[string]bool {
+	set := map[string]bool{}
+	add := func(h string) {
+		if h = normalHost(h); h != "" {
+			set[h] = true
+		}
+	}
+	if h, _, err := net.SplitHostPort(strings.TrimSpace(listen)); err == nil {
+		add(h)
+	}
+	if name, err := osHostname(); err == nil && name != "" {
+		add(name)
+		add(strings.SplitN(name, ".", 2)[0] + ".local")
+	}
+	for _, h := range extra {
+		add(h)
+	}
+	return set
+}
+
+// normalHost lower-cases a host name and drops IPv6 brackets and a trailing root dot, so the
+// spellings a browser may send compare equal.
+func normalHost(h string) string {
+	return strings.TrimSuffix(strings.ToLower(strings.Trim(strings.TrimSpace(h), "[]")), ".")
+}
+
+// hostPolicy refuses a request whose Host header names a host this gateway does not know.
+//
+// It is the defence against DNS rebinding: a page on attacker.example re-points its own name at
+// 127.0.0.1, and the browser then treats this gateway as that page's origin and sends
+// "Host: attacker.example". Every name such a page can use is a NAME, so an IP address in the
+// Host header is always accepted (that is how a LAN client and a tunnel reach the gateway), as
+// are localhost and the names knownHosts collects. A request with no Host at all (HTTP/1.0)
+// cannot come from a browser and is left alone.
+func (s *Server) hostPolicy(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		host := r.Host
+		if h, _, err := net.SplitHostPort(host); err == nil {
+			host = h
+		}
+		host = normalHost(host)
+		if !isLocalHostName(host) && !s.hosts[host] {
+			writeError(w, http.StatusMisdirectedRequest, fmt.Sprintf(
+				"this gateway does not answer to the host name %q: add it to gateway.hosts if it is yours", host))
 			return
 		}
 		next.ServeHTTP(w, r)
@@ -791,7 +939,7 @@ func (s *Server) handleUpdateRun(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set(headerContentType, "text/event-stream")
 	w.Header().Set("Cache-Control", "no-cache")
 	w.Header().Set("Connection", "keep-alive")
 
@@ -835,12 +983,15 @@ func (s *Server) handleUpdateRun(w http.ResponseWriter, r *http.Request) {
 	// A process that cannot replace itself has done all it can: the binary is in place, and the
 	// next start runs it. It stays up, because stopping it would leave nothing serving.
 	if s.opts.Restart == nil {
-		sse(updater.ProgressEvent{Stage: "done", Percent: 100, Message: "Upgrade installed. This gateway does not restart itself: start motita again to run " + release.TagName, Version: release.TagName})
+		sse(updater.ProgressEvent{Stage: "done", Percent: 100, Version: release.TagName,
+			Message: "Upgrade installed. This gateway does not restart itself: start motita again to run " + release.TagName})
 		return
 	}
 
 	// Signal the frontend that the restart is coming.
-	sse(updater.ProgressEvent{Stage: "restarting", Percent: 100, Message: "Restarting the gateway", Version: release.TagName})
+	sse(updater.ProgressEvent{
+		Stage: "restarting", Percent: 100, Message: "Restarting the gateway", Version: release.TagName,
+	})
 
 	// Persist every session — including ones that are mid-run — so the new
 	// process can resume them. This is the whole point of the running/lastTask
@@ -857,7 +1008,9 @@ func (s *Server) handleUpdateRun(w http.ResponseWriter, r *http.Request) {
 	}()
 
 	// Send a final done event.
-	sse(updater.ProgressEvent{Stage: "done", Percent: 100, Message: "Upgrade complete. The gateway is restarting.", Version: release.TagName})
+	sse(updater.ProgressEvent{
+		Stage: "done", Percent: 100, Message: "Upgrade complete. The gateway is restarting.", Version: release.TagName,
+	})
 }
 
 func (s *Server) handleConfig(w http.ResponseWriter, r *http.Request) {
@@ -865,252 +1018,17 @@ func (s *Server) handleConfig(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, viewOf(convOf(r).svc.Config()))
 }
 
-// loadPersistedSessions reads every conversation the store has on disk and
-// registers each one that is not already in memory. The default session is
-// skipped: it is always in memory, and its file (if any) is loaded separately
-// so its transcript can be restored into the existing service.
-func (s *Server) loadPersistedSessions() {
-	if s.store == nil {
-		return
-	}
-	records, err := s.store.loadAll()
-	if err != nil {
-		if s.opts.Log != nil {
-			s.opts.Log.Warn("could not load persisted sessions", "error", err.Error())
-		}
-		return
-	}
-	// The ceiling applies to RESTORE the same way it applies to creation: a gateway
-	// configured to hold 8 that finds 60 on disk must NOT load all 60. The records
-	// from loadAll are sorted by last_used DESCENDING, so the first N non-default
-	// records are the most recently used ones — the ones a user is most likely to
-	// return to. The rest stay on disk, where they can be re-materialised on demand.
-	//
-	// The default session is always in memory (it was registered at Start), so the
-	// budget for restored sessions is the ceiling minus one.
-	ceiling := s.maxSessions()
-	restored := 0
-	for _, rec := range records {
-		if rec.ID == DefaultSession {
-			// Restore the transcript into the default session's existing service.
-			if len(rec.Turns) > 0 {
-				s.sessions[DefaultSession].svc.RestoreTranscript(rec.Turns)
-			}
-			s.sessions[DefaultSession].setCheckpoints(rec.Checkpoints)
-			if rec.Title != "" {
-				s.sessions[DefaultSession].setTitle(rec.Title)
-			}
-			s.sessions[DefaultSession].setAutoApprove(rec.AutoApprove)
-			// The level this conversation was running comes back with it, or the interface would
-			// paint a level the session is not actually using.
-			if rec.Reasoning != "" {
-				s.sessions[DefaultSession].svc.SetReasoning(rec.Reasoning)
-			}
-			continue
-		}
-		// A non-default session needs a new service built for it. Without a
-		// factory the session cannot be restored as a live conversation; it is
-		// skipped rather than registered with the default's service, which would
-		// be two names for one transcript.
-		if s.opts.NewService == nil {
-			continue
-		}
-		// The ceiling: once enough sessions have been restored to fill the
-		// budget (ceiling minus the default that is always in memory), stop.
-		// The remaining records are on disk and can be re-materialised on
-		// demand; loading them all is what made a gateway with max_sessions=8
-		// arrive holding 60 and then refuse a new one.
-		if restored >= ceiling-1 {
-			if s.opts.Log != nil {
-				s.opts.Log.Info("session restore stopped at the ceiling",
-					"restored", restored, "ceiling", ceiling, "remaining_on_disk", len(records)-restored-1)
-			}
-			break
-		}
-		svc, err := s.opts.NewService()
-		if err != nil {
-			if s.opts.Log != nil {
-				s.opts.Log.Warn("could not build a service for a persisted session", "id", rec.ID, "error", err.Error())
-			}
-			continue
-		}
-		conv := newConversation(rec.ID, svc)
-		conv.created = rec.Created
-		conv.lastUsed = rec.LastUsed
-		conv.setTitle(rec.Title)
-		conv.setAutoApprove(rec.AutoApprove)
-		conv.setMerged(rec.MergedSHA)
-		// A session in a project gets its worktree back. The branch outlives the
-		// worktree, so re-attaching it restores the session's own work rather
-		// than starting over; a failure falls back to the project's directory,
-		// exactly as creation does.
-		workspace := rec.Workspace
-		projectDir := rec.ProjectDir
-		if projectDir != "" {
-			if wt, wtErr := s.sessionWorktree(s.baseCtx, projectDir, rec.ID); wtErr == nil {
-				workspace = wt
-			} else if s.opts.Log != nil {
-				s.opts.Log.Warn("the restored session will run in the project directory: its worktree could not be re-created",
-					"id", rec.ID, "project", projectDir, "error", wtErr.Error())
-			}
-		}
-		conv.setProjectID(rec.ProjectID, workspace, projectDir)
-		// Restore the last task/kind so the session knows what it was doing
-		// before the restart. The running flag is restored separately by
-		// resumeInterruptedSessions, which needs the service to be fully
-		// wired before it can start a run.
-		conv.stateMu.Lock()
-		conv.lastTask = rec.LastTask
-		conv.lastKind = rec.LastKind
-		conv.stateMu.Unlock()
-		if len(rec.Turns) > 0 {
-			svc.RestoreTranscript(rec.Turns)
-		}
-		conv.setCheckpoints(rec.Checkpoints)
-		conv.restorePRWatch(rec.PRWatch, s.prMaxFixes(conv))
-		// Restore provider/model if they were persisted and differ from the
-		// defaults the factory built with.
-		if rec.Provider != "" || rec.Model != "" {
-			svc.SetLLM(rec.Provider, rec.Model)
-		}
-		// Restore the reasoning level this session was running. It is restored AFTER SetLLM
-		// because a service is free to reset the level with the provider (a level one provider
-		// does not honour is not a reason to keep showing it), and the session's own choice is
-		// what has to win.
-		if rec.Reasoning != "" {
-			svc.SetReasoning(rec.Reasoning)
-		}
-		// Restore the workspace directory for project sessions. It is the
-		// worktree when there is one, so the resumed session writes where its
-		// work already is.
-		if workspace != "" {
-			svc.SetWorkspace(workspace)
-		}
-		// The scope comes back with the project. A restored session must serve the
-		// SAME shelf it had before the restart, or the procedures it learned while
-		// working on this project would silently disappear from its answers.
-		scopeProceduresTo(svc, projectskills.ProjectDirFor(projectDir, workspace))
-		applyRuntimeTo(svc, s.projectOf(rec.ProjectID))
-		s.sessionsMu.Lock()
-		s.sessions[rec.ID] = conv
-		s.sessionsMu.Unlock()
-		restored++
-	}
-}
-
-// resumeInterruptedSessions re-submits the task or plan for every session
-// that was mid-run when the gateway shut down. It is called after
-// loadPersistedSessions has registered every conversation and wired its
-// service, because starting a run needs a fully constructed conversation.
-//
-// A session that was running but has no recorded lastTask cannot be resumed
-// (the task text was lost), and is left in a clean non-running state rather
-// than started with an empty prompt that would produce nothing useful.
-func (s *Server) resumeInterruptedSessions() {
-	if s.store == nil {
-		return
-	}
-	records, err := s.store.loadAll()
-	if err != nil {
-		if s.opts.Log != nil {
-			s.opts.Log.Warn("could not load sessions for resume", "error", err.Error())
-		}
-		return
-	}
-	for _, rec := range records {
-		// A pull request being followed when the gateway stopped is followed again.
-		if w := rec.PRWatch; w != nil && (w.Status == prFollowing || w.Status == prFixing || w.Status == prPassed) {
-			if c, ok := s.lookup(rec.ID); ok {
-				s.startPRWatch(c, &prWatchState{status: w.Status, attempts: w.Attempts, fixedKey: w.FixedKey})
-			}
-		}
-		if !rec.Running || strings.TrimSpace(rec.LastTask) == "" {
-			continue
-		}
-		c, ok := s.lookup(rec.ID)
-		if !ok {
-			continue
-		}
-		// Log the resume so the operator can see it happened.
-		if s.opts.Log != nil {
-			s.opts.Log.Info("resuming interrupted session", "id", rec.ID, "kind", rec.LastKind, "task", rec.LastTask)
-		}
-		task := rec.LastTask
-		kind := rec.LastKind
-		// The run is started through the SAME path the scheduler and the HTTP handlers
-		// use, so the slot guard, the completion classification and the persistence are
-		// one implementation and cannot drift. Nothing waits for it: the resumption is a
-		// side effect of starting the gateway.
-		if _, ok := s.startDetachedRun(c, task, kind, "", s.approverFactory(c)); !ok {
-			if s.opts.Log != nil {
-				s.opts.Log.Warn("could not resume the interrupted session: its conversation is already running", "id", rec.ID)
-			}
-		}
-	}
-}
-
-// saveSession persists one conversation to disk. It is called after a turn
-// finishes, after a rename, and after a config update. A nil store means
-// persistence is not configured, and the call is a no-op.
-//
-// A session that has been forgotten — removed from the registry by a DELETE —
-// is NOT saved. A run's goroutine holds a pointer to the conversation and its
-// deferred saveSession (runs.go) can fire AFTER handleDeleteSession has already
-// forgotten the session and deleted its file; without this guard, that late
-// save would resurrect the session on disk and it would reappear on the next
-// loadPersistedSessions.
-func (s *Server) saveSession(c *conversation) { s.persist(c, false) }
-
-// saveEndedSession persists a conversation whose run has just ended: see sessionStore.saveEnded.
-func (s *Server) saveEndedSession(c *conversation) { s.persist(c, true) }
-
-func (s *Server) persist(c *conversation, ended bool) {
-	if s.store == nil {
-		return
-	}
-	if _, ok := s.lookup(c.id); !ok {
-		return
-	}
-	save := s.store.save
-	if ended {
-		save = s.store.saveEnded
-	}
-	if err := save(c); err != nil && s.opts.Log != nil {
-		s.opts.Log.Warn("could not persist the session", "id", c.id, "error", err.Error())
-	}
-}
-
-// saveAllSessions persists every conversation in memory to disk. It is called
-// before a gateway restart (an upgrade) so that running sessions can be
-// resumed by the new process. Sessions that are mid-run are saved with
-// running=true, which is what the new process reads to know which ones to
-// resume.
-func (s *Server) saveAllSessions() {
-	if s.store == nil {
-		return
-	}
-	for _, c := range s.snapshot() {
-		if err := s.store.save(c); err != nil && s.opts.Log != nil {
-			s.opts.Log.Warn("could not persist the session before restart", "id", c.id, "error", err.Error())
-		}
-	}
-}
-
-// deletePersistedSession removes a conversation's file from disk.
-func (s *Server) deletePersistedSession(id string) {
-	s.removeArtifacts(id)
-	if s.store == nil {
-		return
-	}
-	if err := s.store.delete(id); err != nil && s.opts.Log != nil {
-		s.opts.Log.Warn("could not delete the persisted session", "id", id, "error", err.Error())
-	}
+// isLocalHostName reports whether host needs no listing in gateway.hosts: no name at all, an IP
+// address, or localhost and its subdomains.
+func isLocalHostName(host string) bool {
+	_, ipErr := netip.ParseAddr(host)
+	return host == "" || ipErr == nil || host == "localhost" || strings.HasSuffix(host, ".localhost")
 }
 
 // writeJSON is the one place a response body is produced, so the Content-Type is set in the one
 // place it could be forgotten.
 func writeJSON(w http.ResponseWriter, status int, v any) {
-	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	w.Header().Set(headerContentType, "application/json; charset=utf-8")
 	w.WriteHeader(status)
 	_ = json.NewEncoder(w).Encode(v)
 }
@@ -1122,7 +1040,18 @@ func writeError(w http.ResponseWriter, status int, msg string) {
 
 // decodeBody reads a bounded JSON body and reports a failure the client can act on. It returns
 // false when it has already written the refusal, and the caller then returns.
+//
+// A request the browser cookie authorised must also SAY it is JSON. A cross-origin form or a
+// text/plain fetch is a "simple" request a browser sends without asking; application/json is not,
+// so requiring it is a second wall behind the X-Motita header (see crossSiteRefusal). A bearer
+// client is not held to it: no page can attach the token.
 func (s *Server) decodeBody(w http.ResponseWriter, r *http.Request, dst any) bool {
+	if !bearerMatches(s.opts.Token, r.Header.Get("Authorization")) {
+		if mt, _, _ := mime.ParseMediaType(r.Header.Get(headerContentType)); mt != "application/json" {
+			writeError(w, http.StatusUnsupportedMediaType, "the request body must be sent as application/json")
+			return false
+		}
+	}
 	r.Body = http.MaxBytesReader(w, r.Body, int64(s.opts.MaxBodyKB)<<10)
 	if err := json.NewDecoder(r.Body).Decode(dst); err != nil {
 		// MaxBytesReader makes the read fail, so an oversized body lands here too and is

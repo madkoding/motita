@@ -95,27 +95,27 @@ func TestBuildChangeReportDegrades(t *testing.T) {
 	if r := buildChangeReport(context.Background(), ws, ""); len(r.Previews) != maxPreviews {
 		t.Errorf("previews = %d, want cap %d", len(r.Previews), maxPreviews)
 	}
-	if _, ok := readPreview(filepath.Join(ws, "missing.png")); ok {
+	if _, ok := readPreview(ws, filepath.Join(ws, "missing.png")); ok {
 		t.Error("missing file accepted")
 	}
-	if _, ok := readPreview(dir); ok {
+	if _, ok := readPreview(ws, dir); ok {
 		t.Error("directory accepted")
 	}
 	big := filepath.Join(ws, "big.png")
 	put(t, big, strings.Repeat("x", maxPreviewBytes+1))
-	if _, ok := readPreview(big); ok {
+	if _, ok := readPreview(ws, big); ok {
 		t.Error("oversized file accepted")
 	}
 	noext := filepath.Join(ws, "noext")
 	put(t, noext, "N")
-	if ev, ok := readPreview(noext); !ok || !strings.HasPrefix(ev.URL, "data:image/png") {
+	if ev, ok := readPreview(ws, noext); !ok || !strings.HasPrefix(ev.URL, "data:image/png") {
 		t.Errorf("noext = %+v %v", ev, ok)
 	}
 	unread := filepath.Join(ws, "unread.png")
 	put(t, unread, "U")
 	_ = os.Chmod(unread, 0)
 	if os.Geteuid() != 0 {
-		if _, ok := readPreview(unread); ok {
+		if _, ok := readPreview(ws, unread); ok {
 			t.Error("unreadable file accepted")
 		}
 	}
@@ -148,15 +148,8 @@ func TestDoneCarriesTheChangesTheRunMade(t *testing.T) {
 		}
 		<-rn.done
 		evs, _ := rn.since(0)
-		var done doneEvent
-		for _, e := range evs {
-			if e.Event == EventDone {
-				if err := json.Unmarshal(e.Data, &done); err != nil {
-					t.Fatal(err)
-				}
-			}
-		}
-		if edit && (done.Changes == nil || len(done.Changes.Files) != 1 || len(done.Changes.Previews) != 1) {
+		done := decodeDoneEvents(t, evs)
+		if edit && !reportsOneEdit(done.Changes) {
 			t.Errorf("edit: changes = %+v", done.Changes)
 		}
 		if !edit && done.Changes != nil {
@@ -166,6 +159,25 @@ func TestDoneCarriesTheChangesTheRunMade(t *testing.T) {
 	}
 }
 
+// decodeDoneEvents decodes every `done` in evs, in order, into one doneEvent.
+func decodeDoneEvents(t *testing.T, evs []loggedEvent) doneEvent {
+	t.Helper()
+	var done doneEvent
+	for _, e := range evs {
+		if e.Event == EventDone {
+			if err := json.Unmarshal(e.Data, &done); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	return done
+}
+
+// reportsOneEdit reports whether r holds the one file and the one screenshot the editing run made.
+func reportsOneEdit(r *changeReport) bool {
+	return r != nil && len(r.Files) == 1 && len(r.Previews) == 1
+}
+
 func TestBuildChangeReportSurvivesAGitFailure(t *testing.T) {
 	ws := t.TempDir()
 	put(t, filepath.Join(ws, ".git", "HEAD"), "garbage")
@@ -173,5 +185,45 @@ func TestBuildChangeReportSurvivesAGitFailure(t *testing.T) {
 	r := buildChangeReport(context.Background(), ws, "deadbeef")
 	if len(r.Previews) != 1 {
 		t.Errorf("previews = %+v", r.Previews)
+	}
+}
+
+// A screenshot that is a symlink, or that sits in a symlinked folder, is not read: the agent
+// writes the workspace, and following its links would put any file this process can read into
+// the `done` event.
+func TestReadPreviewRefusesSymlinks(t *testing.T) {
+	ws := t.TempDir()
+	outside := t.TempDir()
+	put(t, filepath.Join(outside, "secret.png"), "SECRET")
+
+	link := filepath.Join(ws, "link.png")
+	if err := os.Symlink(filepath.Join(outside, "secret.png"), link); err != nil {
+		t.Skipf("symlinks unavailable: %v", err)
+	}
+	if _, ok := readPreview(ws, link); ok {
+		t.Error("a symlinked file was read")
+	}
+
+	if err := os.MkdirAll(filepath.Join(ws, ".motita"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(outside, filepath.Join(ws, filepath.FromSlash(PreviewDir))); err != nil {
+		t.Fatal(err)
+	}
+	if r := buildChangeReport(context.Background(), ws, ""); len(r.Previews) != 0 {
+		t.Errorf("a symlinked preview folder was followed: %+v", r.Previews)
+	}
+
+	// A workspace that cannot be resolved contains nothing.
+	if insideWorkspace(filepath.Join(ws, "missing"), ws) {
+		t.Error("an unresolvable workspace was treated as containing the folder")
+	}
+	// A symlink that stays inside the workspace is fine.
+	put(t, filepath.Join(ws, "real", "in.png"), "IN")
+	if err := os.Symlink(filepath.Join(ws, "real"), filepath.Join(ws, "alias")); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := readPreview(ws, filepath.Join(ws, "alias", "in.png")); !ok {
+		t.Error("a picture inside the workspace was refused")
 	}
 }

@@ -69,29 +69,34 @@ func (s *Server) writePRError(w http.ResponseWriter, e *prError) {
 // prTargetOf resolves the host, the repository and the branch of a session.
 func (s *Server) prTargetOf(ctx context.Context, c *conversation) (prTarget, *prError) {
 	if c.workspace == "" || c.projectID == "" {
-		return prTarget{}, &prError{status: http.StatusConflict, msg: "this session does not belong to a project, so there is no branch to propose"}
+		return prTarget{}, &prError{status: http.StatusConflict,
+			msg: "this session does not belong to a project, so there is no branch to propose"}
 	}
 	st := s.gitStore()
 	if st == nil {
-		return prTarget{}, &prError{status: http.StatusNotImplemented, msg: "this gateway has no directory to keep git logins in"}
+		return prTarget{}, &prError{status: http.StatusNotImplemented,
+			msg: "this gateway has no directory to keep git logins in"}
 	}
 	cmd := exec.CommandContext(ctx, "git", "-C", c.workspace, "remote", "get-url", "origin")
 	cmd.Env = s.gitCommandEnv()
 	out, err := cmd.Output()
 	url := strings.TrimSpace(string(out))
 	if err != nil || url == "" {
-		return prTarget{}, &prError{status: http.StatusConflict, code: errPRNoRemote, msg: "this repository has no remote named origin, so there is nowhere to open a pull request"}
+		return prTarget{}, &prError{status: http.StatusConflict, code: errPRNoRemote,
+			msg: "this repository has no remote named origin, so there is nowhere to open a pull request"}
 	}
 	svc, remote, err := st.ForRemote(url)
 	if err != nil {
 		if errors.Is(err, gitforge.ErrNoService) {
-			return prTarget{}, &prError{status: http.StatusConflict, code: errPRNoHost, msg: remote.Host + " is not a git host motita can open pull requests on"}
+			return prTarget{}, &prError{status: http.StatusConflict, code: errPRNoHost,
+				msg: remote.Host + " is not a git host motita can open pull requests on"}
 		}
 		return prTarget{}, &prError{status: http.StatusBadGateway, msg: err.Error()}
 	}
 	api, err := st.Open(ctx, svc)
 	if gitforge.IsNotConnected(err) {
-		return prTarget{}, &prError{status: http.StatusConflict, code: errGitAuthRequired, service: svc.ID, msg: svc.Name + " is not connected"}
+		return prTarget{}, &prError{status: http.StatusConflict, code: errGitAuthRequired, service: svc.ID,
+			msg: svc.Name + " is not connected"}
 	}
 	if err != nil {
 		return prTarget{}, &prError{status: http.StatusInternalServerError, msg: err.Error()}
@@ -104,7 +109,8 @@ func (s *Server) prTargetOf(ctx context.Context, c *conversation) (prTarget, *pr
 func prHostError(svc gitforge.Service, err error) *prError {
 	var he *gitforge.HTTPError
 	if errors.As(err, &he) && he.Unauthorized() {
-		return &prError{status: http.StatusConflict, code: errGitAuthRequired, service: svc.ID, msg: svc.Name + " refused the saved login: connect again"}
+		return &prError{status: http.StatusConflict, code: errGitAuthRequired, service: svc.ID,
+			msg: svc.Name + " refused the saved login: connect again"}
 	}
 	return &prError{status: http.StatusBadGateway, msg: err.Error()}
 }
@@ -161,7 +167,9 @@ func (s *Server) handleCreatePR(w http.ResponseWriter, r *http.Request) {
 	}
 	// A pull request already open is the answer, not a second one.
 	if pr, found, err := t.api.FindPR(r.Context(), t.remote, t.branch); err == nil && found {
-		writeJSON(w, http.StatusConflict, map[string]any{"error": "this session already has an open pull request", "code": "pr_exists", "pr": pr})
+		writeJSON(w, http.StatusConflict, map[string]any{
+			"error": "this session already has an open pull request", "code": "pr_exists", "pr": pr,
+		})
 		return
 	}
 	if p := s.projectOf(c.projectID); p != nil {
@@ -169,18 +177,22 @@ func (s *Server) handleCreatePR(w http.ResponseWriter, r *http.Request) {
 		ahead, _, _ := gitx.CommitsBetween(r.Context(), p.Dir, base, t.branch)
 		changes, _ := gitx.WorkingTreeChanges(r.Context(), c.workspace)
 		if len(ahead) == 0 && changes == 0 {
-			writeError(w, http.StatusConflict, "this session has no work to propose: its branch has no commits the project's branch lacks and its worktree has no uncommitted changes")
+			writeError(w, http.StatusConflict, "this session has no work to propose: its branch has no commits "+
+				"the project's branch lacks and its worktree has no uncommitted changes")
 			return
 		}
 	}
 	task := fmt.Sprintf(`Open a pull request for this session's work.
 
-Follow the pull-requests-and-ci skill. Commit any pending changes on the session branch with a semantic message, push the branch with "git push -u origin %[1]s", and open the pull request with "motita forge pr create" (a semantic title and a description with What, Why and How it was verified).
+Follow the pull-requests-and-ci skill. Commit any pending changes on the session branch with a semantic message, `+
+		`push the branch with "git push -u origin %[1]s", and open the pull request with "motita forge pr create" `+
+		`(a semantic title and a description with What, Why and How it was verified).
 
 Session worktree: %[2]s
 Session branch: %[1]s
 
-Then give the user the link to the pull request. Do not wait for the CI and do not merge: the gateway follows the CI and tells the user when it ends.`, t.branch, c.workspace)
+Then give the user the link to the pull request. Do not wait for the CI and do not merge: `+
+		`the gateway follows the CI and tells the user when it ends.`, t.branch, c.workspace)
 	// From here the gateway follows the pull request's CI, whether or not anyone is looking.
 	s.startPRWatch(c, nil)
 	s.startRunWithIntent(w, r, c, task, schedule.KindTask, "")
@@ -191,9 +203,14 @@ Then give the user the link to the pull request. Do not wait for the CI and do n
 func ciFixTask(branch string, pr gitforge.PullRequest) string {
 	return fmt.Sprintf(`The CI of the pull request %[2]s (#%[3]d) failed. Fix it.
 
-Follow the pull-requests-and-ci skill: run "motita forge pr checks --logs" to read the failing jobs, reproduce the failure locally with the project's own check before changing anything, fix the cause in code this pull request touches, commit with a semantic message and push to %[1]s. Never skip, disable or delete a test to get green. If the failure is not caused by this change, say so with the evidence instead of widening the pull request.
+Follow the pull-requests-and-ci skill: run "motita forge pr checks --logs" to read the failing jobs, `+
+		`reproduce the failure locally with the project's own check before changing anything, `+
+		`fix the cause in code this pull request touches, commit with a semantic message and push to %[1]s. `+
+		`Never skip, disable or delete a test to get green. If the failure is not caused by this change, `+
+		`say so with the evidence instead of widening the pull request.
 
-Do not merge the pull request. After pushing, stop: the gateway watches the new run of the CI and sends you back here if it fails again.`, branch, pr.URL, pr.Number)
+Do not merge the pull request. After pushing, stop: the gateway watches the new run of the CI `+
+		`and sends you back here if it fails again.`, branch, pr.URL, pr.Number)
 }
 
 // handleFixPR sends the agent to fix the CI of the pull request now and follows it again from
@@ -251,11 +268,12 @@ func (s *Server) syncProject(ctx context.Context, c *conversation, base string) 
 	ctx, cancel := context.WithTimeout(ctx, syncTimeout)
 	defer cancel()
 	for _, args := range [][]string{{"fetch", "origin", base}, {"merge", "--ff-only", "origin/" + base}} {
-		cmd := exec.CommandContext(ctx, "git", append([]string{"-C", p.Dir}, args...)...)
+		cmd := exec.CommandContext(ctx, "git", append(append([]string{"-C", p.Dir}, gitx.Hardening()...), args...)...)
 		cmd.Env = s.gitCommandEnv()
 		if out, err := cmd.CombinedOutput(); err != nil {
 			if s.opts.Log != nil {
-				s.opts.Log.Warn("could not bring the project up to date after a merge", "project", p.Dir, "step", args[0], "error", strings.TrimSpace(string(out)))
+				s.opts.Log.Warn("could not bring the project up to date after a merge",
+					"project", p.Dir, "step", args[0], "error", strings.TrimSpace(string(out)))
 			}
 			return
 		}

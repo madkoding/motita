@@ -40,7 +40,7 @@ func CommitAll(ctx context.Context, dir, message string) (bool, error) {
 	name, email := Identity(ctx, dir)
 	if _, err := noGitOr(ctx, "the work could not be committed", dir,
 		"-c", "user.name="+name, "-c", "user.email="+email, "-c", "commit.gpgsign=false",
-		"commit", "-q", "-m", message); err != nil {
+		"commit", "-q", "--no-verify", "-m", message); err != nil {
 		return false, err
 	}
 	return true, nil

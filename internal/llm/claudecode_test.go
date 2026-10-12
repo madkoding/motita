@@ -76,7 +76,13 @@ func fakeClaude(script string) {
 			if status == "" {
 				status = "connected"
 			}
-			init = fmt.Sprintf(`{"type":"system","subtype":"init","mcp_servers":[{"name":"other","status":"failed"},{"name":"motita","status":%q}]}`, status)
+			init = fmt.Sprintf(
+				`{"type":"system","subtype":"init","mcp_servers":[{"name":"other","status":"failed"},{"name":"motita",`+
+					`"status":%q}]}`,
+				status,
+			)
+		default:
+			// Every other flag is accepted as is.
 		}
 	}
 	// What claude prints before any answer, plus a line that is not JSON at all.
@@ -155,7 +161,10 @@ func readRecord(t *testing.T, path string) claudeRecord {
 func lines(l ...string) string { return strings.Join(l, "\n") }
 
 func textDelta(s string) string {
-	return fmt.Sprintf(`{"type":"stream_event","event":{"type":"content_block_delta","delta":{"type":"text_delta","text":%q}}}`, s)
+	return fmt.Sprintf(
+		`{"type":"stream_event","event":{"type":"content_block_delta","delta":{"type":"text_delta","text":%q}}}`,
+		s,
+	)
 }
 
 func assistantText(s string) string {
@@ -169,7 +178,8 @@ func stopReason(s string) string {
 const (
 	evStart = `{"type":"stream_event","event":{"type":"message_start"}}`
 	evStop  = `{"type":"stream_event","event":{"type":"message_stop"}}`
-	evTool  = `{"type":"assistant","message":{"content":[{"type":"tool_use","id":"toolu_1","name":"mcp__motita__read_file","input":{"path":"go.mod"}}]}}`
+	evTool  = `{"type":"assistant","message":{"content":[{"type":"tool_use","id":"toolu_1",` +
+		`"name":"mcp__motita__read_file","input":{"path":"go.mod"}}]}}`
 )
 
 // textScript is a streamed text answer; nothing after its message_stop may be needed.
@@ -183,11 +193,15 @@ var toolScript = lines(
 	evStart,
 	`{"type":"stream_event","event":{"type":"content_block_delta","delta":{"type":"thinking_delta","thinking":"hmm"}}}`,
 	`{"type":"assistant","message":{"content":[{"type":"thinking","thinking":"hmm"}]}}`,
-	textDelta("Reading "), textDelta("go.mod."), assistantText("Reading go.mod."),
-	`{"type":"stream_event","event":{"type":"content_block_delta","delta":{"type":"input_json_delta","partial_json":"{}"}}}`,
+	textDelta("Reading "),
+	textDelta("go.mod."),
+	assistantText("Reading go.mod."),
+	`{"type":"stream_event","event":{"type":"content_block_delta","delta":{"type":"input_json_delta",`+
+		`"partial_json":"{}"}}}`,
 	evTool,
 	`{"type":"rate_limit_event"}`,
-	stopReason("tool_use"), evStop,
+	stopReason("tool_use"),
+	evStop,
 	`{"type":"result","subtype":"error_max_turns","is_error":true,"num_turns":2}`,
 	"sleep",
 )
@@ -249,8 +263,10 @@ func TestClaudeFramesRefusesAnAssistantPrefill(t *testing.T) {
 // environment, system prompt, manifest, replayed frames) and what comes back.
 func TestClaudeCodeToolCallRoundTrip(t *testing.T) {
 	c, record := claudeTestClient(t, toolScript, func(c *config.LLM) { c.MaxTokens = 2048 })
-	for _, v := range []string{"ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_BASE_URL", "ANTHROPIC_CUSTOM_HEADERS",
-		"CLAUDE_CODE_USE_BEDROCK", "CLAUDE_CODE_USE_ANTHROPIC_AWS", "CLAUDE_CODE_USE_MANTLE", "CLAUDE_EFFORT"} {
+	for _, v := range []string{
+		"ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_BASE_URL", "ANTHROPIC_CUSTOM_HEADERS",
+		"CLAUDE_CODE_USE_BEDROCK", "CLAUDE_CODE_USE_ANTHROPIC_AWS", "CLAUDE_CODE_USE_MANTLE", "CLAUDE_EFFORT",
+	} {
 		t.Setenv(v, "leak")
 	}
 	t.Setenv("CLAUDE_CODE_OAUTH_TOKEN", "the-users-own")
@@ -264,7 +280,12 @@ func TestClaudeCodeToolCallRoundTrip(t *testing.T) {
 	reply, err := c.callClaudeCode(context.Background(), []Message{
 		{Role: "system", Content: "You are motita."},
 		{Role: "user", Content: "what module is this?"},
-		{Role: "assistant", ToolCalls: []ToolCall{{ID: "toolu_0", Function: FunctionCall{Name: "list_directory", Arguments: json.RawMessage(`{}`)}}}},
+		{
+			Role: "assistant",
+			ToolCalls: []ToolCall{
+				{ID: "toolu_0", Function: FunctionCall{Name: "list_directory", Arguments: json.RawMessage(`{}`)}},
+			},
+		},
 		{Role: "tool", ToolCallID: "toolu_0", Content: "go.mod"},
 	}, tools, func(s string) { streamed.WriteString(s) })
 	if err != nil {
@@ -277,8 +298,7 @@ func TestClaudeCodeToolCallRoundTrip(t *testing.T) {
 	if reply.Content != "Reading go.mod." || streamed.String() != "Reading go.mod." || reply.FinishReason != "tool_calls" {
 		t.Errorf("reply = %+v, streamed %q", reply, streamed.String())
 	}
-	if len(reply.Calls) != 1 || reply.Calls[0].ID != "toolu_1" || reply.Calls[0].Type != "function" ||
-		reply.Calls[0].Function.Name != "read_file" || string(reply.Calls[0].Function.Arguments) != `{"path":"go.mod"}` {
+	if len(reply.Calls) != 1 || !isReadGoModCall(reply.Calls[0]) {
 		t.Errorf("calls = %+v", reply.Calls)
 	}
 	if _, err := os.Stat(record + ".term"); err != nil && runtime.GOOS != "windows" {
@@ -286,6 +306,21 @@ func TestClaudeCodeToolCallRoundTrip(t *testing.T) {
 	}
 
 	rec := readRecord(t, record)
+	checkRoundTripArgv(t, rec)
+	checkRoundTripEnv(t, rec, record)
+	checkRoundTripMCP(t, rec)
+	checkRoundTripFrames(t, rec)
+}
+
+// isReadGoModCall reports whether call is the read_file of go.mod the tool script answers with.
+func isReadGoModCall(call ToolCall) bool {
+	return call.ID == "toolu_1" && call.Type == "function" &&
+		call.Function.Name == "read_file" && string(call.Function.Arguments) == `{"path":"go.mod"}`
+}
+
+// checkRoundTripArgv: the flags claude was started with.
+func checkRoundTripArgv(t *testing.T, rec claudeRecord) {
+	t.Helper()
 	want := []string{"-p", "--model", "sonnet", "--input-format", "stream-json", "--output-format", "stream-json",
 		"--verbose", "--include-partial-messages", "--tools", "", "--system-prompt-file"}
 	if !slices.Equal(rec.Args[:len(want)], want) {
@@ -303,6 +338,11 @@ func TestClaudeCodeToolCallRoundTrip(t *testing.T) {
 	if rec.System != "You are motita." {
 		t.Errorf("system prompt = %q", rec.System)
 	}
+}
+
+// checkRoundTripEnv: claude runs on the user's own login, never on a key motita inherited.
+func checkRoundTripEnv(t *testing.T, rec claudeRecord, record string) {
+	t.Helper()
 	for _, kv := range rec.Env {
 		if strings.HasSuffix(kv, "=leak") {
 			t.Errorf("%s reached claude: it must use the user's own login", kv)
@@ -321,7 +361,11 @@ func TestClaudeCodeToolCallRoundTrip(t *testing.T) {
 			t.Errorf("claude's %s = %q, want %q", k, env[k], v)
 		}
 	}
+}
 
+// checkRoundTripMCP: the MCP config points back at this binary and its per-call directory is gone.
+func checkRoundTripMCP(t *testing.T, rec claudeRecord) {
+	t.Helper()
 	var mcp claudeMCPConfig
 	if err := json.Unmarshal([]byte(rec.MCP), &mcp); err != nil {
 		t.Fatal(err)
@@ -333,16 +377,24 @@ func TestClaudeCodeToolCallRoundTrip(t *testing.T) {
 	if _, err := os.Stat(filepath.Dir(mcp.MCPServers["motita"].Args[1])); !os.IsNotExist(err) {
 		t.Errorf("the per-call directory must be removed: %v", err)
 	}
-	wantManifest := `[{"name":"read_file","description":"Reads a file.","inputSchema":{"properties":{"path":{"description":"p","type":"string"}},"required":["path"],"type":"object"}},` +
+	wantManifest := `[{"name":"read_file","description":"Reads a file.",` +
+		`"inputSchema":{"properties":{"path":{"description":"p","type":"string"}},"required":["path"],"type":"object"}},` +
 		`{"name":"list_skills","description":"Lists skills.","inputSchema":{"properties":{},"type":"object"}}]`
 	if rec.Manifest != wantManifest {
 		t.Errorf("manifest = %s", rec.Manifest)
 	}
+}
 
+// checkRoundTripFrames: the conversation reaches claude as stream-json frames.
+func checkRoundTripFrames(t *testing.T, rec claudeRecord) {
+	t.Helper()
 	wantFrames := []string{
-		`{"type":"user","message":{"role":"user","content":[{"type":"text","text":"what module is this?"}]},"shouldQuery":false}`,
-		`{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","id":"toolu_0","name":"mcp__motita__list_directory","input":{}}]}}`,
-		`{"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"toolu_0","content":"go.mod"}]}}`,
+		`{"type":"user","message":{"role":"user","content":[{"type":"text","text":"what module is ` +
+			`this?"}]},"shouldQuery":false}`,
+		`{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","id":"toolu_0",` +
+			`"name":"mcp__motita__list_directory","input":{}}]}}`,
+		`{"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"toolu_0",` +
+			`"content":"go.mod"}]}}`,
 	}
 	if len(rec.Frames) != len(wantFrames) {
 		t.Fatalf("frames = %s", rec.Frames)
@@ -374,7 +426,11 @@ func TestClaudeCodeRunsInMotitasDirectory(t *testing.T) {
 }
 
 func TestClaudeCodeReasoningIsEffort(t *testing.T) {
-	c, record := claudeTestClient(t, textScript, func(c *config.LLM) { c.Reasoning = config.Reasoning{Enabled: true, Level: "high"} })
+	c, record := claudeTestClient(
+		t,
+		textScript,
+		func(c *config.LLM) { c.Reasoning = config.Reasoning{Enabled: true, Level: "high"} },
+	)
 	if _, err := c.CompleteTools(context.Background(), hi, nil); err != nil {
 		t.Fatal(err)
 	}
@@ -382,7 +438,11 @@ func TestClaudeCodeReasoningIsEffort(t *testing.T) {
 	if i := slices.Index(rec.Args, "--effort"); i < 0 || rec.Args[i+1] != "high" {
 		t.Errorf("argv = %q, want --effort high", rec.Args)
 	}
-	if slices.Contains(rec.Env, "MAX_THINKING_TOKENS=0") || slices.ContainsFunc(rec.Env, func(kv string) bool { return strings.HasPrefix(kv, "CLAUDE_CODE_MAX_OUTPUT_TOKENS=") }) {
+	if slices.Contains(rec.Env, "MAX_THINKING_TOKENS=0") ||
+		slices.ContainsFunc(
+			rec.Env,
+			func(kv string) bool { return strings.HasPrefix(kv, "CLAUDE_CODE_MAX_OUTPUT_TOKENS=") },
+		) {
 		t.Errorf("thinking must not be switched off, and no max_tokens was set: %q", rec.Env)
 	}
 }
@@ -403,7 +463,12 @@ func TestClaudeCodeResolvesRelativePaths(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Setenv("TMPDIR", "tmp")
-	reply, err := c.callClaudeCode(context.Background(), []Message{{Role: "system", Content: "S"}, {Role: "user", Content: "hi"}}, nil, nil)
+	reply, err := c.callClaudeCode(
+		context.Background(),
+		[]Message{{Role: "system", Content: "S"}, {Role: "user", Content: "hi"}},
+		nil,
+		nil,
+	)
 	if err != nil || reply.Content != "Reading go.mod." {
 		t.Fatalf("reply = %+v, %v", reply, err)
 	}
@@ -429,7 +494,8 @@ func TestClaudeCodeCompleteWantsText(t *testing.T) {
 		t.Errorf("an answer with no text must be an error, got %v", err)
 	}
 	t.Setenv("MOTITA_CLAUDE_BIN", filepath.Join(t.TempDir(), "claude"))
-	if _, err := c.Complete(context.Background(), hi); err == nil || !strings.Contains(err.Error(), "install Claude Code") {
+	if _, err := c.Complete(context.Background(), hi); err == nil ||
+		!strings.Contains(err.Error(), "install Claude Code") {
 		t.Errorf("a failed call must reach Complete's caller, got %v", err)
 	}
 }
@@ -439,11 +505,26 @@ func TestClaudeCodeCompleteWantsText(t *testing.T) {
 // to retry. None of those is the answer.
 func TestClaudeCodeMessageStopsThatAreNotTheEnd(t *testing.T) {
 	c, _ := claudeTestClient(t, lines(
-		evStart, `{"type":"assistant","message":{"content":[{"type":"thinking","thinking":"hmm"}]}}`, stopReason("end_turn"), evStop,
-		evStart, textDelta("Part one, "), assistantText("Part one, "), stopReason("max_tokens"), evStop,
-		evStart, textDelta("lost"), assistantText("lost"), evStop,
-		evStart, textDelta("part two."), assistantText("part two."), stopReason("end_turn"), evStop,
-		"sleep"), nil)
+		evStart,
+		`{"type":"assistant","message":{"content":[{"type":"thinking","thinking":"hmm"}]}}`,
+		stopReason("end_turn"),
+		evStop,
+		evStart,
+		textDelta("Part one, "),
+		assistantText("Part one, "),
+		stopReason("max_tokens"),
+		evStop,
+		evStart,
+		textDelta("lost"),
+		assistantText("lost"),
+		evStop,
+		evStart,
+		textDelta("part two."),
+		assistantText("part two."),
+		stopReason("end_turn"),
+		evStop,
+		"sleep",
+	), nil)
 	reply, err := c.CompleteTools(context.Background(), hi, nil)
 	if err != nil || reply.Content != "Part one, part two." || reply.FinishReason != "stop" {
 		t.Errorf("reply = %+v, %v", reply, err)
@@ -464,16 +545,25 @@ func TestClaudeCodeWithoutStreamEvents(t *testing.T) {
 	}
 
 	// A tool call ends in error_max_turns: claude tried to run the denied tool.
-	c, _ = claudeTestClient(t, lines(evTool,
-		`{"type":"result","subtype":"error_max_turns","is_error":true,"num_turns":2,"errors":["Reached maximum number of turns (1)"]}`), nil)
+	c, _ = claudeTestClient(t, lines(
+		evTool,
+		`{"type":"result","subtype":"error_max_turns","is_error":true,"num_turns":2,"errors":["Reached maximum number of `+
+			`turns (1)"]}`,
+	), nil)
 	reply, err := c.CompleteTools(context.Background(), hi, nil)
 	if err != nil || len(reply.Calls) != 1 || reply.FinishReason != "tool_calls" {
 		t.Errorf("reply = %+v, %v", reply, err)
 	}
 
 	// The same result with nothing collected is a failure, and says why.
-	c, _ = claudeTestClient(t, `{"type":"result","subtype":"error_max_turns","is_error":true,"num_turns":2,"errors":["Reached maximum number of turns (1)"]}`, nil)
-	if _, err := c.CompleteTools(context.Background(), hi, nil); err == nil || !strings.Contains(err.Error(), "Reached maximum number of turns") {
+	c, _ = claudeTestClient(
+		t,
+		`{"type":"result","subtype":"error_max_turns","is_error":true,"num_turns":2,"errors":["Reached maximum number of `+
+			`turns (1)"]}`,
+		nil,
+	)
+	if _, err := c.CompleteTools(context.Background(), hi, nil); err == nil ||
+		!strings.Contains(err.Error(), "Reached maximum number of turns") {
 		t.Errorf("err = %v", err)
 	}
 }
@@ -505,20 +595,43 @@ func TestClaudeCodeStreams(t *testing.T) {
 }
 
 func TestClaudeCodeStreamReportsAnError(t *testing.T) {
-	c, _ := claudeTestClient(t, `{"type":"result","subtype":"error_during_execution","is_error":true,"result":"boom"}`, nil)
+	c, _ := claudeTestClient(
+		t,
+		`{"type":"result","subtype":"error_during_execution","is_error":true,"result":"boom"}`,
+		nil,
+	)
 	var last StreamChunk
 	for chunk := range c.CompleteToolsStream(context.Background(), hi, nil) {
 		last = chunk
 	}
-	if last.Event != StreamError || !strings.Contains(last.Error.Error(), "error_during_execution") || !strings.Contains(last.Error.Error(), "boom") {
+	if last.Event != StreamError || !strings.Contains(last.Error.Error(), "error_during_execution") ||
+		!strings.Contains(last.Error.Error(), "boom") {
 		t.Errorf("last chunk = %+v", last)
 	}
 }
 
 // TestClaudeCodeFailures: every way the call can fail, and whether retrying it
 // could help.
+// claudeFailureCase is one way a claude call can fail, and how the failure must read.
+type claudeFailureCase struct {
+	name     string
+	script   string
+	setup    func(t *testing.T)
+	tweak    func(*config.LLM)
+	ctx      context.Context
+	messages []Message
+	tools    []Tool
+	want     string
+	is       error
+	retry    bool
+}
+
 func TestClaudeCodeFailures(t *testing.T) {
-	history := []Message{{Role: "user", Content: "hi"}, {Role: "assistant", Content: "yes"}, {Role: "user", Content: "go on"}}
+	history := []Message{
+		{Role: "user", Content: "hi"},
+		{Role: "assistant", Content: "yes"},
+		{Role: "user", Content: "go on"},
+	}
 	tools := []Tool{NewTool("read_file", "Reads a file.", ObjectSchema(map[string]any{}))}
 	long := strings.Repeat("x", 2000) + "the end"
 	cancelled, cancel := context.WithCancel(context.Background())
@@ -526,18 +639,7 @@ func TestClaudeCodeFailures(t *testing.T) {
 	assistantError := func(kind, text string) string {
 		return fmt.Sprintf(`{"type":"assistant","error":%q,"message":{"content":[{"type":"text","text":%q}]}}`, kind, text)
 	}
-	cases := []struct {
-		name     string
-		script   string
-		setup    func(t *testing.T)
-		tweak    func(*config.LLM)
-		ctx      context.Context
-		messages []Message
-		tools    []Tool
-		want     string
-		is       error
-		retry    bool
-	}{
+	cases := []claudeFailureCase{
 		{name: "logged out", script: assistantError("authentication_failed", "Please run /login"),
 			want: "authentication_failed: Please run /login"},
 		{name: "no such model", script: assistantError("model_not_found", "There's an issue with the selected model (sonet)"),
@@ -562,8 +664,15 @@ func TestClaudeCodeFailures(t *testing.T) {
 			want:  `claude could not use motita's tool server (MCP status "failed")`},
 		{name: "no claude", setup: func(t *testing.T) { t.Setenv("MOTITA_CLAUDE_BIN", filepath.Join(t.TempDir(), "claude")) },
 			want: "install Claude Code and run `claude auth login`", is: fs.ErrNotExist},
-		{name: "no claude on PATH", setup: func(t *testing.T) { t.Setenv("MOTITA_CLAUDE_BIN", ""); t.Setenv("PATH", t.TempDir()) },
-			want: "claude was not found", is: exec.ErrNotFound},
+		{
+			name: "no claude on PATH",
+			setup: func(t *testing.T) {
+				t.Setenv("MOTITA_CLAUDE_BIN", "")
+				t.Setenv("PATH", t.TempDir())
+			},
+			want: "claude was not found",
+			is:   exec.ErrNotFound,
+		},
 		{name: "claude not executable", setup: func(t *testing.T) {
 			bin := filepath.Join(t.TempDir(), "claude")
 			_ = os.WriteFile(bin, []byte("#!/bin/sh\n"), 0o600)
@@ -576,8 +685,12 @@ func TestClaudeCodeFailures(t *testing.T) {
 		}, want: "could not run", retry: true},
 		{name: "prefill", messages: []Message{{Role: "user", Content: "hi"}, {Role: "assistant", Content: "x"}},
 			want: "ends with a user turn"},
-		{name: "no temporary directory", setup: func(t *testing.T) { t.Setenv("TMPDIR", filepath.Join(t.TempDir(), "missing")) },
-			want: "missing", retry: true},
+		{
+			name:  "no temporary directory",
+			setup: func(t *testing.T) { t.Setenv("TMPDIR", filepath.Join(t.TempDir(), "missing")) },
+			want:  "missing",
+			retry: true,
+		},
 		{name: "no own path", tools: tools, setup: func(t *testing.T) {
 			executable = func() (string, error) { return "", errors.New("no /proc") }
 			t.Cleanup(func() { executable = os.Executable })
@@ -588,37 +701,44 @@ func TestClaudeCodeFailures(t *testing.T) {
 		}, want: "disk full", retry: true},
 	}
 	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			c, _ := claudeTestClient(t, tc.script, tc.tweak)
-			if tc.setup != nil {
-				tc.setup(t)
-			}
-			if tc.messages == nil {
-				tc.messages = hi
-			}
-			if tc.ctx == nil {
-				tc.ctx = context.Background()
-			}
-			_, err := c.callClaudeCode(tc.ctx, tc.messages, tc.tools, nil)
-			if err == nil || !strings.Contains(err.Error(), tc.want) {
-				t.Fatalf("err = %v, want it to contain %q", err, tc.want)
-			}
-			if tc.is != nil && !errors.Is(err, tc.is) {
-				t.Errorf("err = %v, want it to wrap %v", err, tc.is)
-			}
-			if retryable(err) != tc.retry {
-				t.Errorf("retryable = %v, want %v", retryable(err), tc.retry)
-			}
-		})
+		t.Run(tc.name, func(t *testing.T) { runClaudeFailureCase(t, tc) })
+	}
+}
+
+// runClaudeFailureCase makes the call tc describes and checks the error it ends in.
+func runClaudeFailureCase(t *testing.T, tc claudeFailureCase) {
+	c, _ := claudeTestClient(t, tc.script, tc.tweak)
+	if tc.setup != nil {
+		tc.setup(t)
+	}
+	if tc.messages == nil {
+		tc.messages = hi
+	}
+	if tc.ctx == nil {
+		tc.ctx = context.Background()
+	}
+	_, err := c.callClaudeCode(tc.ctx, tc.messages, tc.tools, nil)
+	if err == nil || !strings.Contains(err.Error(), tc.want) {
+		t.Fatalf("err = %v, want it to contain %q", err, tc.want)
+	}
+	if tc.is != nil && !errors.Is(err, tc.is) {
+		t.Errorf("err = %v, want it to wrap %v", err, tc.is)
+	}
+	if retryable(err) != tc.retry {
+		t.Errorf("retryable = %v, want %v", retryable(err), tc.retry)
 	}
 }
 
 // TestClaudeCodeFatalErrorsAreNotRetried: the retry loop must give up at once on a
 // failure that retrying cannot fix.
 func TestClaudeCodeFatalErrorsAreNotRetried(t *testing.T) {
-	c, _ := claudeTestClient(t, "", func(c *config.LLM) { c.MaxAttempts = 3; c.BackoffInitial = time.Millisecond })
+	c, _ := claudeTestClient(t, "", func(c *config.LLM) {
+		c.MaxAttempts = 3
+		c.BackoffInitial = time.Millisecond
+	})
 	t.Setenv("MOTITA_CLAUDE_BIN", filepath.Join(t.TempDir(), "claude"))
-	if _, err := c.CompleteTools(context.Background(), hi, nil); err == nil || strings.Contains(err.Error(), "attempts were exhausted") {
+	if _, err := c.CompleteTools(context.Background(), hi, nil); err == nil ||
+		strings.Contains(err.Error(), "attempts were exhausted") {
 		t.Errorf("err = %v: a missing claude must fail without retrying", err)
 	}
 }
@@ -668,117 +788,12 @@ func TestCompleteToolsStreamRetriesAFailureBeforeAnyChunk(t *testing.T) {
 	attempts = 0
 	c.openStream = func(context.Context, []Message, []Tool) (<-chan StreamChunk, error) {
 		attempts++
-		return stream(StreamChunk{Event: StreamText, Text: "half"}, StreamChunk{Event: StreamError, Error: errors.New("cut")}), nil
+		return stream(
+			StreamChunk{Event: StreamText, Text: "half"},
+			StreamChunk{Event: StreamError, Error: errors.New("cut")},
+		), nil
 	}
 	if got := collectAll(c); attempts != 1 || len(got) != 2 || got[1].Event != StreamError {
 		t.Errorf("attempts = %d, chunks = %+v", attempts, got)
-	}
-}
-
-func TestNewAcceptsClaudeCodeWithoutAKey(t *testing.T) {
-	if _, err := New(config.LLM{Provider: "Claude-Code", Model: "sonnet"}, nil); err != nil {
-		t.Errorf("claude-code uses the user's own login and needs no key: %v", err)
-	}
-}
-
-func TestClaudeCodeModels(t *testing.T) {
-	// Neither variable may come from the shell running the tests: the assertion below is about
-	// what motita adds.
-	for _, k := range []string{"CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC", "MAX_THINKING_TOKENS"} {
-		t.Setenv(k, "")
-		_ = os.Unsetenv(k)
-	}
-	_, record := claudeTestClient(t, lines(
-		`{"type":"control_response","response":{"subtype":"success","request_id":"models","response":{`+
-			`"models":[{"value":"sonnet","resolvedModel":"claude-sonnet-5","displayName":"Sonnet","description":"Sonnet 5 · Efficient for routine tasks"},`+
-			`{"value":"haiku","resolvedModel":"claude-haiku-4-5-20251001","displayName":"Haiku","description":"Haiku 4.5 · Fastest"}],`+
-			`"account":{"subscriptionType":"Claude Max"}}}}`), nil)
-	got, err := ClaudeCodeModels(context.Background())
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got.Plan != "Claude Max" || len(got.Models) != 2 || got.Models[0] != (ClaudeCodeModel{
-		Value: "sonnet", Resolved: "claude-sonnet-5", DisplayName: "Sonnet", Description: "Sonnet 5 · Efficient for routine tasks"}) {
-		t.Errorf("catalogue = %+v", got)
-	}
-	// The handshake only: no user frame, so no model is called.
-	rec := readRecord(t, record)
-	if len(rec.Frames) != 1 || !strings.Contains(string(rec.Frames[0]), `"control_request"`) || slices.Contains(rec.Args, "--model") {
-		t.Errorf("frames = %s, argv = %q", rec.Frames, rec.Args)
-	}
-	// Nonessential traffic off makes claude list 5 models instead of the account's 11: it is a
-	// setting for turns, and discovery must not carry it (nor the turn's thinking switch).
-	for _, kv := range rec.Env {
-		if strings.HasPrefix(kv, "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=") || strings.HasPrefix(kv, "MAX_THINKING_TOKENS=") {
-			t.Errorf("discovery ran with %s", kv)
-		}
-	}
-	if !slices.Contains(claudeEnv(config.LLM{}), "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1") {
-		t.Error("a turn must still run with nonessential traffic off")
-	}
-}
-
-func TestClaudeCodeModelsFailures(t *testing.T) {
-	claudeTestClient(t, `{"type":"control_response","response":{"subtype":"error","request_id":"models","error":"not now"}}`, nil)
-	if _, err := ClaudeCodeModels(context.Background()); err == nil || !strings.Contains(err.Error(), "not now") {
-		t.Errorf("err = %v", err)
-	}
-	t.Setenv("MOTITA_FAKE_CLAUDE", "")
-	if _, err := ClaudeCodeModels(context.Background()); err == nil || !strings.Contains(err.Error(), "exited before answering") {
-		t.Errorf("err = %v", err)
-	}
-	t.Setenv("MOTITA_CLAUDE_BIN", filepath.Join(t.TempDir(), "claude"))
-	if _, err := ClaudeCodeModels(context.Background()); err == nil || !strings.Contains(err.Error(), "install Claude Code") {
-		t.Errorf("err = %v", err)
-	}
-}
-
-func TestServeClaudeCodeMCP(t *testing.T) {
-	manifest := filepath.Join(t.TempDir(), "tools.json")
-	if err := os.WriteFile(manifest, []byte(`[{"name":"read_file","inputSchema":{"type":"object"}}]`), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	in := strings.NewReader(lines(
-		`{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}`,
-		`{"jsonrpc":"2.0","method":"notifications/initialized"}`,
-		`garbage`,
-		`{"jsonrpc":"2.0","id":2,"method":"tools/list"}`,
-		`{"jsonrpc":"2.0","id":"c","method":"tools/call","params":{"name":"read_file"}}`,
-		`{"jsonrpc":"2.0","id":4,"method":"ping"}`,
-	))
-	var out bytes.Buffer
-	if err := ServeClaudeCodeMCP(in, &out, manifest); err != nil {
-		t.Fatal(err)
-	}
-	want := lines(
-		`{"id":1,"jsonrpc":"2.0","result":{"capabilities":{"tools":{}},"protocolVersion":"2024-11-05","serverInfo":{"name":"motita","version":"1"}}}`,
-		`{"id":2,"jsonrpc":"2.0","result":{"tools":[{"name":"read_file","description":"","inputSchema":{"type":"object"}}]}}`,
-		`{"id":"c","jsonrpc":"2.0","result":{"content":[{"text":"denied: motita executes tools itself","type":"text"}],"isError":true}}`,
-		`{"id":4,"jsonrpc":"2.0","result":{}}`,
-	) + "\n"
-	if out.String() != want {
-		t.Errorf("replies:\n got %s\nwant %s", out.String(), want)
-	}
-}
-
-type failingWriter struct{}
-
-func (failingWriter) Write([]byte) (int, error) { return 0, errors.New("closed") }
-
-func TestServeClaudeCodeMCPFailures(t *testing.T) {
-	dir := t.TempDir()
-	bad := filepath.Join(dir, "bad.json")
-	good := filepath.Join(dir, "good.json")
-	_ = os.WriteFile(bad, []byte(`{`), 0o600)
-	_ = os.WriteFile(good, []byte(`[]`), 0o600)
-	ping := `{"jsonrpc":"2.0","id":1,"method":"ping"}`
-	if err := ServeClaudeCodeMCP(strings.NewReader(ping), &bytes.Buffer{}, filepath.Join(dir, "missing.json")); err == nil {
-		t.Error("a missing manifest must be an error")
-	}
-	if err := ServeClaudeCodeMCP(strings.NewReader(ping), &bytes.Buffer{}, bad); err == nil || !strings.Contains(err.Error(), "invalid tool manifest") {
-		t.Errorf("an invalid manifest must be an error, got %v", err)
-	}
-	if err := ServeClaudeCodeMCP(strings.NewReader(ping), failingWriter{}, good); err == nil {
-		t.Error("a reply that cannot be written must end the server")
 	}
 }

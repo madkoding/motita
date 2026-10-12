@@ -28,18 +28,21 @@ func TestThePublishedDocCopiesMatchTheirSource(t *testing.T) {
 		why    string
 	}{
 		{"docs/REFERENCE.md", "site/REFERENCE.md", `linked from site/index.html as href="REFERENCE.md"`},
-		{"docs/TUI-DESIGN-REVIEW.md", "site/TUI-DESIGN-REVIEW.md", `linked from site/index.html as href="TUI-DESIGN-REVIEW.md"`},
+		{"docs/TUI-DESIGN-REVIEW.md", "site/TUI-DESIGN-REVIEW.md",
+			`linked from site/index.html as href="TUI-DESIGN-REVIEW.md"`},
 		// Not linked by a page: this one IS the URL. Pages uploads site/ alone,
 		// so the installer script has to live there to be served at
 		// https://madkoding.github.io/motita/install.sh — and the moment there
 		// are two copies, one of them is the one nobody edits.
-		{"scripts/install.sh", "site/install.sh", "published as the install URL, https://madkoding.github.io/motita/install.sh"},
+		{"scripts/install.sh", "site/install.sh",
+			"published as the install URL, https://madkoding.github.io/motita/install.sh"},
 		// Same reasoning, on the platform that has no shell: published at
 		// https://madkoding.github.io/motita/install.ps1, and fetched by
 		// `irm ... | iex` rather than linked. Measured on real Pages sites: a
 		// .ps1 is served as application/octet-stream, which Invoke-RestMethod
 		// decodes to a string regardless — the content type does not matter.
-		{"scripts/install.ps1", "site/install.ps1", "published as the install URL, https://madkoding.github.io/motita/install.ps1"},
+		{"scripts/install.ps1", "site/install.ps1",
+			"published as the install URL, https://madkoding.github.io/motita/install.ps1"},
 	}
 
 	for _, p := range pairs {
@@ -112,25 +115,8 @@ func localRefs(html string) []string {
 	seen := map[string]bool{}
 
 	for _, attr := range []string{`href="`, `src="`} {
-		for rest := html; ; {
-			i := strings.Index(rest, attr)
-			if i < 0 {
-				break
-			}
-			rest = rest[i+len(attr):]
-			end := strings.Index(rest, `"`)
-			if end < 0 {
-				break
-			}
-			val := rest[:end]
-			rest = rest[end:]
-
-			if path, _, _ := strings.Cut(val, "#"); path != "" {
-				val = path
-			}
-			if path, _, _ := strings.Cut(val, "?"); path != "" {
-				val = path
-			}
+		for _, val := range attrValues(html, attr) {
+			val = refPath(val)
 			if val == "" || seen[val] || isExternalRef(val) {
 				continue
 			}
@@ -139,6 +125,35 @@ func localRefs(html string) []string {
 		}
 	}
 	return refs
+}
+
+// attrValues returns every quoted value of one attribute (`href="` or `src="`), in order.
+func attrValues(html, attr string) []string {
+	var vals []string
+	for rest := html; ; {
+		i := strings.Index(rest, attr)
+		if i < 0 {
+			return vals
+		}
+		rest = rest[i+len(attr):]
+		end := strings.Index(rest, `"`)
+		if end < 0 {
+			return vals
+		}
+		vals = append(vals, rest[:end])
+		rest = rest[end:]
+	}
+}
+
+// refPath is a reference without its fragment and query, neither being part of the path.
+func refPath(val string) string {
+	if path, _, _ := strings.Cut(val, "#"); path != "" {
+		val = path
+	}
+	if path, _, _ := strings.Cut(val, "?"); path != "" {
+		val = path
+	}
+	return val
 }
 
 func isExternalRef(ref string) bool {

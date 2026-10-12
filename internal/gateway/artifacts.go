@@ -14,6 +14,11 @@ import (
 	"time"
 )
 
+// Literals used more than once in this file.
+const (
+	errNoArtifact = "there is no artifact with that name"
+)
+
 // ArtifactDir is where the agent leaves what it produced for the person - a report, a page,
 // a diagram, a data file - relative to its workspace. The prompt tells it to; the gateway
 // copies the folder out when a run ends, because a session's worktree is removed with the
@@ -105,8 +110,13 @@ func setPinned(dir, name string, pin bool) error {
 // validArtifactName accepts a plain file name: no path, nothing hidden. The name comes from
 // the URL and from the agent's own folder, and either could carry "../".
 func validArtifactName(name string) bool {
-	return name != "" && name == filepath.Base(name) && !strings.HasPrefix(name, ".") &&
-		!strings.ContainsAny(name, "/\\\x00") && len(name) <= 200
+	return name != "" && name == filepath.Base(name) && isVisibleShortName(name)
+}
+
+// isVisibleShortName reports whether name is not hidden, holds no separator or NUL, and is short
+// enough to be a file name everywhere.
+func isVisibleShortName(name string) bool {
+	return !strings.HasPrefix(name, ".") && !strings.ContainsAny(name, "/\\\x00") && len(name) <= 200
 }
 
 // artifactDirFor is the folder one session's artifacts live in, or "" when the gateway keeps
@@ -224,7 +234,9 @@ func (s *Server) collectArtifacts(c *conversation) []Artifact {
 			_, _ = s.storeArtifact(projectDst, projectArtifactName(c.id, e.Name()), data)
 		}
 		if changed {
-			fresh = append(fresh, Artifact{Name: e.Name(), Size: int64(len(data)), Type: artifactType(e.Name()), Modified: time.Now()})
+			fresh = append(fresh, Artifact{
+				Name: e.Name(), Size: int64(len(data)), Type: artifactType(e.Name()), Modified: time.Now(),
+			})
 		}
 	}
 	return fresh
@@ -307,12 +319,12 @@ func (s *Server) artifactPath(w http.ResponseWriter, r *http.Request) (string, b
 	name := r.PathValue("name")
 	dir := s.scopedArtifactDir(convOf(r), r)
 	if dir == "" || !validArtifactName(name) {
-		writeError(w, http.StatusNotFound, "there is no artifact with that name")
+		writeError(w, http.StatusNotFound, errNoArtifact)
 		return "", false
 	}
 	path := filepath.Join(dir, name)
 	if fi, err := os.Stat(path); err != nil || !fi.Mode().IsRegular() {
-		writeError(w, http.StatusNotFound, "there is no artifact with that name")
+		writeError(w, http.StatusNotFound, errNoArtifact)
 		return "", false
 	}
 	return path, true
@@ -354,14 +366,17 @@ func (s *Server) handleGetArtifact(w http.ResponseWriter, r *http.Request) {
 	}
 	f, err := os.Open(path)
 	if err != nil {
-		writeError(w, http.StatusNotFound, "there is no artifact with that name")
+		writeError(w, http.StatusNotFound, errNoArtifact)
 		return
 	}
 	defer f.Close()
 	h := w.Header()
 	h.Set("Content-Type", artifactType(path))
 	h.Set("X-Content-Type-Options", "nosniff")
-	h.Set("Content-Security-Policy", "sandbox; default-src 'none'; img-src data:; style-src 'unsafe-inline'")
+	// frame-ancestors 'self': the interface shows an artifact in a frame of its own page, and
+	// no other site may frame it.
+	h.Set("Content-Security-Policy",
+		"sandbox; default-src 'none'; img-src data:; style-src 'unsafe-inline'; frame-ancestors 'self'")
 	if r.URL.Query().Get("download") == "1" {
 		h.Set("Content-Disposition", mime.FormatMediaType("attachment", map[string]string{"filename": filepath.Base(path)}))
 	}
@@ -438,22 +453,30 @@ func (s *Server) pruneArtifacts(now time.Time) {
 			continue
 		}
 		dir := filepath.Join(root, e.Name())
-		if id, isProject := strings.CutPrefix(e.Name(), "project-"); isProject {
-			if s.projects != nil && s.projectOf(id) == nil {
-				_ = os.RemoveAll(dir)
-				continue
-			}
-		} else if !s.sessionIsKnown(e.Name()) {
+		if s.artifactOwnerGone(e.Name()) {
 			_ = os.RemoveAll(dir)
 			continue
 		}
-		if cutoff.IsZero() {
-			continue
+		if !cutoff.IsZero() {
+			s.pruneOldArtifacts(dir, cutoff)
 		}
-		for _, a := range listArtifacts(dir) {
-			if a.Modified.Before(cutoff) {
-				s.removeIfUnpinned(dir, a.Name)
-			}
+	}
+}
+
+// artifactOwnerGone reports whether the artifact folder name belongs to a project or a session
+// that no longer exists. A project's folder is only judged when the gateway keeps projects.
+func (s *Server) artifactOwnerGone(name string) bool {
+	if id, isProject := strings.CutPrefix(name, "project-"); isProject {
+		return s.projects != nil && s.projectOf(id) == nil
+	}
+	return !s.sessionIsKnown(name)
+}
+
+// pruneOldArtifacts deletes the unpinned files of dir last changed before cutoff.
+func (s *Server) pruneOldArtifacts(dir string, cutoff time.Time) {
+	for _, a := range listArtifacts(dir) {
+		if a.Modified.Before(cutoff) {
+			s.removeIfUnpinned(dir, a.Name)
 		}
 	}
 }

@@ -104,8 +104,9 @@ func (w *prWatchState) wait(every time.Duration) time.Duration {
 		return every * time.Duration(min(f, prMaxBackoff))
 	case w.status == prPassed:
 		return every * 3
+	default:
+		return every * time.Duration(min(1+w.same/2, prMaxQuiet))
 	}
-	return every * time.Duration(min(1+w.same/2, prMaxQuiet))
 }
 
 // see records a reading of the CI and reports whether it is the same as the one before.
@@ -149,19 +150,7 @@ func (w *prWatchState) step(ci *gitforge.CIStatus, max int) string {
 		w.status = prPassed
 		return prPassed
 	case gitforge.StateFailure:
-		w.noneCount = 0
-		key := ciKey(ci)
-		if key == w.fixedKey {
-			return "" // this push was already handed to the agent
-		}
-		w.fixedKey = key
-		if w.attempts >= max {
-			w.status = prGaveUp
-			return prGaveUp
-		}
-		w.attempts++
-		w.status = prFixing
-		return "fix"
+		return w.failed(ci, max)
 	default:
 		w.noneCount++
 		if w.noneCount >= prNoneLimit {
@@ -170,6 +159,24 @@ func (w *prWatchState) step(ci *gitforge.CIStatus, max int) string {
 		}
 	}
 	return ""
+}
+
+// failed folds a failed CI into the watch: "fix" when the agent is to be sent, prGaveUp when the
+// attempts are spent, and "" when this push was already handed to the agent.
+func (w *prWatchState) failed(ci *gitforge.CIStatus, max int) string {
+	w.noneCount = 0
+	key := ciKey(ci)
+	if key == w.fixedKey {
+		return "" // this push was already handed to the agent
+	}
+	w.fixedKey = key
+	if w.attempts >= max {
+		w.status = prGaveUp
+		return prGaveUp
+	}
+	w.attempts++
+	w.status = prFixing
+	return "fix"
 }
 
 // maxPRFixesLimit is the most attempts a project may ask for: past it the agent is not fixing, it is looping.
@@ -217,7 +224,8 @@ func (c *conversation) prWatchView() *PRWatchView {
 func (s *Server) publishPR(c *conversation, w *prWatchState, number int) {
 	view := &PRWatchView{Status: w.status, Attempts: w.attempts, Max: s.prMaxFixes(c), Number: number}
 	c.stateMu.Lock()
-	changed := c.prWatch == nil || c.prWatch.Status != view.Status || c.prWatch.Attempts != view.Attempts || c.prWatch.Number != view.Number
+	changed := c.prWatch == nil || c.prWatch.Status != view.Status || c.prWatch.Attempts != view.Attempts ||
+		c.prWatch.Number != view.Number
 	c.prWatch, c.prFixedKey = view, w.fixedKey
 	c.stateMu.Unlock()
 	if changed {
@@ -304,27 +312,49 @@ func (s *Server) pollPR(c *conversation, w *prWatchState) bool {
 	w.see(&ci)
 	verdict := w.step(&ci, s.prMaxFixes(c))
 	s.publishPR(c, w, pr.Number)
+	over := false
 	switch verdict {
 	case prPassed:
 		// Not over: unless the project merged it, the pull request is watched until it is merged or closed.
 		s.autoMerge(c, t, pr)
-		return c.merged
+		over = c.merged
 	case prGaveUp, prNoCI:
-		return true
+		over = true
 	case "fix":
-		// A failure the base branch has too is not this change's to fix: spending the attempts on
-		// it would only end in a pull request that cannot be made green from here.
-		if names := ci.FailedNames(); len(names) > 0 && pr.Base != "" {
-			if base, err := s.branchCI(ctx, t, pr.Base); err == nil && coversAll(base.FailedNames(), names) {
-				w.attempts--
-				w.status = prBaseRed
-				s.publishPR(c, w, pr.Number)
-				return true
-			}
-		}
-		s.sendToAgent(c, ciFixTask(t.branch, pr))
+		over = s.answerCIFailure(ctx, c, w, t, pr, &ci)
+	default:
+		// The CI is still running, or this push was already handed to the agent.
 	}
+	return over
+}
+
+// answerCIFailure sends the agent to fix a failed CI, and reports whether the watch is over. A
+// failure the base branch has too is not this change's to fix: spending the attempts on it would
+// only end in a pull request that cannot be made green from here.
+func (s *Server) answerCIFailure(
+	ctx context.Context, c *conversation, w *prWatchState, t prTarget, pr gitforge.PullRequest, ci *gitforge.CIStatus,
+) bool {
+	if s.baseFailsToo(ctx, t, pr, ci) {
+		w.attempts--
+		w.status = prBaseRed
+		s.publishPR(c, w, pr.Number)
+		return true
+	}
+	s.sendToAgent(c, ciFixTask(t.branch, pr))
 	return false
+}
+
+// baseFailsToo reports whether every check that failed on the pull request also fails on its base
+// branch.
+func (s *Server) baseFailsToo(ctx context.Context, t prTarget, pr gitforge.PullRequest, ci *gitforge.CIStatus) bool {
+	names := ci.FailedNames()
+	return len(names) > 0 && pr.Base != "" && s.branchFailsAll(ctx, t, pr.Base, names)
+}
+
+// branchFailsAll reports whether the CI of branch fails every one of names.
+func (s *Server) branchFailsAll(ctx context.Context, t prTarget, branch string, names []string) bool {
+	base, err := s.branchCI(ctx, t, branch)
+	return err == nil && coversAll(base.FailedNames(), names)
 }
 
 // pollPassed is the watch of a pull request whose CI passed: it waits for the pull request to be
@@ -355,6 +385,8 @@ func (s *Server) pollPassed(c *conversation, w *prWatchState, t prTarget) bool {
 		w.status = prClosed
 		s.publishPR(c, w, number)
 		return true
+	default:
+		// Still open: watched again on the next round.
 	}
 	return false
 }
@@ -415,7 +447,10 @@ func (s *Server) handleMergePR(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if state, err := t.api.MergeState(r.Context(), t.remote, pr.Number); err == nil && state.Refuses() {
-		writeJSON(w, http.StatusConflict, map[string]string{"error": "the host would not merge this pull request now: " + mergeRefusals[state.Code], "code": "pr_" + state.Code})
+		writeJSON(w, http.StatusConflict, map[string]string{
+			"error": "the host would not merge this pull request now: " + mergeRefusals[state.Code],
+			"code":  "pr_" + state.Code,
+		})
 		return
 	}
 	if err := s.doMerge(r.Context(), c, t, pr); err != nil {
@@ -489,7 +524,8 @@ func (s *Server) autoMerge(c *conversation, t prTarget, pr gitforge.PullRequest)
 		return
 	}
 	if err := s.doMerge(s.baseCtx, c, t, pr); err != nil && s.opts.Log != nil {
-		s.opts.Log.Warn("could not merge a pull request automatically", "session", c.id, "pr", pr.Number, "error", err.Error())
+		s.opts.Log.Warn("could not merge a pull request automatically",
+			"session", c.id, "pr", pr.Number, "error", err.Error())
 	}
 }
 

@@ -54,6 +54,8 @@ func TestASessionStoreWhoseListingFailsIsReportedAtStartup(t *testing.T) {
 		t.Fatal("a listing that cannot read the directory must be reported")
 	} else if !strings.Contains(err.Error(), "could not read the session directory") {
 		t.Errorf("err = %q, want it to name the directory", err)
+	} else {
+		// The error was reported and names the directory: nothing more to check here.
 	}
 
 	// And the server reports it and still serves, rather than refusing to start.

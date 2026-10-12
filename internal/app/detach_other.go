@@ -18,4 +18,6 @@ func termSignal() os.Signal { return os.Kill }
 // detach does nothing where there are no POSIX sessions. The service still works, it just shares
 // the lifetime of the terminal it was started from - which is what a Windows user starting a
 // console program already expects.
-func detach(cmd *exec.Cmd) {}
+func detach(cmd *exec.Cmd) {
+	// Nothing to do here: see the comment above.
+}

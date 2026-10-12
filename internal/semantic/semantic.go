@@ -25,16 +25,19 @@ func LintSubject(subject string) error {
 	subject = strings.TrimSpace(subject)
 	switch {
 	case subject == "":
-		return fmt.Errorf("the title is empty: write it as \"type(scope): description\", with type one of %s", strings.Join(CommitTypes, ", "))
+		return fmt.Errorf("the title is empty: write it as \"type(scope): description\", with type one of %s",
+			strings.Join(CommitTypes, ", "))
 	case strings.ContainsAny(subject, "\r\n"):
 		return fmt.Errorf("the title must be one line")
 	case !semanticRe.MatchString(subject):
-		return fmt.Errorf("%q is not a semantic title: write it as \"type(scope): description\", with type one of %s (for example \"fix(auth): refresh the token before it expires\")",
+		return fmt.Errorf("%q is not a semantic title: write it as \"type(scope): description\", "+
+			"with type one of %s (for example \"fix(auth): refresh the token before it expires\")",
 			subject, strings.Join(CommitTypes, ", "))
 	case len(subject) > maxSubject:
 		return fmt.Errorf("the title is %d characters long: keep it under %d", len(subject), maxSubject)
+	default:
+		return nil
 	}
-	return nil
 }
 
 // CommitSubject reads the subject a `git commit` is being given from its arguments
@@ -50,30 +53,18 @@ func CommitSubject(args []string) (subject string, ok bool) {
 	found := false
 	for i := 0; i < len(args); i++ {
 		a := args[i]
-		switch {
-		case a == "-F" || a == "--file" || strings.HasPrefix(a, "--file=") || strings.HasPrefix(a, "-F") && len(a) > 2 && !strings.HasPrefix(a, "--"),
-			a == "-C" || a == "-c" || a == "--reuse-message" || a == "--reedit-message" || strings.HasPrefix(a, "--fixup") || strings.HasPrefix(a, "--squash"):
+		if messageFromElsewhere(a) {
 			return "", false
-		case a == "--message":
-			if i+1 < len(args) && !found {
-				message, found = args[i+1], true
+		}
+		inline, has, next := messageArg(a)
+		if next {
+			if i+1 < len(args) {
+				inline, has = args[i+1], true
 			}
 			i++
-		case strings.HasPrefix(a, "--message="):
-			if !found {
-				message, found = strings.TrimPrefix(a, "--message="), true
-			}
-		case strings.HasPrefix(a, "--") || !strings.HasPrefix(a, "-") || a == "-":
-			// A long flag, or a pathspec: neither carries the message.
-		case clusterTakesMessage(a):
-			if i+1 < len(args) && !found {
-				message, found = args[i+1], true
-			}
-			i++
-		case strings.HasPrefix(a, "-m"):
-			if !found {
-				message, found = a[2:], true
-			}
+		}
+		if has && !found {
+			message, found = inline, true
 		}
 	}
 	if !found {
@@ -83,6 +74,56 @@ func CommitSubject(args []string) (subject string, ok bool) {
 		message = message[:i]
 	}
 	return strings.TrimSpace(message), true
+}
+
+// messageSourceFlags are the git commit flags, given alone, that take the message from a file or
+// an earlier commit; messageSourcePrefixes are the ones recognised by their start (-Ffile,
+// --file=f, --fixup=..., --squash=...).
+var (
+	messageSourceFlags = map[string]bool{
+		"--file": true, "-C": true, "-c": true, "--reuse-message": true, "--reedit-message": true,
+	}
+	messageSourcePrefixes = []string{"-F", "--file=", "--fixup", "--squash"}
+)
+
+// messageFromElsewhere reports whether an argument makes git read the message from somewhere
+// other than the command line, so the subject cannot be known from it.
+func messageFromElsewhere(a string) bool {
+	if messageSourceFlags[a] {
+		return true
+	}
+	for _, p := range messageSourcePrefixes {
+		if strings.HasPrefix(a, p) {
+			return true
+		}
+	}
+	return false
+}
+
+// isShortCluster reports whether an argument is a cluster of short flags: a single dash with
+// something after it.
+func isShortCluster(a string) bool {
+	return strings.HasPrefix(a, "-") && !strings.HasPrefix(a, "--") && a != "-"
+}
+
+// messageArg reads what one argument of git commit says about the message: inline is a message
+// carried in the argument itself (has reports there is one), and next reports that the message
+// is the following argument.
+func messageArg(a string) (inline string, has, next bool) {
+	switch {
+	case a == "--message":
+		return "", false, true
+	case strings.HasPrefix(a, "--message="):
+		return strings.TrimPrefix(a, "--message="), true, false
+	case isShortCluster(a) && clusterTakesMessage(a):
+		return "", false, true
+	case strings.HasPrefix(a, "-m"):
+		return a[2:], true, false
+	default:
+		// Another long flag, another short-flag cluster, or a pathspec: none carries the
+		// message.
+		return "", false, false
+	}
 }
 
 // clusterTakesMessage reports whether a short-flag cluster ends in m: `-m`, `-am`, `-sam`. It

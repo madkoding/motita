@@ -6,6 +6,7 @@ package updater
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -71,12 +72,13 @@ func TestInstallUsesTheConfiguredPlatformNotTheRunningOne(t *testing.T) {
 	}
 }
 
-// TestInstallFallsBackToACopyWhenTheFirstRenameFails: the Windows path renames the replaced
-// binary aside first, and that rename can fail - an antivirus holding the file, a permission
-// the process does not have. copyFile is the fallback, and the difference between "the upgrade
-// failed" and "the upgrade worked anyway". It is reachable on any platform: renaming a file
-// over a non-empty directory is not permitted anywhere.
-func TestInstallFallsBackToACopyWhenTheFirstRenameFails(t *testing.T) {
+// TestInstallOnWindowsRefusesWhenTheBinaryCannotBeMovedAside: Windows cannot overwrite a running
+// binary, so the old one is renamed aside first, and that rename can fail - an antivirus holding
+// the file, a permission the process does not have. The upgrade then FAILS and leaves the current
+// binary untouched: the old fallback copied over the target in place, which is not atomic and
+// could leave a truncated executable. It is reachable on any platform: renaming a file over a
+// non-empty directory is not permitted anywhere.
+func TestInstallOnWindowsRefusesWhenTheBinaryCannotBeMovedAside(t *testing.T) {
 	dir := t.TempDir()
 	target := filepath.Join(dir, "motita.exe")
 	if err := os.WriteFile(target, []byte("old"), 0o755); err != nil {
@@ -88,7 +90,7 @@ func TestInstallFallsBackToACopyWhenTheFirstRenameFails(t *testing.T) {
 	}
 
 	// A non-empty directory at <target>.old: os.Remove cannot clear it and the rename over it
-	// fails, so the install must take the copy branch rather than give up.
+	// fails.
 	if err := os.Mkdir(target+".old", 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -97,15 +99,29 @@ func TestInstallFallsBackToACopyWhenTheFirstRenameFails(t *testing.T) {
 	}
 
 	u := &Updater{Goos: "windows", Goarch: "amd64", ExePath: target}
-	if err := u.install(newBin); err != nil {
-		t.Fatalf("the copy fallback must complete the upgrade, got %v", err)
+	if err := u.install(newBin); err == nil || !strings.Contains(err.Error(), "aside") {
+		t.Fatalf("install must refuse when the binary cannot be moved aside, got %v", err)
 	}
-	got, err := os.ReadFile(target)
-	if err != nil {
-		t.Fatalf("the target must exist after the fallback: %v", err)
+	if got, _ := os.ReadFile(target); string(got) != "old" {
+		t.Errorf("the target holds %q, want the untouched current binary", string(got))
 	}
-	if string(got) != "new" {
-		t.Errorf("the target holds %q, want the downloaded binary", string(got))
+}
+
+// TestInstallOnWindowsPutsTheOldBinaryBack: when the binary was moved aside but the new one cannot
+// take its place, the previous binary is restored, so the next start still has one to run.
+func TestInstallOnWindowsPutsTheOldBinaryBack(t *testing.T) {
+	dir := t.TempDir()
+	target := filepath.Join(dir, "motita.exe")
+	if err := os.WriteFile(target, []byte("old"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	u := &Updater{Goos: "windows", Goarch: "amd64", ExePath: target}
+	if err := u.install(filepath.Join(dir, "never-downloaded.exe")); err == nil {
+		t.Fatal("install must fail when the new binary is missing")
+	}
+	if got, _ := os.ReadFile(target); string(got) != "old" {
+		t.Errorf("the target holds %q, want the previous binary restored", string(got))
 	}
 }
 

@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -49,7 +50,8 @@ func TestReadingThePRTellsHostFailuresApart(t *testing.T) {
 		t.Errorf("a host that errors: %d %s", w.Code, w.Body.String())
 	}
 	host.set(ghPulls, `STATUS 401 {"message":"Bad credentials"}`)
-	if w := get(t, srv, path, testToken); w.Code != http.StatusConflict || decode(t, w)["code"] != errGitAuthRequired || decode(t, w)["service"] != "github" {
+	if w := get(t, srv, path, testToken); w.Code != http.StatusConflict || decode(t, w)["code"] != errGitAuthRequired ||
+		decode(t, w)["service"] != "github" {
 		t.Errorf("a login the host refuses is a login to make again: %d %s", w.Code, w.Body.String())
 	}
 
@@ -61,7 +63,10 @@ func TestReadingThePRTellsHostFailuresApart(t *testing.T) {
 
 	// A CI seen running is a CI to follow, whoever asked.
 	prHost(host, sessionBranch(ss.ID), "success", "clean")
-	host.set("GET https://api.github.com/repos/o/r/commits/abc/check-runs", `{"check_runs":[{"id":1,"name":"t","status":"in_progress"}]}`)
+	host.set(
+		"GET https://api.github.com/repos/o/r/commits/abc/check-runs",
+		`{"check_runs":[{"id":1,"name":"t","status":"in_progress"}]}`,
+	)
 	if w := get(t, srv, path, testToken); w.Code != http.StatusOK {
 		t.Fatalf("%d %s", w.Code, w.Body.String())
 	}
@@ -282,7 +287,8 @@ func TestMergingTellsWhyItCannot(t *testing.T) {
 	}
 	for state, want := range map[string]string{"dirty": "pr_conflict", "draft": "pr_draft", "blocked": "pr_blocked"} {
 		prHost(host, sessionBranch(ss.ID), "success", state)
-		if code, m := status(); code != http.StatusConflict || m["code"] != want || !strings.Contains(m["error"].(string), "host would not merge") {
+		if code, m := status(); code != http.StatusConflict || m["code"] != want ||
+			!strings.Contains(m["error"].(string), "host would not merge") {
 			t.Errorf("%s: %d %v", state, code, m)
 		}
 	}
@@ -368,3 +374,44 @@ func putWork(dir, name string) error {
 }
 
 func gitxDisplay(dir string) string { return gitx.Display(context.Background(), dir) }
+
+// Bringing the project up to date after a merge runs git as the user, outside any sandbox, in a
+// checkout an agent worked in: a hook or an fsmonitor it planted in .git must not run.
+func TestSyncingTheProjectRunsNoRepositoryCode(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("the planted commands are shell scripts")
+	}
+	srv, _, ss, c := connected(t)
+	p := srv.projectOf(ss.ProjectID)
+	base := gitxDisplay(p.Dir)
+
+	// An origin one commit ahead of the checkout, so the fast-forward has something to do.
+	origin := filepath.Join(t.TempDir(), "origin.git")
+	mustRun(t, "git", "clone", "-q", "--bare", p.Dir, origin)
+	ahead := filepath.Join(t.TempDir(), "ahead")
+	mustRun(t, "git", "clone", "-q", origin, ahead)
+	if err := putWork(ahead, "ahead.txt"); err != nil {
+		t.Fatal(err)
+	}
+	mustRun(t, "git", "-C", ahead, "add", "-A")
+	mustRun(t, "git", "-C", ahead, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qm", "ahead")
+	mustRun(t, "git", "-C", ahead, "push", "-q", "origin", "HEAD:"+base)
+	mustRun(t, "git", "-C", p.Dir, "remote", "set-url", "origin", origin)
+
+	marker := filepath.Join(t.TempDir(), "ran")
+	script := "#!/bin/sh\necho \"$0\" >> " + marker + "\n"
+	for _, hook := range []string{"post-merge", "post-checkout", "reference-transaction"} {
+		path := filepath.Join(p.Dir, ".git", "hooks", hook)
+		if err := os.WriteFile(path, []byte(script), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	srv.syncProject(context.Background(), c, base)
+	if _, err := os.Stat(filepath.Join(p.Dir, "ahead.txt")); err != nil {
+		t.Fatalf("the project was not brought up to date: %v", err)
+	}
+	if data, err := os.ReadFile(marker); err == nil {
+		t.Errorf("a planted hook ran: %s", data)
+	}
+}

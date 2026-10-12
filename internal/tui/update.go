@@ -50,7 +50,14 @@ func (t *TUI) announceUpdate(ctx context.Context) {
 	// Held because this runs beside the input loop, which reads the notice to paint.
 	t.draw.Lock()
 	t.Notice = offer
+	busy := t.busy
 	t.draw.Unlock()
+	// While a turn runs, the turn's goroutine is mutating the conversation and repaints after
+	// every step: the notice rides on the next of those frames. Painting from here as well would
+	// read the conversation while it is written.
+	if busy {
+		return
+	}
 	t.drawFrame()
 }
 
@@ -61,7 +68,8 @@ func (t *TUI) announceUpdate(ctx context.Context) {
 func (t *TUI) runUpdate(ctx context.Context) {
 	u, ok := t.Runner.(updater)
 	if !ok {
-		t.addMessage(AuthorSystem, t.tr("update: this interface is not attached to a gateway, and the gateway is what upgrades itself."))
+		t.addMessage(AuthorSystem, t.tr(
+			"update: this interface is not attached to a gateway, and the gateway is what upgrades itself."))
 		return
 	}
 	current, latest, available, err := u.UpdateAvailable(ctx)
@@ -72,6 +80,8 @@ func (t *TUI) runUpdate(ctx context.Context) {
 	case !available:
 		t.addMessage(AuthorSystem, t.trf("update: motita %s is the newest release.", current))
 		return
+	default:
+		// A newer release is out: it is installed below.
 	}
 	t.addMessage(AuthorSystem, t.trf("update: installing %s (this is %s)…", latest, current))
 	installed, err := u.RunUpdate(ctx, func(stage string) {
@@ -84,5 +94,7 @@ func (t *TUI) runUpdate(ctx context.Context) {
 		return
 	}
 	t.Notice = ""
-	t.addMessage(AuthorSystem, t.trf("update: %s is installed. The gateway is restarting: quit (/quit) and start motita again to use it.", installed))
+	t.addMessage(AuthorSystem, t.trf(
+		"update: %s is installed. The gateway is restarting: quit (/quit) and start motita again to use it.",
+		installed))
 }

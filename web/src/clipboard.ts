@@ -10,5 +10,14 @@ export async function copyText(text: string): Promise<boolean> {
   ta.style.cssText = 'position:fixed;top:0;left:0;opacity:0'
   document.body.appendChild(ta)
   ta.select()
-  try { return document.execCommand('copy') } catch { return false } finally { ta.remove() }
+  try { return legacyCopy(document) } catch { return false } finally { ta.remove() }
+}
+
+// The one legacy command this file needs: copy the current selection. execCommand is deprecated,
+// but on a page that is not a secure context it is the only way to reach the clipboard, so it is
+// kept here, behind the Clipboard API, and nowhere else.
+interface LegacyCopyDocument { execCommand(command: 'copy'): boolean }
+
+function legacyCopy(doc: LegacyCopyDocument): boolean {
+  return doc.execCommand('copy')
 }

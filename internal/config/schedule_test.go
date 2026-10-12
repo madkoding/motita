@@ -18,7 +18,9 @@ func TestTheScheduleBlockHasUsableDefaults(t *testing.T) {
 		t.Errorf("schedule.tick default = %s, want 30s", d.Tick)
 	}
 	if d.MinEvery != time.Minute {
-		t.Errorf("schedule.min_every default = %s, want 1m: a cadence below a minute would fire a task faster than an agent turn can finish", d.MinEvery)
+		t.Errorf(
+			"schedule.min_every default = %s, want 1m: a cadence below a minute would fire a task faster than an agent turn "+
+				"can finish", d.MinEvery)
 	}
 }
 

@@ -129,9 +129,43 @@ func (a *Agent) workspacePath(rel string) (string, error) {
 		path = filepath.Join(root, path)
 	}
 	path = filepath.Clean(path)
-	inside, err := filepath.Rel(root, path)
-	if err != nil || inside == ".." || strings.HasPrefix(inside, ".."+string(filepath.Separator)) {
+	if !within(root, path) {
 		return "", fmt.Errorf("%s is outside the working directory %s", rel, root)
 	}
-	return path, nil
+	// The lexical check is not the boundary on its own: a symlink inside the workspace (a cloned
+	// repository's `notes -> ~/.bashrc`) would carry the write out of it. Both sides are resolved
+	// through their symlinks and the check is made again on what the write will really touch.
+	realRoot, err := resolveExisting(root)
+	if err != nil {
+		return "", err
+	}
+	realPath, err := resolveExisting(path)
+	if err != nil || !within(realRoot, realPath) {
+		return "", fmt.Errorf("%s resolves outside the working directory %s", rel, root)
+	}
+	return realPath, nil
+}
+
+// within reports whether path is root or below it.
+func within(root, path string) bool {
+	inside, err := filepath.Rel(root, path)
+	return err == nil && inside != ".." && !strings.HasPrefix(inside, ".."+string(filepath.Separator))
+}
+
+// resolveExisting resolves the symlinks of the deepest part of p that exists and appends the rest,
+// which cannot hold a symlink because it does not exist yet. A dangling symlink is an error: where
+// it would lead is not known until something creates its target.
+func resolveExisting(p string) (string, error) {
+	rest := ""
+	for {
+		if _, err := os.Lstat(p); err == nil || filepath.Dir(p) == p {
+			real, err := filepath.EvalSymlinks(p)
+			if err != nil {
+				return "", err
+			}
+			return filepath.Join(real, rest), nil
+		}
+		rest = filepath.Join(filepath.Base(p), rest)
+		p = filepath.Dir(p)
+	}
 }

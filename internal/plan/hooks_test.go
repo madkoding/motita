@@ -115,7 +115,8 @@ func TestToolArgumentsThatCannotBeParsed(t *testing.T) {
 	if got := p.toolSearchInFiles(context.Background(), bad); !strings.Contains(got, "Error parsing the arguments") {
 		t.Errorf("search_in_files = %q", got)
 	}
-	if got := p.toolExecuteCommand(context.Background(), json.RawMessage(`{"command": 12}`)); !strings.Contains(got, "Error parsing the arguments") {
+	got := p.toolExecuteCommand(context.Background(), json.RawMessage(`{"command": 12}`))
+	if !strings.Contains(got, "Error parsing the arguments") {
 		t.Errorf("execute_command = %q", got)
 	}
 }
@@ -200,7 +201,8 @@ func TestToolOutputAlwaysEndsWithANewline(t *testing.T) {
 	srvErr := llmServer(t, nil)
 	defer srvErr.Close()
 	p := New(newClient(t, srvErr), a)
-	if got := p.toolSearchInFiles(context.Background(), json.RawMessage(`{"pattern":"x","path":"."}`)); !strings.Contains(got, "partial") {
+	if got := p.toolSearchInFiles(context.Background(),
+		json.RawMessage(`{"pattern":"x","path":"."}`)); !strings.Contains(got, "partial") {
 		t.Errorf("the output must survive, got %q", got)
 	}
 }
@@ -254,7 +256,8 @@ func TestRunWithAProducerThatClosesWithoutADoneChunk(t *testing.T) {
 // produces the final answer the user reads.
 func TestRunForcesAnAnswerAtTheLoopLimit(t *testing.T) {
 	a, _ := makeAgent(t, true)
-	call := llm.ToolCall{ID: "c1", Function: llm.FunctionCall{Name: "list_directory", Arguments: json.RawMessage(`{"path":"."}`)}}
+	call := llm.ToolCall{ID: "c1",
+		Function: llm.FunctionCall{Name: "list_directory", Arguments: json.RawMessage(`{"path":"."}`)}}
 	engine := &fakeEngine{
 		// Every turn asks for a tool, so the loop limit is what ends the run.
 		chunks: []llm.StreamChunk{{Event: llm.StreamToolCall, Call: &call}},

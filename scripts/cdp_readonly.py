@@ -12,18 +12,25 @@ sidebar, then look at the composer - and measures:
 
 Usage: GATEWAY_URL=... GATEWAY_STATE=<token file> ./cdp_readonly.py
 """
-import asyncio, base64, json, os, sys
+import asyncio, base64, json, os, sys, tempfile
+from typing import Any
 
 sys.path.insert(0, os.path.dirname(__file__))
+from cdp_http import fetch_json  # noqa: E402
 from cdp_spinner import CDP  # noqa: E402
 
 BASE = os.environ["GATEWAY_URL"]
 TOKEN = open(os.environ["GATEWAY_STATE"]).read().strip()
-SHOTS = os.environ.get("SHOTS_DIR", "/tmp/motita-readonly")
+SHOTS = os.environ.get("SHOTS_DIR") or tempfile.mkdtemp(prefix="motita-readonly-")
 failures = 0
+PAGE_NAVIGATE = "Page.navigate"
+# A service worker would serve a stale bundle; this drops every registration.
+UNREGISTER_SW = ("(async () => { for (const r of await navigator.serviceWorker.getRegistrations())"
+                 " await r.unregister(); return true })()")
 
 
-def check(cond, msg):
+def check(cond: object, msg: str) -> None:
+    """Print one ok/FAIL line and count the failures."""
     global failures
     if cond:
         print("  ok   " + msg)
@@ -32,12 +39,9 @@ def check(cond, msg):
         print("  FAIL " + msg)
 
 
-def find_merged_session():
-    import urllib.request
-    req = urllib.request.Request(BASE + "/v1/sessions",
-                                 headers={"Authorization": "Bearer " + TOKEN})
-    with urllib.request.urlopen(req, timeout=5) as r:
-        data = json.load(r)
+def find_merged_session() -> dict[str, Any] | None:
+    """The first session the gateway reports as merged, or None."""
+    data = fetch_json(BASE + "/v1/sessions", headers={"Authorization": "Bearer " + TOKEN}, timeout=5)
     for s in data.get("sessions", []):
         if s.get("merged"):
             return s
@@ -76,7 +80,8 @@ COMPOSER = """(() => {
 })()"""
 
 
-async def main(ws_url):
+async def main(ws_url: str) -> int:
+    """Drive the page to the merged session and check its composer; returns the failure count."""
     import websockets
     os.makedirs(SHOTS, exist_ok=True)
     async with websockets.connect(ws_url, max_size=50 * 1024 * 1024) as ws:
@@ -85,12 +90,12 @@ async def main(ws_url):
         await c.call("Runtime.enable")
         await c.call("Emulation.setDeviceMetricsOverride", width=1280, height=900,
                      deviceScaleFactor=1, mobile=False)
-        await c.call("Page.navigate", url="about:blank")
-        await c.call("Page.navigate", url=f"{BASE}/#t={TOKEN}")
+        await c.call(PAGE_NAVIGATE, url="about:blank")
+        await c.call(PAGE_NAVIGATE, url=f"{BASE}/#t={TOKEN}")
         await asyncio.sleep(3)
         # A service worker would serve a stale bundle; drop it.
-        await c.js("(async () => { for (const r of await navigator.serviceWorker.getRegistrations()) await r.unregister(); return true })()")
-        await c.call("Page.navigate", url=f"{BASE}/#t={TOKEN}")
+        await c.js(UNREGISTER_SW)
+        await c.call(PAGE_NAVIGATE, url=f"{BASE}/#t={TOKEN}")
         await asyncio.sleep(2.5)
 
         s = find_merged_session()

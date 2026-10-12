@@ -26,6 +26,8 @@ func (p *shellProbe) RunShell(ctx context.Context, command string, approver agen
 			return "[not approved]\n", 1, errors.New("declined")
 		}
 		return "ran after approval\n", 0, nil
+	default:
+		// Any other command needs no approval: it prints its own text below.
 	}
 	return "out of " + command + "\n", 0, nil
 }
@@ -46,20 +48,24 @@ func TestShellRunsATypedCommandAndReportsIt(t *testing.T) {
 	a := newSessionFor(t, srv)
 
 	code, res := runShell(t, srv, a.ID, `{"command":"  ls  "}`)
-	if code != http.StatusOK || res.Output != "out of ls\n" || res.Exit != 0 || res.Error != "" || res.Command != "ls" {
+	ranClean := res.Output == "out of ls\n" && res.Exit == 0 && res.Error == "" && res.Command == "ls"
+	if code != http.StatusOK || !ranClean {
 		t.Fatalf("a plain command: %d %+v", code, res)
 	}
 
-	if code, res = runShell(t, srv, a.ID, `{"command":"deny"}`); code != http.StatusOK || res.Error == "" || res.Exit != 1 {
+	if code, res = runShell(t, srv, a.ID, `{"command":"deny"}`); code != http.StatusOK ||
+		res.Error == "" || res.Exit != 1 {
 		t.Errorf("a refused command must say so: %d %+v", code, res)
 	}
 
 	// The policy would ask: nothing runs and the client is told why.
-	if code, res = runShell(t, srv, a.ID, `{"command":"ask"}`); !res.NeedsApproval || res.Reason != "it writes" || res.Output != "" || code != http.StatusOK {
+	if code, res = runShell(t, srv, a.ID, `{"command":"ask"}`); !res.NeedsApproval ||
+		res.Reason != "it writes" || res.Output != "" || code != http.StatusOK {
 		t.Errorf("a command that needs approval must not run: %d %+v", code, res)
 	}
 	// The person said yes.
-	if _, res = runShell(t, srv, a.ID, `{"command":"ask","approved":true}`); res.NeedsApproval || res.Output != "ran after approval\n" {
+	if _, res = runShell(t, srv, a.ID, `{"command":"ask","approved":true}`); res.NeedsApproval ||
+		res.Output != "ran after approval\n" {
 		t.Errorf("an approved command must run: %+v", res)
 	}
 	// "Allow all commands for this session" answers the question too.
