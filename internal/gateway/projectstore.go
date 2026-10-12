@@ -64,6 +64,9 @@ type Project struct {
 	// about.
 	Worktrees int       `json:"worktrees,omitempty"`
 	Created   time.Time `json:"created"`
+	// Repos are the project's OTHER repositories, after the main one in Dir. A project from
+	// before they existed has none, and is exactly the one-repository project it always was.
+	Repos []ProjectRepo `json:"repos,omitempty"`
 }
 
 // projectStore persists projects to disk as JSON files under a directory the
