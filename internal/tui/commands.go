@@ -224,7 +224,14 @@ var commandActions = map[string]func(t *TUI, ctx context.Context, arg string) bo
 	// A new conversation is a clean screen: the old one is gone from the model's memory, and
 	// leaving it on screen would suggest the next answer can still see it. The welcome screen says
 	// what happened, the way it greets a first run.
-	"/new": func(t *TUI, _ context.Context, _ string) bool {
+	//
+	// Behind a gateway it is a NEW session, a conversation of its own with its own agent: the one
+	// left behind keeps its history, and a run in flight there keeps going.
+	"/new": func(t *TUI, ctx context.Context, _ string) bool {
+		if creator, ok := t.Runner.(SessionCreator); ok && t.gatewaySessions() {
+			t.newSession(ctx, creator)
+			return false
+		}
 		t.Runner.ResetConversation()
 		t.messages = nil
 		t.scroll = 0

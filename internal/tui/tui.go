@@ -172,6 +172,9 @@ type TUI struct {
 	reader     *bufio.Reader
 	cancelRun  context.CancelFunc
 	runningCtx context.Context
+	// following is the run followed on its own goroutine (followLiveRun), nil when there is none.
+	// Guarded by draw, because that goroutine sets and clears it while the input loop reads it.
+	following *follow
 	// busy is true while a turn is in flight, which turns the status dot into a
 	// spinner; spin is the animation frame advanced on every repaint.
 	busy bool

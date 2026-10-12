@@ -277,7 +277,8 @@ var esTUI = map[string]string{
 		"leer su conversación: %w",
 	"attached to session %s, which has no turns yet.": "conectado a la sesión %s, " +
 		"que todavía no tiene turnos.",
-	"attached to session %s.": "conectado a la sesión %s.",
+	"attached to session %s.":                    "conectado a la sesión %s.",
+	"a new conversation could not be opened: %s": "no se pudo abrir una conversación nueva: %s",
 	"the gateway could not be asked whether a turn is in flight: %s": "no se pudo preguntar al gateway si hay un turno " +
 		"en curso: %s",
 	"the turn could not be followed: %v": "no se pudo seguir el turno: %v",

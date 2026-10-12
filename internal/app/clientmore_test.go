@@ -618,3 +618,37 @@ func TestTheAdapterTranslatesTheArtifacts(t *testing.T) {
 		t.Fatal("a refused ask must be an error")
 	}
 }
+
+// TestTheAdapterOpensANewSession: /new behind a gateway opens a conversation of its own, and the
+// interface only needs its id to enter it. A refusal (a gateway at its ceiling) comes back as one.
+func TestTheAdapterOpensANewSession(t *testing.T) {
+	full := false
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost || r.URL.Path != "/v1/sessions" {
+			t.Errorf("unexpected request %s %s", r.Method, r.URL.Path)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		if full {
+			w.WriteHeader(http.StatusConflict)
+			_, _ = w.Write([]byte(`{"error":"at its ceiling"}`))
+			return
+		}
+		w.WriteHeader(http.StatusCreated)
+		_, _ = w.Write([]byte(`{"id":"snew"}`))
+	}))
+	defer srv.Close()
+
+	var _ tui.SessionCreator = sessionSwitcher{}
+	sw := sessionSwitcher{gateway.NewClientForSession(srv.URL, testToken, "default")}
+	id, err := sw.NewSession(context.Background())
+	if err != nil || id != "snew" {
+		t.Fatalf("NewSession = %q, %v", id, err)
+	}
+	if sw.CurrentSession() != "default" {
+		t.Errorf("opening a session moved the client to %q: entering it is the interface's call", sw.CurrentSession())
+	}
+	full = true
+	if _, err := sw.NewSession(context.Background()); err == nil || !strings.Contains(err.Error(), "ceiling") {
+		t.Errorf("a refused session came back as %v", err)
+	}
+}

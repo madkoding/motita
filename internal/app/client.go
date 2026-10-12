@@ -57,6 +57,16 @@ func (s sessionSwitcher) ListSessions(ctx context.Context) ([]tui.SessionInfo, e
 	return out, nil
 }
 
+// NewSession opens one more conversation in the gateway and returns its id, which is all the
+// interface needs to enter it.
+func (s sessionSwitcher) NewSession(ctx context.Context) (string, error) {
+	st, err := s.Client.CreateSession(ctx)
+	if err != nil {
+		return "", err
+	}
+	return st.ID, nil
+}
+
 // Conversation translates the conversation the gateway holds into the shape the interface draws.
 //
 // The translation lives HERE and nowhere else: internal/gateway cannot import internal/tui (a cycle,
