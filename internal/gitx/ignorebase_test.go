@@ -330,3 +330,9 @@ func mustChangesSince(t *testing.T, dir string) []FileChange {
 	}
 	return files
 }
+
+func TestIgnoreBaseHidesTheProjectsOtherRepositories(t *testing.T) {
+	if !strings.Contains(ignoreBlock(t.TempDir(), ""), "/"+ReposDir+"/") {
+		t.Errorf("the folder of the project's other repositories must be ignored")
+	}
+}

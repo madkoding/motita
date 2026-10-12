@@ -180,6 +180,9 @@ type AppRunner struct {
 	// swap it. Guarded by sessionMu, like the session it edits.
 	containerRuntime string
 	runtimeNote      string
+	// projectNote is what the gateway tells the agent about the project's other repositories,
+	// added after the runtime sentence and swapped with it. Guarded by sessionMu too.
+	projectNote string
 
 	// rewardMu guards the last attribution.
 	//
@@ -440,7 +443,18 @@ func (r *AppRunner) SetContainerRuntime(name string) {
 	}
 }
 
-// applyRuntimeNote rewrites the runtime sentence at the end of the system prompt.
+// SetProjectNote sets what the agent is told about the project it works in (its other
+// repositories), at the end of the system prompt. An empty note clears it.
+func (r *AppRunner) SetProjectNote(note string) {
+	r.sessionMu.Lock()
+	defer r.sessionMu.Unlock()
+	r.projectNote = note
+	if r.session != nil {
+		r.applyRuntimeNote()
+	}
+}
+
+// applyRuntimeNote rewrites the runtime and project sentences at the end of the system prompt.
 // The caller holds sessionMu and has a session.
 func (r *AppRunner) applyRuntimeNote() {
 	note := ""
@@ -448,6 +462,7 @@ func (r *AppRunner) applyRuntimeNote() {
 		note = "\n\nThis project is run with podman. Use `podman` (and `podman compose` when the project " +
 			"has a compose file) to build and start it, and do not use docker."
 	}
+	note += r.projectNote
 	r.session.System = strings.TrimSuffix(r.session.System, r.runtimeNote) + note
 	r.runtimeNote = note
 }
