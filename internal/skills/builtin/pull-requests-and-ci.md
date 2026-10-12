@@ -8,14 +8,14 @@ the common one — "I opened a PR" with no way to reach it, and a red check nobo
 
 Commit subjects AND pull request titles follow Conventional Commits: `type(scope): description`.
 
-| Type | Use for |
-| --- | --- |
-| `feat` | a new capability the user can see |
-| `fix` | a bug fixed |
+| Type                    | Use for                                    |
+| ----------------------- | ------------------------------------------ |
+| `feat`                  | a new capability the user can see          |
+| `fix`                   | a bug fixed                                |
 | `docs`, `style`, `test` | documentation, formatting only, tests only |
-| `refactor`, `perf` | behaviour-preserving restructuring, speed |
-| `build`, `ci`, `chore` | build system, pipelines, everything else |
-| `revert` | undoing an earlier commit |
+| `refactor`, `perf`      | behaviour-preserving restructuring, speed  |
+| `build`, `ci`, `chore`  | build system, pipelines, everything else   |
+| `revert`                | undoing an earlier commit                  |
 
 `!` after the type or scope marks a breaking change (`feat(api)!: drop v1`). The subject is one
 line under 100 characters, in the imperative, saying what the change DOES. A commit whose `-m`
@@ -40,13 +40,12 @@ motita forge pr create --title "feat(auth): connect to GitHub" --body-file - <<'
 BODY
 ```
 
-   It works for GitHub, GitLab, Bitbucket and Gitea alike, reads the host from `origin`, defaults
-   to the repository's default branch as the base (`--base` overrides), and returns the existing
-   pull request instead of opening a second when the branch already has one. `--draft` opens a
-   draft. The user is asked before it runs.
-3. **Always give the user the link.** The command prints `Pull request #12 opened: <url>` and a
-   line `Cite it as: [owner/repo#12](<url>)`. Repeat that markdown link in your answer, with the
-   number inside the link text. A bare `#12` is not enough: the user must be able to click through.
+It works for GitHub, GitLab, Bitbucket and Gitea alike, reads the host from `origin`, defaults
+to the repository's default branch as the base (`--base` overrides), and returns the existing
+pull request instead of opening a second when the branch already has one. `--draft` opens a
+draft. The user is asked before it runs. 3. **Always give the user the link.** The command prints `Pull request #12 opened: <url>` and a
+line `Cite it as: [owner/repo#12](<url>)`. Repeat that markdown link in your answer, with the
+number inside the link text. A bare `#12` is not enough: the user must be able to click through.
 
 If it says the host is not connected, tell the user to connect it (Settings → Git connections in
 the web interface, or `/git connect` in the terminal) and try again afterwards. Do not look for a

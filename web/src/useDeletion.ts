@@ -1,32 +1,45 @@
 // The delete confirmation: what is about to be deleted, what the deletion would discard, and the
 // deletion itself once the person confirms.
-import { useCallback, useEffect, useState } from 'preact/hooks'
-import { choose } from './choose'
-import type { Api } from './prApi'
-import type { ConfirmTarget, DeletionPreview } from './appTypes'
-import { PROJECTS_PATH, SESSIONS_PATH } from './appConst'
+import { useCallback, useEffect, useState } from "preact/hooks";
+import { choose } from "./choose";
+import type { Api } from "./prApi";
+import type { ConfirmTarget, DeletionPreview } from "./appTypes";
+import { PROJECTS_PATH, SESSIONS_PATH } from "./appConst";
 
 interface Deps {
-  api: Api
-  deleteSession: (id: string, discard?: boolean) => Promise<void>
-  deleteSkill: (name: string) => Promise<void>
-  deleteProject: (id: string, discard?: boolean) => Promise<void>
+  api: Api;
+  deleteSession: (id: string, discard?: boolean) => Promise<void>;
+  deleteSkill: (name: string) => Promise<void>;
+  deleteProject: (id: string, discard?: boolean) => Promise<void>;
 }
 
 // previewPathOf is where the gateway answers what deleting a session or a project would discard.
 function previewPathOf(target: ConfirmTarget): string {
-  return choose(target.type === 'session', SESSIONS_PATH + target.id + '/deletion-preview', PROJECTS_PATH + target.id + '/deletion-preview')
+  return choose(
+    target.type === "session",
+    SESSIONS_PATH + target.id + "/deletion-preview",
+    PROJECTS_PATH + target.id + "/deletion-preview",
+  );
 }
 
 // readPreview reads the preview, or null when the gateway gave none.
 async function readPreview(res: Response) {
-  if (!res.ok) { return null }
-  return res.json().catch(() => null)
+  if (!res.ok) {
+    return null;
+  }
+  return res.json().catch(() => null);
 }
 
-export function useDeletion({ api, deleteSession, deleteSkill, deleteProject }: Deps) {
+export function useDeletion({
+  api,
+  deleteSession,
+  deleteSkill,
+  deleteProject,
+}: Deps) {
   // Confirm-delete modal: when set, shows a modal asking the user to confirm.
-  const [confirmDelete, setConfirmDelete] = useState<ConfirmTarget | null>(null)
+  const [confirmDelete, setConfirmDelete] = useState<ConfirmTarget | null>(
+    null,
+  );
   // What the deletion would DISCARD, asked of the gateway when the modal opens.
   //
   // The modal used to promise only "this will be deleted", so a session whose
@@ -37,8 +50,9 @@ export function useDeletion({ api, deleteSession, deleteSkill, deleteProject }: 
   //
   // `checking` is a real state, not decoration: the modal must not offer to
   // discard before it knows whether there is anything to discard.
-  const [deletionPreview, setDeletionPreview] = useState<DeletionPreview | null>(null)
-  const [previewLoading, setPreviewLoading] = useState(false)
+  const [deletionPreview, setDeletionPreview] =
+    useState<DeletionPreview | null>(null);
+  const [previewLoading, setPreviewLoading] = useState(false);
   // True while the deletion the user confirmed is IN FLIGHT.
   //
   // A deletion is not instant: the gateway stops the session's run first, then
@@ -48,7 +62,7 @@ export function useDeletion({ api, deleteSession, deleteSkill, deleteProject }: 
   // the modal sat there looking idle while the work was already under way.
   // Locking the button and showing that something is happening is the honest
   // report of a request in flight.
-  const [deleting, setDeleting] = useState(false)
+  const [deleting, setDeleting] = useState(false);
 
   // The deletion preview is fetched when the modal OPENS, so the dialog can say what
   // will be lost before anything is decided.
@@ -59,31 +73,45 @@ export function useDeletion({ api, deleteSession, deleteSkill, deleteProject }: 
   // confirmation, and the gateway's own refusal still protects the work.
   useEffect(() => {
     if (!confirmDelete) {
-      setDeletionPreview(null)
+      setDeletionPreview(null);
       // Reset with the modal: a fresh confirmation must start unlocked, whatever
       // the previous one left behind.
-      setDeleting(false)
-      return undefined
+      setDeleting(false);
+      return undefined;
     }
     // Both kinds ask the same question of their own endpoint: a session names its own
     // checkout's changes, a project names each of its sessions' changes. A skill has no
     // checkout, so there is nothing to ask.
-    if (confirmDelete.type === 'skill') {
-      setDeletionPreview(null)
-      return undefined
+    if (confirmDelete.type === "skill") {
+      setDeletionPreview(null);
+      return undefined;
     }
-    let cancelled = false
-    setPreviewLoading(true)
+    let cancelled = false;
+    setPreviewLoading(true);
     api(previewPathOf(confirmDelete))
       .then(readPreview)
       .then((data) => {
-        if (cancelled) { return }
-        setDeletionPreview(choose(data && typeof data === 'object', data, null))
+        if (cancelled) {
+          return;
+        }
+        setDeletionPreview(
+          choose(data && typeof data === "object", data, null),
+        );
       })
-      .catch(() => { if (!cancelled) { setDeletionPreview(null) } })
-      .finally(() => { if (!cancelled) { setPreviewLoading(false) } })
-    return () => { cancelled = true }
-  }, [confirmDelete])
+      .catch(() => {
+        if (!cancelled) {
+          setDeletionPreview(null);
+        }
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setPreviewLoading(false);
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [confirmDelete]);
 
   // runDelete deletes what the modal is about.
   //
@@ -93,27 +121,41 @@ export function useDeletion({ api, deleteSession, deleteSkill, deleteProject }: 
   // preview could not be read, was refused with a git error AFTER the user had
   // said yes.
   const runDelete = (target: ConfirmTarget) => {
-    if (target.type === 'session') { return deleteSession(target.id, true) }
-    if (target.type === 'skill') { return deleteSkill(target.id) }
-    return deleteProject(target.id, true)
-  }
+    if (target.type === "session") {
+      return deleteSession(target.id, true);
+    }
+    if (target.type === "skill") {
+      return deleteSkill(target.id);
+    }
+    return deleteProject(target.id, true);
+  };
 
   // confirmDeletion is the confirm button. It is locked FIRST, so a second click cannot start a
   // second deletion while the first is still unwinding on the gateway.
   const confirmDeletion = async () => {
-    if (!confirmDelete) { return }
-    setDeleting(true)
-    try {
-      await runDelete(confirmDelete)
-    } finally {
-      setDeleting(false)
-      setConfirmDelete(null)
+    if (!confirmDelete) {
+      return;
     }
-  }
+    setDeleting(true);
+    try {
+      await runDelete(confirmDelete);
+    } finally {
+      setDeleting(false);
+      setConfirmDelete(null);
+    }
+  };
 
-  const cancelDelete = useCallback(() => setConfirmDelete(null), [])
+  const cancelDelete = useCallback(() => setConfirmDelete(null), []);
 
-  return { confirmDelete, setConfirmDelete, cancelDelete, deletionPreview, previewLoading, deleting, confirmDeletion }
+  return {
+    confirmDelete,
+    setConfirmDelete,
+    cancelDelete,
+    deletionPreview,
+    previewLoading,
+    deleting,
+    confirmDeletion,
+  };
 }
 
-export type Deletion = ReturnType<typeof useDeletion>
+export type Deletion = ReturnType<typeof useDeletion>;

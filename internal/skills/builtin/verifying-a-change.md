@@ -12,13 +12,13 @@ about whether `dist` has anything in it. `npm run build` succeeding says the too
 it says nothing about the file the binary embeds. Every claim needs a SECOND read that observes
 the result, and that read is what goes in the answer.
 
-| The claim | Not evidence | Evidence |
-| --- | --- | --- |
-| "the tests pass" | the command exited 0 | the count, and the failing names if any |
-| "it is fixed" | the code changed | the check that was red is green, and the same check was red before |
-| "the feature works" | the code is there | the surface was driven and the measured value is right |
-| "it is 15% faster" | the change looks faster | both numbers, same machine, same input, before and after |
-| "the page shows it" | the CSS rule exists | the computed style / the pixel |
+| The claim           | Not evidence            | Evidence                                                           |
+| ------------------- | ----------------------- | ------------------------------------------------------------------ |
+| "the tests pass"    | the command exited 0    | the count, and the failing names if any                            |
+| "it is fixed"       | the code changed        | the check that was red is green, and the same check was red before |
+| "the feature works" | the code is there       | the surface was driven and the measured value is right             |
+| "it is 15% faster"  | the change looks faster | both numbers, same machine, same input, before and after           |
+| "the page shows it" | the CSS rule exists     | the computed style / the pixel                                     |
 
 ## New code ships with its own proof
 

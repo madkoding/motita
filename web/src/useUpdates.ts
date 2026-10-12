@@ -1,11 +1,18 @@
 // New versions of Motita: the check the page polls, the toast that offers one, and the upgrade
 // itself with its progress bar.
-import { useCallback, useEffect, useState } from 'preact/hooks'
-import { t, tf } from './i18n'
-import { sseData } from './appParse'
-import type { Api } from './prApi'
-import type { SetToast, UpdateInfo, UpgradeProgressEvent } from './appTypes'
-import { HEALTH_POLL_MS, RESTART_FIRST_POLL_MS, RESTART_WAIT_MS, SSE_FRAME_END, UPDATE_POLL_MS, UPGRADE_DISMISS_KEY } from './appConst'
+import { useCallback, useEffect, useState } from "preact/hooks";
+import { t, tf } from "./i18n";
+import { sseData } from "./appParse";
+import type { Api } from "./prApi";
+import type { SetToast, UpdateInfo, UpgradeProgressEvent } from "./appTypes";
+import {
+  HEALTH_POLL_MS,
+  RESTART_FIRST_POLL_MS,
+  RESTART_WAIT_MS,
+  SSE_FRAME_END,
+  UPDATE_POLL_MS,
+  UPGRADE_DISMISS_KEY,
+} from "./appConst";
 
 // reloadWhenBack waits for the gateway to come back from an upgrade and reloads the page to pick
 // up the new version. It gives up after a while: the page then stays as it is.
@@ -14,145 +21,196 @@ function reloadWhenBack() {
     // Poll health until the gateway is back.
     const poll = setInterval(async () => {
       try {
-        const h = await fetch('/v1/health')
+        const h = await fetch("/v1/health");
         if (h.ok) {
-          clearInterval(poll)
-          window.location.reload()
+          clearInterval(poll);
+          window.location.reload();
         }
-      } catch { /* keep polling */ }
-    }, HEALTH_POLL_MS)
-    setTimeout(() => clearInterval(poll), RESTART_WAIT_MS)
-  }, RESTART_FIRST_POLL_MS)
+      } catch {
+        /* keep polling */
+      }
+    }, HEALTH_POLL_MS);
+    setTimeout(() => clearInterval(poll), RESTART_WAIT_MS);
+  }, RESTART_FIRST_POLL_MS);
 }
 
 // notDismissed says whether a version's toast may be shown: the person did not close it before.
 // A browser whose storage cannot be read shows none.
 function notDismissed(version: string): boolean {
   try {
-    return localStorage.getItem(UPGRADE_DISMISS_KEY) !== version
+    return localStorage.getItem(UPGRADE_DISMISS_KEY) !== version;
   } catch {
-    return false
+    return false;
   }
 }
 
 export function useUpdates(api: Api, setToast: SetToast, authOk: boolean) {
-  const [updateInfo, setUpdateInfo] = useState<UpdateInfo | null>(null)
-  const [showUpgrade, setShowUpgrade] = useState(false)
-  const [upgradeProgress, setUpgradeProgress] = useState<UpgradeProgressEvent | null>(null)
-  const [upgradeBusy, setUpgradeBusy] = useState(false)
-  const [upgradeError, setUpgradeError] = useState('')
+  const [updateInfo, setUpdateInfo] = useState<UpdateInfo | null>(null);
+  const [showUpgrade, setShowUpgrade] = useState(false);
+  const [upgradeProgress, setUpgradeProgress] =
+    useState<UpgradeProgressEvent | null>(null);
+  const [upgradeBusy, setUpgradeBusy] = useState(false);
+  const [upgradeError, setUpgradeError] = useState("");
   // Whether the raw upgrade error text is unfolded. Collapsed by default, for
   // the same reason as the toast: the explanation is the point, the exception
   // string is a footnote for a bug report.
-  const [showUpgradeError, setShowUpgradeError] = useState(false)
+  const [showUpgradeError, setShowUpgradeError] = useState(false);
 
   // checkForUpdates polls /v1/update/check. When a new version is found, a
   // toast is shown (unless the user has dismissed this version before) and
   // updateInfo is set so the sidebar can show the "Upgrade Motita" button.
   const checkForUpdates = useCallback(async () => {
     try {
-      const res = await api('/v1/update/check')
-      if (!res.ok) { return }
-      const data: UpdateInfo = await res.json()
-      setUpdateInfo(data)
-      // Unless the user has dismissed this version.
-      if (data.update_available && data.latest_version && notDismissed(data.latest_version)) {
-        setToast({ message: tf('New version {version} available — click to upgrade', { version: data.latest_version }), type: 'success', update: true })
+      const res = await api("/v1/update/check");
+      if (!res.ok) {
+        return;
       }
-    } catch { /* non-fatal */ }
-  }, [])
+      const data: UpdateInfo = await res.json();
+      setUpdateInfo(data);
+      // Unless the user has dismissed this version.
+      if (
+        data.update_available &&
+        data.latest_version &&
+        notDismissed(data.latest_version)
+      ) {
+        setToast({
+          message: tf("New version {version} available — click to upgrade", {
+            version: data.latest_version,
+          }),
+          type: "success",
+          update: true,
+        });
+      }
+    } catch {
+      /* non-fatal */
+    }
+  }, []);
 
   // onUpgradeFrame applies one event of the upgrade stream.
   const onUpgradeFrame = (frame: string) => {
-    const dataLine = sseData(frame)
-    if (!dataLine) { return }
+    const dataLine = sseData(frame);
+    if (!dataLine) {
+      return;
+    }
     try {
-      const evt: UpgradeProgressEvent = JSON.parse(dataLine)
-      setUpgradeProgress(evt)
-      if (evt.stage === 'error') {
-        setUpgradeError(evt.message || t('upgrade failed'))
-        setUpgradeBusy(false)
-      } else if (evt.stage === 'done') {
-        setUpgradeBusy(false)
+      const evt: UpgradeProgressEvent = JSON.parse(dataLine);
+      setUpgradeProgress(evt);
+      if (evt.stage === "error") {
+        setUpgradeError(evt.message || t("upgrade failed"));
+        setUpgradeBusy(false);
+      } else if (evt.stage === "done") {
+        setUpgradeBusy(false);
         // The gateway is restarting. Show a message and wait for it
         // to come back, then reload the page.
-        reloadWhenBack()
+        reloadWhenBack();
       } else {
         // A stage on the way: the progress bar above already shows it.
       }
-    } catch { /* ignore parse error */ }
-  }
+    } catch {
+      /* ignore parse error */
+    }
+  };
 
   // runUpgrade starts the upgrade stream and updates the progress bar.
   const runUpgrade = useCallback(async () => {
-    setUpgradeBusy(true)
-    setUpgradeError('')
-    setShowUpgradeError(false)
-    setUpgradeProgress({ stage: 'starting', percent: 0, message: t('Starting upgrade…') })
+    setUpgradeBusy(true);
+    setUpgradeError("");
+    setShowUpgradeError(false);
+    setUpgradeProgress({
+      stage: "starting",
+      percent: 0,
+      message: t("Starting upgrade…"),
+    });
     try {
-      const res = await api('/v1/update/run', { method: 'POST' })
+      const res = await api("/v1/update/run", { method: "POST" });
       if (!res.ok) {
-        const err = await res.json().catch(() => ({}))
-        setUpgradeError(err.error || t('could not start the upgrade'))
-        setUpgradeBusy(false)
-        return
+        const err = await res.json().catch(() => ({}));
+        setUpgradeError(err.error || t("could not start the upgrade"));
+        setUpgradeBusy(false);
+        return;
       }
-      const reader = res.body!.getReader()
-      const decoder = new TextDecoder()
-      let buffer = ''
+      const reader = res.body!.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
       for (;;) {
-        const { done, value } = await reader.read()
-        if (done) { break }
-        buffer += decoder.decode(value, { stream: true })
-        let idx: number
+        const { done, value } = await reader.read();
+        if (done) {
+          break;
+        }
+        buffer += decoder.decode(value, { stream: true });
+        let idx: number;
         while ((idx = buffer.indexOf(SSE_FRAME_END)) !== -1) {
-          const frame = buffer.slice(0, idx)
-          buffer = buffer.slice(idx + SSE_FRAME_END.length)
-          onUpgradeFrame(frame)
+          const frame = buffer.slice(0, idx);
+          buffer = buffer.slice(idx + SSE_FRAME_END.length);
+          onUpgradeFrame(frame);
         }
       }
     } catch (e) {
-      setUpgradeError(String(e))
-      setUpgradeBusy(false)
+      setUpgradeError(String(e));
+      setUpgradeBusy(false);
     }
-  }, [])
+  }, []);
 
   // dismissUpgradeToast hides the "new version" toast and remembers the
   // dismissal so it does not reappear for the same version.
   const dismissUpgradeToast = useCallback(() => {
     if (updateInfo?.latest_version) {
-      try { localStorage.setItem(UPGRADE_DISMISS_KEY, updateInfo.latest_version) } catch { /* ignore */ }
+      try {
+        localStorage.setItem(UPGRADE_DISMISS_KEY, updateInfo.latest_version);
+      } catch {
+        /* ignore */
+      }
     }
-    setToast(null)
-  }, [updateInfo])
+    setToast(null);
+  }, [updateInfo]);
 
   // Poll for updates: once on startup (after auth succeeds) and then every
   // 10 minutes. The backend's own hourly check is what populates the cache,
   // so this poll is cheap (it reads the cache, not GitHub).
   useEffect(() => {
-    if (!authOk) { return undefined }
-    checkForUpdates()
-    const interval = setInterval(checkForUpdates, UPDATE_POLL_MS)
-    return () => clearInterval(interval)
-  }, [authOk, checkForUpdates])
+    if (!authOk) {
+      return undefined;
+    }
+    checkForUpdates();
+    const interval = setInterval(checkForUpdates, UPDATE_POLL_MS);
+    return () => clearInterval(interval);
+  }, [authOk, checkForUpdates]);
 
-  const openUpgrade = useCallback(() => setShowUpgrade(true), [])
+  const openUpgrade = useCallback(() => setShowUpgrade(true), []);
   // closeUpgradeIfIdle closes the modal, unless an upgrade is running: it cannot be walked away from.
-  const closeUpgradeIfIdle = useCallback(() => { if (!upgradeBusy) { setShowUpgrade(false) } }, [upgradeBusy])
-  const cancelUpgrade = useCallback(() => setShowUpgrade(false), [])
+  const closeUpgradeIfIdle = useCallback(() => {
+    if (!upgradeBusy) {
+      setShowUpgrade(false);
+    }
+  }, [upgradeBusy]);
+  const cancelUpgrade = useCallback(() => setShowUpgrade(false), []);
   // finishUpgrade closes the modal after an upgrade ended, and forgets how it went.
   const finishUpgrade = useCallback(() => {
-    setShowUpgrade(false)
-    setUpgradeProgress(null)
-    setUpgradeError('')
-    setShowUpgradeError(false)
-  }, [])
-  const toggleUpgradeError = useCallback(() => setShowUpgradeError(v => !v), [])
+    setShowUpgrade(false);
+    setUpgradeProgress(null);
+    setUpgradeError("");
+    setShowUpgradeError(false);
+  }, []);
+  const toggleUpgradeError = useCallback(
+    () => setShowUpgradeError((v) => !v),
+    [],
+  );
 
   return {
-    updateInfo, showUpgrade, upgradeProgress, upgradeBusy, upgradeError, showUpgradeError,
-    runUpgrade, dismissUpgradeToast, openUpgrade, closeUpgradeIfIdle, cancelUpgrade, finishUpgrade, toggleUpgradeError,
-  }
+    updateInfo,
+    showUpgrade,
+    upgradeProgress,
+    upgradeBusy,
+    upgradeError,
+    showUpgradeError,
+    runUpgrade,
+    dismissUpgradeToast,
+    openUpgrade,
+    closeUpgradeIfIdle,
+    cancelUpgrade,
+    finishUpgrade,
+    toggleUpgradeError,
+  };
 }
 
-export type Updates = ReturnType<typeof useUpdates>
+export type Updates = ReturnType<typeof useUpdates>;

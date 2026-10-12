@@ -39,12 +39,12 @@ plan mode are both driven by the same 3-layer agent.
 
 A native component that **always** validates the result, with no reasoning:
 
-| | |
-|---|---|
-| Input | the state of the system after the agent's action |
+|         |                                                                                                    |
+| ------- | -------------------------------------------------------------------------------------------------- |
+| Input   | the state of the system after the agent's action                                                   |
 | Process | strict validations: commands, exit codes, regular expressions over the output, business invariants |
-| Output | `PASS`/`FAIL` plus structured JSON records |
-| Traits | no LLM, fast and predictable, rules configurable from the YAML |
+| Output  | `PASS`/`FAIL` plus structured JSON records                                                         |
+| Traits  | no LLM, fast and predictable, rules configurable from the YAML                                     |
 
 Design rules the code actually enforces:
 
@@ -85,7 +85,7 @@ this machine or a private network address.
 - **Retries with exponential backoff**, with a distinction that matters: `429`,
   `5xx` and network errors are retried; `401`/`400` are **not**, because retrying
   an invalid credential only burns time and quota.
-- Structured-response parsing tolerant of what models really return: ```` ```json ````
+- Structured-response parsing tolerant of what models really return: ` ```json `
   blocks, surrounding prose, nested braces, escaped quotes, truncated answers.
 - **At most N attempts** before escalating.
 
@@ -94,14 +94,14 @@ this machine or a private network address.
 Layered isolation, applying whatever the system allows and **telling the truth
 about what could not be applied**:
 
-| Layer | What it does | Requirements |
-|---|---|---|
-| Ephemeral temp directory | its own `TMPDIR` per attempt, deleted at the end | none |
-| `ulimit` limits | CPU, memory (address space), processes, file descriptors, max file size | none |
-| cgroups v1 | a real cap on memory and PIDs (`RLIMIT_AS` is only an approximation) | kernel with cgroups v1 and write permission |
-| cgroup v2 per run | every process a command started is killed when it ends, one that left the process group with `setsid` too | a writable cgroup v2 tree (root, or a delegated user slice) and `clone3`; without it, the process group alone |
-| chroot + privilege drop | restricted filesystem root and an unprivileged user | being root |
-| `CLONE_NEWNET` | no network inside the command | `CAP_SYS_ADMIN` |
+| Layer                    | What it does                                                                                              | Requirements                                                                                                  |
+| ------------------------ | --------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------- |
+| Ephemeral temp directory | its own `TMPDIR` per attempt, deleted at the end                                                          | none                                                                                                          |
+| `ulimit` limits          | CPU, memory (address space), processes, file descriptors, max file size                                   | none                                                                                                          |
+| cgroups v1               | a real cap on memory and PIDs (`RLIMIT_AS` is only an approximation)                                      | kernel with cgroups v1 and write permission                                                                   |
+| cgroup v2 per run        | every process a command started is killed when it ends, one that left the process group with `setsid` too | a writable cgroup v2 tree (root, or a delegated user slice) and `clone3`; without it, the process group alone |
+| chroot + privilege drop  | restricted filesystem root and an unprivileged user                                                       | being root                                                                                                    |
+| `CLONE_NEWNET`           | no network inside the command                                                                             | `CAP_SYS_ADMIN`                                                                                               |
 
 Details that took real work and are solved in the code:
 
@@ -113,7 +113,7 @@ Details that took real work and are solved in the code:
   - a Go binary **cannot** apply `RLIMIT_AS` and stay alive: the limit also
     counts the virtual memory the runtime maps, so the next allocation (sysmon,
     GC, even resolving `PATH`) kills it with `fatal error: runtime: cannot
-    allocate memory`. It only showed up on a CI runner with more cores; on a
+allocate memory`. It only showed up on a CI runner with more cores; on a
     small machine it did not appear.
   - `RLIMIT_CPU` does not cut at the exact instant, only at the next scheduling
     of the process. Measured on a single-core machine: with `RLIMIT_CPU` alone
@@ -275,7 +275,7 @@ irm https://madkoding.github.io/motita/install.ps1 | iex
 
 On failure it **throws** instead of exiting, and that is deliberate: the script
 is normally run through `irm ... | iex`, and `exit` inside `Invoke-Expression`
-ends *your* PowerShell session — a failed download would close the window. A
+ends _your_ PowerShell session — a failed download would close the window. A
 thrown error is printed, is catchable, and still gives exit status 1 when the
 file is run directly.
 
@@ -304,12 +304,12 @@ curl -fsSLO https://github.com/madkoding/motita/releases/latest/download/motita-
 curl -fsSLO https://github.com/madkoding/motita/releases/latest/download/motita-windows-amd64.exe; if ($?) { ./motita-windows-amd64.exe -version }
 ```
 
-| System | Architectures | Asset suffix |
-|---|---|---|
-| Linux | `386`, `amd64`, `arm`, `arm64` | `-linux-<arch>` |
-| Android (Termux) | `arm64` | `-android-<arch>` |
-| Windows | `386`, `amd64`, `arm64` | `-windows-<arch>.exe` |
-| macOS | `amd64`, `arm64` (Apple silicon) | `-darwin-<arch>` |
+| System           | Architectures                    | Asset suffix          |
+| ---------------- | -------------------------------- | --------------------- |
+| Linux            | `386`, `amd64`, `arm`, `arm64`   | `-linux-<arch>`       |
+| Android (Termux) | `arm64`                          | `-android-<arch>`     |
+| Windows          | `386`, `amd64`, `arm64`          | `-windows-<arch>.exe` |
+| macOS            | `amd64`, `arm64` (Apple silicon) | `-darwin-<arch>`      |
 
 `android/arm64` is for **Termux**: Android's seccomp policy kills a `linux/arm64`
 binary with `SIGSYS: bad system call` (it blocks `faccessat2`, which the Go linux
@@ -370,7 +370,7 @@ read as lines, so a script can answer it:
    with an account login offer it first; a login that fails is offered again, with
    pasting a key as the alternative. When a key or a login is already saved for this
    provider, **keeping it** is the default.
-3. **Model** — the curated list (the first is marked *recommended*), the live catalogue
+3. **Model** — the curated list (the first is marked _recommended_), the live catalogue
    for Ollama, or any id typed by hand. A server that does not answer is said in words —
    "nothing is answering there yet (start it with `ollama serve`)" — and the built-in
    list is offered instead.
@@ -406,7 +406,7 @@ the server you chose:
 llm:
   provider: ollama
   base_url: http://localhost:11434/v1
-  model:    gpt-oss:20b
+  model: gpt-oss:20b
 ```
 
 The provider called `openai` is really **OpenAI-compatible**: it speaks the
@@ -417,8 +417,8 @@ same endpoints. The setup asks for the base URL when you choose it:
 ```yaml
 llm:
   provider: openai
-  base_url: https://api.openai.com/v1     # or https://api.groq.com/openai/v1, ...
-  model:    gpt-5-mini
+  base_url: https://api.openai.com/v1 # or https://api.groq.com/openai/v1, ...
+  model: gpt-5-mini
 ```
 
 `/models` inside the interface shows the active provider, the model, whether a key is
@@ -468,17 +468,17 @@ Resulting binaries (static, no cgo, no external libraries):
 Nine binaries, one per supported platform, all measured under the CI's toolchain and
 build flags (`-trimpath -ldflags "-s -w"`, no cgo):
 
-| Binary | Size |
-|---|---|
-| `dist/motita-linux-386` | 7.21 MB |
-| `dist/motita-linux-amd64` | 7.46 MB |
-| `dist/motita-linux-arm` | 7.25 MB |
-| `dist/motita-linux-arm64` | 6.88 MB |
-| `dist/motita-windows-386.exe` | 7.40 MB |
+| Binary                          | Size    |
+| ------------------------------- | ------- |
+| `dist/motita-linux-386`         | 7.21 MB |
+| `dist/motita-linux-amd64`       | 7.46 MB |
+| `dist/motita-linux-arm`         | 7.25 MB |
+| `dist/motita-linux-arm64`       | 6.88 MB |
+| `dist/motita-windows-386.exe`   | 7.40 MB |
 | `dist/motita-windows-amd64.exe` | 7.66 MB |
 | `dist/motita-windows-arm64.exe` | 6.96 MB |
-| `dist/motita-darwin-amd64` | 7.58 MB |
-| `dist/motita-darwin-arm64` | 7.02 MB |
+| `dist/motita-darwin-amd64`      | 7.58 MB |
+| `dist/motita-darwin-arm64`      | 7.02 MB |
 
 The whole range is 6.88 – 7.66 MB as measured when the interface was a text one; the web
 interface, the WebSocket transport and scheduled tasks have since added to that. The
@@ -523,19 +523,19 @@ One setting also answers to its older name: `agent.graceful_shutdown_timeout` is
 `MOTITA_AGENT_SHUTDOWN_TIMEOUT` (the name of the earlier release) is still
 honoured. The documented one wins when both are set.
 
-| Block | Contents |
-|---|---|
-| `task_source` | `kind` (`stdin`/`file`/`api`/`queue`), `path`, `dir`, `url`, `method`, `field`, `interval`, `headers`, `body` |
-| `anchor` | `kind` (`auto`/`command`/`none`), `command`, `args`, `timeout`, `expect_exit`, `expect_output` (regex), `baseline` (bool, default `true`, `kind: auto` only: a check that fails on a claim of done is run again on a clean checkout of the starting commit, and one that failed there too is reported as already failing instead of blocking), `checks[]` |
-| `sandbox` | `kind` (`none`/`chroot`/`cgroups`), `root`, `user`, `memory_mb`, `cpu_seconds`, `processes`, `open_files`, `max_file_size_mb`, `isolate_network`, `cgroups`, `cgroup_root`, `timeout`, `check_timeout`, `keep_ephemeral`, `max_output_kb`, `tools_dir`, `confine_writes` (default `true`: on Linux a command can write only under the working directory, the HOME in the tools directory (not its `bin/` or `tools/`) and its own temp directory, even from a script that changes directory, and cannot read motita's logins, its configuration and `motita.env`, or your git credential store; a command you approve is exempt) |
-| `llm` | `provider` (`openai`/`codex`/`copilot`/`ollama`/`anthropic`/`claude-code`/`gemini`/`qwen`), `model`, `api_key`, `base_url`, `max_tokens` (output ceiling; the client learns a model's own limit from the provider's refusal and stays within it, and an answer cut off before any text is asked again with a larger budget; reasoning models spend it on hidden thinking, so give them up to `65536`), `temperature`, `timeout`, `max_attempts`, `backoff_initial`, `backoff_max`, `reasoning{enabled,level}`, `session{context_window,reserve,compact_at,keep_recent}` |
-| `prompts` | `analyze`, `plan`, `execute`, `synthesize`, each with `system` and `user` |
-| `final_action` | `kind` (`none`/`command`/`api`/`git_commit`), `command`, `args`, `url`, `method`, `commit_message` |
-| `agent` | `max_retries`, `max_steps`, `subtask_depth`, `max_parallel` (background agents started with `spawn_agent` running at once, default `3`; `0` turns it off), `max_tasks`, `workspace_dir`, `log_file`, `log_level`, `log_console`, `log_max_mb`, `log_backups`, `graceful_shutdown_timeout`, `read_only`, `shell`, `policy{enforce,strict}`, `on_failure` |
-| `skills` | `dir`, `max_file_bytes` |
-| `gateway` | `enabled`, `listen`, `token_file`, `allow`, `hosts`, `max_body_kb`, `webui`, `show_actions` (bool, default `false`: the chat shows a counter of the commands and actions a turn ran instead of each one; the web UI's counter expands on click) |
-| `schedule` | `enabled`, `tick`, `min_every`, `max_runs_kept` |
-| `ui` | `language` (`auto`/`en`/`es`, default `auto`: the language of the terminal, the browser and the setup wizard; `auto` follows the locale and the browser) |
+| Block          | Contents                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| -------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `task_source`  | `kind` (`stdin`/`file`/`api`/`queue`), `path`, `dir`, `url`, `method`, `field`, `interval`, `headers`, `body`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
+| `anchor`       | `kind` (`auto`/`command`/`none`), `command`, `args`, `timeout`, `expect_exit`, `expect_output` (regex), `baseline` (bool, default `true`, `kind: auto` only: a check that fails on a claim of done is run again on a clean checkout of the starting commit, and one that failed there too is reported as already failing instead of blocking), `checks[]`                                                                                                                                                                                                                                                                        |
+| `sandbox`      | `kind` (`none`/`chroot`/`cgroups`), `root`, `user`, `memory_mb`, `cpu_seconds`, `processes`, `open_files`, `max_file_size_mb`, `isolate_network`, `cgroups`, `cgroup_root`, `timeout`, `check_timeout`, `keep_ephemeral`, `max_output_kb`, `tools_dir`, `confine_writes` (default `true`: on Linux a command can write only under the working directory, the HOME in the tools directory (not its `bin/` or `tools/`) and its own temp directory, even from a script that changes directory, and cannot read motita's logins, its configuration and `motita.env`, or your git credential store; a command you approve is exempt) |
+| `llm`          | `provider` (`openai`/`codex`/`copilot`/`ollama`/`anthropic`/`claude-code`/`gemini`/`qwen`), `model`, `api_key`, `base_url`, `max_tokens` (output ceiling; the client learns a model's own limit from the provider's refusal and stays within it, and an answer cut off before any text is asked again with a larger budget; reasoning models spend it on hidden thinking, so give them up to `65536`), `temperature`, `timeout`, `max_attempts`, `backoff_initial`, `backoff_max`, `reasoning{enabled,level}`, `session{context_window,reserve,compact_at,keep_recent}`                                                          |
+| `prompts`      | `analyze`, `plan`, `execute`, `synthesize`, each with `system` and `user`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
+| `final_action` | `kind` (`none`/`command`/`api`/`git_commit`), `command`, `args`, `url`, `method`, `commit_message`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
+| `agent`        | `max_retries`, `max_steps`, `subtask_depth`, `max_parallel` (background agents started with `spawn_agent` running at once, default `3`; `0` turns it off), `max_tasks`, `workspace_dir`, `log_file`, `log_level`, `log_console`, `log_max_mb`, `log_backups`, `graceful_shutdown_timeout`, `read_only`, `shell`, `policy{enforce,strict}`, `on_failure`                                                                                                                                                                                                                                                                          |
+| `skills`       | `dir`, `max_file_bytes`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| `gateway`      | `enabled`, `listen`, `token_file`, `allow`, `hosts`, `max_body_kb`, `webui`, `show_actions` (bool, default `false`: the chat shows a counter of the commands and actions a turn ran instead of each one; the web UI's counter expands on click)                                                                                                                                                                                                                                                                                                                                                                                  |
+| `schedule`     | `enabled`, `tick`, `min_every`, `max_runs_kept`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
+| `ui`           | `language` (`auto`/`en`/`es`, default `auto`: the language of the terminal, the browser and the setup wizard; `auto` follows the locale and the browser)                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
 
 `skills.dir` is the procedure library: the directory of documents the agent may
 list, search, read and extend. It defaults to `skills` under the working
@@ -549,9 +549,9 @@ document about one project offered while you work on another is worse than
 nothing: the model reads a confident procedure about a codebase you are not in.
 So the library is scoped:
 
-| Session | Sees |
-| --- | --- |
-| No project | the shared shelf (`skills.dir`) and the shipped procedures |
+| Session          | Sees                                                            |
+| ---------------- | --------------------------------------------------------------- |
+| No project       | the shared shelf (`skills.dir`) and the shipped procedures      |
 | Inside a project | its own documents **+** the shared shelf **+** the shipped ones |
 
 A project's own procedures live in `<project>/.motita/skills/`, next to the
@@ -574,39 +574,39 @@ consequential, and it has **two layers — only one of which is configurable**.
 
 **The layer you own** is `agent.policy`:
 
-| Setting | Default | Effect |
-|---|---|---|
-| `enforce` | `true` | Asks before a consequential action runs. Off restores the older behaviour — the model's line runs as written — which is a defensible choice for a batch job with nobody at the keyboard. |
-| `strict` | `false` | Off, a line the policy cannot classify is **asked** about. On, it is **refused** instead. |
+| Setting   | Default | Effect                                                                                                                                                                                   |
+| --------- | ------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `enforce` | `true`  | Asks before a consequential action runs. Off restores the older behaviour — the model's line runs as written — which is a defensible choice for a batch job with nobody at the keyboard. |
+| `strict`  | `false` | Off, a line the policy cannot classify is **asked** about. On, it is **refused** instead.                                                                                                |
 
 With `enforce` off the two interact in one direction only: a command that would
-have been *asked* about is then *allowed*, and one that `strict` *refuses* stays
+have been _asked_ about is then _allowed_, and one that `strict` _refuses_ stays
 refused. Turning the confirmation off can never promote a refusal into a run.
 
 **The layer you do not own** is the floor. It has two groups, and they are not
 the same shape.
 
-*Refused by name, whatever the target is:* the `mkfs.*` family,
+_Refused by name, whatever the target is:_ the `mkfs.*` family,
 `fdisk`/`sfdisk`/`cfdisk`/`parted`/`gdisk`/`sgdisk`, `wipefs`, `blkdiscard`,
 `shred`, `shutdown`/`reboot`/`halt`/`poweroff`/`init`, and `dd` whenever it names
 an output (`of=`). A filesystem is not formatted "safely", and the power state is
 not the agent's to decide, so there is nothing to weigh.
 
-*Refused by target:* `rm`, `mv`, `cp`, `ln` and `install` are refused only when
+_Refused by target:_ `rm`, `mv`, `cp`, `ln` and `install` are refused only when
 an operand names something the floor protects — `/`, `~` or a home directory, a
 system path such as `/etc` or `/usr`, or the tree that **contains** the
 workspace. The same verbs against ordinary paths are not the floor's business.
 
 That distinction is worth reading twice, because it is where an operator's
 expectation usually differs from the code: the workspace itself is your work and
-is *not* guarded — `rm -rf ./build` inside it is the ordinary consequential
+is _not_ guarded — `rm -rf ./build` inside it is the ordinary consequential
 action the confirmation layer exists for. What is refused is the directory that
-*contains* the work, at any depth above it.
+_contains_ the work, at any depth above it.
 
 Both groups are measured, not asserted: `internal/policy/readme_claims_test.go`
 holds this section to the classifier's real verdicts.
 
-The cost is deliberate and visible. `fdisk -l`, which only *lists* a partition
+The cost is deliberate and visible. `fdisk -l`, which only _lists_ a partition
 table, is refused along with the rest of its family, and `dd of=local.img` is
 refused although it overwrites nothing anyone needs. The floor is a scan and not
 a parser, it prefers refusing to weighing, and every false positive costs one
@@ -622,7 +622,7 @@ configuration will not help you; the refusal names the rule.
 The floor is a scan, not a parser, and it looks for a floor program in command
 position — first token of a segment, after a wrapper like `sudo`/`env`, after
 `xargs`, after `find -exec`, or as the payload of `<shell> -c`. So `sh -c 'rm -rf /'`
-is caught, while `echo "rm -rf /"` — a line that merely *mentions* it — is not.
+is caught, while `echo "rm -rf /"` — a line that merely _mentions_ it — is not.
 Both directions of error are known: a floor command reached through a program the
 scan does not know still arrives at the classifier as that program (refused or
 asked about), and a false positive only ever refuses.
@@ -635,32 +635,32 @@ a bearer token, so other front ends — a web page, a phone, a desktop window �
 reach **the same conversation** the terminal is having. The agent lives once; every
 interface is a client of it.
 
-| Setting | Default | Effect |
-|---|---|---|
-| `enabled` | `true` | The HTTP face. Off is one deliberate act, for a machine that must not listen at all. |
-| `listen` | *empty* | `host:port`, and **empty means "resolve it"**: loopback `127.0.0.1:7477`, so only this machine reaches it unless you name something else. Naming a LAN address or `0.0.0.0:7477` exposes it on the network over **plain HTTP** (the token travels unencrypted, and the gateway warns about it when it opens); an SSH tunnel to the loopback default avoids that. A **fixed** port, because the gateway can outlive the process that started it and a later process has to find it. Port `0` still works and asks the kernel for a free one, but the address then exists only in that process' memory, so nothing else can reach it. The address says where the **socket** is open and nothing about who may connect, which is `allow`. |
-| `token_file` | `gateway.token` | Where the bearer token lives, under the motita home. Generated on first use with 32 random bytes, mode `0600`. |
-| `allow` | *empty* | **Who may connect**, as an ordered list of rules. Empty means every origin — the fresh-firewall-table default. Entries: `any`, `lan`, an address (`192.168.1.10`), a network (`192.168.0.0/16`), each optionally prefixed with `!` to deny. The first rule that matches decides; an origin no rule matches is allowed. Loopback is always allowed. See the rules table above. Also read from `MOTITA_GATEWAY_ALLOW`, comma- or space-separated. |
-| `hosts` | *empty* | Extra host **names** the gateway answers to, for a reverse proxy or a DNS name in front of it. An IP address, `localhost`, this machine's host name (and its `.local` name) and the host in `listen` are always accepted; a request whose `Host` header names anything else is refused with `421`, which is what stops a DNS-rebinding page from reaching the gateway under its own name. |
-| `max_body_kb` | `256` | Cap on a request body. |
-| `max_sessions` | `0` | How many conversations one process holds IN MEMORY. `0` means the built-in default (64). The ceiling bounds how many transcripts are resident; conversations beyond it stay on disk and are re-materialised on demand. A negative ceiling is refused rather than read as the default, which would hide the typo that produced it. |
-| `free_session_git` | `false` | Make the own directory of a session that belongs to no project a git repository when it is created. Off by default: such a session needs no git. A client can ask per session with `"git": true` or `false` in `POST /v1/sessions`. Also read from `MOTITA_GATEWAY_FREE_SESSION_GIT`. |
-| `artifact_days` | `30` | Days a saved artifact (a file the agent produced, or one you uploaded) is kept; older ones are deleted when the gateway starts and once a day. The folders of sessions and projects that no longer exist are removed too. `0` keeps artifacts for ever; a negative number is refused. Also read from `MOTITA_GATEWAY_ARTIFACT_DAYS`. |
+| Setting            | Default         | Effect                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
+| ------------------ | --------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `enabled`          | `true`          | The HTTP face. Off is one deliberate act, for a machine that must not listen at all.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
+| `listen`           | _empty_         | `host:port`, and **empty means "resolve it"**: loopback `127.0.0.1:7477`, so only this machine reaches it unless you name something else. Naming a LAN address or `0.0.0.0:7477` exposes it on the network over **plain HTTP** (the token travels unencrypted, and the gateway warns about it when it opens); an SSH tunnel to the loopback default avoids that. A **fixed** port, because the gateway can outlive the process that started it and a later process has to find it. Port `0` still works and asks the kernel for a free one, but the address then exists only in that process' memory, so nothing else can reach it. The address says where the **socket** is open and nothing about who may connect, which is `allow`. |
+| `token_file`       | `gateway.token` | Where the bearer token lives, under the motita home. Generated on first use with 32 random bytes, mode `0600`.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| `allow`            | _empty_         | **Who may connect**, as an ordered list of rules. Empty means every origin — the fresh-firewall-table default. Entries: `any`, `lan`, an address (`192.168.1.10`), a network (`192.168.0.0/16`), each optionally prefixed with `!` to deny. The first rule that matches decides; an origin no rule matches is allowed. Loopback is always allowed. See the rules table above. Also read from `MOTITA_GATEWAY_ALLOW`, comma- or space-separated.                                                                                                                                                                                                                                                                                        |
+| `hosts`            | _empty_         | Extra host **names** the gateway answers to, for a reverse proxy or a DNS name in front of it. An IP address, `localhost`, this machine's host name (and its `.local` name) and the host in `listen` are always accepted; a request whose `Host` header names anything else is refused with `421`, which is what stops a DNS-rebinding page from reaching the gateway under its own name.                                                                                                                                                                                                                                                                                                                                              |
+| `max_body_kb`      | `256`           | Cap on a request body.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
+| `max_sessions`     | `0`             | How many conversations one process holds IN MEMORY. `0` means the built-in default (64). The ceiling bounds how many transcripts are resident; conversations beyond it stay on disk and are re-materialised on demand. A negative ceiling is refused rather than read as the default, which would hide the typo that produced it.                                                                                                                                                                                                                                                                                                                                                                                                      |
+| `free_session_git` | `false`         | Make the own directory of a session that belongs to no project a git repository when it is created. Off by default: such a session needs no git. A client can ask per session with `"git": true` or `false` in `POST /v1/sessions`. Also read from `MOTITA_GATEWAY_FREE_SESSION_GIT`.                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
+| `artifact_days`    | `30`            | Days a saved artifact (a file the agent produced, or one you uploaded) is kept; older ones are deleted when the gateway starts and once a day. The folders of sessions and projects that no longer exist are removed too. `0` keeps artifacts for ever; a negative number is refused. Also read from `MOTITA_GATEWAY_ARTIFACT_DAYS`.                                                                                                                                                                                                                                                                                                                                                                                                   |
 
 #### Running the gateway as a service
 
 `motita` on its own brings up an interface, and **the agent behind it is a service
 that may already be running**. Three outcomes, and which one you get is deliberate:
 
-| Situation | What happens |
-|---|---|
+| Situation                                                                                    | What happens                                                                                                                                    |
+| -------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
 | a gateway is already running (found through the service file, or started by `gateway start`) | the interface **attaches to it** and shuts down nothing. A service you started on purpose is not killed because a terminal happened to connect. |
-| nothing is running | one is brought up **for this interface**, in-process, and shut down when the interface ends. |
-| `-gateway off` | no gateway at all: the interface keeps the direct path it has always had. |
+| nothing is running                                                                           | one is brought up **for this interface**, in-process, and shut down when the interface ends.                                                    |
+| `-gateway off`                                                                               | no gateway at all: the interface keeps the direct path it has always had.                                                                       |
 
 The gateway the interface brings up is **in-process**, which is the opposite of what
 `gateway start` does, and the difference matters. The service exists to outlive the shell
-that started it. The interface's gateway exists *for* the interface, so it must die with
+that started it. The interface's gateway exists _for_ the interface, so it must die with
 the process however the process dies — a re-executed child would survive a `SIGKILL` of
 the interface and leak, invisibly, until a machine has a dozen agent services and nobody
 knows why.
@@ -720,16 +720,15 @@ The default port is **7477**: unassigned in the IANA registry, absent from
 with outgoing connections. Some hosts widen that range; if a start fails with `address
 already in use`, move it with `-gateway 127.0.0.1:<port>`.
 
-
 #### Running as a client
 
 `-connect <host:port>` and `-session <id>` make this process a remote control:
 
-| What it needs | What it does not |
-|---|---|
-| the gateway's address | a sandbox: commands run on the gateway's machine |
-| the token, **read** from `gateway.token` (never minted) | a procedure library: it belongs to the gateway |
-| network reach to the port | a reasoning engine: the model is called there |
+| What it needs                                           | What it does not                                 |
+| ------------------------------------------------------- | ------------------------------------------------ |
+| the gateway's address                                   | a sandbox: commands run on the gateway's machine |
+| the token, **read** from `gateway.token` (never minted) | a procedure library: it belongs to the gateway   |
+| network reach to the port                               | a reasoning engine: the model is called there    |
 
 The address may be written with or without a scheme — `127.0.0.1:7477` and
 `http://127.0.0.1:7477` are the same thing — because nobody types a scheme for an
@@ -753,23 +752,23 @@ table**: **nothing is restricted until you add a rule**. Rules live in
 `gateway.allow` (or `MOTITA_GATEWAY_ALLOW`, comma- or space-separated) and are
 **ordered** — the first one that matches decides:
 
-| Rule | Means |
-| --- | --- |
-| `any` | every origin (also accepted: `all`, `everyone`) |
-| `lan` | the private and link-local ranges: `192.168.x`, `10.x`, `172.16-31.x`, `169.254.x`, `fc00::/7`, `fe80::/10` |
-| `192.168.1.10` | one address (an `ip:` prefix is accepted too) |
-| `192.168.0.0/16` | one network |
+| Rule             | Means                                                                                                       |
+| ---------------- | ----------------------------------------------------------------------------------------------------------- |
+| `any`            | every origin (also accepted: `all`, `everyone`)                                                             |
+| `lan`            | the private and link-local ranges: `192.168.x`, `10.x`, `172.16-31.x`, `169.254.x`, `fc00::/7`, `fe80::/10` |
+| `192.168.1.10`   | one address (an `ip:` prefix is accepted too)                                                               |
+| `192.168.0.0/16` | one network                                                                                                 |
 
 Prefix any of them with `!` to **deny** instead of allow:
 
 ```yaml
 gateway:
-  allow: []                   # everything — the default
-  allow: ["lan"]              # let the local network in; everything else still gets in
-  allow: ["!any"]             # this machine only
-  allow: ["lan", "!any"]      # the local network ONLY — the useful one
-  allow: ["10.0.0.5"]         # one machine; everything else still gets in
-  allow: ["!192.168.1.0/24"]  # everything except one network
+  allow: [] # everything — the default
+  allow: ["lan"] # let the local network in; everything else still gets in
+  allow: ["!any"] # this machine only
+  allow: ["lan", "!any"] # the local network ONLY — the useful one
+  allow: ["10.0.0.5"] # one machine; everything else still gets in
+  allow: ["!192.168.1.0/24"] # everything except one network
 ```
 
 An origin **no rule matches is allowed**, because the default policy is accept. That is
@@ -815,11 +814,11 @@ exchanges it for a cookie, then erases it from the address bar and the history e
 The cookie is **not the token**. Its value is an HMAC of the token
 (`HMAC-SHA256(token, "motita-webui-session-v1")`), so:
 
-| Because it is derived | Consequence |
-|---|---|
-| what the browser stores is not the token | a cookie lifted from a browser is not a reusable bearer token |
-| nothing is stored server-side | no session table, no id to guess, no expiry to sweep |
-| it is recomputed per request | **rotating the token invalidates every cookie**, with nothing to clean up |
+| Because it is derived                    | Consequence                                                               |
+| ---------------------------------------- | ------------------------------------------------------------------------- |
+| what the browser stores is not the token | a cookie lifted from a browser is not a reusable bearer token             |
+| nothing is stored server-side            | no session table, no id to guess, no expiry to sweep                      |
+| it is recomputed per request             | **rotating the token invalidates every cookie**, with nothing to clean up |
 
 The cookie is `HttpOnly` (an injected script cannot read it) and `SameSite=Strict`
 (another origin never sends it). It is deliberately **not** `Secure`: this gateway
@@ -845,7 +844,7 @@ phone changing network does not lose the turn), and shows an approval with the c
 **What it costs.** The page is compiled into the binary. Measured on the dist build:
 **+28,672 bytes** on linux/386 and the same order on windows/amd64, against 1.16 MB of
 margin under the size gate. Roughly one binary byte per asset byte, so the size of the
-page *is* the size of the executable. The one item that can spend the margin is a
+page _is_ the size of the executable. The one item that can spend the margin is a
 webfont — the page uses the system font deliberately, and a test fails if the assets
 grow past 64 KB.
 
@@ -863,7 +862,7 @@ ssh -N -L 7477:127.0.0.1:7477 the-host
 
 The token is compared in constant time and is never printed by `-validate-config`
 or any other command: configuration is shown to clients through a reduced view in
-which `llm.api_key` is reported only as *present* or *absent*.
+which `llm.api_key` is reported only as _present_ or _absent_.
 
 The address is validated at startup, not when the first client arrives: a
 `listen` that is not `host:port` is refused. **Who may connect is a separate
@@ -875,7 +874,7 @@ Whatever is bound, the address a client is **told** is one it can call. A wildca
 bind is reported as `127.0.0.1:<port>` rather than as the `[::]` the kernel reports,
 because `[::]` is an address to listen on and not one to dial: in a URL it names no
 reachable host, and a browser returns an empty page for it. Whether the gateway is
-*reachable from the network* is a separate question with a separate answer, carried
+_reachable from the network_ is a separate question with a separate answer, carried
 in `gateway.json` as `reachable` and stated in the startup message — alongside
 `allow`, the rule set the running gateway is actually enforcing.
 
@@ -896,11 +895,11 @@ live turn from a hung one, and no way to stop the live one.
 Following a run and owning one are different things, and the difference is worth knowing
 because it decides what your shutdown does:
 
-| | A run this interface started | A run it arrived at |
-|---|---|---|
-| Escape | stops it | stops it, through the gateway |
-| Leaving the interface | the run keeps going | the run keeps going |
-| Closing the window | the run keeps going | the run keeps going |
+|                       | A run this interface started | A run it arrived at           |
+| --------------------- | ---------------------------- | ----------------------------- |
+| Escape                | stops it                     | stops it, through the gateway |
+| Leaving the interface | the run keeps going          | the run keeps going           |
+| Closing the window    | the run keeps going          | the run keeps going           |
 
 Escape is the one deliberate act, in both columns. Nothing else kills a turn — in
 particular, disconnecting from a client does **not**, which is the whole point of a run
@@ -918,8 +917,8 @@ conversation in the gateway, not to the socket that asked for it. What a client 
 a way back in, and that is three facts about the wire.
 
 **Every event is numbered.** The stream carries `id: <n>`, and `n` is the sequence number
-of the event in the run's log. It is the number a client sends back to say *"I got this
-far, continue from here"*:
+of the event in the run's log. It is the number a client sends back to say _"I got this
+far, continue from here"_:
 
 ```
 id: 7
@@ -928,17 +927,17 @@ data: {"text":"a line"}
 ```
 
 **The first event after attaching is always a preamble.** `event: attached` says what the
-client is looking at, and it is what makes *"resumed"* distinguishable from *"I lost
-lines"*:
+client is looking at, and it is what makes _"resumed"_ distinguishable from _"I lost
+lines"_:
 
-| Field | Meaning |
-|---|---|
-| `run_id` | Which turn this is. A client that reconnects to a different one knows it. |
-| `first_seq` / `last_seq` | The span the log can still serve. |
-| `dropped` | How many events were evicted, so a hole is a size and not a suspicion. |
-| `pending_approval` | The question being asked **right now**, with its `id`, if the run is blocked on one. |
-| `outcome` | Empty while the turn is going; `done`, `error` or `cancelled` once it has ended. A client attaching to a finished turn is **told**, instead of waiting on a stream that will never produce. |
-| `agents` | The latest list of the run's agents (see below), when there is one. |
+| Field                    | Meaning                                                                                                                                                                                     |
+| ------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `run_id`                 | Which turn this is. A client that reconnects to a different one knows it.                                                                                                                   |
+| `first_seq` / `last_seq` | The span the log can still serve.                                                                                                                                                           |
+| `dropped`                | How many events were evicted, so a hole is a size and not a suspicion.                                                                                                                      |
+| `pending_approval`       | The question being asked **right now**, with its `id`, if the run is blocked on one.                                                                                                        |
+| `outcome`                | Empty while the turn is going; `done`, `error` or `cancelled` once it has ended. A client attaching to a finished turn is **told**, instead of waiting on a stream that will never produce. |
+| `agents`                 | The latest list of the run's agents (see below), when there is one.                                                                                                                         |
 
 The preamble carries a pending question on purpose. A client that reconnects while the
 run is blocked on an approval would otherwise receive a silent stream — and the run would
@@ -961,30 +960,30 @@ beginning of the turn. That is deliberate: replaying what the client already has
 make it render the same line twice, and replaying the whole turn to a phone that lost
 four seconds is worse than telling it four seconds are gone.
 
-| What | Where |
-|---|---|
-| `GET /v1/sessions/{id}/run` | Whether a run is in flight, its span, and how many clients are watching it. One JSON reply, so a client can decide before opening a stream. |
-| `GET /v1/sessions/{id}/events?from=N` | Attach, from event `N` onwards. |
-| `GET /v1/sessions/{id}/agents` | The agents of the run in flight, or of the last run: `{"agents":[...]}`, `[]` when there were none. |
-| `POST /v1/sessions/{id}/cancel` | Stop the run in this conversation. |
-| `POST /v1/sessions/{id}/runs/approval` | Answer the pending question, by `id`. |
+| What                                   | Where                                                                                                                                       |
+| -------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- |
+| `GET /v1/sessions/{id}/run`            | Whether a run is in flight, its span, and how many clients are watching it. One JSON reply, so a client can decide before opening a stream. |
+| `GET /v1/sessions/{id}/events?from=N`  | Attach, from event `N` onwards.                                                                                                             |
+| `GET /v1/sessions/{id}/agents`         | The agents of the run in flight, or of the last run: `{"agents":[...]}`, `[]` when there were none.                                         |
+| `POST /v1/sessions/{id}/cancel`        | Stop the run in this conversation.                                                                                                          |
+| `POST /v1/sessions/{id}/runs/approval` | Answer the pending question, by `id`.                                                                                                       |
 
 **The run's agents.** A run can start agents of its own in the background. Their list
 travels as `event: agents`, `data: {"agents":[...]}`, every time it changes. Like
 `thinking` it is ephemeral (`id: 0`, not in the log, not replayed): each one replaces the
 one before, and a client that attaches gets the latest in the preamble. Each entry is:
 
-| Field | Meaning |
-|---|---|
-| `id` / `parent` | The agent, and the one that started it. The main agent has no `parent`. |
-| `purpose` | What it was started for, in the words of the agent that started it. |
-| `state` | `running`, `passed`, `failed` or `cancelled`. |
-| `started` / `finished` | When it started, and when it ended (absent while it runs). |
-| `elapsed_ms` | Its running time when the list was sent; count from `started` to show a live clock. |
-| `tokens` | `input`, `output`, `cache_read`, `cache_write`, as the provider reported them. |
-| `calls`, `round` | Model calls made, and the round it is on. |
-| `activity` | Its latest progress line. |
-| `branch`, `summary` | Where its work is and what it says it did, once it finished. |
+| Field                  | Meaning                                                                             |
+| ---------------------- | ----------------------------------------------------------------------------------- |
+| `id` / `parent`        | The agent, and the one that started it. The main agent has no `parent`.             |
+| `purpose`              | What it was started for, in the words of the agent that started it.                 |
+| `state`                | `running`, `passed`, `failed` or `cancelled`.                                       |
+| `started` / `finished` | When it started, and when it ended (absent while it runs).                          |
+| `elapsed_ms`           | Its running time when the list was sent; count from `started` to show a live clock. |
+| `tokens`               | `input`, `output`, `cache_read`, `cache_write`, as the provider reported them.      |
+| `calls`, `round`       | Model calls made, and the round it is on.                                           |
+| `activity`             | Its latest progress line.                                                           |
+| `branch`, `summary`    | Where its work is and what it says it did, once it finished.                        |
 
 The session list counts them too: `agents_running` is how many background agents (the
 main one aside) are working right now. In the terminal, the footer shows the count and
@@ -994,7 +993,7 @@ Cancelling is addressed to the **session**, not to a run id, so a client that
 reconnected and remembers a stale run cannot stop the wrong turn — or reach a run that
 has already ended and report a success that stopped nothing.
 
-A verdict the gateway refuses with `409` (*nothing is waiting for an approval*) is an
+A verdict the gateway refuses with `409` (_nothing is waiting for an approval_) is an
 error and not something to swallow: it means the client's view is stale.
 
 ### Scheduled tasks
@@ -1008,18 +1007,18 @@ editable by hand.
 ```yaml
 schedule:
   enabled: true
-  tick: 30s         # resolution at which a cadence is NOTICED, not the cadence itself
-  min_every: 1m     # shortest cadence a task may be given
+  tick: 30s # resolution at which a cadence is NOTICED, not the cadence itself
+  min_every: 1m # shortest cadence a task may be given
   max_runs_kept: 50 # firings kept in a task's record
 ```
 
-| Endpoint | What it does |
-|---|---|
-| `GET /v1/schedules` | every task, with its `next_run` computed server-side |
-| `POST /v1/schedules` | create one: `title`, `task`, `every` (`"30m"`), optional `kind`, `session_id` |
-| `PATCH /v1/schedules/{id}` | change one field: `enabled`, `title`, `task`, `every`, `kind`, `session_id` |
-| `DELETE /v1/schedules/{id}` | remove one |
-| `POST /v1/schedules/{id}/run` | run it now; `202`, and the cadence is left alone |
+| Endpoint                      | What it does                                                                  |
+| ----------------------------- | ----------------------------------------------------------------------------- |
+| `GET /v1/schedules`           | every task, with its `next_run` computed server-side                          |
+| `POST /v1/schedules`          | create one: `title`, `task`, `every` (`"30m"`), optional `kind`, `session_id` |
+| `PATCH /v1/schedules/{id}`    | change one field: `enabled`, `title`, `task`, `every`, `kind`, `session_id`   |
+| `DELETE /v1/schedules/{id}`   | remove one                                                                    |
+| `POST /v1/schedules/{id}/run` | run it now; `202`, and the cadence is left alone                              |
 
 ```bash
 TOKEN="$(cat ~/.motita/gateway.token)"
@@ -1067,7 +1066,7 @@ setting:
 
 ```yaml
 ui:
-  language: auto   # auto | en | es
+  language: auto # auto | en | es
 ```
 
 `auto` (the default) follows the environment each interface runs in: the terminal reads
@@ -1079,9 +1078,9 @@ The setting is one for every interface: changing it from the browser's settings 
 terminal goes through the gateway, which writes it into the configuration file it started
 with (in place: comments and every other line are kept).
 
-| Endpoint | What it does |
-|---|---|
-| `GET /v1/ui` | `{"language":"auto","resolved":"es"}`: the setting, and what it means on the gateway's host |
+| Endpoint     | What it does                                                                                                                                        |
+| ------------ | --------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `GET /v1/ui` | `{"language":"auto","resolved":"es"}`: the setting, and what it means on the gateway's host                                                         |
 | `PUT /v1/ui` | `{"language":"es"}` saves it; `400` for anything but `auto`, `en`, `es`, `409` when the gateway runs on the built-in defaults with no file to write |
 
 ### The skill library
@@ -1091,34 +1090,34 @@ lifecycle, and the maintenance pass that keeps them honest.
 
 ```yaml
 skills:
-  dir: ~/.motita/skills    # where the documents live
-  max_file_bytes: 65536    # a bigger document is refused, not truncated
+  dir: ~/.motita/skills # where the documents live
+  max_file_bytes: 65536 # a bigger document is refused, not truncated
 
 curator:
-  enabled: true            # run the maintenance pass on its own
-  interval_hours: 168      # how often: a week
-  min_idle_minutes: 120    # and only when nobody has been talking for two hours
-  stale_after_days: 14     # unused for this long, and it is marked stale
-  archive_after_days: 30   # stale for this long, and it moves to the archive
-  consolidate: false       # let the model merge overlapping documents
+  enabled: true # run the maintenance pass on its own
+  interval_hours: 168 # how often: a week
+  min_idle_minutes: 120 # and only when nobody has been talking for two hours
+  stale_after_days: 14 # unused for this long, and it is marked stale
+  archive_after_days: 30 # stale for this long, and it moves to the archive
+  consolidate: false # let the model merge overlapping documents
 ```
 
-| Endpoint | What it does |
-|---|---|
-| `GET /v1/skills` | the index: name, title, summary, path, and the lifecycle telemetry |
-| `GET /v1/skills/{name}` | one document, **with its body** |
-| `POST /v1/skills` | write one: `name`, `body` — creates or replaces |
-| `POST /v1/skills/{name}/pin` | `{"pinned":true}` exempts it from every automatic transition |
-| `POST /v1/skills/{name}/disable` | `{"disabled":true}` stops the agent seeing it: still listed, still readable, one click back |
-| `DELETE /v1/skills/{name}` | delete one for good, telemetry included; a shipped procedure is refused with `409` |
-| `GET /v1/skills/archived` | the names of everything in the archive |
-| `POST /v1/skills/{name}/restore` | bring an archived document back |
-| `GET /v1/skills/proposed` | the skills the background review proposed, waiting for you |
-| `GET /v1/skills/proposed/{name}` | one proposal, **with its body**, to read before deciding |
-| `POST /v1/skills/proposed/{name}/accept` | put a proposal in the library, replacing a skill of the same name |
-| `DELETE /v1/skills/proposed/{name}` | reject a proposal: it is deleted |
-| `GET /v1/curator` | the thresholds, the last pass, and the lifecycle counts |
-| `POST /v1/curator/run` | run one pass now: `consolidate`, `dry_run` |
+| Endpoint                                 | What it does                                                                                |
+| ---------------------------------------- | ------------------------------------------------------------------------------------------- |
+| `GET /v1/skills`                         | the index: name, title, summary, path, and the lifecycle telemetry                          |
+| `GET /v1/skills/{name}`                  | one document, **with its body**                                                             |
+| `POST /v1/skills`                        | write one: `name`, `body` — creates or replaces                                             |
+| `POST /v1/skills/{name}/pin`             | `{"pinned":true}` exempts it from every automatic transition                                |
+| `POST /v1/skills/{name}/disable`         | `{"disabled":true}` stops the agent seeing it: still listed, still readable, one click back |
+| `DELETE /v1/skills/{name}`               | delete one for good, telemetry included; a shipped procedure is refused with `409`          |
+| `GET /v1/skills/archived`                | the names of everything in the archive                                                      |
+| `POST /v1/skills/{name}/restore`         | bring an archived document back                                                             |
+| `GET /v1/skills/proposed`                | the skills the background review proposed, waiting for you                                  |
+| `GET /v1/skills/proposed/{name}`         | one proposal, **with its body**, to read before deciding                                    |
+| `POST /v1/skills/proposed/{name}/accept` | put a proposal in the library, replacing a skill of the same name                           |
+| `DELETE /v1/skills/proposed/{name}`      | reject a proposal: it is deleted                                                            |
+| `GET /v1/curator`                        | the thresholds, the last pass, and the lifecycle counts                                     |
+| `POST /v1/curator/run`                   | run one pass now: `consolidate`, `dry_run`                                                  |
 
 ```bash
 TOKEN="$(cat ~/.motita/gateway.token)"
@@ -1176,7 +1175,7 @@ that keeps nothing: the document and its telemetry both go. A shipped procedure 
 refused with `409` — it lives inside the binary, and reporting success for a deletion
 that did not happen is the one answer worth less than the refusal.
 
-**The curator never deletes.** A document that ages out is *moved* to `.archive/`
+**The curator never deletes.** A document that ages out is _moved_ to `.archive/`
 inside the skills directory, and `POST /v1/skills/{name}/restore` (or
 `motita curator restore`) puts it back. There is no automatic transition that ends in
 a missing file, because the pass runs without anybody watching: a maintenance job that
@@ -1219,21 +1218,21 @@ is local.
 
 The boundary cases are deliberate, and each one is a test:
 
-| Line | Verdict | Why |
-|---|---|---|
-| `python3 build.py` (inside the workspace) | silent | a script that belongs to the project |
-| `./scripts/deploy.sh` | silent | the same, when you name it directly |
-| `sh scripts/deploy.sh` | **asked** | a shell interpreter is opaque by construction — see below |
-| `cd /elsewhere`, `pushd`, `git -C /elsewhere`, `make -C /elsewhere` | asked | the task works in its own directory; a line that walks out of it runs the rest against another tree |
-| a program that is not installed (not on the sandbox `PATH`) | asked | the question says it is missing and offers the way forward: approve the install, or install it yourself and retry |
-| `python3 /opt/other/build.py` | asked | a script from outside — the policy cannot read it as yours |
-| `python3 -c '...'` | asked | inline code is as opaque as a shell line |
-| `make`, `go build`, `npm test` | silent | the local toolchain |
-| ``sed -n '1,300p' file``, ``awk '{print $1}' file`` | silent | the line editors in their printing form, which is how a file gets read |
-| `sed -i 's/a/b/' file`, ``awk '{print > "f"}'`` | **asked** | the same programs in their writing form: a flag, or a redirection in the script |
-| `sort -o out.txt in.txt`, `uniq in.txt out.txt`, `xxd in.bin out.hex` | **asked** | a reader whose second operand is an output file |
-| `pip install x`, `git push` | asked | it reaches the network |
-| `htop`, an unknown binary | asked | nobody can classify it; with `strict` on, refused |
+| Line                                                                  | Verdict   | Why                                                                                                               |
+| --------------------------------------------------------------------- | --------- | ----------------------------------------------------------------------------------------------------------------- |
+| `python3 build.py` (inside the workspace)                             | silent    | a script that belongs to the project                                                                              |
+| `./scripts/deploy.sh`                                                 | silent    | the same, when you name it directly                                                                               |
+| `sh scripts/deploy.sh`                                                | **asked** | a shell interpreter is opaque by construction — see below                                                         |
+| `cd /elsewhere`, `pushd`, `git -C /elsewhere`, `make -C /elsewhere`   | asked     | the task works in its own directory; a line that walks out of it runs the rest against another tree               |
+| a program that is not installed (not on the sandbox `PATH`)           | asked     | the question says it is missing and offers the way forward: approve the install, or install it yourself and retry |
+| `python3 /opt/other/build.py`                                         | asked     | a script from outside — the policy cannot read it as yours                                                        |
+| `python3 -c '...'`                                                    | asked     | inline code is as opaque as a shell line                                                                          |
+| `make`, `go build`, `npm test`                                        | silent    | the local toolchain                                                                                               |
+| `sed -n '1,300p' file`, `awk '{print $1}' file`                       | silent    | the line editors in their printing form, which is how a file gets read                                            |
+| `sed -i 's/a/b/' file`, `awk '{print > "f"}'`                         | **asked** | the same programs in their writing form: a flag, or a redirection in the script                                   |
+| `sort -o out.txt in.txt`, `uniq in.txt out.txt`, `xxd in.bin out.hex` | **asked** | a reader whose second operand is an output file                                                                   |
+| `pip install x`, `git push`                                           | asked     | it reaches the network                                                                                            |
+| `htop`, an unknown binary                                             | asked     | nobody can classify it; with `strict` on, refused                                                                 |
 
 **A program's name is not the answer about the program.** The rows above with two entries
 are the same tool asked twice, and the answer differs because the ARGUMENTS differ. `sed`
@@ -1289,12 +1288,12 @@ never guesses.
 
 ### The four use cases
 
-| Case | File | Flow |
-|---|---|---|
-| 1. Development | `configs/cases/1-development.yaml` | task in a file → LLM → networkless sandbox → **`go test` + `go vet` + `gofmt` as the anchor** → commit |
-| 2. Data analysis | `configs/cases/2-data.yaml` | task from an API → isolated networkless analysis → **report invariants as the anchor** → publish the result over the API |
-| 3. Automation | `configs/cases/3-automation.yaml` | file queue → bounded script (256 MB, 30 s CPU, no network) → **effect check as the anchor** → notification |
-| 4. Audit | `configs/cases/4-audit.yaml` | audit request in a file → read-only code and security review in a networkless sandbox → **report validated by `scripts/verify-audit-report.sh` as the anchor** (structure, severity, remediation, every cited `path:line` exists, no secret in clear, no tracked file modified) → published report |
+| Case             | File                               | Flow                                                                                                                                                                                                                                                                                               |
+| ---------------- | ---------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1. Development   | `configs/cases/1-development.yaml` | task in a file → LLM → networkless sandbox → **`go test` + `go vet` + `gofmt` as the anchor** → commit                                                                                                                                                                                             |
+| 2. Data analysis | `configs/cases/2-data.yaml`        | task from an API → isolated networkless analysis → **report invariants as the anchor** → publish the result over the API                                                                                                                                                                           |
+| 3. Automation    | `configs/cases/3-automation.yaml`  | file queue → bounded script (256 MB, 30 s CPU, no network) → **effect check as the anchor** → notification                                                                                                                                                                                         |
+| 4. Audit         | `configs/cases/4-audit.yaml`       | audit request in a file → read-only code and security review in a networkless sandbox → **report validated by `scripts/verify-audit-report.sh` as the anchor** (structure, severity, remediation, every cited `path:line` exists, no secret in clear, no tracked file modified) → published report |
 
 All four are verified by the test suite: if an example YAML stops loading, or
 loses one of its three templates, the tests fail.
@@ -1338,7 +1337,7 @@ wizard, and grants `agent.graceful_shutdown_timeout` seconds to finish; the
 second signal exits immediately with code 130.
 
 **Exit code:** `0` if every task passed the anchor, `1` if any failed (including
-each one's reason *in the error message itself*) and `2` if the configuration is
+each one's reason _in the error message itself_) and `2` if the configuration is
 invalid. That makes it directly usable from cron or systemd.
 
 ---
@@ -1420,20 +1419,20 @@ about itself.
 
 ## Troubleshooting (i386)
 
-| Symptom | Cause and fix |
-|---|---|
-| `cgroups v1 do not appear to be available` (warning, not an error) | The kernel or the container does not expose `/sys/fs/cgroup/memory`. The ulimit limits still apply and the warning is logged so isolation is never faked. |
-| `chroot requested but the process is not root` | The chroot is skipped with a warning. Run as root or use `kind: cgroups`. |
-| `the command could not be run inside the sandbox (code 127)` | The command does not exist or is not on the sandbox `PATH`; the child's error names the path it looked for. |
-| `the process was terminated by a signal` | A sandbox limit did its job (CPU or memory). Raise `cpu_seconds` / `memory_mb`. |
-| The agent always fails with `ran out of attempts` | Look at the anchor's `reason`: it is in the error message and in the log. It is usually a badly configured anchor, not the model. |
-| `anchor.kind=none: this agent only declares a task complete...` | Intentional: without a deterministic validator there is no `PASS`. Configure a real anchor. |
-| `anchor.kind=auto found no gate to run in ...` | The directory the agent works in declares no gate. The reason names every convention that was looked for: add `.motita/anchor` with the project's command, or set `anchor.kind=command`. |
-| The binary will not start (`not found`) | It is a 32-bit ELF: `head -c 5 binary \| od -An -tx1` must start with `7f 45 4c 46 01`. |
-| `output truncated by the sandbox limit` | Raise `sandbox.max_output_kb` if the command produces more output than expected. |
-| `fatal error: runtime: cannot allocate memory` | A `memory_mb` that is too low. The agent detects it (it compares against the address space the launcher needs), raises it and logs a warning. If it still appears, raise `memory_mb`. |
-| `memory_mb: applying N MB instead of M` (warning) | The configured value was below the address space the launching process already uses, so the command would not have started. The minimum viable value is applied; the warning is in the log and in `-isolation`. |
-| A task shows as not completed even though the anchor gave PASS | The **final action** failed (commit, publication, notification). It counts as a failure on purpose: a contract that is not honoured is not a success. The reason is in the log and in the error message. |
+| Symptom                                                            | Cause and fix                                                                                                                                                                                                   |
+| ------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `cgroups v1 do not appear to be available` (warning, not an error) | The kernel or the container does not expose `/sys/fs/cgroup/memory`. The ulimit limits still apply and the warning is logged so isolation is never faked.                                                       |
+| `chroot requested but the process is not root`                     | The chroot is skipped with a warning. Run as root or use `kind: cgroups`.                                                                                                                                       |
+| `the command could not be run inside the sandbox (code 127)`       | The command does not exist or is not on the sandbox `PATH`; the child's error names the path it looked for.                                                                                                     |
+| `the process was terminated by a signal`                           | A sandbox limit did its job (CPU or memory). Raise `cpu_seconds` / `memory_mb`.                                                                                                                                 |
+| The agent always fails with `ran out of attempts`                  | Look at the anchor's `reason`: it is in the error message and in the log. It is usually a badly configured anchor, not the model.                                                                               |
+| `anchor.kind=none: this agent only declares a task complete...`    | Intentional: without a deterministic validator there is no `PASS`. Configure a real anchor.                                                                                                                     |
+| `anchor.kind=auto found no gate to run in ...`                     | The directory the agent works in declares no gate. The reason names every convention that was looked for: add `.motita/anchor` with the project's command, or set `anchor.kind=command`.                        |
+| The binary will not start (`not found`)                            | It is a 32-bit ELF: `head -c 5 binary \| od -An -tx1` must start with `7f 45 4c 46 01`.                                                                                                                         |
+| `output truncated by the sandbox limit`                            | Raise `sandbox.max_output_kb` if the command produces more output than expected.                                                                                                                                |
+| `fatal error: runtime: cannot allocate memory`                     | A `memory_mb` that is too low. The agent detects it (it compares against the address space the launcher needs), raises it and logs a warning. If it still appears, raise `memory_mb`.                           |
+| `memory_mb: applying N MB instead of M` (warning)                  | The configured value was below the address space the launching process already uses, so the command would not have started. The minimum viable value is applied; the warning is in the log and in `-isolation`. |
+| A task shows as not completed even though the anchor gave PASS     | The **final action** failed (commit, publication, notification). It counts as a failure on purpose: a contract that is not honoured is not a success. The reason is in the log and in the error message.        |
 
 ---
 

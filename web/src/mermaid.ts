@@ -21,14 +21,14 @@
 // registers by itself is available — flowchart, sequence, class, state, ER, gantt,
 // pie, journey, gitGraph, mindmap, timeline, quadrantChart, sankey, block, packet,
 // architecture, radar, treemap, xychart and the rest.
-import mermaid from 'mermaid'
+import mermaid from "mermaid";
 
 // The diagram id mermaid wants for each render. It is a DOM id inside the SVG, so
 // it must be unique per render and must not start with a digit; a counter is
 // enough and is cheaper (and more predictable) than a random id.
-let seq = 0
+let seq = 0;
 
-let ready: Promise<void> | null = null
+let ready: Promise<void> | null = null;
 
 /**
  * Initializes mermaid once, on first use.
@@ -74,15 +74,15 @@ function ensureReady(): Promise<void> {
       // A parse failure must arrive here as an exception, not as mermaid's own error icon.
       suppressErrorRendering: true,
       // A model-authored label must never become a live click target or a script.
-      securityLevel: 'strict',
-      theme: 'dark',
+      securityLevel: "strict",
+      theme: "dark",
       // The page's own type scale; mermaid's default is sized for a full-page doc.
-      fontFamily: 'inherit',
+      fontFamily: "inherit",
       htmlLabels: true,
       flowchart: { useMaxWidth: true },
-    })
-  })()
-  return ready
+    });
+  })();
+  return ready;
 }
 
 /**
@@ -93,8 +93,8 @@ function ensureReady(): Promise<void> {
  * failure to swallow.
  */
 export async function renderMermaid(source: string): Promise<string> {
-  await ensureReady()
-  seq += 1
-  const { svg } = await mermaid.render('motita-diagram-' + seq, source)
-  return svg
+  await ensureReady();
+  seq += 1;
+  const { svg } = await mermaid.render("motita-diagram-" + seq, source);
+  return svg;
 }
