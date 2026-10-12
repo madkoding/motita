@@ -538,6 +538,19 @@ const es: Record<string, string> = {
   "Open the new session": "Abrir la sesión nueva",
   "Pull request {pr} was merged. A new session was opened from the updated branch.": "El pull request {pr} fue mergeado. Se abrió una sesión nueva desde la rama actualizada.",
   "“{title}” finished": "“{title}” terminó",
+  "Remove {name}": "Quitar {name}",
+  "Discard the changes and remove it": "Descartar los cambios y quitarlo",
+  "https://github.com/user/other-repo.git": "https://github.com/usuario/otro-repo.git",
+  "Add a repository": "Agregar un repositorio",
+  "Add": "Agregar",
+  "The project already has a repository with that name.": "El proyecto ya tiene un repositorio con ese nombre.",
+  "That is not a repository URL.": "Esa no es la URL de un repositorio.",
+  "A new folder": "Una carpeta nueva",
+  "The first one is the main repository, the project's folder. The others are cloned inside it, and every session gets its own copy of each.": "El primero es el repositorio principal, la carpeta del proyecto. Los demás se clonan dentro de él, y cada sesión recibe su propia copia de cada uno.",
+  "Adding or removing a repository happens right away. Open sessions get a copy of a new one; removing one deletes its folder.": "Agregar o quitar un repositorio ocurre al instante. Las sesiones abiertas reciben una copia del nuevo; quitar uno borra su carpeta.",
+  "Could not add {name}": "No se pudo agregar {name}",
+  "Could not remove {name}": "No se pudo quitar {name}",
+  "Project \"{title}\" created, but some repositories could not be added: {names}": "Proyecto \"{title}\" creado, pero no se pudieron agregar algunos repositorios: {names}",
 }
 
 export default es
