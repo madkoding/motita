@@ -33,7 +33,7 @@ anchor:
       args: ["-l", "."]
       timeout: 60s
       expect_exit: 0
-      expect_output: "^$"   # silent gofmt = everything formatted
+      expect_output: "^$" # silent gofmt = everything formatted
 
 # Layer C: no network, bounded memory and CPU. Compiling on an i386 machine can
 # use a fair amount, hence the 1024 MB.

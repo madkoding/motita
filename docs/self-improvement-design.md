@@ -27,20 +27,20 @@ to motita's single-process, stdlib-only, i386 Go constraints.
 
 New packages:
 
-| Package | Purpose | Lines (est.) |
-|---|---|---|
-| `internal/usage` | Per-skill telemetry: use/view/patch counts, timestamps, `created_by`, state | ~250 |
-| `internal/review` | Post-turn background fork: replays transcript, patches skills | ~200 |
-| `internal/curator` | Deterministic stale/archive + optional LLM consolidation | ~350 |
+| Package            | Purpose                                                                     | Lines (est.) |
+| ------------------ | --------------------------------------------------------------------------- | ------------ |
+| `internal/usage`   | Per-skill telemetry: use/view/patch counts, timestamps, `created_by`, state | ~250         |
+| `internal/review`  | Post-turn background fork: replays transcript, patches skills               | ~200         |
+| `internal/curator` | Deterministic stale/archive + optional LLM consolidation                    | ~350         |
 
 Modified packages:
 
-| Package | Change |
-|---|---|
-| `internal/config` | Add `review:` and `curator:` blocks to `config.yaml` |
-| `internal/procedures` | `Store` gains a `Usage *usage.Ledger` field |
-| `internal/plan` | `Planner` bumps usage telemetry on skill tool calls; calls `Review.Run` after `finalize` |
-| `internal/skills` | `Library` gains `.archive/` awareness + `Archive`/`Restore` methods |
+| Package               | Change                                                                                   |
+| --------------------- | ---------------------------------------------------------------------------------------- |
+| `internal/config`     | Add `review:` and `curator:` blocks to `config.yaml`                                     |
+| `internal/procedures` | `Store` gains a `Usage *usage.Ledger` field                                              |
+| `internal/plan`       | `Planner` bumps usage telemetry on skill tool calls; calls `Review.Run` after `finalize` |
+| `internal/skills`     | `Library` gains `.archive/` awareness + `Archive`/`Restore` methods                      |
 
 ---
 
@@ -327,6 +327,7 @@ case "save_skill":
 ```
 
 The `Planner` struct gains:
+
 ```go
 usage      *usage.Ledger
 isReviewFork bool  // true when this Planner is a background review fork
@@ -361,11 +362,11 @@ conversation transcript with a review-specific prompt and the skill tools only.
 ```yaml
 # Added to config.yaml
 review:
-  enabled: true           # false = skip post-turn reviews
-  interval: 15            # review after every N tool-iterations without a save_skill
-  timeout: 120s           # max wall time for one review
-  max_iterations: 8       # max tool loops in the review fork
-  llm:                    # optional: route to a cheaper model
+  enabled: true # false = skip post-turn reviews
+  interval: 15 # review after every N tool-iterations without a save_skill
+  timeout: 120s # max wall time for one review
+  max_iterations: 8 # max tool loops in the review fork
+  llm: # optional: route to a cheaper model
     # provider: ollama
     # model: deepseek-v4.1-flash
     # base_url: https://ollama.com/v1
@@ -601,12 +602,14 @@ func (p *Planner) Run(ctx context.Context, input string) (string, error) {
 ```
 
 The `Planner` struct gains:
+
 ```go
 review          *review.Review
 itersSinceSkill int  // bumped each tool iteration, reset on save_skill
 ```
 
 And in `runTool`, the `save_skill` case resets the counter:
+
 ```go
 case "save_skill":
 	// ... existing save ...
@@ -614,6 +617,7 @@ case "save_skill":
 ```
 
 And in the tool-call loop, after each iteration:
+
 ```go
 p.itersSinceSkill++
 ```
@@ -668,6 +672,7 @@ planner := plan.New(engine, ag).
 ## 3. Curator (`internal/curator`)
 
 Two phases, same as Hermes:
+
 1. **Deterministic** (no LLM): mark stale, archive by inactivity.
 2. **LLM consolidation** (opt-in): umbrella-building fork.
 
@@ -676,11 +681,11 @@ Two phases, same as Hermes:
 ```yaml
 curator:
   enabled: true
-  interval_hours: 168        # 7 days between runs
-  min_idle_minutes: 120      # only run after 2h idle
-  stale_after_days: 14       # mark stale after 14d unused
-  archive_after_days: 30     # move to .archive/ after 30d unused
-  consolidate: false         # LLM umbrella-building pass (opt-in)
+  interval_hours: 168 # 7 days between runs
+  min_idle_minutes: 120 # only run after 2h idle
+  stale_after_days: 14 # mark stale after 14d unused
+  archive_after_days: 30 # move to .archive/ after 30d unused
+  consolidate: false # LLM umbrella-building pass (opt-in)
 ```
 
 ### Deterministic pass
@@ -993,6 +998,7 @@ a date, or "fix-X-debug-Y". The file structure:
       NOT: "in session XYZ we hit a bug because..."
 
 Rules for content:
+
 - A pitfall is a generalizable rule + one clause of WHY. Not a story.
 - No PR/issue numbers, dates, ticket IDs, or quoted user text as content.
 - The same lesson learned twice is ONE rule. Search the skill before adding.
@@ -1016,6 +1022,7 @@ signals fires:
   Patch it NOW with save_skill (it replaces the file).
 
 Preference order (pick the earliest that fits):
+
 1. PATCH a skill you already loaded or read this session.
 2. SEARCH for an existing skill that covers the territory and patch it.
 3. CREATE a new class-level skill only when nothing exists.
@@ -1059,18 +1066,18 @@ skills are exempt from all auto-transitions.
 
 ## 5. Implementation order
 
-| Phase | Package(s) | Est. effort | Depends on |
-|---|---|---|---|
-| 1 | `internal/usage` | 250 LOC + tests | nothing |
-| 2 | `internal/config` (add structs) | 30 LOC | nothing |
-| 3 | `internal/procedures` (Store.Usage) | 15 LOC | phase 1, 2 |
-| 4 | `internal/plan` (telemetry bumps) | 40 LOC | phase 3 |
-| 5 | `internal/skills` (Archive/Restore) | 50 LOC | nothing |
-| 6 | `internal/review` | 200 LOC + tests | phase 4 |
-| 7 | `internal/curator` | 350 LOC + tests | phase 5, 6 |
-| 8 | `internal/app` (wiring) | 60 LOC | phase 6, 7 |
-| 9 | SOUL.md prompt update | ~2 KB text | nothing |
-| 10 | CLI subcommands | 100 LOC | phase 7 |
+| Phase | Package(s)                          | Est. effort     | Depends on |
+| ----- | ----------------------------------- | --------------- | ---------- |
+| 1     | `internal/usage`                    | 250 LOC + tests | nothing    |
+| 2     | `internal/config` (add structs)     | 30 LOC          | nothing    |
+| 3     | `internal/procedures` (Store.Usage) | 15 LOC          | phase 1, 2 |
+| 4     | `internal/plan` (telemetry bumps)   | 40 LOC          | phase 3    |
+| 5     | `internal/skills` (Archive/Restore) | 50 LOC          | nothing    |
+| 6     | `internal/review`                   | 200 LOC + tests | phase 4    |
+| 7     | `internal/curator`                  | 350 LOC + tests | phase 5, 6 |
+| 8     | `internal/app` (wiring)             | 60 LOC          | phase 6, 7 |
+| 9     | SOUL.md prompt update               | ~2 KB text      | nothing    |
+| 10    | CLI subcommands                     | 100 LOC         | phase 7    |
 
 Total: ~1100 LOC + tests. Phases 1-5 can land independently (no behavior change
 without phase 6). Phase 6 enables Pathway 2. Phase 7 enables Pathway 3.

@@ -11,15 +11,15 @@ Before this audit **no OAuth login worked end to end**, and several API key path
 either. Qwen and local Ollama did not exist. Everything found is fixed and covered by tests
 on this branch.
 
-| Provider | API key: before → now | Account login: before → now |
-|---|---|---|
-| OpenAI | ⚠️ reasoning models (o-series, gpt-5) rejected `max_tokens`/`temperature` → ✅ | n/a |
-| Codex | ❌ `*-codex` models were sent to `/chat/completions` (404) → ✅ `/responses` | ❌ did not exist → ✅ "Sign in with ChatGPT" (PKCE) |
-| GitHub Copilot | ❌ the GitHub token was sent as is, with no exchange and no headers → ✅ | ❌ the login aborted on `slow_down` and the token never worked → ✅ |
-| Ollama | ✅ Cloud · ❌ local required a key → ✅ local with no key | n/a |
-| Claude (Anthropic) | ❌ tools were declared wrongly (400) → ✅ | ❌ OAuth impersonating Claude Code: against the terms, and it did not work either → removed; the subscription goes through `claude-code` (the official CLI) ✅ |
-| Gemini | ❌ tools declared wrongly; the key travelled in the URL → ✅ | ❌ device flow not accepted by Google with Gemini CLI's embedded secret → ✅ Google login with your own client, or gcloud ADC |
-| Qwen | ❌ did not exist → ✅ DashScope | ❌ did not exist → ✅ qwen.ai device code |
+| Provider           | API key: before → now                                                          | Account login: before → now                                                                                                                                    |
+| ------------------ | ------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| OpenAI             | ⚠️ reasoning models (o-series, gpt-5) rejected `max_tokens`/`temperature` → ✅ | n/a                                                                                                                                                            |
+| Codex              | ❌ `*-codex` models were sent to `/chat/completions` (404) → ✅ `/responses`   | ❌ did not exist → ✅ "Sign in with ChatGPT" (PKCE)                                                                                                            |
+| GitHub Copilot     | ❌ the GitHub token was sent as is, with no exchange and no headers → ✅       | ❌ the login aborted on `slow_down` and the token never worked → ✅                                                                                            |
+| Ollama             | ✅ Cloud · ❌ local required a key → ✅ local with no key                      | n/a                                                                                                                                                            |
+| Claude (Anthropic) | ❌ tools were declared wrongly (400) → ✅                                      | ❌ OAuth impersonating Claude Code: against the terms, and it did not work either → removed; the subscription goes through `claude-code` (the official CLI) ✅ |
+| Gemini             | ❌ tools declared wrongly; the key travelled in the URL → ✅                   | ❌ device flow not accepted by Google with Gemini CLI's embedded secret → ✅ Google login with your own client, or gcloud ADC                                  |
+| Qwen               | ❌ did not exist → ✅ DashScope                                                | ❌ did not exist → ✅ qwen.ai device code                                                                                                                      |
 
 ## Findings
 
@@ -34,12 +34,12 @@ on this branch.
 2. **Copilot: `slow_down` aborted the login.** `CopilotFullFlow` raised the interval and
    then fell into `return err`. The existing test asserted that faulty behaviour.
    **Fix:** `oauth.PollDevice` keeps polling, more slowly (RFC 8628 §3.5).
-3. **PKCE computed wrongly.** The *challenge* was the hash of the random bytes rather than
-   of the encoded *verifier* that is sent (RFC 7636 §4.2), so no server could validate the
+3. **PKCE computed wrongly.** The _challenge_ was the hash of the random bytes rather than
+   of the encoded _verifier_ that is sent (RFC 7636 §4.2), so no server could validate the
    `code_verifier`: every code exchange failed.
 4. **Claude OAuth used the wrong header.** The OAuth token was sent as `x-api-key`, which
    only accepts API keys.
-5. **Gemini OAuth:** Google's *device flow* does not grant the Gemini API scopes, the token
+5. **Gemini OAuth:** Google's _device flow_ does not grant the Gemini API scopes, the token
    was sent as `?key=` (which only accepts API keys) and the refresh token was not stored.
    It could not have worked.
 6. **OAuth tokens expired within hours.** The wizard wrote the access token into a `.env`
@@ -95,16 +95,16 @@ on this branch.
 
 ## How each provider authenticates now
 
-| `llm.provider` | API key | Account login | Endpoint |
-|---|---|---|---|
-| `openai` | `OPENAI_API_KEY` / `MOTITA_LLM_API_KEY` | — | `/chat/completions` (any compatible host) |
-| `codex` | `OPENAI_API_KEY` / `MOTITA_LLM_API_KEY` | Sign in with ChatGPT (PKCE, callback on `localhost:1455` or pasted) | `/responses` |
-| `copilot` | `GITHUB_COPILOT_TOKEN` (a GitHub OAuth token) | GitHub device code | the plan's `/chat/completions` |
-| `ollama` | `OLLAMA_API_KEY` (Cloud only) | — | local `http://localhost:11434/v1` or `https://ollama.com/v1` |
-| `anthropic` | `ANTHROPIC_API_KEY` | — | `/v1/messages` |
-| `claude-code` | — | `claude auth login` (official CLI) | the `claude` CLI |
-| `gemini` | `GEMINI_API_KEY` | Google OAuth with your own client, or gcloud ADC | `generateContent` |
-| `qwen` | `DASHSCOPE_API_KEY` | qwen.ai device code | DashScope / the `resource_url` host |
+| `llm.provider` | API key                                       | Account login                                                       | Endpoint                                                     |
+| -------------- | --------------------------------------------- | ------------------------------------------------------------------- | ------------------------------------------------------------ |
+| `openai`       | `OPENAI_API_KEY` / `MOTITA_LLM_API_KEY`       | —                                                                   | `/chat/completions` (any compatible host)                    |
+| `codex`        | `OPENAI_API_KEY` / `MOTITA_LLM_API_KEY`       | Sign in with ChatGPT (PKCE, callback on `localhost:1455` or pasted) | `/responses`                                                 |
+| `copilot`      | `GITHUB_COPILOT_TOKEN` (a GitHub OAuth token) | GitHub device code                                                  | the plan's `/chat/completions`                               |
+| `ollama`       | `OLLAMA_API_KEY` (Cloud only)                 | —                                                                   | local `http://localhost:11434/v1` or `https://ollama.com/v1` |
+| `anthropic`    | `ANTHROPIC_API_KEY`                           | —                                                                   | `/v1/messages`                                               |
+| `claude-code`  | —                                             | `claude auth login` (official CLI)                                  | the `claude` CLI                                             |
+| `gemini`       | `GEMINI_API_KEY`                              | Google OAuth with your own client, or gcloud ADC                    | `generateContent`                                            |
+| `qwen`         | `DASHSCOPE_API_KEY`                           | qwen.ai device code                                                 | DashScope / the `resource_url` host                          |
 
 Priority: a configured API key always wins over a stored login.
 

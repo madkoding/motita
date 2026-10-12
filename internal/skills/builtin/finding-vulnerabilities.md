@@ -18,6 +18,7 @@ you cannot name the guard and why it fails, you have not read far enough.
 ## Checklist, by area
 
 **Authentication and sessions**
+
 - A route, upgrade (WebSocket, SSE) or static endpoint with no check. Compare tokens in constant
   time; tokens come from a cryptographic generator, are not in URLs or logs, and can expire.
 - Default listener on all interfaces. A local service reachable from a web page through DNS
@@ -26,6 +27,7 @@ you cannot name the guard and why it fails, you have not read far enough.
   (one project or user reading another's data is an IDOR).
 
 **Injection**
+
 - Shell: a command assembled from strings; argument injection through a value that starts with
   `-` (use `--`); environment injection (`LD_PRELOAD`, `PATH`, `GIT_*`); `git -c` options such as
   `core.sshCommand`, `core.hooksPath`, `--upload-pack`.
@@ -35,6 +37,7 @@ you cannot name the guard and why it fails, you have not read far enough.
   the list forbids.
 
 **Paths and files**
+
 - Traversal: `..` that survives cleaning, `Clean` then a prefix check without a separator, a join
   with an absolute user value, symlinks and hard links followed before the containment check,
   archive entries that escape on extract (zip-slip), Windows names, case-insensitive disks.
@@ -42,6 +45,7 @@ you cannot name the guard and why it fails, you have not read far enough.
   or state files created with loose permissions, world-readable credentials.
 
 **Network and fetches**
+
 - Requests to user-supplied URLs: redirects to internal hosts, metadata addresses
   (`169.254.169.254`), IPv6 and IPv4-mapped forms, decimal or hex IP spellings, DNS rebinding,
   proxy environment variables. Disabled certificate checks, old TLS, missing timeouts.
@@ -49,12 +53,14 @@ you cannot name the guard and why it fails, you have not read far enough.
   filters that run on checkout, credentials leaked to a redirect.
 
 **Web interfaces**
+
 - Untrusted text into `innerHTML`, a markdown renderer without a sanitizer, `javascript:` links,
   `postMessage` with no origin check, secrets in browser storage or in a shipped source map,
   user content served from the same origin as the app (stored XSS becomes full takeover).
 - Missing body-size limits, server timeouts and rate limits on login: cheap denial of service.
 
 **Secrets**
+
 - Keys or tokens committed (search history too: `git log -p -S`), in examples, in prompts, in
   logs, in reports or telemetry, in the process list. Logs that print Authorization headers or
   `https://user:token@host` URLs. Credential files inside the directory a sandboxed command can read.
@@ -62,6 +68,7 @@ you cannot name the guard and why it fails, you have not read far enough.
   without a race that leaks or loses a token.
 
 **Agents and models**
+
 - Model output used as a path, command, URL, branch or config value without validation.
 - Content the model reads (README, issues, web pages, tool output) that can steer it into
   exfiltrating secrets or running commands: prompt injection. Approval flows enforced only in the
@@ -69,11 +76,13 @@ you cannot name the guard and why it fails, you have not read far enough.
   passed. Destructive actions (delete, force push, reset) not gated.
 
 **Sandboxes and limits**
+
 - Limits that are advisory instead of enforced by the kernel (rlimits, cgroups, namespaces,
   seccomp), or that fail open when unsupported. Children that outlive a timeout. Output, process
   count and disk use without a cap. A read-only mode with a write path around it.
 
 **Supply chain and release**
+
 - Updates or installers with no signature or checksum from a separate channel, no HTTPS, a
   downgrade, an asset name used as a path, a piped `curl | sh` with unquoted values.
 - CI: `pull_request_target` or `workflow_run` with an untrusted checkout, `${{ github.event.* }}`
@@ -83,6 +92,7 @@ you cannot name the guard and why it fails, you have not read far enough.
   tools run at `@latest`.
 
 **Language pitfalls**
+
 - Go: `math/rand` for secrets, `==` on secrets, `http.DefaultClient` with no timeout, unbounded
   `io.ReadAll`, a type assertion on decoded JSON that can panic with no `recover` in a handler or
   goroutine, integer conversions in size math, `os.Create` in a shared directory, `0644` on

@@ -15,7 +15,7 @@
 // that HTML output, and pulling it in emitted the whole font set (60 files, ~1 MB)
 // into the page for glyphs this build never draws. The handful of rules MathML does
 // need are in index.css with the rest of the styling.
-import katex from 'katex'
+import katex from "katex";
 
 /**
  * Typesets one formula, returning HTML.
@@ -37,13 +37,15 @@ export function renderMath(tex: string, displayMode: boolean): string {
   const html = katex.renderToString(tex, {
     displayMode,
     throwOnError: false,
-    output: 'mathml',
-    strict: () => 'ignore',
-  })
+    output: "mathml",
+    strict: () => "ignore",
+  });
 
   // Parsed as a document fragment so the removal is by ELEMENT, not by string surgery.
-  const tpl = document.createElement('template')
-  tpl.innerHTML = html
-  for (const a of Array.from(tpl.content.querySelectorAll('annotation'))) { a.remove() }
-  return tpl.innerHTML
+  const tpl = document.createElement("template");
+  tpl.innerHTML = html;
+  for (const a of Array.from(tpl.content.querySelectorAll("annotation"))) {
+    a.remove();
+  }
+  return tpl.innerHTML;
 }
