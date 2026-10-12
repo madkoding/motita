@@ -3014,11 +3014,7 @@ html[data-density="compact"] .row-menu-item {
   .turn {
     gap: 6px;
   }
-  .turn-head .msg.user {
-    max-height: 14vh;
-    overflow-y: auto;
-    padding: 4px 8px;
-  }
+  .turn-head .msg.user { max-height: 14vh; overflow-y: auto; padding: 4px 8px; }
   .cp-btn {
     width: 24px;
     height: 24px;
