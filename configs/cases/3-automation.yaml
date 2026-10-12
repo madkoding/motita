@@ -15,7 +15,7 @@
 task_source:
   kind: queue
   dir: ./queue
-  interval: 15s      # how often it looks for new files
+  interval: 15s # how often it looks for new files
 
 # Layer A: it checks the EFFECT, not that the command exited with 0. If the task
 # was to leave a file behind, the anchor verifies the file is there and not empty.
@@ -29,7 +29,7 @@ anchor:
   checks:
     - name: no temp leftovers
       command: sh
-      args: ["-c", "test -z \"$(ls *.tmp 2>/dev/null)\""]
+      args: ["-c", 'test -z "$(ls *.tmp 2>/dev/null)"']
       timeout: 15s
       expect_exit: 0
 
@@ -53,7 +53,7 @@ llm:
   max_tokens: 1024
   temperature: 0.0
   timeout: 60s
-  max_attempts: 2      # a slow machine must not retry forever
+  max_attempts: 2 # a slow machine must not retry forever
   backoff_initial: 1s
   backoff_max: 10s
 
@@ -110,7 +110,9 @@ prompts:
 final_action:
   kind: command
   command: sh
-  args: ["-c", "curl -sf -X POST -H 'Content-Type: application/json' -d '{\"event\":\"task_ok\"}' https://example.internal/hooks/motita || logger -t motita 'could not notify'"]
+  args:
+    - "-c"
+    - 'curl -sf -X POST -H ''Content-Type: application/json'' -d ''{"event":"task_ok"}'' https://example.internal/hooks/motita || logger -t motita ''could not notify'''
 
 agent:
   max_retries: 1

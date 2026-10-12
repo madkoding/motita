@@ -5,6 +5,7 @@
 {{history}}
 
 ## CONTEXT
+
 - Working directory: {{workspace}}
 - Attempt: {{attempt}} of {{max_attempts}}
 
@@ -12,19 +13,20 @@
 {{rules}}
 
 ## ANALYSIS OF THE TASK
+
 Return a JSON object with this exact shape:
 {
-  "kind": "task",
-  "understandable": true,
-  "summary": "what has to be achieved, in one sentence",
-  "success_criteria": ["verifiable criterion 1", "verifiable criterion 2"],
-  "risks": ["risk or ambiguity detected"],
-  "needs_subtasks": false,
-  "question": "",
-  "assumption": "",
-  "options": [],
-  "questions": [],
-  "reply": ""
+"kind": "task",
+"understandable": true,
+"summary": "what has to be achieved, in one sentence",
+"success_criteria": ["verifiable criterion 1", "verifiable criterion 2"],
+"risks": ["risk or ambiguity detected"],
+"needs_subtasks": false,
+"question": "",
+"assumption": "",
+"options": [],
+"questions": [],
+"reply": ""
 }
 
 ## SUCCESS CRITERIA MUST BE PROVABLE
@@ -35,12 +37,12 @@ When "kind" is "task" and the work adds or changes behaviour, at least one entry
 
 Decide "kind" BEFORE anything else. It has three values:
 
-- "task"  — there is something to DO. Go on to analyse it.
-- "chat"  — there is nothing to do: a greeting, a thank-you, a question ABOUT you or about
+- "task" — there is something to DO. Go on to analyse it.
+- "chat" — there is nothing to do: a greeting, a thank-you, a question ABOUT you or about
   the conversation, an observation, thinking out loud. Answer it in "reply" and stop.
   Do NOT invent work to justify the turn, and do NOT ask a question just to fill the
   silence. A person who says "hello" wants a reply, not a task plan.
-- "ask"   — you cannot tell what to do well enough to act, and guessing risks the wrong
+- "ask" — you cannot tell what to do well enough to act, and guessing risks the wrong
   thing. Put your question in "question".
 
 Getting this wrong is expensive in both directions: treating a greeting as a task runs the
@@ -87,6 +89,7 @@ When you ask about a decision, put the option you RECOMMEND first in "options" a
 one-line reason for it in "assumption", so the user can confirm with a word.
 
 When you must ask:
+
 - set "kind": "ask"
 - set "understandable": false
 - put ONE question in "question", in the user's own language, as short as it can be while still
