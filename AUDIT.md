@@ -45,12 +45,12 @@ go version go1.27.1 linux/amd64
 - Cobertura agregada **98.6 %** (`make cover`, exit 0).
 - Paquetes al 100 %: la gran mayoría. Por debajo:
 
-| Paquete | Cobertura |
-|---|---|
-| `internal/review` | **0.0 %** |
-| `tools/clitest` | 88.2 % |
-| `internal/gateway` | 94.2 % |
-| `internal/agent` | 99.7 % |
+| Paquete            | Cobertura |
+| ------------------ | --------- |
+| `internal/review`  | **0.0 %** |
+| `tools/clitest`    | 88.2 %    |
+| `internal/gateway` | 94.2 %    |
+| `internal/agent`   | 99.7 %    |
 
 Evidencia:
 
@@ -101,6 +101,7 @@ Los tests de `internal/gateway` crean repositorios git temporales y hacen un com
 ```
 
 **Corrección aplicada (commit `13ec752`):**
+
 - `internal/gateway/git.go`: `withoutInlineGitConfig` sanea el entorno antes de lanzar comandos git, de modo que la configuración git en línea del proceso no se filtra a los repositorios de prueba.
 - `internal/gateway/main_test.go`: `TestMain` fija `GIT_CONFIG_NOSYSTEM=1` además de `GIT_CONFIG_GLOBAL`, aislando el paquete de la configuración global y de sistema (`/etc/gitconfig`) de la máquina; una máquina con `commit.gpgsign=true` en el fichero de sistema hacía que cada commit de prueba intentara firmar con una clave inexistente.
 
@@ -126,22 +127,22 @@ El paquete más grande del proyecto; el resto de paquetes están al 100 %.
 
 ## Comandos ejecutados durante la auditoría
 
-| Comando | Resultado |
-|---|---|
-| `ls -la` | inventario de la raíz |
-| `find . -maxdepth 3 -type f -not -path './.git/*' …` | estructura de archivos |
-| `cat Makefile` | targets disponibles; `check` = fmt-check + vet + staticcheck + test |
-| `cat README.md` | documentación del proyecto |
-| `make check` | **exit 2** al inicio (fallo de gpg en gateway) → **exit 0** tras la corrección |
-| `go test -count=1 ./internal/gateway/` | fallo por `gpg failed to sign the data` |
-| `git config --show-origin --get commit.gpgsign` | `file:/home/madkoding/.gitconfig true` (causa raíz) |
-| `make cover` | exit 0; agregado 98.6 % |
-| `npm --prefix web audit --omit=dev` | exit 0; 0 vulnerabilidades |
-| `go version` | go1.27.1 linux/amd64 |
-| `git status --short` / `git log --oneline -5` | contexto de mantenibilidad |
-| `grep -rInE '(password|secret|api[_-]?key|token|private[_-]?key)…'` | sin secretos embebidos |
-| `find . -name '*.go' \| wc -l` | 516 archivos Go, 329 de test |
-| `make check` (verificación final) | exit 0 |
+| Comando                                              | Resultado                                                                      |
+| ---------------------------------------------------- | ------------------------------------------------------------------------------ |
+| `ls -la`                                             | inventario de la raíz                                                          |
+| `find . -maxdepth 3 -type f -not -path './.git/*' …` | estructura de archivos                                                         |
+| `cat Makefile`                                       | targets disponibles; `check` = fmt-check + vet + staticcheck + test            |
+| `cat README.md`                                      | documentación del proyecto                                                     |
+| `make check`                                         | **exit 2** al inicio (fallo de gpg en gateway) → **exit 0** tras la corrección |
+| `go test -count=1 ./internal/gateway/`               | fallo por `gpg failed to sign the data`                                        |
+| `git config --show-origin --get commit.gpgsign`      | `file:/home/madkoding/.gitconfig true` (causa raíz)                            |
+| `make cover`                                         | exit 0; agregado 98.6 %                                                        |
+| `npm --prefix web audit --omit=dev`                  | exit 0; 0 vulnerabilidades                                                     |
+| `go version`                                         | go1.27.1 linux/amd64                                                           |
+| `git status --short` / `git log --oneline -5`        | contexto de mantenibilidad                                                     |
+| `grep -rInE '(password                               | secret                                                                         | api[_-]?key | token | private[_-]?key)…'` | sin secretos embebidos |
+| `find . -name '*.go' \| wc -l`                       | 516 archivos Go, 329 de test                                                   |
+| `make check` (verificación final)                    | exit 0                                                                         |
 
 ---
 
@@ -151,10 +152,10 @@ El proyecto está en buen estado: la puerta de calidad pasa, la cobertura es alt
 
 **Hallazgos que siguen abiertos:**
 
-| Severidad | Hallazgo | Estado |
-|---|---|---|
-| BAJA | `internal/review` sin pruebas (cobertura 0.0 %) | Abierto |
-| BAJA | `tools/clitest` con cobertura 88.2 % | Abierto |
-| INFO | `internal/gateway` con cobertura 94.2 % | Abierto |
+| Severidad | Hallazgo                                        | Estado  |
+| --------- | ----------------------------------------------- | ------- |
+| BAJA      | `internal/review` sin pruebas (cobertura 0.0 %) | Abierto |
+| BAJA      | `tools/clitest` con cobertura 88.2 %            | Abierto |
+| INFO      | `internal/gateway` con cobertura 94.2 %         | Abierto |
 
 No queda ningún hallazgo de severidad MEDIA o superior abierto.

@@ -7,16 +7,18 @@ argument-hint: "[scope: path | package | PR | 'full'] [mode: general | security 
 # Audit skill
 
 Read-only audit. **Never modify code, never run exploits against real systems, never print secret values.**
-Output is a report; fixes are only *proposed* unless the user asks to apply them.
+Output is a report; fixes are only _proposed_ unless the user asks to apply them.
 
 ## 1. Scope & mode
 
 Parse `$ARGUMENTS`:
+
 - scope: a path/package (`internal/gateway`), a PR/diff (`git diff origin/main...HEAD`), or `full` (default).
 - mode: `general`, `security`, or `all` (default).
 
 For `full`, split by trust boundary and fan out parallel subagents (one per area, each told to read
 `security-checklist.md` and report in the finding format below). Suggested split:
+
 1. `internal/gateway`, `internal/webui`, `web/` — network-facing surface, auth, HTTP, WebSocket/SSE, XSS/CSRF.
 2. `internal/sandbox`, `internal/execx`, `internal/policy`, `internal/netrules`, `internal/readonly` — isolation & command execution.
 3. `internal/oauth`, `internal/llm`, `internal/config`, `internal/usage`, `internal/logx` — secrets, tokens, provider calls.
@@ -30,14 +32,14 @@ motita ships its practices as embedded procedures in `internal/skills/builtin/*.
 project's source of truth; read the ones below before auditing and cite them by name instead of
 restating them (they change, a copy rots):
 
-| Procedure | Use it for |
-| --- | --- |
-| `auditing-code.md`, `finding-vulnerabilities.md` | The method, report format, severity scale and generic vulnerability checklist motita's own agent uses. They are the shared source: follow them, and treat `security-checklist.md` here as the motita-specific addendum on top. |
-| `verifying-a-change.md` | The evidence standard for every finding: a claim needs a second read that observes the effect, not "the code looks wrong". Reproduce the failure before claiming a fix; flag tests that pass for the wrong reason; quote counts with their denominator. |
-| `running-commands.md` | How to run tooling (`go vet`, `govulncheck`, `-race`, `npm audit`) and read exit codes/timeouts correctly. |
-| `git-in-a-repository.md` | Safe git use while auditing history/diffs, and when applying fixes. |
-| `pull-requests-and-ci.md` | Semantic commits/PR titles and driving CI to green when fixes are requested. |
-| `files-and-directories.md`, `calling-an-http-api.md`, `installing-a-toolchain.md` | Only when the audited area touches them (path handling, HTTP clients, toolchain install) — compare the code against what they prescribe. |
+| Procedure                                                                         | Use it for                                                                                                                                                                                                                                              |
+| --------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `auditing-code.md`, `finding-vulnerabilities.md`                                  | The method, report format, severity scale and generic vulnerability checklist motita's own agent uses. They are the shared source: follow them, and treat `security-checklist.md` here as the motita-specific addendum on top.                          |
+| `verifying-a-change.md`                                                           | The evidence standard for every finding: a claim needs a second read that observes the effect, not "the code looks wrong". Reproduce the failure before claiming a fix; flag tests that pass for the wrong reason; quote counts with their denominator. |
+| `running-commands.md`                                                             | How to run tooling (`go vet`, `govulncheck`, `-race`, `npm audit`) and read exit codes/timeouts correctly.                                                                                                                                              |
+| `git-in-a-repository.md`                                                          | Safe git use while auditing history/diffs, and when applying fixes.                                                                                                                                                                                     |
+| `pull-requests-and-ci.md`                                                         | Semantic commits/PR titles and driving CI to green when fixes are requested.                                                                                                                                                                            |
+| `files-and-directories.md`, `calling-an-http-api.md`, `installing-a-toolchain.md` | Only when the audited area touches them (path handling, HTTP clients, toolchain install) — compare the code against what they prescribe.                                                                                                                |
 
 Also read `CONTRIBUTING.md` (the 8 CI rules: 100% coverage, `-race`, fmt, vet, no Spanish in code,
 cross-platform build, <24 MB binary, staticcheck+govulncheck). **Any violation of a procedure or rule

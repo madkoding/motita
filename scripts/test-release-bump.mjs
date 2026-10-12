@@ -23,7 +23,9 @@ let bad = 0;
 for (const [msgs, want] of cases) {
   const got = await run(msgs);
   if (got !== want) {
-    process.stderr.write(format("FAIL", JSON.stringify(msgs), got, want) + "\n");
+    process.stderr.write(
+      format("FAIL", JSON.stringify(msgs), got, want) + "\n",
+    );
     bad++;
   } else {
     process.stdout.write(format("ok", JSON.stringify(msgs), "->", got) + "\n");

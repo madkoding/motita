@@ -1,50 +1,85 @@
 // The sidebar's lists: the conversations and the projects, which conversations are running, and
 // how the sidebar itself is laid out (open, and which projects are folded).
-import { useCallback, useEffect, useRef, useState } from 'preact/hooks'
-import type { ProjectInfo, SessionInfo } from './appTypes'
-import type { Api } from './prApi'
-import type { RunState } from './useRunState'
-import { ANSWERED_HOLD_MS, PROJECT_COLLAPSE_KEY, SESSIONS_POLL_MS, SESSIONS_URL, SIDEBAR_KEY } from './appConst'
+import { useCallback, useEffect, useRef, useState } from "preact/hooks";
+import type { ProjectInfo, SessionInfo } from "./appTypes";
+import type { Api } from "./prApi";
+import type { RunState } from "./useRunState";
+import {
+  ANSWERED_HOLD_MS,
+  PROJECT_COLLAPSE_KEY,
+  SESSIONS_POLL_MS,
+  SESSIONS_URL,
+  SIDEBAR_KEY,
+} from "./appConst";
 
 // readCollapsed is the set of folded projects the browser remembers.
 function readCollapsed(): Set<string> {
   try {
-    const raw = localStorage.getItem(PROJECT_COLLAPSE_KEY)
-    if (raw) { return new Set(JSON.parse(raw) as string[]) }
-  } catch { /* ignore */ }
-  return new Set()
+    const raw = localStorage.getItem(PROJECT_COLLAPSE_KEY);
+    if (raw) {
+      return new Set(JSON.parse(raw) as string[]);
+    }
+  } catch {
+    /* ignore */
+  }
+  return new Set();
 }
 
 // withSession returns the list with one session's field changed.
-export function withSession(list: SessionInfo[], id: string, patch: Partial<SessionInfo>): SessionInfo[] {
-  return list.map(s => { if (s.id === id) { return { ...s, ...patch } } return s })
+export function withSession(
+  list: SessionInfo[],
+  id: string,
+  patch: Partial<SessionInfo>,
+): SessionInfo[] {
+  return list.map((s) => {
+    if (s.id === id) {
+      return { ...s, ...patch };
+    }
+    return s;
+  });
 }
 
 export function useSessionList(api: Api, rs: RunState) {
-  const { runningRef, setRunning, sessionRef, running } = rs
-  const [sessions, setSessions] = useState<SessionInfo[]>([])
-  const [projects, setProjects] = useState<ProjectInfo[]>([])
+  const { runningRef, setRunning, sessionRef, running } = rs;
+  const [sessions, setSessions] = useState<SessionInfo[]>([]);
+  const [projects, setProjects] = useState<ProjectInfo[]>([]);
   const [sidebarOpen, setSidebarOpen] = useState<boolean>(() => {
-    try { return localStorage.getItem(SIDEBAR_KEY) !== 'false' } catch { return true }
-  })
+    try {
+      return localStorage.getItem(SIDEBAR_KEY) !== "false";
+    } catch {
+      return true;
+    }
+  });
   // Collapsed projects: a set of project IDs whose session list is hidden.
   // Persisted in localStorage so a user's choice survives a reload, like the
   // sidebar's own open/closed state.
-  const [collapsedProjects, setCollapsedProjects] = useState<Set<string>>(readCollapsed)
+  const [collapsedProjects, setCollapsedProjects] =
+    useState<Set<string>>(readCollapsed);
   const toggleProject = useCallback((pid: string) => {
-    setCollapsedProjects(prev => {
-      const next = new Set(prev)
-      if (next.has(pid)) { next.delete(pid) }
-      else { next.add(pid) }
-      try { localStorage.setItem(PROJECT_COLLAPSE_KEY, JSON.stringify([...next])) } catch { /* ignore */ }
-      return next
-    })
-  }, [])
+    setCollapsedProjects((prev) => {
+      const next = new Set(prev);
+      if (next.has(pid)) {
+        next.delete(pid);
+      } else {
+        next.add(pid);
+      }
+      try {
+        localStorage.setItem(PROJECT_COLLAPSE_KEY, JSON.stringify([...next]));
+      } catch {
+        /* ignore */
+      }
+      return next;
+    });
+  }, []);
 
   // Persist sidebar preference.
   useEffect(() => {
-    try { localStorage.setItem(SIDEBAR_KEY, String(sidebarOpen)) } catch { /* ignore */ }
-  }, [sidebarOpen])
+    try {
+      localStorage.setItem(SIDEBAR_KEY, String(sidebarOpen));
+    } catch {
+      /* ignore */
+    }
+  }, [sidebarOpen]);
 
   // answeredRef is the conversation whose answer THIS TAB has already seen but
   // whose run the gateway still reports as in flight.
@@ -69,17 +104,18 @@ export function useSessionList(api: Api, rs: RunState) {
   // answer is kept verbatim so `anyRunning` below still counts it, and the poll
   // therefore keeps running exactly long enough to observe the release and
   // clear this.
-  const answeredRef = useRef('')
+  const answeredRef = useRef("");
   // answeredUntil is the backstop for a release that is never observed (a lost
   // fetch, a gateway that went away). Comfortably past the title generator's
   // own 15s ceiling, so it can only fire when something has genuinely gone
   // wrong - and then it un-masks rather than leaving a row dark forever.
-  const answeredUntil = useRef(0)
-  const answeredHere = (id: string) => answeredRef.current === id && Date.now() < answeredUntil.current
+  const answeredUntil = useRef(0);
+  const answeredHere = (id: string) =>
+    answeredRef.current === id && Date.now() < answeredUntil.current;
 
   const setRunningState = (r: boolean, sessionFor = sessionRef.current) => {
-    runningRef.current = r
-    setRunning(r)
+    runningRef.current = r;
+    setRunning(r);
     // Fold this tab's own run into the SESSION LIST, so the row that owns it
     // paints its spinner from the same field as every other row.
     //
@@ -96,38 +132,41 @@ export function useSessionList(api: Api, rs: RunState) {
     // setSessions is used and not fetchSessions: the local answer is
     // authoritative in both directions, and a request issued here would be the
     // stale one it exists to correct.
-    setSessions(prev => withSession(prev, sessionFor, { running: r }))
+    setSessions((prev) => withSession(prev, sessionFor, { running: r }));
     if (r) {
-      answeredRef.current = ''
-      answeredUntil.current = 0
+      answeredRef.current = "";
+      answeredUntil.current = 0;
     } else {
-      answeredRef.current = sessionFor
-      answeredUntil.current = Date.now() + ANSWERED_HOLD_MS
+      answeredRef.current = sessionFor;
+      answeredUntil.current = Date.now() + ANSWERED_HOLD_MS;
     }
-  }
+  };
 
   // fetchSessions loads the list of conversations from the gateway.
   const fetchSessions = useCallback(async (): Promise<SessionInfo[]> => {
     try {
-      const res = await api(SESSIONS_URL)
-      const data = await res.json()
-      const list: SessionInfo[] = data.sessions || []
-      setSessions(list)
+      const res = await api(SESSIONS_URL);
+      const data = await res.json();
+      const list: SessionInfo[] = data.sessions || [];
+      setSessions(list);
       // The gateway has now been asked, and it has answered. If it says the
       // conversation whose answer we already have is NOT running, the run slot
       // has been released - so the latch that was masking it has done its job
       // and is cleared HERE, on the gateway's own word, rather than on a timer.
       // (A stale read in the window is harmless by construction: it leaves the
       // latch exactly as it was.)
-      if (answeredRef.current && !list.some(s => s.id === answeredRef.current && s.running)) {
-        answeredRef.current = ''
-        answeredUntil.current = 0
+      if (
+        answeredRef.current &&
+        !list.some((s) => s.id === answeredRef.current && s.running)
+      ) {
+        answeredRef.current = "";
+        answeredUntil.current = 0;
       }
-      return list
+      return list;
     } catch {
-      return []
+      return [];
     }
-  }, [])
+  }, []);
 
   // Poll session list while a run is in flight, so the sidebar shows a
   // spinner on whichever conversations the agent is working in.
@@ -150,33 +189,46 @@ export function useSessionList(api: Api, rs: RunState) {
   //     anything running" makes that final, stale read harmless: it is no
   //     longer the last one, and the next tick clears the flag the gateway has
   //     by then released.
-  const anyRunning = sessions.some(s => s.running)
+  const anyRunning = sessions.some((s) => s.running);
   useEffect(() => {
-    if (!running && !anyRunning) { return undefined }
-    const interval = setInterval(() => fetchSessions(), SESSIONS_POLL_MS)
-    return () => clearInterval(interval)
-  }, [running, anyRunning, fetchSessions])
+    if (!running && !anyRunning) {
+      return undefined;
+    }
+    const interval = setInterval(() => fetchSessions(), SESSIONS_POLL_MS);
+    return () => clearInterval(interval);
+  }, [running, anyRunning, fetchSessions]);
 
   // fetchProjects loads the list of projects from the gateway.
   const fetchProjects = useCallback(async (): Promise<ProjectInfo[]> => {
     try {
-      const res = await api('/v1/projects')
-      const data = await res.json()
-      const list: ProjectInfo[] = data.projects || []
-      setProjects(list)
-      return list
+      const res = await api("/v1/projects");
+      const data = await res.json();
+      const list: ProjectInfo[] = data.projects || [];
+      setProjects(list);
+      return list;
     } catch {
-      return []
+      return [];
     }
-  }, [])
+  }, []);
 
-  const openSidebar = useCallback(() => setSidebarOpen(true), [])
-  const closeSidebar = useCallback(() => setSidebarOpen(false), [])
+  const openSidebar = useCallback(() => setSidebarOpen(true), []);
+  const closeSidebar = useCallback(() => setSidebarOpen(false), []);
 
   return {
-    sessions, setSessions, projects, setProjects, sidebarOpen, openSidebar, closeSidebar,
-    collapsedProjects, toggleProject, answeredHere, setRunningState, fetchSessions, fetchProjects,
-  }
+    sessions,
+    setSessions,
+    projects,
+    setProjects,
+    sidebarOpen,
+    openSidebar,
+    closeSidebar,
+    collapsedProjects,
+    toggleProject,
+    answeredHere,
+    setRunningState,
+    fetchSessions,
+    fetchProjects,
+  };
 }
 
-export type SessionList = ReturnType<typeof useSessionList>
+export type SessionList = ReturnType<typeof useSessionList>;

@@ -41,7 +41,7 @@ on:
   # until the branch that carried it.
   push:
     tags:
-      - 'v*'
+      - "v*"
   workflow_dispatch:
 
 permissions:
