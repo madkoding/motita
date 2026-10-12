@@ -236,8 +236,10 @@ test("api calls hit the documented endpoints", async () => {
 test("every string in the git screens has a Spanish translation", () => {
   const keys = new Set();
   for (const f of ["GitConnect.tsx", "RepoPicker.tsx", "Settings.tsx"]) {
-    for (const m of src(f).matchAll(/\bt[fc]?\(\s*'((?:[^'\\]|\\.)*)'/g)) {
-      keys.add(m[1].replaceAll(String.raw`\'`, "'"));
+    for (const m of src(f).matchAll(
+      /\bt[fc]?\(\s*(['"])((?:(?!\1)[^\\]|\\.)*)\1/g,
+    )) {
+      keys.add(m[2].replaceAll(/\\(['"])/g, "$1"));
     }
   }
   for (const k of [

@@ -15,18 +15,18 @@ const markdown = src("Markdown.tsx");
 test("every API request carries the X-Motita header the gateway requires with the cookie", () => {
   assert.match(
     app,
-    /async function api\([\s\S]*?headers\.set\('X-Motita', '1'\)[\s\S]*?fetch\(path, \{[^}]*headers \}\)/,
+    /async function api\([\s\S]*?headers\.set\(['"]X-Motita['"], ['"]1['"]\)[\s\S]*?fetch\(path, \{[^}]*headers,?\s*\}\)/,
   );
 });
 
 test("a message is sanitized without free-form styles or form controls", () => {
   assert.match(
     markdown,
-    /const FORM_TAGS = \['form', 'button', 'textarea', 'select', 'option', 'optgroup', 'input'\]/,
+    /const FORM_TAGS = \[\s*['"]form['"],\s*['"]button['"],\s*['"]textarea['"],\s*['"]select['"],\s*['"]option['"],\s*['"]optgroup['"],\s*['"]input['"],?\s*\]/,
   );
   assert.match(
     markdown,
-    /data\.attrName === 'style' && !ALIGN_ONLY\.test\(data\.attrValue\)/,
+    /data\.attrName === ['"]style['"] && !ALIGN_ONLY\.test\(data\.attrValue\)/,
   );
   assert.match(markdown, /sanitizeMessage\(md\.render\(source\)\)/);
   // The fence no longer writes a button into the message; sanitizeMessage adds it afterwards.

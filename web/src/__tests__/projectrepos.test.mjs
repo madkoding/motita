@@ -66,8 +66,10 @@ test("every string of the repository screens has a Spanish translation", () => {
     "EditProjectModal.tsx",
     "useProjects.ts",
   ]) {
-    for (const m of src(f).matchAll(/\bt[fc]?\(\s*'((?:[^'\\]|\\.)*)'/g)) {
-      keys.add(m[1].replaceAll(String.raw`\'`, "'"));
+    for (const m of src(f).matchAll(
+      /\bt[fc]?\(\s*(['"])((?:(?!\1)[^\\]|\\.)*)\1/g,
+    )) {
+      keys.add(m[2].replaceAll(/\\(['"])/g, "$1"));
     }
   }
   const mine = [...keys].filter((k) =>

@@ -41,15 +41,11 @@ test("the preview fills the window and has zoom, pan, fit, actual size and keybo
   for (const handler of ["onWheel", "onPointerMove", "onDblClick"]) {
     assert.ok(lightbox.includes(handler), handler);
   }
-  for (const key of [
-    "'+'",
-    "'-'",
-    "'0'",
-    "'1'",
-    "'ArrowRight'",
-    "'ArrowLeft'",
-  ]) {
-    assert.ok(lightbox.includes(key), key);
+  for (const key of ["+", "-", "0", "1", "ArrowRight", "ArrowLeft"]) {
+    assert.ok(
+      lightbox.includes(`'${key}'`) || lightbox.includes(`"${key}"`),
+      key,
+    );
   }
   assert.ok(
     lightbox.includes("useDialog"),
@@ -60,7 +56,7 @@ test("the preview fills the window and has zoom, pan, fit, actual size and keybo
 test("a picture in an answer opens the same preview, unless it is a link", () => {
   assert.match(
     app,
-    /target\.tagName === 'IMG' && target\.closest\('\.markdown-body'\) && !target\.closest\('a'\)/,
+    /target\.tagName === ['"]IMG['"] &&\s*target\.closest\(['"]\.markdown-body['"]\) &&\s*!target\.closest\(['"]a['"]\)/,
   );
   assert.match(app, /<Lightbox images=\{\[previewImage\]\}/);
 });
