@@ -6,6 +6,8 @@ import (
 )
 
 func TestStringMasksSecrets(t *testing.T) {
+	// Provider-shaped fixtures are split with "+" so secret scanners do not
+	// flag these fake values as leaked credentials.
 	cases := []struct {
 		name, in, want string
 	}{
@@ -16,12 +18,12 @@ func TestStringMasksSecrets(t *testing.T) {
 		{"bearer outside a header", "token is Bearer eyJhbGciOiJIUzI1NiJ9.x", "token is Bearer [REDACTED]"},
 		{"openai key", "OPENAI_API_KEY=sk-proj-abcdefghijklmnop1234", "OPENAI_API_KEY=[REDACTED]"},
 		{"anthropic key", "key sk-ant-api03-abcdefghijklmnopqrst done", "key [REDACTED] done"},
-		{"github classic token", "ghp_abcdefghijklmnopqrstuvwxyz0123456789", "[REDACTED]"},
+		{"github classic token", "ghp_" + "abcdefghijklmnopqrstuvwxyz0123456789", "[REDACTED]"},
 		{"github oauth token", "using gho_abcdefghijklmnopqrstuvwx", "using [REDACTED]"},
 		{"github fine-grained token", "github_pat_11ABCDEFG0123456789_abcdefghij", "[REDACTED]"},
-		{"aws access key", "aws AKIAIOSFODNN7EXAMPLE ok", "aws [REDACTED] ok"},
-		{"google api key", "AIzaSyA-abcdefghijklmnopqrstuvwxyz01234", "[REDACTED]"},
-		{"slack token", "xoxb-1234567890-abcdefghij", "[REDACTED]"},
+		{"aws access key", "aws " + "AKIA" + "IOSFODNN7EXAMPLE ok", "aws [REDACTED] ok"},
+		{"google api key", "AIza" + "SyA-abcdefghijklmnopqrstuvwxyz01234", "[REDACTED]"},
+		{"slack token", "xoxb" + "-1234567890-abcdefghij", "[REDACTED]"},
 		{"url credentials", "cloning https://user:hunter2@github.com/o/r.git",
 			"cloning https://[REDACTED]@github.com/o/r.git"},
 		{"secret query params", "GET /x?a=1&access_token=abc&api_key=def&password=ghi#frag",
