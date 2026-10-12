@@ -111,10 +111,8 @@ final_action:
   kind: command
   command: sh
   args:
-    [
-      "-c",
-      'curl -sf -X POST -H ''Content-Type: application/json'' -d ''{"event":"task_ok"}'' https://example.internal/hooks/motita || logger -t motita ''could not notify''',
-    ]
+    - "-c"
+    - 'curl -sf -X POST -H ''Content-Type: application/json'' -d ''{"event":"task_ok"}'' https://example.internal/hooks/motita || logger -t motita ''could not notify'''
 
 agent:
   max_retries: 1

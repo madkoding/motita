@@ -111,10 +111,8 @@ final_action:
   kind: command
   command: sh
   args:
-    [
-      "-c",
-      'echo "audit report validated: $(pwd)/audit-report.md" >> ../audit-published.log',
-    ]
+    - "-c"
+    - 'echo "audit report validated: $(pwd)/audit-report.md" >> ../audit-published.log'
 
 agent:
   max_retries: 3
