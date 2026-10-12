@@ -279,6 +279,11 @@ var esTUI = map[string]string{
 		"que todavía no tiene turnos.",
 	"attached to session %s.":                    "conectado a la sesión %s.",
 	"a new conversation could not be opened: %s": "no se pudo abrir una conversación nueva: %s",
+	"there is no session to go back to: /sessions lists them.": "no hay una sesión a la que volver: " +
+		"/sessions las muestra.",
+	"go back to the conversation you left last": "vuelve a la última conversación que dejaste",
+	"1 other session working":                   "1 sesión más trabajando",
+	"%d other sessions working":                 "%d sesiones más trabajando",
 	"the gateway could not be asked whether a turn is in flight: %s": "no se pudo preguntar al gateway si hay un turno " +
 		"en curso: %s",
 	"the turn could not be followed: %v": "no se pudo seguir el turno: %v",

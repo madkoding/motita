@@ -220,3 +220,113 @@ func TestANewSessionThatCannotBeEnteredIsReported(t *testing.T) {
 		t.Errorf("the failed switch was not reported: %+v", ui.messagesSnapshot())
 	}
 }
+
+// TestBackReturnsToTheSessionLeftLast: /new to ask something on the side, then /back to the
+// session whose run is still working. /back toggles between the two.
+func TestBackReturnsToTheSessionLeftLast(t *testing.T) {
+	r := &creatorRunner{switcherRunner: &switcherRunner{fakeRunner: &fakeRunner{}, current: "default"}}
+	ui := newFakeTUI("", r)
+	ctx := context.Background()
+
+	ui.handleShortcut(ctx, "/back")
+	if !ui.viewContains("there is no session to go back to") {
+		t.Fatalf("/back with nowhere to go was not explained: %+v", ui.messagesSnapshot())
+	}
+
+	ui.handleShortcut(ctx, "/new")
+	if r.current != "snew" {
+		t.Fatalf("on %q after /new", r.current)
+	}
+	ui.handleShortcut(ctx, "/back")
+	if r.current != "default" {
+		t.Fatalf("/back went to %q, want the session left last", r.current)
+	}
+	ui.handleShortcut(ctx, "/back")
+	if r.current != "snew" {
+		t.Fatalf("a second /back went to %q, want the session before", r.current)
+	}
+
+	// Entering the session you are in is not a move: /back keeps pointing at the other one.
+	if err := ui.attachTo(ctx, "snew"); err != nil {
+		t.Fatal(err)
+	}
+	ui.handleShortcut(ctx, "/back")
+	if r.current != "default" {
+		t.Fatalf("/back after re-entering the same session went to %q", r.current)
+	}
+}
+
+// TestBackReportsASessionThatCannotBeEntered: the session left last may be gone.
+func TestBackReportsASessionThatCannotBeEntered(t *testing.T) {
+	r := &creatorRunner{switcherRunner: &switcherRunner{fakeRunner: &fakeRunner{}, current: "default"}}
+	ui := newFakeTUI("", r)
+	ui.prevSession = "sgone"
+	r.err = errorString("there is no session sgone")
+	ui.handleShortcut(context.Background(), "/back")
+	if !ui.viewContains("there is no session sgone") {
+		t.Errorf("the failed /back was not reported: %+v", ui.messagesSnapshot())
+	}
+}
+
+// TestTheStatusLineSaysOtherSessionsAreWorking: leaving a session does not stop its run, so the
+// status line keeps saying that work goes on elsewhere, and how to get back to it.
+func TestTheStatusLineSaysOtherSessionsAreWorking(t *testing.T) {
+	r := &creatorRunner{switcherRunner: &switcherRunner{
+		fakeRunner: &fakeRunner{},
+		current:    "default",
+		sessions: []SessionInfo{
+			{ID: "default", Running: true},
+			{ID: "sone", Running: true},
+			{ID: "stwo"},
+		},
+	}}
+	ui := newFakeTUI("", r)
+	status := func() string {
+		ui.draw.Lock()
+		defer ui.draw.Unlock()
+		return strings.Join(ui.statusLines(200), "\n")
+	}
+	if strings.Contains(status(), "working") {
+		t.Fatalf("nothing was asked yet, and the status line already says %q", status())
+	}
+
+	// Entering a session asks; the session the user is IN does not count as "other".
+	if err := ui.attachTo(context.Background(), "stwo"); err != nil {
+		t.Fatal(err)
+	}
+	r.sessions[2].Current = true
+	ui.noteWorking(r.sessions)
+	if got := status(); !strings.Contains(got, "2 other sessions working") || !strings.Contains(got, "/back") {
+		t.Errorf("status line = %q, want two other sessions working", got)
+	}
+
+	r.sessions[0].Running = false
+	ui.noteWorking(r.sessions)
+	if got := status(); !strings.Contains(got, "1 other session working") {
+		t.Errorf("status line = %q, want one other session working", got)
+	}
+
+	r.sessions[1].Running = false
+	ui.noteWorking(r.sessions)
+	if got := status(); strings.Contains(got, "working") {
+		t.Errorf("status line = %q, want no note once nothing else works", got)
+	}
+}
+
+// TestThePollKeepsTheWorkingCountCurrent: the same poll that follows pull requests keeps the
+// count, so a run finishing in another session clears the note without any key being pressed.
+func TestThePollKeepsTheWorkingCountCurrent(t *testing.T) {
+	r := &switcherRunner{fakeRunner: &fakeRunner{}, current: "default",
+		sessions: []SessionInfo{{ID: "sone", Running: true}}}
+	ui := newFakeTUI("", r)
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() { ui.watchPRs(ctx); close(done) }()
+	waitUntil(t, func() bool {
+		ui.draw.Lock()
+		defer ui.draw.Unlock()
+		return ui.othersWorking == 1
+	}, "the poll never counted the session that is working")
+	cancel()
+	<-done
+}

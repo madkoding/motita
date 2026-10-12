@@ -158,8 +158,14 @@ func (t *TUI) attachTo(ctx context.Context, id string) error {
 	if !ok {
 		return errors.New(t.tr("this interface is not attached to a gateway that holds several sessions"))
 	}
+	left := sw.CurrentSession()
 	if err := sw.SwitchSession(ctx, id); err != nil {
 		return err
+	}
+	// The session left behind is where /back returns to. Entering the same session again is not a
+	// move, and must not make /back point at the session the user is already in.
+	if left != "" && left != id {
+		t.prevSession = left
 	}
 	// The run this interface was showing belongs to the session being left. It keeps going in the
 	// gateway; what ends here is this view of it, BEFORE the view is replaced, so none of its lines
@@ -195,8 +201,61 @@ func (t *TUI) attachTo(ctx context.Context, id string) error {
 	}
 
 	t.followRunIfAny(ctx)
+	t.refreshWorking(ctx, sw)
 	t.drawFrame()
 	return nil
+}
+
+// back returns to the session that was left last, which is the one a run is usually still working
+// in: /new to ask something on the side, then /back to the work.
+func (t *TUI) back(ctx context.Context) {
+	if t.prevSession == "" {
+		t.addMessage(AuthorSystem, t.tr("there is no session to go back to: /sessions lists them."))
+		return
+	}
+	if err := t.attachTo(ctx, t.prevSession); err != nil {
+		t.addMessage(AuthorSystem, err.Error())
+	}
+}
+
+// refreshWorking asks the gateway which sessions are working and keeps the count of the OTHER ones
+// for the status line. It is asked here and by the poll in watchPRs, never by the repaint: drawing
+// a frame must not wait on the network.
+func (t *TUI) refreshWorking(ctx context.Context, sw SessionSwitcher) {
+	if all, err := sw.ListSessions(ctx); err == nil {
+		t.noteWorking(all)
+	}
+}
+
+// noteWorking keeps how many sessions other than this one have a run in flight, and repaints when
+// that changed. Called from the poll beside the input loop too, so the field is under the painter's
+// lock.
+func (t *TUI) noteWorking(all []SessionInfo) {
+	n := 0
+	for _, s := range all {
+		if s.Running && !s.Current {
+			n++
+		}
+	}
+	t.draw.Lock()
+	changed := t.othersWorking != n
+	t.othersWorking = n
+	t.draw.Unlock()
+	if changed {
+		t.drawFrame()
+	}
+}
+
+// workingLabel is the status line's note that other sessions are working, "" when none are. The
+// caller holds the painter's lock.
+func (t *TUI) workingLabel() string {
+	switch n := t.othersWorking; {
+	case n == 1:
+		return t.tr("1 other session working")
+	case n > 1:
+		return t.trf("%d other sessions working", n)
+	}
+	return ""
 }
 
 // followRunIfAny watches the run in flight in the session just entered, when there is one.

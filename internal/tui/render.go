@@ -819,6 +819,11 @@ func (t *TUI) statusLines(w int) []string {
 	if cfg.LLM.APIKey == "" && config.LLMNeedsKey(cfg.LLM) {
 		parts = append(parts, t.color(colError, 0, t.tr("no API key"))+t.muted(" (/config)"))
 	}
+	// Work going on in other sessions is said here, where the eye already goes for "what is
+	// running": leaving a session does not stop its run, and a run nobody can see is easy to forget.
+	if label := t.workingLabel(); label != "" {
+		parts = append(parts, t.color(colAccent, 0, label)+t.muted(" (/back, /sessions)"))
+	}
 	parts = append(parts, t.muted(t.tr("reasoning")+" ")+t.color(colBase, 0, reasoning))
 	if t.query != "" || t.searching {
 		parts = append(parts, t.color(colAccent, 0, t.trf("filter %s", strconv.Quote(t.query))))

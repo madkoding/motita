@@ -133,6 +133,7 @@ const es: Record<string, string> = {
   "Git URL or SSH (optional — clones instead of creating a folder)": "URL de git o SSH (opcional — clona en vez de crear una carpeta)",
   "Git has no user configured. It is saved as your global git identity and signs the commits of every repository.": "Git no tiene un usuario configurado. Se guarda como tu identidad global de git y firma los commits de todos los repositorios.",
   "Git user": "Usuario de git",
+  "go back to the conversation you left last": "vuelve a la última conversación que dejaste",
   "Go back and restore the changes": "Volver y restaurar los cambios",
   "Go back to this checkpoint": "Volver a este checkpoint",
   "HTTPS or SSH. When set, the repo is cloned into the folder name above.": "HTTPS o SSH. Si lo indicas, el repositorio se clona en la carpeta de arriba.",

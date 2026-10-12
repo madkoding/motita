@@ -57,6 +57,7 @@ var commands = []Command{
 	{Name: "/session", Aliases: []string{"/s"}, Help: "context used, and what was carried over", Group: "session"},
 	{Name: "/sessions", Help: "list the conversations the gateway holds", Group: "session"},
 	{Name: "/attach", Help: "switch to another conversation", Arg: "session id", Group: "session"},
+	{Name: "/back", Help: "go back to the conversation you left last", Group: "session"},
 	{Name: "/artifacts", Help: "files the agent saved: list, show one, or save it here", Arg: "[name | save name]",
 		Group: "session"},
 	{Name: "/agents", Help: "show or hide the run's agents: purpose, time, tokens", Group: "session"},
@@ -205,6 +206,10 @@ var commandActions = map[string]func(t *TUI, ctx context.Context, arg string) bo
 			// typing into a conversation they did not choose.
 			t.addMessage(AuthorSystem, err.Error())
 		}
+		return false
+	},
+	"/back": func(t *TUI, ctx context.Context, _ string) bool {
+		t.back(ctx)
 		return false
 	},
 	"/good": func(t *TUI, _ context.Context, note string) bool {
