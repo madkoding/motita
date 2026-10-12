@@ -46,6 +46,13 @@ func TestSwitchingTheModelOfAConversationThatTalkedWarns(t *testing.T) {
 		t.Errorf("a conversation with nothing said yet was warned:\n%s", lastFrame(t, tu))
 	}
 
+	tu = newFakeTUI("/models haiku\n", &fakeRunner{})
+	tu.messages = append(tu.messages, Message{Author: AuthorUser, Text: "hi"})
+	tu.Run(context.Background())
+	if !strings.Contains(lastFrame(t, tu), "⚠") {
+		t.Errorf("a switch after the conversation started was not warned:\n%s", lastFrame(t, tu))
+	}
+
 	tu = newFakeTUI("", &fakeRunner{})
 	if got := tu.modelSwitchWarning("a", "a"); got != "" {
 		t.Errorf("keeping the model warned %q", got)
